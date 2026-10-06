@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { metersBetween, pathMeters, ringAreaM2, formatLength, formatArea, formatHa, laggTillKorPunkt, korResultat, KOR_MIN_STEG_M, KOR_SLUTEN_M, type LngLat } from './geoMat';
+import { metersBetween, pathMeters, ringAreaM2, formatLength, formatArea, formatHa, figurEtikett, linjeMitt, hornMitt, type LngLat } from './geoMat';
 
 // Meter → lng/lat runt Hålabäck.
 const LAT0 = 56.35, LNG0 = 15.05, R = 6371008.8, RAD = Math.PI / 180;
@@ -64,42 +64,34 @@ describe('formatHa — körvyns "ha live"', () => {
   });
 });
 
-describe('mät genom att köra — start/stopp', () => {
-  it('en punkt läggs bara till när maskinen rört sig minst 3 m (stillastående GPS-jitter ger inga punkter)', () => {
-    expect(KOR_MIN_STEG_M).toBe(3);
-    let p: LngLat[] = [];
-    p = laggTillKorPunkt(p, ...fran(0, 0));
-    expect(p).toHaveLength(1);
-    const jitter = laggTillKorPunkt(p, ...fran(1, 1));          // 1,4 m
-    expect(jitter).toBe(p);                                       // samma lista tillbaka
-    p = laggTillKorPunkt(p, ...fran(0, 3.5));
-    expect(p).toHaveLength(2);
+describe('figurEtikett — längd/area som etikett i figuren', () => {
+  it('KODBEVIS: tre tryckta punkter ger en yta med rätt area i etiketten (samma tal som ringAreaM2)', () => {
+    const tre: LngLat[] = [fran(0, 0), fran(100, 0), fran(50, 90)];
+    const e = figurEtikett(tre, true)!;
+    const facit = ringAreaM2(tre);
+    expect(e.text).toBe(formatHa(facit));
+    expect(facit).toBeGreaterThan(4300);
+    expect(facit).toBeLessThan(4700);   // ½ × 100 × 90 = 4500 m²
+    expect(e.punkt[0]).toBeCloseTo((tre[0][0] + tre[1][0] + tre[2][0]) / 3, 10);
   });
-  it('ogiltig koordinat ignoreras', () => {
-    const p: LngLat[] = [fran(0, 0)];
-    expect(laggTillKorPunkt(p, NaN, 56)).toBe(p);
+  it('en 100×100 m-yta visar "1,00 ha"', () => {
+    const e = figurEtikett([fran(0, 0), fran(100, 0), fran(100, 100), fran(0, 100)], true)!;
+    expect(e.text).toMatch(/^(0,99|1,00|1,01) ha$/);
   });
-  it('körd sträcka: 100 m rakt → 100 m, ingen yta (inte sluten)', () => {
-    let p: LngLat[] = [];
-    for (let y = 0; y <= 100; y += 5) p = laggTillKorPunkt(p, ...fran(0, y));
-    const r = korResultat(p);
-    expect(r.meter).toBeCloseTo(100, 0);
-    expect(r.yta).toBeNull();
+  it('en linje visar längden mitt på linjen (räknat i meter, inte i antal punkter)', () => {
+    const l: LngLat[] = [fran(0, 0), fran(10, 0), fran(110, 0)];   // 110 m, mitten vid 55 m
+    const e = figurEtikett(l, false)!;
+    expect(e.text).toBe('110 m');
+    expect(metersBetween(l[0], e.punkt)).toBeCloseTo(55, 0);
   });
-  it('körd slinga som stängs (slutet inom 25 m från starten) ger också en yta', () => {
-    expect(KOR_SLUTEN_M).toBe(25);
-    let p: LngLat[] = [];
-    const slinga: [number, number][] = [[0, 0], [50, 0], [100, 0], [100, 50], [100, 100], [50, 100], [0, 100], [0, 50], [0, 10]];
-    for (const [x, y] of slinga) p = laggTillKorPunkt(p, ...fran(x, y));
-    const r = korResultat(p);
-    expect(r.yta).not.toBeNull();
-    expect(r.yta!).toBeGreaterThan(8000);
-    expect(r.yta!).toBeLessThan(10500);
-    expect(r.meter).toBeGreaterThan(380);
+  it('för få punkter → ingen etikett (yta < 3, linje < 2)', () => {
+    expect(figurEtikett([fran(0, 0), fran(10, 10)], true)).toBeNull();
+    expect(figurEtikett([fran(0, 0)], false)).toBeNull();
+    expect(figurEtikett([], true)).toBeNull();
   });
-  it('slinga som INTE stängs → ingen yta', () => {
-    let p: LngLat[] = [];
-    for (const [x, y] of [[0, 0], [100, 0], [100, 100], [60, 100]] as [number, number][]) p = laggTillKorPunkt(p, ...fran(x, y));
-    expect(korResultat(p).yta).toBeNull();
+  it('linjeMitt/hornMitt tål tomma och enpunktslistor', () => {
+    expect(linjeMitt([])).toBeNull();
+    expect(linjeMitt([fran(5, 5)])).toEqual(fran(5, 5));
+    expect(hornMitt([])).toBeNull();
   });
 });

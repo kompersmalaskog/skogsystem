@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { arCertifierat, tolkaAreal, kravAntal, miljoKrav, raknaMiljo, kravStatus } from './miljokrav';
+import { arCertifierat, tolkaAreal, kravAntal, miljoKrav, raknaMiljo, kravStatus, arPrick, prickarSynliga, PRICK_DIAMETER_PX } from './miljokrav';
 
 describe('arCertifierat — objekt.cert är fri text, prod har sex värden', () => {
   it('FSC / PEFC / "FSC PEFC" = certifierat', () => {
@@ -110,4 +110,19 @@ describe('kravStatus — "efter" i förhållande till avverkad andel', () => {
   it('evighetsträd: 12 av 37 vid 60 % → borde 22 → efter (mockupens värden)', () => {
     expect(kravStatus(12, 37, 0.6)).toBe('efter');
   });
+});
+
+describe('prickar i körvyn', () => {
+  it('högstubbe och evighetsträd är prickar; naturhörnan och övriga symboler är det inte', () => {
+    expect(arPrick('highstump')).toBe(true);
+    expect(arPrick('eternitytree')).toBe(true);
+    for (const t of ['naturecorner', 'landing', 'warning', 'culturestump', '', null, undefined]) expect(arPrick(t as any)).toBe(false);
+  });
+  it('lagret är PÅ som standard (saknad nyckel) och döljs bara av ett uttryckligt false', () => {
+    expect(prickarSynliga({})).toBe(true);
+    expect(prickarSynliga(null)).toBe(true);
+    expect(prickarSynliga({ miljoPrickar: true })).toBe(true);
+    expect(prickarSynliga({ miljoPrickar: false })).toBe(false);
+  });
+  it('ca 6 px', () => { expect(PRICK_DIAMETER_PX).toBe(6); });
 });

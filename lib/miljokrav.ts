@@ -92,3 +92,17 @@ export function kravStatus(antal: number, krav: number | null, andelAvverkat: nu
   const borde = Math.floor(Math.round(andel * krav * 1e6) / 1e6);
   return antal < borde ? 'efter' : 'ok';
 }
+
+// ── Prickar på körvyns karta ────────────────────────────────────────────────────────────────────────────────────────────
+// Högstubbar och evighetsträd är många och sätts med ett tryck. I körvyn ritas de som SMÅ PRICKAR (ca 6 px, svag grön/brun) —
+// ingen ikon, ingen etikett, inget proximitetskort. Tryck på en prick → vad det är + Ta bort. Eget lager, på som standard.
+// Planeringsvyn visar full symbol som förut. (Naturhörnan räknas mot evighetsträdskravet men förblir en vanlig symbol.)
+
+export const PRICK_TYPER: readonly string[] = ['highstump', 'eternitytree'];
+export const arPrick = (typ: string | null | undefined): boolean => !!typ && PRICK_TYPER.includes(typ);
+export const PRICK_NAMN: Readonly<Record<string, string>> = { highstump: 'Högstubbe', eternitytree: 'Evighetsträd' };
+/** Prickarna har ett eget lager (overlay-id) i Lager-menyn. Saknas nyckeln är det PÅ — bara ett uttryckligt false döljer dem. */
+export const PRICK_LAGER_ID = 'miljoPrickar';
+export const prickarSynliga = (overlays: Record<string, boolean> | null | undefined): boolean => overlays?.[PRICK_LAGER_ID] !== false;
+/** Prickens diameter i px (ritas som circle-radius = hälften). */
+export const PRICK_DIAMETER_PX = 6;

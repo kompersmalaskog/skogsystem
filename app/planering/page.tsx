@@ -44,15 +44,18 @@ import { jamkaMarkhojd, MARKHOJD_KONTROLL_MS } from '../../lib/kartaMarkhojd'
 import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { KorvyObjektPill } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
-import { KorvySnabbArk, type GenvagKort, type SymbolRuta } from '../../components/planering/KorvySnabbArk'
-import { KorvyMatPanel, type MatPanelLage } from '../../components/planering/KorvyMatPanel'
-import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal } from '../../lib/miljokrav'
+import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
+import { PlusRad, type PlusPostVy, type AllaSektion, type HallSvar } from '../../components/planering/PlusRad'
+import { KorvySparaSom } from '../../components/planering/KorvySparaSom'
+import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
-import { hamtaGenvagar, sparaGenvagar, laggTillGenvag, taBortGenvag, genvagNyckel, MAX_GENVAGAR, FASTA_LAGERNAMN, MATNING_NAMN, INSTALLNING_NAMN, hamtaSenast, noteraSenast, ordnaSenastForst, type Genvag } from '../../lib/genvagar'
-import { skapaLangtryck } from '../../lib/langtryck'
+import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, lossaPost, postNyckel, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
+import { SPARA_SOM, valForFigur, minPunkter, byggFigurMarkering } from '../../lib/sparSom'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
-import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, laggTillKorPunkt, korResultat } from '../../lib/geoMat'
-import { hamtaMatning, sparaMatning, kastaMatning, type SparadMatning } from '../../lib/matningSpar'
+import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
+import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
+import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
+import { FARG, DELFARG, TYP, RADIE, AVSTAND } from '../../lib/design/tokens'
 import { avgorMaskindatorStart, avstamningsAtgard, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { FRAGA_HOPPAD_NYCKEL, MENY_VALD_NYCKEL } from '../../lib/appStart'
 import { valbaraMaskiner, rollForMaskin, startHinder, type RegisterStatus } from '../../lib/maskinFraga'
@@ -668,6 +671,10 @@ export default function PlannerPage() {
   const markersObjektIdRef = useRef<string | undefined>(undefined);
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const selectedSymbolRef = useRef<string | null>(null);   // spegel för dörrvakten i kart-klickhanterarna (stale closure)
+  selectedSymbolRef.current = selectedSymbol;
+  const korvyFigurAktivRef = useRef(false);                 // Mät/Rita i körvyn pågår → symbolkort och långtryck ska inte störa
+  const placeraSymbolRef = useRef<((typ: string, lat: number, lon: number) => void) | null>(null);   // EN väg för all symbolplacering (se placeraSymbol)
   const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
 
   // === OM TRAKTEN: anteckningslista + ljud ===
@@ -1692,6 +1699,10 @@ export default function PlannerPage() {
     map.addLayer({ id: 'measure-fill', type: 'fill', source: 'measure-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#0a84ff', 'fill-opacity': 0.18 } });
     map.addLayer({ id: 'measure-line', type: 'line', source: 'measure-source', filter: ['!=', ['geometry-type'], 'Point'], paint: { 'line-color': '#0a84ff', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'measure-vertices', type: 'circle', source: 'measure-source', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#0a84ff', 'circle-stroke-width': 3 } });
+    // Etikett i figuren (körvyns Mät/Rita): "0,89 ha" mitt i ytan, "384 m" mitt på linjen. En BILD per text, inte ett textlager:
+    // kartstilen har ingen glyphs-källa (lib/figurEtikettBild.ts). Egen punktkälla, uppdateras medan man ritar.
+    map.addSource('figur-etikett-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'figur-etikett', type: 'symbol', source: 'figur-etikett-source', layout: { 'icon-image': ['get', 'bild'], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport' } });
 
     // === WMS overlay sources + layers ===
     const wmsLayerDefs = [
@@ -2066,12 +2077,30 @@ export default function PlannerPage() {
             'symbol-placement': 'point',
             'symbol-z-order': 'source',
           },
+          // Högstubbar/evighetsträd ritas i körvyn som små prickar (markers-prick nedan) — inte som symbol.
+          filter: ['!=', ['get', 'prick'], true],
           paint: {
             'icon-opacity': ['number', ['get', 'opacity'], 1],
             'icon-opacity-transition': { duration: 300 },
           },
         });
         console.log('[MapLibre] markers-layer added');
+        // PRICKARNA: ca 6 px, svag grön (evighetsträd) / brun (högstubbe), ingen ikon/etikett. Bara körvyns features bär prick=true.
+        map.addLayer({
+          id: 'markers-prick',
+          type: 'circle',
+          source: 'markers-source',
+          filter: ['==', ['get', 'prick'], true],
+          paint: {
+            'circle-radius': PRICK_DIAMETER_PX / 2,
+            'circle-color': ['match', ['get', 'type'], 'eternitytree', FARG.gron, DELFARG[5]],
+            'circle-opacity': 0.75,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': FARG.text,
+            'circle-stroke-opacity': 0.6,
+            'circle-pitch-alignment': 'viewport',
+          },
+        });
       } catch (e) {
         console.error('[MapLibre] markers-layer error:', e);
       }
@@ -4408,23 +4437,19 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, valtObjekt?.id, hyttRoll]);
 
-  // ═══ KÖRVYNS OBJEKTPILL / SNABBARK / KVITTO / GENVÄGAR / MÄTNING (körvy-meny-snabbtryck) ═════════════════════════════════════
-  // ALLT i det här blocket (och de körvy-grindade delarna i JSX) gäller BARA körvyn (korvyActive). Planeringsvyn har kvar sin gamla
-  // objektpill, plusmeny och Miljöhänsyn-räknare. Reglerna bor i lib/ (miljokrav, avverkadAreal, genvagar, snabbMarkering,
-  // matningSpar, geoMat, langtryck) med tester; här bor bara tillståndet och kopplingen.
-  const [korvySnabbark, setKorvySnabbark] = useState(false);
-  const [korvyGenvagar, setKorvyGenvagar] = useState<Genvag[]>([]);
-  const [korvySenast, setKorvySenast] = useState<string[]>([]);
+  // ═══ PLUSRADEN, PLACERING, MÄT/RITA, PRICKAR, KVITTO (körvy-meny-snabbtryck, slutlig version) ═════════════════════════════════
+  // Reglerna bor i lib/ (miljokrav, avverkadAreal, plusRad, sparSom, snabbMarkering, geoMat, langtryck) med tester; här bor bara
+  // tillståndet och kopplingen. Plusraden och symbolplaceringen är DELADE mellan körvyn och planeringen. Pillens räknare, prickarna,
+  // Mät/Rita-figuren och kvittot är körvy (korvyActive).
+  const [plusRadOppen, setPlusRadOppen] = useState(false);
+  const [plusRadState, setPlusRadState] = useState<PlusRadState>(tomtPlusRad());
+  const plusRadRef = useRef<PlusRadState>(tomtPlusRad());           // källan till sanning för handlers (state hinner inte med två anrop i ett tick)
+  const [langtryckPunkt, setLangtryckPunkt] = useState<{ lat: number; lng: number } | null>(null);   // håll fingret på kartan → vald symbol hamnar här
   const [korvyKvitto, setKorvyKvitto] = useState<{ text: string; ton: 'ok' | 'fel'; markerId?: number } | null>(null);
   const korvyKvittoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // "Lägg i plus"-frågan efter långtryck på en rad i Lager/Inställningar
-  const [lagerPlusForslag, setLagerPlusForslag] = useState<{ g: Genvag; etikett: string; svar?: string } | null>(null);
-  const lagerLangtryck = useRef(skapaLangtryck()).current;
-  // Mätning i körvyn (punkter/hörn återanvänder planeringens measureMode/measureAreaMode/measureGeo)
-  const [matTyp, setMatTyp] = useState<'strackan' | 'yta' | 'kor' | null>(null);
-  const [matKor, setMatKor] = useState<'vilar' | 'spelar' | null>(null);
-  const [matResultat, setMatResultat] = useState<SparadMatning | null>(null);   // färdigt men ännu inte sparat/kastat
-  const [matSparad, setMatSparad] = useState<SparadMatning | null>(null);
+  const [figur, setFigur] = useState<{ yta: boolean } | null>(null);   // Mät sträcka/yta + Rita linje/yta i körvyn (samma verktyg)
+  const [sparaSomOppen, setSparaSomOppen] = useState(false);
+  const [prickValt, setPrickValt] = useState<{ id: string; typ: string } | null>(null);   // tryckt prick → "vad det är + Ta bort"
   // Avverkat (skördarens hyttspår, 10 m buffert, klippt mot traktgränsen) — pillens "efter" och objektinfons "Avverkat X av Y ha"
   const [avverkat, setAvverkat] = useState<{ m2: number; ha: number; andel: number | null; harSpar: boolean } | null>(null);
   const skordarSparRef = useRef<[number, number][][]>([]);
@@ -4433,7 +4458,7 @@ export default function PlannerPage() {
   const avverkatIndataRef = useRef<{ areal: number | null; ringar: [number, number][][]; roll: string | null }>({ areal: null, ringar: [], roll: null });
   avverkatIndataRef.current = { areal: tolkaAreal(infoAreal) ?? tolkaAreal(valtObjekt?.areal), ringar: traktRingar, roll: hyttRoll ?? null };
 
-  // Markeringar jag SJÄLV satt via snabbflödet i den här körvy-sessionen: (1) går att dra efteråt, (2) ger inget proximitetskort — en markering som
+  // Markeringar jag SJÄLV satt via plusraden/räknarna/långtryck i den här sessionen: (1) går att dra efteråt, (2) ger inget proximitetskort — en markering som
   // läggs på maskinens position ligger per definition på 0 m, och kortet "Högstubbe 0 m — Sett" skulle annars täcka just den symbolen och varna
   // för något föraren nyss satte. (Efter omladdning är de vanliga markeringar och varnar som alla andra.)
   // "Går att dra efteråt": de kan flyttas genom att dra i symbolen.
@@ -4443,7 +4468,7 @@ export default function PlannerPage() {
   const latLonTillSvgRef = useRef<((lat: number, lon: number) => { x: number; y: number }) | null>(null);
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !korvyActive) return;
+    if (!map || !mapLibreReady) return;
     let dragId: string | null = null;
     let vantar = false;
     let sista: { lat: number; lng: number } | null = null;
@@ -4488,33 +4513,25 @@ export default function PlannerPage() {
       map.off('touchend', onUp);
       try { map.getCanvas().style.cursor = ''; } catch { /* kartan kan vara borta */ }
     };
-  }, [korvyActive, mapLibreReady]);
-  useEffect(() => { if (!korvyActive) korvyEgnaMarkorRef.current.clear(); }, [korvyActive]);
+  }, [mapLibreReady]);
   useEffect(() => { korvyEgnaMarkorRef.current.clear(); }, [valtObjekt?.id]);
 
-  // Genvägar + senast använda symboler följer MASKINEN (localStorage per maskin)
+  // Plusradens fasta platser + användning följer MASKINEN (localStorage per maskin)
   useEffect(() => {
-    setKorvyGenvagar(hamtaGenvagar(enhetMaskinId));
-    setKorvySenast(hamtaSenast(enhetMaskinId));
+    const s = hamtaPlusRad(enhetMaskinId);
+    plusRadRef.current = s;
+    setPlusRadState(s);
   }, [enhetMaskinId]);
 
-  // Körvyn stängs → ark, kvitto och mätning städas (mätgeometrin delas med planeringsvyn och rensas bara om körvyn lämnade en kvar)
+  // Körvyn stängs → kvitto, prick-kort och en pågående figur städas (mätgeometrin delas med planeringens mätverktyg)
   useEffect(() => {
     if (korvyActive) return;
-    setKorvySnabbark(false); setKorvyKvitto(null); setLagerPlusForslag(null);
-    if (matTyp !== null || matSparad !== null || matResultat !== null) { setMatTyp(null); setMatKor(null); setMatResultat(null); setMatSparad(null); setMeasureGeo([]); setMeasureLocked(null); setMeasureMode(false); setMeasureAreaMode(false); }
+    setKorvyKvitto(null); setPrickValt(null);
+    if (figur) { setFigur(null); setSparaSomOppen(false); setMeasureGeo([]); setMeasureLocked(null); setMeasureMode(false); setMeasureAreaMode(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive]);
   useEffect(() => () => { if (korvyKvittoTimerRef.current) clearTimeout(korvyKvittoTimerRef.current); }, []);
-
-  // Sparad mätning för objektet (enhetslokalt) läses in när körvyn öppnas på objektet
-  useEffect(() => {
-    if (!korvyActive || !valtObjekt?.id) return;
-    const s = hamtaMatning(valtObjekt.id);
-    if (s) { setMatSparad(s); setMeasureGeo(s.punkter); setMeasureLocked({ yta: s.yta }); }
-    else setMatSparad(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyActive, valtObjekt?.id]);
+  useEffect(() => { korvyFigurAktivRef.current = figur != null; }, [figur]);
 
   // Avverkat: räkna om från skördarens spår (DB för alla dagar + egna live-punkter när den här maskinen ÄR skördaren)
   const raknaAvverkat = useCallback(() => {
@@ -4551,13 +4568,68 @@ export default function PlannerPage() {
   useEffect(() => { if (korvyActive) raknaAvverkat(); }, [korvyActive, infoAreal, traktRingar, valtObjekt?.id, raknaAvverkat]);
   useEffect(() => { if (traktOversiktOpen && korvyActive) setSkordarSparVersion((v) => v + 1); }, [traktOversiktOpen, korvyActive]);   // färska siffror när objektinfon öppnas
 
-  // Mät genom att köra: varje färsk GPS-position ≥ 3 m från förra läggs till i mätningen medan Start är aktivt
+  // Etiketten i figuren (längd mitt på linjen / area mitt i ytan) — följer punkterna medan man ritar.
+  // En bild per text (lib/figurEtikettBild.ts): ritas av samma motor som figurens punkter, så den sitter i figuren även i 3D-terräng.
+  const figurEtikettBildRef = useRef<string | null>(null);
   useEffect(() => {
-    if (matKor !== 'spelar') return;
-    const c = currentPosition as any;
-    if (!c || c.lat == null || c.lon == null || !gpsFixFarsk) return;
-    setMeasureGeo((prev) => laggTillKorPunkt(prev, c.lon, c.lat));
-  }, [currentPosition, matKor, gpsFixFarsk]);
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource('figur-etikett-source') as any;
+    if (!src) return;
+    const e = figur ? figurEtikett(measureGeo, figur.yta) : null;
+    const id = e ? etikettBildId(e.text) : null;
+    if (e && id) {
+      if (!map.hasImage(id)) {
+        const r = ritaEtikett(e.text);
+        if (!r) return;
+        map.addImage(id, r.bild, { pixelRatio: ETIKETT_PIXELRATIO });
+      }
+      src.setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { bild: id, text: e.text }, geometry: { type: 'Point', coordinates: e.punkt } }] });
+    } else {
+      src.setData({ type: 'FeatureCollection', features: [] });
+    }
+    const fore = figurEtikettBildRef.current;
+    if (fore && fore !== id && map.hasImage(fore)) map.removeImage(fore);   // förra textens bild (källan pekar redan på den nya)
+    figurEtikettBildRef.current = id;
+  }, [figur, measureGeo, mapLibreReady]);
+
+  // HÅLL FINGRET PÅ KARTAN → plusraden öppnas och vald symbol hamnar där fingret var. Bara när inget annat läge pågår
+  // (langtryckTillatenRef sätts i handlers-blocket), aldrig på en symbol, avbryts av drag/nyp/rörelse.
+  const langtryckTillatenRef = useRef(false);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let start: { x: number; y: number } | null = null;
+    const stopp = () => { if (timer) { clearTimeout(timer); timer = null; } start = null; };
+    const ned = (e: any) => {
+      stopp();
+      if (!langtryckTillatenRef.current) return;
+      const oe = e.originalEvent;
+      if (oe?.touches && oe.touches.length > 1) return;                       // nyp = zoom
+      if (oe && !oe.touches && 'button' in oe && oe.button !== 0) return;      // bara vänster musknapp
+      try { if (map.queryRenderedFeatures(e.point, { layers: ['markers-hit'].filter((l) => map.getLayer(l)) }).length > 0) return; } catch { /* */ }
+      const ll = e.lngLat;
+      start = { x: e.point.x, y: e.point.y };
+      timer = setTimeout(() => {
+        timer = null;
+        if (!langtryckTillatenRef.current) return;
+        setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });
+        setPlusRadOppen(true);
+        if (navigator.vibrate) navigator.vibrate(20);
+      }, LANGTRYCK_MS);
+    };
+    const ror = (e: any) => { if (timer && start && Math.hypot(e.point.x - start.x, e.point.y - start.y) > LANGTRYCK_RORELSE_PX) stopp(); };
+    map.on('mousedown', ned); map.on('touchstart', ned);
+    map.on('mousemove', ror); map.on('touchmove', ror);
+    map.on('mouseup', stopp); map.on('touchend', stopp); map.on('touchcancel', stopp); map.on('dragstart', stopp);
+    return () => {
+      stopp();
+      map.off('mousedown', ned); map.off('touchstart', ned);
+      map.off('mousemove', ror); map.off('touchmove', ror);
+      map.off('mouseup', stopp); map.off('touchend', stopp); map.off('touchcancel', stopp); map.off('dragstart', stopp);
+    };
+  }, [mapLibreReady]);
 
   // Geofence: när maskinen är inne i en wet/steep/noentry-zon
   type ZoneAlert = { markerId: string; zoneType: string; label: string; color: string };
@@ -4998,12 +5070,15 @@ export default function PlannerPage() {
     // markersRef och öppna dess kort. I stickväg-översikt: välj för översikt istället (som förr).
     const handleMarkerFeatureClick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
+      if (selectedSymbolRef.current || korvyFigurAktivRef.current) return;   // placerar en symbol / mäter: trycket är en PUNKT, inte ett kort
       if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       featureClickedRef.current = true;
       const rawId = e.features?.[0]?.properties?.id;
       if (rawId == null) return;
       const m = markersRef.current.find(x => String(x.id) === String(rawId));
       if (!m) return;
+      // Körvyn: högstubbe/evighetsträd är prickar → litet kort "vad det är + Ta bort" i st.f. det fulla markörkortet.
+      if (korvyActiveRef.current && arPrick(m.type)) { setPrickValt({ id: String(m.id), typ: String(m.type) }); return; }
       if (stickvagOversiktRef.current) {
         setSelectedOversiktItem(m);
         setSelectedOversiktVag(null);
@@ -5654,7 +5729,7 @@ export default function PlannerPage() {
     const canvasContainer = map.getCanvasContainer();
 
     // Override MapLibre's CSS cursor
-    if (isDrawingMode || selectedSymbol || isArrowMode || larmPlacering) {
+    if (isDrawingMode || (selectedSymbol && !korvyActiveRef.current) || isArrowMode || larmPlacering) {   // körvyn: inget hårkors
       canvasContainer.style.setProperty('cursor', 'crosshair', 'important');
     } else {
       canvasContainer.style.removeProperty('cursor');
@@ -5678,45 +5753,9 @@ export default function PlannerPage() {
         const svgPos = latLonToSvg(lngLat.lat, lngLat.lng);
 
         if (selectedSymbol) {
-          saveToHistory([...markers]);
-          const newMarker: any = {
-            id: Date.now(),
-            type: selectedSymbol,
-            x: svgPos.x,
-            y: svgPos.y,
-            isMarker: true,
-            comment: '',
-          };
-          if (selectedSymbol === 'eternitytree' || selectedSymbol === 'naturecorner' || selectedSymbol === 'highstump') newMarker.antal = 1;
-
-          if (selectedSymbol === 'landing') {
-            newMarker.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
-            checkRoadSafety(lngLat.lat, lngLat.lng).then((result: any) => {
-              const gt = generelltTillstand;
-              const maxspeed = result.nearestRoad?.maxspeed;
-              const isAllman = result.roadCategory === 'allman' || result.roadCategory === 'kan_vara_allman';
-              if (isAllman && maxspeed && maxspeed > 80) {
-                result.requiresSpecialPermit = true;
-              } else if (isAllman && gt && (gt as any).lan && (gt as any).giltigtTom && new Date((gt as any).giltigtTom) >= new Date()) {
-                result.tillstand = 'beviljat';
-                result.generelltTillstandApplied = true;
-              }
-              setMarkers((prev: any[]) => prev.map(m =>
-                m.id === newMarker.id ? { ...m, roadCheck: result } : m
-              ));
-            }).catch(() => {
-              setMarkers((prev: any[]) => prev.map(m => m.id === newMarker.id ? { ...m, roadCheck: { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' } } : m));
-            });
-          }
-
-          setMarkers((prev: any[]) => [...prev, newMarker]);
-          if (newMarker.antal !== undefined) setAntalPrompt({ markerId: String(newMarker.id), type: selectedSymbol });
-          if (navigator.vibrate) navigator.vibrate(30);
-          setRecentSymbols((prev: string[]) => {
-            const filtered = prev.filter(s => s !== selectedSymbol);
-            return [selectedSymbol!, ...filtered].slice(0, 4);
-          });
-          setSelectedSymbol(null);
+          // EN väg för all symbolplacering (körvyns räknare, plusraden, långtryck, tryck på kartan): placeraSymbol i handlers-blocket.
+          // Den lägger markören där trycket träffade (exakt — inget förskjutet över fingret), ger kvitto i körvyn / antal-frågan i planeringen.
+          placeraSymbolRef.current?.(selectedSymbol, lngLat.lat, lngLat.lng);
           return;
         }
 
@@ -8589,6 +8628,7 @@ export default function PlannerPage() {
       // centrum. ÖVERSIKT (ej körvy): visa ALLA — from-center-filtret borttaget (se KORVY_SIGHT_M).
       const symbolMarkers = markers.filter((m: any) => {
         if (!m.isMarker) return false;
+        if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;   // prick-lagret avslaget i körvyn → dolda
         if (!korvyActive || !korvyEffectivePos) return true;   // översikt / ingen fix än → alla
         const ll = svgToLatLon(m.x, m.y);
         return haversineM(korvyEffectivePos.lat, korvyEffectivePos.lon, ll.lat, ll.lon) <= KORVY_SIGHT_M;
@@ -8623,9 +8663,13 @@ export default function PlannerPage() {
           pulse = withinRadius && korvyBlinkOn;
           if (withinRadius && !korvyBlinkOn) opacity = 0.6; // subtil blink inom radien
         }
+        // Körvyn: högstubbe/evighetsträd = liten prick (prick=true) utan fade/puls/ring (inget proximitetskort heller — se kö-effekten)
+        const prick = korvyActive && arPrick(m.type);
         features.push({
           type: 'Feature',
-          properties: { type: m.type || 'default', id: m.id, opacity, dist, nearby, pulse, withinRadius },
+          properties: prick
+            ? { type: m.type, id: m.id, opacity: 1, dist: null, nearby: false, pulse: false, withinRadius: false, prick: true }
+            : { type: m.type || 'default', id: m.id, opacity, dist, nearby, pulse, withinRadius },
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
@@ -8636,7 +8680,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn, korvyEffectivePos, overlays[PRICK_LAGER_ID]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
   // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
@@ -8985,7 +9029,9 @@ export default function PlannerPage() {
       // 'trakt-' = Vida/SKS/RAÄ-referensgeometrin. Traktdelar alltid tända; hänsyn tänds i båda
       // körvyerna; nyckelbiotoper + lämningar tänds i körvyn. Synligheten per lager styrs av toggle-
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-'];
+      // 'measure-' + 'figur-etikett' = Mät/Rita-figuren (punkter, linje, yta, etikett). Utan dem döljs figuren i körvyn
+      // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -9069,7 +9115,7 @@ export default function PlannerPage() {
     // Skotarläget använder en annan producent (stråk + autopanel) — skördarens markör-kö tystas
     // helt (tom kö ⇒ nästa-panelen + akutvarningen visas inte, och zoomen ligger på baszoom).
     if (skotarKorvy) { setKorvyNextItems([]); return; }
-    const symbolMarkers = markers.filter(m => m.isMarker);
+    const symbolMarkers = markers.filter(m => m.isMarker && !arPrick(m.type));   // högstubbe/evighetsträd = prickar, inget proximitetskort
     const items: NextItem[] = [];
     for (const m of symbolMarkers) {
       const ll = svgToLatLon(m.x, m.y);
@@ -9669,7 +9715,7 @@ export default function PlannerPage() {
       'hyttspar-andras-casing', 'hyttspar-andras-line',
       'hyttspar-hist-casing', 'hyttspar-hist-line', 'hyttspar-egen-casing', 'hyttspar-egen-line',
       'grot-shadow', 'grot-circle', 'grot-label', 'hogar-cluster', 'hogar-cluster-label', 'hogar-hit', 'hogar-circle',
-      'markers-layer', 'markers-hit', 'markers-korvy-label', 'arrows-layer', 'arrows-hit',
+      'markers-layer', 'markers-prick', 'markers-hit', 'markers-korvy-label', 'arrows-layer', 'arrows-hit',
       'yta-nr-hit', 'yta-nr-label', 'trakt-punkt-circle', 'trakt-punkt-label',
     ];
     for (const id of KORVY_Z_ORDNING) { try { if (map.getLayer(id)) map.moveLayer(id); } catch { /* */ } }
@@ -12305,8 +12351,9 @@ export default function PlannerPage() {
     setActiveCategory(null);
   };
 
-  // ═══ KÖRVY: snabbmarkering, kvitto, genvägar, mätning (state-blocket ovan + lib/) ═══════════════════════════════════════════
-  const visaKorvyKvitto = (text: string, ton: 'ok' | 'fel', markerId?: number) => {
+  // ═══ PLUSRADEN, PLACERING, MÄT/RITA, PRICKAR, KVITTO — kopplingen (state-blocket ovan, reglerna i lib/) ═══════════════════════
+  const smalSkarm = screenSize.width < 640;
+  const visaKvitto = (text: string, ton: 'ok' | 'fel', markerId?: number) => {
     if (korvyKvittoTimerRef.current) clearTimeout(korvyKvittoTimerRef.current);
     setKorvyKvitto({ text, ton, markerId });
     korvyKvittoTimerRef.current = setTimeout(() => { setKorvyKvitto(null); korvyKvittoTimerRef.current = null; }, ton === 'ok' ? KVITTO_MS : 3500);
@@ -12332,21 +12379,40 @@ export default function PlannerPage() {
     });
   };
 
-  // SNABBMARKERING: symbolen läggs på MASKINENS position (aldrig en gammal eller saknad), kvitto "<symbol> satt — Ångra" i 5 s.
-  const settSnabbMarkering = (typ: string) => {
-    const kan = kanPlaceraPaPosition(korvyEffectivePos, gpsFixFarsk);
-    if (!kan.ok) { visaKorvyKvitto(placeringsFelText(kan.skal), 'fel'); return; }
-    const { x, y } = latLonToSvg(kan.pos.lat, kan.pos.lon);
+  // Plusradens fasta platser + användning (sparas per maskin; testläget rör inte datorns localStorage)
+  const uppdateraPlusRad = (fn: (s: PlusRadState) => PlusRadState) => {
+    const ny = fn(plusRadRef.current);
+    plusRadRef.current = ny;
+    setPlusRadState(ny);
+    if (!testlageAktivRef.current) sparaPlusRad(enhetMaskinId, ny);
+  };
+  const noteraPlus = (post: PlusPost) => uppdateraPlusRad((s) => noteraAnvandning(s, post));
+
+  // ── PLACERING: EN väg för räknarna i pillen, "Vid maskinen", långtryck på kartan och tryck på kartan ──
+  // Markören hamnar EXAKT där trycket träffade (inget förskjutet över fingret) och går att dra efteråt. Körvyn: kvitto med Ångra,
+  // antal 1. Planeringen: som förut (antal-frågan för evighetsträd/naturhörna/högstubbe).
+  const placeraSymbol = (typ: string, lat: number, lon: number) => {
+    const { x, y } = latLonToSvg(lat, lon);
     const id = Date.now();
     const m: any = nyMarkering(typ, id, x, y);
     if (typ === 'landing') m.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
+    if (!korvyActive) saveToHistory([...markers]);
     setMarkers((prev: any[]) => [...prev, m]);
-    korvyEgnaMarkorRef.current.add(String(id));   // går att dra efteråt (se drag-effekten)
-    if (typ === 'landing') startaAvlaggVagkontroll(id, kan.pos.lat, kan.pos.lon);
+    korvyEgnaMarkorRef.current.add(String(id));
+    if (typ === 'landing') startaAvlaggVagkontroll(id, lat, lon);
+    if (!korvyActive && m.antal !== undefined) setAntalPrompt({ markerId: String(id), type: typ });
     if (navigator.vibrate) navigator.vibrate(30);
-    if (testlageAktivRef.current) setKorvySenast((prev) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 12));   // testläge: rör inte datorns localStorage
-    else setKorvySenast(noteraSenast(enhetMaskinId, typ));
-    visaKorvyKvitto(kvittoRubrik(symbolNamn(typ)), 'ok', id);
+    setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
+    setSelectedSymbol(null);
+    noteraPlus({ typ: 'symbol', id: typ });
+    if (korvyActive) visaKvitto(kvittoRubrik(symbolNamn(typ)), 'ok', id);
+  };
+  placeraSymbolRef.current = placeraSymbol;
+  // Vid maskinen: maskinens position — aldrig en gammal eller saknad (efter åldersvakten betyder gpsFixFarsk=false att den inte längre är maskinens)
+  const placeraVidMaskinen = (typ: string) => {
+    const kan = kanPlaceraPaPosition(korvyEffectivePos, gpsFixFarsk);
+    if (!kan.ok) { visaKvitto(placeringsFelText(kan.skal), 'fel'); return; }
+    placeraSymbol(typ, kan.pos.lat, kan.pos.lon);
   };
   // ÅNGRA: tar bort markeringen ur listan OCH ur databasen (borttagningen väntar in en pågående spar → kan inte återuppstå).
   const angraKvitto = () => {
@@ -12358,93 +12424,147 @@ export default function PlannerPage() {
     deleteMarkerFromDb(id);
     if (navigator.vibrate) navigator.vibrate(15);
   };
+  // Prick-kortet: Ta bort (kortet ÄR bekräftelsen — två medvetna tryck: pricken, sedan knappen)
+  const taBortPrick = () => {
+    if (!prickValt) return;
+    const id = prickValt.id;
+    setMarkers((prev: any[]) => angraMarkering(prev, id));
+    deleteMarkerFromDb(id);
+    setPrickValt(null);
+    if (navigator.vibrate) navigator.vibrate(15);
+  };
 
-  // GENVÄGAR (max 4, per maskin)
-  const sparaGenvagarNu = (lista: Genvag[]) => {
-    setKorvyGenvagar(lista);
-    if (!testlageAktivRef.current) sparaGenvagar(enhetMaskinId, lista);
-  };
-  const lagerNamnFor = (id: string): string => FASTA_LAGERNAMN[id] || wmsLayers.find((l) => l.id === id)?.name || id;
-  const genvagEtikett = (g: Genvag): string =>
-    g.typ === 'symbol' ? symbolNamn(g.id) : g.typ === 'matning' ? MATNING_NAMN[g.id] : g.typ === 'lager' ? lagerNamnFor(g.id) : INSTALLNING_NAMN[g.id];
-  const genvagPa = (g: Genvag): boolean => (g.typ === 'lager' ? !!overlays[g.id] : g.typ === 'installning' ? (g.id === 'kompass' ? korvyKompass === 'aktiv' : compassMode) : false);
-  const trycktGenvag = (nyckel: string) => {
-    const g = korvyGenvagar.find((x) => genvagNyckel(x) === nyckel);
-    if (!g) return;
-    if (g.typ === 'symbol') { setKorvySnabbark(false); settSnabbMarkering(g.id); }
-    else if (g.typ === 'matning') { setKorvySnabbark(false); startaKorvyMatning(g.id); }
-    else if (g.typ === 'lager') setOverlays((prev: any) => ({ ...prev, [g.id]: !prev[g.id] }));
-    else if (g.id === 'kompass') { if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); }
-    else toggleCompass();
-  };
-  const taBortGenvagNu = (nyckel: string) => {
-    const g = korvyGenvagar.find((x) => genvagNyckel(x) === nyckel);
-    if (g) sparaGenvagarNu(taBortGenvag(korvyGenvagar, g));
-  };
-  const laggIPlus = () => {
-    if (!lagerPlusForslag || lagerPlusForslag.svar) return;
-    const r = laggTillGenvag(korvyGenvagar, lagerPlusForslag.g);
-    let svar: string;
-    if (r.ok) { sparaGenvagarNu(r.lista); svar = 'Lagd i plus'; }
-    else if (r.skal === 'full') svar = `Plus är full (${MAX_GENVAGAR}/${MAX_GENVAGAR}) — ta bort en genväg först`;
-    else svar = 'Finns redan i plus';
-    setLagerPlusForslag({ ...lagerPlusForslag, svar });
-    setTimeout(() => setLagerPlusForslag(null), 1600);
-  };
-  // Håll fingret på en rad i Lager/Inställningar (bara körvy) → "Lägg i plus"; klicket som följer på ett långtryck sväljs.
-  const lagerRadProps = (g: Genvag): Record<string, any> => (korvyActive ? {
-    onPointerDown: (e: any) => lagerLangtryck.start(() => setLagerPlusForslag({ g, etikett: genvagEtikett(g) }), e.clientX, e.clientY),
-    onPointerMove: (e: any) => lagerLangtryck.rorelse(e.clientX, e.clientY),
-    onPointerUp: lagerLangtryck.stopp, onPointerLeave: lagerLangtryck.stopp, onPointerCancel: lagerLangtryck.stopp,
-    onContextMenu: (e: any) => e.preventDefault(),
-  } : {});
-  const lagerKlickSluk = (): boolean => korvyActive && lagerLangtryck.slukKlick();
+  // ── LAGER: EN lista för Lager-menyn och för "Alla" i plusraden ──
+  const lagerPa = (id: string): boolean => (id === PRICK_LAGER_ID ? prickarSynliga(overlays) : !!overlays[id]);
+  const vaxlaLager = (id: string) => setOverlays((prev: any) => ({ ...prev, [id]: id === PRICK_LAGER_ID ? !prickarSynliga(prev) : !prev[id] }));
+  const overlayLista: { id: string; name: string; desc: string; enabled: boolean }[] = [
+    { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
+    // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
+    // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
+    ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+    ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
+    ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
+    ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
+    { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
+    { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
+    { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
+    { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },
+    // Körvyn: högstubbar/evighetsträd som små prickar — eget lager, PÅ som standard (saknad nyckel = på)
+    ...(korvyActive ? [{ id: PRICK_LAGER_ID, name: 'Högstubbar och evighetsträd', desc: 'Små prickar på kartan (på som standard)', enabled: true }] : []),
+  ];
+  const lagerPoster: { id: string; name: string }[] = (() => {
+    const sett = new Set<string>();
+    const ut: { id: string; name: string }[] = [];
+    const lagg = (id: string, name: string) => { if (!sett.has(id)) { sett.add(id); ut.push({ id, name }); } };
+    for (const o of overlayLista) if (o.enabled) lagg(o.id, o.name);
+    for (const g of wmsLayerGroups) for (const l of g.layers) lagg(l.id, l.name);
+    lagg('brandrisk', 'Brandrisk');
+    return ut;
+  })();
 
-  // MÄTNING i körvyn. Punkter/hörn återanvänder planeringens mätläge; "kör" samlar GPS-positioner mellan Start och Stopp.
-  const startaKorvyMatning = (id: 'strackan' | 'yta' | 'kor') => {
-    setMatResultat(null); setMatSparad(null); setMatTyp(id);
-    if (id === 'kor') {
-      setMatKor('vilar'); setMeasureMode(false); setMeasureAreaMode(false); setMeasureGeo([]); setMeasureLocked(null); uppdateraMatlager([], false);
-    } else {
-      setMatKor(null);
-      setKorvyFollowPaused(true);   // kartan står still medan punkterna sätts
-      startaMatning(id === 'yta');
+  // ── PLUSRADEN: katalog (alla poster), rad, "Alla" ──
+  const postFinns = (p: PlusPost): boolean => (p.typ === 'symbol' ? markerTypes.some((m) => m.id === p.id) : p.typ === 'lager' ? lagerPoster.some((l) => l.id === p.id) : true);
+  const hittaPost = (nyckel: string): PlusPost | null => {
+    const i = nyckel.indexOf(':');
+    if (i <= 0) return null;
+    const typ = nyckel.slice(0, i), id = nyckel.slice(i + 1);
+    if (typ === 'symbol' || typ === 'lager') { const p = { typ, id } as PlusPost; return postFinns(p) ? p : null; }
+    if (typ === 'rita' && (id === 'linje' || id === 'yta')) return { typ, id };
+    if (typ === 'matning' && (id === 'strackan' || id === 'yta')) return { typ, id };
+    return null;
+  };
+  const postEtikett = (p: PlusPost): string =>
+    p.typ === 'symbol' ? symbolNamn(p.id) : p.typ === 'lager' ? (lagerPoster.find((l) => l.id === p.id)?.name || p.id) : p.typ === 'rita' ? RITA_NAMN[p.id] : MAT_NAMN[p.id];
+  const ikonPx = smalSkarm ? 28 : 36;
+  const svgIkon = (barn: React.ReactNode) => (
+    <svg aria-hidden="true" width={ikonPx} height={ikonPx} viewBox="0 0 24 24" fill="none" stroke={FARG.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{barn}</svg>
+  );
+  const postIkon = (p: PlusPost): React.ReactNode => {
+    if (p.typ === 'symbol') {
+      const b = getIconBackground(p.id);
+      return <span style={{ width: ikonPx, height: ikonPx, borderRadius: '50%', background: b === 'rgba(0,0,0,0.6)' ? FARG.fyllning : b, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(p.id, Math.round(ikonPx * 0.55), FARG.text)}</span>;
     }
+    if (p.typ === 'lager') return svgIkon(<><path d="M12 3 L2 8 L12 13 L22 8 Z" /><path d="M2 12 L12 17 L22 12" /><path d="M2 16 L12 21 L22 16" /></>);
+    if (p.typ === 'rita') return p.id === 'linje' ? svgIkon(<path d="M4 20 C 8 8, 14 18, 20 4" />) : svgIkon(<path d="M5 6 L19 4 L20 18 L6 20 Z" fill={FARG.fyllning} />);
+    return p.id === 'strackan'
+      ? svgIkon(<><path d="M4 20 L20 4" /><circle cx="4" cy="20" r="2.2" fill={FARG.text} /><circle cx="20" cy="4" r="2.2" fill={FARG.text} /></>)
+      : svgIkon(<><path d="M5 6 L19 4 L20 18 L6 20 Z" fill={FARG.fyllning} /><circle cx="5" cy="6" r="2" fill={FARG.text} /><circle cx="19" cy="4" r="2" fill={FARG.text} /><circle cx="20" cy="18" r="2" fill={FARG.text} /><circle cx="6" cy="20" r="2" fill={FARG.text} /></>);
   };
-  const matKlar = () => {
-    const yta = matTyp === 'yta';
-    const punkter = measureGeo.slice();
-    setMatResultat({ typ: yta ? 'yta' : 'strackan', yta, punkter, meter: pathMeters(punkter), areaM2: yta ? ringAreaM2(punkter) : null, tid: Date.now() });
-    klarMatning();
-    setKorvyFollowPaused(false);
+  const arFastNu = (p: PlusPost) => plusRadState.fasta.some((x) => postNyckel(x) === postNyckel(p));
+  const postVy = (p: PlusPost, fast: boolean): PlusPostVy => ({ nyckel: postNyckel(p), etikett: postEtikett(p), ikon: postIkon(p), fast, pa: p.typ === 'lager' ? lagerPa(p.id) : undefined });
+  const byggPlusRad = (): { poster: PlusPostVy[]; alla: AllaSektion[] } => ({
+    poster: beraknaRad(plusRadState, postFinns).map((r) => postVy(r.post, r.fast)),
+    alla: [
+      { id: 'symboler', rubrik: 'Symboler', slag: 'ruta', poster: markerTypes.map((s) => postVy({ typ: 'symbol', id: s.id }, arFastNu({ typ: 'symbol', id: s.id }))) },
+      {
+        id: 'rita-mat', rubrik: 'Rita och mät', slag: 'ruta',
+        poster: ([{ typ: 'rita', id: 'linje' }, { typ: 'rita', id: 'yta' }, { typ: 'matning', id: 'strackan' }, { typ: 'matning', id: 'yta' }] as PlusPost[]).map((p) => postVy(p, arFastNu(p))),
+      },
+      { id: 'lager', rubrik: 'Lager', slag: 'vaxel', poster: lagerPoster.map((l) => postVy({ typ: 'lager', id: l.id }, arFastNu({ typ: 'lager', id: l.id }))) },
+    ],
+  });
+  const fastnaPlusPost = (nyckel: string): HallSvar => {
+    const post = hittaPost(nyckel);
+    if (!post) return { ok: false, text: 'Hittar inte posten' };
+    const r = fastaPost(plusRadRef.current, post);
+    if (!r.ok) return { ok: false, text: r.skal === 'full' ? `Raden är full (${MAX_FASTA}/${MAX_FASTA}) — lossa en först` : 'Redan fast i raden' };
+    uppdateraPlusRad(() => r.state);
+    return { ok: true, text: 'Fast i raden' };
   };
-  const matStopp = () => {
-    setMatKor(null);
-    if (measureGeo.length < 2) { visaKorvyKvitto('Ingen sträcka registrerad', 'fel'); rensaMatning(); setMatTyp(null); return; }
-    const r = korResultat(measureGeo);
-    const sluten = r.yta != null;
-    setMatResultat({ typ: 'kor', yta: sluten, punkter: measureGeo.slice(), meter: r.meter, areaM2: r.yta, tid: Date.now() });
-    setMeasureLocked({ yta: sluten });
+  const lossaPlusPost = (nyckel: string) => {
+    const post = hittaPost(nyckel);
+    if (post) uppdateraPlusRad((s) => lossaPost(s, post));
   };
-  const matSpara = () => {
-    if (!matResultat) return;
-    if (!testlageAktivRef.current && !sparaMatning(valtObjekt?.id, matResultat)) visaKorvyKvitto('Kunde inte spara mätningen på den här enheten', 'fel');
-    setMatSparad(matResultat); setMatResultat(null); setMatTyp(null);
+
+  // ── MÄT/RITA i körvyn: tryck punkter (samma klick-effekt som planeringens mätning), figuren syns live med längd/area i sig ──
+  const startaFigur = (yta: boolean) => {
+    setFigur({ yta });
+    setSparaSomOppen(false);
+    setKorvyFollowPaused(true);   // kartan står still medan punkterna sätts
+    startaMatning(yta);
   };
-  const matKasta = () => {
-    const raderaSparad = matSparad !== null && matTyp === null && matResultat === null;   // Kasta på en SPARAD mätning raderar den; på ett utkast rörs den gamla inte
+  const avslutaFigur = () => {   // Kasta (lokalt) eller efter sparat
     rensaMatning();
     setMeasureMode(false); setMeasureAreaMode(false);
-    setMatTyp(null); setMatKor(null); setMatResultat(null); setMatSparad(null);
+    setFigur(null); setSparaSomOppen(false);
     setKorvyFollowPaused(false);
-    if (raderaSparad && !testlageAktivRef.current) kastaMatning(valtObjekt?.id);
   };
-  const matLage: MatPanelLage | null = !korvyActive ? null
-    : matResultat ? 'resultat'
-    : matTyp === 'kor' && matKor === 'vilar' ? 'kor-vilar'
-    : matTyp === 'kor' && matKor === 'spelar' ? 'kor-spelar'
-    : (matTyp === 'strackan' || matTyp === 'yta') && (measureMode || measureAreaMode) ? 'punkter'
-    : matSparad ? 'sparad' : null;
+  // SPARA SOM: en vanlig markering med planeringens form (lib/sparSom) — synlig för alla på objektet via vanliga markörsynken
+  const sparaFigurSom = (valId: string) => {
+    const val = SPARA_SOM.find((v) => v.id === valId);
+    if (!val || !figur) return;
+    const id = Date.now();
+    const m = byggFigurMarkering(val, measureGeo, id, latLonToSvg, numreringRef.current.nastaGransNr);
+    if (!m) { visaKvitto('För få punkter för att spara', 'fel'); return; }
+    setMarkers((prev: any[]) => [...prev, m]);
+    avslutaFigur();
+    visaKvitto(`${val.etikett} sparad`, 'ok', id);
+  };
+
+  // ── PLUSRADENS TRYCK ──
+  const trycktPlusPost = (nyckel: string) => {
+    const post = hittaPost(nyckel);
+    if (!post) return;
+    if (post.typ === 'lager') { vaxlaLager(post.id); noteraPlus(post); return; }   // raden stannar öppen — man ser att lagret slog om
+    setPlusRadOppen(false);
+    if (figur) avslutaFigur();
+    const punkt = langtryckPunkt;
+    setLangtryckPunkt(null);
+    if (post.typ === 'symbol') {
+      if (punkt) placeraSymbol(post.id, punkt.lat, punkt.lng);   // höll fingret på kartan: symbolen hamnar där fingret var
+      else setSelectedSymbol(post.id);                            // annars: smal list "Tryck där … ska stå"
+      return;
+    }
+    noteraPlus(post);
+    const yta = post.id === 'yta';
+    if (korvyActive) startaFigur(yta);
+    else if (post.typ === 'rita') { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }   // planeringen behåller sina rit-flöden
+    else startaMatning(yta);
+  };
+  const placeraListSynlig = !!selectedSymbol && !plusRadOppen && !menuOpen && !plusMenuOpen && !isDrawMode && !isZoneMode && !isArrowMode && !figur;
+  langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !plusMenuOpen && !menuOpen && !layerMenuOpen && !selectedSymbol && !figur && !sparaSomOppen && !prickValt
+    && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
+    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode;
 
   // Pillens räknare: ALLA markeringar på objektet räknas, oavsett vem som satte dem; krav bara för certifierade objekt.
   const miljoAntal = useMemo(() => raknaMiljo(markers), [markers]);
@@ -12452,7 +12572,7 @@ export default function PlannerPage() {
   const andelAvverkat = avverkat?.andel ?? null;
   const hogstubbarVy = { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar, status: kravStatus(miljoAntal.hogstubbar, miljoKravVal.hogstubbar, andelAvverkat) };
   const evighetstradVy = { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad, status: kravStatus(miljoAntal.evighetstrad, miljoKravVal.evighetstrad, andelAvverkat) };
-  const plusOppen = korvyActive ? (korvySnabbark || plusMenuOpen) : plusMenuOpen;   // plus-knappens vridning/badge/prickar
+  const plusOppen = plusRadOppen || plusMenuOpen;   // plus-knappens vridning/badge/prickar
 
   // === RISA-DEL på basväg: starta två-tapp / avbryt / committa / ta bort ===
   const startaRisaMarkering = (roadId: string | number) => {
@@ -13126,8 +13246,8 @@ export default function PlannerPage() {
               orangeKant={!!visarSomForare}
               prefix={visarSomForare && simuleradForare ? <span style={{ color: '#ff9f0a', fontWeight: 600, marginRight: 6 }}>👁 {simuleradForare.namn.split(' ')[0]} ·</span> : undefined}
               onNamn={() => setTraktOversiktOpen(o => !o)}
-              onHogstubbe={() => settSnabbMarkering('highstump')}
-              onEvighetstrad={() => settSnabbMarkering('eternitytree')}
+              onHogstubbe={() => placeraVidMaskinen('highstump')}
+              onEvighetstrad={() => placeraVidMaskinen('eternitytree')}
             />
           ) : (
           /* Objekt-pill (glasig). Tryck → traktöversikten (Stefans snabbkoll). "Visa som"-läge
@@ -13679,8 +13799,8 @@ export default function PlannerPage() {
                   : !avverkat.harSpar ? `inget skördarspår loggat än (av ${sv(arealHa)} ha)`
                   : `${sv(avverkat.ha)} av ${sv(arealHa)} ha`;
                 return (
-                  <div data-testid="objektinfo-avverkat" style={{ marginBottom: 14, display: 'inline-block', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 14px' }}>
-                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Avverkat </span><span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{text}</span>
+                  <div data-testid="objektinfo-avverkat" style={{ marginBottom: AVSTAND.m, display: 'inline-block', background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.kort, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>
+                    <span style={{ ...TYP.meta, color: FARG.text2 }}>Avverkat </span><span style={{ ...TYP.listtitel, color: FARG.text }}>{text}</span>
                   </div>
                 );
               })()}
@@ -13705,16 +13825,16 @@ export default function PlannerPage() {
               )}
 
               {korvyActive && (
-                <div data-testid="objektinfo-verktyg" style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div data-testid="objektinfo-verktyg" style={{ marginTop: AVSTAND.xl, paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}`, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
                   {[
                     { id: 'lager', etikett: 'Lager', under: 'Visa och dölj kartlager', gor: () => { stang(); setLayerMenuOpen(true); } },
                     { id: 'installningar', etikett: 'Inställningar', under: 'Kompass, tillstånd, karta', gor: () => oppnaInst(false) },
                     ...(webSerialStott ? [{ id: 'gps-kalla', etikett: 'GPS-källa', under: 'Serieport och baudrate', gor: () => oppnaInst(true) }] : []),
                   ].map((r) => (
                     <button key={r.id} type="button" data-testid={`objektinfo-${r.id}`} onClick={r.gor} className="press-row"
-                      style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 56, padding: '0 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: '#161618', color: '#fff', fontSize: 16, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
-                      <span style={{ flex: 1 }}>{r.etikett}<span style={{ display: 'block', fontSize: 12.5, fontWeight: 400, color: 'rgba(255,255,255,0.45)' }}>{r.under}</span></span>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" aria-hidden="true"><path d="M9 6 L15 12 L9 18" /></svg>
+                      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: 56, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.kort, border: `1px solid ${FARG.linje}`, background: FARG.kort, color: FARG.text, ...TYP.listtitel, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+                      <span style={{ flex: 1 }}>{r.etikett}<span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{r.under}</span></span>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={FARG.text3} strokeWidth="2" aria-hidden="true"><path d="M9 6 L15 12 L9 18" /></svg>
                     </button>
                   ))}
                 </div>
@@ -14076,7 +14196,7 @@ export default function PlannerPage() {
       {(korvyActive || (!briefingMode && !(volymLoading || volymResultat))) && (
         <button
           type="button"
-          onClick={() => { if (navigator.vibrate) navigator.vibrate(10); if (korvyActive) setKorvySnabbark(o => !o); else setPlusMenuOpen(o => !o); }}
+          onClick={() => { if (navigator.vibrate) navigator.vibrate(10); if (plusMenuOpen) setPlusMenuOpen(false); else if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); } else setPlusRadOppen(true); }}
           aria-label={plusOppen ? 'Stäng meny' : 'Öppna meny'}
           aria-expanded={plusOppen}
           className="press-dim"
@@ -14161,99 +14281,76 @@ export default function PlannerPage() {
         </button>
       )}
 
-      {/* === KÖRVY: SNABBARK (plus-knappen), KVITTO, "LÄGG I PLUS"-FRÅGA OCH MÄTPANEL — bara körvy. Planeringens plusmeny nedan är oförändrad. === */}
-      {korvyActive && korvySnabbark && (() => {
-        const symbolCirkel = (typ: string, px: number) => {
-          const b = getIconBackground(typ);
-          return <span style={{ width: px, height: px, borderRadius: px / 2, background: b === 'rgba(0,0,0,0.6)' ? 'rgba(255,255,255,0.2)' : b, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(typ, Math.round(px * 0.55), '#fff')}</span>;
-        };
-        const underFor = (typ: string): string | null =>
-          typ === 'highstump' ? (miljoKravVal.hogstubbar != null ? `${miljoAntal.hogstubbar} av ${miljoKravVal.hogstubbar}` : `${miljoAntal.hogstubbar} satta`)
-          : typ === 'eternitytree' ? (miljoKravVal.evighetstrad != null ? `${miljoAntal.evighetstrad} av ${miljoKravVal.evighetstrad}` : `${miljoAntal.evighetstrad} satta`)
-          : null;
-        const ikon36 = (d: React.ReactNode) => <svg width="38" height="38" viewBox="0 0 26 26" fill="none" aria-hidden="true">{d}</svg>;
-        const matIkon = (id: string) => id === 'strackan'
-          ? ikon36(<><path d="M3 20 L23 6" stroke="#fff" strokeWidth="2.4" /><circle cx="3" cy="20" r="3" fill="#fff" /><circle cx="23" cy="6" r="3" fill="#fff" /></>)
-          : id === 'yta'
-            ? ikon36(<path d="M4 6 L20 3 L23 19 L7 23 Z" fill="rgba(255,255,255,0.25)" stroke="#fff" strokeWidth="2.2" />)
-            : ikon36(<><path d="M5 21 C 5 13, 21 15, 21 6" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" /><circle cx="5" cy="21" r="2.6" fill="#fff" /><path d="M17 5 L21 6 L19 10" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></>);
-        const lagerIkon = ikon36(<><path d="M13 3 L2 8.5 L13 14 L24 8.5 Z" stroke="#fff" strokeWidth="2" /><path d="M2 13 L13 18.5 L24 13" stroke="#fff" strokeWidth="2" /></>);
-        const kompassIkon = ikon36(<><circle cx="13" cy="13" r="9.5" stroke="#fff" strokeWidth="2" /><path d="M17.5 8.5 L15 15 L8.5 17.5 L11 11 Z" fill="#fff" /></>);
-        const genvagarVy: GenvagKort[] = korvyGenvagar.map((g) => {
-          const nyckel = genvagNyckel(g);
-          if (g.typ === 'symbol') return { nyckel, etikett: genvagEtikett(g), under: underFor(g.id), bakgrund: g.id === 'highstump' ? '#3a3127' : g.id === 'eternitytree' ? '#1f3a27' : '#2a2e33', ikon: symbolCirkel(g.id, 46) };
-          if (g.typ === 'matning') return { nyckel, etikett: genvagEtikett(g), bakgrund: '#0a5fbf', ikon: matIkon(g.id) };
-          return { nyckel, etikett: genvagEtikett(g), under: g.typ === 'lager' ? 'Lager' : 'Inställning', bakgrund: '#2a2e33', ikon: g.typ === 'lager' ? lagerIkon : kompassIkon, vaxel: true, pa: genvagPa(g) };
-        });
-        const symbolerVy: SymbolRuta[] = ordnaSenastForst(markerTypes, korvySenast).map((s) => ({ id: s.id, namn: s.name, ikon: symbolCirkel(s.id, 42) }));
+      {/* === PLUSRADEN (plus-knappen) — DELAD komponent för körvyn och planeringen. "Alla" → symboler, rita/mät, lager; "Fler val ›" → den gamla menyn. === */}
+      {plusRadOppen && (() => {
+        const { poster, alla } = byggPlusRad();
         return (
-          <KorvySnabbArk
-            genvagar={genvagarVy}
-            symboler={symbolerVy}
-            max={MAX_GENVAGAR}
-            onGenvag={trycktGenvag}
-            onTaBort={taBortGenvagNu}
-            onSymbol={(id) => { setKorvySnabbark(false); settSnabbMarkering(id); }}
-            onFlerVal={() => { setKorvySnabbark(false); setPlusMenuOpen(true); }}
-            onStang={() => setKorvySnabbark(false)}
+          <PlusRad
+            poster={poster}
+            alla={alla}
+            smal={smalSkarm}
+            onPost={trycktPlusPost}
+            onFastna={fastnaPlusPost}
+            onLossa={lossaPlusPost}
+            onFlerVal={() => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusMenuOpen(true); }}
+            onStang={() => { setPlusRadOppen(false); setLangtryckPunkt(null); }}
           />
         );
       })()}
-      {korvyActive && korvyKvitto && !korvySnabbark && (
-        <KorvyKvitto text={korvyKvitto.text} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} />
+      {/* PLACERA SYMBOL: raden stängd, smal list nertill — tryck på kartan, eller "Vid maskinen" (körvy). Inget hårkors. */}
+      {placeraListSynlig && selectedSymbol && (
+        <KorvyNertillList
+          testid="placera-list"
+          smal={smalSkarm}
+          text={`Tryck där ${symbolNamn(selectedSymbol)} ska stå`}
+          knappar={[
+            ...(korvyActive ? [{ etikett: 'Vid maskinen', onClick: () => placeraVidMaskinen(selectedSymbol), testid: 'placera-vid-maskinen' }] : []),
+            AVBRYT_KNAPP(() => setSelectedSymbol(null), 'placera-avbryt'),
+          ]}
+        />
       )}
-      {korvyActive && lagerPlusForslag && (
-        <>
-          <div onClick={() => setLagerPlusForslag(null)} style={{ position: 'fixed', inset: 0, zIndex: 8999, background: 'rgba(0,0,0,0.25)' }} />
-          <div role="dialog" aria-label="Lägg i plus" data-testid="lagg-i-plus"
-            style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)', zIndex: 9000, width: 'min(440px, calc(100vw - 32px))', boxSizing: 'border-box', padding: 16, borderRadius: 22, background: '#1c1f22', color: '#f2f2f2', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 12px 40px rgba(0,0,0,0.55)', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif' }}>
-            {lagerPlusForslag.svar ? (
-              <div data-testid="lagg-i-plus-svar" style={{ minHeight: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 600, textAlign: 'center' }}>{lagerPlusForslag.svar}</div>
-            ) : (
-              <>
-                <div style={{ fontSize: 17, marginBottom: 12, textAlign: 'center' }}>Lägg <b>{lagerPlusForslag.etikett}</b> i plus?</div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button type="button" onClick={() => setLagerPlusForslag(null)} style={{ flex: 1, minHeight: 56, borderRadius: 16, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: 17, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>Avbryt</button>
-                  <button type="button" data-testid="lagg-i-plus-ok" onClick={laggIPlus} style={{ flex: 1, minHeight: 56, borderRadius: 16, border: 'none', background: '#30d158', color: '#0f1113', fontSize: 17, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>Lägg i plus</button>
-                </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
-      {korvyActive && matLage && (() => {
-        const primarArea = (r: SparadMatning | null) => !!r && r.typ === 'yta';
-        const visa = matResultat ?? (matLage === 'sparad' ? matSparad : null);
-        const live = visa
-          ? (primarArea(visa) ? formatHa(visa.areaM2 ?? 0) : formatLength(visa.meter))
-          : matLage === 'punkter'
-            ? ((matTyp === 'yta' ? measureGeo.length >= 3 : measureGeo.length >= 2) ? (matTyp === 'yta' ? formatHa(ringAreaM2(measureGeo)) : formatLength(pathMeters(measureGeo))) : '—')
-            : formatLength(pathMeters(measureGeo));
-        const rubrik = MATNING_NAMN[(visa?.typ ?? matTyp ?? 'strackan') as 'strackan' | 'yta' | 'kor'];
-        const sekundar = visa && visa.typ === 'kor' && visa.areaM2 != null ? `Yta ${formatHa(visa.areaM2)} (slingan är stängd)` : null;
+      {/* MÄT/RITA (körvy): smal list "0,89 ha · Ångra · Klar · ×" */}
+      {korvyActive && figur && !sparaSomOppen && (() => {
         const n = measureGeo.length;
-        const hjalp = matLage === 'punkter' ? (n === 0 ? (matTyp === 'yta' ? 'Tryck på kartan för varje hörn' : 'Tryck på kartan för varje punkt') : `${n} punkt${n === 1 ? '' : 'er'}`)
-          : matLage === 'kor-vilar' ? 'Tryck Start och kör sträckan'
-          : matLage === 'kor-spelar' ? 'Kör — måttet räknas live'
-          : undefined;
+        const e = figurEtikett(measureGeo, figur.yta);
         return (
-          <KorvyMatPanel
-            lage={matLage}
-            rubrik={rubrik}
-            live={live}
-            hjalp={hjalp}
-            sekundar={sekundar}
-            kanAngra={n > 0}
-            kanKlar={n >= (matTyp === 'yta' ? 3 : 2)}
-            onAngra={angraSista}
-            onKlar={matKlar}
-            onKasta={matKasta}
-            onSpara={matSpara}
-            onStart={() => { setMeasureGeo([]); setMeasureLocked(null); setMatKor('spelar'); }}
-            onStopp={matStopp}
+          <KorvyNertillList
+            testid="figur-list"
+            smal={smalSkarm}
+            text={e ? e.text : n === 0 ? 'Tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`}
+            knappar={[
+              { etikett: 'Ångra', onClick: angraSista, av: n === 0, testid: 'figur-angra' },
+              { etikett: 'Klar', onClick: () => setSparaSomOppen(true), av: n < minPunkter(figur.yta ? 'yta' : 'linje'), primar: true, testid: 'figur-klar' },
+              AVBRYT_KNAPP(avslutaFigur, 'figur-kasta'),
+            ]}
           />
         );
       })()}
+      {korvyActive && figur && sparaSomOppen && (
+        <KorvySparaSom
+          mattText={figurEtikett(measureGeo, figur.yta)?.text ?? ''}
+          val={valForFigur(figur.yta ? 'yta' : 'linje')}
+          smal={smalSkarm}
+          onVal={sparaFigurSom}
+          onTillbaka={() => setSparaSomOppen(false)}
+          onKasta={avslutaFigur}
+        />
+      )}
+      {/* PRICK (körvy): tryck → vad det är + Ta bort */}
+      {korvyActive && prickValt && (
+        <KorvyNertillList
+          testid="prick-kort"
+          smal={smalSkarm}
+          text={PRICK_NAMN[prickValt.typ] || 'Markering'}
+          knappar={[
+            { etikett: 'Ta bort', onClick: taBortPrick, destruktiv: true, testid: 'prick-tabort' },
+            AVBRYT_KNAPP(() => setPrickValt(null), 'prick-stang'),
+          ]}
+        />
+      )}
+      {korvyActive && korvyKvitto && !plusRadOppen && !sparaSomOppen && !prickValt && !figur && !placeraListSynlig && (
+        <KorvyKvitto text={korvyKvitto.text} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
+      )}
 
       {/* === PLUS-MENY (bottom sheet) === */}
       {plusMenuOpen && (
@@ -17516,8 +17613,7 @@ export default function PlannerPage() {
             }}>
               <div
                 data-testid="lager-kompass"
-                {...lagerRadProps({ typ: 'installning', id: 'kompass' })}
-                onClick={() => { if (lagerKlickSluk()) return; if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); }}
+                onClick={() => { if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); }}
                 style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '16px', borderRadius: '12px', cursor: 'pointer' }}
               >
                 <span style={{ flex: 1 }}>
@@ -17566,23 +17662,10 @@ export default function PlannerPage() {
               }}>
                 Overlay
               </div>
-              {[
-                { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
-                // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
-                // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
-                ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
-                ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
-                ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
-                ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
-                { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
-                { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
-                { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
-                { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },
-              ].map(overlay => (
+              {overlayLista.map(overlay => (
                 <div
                   key={overlay.id}
-                  {...lagerRadProps({ typ: 'lager', id: overlay.id })}
-                  onClick={() => { if (lagerKlickSluk()) return; overlay.enabled && setOverlays(prev => ({ ...prev, [overlay.id]: !prev[overlay.id] })); }}
+                  onClick={() => { overlay.enabled && vaxlaLager(overlay.id); }}
                   style={{
                     padding: '14px 16px',
                     display: 'flex',
@@ -17601,7 +17684,7 @@ export default function PlannerPage() {
                     width: '44px',
                     height: '26px',
                     borderRadius: '13px',
-                    background: overlays[overlay.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
+                    background: lagerPa(overlay.id) ? '#30d158' : 'rgba(255,255,255,0.1)',
                     padding: '2px',
                     transition: 'background 0.2s ease',
                   }}>
@@ -17610,7 +17693,7 @@ export default function PlannerPage() {
                       height: '22px',
                       borderRadius: '50%',
                       background: '#fff',
-                      transform: overlays[overlay.id] ? 'translateX(18px)' : 'translateX(0)',
+                      transform: lagerPa(overlay.id) ? 'translateX(18px)' : 'translateX(0)',
                       transition: 'transform 0.2s ease',
                     }} />
                   </div>
@@ -17637,8 +17720,7 @@ export default function PlannerPage() {
                 {group.layers.map(layer => (
                   <div
                     key={layer.id}
-                    {...lagerRadProps({ typ: 'lager', id: layer.id })}
-                    onClick={() => { if (lagerKlickSluk()) return; setOverlays(prev => ({ ...prev, [layer.id]: !prev[layer.id] })); }}
+                    onClick={() => setOverlays(prev => ({ ...prev, [layer.id]: !prev[layer.id] }))}
                     style={{
                       padding: '14px 16px',
                       display: 'flex',
@@ -17699,8 +17781,7 @@ export default function PlannerPage() {
                 SMHI
               </div>
               <div
-                {...lagerRadProps({ typ: 'lager', id: 'brandrisk' })}
-                onClick={() => { if (lagerKlickSluk()) return; setOverlays(prev => ({ ...prev, brandrisk: !prev.brandrisk })); }}
+                onClick={() => setOverlays(prev => ({ ...prev, brandrisk: !prev.brandrisk }))}
                 style={{
                   padding: '14px 16px',
                   display: 'flex',
@@ -18924,8 +19005,7 @@ export default function PlannerPage() {
                   padding: '8px',
                 }}>
                   <div
-                    {...lagerRadProps({ typ: 'matning', id: 'strackan' })}
-                    onClick={() => { if (lagerKlickSluk()) return; if (korvyActive) startaKorvyMatning('strackan'); else startaMatning(false); }}
+                    onClick={() => { if (korvyActive) startaFigur(false); else startaMatning(false); }}
                     style={{
                       padding: '18px 20px',
                       display: 'flex',
@@ -18951,8 +19031,7 @@ export default function PlannerPage() {
                   </div>
 
                   <div
-                    {...lagerRadProps({ typ: 'matning', id: 'yta' })}
-                    onClick={() => { if (lagerKlickSluk()) return; if (korvyActive) startaKorvyMatning('yta'); else startaMatning(true); }}
+                    onClick={() => { if (korvyActive) startaFigur(true); else startaMatning(true); }}
                     style={{
                       padding: '18px 20px',
                       display: 'flex',
@@ -18973,35 +19052,6 @@ export default function PlannerPage() {
                       <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Rita område</div>
                     </div>
                   </div>
-
-                  {/* Körvy: mät genom att köra (Start/Stopp). Håll fingret på en rad för att lägga den i plus. */}
-                  {korvyActive && (
-                    <div
-                      data-testid="mat-kor-rad"
-                      {...lagerRadProps({ typ: 'matning', id: 'kor' })}
-                      onClick={() => { if (lagerKlickSluk()) return; startaKorvyMatning('kor'); }}
-                      style={{
-                        padding: '18px 20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '16px',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ opacity: 0.6 }}>
-                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 20 C 5 12, 19 14, 19 5" />
-                          <circle cx="5" cy="20" r="2" />
-                          <path d="M15 5 L19 5 L19 9" />
-                        </svg>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '15px', color: '#fff' }}>Mät genom att köra</div>
-                        <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Start och Stopp — kör sträckan</div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -19417,8 +19467,7 @@ export default function PlannerPage() {
 
                   {/* Kompass */}
                   <div
-                    {...lagerRadProps({ typ: 'installning', id: 'rotera' })}
-                    onClick={() => { if (lagerKlickSluk()) return; toggleCompass(); }}
+                    onClick={() => toggleCompass()}
                     style={{
                       padding: '16px 20px',
                       display: 'flex',

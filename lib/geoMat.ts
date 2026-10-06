@@ -56,31 +56,52 @@ export function formatHa(sqMeters: number): string {
   return `${(sqMeters / 10000).toFixed(2).replace('.', ',')} ha`;
 }
 
-// ── Mät genom att köra (start/stopp) ────────────────────────────────────────────────────────────────────────────────────
+// ── Figuren i körvyns Mät/Rita: etikett i själva figuren ───────────────────────────────────────────────────────────────
 
-/** Minsta förflyttning (m) innan en ny GPS-punkt läggs till — filtrerar bort stillastående jitter. */
-export const KOR_MIN_STEG_M = 3;
-/** Slingan räknas som sluten (och ger också en yta) när slutet ligger inom så här många meter från starten. */
-export const KOR_SLUTEN_M = 25;
-
-/** Lägg till en GPS-punkt i en körd mätning. Samma lista tillbaka om maskinen inte rört sig ≥ minStegM (inget brus). */
-export function laggTillKorPunkt(punkter: readonly LngLat[], lng: number, lat: number, minStegM: number = KOR_MIN_STEG_M): LngLat[] {
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return punkter as LngLat[];
-  const ny: LngLat = [lng, lat];
-  const sista = punkter[punkter.length - 1];
-  if (sista && metersBetween(sista, ny) < minStegM) return punkter as LngLat[];
-  return [...punkter, ny];
+export interface FigurEtikett {
+  /** Var etiketten ligger på kartan ([lng, lat]). */
+  punkt: LngLat;
+  /** "0,89 ha" (yta) eller "384 m" (linje). */
+  text: string;
 }
 
-export interface KorResultat {
-  meter: number;
-  /** Bara när slingan är sluten (slutet inom KOR_SLUTEN_M från starten, minst 3 punkter) — annars null. */
-  yta: number | null;
+/** Punkten halvvägs längs linjen (mätt i meter, inte i antal punkter). */
+export function linjeMitt(punkter: readonly LngLat[]): LngLat | null {
+  if (!punkter || punkter.length === 0) return null;
+  if (punkter.length === 1) return punkter[0];
+  const total = pathMeters(punkter as LngLat[]);
+  if (!(total > 0)) return punkter[0];
+  let kvar = total / 2;
+  for (let i = 1; i < punkter.length; i++) {
+    const d = metersBetween(punkter[i - 1], punkter[i]);
+    if (kvar <= d && d > 0) {
+      const t = kvar / d;
+      return [punkter[i - 1][0] + (punkter[i][0] - punkter[i - 1][0]) * t, punkter[i - 1][1] + (punkter[i][1] - punkter[i - 1][1]) * t];
+    }
+    kvar -= d;
+  }
+  return punkter[punkter.length - 1];
 }
 
-export function korResultat(punkter: readonly LngLat[]): KorResultat {
-  const p = punkter as LngLat[];
-  const meter = pathMeters(p);
-  const sluten = p.length >= 3 && metersBetween(p[0], p[p.length - 1]) <= KOR_SLUTEN_M;
-  return { meter, yta: sluten ? ringAreaM2(p) : null };
+/** Mittpunkten av hörnen (räcker för en etikett; ytan är liten och ofta konvex). */
+export function hornMitt(punkter: readonly LngLat[]): LngLat | null {
+  if (!punkter || punkter.length === 0) return null;
+  let x = 0, y = 0;
+  for (const p of punkter) { x += p[0]; y += p[1]; }
+  return [x / punkter.length, y / punkter.length];
+}
+
+/**
+ * Etiketten som sitter i figuren medan den ritas: area mitt i en yta (från 3 hörn), längd mitt på en linje (från 2 punkter).
+ * Färre punkter än så → null (ingen etikett förrän det finns något att mäta).
+ */
+export function figurEtikett(punkter: readonly LngLat[], yta: boolean): FigurEtikett | null {
+  if (yta) {
+    if (!punkter || punkter.length < 3) return null;
+    const punkt = hornMitt(punkter);
+    return punkt ? { punkt, text: formatHa(ringAreaM2(punkter as LngLat[])) } : null;
+  }
+  if (!punkter || punkter.length < 2) return null;
+  const punkt = linjeMitt(punkter);
+  return punkt ? { punkt, text: formatLength(pathMeters(punkter as LngLat[])) } : null;
 }
