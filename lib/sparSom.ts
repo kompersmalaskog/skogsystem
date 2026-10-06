@@ -5,16 +5,18 @@
 //   linje → { id, lineType, path, isLine: true }
 //   yta   → { id, isLine: true, lineType: 'boundary', nummer, path }    (= "eget område", som planeringens Nytt område)
 //
-// TABELLEN NEDAN är den enda platsen som säger vilken markeringstyp varje val blir. Det är tre gissningar jag inte kan
-// verifiera mot någon specifikation — ändra här, inte i vyn:
-//   Hänsyn   → zonen 'protected' (planeringen kallar den Naturvård)
-//   Linje    → 'trail' (Stig/Led: neutral vit streckad — den enda linjetypen utan färgbetydelse)
-//   Yta      → eget område (traktgräns-markering med nummer; tappbar, numrerad, kan få anteckning/foto/röst i ytkortet)
-// och Stickväg delas i tre val eftersom färgen (röd/gul/blå) är data: det är bandfärgen på stickvägen ute i skogen.
+// TABELLEN NEDAN är den enda platsen som säger vilken markeringstyp varje val blir. Martin bekräftade den 2026-10-06:
+//   Blött    → zon 'wet'        (planeringen visar den som "Fuktig mark" / Blött)
+//   Hänsyn   → zon 'protected'  (skyddad zon; planeringen kallar den Naturvård)
+//   Brant    → zon 'steep'
+//   Stickväg → 'sideRoadRed'    (stickväg i STANDARDFÄRG = appens förvalda: röd, som lastUsedColorId börjar på och som
+//                                startGpsTracking faller tillbaka på. Vill man ha annan färg: ritas den via Stickväg-flödet i planeringen)
+//   Linje    → 'trail'          (vanlig linje: Stig/Led, neutral vit streckad — den enda linjetypen utan färgbetydelse)
+//   Yta      → eget område      (traktgräns-markering med nummer; tappbar, numrerad, kan få anteckning/foto/röst i ytkortet)
 
 export type FigurTyp = 'linje' | 'yta';
 
-export type SparSomId = 'blott' | 'hansyn' | 'brant' | 'yta' | 'stickvag-rod' | 'stickvag-gul' | 'stickvag-bla' | 'linje';
+export type SparSomId = 'blott' | 'hansyn' | 'brant' | 'yta' | 'stickvag' | 'linje';
 
 export type MarkeringsMal =
   | { slag: 'zon'; zoneType: string }
@@ -34,9 +36,7 @@ export const SPARA_SOM: readonly SparSomVal[] = [
   { id: 'hansyn',       etikett: 'Hänsyn',         figur: 'yta',   mal: { slag: 'zon', zoneType: 'protected' } },
   { id: 'brant',        etikett: 'Brant',          figur: 'yta',   mal: { slag: 'zon', zoneType: 'steep' } },
   { id: 'yta',          etikett: 'Yta',            figur: 'yta',   mal: { slag: 'eget-omrade' } },
-  { id: 'stickvag-rod', etikett: 'Stickväg röd',   figur: 'linje', mal: { slag: 'linje', lineType: 'sideRoadRed' } },
-  { id: 'stickvag-gul', etikett: 'Stickväg gul',   figur: 'linje', mal: { slag: 'linje', lineType: 'sideRoadYellow' } },
-  { id: 'stickvag-bla', etikett: 'Stickväg blå',   figur: 'linje', mal: { slag: 'linje', lineType: 'sideRoadBlue' } },
+  { id: 'stickvag',     etikett: 'Stickväg',       figur: 'linje', mal: { slag: 'linje', lineType: 'sideRoadRed' } },
   { id: 'linje',        etikett: 'Linje',          figur: 'linje', mal: { slag: 'linje', lineType: 'trail' } },
 ];
 

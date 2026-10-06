@@ -132,7 +132,7 @@ describe('Mät/Rita i körvyn → Spara som', () => {
     }
     expect(page).toContain("lineType: 'boundary'");
   });
-  it('etiketten i figuren följer punkterna — en BILD per text i ett symbollager, inget textlager (kartstilen saknar glyphs)', () => {
+  it('etiketten i figuren följer punkterna — en BILD per text i ett symbollager (inte textlager eller HTML-markör)', () => {
     expect(page).toContain("map.getSource('figur-etikett-source')");
     expect(page).toContain('const e = figur ? figurEtikett(measureGeo, figur.yta) : null;');
     expect(page).toContain("map.addLayer({ id: 'figur-etikett', type: 'symbol', source: 'figur-etikett-source', layout: { 'icon-image': ['get', 'bild']");

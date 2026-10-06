@@ -115,7 +115,7 @@ export function ringCentroid(ring: [number, number][]): { lat: number; lng: numb
 /** EN nummerserie per objekt. Vidas hänsyn-LOPNR är FACIT (behåller sina nummer; högsta = vidaMax).
  *  Traktdel-delarna numreras vidaMax+1.. sorterade centroid N→S (lat fallande) sedan V→Ö (lng stigande),
  *  stabilt vid omimport (tie → partKey). Egna områden fortsätter efter delarna (nastaOmradeNr).
- *  visaBitNummer=false när det finns EXAKT en del OCH inga Vida-nummer (en ensam bit → ingen siffra). */
+ *  visaBitNummer=false (och visaGransNummer=false) när objektet bara har EN yta sammanlagt OCH inga Vida-nummer (en ensam yta → ingen siffra). */
 export function numreraObjekt(input: {
   hansynLopnr: (number | string | null | undefined)[];
   bitar: { partKey: string; centroid: { lat: number; lng: number } }[];
@@ -148,10 +148,12 @@ export function numreraObjekt(input: {
   for (const g of granser) { const k = String(g.id); if (!gransNr.has(k)) gransNr.set(k, nastaLediga()); }
   let nastaGransNr = vidaMax + numBitar + 1;
   while (used.has(nastaGransNr)) nastaGransNr++;
-  // ENSAM YTA: inga Vida-nummer (vidaMax=0) OCH högst en bit OCH högst en egen gräns (ej ärvd) → ingen
-  // siffra alls. Gäller BÅDE bitar och egna områden: en ensam yta behöver inget nummer (den ÄR trakten).
+  // ENSAM YTA: inga Vida-nummer (vidaMax=0) OCH högst EN yta sammanlagt (bitar + egna områden, ej ärvda kopior) → ingen
+  // siffra alls: en ensam yta behöver inget nummer (den ÄR trakten). TVÅ ytor är aldrig ensamma. Regeln räknade förr bitar och
+  // egna områden var för sig (≤ 1 av vardera), så en Vida-yta + ett nyritat område dolde BÅDA siffrorna — Östra-Höka 2026-10-06
+  // (1 traktdel, inga hänsyn): "varken Vidas yta eller det nyritade området får någon siffra".
   const antalGranserEgna = granser.filter(g => { const ft = g.fromVidaTd ? String(g.fromVidaTd) : ''; return !(ft && bitNr.has(ft)); }).length;
-  const ensamYta = vidaMax === 0 && numBitar <= 1 && antalGranserEgna <= 1;
+  const ensamYta = vidaMax === 0 && numBitar + antalGranserEgna <= 1;
   return { vidaMax, bitNr, gransNr, nastaGransNr, visaBitNummer: !ensamYta, visaGransNummer: !ensamYta, usedNummer: used };
 }
 

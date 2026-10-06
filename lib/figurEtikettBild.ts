@@ -1,9 +1,11 @@
 // Etiketten i en mät-/ritfigur ("0,89 ha", "384 m") som en BILD för ett MapLibre-symbollager.
 //
-// Varför bild och inte textlager: planeringskartans stil har ingen glyphs-källa, så MapLibre ritar aldrig text
-// (samma skäl som lib/kartstil.ts). En bild ritas av samma motor som figurens punkter och linjer, så etiketten
-// sitter exakt i figuren — också i 3D-terräng, där en HTML-markör räknar sin plats separat och kan hamna fel
-// medan höjddata laddas (sett i testselen: markören 330 px ovanför figuren).
+// Varför bild och inte textlager eller HTML-markör:
+//  - Kartstilen har ingen glyphs-källa; MapLibre ritar ändå text, men med enhetens egna typsnitt (kontrollerat 2026-10-06: siffror,
+//    bokstäver och åäö ritas, som Arial/sans-serif). En bild ger samma utseende överallt: pillen med bakgrund, appens typsnitt
+//    och designtokens, lika på dator och telefon.
+//  - En bild ritas av samma motor som figurens punkter och linjer, så etiketten sitter exakt i figuren — också i 3D-terräng, där en
+//    HTML-markör räknar sin plats separat och kan hamna fel medan höjddata laddas (sett i testselen: markören 330 px ovanför figuren).
 import { FARG, FONT, TYP, RADIE, AVSTAND } from './design/tokens';
 
 export const ETIKETT_PIXELRATIO = 2;

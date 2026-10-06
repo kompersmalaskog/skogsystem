@@ -1699,8 +1699,8 @@ export default function PlannerPage() {
     map.addLayer({ id: 'measure-fill', type: 'fill', source: 'measure-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#0a84ff', 'fill-opacity': 0.18 } });
     map.addLayer({ id: 'measure-line', type: 'line', source: 'measure-source', filter: ['!=', ['geometry-type'], 'Point'], paint: { 'line-color': '#0a84ff', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'measure-vertices', type: 'circle', source: 'measure-source', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#0a84ff', 'circle-stroke-width': 3 } });
-    // Etikett i figuren (körvyns Mät/Rita): "0,89 ha" mitt i ytan, "384 m" mitt på linjen. En BILD per text, inte ett textlager:
-    // kartstilen har ingen glyphs-källa (lib/figurEtikettBild.ts). Egen punktkälla, uppdateras medan man ritar.
+    // Etikett i figuren (körvyns Mät/Rita): "0,89 ha" mitt i ytan, "384 m" mitt på linjen. En BILD per text (pillen i appens typsnitt,
+    // sitter i figuren även i 3D-terräng — se lib/figurEtikettBild.ts). Egen punktkälla, uppdateras medan man ritar.
     map.addSource('figur-etikett-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'figur-etikett', type: 'symbol', source: 'figur-etikett-source', layout: { 'icon-image': ['get', 'bild'], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport' } });
 
