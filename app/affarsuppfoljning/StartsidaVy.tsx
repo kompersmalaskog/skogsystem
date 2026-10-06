@@ -18,7 +18,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { Calendar, Calculator, Ruler, Axe, Info } from 'lucide-react';
+import { Calendar, Calculator, Ruler, Info } from 'lucide-react';
 import { SIDA, DAMPAD, SEKUNDAR, TEXT, LINJE, GUL, GRON, nf0, nf1, nf2, stor,
          Tillbakarad, Stort, Rad, Rader, Stycken, Pil } from '@/components/Ytform';
 import { Sortimentstapel, TeckenforklaringMedAndel } from '@/components/Sortimentstapel';
@@ -29,7 +29,7 @@ import {
 } from '@/lib/affarsuppfoljning/ar';
 
 export const BAS = '/affarsuppfoljning';
-export type Vy = 'ar' | 'rakna' | 'sa-raknas';
+export type Vy = 'ar' | 'sa-raknas';
 
 export type Props = {
   rader: ManadRad[];
@@ -115,20 +115,6 @@ function Manadsstaplar({ manader, ar, markerad, onVal }: { manader: ReturnType<t
   );
 }
 
-/** Ingången till de två räknarna: man väljer efter vad man har — en stämplingslängd eller bara medelstammen. */
-export function RaknaPaEnPost() {
-  return (
-    <div style={SIDA}>
-      <Tillbakarad href={BAS} text="Affärsuppföljning" />
-      <div style={{ margin: '0 16px', fontSize: 15, fontWeight: 600 }}>Räkna på post</div>
-      <Rader>
-        <Rad text="Stämplingslängd" href="/affarsuppfoljning/stampling" />
-        <Rad text="Medelstam" href="/affarsuppfoljning/medelstam" />
-      </Rader>
-    </div>
-  );
-}
-
 export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag, ar, atgard, bolag, vy, byt, gaTill }: Props) {
   const svar = useMemo(() => byggAr(rader, objekt, { ar, atgard, bolag, idag }), [rader, objekt, ar, atgard, bolag, idag]);
   const aren = useMemo(() => arLista(rader, idag), [rader, idag]);
@@ -138,8 +124,6 @@ export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag,
   const nu = manadsnyckel(idag);
 
   const manadUrl = (manad: string) => `${BAS}/manad?manad=${manad}&atgard=${atgard}&bolag=${bolag}`;
-
-  if (vy === 'rakna') return <RaknaPaEnPost />;
 
   // ── Så räknas: allt som förklarar talet bor här, en nivå in ──────────────
   if (vy === 'sa-raknas') {
@@ -226,14 +210,13 @@ export default function StartsidaVy({ rader, objekt, massaMal, uppdaterad, idag,
             text={`${stor(manadsNamn(senast.manad))}${senast.manad.slice(0, 4) === String(nuAr) ? '' : ` ${senast.manad.slice(0, 4)}`}`}
             hoger={`${nf0(senast.volym)} m³`} onClick={() => gaTill(manadUrl(senast.manad))} />
         )}
-        <Post ikon={<Calculator size={16} strokeWidth={1.75} />} text="Räkna på post" onClick={() => gaTill(`${BAS}?vy=rakna`)} />
+        <Post ikon={<Calculator size={16} strokeWidth={1.75} />} text="Räkna på post" href="/affarsuppfoljning/rakna" />
         <Post ikon={<Ruler size={16} strokeWidth={1.75} />} text="Massavedens längd" farg={massaFarg}
           hoger={langd ? nf2(langd.medellangd) : '–'}
           sub={langd
             ? `mål ${nf1(massaMal)} m${langd.aktuell ? '' : ` · ${manadsNamn(langd.manad)}`}`
             : 'ingen barrmassaved registrerad än'}
-          href="/massaved" />
-        <Post ikon={<Axe size={16} strokeWidth={1.75} />} text="Längre rotkap" href="/rotkap" />
+          href="/affarsuppfoljning/kvalitet" />
         <Post ikon={<Info size={16} strokeWidth={1.75} />} text="Så räknas"
           onClick={() => gaTill(`${BAS}?ar=${ar}&atgard=${atgard}&bolag=${bolag}&vy=sa-raknas`)} />
       </Rader>

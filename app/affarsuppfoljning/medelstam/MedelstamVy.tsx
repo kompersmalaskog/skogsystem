@@ -20,7 +20,8 @@
 // (samma definition och förval som stämplingsvyn). All räkning finns i lib/medelstam/berakna.ts; den
 // här filen visar bara. Läser utfall_objekt (förberäknad), aldrig stockdata live.
 //
-// Ingen jämförelse mellan inköpare: bolaget finns inte ens i underlaget.
+// Bara Vidas objekt: kurvan räknas på objekt med dim_objekt.bolag = 'Vida' (filtret sitter i page.tsx) — det som levereras till Vida.
+// Ingen jämförelse mellan inköpare.
 //
 // YTAN ÄR TAL OCH KORTA ETIKETTER. Det som förklarar talen — röta, gallringens rubriktal, vad posterna består av, hur snittet räknas,
 // fönstret, kurvans regression — bor en nivå in, på Så räknas (?vy=sa-raknas). De lövdominerade objekten som hålls utanför syns som en rad,
@@ -224,6 +225,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
       <div style={SIDA}>
         <Tillbakarad href={fran && fran !== 'huvud' ? `${BAS}?vy=${fran}` : BAS} text={tillbakaText} />
         <Stycken>
+          <p style={para}>Kurvan räknas bara på objekt som levereras till Vida.</p>
           {u && !u.forFa && (
             <p style={para}>Fönstret just nu är {intervall.replace(' och ', '–')} m³/stam, ±{nf0(100 * fonster)} % av {ms(u.m)}. Objekten i fönstret ligger inom det.</p>
           )}
@@ -345,7 +347,7 @@ export default function MedelstamVy({ alla, meta, uppdaterad, rotLasbar, vy, fra
 
   return (
     <div style={SIDA}>
-      <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
+      <Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" />
       <Rubrikrad text={typ} value={typ} label="Avverkningstyp" onChange={v => setTyp(v as Typ)}>
         {TYPER.map(t => <option key={t} value={t}>{t}</option>)}
       </Rubrikrad>

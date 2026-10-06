@@ -1,11 +1,15 @@
 'use client';
 
-// NIVÅ 1 — massavedens längd, månad för månad. Byggd mot förlagan:
+// KVALITET — "kör vi bra?" Affärsuppföljningens tredje flik: massavedens längd för Vida, månad för månad, objekten sämst
+// först (massaved_niva1 är redan filtrerad på bolag = 'Vida' och sorterad på lägst medellängd). Byggd mot förlagan:
 // "Augusti ⌄", medellängden stor, "medellängd barrmassaved", i gult
 // "9 av 14 objekt under 4,6 m", "barr ⌄", sedan en rad per objekt med
 // medellängden intill namnet i färg och kubiken längst ut.
 //
-// Månaden följer MED i länken så nivå 2 öppnar på samma tal som raden.
+// Ett tryck på ett objekt öppnar OBJEKTSKÄRMEN (/affarsuppfoljning/objekt/<id>) — samma skärm oavsett om man kommer hit eller
+// från en månad. Därifrån: 3 m-stockar, sågbar dimension, längre rotkap.
+//
+// Månaden följer MED i länken så objektskärmen öppnar på samma tal som raden.
 // Objekt utan bolag räknas INTE in i talet men göms inte heller: de ligger
 // sist, dämpade.
 
@@ -61,7 +65,7 @@ function Innehall() {
 
   useEffect(() => { hamta(); }, [hamta]);
 
-  const valjManad = (m: string) => { setManad(m); router.replace(`/massaved?manad=${m}`, { scroll: false }); };
+  const valjManad = (m: string) => { setManad(m); router.replace(`/affarsuppfoljning/kvalitet?manad=${m}`, { scroll: false }); };
   const mal = data?.mal_m ?? 4.6;
 
   const valtaKontroll = (
@@ -71,7 +75,7 @@ function Innehall() {
   );
 
   const rad = (o: ObjektRad, gra: boolean) => (
-    <Rad key={o.objekt_id} href={`/massaved/${encodeURIComponent(o.objekt_id)}?manad=${manad}`}
+    <Rad key={o.objekt_id} href={`/affarsuppfoljning/objekt/${encodeURIComponent(o.objekt_id)}?manad=${manad}`}
       text={kortObjekt(o.namn ?? o.objekt_id)} dampad={gra}
       tal={nf2(o.medellangd_m)} farg={gra ? DAMPAD : o.medellangd_m < mal ? GUL : GRON}
       hoger={`${nf0(o.m3fub)} m³`} />

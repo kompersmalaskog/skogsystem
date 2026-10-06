@@ -280,7 +280,7 @@ function Innehall() {
                             {/* Längddata bor på en egen sida — massaraden här
                                 svarar på volymfrågan, inte på längdfrågan. */}
                             {arMassa && (
-                              <Link href={`/massaved?manad=${manad}`} onClick={e => e.stopPropagation()}
+                              <Link href={`/affarsuppfoljning/kvalitet?manad=${manad}`} onClick={e => e.stopPropagation()}
                                 style={{ ...MUTED, marginLeft: 8, textDecoration: 'underline' }}>längder ›</Link>
                             )}
                           </span>

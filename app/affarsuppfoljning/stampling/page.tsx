@@ -168,14 +168,14 @@ function Innehall() {
     router.push(BAS);
   };
 
-  if (laddar) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" /><Laddar vad="modellen" /></div>;
-  if (fel) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" /><Fel rubrik="Modellen kunde inte hämtas" fel={fel} igen={hamta} /></div>;
+  if (laddar) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" /><Laddar vad="modellen" /></div>;
+  if (fel) return <div style={SIDA}><Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" /><Fel rubrik="Modellen kunde inte hämtas" fel={fel} igen={hamta} /></div>;
 
   // ── Stämplingsrapport som PDF ───────────────────────────────────────────
   if (vy === 'pdf') {
     return (
       <div style={SIDA}>
-        <RapportLas bas={BAS} id={sp.get('id')} anvand={anvandRapport}
+        <RapportLas bas={BAS} id={sp.get('id')} kor={sp.get('kor') === '1'} anvand={anvandRapport}
           oppna={id => router.replace(url({ vy: 'pdf', id: id ?? undefined }), { scroll: false })}
           manuellt={() => router.push(url({ vy: 'langd' }))} saRaknas={() => router.push(url({ vy: 'sa-raknas' }))} />
       </div>
@@ -287,7 +287,7 @@ function Innehall() {
   if (ingenModell) {
     return (
       <div style={SIDA}>
-        <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
+        <Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" />
         <Stort tal="–" ordrad="inget räknat ännu">
           <Damp>
             {tabellSaknas
@@ -306,7 +306,7 @@ function Innehall() {
   if (!res || res.trad === 0) {
     return (
       <div style={SIDA}>
-        <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
+        <Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" />
         <Stort tal="–" ordrad="ingen stämplingslängd inmatad" />
         <Rader>
           <Rad text="Ladda upp PDF" onClick={() => router.push(url({ vy: 'pdf' }))} />
@@ -344,7 +344,7 @@ function Innehall() {
   };
   return (
     <div style={SIDA}>
-      <Tillbakarad href="/affarsuppfoljning" text="Affärsuppföljning" />
+      <Tillbakarad href="/affarsuppfoljning/rakna" text="Räkna" />
       {aktiv && (
         <Link href={url({ vy: 'pdf', id: aktiv.id })} style={{ display: 'block', margin: '0 16px', paddingBottom: 12, borderBottom: LINJE, textDecoration: 'none', color: 'inherit' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>

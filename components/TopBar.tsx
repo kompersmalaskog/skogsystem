@@ -29,8 +29,7 @@ const pageNames: Record<string, string> = {
   '/egenkontroll': 'Egenkontroll',
   '/gallring': 'Gallring',
   '/matning': 'Mätning',
-  '/rotkap': 'Rotkap',
-  '/massaved': 'Massaved',
+  '/affarsuppfoljning': 'Affärsuppföljning',
   '/kontroller': 'Kontroller',
   '/maskinflytt': 'Maskinflytt',
   '/maskinflytt/sammanstallning': 'Flyttlogg',
@@ -48,7 +47,6 @@ export default function TopBar() {
     // Rundvyn ligger på /egenkontroll/<objekt-uuid> — utan detta hade titeln
     // blivit "Egenkontroll/9cd47e9c-…" via fallbacken längst ner.
     || (pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
-    : pathname.startsWith('/massaved/') ? 'Massaved'
     : pathname.startsWith('/egenkontroll/') ? 'Egenkontroll'
     : pathname.startsWith('/gallring/') ? 'Gallring'
     : pathname.startsWith('/maskin-service/') ? 'Maskinservice'

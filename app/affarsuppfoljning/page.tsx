@@ -17,7 +17,7 @@ import { supabase } from '@/lib/supabase';
 import { medAbortRetry, arAbortFel } from '@/lib/supabaseRetry';
 import { SIDA, Stort, Damp, Laddar, Fel } from '@/components/Ytform';
 import { ATGARDER, BOLAGEN, type Atgard, type Bolag, type ManadRad, type ObjektInfo } from '@/lib/affarsuppfoljning/ar';
-import StartsidaVy, { RaknaPaEnPost, BAS, type Vy } from './StartsidaVy';
+import StartsidaVy, { BAS, type Vy } from './StartsidaVy';
 
 type Rad = Record<string, unknown>;
 type Fe = { code?: string; message?: string };
@@ -90,7 +90,7 @@ function Innehall() {
   const bolagP = sp.get('bolag') as Bolag;
   const bolag: Bolag = BOLAGEN.includes(bolagP) ? bolagP : 'Alla';
   const arP = Number(sp.get('ar'));
-  const vy: Vy = sp.get('vy') === 'rakna' ? 'rakna' : sp.get('vy') === 'sa-raknas' ? 'sa-raknas' : 'ar';
+  const vy: Vy = sp.get('vy') === 'sa-raknas' ? 'sa-raknas' : 'ar';   // ?vy=rakna (gamla menyn) omdirigeras till /rakna i next.config.js
   const ar = Number.isInteger(arP) && arP > 2000 ? arP : idag.getFullYear();
 
   const byt = useCallback((q: { ar?: number; atgard?: Atgard; bolag?: Bolag }) => {
@@ -102,7 +102,6 @@ function Innehall() {
   if (laddar) return <div style={SIDA}><div style={{ height: 56 }} /><Laddar vad="året" /></div>;
   if (fel) return <div style={SIDA}><Fel rubrik="Året kunde inte hämtas" fel={fel} igen={hamta} /></div>;
   if (tabellSaknas || !d || d.rader.length === 0) {
-    if (vy === 'rakna') return <RaknaPaEnPost />;
     return (
       <div style={SIDA}>
         <div style={{ height: 56 }} />
@@ -128,7 +127,7 @@ function Innehall() {
 function StartsidaLankar() {
   return (
     <div style={{ margin: '16px 16px 0' }}>
-      <a href="/affarsuppfoljning?vy=rakna" style={{ display: 'block', padding: '14px 0', minHeight: 48, fontSize: 13, color: 'inherit', textDecoration: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }}>Räkna på post ›</a>
+      <a href="/affarsuppfoljning/rakna" style={{ display: 'block', padding: '14px 0', minHeight: 48, fontSize: 13, color: 'inherit', textDecoration: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }}>Räkna på post ›</a>
       <a href="/affarsuppfoljning/manad?atgard=Allt&bolag=Vida" style={{ display: 'block', padding: '14px 0', minHeight: 48, fontSize: 13, color: 'inherit', textDecoration: 'none', borderTop: '1px solid rgba(255,255,255,0.08)' }}>Månadssidan ›</a>
       <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} />
     </div>
