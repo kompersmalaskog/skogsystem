@@ -189,7 +189,7 @@ export function PlusRad({ poster, alla, smal, onPost, onFastna, onLossa, onFlerV
                       >
                         <span style={{ flex: 1, minWidth: 0 }}>{p.etikett}{p.fast ? <span style={{ ...TYP.meta, color: FARG.text2 }}> · fast i raden</span> : null}</span>
                         <span style={{ ...TYP.meta, color: p.pa ? FARG.gron : FARG.text2, ...TNUM }}>{p.pa ? 'På' : 'Av'}</span>
-                        <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 13, padding: 2, boxSizing: 'border-box', background: p.pa ? FARG.gron : FARG.fyllning, flexShrink: 0 }}>
+                        <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: RADIE.sheet, padding: AVSTAND.xs / 2, boxSizing: 'border-box', background: p.pa ? FARG.gron : FARG.fyllning, flexShrink: 0 }}>
                           <span style={{ display: 'block', width: 22, height: 22, borderRadius: '50%', background: FARG.text, transform: p.pa ? 'translateX(18px)' : 'translateX(0)', transition: `transform 150ms cubic-bezier(0.2, 0, 0, 1)` }} />
                         </span>
                       </button>
