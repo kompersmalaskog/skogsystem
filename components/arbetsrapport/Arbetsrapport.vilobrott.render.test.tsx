@@ -173,7 +173,9 @@ describe("Vilobrott räknas om mot nuvarande data", () => {
       brott({ typ: "dygnsvila", datum: IGAR, vila_h: 6 }),
     ]);
     await montera();
-    expect(text()).toMatch(/Dygnsvila 6 tim av 11/);
+    // kvällen: vilobrottet är en rad i "Saker att svara på" (ingen remsa överst)
+    expect(text()).toMatch(/Dygnsvila 6 tim/);
+    expect(text()).toMatch(/Varför bröts vilan\?/);
     expect(skrivna("vilobrott").length).toBe(0);
   });
 
@@ -191,7 +193,7 @@ describe("Vilobrott räknas om mot nuvarande data", () => {
     const period = { id: "p1", medarbetare_id: "m-1", datum: IDAG, arbetsdag_id: skalrad.id, start_tid: "04:00:00", slut_tid: "10:00:00", minuter: 360, aktivitet_typ: "planering", objekt_id: "OBJ1", debiterbar: true, kalla: "morgon" };
     fixtur([skalrad, dagRad({ datum: IGAR, start_tid: "12:00:00", slut_tid: "22:00:00" })], [brott({ typ: "dygnsvila", datum: IGAR, vila_h: 6 })], [period], { ...FORARE, maskin_id: null });
     await montera();
-    expect(text()).toMatch(/Dygnsvila 6 tim av 11/); // stöds av perioden → står kvar
+    expect(text()).toMatch(/Dygnsvila 6 tim/); // stöds av perioden → står kvar
     await klick("Planering ·");           // öppnar perioden
     await klick("Ta bort");               // tvåstegsval
     await klick("Ja, ta bort");

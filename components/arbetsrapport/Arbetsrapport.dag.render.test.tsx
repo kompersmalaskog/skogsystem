@@ -151,7 +151,7 @@ describe("Dag-vyn: Körning läser databasens km", () => {
     await montera();
     expect(text()).toMatch(/Körning112 km/);
     expect(text()).not.toMatch(/Körning0 km/);
-    expect(text()).toMatch(/6 påbörjade mil/);
+    expect(text()).toMatch(/112 km · 6 mil/);
   });
 
   it("km-arket öppnas med databasens värden (112 km totalt), inte 0/0", async () => {
