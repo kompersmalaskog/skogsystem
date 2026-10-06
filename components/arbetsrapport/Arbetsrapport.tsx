@@ -19,7 +19,7 @@ import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, passMinuter } from "@/lib/arbetsdagRegler";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
 import { delaKorning, korningDelarText } from "@/lib/arbetsdagKorning";
-import { tidsFragor, VILA_ORSAKER, vilaSvarText, type VilaOrsak } from "@/lib/dagFragor";
+import { tidsFragor, VILA_ORSAKER, vilaSvarText, arDagensVilobrott, type VilaOrsak } from "@/lib/dagFragor";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
@@ -1363,6 +1363,8 @@ export default function Arbetsrapport() {
     // nolla). Saknades i posten: ett sparat Ja/Nej lästes som obesvarat efter omladdning.
     brandrisk_beordrad: r.brandrisk_beordrad ?? null,
     km_kalla: r.km_kalla ?? null,
+    // Förarens bekräftade rast-/passfrågor (id → start|slut|rast). Ändras tiderna gäller svaret inte.
+    tidsfragor_svar: r.tidsfragor_svar ?? null,
     start_tid: r.start_tid || null,
     slut_tid: r.slut_tid || null,
     rast_min: r.rast_min ?? 0,
@@ -1845,10 +1847,11 @@ export default function Arbetsrapport() {
         // en äldre dag i Redigera. Dag-vyns gula rader uppdateras separat.
         const [iFonster, nyaAktuella] = await Promise.all([
           hamtaVilobrottForPeriod(medarbetare.id, fromIso, toIso),
-          hamtaAktuellaVilobrott(medarbetare.id),
+          hamtaAktuellaVilobrott(medarbetare.id, 30),
         ]);
         setAktuellaVilobrott(nyaAktuella);
-        const obesvarade = iFonster.filter(b => !b.besvarat_av_forare);
+        // Bara DEN DAGENS brott blockerar underskriften; äldre obesvarade är en påminnelse (dagFragor).
+        const obesvarade = iFonster.filter(b => !b.besvarat_av_forare && arDagensVilobrott(b, datum));
         if (obesvarade.length > 0) {
           // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
           setVilobrottKö(obesvarade);
@@ -2808,10 +2811,10 @@ export default function Arbetsrapport() {
             svar: svarad ? `${bd.brandrisk_beordrad ? 'Ja' : 'Nej'}${ob > 0 ? ` · ${fmtOb(ob)} OB` : ''}` : null,
             oppna: ()=>setSvarSheet({ typ:'brand' }) });
         }
-        const grans30 = (() => { const d = new Date(idagKey + 'T00:00:00'); d.setDate(d.getDate() - 30); return franGolv(ymdLokal(d)); })();
         const datumKortK = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`; };
         for (const b of aktuellaVilobrott
-          .filter(b => b.datum >= grans30 && (!b.besvarat_av_forare || besvaradeFragor['vila-' + b.id]))
+          // BARA dagens brott (i natt/idag). Äldre obesvarade blockerar aldrig Stämmer; de är en påminnelse i remsan överst.
+          .filter(b => arDagensVilobrott(b, idagKey) && (!b.besvarat_av_forare || besvaradeFragor['vila-' + b.id]))
           .sort((a, c) => a.datum.localeCompare(c.datum))) {
           const nar = b.typ === 'veckovila' ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}` : (b.datum === igårKey ? '' : datumKortK(b.datum));
           const tim = (Math.round(Number(b.vila_h) * 10) / 10).toLocaleString('sv-SE');
@@ -2823,7 +2826,10 @@ export default function Arbetsrapport() {
         if (harMaskinPass) {
           const sig = `${start}|${slut}|${rast}`;
           for (const q of tidsFragor(rast, passMinuter(start, slut, rast))) {
-            fragor.push({ nyckel:'tid-' + q.id, titel: q.titel, fraga:'Stämmer det?', svar: tidsSvar[q.id] === sig ? 'Stämmer' : null,
+            // Svaret ligger i databasen (arbetsdag.tidsfragor_svar) så frågan inte kommer igen efter
+            // omladdning; lokala svaret gäller i den här visningen om skrivningen inte gick igenom.
+            const sparat = (idagArb?.tidsfragor_svar || {})[q.id] === sig || tidsSvar[q.id] === sig;
+            fragor.push({ nyckel:'tid-' + q.id, titel: q.titel, fraga:'Stämmer det?', svar: sparat ? 'Stämmer' : null,
               oppna: ()=>setSvarSheet({ typ:'tid', id: q.id }) });
           }
         }
@@ -3188,8 +3194,9 @@ export default function Arbetsrapport() {
     // Dygnsvila räknas mellan slut_tid dag N och start_tid dag N+1 — den kan
     // alltså INTE räknas före dagens pass börjat. Det som visas är lagrade
     // brott: dygnsvilan från i natt syns först när dagens start finns.
-    // På kvällen är vilobrotten rader i "Saker att svara på" (ovanför Stämmer), inte en remsa här.
-    const vilobrottObesvarade = kvällsLäge ? [] : aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30);
+    // På kvällen är DAGENS vilobrott rader i "Saker att svara på" (ovanför Stämmer); äldre
+    // obesvarade står kvar här som en separat påminnelse som aldrig blockerar Stämmer.
+    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
     type VantarRad = { nyckel: string; text: string; farg: string; onClick: () => void };
     const vantarRader: VantarRad[] = [];
     for (const b of vilobrottObesvarade) {
@@ -3511,7 +3518,16 @@ export default function Arbetsrapport() {
           <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{q.text}</p>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
             <button onClick={()=>{ setSvarSheet(null); öppnaTider(); }} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Ändra tider</button>
-            <button onClick={()=>{ setTidsSvar(s => ({ ...s, [q.id]: `${start}|${slut}|${rast}` })); setSvarSheet(null); }} style={KNAPP.primar}>Ja, det stämmer</button>
+            <button onClick={async ()=>{
+              const sig = `${start}|${slut}|${rast}`;
+              setTidsSvar(s => ({ ...s, [q.id]: sig })); // gäller direkt, även om skrivningen nedan skulle fela
+              setSvarSheet(null);
+              if (!idagArb?.id) return;
+              const nytt = { ...(idagArb.tidsfragor_svar || {}), [q.id]: sig };
+              const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidsfragor_svar: nytt }, { id: idagArb.id });
+              if (!res.ok) { console.error('[svar] tidsfragor_svar kunde inte sparas — svaret gäller bara i den här visningen:', res.fel); return; }
+              setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey] || {}), tidsfragor_svar: nytt } }));
+            }} style={KNAPP.primar}>Ja, det stämmer</button>
           </div>
         </>);
       })()}

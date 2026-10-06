@@ -49,6 +49,9 @@ vi.mock("@/lib/supabase", () => {
         rader = tab.filter(r => this.f.every(fn => fn(r))).map(r => ({ ...r }));
       } else if (this.mode === "update") {
         const traff = tab.filter(r => this.f.every(fn => fn(r)));
+        if (g.__failCol && this.vals && g.__failCol in this.vals) {
+          return Promise.resolve({ data: null, error: { message: `column ${g.__failCol} does not exist` }, count: 0 }).then(res, rej);
+        }
         traff.forEach(r => Object.assign(r, this.vals));
         g.__skriv.push({ tabell: this.t, op: "update", vals: this.vals });
         rader = traff.map(r => ({ ...r }));
@@ -93,7 +96,7 @@ const g = globalThis as any;
 
 beforeEach(() => {
   g.IS_REACT_ACT_ENVIRONMENT = true;
-  g.__skriv = [];
+  g.__skriv = []; g.__failCol = null;
   try { localStorage.clear(); } catch { /* jsdom */ }
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -323,6 +326,103 @@ describe("Vanlig dag", () => {
     await klickKnapp("Stämmer");
     await vänta(6, 40);
     expect(skrivna("arbetsdag", "upsert").length).toBe(1);
+  });
+});
+
+/** Äldre obesvarat vilobrott (30/9): igår 22:00 → 1/10 04:00 = 6 h. Passen finns, så städningen låter brottet stå. */
+function gammaltBrott() {
+  fixtur({ start_tid: "10:00:00" }, [brott({ typ: "dygnsvila", datum: "2026-09-30", vila_h: 6 })]);
+  g.__db.arbetsdag.push(dagRad({ datum: "2026-09-30", start_tid: "12:00:00", slut_tid: "22:00:00" }), dagRad({ datum: "2026-10-01", start_tid: "04:00:00", slut_tid: "10:00:00" }));
+}
+
+describe("Bara DAGENS vilobrott i listan — äldre blockerar aldrig Stämmer", () => {
+  it("ett obesvarat brott från 30/9 är inte en fråga i dagens lista; Stämmer är vit", async () => {
+    gammaltBrott();
+    await montera();
+    expect(text()).not.toMatch(/att svara på/i);
+    expect(text()).not.toMatch(/Kravet är 11 tim/);
+    expect(opacity(stammer())).toBe(1);
+  });
+
+  it("det visas i stället som en separat påminnelse (remsan), inte i listan", async () => {
+    gammaltBrott();
+    await montera();
+    expect(text()).toMatch(/Dygnsvila 6 tim av 11 · 30 sep/);
+  });
+
+  it("ett tryck på Stämmer bekräftar — det gamla brottet öppnar inte orsaksflödet", async () => {
+    gammaltBrott();
+    await montera();
+    await klickKnapp("Stämmer");
+    await vänta(6, 40);
+    expect(skrivna("arbetsdag", "upsert").length).toBe(1);
+    expect(text()).not.toMatch(/Varför bröts vilan\?/);
+    // brottet är oberört (obesvarat, kvar som påminnelse)
+    expect((g.__db.vilobrott as any[]).find(r => r.datum === "2026-09-30").besvarat_av_forare).toBe(false);
+  });
+
+  it("dagens eget brott (igår → idag) ligger fortfarande i listan tillsammans med påminnelsen", async () => {
+    gammaltBrott();
+    g.__db.vilobrott.push(dygnsvila());
+    g.__db.arbetsdag[0].start_tid = "05:10:00"; g.__db.arbetsdag[0].brandrisk_beordrad = false;
+    await montera();
+    expect(text()).toMatch(/1 sak att svara på/i);
+    expect(text()).toMatch(/Dygnsvila 7,2 tim/);
+    expect(text()).toMatch(/Dygnsvila 6 tim av 11 · 30 sep/);
+  });
+});
+
+describe("Rastsvaret sparas i databasen", () => {
+  const rast95 = () => fixtur({ rast_min: 95, start_tid: "10:00:00" }, []);
+  const SIG = "10:00|16:12|95";
+
+  it("svar 'Ja, det stämmer' skrivs på arbetsdagen (tidsfragor_svar) med tidssignaturen", async () => {
+    rast95();
+    await montera();
+    await klick("Rast 95 min"); await klickKnapp("Ja, det stämmer");
+    const upd = skrivna("arbetsdag", "update").filter(s => "tidsfragor_svar" in s.vals);
+    expect(upd.length).toBe(1);
+    expect(upd[0].vals.tidsfragor_svar).toEqual({ rast: SIG });
+  });
+
+  it("efter omladdning är frågan inte tillbaka: Besvarat, Stämmer vit", async () => {
+    rast95();
+    await montera();
+    await klick("Rast 95 min"); await klickKnapp("Ja, det stämmer");
+    act(() => { rot?.unmount(); }); rot = null;
+    await montera();                                  // ny sidladdning, samma databas
+    expect(text()).not.toMatch(/att svara på/i);
+    expect(text()).toMatch(/Besvarat/);
+    expect(text()).toMatch(/Rast 95 min/);
+    expect(opacity(stammer())).toBe(1);
+    await klickKnapp("Stämmer");
+    await vänta(6, 40);
+    expect(skrivna("arbetsdag", "upsert").length).toBe(1);
+    expect(text()).not.toMatch(/Rast 95 min — stämmer det\?/);
+  });
+
+  it("ändras tiderna efter svaret gäller svaret inte längre (annan signatur i databasen)", async () => {
+    fixtur({ rast_min: 95, start_tid: "10:00:00", tidsfragor_svar: { rast: "10:00|16:12|80" } }, []);
+    await montera();
+    expect(text()).toMatch(/1 sak att svara på/i);
+    expect(opacity(stammer())).toBeLessThan(1);
+  });
+
+  it("databasen har svaret för dessa tider: ingen fråga alls", async () => {
+    fixtur({ rast_min: 95, start_tid: "10:00:00", tidsfragor_svar: { rast: SIG } }, []);
+    await montera();
+    expect(text()).not.toMatch(/att svara på/i);
+    expect(text()).toMatch(/Besvarat/);
+    expect(opacity(stammer())).toBe(1);
+  });
+
+  it("skrivningen misslyckas (kolumnen saknas än): svaret gäller ändå i den här visningen så ingen låses ute", async () => {
+    rast95();
+    g.__failCol = "tidsfragor_svar";
+    await montera();
+    await klick("Rast 95 min"); await klickKnapp("Ja, det stämmer");
+    expect(text()).toMatch(/Besvarat/);
+    expect(opacity(stammer())).toBe(1);
   });
 });
 

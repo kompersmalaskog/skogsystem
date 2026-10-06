@@ -46,6 +46,20 @@ export function tidsFragor(rastMin: number, passMin: number | null | undefined):
   return ut;
 }
 
+/**
+ * Hör vilobrottet till DAGEN `datum`? Bara då är det en fråga i dagens lista och kan blockera
+ * Stämmer. Ett brott hör till dagen när det uppstod i natt eller idag: dygnsvilan mellan
+ * gårdagens slut och dagens start har datum = gårdagen, veckovila har datum = första dagen
+ * i den stretch som saknar 36 h. Äldre obesvarade brott (Martin 2026-10-06) får aldrig blockera
+ * dagens underskrift — de visas som en separat påminnelse.
+ */
+export function arDagensVilobrott(b: { datum: string }, datum: string): boolean {
+  const d = new Date(datum + "T00:00:00");
+  d.setDate(d.getDate() - 1);
+  const igar = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return b.datum === datum || b.datum === igar;
+}
+
 export type VilaOrsak = "oforutsedd" | "akut_jour" | "planerad_avtal" | "annat";
 
 export const VILA_ORSAKER: { key: VilaOrsak; label: string; sub: string; kort: string }[] = [

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tidsFragor, vilaSvarText } from "./dagFragor";
+import { tidsFragor, vilaSvarText, arDagensVilobrott } from "./dagFragor";
 
 describe("tidsFragor", () => {
   it("vanlig dag: inga frågor", () => {
@@ -25,6 +25,22 @@ describe("tidsFragor", () => {
   });
   it("okänd passlängd (perioddag): bara rasten bedöms", () => {
     expect(tidsFragor(0, null)).toEqual([]);
+  });
+});
+
+describe("arDagensVilobrott", () => {
+  it("brott från i natt (igår) och idag hör till dagen", () => {
+    expect(arDagensVilobrott({ datum: "2026-10-04" }, "2026-10-05")).toBe(true);
+    expect(arDagensVilobrott({ datum: "2026-10-05" }, "2026-10-05")).toBe(true);
+  });
+  it("äldre och framtida brott gör det inte", () => {
+    expect(arDagensVilobrott({ datum: "2026-10-03" }, "2026-10-05")).toBe(false);
+    expect(arDagensVilobrott({ datum: "2026-09-30" }, "2026-10-05")).toBe(false);
+    expect(arDagensVilobrott({ datum: "2026-10-06" }, "2026-10-05")).toBe(false);
+  });
+  it("månadsskifte och årsskifte", () => {
+    expect(arDagensVilobrott({ datum: "2026-09-30" }, "2026-10-01")).toBe(true);
+    expect(arDagensVilobrott({ datum: "2025-12-31" }, "2026-01-01")).toBe(true);
   });
 });
 
