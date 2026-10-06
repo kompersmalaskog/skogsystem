@@ -21,7 +21,7 @@ import { supabase } from '@/lib/supabase';
 import { AVSTAND, FARG, INAKTIV, TYP, TNUM } from '@/lib/design/tokens';
 import { uppskattaGrotM3fub } from '@/lib/grot';
 import { typLabel } from '@/lib/objekt/typ';
-import { byggVarningar, type MarkeringRow, type Varning } from './objekt-info';
+import { lasVarningar, type VarningsSvar } from './markeringar-las';
 import type { MaskinKoItem } from '../oversikt/oversikt-types';
 import { hamtaVagKm } from '@/lib/grotvy/avstand';
 import { arealText, FORSENAD_TEXT, grotSchablonText, kmText, kortDatum, markBegransningText, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
@@ -31,12 +31,13 @@ import GrotMarkagaren from './GrotMarkagaren';
 
 export interface ArkSkotare { id: string; namn: string; roll: string | null; koordinat: Koord | null }
 export interface ArkKo { post: MaskinKoItem; maskinNamn: string; plats: number }
-/** Planeringens fara/hänsyn-markeringar för objektet — ALLA, med planerarens kommentar (samma som i det vanliga objekt-arket). */
-type Hansyn = { faror: Varning[]; hansyn: Varning[] } | 'laddar' | 'fel';
+/** Planeringens fara/hänsyn-markeringar för objektet — ALLA, med planerarens kommentar (samma som i det vanliga objekt-arket): läst
+ *  (kan vara tomt = "ingen"), misslyckad ('fel' → orange meddelande, aldrig "ingen") eller pågående ('laddar' → "–"). */
+type Hansyn = VarningsSvar;
 
 const SvgTillbaka = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>;
 
-export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaBortKo, onSpara, onTillbaka, onClose }: {
+export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaBortKo, onSpara, onSenFel, onTillbaka, onClose }: {
   rad: GrotRad;
   idag: string;
   /** Aktiva skotare med läge; arket väljer själv de som får köra objektet enligt skotar_roll. */
@@ -46,6 +47,8 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
   onTaBortKo: (koId: string) => Promise<string | null>;
   /** Verifierad sparning av markägarens uppgifter (null = landade, annars felmeddelande). Saknas för förare → ingen sektion. */
   onSpara?: (patch: GrotSkrivning) => Promise<string | null>;
+  /** En kö-sparning som misslyckades efter att arket stängts (meddelandet har då ingenstans att stå) — sidan visar en toast. */
+  onSenFel?: (fel: string) => void;
   onTillbaka: () => void;
   onClose: () => void;
 }) {
@@ -70,26 +73,17 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
   }, [onClose]);
 
   // Hänsyn: planeringens markeringar för DETTA objekt (planering_markeringar.objekt_id = objekt.id) — faror och hänsyn, ALLA, med
-  // planerarens kommentar, byggda av samma byggVarningar som det vanliga objekt-arket (samma klassning, dedupe och ordning). Läses
-  // per objekt och bara de fem nycklarna (JSON-sökväg, inte hela geometrin eller fotot) så svaret är litet, och ett läsfel syns
-  // som "kunde inte läsas" i stället för att tolkas som "ingen hänsyn".
+  // planerarens kommentar. Samma läsning som sidans (markeringar-las.ts): bara de fem JSON-nycklarna (aldrig hela data), sidad, ett nytt
+  // försök vid fel — och ett läsfel som inte går över blir 'fel' (orange meddelande), aldrig "ingen hänsyn".
   useEffect(() => {
     setHansyn('laddar');
     if (!objekt) return;
+    const id = objekt.id; let avbruten = false;
     (async () => {
-      const rader: MarkeringRow[] = [];
-      for (let fran = 0; ; fran += 500) {
-        const { data, error } = await supabase.from('planering_markeringar')
-          .select('id, t:data->>type, z:data->>zoneType, l:data->>lineType, a:data->>arrowType, c:data->>comment')
-          .eq('objekt_id', objekt.id).order('id').range(fran, fran + 499);
-        if (error) { if (levande.current) setHansyn('fel'); return; }
-        for (const m of (data || []) as { t: string | null; z: string | null; l: string | null; a: string | null; c: string | null }[]) {
-          rader.push({ objekt_id: objekt.id, typ: null, data: { type: m.t, zoneType: m.z, lineType: m.l, arrowType: m.a, comment: m.c } });
-        }
-        if (!data || data.length < 500) break;
-      }
-      if (levande.current) setHansyn(byggVarningar(rader)[objekt.id] ?? { faror: [], hansyn: [] });
+      const res = await lasVarningar(supabase, [id]);
+      if (levande.current && !avbruten) setHansyn(res.ok[id] ?? 'fel');
     })();
+    return () => { avbruten = true; };
   }, [objekt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Avstånd från varje skotare som får köra objektet — ORS när arket öppnas, '–' tills det är känt.
@@ -110,14 +104,11 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
   const areal = arealText(rad.arealHa);
   const grot = uppskattaGrotM3fub(rad.skordatM3);
   const staarNamn = rad.staarHar ? (skotare.find((s) => s.id === rad.staarHar!.maskinId)?.namn ?? rad.staarHar.maskinId) : null;
-  // Raderna för faror/hänsyn: laddar → "–", läsfel → "kunde inte läsas", inget objekt i planeringen → "okänd"; annars samma rader som
-  // i det vanliga objekt-arket (Faror, Hänsyn — alla, med kommentar — eller "ingen").
+  // Raderna för faror/hänsyn: inget objekt i planeringen → "okänd"; annars exakt som i det vanliga objekt-arket — laddar "–", läsfel det
+  // orange meddelandet, lyckad läsning Faror/Hänsyn (alla, med kommentar) eller "ingen".
   const hansynRader = (): React.ReactNode => {
-    const text = (t: string) => rubrikRad('Hänsyn', <span style={{ color: FARG.text2 }}>{t}</span>);
-    if (!objekt) return text('okänd'); // inget objekt i planeringen → inga markeringar att läsa
-    if (hansyn === 'laddar') return text('–');
-    if (hansyn === 'fel') return text('kunde inte läsas');
-    return <VarningRader faror={hansyn.faror} hansyn={hansyn.hansyn} />;
+    if (!objekt) return rubrikRad('Hänsyn', <span style={{ color: FARG.text2 }}>okänd</span>); // inget objekt i planeringen → inga markeringar att läsa
+    return <VarningRader svar={hansyn} />;
   };
   // En siffra per skotare som får köra objektet: "11 km från Wisent · – km från Elefant 26". '–' tills ORS svarat.
   const avstText = eligible.filter((s) => s.koordinat && rad.koordinat)
@@ -127,13 +118,13 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
     if (!objekt || arbetar) return;
     setArbetar(true); setMeddelande(null);
     const fel = await onLaggIKo(maskinId, objekt.id);
-    if (levande.current) { setArbetar(false); setMeddelande(fel); }
+    if (levande.current) { setArbetar(false); setMeddelande(fel); } else if (fel) onSenFel?.(fel); // arket stängt före svaret: toast i stället
   }
   async function taBort() {
     if (!ko || arbetar) return;
     setArbetar(true); setMeddelande(null);
     const fel = await onTaBortKo(ko.post.id);
-    if (levande.current) { setArbetar(false); setMeddelande(fel); }
+    if (levande.current) { setArbetar(false); setMeddelande(fel); } else if (fel) onSenFel?.(fel);
   }
 
   const kanKoa = !!objekt && !arbetar;

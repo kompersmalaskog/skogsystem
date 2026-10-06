@@ -14,6 +14,13 @@ import type { MaskinKoItem } from '../oversikt/oversikt-types';
 export const KO_SPARFEL = 'Kunde inte spara — försök igen';
 export const KO_LASFEL = 'Kunde inte läsa kön efteråt — ladda om sidan';
 export const KO_RAD_BORTA = 'Raden finns inte längre i kön';
+/** Toasten när en sparning felar efter att arket stängts (meddelandet i arket har då ingenstans att stå). */
+export const KO_TOAST = 'Kunde inte spara kön';
+export const KO_TOAST_OSAKER = 'Kunde inte läsa kön efteråt — ladda om sidan';
+/** Texten på toasten för ett kö-felmeddelande: "kunde inte läsa tillbaka" (osäkert om det landade) har eget ord, allt annat är "kunde inte spara". */
+export function toastText(fel: string | null | undefined): string {
+  return fel && /efteråt/i.test(fel) ? KO_TOAST_OSAKER : KO_TOAST;
+}
 
 export interface KoSvar { ok: boolean; meddelande: string | null; ko: MaskinKoItem[] | null }
 /** Så lite av supabase-klienten som behövs — ingen import av den, så modulen går att köra i Node och mot en fake. */

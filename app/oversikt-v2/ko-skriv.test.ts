@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { KO_LASFEL, KO_RAD_BORTA, KO_SPARFEL, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat } from './ko-skriv';
+import { KO_LASFEL, KO_RAD_BORTA, KO_SPARFEL, KO_TOAST, KO_TOAST_OSAKER, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat, toastText } from './ko-skriv';
 import type { MaskinKoItem } from '../oversikt/oversikt-types';
 
 // En liten fake av maskin_ko som beter sig som PostgREST för de anrop modulen gör — inklusive de tysta felen:
@@ -367,5 +367,24 @@ describe('skapaKoKedja — en köskrivning i taget', () => {
     const f = fake([rad('a', 'M1', 'o1', 0)]);
     await Promise.all([laggIKoVerifierat(f.sb, 'M1', 'o2'), laggIKoVerifierat(f.sb, 'M1', 'o3')]);
     expect(f.tabell.map((k) => k.ordning).sort()).toEqual([0, 1, 1]);
+  });
+});
+
+describe('toastText — den korta texten när arket hunnit stängas innan svaret kom', () => {
+  it('en sparning som felade: "Kunde inte spara kön", ordagrant', () => {
+    expect(KO_TOAST).toBe('Kunde inte spara kön');
+    for (const fel of [KO_SPARFEL, KO_RAD_BORTA, 'Kunde inte läsa kön. Försök igen.', 'Kunde inte lägga i kön. Försök igen.', 'Kunde inte ta bort ur kön. Försök igen.', 'Ändringen landade inte. Försök igen.']) {
+      expect(toastText(fel)).toBe('Kunde inte spara kön');
+    }
+  });
+  it('osäkert om det landade (kunde inte läsa tillbaka): eget ord, för vi vet inte att det INTE sparades', () => {
+    expect(KO_TOAST_OSAKER).toBe('Kunde inte läsa kön efteråt — ladda om sidan');
+    expect(toastText(KO_LASFEL)).toBe(KO_TOAST_OSAKER);
+    expect(toastText('Kunde inte läsa kön efteråt. Ladda om sidan.')).toBe(KO_TOAST_OSAKER); // GROT-arkets variant av samma sak
+  });
+  it('inget meddelande alls → ändå den korta texten (toasten får aldrig bli tom)', () => {
+    expect(toastText(null)).toBe(KO_TOAST);
+    expect(toastText(undefined)).toBe(KO_TOAST);
+    expect(toastText('')).toBe(KO_TOAST);
   });
 });

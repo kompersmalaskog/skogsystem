@@ -4,6 +4,7 @@
 import React from 'react';
 import { FARG, TYP, AVSTAND, RADIE } from '@/lib/design/tokens';
 import type { Varning } from './objekt-info';
+import { VARNING_LASFEL, type VarningsSvar } from './markeringar-las';
 
 export const KNAPP: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s, flexGrow: 1, minHeight: 50, border: `0.5px solid #48484a`, borderRadius: RADIE.knapp, textDecoration: 'none', ...TYP.listtitel, color: FARG.text, fontFamily: 'inherit', background: 'transparent', cursor: 'pointer' };
 export const KNAPP_LITEN: React.CSSProperties = { ...KNAPP, minHeight: 44, ...TYP.text };
@@ -27,10 +28,14 @@ export function VarningLista({ items, farg }: { items: Varning[]; farg: string }
     </div>
   );
 }
-/** Raderna "Faror" (bara när det finns några) och "Hänsyn" (bara när det finns några; annars "ingen") — ligger direkt i arkets
- *  2-kolumnsgrid (fragment, ingen egen ruta). */
-export function VarningRader({ faror, hansyn }: { faror: Varning[]; hansyn: Varning[] }) {
+/** Raderna "Faror" (bara när det finns några) och "Hänsyn" (bara när det finns några) — ligger direkt i arkets 2-kolumnsgrid (fragment,
+ *  ingen egen ruta). "ingen" står BARA när läsningen lyckades och gav 0 faror/hänsyn. Misslyckades den står det orange att den inte gick
+ *  att läsa (kolla planeringen) — aldrig "ingen" — och pågår den står det "–". */
+export function VarningRader({ svar }: { svar: VarningsSvar }) {
   const rad = (etikett: string, varde: React.ReactNode) => (<><div style={{ color: FARG.text2 }}>{etikett}</div><div>{varde}</div></>);
+  if (svar === 'laddar') return rad('Hänsyn', <span style={{ color: FARG.text2 }}>–</span>);
+  if (svar === 'fel') return rad('Hänsyn', <span role="alert" style={{ color: FARG.orange }}>{VARNING_LASFEL}</span>);
+  const { faror, hansyn } = svar;
   if (faror.length === 0 && hansyn.length === 0) return rad('Hänsyn', <span style={{ color: FARG.text2 }}>ingen</span>);
   return (
     <>
