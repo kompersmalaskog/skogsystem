@@ -10,10 +10,10 @@
 // BAKÅTKOMPATIBELT: markeringar som ännu bär photoData visas som förut tills de migrerats.
 
 import { supabase } from '@/lib/supabase';
-import { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag, arMarkeringFotoSokvagFor } from './markeringFotoSokvag';
+import { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag } from './markeringFotoSokvag';
 
 // Rena helpers bor i ./markeringFotoSokvag (utan supabase-import → delas med migreringsskriptet).
-export { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag, arMarkeringFotoSokvagFor };
+export { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag };
 
 
 /** Längsta sida efter omskalning. */
@@ -85,19 +85,4 @@ export async function signeraMarkeringFoto(sokvag: string | null | undefined, tt
     return null;
   }
   return data.signedUrl;
-}
-
-/**
- * Tar bort en markerings foto ur Storage. Går bara att anropa med en sökväg som ligger i objektets
- * egen mapp — en trasig/främmande photoPath kan aldrig radera en annan trakts fil.
- * Returnerar true om filen är borta (även om den redan saknades).
- */
-export async function raderaMarkeringFoto(objektId: string | number, sokvag: string | null | undefined): Promise<boolean> {
-  if (!sokvag || !arMarkeringFotoSokvagFor(objektId, sokvag)) return false;
-  const { error } = await supabase.storage.from(MARKERING_FOTO_BUCKET).remove([sokvag]);
-  if (error) {
-    console.error('[markeringFoto] kunde inte radera', sokvag, error.message);
-    return false;
-  }
-  return true;
 }

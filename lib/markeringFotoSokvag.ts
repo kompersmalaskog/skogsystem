@@ -18,8 +18,3 @@ const sakraSegment = (s: string | number) => String(s).replace(/[^A-Za-z0-9_-]/g
 export function byggFotoSokvag(objektId: string | number, markerId: string | number): string {
   return `${sakraSegment(objektId)}/${sakraSegment(markerId)}.jpg`;
 }
-
-/** Ligger sökvägen i just detta objekts mapp? (vakt mot att radera en annan trakts fil) */
-export function arMarkeringFotoSokvagFor(objektId: string | number, sokvag: string): boolean {
-  return sokvag.startsWith(`${sakraSegment(objektId)}/`) && !sokvag.includes('..') && sokvag.split('/').length === 2;
-}
