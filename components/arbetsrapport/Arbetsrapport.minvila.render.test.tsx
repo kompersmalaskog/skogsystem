@@ -187,6 +187,7 @@ function aldreDag(o: any = {}, vilobrott: any[] = [], extra: Record<string, any[
 const stammer = () => knapp("Stämmer") as HTMLButtonElement;
 const opacity = (b: HTMLElement) => Number(b.style.opacity || 1);
 
+const pass = (datum: string, o: any = {}) => dagRad({ datum, start_tid: "10:00:00", slut_tid: "18:00:00", bekraftad: true, bekraftad_tid: datum + "T17:00:00Z", ...o }); // (används av aldreDag i huvudet)
 const ROD = "rgb(255, 69, 58)"; // FARG.rod
 const GRON = "rgb(48, 209, 88)";
 /** 28/9 ger långt vilogap. 1/10 12–22 → 2/10 05:10 = 7,2 h (brott 1/10). 4/10 20–04 → 5/10 04:00 = 8 h (brott 4/10). */
