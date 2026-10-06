@@ -239,7 +239,9 @@ describe("Kvällsvyn: det som avviker syns, och går att åtgärda", () => {
     fixtur(klartPass({ objekt_id: null }));
     await montera();
     expect(text()).toMatch(/ObjektSaknas/);
-    await klick("Saknas");
+    // frågan står under "Saker att svara på"; raden i kortet är bara information
+    expect(text()).toMatch(/Vilken trakt var du på\?/);
+    await klick("Vilken trakt var du på?");
     expect(text()).toMatch(/Välj objekt/);
   });
 
@@ -320,7 +322,7 @@ describe("Kvällsvyn: kilometerna syns FÖRE Stämmer", () => {
     await montera();
     expect(g.__kmDagAnrop).toBe(1);
     expect(text()).toMatch(/Körning112 km/);
-    expect(text()).toMatch(/6 påbörjade mil/);
+    expect(text()).toMatch(/112 km · 6 mil/);
     expect(skrivna("arbetsdag").length).toBe(0); // inget skrevs av klienten: helpern äger skrivningen
   });
 
