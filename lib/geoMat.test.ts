@@ -42,8 +42,8 @@ describe('formatLength / formatArea — oförändrade formler ur planeringsvyn',
     expect(formatLength(0)).toBe('0 m');
     expect(formatLength(384.4)).toBe('384 m');
     expect(formatLength(999.4)).toBe('999 m');
-    expect(formatLength(1000)).toBe('1.00 km');
-    expect(formatLength(2345)).toBe('2.35 km');
+    expect(formatLength(1000)).toBe('1,00 km');   // decimalkomma som arean ("0,89 ha")
+    expect(formatLength(2345)).toBe('2,35 km');
   });
   it('m² under 1 ha, ha med 2 decimaler däröver', () => {
     expect(formatArea(0)).toBe('0 m²');

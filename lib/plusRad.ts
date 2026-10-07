@@ -1,15 +1,15 @@
-// PLUS-RADEN: en rad med sex platser längst ner när man trycker på plus (körvyn OCH planeringen — samma komponent).
+// PLUS-DOCKAN: plusknappen expanderar åt vänster till en mörk docka nere till höger (körvyn OCH planeringen — samma komponent).
 //
-//   • Sex platser. Den SJÄTTE är alltid "Alla" (alla symboler, lager, Rita linje, Rita yta, Mät sträcka, Mät yta). Det ger fem
-//     platser åt innehåll: MAX_FASTA = 5. (Specen säger "sex platser" och "sista platsen Alla" — raden blir aldrig bredare än sex.)
-//   • FASTA först (föraren höll fingret i Alla → "Fast i raden"), resten fylls AUTOMATISKT efter mest använt.
-//   • Håll fingret i raden → "Lossa" (fasta) / "Fast i raden" (automatiska). Max fem fasta.
+//   • SEX symbolknappar, sedan ett avdelarstreck, "Alla" och ×. Dockan fylls BARA med symboler: Högstubbe och Evighetsträd finns i
+//     pillen (körvyn) och mätverktygen, Rita och lagren finns i Alla — de hör inte hemma i dockan. MAX_FASTA = 6.
+//   • FASTA först (föraren höll fingret på en symbol → "Fast i dockan"), resten fylls AUTOMATISKT efter mest använt.
+//   • Håll fingret på en symbol i dockan → "Lossa" (fast) / "Fast i dockan" (automatisk). Max sex fasta.
 //   • Sparas per maskin (localStorage), så valet följer maskinen och överlever omstart.
 //
 // Rena funktioner → testbara (plusRad.test.ts). Inget här vet något om React eller kartan.
 
 export const PLATSER = 6;
-export const MAX_FASTA = PLATSER - 1;
+export const MAX_FASTA = PLATSER;
 
 export type RitaId = 'linje' | 'yta';
 export type MatId = 'strackan' | 'yta';
@@ -26,13 +26,17 @@ export const MAT_IDS: readonly MatId[] = ['strackan', 'yta'];
 export const RITA_NAMN: Readonly<Record<RitaId, string>> = { linje: 'Rita linje', yta: 'Rita yta' };
 export const MAT_NAMN: Readonly<Record<MatId, string>> = { strackan: 'Mät sträcka', yta: 'Mät yta' };
 
-/** Raden innan något är använt: dessa fem, i den här ordningen (och som tiebreak mellan lika många användningar). */
+/** Symboler som redan har en egen knapp i pillen (körvyn) — de fyller aldrig en plats i dockan. De finns kvar i Alla. */
+export const PILL_SYMBOLER: readonly string[] = ['highstump', 'eternitytree'];
+
+/** Dockan innan något är använt: dessa sex symboler, i den här ordningen (och som tiebreak mellan lika många användningar). */
 export const STANDARD_ORDNING: readonly PlusPost[] = [
-  { typ: 'symbol', id: 'highstump' },
-  { typ: 'symbol', id: 'eternitytree' },
-  { typ: 'matning', id: 'strackan' },
-  { typ: 'matning', id: 'yta' },
+  { typ: 'symbol', id: 'wet' },
+  { typ: 'symbol', id: 'steep' },
+  { typ: 'symbol', id: 'culturemonument' },
   { typ: 'symbol', id: 'landing' },
+  { typ: 'symbol', id: 'windfall' },
+  { typ: 'symbol', id: 'manualfelling' },
 ];
 
 export interface PlusRadState {
@@ -45,6 +49,9 @@ export interface PlusRadState {
 export interface Lagring { getItem(k: string): string | null; setItem(k: string, v: string): void }
 
 export const postNyckel = (p: PlusPost): string => `${p.typ}:${p.id}`;
+
+/** Får posten ligga i dockan? Bara symboler, och inte de som pillen redan har. */
+export const arDockPost = (p: PlusPost): boolean => p.typ === 'symbol' && !PILL_SYMBOLER.includes(p.id);
 export const arSammaPost = (a: PlusPost, b: PlusPost): boolean => postNyckel(a) === postNyckel(b);
 
 export const tomtPlusRad = (): PlusRadState => ({ fasta: [], anv: {} });
@@ -76,6 +83,7 @@ export function tolkaPlusRad(raw: string | null | undefined): PlusRadState {
   for (const x of Array.isArray(p.fasta) ? p.fasta : []) {
     if (!giltigPost(x)) continue;
     const post = { typ: x.typ, id: x.id } as PlusPost;
+    if (!arDockPost(post)) continue;
     if (fasta.some((y) => arSammaPost(y, post))) continue;
     fasta.push(post);
     if (fasta.length >= MAX_FASTA) break;
@@ -118,18 +126,18 @@ export function noteraAnvandning(s: PlusRadState, post: PlusPost): PlusRadState 
 export interface RadPlats { post: PlusPost; fast: boolean }
 
 /**
- * Raden som ska visas: de fasta först, sedan automatiskt det mest använda tills fem platser är fyllda.
- * Automatiska kandidater = standardposterna + allt som någon gång använts; mest använt först, lika → standardordningen,
- * därefter alfabetiskt (så raden aldrig hoppar mellan två renderingar). `finns` filtrerar bort poster som inte längre
- * existerar (ett lager som togs bort, en symbol som bytt namn) — både fasta och automatiska.
+ * Dockan som ska visas: de fasta först, sedan automatiskt det mest använda tills sex platser är fyllda.
+ * Automatiska kandidater = standardsymbolerna + alla symboler som någon gång använts; mest använt först, lika → standardordningen,
+ * därefter alfabetiskt (så dockan aldrig hoppar mellan två renderingar). Bara symboler (arDockPost). `finns` filtrerar bort poster som inte
+ * längre existerar (en symbol som bytt namn) — både fasta och automatiska.
  */
 export function beraknaRad(s: PlusRadState, finns: (p: PlusPost) => boolean = () => true): RadPlats[] {
-  const fasta = s.fasta.filter(finns).slice(0, MAX_FASTA);
+  const fasta = s.fasta.filter((p) => arDockPost(p) && finns(p)).slice(0, MAX_FASTA);
   const ut: RadPlats[] = fasta.map((post) => ({ post, fast: true }));
   const upptagna = new Set(fasta.map(postNyckel));
   const kandidater = new Map<string, PlusPost>();
   for (const p of STANDARD_ORDNING) kandidater.set(postNyckel(p), p);
-  for (const k of Object.keys(s.anv)) { const p = nyckelTillPost(k); if (p && !kandidater.has(k)) kandidater.set(k, p); }
+  for (const k of Object.keys(s.anv)) { const p = nyckelTillPost(k); if (p && arDockPost(p) && !kandidater.has(k)) kandidater.set(k, p); }
   const stdIndex = (k: string) => { const i = STANDARD_ORDNING.findIndex((p) => postNyckel(p) === k); return i < 0 ? Infinity : i; };
   const sorterade = Array.from(kandidater.entries())
     .filter(([k, p]) => !upptagna.has(k) && finns(p))
@@ -143,10 +151,11 @@ export function beraknaRad(s: PlusRadState, finns: (p: PlusPost) => boolean = ()
 
 export const arFast = (s: PlusRadState, post: PlusPost): boolean => s.fasta.some((p) => arSammaPost(p, post));
 
-export type FastaResultat = { ok: true; state: PlusRadState } | { ok: false; skal: 'full' | 'finns' };
+export type FastaResultat = { ok: true; state: PlusRadState } | { ok: false; skal: 'full' | 'finns' | 'ej-symbol' };
 
-/** "Fast i raden". Är raden full (fem fasta) får föraren lossa en först — inget byts ut i smyg. */
+/** "Fast i dockan". Bara en symbol går att fästa. Är dockan full (sex fasta) får föraren lossa en först — inget byts ut i smyg. */
 export function fastaPost(s: PlusRadState, post: PlusPost): FastaResultat {
+  if (!arDockPost(post)) return { ok: false, skal: 'ej-symbol' };
   if (arFast(s, post)) return { ok: false, skal: 'finns' };
   if (s.fasta.length >= MAX_FASTA) return { ok: false, skal: 'full' };
   return { ok: true, state: { fasta: [...s.fasta, post], anv: s.anv } };

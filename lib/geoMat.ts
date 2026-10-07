@@ -40,7 +40,7 @@ export function ringAreaM2(coords: LngLat[]): number {
 
 /** m eller km (2 decimaler från 1 km). */
 export function formatLength(meters: number): string {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+  if (meters >= 1000) return `${(meters / 1000).toFixed(2).replace('.', ',')} km`;   // decimalkomma, som "0,89 ha" (före 2026-10-07: punkt)
   return `${Math.round(meters)} m`;
 }
 

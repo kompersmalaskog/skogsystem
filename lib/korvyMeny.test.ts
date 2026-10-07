@@ -111,13 +111,40 @@ describe('prickar: högstubbe/evighetsträd i körvyn', () => {
   });
 });
 
-describe('Mät/Rita i körvyn → Spara som', () => {
-  it('körvyn har egen smal list; planeringens gamla paneler döljs i körvy och planeringens mätning startar som förut', () => {
-    expect(page).toContain('{!korvyActive && (measureMode || measureAreaMode) && (() => {');
-    expect(page).toContain('{!korvyActive && measureLocked && measureGeo.length >= (measureLocked.yta ? 3 : 2) && (');
-    expect(page).toContain("onClick={() => { if (korvyActive) startaFigur(false); else startaMatning(false); }}");
-    expect(page).toContain("onClick={() => { if (korvyActive) startaFigur(true); else startaMatning(true); }}");
-    expect(page).toContain("if (korvyActive) startaFigur(yta);\n    else if (post.typ === 'rita') { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }");
+describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
+  it('EN smal list i båda vyerna: planeringens gamla mätpanel och låsta chip är borta, alla vägar startar samma figur', () => {
+    expect(page).not.toContain('MÄTVERKTYG (geo, klicka-punkter)');
+    expect(page).not.toContain('Tryck på kartan för att sätta punkter');
+    expect(page).not.toContain('panorera mellan tryck');
+    expect(page).not.toContain('const klarMatning');
+    expect(page).not.toContain('{!korvyActive && measureLocked');
+    expect(page).toContain('{figur && !sparaSomOppen && (() => {');
+    expect(page).toContain('{figur && sparaSomOppen && (');
+    expect(page).not.toContain('{korvyActive && figur');
+    // plusdockan och den gamla Mätning-menyn startar båda figuren — aldrig den gamla startaMatning direkt
+    expect(page).toContain("onClick={() => startaFigur(false)}");
+    expect(page).toContain("onClick={() => startaFigur(true)}");
+    expect(page).toContain("if (post.typ === 'matning') startaFigur(yta);");
+    expect(page).toContain("else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }");
+    expect(page.match(/startaMatning\(/g)?.length).toBe(1);   // bara startaFigur anropar den
+  });
+  it('pekaren är ett kors medan man mäter (klass på kartans container + !important i stilblocket)', () => {
+    expect(page).toContain("c.classList.add('mat-kors');");
+    expect(page).toContain('.maplibregl-canvas-container.mat-kors .maplibregl-canvas { cursor: crosshair !important; }');
+  });
+  it('tryck på första punkten stänger ytan; dubbeltryck på sista punkten avslutar sträckan', () => {
+    expect(page).toContain('if (yta && geo.length >= 3 && nara(geo[0])) { figurKlarRef.current(); return; }');
+    expect(page).toContain('if (geo.length >= minPunkterNu && nu - sistaPaSista < DUBBELTRYCK_MS) { sistaPaSista = 0; figurKlarRef.current(); return; }');
+  });
+  it('Klar är stor och grön i listen', () => {
+    expect(page).toContain("gron: true, testid: 'figur-klar'");
+    expect(las('../components/planering/KorvyNertillList.tsx')).toContain('k.gron ? FARG.gron');
+  });
+  it('räknarna i planeringens objektinfo (den gamla rutan nere till vänster är borta)', () => {
+    expect(page).not.toContain('MILJÖHÄNSYN-RÄKNARE');
+    expect(page).not.toContain('miljoRaknareExpanderad');
+    expect(page).toContain('data-testid="objektinfo-miljo"');
+    expect(page).toMatch(/\{!korvyActive && \(\s*<div data-testid="objektinfo-miljo"/);
   });
   it('Klar → Spara som: vanlig markering via planeringens form och markörsynk, synlig för alla', () => {
     expect(page).toContain('byggFigurMarkering(val, measureGeo, id, latLonToSvg, numreringRef.current.nastaGransNr)');
@@ -177,12 +204,22 @@ describe('komponenterna: tokens och stora tryckytor', () => {
     expect(kall.KorvyNertillList).toContain('export const LIST_HOJD_PX = 72;');
     expect(kall.KorvyNertillList).toContain('LIST_HOJD_PX - 2 * AVSTAND.s');
   });
-  it('plusraden: sex platser (fem + Alla), z-index över yt-overlays som den gamla plusmenyn', () => {
+  it('plusdockan: sex symbolknappar + Alla + ×, ingen skugga över kartan, z-index över yt-overlays, plusknappen tonar bort medan dockan är öppen', () => {
     expect(kall.PlusRad).toContain('zIndex: 650');
-    expect(kall.PlusRad).toContain('zIndex: 640');
     expect(kall.PlusRad).toContain('poster.slice(0, MAX_FASTA)');
     expect(kall.PlusRad).toContain('data-testid="plus-alla"');
-    expect(kall.PlusRad).toContain("'Fast i raden'");
+    expect(kall.PlusRad).toContain('data-testid="plus-stang"');
+    expect(kall.PlusRad).toContain("'Fast i dockan'");
     expect(kall.PlusRad).toContain("'Lossa'");
+    expect(kall.PlusRad).toContain("transformOrigin: 'right bottom'");
+    // dockan har INGEN bakgrundsskugga (kartan ovanför är fri) — det har bara Alla-arket
+    const dockDel = kall.PlusRad.slice(kall.PlusRad.indexOf('// ── Dockan ──'));
+    expect(dockDel).not.toContain('plus-bakgrund');
+    expect(page).toContain("opacity: plusRadOppen ? 0 : 1,");
+    expect(page).toContain("pointerEvents: plusRadOppen ? 'none' : 'auto',");
+  });
+  it('dockan visar symbolens riktiga färg (getIconDef) och bara symboler går att fästa', () => {
+    expect(page).toContain('dockFarg: getIconDef(p.id).bg');
+    expect(page).toContain('fastbar: arDockPost(p)');
   });
 });

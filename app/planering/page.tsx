@@ -49,7 +49,7 @@ import { PlusRad, type PlusPostVy, type AllaSektion, type HallSvar } from '../..
 import { KorvySparaSom } from '../../components/planering/KorvySparaSom'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
-import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, lossaPost, postNyckel, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
+import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, lossaPost, arDockPost, postNyckel, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { SPARA_SOM, valForFigur, minPunkter, byggFigurMarkering } from '../../lib/sparSom'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
@@ -70,7 +70,7 @@ import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPositio
 import { BAUDRATER, hamtaBaudVal, hamtaHittadBaud, effektivBaud, type BaudVal } from '../../lib/gpsBaud'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
-import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
+import { markerIconDefs, getIconDef, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import { harFoto, byggFotoSokvag, komprimeraMarkeringFoto, laddaUppMarkeringFoto } from '@/lib/markeringFoto'
@@ -2935,7 +2935,6 @@ export default function PlannerPage() {
   
   // Meny
   const [menuOpen, setMenuOpen] = useState(false);
-  const [miljoRaknareExpanderad, setMiljoRaknareExpanderad] = useState(false);
   const [antalPrompt, setAntalPrompt] = useState<{ markerId: string; type: string } | null>(null);
   // Plus-meny (bottom-sheet) — öppnas från plus-knappen nere höger
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -12334,12 +12333,6 @@ export default function PlannerPage() {
   const angraSista = () => {
     setMeasureGeo(prev => prev.slice(0, -1)); // ta bort senaste punkten
   };
-  const klarMatning = () => {
-    // Lås måttet så det blir kvar synligt på kartan; lämna klick-läget (inga fler punkter).
-    setMeasureLocked({ yta: measureAreaMode });
-    setMeasureMode(false);
-    setMeasureAreaMode(false);
-  };
   const startaMatning = (yta: boolean) => {
     setMeasureMode(!yta);
     setMeasureAreaMode(yta);
@@ -12491,7 +12484,11 @@ export default function PlannerPage() {
       : svgIkon(<><path d="M5 6 L19 4 L20 18 L6 20 Z" fill={FARG.fyllning} /><circle cx="5" cy="6" r="2" fill={FARG.text} /><circle cx="19" cy="4" r="2" fill={FARG.text} /><circle cx="20" cy="18" r="2" fill={FARG.text} /><circle cx="6" cy="20" r="2" fill={FARG.text} /></>);
   };
   const arFastNu = (p: PlusPost) => plusRadState.fasta.some((x) => postNyckel(x) === postNyckel(p));
-  const postVy = (p: PlusPost, fast: boolean): PlusPostVy => ({ nyckel: postNyckel(p), etikett: postEtikett(p), ikon: postIkon(p), fast, pa: p.typ === 'lager' ? lagerPa(p.id) : undefined });
+  // Dockan: symbolens RIKTIGA färg (samma som ikonen på kartan: grön naturvård, orange kultur, röd fara, lila träd att avverka, annars mörk) + vit glyf.
+  const postVy = (p: PlusPost, fast: boolean): PlusPostVy => {
+    const dock = p.typ === 'symbol' ? { dockFarg: getIconDef(p.id).bg, dockRing: getIconDef(p.id).outline, dockGlyf: renderIcon(p.id, 30, FARG.text) } : {};
+    return { nyckel: postNyckel(p), etikett: postEtikett(p), ikon: postIkon(p), fast, pa: p.typ === 'lager' ? lagerPa(p.id) : undefined, fastbar: arDockPost(p), ...dock };
+  };
   const byggPlusRad = (): { poster: PlusPostVy[]; alla: AllaSektion[] } => ({
     poster: beraknaRad(plusRadState, postFinns).map((r) => postVy(r.post, r.fast)),
     alla: [
@@ -12507,9 +12504,9 @@ export default function PlannerPage() {
     const post = hittaPost(nyckel);
     if (!post) return { ok: false, text: 'Hittar inte posten' };
     const r = fastaPost(plusRadRef.current, post);
-    if (!r.ok) return { ok: false, text: r.skal === 'full' ? `Raden är full (${MAX_FASTA}/${MAX_FASTA}) — lossa en först` : 'Redan fast i raden' };
+    if (!r.ok) return { ok: false, text: r.skal === 'full' ? `Dockan är full (${MAX_FASTA}/${MAX_FASTA}) — lossa en först` : r.skal === 'ej-symbol' ? 'Bara symboler går att fästa i dockan' : 'Redan fast i dockan' };
     uppdateraPlusRad(() => r.state);
-    return { ok: true, text: 'Fast i raden' };
+    return { ok: true, text: 'Fast i dockan' };
   };
   const lossaPlusPost = (nyckel: string) => {
     const post = hittaPost(nyckel);
@@ -12557,9 +12554,9 @@ export default function PlannerPage() {
     }
     noteraPlus(post);
     const yta = post.id === 'yta';
-    if (korvyActive) startaFigur(yta);
-    else if (post.typ === 'rita') { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }   // planeringen behåller sina rit-flöden
-    else startaMatning(yta);
+    if (post.typ === 'matning') startaFigur(yta);                                 // samma figur och smala list i körvyn och planeringen
+    else if (korvyActive) startaFigur(yta);                                       // körvyns Rita = samma figur → Spara som…
+    else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }       // planeringen behåller sina rit-flöden
   };
   const placeraListSynlig = !!selectedSymbol && !plusRadOppen && !menuOpen && !plusMenuOpen && !isDrawMode && !isZoneMode && !isArrowMode && !figur;
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !plusMenuOpen && !menuOpen && !layerMenuOpen && !selectedSymbol && !figur && !sparaSomOppen && !prickValt
@@ -12741,13 +12738,34 @@ export default function PlannerPage() {
   // (tryck+släpp utan rörelse) — aldrig under en drag-panorering. Därför får dragPan vara PÅ:
   // ett tap sätter punkt, ett drag panorerar kartan (så man kan flytta sig mellan punkter och
   // mäta långa avstånd). Klick är sällan → state-driven (setMeasureGeo), ingen re-render-oro.
+  //   • Tryck på FÖRSTA punkten igen (yta, ≥ 3 punkter) → ytan stängs och är klar.
+  //   • DUBBELTRYCK på SISTA punkten (≥ 2 punkter för sträcka, ≥ 3 för yta) → klar. Ett enkeltryck på sista punkten sätter ingen ny punkt.
+  const measureGeoRef = useRef<[number, number][]>([]);
+  measureGeoRef.current = measureGeo;
+  const figurKlarRef = useRef<() => void>(() => {});
+  figurKlarRef.current = () => setSparaSomOppen(true);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     if (!measureMode && !measureAreaMode) return;
+    const yta = measureAreaMode;
+    const minPunkterNu = yta ? 3 : 2;
+    const TRYCK_RADIE_PX = 28;     // ett finger träffar inte exakt — samma storleksordning som en tryckyta
+    const DUBBELTRYCK_MS = 700;
+    let sistaPaSista = 0;
     const onClick = (e: any) => {
       const ll = e?.lngLat;
       if (!ll) return;
+      const geo = measureGeoRef.current;
+      const nara = (c: [number, number]) => { const p = map.project(c); return Math.hypot(p.x - e.point.x, p.y - e.point.y) <= TRYCK_RADIE_PX; };
+      if (yta && geo.length >= 3 && nara(geo[0])) { figurKlarRef.current(); return; }
+      if (geo.length >= 1 && nara(geo[geo.length - 1])) {
+        const nu = Date.now();
+        if (geo.length >= minPunkterNu && nu - sistaPaSista < DUBBELTRYCK_MS) { sistaPaSista = 0; figurKlarRef.current(); return; }
+        sistaPaSista = nu;
+        return;
+      }
+      sistaPaSista = 0;
       setMeasureGeo(prev => [...prev, [ll.lng, ll.lat]]);
     };
     map.on('click', onClick);
@@ -12757,6 +12775,15 @@ export default function PlannerPage() {
       if (map.doubleClickZoom) map.doubleClickZoom.enable();
     };
   }, [measureMode, measureAreaMode, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pekaren är ett KORS medan man mäter (inte en hand): klass på kartans container, CSS i stilblocket (!important slår MapLibres inline-cursor).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !(measureMode || measureAreaMode)) return;
+    const c = map.getCanvasContainer();
+    c.classList.add('mat-kors');
+    return () => c.classList.remove('mat-kors');
+  }, [measureMode, measureAreaMode, mapLibreReady]);
 
   // RISA-DEL via KLICK: två tapp (start + slut) längs den valda basvägen. Samma tap-mönster som
   // mätverktyget — MapLibres 'click' fyrar bara vid tap (utan drag), så drag panorerar fortfarande.
@@ -13175,7 +13202,9 @@ export default function PlannerPage() {
            MapLibres inline cursor (.maplibregl-interactive{cursor:grab} + drag-handlers),
            utan att jaga varje event MapLibre rör cursorn på. */
         .maplibregl-canvas-container.skotning-rita,
-        .maplibregl-canvas-container.skotning-rita .maplibregl-canvas { cursor: crosshair !important; }
+        .maplibregl-canvas-container.skotning-rita .maplibregl-canvas,
+        .maplibregl-canvas-container.mat-kors,
+        .maplibregl-canvas-container.mat-kors .maplibregl-canvas { cursor: crosshair !important; }
       `}</style>
 
       {/* Maskinläge-lagret (banner, täck-logga, felskärm, startsekvens) — definieras före early-return */}
@@ -13805,6 +13834,18 @@ export default function PlannerPage() {
                 );
               })()}
 
+              {/* MILJÖHÄNSYN (planering): räknarna som förr låg i en ruta nere till vänster — samma tal och krav som körvyns pill (lib/miljokrav) */}
+              {!korvyActive && (
+                <div data-testid="objektinfo-miljo" style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
+                  {([['hogstubbar', 'Högstubbar', hogstubbarVy], ['evighetstrad', 'Evighetsträd', evighetstradVy]] as const).map(([id, namn, v]) => (
+                    <div key={id} data-testid={`objektinfo-miljo-${id}`} style={{ background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.kort, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>
+                      <span style={{ ...TYP.meta, color: FARG.text2 }}>{namn} </span>
+                      <span style={{ ...TYP.listtitel, color: v.status === 'uppfyllt' ? FARG.gron : FARG.text, fontVariantNumeric: 'tabular-nums' }}>{v.antal}{v.krav != null ? `/${v.krav}` : ''}{v.status === 'uppfyllt' ? ' ✓' : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {(volymTxt || infoBarighet || infoTerrang || paTrakten.basvagKm) && (
                 <div>
                   <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Fakta</div>
@@ -14221,8 +14262,11 @@ export default function PlannerPage() {
             // yt-overlay — den ligger över info-/traktöversikt-backdropen (470) och alla andra
             // yt-lager, men under +-menyns egen backdrop (640) så tryck-utanför fortfarande stänger.
             zIndex: 630,
-            transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+            transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.15s ease',
             transform: plusOppen ? 'rotate(45deg)' : 'rotate(0deg)',
+            // dockan (plusRadOppen) har egen × — plusknappen tonar bort medan den växer ut; det gamla menyarket (plusMenuOpen) använder den som förut
+            opacity: plusRadOppen ? 0 : 1,
+            pointerEvents: plusRadOppen ? 'none' : 'auto',
           }}
         >
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -14309,8 +14353,8 @@ export default function PlannerPage() {
           ]}
         />
       )}
-      {/* MÄT/RITA (körvy): smal list "0,89 ha · Ångra · Klar · ×" */}
-      {korvyActive && figur && !sparaSomOppen && (() => {
+      {/* MÄT/RITA (körvy OCH planering): smal list nertill "579 m · Ångra · Klar · ×" — max 72 px, täcker inte kartan ovanför */}
+      {figur && !sparaSomOppen && (() => {
         const n = measureGeo.length;
         const e = figurEtikett(measureGeo, figur.yta);
         return (
@@ -14320,13 +14364,13 @@ export default function PlannerPage() {
             text={e ? e.text : n === 0 ? 'Tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`}
             knappar={[
               { etikett: 'Ångra', onClick: angraSista, av: n === 0, testid: 'figur-angra' },
-              { etikett: 'Klar', onClick: () => setSparaSomOppen(true), av: n < minPunkter(figur.yta ? 'yta' : 'linje'), primar: true, testid: 'figur-klar' },
+              { etikett: 'Klar', onClick: () => setSparaSomOppen(true), av: n < minPunkter(figur.yta ? 'yta' : 'linje'), gron: true, testid: 'figur-klar' },
               AVBRYT_KNAPP(avslutaFigur, 'figur-kasta'),
             ]}
           />
         );
       })()}
-      {korvyActive && figur && sparaSomOppen && (
+      {figur && sparaSomOppen && (
         <KorvySparaSom
           mattText={figurEtikett(measureGeo, figur.yta)?.text ?? ''}
           val={valForFigur(figur.yta ? 'yta' : 'linje')}
@@ -15898,71 +15942,6 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === MILJÖHÄNSYN-RÄKNARE — naturvårdsträd (evighetsträd + naturhörna) + högstubbar. Hopfällbar, nere t.v. */}
-      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && !korvyActive && !menuOpen && (() => {
-        const arealHa = parseFloat(String(infoAreal).replace(",", "."));
-        const harAreal = Number.isFinite(arealHa) && arealHa > 0;
-        const summa = (typ: string) => markers.reduce((sum, m) => sum + (m.type === typ ? (m.antal ?? 1) : 0), 0);
-        const tradSum = summa('eternitytree') + summa('naturecorner'); // naturhörna är en klunga naturvårdsträd
-        const hsSum = summa('highstump');
-        const tradMal = harAreal ? Math.ceil(arealHa * 10) : null;
-        const hsMal = harAreal ? Math.ceil(arealHa * 3) : null;
-        const GRON = '#34C759';
-        const ORANGE = '#FF9F0A';
-        const rad = (glyf: string, namn: string, sum: number, mal: number | null) => {
-          const natt = mal !== null && sum >= mal;
-          const farg = natt ? GRON : ORANGE;
-          const pct = mal ? Math.min(100, Math.round((sum / mal) * 100)) : 0;
-          return (
-            <div style={{ padding: '9px 0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                <span style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(glyf, 18, '#fff')}</span>
-                <span style={{ fontSize: '14px', color: '#fff', fontWeight: 600 }}>{namn}</span>
-                {mal === null ? (
-                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginLeft: 'auto' }}>{sum} utsatta</span>
-                ) : (
-                  <span style={{ fontSize: '13px', color: farg, fontWeight: 600, marginLeft: 'auto' }}>{natt ? 'Målet nått' : (mal - sum) + ' kvar'}</span>
-                )}
-              </div>
-              {mal !== null && (
-                <div style={{ height: '5px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
-                  <div style={{ width: pct + '%', height: '100%', background: farg, borderRadius: '3px', transition: 'width 0.3s ease' }} />
-                </div>
-              )}
-            </div>
-          );
-        };
-        const par = (glyf: string, sum: number, mal: number | null) => (
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(glyf, 16, '#fff')}</span>
-            <span style={{ fontSize: '14px', color: '#fff', fontWeight: 600 }}>{sum}{mal !== null ? '/' + mal : ''}</span>
-          </span>
-        );
-        return (
-          <div style={{ position: 'fixed', left: '12px', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)', zIndex: 90, pointerEvents: 'auto' }}>
-            <div style={{ background: 'rgba(20,20,22,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '11px', overflow: 'hidden' }}>
-              {/* Utfälld detalj — ovanför (räknaren fälls uppåt) */}
-              {miljoRaknareExpanderad && (
-                <div style={{ padding: '12px 14px 4px', borderBottom: '1px solid rgba(255,255,255,0.08)', minWidth: '244px' }}>
-                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, marginBottom: '2px' }}>Miljöhänsyn</div>
-                  {rad('eternitytree', 'Naturvårdsträd', tradSum, tradMal)}
-                  {rad('highstump', 'Högstubbar', hsSum, hsMal)}
-                  {!harAreal && (<div style={{ fontSize: '12px', color: ORANGE, marginTop: '2px', marginBottom: '6px', lineHeight: 1.4 }}>Areal saknas — kan inte räkna mål</div>)}
-                </div>
-              )}
-              {/* Kollapsad rad — glyf+tal | avdelare | glyf+tal + chevron */}
-              <button type="button" onClick={() => setMiljoRaknareExpanderad(v => !v)}
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-                {par('eternitytree', tradSum, tradMal)}
-                <span style={{ width: '1px', height: '18px', background: 'rgba(255,255,255,0.15)' }} />
-                {par('highstump', hsSum, hsMal)}
-                <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.35)', marginLeft: '2px', display: 'inline-block', transform: miljoRaknareExpanderad ? 'rotate(90deg)' : 'rotate(-90deg)', transition: 'transform 0.2s' }}>&#x203A;</span>
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* === CENTRERA-KNAPP — EN komponent, samma beteende och utseende i körvyn och planeringsvyn (lib/centrera). Körvyn: dold så
              länge kartan följer maskinen; drar föraren i kartan pausas följningen och knappen syns; tryck → följning igen.
              Planeringen: dold när kartan står på positionen; dras kartan bort syns den; tryck → centrera EN gång (ingen följning). */}
@@ -17458,49 +17437,6 @@ export default function PlannerPage() {
         </div>
       )}
       
-      {/* === MÄTVERKTYG (geo, klicka-punkter) — riktiga meter/hektar. Tap = punkt, drag = panorera. === */}
-      {!korvyActive && (measureMode || measureAreaMode) && (() => {
-        const yta = measureAreaMode;
-        const minPts = yta ? 3 : 2;
-        const nog = measureGeo.length >= minPts;
-        const matt = nog ? (yta ? formatArea(ringAreaM2(measureGeo)) : formatLength(pathMeters(measureGeo))) : '—';
-        const btn = (label: string, onClick: () => void, on: boolean, primar = false) => (
-          <button type="button" onClick={onClick} disabled={!on}
-            style={{ padding: primar ? '9px 18px' : '9px 14px', borderRadius: 11, fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
-              border: primar ? 'none' : '1px solid rgba(255,255,255,0.15)',
-              background: primar ? (on ? '#30d158' : 'rgba(48,209,88,0.3)') : 'rgba(255,255,255,0.06)',
-              color: '#fff', cursor: on ? 'pointer' : 'default', opacity: on ? 1 : 0.35 }}>{label}</button>
-        );
-        return (
-          <div style={{ position: 'absolute', top: '120px', left: '50%', transform: 'translateX(-50%)',
-            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', color: '#fff',
-            padding: '14px 20px', borderRadius: 16, zIndex: 150, textAlign: 'center', minWidth: 210 }}>
-            <div style={{ fontSize: 32, fontWeight: 400, opacity: 0.95 }}>{matt}</div>
-            <div style={{ fontSize: 13, opacity: 0.5, margin: '4px 0 12px' }}>
-              {measureGeo.length === 0
-                ? `Tryck på kartan för att sätta punkter${yta ? ' runt ytan' : ''}`
-                : `${measureGeo.length} punkt${measureGeo.length === 1 ? '' : 'er'} · panorera mellan tryck`}
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              {btn('Ångra', angraSista, measureGeo.length > 0)}
-              {btn('Rensa', rensaMatning, measureGeo.length > 0)}
-              {btn('Klar', klarMatning, nog, true)}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Låst mått — blir kvar synligt efter Klar tills man trycker Rensa. */}
-      {!korvyActive && measureLocked && measureGeo.length >= (measureLocked.yta ? 3 : 2) && (
-        <div style={{ position: 'absolute', top: '120px', left: '50%', transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(10,132,255,0.4)', color: '#fff',
-          padding: '10px 16px', borderRadius: 14, zIndex: 150, display: 'flex', alignItems: 'center', gap: 14 }}>
-          <span style={{ fontSize: 22, fontWeight: 500 }}>{measureLocked.yta ? formatArea(ringAreaM2(measureGeo)) : formatLength(pathMeters(measureGeo))}</span>
-          <button type="button" onClick={rensaMatning}
-            style={{ padding: '7px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Rensa</button>
-        </div>
-      )}
-
       {/* === LAGER-MENY === */}
       {layerMenuOpen && !briefingMode && (
         <div style={{
@@ -19005,7 +18941,7 @@ export default function PlannerPage() {
                   padding: '8px',
                 }}>
                   <div
-                    onClick={() => { if (korvyActive) startaFigur(false); else startaMatning(false); }}
+                    onClick={() => startaFigur(false)}
                     style={{
                       padding: '18px 20px',
                       display: 'flex',
@@ -19031,7 +18967,7 @@ export default function PlannerPage() {
                   </div>
 
                   <div
-                    onClick={() => { if (korvyActive) startaFigur(true); else startaMatning(true); }}
+                    onClick={() => startaFigur(true)}
                     style={{
                       padding: '18px 20px',
                       display: 'flex',

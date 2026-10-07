@@ -19,6 +19,8 @@ export interface NertillKnapp {
   onClick: () => void;
   testid: string;
   primar?: boolean;
+  /** Stor grön "Klar"-knapp (mät/rita): bredare än de andra, grön fyllning. */
+  gron?: boolean;
   destruktiv?: boolean;
   av?: boolean;
   /** Skärmläsarnamn när etiketten är en symbol (×). */
@@ -67,9 +69,9 @@ export function KorvyNertillList({ text, knappar, testid, smal, z = 600 }: {
             onClick={k.onClick}
             className="press-dim"
             style={{
-              flexShrink: 0, height: KNAPP_HOJD_PX, minWidth: KNAPP_HOJD_PX, padding: `0 ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.knapp,
+              flexShrink: 0, height: KNAPP_HOJD_PX, minWidth: k.gron ? KNAPP_HOJD_PX * 2 : KNAPP_HOJD_PX, padding: `0 ${k.gron ? AVSTAND.l : AVSTAND.m}px`, border: 'none', borderRadius: RADIE.knapp,
               fontFamily: 'inherit', ...TYP.listtitel, cursor: k.av ? 'default' : 'pointer', opacity: k.av ? 0.4 : 1,
-              background: k.primar ? FARG.text : FARG.fyllning, color: k.primar ? FARG.bg : k.destruktiv ? FARG.rod : FARG.text,
+              background: k.gron ? FARG.gron : k.primar ? FARG.text : FARG.fyllning, color: k.gron || k.primar ? FARG.bg : k.destruktiv ? FARG.rod : FARG.text,
             }}
           >
             {k.etikett}
