@@ -126,19 +126,23 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
 
   // FÖRAR-LÄGE: ladda traktgräns-geometri (HÄR-gruppen), maskin-/förarnamn (chips), maskinens
   // klarar_typ (typ-sort) och 7-dgrs-aktivitet (hyttspår/lass → pågående tills statusrapporten finns).
+  // Dep = PRIMITIVEN, aldrig forareFilter-objektet: föräldern skickar ett nytt { medarbetareId } vid varje rendering
+  // (planeringssidan ritas om i takt med GPS/timers) — objekt-dep:en körde om effekten, och därmed fem frågor
+  // inkl. ofiltrerad objekt_geometri, ~2 gånger i sekunden (2026-10-06: 18 738 anrop från en maskindator).
+  const forareMedarbetareId = forareFilter?.medarbetareId;
   useEffect(() => {
     if (!forareFilter) return;
-    let avbruten = false;
+    const ac = new AbortController();
     (async () => {
       const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
       const [geoR, maskR, medR, hsR, flR] = await Promise.all([
-        supabase.from('objekt_geometri').select('objekt_id, geometri'),
-        supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, klarar_typ'),
-        supabase.from('medarbetare').select('id, namn, maskin_id'),
-        supabase.from('hyttspar').select('objekt_id').gte('datum', weekAgo),
-        supabase.from('fakt_lass').select('objekt_id').gte('datum', weekAgo),
+        supabase.from('objekt_geometri').select('objekt_id, geometri').abortSignal(ac.signal),
+        supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, klarar_typ').abortSignal(ac.signal),
+        supabase.from('medarbetare').select('id, namn, maskin_id').abortSignal(ac.signal),
+        supabase.from('hyttspar').select('objekt_id').gte('datum', weekAgo).abortSignal(ac.signal),
+        supabase.from('fakt_lass').select('objekt_id').gte('datum', weekAgo).abortSignal(ac.signal),
       ]);
-      if (avbruten) return;
+      if (ac.signal.aborted) return;   // avmonterad/omkörd — avbrutna frågor ger error-resultat, aldrig data
       const gm = new Map<string, any>(); for (const g of geoR.data || []) gm.set((g as any).objekt_id, (g as any).geometri);
       const mn = new Map<string, string>(); const mk = new Map<string, string>();
       for (const m of maskR.data || []) { mn.set(m.maskin_id, (m.visningsnamn?.trim() || m.modell || m.maskin_id)); if (m.klarar_typ) mk.set(m.maskin_id, m.klarar_typ); }
@@ -152,8 +156,9 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
       setAktivSet(aktiv);
       setLassVoSet(new Set((flR.data || []).map((l: any) => String(l.objekt_id))));
     })();
-    return () => { avbruten = true; };
-  }, [forareFilter]);
+    return () => { ac.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- forareFilter läses bara som "finns det"; id:t är dep
+  }, [forareMedarbetareId]);
 
   // Fetch road distances one by one via OSRM
   useEffect(() => {
