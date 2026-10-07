@@ -6,10 +6,12 @@ import OversiktMaskiner from './OversiktMaskiner';
 import OversiktKarta from './OversiktKarta';
 import OversiktGrot from './OversiktGrot';
 import OversiktObjektLista from './OversiktObjektLista';
-import { Maskin, MaskinKoItem, OversiktObjekt, TabId, C } from './oversikt-types';
+import { Maskin, MaskinKoItem, OversiktObjekt, TabId, C, SP } from './oversikt-types';
 import { globalCss, ff } from './oversikt-styles';
 import { objektSkotat, type SkotareManuellRad } from '@/lib/skotat';
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
+import { lastLista, lasFelOrsak } from './las-svar';
+import { LasFelRad, LASFEL_KO } from './LasFel';
 
 const OBJEKT_SELECT = `id, namn, vo_nummer, typ, atgard, status, volym, areal, lat, lng, ar, manad, bolag, markagare, markagare_tel,
   barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text,
@@ -72,6 +74,7 @@ export default function OversiktPage() {
   const [loading, setLoading] = useState(true);
   const [fel, setFel] = useState(false);           // FAS A (objekten) gick inte att läsa → ärlig felruta, ej tyst tomt
   const [skordKlar, setSkordKlar] = useState(false); // FAS B (skord/skotat) klar → listan slutar visa skelett
+  const [koFel, setKoFel] = useState(false);       // maskiner/kön gick inte att läsa → banner + "Kön kunde inte läsas" i stället för tom kö
 
   const fetchAll = async () => {
     setFel(false);
@@ -88,7 +91,12 @@ export default function OversiktPage() {
         supabase.from('dim_maskin').select('*').order('modell'),
         supabase.from('maskin_ko').select('*').order('ordning'),
       ]);
-      maskinerData = maskinerRes.data || [];
+      // Ett läsfel på maskiner/kö är ALDRIG en tom lista (då ser köerna tomma ut): sidan står kvar, med banner + "Försök igen".
+      const maskinerLista = lastLista<Maskin>(maskinerRes);
+      const koLista = lastLista<MaskinKoItem>(koRes);
+      if (!maskinerLista || !koLista) console.error('[Översikt] kö: maskiner/kö gick inte att läsa —', !maskinerLista ? `dim_maskin: ${lasFelOrsak(maskinerRes)}` : '', !koLista ? `maskin_ko: ${lasFelOrsak(koRes)}` : '');
+      setKoFel(!maskinerLista || !koLista);
+      maskinerData = maskinerLista ?? [];
       // Fetch ALL objekt with pagination (Supabase default limit is 1000)
       allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select(OBJEKT_SELECT).order('namn'));
       if (allObjekt.length === 0) {
@@ -98,8 +106,8 @@ export default function OversiktPage() {
       }
       console.log(`[Översikt] Hämtade ${allObjekt.length} objekt`);
       setObjekt(allObjekt);
-      if (maskinerRes.data) setMaskiner(maskinerRes.data);
-      if (koRes.data) setMaskinKo(koRes.data);
+      if (maskinerLista) setMaskiner(maskinerLista);
+      if (koLista) setMaskinKo(koLista);
     } catch (e) {
       console.error('[Översikt] kunde inte läsa objekten', e);
       setFel(true);
@@ -237,12 +245,21 @@ export default function OversiktPage() {
   useEffect(() => { fetchAll(); }, []);
 
   const refreshMaskiner = async () => {
-    const [maskinerRes, koRes] = await Promise.all([
-      supabase.from('dim_maskin').select('*').order('modell'),
-      supabase.from('maskin_ko').select('*').order('ordning'),
-    ]);
-    if (maskinerRes.data) setMaskiner(maskinerRes.data);
-    if (koRes.data) setMaskinKo(koRes.data);
+    try {
+      const [maskinerRes, koRes] = await Promise.all([
+        supabase.from('dim_maskin').select('*').order('modell'),
+        supabase.from('maskin_ko').select('*').order('ordning'),
+      ]);
+      const maskinerLista = lastLista<Maskin>(maskinerRes);
+      const koLista = lastLista<MaskinKoItem>(koRes);
+      if (!maskinerLista || !koLista) console.error('[Översikt] kö: omläsningen av maskiner/kö gick inte —', !maskinerLista ? `dim_maskin: ${lasFelOrsak(maskinerRes)}` : '', !koLista ? `maskin_ko: ${lasFelOrsak(koRes)}` : '');
+      setKoFel(!maskinerLista || !koLista);
+      if (maskinerLista) setMaskiner(maskinerLista);
+      if (koLista) setMaskinKo(koLista);
+    } catch (e) {
+      console.error('[Översikt] kö: omläsningen av maskiner/kö kastade', e);
+      setKoFel(true);
+    }
   };
 
   const refreshObjekt = async () => {
@@ -290,12 +307,18 @@ export default function OversiktPage() {
             overscrollBehavior: 'contain',
             WebkitOverflowScrolling: 'touch',
           }}>
+            {koFel && (
+              <div style={{ position: 'sticky', top: 0, zIndex: 5, padding: `${SP.sm}px ${SP.lg}px 0`, background: C.bg }}>
+                <LasFelRad text={LASFEL_KO} onForsok={refreshMaskiner} />
+              </div>
+            )}
             <OversiktMaskiner
               maskiner={maskiner}
               maskinKo={maskinKo}
               objekt={objekt}
               supabase={supabase}
               onRefresh={refreshMaskiner}
+              koFel={koFel}
             />
           </div>
           <div style={{

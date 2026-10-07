@@ -13,6 +13,8 @@ import {
   type MarkLevel, type FaraNiva,
 } from './markeringar';
 import SkotarRad from './SkotarRad';
+import { lastLista, lasFelOrsak } from './las-svar';
+import { LasFelRad, LASFEL_FARA, LASFEL_FARA_LADDAR, LASFEL_KO } from './LasFel';
 import type { SkordAgg } from './page';
 import { foreslaNasta, type Kandidat, type MaskinLage, type AvstandKm } from '@/lib/nastaObjekt';
 // Maskinens RIKTIGA senaste position (flytt/produktion/GPS-fix, med ärlighets-spärrar) —
@@ -185,9 +187,10 @@ function grotDeadlineInfo(deadline: string | null): { color: string; label: stri
    1 Titel+status · 2 typ·areal·volym · 3 Avstånd+Köplats · 4 Fara (enda röda) ·
    5 Markägare+Ring/Sms · 6 Navigera hit · 7 Visa mer (Hänsyn·Restriktioner·Trädslag·Logistik).
    Saknas data i en sektion: utelämna tyst eller visa "–", aldrig egen layout per objekt. */
-function ObjCard({ obj, warnings, koPlats, devicePos, skotar }: {
+function ObjCard({ obj, warnings, farorStatus = 'ok', koPlats, devicePos, skotar }: {
   obj: OversiktObjekt;
   warnings?: ObjWarnings;
+  farorStatus?: 'laddar' | 'ok' | 'fel';   // markeringarna: läst / misslyckad / pågår — "inga faror" får bara visas när 'ok'
   koPlats?: { pos: number; total: number };
   devicePos?: { lat: number; lng: number } | null;
   skotar?: SkotarInfo | null;
@@ -298,6 +301,10 @@ function ObjCard({ obj, warnings, koPlats, devicePos, skotar }: {
             <div style={{ ...T.caption, marginTop: SP.xs }}>Köplats</div>
           </div>
         </div>
+
+        {/* Faror och hänsyn gick inte att läsa (eller läses än): säg det — en tom plats får aldrig betyda "inga faror" */}
+        {farorStatus === 'fel' && <LasFelRad text={LASFEL_FARA} style={{ marginBottom: SP.lg }} />}
+        {farorStatus === 'laddar' && <div style={{ ...T.caption, marginBottom: SP.lg }}>{LASFEL_FARA_LADDAR}</div>}
 
         {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning).
            Visar ALLA faror staplade direkt — aldrig gömt bakom en knapp. Rad 1 =
@@ -884,6 +891,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   const [maskiner, setMaskiner] = useState<Maskin[]>(propMaskiner);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>(propMaskinKo);
   const [markeringar, setMarkeringar] = useState<MarkeringRow[]>([]);
+  // Markeringarna: läst (ok) / misslyckad (fel) / pågår (laddar). Bara 'ok' utan rader betyder "inga faror" — ett läsfel är OKÄNT.
+  const [markStatus, setMarkStatus] = useState<'laddar' | 'ok' | 'fel'>('laddar');
+  // Kö/maskiner: kartans egen läsning. Misslyckad = banner, aldrig en tyst tom eller gammal kö.
+  const [koFelKalla, setKoFelKalla] = useState({ ko: false, maskiner: false });
+  const koFel = koFelKalla.ko || koFelKalla.maskiner;
+  const levande = useRef(true);
+  useEffect(() => { levande.current = true; return () => { levande.current = false; }; }, []);
   const [me, setMe] = useState<Medarbetare | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -952,9 +966,62 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   }, []);
 
   const refetchKo = useCallback(async () => {
-    const { data } = await supabase.from('maskin_ko').select('*').order('ordning');
-    if (data) setMaskinKo(data as MaskinKoItem[]);
+    try {
+      const svar = await supabase.from('maskin_ko').select('*').order('ordning');
+      const lista = lastLista<MaskinKoItem>(svar);
+      if (!levande.current) return;
+      if (lista) { setMaskinKo(lista); setKoFelKalla((k) => ({ ...k, ko: false })); }
+      else { console.error('[Översikt] kö: kartans läsning av maskin_ko gick inte —', lasFelOrsak(svar)); setKoFelKalla((k) => ({ ...k, ko: true })); }
+    } catch (e) {
+      console.error('[Översikt] kö: kartans läsning av maskin_ko kastade', e);
+      if (levande.current) setKoFelKalla((k) => ({ ...k, ko: true }));
+    }
   }, []);
+
+  const laddaMaskiner = useCallback(async () => {
+    try {
+      const svar = await supabase.from('dim_maskin').select('*').order('modell');
+      const lista = lastLista<Maskin>(svar);
+      if (!levande.current) return;
+      if (lista) { setMaskiner(lista); setKoFelKalla((k) => ({ ...k, maskiner: false })); }
+      else { console.error('[Översikt] kö: kartans läsning av dim_maskin gick inte —', lasFelOrsak(svar)); setKoFelKalla((k) => ({ ...k, maskiner: true })); }
+    } catch (e) {
+      console.error('[Översikt] kö: kartans läsning av dim_maskin kastade', e);
+      if (levande.current) setKoFelKalla((k) => ({ ...k, maskiner: true }));
+    }
+  }, []);
+
+  // Hämta BARA de fem fält som klassning/kommentar läser — aldrig hela data. Raderna kan bära
+  // base64-foto i data.photoData (~9 MB/st); ett select('data') över alla objekt gav timeout.
+  // Ett läsfel är OKÄNT (markStatus 'fel' → banner), aldrig "inga faror".
+  const laddaMarkeringar = useCallback(async () => {
+    try {
+      const svar = await supabase
+        .from('planering_markeringar')
+        .select('objekt_id, typ, d_type:data->>type, d_zone:data->>zoneType, d_line:data->>lineType, d_arrow:data->>arrowType, d_comment:data->>comment')
+        .order('id', { ascending: true });
+      if (!levande.current) return;
+      const mk = lastLista<any>(svar);
+      if (!mk) { console.error('[Översikt] markeringar: läsningen gick inte —', lasFelOrsak(svar)); setMarkStatus('fel'); return; }
+      // Bygg tillbaka samma form som resten av koden läser (data.type …); null-fält utelämnas.
+      setMarkeringar(mk.map((r) => {
+        const data: Record<string, string> = {};
+        if (r.d_type) data.type = r.d_type;
+        if (r.d_zone) data.zoneType = r.d_zone;
+        if (r.d_line) data.lineType = r.d_line;
+        if (r.d_arrow) data.arrowType = r.d_arrow;
+        if (r.d_comment) data.comment = r.d_comment;
+        return { objekt_id: r.objekt_id, typ: r.typ, data } as MarkeringRow;
+      }));
+      setMarkStatus('ok');
+    } catch (e) {
+      console.error('[Översikt] markeringar: läsningen kastade', e);
+      if (levande.current) setMarkStatus('fel');
+    }
+  }, []);
+
+  // "Försök igen" i kö-bannern: båda läsningarna om
+  const laddaOmKo = useCallback(async () => { await refetchKo(); await laddaMaskiner(); }, [refetchKo, laddaMaskiner]);
 
   /* ── Mount: inloggad medarbetare (roll/maskin) + berika objekt/kö + markeringar ── */
   useEffect(() => {
@@ -971,33 +1038,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         }
       } catch { /* ej inloggad (dev) — fortsätt med prop-data */ }
 
-      await refetchObjekt();
-      await refetchKo();
-
-      const { data: maskinerData } = await supabase.from('dim_maskin').select('*').order('modell');
-      if (!cancelled && maskinerData) setMaskiner(maskinerData as Maskin[]);
-
-      // Hämta BARA de fem fält som klassning/kommentar läser — aldrig hela data. Raderna kan bära
-      // base64-foto i data.photoData (~9 MB/st); ett select('data') över alla objekt gav timeout.
-      const { data: mk } = await supabase
-        .from('planering_markeringar')
-        .select('objekt_id, typ, d_type:data->>type, d_zone:data->>zoneType, d_line:data->>lineType, d_arrow:data->>arrowType, d_comment:data->>comment')
-        .order('id', { ascending: true });
-      if (!cancelled && mk) {
-        // Bygg tillbaka samma form som resten av koden läser (data.type …); null-fält utelämnas.
-        setMarkeringar((mk as any[]).map((r) => {
-          const data: Record<string, string> = {};
-          if (r.d_type) data.type = r.d_type;
-          if (r.d_zone) data.zoneType = r.d_zone;
-          if (r.d_line) data.lineType = r.d_line;
-          if (r.d_arrow) data.arrowType = r.d_arrow;
-          if (r.d_comment) data.comment = r.d_comment;
-          return { objekt_id: r.objekt_id, typ: r.typ, data } as MarkeringRow;
-        }));
+      // Samma ordning som förut — men ett steg som KASTAR stoppar aldrig de andra (faror/kö läses ändå)
+      for (const steg of [refetchObjekt, refetchKo, laddaMaskiner, laddaMarkeringar]) {
+        try { await steg(); } catch (e) { console.error('[Översikt] läsningen kastade', e); }
       }
     })();
     return () => { cancelled = true; };
-  }, [refetchObjekt, refetchKo]);
+  }, [refetchObjekt, refetchKo, laddaMaskiner, laddaMarkeringar]);
 
   /* ── Realtime (Beslut 4): omkastad kö / statusbyte syns utan omladdning ── */
   useEffect(() => {
@@ -1677,6 +1724,14 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         </div>
       )}
 
+      {/* ── Läsfel: faror/hänsyn eller kö/maskiner gick inte att läsa — ALDRIG en tyst tom karta (se las-svar.ts) ── */}
+      {(markStatus === 'fel' || koFel) && (
+        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: SP.lg, left: SP.lg, right: driverMode ? SP.lg : SP.lg + 44 + SP.md, zIndex: 16, display: 'flex', flexDirection: 'column', gap: SP.sm }}>
+          {markStatus === 'fel' && <LasFelRad text={LASFEL_FARA} onForsok={laddaMarkeringar} />}
+          {koFel && <LasFelRad text={LASFEL_KO} onForsok={laddaOmKo} />}
+        </div>
+      )}
+
       {/* ── Filter button (top right) — döljs i förarläge (read-only rutt) ── */}
       {!driverMode && (
       <button onClick={e => { e.stopPropagation(); setShowFilterPanel(p => !p); }} style={{
@@ -1808,12 +1863,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         <ObjCard
           obj={selectedObj}
           warnings={warningsByObj[selectedObj.id]}
+          farorStatus={markStatus}
           koPlats={koPlatsByObj[selectedObj.id]}
           devicePos={devicePos}
           skotar={skotarByObj[selectedObj.id]}
         />
       )}
-      {selectedGrotObj && <ObjCard obj={selectedGrotObj} warnings={warningsByObj[selectedGrotObj.id]} koPlats={koPlatsByObj[selectedGrotObj.id]} devicePos={devicePos} skotar={skotarByObj[selectedGrotObj.id]} />}
+      {selectedGrotObj && <ObjCard obj={selectedGrotObj} warnings={warningsByObj[selectedGrotObj.id]} farorStatus={markStatus} koPlats={koPlatsByObj[selectedGrotObj.id]} devicePos={devicePos} skotar={skotarByObj[selectedGrotObj.id]} />}
 
       {/* Förar-sheet (Beslut 1) — bara i förarläge när inget kort är öppet */}
       {driverMode && !selectedObj && !selectedGrotObj && (
