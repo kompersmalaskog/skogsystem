@@ -9,7 +9,7 @@ export const maxDuration = 60;
  * POST /api/avtal/notify-pamin
  *
  * Kollar alla aktiva avtal med slut_datum 30/7/0 dagar bort. För varje
- * match som inte redan notifierats, skickar push till admin/chef via
+ * match som inte redan notifierats, skickar push till admin via
  * /api/notify. Bokför i avtal_pamin_skickad.
  *
  * Autentisering: Bearer <AVTAL_NOTIFY_SECRET>.
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
   const { data: mottagare } = await supabase
     .from("medarbetare")
     .select("id, namn")
-    .in("roll", ["admin", "chef"])
+    .in("roll", ["admin"])
     .eq("aktiv", true);
 
   const mål = [

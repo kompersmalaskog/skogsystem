@@ -47,8 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const { user, roll } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (roll !== "admin" && roll !== "chef") {
-    return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
+  if (roll !== "admin") {
+    return NextResponse.json({ ok: false, error: "Kräver admin" }, { status: 403 });
   }
 
   const body = await req.json();
@@ -67,8 +67,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const { user, roll } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (roll !== "admin" && roll !== "chef") {
-    return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
+  if (roll !== "admin") {
+    return NextResponse.json({ ok: false, error: "Kräver admin" }, { status: 403 });
   }
 
   const supabase = supaService();

@@ -25,7 +25,7 @@ async function kollaRedigera(): Promise<{ ok: boolean; error?: string }> {
     .select("roll")
     .eq("epost", user.email)
     .maybeSingle();
-  if (med?.roll !== "admin" && med?.roll !== "chef") return { ok: false, error: "Kräver admin/chef" };
+  if (med?.roll !== "admin") return { ok: false, error: "Kräver admin" };
   return { ok: true };
 }
 

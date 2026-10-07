@@ -13,7 +13,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
-// Samma vakt som Inställningar: priser är admin/chef-mark.
+// Samma vakt som Inställningar: priser är admin-mark.
 export default async function Page() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -40,7 +40,7 @@ export default async function Page() {
     .eq("epost", user.email)
     .single();
 
-  if (!medarbetare || (medarbetare.roll !== "chef" && medarbetare.roll !== "admin")) {
+  if (!medarbetare || (medarbetare.roll !== "admin")) {
     redirect("/arbetsrapport");
   }
 

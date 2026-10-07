@@ -11,7 +11,7 @@ import { målMedarbetareId } from "@/lib/auth/server";
  * obesvarad brandrisk, oförklarade tidsavvikelser) och dag för dag.
  *
  * Identiteten härleds ur sessionen (målMedarbetareId): egen id alltid; ett
- * främmande id accepteras bara för admin/chef, annars 403. 401 utan session,
+ * främmande id accepteras bara för admin, annars 403. 401 utan session,
  * 404 utan medarbetare-träff — aldrig fallback till "första bästa".
  *
  * SAMMA beräkning som exporten (lib/lonesystem/loneunderlag) — specen kan aldrig

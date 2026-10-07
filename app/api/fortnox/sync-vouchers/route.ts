@@ -19,7 +19,7 @@ export const maxDuration = 300; // 5 min — fulls sync för ett års vouchers
  * Detaljer hämtas bara för verifikat som saknas i cachen (immutabla i
  * Fortnox) — refetch=1 tvingar omhämtning av allt.
  *
- * Auktorisering: antingen inloggad admin/chef via cookie ELLER
+ * Auktorisering: antingen inloggad admin via cookie ELLER
  * Authorization: Bearer <FORTNOX_SYNC_SECRET> (används av pg_cron).
  */
 
@@ -36,7 +36,7 @@ function auktoriseradCron(req: NextRequest): boolean {
 
 async function kontrolleraAdmin(req: NextRequest): Promise<boolean> {
   if (auktoriseradCron(req)) return true;
-  // Fall tillbaka på Supabase-cookie (admin/chef). Tillåt också ?key=skogsystem-debug för manuell testning.
+  // Fall tillbaka på Supabase-cookie (admin). Tillåt också ?key=skogsystem-debug för manuell testning.
   const url = new URL(req.url);
   if (url.searchParams.get("key") === "skogsystem-debug") return true;
   // cookie-kontroll via createServerClient — enkel variant utan den

@@ -10,7 +10,7 @@ export const maxDuration = 60;
 // objektupplägg). Server-side (service-role). ALDRIG i förarens väg. Skriver objekt_vagdata +
 // status; svarar med vilken instans som svarade så planeraren ser sanningen.
 export async function POST(req: NextRequest) {
-  // Triggar extern hämtning + skriver objekt_vagdata: admin/chef (planerarens knapp).
+  // Triggar extern hämtning + skriver objekt_vagdata: admin (planerarens knapp).
   const vakt = await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;
   const objektId = req.nextUrl.searchParams.get('objekt_id');

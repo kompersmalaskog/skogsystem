@@ -17,7 +17,7 @@ import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
  * tidsspecifikation). Routen är ett skal: auth → beräkna → returnera/skicka.
  */
 export async function POST(req: NextRequest) {
-  // Allas löneunderlag + skarp Fortnox-sändning: admin/chef, inget annat.
+  // Allas löneunderlag + skarp Fortnox-sändning: admin, inget annat.
   // (Var helt öppen — oinloggad POST gav alla förares underlag.)
   const vakt = await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;

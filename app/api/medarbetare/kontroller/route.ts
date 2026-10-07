@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * POST /api/medarbetare/kontroller { operator_id, medarbetare_id } — kopplar EN
  *      operatör (admin har tryckt; aldrig automatiskt) och svarar med de datum
  *      operatören har skift, så admin kan bygga dagarna med /api/mom-import.
- * Admin/chef. Service-roll: fakt_skift och operator_medarbetare är RLS-låsta.
+ * admin. Service-roll: fakt_skift och operator_medarbetare är RLS-låsta.
  */
 const service = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 // Samma golv som /api/mom-import (SYNK_FRAN) — äldre dagar byggs inte om.

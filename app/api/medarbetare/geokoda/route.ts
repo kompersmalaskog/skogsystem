@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * POST /api/medarbetare/geokoda { id?, tvinga?, acceptera? }
  * Geokodar en medarbetares hemadress (lib/geokod) och svarar med vad adressen
  * hamnade på. Föraren får geokoda SIN EGEN adress (efter att ha sparat den i
- * Inställningar); admin/chef vem som helst. `tvinga` (skriv över en gps/manuell
+ * Inställningar); admin vem som helst. `tvinga` (skriv över en gps/manuell
  * punkt) och `acceptera` (använd ett osäkert förslag ändå) är admin-beslut.
  */
 export async function POST(req: NextRequest) {

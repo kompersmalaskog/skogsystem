@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { hämtaKoppling } from "@/lib/lonesystem/server";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
-/** Returnerar anslutningsstatus baserat på om token finns och inte utgått. Admin/chef. */
+/** Returnerar anslutningsstatus baserat på om token finns och inte utgått. admin. */
 export async function GET() {
   const vakt = await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;

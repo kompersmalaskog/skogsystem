@@ -46,7 +46,7 @@ webpush.setVapidDetails(
 );
 
 // Vercel cron skickar Authorization: Bearer $CRON_SECRET automatiskt. Manuell
-// körning kräver admin/chef-session. (Var helt öppen — vem som helst kunde tömma kön.)
+// körning kräver admin-session. (Var helt öppen — vem som helst kunde tömma kön.)
 async function tillaten(req: NextRequest): Promise<NextResponse | null> {
   const secret = process.env.CRON_SECRET;
   if (secret && req.headers.get("authorization") === `Bearer ${secret}`) return null;

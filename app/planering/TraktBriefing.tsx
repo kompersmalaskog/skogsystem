@@ -778,7 +778,7 @@ export default function TraktBriefing({
                     : <span style={{ color: 'rgba(255,255,255,0.35)' }}>&#9675; Ej kvitterat</span>}
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                     {isMe && <span style={{ fontSize: '11px', fontWeight: '700', color: A, background: 'rgba(138,180,96,0.15)', padding: '2px 7px', borderRadius: '8px' }}>du</span>}
-                    {/* G3: admin-nollställning — syns ENBART för admin/chef när rollen är kvitterad */}
+                    {/* G3: admin-nollställning — syns ENBART för admin när rollen är kvitterad */}
                     {isAdmin && done && (
                       resetConfirm === roll
                         ? <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

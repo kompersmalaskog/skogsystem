@@ -11,7 +11,7 @@ export const maxDuration = 60;
  *
  * Läser nu `kontroll` (#5) i stället för fyra datumkolumner. För varje aktiv
  * kontroll med nasta_forfall 30/7/0 dagar bort (och aktiv resurs), skickar push
- * till alla admin/chef. Dedup via fordon_pamin_skickad(kontroll_id, datum,
+ * till alla admin. Dedup via fordon_pamin_skickad(kontroll_id, datum,
  * dagar_fore). Mätarbaserade kontroller (nasta_forfall NULL) hanteras inte här
  * — de har inget datum att schemalägga mot.
  *
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   const { data: mottagare } = await supabase
     .from("medarbetare")
     .select("id, namn")
-    .in("roll", ["admin", "chef"])
+    .in("roll", ["admin"])
     .eq("aktiv", true);
 
   const mål = [

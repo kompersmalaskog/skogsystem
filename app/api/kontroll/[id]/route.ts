@@ -15,7 +15,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const { user, roll } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
+  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin" }, { status: 403 });
 
   const body = await req.json();
   const supabase = supaService();

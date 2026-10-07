@@ -30,12 +30,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const { user, roll } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
+  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin" }, { status: 403 });
 
   const body = await req.json();
   // Skrivriktning: samma ekonomi-gate som select() (#3).
   if (ekonomiUtanRatt(roll, body)) {
-    return NextResponse.json({ ok: false, error: "Ekonomifält kräver admin/chef" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Ekonomifält kräver admin" }, { status: 403 });
   }
 
   const payload: any = { uppdaterad: new Date().toISOString() };
@@ -52,7 +52,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const { user, roll } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
+  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin" }, { status: 403 });
 
   // Soft-delete — aktiv=false, aldrig radera.
   const supabase = supaService();

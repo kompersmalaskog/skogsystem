@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 export type CurrentMedarbetare = {
   id: string;
   namn: string;
-  roll: 'forare' | 'chef' | 'admin';
+  roll: 'forare' | 'admin';
   maskin_id: string | null;
   partner_user_id: string | null;
 };

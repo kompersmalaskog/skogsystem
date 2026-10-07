@@ -4,7 +4,7 @@ import { refreshFortnoxToken } from "@/lib/lonesystem/fortnox";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
 /**
- * Manuell token-refresh. Admin/chef (ingen cron anropar den — auto-refresh
+ * Manuell token-refresh. admin (ingen cron anropar den — auto-refresh
  * sker i getFortnoxClient() vid < 5 min kvar).
  */
 export async function POST() {
