@@ -69,13 +69,14 @@ describe('placering: en väg, exakt där trycket träffade, dragbart efteråt', 
     expect(page).toContain('if (korvyActive) visaKvitto(kvittoRubrik(symbolNamn(typ)), \'ok\', id);');
   });
   it('håll fingret på kartan öppnar raden — bara när inget annat läge pågår, aldrig på en symbol', () => {
-    expect(page).toContain("setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });\n        setPlusRadOppen(true);");
+    expect(page).toContain('setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });');
+    expect(page).toContain('langtryckNereRef.current = true;\n        setPlusRadOppen(true);');
     expect(page).toContain('}, LANGTRYCK_MS);');
     expect(page).toContain('langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen');
     expect(page).toContain("layers: ['markers-hit'].filter((l) => map.getLayer(l))");
   });
   it('symbolkort öppnas inte medan man placerar eller mäter', () => {
-    expect(page).toContain('if (selectedSymbolRef.current || korvyFigurAktivRef.current) return;');
+    expect(page).toContain('if (selectedSymbolRef.current || korvyFigurAktivRef.current || plusRadOppenRef.current) return;');
   });
   it('Ångra tar bort markeringen ur listan OCH databasen, och databasradering väntar in en pågående spar', () => {
     expect(page).toContain('setMarkers((prev: any[]) => angraMarkering(prev, id));\n    deleteMarkerFromDb(id);');
@@ -129,9 +130,18 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
     expect(page.match(/startaMatning\(/g)?.length).toBe(1);   // bara startaFigur anropar den
   });
   it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {
-    const vakt = 'hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current';
+    const vakt = 'hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current';
     expect(page.split(vakt).length - 1).toBe(10);                                        // yt-, larm-, symbol-, hög-, GROT-, TMA- … och linjens tryck
-    expect(page).toContain('skotningDrawing || korvyFigurAktivRef.current || selectedSymbolRef.current) return;');   // zonens tryck
+    expect(page).toContain('skotningDrawing || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;');   // zonens tryck
+  });
+  it('ett tryck på kartan utanför dockan STÄNGER den (och gör inget annat); lyftet efter ett långtryck stänger inte', () => {
+    expect(page).toContain("map.on('click', onKlick);");
+    expect(page).toContain('}, [plusRadOppen, mapLibreReady]);');
+    expect(page).toContain('if (langtryckNereRef.current || Date.now() < langtryckSlukTillRef.current) return;');
+    expect(page).toContain('plusRadOppenRef.current = plusRadOppen;');
+    // långtrycket sätter "finger nere" när dockan öppnas, och lyftet startar en kort spärr mot det klick som följer
+    expect(page).toContain('langtryckNereRef.current = true;');
+    expect(page).toContain('langtryckSlukTillRef.current = Date.now() + 400;');
   });
   it('pekaren är ett kors medan man mäter (klass på kartans container + !important i stilblocket)', () => {
     expect(page).toContain("c.classList.add('mat-kors');");
