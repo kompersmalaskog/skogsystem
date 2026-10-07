@@ -95,7 +95,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): { saker: Sak[]; sta
       const manadensOffset = (Number(nu.slice(0, 4)) - Number(tidigast.slice(0, 4))) * 12 + (Number(nu.slice(5, 7)) - Number(tidigast.slice(5, 7)));
       saker.push({
         id: "dagar", rubrik: `${dagar(rader.length)} väntar på bekräftelse`,
-        detalj: [...perPerson.entries()].map(([id, ds]) => `${namn.get(id) || id.slice(0, 8)}: ${ds.map(datumKort).join(", ")}`).join(" · "),
+        detalj: Array.from(perPerson.entries()).map(([id, ds]: [string, string[]]) => `${namn.get(id) || id.slice(0, 8)}: ${ds.map(datumKort).join(", ")}`).join(" · "),
         knapp: "Se dagarna",
         mal: { typ: "flik", flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String(-manadensOffset), avv: "1" } },
       });
@@ -136,9 +136,9 @@ export function byggAttGora(i: AttGoraIndata, idag: string): { saker: Sak[]; sta
   }
   if (i.personer.fel) felRad("inloggning", "inloggningarna", i.personer.fel);
   else if (i.personer.data) for (const p of i.personer.data) if (!p.user_id) lagg(p.id, p.namn || "Namnlös", "ingen inloggning kopplad");
-  for (const [id, e] of personProblem) {
+  personProblem.forEach((e, id) => {
     saker.push({ id: `person-${id}`, rubrik: e.namn, detalj: e.problem.join(" · "), knapp: "Öppna", mal: { typ: "flik", flik: "medarbetare", params: { person: id } } });
-  }
+  });
   if (i.kontroller.data && i.personer.data && personProblem.size === 0) stammer.push({ id: "personer", rubrik: "Alla har maskin, hempunkt och inloggning" });
 
   // ── Okänd operatör vars namn matchar en medarbetare ──

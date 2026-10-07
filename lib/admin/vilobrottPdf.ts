@@ -9,7 +9,7 @@ export function byggPdfHtml(brott: VilobrottRad[]): string {
     if (!grupperat.has(b.namn)) grupperat.set(b.namn, []);
     grupperat.get(b.namn)!.push(b);
   }
-  const sektioner = [...grupperat.entries()].map(([namn, lista]) => `
+  const sektioner = Array.from(grupperat.entries()).map(([namn, lista]: [string, VilobrottRad[]]) => `
     <h3>${escape(namn)} (${lista.length} brott)</h3>
     <table>
       <thead><tr><th>Datum</th><th>Vecka</th><th>Typ</th><th>Vila</th><th>Krav</th><th>Beskrivning</th><th>Förarens svar</th></tr></thead>

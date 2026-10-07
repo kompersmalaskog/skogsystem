@@ -527,7 +527,7 @@ function FortnoxExportSektion({
                   {rader.map((r: any, ri: number) => (
                     <div key={ri} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", ...TYP.meta, padding: `${AVSTAND.xs}px 0`, gap: AVSTAND.s }}>
                       <span style={{ color: FARG.text }}>{LONEART_LABELS[r.SalaryCode] || r.SalaryCode} <span style={{ color: FARG.text2, ...TYP.meta }}>({r.SalaryCode})</span></span>
-                      <span style={{ color: FARG.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ color: FARG.text2, fontWeight: 400, ...TYP.meta }}>{LONEART_ENHET[r.SalaryCode] || ""}</span></span>
+                      <span style={{ color: FARG.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ ...TYP.meta, color: FARG.text2 }}>{LONEART_ENHET[r.SalaryCode] || ""}</span></span>
                     </div>
                   ))}
                 </div>

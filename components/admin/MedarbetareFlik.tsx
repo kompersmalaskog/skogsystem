@@ -180,7 +180,7 @@ function ListaVy({
             return (
               <Rad key={m.id} onClick={() => onValj(m.id)} chevron sista={i === medarbetare.length - 1}
                 rubrik={<span style={{ display: "inline-flex", alignItems: "center", gap: AVSTAND.s }}>{m.namn || "Namnlös"}<Etikett>{ROLL_ORD[m.roll] || m.roll}</Etikett></span>}
-                detalj={<>{ops.length} operatör{ops.length === 1 ? "" : "er"}{maskinNamn.size > 0 && <> · {[...maskinNamn].join(", ")}</>}</>} />
+                detalj={<>{ops.length} operatör{ops.length === 1 ? "" : "er"}{maskinNamn.size > 0 && <> · {Array.from(maskinNamn).join(", ")}</>}</>} />
             );
           })}
         </Lista>
