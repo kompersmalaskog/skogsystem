@@ -207,10 +207,11 @@ function ListaVy({
   );
 }
 
+const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
+
 function RolBadge({ roll }: { roll: string }) {
   const färg =
     roll === "admin" ? { bg: "rgba(255,69,58,0.15)", fg: "#ff6961" } :
-    roll === "chef" ? { bg: "rgba(10,132,255,0.15)", fg: "#5ac8fa" } :
                        { bg: "rgba(142,142,147,0.18)", fg: "#aeaeb2" };
   return (
     <span style={{
@@ -222,7 +223,7 @@ function RolBadge({ roll }: { roll: string }) {
       letterSpacing: "0.08em",
       padding: "2px 8px",
       borderRadius: 6,
-    }}>{roll}</span>
+    }}>{ROLL_ORD[roll] || roll}</span>
   );
 }
 
@@ -295,17 +296,22 @@ function DetaljVy({
     setSparar(true);
     setSparFel(null);
     // Ta bort kopplingar först (FK)
-    await supabase.from("operator_medarbetare").delete().eq("medarbetare_id", medarbetare.id);
-    const { error } = await supabase.from("medarbetare").delete().eq("id", medarbetare.id);
+    const kopplingar = await supabase.from("operator_medarbetare").delete().eq("medarbetare_id", medarbetare.id);
+    if (kopplingar.error) { setSparar(false); setSparFel(kopplingar.error.message); return; }
+    // .select() ger tillbaka raderna som faktiskt försvann: 0 rader utan fel = RLS stoppade den tyst.
+    const { data, error } = await supabase.from("medarbetare").delete().eq("id", medarbetare.id).select("id");
     setSparar(false);
     if (error) { setSparFel(error.message); return; }
+    if (!data?.length) { setSparFel("Inget raderades — raden träffades inte (bara admin kan ta bort en medarbetare)."); return; }
     onKlar();
   };
 
   const kopplaLossOperator = async (operator_id: string) => {
-    const { error } = await supabase.from("operator_medarbetare")
-      .delete().eq("operator_id", operator_id).eq("medarbetare_id", medarbetare.id);
+    setSparFel(null);
+    const { data, error } = await supabase.from("operator_medarbetare")
+      .delete().eq("operator_id", operator_id).eq("medarbetare_id", medarbetare.id).select("operator_id");
     if (error) { setSparFel(error.message); return; }
+    if (!data?.length) { setSparFel("Kopplingen togs inte bort — raden träffades inte (bara admin kan ändra kopplingar)."); return; }
     onKlar();
   };
 
@@ -330,7 +336,6 @@ function DetaljVy({
         <Field label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Gata, ort"/>
         <SelectField label="Roll" value={roll} onChange={setRoll} options={[
           { value: "forare", label: "Förare" },
-          { value: "chef", label: "Chef" },
           { value: "admin", label: "Admin" },
         ]}/>
         <SelectField label="Maskin" value={maskinId} onChange={setMaskinId} options={[
@@ -354,7 +359,7 @@ function DetaljVy({
           background: "rgba(10,132,255,0.08)", borderRadius: 8,
           fontSize: 12, color: C.label,
         }}>
-          Anställningsnummer per lönesystem hanteras under fliken Lön → Lönesystem (kommer i steg 6).
+          Anställningsnummer per lönesystem sätts under Lön → Lönesystem.
         </div>
       </Card>
 
@@ -556,7 +561,6 @@ function NyMedarbetare({ onKlar, onAvbryt }: { onKlar: () => void; onAvbryt: () 
         <Field label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email"/>
         <SelectField label="Roll" value={roll} onChange={setRoll} options={[
           { value: "forare", label: "Förare" },
-          { value: "chef", label: "Chef" },
           { value: "admin", label: "Admin" },
         ]}/>
       </Card>

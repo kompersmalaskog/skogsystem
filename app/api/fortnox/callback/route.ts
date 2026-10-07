@@ -14,8 +14,9 @@ export async function GET(req: NextRequest) {
   const errorParam = url.searchParams.get("error");
   const errorDesc = url.searchParams.get("error_description");
 
+  // Kvittot ritas av Lön → Lönesystem, så återhoppet landar där och inte på Översikt.
   const adminUrl = (msg: string, ok = false) =>
-    `${url.origin}/admin?${ok ? "lonesystem_ok=1" : `lonesystem_fel=${encodeURIComponent(msg)}`}`;
+    `${url.origin}/admin?flik=lon&underflik=system&${ok ? "lonesystem_ok=1" : `lonesystem_fel=${encodeURIComponent(msg)}`}`;
 
   if (errorParam) {
     return NextResponse.redirect(adminUrl(errorDesc || errorParam));
