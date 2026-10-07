@@ -123,7 +123,7 @@ export default function VilobrottUnderflik() {
       map.get(b.medarbetare_id)!.push(b);
     }
     return [...map.entries()]
-      .map(([id, brott]) => ({ id, namn: brott[0].namn, brott, obesvarade: brott.filter(b => !b.svar).length }))
+      .map(([id, brott]: [string, BrottMedNamn[]]) => ({ id, namn: brott[0].namn, brott, obesvarade: brott.filter(b => !b.svar).length }))
       .sort((a, b) => b.obesvarade - a.obesvarade || b.brott.length - a.brott.length);
   }, [allaBrott]);
 
