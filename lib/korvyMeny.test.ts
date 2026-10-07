@@ -128,6 +128,11 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
     expect(page).toContain("else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }");
     expect(page.match(/startaMatning\(/g)?.length).toBe(1);   // bara startaFigur anropar den
   });
+  it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {
+    const vakt = 'hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current';
+    expect(page.split(vakt).length - 1).toBe(10);                                        // yt-, larm-, symbol-, hög-, GROT-, TMA- … och linjens tryck
+    expect(page).toContain('skotningDrawing || korvyFigurAktivRef.current || selectedSymbolRef.current) return;');   // zonens tryck
+  });
   it('pekaren är ett kors medan man mäter (klass på kartans container + !important i stilblocket)', () => {
     expect(page).toContain("c.classList.add('mat-kors');");
     expect(page).toContain('.maplibregl-canvas-container.mat-kors .maplibregl-canvas { cursor: crosshair !important; }');

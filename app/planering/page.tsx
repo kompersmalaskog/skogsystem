@@ -4995,7 +4995,7 @@ export default function PlannerPage() {
     };
 
     const handleHogarClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, ej multi-select (hög-tryck-valet gäller UTANFÖR ritning)
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return; // urvalsritning: tryck = hörn, ej multi-select (hög-tryck-valet gäller UTANFÖR ritning)
       if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
@@ -5031,7 +5031,7 @@ export default function PlannerPage() {
 
     // Kluster-klick → zooma in
     const handleClusterClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, ingen kluster-zoom
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return; // urvalsritning: tryck = hörn, ingen kluster-zoom
       if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       featureClickedRef.current = true;
       const features = map.queryRenderedFeatures(e.point, { layers: ['hogar-cluster'] });
@@ -5068,7 +5068,7 @@ export default function PlannerPage() {
     // Symbol/pil-TAP → öppna kortet (drag borttaget). Läs id ur feature-props, hitta markören i
     // markersRef och öppna dess kort. I stickväg-översikt: välj för översikt istället (som förr).
     const handleMarkerFeatureClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return; // urvalsritning: tryck = hörn, aldrig symbol-/pil-kort
       if (selectedSymbolRef.current || korvyFigurAktivRef.current) return;   // placerar en symbol / mäter: trycket är en PUNKT, inte ett kort
       if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       featureClickedRef.current = true;
@@ -5124,7 +5124,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
 
     const handleGrotClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig GROT-kort
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return; // urvalsritning: tryck = hörn, aldrig GROT-kort
       if (vinnandeKategoriForKarta(map, e.point) !== 'punkt') return;   // ytnummer/larm högre → avstå
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
@@ -6145,7 +6145,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onLarmClick = () => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig larm-popup
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return; // urvalsritning: tryck = hörn, aldrig larm-popup
       if (larmPlacering) return; // mitt i en flytt — öppna inte popupen
       featureClickedRef.current = true;
       setLarmConfirmDelete(false);
@@ -6204,7 +6204,7 @@ export default function PlannerPage() {
       oppnaKort(kort, partKey ? `traktdel:${partKey}` : null, { key: partKey, synthId: 'vida-td:' + partKey, ringLatLon: del.ringLatLon });
     };
     const onKlick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;   // urvalsritning: tryck = hörn
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return;   // urvalsritning: tryck = hörn
       if (larmPlacering) return;                 // mitt i en larmflytt
       // Prioritet (lib/klickPrioritet): avstå om ett HÖGRE lager utanför trakt-setet vann
       // (hög/markör över en traktdels-yta, ytnummer, larm). valjMinstaYta väljer redan den
@@ -6259,7 +6259,7 @@ export default function PlannerPage() {
     // högar täcker ytan. Högst prioritet efter larmet (lib/klickPrioritet). Dispatchar på
     // feature-identiteten (boundary → markörens gränskort, traktdel → Vida-bitens kort).
     const onYtaNrKlick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return;
       if (larmPlacering) return;
       if (vinnandeKategoriForKarta(map, e.point) !== 'yta-nr') return;   // bara larmet är högre
       const p = e.features?.[0]?.properties;
@@ -6298,7 +6298,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onKlick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return;
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return;
       if (isDrawMode || isZoneMode || larmPlacering) return;
       if (vinnandeKategoriForKarta(map, e.point) !== 'yta') return;   // hög/linje/ytnummer högre → avstå (annars öppnades ytkortet ovanpå högens popup, #587-krocken)
       const fid = e.features?.[0]?.properties?.id;
@@ -6910,7 +6910,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
 
     const onLineClick = (e: any) => {
-      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing || hornEditActiveRef.current) return;
+      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return;   // tryck = mätpunkt / symbolplacering, inget kort
       // Prioritet (lib/klickPrioritet): larm > ytnummer > punkt > LINJE > yta. Ligger trycket på något
       // högre (symbol/pil/hög/ytnummer) → avstå. Linjen träffas lätt av misstag längs hela sträckningen.
       if (vinnandeKategoriForKarta(map, e.point) !== 'linje') return;
@@ -6931,7 +6931,7 @@ export default function PlannerPage() {
     };
 
     const onZoneClick = (e: any) => {
-      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing) return;
+      if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing || korvyFigurAktivRef.current || selectedSymbolRef.current) return;   // tryck = mätpunkt / symbolplacering, inget kort
       // Zon = yta (lägst prioritet, lib/klickPrioritet). Avstå om något högre (punkt/linje/ytnummer) träffas.
       if (vinnandeKategoriForKarta(map, e.point) !== 'yta') return;
       if (e.features && e.features.length > 0) {
@@ -10372,7 +10372,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const onClick = (e: any) => {
-      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current) return; // urvalsritning: tryck = hörn, aldrig TMA-panel
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current) return; // urvalsritning: tryck = hörn, aldrig TMA-panel
       if (e.features && e.features.length > 0) {
         const bmId = e.features[0].properties.markerId;
         if (bmId) setTmaOpen(bmId);
