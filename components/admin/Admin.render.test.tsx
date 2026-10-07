@@ -694,6 +694,24 @@ describe("Ny medarbetare: fyra steg, ett i taget", () => {
     expect(cont.querySelector("[role=progressbar]")!.getAttribute("aria-valuenow")).toBe("2");
   });
 
+  it("utan hempunkt är steg 2 det första ogjorda: flödet öppnas där och hempunkten räknas inte som klar", async () => {
+    nyPerson();
+    await monter("flik=medarbetare&ny=1&person=n1");
+    expect(text()).toContain("Steg 2 av 4");
+    expect(stegRad("Hemadress").getAttribute("data-klar")).toBeNull();
+    expect(cont.querySelector("[role=progressbar]")!.getAttribute("aria-valuenow")).toBe("1");
+  });
+
+  it("steg 4: ett befintligt nummer ändras på samma rad (update, utan uppdaterad-kolumnen)", async () => {
+    g.__avvisaKolumner = { medarbetare_lonesystem: ["uppdaterad"] };
+    await monter("flik=medarbetare&ny=1&person=m1&steg=4");
+    expect(falt("Anställningsnummer").value).toBe("1001");
+    await skriv(falt("Anställningsnummer"), "5005");
+    await klick("Klar");
+    expect(g.__db.medarbetare_lonesystem.filter((r: any) => r.medarbetare_id === "m1")).toHaveLength(1);
+    expect(g.__db.medarbetare_lonesystem.find((r: any) => r.medarbetare_id === "m1").anstallningsnummer).toBe("5005");
+  });
+
   it("'Avbryt, fortsätt senare' lämnar flödet utan att radera något", async () => {
     nyPerson();
     await monter("flik=medarbetare&ny=1&person=n1&steg=2");
