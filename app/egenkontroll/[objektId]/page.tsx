@@ -36,7 +36,6 @@
 // forr, och det star rakt ut - ingen gissad ordning, ingen tyst omsortering.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
 import PageContainer from '@/components/PageContainer';
@@ -68,6 +67,7 @@ import { signeraFoto } from '@/lib/egenkontrollfoto';
 import AvvikelseSheet, { type SheetLage } from '../AvvikelseSheet';
 import RundKarta from '../RundKarta';
 import StubbeSheet from '../StubbeSheet';
+import TillbakaTillListan from '../TillbakaTillListan';
 import ProvytaSheet from '../ProvytaSheet';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import Forutsattningar from '../Forutsattningar';
@@ -983,6 +983,10 @@ export default function EgenkontrollRundaPage() {
     <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff }}>
       <style>{designCss}</style>
 
+      {/* VAGEN UT: pilen till egenkontroll-listan, i toppfaltet pa hemknappens plats.
+          I roten sa den finns i alla tillstand - karta, lista, laddar, fel. */}
+      <TillbakaTillListan />
+
       {/* TILLSTAND 1: GA RUNDAN. Helskarmskarta under toppfaltet, kortet UNDER den
           som syskon - inte ovanpa - sa det aldrig kan skymma den valda punkten.
           z 40: under toppfaltet (1000), felbannern (900), formularen och dialogen
@@ -1120,31 +1124,15 @@ export default function EgenkontrollRundaPage() {
       <div style={{ display: kartaSynlig ? 'none' : 'block' }}>
       <PageContainer width="smal" style={{ paddingBottom: 120, paddingTop: 0 }}>
         {/* STICKY rubrikrad i flodet (designreglerna: aldrig fixed + uppmatt padding).
-            Ikonen sitter hogerstalld, i samma horn som pa kartan. */}
+            Ikonen sitter hogerstalld, i samma horn som pa kartan. Vagen tillbaka ar
+            <TillbakaTillListan /> i toppfaltet (samma pil i bada lagena) - raden har
+            ingen egen lank, sa det inte finns tva bakatknappar bredvid varandra. */}
         <div
           style={{
             position: 'sticky', top: underTopbar(), zIndex: 20, background: T.bg,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 56,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: 56,
           }}
         >
-          <Link
-            href="/egenkontroll"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 2,
-              minHeight: 44,
-              color: T.blue,
-              textDecoration: 'none',
-              fontSize: 17,
-              marginLeft: -6,
-            }}
-          >
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 24 }}>
-              chevron_left
-            </span>
-            Egenkontroll
-          </Link>
           {kanVisaKarta && !laddar && !fel && <VaxlaVyKnapp till="karta" onClick={gaTillKarta} />}
         </div>
 
