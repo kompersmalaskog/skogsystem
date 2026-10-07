@@ -32,6 +32,7 @@
  */
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
+import { loneartInfo, type LoneartKey, type Loneartskoder } from "./loneart";
 import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
@@ -93,6 +94,8 @@ type MaskinTypMap = Record<string, "skordare" | "skotare">;
 
 export type FortnoxRad = {
   EmployeeId: string;
+  /** Vilken löneart raden är (lib/lonesystem/loneart). Intern: skickas inte till Fortnox. */
+  loneart: LoneartKey;
   SalaryCode: string;
   Number: string;     // antal — Fortnox multiplicerar med sats
   Date: string;        // YYYY-MM-DD (löneperiodens 1:a)
@@ -105,6 +108,8 @@ export type ExportSammanfattning = {
   anstallningsnummer: string;
   rader: FortnoxRad[];
   varningar: string[];
+  /** Lönearter som hade en mängd men saknar kod i mappningen: ingen rad skickades. */
+  saknade_loneartskoder: LoneartKey[];
   arbetsdagar: number;
   ordinarie_h: number;
   extra_h: number;      // varav extra tid (utanför maskinen) — ingår i timlön/övertid
@@ -174,10 +179,26 @@ export function beräknaExport(
   arbetadeUtanforPerioden: Set<string> = new Set(), // datum med arbete UTANFÖR arbetsperioden (bytesdagars röda dag i annan månad)
   ordinarieVeckaH: number | null = null,            // gs_avtal.ordinarie_vecka_h — deldagens schematimmar/dag (40 → 8)
   radMaskinTyp: "skordare" | "skotare" | null = null, // typen på förarens medarbetarrad-maskin — premiens fördelning en månad utan maskintid
+  // Löneartskoderna ur lonesystem_artikelmappning (lib/lonesystem/loneart). Inga egna koder här: en bortglömd
+  // parameter ger inga rader och en varning per löneart, aldrig en gissad kod.
+  koder: Loneartskoder = {},
 ): ExportSammanfattning {
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
   const rader: FortnoxRad[] = [];
+  const saknadeKoder: LoneartKey[] = [];
+
+  /** Lägg en Fortnox-rad med mappningens kod. Saknas den: ingen rad, mängden syns som varning. */
+  const laggRad = (loneart: LoneartKey, mangd: string, beskrivning: string) => {
+    const kod = koder[loneart];
+    if (!kod) {
+      const info = loneartInfo(loneart)!;
+      if (!saknadeKoder.includes(loneart)) saknadeKoder.push(loneart);
+      varningar.push(`Löneart saknas för ${info.label} (${Number(mangd)} ${info.enhet}): fyll i koden under Lön → Lönesystem. Raden skickas inte.`);
+      return;
+    }
+    rader.push({ EmployeeId: eid, loneart, SalaryCode: kod, Number: mangd, Date: loneperiodStart, beskrivning });
+  };
 
   if (!anstallningsnummer) {
     varningar.push("Anställningsnummer saknas — kan inte skicka till Fortnox.");
@@ -296,29 +317,23 @@ export function beräknaExport(
 
   // ── 1. TIMLÖN (kod 11) ──
   if (timlonH > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "11", Number: timlonH.toFixed(2), Date: loneperiodStart, beskrivning: `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})` });
+    laggRad("timlon", timlonH.toFixed(2), `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})`);
   }
 
   // ── 2. PREMIELÖN (kod 1354/1355) — på alla timlönetimmar, fördelat efter månadens maskintyp ──
   const premieGrund = typadH > 0 ? `${skordareH}h skördare / ${skotareH}h skotare i maskin` : `ingen maskintid, typ ur medarbetarraden (${radMaskinTyp})`;
   if (premieSkordare > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "1355", Number: premieSkordare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skördare: ${premieSkordare}h av ${premieBas}h timlön (${premieGrund})` });
+    laggRad("premielon_skordare", premieSkordare.toFixed(2), `Premielön skördare: ${premieSkordare}h av ${premieBas}h timlön (${premieGrund})`);
   }
   if (premieSkotare > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "1354", Number: premieSkotare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skotare: ${premieSkotare}h av ${premieBas}h timlön (${premieGrund})` });
+    laggRad("premielon_skotare", premieSkotare.toFixed(2), `Premielön skotare: ${premieSkotare}h av ${premieBas}h timlön (${premieGrund})`);
   }
 
   // ── 3. ÖVERTID (kod 1435/1436) — en rad per månad ──
   if (overtidH > 0) {
     // Dominant maskintyp för hela perioden
-    const overtidKod = skordareH >= skotareH ? "1435" : "1436";
-    rader.push({
-      EmployeeId: eid,
-      SalaryCode: overtidKod,
-      Number: overtidH.toFixed(2),
-      Date: loneperiodStart,
-      beskrivning: `Övertid: ${overtidH}h (${totalH}h totalt${extraHRund > 0 ? `, varav ${extraHRund}h extra tid` : ''} - ${ordinarie}h ordinarie)`,
-    });
+    const overtidArt: LoneartKey = skordareH >= skotareH ? "overtid_skordare" : "overtid_skotare";
+    laggRad(overtidArt, overtidH.toFixed(2), `Övertid: ${overtidH}h (${totalH}h totalt${extraHRund > 0 ? `, varav ${extraHRund}h extra tid` : ''} - ${ordinarie}h ordinarie)`);
   }
 
   // ── 4. VÄLTLAPPAR (kod 136): antal veckor med minst 1 arbetsdag ──
@@ -326,10 +341,7 @@ export function beräknaExport(
   for (const d of produktionsDagar) veckor.add(isoVecka(new Date(d.datum)));
   const vältVeckor = veckor.size;
   if (vältVeckor > 0) {
-    rader.push({
-      EmployeeId: eid, SalaryCode: "136", Number: vältVeckor.toFixed(0),
-      Date: loneperiodStart, beskrivning: `Vältlappar: ${vältVeckor} veckor`,
-    });
+    laggRad("valtlappar", vältVeckor.toFixed(0), `Vältlappar: ${vältVeckor} veckor`);
   }
 
   // ── 5. KÖRERSÄTTNING (kod 821): påbörjade mil över gränsen ──
@@ -340,10 +352,7 @@ export function beräknaExport(
   let totalMil = 0;
   for (const d of produktionsDagar) totalMil += ersattningsMilDag(d.km_totalt, kmGrans);
   if (totalMil > 0) {
-    rader.push({
-      EmployeeId: eid, SalaryCode: "821", Number: totalMil.toFixed(0),
-      Date: loneperiodStart, beskrivning: `Reseersättning: ${totalMil} påbörjade mil (över ${kmGrans} km/dag)`,
-    });
+    laggRad("korersattning", totalMil.toFixed(0), `Reseersättning: ${totalMil} påbörjade mil (över ${kmGrans} km/dag)`);
   }
 
   // Obekräftade varning
@@ -468,6 +477,7 @@ export function beräknaExport(
     anstallningsnummer,
     rader,
     varningar,
+    saknade_loneartskoder: saknadeKoder,
     arbetsdagar: antalArbetsdagar,
     ordinarie_h: ordinarie,
     extra_h: extraHRund,
