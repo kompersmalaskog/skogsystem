@@ -1,129 +1,36 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
-import { supabase } from "@/lib/supabase";
-import { C, secHead, Card, btnSecondary } from "./design";
-import { analyseraVilobrott, medPerioddagSpann, arTroligtVilobrott, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
-import { hamtaGiltigtAvtal, vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
-import { vilaSvarText } from "@/lib/dagFragor";
-import { ymdLokal } from "@/lib/datumLokal";
+import { AVSTAND, FARG, TYP, TNUM } from "@/lib/design/tokens";
+import { laddaVilobrottLista, type VilobrottRad } from "@/lib/admin/vilobrottLista";
+import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Fel, Laddar, Etikett } from "./ui";
 
-type Medarbetare = { id: string; namn: string | null };
-type ArbetsdagDb = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
-/** Perioder (extra_tid) — perioddagens klockslag när raden saknar egna (lib/vilobrott medPerioddagSpann). */
-type PeriodDb = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
-
-/** Förarens svar ur tabellen vilobrott (det föraren fyllt i under Min tid → Vila). */
-type SvarDb = { medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null };
-
-type BrottMedNamn = Vilobrott & {
-  medarbetare_id: string;
-  namn: string;
-  /** Förarens svar i klartext ("Planerat enligt avtal"), null = obesvarat. */
-  svar: string | null;
-};
-
-const svarNyckel = (medId: string, datum: string, typ: string) => `${medId}|${datum}|${typ}`;
-
+// Vilobrott: brotten räknas om ur arbetsdag + extra_tid (de senaste tre månaderna) och förarens svar läggs på
+// (lib/admin/vilobrottLista, samma lista som Översikten bygger sin rad på). Rött/orange bara för obesvarat.
 export default function VilobrottUnderflik() {
-  const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
-  const [arbetsdagar, setArbetsdagar] = useState<ArbetsdagDb[]>([]);
-  const [perioder, setPerioder] = useState<PeriodDb[]>([]);
-  const [svarRader, setSvarRader] = useState<SvarDb[]>([]);
+  const [allaBrott, setAllaBrott] = useState<VilobrottRad[]>([]);
   const [pdfFel, setPdfFel] = useState<string | null>(null);
-  const [trosklar, setTrosklar] = useState<VilaTrosklar | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
+  const [omgang, setOmgang] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLaddar(true); setFel(null);
-    (async () => {
-      try {
-        const idag = new Date();
-        const trMånSedan = new Date(idag.getFullYear(), idag.getMonth() - 3, 1);
-        const från = ymdLokal(trMånSedan); // lokalt datum — toISOString flyttar det ett dygn bakåt
-
-        const [medRes, arbRes, perRes, svarRes, avtal] = await Promise.all([
-          supabase.from("medarbetare").select("id, namn").order("namn"),
-          supabase.from("arbetsdag")
-            .select("medarbetare_id, datum, start_tid, slut_tid")
-            .gte("datum", från)
-            .order("datum"),
-          // Perioddagarna: arbetstidslagen gäller all arbetstid, inte bara maskintid.
-          supabase.from("extra_tid")
-            .select("medarbetare_id, datum, start_tid, slut_tid")
-            .gte("datum", från)
-            .not("slut_tid", "is", null),
-          // Förarens svar — så ett besvarat brott aldrig står rött här när det är grått hos föraren.
-          supabase.from("vilobrott")
-            .select("medarbetare_id, datum, typ, besvarat_av_forare, orsak, orsak_fritext")
-            .gte("datum", från),
-          hamtaGiltigtAvtal(idag),
-        ]);
-
-        if (cancelled) return;
-        if (medRes.error) throw medRes.error;
-        if (arbRes.error) throw arbRes.error;
-        // Ett läsfel på perioderna får inte tysta hela vyn — men det får inte
-        // heller tystas: perioddagarna saknas då, och det ska stå.
-        if (perRes.error) throw new Error(`Kunde inte läsa perioderna (extra_tid): ${perRes.error.message}`);
-
-        setMedarbetare(medRes.data || []);
-        setArbetsdagar(arbRes.data || []);
-        // Ett läsfel på svaren är aldrig "ingen har svarat" — då skulle allt stå rött.
-        if (svarRes.error) throw new Error(`Kunde inte läsa förarnas svar (vilobrott): ${svarRes.error.message}`);
-        setPerioder((perRes.data as PeriodDb[]) || []);
-        setSvarRader((svarRes.data as SvarDb[]) || []);
-        setTrosklar(vilaTrosklarFromAvtal(avtal));
-      } catch (e: any) {
-        if (!cancelled) setFel(e.message || String(e));
-      } finally {
-        if (!cancelled) setLaddar(false);
-      }
-    })();
+    laddaVilobrottLista()
+      .then(l => { if (!cancelled) setAllaBrott(l); })
+      .catch(e => { if (!cancelled) setFel(e?.message || String(e)); })
+      .finally(() => { if (!cancelled) setLaddar(false); });
     return () => { cancelled = true; };
-  }, []);
-
-  const allaBrott: BrottMedNamn[] = useMemo(() => {
-    if (!trosklar) return [];
-    const namnMap = new Map(medarbetare.map(m => [m.id, m.namn || m.id.slice(0, 8)]));
-    const dagPerMed = new Map<string, ArbetsdagDb[]>();
-    for (const d of arbetsdagar) {
-      if (!d.medarbetare_id) continue;
-      if (!dagPerMed.has(d.medarbetare_id)) dagPerMed.set(d.medarbetare_id, []);
-      dagPerMed.get(d.medarbetare_id)!.push(d);
-    }
-    const perPerMed = new Map<string, PeriodDb[]>();
-    for (const p of perioder) {
-      if (!p.medarbetare_id) continue;
-      if (!perPerMed.has(p.medarbetare_id)) perPerMed.set(p.medarbetare_id, []);
-      perPerMed.get(p.medarbetare_id)!.push(p);
-    }
-    // Medarbetare som BARA har perioder (ingen arbetsdag-rad i fönstret) ska också analyseras.
-    for (const medId of Array.from(perPerMed.keys())) if (!dagPerMed.has(medId)) dagPerMed.set(medId, []);
-    const svarMap = new Map<string, SvarDb>();
-    for (const r of svarRader) if (r.besvarat_av_forare) svarMap.set(svarNyckel(r.medarbetare_id, r.datum, r.typ), r);
-    const ut: BrottMedNamn[] = [];
-    for (const [medId, dagar] of dagPerMed.entries()) {
-      const brott = analyseraVilobrott(medPerioddagSpann(dagar, perPerMed.get(medId) || []), trosklar);
-      // Aldrig "X till X, 0 h": 0 h kommer av för lite underlag, inte av ett verkligt brott (lib/vilobrott).
-      for (const b of brott.filter(arTroligtVilobrott)) {
-        const r = svarMap.get(svarNyckel(medId, b.datum, b.typ));
-        ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null });
-      }
-    }
-    // Sortera senaste först
-    return ut.sort((a, b) => b.datum.localeCompare(a.datum));
-  }, [arbetsdagar, perioder, medarbetare, trosklar, svarRader]);
+  }, [omgang]);
 
   const grupperatPerMed = useMemo(() => {
-    const map = new Map<string, BrottMedNamn[]>();
+    const map = new Map<string, VilobrottRad[]>();
     for (const b of allaBrott) {
       if (!map.has(b.medarbetare_id)) map.set(b.medarbetare_id, []);
       map.get(b.medarbetare_id)!.push(b);
     }
-    return [...map.entries()]
-      .map(([id, brott]: [string, BrottMedNamn[]]) => ({ id, namn: brott[0].namn, brott, obesvarade: brott.filter(b => !b.svar).length }))
+    return Array.from(map.entries())
+      .map(([id, brott]: [string, VilobrottRad[]]) => ({ id, namn: brott[0].namn, brott, obesvarade: brott.filter(b => !b.svar).length }))
       .sort((a, b) => b.obesvarade - a.obesvarade || b.brott.length - a.brott.length);
   }, [allaBrott]);
 
@@ -146,122 +53,70 @@ export default function VilobrottUnderflik() {
 
   return (
     <>
-      <Card>
-        <p style={{ margin: 0, fontSize: 13, color: C.label }}>
-          Analyserar arbetsdagar de senaste 3 månaderna mot arbetstidslagens krav:
-          <br/>· Dygnsvila ≥ 11 h sammanhängande
-          <br/>· Veckovila ≥ 36 h sammanhängande
-        </p>
-      </Card>
+      <Stod style={{ marginTop: 0 }}>
+        Analyserar arbetsdagar de senaste 3 månaderna mot arbetstidslagens krav: dygnsvila minst 11 h sammanhängande, veckovila minst 36 h sammanhängande.
+      </Stod>
 
       {laddar ? (
-        <Card><p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar…</p></Card>
+        <div style={{ marginTop: AVSTAND.l }}><Laddar /></div>
       ) : fel ? (
-        <Card style={{ border: `1px solid ${C.red}` }}>
-          <p style={{ margin: 0, color: C.red, fontSize: 14 }}>{fel}</p>
-        </Card>
+        <div style={{ marginTop: AVSTAND.l }}><Fel onForsok={() => setOmgang(n => n + 1)}>{fel}</Fel></div>
       ) : (
         <>
           {/* Sammanfattning */}
-          <p style={{ ...secHead, marginTop: 18 }}>Sammanlagt</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-            <Kpi label="Dygnsvila, obesvarade" värde={dygnAntal} besvarade={dygnBesvarade} />
-            <Kpi label="Veckovila, obesvarade" värde={veckoAntal} besvarade={veckoBesvarade} />
+          <Sektion>Obesvarade</Sektion>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: AVSTAND.m }}>
+            <Antal label="Dygnsvila" varde={dygnAntal} besvarade={dygnBesvarade} />
+            <Antal label="Veckovila" varde={veckoAntal} besvarade={veckoBesvarade} />
           </div>
 
           {/* Per medarbetare */}
-          <p style={{ ...secHead, marginTop: 22 }}>
-            Per medarbetare ({grupperatPerMed.length} med brott)
-          </p>
+          <Sektion>Per medarbetare ({grupperatPerMed.length} med brott)</Sektion>
           {grupperatPerMed.length === 0 ? (
-            <Card style={{
-              background: "rgba(52,199,89,0.08)",
-              border: `1px solid rgba(52,199,89,0.2)`,
-            }}>
-              <p style={{ margin: 0, fontSize: 14, color: C.green, fontWeight: 600 }}>
-                ✓ Inga vilobrott upptäckta de senaste 3 månaderna.
-              </p>
-            </Card>
+            <Kort><p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>Inga vilobrott upptäckta de senaste 3 månaderna.</p></Kort>
           ) : grupperatPerMed.map(g => (
-            <Card key={g.id} style={{ padding: 0 }}>
-              <div style={{
-                padding: "12px 18px",
-                borderBottom: `1px solid ${C.line}`,
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-              }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{g.namn}</span>
-                {g.obesvarade > 0 ? (
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, color: C.red,
-                    background: "rgba(255,69,58,0.15)", padding: "3px 8px", borderRadius: 5,
-                  }}>{g.obesvarade} {g.obesvarade === 1 ? "obesvarat" : "obesvarade"}</span>
-                ) : (
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, color: C.label,
-                    background: "rgba(255,255,255,0.06)", padding: "3px 8px", borderRadius: 5,
-                  }}>alla besvarade</span>
-                )}
-              </div>
-              {g.brott.map((b, i) => (
-                <div key={i} style={{
-                  padding: "12px 18px",
-                  borderBottom: i === g.brott.length - 1 ? "none" : `1px solid ${C.line}`,
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: b.svar ? C.label : b.typ === "dygnsvila" ? C.red : C.orange,
-                      textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      {b.typ === "dygnsvila" ? "Dygnsvila" : "Veckovila"}
-                    </span>
-                    <span style={{ fontSize: 11, color: C.label }}>v.{b.vecka} {b.år}</span>
-                  </div>
-                  <p style={{ margin: "4px 0 0", fontSize: 13, color: b.svar ? C.label : C.text }}>
-                    {b.beskrivning}
-                  </p>
-                  {b.svar && (
-                    <p style={{ margin: "4px 0 0", fontSize: 13, color: C.label }}>Besvarat: {b.svar}</p>
-                  )}
+            <div key={g.id} style={{ marginBottom: AVSTAND.m }}>
+              <Lista>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m, padding: `${AVSTAND.m}px 0`, borderBottom: `1px solid ${FARG.linje}` }}>
+                  <span style={{ ...TYP.listtitel, color: FARG.text }}>{g.namn}</span>
+                  {g.obesvarade > 0
+                    ? <Etikett farg={FARG.orange}>{g.obesvarade} {g.obesvarade === 1 ? "obesvarat" : "obesvarade"}</Etikett>
+                    : <Etikett>alla besvarade</Etikett>}
                 </div>
-              ))}
-            </Card>
+                {g.brott.map((b, i) => (
+                  <Rad key={i} sista={i === g.brott.length - 1} dampad={!!b.svar}
+                    rubrik={<>{b.typ === "dygnsvila" ? "Dygnsvila" : "Veckovila"} <span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 400 }}>v.{b.vecka} {b.år}</span></>}
+                    rubrikFarg={FARG.orange}
+                    detalj={<>{b.beskrivning}{b.svar && <><br />Besvarat: {b.svar}</>}</>} />
+                ))}
+              </Lista>
+            </div>
           ))}
 
           {/* Export */}
-          <button
-            onClick={exporteraPDF}
-            disabled={allaBrott.length === 0}
-            style={{ ...btnSecondary, marginTop: 22, opacity: allaBrott.length === 0 ? 0.4 : 1 }}
-          >
+          <Sekundar onClick={exporteraPDF} disabled={allaBrott.length === 0} style={{ marginTop: AVSTAND.xl }}>
             Exportera PDF för Arbetsmiljöverket
-          </button>
-          {pdfFel && <p style={{ margin: "10px 0 0", fontSize: 13, color: C.red }}>{pdfFel}</p>}
+          </Sekundar>
+          {pdfFel && <Stod farg={FARG.rod}>{pdfFel}</Stod>}
         </>
       )}
     </>
   );
 }
 
-function Kpi({ label, värde, besvarade }: { label: string; värde: number; besvarade: number }) {
-  const färg = värde === 0 ? C.green : C.red;
+function Antal({ label, varde, besvarade }: { label: string; varde: number; besvarade: number }) {
   return (
-    <div style={{
-      background: "#1c1c1e", borderRadius: 12, padding: 16,
-      border: värde > 0 ? `1px solid rgba(255,69,58,0.3)` : "1px solid rgba(255,255,255,0.06)",
-    }}>
-      <p style={{ margin: 0, fontSize: 11, color: C.label, fontWeight: 600,
-        textTransform: "uppercase", letterSpacing: "0.1em" }}>{label}</p>
-      <p style={{ margin: "8px 0 0", fontSize: 26, fontWeight: 700, color: färg, letterSpacing: "-0.02em" }}>
-        {värde}
-      </p>
-      {besvarade > 0 && (
-        <p style={{ margin: "4px 0 0", fontSize: 12, color: C.label }}>{besvarade} besvarade</p>
-      )}
-    </div>
+    <Kort>
+      <div style={{ ...TYP.micro, color: FARG.text2 }}>{label}</div>
+      <div style={{ ...TYP.tal, ...TNUM, color: varde > 0 ? FARG.orange : FARG.text, marginTop: AVSTAND.s }}>{varde}</div>
+      {besvarade > 0 && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{besvarade} besvarade</div>}
+    </Kort>
   );
 }
 
-function byggPdfHtml(brott: BrottMedNamn[]): string {
+function byggPdfHtml(brott: VilobrottRad[]): string {
   const idag = new Date().toLocaleDateString("sv-SE");
-  const grupperat = new Map<string, BrottMedNamn[]>();
+  const grupperat = new Map<string, VilobrottRad[]>();
   for (const b of brott) {
     if (!grupperat.has(b.namn)) grupperat.set(b.namn, []);
     grupperat.get(b.namn)!.push(b);

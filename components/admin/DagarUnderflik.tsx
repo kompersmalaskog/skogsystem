@@ -5,6 +5,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { dagAvvikelser, minText, datumLang } from "@/lib/lonesystem/forarText";
 import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designCss } from "@/lib/design/tokens";
 import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
+import { useAdminNav } from "./nav";
 
 /**
  * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, en rad per
@@ -85,14 +86,17 @@ function arbetsdagarI(start: string, end: string, roda: Record<string, string>):
 }
 
 export default function DagarUnderflik() {
-  const [period, setPeriod] = useState<DagarPeriod>("M");
-  const [offset, setOffset] = useState(forvaltOffset("M"));
+  // Översiktens länk "Se dagarna" öppnar rätt period och bara avvikelserna (?dagper=M&dagoff=-1&avv=1).
+  const { nav } = useAdminNav();
+  const startPeriod: DagarPeriod = nav.params.dagper === "K" || nav.params.dagper === "Å" ? nav.params.dagper : "M";
+  const [period, setPeriod] = useState<DagarPeriod>(startPeriod);
+  const [offset, setOffset] = useState(/^-?\d+$/.test(nav.params.dagoff || "") ? Number(nav.params.dagoff) : forvaltOffset(startPeriod));
   const range = getPeriodRange(period, offset);
   const pagar = range.end >= idagISO();
   const [data, setData] = useState<{ medarbetare: Medarbetare[] } | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
-  const [baraAvv, setBaraAvv] = useState(false);
+  const [baraAvv, setBaraAvv] = useState(nav.params.avv === "1");
   const [oppen, setOppen] = useState<string | null>(null);
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [forsok, setForsok] = useState(0);

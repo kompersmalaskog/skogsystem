@@ -8,7 +8,8 @@
 // Systemet föreslår, admin trycker. Ingen automatisk koppling — ett namn kan
 // vara fel, därför står namnet och dagarna i klartext på raden.
 import React, { useState } from "react";
-import { C, secHead, Card, ChevronRight } from "./design";
+import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
+import { Sektion, Lista, Rad, Kort, Sekundar, Stod } from "./ui";
 import type { MedarbetarKontroller, OkandOperator } from "@/lib/medarbetarKontroll";
 
 const kort = (d: string) => { const [, m, dd] = d.split("-"); return `${+dd}/${+m}`; };
@@ -23,9 +24,9 @@ export default function MedarbetareKontroller({
 }) {
   if (fel) {
     return (
-      <Card style={{ border: `1px solid ${C.orange}`, marginBottom: 22 }}>
-        <p style={{ margin: 0, color: C.orange, fontSize: 14 }}>Kontrollerna kunde inte läsas: {fel}. Ladda om fliken.</p>
-      </Card>
+      <Kort style={{ marginBottom: AVSTAND.sektion }}>
+        <p style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>Kontrollerna kunde inte läsas: {fel}. Ladda om fliken.</p>
+      </Kort>
     );
   }
   if (!kontroller) return null;
@@ -41,30 +42,21 @@ export default function MedarbetareKontroller({
 
   return (
     <>
-      <p style={secHead}>Att åtgärda ({antal})</p>
-      <Card style={{ padding: 0, marginBottom: 22 }}>
+      <Sektion topp={0} orange>Att åtgärda ({antal})</Sektion>
+      <Lista style={{ marginBottom: AVSTAND.sektion }}>
         {okandaOperatorer.map((o, i) => (
           <OperatorRad key={o.operator_id} o={o} maskiner={maskiner} sista={i === antal - 1} />
         ))}
         {forareUtanMaskin.map((f, i) => (
-          <Rad key={`m-${f.id}`} sista={okandaOperatorer.length + i === antal - 1} onClick={() => onValj(f.id)}
-            text={<><strong>{f.namn}</strong> saknar maskin — MOM kan inte skapa dagarna och Dag-vyn vet inte vilken maskin. Sätt maskinen på personen.</>} />
+          <Rad key={`m-${f.id}`} sista={okandaOperatorer.length + i === antal - 1} onClick={() => onValj(f.id)} chevron
+            rubrik={f.namn} detalj="Saknar maskin. MOM kan inte skapa dagarna och Dag-vyn vet inte vilken maskin. Sätt maskinen på personen." />
         ))}
         {saknarHempunkt.map((h, i) => (
-          <Rad key={`h-${h.id}`} sista={okandaOperatorer.length + forareUtanMaskin.length + i === antal - 1} onClick={() => onValj(h.id)}
-            text={<><strong>{h.namn}</strong> {hemText(h.orsak)}</>} />
+          <Rad key={`h-${h.id}`} sista={okandaOperatorer.length + forareUtanMaskin.length + i === antal - 1} onClick={() => onValj(h.id)} chevron
+            rubrik={h.namn} detalj={hemText(h.orsak)} />
         ))}
-      </Card>
+      </Lista>
     </>
-  );
-}
-
-function Rad({ text, onClick, sista }: { text: React.ReactNode; onClick: () => void; sista: boolean }) {
-  return (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 20px", minHeight: 44, borderBottom: sista ? "none" : `1px solid ${C.line}`, cursor: "pointer" }}>
-      <span style={{ fontSize: 14, color: C.text, lineHeight: 1.4 }}>{text}</span>
-      <ChevronRight />
-    </div>
   );
 }
 
@@ -95,18 +87,17 @@ function OperatorRad({ o, maskiner, sista }: { o: OkandOperator; maskiner: Recor
   };
 
   return (
-    <div style={{ padding: "14px 20px", borderBottom: sista ? "none" : `1px solid ${C.line}` }}>
-      <p style={{ margin: 0, fontSize: 14, color: C.text, lineHeight: 1.4 }}>
-        Operatören <strong>"{o.operator_namn}"</strong> ({o.operator_id}) loggade in på {maskin} {o.datum.length} {o.datum.length === 1 ? "dag" : "dagar"} ({period}) utan koppling — tiden når inte lönen.
-      </p>
+    <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
+      <div style={{ ...TYP.listtitel, color: FARG.text }}>Operatören "{o.operator_namn}"</div>
+      <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+        {o.operator_id} loggade in på {maskin} {o.datum.length} {o.datum.length === 1 ? "dag" : "dagar"} ({period}) utan koppling. Tiden når inte lönen.
+      </div>
       {läge.steg === "vila" ? (
-        <button onClick={koppla} style={{ marginTop: 10, minHeight: 44, width: "100%", background: "rgba(255,255,255,0.10)", border: "none", borderRadius: 12, color: C.text, fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-          Koppla till {o.medarbetare.namn} och bygg dagarna
-        </button>
+        <Sekundar onClick={koppla} style={{ marginTop: AVSTAND.m }}>Koppla till {o.medarbetare.namn} och bygg dagarna</Sekundar>
       ) : (
-        <p style={{ margin: "10px 0 0", fontSize: 13, color: läge.steg === "fel" ? C.orange : läge.steg === "klar" ? C.green : C.label }}>
+        <Stod farg={läge.steg === "fel" ? FARG.orange : läge.steg === "klar" ? FARG.gron : FARG.text2} style={{ marginTop: AVSTAND.m }}>
           {läge.steg === "kopplar" ? "Kopplar…" : läge.text}
-        </p>
+        </Stod>
       )}
     </div>
   );

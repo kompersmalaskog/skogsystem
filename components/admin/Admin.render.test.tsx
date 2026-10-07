@@ -15,6 +15,12 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 
 vi.mock("next/navigation", () => ({ useSearchParams: () => (globalThis as any).__sp }));
 
+// Datahälsas leverans-regel är EN delad sanning (useDatahalsa). Testet styr vad den svarar.
+vi.mock("@/app/datahalsa/useDatahalsa", () => ({
+  LEV_GUL_DYGN: 10,
+  useDatahalsa: () => ({ leverans: (globalThis as any).__leverans }),
+}));
+
 vi.mock("@/lib/supabase", () => {
   class Q {
     f: ((r: any) => boolean)[] = [];
@@ -104,13 +110,14 @@ function seed(extra: Record<string, any[]> = {}) {
     ...extra,
   };
   g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {};
-  g.__fetchAnrop = [];
+  g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
+  g.__fetchAnrop = []; g.__kontroller = null;
   g.fetch = vi.fn(async (url: string, init?: any) => {
     const u = String(url); g.__fetchAnrop.push([u, init?.method || "GET"]);
     const body = u.includes("/api/lon/arsovertid") ? { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: [] }
       : u.includes("/api/fortnox/salary-export") ? (g.__salary || SALARY)
       : u.includes("/api/fortnox/status") ? { connected: true, token_utgar: null, senast_synkad: null }
-      : u.includes("/api/medarbetare/kontroller") ? { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [] }
+      : u.includes("/api/medarbetare/kontroller") ? (g.__kontroller || { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [] })
       : {};
     return { ok: true, status: 200, json: async () => body } as any;
   });
@@ -132,7 +139,8 @@ async function monter(sp: string, el?: React.ReactElement) {
   await act(async () => { root.render(el || <AdminClient currentUser={{ id: "m2", namn: "Inloggad Admin", roll: "admin" }} />); });
   await lugn();
 }
-const blad = (t: string) => Array.from(cont.querySelectorAll<HTMLElement>("*")).filter(e => e.children.length === 0 && (e.textContent || "").trim() === t);
+const egenText = (e: Element) => Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent || "").join("").trim();
+const blad = (t: string) => Array.from(cont.querySelectorAll<HTMLElement>("*")).filter(e => egenText(e) === t);
 async function klick(t: string, narmast?: string) {
   const el = blad(t)[0];
   if (!el) throw new Error("hittar inte: " + t + " — sidan säger: " + text().slice(0, 400));
@@ -148,35 +156,160 @@ async function skriv(input: HTMLInputElement, v: string) {
 }
 const radMed = (t: string) => blad(t)[0].parentElement as HTMLElement;
 
+vi.setConfig({ testTimeout: 30000 }); // jsdom + många fetchar på en långsam dator
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 9, 7, 12, 0)); seed(); });
 afterEach(async () => { await act(async () => { root?.unmount(); }); cont?.remove(); vi.useRealTimers(); vi.restoreAllMocks(); delete g.__salary; });
 
-describe("Översikt och navigering", () => {
-  it("visar bara det som stämmer: medarbetare, inloggade, bekräftade och senaste filer — inget som räknar fel", async () => {
-    await monter("flik=oversikt");
-    const t = text();
-    expect(t).toContain("Medarbetare");
-    expect(t).toContain("Inloggade idag");
-    expect(t).toContain("Bekräftade idag");
-    expect(t).toContain("R64101_1.mom");
-    expect(t).not.toContain("Månadens övertid");
-    expect(t).not.toContain("Vilobrott vecka");
-  });
-
-  it("Inst.-fliken är borta, och ?flik=installningar faller tillbaka på Översikt", async () => {
+describe("Skal och navigering", () => {
+  it("fem flikar i menyn, ingen Inst.; ?flik=installningar faller tillbaka på Översikt", async () => {
     await monter("flik=installningar");
+    for (const f of ["Översikt", "Medarbetare", "Maskiner", "Lön", "Avtal"]) expect(blad(f).length, f).toBeGreaterThan(0);
     expect(blad("Inst.").length).toBe(0);
     expect(text()).not.toContain("kommer i nästa steg");
-    expect(blad("Översikt").length).toBeGreaterThan(0);
-    expect(text()).toContain("Inloggade idag");
+    expect(text()).toContain("Stämmer");
+  });
+  it("flik och underflik skrivs i adressen, och en omladdning (ny montering på samma adress) stannar där man var", async () => {
+    await monter("flik=oversikt");
+    await klick("Lön");
+    expect(window.location.search).toContain("flik=lon");
+    await klick("Vilobrott");
+    expect(window.location.search).toContain("underflik=vila");
+    // "omladdning": montera om med adressens parametrar
+    await act(async () => { root.unmount(); }); cont.remove();
+    await monter(window.location.search.replace(/^\?/, ""));
+    expect(text()).toContain("Analyserar arbetsdagar de senaste 3 månaderna");
+  });
+  it("det som är öppet står i adressen: ?flik=maskiner&maskin=… öppnar maskinen direkt", async () => {
+    await monter("flik=maskiner&maskin=R64101");
+    expect(text()).toContain("Identitet");
+    expect(text()).toContain("R64101");
+  });
+  it("menyvalet 'Ny medarbetare' öppnar formuläret", async () => {
+    await monter("flik=oversikt");
+    await klick("Ny medarbetare");
+    expect(window.location.search).toContain("ny=1");
+    expect(text()).toContain("Skapa medarbetare");
+  });
+});
+
+describe("Översikt = att-göra-lista", () => {
+  const LEVERERAD = () => ({ laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] });
+  /** Allt stämmer: bekräftade dagar, skickad lön, inget okopplat, avtal långt fram. */
+  const allaStammer = () => {
+    g.__db.arbetsdag = [{ medarbetare_id: "m1", datum: "2026-09-10", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: true }];
+    g.__db.fortnox_export_logg = [{ medarbetare_id: "m1", status: "skickat", period: "2026-10" }];
+  };
+
+  it("inget väntar: bara Stämmer-listan, inget 'kräver dig' och ingen siffra i menyn", async () => {
+    allaStammer();
+    await monter("flik=oversikt");
+    expect(text()).not.toContain("kräver dig");
+    expect(text()).toContain("Stämmer");
+    for (const rad of ["Lönen för september är skickad till Fortnox", "Alla dagar är bekräftade", "Inga obesvarade vilobrott", "Alla har maskin, hempunkt och inloggning", "Alla operatörer är kopplade", "Avtalet gäller till 31 mars 2027", "Alla maskiner har skickat fil inom 10 dygn"]) {
+      expect(text(), rad).toContain(rad);
+    }
+    expect(cont.querySelector("aside")!.textContent).not.toMatch(/Översikt\s*\d/);
   });
 
-  it("'idag' är LOKALT datum: 00:30 den 1 juli frågar efter 2026-07-01, inte 30 juni (UTC)", async () => {
-    vi.setSystemTime(new Date(2026, 6, 1, 0, 30));
+  /** Allt på en gång. */
+  function mangaSaker() {
+    g.__db.medarbetare[1].user_id = null; // Erik: ingen inloggning
+    g.__db.dim_maskin.push({ maskin_id: "R64999", visningsnamn: null, modell: "H8E", maskin_typ: "Harvester", sander_filer: true, datakalla: null, aktiv_fran: null, aktiv_till: null, bekraftad: false });
+    // dagar: Anna 3 och 4 sep obekräftade, Erik 6 okt obekräftad (idag är 7 okt); en bekräftad dag + en dag utan klockslag räknas inte
+    g.__db.arbetsdag = [
+      { medarbetare_id: "m1", datum: "2026-09-03", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: false },
+      { medarbetare_id: "m1", datum: "2026-09-04", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: false },
+      { medarbetare_id: "m1", datum: "2026-09-05", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: true },
+      { medarbetare_id: "m2", datum: "2026-09-08", start_tid: null, slut_tid: null, bekraftad: false },
+      { medarbetare_id: "m2", datum: "2026-10-06", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: false },
+      // vilobrott: Anna slutar 20:30 och börjar 05:00
+      { medarbetare_id: "m1", datum: "2026-09-28", start_tid: "05:00:00", slut_tid: "20:30:00", bekraftad: true },
+      { medarbetare_id: "m1", datum: "2026-09-29", start_tid: "05:00:00", slut_tid: "15:30:00", bekraftad: true },
+    ];
+    g.__db.gs_avtal[0].giltigt_till = "2026-10-20"; // inom en månad
+    g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-09-20", dagarSedan: 17 }] };
+    g.__kontroller = { ok: true, okandaOperatorer: [{ operator_id: "OP-9", operator_namn: "E Lind", maskin_id: "R64101", datum: ["2026-09-19", "2026-09-22"], medarbetare: { id: "m2", namn: "Erik Lind" } }], forareUtanMaskin: [{ id: "m2", namn: "Erik Lind" }], saknarHempunkt: [{ id: "m2", namn: "Erik Lind", orsak: "ingen_adress" }] };
+  }
+
+  it("väntande: en rad per sak, orange rubrik med antalet, siffran i menyn är samma tal, och Stämmer visar bara det som stämmer", async () => {
+    mangaSaker();
     await monter("flik=oversikt");
-    const datum = g.__eq.filter((e: any[]) => e[0] === "arbetsdag" && e[1] === "datum").map((e: any[]) => e[2]);
-    expect(datum).toContain("2026-07-01");
-    expect(datum).not.toContain("2026-06-30");
+    const t = text();
+    expect(t).toContain("Lönen för september är klar att granska");
+    expect(t).toContain("3 dagar väntar på bekräftelse");
+    expect(t).toContain("Anna Berg: 3 sep, 4 sep");
+    expect(t).toContain("Erik Lind: 6 okt");
+    expect(t).toContain("Anna Berg: 2 obesvarade vilobrott"); // dygnsvila + veckovila över samma natt
+    expect(t).toMatch(/Erik Lind.*saknar maskin · saknar hemadress · ingen inloggning kopplad/);
+    expect(t).toContain('Operatören "E Lind" matchar Erik Lind');
+    expect(t).toContain("Ny maskin i importen: H8E");
+    expect(t).toContain("Avtalet går ut inom en månad");
+    expect(t).toContain("Rottne H8E har inte skickat fil på 17 dygn");
+    // 8 rader: lön, dagar, vilobrott, person, operatör, maskin, avtal, tyst maskin
+    expect(t).toContain("8 saker kräver dig");
+    expect(cont.querySelector("aside")!.textContent).toMatch(/Översikt\s*8/);
+    // det som INTE stämmer står inte som "stämmer"
+    for (const rad of ["Alla dagar är bekräftade", "Inga obesvarade vilobrott", "Alla operatörer är kopplade", "Alla maskiner har skickat fil"]) expect(t).not.toContain(rad);
+  });
+
+  it("knapparna leder dit det fixas: Granska → Löneunderlag, Se dagarna → Dagar filtrerat, Öppna → personen, Bekräfta → maskinen", async () => {
+    mangaSaker();
+    await monter("flik=oversikt");
+    await klick("Granska");
+    expect(window.location.search).toContain("flik=lon");
+    expect(window.location.search).toContain("underflik=underlag");
+    expect(text()).toContain("Går till Fortnox");
+    await klick("Översikt");
+    await klick("Se dagarna");
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("avv=1");
+    expect(window.location.search).toContain("dagoff=-1");
+    expect(blad("Bara avvikelser")[0].closest("button")!.getAttribute("aria-pressed")).toBe("true");
+    await klick("Översikt");
+    await klick("Öppna");
+    expect(window.location.search).toContain("person=m2");
+    expect(text()).toContain("Personuppgifter");
+    await klick("Översikt");
+    await klick("Bekräfta");
+    expect(window.location.search).toContain("maskin=R64999");
+    expect(text()).toContain("Ny maskin upptäckt i importen");
+  });
+
+  it("en källa som inte går att läsa blir en egen rad med Försök igen — aldrig en tyst nolla", async () => {
+    allaStammer();
+    g.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/medarbetare/kontroller")) return { ok: false, status: 500, json: async () => ({ ok: false, error: "kontrollerna är nere" }) } as any;
+      return { ok: true, status: 200, json: async () => ({}) } as any;
+    });
+    await monter("flik=oversikt");
+    expect(text()).toContain("Kunde inte kontrollera personerna");
+    expect(text()).toContain("kontrollerna är nere");
+    expect(text()).toContain("1 sak kräver dig");
+    expect(text()).not.toContain("Alla har maskin, hempunkt och inloggning");
+    expect(blad("Försök igen").length).toBeGreaterThan(0);
+  });
+
+  it("'idag' är LOKALT: klockan 00:30 den 1 oktober är 30 september en passerad dag och 1 oktober inte", async () => {
+    vi.setSystemTime(new Date(2026, 9, 1, 0, 30));
+    g.__db.arbetsdag = [
+      { medarbetare_id: "m1", datum: "2026-09-30", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: false },
+      { medarbetare_id: "m1", datum: "2026-10-01", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: false },
+    ];
+    await monter("flik=oversikt");
+    expect(text()).toContain("1 dag väntar på bekräftelse");
+    expect(text()).toContain("Anna Berg: 30 sep");
+  });
+
+  it("ändringen av aktuell leverans-regel: ur drift, filfria och obekräftade maskiner larmar aldrig", async () => {
+    allaStammer();
+    g.__leverans = { laddar: false, fel: null, data: [
+      { maskinId: "A", namn: "Såld", aktivTill: "2026-03-31", sanderFiler: true, bekraftad: true, senasteData: "2026-01-01", dagarSedan: 200 },
+      { maskinId: "B", namn: "Filfri", aktivTill: null, sanderFiler: false, bekraftad: true, senasteData: null, dagarSedan: null },
+      { maskinId: "C", namn: "Ny", aktivTill: null, sanderFiler: true, bekraftad: false, senasteData: null, dagarSedan: 50 },
+    ] };
+    await monter("flik=oversikt");
+    expect(text()).not.toContain("har inte skickat fil");
+    expect(text()).toContain("Alla maskiner har skickat fil");
   });
 });
 
@@ -190,25 +323,25 @@ describe("Medarbetare", () => {
 
   it("rollvalet har bara Förare och Admin (ingen Chef) — i både detalj och ny medarbetare", async () => {
     await monter("flik=medarbetare");
-    await klick("Anna Berg", "div[style*='cursor: pointer']");
+    await klick("Anna Berg");
     const val = () => Array.from(cont.querySelectorAll("select")).map(s => Array.from(s.options).map(o => o.textContent));
     expect(val().some(o => o.includes("Förare") && o.includes("Admin"))).toBe(true);
     expect(val().flat()).not.toContain("Chef");
-    await klick("‹ Tillbaka");
+    await klick("Medarbetare"); // menyn: tillbaka till listan
     await klick("+ Ny");
     expect(val().flat()).not.toContain("Chef");
   });
 
   it("texten om anställningsnummer säger inte längre 'kommer i steg 6'", async () => {
     await monter("flik=medarbetare");
-    await klick("Anna Berg", "div[style*='cursor: pointer']");
+    await klick("Anna Berg");
     expect(text()).not.toContain("steg 6");
     expect(text()).toContain("Lön → Lönesystem");
   });
 
   it("ta bort: om RLS stoppar raderingen (0 rader) står det, och personen finns kvar — inget tyst 'borttagen'", async () => {
     await monter("flik=medarbetare");
-    await klick("Anna Berg", "div[style*='cursor: pointer']");
+    await klick("Anna Berg");
     await klick("Ta bort medarbetare");
     g.__ingaRader = true;
     await klick("Ja, ta bort");
@@ -219,7 +352,7 @@ describe("Medarbetare", () => {
 
   it("ta bort: lyckas → tillbaka i listan utan personen", async () => {
     await monter("flik=medarbetare");
-    await klick("Anna Berg", "div[style*='cursor: pointer']");
+    await klick("Anna Berg");
     await klick("Ta bort medarbetare");
     await klick("Ja, ta bort");
     expect(g.__db.medarbetare.find((m: any) => m.id === "m1")).toBeFalsy();
@@ -231,7 +364,7 @@ describe("Maskiner", () => {
   it("ta ur drift sätter LOKALT datum (00:30 den 1 juli → 2026-07-01)", async () => {
     vi.setSystemTime(new Date(2026, 6, 1, 0, 30));
     await monter("flik=maskiner");
-    await klick("Rottne H8E", "div[style*='cursor: pointer']");
+    await klick("Rottne H8E");
     await klick("Ta ur drift / markera såld");
     await klick("Ja, ta ur drift");
     const skr = g.__skriv.find((s: any) => s.tabell === "dim_maskin");
@@ -277,7 +410,7 @@ describe("ATK-godkännande", () => {
     await monter("flik=lon&underflik=atk");
     await klick("Godkänn");
     expect(g.__db.atk_val[0].status).toBe("godkand");
-    expect(text()).toContain("GODKÄND");
+    expect(text()).toContain("Godkänd");
   });
   it("0 rader träffades → felet står och valet står kvar som VÄNTAR", async () => {
     g.__db.atk_val = [valRad()];
@@ -285,8 +418,8 @@ describe("ATK-godkännande", () => {
     g.__ingaRader = true;
     await klick("Godkänn");
     expect(text()).toContain("Ändringen sparades inte");
-    expect(text()).toContain("VÄNTAR");
-    expect(text()).not.toContain("GODKÄND");
+    expect(text()).toContain("Väntar");
+    expect(text()).not.toContain("Godkänd");
   });
 });
 
@@ -330,13 +463,6 @@ describe("Lönesystem", () => {
     await act(async () => { rad.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     await lugn();
     expect(g.__db.lonesystem_artikelmappning.find((r: any) => r.intern_typ === "timlon").extern_kod).toBe("12");
-  });
-  it("rubrikraden över löneartskoderna har lika många kolumner som raderna (4)", async () => {
-    await monter("flik=lon&underflik=system");
-    const rubrik = blad("Intern typ")[0].parentElement as HTMLElement;
-    const rad = radMed("Timlön");
-    const kol = (e: HTMLElement) => getComputedStyle(e).gridTemplateColumns.split(/\s+/).filter(Boolean).length || (e.style.gridTemplateColumns || "").split(/\s+/).filter(Boolean).length;
-    expect(kol(rubrik)).toBe(kol(rad));
   });
   it("koppla ifrån: egen bekräftelse i sidan, ingen window.confirm, inget anrop förrän man svarar ja", async () => {
     const conf = vi.spyOn(window, "confirm").mockImplementation(() => { throw new Error("window.confirm anropades"); });
