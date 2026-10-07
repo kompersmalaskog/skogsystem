@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TYP } from "@/lib/design/tokens";
-import { Sektion, Kort, Lista, Rad, Sekundar, Primar, Besked, Fel, Laddar, Tomt, Etikett, Tillbaka, Ikon } from "./ui";
+import { Sektion, Kort, Lista, Rad, Sekundar, Primar, Besked, Fel, Laddar, Tomt, Etikett, Ikon } from "./ui";
 
 type CurrentUser = { id: string; namn?: string | null; roll: string };
 

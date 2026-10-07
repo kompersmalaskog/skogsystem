@@ -4,7 +4,7 @@
 import React from "react";
 import { AVSTAND, FARG, KNAPP, TYP } from "@/lib/design/tokens";
 import type { Sak } from "@/lib/admin/attGora";
-import { Sektion, Lista, Rad, Laddar, Ikon } from "./ui";
+import { Sektion, Lista, Laddar, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import type { AttGora } from "./useAttGora";
 

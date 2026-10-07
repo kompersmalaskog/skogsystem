@@ -3,7 +3,7 @@ import React, { useState, useEffect, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA } from "@/lib/design/tokens";
-import { Kort as Card, Ikon } from "./ui";
+import { Kort, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
@@ -14,6 +14,9 @@ import VilobrottUnderflik from "./VilobrottUnderflik";
 // Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
 // regler. Byggd mot lib/design/tokens — första admin-ytan som är det.
 import DagarUnderflik from "./DagarUnderflik";
+
+// Kort i granskningen: luft mellan staplade kort.
+const Card = ({ children, style }: { children: React.ReactNode; style?: CSSProperties }) => <Kort style={{ marginBottom: AVSTAND.m, ...style }}>{children}</Kort>;
 
 // Sektionsrubrik i granskningen (liten, versal, grå).
 const secHead: CSSProperties = { ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.sektion}px 0 ${AVSTAND.m}px` };
