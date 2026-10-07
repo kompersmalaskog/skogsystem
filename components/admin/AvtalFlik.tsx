@@ -2,6 +2,7 @@
 import React, { useState, useEffect, CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, inputStyle, btnPrimary } from "./design";
+import { ymdLokal } from "@/lib/datumLokal";
 
 type Avtal = {
   id?: string;
@@ -107,12 +108,20 @@ const GRUPPER: FältGrupp[] = [
   },
 ];
 
+/** Hela månader kvar till slutdatumet (0 = under en månad). Null om inget slutdatum. Utgånget hanteras av arUtgatt. */
 function månaderKvar(giltigtTill: string | null | undefined): number | null {
-  if (!giltigtTill) return null;
-  const slut = new Date(giltigtTill);
-  if (isNaN(slut.getTime())) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(giltigtTill || "");
+  if (!m) return null;
   const nu = new Date();
-  return (slut.getFullYear() - nu.getFullYear()) * 12 + (slut.getMonth() - nu.getMonth());
+  let mån = (Number(m[1]) - nu.getFullYear()) * 12 + (Number(m[2]) - 1 - nu.getMonth());
+  if (Number(m[3]) < nu.getDate()) mån -= 1;
+  return Math.max(0, mån);
+}
+
+/** Slutdatumet ligger före idag (lokalt datum). */
+function arUtgatt(giltigtTill: string | null | undefined): boolean {
+  const d = (giltigtTill || "").slice(0, 10);
+  return !!d && d < ymdLokal(new Date());
 }
 
 export default function AvtalFlik() {
@@ -176,9 +185,12 @@ export default function AvtalFlik() {
       }
     }
 
-    const { error } = await supabase.from("gs_avtal").update(payload).eq("id", aktuellt.id);
+    // .select() ger tillbaka raderna som faktiskt skrevs: 0 rader utan fel = RLS stoppade den tyst
+    // (gs_avtal kräver admin). Då får det aldrig stå "Sparat".
+    const { data, error } = await supabase.from("gs_avtal").update(payload).eq("id", aktuellt.id).select("id");
     setSparar(false);
     if (error) { setSparFel(error.message); return; }
+    if (!data?.length) { setSparFel("Ändringen sparades inte — raden träffades inte (bara admin kan ändra avtalet)."); return; }
     setSparOk(true);
     setTimeout(() => setSparOk(false), 2000);
     ladda();
@@ -192,9 +204,9 @@ export default function AvtalFlik() {
     <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Inget avtal i databasen (gs_avtal är tom).</p>
   </Card>;
 
-  const månKvar = månaderKvar(aktuellt.giltigt_till);
-  const varningUtgång = månKvar !== null && månKvar <= 3 && månKvar >= 0;
-  const utgåttRedan = månKvar !== null && månKvar < 0;
+  const utgåttRedan = arUtgatt(aktuellt.giltigt_till);
+  const månKvar = utgåttRedan ? null : månaderKvar(aktuellt.giltigt_till);
+  const varningUtgång = månKvar !== null && månKvar <= 3;
 
   return (
     <>

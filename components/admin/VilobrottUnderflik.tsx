@@ -2,20 +2,34 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, btnSecondary } from "./design";
-import { analyseraVilobrott, medPerioddagSpann, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
+import { analyseraVilobrott, medPerioddagSpann, arTroligtVilobrott, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaGiltigtAvtal, vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
+import { vilaSvarText } from "@/lib/dagFragor";
+import { ymdLokal } from "@/lib/datumLokal";
 
 type Medarbetare = { id: string; namn: string | null };
 type ArbetsdagDb = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
 /** Perioder (extra_tid) — perioddagens klockslag när raden saknar egna (lib/vilobrott medPerioddagSpann). */
 type PeriodDb = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
 
-type BrottMedNamn = Vilobrott & { medarbetare_id: string; namn: string };
+/** Förarens svar ur tabellen vilobrott (det föraren fyllt i under Min tid → Vila). */
+type SvarDb = { medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null };
+
+type BrottMedNamn = Vilobrott & {
+  medarbetare_id: string;
+  namn: string;
+  /** Förarens svar i klartext ("Planerat enligt avtal"), null = obesvarat. */
+  svar: string | null;
+};
+
+const svarNyckel = (medId: string, datum: string, typ: string) => `${medId}|${datum}|${typ}`;
 
 export default function VilobrottUnderflik() {
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [arbetsdagar, setArbetsdagar] = useState<ArbetsdagDb[]>([]);
   const [perioder, setPerioder] = useState<PeriodDb[]>([]);
+  const [svarRader, setSvarRader] = useState<SvarDb[]>([]);
+  const [pdfFel, setPdfFel] = useState<string | null>(null);
   const [trosklar, setTrosklar] = useState<VilaTrosklar | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
@@ -27,9 +41,9 @@ export default function VilobrottUnderflik() {
       try {
         const idag = new Date();
         const trMånSedan = new Date(idag.getFullYear(), idag.getMonth() - 3, 1);
-        const från = trMånSedan.toISOString().slice(0, 10);
+        const från = ymdLokal(trMånSedan); // lokalt datum — toISOString flyttar det ett dygn bakåt
 
-        const [medRes, arbRes, perRes, avtal] = await Promise.all([
+        const [medRes, arbRes, perRes, svarRes, avtal] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
           supabase.from("arbetsdag")
             .select("medarbetare_id, datum, start_tid, slut_tid")
@@ -40,6 +54,10 @@ export default function VilobrottUnderflik() {
             .select("medarbetare_id, datum, start_tid, slut_tid")
             .gte("datum", från)
             .not("slut_tid", "is", null),
+          // Förarens svar — så ett besvarat brott aldrig står rött här när det är grått hos föraren.
+          supabase.from("vilobrott")
+            .select("medarbetare_id, datum, typ, besvarat_av_forare, orsak, orsak_fritext")
+            .gte("datum", från),
           hamtaGiltigtAvtal(idag),
         ]);
 
@@ -52,7 +70,10 @@ export default function VilobrottUnderflik() {
 
         setMedarbetare(medRes.data || []);
         setArbetsdagar(arbRes.data || []);
+        // Ett läsfel på svaren är aldrig "ingen har svarat" — då skulle allt stå rött.
+        if (svarRes.error) throw new Error(`Kunde inte läsa förarnas svar (vilobrott): ${svarRes.error.message}`);
         setPerioder((perRes.data as PeriodDb[]) || []);
+        setSvarRader((svarRes.data as SvarDb[]) || []);
         setTrosklar(vilaTrosklarFromAvtal(avtal));
       } catch (e: any) {
         if (!cancelled) setFel(e.message || String(e));
@@ -80,14 +101,20 @@ export default function VilobrottUnderflik() {
     }
     // Medarbetare som BARA har perioder (ingen arbetsdag-rad i fönstret) ska också analyseras.
     for (const medId of Array.from(perPerMed.keys())) if (!dagPerMed.has(medId)) dagPerMed.set(medId, []);
+    const svarMap = new Map<string, SvarDb>();
+    for (const r of svarRader) if (r.besvarat_av_forare) svarMap.set(svarNyckel(r.medarbetare_id, r.datum, r.typ), r);
     const ut: BrottMedNamn[] = [];
     for (const [medId, dagar] of dagPerMed.entries()) {
       const brott = analyseraVilobrott(medPerioddagSpann(dagar, perPerMed.get(medId) || []), trosklar);
-      for (const b of brott) ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8) });
+      // Aldrig "X till X, 0 h": 0 h kommer av för lite underlag, inte av ett verkligt brott (lib/vilobrott).
+      for (const b of brott.filter(arTroligtVilobrott)) {
+        const r = svarMap.get(svarNyckel(medId, b.datum, b.typ));
+        ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null });
+      }
     }
     // Sortera senaste först
     return ut.sort((a, b) => b.datum.localeCompare(a.datum));
-  }, [arbetsdagar, perioder, medarbetare, trosklar]);
+  }, [arbetsdagar, perioder, medarbetare, trosklar, svarRader]);
 
   const grupperatPerMed = useMemo(() => {
     const map = new Map<string, BrottMedNamn[]>();
@@ -96,17 +123,22 @@ export default function VilobrottUnderflik() {
       map.get(b.medarbetare_id)!.push(b);
     }
     return [...map.entries()]
-      .map(([id, brott]) => ({ id, namn: brott[0].namn, brott }))
-      .sort((a, b) => b.brott.length - a.brott.length);
+      .map(([id, brott]) => ({ id, namn: brott[0].namn, brott, obesvarade: brott.filter(b => !b.svar).length }))
+      .sort((a, b) => b.obesvarade - a.obesvarade || b.brott.length - a.brott.length);
   }, [allaBrott]);
 
-  const dygnAntal = allaBrott.filter(b => b.typ === "dygnsvila").length;
-  const veckoAntal = allaBrott.filter(b => b.typ === "veckovila").length;
+  // Räknarna visar OBESVARADE brott — det som kräver något. Besvarade står kvar i listan, grått.
+  const obesvarade = allaBrott.filter(b => !b.svar);
+  const dygnAntal = obesvarade.filter(b => b.typ === "dygnsvila").length;
+  const veckoAntal = obesvarade.filter(b => b.typ === "veckovila").length;
+  const dygnBesvarade = allaBrott.filter(b => b.typ === "dygnsvila" && b.svar).length;
+  const veckoBesvarade = allaBrott.filter(b => b.typ === "veckovila" && b.svar).length;
 
   const exporteraPDF = () => {
+    setPdfFel(null);
     const html = byggPdfHtml(allaBrott);
     const w = window.open("", "_blank", "width=900,height=700");
-    if (!w) { alert("Kunde inte öppna nytt fönster — kolla popup-blockerare."); return; }
+    if (!w) { setPdfFel("Kunde inte öppna PDF-fönstret — tillåt popup-fönster för sidan och försök igen."); return; }
     w.document.write(html);
     w.document.close();
     setTimeout(() => w.print(), 300);
@@ -133,8 +165,8 @@ export default function VilobrottUnderflik() {
           {/* Sammanfattning */}
           <p style={{ ...secHead, marginTop: 18 }}>Sammanlagt</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-            <Kpi label="Dygnsvila" värde={dygnAntal} />
-            <Kpi label="Veckovila" värde={veckoAntal} />
+            <Kpi label="Dygnsvila, obesvarade" värde={dygnAntal} besvarade={dygnBesvarade} />
+            <Kpi label="Veckovila, obesvarade" värde={veckoAntal} besvarade={veckoBesvarade} />
           </div>
 
           {/* Per medarbetare */}
@@ -158,10 +190,17 @@ export default function VilobrottUnderflik() {
                 display: "flex", justifyContent: "space-between", alignItems: "center",
               }}>
                 <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{g.namn}</span>
-                <span style={{
-                  fontSize: 11, fontWeight: 700, color: C.red,
-                  background: "rgba(255,69,58,0.15)", padding: "3px 8px", borderRadius: 5,
-                }}>{g.brott.length} brott</span>
+                {g.obesvarade > 0 ? (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, color: C.red,
+                    background: "rgba(255,69,58,0.15)", padding: "3px 8px", borderRadius: 5,
+                  }}>{g.obesvarade} {g.obesvarade === 1 ? "obesvarat" : "obesvarade"}</span>
+                ) : (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, color: C.label,
+                    background: "rgba(255,255,255,0.06)", padding: "3px 8px", borderRadius: 5,
+                  }}>alla besvarade</span>
+                )}
               </div>
               {g.brott.map((b, i) => (
                 <div key={i} style={{
@@ -169,15 +208,18 @@ export default function VilobrottUnderflik() {
                   borderBottom: i === g.brott.length - 1 ? "none" : `1px solid ${C.line}`,
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: b.typ === "dygnsvila" ? C.red : C.orange,
+                    <span style={{ fontSize: 11, fontWeight: 700, color: b.svar ? C.label : b.typ === "dygnsvila" ? C.red : C.orange,
                       textTransform: "uppercase", letterSpacing: "0.05em" }}>
                       {b.typ === "dygnsvila" ? "Dygnsvila" : "Veckovila"}
                     </span>
                     <span style={{ fontSize: 11, color: C.label }}>v.{b.vecka} {b.år}</span>
                   </div>
-                  <p style={{ margin: "4px 0 0", fontSize: 13, color: C.text }}>
+                  <p style={{ margin: "4px 0 0", fontSize: 13, color: b.svar ? C.label : C.text }}>
                     {b.beskrivning}
                   </p>
+                  {b.svar && (
+                    <p style={{ margin: "4px 0 0", fontSize: 13, color: C.label }}>Besvarat: {b.svar}</p>
+                  )}
                 </div>
               ))}
             </Card>
@@ -191,13 +233,14 @@ export default function VilobrottUnderflik() {
           >
             Exportera PDF för Arbetsmiljöverket
           </button>
+          {pdfFel && <p style={{ margin: "10px 0 0", fontSize: 13, color: C.red }}>{pdfFel}</p>}
         </>
       )}
     </>
   );
 }
 
-function Kpi({ label, värde }: { label: string; värde: number }) {
+function Kpi({ label, värde, besvarade }: { label: string; värde: number; besvarade: number }) {
   const färg = värde === 0 ? C.green : C.red;
   return (
     <div style={{
@@ -209,6 +252,9 @@ function Kpi({ label, värde }: { label: string; värde: number }) {
       <p style={{ margin: "8px 0 0", fontSize: 26, fontWeight: 700, color: färg, letterSpacing: "-0.02em" }}>
         {värde}
       </p>
+      {besvarade > 0 && (
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: C.label }}>{besvarade} besvarade</p>
+      )}
     </div>
   );
 }
@@ -223,7 +269,7 @@ function byggPdfHtml(brott: BrottMedNamn[]): string {
   const sektioner = [...grupperat.entries()].map(([namn, lista]) => `
     <h3>${escape(namn)} (${lista.length} brott)</h3>
     <table>
-      <thead><tr><th>Datum</th><th>Vecka</th><th>Typ</th><th>Vila</th><th>Krav</th><th>Beskrivning</th></tr></thead>
+      <thead><tr><th>Datum</th><th>Vecka</th><th>Typ</th><th>Vila</th><th>Krav</th><th>Beskrivning</th><th>Förarens svar</th></tr></thead>
       <tbody>
         ${lista.map(b => `
           <tr>
@@ -233,6 +279,7 @@ function byggPdfHtml(brott: BrottMedNamn[]): string {
             <td>${b.vila_h} h</td>
             <td>${b.krav_h} h</td>
             <td>${escape(b.beskrivning)}</td>
+            <td>${b.svar ? escape(b.svar) : "Obesvarat"}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -263,6 +310,7 @@ function byggPdfHtml(brott: BrottMedNamn[]): string {
     <strong>Sammanfattning:</strong> Totalt ${brott.length} vilobrott upptäckta hos ${grupperat.size} medarbetare.
     Dygnsvila bruten ${brott.filter(b => b.typ === "dygnsvila").length} gånger.
     Veckovila bruten ${brott.filter(b => b.typ === "veckovila").length} gånger.
+    Obesvarade av föraren: ${brott.filter(b => !b.svar).length}.
   </div>
   ${sektioner}
 </body>

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { expectedWorkMinutes } from "@/lib/roda-dagar";
+import { ymdLokal } from "@/lib/datumLokal";
 import { C, adminCss as css, secHead, Card } from "./design";
 import MedarbetareFlik from "./MedarbetareFlik";
 import MaskinerFlik from "./MaskinerFlik";
@@ -24,7 +24,7 @@ const shell: CSSProperties = {
 
 const topBar: CSSProperties = { paddingTop: 24, paddingBottom: 12 };
 
-type Tab = "oversikt" | "medarbetare" | "maskiner" | "avtal" | "lon" | "installningar";
+type Tab = "oversikt" | "medarbetare" | "maskiner" | "avtal" | "lon";
 
 const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: "oversikt",      icon: "dashboard",   label: "Översikt" },
@@ -32,7 +32,6 @@ const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: "maskiner",      icon: "agriculture", label: "Maskiner" },
   { key: "avtal",         icon: "description", label: "Avtal" },
   { key: "lon",           icon: "payments",    label: "Lön" },
-  { key: "installningar", icon: "settings",    label: "Inst." },
 ];
 
 function BottomNav({ aktiv, onNav }: { aktiv: Tab; onNav: (t: Tab) => void }) {
@@ -102,19 +101,10 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
         {aktiv === "maskiner"      && <MaskinerFlik />}
         {aktiv === "avtal"         && <AvtalFlik />}
         {aktiv === "lon"           && <LonFlik currentUser={currentUser} />}
-        {aktiv === "installningar" && <Placeholder label="Inställningar" />}
       </main>
 
       <BottomNav aktiv={aktiv} onNav={setAktiv} />
     </div>
-  );
-}
-
-function Placeholder({ label }: { label: string }) {
-  return (
-    <Card>
-      <p style={{ margin: 0, fontSize: 15, color: C.label }}>{label} — kommer i nästa steg.</p>
-    </Card>
   );
 }
 
@@ -124,25 +114,16 @@ type ÖversiktData = {
   antalMedarbetare: number;
   dagensInloggade: number;
   dagensBekraftade: number;
-  vilobrottAntal: number;
-  förväntadeMin: number;
-  månadensÖvertid: { medarbetare: string; jobbade: number; övertid: number }[];
   momFiler: { filnamn: string; importerad_tid: string; maskin_id: string; status: string }[];
   laddar: boolean;
   fel: string | null;
 };
-
-// Övertidstak per månad (kollektivavtal: 250h/år ≈ 21h/mån, vi använder 25h som progress-cap)
-const ÖVERTID_REFERENS_MIN = 25 * 60;
 
 function OversiktFlik() {
   const [data, setData] = useState<ÖversiktData>({
     antalMedarbetare: 0,
     dagensInloggade: 0,
     dagensBekraftade: 0,
-    vilobrottAntal: 0,
-    förväntadeMin: 0,
-    månadensÖvertid: [],
     momFiler: [],
     laddar: true,
     fel: null,
@@ -153,71 +134,33 @@ function OversiktFlik() {
 
     (async () => {
       try {
-        const nu = new Date();
-        const idag = nu.toISOString().slice(0, 10);
-        const månStart = idag.slice(0, 7) + "-01";
-        const förväntadeMin = expectedWorkMinutes(nu.getFullYear(), nu.getMonth());
-        // ISO-vecka (mån-sön). Räknar alla vilobrott vars datum-fält ligger
-        // i veckan, oavsett besvarad status — ett brott är ett brott även om
-        // föraren har angett orsak. För en chef är det relevant att veta
-        // antalet, inte deras besvar-status.
-        const veckStartDt = new Date(nu);
-        veckStartDt.setDate(nu.getDate() - ((nu.getDay() + 6) % 7));
-        const veckStart = veckStartDt.toISOString().slice(0, 10);
+        // LOKALT datum — toISOString() ger gårdagen före 02:00 på sommaren.
+        const idag = ymdLokal(new Date());
 
-        const [med, dagensRes, månadRes, månadExtraRes, momRes, vilobrottRes] = await Promise.all([
-          supabase.from("medarbetare").select("id, namn", { count: "exact" }),
+        const [med, dagensRes, momRes] = await Promise.all([
+          supabase.from("medarbetare").select("id", { count: "exact" }),
           supabase.from("arbetsdag").select("medarbetare_id, bekraftad").eq("datum", idag),
-          supabase.from("arbetsdag").select("medarbetare_id, arbetad_min").gte("datum", månStart),
-          // Extra tid räknas in i månadens jobbade tid (samma som löneexporten)
-          supabase.from("extra_tid").select("medarbetare_id, minuter").gte("datum", månStart),
           supabase.from("meta_importerade_filer")
             .select("filnamn, importerad_tid, maskin_id, status")
             .order("importerad_tid", { ascending: false })
             .limit(5),
-          supabase.from("vilobrott")
-            .select("id", { count: "exact", head: true })
-            .gte("datum", veckStart)
-            .lte("datum", idag),
         ]);
 
         if (cancelled) return;
 
-        const namnMap = new Map<string, string>(
-          (med.data || []).map((m: any) => [m.id, m.namn || "—"])
-        );
+        // Ett läsfel är aldrig "noll" — det ska stå.
+        const lasFel = med.error || dagensRes.error || momRes.error;
+        if (lasFel) throw lasFel;
 
         const antal = med.count ?? (med.data?.length || 0);
         const dagensRader = dagensRes.data || [];
         const dagensInloggade = new Set(dagensRader.map((d: any) => d.medarbetare_id)).size;
         const dagensBekraftade = dagensRader.filter((d: any) => d.bekraftad).length;
 
-        const minMap: Record<string, number> = {};
-        for (const d of (månadRes.data || [])) {
-          if (!d.medarbetare_id) continue;
-          minMap[d.medarbetare_id] = (minMap[d.medarbetare_id] || 0) + (d.arbetad_min || 0);
-        }
-        // Extra tid per medarbetare — total arbetstid, inte bara maskintid
-        for (const e of ((månadExtraRes.data || []) as any[])) {
-          if (!e.medarbetare_id) continue;
-          minMap[e.medarbetare_id] = (minMap[e.medarbetare_id] || 0) + (e.minuter || 0);
-        }
-        const månadensÖvertid = Object.entries(minMap)
-          .map(([id, jobbade]) => ({
-            medarbetare: namnMap.get(id) || id.slice(0, 8),
-            jobbade,
-            övertid: Math.max(0, jobbade - förväntadeMin),
-          }))
-          .filter(r => r.övertid > 0)
-          .sort((a, b) => b.övertid - a.övertid);
-
         setData({
           antalMedarbetare: antal,
           dagensInloggade,
           dagensBekraftade,
-          vilobrottAntal: vilobrottRes.count ?? 0,
-          förväntadeMin,
-          månadensÖvertid,
           momFiler: momRes.data || [],
           laddar: false,
           fel: null,
@@ -242,71 +185,14 @@ function OversiktFlik() {
   return (
     <>
       {/* KPI-kort */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
         <Kpi label="Medarbetare" value={String(data.antalMedarbetare)} />
         <Kpi label="Inloggade idag" value={`${data.dagensInloggade} st`} />
         <Kpi label="Bekräftade idag" value={`${data.dagensBekraftade} st`} />
-        <Kpi
-          label="Vilobrott vecka"
-          value={data.vilobrottAntal === 0 ? "0" : `${data.vilobrottAntal}`}
-          highlight={data.vilobrottAntal > 0}
-        />
       </div>
-
-      {/* Månadens övertid per förare */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-        <p style={{ ...secHead, margin: 0 }}>Månadens övertid</p>
-        <span style={{ fontSize: 11, color: C.label, fontWeight: 500 }}>
-          ref. {(data.förväntadeMin / 60).toFixed(0)} h normaltid
-        </span>
-      </div>
-      <Card>
-        {data.månadensÖvertid.length === 0 ? (
-          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Ingen övertid registrerad denna månad.</p>
-        ) : (
-          data.månadensÖvertid.map((r, i) => {
-            const övTim = r.övertid / 60;
-            const jobbTim = r.jobbade / 60;
-            const procent = Math.min(100, (r.övertid / ÖVERTID_REFERENS_MIN) * 100);
-            const överTak = r.övertid > ÖVERTID_REFERENS_MIN;
-            return (
-              <div key={i} style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                padding: "10px 0",
-                borderBottom: i === data.månadensÖvertid.length - 1 ? "none" : `1px solid ${C.line}`,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 14 }}>
-                  <span style={{ color: C.text, fontWeight: 500 }}>{r.medarbetare}</span>
-                  <span style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                    <span style={{ color: C.label, fontSize: 12 }}>{jobbTim.toFixed(1)} h jobbade</span>
-                    <span style={{ color: överTak ? C.red : C.orange, fontWeight: 700 }}>
-                      +{övTim.toFixed(1)} h
-                    </span>
-                  </span>
-                </div>
-                <div style={{
-                  height: 4,
-                  background: "rgba(255,255,255,0.08)",
-                  borderRadius: 2,
-                  overflow: "hidden",
-                }}>
-                  <div style={{
-                    height: "100%",
-                    width: `${procent}%`,
-                    background: överTak ? C.red : C.orange,
-                    transition: "width 0.3s",
-                  }} />
-                </div>
-              </div>
-            );
-          })
-        )}
-      </Card>
 
       {/* Senaste MOM-filer */}
-      <p style={{ ...secHead, marginTop: 22 }}>Senast importerade MOM-filer</p>
+      <p style={secHead}>Senast importerade MOM-filer</p>
       <Card>
         {data.momFiler.length === 0 ? (
           <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Inga importerade filer hittade.</p>
@@ -346,13 +232,13 @@ function OversiktFlik() {
   );
 }
 
-function Kpi({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function Kpi({ label, value }: { label: string; value: string }) {
   return (
     <div style={{
       background: "#1c1c1e",
       borderRadius: 12,
       padding: 16,
-      border: highlight ? `1px solid ${C.red}` : "1px solid rgba(255,255,255,0.06)",
+      border: "1px solid rgba(255,255,255,0.06)",
     }}>
       <p style={{
         margin: 0,
@@ -366,7 +252,7 @@ function Kpi({ label, value, highlight }: { label: string; value: string; highli
         margin: "8px 0 0",
         fontSize: 26,
         fontWeight: 700,
-        color: highlight ? C.red : C.text,
+        color: C.text,
         letterSpacing: "-0.02em",
       }}>{value}</p>
     </div>

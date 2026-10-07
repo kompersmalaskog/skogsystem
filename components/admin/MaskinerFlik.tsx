@@ -3,6 +3,7 @@ import React, { useState, useEffect, CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, inputStyle, btnPrimary, btnSecondary, btnDanger, ChevronRight } from "./design";
 import { maskinSomUrl } from "@/lib/maskinSom";
+import { ymdLokal } from "@/lib/datumLokal";
 
 /* dim_maskin — admin äger visningsnamn/tillverkare/maskin_typ/sander_filer/
    aktiv_fran/aktiv_till på bekräftade maskiner (importens guard rör dem ej).
@@ -335,7 +336,7 @@ function DetaljVy({
   const taUrDrift = async () => {
     // Sätt aktiv_till till valt datum (default idag). All historik bevaras —
     // maskinen faller bara ur bevakning.
-    const idag = new Date().toISOString().slice(0, 10);
+    const idag = ymdLokal(new Date()); // lokalt datum, inte UTC
     setSparar(true);
     setSparFel(null);
     const ok = await verifieraSkriv({ aktiv_till: idag });

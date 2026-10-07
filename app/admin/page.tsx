@@ -39,7 +39,7 @@ export default async function Page() {
     .eq("epost", user.email)
     .single();
 
-  if (!medarbetare || (medarbetare.roll !== "chef" && medarbetare.roll !== "admin")) {
+  if (!medarbetare || medarbetare.roll !== "admin") {
     redirect("/arbetsrapport");
   }
 

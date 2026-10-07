@@ -32,7 +32,9 @@ export default function LonesystemUnderflik() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
 
-  const [sparar, setSparar] = useState(false);
+  // Egen bekräftelse i sidan (window.confirm blockeras tyst i inbäddade miljöer).
+  const [bekraftaFranKoppling, setBekraftaFranKoppling] = useState(false);
+  const [franKopplingFel, setFranKopplingFel] = useState<string | null>(null);
 
   // Test
   const [testar, setTestar] = useState(false);
@@ -125,37 +127,66 @@ export default function LonesystemUnderflik() {
   const koppla = () => { window.location.href = "/api/fortnox/auth"; };
 
   const koppla_ifrån = async () => {
-    if (!koppling) return;
-    if (!confirm("Verkligen koppla ifrån? Tokens raderas.")) return;
-    await fetch("/api/fortnox/disconnect", { method: "POST" });
+    setFranKopplingFel(null);
+    try {
+      const r = await fetch("/api/fortnox/disconnect", { method: "POST" });
+      if (!r.ok) { setFranKopplingFel(`Kunde inte koppla ifrån (HTTP ${r.status}).`); return; }
+    } catch (e: any) {
+      setFranKopplingFel(e?.message || String(e));
+      return;
+    }
+    setBekraftaFranKoppling(false);
     await ladda(valdSystem);
   };
 
-  const sparaArtikel = async (intern_typ: string, extern_kod: string, beskrivning: string) => {
+  const IGEN_RAD = "Ändringen sparades inte — raden träffades inte (bara admin kan ändra det här).";
+
+  // Skrivningarna ger tillbaka FEL som text (raden visar det) — aldrig tyst. `.select()` visar vilka rader
+  // som faktiskt skrevs; 0 rader utan fel = RLS stoppade den. Kolumnen `uppdaterad` finns inte i prod.
+  const sparaArtikel = async (intern_typ: string, extern_kod: string, beskrivning: string): Promise<string | null> => {
     const befintlig = artiklar[intern_typ];
     if (befintlig?.id) {
-      await supabase.from("lonesystem_artikelmappning")
-        .update({ extern_kod, beskrivning, uppdaterad: new Date().toISOString() })
-        .eq("id", befintlig.id);
+      const { data, error } = await supabase.from("lonesystem_artikelmappning")
+        .update({ extern_kod: extern_kod.trim(), beskrivning })
+        .eq("id", befintlig.id).select("id");
+      if (error) return error.message;
+      if (!data?.length) return IGEN_RAD;
     } else if (extern_kod.trim()) {
-      await supabase.from("lonesystem_artikelmappning").insert({ intern_typ, extern_kod, beskrivning });
+      const { data, error } = await supabase.from("lonesystem_artikelmappning")
+        .insert({ intern_typ, extern_kod: extern_kod.trim(), beskrivning }).select("id");
+      if (error) return error.message;
+      if (!data?.length) return IGEN_RAD;
     }
     await ladda(valdSystem);
+    return null;
   };
 
-  const sparaAnstallning = async (medarbetare_id: string, anstallningsnummer: string) => {
-    if (!koppling) return;
-    if (!anstallningsnummer.trim()) {
-      await supabase.from("medarbetare_lonesystem")
-        .delete().eq("medarbetare_id", medarbetare_id).eq("lonesystem_id", koppling.id);
+  const sparaAnstallning = async (medarbetare_id: string, anstallningsnummer: string): Promise<string | null> => {
+    if (!koppling) return "Anslut systemet först — anställningsnumret hör till kopplingen.";
+    const nr = anstallningsnummer.trim();
+    const { data: finns, error: lasFel } = await supabase.from("medarbetare_lonesystem")
+      .select("id").eq("medarbetare_id", medarbetare_id).eq("lonesystem_id", koppling.id);
+    if (lasFel) return lasFel.message;
+    const radId: string | undefined = finns?.[0]?.id;
+    if (!nr) {
+      if (radId) {
+        const { data, error } = await supabase.from("medarbetare_lonesystem").delete().eq("id", radId).select("id");
+        if (error) return error.message;
+        if (!data?.length) return IGEN_RAD;
+      }
+    } else if (radId) {
+      const { data, error } = await supabase.from("medarbetare_lonesystem")
+        .update({ anstallningsnummer: nr }).eq("id", radId).select("id");
+      if (error) return error.message;
+      if (!data?.length) return IGEN_RAD;
     } else {
-      await supabase.from("medarbetare_lonesystem").upsert({
-        medarbetare_id,
-        lonesystem_id: koppling.id,
-        anstallningsnummer,
-        uppdaterad: new Date().toISOString(),
-      }, { onConflict: "medarbetare_id,lonesystem_id" });
+      const { data, error } = await supabase.from("medarbetare_lonesystem")
+        .insert({ medarbetare_id, lonesystem_id: koppling.id, anstallningsnummer: nr }).select("id");
+      if (error) return error.message;
+      if (!data?.length) return IGEN_RAD;
     }
+    setAnstallningar(prev => ({ ...prev, [medarbetare_id]: nr }));
+    return null;
   };
 
   const stödjs = IMPLEMENTERADE.includes(valdSystem);
@@ -247,8 +278,20 @@ export default function LonesystemUnderflik() {
         {valdSystem === "fortnox" && !ansluten && (
           <button onClick={koppla} style={btnPrimary}>Anslut till Fortnox</button>
         )}
-        {ansluten && (
-          <button onClick={koppla_ifrån} style={btnSecondary}>Koppla ifrån</button>
+        {ansluten && !bekraftaFranKoppling && (
+          <button onClick={() => setBekraftaFranKoppling(true)} style={btnSecondary}>Koppla ifrån</button>
+        )}
+        {ansluten && bekraftaFranKoppling && (
+          <div style={{ background: "rgba(255,69,58,0.08)", border: "1px solid rgba(255,69,58,0.25)", borderRadius: 12, padding: 14 }}>
+            <p style={{ margin: "0 0 10px", fontSize: 14, color: C.text }}>Koppla ifrån Fortnox? Tokens raderas och exporten slutar fungera tills du ansluter igen.</p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setBekraftaFranKoppling(false)} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
+              <button onClick={koppla_ifrån} style={{ ...btnSecondary, flex: 1, background: C.red, border: "none" }}>Ja, koppla ifrån</button>
+            </div>
+          </div>
+        )}
+        {franKopplingFel && (
+          <p style={{ margin: 0, fontSize: 13, color: C.red }}>{franKopplingFel}</p>
         )}
         <button onClick={testaAnslutning} disabled={testar || !koppling} style={{ ...btnSecondary, opacity: testar || !koppling ? 0.5 : 1 }}>
           {testar ? "Testar…" : "Testa anslutning"}
@@ -276,7 +319,7 @@ export default function LonesystemUnderflik() {
       <p style={{ ...secHead, marginTop: 30 }}>Löneartkoder</p>
       <Card style={{ padding: 0 }}>
         <div style={{
-          display: "grid", gridTemplateColumns: "1fr 100px 1.4fr",
+          display: "grid", gridTemplateColumns: "1fr 100px 1.4fr 80px", gap: 8,
           padding: "10px 16px",
           fontSize: 11, color: C.label, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em",
           borderBottom: `1px solid ${C.line}`,
@@ -284,6 +327,7 @@ export default function LonesystemUnderflik() {
           <span>Intern typ</span>
           <span>Extern kod</span>
           <span>Beskrivning</span>
+          <span />
         </div>
         {INTERN_TYPER.map((t, i) => (
           <ArtikelRad
@@ -331,36 +375,19 @@ function StatusRad({ label, värde, färg }: { label: string; värde: string; f�
   );
 }
 
-function Field({
-  label, value, onChange, placeholder, type = "text",
-}: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
-}) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label style={{ display: "block", fontSize: 12, color: C.label, marginBottom: 6, fontWeight: 500 }}>{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={inputStyle as CSSProperties}
-      />
-    </div>
-  );
-}
-
 function ArtikelRad({
   label, internTyp, befintlig, onSpara, sista,
 }: {
   label: string;
   internTyp: string;
   befintlig?: Artikelmappning;
-  onSpara: (extern_kod: string, beskrivning: string) => void;
+  onSpara: (extern_kod: string, beskrivning: string) => Promise<string | null>;
   sista: boolean;
 }) {
   const [kod, setKod] = useState(befintlig?.extern_kod || "");
   const [besk, setBesk] = useState(befintlig?.beskrivning || "");
+  const [fel, setFel] = useState<string | null>(null);
+  const [sparar, setSparar] = useState(false);
 
   useEffect(() => {
     setKod(befintlig?.extern_kod || "");
@@ -368,6 +395,12 @@ function ArtikelRad({
   }, [befintlig?.extern_kod, befintlig?.beskrivning]);
 
   const ändrat = kod !== (befintlig?.extern_kod || "") || besk !== (befintlig?.beskrivning || "");
+
+  const spara = async () => {
+    setSparar(true); setFel(null);
+    setFel(await onSpara(kod, besk));
+    setSparar(false);
+  };
 
   return (
     <div style={{
@@ -390,8 +423,8 @@ function ArtikelRad({
         style={{ ...inputStyle as CSSProperties, height: 34, fontSize: 13, padding: "0 10px" }}
       />
       <button
-        onClick={() => onSpara(kod, besk)}
-        disabled={!ändrat}
+        onClick={spara}
+        disabled={!ändrat || sparar}
         style={{
           height: 30, fontSize: 12, fontWeight: 600,
           background: ändrat ? "rgba(10,132,255,0.15)" : "rgba(255,255,255,0.04)",
@@ -399,7 +432,8 @@ function ArtikelRad({
           border: "none", borderRadius: 7,
           cursor: ändrat ? "pointer" : "default", fontFamily: "inherit",
         }}
-      >Spara</button>
+      >{sparar ? "…" : "Spara"}</button>
+      {fel && <p style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: C.red }}>{fel}</p>}
     </div>
   );
 }
@@ -410,12 +444,19 @@ function AnstallningRad({
   namn: string;
   befintligt: string;
   disabled: boolean;
-  onSpara: (nr: string) => void;
+  onSpara: (nr: string) => Promise<string | null>;
   sista: boolean;
 }) {
   const [nr, setNr] = useState(befintligt);
+  const [fel, setFel] = useState<string | null>(null);
+  const [sparar, setSparar] = useState(false);
   useEffect(() => { setNr(befintligt); }, [befintligt]);
-  const ändrat = nr !== befintligt;
+  const ändrat = nr.trim() !== befintligt;
+  const spara = async () => {
+    setSparar(true); setFel(null);
+    setFel(await onSpara(nr));
+    setSparar(false);
+  };
   return (
     <div style={{
       display: "grid", gridTemplateColumns: "1.5fr 1fr 80px",
@@ -436,8 +477,8 @@ function AnstallningRad({
         }}
       />
       <button
-        onClick={() => onSpara(nr)}
-        disabled={!ändrat || disabled}
+        onClick={spara}
+        disabled={!ändrat || disabled || sparar}
         style={{
           height: 30, fontSize: 12, fontWeight: 600,
           background: ändrat && !disabled ? "rgba(10,132,255,0.15)" : "rgba(255,255,255,0.04)",
@@ -445,7 +486,8 @@ function AnstallningRad({
           border: "none", borderRadius: 7,
           cursor: ändrat && !disabled ? "pointer" : "default", fontFamily: "inherit",
         }}
-      >Spara</button>
+      >{sparar ? "…" : "Spara"}</button>
+      {fel && <p style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: C.red }}>{fel}</p>}
     </div>
   );
 }

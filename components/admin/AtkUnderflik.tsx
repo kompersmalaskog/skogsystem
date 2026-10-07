@@ -43,6 +43,7 @@ export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
   const [uppdaterar, setUppdaterar] = useState<string | null>(null);
+  const [statusFel, setStatusFel] = useState<string | null>(null);
   const högdaRef = useRef<HTMLDivElement>(null);
 
   const ladda = async () => {
@@ -80,8 +81,14 @@ export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser
       patch.godkand_av = currentUser.id;
       patch.godkand_at = new Date().toISOString();
     }
-    await supabase.from("atk_val").update(patch).eq("id", atkValId);
+    // .select() ger tillbaka raderna som faktiskt skrevs: 0 rader utan fel = RLS stoppade den tyst.
+    const { data, error } = await supabase.from("atk_val").update(patch).eq("id", atkValId).select("id");
     setUppdaterar(null);
+    if (error || !data?.length) {
+      setStatusFel(error?.message || "Ändringen sparades inte — raden träffades inte (bara admin kan godkänna eller avslå).");
+      return;
+    }
+    setStatusFel(null);
     await ladda();
   };
 
@@ -118,6 +125,10 @@ export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser
         </Card>
       ) : (
         <>
+          {statusFel && (
+            <div style={{ marginTop: 16, padding: 12, background: "rgba(255,69,58,0.1)", borderRadius: 10, color: C.red, fontSize: 13 }}>{statusFel}</div>
+          )}
+
           {/* Sammanfattning */}
           <p style={{ ...secHead, marginTop: 18 }}>Sammanfattning</p>
           <Card>
