@@ -7,7 +7,6 @@ import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
 import type { LeveransRad } from "@/app/datahalsa/useDatahalsa";
 import { LEV_GUL_DYGN } from "@/app/datahalsa/useDatahalsa";
 import type { VilobrottRad } from "@/lib/admin/vilobrottLista";
-import { vilaTimmarText } from "@/lib/admin/vilobrottLista";
 
 export type AdminFlik = "oversikt" | "medarbetare" | "maskiner" | "lon" | "avtal";
 
@@ -47,6 +46,8 @@ export const manadNamn = (ym: string) => MANADER[Number(ym.slice(5, 7)) - 1] || 
 export const datumKort = (d: string) => `${Number(d.slice(8, 10))} ${MAN_KORT[Number(d.slice(5, 7)) - 1] || ""}`;
 export const datumLangt = (d: string) => `${Number(d.slice(8, 10))} ${MANADER[Number(d.slice(5, 7)) - 1] || ""} ${d.slice(0, 4)}`;
 
+/** "8,5 h" — vilan i timmar med en decimal och decimalkomma. */
+const vilaTimmarText = (h: number | string) => `${String(Math.round(Number(h) * 10) / 10).replace(".", ",")} h`;
 const dygn = (n: number) => `${n} dygn`;
 const dagar = (n: number) => `${n} ${n === 1 ? "dag" : "dagar"}`;
 

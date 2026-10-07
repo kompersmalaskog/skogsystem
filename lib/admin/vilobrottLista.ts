@@ -17,9 +17,6 @@ export type VilobrottRad = Vilobrott & {
   svar: string | null;
 };
 
-/** "8,5 h" — vilan i timmar med en decimal och decimalkomma. */
-export const vilaTimmarText = (h: number | string) => `${String(Math.round(Number(h) * 10) / 10).replace(".", ",")} h`;
-
 type Medarbetare = { id: string; namn: string | null };
 type Dag = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
 type Svar = { medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null };
