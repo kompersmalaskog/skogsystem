@@ -11,6 +11,7 @@
 // per medarbetare filtreras ALDRIG i klienten utan här (medarbetareIds).
 // ─────────────────────────────────────────────────────────────
 import { beräknaExport, arbetsperiodFrånLöneperiod, type ExportSammanfattning } from "@/lib/lonesystem/loneberakning";
+import { hamtaLoneartskoder } from "@/lib/lonesystem/loneart";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { maskinSlag } from "@/lib/maskinNamn";
 import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
@@ -133,6 +134,9 @@ export async function beraknaLoneunderlag(
   const arbSlut = sistaDagenIManaden(aÅ, aM); // LOKALT — toISOString tappade sista dagen i UTC+2
 
   // Ladda data
+  // Löneartskoderna ur lonesystem_artikelmappning — exportens ENDA källa till koder. Ett läsfel stoppar underlaget.
+  const loneartskoder = await hamtaLoneartskoder(supabase);
+
   const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes, utjRes, viloRes] = await Promise.all([
     supabase.from("medarbetare").select("id, namn, maskin_id").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
@@ -314,7 +318,7 @@ export async function beraknaLoneunderlag(
     const anstNr = anstMap[med.id] || "";
     // Premiens fördelning en månad utan maskintid: typen på förarens rad-maskin.
     const radMaskinTyp = med.maskin_id ? (maskinTypMap[med.maskin_id] ?? null) : null;
-    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null, radMaskinTyp); // period = löneperiod
+    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null, radMaskinTyp, loneartskoder); // period = löneperiod
 
     let status = "utkast";
     if (redanSkickad.has(med.id)) status = "skickat";

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { beraknaLoneunderlag } from "@/lib/lonesystem/loneunderlag";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
+import { loneartInfo } from "@/lib/lonesystem/loneart";
 
 /**
  * POST /api/fortnox/salary-export
@@ -50,6 +51,13 @@ export async function POST(req: NextRequest) {
         synkAvvikelser,
         oenighet: u.oenighet,
       });
+    }
+
+    // En löneart utan kod i mappningen får aldrig bli en tyst saknad rad i en skarp sändning: stoppa före första raden.
+    const saknas = Array.from(new Set(resultat.filter(r => r.status !== "skickat").flatMap(r => r.saknade_loneartskoder || [])));
+    if (saknas.length > 0) {
+      const namn = saknas.map(k => loneartInfo(k)?.label || k).join(", ");
+      return NextResponse.json({ ok: false, meddelande: `Löneartskod saknas för ${namn}. Fyll i koden under Lön → Lönesystem innan något skickas. Inget är skickat.` }, { status: 409 });
     }
 
     // Skicka till Fortnox
