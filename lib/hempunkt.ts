@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────
 import { EXAKTA_LAGER } from "./geokod"
 
-export const HITTADE_BARA_BYN = "Hittade bara byn – sätt punkten på huset"
+export const HITTADE_BARA_BYN = "Hittade bara byn. Tryck på huset."
 
 export type HemPunktRad = {
   hem_lat: number | null

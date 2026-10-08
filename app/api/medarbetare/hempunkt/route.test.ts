@@ -29,7 +29,7 @@ describe("POST /api/medarbetare/hempunkt", () => {
     expect(bekrafta.mock.calls[0][2]).toEqual({ atgard: "flytta", lat: 56.39, lng: 14.77 });
   });
   it("ett nej från skrivningen blir 422 med felet, aldrig ok", async () => {
-    bekrafta.mockResolvedValue({ ok: false, fel: "Hittade bara byn – sätt punkten på huset" });
+    bekrafta.mockResolvedValue({ ok: false, fel: "Hittade bara byn. Tryck på huset." });
     const r = await anropa({ id: "m1", atgard: "stammer" });
     expect(r.status).toBe(422);
     expect((await r.json()).error).toContain("Hittade bara byn");

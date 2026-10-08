@@ -4,8 +4,10 @@
 //   Stämmer          → punkten sparas som den är (källan förblir geokod, stämplad som bekräftad)
 //   Flytta punkten   → admin drar punkten eller trycker på kartan; Spara punkten gör den manuell och bekräftad
 //
-// Byns mittpunkt får inte "stämmas": geokodaren hittade bara byn, så kartan säger det och bara Flytta punkten finns
-// (lib/hempunkt). Inget sparas av kartan själv: den anropar föräldern och visar felet om skrivningen nekades.
+// Hittade geokodaren bara byn/orten ritas INGEN nål: byns mittpunkt ser ut som ett svar men är en gissning (en nål mitt i
+// skogen får admin att dra den hela vägen). Kartan visar området och säger "Tryck på huset"; första trycket sätter nålen,
+// sedan går den att dra, och Spara är inaktiv tills en nål finns (lib/hempunkt). Inget sparas av kartan själv: den anropar
+// föräldern och visar felet om skrivningen nekades.
 // MapLibre kommer från CDN som i övriga kartvyer; laddas den inte står det, och punktens värden finns kvar som text.
 import React, { useEffect, useRef, useState } from "react";
 import { AVSTAND, FARG, RADIE, TYP } from "@/lib/design/tokens";
@@ -40,13 +42,16 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
   const flyttarRef = useRef(false);
   const [redo, setRedo] = useState(false);
   const [laddFel, setLaddFel] = useState(false);
-  const [flyttar, setFlyttar] = useState(false);
+  // Grov träff: kartan är i sätt-läge från början (inget att "flytta"). Annars startar den i visningsläge.
+  const [flyttar, setFlyttar] = useState(lage.grov);
   const [ny, setNy] = useState<{ lat: number; lng: number } | null>(null);
   const [kor, setKor] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
 
   const bekraftad = lage.typ === "punkt" && lage.bekraftad;
   const grov = lage.grov;
+  const bekraftadRef = useRef(bekraftad);
+  bekraftadRef.current = bekraftad;
 
   // MapLibre från CDN (samma injektion som övriga kartvyer).
   useEffect(() => {
@@ -72,7 +77,24 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
     return () => { script?.removeEventListener("load", laddad); script?.removeEventListener("error", misslyckad); };
   }, []);
 
-  // Kartan skapas en gång. Punkten är en markör; trycket på kartan flyttar den bara i flytta-läget.
+  // Nålen: en markör, skapad vid start (exakt träff) eller vid första trycket (grov träff).
+  const skapaNal = (lng: number, lat: number) => {
+    const ml = window.maplibregl;
+    const el = document.createElement("div");
+    el.style.width = `${PRICK}px`;
+    el.style.height = `${PRICK}px`;
+    el.style.borderRadius = "50%";
+    el.style.border = `3px solid ${FARG.text}`;
+    el.style.boxSizing = "border-box";
+    el.style.background = bekraftadRef.current ? FARG.gron : FARG.orange;
+    prick.current = el;
+    const m = new ml.Marker({ element: el, draggable: flyttarRef.current }).setLngLat([lng, lat]).addTo(karta.current);
+    m.on("dragend", () => { const ll = m.getLngLat(); setNy({ lat: ll.lat, lng: ll.lng }); });
+    markor.current = m;
+    return m;
+  };
+
+  // Kartan skapas en gång. Trycket på kartan sätter/flyttar nålen, men bara i sätt- eller flytta-läget.
   useEffect(() => {
     if (!redo || !behallare.current || karta.current || !window.maplibregl) return;
     const ml = window.maplibregl;
@@ -86,19 +108,11 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
     try { map.touchZoomRotate.disableRotation(); } catch { /* äldre maplibre */ }
     map.addControl(new ml.AttributionControl({ customAttribution: FORARKARTA_ATTRIBUTION, compact: true }), "bottom-left");
 
-    const el = document.createElement("div");
-    el.style.width = `${PRICK}px`;
-    el.style.height = `${PRICK}px`;
-    el.style.borderRadius = "50%";
-    el.style.border = `3px solid ${FARG.text}`;
-    el.style.boxSizing = "border-box";
-    prick.current = el;
-    const m = new ml.Marker({ element: el, draggable: false }).setLngLat([lage.lng, lage.lat]).addTo(map);
-    markor.current = m;
-    m.on("dragend", () => { const ll = m.getLngLat(); setNy({ lat: ll.lat, lng: ll.lng }); });
+    if (!lage.grov) skapaNal(lage.lng, lage.lat);
     map.on("click", (e: any) => {
       if (!flyttarRef.current) return;
-      m.setLngLat([e.lngLat.lng, e.lngLat.lat]);
+      if (markor.current) markor.current.setLngLat([e.lngLat.lng, e.lngLat.lat]);
+      else skapaNal(e.lngLat.lng, e.lngLat.lat);
       setNy({ lat: e.lngLat.lat, lng: e.lngLat.lng });
     });
     // Kartan mäts innan MapLibres stilmall hunnit laddas från CDN, och får då fel bredd: den följer behållarens storlek.
@@ -117,6 +131,14 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
     flyttarRef.current = flyttar;
     markor.current?.setDraggable(flyttar);
   }, [flyttar, redo]);
+
+  // En träff som blir grov medan kartan är öppen (ny geokodning): nålen tas bort och sätt-läget slås på.
+  useEffect(() => {
+    if (!lage.grov) return;
+    markor.current?.remove();
+    markor.current = null; prick.current = null;
+    setNy(null); setFlyttar(true);
+  }, [lage.grov]);
 
   // Nya värden från databasen (efter en sparning eller omladdning): markören och kartan följer, om admin inte håller på.
   useEffect(() => {
@@ -156,20 +178,18 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
       {grov
         ? <Stod farg={FARG.orange}>{HITTADE_BARA_BYN}</Stod>
         : <Stod farg={bekraftad ? FARG.text2 : FARG.orange}>{bekraftad ? "Bekräftad" : "Punkten är inte bekräftad."}</Stod>}
-      {flyttar && <Stod>Dra punkten eller tryck på kartan där huset ligger.</Stod>}
+      {flyttar && (grov ? ny && <Stod>Dra nålen om den inte ligger på huset.</Stod> : <Stod>Dra punkten eller tryck på kartan där huset ligger.</Stod>)}
       {fel && <Stod farg={FARG.rod}>{fel}</Stod>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: AVSTAND.m, marginTop: AVSTAND.m }}>
         {flyttar ? (
           <>
             <Primar onClick={spara} disabled={kor || !ny}>{kor ? "Sparar…" : "Spara punkten"}</Primar>
-            <Sekundar onClick={avbryt} disabled={kor}>Avbryt</Sekundar>
+            {!grov && <Sekundar onClick={avbryt} disabled={kor}>Avbryt</Sekundar>}
           </>
         ) : (
           <>
             {!grov && !bekraftad && <Primar onClick={stammer} disabled={kor}>{kor ? "Sparar…" : "Stämmer"}</Primar>}
-            {grov || bekraftad
-              ? (grov ? <Primar onClick={() => setFlyttar(true)} disabled={kor}>Flytta punkten</Primar> : <Sekundar onClick={() => setFlyttar(true)} disabled={kor}>Flytta punkten</Sekundar>)
-              : <Sekundar onClick={() => setFlyttar(true)} disabled={kor}>Flytta punkten</Sekundar>}
+            <Sekundar onClick={() => setFlyttar(true)} disabled={kor}>Flytta punkten</Sekundar>
           </>
         )}
       </div>
