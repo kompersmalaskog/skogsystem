@@ -5,6 +5,7 @@ import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { Sektion, Stod, Kort, Lista, Besked, Primar, Sekundar, Bekrafta, Laddar } from "./ui";
 import { SYSTEM_LABELS, IMPLEMENTERADE } from "@/lib/lonesystem";
 import type { SystemTyp, Koppling } from "@/lib/lonesystem/types";
+import { sparaAnstallningsnummer, IGEN_RAD as IGEN_RAD_DELAD } from "@/lib/admin/anstallningsnummer";
 
 const ALLA_SYSTEM: SystemTyp[] = ["fortnox", "visma", "hogia", "kontek", "crona", "agda", "csv"];
 
@@ -139,7 +140,7 @@ export default function LonesystemUnderflik() {
     await ladda(valdSystem);
   };
 
-  const IGEN_RAD = "Ändringen sparades inte — raden träffades inte (bara admin kan ändra det här).";
+  const IGEN_RAD = IGEN_RAD_DELAD;
 
   // Skrivningarna ger tillbaka FEL som text (raden visar det) — aldrig tyst. `.select()` visar vilka rader
   // som faktiskt skrevs; 0 rader utan fel = RLS stoppade den. Kolumnen `uppdaterad` finns inte i prod.
@@ -163,29 +164,9 @@ export default function LonesystemUnderflik() {
 
   const sparaAnstallning = async (medarbetare_id: string, anstallningsnummer: string): Promise<string | null> => {
     if (!koppling) return "Anslut systemet först — anställningsnumret hör till kopplingen.";
-    const nr = anstallningsnummer.trim();
-    const { data: finns, error: lasFel } = await supabase.from("medarbetare_lonesystem")
-      .select("id").eq("medarbetare_id", medarbetare_id).eq("lonesystem_id", koppling.id);
-    if (lasFel) return lasFel.message;
-    const radId: string | undefined = finns?.[0]?.id;
-    if (!nr) {
-      if (radId) {
-        const { data, error } = await supabase.from("medarbetare_lonesystem").delete().eq("id", radId).select("id");
-        if (error) return error.message;
-        if (!data?.length) return IGEN_RAD;
-      }
-    } else if (radId) {
-      const { data, error } = await supabase.from("medarbetare_lonesystem")
-        .update({ anstallningsnummer: nr }).eq("id", radId).select("id");
-      if (error) return error.message;
-      if (!data?.length) return IGEN_RAD;
-    } else {
-      const { data, error } = await supabase.from("medarbetare_lonesystem")
-        .insert({ medarbetare_id, lonesystem_id: koppling.id, anstallningsnummer: nr }).select("id");
-      if (error) return error.message;
-      if (!data?.length) return IGEN_RAD;
-    }
-    setAnstallningar(prev => ({ ...prev, [medarbetare_id]: nr }));
+    const fel = await sparaAnstallningsnummer(medarbetare_id, koppling.id, anstallningsnummer);
+    if (fel) return fel;
+    setAnstallningar(prev => ({ ...prev, [medarbetare_id]: anstallningsnummer.trim() }));
     return null;
   };
 

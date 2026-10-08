@@ -1,53 +1,22 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Primar, Sekundar, Tillbaka, Destruktiv, Lank, Besked, Fel, Laddar, Tomt, Bekrafta, Etikett, Ikon } from "./ui";
+import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
+import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Primar, Sekundar, Tillbaka, Destruktiv, Lank, Besked, Fel, Laddar, Tomt, Bekrafta, Etikett } from "./ui";
 import { useAdminNav } from "./nav";
 import MedarbetareKontroller from "./MedarbetareKontroller";
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
-import { precisionText } from "@/lib/geokod";
 import { maskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
+import { hamtaAnstallning, sparaAnstallningsnummer } from "@/lib/admin/anstallningsnummer";
+import { introKlara, introSaknas, ochLista } from "@/lib/admin/introduktion";
+import NyMedarbetare from "./NyMedarbetare";
+import { ROLLER, HempunktKort, KopplaOperatörModal, useAnstKontroll, AnstKontrollText, type Medarbetare, type OperatorRad } from "./medarbetarDelar";
 
-type Medarbetare = {
-  id: string;
-  namn: string | null;
-  epost: string | null;
-  hemadress: string | null;
-  roll: string;
-  maskin_id: string | null;
-  timlon_kr: number | null;
-  manadslon_kr: number | null;
-  anstallningsdatum: string | null;
-  // Kopplingen till inloggningskontot (sätts automatiskt i databasen sedan 20260929).
-  user_id: string | null;
-  // Hempunkten och varifrån den kom (migration 20260929_medarbetare_hem_geokod).
-  hem_lat: number | null;
-  hem_lng: number | null;
-  hem_koord_kalla: string | null;
-  hem_geokod_status: string | null;
-  hem_geokod_etikett: string | null;
-  hem_geokod_precision: string | null;
-  hem_geokod_lat: number | null;
-  hem_geokod_lng: number | null;
-};
-
-type OperatorRad = {
-  operator_id: string;
-  operator_namn: string | null;
-  operator_key: string | null;
-  maskin_id: string | null;
-};
-
-const ROLLER = [
-  { value: "forare", label: "Förare" },
-  { value: "admin", label: "Admin" },
-];
 const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
 
 export default function MedarbetareFlik() {
   // Vad som är öppet står i adressen (?person=…, ?ny=1), så en omladdning stannar kvar.
-  const { nav, sattParam, gaTill } = useAdminNav();
+  const { nav, gaTill } = useAdminNav();
   const personId = nav.params.person || null;
   const arNy = !!nav.params.ny;
   const tillLista = () => gaTill({ flik: "medarbetare" });
@@ -72,7 +41,7 @@ export default function MedarbetareFlik() {
     try {
       const [medRes, opMedRes, dimOpRes, maskinRes] = await Promise.all([
         supabase.from("medarbetare")
-          .select("id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng")
+          .select("id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng, hem_bekraftad_tid")
           .order("namn"),
         supabase.from("operator_medarbetare").select("operator_id, medarbetare_id"),
         supabase.from("dim_operator").select("operator_id, operator_namn, operator_key, maskin_id"),
@@ -106,12 +75,9 @@ export default function MedarbetareFlik() {
 
   useEffect(() => { ladda(); }, []);
 
+  if (arNy) return <NyMedarbetare />;
   if (laddar) return <Laddar />;
   if (fel) return <Fel onForsok={ladda}>Kunde inte ladda medarbetare: {fel}</Fel>;
-
-  if (arNy) {
-    return <NyMedarbetare onKlar={() => { tillLista(); ladda(); }} onAvbryt={tillLista} />;
-  }
 
   if (personId) {
     const m = medarbetare.find(x => x.id === personId);
@@ -216,8 +182,23 @@ function DetaljVy({
   const [sparFel, setSparFel] = useState<string | null>(null);
   const [taBortLäge, setTaBortLäge] = useState(false);
   const [visaKopplaModal, setVisaKopplaModal] = useState(false);
+  const { gaTill } = useAdminNav();
+  // Anställningsnumret ligger på lönesystemets koppling, inte på personraden — men hör till personen och ändras här.
+  const [anst, setAnst] = useState("");
+  const [anstOriginal, setAnstOriginal] = useState("");
+  const [anstKoppling, setAnstKoppling] = useState<string | null>(null);
+  const [anstLaddad, setAnstLaddad] = useState(false);
+  useEffect(() => {
+    let avbruten = false;
+    hamtaAnstallning(medarbetare.id).then(k => {
+      if (avbruten) return;
+      setAnst(k.nr); setAnstOriginal(k.nr); setAnstKoppling(k.lonesystemId); setAnstLaddad(true);
+      if (k.fel) setSparFel(`Kunde inte läsa anställningsnumret: ${k.fel}`);
+    });
+    return () => { avbruten = true; };
+  }, [medarbetare.id]);
 
-  const ändrat =
+  const personAndrat =
     namn !== (medarbetare.namn || "") ||
     epost !== (medarbetare.epost || "") ||
     hemadress !== (medarbetare.hemadress || "") ||
@@ -226,10 +207,22 @@ function DetaljVy({
     timlon !== (medarbetare.timlon_kr != null ? String(medarbetare.timlon_kr) : "") ||
     manadslon !== (medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "") ||
     anstallningsdatum !== (medarbetare.anstallningsdatum || "");
+  const anstAndrat = anstLaddad && anst.trim() !== anstOriginal;
+  // Det SPARADE numret kontrolleras mot Fortnox när anslutningen finns (annars: "kontrolleras när anslutningen finns").
+  const anstKontroll = useAnstKontroll(anstOriginal, anstLaddad);
+  const ändrat = personAndrat || anstAndrat;
 
   const spara = async () => {
     setSparar(true);
     setSparFel(null);
+    if (!personAndrat) {
+      // Bara anställningsnumret ändrat: skriv det, och stanna kvar med felet om det inte gick.
+      const fel = await sparaAnstallningsnummer(medarbetare.id, anstKoppling, anst);
+      setSparar(false);
+      if (fel) { setSparFel(fel); return; }
+      onKlar();
+      return;
+    }
     const update: any = {
       namn: namn.trim() || null,
       epost: epost.trim() || null,
@@ -242,6 +235,10 @@ function DetaljVy({
     };
     const { data: skrivet, error } = await supabase.from("medarbetare").update(update).eq("id", medarbetare.id).select("id");
     if (error || !skrivet?.length) { setSparar(false); setSparFel(error?.message || "Inget sparades — raden träffades inte"); return; }
+    if (anstAndrat) {
+      const fel = await sparaAnstallningsnummer(medarbetare.id, anstKoppling, anst);
+      if (fel) { setSparar(false); setSparFel(fel); return; }
+    }
     // Ny hemadress → geokoda direkt och STANNA, så man ser var adressen hamnade.
     // (Triggern har redan märkt raden 'vantar' — nattjobbet tar den annars i natt.)
     if ((hemadress.trim() || null) !== (medarbetare.hemadress || null) && hemadress.trim()) {
@@ -281,6 +278,19 @@ function DetaljVy({
     <>
       <Tillbaka onClick={onTillbaka}>Medarbetare</Tillbaka>
 
+      {/* Introduktionen: en förare som saknar maskin, hempunkt eller nummer hittar tillbaka till flödet härifrån. */}
+      {anstLaddad && medarbetare.roll === "forare" && (() => {
+        const saknas = introSaknas(introKlara(medarbetare, anstOriginal));
+        if (saknas.length === 0) return null;
+        return (
+          <Kort style={{ marginBottom: AVSTAND.l }}>
+            <p style={{ margin: 0, ...TYP.listtitel, color: FARG.orange }}>Introduktionen är inte klar</p>
+            <Stod>Personen saknar {ochLista(saknas)}.</Stod>
+            <Sekundar smal onClick={() => gaTill({ flik: "medarbetare", params: { ny: "1", person: medarbetare.id } })} style={{ marginTop: AVSTAND.m }}>Fortsätt introduktionen</Sekundar>
+          </Kort>
+        );
+      })()}
+
       {/* Grunduppgifter */}
       <Sektion topp={AVSTAND.s}>Personuppgifter</Sektion>
       <Kort>
@@ -289,7 +299,7 @@ function DetaljVy({
           hint={medarbetare.user_id
             ? "Inloggning kopplad."
             : <span style={{ color: FARG.orange }}>Ingen inloggning kopplad. Den kopplas automatiskt när ett konto med samma e-post finns. Utan koppling kommer personen inte in i appen.</span>} />
-        <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Gata, ort" />
+        <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Kompersmåla 3, 362 96 Ryd" hint="Gata och nummer, postnummer och ort." />
         <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
         <Val label="Maskin" value={maskinId} onChange={setMaskinId} options={[
           { value: "", label: "Ingen maskin" },
@@ -306,8 +316,13 @@ function DetaljVy({
       <Kort>
         <Falt label="Timlön (kr)" value={timlon} onChange={setTimlon} placeholder="—" type="number" />
         <Falt label="Månadslön (kr)" value={manadslon} onChange={setManadslon} placeholder="—" type="number" />
-        <Falt label="Anställningsdatum" value={anstallningsdatum} onChange={setAnstallningsdatum} type="date"
-          hint="Anställningsnummer per lönesystem sätts under Lön → Lönesystem." />
+        <Falt label="Anställningsdatum" value={anstallningsdatum} onChange={setAnstallningsdatum} type="date" />
+        <Falt label="Anställningsnummer (Fortnox)" value={anst} onChange={setAnst} placeholder="—" disabled={!anstLaddad}
+          hint={anstOriginal
+            ? <AnstKontrollText kontroll={anstKontroll.kontroll} laddar={anstKontroll.laddar} nr={anstOriginal} />
+            : anstLaddad && !anstKoppling
+              ? "Fortnox är inte kopplat ännu. Numret sparas och kontrolleras mot Fortnox när anslutningen finns."
+              : "Det nummer Fortnox känner personen under. Utan det kan lönen inte skickas."} />
       </Kort>
 
       {/* Kopplade operatörer */}
@@ -352,182 +367,5 @@ function DetaljVy({
         />
       )}
     </>
-  );
-}
-
-/* ─── HEMPUNKT ─── */
-// Var km räknas ifrån, varifrån punkten kom och — viktigast — VAR adressen
-// hamnade. En landsbygdsadress i tätortens mitt ger fel km varje dag utan att
-// någon märker det (Idekulla 6 ligger flera km utanför Ryd). Bara en träff på
-// adressnivå används automatiskt (lib/geokod); allt grövre väntar här.
-function HempunktKort({ m, onLadda }: { m: Medarbetare; onLadda: () => void }) {
-  const [kör, setKör] = useState(false);
-  const [fel, setFel] = useState<string | null>(null);
-  const karta = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
-  const anropa = async (opt: { tvinga?: boolean; acceptera?: boolean } = {}) => {
-    setKör(true); setFel(null);
-    const r = await fetch("/api/medarbetare/geokoda", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id, ...opt }) });
-    const j = await r.json().catch(() => ({}));
-    setKör(false);
-    if (!r.ok || !j.ok) { setFel(j.error || `Geokodningen misslyckades (HTTP ${r.status})`); return; }
-    onLadda();
-  };
-  const knapp = (text: string, onClick: () => void) => (
-    <Sekundar onClick={onClick} disabled={kör} style={{ marginTop: AVSTAND.m }}>{kör ? "Geokodar…" : text}</Sekundar>
-  );
-  const länk = (lat: number, lng: number, text: string) => (
-    <a href={karta(lat, lng)} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: AVSTAND.s, color: FARG.bla, ...TYP.meta }}>{text}</a>
-  );
-  const kalla = m.hem_koord_kalla === "gps" ? "satt med GPS i Maskinflytt"
-    : m.hem_koord_kalla === "geokod" ? `från adressen — ${m.hem_geokod_etikett || "okänd etikett"} (${precisionText(m.hem_geokod_precision)})`
-    : "satt för hand";
-  const s = m.hem_geokod_status;
-  const text = (t: React.ReactNode, farg: string = FARG.text) => <p style={{ margin: 0, ...TYP.text, color: farg }}>{t}</p>;
-  const stod = (t: React.ReactNode) => <Stod style={{ marginTop: AVSTAND.m }}>{t}</Stod>;
-  return (
-    <Kort>
-      {!m.hemadress?.trim() && m.hem_lat == null ? (
-        text("Ingen hemadress, så km räknas inte. Fyll i adressen ovan och spara.", FARG.orange)
-      ) : m.hem_lat != null && m.hem_lng != null ? (
-        <>
-          {text(`Punkten är ${kalla}.`)}
-          {länk(m.hem_lat, m.hem_lng, "Visa punkten på kartan")}
-          {s === "hoppad" && (
-            <>
-              {stod(`Adressen har ändrats men punkten är ${m.hem_koord_kalla === "gps" ? "satt med GPS" : "satt för hand"} och skrivs inte över automatiskt.`)}
-              {knapp("Geokoda adressen ändå", () => anropa({ tvinga: true }))}
-            </>
-          )}
-          {s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null && (
-            stod(`Adressen hittades bara som ${precisionText(m.hem_geokod_precision)} (${m.hem_geokod_etikett}). Punkten ovan används.`)
-          )}
-        </>
-      ) : s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null ? (
-        <>
-          {text(`Adressen hittades bara som ${precisionText(m.hem_geokod_precision)}: ${m.hem_geokod_etikett}. Används den blir km fel om personen bor utanför. Km räknas inte förrän du valt.`, FARG.orange)}
-          {länk(m.hem_geokod_lat, m.hem_geokod_lng, "Visa förslaget på kartan")}
-          {knapp("Använd förslaget ändå", () => anropa({ acceptera: true }))}
-          {stod('Exaktare: personen trycker "spara nuvarande plats som hembas" hemma i Maskinflytt, eller justera adressen ovan.')}
-        </>
-      ) : s === "misslyckad" ? (
-        <>
-          {text(`Adressen hittades inte (${m.hem_geokod_etikett || "okänt fel"}). Kontrollera stavningen. Km räknas inte.`, FARG.orange)}
-          {knapp("Försök igen", () => anropa())}
-        </>
-      ) : (
-        <>
-          {text("Adressen väntar på geokodning. Det sker i natt, eller nu.", FARG.text2)}
-          {knapp("Geokoda nu", () => anropa())}
-        </>
-      )}
-      {fel && <Stod farg={FARG.rod} style={{ marginTop: AVSTAND.m }}>{fel}</Stod>}
-    </Kort>
-  );
-}
-
-/* ─── NY MEDARBETARE ─── */
-
-function NyMedarbetare({ onKlar, onAvbryt }: { onKlar: () => void; onAvbryt: () => void }) {
-  const [namn, setNamn] = useState("");
-  const [epost, setEpost] = useState("");
-  const [roll, setRoll] = useState("forare");
-  const [sparar, setSparar] = useState(false);
-  const [fel, setFel] = useState<string | null>(null);
-
-  const spara = async () => {
-    if (!namn.trim()) { setFel("Namn krävs"); return; }
-    setSparar(true);
-    setFel(null);
-    const { error } = await supabase.from("medarbetare").insert({
-      namn: namn.trim(),
-      epost: epost.trim() || null,
-      roll,
-    });
-    setSparar(false);
-    if (error) { setFel(error.message); return; }
-    onKlar();
-  };
-
-  return (
-    <>
-      <Tillbaka onClick={onAvbryt}>Avbryt</Tillbaka>
-      <Sektion topp={AVSTAND.s}>Ny medarbetare</Sektion>
-      <Kort>
-        <Falt label="Namn *" value={namn} onChange={setNamn} placeholder="För- och efternamn" />
-        <Falt label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email" />
-        <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
-      </Kort>
-      {fel && <Besked>{fel}</Besked>}
-      <Primar onClick={spara} disabled={sparar || !namn.trim()} style={{ marginTop: AVSTAND.xl }}>{sparar ? "Skapar…" : "Skapa medarbetare"}</Primar>
-    </>
-  );
-}
-
-/* ─── KOPPLA OPERATÖR ─── */
-
-function KopplaOperatörModal({
-  medarbetareId, onKlar, onAvbryt,
-}: {
-  medarbetareId: string;
-  onKlar: () => void;
-  onAvbryt: () => void;
-}) {
-  const [lediga, setLediga] = useState<OperatorRad[] | null>(null);
-  const [valt, setValt] = useState<string | null>(null);
-  const [sparar, setSparar] = useState(false);
-  const [fel, setFel] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      const [opMedRes, dimOpRes] = await Promise.all([
-        supabase.from("operator_medarbetare").select("operator_id"),
-        supabase.from("dim_operator").select("operator_id, operator_namn, operator_key, maskin_id").order("operator_namn"),
-      ]);
-      const taget = new Set((opMedRes.data || []).map((r: any) => r.operator_id));
-      const lediga = (dimOpRes.data || []).filter((o: any) => !taget.has(o.operator_id));
-      setLediga(lediga);
-    })();
-  }, []);
-
-  const koppla = async () => {
-    if (!valt) return;
-    setSparar(true);
-    setFel(null);
-    const { error } = await supabase.from("operator_medarbetare").insert({
-      operator_id: valt,
-      medarbetare_id: medarbetareId,
-    });
-    setSparar(false);
-    if (error) { setFel(error.message); return; }
-    onKlar();
-  };
-
-  return (
-    <div onClick={onAvbryt} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.xl }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: FARG.kort, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 420, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
-        <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color: FARG.text, textAlign: "center" }}>Koppla operatör</p>
-        <div style={{ flex: 1, overflowY: "auto", marginBottom: AVSTAND.m }}>
-          {lediga === null ? (
-            <Tomt>Laddar…</Tomt>
-          ) : lediga.length === 0 ? (
-            <Tomt>Alla operatörer är redan kopplade.</Tomt>
-          ) : lediga.map((o, i) => (
-            <button key={o.operator_id} type="button" onClick={() => setValt(o.operator_id)}
-              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px`, background: valt === o.operator_id ? FARG.fyllning : "transparent", border: "none", borderBottom: i === lediga.length - 1 ? "none" : `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: FARG.text }}>
-              <div>
-                <div style={{ ...TYP.listtitel }}>{o.operator_namn || o.operator_key || o.operator_id}</div>
-                <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{o.operator_id}{o.maskin_id ? ` · ${o.maskin_id}` : ""}</div>
-              </div>
-              {valt === o.operator_id && <Ikon namn="check" farg={FARG.text} />}
-            </button>
-          ))}
-        </div>
-        {fel && <Besked>{fel}</Besked>}
-        <div style={{ display: "flex", gap: AVSTAND.m, marginTop: AVSTAND.m }}>
-          <Sekundar onClick={onAvbryt} style={{ flex: 1 }}>Avbryt</Sekundar>
-          <Primar onClick={koppla} disabled={!valt || sparar} style={{ flex: 1 }}>{sparar ? "Kopplar…" : "Koppla"}</Primar>
-        </div>
-      </div>
-    </div>
   );
 }
