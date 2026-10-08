@@ -14,7 +14,7 @@ import {
 } from './markeringar';
 import SkotarRad from './SkotarRad';
 import { lastLista, lasFelOrsak } from './las-svar';
-import { LasFelRad, LASFEL_FARA, LASFEL_FARA_LADDAR, LASFEL_KO } from './LasFel';
+import { LasFelRad, LASFEL_FARA, LASFEL_FARA_LADDAR, LASFEL_KO, LASFEL_POS, LASFEL_POS_DELVIS } from './LasFel';
 import type { SkordAgg } from './page';
 import { foreslaNasta, type Kandidat, type MaskinLage, type AvstandKm } from '@/lib/nastaObjekt';
 // Maskinens RIKTIGA senaste position (flytt/produktion/GPS-fix, med ärlighets-spärrar) —
@@ -938,16 +938,25 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   // kugghjuls-markören OCH som origo när "Att köra" rankas på körväg.
   const [maskinPlatser, setMaskinPlatser] = useState<Map<string, PlatsForslag>>(new Map());
   const [platserLaddar, setPlatserLaddar] = useState(true);
+  // Ett läsfel på platserna är aldrig "ingen plats": 'fel' = ingen källa gick att läsa, 'delvis' = någon felade (platserna är då byggda på resten,
+  // en maskin kan stå på en äldre plats). Bannern säger det och har Försök igen (platserForsok läser om).
+  const [platsFel, setPlatsFel] = useState<'fel' | 'delvis' | null>(null);
+  const [platserForsok, setPlatserForsok] = useState(0);
   useEffect(() => {
     const ids = Array.from(new Set(maskiner.map(m => m.maskin_id).filter(Boolean))) as string[];
     if (!ids.length) return;
     let cancelled = false;
     setPlatserLaddar(true);
     hamtaSenastePlatser(ids)
-      .then(({ platser }) => { if (!cancelled) { setMaskinPlatser(platser); setPlatserLaddar(false); } })
-      .catch(() => { if (!cancelled) setPlatserLaddar(false); });
+      .then(({ platser, fel, delvisFel }) => {
+        if (cancelled) return;
+        if (fel) { console.error('[Översikt] position:', fel); setPlatsFel('fel'); }
+        else { setMaskinPlatser(platser); if (delvisFel) console.error('[Översikt] position: delfel', delvisFel); setPlatsFel(delvisFel ? 'delvis' : null); }
+        setPlatserLaddar(false);
+      })
+      .catch((e) => { if (!cancelled) { console.error('[Översikt] position: läsningen kastade', e); setPlatsFel('fel'); setPlatserLaddar(false); } });
     return () => { cancelled = true; };
-  }, [maskiner]);
+  }, [maskiner, platserForsok]);
 
   /* ── Self-fetch: berikade objekt + maskin_ko (live-källor) ── */
   const refetchObjekt = useCallback(async () => {
@@ -1725,10 +1734,11 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       )}
 
       {/* ── Läsfel: faror/hänsyn eller kö/maskiner gick inte att läsa — ALDRIG en tyst tom karta (se las-svar.ts) ── */}
-      {(markStatus === 'fel' || koFel) && (
+      {(markStatus === 'fel' || koFel || platsFel) && (
         <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: SP.lg, left: SP.lg, right: driverMode ? SP.lg : SP.lg + 44 + SP.md, zIndex: 16, display: 'flex', flexDirection: 'column', gap: SP.sm }}>
           {markStatus === 'fel' && <LasFelRad text={LASFEL_FARA} onForsok={laddaMarkeringar} />}
           {koFel && <LasFelRad text={LASFEL_KO} onForsok={laddaOmKo} />}
+          {platsFel && <LasFelRad text={platsFel === 'fel' ? LASFEL_POS : LASFEL_POS_DELVIS} onForsok={() => setPlatserForsok(n => n + 1)} />}
         </div>
       )}
 
