@@ -85,7 +85,9 @@ const MED = [
 const MASKINER = [
   { maskin_id: "R64101", visningsnamn: "Rottne H8E", tillverkare: "Rottne", modell: "H8E", maskin_typ: "Harvester", sander_filer: true, datakalla: "auto", aktiv_fran: "2022-05-01", aktiv_till: null, bekraftad: true },
 ];
-const AVTAL = { id: "a1", namn: "Skogsavtalet", giltigt_fran: "2025-04-01", giltigt_till: "2027-03-31", timlon_kr: 195, overtid_vardag_kr: 54.94, max_overtid_ar_h: 250, ob_kvall_kr: 38, ob_natt_kr: 52, ob_lordag_kr: 61, ob_sondag_kr: 74, km_ersattning_kr: 27.5, km_grans_per_dag: 60, fardtid_kr: 31, atk_procent: 2.5, atk_procent_nasta: 2.5, atk_period: "kalenderår", atk_ledig_tim: 40, atk_faktor: 1, traktamente_hel_kr: 300, traktamente_halv_kr: 150, skifttillagg_kr: 12, bortovaro_kr: 45, dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
+// Raden som den ser ut i prod (2026-10-08): inga kolumner som sidan förr bad om utan att de fanns (timlon_kr, ob_lordag_kr,
+// fardtid_kr, skifttillagg_kr, bortovaro_kr, atk_ledig_tim, atk_period, atk_faktor).
+const AVTAL = { id: "a1", namn: "Skogsavtalet 2025-2027", giltigt_fran: "2025-04-01", giltigt_till: "2027-03-31", ordinarie_vecka_h: 40, max_overtid_ar_h: 250, km_ersattning_kr: 2.75, km_grans_per_dag: 60, fardmedel_kr_per_mil: 27.5, fardtid_kr_per_mil: 10.49, traktamente_hel_kr: 300, traktamente_halv_kr: 150, atk_procent: 3.62, atk_procent_nasta: 3.92, atk_ledig_tid_h: 65.2, overtid_vardag_kr: 54.94, overtid_helg_kr: 54.94, ob_kvall_kr: 43.77, ob_natt_kr: 56.82, ob_helg_kr: 68.95, ob_sondag_kr: 103.38, bortovaro_12h_kr: 8.03, skift_tillagg_kr: 8, dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
 
 const SALARY = {
   ok: true, arbetsperiod: "2026-09", totalt_rader: 2, oenighet: [],
@@ -115,13 +117,25 @@ function seed(extra: Record<string, any[]> = {}) {
   };
   g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {};
   g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
-  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = [];
+  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = [];
   g.fetch = vi.fn(async (url: string, init?: any) => {
     const u = String(url); g.__fetchAnrop.push([u, init?.method || "GET"]);
     if (u.includes("/api/fortnox/kontrollera-anstallningsnummer")) {
       const b = JSON.parse(init?.body || "{}");
       g.__kontrollAnrop.push(b);
       return { ok: true, status: 200, json: async () => (g.__kontroll ? g.__kontroll(b) : { ok: true, status: "ej_ansluten" }) } as any;
+    }
+    if (u.includes("/api/medarbetare/hempunkt")) {
+      const b = JSON.parse(init?.body || "{}");
+      g.__hempunktAnrop.push(b);
+      // Servern: Stämmer stämplar punkten, Flytta sätter en manuell, bekräftad punkt.
+      const svar = g.__hempunkt ? g.__hempunkt(b) : (() => {
+        const m = g.__db.medarbetare.find((x: any) => x.id === b.id);
+        if (b.atgard === "stammer") Object.assign(m, { hem_bekraftad_tid: new Date().toISOString() });
+        else Object.assign(m, { hem_lat: b.lat, hem_lng: b.lng, hem_koord_kalla: "manuell", hem_bekraftad_tid: new Date().toISOString(), hem_geokod_status: null });
+        return { ok: true };
+      })();
+      return { ok: svar.ok !== false, status: svar.ok === false ? 422 : 200, json: async () => svar } as any;
     }
     if (u.includes("/api/medarbetare/geokoda")) {
       const b = JSON.parse(init?.body || "{}");
@@ -131,10 +145,42 @@ function seed(extra: Record<string, any[]> = {}) {
     const body = u.includes("/api/lon/arsovertid") ? { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: [] }
       : u.includes("/api/fortnox/salary-export") ? (g.__salary || SALARY)
       : u.includes("/api/fortnox/status") ? { connected: true, token_utgar: null, senast_synkad: null }
-      : u.includes("/api/medarbetare/kontroller") ? (g.__kontroller || { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [] })
+      : u.includes("/api/medarbetare/kontroller") ? (g.__kontroller || { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [] })
       : {};
     return { ok: true, status: 200, json: async () => body } as any;
   });
+}
+
+/** MapLibre från CDN finns inte i jsdom: en liten fake med samma yta som hempunktskartan använder. */
+function installeraKarta() {
+  const k: any = { kartor: [], markorer: [] };
+  class Marker {
+    ll: [number, number] = [0, 0]; dragbar = false; h: Record<string, Function> = {};
+    constructor(public opts: any) { k.markorer.push(this); }
+    setLngLat(ll: [number, number]) { this.ll = ll; return this; }
+    addTo() { return this; }
+    setDraggable(b: boolean) { this.dragbar = b; return this; }
+    on(ev: string, fn: Function) { this.h[ev] = fn; return this; }
+    getLngLat() { return { lng: this.ll[0], lat: this.ll[1] }; }
+    remove() { k.markorer = k.markorer.filter((m: any) => m !== this); }
+  }
+  class Karta {
+    h: Record<string, Function> = {}; centrum: [number, number]; avlagsnad = false;
+    touchZoomRotate = { disableRotation() {} };
+    constructor(public opts: any) { this.centrum = opts.center; k.kartor.push(this); }
+    on(ev: string, fn: Function) { this.h[ev] = fn; return this; }
+    addControl() {} resize() {} getCanvas() { return { style: {} as any }; }
+    jumpTo(o: any) { this.centrum = o.center; } easeTo(o: any) { this.centrum = o.center; }
+    remove() { this.avlagsnad = true; k.kartor = k.kartor.filter((m: any) => m !== this); }
+  }
+  k.sista = () => k.kartor[k.kartor.length - 1];
+  k.punkt = () => k.markorer[k.markorer.length - 1]?.ll;
+  /** Ett tryck på kartan. */
+  k.tryck = (lat: number, lng: number) => k.sista().h.click({ lngLat: { lat, lng } });
+  /** Dra punkten till en ny plats och släpp. */
+  k.dra = (lat: number, lng: number) => { const m = k.markorer[k.markorer.length - 1]; m.ll = [lng, lat]; m.h.dragend?.(); };
+  (window as any).maplibregl = { Map: Karta, Marker, AttributionControl: class {} };
+  g.__karta = k;
 }
 
 let root: any, cont: HTMLElement;
@@ -171,8 +217,8 @@ async function skriv(input: HTMLInputElement, v: string) {
 const radMed = (t: string) => blad(t)[0].parentElement as HTMLElement;
 
 vi.setConfig({ testTimeout: 30000 }); // jsdom + många fetchar på en långsam dator
-beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 9, 7, 12, 0)); seed(); });
-afterEach(async () => { await act(async () => { root?.unmount(); }); cont?.remove(); vi.useRealTimers(); vi.restoreAllMocks(); delete g.__salary; });
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 9, 7, 12, 0)); seed(); installeraKarta(); });
+afterEach(async () => { await act(async () => { root?.unmount(); }); cont?.remove(); vi.useRealTimers(); vi.restoreAllMocks(); delete g.__salary; delete (window as any).maplibregl; });
 
 describe("Skal och navigering", () => {
   it("fem flikar i menyn, ingen Inst.; ?flik=installningar faller tillbaka på Översikt", async () => {
@@ -387,20 +433,56 @@ describe("Maskiner", () => {
 });
 
 describe("Avtal", () => {
-  async function andraTimlon() {
+  async function andraOvertid() {
     await monter("flik=avtal");
-    const inp = Array.from(cont.querySelectorAll<HTMLInputElement>("input[type=number]"))[0];
-    await skriv(inp, "199");
+    await skriv(falt("Övertidsersättning vardag"), "55.5");
     await klick("Spara ändringar");
   }
   it("sparar → 'Sparat ✓' först när raden verkligen skrivits", async () => {
-    await andraTimlon();
-    expect(g.__db.gs_avtal[0].timlon_kr).toBe(199);
+    await andraOvertid();
+    expect(g.__db.gs_avtal[0].overtid_vardag_kr).toBe(55.5);
     expect(text()).toContain("Sparat ✓");
+  });
+  it("inga tekniska fel i sidan: ingen '(kolumn saknas)', inget grått fält, och Timlön finns inte här (den sätts per person)", async () => {
+    await monter("flik=avtal");
+    expect(text()).not.toContain("kolumn saknas");
+    expect(cont.querySelectorAll("input:disabled").length).toBe(0);
+    expect(blad("Timlön").length).toBe(0);
+    expect(text()).not.toContain("Grundlön");
+  });
+  it("en kolumn som framtida avtalsrader saknar ger inget fel i sidan: fältet visas inte alls, och inget annat blir grått", async () => {
+    delete g.__db.gs_avtal[0].skift_tillagg_kr;
+    delete g.__db.gs_avtal[0].atk_procent_nasta;
+    await monter("flik=avtal");
+    expect(blad("Skifttillägg").length).toBe(0);
+    expect(blad("Nästa period").length).toBe(0);
+    expect(text()).not.toContain("kolumn saknas");
+    expect(cont.querySelectorAll("input:disabled").length).toBe(0);
+    expect(falt("Bortovaro >12h").value).toBe("8.03"); // gruppen med det andra fältet finns kvar
+  });
+  it("varje fält är kopplat till den kolumn som finns: färdtid, skifttillägg, bortovaro, ATK-tid och helg-OB visar avtalets värden", async () => {
+    await monter("flik=avtal");
+    expect(falt("Färdtidsersättning").value).toBe("10.49");
+    expect(falt("Skifttillägg").value).toBe("8");
+    expect(falt("Bortovaro >12h").value).toBe("8.03");
+    expect(falt("Ledig tid").value).toBe("65.2");
+    expect(falt("Helg").value).toBe("68.95");
+  });
+  it("och sparas till de kolumnerna — databasen avvisar allt annat (okänd kolumn = fel, som i prod)", async () => {
+    g.__avvisaKolumner = { gs_avtal: ["timlon_kr", "ob_lordag_kr", "fardtid_kr", "skifttillagg_kr", "bortovaro_kr", "atk_ledig_tim", "atk_period", "atk_faktor"] };
+    await monter("flik=avtal");
+    await skriv(falt("Färdtidsersättning"), "11");
+    await skriv(falt("Skifttillägg"), "9");
+    await skriv(falt("Bortovaro >12h"), "8.5");
+    await skriv(falt("Ledig tid"), "66");
+    await skriv(falt("Helg"), "70");
+    await klick("Spara ändringar");
+    expect(text()).toContain("Sparat ✓");
+    expect(g.__db.gs_avtal[0]).toMatchObject({ fardtid_kr_per_mil: 11, skift_tillagg_kr: 9, bortovaro_12h_kr: 8.5, atk_ledig_tid_h: 66, ob_helg_kr: 70 });
   });
   it("0 rader träffades (RLS) → inget 'Sparat ✓', felet står", async () => {
     g.__ingaRader = true;
-    await andraTimlon();
+    await andraOvertid();
     expect(text()).not.toContain("Sparat ✓");
     expect(text()).toContain("Ändringen sparades inte");
   });
@@ -577,18 +659,20 @@ async function valj(sel: HTMLSelectElement, v: string) {
     sel.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
-/** Geokodningens svar i fake-databasen: adressnivå eller bara ort, och "acceptera". */
+/**
+ * Geokodningens svar i fake-databasen: en punkt på adressnivå (obekräftad tills admin stämt av den), eller bara byn:
+ * då sparas bara förslaget och ingen hempunkt (Kompersmåla Gård 362 96).
+ */
 function geokodSvar(nivå: "adress" | "ort") {
   g.__geokod = (b: any) => {
     const m = g.__db.medarbetare.find((x: any) => x.id === b.id);
-    if (nivå === "adress") Object.assign(m, { hem_lat: 56.4, hem_lng: 14.7, hem_koord_kalla: "geokod", hem_geokod_status: "ok", hem_geokod_etikett: "Björkvägen 4, Ryd", hem_geokod_precision: "address" });
-    else if (b.acceptera) Object.assign(m, { hem_lat: 56.46, hem_lng: 14.69, hem_koord_kalla: "geokod", hem_geokod_status: "osaker", hem_geokod_precision: "locality" });
-    else Object.assign(m, { hem_lat: null, hem_geokod_status: "osaker", hem_geokod_etikett: "Ryd (tätort)", hem_geokod_precision: "locality", hem_geokod_lat: 56.46, hem_geokod_lng: 14.69 });
+    if (nivå === "adress") Object.assign(m, { hem_lat: 56.4, hem_lng: 14.7, hem_koord_kalla: "geokod", hem_geokod_status: "klar", hem_geokod_etikett: "Björkvägen 4, Ryd", hem_geokod_precision: "address", hem_bekraftad_tid: null });
+    else Object.assign(m, { hem_lat: null, hem_lng: null, hem_koord_kalla: null, hem_geokod_status: "osaker", hem_geokod_etikett: "Kompersmåla, Almundsryd", hem_geokod_precision: "locality", hem_geokod_lat: 56.38333, hem_geokod_lng: 14.78333 });
     return { ok: true };
   };
 }
 const nyPerson = (extra: Record<string, any> = {}) => {
-  const rad = { id: "n1", namn: "Nils Ek", epost: "nils@example.se", hemadress: null, roll: "forare", maskin_id: null, anstallningsdatum: null, timlon_kr: null, manadslon_kr: null, user_id: null, hem_lat: null, hem_lng: null, hem_koord_kalla: null, hem_geokod_status: null, hem_geokod_etikett: null, hem_geokod_precision: null, hem_geokod_lat: null, hem_geokod_lng: null, ...extra };
+  const rad = { id: "n1", namn: "Nils Ek", epost: "nils@example.se", hemadress: null, roll: "forare", maskin_id: null, anstallningsdatum: null, timlon_kr: null, manadslon_kr: null, user_id: null, hem_lat: null, hem_lng: null, hem_koord_kalla: null, hem_geokod_status: null, hem_geokod_etikett: null, hem_geokod_precision: null, hem_geokod_lat: null, hem_geokod_lng: null, hem_bekraftad_tid: null, ...extra };
   g.__db.medarbetare.push(rad);
   return rad;
 };
@@ -628,7 +712,7 @@ describe("Ny medarbetare: fyra steg, ett i taget", () => {
     expect(g.__db.medarbetare.some((m: any) => m.namn === "Nils Ek")).toBe(false);
   });
 
-  it("steg 2: adressen geokodas direkt och visar att den hittades på adressnivå; Nästa först då punkten finns", async () => {
+  it("steg 2: adressen geokodas direkt, kartan visar punkten och etiketten, och Nästa är öppen då punkten finns", async () => {
     nyPerson();
     geokodSvar("adress");
     await monter("flik=medarbetare&ny=1&person=n1&steg=2");
@@ -640,22 +724,31 @@ describe("Ny medarbetare: fyra steg, ett i taget", () => {
     expect(g.__geokodAnrop).toEqual([{ id: "n1" }]);
     expect(text()).toContain("Punkten är från adressen");
     expect(text()).toContain("exakt adress");
+    expect(text()).toContain("Björkvägen 4, Ryd");
+    expect(g.__karta.punkt()).toEqual([14.7, 56.4]);
+    expect(blad("Stämmer").length).toBe(1);
     expect(blad("Nästa")[0].closest("button")!.disabled).toBe(false);
     await klick("Nästa");
     expect(text()).toContain("Steg 3 av 4");
     expect(window.location.search).toContain("steg=3");
   });
 
-  it("steg 2: bara gata/ort → står som osäker, Nästa är låst tills man godkänner förslaget", async () => {
-    nyPerson({ hemadress: "Idekulla 6" });
+  it("steg 2: bara byn hittades (Kompersmåla Gård 362 96) → kartan säger det, ingen punkt är sparad, Nästa är låst tills punkten satts på huset", async () => {
+    nyPerson({ hemadress: "Kompersmåla Gård 362 96" });
     geokodSvar("ort");
     await monter("flik=medarbetare&ny=1&person=n1&steg=2");
     await klick("Hitta adressen");
-    expect(text()).toContain("Adressen hittades bara ungefär: bara orten");
-    expect(text()).toContain("Ryd (tätort)");
+    expect(g.__db.medarbetare.find((m: any) => m.id === "n1").hem_lat).toBeNull();
+    expect(text()).toContain("Hittade bara byn – sätt punkten på huset");
+    expect(text()).toContain("Kompersmåla, Almundsryd");
+    expect(blad("Stämmer").length).toBe(0);
     expect(blad("Nästa")[0].closest("button")!.disabled).toBe(true);
-    await klick("Använd förslaget ändå");
-    expect(g.__geokodAnrop[1]).toEqual({ id: "n1", acceptera: true });
+    await klick("Flytta punkten");
+    g.__karta.tryck(56.3939, 14.7729);
+    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    await klick("Spara punkten");
+    expect(g.__hempunktAnrop).toEqual([{ id: "n1", atgard: "flytta", lat: 56.3939, lng: 14.7729 }]);
+    expect(g.__db.medarbetare.find((m: any) => m.id === "n1")).toMatchObject({ hem_lat: 56.3939, hem_koord_kalla: "manuell" });
     expect(blad("Nästa")[0].closest("button")!.disabled).toBe(false);
   });
 
@@ -917,5 +1010,129 @@ describe("Anställningsnummer utan Fortnox: sparas ändå, kontrolleras när ans
     g.__kontroll = () => ({ ok: true, status: "saknas" });
     await monter("flik=medarbetare&person=m1");
     expect(text()).toContain("Fortnox känner inte numret 1001");
+  });
+});
+
+
+describe("Hempunkten på karta: en punkt, en etikett, två knappar", () => {
+  const m1 = () => g.__db.medarbetare.find((m: any) => m.id === "m1");
+  /** Kompersmåla Gård 362 96: geokodaren svarade med byns mittpunkt (geonames), ingen hempunkt sparad. */
+  const byn = () => Object.assign(m1(), { hemadress: "Kompersmåla Gård 362 96", hem_lat: null, hem_lng: null, hem_koord_kalla: null, hem_geokod_status: "osaker", hem_geokod_etikett: "Kompersmåla, Almundsryd", hem_geokod_precision: "locality", hem_geokod_lat: 56.38333, hem_geokod_lng: 14.78333, hem_bekraftad_tid: null });
+  /** En geokodad punkt på adressnivå som ingen har sett. */
+  const obekraftad = () => Object.assign(m1(), { hemadress: "Björkvägen 4, Ryd", hem_lat: 56.39, hem_lng: 14.77, hem_koord_kalla: "geokod", hem_geokod_status: "klar", hem_geokod_etikett: "Björkvägen 4, Ryd", hem_geokod_precision: "address", hem_bekraftad_tid: null });
+  const knappar = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("button")).map(b => (b.textContent || "").trim());
+  const tick = () => act(async () => { await new Promise(r => setTimeout(r, 0)); });
+
+  it("Kompersmåla Gård: kartan visar byns punkt med etiketten, säger 'Hittade bara byn – sätt punkten på huset' och erbjuder INTE Stämmer", async () => {
+    byn();
+    await monter("flik=medarbetare&person=m1");
+    expect(g.__karta.kartor).toHaveLength(1);
+    expect(g.__karta.punkt()).toEqual([14.78333, 56.38333]);
+    expect(text()).toContain("Kompersmåla, Almundsryd");
+    expect(text()).toContain("Hittade bara byn – sätt punkten på huset");
+    expect(blad("Stämmer").length).toBe(0);
+    expect(blad("Flytta punkten").length).toBe(1);
+    // ingen hempunkt sparades och ingenting står som 'exakt' eller 'klar'
+    expect(m1().hem_lat).toBeNull();
+    expect(text()).not.toContain("exakt");
+  });
+
+  it("Flytta punkten: man trycker på kartan, punkten flyttar, Spara punkten skriver en manuell, bekräftad punkt", async () => {
+    byn();
+    await monter("flik=medarbetare&person=m1");
+    await klick("Flytta punkten");
+    expect(g.__karta.markorer.at(-1).dragbar).toBe(true);
+    expect(blad("Spara punkten")[0].closest("button")!.disabled).toBe(true); // inget flyttat än
+    g.__karta.tryck(56.3939, 14.7729);
+    await tick();
+    expect(g.__karta.punkt()).toEqual([14.7729, 56.3939]);
+    expect(blad("Spara punkten")[0].closest("button")!.disabled).toBe(false);
+    await klick("Spara punkten");
+    expect(g.__hempunktAnrop).toEqual([{ id: "m1", atgard: "flytta", lat: 56.3939, lng: 14.7729 }]);
+    expect(m1()).toMatchObject({ hem_lat: 56.3939, hem_lng: 14.7729, hem_koord_kalla: "manuell" });
+    expect(m1().hem_bekraftad_tid).toBeTruthy();
+    // efter sparningen: bekräftad, inget varningsord kvar
+    expect(text()).not.toContain("Hittade bara byn");
+    expect(text()).toContain("Bekräftad");
+  });
+
+  it("Flytta punkten: man kan också dra punkten", async () => {
+    byn();
+    await monter("flik=medarbetare&person=m1");
+    await klick("Flytta punkten");
+    g.__karta.dra(56.394, 14.773);
+    await tick();
+    await klick("Spara punkten");
+    expect(g.__hempunktAnrop[0]).toEqual({ id: "m1", atgard: "flytta", lat: 56.394, lng: 14.773 });
+  });
+
+  it("Avbryt: punkten går tillbaka dit den var och inget skickas", async () => {
+    obekraftad();
+    await monter("flik=medarbetare&person=m1");
+    await klick("Flytta punkten");
+    g.__karta.tryck(56.5, 14.9);
+    await tick();
+    await klick("Avbryt");
+    expect(g.__karta.punkt()).toEqual([14.77, 56.39]);
+    expect(g.__hempunktAnrop).toEqual([]);
+    expect(blad("Stämmer").length).toBe(1);
+  });
+
+  it("obekräftad geokodad punkt: kartan, etiketten och två knappar. Stämmer stämplar punkten och behåller källan geokod", async () => {
+    obekraftad();
+    await monter("flik=medarbetare&person=m1");
+    expect(g.__karta.punkt()).toEqual([14.77, 56.39]);
+    expect(text()).toContain("Björkvägen 4, Ryd");
+    expect(text()).toContain("inte bekräftad");
+    expect(knappar().filter(t => t === "Stämmer" || t === "Flytta punkten")).toEqual(["Stämmer", "Flytta punkten"]);
+    await klick("Stämmer");
+    expect(g.__hempunktAnrop).toEqual([{ id: "m1", atgard: "stammer" }]);
+    expect(m1().hem_bekraftad_tid).toBeTruthy();
+    expect(m1().hem_koord_kalla).toBe("geokod");
+    expect(blad("Stämmer").length).toBe(0);
+    expect(text()).toContain("Bekräftad");
+    expect(text()).not.toContain("inte bekräftad");
+  });
+
+  it("en punkt som redan satts för hand eller med GPS visas på kartan, är bekräftad, och kan flyttas — men ska inte 'stämmas'", async () => {
+    await monter("flik=medarbetare&person=m1"); // m1: gps
+    expect(g.__karta.punkt()).toEqual([14.7, 56.4]);
+    expect(text()).toContain("Bekräftad");
+    expect(blad("Stämmer").length).toBe(0);
+    expect(blad("Flytta punkten").length).toBe(1);
+  });
+
+  it("servern nekar (t.ex. RLS eller utanför Sverige): felet står, punkten står kvar på kartan och inget ser sparat ut", async () => {
+    obekraftad();
+    g.__hempunkt = () => ({ ok: false, error: "Inget sparades (raden träffades inte)" });
+    await monter("flik=medarbetare&person=m1");
+    await klick("Stämmer");
+    expect(text()).toContain("Inget sparades");
+    expect(blad("Stämmer").length).toBe(1);
+    expect(text()).not.toContain("Bekräftad");
+  });
+
+  it("kartan går inte att ladda: det sägs, och punktens värden finns kvar som text — ingen tyst tom ruta", async () => {
+    delete (window as any).maplibregl;
+    obekraftad();
+    await monter("flik=medarbetare&person=m1");
+    const script = document.getElementById("maplibre-js-hempunkt");
+    expect(script).toBeTruthy();
+    await act(async () => { script!.dispatchEvent(new Event("error")); });
+    expect(text()).toContain("Kartan kunde inte laddas");
+    expect(text()).toContain("Björkvägen 4, Ryd");
+    script!.remove();
+  });
+
+  it("Översikt: obekräftad hempunkt är en sak att göra, 'Hempunkten är inte bekräftad – namn', och leder till kartan", async () => {
+    obekraftad();
+    g.__kontroller = { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [{ id: "m1", namn: "Anna Berg" }] };
+    await monter("flik=oversikt");
+    expect(text()).toContain("Hempunkten är inte bekräftad – Anna Berg");
+    await klick("Visa kartan");
+    expect(window.location.search).toContain("flik=medarbetare");
+    expect(window.location.search).toContain("person=m1");
+    expect(g.__karta.kartor.length).toBe(1);
+    expect(blad("Stämmer").length).toBe(1);
   });
 });

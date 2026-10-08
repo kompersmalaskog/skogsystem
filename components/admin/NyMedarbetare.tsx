@@ -16,7 +16,7 @@ import { useAdminNav } from "./nav";
 import { OperatorRad } from "./MedarbetareKontroller";
 import { HempunktKort, KopplaOperatörModal, ROLLER, useAnstKontroll, AnstKontrollText, type Medarbetare } from "./medarbetarDelar";
 
-const KOLUMNER = "id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng";
+const KOLUMNER = "id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng, hem_bekraftad_tid";
 
 export default function NyMedarbetare() {
   const { nav, gaTill } = useAdminNav();
