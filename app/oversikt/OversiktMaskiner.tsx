@@ -24,6 +24,7 @@ import { Maskin, MaskinKoItem, OversiktObjekt, C, T, BTN, SP } from './oversikt-
 import { ff } from './oversikt-styles';
 import { getMaskinTyp } from './oversikt-utils';
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
+import { KO_KUNDE_INTE_LASAS } from './LasFel';
 
 interface Props {
   maskiner: Maskin[];
@@ -31,6 +32,7 @@ interface Props {
   objekt: OversiktObjekt[];
   supabase: any;
   onRefresh: () => Promise<void>;
+  koFel?: boolean;   // kön/maskinerna gick inte att läsa → en tom kö är OKÄND, aldrig "Inga objekt"
 }
 
 /* ── Sortable row ── */
@@ -154,7 +156,7 @@ function DragOverlayRow({ objName, idx }: { objName: string; idx: number }) {
   );
 }
 
-export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase, onRefresh }: Props) {
+export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase, onRefresh, koFel }: Props) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [movingItem, setMovingItem] = useState<{ koId: string; objektId: string; fromMaskin: string } | null>(null);
   const [addingTo, setAddingTo] = useState<string | null>(null);
@@ -362,7 +364,9 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
 
                 {/* ── Lägg till objekt ── */}
                 {ko.length === 0 && (
-                  <div style={{ padding: `${SP.xl}px ${SP.xs}px`, ...T.body, color: C.t3 }}>Inga objekt</div>
+                  koFel
+                    ? <div style={{ padding: `${SP.xl}px ${SP.xs}px`, ...T.body, color: C.orange }}>{KO_KUNDE_INTE_LASAS}</div>
+                    : <div style={{ padding: `${SP.xl}px ${SP.xs}px`, ...T.body, color: C.t3 }}>Inga objekt</div>
                 )}
                 <button
                   onClick={() => { setAddingTo(maskin.maskin_id); setSearchText(''); setMenuOpen(null); }}
