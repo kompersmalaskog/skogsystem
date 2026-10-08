@@ -31,7 +31,7 @@ ROTTNE = {
 }
 PONSSE = {  # modellnamn i rapporten -> (maskinnamn, typ)
     "Ponsse Bear 2015": ("Ponsse Bear", "skördare"),
-    "Ponsse Scorpion King": ("Ponsse Scorpion King", "skördare"),
+    "Ponsse Scorpion King": ("Scorpion King gammal", "skördare"),  # A010093, 2021-2022 (Opti4G 4.731, H7, h 11 122+)
     "Ponsse Elephant King Af": ("Elephant King gammal", "skotare"),
     "Ponsse Elephant King 2015": ("Elephant King ny", "skotare"),
     "Ponsse Wisent 2015": ("Ponsse Wisent", "skotare"),
@@ -39,8 +39,13 @@ PONSSE = {  # modellnamn i rapporten -> (maskinnamn, typ)
 INFO = {  # maskinnamn -> (typ, tillverkare, identifierare, agare)
     **{n: (t, "Komatsu", c, "egen") for c, (n, t) in KOMATSU.items()},
     "Komatsu 911.3": ("skördare", "Komatsu", "AptMan 911.3 (maskin nr 311608)", "egen"),
+    "Komatsu 941 AptMan": ("skördare", "Komatsu", "AptMan 941 (maskin nr 011970)", "egen"),
+    "Scorpion King ny": ("skördare", "Ponsse", "Scorpion King 8W 2022", "egen"),
+    "Scorpion Giant 2023": ("skördare", "Ponsse", "Scorpion Giant 8W 2023", "egen"),
+    "Scorpion Giant 2025": ("skördare", "Ponsse", "Scorpion Giant 8W 2025 (A270231)", "egen"),
     **{n: ("skördare", "Rottne", c, "egen") for c, n in ROTTNE.items()},
     **{n: (t, "Ponsse", m, "egen") for m, (n, t) in PONSSE.items()},
+    "okopplad: AptMan": ("", "Komatsu", "okänt AptMan-maskinnummer", "okopplad"),
     "Extern: Magnus Gustafsson": ("", "Rottne/Ponsse (Forester F30, okänd)", "magnusgustafsson76@gmail.com", "extern"),
     "exkludera: Komatsu 951 demo": ("skördare", "Komatsu", "9510004659", "exkludera"),
     "exkludera: per.lyseback (Komatsu 901)": ("skördare", "Komatsu", "9010053324", "exkludera"),
@@ -52,6 +57,22 @@ INFO = {  # maskinnamn -> (typ, tillverkare, identifierare, agare)
 EXKL = {"exkludera: Komatsu 951 demo", "exkludera: per.lyseback (Komatsu 901)",
         "exkludera: Ponsse månads-/årsrapporter", "exkludera: Rottne månads-/årsrapporter",
         "exkludera: Rottne okopplade objektrapporter", "exkludera: Komatsu tidsavgränsade månads-/årsrapporter"}
+
+
+def _info(n):
+    return INFO.get(n) or INFO["okopplad: AptMan"]
+
+
+def aptman_nr(text, fmt):
+    """Maskin nr ur AptMan-rapport; nummer kan vara brutna över två rader (läses ihop)."""
+    if fmt == "aptman_drf":
+        m = re.search(r"Maskin nr\s*:\s*([\d \n]+?)\s*\n\s*AptMan", text)
+        return re.sub(r"\s", "", m.group(1)) if m else ""
+    m = re.search(r"Maskinnummer:\s*(.*?)\s*Nollst", text, re.S)
+    if not m:
+        return ""
+    parts = [re.sub(r"\s", "", x) for x in m.group(1).split(",")]
+    return parts[-1]
 
 
 def mail(s):
@@ -103,7 +124,8 @@ def main():
             else:
                 namn, orsak = "exkludera: per.lyseback (Komatsu 901)", f"okänt chassinr {ch}"
         elif f in ("aptman_drf", "aptman_produktionsnota"):
-            namn = "Komatsu 911.3"
+            nr_ = aptman_nr(texter[sha], f) or r["maskin_nr"]
+            namn = {"311608": "Komatsu 911.3", "011970": "Komatsu 941 AptMan"}.get(nr_, f"okopplad: AptMan {nr_ or 'utan nr'}")
         elif f == "ponsse_maskinspecifik_summering":
             t = texter[sha]
             m = re.search(r"Tidsintervall\s+(\d{4}-\d\d-\d\d)\s*-\s*(\d{4}-\d\d-\d\d)", t)
@@ -138,11 +160,16 @@ def main():
     g = defaultdict(list)
     for o in out:
         g[o["maskin_namn"]].append(o["datum"])
+    til = IMP / "rapport_maskin_tillagg.csv"
+    if til.exists():
+        for r_ in csv.DictReader(open(til, encoding="utf-8-sig")):
+            if r_["maskin_namn"] in INFO or r_["maskin_namn"].startswith("okopplad: AptMan"):
+                g[r_["maskin_namn"]].append(r_["datum"])
     with open(IMP / "maskinregister.csv", "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["maskin_namn", "typ", "tillverkare", "identifierare", "forsta_datum", "sista_datum", "antal_rapporter", "agare"])
-        for n, d in sorted(g.items(), key=lambda kv: (INFO[kv[0]][3] == "exkludera", INFO[kv[0]][3] == "extern", kv[0])):
-            t, tv, ident, ag = INFO[n]
+        for n, d in sorted(g.items(), key=lambda kv: (_info(kv[0])[3] == "exkludera", _info(kv[0])[3] == "extern", kv[0])):
+            t, tv, ident, ag = _info(n)
             w.writerow([n, t, tv, ident, min(d), max(d), len(d), ag])
     return out, g
 
@@ -151,4 +178,4 @@ if __name__ == "__main__":
     out, g = main()
     print(len(out), "rapporter")
     for n, d in sorted(g.items(), key=lambda kv: -len(kv[1])):
-        print(f"{len(d):5d}  {min(d)}  {max(d)}  {INFO[n][3] if INFO[n][3] == 'exkludera' else INFO[n][2]!s:40.40}  {n}")
+        print(f"{len(d):5d}  {min(d)}  {max(d)}  {_info(n)[3] if _info(n)[3] == 'exkludera' else _info(n)[2]!s:40.40}  {n}")

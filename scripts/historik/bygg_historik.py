@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import parse_maxixplorer as PM  # noqa: E402
 import parse_ovriga as PO  # noqa: E402
+import bygg_tillagg as BT  # noqa: E402
 
 IMP = Path("C:/Users/lindq/skogsystem-import")
 SKIFT_KOL = ["maskin_namn", "chassinr", "objektnr", "objekt", "forare", "datum", "tin", "tut", "g15", "g15_h", "avbrott", "stammar",
@@ -21,7 +22,7 @@ SKIFT_KOL = ["maskin_namn", "chassinr", "objektnr", "objekt", "forare", "datum",
 OBJEKT_KOL = ["status", "format", "volym_enhet", "sha256", "rapportdatum", "maskin_namn", "chassinr", "typ", "rapporttyp", "objektnr",
               "objekt", "programversion", "stammar", "stockar", "volym_m3fub", "volym_2b_arter", "flertrad_102b", "volym_per_tradslag",
               "g0", "g15", "extratid", "rasttid", "avbrott_g15", "motortid", "bransle_l", "antal_skift", "forare", "objekt_nyckel",
-              "senaste_for_nyckel", "filnamn"]
+              "senaste_for_nyckel", "utan_stammar", "kalla_typ", "maskinnr_rapport", "dubblett_av", "livstid_h", "antal_lass", "filnamn"]
 SKOTARE = {"Komatsu 840.4", "Komatsu 860.4", "Komatsu 830.3", "Komatsu 875", "Elephant King gammal", "Elephant King ny", "Ponsse Wisent"}
 
 
@@ -125,11 +126,13 @@ def main():
                 avvik(sha, r["rapportdatum"], namn, k, f, s_, d_)
         orows.append(base)
 
+    BT.lagg_till(orows, avv, inv, maskin, OBJEKT_KOL)
+
     # ---------------------------------------------------------------- senaste rapport per objektnyckel (kumulativa rapporter)
     # Komatsu-objektrader har ingen nyckel (volym per år tas ur skift.csv).
     senast = {}
     for o in orows:
-        if o["objekt_nyckel"] and o["status"] == "ok":
+        if o["objekt_nyckel"] and o["status"] == "ok" and not o["dubblett_av"]:
             pref = 1 if o["format"] == "aptman_drf" else 0  # DRF och nota ger samma kumulativa totaler; DRF har G15
             k = o["objekt_nyckel"]
             cand = (o["rapportdatum"], pref)
