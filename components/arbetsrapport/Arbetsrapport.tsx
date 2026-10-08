@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { anledningGiltig, ANLEDNING_MIN_TECKEN } from "@/lib/redigeraAnledning";
 import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
@@ -1371,6 +1372,12 @@ export default function Arbetsrapport() {
     km_kalla: r.km_kalla ?? null,
     // Förarens bekräftade rast-/passfrågor (id → start|slut|rast). Ändras tiderna gäller svaret inte.
     tidsfragor_svar: r.tidsfragor_svar ?? null,
+    // Maskinens avvikelse mot det föraren bekräftade (synk_avvikelse) och maskinstart-gapet (tidigarelagd_start):
+    // korten i Redigera läser dem ur redDag. #702 (2026-10-05) lät byggDagPost ersätta den råa raden som redDag och tappade
+    // dem — korten "Maskintiden skiljer sig" och "Maskinstart" visades aldrig i Redigera, så en avvikelse som synken
+    // registrerat gick inte att besvara. Gul prick i kalendern fanns kvar (den läser historik).
+    synk_avvikelse: r.synk_avvikelse ?? null,
+    tidigarelagd_start: r.tidigarelagd_start ?? null,
     start_tid: r.start_tid || null,
     slut_tid: r.slut_tid || null,
     rast_min: r.rast_min ?? 0,
@@ -6092,7 +6099,7 @@ export default function Arbetsrapport() {
             };
             const uppdateraTider = async () => {
               const res = await uppdateraVerifierat(supabase, 'arbetsdag',
-                { start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null },
+                { start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, redigerad_av: medarbetare.id, synk_avvikelse: null },
                 { id: rd.id });
               if (!res.ok) { setRedFel(res.fel); return; }
               setRedDag((d:any) => ({ ...d, start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null }));
@@ -6388,6 +6395,10 @@ export default function Arbetsrapport() {
                 onChange={e=>setRedAnl(e.target.value)}
                 style={{ width:"100%",padding:`${AVSTAND.l}px ${AVSTAND.l}px`,...TYP.text,border:"none",borderRadius:RADIE.kort,background:FARG.kort,outline:"none",boxShadow:"none",fontFamily:"inherit",color:FARG.text }}
               />
+              {/* En anledning är ett ord, inte ett skiljetecken: minst 3 tecken och minst en bokstav eller siffra. */}
+              {!anledningGiltig(redAnl)&&(
+                <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>Skriv minst {ANLEDNING_MIN_TECKEN} tecken — vad ändrade du och varför?</p>
+              )}
             </div>
           )}
           {/* SAKER ATT SVARA PÅ — samma lista som Dag-vyn visar för idag. */}
@@ -6420,8 +6431,8 @@ export default function Arbetsrapport() {
               return (<>
                 {felRad}
                 <button
-                  style={{ ...KNAPP.primar, ...(!redAnl ? INAKTIV : {}) }}
-                  disabled={!redAnl}
+                  style={{ ...KNAPP.primar, ...(!anledningGiltig(redAnl) ? INAKTIV : {}) }}
+                  disabled={!anledningGiltig(redAnl)}
                   onClick={async ()=>{
                     try {
                       // arbetad_min + km_totalt är generated columns — räknas från rast_min
@@ -6468,6 +6479,7 @@ export default function Arbetsrapport() {
                         maskin_id: sparMaskinId,
                         redigerad: true,
                         redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
+                        redigerad_av: medarbetare.id,
                         ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                       }, { onConflict: 'medarbetare_id,datum' });
                       if (!res.ok) throw new Error(res.fel);
@@ -6677,7 +6689,7 @@ export default function Arbetsrapport() {
                       if (redDag?.id) {
                         const bryterBekräftelse = !!redDag?.bekraftad;
                         // km_kalla='forare': föraren äger km-värdet (inkl. medveten 0).
-                        const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_kalla: 'forare', redigerad: true, redigerad_tid: new Date().toISOString() };
+                        const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_kalla: 'forare', redigerad: true, redigerad_tid: new Date().toISOString(), redigerad_av: medarbetare.id };
                         if (bryterBekräftelse) { payload.bekraftad = false; payload.bekraftad_tid = null; }
                         const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: redDag.id });
                         if (!res.ok) {

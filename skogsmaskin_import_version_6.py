@@ -690,6 +690,148 @@ def parse_datetime(dt_str) -> Optional[datetime]:
         return None
 
 # ============================================================
+# SYNTETISKA SKIFT (Rottne) — slutar när nästa förare loggar in
+# ============================================================
+# Rottne saknar OperatorShiftDefinition: parsern bygger syntetiska skift (shift_key "SYN_<datum>_<operator>") av WorkTime
+# och fyller utloggningen ut till filens ReportEndTime. Förr gällde fyllnaden ALLA förare den dagen — R64428 2026-10-07 fick
+# Oskar (slutade 16:50) och Martin (16:50-20:50) exakt samma utloggning 20:50:51.132817, och Oskars arbetsdag blev
+# 06:59-20:50. Dessutom slår kuvert-sammanslagningen ihop utloggning med GREATEST, så ett för långt slut kunde aldrig
+# krympa igen.
+#
+# Regeln (Martin 2026-10-08): ett SYNTETISKT pass slutar när en ANNAN förare loggar in på samma maskin medan passet är
+# öppet. Äkta skift (Ponsse, ShifKey) rörs ALDRIG — där är utloggningen maskinens egen uppgift, inte en gissning.
+# Samma regel finns i /api/mom-import (lib/skiftKapning.ts) som skydd — håll dem i synk.
+# Testas i scripts/test_skift_overlapp.py.
+
+def arsyntetiskt_skift(rad: Dict) -> bool:
+    return str(rad.get('shift_key') or '').startswith('SYN_')
+
+
+def kapa_syntetiska_skift(rader: List[Dict]) -> List[Dict]:
+    """Kapa varje syntetiskt pass till den inloggning en annan förare gör på samma maskin och dag medan passet är
+    öppet (strikt efter passets egen inloggning, strikt före dess utloggning). langd_sek räknas om (int(), som resten
+    av importen). Ren: indatan ändras inte, ett redan kapat pass kapas inte igen."""
+    grupper = defaultdict(list)
+    for r in rader:
+        grupper[(r.get('maskin_id'), str(r.get('datum')))].append(r)
+    ut = []
+    for r in rader:
+        inn, slut = r.get('inloggning_tid'), r.get('utloggning_tid')
+        if not arsyntetiskt_skift(r) or not inn or not slut:
+            ut.append(r)
+            continue
+        kap = None
+        for o in grupper[(r.get('maskin_id'), str(r.get('datum')))]:
+            if o.get('operator_id') == r.get('operator_id'):
+                continue
+            oin = o.get('inloggning_tid')
+            if oin and inn < oin < slut and (kap is None or oin < kap):
+                kap = oin
+        if kap is None:
+            ut.append(r)
+            continue
+        ny = dict(r)
+        ny['utloggning_tid'] = kap
+        ny['langd_sek'] = int((kap - inn).total_seconds())
+        ut.append(ny)
+    return ut
+
+
+def bygg_syntetiska_skift(op_dag_times, report_end_dt, maskin_id: str, filnamn: str, maskin_login) -> List[Dict]:
+    """Bygg syntetiska skift ur WorkTime-poster: {(operator_id, datum): [(start_dt, duration_sek), ...]}.
+
+    Sluttid = senaste postens start + dess duration. ReportEndTime = rapportens sanna slut = den SISTA förarens
+    utloggning: den fyller bara ut för den förare som slutar sist den maskindagen (inte alla), och bara för filens
+    sista dag. OBS: ReportStartTime används ALDRIG — den är KUMULATIV (arkivets början), inte dagens start. max()-
+    semantiken: förlänger aldrig bakåt, kortar aldrig. Slutligen kapas pass som överlappar en annan förares inloggning."""
+    per_op = {}
+    for (op_id, datum), entries in op_dag_times.items():
+        if not entries:
+            continue
+        latest_entry = max(entries, key=lambda e: e[0])
+        per_op[(op_id, datum)] = {
+            'earliest': min(e[0] for e in entries),
+            'latest_end': latest_entry[0] + timedelta(seconds=latest_entry[1]),
+            'total_sek': sum(e[1] for e in entries),
+        }
+    sista_slut = {}
+    for (op_id, datum), v in per_op.items():
+        if datum not in sista_slut or v['latest_end'] > sista_slut[datum]:
+            sista_slut[datum] = v['latest_end']
+
+    skift = []
+    for (op_id, datum), v in per_op.items():
+        utloggning = v['latest_end']
+        if (report_end_dt and report_end_dt.date() == datum and report_end_dt > v['latest_end']
+                and v['latest_end'] == sista_slut[datum]):
+            utloggning = report_end_dt
+        skift.append({
+            'datum': datum,
+            'maskin_id': maskin_id,
+            'operator_id': op_id,
+            'inloggning_tid': v['earliest'],
+            'maskin_inloggning_tid': maskin_login.get((op_id, datum)),
+            'utloggning_tid': utloggning,
+            'langd_sek': v['total_sek'],
+            'gps_lat': None,
+            'gps_long': None,
+            'logout_lat': None,
+            'logout_lon': None,
+            'filnamn': filnamn,
+            # Rottne saknar ShifKey — deterministisk nyckel per (dag, operator) så timvisa snapshot-filer
+            # upsert:ar samma rad i stället för att stapla dubbletter
+            'shift_key': f"SYN_{datum}_{op_id}",
+        })
+    return kapa_syntetiska_skift(skift)
+
+
+def kapa_syntetiska_skift_i_db(maskin_id: str, datum) -> int:
+    """Efter upserten: kapa maskindagens syntetiska pass i DATABASEN (GREATEST-sammanslagningen krymper inget av sig
+    själv). Läser ALLA dagens skift på maskinen, PATCH:ar bara de pass som ändras. Best effort — ett fel loggas och
+    stoppar aldrig importen (/api/mom-import kapar samma sak för arbetsdagen). Returnerar antal ändrade rader."""
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/fakt_skift",
+            params={'maskin_id': f"eq.{maskin_id}", 'datum': f"eq.{datum}",
+                    'select': 'id,maskin_id,datum,operator_id,shift_key,inloggning_tid,utloggning_tid,langd_sek'},
+            headers=SUPABASE_HEADERS, timeout=30)
+        if not resp.ok:
+            logger.warning(f"  Skiftkapning: kunde inte läsa fakt_skift {maskin_id} {datum} ({resp.status_code})")
+            return 0
+        lasta = resp.json()
+    except Exception as e:
+        logger.warning(f"  Skiftkapning: kunde inte läsa fakt_skift {maskin_id} {datum} ({e})")
+        return 0
+    rader = []
+    for r in lasta:
+        p = dict(r)
+        p['inloggning_tid'] = parse_datetime(r.get('inloggning_tid'))
+        p['utloggning_tid'] = parse_datetime(r.get('utloggning_tid'))
+        rader.append(p)
+    n = 0
+    for orig, ny in zip(rader, kapa_syntetiska_skift(rader)):
+        if ny is orig or ny['utloggning_tid'] == orig['utloggning_tid']:
+            continue
+        try:
+            pr = requests.patch(
+                f"{SUPABASE_URL}/rest/v1/fakt_skift?id=eq.{orig['id']}",
+                headers=SUPABASE_HEADERS,
+                data=json.dumps({'utloggning_tid': ny['utloggning_tid'].isoformat(), 'langd_sek': ny['langd_sek']}),
+                timeout=30)
+            if pr.status_code in (200, 204):
+                n += 1
+                logger.info(
+                    f"  Skiftkapning: {maskin_id} {datum} {orig.get('operator_id')} slutar nu "
+                    f"{ny['utloggning_tid'].strftime('%H:%M:%S')} (var {orig['utloggning_tid'].strftime('%H:%M:%S')}) "
+                    f"— nästa förare loggade in då")
+            else:
+                logger.warning(f"  Skiftkapning: PATCH fakt_skift id={orig['id']} gav {pr.status_code}")
+        except Exception as e:
+            logger.warning(f"  Skiftkapning: PATCH fakt_skift id={orig['id']} misslyckades ({e})")
+    return n
+
+
+# ============================================================
 # FAKT_TID — SAMMANSLAGNING AV SEGMENT ÖVER EXPORTVERSIONER
 # Modulnivå så att omräkningsskriptet (scripts/omrakna_fakt_tid_delat_segment.py)
 # använder EXAKT samma regel som importen — en sanning, aldrig en kopia.
@@ -1716,57 +1858,13 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     duration_sek += entry.get(f, 0)
                 op_dag_times[(op_id, dt.date())].append((dt, duration_sek))
 
-        # ReportEndTime = rapportens sanna slut = förarens utloggning.
-        # Rottne saknar OperatorShiftDefinition, så syntetiska skift byggs av
-        # WorkTime-slut — vilket missar efterarbete efter sista stocken (körning,
-        # service, tomgång utan bucket). ReportEndTime fyller ut det.
-        # OBS: ReportStartTime används ALDRIG — den är KUMULATIV (arkivets
-        # början, t.ex. 29 juli i en 3-aug-fil), inte dagens start. ReportEndTime
-        # gäller filens SISTA dag; tidigare dagar i en kumulativ fil fick sin
-        # egen ReportEndTime när deras egen fil kom in.
+        # ReportEndTime = rapportens sanna slut = den SISTA förarens utloggning (se bygg_syntetiska_skift).
         report_end_dt = None
         report_interval = find_element(machine, 'ReportInterval', ns)
         if report_interval is not None:
             report_end_dt = parse_datetime(get_text(report_interval, 'ReportEndTime', ns))
 
-        for (op_id, datum), entries in op_dag_times.items():
-            if not entries:
-                continue
-            earliest = min(e[0] for e in entries)
-            # Sluttid = senaste start + dess duration
-            latest_entry = max(entries, key=lambda e: e[0])
-            latest_end = latest_entry[0] + __import__('datetime').timedelta(seconds=latest_entry[1])
-            total_sek = sum(e[1] for e in entries)
-
-            # Fyll ut till förarens sanna utloggning BARA för filens sista dag
-            # (report_end_dt.date() == datum). max()-semantiken: förläng aldrig
-            # bakåt, korta aldrig — bara ut till utloggningen. Saknas
-            # ReportEndTime eller är den <= sista aktiviteten -> oförändrat
-            # (ingen regression). Idempotent: kuvert-merget vid upsert gör
-            # GREATEST(utloggning) och report_end är stabilt per fil, så
-            # omimport av samma fil ger samma resultat.
-            utloggning = latest_end
-            if report_end_dt and report_end_dt.date() == datum and report_end_dt > latest_end:
-                utloggning = report_end_dt
-
-            data['skift'].append({
-                'datum': datum,
-                'maskin_id': maskin_id,
-                'operator_id': op_id,
-                'inloggning_tid': earliest,
-                'maskin_inloggning_tid': maskin_login.get((op_id, datum)),
-                'utloggning_tid': utloggning,
-                'langd_sek': total_sek,
-                'gps_lat': None,
-                'gps_long': None,
-                'logout_lat': None,
-                'logout_lon': None,
-                'filnamn': filnamn,
-                # Rottne saknar ShifKey — deterministisk nyckel per (dag,
-                # operator) så timvisa snapshot-filer upsert:ar samma rad
-                # i stället för att stapla dubbletter
-                'shift_key': f"SYN_{datum}_{op_id}"
-            })
+        data['skift'].extend(bygg_syntetiska_skift(op_dag_times, report_end_dt, maskin_id, filnamn, maskin_login))
 
         if data['skift']:
             logger.info(f"  Syntetiska skift: {len(data['skift'])} (från WorkTime)")
@@ -3856,6 +3954,10 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
         # 6. Bygg rast-lookup + objekt-lookup från DB-datat.
         rast_lookup = {}
         objekt_lookup = {}
+        # Förarens EGEN rast = summan över ALLA hans operatör-id (en person kan ha flera, t.ex. Max på A030353).
+        ops_per_forare = defaultdict(set)
+        for _op, _med in op_to_medarb.items():
+            ops_per_forare[_med].add(_op)
         for row in alla_tid:
             op_id = row.get('operator_id')
             datum = str(row.get('datum', ''))
@@ -3932,7 +4034,7 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
             # våren 2026). Det är INTE ett saknat värde: skotarförarna kör i regel
             # hela dagar utan rast (Martin 2026-09-15), så noll är korrekt.
             # Skördarna (Scorpion, Rottne) loggar rasten. Utred inte om igen.
-            rast_sek = rast_lookup.get((agg['op_id'], datum_str), 0)
+            rast_sek = sum(rast_lookup.get((o, datum_str), 0) for o in ops_per_forare[medarb_id])
             rast_min = int(rast_sek / 60)
             objekt_id = objekt_lookup.get((agg['op_id'], datum_str))
 
@@ -4054,6 +4156,12 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 logger.error(
                     f"  SKIFT-DATA FÖRLORAD ({len(data['skift'])} rader ur {skift_fil}): "
                     f"{forlorade} — lönedata saknas tills filen omimporteras!")
+            else:
+                # Syntetiska pass (Rottne) slutar när nästa förare loggar in — i DATABASEN, så att GREATEST-merge ovan
+                # inte lämnar kvar ett för långt slut (R64428 2026-10-07).
+                for maskin_dag in sorted({(r.get('maskin_id'), str(r.get('datum'))) for r in data['skift']
+                                          if arsyntetiskt_skift(r) and r.get('datum')}):
+                    kapa_syntetiska_skift_i_db(*maskin_dag)
 
         # Tid — re-aggregera från ALLA filer i Behandlade/<maskin>/mom/ för
         # berörda (datum, maskin). Segment-IDENTITET är (start_time, maskin);
