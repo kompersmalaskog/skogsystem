@@ -81,10 +81,12 @@ import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import { anmarkningsText, kortDatum } from '../format';
 import { designCss, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import {
+  SAKNAR_PLATS_MENING,
   UTAN_POSITION_MENING,
   arForstaSvaret,
   avstandPerPunkt as beraknaAvstand,
   efterSvar,
+  kortStangning,
   narmasteObesvarade,
   ordnaGruppEfterAvstand,
   positionSkalText,
@@ -947,6 +949,8 @@ export default function EgenkontrollRundaPage() {
   const gaTillKarta = () => { setKlartKort(false); setFrystPos(null); setLage('karta'); };
   /** Tryck pa en symbol pa kartan: byt kort. */
   const valjPunktPaKartan = (id: string) => { setKlartKort(false); setValdPunktId(id); };
+  /** Stang kortet: tomt kort. Fylls av sig sjalv med narmaste obesvarade sa fort en sadan kan pekas ut. */
+  const stangKortet = () => { setKlartKort(false); setValdPunktId(null); };
   /** Tryck pa en rad i listan: till kartan med punkten i kortet. */
   const oppnaPunktPaKartan = (id: string) => {
     setKlartKort(false); setValdPunktId(id); setFrystPos(null); setLage('karta');
@@ -956,6 +960,15 @@ export default function EgenkontrollRundaPage() {
   // den kvar monterad men dold - se kartaMonterad.
   const kartaSynlig = effLage === 'karta' && !!vy?.egenkontroll && !laddar && !fel;
   const kortPunkt = valdPunktId ? allaPunkter.find((p) => p.id === valdPunktId) ?? null : null;
+  // En besvarad punkt i kortet gar att stanga. Star den kvar for att ingen nasta kan
+  // pekas ut sags varfor - ingen position, eller det som aterstar saknar plats.
+  const kortStang = kortStangning({
+    kort: kortPunkt,
+    klartKort,
+    terrangKvar,
+    nastaFinns: narmasteObesvarade(planpunkter, avstandLive) !== null,
+    positionOk: pos.status === 'ok',
+  });
   const kanVisaKarta = !!vy?.egenkontroll && harPlats.size > 0;
   const lagerKnappStil = {
     minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 22,
@@ -1101,9 +1114,37 @@ export default function EgenkontrollRundaPage() {
               padding: `12px ${SIDMARGINAL}px ${medSafeBotten(12)}`,
             }}
           >
-            {terrangKvar > 0 && (
-              <div style={{ fontSize: 13, color: T.t2, margin: '0 0 8px' }}>
-                Kvar i terrängen: {terrangKvar}
+            {(terrangKvar > 0 || kortStang.kanStangas) && (
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 12, margin: '0 0 8px',
+                }}
+              >
+                <div style={{ fontSize: 13, color: T.t2 }}>
+                  {terrangKvar > 0 ? `Kvar i terrängen: ${terrangKvar}` : ''}
+                </div>
+                {/* VAGEN UT. En besvarad punkt som inte har nagon nasta att ga till
+                    (ingen position, eller det som aterstar saknar plats) lamnades kvar
+                    i kortet, och da fanns bara ett tryck pa en annan symbol som vag ut. */}
+                {kortStang.kanStangas && (
+                  <button onClick={stangKortet} aria-label="Stäng kortet" style={lagerKnappStil}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
+                      close
+                    </span>
+                    Stäng
+                  </button>
+                )}
+              </div>
+            )}
+            {/* VARFOR DET INTE GAR VIDARE, i kortet och OVAN punkten - inte under den, dar en
+                lang plankommentar skjuter ut den ur de 45 % kortet far ta. */}
+            {kortStang.forklaring === 'position' && (
+              <div style={{ margin: '0 0 10px' }}><PositionRad pos={pos} /></div>
+            )}
+            {kortStang.forklaring === 'plats' && (
+              <div role="status" style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 0 10px' }}>
+                {SAKNAR_PLATS_MENING}
               </div>
             )}
             {kortPunkt ? (
@@ -1128,7 +1169,7 @@ export default function EgenkontrollRundaPage() {
                 )}
                 {/* Tappas positionen medan man har ett kort kvar star kortet kvar -
                     men det ska sagas att ingen "narmaste" kan raknas ut. */}
-                {pos.status !== 'ok' && !klartKort && (
+                {pos.status !== 'ok' && !klartKort && kortStang.forklaring !== 'position' && (
                   <div style={{ marginTop: 10 }}><PositionRad pos={pos} /></div>
                 )}
               </>
@@ -1140,7 +1181,7 @@ export default function EgenkontrollRundaPage() {
               <PositionRad pos={pos} />
             ) : (
               <div role="status" style={{ fontSize: 15, color: T.t2, lineHeight: 1.45 }}>
-                Punkterna som återstår saknar plats på kartan. Svara på dem i listan.
+                {SAKNAR_PLATS_MENING}
               </div>
             )}
           </div>
