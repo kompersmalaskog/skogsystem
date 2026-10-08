@@ -118,12 +118,18 @@ export function tillampaSparrar(f: Omit<PlatsForslag, 'osaker'>): PlatsForslag {
  * `fel` är satt när uppslaget inte kunde göras alls (nätverk/RLS). Tomt
  * resultat utan `fel` betyder "vi vet inte var de står", vilket är en giltig
  * och helt annan sak.
+ *
+ * `delvisFel` är satt när ETT eller flera uppslag felade men inte alla: platserna
+ * är då byggda på det som gick att läsa, så en maskin kan stå på en äldre plats
+ * än den borde, eller sakna namn/koordinat. Anroparen får veta det i stället för
+ * att tro att svaret är komplett. Fältet är additivt — anropare som bara läser
+ * `platser` och `fel` ser ingen skillnad.
  */
 export async function hamtaSenastePlatser(
   maskinIds: string[],
-): Promise<{ platser: Map<string, PlatsForslag>; fel: string | null }> {
+): Promise<{ platser: Map<string, PlatsForslag>; fel: string | null; delvisFel: string | null }> {
   const platser = new Map<string, PlatsForslag>()
-  if (maskinIds.length === 0) return { platser, fel: null }
+  if (maskinIds.length === 0) return { platser, fel: null, delvisFel: null }
 
   // maskin_position = en direkt GPS-fix (skrivs vid flytt-avslut för egen maskin). Idag
   // oläst; tas in här som en TREDJE signal — men vinner bara när den är strikt färskare
@@ -149,7 +155,7 @@ export async function hamtaSenastePlatser(
 
   const fel = [flyttRes.error, posRes.error, ...tidRes.map(r => r.error)].find(Boolean)
   if (fel && !flyttRes.data && !posRes.data && tidRes.every(r => !r.data)) {
-    return { platser, fel: `Kunde inte slå upp maskinernas platser: ${fel.message}` }
+    return { platser, fel: `Kunde inte slå upp maskinernas platser: ${fel.message}`, delvisFel: null }
   }
 
   // Senaste GPS-fix per maskin (listan redan sorterad fallande på tidpunkt)
@@ -202,6 +208,9 @@ export async function hamtaSenastePlatser(
       ? supabase.from('dim_objekt').select('objekt_id, object_name, latitude, longitude').in('objekt_id', prodNycklar)
       : Promise.resolve({ data: [] as any[] }),
   ])
+
+  // Delfel: en källa i första steget felade (men inte alla — det är `fel` ovan), eller ett uppslag i andra steget (objekt-, plats- eller dim-rader)
+  const delfel = fel ?? [objDirekt, platsRes, objViaDim, objViaVo, dimRes].map((r: any) => r.error).find(Boolean)
 
   const objPerId = new Map<string, ObjektKoordRad>((objDirekt.data || []).map((o: any) => [o.id, o]))
   const platsPerId = new Map<string, any>((platsRes.data || []).map((p: any) => [p.id, p]))
@@ -277,5 +286,5 @@ export async function hamtaSenastePlatser(
     }
   }
 
-  return { platser, fel: null }
+  return { platser, fel: null, delvisFel: delfel ? `Kunde inte läsa alla källor till maskinernas platser: ${delfel.message}` : null }
 }

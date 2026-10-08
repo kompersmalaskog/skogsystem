@@ -11,6 +11,7 @@ import { KNAPP_LITEN } from './ark-delar';
 export const LASFEL_KO = 'Kunde inte läsa köerna — försök igen';
 export const LASFEL_SKORD = 'Kunde inte läsa virke på backen — förslag och objekt att lägga till kan saknas';
 export const LASFEL_POS = 'Kunde inte läsa var maskinerna står — maskiner kan saknas på kartan';
+export const LASFEL_POS_DELVIS = 'Kunde inte läsa alla positioner — en del maskiner kan stå på en äldre plats';
 export const LASFEL_GROT = 'Kunde inte läsa GROT — GROT-listan och GROT-trakter i köerna saknas';
 /** I arket där "Nästa: inget planerat" annars stått */
 export const KO_OKAND_TEXT = 'Kön kunde inte läsas';

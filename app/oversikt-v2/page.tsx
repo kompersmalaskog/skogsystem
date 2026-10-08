@@ -20,7 +20,7 @@ import { beraknaForslag, arSkotare, maskinAktiv, tomtForslag, markeraOkanda, koN
 import { arbetsLage } from './lage';
 import { koLaget } from './ko-regler';
 import { barighetText, telHref } from './objekt-info';
-import { LasFelBanner, LASFEL_KO, LASFEL_SKORD, LASFEL_POS, LASFEL_GROT, KO_OKAND_TEXT, SKORD_OKAND_TEXT, POS_OKAND_TEXT, POS_NU_TEXT, TEL_OKAND_TEXT, grotDoltText } from './las-fel-banner';
+import { LasFelBanner, LASFEL_KO, LASFEL_SKORD, LASFEL_POS, LASFEL_POS_DELVIS, LASFEL_GROT, KO_OKAND_TEXT, SKORD_OKAND_TEXT, POS_OKAND_TEXT, POS_NU_TEXT, TEL_OKAND_TEXT, grotDoltText } from './las-fel-banner';
 import { TOMT_LAGE, VARNING_LADDAR, VARNING_LASFEL, lasVarningar, objektAttLasaForst, slaIhop, varningarAttLasa, varningFor, type VarningsLage, type VarningsSvar } from './markeringar-las';
 import { medTidsgrans, TIDSGRANS_KARN, TIDSGRANS_SEKUNDAR } from './tidsgrans';
 import { KO_LASFEL, KO_SPARFEL, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat, toastText, type KoSvar } from './ko-skriv';
@@ -200,8 +200,8 @@ export default function OversiktV2Page() {
   // Läsfel som INTE stoppar kartan (objekt + maskiner lästes): kön, virke på backen, var maskinerna står, GROT och telefonnummer. Ett läsfel är
   // aldrig "tomt" — bannern överst säger det, och maskin-/objekt-arken säger det där en tom kö, en tom förslagslista eller en maskin utan plats
   // annars hade stått.
-  const [lasFel, setLasFel] = useState({ ko: false, skord: false, pos: false, grot: false, tel: false });
-  const sattLasFel = useCallback((kalla: 'ko' | 'skord' | 'pos' | 'grot' | 'tel', fel: boolean) => setLasFel((x) => (x[kalla] === fel ? x : { ...x, [kalla]: fel })), []);
+  const [lasFel, setLasFel] = useState({ ko: false, skord: false, pos: false, posDelvis: false, grot: false, tel: false });
+  const sattLasFel = useCallback((kalla: 'ko' | 'skord' | 'pos' | 'posDelvis' | 'grot' | 'tel', fel: boolean) => setLasFel((x) => (x[kalla] === fel ? x : { ...x, [kalla]: fel })), []);
   const maskinIdsRef = useRef<string[]>([]); // maskinerna fetchAll läste — "Försök igen" på positionerna läser om för samma
   const [grotOppen, setGrotOppen] = useState(false);          // GROT-arket (listan eller ett objekt) är öppet
   const [grotValt, setGrotValt] = useState<string | null>(null); // dim_objekt.objekt_id för raden som är vald i listan
@@ -242,9 +242,13 @@ export default function OversiktV2Page() {
 
   // Var maskinerna står. hamtaSenastePlatser RETURNERAR { fel } när uppslaget inte kunde göras alls (och kastar vid nätverksfel) — ett fel är
   // aldrig "ingen position": bannern säger det, listan "Utanför kartan" säger "position ej läst" och förslagen (räknade utan närhet) tas bort.
-  const tillampaPlatser = useCallback((res: PromiseSettledResult<{ platser: Map<string, PlatsForslag>; fel: string | null }>) => {
-    if (res.status === 'fulfilled' && !res.value.fel) { setPositions(res.value.platser); sattLasFel('pos', false); }
-    else { console.error('[Översikt v2] position: läsningen gick inte', res.status === 'fulfilled' ? res.value.fel : res.reason); sattLasFel('pos', true); }
+  const tillampaPlatser = useCallback((res: PromiseSettledResult<{ platser: Map<string, PlatsForslag>; fel: string | null; delvisFel: string | null }>) => {
+    if (res.status === 'fulfilled' && !res.value.fel) {
+      setPositions(res.value.platser); sattLasFel('pos', false);
+      // Delfel: en källa felade men inte alla — positionerna är lästa, men en maskin kan stå på en äldre plats än den borde. Bannern säger det.
+      if (res.value.delvisFel) console.error('[Översikt v2] position: delfel', res.value.delvisFel);
+      sattLasFel('posDelvis', !!res.value.delvisFel);
+    } else { console.error('[Översikt v2] position: läsningen gick inte', res.status === 'fulfilled' ? res.value.fel : res.reason); sattLasFel('pos', true); sattLasFel('posDelvis', false); }
     setPlatserKlar(true); // även vid fel: då vet vi inte var någon står, och maskinerna listas som "position ej läst" (och går att öppna)
   }, [sattLasFel]);
   const laddaPlatser = useCallback(async () => { tillampaPlatser((await Promise.allSettled([hamtaSenastePlatser(maskinIdsRef.current)]))[0]); }, [tillampaPlatser]);
@@ -1135,11 +1139,12 @@ export default function OversiktV2Page() {
 
       {/* Läsfel som inte stoppar kartan (kön, virke på backen, var maskinerna står, GROT): rader överst, var och en med "Försök igen" — under
           GROT-chippen när den finns. */}
-      {!laddar && !fel && (lasFel.ko || lasFel.skord || lasFel.pos || lasFel.grot) && (
+      {!laddar && !fel && (lasFel.ko || lasFel.skord || lasFel.pos || lasFel.posDelvis || lasFel.grot) && (
         <LasFelBanner topp={AVSTAND.m + (kanRedigera && grotLista && grotLista.alla.length > 0 ? 44 + AVSTAND.s : 0)} poster={[
           ...(lasFel.ko ? [{ id: 'ko', text: LASFEL_KO, onForsok: refetchKo }] : []),
           ...(lasFel.skord ? [{ id: 'skord', text: LASFEL_SKORD, onForsok: laddaSkord }] : []),
           ...(lasFel.pos ? [{ id: 'pos', text: LASFEL_POS, onForsok: laddaPlatser }] : []),
+          ...(lasFel.posDelvis ? [{ id: 'posdelvis', text: LASFEL_POS_DELVIS, onForsok: laddaPlatser }] : []),
           ...(lasFel.grot ? [{ id: 'grot', text: LASFEL_GROT, onForsok: laddaGrot }] : []),
         ]} />
       )}
