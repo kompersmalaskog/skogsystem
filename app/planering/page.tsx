@@ -16,6 +16,7 @@ import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
+import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, type InfoRad } from '../../lib/objektInfoSpar'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
@@ -4178,7 +4179,7 @@ export default function PlannerPage() {
     let avbruten = false;
     const objektId = valtObjekt.id;
     const roll = hyttRoll;
-    const datum = lokaltDatumStockholm(Date.now());   // LOKALT datum (Europe/Stockholm), inte UTC-datum
+    const datum = lokaltDatumStockholm(serverNu());   // LOKALT datum (Europe/Stockholm), inte UTC-datum — på VERKLIG tid (datorns klocka kan gå fel)
     // Spåret märks med ENHETENS maskin (maskindatorns val) — auktoritativt. Fallback utan enhetsval
     // = gamla beteendet (skördarens objekt-maskin, skotare null). Läses direkt ur localStorage så
     // senaste valet gäller utan att väcka om loggnings-effekten. Tidigare: skotare skrevs alltid null.
@@ -4247,7 +4248,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!(korvyActive && valtObjekt?.id && hyttRoll)) { egetHistRef.current = []; return; }
     let avbruten = false;
-    const objektId = valtObjekt.id, roll = hyttRoll, idag = lokaltDatumStockholm(Date.now());   // lokalt datum → matchar radernas datum
+    const objektId = valtObjekt.id, roll = hyttRoll, idag = lokaltDatumStockholm(serverNu());   // lokalt datum → matchar radernas datum
     (async () => {
       try {
         const { data } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', objektId).eq('roll', roll);
@@ -4271,7 +4272,9 @@ export default function PlannerPage() {
     if (!hyttsparCtxRef.current || !hyttsparInitKlarRef.current || hyttsparSealingRef.current || hyttsparSkaparRef.current) return;
     const pos = currentPosition as any;
     if (!pos || pos.lat == null || pos.lon == null) return;
-    const cand = { lat: pos.lat, lon: pos.lon, ts: Date.now(), accuracy: gpsAccuracy ?? 999 };
+    // ts = VERKLIG tid (datorns klocka + uppmätt avvikelse mot servern, lib/serverKlocka): maskindatorns klocka kan gå fel (Giant 2026-10-08, ca 4 min före)
+    // och punktens tid avgör vilken dag/timme spåret hör till. Allt nedströms (glappvakt, dagsbyte, punktens tid-sträng) går via cand.ts.
+    const cand = { lat: pos.lat, lon: pos.lon, ts: serverNu(), accuracy: gpsAccuracy ?? 999 };
     if (!gpsGuardAccepts(cand, hyttsparLastFixRef.current)) return;
     // AVSLUTS-SKYDD: GPS-vakten släpper in en punkt efter ett långt glapp (stor Δt → låg hastighet,
     // gps-guard rad 48-49). Men glapp = loggningen tystnade (skärmlås/bakgrund). En punkt som dyker upp
