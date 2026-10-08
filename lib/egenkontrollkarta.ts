@@ -284,12 +284,22 @@ export function valdSymbolFilter(id: string): any[] {
 }
 
 /**
+ * Linjetypen som INTE tonas ner i kontextlagret: traktgransen. Planeringsvyn
+ * tonar aldrig ner den (dimmableLineTypes i app/planering/page.tsx tar bort
+ * 'boundary'), och den ska se ut som dar - rod med gul streckning, svart kant,
+ * full opacitet och bredd. Nedtonad (40 % opacitet, 0,6 i bredd, utan kant)
+ * blev rod + gul till en tunn orange strimma pa kartbilden.
+ */
+export const TRAKTGRANS_TYP = 'boundary';
+
+/**
  * KONTEXTLAGRET: nedtonat, tunnare, utan nummer och utan tryckytor. Det ar
- * orientering - traktgrans, diken, fallriktningar - inte innehall i dokumentet.
+ * orientering - diken, fallriktningar - inte innehall i dokumentet.
  *
  * Typens farg och form behalls (ett dike ser ut som ett dike) men i lag
  * opacitet, sa att man ser VAD det ar utan att det konkurrerar med
- * kontrollpunkterna.
+ * kontrollpunkterna. UNDANTAGET ar traktgransen (TRAKTGRANS_TYP): den ritas
+ * som i planeringen, ovanpa de nedtonade linjerna.
  */
 export function kontextLager(): any[] {
   const linje = { opacitet: 0.4, breddFaktor: 0.6, utanKant: true };
@@ -297,7 +307,8 @@ export function kontextLager(): any[] {
   return [
     ...zonFyllLager(KONTEXT_KALLA, 'ek-k', null, linje),
     ...zonKantLager(KONTEXT_KALLA, 'ek-k', null, linje),
-    ...linjeLager(KONTEXT_KALLA, 'ek-k', null, linje),
+    ...linjeLager(KONTEXT_KALLA, 'ek-k', null, linje, { utom: [TRAKTGRANS_TYP] }),
+    ...linjeLager(KONTEXT_KALLA, 'ek-k', null, undefined, { endast: [TRAKTGRANS_TYP] }),
     pilLager(KONTEXT_KALLA, 'ek-k', ikon),
     symbolLager(KONTEXT_KALLA, 'ek-k', null, ikon),
   ];
