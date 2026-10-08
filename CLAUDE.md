@@ -392,6 +392,12 @@ Rollback: Vercel dashboard → Instant Rollback till förra prod-bygget.
 1. **Pusha ALDRIG till en PR utan att först kolla att den fortfarande är öppen** — `gh pr view <nr> --json state`. Är den `MERGED`: öppna en NY PR för commiten. Pusha aldrig till den stängda grenen — det bygger en preview som ser rätt ut men aldrig landar i main.
 2. **Efter varje merge Martin gör: verifiera på INNEHÅLL att ändringen finns i `origin/main`** — `git fetch` + grep efter en unik markör ur diffen (`git show origin/main:<fil> | grep <markör>`), aldrig på PR-status. "Merged" betyder inte "levererad": squashen kan ha tagit bara en delmängd av commitsen (#268 tog 1 av 2 — den data-drivna korta-stopp-fixen tappades och fick återlandas i #274).
 
+**Staplade PR:ar: base är ALLTID `main` innan något mergas.** Två gånger i rad (2026-10-08) hamnade en PR i en annan grens base: #721 mergades in i `admin-design-skal` (redan squash-mergad som #719) och #724 in i `admin-ny-medarbetare`. De blev "mergade" men nådde aldrig main — ett helt flöde (Ny medarbetare, hempunktskartan, Fortnox-kontrollen, löneartskoderna) saknades i produktion tills det återlandades i en ny PR. Regler, utan undantag:
+
+1. **En PR vars base är en annan gren än `main` får aldrig mergas.** Innan merge: `gh pr view <nr> --json baseRefName` ska säga `main`. Säger den något annat: sätt om basen (`gh pr edit <nr> --base main`) eller, om den grenen redan squash-mergats, gör en NY gren från `origin/main` och plocka bara de commits som inte redan finns där (`git cherry origin/main <gren>`).
+2. **Bygger en PR på en annan, skriv det överst i PR-texten:** "Bygger på #<nr> — merga #<nr> först, sätt sedan om basen till main." Och säg det till Martin i klartext när PR:arna levereras, med merge-ordningen.
+3. **Staplad PR efter att basen mergats:** rebasa på `origin/main` med `git rebase --onto origin/main <gammal-bas> <gren>`, sätt basen till `main`, och verifiera på innehåll att en markör ur diffen saknas i main innan den mergas.
+
 **Städa efter dig — städning hör till att vara klar, inte till att städa senare.**
 
 1. **PR mergad: ta bort arbetsträdet och dess `node_modules`.** Koppla loss junctions FÖRE borttagningen — en junction som följs vid en borttagning tömmer målet, och det har hänt minst tre gånger. Ta bort länken (`cmd /c rmdir <länk>` tar bara länken), kontrollera att den är borta och att målet är intakt, och först därefter `git worktree remove`. Kedja aldrig ihop stegen och använd inte `--force`.
