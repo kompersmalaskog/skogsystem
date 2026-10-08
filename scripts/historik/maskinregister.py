@@ -171,6 +171,9 @@ def main():
         for n, d in sorted(g.items(), key=lambda kv: (_info(kv[0])[3] == "exkludera", _info(kv[0])[3] == "extern", kv[0])):
             t, tv, ident, ag = _info(n)
             w.writerow([n, t, tv, ident, min(d), max(d), len(d), ag])
+        for n, (t, tv, ident, ag) in INFO.items():  # maskiner utan produktionsrapporter i materialet
+            if ag == "egen" and n not in g:
+                w.writerow([n, t, tv, ident, "", "", 0, ag])
     return out, g
 
 
