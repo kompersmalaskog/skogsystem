@@ -6,22 +6,23 @@ import { geokodaMedarbetare } from "@/lib/geokod";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/medarbetare/geokoda { id?, tvinga?, acceptera? }
+ * POST /api/medarbetare/geokoda { id?, tvinga? }
  * Geokodar en medarbetares hemadress (lib/geokod) och svarar med vad adressen
  * hamnade på. Föraren får geokoda SIN EGEN adress (efter att ha sparat den i
- * Inställningar); admin/chef vem som helst. `tvinga` (skriv över en gps/manuell
- * punkt) och `acceptera` (använd ett osäkert förslag ändå) är admin-beslut.
+ * Inställningar); admin vem som helst. `tvinga` (skriv över en gps/manuell
+ * punkt) är ett admin-beslut. Ett osäkert förslag (bara byn) blir aldrig punkten härifrån:
+ * admin sätter punkten på kartan (/api/medarbetare/hempunkt).
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const v = await målMedarbetareId(typeof body?.id === "string" ? body.id : null);
   if (!v.ok) return v.res;
   const arAdmin = !!v.session.roll && (ADMIN_ROLLER as readonly string[]).includes(v.session.roll);
-  if ((body?.tvinga || body?.acceptera) && !arAdmin) {
-    return NextResponse.json({ ok: false, error: "Bara admin kan skriva över eller godkänna en osäker punkt" }, { status: 403 });
+  if (body?.tvinga && !arAdmin) {
+    return NextResponse.json({ ok: false, error: "Bara admin kan skriva över en punkt som satts för hand" }, { status: 403 });
   }
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-  const res = await geokodaMedarbetare(sb, v.id, { tvinga: !!body?.tvinga, acceptera: !!body?.acceptera });
+  const res = await geokodaMedarbetare(sb, v.id, { tvinga: !!body?.tvinga });
   if ("fel" in res) return NextResponse.json({ ok: false, error: res.fel }, { status: 422 });
   return NextResponse.json({ ok: true, ...res });
 }

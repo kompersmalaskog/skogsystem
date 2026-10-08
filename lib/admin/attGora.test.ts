@@ -7,7 +7,7 @@ import { byggAttGora, avtalKraverDig, type AttGoraIndata } from "./attGora";
 
 const ok = <T,>(data: T) => ({ data, fel: null as string | null });
 const lugnt = (): AttGoraIndata => ({
-  kontroller: ok({ okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [] } as any),
+  kontroller: ok({ okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [] } as any),
   personer: ok([{ id: "m1", namn: "Anna Berg", user_id: "u1" }]),
   maskiner: ok([{ maskin_id: "R1", visningsnamn: "H8E", modell: null, bekraftad: true, aktiv_till: null }]),
   obekraftade: ok([]),
@@ -95,5 +95,21 @@ describe("byggAttGora", () => {
     expect(r.saker.map(s => s.id).sort()).toEqual(["avtal", "maskin-R9"]);
     expect(r.saker.find(s => s.id === "maskin-R9")!.mal).toEqual({ typ: "flik", flik: "maskiner", params: { maskin: "R9" } });
     expect(r.saker.find(s => s.id === "avtal")!.rubrik).toBe("Avtalet har gått ut");
+  });
+});
+
+describe("byggAttGora: hempunkt som ingen bekräftat", () => {
+  it("en egen rad per person, 'Hempunkten är inte bekräftad – namn', som leder till personen (där kartan finns)", () => {
+    const i = lugnt();
+    (i.kontroller.data as any).obekraftadHempunkt = [{ id: "m1", namn: "Nils Ek" }];
+    const r = byggAttGora(i, "2026-10-07");
+    const s = r.saker.find(x => x.id === "hempunkt-m1")!;
+    expect(s.rubrik).toBe("Hempunkten är inte bekräftad – Nils Ek");
+    expect(s.knapp).toBe("Visa kartan");
+    expect(s.mal).toEqual({ typ: "flik", flik: "medarbetare", params: { person: "m1" } });
+  });
+  it("när alla är bekräftade finns ingen sådan rad", () => {
+    const r = byggAttGora(lugnt(), "2026-10-07");
+    expect(r.saker.some(x => x.id.startsWith("hempunkt-"))).toBe(false);
   });
 });

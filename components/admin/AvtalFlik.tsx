@@ -10,25 +10,22 @@ type Avtal = {
   namn?: string | null;
   giltigt_fran?: string | null;
   giltigt_till?: string | null;
-  timlon_kr?: number | null;
   overtid_vardag_kr?: number | null;
   max_overtid_ar_h?: number | null;
   ob_kvall_kr?: number | null;
   ob_natt_kr?: number | null;
-  ob_lordag_kr?: number | null;
+  ob_helg_kr?: number | null;
   ob_sondag_kr?: number | null;
   km_ersattning_kr?: number | null;
   km_grans_per_dag?: number | null;
-  fardtid_kr?: number | null;
+  fardtid_kr_per_mil?: number | null;
   atk_procent?: number | null;
-  atk_period?: string | null;
   atk_procent_nasta?: number | null;
-  atk_ledig_tim?: number | null;
-  atk_faktor?: number | null;
+  atk_ledig_tid_h?: number | null;
   traktamente_hel_kr?: number | null;
   traktamente_halv_kr?: number | null;
-  skifttillagg_kr?: number | null;
-  bortovaro_kr?: number | null;
+  skift_tillagg_kr?: number | null;
+  bortovaro_12h_kr?: number | null;
   [k: string]: any;
 };
 
@@ -52,12 +49,6 @@ const GRUPPER: FältGrupp[] = [
     ],
   },
   {
-    rubrik: "Grundlön",
-    fält: [
-      { key: "timlon_kr", label: "Timlön", suffix: "kr", step: "0.01" },
-    ],
-  },
-  {
     rubrik: "Övertid",
     fält: [
       { key: "overtid_vardag_kr", label: "Övertidsersättning vardag", suffix: "kr/tim", step: "0.01" },
@@ -71,7 +62,7 @@ const GRUPPER: FältGrupp[] = [
     fält: [
       { key: "ob_kvall_kr", label: "Mån–fre kväll/natt (17–06:30)", suffix: "kr/tim", step: "0.01" },
       { key: "ob_natt_kr",  label: "Nattarbete (00–05)",             suffix: "kr/tim", step: "0.01" },
-      { key: "ob_lordag_kr", label: "Lördag",                        suffix: "kr/tim", step: "0.01" },
+      { key: "ob_helg_kr",   label: "Helg",                           suffix: "kr/tim", step: "0.01" },
       { key: "ob_sondag_kr", label: "Söndag",                        suffix: "kr/tim", step: "0.01" },
     ],
   },
@@ -80,7 +71,7 @@ const GRUPPER: FältGrupp[] = [
     fält: [
       { key: "km_ersattning_kr", label: "Färdmedelsersättning", suffix: "kr/mil", step: "0.01" },
       { key: "km_grans_per_dag", label: "Km-gräns",             suffix: "km/dag", step: "1" },
-      { key: "fardtid_kr",       label: "Färdtidsersättning",   suffix: "kr/mil", step: "0.01" },
+      { key: "fardtid_kr_per_mil", label: "Färdtidsersättning", suffix: "kr/mil", step: "0.01" },
     ],
   },
   {
@@ -88,9 +79,7 @@ const GRUPPER: FältGrupp[] = [
     fält: [
       { key: "atk_procent",        label: "Avsättning",    suffix: "%",        step: "0.01" },
       { key: "atk_procent_nasta",  label: "Nästa period",  suffix: "%",        step: "0.01" },
-      { key: "atk_period",         label: "Uttagsperiod",  type: "text" },
-      { key: "atk_ledig_tim",      label: "Ledig tid",     suffix: "tim/år",   step: "0.1" },
-      { key: "atk_faktor",         label: "ATK-faktor",                         step: "0.001" },
+      { key: "atk_ledig_tid_h",    label: "Ledig tid",     suffix: "tim/år",   step: "0.1" },
     ],
   },
   {
@@ -103,8 +92,8 @@ const GRUPPER: FältGrupp[] = [
   {
     rubrik: "Övriga tillägg",
     fält: [
-      { key: "skifttillagg_kr", label: "Skifttillägg",    suffix: "kr/tim", step: "0.01" },
-      { key: "bortovaro_kr",    label: "Bortovaro >12h",  suffix: "kr/tim", step: "0.01" },
+      { key: "skift_tillagg_kr",  label: "Skifttillägg",    suffix: "kr/tim", step: "0.01" },
+      { key: "bortovaro_12h_kr",  label: "Bortovaro >12h",  suffix: "kr/tim", step: "0.01" },
     ],
   },
 ];
@@ -230,23 +219,27 @@ export default function AvtalFlik() {
       )}
 
       {/* Redigerbart formulär */}
-      {GRUPPER.map(g => (
-        <div key={g.rubrik}>
-          <Sektion>{g.rubrik}</Sektion>
-          <Lista>
-            {g.fält.map((f, i) => (
-              <AvtalFält
-                key={String(f.key)}
-                fält={f}
-                value={form[f.key]}
-                onChange={v => setForm(s => ({ ...s, [f.key]: v }))}
-                saknas={!(f.key in aktuellt)}
-                sista={i === g.fält.length - 1}
-              />
-            ))}
-          </Lista>
-        </div>
-      ))}
+      {GRUPPER.map(g => {
+        // Ett fält utan kolumn i avtalsraden visas aldrig: ett tekniskt fel är inget en admin kan göra något åt.
+        const synliga = g.fält.filter(f => f.key in aktuellt);
+        if (synliga.length === 0) return null;
+        return (
+          <div key={g.rubrik}>
+            <Sektion>{g.rubrik}</Sektion>
+            <Lista>
+              {synliga.map((f, i) => (
+                <AvtalFält
+                  key={String(f.key)}
+                  fält={f}
+                  value={form[f.key]}
+                  onChange={v => setForm(s => ({ ...s, [f.key]: v }))}
+                  sista={i === synliga.length - 1}
+                />
+              ))}
+            </Lista>
+          </div>
+        );
+      })}
 
       {/* Spara */}
       {sparFel && <Besked>{sparFel}</Besked>}
@@ -265,7 +258,7 @@ export default function AvtalFlik() {
             <Rad key={h.id || i} sista={i === historik.length - 1}
               rubrik={h.namn || "Namnlöst"}
               hoger={`${datum(h.giltigt_fran, true)} – ${datum(h.giltigt_till, true)}`}
-              detalj={[h.timlon_kr != null && `Timlön ${h.timlon_kr} kr`, h.overtid_vardag_kr != null && `Övertid ${h.overtid_vardag_kr} kr/tim`, h.traktamente_hel_kr != null && `Traktamente ${h.traktamente_hel_kr} kr`].filter(Boolean).join(" · ") || undefined} />
+              detalj={[h.overtid_vardag_kr != null && `Övertid ${h.overtid_vardag_kr} kr/tim`, h.traktamente_hel_kr != null && `Traktamente ${h.traktamente_hel_kr} kr`].filter(Boolean).join(" · ") || undefined} />
           ))}
         </Lista>
       )}
@@ -274,12 +267,11 @@ export default function AvtalFlik() {
 }
 
 function AvtalFält({
-  fält, value, onChange, saknas, sista,
+  fält, value, onChange, sista,
 }: {
   fält: Fält;
   value: any;
   onChange: (v: any) => void;
-  saknas: boolean;
   sista: boolean;
 }) {
   const isDate = fält.type === "date";
@@ -291,11 +283,9 @@ function AvtalFält({
       display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap",
       gap: AVSTAND.s, padding: `${AVSTAND.s}px 0`, minHeight: 56,
       borderBottom: sista ? "none" : `1px solid ${FARG.linje}`,
-      opacity: saknas ? 0.4 : 1,
     }}>
       <label htmlFor={id} style={{ ...TYP.text, color: FARG.text, flex: "1 1 200px" }}>
         {fält.label}
-        {saknas && <span style={{ ...TYP.meta, color: FARG.orange, marginLeft: AVSTAND.s }}>(kolumn saknas)</span>}
       </label>
       <div style={{ display: "flex", alignItems: "center", gap: AVSTAND.s, flex: "0 1 auto" }}>
         <input
@@ -304,7 +294,6 @@ function AvtalFält({
           step={fält.step}
           value={value ?? ""}
           onChange={e => onChange(e.target.value)}
-          disabled={saknas}
           style={{
             minHeight: 44, boxSizing: "border-box", background: FARG.upphojt, border: "none", borderRadius: RADIE.rad,
             padding: `0 ${AVSTAND.m}px`, color: FARG.text, fontFamily: "inherit", outline: "none",

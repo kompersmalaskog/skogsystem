@@ -42,6 +42,7 @@ export const SKARPA = [
   "components/admin/MedarbetareKontroller.tsx",
   "components/admin/NyMedarbetare.tsx",
   "components/admin/medarbetarDelar.tsx",
+  "components/admin/HempunktKarta.tsx",
   "components/admin/MaskinerFlik.tsx",
   "components/admin/AvtalFlik.tsx",
   "components/admin/AtkUnderflik.tsx",
