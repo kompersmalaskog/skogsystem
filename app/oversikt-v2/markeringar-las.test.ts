@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MARKERING_KOLUMNER, TOMT_LAGE, VARNING_LASFEL, lasVarningar, objektAttLasaForst, slaIhop, tillMarkeringRad, varningFor, type VarningsLage } from './markeringar-las';
+import { MARKERING_KOLUMNER, TOMT_LAGE, VARNING_FARSK_MS, VARNING_LASFEL, lasVarningar, objektAttLasaForst, slaIhop, tillMarkeringRad, varningarAttLasa, varningFor, type VarningsLage } from './markeringar-las';
 
 // Fake av planering_markeringar som beter sig som PostgREST för frågan modulen ställer (select med JSON-sökväg, in, order, range) — inklusive
 // felen: {error}, kast, `data: null` utan fel, svar som inte är en lista och svar som aldrig kommer.
@@ -264,6 +264,53 @@ describe('objektAttLasaForst — bara icke-avslutade', () => {
   it('tar bort avslutat och klar, behåller allt annat i ursprunglig ordning', () => {
     const lista = ['planerad', 'avslutat', 'pagaende', 'klar', 'oplanerad', 'skordning', 'skotning'].map((status, i) => ({ id: 'o' + i, status }));
     expect(objektAttLasaForst(lista)).toEqual(['o0', 'o2', 'o4', 'o5', 'o6']);
+  });
+});
+
+describe('varningarAttLasa — läs om det som inte lästs, och det som lästs för länge sedan', () => {
+  const tom = { faror: [], hansyn: [] } as any; // ObjWarn
+  const NU = 1_000_000;
+  const lage: VarningsLage = { ok: { a: tom, b: tom }, fel: { c: true } };
+  const stampel = (o: Record<string, number>) => new Map(Object.entries(o));
+
+  it('okänt och felat läses alltid, hur färskt allt annat än är', () => {
+    expect(varningarAttLasa(['c', 'd'], lage, stampel({}), NU)).toEqual(['c', 'd']);
+  });
+
+  it('läst nyss → läses inte om (ingen onödig fråga varje gång ett ark öppnas)', () => {
+    expect(varningarAttLasa(['a', 'b'], lage, stampel({ a: NU - 1000, b: NU - 59000 }), NU)).toEqual([]);
+  });
+
+  it('läst för länge sedan → läses om (planeringen kan ha lagt till faror sedan dess)', () => {
+    expect(varningarAttLasa(['a'], lage, stampel({ a: NU - 61000 }), NU)).toEqual(['a']);
+  });
+
+  it('gränsen: exakt färskhetstiden gammal är fortfarande färsk, en millisekund mer är det inte', () => {
+    expect(varningarAttLasa(['a'], lage, stampel({ a: NU - 60000 }), NU, 60000)).toEqual([]);
+    expect(varningarAttLasa(['a'], lage, stampel({ a: NU - 60001 }), NU, 60000)).toEqual(['a']);
+  });
+
+  it('en färsk stämpel hjälper inte om objektet inte är läst längre (lagret nollställdes av en ny sidläsning) → läses', () => {
+    expect(varningarAttLasa(['d'], lage, stampel({ d: NU - 100 }), NU)).toEqual(['d']);
+    expect(varningarAttLasa(['c'], lage, stampel({ c: NU - 100 }), NU)).toEqual(['c']);
+  });
+
+  it('läst men utan stämpel (ska inte hända) → hellre en läsning för mycket', () => {
+    expect(varningarAttLasa(['a'], lage, stampel({}), NU)).toEqual(['a']);
+  });
+
+  it('av flera: bara de som behövs, i ursprunglig ordning', () => {
+    expect(varningarAttLasa(['b', 'c', 'a', 'd'], lage, stampel({ a: NU - 100, b: NU - 90000 }), NU)).toEqual(['b', 'c', 'd']);
+  });
+
+  it('inga objekt → ingenting att läsa', () => {
+    expect(varningarAttLasa([], lage, stampel({}), NU)).toEqual([]);
+  });
+
+  it('utan eget värde gäller VARNING_FARSK_MS (en minut)', () => {
+    expect(VARNING_FARSK_MS).toBe(60000);
+    expect(varningarAttLasa(['a'], lage, stampel({ a: NU - (VARNING_FARSK_MS - 1) }), NU)).toEqual([]);
+    expect(varningarAttLasa(['a'], lage, stampel({ a: NU - (VARNING_FARSK_MS + 1) }), NU)).toEqual(['a']);
   });
 });
 
