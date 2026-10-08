@@ -49,11 +49,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const { user, roll } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
+  if (!kanRedigera(roll)) return NextResponse.json({ ok: false, error: "Kräver admin" }, { status: 403 });
 
   const body = await req.json();
   if (ekonomiUtanRatt(roll, body)) {
-    return NextResponse.json({ ok: false, error: "Ekonomifält kräver admin/chef" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Ekonomifält kräver admin" }, { status: 403 });
   }
 
   const payload: any = {};

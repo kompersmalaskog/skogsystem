@@ -9,7 +9,7 @@ import SchemaVy from './_components/SchemaVy';
 /**
  * Ledighet — självbetjäning. Inloggad person = "jag" (ingen personväljare).
  * Två vyer: "Mig" (saldon, ansök, mina ansökningar, godkänn-sektion för
- * chef/admin) och "Schema" (delad lagöversikt — alla ser alla).
+ * admin) och "Schema" (delad lagöversikt — alla ser alla).
  */
 export default function LedighetPage() {
   const { medarbetare, loading } = useCurrentMedarbetare();
@@ -54,7 +54,7 @@ export default function LedighetPage() {
           <MigVy medarbetare={medarbetare} />
         ) : (
           <SchemaVy
-            arGodkannare={medarbetare.roll === 'admin' || medarbetare.roll === 'chef'}
+            arGodkannare={medarbetare.roll === 'admin'}
             egenMedarbetareId={medarbetare.id}
           />
         )}

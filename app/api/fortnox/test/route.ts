@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getFortnoxClient } from "@/lib/lonesystem/server";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
-/** Testar Fortnox-anslutning via GET /employees?limit=3. Auto-refreshar token. Admin/chef. */
+/** Testar Fortnox-anslutning via GET /employees?limit=3. Auto-refreshar token. admin. */
 export async function POST() {
   const vakt = await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;

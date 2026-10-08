@@ -19,9 +19,9 @@ describe('beslutaMaskinSom — KODBEVIS: /maskin?som=A130743 visar loggan först
     expect(beslutaMaskinSom({ ...bas, maskinIds: null }).typ).toBe('vanta');
   });
 
-  it('admin eller chef + känd maskin → tillåt (maskinläge som just den maskinen)', () => {
+  it('admin + känd maskin → tillåt (maskinläge som just den maskinen); rollen chef finns inte längre och avvisas', () => {
     expect(beslutaMaskinSom(bas)).toEqual({ typ: 'tillat', maskinId: 'A130743' });
-    expect(beslutaMaskinSom({ ...bas, roll: 'chef' })).toEqual({ typ: 'tillat', maskinId: 'A130743' });
+    expect(beslutaMaskinSom({ ...bas, roll: 'chef' })).toEqual({ typ: 'avvisa', skal: 'ejAdmin' });
   });
 
   it('ingen ?som= → ingen (vanliga appen rörs inte)', () => {
@@ -30,7 +30,7 @@ describe('beslutaMaskinSom — KODBEVIS: /maskin?som=A130743 visar loggan först
   });
 });
 
-describe('beslutaMaskinSom — bara admin/chef', () => {
+describe('beslutaMaskinSom — bara admin', () => {
   it('förare → avvisas (ejAdmin), även om maskinen finns', () => {
     expect(beslutaMaskinSom({ ...bas, roll: 'forare' })).toEqual({ typ: 'avvisa', skal: 'ejAdmin' });
   });

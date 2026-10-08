@@ -162,7 +162,7 @@ export default function HomeClient() {
       .catch(() => setVantandeEgenkontroll(null))
   }, [])
 
-  const synligaAdminApps = (roll === 'chef' || roll === 'admin')
+  const synligaAdminApps = (roll === 'admin')
     ? [...adminApps, markagarrapportEntry, ekonomiAppEntry, adminAppEntry]
     : adminApps
 

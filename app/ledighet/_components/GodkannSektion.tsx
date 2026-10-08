@@ -9,7 +9,7 @@ import type { Ansokan } from './typer';
 
 /**
  * Godkännar-raden: "X att godkänna" högst upp i Mig-vyn. Renderas BARA för
- * godkännare (chef/admin) — förare ser den aldrig. Skrivningen är verifierad;
+ * godkännare (admin) — förare ser den aldrig. Skrivningen är verifierad;
  * ett RLS-block visas som riktigt fel, aldrig som success.
  */
 export default function GodkannSektion({

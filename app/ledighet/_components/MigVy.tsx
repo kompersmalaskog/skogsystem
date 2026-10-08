@@ -26,7 +26,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
   const [fel, setFel] = useState<string | null>(null);
   const [historikOppen, setHistorikOppen] = useState(false);
 
-  const arGodkannare = medarbetare.roll === 'admin' || medarbetare.roll === 'chef';
+  const arGodkannare = medarbetare.roll === 'admin';
   const idag = toISO(new Date());
 
   const mina = useMemo(

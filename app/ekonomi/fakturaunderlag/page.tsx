@@ -42,7 +42,7 @@ export default async function Page() {
 
   // Samma spärr som routen (kravRoll(ADMIN_ROLLER)). Vyn är inte skyddet —
   // routen är det — men en förare ska inte mötas av en tom sida.
-  if (!medarbetare || (medarbetare.roll !== "chef" && medarbetare.roll !== "admin")) {
+  if (!medarbetare || (medarbetare.roll !== "admin")) {
     redirect("/arbetsrapport");
   }
 

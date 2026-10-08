@@ -141,7 +141,7 @@ export default function ResursSida({ id, kanRedigera }: { id: string; kanRediger
                 <div style={{ fontSize: 16, color: FARG.text }}>{resurs.inkopsdatum ? fmtDatumLang(resurs.inkopsdatum) : '—'}</div>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: FARG.svagGrer }}>Syns bara för admin och chef</div>
+            <div style={{ fontSize: 12, color: FARG.svagGrer }}>Syns bara för admin</div>
           </div>
         )}
       </div>

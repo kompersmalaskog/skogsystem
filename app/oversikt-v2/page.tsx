@@ -378,7 +378,7 @@ export default function OversiktV2Page() {
     return () => { cancelled = true; };
   }, [selMaskin, forslag, vagRuttCached]);
 
-  // Rollen → vad vyn tillåter (lage.ts). FAIL-CLOSED: bara admin/chef kan redigera. Förare är i läsläge på ALLA maskiner och
+  // Rollen → vad vyn tillåter (lage.ts). FAIL-CLOSED: bara admin kan redigera. Förare är i läsläge på ALLA maskiner och
   // objekt — inte bara på sin egen. En förare utan giltig maskin, och en okänd/saknad roll, får kartan och inget mer (inga ark,
   // inga knappar). Förut räknades varje "inte förare på sin egen maskin" som förman, så en förare som tryckte på en annan
   // maskin (eller saknade maskin_id) fick förmannens kö-knappar.

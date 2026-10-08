@@ -96,7 +96,7 @@ describe('maskinläge styrs av ENHETEN, inte rollen', () => {
     expect(visaForarlista(false, true)).toBe(true);
     // förare utan maskinläge (telefon) → förarlistan
     expect(visaForarlista(true, false)).toBe(true);
-    // admin/chef utan maskinläge (telefon/dator) → admin-väljaren
+    // admin utan maskinläge (telefon/dator) → admin-väljaren
     expect(visaForarlista(false, false)).toBe(false);
   });
 });

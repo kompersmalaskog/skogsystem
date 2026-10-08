@@ -91,7 +91,7 @@ export function arMaskinlage(serialGpsAktiv: boolean, testlageAktiv: boolean, en
 
 /** Ska den grupperade FÖRARLISTAN (HÄR/PÅGÅENDE/PLANERADE/AVSLUTADE) visas i st.f. admin-väljaren?
  *  Ja om den inloggade är förare ELLER enheten är i maskinläge — rollen styr bara rättigheter, inte vyn.
- *  Admin/chef på telefon/dator utan serial (ej maskinläge) → false → admin-planeringsväljaren. */
+ *  admin på telefon/dator utan serial (ej maskinläge) → false → admin-planeringsväljaren. */
 export function visaForarlista(isForare: boolean, maskinlage: boolean): boolean {
   return !!isForare || !!maskinlage;
 }

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  *
  * När synkade voucher- och fakturasynken senast? Läser fortnox_sync_state
  * via service-role — RLS släpper inte igenom klienten, och en synk-status
- * som tyst blir tom är exakt det larmet ska avslöja. Admin/chef-gated som
+ * som tyst blir tom är exakt det larmet ska avslöja. Admin-gated som
  * övriga fortnox-rutter.
  */
 export async function GET() {
@@ -36,7 +36,7 @@ export async function GET() {
       .select("roll")
       .eq("epost", user.email)
       .single();
-    if (!med || (med.roll !== "admin" && med.roll !== "chef")) {
+    if (!med || (med.roll !== "admin")) {
       return NextResponse.json({ ok: false, meddelande: "Kräver admin-roll" }, { status: 403 });
     }
 

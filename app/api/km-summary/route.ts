@@ -7,7 +7,7 @@ import { målMedarbetareId } from "@/lib/auth/server";
 
 /**
  * GET /api/km-summary?medarbetare_id=&month=YYYY-MM
- * medarbetare_id härleds ur sessionen (admin/chef får peka på annan).
+ * medarbetare_id härleds ur sessionen (admin får peka på annan).
  *
  * Räknar total körsträcka och km-över-gräns för månaden. Per dag byggs
  * körkedjan [hem, obj1, obj2, ..., objN, hem] om DB saknar km-värden;

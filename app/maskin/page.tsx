@@ -1,13 +1,13 @@
 'use client';
 
-// /maskin?som=<maskin_id> — "Öppna som maskin" (bara admin/chef). Samma app som /planering, men laddad
+// /maskin?som=<maskin_id> — "Öppna som maskin" (bara admin). Samma app som /planering, men laddad
 // från början i maskinläge som den maskinen: startsekvens (svart → kartan tonar upp över traktgränsen →
 // flyTo ner till maskinen → objekt), förarlista, körvy. Inga DB-skrivningar.
 // DATORNS GPS ANVÄNDS ALDRIG här: gpsKalla går i fast läge (ingen geolocation/serieport) och startpositionen är
 // maskinens senast kända (senaste hyttspår-punkten), utlagd av PlannerPage.
 // FÖRLADDNING (kortare svart): kartans kod (maplibre-gl) och maskinens hyttspårs-position hämtas redan HÄR, vid montering,
 // parallellt med inloggning/medarbetare/maskinregister — i stället för efter dem, en fråga i taget.
-// Behörighet (admin/chef) och maskinval avgörs i PlannerPage via lib/maskinSom.
+// Behörighet (admin) och maskinval avgörs i PlannerPage via lib/maskinSom.
 //
 // Suspense-fallbacken är HELSVART (ingen logga, ingen text): useSearchParams() gör att den statiska HTML:en
 // bara innehåller fallbacken, så det första som ritas är svart — aldrig planeringsvyn. Loggan visas

@@ -1,4 +1,4 @@
-// "Öppna som maskin": /maskin?som=<maskin_id> (bara admin/chef). Laddar appen från början i maskinläge
+// "Öppna som maskin": /maskin?som=<maskin_id> (bara admin). Laddar appen från början i maskinläge
 // som den maskinen — samma startsekvens, förarlista och körvy som på maskindatorn, utan att man först
 // går via planeringsvyn. Inga DB-skrivningar (testlageAktivRef spärrar dem).
 //
@@ -19,10 +19,10 @@ export type MaskinSomBeslut =
   | { typ: 'ingen' }                              // ingen ?som= → vanliga appen, rör inget
   | { typ: 'vanta' }                              // ?som= finns men roll/maskinregister laddas → BARA loggan
   | { typ: 'avvisa'; skal: AvvisaSkal }           // ej behörig / okänd maskin / laddning fastnade
-  | { typ: 'tillat'; maskinId: string };          // admin/chef + känd maskin → maskinläge
+  | { typ: 'tillat'; maskinId: string };          // admin + känd maskin → maskinläge
 
 /** Avgör vad /maskin?som=… ska göra. Ordningen är avsiktlig:
- *  1. ingen som → ingen.  2. roll laddas → vänta.  3. roll är INTE admin/chef → avvisa direkt
+ *  1. ingen som → ingen.  2. roll laddas → vänta.  3. roll är INTE admin → avvisa direkt
  *  (väntar inte på maskinregistret — en förare ska aldrig komma åt läget).  4. maskinregistret
  *  laddas → vänta.  5. okänd maskin → avvisa.  6. annars tillåt.
  *  Väntat ≥ VANTA_MAX_MS i steg 2/4 → 'laddningMisslyckades' (ärligt fel, aldrig evig logga). */
@@ -38,7 +38,7 @@ export function beslutaMaskinSom(a: {
   const vantaEllerFel = (): MaskinSomBeslut =>
     (a.vantatMs ?? 0) >= VANTA_MAX_MS ? { typ: 'avvisa', skal: 'laddningMisslyckades' } : { typ: 'vanta' };
   if (a.rollLaddar) return vantaEllerFel();
-  if (a.roll !== 'admin' && a.roll !== 'chef') return { typ: 'avvisa', skal: 'ejAdmin' };
+  if (a.roll !== 'admin') return { typ: 'avvisa', skal: 'ejAdmin' };
   if (a.maskinIds == null) return vantaEllerFel();
   if (!a.maskinIds.includes(som)) return { typ: 'avvisa', skal: 'okandMaskin' };
   return { typ: 'tillat', maskinId: som };
@@ -47,7 +47,7 @@ export function beslutaMaskinSom(a: {
 /** Texten på felskärmen (svenska, säger vad man ska göra). */
 export function maskinSomFelText(skal: AvvisaSkal, som: string | null | undefined): string {
   switch (skal) {
-    case 'ejAdmin': return 'Den här sidan är bara för admin och chef.';
+    case 'ejAdmin': return 'Den här sidan är bara för admin.';
     case 'okandMaskin': return `Okänd maskin: ${(som ?? '').trim() || '—'}. Öppna den från Maskiner i admin.`;
     case 'laddningMisslyckades': return 'Kunde inte ladda behörighet och maskinregister. Ladda om sidan eller gå tillbaka till appen.';
   }

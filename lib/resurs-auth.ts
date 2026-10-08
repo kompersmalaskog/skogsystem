@@ -39,7 +39,7 @@ export function supaService() {
 }
 
 export function kanRedigera(roll: Roll): boolean {
-  return roll === 'admin' || roll === 'chef';
+  return roll === 'admin';
 }
 
 // ── Fältbehörighet — EN definition, båda riktningarna (#3) ─────────────────
@@ -55,7 +55,7 @@ const RESURS_ALLA = [
 ] as const;
 
 export function harEkonomi(roll: Roll): boolean {
-  return kanRedigera(roll); // admin/chef ser & skriver ekonomi
+  return kanRedigera(roll); // admin ser & skriver ekonomi
 }
 
 /** Kolumner denna roll får se — driver select() (läsriktning). */

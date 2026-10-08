@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/lon/arsovertid?ar=2026
  * Årets övertid per medarbetare enligt FYRA modeller (lib/lonesystem/arsovertid)
- * mot avtalets tak (gs_avtal.max_overtid_ar_h). Admin/chef. Den fjärde
+ * mot avtalets tak (gs_avtal.max_overtid_ar_h). admin. Den fjärde
  * (genomsnitt, avtalets §5 mom 2) läser markerade utjämningsperioder ur
  * tabellen utjamningsperiod; saknas tabellen räknas allt som antagna block
  * och svaret säger det (`utjamning_fel`).

@@ -586,7 +586,7 @@ export default function PlannerPage() {
     ? medarbetareLista.find(m => m.id === simuleradForareId) ?? null
     : null;
   const effectiveMedarbetare = simuleradForare ?? currentMedarbetare;
-  const isAdminRiktig = currentMedarbetare?.roll === 'admin' || currentMedarbetare?.roll === 'chef';
+  const isAdminRiktig = currentMedarbetare?.roll === 'admin';
   const isForare = effectiveMedarbetare?.roll === 'forare';
   const visarSomForare = simuleradForareId !== null;
 
@@ -3144,7 +3144,7 @@ export default function PlannerPage() {
   const enhetRollRef = useRef(enhetRoll);
   enhetRollRef.current = enhetRoll;
 
-  // === "Öppna som maskin": /maskin?som=<maskin_id> (admin/chef) — ersätter inställnings-raden ===
+  // === "Öppna som maskin": /maskin?som=<maskin_id> (admin) — ersätter inställnings-raden ===
   // /maskin-routen lägger ?som= i MaskinSomContext (null på /planering). Beslutet (lib/maskinSom) avgör:
   // vanta → bara loggan (aldrig planeringsvyn), tillat → maskinläge som den maskinen, avvisa → ärlig felskärm.
   const maskinSomParam = useContext(MaskinSomContext);
@@ -3843,7 +3843,7 @@ export default function PlannerPage() {
 
   // Gå in i maskinläget som vald maskin UTAN simulering och UTAN att röra localStorage: enhet = vald
   // maskin enbart i state. Maskinens senast kända position (hyttspår) driver maskindator-starten. Anropas EN gång
-  // av /maskin-effekten nedan när admin/chef + känd maskin är bekräftade.
+  // av /maskin-effekten nedan när admin + känd maskin är bekräftade.
   const startaVisaSomMaskin = useCallback((maskinId: string) => {
     testlageAktivRef.current = true;             // SYNKRONT: DB-skrivningar spärras innan något annat hinner köra
     setEnhetMaskinIdState(maskinId);             // enbart state (sattEnhetMaskin rörs ALDRIG)
@@ -4008,7 +4008,7 @@ export default function PlannerPage() {
   };
 
   // === SKOTARKÖRVY (v1) — skördarstråk + kvarvolym i skotarens körvy ===
-  // Testbarhet (Martins flagga): läget FÖLJER rollen på objektet, MEN admin/chef får båda valen i
+  // Testbarhet (Martins flagga): läget FÖLJER rollen på objektet, MEN admin får båda valen i
   // KÖRVY-menyn (korvyForceRoll override) → Martin når skotarläget i previewn utan skotar-tilldelning.
   const [korvyForceRoll, setKorvyForceRoll] = useState<'skordare' | 'skotare' | null>(null);
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
@@ -14469,7 +14469,7 @@ export default function PlannerPage() {
               <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.25)' }} />
             </div>
 
-            {/* STEG 4: VY-växlare — bara för admin (inkl. chef). Tillåter "Visa som
+            {/* STEG 4: VY-växlare — bara för admin. Tillåter "Visa som
                 <förare>" för felsökning eller hjälp. Actions i "Visa som"-läge
                 påverkar föraren på riktigt — se audit-trail-kommentar vid
                 simuleradForareId-state. */}
@@ -14651,7 +14651,7 @@ export default function PlannerPage() {
               {
                 title: 'KÖRVY',
                 // Körvy 2D-raden är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv.
-                // Läget FÖLJER rollen på objektet (korvyForceRoll=null). Admin/chef har ingen roll-
+                // Läget FÖLJER rollen på objektet (korvyForceRoll=null). admin har ingen roll-
                 // tilldelning → får båda valen explicit (skördar-/skotarkörvy).
                 // REN SKÄRM (fältfynd): i körvy bor ALLA kontroller här i menyn (baskarta, GPS-uppdatera,
                 // uppdatera spår, avsluta) → kartytan visar bara karta + position + autopanel/HUD.

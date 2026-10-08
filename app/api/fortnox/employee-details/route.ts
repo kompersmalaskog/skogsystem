@@ -4,7 +4,7 @@ import { målMedarbetareId } from "@/lib/auth/server";
 
 /**
  * GET /api/fortnox/employee-details?medarbetare_id=<uuid>
- * medarbetare_id härleds ur sessionen (admin/chef får peka på annan) — semester-
+ * medarbetare_id härleds ur sessionen (admin får peka på annan) — semester-
  * och ATK-saldo är personuppgifter; var helt öppen för vilket id som helst.
  *
  * Hämtar semester- och ATK-saldo från Fortnox för given medarbetare.

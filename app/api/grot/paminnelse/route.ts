@@ -15,7 +15,7 @@ export const maxDuration = 60;
  * /api/notis/flush (var 5:e minut) bygger texten och skickar. Logik: lib/grotvy/paminnelse + paminnelse-ko.
  *
  * Schema: Vercel-cron 05:00 UTC (vercel.json) → Bearer CRON_SECRET (middleware släpper igenom just den). Då körs det SKARPT.
- * En inloggad admin/chef kan också anropa rutten i webbläsaren — då är det en TORRKÖRNING (inget köas) om inte ?skarp=1 anges;
+ * En inloggad admin kan också anropa rutten i webbläsaren — då är det en TORRKÖRNING (inget köas) om inte ?skarp=1 anges;
  * ?dry=1 ger alltid torrkörning. Svaret är rapporten som JSON: vilka påminnelser som gäller idag, mottagare, vad som köades
  * respektive redan fanns. ok:false → status 500 (syns i cron-loggen).
  *

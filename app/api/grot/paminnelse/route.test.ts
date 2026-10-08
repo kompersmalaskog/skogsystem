@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const kravRoll = vi.fn();
 const koa = vi.fn();
-vi.mock("@/lib/auth/server", () => ({ kravRoll: (...a: any[]) => kravRoll(...a), ADMIN_ROLLER: ["admin", "chef"] }));
+vi.mock("@/lib/auth/server", () => ({ kravRoll: (...a: any[]) => kravRoll(...a), ADMIN_ROLLER: ["admin"] }));
 vi.mock("@/lib/grotvy/paminnelse-ko", () => ({ koaGrotPaminnelser: (...a: any[]) => koa(...a) }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ falsk: true }) }));
 

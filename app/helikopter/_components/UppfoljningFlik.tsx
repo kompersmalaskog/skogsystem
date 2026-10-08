@@ -27,7 +27,7 @@ type Props = {
   antalPlanerade: Record<Typ, number>
   ar: number
   manad: number
-  /** Admin/chef ser "Skicka veckoläge nu" (onsdagsnotisen). */
+  /** admin ser "Skicka veckoläge nu" (onsdagsnotisen). */
   arAdmin: boolean
   /** Maskiner med manuell datakälla — "manuell" i text-muted efter volymen. */
   manuella: Set<string>

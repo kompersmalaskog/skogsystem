@@ -31,7 +31,7 @@ export async function GET(
     .select('roll')
     .eq('epost', user.email)
     .maybeSingle();
-  if (!medarb || (medarb.roll !== 'admin' && medarb.roll !== 'chef')) {
+  if (!medarb || (medarb.roll !== 'admin')) {
     return NextResponse.json({ error: 'Förbjudet' }, { status: 403 });
   }
 

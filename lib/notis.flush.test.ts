@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 for (const l of fs.readFileSync(path.resolve(__dirname, "../.env.local"), "utf8").split("\n")) {
   const i = l.indexOf("="); if (i > 0 && !l.startsWith("#")) process.env[l.slice(0, i).trim()] ??= l.slice(i + 1).trim();
 }
-vi.mock("@/lib/auth/server", () => ({ kravRoll: async () => ({ ok: false, res: new Response("", { status: 401 }) }), ADMIN_ROLLER: ["admin", "chef"] }));
+vi.mock("@/lib/auth/server", () => ({ kravRoll: async () => ({ ok: false, res: new Response("", { status: 401 }) }), ADMIN_ROLLER: ["admin"] }));
 
 describe("skippOrsak — växlarna avgör", async () => {
   const { skippOrsak } = await import("../app/api/notis/flush/route");
