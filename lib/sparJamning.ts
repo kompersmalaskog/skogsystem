@@ -58,7 +58,7 @@ export function tabortSpikar(p: XY[], spikStegM: number = SPAR_SPIK_STEG_M, gran
   let forraBorttagen = false;
   for (let i = 1; i < p.length - 1; i++) {
     const a = dist(p[i - 1], p[i]), b = dist(p[i], p[i + 1]), g = dist(p[i - 1], p[i + 1]);
-    const spik = !forraBorttagen && a > spikStegM && b > spikStegM && (g < granneM || g < Math.min(a, b) / 2);
+    const spik: boolean = !forraBorttagen && a > spikStegM && b > spikStegM && (g < granneM || g < Math.min(a, b) / 2);
     forraBorttagen = spik;   // bara EN i följd — två spikar bredvid varandra är ingen enskild spik
     if (!spik) ut.push(p[i]);
   }
@@ -120,7 +120,7 @@ export function tatSteg(p: XY[], maxStegM: number = SPAR_MIN_STEG_M): XY[] {
  *  (svängarna) som inte heller flyttas och som medelvärdet aldrig korsar — så ett hörn förblir ett hörn i stället för att rundas av. */
 export function glidandeMedel(p: XY[], fonster: number = SPAR_MEDEL_FONSTER, las: ReadonlySet<number> = new Set()): XY[] {
   const h = Math.max(0, Math.floor(fonster / 2));
-  const grans = [0, ...[...las].filter((i) => i > 0 && i < p.length - 1).sort((a, b) => a - b), p.length - 1];
+  const grans = [0, ...Array.from(las).filter((i) => i > 0 && i < p.length - 1).sort((a, b) => a - b), p.length - 1];   // Array.from: Set-spridning går inte på es5-målet (TS2802)
   const ut = p.map((x) => [x[0], x[1]] as XY);
   for (let g = 0; g < grans.length - 1; g++) {
     const b0 = grans[g], b1 = grans[g + 1];
