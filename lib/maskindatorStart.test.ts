@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { avgorMaskindatorStart, avstamningsAtgard, rollAvMaskintyp, implicitJa, IMPLICIT_JA_M, arMaskinlage, visaForarlista } from './maskindatorStart';
+import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, IMPLICIT_JA_M, arMaskinlage, visaForarlista } from './maskindatorStart';
 
 describe('rollAvMaskintyp', () => {
   it('Harvester → skördare, Forwarder → skotare', () => {
@@ -149,23 +149,3 @@ describe('avgorMaskindatorStart — startobjektet: enheten minns förarens senas
   });
 });
 
-describe('avstamningsAtgard — första riktiga fixen mot ett val som byggde på en gammal position', () => {
-  const bas = { startTyp: 'senaste' as const, traffObjektId: 'OX', valtObjektId: 'OS', traffTilldelad: false, redanFragat: false };
-
-  it('fixen visar samma objekt (eller inget) → inget händer', () => {
-    expect(avstamningsAtgard({ ...bas, traffObjektId: 'OS' })).toBe('inget');
-    expect(avstamningsAtgard({ ...bas, traffObjektId: null })).toBe('inget');
-  });
-  it('förarens eget val + GPS visar ett ANNAT, ej tilldelat objekt → bekräftelsekortet (inte tyst byte)', () => {
-    expect(avstamningsAtgard(bas)).toBe('fraga');
-  });
-  it('...men är maskinen tilldelad objektet den står i, eller har kortet redan visats → byt (som förut)', () => {
-    expect(avstamningsAtgard({ ...bas, traffTilldelad: true })).toBe('byt');
-    expect(avstamningsAtgard({ ...bas, redanFragat: true })).toBe('byt');
-  });
-  it('övriga starttyper behåller dagens tysta byte med notis', () => {
-    for (const t of ['korvy', 'tilldelat', 'fraga', null] as const) {
-      expect(avstamningsAtgard({ ...bas, startTyp: t })).toBe('byt');
-    }
-  });
-});

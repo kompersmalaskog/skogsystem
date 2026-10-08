@@ -57,7 +57,9 @@ import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength 
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
 import { FARG, DELFARG, TYP, RADIE, AVSTAND } from '../../lib/design/tokens'
-import { avgorMaskindatorStart, avstamningsAtgard, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
+import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
+import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'
+import { hamtaKandidatSvar, startaKandidatLaddning } from '../../lib/objektKandidater'
 import { FRAGA_HOPPAD_NYCKEL, MENY_VALD_NYCKEL } from '../../lib/appStart'
 import { valbaraMaskiner, rollForMaskin, startHinder, type RegisterStatus } from '../../lib/maskinFraga'
 import { hamtaSenasteObjekt, sattSenasteObjekt, rensaSenasteObjekt } from '../../lib/senasteObjekt'
@@ -3212,12 +3214,11 @@ export default function PlannerPage() {
   // valjObjektForPosition → tilldelad = körvy direkt; ej tilldelad = bekräftelsekort; ingen fix = tilldelat.
   const maskindatorStartGjordRef = useRef(false);                 // en gång per app-laddning
   const maskindatorFragatRef = useRef<Set<string>>(new Set());    // redanFragat per objektId (denna session)
-  const maskindatorBytteRef = useRef(false);                      // A4: auto-byte redan gjort
-  const maskindatorA4Ref = useRef(false);                         // valet byggde på senast känd position / tilldelat utan riktig fix → stäm av EN gång mot första riktiga fixen
   const maskindatorObjektRef = useRef<any[]>([]);                 // laddade objekt (+geometri) för by-id och 200 m-kollen
-  const [maskindatorGeoKlar, setMaskindatorGeoKlar] = useState(false);   // kandidaterna (+traktgräns) är laddade → avstämningen mot riktig fix kan räkna
-  const maskindatorStartObjektIdRef = useRef<string | null>(null);   // objektet starten öppnade (avstämningen rör inte ett val föraren gjort sedan)
-  const maskindatorStartTypRef = useRef<string | null>(null);        // vilken sorts start det blev (korvy/fraga/tilldelat/senaste/lista) — avstämningen frågar i stället för att byta tyst efter 'senaste'
+  const [maskindatorGeoKlar, setMaskindatorGeoKlar] = useState(false);   // kandidaterna (+traktgräns) är laddade OK (inte bara försökta) → avstämningen mot riktig fix kan räkna
+  const avstamningsMinneRef = useRef<AvstamningsMinne>(NYTT_AVSTAMNINGSMINNE);   // LÖPANDE avstämning (lib/objektAvstamning): samma annat objekt i följd
+  const avstamningPagarRef = useRef(false);                       // true medan bytet/kortet hämtar objektets hela rad (async-fönster → ingen dubbelutlösning)
+  const kandidatStoppRef = useRef<(() => void) | null>(null);     // kandidatladdaren (lib/objektKandidater): försöker igen tills det går, laddar om var 5:e minut
   const maskindatorKmInneRef = useRef<{ km: number; last: { lat: number; lng: number } | null }>({ km: 0, last: null });
   const [maskindatorKort, setMaskindatorKort] = useState<
     { objektId: string; namn: string; typText: string; areal: number | null; volymKvar: number | null; roll: 'skordare' | 'skotare' } | null
@@ -3582,18 +3583,21 @@ export default function PlannerPage() {
 
       // Kandidater (planerad/pågående + traktgräns) för positionsval, tilldelat-fallback och avstämningen. Startas direkt
       // och parallellt med allt annat — när spåret bär objektet ligger de INTE på kritiska vägen.
-      const kandidaterP: Promise<(ObjektForVal & any)[]> = (async () => {
-        const [o, g] = await Promise.all([
-          supabase.from('objekt')
-            .select('id,namn,typ,grot,status,areal,lat,lng,volym,volym_planerad,volym_skordad,volym_skotad,skotare_maskin_id,skordare_maskin_id,pagaende_startad_timestamp')
-            .in('status', ['planerad', 'pagaende']),
-          supabase.from('objekt_geometri').select('objekt_id,geometri'),
-        ]);
-        const geoMap = new Map<string, any>();
-        for (const x of (g.data || [])) geoMap.set((x as any).objekt_id, (x as any).geometri);
-        return ((o.data || []) as any[]).map((r) => ({ ...r, geometri: geoMap.get(r.id) ?? null }));
-      })().catch(() => []);
-      kandidaterP.then((k) => { maskindatorObjektRef.current = k; setMaskindatorGeoKlar(true); });
+      // Starten väntar bara på FÖRSTA försöket (lyckat eller inte); laddaren fortsätter därefter tills det lyckas och laddar om var 5:e minut.
+      // Ett fel, ett tomt geometri-svar (utgången session → RLS ger tomt UTAN fel) eller ett hängande anrop räknas aldrig som 'laddat'
+      // (Oskar, Rottne 2026-10-07: det gjorde att avstämningen utvärderades mot tomma kandidater och aldrig mer).
+      if (kandidatStoppRef.current) kandidatStoppRef.current();
+      const kandidaterP: Promise<(ObjektForVal & any)[]> = new Promise((klart) => {
+        let forsta = true;
+        kandidatStoppRef.current = startaKandidatLaddning({
+          hamta: () => hamtaKandidatSvar(supabase),
+          vid: (r) => {
+            if (r.ok) { maskindatorObjektRef.current = r.kandidater; setMaskindatorGeoKlar(true); }
+            else console.warn('[maskindator-start] kandidatladdning misslyckades (' + r.orsak + ') — försöker igen');
+            if (forsta) { forsta = false; klart(r.ok ? r.kandidater : []); }
+          },
+        });
+      });
 
       // --- Startposition ---
       let pos: { lat: number; lon: number } | null = null;
@@ -3659,7 +3663,6 @@ export default function PlannerPage() {
         senasteObjektId: senasteRad?.id ?? null,
         riktigFix: kalla === 'fix',
       });
-      maskindatorStartTypRef.current = atgard.typ;
       // HELA objekt-raden (valtObjekt förväntas ha alla kolumner — kandidaternas smala select räcker inte).
       let objektRad: any = null;
       if (atgard.typ !== 'lista') {
@@ -3677,26 +3680,18 @@ export default function PlannerPage() {
       const flygPos = valjFlygPos({ atgardTyp: atgard.typ, kalla, pos, objekt: objektRad });
       if (flygPos) { startPosRef.current = flygPos; setStartPosMs(Date.now()); markeraStart('positionKand'); }
 
-      maskindatorStartObjektIdRef.current = objektRad.id;
-      // Stäm av mot första RIKTIGA fixen om valet byggde på något annat än en riktig fix. Aldrig i testfliken.
-      const avstam = !arTestflik && kalla !== 'fix';
+      // Avstämningen mot positionen sköts LÖPANDE av effekten "löpande position" (lib/objektAvstamning) — på varje fix, oavsett hur starten gick.
       if (atgard.typ === 'korvy') {
-        maskindatorBytteRef.current = false;
-        maskindatorA4Ref.current = avstam;
         oppnaKorvyPa(objektRad, atgard.roll);
         // Maskinen står (riktig fix) i ett objekt den är tilldelad → det är där föraren arbetar nu: kom ihåg det som startobjekt.
         if (!arTestflik && kalla === 'fix') sattSenasteObjekt(enhetMaskinId, objektRad.id);
       } else if (atgard.typ === 'senaste') {
-        maskindatorBytteRef.current = false;
-        maskindatorA4Ref.current = avstam;   // förarens eget val utan riktig fix → stäm av EN gång mot första riktiga fixen (kort om GPS visar ett annat objekt)
         oppnaKorvyPa(objektRad, atgard.roll);
       } else if (atgard.typ === 'fraga') {
         oppnaKorvyPa(objektRad, atgard.roll);
         maskindatorKmInneRef.current = { km: 0, last: pos ? { lat: pos.lat, lng: pos.lon } : null };
         visaMaskindatorKort(objektRad, atgard.roll);
       } else if (atgard.typ === 'tilldelat') {
-        maskindatorBytteRef.current = false;
-        maskindatorA4Ref.current = !arTestflik;   // tilldelat objekt utan riktig fix → tillåt ETT byte när en fix landar
         oppnaKorvyPa(objektRad, atgard.roll);
       }
       markeraStart('objektValt');
@@ -3854,6 +3849,7 @@ export default function PlannerPage() {
     setEnhetMaskinIdState(maskinId);             // enbart state (sattEnhetMaskin rörs ALDRIG)
     maskindatorStartGjordRef.current = false;
     maskindatorFragatRef.current = new Set();
+    avstamningsMinneRef.current = NYTT_AVSTAMNINGSMINNE;
     setMaskindatorKort(null);
     setValtObjekt(null);                         // → maskindator-starten kör, förarlistan visas
     setTestlage({ maskinId, etikett: maskinId });   // visningsnamnet slås upp live (dim_maskin) i bannern
@@ -8557,8 +8553,8 @@ export default function PlannerPage() {
   }, [startFasNu, korvyEffectivePos]);
 
   // Maskindator-start, löpande position: (a) >200 m körda INNE i kort-objektet = implicit ja;
-  // (b) avstämning mot RIKTIG fix, EN gång — starten byggde på senast känd position (lokal maskinPos / hyttspår) eller på
-  // tilldelat objekt utan fix: första riktiga fixen visar samma objekt → inget händer; ett annat → byt en gång.
+  // (b) LÖPANDE avstämning mot RIKTIG fix, på varje fix (lib/objektAvstamning): står maskinen i ett annat objekts traktgräns än det öppna ska det
+  // leda till byte (tilldelat) eller bekräftelsekortet (ej tilldelat) inom ~10 s — oavsett vad enheten minns och hur starten gick.
   useEffect(() => {
     const pos = korvyEffectivePos;
     if (!pos || !enhetMaskinId) return;
@@ -8574,45 +8570,47 @@ export default function PlannerPage() {
       }
       return;   // medan kortet visas gör vi inte A4-bytet
     }
-    // (b) avstämning mot riktig fix, en gång
-    if (maskindatorA4Ref.current && !maskindatorBytteRef.current) {
-      // Testfliken har aldrig en riktig fix, och har föraren redan valt något annat än det starten öppnade rör vi inte valet.
-      if (testlageAktivRef.current || valtObjekt?.id !== maskindatorStartObjektIdRef.current) { maskindatorA4Ref.current = false; return; }
-      if (!maskindatorGeoKlar) return;      // kandidaterna (+traktgräns) laddas än — avväpna INTE, fixen får inte förbrukas på tomt underlag
-      maskindatorA4Ref.current = false;     // EN utvärdering, hur den än går
-      const traff = valjObjektForPosition({ lat: pos.lat, lng: pos.lon, maskinId: enhetMaskinId, objekt: maskindatorObjektRef.current }).traff as any;
-      // Rollen ur MASKINREGISTRET — aldrig ur vilket tilldelningsfält maskinen råkar stå i på objektet (en skotare som felaktigt
-      // ligger i skördarplatsen skulle annars få skördarens körvy och hyttspår), och aldrig en tyst reserv ("skotare").
-      const roll = enhetRollRef.current;
-      if (traff && traff.id !== valtObjekt?.id && roll) {
-        // Förarens eget val (senaste) + GPS visar ett ANNAT, ej tilldelat objekt → bekräftelsekortet som förut. Annars byt en gång, med notis.
-        const atg = avstamningsAtgard({
-          startTyp: maskindatorStartTypRef.current as any,
-          traffObjektId: traff.id,
-          valtObjektId: valtObjekt?.id ?? null,
-          traffTilldelad: arTilldelad(traff, enhetMaskinId),
-          redanFragat: maskindatorFragatRef.current.has(traff.id),
-        });
-        if (atg === 'inget') return;
-        maskindatorBytteRef.current = true;
+    // (b) LÖPANDE avstämning. Förut EN utvärdering mot första fixen (A4), sedan avstängd: en tom/felande kandidatladdning eller en olycklig första
+    // utvärdering låste maskinen på fel objekt resten av dagen (Oskar, Rottne 2026-10-07: 377 punkter på Älmehult medan maskinen stod i Trestensdal).
+    // Testfliken har aldrig en riktig fix. Kandidaterna måste ha laddats OK (maskindatorGeoKlar) — annars väntar vi, laddaren försöker igen.
+    if (testlageAktivRef.current || !valtObjekt?.id || !maskindatorGeoKlar || avstamningPagarRef.current) return;
+    // Rollen ur MASKINREGISTRET — aldrig ur vilket tilldelningsfält maskinen råkar stå i på objektet (en skotare som felaktigt
+    // ligger i skördarplatsen skulle annars få skördarens körvy och hyttspår), och aldrig en tyst reserv ("skotare").
+    const roll = enhetRollRef.current;
+    if (!roll) return;
+    const r = stegaAvstamning({
+      minne: avstamningsMinneRef.current, nu: Date.now(), pos: { lat: pos.lat, lng: pos.lon },
+      oppetObjektId: valtObjekt.id, maskinId: enhetMaskinId, kandidater: maskindatorObjektRef.current,
+      redanFragat: (id) => maskindatorFragatRef.current.has(id),
+    });
+    avstamningsMinneRef.current = r.minne;
+    if (r.atgard === 'inget' || !r.traff) return;
+    avstamningsMinneRef.current = NYTT_AVSTAMNINGSMINNE;
+    avstamningPagarRef.current = true;
+    const traff = r.traff as any;
+    const atg = r.atgard;
+    void (async () => {
+      try {
         // Kandidaternas rad har smala kolumner — valtObjekt ska ha HELA raden.
-        void (async () => {
-          const { data: full } = await supabase.from('objekt').select('*').eq('id', traff.id).maybeSingle();
-          maskindatorStartObjektIdRef.current = traff.id;
-          const rad = full ?? traff;
-          if (atg === 'fraga') {
-            maskindatorKmInneRef.current = { km: 0, last: { lat: pos.lat, lng: pos.lon } };
-            oppnaKorvyPa(rad, roll);
-            visaMaskindatorKort(rad, roll);
-          } else {
-            oppnaKorvyPa(rad, roll);
-            setMaskindatorBesked(`Bytte till ${traff.namn ?? 'objektet'}`);
-            if (!testlageAktivRef.current) sattSenasteObjekt(enhetMaskinId, traff.id);   // avstämningen sker bara mot en RIKTIG fix
-          }
-        })();
-      }
-    }
+        const { data: full } = await supabase.from('objekt').select('*').eq('id', traff.id).maybeSingle();
+        const rad = full ?? traff;
+        if (atg === 'fraga') {
+          // Ej tilldelat: bekräftelsekortet (systemet föreslår, föraren godkänner). Körvyn öppnas på objektet maskinen står i.
+          maskindatorKmInneRef.current = { km: 0, last: { lat: pos.lat, lng: pos.lon } };
+          oppnaKorvyPa(rad, roll);
+          visaMaskindatorKort(rad, roll);
+        } else {
+          // Tilldelat maskinen (planerarens instruktion): byt, med notis.
+          oppnaKorvyPa(rad, roll);
+          setMaskindatorBesked(`Bytte till ${traff.namn ?? 'objektet'}`);
+          if (!testlageAktivRef.current) sattSenasteObjekt(enhetMaskinId, traff.id);   // avstämningen sker bara mot en RIKTIG fix
+        }
+      } finally { avstamningPagarRef.current = false; }
+    })();
   }, [korvyEffectivePos, maskindatorKort, enhetMaskinId, valtObjekt, maskindatorJa, oppnaKorvyPa, visaMaskindatorKort, maskindatorGeoKlar]);
+
+  // Kandidatladdaren (lib/objektKandidater) lever så länge sidan lever — stoppa den vid avmontering.
+  useEffect(() => () => { if (kandidatStoppRef.current) { kandidatStoppRef.current(); kandidatStoppRef.current = null; } }, []);
 
   // (Närmaste/aktivt stråk-beräkningen borttagen med autopanelen — ingen stråk-emfas längre.)
 
