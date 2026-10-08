@@ -16,6 +16,8 @@ import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
+import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
+import { HYTTSPAR_CASING_COLOR, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH, ROLLFARG_SKOTARE, ROLLFARG_SKORDARE, sparStil } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, type InfoRad } from '../../lib/objektInfoSpar'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
@@ -213,24 +215,8 @@ function korvyProximityZoom(dist: number | null): number {
   return KORVY_BASE_ZOOM + (KORVY_FULL_ZOOM - KORVY_BASE_ZOOM) * t;
 }
 
-// === HYTTSPÅR-STIL (delad av körvy OCH planeringsvyn) ===
-// Apple-Maps-look: färgad kärna + LJUS casing (vit) som lyfter linjen från busig bakgrund (raster,
-// gränser, basvägar) i den utzoomade planeringsvyn OCH i körvyn. Casing ~2,5 px bredare än linjen.
-// Zoom-interpolerad bredd (Martin: 2 px @ z13, 4 px @ z15, 6 px @ z17) med floors vid låg/hög zoom så
-// bredden aldrig extrapolerar till noll/negativt. Linjens FÄRG behålls per lager/roll.
-const HYTTSPAR_CASING_COLOR = '#ffffff';
-const HYTTSPAR_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1.5, 13, 2, 15, 4, 17, 6, 19, 8];
-const HYTTSPAR_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 4, 13, 4.5, 15, 6.5, 17, 8.5, 19, 10.5];
-// Historiken (tidigare dagars eget-spår i körvyn) något smalare + dämpad casing-opacitet.
-const HYTTSPAR_HIST_LINE_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 1, 13, 1.5, 15, 3, 17, 4.5, 19, 6];
-const HYTTSPAR_HIST_CASING_WIDTH: any = ['interpolate', ['linear'], ['zoom'], 11, 3, 13, 3.5, 15, 5, 17, 6.5, 19, 8];
-// ABSOLUTA rollfärger (Martin): skotare = grönt, skördare = lila — SAMMA i alla vyer, oberoende av vem
-// som tittar. "Eget spår" markeras med OPACITET (full) och den andres roll dämpas (~0.55), aldrig med
-// färgbyte. Delas av körvyns egen/hist/andras-lager OCH planeringsvyns planspar-lager.
-const ROLLFARG_SKOTARE = '#34c759';
-const ROLLFARG_SKORDARE = '#bf5af2';
-const rollFarg = (roll: 'skordare' | 'skotare' | null | undefined): string =>
-  roll === 'skotare' ? ROLLFARG_SKOTARE : ROLLFARG_SKORDARE;
+// === HYTTSPÅR-STIL (delad av körvy OCH planeringsvyn) bor i lib/sparStil.ts ===
+// Bredd per zoom, ljus casing, absoluta rollfärger — och SKÖRDARENS linje: jämn ~3 px, full färg, alla dagar (skotaren följer stråken).
 
 // HYTTSPÅR avsluts-skydd: ett långt glapp utan punkter (skärmlås/bakgrund, t.ex. hemresan) följt av en
 // punkt LÅNGT bort är inte en kontinuerlig del av arbetet. GPS-vakten (#398) släpper ändå in den för att
@@ -4042,7 +4028,8 @@ export default function PlannerPage() {
       // FANTOMLINJE-FIX (delad hjälpare): dela punkterna i segment vid tidsglapp → ett segment per
       // sammanhängande körning. Ritas hela arrayen som EN linje bryggas glappen (app stängd) med en
       // rak fantomlinje. Nu = en LineString per segment, ingen brygga.
-      const features = hyttsparTillLinjer(hyttsparPointsRef.current as any)
+      // RITNINGEN är utjämnad (lib/sparJamning); hyttsparPointsRef är RÅDATA och det som sparas/räknas på.
+      const features = hyttsparRitadeLinjer(hyttsparPointsRef.current as any)
         .map(coords => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
       if (src) src.setData({ type: 'FeatureCollection', features });
     } catch { /* */ }
@@ -4251,7 +4238,7 @@ export default function PlannerPage() {
         if (avbruten) return;
         egetHistRef.current = (data || [])
           .filter((r: any) => r.datum !== idag)   // dagens = fulla eget-lagret (live), ej dubbelritning
-          .flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []))
+          .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []))
           .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
         setHyttsparBasVersion(v => v + 1);   // → redo-effekten ovan ritar historiken
       } catch (e) { console.error('[Hyttspår] eget-historik:', e); }
@@ -4416,7 +4403,7 @@ export default function PlannerPage() {
       // vid interna tidsglapp (app stängd mitt i passet) → en LineString per segment, ingen rak brygga
       // över glappet. Förr: en LineString per rad (bryggade interna glapp — Martins fältfynd).
       const features = (data || [])
-        .flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []))
+        .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []))
         .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
       andrasFeaturesRef.current = features;
       const src = mapInstanceRef.current?.getSource('hyttspar-andras-source') as any;
@@ -4536,6 +4523,7 @@ export default function PlannerPage() {
   // Avverkat: räkna om från skördarens spår (DB för alla dagar + egna live-punkter när den här maskinen ÄR skördaren)
   const raknaAvverkat = useCallback(() => {
     const { areal, ringar, roll } = avverkatIndataRef.current;
+    // RÅDATA (hyttsparTillLinjer) — aldrig den utjämnade ritningen: arealen ska räknas på det maskinen faktiskt gjorde
     const live = roll === 'skordare' ? hyttsparTillLinjer(hyttsparPointsRef.current as any) : [];
     const segment = [...skordarSparRef.current, ...live];
     const harSpar = segment.some((s) => s.length > 0);
@@ -4555,7 +4543,7 @@ export default function PlannerPage() {
         const { data, error } = await supabase.from('hyttspar').select('points').eq('objekt_id', objektId).eq('roll', 'skordare');
         if (avbruten) return;
         if (error) { console.error('[Avverkat] spår-hämtning:', error.message); return; }
-        skordarSparRef.current = (data || []).flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []));
+        skordarSparRef.current = (data || []).flatMap((r: any) => hyttsparTillLinjer(Array.isArray(r.points) ? r.points : []));   // RÅDATA (avverkad areal)
         raknaAvverkat();
       } catch (e) { console.error('[Avverkat] undantag:', e); }
     };
@@ -9698,7 +9686,7 @@ export default function PlannerPage() {
     // stil (ljus casing + zoom-interp-bredd) som körvyns lager; färg per roll (skotare grönt, skördare lila).
     for (const roll of ['skordare', 'skotare'] as const) {
       const src = `planspar-${roll}-source`;
-      const farg = rollFarg(roll);
+      const st = sparStil(roll, 'plan');
       if (!map.getSource(src)) {
         try { map.addSource(src, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); }
         catch (e) { console.error(`[Planspår] ${roll}-source:`, e); }
@@ -9707,7 +9695,7 @@ export default function PlannerPage() {
         try {
           map.addLayer({
             id: `planspar-${roll}-casing`, type: 'line', source: src,
-            paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': 0.8, 'line-width': HYTTSPAR_CASING_WIDTH },
+            paint: { 'line-color': HYTTSPAR_CASING_COLOR, 'line-opacity': st.casingOpacitet, 'line-width': st.casingBredd },
             layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
           });
         } catch (e) { console.error(`[Planspår] ${roll}-casing:`, e); }
@@ -9716,7 +9704,7 @@ export default function PlannerPage() {
         try {
           map.addLayer({
             id: `planspar-${roll}-line`, type: 'line', source: src,
-            paint: { 'line-color': farg, 'line-opacity': 0.95, 'line-width': HYTTSPAR_LINE_WIDTH },
+            paint: { 'line-color': st.farg, 'line-opacity': st.linjeOpacitet, 'line-width': st.linjeBredd },
             layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
           });
         } catch (e) { console.error(`[Planspår] ${roll}-line:`, e); }
@@ -9767,7 +9755,7 @@ export default function PlannerPage() {
         for (const r of (data || [])) {
           const roll = (r as any).roll === 'skotare' ? 'skotare' : (r as any).roll === 'skordare' ? 'skordare' : null;
           if (!roll) continue;
-          for (const coords of hyttsparTillLinjer(Array.isArray((r as any).points) ? (r as any).points : [])) {
+          for (const coords of hyttsparRitadeLinjer(Array.isArray((r as any).points) ? (r as any).points : [])) {
             perRoll[roll].push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
           }
         }
@@ -9794,13 +9782,20 @@ export default function PlannerPage() {
 
   // KÖRVYNS ABSOLUTA rollfärger: eget-spårets (egen + hist) färg = FÖRARENS roll, andras-spårets färg =
   // MOTPARTENS roll — skotare grönt, skördare lila, SAMMA i båda körvyerna oberoende av vem som kör.
-  // Eget/andras skiljs på OPACITET (lager-defs: egen/hist 0.95, andras 0.55), aldrig på färg.
+  // Eget/andras skiljs på OPACITET för SKOTAREN (egen/hist 0.95, andras 0.55), aldrig på färg. SKÖRDAREN är alltid full (sparStil).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const set = (layer: string, farg: string) => { try { if (map.getLayer(layer)) map.setPaintProperty(layer, 'line-color', farg); } catch { /* */ } };
-    if (hyttRoll) { set('hyttspar-egen-line', rollFarg(hyttRoll)); set('hyttspar-hist-line', rollFarg(hyttRoll)); }
-    if (andrasRoll) set('hyttspar-andras-line', rollFarg(andrasRoll));
+    const satt = (lager: string, prop: string, v: any) => { try { if (map.getLayer(lager)) map.setPaintProperty(lager, prop, v); } catch { /* */ } };
+    // Stilen per roll och lager ur lib/sparStil: SKÖRDAREN alltid jämn 3 px, full färg (även tidigare dagar och som "den andres" spår — skotaren
+    // följer stråken); SKOTAREN som förut (eget 0,95 / historik smalare / den andres 0,55).
+    const stila = (namn: string, roll: 'skordare' | 'skotare', art: 'egen' | 'hist' | 'andras') => {
+      const s = sparStil(roll, art);
+      satt(`${namn}-line`, 'line-color', s.farg); satt(`${namn}-line`, 'line-width', s.linjeBredd); satt(`${namn}-line`, 'line-opacity', s.linjeOpacitet);
+      satt(`${namn}-casing`, 'line-width', s.casingBredd); satt(`${namn}-casing`, 'line-opacity', s.casingOpacitet);
+    };
+    if (hyttRoll) { stila('hyttspar-egen', hyttRoll, 'egen'); stila('hyttspar-hist', hyttRoll, 'hist'); }
+    if (andrasRoll) stila('hyttspar-andras', andrasRoll, 'andras');
   }, [hyttRoll, andrasRoll, mapLibreReady, korvyActive]);
 
   // SKOTARKÖRVY (punkt 3): mata hög-prickarna. Varje redan-kvar-reducerad hög → punkt i sortiment-
