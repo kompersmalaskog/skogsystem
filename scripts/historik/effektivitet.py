@@ -1,11 +1,12 @@
-"""Steg 5: effektivitet per objekt för alla egna skördare, normkurva per åtgärd (log-log) och index.
+"""Steg 5/5b: effektivitet per objekt för alla egna skördare, normkurva per åtgärd (log-log) och index.
 
 Läser objekt.csv + inventering/bilagor (mejlämne). Skriver effektivitet.csv, index_per_ar.csv och normkurvor.csv i importmappen.
 Ingen databas.
 
-Åtgärd (gissa inte från medelstam):  gallring = objektnamn/ämne innehåller "gall" (gallr, gallring);
-slutavverkning = "slutavv" eller ordet "sa"/"au" (även au2022). Rp/vf/ga räknas inte. Båda träffar = okänd.
-Objektnamnet prövas först, sedan mejlämnet.
+Åtgärd (gissa inte från medelstam), egna ord eller ordbörjan (siffror får följa):
+  gallring: ga, gall*; slutavverkning: au, rp, slutavv*, hygge*; skada: vf, bb, vindfäll*, barkborr*.
+Ris, grot, ata och kundnamn är ingen åtgärd. Två olika åtgärder = okänd. Objektnamnet prövas först, sedan mejlämnet.
+Skada ligger kvar i effektivitet.csv men ingår inte i normkurvor och index.
 """
 import csv
 import json
@@ -18,23 +19,34 @@ from pathlib import Path
 IMP = Path("C:/Users/lindq/skogsystem-import")
 HARVESTERS = {"Komatsu 941", "Komatsu 941 AptMan", "Komatsu 901XC", "Komatsu 911.3", "Ponsse Bear", "Scorpion King gammal",
               "Scorpion King ny", "Scorpion Giant 2023", "Scorpion Giant 2025", "Rottne H8B", "Rottne H8D", "Rottne H8E Logmax", "Rottne H8E 2026"}
-GALL = re.compile(r"gall")
-SLUT = re.compile(r"slutavv|\bau\d*\b|\bsa\d*\b")
+HELA = {"ga": "gallring", "au": "slutavverkning", "rp": "slutavverkning", "vf": "skada", "bb": "skada"}   # hela ord (siffror får följa)
+BORJAN = {"gall": "gallring", "slutavv": "slutavverkning", "hygge": "slutavverkning", "vindfäll": "skada", "barkborr": "skada"}  # ordbörjan
+TOKEN = re.compile(r"[a-zåäö]+\d*|\d+")
 
 
 def atgard_av(text):
-    t = (text or "").lower().replace("_", " ")
-    g, s = bool(GALL.search(t)), bool(SLUT.search(t))
-    if g and s:
-        return "okänd (båda)"
-    return "gallring" if g else ("slutavverkning" if s else "")
+    """Egna ord eller ordbörjan, inte inuti andra ord. Två olika åtgärder = 'okänd (flera)'."""
+    funna = set()
+    for tok in TOKEN.findall((text or "").lower()):
+        m = re.fullmatch(r"([a-zåäö]+)\d*", tok)
+        if not m:
+            continue
+        w = m.group(1)
+        if w in HELA:
+            funna.add(HELA[w])
+        for pre, a in BORJAN.items():
+            if w.startswith(pre):
+                funna.add(a)
+    if len(funna) > 1:
+        return "okänd (flera)"
+    return next(iter(funna)) if funna else ""
 
 
 def klassa(objekt, amne):
     for kalla, txt in (("objektnamn", objekt), ("mejlämne", amne)):
         a = atgard_av(txt)
         if a.startswith("okänd"):
-            return "okänd", kalla + ": gallring och slutavverkning i samma text"
+            return "okänd", kalla + ": flera åtgärder i samma text"
         if a:
             return a, kalla
     return "okänd", ""
