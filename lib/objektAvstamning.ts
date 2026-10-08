@@ -44,10 +44,8 @@ export function stegaAvstamning(a: {
   if (!a.oppetObjektId) return nollat('inget-oppet-objekt');
   const oppet = a.kandidater.find((o) => o.id === a.oppetObjektId);
   if (oppet && objektInnehallerPunkt(oppet.geometri, a.pos.lat, a.pos.lng)) return nollat('inne-i-oppet-objekt');
-  const traff = valjObjektForPosition({
-    lat: a.pos.lat, lng: a.pos.lng, maskinId: a.maskinId,
-    objekt: a.kandidater.filter((o) => o.id !== a.oppetObjektId),
-  }).traff;
+  // Det öppna objektet kan inte bli träff här: innehöll det punkten hade vi returnerat ovan.
+  const traff = valjObjektForPosition({ lat: a.pos.lat, lng: a.pos.lng, maskinId: a.maskinId, objekt: a.kandidater }).traff;
   if (!traff) return nollat('ingen-traff');
 
   const samma = a.minne.annatId === traff.id;

@@ -16,6 +16,10 @@ describe('avstämningen är LÖPANDE — inte en engångsutvärdering', () => {
     expect(page).toContain("import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'");
     expect(page).toMatch(/const r = stegaAvstamning\(\{\s*minne: avstamningsMinneRef\.current, nu: Date\.now\(\), pos: \{ lat: pos\.lat, lng: pos\.lon \},\s*oppetObjektId: valtObjekt\.id, maskinId: enhetMaskinId, kandidater: maskindatorObjektRef\.current,/);
   });
+  it('sidan skickar sessionens "redan frågat" till beslutet — ett avböjt kort ("Annat objekt") får inte glömmas, och fylls av maskindatorAnnat', () => {
+    expect(page).toContain('redanFragat: (id) => maskindatorFragatRef.current.has(id),');
+    expect(page).toMatch(/const maskindatorAnnat = useCallback\(\(\) => \{\s*if \(maskindatorKort\) maskindatorFragatRef\.current\.add\(maskindatorKort\.objektId\);/);
+  });
   it('körs inte i testfliken, utan öppet objekt, innan kandidaterna laddats OK, eller medan ett byte hämtas — och aldrig utan roll ur maskinregistret', () => {
     expect(page).toContain('if (testlageAktivRef.current || !valtObjekt?.id || !maskindatorGeoKlar || avstamningPagarRef.current) return;');
     expect(page).toMatch(/const roll = enhetRollRef\.current;\s*if \(!roll\) return;/);
