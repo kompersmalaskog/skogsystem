@@ -827,6 +827,9 @@ describe("Löneartskoder: samma sju som exporten använder", () => {
     expect(text()).toContain("Vältlappar");
     expect(text()).toContain("(137)");
     expect(text()).toContain("veckor");
+  });
+});
+
 describe("Anställningsnummer utan Fortnox: sparas ändå, kontrolleras när anslutningen finns", () => {
   const medNr = (id: string) => g.__db.medarbetare_lonesystem.filter((r: any) => r.medarbetare_id === id);
 
