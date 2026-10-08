@@ -10,7 +10,7 @@ import { maskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { hamtaAnstallning, sparaAnstallningsnummer } from "@/lib/admin/anstallningsnummer";
 import { introKlara, introSaknas, ochLista } from "@/lib/admin/introduktion";
 import NyMedarbetare from "./NyMedarbetare";
-import { ROLLER, HempunktKort, KopplaOperatörModal, type Medarbetare, type OperatorRad } from "./medarbetarDelar";
+import { ROLLER, HempunktKort, KopplaOperatörModal, useAnstKontroll, AnstKontrollText, type Medarbetare, type OperatorRad } from "./medarbetarDelar";
 
 const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
 
@@ -208,6 +208,8 @@ function DetaljVy({
     manadslon !== (medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "") ||
     anstallningsdatum !== (medarbetare.anstallningsdatum || "");
   const anstAndrat = anstLaddad && anst.trim() !== anstOriginal;
+  // Det SPARADE numret kontrolleras mot Fortnox när anslutningen finns (annars: "kontrolleras när anslutningen finns").
+  const anstKontroll = useAnstKontroll(anstOriginal, anstLaddad);
   const ändrat = personAndrat || anstAndrat;
 
   const spara = async () => {
@@ -315,8 +317,12 @@ function DetaljVy({
         <Falt label="Timlön (kr)" value={timlon} onChange={setTimlon} placeholder="—" type="number" />
         <Falt label="Månadslön (kr)" value={manadslon} onChange={setManadslon} placeholder="—" type="number" />
         <Falt label="Anställningsdatum" value={anstallningsdatum} onChange={setAnstallningsdatum} type="date" />
-        <Falt label="Anställningsnummer (Fortnox)" value={anst} onChange={setAnst} placeholder="—" disabled={!anstLaddad || !anstKoppling}
-          hint={anstLaddad && !anstKoppling ? "Anslut Fortnox under Lön → Lönesystem först. Numret hör till kopplingen." : "Det nummer Fortnox känner personen under. Utan det kan lönen inte skickas."} />
+        <Falt label="Anställningsnummer (Fortnox)" value={anst} onChange={setAnst} placeholder="—" disabled={!anstLaddad}
+          hint={anstOriginal
+            ? <AnstKontrollText kontroll={anstKontroll.kontroll} laddar={anstKontroll.laddar} nr={anstOriginal} />
+            : anstLaddad && !anstKoppling
+              ? "Fortnox är inte kopplat ännu. Numret sparas och kontrolleras mot Fortnox när anslutningen finns."
+              : "Det nummer Fortnox känner personen under. Utan det kan lönen inte skickas."} />
       </Kort>
 
       {/* Kopplade operatörer */}

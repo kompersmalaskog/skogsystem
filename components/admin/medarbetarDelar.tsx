@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { Stod, Kort, Sekundar, Primar, Besked, Tomt, Ikon } from "./ui";
 import { precisionText } from "@/lib/geokod";
+import { kontrolleraAnstallningsnummer, type AnstKontroll } from "@/lib/admin/anstallningsnummer";
 
 export type Medarbetare = {
   id: string;
@@ -178,4 +179,32 @@ export function KopplaOperatörModal({
       </div>
     </div>
   );
+}
+
+/* ─── ANSTÄLLNINGSNUMRET MOT FORTNOX ─── */
+// Numret går att spara utan Fortnox; det kontrolleras när anslutningen finns. En kontroll som inte gick att göra är aldrig
+// "numret finns inte": ej_ansluten och fel säger vad som hände, bara 'saknas' säger att Fortnox inte känner numret.
+
+/** Kontrollerar ett SPARAT nummer mot Fortnox (ingen kontroll av ett tomt). */
+export function useAnstKontroll(nr: string, aktiv: boolean) {
+  const [kontroll, setKontroll] = useState<AnstKontroll | null>(null);
+  const [laddar, setLaddar] = useState(false);
+  useEffect(() => {
+    let avbruten = false;
+    const n = nr.trim();
+    if (!aktiv || !n) { setKontroll(null); setLaddar(false); return; }
+    setLaddar(true);
+    kontrolleraAnstallningsnummer(n).then(k => { if (!avbruten) { setKontroll(k); setLaddar(false); } });
+    return () => { avbruten = true; };
+  }, [nr, aktiv]);
+  return { kontroll, laddar, setKontroll };
+}
+
+export function AnstKontrollText({ kontroll, laddar, nr }: { kontroll: AnstKontroll | null; laddar?: boolean; nr: string }) {
+  if (laddar) return <span>Kontrollerar numret mot Fortnox …</span>;
+  if (!kontroll) return null;
+  if (kontroll.status === "hittad") return <span style={{ color: FARG.gron }}>Finns i Fortnox som {kontroll.namn}.</span>;
+  if (kontroll.status === "saknas") return <span style={{ color: FARG.orange }}>Fortnox känner inte numret {nr.trim()}. Kontrollera numret.</span>;
+  if (kontroll.status === "ej_ansluten") return <span>Kontrolleras mot Fortnox när anslutningen finns.</span>;
+  return <span style={{ color: FARG.orange }}>Kunde inte kontrollera mot Fortnox: {kontroll.fel}</span>;
 }

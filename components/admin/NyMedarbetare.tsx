@@ -8,13 +8,13 @@ import React, { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TYP, TNUM } from "@/lib/design/tokens";
 import { maskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
-import { hamtaAnstallning, sparaAnstallningsnummer, IGEN_RAD } from "@/lib/admin/anstallningsnummer";
+import { hamtaAnstallning, sparaAnstallningsnummer, kontrolleraAnstallningsnummer, IGEN_RAD } from "@/lib/admin/anstallningsnummer";
 import { INTRO_STEG, introKlara, forstaOgjorda } from "@/lib/admin/introduktion";
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
 import { Titel, Sektion, Stod, Kort, Lista, Rad, Falt, Val, Primar, Sekundar, Tertiar, Lank, Besked, Laddar, Fel, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import { OperatorRad } from "./MedarbetareKontroller";
-import { HempunktKort, KopplaOperatörModal, ROLLER, type Medarbetare } from "./medarbetarDelar";
+import { HempunktKort, KopplaOperatörModal, ROLLER, useAnstKontroll, AnstKontrollText, type Medarbetare } from "./medarbetarDelar";
 
 const KOLUMNER = "id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng";
 
@@ -269,25 +269,39 @@ function Steg4({ person, lonesystemId, nr, onTillbaka, onKlar, onAvbryt }: {
   const [varde, setVarde] = useState(nr);
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
+  // Ett redan sparat nummer kontrolleras mot Fortnox direkt (när anslutningen finns).
+  const sparat = useAnstKontroll(nr, true);
+  // Efter sparningen: finns numret i Fortnox? Hittad eller ej ansluten → vidare. Saknas eller fel → numret är sparat, men
+  // flödet stannar och säger det, och man kan gå vidare ändå.
+  const [efter, setEfter] = useState<{ kontroll: Awaited<ReturnType<typeof kontrolleraAnstallningsnummer>>; nr: string } | null>(null);
 
   const spara = async () => {
-    setSparar(true); setFel(null);
+    setSparar(true); setFel(null); setEfter(null);
     const f = await sparaAnstallningsnummer(person.id, lonesystemId, varde);
+    if (f) { setSparar(false); setFel(f); return; }
+    const k = await kontrolleraAnstallningsnummer(varde.trim());
     setSparar(false);
-    if (f) { setFel(f); return; }
+    if (k.status === "saknas" || k.status === "fel") { setEfter({ kontroll: k, nr: varde }); return; }
     onKlar();
   };
 
   return (
     <>
       <Kort>
-        <Falt label="Anställningsnummer" value={varde} onChange={setVarde} placeholder="—"
-          hint={lonesystemId ? "Det nummer Fortnox känner personen under. Utan det kan lönen inte skickas." : "Anslut Fortnox under Lön → Lönesystem först. Numret hör till kopplingen."} disabled={!lonesystemId} />
+        <Falt label="Anställningsnummer" value={varde} onChange={v => { setVarde(v); setEfter(null); }} placeholder="—"
+          hint={efter
+            ? <AnstKontrollText kontroll={efter.kontroll} nr={efter.nr} />
+            : nr && varde.trim() === nr.trim()
+              ? <AnstKontrollText kontroll={sparat.kontroll} laddar={sparat.laddar} nr={nr} />
+              : lonesystemId
+                ? "Det nummer Fortnox känner personen under. Utan det kan lönen inte skickas. Numret kontrolleras mot Fortnox när du sparar."
+                : "Fortnox är inte kopplat ännu. Numret sparas och kontrolleras mot Fortnox när anslutningen finns."} />
       </Kort>
       {fel && <Besked>{fel}</Besked>}
       <Knappar tillbaka={onTillbaka} onAvbryt={onAvbryt} avbrytText="Avbryt, fortsätt senare">
-        <Primar onClick={spara} disabled={sparar || !varde.trim() || !lonesystemId}>{sparar ? "Sparar…" : "Klar"}</Primar>
-        {!varde.trim() && <Tertiar onClick={onKlar} style={{ alignSelf: "center" }}>Lägg in numret senare</Tertiar>}
+        <Primar onClick={spara} disabled={sparar || !varde.trim()}>{sparar ? "Sparar…" : "Klar"}</Primar>
+        {efter && <Tertiar onClick={onKlar} style={{ alignSelf: "center" }}>Gå vidare ändå</Tertiar>}
+        {!efter && !varde.trim() && <Tertiar onClick={onKlar} style={{ alignSelf: "center" }}>Lägg in numret senare</Tertiar>}
       </Knappar>
     </>
   );
