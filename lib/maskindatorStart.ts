@@ -72,22 +72,8 @@ export function avgorMaskindatorStart(args: {
   return { typ: 'lista' };
 }
 
-/** Avstämning mot första RIKTIGA fixen (A4) när starten byggde på något annat än en riktig fix. Rent beslut:
- *   'inget' — fixen visar samma objekt (eller inget objekt) → lämna körvyn
- *   'fraga' — förarens egna val (senaste) och GPS visar ett ANNAT, ej tilldelat objekt → bekräftelsekortet, som förut
- *   'byt'   — i övriga fall byt en gång (tyst, med "Bytte till …"-notis): maskinen är tilldelad objektet den står i,
- *             kortet har redan visats den här sessionen, eller starten var ett tilldelat objekt utan fix (A4 som förut) */
-export function avstamningsAtgard(a: {
-  startTyp: StartAtgard['typ'] | null;
-  traffObjektId: string | null;
-  valtObjektId: string | null;
-  traffTilldelad: boolean;
-  redanFragat: boolean;
-}): 'inget' | 'fraga' | 'byt' {
-  if (!a.traffObjektId || a.traffObjektId === a.valtObjektId) return 'inget';
-  if (a.startTyp === 'senaste' && !a.traffTilldelad && !a.redanFragat) return 'fraga';
-  return 'byt';
-}
+// Avstämningen mot positionen efter start är LÖPANDE och bor i lib/objektAvstamning (stegaAvstamning) — den gamla engångs-avstämningen
+// (avstamningsAtgard, en utvärdering mot första fixen) är borttagen: en tom kandidatladdning gjorde att maskinen stod kvar på fel objekt.
 
 /** Implicit ja: maskinen har kört ≥ 200 m inne i objektet medan kortet visats → räkna som Ja
  *  (sätt tilldelning + status, stäng kortet). Tröskel i meter, default 200. */
