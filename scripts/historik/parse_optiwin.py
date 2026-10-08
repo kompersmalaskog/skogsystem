@@ -139,23 +139,17 @@ def parse_lastcert(pages):
     r["forare"] = " ".join(mf.group(1).split()) if mf else ""
     ms = re.search(r"Opti(?:4G|Win) ([\d.]+)", p1)
     r["system"] = ms.group(0) if ms else ""
-    # sammanfattningssidan
-    mk = re.search(r"([\d ]+,\d+) m³\n([\d ]+,\d+) m³", t)
-    r["volym_m3"] = sv(mk.group(1)) if mk else None
-    ml = re.search(r"Antal laster\n([\s\S]{0,400}?)Entreprenörs-ID", t)
-    mm = re.search(r"Förarspecifik sammanfattning[\s\S]*?\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*([\d ]+,\d+) m³\n\s*([\d ]+,\d+) m³", t)
+    # sammanfattningssidan ("Förarspecifik sammanfattning")
+    r["volym_m3"] = r["laster"] = None
+    mm = re.search(r"Antal laster\n[^\n]*\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*([\d ]*\d,\d+) m³\n\s*([\d ]*\d,\d+) m³", t)
     if mm:
-        r["laster"], r["sortiment"], r["volym_m3"], r["medellass"] = int(mm.group(1)) if False else None, None, sv(mm.group(4)), sv(mm.group(5))
-    ml2 = re.search(r"Antal laster\s+(\d+)", t)
-    r["laster"] = int(ml2.group(1)) if ml2 else None
-    tider = re.findall(r"\n(\d+:\d\d)\n(\d+:\d\d)\n(\d+:\d\d)\n", t)
-    if tider:
-        r["g15"], r["avbrott"], r["arbetstid"] = tider[0]
+        r["laster"], r["volym_m3"] = int(mm.group(1)), sv(mm.group(4))
+    mt = re.search(r"\n(\d+:\d\d)\n(\d+:\d\d)\n(\d+:\d\d)\n\s*([\d ]*\d,\d)\n", t)
+    if mt:
+        r["g15"], r["avbrott"], r["arbetstid"], r["bransle_l"] = mt.group(1), mt.group(2), mt.group(3), sv(mt.group(4))
     else:
         r["g15"] = r["avbrott"] = r["arbetstid"] = ""
-    mb = re.search(r"\n(\d+),(\d)\n(\d+),(\d)\n(\d+),(\d)\n(\d+),(\d)\n", t)
-    mbr = re.search(r"\n(\d{2,5},\d)\n(\d+,\d)\n(\d+,\d)\n(\d+,\d)\n", t)
-    r["bransle_l"] = sv(mbr.group(1)) if mbr else None
+        r["bransle_l"] = None
     sm = re.findall(r"([\d ]+,\d+)\s*Summa", p1)
     r["summa_sida1"] = sv(sm[-1]) if sm else None
     return r
