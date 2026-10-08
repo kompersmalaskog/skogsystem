@@ -11,7 +11,9 @@ const forekomster = (re: RegExp) => (page.match(re) || []).length;
 describe('RITNINGEN går genom utjämningen — på exakt de fyra ritställena', () => {
   it('hyttsparRitadeLinjer anropas på fyra ställen: live eget spår, tidigare dagar, den andres spår, planeringsvyn', () => {
     expect(forekomster(/hyttsparRitadeLinjer\(/g)).toBe(4);
-    expect(page).toMatch(/hyttspar-egen-source[\s\S]{0,400}?\n?[\s\S]{0,400}?hyttsparRitadeLinjer\(hyttsparPointsRef\.current as any\)|hyttsparRitadeLinjer\(hyttsparPointsRef\.current as any\)/);
+    const live = page.indexOf('const uppdateraHyttsparLager = useCallback');
+    expect(live).toBeGreaterThan(0);
+    expect(page.slice(live, live + 900)).toContain('hyttsparRitadeLinjer(hyttsparPointsRef.current as any)');   // live eget spår: hela dagens RÅA punkter in, utjämnad linje ut
     expect(page).toMatch(/\.filter\(\(r: any\) => r\.datum !== idag\)[^\n]*\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
     expect(page).toMatch(/const features = \(data \|\| \[\]\)\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
     expect(page).toMatch(/for \(const coords of hyttsparRitadeLinjer\(Array\.isArray\(\(r as any\)\.points\)/);
