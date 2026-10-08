@@ -156,7 +156,7 @@ function installeraKarta() {
   const k: any = { kartor: [], markorer: [] };
   class Marker {
     ll: [number, number] = [0, 0]; dragbar = false; h: Record<string, Function> = {};
-    constructor(public opts: any) { k.markorer.push(this); }
+    constructor(public opts: any) { this.dragbar = !!opts?.draggable; k.markorer.push(this); }
     setLngLat(ll: [number, number]) { this.ll = ll; return this; }
     addTo() { return this; }
     setDraggable(b: boolean) { this.dragbar = b; return this; }
@@ -733,19 +733,21 @@ describe("Ny medarbetare: fyra steg, ett i taget", () => {
     expect(window.location.search).toContain("steg=3");
   });
 
-  it("steg 2: bara byn hittades (Kompersmåla Gård 362 96) → kartan säger det, ingen punkt är sparad, Nästa är låst tills punkten satts på huset", async () => {
+  it("steg 2: bara byn hittades (Kompersmåla Gård 362 96) → INGEN nål, 'Tryck på huset', Spara inaktiv; ett tryck ger nål och Nästa öppnas", async () => {
     nyPerson({ hemadress: "Kompersmåla Gård 362 96" });
     geokodSvar("ort");
     await monter("flik=medarbetare&ny=1&person=n1&steg=2");
     await klick("Hitta adressen");
     expect(g.__db.medarbetare.find((m: any) => m.id === "n1").hem_lat).toBeNull();
-    expect(text()).toContain("Hittade bara byn – sätt punkten på huset");
+    expect(text()).toContain("Tryck på huset");
     expect(text()).toContain("Kompersmåla, Almundsryd");
+    expect(g.__karta.markorer).toHaveLength(0);
     expect(blad("Stämmer").length).toBe(0);
+    expect(blad("Spara punkten")[0].closest("button")!.disabled).toBe(true);
     expect(blad("Nästa")[0].closest("button")!.disabled).toBe(true);
-    await klick("Flytta punkten");
     g.__karta.tryck(56.3939, 14.7729);
     await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    expect(g.__karta.punkt()).toEqual([14.7729, 56.3939]);
     await klick("Spara punkten");
     expect(g.__hempunktAnrop).toEqual([{ id: "n1", atgard: "flytta", lat: 56.3939, lng: 14.7729 }]);
     expect(g.__db.medarbetare.find((m: any) => m.id === "n1")).toMatchObject({ hem_lat: 56.3939, hem_koord_kalla: "manuell" });
@@ -1023,47 +1025,61 @@ describe("Hempunkten på karta: en punkt, en etikett, två knappar", () => {
   const knappar = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("button")).map(b => (b.textContent || "").trim());
   const tick = () => act(async () => { await new Promise(r => setTimeout(r, 0)); });
 
-  it("Kompersmåla Gård: kartan visar byns punkt med etiketten, säger 'Hittade bara byn – sätt punkten på huset' och erbjuder INTE Stämmer", async () => {
+  it("Kompersmåla Gård: ingen nål (byns mittpunkt är en gissning), kartan visar området och säger 'Tryck på huset'; Stämmer och Flytta finns inte, Spara är inaktiv", async () => {
     byn();
     await monter("flik=medarbetare&person=m1");
     expect(g.__karta.kartor).toHaveLength(1);
-    expect(g.__karta.punkt()).toEqual([14.78333, 56.38333]);
+    expect(g.__karta.sista().centrum).toEqual([14.78333, 56.38333]); // området, utan nål
+    expect(g.__karta.markorer).toHaveLength(0);
     expect(text()).toContain("Kompersmåla, Almundsryd");
-    expect(text()).toContain("Hittade bara byn – sätt punkten på huset");
+    expect(text()).toContain("Hittade bara byn");
+    expect(text()).toContain("Tryck på huset");
     expect(blad("Stämmer").length).toBe(0);
-    expect(blad("Flytta punkten").length).toBe(1);
+    expect(blad("Flytta punkten").length).toBe(0);
+    expect(blad("Spara punkten")[0].closest("button")!.disabled).toBe(true);
     // ingen hempunkt sparades och ingenting står som 'exakt' eller 'klar'
     expect(m1().hem_lat).toBeNull();
     expect(text()).not.toContain("exakt");
+    expect(g.__hempunktAnrop).toEqual([]);
   });
 
-  it("Flytta punkten: man trycker på kartan, punkten flyttar, Spara punkten skriver en manuell, bekräftad punkt", async () => {
+  it("första trycket sätter nålen (dragbar), Spara punkten skriver en manuell, bekräftad punkt", async () => {
     byn();
     await monter("flik=medarbetare&person=m1");
-    await klick("Flytta punkten");
-    expect(g.__karta.markorer.at(-1).dragbar).toBe(true);
-    expect(blad("Spara punkten")[0].closest("button")!.disabled).toBe(true); // inget flyttat än
     g.__karta.tryck(56.3939, 14.7729);
     await tick();
+    expect(g.__karta.markorer).toHaveLength(1);
     expect(g.__karta.punkt()).toEqual([14.7729, 56.3939]);
+    expect(g.__karta.markorer.at(-1).dragbar).toBe(true);
     expect(blad("Spara punkten")[0].closest("button")!.disabled).toBe(false);
     await klick("Spara punkten");
     expect(g.__hempunktAnrop).toEqual([{ id: "m1", atgard: "flytta", lat: 56.3939, lng: 14.7729 }]);
     expect(m1()).toMatchObject({ hem_lat: 56.3939, hem_lng: 14.7729, hem_koord_kalla: "manuell" });
     expect(m1().hem_bekraftad_tid).toBeTruthy();
-    // efter sparningen: bekräftad, inget varningsord kvar
     expect(text()).not.toContain("Hittade bara byn");
     expect(text()).toContain("Bekräftad");
   });
 
-  it("Flytta punkten: man kan också dra punkten", async () => {
+  it("nålen går att dra efter första trycket, och ett nytt tryck flyttar den (ingen andra nål)", async () => {
     byn();
     await monter("flik=medarbetare&person=m1");
-    await klick("Flytta punkten");
+    g.__karta.tryck(56.39, 14.77);
+    await tick();
     g.__karta.dra(56.394, 14.773);
     await tick();
+    g.__karta.tryck(56.3945, 14.7735);
+    await tick();
+    expect(g.__karta.markorer).toHaveLength(1);
     await klick("Spara punkten");
-    expect(g.__hempunktAnrop[0]).toEqual({ id: "m1", atgard: "flytta", lat: 56.394, lng: 14.773 });
+    expect(g.__hempunktAnrop[0]).toEqual({ id: "m1", atgard: "flytta", lat: 56.3945, lng: 14.7735 });
+  });
+
+  it("en gammal grov geokodad punkt (sparad som hempunkt) ritas inte heller som nål: den är också en gissning", async () => {
+    Object.assign(m1(), { hem_lat: 56.38333, hem_lng: 14.78333, hem_koord_kalla: "geokod", hem_geokod_precision: "locality", hem_geokod_etikett: "Kompersmåla, Almundsryd", hem_bekraftad_tid: null });
+    await monter("flik=medarbetare&person=m1");
+    expect(g.__karta.markorer).toHaveLength(0);
+    expect(text()).toContain("Tryck på huset");
+    expect(blad("Stämmer").length).toBe(0);
   });
 
   it("Avbryt: punkten går tillbaka dit den var och inget skickas", async () => {
