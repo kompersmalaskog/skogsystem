@@ -9,8 +9,9 @@
 // for da - och bara da - gar en kontrollmatning att gora pa samma yta.
 
 import { T } from '@/lib/utbildning';
-import { avstandM, riktning, skadeandel } from '@/lib/provytor';
+import { avstandM, provytaStatus, riktning, skadeandel } from '@/lib/provytor';
 import type { EgenkontrollProvyta } from '@/lib/egenkontroll';
+import ProvytaMarke from './ProvytaMarke';
 
 const GUL = '#FFD60A';
 
@@ -52,7 +53,7 @@ export default function ProvyteLista({
   // NASTA ATT GORA: narmaste OMATTA ytan. Den lyfts fram sa man ser vilken man
   // ska till utan att lasa hela listan. Ar allt matt eller overhoppat finns
   // ingen sadan - da visas ingen markering alls.
-  const nastaId = rader.find(({ yta }) => !yta.overhoppad && yta.matt == null)?.yta.id ?? null;
+  const nastaId = rader.find(({ yta }) => provytaStatus(yta) === 'omatt')?.yta.id ?? null;
 
   return (
     <div style={{ marginBottom: 12 }}>
@@ -72,7 +73,7 @@ export default function ProvyteLista({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {rader.map(({ yta, avstand, riktn }) => {
           const andel = skadeandel(yta.antal_frisk, yta.antal_skadad);
-          const klar = yta.overhoppad || yta.matt != null;
+          const status = provytaStatus(yta);
           const nasta = yta.id === nastaId;
           return (
             <div key={yta.id} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
@@ -87,14 +88,9 @@ export default function ProvyteLista({
                 outline: nasta ? `2px solid ${T.blue}` : 'none', outlineOffset: -2,
               }}
             >
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 12, height: 12, borderRadius: 6, flexShrink: 0,
-                  background: klar ? '#0A84FF' : 'transparent',
-                  border: '2px solid #0A84FF', boxSizing: 'border-box',
-                }}
-              />
+              {/* Samma form som pa kartan: ihalig = omatt, fylld med bock = matt,
+                  nedtonad med streck = overhoppad. Texten nedan sager det i ord. */}
+              <ProvytaMarke status={status} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: 16, fontWeight: 500 }}>Yta {yta.nummer}</span>
                 {/* Texten bar beskedet - ramen upprepar bara det. */}
@@ -104,11 +100,13 @@ export default function ProvyteLista({
                   </span>
                 )}
                 <span style={{ display: 'block', fontSize: 13, color: T.t2, marginTop: 1 }}>
-                  {yta.overhoppad
+                  {status === 'overhoppad'
                     ? `Överhoppad — ${yta.kommentar}`
-                    : andel != null
-                      ? `${andel} % skadade · ${(yta.antal_frisk ?? 0) + (yta.antal_skadad ?? 0)} träd`
-                      : 'Inte mätt'}
+                    : status === 'omatt'
+                      ? 'Inte mätt'
+                      : andel != null
+                        ? `${andel} % skadade · ${(yta.antal_frisk ?? 0) + (yta.antal_skadad ?? 0)} träd`
+                        : 'Mätt'}
                   {yta.markt_i_falt && ' · snitslad'}
                 </span>
               </span>
@@ -120,7 +118,7 @@ export default function ProvyteLista({
                   <span style={{ display: 'block', fontSize: 13, color: T.t2 }}>{riktn}</span>
                 </span>
               )}
-              {!yta.overhoppad && andel != null && (
+              {status === 'matt' && andel != null && (
                 <span aria-hidden="true" style={{ width: 4, height: 28, borderRadius: 2, background: GUL, flexShrink: 0 }} />
               )}
             </button>

@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
+import { expression, featureFilter, latest, validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import {
   basvagsNummer, geometriKoordinater, klassaPunkt, kontextFeature, kontextLager,
   kontextUtanKontrollpunkter, kontrollFeatures, kontrollLager, kontrollLagerIdn,
   mittpunktPaLinje, pilVinkel, valdLinjeFilter, valdSymbolFilter,
-  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
+  provytaFeatures, provytaLager, provytaLagerIdn,
+  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
 } from './egenkontrollkarta';
+import { provytaBildNamn } from './provytaIkon';
+import { traffKindFranEgenskaper } from './egenkontrollTryck';
+import type { ProvytaStatus } from './provytor';
 import { LINJE_STIL, PIL_STIL, zoomKurva } from './kartstil';
 import { markerIconDefs } from './marker-icons';
 import { ZONE_COLORS } from './zone-colors';
@@ -331,5 +335,76 @@ describe('zoomKurva', () => {
   it('forskjutning och skalning sker i kod - uttrycket har fortfarande EN interpolate', () => {
     const k = zoomKurva([[5, 2], [17, 7]], 1, 4);
     expect(k).toEqual(['interpolate', ['linear'], ['zoom'], 5, 6, 17, 11]);
+  });
+});
+
+describe('provytorna - tre tillstand i kartan', () => {
+  const kalla = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+  const STATUS: ProvytaStatus[] = ['omatt', 'matt', 'overhoppad'];
+  const MATT = '2026-10-04T15:43:28.181+00:00';
+  const ruta = (status: ProvytaStatus) => ({
+    nummer: 1, lat: 56.5, lng: 14.7,
+    matt: status === 'omatt' ? null : MATT,       // overhoppad har OCKSA matt satt
+    overhoppad: status === 'overhoppad',
+  });
+
+  it('lagren ar giltiga enligt MapLibres stil-spec', () => {
+    const stil = { version: 8 as const, sources: { [PROVYTA_KALLA]: kalla } as any, layers: provytaLager() };
+    const fel = validateStyleMin(stil as any).map((f: any) => `${f.message}`).filter((m: string) => !/sprite/i.test(m));
+    expect(fel).toEqual([]);
+  });
+
+  it('lagrens id:n ar kontraktet mot tryckhanteraren och lagermenyn', () => {
+    expect(provytaLagerIdn()).toEqual(['ek-provyta-matt', 'ek-provyta-omatt']);
+    expect(provytaLager().map((l) => l.id)).toEqual(provytaLagerIdn());
+  });
+
+  it('varje tillstand traffar EXAKT ETT lager - ingen yta ritas tva ganger eller aldrig', () => {
+    const lager = provytaLager();
+    for (const status of STATUS) {
+      const feature = { type: 1, properties: { status } };
+      const traffar = lager.filter((l) => featureFilter(l.filter).filter({ zoom: 0 }, feature as any));
+      expect(traffar.length, status).toBe(1);
+    }
+  });
+
+  it('varje tillstand far SIN ikon - och den ikonen finns i listan av ikoner som laggs till', () => {
+    const lager = provytaLager();
+    const forvantat = new Set(STATUS.map(provytaBildNamn));
+    const sett = new Set<string>();
+    for (const status of STATUS) {
+      const feature = { type: 1, properties: { status } };
+      const l = lager.find((x) => featureFilter(x.filter).filter({ zoom: 0 }, feature as any))!;
+      const uttr = expression.createExpression(l.layout['icon-image'], (latest as any).layout_symbol['icon-image']);
+      expect(uttr.result).toBe('success');
+      const bild = (uttr as any).value.evaluate({ zoom: 0 }, feature).name as string;
+      expect(bild, status).toBe(provytaBildNamn(status));
+      sett.add(bild);
+    }
+    expect(sett).toEqual(forvantat);
+  });
+
+  it('en yta ritas alltid och traffas alltid: icon-allow-overlap', () => {
+    for (const l of provytaLager()) {
+      expect(l.layout['icon-allow-overlap']).toBe(true);
+      expect(l.layout['icon-ignore-placement']).toBe(true);
+    }
+  });
+
+  it('features: status harleds ur data - overhoppad ar overhoppad aven nar matt ar satt', () => {
+    for (const status of STATUS) {
+      const [f] = provytaFeatures([ruta(status)]);
+      expect(f.properties.status, status).toBe(status);
+    }
+  });
+
+  it('ytor utan plats ritas inte - de gissas aldrig in', () => {
+    expect(provytaFeatures([{ ...ruta('omatt'), lat: null }, { ...ruta('omatt'), lng: null }])).toEqual([]);
+  });
+
+  it('en provyta kanns igen som provyta vid tryck (nummer, aldrig kind)', () => {
+    const [f] = provytaFeatures([ruta('matt')]);
+    expect(f.properties.kind).toBeUndefined();
+    expect(traffKindFranEgenskaper(f.properties)).toBe('provyta');
   });
 });
