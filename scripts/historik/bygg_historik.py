@@ -147,6 +147,10 @@ def main():
             w.writerows(rows)
 
     srows.sort(key=lambda x: (x["maskin_namn"], x["datum"], x["tin"], x["forare"]))
+    # skift ur exkluderade tidsavgränsade månads-/årsrapporter dubbelräknar (finare uppdelning av samma tid): egen fil
+    tid_ = [x for x in srows if x["kalla"] == "tidsavgransad"]
+    srows = [x for x in srows if x["kalla"] != "tidsavgransad"]
+    skriv("skift_tidsavgransade_exkluderade.csv", tid_, SKIFT_KOL)
     skriv("skift.csv", srows, SKIFT_KOL)
     skriv("objekt.csv", orows, OBJEKT_KOL)
     akol = ["sha256", "filnamn", "rapportdatum", "maskin_namn", "kontroll", "forvantat", "summa", "diff"]
