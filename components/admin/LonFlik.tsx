@@ -6,6 +6,7 @@ import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA } from "@/lib/design/tokens"
 import { Kort, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
+import { loneartInfo } from "@/lib/lonesystem/loneart";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
@@ -376,19 +377,6 @@ function Loneunderlag() {
 
 /* ─── FORTNOX EXPORT SEKTION ─── */
 
-const LONEART_LABELS: Record<string, string> = {
-  "11": "Timlön", "136": "Vältlappar mm", "821": "Färdtidsersättning",
-  "1354": "Premielön skotare", "1355": "Premielön skördare",
-  "1435": "Övertid skördare", "1436": "Övertid skotare",
-};
-
-// Enhet per löneart — MÄNGDER, inte kronor (Fortnox äger satsen). Antalet i
-// Number tolkas alltså som: timmar / veckor / påbörjade mil.
-const LONEART_ENHET: Record<string, string> = {
-  "11": "tim", "1354": "tim", "1355": "tim", "1435": "tim", "1436": "tim",
-  "136": "veckor", "821": "mil",
-};
-
 function FortnoxExportSektion({
   period, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, exportResultat,
 }: {
@@ -526,8 +514,8 @@ function FortnoxExportSektion({
                 <div>
                   {rader.map((r: any, ri: number) => (
                     <div key={ri} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", ...TYP.meta, padding: `${AVSTAND.xs}px 0`, gap: AVSTAND.s }}>
-                      <span style={{ color: FARG.text }}>{LONEART_LABELS[r.SalaryCode] || r.SalaryCode} <span style={{ color: FARG.text2, ...TYP.meta }}>({r.SalaryCode})</span></span>
-                      <span style={{ color: FARG.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ ...TYP.meta, color: FARG.text2 }}>{LONEART_ENHET[r.SalaryCode] || ""}</span></span>
+                      <span style={{ color: FARG.text }}>{loneartInfo(r.loneart)?.label || r.SalaryCode} <span style={{ color: FARG.text2, ...TYP.meta }}>({r.SalaryCode})</span></span>
+                      <span style={{ color: FARG.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ ...TYP.meta, color: FARG.text2 }}>{loneartInfo(r.loneart)?.enhet || ""}</span></span>
                     </div>
                   ))}
                 </div>

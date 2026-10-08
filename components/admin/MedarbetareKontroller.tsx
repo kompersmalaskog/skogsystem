@@ -60,7 +60,7 @@ export default function MedarbetareKontroller({
   );
 }
 
-function OperatorRad({ o, maskiner, sista }: { o: OkandOperator; maskiner: Record<string, string>; sista: boolean }) {
+export function OperatorRad({ o, maskiner, sista }: { o: OkandOperator; maskiner: Record<string, string>; sista: boolean }) {
   const [läge, setLäge] = useState<{ steg: "vila" | "kopplar" | "bygger" | "klar" | "fel"; text?: string }>({ steg: "vila" });
   const maskin = (o.maskin_id && maskiner[o.maskin_id]) || o.maskin_id || "okänd maskin";
   const period = o.datum.length > 1 ? `${kort(o.datum[0])}–${kort(o.datum[o.datum.length - 1])}` : kort(o.datum[0]);

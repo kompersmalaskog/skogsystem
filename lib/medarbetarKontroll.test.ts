@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { okandaOperatorer, forareUtanMaskin, saknarHempunkt, normNamn } from "./medarbetarKontroll";
+import { okandaOperatorer, forareUtanMaskin, saknarHempunkt, obekraftadeHempunkter, normNamn } from "./medarbetarKontroll";
 
 const med = [
   { id: "m1", namn: "Martin Lindqvist", aktiv: true },
@@ -54,5 +54,18 @@ describe("forareUtanMaskin + saknarHempunkt", () => {
       { id: "o", namn: "Oscar", orsak: "vantar" },
       { id: "q", namn: "Q", orsak: "osaker" },
     ]);
+  });
+});
+
+describe("obekraftadeHempunkter: geokodade punkter som ingen har sett", () => {
+  it("bara aktiva med geokodad punkt utan stämpel; manuell, bekräftad och saknad punkt räknas inte", () => {
+    const bas = { aktiv: true, hemadress: "x", hem_lat: 56.4, hem_lng: 14.7, hem_koord_kalla: "geokod", hem_bekraftad_tid: null };
+    expect(obekraftadeHempunkter([
+      { id: "a", namn: "Anna", ...bas },
+      { id: "b", namn: "Bo", ...bas, hem_bekraftad_tid: "2026-10-08T09:00:00Z" },
+      { id: "c", namn: "Cia", ...bas, hem_koord_kalla: "manuell" },
+      { id: "d", namn: "Dan", ...bas, hem_lat: null, hem_lng: null },
+      { id: "e", namn: "Eva", ...bas, aktiv: false },
+    ])).toEqual([{ id: "a", namn: "Anna" }]);
   });
 });
