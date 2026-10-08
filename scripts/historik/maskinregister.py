@@ -47,10 +47,11 @@ INFO = {  # maskinnamn -> (typ, tillverkare, identifierare, agare)
     "exkludera: Ponsse månads-/årsrapporter": ("", "Ponsse", "ämne 'månad' eller Tidsintervall >= 21 dagar", "exkludera"),
     "exkludera: Rottne månads-/årsrapporter": ("", "Rottne", "Rapporttyp Tidsorienterad", "exkludera"),
     "exkludera: Rottne okopplade objektrapporter": ("", "Rottne", "ingen mätsedel hittad", "exkludera"),
+    "exkludera: Komatsu tidsavgränsade månads-/årsrapporter": ("", "Komatsu", "Driftsrapport 'Tidsavgränsad' (dubbelräknar volym)", "exkludera"),
 }
 EXKL = {"exkludera: Komatsu 951 demo", "exkludera: per.lyseback (Komatsu 901)",
         "exkludera: Ponsse månads-/årsrapporter", "exkludera: Rottne månads-/årsrapporter",
-        "exkludera: Rottne okopplade objektrapporter"}
+        "exkludera: Rottne okopplade objektrapporter", "exkludera: Komatsu tidsavgränsade månads-/årsrapporter"}
 
 
 def mail(s):
@@ -76,6 +77,13 @@ def main():
         if "Tidsorienterad" in " ".join(d["pages"]):
             tidsor.add(d["sha"])
 
+    tidsavgr = set()
+    mf = IMP / "maxi_full.jsonl"
+    if mf.exists():
+        for l in open(mf, encoding="utf-8"):
+            d = json.loads(l)
+            if re.search(r"Tidsavgränsad,", "\n".join(d["pages"])):
+                tidsavgr.add(d["sha"])
     out = []
     for r in rows:
         f, sha, a = r["format"], r["sha256"], mail(r["avsandare"])
@@ -84,6 +92,8 @@ def main():
             namn, orsak = "Extern: Magnus Gustafsson", "avsändare"
         elif a == "per.lyseback@komatsuforest.com":
             namn, orsak = "exkludera: per.lyseback (Komatsu 901)", "avsändare"
+        elif f == "maxixplorer_drf" and sha in tidsavgr:
+            namn, orsak = "exkludera: Komatsu tidsavgränsade månads-/årsrapporter", "Tidsavgränsad"
         elif f in ("maxixplorer_drf", "maxixplorer_produktionsrapport"):
             ch = r["chassinummer"]
             if ch == "9510004659":

@@ -241,7 +241,10 @@ def main():
     ap.add_argument("--fulltext", default=str(IMP / "maxi_full.jsonl"))
     a = ap.parse_args()
     inv = {r["sha256"]: r for r in csv.DictReader(open(IMP / "inventering.csv", encoding="utf-8-sig"))}
-    maskin = {r["sha256"]: r["maskin_namn"] for r in csv.DictReader(open(IMP / "rapport_maskin.csv", encoding="utf-8-sig"))}
+    rm = list(csv.DictReader(open(IMP / "rapport_maskin.csv", encoding="utf-8-sig")))
+    maskin = {r["sha256"]: r["maskin_namn"] for r in rm}
+    tidsavgr = {r["sha256"] for r in rm if r["orsak"] == "Tidsavgränsad"}  # exkluderade månads-/årsrapporter, parsas ändå
+    from maskinregister import KOMATSU
     skord, skotare = {"Komatsu 941", "Komatsu 901XC"}, {"Komatsu 840.4", "Komatsu 860.4", "Komatsu 830.3", "Komatsu 875"}
 
     objekt_rows, avv, skift = [], [], {}
@@ -250,19 +253,20 @@ def main():
     for l in open(a.fulltext, encoding="utf-8"):
         d = json.loads(l)
         sha = d["sha"]
-        if maskin.get(sha, "exkludera") == "exkludera" or sha not in inv:
+        if sha not in inv or (maskin.get(sha, "exkludera") == "exkludera" and sha not in tidsavgr):
             continue
-        forwarder = "Antal lass" in "\n".join(d["pages"]) or maskin[sha] in skotare
+        namn_ = KOMATSU[inv[sha]["chassinummer"]][0] if sha in tidsavgr else maskin[sha]
+        forwarder = "Antal lass" in "\n".join(d["pages"]) or namn_ in skotare
         try:
             r = parse_rapport(d["pages"], forwarder)
         except Exception as e:  # trasig rapport stoppar aldrig körningen
             avv.append(dict(sha256=sha, filnamn=inv[sha]["filnamn"], rapportdatum="", maskin_namn=maskin[sha], kontroll="parsefel",
                             forvantat="", summa="", diff=f"{type(e).__name__}: {e}"))
             continue
-        r.update(sha=sha, forwarder=forwarder, maskin=maskin[sha], chassinr=inv[sha]["chassinummer"], filnamn=inv[sha]["filnamn"])
+        r.update(sha=sha, forwarder=forwarder, maskin=namn_, tidsavgr=sha in tidsavgr, chassinr=inv[sha]["chassinummer"], filnamn=inv[sha]["filnamn"])
         rapporter.append(r)
 
-    rapporter.sort(key=lambda r: (r["rapportdatum"], r["sha"]))
+    rapporter.sort(key=lambda r: (not r["tidsavgr"], r["rapportdatum"], r["sha"]))  # tidsavgränsade först: objektrapporter skriver över
     # föraren kan ha tappat förnamnet i "Objekt"-layouten: expandera enstaka efternamn mot kända fullständiga namn på samma maskin
     fulla = defaultdict(set)
     for r in rapporter:
@@ -305,7 +309,8 @@ def main():
                        antal_lass=(s.get("lass") if fw and s.get("lass") is not None else ""),
                        vikt_ton=(s.get("vikt") if fw and s.get("vikt") is not None else ""),
                        volym_m3fub=s["volym"] if s["volym"] is not None else "", bransle_l=s["bransle"] if s["bransle"] is not None else "",
-                       typ="skotare" if fw else "skördare", sha256=sha)
+                       typ="skotare" if fw else "skördare", sha256=sha, volym_enhet="fub", format="maxixplorer_drf",
+                       kalla="tidsavgransad" if r["tidsavgr"] else "objekt")
             if key in skift:
                 prev = skift[key]
                 if any(prev[k] != row[k] for k in ("g15", "avbrott", "stammar", "volym_m3fub", "bransle_l", "antal_lass")):
@@ -366,7 +371,7 @@ def main():
             stockar = r.get("tot_stockar", "")
             if ta and len(ta["dec"]) >= 3 and abs(art_sum - ta["dec"][2]) > 0.002 * max(1, len(r["arter"])):
                 avv.append({**base, "kontroll": "arter_vs_totalt_2b", "forvantat": ta["dec"][2], "summa": round(art_sum, 3), "diff": round(art_sum - ta["dec"][2], 3)})
-        objekt_rows.append(dict(sha256=sha, rapportdatum=r["rapportdatum"], maskin_namn=r["maskin"], chassinr=r["chassinr"], typ="skotare" if fw else "skördare", rapporttyp=r["rapporttyp"],
+        objekt_rows.append(dict(status="exkludera" if r["tidsavgr"] else "ok", format="maxixplorer_drf", volym_enhet="fub", sha256=sha, rapportdatum=r["rapportdatum"], maskin_namn=r["maskin"], chassinr=r["chassinr"], typ="skotare" if fw else "skördare", rapporttyp=r["rapporttyp"],
                                 objektnr=r["objektnr"], objekt=r["objekt"], programversion=r["programversion"], stammar=stam, stockar=stockar,
                                 volym_m3fub=vol_obj if vol_obj is not None else "", volym_2b_arter=tot2b if tot2b is not None else "",
                                 flertrad_102b=flertrad, volym_per_tradslag=arter, g0=r["g0"], g15=r["g15"], extratid=r["extratid"],
