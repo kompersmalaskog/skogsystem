@@ -21,7 +21,8 @@ import { arbetsLage } from './lage';
 import { koLaget } from './ko-regler';
 import { barighetText, telHref } from './objekt-info';
 import { LasFelBanner, LASFEL_KO, LASFEL_SKORD, LASFEL_POS, LASFEL_GROT, KO_OKAND_TEXT, SKORD_OKAND_TEXT, POS_OKAND_TEXT, POS_NU_TEXT, TEL_OKAND_TEXT, grotDoltText } from './las-fel-banner';
-import { TOMT_LAGE, VARNING_LADDAR, VARNING_LASFEL, lasVarningar, objektAttLasaForst, slaIhop, varningFor, type VarningsLage, type VarningsSvar } from './markeringar-las';
+import { TOMT_LAGE, VARNING_LADDAR, VARNING_LASFEL, lasVarningar, objektAttLasaForst, slaIhop, varningarAttLasa, varningFor, type VarningsLage, type VarningsSvar } from './markeringar-las';
+import { medTidsgrans, TIDSGRANS_KARN, TIDSGRANS_SEKUNDAR } from './tidsgrans';
 import { KO_LASFEL, KO_SPARFEL, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat, toastText, type KoSvar } from './ko-skriv';
 import { arIos, forstaNamn, maskinOrd, rensaObjektnamn, smsHref, smsText, type MaskinOrd } from './sms';
 import { hamtaGrotRaw } from '@/lib/grotvy/hamta';
@@ -173,7 +174,7 @@ export default function OversiktV2Page() {
   // felade läses när ett ark öppnas för dem (effekten vid objektValt/valt).
   const [varningar, setVarningar] = useState<VarningsLage>(TOMT_LAGE);
   const varningarRef = useRef(varningar); varningarRef.current = varningar;
-  const varningsLasning = useRef({ generation: 0, pagar: new Set<string>() });
+  const varningsLasning = useRef({ generation: 0, pagar: new Set<string>(), lastOk: new Map<string, number>() }); // lastOk: när objektets faror senast lästes UTAN fel
   const sidaLevande = useRef(true);
   useEffect(() => { sidaLevande.current = true; return () => { sidaLevande.current = false; }; }, []);
   const varningFran = useCallback((objektId: string): VarningsSvar => varningFor(varningar, objektId), [varningar]);
@@ -277,7 +278,10 @@ export default function OversiktV2Page() {
     const gen = st.generation;
     try {
       const res = await lasVarningar(supabase, att);
-      if (sidaLevande.current && gen === st.generation) setVarningar((v) => slaIhop(v, res));
+      if (sidaLevande.current && gen === st.generation) {
+        setVarningar((v) => slaIhop(v, res));
+        const nu = Date.now(); Object.keys(res.ok).forEach((id) => st.lastOk.set(id, nu));
+      }
     } catch (e) {
       console.error('[Översikt v2] markeringar: oväntat fel', e);
       if (sidaLevande.current && gen === st.generation) setVarningar((v) => slaIhop(v, { ok: {}, fel: att }));
@@ -292,10 +296,12 @@ export default function OversiktV2Page() {
     varningsLasning.current.generation += 1; varningsLasning.current.pagar.clear(); setVarningar(TOMT_LAGE);
     let objRows: OversiktObjekt[]; let maskinRows: Maskin[];
     try {
+      // Varje läsning har en tidsgräns: ett anrop som aldrig får svar blir ett fel (felruta för objekt och maskiner, banner för kön) i stället för
+      // "Laddar kartan…" för alltid. En kö som kastar eller inte svarar behandlas som ett köfel, inte som ett fel på hela sidan.
       const [obj, maskinerRes, koRes] = await Promise.all([
-        fetchAllRows<OversiktObjekt>(() => supabase.from('objekt').select('*').order('namn').order('id')),
-        supabase.from('dim_maskin').select('*').order('modell'),
-        supabase.from('maskin_ko').select('*').order('ordning'),
+        medTidsgrans(fetchAllRows<OversiktObjekt>(() => supabase.from('objekt').select('*').order('namn').order('id')), TIDSGRANS_KARN),
+        medTidsgrans(supabase.from('dim_maskin').select('*').order('modell'), TIDSGRANS_KARN),
+        medTidsgrans(supabase.from('maskin_ko').select('*').order('ordning'), TIDSGRANS_KARN).catch((e) => ({ data: null, error: e })),
       ]);
       // ALLA läsningar kontrolleras: ett fel (eller ett svar som inte är en lista) är ett fel, aldrig en tom lista. Objekt och maskiner är
       // kärndatan — utan dem finns ingen karta, så de går till felrutan. KÖN är inte det: kartan står kvar och bannern överst säger att
@@ -316,7 +322,11 @@ export default function OversiktV2Page() {
     void laddaVarningar(objektAttLasaForst(objRows)); // faror/hänsyn: bara icke-avslutade först, i bitar; resten läses när ett ark öppnas
     const ids = Array.from(new Set(maskinRows.map((m) => m.maskin_id).filter(Boolean))) as string[];
     maskinIdsRef.current = ids;
-    const [platserRes, skordRes, telRes, grotRes] = await Promise.allSettled([hamtaSenastePlatser(ids), hamtaSkordMapV2(), lasTelefoner(), hamtaGrotRaw(supabase)]);
+    // Tidsgräns på varje: en läsning som hänger får inte hålla tillbaka de andra (de tillämpas först när alla är klara, så att inget blinkar "inget planerat")
+    const [platserRes, skordRes, telRes, grotRes] = await Promise.allSettled([
+      medTidsgrans(hamtaSenastePlatser(ids), TIDSGRANS_SEKUNDAR), medTidsgrans(hamtaSkordMapV2(), TIDSGRANS_SEKUNDAR),
+      medTidsgrans(lasTelefoner(), TIDSGRANS_SEKUNDAR), medTidsgrans(hamtaGrotRaw(supabase), TIDSGRANS_SEKUNDAR),
+    ]);
     // Var och en tillämpas för sig: ett fel i en läsning lämnar de andra orörda och tänder sin egen banner-rad.
     tillampaPlatser(platserRes);
     tillampaGrot(grotRes);
@@ -964,8 +974,9 @@ export default function OversiktV2Page() {
   const utanKoord = useMemo(() => objekt.filter((o) => (o.status === 'planerad' || STATUS_AKTIV.includes(o.status)) && (o.lat == null || o.lng == null)).length, [objekt]);
   const valt = selMaskin ? forslag.get(selMaskin) ?? null : null;
   const objektValt = selObjekt ? objekt.find((o) => o.id === selObjekt) ?? null : null;
-  // Faror och hänsyn för det som visas i arken: det som inte lästs vid start (avslutade objekt som öppnas eller ligger i en kö) och det som
-  // felade läses (om) när arket öppnas. Hänger BARA på valet (vilket ark, vilka rader) — aldrig på resultatet, så ett läsfel ger ingen loop.
+  // Faror och hänsyn för det som visas i arken: det som inte lästs vid start (avslutade objekt som öppnas eller ligger i en kö), det som felade
+  // och det som lästs för länge sedan (VARNING_FARSK_MS — planeringen kan ha lagt till faror medan sidan stått öppen) läses (om) när arket öppnas.
+  // Hänger BARA på valet (vilket ark, vilka rader) — aldrig på resultatet, så ett läsfel ger ingen loop.
   const behovNyckel = useMemo(() => {
     const ids = new Set<string>();
     if (objektValt) ids.add(objektValt.id);
@@ -974,7 +985,7 @@ export default function OversiktV2Page() {
   }, [objektValt, valt]);
   useEffect(() => {
     if (laddar || fel || !behovNyckel) return;
-    const behov = behovNyckel.split(',').filter((id) => !varningarRef.current.ok[id]);
+    const behov = varningarAttLasa(behovNyckel.split(','), varningarRef.current, varningsLasning.current.lastOk, Date.now());
     if (behov.length > 0) void laddaVarningar(behov);
   }, [behovNyckel, laddar, fel, laddaVarningar]);
   // Maskiner som objekt-arket kan lägga ett objekt i kö för: alla aktiva — inte bara de med position eller kö (810E måste gå att köa).

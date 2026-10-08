@@ -13,6 +13,7 @@
 
 import { STATUS_AVSLUTADE } from '../oversikt/oversikt-types';
 import { byggVarningar, type MarkeringRow, type ObjWarn } from './objekt-info';
+import { medTidsgrans } from './tidsgrans';
 
 export const VARNING_LASFEL = 'Kunde inte läsa faror och hänsyn — kolla planeringen';
 export const VARNING_LADDAR = 'Läser faror och hänsyn…';
@@ -52,11 +53,14 @@ export function slaIhop(lage: VarningsLage, res: VarningsLasning): VarningsLage 
   return { ok, fel };
 }
 
-function medTidsgrans<T>(p: PromiseLike<T>, ms: number): Promise<T> {
-  return new Promise<T>((res, rej) => {
-    const t = setTimeout(() => rej(new Error(`inget svar inom ${ms} ms`)), ms);
-    Promise.resolve(p).then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
-  });
+/** Så länge en lyckad läsning av ett objekts faror/hänsyn räknas som färsk. Planeringen kan lägga till faror när som helst och sidan kan vara
+ *  öppen i timmar — ett ark som öppnas efter det läser om. (Ett ark som redan är öppet uppdateras inte av sig själv.) */
+export const VARNING_FARSK_MS = 60000;
+
+/** Vilka av de visade objekten som ska läsas (om) när ett ark öppnas: de som inte lästs (eller felade), och de vars senaste LYCKADE läsning är
+ *  äldre än `farskMs`. En omläsning som felar lämnar det som lästs förut orört (slaIhop) — aldrig "ingen" av ett fel. */
+export function varningarAttLasa(ids: string[], lage: VarningsLage, lastOk: ReadonlyMap<string, number>, nu: number, farskMs: number = VARNING_FARSK_MS): string[] {
+  return ids.filter((id) => !lage.ok[id] || nu - (lastOk.get(id) ?? 0) > farskMs);
 }
 function bitar<T>(lista: T[], storlek: number): T[][] {
   const ut: T[][] = [];
