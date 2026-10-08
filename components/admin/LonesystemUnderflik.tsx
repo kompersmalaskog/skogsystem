@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useEffect, CSSProperties } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { C, secHead, Card, inputStyle, btnPrimary, btnSecondary } from "./design";
+import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
+import { Sektion, Stod, Kort, Lista, Besked, Primar, Sekundar, Bekrafta, Laddar } from "./ui";
 import { SYSTEM_LABELS, IMPLEMENTERADE } from "@/lib/lonesystem";
 import type { SystemTyp, Koppling } from "@/lib/lonesystem/types";
 
@@ -9,7 +10,6 @@ const ALLA_SYSTEM: SystemTyp[] = ["fortnox", "visma", "hogia", "kontek", "crona"
 
 type Medarbetare = { id: string; namn: string | null };
 type Artikelmappning = { id?: string; intern_typ: string; extern_kod: string; beskrivning: string | null };
-type Anstallning = { medarbetare_id: string; lonesystem_id: string; anstallningsnummer: string | null };
 
 const INTERN_TYPER: { key: string; label: string }[] = [
   { key: "timlon",         label: "Timlön" },
@@ -191,195 +191,129 @@ export default function LonesystemUnderflik() {
 
   const stödjs = IMPLEMENTERADE.includes(valdSystem);
   const ansluten = !!koppling?.aktiv;
+  const status = ansluten ? "Anslutet" : koppling ? "Uppgifter sparade, ej ansluten" : "Inte anslutet";
 
   return (
     <>
       {/* Callback-meddelanden */}
-      {callbackOk && (
-        <Card style={{ background: "rgba(52,199,89,0.08)", border: `1px solid rgba(52,199,89,0.25)` }}>
-          <p style={{ margin: 0, fontSize: 14, color: C.green, fontWeight: 600 }}>✓ Anslutningen lyckades.</p>
-        </Card>
-      )}
+      {callbackOk && <Besked slag="ok">Anslutningen lyckades.</Besked>}
       {callbackFel && (
-        <Card style={{ background: "rgba(255,69,58,0.08)", border: `1px solid rgba(255,69,58,0.25)` }}>
-          <p style={{ margin: 0, fontSize: 14, color: C.red, fontWeight: 600 }}>Anslutning misslyckades</p>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: C.label }}>{callbackFel}</p>
-        </Card>
+        <Besked>
+          <strong>Anslutningen misslyckades.</strong> {callbackFel}
+        </Besked>
       )}
 
       {/* Välj system */}
-      <p style={secHead}>Välj system</p>
-      <Card>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-          {ALLA_SYSTEM.map(s => (
-            <button key={s} onClick={() => setValdSystem(s)} style={{
-              padding: "10px 12px",
-              background: valdSystem === s ? "rgba(10,132,255,0.12)" : "rgba(255,255,255,0.04)",
-              border: valdSystem === s ? `1px solid ${C.blue}` : `1px solid rgba(255,255,255,0.06)`,
-              borderRadius: 8,
-              color: valdSystem === s ? C.blue : C.text,
-              fontSize: 13, fontWeight: 600,
-              cursor: "pointer", fontFamily: "inherit",
-              textAlign: "left",
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-            }}>
-              <span>{SYSTEM_LABELS[s]}</span>
-              {!IMPLEMENTERADE.includes(s) && (
-                <span style={{ fontSize: 9, color: C.label, fontWeight: 500 }}>STUB</span>
-              )}
+      <Sektion topp={callbackOk || callbackFel ? AVSTAND.sektion : 0}>Lönesystem</Sektion>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: AVSTAND.s }}>
+        {ALLA_SYSTEM.map(s => {
+          const vald = valdSystem === s;
+          return (
+            <button key={s} type="button" onClick={() => setValdSystem(s)} aria-pressed={vald}
+              style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, border: "none", cursor: "pointer", fontFamily: "inherit", background: vald ? FARG.fyllning : FARG.kort, color: vald ? FARG.text : FARG.text2, ...TYP.listtitel }}>
+              {SYSTEM_LABELS[s]}
+              {!IMPLEMENTERADE.includes(s) && <span style={{ ...TYP.micro, color: FARG.text3, marginLeft: AVSTAND.s }}>Stub</span>}
             </button>
-          ))}
-        </div>
-      </Card>
+          );
+        })}
+      </div>
 
       {/* Status */}
-      <p style={{ ...secHead, marginTop: 22 }}>Status</p>
-      <Card>
-        {laddar ? (
-          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar…</p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <StatusRad
-              label="Anslutning"
-              värde={
-                ansluten ? "Anslutet" :
-                koppling ? "Credentials sparade, ej ansluten" :
-                "Inte anslutet"
-              }
-              färg={ansluten ? C.green : koppling ? C.orange : C.label}
-            />
-            {koppling?.token_utgar && (
-              <StatusRad label="Token utgår" värde={new Date(koppling.token_utgar).toLocaleString("sv-SE")} />
-            )}
-            {koppling?.senast_synkad && (
-              <StatusRad label="Senast synkad" värde={new Date(koppling.senast_synkad).toLocaleString("sv-SE")} />
-            )}
-            {!stödjs && (
-              <p style={{ margin: "8px 0 0", padding: 10, background: "rgba(255,159,10,0.08)", borderRadius: 8, fontSize: 12, color: C.orange }}>
-                {SYSTEM_LABELS[valdSystem]} är ännu inte implementerat — UI:t fungerar för konfiguration, men anslutning och utskick är stubbar.
-              </p>
-            )}
-          </div>
-        )}
-      </Card>
-
-      {/* Credentials-info (hanteras via env-vars, inte UI) */}
+      <Sektion>Status</Sektion>
+      {laddar ? (
+        <Laddar />
+      ) : (
+        <Lista>
+          <StatusRad label="Anslutning" varde={status} farg={ansluten ? FARG.gron : koppling ? FARG.orange : FARG.text2} sista={!koppling?.token_utgar && !koppling?.senast_synkad} />
+          {koppling?.token_utgar && <StatusRad label="Token utgår" varde={new Date(koppling.token_utgar).toLocaleString("sv-SE")} sista={!koppling?.senast_synkad} />}
+          {koppling?.senast_synkad && <StatusRad label="Senast synkad" varde={new Date(koppling.senast_synkad).toLocaleString("sv-SE")} sista />}
+        </Lista>
+      )}
+      {!laddar && !stödjs && (
+        <Stod farg={FARG.orange}>{SYSTEM_LABELS[valdSystem]} är ännu inte implementerat. Det går att fylla i uppgifter här, men anslutning och utskick är stubbar.</Stod>
+      )}
       {valdSystem === "fortnox" && (
-        <Card style={{ marginTop: 18 }}>
-          <p style={{ margin: 0, fontSize: 12, color: C.label }}>
-            Credentials konfigureras via miljövariabler (FORTNOX_CLIENT_ID, FORTNOX_CLIENT_SECRET).
-            Tokens krypteras med AES-256-GCM innan de sparas i databasen.
-          </p>
-        </Card>
+        <Stod>Inloggningsuppgifterna (FORTNOX_CLIENT_ID, FORTNOX_CLIENT_SECRET) ligger i miljövariabler. Tokens krypteras med AES-256-GCM innan de sparas i databasen.</Stod>
       )}
 
       {/* Anslut-knappar */}
-      <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
-        {valdSystem === "fortnox" && !ansluten && (
-          <button onClick={koppla} style={btnPrimary}>Anslut till Fortnox</button>
-        )}
-        {ansluten && !bekraftaFranKoppling && (
-          <button onClick={() => setBekraftaFranKoppling(true)} style={btnSecondary}>Koppla ifrån</button>
-        )}
+      <div style={{ marginTop: AVSTAND.l, display: "flex", flexDirection: "column", gap: AVSTAND.m }}>
+        {valdSystem === "fortnox" && !ansluten && <Primar onClick={koppla}>Anslut till Fortnox</Primar>}
+        {ansluten && !bekraftaFranKoppling && <Sekundar onClick={() => setBekraftaFranKoppling(true)}>Koppla ifrån</Sekundar>}
         {ansluten && bekraftaFranKoppling && (
-          <div style={{ background: "rgba(255,69,58,0.08)", border: "1px solid rgba(255,69,58,0.25)", borderRadius: 12, padding: 14 }}>
-            <p style={{ margin: "0 0 10px", fontSize: 14, color: C.text }}>Koppla ifrån Fortnox? Tokens raderas och exporten slutar fungera tills du ansluter igen.</p>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setBekraftaFranKoppling(false)} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
-              <button onClick={koppla_ifrån} style={{ ...btnSecondary, flex: 1, background: C.red, border: "none" }}>Ja, koppla ifrån</button>
-            </div>
-          </div>
+          <Bekrafta text="Koppla ifrån Fortnox? Tokens raderas och exporten slutar fungera tills du ansluter igen."
+            ja="Ja, koppla ifrån" onJa={koppla_ifrån} onNej={() => setBekraftaFranKoppling(false)} />
         )}
-        {franKopplingFel && (
-          <p style={{ margin: 0, fontSize: 13, color: C.red }}>{franKopplingFel}</p>
-        )}
-        <button onClick={testaAnslutning} disabled={testar || !koppling} style={{ ...btnSecondary, opacity: testar || !koppling ? 0.5 : 1 }}>
-          {testar ? "Testar…" : "Testa anslutning"}
-        </button>
+        {franKopplingFel && <Stod farg={FARG.rod}>{franKopplingFel}</Stod>}
+        <Sekundar onClick={testaAnslutning} disabled={testar || !koppling}>{testar ? "Testar…" : "Testa anslutning"}</Sekundar>
       </div>
 
-      {testResultat && (
-        <div style={{
-          marginTop: 12, padding: 12,
-          background: testResultat.ok ? "rgba(52,199,89,0.1)" : "rgba(255,69,58,0.1)",
-          borderRadius: 10, fontSize: 13,
-          color: testResultat.ok ? C.green : C.red,
-        }}>
-          {testResultat.meddelande}
-        </div>
-      )}
+      {testResultat && <Besked slag={testResultat.ok ? "ok" : "fel"}>{testResultat.meddelande}</Besked>}
+      {fel && <Besked>{fel}</Besked>}
 
-      {fel && (
-        <div style={{ marginTop: 12, padding: 12, background: "rgba(255,69,58,0.1)", borderRadius: 10, color: C.red, fontSize: 13 }}>
-          {fel}
-        </div>
-      )}
-
-      {/* Mappa löneartkoder */}
-      <p style={{ ...secHead, marginTop: 30 }}>Löneartkoder</p>
-      <Card style={{ padding: 0 }}>
-        <div style={{
-          display: "grid", gridTemplateColumns: "1fr 100px 1.4fr 80px", gap: 8,
-          padding: "10px 16px",
-          fontSize: 11, color: C.label, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em",
-          borderBottom: `1px solid ${C.line}`,
-        }}>
-          <span>Intern typ</span>
-          <span>Extern kod</span>
-          <span>Beskrivning</span>
-          <span />
-        </div>
+      {/* Mappa löneartskoder */}
+      <Sektion topp={AVSTAND.xxl}>Löneartskoder</Sektion>
+      <Lista>
         {INTERN_TYPER.map((t, i) => (
           <ArtikelRad
             key={t.key}
             label={t.label}
-            internTyp={t.key}
             befintlig={artiklar[t.key]}
             onSpara={(kod, besk) => sparaArtikel(t.key, kod, besk)}
             sista={i === INTERN_TYPER.length - 1}
           />
         ))}
-      </Card>
+      </Lista>
 
       {/* Mappa anställningsnummer */}
-      <p style={{ ...secHead, marginTop: 30 }}>Anställningsnummer</p>
-      <Card style={{ padding: 0 }}>
-        {medarbetare.length === 0 ? (
-          <p style={{ margin: 0, padding: 18, color: C.label, fontSize: 14 }}>Inga medarbetare.</p>
-        ) : medarbetare.map((m, i) => (
-          <AnstallningRad
-            key={m.id}
-            namn={m.namn || "Namnlös"}
-            befintligt={anstallningar[m.id] || ""}
-            disabled={!koppling}
-            onSpara={(nr) => sparaAnstallning(m.id, nr)}
-            sista={i === medarbetare.length - 1}
-          />
-        ))}
-      </Card>
+      <Sektion topp={AVSTAND.xxl}>Anställningsnummer</Sektion>
+      {medarbetare.length === 0 ? (
+        <Kort><Stod style={{ marginTop: 0 }}>Inga medarbetare.</Stod></Kort>
+      ) : (
+        <Lista>
+          {medarbetare.map((m, i) => (
+            <AnstallningRad
+              key={m.id}
+              namn={m.namn || "Namnlös"}
+              befintligt={anstallningar[m.id] || ""}
+              disabled={!koppling}
+              onSpara={(nr) => sparaAnstallning(m.id, nr)}
+              sista={i === medarbetare.length - 1}
+            />
+          ))}
+        </Lista>
+      )}
       {!koppling && (
-        <p style={{ marginTop: 8, fontSize: 12, color: C.label }}>
-          Spara credentials för {SYSTEM_LABELS[valdSystem]} först för att kunna mappa anställningsnummer.
-        </p>
+        <Stod>Anslut {SYSTEM_LABELS[valdSystem]} först för att kunna fylla i anställningsnummer.</Stod>
       )}
     </>
   );
 }
 
-function StatusRad({ label, värde, färg }: { label: string; värde: string; färg?: string }) {
+function StatusRad({ label, varde, farg, sista }: { label: string; varde: string; farg?: string; sista?: boolean }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
-      <span style={{ fontSize: 13, color: C.label }}>{label}</span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: färg || C.text }}>{värde}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
+      <span style={{ ...TYP.meta, color: FARG.text2 }}>{label}</span>
+      <span style={{ ...TYP.listtitel, color: farg || FARG.text }}>{varde}</span>
     </div>
   );
 }
 
+const radFalt = {
+  minHeight: TRAFFYTA.min, boxSizing: "border-box" as const, background: FARG.upphojt, border: "none", borderRadius: RADIE.rad,
+  padding: `0 ${AVSTAND.m}px`, color: FARG.text, fontFamily: "inherit", outline: "none", minWidth: 0, ...TYP.text,
+};
+
+function SparaKnapp({ aktiv, upptagen, onClick }: { aktiv: boolean; upptagen: boolean; onClick: () => void }) {
+  return (
+    <Sekundar smal onClick={onClick} disabled={!aktiv || upptagen} style={{ flexShrink: 0 }}>{upptagen ? "…" : "Spara"}</Sekundar>
+  );
+}
+
 function ArtikelRad({
-  label, internTyp, befintlig, onSpara, sista,
+  label, befintlig, onSpara, sista,
 }: {
   label: string;
-  internTyp: string;
   befintlig?: Artikelmappning;
   onSpara: (extern_kod: string, beskrivning: string) => Promise<string | null>;
   sista: boolean;
@@ -395,7 +329,6 @@ function ArtikelRad({
   }, [befintlig?.extern_kod, befintlig?.beskrivning]);
 
   const ändrat = kod !== (befintlig?.extern_kod || "") || besk !== (befintlig?.beskrivning || "");
-
   const spara = async () => {
     setSparar(true); setFel(null);
     setFel(await onSpara(kod, besk));
@@ -403,37 +336,14 @@ function ArtikelRad({
   };
 
   return (
-    <div style={{
-      display: "grid", gridTemplateColumns: "1fr 100px 1.4fr 80px",
-      gap: 8, alignItems: "center",
-      padding: "10px 16px",
-      borderBottom: sista ? "none" : `1px solid ${C.line}`,
-    }}>
-      <span style={{ fontSize: 13, color: C.text }}>{label}</span>
-      <input
-        value={kod}
-        onChange={e => setKod(e.target.value)}
-        placeholder="Kod"
-        style={{ ...inputStyle as CSSProperties, height: 34, fontSize: 13, padding: "0 10px" }}
-      />
-      <input
-        value={besk}
-        onChange={e => setBesk(e.target.value)}
-        placeholder="Beskrivning"
-        style={{ ...inputStyle as CSSProperties, height: 34, fontSize: 13, padding: "0 10px" }}
-      />
-      <button
-        onClick={spara}
-        disabled={!ändrat || sparar}
-        style={{
-          height: 30, fontSize: 12, fontWeight: 600,
-          background: ändrat ? "rgba(10,132,255,0.15)" : "rgba(255,255,255,0.04)",
-          color: ändrat ? C.blue : C.label,
-          border: "none", borderRadius: 7,
-          cursor: ändrat ? "pointer" : "default", fontFamily: "inherit",
-        }}
-      >{sparar ? "…" : "Spara"}</button>
-      {fel && <p style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: C.red }}>{fel}</p>}
+    <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: AVSTAND.s }}>
+        <span style={{ ...TYP.text, color: FARG.text, flex: "1 1 160px" }}>{label}</span>
+        <input aria-label={`${label}, extern kod`} value={kod} onChange={e => setKod(e.target.value)} placeholder="Kod" style={{ ...radFalt, flex: "0 0 96px" }} />
+        <input aria-label={`${label}, beskrivning`} value={besk} onChange={e => setBesk(e.target.value)} placeholder="Beskrivning" style={{ ...radFalt, flex: "1 1 160px" }} />
+        <SparaKnapp aktiv={ändrat} upptagen={sparar} onClick={spara} />
+      </div>
+      {fel && <Stod farg={FARG.rod}>{fel}</Stod>}
     </div>
   );
 }
@@ -458,36 +368,14 @@ function AnstallningRad({
     setSparar(false);
   };
   return (
-    <div style={{
-      display: "grid", gridTemplateColumns: "1.5fr 1fr 80px",
-      gap: 8, alignItems: "center",
-      padding: "10px 16px",
-      borderBottom: sista ? "none" : `1px solid ${C.line}`,
-    }}>
-      <span style={{ fontSize: 13, color: C.text }}>{namn}</span>
-      <input
-        value={nr}
-        onChange={e => setNr(e.target.value)}
-        placeholder="Anst.nr"
-        disabled={disabled}
-        style={{
-          ...inputStyle as CSSProperties,
-          height: 34, fontSize: 13, padding: "0 10px",
-          opacity: disabled ? 0.5 : 1,
-        }}
-      />
-      <button
-        onClick={spara}
-        disabled={!ändrat || disabled || sparar}
-        style={{
-          height: 30, fontSize: 12, fontWeight: 600,
-          background: ändrat && !disabled ? "rgba(10,132,255,0.15)" : "rgba(255,255,255,0.04)",
-          color: ändrat && !disabled ? C.blue : C.label,
-          border: "none", borderRadius: 7,
-          cursor: ändrat && !disabled ? "pointer" : "default", fontFamily: "inherit",
-        }}
-      >{sparar ? "…" : "Spara"}</button>
-      {fel && <p style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: C.red }}>{fel}</p>}
+    <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: AVSTAND.s }}>
+        <span style={{ ...TYP.text, color: FARG.text, flex: "1 1 160px" }}>{namn}</span>
+        <input aria-label={`${namn}, anställningsnummer`} value={nr} onChange={e => setNr(e.target.value)} placeholder="Anst.nr" disabled={disabled}
+          style={{ ...radFalt, flex: "0 1 160px", opacity: disabled ? 0.4 : 1 }} />
+        <SparaKnapp aktiv={ändrat && !disabled} upptagen={sparar} onClick={spara} />
+      </div>
+      {fel && <Stod farg={FARG.rod}>{fel}</Stod>}
     </div>
   );
 }

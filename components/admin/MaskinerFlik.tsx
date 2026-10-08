@@ -1,9 +1,11 @@
 "use client";
-import React, { useState, useEffect, CSSProperties } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { C, secHead, Card, inputStyle, btnPrimary, btnSecondary, btnDanger, ChevronRight } from "./design";
+import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
 import { maskinSomUrl } from "@/lib/maskinSom";
 import { ymdLokal } from "@/lib/datumLokal";
+import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Reglage, Primar, Sekundar, Tillbaka, Destruktiv, Besked, Fel, Laddar, Tomt, Bekrafta } from "./ui";
+import { useAdminNav } from "./nav";
 
 /* dim_maskin — admin äger visningsnamn/tillverkare/maskin_typ/sander_filer/
    aktiv_fran/aktiv_till på bekräftade maskiner (importens guard rör dem ej).
@@ -65,10 +67,13 @@ function datumFel(s: string, etikett: string): string | null {
   return null;
 }
 
-type Vy = { typ: "lista" } | { typ: "detalj"; id: string };
-
 export default function MaskinerFlik() {
-  const [vy, setVy] = useState<Vy>({ typ: "lista" });
+  // Vilken maskin som är öppen står i adressen (?maskin=…).
+  const { nav, gaTill } = useAdminNav();
+  const valdId = nav.params.maskin || null;
+  const tillLista = () => gaTill({ flik: "maskiner" });
+  const oppna = (id: string) => gaTill({ flik: "maskiner", params: { maskin: id } });
+
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [filinfo, setFilinfo] = useState<Record<string, FilInfo>>({});
   const [laddar, setLaddar] = useState(true);
@@ -116,24 +121,30 @@ export default function MaskinerFlik() {
 
   useEffect(() => { ladda(); }, []);
 
-  if (laddar) return <Card><p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar…</p></Card>;
-  if (fel) return <Card style={{ border: `1px solid ${C.red}` }}>
-    <p style={{ margin: 0, color: C.red, fontSize: 14 }}>Kunde inte ladda maskiner: {fel}</p>
-  </Card>;
+  if (laddar) return <Laddar />;
+  if (fel) return <Fel onForsok={ladda}>Kunde inte ladda maskiner: {fel}</Fel>;
 
-  if (vy.typ === "detalj") {
-    const m = maskiner.find(x => x.maskin_id === vy.id);
-    if (!m) { setVy({ typ: "lista" }); return null; }
+  if (valdId) {
+    const m = maskiner.find(x => x.maskin_id === valdId);
+    if (!m) {
+      return (
+        <>
+          <Tillbaka onClick={tillLista}>Maskiner</Tillbaka>
+          <Tomt>Maskinen finns inte längre.</Tomt>
+        </>
+      );
+    }
     return (
       <DetaljVy
+        key={m.maskin_id}
         maskin={m}
-        onKlar={() => { setVy({ typ: "lista" }); ladda(); }}
-        onTillbaka={() => setVy({ typ: "lista" })}
+        onKlar={() => { tillLista(); ladda(); }}
+        onTillbaka={tillLista}
       />
     );
   }
 
-  return <ListaVy maskiner={maskiner} filinfo={filinfo} onValj={(id) => setVy({ typ: "detalj", id })} />;
+  return <ListaVy maskiner={maskiner} filinfo={filinfo} onValj={oppna} />;
 }
 
 /* ─── LISTA ─── */
@@ -155,57 +166,41 @@ function ListaVy({
     <>
       {obekraftade.length > 0 && (
         <>
-          <p style={{ ...secHead, color: C.orange }}>⚠ Nya maskiner upptäckta ({obekraftade.length})</p>
-          <Card style={{ padding: 0, border: `1px solid rgba(255,159,10,0.3)` }}>
+          <Sektion topp={0} orange>Nya maskiner i importen ({obekraftade.length})</Sektion>
+          <Lista>
             {obekraftade.map((m, i) => {
               const fi = filinfo[m.maskin_id];
               const forsta = fi?.forstaFil ? new Date(fi.forstaFil).toLocaleDateString("sv-SE") : null;
               return (
-                <div key={m.maskin_id} onClick={() => onValj(m.maskin_id)} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "14px 20px",
-                  borderBottom: i === obekraftade.length - 1 ? "none" : `1px solid ${C.line}`,
-                  cursor: "pointer", gap: 12,
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
-                      {m.maskin_id}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 12, color: C.label }}>
-                      {[m.tillverkare, typLabel(m.maskin_typ)].filter(Boolean).join(" · ") || "okänd typ"}
-                      {forsta ? ` · första fil ${forsta}` : ""}
-                      {fi?.antalFiler ? ` · ${fi.antalFiler} fil${fi.antalFiler === 1 ? "" : "er"}` : ""}
-                    </div>
-                  </div>
-                  <span style={{
-                    background: "rgba(255,159,10,0.15)", color: C.orange,
-                    fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 8,
-                    whiteSpace: "nowrap",
-                  }}>Bekräfta ›</span>
-                </div>
+                <Rad key={m.maskin_id} onClick={() => onValj(m.maskin_id)} sista={i === obekraftade.length - 1}
+                  rubrik={m.maskin_id}
+                  detalj={<>
+                    {[m.tillverkare, typLabel(m.maskin_typ)].filter(Boolean).join(" · ") || "okänd typ"}
+                    {forsta ? ` · första fil ${forsta}` : ""}
+                    {fi?.antalFiler ? ` · ${fi.antalFiler} fil${fi.antalFiler === 1 ? "" : "er"}` : ""}
+                  </>}
+                  hoger={<span style={{ color: FARG.orange, ...TYP.listtitel }}>Bekräfta</span>} chevron />
               );
             })}
-          </Card>
+          </Lista>
         </>
       )}
 
-      <p style={{ ...secHead, marginTop: obekraftade.length > 0 ? 22 : 0 }}>I drift ({iDrift.length})</p>
-      <Card style={{ padding: 0 }}>
-        {iDrift.length === 0 ? (
-          <p style={{ margin: 0, padding: 18, color: C.label, fontSize: 14 }}>Inga maskiner i drift.</p>
-        ) : iDrift.map((m, i) => (
-          <MaskinRad key={m.maskin_id} m={m} sist={i === iDrift.length - 1} onValj={onValj} />
-        ))}
-      </Card>
+      <Sektion topp={obekraftade.length > 0 ? AVSTAND.sektion : 0}>I drift ({iDrift.length})</Sektion>
+      {iDrift.length === 0 ? (
+        <Kort><Tomt>Inga maskiner i drift. Nya maskiner dyker upp här när importen hittar dem.</Tomt></Kort>
+      ) : (
+        <Lista>
+          {iDrift.map((m, i) => <MaskinRad key={m.maskin_id} m={m} sist={i === iDrift.length - 1} onValj={onValj} />)}
+        </Lista>
+      )}
 
       {urDrift.length > 0 && (
         <>
-          <p style={{ ...secHead, marginTop: 22 }}>Ur drift ({urDrift.length})</p>
-          <Card style={{ padding: 0 }}>
-            {urDrift.map((m, i) => (
-              <MaskinRad key={m.maskin_id} m={m} sist={i === urDrift.length - 1} onValj={onValj} graton />
-            ))}
-          </Card>
+          <Sektion>Ur drift ({urDrift.length})</Sektion>
+          <Lista>
+            {urDrift.map((m, i) => <MaskinRad key={m.maskin_id} m={m} sist={i === urDrift.length - 1} onValj={onValj} grattonad />)}
+          </Lista>
         </>
       )}
     </>
@@ -213,49 +208,29 @@ function ListaVy({
 }
 
 function MaskinRad({
-  m, sist, onValj, graton,
+  m, sist, onValj, grattonad,
 }: {
-  m: Maskin; sist: boolean; onValj: (id: string) => void; graton?: boolean;
+  m: Maskin; sist: boolean; onValj: (id: string) => void; grattonad?: boolean;
 }) {
   const saldDatum = m.aktiv_till ? new Date(m.aktiv_till).toLocaleDateString("sv-SE") : null;
+  const delar = [typLabel(m.maskin_typ), m.modell, saldDatum && `ur drift ${saldDatum}`, !m.sander_filer && "sänder ej filer"].filter(Boolean).join(" · ");
   return (
-    <div onClick={() => onValj(m.maskin_id)} style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "14px 20px",
-      borderBottom: sist ? "none" : `1px solid ${C.line}`,
-      cursor: "pointer", gap: 12, opacity: graton ? 0.5 : 1,
-    }}>
+    <div style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, borderBottom: sist ? "none" : `1px solid ${FARG.linje}` }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{maskinNamn(m)}</div>
-        <div style={{ marginTop: 4, fontSize: 12, color: C.label, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <span>{typLabel(m.maskin_typ)}</span>
-          {m.modell && <span>· {m.modell}</span>}
-          {saldDatum && <span>· ur drift {saldDatum}</span>}
-          {!m.sander_filer && <span>· sänder ej filer</span>}
-        </div>
+        <Rad onClick={() => onValj(m.maskin_id)} sista rubrik={maskinNamn(m)} detalj={delar} dampad={grattonad} chevron />
       </div>
       {/* Maskiner som är ur drift är inte väljbara → ingen knapp där. */}
-      {!graton && <OppnaSomMaskin maskinId={m.maskin_id} />}
-      <ChevronRight />
+      {!grattonad && <OppnaSomMaskin maskinId={m.maskin_id} />}
     </div>
   );
 }
 
 /** "Öppna som maskin": öppnar /maskin?som=<maskin_id> i NY flik (appen i maskinläge som den maskinen, utan
- *  DB-skrivningar). Länk, inte window.open — rätt semantik och fungerar med mittenklick. Klicket får inte
- *  bubbla upp till radens egen klick (som öppnar detaljvyn). */
+ *  DB-skrivningar). Länk, inte window.open — rätt semantik och fungerar med mittenklick. */
 function OppnaSomMaskin({ maskinId }: { maskinId: string }) {
   return (
-    <a
-      href={maskinSomUrl(maskinId)}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={(e) => e.stopPropagation()}
-      style={{
-        ...btnSecondary, width: "auto", display: "inline-flex", alignItems: "center",
-        padding: "0 14px", fontSize: 13, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
-      }}
-    >
+    <a href={maskinSomUrl(maskinId)} target="_blank" rel="noopener noreferrer"
+      style={{ display: "inline-flex", alignItems: "center", minHeight: 44, padding: `0 ${AVSTAND.m}px`, color: FARG.bla, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0, ...TYP.meta }}>
       Öppna som maskin
     </a>
   );
@@ -354,185 +329,69 @@ function DetaljVy({
 
   return (
     <>
-      <button onClick={onTillbaka} style={{
-        background: "none", border: "none", color: C.blue, fontSize: 15,
-        cursor: "pointer", fontFamily: "inherit", padding: "4px 0", marginBottom: 8,
-      }}>‹ Tillbaka</button>
+      <Tillbaka onClick={onTillbaka}>Maskiner</Tillbaka>
 
       {obekraftad && (
-        <div style={{
-          marginBottom: 16, padding: "12px 14px",
-          background: "rgba(255,159,10,0.1)", border: `1px solid rgba(255,159,10,0.3)`,
-          borderRadius: 10, fontSize: 13, color: C.text,
-        }}>
-          <b style={{ color: C.orange }}>Ny maskin upptäckt i importen.</b> Serienumret kommer ur
-          maskinfilen och är rätt. Fyll i visningsnamn och aktiv-från, bekräfta sedan — därefter
-          skyddas dina uppgifter från att skrivas över vid nästa fil.
-        </div>
+        <Kort style={{ marginBottom: AVSTAND.l }}>
+          <p style={{ margin: 0, ...TYP.listtitel, color: FARG.orange }}>Ny maskin upptäckt i importen</p>
+          <Stod>Serienumret kommer ur maskinfilen och är rätt. Fyll i visningsnamn och aktiv från, bekräfta sedan. Därefter skyddas dina uppgifter från att skrivas över vid nästa fil.</Stod>
+        </Kort>
       )}
 
       {/* Serienummer — låst */}
-      <p style={secHead}>Identitet</p>
-      <Card>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: C.label, marginBottom: 4 }}>Serienummer (nyckel mot filerna)</div>
-            <div style={{ fontSize: 15, color: C.text, fontFamily: "monospace", wordBreak: "break-all" }}>
-              {maskin.maskin_id}
-            </div>
-          </div>
-          <span title="Kan inte ändras — nyckeln mot maskinfilerna" style={{
-            flexShrink: 0, marginLeft: 12, fontSize: 12, color: C.label,
-            display: "flex", alignItems: "center", gap: 4,
-          }}>🔒 låst</span>
-        </div>
-        {maskin.modell && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.label }}>
-            Modell (ur fil): <span style={{ color: C.text }}>{maskin.modell}</span>
-          </div>
-        )}
-      </Card>
+      <Sektion topp={AVSTAND.s}>Identitet</Sektion>
+      <Kort>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>Serienummer (nyckel mot filerna, kan inte ändras)</div>
+        <div style={{ ...TYP.text, color: FARG.text, wordBreak: "break-all" }}>{maskin.maskin_id}</div>
+        {maskin.modell && <Stod style={{ marginTop: AVSTAND.m }}>Modell (ur fil): <span style={{ color: FARG.text }}>{maskin.modell}</span></Stod>}
+      </Kort>
 
       {/* Grunduppgifter */}
-      <p style={{ ...secHead, marginTop: 22 }}>Grunduppgifter</p>
-      <Card>
-        <Field label="Visningsnamn" value={visningsnamn} onChange={setVisningsnamn} placeholder="t.ex. Scorpion Giant" />
-        <Field label="Tillverkare" value={tillverkare} onChange={setTillverkare} placeholder="t.ex. Ponsse" />
-        <SelectField label="Maskintyp" value={maskinTyp} onChange={setMaskinTyp} options={[
+      <Sektion>Grunduppgifter</Sektion>
+      <Kort>
+        <Falt label="Visningsnamn" value={visningsnamn} onChange={setVisningsnamn} placeholder="t.ex. Scorpion Giant" />
+        <Falt label="Tillverkare" value={tillverkare} onChange={setTillverkare} placeholder="t.ex. Ponsse" />
+        <Val label="Maskintyp" value={maskinTyp} onChange={setMaskinTyp} options={[
           { value: "", label: "— välj —" },
           ...TYP_VAL,
           ...(maskinTyp && !TYP_VAL.some(o => o.value === maskinTyp)
             ? [{ value: maskinTyp, label: `${maskinTyp} (ur fil)` }] : []),
         ]} />
-        <ToggleField label="Sänder filer" value={sanderFiler} onChange={setSanderFiler}
-          hint="Av för maskiner som aldrig skickar maskinfiler (t.ex. JD810E) — då förväntas ingen data." />
-        <ToggleField label="Manuell datakälla" value={manuellKalla} onChange={setManuellKalla}
+        <Reglage label="Sänder filer" value={sanderFiler} onChange={setSanderFiler}
+          hint="Av för maskiner som aldrig skickar maskinfiler (t.ex. JD810E). Då förväntas ingen data." />
+        <Reglage label="Manuell datakälla" value={manuellKalla} onChange={setManuellKalla}
           hint="På för maskiner utan maskinfiler (JD810E): föraren registrerar lass i arbetsrapporten och importen avvisar FPR-filer för maskinen. En maskin har en källa." />
-      </Card>
+      </Kort>
 
       {/* Driftperiod */}
-      <p style={{ ...secHead, marginTop: 22 }}>Driftperiod</p>
-      <Card>
-        <Field label="Aktiv från" value={aktivFran} onChange={setAktivFran} type="date" min={DATUM_MIN} max={DATUM_MAX} />
-        <Field label="Aktiv till" value={aktivTill} onChange={setAktivTill} type="date" min={DATUM_MIN} max={DATUM_MAX}
-          hint="Sätts när maskinen säljs/tas ur drift. Historiken bevaras — maskinen faller bara ur bevakning." />
-      </Card>
+      <Sektion>Driftperiod</Sektion>
+      <Kort>
+        <Falt label="Aktiv från" value={aktivFran} onChange={setAktivFran} type="date" min={DATUM_MIN} max={DATUM_MAX} />
+        <Falt label="Aktiv till" value={aktivTill} onChange={setAktivTill} type="date" min={DATUM_MIN} max={DATUM_MAX}
+          hint="Sätts när maskinen säljs eller tas ur drift. Historiken bevaras, maskinen faller bara ur bevakning." />
+      </Kort>
 
-      {sparFel && (
-        <div style={{ marginTop: 16, padding: 12, background: "rgba(255,69,58,0.1)", borderRadius: 10, color: C.red, fontSize: 13 }}>
-          {sparFel}
-        </div>
-      )}
+      {sparFel && <Besked>{sparFel}</Besked>}
 
       {/* Knappar */}
-      <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ marginTop: AVSTAND.xl, display: "flex", flexDirection: "column", gap: AVSTAND.m }}>
         {obekraftad ? (
-          <button onClick={bekrafta} disabled={sparar || !visningsnamn.trim()} style={{
-            ...btnPrimary, opacity: sparar || !visningsnamn.trim() ? 0.4 : 1,
-          }}>
-            {sparar ? "Bekräftar…" : "Bekräfta maskin"}
-          </button>
+          <Primar onClick={bekrafta} disabled={sparar || !visningsnamn.trim()}>{sparar ? "Bekräftar…" : "Bekräfta maskin"}</Primar>
         ) : (
-          <button onClick={() => skriv()} disabled={!ändrat || sparar} style={{
-            ...btnPrimary, opacity: !ändrat || sparar ? 0.4 : 1, cursor: !ändrat || sparar ? "default" : "pointer",
-          }}>
-            {sparar ? "Sparar…" : "Spara ändringar"}
-          </button>
+          <Primar onClick={() => skriv()} disabled={!ändrat || sparar}>{sparar ? "Sparar…" : "Spara ändringar"}</Primar>
         )}
 
         {/* Ur drift / åter i drift */}
         {maskin.aktiv_till ? (
-          <button onClick={aterIDrift} disabled={sparar} style={btnSecondary}>
-            Återställ till drift
-          </button>
+          <Sekundar onClick={aterIDrift} disabled={sparar}>Återställ till drift</Sekundar>
         ) : !obekraftad && !urDriftLage ? (
-          <button onClick={() => setUrDriftLage(true)} style={btnDanger}>
-            Ta ur drift / markera såld
-          </button>
+          <Destruktiv onClick={() => setUrDriftLage(true)} style={{ alignSelf: "center" }}>Ta ur drift / markera såld</Destruktiv>
         ) : !obekraftad && urDriftLage ? (
-          <div style={{
-            background: "rgba(255,69,58,0.08)", border: `1px solid rgba(255,69,58,0.25)`,
-            borderRadius: 12, padding: 14,
-          }}>
-            <p style={{ margin: "0 0 10px", fontSize: 14, color: C.text }}>
-              Ta {maskinNamn(maskin)} ur drift per idag? Maskinen slutar bevakas men all historik
-              finns kvar. Du kan återställa den när som helst.
-            </p>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setUrDriftLage(false)} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
-              <button onClick={taUrDrift} disabled={sparar} style={{
-                ...btnDanger, flex: 1, background: C.red, color: "#fff", border: "none",
-                opacity: sparar ? 0.5 : 1,
-              }}>
-                {sparar ? "…" : "Ja, ta ur drift"}
-              </button>
-            </div>
-          </div>
+          <Bekrafta
+            text={`Ta ${maskinNamn(maskin)} ur drift per idag? Maskinen slutar bevakas men all historik finns kvar. Du kan återställa den när som helst.`}
+            ja={sparar ? "…" : "Ja, ta ur drift"} upptagen={sparar} onJa={taUrDrift} onNej={() => setUrDriftLage(false)} />
         ) : null}
       </div>
     </>
-  );
-}
-
-/* ─── FÄLT-KOMPONENTER ─── */
-
-function Field({
-  label, value, onChange, placeholder, type = "text", hint, min, max,
-}: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string; hint?: string; min?: string; max?: string;
-}) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label style={{ display: "block", fontSize: 12, color: C.label, marginBottom: 6, fontWeight: 500 }}>{label}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        min={min} max={max} style={inputStyle as CSSProperties} />
-      {hint && <p style={{ margin: "6px 0 0", fontSize: 11, color: C.label }}>{hint}</p>}
-    </div>
-  );
-}
-
-function SelectField({
-  label, value, onChange, options,
-}: {
-  label: string; value: string; onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label style={{ display: "block", fontSize: 12, color: C.label, marginBottom: 6, fontWeight: 500 }}>{label}</label>
-      <select value={value} onChange={e => onChange(e.target.value)} style={{
-        ...inputStyle as CSSProperties,
-        appearance: "none", WebkitAppearance: "none",
-        backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'><path d='M1 1l5 5 5-5' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>")`,
-        backgroundRepeat: "no-repeat", backgroundPosition: "right 14px center", paddingRight: 36,
-      }}>
-        {options.map(o => <option key={o.value} value={o.value} style={{ background: "#2a2a2c", color: "#fff" }}>{o.label}</option>)}
-      </select>
-    </div>
-  );
-}
-
-function ToggleField({
-  label, value, onChange, hint,
-}: {
-  label: string; value: boolean; onChange: (v: boolean) => void; hint?: string;
-}) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <label style={{ fontSize: 14, color: C.text, fontWeight: 500 }}>{label}</label>
-        <button onClick={() => onChange(!value)} style={{
-          width: 50, height: 30, borderRadius: 15, border: "none", cursor: "pointer",
-          background: value ? C.green : "#3a3a3c", position: "relative", transition: "background 0.2s",
-        }}>
-          <span style={{
-            position: "absolute", top: 3, left: value ? 23 : 3,
-            width: 24, height: 24, borderRadius: "50%", background: "#fff", transition: "left 0.2s",
-          }} />
-        </button>
-      </div>
-      {hint && <p style={{ margin: "6px 0 0", fontSize: 11, color: C.label }}>{hint}</p>}
-    </div>
   );
 }

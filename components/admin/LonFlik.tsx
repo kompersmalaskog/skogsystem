@@ -1,9 +1,10 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useState, useEffect, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
-import { C, secHead, Card, btnPrimary, btnSecondary } from "./design";
+import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA } from "@/lib/design/tokens";
+import { Kort, Ikon } from "./ui";
+import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
@@ -13,6 +14,14 @@ import VilobrottUnderflik from "./VilobrottUnderflik";
 // Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
 // regler. Byggd mot lib/design/tokens — första admin-ytan som är det.
 import DagarUnderflik from "./DagarUnderflik";
+
+// Kort i granskningen: luft mellan staplade kort.
+const Card = ({ children, style }: { children: React.ReactNode; style?: CSSProperties }) => <Kort style={{ marginBottom: AVSTAND.m, ...style }}>{children}</Kort>;
+
+// Sektionsrubrik i granskningen (liten, versal, grå).
+const secHead: CSSProperties = { ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.sektion}px 0 ${AVSTAND.m}px` };
+const btnPrimary: CSSProperties = KNAPP.primar;
+const btnSecondary: CSSProperties = KNAPP.sekundar;
 
 type Underflik = "underlag" | "dagar" | "system" | "atk" | "vila";
 type CurrentUser = { id: string; namn?: string | null; roll: string };
@@ -26,13 +35,12 @@ const UNDERFLIKAR: { key: Underflik; label: string }[] = [
 ];
 
 export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
-  const sp = useSearchParams();
-  const förvaldUnderflik = (sp?.get("underflik") as Underflik | null);
-  const giltig = förvaldUnderflik && UNDERFLIKAR.some(u => u.key === förvaldUnderflik);
-  const [aktiv, setAktiv] = useState<Underflik>(giltig ? förvaldUnderflik! : "underlag");
+  // Underfliken står i adressen (?underflik=…): en omladdning stannar på samma ställe.
+  const { nav, sattUnderflik } = useAdminNav();
+  const aktiv: Underflik = UNDERFLIKAR.some(u => u.key === nav.underflik) ? (nav.underflik as Underflik) : "underlag";
   return (
     <>
-      <UnderflikTabs aktiv={aktiv} onValj={setAktiv} />
+      <UnderflikTabs aktiv={aktiv} onValj={sattUnderflik} />
       {aktiv === "underlag" && <Loneunderlag />}
       {aktiv === "dagar"    && <DagarUnderflik />}
       {aktiv === "system"   && <LonesystemUnderflik />}
@@ -42,22 +50,16 @@ export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
   );
 }
 
+/** Flikraden bryter aldrig rad: i telefon rullar den i sidled i stället. */
 function UnderflikTabs({ aktiv, onValj }: { aktiv: Underflik; onValj: (k: Underflik) => void }) {
   return (
-    <div style={{
-      display: "flex", gap: 4, marginBottom: 18,
-      background: "#1c1c1e", borderRadius: 10, padding: 4,
-      border: "1px solid rgba(255,255,255,0.06)",
-    }}>
+    <div role="tablist" style={{ display: "flex", gap: AVSTAND.xs, marginBottom: AVSTAND.sektion, overflowX: "auto", scrollbarWidth: "none" }}>
       {UNDERFLIKAR.map(t => (
-        <button key={t.key} onClick={() => onValj(t.key)} style={{
-          flex: 1, padding: "8px 4px",
-          background: aktiv === t.key ? "rgba(255,255,255,0.08)" : "transparent",
-          border: "none", borderRadius: 7,
-          color: aktiv === t.key ? "#fff" : C.label,
-          fontSize: 12, fontWeight: aktiv === t.key ? 600 : 500,
+        <button key={t.key} role="tab" aria-selected={aktiv === t.key} onClick={() => onValj(t.key)} style={{
+          flex: "0 0 auto", minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, whiteSpace: "nowrap",
+          background: aktiv === t.key ? FARG.fyllning : "transparent", border: "none", borderRadius: RADIE.knapp,
+          color: aktiv === t.key ? FARG.text : FARG.text2, ...TYP.listtitel, fontSize: TYP.meta.fontSize,
           cursor: "pointer", fontFamily: "inherit",
-          transition: "all 0.15s",
         }}>{t.label}</button>
       ))}
     </div>
@@ -170,24 +172,17 @@ function Loneunderlag() {
   return (
     <>
       {/* Månadsväljare */}
-      <Card style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px" }}>
-        <button onClick={() => setPeriod(periodOffset(period, -1))} style={{
-          background: "rgba(255,255,255,0.05)", border: "none", borderRadius: 8,
-          width: 36, height: 36, cursor: "pointer", color: "#fff", fontSize: 18, fontFamily: "inherit",
-        }}>‹</button>
-        <span style={{ fontSize: 16, fontWeight: 600, color: C.text, textTransform: "capitalize" }}>
+      <Card style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
+        <button onClick={() => setPeriod(periodOffset(period, -1))} aria-label="Föregående månad" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text }}>
+          <Ikon namn="chevron_left" farg={FARG.text} />
+        </button>
+        <span style={{ ...TYP.listtitel, color: FARG.text, textTransform: "capitalize" }}>
           {månadsLabel(period)}
         </span>
-        <button
-          onClick={() => setPeriod(periodOffset(period, 1))}
-          disabled={period >= periodNu()}
-          style={{
-            background: "rgba(255,255,255,0.05)", border: "none", borderRadius: 8,
-            width: 36, height: 36, cursor: period >= periodNu() ? "default" : "pointer",
-            color: period >= periodNu() ? C.label : "#fff", fontSize: 18, fontFamily: "inherit",
-            opacity: period >= periodNu() ? 0.4 : 1,
-          }}
-        >›</button>
+        <button onClick={() => setPeriod(periodOffset(period, 1))} disabled={period >= periodNu()} aria-label="Nästa månad"
+          style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text, opacity: period >= periodNu() ? 0.4 : 1, cursor: period >= periodNu() ? "default" : "pointer" }}>
+          <Ikon namn="chevron_right" farg={FARG.text} />
+        </button>
       </Card>
 
       {/* ÅRETS ÖVERTID MOT TAKET — det Martin behöver se som arbetsgivare.
@@ -204,46 +199,46 @@ function Loneunderlag() {
         <Card>
           <p style={{ ...secHead, marginTop: 0 }}>Övertid {arsovertid.ar ?? new Date().getFullYear()} mot taket{arsovertid.tak ? ` ${arsovertid.tak} tim` : ""}</p>
           {!arsovertid.ok ? (
-            <p style={{ margin: 0, fontSize: 13, color: C.red }}>Kunde inte läsa årets övertid: {arsovertid.meddelande || "okänt fel"}</p>
+            <p style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>Kunde inte läsa årets övertid: {arsovertid.meddelande || "okänt fel"}</p>
           ) : (() => {
             const tak = Number(arsovertid.tak || 250);
             const modeller: any[] = arsovertid.modeller || [];
-            const farg = (h: number) => h >= tak ? C.red : h >= tak - 50 ? C.orange : C.text;
+            const farg = (h: number) => h >= tak ? FARG.rod : h >= tak - 50 ? FARG.orange : FARG.text;
             const rader: any[] = [...(arsovertid.medarbetare || [])].sort((a, b) => (b.modeller?.genomsnitt || 0) - (a.modeller?.genomsnitt || 0));
             const utjamning: any[] = arsovertid.utjamning || [];
             const periodText = (p: any) => `v${p.fran}–${p.till}${p.markerad ? " (markerad)" : " (antagen)"}: ${Number(p.timmar).toLocaleString("sv-SE")} tim på ${p.veckor} v → ${Number(p.overtid).toLocaleString("sv-SE")}`;
             return (
               <>
-                <p style={{ margin: "0 0 6px", fontSize: 12, color: C.text }}>
+                <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text }}>
                   <strong>Ingen av de tre första kolumnerna är avtalets modell.</strong> Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em> — kolumnen <strong>Genomsnitt</strong>. Perioderna är de markerade utjämningsperioderna nedan; veckorna däremellan räknas i antagna block om högst 16 veckor.
                 </p>
                 {/* Markerade utjämningsperioder = fakta om vad som gjordes. Avtalet
                     förutsätter att utjämningen är ÖVERENSKOMMEN — raden bevisar inte det. */}
                 {arsovertid.utjamning_fel ? (
-                  <p style={{ margin: "0 0 6px", fontSize: 12, color: C.orange }}>Kunde inte läsa utjämningsperioder ({arsovertid.utjamning_fel}) — allt räknas som antagna block.</p>
+                  <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>Kunde inte läsa utjämningsperioder ({arsovertid.utjamning_fel}) — allt räknas som antagna block.</p>
                 ) : utjamning.length === 0 ? (
-                  <p style={{ margin: "0 0 6px", fontSize: 12, color: C.label }}>Inga markerade utjämningsperioder {arsovertid.ar} — allt räknas som antagna block från vecka 1.</p>
+                  <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>Inga markerade utjämningsperioder {arsovertid.ar} — allt räknas som antagna block från vecka 1.</p>
                 ) : utjamning.map((u: any, ui: number) => (
-                  <p key={ui} style={{ margin: "0 0 6px", fontSize: 12, color: C.text }}>
-                    <strong>Utjämningsperiod {u.startdatum} – {u.slutdatum}</strong>{u.medarbetare_id ? "" : " (alla)"}: <span style={{ color: C.label }}>{u.anteckning}</span>
+                  <p key={ui} style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text }}>
+                    <strong>Utjämningsperiod {u.startdatum} – {u.slutdatum}</strong>{u.medarbetare_id ? "" : " (alla)"}: <span style={{ color: FARG.text2 }}>{u.anteckning}</span>
                   </p>
                 ))}
-                <p style={{ margin: "0 0 6px", fontSize: 12, color: C.text }}>
+                <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text }}>
                   Avtalet förutsätter att utjämning över mer än en vecka är <strong>överenskommen</strong>. En markerad period är en anteckning om vad som gjordes, inte ett bevis på att det var avtalat. Längre än 16 veckor kräver lokal överenskommelse.
                 </p>
-                <p style={{ margin: "0 0 10px", fontSize: 12, color: C.label }}>
+                <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.text2 }}>
                   En tom vecka räknas i basen bara om den är utjämnad ordinarie tid — var den semester ska den inte vara med, och då stiger övertiden; inom en markerad period vet appen vad en tom vecka betyder, utanför vet den det inte. Frånvaro och komp (§8 mom 3, räknas inte som övertid enligt §5 mom 5 anm 3) är inte avdragna, så alla tal är sannolikt för höga. Exporten räknar i dag mot arbetade dagar, Min tid mot kalenderns vardagar. T.o.m. {arsovertid.tomDatum}.
                 </p>
-                <div style={{ display: "grid", gridTemplateColumns: `1.4fr repeat(${modeller.length}, 1fr)`, gap: "4px 8px", fontSize: 12, alignItems: "baseline" }}>
-                  <span style={{ color: C.label }}>Förare</span>
-                  {modeller.map(m => <span key={m.key} style={{ color: m.avtalet ? C.text : C.label, fontWeight: m.avtalet ? 700 : 400, textAlign: "right" }} title={`${m.beskrivning} — ${m.anvandsAv}`}>{m.namn}{m.avtalet ? " (avtalet)" : ""}</span>)}
+                <div style={{ display: "grid", gridTemplateColumns: `1.4fr repeat(${modeller.length}, 1fr)`, gap: "4px 8px", ...TYP.meta, alignItems: "baseline" }}>
+                  <span style={{ color: FARG.text2 }}>Förare</span>
+                  {modeller.map(m => <span key={m.key} style={{ color: m.avtalet ? FARG.text : FARG.text2, fontWeight: m.avtalet ? 700 : 400, textAlign: "right" }} title={`${m.beskrivning} — ${m.anvandsAv}`}>{m.namn}{m.avtalet ? " (avtalet)" : ""}</span>)}
                   {rader.map(r => (
                     <React.Fragment key={r.medarbetare_id}>
-                      <span style={{ color: C.text, fontSize: 13, padding: "5px 0", borderTop: `1px solid ${C.line}` }}>{r.namn} <span style={{ color: C.label, fontSize: 11 }}>{Number(r.timmar).toLocaleString("sv-SE")} tim</span></span>
+                      <span style={{ color: FARG.text, ...TYP.meta, padding: `${AVSTAND.xs}px 0`, borderTop: `1px solid ${FARG.linje}` }}>{r.namn} <span style={{ color: FARG.text2, ...TYP.meta }}>{Number(r.timmar).toLocaleString("sv-SE")} tim</span></span>
                       {modeller.map(m => {
                         const h = Number(r.modeller?.[m.key] || 0);
                         const title = m.avtalet && Array.isArray(r.perioder) ? r.perioder.map(periodText).join("\n") : undefined;
-                        return <span key={m.key} title={title} style={{ textAlign: "right", fontSize: 13, fontWeight: m.avtalet ? 700 : 400, color: m.avtalet ? farg(h) : C.label, padding: "5px 0", borderTop: `1px solid ${C.line}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
+                        return <span key={m.key} title={title} style={{ textAlign: "right", ...TYP.meta, fontWeight: m.avtalet ? 700 : 400, color: m.avtalet ? farg(h) : FARG.text2, padding: `${AVSTAND.xs}px 0`, borderTop: `1px solid ${FARG.linje}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
                       })}
                     </React.Fragment>
                   ))}
@@ -251,15 +246,15 @@ function Loneunderlag() {
                 {/* Per förare: hur genomsnittet fördelar sig på perioderna — så man
                     ser VAR övertiden kommer ifrån (Stefan: v1–16 och sensommaren, inte Gävle). */}
                 {rader.some(r => Array.isArray(r.perioder) && r.perioder.length > 0) && (
-                  <div style={{ marginTop: 10, fontSize: 11, color: C.label }}>
+                  <div style={{ marginTop: AVSTAND.s, ...TYP.meta, color: FARG.text2 }}>
                     {rader.filter(r => Array.isArray(r.perioder)).map(r => (
-                      <p key={`per-${r.medarbetare_id}`} style={{ margin: "2px 0" }}>
-                        <span style={{ color: C.text }}>{r.namn.split(" ")[0]}</span>: {r.perioder.map(periodText).join(" · ")}
+                      <p key={`per-${r.medarbetare_id}`} style={{ margin: `0 0` }}>
+                        <span style={{ color: FARG.text }}>{r.namn.split(" ")[0]}</span>: {r.perioder.map(periodText).join(" · ")}
                       </p>
                     ))}
                   </div>
                 )}
-                <p style={{ margin: "10px 0 0", fontSize: 11, color: C.label }}>
+                <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
                   {modeller.map(m => `${m.namn}: ${m.beskrivning} (${m.anvandsAv})`).join(" · ")}
                 </p>
               </>
@@ -269,25 +264,25 @@ function Loneunderlag() {
       )}
 
       {tlFel && (
-        <Card style={{ border: `1px solid ${C.red}` }}>
-          <p style={{ margin: 0, color: C.red, fontSize: 14 }}>Kunde inte läsa maskinstart-kortet: {tlFel}</p>
+        <Card style={{ border: `1px solid ${FARG.rod}` }}>
+          <p style={{ margin: 0, color: FARG.rod, ...TYP.meta }}>Kunde inte läsa maskinstart-kortet: {tlFel}</p>
         </Card>
       )}
       {!tlFel && tlMon.length > 0 && (
         <Card>
           <p style={{ ...secHead, marginTop: 0 }}>Maskinstart senare än angiven · {månadsLabel(arbetsManad)}</p>
-          <p style={{ margin: '0 0 8px', fontSize: 12, color: C.label }}>Dagar där föraren angav en start mer än 30 min före maskinens login. Mönster, inte enskilda dagar — angiven tid styr fortsatt lönen.</p>
+          <p style={{ margin: '0 0 8px', ...TYP.meta, color: FARG.text2 }}>Dagar där föraren angav en start mer än 30 min före maskinens login. Mönster, inte enskilda dagar — angiven tid styr fortsatt lönen.</p>
           {tlMon.map((m, i) => (
-            <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: C.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${C.line}` }}>
+            <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, color: FARG.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
               <span>{tlNamn.get(m.medarbetare_id) || m.medarbetare_id}</span>
-              <span style={{ color: m.dagar >= 10 ? C.orange : C.label, fontWeight: m.dagar >= 10 ? 600 : 400 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)}</span>
+              <span style={{ color: m.dagar >= 10 ? FARG.orange : FARG.text2, fontWeight: m.dagar >= 10 ? 600 : 400 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)}</span>
             </div>
           ))}
         </Card>
       )}
 
       {/* Fortnox-granskningen */}
-      <p style={{ ...secHead, marginTop: 28 }}>Fortnox-export</p>
+      <p style={{ ...secHead, marginTop: AVSTAND.xl }}>Fortnox-export</p>
       <FortnoxExportSektion
         period={period}
         fortnoxData={fortnoxData}
@@ -314,35 +309,35 @@ function Loneunderlag() {
             <div onClick={() => setVisaBekräftelse(false)} style={{
               position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
               background: "rgba(0,0,0,0.7)", zIndex: 100,
-              display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.xl,
             }}>
               <div onClick={e => e.stopPropagation()} style={{
-                background: "#1c1c1e", borderRadius: 16, padding: 24,
+                background: FARG.kort, borderRadius: RADIE.sheet, padding: AVSTAND.xl,
                 width: "100%", maxWidth: 440, maxHeight: "80vh", overflow: "auto",
               }}>
-                <p style={{ margin: "0 0 16px", fontSize: 17, fontWeight: 700, color: C.text, textAlign: "center" }}>
+                <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.listtitel, fontWeight: 700, color: FARG.text, textAlign: "center" }}>
                   Skicka till Fortnox?
                 </p>
-                <p style={{ margin: "0 0 12px", fontSize: 13, color: C.label }}>
+                <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }}>
                   Löneperiod {månadsLabel(period)} (arbetstid {fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—"}).
                   {" "}{fortnoxData.medarbetare.length} medarbetare, {fortnoxData.totalt_rader} lönerader.
                 </p>
                 {fortnoxData.medarbetare.filter((m: any) => m.varningar?.length > 0).length > 0 && (
-                  <div style={{ marginBottom: 12, padding: 10, background: "rgba(255,159,10,0.1)", borderRadius: 8, fontSize: 12, color: C.orange }}>
+                  <div style={{ marginBottom: AVSTAND.m, padding: AVSTAND.m, background: FARG.upphojt, borderRadius: RADIE.rad, ...TYP.meta, color: FARG.orange }}>
                     ⚠ Det finns varningar — granska innan du skickar.
                   </div>
                 )}
                 {fortnoxData.medarbetare.map((m: any, i: number) => (
-                  <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${C.line}`, fontSize: 13 }}>
+                  <div key={i} style={{ padding: `${AVSTAND.s}px 0`, borderBottom: `1px solid ${FARG.linje}`, ...TYP.meta }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: C.text, fontWeight: 500 }}>{m.namn}</span>
-                      <span style={{ color: m.status === "skickat" ? C.green : C.text }}>{m.rader.length} rader</span>
+                      <span style={{ color: FARG.text }}>{m.namn}</span>
+                      <span style={{ color: m.status === "skickat" ? FARG.gron : FARG.text }}>{m.rader.length} rader</span>
                     </div>
-                    {m.status === "skickat" && <span style={{ fontSize: 11, color: C.green }}>Redan skickat</span>}
-                    {!m.anstallningsnummer && <span style={{ fontSize: 11, color: C.red }}>Saknar anst.nr</span>}
+                    {m.status === "skickat" && <span style={{ ...TYP.meta, color: FARG.gron }}>Redan skickat</span>}
+                    {!m.anstallningsnummer && <span style={{ ...TYP.meta, color: FARG.rod }}>Saknar anst.nr</span>}
                   </div>
                 ))}
-                <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                <div style={{ display: "flex", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
                   <button onClick={() => setVisaBekräftelse(false)} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
                   <button
                     onClick={async () => {
@@ -369,7 +364,7 @@ function Loneunderlag() {
                       }
                     }}
                     disabled={skickar}
-                    style={{ ...btnPrimary, flex: 1, background: C.green, opacity: skickar ? 0.5 : 1 }}
+                    style={{ ...btnPrimary, flex: 1, opacity: skickar ? 0.5 : 1 }}
                   >{skickar ? "Skickar…" : "Skicka till Fortnox"}</button>
                 </div>
               </div>
@@ -407,7 +402,7 @@ function FortnoxExportSektion({
   if (!fortnoxData) {
     return (
       <Card>
-        <p style={{ margin: "0 0 12px", fontSize: 13, color: C.label }}>
+        <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }}>
           {fortnoxLaddar
             ? `Läser löneunderlag för ${månadsLabel(period)}…`
             : `Löneperiod ${månadsLabel(period)} = arbetstid föregående månad.`}
@@ -421,8 +416,8 @@ function FortnoxExportSektion({
 
   if (!fortnoxData.ok) {
     return (
-      <Card style={{ border: `1px solid ${C.red}` }}>
-        <p style={{ margin: 0, color: C.red, fontSize: 14 }}>{fortnoxData.meddelande || "Kunde inte beräkna."}</p>
+      <Card style={{ border: `1px solid ${FARG.rod}` }}>
+        <p style={{ margin: 0, color: FARG.rod, ...TYP.meta }}>{fortnoxData.meddelande || "Kunde inte beräkna."}</p>
       </Card>
     );
   }
@@ -434,18 +429,14 @@ function FortnoxExportSektion({
     <>
       {/* Export-resultat */}
       {exportResultat && (
-        <Card style={{
-          border: `1px solid ${exportResultat.ok ? "rgba(52,199,89,0.3)" : "rgba(255,69,58,0.3)"}`,
-          background: exportResultat.ok ? "rgba(52,199,89,0.06)" : "rgba(255,69,58,0.06)",
-          marginBottom: 12,
-        }}>
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: exportResultat.ok ? C.green : C.red }}>
+        <Card style={{ marginBottom: AVSTAND.m }}>
+          <p style={{ margin: 0, ...TYP.meta, fontWeight: 600, color: exportResultat.ok ? FARG.gron : FARG.rod }}>
             {exportResultat.ok
               ? `✓ ${exportResultat.skickade} lönerader skickade till Fortnox.`
               : `Fel: ${exportResultat.meddelande || `${exportResultat.fel} fel uppstod.`}`}
           </p>
           {exportResultat.felMeddelanden?.length > 0 && (
-            <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12, color: C.red }}>
+            <ul style={{ margin: `${AVSTAND.s}px 0 0`, paddingLeft: AVSTAND.l, ...TYP.meta, color: FARG.rod }}>
               {exportResultat.felMeddelanden.map((f: string, i: number) => <li key={i}>{f}</li>)}
             </ul>
           )}
@@ -453,11 +444,11 @@ function FortnoxExportSektion({
       )}
 
       {/* Periodinfo */}
-      <Card style={{ padding: "12px 18px", background: "rgba(10,132,255,0.06)", border: "1px solid rgba(10,132,255,0.15)" }}>
-        <p style={{ margin: 0, fontSize: 13, color: C.blue }}>
+      <Card>
+        <p style={{ margin: 0, ...TYP.text, color: FARG.text }}>
           Löneperiod <strong>{månadsLabel(period)}</strong> — arbetstid <strong>{arbetsperiodLabel}</strong>
         </p>
-        <p style={{ margin: "6px 0 0", fontSize: 12, color: C.label }}>
+        <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
           {medarbetare.length} medarbetare · {fortnoxData.totalt_rader} lönerader. Mängder (timmar, veckor, mil) — aldrig kronor. Fortnox äger satserna.
         </p>
       </Card>
@@ -470,8 +461,8 @@ function FortnoxExportSektion({
           saker är Martins egna beslut som arbetsgivare, inte löneansvarigas.
           Tills lönearterna är svarade läggs OB, sjuk och helglön INTE som
           lönerader — de står under "påverkar riktigheten". */}
-      <Card style={{ padding: "12px 18px", background: "rgba(255,159,10,0.06)", border: "1px solid rgba(255,159,10,0.2)" }}>
-        <p style={{ ...secHead, marginTop: 0, color: C.orange }}>Att ta med löneansvarig</p>
+      <Card style={{ marginTop: AVSTAND.m }}>
+        <p style={{ ...secHead, marginTop: 0, color: FARG.orange }}>Att ta med löneansvarig</p>
         {([
           ["Fråga", "Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
           ["Fråga", "Löneart för sjuklön, VAB och föräldraledig", "dagarna ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
@@ -484,9 +475,9 @@ function FortnoxExportSektion({
           ["Martins beslut", "Beräkningsperiod och schema", "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen. Samma beslut avgör deldagens \"timmar som skulle ha arbetats\" (§12 mom 3 anm 2) — tills dess antar granskningen 8 tim/dag."],
           ["Martins beslut", "Var komp-saldot bor", "i Fortnox (appen rapporterar bara intjänat/uttaget) eller i appen (appen räknar saldot). Appen räknar aldrig kronor — men ett saldo i timmar är en mängd."],
         ] as [string, string, string][]).map(([slag, rubrik, text], i, arr) => (
-          <div key={rubrik} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: i === arr.length - 1 ? "none" : `1px solid ${C.line}` }}>
-            <span style={{ color: C.orange }}>▸</span>
-            <p style={{ margin: 0, fontSize: 13, color: C.text }}><span style={{ color: C.label, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 6 }}>{slag}</span><strong>{rubrik}</strong> — <span style={{ color: C.label }}>{text}</span></p>
+          <div key={rubrik} style={{ display: "flex", gap: AVSTAND.s, padding: `${AVSTAND.xs}px 0`, borderBottom: i === arr.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
+            <span style={{ color: FARG.orange }}>▸</span>
+            <p style={{ margin: 0, ...TYP.meta, color: FARG.text }}><span style={{ color: FARG.text2, ...TYP.meta, textTransform: "uppercase", letterSpacing: 0.4, marginRight: AVSTAND.xs }}>{slag}</span><strong>{rubrik}</strong> — <span style={{ color: FARG.text2 }}>{text}</span></p>
           </div>
         ))}
       </Card>
@@ -518,39 +509,39 @@ function FortnoxExportSektion({
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
-              padding: "14px 18px",
-              borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${C.line}`,
+              padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
+              borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${FARG.linje}`,
             }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{m.namn}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: AVSTAND.s }}>
+                <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
                 <StatusBadge status={m.status} />
               </div>
               {!m.anstallningsnummer && (
-                <p style={{ margin: "0 0 8px", fontSize: 12, color: C.red }}>⚠ Anställningsnummer saknas — går inte att skicka</p>
+                <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.rod }}>⚠ Anställningsnummer saknas — går inte att skicka</p>
               )}
 
               {/* SEKTION 1 — Går till Fortnox */}
-              <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: C.green }}>Går till Fortnox</p>
+              <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.gron }}>Går till Fortnox</p>
               {rader.length > 0 ? (
                 <div>
                   {rader.map((r: any, ri: number) => (
-                    <div key={ri} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13, padding: "3px 0", gap: 10 }}>
-                      <span style={{ color: C.text }}>{LONEART_LABELS[r.SalaryCode] || r.SalaryCode} <span style={{ color: C.label, fontSize: 11 }}>({r.SalaryCode})</span></span>
-                      <span style={{ color: C.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ color: C.label, fontWeight: 400, fontSize: 12 }}>{LONEART_ENHET[r.SalaryCode] || ""}</span></span>
+                    <div key={ri} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", ...TYP.meta, padding: `${AVSTAND.xs}px 0`, gap: AVSTAND.s }}>
+                      <span style={{ color: FARG.text }}>{LONEART_LABELS[r.SalaryCode] || r.SalaryCode} <span style={{ color: FARG.text2, ...TYP.meta }}>({r.SalaryCode})</span></span>
+                      <span style={{ color: FARG.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ ...TYP.meta, color: FARG.text2 }}>{LONEART_ENHET[r.SalaryCode] || ""}</span></span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p style={{ margin: "0 0 2px", fontSize: 12, color: C.label }}>Inga lönerader denna period.</p>
+                <p style={{ margin: `0 0 0`, ...TYP.meta, color: FARG.text2 }}>Inga lönerader denna period.</p>
               )}
 
               {/* SEKTION 2 — Påverkar riktigheten men går inte med */}
               {harRiktighet && (
                 <>
-                  <p style={{ margin: "12px 0 4px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: C.orange }}>Påverkar riktigheten — går inte med</p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  <p style={{ margin: `${AVSTAND.m}px 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.orange }}>Påverkar riktigheten — går inte med</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: AVSTAND.xs }}>
                     {maskinLuckor.map((mid: string) => (
-                      <p key={mid} style={{ margin: 0, fontSize: 12, color: C.red }}>
+                      <p key={mid} style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>
                         Maskin <strong>{mid}</strong> saknar typ i maskinregistret → premielön beräknas inte. Lägg in maskinen (skördare/skotare) för att få med premien.
                       </p>
                     ))}
@@ -566,8 +557,8 @@ function FortnoxExportSektion({
                         hela dagar utan rast, så noll är korrekt där. Information till
                         arbetsgivaren, ingen fråga till föraren (lib/arbetsdagRegler). */}
                     {utanRast.dagar > 0 && (
-                      <p style={{ margin: 0, fontSize: 12, color: C.label }}>
-                        <strong style={{ color: C.text }}>{utanRast.dagar} dag{utanRast.dagar === 1 ? "" : "ar"} över 6 tim utan rast</strong> ({utanRast.timmar.toLocaleString("sv-SE")} tim) — noll rast räknas som hel arbetstid, i övertid och vilotid. Skotarna loggar ingen rast i filen och körs i regel utan.
+                      <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
+                        <strong style={{ color: FARG.text }}>{utanRast.dagar} dag{utanRast.dagar === 1 ? "" : "ar"} över 6 tim utan rast</strong> ({utanRast.timmar.toLocaleString("sv-SE")} tim) — noll rast räknas som hel arbetstid, i övertid och vilotid. Skotarna loggar ingen rast i filen och körs i regel utan.
                         <span title={utanRast.datum.join(", ")}> {utanRast.datum.slice(0, 6).map((d: string) => d.slice(5)).join(", ")}{utanRast.datum.length > 6 ? " …" : ""}</span>
                       </p>
                     )}
@@ -575,11 +566,11 @@ function FortnoxExportSektion({
                       const tim = (Math.round(Math.abs(o.arbetad_min) / 6) / 10).toLocaleString("sv-SE");
                       const kl = `${String(o.start_tid || "").slice(0, 5)}–${String(o.slut_tid || "").slice(0, 5)}, rast ${o.rast_min} min`;
                       return (
-                        <p key={`orim-${o.datum}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                        <p key={`orim-${o.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
                           {o.datum}: {o.slag === "lang"
                             ? <><strong>passet är {tim} tim</strong> ({kl}) — stämmer det? Längre än någon äkta dag hittills; en felskriven sluttid ger samma bild.</>
                             : <><strong>rasten är längre än passet</strong> ({kl}, {o.arbetad_min} min) — stämmer det? Tiden räknas som negativ tills den rättas.</>}
-                          <span style={{ color: C.label }}> Rättas i förarens Redigera.</span>
+                          <span style={{ color: FARG.text2 }}> Rättas i förarens Redigera.</span>
                         </p>
                       );
                     })}
@@ -588,29 +579,29 @@ function FortnoxExportSektion({
                       const andra = (r.avbrott || []).filter((a: any) => !ovrigt.includes(a));
                       const beskriv = (a: any) => `${a.typ}${a.kategori && !/default/i.test(a.kategori) ? ` (${a.kategori})` : ""} ${a.minuter} min${a.klockslag ? ` kl ${a.klockslag}` : ""}`;
                       return (
-                        <p key={`rast-${r.datum}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                        <p key={`rast-${r.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
                           {r.datum}: <strong>rast {r.rast_min} min</strong> — mer än en lunch. {ovrigt.length > 0
                             ? <>Maskinen loggade samtidigt {ovrigt.map(beskriv).join(", ")} — stillestånd bokfört som rast? </>
                             : <>Inget parallellt avbrott loggat. </>}
-                          {andra.length > 0 && <span style={{ color: C.label }}>Övriga avbrott den dagen: {andra.map(beskriv).join(", ")}. </span>}
-                          <span style={{ color: C.label }}>Skogsavtalet §5 mom 6: schemalagd rast är högst 75 min per skift. Rätt rast = rätt betald tid; rättas i förarens Redigera.</span>
+                          {andra.length > 0 && <span style={{ color: FARG.text2 }}>Övriga avbrott den dagen: {andra.map(beskriv).join(", ")}. </span>}
+                          <span style={{ color: FARG.text2 }}>Skogsavtalet §5 mom 6: schemalagd rast är högst 75 min per skift. Rätt rast = rätt betald tid; rättas i förarens Redigera.</span>
                         </p>
                       );
                     })}
                     {/* Kortpass: under arbetsdagströskeln — betald tid men ingen arbetsdag.
                         Oftast en inloggning på någon annans maskin. */}
                     {kortpass.map((k: any) => (
-                      <p key={`kort-${k.datum}`} style={{ margin: 0, fontSize: 12, color: C.label }}>
+                      <p key={`kort-${k.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
                         {k.datum}: kortpass <strong>{k.minuter} min</strong>{k.km_totalt > 0 ? ` · ${k.km_totalt} km` : ""} — räknas som tid men inte som arbetsdag (ingen ×8 i övertidsbasen, ingen vältlappsvecka, ingen reseersättning). Felinloggning? Ta bort dagen.
                       </p>
                     ))}
                     {synk.map((s: any, si: number) => (
-                      <p key={`syn-${si}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                      <p key={`syn-${si}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
                         {s.datum}: <strong>{s.diff_min} min</strong> oförklarad tidsavvikelse — du sa {s.bekraftat}, maskinen {s.maskinen}.
                       </p>
                     ))}
                     {ledK.map((k: any, ki: number) => (
-                      <p key={`led-${ki}`} style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                      <p key={`led-${ki}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
                         {k.datum}: godkänd ledighet ({k.typ}) OCH {fmtMin(k.arbetad_min)} registrerat arbete.
                       </p>
                     ))}
@@ -618,17 +609,17 @@ function FortnoxExportSektion({
                         en lönerad. Månadens övertid mot arbetade dagar × 8 är inte avtalets
                         modell i perioden — genomsnittet står i årsövertiden överst. */}
                     {(m.utjamning || []).map((u: any, ui: number) => (
-                      <p key={`utj-${ui}`} style={{ margin: 0, fontSize: 12, color: C.label }}>
-                        Utjämningsperiod <strong style={{ color: C.text }}>{u.startdatum} – {u.slutdatum}</strong>: {u.anteckning} Månadens övertidsrad (arbetade dagar × 8) är inte avtalets modell här — se årsövertiden. Avtalet förutsätter att utjämningen är överenskommen; markeringen bevisar inte det.
+                      <p key={`utj-${ui}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
+                        Utjämningsperiod <strong style={{ color: FARG.text }}>{u.startdatum} – {u.slutdatum}</strong>: {u.anteckning} Månadens övertidsrad (arbetade dagar × 8) är inte avtalets modell här — se årsövertiden. Avtalet förutsätter att utjämningen är överenskommen; markeringen bevisar inte det.
                       </p>
                     ))}
                     {(m.obekraftade || 0) > 0 && (
-                      <p style={{ margin: 0, fontSize: 12, color: C.orange }}>
+                      <p style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
                         <strong>{m.obekraftade}</strong> obekräftad{m.obekraftade === 1 ? "" : "e"} arbetsdag{m.obekraftade === 1 ? "" : "ar"} — tiden är med i underlaget men ingen har granskat den.
                       </p>
                     )}
                     {ob.timmar > 0 && (
-                      <p style={{ margin: 0, fontSize: 12, color: C.blue }}>
+                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }}>
                         Brandrisk-OB: <strong>{ob.timmar} tim</strong> ({ob.dagar} dag{ob.dagar === 1 ? "" : "ar"}) — <em>löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     )}
@@ -636,14 +627,14 @@ function FortnoxExportSektion({
                         avtalets tolv namn, 8 tim per dag utan arbete. Samma väg som OB och
                         sjuk tills lönearten och de två avtalsfrågorna är på plats. */}
                     {helglon.dagar.length > 0 && (
-                      <p style={{ margin: 0, fontSize: 12, color: C.blue }}>
+                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }}>
                         Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     )}
                     {/* Deldagar: arbete PLUS frånvaro samma dag. Timmarna härledda mot
                         schematimmar/dag (antagande tills schema beslutats). Löneart öppen. */}
                     {deldagar.map((dd: any, di: number) => (
-                      <p key={`deldag-${di}`} style={{ margin: 0, fontSize: 12, color: C.blue }}>
+                      <p key={`deldag-${di}`} style={{ margin: 0, ...TYP.meta, color: FARG.bla }}>
                         Deldag {dd.datum.slice(5)}: <strong>{dd.typ} {dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`}</strong> — {Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro, arbetade {(Math.round(dd.arbetad_min / 6) / 10).toLocaleString("sv-SE")} tim. Räknat mot {dd.schema_timmar} tim/dag — <em>antagande tills schema beslutats</em> (§12 mom 3 anm 2). Dagen är arbetsdag. <em>Löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     ))}
@@ -653,8 +644,8 @@ function FortnoxExportSektion({
                     {byten.map((b: any, bi: number) => {
                       const fel = b.ledigArbetad || !b.ersatterArbetad;
                       return (
-                        <p key={`byte-${bi}`} style={{ margin: 0, fontSize: 12, color: fel ? C.orange : C.label }}>
-                          Bytesdag: <strong style={{ color: C.text }}>{b.ledig.slice(5)}</strong> inarbetad ledighet ersätter {b.ersatterNamn} {b.ersatter.slice(5)}
+                        <p key={`byte-${bi}`} style={{ margin: 0, ...TYP.meta, color: fel ? FARG.orange : FARG.text2 }}>
+                          Bytesdag: <strong style={{ color: FARG.text }}>{b.ledig.slice(5)}</strong> inarbetad ledighet ersätter {b.ersatterNamn} {b.ersatter.slice(5)}
                           {b.ledigArbetad
                             ? <> — men den lediga dagen har registrerat arbete: bytet togs inte ut, den röda dagen är en vanlig arbetad röd dag. Granska.</>
                             : !b.ersatterArbetad
@@ -664,17 +655,17 @@ function FortnoxExportSektion({
                       );
                     })}
                     {ob.obesvarade > 0 && (
-                      <p style={{ margin: 0, fontSize: 12, color: C.label }}>
+                      <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
                         {ob.obesvarade} obesvarad{ob.obesvarade === 1 ? "" : "e"} tidig start väntar på förarens brandrisk-svar.
                       </p>
                     )}
                     {oen.map((o: any) => (
-                      <p key={`oen-${o.datum}`} style={{ margin: 0, fontSize: 12, color: C.label }}>
+                      <p key={`oen-${o.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
                         {o.datum}: förare svarar olika på brandriskfrågan — {o.svar.map((s: any) => `${s.namn} ${s.brandrisk_beordrad ? "ja" : "nej"}`).join(", ")}.
                       </p>
                     ))}
                     {ovrigaVarn.map((v: string, vi: number) => (
-                      <p key={`v-${vi}`} style={{ margin: 0, fontSize: 12, color: C.label }}>{v}</p>
+                      <p key={`v-${vi}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>{v}</p>
                     ))}
                   </div>
                 </>
@@ -685,7 +676,7 @@ function FortnoxExportSektion({
       </Card>
 
       {/* Knappar */}
-      <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
+      <div style={{ marginTop: AVSTAND.l, display: "flex", gap: AVSTAND.s }}>
         <button onClick={onFörhandsgranska} disabled={fortnoxLaddar} style={{ ...btnSecondary, flex: 1, opacity: fortnoxLaddar ? 0.5 : 1 }}>
           {fortnoxLaddar ? "Beräknar…" : "Uppdatera"}
         </button>
@@ -695,7 +686,6 @@ function FortnoxExportSektion({
           style={{
             ...btnPrimary,
             flex: 1,
-            background: C.green,
             opacity: medarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer) ? 0.4 : 1,
           }}
         >Skicka till Fortnox</button>
@@ -706,15 +696,15 @@ function FortnoxExportSektion({
 
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, { bg: string; fg: string; text: string }> = {
-    utkast:  { bg: "rgba(255,255,255,0.06)", fg: C.label, text: "UTKAST" },
-    skickat: { bg: "rgba(52,199,89,0.15)", fg: C.green, text: "SKICKAT" },
-    fel:     { bg: "rgba(255,69,58,0.15)", fg: C.red, text: "FEL" },
+    utkast:  { bg: FARG.fyllning, fg: FARG.text2, text: "UTKAST" },
+    skickat: { bg: FARG.fyllning, fg: FARG.gron, text: "SKICKAT" },
+    fel:     { bg: FARG.fyllning, fg: FARG.rod, text: "FEL" },
   };
   const c = cfg[status] || cfg.utkast;
   return (
     <span style={{
-      fontSize: 9, fontWeight: 700, color: c.fg,
-      background: c.bg, padding: "2px 7px", borderRadius: 5,
+      ...TYP.meta, fontWeight: 700, color: c.fg,
+      background: c.bg, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.stapel,
       textTransform: "uppercase", letterSpacing: "0.05em",
     }}>{c.text}</span>
   );

@@ -1,7 +1,9 @@
 "use client";
-import React, { useState, useEffect, CSSProperties } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { C, secHead, Card, inputStyle, btnPrimary, btnSecondary, btnDanger, ChevronRight } from "./design";
+import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
+import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Primar, Sekundar, Tillbaka, Destruktiv, Lank, Besked, Fel, Laddar, Tomt, Bekrafta, Etikett, Ikon } from "./ui";
+import { useAdminNav } from "./nav";
 import MedarbetareKontroller from "./MedarbetareKontroller";
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
 import { precisionText } from "@/lib/geokod";
@@ -37,10 +39,20 @@ type OperatorRad = {
   maskin_id: string | null;
 };
 
-type Vy = { typ: "lista" } | { typ: "detalj"; id: string } | { typ: "ny" };
+const ROLLER = [
+  { value: "forare", label: "Förare" },
+  { value: "admin", label: "Admin" },
+];
+const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
 
 export default function MedarbetareFlik() {
-  const [vy, setVy] = useState<Vy>({ typ: "lista" });
+  // Vad som är öppet står i adressen (?person=…, ?ny=1), så en omladdning stannar kvar.
+  const { nav, sattParam, gaTill } = useAdminNav();
+  const personId = nav.params.person || null;
+  const arNy = !!nav.params.ny;
+  const tillLista = () => gaTill({ flik: "medarbetare" });
+  const oppnaPerson = (id: string) => gaTill({ flik: "medarbetare", params: { person: id } });
+
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [operatorerPerMed, setOperatorerPerMed] = useState<Record<string, OperatorRad[]>>({});
   const [maskiner, setMaskiner] = useState<Record<string, string>>({});
@@ -94,47 +106,45 @@ export default function MedarbetareFlik() {
 
   useEffect(() => { ladda(); }, []);
 
-  if (laddar) return <Card><p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar…</p></Card>;
-  if (fel) return <Card style={{ border: `1px solid ${C.red}` }}>
-    <p style={{ margin: 0, color: C.red, fontSize: 14 }}>Kunde inte ladda medarbetare: {fel}</p>
-  </Card>;
+  if (laddar) return <Laddar />;
+  if (fel) return <Fel onForsok={ladda}>Kunde inte ladda medarbetare: {fel}</Fel>;
 
-  if (vy.typ === "ny") {
-    return <NyMedarbetare onKlar={() => { setVy({ typ: "lista" }); ladda(); }} onAvbryt={() => setVy({ typ: "lista" })} />;
+  if (arNy) {
+    return <NyMedarbetare onKlar={() => { tillLista(); ladda(); }} onAvbryt={tillLista} />;
   }
 
-  if (vy.typ === "detalj") {
-    const m = medarbetare.find(x => x.id === vy.id);
+  if (personId) {
+    const m = medarbetare.find(x => x.id === personId);
     if (!m) {
-      setVy({ typ: "lista" });
-      return null;
+      return (
+        <>
+          <Tillbaka onClick={tillLista}>Medarbetare</Tillbaka>
+          <Tomt>Personen finns inte längre.</Tomt>
+        </>
+      );
     }
     return (
       <DetaljVy
+        key={m.id}
         medarbetare={m}
         operatorer={operatorerPerMed[m.id] || []}
         maskiner={maskiner}
-        onKlar={() => { setVy({ typ: "lista" }); ladda(); }}
+        onKlar={() => { tillLista(); ladda(); }}
         onLadda={() => ladda()}
-        onTillbaka={() => setVy({ typ: "lista" })}
+        onTillbaka={tillLista}
       />
     );
   }
 
   return (
     <>
-      <MedarbetareKontroller
-        kontroller={kontroller}
-        fel={kontrollFel}
-        maskiner={maskiner}
-        onValj={(id) => setVy({ typ: "detalj", id })}
-      />
+      <MedarbetareKontroller kontroller={kontroller} fel={kontrollFel} maskiner={maskiner} onValj={oppnaPerson} />
       <ListaVy
         medarbetare={medarbetare}
         operatorerPerMed={operatorerPerMed}
         maskiner={maskiner}
-        onValj={(id) => setVy({ typ: "detalj", id })}
-        onNy={() => setVy({ typ: "ny" })}
+        onValj={oppnaPerson}
+        onNy={() => gaTill({ flik: "medarbetare", params: { ny: "1" } })}
       />
     </>
   );
@@ -153,77 +163,29 @@ function ListaVy({
 }) {
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-        <p style={{ ...secHead, margin: 0 }}>Medarbetare ({medarbetare.length})</p>
-        <button onClick={onNy} style={{
-          background: "rgba(10,132,255,0.15)",
-          border: "none",
-          borderRadius: 8,
-          padding: "6px 14px",
-          color: C.blue,
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: "pointer",
-          fontFamily: "inherit",
-        }}>+ Ny</button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
+        <Sektion topp={0}>Medarbetare ({medarbetare.length})</Sektion>
+        <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Ny</Lank>
       </div>
 
-      <Card style={{ padding: 0 }}>
-        {medarbetare.length === 0 ? (
-          <p style={{ margin: 0, padding: 18, color: C.label, fontSize: 14 }}>Inga medarbetare.</p>
-        ) : medarbetare.map((m, i) => {
-          const ops = operatorerPerMed[m.id] || [];
-          const maskinNamn = new Set<string>();
-          for (const o of ops) if (o.maskin_id) maskinNamn.add(maskiner[o.maskin_id] || o.maskin_id);
-          if (m.maskin_id) maskinNamn.add(maskiner[m.maskin_id] || m.maskin_id);
-          return (
-            <div key={m.id} onClick={() => onValj(m.id)} style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "14px 20px",
-              borderBottom: i === medarbetare.length - 1 ? "none" : `1px solid ${C.line}`,
-              cursor: "pointer",
-              gap: 12,
-            }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
-                    {m.namn || "Namnlös"}
-                  </span>
-                  <RolBadge roll={m.roll} />
-                </div>
-                <div style={{ marginTop: 4, fontSize: 12, color: C.label, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <span>{ops.length} operatör{ops.length === 1 ? "" : "er"}</span>
-                  {maskinNamn.size > 0 && <span>· {[...maskinNamn].join(", ")}</span>}
-                </div>
-              </div>
-              <ChevronRight />
-            </div>
-          );
-        })}
-      </Card>
+      {medarbetare.length === 0 ? (
+        <Kort><Tomt>Inga medarbetare. Lägg till den första med + Ny.</Tomt></Kort>
+      ) : (
+        <Lista>
+          {medarbetare.map((m, i) => {
+            const ops = operatorerPerMed[m.id] || [];
+            const maskinNamn = new Set<string>();
+            for (const o of ops) if (o.maskin_id) maskinNamn.add(maskiner[o.maskin_id] || o.maskin_id);
+            if (m.maskin_id) maskinNamn.add(maskiner[m.maskin_id] || m.maskin_id);
+            return (
+              <Rad key={m.id} onClick={() => onValj(m.id)} chevron sista={i === medarbetare.length - 1}
+                rubrik={<span style={{ display: "inline-flex", alignItems: "center", gap: AVSTAND.s }}>{m.namn || "Namnlös"}<Etikett>{ROLL_ORD[m.roll] || m.roll}</Etikett></span>}
+                detalj={<>{ops.length} operatör{ops.length === 1 ? "" : "er"}{maskinNamn.size > 0 && <> · {Array.from(maskinNamn).join(", ")}</>}</>} />
+            );
+          })}
+        </Lista>
+      )}
     </>
-  );
-}
-
-const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
-
-function RolBadge({ roll }: { roll: string }) {
-  const färg =
-    roll === "admin" ? { bg: "rgba(255,69,58,0.15)", fg: "#ff6961" } :
-                       { bg: "rgba(142,142,147,0.18)", fg: "#aeaeb2" };
-  return (
-    <span style={{
-      background: färg.bg,
-      color: färg.fg,
-      fontSize: 10,
-      fontWeight: 700,
-      textTransform: "uppercase",
-      letterSpacing: "0.08em",
-      padding: "2px 8px",
-      borderRadius: 6,
-    }}>{ROLL_ORD[roll] || roll}</span>
   );
 }
 
@@ -317,129 +279,68 @@ function DetaljVy({
 
   return (
     <>
-      <button onClick={onTillbaka} style={{
-        background: "none", border: "none", color: C.blue, fontSize: 15,
-        cursor: "pointer", fontFamily: "inherit", padding: "4px 0", marginBottom: 8,
-      }}>‹ Tillbaka</button>
+      <Tillbaka onClick={onTillbaka}>Medarbetare</Tillbaka>
 
       {/* Grunduppgifter */}
-      <p style={secHead}>Personuppgifter</p>
-      <Card>
-        <Field label="Namn" value={namn} onChange={setNamn} placeholder="För- och efternamn"/>
-        <Field label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email"/>
-        {/* Inloggningen — kopplas i databasen på e-post (20260929), här syns bara läget. */}
-        <p style={{ margin: "-4px 0 12px", fontSize: 12, color: medarbetare.user_id ? C.label : C.orange }}>
-          {medarbetare.user_id
+      <Sektion topp={AVSTAND.s}>Personuppgifter</Sektion>
+      <Kort>
+        <Falt label="Namn" value={namn} onChange={setNamn} placeholder="För- och efternamn" />
+        <Falt label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email"
+          hint={medarbetare.user_id
             ? "Inloggning kopplad."
-            : "Ingen inloggning kopplad — kopplas automatiskt när ett konto med samma e-post finns. Utan koppling kommer personen inte in i appen."}
-        </p>
-        <Field label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Gata, ort"/>
-        <SelectField label="Roll" value={roll} onChange={setRoll} options={[
-          { value: "forare", label: "Förare" },
-          { value: "admin", label: "Admin" },
-        ]}/>
-        <SelectField label="Maskin" value={maskinId} onChange={setMaskinId} options={[
+            : <span style={{ color: FARG.orange }}>Ingen inloggning kopplad. Den kopplas automatiskt när ett konto med samma e-post finns. Utan koppling kommer personen inte in i appen.</span>} />
+        <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Gata, ort" />
+        <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
+        <Val label="Maskin" value={maskinId} onChange={setMaskinId} options={[
           { value: "", label: "Ingen maskin" },
           ...Object.entries(maskiner).sort((a, b) => a[1].localeCompare(b[1])).map(([id, n]) => ({ value: id, label: `${n} (${id})` })),
-        ]}/>
-      </Card>
+        ]} />
+      </Kort>
 
       {/* Hempunkten — var km räknas ifrån. Visar VAR adressen hamnade. */}
-      <p style={{ ...secHead, marginTop: 22 }}>Hempunkt för km</p>
+      <Sektion>Hempunkt för km</Sektion>
       <HempunktKort m={medarbetare} onLadda={onLadda} />
 
       {/* Löneuppgifter */}
-      <p style={{ ...secHead, marginTop: 22 }}>Löneuppgifter</p>
-      <Card>
-        <Field label="Timlön (kr)" value={timlon} onChange={setTimlon} placeholder="—" type="number"/>
-        <Field label="Månadslön (kr)" value={manadslon} onChange={setManadslon} placeholder="—" type="number"/>
-        <Field label="Anställningsdatum" value={anstallningsdatum} onChange={setAnstallningsdatum} type="date"/>
-        <div style={{
-          marginTop: 12, padding: "10px 12px",
-          background: "rgba(10,132,255,0.08)", borderRadius: 8,
-          fontSize: 12, color: C.label,
-        }}>
-          Anställningsnummer per lönesystem sätts under Lön → Lönesystem.
-        </div>
-      </Card>
+      <Sektion>Löneuppgifter</Sektion>
+      <Kort>
+        <Falt label="Timlön (kr)" value={timlon} onChange={setTimlon} placeholder="—" type="number" />
+        <Falt label="Månadslön (kr)" value={manadslon} onChange={setManadslon} placeholder="—" type="number" />
+        <Falt label="Anställningsdatum" value={anstallningsdatum} onChange={setAnstallningsdatum} type="date"
+          hint="Anställningsnummer per lönesystem sätts under Lön → Lönesystem." />
+      </Kort>
 
       {/* Kopplade operatörer */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 22, marginBottom: 10 }}>
-        <p style={{ ...secHead, margin: 0 }}>Kopplade operatörer ({operatorer.length})</p>
-        <button onClick={() => setVisaKopplaModal(true)} style={{
-          background: "rgba(10,132,255,0.15)",
-          border: "none", borderRadius: 8,
-          padding: "6px 12px", color: C.blue,
-          fontSize: 13, fontWeight: 600,
-          cursor: "pointer", fontFamily: "inherit",
-        }}>+ Koppla</button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
+        <Sektion>Kopplade operatörer ({operatorer.length})</Sektion>
+        <Lank onClick={() => setVisaKopplaModal(true)} style={{ marginTop: AVSTAND.sektion, marginBottom: AVSTAND.m }}>+ Koppla</Lank>
       </div>
-      <Card style={{ padding: 0 }}>
-        {operatorer.length === 0 ? (
-          <p style={{ margin: 0, padding: 18, color: C.label, fontSize: 14 }}>Inga operatörer kopplade.</p>
-        ) : operatorer.map((o, i) => (
-          <div key={o.operator_id} style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            padding: "14px 20px",
-            borderBottom: i === operatorer.length - 1 ? "none" : `1px solid ${C.line}`,
-          }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 14, color: C.text, fontWeight: 500 }}>
-                {o.operator_namn || o.operator_key || o.operator_id}
-              </div>
-              <div style={{ fontSize: 11, color: C.label, marginTop: 2 }}>
-                {o.operator_id}{o.maskin_id ? ` · ${maskiner[o.maskin_id] || o.maskin_id}` : ""}
-              </div>
-            </div>
-            <button onClick={() => kopplaLossOperator(o.operator_id)} style={{
-              background: "none", border: "none", color: C.red,
-              fontSize: 13, cursor: "pointer", fontFamily: "inherit", padding: 4,
-            }}>Ta bort</button>
-          </div>
-        ))}
-      </Card>
-
-      {sparFel && (
-        <div style={{
-          marginTop: 16, padding: 12,
-          background: "rgba(255,69,58,0.1)", borderRadius: 10,
-          color: C.red, fontSize: 13,
-        }}>{sparFel}</div>
+      {operatorer.length === 0 ? (
+        <Kort><Tomt>Inga operatörer kopplade. En operatör är namnet i maskinfilerna. Utan koppling når tiden inte lönen.</Tomt></Kort>
+      ) : (
+        <Lista>
+          {operatorer.map((o, i) => (
+            <Rad key={o.operator_id} sista={i === operatorer.length - 1}
+              rubrik={o.operator_namn || o.operator_key || o.operator_id}
+              detalj={`${o.operator_id}${o.maskin_id ? ` · ${maskiner[o.maskin_id] || o.maskin_id}` : ""}`}
+              hoger={<Destruktiv smal onClick={() => kopplaLossOperator(o.operator_id)}>Ta bort</Destruktiv>} />
+          ))}
+        </Lista>
       )}
 
+      {sparFel && <Besked>{sparFel}</Besked>}
+
       {/* Knappar */}
-      <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
-        <button
-          onClick={spara}
-          disabled={!ändrat || sparar}
-          style={{ ...btnPrimary, opacity: !ändrat || sparar ? 0.4 : 1, cursor: !ändrat || sparar ? "default" : "pointer" }}
-        >
-          {sparar ? "Sparar…" : "Spara ändringar"}
-        </button>
+      <div style={{ marginTop: AVSTAND.xl, display: "flex", flexDirection: "column", gap: AVSTAND.m }}>
+        <Primar onClick={spara} disabled={!ändrat || sparar}>{sparar ? "Sparar…" : "Spara ändringar"}</Primar>
 
         {!taBortLäge ? (
-          <button onClick={() => setTaBortLäge(true)} style={btnDanger}>
-            Ta bort medarbetare
-          </button>
+          <Destruktiv onClick={() => setTaBortLäge(true)} style={{ alignSelf: "center" }}>Ta bort medarbetare</Destruktiv>
         ) : (
-          <div style={{
-            background: "rgba(255,69,58,0.08)",
-            border: `1px solid rgba(255,69,58,0.25)`,
-            borderRadius: 12, padding: 14,
-          }}>
-            <p style={{ margin: "0 0 10px", fontSize: 14, color: C.text }}>
-              Säker på att du vill ta bort {medarbetare.namn || "medarbetaren"}? Operatörskopplingar tas också bort.
-            </p>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setTaBortLäge(false)} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
-              <button onClick={taBort} disabled={sparar} style={{
-                ...btnDanger, flex: 1, background: C.red, color: "#fff", border: "none",
-                opacity: sparar ? 0.5 : 1,
-              }}>
-                {sparar ? "Tar bort…" : "Ja, ta bort"}
-              </button>
-            </div>
-          </div>
+          <Bekrafta
+            text={`Säker på att du vill ta bort ${medarbetare.namn || "medarbetaren"}? Operatörskopplingar tas också bort.`}
+            ja={sparar ? "Tar bort…" : "Ja, ta bort"} upptagen={sparar}
+            onJa={taBort} onNej={() => setTaBortLäge(false)} />
         )}
       </div>
 
@@ -472,57 +373,55 @@ function HempunktKort({ m, onLadda }: { m: Medarbetare; onLadda: () => void }) {
     onLadda();
   };
   const knapp = (text: string, onClick: () => void) => (
-    <button onClick={onClick} disabled={kör} style={{ ...btnSecondary, marginTop: 10, opacity: kör ? 0.4 : 1 }}>{kör ? "Geokodar…" : text}</button>
+    <Sekundar onClick={onClick} disabled={kör} style={{ marginTop: AVSTAND.m }}>{kör ? "Geokodar…" : text}</Sekundar>
   );
   const länk = (lat: number, lng: number, text: string) => (
-    <a href={karta(lat, lng)} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, color: C.blue, fontSize: 13 }}>{text}</a>
+    <a href={karta(lat, lng)} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: AVSTAND.s, color: FARG.bla, ...TYP.meta }}>{text}</a>
   );
   const kalla = m.hem_koord_kalla === "gps" ? "satt med GPS i Maskinflytt"
     : m.hem_koord_kalla === "geokod" ? `från adressen — ${m.hem_geokod_etikett || "okänd etikett"} (${precisionText(m.hem_geokod_precision)})`
     : "satt för hand";
   const s = m.hem_geokod_status;
+  const text = (t: React.ReactNode, farg: string = FARG.text) => <p style={{ margin: 0, ...TYP.text, color: farg }}>{t}</p>;
+  const stod = (t: React.ReactNode) => <Stod style={{ marginTop: AVSTAND.m }}>{t}</Stod>;
   return (
-    <Card>
+    <Kort>
       {!m.hemadress?.trim() && m.hem_lat == null ? (
-        <p style={{ margin: 0, fontSize: 14, color: C.orange }}>Ingen hemadress — km räknas inte. Fyll i adressen ovan och spara.</p>
+        text("Ingen hemadress, så km räknas inte. Fyll i adressen ovan och spara.", FARG.orange)
       ) : m.hem_lat != null && m.hem_lng != null ? (
         <>
-          <p style={{ margin: 0, fontSize: 14, color: C.text }}>Punkten är {kalla}.</p>
+          {text(`Punkten är ${kalla}.`)}
           {länk(m.hem_lat, m.hem_lng, "Visa punkten på kartan")}
           {s === "hoppad" && (
             <>
-              <p style={{ margin: "10px 0 0", fontSize: 13, color: C.label }}>Adressen har ändrats men punkten är {m.hem_koord_kalla === "gps" ? "satt med GPS" : "satt för hand"} och skrivs inte över automatiskt.</p>
+              {stod(`Adressen har ändrats men punkten är ${m.hem_koord_kalla === "gps" ? "satt med GPS" : "satt för hand"} och skrivs inte över automatiskt.`)}
               {knapp("Geokoda adressen ändå", () => anropa({ tvinga: true }))}
             </>
           )}
           {s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null && (
-            <p style={{ margin: "10px 0 0", fontSize: 13, color: C.label }}>
-              Adressen hittades bara som {precisionText(m.hem_geokod_precision)} ({m.hem_geokod_etikett}) — punkten ovan används.
-            </p>
+            stod(`Adressen hittades bara som ${precisionText(m.hem_geokod_precision)} (${m.hem_geokod_etikett}). Punkten ovan används.`)
           )}
         </>
       ) : s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null ? (
         <>
-          <p style={{ margin: 0, fontSize: 14, color: C.orange }}>
-            Adressen hittades bara som {precisionText(m.hem_geokod_precision)}: {m.hem_geokod_etikett}. Används den blir km fel om personen bor utanför. Km räknas inte förrän du valt.
-          </p>
+          {text(`Adressen hittades bara som ${precisionText(m.hem_geokod_precision)}: ${m.hem_geokod_etikett}. Används den blir km fel om personen bor utanför. Km räknas inte förrän du valt.`, FARG.orange)}
           {länk(m.hem_geokod_lat, m.hem_geokod_lng, "Visa förslaget på kartan")}
           {knapp("Använd förslaget ändå", () => anropa({ acceptera: true }))}
-          <p style={{ margin: "10px 0 0", fontSize: 12, color: C.label }}>Exaktare: personen trycker "spara nuvarande plats som hembas" hemma i Maskinflytt, eller justera adressen ovan.</p>
+          {stod('Exaktare: personen trycker "spara nuvarande plats som hembas" hemma i Maskinflytt, eller justera adressen ovan.')}
         </>
       ) : s === "misslyckad" ? (
         <>
-          <p style={{ margin: 0, fontSize: 14, color: C.orange }}>Adressen hittades inte ({m.hem_geokod_etikett || "okänt fel"}). Kontrollera stavningen — km räknas inte.</p>
+          {text(`Adressen hittades inte (${m.hem_geokod_etikett || "okänt fel"}). Kontrollera stavningen. Km räknas inte.`, FARG.orange)}
           {knapp("Försök igen", () => anropa())}
         </>
       ) : (
         <>
-          <p style={{ margin: 0, fontSize: 14, color: C.label }}>Adressen väntar på geokodning — sker i natt, eller nu.</p>
+          {text("Adressen väntar på geokodning. Det sker i natt, eller nu.", FARG.text2)}
           {knapp("Geokoda nu", () => anropa())}
         </>
       )}
-      {fel && <p style={{ margin: "10px 0 0", fontSize: 13, color: C.red }}>{fel}</p>}
-    </Card>
+      {fel && <Stod farg={FARG.rod} style={{ marginTop: AVSTAND.m }}>{fel}</Stod>}
+    </Kort>
   );
 }
 
@@ -551,36 +450,20 @@ function NyMedarbetare({ onKlar, onAvbryt }: { onKlar: () => void; onAvbryt: () 
 
   return (
     <>
-      <button onClick={onAvbryt} style={{
-        background: "none", border: "none", color: C.blue, fontSize: 15,
-        cursor: "pointer", fontFamily: "inherit", padding: "4px 0", marginBottom: 8,
-      }}>‹ Avbryt</button>
-      <p style={secHead}>Ny medarbetare</p>
-      <Card>
-        <Field label="Namn *" value={namn} onChange={setNamn} placeholder="För- och efternamn"/>
-        <Field label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email"/>
-        <SelectField label="Roll" value={roll} onChange={setRoll} options={[
-          { value: "forare", label: "Förare" },
-          { value: "admin", label: "Admin" },
-        ]}/>
-      </Card>
-      {fel && (
-        <div style={{ marginTop: 12, padding: 12, background: "rgba(255,69,58,0.1)", borderRadius: 10, color: C.red, fontSize: 13 }}>
-          {fel}
-        </div>
-      )}
-      <button
-        onClick={spara}
-        disabled={sparar || !namn.trim()}
-        style={{ ...btnPrimary, marginTop: 20, opacity: sparar || !namn.trim() ? 0.4 : 1 }}
-      >
-        {sparar ? "Skapar…" : "Skapa medarbetare"}
-      </button>
+      <Tillbaka onClick={onAvbryt}>Avbryt</Tillbaka>
+      <Sektion topp={AVSTAND.s}>Ny medarbetare</Sektion>
+      <Kort>
+        <Falt label="Namn *" value={namn} onChange={setNamn} placeholder="För- och efternamn" />
+        <Falt label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email" />
+        <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
+      </Kort>
+      {fel && <Besked>{fel}</Besked>}
+      <Primar onClick={spara} disabled={sparar || !namn.trim()} style={{ marginTop: AVSTAND.xl }}>{sparar ? "Skapar…" : "Skapa medarbetare"}</Primar>
     </>
   );
 }
 
-/* ─── KOPPLA OPERATÖR-MODAL ─── */
+/* ─── KOPPLA OPERATÖR ─── */
 
 function KopplaOperatörModal({
   medarbetareId, onKlar, onAvbryt,
@@ -620,126 +503,31 @@ function KopplaOperatörModal({
   };
 
   return (
-    <div onClick={onAvbryt} style={{
-      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-      background: "rgba(0,0,0,0.7)", zIndex: 100,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: "#1c1c1e", borderRadius: 16, padding: 20, width: "100%", maxWidth: 420,
-        maxHeight: "80vh", display: "flex", flexDirection: "column",
-      }}>
-        <p style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 600, color: C.text, textAlign: "center" }}>
-          Koppla operatör
-        </p>
-        <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
+    <div onClick={onAvbryt} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.xl }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: FARG.kort, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 420, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+        <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color: FARG.text, textAlign: "center" }}>Koppla operatör</p>
+        <div style={{ flex: 1, overflowY: "auto", marginBottom: AVSTAND.m }}>
           {lediga === null ? (
-            <p style={{ color: C.label, fontSize: 14, textAlign: "center" }}>Laddar…</p>
+            <Tomt>Laddar…</Tomt>
           ) : lediga.length === 0 ? (
-            <p style={{ color: C.label, fontSize: 14, textAlign: "center" }}>Alla operatörer är redan kopplade.</p>
+            <Tomt>Alla operatörer är redan kopplade.</Tomt>
           ) : lediga.map((o, i) => (
-            <button key={o.operator_id} onClick={() => setValt(o.operator_id)} style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              width: "100%", padding: "12px 14px",
-              background: valt === o.operator_id ? "rgba(10,132,255,0.12)" : "transparent",
-              border: "none",
-              borderBottom: i === lediga.length - 1 ? "none" : `1px solid ${C.line}`,
-              cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-            }}>
+            <button key={o.operator_id} type="button" onClick={() => setValt(o.operator_id)}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px`, background: valt === o.operator_id ? FARG.fyllning : "transparent", border: "none", borderBottom: i === lediga.length - 1 ? "none" : `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: FARG.text }}>
               <div>
-                <div style={{ fontSize: 14, color: C.text, fontWeight: 500 }}>
-                  {o.operator_namn || o.operator_key || o.operator_id}
-                </div>
-                <div style={{ fontSize: 11, color: C.label, marginTop: 2 }}>
-                  {o.operator_id}{o.maskin_id ? ` · ${o.maskin_id}` : ""}
-                </div>
+                <div style={{ ...TYP.listtitel }}>{o.operator_namn || o.operator_key || o.operator_id}</div>
+                <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{o.operator_id}{o.maskin_id ? ` · ${o.maskin_id}` : ""}</div>
               </div>
-              {valt === o.operator_id && (
-                <div style={{
-                  width: 18, height: 18, borderRadius: "50%", background: C.blue,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <svg width="9" height="7" viewBox="0 0 10 8" fill="none">
-                    <path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-              )}
+              {valt === o.operator_id && <Ikon namn="check" farg={FARG.text} />}
             </button>
           ))}
         </div>
-        {fel && (
-          <div style={{ marginBottom: 10, padding: 10, background: "rgba(255,69,58,0.1)", borderRadius: 8, color: C.red, fontSize: 12 }}>
-            {fel}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onAvbryt} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
-          <button onClick={koppla} disabled={!valt || sparar} style={{
-            ...btnPrimary, flex: 1, opacity: !valt || sparar ? 0.4 : 1,
-          }}>
-            {sparar ? "Kopplar…" : "Koppla"}
-          </button>
+        {fel && <Besked>{fel}</Besked>}
+        <div style={{ display: "flex", gap: AVSTAND.m, marginTop: AVSTAND.m }}>
+          <Sekundar onClick={onAvbryt} style={{ flex: 1 }}>Avbryt</Sekundar>
+          <Primar onClick={koppla} disabled={!valt || sparar} style={{ flex: 1 }}>{sparar ? "Kopplar…" : "Koppla"}</Primar>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ─── FÄLT-KOMPONENTER ─── */
-
-function Field({
-  label, value, onChange, placeholder, type = "text",
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-}) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label style={{ display: "block", fontSize: 12, color: C.label, marginBottom: 6, fontWeight: 500 }}>
-        {label}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={inputStyle as CSSProperties}
-      />
-    </div>
-  );
-}
-
-function SelectField({
-  label, value, onChange, options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <label style={{ display: "block", fontSize: 12, color: C.label, marginBottom: 6, fontWeight: 500 }}>
-        {label}
-      </label>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        style={{
-          ...inputStyle as CSSProperties,
-          appearance: "none",
-          WebkitAppearance: "none",
-          backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'><path d='M1 1l5 5 5-5' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>")`,
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "right 14px center",
-          paddingRight: 36,
-        }}
-      >
-        {options.map(o => <option key={o.value} value={o.value} style={{ background: "#2a2a2c", color: "#fff" }}>{o.label}</option>)}
-      </select>
     </div>
   );
 }

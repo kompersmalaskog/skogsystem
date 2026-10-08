@@ -34,6 +34,19 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
   "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
+  // Admin (2026-10): flyttat till tokens, noll literaler. components/admin/ui.tsx är byggstenarna.
+  "components/admin/ui.tsx",
+  "components/admin/AdminClient.tsx",
+  "components/admin/Oversikt.tsx",
+  "components/admin/MedarbetareFlik.tsx",
+  "components/admin/MedarbetareKontroller.tsx",
+  "components/admin/MaskinerFlik.tsx",
+  "components/admin/AvtalFlik.tsx",
+  "components/admin/AtkUnderflik.tsx",
+  "components/admin/LonesystemUnderflik.tsx",
+  "components/admin/VilobrottUnderflik.tsx",
+  "components/admin/DagarUnderflik.tsx",
+  "components/admin/LonFlik.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
   "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad
