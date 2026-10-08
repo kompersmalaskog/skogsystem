@@ -55,6 +55,9 @@ export interface MaskinForslag {
   ko: KoPost[];                    // ordnad kö/rutt: [1:a, 2:a, …]. nästa = ko[0].
   manuellKo: boolean;             // skotare med manuell maskin_ko (override av automatiken)
   skal: string;
+  /** Nästa kan inte avgöras eftersom en läsning misslyckades: 'ko' = maskin_ko, 'skord' = virke på backen (skotarens förslag).
+   *  Sätts av markeraOkanda. En maskin med okand får aldrig se ut som "inget planerat". */
+  okand?: 'ko' | 'skord';
 }
 
 const TROSKEL_BACKEN = 30;   // m³fub — libets golv (~2 lass)
@@ -80,6 +83,24 @@ export function maskinAktiv(m: MaskinRad, todayISO: string): boolean {
  *  position, inget gissat. Läggs till EFTER beräkningen, så ingen annan maskins förslag påverkas. */
 export function tomtForslag(m: MaskinRad): MaskinForslag {
   return { maskinId: m.maskin_id, typ: arSkotare(m) ? 'skotare' : 'skordare', koordinat: null, positionAlder: null, nuObjekt: null, ko: [], manuellKo: false, skal: 'Ingen position och inget i kön' };
+}
+
+/**
+ * Ett läsfel är aldrig "inget planerat". Misslyckas köläsningen ('ko') eller virkesläsningen ('skord') får en maskin utan kö/förslag inte
+ * se ut som en maskin utan något planerat — den markeras okänd. Kartan står kvar: position och nu-objekt rörs inte.
+ *  - ko: förslagsrader (kalla:'forslag') tas bort — de är räknade mot en kö vi inte vet. Finns ingen köpost kvar → okand = 'ko'.
+ *  - skord: en SKOTARE utan kö och utan förslag → okand = 'skord' (förslagen hänger på virke på backen). Skördare påverkas inte.
+ * Ändrar inte det den fick in. Utan läsfel returneras samma karta.
+ */
+export function markeraOkanda(forslag: Map<string, MaskinForslag>, lasFel: { ko: boolean; skord: boolean }): Map<string, MaskinForslag> {
+  if (!lasFel.ko && !lasFel.skord) return forslag;
+  const ut = new Map<string, MaskinForslag>();
+  forslag.forEach((f, id) => {
+    const ko = lasFel.ko ? f.ko.filter((p) => p.kalla === 'ko') : f.ko;
+    const okand: MaskinForslag['okand'] = lasFel.ko && ko.length === 0 ? 'ko' : lasFel.skord && f.typ === 'skotare' && ko.length === 0 ? 'skord' : undefined;
+    ut.set(id, { ...f, ko, ...(okand ? { okand } : {}) });
+  });
+  return ut;
 }
 function normalisera(varden: number[]): (v: number) => number {
   const min = Math.min(...varden), max = Math.max(...varden);
