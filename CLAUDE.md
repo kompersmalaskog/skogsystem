@@ -301,6 +301,15 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 
 ---
 
+### Maskindator-start: löpande avstämning mot GPS-positionen (`lib/objektAvstamning.ts`, `lib/objektKandidater.ts`)
+
+Fältfel (Oskar, Rottne, R64428, 2026-10-07): appen startade på senast valda objekt (Älmehult) men maskinen stod i Trestensdal och loggade 377 hyttspårspunkter på fel objekt i 4 timmar. Traktgränserna fanns och överlappade inte — **felet var flödet**, inte datan: avstämningen ("A4") gjorde EN utvärdering mot första fixen och stängdes sedan av, och kandidatladdningen räknade ett fel/tomt svar som "laddat".
+
+- **Regel: en färsk, giltig fix inne i ett annat objekts traktgräns ska ALLTID leda till byte (tilldelat) eller bekräftelsekortet (ej tilldelat) inom en minut, oavsett vad enheten minns och hur starten gick.** `stegaAvstamning` körs på VARJE fix (inte en gång): står maskinen inne i det öppna objektet → inget; annars gäller `valjObjektForPosition` bland kandidaterna; samma annat objekt ska vara träff i `AVSTAMNING_HALL_MS` (10 s) och `AVSTAMNING_MIN_FIXAR` (3) fixar i följd (annars är det GPS-fladder vid en gräns). Tilldelat denna maskin → byte med notis; annars kortet "Börja avverka/skota här?". Redan frågat om objektet → **aldrig** en ny fråga och aldrig tyst överstyrning av ett avböjt kort.
+- **Kandidaterna (planerad/pågående + `objekt_geometri`) räknas bara som laddade vid ett svar UTAN fel och MED geometri.** `supabase-js` kastar inte — den returnerar `{ data: null, error }`; och `objekt_geometri` har RLS (bara `authenticated`), så en utgången/utloggad session ger **tomma rader utan fel** medan `objekt` svarar som vanligt → alla kandidater får `geometri: null` och ingen träff blir någonsin möjlig. `startaKandidatLaddning` har tidsgräns per försök (20 s), backoff 3→6→12→30→60 s och laddar om var 5:e minut. `maskindatorGeoKlar` sätts bara vid `ok`. **Ny kod som läser objekt + geometri för positionsval ska gå via den, aldrig en engångs-`.catch(() => [])`.**
+- Testfliken (`testlageAktivRef`) kör aldrig avstämningen. Roll alltid ur maskinregistret (`enhetRollRef`). Fixturen `lib/__fixtures__/trestensdal_almehult_2026-10-07.json` är Oskars riktiga punkter + de nio kandidaternas traktgränser (prod, read-only).
+- **Observation, ej ändrad:** kandidaterna filtreras på `status in (planerad, pagaende)`. Ett objekt i status `skotning` (giltig enligt CHECK) är aldrig kandidat — en skotare som står i ett sådant objekt matchas inte mot det.
+
 ## Verifiering — fallgropar som ger falskt godkant
 
 ### tsc i en ny worktree ljuger
