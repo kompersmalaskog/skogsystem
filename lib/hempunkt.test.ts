@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hempunktLage, arObekraftad, validerPunkt, bekraftaHempunkt, HITTADE_BARA_BYN } from "./hempunkt";
+import { hempunktLage, arObekraftad, validerPunkt, bekraftaHempunkt, rensaEtikett, HITTADE_BARA_BYN } from "./hempunkt";
 
 const NU = "2026-10-08T09:00:00.000Z";
 const rad = (extra: Record<string, any> = {}) => ({
@@ -105,5 +105,39 @@ describe("bekraftaHempunkt: skrivningen", () => {
     const f = fake(rad({ hem_lat: 56.39, hem_lng: 14.77, hem_koord_kalla: "geokod", hem_geokod_precision: "address" }), true);
     const r = await bekraftaHempunkt(f.sb, "m1", { atgard: "stammer" }, NU);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("rensaEtikett: geokodarens etikett utan landskod och engelska", () => {
+  it.each([
+    ["Kompersmåla, Almundsryd, KR, Sweden", "Kompersmåla, Almundsryd"],
+    ["Björkvägen 4, Ryd, KR, Sweden", "Björkvägen 4, Ryd"],
+    ["Storgatan 1, Växjö, G, Sweden", "Storgatan 1, Växjö"],
+    ["Ryd, Sweden", "Ryd"],
+    ["Ryd, Sverige", "Ryd"],
+    ["Kompersmåla, Almundsryd", "Kompersmåla, Almundsryd"],
+    ["Kompersmåla 3, Ryd, AB", "Kompersmåla 3, Ryd"],
+    ["", ""],
+  ])("%s → %s", (i, ut) => { expect(rensaEtikett(i)).toBe(ut); });
+  it("null och undefined ger tom text", () => { expect(rensaEtikett(null)).toBe(""); expect(rensaEtikett(undefined)).toBe(""); });
+  it("ett ortnamn som råkar vara kort behålls om det inte står sist före landet", () => {
+    expect(rensaEtikett("Ed, Ryd, KR, Sweden")).toBe("Ed, Ryd");
+    expect(rensaEtikett("Ryd, Ed")).toBe("Ryd, Ed");
+  });
+});
+
+describe("hempunktLage: etiketten är geokodarens gissning och visas bara när punkten kommer från geokodningen", () => {
+  it("en punkt satt för hand (förslaget från geokodningen ligger kvar i raden) har ingen geokodar-etikett", () => {
+    const l = hempunktLage(rad({ hem_lat: 56.3939, hem_lng: 14.7729, hem_koord_kalla: "manuell", hem_geokod_etikett: "Kompersmåla, Almundsryd, KR, Sweden" }));
+    expect(l).toMatchObject({ typ: "punkt", kalla: "manuell", etikett: "" });
+  });
+  it("GPS-punkt: ingen geokodar-etikett heller", () => {
+    expect(hempunktLage(rad({ hem_lat: 1, hem_lng: 2, hem_koord_kalla: "gps", hem_geokod_etikett: "X, KR, Sweden" }))).toMatchObject({ etikett: "" });
+  });
+  it("geokodad punkt: etiketten visas, rensad", () => {
+    expect(hempunktLage(rad({ hem_lat: 1, hem_lng: 2, hem_koord_kalla: "geokod", hem_geokod_precision: "address", hem_geokod_etikett: "Björkvägen 4, Ryd, KR, Sweden" }))).toMatchObject({ etikett: "Björkvägen 4, Ryd" });
+  });
+  it("förslaget (ingen punkt) visar den rensade etiketten", () => {
+    expect(hempunktLage(rad({ hem_geokod_status: "osaker", hem_geokod_lat: 56.38, hem_geokod_lng: 14.78, hem_geokod_precision: "locality", hem_geokod_etikett: "Kompersmåla, Almundsryd, KR, Sweden" }))).toMatchObject({ typ: "forslag", etikett: "Kompersmåla, Almundsryd" });
   });
 });

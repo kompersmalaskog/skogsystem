@@ -192,8 +192,8 @@ function Steg2({ person, onLadda, onTillbaka, onNasta, onAvbryt }: { person: Med
   return (
     <>
       <Kort>
-        <Falt label="Hemadress" value={adress} onChange={setAdress} placeholder="Gata, ort"
-          hint="Km räknas från hempunkten. Adressen slås upp direkt och du ser hur exakt den hittades." />
+        <Falt label="Hemadress" value={adress} onChange={setAdress} placeholder="Kompersmåla 3, 362 96 Ryd"
+          hint="Gata och nummer, postnummer och ort." />
         <Sekundar onClick={hitta} disabled={kor || !adress.trim()}>{kor ? "Letar…" : "Hitta adressen"}</Sekundar>
       </Kort>
       {fel && <Besked>{fel}</Besked>}

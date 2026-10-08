@@ -27,10 +27,12 @@ const ZOOM_BY = 14;
 
 export type KartLage = Extract<HempunktLage, { typ: "punkt" | "forslag" }>;
 
-export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
+export default function HempunktKarta({ lage, bildtext, kallText, onStammer, onSpara }: {
   lage: KartLage;
-  /** Etiketten under kartan: det geokodaren gav, eller hur punkten sattes. */
+  /** Etiketten under kartan: det geokodaren gav (rensad). Tom när punkten inte kommer från geokodningen. */
   bildtext: string;
+  /** Hur punkten sattes ("Punkten är satt för hand"), för en punkt som en människa valt. Står före "Bekräftad". */
+  kallText?: string;
   /** Ger felet som text, eller null när det sparades. */
   onStammer: () => Promise<string | null>;
   onSpara: (lat: number, lng: number) => Promise<string | null>;
@@ -47,6 +49,7 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
   const [ny, setNy] = useState<{ lat: number; lng: number } | null>(null);
   const [kor, setKor] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
+  const kartdrag = useRef(false);
 
   const bekraftad = lage.typ === "punkt" && lage.bekraftad;
   const grov = lage.grov;
@@ -77,6 +80,13 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
     return () => { script?.removeEventListener("load", laddad); script?.removeEventListener("error", misslyckad); };
   }, []);
 
+  // PEKAREN. Före första trycket (sätt-läge utan nål) ett hårkors i vila. Annars lämnas den åt MapLibre: handen över kartan,
+  // och den grepp-hand som MapLibre visar under ett drag (:active). Under ett kartdrag lämnas hårkorset också.
+  const uppdateraPekare = () => {
+    const c = karta.current?.getCanvas?.();
+    if (c) c.style.cursor = flyttarRef.current && !markor.current && !kartdrag.current ? "crosshair" : "";
+  };
+
   // Nålen: en markör, skapad vid start (exakt träff) eller vid första trycket (grov träff).
   const skapaNal = (lng: number, lat: number) => {
     const ml = window.maplibregl;
@@ -87,10 +97,13 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
     el.style.border = `3px solid ${FARG.text}`;
     el.style.boxSizing = "border-box";
     el.style.background = bekraftadRef.current ? FARG.gron : FARG.orange;
+    el.style.cursor = flyttarRef.current ? "grab" : "";
     prick.current = el;
     const m = new ml.Marker({ element: el, draggable: flyttarRef.current }).setLngLat([lng, lat]).addTo(karta.current);
-    m.on("dragend", () => { const ll = m.getLngLat(); setNy({ lat: ll.lat, lng: ll.lng }); });
+    m.on("dragstart", () => { el.style.cursor = "grabbing"; });
+    m.on("dragend", () => { el.style.cursor = "grab"; const ll = m.getLngLat(); setNy({ lat: ll.lat, lng: ll.lng }); });
     markor.current = m;
+    uppdateraPekare();
     return m;
   };
 
@@ -109,6 +122,10 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
     map.addControl(new ml.AttributionControl({ customAttribution: FORARKARTA_ATTRIBUTION, compact: true }), "bottom-left");
 
     if (!lage.grov) skapaNal(lage.lng, lage.lat);
+    // Ett drag av kartan sätter ingen nål (MapLibre skickar bara 'click' för ett tryck utan drag), och nålen står kvar.
+    map.on("dragstart", () => { kartdrag.current = true; uppdateraPekare(); });
+    map.on("dragend", () => { kartdrag.current = false; uppdateraPekare(); });
+    uppdateraPekare();
     map.on("click", (e: any) => {
       if (!flyttarRef.current) return;
       if (markor.current) markor.current.setLngLat([e.lngLat.lng, e.lngLat.lat]);
@@ -130,6 +147,9 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
   useEffect(() => {
     flyttarRef.current = flyttar;
     markor.current?.setDraggable(flyttar);
+    if (prick.current) prick.current.style.cursor = flyttar ? "grab" : "";
+    uppdateraPekare();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyttar, redo]);
 
   // En träff som blir grov medan kartan är öppen (ny geokodning): nålen tas bort och sätt-läget slås på.
@@ -137,6 +157,7 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
     if (!lage.grov) return;
     markor.current?.remove();
     markor.current = null; prick.current = null;
+    uppdateraPekare();
     setNy(null); setFlyttar(true);
   }, [lage.grov]);
 
@@ -171,13 +192,13 @@ export default function HempunktKarta({ lage, bildtext, onStammer, onSpara }: {
       {laddFel ? (
         <Stod farg={FARG.orange} style={{ marginTop: 0 }}>Kartan kunde inte laddas. Ladda om sidan.</Stod>
       ) : (
-        <div ref={behallare} role="img" aria-label={`Hempunkten på kartan: ${bildtext}`}
+        <div ref={behallare} role="img" aria-label={`Hempunkten på kartan: ${bildtext || kallText || ""}`}
           style={{ height: KARTHOJD, borderRadius: RADIE.rad, overflow: "hidden", background: FARG.fyllning }} />
       )}
-      <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text, color: FARG.text }}>{bildtext}</p>
+      {bildtext && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text, color: FARG.text }}>{bildtext}</p>}
       {grov
         ? <Stod farg={FARG.orange}>{HITTADE_BARA_BYN}</Stod>
-        : <Stod farg={bekraftad ? FARG.text2 : FARG.orange}>{bekraftad ? "Bekräftad" : "Punkten är inte bekräftad."}</Stod>}
+        : <Stod farg={bekraftad ? FARG.text2 : FARG.orange}>{bekraftad ? (kallText ? `${kallText} · Bekräftad` : "Bekräftad") : "Punkten är inte bekräftad."}</Stod>}
       {flyttar && (grov ? ny && <Stod>Dra nålen om den inte ligger på huset.</Stod> : <Stod>Dra punkten eller tryck på kartan där huset ligger.</Stod>)}
       {fel && <Stod farg={FARG.rod}>{fel}</Stod>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: AVSTAND.m, marginTop: AVSTAND.m }}>

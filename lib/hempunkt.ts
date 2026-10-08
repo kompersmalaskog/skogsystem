@@ -31,23 +31,37 @@ export type HempunktLage =
   | { typ: "forslag"; lat: number; lng: number; etikett: string; grov: true }
   | { typ: "punkt"; lat: number; lng: number; etikett: string; kalla: string; grov: boolean; bekraftad: boolean }
 
+/**
+ * Geokodarens etikett som människor läser den: utan landskod (länet "KR") och engelska ("Sweden").
+ * "Kompersmåla, Almundsryd, KR, Sweden" → "Kompersmåla, Almundsryd".
+ */
+export function rensaEtikett(etikett: string | null | undefined): string {
+  const delar = String(etikett ?? "").split(",").map(d => d.trim()).filter(Boolean)
+  if (delar.length && /^(sweden|sverige)$/i.test(delar[delar.length - 1])) delar.pop()
+  if (delar.length > 1 && /^[A-ZÅÄÖ]{1,3}$/.test(delar[delar.length - 1])) delar.pop()
+  return delar.join(", ")
+}
+
 /** Är precisionen grövre än adressnivå? Ingen precision alls (satt för hand) är inte grov. */
 export function arGrovPrecision(precision: string | null | undefined): boolean {
   return !!precision && !(EXAKTA_LAGER as readonly string[]).includes(precision)
 }
 
 export function hempunktLage(r: HemPunktRad): HempunktLage {
-  const etikett = r.hem_geokod_etikett || ""
+  const geokodEtikett = rensaEtikett(r.hem_geokod_etikett)
   if (r.hem_lat != null && r.hem_lng != null) {
     const kalla = r.hem_koord_kalla || "manuell"
     const geokodad = kalla === "geokod"
+    // Etiketten är geokodarens GISSNING: den visas bara när punkten kommer från geokodningen. Raden behåller förslaget
+    // även sedan admin satt punkten för hand, och då är det inte längre sant att punkten ligger där.
+    const etikett = geokodad ? geokodEtikett : ""
     const grov = geokodad && arGrovPrecision(r.hem_geokod_precision)
     // En grov geokodad punkt kan aldrig vara bekräftad: stämpeln gäller bara en punkt admin faktiskt kunde stämma av.
     const bekraftad = geokodad ? !!r.hem_bekraftad_tid && !grov : true
     return { typ: "punkt", lat: r.hem_lat, lng: r.hem_lng, etikett, kalla, grov, bekraftad }
   }
   if (r.hem_geokod_lat != null && r.hem_geokod_lng != null) {
-    return { typ: "forslag", lat: r.hem_geokod_lat, lng: r.hem_geokod_lng, etikett, grov: true }
+    return { typ: "forslag", lat: r.hem_geokod_lat, lng: r.hem_geokod_lng, etikett: geokodEtikett, grov: true }
   }
   return { typ: "ingen" }
 }

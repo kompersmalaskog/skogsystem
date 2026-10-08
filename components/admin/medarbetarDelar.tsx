@@ -82,16 +82,19 @@ export function HempunktKort({ m, onLadda }: { m: Medarbetare; onLadda: () => vo
       : lage.kalla === "geokod" ? `från adressen (${precisionText(m.hem_geokod_precision)})`
       : "satt för hand"
     : "";
-  const bildtext = lage.typ === "ingen" ? "" : lage.etikett || (lage.typ === "punkt" && lage.kalla === "gps" ? "Satt med GPS" : "Satt för hand");
+  // Raden under kartan: geokodarens etikett bara när punkten kommer från geokodningen; en punkt som en människa satt säger
+  // bara hur den sattes. Landskod och engelska visas aldrig (lib/hempunkt.rensaEtikett).
+  const bildtext = lage.typ === "ingen" ? "" : lage.etikett;
+  const kallText = lage.typ === "punkt" && lage.kalla !== "geokod" ? `Punkten är ${kalla}` : undefined;
   return (
     <Kort>
       {!m.hemadress?.trim() && m.hem_lat == null ? (
         text("Ingen hemadress, så km räknas inte. Fyll i adressen ovan och spara.", FARG.orange)
       ) : lage.typ === "punkt" ? (
         <>
-          {text(`Punkten är ${kalla}.`)}
-          <div style={{ marginTop: AVSTAND.m }}>
-            <HempunktKarta lage={lage} bildtext={bildtext} onStammer={() => svara({ atgard: "stammer" })} onSpara={(lat, lng) => svara({ atgard: "flytta", lat, lng })} />
+          {lage.kalla === "geokod" && text(`Punkten är ${kalla}.`)}
+          <div style={{ marginTop: lage.kalla === "geokod" ? AVSTAND.m : 0 }}>
+            <HempunktKarta lage={lage} bildtext={bildtext} kallText={kallText} onStammer={() => svara({ atgard: "stammer" })} onSpara={(lat, lng) => svara({ atgard: "flytta", lat, lng })} />
           </div>
           {s === "hoppad" && (
             <>
