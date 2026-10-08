@@ -236,10 +236,11 @@ def tal_av(rec, forwarder):
                 bransle=int(post) if post else None, ok=len(dec) == 2 and bool(pre))
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--fulltext", default=str(IMP / "maxi_full.jsonl"))
-    a = ap.parse_args()
+def main(write=True, fulltext=None):
+    class _A:
+        pass
+    a = _A()
+    a.fulltext = fulltext or str(IMP / "maxi_full.jsonl")
     inv = {r["sha256"]: r for r in csv.DictReader(open(IMP / "inventering.csv", encoding="utf-8-sig"))}
     rm = list(csv.DictReader(open(IMP / "rapport_maskin.csv", encoding="utf-8-sig")))
     maskin = {r["sha256"]: r["maskin_namn"] for r in rm}
@@ -387,9 +388,10 @@ def main():
             w.writerows(rows)
 
     srows = sorted(skift.values(), key=lambda x: (x["maskin_namn"], x["datum"], x["tin"], x["forare"]))
-    skriv("skift.csv", srows)
-    skriv("objekt.csv", objekt_rows)
-    skriv("avvikelser.csv", avv)
+    if write:
+        skriv("skift.csv", srows)
+        skriv("objekt.csv", objekt_rows)
+        skriv("avvikelser.csv", avv)
 
     # regressionsvakt
     rp = [o for o in objekt_rows if o["filnamn"].startswith("Rotposter Kompersm") and o["rapportdatum"] == "2012-11-19" and o["g15"] == "138:14"]
