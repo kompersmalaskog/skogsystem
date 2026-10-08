@@ -27,6 +27,7 @@ import { hamtaVagKm } from '@/lib/grotvy/avstand';
 import { arealText, FORSENAD_TEXT, grotSchablonText, kmText, kortDatum, markBegransningText, SAKNAR_OBJEKT_TEXT, senastText, skordatText } from '@/lib/grotvy/format';
 import { arForsenad, rollMatcharTyp, type GrotRad, type GrotSkrivning, type Koord } from '@/lib/grotvy/lista';
 import { Grabber, KNAPP, KNAPP_LITEN, SheetBas, VarningRader } from './ark-delar';
+import { KO_OKAND_TEXT } from './las-fel-banner';
 import GrotMarkagaren from './GrotMarkagaren';
 
 export interface ArkSkotare { id: string; namn: string; roll: string | null; koordinat: Koord | null }
@@ -37,12 +38,14 @@ type Hansyn = VarningsSvar;
 
 const SvgTillbaka = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>;
 
-export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaBortKo, onSpara, onSenFel, onTillbaka, onClose }: {
+export default function GrotObjektArk({ rad, idag, skotare, ko, koFel = false, onLaggIKo, onTaBortKo, onSpara, onSenFel, onTillbaka, onClose }: {
   rad: GrotRad;
   idag: string;
   /** Aktiva skotare med läge; arket väljer själv de som får köra objektet enligt skotar_roll. */
   skotare: ArkSkotare[];
   ko: ArkKo | null;
+  /** Kön gick inte att läsa: "i kö" kan saknas — arket säger det i stället för "GROT väntar". */
+  koFel?: boolean;
   onLaggIKo: (maskinId: string, objektId: string) => Promise<string | null>;
   onTaBortKo: (koId: string) => Promise<string | null>;
   /** Verifierad sparning av markägarens uppgifter (null = landade, annars felmeddelande). Saknas för förare → ingen sektion. */
@@ -128,7 +131,7 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
   }
 
   const kanKoa = !!objekt && !arbetar;
-  const status = ko ? 'i kö' : 'GROT väntar';
+  const status = ko ? 'i kö' : koFel ? 'kön ej läst' : 'GROT väntar'; // ett läsfel är aldrig "GROT väntar" (= inte i någon kö)
 
   return (
     <div className="sheet-upp" role="dialog" aria-label={rad.namn} style={{ ...SheetBas, maxHeight: '62%', overflowY: 'auto' }}>
@@ -142,7 +145,7 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
           {objekt
             ? <a href={`/planering?valt=${objekt.id}`} style={{ ...TYP.rubrik, color: FARG.text, textDecoration: 'none', minWidth: 0 }}>{rad.namn} <span style={{ ...TYP.meta, color: FARG.text2 }}>›</span></a>
             : <div style={{ ...TYP.rubrik, minWidth: 0 }}>{rad.namn}</div>}
-          <div style={{ ...TYP.meta, color: FARG.text2, whiteSpace: 'nowrap' }}>{status}</div>
+          <div style={{ ...TYP.meta, color: koFel && !ko ? FARG.orange : FARG.text2, whiteSpace: 'nowrap' }}>{status}</div>
         </div>
       </div>
 
@@ -173,6 +176,7 @@ export default function GrotObjektArk({ rad, idag, skotare, ko, onLaggIKo, onTaB
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
         {ko && <div style={{ ...TYP.meta, color: FARG.text2 }}>I kö för {ko.maskinNamn} · {ko.plats}:a</div>}
+        {koFel && !ko && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{KO_OKAND_TEXT} — vilka köer objektet ligger i kan saknas.</div>}
         {!objekt ? (
           <>
             <button disabled style={{ ...KNAPP, ...INAKTIV }}>Lägg i kö</button>

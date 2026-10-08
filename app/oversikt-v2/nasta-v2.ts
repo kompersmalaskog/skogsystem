@@ -55,9 +55,13 @@ export interface MaskinForslag {
   ko: KoPost[];                    // ordnad kö/rutt: [1:a, 2:a, …]. nästa = ko[0].
   manuellKo: boolean;             // skotare med manuell maskin_ko (override av automatiken)
   skal: string;
-  /** Nästa kan inte avgöras eftersom en läsning misslyckades: 'ko' = maskin_ko, 'skord' = virke på backen (skotarens förslag).
+  /** Nästa kan inte avgöras eftersom en läsning misslyckades: 'ko' = maskin_ko, 'grot' = GROT-listan (avslutade trakter i skotarens kö göms
+   *  utan den), 'skord' = virke på backen och 'pos' = var maskinerna står (båda: skotarens förslag räknas inte).
    *  Sätts av markeraOkanda. En maskin med okand får aldrig se ut som "inget planerat". */
-  okand?: 'ko' | 'skord';
+  okand?: 'ko' | 'skord' | 'pos' | 'grot';
+  /** SKOTARE: antal rader i kön som göms för att objektet är avslutat och inte släpps in av GROT-listan. Normalt rester, men utan GROT-listan
+   *  (läsfel) kan det vara GROT-trakter — då säger arket det. Sätts bara när det finns något gömt. */
+  doldaAvslutade?: number;
 }
 
 const TROSKEL_BACKEN = 30;   // m³fub — libets golv (~2 lass)
@@ -86,18 +90,31 @@ export function tomtForslag(m: MaskinRad): MaskinForslag {
 }
 
 /**
- * Ett läsfel är aldrig "inget planerat". Misslyckas köläsningen ('ko') eller virkesläsningen ('skord') får en maskin utan kö/förslag inte
- * se ut som en maskin utan något planerat — den markeras okänd. Kartan står kvar: position och nu-objekt rörs inte.
+ * Ett läsfel är aldrig "inget planerat". Misslyckas köläsningen ('ko'), virkesläsningen ('skord'), positionsläsningen ('pos') eller
+ * GROT-läsningen ('grot') får en maskin utan kö/förslag inte se ut som en maskin utan något planerat — den markeras okänd. Kartan står
+ * kvar: position och nu-objekt rörs inte.
  *  - ko: förslagsrader (kalla:'forslag') tas bort — de är räknade mot en kö vi inte vet. Finns ingen köpost kvar → okand = 'ko'.
  *  - skord: en SKOTARE utan kö och utan förslag → okand = 'skord' (förslagen hänger på virke på backen). Skördare påverkas inte.
- * Ändrar inte det den fick in. Utan läsfel returneras samma karta.
+ *  - pos: förslagsraderna tas bort — närheten räknades utan var maskinen står, så rangordningen är en annan än den riktiga. En SKOTARE
+ *    utan kö och utan förslag → okand = 'pos'. Skördare påverkas inte (deras rader är kön, och den lästes).
+ *  - grot: GROT-listan släpper in avslutade trakter i skotarens kö; utan den göms de (doldaAvslutade). En manuell kö-rad slår automatiken, så
+ *    ett gömt GROT-objekt kan vara det riktiga "nästa" — för en SKOTARE med gömda rader tas förslagsraderna bort, och finns ingen köpost
+ *    kvar → okand = 'grot'. En skotare utan något gömt har inget att sakna och rörs inte.
+ * Vid flera fel vinner ko, sedan grot (en gömd köplats väger tyngre än saknade förslag), sedan skord, sedan pos. Ändrar inte det den fick in.
+ * Utan läsfel returneras samma karta.
  */
-export function markeraOkanda(forslag: Map<string, MaskinForslag>, lasFel: { ko: boolean; skord: boolean }): Map<string, MaskinForslag> {
-  if (!lasFel.ko && !lasFel.skord) return forslag;
+export function markeraOkanda(forslag: Map<string, MaskinForslag>, lasFel: { ko: boolean; skord: boolean; pos?: boolean; grot?: boolean }): Map<string, MaskinForslag> {
+  const pos = lasFel.pos === true, grot = lasFel.grot === true;
+  if (!lasFel.ko && !lasFel.skord && !pos && !grot) return forslag;
   const ut = new Map<string, MaskinForslag>();
   forslag.forEach((f, id) => {
-    const ko = lasFel.ko ? f.ko.filter((p) => p.kalla === 'ko') : f.ko;
-    const okand: MaskinForslag['okand'] = lasFel.ko && ko.length === 0 ? 'ko' : lasFel.skord && f.typ === 'skotare' && ko.length === 0 ? 'skord' : undefined;
+    const skotare = f.typ === 'skotare';
+    const grotDold = grot && (f.doldaAvslutade ?? 0) > 0; // bara skotare har fältet
+    const ko = lasFel.ko || pos || grotDold ? f.ko.filter((p) => p.kalla === 'ko') : f.ko;
+    const okand: MaskinForslag['okand'] = lasFel.ko && ko.length === 0 ? 'ko'
+      : grotDold && ko.length === 0 ? 'grot'
+      : lasFel.skord && skotare && ko.length === 0 ? 'skord'
+      : pos && skotare && ko.length === 0 ? 'pos' : undefined;
     ut.set(id, { ...f, ko, ...(okand ? { okand } : {}) });
   });
   return ut;
@@ -146,10 +163,14 @@ export function beraknaForslag(args: {
       .filter((o): o is OversiktObjekt => !!o && (!avAvslutat(o) || (medGrot && grotIds.has(o.id))) && o.lat != null && o.lng != null && o.id !== nuId);
 
   const out = new Map<string, MaskinForslag>();
-  const set = (m: MaskinRad, typ: MaskinTyp, ko: KoPost[], manuellKo: boolean, skal: string) => {
+  const set = (m: MaskinRad, typ: MaskinTyp, ko: KoPost[], manuellKo: boolean, skal: string, dolda = 0) => {
     const lage = lageFor(m);
-    out.set(m.maskin_id, { maskinId: m.maskin_id, typ, koordinat: lage.koordinat, positionAlder: lage.alder, nuObjekt: nuObjektFor(m), ko, manuellKo, skal });
+    out.set(m.maskin_id, { maskinId: m.maskin_id, typ, koordinat: lage.koordinat, positionAlder: lage.alder, nuObjekt: nuObjektFor(m), ko, manuellKo, skal, ...(dolda > 0 ? { doldaAvslutade: dolda } : {}) });
   };
+  // Rader i en SKOTARES kö som göms enbart för att objektet är avslutat och inte släpps in av GROT-listan (samma villkor som koUr i övrigt).
+  const doldaAvslutadeUr = (maskinId: string, nuId: string | null): number =>
+    maskinKo.filter((k) => k.maskin_id === maskinId).map((k) => objById.get(k.objekt_id))
+      .filter((o): o is OversiktObjekt => !!o && avAvslutat(o) && !grotIds.has(o.id) && o.lat != null && o.lng != null && o.id !== nuId).length;
 
   // ── SKÖRDARE: förmannens kö, punkt ──
   for (const m of maskiner.filter((x) => !arSkotare(x))) {
@@ -228,7 +249,7 @@ export function beraknaForslag(args: {
     const skal = manuell.length
       ? `Manuell kö (${manuell.length})${forslag.length ? ` + ${forslag.length} förslag` : ''}`
       : forslag.length ? `Auto (${m.skotar_roll})` : (m.skotar_roll ? `Ingen ${m.skotar_roll}-backen att skota` : 'Ingen skotar_roll satt');
-    set(m, 'skotare', [...koRader, ...forslag], manuell.length > 0, skal);
+    set(m, 'skotare', [...koRader, ...forslag], manuell.length > 0, skal, doldaAvslutadeUr(m.maskin_id, lageFor(m).nuObjektId));
   }
 
   return out;
