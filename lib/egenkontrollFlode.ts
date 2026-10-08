@@ -224,6 +224,44 @@ export function efterSvar(args: {
   return nasta ? { typ: 'punkt', id: nasta } : { typ: 'stanna' };
 }
 
+/** Sagt i kortet nar punkterna som aterstar inte har nagon plats pa kartan. Samma mening som tomma kortet. */
+export const SAKNAR_PLATS_MENING = 'Punkterna som återstår saknar plats på kartan. Svara på dem i listan.';
+
+/**
+ * Kan kortet stangas, och i sa fall: varfor gar det inte vidare av sig sjalvt?
+ *
+ * Ett kort med en BESVARAD punkt har ingenting kvar att gora. Efter ett forsta svar
+ * flyttas det till narmaste obesvarade (efterSvar) - men det finns inget att flytta
+ * till nar position saknas, och inte heller nar det som aterstar saknar plats. Da
+ * star kortet kvar, och utan en stang-knapp fanns bara ett annat tryck pa kartan
+ * som vag ut. Samma sak galler en besvarad punkt man tryckt upp for att titta pa.
+ *
+ *   kanStangas  - kortet visar en besvarad punkt (och vyn ar inte pa vag till avslutet)
+ *   forklaring  - satt bara nar ingen nasta kan pekas ut och terrangen inte ar klar:
+ *                 'position' = utan position gar ordningen inte att avgora,
+ *                 'plats'    = positionen duger men det som aterstar saknar plats.
+ *
+ * Ett OBESVARAT kort stangs aldrig: det ska besvaras. Kortet byter inte punkt av sig
+ * sjalvt, sa att det inte forsvinner medan man star vid punkten.
+ */
+export type KortStangning = { kanStangas: boolean; forklaring: 'position' | 'plats' | null };
+
+export function kortStangning(args: {
+  kort: Pick<EgenkontrollPunkt, 'status'> | null;
+  /** Sista punkten ar besvarad och vyn byter till avslutet av sig sjalv. */
+  klartKort: boolean;
+  terrangKvar: number;
+  /** Finns en narmaste obesvarade punkt att peka ut (narmasteObesvarade != null)? */
+  nastaFinns: boolean;
+  positionOk: boolean;
+}): KortStangning {
+  if (!args.kort || args.kort.status === null || args.klartKort) {
+    return { kanStangas: false, forklaring: null };
+  }
+  if (args.terrangKvar === 0 || args.nastaFinns) return { kanStangas: true, forklaring: null };
+  return { kanStangas: true, forklaring: args.positionOk ? 'plats' : 'position' };
+}
+
 /**
  * Ar detta en punkts FORSTA svar? Bara da gar kortet vidare. Att rattta ett
  * redan givet svar (ok -> avvikelse) ska inte flytta nagon: man star kvar pa
