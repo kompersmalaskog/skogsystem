@@ -236,6 +236,8 @@ def lagg_till(orows, avv, inv, maskin, kolumner):
                     g15=r["g15"], avbrott_g15=r["avbrott"], bransle_l=r["bransle_l"] if r["bransle_l"] is not None else "", forare=r["forare"], antal_skift=0,
                     antal_lass=r["laster"] if r["laster"] is not None else "", kalla_typ="pdf", filnamn=fil, maskinnr_rapport=r["maskinnr"],
                     objekt_nyckel=f'{namn}|L|{r["delobjektsnr"]}|{r["startdatum"]}')
+        # Genomsnittlig laststorlek exakt 1,00 m³ = lastens volym är inte inmatad (volym = antal lass). 10,00 = schablon.
+        base["volym_kvalitet"] = "laster_x_1m3" if r["laststorlek"] == 1.0 else ("schablon_10m3" if r["laststorlek"] == 10.0 else "")
         if r["volym_m3"] is None:
             avvik(sha, fil, r["rapportdatum"], namn, "lastcert_volym_saknas")
         orows.append(base)

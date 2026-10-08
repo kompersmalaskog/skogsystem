@@ -140,10 +140,11 @@ def parse_lastcert(pages):
     ms = re.search(r"Opti(?:4G|Win) ([\d.]+)", p1)
     r["system"] = ms.group(0) if ms else ""
     # sammanfattningssidan ("Förarspecifik sammanfattning")
-    r["volym_m3"] = r["laster"] = None
+    r["volym_m3"] = r["laster"] = r["laststorlek"] = None
     mm = re.search(r"Antal laster\n[^\n]*\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*([\d ]*\d,\d+) m³\n\s*([\d ]*\d,\d+) m³", t)
     if mm:
         r["laster"], r["volym_m3"] = int(mm.group(1)), sv(mm.group(4))
+        r["laststorlek"] = sv(mm.group(5))
     mt = re.search(r"\n(\d+:\d\d)\n(\d+:\d\d)\n(\d+:\d\d)\n\s*([\d ]*\d,\d)\n", t)
     if mt:
         r["g15"], r["avbrott"], r["arbetstid"], r["bransle_l"] = mt.group(1), mt.group(2), mt.group(3), sv(mt.group(4))

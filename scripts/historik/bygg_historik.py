@@ -22,7 +22,7 @@ SKIFT_KOL = ["maskin_namn", "chassinr", "objektnr", "objekt", "forare", "datum",
 OBJEKT_KOL = ["status", "format", "volym_enhet", "sha256", "rapportdatum", "maskin_namn", "chassinr", "typ", "rapporttyp", "objektnr",
               "objekt", "programversion", "stammar", "stockar", "volym_m3fub", "volym_2b_arter", "flertrad_102b", "volym_per_tradslag",
               "g0", "g15", "extratid", "rasttid", "avbrott_g15", "motortid", "bransle_l", "antal_skift", "forare", "objekt_nyckel",
-              "senaste_for_nyckel", "utan_stammar", "kalla_typ", "maskinnr_rapport", "dubblett_av", "livstid_h", "antal_lass", "filnamn"]
+              "senaste_for_nyckel", "utan_stammar", "kalla_typ", "maskinnr_rapport", "dubblett_av", "livstid_h", "antal_lass", "volym_kvalitet", "filnamn"]
 SKOTARE = {"Komatsu 840.4", "Komatsu 860.4", "Komatsu 830.3", "Komatsu 875", "Elephant King gammal", "Elephant King ny", "Ponsse Wisent"}
 
 

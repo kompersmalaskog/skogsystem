@@ -28,7 +28,7 @@ def volymer(S, O, bara_nya=False):
             if s["format"] == "maxixplorer_drf" and s["volym_m3fub"] != "":
                 V[(s["maskin_namn"], s["datum"][:4])] += float(s["volym_m3fub"])
     for o in O:
-        if o["format"] == "maxixplorer_drf" or o["status"] != "ok" or o["senaste_for_nyckel"] != "ja" or o["volym_m3fub"] == "" or o["dubblett_av"]:
+        if o["format"] == "maxixplorer_drf" or o["status"] != "ok" or o["senaste_for_nyckel"] != "ja" or o["volym_m3fub"] == "" or o["dubblett_av"] or o["volym_kvalitet"] == "laster_x_1m3":
             continue
         ny = o["kalla_typ"] in ("prt", "xps") or o["format"] in ("matbevis", "lastcertifikat")
         if bara_nya and not ny:
