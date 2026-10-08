@@ -19,8 +19,9 @@ import { hamtaSkordMapV2, type SkordAggV2 } from './skord-data';
 import { beraknaForslag, arSkotare, maskinAktiv, tomtForslag, koNamn, arGrotKo, type MaskinForslag, type MaskinRad, type MaskinTyp, type KoPost } from './nasta-v2';
 import { arbetsLage } from './lage';
 import { koLaget } from './ko-regler';
-import { barighetText, byggVarningar, telHref, type MarkeringRow, type ObjWarn } from './objekt-info';
-import { KO_LASFEL, KO_SPARFEL, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat, type KoSvar } from './ko-skriv';
+import { barighetText, telHref } from './objekt-info';
+import { TOMT_LAGE, VARNING_LADDAR, VARNING_LASFEL, lasVarningar, objektAttLasaForst, slaIhop, varningFor, type VarningsLage, type VarningsSvar } from './markeringar-las';
+import { KO_LASFEL, KO_SPARFEL, flyttaKoVerifierat, laggIKoVerifierat, lasKo, skapaKoKedja, skrivOrdningVerifierat, taBortKoVerifierat, toastText, type KoSvar } from './ko-skriv';
 import { arIos, forstaNamn, maskinOrd, rensaObjektnamn, smsHref, smsText, type MaskinOrd } from './sms';
 import { hamtaGrotRaw } from '@/lib/grotvy/hamta';
 import { byggGrotLista, grotKordaObjektIds, grotSnartAntal, grotVantandeObjektIds, medDimPatch, type GrotRad, type GrotRaw, type GrotSkrivning } from '@/lib/grotvy/lista';
@@ -42,6 +43,7 @@ const GRAY_LINE = 'rgba(72,72,74,0.95)';
 const LIT_LINE = '#1c1c1e';
 const GRAY_DOT = '#636366';
 const THRESHOLD_ZOOM = 11; // < detta = översikt (bara maskiner + pågående + ringar); ≥ = allt
+const TOAST_MS = 4000;      // hur länge toasten (en kö-sparning som felade efter att arket stängts) står kvar
 
 const fmt = (n: number) => Math.round(n).toLocaleString('sv-SE');
 function kortDatum(d: string | null): string {
@@ -88,11 +90,14 @@ async function vagRutt(from: { lat: number; lng: number }, to: { lat: number; ln
   } catch { return { km: null, geom: null }; }
 }
 
-// Faror och hänsyn (med planerarens kommentar) byggs i objekt-info.ts. Raden i maskin-arket visar bara den första (kort);
-// objekt-arket visar alla.
-const varnText = (w: ObjWarn | undefined): { text: string; color: string } | null =>
-  w && w.faror.length ? { text: `fara: ${w.faror[0].label}`, color: FARG.rod }
-    : w && w.hansyn.length ? { text: `hänsyn: ${w.hansyn[0].label}`, color: FARG.orange } : null;
+// Faror och hänsyn (med planerarens kommentar) byggs i objekt-info.ts och läses i markeringar-las.ts. Raden i maskin-arket visar bara den
+// första (kort); objekt-arket visar alla. En rad som INTE gick att läsa säger det ("faror ej lästa") — en tom rad får aldrig betyda
+// "okänt". Pågår läsningen (laddar) står det i bannern överst i arket, inte på raden.
+const varnText = (s: VarningsSvar): { text: string; color: string } | null =>
+  s === 'fel' ? { text: 'faror ej lästa', color: FARG.orange }
+    : s === 'laddar' ? null
+    : s.faror.length ? { text: `fara: ${s.faror[0].label}`, color: FARG.rod }
+    : s.hansyn.length ? { text: `hänsyn: ${s.hansyn[0].label}`, color: FARG.orange } : null;
 
 const harMaskin = (o: OversiktObjekt) => !!((o as any).skordare_maskin_id || (o as any).skotare_maskin_id);
 
@@ -160,7 +165,25 @@ export default function OversiktV2Page() {
   const [objekt, setObjekt] = useState<OversiktObjekt[]>([]);
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>([]);
-  const [warnings, setWarnings] = useState<Record<string, ObjWarn>>({});
+  // Faror och hänsyn per objekt (markeringar-las.ts): läst (ok, kan vara tomt = "ingen"), misslyckat (fel) eller ännu inte läst. Ett objekt som
+  // inte finns i ok är OKÄNT — aldrig "ingen". Läsningen sker EFTER kärndatan (bitvis, bara icke-avslutade); avslutade objekt och de som
+  // felade läses när ett ark öppnas för dem (effekten vid objektValt/valt).
+  const [varningar, setVarningar] = useState<VarningsLage>(TOMT_LAGE);
+  const varningarRef = useRef(varningar); varningarRef.current = varningar;
+  const varningsLasning = useRef({ generation: 0, pagar: new Set<string>() });
+  const sidaLevande = useRef(true);
+  useEffect(() => { sidaLevande.current = true; return () => { sidaLevande.current = false; }; }, []);
+  const varningFran = useCallback((objektId: string): VarningsSvar => varningFor(varningar, objektId), [varningar]);
+  // Toast längst ner på kartan: en kö-sparning som felade EFTER att arket den startade i hade stängts (meddelandet i arket har då ingenstans att stå).
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visaToast = useCallback((text: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(text);
+    toastTimer.current = setTimeout(() => { toastTimer.current = null; setToast(null); }, TOAST_MS);
+  }, []);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  const visaSenFel = useCallback((fel: string) => visaToast(toastText(fel)), [visaToast]);
   const [skord, setSkord] = useState<Record<string, SkordAggV2>>({});
   const [positions, setPositions] = useState<Map<string, PlatsForslag>>(new Map());
   const [platserKlar, setPlatserKlar] = useState(false); // positionerna är lästa (eller läsningen misslyckades) — förrän dess vet vi inte vilka maskiner som saknar position
@@ -197,26 +220,51 @@ export default function OversiktV2Page() {
     if (data) setMaskinKo(data as MaskinKoItem[]);
   }, []);
 
+  // Läser faror/hänsyn för objekten och lägger in resultatet. Aldrig två samtidiga läsningar av samma objekt, och ett resultat som kommer
+  // efter en ny sidläsning ("Försök igen") kastas (generation). lasVarningar kastar aldrig — varje objekt hamnar i ok eller fel.
+  const laddaVarningar = useCallback(async (ids: string[]) => {
+    const st = varningsLasning.current;
+    const att = ids.filter((id) => !st.pagar.has(id));
+    if (att.length === 0) return;
+    att.forEach((id) => st.pagar.add(id));
+    const gen = st.generation;
+    try {
+      const res = await lasVarningar(supabase, att);
+      if (sidaLevande.current && gen === st.generation) setVarningar((v) => slaIhop(v, res));
+    } catch (e) {
+      console.error('[Översikt v2] markeringar: oväntat fel', e);
+      if (sidaLevande.current && gen === st.generation) setVarningar((v) => slaIhop(v, { ok: {}, fel: att }));
+    } finally {
+      if (gen === st.generation) att.forEach((id) => st.pagar.delete(id));
+    }
+  }, []);
+
   const fetchAll = useCallback(async () => {
     setFel(false); setLaddar(true); setGrotKlar('laddar'); setPlatserKlar(false);
+    // Ny läsning: inget gammalt "läst" får överleva, och en läsning som pågår från förra omgången kastas när den kommer (generation)
+    varningsLasning.current.generation += 1; varningsLasning.current.pagar.clear(); setVarningar(TOMT_LAGE);
     let objRows: OversiktObjekt[]; let maskinRows: Maskin[];
     try {
-      const [obj, maskinerRes, koRes, markRes] = await Promise.all([
+      const [obj, maskinerRes, koRes] = await Promise.all([
         fetchAllRows<OversiktObjekt>(() => supabase.from('objekt').select('*').order('namn').order('id')),
         supabase.from('dim_maskin').select('*').order('modell'),
         supabase.from('maskin_ko').select('*').order('ordning'),
-        supabase.from('planering_markeringar').select('objekt_id, typ, data'),
       ]);
-      objRows = obj; maskinRows = (maskinerRes.data || []) as Maskin[];
+      // ALLA läsningar kontrolleras: ett fel (eller ett svar som inte är en lista) är ett fel, aldrig en tom lista. En kö som "lästes tom" när
+      // läsningen i själva verket felade vore falsk trygghet — den går till samma felruta som objekten och maskinerna.
+      if (maskinerRes.error) throw maskinerRes.error;
+      if (koRes.error) throw koRes.error;
+      if (!Array.isArray(maskinerRes.data) || !Array.isArray(koRes.data)) throw new Error('läsningen gav inget svar');
+      objRows = obj; maskinRows = maskinerRes.data as Maskin[];
       if (!objRows.length || !maskinRows.length) throw new Error('tom kärndata');
       setObjekt(objRows); setMaskiner(maskinRows);
-      setMaskinKo((koRes.data || []) as MaskinKoItem[]);
-      setWarnings(byggVarningar((markRes.data || []) as MarkeringRow[]));
+      setMaskinKo(koRes.data as MaskinKoItem[]);
     } catch (e) {
       console.error('[Översikt v2] kunde inte läsa kärndata', e);
       setFel(true); setLaddar(false); return;
     }
     setLaddar(false);
+    void laddaVarningar(objektAttLasaForst(objRows)); // faror/hänsyn: bara icke-avslutade först, i bitar; resten läses när ett ark öppnas
     const ids = Array.from(new Set(maskinRows.map((m) => m.maskin_id).filter(Boolean))) as string[];
     const [platserRes, skordRes, telRes, grotRes] = await Promise.allSettled([
       hamtaSenastePlatser(ids), hamtaSkordMapV2(),
@@ -233,7 +281,7 @@ export default function OversiktV2Page() {
       for (const r of telRes.value.data as { maskin_id: string; telefon: string | null }[]) if (r.maskin_id && r.telefon && !t[r.maskin_id]) t[r.maskin_id] = r.telefon;
       setTelByMaskin(t);
     }
-  }, []);
+  }, [laddaVarningar]);
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const maskinKoIds = useMemo(() => new Set(maskinKo.map((k) => k.maskin_id)), [maskinKo]);
@@ -872,6 +920,19 @@ export default function OversiktV2Page() {
   const utanKoord = useMemo(() => objekt.filter((o) => (o.status === 'planerad' || STATUS_AKTIV.includes(o.status)) && (o.lat == null || o.lng == null)).length, [objekt]);
   const valt = selMaskin ? forslag.get(selMaskin) ?? null : null;
   const objektValt = selObjekt ? objekt.find((o) => o.id === selObjekt) ?? null : null;
+  // Faror och hänsyn för det som visas i arken: det som inte lästs vid start (avslutade objekt som öppnas eller ligger i en kö) och det som
+  // felade läses (om) när arket öppnas. Hänger BARA på valet (vilket ark, vilka rader) — aldrig på resultatet, så ett läsfel ger ingen loop.
+  const behovNyckel = useMemo(() => {
+    const ids = new Set<string>();
+    if (objektValt) ids.add(objektValt.id);
+    if (valt) valt.ko.forEach((p) => ids.add(p.objekt.id));
+    return Array.from(ids).sort().join(',');
+  }, [objektValt, valt]);
+  useEffect(() => {
+    if (laddar || fel || !behovNyckel) return;
+    const behov = behovNyckel.split(',').filter((id) => !varningarRef.current.ok[id]);
+    if (behov.length > 0) void laddaVarningar(behov);
+  }, [behovNyckel, laddar, fel, laddaVarningar]);
   // Maskiner som objekt-arket kan lägga ett objekt i kö för: alla aktiva — inte bara de med position eller kö (810E måste gå att köa).
   const kobaraSkordare = useMemo(() => maskiner.filter((m) => maskinAktiv(m as MaskinRad, todayISO) && !arSkotare(m as MaskinRad)), [maskiner, todayISO]);
   const kobaraSkotare = useMemo(() => maskiner.filter((m) => maskinAktiv(m as MaskinRad, todayISO) && arSkotare(m as MaskinRad)), [maskiner, todayISO]);
@@ -1059,7 +1120,7 @@ export default function OversiktV2Page() {
           Förare utan giltig maskin och okänd roll får inget ark. Raderna Nu/1/2… öppnar objekt-arket (med pil tillbaka hit). */}
       {!laddar && !fel && kanOppnaArk && valt && !objektValt && (
         <MaskinArk key={selMaskin!} f={valt} namn={maskinNamnAv(selMaskin!)}
-          legs={selLegs} skord={skord} warnings={warnings}
+          legs={selLegs} skord={skord} varning={varningFran} onSenFel={visaSenFel}
           telefon={kanRedigera ? (telByMaskin[selMaskin!] ?? null) : null}
           forare={!kanRedigera} dinMaskin={selMaskin === egenMaskinId}
           onOppnaObjekt={setSelObjekt}
@@ -1075,7 +1136,7 @@ export default function OversiktV2Page() {
       {/* OBJEKT-ARK — tryck på en prick, eller på en rad i maskin-arket (då med pil tillbaka till maskinen). Samma ark för förare
           (läsläge: faror och hänsyn med planerarens kommentar, bärighet, Ring markägare) och förman (dessutom kö-knappar). */}
       {!laddar && !fel && kanOppnaArk && objektValt && (
-        <ObjektArk key={objektValt.id} o={objektValt} skord={skord} warn={warnings[objektValt.id]}
+        <ObjektArk key={objektValt.id} o={objektValt} skord={skord} warn={varningFran(objektValt.id)} onSenFel={visaSenFel}
           skordare={kobaraSkordare.map((m) => ({ id: m.maskin_id, namn: maskinNamnAv(m.maskin_id), koordinat: positions.get(m.maskin_id)?.koordinat ?? null, klararTyp: (m as any).klarar_typ ?? null }))}
           skotare={kobaraSkotare.map((m) => ({ id: m.maskin_id, namn: maskinNamnAv(m.maskin_id), skotarRoll: (m as any).skotar_roll ?? null }))}
           maskinNamn={maskinNamnAv} maskinRoll={maskinRollAv}
@@ -1093,13 +1154,20 @@ export default function OversiktV2Page() {
       {!laddar && !fel && kanRedigera && !valt && !objektValt && grotOppen && grotLista && grotLista.alla.length > 0 && (
         valtGrotRad ? (
           <GrotObjektArk key={valtGrotRad.id} rad={valtGrotRad} idag={todayISO} skotare={grotSkotare} ko={koForGrotValt}
-            onLaggIKo={grotLaggIKo} onTaBortKo={grotTaBortKo} onSpara={kanRedigera ? (patch) => grotSpara(valtGrotRad, patch) : undefined}
+            onLaggIKo={grotLaggIKo} onTaBortKo={grotTaBortKo} onSpara={kanRedigera ? (patch) => grotSpara(valtGrotRad, patch) : undefined} onSenFel={visaSenFel}
             onTillbaka={tillbakaTillGrotLista} onClose={stangGrot} />
         ) : (
           <GrotListaArk lista={grotLista} idag={todayISO} hogerText={grotHogerText} onOppna={(r) => setGrotValt(r.id)} onClose={stangGrot}
             startScroll={grotListRullRef.current} onScroll={(px) => { grotListRullRef.current = px; }}
             startLage={grotListLageRef.current} onLage={(l) => { grotListLageRef.current = l; }} />
         )
+      )}
+
+      {/* TOAST — en kö-sparning som felade efter att arket stängts. Längst ner på kartan, över arken, rör inga tryck; försvinner av sig själv. */}
+      {toast && (
+        <div role="alert" style={{ position: 'absolute', left: AVSTAND.l, right: AVSTAND.l, bottom: `calc(${AVSTAND.l}px + env(safe-area-inset-bottom))`, zIndex: 12, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ background: CHIP_BG, borderRadius: RADIE.kort, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, boxShadow: '0 4px 16px rgba(0,0,0,0.35)', border: `1px solid ${FARG.orange}`, color: FARG.text, ...TYP.listtitel }}>{toast}</div>
+        </div>
       )}
     </div>
   );
@@ -1171,11 +1239,13 @@ const RAD_KORT: React.CSSProperties = { display: 'grid', columnGap: AVSTAND.m, r
 
 // forare = LÄSLÄGE: inga skrivknappar (gäller förare på alla maskiner). dinMaskin = förarens egen maskin (märks i rubriken).
 // Raderna Nu/1/2… öppnar objekt-arket via onOppnaObjekt.
-function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage }: {
-  f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; warnings: Record<string, ObjWarn>;
+function MaskinArk({ f, namn, legs, skord, varning, telefon, forare, dinMaskin, onOppnaObjekt, onClose, onReorder, onOrdnaLage, onOrderChange, koRader, kandidater, kmTill, onValjObjekt, onHighlight, onLaggLage, onSenFel }: {
+  f: MaskinForslag; namn: string; legs: (number | null)[]; skord: Record<string, SkordAggV2>; varning: (objektId: string) => VarningsSvar;
   telefon: string | null; forare: boolean; dinMaskin: boolean; onOppnaObjekt: (objektId: string) => void; onClose: () => void;
   onReorder: (orderedKoIds: string[]) => Promise<string | null>; onOrdnaLage: (active: boolean) => void; onOrderChange: (koIds: string[]) => void; koRader: MaskinKoItem[];
   kandidater: LaggKand[]; kmTill: (k: LaggKand) => number | null; onValjObjekt: (objektId: string) => Promise<string | null>; onHighlight: (objektId: string | null) => void; onLaggLage: (active: boolean) => void;
+  /** En sparning som felade efter att arket stängts — sidan visar en toast (meddelandet i arket har då ingenstans att stå). */
+  onSenFel: (fel: string) => void;
 }) {
   const [ordnaLage, setOrdnaLage] = useState(false);
   const [laggLage, setLaggLage] = useState(false);
@@ -1195,7 +1265,7 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
     iFlykt.current += 1; setSparar(iFlykt.current);
     const fel = await skrivning();
     iFlykt.current -= 1;
-    if (levande.current) { setSparar(iFlykt.current); if (fel) setKoFel(fel); }
+    if (levande.current) { setSparar(iFlykt.current); if (fel) setKoFel(fel); } else if (fel) onSenFel(fel); // arket stängt före svaret: toast i stället
     return fel;
   };
   const nuAgg = aggFor(f.nuObjekt, skord);
@@ -1206,6 +1276,9 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
   const koPoster = f.ko.filter((p) => p.kalla === 'ko');          // kö: numrerad 1,2,…, ordningsbar
   const forslagPoster = f.ko.filter((p) => p.kalla === 'forslag'); // automatikens förslag: dämpad, ej ordningsbar
   const kanOrdna = koPoster.length > 1;                            // 'Ändra ordning' gäller BARA kö-raderna
+  // Faror och hänsyn för raderna: ett läsfel eller en pågående läsning står i bannern överst — en rad utan text får aldrig betyda "okänt".
+  const koSvar = f.ko.map((p) => varning(p.objekt.id));
+  const koVarning: 'fel' | 'laddar' | null = koSvar.some((s) => s === 'fel') ? 'fel' : koSvar.some((s) => s === 'laddar') ? 'laddar' : null;
   const koIdForObjekt = (objId: string) => koRader.find((k) => k.objekt_id === objId)?.id ?? null;
   // GROT-rad: virkesvolymen på backen hör inte till riset → bara km i högerkolumnen
   const hogerFor = (p: KoPost, i: number) => { const agg = aggFor(p.objekt, skord); const vol = arGrotKo(p.objekt) ? null : volFor(f, p.objekt, agg); const km = legs[i]; return [vol != null ? `${fmt(vol)} m³` : null, km != null ? `${Math.round(km)} km` : '–'].filter(Boolean).join(' · '); };
@@ -1258,6 +1331,8 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
       </div>
       {sparar > 0 && <div role="status" style={{ ...TYP.meta, color: FARG.text2 }}>Sparar…</div>}
       {koFel && <div ref={felRef} role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{koFel}</div>}
+      {koVarning === 'fel' && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{VARNING_LASFEL}</div>}
+      {koVarning === 'laddar' && <div style={{ ...TYP.meta, color: FARG.text2 }}>{VARNING_LADDAR}</div>}
 
       {/* Nu — står maskinen på ett känt objekt går raden att trycka på (objekt-arket) */}
       {f.nuObjekt ? (
@@ -1283,7 +1358,7 @@ function MaskinArk({ f, namn, legs, skord, warnings, telefon, forare, dinMaskin,
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, ...TYP.text, ...TNUM }}>
           {f.ko.map((p, i) => {
-            const v = varnText(warnings[p.objekt.id]); const meta = rowMeta(aggFor(p.objekt, skord));
+            const v = varnText(varning(p.objekt.id)); const meta = rowMeta(aggFor(p.objekt, skord));
             const forstaForslag = p.kalla === 'forslag' && i === koPoster.length && koPoster.length > 0; // 'Förslag'-rubrik bara när kö finns ovanför
             return (
               <React.Fragment key={p.objekt.id}>
@@ -1341,14 +1416,16 @@ type KobarMaskin = { id: string; namn: string; roll: MaskinTyp };
 // förare och förman. onTillbaka finns när arket öppnats från en rad i maskin-arket (pilen går tillbaka dit).
 // Köåtgärderna är verifierade och svarar null när det landade, annars ett meddelande som visas här under knapparna (aldrig tyst).
 // Sms-knappen öppnar telefonens sms-app med färdig text — appen skickar ALDRIG något själv.
-function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onTillbaka, onClose }: {
-  o: OversiktObjekt; skord: Record<string, SkordAggV2>; warn: ObjWarn | undefined;
+function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, maskinKo, forare, fornamn, smsMaskin, onLaggIKo, onFlytta, onTaBort, onSenFel, onTillbaka, onClose }: {
+  o: OversiktObjekt; skord: Record<string, SkordAggV2>; warn: VarningsSvar; // läst (kan vara tomt = "ingen"), misslyckat eller pågående
   skordare: { id: string; namn: string; koordinat: { lat: number; lng: number } | null; klararTyp: string | null }[];
   skotare: { id: string; namn: string; skotarRoll: string | null }[];
   maskinNamn: (id: string) => string; maskinRoll: (id: string) => MaskinTyp | null; maskinKo: MaskinKoItem[]; forare: boolean;
   /** Inloggades förnamn (sms:et skrivs i det) och maskinen arket kom från ("maskinen" när objektet öppnats direkt från kartan). */
   fornamn: string | null; smsMaskin: MaskinOrd;
   onLaggIKo: (maskinId: string, objektId: string) => Promise<string | null>; onFlytta: (koId: string, tillMaskin: string) => Promise<string | null>; onTaBort: (koId: string) => Promise<string | null>;
+  /** En sparning som felade efter att arket stängts — sidan visar en toast. */
+  onSenFel: (fel: string) => void;
   onTillbaka?: () => void; onClose: () => void;
 }) {
   const [avstand, setAvstand] = useState<Record<string, number | null>>({});
@@ -1363,7 +1440,7 @@ function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, 
     if (arbetar) return;
     setArbetar(true); setMeddelande(null);
     const fel = await skrivning();
-    if (levande.current) { setArbetar(false); setMeddelande(fel); }
+    if (levande.current) { setArbetar(false); setMeddelande(fel); } else if (fel) onSenFel(fel); // arket stängt före svaret: toast i stället
   };
   const agg = aggFor(o, skord);
   const areal = o.areal ? `${o.areal.toLocaleString('sv-SE')} ha` : null;
@@ -1420,7 +1497,7 @@ function ObjektArk({ o, skord, warn, skordare, skotare, maskinNamn, maskinRoll, 
       <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0, 1fr)', columnGap: AVSTAND.m, rowGap: AVSTAND.s, ...TYP.text }}>
         {rad('Åtgärd', `${atgard}${areal ? ` · ${areal}` : ''}`)}
         {rad('Volym', vol != null ? `${fmt(vol)} m³ planerat` : '–')}
-        <VarningRader faror={warn?.faror ?? []} hansyn={warn?.hansyn ?? []} />
+        <VarningRader svar={warn} />
         {rad('Bärighet', bar ? <span style={{ color: bar.begransning ? FARG.orange : FARG.text }}>{bar.text}</span> : <span style={{ color: FARG.text2 }}>–</span>)}
         {rad('Avstånd', <span style={{ color: FARG.text2 }}>{avstText}</span>)}
         {rad('Väntat', <span style={{ color: FARG.text2 }}>{vantatDatum ? `sedan ${kortDatum(vantatDatum)} · ${dagarSedan(vantatDatum)} dgr` : '–'}</span>)}
