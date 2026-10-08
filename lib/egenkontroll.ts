@@ -223,11 +223,40 @@ const UTFORANDE_SLUTAVVERKNING: UtforandeMall[] = [
   { slug: 'hyggesrester_mot_markberedning', rubrik: 'Hyggesrester mot markberedning' },
 ];
 
+/**
+ * TVA PUNKTER SOM GALLER BADA AVVERKNINGSTYPERNA, sist i serien.
+ *
+ * Bakgrund: Vidas skogsbruksuppfoljning pa tva av Kompersmalas trakter hade tva
+ * anmarkningar egenkontrollen inte kunde fanga ("inte tillrackligt med grova
+ * toppar", "hogstubbar generellt nagot klena med tanke pa bestandet") och betygsatte
+ * biobransle, som vi inte fragade om alls. Vidas rapport blandar tre sorters fragor:
+ * vad maskinen gjorde, vad planeringen bestamde och vad bestandet hade for
+ * forutsattningar. Egenkontrollen har bara den forsta - det ar den som kan bli
+ * battre nasta gang - och darfor tva punkter, inte tolv.
+ *
+ * DE AR OMDOMEN, INTE MATNINGAR - och ska inte automatiseras. Grovleken pa en
+ * hogstubbe gar inte att hamta ur maskindata: skordaren registrerar de stammar den
+ * kapar och apterar, och en hogstubbe LAMNAS, sa den finns inte i HPR-filen. Man
+ * mater den inte med tumme i skogen heller; man ser pa en trakt om de ar klena.
+ * Svarsskalan ar darfor Bra / Godkant / Kan bli battre, som resten av utforandet.
+ *
+ * HOGSTUBBARNA LIGGER KVAR SOM MARKERINGSPUNKTER (evighetstrad m.fl. i planen). De
+ * svarar pa "star den kvar"; den har punkten svarar pa "ar de bra". Markeringspunkten
+ * ar den enda som har en plats pa kartan - flytta dem inte hit.
+ *
+ * Sist, sa att de nio resp. atta befintliga punkterna behaller sin plats i serien.
+ */
+const UTFORANDE_BADA_SIST: UtforandeMall[] = [
+  { slug: 'naturhansyn_utforande', rubrik: 'Naturhänsynens utförande', underrad: 'Högstubbar, grova toppar, död ved' },
+  { slug: 'grotuttag', rubrik: 'Grotuttaget', underrad: 'Påverkan på hänsyn och mark' },
+];
+
 /** Utforandepunkterna for en avverkningstyp, i den ordning de ska gas. */
 export function utforandeKatalog(objektTyp: ObjektTyp): UtforandeMall[] {
   return [
     ...UTFORANDE_GEMENSAMMA,
     ...(objektTyp === 'gallring' ? UTFORANDE_GALLRING : UTFORANDE_SLUTAVVERKNING),
+    ...UTFORANDE_BADA_SIST,
   ];
 }
 
@@ -244,6 +273,7 @@ export function utforandeUnderrad(punktTyp: string | null): string | null {
     ...UTFORANDE_GEMENSAMMA,
     ...UTFORANDE_GALLRING,
     ...UTFORANDE_SLUTAVVERKNING,
+    ...UTFORANDE_BADA_SIST,
   ];
   return alla.find((m) => m.slug === punktTyp)?.underrad ?? null;
 }
@@ -685,7 +715,7 @@ async function byggPlanrader(klient: SupabaseClient, objektId: string) {
  * En gruppsträng har hade latsats vara i samma serie som Naturvard och
  * Kulturlamning, vilket den inte ar.
  */
-function byggUtforanderader(objektTyp: ObjektTyp) {
+export function byggUtforanderader(objektTyp: ObjektTyp) {
   return utforandeKatalog(objektTyp).map((mall) => ({
     del: 'utforande',
     kalla: 'fast',
