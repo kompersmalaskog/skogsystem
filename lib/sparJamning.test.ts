@@ -39,6 +39,11 @@ describe('tabortSpikar: enskild punkt där GPS:en hoppade', () => {
     const p: XY[] = [[0, 0], [10, 0], [20, 10], [30, 20]];
     expect(tabortSpikar(p).length).toBe(4);
   });
+  it('BÅDA stegen måste vara över 8 m: 9 m ut och 7 m tillbaka (grannar 3 m isär) är ingen spik', () => {
+    const p: XY[] = [[-5, 0], [0, 0], [41 / 6, Math.sqrt(81 - (41 / 6) ** 2)], [3, 0], [8, 0]];
+    expect(dist(p[1], p[2])).toBeCloseTo(9, 6); expect(dist(p[2], p[3])).toBeCloseTo(7, 6); expect(dist(p[1], p[3])).toBeCloseTo(3, 6);
+    expect(tabortSpikar(p).length).toBe(5);
+  });
   it('steg under 8 m räknas aldrig som spik (vanligt GPS-brus)', () => {
     const p: XY[] = [[0, 0], [1, 0], [1, 6], [1.2, 0.2], [2, 0]];
     expect(SPAR_SPIK_STEG_M).toBe(8);
@@ -173,6 +178,15 @@ describe('jamnaSpar: hela kedjan på syntetiska fall', () => {
     expect(maxV(30)).toBeGreaterThan(24);
     expect(maxV(45)).toBeGreaterThan(38);
     expect(maxV(90)).toBeGreaterThan(65);   // medelvärdet rundar hörnets spets något (axlar) men det är fortfarande ett tydligt hörn — vinkeln är aldrig platt
+  });
+  it('en tydlig sväng (35°) BEHÅLLS även om toleransen höjs rejält (20 m) — svängarna är gränser för Douglas-Peucker, inte bara en följd av 1,5 m', () => {
+    const a = (35 * Math.PI) / 180; const l: Koord[] = []; for (let x = 0; x <= 40; x += 3) l.push(till(x, 0)); for (let q = 3; q <= 40; q += 3) l.push(till(40 + q * Math.cos(a), q * Math.sin(a)));
+    const r = jamnaSpar(l, { toleransM: 20 }).map(fran);
+    expect(r.length).toBeGreaterThanOrEqual(3);   // utan lås hade Douglas-Peucker med 20 m tolerans gjort en rak linje (apexens avvikelse är ~12 m)
+    let maxV = 0; for (let i = 1; i < r.length - 1; i++) maxV = Math.max(maxV, ang(r[i - 1], r[i], r[i + 1]));
+    expect(maxV).toBeGreaterThan(25);
+    // …och utan lås-garantin: jämförelse mot samma sväng med låg tolerans (standard) som också behåller den
+    expect(jamnaSpar(l).length).toBeGreaterThanOrEqual(3);
   });
   it('en spik (en punkt 14 m utanför en gående linje) är borta', () => {
     const s = slump(41); const l: Koord[] = []; for (let x = 0; x <= 60; x += 3) l.push(till(x, s())); l[10] = till(30, 14);

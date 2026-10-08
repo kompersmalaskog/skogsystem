@@ -10,7 +10,9 @@
 //   2. glesaPunkter   hoppa över punkter närmare än 4 m från SENAST RITADE punkt
 //   3. tatSteg        fyll i punkter så att inget steg är > 4 m (sparade punkter är RDP-gallrade → glesa längs raka vägar)
 //   4. glidandeMedel  över 5 punkter = ±8 m längs vägen → brusig tråd blir jämn
-//   5. hittaSvangar   riktiga svängar (> 20° över en bas som är längre än bruset), mätt på det UTJÄMNADE spåret så bruset inte räknas som sväng
+//   5. hittaSvangar   riktiga svängar (> 20° över en bas som är längre än bruset), mätt på det UTJÄMNADE spåret så bruset inte räknas som sväng.
+//                     (Medelvärdet tar bort lite vinkel, så LÅSNINGEN slår till först kring 25–30°; svängar på 20–25° bevaras ändå av Douglas-Peucker 1,5 m
+//                     så länge benen är ≳ 9 m. Mätt: 25° → 22° kvar, 30° → 27°, 45° → 41°, 10–15° rätas ut.)
 //   6. douglasPeucker 1,5 m tolerans per stycke mellan svängarna → raka stickvägar blir raka, svängarna är alltid kvar som hörn
 // Första och sista punkten flyttas aldrig (linjen börjar och slutar där maskinen faktiskt var, även live).
 
