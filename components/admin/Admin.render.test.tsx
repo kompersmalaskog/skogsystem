@@ -111,9 +111,14 @@ function seed(extra: Record<string, any[]> = {}) {
   };
   g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {};
   g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
-  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = [];
+  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = [];
   g.fetch = vi.fn(async (url: string, init?: any) => {
     const u = String(url); g.__fetchAnrop.push([u, init?.method || "GET"]);
+    if (u.includes("/api/fortnox/kontrollera-anstallningsnummer")) {
+      const b = JSON.parse(init?.body || "{}");
+      g.__kontrollAnrop.push(b);
+      return { ok: true, status: 200, json: async () => (g.__kontroll ? g.__kontroll(b) : { ok: true, status: "ej_ansluten" }) } as any;
+    }
     if (u.includes("/api/medarbetare/geokoda")) {
       const b = JSON.parse(init?.body || "{}");
       g.__geokodAnrop.push(b);
@@ -764,5 +769,96 @@ describe("Introduktionen som inte är klar", () => {
     await act(async () => { root.unmount(); }); cont.remove();
     await monter("flik=medarbetare&person=m1"); // förare med maskin, hempunkt och nummer
     expect(text()).not.toContain("Introduktionen är inte klar");
+  });
+});
+
+
+describe("Anställningsnummer utan Fortnox: sparas ändå, kontrolleras när anslutningen finns", () => {
+  const medNr = (id: string) => g.__db.medarbetare_lonesystem.filter((r: any) => r.medarbetare_id === id);
+
+  it("steg 4 utan någon koppling: fältet är öppet, numret sparas (utan koppling) och man går vidare", async () => {
+    g.__db.lonesystem_koppling = [];
+    nyPerson({ hem_lat: 56.4, hem_lng: 14.7, maskin_id: "R64101" });
+    await monter("flik=medarbetare&ny=1&person=n1&steg=4");
+    expect(falt("Anställningsnummer").disabled).toBe(false);
+    expect(text()).toContain("kontrolleras mot Fortnox när anslutningen finns");
+    await skriv(falt("Anställningsnummer"), "4711");
+    await klick("Klar");
+    expect(medNr("n1")).toHaveLength(1);
+    expect(medNr("n1")[0]).toMatchObject({ anstallningsnummer: "4711", lonesystem_id: null });
+    expect(window.location.search).toContain("person=n1");
+    expect(window.location.search).not.toContain("ny=1");
+  });
+
+  it("Fortnox finns men är inte anslutet: sparas på kopplingen, ingen spärr, och personen visar att det kontrolleras senare", async () => {
+    nyPerson({ hem_lat: 56.4, hem_lng: 14.7, maskin_id: "R64101" });
+    await monter("flik=medarbetare&ny=1&person=n1&steg=4");
+    await skriv(falt("Anställningsnummer"), "4711");
+    await klick("Klar");
+    expect(medNr("n1")[0]).toMatchObject({ anstallningsnummer: "4711", lonesystem_id: "ls1" });
+    expect(g.__kontrollAnrop[0]).toEqual({ anstallningsnummer: "4711" }); // flödets kontroll; personen kontrollerar sedan sitt sparade nummer
+    expect(window.location.search).not.toContain("ny=1");
+    expect(text()).toContain("Kontrolleras mot Fortnox när anslutningen finns");
+  });
+
+  it("Fortnox ansluten och numret finns: 'Finns i Fortnox som …' och man går vidare", async () => {
+    g.__kontroll = () => ({ ok: true, status: "hittad", namn: "Nils Ek" });
+    nyPerson({ hem_lat: 56.4, hem_lng: 14.7, maskin_id: "R64101" });
+    await monter("flik=medarbetare&ny=1&person=n1&steg=4");
+    await skriv(falt("Anställningsnummer"), "4711");
+    await klick("Klar");
+    expect(window.location.search).not.toContain("ny=1");
+    expect(text()).toContain("Finns i Fortnox som Nils Ek");
+  });
+
+  it("Fortnox ansluten men känner inte numret: det är sparat, flödet stannar och säger det, och man kan gå vidare ändå", async () => {
+    g.__kontroll = () => ({ ok: true, status: "saknas" });
+    nyPerson({ hem_lat: 56.4, hem_lng: 14.7, maskin_id: "R64101" });
+    await monter("flik=medarbetare&ny=1&person=n1&steg=4");
+    await skriv(falt("Anställningsnummer"), "4711");
+    await klick("Klar");
+    expect(medNr("n1")[0].anstallningsnummer).toBe("4711");
+    expect(text()).toContain("Fortnox känner inte numret 4711");
+    expect(text()).toContain("Steg 4 av 4"); // flödet stannar
+    await klick("Gå vidare ändå");
+    expect(window.location.search).not.toContain("ny=1");
+    expect(window.location.search).toContain("person=n1");
+  });
+
+  it("kontrollen själv fallerar: det sägs, numret är sparat och man kan gå vidare ändå", async () => {
+    g.__kontroll = () => ({ ok: false, status: "fel", fel: "Fortnox svarade 500" });
+    nyPerson({ hem_lat: 56.4, hem_lng: 14.7, maskin_id: "R64101" });
+    await monter("flik=medarbetare&ny=1&person=n1&steg=4");
+    await skriv(falt("Anställningsnummer"), "4711");
+    await klick("Klar");
+    expect(text()).toContain("Kunde inte kontrollera mot Fortnox");
+    expect(text()).toContain("Fortnox svarade 500");
+    expect(medNr("n1")[0].anstallningsnummer).toBe("4711");
+  });
+
+  it("personen: fältet är öppet utan koppling och numret sparas utan koppling", async () => {
+    g.__db.lonesystem_koppling = [];
+    g.__db.medarbetare_lonesystem = [];
+    await monter("flik=medarbetare&person=m1");
+    expect(falt("Anställningsnummer (Fortnox)").disabled).toBe(false);
+    await skriv(falt("Anställningsnummer (Fortnox)"), "2002");
+    await klick("Spara ändringar");
+    expect(medNr("m1")[0]).toMatchObject({ anstallningsnummer: "2002", lonesystem_id: null });
+  });
+
+  it("ett nummer som sparats utan koppling knyts till kopplingen när det sparas igen — samma rad, ingen dubblett", async () => {
+    g.__db.medarbetare_lonesystem = [{ id: "u1", medarbetare_id: "m1", lonesystem_id: null, anstallningsnummer: "1001", skapad: "2026-10-01" }];
+    await monter("flik=medarbetare&person=m1");
+    expect(falt("Anställningsnummer (Fortnox)").value).toBe("1001");
+    await skriv(falt("Anställningsnummer (Fortnox)"), "1002");
+    await klick("Spara ändringar");
+    expect(medNr("m1")).toHaveLength(1);
+    expect(medNr("m1")[0]).toMatchObject({ id: "u1", anstallningsnummer: "1002", lonesystem_id: "ls1" });
+  });
+
+  it("personen visar kontrollen mot Fortnox när numret finns och Fortnox svarar", async () => {
+    g.__kontroll = () => ({ ok: true, status: "saknas" });
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).toContain("Fortnox känner inte numret 1001");
   });
 });
