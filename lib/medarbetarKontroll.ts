@@ -10,6 +10,7 @@
 // fel. Ren logik + en hämtare. Används av admin (/api/medarbetare/kontroller)
 // och nattjobbet (/api/km/nattjobb, rapporteras i svaret och loggen).
 // ─────────────────────────────────────────────────────────────
+import { arObekraftad } from "./hempunkt"
 
 export type OkandOperator = {
   operator_id: string
@@ -87,10 +88,21 @@ export function saknarHempunkt(
   return ut
 }
 
+/** Aktiva medarbetare vars hempunkt kommer från geokodningen och som ingen har bekräftat eller flyttat på kartan. */
+export function obekraftadeHempunkter(
+  medarbetare: { id: string; namn: string | null; aktiv?: boolean | null; hem_lat: number | null; hem_lng: number | null; hem_koord_kalla?: string | null; hem_bekraftad_tid?: string | null; hem_geokod_precision?: string | null }[],
+): { id: string; namn: string }[] {
+  return medarbetare
+    .filter(m => m.aktiv !== false && arObekraftad(m as any))
+    .map(m => ({ id: m.id, namn: m.namn || "Namnlös" }))
+}
+
 export type MedarbetarKontroller = {
   okandaOperatorer: OkandOperator[]
   forareUtanMaskin: ForareUtanMaskin[]
   saknarHempunkt: SaknarHem[]
+  /** Geokodade hempunkter som ingen bekräftat — km räknas, men punkten är inte kontrollerad. */
+  obekraftadHempunkt: { id: string; namn: string }[]
 }
 
 /** Hämta och räkna kontrollerna. Service-klient (fakt_skift/operator_medarbetare är RLS-låsta). */
@@ -100,7 +112,7 @@ export async function hamtaMedarbetarKontroller(supabase: any, dagar = 42): Prom
     supabase.from("fakt_skift").select("operator_id, maskin_id, datum").gte("datum", fran).order("datum", { ascending: true }).order("id", { ascending: true }).range(0, 4999),
     supabase.from("operator_medarbetare").select("operator_id"),
     supabase.from("dim_operator").select("operator_id, operator_namn"),
-    supabase.from("medarbetare").select("id, namn, roll, maskin_id, aktiv, hemadress, hem_lat, hem_lng, hem_geokod_status"),
+    supabase.from("medarbetare").select("id, namn, roll, maskin_id, aktiv, hemadress, hem_lat, hem_lng, hem_geokod_status, hem_koord_kalla, hem_bekraftad_tid, hem_geokod_precision"),
   ])
   for (const r of [skiftRes, omRes, dimRes, medRes]) if (r.error) throw new Error(r.error.message)
   const kopplade = new Set<string>((omRes.data || []).map((r: any) => String(r.operator_id)))
@@ -108,5 +120,6 @@ export async function hamtaMedarbetarKontroller(supabase: any, dagar = 42): Prom
     okandaOperatorer: okandaOperatorer(skiftRes.data || [], kopplade, dimRes.data || [], medRes.data || []),
     forareUtanMaskin: forareUtanMaskin(medRes.data || []),
     saknarHempunkt: saknarHempunkt(medRes.data || []),
+    obekraftadHempunkt: obekraftadeHempunkter(medRes.data || []),
   }
 }

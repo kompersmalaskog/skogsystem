@@ -134,6 +134,17 @@ export function byggAttGora(i: AttGoraIndata, idag: string): { saker: Sak[]; sta
       lagg(h.id, h.namn, h.orsak === "ingen_adress" ? "saknar hemadress" : h.orsak === "osaker" ? "hemadressen är osäker" : h.orsak === "misslyckad" ? "hemadressen hittades inte" : "hemadressen väntar på geokodning");
     }
   }
+  // Geokodade hempunkter som ingen sett på kartan: km räknas redan, men punkten är inte kontrollerad. En rad per person
+  // som leder till personen, där kartan med "Stämmer" / "Flytta punkten" finns.
+  if (i.kontroller.data) {
+    for (const h of i.kontroller.data.obekraftadHempunkt ?? []) {
+      saker.push({
+        id: `hempunkt-${h.id}`, rubrik: `Hempunkten är inte bekräftad – ${h.namn}`,
+        detalj: "Km räknas från en punkt ingen har sett på kartan",
+        knapp: "Visa kartan", mal: { typ: "flik", flik: "medarbetare", params: { person: h.id } },
+      });
+    }
+  }
   if (i.personer.fel) felRad("inloggning", "inloggningarna", i.personer.fel);
   else if (i.personer.data) for (const p of i.personer.data) if (!p.user_id) lagg(p.id, p.namn || "Namnlös", "ingen inloggning kopplad");
   personProblem.forEach((e, id) => {

@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { Stod, Kort, Sekundar, Primar, Besked, Tomt, Ikon } from "./ui";
 import { precisionText } from "@/lib/geokod";
+import { hempunktLage } from "@/lib/hempunkt";
+import HempunktKarta from "./HempunktKarta";
 import { kontrolleraAnstallningsnummer, type AnstKontroll } from "@/lib/admin/anstallningsnummer";
 
 export type Medarbetare = {
@@ -29,6 +31,8 @@ export type Medarbetare = {
   hem_geokod_precision: string | null;
   hem_geokod_lat: number | null;
   hem_geokod_lng: number | null;
+  // När admin tryckte Stämmer på kartan (migration 20261009). Geokodad punkt utan stämpel = obekräftad.
+  hem_bekraftad_tid?: string | null;
 };
 
 export type OperatorRad = {
@@ -43,15 +47,14 @@ export const ROLLER = [
   { value: "admin", label: "Admin" },
 ];
 /* ─── HEMPUNKT ─── */
-// Var km räknas ifrån, varifrån punkten kom och — viktigast — VAR adressen
-// hamnade. En landsbygdsadress i tätortens mitt ger fel km varje dag utan att
-// någon märker det (Idekulla 6 ligger flera km utanför Ryd). Bara en träff på
-// adressnivå används automatiskt (lib/geokod); allt grövre väntar här.
+// Var km räknas ifrån och — viktigast — VAR adressen hamnade. Punkten visas på en karta och admin svarar: Stämmer eller
+// Flytta punkten (HempunktKarta). En geokodad punkt är obekräftad tills admin gjort det, och byns mittpunkt kan inte
+// stämmas: en landsbygdsadress som geokodar till byn ger fel km varje dag utan att någon märker det (Kompersmåla Gård
+// 362 96 → byn, ca 1 km från gården; Idekulla 6 ligger flera km utanför Ryd). Se lib/hempunkt och lib/geokod.
 export function HempunktKort({ m, onLadda }: { m: Medarbetare; onLadda: () => void }) {
   const [kör, setKör] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
-  const karta = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
-  const anropa = async (opt: { tvinga?: boolean; acceptera?: boolean } = {}) => {
+  const anropa = async (opt: { tvinga?: boolean } = {}) => {
     setKör(true); setFel(null);
     const r = await fetch("/api/medarbetare/geokoda", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id, ...opt }) });
     const j = await r.json().catch(() => ({}));
@@ -59,42 +62,51 @@ export function HempunktKort({ m, onLadda }: { m: Medarbetare; onLadda: () => vo
     if (!r.ok || !j.ok) { setFel(j.error || `Geokodningen misslyckades (HTTP ${r.status})`); return; }
     onLadda();
   };
+  // Adminens svar på kartan. Ger felet som text, eller null när servern bekräftat att raden skrevs.
+  const svara = async (body: Record<string, unknown>): Promise<string | null> => {
+    const r = await fetch("/api/medarbetare/hempunkt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id, ...body }) }).catch(() => null);
+    const j = await r?.json().catch(() => ({}));
+    if (!r || !r.ok || !j?.ok) return j?.error || "Det gick inte att spara punkten. Försök igen.";
+    onLadda();
+    return null;
+  };
   const knapp = (text: string, onClick: () => void) => (
     <Sekundar onClick={onClick} disabled={kör} style={{ marginTop: AVSTAND.m }}>{kör ? "Geokodar…" : text}</Sekundar>
   );
-  const länk = (lat: number, lng: number, text: string) => (
-    <a href={karta(lat, lng)} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: AVSTAND.s, color: FARG.bla, ...TYP.meta }}>{text}</a>
-  );
-  const kalla = m.hem_koord_kalla === "gps" ? "satt med GPS i Maskinflytt"
-    : m.hem_koord_kalla === "geokod" ? `från adressen — ${m.hem_geokod_etikett || "okänd etikett"} (${precisionText(m.hem_geokod_precision)})`
-    : "satt för hand";
   const s = m.hem_geokod_status;
+  const lage = hempunktLage(m);
   const text = (t: React.ReactNode, farg: string = FARG.text) => <p style={{ margin: 0, ...TYP.text, color: farg }}>{t}</p>;
   const stod = (t: React.ReactNode) => <Stod style={{ marginTop: AVSTAND.m }}>{t}</Stod>;
+  const kalla = lage.typ === "punkt"
+    ? lage.kalla === "gps" ? "satt med GPS i Maskinflytt"
+      : lage.kalla === "geokod" ? `från adressen (${precisionText(m.hem_geokod_precision)})`
+      : "satt för hand"
+    : "";
+  const bildtext = lage.typ === "ingen" ? "" : lage.etikett || (lage.typ === "punkt" && lage.kalla === "gps" ? "Satt med GPS" : "Satt för hand");
   return (
     <Kort>
       {!m.hemadress?.trim() && m.hem_lat == null ? (
         text("Ingen hemadress, så km räknas inte. Fyll i adressen ovan och spara.", FARG.orange)
-      ) : m.hem_lat != null && m.hem_lng != null ? (
+      ) : lage.typ === "punkt" ? (
         <>
           {text(`Punkten är ${kalla}.`)}
-          {länk(m.hem_lat, m.hem_lng, "Visa punkten på kartan")}
+          <div style={{ marginTop: AVSTAND.m }}>
+            <HempunktKarta lage={lage} bildtext={bildtext} onStammer={() => svara({ atgard: "stammer" })} onSpara={(lat, lng) => svara({ atgard: "flytta", lat, lng })} />
+          </div>
           {s === "hoppad" && (
             <>
               {stod(`Adressen har ändrats men punkten är ${m.hem_koord_kalla === "gps" ? "satt med GPS" : "satt för hand"} och skrivs inte över automatiskt.`)}
               {knapp("Geokoda adressen ändå", () => anropa({ tvinga: true }))}
             </>
           )}
-          {s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null && (
-            stod(`Adressen hittades bara ungefär: ${precisionText(m.hem_geokod_precision)} (${m.hem_geokod_etikett}). Punkten ovan används.`)
-          )}
         </>
-      ) : s === "osaker" && m.hem_geokod_lat != null && m.hem_geokod_lng != null ? (
+      ) : lage.typ === "forslag" ? (
         <>
-          {text(`Adressen hittades bara ungefär: ${precisionText(m.hem_geokod_precision)} (${m.hem_geokod_etikett}). Används den blir km fel om personen bor utanför. Km räknas inte förrän du valt.`, FARG.orange)}
-          {länk(m.hem_geokod_lat, m.hem_geokod_lng, "Visa förslaget på kartan")}
-          {knapp("Använd förslaget ändå", () => anropa({ acceptera: true }))}
-          {stod('Exaktare: personen trycker "spara nuvarande plats som hembas" hemma i Maskinflytt, eller justera adressen ovan.')}
+          {text("Geokodaren hamnade här. Kartan visar var.", FARG.text2)}
+          <div style={{ marginTop: AVSTAND.m }}>
+            <HempunktKarta lage={lage} bildtext={bildtext} onStammer={() => svara({ atgard: "stammer" })} onSpara={(lat, lng) => svara({ atgard: "flytta", lat, lng })} />
+          </div>
+          {stod("Km räknas inte förrän punkten är satt. Exaktare: personen trycker \"spara nuvarande plats som hembas\" hemma i Maskinflytt.")}
         </>
       ) : s === "misslyckad" ? (
         <>
