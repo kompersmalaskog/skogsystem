@@ -1,11 +1,15 @@
 // Premielön på ALLA timlönetimmar (docs/lonesystem/premielon.md, Martins
 // beslut 2026-09-29). Rena enhetstester — ingen databas.
 import { describe, it, expect } from "vitest";
-import { beräknaExport } from "./loneberakning";
+import { beräknaExport as beraknaUtanKoder } from "./loneberakning";
+import { PROD_KODER } from "./testKoder";
+
+// Löneartskoderna kommer ur mappningen: testet skickar in produktionens (samma 1354/1355 som förr).
+const beräknaExport = (...a: any[]) => { const full = [...a]; while (full.length < 13) full.push(undefined); full.push(PROD_KODER); return (beraknaUtanKoder as any)(...full) as ReturnType<typeof beraknaUtanKoder>; };
 
 const TYP = { SK: "skordare" as const, SO: "skotare" as const };
 const dag = (datum: string, min: number, maskin: string | null) => ({ datum, arbetad_min: min, maskin_id: maskin, km_totalt: 0, bekraftad: true, dagtyp: null });
-const rad = (u: ReturnType<typeof beräknaExport>, kod: string) => Number(u.rader.find(r => r.SalaryCode === kod)?.Number ?? 0);
+const rad = (u: ReturnType<typeof beraknaUtanKoder>, kod: string) => Number(u.rader.find(r => r.SalaryCode === kod)?.Number ?? 0);
 
 describe("premielön = timlönetimmar, fördelad efter månadens maskintyp", () => {
   it("dag utan maskin tappar inte premien längre (Max 10 sep)", () => {

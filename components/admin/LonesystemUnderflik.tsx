@@ -2,30 +2,16 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Besked, Primar, Sekundar, Bekrafta, Laddar } from "./ui";
+import { Sektion, Stod, Kort, Lista, Besked, Primar, Sekundar, Bekrafta, Laddar, Etikett } from "./ui";
 import { SYSTEM_LABELS, IMPLEMENTERADE } from "@/lib/lonesystem";
 import type { SystemTyp, Koppling } from "@/lib/lonesystem/types";
 import { sparaAnstallningsnummer, IGEN_RAD as IGEN_RAD_DELAD } from "@/lib/admin/anstallningsnummer";
+import { LONEARTER } from "@/lib/lonesystem/loneart";
 
 const ALLA_SYSTEM: SystemTyp[] = ["fortnox", "visma", "hogia", "kontek", "crona", "agda", "csv"];
 
 type Medarbetare = { id: string; namn: string | null };
 type Artikelmappning = { id?: string; intern_typ: string; extern_kod: string; beskrivning: string | null };
-
-const INTERN_TYPER: { key: string; label: string }[] = [
-  { key: "timlon",         label: "Timlön" },
-  { key: "overtid_vardag", label: "Övertid vardag" },
-  { key: "ob_kvall",       label: "OB kväll/natt" },
-  { key: "ob_natt",        label: "OB nattarbete" },
-  { key: "ob_lordag",      label: "OB lördag" },
-  { key: "ob_sondag",      label: "OB söndag" },
-  { key: "korkostnad",     label: "Körersättning (mil)" },
-  { key: "fardtid",        label: "Färdtidsersättning" },
-  { key: "traktamente_hel", label: "Traktamente heldag" },
-  { key: "traktamente_halv", label: "Traktamente halvdag" },
-  { key: "skifttillagg",   label: "Skifttillägg" },
-  { key: "bortovaro",      label: "Bortovaro >12h" },
-];
 
 export default function LonesystemUnderflik() {
   const [valdSystem, setValdSystem] = useState<SystemTyp>("fortnox");
@@ -69,11 +55,10 @@ export default function LonesystemUnderflik() {
     setTestResultat(null);
     try {
       // Fortnox-status hämtas via server-route (tokens är krypterade i DB)
-      const [statusRes, kopplingRes, medRes, artiklarRes] = await Promise.all([
+      const [statusRes, kopplingRes, medRes] = await Promise.all([
         system === "fortnox" ? fetch("/api/fortnox/status").then(r => r.json()) : Promise.resolve(null),
         supabase.from("lonesystem_koppling").select("id, system_typ, aktiv, senast_synkad, skapad, token_utgar").eq("system_typ", system).maybeSingle(),
         supabase.from("medarbetare").select("id, namn").order("namn"),
-        supabase.from("lonesystem_artikelmappning").select("*"),
       ]);
 
       const k = kopplingRes.data as Koppling | null;
@@ -86,8 +71,13 @@ export default function LonesystemUnderflik() {
       setKoppling(k);
       setMedarbetare(medRes.data || []);
 
+      // Löneartskoderna hör till kopplingen: det är de som exporten läser (lib/lonesystem/loneart).
       const artMap: Record<string, Artikelmappning> = {};
-      for (const a of (artiklarRes.data || [])) artMap[a.intern_typ] = a;
+      if (k) {
+        const artRes = await supabase.from("lonesystem_artikelmappning").select("id, intern_typ, extern_kod, beskrivning").eq("lonesystem_id", k.id);
+        if (artRes.error) throw artRes.error;
+        for (const a of (artRes.data || [])) artMap[a.intern_typ] = a as Artikelmappning;
+      }
       setArtiklar(artMap);
 
       if (k) {
@@ -153,8 +143,10 @@ export default function LonesystemUnderflik() {
       if (error) return error.message;
       if (!data?.length) return IGEN_RAD;
     } else if (extern_kod.trim()) {
+      // Raden hör till Fortnox-kopplingen — utan lonesystem_id hittar exporten den aldrig.
+      if (!koppling) return "Anslut systemet först — löneartskoderna hör till kopplingen.";
       const { data, error } = await supabase.from("lonesystem_artikelmappning")
-        .insert({ intern_typ, extern_kod: extern_kod.trim(), beskrivning }).select("id");
+        .insert({ lonesystem_id: koppling.id, intern_typ, extern_kod: extern_kod.trim(), beskrivning }).select("id");
       if (error) return error.message;
       if (!data?.length) return IGEN_RAD;
     }
@@ -235,13 +227,14 @@ export default function LonesystemUnderflik() {
       {/* Mappa löneartskoder */}
       <Sektion topp={AVSTAND.xxl}>Löneartskoder</Sektion>
       <Lista>
-        {INTERN_TYPER.map((t, i) => (
+        {LONEARTER.map((t, i) => (
           <ArtikelRad
             key={t.key}
             label={t.label}
+            enhet={t.enhet}
             befintlig={artiklar[t.key]}
             onSpara={(kod, besk) => sparaArtikel(t.key, kod, besk)}
-            sista={i === INTERN_TYPER.length - 1}
+            sista={i === LONEARTER.length - 1}
           />
         ))}
       </Lista>
@@ -292,9 +285,11 @@ function SparaKnapp({ aktiv, upptagen, onClick }: { aktiv: boolean; upptagen: bo
 }
 
 function ArtikelRad({
-  label, befintlig, onSpara, sista,
+  label, enhet, befintlig, onSpara, sista,
 }: {
   label: string;
+  /** tim / veckor / mil: vad koden multipliceras med i Fortnox. */
+  enhet: string;
   befintlig?: Artikelmappning;
   onSpara: (extern_kod: string, beskrivning: string) => Promise<string | null>;
   sista: boolean;
@@ -319,7 +314,8 @@ function ArtikelRad({
   return (
     <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: AVSTAND.s }}>
-        <span style={{ ...TYP.text, color: FARG.text, flex: "1 1 160px" }}>{label}</span>
+        <span style={{ ...TYP.text, color: FARG.text, flex: "1 1 160px" }}>{label}<span style={{ ...TYP.meta, color: FARG.text3, marginLeft: AVSTAND.s }}>{enhet}</span></span>
+        {!befintlig?.extern_kod && <Etikett farg={FARG.orange}>Saknar kod</Etikett>}
         <input aria-label={`${label}, extern kod`} value={kod} onChange={e => setKod(e.target.value)} placeholder="Kod" style={{ ...radFalt, flex: "0 0 96px" }} />
         <input aria-label={`${label}, beskrivning`} value={besk} onChange={e => setBesk(e.target.value)} placeholder="Beskrivning" style={{ ...radFalt, flex: "1 1 160px" }} />
         <SparaKnapp aktiv={ändrat} upptagen={sparar} onClick={spara} />
