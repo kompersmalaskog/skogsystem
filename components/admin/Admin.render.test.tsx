@@ -166,14 +166,24 @@ function installeraKarta() {
   }
   class Karta {
     h: Record<string, Function> = {}; centrum: [number, number]; avlagsnad = false;
+    canvas = { style: { cursor: "" } as any };
     touchZoomRotate = { disableRotation() {} };
     constructor(public opts: any) { this.centrum = opts.center; k.kartor.push(this); }
     on(ev: string, fn: Function) { this.h[ev] = fn; return this; }
-    addControl() {} resize() {} getCanvas() { return { style: {} as any }; }
+    addControl() {} resize() {} getCanvas() { return this.canvas; }
     jumpTo(o: any) { this.centrum = o.center; } easeTo(o: any) { this.centrum = o.center; }
     remove() { this.avlagsnad = true; k.kartor = k.kartor.filter((m: any) => m !== this); }
   }
   k.sista = () => k.kartor[k.kartor.length - 1];
+  /** Pekaren över kartans yta ('' = ärvd från MapLibres egen stil: hand, och hand som griper under drag). */
+  k.pekare = () => k.sista().canvas.style.cursor;
+  /** Pekaren över nålen. */
+  k.nalPekare = () => k.markorer[k.markorer.length - 1]?.opts.element.style.cursor;
+  /** Draget av KARTAN börjar/slutar (nålen står kvar). */
+  k.kartdragStart = () => k.sista().h.dragstart?.();
+  k.kartdragSlut = () => k.sista().h.dragend?.();
+  /** Draget av NÅLEN börjar. */
+  k.nalDragStart = () => k.markorer[k.markorer.length - 1].h.dragstart?.();
   k.punkt = () => k.markorer[k.markorer.length - 1]?.ll;
   /** Ett tryck på kartan. */
   k.tryck = (lat: number, lng: number) => k.sista().h.click({ lngLat: { lat, lng } });
@@ -1150,5 +1160,124 @@ describe("Hempunkten på karta: en punkt, en etikett, två knappar", () => {
     expect(window.location.search).toContain("person=m1");
     expect(g.__karta.kartor.length).toBe(1);
     expect(blad("Stämmer").length).toBe(1);
+  });
+});
+
+
+describe("Hempunktskartan: raden under kartan, pekaren och adressfältet", () => {
+  const m1 = () => g.__db.medarbetare.find((m: any) => m.id === "m1");
+  const tick = () => act(async () => { await new Promise(r => setTimeout(r, 0)); });
+  const byn = () => Object.assign(m1(), { hemadress: "Kompersmåla Gård 362 96", hem_lat: null, hem_lng: null, hem_koord_kalla: null, hem_geokod_status: "osaker", hem_geokod_etikett: "Kompersmåla, Almundsryd, KR, Sweden", hem_geokod_precision: "locality", hem_geokod_lat: 56.38333, hem_geokod_lng: 14.78333, hem_bekraftad_tid: null });
+  const exakt = () => Object.assign(m1(), { hemadress: "Björkvägen 4, Ryd", hem_lat: 56.39, hem_lng: 14.77, hem_koord_kalla: "geokod", hem_geokod_status: "klar", hem_geokod_etikett: "Björkvägen 4, Ryd, KR, Sweden", hem_geokod_precision: "address", hem_bekraftad_tid: null });
+
+  // ── raden under kartan ──
+  it("punkt satt för hand: bara 'Punkten är satt för hand · Bekräftad' — geokodarens gissning (som ligger kvar i raden) visas inte", async () => {
+    Object.assign(m1(), { hem_lat: 56.3939, hem_lng: 14.7729, hem_koord_kalla: "manuell", hem_geokod_status: null, hem_geokod_etikett: "Kompersmåla, Almundsryd, KR, Sweden", hem_geokod_precision: "locality", hem_geokod_lat: 56.38333, hem_geokod_lng: 14.78333 });
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).toContain("Punkten är satt för hand · Bekräftad");
+    expect(text()).not.toContain("Almundsryd");
+    expect(text()).not.toContain("Sweden");
+    expect(text()).not.toMatch(/\bKR\b/);
+  });
+
+  it("efter att man satt punkten på kartan (byn → Spara punkten) står bara 'satt för hand · Bekräftad', inte byns namn", async () => {
+    byn();
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).toContain("Kompersmåla, Almundsryd"); // gissningen visas medan punkten inte är satt
+    g.__karta.tryck(56.3939, 14.7729);
+    await tick();
+    await klick("Spara punkten");
+    expect(text()).toContain("Punkten är satt för hand · Bekräftad");
+    expect(text()).not.toContain("Almundsryd");
+  });
+
+  it("GPS-punkt: 'satt med GPS i Maskinflytt · Bekräftad' och ingen etikett", async () => {
+    Object.assign(m1(), { hem_geokod_etikett: "Idekulla, Ryd, KR, Sweden" });
+    await monter("flik=medarbetare&person=m1"); // m1: gps
+    expect(text()).toContain("Punkten är satt med GPS i Maskinflytt · Bekräftad");
+    expect(text()).not.toContain("Idekulla, Ryd");
+  });
+
+  it("geokodad punkt: etiketten visas men aldrig landskod eller engelska (KR, Sweden)", async () => {
+    exakt();
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).toContain("Björkvägen 4, Ryd");
+    expect(text()).not.toContain("Sweden");
+    expect(text()).not.toMatch(/\bKR\b/);
+  });
+
+  it("förslaget (bara byn): etiketten är rensad", async () => {
+    byn();
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).toContain("Kompersmåla, Almundsryd");
+    expect(text()).not.toContain("Sweden");
+    expect(text()).not.toMatch(/\bKR\b/);
+  });
+
+  // ── pekaren ──
+  it("före första trycket (bara byn): hårkors i vila; under kartdrag den vanliga grepphanden (ärvd); drag av kartan sätter ingen nål", async () => {
+    byn();
+    await monter("flik=medarbetare&person=m1");
+    expect(g.__karta.pekare()).toBe("crosshair");
+    g.__karta.kartdragStart();
+    await tick();
+    expect(g.__karta.pekare()).toBe(""); // MapLibres egen 'grabbing' under drag
+    g.__karta.kartdragSlut();
+    await tick();
+    expect(g.__karta.pekare()).toBe("crosshair");
+    expect(g.__karta.markorer).toHaveLength(0); // inget drag har satt en nål
+  });
+
+  it("efter att nålen är satt: vanlig hand över kartan (ingen hårkors), grab över nålen, grabbing när nålen dras", async () => {
+    byn();
+    await monter("flik=medarbetare&person=m1");
+    g.__karta.tryck(56.3939, 14.7729);
+    await tick();
+    expect(g.__karta.pekare()).toBe("");
+    expect(g.__karta.nalPekare()).toBe("grab");
+    g.__karta.nalDragStart();
+    await tick();
+    expect(g.__karta.nalPekare()).toBe("grabbing");
+    g.__karta.dra(56.394, 14.773); // släpp
+    await tick();
+    expect(g.__karta.nalPekare()).toBe("grab");
+  });
+
+  it("exakt adress: hand från början (inget hårkors), nålen står på huset, och nålens pekare är grab", async () => {
+    exakt();
+    await monter("flik=medarbetare&person=m1");
+    expect(g.__karta.pekare()).toBe("");
+    expect(g.__karta.punkt()).toEqual([14.77, 56.39]);
+    expect(g.__karta.nalPekare()).toBe(""); // ärver kartans hand: nålen går inte att dra förrän man valt Flytta punkten
+    expect(blad("Stämmer").length).toBe(1);
+    expect(blad("Flytta punkten").length).toBe(1);
+  });
+
+  it("exakt adress, Flytta punkten: nålen finns redan, så ingen hårkors — ett tryck flyttar den", async () => {
+    exakt();
+    await monter("flik=medarbetare&person=m1");
+    await klick("Flytta punkten");
+    expect(g.__karta.pekare()).toBe("");
+    expect(g.__karta.nalPekare()).toBe("grab");
+    g.__karta.tryck(56.5, 14.9);
+    await tick();
+    expect(g.__karta.punkt()).toEqual([14.9, 56.5]);
+    expect(g.__karta.markorer).toHaveLength(1);
+  });
+
+  // ── adressfältet ──
+  it("Hemadress: ETT fält, exempel i svensk ordning och hjälptext — på personen", async () => {
+    await monter("flik=medarbetare&person=m1");
+    expect(Array.from(cont.querySelectorAll("label")).filter(l => (l.textContent || "").trim() === "Hemadress")).toHaveLength(1);
+    expect(falt("Hemadress").placeholder).toBe("Kompersmåla 3, 362 96 Ryd");
+    expect(text()).toContain("Gata och nummer, postnummer och ort.");
+  });
+
+  it("Hemadress: samma fält, exempel och hjälptext i Ny medarbetare steg 2", async () => {
+    nyPerson();
+    await monter("flik=medarbetare&ny=1&person=n1&steg=2");
+    expect(Array.from(cont.querySelectorAll("label")).filter(l => (l.textContent || "").trim() === "Hemadress")).toHaveLength(1);
+    expect(falt("Hemadress").placeholder).toBe("Kompersmåla 3, 362 96 Ryd");
+    expect(text()).toContain("Gata och nummer, postnummer och ort.");
   });
 });

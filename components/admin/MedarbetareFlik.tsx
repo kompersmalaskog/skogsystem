@@ -299,7 +299,7 @@ function DetaljVy({
           hint={medarbetare.user_id
             ? "Inloggning kopplad."
             : <span style={{ color: FARG.orange }}>Ingen inloggning kopplad. Den kopplas automatiskt när ett konto med samma e-post finns. Utan koppling kommer personen inte in i appen.</span>} />
-        <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Gata, ort" />
+        <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Kompersmåla 3, 362 96 Ryd" hint="Gata och nummer, postnummer och ort." />
         <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
         <Val label="Maskin" value={maskinId} onChange={setMaskinId} options={[
           { value: "", label: "Ingen maskin" },
