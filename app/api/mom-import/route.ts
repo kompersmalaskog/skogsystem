@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { kapaSyntetiskaSkift } from '@/lib/skiftKapning';
 
 // SERVICE-ROLLEN, inte anon: routen är server-side och läser/skriver RLS-låsta
 // tabeller (operator_medarbetare, fakt_skift, arbetsdag). Med anon-nyckeln såg
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
     // 2. Hämta fakt_skift-rader
     let query = supabase
       .from('fakt_skift')
-      .select('datum, maskin_id, operator_id, inloggning_tid, maskin_inloggning_tid, utloggning_tid, langd_sek')
+      .select('datum, maskin_id, operator_id, inloggning_tid, maskin_inloggning_tid, utloggning_tid, langd_sek, shift_key')
       .order('datum', { ascending: false });
 
     if (filterDatum) {
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
       query = query.gte('datum', fran > SYNK_FRAN ? fran : SYNK_FRAN);
     }
 
-    const { data: skift, error: skiftErr } = await query;
+    const { data: skiftRader, error: skiftErr } = await query;
     if (skiftErr) {
       return NextResponse.json(
         { error: 'Kunde inte hämta fakt_skift', details: skiftErr.message },
@@ -82,9 +83,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!skift?.length) {
+    if (!skiftRader?.length) {
       return NextResponse.json({ created: 0, message: 'Inga skift att bearbeta' });
     }
+
+    // Ett SYNTETISKT (Rottne, SYN_) pass slutar när nästa förare loggar in på samma maskin. Importen kapar redan
+    // fakt_skift; här är samma regel ett skydd så arbetsdagen blir rätt även om raden ännu inte kapats (R64428
+    // 2026-10-07: Oskar fick Martins utloggning 20:50 och arbetsdag 06:59–20:50). Äkta Ponsse-skift rörs aldrig.
+    const skift = kapaSyntetiskaSkift(skiftRader as any[]);
 
     // 3. Hämta skyddade rader: manuellt REDIGERADE och BEKRÄFTADE.
     // En bekräftelse är förarens underskrift — synken skriver ALDRIG över den
@@ -219,37 +225,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5c. Proportionell rast-fördelning för delade maskindagar.
-    // fakt_tid har bara rader för EN operatör per (datum, maskin, objekt) pga
-    // Python-parserns "senaste-vinner"-mappning. När två förare kört samma
-    // maskin samma dag hamnar hela maskinens rast på en förare (ofta den
-    // som loggade ut senast) medan den andra får 0 min. Fördela istället
-    // totalrasten proportionellt mot varje förares skiftlängd.
-    const parseHM = (iso: string): number => {
-      const m = iso.match(/(\d{2}):(\d{2})/);
-      return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
-    };
-    for (const grupp of Object.values(perMaskinDag)) {
-      if (grupp.length < 2) continue;
-      // Summera totalrast från rastMap och kolla om den är ojämnt fördelad.
-      const rastPerOp = grupp.map(agg => {
-        const key = `${agg.medarbetare_id}_${agg.datum}`;
-        return rastMap[key] || 0;
-      });
-      const totalRastSek = rastPerOp.reduce((s, r) => s + r, 0);
-      if (totalRastSek === 0) continue;
-      const nollor = rastPerOp.filter(r => r === 0).length;
-      // Om minst en har rast och minst en annan har 0 → omfördela proportionellt
-      if (nollor === 0) continue;
-      const spans = grupp.map(agg => Math.max(0, parseHM(agg.latestEnd) - parseHM(agg.earliestStart)));
-      const totalSpan = spans.reduce((s, v) => s + v, 0);
-      if (totalSpan === 0) continue;
-      for (let i = 0; i < grupp.length; i++) {
-        const andel = spans[i] / totalSpan;
-        const nyRastSek = Math.round(totalRastSek * andel);
-        rastMap[`${grupp[i].medarbetare_id}_${grupp[i].datum}`] = nyRastSek;
-      }
-    }
+    // RAST (förut steg 5c, "proportionell rast-fördelning för delade maskindagar", BORTTAGET 2026-10-08):
+    // rasten är förarens EGEN — fakt_tid.rast_sek summerat över hans operatörer (rastMap, steg 4) — annars 0.
+    // 5c flyttade en riktig rast till någon som inte tog den: Oskars 46 min delades efter ett för långt skift och
+    // Martin fick 10 min (fakt_tid.rast_sek = 0), Joacim 3 min 2026-08-10 — båda bekräftade. Kommentaren om att
+    // fakt_tid bara har EN operatör per maskindag gäller inte längre: varje förare har egna rader.
 
     // 5. Skapa arbetsdag-rader
     // DB lagrar lokal svensk tid märkt som UTC (parse_datetime strippar timezone)
