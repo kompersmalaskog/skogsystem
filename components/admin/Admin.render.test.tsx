@@ -107,7 +107,11 @@ function seed(extra: Record<string, any[]> = {}) {
     gs_avtal: [{ ...AVTAL }],
     atk_val: [],
     lonesystem_koppling: [{ id: "ls1", system_typ: "fortnox", aktiv: true, senast_synkad: null, skapad: "2026-04-17", token_utgar: null }],
-    lonesystem_artikelmappning: [{ id: "x1", lonesystem_id: null, intern_typ: "timlon", extern_kod: "11", beskrivning: "Timlön", skapad: "2026-04-17" }],
+    // Produktionens sju rader (2026-10), på Fortnox-kopplingen.
+    lonesystem_artikelmappning: [
+      ["timlon", "11", "Timlön"], ["premielon_skordare", "1355", "Premielön skördare"], ["premielon_skotare", "1354", "Premielön skotare"],
+      ["overtid_skordare", "1435", "Övertid skördare"], ["overtid_skotare", "1436", "Övertid skotare"], ["valtlappar", "136", "Vältlappar mm"], ["korersattning", "821", "Körersättning skattefri"],
+    ].map(([intern_typ, extern_kod, beskrivning], i) => ({ id: `x${i + 1}`, lonesystem_id: "ls1", intern_typ, extern_kod, beskrivning, skapad: "2026-04-20" })),
     medarbetare_lonesystem: [{ id: "l1", medarbetare_id: "m1", lonesystem_id: "ls1", anstallningsnummer: "1001", skapad: "2026-04-17" }],
     ...extra,
   };
@@ -877,6 +881,59 @@ describe("Introduktionen som inte är klar", () => {
   });
 });
 
+
+describe("Löneartskoder: samma sju som exporten använder", () => {
+  const rader = () => Array.from(cont.querySelectorAll<HTMLInputElement>("input[aria-label$=', extern kod']"));
+
+  it("listan är de sju lönearterna, i exportens ordning, med produktionens koder och enhet", async () => {
+    await monter("flik=lon&underflik=system");
+    expect(rader().map(i => i.getAttribute("aria-label"))).toEqual([
+      "Timlön, extern kod", "Premielön skördare, extern kod", "Premielön skotare, extern kod", "Övertid skördare, extern kod", "Övertid skotare, extern kod", "Vältlappar, extern kod", "Reseersättning, extern kod",
+    ]);
+    expect(rader().map(i => i.value)).toEqual(["11", "1355", "1354", "1435", "1436", "136", "821"]);
+    expect(text()).toContain("veckor"); // vältlappar räknas i veckor
+    expect(text()).toContain("mil");
+    expect(text()).not.toContain("Övertid vardag"); // de gamla tolv typerna som exporten aldrig använde är borta
+    expect(text()).not.toContain("OB kväll");
+  });
+
+  it("en kod som saknas står som 'Saknar kod' — det är det som stoppar en skarp sändning", async () => {
+    g.__db.lonesystem_artikelmappning = g.__db.lonesystem_artikelmappning.filter((r: any) => r.intern_typ !== "valtlappar");
+    await monter("flik=lon&underflik=system");
+    expect(radMed("Vältlappar").textContent).toContain("Saknar kod");
+    expect(radMed("Timlön").textContent).not.toContain("Saknar kod");
+  });
+
+  it("ändra en kod skriver raden (update på id), och det är exportens kod: den läses ur samma rad", async () => {
+    g.__avvisaKolumner = { lonesystem_artikelmappning: ["uppdaterad"] };
+    await monter("flik=lon&underflik=system");
+    const rad = radMed("Övertid skördare");
+    await skriv(rad.querySelector("input")!, "1450");
+    await act(async () => { rad.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(g.__db.lonesystem_artikelmappning.find((r: any) => r.intern_typ === "overtid_skordare").extern_kod).toBe("1450");
+    expect(g.__db.lonesystem_artikelmappning.filter((r: any) => r.intern_typ === "overtid_skordare")).toHaveLength(1);
+  });
+
+  it("en ny kod för en löneart utan rad skapas på Fortnox-kopplingen (annars läser exporten den aldrig)", async () => {
+    g.__db.lonesystem_artikelmappning = g.__db.lonesystem_artikelmappning.filter((r: any) => r.intern_typ !== "valtlappar");
+    await monter("flik=lon&underflik=system");
+    const rad = radMed("Vältlappar");
+    await skriv(rad.querySelector("input")!, "137");
+    await act(async () => { rad.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    const ny = g.__db.lonesystem_artikelmappning.find((r: any) => r.intern_typ === "valtlappar");
+    expect(ny).toMatchObject({ extern_kod: "137", lonesystem_id: "ls1" });
+  });
+
+  it("granskningen visar etiketten ur lönearten, inte ur koden: en ändrad kod får fortfarande rätt namn", async () => {
+    g.__salary = { ok: true, arbetsperiod: "2026-09", totalt_rader: 1, oenighet: [], medarbetare: [{ ...SALARY.medarbetare[0], rader: [{ loneart: "valtlappar", SalaryCode: "137", Number: "4" }] }] };
+    await monter("flik=lon");
+    expect(text()).toContain("Vältlappar");
+    expect(text()).toContain("(137)");
+    expect(text()).toContain("veckor");
+  });
+});
 
 describe("Anställningsnummer utan Fortnox: sparas ändå, kontrolleras när anslutningen finns", () => {
   const medNr = (id: string) => g.__db.medarbetare_lonesystem.filter((r: any) => r.medarbetare_id === id);
