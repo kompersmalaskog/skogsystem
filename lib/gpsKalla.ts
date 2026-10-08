@@ -10,6 +10,7 @@
 
 import { SERIAL_FLAGG, harWebSerial, serialGpsVald, glomSerialGps, antalBeviljadeSerialPortar } from './gpsSerialFlagga';
 import { BAUD_PROVORDNING, effektivBaud, hamtaBaudVal, sattBaudVal, sattHittadBaud, type BaudVal } from './gpsBaud';
+import { OKORRIGERAD, klockaKorr, startaKlockSynk, type KlockaKorr } from './serverKlocka';
 
 export interface GpsFix {
   lat: number | null;
@@ -19,12 +20,12 @@ export interface GpsFix {
   satelliter: number | null;
   hdop: number | null;
   noggrannhetM: number | null;   // meter, från geolocation (coords.accuracy); null för serial (använd hdop)
-  giltig: boolean;            // färsk, giltig fix (RMC status A inom maxålder OCH NMEA-tiden inte släpar efter datorns klocka)
+  giltig: boolean;            // färsk, giltig fix (RMC status A inom maxålder OCH NMEA-tiden inte släpar efter verklig tid = datorns klocka + uppmätt avvikelse mot servern)
   tid: number;                // ms epoch för senaste uppdatering
-  /** Serial: NMEA-tiden (GGA/RMC, UTC + datum) ligger mer än FORDROJD_MAX_MS efter datorns klocka → datat är en gammal kö, inte en
-   *  färsk position. `giltig` är då false. Saknas (undefined) för geolocation/fast läge. */
+  /** Serial: NMEA-tiden (GGA/RMC, UTC + datum) ligger mer än FORDROJD_MAX_MS efter VERKLIG tid (se lib/serverKlocka — datorns klocka kan gå
+   *  fel) → datat är en gammal kö, inte en färsk position. `giltig` är då false. Saknas (undefined) för geolocation/fast läge. */
   fordrojd?: boolean;
-  /** Serial: hur många ms NMEA-tiden ligger EFTER datorns klocka (negativt = före). null/undefined = okänt. */
+  /** Serial: hur många ms NMEA-tiden ligger EFTER verklig tid (negativt = före). null/undefined = okänt. */
   nmeaAlderMs?: number | null;
 }
 
@@ -45,7 +46,7 @@ export interface NmeaState {
 
 export const KURS_MIN_FART_KMH = 1.5;   // under denna → kursen hålls kvar (stillastående GPS ger skräpkurs)
 export const FIX_MAX_ALDER_MS = 5000;   // ingen giltig RMC på 5 s → fix tappad
-/** NMEA-tiden får ligga högst så här långt EFTER datorns klocka. Mer → räkna som ingen fix ("GPS-data är fördröjd"). */
+/** NMEA-tiden får ligga högst så här långt EFTER verklig tid (datorns klocka korrigerad mot servern). Mer → räkna som ingen fix ("GPS-data är fördröjd"). */
 export const FORDROJD_MAX_MS = 30000;
 const KNOP_TILL_KMH = 1.852;
 
@@ -111,7 +112,8 @@ function uppdateraKurs(nuvarande: number | null, ny: number | null, fart: number
 }
 
 // Mata in en NMEA-rad → ny state. Ogiltig checksumma / okänd typ → oförändrad (utom tid). Immutabelt.
-export function matNmeaRad(state: NmeaState, rad: string, nu: number = Date.now()): NmeaState {
+// `nu` = datorns klocka (ANKOMSTtid, bokföring som rmcTid/tid). `klocka.offsetMs` läggs bara på där NMEA-tiden ska tolkas mot verklig tid.
+export function matNmeaRad(state: NmeaState, rad: string, nu: number = Date.now(), klocka: KlockaKorr = OKORRIGERAD): NmeaState {
   if (!nmeaChecksumOk(rad)) return state;   // kasta rader som inte stämmer
   const s = rad.trim();
   const kropp = s.slice(1, s.lastIndexOf('*'));
@@ -125,11 +127,11 @@ export function matNmeaRad(state: NmeaState, rad: string, nu: number = Date.now(
     const hdop = parseFloat(f[8]); if (Number.isFinite(hdop)) ny.hdop = hdop;
     const alt = parseFloat(f[9]); if (Number.isFinite(alt)) ny.alt = alt;
     // Mätningens tid (UTC): bara för meningar MED fix (kvalitet 0 = ingen fix → tiden kan vara en klocka utan satellitlås)
-    if (f[6] && f[6] !== '0') ny.ggaUtc = nmeaTillEpoch(f[1], undefined, nu);
+    if (f[6] && f[6] !== '0') ny.ggaUtc = nmeaTillEpoch(f[1], undefined, nu + klocka.offsetMs);
   } else if (typ === 'RMC') {
     const status = f[2];
     ny.rmcGiltig = status === 'A';
-    if (status === 'A') { ny.rmcTid = nu; ny.rmcUtc = nmeaTillEpoch(f[1], f[9], nu); }
+    if (status === 'A') { ny.rmcTid = nu; ny.rmcUtc = nmeaTillEpoch(f[1], f[9], nu + klocka.offsetMs); }
     const knop = parseFloat(f[7]); if (Number.isFinite(knop)) ny.fart = knop * KNOP_TILL_KMH;
     const rlat = nmeaKoord(f[3], f[4]); if (ny.lat == null && rlat != null) ny.lat = rlat;
     const rlng = nmeaKoord(f[5], f[6]); if (ny.lng == null && rlng != null) ny.lng = rlng;
@@ -151,19 +153,32 @@ export function formateraFordrojning(ms: number): string {
 }
 
 // State → GpsFix. giltig = RMC var A OCH senaste giltiga RMC inte äldre än maxAlder (fix-tappad-regeln) OCH NMEA-tiden inte
-// ligger mer än maxFordrojd EFTER datorns klocka.
+// ligger mer än maxFordrojd EFTER verklig tid.
 //
 // ÅLDERSVAKTEN: `farsk` ovan mäter när meningen ANLÄNDE till datorn, inte när mätningen gjordes. Släpar överföringen (för låg
 // baudrate → kön byggs upp) kommer gamla meningar i färsk takt och såg giltiga ut — appen fick positioner 2,5 h gamla (NMEA-tid
-// 11:07 UTC vid 13:37 UTC). NMEA-tiden (RMC: UTC + datum, annars GGA: klockslag) jämförs därför mot datorns klocka; ligger den
+// 11:07 UTC vid 13:37 UTC). NMEA-tiden (RMC: UTC + datum, annars GGA: klockslag) jämförs därför mot VERKLIG tid; ligger den
 // mer än 30 s efter är det en gammal kö → giltig=false, fordrojd=true (inget visas som position, inga punkter loggas).
-// Ligger NMEA-tiden FÖRE klockan (datorns klocka går efter) räknas det inte som fördröjt.
+// Ligger NMEA-tiden FÖRE verklig tid räknas det inte som fördröjt.
+//
+// VERKLIG TID = datorns klocka + klocka.offsetMs (lib/serverKlocka: avvikelsen mot servern, mätt vid start och var 10:e minut). Utan det
+// såg färsk GPS 4 min gammal ut när datorns klocka gick 4 min före (Giant 2026-10-08) och ALL GPS blev fördröjd. Innan det första
+// klocksynkförsöket är klart (klocka.klar=false, någon sekund vid start) vet vi inte om klockan går rätt → giltig=false utan att
+// flagga fördröjd (ingen varning för något vi inte vet). Datorns klocka visas aldrig för föraren.
 export function nmeaStateTillFix(
   state: NmeaState, nu: number = Date.now(), maxAlder: number = FIX_MAX_ALDER_MS, maxFordrojd: number = FORDROJD_MAX_MS,
+  klocka: KlockaKorr = OKORRIGERAD,
 ): GpsFix {
-  const farsk = state.rmcGiltig && state.rmcTid != null && (nu - state.rmcTid) <= maxAlder;
+  const farsk = state.rmcGiltig && state.rmcTid != null && (nu - state.rmcTid) <= maxAlder;   // ankomst mot ankomst: samma klocka, ingen korrigering
   const utc = state.rmcUtc ?? state.ggaUtc;       // RMC har datum → den är facit när den finns
-  const nmeaAlderMs = utc != null ? nu - utc : null;
+  const nmeaAlderMs = utc != null ? (nu + klocka.offsetMs) - utc : null;
+  if (!klocka.klar) {
+    return {
+      lat: state.lat, lng: state.lng, kurs: state.kurs, fart: state.fart,
+      satelliter: state.satelliter, hdop: state.hdop, noggrannhetM: null,
+      giltig: false, tid: state.tid, fordrojd: false, nmeaAlderMs: null,
+    };
+  }
   const fordrojd = nmeaAlderMs != null && nmeaAlderMs > maxFordrojd;
   return {
     lat: state.lat, lng: state.lng, kurs: state.kurs, fart: state.fart,
@@ -205,8 +220,9 @@ async function lasPort(
         if (!rad.startsWith('$')) continue;
         if (!nmeaChecksumOk(rad)) continue;
         giltiga++;
-        state = matNmeaRad(state, rad);
-        if (onFix) onFix(nmeaStateTillFix(state));
+        const kk = klockaKorr();
+        state = matNmeaRad(state, rad, Date.now(), kk);
+        if (onFix) onFix(nmeaStateTillFix(state, Date.now(), FIX_MAX_ALDER_MS, FORDROJD_MAX_MS, kk));
       }
     }
   } finally {
@@ -284,6 +300,7 @@ let senasteFix: GpsFix | null = null;
 // porten ska öppnas på nytt direkt (annars hinner den gamla läsaren fortfarande hålla den öppen).
 let underliggande: { stop(): void; stoppaOchVanta?(): Promise<void> } | null = null;
 let hubTyp: GpsKallaTyp = 'ingen';
+let stoppaKlockSynk: (() => void) | null = null;   // datorns klockavvikelse mot servern (lib/serverKlocka) mäts så länge hubben har prenumeranter
 
 // FAST LÄGE (testfliken /maskin?som=<maskin_id>): hubben öppnar ALDRIG serieporten eller navigator.geolocation —
 // datorns egen position hör inte hemma i "visa som maskin". Positionen sätts uttryckligen av anroparen (maskinens
@@ -365,10 +382,12 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
                 const rad = buffert.slice(0, nl).trim();
                 buffert = buffert.slice(nl + 1);
                 if (!rad.startsWith('$') || !nmeaChecksumOk(rad)) continue;
-                state = matNmeaRad(state, rad);
-                const fix = nmeaStateTillFix(state);
+                const kk = klockaKorr();   // per mening: avvikelsen uppdateras var 10:e minut
+                const nuMs = Date.now();
+                state = matNmeaRad(state, rad, nuMs, kk);
+                const fix = nmeaStateTillFix(state, nuMs, FIX_MAX_ALDER_MS, FORDROJD_MAX_MS, kk);
                 // Loggas EN gång per fördröjd period (inte per mening, det är hundratals i sekunden på en uppbyggd kö)
-                if (fix.fordrojd && !loggadFordrojd) { loggadFordrojd = true; console.warn(`[GPS] data fördröjd: NMEA-tiden ligger ${Math.round((fix.nmeaAlderMs ?? 0) / 1000)} s efter datorns klocka (${effektivBaud()} baud) — räknas som ingen fix`); }
+                if (fix.fordrojd && !loggadFordrojd) { loggadFordrojd = true; console.warn(`[GPS] data fördröjd: NMEA-tiden ligger ${Math.round((fix.nmeaAlderMs ?? 0) / 1000)} s efter verklig tid (klockavvikelse ${Math.round(kk.offsetMs / 1000)} s, ${effektivBaud()} baud) — räknas som ingen fix`); }
                 else if (!fix.fordrojd) loggadFordrojd = false;
                 notifiera(fix);
               }
@@ -415,13 +434,19 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
 // Ny abonnent får senaste kända fix direkt. Alla får SAMMA källa (serial ELLER geolocation).
 export function startaGpsKalla(onFix: (fix: GpsFix) => void, opts?: { highAccuracy?: boolean }): GpsKallaHandle {
   abonnenter.add(onFix);
-  if (!underliggande) { hubTyp = aktuellTyp(); underliggande = startaUnderliggande(opts?.highAccuracy !== false); }
+  if (!underliggande) {
+    hubTyp = aktuellTyp(); underliggande = startaUnderliggande(opts?.highAccuracy !== false);
+    if (!fastLage && !stoppaKlockSynk) stoppaKlockSynk = startaKlockSynk();
+  }
   if (senasteFix) { try { onFix(senasteFix); } catch { /* */ } }
   return {
     typ: hubTyp,
     stop() {
       abonnenter.delete(onFix);
-      if (abonnenter.size === 0 && underliggande) { underliggande.stop(); underliggande = null; hubTyp = 'ingen'; senasteFix = null; }
+      if (abonnenter.size === 0 && underliggande) {
+        underliggande.stop(); underliggande = null; hubTyp = 'ingen'; senasteFix = null;
+        if (stoppaKlockSynk) { stoppaKlockSynk(); stoppaKlockSynk = null; }
+      }
     },
   };
 }
