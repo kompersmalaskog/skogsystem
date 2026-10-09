@@ -320,7 +320,8 @@ export default function StartaJobbPage() {
     if (maskin?.roll) {
       sattSenasteObjekt(maskin.id, rad.id);
       // Spår som loggats utan objekt tills nu (skyddsnätet) kopplas hit (server, service-roll). Får aldrig stoppa starten.
-      try { void fetch('/api/hyttspar/koppla', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ objektId: rad.id, maskinId: maskin.id }) }).catch(() => {}); } catch { /* */ }
+      // keepalive: anropet ska hinna iväg trots att sidan byter till /planering direkt efter.
+      try { void fetch('/api/hyttspar/koppla', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ objektId: rad.id, maskinId: maskin.id }) }).catch(() => {}); } catch { /* */ }
       try { skrivOverlamning(sessionStorage, { objektId: rad.id, roll: maskin.roll, besked: `${r.vo} — knappa in numret i båda maskinerna` }); } catch { /* */ }
       window.location.href = '/planering';
       return;
