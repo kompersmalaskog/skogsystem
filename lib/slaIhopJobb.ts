@@ -78,6 +78,31 @@ const fel = (r: SlaIhopResultat, msg: string): SlaIhopResultat => ({ ...r, ok: f
 const saknasTabell = (e: { message?: string; code?: string } | null) => !!e && (e.code === 'PGRST205' || e.code === '42P01' || /does not exist|Could not find the table/i.test(e.message || ''));
 const finns = (v: unknown) => v != null && String(v).trim() !== '';
 
+const flertal = (n: number, ental: string, flertalsord: string) => `${n} ${n === 1 ? ental : flertalsord}`;
+
+/** Svaret som människotext efter en lyckad sammanslagning ("det här flyttades, jobbet är borta"). */
+export function sammanfattaIhop(r: Partial<SlaIhopResultat>, jobbNamn: string, vidaNamn: string): string {
+  const f = r.flyttat ?? {};
+  const delar: string[] = [];
+  const spar = r.hyttspar?.flyttade ?? 0;
+  if (spar) delar.push(flertal(spar, 'hyttspår-rad', 'hyttspår-rader'));
+  const mark = f['planering_markeringar.objekt_id'] ?? 0;
+  if (mark) delar.push(flertal(mark, 'markering', 'markeringar'));
+  const anm = f['objekt_yta_anteckning.objekt_id'] ?? 0;
+  if (anm) delar.push(flertal(anm, 'ytanteckning', 'ytanteckningar'));
+  const media = f['objekt_yta_media.objekt_id'] ?? 0;
+  if (media) delar.push(`${media} media`);
+  const ovrigt = Object.entries(f).filter(([k]) => !['planering_markeringar.objekt_id', 'objekt_yta_anteckning.objekt_id', 'objekt_yta_media.objekt_id'].includes(k)).reduce((s, [, n]) => s + n, 0);
+  if (ovrigt) delar.push(flertal(ovrigt, 'övrig rad', 'övriga rader'));
+  if ((r.tilldelning?.length ?? 0) > 0 || r.statusPagaende) delar.push('tilldelning');
+  if (r.anteckningarSammanfogade) delar.push('anteckningar');
+  if (r.dimUppdaterade) delar.push(`maskindatans VO-nummer (${r.dimUppdaterade})`);
+  let text = `${jobbNamn} slogs ihop med ${vidaNamn}. ` + (delar.length ? `Flyttade: ${delar.join(', ')}. ` : 'Inget fanns att flytta. ') + 'Jobbet är borttaget.';
+  if (r.krockar && r.krockar.length > 0) text += ` Obs: ${r.krockar.join(', ')} fanns redan hos Vida-objektet och följde inte med.`;
+  if (r.saknas && r.saknas.length > 0) text += ` (Tabeller som inte finns i databasen hoppades över: ${r.saknas.join(', ')}.)`;
+  return text;
+}
+
 /** Anteckningstext: båda → jobbets läggs UNDER målets med en rubrik som säger varifrån den kommer. */
 export function sammanfogaAnteckning(mal: string | null | undefined, jobb: string | null | undefined, jobbNamn: string): string | null {
   if (!finns(jobb)) return finns(mal) ? String(mal) : null;

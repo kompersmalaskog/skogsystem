@@ -109,10 +109,10 @@ export function skapaMinnesDb(start: Record<string, Rad[]> = {}, unika: Record<s
         // delete
         const bort = new Set(traffar());
         tabeller[tabell] = tabeller[tabell].filter((r) => !bort.has(r));
-        const bortIds = new Set([...bort].map((r) => String(r.id)));
+        const bortIds = new Set(Array.from(bort).map((r) => String(r.id)));
         for (const k of db.kaskad) if (k.ref === tabell && tabeller[k.tabell]) tabeller[k.tabell] = tabeller[k.tabell].filter((r) => !bortIds.has(String(r[k.kol])));
         db.skrivlogg.push({ tabell, op, antal: bort.size });
-        return { data: skickaTillbaka ? [...bort].map(projicera) : null, error: null };
+        return { data: skickaTillbaka ? Array.from(bort).map(projicera) : null, error: null };
       };
 
       const lagg = (kol: string, test: (v: any) => boolean) => { filter.push((r) => test(r[kol])); };

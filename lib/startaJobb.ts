@@ -11,6 +11,8 @@
 // Rena delar (byggObjektRad, validering) + EN tunn skrivning (skapaJobb) som LÄSER TILLBAKA raden den skapade — ett insert
 // utan returnerad rad är ett fel, aldrig en tyst succé. Testas i startaJobb.test.ts.
 
+import { haversineMeters } from './gps-guard';
+
 export type JobbTyp = 'slutavverkning' | 'gallring' | 'grot' | 'energiklippning';
 export type JobbUrsprung = 'privat' | 'vanta_vida';
 export type JobbRoll = 'skordare' | 'skotare';
@@ -44,6 +46,49 @@ export const atgardForTyp = (typ: JobbTyp): string | null =>
 export function giltigPlats(lat: unknown, lng: unknown): boolean {
   const la = Number(lat), lo = Number(lng);
   return Number.isFinite(la) && Number.isFinite(lo) && la >= 54 && la <= 70 && lo >= 9 && lo <= 25;
+}
+
+/** Ett objekt som ett GROT-jobb kan höra till (virkesobjektet): slutavverkning eller gallring — aldrig ett annat GROT-/energijobb. */
+export interface VirkesobjektRad {
+  id: string; namn?: string | null; vo_nummer?: string | null; typ?: string | null; status?: string | null;
+  lat?: unknown; lng?: unknown;
+}
+export const arVirkesobjekt = (o: Pick<VirkesobjektRad, 'typ'> | null | undefined): boolean => {
+  const t = (o?.typ || '').toLowerCase();
+  return t.includes('slut') || t.includes('gallr');
+};
+
+/** Virkesobjekten sorterade närmast först (avstånd i m till `pos`); utan position eller utan objektets punkt: sist, på namn. Max `max` rader. */
+export function narmasteVirkesobjekt<T extends VirkesobjektRad>(
+  pos: { lat: number; lng: number } | null | undefined,
+  objekt: T[],
+  max = 8,
+): (T & { avstandM: number | null })[] {
+  const kand = (objekt || []).filter((o) => arVirkesobjekt(o) && (o.namn || '').trim());
+  const med = kand.map((o) => {
+    const oLat = o.lat == null || o.lat === '' ? NaN : Number(o.lat), oLng = o.lng == null || o.lng === '' ? NaN : Number(o.lng);
+    const d = pos && Number.isFinite(oLat) && Number.isFinite(oLng) ? haversineMeters(pos.lat, pos.lng, oLat, oLng) : null;
+    return { ...o, avstandM: d };
+  });
+  med.sort((a, b) => {
+    if (a.avstandM != null && b.avstandM != null) return a.avstandM - b.avstandM;
+    if (a.avstandM != null) return -1;
+    if (b.avstandM != null) return 1;
+    return String(a.namn).localeCompare(String(b.namn), 'sv');
+  });
+  return med.slice(0, max);
+}
+
+/** Vilka objekt vars ytanteckningar/media/spår ett objekt visar: sig självt, och — för ett GROT-jobb som hör till ett virkesobjekt — virkesobjektet. */
+export function ytaKontextIds(o: { id: string; hor_till_objekt_id?: string | null } | null | undefined): string[] {
+  if (!o?.id) return [];
+  return o.hor_till_objekt_id && o.hor_till_objekt_id !== o.id ? [o.id, o.hor_till_objekt_id] : [o.id];
+}
+
+/** "850 m" / "2,4 km". */
+export function avstandText(m: number | null | undefined): string {
+  if (m == null || !Number.isFinite(m)) return '';
+  return m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1).replace('.', ',')} km`;
 }
 
 export interface JobbIndata {

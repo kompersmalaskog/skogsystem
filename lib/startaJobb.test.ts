@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  JOBBTYPER, byggObjektRad, valideraJobb, skapaJobb, atgardForTyp, giltigPlats, arGrotEllerEnergi, jobbTypLabel, type JobbIndata,
+  JOBBTYPER, byggObjektRad, valideraJobb, skapaJobb, atgardForTyp, giltigPlats, arGrotEllerEnergi, jobbTypLabel, narmasteVirkesobjekt, avstandText, arVirkesobjekt, type JobbIndata,
 } from './startaJobb';
 import { skapaMinnesDb } from './testStod/minnesDb';
 
@@ -121,5 +121,40 @@ describe('skapaJobb', () => {
     const r = await skapaJobb(db as any, { ...bas, namn: '' }, NU);
     expect(r).toMatchObject({ ok: false, voForbrukat: false });
     expect(rpcAnrop).toBe(0);
+  });
+});
+
+describe('narmasteVirkesobjekt — GROT "hör till": förslag = närmaste virkesobjekt', () => {
+  const L = (m: number) => 56.4 + m / 111195;
+  const objekt = [
+    { id: 'a', namn: 'Långt', typ: 'gallring', lat: L(9000), lng: 14.9 },
+    { id: 'b', namn: 'Nära', typ: 'slutavverkning', lat: L(800), lng: 14.9 },
+    { id: 'c', namn: 'Ett annat GROT-jobb', typ: 'grot', lat: L(100), lng: 14.9 },     // aldrig ett GROT-/energijobb
+    { id: 'd', namn: 'Utan plats', typ: 'gallring', lat: null, lng: null },
+    { id: 'e', namn: 'Namnlös', typ: 'gallring', lat: L(50), lng: 14.9 },               // utan namn kan det inte väljas
+    { id: 'f', namn: 'Energi', typ: 'energiklippning', lat: L(10), lng: 14.9 },
+  ].map((o) => (o.id === 'e' ? { ...o, namn: ' ' } : o));
+
+  it('närmast först, bara slutavverkning/gallring med namn, objekt utan plats sist', () => {
+    const r = narmasteVirkesobjekt({ lat: 56.4, lng: 14.9 }, objekt);
+    expect(r.map((o) => o.id)).toEqual(['b', 'a', 'd']);
+    expect(Math.round(r[0].avstandM!)).toBe(800);
+    expect(r[2].avstandM).toBeNull();
+  });
+  it('utan position: på namn, inga avstånd', () => {
+    const r = narmasteVirkesobjekt(null, objekt);
+    expect(r.map((o) => o.namn)).toEqual(['Långt', 'Nära', 'Utan plats']);
+    expect(r.every((o) => o.avstandM === null)).toBe(true);
+  });
+  it('max begränsar; arVirkesobjekt', () => {
+    expect(narmasteVirkesobjekt({ lat: 56.4, lng: 14.9 }, objekt, 1)).toHaveLength(1);
+    expect(arVirkesobjekt({ typ: 'Gallring' })).toBe(true);
+    expect(arVirkesobjekt({ typ: 'grot' })).toBe(false);
+    expect(arVirkesobjekt(null)).toBe(false);
+  });
+  it('avståndstext', () => {
+    expect(avstandText(840)).toBe('840 m');
+    expect(avstandText(2440)).toBe('2,4 km');
+    expect(avstandText(null)).toBe('');
   });
 });

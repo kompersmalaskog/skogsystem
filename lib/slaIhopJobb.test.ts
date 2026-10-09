@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slaIhopJobb, sammanfogaAnteckning, FLYTTA_TABELLER } from './slaIhopJobb';
+import { slaIhopJobb, sammanfogaAnteckning, sammanfattaIhop, FLYTTA_TABELLER } from './slaIhopJobb';
 import { skapaMinnesDb, type Rad } from './testStod/minnesDb';
 import { kvadrat, spar } from './testStod/geometri';
 
@@ -224,5 +224,17 @@ describe('listan över flyttade tabeller', () => {
     const t = new Set(FLYTTA_TABELLER.map(([a]) => a));
     for (const n of ['planering_markeringar', 'objekt_yta_anteckning', 'objekt_yta_media', 'avlagg_assessments', 'tma_assessments', 'brand_samrad', 'egenkontroll', 'skotning_uttag', 'skordarstrak', 'maskin_ko', 'maskin_flytt', 'gps_tracks']) expect(t.has(n)).toBe(true);
     for (const n of ['hyttspar', 'objekt_geometri', 'objekt_vagdata', 'objekt_kvittering']) expect(t.has(n)).toBe(false);
+  });
+});
+
+describe('sammanfattaIhop', () => {
+  it('säger vad som flyttades och att jobbet är borttaget', async () => {
+    const db = varld();
+    const r = await slaIhopJobb(db as any, { franId: 'p1', tillId: 'v1', nu: NU });
+    const t = sammanfattaIhop(r, 'P-1018', 'Hållsta 2:7 RP -26');
+    expect(t).toBe('P-1018 slogs ihop med Hållsta 2:7 RP -26. Flyttade: 1 hyttspår-rad, 2 markeringar, 1 ytanteckning, 1 media, 1 övrig rad, tilldelning, anteckningar, maskindatans VO-nummer (2). Jobbet är borttaget.');
+  });
+  it('redovisar krockar och saknade tabeller; tomt jobb säger det', () => {
+    expect(sammanfattaIhop({ krockar: ['tma_assessments.objekt_id'], saknas: ['brand_samrad'] }, 'P-1', 'X')).toBe('P-1 slogs ihop med X. Inget fanns att flytta. Jobbet är borttaget. Obs: tma_assessments.objekt_id fanns redan hos Vida-objektet och följde inte med. (Tabeller som inte finns i databasen hoppades över: brand_samrad.)');
   });
 });
