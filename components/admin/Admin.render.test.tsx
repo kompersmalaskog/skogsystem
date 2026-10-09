@@ -53,6 +53,7 @@ vi.mock("@/lib/supabase", () => {
       const tab = (db[this.t] = db[this.t] || []);
       const klar = (o: any) => Promise.resolve(o).then(res, rej);
       if (this.mode === "select") {
+        if (g.__dbFel?.[this.t]) return klar({ data: null, error: { message: g.__dbFel[this.t] }, count: null }); // läsfel (permission denied, timeout …)
         const rader = tab.filter(r => this.f.every(fn => fn(r))).map(r => ({ ...r }));
         return klar({ data: this.head ? null : this.enkel ? rader[0] ?? null : rader, error: null, count: this.count ? rader.length : null });
       }
@@ -115,9 +116,9 @@ function seed(extra: Record<string, any[]> = {}) {
     medarbetare_lonesystem: [{ id: "l1", medarbetare_id: "m1", lonesystem_id: "ls1", anstallningsnummer: "1001", skapad: "2026-04-17" }],
     ...extra,
   };
-  g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {};
+  g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {}; g.__dbFel = null;
   g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
-  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = [];
+  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null;
   g.fetch = vi.fn(async (url: string, init?: any) => {
     const u = String(url); g.__fetchAnrop.push([u, init?.method || "GET"]);
     if (u.includes("/api/fortnox/kontrollera-anstallningsnummer")) {
@@ -142,7 +143,7 @@ function seed(extra: Record<string, any[]> = {}) {
       g.__geokodAnrop.push(b);
       return { ok: true, status: 200, json: async () => (g.__geokod ? g.__geokod(b) : { ok: true }) } as any;
     }
-    const body = u.includes("/api/lon/arsovertid") ? { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: [] }
+    const body = u.includes("/api/lon/arsovertid") ? (g.__arsovertid ?? { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: [] })
       : u.includes("/api/fortnox/salary-export") ? (g.__salary || SALARY)
       : u.includes("/api/fortnox/status") ? { connected: true, token_utgar: null, senast_synkad: null }
       : u.includes("/api/medarbetare/kontroller") ? (g.__kontroller || { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [] })
@@ -349,6 +350,7 @@ describe("Översikt = att-göra-lista", () => {
     allaStammer();
     g.fetch = vi.fn(async (url: string) => {
       if (String(url).includes("/api/medarbetare/kontroller")) return { ok: false, status: 500, json: async () => ({ ok: false, error: "kontrollerna är nere" }) } as any;
+      if (String(url).includes("/api/lon/arsovertid")) return { ok: true, status: 200, json: async () => ({ ok: true, ar: 2026, tak: 250, medarbetare: [], utjamning: [] }) } as any;
       return { ok: true, status: 200, json: async () => ({}) } as any;
     });
     await monter("flik=oversikt");
@@ -506,6 +508,182 @@ describe("Avtal", () => {
     g.__db.gs_avtal[0].giltigt_till = "2026-12-20";
     await monter("flik=avtal");
     expect(text()).toContain("går ut om 2 månader");
+  });
+});
+
+describe("Avtal → Utjämningsperioder", () => {
+  // idag = 7 okt 2026. Gävle v17–27 är avslutad; "Nu" pågår; "Senare" kommer.
+  const GAVLE = { id: "p-gavle", startdatum: "2026-04-20", slutdatum: "2026-07-05", medarbetare_id: null, anteckning: "Gävle, ordinarie tid utlagd ojämnt", skapad_av: "migration", skapad_at: "2026-09-18T10:00:00Z" };
+  const NU = { id: "p-nu", startdatum: "2026-10-05", slutdatum: "2026-10-18", medarbetare_id: "m1", anteckning: "Anna, skogsbruksplan", skapad_av: "Erik Lind", skapad_at: "2026-10-01T10:00:00Z" };
+  const SENARE = { id: "p-senare", startdatum: "2026-11-02", slutdatum: "2026-11-15", medarbetare_id: null, anteckning: "Hela laget, vinterlager", skapad_av: "Erik Lind", skapad_at: "2026-10-02T10:00:00Z" };
+  const sektion = () => cont.querySelector<HTMLElement>("[data-utjamning]")!;
+  const sText = () => (sektion()?.textContent || "").replace(/\s+/g, " ");
+  const rader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-utjamning-rad]"));
+  const ark = () => cont.querySelector<HTMLElement>("[data-utjamning-ark]");
+  const arkText = () => (ark()?.textContent || "").replace(/\s+/g, " ");
+  const sparaKnapp = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("[data-utjamning-ark] button")).find(b => (b.textContent || "").trim() === "Spara")!;
+  const oppnaNy = async () => { await klick("Ny period"); };
+  const fyll = async (forsta: string, sista: string, anteckning: string) => {
+    await valj(valFalt("Första veckan"), forsta);
+    await valj(valFalt("Sista veckan"), sista);
+    await skriv(falt("Anteckning"), anteckning);
+  };
+
+  it("listan: kommande och pågående överst (tidigast först), avslutade under med egen rubrik; 'v17–27' och vem det gäller", async () => {
+    g.__db.utjamningsperiod = [GAVLE, SENARE, NU].map(x => ({ ...x }));
+    await monter("flik=avtal");
+    expect(sektion()).toBeTruthy();
+    expect(rader().map(r => r.getAttribute("data-utjamning-rad"))).toEqual(["p-nu", "p-senare", "p-gavle"]);
+    const t = sText();
+    expect(t).toContain("v17–27");
+    expect(t).toContain("Alla"); // Gävle gäller alla
+    expect(t).toContain("Anna Berg"); // personlig period
+    expect(t).toContain("Gävle, ordinarie tid utlagd ojämnt");
+    expect(t.indexOf("Avslutade")).toBeGreaterThan(t.indexOf("v45–46"));
+    expect(t.indexOf("Avslutade")).toBeLessThan(t.indexOf("v17–27"));
+  });
+
+  it("tom lista förklarar varför och vad som fyller den", async () => {
+    await monter("flik=avtal");
+    expect(sText()).toContain("Inga utjämningsperioder");
+    expect(sText()).toContain("Ny period");
+  });
+
+  it("kan listan inte läsas står felet, aldrig 'Inga utjämningsperioder'", async () => {
+    g.__dbFel = { utjamningsperiod: "permission denied" };
+    await monter("flik=avtal");
+    expect(sText()).toContain("Kunde inte läsa utjämningsperioderna");
+    expect(sText()).toContain("permission denied");
+    expect(sText()).not.toContain("Inga utjämningsperioder");
+  });
+
+  it("Ny period: veckor väljs, sparar måndag–söndag, förare Alla = NULL, skapad_av = inloggad admin; arket stängs och raden syns", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    expect(ark()).toBeTruthy();
+    await fyll("2026-10-19", "2026-10-26", "Skogsbruksplan, ojämn vecka");
+    await act(async () => { sparaKnapp().click(); });
+    await lugn();
+    const skr = g.__skriv.find((x: any) => x.tabell === "utjamningsperiod");
+    expect(skr.op).toBe("insert");
+    expect(skr.vals).toEqual({ startdatum: "2026-10-19", slutdatum: "2026-11-01", medarbetare_id: null, anteckning: "Skogsbruksplan, ojämn vecka", skapad_av: "Inloggad Admin" });
+    expect(ark()).toBeNull();
+    expect(sText()).toContain("v43–44");
+  });
+
+  it("förare kan väljas: personlig period sparas med medarbetarens id", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valj(valFalt("Förare"), "m1");
+    await fyll("2026-10-19", "2026-10-19", "Anna, en vecka");
+    await act(async () => { sparaKnapp().click(); });
+    await lugn();
+    expect(g.__skriv.find((x: any) => x.tabell === "utjamningsperiod").vals.medarbetare_id).toBe("m1");
+  });
+
+  it("Spara är inaktiv tills allt är ifyllt: ingen anteckning, för kort anteckning eller sista vecka före första", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    expect(sparaKnapp().disabled).toBe(true);
+    await fyll("2026-10-19", "2026-10-19", "ab");
+    expect(sparaKnapp().disabled).toBe(true);
+    await skriv(falt("Anteckning"), "abc");
+    expect(sparaKnapp().disabled).toBe(false);
+    await valj(valFalt("Sista veckan"), "2026-10-12");
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(arkText()).toContain("Sista veckan ligger före den första");
+    expect(g.__skriv.filter((x: any) => x.tabell === "utjamningsperiod")).toHaveLength(0);
+  });
+
+  it("längre än 16 veckor: varning som inte spärrar; 16 veckor ger ingen varning", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await fyll("2026-01-05", "2026-04-20", "16 veckor");
+    expect(arkText()).not.toContain("lokal överenskommelse");
+    await valj(valFalt("Sista veckan"), "2026-04-27");
+    expect(arkText()).toContain("Längre än 16 veckor kräver lokal överenskommelse (§5 mom 2)");
+    expect(sparaKnapp().disabled).toBe(false);
+  });
+
+  it("RLS stoppar skrivningen (0 rader utan fel): arket står kvar öppet med felet, inget 'Sparat'", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await fyll("2026-10-19", "2026-10-19", "Test av RLS");
+    g.__ingaRader = true;
+    await act(async () => { sparaKnapp().click(); });
+    await lugn();
+    expect(ark()).toBeTruthy();
+    expect(arkText()).toContain("sparades inte");
+    expect(arkText()).toContain("bara admin");
+  });
+
+  it("redigera: arket fylls med periodens värden, uppdatering skickar INTE skapad_av och rör bara den raden", async () => {
+    g.__db.utjamningsperiod = [GAVLE, NU].map(x => ({ ...x }));
+    await monter("flik=avtal");
+    await klick("Anna, skogsbruksplan");
+    expect(valFalt("Första veckan").value).toBe("2026-10-05");
+    expect(valFalt("Sista veckan").value).toBe("2026-10-12");
+    expect(valFalt("Förare").value).toBe("m1");
+    expect(falt("Anteckning").value).toBe("Anna, skogsbruksplan");
+    await skriv(falt("Anteckning"), "Anna, skogsbruksplan och röjning");
+    await act(async () => { sparaKnapp().click(); });
+    await lugn();
+    const skr = g.__skriv.find((x: any) => x.tabell === "utjamningsperiod");
+    expect(skr.op).toBe("update");
+    expect(skr.vals).toEqual({ startdatum: "2026-10-05", slutdatum: "2026-10-18", medarbetare_id: "m1", anteckning: "Anna, skogsbruksplan och röjning" });
+    expect(g.__eq.some((e: any[]) => e[0] === "utjamningsperiod" && e[1] === "id" && e[2] === "p-nu")).toBe(true);
+    expect(g.__db.utjamningsperiod.find((r: any) => r.id === "p-gavle").anteckning).toContain("Gävle");
+  });
+
+  it("ta bort kräver bekräftelse: första trycket raderar inget, Avbryt lämnar raden, 'Ja, ta bort' raderar", async () => {
+    g.__db.utjamningsperiod = [NU].map(x => ({ ...x }));
+    await monter("flik=avtal");
+    await klick("Anna, skogsbruksplan");
+    await klick("Ta bort");
+    expect(arkText()).toContain("Ta bort perioden v41–42");
+    expect(g.__skriv.filter((x: any) => x.op === "delete")).toHaveLength(0);
+    await klick("Avbryt");
+    expect(g.__db.utjamningsperiod).toHaveLength(1);
+    await klick("Ta bort");
+    await klick("Ja, ta bort");
+    expect(g.__db.utjamningsperiod).toHaveLength(0);
+    expect(ark()).toBeNull();
+    expect(sText()).toContain("Inga utjämningsperioder");
+  });
+
+  it("ta bort nekas om perioden berört en redan exporterad löneperiod: ingenting raderas och skälet står", async () => {
+    g.__db.utjamningsperiod = [GAVLE].map(x => ({ ...x }));
+    g.__db.fortnox_export_logg = [{ medarbetare_id: "m1", status: "skickat", period: "2026-06" }];
+    await monter("flik=avtal");
+    await klick("Gävle, ordinarie tid utlagd ojämnt");
+    await klick("Ta bort");
+    expect(arkText()).toContain("kan inte tas bort");
+    expect(arkText()).toContain("2026-06");
+    expect(blad("Ja, ta bort").length).toBe(0);
+    expect(g.__skriv.filter((x: any) => x.op === "delete")).toHaveLength(0);
+    expect(g.__db.utjamningsperiod).toHaveLength(1);
+  });
+
+  it("kan exportloggen inte läsas nekas borttagningen också (ett okänt läge är inte 'ingen export')", async () => {
+    g.__db.utjamningsperiod = [NU].map(x => ({ ...x }));
+    g.__dbFel = { fortnox_export_logg: "timeout" };
+    await monter("flik=avtal");
+    await klick("Anna, skogsbruksplan");
+    await klick("Ta bort");
+    expect(arkText()).toContain("Kunde inte kontrollera om lönen är exporterad");
+    expect(blad("Ja, ta bort").length).toBe(0);
+    expect(g.__db.utjamningsperiod).toHaveLength(1);
+  });
+
+  it("borttagning som RLS stoppar (0 rader) säger det och behåller raden i listan", async () => {
+    g.__db.utjamningsperiod = [NU].map(x => ({ ...x }));
+    await monter("flik=avtal");
+    await klick("Anna, skogsbruksplan");
+    await klick("Ta bort");
+    g.__ingaRader = true;
+    await klick("Ja, ta bort");
+    expect(arkText()).toContain("togs inte bort");
+    expect(g.__db.utjamningsperiod).toHaveLength(1);
   });
 });
 
@@ -1279,5 +1457,177 @@ describe("Hempunktskartan: raden under kartan, pekaren och adressfältet", () =>
     expect(Array.from(cont.querySelectorAll("label")).filter(l => (l.textContent || "").trim() === "Hemadress")).toHaveLength(1);
     expect(falt("Hemadress").placeholder).toBe("Kompersmåla 3, 362 96 Ryd");
     expect(text()).toContain("Gata och nummer, postnummer och ort.");
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ÅRSÖVERTID: kortet svarar på EN fråga — hur nära taket (250 tim/år) är varje förare? (Martin 2026-10-09)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
+  /** Så ser /api/lon/arsovertid ut: alla fyra modellerna per förare (de tre andra visas inte). */
+  const MODELLER = [
+    { key: "vardagar", namn: "Vardagar × 8", beskrivning: "per månad: timmar minus kalenderns vardagar × 8", anvandsAv: "Min tid (förarens vy)", avtalet: false },
+    { key: "dagar", namn: "Arbetade dagar × 8", beskrivning: "per månad: timmar minus arbetade dagar × 8", anvandsAv: "Fortnox-exporten (löneart 1435/1436)", avtalet: false },
+    { key: "vecka", namn: "Över 40 tim/vecka", beskrivning: "per ISO-vecka: timmar över 40, ingen utjämning", anvandsAv: "ingen", avtalet: false },
+    { key: "genomsnitt", namn: "Genomsnitt", beskrivning: "avtalet §5 mom 2", anvandsAv: "Skogsavtalet — frånvaro och komp ej avdragna", avtalet: true },
+  ];
+  const PERIODER = [
+    { fran: 1, till: 16, veckor: 16, timmar: 683.9, bas: 584, franvaroTimmar: 0, rodaTimmar: 40, overtid: 99.9, markerad: false },
+    { fran: 17, till: 27, veckor: 11, timmar: 309.4, bas: 376, franvaroTimmar: 40, rodaTimmar: 24, overtid: 0, markerad: true },
+    { fran: 28, till: 41, veckor: 14, timmar: 593.8, bas: 480, franvaroTimmar: 80, rodaTimmar: 0, overtid: 113.8, markerad: false },
+  ];
+  const forare = (id: string, namn: string, genomsnitt: number) => ({ medarbetare_id: id, namn, timmar: 1000, modeller: { genomsnitt, vardagar: 205.5, dagar: 303.5, vecka: 344.3 }, perioder: PERIODER, basavdrag: { franvaroTimmar: 120, rodaTimmar: 64 } });
+  const svar = (rader: [string, string, number][], extra: Record<string, any> = {}) => ({
+    ok: true, ar: 2026, tak: 250, tomDatum: "2026-10-09", modeller: MODELLER,
+    medarbetare: rader.map(([id, n, h]) => forare(id, n, h)),
+    utjamning: [{ startdatum: "2026-04-20", slutdatum: "2026-07-05", medarbetare_id: null, anteckning: "Gavle/Hedemora-Sandviken 22 apr-29 jun 2026 (sex objekt, 100 arbetsdagar). Ordinarie tid utlagd ojamnt." }],
+    utjamning_fel: null, franvaro_fel: null, ...extra,
+  });
+  /** Dagens tal i prod (2026-10-09): Stefan 74,5, övriga 0. */
+  const IDAG: [string, string, number][] = [["s", "Stefan Karlsson", 74.5], ["m", "Martin Lindqvist", 0], ["d", "Daniel Johansson", 0], ["o", "Oskar Nilsson", 0]];
+  const rader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-arsovertid-rad]"));
+  const radText = (e: HTMLElement) => (e.textContent || "").replace(/\s+/g, " ").trim();
+  const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+  const stapel = (e: HTMLElement) => e.querySelector<HTMLElement>("[role=progressbar]")!;
+  const fyllning = (e: HTMLElement) => stapel(e).firstElementChild as HTMLElement;
+  const SAKER = ["Vardagar × 8", "Arbetade dagar × 8", "Över 40 tim/vecka", "(avtalet)"];
+  /** Bara årsövertidskortets text (sidan har andra kort som nämner §5 mom 2 och utjämningsperioder). */
+  const kortText = () => (cont.querySelector("[data-arsovertid-kort]")?.textContent || "").replace(/\s+/g, " ");
+
+  it("en rad per förare: namn till vänster, '74,5 av 250 tim' till höger — samma tal som kolumnen Genomsnitt, Stefan först", async () => {
+    g.__arsovertid = svar(IDAG);
+    await monter("flik=lon");
+    expect(rader().map(radText)).toEqual(["Stefan Karlsson 74,5 av 250 tim", "Daniel Johansson 0 av 250 tim", "Martin Lindqvist 0 av 250 tim", "Oskar Nilsson 0 av 250 tim"]);
+  });
+
+  it("bara avtalets modell: de tre andra kolumnerna och deras tal finns inte i vyn", async () => {
+    g.__arsovertid = svar(IDAG);
+    await monter("flik=lon");
+    for (const t of SAKER) expect(kortText()).not.toContain(t);
+    for (const tal of ["205,5", "303,5", "344,3"]) expect(kortText()).not.toContain(tal);
+    expect(cont.querySelectorAll("[data-arsovertid-rad]").length).toBe(4);
+  });
+
+  it("tunn stapel under raden: 74,5 av 250 = 29,8 % av längden, med tal för skärmläsare", async () => {
+    g.__arsovertid = svar(IDAG);
+    await monter("flik=lon");
+    const st = stapel(rader()[0]);
+    expect(st.getAttribute("aria-valuenow")).toBe("74.5");
+    expect(st.getAttribute("aria-valuemax")).toBe("250");
+    expect(fyllning(rader()[0]).style.width).toBe("29.8%");
+    expect(fyllning(rader()[1]).style.width).toBe("0%");
+  });
+
+  it("grå normalt, orange över 200, röd över 250, noll dämpad — stapel och tal i samma färg, och talet står alltid i text", async () => {
+    g.__arsovertid = svar([["a", "A Lugn", 74.5], ["b", "B Gräns", 200], ["c", "C Varning", 200.5], ["d", "D Tak", 250], ["e", "E Över", 250.5], ["f", "F Noll", 0]]);
+    await monter("flik=lon");
+    const per = Object.fromEntries(rader().map(e => [radText(e).split(" ")[0] + (radText(e).split(" ")[1] || ""), e]));
+    const niva = (k: string) => per[k].getAttribute("data-niva");
+    expect([niva("ALugn"), niva("BGräns"), niva("CVarning"), niva("DTak"), niva("EÖver"), niva("FNoll")]).toEqual(["lugn", "lugn", "varning", "varning", "over", "noll"]);
+    expect(fyllning(per["CVarning"]).style.background).toBe(rgb("#ff9f0a"));
+    expect(fyllning(per["EÖver"]).style.background).toBe(rgb("#ff453a"));
+    expect(fyllning(per["ALugn"]).style.background).not.toBe(rgb("#ff9f0a"));
+    expect(fyllning(per["ALugn"]).style.background).not.toBe(rgb("#ff453a"));
+    expect(radText(per["EÖver"])).toContain("250,5 av 250 tim");
+    // noll är dämpad: grå text, ingen färg
+    const nollTal = per["FNoll"].querySelector<HTMLElement>("[data-arsovertid-tal]")!;
+    const lugnTal = per["ALugn"].querySelector<HTMLElement>("[data-arsovertid-tal]")!;
+    expect(nollTal.style.color).not.toBe(lugnTal.style.color);
+    expect(nollTal.style.color).not.toBe(rgb("#ff9f0a"));
+  });
+
+  it("utjämningsperioden är en grå rad: 'Utjämningsperiod v17–27 (…) räknas som genomsnitt'", async () => {
+    g.__arsovertid = svar(IDAG);
+    await monter("flik=lon");
+    const r = Array.from(cont.querySelectorAll<HTMLElement>("p")).find(e => (e.textContent || "").startsWith("Utjämningsperiod"))!;
+    expect(r.textContent).toBe("Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken) räknas som genomsnitt");
+    expect(r.style.color).toBe(rgb("#8e8e93"));
+  });
+
+  it("all förklarande text ligger bakom en tertiär länk 'Så räknas det' som fäller ut — och fäller ihop igen", async () => {
+    g.__arsovertid = svar(IDAG);
+    await monter("flik=lon");
+    const FORKLARING = ["§5 mom 2", "Avtalet förutsätter", "v1–16", "v28–41", "(antagen)", "(markerad)", "genomsnitt över en beräkningsperiod", "minus frånvaro", "röda vardagar"];
+    for (const t of FORKLARING) expect(kortText(), t).not.toContain(t);
+    const lank = blad("Så räknas det")[0].closest("button") as HTMLButtonElement;
+    expect(lank.getAttribute("aria-expanded")).toBe("false");
+    await klick("Så räknas det");
+    expect((blad("Så räknas det")[0].closest("button") as HTMLButtonElement).getAttribute("aria-expanded")).toBe("true");
+    for (const t of FORKLARING) expect(kortText(), t).toContain(t);
+    // de tre andra modellerna beskrivs inte heller i förklaringen: de finns inte i vyn
+    for (const t of SAKER) expect(kortText()).not.toContain(t);
+    await klick("Så räknas det");
+    for (const t of FORKLARING) expect(kortText(), t).not.toContain(t);
+  });
+
+  it("ett fel som påverkar talen är inte förklaring: 'Kunde inte läsa utjämningsperioder' står kvar utan att fälla ut", async () => {
+    g.__arsovertid = svar(IDAG, { utjamning: [], utjamning_fel: "relation does not exist" });
+    await monter("flik=lon");
+    expect(text()).toContain("Kunde inte läsa utjämningsperioder");
+    expect(text()).toContain("relation does not exist");
+    expect(blad("Så räknas det").length).toBe(1);
+  });
+
+  it("ett läsfel är aldrig 'ingen övertid': felet står, och inga rader ritas", async () => {
+    g.__arsovertid = { ok: false, meddelande: "nät" };
+    await monter("flik=lon");
+    expect(text()).toContain("Kunde inte läsa årets övertid: nät");
+    expect(rader().length).toBe(0);
+  });
+
+  it("basen: 'Så räknas det' visar per förare hur många tim som drogs ur basen för frånvaro och röda dagar", async () => {
+    g.__arsovertid = svar([["s", "Stefan Karlsson", 189.7], ["m", "Martin Lindqvist", 0]]);
+    await monter("flik=lon");
+    expect(kortText()).not.toContain("drogs ur basen");
+    await klick("Så räknas det");
+    expect(kortText()).toContain("Stefan: 120 tim frånvaro och 64 tim röda dagar drogs ur basen");
+    expect(kortText()).toContain("Martin: 120 tim frånvaro och 64 tim röda dagar drogs ur basen");
+    // perioderna visar basen de räknades mot
+    expect(kortText()).toContain("v1–16 (antagen): 683,9 tim mot bas 584 → 99,9");
+    expect(kortText()).toContain("v28–41 (antagen): 593,8 tim mot bas 480 → 113,8");
+  });
+
+  it("kan frånvaron inte läsas säger kortet det utan att fälla ut: talen är för höga, aldrig 'ingen frånvaro'", async () => {
+    g.__arsovertid = svar(IDAG, { franvaro_fel: "relation does not exist" });
+    await monter("flik=lon");
+    expect(kortText()).toContain("Kunde inte läsa frånvaron");
+    expect(kortText()).toContain("relation does not exist");
+    expect(kortText()).toContain("för höga");
+  });
+
+  it("frånvaron lästes: ingen varning", async () => {
+    g.__arsovertid = svar(IDAG);
+    await monter("flik=lon");
+    expect(kortText()).not.toContain("Kunde inte läsa frånvaron");
+  });
+
+  // ── Översikt ──
+  it("Översikt: passerar någon 200 tim står en rad '[Namn] har X tim övertid i år, taket är 250' som leder till Lön", async () => {
+    g.__arsovertid = svar([["s", "Stefan Karlsson", 212.5], ["m", "Martin Lindqvist", 0]]);
+    await monter("flik=oversikt");
+    expect(text()).toContain("Stefan Karlsson har 212,5 tim övertid i år, taket är 250");
+    expect(text()).not.toContain("Martin Lindqvist har");
+    await klick("Visa");
+    expect(window.location.search).toContain("flik=lon");
+  });
+
+  it("Översikt: dagens tal (Stefan 74,5, övriga 0) ger ingenting — ingen rad och ingen 'stämmer'-rad om övertid", async () => {
+    g.__arsovertid = svar(IDAG);
+    await monter("flik=oversikt");
+    expect(text()).not.toContain("tim övertid i år");
+    expect(text()).not.toMatch(/övertid/i);
+  });
+
+  it("Översikt: exakt 200 tim passerar inte", async () => {
+    g.__arsovertid = svar([["s", "Stefan Karlsson", 200]]);
+    await monter("flik=oversikt");
+    expect(text()).not.toContain("tim övertid i år");
+  });
+
+  it("Översikt: kan årsövertiden inte läsas säger Översikten det i stället för att tiga", async () => {
+    g.__arsovertid = { ok: false, meddelande: "nät" };
+    await monter("flik=oversikt");
+    expect(text()).toContain("Kunde inte kontrollera årsövertiden");
   });
 });

@@ -7,6 +7,7 @@ import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
 import type { LeveransRad } from "@/app/datahalsa/useDatahalsa";
 import { LEV_GUL_DYGN } from "@/app/datahalsa/useDatahalsa";
 import type { VilobrottRad } from "@/lib/admin/vilobrottLista";
+import { timmarText, STANDARD_TAK_H, VARNING_UNDER_TAK_H, type ArsovertidRad } from "@/lib/admin/arsovertidVy";
 
 export type AdminFlik = "oversikt" | "medarbetare" | "maskiner" | "lon" | "avtal";
 
@@ -36,6 +37,7 @@ export type AttGoraIndata = {
   lon: Kalla<LonLage>;
   vilobrott: Kalla<VilobrottRad[]>;
   avtal: Kalla<AvtalRad | null>;
+  arsovertid: Kalla<ArsovertidRad[]>;
   leverans: Kalla<LeveransRad[]>;
 };
 
@@ -187,6 +189,17 @@ export function byggAttGora(i: AttGoraIndata, idag: string): { saker: Sak[]; sta
         detalj: `Gäller till ${datumLangt(i.avtal.data.giltigt_till!)}`, knapp: "Öppna avtalet", mal: { typ: "flik", flik: "avtal" },
       });
     } else stammer.push({ id: "avtal", rubrik: i.avtal.data.giltigt_till ? `Avtalet gäller till ${datumLangt(i.avtal.data.giltigt_till)}` : "Avtalet har inget slutdatum" });
+  }
+
+  // ── Årsövertid: bara när någon passerar (tak − 50) = 200 tim. Annars ingenting — varken en sak eller en "stämmer"-rad. ──
+  if (i.arsovertid.fel) felRad("arsovertid", "årsövertiden", i.arsovertid.fel);
+  else if (i.arsovertid.data) {
+    for (const r of i.arsovertid.data.filter(x => x.timmar > (x.tak || STANDARD_TAK_H) - VARNING_UNDER_TAK_H).sort((a, b) => b.timmar - a.timmar)) {
+      saker.push({
+        id: `arsovertid-${r.id}`, rubrik: `${r.namn} har ${timmarText(r.timmar)} tim övertid i år, taket är ${r.tak || STANDARD_TAK_H}`,
+        knapp: "Visa", mal: { typ: "flik", flik: "lon", underflik: "underlag" },
+      });
+    }
   }
 
   // ── Maskiner som inte skickat fil på länge (Datahälsa) ──

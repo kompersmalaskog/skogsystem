@@ -1,0 +1,1017 @@
+{
+ "_info": "Stefans 2026 (t.o.m. 2026-10-09) ur prod 2026-10-09: bara datum, minuter och frånvaroperioder. Används av arsovertid.stefan.test.ts.",
+ "tomDatum": "2026-10-09",
+ "arbetsdag": [
+  {
+   "datum": "2026-01-02",
+   "arbetad_min": 102,
+   "dagtyp": "Produktion",
+   "start_tid": "13:08:00"
+  },
+  {
+   "datum": "2026-01-05",
+   "arbetad_min": 614,
+   "dagtyp": "Produktion",
+   "start_tid": "06:08:00"
+  },
+  {
+   "datum": "2026-01-07",
+   "arbetad_min": 588,
+   "dagtyp": "Produktion",
+   "start_tid": "06:03:00"
+  },
+  {
+   "datum": "2026-01-08",
+   "arbetad_min": 610,
+   "dagtyp": "Produktion",
+   "start_tid": "06:08:00"
+  },
+  {
+   "datum": "2026-01-09",
+   "arbetad_min": 613,
+   "dagtyp": "Produktion",
+   "start_tid": "06:12:00"
+  },
+  {
+   "datum": "2026-01-12",
+   "arbetad_min": 608,
+   "dagtyp": "Produktion",
+   "start_tid": "06:12:00"
+  },
+  {
+   "datum": "2026-01-13",
+   "arbetad_min": 655,
+   "dagtyp": "Produktion",
+   "start_tid": "06:16:00"
+  },
+  {
+   "datum": "2026-01-14",
+   "arbetad_min": 595,
+   "dagtyp": "Produktion",
+   "start_tid": "06:06:00"
+  },
+  {
+   "datum": "2026-01-15",
+   "arbetad_min": 628,
+   "dagtyp": "Produktion",
+   "start_tid": "06:04:00"
+  },
+  {
+   "datum": "2026-01-16",
+   "arbetad_min": 626,
+   "dagtyp": "Produktion",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-01-19",
+   "arbetad_min": 650,
+   "dagtyp": "Produktion",
+   "start_tid": "05:54:00"
+  },
+  {
+   "datum": "2026-01-20",
+   "arbetad_min": 506,
+   "dagtyp": "Produktion",
+   "start_tid": "05:59:00"
+  },
+  {
+   "datum": "2026-01-21",
+   "arbetad_min": 625,
+   "dagtyp": "Produktion",
+   "start_tid": "05:56:00"
+  },
+  {
+   "datum": "2026-01-22",
+   "arbetad_min": 639,
+   "dagtyp": "Produktion",
+   "start_tid": "06:04:00"
+  },
+  {
+   "datum": "2026-01-23",
+   "arbetad_min": 668,
+   "dagtyp": "Produktion",
+   "start_tid": "06:03:00"
+  },
+  {
+   "datum": "2026-01-26",
+   "arbetad_min": 570,
+   "dagtyp": "Produktion",
+   "start_tid": "06:26:00"
+  },
+  {
+   "datum": "2026-01-27",
+   "arbetad_min": 512,
+   "dagtyp": "Produktion",
+   "start_tid": "06:52:00"
+  },
+  {
+   "datum": "2026-01-28",
+   "arbetad_min": 547,
+   "dagtyp": "Produktion",
+   "start_tid": "06:52:00"
+  },
+  {
+   "datum": "2026-01-29",
+   "arbetad_min": 561,
+   "dagtyp": "Produktion",
+   "start_tid": "06:25:00"
+  },
+  {
+   "datum": "2026-01-30",
+   "arbetad_min": 518,
+   "dagtyp": "Produktion",
+   "start_tid": "07:29:00"
+  },
+  {
+   "datum": "2026-02-02",
+   "arbetad_min": 559,
+   "dagtyp": "Produktion",
+   "start_tid": "06:35:00"
+  },
+  {
+   "datum": "2026-02-03",
+   "arbetad_min": 516,
+   "dagtyp": "Produktion",
+   "start_tid": "06:39:00"
+  },
+  {
+   "datum": "2026-02-04",
+   "arbetad_min": 579,
+   "dagtyp": "Produktion",
+   "start_tid": "06:39:00"
+  },
+  {
+   "datum": "2026-02-05",
+   "arbetad_min": 610,
+   "dagtyp": "Produktion",
+   "start_tid": "06:23:00"
+  },
+  {
+   "datum": "2026-02-06",
+   "arbetad_min": 560,
+   "dagtyp": "Produktion",
+   "start_tid": "06:48:00"
+  },
+  {
+   "datum": "2026-02-10",
+   "arbetad_min": 630,
+   "dagtyp": "Produktion",
+   "start_tid": "06:17:00"
+  },
+  {
+   "datum": "2026-02-11",
+   "arbetad_min": 665,
+   "dagtyp": "Produktion",
+   "start_tid": "06:13:00"
+  },
+  {
+   "datum": "2026-02-12",
+   "arbetad_min": 588,
+   "dagtyp": "Produktion",
+   "start_tid": "06:05:00"
+  },
+  {
+   "datum": "2026-02-13",
+   "arbetad_min": 618,
+   "dagtyp": "Produktion",
+   "start_tid": "06:13:00"
+  },
+  {
+   "datum": "2026-02-16",
+   "arbetad_min": 606,
+   "dagtyp": "Produktion",
+   "start_tid": "06:15:00"
+  },
+  {
+   "datum": "2026-02-17",
+   "arbetad_min": 595,
+   "dagtyp": "Produktion",
+   "start_tid": "06:13:00"
+  },
+  {
+   "datum": "2026-02-18",
+   "arbetad_min": 183,
+   "dagtyp": "Produktion",
+   "start_tid": "06:17:00"
+  },
+  {
+   "datum": "2026-02-19",
+   "arbetad_min": 591,
+   "dagtyp": "Produktion",
+   "start_tid": "06:11:00"
+  },
+  {
+   "datum": "2026-02-20",
+   "arbetad_min": 619,
+   "dagtyp": "Produktion",
+   "start_tid": "06:02:00"
+  },
+  {
+   "datum": "2026-02-23",
+   "arbetad_min": 584,
+   "dagtyp": "Produktion",
+   "start_tid": "06:02:00"
+  },
+  {
+   "datum": "2026-02-24",
+   "arbetad_min": 595,
+   "dagtyp": "Produktion",
+   "start_tid": "06:07:00"
+  },
+  {
+   "datum": "2026-02-25",
+   "arbetad_min": 652,
+   "dagtyp": "Produktion",
+   "start_tid": "05:59:00"
+  },
+  {
+   "datum": "2026-02-26",
+   "arbetad_min": 579,
+   "dagtyp": "Produktion",
+   "start_tid": "06:35:00"
+  },
+  {
+   "datum": "2026-02-27",
+   "arbetad_min": 142,
+   "dagtyp": "Produktion",
+   "start_tid": "07:55:00"
+  },
+  {
+   "datum": "2026-03-02",
+   "arbetad_min": 575,
+   "dagtyp": "Produktion",
+   "start_tid": "06:08:00"
+  },
+  {
+   "datum": "2026-03-03",
+   "arbetad_min": 631,
+   "dagtyp": "Produktion",
+   "start_tid": "06:08:00"
+  },
+  {
+   "datum": "2026-03-04",
+   "arbetad_min": 614,
+   "dagtyp": "Produktion",
+   "start_tid": "06:03:00"
+  },
+  {
+   "datum": "2026-03-05",
+   "arbetad_min": 622,
+   "dagtyp": "Produktion",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-03-06",
+   "arbetad_min": 637,
+   "dagtyp": "Produktion",
+   "start_tid": "06:09:00"
+  },
+  {
+   "datum": "2026-03-09",
+   "arbetad_min": 599,
+   "dagtyp": "Produktion",
+   "start_tid": "06:13:00"
+  },
+  {
+   "datum": "2026-03-10",
+   "arbetad_min": 717,
+   "dagtyp": "Produktion",
+   "start_tid": "06:15:00"
+  },
+  {
+   "datum": "2026-03-11",
+   "arbetad_min": 503,
+   "dagtyp": "Produktion",
+   "start_tid": "06:35:00"
+  },
+  {
+   "datum": "2026-03-12",
+   "arbetad_min": 531,
+   "dagtyp": "Produktion",
+   "start_tid": "06:49:00"
+  },
+  {
+   "datum": "2026-03-13",
+   "arbetad_min": 595,
+   "dagtyp": "Produktion",
+   "start_tid": "06:26:00"
+  },
+  {
+   "datum": "2026-03-16",
+   "arbetad_min": 599,
+   "dagtyp": "Produktion",
+   "start_tid": "06:46:00"
+  },
+  {
+   "datum": "2026-03-17",
+   "arbetad_min": 583,
+   "dagtyp": "Produktion",
+   "start_tid": "06:32:00"
+  },
+  {
+   "datum": "2026-03-18",
+   "arbetad_min": 578,
+   "dagtyp": "Produktion",
+   "start_tid": "06:23:00"
+  },
+  {
+   "datum": "2026-03-19",
+   "arbetad_min": 627,
+   "dagtyp": "Produktion",
+   "start_tid": "06:27:00"
+  },
+  {
+   "datum": "2026-03-20",
+   "arbetad_min": 540,
+   "dagtyp": "Produktion",
+   "start_tid": "06:30:00"
+  },
+  {
+   "datum": "2026-03-23",
+   "arbetad_min": 538,
+   "dagtyp": "Produktion",
+   "start_tid": "06:29:00"
+  },
+  {
+   "datum": "2026-03-24",
+   "arbetad_min": 574,
+   "dagtyp": "Produktion",
+   "start_tid": "06:27:00"
+  },
+  {
+   "datum": "2026-03-25",
+   "arbetad_min": 585,
+   "dagtyp": "Produktion",
+   "start_tid": "06:25:00"
+  },
+  {
+   "datum": "2026-03-26",
+   "arbetad_min": 552,
+   "dagtyp": "Produktion",
+   "start_tid": "06:26:00"
+  },
+  {
+   "datum": "2026-03-27",
+   "arbetad_min": 582,
+   "dagtyp": "Produktion",
+   "start_tid": "06:16:00"
+  },
+  {
+   "datum": "2026-03-30",
+   "arbetad_min": 636,
+   "dagtyp": "Produktion",
+   "start_tid": "06:04:00"
+  },
+  {
+   "datum": "2026-03-31",
+   "arbetad_min": 374,
+   "dagtyp": "Produktion",
+   "start_tid": "11:25:00"
+  },
+  {
+   "datum": "2026-04-01",
+   "arbetad_min": 570,
+   "dagtyp": "Produktion",
+   "start_tid": "06:16:00"
+  },
+  {
+   "datum": "2026-04-02",
+   "arbetad_min": 624,
+   "dagtyp": "Produktion",
+   "start_tid": "06:13:00"
+  },
+  {
+   "datum": "2026-04-07",
+   "arbetad_min": 649,
+   "dagtyp": "Produktion",
+   "start_tid": "06:17:00"
+  },
+  {
+   "datum": "2026-04-08",
+   "arbetad_min": 584,
+   "dagtyp": "Produktion",
+   "start_tid": "06:16:00"
+  },
+  {
+   "datum": "2026-04-09",
+   "arbetad_min": 604,
+   "dagtyp": "Produktion",
+   "start_tid": "06:17:00"
+  },
+  {
+   "datum": "2026-04-10",
+   "arbetad_min": 599,
+   "dagtyp": "Produktion",
+   "start_tid": "06:33:00"
+  },
+  {
+   "datum": "2026-04-13",
+   "arbetad_min": 611,
+   "dagtyp": "Produktion",
+   "start_tid": "06:29:00"
+  },
+  {
+   "datum": "2026-04-14",
+   "arbetad_min": 609,
+   "dagtyp": "Produktion",
+   "start_tid": "06:03:00"
+  },
+  {
+   "datum": "2026-04-15",
+   "arbetad_min": 648,
+   "dagtyp": "Produktion",
+   "start_tid": "06:05:00"
+  },
+  {
+   "datum": "2026-04-16",
+   "arbetad_min": 564,
+   "dagtyp": "Produktion",
+   "start_tid": "06:20:00"
+  },
+  {
+   "datum": "2026-04-17",
+   "arbetad_min": 275,
+   "dagtyp": "Produktion",
+   "start_tid": "06:33:00"
+  },
+  {
+   "datum": "2026-04-27",
+   "arbetad_min": 272,
+   "dagtyp": "Produktion",
+   "start_tid": "15:00:00"
+  },
+  {
+   "datum": "2026-04-28",
+   "arbetad_min": 795,
+   "dagtyp": "Produktion",
+   "start_tid": "06:06:00"
+  },
+  {
+   "datum": "2026-04-29",
+   "arbetad_min": 794,
+   "dagtyp": "Produktion",
+   "start_tid": "06:13:00"
+  },
+  {
+   "datum": "2026-04-30",
+   "arbetad_min": 807,
+   "dagtyp": "Produktion",
+   "start_tid": "05:54:00"
+  },
+  {
+   "datum": "2026-05-01",
+   "arbetad_min": 25,
+   "dagtyp": "Produktion",
+   "start_tid": "11:21:00"
+  },
+  {
+   "datum": "2026-05-02",
+   "arbetad_min": 766,
+   "dagtyp": "Produktion",
+   "start_tid": "06:11:00"
+  },
+  {
+   "datum": "2026-05-03",
+   "arbetad_min": 794,
+   "dagtyp": "Produktion",
+   "start_tid": "06:03:00"
+  },
+  {
+   "datum": "2026-05-11",
+   "arbetad_min": 359,
+   "dagtyp": "Produktion",
+   "start_tid": "13:47:00"
+  },
+  {
+   "datum": "2026-05-12",
+   "arbetad_min": 801,
+   "dagtyp": "Produktion",
+   "start_tid": "05:56:00"
+  },
+  {
+   "datum": "2026-05-13",
+   "arbetad_min": 763,
+   "dagtyp": "Produktion",
+   "start_tid": "06:06:00"
+  },
+  {
+   "datum": "2026-05-14",
+   "arbetad_min": 758,
+   "dagtyp": "Produktion",
+   "start_tid": "06:03:00"
+  },
+  {
+   "datum": "2026-05-15",
+   "arbetad_min": 758,
+   "dagtyp": "Produktion",
+   "start_tid": "06:46:00"
+  },
+  {
+   "datum": "2026-05-16",
+   "arbetad_min": 799,
+   "dagtyp": "Produktion",
+   "start_tid": "06:02:00"
+  },
+  {
+   "datum": "2026-05-17",
+   "arbetad_min": 365,
+   "dagtyp": "Produktion",
+   "start_tid": "05:51:00"
+  },
+  {
+   "datum": "2026-05-25",
+   "arbetad_min": 346,
+   "dagtyp": "Produktion",
+   "start_tid": "14:03:00"
+  },
+  {
+   "datum": "2026-05-26",
+   "arbetad_min": 831,
+   "dagtyp": "Produktion",
+   "start_tid": "06:01:00"
+  },
+  {
+   "datum": "2026-05-27",
+   "arbetad_min": 824,
+   "dagtyp": "Produktion",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-05-28",
+   "arbetad_min": 823,
+   "dagtyp": "Produktion",
+   "start_tid": "05:50:00"
+  },
+  {
+   "datum": "2026-05-29",
+   "arbetad_min": 799,
+   "dagtyp": "Produktion",
+   "start_tid": "05:46:00"
+  },
+  {
+   "datum": "2026-05-30",
+   "arbetad_min": 821,
+   "dagtyp": "Produktion",
+   "start_tid": "06:02:00"
+  },
+  {
+   "datum": "2026-05-31",
+   "arbetad_min": 404,
+   "dagtyp": "Produktion",
+   "start_tid": "05:42:00"
+  },
+  {
+   "datum": "2026-06-08",
+   "arbetad_min": 375,
+   "dagtyp": "Produktion",
+   "start_tid": "13:43:00"
+  },
+  {
+   "datum": "2026-06-09",
+   "arbetad_min": 785,
+   "dagtyp": "Produktion",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-06-10",
+   "arbetad_min": 781,
+   "dagtyp": "Produktion",
+   "start_tid": "06:09:00"
+  },
+  {
+   "datum": "2026-06-11",
+   "arbetad_min": 824,
+   "dagtyp": "Produktion",
+   "start_tid": "05:58:00"
+  },
+  {
+   "datum": "2026-06-12",
+   "arbetad_min": 824,
+   "dagtyp": "Produktion",
+   "start_tid": "05:58:00"
+  },
+  {
+   "datum": "2026-06-13",
+   "arbetad_min": 832,
+   "dagtyp": "Produktion",
+   "start_tid": "06:11:00"
+  },
+  {
+   "datum": "2026-06-14",
+   "arbetad_min": 372,
+   "dagtyp": "Produktion",
+   "start_tid": "05:57:00"
+  },
+  {
+   "datum": "2026-06-25",
+   "arbetad_min": 65,
+   "dagtyp": "Produktion",
+   "start_tid": "16:21:00"
+  },
+  {
+   "datum": "2026-07-20",
+   "arbetad_min": 632,
+   "dagtyp": "normal",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-07-21",
+   "arbetad_min": 578,
+   "dagtyp": "normal",
+   "start_tid": "06:20:00"
+  },
+  {
+   "datum": "2026-07-22",
+   "arbetad_min": 625,
+   "dagtyp": "normal",
+   "start_tid": "06:15:00"
+  },
+  {
+   "datum": "2026-07-23",
+   "arbetad_min": 516,
+   "dagtyp": "normal",
+   "start_tid": "06:08:00"
+  },
+  {
+   "datum": "2026-07-24",
+   "arbetad_min": 618,
+   "dagtyp": "normal",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-07-27",
+   "arbetad_min": 526,
+   "dagtyp": "normal",
+   "start_tid": "09:03:00"
+  },
+  {
+   "datum": "2026-07-28",
+   "arbetad_min": 606,
+   "dagtyp": "normal",
+   "start_tid": "06:11:00"
+  },
+  {
+   "datum": "2026-07-29",
+   "arbetad_min": 598,
+   "dagtyp": "normal",
+   "start_tid": "06:07:00"
+  },
+  {
+   "datum": "2026-07-30",
+   "arbetad_min": 617,
+   "dagtyp": "normal",
+   "start_tid": "06:14:00"
+  },
+  {
+   "datum": "2026-07-31",
+   "arbetad_min": 640,
+   "dagtyp": "normal",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-08-03",
+   "arbetad_min": 637,
+   "dagtyp": "normal",
+   "start_tid": "05:58:00"
+  },
+  {
+   "datum": "2026-08-04",
+   "arbetad_min": 607,
+   "dagtyp": "normal",
+   "start_tid": "05:48:00"
+  },
+  {
+   "datum": "2026-08-05",
+   "arbetad_min": 592,
+   "dagtyp": "normal",
+   "start_tid": "05:50:00"
+  },
+  {
+   "datum": "2026-08-06",
+   "arbetad_min": 603,
+   "dagtyp": "normal",
+   "start_tid": "05:56:00"
+  },
+  {
+   "datum": "2026-08-07",
+   "arbetad_min": 634,
+   "dagtyp": "normal",
+   "start_tid": "05:55:00"
+  },
+  {
+   "datum": "2026-08-10",
+   "arbetad_min": 615,
+   "dagtyp": "normal",
+   "start_tid": "05:45:00"
+  },
+  {
+   "datum": "2026-08-11",
+   "arbetad_min": 518,
+   "dagtyp": "normal",
+   "start_tid": "05:55:00"
+  },
+  {
+   "datum": "2026-08-12",
+   "arbetad_min": 539,
+   "dagtyp": "normal",
+   "start_tid": "03:05:00"
+  },
+  {
+   "datum": "2026-08-13",
+   "arbetad_min": 594,
+   "dagtyp": "normal",
+   "start_tid": "03:00:00"
+  },
+  {
+   "datum": "2026-08-14",
+   "arbetad_min": 607,
+   "dagtyp": "Produktion",
+   "start_tid": "03:07:00"
+  },
+  {
+   "datum": "2026-08-17",
+   "arbetad_min": 685,
+   "dagtyp": "normal",
+   "start_tid": "05:51:00"
+  },
+  {
+   "datum": "2026-08-18",
+   "arbetad_min": 639,
+   "dagtyp": "normal",
+   "start_tid": "05:45:00"
+  },
+  {
+   "datum": "2026-08-19",
+   "arbetad_min": 640,
+   "dagtyp": "normal",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-08-20",
+   "arbetad_min": 635,
+   "dagtyp": "normal",
+   "start_tid": "06:05:00"
+  },
+  {
+   "datum": "2026-08-21",
+   "arbetad_min": 446,
+   "dagtyp": "normal",
+   "start_tid": "06:22:00"
+  },
+  {
+   "datum": "2026-08-24",
+   "arbetad_min": 662,
+   "dagtyp": "normal",
+   "start_tid": "05:53:00"
+  },
+  {
+   "datum": "2026-08-25",
+   "arbetad_min": 682,
+   "dagtyp": "normal",
+   "start_tid": "05:56:00"
+  },
+  {
+   "datum": "2026-08-26",
+   "arbetad_min": 587,
+   "dagtyp": "normal",
+   "start_tid": "06:07:00"
+  },
+  {
+   "datum": "2026-08-27",
+   "arbetad_min": 641,
+   "dagtyp": "normal",
+   "start_tid": "06:05:00"
+  },
+  {
+   "datum": "2026-08-28",
+   "arbetad_min": 447,
+   "dagtyp": "normal",
+   "start_tid": "06:10:00"
+  },
+  {
+   "datum": "2026-08-31",
+   "arbetad_min": 628,
+   "dagtyp": "normal",
+   "start_tid": "06:21:00"
+  },
+  {
+   "datum": "2026-09-01",
+   "arbetad_min": 450,
+   "dagtyp": "normal",
+   "start_tid": "06:04:00"
+  },
+  {
+   "datum": "2026-09-02",
+   "arbetad_min": 650,
+   "dagtyp": "normal",
+   "start_tid": "05:54:00"
+  },
+  {
+   "datum": "2026-09-03",
+   "arbetad_min": 507,
+   "dagtyp": "normal",
+   "start_tid": "05:55:00"
+  },
+  {
+   "datum": "2026-09-04",
+   "arbetad_min": 625,
+   "dagtyp": "normal",
+   "start_tid": "05:55:00"
+  },
+  {
+   "datum": "2026-09-07",
+   "arbetad_min": 559,
+   "dagtyp": "Produktion",
+   "start_tid": "05:56:00"
+  },
+  {
+   "datum": "2026-09-08",
+   "arbetad_min": 614,
+   "dagtyp": "normal",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-09-09",
+   "arbetad_min": 653,
+   "dagtyp": "normal",
+   "start_tid": "06:00:00"
+  },
+  {
+   "datum": "2026-09-10",
+   "arbetad_min": 340,
+   "dagtyp": "normal",
+   "start_tid": "06:03:00"
+  },
+  {
+   "datum": "2026-09-11",
+   "arbetad_min": 622,
+   "dagtyp": "normal",
+   "start_tid": "05:57:00"
+  },
+  {
+   "datum": "2026-09-14",
+   "arbetad_min": 643,
+   "dagtyp": "normal",
+   "start_tid": "05:56:00"
+  },
+  {
+   "datum": "2026-09-15",
+   "arbetad_min": 574,
+   "dagtyp": "normal",
+   "start_tid": "06:25:00"
+  },
+  {
+   "datum": "2026-09-16",
+   "arbetad_min": 570,
+   "dagtyp": "normal",
+   "start_tid": "06:16:00"
+  },
+  {
+   "datum": "2026-09-17",
+   "arbetad_min": 688,
+   "dagtyp": "normal",
+   "start_tid": "06:14:00"
+  },
+  {
+   "datum": "2026-09-18",
+   "arbetad_min": 607,
+   "dagtyp": "normal",
+   "start_tid": "06:27:00"
+  },
+  {
+   "datum": "2026-09-21",
+   "arbetad_min": 484,
+   "dagtyp": "normal",
+   "start_tid": "10:56:00"
+  },
+  {
+   "datum": "2026-09-22",
+   "arbetad_min": 644,
+   "dagtyp": "normal",
+   "start_tid": "06:15:00"
+  },
+  {
+   "datum": "2026-09-23",
+   "arbetad_min": 597,
+   "dagtyp": "normal",
+   "start_tid": "06:25:00"
+  },
+  {
+   "datum": "2026-09-24",
+   "arbetad_min": 642,
+   "dagtyp": "normal",
+   "start_tid": "06:30:00"
+  },
+  {
+   "datum": "2026-09-25",
+   "arbetad_min": 599,
+   "dagtyp": "normal",
+   "start_tid": "06:25:00"
+  },
+  {
+   "datum": "2026-09-28",
+   "arbetad_min": 605,
+   "dagtyp": "normal",
+   "start_tid": "06:27:00"
+  },
+  {
+   "datum": "2026-09-29",
+   "arbetad_min": 612,
+   "dagtyp": "normal",
+   "start_tid": "06:28:00"
+  },
+  {
+   "datum": "2026-09-30",
+   "arbetad_min": 565,
+   "dagtyp": "normal",
+   "start_tid": "06:27:00"
+  },
+  {
+   "datum": "2026-10-01",
+   "arbetad_min": 540,
+   "dagtyp": "Produktion",
+   "start_tid": "06:20:00"
+  },
+  {
+   "datum": "2026-10-02",
+   "arbetad_min": 598,
+   "dagtyp": "normal",
+   "start_tid": "06:21:00"
+  },
+  {
+   "datum": "2026-10-05",
+   "arbetad_min": 612,
+   "dagtyp": "Produktion",
+   "start_tid": "06:25:00"
+  },
+  {
+   "datum": "2026-10-06",
+   "arbetad_min": 723,
+   "dagtyp": "normal",
+   "start_tid": "06:12:00"
+  },
+  {
+   "datum": "2026-10-07",
+   "arbetad_min": 577,
+   "dagtyp": "normal",
+   "start_tid": "06:35:00"
+  },
+  {
+   "datum": "2026-10-08",
+   "arbetad_min": 340,
+   "dagtyp": "normal",
+   "start_tid": "06:39:00"
+  },
+  {
+   "datum": "2026-10-09",
+   "arbetad_min": 553,
+   "dagtyp": "normal",
+   "start_tid": "06:36:00"
+  }
+ ],
+ "extra_tid": [
+  {
+   "datum": "2026-07-20",
+   "minuter": 1
+  },
+  {
+   "datum": "2026-07-28",
+   "minuter": 0
+  },
+  {
+   "datum": "2026-07-30",
+   "minuter": 0
+  },
+  {
+   "datum": "2026-09-10",
+   "minuter": 240
+  },
+  {
+   "datum": "2026-09-11",
+   "minuter": 0
+  },
+  {
+   "datum": "2026-09-18",
+   "minuter": 0
+  }
+ ],
+ "franvaro": [
+  {
+   "medarbetare_id": "stefan",
+   "typ": "semester",
+   "startdatum": "2026-06-29",
+   "slutdatum": "2026-07-17",
+   "status": "godkänd",
+   "ersatter_datum": null,
+   "fran_tid": null,
+   "till_tid": null
+  }
+ ],
+ "utjamning": [
+  {
+   "startdatum": "2026-04-20",
+   "slutdatum": "2026-07-05",
+   "anteckning": "Gävle/Hedemora-Sandviken 22 apr-29 jun 2026 (sex objekt, 100 arbetsdagar). Ordinarie tid utlagd ojamnt: 72-80 timmar varannan vecka, tom vecka emellan, lon enligt schema. Genomsnittsberakning enligt §5 mom 2 - inte kompensationsledighet."
+  }
+ ]
+}
