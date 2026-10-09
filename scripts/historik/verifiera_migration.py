@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 STD = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261009170000_hist_tabeller.sql"
+EXTRA = ["20261009180000_hist_objekt_raknas.sql"]
 
 
 def satser(sql):
@@ -25,7 +26,7 @@ def kontrollera(sql):
             or (re.match(r"^create index \w+ on (hist_\w+) \(", low) and ("create index", re.match(r"^create index \w+ on (hist_\w+) \(", low).group(1))) \
             or (re.match(r"^create policy \w+ on (hist_\w+) for select to authenticated using \(true\)$", low)
                 and ("create policy", re.match(r"^create policy \w+ on (hist_\w+) for", low).group(1))) \
-            or (re.match(r"^alter table (hist_\w+) enable row level security$", low) and ("enable rls", re.match(r"^alter table (hist_\w+) enable", low).group(1)))
+            or (re.match(r"^alter table hist_objekt add column (raknas boolean not null default false|dubblett_av text)$", low) and ("add column", "hist_objekt"))             or (re.match(r"^alter table (hist_\w+) enable row level security$", low) and ("enable rls", re.match(r"^alter table (hist_\w+) enable", low).group(1)))
         if not m:
             fel.append(j[:120])
             continue
@@ -41,10 +42,13 @@ def kontrollera(sql):
 
 
 if __name__ == "__main__":
-    p = Path(sys.argv[1]) if len(sys.argv) > 1 else STD
-    fel, rort, antal = kontrollera(p.read_text(encoding="utf-8"))
-    print("fil:", p.name)
-    print("satser per typ:", antal)
-    print("tabeller som rörs:", sorted(rort))
-    print("befintliga tabeller/vyer/funktioner som rörs:", "inga" if not fel and all(t.startswith("hist_") for t in rort) else fel)
-    sys.exit(1 if fel else 0)
+    filer = [Path(sys.argv[1])] if len(sys.argv) > 1 else [STD] + [STD.parent / n for n in EXTRA]
+    totalt_fel = 0
+    for p in filer:
+        fel, rort, antal = kontrollera(p.read_text(encoding="utf-8"))
+        print("fil:", p.name)
+        print("satser per typ:", antal)
+        print("tabeller som rörs:", sorted(rort))
+        print("befintliga tabeller/vyer/funktioner som rörs:", "inga" if not fel and all(t.startswith("hist_") for t in rort) else fel)
+        totalt_fel += len(fel)
+    sys.exit(1 if totalt_fel else 0)

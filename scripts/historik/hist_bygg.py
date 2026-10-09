@@ -20,10 +20,14 @@ OUT = IMP / "hist_csv"
 
 # maskin_id i dim_maskin där namnet är entydigt (se CLAUDE.md). Giant 2023/2025 delar "PONS20SDJAA270231" i CLAUDE.md och lämnas tomma.
 MASKIN_ID = {"Rottne H8E Logmax": "R64101", "Rottne H8E 2026": "R64428", "Ponsse Wisent": "A030353", "Elephant King gammal": "A110148"}
-ALIAS = {  # alias (gemener) -> kanoniskt namn. Bara det Martin angett + uppenbart OCR-fel.
+ALIAS = {  # alias (gemener) -> kanoniskt namn. Angivna av Martin 2026-10-09 (+ uppenbart OCR-fel). Göran är egen förare.
     "jocke": "Joacim Ringberg", "joacim": "Joacim Ringberg", "jocke ringberg": "Joacim Ringberg", "joacim ringberg": "Joacim Ringberg",
     "martin": "Martin Lindqvist", "martin lindqvist": "Martin Lindqvist", "martn lndqvist": "Martin Lindqvist",
+    "daniel": "Daniel Johansson", "danne": "Daniel Johansson", "daniel jonsson": "Daniel Johansson", "daniel johnsson": "Daniel Johansson",
+    "stefan": "Stefan Karlsson", "oskar": "Oskar Nilsson",
 }
+DEKLARERADE = {"Daniel Johansson": ["Daniel", "Danne", "Daniel Jonsson", "Daniel Johnsson"], "Stefan Karlsson": ["Stefan"], "Oskar Nilsson": ["Oskar"],
+               "Joacim Ringberg": ["Jocke", "Jocke Ringberg"], "Martin Lindqvist": ["Martin", "Martn Lndqvist"]}
 TEKNISK = {"ponsseusb masterkey", "driver", "komatsu", "komponent test", "service service", "5", "7", "911", "trailer", "komatsu demo",
            "komatsu demo (rör ej)", "ponsse ab ponsse ab", "ponsse ab ponsse ab", "förare", "ponsse ponsse (ponsse)"}
 FORARE_STJART = re.compile(r"\s*\(.*?\)|\s+(Första gallring|Slutavverkning|Unknown)\s*$")
@@ -108,8 +112,9 @@ def main():
             k = forare_kanon(n)
             if n.strip() and k != n.strip():
                 alias_av[k].add(n.strip())
-    for kanon in set(ALIAS.values()):  # alias som angetts, även när de inte syns i data
-        alias_av[kanon] |= {a.title() if a == "jocke" else a for a in ()}
+    for kanon, al in DEKLARERADE.items():  # alias som Martin angett, även när de inte syns i data
+        alias_av[kanon] |= set(al)
+        namn_set[kanon] += 0
     forare_rader = []
     for n in sorted(k for k in namn_set if k):
         forare_rader.append(dict(namn=n, alias="|".join(sorted(alias_av.get(n, ()))), teknisk="true" if n.lower() in TEKNISK else "false"))
@@ -178,7 +183,6 @@ def main():
     okol = ["sha256", "maskin_namn", "objekt", "objektnr", "startdatum", "slutdatum", "rapportdatum", "atgard", "atgard_kalla", "stammar", "volym_m3fub", "volym_enhet", "g15_h", "g0_h",
             "motortid_h", "bransle_l", "avbrott_reparation_min", "avbrott_service_min", "avbrott_storning_min", "avbrott_flytt_min", "avbrott_trailer_min", "avbrott_varmkorning_min",
             "avbrott_ovrigt_min", "avbrott_totalt_min", "avbrott_registrerade", "objekt_nyckel", "programversion", "antal_lass", "volym_kvalitet", "livstid_h"]
-    skriv("hist_objekt.csv", obj_rader, okol)
 
     # ------------------------------------------------------------------ hist_skift
     sk_rader, kolliderar = {}, 0
@@ -195,6 +199,23 @@ def main():
                              sha256=x["sha256"], kalla=x["kalla"], objekt=x["objekt"])
     skriv("hist_skift.csv", list(sk_rader.values()), ["maskin_namn", "forare_namn", "datum", "in_tid", "ut_tid", "g15_h", "g0_h", "volym", "volym_enhet", "stammar", "bransle_l",
                                                        "motortid_h", "sha256", "kalla", "objekt"])
+
+    # Ponsse Skift: summablocken saknar ibland G15 för en förare (arbetstidsraden ej tolkad) -> rapportens G15 blir för låg. Dagraderna är hela tabellen:
+    # är dagradssumman större än blocksumman används den (g15_h/g0_h), annars blocksumman.
+    fmt_av = {r["sha256"]: r["format"] for r in rapport_rader}
+    dag_g15, dag_g0 = defaultdict(float), defaultdict(float)
+    for r in sk_rader.values():
+        dag_g15[r["sha256"]] += float(r["g15_h"] or 0)
+        dag_g0[r["sha256"]] += float(r["g0_h"] or 0)
+    korr = 0
+    for o in obj_rader:
+        if fmt_av.get(o["sha256"]) == "ponsse_skift" and o["sha256"] in dag_g15:
+            blk = float(o["g15_h"] or 0)
+            if dag_g15[o["sha256"]] > blk * 1.02 + 0.02:
+                o["g15_h"], o["g0_h"] = round(dag_g15[o["sha256"]], 3), round(dag_g0[o["sha256"]], 3)
+                korr += 1
+    print("Ponsse Skift-rapporter där G15 hämtats ur dagraderna i stället för ofullständiga summablock:", korr)
+    skriv("hist_objekt.csv", obj_rader, okol)
 
     # ------------------------------------------------------------------ hist_forare_objekt (förarblock där skiftrader saknas)
     har_skift = set(per_sha)

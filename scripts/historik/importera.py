@@ -40,7 +40,7 @@ SCHEMA = {
     "hist_objekt": dict(sha256="text", objekt="text", objektnr="text", startdatum="date", slutdatum="date", rapportdatum="date", atgard="text", atgard_kalla="text", stammar="int",
                         volym_m3fub="num", volym_enhet="text", g15_h="num", g0_h="num", motortid_h="num", bransle_l="num", avbrott_reparation_min="int", avbrott_service_min="int",
                         avbrott_storning_min="int", avbrott_flytt_min="int", avbrott_trailer_min="int", avbrott_varmkorning_min="int", avbrott_ovrigt_min="int",
-                        avbrott_totalt_min="int", avbrott_registrerade="text", objekt_nyckel="text", programversion="text", antal_lass="int", volym_kvalitet="text", livstid_h="num"),
+                        avbrott_totalt_min="int", avbrott_registrerade="text", objekt_nyckel="text", programversion="text", antal_lass="int", volym_kvalitet="text", livstid_h="num", raknas="bool", dubblett_av="text"),
     "hist_skift": dict(datum="date", in_tid="time", ut_tid="time", g15_h="num", g0_h="num", volym="num", volym_enhet="text", stammar="int", bransle_l="num", motortid_h="num",
                        sha256="text", kalla="text", objekt="text"),
     "hist_forare_objekt": dict(sha256="text", g15_h="num", volym="num", stammar="int"),
@@ -113,6 +113,16 @@ class Vitlista:
         if metod == "FINNS":
             s, _, _ = self._anrop("HEAD", f"{self.url}/storage/v1/object/authenticated/{BUCKET}/{urllib.parse.quote(sokvag)}", tillat404=True)
             return s == 200
+        if metod == "LISTA":  # sokvag = mapp (år); returnerar [(namn, bytes)]
+            ut, off = [], 0
+            while True:
+                body = json.dumps({"prefix": sokvag, "limit": 1000, "offset": off, "sortBy": {"column": "name", "order": "asc"}}).encode()
+                _, b, _ = self._anrop("POST", f"{self.url}/storage/v1/object/list/{BUCKET}", body, {"Content-Type": "application/json"})
+                rad = json.loads(b)
+                ut += [(f"{sokvag}/{r['name']}", (r.get("metadata") or {}).get("size", 0)) for r in rad if r.get("id")]
+                if len(rad) < 1000:
+                    return ut
+                off += 1000
         if metod == "UPLOAD":
             self.antal[("UPLOAD", BUCKET)] += 1
             self._anrop("POST", f"{self.url}/storage/v1/object/{BUCKET}/{urllib.parse.quote(sokvag)}", data, {"Content-Type": ctype or "application/octet-stream", "x-upsert": "true"})
@@ -127,6 +137,8 @@ def las_csv(tabell):
 
 
 def konv(v, typ):
+    if typ == "arr":
+        return [a for a in (v or "").split("|") if a]
     if v == "" or v is None:
         return None
     if typ == "int":
@@ -301,25 +313,72 @@ def lagg_in(vl, d, med_filer):
         ladda_filer(vl, d)
 
 
-def ladda_filer(vl, d):
+def ladda_filer(vl, d, trad=8):
+    from concurrent.futures import ThreadPoolExecutor
     bil = {os.path.splitext(f)[0]: f for f in os.listdir(IMP / "bilagor")}
     pdf = set(os.listdir(IMP / "pdf"))
-    ny = hopp = 0
-    t0 = time.time()
+    # befintliga filer listas en gång per år (snabbare än ett FINNS-anrop per fil)
+    finns = set()
+    for a in sorted({r["storage_path"].split("/")[0] for r in d["hist_rapport"]}):
+        finns |= {n for n, _ in vl.lagring("LISTA", BUCKET, a)}
+    jobb = []
     for r in d["hist_rapport"]:
         sha = r["sha256"]
         lokal = IMP / "bilagor" / bil[sha] if sha in bil else IMP / "pdf" / f"{sha}.pdf" if f"{sha}.pdf" in pdf else None
         if lokal is None:
             raise Avbryt(f"AVBRYTER: fil saknas lokalt för {sha}")
-        if vl.lagring("FINNS", BUCKET, r["storage_path"]):
-            hopp += 1
-            continue
-        ctype = {"pdf": "application/pdf", "xps": "application/oxps", "prt": "application/octet-stream"}.get(r["filtyp"], "application/octet-stream")
-        vl.lagring("UPLOAD", BUCKET, r["storage_path"], lokal.read_bytes(), ctype)
-        ny += 1
-        if ny % 200 == 0:
-            print(f"  uppladdade {ny} filer ({time.time() - t0:.0f} s)")
-    print(f"filer: {ny} nya, {hopp} fanns redan")
+        if r["storage_path"] not in finns:
+            jobb.append((r["storage_path"], lokal, {"pdf": "application/pdf", "xps": "application/oxps"}.get(r["filtyp"], "application/octet-stream")))
+    print(f"filer: {len(finns)} finns redan i bucketen, {len(jobb)} ska laddas upp ({trad} trådar)", flush=True)
+    t0 = time.time()
+    klara = [0]
+
+    def ladda(j):
+        for forsok in range(4):
+            try:
+                vl.lagring("UPLOAD", BUCKET, j[0], j[1].read_bytes(), j[2])
+                break
+            except Avbryt:
+                if forsok == 3:
+                    raise
+                time.sleep(2 * (forsok + 1))
+        klara[0] += 1
+        if klara[0] % 250 == 0:
+            print(f"  uppladdade {klara[0]}/{len(jobb)} ({time.time() - t0:.0f} s)", flush=True)
+
+    with ThreadPoolExecutor(trad) as ex:
+        list(ex.map(ladda, jobb))
+    print(f"filer: {len(jobb)} nya, {len(finns)} fanns redan", flush=True)
+
+
+def kontrollera_filer(vl, d):
+    """Jämför hist_rapport.storage_path i databasen mot CSV, mot förväntat mönster <år>/<sha256>.<filtyp> och mot det som ligger i bucketen."""
+    db = {r["sha256"]: r["storage_path"] for r in vl.las("hist_rapport", "sha256,storage_path", "sha256")}
+    csvp = {r["sha256"]: r for r in d["hist_rapport"]}
+    fel = [sha for sha, p in db.items() if p != csvp[sha]["storage_path"] or not re.fullmatch(r"(\d{4}|okand)/" + sha + r"\." + csvp[sha]["filtyp"], p or "")]
+    print(f"  storage_path i hist_rapport: {len(db)} rader, {len(fel)} avviker från CSV/mönstret <år>/<sha256>.<ext>")
+    ar = sorted({p.split("/")[0] for p in db.values()})
+    i_bucket = {}
+    for a in ar:
+        for namn, storlek in vl.lagring("LISTA", BUCKET, a):
+            i_bucket[namn] = storlek
+    saknas = [sha for sha, p in db.items() if p not in i_bucket]
+    extra = set(i_bucket) - set(db.values())
+    mb = sum(i_bucket.values()) / 1e6
+    lokal = 0
+    bil = {os.path.splitext(f)[0]: f for f in os.listdir(IMP / "bilagor")}
+    avvik_storlek = 0
+    for sha, p in db.items():
+        f = IMP / "bilagor" / bil[sha] if sha in bil else IMP / "pdf" / f"{sha}.pdf"
+        n = f.stat().st_size
+        lokal += n
+        if i_bucket.get(p) not in (None, n):
+            avvik_storlek += 1
+    print(f"  i bucketen: {len(i_bucket)} filer, {mb:.1f} MB (lokalt {lokal / 1e6:.1f} MB); saknas i bucket: {len(saknas)}; extra i bucket: {len(extra)}; storleksavvikelser: {avvik_storlek}")
+    for a in ar:
+        n = [v for k, v in i_bucket.items() if k.startswith(a + "/")]
+        print(f"    {a}: {len(n)} filer, {sum(n) / 1e6:.1f} MB")
+    return not fel and not saknas and not extra and avvik_storlek == 0
 
 
 def main():
@@ -332,13 +391,26 @@ def main():
     print(f"  maskin/år-grupper att kontrollera: hist_objekt {len(ob)}, hist_skift {len(sk)}")
     if fel or not ok:
         raise Avbryt("AVBRYTER: CSV-filerna är inte konsistenta")
-    if "--utfor" not in arg and "--bara-kontroll" not in arg:
+    if not arg & {"--utfor", "--bara-kontroll", "--bara-filer", "--kontrollera-filer"}:
         print("torrkörning klar: ingen nätverksanslutning öppnades, inget skrevs.")
         return
     url, nyckel = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not nyckel:
         raise Avbryt("AVBRYTER: SUPABASE_URL och SUPABASE_SERVICE_ROLE_KEY saknas i miljön")
     vl = Vitlista(url, nyckel)
+    if "--bara-filer" in arg:
+        if os.environ.get("HIST_IMPORT_OK") != "ja":
+            raise Avbryt("AVBRYTER: HIST_IMPORT_OK=ja saknas")
+        ladda_filer(vl, d)
+        print("kontroll av filer:")
+        if not kontrollera_filer(vl, d):
+            raise Avbryt("FILKONTROLL AVVIKER")
+        print("filkontroll OK")
+        return
+    if "--kontrollera-filer" in arg:
+        if not kontrollera_filer(vl, d):
+            raise Avbryt("FILKONTROLL AVVIKER")
+        return
     if "--utfor" in arg:
         if os.environ.get("HIST_IMPORT_OK") != "ja":
             raise Avbryt("AVBRYTER: HIST_IMPORT_OK=ja saknas (Martins ja krävs före skrivning)")
