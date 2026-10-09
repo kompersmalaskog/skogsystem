@@ -29,11 +29,20 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
 });
 
 describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
-  it('plus-knappen öppnar raden i BÅDA vyerna; den gamla menyn nås via Alla › Fler val', () => {
-    expect(page).toContain('if (plusMenuOpen) setPlusMenuOpen(false); else if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); } else setPlusRadOppen(true);');
-    expect(page).toContain('{plusRadOppen && (() => {\n        const { poster, alla } = byggPlusRad();');
-    expect(page).toContain('onFlerVal={() => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusMenuOpen(true); }}');
-    expect(page).toContain('{/* === PLUS-MENY (bottom sheet) === */}');   // den gamla menyn finns kvar, oförändrad
+  it('plus-knappen öppnar raden i BÅDA vyerna; "Fler val" finns inte längre i arket — dess innehåll bor i objektinfon', () => {
+    expect(page).toContain('if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); }');
+    expect(page).toContain('{plusRadOppen && (() => {\n        const { poster, ark } = byggPlusRad();');
+    expect(page).toContain('onSparaDocka={sparaDockaPlatser}');
+    expect(page).toContain('{renderFlerVal(stang)}');
+    // den gamla plusmenyn (bottom sheet) och den gamla helskärms-Lager-menyn är borta — inga döda ingångar kvar
+    expect(page).not.toContain('PLUS-MENY (bottom sheet)');
+    expect(page).not.toContain('plusMenuOpen');
+    expect(page).not.toContain('onFlerVal');
+    expect(page).not.toContain('layerMenuOpen');
+    expect(page).not.toContain('=== LAGER-MENY ===');
+    const arket = las('../components/planering/PlusRad.tsx') + las('../components/planering/PlusArk.tsx');
+    expect(arket).not.toContain('Fler val');
+    expect(arket).not.toContain('Dockan</');   // "‹ Dockan"-knappen är borta
   });
   it('Inställningar har flyttat till objektinfon i körvy men finns kvar i planeringens gamla meny', () => {
     expect(page).toContain("...(korvyActive ? [] : [{ label: 'Inställningar'");
@@ -45,9 +54,8 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('if (!testlageAktivRef.current) sparaPlusRad(enhetMaskinId, ny);');
     expect(page).toContain('const r = fastaPost(plusRadRef.current, post);');
   });
-  it('lagerväxlarna i raden och i Lager-menyn är SAMMA lista och SAMMA växel', () => {
-    expect(page).toContain('{overlayLista.map(overlay => (');
-    expect(page).toContain("onClick={() => { overlay.enabled && vaxlaLager(overlay.id); }}");
+  it('lagerväxlarna i arkets Lager-flik använder SAMMA lista (overlayLista) och SAMMA växel (vaxlaLager) som förut', () => {
+    expect(page).toContain("overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); }))");
     expect(page).toContain("if (post.typ === 'lager') { vaxlaLager(post.id); noteraPlus(post); return; }");
   });
 });
@@ -200,7 +208,7 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
 });
 
 describe('komponenterna: tokens och stora tryckytor', () => {
-  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'KorvySparaSom'];
+  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'PlusArk', 'KorvySparaSom'];
   const kall = Object.fromEntries(filer.map((n) => [n, las(`../components/planering/${n}.tsx`)]));
   it('alla importerar designtokens och har inga färgliteraler (hex) eller egna textstorlekar', () => {
     for (const n of filer) {

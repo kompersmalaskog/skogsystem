@@ -66,7 +66,7 @@ function giltigPost(x: any): x is PlusPost {
   return false;
 }
 
-function nyckelTillPost(nyckel: string): PlusPost | null {
+export function nyckelTillPost(nyckel: string): PlusPost | null {
   const i = nyckel.indexOf(':');
   if (i <= 0) return null;
   const p = { typ: nyckel.slice(0, i), id: nyckel.slice(i + 1) };
