@@ -13197,6 +13197,16 @@ export default function PlannerPage() {
   // då hämtar den de rutor som ska synas direkt, och översikts-steget behöver inte vänta på en andra omgång rutor.
   const kartStart = (maskinlage && startFasNu === 'svart') ? startPosRef.current : null;
 
+  // "Inget objekt här — Starta jobb?" ligger över FÖRARLISTAN (det är där maskindatorn står när inget objekt matchade). Svarar ingen loggas spåret ändå (objekt_id NULL).
+  const ingetObjektKortEl = ingetObjektKort ? (
+    <IngetObjektKort
+      lat={ingetObjektKort.lat} lng={ingetObjektKort.lng} roll={ingetObjektKort.roll}
+      sparar={ingetObjektSparar} fel={ingetObjektFel} horTillForslag={ingetObjektHorTill}
+      onStarta={startaJobbFranKort}
+      onLista={() => { setIngetObjektKort(null); setIngetObjektFel(null); }}
+    />
+  ) : null;
+
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
     return (
@@ -13239,6 +13249,7 @@ export default function PlannerPage() {
         }}
       />
       {maskinLager}
+      {ingetObjektKortEl}
       </>
     );
   }
@@ -14066,16 +14077,6 @@ export default function PlannerPage() {
             {activeMode.exitLabel}
           </button>
         </div>
-      )}
-
-      {/* === MASKINDATOR-START: "Inget objekt här — Starta jobb?" (inget objekt ligger här; svarar ingen loggas spåret ändå med objekt_id NULL) === */}
-      {ingetObjektKort && !korvyActive && (
-        <IngetObjektKort
-          lat={ingetObjektKort.lat} lng={ingetObjektKort.lng} roll={ingetObjektKort.roll}
-          sparar={ingetObjektSparar} fel={ingetObjektFel} horTillForslag={ingetObjektHorTill}
-          onStarta={startaJobbFranKort}
-          onLista={() => { setIngetObjektKort(null); setIngetObjektFel(null); }}
-        />
       )}
 
       {/* === MASKINDATOR-START: bekräftelsekort "Börja skota här?" (sektion A3) === */}

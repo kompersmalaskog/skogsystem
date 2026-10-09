@@ -125,7 +125,7 @@ export function PlatsVal({ plats, platsText, onPlats, onSok, onHar, startKarta, 
             <div style={{ display: 'flex', gap: AVSTAND.s }}>
               <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void sok(); }}
                 placeholder="Fastighet, by eller adress" aria-label="Sök fastighet" style={{ ...falt, flex: 1 }} />
-              <button type="button" onClick={() => void sok()} style={{ ...KNAPP.sekundar, width: 'auto', ...(sokar ? INAKTIV : null) }}>{sokar ? 'Söker …' : 'Sök'}</button>
+              <button type="button" data-testid="sok-knapp" onClick={() => void sok()} style={{ ...KNAPP.sekundar, width: 'auto', ...(sokar ? INAKTIV : null) }}>{sokar ? 'Söker …' : 'Sök'}</button>
             </div>
             {sokStatus && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{sokStatus}</div>}
             {traffar && traffar.length > 0 && (

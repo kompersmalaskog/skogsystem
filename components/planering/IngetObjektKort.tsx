@@ -70,10 +70,11 @@ export default function IngetObjektKort({ lat, lng, roll, sparar, fel, horTillFo
           </button>
         )}
 
-        <button type="button" role="switch" aria-checked={privat} data-testid="inget-objekt-privat" onClick={() => setPrivat((v) => !v)}
-          style={{ ...KNAPP.tertiar, marginTop: AVSTAND.s, color: FARG.text }}>
-          {privat ? "Privat jobb — inget Vida-objekt kommer" : "Väntar på Vida (tryck om jobbet är privat)"}
-        </button>
+        <div role="radiogroup" aria-label="Vida" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: AVSTAND.s, marginTop: AVSTAND.s }}>
+          <button type="button" role="radio" aria-checked={!privat} data-testid="inget-objekt-vanta" onClick={() => setPrivat(false)} style={valknapp(!privat)}>Väntar på Vida</button>
+          <button type="button" role="radio" aria-checked={privat} data-testid="inget-objekt-privat" onClick={() => setPrivat(true)} style={valknapp(privat)}>Privat</button>
+        </div>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{privat ? "Inget Vida-objekt kommer — jobbet blir kvar som det är." : "Vida levererar objektet senare — jobbet kan då slås ihop med det."}</div>
 
         {fel && <div role="alert" style={{ ...TYP.meta, color: FARG.rod, marginTop: AVSTAND.m }}>{fel}</div>}
 
