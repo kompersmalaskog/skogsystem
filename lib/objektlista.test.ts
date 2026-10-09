@@ -30,6 +30,18 @@ describe('grupperaForareObjekt — fyra grupper, exakt en grupp per objekt', () 
     expect(g.avslutade.map((o) => o.id)).toEqual(['avsl']);
   });
 
+  it('bara en punkt (ingen traktgräns): inom 300 m = HÄR, längre bort = sin vanliga grupp; ett objekt MED gräns räknas bara mot gränsen', () => {
+    const objekt: ForareObjekt[] = [
+      { id: 'jobb-nara', typ: 'grot', status: 'planerad', lat: 57.001, lng: 15 },      // ~111 m, ingen gräns
+      { id: 'jobb-langt', typ: 'grot', status: 'planerad', lat: 57.01, lng: 15 },      // ~1,1 km
+      // har en gräns som ligger långt bort — punkten 111 m bort hjälper inte
+      { id: 'gransen-annanstans', typ: 'gallring', status: 'planerad', geometri: kvadrat(57.5, 15), lat: 57.001, lng: 15 },
+    ];
+    const g = grupperaForareObjekt({ objekt, pos });
+    expect(g.har.map((o) => o.id)).toEqual(['jobb-nara']);
+    expect(g.planerade.map((o) => o.id).sort()).toEqual(['gransen-annanstans', 'jobb-langt']);
+  });
+
   it('avslutat går till AVSLUTADE även om man står inne i det', () => {
     const objekt: ForareObjekt[] = [
       { id: 'avsl-har', typ: 'gallring', status: 'avslutat', geometri: kvadrat(57, 15), lat: 57, lng: 15 },
@@ -64,7 +76,8 @@ describe('grupperaForareObjekt — sortering inom grupp', () => {
 
   it('maskinens typ FÖRST (klarar_typ gallring), sedan närmaste', () => {
     const objekt: ForareObjekt[] = [
-      { id: 'slutavv-nara', typ: 'slutavverkning', status: 'planerad', lat: 57.001, lng: 15 }, // nära men fel typ
+      // nära men fel typ — ~450 m bort: utanför de 300 m där ett objekt utan traktgräns räknas som HÄR (se testet "bara en punkt" ovan)
+      { id: 'slutavv-nara', typ: 'slutavverkning', status: 'planerad', lat: 57.004, lng: 15 },
       { id: 'gallr-langt', typ: 'gallring', status: 'planerad', lat: 57.5, lng: 15 },           // rätt typ, längre bort
       { id: 'gallr-nara', typ: 'gallring', status: 'planerad', lat: 57.01, lng: 15 },           // rätt typ, nära
     ];

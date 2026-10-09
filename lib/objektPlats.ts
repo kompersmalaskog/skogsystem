@@ -11,6 +11,7 @@
 
 import { klassaTraktFeature } from './traktGeometri';
 import { punktIPolygon } from './skotat';
+import { haversineMeters } from './gps-guard';
 
 /** Så mycket av objekt_geometri.geometri som vi läser: en GeoJSON-FeatureCollection. */
 export interface TraktGeometriFC {
@@ -48,17 +49,58 @@ export function objektInnehallerPunkt(
   return false;
 }
 
+/** Ett objekt som BARA har en punkt (ingen traktgräns — t.ex. ett jobb från Starta jobb som Vida inte levererat)
+ *  räknas som träff när positionen ligger så här nära punkten. */
+export const PUNKT_TRAFF_M = 300;
+
+/** Har objektet en traktgräns att räkna "inne i" mot? (Geometri utan traktdel räknas inte — då gäller punkten.) */
+export function harTraktgrans(geometri: TraktGeometriFC | null | undefined): boolean {
+  return traktgransRingar(geometri).length > 0;
+}
+
+const talEllerNull = (v: unknown): number | null => {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** Avstånd (m) från positionen till objektets punkt (lat/lng), null om objektet saknar punkt. */
+export function avstandTillObjektPunkt(o: { lat?: unknown; lng?: unknown }, lat: number, lng: number): number | null {
+  const oLat = talEllerNull(o?.lat), oLng = talEllerNull(o?.lng);
+  if (oLat == null || oLng == null) return null;
+  return haversineMeters(oLat, oLng, lat, lng);
+}
+
+/** EN träffregel för "står maskinen i det här objektet?":
+ *   • objektet har en traktgräns → positionen ska ligga INNE i den (som förut), annars
+ *   • objektet har bara en punkt → positionen ska ligga inom PUNKT_TRAFF_M (300 m) från den.
+ *  Objekt med både gräns och punkt räknas bara mot gränsen (punkten är då bara en markör för trakten). */
+export function objektTraffPunkt(
+  o: { geometri?: TraktGeometriFC | null; lat?: unknown; lng?: unknown } | null | undefined,
+  lat: number,
+  lng: number,
+  punktM: number = PUNKT_TRAFF_M,
+): boolean {
+  if (!o) return false;
+  if (harTraktgrans(o.geometri)) return objektInnehallerPunkt(o.geometri, lat, lng);
+  const d = avstandTillObjektPunkt(o, lat, lng);
+  return d != null && d <= punktM;
+}
+
 export type KlararTyp = 'bada' | 'slutavverkning' | 'gallring' | 'grot' | string | null | undefined;
-export type Huvudtyp = 'slutavverkning' | 'gallring' | 'grot' | null;
+export type Huvudtyp = 'slutavverkning' | 'gallring' | 'grot' | 'energiklippning' | null;
 
 /** Objektets huvudtyp för typmatchning/kolumn/etikett.
  *  VIKTIGT: `objekt.grot` = "producerar GROT" (bioenergi tas ut) och betyder INTE att TYPEN är grot —
  *  en slutavverkning kan ha grot=true (15 st i prod). Ett RENT GROT-/biobränslejobb känns igen på
- *  `avverkningsform='Biobränsle'`. Annars styr `objekt.typ` ('slutavverkning'/'gallring'). */
+ *  `avverkningsform='Biobränsle'` ELLER (jobb från Starta jobb) `typ='grot'`. `typ='energiklippning'` är ett eget jobb.
+ *  Annars styr `objekt.typ` ('slutavverkning'/'gallring'). */
 export function objektHuvudtyp(o: { typ?: string | null; grot?: boolean | null; avverkningsform?: string | null } | null | undefined): Huvudtyp {
   const avv = (o?.avverkningsform || '').toLowerCase();
   if (avv.includes('biobr')) return 'grot';   // Biobränsle = eget GROT-jobb
   const t = (o?.typ || '').toLowerCase();
+  if (t.includes('energi')) return 'energiklippning';
+  if (t.includes('grot')) return 'grot';      // Starta jobb: GROT är en TYP (aldrig via objekt.grot-flaggan)
   if (t.includes('gallr')) return 'gallring';
   if (t.includes('slut')) return 'slutavverkning';
   return null;
@@ -73,6 +115,7 @@ export function maskinKlararObjekt(
   const k = String(klararTyp ?? '').toLowerCase();
   if (!k || k === 'bada' || k === 'allt' || k === 'alla') return true;
   const ht = objektHuvudtyp(o);
+  if (ht === 'energiklippning' && k === 'grot') return true;   // en GROT-maskin klarar även energiklippning
   return ht != null && k === ht;
 }
 
@@ -87,6 +130,9 @@ export interface ObjektForVal {
   skotare_maskin_id?: string | null;
   skordare_maskin_id?: string | null;
   areal?: number | null;
+  /** Objektets punkt. Räknas bara när objektet saknar traktgräns (se objektTraffPunkt). */
+  lat?: number | null;
+  lng?: number | null;
 }
 
 /** Är objektet tilldelat just denna maskin (skördar- ELLER skotarplatsen)? */
@@ -125,11 +171,15 @@ export function valjObjektForPosition(args: {
   objekt: ObjektForVal[];
 }): PlatsVal {
   const { lat, lng, maskinId, klararTyp, objekt } = args;
-  const kand = (objekt || []).filter((o) => objektInnehallerPunkt(o.geometri, lat, lng));
+  // Traktgräns → INNE i den; bara en punkt → inom 300 m (objektTraffPunkt). Ett jobb utan gräns (Starta jobb) kan alltså också bli träff.
+  const kand = (objekt || []).filter((o) => objektTraffPunkt(o, lat, lng));
   kand.sort((a, b) => {
     const ta = arTilldelad(a, maskinId) ? 0 : 1;
     const tb = arTilldelad(b, maskinId) ? 0 : 1;
     if (ta !== tb) return ta - tb;
+    // Står maskinen inne i en RIKTIG traktgräns slår den ett objekt som bara har en punkt i närheten.
+    const ga = harTraktgrans(a.geometri) ? 0 : 1, gb = harTraktgrans(b.geometri) ? 0 : 1;
+    if (ga !== gb) return ga - gb;
     const sa = statusRank(a.status), sb = statusRank(b.status);
     if (sa !== sb) return sa - sb;
     const ka = maskinKlararObjekt(klararTyp, a) ? 0 : 1;
@@ -137,6 +187,10 @@ export function valjObjektForPosition(args: {
     if (ka !== kb) return ka - kb;
     const aa = a.areal ?? Infinity, ab = b.areal ?? Infinity;
     if (aa !== ab) return aa - ab;
+    // Bara-punkt-objekt: det närmaste först.
+    const da = harTraktgrans(a.geometri) ? Infinity : (avstandTillObjektPunkt(a, lat, lng) ?? Infinity);
+    const db = harTraktgrans(b.geometri) ? Infinity : (avstandTillObjektPunkt(b, lat, lng) ?? Infinity);
+    if (da !== db) return da - db;
     return String(a.id).localeCompare(String(b.id));
   });
   return { traff: kand[0] ?? null, kandidater: kand, flera: kand.length > 1 };

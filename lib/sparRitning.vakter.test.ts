@@ -14,8 +14,10 @@ describe('RITNINGEN går genom utjämningen — på exakt de fyra ritställena',
     const live = page.indexOf('const uppdateraHyttsparLager = useCallback');
     expect(live).toBeGreaterThan(0);
     expect(page.slice(live, live + 900)).toContain('hyttsparRitadeLinjer(hyttsparPointsRef.current as any)');   // live eget spår: hela dagens RÅA punkter in, utjämnad linje ut
-    expect(page).toMatch(/\.filter\(\(r: any\) => r\.datum !== idag\)[^\n]*\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
-    expect(page).toMatch(/const features = \(data \|\| \[\]\)\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
+    // tidigare dagar: dagens EGNA rad filtreras bort (GROT-jobb tar också virkesobjektets skördarspår — då är raden en annan objekt_id och behålls)
+    expect(page).toMatch(/\.filter\(\(r: any\) => r\.objekt_id !== objektId \|\| r\.datum !== idag\)[^\n]*\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
+    // den andres spår: EN delad hjälpare (tillFeatures) som ritar via den utjämnade vägen — egna rader och GROT-jobbets virkesobjekt-rader går igenom samma
+    expect(page).toMatch(/const tillFeatures = \(rader: any\[\] \| null\) => \(rader \|\| \[\]\)\n\s*\.flatMap\(\(r: any\) => hyttsparRitadeLinjer\(/);
     expect(page).toMatch(/for \(const coords of hyttsparRitadeLinjer\(Array\.isArray\(\(r as any\)\.points\)/);
   });
   it('importerna finns', () => {

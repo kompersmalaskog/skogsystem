@@ -14,7 +14,7 @@
 //   • ej tilldelat → 'fraga' (bekräftelsekortet: systemet föreslår, föraren godkänner). Redan frågat om just det objektet denna session → 'inget'
 //     (ett nej ska aldrig bli en ny fråga var tionde sekund, och ett avböjt kort ska aldrig överstyras tyst)
 
-import { arTilldelad, objektInnehallerPunkt, valjObjektForPosition, type ObjektForVal } from './objektPlats';
+import { arTilldelad, objektTraffPunkt, valjObjektForPosition, type ObjektForVal } from './objektPlats';
 
 /** Samma annat objekt ska vara träff så här länge innan vi frågar/byter. 10 s + 1 Hz-fixar = besked ≈ 11 s, långt under minuten. */
 export const AVSTAMNING_HALL_MS = 10_000;
@@ -43,7 +43,8 @@ export function stegaAvstamning(a: {
   const nollat = (skal: AvstamningsSkal) => ({ minne: NYTT_AVSTAMNINGSMINNE, atgard: 'inget' as const, traff: null, skal });
   if (!a.oppetObjektId) return nollat('inget-oppet-objekt');
   const oppet = a.kandidater.find((o) => o.id === a.oppetObjektId);
-  if (oppet && objektInnehallerPunkt(oppet.geometri, a.pos.lat, a.pos.lng)) return nollat('inne-i-oppet-objekt');
+  // "Inne i" = innanför traktgränsen, eller (objekt utan gräns, t.ex. ett jobb från Starta jobb) inom 300 m från dess punkt.
+  if (oppet && objektTraffPunkt(oppet, a.pos.lat, a.pos.lng)) return nollat('inne-i-oppet-objekt');
   // Det öppna objektet kan inte bli träff här: innehöll det punkten hade vi returnerat ovan.
   const traff = valjObjektForPosition({ lat: a.pos.lat, lng: a.pos.lng, maskinId: a.maskinId, objekt: a.kandidater }).traff;
   if (!traff) return nollat('ingen-traff');

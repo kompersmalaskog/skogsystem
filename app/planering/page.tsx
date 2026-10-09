@@ -35,7 +35,7 @@ import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKatego
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
-import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
+import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
 import { hamtaSenasteSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo } from '../../lib/maskinPositionDb'
 import { markeraStart } from '../../lib/maskinstartMatning'
@@ -71,6 +71,10 @@ import { beslutaMaskinSom, maskinSomFelText, VANTA_MAX_MS } from '../../lib/mask
 import { StartSvartSkarm, MaskinSomFelSkarm, MaskinFelSkarm } from '../../components/maskin/StartSkarmar'
 import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
+import { filtreraHyttsparRad, hyttsparInsertRad, kanLoggaHyttspar, type HyttsparCtx } from '../../lib/hyttsparNyckel'
+import { skapaJobb, narmasteVirkesobjekt, ytaKontextIds, avstandText as startaJobbAvstandText } from '../../lib/startaJobb'
+import { lasBesked } from '../../lib/startaJobbOverlamning'
+import IngetObjektKort, { type IngetObjektVal } from '../../components/planering/IngetObjektKort'
 import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, sattBaudValOchStartaOm, formateraFordrojning, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
 import { BAUDRATER, hamtaBaudVal, hamtaHittadBaud, effektivBaud, type BaudVal } from '../../lib/gpsBaud'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -747,20 +751,22 @@ export default function PlannerPage() {
     if (!valtObjekt?.id) { setAnteckningar({}); return; }
     let avbruten = false;
     (async () => {
+      // GROT-jobb som hör till ett virkesobjekt visar OCKSÅ virkesobjektets ytanteckningar (ytorna kommer från dess traktgräns); jobbets egna vinner vid samma yta.
       const { data, error } = await supabase
         .from('objekt_yta_anteckning')
-        .select('yta_nyckel, text, uppdaterad_at, medarbetare:skapad_av(namn)')
-        .eq('objekt_id', valtObjekt.id);
+        .select('objekt_id, yta_nyckel, text, uppdaterad_at, medarbetare:skapad_av(namn)')
+        .in('objekt_id', ytaKontextIds(valtObjekt));
       if (avbruten) return;
       if (error || !data) { setAnteckningar({}); return; }
       const karta: Record<string, { text: string; namn: string | null; uppdaterad_at: string | null }> = {};
-      for (const r of data as any[]) {
+      const egenId = valtObjekt.id;
+      for (const r of [...(data as any[]).filter((x) => x.objekt_id !== egenId), ...(data as any[]).filter((x) => x.objekt_id === egenId)]) {
         karta[r.yta_nyckel] = { text: r.text || '', namn: (r.medarbetare as any)?.namn ?? null, uppdaterad_at: r.uppdaterad_at ?? null };
       }
       setAnteckningar(karta);
     })();
     return () => { avbruten = true; };
-  }, [valtObjekt?.id]);
+  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ladda per-yta-MEDIA för objektet (tabell objekt_yta_media). Grupperas per yta_nyckel i
   // skapelseordning. Fel/saknad tabell (innan migrationen körts) eller RLS → tomt (kortet visar
@@ -772,7 +778,7 @@ export default function PlannerPage() {
       const { data, error } = await supabase
         .from('objekt_yta_media')
         .select('id, yta_nyckel, typ, url, text, skapad_at, medarbetare:skapad_av(namn)')
-        .eq('objekt_id', valtObjekt.id)
+        .in('objekt_id', ytaKontextIds(valtObjekt))   // GROT-jobb: även virkesobjektets media
         .order('skapad_at', { ascending: true });
       if (avbruten) return;
       if (error || !data) { setYtaMedia({}); return; }
@@ -783,7 +789,7 @@ export default function PlannerPage() {
       setYtaMedia(karta);
     })();
     return () => { avbruten = true; };
-  }, [valtObjekt?.id]);
+  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // yta_nyckel → säker storage-path-del ('omrade:123' → 'omrade_123'; kolon m.m. är otryggt i URL/nyckel).
   const ytaNyckelPath = (nyckel: string) => nyckel.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -3211,7 +3217,18 @@ export default function PlannerPage() {
   >(null);
   const [maskindatorSparar, setMaskindatorSparar] = useState(false);
   const [maskindatorBesked, setMaskindatorBesked] = useState<string | null>(null);
-  useEffect(() => { if (!maskindatorBesked) return; const t = setTimeout(() => setMaskindatorBesked(null), 3500); return () => clearTimeout(t); }, [maskindatorBesked]);
+  const maskindatorBeskedMsRef = useRef(3500);   // hur länge beskedet står kvar; "Bytte till …" 3,5 s, VO-numret efter Starta jobb längre (det ska hinna knappas in)
+  useEffect(() => { if (!maskindatorBesked) return; const t = setTimeout(() => { setMaskindatorBesked(null); maskindatorBeskedMsRef.current = 3500; }, maskindatorBeskedMsRef.current); return () => clearTimeout(t); }, [maskindatorBesked]);
+  const visaLangtBesked = useCallback((text: string) => { maskindatorBeskedMsRef.current = 12000; setMaskindatorBesked(text); }, []);
+
+  // === "Inget objekt här — Starta jobb?" (maskindatorn står där inget objekt finns) ===
+  // Kortet visas när startens beslut blev förarlistan och en RIKTIG fix säger att inget objekt ligger här (traktgräns, eller punkt inom 300 m), kandidaterna laddats OK
+  // och inget är tilldelat/senast valt (annars hade körvyn öppnats). Svarar ingen loggas spåret ändå (objekt_id NULL på maskinen, `utanObjektLogg`) — skyddsnätet.
+  const [ingetObjektKort, setIngetObjektKort] = useState<{ lat: number; lng: number; roll: 'skordare' | 'skotare' } | null>(null);
+  const [utanObjektLogg, setUtanObjektLogg] = useState<{ roll: 'skordare' | 'skotare' } | null>(null);
+  const [ingetObjektSparar, setIngetObjektSparar] = useState(false);
+  const [ingetObjektFel, setIngetObjektFel] = useState<string | null>(null);
+  const ingetObjektFragatRef = useRef(false);   // en gång per app-laddning
 
   // Öppna körvyn på ett objekt i en roll (loggningen startar av hyttspår-effekten).
   const oppnaKorvyPa = useCallback((obj: any, roll: 'skordare' | 'skotare') => {
@@ -4013,7 +4030,8 @@ export default function PlannerPage() {
   const hyttsparSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hyttsparSealingRef = useRef(false);   // true medan spåret förseglas efter ett glapp ELLER dagsbyte (async-fönster)
   const hyttsparDatumRef = useRef<string | null>(null);   // radens LOKALA (Europe/Stockholm) datum → dagsbyte när en punkt hamnar på ett nytt datum
-  const hyttsparCtxRef = useRef<{ objektId: string; roll: 'skordare' | 'skotare'; maskinId: string | null } | null>(null);   // aktiv loggnings-kontext (för dagsbytes-callbacken, som körs ur ackumuleringen)
+  // aktiv loggnings-kontext (för dagsbytes-callbacken, som körs ur ackumuleringen). objektId = null → skyddsnätet "Inget objekt här": spåret loggas på MASKINEN (lib/hyttsparNyckel)
+  const hyttsparCtxRef = useRef<HyttsparCtx | null>(null);
   const hyttsparInitKlarRef = useRef(false);   // livscykelns resume-koll klar → ackumuleringen får skapa raden vid första punkten (undviker race)
   const hyttsparSkaparRef = useRef(false);     // true medan raden skapas vid första GPS-punkten (async-fönster → ingen dubbel-insert)
   const hyttsparSyncedRef = useRef(0);         // antal RAW-punkter (av hyttsparPointsRef) som redan lagrats server-side → append skickar bara resten
@@ -4097,8 +4115,7 @@ export default function PlannerPage() {
     if (!ctx) { hyttsparRowIdRef.current = null; hyttsparSyncedRef.current = 0; return; }
     hyttsparDatumRef.current = nyttDatum;
     try {
-      const { data: befintlig } = await supabase.from('hyttspar')
-        .select('id, points').eq('objekt_id', ctx.objektId).eq('roll', ctx.roll).eq('datum', nyttDatum).maybeSingle();
+      const { data: befintlig } = await filtreraHyttsparRad(supabase.from('hyttspar').select('id, points') as any, ctx, nyttDatum).maybeSingle();
       if (befintlig) {
         const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
         hyttsparRowIdRef.current = befintlig.id;
@@ -4109,7 +4126,7 @@ export default function PlannerPage() {
       } else {
         hyttsparPointsRef.current = [forstaPunkt];
         const { data: ny, error } = await supabase.from('hyttspar')
-          .insert({ objekt_id: ctx.objektId, roll: ctx.roll, datum: nyttDatum, maskin_id: ctx.maskinId, points: hyttsparPointsRef.current, status: 'recording' })
+          .insert(hyttsparInsertRad(ctx, nyttDatum, hyttsparPointsRef.current))
           .select('id').single();
         if (error || !ny) { console.error('[Hyttspår] dagsbyte-insert:', error?.message); hyttsparRowIdRef.current = null; hyttsparSyncedRef.current = 0; return; }
         hyttsparRowIdRef.current = ny.id;
@@ -4129,8 +4146,7 @@ export default function PlannerPage() {
     const datum = lokaltDatumStockholm(cand.ts);
     const forstaPunkt = { lat: cand.lat, lng: cand.lon, tid: new Date(cand.ts).toISOString() };
     try {
-      const { data: befintlig } = await supabase.from('hyttspar')
-        .select('id, points').eq('objekt_id', ctx.objektId).eq('roll', ctx.roll).eq('datum', datum).maybeSingle();
+      const { data: befintlig } = await filtreraHyttsparRad(supabase.from('hyttspar').select('id, points') as any, ctx, datum).maybeSingle();
       if (befintlig) {
         const bas = Array.isArray(befintlig.points) ? befintlig.points : [];
         hyttsparPointsRef.current = [...bas, forstaPunkt];
@@ -4141,7 +4157,7 @@ export default function PlannerPage() {
       } else {
         hyttsparPointsRef.current = [forstaPunkt];
         const { data: ny, error } = await supabase.from('hyttspar')
-          .insert({ objekt_id: ctx.objektId, roll: ctx.roll, datum, maskin_id: ctx.maskinId, points: hyttsparPointsRef.current, status: 'recording' })
+          .insert(hyttsparInsertRad(ctx, datum, hyttsparPointsRef.current))
           .select('id').single();
         if (error || !ny) { console.error('[Hyttspår] första-punkt-insert:', error?.message); return; }
         hyttsparRowIdRef.current = ny.id;
@@ -4156,25 +4172,30 @@ export default function PlannerPage() {
 
   // Livscykel: starta loggning när körvyn är öppen på ett objekt med känd roll; stoppa på ALLA utvägar
   // (körvy stängs / objekt byts / unmount = cleanup → completed; telefon låses = pagehide/visibility → spar).
+  // SKYDDSNÄTET: finns inget objekt (maskindatorn står där inget objekt finns och ingen har svarat på "Inget objekt här — Starta jobb?") loggas spåret
+  // ÄNDÅ, med objekt_id = NULL på maskinen (lib/hyttsparNyckel). Det kopplas till ett objekt automatiskt när ett objekts traktgräns täcker det.
   useEffect(() => {
-    if (!(korvyActive && valtObjekt?.id && hyttRoll)) return;
+    const medObjekt = !!(korvyActive && valtObjekt?.id && hyttRoll);
+    const utanObjekt = !medObjekt && !!utanObjektLogg;
+    if (!medObjekt && !utanObjekt) return;
     if (testlageAktivRef.current) return;   // TESTLÄGE: ingen hyttspår-rad skapas/återupptas/skrivs
     let avbruten = false;
-    const objektId = valtObjekt.id;
-    const roll = hyttRoll;
+    const objektId: string | null = medObjekt ? (valtObjekt?.id as string) : null;
+    const roll = (medObjekt ? hyttRoll : utanObjektLogg!.roll) as 'skordare' | 'skotare';
     const datum = lokaltDatumStockholm(serverNu());   // LOKALT datum (Europe/Stockholm), inte UTC-datum — på VERKLIG tid (datorns klocka kan gå fel)
     // Spåret märks med ENHETENS maskin (maskindatorns val) — auktoritativt. Fallback utan enhetsval
     // = gamla beteendet (skördarens objekt-maskin, skotare null). Läses direkt ur localStorage så
     // senaste valet gäller utan att väcka om loggnings-effekten. Tidigare: skotare skrevs alltid null.
     const maskinId = hyttsparMaskinId(hamtaEnhetMaskin(), roll, (valtObjekt as any)?.maskin_id ?? null);
+    const ctx: HyttsparCtx = { objektId, roll, maskinId };
+    if (!kanLoggaHyttspar(ctx)) return;   // utan objekt är maskinen nyckeln — okänd maskin → inget att logga mot
     hyttsparDatumRef.current = datum;
-    hyttsparCtxRef.current = { objektId, roll, maskinId };
+    hyttsparCtxRef.current = ctx;
     hyttsparInitKlarRef.current = false;   // resume-kollen inte klar än → ackumuleringen väntar med att skapa raden
     hyttsparSyncedRef.current = 0;          // ren start; sätts till basens längd vid resume
     (async () => {
       try {
-        const { data: befintlig } = await supabase.from('hyttspar')
-          .select('id, points').eq('objekt_id', objektId).eq('roll', roll).eq('datum', datum).maybeSingle();
+        const { data: befintlig } = await filtreraHyttsparRad(supabase.from('hyttspar').select('id, points') as any, ctx, datum).maybeSingle();
         if (avbruten) return;
         if (befintlig) {
           // RESUME: dagens rad finns → återuppta den + ladda dess punkter som bas (annars ritades
@@ -4206,7 +4227,7 @@ export default function PlannerPage() {
       sparaHyttspar(true);   // körvy stängd / objekt bytt → avsluta dagens spår (resume-bart samma dag)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyActive, valtObjekt?.id, hyttRoll]);
+  }, [korvyActive, valtObjekt?.id, hyttRoll, utanObjektLogg?.roll]);
 
   // Rita det INLADDADE eget-spåret (dagens redan loggade punkter) så fort kartlagret är redo. Behövs
   // för att livscykel-effektens första ritning kan köra INNAN hyttspar-egen-source finns (körvy byter
@@ -4234,10 +4255,12 @@ export default function PlannerPage() {
     const objektId = valtObjekt.id, roll = hyttRoll, idag = lokaltDatumStockholm(serverNu());   // lokalt datum → matchar radernas datum
     (async () => {
       try {
-        const { data } = await supabase.from('hyttspar').select('datum, points').eq('objekt_id', objektId).eq('roll', roll);
+        // GROT-/energijobb i skördarrollen som hör till ett virkesobjekt: virkesobjektets skördarspår visas också (dämpat, som tidigare dagar).
+        const horTillId: string | undefined = (valtObjekt as any)?.hor_till_objekt_id || undefined;
+        const { data } = await supabase.from('hyttspar').select('objekt_id, datum, points').in('objekt_id', horTillId && roll === 'skordare' ? [objektId, horTillId] : [objektId]).eq('roll', roll);
         if (avbruten) return;
         egetHistRef.current = (data || [])
-          .filter((r: any) => r.datum !== idag)   // dagens = fulla eget-lagret (live), ej dubbelritning
+          .filter((r: any) => r.objekt_id !== objektId || r.datum !== idag)   // dagens EGNA = fulla eget-lagret (live), ej dubbelritning
           .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []))
           .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
         setHyttsparBasVersion(v => v + 1);   // → redo-effekten ovan ritar historiken
@@ -4245,7 +4268,7 @@ export default function PlannerPage() {
     })();
     return () => { avbruten = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyActive, valtObjekt?.id, hyttRoll]);
+  }, [korvyActive, valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, hyttRoll]);
 
   // Ackumulering: varje GPS-fix (currentPosition) körs genom vakten (#398) → accepterade punkter läggs
   // till + spåret ritas om. Gejtad på aktiv loggning (rowId satt) → no-op utanför körvy.
@@ -4402,16 +4425,24 @@ export default function PlannerPage() {
       // FANTOMLINJE-FIX (samma delade hjälpare som eget-spåret): varje rad delas dessutom i SEGMENT
       // vid interna tidsglapp (app stängd mitt i passet) → en LineString per segment, ingen rak brygga
       // över glappet. Förr: en LineString per rad (bryggade interna glapp — Martins fältfynd).
-      const features = (data || [])
+      const tillFeatures = (rader: any[] | null) => (rader || [])
         .flatMap((r: any) => hyttsparRitadeLinjer(Array.isArray(r.points) ? r.points : []))
         .map((coords: [number, number][]) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} }));
+      const features = tillFeatures(data);
+      // GROT-jobb (skotare) som hör till ett virkesobjekt: SKÖRDARENS spår på virkesobjektet visas också (som "den andres" spår).
+      const horTillId: string | undefined = (valtObjekt as any)?.hor_till_objekt_id || undefined;
+      if (horTillId && roll === 'skordare') {
+        const { data: pd, error: pe } = await supabase.from('hyttspar').select('points').eq('objekt_id', horTillId).eq('roll', 'skordare');
+        if (pe) console.error('[Hyttspår] virkesobjektets skördarspår:', pe.message);
+        else features.push(...tillFeatures(pd));
+      }
       andrasFeaturesRef.current = features;
       const src = mapInstanceRef.current?.getSource('hyttspar-andras-source') as any;
       if (src) src.setData({ type: 'FeatureCollection', features });
       setAndrasSparTid(Date.now());
     } catch (e) { console.error('[Hyttspår] andras-undantag:', e); }
     finally { setAndrasSparLaddar(false); }
-  }, [valtObjekt?.id, hyttRoll]);
+  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, hyttRoll]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ladda andras spår en gång när körvyn öppnas; töm + nollställ när den stängs/objekt byts.
   useEffect(() => {
@@ -4421,7 +4452,7 @@ export default function PlannerPage() {
     try { const src = map?.getSource('hyttspar-andras-source') as any; if (src) src.setData({ type: 'FeatureCollection', features: [] }); } catch { /* */ }
     setAndrasSparTid(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyActive, valtObjekt?.id, hyttRoll]);
+  }, [korvyActive, valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, hyttRoll]);
 
   // ═══ PLUSRADEN, PLACERING, MÄT/RITA, PRICKAR, KVITTO (körvy-meny-snabbtryck, slutlig version) ═════════════════════════════════
   // Reglerna bor i lib/ (miljokrav, avverkadAreal, plusRad, sparSom, snabbMarkering, geoMat, langtryck) med tester; här bor bara
@@ -4814,10 +4845,12 @@ export default function PlannerPage() {
     let avbruten = false;
     (async () => {
       // Startflödet och /maskin-sidan kan ha förladdat just det här objektets geometri (parallellt med kartans laddning). EN gång.
-      const forladdad = taForladdadTraktGeo(valtObjekt.id);
+      // GROT-jobb som hör till ett virkesobjekt visar VIRKESOBJEKTETS traktgräns (och därmed dess ytor): objekt.hor_till_objekt_id (Starta jobb).
+      const geoObjektId: string = (valtObjekt as any).hor_till_objekt_id || valtObjekt.id;
+      const forladdad = geoObjektId === valtObjekt.id ? taForladdadTraktGeo(valtObjekt.id) : null;
       const { data, error } = forladdad
         ? await forladdad
-        : await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', valtObjekt.id).maybeSingle();
+        : await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', geoObjektId).maybeSingle();
       if (avbruten) return;
       const fc: any = (data as any)?.geometri;
       if (error || !fc || !Array.isArray(fc.features) || fc.features.length === 0) {
@@ -4861,7 +4894,7 @@ export default function PlannerPage() {
       }
     })();
     return () => { avbruten = true; };
-  }, [valtObjekt?.id, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === Hänsynsytor: i KÖRVYN lätt fyllning (≤ 0,15) och kanten bär färgen; planeringsvyn oförändrad ===
   useEffect(() => {
@@ -8550,7 +8583,7 @@ export default function PlannerPage() {
     const kort = maskindatorKort;
     if (kort) {
       const o = maskindatorObjektRef.current.find((x) => x.id === kort.objektId);
-      if (o && objektInnehallerPunkt(o.geometri, pos.lat, pos.lon)) {
+      if (o && objektTraffPunkt(o, pos.lat, pos.lon)) {
         const acc = maskindatorKmInneRef.current;
         if (acc.last) acc.km += haversineM(acc.last.lat, acc.last.lng, pos.lat, pos.lon);
         acc.last = { lat: pos.lat, lng: pos.lon };
@@ -8596,6 +8629,78 @@ export default function PlannerPage() {
       } finally { avstamningPagarRef.current = false; }
     })();
   }, [korvyEffectivePos, maskindatorKort, enhetMaskinId, valtObjekt, maskindatorJa, oppnaKorvyPa, visaMaskindatorKort, maskindatorGeoKlar]);
+
+  // "Inget objekt här — Starta jobb?" (se state ovan). Förarlistan visas (startens beslut blev lista), en RIKTIG färsk fix finns och inget kandidatobjekt
+  // träffar den (valjObjektForPosition: traktgräns, eller punkt inom 300 m). Kandidaterna ska ha laddats OK (maskindatorGeoKlar) — ett tomt/felande
+  // svar är inte "inget objekt här". Testfliken (aldrig en riktig fix) och en maskin utan roll i registret frågas aldrig.
+  useEffect(() => {
+    if (ingetObjektFragatRef.current || ingetObjektKort || valtObjekt || !startIngenKarta) return;
+    if (testlageAktivRef.current || !maskinlage || !enhetMaskinId || !maskindatorGeoKlar || !gpsFixFarsk) return;
+    const pos = korvyEffectivePos;
+    const roll = enhetRollRef.current;
+    if (!pos || !roll) return;
+    const traff = valjObjektForPosition({ lat: pos.lat, lng: pos.lon, maskinId: enhetMaskinId, objekt: maskindatorObjektRef.current }).traff;
+    if (traff) return;   // något ligger här → listan visar det som HÄR; ingen fråga
+    ingetObjektFragatRef.current = true;
+    setIngetObjektKort({ lat: pos.lat, lng: pos.lon, roll });
+    setUtanObjektLogg({ roll });   // skyddsnätet: spåret loggas redan nu, med objekt_id NULL, tills någon svarar
+  }, [korvyEffectivePos, ingetObjektKort, valtObjekt, startIngenKarta, maskinlage, enhetMaskinId, maskindatorGeoKlar, gpsFixFarsk]);
+
+  // Ett objekt är valt (ur listan, via kortet, eller automatiskt) → skyddsnätet är klart. Spår som loggats utan objekt kopplas om objektet täcker dem
+  // (servern, service-roll; en klient får inte slå ihop/radera spår-rader). Fördröjt så den sista skrivningen av det ofärdiga spåret hinner före.
+  useEffect(() => {
+    if (!valtObjekt?.id || !utanObjektLogg) return;
+    const objektId = valtObjekt.id as string;
+    setUtanObjektLogg(null);
+    setIngetObjektKort(null);
+    if (!enhetMaskinId || testlageAktivRef.current) return;
+    // Ingen cleanup: setUtanObjektLogg(null) ovan ändrar effektens egna deps → en cleanup skulle döda timern direkt. Anropet är idempotent och best-effort.
+    setTimeout(() => {
+      fetch('/api/hyttspar/koppla', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ objektId, maskinId: enhetMaskinId }) }).catch(() => { /* best-effort; import kopplar vid behov */ });
+    }, 2500);
+  }, [valtObjekt?.id, utanObjektLogg, enhetMaskinId]);
+
+  // Närmaste virkesobjekt (för GROT "hör till") ur kandidaterna i minnet — bara när kortet visas.
+  const ingetObjektHorTill = useMemo(() => {
+    if (!ingetObjektKort) return null;
+    const n = narmasteVirkesobjekt({ lat: ingetObjektKort.lat, lng: ingetObjektKort.lng }, maskindatorObjektRef.current, 1)[0];
+    return n && n.avstandM != null && n.avstandM <= 5000 ? { id: n.id, namn: n.namn || 'Objekt', avstandText: startaJobbAvstandText(n.avstandM) } : null;
+  }, [ingetObjektKort]);
+
+  const startaJobbFranKort = useCallback(async (v: IngetObjektVal) => {
+    const kort = ingetObjektKort;
+    if (!kort || ingetObjektSparar || !enhetMaskinId) return;
+    setIngetObjektSparar(true);
+    setIngetObjektFel(null);
+    try {
+      const pos = korvyEffectivePos ?? { lat: kort.lat, lon: kort.lng };   // senaste fixen, annars där kortet visades
+      const r = await skapaJobb(supabase as any, {
+        namn: v.namn, typ: v.typ, ursprung: v.privat ? 'privat' : 'vanta_vida', lat: pos.lat, lng: pos.lon,
+        horTillObjektId: v.horTillObjektId, maskin: { maskinId: enhetMaskinId, roll: kort.roll },
+      });
+      if (!r.ok) { setIngetObjektFel(r.fel + (r.voForbrukat ? ' (VO-numret är förbrukat — nästa jobb får nästa nummer.)' : '')); return; }
+      // Spåret som loggats utan objekt: försegla (await) → koppla (await) → FÖRST SEDAN öppna körvyn, så ingen punkt hamnar mellan raderna.
+      await sparaHyttspar(true);
+      setUtanObjektLogg(null);
+      try {
+        await fetch('/api/hyttspar/koppla', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ objektId: r.rad.id, maskinId: enhetMaskinId }) });
+      } catch { /* best-effort: raderna ligger kvar på maskinen och kopplas av importen */ }
+      sattSenasteObjekt(enhetMaskinId, r.rad.id);
+      maskindatorObjektRef.current = [...maskindatorObjektRef.current, { ...r.rad, geometri: null }];   // avstämningen ska känna igen det nya objektet
+      oppnaKorvyPa(r.rad, kort.roll);
+      visaLangtBesked(`${r.vo} — knappa in numret i båda maskinerna`);
+      setIngetObjektKort(null);
+    } catch (e: any) {
+      setIngetObjektFel('Jobbet kunde inte startas: ' + (e?.message || 'okänt fel'));
+    } finally {
+      setIngetObjektSparar(false);
+    }
+  }, [ingetObjektKort, ingetObjektSparar, enhetMaskinId, korvyEffectivePos, sparaHyttspar, oppnaKorvyPa, visaLangtBesked]);
+
+  // Beskedet från Starta jobb-sidan (P-VO:t som ska knappas in) — en gång vid start.
+  useEffect(() => {
+    try { const t = lasBesked(sessionStorage); if (t) visaLangtBesked(t); } catch { /* blockerad sessionStorage → inget besked */ }
+  }, [visaLangtBesked]);
 
   // Kandidatladdaren (lib/objektKandidater) lever så länge sidan lever — stoppa den vid avmontering.
   useEffect(() => () => { if (kandidatStoppRef.current) { kandidatStoppRef.current(); kandidatStoppRef.current = null; } }, []);
@@ -13092,6 +13197,16 @@ export default function PlannerPage() {
   // då hämtar den de rutor som ska synas direkt, och översikts-steget behöver inte vänta på en andra omgång rutor.
   const kartStart = (maskinlage && startFasNu === 'svart') ? startPosRef.current : null;
 
+  // "Inget objekt här — Starta jobb?" ligger över FÖRARLISTAN (det är där maskindatorn står när inget objekt matchade). Svarar ingen loggas spåret ändå (objekt_id NULL).
+  const ingetObjektKortEl = ingetObjektKort ? (
+    <IngetObjektKort
+      lat={ingetObjektKort.lat} lng={ingetObjektKort.lng} roll={ingetObjektKort.roll}
+      sparar={ingetObjektSparar} fel={ingetObjektFel} horTillForslag={ingetObjektHorTill}
+      onStarta={startaJobbFranKort}
+      onLista={() => { setIngetObjektKort(null); setIngetObjektFel(null); }}
+    />
+  ) : null;
+
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
     return (
@@ -13134,6 +13249,7 @@ export default function PlannerPage() {
         }}
       />
       {maskinLager}
+      {ingetObjektKortEl}
       </>
     );
   }
@@ -13338,7 +13454,7 @@ export default function PlannerPage() {
                 {(valtObjekt.areal || valtObjekt.typ) && (
                   <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.65)' }}>
                     {valtObjekt.areal ? ` · ${valtObjekt.areal} ha` : ''}
-                    {valtObjekt.typ ? ` · ${valtObjekt.typ === 'slutavverkning' ? 'Slutavv.' : valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ}` : ''}
+                    {valtObjekt.typ ? ` · ${valtObjekt.typ === 'slutavverkning' ? 'Slutavv.' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : valtObjekt.typ)}` : ''}
                   </span>
                 )}
               </>
@@ -13592,7 +13708,7 @@ export default function PlannerPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{valtObjekt.namn}</div>
-                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)' }}>{[valtObjekt.areal ? `${valtObjekt.areal} ha` : '', valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ, certTxt, grotHeader].filter(Boolean).join(' · ')}</div>
+                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)' }}>{[valtObjekt.areal ? `${valtObjekt.areal} ha` : '', valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : valtObjekt.typ), certTxt, grotHeader].filter(Boolean).join(' · ')}</div>
                 </div>
                 <button type="button" onClick={stang} aria-label="Stäng" style={{ width: 34, height: 34, borderRadius: 17, border: 'none', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 16, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>✕</button>
               </div>

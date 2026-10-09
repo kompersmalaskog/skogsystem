@@ -317,8 +317,9 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
   // Avslutade senaste 3 mån, grupperade i tre kolumner (sektion D).
   const treManSedan = new Date(Date.now() - 92 * 864e5).toISOString().slice(0, 10);
   const avslutadeSenaste = avslutade.filter(o => !o.avslutad_timestamp || o.avslutad_timestamp.slice(0, 10) >= treManSedan);
+  // GROT och energiklippning delar kolumn ("GROT och energi") — båda är jobb, inte virkesobjekt.
   const avslutadeKol = (typ: 'slutavverkning' | 'gallring' | 'grot') =>
-    avslutadeSenaste.filter(o => objektHuvudtyp(o) === typ);
+    avslutadeSenaste.filter(o => { const h = objektHuvudtyp(o); return typ === 'grot' ? (h === 'grot' || h === 'energiklippning') : h === typ; });
 
   // En förar-rad (grupperade listan)
   // HELA raden är knappen → tryck öppnar objektet (onSelectObjekt). Ingen egen Starta-knapp; bara pilen
@@ -536,7 +537,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             </div>
           ) : lista.map((obj: any) => {
             const dist = getDistance(obj.lat, obj.lng);
-            const typLabelTxt = obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring';
+            const typLabelTxt = typLabel(objektHuvudtyp(obj)) === 'Typ okänd' ? 'Gallring' : typLabel(objektHuvudtyp(obj));   // GROT/energiklippning har egen etikett; okänd typ visas som förut
             const volymLabel = obj.volym ? `${obj.volym} m³` : 'ingen volym angiven';
             const ärAvslutad = obj.status === 'avslutat';
             const avslutsdatum = ärAvslutad && obj.avslutad_timestamp
@@ -692,7 +693,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             {([
               ['slutavverkning', 'Slutavverkning'],
               ['gallring', 'Gallring'],
-              ['grot', 'Grot'],
+              ['grot', 'GROT och energi'],
             ] as const).map(([typ, rubrik]) => {
               const kol = avslutadeKol(typ as any);
               return (
@@ -801,7 +802,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
 
             {/* Typ + volym + avstånd */}
             <p style={{ margin: '0 0 24px', color: '#8e8e93', fontSize: '13px' }}>
-              {selectedObj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
+              {typLabel(objektHuvudtyp(selectedObj)) === 'Typ okänd' ? 'Gallring' : typLabel(objektHuvudtyp(selectedObj))}
               {' · '}{selectedObj.volym ? `${selectedObj.volym} m³` : '–'}
               {typeof roadDist[selectedObj.id] === 'number'
                 ? <> · {roadDist[selectedObj.id]} km</>
