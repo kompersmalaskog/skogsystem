@@ -20,9 +20,11 @@ export type ArsovertidSvar = {
   ar?: number
   tak?: number
   tomDatum?: string
-  medarbetare?: { medarbetare_id: string; namn: string | null; timmar: number; modeller: Record<string, number>; perioder?: any[] }[]
+  medarbetare?: { medarbetare_id: string; namn: string | null; timmar: number; modeller: Record<string, number>; perioder?: any[]; basavdrag?: { franvaroTimmar: number; rodaTimmar: number } }[]
   utjamning?: { startdatum: string; slutdatum: string; medarbetare_id?: string | null; anteckning?: string | null }[]
   utjamning_fel?: string | null
+  /** Frånvaron kunde inte läsas: talen räknades utan den och är för höga. */
+  franvaro_fel?: string | null
 }
 
 export type Niva = "noll" | "lugn" | "varning" | "over"
