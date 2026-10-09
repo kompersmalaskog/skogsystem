@@ -6,7 +6,7 @@
 // hyttspår/lass senaste 7 dagarna som pågående — anroparen beräknar det och sätter aktivSenaste7.
 
 import {
-  objektInnehallerPunkt,
+  objektTraffPunkt,
   maskinKlararObjekt,
   arTilldelad,
   type KlararTyp,
@@ -87,7 +87,8 @@ export function grupperaForareObjekt(args: {
   for (const o of objekt || []) {
     const st = (o.status || '').toLowerCase();
     if (st === 'avslutat' || st === 'klar') { avslutade.push(o); continue; }
-    if (pos && objektInnehallerPunkt(o.geometri, pos.lat, pos.lng)) { har.push(o); continue; }
+    // HÄR = inne i traktgränsen, eller (objekt utan gräns) inom 300 m från dess punkt.
+    if (pos && objektTraffPunkt(o, pos.lat, pos.lng)) { har.push(o); continue; }
     if (arPagaende(st) || o.aktivSenaste7 === true) { pagaende.push(o); continue; }
     if (st === 'planerad') { planerade.push(o); continue; }
     // annan/okänd status → visas inte i förarlistan

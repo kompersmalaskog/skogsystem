@@ -35,7 +35,7 @@ import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKatego
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
-import { valjObjektForPosition, objektInnehallerPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
+import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
 import { hamtaSenasteSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo } from '../../lib/maskinPositionDb'
 import { markeraStart } from '../../lib/maskinstartMatning'
@@ -8550,7 +8550,7 @@ export default function PlannerPage() {
     const kort = maskindatorKort;
     if (kort) {
       const o = maskindatorObjektRef.current.find((x) => x.id === kort.objektId);
-      if (o && objektInnehallerPunkt(o.geometri, pos.lat, pos.lon)) {
+      if (o && objektTraffPunkt(o, pos.lat, pos.lon)) {
         const acc = maskindatorKmInneRef.current;
         if (acc.last) acc.km += haversineM(acc.last.lat, acc.last.lng, pos.lat, pos.lon);
         acc.last = { lat: pos.lat, lng: pos.lon };
