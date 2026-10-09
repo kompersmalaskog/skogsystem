@@ -75,7 +75,7 @@ def main():
             amne[b["sha"]] = (b["amne"], b["datum"])
     grupper = defaultdict(list)
     for o in O:
-        if o["maskin_namn"] not in HARVESTERS or o["status"] != "ok" or o["format"] in ("matbevis", "lastcertifikat", "aptman_produktionsnota"):
+        if o["maskin_namn"] not in HARVESTERS or o["status"] != "ok" or o["format"] in ("matbevis", "lastcertifikat", "aptman_produktionsnota", "ponsse_skift", "ponsse_matbevis_ny"):
             continue
         # nyckel: samma objekt och maskin; rapporterna är kumulativa -> senaste (största) gäller
         key = (o["maskin_namn"], o["objekt_nyckel"] or f'{o["objektnr"]}|{norm_obj(o["objekt"])}')
@@ -103,6 +103,8 @@ def main():
             bort[f"{maskin}: stammar/volym 0"] += 1
             continue
         a, ak = klassa(r["objekt"], amne.get(r["sha256"], ("", ""))[0])
+        if r.get("atgard_rapport"):  # Ponsse Skift: kategorin i rapporten (Slutavverkning/Förnyelseavverkning/Gallring) går först
+            a, ak = r["atgard_rapport"], "rapportkategori"
         if a == "okänd" and ak == "" and maskin in STANDARD:
             a, ak = STANDARD[maskin], "maskinstandard"
         rader.append(dict(maskin=maskin, objekt=r["objekt"], ar=r["rapportdatum"][:4], rapportdatum=r["rapportdatum"], stammar=st, volym_m3fub=round(vol, 3),
@@ -122,8 +124,9 @@ def main():
             ss_tot = sum((y - my) ** 2 for _, y in xs)
             k[a] = (c, b, 1 - ss_res / ss_tot, n)
         return k
-    kurvor = anpassa(rader)  # med maskinstandard: används för index
+    kurvor_med = anpassa(rader)  # med maskinstandard (jämförelse)
     kurvor_utan = anpassa([r for r in rader if r["atgardens_kalla"] != "maskinstandard"])
+    kurvor = kurvor_utan  # index och index_per_ar.csv räknas sedan steg 6 mot kurvorna UTAN maskinstandard
     for r in rader:
         if r["atgard"] in kurvor:
             c, b, _, _ = kurvor[r["atgard"]]
@@ -142,7 +145,7 @@ def main():
     with open(IMP / "normkurvor.csv", "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["variant", "atgard", "n", "ln_a", "exponent_b", "R2", "formel"])
-        for vn, kk in (("med_maskinstandard", kurvor), ("utan_maskinstandard", kurvor_utan)):
+        for vn, kk in (("med_maskinstandard", kurvor_med), ("utan_maskinstandard", kurvor_utan)):
             for a, (c, b, r2, n) in kk.items():
                 w.writerow([vn, a, n, round(c, 4), round(b, 4), round(r2, 3), f"m3fub/G15 = {math.exp(c):.2f} * medelstam^{b:.3f}"])
     grp = defaultdict(list)
@@ -154,12 +157,12 @@ def main():
         w.writerow(["ar", "maskin", "atgard", "antal_objekt", "medianindex"])
         for k in sorted(grp):
             w.writerow([*k, len(grp[k]), round(statistics.median(grp[k]), 1)])
-    grp2 = defaultdict(list)  # alternativt index: mot kurvan UTAN maskinstandard-objekt
+    grp2 = defaultdict(list)  # alternativt index: mot kurvan MED maskinstandard-objekt
     for r in rader:
-        if r["atgard"] in kurvor_utan:
-            c, b, _, _ = kurvor_utan[r["atgard"]]
+        if r["atgard"] in kurvor_med:
+            c, b, _, _ = kurvor_med[r["atgard"]]
             grp2[(r["ar"], r["maskin"], r["atgard"])].append(r["m3fub_per_g15"] / math.exp(c + b * math.log(r["medelstam"])) * 100)
-    with open(IMP / "index_per_ar_utan_standardkurva.csv", "w", encoding="utf-8-sig", newline="") as fh:
+    with open(IMP / "index_per_ar_med_standardkurva.csv", "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["ar", "maskin", "atgard", "antal_objekt", "medianindex"])
         for k in sorted(grp2):
@@ -167,12 +170,12 @@ def main():
     okand = [r for r in rader if r["atgard"] == "okänd"]
     print(f"{len(rader)} objekt i effektivitet.csv; okänd åtgärd: {len(okand)} ({100 * len(okand) / len(rader):.0f} %)")
     print("bortfall:", dict(bort))
-    for vn, kk in (("MED maskinstandard", kurvor), ("UTAN maskinstandard", kurvor_utan)):
+    for vn, kk in (("MED maskinstandard", kurvor_med), ("UTAN maskinstandard", kurvor_utan)):
         for a, (c, b, r2, n) in kk.items():
             print(f"{vn:20s} {a:15s} n={n:4d}  m3fub/G15 = {math.exp(c):.2f} * medelstam^{b:.3f}  R2={r2:.3f}")
     for a in kurvor:
         for ms in (0.15, 0.50):
-            m1 = math.exp(kurvor[a][0] + kurvor[a][1] * math.log(ms))
+            m1 = math.exp(kurvor_med[a][0] + kurvor_med[a][1] * math.log(ms))
             m2 = math.exp(kurvor_utan[a][0] + kurvor_utan[a][1] * math.log(ms))
             print(f"{a:15s} medelstam {ms:.2f}: med {m1:.2f}, utan {m2:.2f} m3fub/G15 -> skillnad {100 * (m1 - m2) / m2:+.1f} %")
     return rader, kurvor, grp
