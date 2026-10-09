@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TYP, TNUM } from "@/lib/design/tokens";
 import { Sektion, Stod, Kort, Lista, Rad, Primar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
 import { ymdLokal } from "@/lib/datumLokal";
+import UtjamningsSektion from "./UtjamningsSektion";
 
 type Avtal = {
   id?: string;
@@ -114,7 +115,7 @@ function arUtgatt(giltigtTill: string | null | undefined): boolean {
   return !!d && d < ymdLokal(new Date());
 }
 
-export default function AvtalFlik() {
+export default function AvtalFlik({ currentUser }: { currentUser: { id: string; namn?: string | null } }) {
   const [aktuellt, setAktuellt] = useState<Avtal | null>(null);
   const [form, setForm] = useState<Avtal>({});
   const [historik, setHistorik] = useState<Avtal[]>([]);
@@ -247,6 +248,9 @@ export default function AvtalFlik() {
       <Primar onClick={spara} disabled={!ändrat || sparar} style={{ marginTop: AVSTAND.xl }}>
         {sparar ? "Sparar…" : "Spara ändringar"}
       </Primar>
+
+      {/* Utjämningsperioder (§5 mom 2): före, hör till avtalets arbetstidsregel */}
+      <UtjamningsSektion namnInloggad={currentUser.namn || "admin"} />
 
       {/* Historik */}
       <Sektion>Tidigare avtal ({historik.length})</Sektion>

@@ -261,6 +261,22 @@ export function Bekrafta({ text, ja, nej = "Avbryt", onJa, onNej, upptagen }: {
   );
 }
 
+/**
+ * Ark ovanpå sidan för ETT formulär (Ny period, Ändra period). Mörk bakgrund, tryck utanför stänger.
+ * Aldrig ark ovanpå ark: bekräftelser byter innehåll i samma ark. `attr` bär data-attribut (testfästen).
+ */
+export function Sheet({ titel, onStang, children, attr }: { titel: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string> }) {
+  return (
+    <div onClick={onStang} className="tona-opacity" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.l }}>
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp" {...attr}
+        style={{ background: FARG.kort, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
+        <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color: FARG.text }}>{titel}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // ── Små etiketter ───────────────────────────────────────────────────────
 
 /** Ord i en liten ruta: roll, status. Färgen förstärker ordet, bär det aldrig ensam. */

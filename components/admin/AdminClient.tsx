@@ -95,7 +95,7 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
             {nav.flik === "medarbetare" && <MedarbetareFlik />}
             {nav.flik === "maskiner"    && <MaskinerFlik />}
             {nav.flik === "lon"         && <LonFlik currentUser={currentUser} />}
-            {nav.flik === "avtal"       && <AvtalFlik />}
+            {nav.flik === "avtal"       && <AvtalFlik currentUser={currentUser} />}
           </div>
         </div>
       </main>
