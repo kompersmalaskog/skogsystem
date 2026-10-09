@@ -20,7 +20,7 @@ IMP = Path("C:/Users/lindq/skogsystem-import")
 HARVESTERS = {"Komatsu 941", "Komatsu 941 AptMan", "Komatsu 901XC", "Komatsu 911.3", "Ponsse Bear", "Scorpion King gammal",
               "Scorpion King ny", "Scorpion Giant 2023", "Scorpion Giant 2025", "Rottne H8B", "Rottne H8D", "Rottne H8E Logmax", "Rottne H8E 2026"}
 HELA = {"ga": "gallring", "au": "slutavverkning", "rp": "slutavverkning", "vf": "skada", "bb": "skada", "vind": "skada", "sl": "slutavverkning"}  # "mall" är ingen åtgärd   # hela ord (siffror får följa)
-BORJAN = {"gall": "gallring", "slutavv": "slutavverkning", "hygge": "slutavverkning", "vindfäll": "skada", "vindf": "skada", "baggaträd": "skada", "barkborr": "skada"}  # ordbörjan
+BORJAN = {"gall": "gallring", "slutavv": "slutavverkning", "hygge": "slutavverkning", "vindfäll": "skada", "vindf": "skada", "baggaträd": "skada", "barkb": "skada"}  # ordbörjan (barkb* täcker barkborr*, barkbagge*; steg 8: barkb*, barkborr*, baggaträd* = skada)
 TOKEN = re.compile(r"[a-zåäö]+\d*|\d+")
 
 
