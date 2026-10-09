@@ -21,6 +21,11 @@ describe('objektTackerSpar', () => {
     expect(objektTackerSpar(gransObj, [])).toBe(false);
     expect(objektTackerSpar(gransObj, null)).toBe(false);
   });
+  it('ett spår som bara PASSERAR objektet (3 punkter inne men under hälften av spåret) kopplas inte', () => {
+    const passerar = [...spar(LAT, LNG, 3), ...spar(LAT + 0.1, LNG, 10)];
+    expect(objektTackerSpar(gransObj, passerar)).toBe(false);                     // 3 av 13 = 23 %
+    expect(objektTackerSpar(gransObj, [...spar(LAT, LNG, 3), ...spar(LAT + 0.1, LNG, 2)])).toBe(true);   // 3 av 5 = 60 % → ja
+  });
   it('bara en punkt (jobb utan gräns): spår inom 300 m täcks', () => {
     const jobb = { id: 'p1', lat: LAT, lng: LNG, geometri: null };
     expect(objektTackerSpar(jobb, spar(LAT, LNG, 6, 0.0001, 0.0001))).toBe(true);
