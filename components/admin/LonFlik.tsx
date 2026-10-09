@@ -15,6 +15,7 @@ import VilobrottUnderflik from "./VilobrottUnderflik";
 // Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
 // regler. Byggd mot lib/design/tokens — första admin-ytan som är det.
 import DagarUnderflik from "./DagarUnderflik";
+import ArsovertidKort from "./ArsovertidKort";
 
 // Kort i granskningen: luft mellan staplade kort.
 const Card = ({ children, style }: { children: React.ReactNode; style?: CSSProperties }) => <Kort style={{ marginBottom: AVSTAND.m, ...style }}>{children}</Kort>;
@@ -100,7 +101,7 @@ function Loneunderlag() {
   const [visaBekräftelse, setVisaBekräftelse] = useState(false);
   const [skickar, setSkickar] = useState(false);
   const [exportResultat, setExportResultat] = useState<any>(null);
-  // Årets övertid per förare — tre modeller, ingen vald (lib/lonesystem/arsovertid).
+  // Årets övertid per förare (avtalets modell, lib/lonesystem/arsovertid) — vyn: ArsovertidKort.
   const [arsovertid, setArsovertid] = useState<any>(null);
 
   // Löneperiod = arbetsmånad + 1 (samma regel som Fortnox-granskningen och /api/lon/min-manad).
@@ -186,83 +187,9 @@ function Loneunderlag() {
         </button>
       </Card>
 
-      {/* ÅRETS ÖVERTID MOT TAKET — det Martin behöver se som arbetsgivare.
-          Fyra modeller: de tre appen räknat med, och AVTALETS (§5 mom 2: 40 tim
-          i genomsnitt över ≤ 16 veckor). Beräkningsperioderna är markerade
-          utjämningsperioder (tabellen utjamningsperiod — Gävle v17–27 2026 var
-          ordinarie tid utlagd ojämnt, INTE komp) plus antagna block däremellan.
-          Ingen av de tre första är avtalets, frånvaro/komp är inte avdragna —
-          talen är sannolikt för höga. Därför INGET rött "passerat taket"
-          (2026-09-17: det larmet var falskt — Stefan låg på 34 tim/vecka i snitt
-          när kortet sa 271). Färg bara på avtalskolumnen: orange inom 50 tim,
-          röd över. */}
-      {arsovertid && (
-        <Card>
-          <p style={{ ...secHead, marginTop: 0 }}>Övertid {arsovertid.ar ?? new Date().getFullYear()} mot taket{arsovertid.tak ? ` ${arsovertid.tak} tim` : ""}</p>
-          {!arsovertid.ok ? (
-            <p style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>Kunde inte läsa årets övertid: {arsovertid.meddelande || "okänt fel"}</p>
-          ) : (() => {
-            const tak = Number(arsovertid.tak || 250);
-            const modeller: any[] = arsovertid.modeller || [];
-            const farg = (h: number) => h >= tak ? FARG.rod : h >= tak - 50 ? FARG.orange : FARG.text;
-            const rader: any[] = [...(arsovertid.medarbetare || [])].sort((a, b) => (b.modeller?.genomsnitt || 0) - (a.modeller?.genomsnitt || 0));
-            const utjamning: any[] = arsovertid.utjamning || [];
-            const periodText = (p: any) => `v${p.fran}–${p.till}${p.markerad ? " (markerad)" : " (antagen)"}: ${Number(p.timmar).toLocaleString("sv-SE")} tim på ${p.veckor} v → ${Number(p.overtid).toLocaleString("sv-SE")}`;
-            return (
-              <>
-                <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text }}>
-                  <strong>Ingen av de tre första kolumnerna är avtalets modell.</strong> Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em> — kolumnen <strong>Genomsnitt</strong>. Perioderna är de markerade utjämningsperioderna nedan; veckorna däremellan räknas i antagna block om högst 16 veckor.
-                </p>
-                {/* Markerade utjämningsperioder = fakta om vad som gjordes. Avtalet
-                    förutsätter att utjämningen är ÖVERENSKOMMEN — raden bevisar inte det. */}
-                {arsovertid.utjamning_fel ? (
-                  <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>Kunde inte läsa utjämningsperioder ({arsovertid.utjamning_fel}) — allt räknas som antagna block.</p>
-                ) : utjamning.length === 0 ? (
-                  <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>Inga markerade utjämningsperioder {arsovertid.ar} — allt räknas som antagna block från vecka 1.</p>
-                ) : utjamning.map((u: any, ui: number) => (
-                  <p key={ui} style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text }}>
-                    <strong>Utjämningsperiod {u.startdatum} – {u.slutdatum}</strong>{u.medarbetare_id ? "" : " (alla)"}: <span style={{ color: FARG.text2 }}>{u.anteckning}</span>
-                  </p>
-                ))}
-                <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text }}>
-                  Avtalet förutsätter att utjämning över mer än en vecka är <strong>överenskommen</strong>. En markerad period är en anteckning om vad som gjordes, inte ett bevis på att det var avtalat. Längre än 16 veckor kräver lokal överenskommelse.
-                </p>
-                <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.text2 }}>
-                  En tom vecka räknas i basen bara om den är utjämnad ordinarie tid — var den semester ska den inte vara med, och då stiger övertiden; inom en markerad period vet appen vad en tom vecka betyder, utanför vet den det inte. Frånvaro och komp (§8 mom 3, räknas inte som övertid enligt §5 mom 5 anm 3) är inte avdragna, så alla tal är sannolikt för höga. Exporten räknar i dag mot arbetade dagar, Min tid mot kalenderns vardagar. T.o.m. {arsovertid.tomDatum}.
-                </p>
-                <div style={{ display: "grid", gridTemplateColumns: `1.4fr repeat(${modeller.length}, 1fr)`, gap: "4px 8px", ...TYP.meta, alignItems: "baseline" }}>
-                  <span style={{ color: FARG.text2 }}>Förare</span>
-                  {modeller.map(m => <span key={m.key} style={{ color: m.avtalet ? FARG.text : FARG.text2, fontWeight: m.avtalet ? 700 : 400, textAlign: "right" }} title={`${m.beskrivning} — ${m.anvandsAv}`}>{m.namn}{m.avtalet ? " (avtalet)" : ""}</span>)}
-                  {rader.map(r => (
-                    <React.Fragment key={r.medarbetare_id}>
-                      <span style={{ color: FARG.text, ...TYP.meta, padding: `${AVSTAND.xs}px 0`, borderTop: `1px solid ${FARG.linje}` }}>{r.namn} <span style={{ color: FARG.text2, ...TYP.meta }}>{Number(r.timmar).toLocaleString("sv-SE")} tim</span></span>
-                      {modeller.map(m => {
-                        const h = Number(r.modeller?.[m.key] || 0);
-                        const title = m.avtalet && Array.isArray(r.perioder) ? r.perioder.map(periodText).join("\n") : undefined;
-                        return <span key={m.key} title={title} style={{ textAlign: "right", ...TYP.meta, fontWeight: m.avtalet ? 700 : 400, color: m.avtalet ? farg(h) : FARG.text2, padding: `${AVSTAND.xs}px 0`, borderTop: `1px solid ${FARG.linje}`, fontVariantNumeric: "tabular-nums" }}>{h.toLocaleString("sv-SE")}</span>;
-                      })}
-                    </React.Fragment>
-                  ))}
-                </div>
-                {/* Per förare: hur genomsnittet fördelar sig på perioderna — så man
-                    ser VAR övertiden kommer ifrån (Stefan: v1–16 och sensommaren, inte Gävle). */}
-                {rader.some(r => Array.isArray(r.perioder) && r.perioder.length > 0) && (
-                  <div style={{ marginTop: AVSTAND.s, ...TYP.meta, color: FARG.text2 }}>
-                    {rader.filter(r => Array.isArray(r.perioder)).map(r => (
-                      <p key={`per-${r.medarbetare_id}`} style={{ margin: `0 0` }}>
-                        <span style={{ color: FARG.text }}>{r.namn.split(" ")[0]}</span>: {r.perioder.map(periodText).join(" · ")}
-                      </p>
-                    ))}
-                  </div>
-                )}
-                <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
-                  {modeller.map(m => `${m.namn}: ${m.beskrivning} (${m.anvandsAv})`).join(" · ")}
-                </p>
-              </>
-            );
-          })()}
-        </Card>
-      )}
+      {/* ÅRSÖVERTID: en fråga — hur nära taket är varje förare? Avtalets modell (§5 mom 2); förklaringen ligger bakom
+          "Så räknas det" (components/admin/ArsovertidKort). */}
+      {arsovertid && <ArsovertidKort svar={arsovertid} />}
 
       {tlFel && (
         <Card style={{ border: `1px solid ${FARG.rod}` }}>

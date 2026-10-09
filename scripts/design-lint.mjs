@@ -50,6 +50,7 @@ export const SKARPA = [
   "components/admin/VilobrottUnderflik.tsx",
   "components/admin/DagarUnderflik.tsx",
   "components/admin/LonFlik.tsx",
+  "components/admin/ArsovertidKort.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
   "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad
