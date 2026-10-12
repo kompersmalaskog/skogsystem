@@ -89,7 +89,7 @@ eller LC delvis) och räknas fortfarande; Wisent-volym efter 2024-09 döljs per 
 **R3 (lastcertifikat som delutskrift av summering) är analyserad och bestämd att INTE köras** (`hist_r3.py`, förslag i `hist_csv/hist_r3_forslag.csv`, sparade): den sänker årskvoterna
 G15/räknare till 0,94–0,96 för 2023/2025/2026 och tar riktig tid. Wisent 2024 ligger på 1,05, samma nivå som Komatsu och Rottne. **Känt kvarvarande överskott:** Godsförvaltning
 juni 2024 (två lastcertifikat 36,73 + 79,90 h mot summering 91,50 h, ca 40 h) kan rättas manuellt senare.
-**Wisent-volym (migration `20261018100000_hist_wisent_flaggregel.sql`, ska köras efter ja):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
+**Wisent-volym (migration `20261018100000_hist_wisent_flaggregel.sql`, KÖRD 2026-10-13, verifierad mot simuleringen; övriga maskiners vy-rader oförändrade):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
 flagga men < 3 m³/lass behandlas som `laster_x_1m3` via `hist_korrigering` (falt `volym_kvalitet`, orsak `regel: wisent_lass_x_1m3_utan_flagga`); Wisent med m³/lass utanför 6–18 märks
 `osaker_lasstorlek` ("Osäker volym" i appen), behåller volymen i summan men räknas inte i m³/G15, medelstam, index eller bränsle per m³.
 **Återstår (väntar på beslut):** DEL A: G15/timräknare som kolumn i `vy_hist_maskin_ar`. DEL B: `objektnr_normaliserat` (6 siffror), `virkesordernr_normaliserat`
