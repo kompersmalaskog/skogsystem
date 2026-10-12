@@ -81,6 +81,10 @@ export type ListRad = {
   arTill: number;
   /** Antal objekt med antagen åtgärd (obekräftad maskinstandard) i den här åtgärden, oavsett om de är medräknade. */
   antagna: number;
+  /** Siffran undertryckt: under 25 % av G15 har volym ("För lite data"). */
+  forLite: boolean;
+  /** "baserat på X % av timmarna" (25–90 %). */
+  baserat: string | null;
   /** Fanns objekt i åtgärden bara som antagna (och antagna är inte medtagna)? Då listas maskinen inte. */
   bara_antagna: boolean;
 };
@@ -92,17 +96,20 @@ function listRad(rader: MaskinArRad[], maskin: string, typ: MaskinTyp, atgard: A
   const namn = rad(rader, maskin, atgard, null, "namn");
   const antagna = Math.max(0, (alla?.antal_objekt ?? 0) - (namn?.antal_objekt ?? 0));
   if (!hela || hela.antal_objekt === 0) {
-    return antagna > 0 ? { maskin, typ, antalObjekt: 0, antalMedIndex: 0, g15: null, tal: null, talTyp: "index", arFran: 0, arTill: 0, antagna, bara_antagna: true } : null;
+    return antagna > 0 ? { maskin, typ, antalObjekt: 0, antalMedIndex: 0, g15: null, tal: null, talTyp: "index", arFran: 0, arTill: 0, forLite: false, baserat: null, antagna, bara_antagna: true } : null;
   }
   const ar = aren(rader, maskin, atgard, urval);
   const index = harIndex(typ, atgard);
+  const vs = volymSvar(index ? hela.viktat_index : hela.m3_per_g15, hela);
   return {
     maskin,
     typ,
     antalObjekt: hela.antal_objekt,
     antalMedIndex: hela.antal_med_index,
     g15: hela.g15_h,
-    tal: index ? hela.viktat_index : hela.m3_per_g15,
+    tal: vs.tal,
+    forLite: vs.forLite,
+    baserat: vs.baserat,
     talTyp: index ? "index" : "m3_per_g15",
     arFran: ar[0] ?? 0,
     arTill: ar[ar.length - 1] ?? 0,
@@ -193,6 +200,71 @@ export function fewObjects(antal: number): string | null {
   return antal < MIN_OBJEKT ? `Bygger på ${antal} objekt` : null;
 }
 
+// ---------------------------------------------------------------------------------------------- hur mycket av timmarna som har volym
+
+export const MIN_ANDEL_VOLYM = 0.25;
+export const HOG_ANDEL_VOLYM = 0.9;
+
+/** Andel av G15-timmarna som ligger på objekt med volym (null när m³/G15 inte kan räknas alls). */
+export function andelMedVolym(r: Pick<MaskinArRad, "g15_h" | "g15_med_volym" | "m3_per_g15">): number | null {
+  if (r.m3_per_g15 === null || r.g15_h === null || r.g15_h <= 0 || r.g15_med_volym === null) return null;
+  return Math.min(1, r.g15_med_volym / r.g15_h);
+}
+
+export type VolymSvar = {
+  /** Siffran som får visas (null = saknas eller för lite data). */
+  tal: number | null;
+  forLite: boolean;
+  /** "baserat på X % av timmarna" när X ligger mellan 25 och 90. */
+  baserat: string | null;
+};
+
+/**
+ * Regel för siffror som bygger på volym (m³/G15, viktat index): under 25 % av G15 med volym visas ingen siffra ("För lite data");
+ * 25–90 % visas siffran med "baserat på X % av timmarna"; över 90 % bara siffran.
+ */
+export function volymSvar(varde: number | null, r: Pick<MaskinArRad, "g15_h" | "g15_med_volym" | "m3_per_g15">): VolymSvar {
+  const a = andelMedVolym(r);
+  if (varde === null || a === null) return { tal: varde, forLite: false, baserat: null };
+  if (a < MIN_ANDEL_VOLYM) return { tal: null, forLite: true, baserat: null };
+  if (a < HOG_ANDEL_VOLYM) return { tal: varde, forLite: false, baserat: `baserat på ${Math.floor(a * 100)} % av timmarna` };
+  return { tal: varde, forLite: false, baserat: null };
+}
+
+export const FOR_LITE_DATA = "För lite data";
+
+/** Grå text efter volymsiffran när en del av volymen är härledd ur skördarens rapporter. */
+export function volymKalla(r: Pick<MaskinArRad, "antal_volym_harledd" | "volym_harledd_m3">): string | null {
+  if (r.antal_volym_harledd <= 0 || r.volym_harledd_m3 === null) return null;
+  return `Från skördare: ${fmt(r.volym_harledd_m3, 0)}${NBSP}m³ i ${r.antal_volym_harledd} objekt`;
+}
+
+/** Korta grå rader under maskinen: kända luckor i underlaget. Aldrig fel, bara sådant rapporterna inte innehåller. */
+const SKOTARVOLYM_SYSTEM = "Skotarvolym saknas i rapporterna från hösten 2024, när skotarna började rapportera i ett annat system. Volymen är härledd från skördare där det gick.";
+const EK_VOLYM = "Elephant King gammal 2025–2026 och Elephant King ny saknar skotarvolym i rapporterna (annat system från hösten 2024). Bara enstaka objekt har kunnat få volym från skördare.";
+const SAKNAR_NUMMER = "Rapporterna saknar objektnummer, så ingen skotarvolym kan hämtas från den här skördaren.";
+export const KANDA_LUCKOR: Record<string, string[]> = {
+  "Ponsse Wisent": [
+    SKOTARVOLYM_SYSTEM,
+    "2023: fem summeringar utan objektnummer (222 h G15) har ingen volym.",
+    "Juni 2024: cirka 40 h G15 för mycket (Godsförvaltning) är inte rättat.",
+    "2026: färre lass per G15 än tidigare år (slutavverkning 1,18 mot 1,52 år 2025). Volymen är bekräftad mot Skogsystem (±2 %), så det är ingen mätfel.",
+  ],
+  "Elephant King gammal": [
+    EK_VOLYM,
+    "2024: lass saknas för delar av året (lastcertifikat saknas i april, maj och juni–december).",
+    "Gävle 2026: några objekt kördes av en extern skotare och räknas inte här.",
+  ],
+  "Elephant King ny": [EK_VOLYM],
+  "Komatsu 830.3": ["2018–2019: lass/G15 0,18–0,27, troligen saknas lastcertifikat."],
+  "Komatsu 911.3": [SAKNAR_NUMMER],
+  "Komatsu 941 AptMan": [SAKNAR_NUMMER],
+};
+
+export function kandaLuckor(maskin: string): string[] {
+  return KANDA_LUCKOR[maskin] ?? [];
+}
+
 export type TuSvar = { text: string; ord: boolean; notis: string | null };
 
 /**
@@ -219,6 +291,8 @@ export type Nyckeltal = {
   notis: string | null;
   /** Huvudsiffran ska stå ensam överst, inte i listan. */
   stor?: boolean;
+  /** Grå text efter siffran (varifrån volymen kommer, eller hur stor del av timmarna siffran bygger på). */
+  kalla?: string | null;
 };
 
 const SAKNAS_FORMAT = "saknas i rapportformatet";
@@ -238,11 +312,12 @@ export function nyckeltal(r: MaskinArRad): Nyckeltal[] {
   const wisent = r.maskin === "Ponsse Wisent";
   const volym = med(fmt(r.volym_m3fub, 0), "m³", wisent ? VOLYM_SAKNAS_LASS : "Volym saknas");
   const osaker = r.antal_volym_osaker > 0 ? (wisent ? `Volym saknas eller är osäker i ${r.antal_volym_osaker} objekt (lass utan storlek, eller lasstorlek utanför 6–18 m³)` : `Volymen är osäker i ${r.antal_volym_osaker} objekt (rapporten anger lass × 1 m³ eller schablon)`) : null;
-  ut.push({ etikett: "Total volym", ...volym, notis: osaker });
+  ut.push({ etikett: "Total volym", ...volym, notis: osaker, kalla: volymKalla(r) });
   const g15 = med(fmt(r.g15_h, 0), "h", "G15 saknas");
   ut.push({ etikett: "G15", ...g15, notis: null });
-  const mg = med(fmt(r.m3_per_g15, 1), "", "m³/G15 saknas: G15 saknas i rapporten");
-  ut.push({ etikett: "m³/G15", ...mg, notis: r.m3_per_g15 !== null ? fewObjects(r.antal_med_g15) : null });
+  const vs = volymSvar(r.m3_per_g15, r);
+  const mg = vs.forLite ? { varde: FOR_LITE_DATA, ord: true } : med(fmt(vs.tal, 1), "", "m³/G15 saknas: G15 saknas i rapporten");
+  ut.push({ etikett: "m³/G15", ...mg, notis: r.m3_per_g15 !== null && !vs.forLite ? fewObjects(r.antal_med_g15) : null, kalla: vs.baserat });
   const skordare = r.typ === "skördare";
   const skadaEllerSpecial = r.atgard === "skada" || r.atgard === "special";
   if (skordare) {
@@ -252,8 +327,9 @@ export function nyckeltal(r: MaskinArRad): Nyckeltal[] {
     ut.push({ etikett: "Medelstam", ...ms, notis: null });
     if (skadaEllerSpecial) return ut;
     if (harIndex(r.typ, r.atgard)) {
-      const idx = med(fmt(r.viktat_index, 0), "", "Index saknas: G15 under 2 timmar eller stammar saknas");
-      ut.push({ etikett: "Viktat index", ...idx, notis: r.viktat_index !== null ? fewObjects(r.antal_med_index) : null });
+      const vi = volymSvar(r.viktat_index, r);
+      const idx = vi.forLite ? { varde: FOR_LITE_DATA, ord: true } : med(fmt(vi.tal, 0), "", "Index saknas: G15 under 2 timmar eller stammar saknas");
+      ut.push({ etikett: "Viktat index", ...idx, notis: r.viktat_index !== null && !vi.forLite ? fewObjects(r.antal_med_index) : null, kalla: vi.baserat });
     }
   } else {
     const l = med(fmt(r.lass_per_g15, 2), "", `Lass ${SAKNAS_FORMAT}`);
@@ -261,6 +337,7 @@ export function nyckeltal(r: MaskinArRad): Nyckeltal[] {
   }
   const tu = tuSvar(r);
   ut.push({ etikett: "TU", varde: tu.text, ord: tu.ord, notis: tu.notis });
+  if (r.g15_per_timraknare !== null) ut.push({ etikett: "G15 / timräknare", varde: fmt(r.g15_per_timraknare, 2) as string, ord: false, notis: null });
   if (skordare) {
     const rg = r.andel_rapporter_med_stopp === null ? { varde: `Avbrott ${SAKNAS_FORMAT}`, ord: true } : r.reparationsgrad === null ? { varde: "Inga stopp registrerade i rapporterna", ord: true } : { varde: procent(r.reparationsgrad, 1) as string, ord: false };
     ut.push({ etikett: "Reparationsgrad", ...rg, notis: null });
@@ -273,20 +350,28 @@ export function nyckeltal(r: MaskinArRad): Nyckeltal[] {
 }
 
 /** Huvudtalet överst på maskinsidan. */
-export function huvudtal(r: MaskinArRad | undefined): { varde: string; enhet: string; ord: string | null } {
-  if (!r) return { varde: "–", enhet: "", ord: "Inga objekt i den här åtgärden" };
+export function huvudtal(r: MaskinArRad | undefined): { varde: string; enhet: string; ord: string | null; baserat: string | null } {
+  if (!r) return { varde: "–", enhet: "", ord: "Inga objekt i den här åtgärden", baserat: null };
   if (harIndex(r.typ, r.atgard)) {
-    const v = fmt(r.viktat_index, 0);
-    return v === null ? { varde: "–", enhet: "viktat index", ord: "Index saknas: G15 under 2 timmar eller stammar saknas" } : { varde: v, enhet: "viktat index", ord: null };
+    const vs = volymSvar(r.viktat_index, r);
+    if (vs.forLite) return { varde: "–", enhet: "viktat index", ord: FOR_LITE_DATA, baserat: null };
+    const v = fmt(vs.tal, 0);
+    return v === null ? { varde: "–", enhet: "viktat index", ord: "Index saknas: G15 under 2 timmar eller stammar saknas", baserat: null } : { varde: v, enhet: "viktat index", ord: null, baserat: vs.baserat };
   }
-  const v = fmt(r.m3_per_g15, 1);
-  return v === null ? { varde: "–", enhet: "m³/G15", ord: "m³/G15 saknas: G15 saknas i rapporten" } : { varde: v, enhet: "m³/G15", ord: null };
+  const vs = volymSvar(r.m3_per_g15, r);
+  if (vs.forLite) return { varde: "–", enhet: "m³/G15", ord: FOR_LITE_DATA, baserat: null };
+  const v = fmt(vs.tal, 1);
+  return v === null ? { varde: "–", enhet: "m³/G15", ord: "m³/G15 saknas: G15 saknas i rapporten", baserat: null } : { varde: v, enhet: "m³/G15", ord: null, baserat: vs.baserat };
 }
 
 /** Värdet ett år i diagrammet: index eller m³/G15 beroende på åtgärd. */
-export function diagramVarde(r: MaskinArRad): { varde: number | null; n: number } {
-  if (harIndex(r.typ, r.atgard)) return { varde: r.viktat_index, n: r.antal_med_index };
-  return { varde: r.m3_per_g15, n: r.antal_med_g15 };
+export function diagramVarde(r: MaskinArRad): { varde: number | null; n: number; forLite: boolean } {
+  if (harIndex(r.typ, r.atgard)) {
+    const vs = volymSvar(r.viktat_index, r);
+    return { varde: vs.tal, n: r.antal_med_index, forLite: vs.forLite };
+  }
+  const vs = volymSvar(r.m3_per_g15, r);
+  return { varde: vs.tal, n: r.antal_med_g15, forLite: vs.forLite };
 }
 
 // ---------------------------------------------------------------------------------------------- standardåtgärd (steg 12)
@@ -338,11 +423,11 @@ export function jamforUrval(rader: MaskinArRad[], maskin: string, atgard: Atgard
   return medAntagna || namn === 0 ? "alla" : "namn";
 }
 
-export type JamforCell = { text: string; ord: boolean; notis: string | null; tal: number | null; bast: boolean; extra?: string };
+export type JamforCell = { text: string; ord: boolean; notis: string | null; tal: number | null; bast: boolean; extra?: string; kalla?: string | null };
 export type JamforRad = { etikett: string; celler: JamforCell[]; bastRiktning: "hog" | "lag" | null };
 
 /** Index/linje-serie för diagrammet: viktat index (skördare) eller m³/G15 (skotare), ett värde per år. */
-export function jamforSerie(rader: MaskinArRad[], maskin: string, atgard: AtgardKod | null, medAntagna: boolean): { ar: number; varde: number | null; n: number }[] {
+export function jamforSerie(rader: MaskinArRad[], maskin: string, atgard: AtgardKod | null, medAntagna: boolean): { ar: number; varde: number | null; n: number; forLite: boolean }[] {
   const urval: Urval = jamforUrval(rader, maskin, atgard, medAntagna);
   return rader
     .filter((r) => r.maskin === maskin && r.atgard === atgard && r.urval === urval && r.ar !== null)
@@ -359,14 +444,20 @@ export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: 
   const urvalAv = (m: string) => jamforUrval(rader, m, atgard, medAntagna);
   const rs = maskinerValda.map((m) => rad(rader, m, atgard, null, urvalAv(m)));
   const skordare = typ === "skördare";
-  const cell = (r: MaskinArRad | undefined, f: (r: MaskinArRad) => { text: string; ord: boolean; notis: string | null; tal: number | null; osaker?: boolean }): JamforCell => {
+  const cell = (r: MaskinArRad | undefined, f: (r: MaskinArRad) => { text: string; ord: boolean; notis: string | null; tal: number | null; osaker?: boolean; kalla?: string | null }): JamforCell => {
     if (!r) return { text: "Inga objekt", ord: true, notis: null, tal: null, bast: false };
     const v = f(r);
-    return { text: v.text, ord: v.ord, notis: v.notis, tal: v.osaker ? null : v.tal, bast: false };
+    return { text: v.text, ord: v.ord, notis: v.notis, tal: v.osaker ? null : v.tal, bast: false, kalla: v.kalla ?? null };
   };
   const tal = (v: number | null, dec: number, enhet: string, saknas: string, notis: string | null, osaker = false) => {
     const t = fmt(v, dec);
     return t === null || v === null ? { text: saknas, ord: true, notis: null, tal: null } : { text: enhet ? `${t}${NBSP}${enhet}` : t, ord: false, notis, tal: Math.round(v * 10 ** dec) / 10 ** dec, osaker };
+  };
+  // m³/G15 och index bygger på volym: under 25 % av timmarna med volym visas ingen siffra (och ingen "bäst"), 25–90 % får "baserat på X %"
+  const volymTal = (varde: number | null, r: MaskinArRad, dec: number, saknas: string, notis: string | null, fa: boolean) => {
+    const vs = volymSvar(varde, r);
+    if (vs.forLite) return { text: FOR_LITE_DATA, ord: true, notis: null, tal: null, kalla: null };
+    return { ...tal(vs.tal, dec, "", saknas, notis, fa), kalla: vs.baserat };
   };
   const ut: JamforRad[] = [];
   ut.push({
@@ -385,13 +476,13 @@ export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: 
     })),
     bastRiktning: null,
   });
-  ut.push({ etikett: "Total volym (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.volym_m3fub, 0, "", x.maskin === "Ponsse Wisent" ? VOLYM_SAKNAS_LASS : "Volym saknas", x.antal_volym_osaker > 0 ? (x.maskin === "Ponsse Wisent" ? `Saknas eller osäker i ${x.antal_volym_osaker} objekt: lass utan storlek / lasstorlek` : `Osäker i ${x.antal_volym_osaker} objekt`) : null))), bastRiktning: null });
+  ut.push({ etikett: "Total volym (m³)", celler: rs.map((r) => cell(r, (x) => ({ ...tal(x.volym_m3fub, 0, "", x.maskin === "Ponsse Wisent" ? VOLYM_SAKNAS_LASS : "Volym saknas", x.antal_volym_osaker > 0 ? (x.maskin === "Ponsse Wisent" ? `Saknas eller osäker i ${x.antal_volym_osaker} objekt: lass utan storlek / lasstorlek` : `Osäker i ${x.antal_volym_osaker} objekt`) : null), kalla: volymKalla(x) }))), bastRiktning: null });
   ut.push({ etikett: "G15 (h)", celler: rs.map((r) => cell(r, (x) => tal(x.g15_h, 0, "", "G15 saknas", null))), bastRiktning: null });
-  ut.push({ etikett: "m³/G15", celler: rs.map((r) => cell(r, (x) => tal(x.m3_per_g15, 1, "", "G15 saknas i rapporten", fewObjects(x.antal_med_g15), x.antal_med_g15 < MIN_OBJEKT))), bastRiktning: null });
+  ut.push({ etikett: "m³/G15", celler: rs.map((r) => cell(r, (x) => volymTal(x.m3_per_g15, x, 1, "G15 saknas i rapporten", fewObjects(x.antal_med_g15), x.antal_med_g15 < MIN_OBJEKT))), bastRiktning: null });
   if (skordare) {
     ut.push({ etikett: "Stammar/G15", celler: rs.map((r) => cell(r, (x) => tal(x.stammar_per_g15, 0, "", `Stammar ${SAKNAS_FORMAT}`, null))), bastRiktning: null });
     ut.push({ etikett: "Medelstam (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.medelstam, 3, "", "Stammar saknas", null))), bastRiktning: null });
-    ut.push({ etikett: "Viktat index", celler: rs.map((r) => cell(r, (x) => tal(x.viktat_index, 0, "", "Index saknas: G15 under 2 h", fewObjects(x.antal_med_index), x.antal_med_index < MIN_OBJEKT))), bastRiktning: "hog" });
+    ut.push({ etikett: "Viktat index", celler: rs.map((r) => cell(r, (x) => volymTal(x.viktat_index, x, 0, "Index saknas: G15 under 2 h", fewObjects(x.antal_med_index), x.antal_med_index < MIN_OBJEKT))), bastRiktning: "hog" });
   } else {
     ut.push({ etikett: "Lass/G15", celler: rs.map((r) => cell(r, (x) => tal(x.lass_per_g15, 2, "", `Lass ${SAKNAS_FORMAT}`, null))), bastRiktning: null });
   }

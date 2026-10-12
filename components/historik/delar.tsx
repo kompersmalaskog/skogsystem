@@ -113,12 +113,13 @@ export function Listrad({
 }
 
 /** Nyckeltalsrad: etikett till vänster, värde till höger. Saknad data är ord och får normal textvikt (inte siffrans). */
-export function Nyckelrad({ etikett, varde, ord, notis }: { etikett: string; varde: string; ord: boolean; notis: string | null }) {
+export function Nyckelrad({ etikett, varde, ord, notis, kalla }: { etikett: string; varde: string; ord: boolean; notis: string | null; kalla?: string | null }) {
   return (
     <div style={{ ...RAD, alignItems: "flex-start", justifyContent: "space-between" }}>
       <div style={{ ...TYP.text, color: FARG.text2 }}>{etikett}</div>
       <div style={{ textAlign: "right", maxWidth: "62%" }}>
         <div style={ord ? { ...TYP.meta, color: FARG.text2 } : { ...TYP.listtitel, ...TNUM }}>{varde}</div>
+        {kalla && <div style={{ ...TYP.meta, color: FARG.text2 }}>{kalla}</div>}
         {notis && <Notis text={notis} />}
       </div>
     </div>
@@ -138,7 +139,7 @@ export function Diagram({
   if (serie.length === 0) return null;
   const maxV = Math.max(referens ?? 0, ...serie.map((s) => s.varde ?? 0)) * 1.1 || 1;
   const smal = serie.length > 9;
-  const beskr = `${etikett} per år: ` + serie.map((s) => `${s.ar} ${s.varde === null ? "saknas" : fmt(s.varde, referens ? 0 : 1)}`).join(", ");
+  const beskr = `${etikett} per år: ` + serie.map((s) => `${s.ar} ${s.varde === null ? (s.forLite ? "för lite data" : "saknas") : fmt(s.varde, referens ? 0 : 1)}`).join(", ");
   return (
     <div role="group" aria-label={beskr} style={{ position: "relative" }}>
       <div style={{ display: "flex", gap: AVSTAND.xs, alignItems: "flex-end" }}>
@@ -157,7 +158,7 @@ export function Diagram({
               }}
             >
               <span style={{ ...TYP.meta, ...TNUM, color: s.varde === null ? FARG.text2 : FARG.text }}>
-                {s.varde === null ? "saknas" : fmt(s.varde, referens ? 0 : 1)}
+                {s.varde === null ? (s.forLite ? "För lite data" : "saknas") : fmt(s.varde, referens ? 0 : 1)}
               </span>
               <span style={{ height: DIAGRAM_HOJD, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", position: "relative" }}>
                 <span style={{ width: "70%", height: h, background: farg, borderRadius: RADIE.rad / 2, opacity: s.n < 5 ? 0.45 : 1 }} />

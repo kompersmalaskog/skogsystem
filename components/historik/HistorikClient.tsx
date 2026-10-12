@@ -9,7 +9,7 @@ import { AVSTAND, designCss, FARG, KNAPP, RADIE, TYP, VY_ROT } from "@/lib/desig
 import Tillstand from "@/components/design/Tillstand";
 import { hamtaMaskinAr, hamtaObjekt, signeradLank } from "@/lib/historik/data";
 import {
-  ATGARD_ETIKETT, SEGMENT_ETIKETT, antagnaIAtgard, arSpann, aren, atgardsrader, fewObjects, fmt, harIndex, huvudtal, MIN_OBJEKT, nyckeltal, okandaObjekt, procent, rad,
+  ATGARD_ETIKETT, SEGMENT_ETIKETT, antagnaIAtgard, arSpann, aren, atgardsrader, fewObjects, fmt, FOR_LITE_DATA, harIndex, huvudtal, kandaLuckor, MIN_OBJEKT, nyckeltal, okandaObjekt, procent, rad,
   skordarlista, skotarlista, standardAtgard, VOLYM_SAKNAS_LASS, type ListRad, type Segment,
 } from "@/lib/historik/berakna";
 import type { AtgardKod, MaskinArRad, MaskinTyp, ObjektRad } from "@/lib/historik/typer";
@@ -138,12 +138,15 @@ function Lista({ rader, vy, gaTill }: SidProps) {
     if (r.talTyp === "index") {
       const f = fewObjects(r.antalMedIndex);
       if (f && siffra) notiser.push(`Index: ${f.toLowerCase()}`);
-      if (siffra === null) notiser.push("Index saknas: G15 under 2 timmar eller stammar saknas");
+      if (r.forLite) notiser.push(FOR_LITE_DATA);
+      else if (siffra === null) notiser.push("Index saknas: G15 under 2 timmar eller stammar saknas");
     } else {
       const f = fewObjects(r.antalObjekt);
       if (f) notiser.push(f);
-      if (siffra === null) notiser.push("m³/G15 saknas: G15 saknas i rapporten");
+      if (r.forLite) notiser.push(FOR_LITE_DATA);
+      else if (siffra === null) notiser.push("m³/G15 saknas: G15 saknas i rapporten");
     }
+    if (r.baserat) notiser.push(r.baserat[0].toUpperCase() + r.baserat.slice(1));
     if (atgard && r.antagna > 0 && vy.antagna) notiser.push(`Inkl. ${r.antagna} antagna objekt`);
     return <Listrad key={r.maskin} namn={r.maskin} meta={listMeta(r)} siffra={siffra ?? "–"} enhet={r.talTyp === "index" ? "viktat index" : "m³/G15"} notiser={notiser} onClick={() => oppna(r, a)} />;
   };
@@ -227,6 +230,10 @@ function MaskinSida({ rader, vy, gaTill }: SidProps) {
         {typ === "skördare" ? "Skördare" : "Skotare"} · {ar.length ? arSpann(ar[0], ar[ar.length - 1]) : "–"}
       </p>
 
+      {kandaLuckor(maskin).map((t) => (
+        <p key={t} style={{ ...TYP.meta, color: FARG.text3, margin: `${AVSTAND.s}px 0 0` }}>{t}</p>
+      ))}
+
       <div style={{ marginTop: AVSTAND.sektion }}>
         <div style={{ ...TYP.meta, color: FARG.text2 }}>{atgLabel}</div>
         {ht.ord ? (
@@ -244,6 +251,7 @@ function MaskinSida({ rader, vy, gaTill }: SidProps) {
             {!index && valdAtgard !== null ? " · jämförs inte med andra åtgärder" : ""}
           </div>
         )}
+        {ht.baserat && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{ht.baserat}</div>}
         {hela && index && hela.viktat_index !== null && fewObjects(hela.antal_med_index) && <Notis text={`Index: ${(fewObjects(hela.antal_med_index) as string).toLowerCase()}`} />}
         {hela && !index && hela.m3_per_g15 !== null && fewObjects(hela.antal_med_g15) && <Notis text={fewObjects(hela.antal_med_g15) as string} />}
       </div>
@@ -357,12 +365,13 @@ function ArSida({ rader, vy, gaTill }: SidProps) {
           objekt.map((o) => {
             const datum = o.startdatum && o.slutdatum && o.startdatum !== o.slutdatum ? `${o.startdatum} – ${o.slutdatum}` : (o.startdatum ?? o.rapportdatum ?? "datum saknas");
             const delar = [datum, o.g15_h !== null ? `${fmt(o.g15_h, 1)} h G15` : "G15 saknas i rapporten"];
-            if (o.volym_m3fub !== null) delar.push(`${fmt(o.volym_m3fub, 0)} m³${o.volym_kvalitet === "osaker_lasstorlek" ? " (osäker volym)" : ""}`);
+            const fran = o.volym_kvalitet?.startsWith("fran_skordare_") ? " · Från skördare" : "";
+            if (o.volym_m3fub !== null) delar.push(`${fmt(o.volym_m3fub, 0)} m³${fran || (o.volym_kvalitet && o.volym_kvalitet !== "lass_utan_storlek" ? " · Osäker" : "")}`);
             else delar.push(o.volym_kvalitet === "lass_utan_storlek" ? VOLYM_SAKNAS_LASS.toLowerCase() : "volym saknas");
             const meta2 = [o.forare ? `${o.forare}${o.forare_andel !== null ? ` ${procent(o.forare_andel)}` : ""}` : typ === "skördare" ? "Förare saknas i rapporten" : null, o.atgard !== vy.atgard ? ATGARD_ETIKETT[o.atgard] : null, o.urval === "standard" ? "antagen åtgärd" : null, o.atgard_kalla?.startsWith("kopplad_till_skordare") ? "åtgärd ur kopplad skördarrapport" : null].filter(Boolean).join(" · ");
             const notiser: string[] = [];
             if (o.volym_kvalitet === "osaker_lasstorlek") notiser.push("Osäker volym: lasstorleken ligger utanför 6–18 m³ och räknas inte med i m³/G15");
-            else if (o.volym_kvalitet && o.volym_kvalitet !== "lass_utan_storlek") notiser.push("Volymen är osäker i rapporten (lass × 1 m³ eller schablon)");
+            else if (o.volym_kvalitet && o.volym_kvalitet !== "lass_utan_storlek" && !o.volym_kvalitet.startsWith("fran_skordare_")) notiser.push("Volymen är osäker i rapporten (lass × 1 m³ eller schablon)");
             if (o.antal_andra_utskrifter > 0) notiser.push(`${o.antal_andra_utskrifter} andra utskrifter av samma objekt räknas inte`);
             const siffra = index ? fmt(o.index, 0) : fmt(o.m3_per_g15, 1);
             return (

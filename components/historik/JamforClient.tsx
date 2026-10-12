@@ -182,6 +182,7 @@ function Jamfor({ rader, jv, gaTill }: { rader: MaskinArRad[]; jv: Jv; gaTill: (
                       {r.celler.map((c, i) => (
                         <td key={i} style={{ textAlign: "right", verticalAlign: "top", padding: `${AVSTAND.m}px ${AVSTAND.xs}px`, borderBottom: `1px solid ${FARG.linje}`, overflowWrap: "anywhere" }}>
                           <div style={c.ord ? { ...TYP.meta, color: FARG.text2 } : { ...TYP.meta, ...TNUM, fontWeight: c.bast ? 700 : 400 }}>{c.text}</div>
+                          {c.kalla && <div style={{ ...TYP.micro, textTransform: "none", color: FARG.text2, fontWeight: 400 }}>{c.kalla}</div>}
                           {c.bast && <div style={{ ...TYP.micro, textTransform: "none", color: FARG.text }}>bäst</div>}
                           {c.extra && <div style={{ ...TYP.micro, textTransform: "none", color: FARG.text2, fontWeight: 400 }}>{c.extra}</div>}
                           {c.notis && <div style={{ display: "flex", justifyContent: "flex-end" }}><Notis text={c.notis} /></div>}

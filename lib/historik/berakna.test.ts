@@ -2,7 +2,7 @@
 // (aldrig hela vitest med .env.local — den ansluter mot PROD).
 import { describe, expect, it } from "vitest";
 import {
-  antagnaIAtgard, atgardsrader, diagramVarde, fewObjects, fmt, harIndex, huvudtal, jamforRader, jamforSerie, maskinerMedObjekt, nyckeltal, okandaObjekt, procent, skordarlista,
+  andelMedVolym, antagnaIAtgard, atgardsrader, diagramVarde, FOR_LITE_DATA, kandaLuckor, volymKalla, volymSvar, fewObjects, fmt, harIndex, huvudtal, jamforRader, jamforSerie, maskinerMedObjekt, nyckeltal, okandaObjekt, procent, skordarlista,
   skotarlista, standardAtgard, tuSvar,
 } from "./berakna";
 import type { AtgardKod, MaskinArRad, MaskinTyp, Urval } from "./typer";
@@ -11,7 +11,8 @@ function r(p: Partial<MaskinArRad> & { maskin: string; typ: MaskinTyp; atgard: A
   return {
     antal_objekt: 10, antal_med_g15: 10, volym_m3fub: 1000, g15_h: 100, m3_per_g15: 10, stammar_per_g15: 50, medelstam: 0.2, antal_med_index: 10, viktat_index: 100,
     antal_rapporter_med_stopp: 10, andel_rapporter_med_stopp: 1, tu: 0.9, reparationsgrad: 0.02, servicegrad: 0.03, storningsgrad: 0.05, bransle_l_per_m3: 1.5,
-    lass_per_g15: null, antal_med_lass: 0, antal_volym_osaker: 0, tu_rapporterad: null, antal_med_tu_rapporterad: 0, bransle_l_per_g15: null, ...p,
+    lass_per_g15: null, antal_med_lass: 0, antal_volym_osaker: 0, tu_rapporterad: null, antal_med_tu_rapporterad: 0, bransle_l_per_g15: null,
+    g15_per_timraknare: null, antal_volym_harledd: 0, volym_harledd_m3: null, g15_med_volym: p.g15_h === undefined ? 100 : p.g15_h, ...p,
   };
 }
 
@@ -48,9 +49,9 @@ describe("index finns bara för skördare i gallring/slutavverkning", () => {
     expect(harIndex("skotare", null)).toBe(false);
   });
   it("huvudtal: index för skördare gallring, m³/G15 för skotare", () => {
-    expect(huvudtal(rader[0])).toEqual({ varde: "102", enhet: "viktat index", ord: null });
+    expect(huvudtal(rader[0])).toEqual({ varde: "102", enhet: "viktat index", ord: null, baserat: null });
     const sk = rader.find((x) => x.maskin === "Komatsu 875" && x.atgard === null && x.urval === "namn");
-    expect(huvudtal(sk)).toEqual({ varde: "25,1", enhet: "m³/G15", ord: null });
+    expect(huvudtal(sk)).toEqual({ varde: "25,1", enhet: "m³/G15", ord: null, baserat: null });
     expect(huvudtal(undefined).ord).toMatch(/Inga objekt/);
   });
 });
@@ -140,8 +141,8 @@ describe("formatering", () => {
     expect(procent(0.941, 1)).toBe("94,1 %");
   });
   it("diagramvärde: index för skördare, m³/G15 för övrigt", () => {
-    expect(diagramVarde(r({ maskin: "A", typ: "skördare", atgard: "gallring", ar: 2020, urval: "namn", viktat_index: 97, antal_med_index: 3 }))).toEqual({ varde: 97, n: 3 });
-    expect(diagramVarde(r({ maskin: "A", typ: "skördare", atgard: "skada", ar: 2020, urval: "namn", m3_per_g15: 6, antal_med_g15: 4 }))).toEqual({ varde: 6, n: 4 });
+    expect(diagramVarde(r({ maskin: "A", typ: "skördare", atgard: "gallring", ar: 2020, urval: "namn", viktat_index: 97, antal_med_index: 3 }))).toEqual({ varde: 97, n: 3, forLite: false });
+    expect(diagramVarde(r({ maskin: "A", typ: "skördare", atgard: "skada", ar: 2020, urval: "namn", m3_per_g15: 6, antal_med_g15: 4 }))).toEqual({ varde: 6, n: 4, forLite: false });
   });
 });
 
@@ -181,7 +182,7 @@ describe("jämförelsen (steg 12)", () => {
     expect(maskinerMedObjekt(d, "skördare", "slutavverkning", false)).toEqual([]);
   });
   it("jamforSerie: ett värde per år, stigande", () => {
-    expect(jamforSerie(d, "A", "gallring", false)).toEqual([{ ar: 2023, varde: 108, n: 30 }, { ar: 2024, varde: 99, n: 20 }]);
+    expect(jamforSerie(d, "A", "gallring", false)).toEqual([{ ar: 2023, varde: 108, n: 30, forLite: false }, { ar: 2024, varde: 99, n: 20, forLite: false }]);
   });
   it("bäst markeras i m³/G15, index, TU (högst) och bränsle (lägst), bara bland tillförlitliga värden", () => {
     const rader_ = Object.fromEntries(jamforRader(d, ["A", "B", "C"], "skördare", "gallring", false).map((x) => [x.etikett, x]));
@@ -240,5 +241,81 @@ describe("steg 13: Ponsse-TU och Wisent-volym", () => {
     const v = n.find((x) => x.etikett === "Total volym")!;
     expect(v.varde).toBe("Volym saknas: lass utan storlek");
     expect(v.notis).toMatch(/lass utan storlek/);
+  });
+});
+
+describe("steg 15: andel av timmarna med volym, källa och kända luckor", () => {
+  const bas = (g15_med_volym: number | null, m3: number | null = 20) => ({ g15_h: 100, g15_med_volym, m3_per_g15: m3 });
+  it("under 25 %: ingen siffra, 'För lite data'", () => {
+    expect(volymSvar(20, bas(4))).toEqual({ tal: null, forLite: true, baserat: null });
+    expect(volymSvar(20, bas(24.9)).forLite).toBe(true);
+  });
+  it("25–90 %: siffran med 'baserat på X % av timmarna' (avrundat nedåt)", () => {
+    expect(volymSvar(20, bas(25))).toEqual({ tal: 20, forLite: false, baserat: "baserat på 25 % av timmarna" });
+    expect(volymSvar(20, bas(89.9)).baserat).toBe("baserat på 89 % av timmarna");
+  });
+  it("90 % och över: bara siffran", () => {
+    expect(volymSvar(20, bas(90))).toEqual({ tal: 20, forLite: false, baserat: null });
+    expect(volymSvar(20, bas(100)).baserat).toBeNull();
+  });
+  it("saknad m³/G15 förblir saknad, inte 'för lite data'", () => {
+    expect(volymSvar(null, bas(null, null))).toEqual({ tal: null, forLite: false, baserat: null });
+    expect(andelMedVolym(bas(null, null))).toBeNull();
+  });
+  it("nyckeltal: Elephant King 2025 (4 %) visar 'För lite data', 47 % visar baserat-text", () => {
+    const lite = nyckeltal(r({ maskin: "Elephant King gammal", typ: "skotare", atgard: null, ar: 2025, urval: "alla", g15_h: 1851.9, g15_med_volym: 77, m3_per_g15: 33.3 }));
+    expect(lite.find((x) => x.etikett === "m³/G15")).toMatchObject({ varde: FOR_LITE_DATA, ord: true });
+    const mitt = nyckeltal(r({ maskin: "Ponsse Wisent", typ: "skotare", atgard: null, ar: 2025, urval: "alla", g15_h: 1846.7, g15_med_volym: 865.7, m3_per_g15: 16.6 }));
+    expect(mitt.find((x) => x.etikett === "m³/G15")).toMatchObject({ varde: "16,6", ord: false, kalla: "baserat på 46 % av timmarna" });
+  });
+  it("lista och huvudtal följer samma regel", () => {
+    const d = [r({ maskin: "Elephant King gammal", typ: "skotare", atgard: null, ar: null, urval: "namn", g15_h: 100, g15_med_volym: 4, m3_per_g15: 33 })];
+    const l = skotarlista(d)[0];
+    expect(l.tal).toBeNull();
+    expect(l.forLite).toBe(true);
+    expect(huvudtal(d[0]).ord).toBe(FOR_LITE_DATA);
+    expect(diagramVarde(d[0])).toMatchObject({ varde: null, forLite: true });
+  });
+  it("jämförelse: siffran under 25 % visas inte och kan aldrig bli 'bäst'", () => {
+    const d: MaskinArRad[] = [
+      r({ maskin: "A", typ: "skördare", atgard: "gallring", ar: null, urval: "namn", antal_objekt: 20, viktat_index: 130, g15_med_volym: 10 }),
+      r({ maskin: "B", typ: "skördare", atgard: "gallring", ar: null, urval: "namn", antal_objekt: 20, viktat_index: 110 }),
+    ];
+    const t = jamforRader(d, ["A", "B"], "skördare", "gallring", false);
+    const idx = t.find((x) => x.etikett === "Viktat index")!;
+    expect(idx.celler[0]).toMatchObject({ text: FOR_LITE_DATA, tal: null, bast: false });
+    expect(idx.celler[1].bast).toBe(false); // ensam giltig: ingen jämförelse, ingen markering
+    const m3 = t.find((x) => x.etikett === "m³/G15")!;
+    expect(m3.celler[0].text).toBe(FOR_LITE_DATA);
+  });
+  it("jämförelse: 25–90 % får baserat-text under siffran", () => {
+    const d: MaskinArRad[] = [
+      r({ maskin: "A", typ: "skotare", atgard: null, ar: null, urval: "namn", antal_objekt: 20, g15_med_volym: 50, lass_per_g15: 1.2 }),
+      r({ maskin: "B", typ: "skotare", atgard: null, ar: null, urval: "namn", antal_objekt: 20, lass_per_g15: 1.0 }),
+    ];
+    const t = jamforRader(d, ["A", "B"], "skotare", null, false);
+    expect(t.find((x) => x.etikett === "m³/G15")!.celler[0].kalla).toBe("baserat på 50 % av timmarna");
+    expect(t.find((x) => x.etikett === "m³/G15")!.celler[1].kalla).toBeNull();
+    expect(t.find((x) => x.etikett === "Lass/G15")).toBeDefined();
+    expect(t.find((x) => x.etikett === "G15 / timräknare")).toBeUndefined();
+  });
+  it("volymkälla: 'Från skördare' bara när volym är härledd", () => {
+    expect(volymKalla({ antal_volym_harledd: 0, volym_harledd_m3: null })).toBeNull();
+    expect(volymKalla({ antal_volym_harledd: 24, volym_harledd_m3: 9106.9 })).toMatch(/^Från skördare: 9.107.m³ i 24 objekt$/);
+    const n = nyckeltal(r({ maskin: "Ponsse Wisent", typ: "skotare", atgard: null, ar: 2024, urval: "alla", antal_volym_harledd: 24, volym_harledd_m3: 9106.9 }));
+    expect(n.find((x) => x.etikett === "Total volym")!.kalla).toMatch(/Från skördare/);
+  });
+  it("G15/timräknare visas i nyckeltal (maskinsidan) när det finns", () => {
+    const n = nyckeltal(r({ maskin: "Ponsse Wisent", typ: "skotare", atgard: null, ar: 2025, urval: "alla", g15_per_timraknare: 1.01 }));
+    expect(n.find((x) => x.etikett === "G15 / timräknare")!.varde).toBe("1,01");
+    expect(nyckeltal(r({ maskin: "X", typ: "skotare", atgard: null, ar: 2025, urval: "alla" })).some((x) => x.etikett === "G15 / timräknare")).toBe(false);
+  });
+  it("kända luckor finns för de berörda maskinerna och är korta", () => {
+    expect(kandaLuckor("Ponsse Wisent").join(" ")).toMatch(/hösten 2024/);
+    expect(kandaLuckor("Ponsse Wisent").join(" ")).toMatch(/1,18 mot 1,52/);
+    expect(kandaLuckor("Elephant King ny")[0]).toMatch(/Elephant King gammal 2025–2026 och Elephant King ny/);
+    expect(kandaLuckor("Komatsu 830.3")[0]).toMatch(/0,18–0,27/);
+    expect(kandaLuckor("Komatsu 941 AptMan").length).toBe(1);
+    expect(kandaLuckor("Rottne H8D")).toEqual([]);
   });
 });

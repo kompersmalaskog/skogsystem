@@ -36,6 +36,12 @@ export type MaskinArRad = {
   tu_rapporterad: number | null;
   antal_med_tu_rapporterad: number;
   bransle_l_per_g15: number | null;
+  /** G15 / Ponsses timräknare (bara åtgärd = alla, ett år). Visas bara på maskinsidan. */
+  g15_per_timraknare: number | null;
+  antal_volym_harledd: number;
+  volym_harledd_m3: number | null;
+  /** G15 på objekt som har volym; m³/G15 bygger bara på dem. */
+  g15_med_volym: number | null;
 };
 
 export type ObjektRad = {
@@ -105,6 +111,10 @@ export function tillMaskinAr(r: Record<string, unknown>): MaskinArRad {
     tu_rapporterad: tal(r.tu_rapporterad),
     antal_med_tu_rapporterad: tal(r.antal_med_tu_rapporterad) ?? 0,
     bransle_l_per_g15: tal(r.bransle_l_per_g15),
+    g15_per_timraknare: tal(r.g15_per_timraknare),
+    antal_volym_harledd: tal(r.antal_volym_harledd) ?? 0,
+    volym_harledd_m3: tal(r.volym_harledd_m3),
+    g15_med_volym: tal(r.g15_med_volym),
   };
 }
 

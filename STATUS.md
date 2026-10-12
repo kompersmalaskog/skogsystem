@@ -92,13 +92,38 @@ juni 2024 (två lastcertifikat 36,73 + 79,90 h mot summering 91,50 h, ca 40 h) k
 **Wisent-volym (migration `20261018100000_hist_wisent_flaggregel.sql`, KÖRD 2026-10-13, verifierad mot simuleringen; övriga maskiners vy-rader oförändrade):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
 flagga men < 3 m³/lass behandlas som `laster_x_1m3` via `hist_korrigering` (falt `volym_kvalitet`, orsak `regel: wisent_lass_x_1m3_utan_flagga`); Wisent med m³/lass utanför 6–18 märks
 `osaker_lasstorlek` ("Osäker volym" i appen), behåller volymen i summan men räknas inte i m³/G15, medelstam, index eller bränsle per m³.
-**DEL B (förberedd, ej körd):** migration `20261019100000_hist_objektnr.sql` (kolumnerna `objektnr_normaliserat`, `virkesordernr_normaliserat`, `objektnr_alla text[]` + GIN-index, och
-`g15_per_timraknare` sist i `vy_hist_maskin_ar`). Värdena kommer från `hist_objektnr.py` (4 598 av 6 788 rader med maskin får minst ett nummer; Komatsu 911.3 och 941 AptMan nästan inga).
-Wisent 2023: 5 av 21 objekt saknar volym (222 h G15) – fristående summeringar utan lastcertifikat, utan lass, 4 av 5 utan nummer; kan inte fyllas via skördare.
-**Återstår (väntar på beslut):** DEL A: G15/timräknare som kolumn i `vy_hist_maskin_ar`. DEL B: `objektnr_normaliserat` (6 siffror), `virkesordernr_normaliserat`
-(8 siffror), `objektnr_alla text[]` med GIN-index i `hist_objekt` (skript `hist_objektnr.py`, ej körd). DEL C: volym från skördare till skotare via delat
-nummer (`hist_koppling_nr.py`), lagras i `hist_korrigering` med orsak `regel: volym_fran_skordare_objektnr`, kontroll 8–14 m³/lass per Wisent-objekt,
-m³/G15 bara på objekt med volym.
+**Steg 15 (2026-10-13/14), objektnummer och volym från skördare till skotare — datan låst efter STOPP 1:**
+- **Objektnummer (KÖRD):** `hist_objekt.objektnr_normaliserat` (6 siffror), `virkesordernr_normaliserat` (8 siffror), `objektnr_alla text[]` + GIN-index ur `hist_objektnr.py`
+  (4 539 rader med nummer, 945 med flera; striktare än första förslaget 4 609/1 110 eftersom datum- och tidsfragment, som yymmdd, ddmmyy och hhmmss, utesluts — godkänt).
+  Hash av sorterade `objektnr_alla` är lika lokalt och i databasen. `vy_hist_maskin_ar.g15_per_timraknare` (G15 / Ponsses timräknare) visas bara på maskinsidan.
+- **Volym från skördare (`hist_korrigering`, falt `volym_harledd`, nytt_varde = m³):** skotaren får skördarens volym via delat objektnummer, bara där egen uppmätt volym saknas, med
+  tidsfönster (skotaren klar före skördarens start, eller start > 180 dagar efter skördarens slut ⇒ bort), flera skotare på samma nummer fördelas efter lass (Elephant King utan lass: efter G15),
+  G15 alltid ur skotarens egen rapport. (a) Skogsystem (`dim_objekt.vo_nummer` + `fakt_*`, läst) före (b) PDF-skördare; i praktiken gav (a) bara ett fynd (Anders Ingemarsson), eftersom
+  Skogsystem bara har produktion från aug 2025 (Giant) och Wisents volym 2026 redan är uppmätt (stämmer mot Skogsystem inom ±2 %).
+  Orsaker: `regel: volym_fran_skordare_pdf`, `regel: volym_fran_skordare_skogsystem`, `regel: gavle_volym_fran_giant` (visas "Från skördare").
+  **Wisent:** kontroll 6–18 m³/lass per objekt; 66 objekt fyllda (24 år 2024, 42 år 2025; median 13,7 resp. 11,6 m³/lass), 219 kandidater stoppade (181 utan kopplad skördare,
+  23 utan lass, 10 utanför gränsen, 4 redan uppmätta, 1 Skogsystem "kvar −21"; lista i `hist_csv/hist_volym_stoppade.csv`).
+  **Elephant King (inget lass):** kontroll m³/G15 inom 0,5–2,0 × maskinens egen referens (median per åtgärd, Elephant King gammal 2022–2023: slutavverkning 25,1, okänd 22,3, skada 16,8, alla 24,2);
+  17 objekt fyllda, 128 stoppade (`hist_volym_ek_harledd.csv`, `hist_volym_ek_stoppade.csv`).
+  **Gävle 2026:** Elephant Kings skadeobjekt får Giants volym på samma objekt (namn, sedan period; Hushållningssällskapet 1 mot Giant 332, 2 mot Giant 887), EK:s G15 är egen. Sex Giant-objekt
+  (Elisabeth Hanako Leander, Granne Peter, Kenneth Karlsson, Peter Eklund, Ingeröslund, Åkes Magnus Åkerberg) kördes av extern skotare, bekräftat, och ger ingen Elephant-volym.
+  Migrationer `20261020100000_hist_volym_harledd.sql` och `20261020110000_hist_gavle_kalla.sql` (bara vyer; nya sista kolumner i `vy_hist_objekt_bas`, `vy_hist_maskin_ar`).
+  Alla skördares rader i `vy_hist_maskin_ar` var oförändrade före/efter (radjämförelse mot kopia, raderad efter låsning); bara Wisent och Elephant King gammal ändrades.
+- **App:** m³/G15 och viktat index per år: under 25 % av G15 med volym visas ingen siffra ("För lite data", t.ex. Elephant King gammal 2025, 4 %); 25–90 % "baserat på X % av timmarna"; över 90 % bara siffran.
+  Samma regel i listan, diagrammet och jämförelsen, och en siffra under 25 % kan aldrig markeras "bäst". Härledd volym märks "Från skördare" i grå text (nyckeltal, jämförelse, objektlistan);
+  osäker volym märks "Osäker". Lass/G15 för skotare är en egen rad i jämförelsen. G15/timräknare finns bara på maskinsidan.
+- **Kända luckor** (visas som korta grå rader under maskinen i appen, aldrig som fel; text i `KANDA_LUCKOR` i `lib/historik/berakna.ts`):
+  - Skotarvolym saknas i rapporterna från hösten 2024, när skotarna började rapportera i ett annat system. Volymen är härledd från skördare där det gick.
+  - Elephant King gammal 2025–2026 och Elephant King ny saknar skotarvolym i rapporterna (annat system från hösten 2024). Bara enstaka objekt har kunnat få volym från skördare.
+  - Wisent 2026: färre lass per G15 än tidigare år (slutavverkning 1,18 mot 1,52 år 2025). Volymen är bekräftad mot Skogsystem (±2 %), så det är ingen mätfel.
+  - Godsförvaltning juni 2024 (Wisent): cirka 40 h G15 för mycket, inte rättat.
+  - Wisent 2023: fem summeringar utan objektnummer (222 h G15) har ingen volym.
+  - Komatsu 911.3 och 941 AptMan saknar objektnummer, så ingen skotarvolym kan hämtas från dem.
+  - Elephant King gammal 2024: lass saknas för delar av året (lastcertifikat saknas i april, maj och juni–december; februari saknar rapporter helt), därför lass/G15 0,34 mot 1,0 år 2023 och G15/timräknare 0,81.
+  - Gävle 2026: några Giant-objekt kördes av en extern skotare och räknas inte på Elephant King.
+  - Komatsu 830.3 2018–2019: lass/G15 0,18–0,27, troligen saknade lastcertifikat.
+- **Återstår:** Wisent 2025 har volym på 47 % av G15 (39 objekt kvar utan volym); Elephant King gammal 2025/Elephant King ny har nästan ingen volym; R3 (se ovan) körs inte;
+  Godsförvaltning-överskottet kan rättas manuellt; PR och merge till main väntar på Martins ja.
 
 **Kända begränsningar:** Giant 2023/2025 och King ny saknar avbrottsfördelning i formatet (TU = G15 / arbetstid enligt Ponsse). Komatsu 911.3 och
 941 AptMan saknar bränsle. Skotarnas åtgärd är okänd för cirka 850 av objekten. 435 MaxiXplorer-produktionsrapporter (volym utan tider) är
@@ -109,7 +134,7 @@ kan inte räknas bort (sortiment finns inte i `hist_*`).
 **Skript** (`scripts/historik/`, kör i ordning): `hist_underlag.py` → `hist_avbrott.py` → `hist_bygg.py` → `hist_raknas.py` → `hist_korrigering.py` →
 `importera.py` (torrkörning är standard; `--utfor` kräver servicenyckel + `HIST_IMPORT_OK=ja`; vitlista: bara `hist_*` och bucketen `historik`).
 `verifiera_migration.py` bevisar att hist-migrationerna bara rör `hist_*` / `vy_hist_*` och policyn på bucketen `historik`. Mbox och PDF ligger
-aldrig i repot. Migrationerna `20261009170000` … `20261016110000` är redan körda i prod via MCP.
+aldrig i repot. Migrationerna `20261009170000` … `20261020110000` är redan körda i prod via MCP.
 
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
