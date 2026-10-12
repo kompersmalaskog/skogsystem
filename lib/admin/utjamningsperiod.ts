@@ -42,7 +42,7 @@ export const slutFranMandag = (mandag: string) => iso(dagar(lokal(mandag), 6))
 /** Måndagen i veckan som slutar på söndagen `slut` (för att fylla formuläret ur en sparad period). */
 export const mandagFranSlut = (slut: string) => iso(dagar(lokal(slut), -6))
 
-export type Veckorad = { mandag: string; vecka: number; etikett: string; manad: string; manadText: string };
+export type Veckorad = { mandag: string; vecka: number; ar: number; etikett: string; manad: string; manadText: string };
 
 const MAN_LANG = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
 const mandagFor = (s: string) => { const d = lokal(s); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d; };
@@ -58,50 +58,45 @@ export function veckoRader(fran: string, till: string): Veckorad[] {
     const s = dagar(m, 6);
     const dagText = m.getMonth() === s.getMonth() ? `${m.getDate()}–${s.getDate()} ${MAN_KORT[m.getMonth()]}` : `${m.getDate()} ${MAN_KORT[m.getMonth()]}–${s.getDate()} ${MAN_KORT[s.getMonth()]}`;
     const v = isoVecka(m);
-    ut.push({ mandag: iso(m), vecka: v.vecka, etikett: `v${v.vecka} · ${dagText}`, manad: iso(m).slice(0, 7), manadText: `${MAN_LANG[m.getMonth()]} ${m.getFullYear()}` });
+    ut.push({ mandag: iso(m), vecka: v.vecka, ar: m.getFullYear(), etikett: `v${v.vecka} · ${dagText}`, manad: iso(m).slice(0, 7), manadText: `${MAN_LANG[m.getMonth()]} ${m.getFullYear()}` });
   }
   return ut;
 }
 
-const VECKOR_BAKAT = 6;
-const VECKOR_FRAMAT = 26;     // ca sex månader
-const VECKOR_PER_TRYCK = 26;
-
-/**
- * Veckorna kalendern visar: ca sex månader framåt och sex veckor bakåt runt det som är valt (annars runt veckan vi är i),
- * så en period man ändrar syns direkt och listan blir kort nog att ligga i arkets enda scroll. `bakat`/`framat` = antal
- * tryck på Tidigare/Senare, 26 veckor var.
- */
-export function veckoFonster(u: Urval, idagMandag: string, bakat: number, framat: number): { fran: string; till: string } {
-  const a = u.forsta || idagMandag;
-  const b = u.sista || u.forsta || idagMandag;
-  return {
-    fran: iso(dagar(lokal(a), -7 * (VECKOR_BAKAT + VECKOR_PER_TRYCK * bakat))),
-    till: iso(dagar(lokal(b), 7 * (VECKOR_FRAMAT + VECKOR_PER_TRYCK * framat))),
-  };
-}
-
 export type Urval = { forsta: string; sista: string };
 
-/** Första trycket sätter första veckan, nästa sista veckan (före den första byter plats), ett tryck till börjar om. */
-export function tryckVecka(u: Urval, mandag: string): Urval {
-  if (!u.forsta || u.sista) return { forsta: mandag, sista: "" };
-  return mandag < u.forsta ? { forsta: mandag, sista: u.forsta } : { forsta: u.forsta, sista: mandag };
+const VECKOR_RUNT_VALET = 26;     // ca sex månader åt vardera hållet
+
+/**
+ * Veckorna i den korta listan som fälls ut under Från/Till: 26 veckor åt vardera hållet runt den valda veckan. Till visas
+ * aldrig före Från.
+ */
+export function veckoValFonster(slag: "fran" | "till", vald: string, fran: string): { fran: string; till: string } {
+  const bakat = iso(dagar(lokal(vald), -7 * VECKOR_RUNT_VALET));
+  return { fran: slag === "till" && fran && fran > bakat ? fran : bakat, till: iso(dagar(lokal(vald), 7 * VECKOR_RUNT_VALET)) };
 }
 
-/** Ligger veckan i urvalet? Med bara första veckan vald är det just den. */
-export const arIUrval = (u: Urval, mandag: string) => !!u.forsta && mandag >= u.forsta && mandag <= (u.sista || u.forsta);
-
-/** "9 veckor, v44–52 2026" under kalendern. */
-export function periodSammanfattning(forsta: string, sista: string): string {
-  if (!forsta) return "Tryck på första veckan.";
-  const a = isoVecka(lokal(forsta));
-  if (!sista) return `Från v${a.vecka} ${a.år}. Tryck på sista veckan.`;
-  const p = { startdatum: forsta, slutdatum: slutFranMandag(sista) };
-  const n = antalVeckor(p);
-  const text = veckoText(p);
-  return `${n} ${n === 1 ? "vecka" : "veckor"}, ${text.includes(" ") ? text : `${text} ${a.år}`}`;
+/** Värdet på Från/Till-raden: 'v17 · 20 apr' (måndagen) respektive 'v27 · 5 jul' (söndagen). Årtal bara när det inte är innevarande år. */
+export function veckoKortText(mandag: string, slag: "fran" | "till", innevarandeAr: number): string {
+  const vecka = isoVecka(lokal(mandag)).vecka;
+  const d = slag === "fran" ? lokal(mandag) : dagar(lokal(mandag), 6);
+  return `v${vecka} · ${d.getDate()} ${MAN_KORT[d.getMonth()]}${d.getFullYear() === innevarandeAr ? "" : ` ${d.getFullYear()}`}`;
 }
+
+/** "11 veckor" under formuläret. */
+export function veckorText(forsta: string, sista: string): string {
+  const n = antalVeckor({ startdatum: forsta, slutdatum: slutFranMandag(sista) });
+  return `${n} ${n === 1 ? "vecka" : "veckor"}`;
+}
+
+/** "12 okt 2026". */
+export function kortDatumMedAr(s: string): string {
+  const d = lokal(s);
+  return `${d.getDate()} ${MAN_KORT[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** Raden i listan om överenskommelsen: datumet, eller grått 'Ej dokumenterad överenskommelse' när det saknas. */
+export const overenskommenText = (datum?: string | null) => (datum ? `Överenskommen ${kortDatumMedAr(datum)}` : "Ej dokumenterad överenskommelse");
 
 type Krockperiod = { id: string; namn?: string | null; startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string };
 export type Forarval = { alla: boolean; ids: string[] };
@@ -119,22 +114,79 @@ const arSammaPeriod = (e: Krockperiod, ny?: NyPeriod) =>
   !!ny && ny.namn.trim() !== "" && periodNamn(e).toLowerCase() === ny.namn.trim().toLowerCase() && e.startdatum === ny.startdatum && e.slutdatum === ny.slutdatum;
 
 /** Perioder som ligger över veckan för någon av de valda förarna. Alla valt = en period för vem som helst krockar. */
-export function krockarIVecka<T extends Krockperiod>(mandag: string, val: Forarval, befintliga: T[], utanId?: string, ny?: NyPeriod): T[] {
+export function krockarIVecka<T extends Krockperiod>(mandag: string, val: Forarval, befintliga: T[], utan?: string | string[], ny?: NyPeriod): T[] {
+  const undantag = Array.isArray(utan) ? utan : utan ? [utan] : [];
   if (!val.alla && val.ids.length === 0) return [];   // ingen förare vald: inget att krocka med
   const sondag = slutFranMandag(mandag);
-  return befintliga.filter(e => e.id !== utanId && !arSammaPeriod(e, ny) && e.startdatum <= sondag && e.slutdatum >= mandag
+  return befintliga.filter(e => !undantag.includes(e.id) && !arSammaPeriod(e, ny) && e.startdatum <= sondag && e.slutdatum >= mandag
     && (val.alla || e.medarbetare_id == null || val.ids.includes(e.medarbetare_id)));
 }
 
 /** Perioden som står på en tonad vecka: dess NAMN, och "+N" när flera ligger över varandra. */
-export const krockText = (k: { namn?: string | null; anteckning?: string | null }[]) => (k.length === 0 ? "" : k.length === 1 ? periodNamn(k[0]) : `${periodNamn(k[0])} +${k.length - 1}`);
+export function krockText(k: { namn?: string | null; anteckning?: string | null; startdatum?: string; slutdatum?: string }[]): string {
+  // Rader i samma period (samma namn och veckor, olika förare) räknas som EN period.
+  const unika = new Map<string, (typeof k)[number]>();
+  for (const r of k) { const nyckel = `${periodNamn(r).toLowerCase()}|${r.startdatum ?? ""}|${r.slutdatum ?? ""}`; if (!unika.has(nyckel)) unika.set(nyckel, r); }
+  const lista = Array.from(unika.values());
+  return lista.length === 0 ? "" : lista.length === 1 ? periodNamn(lista[0]) : `${periodNamn(lista[0])} +${lista.length - 1}`;
+}
 
 /** Varje krockande period en gång (tidigast först) för veckorna i urvalet. */
-export function krockarIUrval<T extends Krockperiod>(u: Urval, val: Forarval, befintliga: T[], utanId?: string, ny?: NyPeriod): T[] {
+export function krockarIUrval<T extends Krockperiod>(u: Urval, val: Forarval, befintliga: T[], utan?: string | string[], ny?: NyPeriod): T[] {
   if (!u.forsta) return [];
   const sett = new Map<string, T>();
-  for (let m = lokal(u.forsta); iso(m) <= (u.sista || u.forsta); m = dagar(m, 7)) for (const k of krockarIVecka(iso(m), val, befintliga, utanId, ny)) sett.set(k.id, k);
+  for (let m = lokal(u.forsta); iso(m) <= (u.sista || u.forsta); m = dagar(m, 7)) for (const k of krockarIVecka(iso(m), val, befintliga, utan, ny)) sett.set(k.id, k);
   return Array.from(sett.values()).sort((a, b) => a.startdatum.localeCompare(b.startdatum));
+}
+
+export type PeriodRad = Krockperiod & { overenskommen_datum?: string | null; skapad_av?: string | null };
+
+/** EN period i listan: rader med samma namn, start och slut. Varje förare (eller Alla) är en egen rad i databasen. */
+export type PeriodGrupp<T extends PeriodRad = PeriodRad> = {
+  nyckel: string; namn: string; startdatum: string; slutdatum: string;
+  rader: T[]; ids: string[];
+  /** En rad med medarbetare_id NULL finns i gruppen. */
+  alla: boolean;
+  /** Personerna (medarbetar-id) som har en egen rad, i radernas ordning. */
+  forare: string[];
+  anteckning: string;
+  /** Överenskommelsens datum: det första i gruppen. Appen skriver samma datum på alla rader. */
+  overenskommen: string | null;
+};
+
+export function grupperaPerioder<T extends PeriodRad>(rader: T[]): PeriodGrupp<T>[] {
+  const grupper = new Map<string, PeriodGrupp<T>>();
+  for (const r of rader) {
+    const nyckel = `${periodNamn(r).toLowerCase()}|${r.startdatum}|${r.slutdatum}`;
+    const g = grupper.get(nyckel) || { nyckel, namn: periodNamn(r), startdatum: r.startdatum, slutdatum: r.slutdatum, rader: [], ids: [], alla: false, forare: [], anteckning: "", overenskommen: null };
+    g.rader.push(r); g.ids.push(r.id);
+    if (r.medarbetare_id == null) g.alla = true;
+    else if (!g.forare.includes(r.medarbetare_id)) g.forare.push(r.medarbetare_id);
+    if (!g.anteckning && (r.anteckning || "").trim()) g.anteckning = r.anteckning.trim();
+    if (!g.overenskommen && r.overenskommen_datum) g.overenskommen = r.overenskommen_datum;
+    grupper.set(nyckel, g);
+  }
+  return Array.from(grupper.values());
+}
+
+/**
+ * Vad som ska göras med raderna i en grupp när förarna ändras: de som finns kvar uppdateras (veckor, namn, anteckning,
+ * överenskommelse), de som bockats ur raderas, de som bockats i blir nya rader. Alla (NULL) är en egen rad.
+ */
+export function planeraAndring(grupp: { rader: { id: string; medarbetare_id: string | null }[] }, val: Forarval): { uppdatera: string[]; taBort: string[]; ny: (string | null)[] } {
+  const onskade: (string | null)[] = [...(val.alla ? [null] : []), ...val.ids];
+  const uppdatera: string[] = [], taBort: string[] = [];
+  for (const r of grupp.rader) (onskade.includes(r.medarbetare_id) ? uppdatera : taBort).push(r.id);
+  const finns = new Set(grupp.rader.map(r => r.medarbetare_id));
+  return { uppdatera, taBort, ny: onskade.filter(o => !finns.has(o)) };
+}
+
+/** Värdet på Förare-raden. */
+export function forareText(val: Forarval, personer: { id: string; namn: string | null }[]): string {
+  const antal = (val.alla ? 1 : 0) + val.ids.length;
+  if (antal === 0) return "Välj";
+  if (antal === 1) return val.alla ? "Alla" : personer.find(p => p.id === val.ids[0])?.namn || "1 vald";
+  return `${antal} valda`;
 }
 
 /**
