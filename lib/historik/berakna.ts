@@ -199,7 +199,11 @@ export type TuSvar = { text: string; ord: boolean; notis: string | null };
  * TU som siffra eller ord. andel = andel rapporter med registrerade stopp (av dem som redovisar avbrott).
  * null i andel = formatet redovisar inga avbrott; 0 = redovisar men inga registrerade.
  */
-export function tuSvar(r: Pick<MaskinArRad, "tu" | "andel_rapporter_med_stopp" | "antal_rapporter_med_stopp">): TuSvar {
+export const TU_PONSSE = "TU enligt Ponsse (G15 / arbetstid)";
+
+export function tuSvar(r: Pick<MaskinArRad, "tu" | "andel_rapporter_med_stopp" | "antal_rapporter_med_stopp" | "tu_rapporterad">): TuSvar {
+  // Ponsse Skift har ingen avbrottsfördelning, bara arbetstid och G15: TU räknas som G15 / arbetstid och märks så (annan definition än övriga format)
+  if (r.andel_rapporter_med_stopp === null && r.tu_rapporterad !== null) return { text: procent(r.tu_rapporterad, 1) as string, ord: false, notis: TU_PONSSE };
   if (r.andel_rapporter_med_stopp === null) return { text: "Avbrott saknas i rapportformatet", ord: true, notis: null };
   if (r.tu === null) return { text: "Inga stopp registrerade i rapporterna", ord: true, notis: null };
   const notis = r.andel_rapporter_med_stopp < MIN_ANDEL_STOPP ? `TU osäker: stopp registrerade i ${procent(r.andel_rapporter_med_stopp) ?? "?"} av rapporterna` : null;
@@ -218,6 +222,7 @@ export type Nyckeltal = {
 };
 
 const SAKNAS_FORMAT = "saknas i rapportformatet";
+export const VOLYM_SAKNAS_LASS = "Volym saknas: lass utan storlek";
 
 function med(v: string | null, enhet: string, ordText: string): { varde: string; ord: boolean } {
   return v === null ? { varde: ordText, ord: true } : { varde: `${v}${NBSP}${enhet}`.trim(), ord: false };
@@ -230,8 +235,9 @@ function med(v: string | null, enhet: string, ordText: string): { varde: string;
  */
 export function nyckeltal(r: MaskinArRad): Nyckeltal[] {
   const ut: Nyckeltal[] = [];
-  const volym = med(fmt(r.volym_m3fub, 0), "m³", "Volym saknas");
-  const osaker = r.antal_volym_osaker > 0 ? `Volymen är osäker i ${r.antal_volym_osaker} objekt (rapporten anger lass × 1 m³ eller schablon)` : null;
+  const wisent = r.maskin === "Ponsse Wisent";
+  const volym = med(fmt(r.volym_m3fub, 0), "m³", wisent ? VOLYM_SAKNAS_LASS : "Volym saknas");
+  const osaker = r.antal_volym_osaker > 0 ? (wisent ? `Volym saknas i ${r.antal_volym_osaker} objekt: lass utan storlek (från 2024-09)` : `Volymen är osäker i ${r.antal_volym_osaker} objekt (rapporten anger lass × 1 m³ eller schablon)`) : null;
   ut.push({ etikett: "Total volym", ...volym, notis: osaker });
   const g15 = med(fmt(r.g15_h, 0), "h", "G15 saknas");
   ut.push({ etikett: "G15", ...g15, notis: null });
@@ -261,6 +267,8 @@ export function nyckeltal(r: MaskinArRad): Nyckeltal[] {
   }
   const br = med(fmt(r.bransle_l_per_m3, 2), "l/m³", `Bränsle ${SAKNAS_FORMAT}`);
   ut.push({ etikett: "Bränsle", ...br, notis: null });
+  const bg = med(fmt(r.bransle_l_per_g15, 1), "l/G15", `Bränsle ${SAKNAS_FORMAT}`);
+  ut.push({ etikett: "Bränsle per G15", ...bg, notis: null });
   return ut;
 }
 
@@ -377,7 +385,7 @@ export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: 
     })),
     bastRiktning: null,
   });
-  ut.push({ etikett: "Total volym (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.volym_m3fub, 0, "", "Volym saknas", x.antal_volym_osaker > 0 ? `Osäker i ${x.antal_volym_osaker} objekt` : null))), bastRiktning: null });
+  ut.push({ etikett: "Total volym (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.volym_m3fub, 0, "", x.maskin === "Ponsse Wisent" ? VOLYM_SAKNAS_LASS : "Volym saknas", x.antal_volym_osaker > 0 ? (x.maskin === "Ponsse Wisent" ? `Saknas i ${x.antal_volym_osaker} objekt: lass utan storlek` : `Osäker i ${x.antal_volym_osaker} objekt`) : null))), bastRiktning: null });
   ut.push({ etikett: "G15 (h)", celler: rs.map((r) => cell(r, (x) => tal(x.g15_h, 0, "", "G15 saknas", null))), bastRiktning: null });
   ut.push({ etikett: "m³/G15", celler: rs.map((r) => cell(r, (x) => tal(x.m3_per_g15, 1, "", "G15 saknas i rapporten", fewObjects(x.antal_med_g15), x.antal_med_g15 < MIN_OBJEKT))), bastRiktning: null });
   if (skordare) {
@@ -396,6 +404,7 @@ export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: 
     bastRiktning: "hog",
   });
   ut.push({ etikett: "Bränsle l/m³", celler: rs.map((r) => cell(r, (x) => tal(x.bransle_l_per_m3, 2, "", `Bränsle ${SAKNAS_FORMAT}`, null))), bastRiktning: null });
+  ut.push({ etikett: "Bränsle l/G15", celler: rs.map((r) => cell(r, (x) => tal(x.bransle_l_per_g15, 1, "", `Bränsle ${SAKNAS_FORMAT}`, null))), bastRiktning: null });
   // medelstammen visas under m³/G15 och bränsle (de påverkas av stamstorleken) i stället för att markeras som bäst
   if (skordare) {
     for (const rad_ of ut) {

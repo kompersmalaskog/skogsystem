@@ -1,7 +1,7 @@
 -- Historik steg 13: Ponsse Skift-rapporterna (Giant, King ny) har Arbetstid och G15 per förare men ingen avbrottsfördelning (Reparation/Service/Störning står bara i
 -- förklaringsrutan). Två nya kolumner i hist_objekt: arbetstid_h (rapportens Arbetstid, timmar) och tu_rapporterad (= G15 / Arbetstid ur samma rapportblock, 0-1).
 -- bransle_l (rapportens "Förbrukning", liter) fanns redan som kolumn men var tom för Ponsse Skift; fylls av importen, inte av migrationen.
--- vy_hist_maskin_ar får två kolumner sist: tu_rapporterad (tidsviktad) och antal_med_tu_rapporterad. Övriga kolumner oförändrade.
+-- vy_hist_maskin_ar får tre kolumner sist: tu_rapporterad (tidsviktad), antal_med_tu_rapporterad och bransle_l_per_g15. Övriga kolumner oförändrade.
 -- Rör bara hist_objekt (två nya kolumner utan default) och vy_hist_maskin_ar.
 
 alter table hist_objekt add column if not exists arbetstid_h numeric;
@@ -79,7 +79,8 @@ select
   (sum(o.volym_osaker))::int as antal_volym_osaker,
   round((sum(o.arbetstid_h * o.tu_rapporterad) filter (where o.arbetstid_h > 0 and o.tu_rapporterad is not null))
         / nullif(sum(o.arbetstid_h) filter (where o.arbetstid_h > 0 and o.tu_rapporterad is not null), 0), 3) as tu_rapporterad,
-  (count(*) filter (where o.arbetstid_h > 0 and o.tu_rapporterad is not null))::int as antal_med_tu_rapporterad
+  (count(*) filter (where o.arbetstid_h > 0 and o.tu_rapporterad is not null))::int as antal_med_tu_rapporterad,
+  round(sum(o.bransle_l) filter (where o.bransle_l > 0 and o.g15_h > 0) / nullif(sum(o.g15_h) filter (where o.bransle_l > 0 and o.g15_h > 0), 0), 1) as bransle_l_per_g15
 from o
 join v on (v.urval = 'alla' or o.urval = 'namn')
 group by grouping sets (

@@ -72,14 +72,25 @@ skotare med alla åtgärder), maskinsida (åtgärdsrader, diagram år för år, 
 = objekt med obekräftad maskinstandard, som tas med först vid tryck. Färre än 5 objekt eller stopp i färre än 70 % av rapporterna står med text.
 Saknad data är ord ("Avbrott saknas i rapportformatet"), aldrig 0. Renderad bara i testsele (mockad supabase), inte med riktig inloggning.
 
-**Kända begränsningar:** Giant 2023/2025 och King ny saknar avbrottsdata i formatet (ingen TU). Skotarnas åtgärd är okänd för cirka 50–70 % av
-objekten. 435 MaxiXplorer-produktionsrapporter (volym utan tider) är uppladdade men inte tolkade. Lastcertifikat för Wisent 2025 har volym =
-antal lass × 1 m³ (flaggat som osäker). Objektnamn har `?` där å/ä/ö inte gick att läsa ur ritad text.
+**Steg 13 (2026-10-12):** Ponsse Skift-parsern läser nu "Förbrukning" (liter, 786 av 786 förarblock; Giant 18,5–20,4 l/G15, King ny 16,7) och
+Arbetstid. Skift-rapporterna har ingen avbrottsfördelning (Reparation/Service/Störning står bara i förklaringsrutan): TU för Giant/King ny är
+**G15 / arbetstid** (`hist_objekt.arbetstid_h`, `tu_rapporterad`; 92–94 %) och märks "TU enligt Ponsse (G15 / arbetstid)", markeras aldrig som bäst.
+Skotare kopplas till skördare i `hist_skotare_koppling` (metod a = samma objekt i Skogsystem, b = samma objektnr, c = namn ≥ 0,9 och 0–120 dagar;
+592 länkar). Kopplingen används **aldrig för volym**, bara för skotarens åtgärd (`hist_korrigering`, orsak `regel: kopplad_till_skordare_<metod>`).
+Wisent från 2024-09 har lass utan storlek: volymen är NULL i `vy_hist_objekt_bas` och visas "Volym saknas: lass utan storlek". Sju Elephant King gammal-objekt
+(Gävle 2026) är skada med orsak "Vindfällor AB Karl Hedin, Gävle 2026". Rader skrivna med SQL finns i `scripts/historik/korrigering_steg13.csv`.
+Jämförelsen: varje maskin med minst ett objekt i åtgärden är valbar; "bäst" bara på viktat index och TU; medelstam under m³/G15 och bränsle.
+
+**Kända begränsningar:** Giant 2023/2025 och King ny saknar avbrottsfördelning i formatet (TU = G15 / arbetstid enligt Ponsse). Komatsu 911.3 och
+941 AptMan saknar bränsle. Skotarnas åtgärd är okänd för cirka 850 av objekten. 435 MaxiXplorer-produktionsrapporter (volym utan tider) är
+uppladdade men inte tolkade. Lastcertifikat för Wisent 2025 har volym = antal lass × 1 m³ (flaggat som osäker). Objektnamn har `?` där å/ä/ö inte
+gick att läsa ur ritad text. Kopplingen skotare–skördare har stor spridning (metod c: mittenhälften −12 till +1 % mot skördarens volym), ris/GROT
+kan inte räknas bort (sortiment finns inte i `hist_*`).
 
 **Skript** (`scripts/historik/`, kör i ordning): `hist_underlag.py` → `hist_avbrott.py` → `hist_bygg.py` → `hist_raknas.py` → `hist_korrigering.py` →
 `importera.py` (torrkörning är standard; `--utfor` kräver servicenyckel + `HIST_IMPORT_OK=ja`; vitlista: bara `hist_*` och bucketen `historik`).
 `verifiera_migration.py` bevisar att hist-migrationerna bara rör `hist_*` / `vy_hist_*` och policyn på bucketen `historik`. Mbox och PDF ligger
-aldrig i repot. Migrationerna `20261009170000` … `20261015120000` är redan körda i prod via MCP.
+aldrig i repot. Migrationerna `20261009170000` … `20261016110000` är redan körda i prod via MCP.
 
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)

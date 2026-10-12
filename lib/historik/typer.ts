@@ -33,6 +33,9 @@ export type MaskinArRad = {
   lass_per_g15: number | null;
   antal_med_lass: number;
   antal_volym_osaker: number;
+  tu_rapporterad: number | null;
+  antal_med_tu_rapporterad: number;
+  bransle_l_per_g15: number | null;
 };
 
 export type ObjektRad = {
@@ -99,6 +102,9 @@ export function tillMaskinAr(r: Record<string, unknown>): MaskinArRad {
     lass_per_g15: tal(r.lass_per_g15),
     antal_med_lass: tal(r.antal_med_lass) ?? 0,
     antal_volym_osaker: tal(r.antal_volym_osaker) ?? 0,
+    tu_rapporterad: tal(r.tu_rapporterad),
+    antal_med_tu_rapporterad: tal(r.antal_med_tu_rapporterad) ?? 0,
+    bransle_l_per_g15: tal(r.bransle_l_per_g15),
   };
 }
 

@@ -11,7 +11,7 @@ function r(p: Partial<MaskinArRad> & { maskin: string; typ: MaskinTyp; atgard: A
   return {
     antal_objekt: 10, antal_med_g15: 10, volym_m3fub: 1000, g15_h: 100, m3_per_g15: 10, stammar_per_g15: 50, medelstam: 0.2, antal_med_index: 10, viktat_index: 100,
     antal_rapporter_med_stopp: 10, andel_rapporter_med_stopp: 1, tu: 0.9, reparationsgrad: 0.02, servicegrad: 0.03, storningsgrad: 0.05, bransle_l_per_m3: 1.5,
-    lass_per_g15: null, antal_med_lass: 0, antal_volym_osaker: 0, ...p,
+    lass_per_g15: null, antal_med_lass: 0, antal_volym_osaker: 0, tu_rapporterad: null, antal_med_tu_rapporterad: 0, bransle_l_per_g15: null, ...p,
   };
 }
 
@@ -99,12 +99,14 @@ describe("tillförlitlighet med ord", () => {
     expect(fewObjects(5)).toBeNull();
   });
   it("TU: ord när avbrott saknas, ord när inga stopp, notis under 70 %", () => {
-    expect(tuSvar({ tu: null, andel_rapporter_med_stopp: null, antal_rapporter_med_stopp: 0 })).toEqual({ text: "Avbrott saknas i rapportformatet", ord: true, notis: null });
-    expect(tuSvar({ tu: null, andel_rapporter_med_stopp: 0, antal_rapporter_med_stopp: 0 }).text).toBe("Inga stopp registrerade i rapporterna");
-    const lag = tuSvar({ tu: 0.9, andel_rapporter_med_stopp: 0.5, antal_rapporter_med_stopp: 5 });
+    expect(tuSvar({ tu: null, tu_rapporterad: null, andel_rapporter_med_stopp: null, antal_rapporter_med_stopp: 0 })).toEqual({ text: "Avbrott saknas i rapportformatet", ord: true, notis: null });
+    expect(tuSvar({ tu: null, tu_rapporterad: null, andel_rapporter_med_stopp: 0, antal_rapporter_med_stopp: 0 }).text).toBe("Inga stopp registrerade i rapporterna");
+    const lag = tuSvar({ tu: 0.9, tu_rapporterad: null, andel_rapporter_med_stopp: 0.5, antal_rapporter_med_stopp: 5 });
     expect(lag.ord).toBe(false);
     expect(lag.notis).toMatch(/TU osäker: stopp registrerade i 50\s%/);
-    expect(tuSvar({ tu: 0.9, andel_rapporter_med_stopp: 0.7, antal_rapporter_med_stopp: 7 }).notis).toBeNull();
+    expect(tuSvar({ tu: 0.9, tu_rapporterad: null, andel_rapporter_med_stopp: 0.7, antal_rapporter_med_stopp: 7 }).notis).toBeNull();
+    // Ponsse Skift: ingen avbrottsfördelning, TU = G15 / arbetstid, märkt så
+    expect(tuSvar({ tu: null, tu_rapporterad: 0.925, andel_rapporter_med_stopp: null, antal_rapporter_med_stopp: 0 })).toEqual({ text: "92,5 %", ord: false, notis: "TU enligt Ponsse (G15 / arbetstid)" });
   });
   it("nyckeltal: saknad data är ord, aldrig 0", () => {
     const rad_ = r({ maskin: "X", typ: "skördare", atgard: "slutavverkning", ar: 2020, urval: "namn", andel_rapporter_med_stopp: null, tu: null, reparationsgrad: null, bransle_l_per_m3: null, viktat_index: null, stammar_per_g15: null, medelstam: null });
@@ -123,11 +125,11 @@ describe("tillförlitlighet med ord", () => {
   });
   it("skotare: lass/G15, TU, bränsle — inget index, ingen medelstam", () => {
     const n = nyckeltal(r({ maskin: "Y", typ: "skotare", atgard: null, ar: 2020, urval: "namn", lass_per_g15: 1.29 })).map((x) => x.etikett);
-    expect(n).toEqual(["Total volym", "G15", "m³/G15", "Lass/G15", "TU", "Bränsle"]);
+    expect(n).toEqual(["Total volym", "G15", "m³/G15", "Lass/G15", "TU", "Bränsle", "Bränsle per G15"]);
   });
   it("skördare gallring: alla nio nyckeltal i rätt ordning", () => {
     const n = nyckeltal(r({ maskin: "Z", typ: "skördare", atgard: "gallring", ar: 2020, urval: "namn" })).map((x) => x.etikett);
-    expect(n).toEqual(["Total volym", "G15", "m³/G15", "Stammar/G15", "Medelstam", "Viktat index", "TU", "Reparationsgrad", "Bränsle"]);
+    expect(n).toEqual(["Total volym", "G15", "m³/G15", "Stammar/G15", "Medelstam", "Viktat index", "TU", "Reparationsgrad", "Bränsle", "Bränsle per G15"]);
   });
 });
 
@@ -203,7 +205,7 @@ describe("jämförelsen (steg 12)", () => {
   it("skotarjämförelse: lass/G15 i stället för stammar/medelstam/index", () => {
     const sk = [r({ maskin: "S1", typ: "skotare", atgard: null, ar: null, urval: "namn", lass_per_g15: 1.2 }), r({ maskin: "S2", typ: "skotare", atgard: null, ar: null, urval: "namn", lass_per_g15: 1.4 })];
     const e = jamforRader(sk, ["S1", "S2"], "skotare", null, false).map((x) => x.etikett);
-    expect(e).toEqual(["Kördes", "Antal objekt", "Total volym (m³)", "G15 (h)", "m³/G15", "Lass/G15", "TU", "Bränsle l/m³"]);
+    expect(e).toEqual(["Kördes", "Antal objekt", "Total volym (m³)", "G15 (h)", "m³/G15", "Lass/G15", "TU", "Bränsle l/m³", "Bränsle l/G15"]);
   });
 });
 
@@ -220,5 +222,23 @@ describe("väljare (steg 13): varje maskin med minst 1 objekt i åtgärden är v
     expect(k.map((x) => [x.maskin, x.antal, x.urval])).toEqual([["911.3", 110, "namn"], ["901XC", 83, "namn"], ["Bara antagna", 7, "alla"]]);
     const k2 = maskinerMedObjekt(d, "skördare", "gallring", true);
     expect(k2.map((x) => [x.maskin, x.antal])).toEqual([["911.3", 164], ["901XC", 83], ["Bara antagna", 7]]);
+  });
+});
+
+describe("steg 13: Ponsse-TU och Wisent-volym", () => {
+  it("Ponsse-TU markeras inte som bäst (annan definition)", () => {
+    const d: MaskinArRad[] = [
+      r({ maskin: "G", typ: "skördare", atgard: "slutavverkning", ar: null, urval: "namn", antal_objekt: 20, tu: null, andel_rapporter_med_stopp: null, tu_rapporterad: 0.93 }),
+      r({ maskin: "H", typ: "skördare", atgard: "slutavverkning", ar: null, urval: "namn", antal_objekt: 20, tu: 0.8, andel_rapporter_med_stopp: 0.9, tu_rapporterad: null }),
+    ];
+    const t = jamforRader(d, ["G", "H"], "skördare", "slutavverkning", false).find((x) => x.etikett === "TU")!;
+    expect(t.celler[0].notis).toBe("TU enligt Ponsse (G15 / arbetstid)");
+    expect(t.celler.map((c) => c.bast)).toEqual([false, false]);
+  });
+  it("Wisent utan volym: 'Volym saknas: lass utan storlek'", () => {
+    const n = nyckeltal(r({ maskin: "Ponsse Wisent", typ: "skotare", atgard: null, ar: 2025, urval: "namn", volym_m3fub: null, antal_volym_osaker: 12 }));
+    const v = n.find((x) => x.etikett === "Total volym")!;
+    expect(v.varde).toBe("Volym saknas: lass utan storlek");
+    expect(v.notis).toMatch(/lass utan storlek/);
   });
 });

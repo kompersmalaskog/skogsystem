@@ -63,6 +63,10 @@ def main():
     rader += [dict(sha256=r["sha256"], falt=r["falt"], nytt_varde=r["nytt_varde"], orsak=r["orsak"]) for r in regler]
     if len({(r['sha256'], r['falt']) for r in rader}) != len(rader):
         sys.exit("AVBRYTER: samma rapport i både skada och special (eller dubbla regler)")
+    # steg 13: Gävle-objekt Martin pekat ut (Elephant King gammal) + skotares åtgärd via hist_skotare_koppling; skrevs i databasen med SQL, här för omkörning
+    steg13 = list(csv.DictReader(open(Path(__file__).parent / "korrigering_steg13.csv", encoding="utf-8")))
+    nycklar13 = {(r["sha256"], r["falt"]) for r in steg13}
+    rader = [r for r in rader if (r["sha256"], r["falt"]) not in nycklar13] + [dict(r) for r in steg13]
     with open(CSVDIR / "hist_korrigering.csv", "w", encoding="utf-8", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=["sha256", "falt", "nytt_varde", "orsak"])
         w.writeheader()
