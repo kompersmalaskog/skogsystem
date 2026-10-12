@@ -1540,6 +1540,44 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(document.activeElement).toBe(nyPeriod);                       // fokus till knappen som öppnade arket
   });
 
+  it("arket SITTER FAST: förankrat uppifrån, aldrig centrerat, fast höjd — samma stil i formuläret, med kalendern utfälld, vid Längd 20 v och i förarlistan; rubrikraden står still och innehållet rullar inuti", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const ovl = () => overlay()!;
+    const lage = () => ({ overlay: ovl().getAttribute("style"), dialog: ark()!.getAttribute("style"), klass: ark()!.className });
+    const forsta = lage();
+    // förankrad uppifrån under toppfältet, inte centrerad
+    expect(ovl().style.alignItems).toBe("flex-start");
+    expect(ovl().style.alignItems).not.toBe("center");
+    // fast höjd ur en klass (inte ur innehållet): ingen inline height/max-height som kan följa innehållet
+    expect(ark()!.className).toContain("ark-dialog");
+    expect(ark()!.style.height).toBe("");
+    expect(ark()!.style.maxHeight).toBe("");
+    const css = ovl().querySelector("style")!.textContent || "";
+    expect(css).toMatch(/\.ark-dialog\s*\{[^}]*height:\s*calc\(100dvh/);            // telefon: nästan hela fönstret under toppfältet
+    expect(css).toMatch(/min-width:\s*760px[^}]*\{[^}]*height:\s*min\(85dvh/);        // dator: högst 85 %
+    // rubrikraden ligger utanför det som rullar; innehållet rullar inuti
+    const rubrik = ark()!.querySelector<HTMLElement>("[data-ark-rubrik]")!;
+    const innehall = ark()!.querySelector<HTMLElement>("[data-ark-innehall]")!;
+    expect(innehall.style.overflowY).toBe("auto");
+    expect(innehall.contains(rubrik)).toBe(false);
+    expect(sparaKnapp() && rubrik.contains(sparaKnapp())).toBe(true);        // Lägg till rullar aldrig bort
+    // kalendern utfälld
+    await oppnaBorjar();
+    expect(lage()).toEqual(forsta);
+    // Längd 20 v (orange läge, överenskommelse-raden dyker upp)
+    await sattLangd(20);
+    expect(lage()).toEqual(forsta);
+    await tryckRad("overenskommen");
+    expect(lage()).toEqual(forsta);
+    // förarlistan och tillbaka
+    await tryckRad("forare");
+    expect(document.querySelector("[data-forare-vy]")).not.toBeNull();
+    expect(lage()).toEqual(forsta);
+    await tillbaka();
+    expect(lage()).toEqual(forsta);
+  });
+
   it("andra trycket i ett DUBBELKLICK sväljs strax efter ett vybyte: Förare → ingen förare vald, ‹ Ny period → Avbryt stänger inte arket; senare snabba tryck (stegaren) går igenom", async () => {
     await monter("flik=avtal");
     await oppnaNy();
