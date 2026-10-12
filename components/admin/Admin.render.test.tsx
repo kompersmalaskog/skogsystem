@@ -1554,6 +1554,15 @@ describe("Avtal → Utjämningsperioder", () => {
     await tillbaka();
     await dubbel(Array.from(ark()!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Avbryt")!);
     expect(ark()).not.toBeNull();
+    // … och arket byter höjd när innehållet byts (förarlistan är lägre), så andra klicket kan hamna UTANFÖR dialogen, på bakgrunden, som annars stänger arket
+    // (mätt i Chrome: 13 ms mellan trycken, andra trycket på överlägget, arket borta)
+    await tryckRad("forare");
+    await tillbaka();
+    await dubbel(overlay()!);
+    expect(ark()).not.toBeNull();
+    await klickEl(overlay()!);                                          // ett vanligt tryck på bakgrunden stänger fortfarande (efter fönstret: ett enkelt klick räknas alltid)
+    expect(ark()).toBeNull();
+    await oppnaNy();
     // en bra stund senare: snabba tryck på + (detail 2, 3, 4 …) räknas alla
     const nu = Date.now();
     const spion = vi.spyOn(Date, "now").mockReturnValue(nu + 5000);

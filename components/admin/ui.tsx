@@ -310,11 +310,12 @@ export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayA
   if (typeof document === "undefined") return null;
   return createPortal(
     <div ref={overlayRef} data-ark-overlay="" onClick={onStang} className="tona-opacity" {...overlayAttr}
+      // Andra trycket i ett dubbelklick (detail > 1) strax efter att arket öppnats eller bytt innehåll sväljs, OAVSETT var det landar. Arket byter
+      // höjd när innehållet byts (förarlistan är lägre än formuläret) och centreras om, så andra trycket hamnar på det nya innehållet
+      // (Förare → en förare vald; ‹ Ny period → Avbryt) eller UTANFÖR dialogen, på bakgrunden, som stänger arket. Mätt i Chrome: 13 ms mellan trycken.
+      onClickCapture={e => { if (e.detail > 1 && Date.now() - bytte.current < 700) { e.stopPropagation(); e.preventDefault(); } }}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.l, overscrollBehavior: "contain" }}>
       <div ref={dialogRef} tabIndex={-1} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp" {...attr}
-        // Andra trycket i ett dubbelklick (detail > 1) strax efter att arket öppnats eller bytt innehåll sväljs: det landar annars på det nya
-        // innehållet, som råkar ligga på samma plats (Förare → en förare vald; ‹ Ny period → Avbryt).
-        onClickCapture={e => { if (e.detail > 1 && Date.now() - bytte.current < 700) { e.stopPropagation(); e.preventDefault(); } }}
         style={{ outline: "none", background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", overscrollBehavior: "contain", boxSizing: "border-box", colorScheme: "dark" }}>
         <div data-ark-rubrik style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: AVSTAND.s, margin: `0 0 ${AVSTAND.l}px` }}>
           <div style={{ justifySelf: "start" }}>{vanster}</div>
