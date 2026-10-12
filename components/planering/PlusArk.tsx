@@ -6,8 +6,8 @@
 // rita, mäta, välja vad kartan visar. Arket är detsamma i körvyn och planeringsvyn; sidan avgör innehållet.
 //
 //   Symboler    de sex kategorierna som i appen, namnet som liten grå rubrik, symbolerna som färgade cirklar. Tryck = samma flöde som dockan.
-//   Rita & mät  stora rutor — ALLA ritverktyg bor här och ingen annanstans: Rita linje, Rita yta, Mät sträcka, Mät yta, Linjer, Zoner,
-//               Nytt område (planerare), Pilar, Mätning och Spåra med GPS. Undermenyer (linjetyp, zontyp …) öppnas ur rutan som förut.
+//   Rita & mät  stora rutor — ALLA ritverktyg bor här och ingen annanstans, SJU: Rita linje, Rita yta, Nytt område (planerare), Pilar,
+//               Mät sträcka, Mät yta och Spåra med GPS. Typlistorna (linjetyp, zontyp) öppnas ur Rita linje/Rita yta i planeringsvyn.
 //   Lager       alla lager i sina grupper, med liten förhandsbild och en iOS-strömbrytare.
 //
 // Mus: klick på gripen växlar halv/hel (dra går också), hjulet scrollar arket (aldrig kartan bakom), Esc eller klick på kartan stänger,
@@ -41,7 +41,7 @@ export interface PlusPostVy {
 
 export interface SymbolKategori { id: string; rubrik: string; poster: PlusPostVy[] }
 
-export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'linjer' | 'zoner' | 'omrade' | 'pilar' | 'matning';
+export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar';
 /** En stor ruta i Rita & mät. Vad ett tryck gör avgör sidan (samma flöden som förut). */
 export interface RitaKort { id: string; titel: string; ikon: RitaIkonId; onTryck: () => void }
 
@@ -101,11 +101,8 @@ function RitaIkon({ id }: { id: RitaIkonId }) {
       {id === 'strackan' && <path d="M5 20 H35 M5 13 V27 M35 13 V27" {...linje} />}
       {id === 'matyta' && <><path d="M6 6 H34 V34 H6 Z" {...linje} strokeDasharray="4 4" /><path d="M14 20 H26" {...linje} /></>}
       {id === 'gps' && <><circle cx="20" cy="20" r="5" {...linje} /><circle cx="20" cy="20" r="13" {...linje} /><path d="M20 3 V8 M20 32 V37 M3 20 H8 M32 20 H37" {...linje} /></>}
-      {id === 'linjer' && <><path d="M5 14 H35" {...linje} /><path d="M5 26 H35" {...linje} strokeDasharray="6 5" /></>}
-      {id === 'zoner' && <ellipse cx="20" cy="20" rx="15" ry="11" {...linje} fill={f} fillOpacity="0.25" />}
       {id === 'omrade' && <><path d="M6 10 L30 6 L35 30 L10 34 Z" {...linje} strokeDasharray="4 4" /><path d="M20 14 V26 M14 20 H26" {...linje} /></>}
       {id === 'pilar' && <path d="M7 33 L32 8 M32 8 H19 M32 8 V21" {...linje} />}
-      {id === 'matning' && <><path d="M4 14 H36 V26 H4 Z" {...linje} /><path d="M11 14 V20 M18 14 V22 M25 14 V20 M32 14 V22" {...linje} /></>}
     </svg>
   );
 }

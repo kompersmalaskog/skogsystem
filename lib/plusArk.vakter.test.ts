@@ -116,22 +116,62 @@ describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon som för
   });
 });
 
-describe('Rita & mät: ALLA ritverktyg som stora rutor i arket, och ingen annanstans', () => {
+describe('Rita & mät: SJU rutor — alla ritverktyg, inga dubbletter, och ingen annanstans', () => {
   const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
-  it('tio rutor i den här ordningen; Nytt område bara för planerare (som förut i Fler val)', () => {
+  const tryck = mellan(page, 'const trycktPlusPost = ', 'const placeraListSynlig');
+  it('sju rutor i den här ordningen: Rita linje, Rita yta, Nytt område (bara planerare), Pilar, Mät sträcka, Mät yta, Spåra med GPS', () => {
     const ids = Array.from(rita.matchAll(/\{ id: '([a-z]+)', titel:/g)).map((m) => m[1]);
-    expect(ids).toEqual(['linje', 'yta', 'strackan', 'matyta', 'linjer', 'zoner', 'omrade', 'pilar', 'matning', 'gps']);
+    expect(ids).toEqual(['linje', 'yta', 'omrade', 'pilar', 'strackan', 'matyta', 'gps']);
     expect(rita).toContain("...(isAdminRiktig ? [{ id: 'omrade', titel: 'Nytt område'");
   });
-  it('Linjer, Zoner, Pilar och Mätning öppnar samma kategorimeny som förut (stängt plus + setActiveCategory + setMenuOpen); Nytt område samma ritläge', () => {
-    expect(rita).toContain("const oppnaMeny = (kategori: string) => () => { stangPlus(); setActiveCategory(kategori); setMenuOpen(true); };");
+  it('INGA dubbletter: rutorna Linjer, Zoner och Mätning finns inte (de gjorde samma sak som Rita linje, Rita yta och Mät sträcka/Mät yta)', () => {
+    for (const s of ["titel: 'Linjer'", "titel: 'Zoner'", "titel: 'Mätning'", "id: 'linjer'", "id: 'zoner'", "id: 'matning'", 'oppnaMeny', "setActiveCategory('measure')"]) expect(rita, s).not.toContain(s);
+    const ark = las('../components/planering/PlusArk.tsx');
+    expect(ark).toContain("export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar';");
+  });
+  it('rutorna startar sina verktyg: Pilar öppnar pil-menyn, Nytt område samma ritläge, Mät sträcka/yta samma figur, Spåra med GPS samma undermeny', () => {
     for (const s of [
-      "{ id: 'linjer', titel: 'Linjer', ikon: 'linjer', onTryck: oppnaMeny('lines') }",
-      "{ id: 'zoner', titel: 'Zoner', ikon: 'zoner', onTryck: oppnaMeny('zones') }",
-      "{ id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: oppnaMeny('arrows') }",
-      "{ id: 'matning', titel: 'Mätning', ikon: 'matning', onTryck: oppnaMeny('measure') }",
+      "{ id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); setActiveCategory('arrows'); setMenuOpen(true); } }",
       "const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 });",
+      "id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan')",
+      "id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta')",
+      "id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); }",
+      "id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje')",
+      "id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta')",
     ]) expect(rita, s).toContain(s);
+  });
+  it('Rita linje / Rita yta: körvyn startar ritfiguren som före PR:en; planeringsvyn går DIREKT till linjetyperna (inget tomt mellansteg) respektive zontyperna', () => {
+    expect(tryck).toContain("if (post.typ === 'matning') startaFigur(yta);");
+    expect(tryck).toContain('else if (korvyActive) startaFigur(yta);');
+    expect(tryck).toContain("else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }");
+    expect(tryck).toContain("else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }");
+    // ordningen: körvyn avgörs FÖRE planeringens grenar
+    expect(tryck.indexOf('else if (korvyActive)')).toBeLessThan(tryck.indexOf("setSubMenu('draw-lines')"));
+  });
+  it('typlistorna är oförändrade: samma filter och samma klick för linjetyper (rita och GPS), samma zontyper med Gallringszonens trädslag', () => {
+    const rit = mellan(page, '{/* Linjer - Rita */}', '{/* === ZONER === */}');
+    const gps = mellan(page, '{/* Linjer - GPS */}', '{/* Linjer - Rita */}');
+    const filter = "lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (";
+    expect(rit).toContain(filter);
+    expect(gps).toContain(filter);
+    expect(rit).toContain('setDrawType(type.id);');
+    expect(rit).toContain('setIsDrawMode(true);');
+    expect(gps).toContain('startGpsTracking(type.id);');
+    const zon = mellan(page, '{/* === ZONER === */}', '{/* === PILAR === */}');
+    expect(zon).toContain('zoneTypes.map(type => (');
+    expect(zon).toContain('{gallringExpanded && GALLRING_TRADSLAG.map(ts => (');
+    expect(zon).toContain('setIsZoneMode(true);');
+  });
+  it('Linjer-menyns tomma rotsteg är borta (en rad "Rita manuellt" som bara ledde vidare); typlistan har inget steg bakom sig, så tillbakapilen visas inte där', () => {
+    expect(page).not.toContain("{activeCategory === 'lines' && !subMenu && (");
+    expect(page).toContain("{subMenu && activeCategory !== 'lines' ? (");
+    expect(page.split("setSubMenu('draw-lines')").length - 1).toBe(1);   // bara Rita linje går dit
+  });
+  it('gamla Symboler-menyn (död kod, nåddes inte längre) är borta; symbolerna väljs i Symboler-fliken', () => {
+    expect(page).not.toContain("activeCategory === 'symbols'");
+    expect(page).not.toContain("{ id: 'symbols', name: 'Symboler', desc");
+    expect(page).not.toContain('{/* === SYMBOLER === */}');
+    expect(page).toContain('const byggSymbolKategorier = ');
   });
   it('INGET ritverktyg finns kvar i objektinfons Fler val (de ska bara finnas på ett ställe): ingen RITA PÅ KARTAN-grupp, inga ritstarter', () => {
     const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');
@@ -139,22 +179,10 @@ describe('Rita & mät: ALLA ritverktyg som stora rutor i arket, och ingen annans
     expect(fv).not.toContain('rita-pa-kartan');
     for (const s of ["setActiveCategory('symbols')", "setActiveCategory('lines')", "setActiveCategory('zones')", "setActiveCategory('arrows')", "setActiveCategory('measure')", 'setOmradeRitning(true)', "label: 'Nytt område'"]) expect(fv, s).not.toContain(s);
   });
-  it('Spåra med GPS finns på ETT ställe: rutan. Linjer-menyns rot har bara "Rita manuellt" kvar; undermenyn gps-lines och startGpsTracking är oförändrade', () => {
+  it('Spåra med GPS finns på ETT ställe: rutan (öppnar GPS-undermenyn; startGpsTracking oförändrad)', () => {
     expect(page.split("setSubMenu('gps-lines')").length - 1).toBe(1);
-    const linjerRot = mellan(page, "{activeCategory === 'lines' && !subMenu && (", '{/* Linjer - GPS */}');
-    expect(linjerRot).not.toContain('Spåra med GPS');
-    expect(linjerRot).toContain("setSubMenu('draw-lines')");
     const gps = mellan(page, '{/* Linjer - GPS */}', '{/* Linjer - Rita */}');
     expect(gps).toContain('startGpsTracking(type.id);');
-  });
-  it('fyra verktyg som förut (samma flöden via trycktPlusPost) + Spåra med GPS (samma undermeny, samma startGpsTracking)', () => {
-    for (const s of [
-      "id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje')",
-      "id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta')",
-      "id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan')",
-      "id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta')",
-      "id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); }",
-    ]) expect(rita, s).toContain(s);
   });
   it('arket har ingen egen kopia av verktygen i Fler val-blocket (de ska bara finnas på ett ställe)', () => {
     const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');

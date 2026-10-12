@@ -134,7 +134,8 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
     expect(page).toContain("onClick={() => startaFigur(false)}");
     expect(page).toContain("onClick={() => startaFigur(true)}");
     expect(page).toContain("if (post.typ === 'matning') startaFigur(yta);");
-    expect(page).toContain("else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }");
+    expect(page).toContain("else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }");
+    expect(page).toContain("else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }");
     expect(page.match(/startaMatning\(/g)?.length).toBe(1);   // bara startaFigur anropar den
   });
   it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {

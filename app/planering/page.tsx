@@ -8178,7 +8178,6 @@ export default function PlannerPage() {
 
   // Meny-kategorier för fullskärmsmenyn
   const menuCategories = [
-    { id: 'symbols', name: 'Symboler', desc: 'Placera markeringar', icon: 'menu-symbols' },
     { id: 'lines', name: 'Linjer', desc: 'Rita linjer och gränser', icon: 'menu-lines' },
     { id: 'zones', name: 'Zoner', desc: 'Markera områden', icon: 'menu-zones' },
     { id: 'arrows', name: 'Pilar', desc: 'Visa riktningar', icon: 'menu-arrows' },
@@ -12618,23 +12617,19 @@ export default function PlannerPage() {
     poster: k.symbols.map((s) => postVy({ typ: 'symbol', id: s.id }, arFastNu({ typ: 'symbol', id: s.id }))),
   }));
 
-  // RITA & MÄT: ALLA ritverktyg bor här och ingen annanstans (objektinfons Fler val har inget RITA PÅ KARTAN längre). De fyra som låg i
-  // Alla-arket (samma flöden — trycktPlusPost) + det som låg i Fler val › RITA PÅ KARTAN: Linjer, Zoner, Nytt område (planerare), Pilar,
-  // Mätning. Symboler har sin flik. Spåra med GPS låg i Linjer-menyn och bor nu bara här (öppnar samma undermeny, samma startGpsTracking).
-  // Ändrar inte hur något verktyg fungerar — bara var det startas: kategorimenyerna öppnas som förut (setActiveCategory + setMenuOpen).
+  // RITA & MÄT: ALLA ritverktyg bor här och ingen annanstans, SJU rutor: Rita linje, Rita yta, Nytt område (planerare), Pilar, Mät sträcka,
+  // Mät yta, Spåra med GPS. Linjer-, Zoner- och Mätning-rutorna finns inte: de gjorde samma sak som Rita linje, Rita yta och Mät sträcka/yta.
+  // Symboler har sin flik. Rita linje/Rita yta: körvyn startar ritfiguren (→ Spara som…, som förut); planeringsvyn öppnar typlistan direkt
+  // (se trycktPlusPost). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
   const byggRita = (): RitaKort[] => {
-    const oppnaMeny = (kategori: string) => () => { stangPlus(); setActiveCategory(kategori); setMenuOpen(true); };
     return [
       { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
       { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
-      { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
-      { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
-      { id: 'linjer', titel: 'Linjer', ikon: 'linjer', onTryck: oppnaMeny('lines') },
-      { id: 'zoner', titel: 'Zoner', ikon: 'zoner', onTryck: oppnaMeny('zones') },
       // Egna områden (PR B) — bara planerare. Ritmekaniken = tryck hörn, stäng på första hörnet.
       ...(isAdminRiktig ? [{ id: 'omrade', titel: 'Nytt område', ikon: 'omrade' as const, onTryck: () => { stangPlus(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } }] : []),
-      { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: oppnaMeny('arrows') },
-      { id: 'matning', titel: 'Mätning', ikon: 'matning', onTryck: oppnaMeny('measure') },
+      { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); setActiveCategory('arrows'); setMenuOpen(true); } },
+      { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
+      { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
       { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
     ];
   };
@@ -12944,7 +12939,8 @@ export default function PlannerPage() {
     const yta = post.id === 'yta';
     if (post.typ === 'matning') startaFigur(yta);                                 // samma figur och smala list i körvyn och planeringen
     else if (korvyActive) startaFigur(yta);                                       // körvyns Rita = samma figur → Spara som…
-    else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }       // planeringen behåller sina rit-flöden
+    else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }               // planeringen: zontyperna (samma lista som förut)
+    else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }   // planeringen: linjetyperna direkt — inget tomt mellansteg
   };
   const placeraListSynlig = !!selectedSymbol && !plusRadOppen && !menuOpen && !isDrawMode && !isZoneMode && !isArrowMode && !figur;
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !sparaSomOppen && !prickValt
@@ -17649,7 +17645,7 @@ export default function PlannerPage() {
             flexShrink: 0,
           }}>
             {/* Back-pil (bara synlig vid submenu/camera/colorPicker) */}
-            {subMenu ? (
+            {subMenu && activeCategory !== 'lines' ? (
               <button
                 type="button"
                 aria-label="Tillbaka"
@@ -17690,7 +17686,6 @@ export default function PlannerPage() {
               letterSpacing: '-0.2px',
             }}>
               {subMenu ? (
-                 activeCategory === 'symbols' ? symbolCategories.find(c => c.name === subMenu)?.name :
                  subMenu === 'gps-lines' ? 'Spåra med GPS' :
                  subMenu === 'draw-lines' ? 'Rita manuellt' :
                  subMenu
@@ -17817,170 +17812,6 @@ export default function PlannerPage() {
                     Ångra uttag ({sistaUttag.count} {sistaUttag.count === 1 ? 'hög' : 'högar'}, {sistaUttag.volym.toFixed(1)} m³)
                   </button>
                 )}
-              </div>
-            )}
-
-            {/* === SYMBOLER === */}
-            {activeCategory === 'symbols' && !subMenu && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                }}>
-                  {symbolCategories.map((category) => (
-                    <div
-                      key={category.name}
-                      onClick={() => setSubMenu(category.name)}
-                      style={{
-                        padding: '16px 20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '16px',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '50%',
-                        background: category.bgColor || 'rgba(0,0,0,0.6)',
-                        border: '2px solid rgba(255,255,255,0.7)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-
-                      }}>
-                        <div style={{ filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.6))' }}>
-                          {renderIcon(category.symbols[0]?.id || 'default', 18, '#fff')}
-                        </div>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '15px', color: '#fff' }}>{category.name}</div>
-                        <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{category.symbols.length} symboler</div>
-                      </div>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                        <path d="M9 6 L15 12 L9 18" />
-                      </svg>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Symboler - vald kategori */}
-            {activeCategory === 'symbols' && subMenu && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '20px',
-                }}>
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '16px',
-                  }}>
-                    {symbolCategories.find(c => c.name === subMenu)?.symbols.map(type => {
-                      const bgColor = getIconBackground(type.id);
-                      return (
-                        <div
-                          key={type.id}
-                          onClick={() => {
-                            if (stickvagMode && gpsMapPosition) {
-                              // I stickvagMode: placera direkt på GPS-position
-                              const newMarker: Marker = {
-                                id: Date.now().toString(),
-                                x: gpsMapPosition.x,
-                                y: gpsMapPosition.y,
-                                type: type.id,
-                                isMarker: true,
-                              };
-                              setMarkers(prev => [...prev, newMarker]);
-                              // Stäng menyn
-                              setMenuOpen(false);
-                              setMenuHeight(0);
-                              setSubMenu(null);
-                              setActiveCategory(null);
-                            } else {
-                              // Normalt läge: välj symbol och stäng meny
-                              setSelectedSymbol(type.id);
-                              setMenuOpen(false);
-                              setMenuHeight(0);
-                              setSubMenu(null);
-                              setActiveCategory(null);
-                            }
-                          }}
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '10px',
-                            padding: '16px 8px',
-                            borderRadius: '12px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{
-                            width: '48px',
-                            height: '48px',
-                            borderRadius: '50%',
-                            background: bgColor,
-                            border: '2px solid rgba(255,255,255,0.7)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-
-                          }}>
-                            <div style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))' }}>
-                              {renderIcon(type.id, 24, '#fff')}
-                            </div>
-                          </div>
-                          <span style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center' }}>
-                            {type.name}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* === LINJER === */}
-            {activeCategory === 'lines' && !subMenu && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                }}>
-                  <div
-                    onClick={() => setSubMenu('draw-lines')}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 20 L4 20 Q4 12 12 12 Q20 12 20 4" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Rita manuellt</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Tryck för punkter</div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                      <path d="M9 6 L15 12 L9 18" />
-                    </svg>
-                  </div>
-                </div>
               </div>
             )}
 
