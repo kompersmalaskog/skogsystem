@@ -116,9 +116,38 @@ describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon som för
   });
 });
 
-describe('Rita & mät: stora rutor i arket, bara på ETT ställe', () => {
+describe('Rita & mät: ALLA ritverktyg som stora rutor i arket, och ingen annanstans', () => {
   const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
-  it('fyra verktyg som förut (samma flöden via trycktPlusPost) + Spåra med GPS (Linjer-menyns egen väg, samma startGpsTracking)', () => {
+  it('tio rutor i den här ordningen; Nytt område bara för planerare (som förut i Fler val)', () => {
+    const ids = Array.from(rita.matchAll(/\{ id: '([a-z]+)', titel:/g)).map((m) => m[1]);
+    expect(ids).toEqual(['linje', 'yta', 'strackan', 'matyta', 'linjer', 'zoner', 'omrade', 'pilar', 'matning', 'gps']);
+    expect(rita).toContain("...(isAdminRiktig ? [{ id: 'omrade', titel: 'Nytt område'");
+  });
+  it('Linjer, Zoner, Pilar och Mätning öppnar samma kategorimeny som förut (stängt plus + setActiveCategory + setMenuOpen); Nytt område samma ritläge', () => {
+    expect(rita).toContain("const oppnaMeny = (kategori: string) => () => { stangPlus(); setActiveCategory(kategori); setMenuOpen(true); };");
+    for (const s of [
+      "{ id: 'linjer', titel: 'Linjer', ikon: 'linjer', onTryck: oppnaMeny('lines') }",
+      "{ id: 'zoner', titel: 'Zoner', ikon: 'zoner', onTryck: oppnaMeny('zones') }",
+      "{ id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: oppnaMeny('arrows') }",
+      "{ id: 'matning', titel: 'Mätning', ikon: 'matning', onTryck: oppnaMeny('measure') }",
+      "const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 });",
+    ]) expect(rita, s).toContain(s);
+  });
+  it('INGET ritverktyg finns kvar i objektinfons Fler val (de ska bara finnas på ett ställe): ingen RITA PÅ KARTAN-grupp, inga ritstarter', () => {
+    const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');
+    expect(fv).not.toContain('RITA PÅ KARTAN');
+    expect(fv).not.toContain('rita-pa-kartan');
+    for (const s of ["setActiveCategory('symbols')", "setActiveCategory('lines')", "setActiveCategory('zones')", "setActiveCategory('arrows')", "setActiveCategory('measure')", 'setOmradeRitning(true)', "label: 'Nytt område'"]) expect(fv, s).not.toContain(s);
+  });
+  it('Spåra med GPS finns på ETT ställe: rutan. Linjer-menyns rot har bara "Rita manuellt" kvar; undermenyn gps-lines och startGpsTracking är oförändrade', () => {
+    expect(page.split("setSubMenu('gps-lines')").length - 1).toBe(1);
+    const linjerRot = mellan(page, "{activeCategory === 'lines' && !subMenu && (", '{/* Linjer - GPS */}');
+    expect(linjerRot).not.toContain('Spåra med GPS');
+    expect(linjerRot).toContain("setSubMenu('draw-lines')");
+    const gps = mellan(page, '{/* Linjer - GPS */}', '{/* Linjer - Rita */}');
+    expect(gps).toContain('startGpsTracking(type.id);');
+  });
+  it('fyra verktyg som förut (samma flöden via trycktPlusPost) + Spåra med GPS (samma undermeny, samma startGpsTracking)', () => {
     for (const s of [
       "id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje')",
       "id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta')",
@@ -126,10 +155,6 @@ describe('Rita & mät: stora rutor i arket, bara på ETT ställe', () => {
       "id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta')",
       "id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); }",
     ]) expect(rita, s).toContain(s);
-  });
-  it('Spåra med GPS finns kvar i Linjer-menyn (menyn är oförändrad) och startar samma startGpsTracking', () => {
-    expect(page).toContain("onClick={() => setSubMenu('gps-lines')}");
-    expect(page).toContain('startGpsTracking(type.id);');
   });
   it('arket har ingen egen kopia av verktygen i Fler val-blocket (de ska bara finnas på ett ställe)', () => {
     const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');
@@ -143,18 +168,12 @@ describe('Rita & mät: stora rutor i arket, bara på ETT ställe', () => {
 describe('Fler val: allt som fanns ligger kvar, nu i objektinfon', () => {
   const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');
   const rend = mellan(page, 'const renderFlerVal =', 'const fastnaPlusPost');
-  it('alla sju gamla grupptitlar finns kvar (och inga nya)', () => {
+  it('alla gamla grupper utom RITA PÅ KARTAN finns kvar (ritverktygen bor i Rita & mät) — och inga nya', () => {
     const titlar = Array.from(fv.matchAll(/titel: '([^']+)'/g)).map((m) => m[1]);
-    expect(titlar).toEqual(['RITA PÅ KARTAN', 'KÖRVY', 'SKOTARE', 'INFORMATION', 'FLÖDEN', 'OBJEKT', 'ÖVRIGT']);
+    expect(titlar).toEqual(['KÖRVY', 'SKOTARE', 'INFORMATION', 'FLÖDEN', 'OBJEKT', 'ÖVRIGT']);
   });
   it('varje gammalt val finns kvar med samma handling', () => {
     for (const rad of [
-      "label: 'Symboler', icon: 'category', action: () => { setActiveCategory('symbols'); setMenuOpen(true); }",
-      "label: 'Linjer', icon: 'timeline', action: () => { setActiveCategory('lines'); setMenuOpen(true); }",
-      "label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); }",
-      "label: 'Nytt område'",
-      "label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); }",
-      "label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); }",
       "korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta'",
       'label: korvyStatus.gpsText', 'label: korvyStatus.dataText',
       "label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true",
@@ -198,13 +217,47 @@ describe('ingångarna till Lager-fliken — den gamla helskärmsmenyn är borta,
   });
 });
 
+describe('Redigera: Återställ längst ner (en väg tillbaka) — och inget "Lossa" på långtryck', () => {
+  const ark = las('../components/planering/PlusArk.tsx');
+  const rad = las('../components/planering/PlusRad.tsx');
+  it('Återställ är röd text (KNAPP.destruktiv) LÄNGST NER i Redigera: efter symbolgrunden, bara medan man redigerar, inaktiv utan fasta platser', () => {
+    const sym = mellan(ark, 'const symbolerFlik = (', '// RITA & MÄT:');
+    expect(sym).toContain('{redigerar && (');
+    expect(sym).toContain('data-testid="plus-ark-aterstall"');
+    expect(sym).toContain('...KNAPP.destruktiv');
+    expect(sym).toContain('...(harFasta ? null : INAKTIV)');
+    expect(sym.indexOf('plus-ark-aterstall')).toBeGreaterThan(sym.indexOf('data.symboler.map'));   // efter alla symboler = längst ner
+    expect(ark).toContain('const harFasta = dockNu.some((p) => p.fast);');
+  });
+  it('Återställ frågar först i appens egen dialog (appDialog, samma som Numrera om) och gör inget förrän man bekräftar; sedan lämnar Redigera', () => {
+    expect(ark).toContain('const aterstall = () => onAterstall(() => { setRedigerar(false); setLista([]); });');
+    const h = mellan(page, 'const aterstallPlusDocka = ', '// ── MÄT/RITA i körvyn');
+    expect(h).toContain('setAppDialog({');
+    expect(h).toContain("okLabel: 'Återställ', cancelLabel: 'Avbryt',");
+    expect(h).toContain('onOk: () => { uppdateraPlusRad((s) => aterstallDocka(s)); klart(); },');
+    // inget skrivs utanför onOk
+    expect(h.split('uppdateraPlusRad').length - 1).toBe(1);
+    expect(page).toContain('onAterstall={aterstallPlusDocka}');
+  });
+  it('Esc och klick bakom lämnar dialogen ifred: Esc går inte till arket medan en modal dialog ligger ovanpå', () => {
+    expect(ark).toContain("!document.querySelector('[role=\"dialog\"][aria-modal=\"true\"]')");
+  });
+  it('INGET Lossa: håll-kortet finns bara för automatiska symboler ("Fast i dockan"); ett långt tryck på en fast symbol gör ingenting; ingen lossa-kod kvar', () => {
+    expect(rad).toContain('lt.start(() => { if (!p.fast) setHall(');
+    expect(rad).toContain('Fast i dockan');
+    expect(rad).not.toMatch(/[Ll]ossa|onLossa/);
+    expect(page).not.toMatch(/lossaPost|lossaPlusPost|onLossa/);
+    expect(page).not.toContain('lossa en först');
+  });
+});
+
 describe('arkets form', () => {
   it('tre flikar i rätt ordning', () => {
     expect(FLIKAR.map((f) => f.etikett).join(' · ')).toBe('Symboler · Rita & mät · Lager');
   });
   it('mus: Esc stänger arket (lyssnaren sitter bara medan arket är öppet), klick på gripen växlar halv/hel, hjulet stannar i arket, inget hovring-beroende', () => {
     const ark = las('../components/planering/PlusArk.tsx');
-    expect(ark).toContain("if (e.key === 'Escape') { e.preventDefault(); stangRef.current(); }");
+    expect(ark).toContain("if (e.key === 'Escape' && !document.querySelector('[role=\"dialog\"][aria-modal=\"true\"]')) { e.preventDefault(); stangRef.current(); }");
     expect(ark).toContain("window.addEventListener('keydown', tangent);");
     expect(ark).toContain("return () => window.removeEventListener('keydown', tangent);");
     expect(ark).toContain("else setDetent(detent === 'halv' ? 'hel' : 'halv');");   // utan drag = klick på gripen

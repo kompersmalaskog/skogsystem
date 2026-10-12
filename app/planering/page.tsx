@@ -54,7 +54,7 @@ import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsb
 import { KorvySparaSom } from '../../components/planering/KorvySparaSom'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
-import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, lossaPost, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
+import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { SPARA_SOM, valForFigur, minPunkter, byggFigurMarkering } from '../../lib/sparSom'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
@@ -12618,15 +12618,26 @@ export default function PlannerPage() {
     poster: k.symbols.map((s) => postVy({ typ: 'symbol', id: s.id }, arFastNu({ typ: 'symbol', id: s.id }))),
   }));
 
-  // RITA & MÄT: de fyra verktyg som låg i Alla-arket (samma flöden — trycktPlusPost) + Spåra med GPS, som fanns i Linjer-menyn
-  // (Fler val › Linjer › Spåra med GPS, även i körvyn) och nu också ligger här: samma meny, samma startGpsTracking, ett steg närmare.
-  const byggRita = (): RitaKort[] => [
-    { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
-    { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
-    { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
-    { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
-    { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
-  ];
+  // RITA & MÄT: ALLA ritverktyg bor här och ingen annanstans (objektinfons Fler val har inget RITA PÅ KARTAN längre). De fyra som låg i
+  // Alla-arket (samma flöden — trycktPlusPost) + det som låg i Fler val › RITA PÅ KARTAN: Linjer, Zoner, Nytt område (planerare), Pilar,
+  // Mätning. Symboler har sin flik. Spåra med GPS låg i Linjer-menyn och bor nu bara här (öppnar samma undermeny, samma startGpsTracking).
+  // Ändrar inte hur något verktyg fungerar — bara var det startas: kategorimenyerna öppnas som förut (setActiveCategory + setMenuOpen).
+  const byggRita = (): RitaKort[] => {
+    const oppnaMeny = (kategori: string) => () => { stangPlus(); setActiveCategory(kategori); setMenuOpen(true); };
+    return [
+      { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
+      { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
+      { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
+      { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
+      { id: 'linjer', titel: 'Linjer', ikon: 'linjer', onTryck: oppnaMeny('lines') },
+      { id: 'zoner', titel: 'Zoner', ikon: 'zoner', onTryck: oppnaMeny('zones') },
+      // Egna områden (PR B) — bara planerare. Ritmekaniken = tryck hörn, stäng på första hörnet.
+      ...(isAdminRiktig ? [{ id: 'omrade', titel: 'Nytt område', ikon: 'omrade' as const, onTryck: () => { stangPlus(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } }] : []),
+      { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: oppnaMeny('arrows') },
+      { id: 'matning', titel: 'Mätning', ikon: 'matning', onTryck: oppnaMeny('measure') },
+      { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
+    ];
+  };
 
   // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil), inte en egen.
   const sparFarg = (art: 'egen' | 'andras'): string => {
@@ -12703,18 +12714,6 @@ export default function PlannerPage() {
   // ── FLER VAL → objektinfon. Allt som plusmenyns "Fler val ›" hade ligger här, med samma val och samma handlingar. ──
   // `stangInfo` stänger objektinfon efter ett val (samma sak som plusmenyn gjorde med sig själv).
   const flerValGrupper = (): { id: string; titel: string; items: { label: string; icon: string; action: () => void; value?: string; danger?: boolean; avsluta?: boolean }[] }[] => [
-    {
-      id: 'rita-pa-kartan', titel: 'RITA PÅ KARTAN',
-      items: [
-        { label: 'Symboler', icon: 'category', action: () => { setActiveCategory('symbols'); setMenuOpen(true); } },
-        { label: 'Linjer', icon: 'timeline', action: () => { setActiveCategory('lines'); setMenuOpen(true); } },
-        { label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); } },
-        // Egna områden (PR B) — bara planerare. Ritmekaniken = tryck hörn, stäng på första hörnet.
-        ...(isAdminRiktig ? [{ label: 'Nytt område', icon: 'add_location_alt', action: () => { const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } }] : []),
-        { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
-        { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
-      ],
-    },
     {
       id: 'korvy', titel: 'KÖRVY',
       // Körvy 2D-raden är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv. Läget FÖLJER rollen på objektet
@@ -12891,14 +12890,16 @@ export default function PlannerPage() {
     const post = hittaPost(nyckel);
     if (!post) return { ok: false, text: 'Hittar inte posten' };
     const r = fastaPost(plusRadRef.current, post);
-    if (!r.ok) return { ok: false, text: r.skal === 'full' ? `Dockan är full (${MAX_FASTA}/${MAX_FASTA}) — lossa en först` : r.skal === 'ej-symbol' ? 'Bara symboler går att fästa i dockan' : 'Redan fast i dockan' };
+    if (!r.ok) return { ok: false, text: r.skal === 'full' ? `Dockan är full (${MAX_FASTA}/${MAX_FASTA}) — ta bort en under Redigera först` : r.skal === 'ej-symbol' ? 'Bara symboler går att fästa i dockan' : 'Redan fast i dockan' };
     uppdateraPlusRad(() => r.state);
     return { ok: true, text: 'Fast i dockan' };
   };
-  const lossaPlusPost = (nyckel: string) => {
-    const post = hittaPost(nyckel);
-    if (post) uppdateraPlusRad((s) => lossaPost(s, post));
-  };
+  // Återställ (längst ner i Redigera): alla dockans platser automatiska igen. Appens egen dialog frågar först (window.confirm blockeras tyst).
+  const aterstallPlusDocka = (klart: () => void) => setAppDialog({
+    message: 'Återställ dockan?\nDe sex platserna väljs automatiskt igen, efter vad du använder mest.',
+    okLabel: 'Återställ', cancelLabel: 'Avbryt',
+    onOk: () => { uppdateraPlusRad((s) => aterstallDocka(s)); klart(); },
+  });
 
   // ── MÄT/RITA i körvyn: tryck punkter (samma klick-effekt som planeringens mätning), figuren syns live med längd/area i sig ──
   const startaFigur = (yta: boolean) => {
@@ -14741,7 +14742,7 @@ export default function PlannerPage() {
             startFlik={plusArkStart}
             onPost={trycktPlusPost}
             onFastna={fastnaPlusPost}
-            onLossa={lossaPlusPost}
+            onAterstall={aterstallPlusDocka}
             onSparaDocka={sparaDockaPlatser}
             onStang={stangPlus}
           />
@@ -17955,36 +17956,6 @@ export default function PlannerPage() {
                   borderRadius: '16px',
                   padding: '8px',
                 }}>
-                  <div
-                    onClick={() => setSubMenu('gps-lines')}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="3" />
-                        <circle cx="12" cy="12" r="8" />
-                        <line x1="12" y1="2" x2="12" y2="4" />
-                        <line x1="12" y1="20" x2="12" y2="22" />
-                        <line x1="2" y1="12" x2="4" y2="12" />
-                        <line x1="20" y1="12" x2="22" y2="12" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Spåra med GPS</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Gå längs linjen</div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                      <path d="M9 6 L15 12 L9 18" />
-                    </svg>
-                  </div>
-                  
                   <div
                     onClick={() => setSubMenu('draw-lines')}
                     style={{

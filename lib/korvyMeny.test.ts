@@ -232,8 +232,11 @@ describe('komponenterna: tokens och stora tryckytor', () => {
     expect(kall.PlusRad).toContain('poster.slice(0, MAX_FASTA)');
     expect(kall.PlusRad).toContain('data-testid="plus-alla"');
     expect(kall.PlusRad).toContain('data-testid="plus-stang"');
-    expect(kall.PlusRad).toContain("'Fast i dockan'");
-    expect(kall.PlusRad).toContain("'Lossa'");
+    expect(kall.PlusRad).toContain('data-testid="plus-hall-fast"');
+    expect(kall.PlusRad).toMatch(/>\s*Fast i dockan\s*</);
+    // ingen "Lossa" per symbol: en fast symbol har inget håll-kort, vägen tillbaka är Återställ i Redigera
+    expect(kall.PlusRad).not.toContain('Lossa');
+    expect(kall.PlusRad).toContain('lt.start(() => { if (!p.fast) setHall(');
     expect(kall.PlusRad).toContain("transformOrigin: 'right bottom'");
     // dockan har INGEN bakgrundsskugga (kartan ovanför är fri) — det har bara Alla-arket
     const dockDel = kall.PlusRad.slice(kall.PlusRad.indexOf('// ── Dockan ──'));

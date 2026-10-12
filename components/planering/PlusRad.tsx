@@ -5,7 +5,8 @@
 // avdelarstreck, "Alla" och × (plussets stängning). Dockan fylls bara med symboler — fasta först, sedan mest använda (regeln bor i
 // lib/plusRad); Högstubbe/Evighetsträd finns i pillen. "Alla" öppnar arket (PlusArk): Symboler · Rita & mät · Lager.
 //
-//   håll fingret på en symbol i dockan → "Fast i dockan" (automatisk) / "Lossa" (fast)
+//   håll fingret på en AUTOMATISK symbol i dockan → "Fast i dockan". En fast symbol har inget håll-kort: vägen tillbaka är Återställ
+//   längst ner i Redigera (en väg räcker). Ett långt tryck på en fast symbol gör ingenting (släppet sväljs, symbolen placeras inte).
 //
 // Komponenten är ren presentation + håll-fingret-menyn; vad ett tryck GÖR (placera, växla lager, öppna ytkort) avgör sidan.
 // Via designtokens. Dockan har ingen bakgrundsskugga över kartan — den stängs med ×.
@@ -58,21 +59,22 @@ const StangIkon = () => (
   </svg>
 );
 
-export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onLossa, onSparaDocka, onStang }: {
+export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka, onAterstall, onStang }: {
   poster: PlusPostVy[];
   ark: ArkData;
   /** öppna direkt i arket på den här fliken (t.ex. från objektinfons Lager-rad) i stället för att börja i dockan */
   startFlik?: FlikId | null;
   onPost: (nyckel: string) => void;
   onFastna: (nyckel: string) => HallSvar;
-  onLossa: (nyckel: string) => void;
   /** Klar i Redigera: dockans nya platser (symbolnycklar, i ordning) */
   onSparaDocka: (nycklar: string[]) => void;
+  /** Återställ längst ner i Redigera: sidan frågar (appens egen dialog) och anropar `klart` först när dockan är återställd */
+  onAterstall: (klart: () => void) => void;
   onStang: () => void;
 }) {
   const [visaAlla, setVisaAlla] = useState(!!startFlik);
   const [flik, setFlik] = useState<FlikId>(startFlik ?? 'symboler');
-  const [hall, setHall] = useState<{ nyckel: string; etikett: string; fast: boolean; svar?: string } | null>(null);
+  const [hall, setHall] = useState<{ nyckel: string; etikett: string; svar?: string } | null>(null);
   const [inne, setInne] = useState(false);
   const bred = useMinBredd(DOCK_BRED_MIN_PX);
   const lt = useRef(skapaLangtryck()).current;
@@ -88,7 +90,7 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onLossa, onS
   const hallProps = (p: PlusPostVy, tryck: () => void) => (p.fastbar === false
     ? { onClick: tryck }
     : {
-        onPointerDown: (e: React.PointerEvent) => lt.start(() => setHall({ nyckel: p.nyckel, etikett: p.etikett, fast: p.fast }), e.clientX, e.clientY),
+        onPointerDown: (e: React.PointerEvent) => lt.start(() => { if (!p.fast) setHall({ nyckel: p.nyckel, etikett: p.etikett }); }, e.clientX, e.clientY),
         onPointerMove: (e: React.PointerEvent) => lt.rorelse(e.clientX, e.clientY),
         onPointerUp: lt.stopp,
         onPointerLeave: lt.stopp,
@@ -97,11 +99,9 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onLossa, onS
         onClick: () => { if (lt.slukKlick()) return; tryck(); },
       });
   const stangHall = () => setHall(null);
-  const valHall = (slag: 'fast' | 'lossa') => {
+  const valHall = () => {
     if (!hall || hall.svar) return;
-    let svar: HallSvar;
-    if (slag === 'fast') svar = onFastna(hall.nyckel);
-    else { onLossa(hall.nyckel); svar = { ok: true, text: 'Lossad' }; }
+    const svar: HallSvar = onFastna(hall.nyckel);
     setHall({ ...hall, svar: svar.text });
     setTimeout(() => setHall(null), svar.ok ? 1200 : 2400);
   };
@@ -127,9 +127,9 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onLossa, onS
             <div style={{ display: 'flex', gap: AVSTAND.s }}>
               <button type="button" onClick={stangHall} data-testid="plus-hall-avbryt"
                 style={{ flex: 1, minHeight: 56, border: 'none', borderRadius: RADIE.knapp, background: FARG.fyllning, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', ...TYP.listtitel }}>Avbryt</button>
-              <button type="button" onClick={() => valHall(hall.fast ? 'lossa' : 'fast')} data-testid={hall.fast ? 'plus-hall-lossa' : 'plus-hall-fast'}
+              <button type="button" onClick={valHall} data-testid="plus-hall-fast"
                 style={{ flex: 1, minHeight: 56, border: 'none', borderRadius: RADIE.knapp, background: FARG.text, color: FARG.bg, fontFamily: 'inherit', cursor: 'pointer', ...TYP.listtitel }}>
-                {hall.fast ? 'Lossa' : 'Fast i dockan'}
+                Fast i dockan
               </button>
             </div>
           </>
@@ -149,6 +149,7 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onLossa, onS
         dockNu={poster}
         onPost={onPost}
         onSparaDocka={onSparaDocka}
+        onAterstall={onAterstall}
         onStang={onStang}
       />
     );

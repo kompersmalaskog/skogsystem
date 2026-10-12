@@ -39,7 +39,7 @@ export function dragHojd(startHojd: number, dy: number, fonsterHojd: number): nu
 // ── Redigera: en arbetskopia av dockans platser ──
 // Dockan visar alltid sex platser (fasta först, sedan mest använda — lib/plusRad.beraknaRad). I Redigera startar arbetskopian som
 // de platser dockan visar just nu; "Klar" gör hela kopian till FASTA platser. Är kopian kortare än sex fyller dockan resten
-// automatiskt som förut — samma regel som när man lossar en post idag.
+// automatiskt som förut. Återställ (längst ner i Redigera) gör alla platser automatiska igen.
 
 /** Arbetskopia av dockan: bara giltiga dock-poster, utan dubbletter, högst MAX_FASTA. */
 export function startaRedigering(dockNu: PlusPost[]): PlusPost[] {

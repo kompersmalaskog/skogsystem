@@ -3,7 +3,8 @@
 //   • SEX symbolknappar, sedan ett avdelarstreck, "Alla" och ×. Dockan fylls BARA med symboler: Högstubbe och Evighetsträd finns i
 //     pillen (körvyn) och mätverktygen, Rita och lagren finns i Alla — de hör inte hemma i dockan. MAX_FASTA = 6.
 //   • FASTA först (föraren höll fingret på en symbol → "Fast i dockan"), resten fylls AUTOMATISKT efter mest använt.
-//   • Håll fingret på en symbol i dockan → "Lossa" (fast) / "Fast i dockan" (automatisk). Max sex fasta.
+//   • Håll fingret på en AUTOMATISK symbol i dockan → "Fast i dockan". Max sex fasta. Vägen tillbaka är Återställ längst ner i Redigera
+//     (alla platser automatiska igen) — en väg räcker; det finns inget "Lossa" per symbol.
 //   • Sparas per maskin (localStorage), så valet följer maskinen och överlever omstart.
 //
 // Rena funktioner → testbara (plusRad.test.ts). Inget här vet något om React eller kartan.
@@ -42,7 +43,7 @@ export const STANDARD_ORDNING: readonly PlusPost[] = [
 export interface PlusRadState {
   /** Fasta platser, i den ordning föraren fäste dem. Max MAX_FASTA. */
   fasta: PlusPost[];
-  /** Antal användningar per post (nyckel = postNyckel). Räknas även för fasta, så en lossad post hamnar rätt direkt. */
+  /** Antal användningar per post (nyckel = postNyckel). Räknas även för fasta, så en återställd docka hamnar rätt direkt. */
   anv: Record<string, number>;
 }
 
@@ -153,7 +154,7 @@ export const arFast = (s: PlusRadState, post: PlusPost): boolean => s.fasta.some
 
 export type FastaResultat = { ok: true; state: PlusRadState } | { ok: false; skal: 'full' | 'finns' | 'ej-symbol' };
 
-/** "Fast i dockan". Bara en symbol går att fästa. Är dockan full (sex fasta) får föraren lossa en först — inget byts ut i smyg. */
+/** "Fast i dockan". Bara en symbol går att fästa. Är dockan full (sex fasta) får föraren ta bort en i Redigera först — inget byts ut i smyg. */
 export function fastaPost(s: PlusRadState, post: PlusPost): FastaResultat {
   if (!arDockPost(post)) return { ok: false, skal: 'ej-symbol' };
   if (arFast(s, post)) return { ok: false, skal: 'finns' };
@@ -161,7 +162,7 @@ export function fastaPost(s: PlusRadState, post: PlusPost): FastaResultat {
   return { ok: true, state: { fasta: [...s.fasta, post], anv: s.anv } };
 }
 
-/** "Lossa": posten blir automatisk igen och hamnar där dess användning placerar den. */
-export function lossaPost(s: PlusRadState, post: PlusPost): PlusRadState {
-  return { fasta: s.fasta.filter((p) => !arSammaPost(p, post)), anv: s.anv };
+/** "Återställ" (längst ner i Redigera): alla platser automatiska igen. Användningsräkningen behålls, så dockan hamnar direkt där den hör hemma. */
+export function aterstallDocka(s: PlusRadState): PlusRadState {
+  return { fasta: [], anv: s.anv };
 }

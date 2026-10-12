@@ -1,11 +1,13 @@
 'use client';
 
 // PLUS-ARKET ("Alla"), Apple-modell: ett ark som täcker halva skärmen och kan dras upp till hel — kartan syns ovanför. Överst en
-// flikväljare (Symboler · Rita & mät · Lager) och ett kryss. Redigera uppe till vänster i Symboler-fliken. Plus = kartan: lägga till,
+// flikväljare (Symboler · Rita & mät · Lager) och ett kryss. Redigera uppe till vänster i Symboler-fliken; Återställ längst ner i
+// Redigera (alla platser automatiska igen, efter bekräftelse). Plus = kartan: lägga till,
 // rita, mäta, välja vad kartan visar. Arket är detsamma i körvyn och planeringsvyn; sidan avgör innehållet.
 //
 //   Symboler    de sex kategorierna som i appen, namnet som liten grå rubrik, symbolerna som färgade cirklar. Tryck = samma flöde som dockan.
-//   Rita & mät  stora rutor: Rita linje, Rita yta, Mät sträcka, Mät yta (och Spåra med GPS där den fanns).
+//   Rita & mät  stora rutor — ALLA ritverktyg bor här och ingen annanstans: Rita linje, Rita yta, Mät sträcka, Mät yta, Linjer, Zoner,
+//               Nytt område (planerare), Pilar, Mätning och Spåra med GPS. Undermenyer (linjetyp, zontyp …) öppnas ur rutan som förut.
 //   Lager       alla lager i sina grupper, med liten förhandsbild och en iOS-strömbrytare.
 //
 // Mus: klick på gripen växlar halv/hel (dra går också), hjulet scrollar arket (aldrig kartan bakom), Esc eller klick på kartan stänger,
@@ -14,7 +16,7 @@
 // och arkets lägen bor i lib/plusArk (testade); dockans regler i lib/plusRad.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AVSTAND, DELFARG, FARG, RADIE, RORELSE, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
+import { AVSTAND, DELFARG, FARG, INAKTIV, KNAPP, RADIE, RORELSE, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
 import {
   FLIKAR, arAndrad, dragHojd, flyttaPlats, laggTillPlats, ligger, platsUnderFinger, startaRedigering, taBortPlats, valjDetent,
   type Detent, type FlikId,
@@ -39,7 +41,7 @@ export interface PlusPostVy {
 
 export interface SymbolKategori { id: string; rubrik: string; poster: PlusPostVy[] }
 
-export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps';
+export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'linjer' | 'zoner' | 'omrade' | 'pilar' | 'matning';
 /** En stor ruta i Rita & mät. Vad ett tryck gör avgör sidan (samma flöden som förut). */
 export interface RitaKort { id: string; titel: string; ikon: RitaIkonId; onTryck: () => void }
 
@@ -99,6 +101,11 @@ function RitaIkon({ id }: { id: RitaIkonId }) {
       {id === 'strackan' && <path d="M5 20 H35 M5 13 V27 M35 13 V27" {...linje} />}
       {id === 'matyta' && <><path d="M6 6 H34 V34 H6 Z" {...linje} strokeDasharray="4 4" /><path d="M14 20 H26" {...linje} /></>}
       {id === 'gps' && <><circle cx="20" cy="20" r="5" {...linje} /><circle cx="20" cy="20" r="13" {...linje} /><path d="M20 3 V8 M20 32 V37 M3 20 H8 M32 20 H37" {...linje} /></>}
+      {id === 'linjer' && <><path d="M5 14 H35" {...linje} /><path d="M5 26 H35" {...linje} strokeDasharray="6 5" /></>}
+      {id === 'zoner' && <ellipse cx="20" cy="20" rx="15" ry="11" {...linje} fill={f} fillOpacity="0.25" />}
+      {id === 'omrade' && <><path d="M6 10 L30 6 L35 30 L10 34 Z" {...linje} strokeDasharray="4 4" /><path d="M20 14 V26 M14 20 H26" {...linje} /></>}
+      {id === 'pilar' && <path d="M7 33 L32 8 M32 8 H19 M32 8 V21" {...linje} />}
+      {id === 'matning' && <><path d="M4 14 H36 V26 H4 Z" {...linje} /><path d="M11 14 V20 M18 14 V22 M25 14 V20 M32 14 V22" {...linje} /></>}
     </svg>
   );
 }
@@ -122,7 +129,7 @@ function Cirkel({ p, px = CIRKEL_PX }: { p: PlusPostVy; px?: number }) {
   );
 }
 
-export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka, onStang }: {
+export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka, onAterstall, onStang }: {
   data: ArkData;
   flik: FlikId;
   onFlik: (f: FlikId) => void;
@@ -133,6 +140,8 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
   onPost: (nyckel: string) => void;
   /** Klar i Redigera: dockans nya platser (nycklar, i ordning). Anropas bara om något ändrats. */
   onSparaDocka: (nycklar: string[]) => void;
+  /** Återställ längst ner i Redigera: sidan frågar (appens egen dialog) och anropar `klart` först när dockan är återställd */
+  onAterstall: (klart: () => void) => void;
   onStang: () => void;
 }) {
   const [detent, setDetent] = useState<Detent>('halv');
@@ -151,7 +160,8 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
   const stangRef = useRef(onStang);
   stangRef.current = onStang;
   useEffect(() => {
-    const tangent = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); stangRef.current(); } };
+    // Ligger appens bekräftelsedialog (Återställ) ovanpå är det den som får Esc-trycket, inte arket under.
+    const tangent = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"][aria-modal="true"]')) { e.preventDefault(); stangRef.current(); } };
     window.addEventListener('keydown', tangent);
     return () => window.removeEventListener('keydown', tangent);
   }, []);
@@ -189,6 +199,9 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
     if (arAndrad(dockPosterNu, lista)) onSparaDocka(lista.map(postNyckel));
     setRedigerar(false);
   };
+  // Återställ: alla platser automatiska igen. Finns inga fasta platser har knappen inget att göra (inaktiv). Sidan frågar först.
+  const harFasta = dockNu.some((p) => p.fast);
+  const aterstall = () => onAterstall(() => { setRedigerar(false); setLista([]); });
   const visaMedd = (t: string) => {
     setMedd(t);
     if (meddTimer.current) clearTimeout(meddTimer.current);
@@ -353,10 +366,16 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
           </section>
         ))}
       </div>
+      {redigerar && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: AVSTAND.xl }}>
+          <button type="button" data-testid="plus-ark-aterstall" disabled={!harFasta} onClick={aterstall}
+            style={{ ...KNAPP.destruktiv, padding: `0 ${AVSTAND.l}px`, ...(harFasta ? null : INAKTIV) }}>Återställ</button>
+        </div>
+      )}
     </div>
   );
 
-  // RITA & MÄT: stora rutor, ett tryck. Ikonen (linje, yta, sträcka, yta med mått, GPS) är tecknad som i kanvasen (bild 14).
+  // RITA & MÄT: stora rutor, ett tryck. Ikonerna är tecknade som i kanvasen (bild 14). Alla ritverktyg bor här (inga i objektinfon).
   const ritaFlik = (
     <div data-testid="plus-ark-rita" style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${bred ? 200 : 150}px, 1fr))`, gap: AVSTAND.l }}>
       {data.rita.map((k) => (
