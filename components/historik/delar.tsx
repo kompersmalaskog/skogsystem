@@ -4,10 +4,11 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { AVSTAND, FARG, KNAPP, RAD, RADIE, TNUM, TRAFFYTA, TYP } from "@/lib/design/tokens";
+import { rollFarg } from "@/lib/sparStil";
 import { diagramVarde, fmt } from "@/lib/historik/berakna";
 import type { MaskinArRad, MaskinTyp } from "@/lib/historik/typer";
 
-export const maskinFarg = (typ: MaskinTyp) => (typ === "skördare" ? FARG.skordare : FARG.skotare);
+export const maskinFarg = (typ: MaskinTyp) => rollFarg(typ === "skördare" ? "skordare" : "skotare");
 
 /** Liten prick + ord. Pricken är bara en markör; texten bär betydelsen. */
 export function Notis({ text }: { text: string }) {
