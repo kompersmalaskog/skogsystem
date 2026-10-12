@@ -45,6 +45,42 @@ Ingen explicit symboltyp idag. Lägg till
 `grothög` i planeringsvyn när det blir aktuellt,
 eller härleda från `landing` (avlägg).
 
+## Historik — produktionsrapporter 2011–2026 (bara admin)
+
+Historiken är 7 592 produktionsrapporter (PDF, PRT, XPS) ur två Google Takeout-mbox (kompersmalaskog@ och kompersmalaskog.objekt@), inläst
+2026-10 på grenen `historik-inventering-mejl`. Den innehåller bara fakta ur rapporterna (volym, G15, stammar, avbrott, bränsle, förare, stopp).
+Index, normkurvor och jämförelser lagras INTE: de räknas i vyerna när de läses. **Sidan `/admin/historik` och all historikdata är bara för
+roll = `admin`** (chef kommer in på `/admin` men inte hit). Skyddet ligger i databasen: RLS på alla `hist_`-tabeller och på bucketen
+`historik` kräver `public.ar_admin()`. Sidans server-kontroll är bara omdirigering.
+
+**Tabeller** (alla RLS, läs bara admin, skrivning bara service_role): `hist_maskin`, `hist_forare` (alias, t.ex. Jocke = Joacim Ringberg),
+`hist_rapport` (sha256, format, typ, maskin, `storage_path`, `exkluderad` + orsak), `hist_objekt` (en rad per rapport; `raknas` = exakt en rapport
+per objekt och maskin, `dubblett_av` pekar på den som räknas), `hist_skift` (skiftrader med G15, volym, lass), `hist_forare_objekt`, `hist_stopp`
+(Komatsu-stopp med felkod), `hist_korrigering` (manuella beslut och regler som ändrar åtgärd: `hist_objekt.atgard` skrivs aldrig över).
+**Bucket** `historik` (privat): `<år>/<sha256>.<pdf|prt|xps>`, 7 592 filer, 756 MB; öppnas med signerad länk (60 s).
+**Vyer** (alla `security_invoker`, bara `raknas = true` och egna maskiner): `vy_hist_objekt_bas`, `vy_hist_normkurva` (oviktad + G15-viktad),
+`vy_hist_objekt_index`, `vy_hist_index_ar`, `vy_hist_forare_maskin`, `vy_hist_tid_ar`, `vy_hist_stopp_topp`, `vy_hist_maskin_ar` (appens huvudvy,
+med summarader) och `vy_hist_objekt_lista` (objekten bakom ett år med `storage_path`).
+
+**Åtgärd** (gallring, slutavverkning, skada, special, okänd): ur objektnamn, mejlämne eller rapportens kategori; Komatsu 941/AptMan och Bear
+får "maskinstandard" (slutavverkning) som obekräftad antagen åtgärd, Rottne gallring är bekräftad (98 %). Korrigeringar: vindfällor AB Karl Hedin,
+Gävle 2026 = skada; tio specialjobb = special. Skotarnas åtgärd ärvs från skördarens objekt med samma namn/objektnr (exakt inom 60 dagar, fuzzy
+namn ≥ 0,9 inom 180 dagar). Index finns bara för skördare i gallring och slutavverkning; m³/G15 jämförs aldrig mellan åtgärder.
+
+**Sidan** (`app/admin/historik`, `components/historik/`, `lib/historik/`): lista (skördare med växel Gallring / Slutavverkning / Skada och special,
+skotare med alla åtgärder), maskinsida (åtgärdsrader, diagram år för år, nyckeltal) och år med objekt och länk till originalrapporten. "+N antagna"
+= objekt med obekräftad maskinstandard, med först vid tryck. Färre än 5 objekt eller stopp i färre än 70 % av rapporterna står med text.
+Saknad data är ord ("Avbrott saknas i rapportformatet"), aldrig 0. Renderad bara i testsele (mockad supabase), inte med riktig inloggning.
+
+**Kända begränsningar:** Giant 2023/2025 och King ny saknar avbrottsdata i formatet (ingen TU). Skotarnas åtgärd är okänd för cirka 50–70 % av
+objekten. 435 MaxiXplorer-produktionsrapporter (volym utan tider) är uppladdade men inte tolkade. Lastcertifikat för Wisent 2025 har volym =
+antal lass × 1 m³ (flaggat som osäker). Objektnamn har `?` där å/ä/ö inte gick att läsa ur ritad text.
+
+**Skript** (`scripts/historik/`, kör i ordning): `hist_underlag.py` → `hist_avbrott.py` → `hist_bygg.py` → `hist_raknas.py` → `hist_korrigering.py` →
+`importera.py` (torrkörning är standard; `--utfor` kräver servicenyckel + `HIST_IMPORT_OK=ja`; vitlista: bara `hist_*` och bucketen `historik`).
+`verifiera_migration.py` bevisar att hist-migrationerna bara rör `hist_*` / `vy_hist_*` och policyn på bucketen `historik`. Mbox och PDF ligger
+aldrig i repot. Migrationerna `20261009170000` … `20261015120000` är redan körda i prod via MCP.
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,
