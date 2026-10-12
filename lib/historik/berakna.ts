@@ -237,7 +237,7 @@ export function nyckeltal(r: MaskinArRad): Nyckeltal[] {
   const ut: Nyckeltal[] = [];
   const wisent = r.maskin === "Ponsse Wisent";
   const volym = med(fmt(r.volym_m3fub, 0), "m³", wisent ? VOLYM_SAKNAS_LASS : "Volym saknas");
-  const osaker = r.antal_volym_osaker > 0 ? (wisent ? `Volym saknas i ${r.antal_volym_osaker} objekt: lass utan storlek (från 2024-09)` : `Volymen är osäker i ${r.antal_volym_osaker} objekt (rapporten anger lass × 1 m³ eller schablon)`) : null;
+  const osaker = r.antal_volym_osaker > 0 ? (wisent ? `Volym saknas eller är osäker i ${r.antal_volym_osaker} objekt (lass utan storlek, eller lasstorlek utanför 6–18 m³)` : `Volymen är osäker i ${r.antal_volym_osaker} objekt (rapporten anger lass × 1 m³ eller schablon)`) : null;
   ut.push({ etikett: "Total volym", ...volym, notis: osaker });
   const g15 = med(fmt(r.g15_h, 0), "h", "G15 saknas");
   ut.push({ etikett: "G15", ...g15, notis: null });
@@ -385,7 +385,7 @@ export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: 
     })),
     bastRiktning: null,
   });
-  ut.push({ etikett: "Total volym (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.volym_m3fub, 0, "", x.maskin === "Ponsse Wisent" ? VOLYM_SAKNAS_LASS : "Volym saknas", x.antal_volym_osaker > 0 ? (x.maskin === "Ponsse Wisent" ? `Saknas i ${x.antal_volym_osaker} objekt: lass utan storlek` : `Osäker i ${x.antal_volym_osaker} objekt`) : null))), bastRiktning: null });
+  ut.push({ etikett: "Total volym (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.volym_m3fub, 0, "", x.maskin === "Ponsse Wisent" ? VOLYM_SAKNAS_LASS : "Volym saknas", x.antal_volym_osaker > 0 ? (x.maskin === "Ponsse Wisent" ? `Saknas eller osäker i ${x.antal_volym_osaker} objekt: lass utan storlek / lasstorlek` : `Osäker i ${x.antal_volym_osaker} objekt`) : null))), bastRiktning: null });
   ut.push({ etikett: "G15 (h)", celler: rs.map((r) => cell(r, (x) => tal(x.g15_h, 0, "", "G15 saknas", null))), bastRiktning: null });
   ut.push({ etikett: "m³/G15", celler: rs.map((r) => cell(r, (x) => tal(x.m3_per_g15, 1, "", "G15 saknas i rapporten", fewObjects(x.antal_med_g15), x.antal_med_g15 < MIN_OBJEKT))), bastRiktning: null });
   if (skordare) {

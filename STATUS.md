@@ -86,10 +86,12 @@ LC pekar på den via `dubblett_av` (202 rapporter slutar räknas: 188 R1 + 14 R2
 (`vy_hist_objekt_bas.tvilling_*`); G15, bränsle, avbrott, livstid från SUM. Bränsle och avbrott låg dubbelt precis som G15. Wisent G15/timräknare efter
 rättning: 2023 0,98, 2024 1,07, 2025 1,01, 2026 0,97. Kvar: ~14 LC 2024 (236 h) delar nummer med en SUM men har olika G15 (SUM är kumulativ per objekt
 eller LC delvis) och räknas fortfarande; Wisent-volym efter 2024-09 döljs per datum men LC från 2026-01 har riktiga m³ (se nedan).
-**R3 (lastcertifikat som delutskrift av summering) är analyserad men INTE körd:** med villkoren (delat nummer, period inom summeringen +3 d, lägre G15, gruppsumma <= summering)
-tar den 15 Wisent-lastcertifikat (2023 11 h, 2024 111 h, 2025 104 h, 2026 43 h) men sänker årskvoterna G15/räknare till 0,96 (2023), 0,99 (2024), 0,95 (2025), 0,94 (2026)
-och flera månader (t.ex. aug 2026 0,93 -> 0,78): flaggad, riktig tid tas troligen bort (`hist_r3.py`). Migration `20261018100000_hist_wisent_flaggregel.sql` (Wisent-volym döljs
-efter flagga laster_x_1m3/schablon_10m3 i stället för datum 2024-09) är skriven men inte körd.
+**R3 (lastcertifikat som delutskrift av summering) är analyserad och bestämd att INTE köras** (`hist_r3.py`, förslag i `hist_csv/hist_r3_forslag.csv`, sparade): den sänker årskvoterna
+G15/räknare till 0,94–0,96 för 2023/2025/2026 och tar riktig tid. Wisent 2024 ligger på 1,05, samma nivå som Komatsu och Rottne. **Känt kvarvarande överskott:** Godsförvaltning
+juni 2024 (två lastcertifikat 36,73 + 79,90 h mot summering 91,50 h, ca 40 h) kan rättas manuellt senare.
+**Wisent-volym (migration `20261018100000_hist_wisent_flaggregel.sql`, ska köras efter ja):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
+flagga men < 3 m³/lass behandlas som `laster_x_1m3` via `hist_korrigering` (falt `volym_kvalitet`, orsak `regel: wisent_lass_x_1m3_utan_flagga`); Wisent med m³/lass utanför 6–18 märks
+`osaker_lasstorlek` ("Osäker volym" i appen), behåller volymen i summan men räknas inte i m³/G15, medelstam, index eller bränsle per m³.
 **Återstår (väntar på beslut):** DEL A: G15/timräknare som kolumn i `vy_hist_maskin_ar`. DEL B: `objektnr_normaliserat` (6 siffror), `virkesordernr_normaliserat`
 (8 siffror), `objektnr_alla text[]` med GIN-index i `hist_objekt` (skript `hist_objektnr.py`, ej körd). DEL C: volym från skördare till skotare via delat
 nummer (`hist_koppling_nr.py`), lagras i `hist_korrigering` med orsak `regel: volym_fran_skordare_objektnr`, kontroll 8–14 m³/lass per Wisent-objekt,

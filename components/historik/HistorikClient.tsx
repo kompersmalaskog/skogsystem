@@ -357,11 +357,12 @@ function ArSida({ rader, vy, gaTill }: SidProps) {
           objekt.map((o) => {
             const datum = o.startdatum && o.slutdatum && o.startdatum !== o.slutdatum ? `${o.startdatum} – ${o.slutdatum}` : (o.startdatum ?? o.rapportdatum ?? "datum saknas");
             const delar = [datum, o.g15_h !== null ? `${fmt(o.g15_h, 1)} h G15` : "G15 saknas i rapporten"];
-            if (o.volym_m3fub !== null) delar.push(`${fmt(o.volym_m3fub, 0)} m³`);
+            if (o.volym_m3fub !== null) delar.push(`${fmt(o.volym_m3fub, 0)} m³${o.volym_kvalitet === "osaker_lasstorlek" ? " (osäker volym)" : ""}`);
             else delar.push(o.volym_kvalitet === "lass_utan_storlek" ? VOLYM_SAKNAS_LASS.toLowerCase() : "volym saknas");
             const meta2 = [o.forare ? `${o.forare}${o.forare_andel !== null ? ` ${procent(o.forare_andel)}` : ""}` : typ === "skördare" ? "Förare saknas i rapporten" : null, o.atgard !== vy.atgard ? ATGARD_ETIKETT[o.atgard] : null, o.urval === "standard" ? "antagen åtgärd" : null, o.atgard_kalla?.startsWith("kopplad_till_skordare") ? "åtgärd ur kopplad skördarrapport" : null].filter(Boolean).join(" · ");
             const notiser: string[] = [];
-            if (o.volym_kvalitet && o.volym_kvalitet !== "lass_utan_storlek") notiser.push("Volymen är osäker i rapporten (lass × 1 m³ eller schablon)");
+            if (o.volym_kvalitet === "osaker_lasstorlek") notiser.push("Osäker volym: lasstorleken ligger utanför 6–18 m³ och räknas inte med i m³/G15");
+            else if (o.volym_kvalitet && o.volym_kvalitet !== "lass_utan_storlek") notiser.push("Volymen är osäker i rapporten (lass × 1 m³ eller schablon)");
             if (o.antal_andra_utskrifter > 0) notiser.push(`${o.antal_andra_utskrifter} andra utskrifter av samma objekt räknas inte`);
             const siffra = index ? fmt(o.index, 0) : fmt(o.m3_per_g15, 1);
             return (
