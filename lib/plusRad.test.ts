@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PLATSER, MAX_FASTA, STANDARD_ORDNING, PILL_SYMBOLER, arDockPost, postNyckel, tomtPlusRad, tolkaPlusRad, hamtaPlusRad, sparaPlusRad, plusRadNyckel,
-  noteraAnvandning, beraknaRad, fastaPost, lossaPost, arFast, type PlusPost, type PlusRadState, type Lagring,
+  noteraAnvandning, beraknaRad, fastaPost, aterstallDocka, arFast, type PlusPost, type PlusRadState, type Lagring,
 } from './plusRad';
 
 const lagring = (start: Record<string, string> = {}): Lagring & { _m: Map<string, string> } => {
@@ -86,7 +86,7 @@ describe('sortering: fasta först, resten efter mest använt', () => {
   });
 });
 
-describe('Fast i dockan / Lossa — max sex fasta', () => {
+describe('Fast i dockan / Återställ — max sex fasta', () => {
   it('KODBEVIS: max sex — en sjunde fast symbol avvisas (full), inget byts ut i smyg', () => {
     let s = tomtPlusRad();
     for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) s = fast(s, sym(id));
@@ -104,17 +104,22 @@ describe('Fast i dockan / Lossa — max sex fasta', () => {
       expect(fastaPost(tomtPlusRad(), post)).toEqual({ ok: false, skal: 'ej-symbol' });
     }
   });
-  it('Lossa: symbolen blir automatisk igen och hamnar där dess användning placerar den', () => {
+  it('Återställ: alla platser blir automatiska igen, användningen behålls och dockan hamnar där användningen placerar den', () => {
     let s = anvand(tomtPlusRad(), sym('bridge'), 10);
-    s = fast(s, sym('bridge'));
     s = fast(s, sym('ditch'));
-    expect(nycklar(s).slice(0, 2)).toEqual(['symbol:bridge', 'symbol:ditch']);
-    s = lossaPost(s, sym('ditch'));
+    s = fast(s, sym('bridge'));
+    expect(nycklar(s).slice(0, 2)).toEqual(['symbol:ditch', 'symbol:bridge']);   // fasta först, i den ordning de fästes
+    s = aterstallDocka(s);
+    expect(s.fasta).toEqual([]);
     expect(arFast(s, sym('ditch'))).toBe(false);
-    expect(nycklar(s)[0]).toBe('symbol:bridge');
-    s = lossaPost(s, sym('bridge'));
-    expect(nycklar(s)[0]).toBe('symbol:bridge');   // 10 användningar → fortfarande först, nu automatiskt
-    expect(beraknaRad(s)[0].fast).toBe(false);
+    expect(arFast(s, sym('bridge'))).toBe(false);
+    expect(nycklar(s)[0]).toBe('symbol:bridge');   // 10 användningar → först, nu automatiskt
+    expect(beraknaRad(s).every((r) => !r.fast)).toBe(true);
+    expect(s.anv).toEqual(anvand(tomtPlusRad(), sym('bridge'), 10).anv);
+  });
+  it('Återställ på en redan automatisk docka ändrar ingenting', () => {
+    const s = anvand(tomtPlusRad(), sym('bridge'), 3);
+    expect(aterstallDocka(s)).toEqual(s);
   });
 });
 

@@ -29,11 +29,20 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
 });
 
 describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
-  it('plus-knappen öppnar raden i BÅDA vyerna; den gamla menyn nås via Alla › Fler val', () => {
-    expect(page).toContain('if (plusMenuOpen) setPlusMenuOpen(false); else if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); } else setPlusRadOppen(true);');
-    expect(page).toContain('{plusRadOppen && (() => {\n        const { poster, alla } = byggPlusRad();');
-    expect(page).toContain('onFlerVal={() => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusMenuOpen(true); }}');
-    expect(page).toContain('{/* === PLUS-MENY (bottom sheet) === */}');   // den gamla menyn finns kvar, oförändrad
+  it('plus-knappen öppnar raden i BÅDA vyerna; "Fler val" finns inte längre i arket — dess innehåll bor i objektinfon', () => {
+    expect(page).toContain('if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); }');
+    expect(page).toContain('{plusRadOppen && (() => {\n        const { poster, ark } = byggPlusRad();');
+    expect(page).toContain('onSparaDocka={sparaDockaPlatser}');
+    expect(page).toContain('{renderFlerVal(stang)}');
+    // den gamla plusmenyn (bottom sheet) och den gamla helskärms-Lager-menyn är borta — inga döda ingångar kvar
+    expect(page).not.toContain('PLUS-MENY (bottom sheet)');
+    expect(page).not.toContain('plusMenuOpen');
+    expect(page).not.toContain('onFlerVal');
+    expect(page).not.toContain('layerMenuOpen');
+    expect(page).not.toContain('=== LAGER-MENY ===');
+    const arket = las('../components/planering/PlusRad.tsx') + las('../components/planering/PlusArk.tsx');
+    expect(arket).not.toContain('Fler val');
+    expect(arket).not.toContain('Dockan</');   // "‹ Dockan"-knappen är borta
   });
   it('Inställningar har flyttat till objektinfon i körvy men finns kvar i planeringens gamla meny', () => {
     expect(page).toContain("...(korvyActive ? [] : [{ label: 'Inställningar'");
@@ -45,9 +54,8 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('if (!testlageAktivRef.current) sparaPlusRad(enhetMaskinId, ny);');
     expect(page).toContain('const r = fastaPost(plusRadRef.current, post);');
   });
-  it('lagerväxlarna i raden och i Lager-menyn är SAMMA lista och SAMMA växel', () => {
-    expect(page).toContain('{overlayLista.map(overlay => (');
-    expect(page).toContain("onClick={() => { overlay.enabled && vaxlaLager(overlay.id); }}");
+  it('lagerväxlarna i arkets Lager-flik använder SAMMA lista (overlayLista) och SAMMA växel (vaxlaLager) som förut', () => {
+    expect(page).toContain("overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); }))");
     expect(page).toContain("if (post.typ === 'lager') { vaxlaLager(post.id); noteraPlus(post); return; }");
   });
 });
@@ -122,11 +130,14 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
     expect(page).toContain('{figur && !sparaSomOppen && (() => {');
     expect(page).toContain('{figur && sparaSomOppen && (');
     expect(page).not.toContain('{korvyActive && figur');
-    // plusdockan och den gamla Mätning-menyn startar båda figuren — aldrig den gamla startaMatning direkt
-    expect(page).toContain("onClick={() => startaFigur(false)}");
-    expect(page).toContain("onClick={() => startaFigur(true)}");
+    // Mät sträcka/Mät yta (plusdockan) startar figuren — aldrig den gamla startaMatning direkt. Rita linje/Rita yta startar INTE figuren längre:
+    // typlistan först (körvyn och planeringen), sedan ritning.
     expect(page).toContain("if (post.typ === 'matning') startaFigur(yta);");
-    expect(page).toContain("else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }");
+    expect(page).toContain("else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }");
+    expect(page).toContain("else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }");
+    expect(page).not.toContain('else if (korvyActive) startaFigur(yta);');
+    expect(page.split('startaFigur(').length - 1).toBe(1);   // enda anropet: Mät sträcka/yta i trycktPlusPost
+    expect(page).not.toContain("onClick={() => startaFigur(false)}");   // den gamla Mätning-menyn är borta
     expect(page.match(/startaMatning\(/g)?.length).toBe(1);   // bara startaFigur anropar den
   });
   it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {
@@ -200,7 +211,7 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
 });
 
 describe('komponenterna: tokens och stora tryckytor', () => {
-  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'KorvySparaSom'];
+  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'PlusArk', 'KorvySparaSom'];
   const kall = Object.fromEntries(filer.map((n) => [n, las(`../components/planering/${n}.tsx`)]));
   it('alla importerar designtokens och har inga färgliteraler (hex) eller egna textstorlekar', () => {
     for (const n of filer) {
@@ -224,8 +235,11 @@ describe('komponenterna: tokens och stora tryckytor', () => {
     expect(kall.PlusRad).toContain('poster.slice(0, MAX_FASTA)');
     expect(kall.PlusRad).toContain('data-testid="plus-alla"');
     expect(kall.PlusRad).toContain('data-testid="plus-stang"');
-    expect(kall.PlusRad).toContain("'Fast i dockan'");
-    expect(kall.PlusRad).toContain("'Lossa'");
+    expect(kall.PlusRad).toContain('data-testid="plus-hall-fast"');
+    expect(kall.PlusRad).toMatch(/>\s*Fast i dockan\s*</);
+    // ingen "Lossa" per symbol: en fast symbol har inget håll-kort, vägen tillbaka är Återställ i Redigera
+    expect(kall.PlusRad).not.toContain('Lossa');
+    expect(kall.PlusRad).toContain('lt.start(() => { if (!p.fast) setHall(');
     expect(kall.PlusRad).toContain("transformOrigin: 'right bottom'");
     // dockan har INGEN bakgrundsskugga (kartan ovanför är fri) — det har bara Alla-arket
     const dockDel = kall.PlusRad.slice(kall.PlusRad.indexOf('// ── Dockan ──'));
