@@ -81,6 +81,16 @@ Wisent från 2024-09 har lass utan storlek: volymen är NULL i `vy_hist_objekt_b
 (Gävle 2026) är skada med orsak "Vindfällor AB Karl Hedin, Gävle 2026". Rader skrivna med SQL finns i `scripts/historik/korrigering_steg13.csv`.
 Jämförelsen: varje maskin med minst ett objekt i åtgärden är valbar; "bäst" bara på viktat index och TU; medelstam under m³/G15 och bränsle.
 
+**Steg 14 (2026-10-12/13), dubbelräknade timmar:** Ponsse lastcertifikat (LC) och maskinspecifik summering (SUM) är ofta samma jobb. Summeringen räknas;
+LC pekar på den via `dubblett_av` (202 rapporter slutar räknas: 188 R1 + 14 R2 månadscertifikat). Vyerna hämtar lass och volym från LC-tvillingen
+(`vy_hist_objekt_bas.tvilling_*`); G15, bränsle, avbrott, livstid från SUM. Bränsle och avbrott låg dubbelt precis som G15. Wisent G15/timräknare efter
+rättning: 2023 0,98, 2024 1,07, 2025 1,01, 2026 0,97. Kvar: ~14 LC 2024 (236 h) delar nummer med en SUM men har olika G15 (SUM är kumulativ per objekt
+eller LC delvis) och räknas fortfarande; Wisent-volym efter 2024-09 döljs per datum men LC från 2026-01 har riktiga m³ (se nedan).
+**Återstår (väntar på beslut):** DEL A: G15/timräknare som kolumn i `vy_hist_maskin_ar`. DEL B: `objektnr_normaliserat` (6 siffror), `virkesordernr_normaliserat`
+(8 siffror), `objektnr_alla text[]` med GIN-index i `hist_objekt` (skript `hist_objektnr.py`, ej körd). DEL C: volym från skördare till skotare via delat
+nummer (`hist_koppling_nr.py`), lagras i `hist_korrigering` med orsak `regel: volym_fran_skordare_objektnr`, kontroll 8–14 m³/lass per Wisent-objekt,
+m³/G15 bara på objekt med volym.
+
 **Kända begränsningar:** Giant 2023/2025 och King ny saknar avbrottsfördelning i formatet (TU = G15 / arbetstid enligt Ponsse). Komatsu 911.3 och
 941 AptMan saknar bränsle. Skotarnas åtgärd är okänd för cirka 850 av objekten. 435 MaxiXplorer-produktionsrapporter (volym utan tider) är
 uppladdade men inte tolkade. Lastcertifikat för Wisent 2025 har volym = antal lass × 1 m³ (flaggat som osäker). Objektnamn har `?` där å/ä/ö inte
