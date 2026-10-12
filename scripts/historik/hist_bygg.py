@@ -20,6 +20,7 @@ IMP = Path("C:/Users/lindq/skogsystem-import")
 OUT = IMP / "hist_csv"
 
 # maskin_id i dim_maskin där namnet är entydigt (se CLAUDE.md). Giant 2023/2025 delar "PONS20SDJAA270231" i CLAUDE.md och lämnas tomma.
+ROTTNE_BEKRAFTAD = {"Rottne H8B", "Rottne H8D", "Rottne H8E Logmax", "Rottne H8E 2026"}  # Martin: Rottnarna kör 98 % gallring
 MASKIN_ID = {"Rottne H8E Logmax": "R64101", "Rottne H8E 2026": "R64428", "Ponsse Wisent": "A030353", "Elephant King gammal": "A110148"}
 ALIAS = {  # alias (gemener) -> kanoniskt namn. Angivna av Martin 2026-10-09 (+ uppenbart OCR-fel). Göran är egen förare.
     "jocke": "Joacim Ringberg", "joacim": "Joacim Ringberg", "jocke ringberg": "Joacim Ringberg", "joacim ringberg": "Joacim Ringberg",
@@ -168,7 +169,7 @@ def main():
             at, ak = o["atgard_rapport"], "rapportkategori"
         else:
             at, ak = EF.klassa(o["objekt"], amne.get(sha, ("", ""))[0])
-            if at == "okänd" and ak == "" and o["maskin_namn"] in EF.STANDARD:
+            if at == "okänd" and ak == "" and o["maskin_namn"] in EF.STANDARD and o["maskin_namn"] not in ROTTNE_BEKRAFTAD:
                 at, ak = EF.STANDARD[o["maskin_namn"]], "maskinstandard"
         atg_kalla[(at, ak)] += 1
         ds = sorted(x["datum"] for x in per_sha.get(sha, ()) if x["datum"])
@@ -181,14 +182,21 @@ def main():
                               avbrott_trailer_min=g["trailer"], avbrott_varmkorning_min=g["varmkorning"], avbrott_ovrigt_min=g["ovrigt"], avbrott_totalt_min=g["totalt"],
                               avbrott_registrerade=reg_, objekt_nyckel=o["objekt_nyckel"], programversion=o["programversion"], antal_lass=num(o["antal_lass"]),
                               volym_kvalitet=o["volym_kvalitet"], livstid_h=num(o["livstid_h"])))
-    # Steg 10: Rottnarnas maskinstandard (gallring) är bekräftad av Martin (98 % gallring) -> räknas som säker.
-    ROTTNE_BEKRAFTAD = {"Rottne H8B", "Rottne H8D", "Rottne H8E Logmax", "Rottne H8E 2026"}
-    for o in obj_rader:
-        if o["maskin_namn"] in ROTTNE_BEKRAFTAD and o["atgard_kalla"] == "maskinstandard":
-            o["atgard_kalla"] = "maskinstandard_bekraftad"
-    # Steg 10: skotarens åtgärd ärvs från skördarens objekt med samma objektnamn (normaliserat) eller objektnr inom 60 dagar. Ingen träff (eller
-    # motstridiga träffar) = okänd. Bara skördarobjekt med säker åtgärd (inte obekräftad maskinstandard) räknas som källa.
+    # ------------------------------------------------------------------ regler -> hist_korrigering (steg 11)
+    # hist_objekt.atgard / atgard_kalla är det rapporten (namn, mejlämne, rapportkategori) sa, eller Komatsu/Ponsse/AptMan-maskinstandard som förut.
+    # Två regler skrivs i stället som rader i hist_korrigering (orsak "regel: ...") och läses av vyerna först:
+    #   regel: rottne_gallring_bekraftad     Rottnarna kör 98 % gallring (Martin) -> objekt utan åtgärd i namn/ämne = gallring
+    #   regel: arvd_fran_skordare            skotarens åtgärd ärvs från skördarens objekt med samma namn (normaliserat) eller objektnr inom 60 dagar
+    #   regel: arvd_fran_skordare_fuzzy      samma, men namnlikhet >= 0,9 inom 180 dagar (bara när exakt träff saknas)
+    # Källa för arv: skördarobjekt med säker åtgärd (inte obekräftad maskinstandard). Motstridiga träffar eller ingen träff = okänd.
     typ_av = {m["namn"]: m["typ"] for m in maskin_rader}
+    eff = {o["sha256"]: (o["atgard"], o["atgard_kalla"]) for o in obj_rader}
+    regler = []
+    for o in obj_rader:
+        if o["maskin_namn"] in ROTTNE_BEKRAFTAD and o["atgard"] == "okand" and o["atgard_kalla"] == "":
+            nytt = EF.STANDARD[o["maskin_namn"]]
+            regler.append((o["sha256"], nytt, "regel: rottne_gallring_bekraftad"))
+            eff[o["sha256"]] = (nytt, "maskinstandard_bekraftad")
 
     def dagar(o):
         d0 = o["startdatum"] or o["rapportdatum"]
@@ -205,29 +213,50 @@ def main():
             return 9999
         return max((a0 - b1).days, (b0 - a1).days, 0)
 
+    harv = [o for o in obj_rader if typ_av.get(o["maskin_namn"]) == "skördare" and eff[o["sha256"]][0] in ("gallring", "slutavverkning", "skada")
+            and eff[o["sha256"]][1] != "maskinstandard"]
     harv_namn, harv_nr = defaultdict(list), defaultdict(list)
-    for o in obj_rader:
-        if typ_av.get(o["maskin_namn"]) == "skördare" and o["atgard"] in ("gallring", "slutavverkning", "skada") and o["atgard_kalla"] != "maskinstandard":
-            n = EF.norm_obj(o["objekt"])
-            if len(n) >= 4:
-                harv_namn[n].append(o)
-            if o["objektnr"]:
-                harv_nr[o["objektnr"]].append(o)
+    for o in harv:
+        n = EF.norm_obj(o["objekt"])
+        if len(n) >= 4:
+            harv_namn[n].append(o)
+        if o["objektnr"]:
+            harv_nr[o["objektnr"]].append(o)
+    import bygg_skift as BS  # lik(): namnlikhet
     arvt = Counter()
     for o in obj_rader:
-        if typ_av.get(o["maskin_namn"]) == "skotare" and o["atgard"] == "okand" and o["atgard_kalla"] == "":
-            n = EF.norm_obj(o["objekt"])
-            kand = (harv_namn.get(n, []) if len(n) >= 4 else []) + (harv_nr.get(o["objektnr"], []) if o["objektnr"] else [])
-            kand = [h for h in kand if gap(o, h) <= 60]
-            akt = {h["atgard"] for h in kand}
-            if len(akt) == 1:
-                o["atgard"], o["atgard_kalla"] = akt.pop(), "arvd_fran_skordare"
-                arvt[o["atgard"]] += 1
-            elif len(akt) > 1:
-                arvt["motstridiga"] += 1
-            else:
-                arvt["ingen träff"] += 1
+        if typ_av.get(o["maskin_namn"]) != "skotare" or o["atgard"] != "okand" or o["atgard_kalla"] != "":
+            continue
+        n = EF.norm_obj(o["objekt"])
+        kand = (harv_namn.get(n, []) if len(n) >= 4 else []) + (harv_nr.get(o["objektnr"], []) if o["objektnr"] else [])
+        akt = {eff[h["sha256"]][0] for h in kand if gap(o, h) <= 60}
+        if len(akt) == 1:
+            nytt = akt.pop()
+            regler.append((o["sha256"], nytt, "regel: arvd_fran_skordare"))
+            arvt["exakt " + nytt] += 1
+            continue
+        if len(akt) > 1:
+            arvt["exakt motstridiga"] += 1
+            continue
+        if len(n) < 4:
+            arvt["kort namn"] += 1
+            continue
+        akt = {eff[h["sha256"]][0] for h in harv if gap(o, h) <= 180 and BS.lik(o["objekt"], h["objekt"]) >= 0.9}
+        if len(akt) == 1:
+            nytt = akt.pop()
+            regler.append((o["sha256"], nytt, "regel: arvd_fran_skordare_fuzzy"))
+            arvt["fuzzy " + nytt] += 1
+        elif len(akt) > 1:
+            arvt["fuzzy motstridiga"] += 1
+        else:
+            arvt["ingen träff"] += 1
     print("skotare: åtgärd ärvd från skördare:", dict(arvt))
+    print("regler till hist_korrigering:", Counter(r[2] for r in regler))
+    with open(OUT / "hist_korrigering_regler.csv", "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["sha256", "falt", "nytt_varde", "orsak"])
+        for sha, nytt, orsak in regler:
+            w.writerow([sha, "atgard", nytt, orsak])
     okol = ["sha256", "maskin_namn", "objekt", "objektnr", "startdatum", "slutdatum", "rapportdatum", "atgard", "atgard_kalla", "stammar", "volym_m3fub", "volym_enhet", "g15_h", "g0_h",
             "motortid_h", "bransle_l", "avbrott_reparation_min", "avbrott_service_min", "avbrott_storning_min", "avbrott_flytt_min", "avbrott_trailer_min", "avbrott_varmkorning_min",
             "avbrott_ovrigt_min", "avbrott_totalt_min", "avbrott_registrerade", "objekt_nyckel", "programversion", "antal_lass", "volym_kvalitet", "livstid_h"]

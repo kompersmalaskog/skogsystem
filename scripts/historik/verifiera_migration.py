@@ -16,7 +16,7 @@ from pathlib import Path
 
 STD = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261009170000_hist_tabeller.sql"
 EXTRA = ["20261009180000_hist_objekt_raknas.sql", "20261012100000_hist_vyer.sql", "20261013100000_hist_las_admin.sql",
-         "20261014100000_hist_korrigering_lass.sql", "20261014110000_hist_vyer_korrigering.sql"]
+         "20261014100000_hist_korrigering_lass.sql", "20261014110000_hist_vyer_korrigering.sql", "20261015100000_hist_vyer_regler.sql", "20261015110000_hist_vyer_appen.sql"]
 ADMIN = r"\(\(select public\.ar_admin\(\)\)\)"
 
 # (regex, etikett, grupp med tabell- eller vynamn)

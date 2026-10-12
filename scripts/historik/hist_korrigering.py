@@ -54,8 +54,15 @@ def main():
         for sha in sorted(valda | dubb):
             rader.append(dict(sha256=sha, falt="atgard", nytt_varde=varde, orsak=orsak))
         print(f"{varde}: {len(valda)} objekt (Skift) + {len(dubb)} dubblett-utskrifter (Mätbevis m.fl.) = {len(valda | dubb)} rader; saknade/otydliga filnamn: {[s for s in saknas if s[0] in filer]}")
+    # regler från hist_bygg.py (Rottne gallring, skotares ärvda åtgärd): orsak börjar med "regel: "
+    regler = las("hist_korrigering_regler.csv") if (CSVDIR / "hist_korrigering_regler.csv").exists() else []
+    manuella = {(r["sha256"], r["falt"]) for r in rader}
+    krock = [r for r in regler if (r["sha256"], r["falt"]) in manuella]
+    if krock:
+        sys.exit(f"AVBRYTER: {len(krock)} rader finns både som manuell korrigering och som regel")
+    rader += [dict(sha256=r["sha256"], falt=r["falt"], nytt_varde=r["nytt_varde"], orsak=r["orsak"]) for r in regler]
     if len({(r['sha256'], r['falt']) for r in rader}) != len(rader):
-        sys.exit("AVBRYTER: samma rapport i både skada och special")
+        sys.exit("AVBRYTER: samma rapport i både skada och special (eller dubbla regler)")
     with open(CSVDIR / "hist_korrigering.csv", "w", encoding="utf-8", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=["sha256", "falt", "nytt_varde", "orsak"])
         w.writeheader()
