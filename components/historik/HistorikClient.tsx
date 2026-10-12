@@ -5,12 +5,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { AVSTAND, designCss, FARG, KNAPP, TYP, VY_ROT } from "@/lib/design/tokens";
+import { AVSTAND, designCss, FARG, KNAPP, RADIE, TYP, VY_ROT } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { hamtaMaskinAr, hamtaObjekt, signeradLank } from "@/lib/historik/data";
 import {
   ATGARD_ETIKETT, SEGMENT_ETIKETT, antagnaIAtgard, arSpann, aren, atgardsrader, fewObjects, fmt, harIndex, huvudtal, MIN_OBJEKT, nyckeltal, okandaObjekt, procent, rad,
-  skordarlista, skotarlista, type ListRad, type Segment,
+  skordarlista, skotarlista, standardAtgard, type ListRad, type Segment,
 } from "@/lib/historik/berakna";
 import type { AtgardKod, MaskinArRad, MaskinTyp, ObjektRad } from "@/lib/historik/typer";
 import { Diagram, Listrad, maskinFarg, Notis, Nyckelrad, Sektion, Tillbaka, Vaxel } from "./delar";
@@ -128,7 +128,9 @@ function Lista({ rader, vy, gaTill }: SidProps) {
   const special = useMemo(() => skordarlista(rader, "special", false), [rader]);
   const skotare = useMemo(() => skotarlista(rader), [rader]);
   const antagna = atgard ? antagnaIAtgard(rader, atgard) : 0;
-  const oppna = (r: ListRad, a: AtgardKod | null) => gaTill({ maskin: r.maskin, atgard: a, ar: null, objekt: false });
+  // Maskinsidan öppnas i den åtgärd listan visar bara om maskinen har minst MIN_OBJEKT objekt där. Annars i den åtgärd maskinen har flest objekt i
+  // (Rottne under Slutavverkning har ett objekt per år men 148 i gallring: man ska inte landa på ett enda objekt).
+  const oppna = (r: ListRad, a: AtgardKod | null) => gaTill({ maskin: r.maskin, atgard: a !== null && r.antalObjekt >= MIN_OBJEKT ? a : null, ar: null, objekt: false });
 
   const rad_ = (r: ListRad, a: AtgardKod | null) => {
     const siffra = fmt(r.tal, r.talTyp === "index" ? 0 : 1);
@@ -148,7 +150,10 @@ function Lista({ rader, vy, gaTill }: SidProps) {
 
   return (
     <div>
-      <h1 style={{ margin: `${AVSTAND.xl}px 0 0`, ...TYP.titel }}>Historik</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginTop: AVSTAND.xl }}>
+        <h1 style={{ margin: 0, ...TYP.titel }}>Historik</h1>
+        <a href="/admin/historik/jamfor" style={{ ...KNAPP.sekundar, width: "auto", textDecoration: "none", flexShrink: 0 }}>Jämför</a>
+      </div>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Produktionsrapporter 2011–2026 · bara admin. Index jämför bara inom samma åtgärd.</p>
 
       <Sektion typ="skördare" titel="Skördare">
@@ -199,9 +204,10 @@ function MaskinSida({ rader, vy, gaTill }: SidProps) {
   const typ: MaskinTyp = rader.find((r) => r.maskin === maskin)?.typ ?? "skördare";
   const urval = vy.antagna ? "alla" : "namn";
   const rader_ = atgardsrader(rader, maskin, typ, vy.antagna);
-  // vald åtgärd: den i hashen, annars den från listan, annars första raden
+  // vald åtgärd: den i hashen om den finns, annars den åtgärd maskinen har flest objekt i (skotare: alla åtgärder), annars första raden
   const finns = (a: AtgardKod | null) => rader_.some((r) => r.atgard === a);
-  const valdAtgard: AtgardKod | null = finns(vy.atgard) ? vy.atgard : typ === "skotare" ? null : (rader_[0]?.atgard ?? null);
+  const dominerande = standardAtgard(rader, maskin, typ);
+  const valdAtgard: AtgardKod | null = finns(vy.atgard) && (vy.atgard !== null || typ === "skotare") ? vy.atgard : finns(dominerande) ? dominerande : typ === "skotare" ? null : (rader_[0]?.atgard ?? null);
   const hela = rad(rader, maskin, valdAtgard, null, urval);
   const serie = rader.filter((r) => r.maskin === maskin && r.atgard === valdAtgard && r.urval === urval && r.ar !== null).sort((a, b) => (a.ar as number) - (b.ar as number));
   const valdRad = vy.ar !== null ? rad(rader, maskin, valdAtgard, vy.ar, urval) : hela;
@@ -217,7 +223,7 @@ function MaskinSida({ rader, vy, gaTill }: SidProps) {
       <Tillbaka text="Historik" onClick={() => gaTill({ maskin: null, atgard: null, ar: null, objekt: false })} />
       <h1 style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.titel }}>{maskin}</h1>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0`, display: "flex", alignItems: "center", gap: AVSTAND.s }}>
-        <span aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: "50%", background: maskinFarg(typ) }} />
+        <span aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: maskinFarg(typ) }} />
         {typ === "skördare" ? "Skördare" : "Skotare"} · {ar.length ? arSpann(ar[0], ar[ar.length - 1]) : "–"}
       </p>
 
