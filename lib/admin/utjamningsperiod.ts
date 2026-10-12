@@ -95,8 +95,24 @@ export function kortDatumMedAr(s: string): string {
   return `${d.getDate()} ${MAN_KORT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-/** Raden i listan om överenskommelsen: datumet, eller grått 'Ej dokumenterad överenskommelse' när det saknas. */
-export const overenskommenText = (datum?: string | null) => (datum ? `Överenskommen ${kortDatumMedAr(datum)}` : "Ej dokumenterad överenskommelse");
+/** "Överenskommen 12 okt 2026". */
+export const overenskommenText = (datum: string) => `Överenskommen ${kortDatumMedAr(datum)}`;
+
+/**
+ * Skogsavtalet §5 mom 2: en beräkningsperiod på högst 16 veckor kräver ingen överenskommelse. Över 16 veckor krävs en överenskommelse
+ * med LOKAL FACKLIG ORGANISATION (inte med arbetstagaren). Texten som står vid fältet för perioder över 16 veckor:
+ */
+export const KRAVER_FACKLIG_OVERENSKOMMELSE = "Kräver överenskommelse med lokal facklig organisation";
+const SAKNAR_FACKLIG_OVERENSKOMMELSE = "Saknar överenskommelse med lokal facklig organisation";
+
+/**
+ * Raden om överenskommelsen i listan. Högst 16 veckor: ingenting att säga (inte ens "ej dokumenterad"), utom datumet om ett finns.
+ * Över 16 veckor: datumet, eller en orange varning när det saknas. Null = ingen rad.
+ */
+export function overenskommelseRad(g: { startdatum: string; slutdatum: string; overenskommen?: string | null }): { text: string; orange: boolean } | null {
+  if (g.overenskommen) return { text: overenskommenText(g.overenskommen), orange: false };
+  return arLangPeriod(g) ? { text: SAKNAR_FACKLIG_OVERENSKOMMELSE, orange: true } : null;
+}
 
 type Krockperiod = { id: string; namn?: string | null; startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string };
 export type Forarval = { alla: boolean; ids: string[] };

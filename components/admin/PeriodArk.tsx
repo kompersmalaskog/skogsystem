@@ -17,7 +17,7 @@ import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
 import {
   veckoText, arLangPeriod, slutFranMandag, mandagFranSlut, kontrolleraPeriod, veckorText, veckoKortText, forareText, kortDatumMedAr, planeraAndring,
-  krockMening, krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, MAX_NAMN_TECKEN,
+  krockMening, krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, KRAVER_FACKLIG_OVERENSKOMMELSE, MAX_NAMN_TECKEN,
   type PeriodGrupp, type PeriodRad,
 } from "@/lib/admin/utjamningsperiod";
 import { Stod, Primar, Tertiar, Lank, Destruktiv, Besked, Bekrafta, Sheet, Ikon } from "./ui";
@@ -169,12 +169,14 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
   );
   const inkapsla = (k: string, barn: React.ReactNode, sista = false) => <div data-falt-rad={k} style={radStil(sista)}>{barn}</div>;
 
+  // §5 mom 2: högst 16 veckor kräver ingen överenskommelse; över 16 veckor krävs en med LOKAL FACKLIG ORGANISATION. Raden visas därför
+  // bara för långa perioder — eller när ett datum redan finns, så att det syns och kan tas bort.
   const arLang = arLangPeriod(period);
+  const visaOverenskommen = arLang || !!overenskommen;
   const statusRader = (
     <div data-utjamning-status style={{ marginTop: AVSTAND.s, marginBottom: AVSTAND.l }}>
       <Stod>{veckorText(fran, till)}</Stod>
       {antalForare === 0 && <Stod>Välj vilka perioden gäller</Stod>}
-      {arLang && <Stod farg={FARG.orange}>Längre än {MAX_VECKOR_UTAN_ÖVERENSKOMMELSE} veckor kräver lokal överenskommelse (§5 mom 2).</Stod>}
       {krockar.length > 0 && <Stod attr={{ "data-krock-varning": "" }}>{krockMening(krockar, fornamn)}</Stod>}
     </div>
   );
@@ -201,13 +203,18 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
             {personer.map((p, i) => <Bockrad key={p.id} namn={p.namn || "Namnlös"} vald={ids.includes(p.id)} onToggle={() => tryckPerson(p.id)} sista={i === personer.length - 1} />)}
           </div>
         )}
-        {inkapsla("overenskommen", knappRad("overenskommen", "Överenskommen", overenskommen ? kortDatumMedAr(overenskommen) : "—"))}
-        {oppen === "overenskommen" && (
+        {visaOverenskommen && inkapsla("overenskommen", knappRad("overenskommen", "Överenskommen", overenskommen ? kortDatumMedAr(overenskommen) : "—"))}
+        {visaOverenskommen && oppen === "overenskommen" && (
           <div data-panel="overenskommen" style={{ padding: `${AVSTAND.s}px ${AVSTAND.m}px ${AVSTAND.m}px`, background: FARG.bg }}>
             <label htmlFor="period-overenskommen" style={{ display: "block", ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>Datum då ni kom överens</label>
             <input id="period-overenskommen" type="date" value={overenskommen} onChange={e => setOverenskommen(e.target.value)}
               style={{ width: "100%", minHeight: TRAFFYTA.min, boxSizing: "border-box", background: FARG.upphojt, border: "none", borderRadius: RADIE.rad, padding: `0 ${AVSTAND.m}px`, color: FARG.text, fontFamily: "inherit", outline: "none", ...TYP.text }} />
             {overenskommen && <Tertiar onClick={() => setOverenskommen("")} style={{ marginTop: AVSTAND.xs }}>Ta bort datum</Tertiar>}
+          </div>
+        )}
+        {arLang && (
+          <div data-overenskommelse-krav style={{ ...TYP.meta, color: overenskommen ? FARG.text2 : FARG.orange, padding: `0 ${AVSTAND.m}px ${AVSTAND.s}px`, borderBottom: `1px solid ${FARG.linje}` }}>
+            {KRAVER_FACKLIG_OVERENSKOMMELSE}
           </div>
         )}
         {inkapsla("anteckning", (

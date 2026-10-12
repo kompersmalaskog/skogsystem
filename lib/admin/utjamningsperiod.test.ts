@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   veckoText, antalVeckor, arLangPeriod, veckoRader, veckoValFonster, veckoKortText, veckorText, krockarIVecka, krockarIUrval,
   krockText, krockMening, periodNamn, slutFranMandag, kontrolleraPeriod, delaUpp, loneperioderBerorda, arExporterad, mandagFranSlut,
-  grupperaPerioder, planeraAndring, forareText, overenskommenText, kortDatumMedAr,
+  grupperaPerioder, planeraAndring, forareText, overenskommenText, overenskommelseRad, KRAVER_FACKLIG_OVERENSKOMMELSE, kortDatumMedAr,
   MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, MAX_NAMN_TECKEN,
 } from "./utjamningsperiod";
 
@@ -81,12 +81,31 @@ describe("veckorText: '11 veckor'", () => {
 });
 
 describe("kortDatumMedAr och overenskommenText", () => {
-  it("'12 okt 2026'; tom överenskommelse = 'Ej dokumenterad överenskommelse'", () => {
+  it("'12 okt 2026' och 'Överenskommen 12 okt 2026'", () => {
     expect(kortDatumMedAr("2026-10-12")).toBe("12 okt 2026");
     expect(overenskommenText("2026-10-12")).toBe("Överenskommen 12 okt 2026");
-    expect(overenskommenText(null)).toBe("Ej dokumenterad överenskommelse");
-    expect(overenskommenText("")).toBe("Ej dokumenterad överenskommelse");
-    expect(overenskommenText(undefined)).toBe("Ej dokumenterad överenskommelse");
+  });
+});
+
+describe("overenskommelseRad: §5 mom 2 — krävs bara över 16 veckor, och då med LOKAL FACKLIG ORGANISATION", () => {
+  const kort = { startdatum: "2026-04-20", slutdatum: "2026-07-05" };           // 11 veckor
+  const sexton = { startdatum: "2026-01-05", slutdatum: "2026-04-26" };         // 16 veckor
+  const sjutton = { startdatum: "2026-01-05", slutdatum: "2026-05-03" };        // 17 veckor
+  it("högst 16 veckor utan datum: ingen rad alls (inte 'Ej dokumenterad')", () => {
+    expect(overenskommelseRad(kort)).toBeNull();
+    expect(overenskommelseRad({ ...kort, overenskommen: null })).toBeNull();
+    expect(overenskommelseRad(sexton)).toBeNull();                              // 16 veckor är inte över 16
+  });
+  it("högst 16 veckor MED datum: datumet visas (ett faktum som finns ska inte döljas), aldrig orange", () => {
+    expect(overenskommelseRad({ ...kort, overenskommen: "2026-04-10" })).toEqual({ text: "Överenskommen 10 apr 2026", orange: false });
+  });
+  it("över 16 veckor utan datum: orange varning; med datum: datumet, grått", () => {
+    expect(overenskommelseRad(sjutton)).toEqual({ text: "Saknar överenskommelse med lokal facklig organisation", orange: true });
+    expect(overenskommelseRad({ ...sjutton, overenskommen: "2026-01-02" })).toEqual({ text: "Överenskommen 2 jan 2026", orange: false });
+  });
+  it("texten vid fältet nämner den lokala fackliga organisationen, inte arbetstagaren", () => {
+    expect(KRAVER_FACKLIG_OVERENSKOMMELSE).toBe("Kräver överenskommelse med lokal facklig organisation");
+    expect(KRAVER_FACKLIG_OVERENSKOMMELSE).not.toMatch(/arbetstagar/i);
   });
 });
 

@@ -520,6 +520,8 @@ describe("Avtal → Utjämningsperioder", () => {
   const GAVLE_ERIK = { id: "g-erik", ...G, medarbetare_id: "m2" };
   const NU = { id: "p-nu", namn: "Anna", startdatum: "2026-10-05", slutdatum: "2026-10-18", medarbetare_id: "m1", anteckning: "Anna, skogsbruksplan", skapad_av: "Erik Lind", skapad_at: "2026-10-01T10:00:00Z" };
   const SENARE = { id: "p-senare", namn: "Vinter", startdatum: "2026-11-02", slutdatum: "2026-11-15", medarbetare_id: null, anteckning: "Hela laget, vinterlager", overenskommen_datum: "2026-10-01", skapad_av: "Erik Lind", skapad_at: "2026-10-02T10:00:00Z" };
+  // 17 veckor (v2–18): över 16 veckor kräver §5 mom 2 en överenskommelse med lokal facklig organisation
+  const LANG = { id: "p-lang", namn: "Lång", startdatum: "2026-01-05", slutdatum: "2026-05-03", medarbetare_id: null, anteckning: "", skapad_av: "Erik Lind", skapad_at: "2026-01-02T10:00:00Z" };
   const kopia = (...r: any[]) => r.map(x => ({ ...x }));
   const sektion = () => cont.querySelector<HTMLElement>("[data-utjamning]")!;
   const sText = () => (sektion()?.textContent || "").replace(/\s+/g, " ");
@@ -574,15 +576,25 @@ describe("Avtal → Utjämningsperioder", () => {
     for (const lang of ["ordinarie tid utlagd ojämnt", "skogsbruksplan", "vinterlager"]) expect(t, lang).not.toContain(lang);   // anteckningen hör inte till listan
   });
 
-  it("överenskommelsen: datumet när det finns, annars grått 'Ej dokumenterad överenskommelse'", async () => {
-    g.__db.utjamningsperiod = kopia(GAVLE, SENARE);
+  it("överenskommelsen i listan: högst 16 veckor visar INGET (inte 'Ej dokumenterad'); över 16 veckor orange varning utan datum, grått datum med", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, SENARE, LANG, { ...LANG, id: "p-lang2", namn: "Lång 2", overenskommen_datum: "2026-01-02" });
     await monter("flik=avtal");
-    const [vinter, gavle] = rader().map(r => (r.textContent || "").replace(/\s+/g, " "));
-    expect(vinter).toContain("Överenskommen 1 okt 2026");
-    expect(vinter).not.toContain("Ej dokumenterad");
-    expect(gavle).toContain("Ej dokumenterad överenskommelse");
-    const grå = Array.from(rader()[1].querySelectorAll<HTMLElement>("*")).find(e => egenText(e) === "Ej dokumenterad överenskommelse")!;
-    expect(grå.style.color).toBe(farg(FARG.text3));          // grått, inte orange
+    const radMed = (namn: string) => rader().find(r => r.getAttribute("data-utjamning-rad") === namn)!;
+    const t = (namn: string) => (radMed(namn).textContent || "").replace(/\s+/g, " ");
+    const rad = (namn: string, text: string) => Array.from(radMed(namn).querySelectorAll<HTMLElement>("*")).find(e => egenText(e) === text)!;
+    // Gävle: 11 veckor, ingen överenskommelse krävs → ingen rad om det
+    expect(t("Gävle").toLowerCase()).not.toContain("överenskomm");
+    expect(sText()).not.toContain("Ej dokumenterad");
+    // Vinter: 2 veckor men ett datum finns → det visas (ett faktum som finns döljs inte)
+    expect(t("Vinter")).toContain("Överenskommen 1 okt 2026");
+    // Lång: 17 veckor utan datum → orange varning
+    const varning = rad("Lång", "Saknar överenskommelse med lokal facklig organisation");
+    expect(varning).toBeTruthy();
+    expect(varning.style.color).toBe(farg(FARG.orange));
+    // Lång 2: 17 veckor med datum → datumet, grått (inte orange)
+    const datum = rad("Lång 2", "Överenskommen 2 jan 2026");
+    expect(datum.style.color).toBe(farg(FARG.text2));
+    expect(t("Lång 2")).not.toContain("Saknar");
   });
 
   it("en rad utan namn visar de första 20 tecknen av anteckningen i stället för ett tomt namn", async () => {
@@ -665,12 +677,12 @@ describe("Avtal → Utjämningsperioder", () => {
   });
 
   // ── Formuläret på EN skärm, som Apple Kalender ──
-  it("raderna i ordning: Namn · Från · Till · Förare · Överenskommen · Anteckning (valfri); ingen veckolista i arket från början", async () => {
+  it("raderna i ordning: Namn · Från · Till · Förare · Anteckning (valfri); ingen Överenskommen-rad och ingen veckolista i arket från början", async () => {
     await monter("flik=avtal");
     await oppnaNy();
-    const ordning = ["Namn", "Från", "Till", "Förare", "Överenskommen", "Anteckning (valfri)"];
+    const ordning = ["Namn", "Från", "Till", "Förare", "Anteckning (valfri)"];
     const rader_ = Array.from(ark()!.querySelectorAll<HTMLElement>("[data-falt-rad]")).map(e => e.getAttribute("data-falt-rad"));
-    expect(rader_).toEqual(["namn", "fran", "till", "forare", "overenskommen", "anteckning"]);
+    expect(rader_).toEqual(["namn", "fran", "till", "forare", "anteckning"]);
     const text = arkText();
     let senast = -1;
     for (const l of ordning) { const i = text.indexOf(l); expect(i, l).toBeGreaterThan(senast); senast = i; }
@@ -679,13 +691,30 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(document.querySelectorAll("[data-utjamning-ark] select").length).toBe(0);
   });
 
-  it("en ny period börjar på veckan vi är i: Från 'v41 · 5 okt', Till 'v41 · 11 okt', förare 'Välj', överenskommelse tom — och '1 vecka' under", async () => {
+  it("Överenskommen är en rad först när perioden är över 16 veckor (§5 mom 2) — med texten om lokal facklig organisation; hos 16 veckor eller färre finns varken rad eller text", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjVecka("till", "2027-01-18");                     // v41 2026 – v3 2027 = 16 veckor
+    expect(radFalt("overenskommen")).toBeNull();
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
+    expect(arkText().toLowerCase()).not.toContain("överenskomm");
+    await valjVecka("till", "2027-01-25");                     // 17 veckor
+    const falt_ = Array.from(ark()!.querySelectorAll<HTMLElement>("[data-falt-rad]")).map(e => e.getAttribute("data-falt-rad"));
+    expect(falt_).toEqual(["namn", "fran", "till", "forare", "overenskommen", "anteckning"]);
+    expect(varde("overenskommen")).toBe("—");
+    expect(document.querySelector("[data-overenskommelse-krav]")!.textContent).toBe("Kräver överenskommelse med lokal facklig organisation");
+    await valjVecka("till", "2027-01-18");                     // tillbaka till 16: borta igen
+    expect(radFalt("overenskommen")).toBeNull();
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
+  });
+
+  it("en ny period börjar på veckan vi är i: Från 'v41 · 5 okt', Till 'v41 · 11 okt', förare 'Välj' — och '1 vecka' under", async () => {
     await monter("flik=avtal");
     await oppnaNy();
     expect(varde("fran")).toBe("v41 · 5 okt");
     expect(varde("till")).toBe("v41 · 11 okt");
     expect(varde("forare")).toBe("Välj");
-    expect(varde("overenskommen")).toBe("—");
+    expect(radFalt("overenskommen")).toBeNull();
     expect(status()).toContain("1 vecka");
     expect(arkFalt("Namn").maxLength).toBe(20);
     expect(arkFalt("Namn").value).toBe("");
@@ -780,14 +809,17 @@ describe("Avtal → Utjämningsperioder", () => {
   it("Överenskommen: tryck öppnar en datumväljare, datumet visas på raden (och går att ta bort); stängs inte av att man skriver datumet", async () => {
     await monter("flik=avtal");
     await oppnaNy();
+    await valjVecka("till", "2027-01-25");                     // över 16 veckor: raden finns
     await tryckRad("overenskommen");
     const d = panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!;
     expect(d).toBeTruthy();
     await skriv(d, "2026-10-12");
     expect(varde("overenskommen")).toBe("12 okt 2026");
     expect(panel("overenskommen")).toBeTruthy();
+    expect((document.querySelector("[data-overenskommelse-krav]") as HTMLElement).style.color).toBe(farg(FARG.text2));   // datum finns: grått
     await klick("Ta bort datum");
     expect(varde("overenskommen")).toBe("—");
+    expect((document.querySelector("[data-overenskommelse-krav]") as HTMLElement).style.color).toBe(farg(FARG.orange));  // saknas: orange
   });
 
   it("Spara är låst tills ett NAMN och minst en FÖRARE är valda — Från/Till är alltid giltiga, anteckning och överenskommelse behövs inte", async () => {
@@ -812,7 +844,7 @@ describe("Avtal → Utjämningsperioder", () => {
     await oppnaNy();
     await namnge("  Skogsbruk  ");
     await valjVecka("fran", "2026-10-19");
-    await valjVecka("till", "2026-10-26");
+    await valjVecka("till", "2027-02-08");                     // 17 veckor: då finns Överenskommen-raden
     await tryckBock("Anna Berg");
     await tryckBock("Erik Lind");
     await anteckna("Skogsbruksplan, ojämn vecka");
@@ -822,7 +854,7 @@ describe("Avtal → Utjämningsperioder", () => {
     const s = skrivningar();
     expect(s).toHaveLength(1);
     expect(s[0].op).toBe("insert");
-    const gemensamt = { startdatum: "2026-10-19", slutdatum: "2026-11-01", namn: "Skogsbruk", anteckning: "Skogsbruksplan, ojämn vecka", overenskommen_datum: "2026-10-12", skapad_av: "Inloggad Admin" };
+    const gemensamt = { startdatum: "2026-10-19", slutdatum: "2027-02-14", namn: "Skogsbruk", anteckning: "Skogsbruksplan, ojämn vecka", overenskommen_datum: "2026-10-12", skapad_av: "Inloggad Admin" };
     expect(s[0].vals).toEqual([{ ...gemensamt, medarbetare_id: "m1" }, { ...gemensamt, medarbetare_id: "m2" }]);
     expect(ark()).toBeNull();
     expect(rader().map(r => r.getAttribute("data-utjamning-rad"))).toEqual(["Skogsbruk"]);   // två rader, EN period i listan
@@ -837,18 +869,25 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(skrivningar()[0].vals).toEqual([{ startdatum: "2026-10-05", slutdatum: "2026-10-11", medarbetare_id: null, namn: "Hela laget", anteckning: "", overenskommen_datum: null, skapad_av: "Inloggad Admin" }]);
   });
 
-  it("längre än 16 veckor: varning som inte spärrar (en rad, orange = åtgärd); 16 veckor ger ingen", async () => {
+  it("över 16 veckor: 'Kräver överenskommelse med lokal facklig organisation' vid fältet (orange utan datum, grått med) — aldrig en spärr, och inte 'arbetstagaren'", async () => {
     await monter("flik=avtal");
     await oppnaNy();
     await namnge("Lång");
     await tryckBock("Alla");
     await valjVecka("till", "2027-01-18");                     // v41 2026 – v3 2027 = 16 veckor
     expect(status()).toContain("16 veckor");
-    expect(status()).not.toContain("lokal överenskommelse");
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
     await valjVecka("till", "2027-01-25");
     expect(status()).toContain("17 veckor");
-    expect(status()).toContain("Längre än 16 veckor kräver lokal överenskommelse (§5 mom 2)");
-    expect(sparaKnapp().disabled).toBe(false);
+    const krav = () => document.querySelector<HTMLElement>("[data-overenskommelse-krav]")!;
+    expect(krav().textContent).toBe("Kräver överenskommelse med lokal facklig organisation");
+    expect(krav().style.color).toBe(farg(FARG.orange));        // datum saknas
+    expect(arkText()).not.toContain("Längre än 16 veckor kräver lokal överenskommelse");   // den gamla, felaktiga texten
+    expect(arkText()).not.toMatch(/arbetstagar/i);
+    expect(sparaKnapp().disabled).toBe(false);                  // varning, aldrig spärr
+    await tryckRad("overenskommen");
+    await skriv(panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!, "2026-10-02");
+    expect(krav().style.color).toBe(farg(FARG.text2));         // datum finns
   });
 
   // ── Befintliga perioder ──
@@ -935,12 +974,20 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(varde("fran")).toBe("v17 · 20 apr");
     expect(varde("till")).toBe("v27 · 5 jul");
     expect(varde("forare")).toBe("3 valda");                    // Alla + Anna + Erik
-    expect(varde("overenskommen")).toBe("—");
+    expect(radFalt("overenskommen")).toBeNull();                // 11 veckor: ingen överenskommelse krävs
     expect(status()).toContain("11 veckor");
     expect(arkFalt("Anteckning (valfri)").value).toBe("Gävle, ordinarie tid utlagd ojämnt");
     expect(arkText()).not.toContain("Ändringen gäller bara den här raden");
     expect(arkText()).not.toContain("Gäller ");
     expect(krockRad()).toBeNull();                              // gruppens egna rader krockar inte med varandra
+  });
+
+  it("ändra en period på högst 16 veckor som redan har ett datum: raden finns kvar så datumet syns och kan tas bort, men ingen text om att det krävs", async () => {
+    g.__db.utjamningsperiod = kopia({ ...GAVLE_ANNA, overenskommen_datum: "2026-04-10" });
+    await monter("flik=avtal");
+    await klick("Gävle");
+    expect(varde("overenskommen")).toBe("10 apr 2026");
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
   });
 
   it("ändra en grupp med bara personer: 'Anna Berg' och 'Erik Lind' bockade i listan", async () => {
@@ -957,7 +1004,7 @@ describe("Avtal → Utjämningsperioder", () => {
     await monter("flik=avtal");
     await klick("Gävle");
     await namnge("Gävle 2026");
-    await valjVecka("till", "2026-07-06");
+    await valjVecka("till", "2026-08-17");                     // 18 veckor: då finns Överenskommen-raden
     await anteckna("Ny anteckning");
     await tryckRad("overenskommen");
     await skriv(panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!, "2026-04-10");
@@ -965,9 +1012,9 @@ describe("Avtal → Utjämningsperioder", () => {
     const s = skrivningar();
     expect(s).toHaveLength(1);
     expect(s[0].op).toBe("update");
-    expect(s[0].vals).toEqual({ startdatum: "2026-04-20", slutdatum: "2026-07-12", namn: "Gävle 2026", anteckning: "Ny anteckning", overenskommen_datum: "2026-04-10" });
+    expect(s[0].vals).toEqual({ startdatum: "2026-04-20", slutdatum: "2026-08-23", namn: "Gävle 2026", anteckning: "Ny anteckning", overenskommen_datum: "2026-04-10" });
     const db = g.__db.utjamningsperiod;
-    for (const id of ["g-anna", "g-erik"]) expect(db.find((r: any) => r.id === id)).toMatchObject({ namn: "Gävle 2026", slutdatum: "2026-07-12", overenskommen_datum: "2026-04-10" });
+    for (const id of ["g-anna", "g-erik"]) expect(db.find((r: any) => r.id === id)).toMatchObject({ namn: "Gävle 2026", slutdatum: "2026-08-23", overenskommen_datum: "2026-04-10" });
     expect(db.find((r: any) => r.id === "p-nu").namn).toBe("Anna");   // andra perioder rörs inte
     expect(db).toHaveLength(3);
     expect(ark()).toBeNull();

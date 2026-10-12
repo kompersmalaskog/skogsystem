@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
-import { veckoText, delaUpp, grupperaPerioder, overenskommenText, type PeriodGrupp, type PeriodRad } from "@/lib/admin/utjamningsperiod";
+import { veckoText, delaUpp, grupperaPerioder, overenskommelseRad, type PeriodGrupp, type PeriodRad } from "@/lib/admin/utjamningsperiod";
 import { Sektion, Kort, Lista, Rad, Sekundar, Fel, Laddar, Tomt, Etikett } from "./ui";
 import PeriodArk, { type Arbete, type Person } from "./PeriodArk";
 
@@ -49,7 +49,10 @@ export default function UtjamningsSektion({ namnInloggad }: { namnInloggad: stri
     return [...(g.alla ? ["Alla"] : []), ...personNamn, ...okanda].join(", ") || "—";
   };
 
-  const radUI = (g: PeriodGrupp, sista: boolean) => (
+  const radUI = (g: PeriodGrupp, sista: boolean) => {
+    // Skogsavtalet §5 mom 2: högst 16 veckor kräver ingen överenskommelse (då ingen rad om det); över 16 veckor krävs en med lokal facklig organisation.
+    const overenskommelse = overenskommelseRad(g);
+    return (
     <div key={g.nyckel} data-utjamning-rad={g.namn}>
       <Rad sista={sista} onClick={() => setArbete({ slag: "redigera", grupp: g })} chevron
         rubrik={<span style={{ display: "inline-flex", alignItems: "center", gap: AVSTAND.s }}>{g.namn}{g.startdatum <= idag && g.slutdatum >= idag && <Etikett>Pågår</Etikett>}</span>}
@@ -57,11 +60,12 @@ export default function UtjamningsSektion({ namnInloggad }: { namnInloggad: stri
           <>
             <div>{veckoText(g)} · {kortDatum(g.startdatum)}–{kortDatum(g.slutdatum)}</div>
             <div>{forareLista(g)}</div>
-            <div style={{ color: g.overenskommen ? FARG.text2 : FARG.text3 }}>{overenskommenText(g.overenskommen)}</div>
+            {overenskommelse && <div style={{ color: overenskommelse.orange ? FARG.orange : FARG.text2 }}>{overenskommelse.text}</div>}
           </>
         )} />
     </div>
-  );
+    );
+  };
 
   return (
     <div data-utjamning>

@@ -1,16 +1,18 @@
 -- ─────────────────────────────────────────────────────────────
 -- Utjämningsperiod: DATUM FÖR ÖVERENSKOMMELSEN
 --
--- Skogsavtalet §5 mom 2 förutsätter att utjämning över mer än en vecka är överenskommen (lokalt, och över 16 veckor
--- kräver det uttryckligen lokal överenskommelse). Raden i utjamningsperiod var bara "vad som gjordes", inte ett bevis på att det
--- var avtalat. Fältet visar när överenskommelsen gjordes; tomt = "Ej dokumenterad överenskommelse" (visas grått i listan).
+-- Skogsavtalet 2025–2027 §5 mom 2: ordinarie arbetstid är ett genomsnitt över en sammanhängande beräkningsperiod på HÖGST 16 VECKOR.
+-- Perioder på högst 16 veckor kräver ingen överenskommelse. Över 16 veckor krävs en överenskommelse mellan arbetsgivaren och den
+-- LOKALA FACKLIGA ORGANISATIONEN (inte med arbetstagaren). Fältet håller datumet för den överenskommelsen; tomt betyder inget
+-- annat än att inget datum finns. Appen visar fältet och en orange varning i listan bara för perioder över 16 veckor, och visar
+-- inget alls om överenskommelse för kortare perioder (utom ett datum som ändå finns).
 --
 -- En period = flera rader (en per förare, eller en med medarbetare_id NULL för Alla) med samma namn, start och slut. Appen skriver
 -- SAMMA datum på alla rader i en grupp; databasen kräver det inte (ingen trigger, inget unikt index), så en rad som ändrats
 -- utanför appen kan avvika. Admin → Avtal visar det första datumet i gruppen och skriver över alla rader vid nästa sparande.
 --
--- Nullbar och utan backfill: ingen av de befintliga raderna (Gävle) har en dokumenterad överenskommelse, och appen ska inte
--- påstå det. Ingen RLS-ändring (policyerna gäller hela raden). Årsövertiden (app/api/lon/arsovertid) väljer sina egna kolumner
+-- Nullbar och utan backfill: ingen av de befintliga raderna (Gävle, 11 veckor) har ett datum, och en period på högst 16 veckor
+-- behöver inget. Ingen RLS-ändring (policyerna gäller hela raden). Årsövertiden (app/api/lon/arsovertid) väljer sina egna kolumner
 -- och rörs inte. Kör i prod av Martin eller Claude.
 -- ─────────────────────────────────────────────────────────────
 
@@ -18,7 +20,7 @@ BEGIN;
 
 ALTER TABLE utjamningsperiod ADD COLUMN IF NOT EXISTS overenskommen_datum date;
 
-COMMENT ON COLUMN utjamningsperiod.overenskommen_datum IS 'Datum då utjämningen överenskoms (lokal överenskommelse, Skogsavtalet §5 mom 2). NULL = ej dokumenterad. Samma värde på alla rader i en grupp (samma namn, start och slut); appen skriver det så.';
+COMMENT ON COLUMN utjamningsperiod.overenskommen_datum IS 'Datum för överenskommelsen med lokal facklig organisation (Skogsavtalet §5 mom 2: krävs bara för beräkningsperioder över 16 veckor; högst 16 veckor kräver ingen). NULL = inget datum. Samma värde på alla rader i en grupp (samma namn, start och slut); appen skriver det så.';
 
 COMMIT;
 
