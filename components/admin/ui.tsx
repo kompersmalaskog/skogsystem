@@ -271,7 +271,7 @@ export function Bekrafta({ text, ja, nej = "Avbryt", onJa, onNej, upptagen }: {
  * `.tona-in` har en transform-animation, och en transform gör sin förälder till containing block för `position: fixed`,
  * så ett ark inne i sidan placeras mot sidans topp i stället för mot fönstret (man måste scrolla upp för att se det).
  */
-export function Sheet({ titel, onStang, children, attr, overlayAttr }: { titel: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string>; overlayAttr?: Record<string, string> }) {
+export function Sheet({ titel, atgard, onStang, children, attr, overlayAttr }: { titel: ReactNode; /** Knapp uppe till höger i rubrikraden (iOS: Klar). */ atgard?: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string>; overlayAttr?: Record<string, string> }) {
   useEffect(() => {
     const kropp = document.body;
     const fore = { overflow: kropp.style.overflow, paddingRight: kropp.style.paddingRight };
@@ -286,8 +286,11 @@ export function Sheet({ titel, onStang, children, attr, overlayAttr }: { titel: 
     <div onClick={onStang} className="tona-opacity" {...overlayAttr}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.l, overscrollBehavior: "contain" }}>
       <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp" {...attr}
-        style={{ background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", overscrollBehavior: "contain", boxSizing: "border-box" }}>
-        <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color: FARG.text }}>{titel}</p>
+        style={{ background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", overscrollBehavior: "contain", boxSizing: "border-box", colorScheme: "dark" }}>
+        <div data-ark-rubrik style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, margin: `0 0 ${AVSTAND.l}px` }}>
+          <p style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>{titel}</p>
+          {atgard}
+        </div>
         {children}
       </div>
     </div>,

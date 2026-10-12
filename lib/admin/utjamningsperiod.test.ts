@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  veckoText, antalVeckor, arLangPeriod, veckoRader, veckoValFonster, veckoKortText, veckorText, krockarIVecka, krockarIUrval,
-  krockText, krockMening, periodNamn, slutFranMandag, kontrolleraPeriod, delaUpp, loneperioderBerorda, arExporterad, mandagFranSlut,
-  grupperaPerioder, planeraAndring, forareText, overenskommenText, overenskommelseRad, KRAVER_FACKLIG_OVERENSKOMMELSE, kortDatumMedAr,
-  MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, MAX_NAMN_TECKEN,
+  veckoText, antalVeckor, arLangPeriod, tryckDag, arDagIPerioden, manadVeckor, manadRubrik, flyttaManad, periodResultat,
+  krockarIVecka, krockarIUrval, krockText, krockMening, periodNamn, slutFranMandag, kontrolleraPeriod, delaUpp, loneperioderBerorda,
+  arExporterad, mandagFranSlut, grupperaPerioder, planeraAndring, forareNamn, forareRadText, overenskommenText, overenskommelseRad,
+  KRAVER_FACKLIG_OVERENSKOMMELSE, kortDatumMedAr, MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, MAX_NAMN_TECKEN,
 } from "./utjamningsperiod";
 
 describe("veckoText: v17–27 ur startdatum och slutdatum (ISO-veckor)", () => {
@@ -26,57 +26,72 @@ describe("antalVeckor och gränsen 16 veckor (§5 mom 2)", () => {
   });
 });
 
-describe("veckoRader: en rad per hel vecka mellan två datum, måndag som värde, grupperad på månad", () => {
-  const rader = veckoRader("2026-10-12", "2027-01-10");
-  it("börjar måndagen i veckan som innehåller första datumet och slutar i veckan som innehåller sista, utan hål", () => {
-    expect(rader[0].mandag).toBe("2026-10-12");
-    expect(veckoRader("2026-10-14", "2026-10-14").map(r => r.mandag)).toEqual(["2026-10-12"]);
-    expect(rader[rader.length - 1].mandag).toBe("2027-01-04");
-    for (let i = 0; i < rader.length; i++) {
-      const [y, m, d] = rader[i].mandag.split("-").map(Number);
-      expect(new Date(y, m - 1, d).getDay()).toBe(1);
-      if (i > 0) {
-        const [y0, m0, d0] = rader[i - 1].mandag.split("-").map(Number);
-        expect(Math.round((new Date(y, m - 1, d).getTime() - new Date(y0, m0 - 1, d0).getTime()) / 86400000)).toBe(7);   // avrundat: sommartid ger en 23-timmarsvecka
-      }
-    }
+describe("tryckDag: tryck startdag, tryck slutdag — snäpper till hela veckor (måndag–söndag)", () => {
+  const klar = { fran: "2026-10-05", till: "2026-10-05", fas: "klar" as const };
+  it("första trycket väljer VECKAN för dagen (en onsdag → måndagen) som en hel vecka och väntar på slutdagen", () => {
+    expect(tryckDag(klar, "2026-10-14")).toEqual({ fran: "2026-10-12", till: "2026-10-12", fas: "slut" });
+    expect(tryckDag(klar, "2026-10-18")).toEqual({ fran: "2026-10-12", till: "2026-10-12", fas: "slut" });   // en söndag hör till veckan som slutar på den
   });
-  it("etiketten är 'v44 · 26 okt–1 nov' över månadsskifte och 'v43 · 19–25 okt' inom en månad (årtalet står på månadsrubriken)", () => {
-    expect(rader.find(r => r.mandag === "2026-10-26")!.etikett).toBe("v44 · 26 okt–1 nov");
-    expect(rader.find(r => r.mandag === "2026-10-19")!.etikett).toBe("v43 · 19–25 okt");
+  it("andra trycket väljer slutveckan: valfri dag i veckan, perioden slutar den veckans söndag", () => {
+    const v = { fran: "2026-10-12", till: "2026-10-12", fas: "slut" as const };
+    expect(tryckDag(v, "2026-11-04")).toEqual({ fran: "2026-10-12", till: "2026-11-02", fas: "klar" });
+    expect(slutFranMandag("2026-11-02")).toBe("2026-11-08");
+    expect(tryckDag(v, "2026-10-13")).toEqual({ fran: "2026-10-12", till: "2026-10-12", fas: "klar" });       // samma vecka = en vecka
   });
-  it("veckan hör till måndagens månad: 28 dec 2026–3 jan 2027 ligger under december 2026", () => {
-    const r = rader.find(r => r.mandag === "2026-12-28")!;
-    expect(r.manad).toBe("2026-12");
-    expect(r.manadText).toBe("december 2026");
-    expect(r.vecka).toBe(53);
+  it("slutdagen före startdagen byter plats i stället för att ge fel", () => {
+    expect(tryckDag({ fran: "2026-10-26", till: "2026-10-26", fas: "slut" }, "2026-10-14")).toEqual({ fran: "2026-10-12", till: "2026-10-26", fas: "klar" });
+  });
+  it("ett tryck när perioden är klar börjar om", () => {
+    expect(tryckDag({ fran: "2026-10-12", till: "2026-11-02", fas: "klar" }, "2026-12-01")).toEqual({ fran: "2026-11-30", till: "2026-11-30", fas: "slut" });
+  });
+  it("arDagIPerioden: varje dag från måndagen i första veckan till söndagen i sista", () => {
+    const v = { fran: "2026-10-12", till: "2026-10-26" };
+    expect(["2026-10-11", "2026-10-12", "2026-10-26", "2026-11-01", "2026-11-02"].map(d => arDagIPerioden(v, d))).toEqual([false, true, true, true, false]);
   });
 });
 
-describe("veckoValFonster: ±6 månader (26 veckor) runt det som är valt i en kort lista", () => {
-  it("Från: 26 veckor åt vardera hållet runt den valda veckan", () => {
-    expect(veckoValFonster("fran", "2026-10-12", "")).toEqual({ fran: "2026-04-13", till: "2027-04-12" });
+describe("manadVeckor: månadsbladet — veckor måndag–söndag, tomma celler utanför månaden", () => {
+  it("oktober 2026: 1 okt är en torsdag, 31 okt en lördag → fem rader", () => {
+    const rader = manadVeckor(2026, 9);
+    expect(rader).toHaveLength(5);
+    expect(rader[0]).toEqual([null, null, null, "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+    expect(rader[4]).toEqual(["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", null]);
+    expect(rader.every(r => r.length === 7)).toBe(true);
   });
-  it("Till: aldrig före Från, annars 26 veckor åt vardera hållet", () => {
-    expect(veckoValFonster("till", "2026-10-12", "2026-10-05")).toEqual({ fran: "2026-10-05", till: "2027-04-12" });
-    expect(veckoValFonster("till", "2026-12-14", "2026-04-20")).toEqual({ fran: "2026-06-15", till: "2027-06-14" });
+  it("februari 2027 börjar en måndag och har 28 dagar → exakt fyra rader; en 31-dagarsmånad som börjar en lördag → sex rader", () => {
+    expect(manadVeckor(2027, 1)).toHaveLength(4);
+    expect(manadVeckor(2026, 7)).toHaveLength(6);      // augusti 2026 börjar en lördag
+  });
+  it("varje dag i månaden finns exakt en gång", () => {
+    const alla = manadVeckor(2026, 11).flat().filter(Boolean);
+    expect(alla).toHaveLength(31);
+    expect(new Set(alla).size).toBe(31);
   });
 });
 
-describe("veckoKortText: 'v17 · 20 apr' för Från (måndagen) och 'v27 · 5 jul' för Till (söndagen)", () => {
-  it("Från visar måndagens datum, Till söndagens; årtal bara när det inte är innevarande år", () => {
-    expect(veckoKortText("2026-04-20", "fran", 2026)).toBe("v17 · 20 apr");
-    expect(veckoKortText("2026-06-29", "till", 2026)).toBe("v27 · 5 jul");
-    expect(veckoKortText("2027-01-04", "fran", 2026)).toBe("v1 · 4 jan 2027");
-    expect(veckoKortText("2026-12-28", "till", 2026)).toBe("v53 · 3 jan 2027");
+describe("manadRubrik och flyttaManad", () => {
+  it("'oktober 2026'; bläddra över årsskiftet åt båda håll", () => {
+    expect(manadRubrik(2026, 9)).toBe("oktober 2026");
+    expect(flyttaManad(2026, 11, 1)).toEqual({ ar: 2027, manad0: 0 });
+    expect(flyttaManad(2027, 0, -1)).toEqual({ ar: 2026, manad0: 11 });
+    expect(flyttaManad(2026, 9, 3)).toEqual({ ar: 2027, manad0: 0 });
   });
 });
 
-describe("veckorText: '11 veckor'", () => {
-  it("antal veckor i singular/plural", () => {
-    expect(veckorText("2026-04-20", "2026-06-29")).toBe("11 veckor");
-    expect(veckorText("2026-04-20", "2026-04-20")).toBe("1 vecka");
-    expect(veckorText("2026-10-26", "2026-12-21")).toBe("9 veckor");
+describe("periodResultat: 'v42–v45 · 12 okt–8 nov · 4 veckor'", () => {
+  it("veckor, datum (måndag–söndag) och antal", () => {
+    expect(periodResultat("2026-10-12", "2026-11-02", 2026)).toBe("v42–v45 · 12 okt–8 nov · 4 veckor");
+    expect(periodResultat("2026-04-20", "2026-06-29", 2026)).toBe("v17–v27 · 20 apr–5 jul · 11 veckor");
+  });
+  it("en vecka: 'v42 · 12–18 okt · 1 vecka'; inom en månad slås datumen ihop", () => {
+    expect(periodResultat("2026-10-12", "2026-10-12", 2026)).toBe("v42 · 12–18 okt · 1 vecka");
+    expect(periodResultat("2026-10-12", "2026-10-19", 2026)).toBe("v42–v43 · 12–25 okt · 2 veckor");
+    expect(periodResultat("2026-09-28", "2026-09-28", 2026)).toBe("v40 · 28 sep–4 okt · 1 vecka");
+  });
+  it("årtal när perioden inte ligger i innevarande år, och när den går över årsskiftet", () => {
+    expect(periodResultat("2026-12-14", "2027-01-11", 2026)).toBe("v51–v2 · 14 dec 2026–17 jan 2027 · 5 veckor");
+    expect(periodResultat("2027-02-01", "2027-02-08", 2026)).toBe("v5–v6 · 1–14 feb 2027 · 2 veckor");
+    expect(periodResultat("2026-12-28", "2026-12-28", 2026)).toBe("v53 · 28 dec 2026–3 jan 2027 · 1 vecka");
   });
 });
 
@@ -155,14 +170,22 @@ describe("planeraAndring: bocka ur = radera raden, bocka i = ny rad, resten uppd
   });
 });
 
-describe("forareText: det som står på Förare-raden", () => {
+describe("forareNamn och forareRadText: det som står på Förare-raden", () => {
   const p = [{ id: "j", namn: "Joacim Ringberg" }, { id: "d", namn: "Daniel Johansson" }, { id: "s", namn: "Stefan Karlsson" }];
-  it("ingen: 'Välj'; Alla: 'Alla'; en: namnet; flera: 'N valda' (Alla räknas som en)", () => {
-    expect(forareText({ alla: false, ids: [] }, p)).toBe("Välj");
-    expect(forareText({ alla: true, ids: [] }, p)).toBe("Alla");
-    expect(forareText({ alla: false, ids: ["d"] }, p)).toBe("Daniel Johansson");
-    expect(forareText({ alla: false, ids: ["j", "d", "s"] }, p)).toBe("3 valda");
-    expect(forareText({ alla: true, ids: ["j"] }, p)).toBe("2 valda");
+  it("förnamnen i förarlistans ordning, Alla först", () => {
+    expect(forareNamn({ alla: false, ids: ["s", "j"] }, p)).toEqual(["Joacim", "Stefan"]);
+    expect(forareNamn({ alla: true, ids: [] }, p)).toEqual(["Alla"]);
+    expect(forareNamn({ alla: true, ids: ["d"] }, p)).toEqual(["Alla", "Daniel"]);
+  });
+  it("ingen: 'Välj'; Alla: 'Alla'; namnen när de får plats, annars 'N förare'", () => {
+    expect(forareRadText({ alla: false, ids: [] }, p, true)).toBe("Välj");
+    expect(forareRadText({ alla: true, ids: [] }, p, true)).toBe("Alla");
+    expect(forareRadText({ alla: true, ids: [] }, p, false)).toBe("Alla");           // Alla är kort och ändras aldrig till ett antal
+    expect(forareRadText({ alla: false, ids: ["d"] }, p, true)).toBe("Daniel");
+    expect(forareRadText({ alla: false, ids: ["d"] }, p, false)).toBe("Daniel");     // en enda förare visas alltid med namn
+    expect(forareRadText({ alla: false, ids: ["s", "d", "j"] }, p, true)).toBe("Joacim, Daniel, Stefan");
+    expect(forareRadText({ alla: false, ids: ["s", "d", "j"] }, p, false)).toBe("3 förare");
+    expect(forareRadText({ alla: true, ids: ["j"] }, p, false)).toBe("2 förare");
   });
 });
 

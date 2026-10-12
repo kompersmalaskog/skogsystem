@@ -52,7 +52,7 @@ export const SKARPA = [
   "components/admin/LonFlik.tsx",
   "components/admin/ArsovertidKort.tsx",
   "components/admin/UtjamningsSektion.tsx",
-  "components/admin/VeckoVal.tsx",
+  "components/admin/PeriodKalender.tsx",
   "components/admin/PeriodArk.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar

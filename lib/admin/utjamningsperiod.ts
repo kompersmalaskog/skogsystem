@@ -42,51 +42,61 @@ export const slutFranMandag = (mandag: string) => iso(dagar(lokal(mandag), 6))
 /** Måndagen i veckan som slutar på söndagen `slut` (för att fylla formuläret ur en sparad period). */
 export const mandagFranSlut = (slut: string) => iso(dagar(lokal(slut), -6))
 
-export type Veckorad = { mandag: string; vecka: number; ar: number; etikett: string; manad: string; manadText: string };
-
 const MAN_LANG = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
 const mandagFor = (s: string) => { const d = lokal(s); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d; };
 
-/**
- * En rad per hel vecka från veckan som innehåller `fran` till veckan som innehåller `till`. Veckan hör till MÅNDAGENS månad,
- * så årtalet på månadsrubriken stämmer med raden.
- */
-export function veckoRader(fran: string, till: string): Veckorad[] {
-  const slut = mandagFor(till);
-  const ut: Veckorad[] = [];
-  for (let m = mandagFor(fran); m <= slut; m = dagar(m, 7)) {
-    const s = dagar(m, 6);
-    const dagText = m.getMonth() === s.getMonth() ? `${m.getDate()}–${s.getDate()} ${MAN_KORT[m.getMonth()]}` : `${m.getDate()} ${MAN_KORT[m.getMonth()]}–${s.getDate()} ${MAN_KORT[s.getMonth()]}`;
-    const v = isoVecka(m);
-    ut.push({ mandag: iso(m), vecka: v.vecka, ar: m.getFullYear(), etikett: `v${v.vecka} · ${dagText}`, manad: iso(m).slice(0, 7), manadText: `${MAN_LANG[m.getMonth()]} ${m.getFullYear()}` });
-  }
-  return ut;
-}
+/** Måndagen i veckan som innehåller dagen (YYYY-MM-DD). */
+export const mandagForDag = (s: string) => iso(mandagFor(s));
 
 export type Urval = { forsta: string; sista: string };
 
-const VECKOR_RUNT_VALET = 26;     // ca sex månader åt vardera hållet
+/** Valet i månadsbladet: första veckans måndag, sista veckans MÅNDAG (perioden slutar den veckans söndag), och var man är i valet. */
+export type Valt = { fran: string; till: string; fas: "klar" | "slut" };
 
 /**
- * Veckorna i den korta listan som fälls ut under Från/Till: 26 veckor åt vardera hållet runt den valda veckan. Till visas
- * aldrig före Från.
+ * Ett tryck på en dag i månadsbladet. Perioden snäpper alltid till HELA veckor (start måndag, slut söndag): första trycket väljer veckan
+ * för dagen och väntar på slutdagen, andra trycket väljer slutveckan (en slutdag före startdagen byter plats), och ett tryck när
+ * perioden är klar börjar om.
  */
-export function veckoValFonster(slag: "fran" | "till", vald: string, fran: string): { fran: string; till: string } {
-  const bakat = iso(dagar(lokal(vald), -7 * VECKOR_RUNT_VALET));
-  return { fran: slag === "till" && fran && fran > bakat ? fran : bakat, till: iso(dagar(lokal(vald), 7 * VECKOR_RUNT_VALET)) };
+export function tryckDag(v: Valt, dag: string): Valt {
+  const m = iso(mandagFor(dag));
+  if (v.fas === "klar") return { fran: m, till: m, fas: "slut" };
+  return m < v.fran ? { fran: m, till: v.fran, fas: "klar" } : { fran: v.fran, till: m, fas: "klar" };
 }
 
-/** Värdet på Från/Till-raden: 'v17 · 20 apr' (måndagen) respektive 'v27 · 5 jul' (söndagen). Årtal bara när det inte är innevarande år. */
-export function veckoKortText(mandag: string, slag: "fran" | "till", innevarandeAr: number): string {
-  const vecka = isoVecka(lokal(mandag)).vecka;
-  const d = slag === "fran" ? lokal(mandag) : dagar(lokal(mandag), 6);
-  return `v${vecka} · ${d.getDate()} ${MAN_KORT[d.getMonth()]}${d.getFullYear() === innevarandeAr ? "" : ` ${d.getFullYear()}`}`;
+/** Ligger dagen i perioden? Från måndagen i första veckan till söndagen i sista. */
+export const arDagIPerioden = (v: { fran: string; till: string }, dag: string) => dag >= v.fran && dag <= slutFranMandag(v.till);
+
+/** Månadsbladet: veckor måndag–söndag, `null` för dagar utanför månaden. `manad0` = 0 för januari. */
+export function manadVeckor(ar: number, manad0: number): (string | null)[][] {
+  const antal = new Date(ar, manad0 + 1, 0).getDate();
+  const forsta = (new Date(ar, manad0, 1).getDay() + 6) % 7;            // 0 = måndag
+  const celler: (string | null)[] = [...Array(forsta).fill(null), ...Array.from({ length: antal }, (_, i) => iso(new Date(ar, manad0, i + 1)))];
+  while (celler.length % 7) celler.push(null);
+  return Array.from({ length: celler.length / 7 }, (_, r) => celler.slice(r * 7, r * 7 + 7));
 }
 
-/** "11 veckor" under formuläret. */
-export function veckorText(forsta: string, sista: string): string {
-  const n = antalVeckor({ startdatum: forsta, slutdatum: slutFranMandag(sista) });
-  return `${n} ${n === 1 ? "vecka" : "veckor"}`;
+export const manadRubrik = (ar: number, manad0: number) => `${MAN_LANG[manad0]} ${ar}`;
+
+export function flyttaManad(ar: number, manad0: number, delta: number): { ar: number; manad0: number } {
+  const d = new Date(ar, manad0 + delta, 1);
+  return { ar: d.getFullYear(), manad0: d.getMonth() };
+}
+
+/** Resultatet under valet: 'v42–v45 · 12 okt–8 nov · 4 veckor'. Årtal när perioden inte ligger i innevarande år eller går över årsskiftet. */
+export function periodResultat(fran: string, till: string, innevarandeAr: number): string {
+  const a = lokal(fran), b = lokal(slutFranMandag(till));
+  const va = isoVecka(a).vecka, vb = isoVecka(lokal(till)).vecka;
+  const n = antalVeckor({ startdatum: fran, slutdatum: slutFranMandag(till) });
+  const veckor = fran === till ? `v${va}` : `v${va}–v${vb}`;
+  const dm = (d: Date) => `${d.getDate()} ${MAN_KORT[d.getMonth()]}`;
+  let datum: string;
+  if (a.getFullYear() !== b.getFullYear()) datum = `${dm(a)} ${a.getFullYear()}–${dm(b)} ${b.getFullYear()}`;
+  else {
+    const ar = a.getFullYear() === innevarandeAr ? "" : ` ${a.getFullYear()}`;
+    datum = a.getMonth() === b.getMonth() ? `${a.getDate()}–${dm(b)}${ar}` : `${dm(a)}–${dm(b)}${ar}`;
+  }
+  return `${veckor} · ${datum} · ${n} ${n === 1 ? "vecka" : "veckor"}`;
 }
 
 /** "12 okt 2026". */
@@ -197,12 +207,20 @@ export function planeraAndring(grupp: { rader: { id: string; medarbetare_id: str
   return { uppdatera, taBort, ny: onskade.filter(o => !finns.has(o)) };
 }
 
-/** Värdet på Förare-raden. */
-export function forareText(val: Forarval, personer: { id: string; namn: string | null }[]): string {
-  const antal = (val.alla ? 1 : 0) + val.ids.length;
-  if (antal === 0) return "Välj";
-  if (antal === 1) return val.alla ? "Alla" : personer.find(p => p.id === val.ids[0])?.namn || "1 vald";
-  return `${antal} valda`;
+/** Förnamnen på de valda förarna (Alla först), i förarlistans ordning. */
+export function forareNamn(val: Forarval, personer: { id: string; namn: string | null }[]): string[] {
+  return [...(val.alla ? ["Alla"] : []), ...personer.filter(p => val.ids.includes(p.id)).map(p => (p.namn || "Namnlös").split(" ")[0])];
+}
+
+/**
+ * Värdet på Förare-raden: 'Välj', 'Alla', namnen ('Stefan, Daniel, Joacim') eller, om de inte får plats, 'N förare'.
+ * Alla och en enda förare visas alltid med namn: de är korta och ändras inte till ett antal.
+ */
+export function forareRadText(val: Forarval, personer: { id: string; namn: string | null }[], passar: boolean): string {
+  const namn = forareNamn(val, personer);
+  if (namn.length === 0) return "Välj";
+  if (passar || namn.length === 1 || (val.alla && val.ids.length === 0)) return namn.join(", ");
+  return `${namn.length} förare`;
 }
 
 /**
