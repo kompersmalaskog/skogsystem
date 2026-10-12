@@ -1,15 +1,40 @@
-"""Bevisar att hist-migrationen bara innehåller tillåtna satser och bara rör tabeller som börjar på hist_.
+"""Bevisar att hist-migrationerna bara innehåller tillåtna satser och bara rör hist_* / vy_hist_* (plus EN namngiven policy på storage.objects för bucketen historik).
 
-Tillåtet: CREATE TABLE hist_*, CREATE INDEX ... ON hist_*, CREATE POLICY ... ON hist_*, ALTER TABLE hist_* ENABLE ROW LEVEL SECURITY.
-Allt annat (DROP, ALTER annat, UPDATE, DELETE, TRUNCATE, INSERT, CREATE EXTENSION/FUNCTION/VIEW/TRIGGER, GRANT ...) => fel.
-Foreign keys får bara peka på hist_*. Kör: python verifiera_migration.py [sökväg]
+Tillåtet (exakt dessa former, allt annat => fel):
+  CREATE TABLE hist_* (...)                               CREATE INDEX x ON hist_* (...)
+  ALTER TABLE hist_* ENABLE ROW LEVEL SECURITY            CREATE POLICY hist_*_las ON hist_* FOR SELECT TO authenticated USING (true | admin)
+  ALTER POLICY hist_*_las ON hist_* USING (admin)         CREATE POLICY historik_las_admin ON storage.objects ... bucket_id = 'historik'
+  ALTER TABLE hist_objekt ADD COLUMN raknas / dubblett_av ALTER TABLE hist_skift ADD COLUMN antal_lass
+  CREATE [OR REPLACE] VIEW vy_hist_* WITH (security_invoker = true) AS SELECT|WITH ...   (får bara läsa hist_* / vy_hist_*, kontrolleras med Postgres-parsern)
+Förbjudet: DROP, TRUNCATE, UPDATE, DELETE, INSERT, GRANT, REVOKE, CREATE EXTENSION/FUNCTION/TRIGGER, ALTER COLUMN. Foreign keys får bara peka på hist_*.
+Kör: python verifiera_migration.py [sökväg]
 """
+import json
 import re
 import sys
 from pathlib import Path
 
 STD = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261009170000_hist_tabeller.sql"
-EXTRA = ["20261009180000_hist_objekt_raknas.sql", "20261012100000_hist_vyer.sql", "20261013100000_hist_las_admin.sql"]
+EXTRA = ["20261009180000_hist_objekt_raknas.sql", "20261012100000_hist_vyer.sql", "20261013100000_hist_las_admin.sql",
+         "20261014100000_hist_korrigering_lass.sql", "20261014110000_hist_vyer_korrigering.sql"]
+ADMIN = r"\(\(select public\.ar_admin\(\)\)\)"
+
+# (regex, etikett, grupp med tabell- eller vynamn)
+MONSTER = [
+    (r"^create table (hist_\w+) \(", "create table"),
+    (r"^create index \w+ on (hist_\w+) \(", "create index"),
+    (r"^create policy \w+ on (hist_\w+) for select to authenticated using \(true\)$", "create policy (alla inloggade)"),
+    (r"^create policy hist_\w+_las on (hist_\w+) for select to authenticated using " + ADMIN + "$", "create policy (admin)"),
+    (r"^alter policy hist_\w+_las on (hist_\w+) using " + ADMIN + "$", "alter policy (admin)"),
+    (r"^create policy historik_las_admin on (storage\.objects) for select to authenticated using \(bucket_id = 'historik' and \(select public\.ar_admin\(\)\)\)$",
+     "create policy storage.objects (bara bucket historik)"),
+    (r"^alter table (hist_objekt) add column (?:raknas boolean not null default false|dubblett_av text)$", "add column"),
+    (r"^alter table (hist_skift) add column antal_lass integer$", "add column"),
+    (r"^alter table (hist_\w+) enable row level security$", "enable rls"),
+    (r"^create (?:or replace )?view (vy_hist_\w+) with \(security_invoker = true\) as (?:select|with) ", "create view"),
+]
+FORBJUDET = ("drop ", "truncate", "update ", "delete ", "insert ", "grant ", "revoke ", "create extension", "create function", "create or replace function",
+             "create trigger", "create or replace trigger", "create materialized", "alter column")
 
 
 def satser(sql):
@@ -19,9 +44,8 @@ def satser(sql):
 
 def vy_ast(sql):
     """Via Postgres-parsern (pglast): varje CREATE VIEW måste vara vy_hist_* med security_invoker=true och får bara läsa hist_* / vy_hist_* (eller sina egna CTE:er)."""
-    if "create view" not in sql.lower():
+    if "view " not in sql.lower():
         return []
-    import json
     import pglast
     import pglast.parser
     fel = []
@@ -63,37 +87,37 @@ def kontrollera(sql):
     for s in satser(sql):
         j = " ".join(s.split())
         low = j.lower()
-        m = (re.match(r"^create table (hist_\w+) \(", low) and ("create table", re.match(r"^create table (hist_\w+) \(", low).group(1))) \
-            or (re.match(r"^create index \w+ on (hist_\w+) \(", low) and ("create index", re.match(r"^create index \w+ on (hist_\w+) \(", low).group(1))) \
-            or (re.match(r"^create policy \w+ on (hist_\w+) for select to authenticated using \(true\)$", low)
-                and ("create policy", re.match(r"^create policy \w+ on (hist_\w+) for", low).group(1))) \
-            or (re.match(r"^alter table hist_objekt add column (raknas boolean not null default false|dubblett_av text)$", low) and ("add column", "hist_objekt"))             or (re.match(r"^create view (vy_hist_\w+) with \(security_invoker = true\) as select|^create view (vy_hist_\w+) with \(security_invoker = true\) as with ", low)
-                and ("create view", re.match(r"^create view (vy_hist_\w+)", low).group(1)))             or (re.match(r"^alter policy (hist_\w+_las) on (hist_\w+) using \(\(select public\.ar_admin\(\)\)\)$", low)
-                and ("alter policy", re.match(r"^alter policy hist_\w+_las on (hist_\w+)", low).group(1)))             or (re.match(r"^create policy historik_las_admin on storage\.objects for select to authenticated using \(bucket_id = 'historik' and \(select public\.ar_admin\(\)\)\)$", low)
-                and ("create policy storage.objects (bara bucket historik)", "hist_storage"))             or (re.match(r"^alter table (hist_\w+) enable row level security$", low) and ("enable rls", re.match(r"^alter table (hist_\w+) enable", low).group(1)))
-        if not m:
+        traff = None
+        for mon, etikett in MONSTER:
+            m = re.match(mon, low)
+            if m:
+                traff = (etikett, m.group(1))
+                break
+        if not traff:
             fel.append(j[:120])
             continue
-        antal[m[0]] = antal.get(m[0], 0) + 1
-        rort.add(m[1])
+        antal[traff[0]] = antal.get(traff[0], 0) + 1
+        rort.add(traff[1])
         for ref in re.findall(r"references (\w+)", low):
             if not ref.startswith("hist_"):
                 fel.append(f"foreign key mot icke-hist-tabell: {ref}")
-    for ord_ in ("drop ", "truncate", "update ", "delete ", "insert ", "grant ", "revoke ", "create extension", "create function", "create or replace", "create trigger", "create materialized", "alter column"):
-        if ord_ in sql.lower():
+    low_all = sql.lower()
+    for ord_ in FORBJUDET:
+        if ord_ in low_all:
             fel.append(f"förbjudet ord: {ord_.strip()}")
     fel += vy_ast(sql)
     return fel, rort, antal
 
 
 if __name__ == "__main__":
-    filer = [Path(sys.argv[1])] if len(sys.argv) > 1 else [STD] + [STD.parent / n for n in EXTRA]
+    filer = [Path(sys.argv[1])] if len(sys.argv) > 1 else [STD] + [STD.parent / n for n in EXTRA if (STD.parent / n).exists()]
     totalt_fel = 0
     for p in filer:
         fel, rort, antal = kontrollera(p.read_text(encoding="utf-8"))
         print("fil:", p.name)
         print("satser per typ:", antal)
-        print("tabeller som rörs:", sorted(rort))
-        print("befintliga tabeller/vyer/funktioner som rörs:", "inga" if not fel and all(t.startswith(("hist_", "vy_hist_")) for t in rort) else fel)
+        print("objekt som rörs:", sorted(rort))
+        ok = not fel and all(t.startswith(("hist_", "vy_hist_", "storage.objects")) for t in rort)
+        print("befintliga tabeller/vyer/funktioner som rörs:", "inga (storage.objects: bara den nya historik-policyn)" if ok and "storage.objects" in rort else "inga" if ok else fel)
         totalt_fel += len(fel)
     sys.exit(1 if totalt_fel else 0)

@@ -29,7 +29,7 @@ IMP = Path("C:/Users/lindq/skogsystem-import")
 CSV = IMP / "hist_csv"
 BUCKET = "historik"
 TABELL_RE = re.compile(r"^hist_[a-z_]+$")
-TABELLER = ["hist_maskin", "hist_forare", "hist_rapport", "hist_objekt", "hist_skift", "hist_forare_objekt", "hist_stopp"]
+TABELLER = ["hist_maskin", "hist_forare", "hist_rapport", "hist_objekt", "hist_skift", "hist_forare_objekt", "hist_stopp", "hist_korrigering"]
 
 # kolumn -> typ. text | int | num | date | time | bool | arr
 SCHEMA = {
@@ -42,12 +42,13 @@ SCHEMA = {
                         avbrott_storning_min="int", avbrott_flytt_min="int", avbrott_trailer_min="int", avbrott_varmkorning_min="int", avbrott_ovrigt_min="int",
                         avbrott_totalt_min="int", avbrott_registrerade="text", objekt_nyckel="text", programversion="text", antal_lass="int", volym_kvalitet="text", livstid_h="num", raknas="bool", dubblett_av="text"),
     "hist_skift": dict(datum="date", in_tid="time", ut_tid="time", g15_h="num", g0_h="num", volym="num", volym_enhet="text", stammar="int", bransle_l="num", motortid_h="num",
-                       sha256="text", kalla="text", objekt="text"),
+                       sha256="text", kalla="text", objekt="text", antal_lass="int"),
     "hist_forare_objekt": dict(sha256="text", g15_h="num", volym="num", stammar="int"),
     "hist_stopp": dict(datum="date", tid="time", felkod="text", beskrivning="text", minuter="int", forare="text", sha256="text"),
+    "hist_korrigering": dict(sha256="text", falt="text", nytt_varde="text", orsak="text"),
 }
 KONFLIKT = {"hist_maskin": "namn", "hist_forare": "namn", "hist_rapport": "sha256", "hist_objekt": "sha256", "hist_skift": "hist_maskin_id,hist_forare_id,datum,in_tid",
-            "hist_forare_objekt": "sha256,hist_forare_id", "hist_stopp": "hist_maskin_id,datum,tid,felkod"}
+            "hist_forare_objekt": "sha256,hist_forare_id", "hist_stopp": "hist_maskin_id,datum,tid,felkod", "hist_korrigering": "sha256,falt"}
 
 
 # ------------------------------------------------------------------------------------------------ vitlista
@@ -184,7 +185,7 @@ def kontrollera_csv():
     for r in d["hist_rapport"]:
         if r["maskin_namn"] and r["maskin_namn"] not in maskin:
             fel.append(f"hist_rapport {r['sha256'][:8]}: okänd maskin {r['maskin_namn']}")
-    for t, nyckel in (("hist_objekt", "sha256"), ("hist_skift", "sha256"), ("hist_forare_objekt", "sha256"), ("hist_stopp", "sha256")):
+    for t, nyckel in (("hist_objekt", "sha256"), ("hist_skift", "sha256"), ("hist_forare_objekt", "sha256"), ("hist_stopp", "sha256"), ("hist_korrigering", "sha256")):
         saknas = {r[nyckel] for r in d[t] if r[nyckel] and r[nyckel] not in rap}
         if saknas:
             fel.append(f"{t}: {len(saknas)} sha256 finns inte i hist_rapport")
@@ -299,7 +300,7 @@ def lagg_in(vl, d, med_filer):
         vl.rest("POST", "hist_rapport", p, on_conflict=KONFLIKT["hist_rapport"])
     for p in paket(tabellrader("hist_objekt", d["hist_objekt"])):
         vl.rest("POST", "hist_objekt", p, on_conflict=KONFLIKT["hist_objekt"])
-    for t, kol in (("hist_skift", "forare_namn"), ("hist_forare_objekt", "forare_namn"), ("hist_stopp", None)):
+    for t, kol in (("hist_skift", "forare_namn"), ("hist_forare_objekt", "forare_namn"), ("hist_stopp", None), ("hist_korrigering", None)):
         rader = tabellrader(t, d[t])
         for r, c in zip(rader, d[t]):
             if "maskin_namn" in c:
@@ -313,7 +314,7 @@ def lagg_in(vl, d, med_filer):
         ladda_filer(vl, d)
 
 
-def ladda_filer(vl, d, trad=8):
+def ladda_filer(vl, d, trad=3):
     from concurrent.futures import ThreadPoolExecutor
     bil = {os.path.splitext(f)[0]: f for f in os.listdir(IMP / "bilagor")}
     pdf = set(os.listdir(IMP / "pdf"))
@@ -334,14 +335,14 @@ def ladda_filer(vl, d, trad=8):
     klara = [0]
 
     def ladda(j):
-        for forsok in range(4):
+        for forsok in range(8):
             try:
                 vl.lagring("UPLOAD", BUCKET, j[0], j[1].read_bytes(), j[2])
                 break
             except Avbryt:
-                if forsok == 3:
+                if forsok == 7:
                     raise
-                time.sleep(2 * (forsok + 1))
+                time.sleep(5 * (forsok + 1))
         klara[0] += 1
         if klara[0] % 250 == 0:
             print(f"  uppladdade {klara[0]}/{len(jobb)} ({time.time() - t0:.0f} s)", flush=True)

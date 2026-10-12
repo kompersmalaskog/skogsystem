@@ -10,6 +10,7 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -180,6 +181,53 @@ def main():
                               avbrott_trailer_min=g["trailer"], avbrott_varmkorning_min=g["varmkorning"], avbrott_ovrigt_min=g["ovrigt"], avbrott_totalt_min=g["totalt"],
                               avbrott_registrerade=reg_, objekt_nyckel=o["objekt_nyckel"], programversion=o["programversion"], antal_lass=num(o["antal_lass"]),
                               volym_kvalitet=o["volym_kvalitet"], livstid_h=num(o["livstid_h"])))
+    # Steg 10: Rottnarnas maskinstandard (gallring) är bekräftad av Martin (98 % gallring) -> räknas som säker.
+    ROTTNE_BEKRAFTAD = {"Rottne H8B", "Rottne H8D", "Rottne H8E Logmax", "Rottne H8E 2026"}
+    for o in obj_rader:
+        if o["maskin_namn"] in ROTTNE_BEKRAFTAD and o["atgard_kalla"] == "maskinstandard":
+            o["atgard_kalla"] = "maskinstandard_bekraftad"
+    # Steg 10: skotarens åtgärd ärvs från skördarens objekt med samma objektnamn (normaliserat) eller objektnr inom 60 dagar. Ingen träff (eller
+    # motstridiga träffar) = okänd. Bara skördarobjekt med säker åtgärd (inte obekräftad maskinstandard) räknas som källa.
+    typ_av = {m["namn"]: m["typ"] for m in maskin_rader}
+
+    def dagar(o):
+        d0 = o["startdatum"] or o["rapportdatum"]
+        d1 = o["slutdatum"] or o["rapportdatum"]
+        try:
+            return date.fromisoformat(d0[:10]), date.fromisoformat(d1[:10])
+        except Exception:
+            return None, None
+
+    def gap(a_, b_):
+        a0, a1 = dagar(a_)
+        b0, b1 = dagar(b_)
+        if not (a0 and b0):
+            return 9999
+        return max((a0 - b1).days, (b0 - a1).days, 0)
+
+    harv_namn, harv_nr = defaultdict(list), defaultdict(list)
+    for o in obj_rader:
+        if typ_av.get(o["maskin_namn"]) == "skördare" and o["atgard"] in ("gallring", "slutavverkning", "skada") and o["atgard_kalla"] != "maskinstandard":
+            n = EF.norm_obj(o["objekt"])
+            if len(n) >= 4:
+                harv_namn[n].append(o)
+            if o["objektnr"]:
+                harv_nr[o["objektnr"]].append(o)
+    arvt = Counter()
+    for o in obj_rader:
+        if typ_av.get(o["maskin_namn"]) == "skotare" and o["atgard"] == "okand" and o["atgard_kalla"] == "":
+            n = EF.norm_obj(o["objekt"])
+            kand = (harv_namn.get(n, []) if len(n) >= 4 else []) + (harv_nr.get(o["objektnr"], []) if o["objektnr"] else [])
+            kand = [h for h in kand if gap(o, h) <= 60]
+            akt = {h["atgard"] for h in kand}
+            if len(akt) == 1:
+                o["atgard"], o["atgard_kalla"] = akt.pop(), "arvd_fran_skordare"
+                arvt[o["atgard"]] += 1
+            elif len(akt) > 1:
+                arvt["motstridiga"] += 1
+            else:
+                arvt["ingen träff"] += 1
+    print("skotare: åtgärd ärvd från skördare:", dict(arvt))
     okol = ["sha256", "maskin_namn", "objekt", "objektnr", "startdatum", "slutdatum", "rapportdatum", "atgard", "atgard_kalla", "stammar", "volym_m3fub", "volym_enhet", "g15_h", "g0_h",
             "motortid_h", "bransle_l", "avbrott_reparation_min", "avbrott_service_min", "avbrott_storning_min", "avbrott_flytt_min", "avbrott_trailer_min", "avbrott_varmkorning_min",
             "avbrott_ovrigt_min", "avbrott_totalt_min", "avbrott_registrerade", "objekt_nyckel", "programversion", "antal_lass", "volym_kvalitet", "livstid_h"]
@@ -196,9 +244,9 @@ def main():
             continue
         sk_rader[key] = dict(maskin_namn=x["maskin_namn"], forare_namn=fk, datum=x["datum"], in_tid=x["tin"], ut_tid=x["tut"], g15_h=num(x["g15_h"]), g0_h=tim(x["g0"]),
                              volym=num(x["volym_m3fub"]), volym_enhet=x["volym_enhet"], stammar=num(x["stammar"]), bransle_l=num(x["bransle_l"]), motortid_h=tim(x["motortid"]),
-                             sha256=x["sha256"], kalla=x["kalla"], objekt=x["objekt"])
+                             sha256=x["sha256"], kalla=x["kalla"], objekt=x["objekt"], antal_lass=num(x["antal_lass"]))
     skriv("hist_skift.csv", list(sk_rader.values()), ["maskin_namn", "forare_namn", "datum", "in_tid", "ut_tid", "g15_h", "g0_h", "volym", "volym_enhet", "stammar", "bransle_l",
-                                                       "motortid_h", "sha256", "kalla", "objekt"])
+                                                       "motortid_h", "sha256", "kalla", "objekt", "antal_lass"])
 
     # Ponsse Skift: summablocken saknar ibland G15 för en förare (arbetstidsraden ej tolkad) -> rapportens G15 blir för låg. Dagraderna är hela tabellen:
     # är dagradssumman större än blocksumman används den (g15_h/g0_h), annars blocksumman.
