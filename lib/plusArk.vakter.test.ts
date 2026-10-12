@@ -83,30 +83,69 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
   });
 });
 
-describe('Ytor och Spårning: flyttade, inte omgjorda', () => {
-  it('YTOR-listan finns i arket och är borta ur objektinfon', () => {
-    expect(page).toContain('const byggYtor = (): YtaRad[] => {');
-    expect(page).toContain("typLabel: 'Hänsynsyta'");
-    expect(page).toContain("typLabel: 'Traktdel'");
-    expect(page).toContain("typLabel: 'Eget område'");
+describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon som förut, spårens reglage bara i Lager', () => {
+  it('YTOR-listan ligger i objektinfon, ordagrant som före PR:en (uträkning, rendering, harAnnat) — och arket vet inget om ytor', () => {
+    expect(page).toContain('// === YTOR — en rad per NUMRERAD yta (Vidas hänsynsytor + traktdel-bitar + egna områden), i');
+    expect(page).toContain("ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta'");
+    expect(page).toContain("ytor.push({ nr, typ: 'traktdel', typLabel: 'Traktdel'");
+    expect(page).toContain("ytor.push({ nr, typ: 'omrade', typLabel: 'Eget område'");
     expect(page).toContain('ytor.sort((a, b) => a.nr - b.nr);');
-    expect(page).not.toContain('{/* YTOR — en rad per numrerad yta (hänsyn + traktdel-bitar');
+    expect(page).toContain('{/* YTOR — en rad per numrerad yta (hänsyn + traktdel-bitar + egna områden), i nummerordning.');
+    expect(page).toContain('|| faroLinjer.length || ytor.length;');
+    expect(page).not.toContain('byggYtor');
+    const ark = las('../components/planering/PlusArk.tsx');
+    expect(ark).not.toMatch(/ytor|Ytor/);
   });
-  it('Spårning: mitt spår, den andra maskinens spår och uppdatera — och en förklaring (inga döda reglage) utanför körvyn', () => {
-    const s = mellan(page, 'const byggSparning = (): SparningData => {', '// LAGER:');
-    expect(s).toContain("if (!korvyActive) return { rader: [], forklaring:");
-    expect(s).toContain("spar('mittSpar', 'Mitt spår', ");
-    expect(s).toContain("andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår'");
-    expect(s).toContain("'Uppdatera skördarens spår' : 'Uppdatera skotarens spår'");
-    expect(s).toContain('hamtaAndrasSpar();');
+  it('ingen Spårning-flik: hyttspårens reglage (Mitt spår, andra maskinens spår) finns bara i Lager › Produktionsdata', () => {
+    expect(page).not.toContain('byggSparning');
+    const ark = las('../components/planering/PlusArk.tsx');
+    expect(ark).not.toMatch(/sparning|Spårning/);
+    const lager = mellan(page, 'const byggLager = (): LagerGrupp[] => {', 'const byggPlusRad = ');
+    expect(lager).toContain("vaxel('mittSpar', 'Mitt spår'");
+    expect(lager).toContain("andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår'");
+    // …och inget annat ställe i arket bygger reglagen
+    const bygg = mellan(page, 'const byggRita = ', 'const byggLager = ');
+    expect(bygg).not.toContain('mittSpar');
+  });
+  it('"Uppdatera spår" ligger i objektinfon (Fler val › KÖRVY), där den låg före PR:en', () => {
+    const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');
+    expect(fv).toContain("...(andrasRoll ? [{ label: andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår', icon: 'refresh', action: () => { hamtaAndrasSpar(); } }] : []),");
+    // i körvyns lista, mellan Kartdata och Avsluta körvy — som förut
+    expect(fv.indexOf('Uppdatera skördarens spår')).toBeGreaterThan(fv.indexOf('label: korvyStatus.dataText'));
+    expect(fv.indexOf('Uppdatera skördarens spår')).toBeLessThan(fv.indexOf("label: 'Avsluta körvy'"));
+  });
+});
+
+describe('Rita & mät: stora rutor i arket, bara på ETT ställe', () => {
+  const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
+  it('fyra verktyg som förut (samma flöden via trycktPlusPost) + Spåra med GPS (Linjer-menyns egen väg, samma startGpsTracking)', () => {
+    for (const s of [
+      "id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje')",
+      "id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta')",
+      "id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan')",
+      "id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta')",
+      "id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); }",
+    ]) expect(rita, s).toContain(s);
+  });
+  it('Spåra med GPS finns kvar i Linjer-menyn (menyn är oförändrad) och startar samma startGpsTracking', () => {
+    expect(page).toContain("onClick={() => setSubMenu('gps-lines')}");
+    expect(page).toContain('startGpsTracking(type.id);');
+  });
+  it('arket har ingen egen kopia av verktygen i Fler val-blocket (de ska bara finnas på ett ställe)', () => {
+    const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');
+    expect(fv).not.toContain('RITA OCH MÄT');
+    for (const p of ["trycktPlusPost('rita:linje')", "trycktPlusPost('rita:yta')", "trycktPlusPost('matning:strackan')", "trycktPlusPost('matning:yta')"]) expect(fv, p).not.toContain(p);
+    // …och byggs bara i arket
+    for (const p of ["trycktPlusPost('rita:linje')", "trycktPlusPost('matning:yta')"]) expect(page.split(p).length - 1, p).toBe(1);
   });
 });
 
 describe('Fler val: allt som fanns ligger kvar, nu i objektinfon', () => {
   const fv = mellan(page, 'const flerValGrupper = ()', 'const renderFlerVal =');
   const rend = mellan(page, 'const renderFlerVal =', 'const fastnaPlusPost');
-  it('alla sju gamla grupptitlar finns kvar, plus RITA OCH MÄT som flyttade hit från Alla-arket', () => {
-    for (const t of ['RITA PÅ KARTAN', 'KÖRVY', 'SKOTARE', 'INFORMATION', 'FLÖDEN', 'OBJEKT', 'ÖVRIGT', 'RITA OCH MÄT']) expect(fv, t).toContain(`titel: '${t}'`);
+  it('alla sju gamla grupptitlar finns kvar (och inga nya)', () => {
+    const titlar = Array.from(fv.matchAll(/titel: '([^']+)'/g)).map((m) => m[1]);
+    expect(titlar).toEqual(['RITA PÅ KARTAN', 'KÖRVY', 'SKOTARE', 'INFORMATION', 'FLÖDEN', 'OBJEKT', 'ÖVRIGT']);
   });
   it('varje gammalt val finns kvar med samma handling', () => {
     for (const rad of [
@@ -130,9 +169,6 @@ describe('Fler val: allt som fanns ligger kvar, nu i objektinfon', () => {
       "...(korvyActive ? [] : [{ label: 'Inställningar'",
       "label: 'Förslag'", "label: 'Byt objekt'",
     ]) expect(fv, rad).toContain(rad);
-  });
-  it('Mätning och Rita (de fyra verktygen som låg i Alla) går genom samma trycktPlusPost som förut', () => {
-    for (const p of ["trycktPlusPost('rita:linje')", "trycktPlusPost('rita:yta')", "trycktPlusPost('matning:strackan')", "trycktPlusPost('matning:yta')"]) expect(fv, p).toContain(p);
   });
   it('VY-växlaren (admin), AKTUELLT OBJEKT (tilldelning) och "Klar — skicka till förare" finns kvar, med samma handlers', () => {
     for (const s of ['{isAdminRiktig && (', 'handleVaxlaVy(item.id)', '!isForare && valtObjekt && valtObjekt.status !== \'avslutat\'', 'handleAssignSkordare', 'handleAssignSkotare', 'onClick={handleSendKlar}', "'Klar — skicka till förare'", 'Skickad till förare']) expect(rend, s).toContain(s);
@@ -163,8 +199,21 @@ describe('ingångarna till Lager-fliken — den gamla helskärmsmenyn är borta,
 });
 
 describe('arkets form', () => {
-  it('fyra flikar i rätt ordning', () => {
-    expect(FLIKAR.map((f) => f.etikett).join(' · ')).toBe('Symboler · Ytor · Spårning · Lager');
+  it('tre flikar i rätt ordning', () => {
+    expect(FLIKAR.map((f) => f.etikett).join(' · ')).toBe('Symboler · Rita & mät · Lager');
+  });
+  it('mus: Esc stänger arket (lyssnaren sitter bara medan arket är öppet), klick på gripen växlar halv/hel, hjulet stannar i arket, inget hovring-beroende', () => {
+    const ark = las('../components/planering/PlusArk.tsx');
+    expect(ark).toContain("if (e.key === 'Escape') { e.preventDefault(); stangRef.current(); }");
+    expect(ark).toContain("window.addEventListener('keydown', tangent);");
+    expect(ark).toContain("return () => window.removeEventListener('keydown', tangent);");
+    expect(ark).toContain("else setDetent(detent === 'halv' ? 'hel' : 'halv');");   // utan drag = klick på gripen
+    // hjulet stannar i arket: både arket självt och dess scrollyta spärrar överscroll (annars kedjar det vidare till sidan/kartan)
+    expect(ark).toContain("display: 'flex', flexDirection: 'column', overscrollBehavior: 'contain',");
+    expect(ark).toContain("overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain'");
+    expect(ark).not.toMatch(/onMouseEnter|onMouseOver|onMouseLeave|:hover|hover/);
+    // klick på kartan ovanför (bakgrunden) stänger
+    expect(ark).toContain('<div data-testid="plus-bakgrund" onClick={stangBakgrund}');
   });
   it('ingen "Fler val", ingen rubrik "Alla", ingen "‹ Dockan" i arket', () => {
     const ark = las('../components/planering/PlusArk.tsx');

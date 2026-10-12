@@ -3,7 +3,7 @@
 // PLUS-DOCKAN — delad komponent för körvyn och planeringen. Plusknappen expanderar åt vänster till en mörk, rundad docka nere till
 // höger (inte full bredd, kartan ovanför är fri): sex runda symbolknappar à 56 px i symbolens riktiga färg med namnet under, ett
 // avdelarstreck, "Alla" och × (plussets stängning). Dockan fylls bara med symboler — fasta först, sedan mest använda (regeln bor i
-// lib/plusRad); Högstubbe/Evighetsträd finns i pillen. "Alla" öppnar arket (PlusArk): Symboler · Ytor · Spårning · Lager.
+// lib/plusRad); Högstubbe/Evighetsträd finns i pillen. "Alla" öppnar arket (PlusArk): Symboler · Rita & mät · Lager.
 //
 //   håll fingret på en symbol i dockan → "Fast i dockan" (automatisk) / "Lossa" (fast)
 //
@@ -17,7 +17,7 @@ import { MAX_FASTA } from '@/lib/plusRad';
 import type { FlikId } from '@/lib/plusArk';
 import { PlusArk, type ArkData, type PlusPostVy } from './PlusArk';
 
-export type { ArkData, PlusPostVy, SymbolKategori, YtaRad, LagerRad, LagerGrupp, SparningData } from './PlusArk';
+export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRad, LagerGrupp } from './PlusArk';
 
 export interface HallSvar { ok: boolean; text: string }
 

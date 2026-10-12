@@ -48,7 +48,7 @@ import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { KorvyObjektPill } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
-import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type YtaRad, type SparningData, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
+import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { redigeringTillState, type FlikId } from '../../lib/plusArk'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
 import { KorvySparaSom } from '../../components/planering/KorvySparaSom'
@@ -12608,7 +12608,7 @@ export default function PlannerPage() {
     const dock = p.typ === 'symbol' ? { dockFarg: getIconDef(p.id).bg, dockRing: getIconDef(p.id).outline, dockGlyf: renderIcon(p.id, 30, FARG.text) } : {};
     return { nyckel: postNyckel(p), etikett: postEtikett(p), ikon: postIkon(p), fast, pa: p.typ === 'lager' ? lagerPa(p.id) : undefined, fastbar: arDockPost(p), ...dock };
   };
-  // ── PLUS-ARKET: dockan + arkets fyra flikar (Symboler · Ytor · Spårning · Lager) ──
+  // ── PLUS-ARKET: dockan + arkets tre flikar (Symboler · Rita & mät · Lager) — plus = kartan ──
   const stangPlus = () => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); };
   const oppnaPlusArk = (flik: FlikId) => { setLangtryckPunkt(null); setPlusArkStart(flik); setPlusRadOppen(true); };
 
@@ -12618,85 +12618,21 @@ export default function PlannerPage() {
     poster: k.symbols.map((s) => postVy({ typ: 'symbol', id: s.id }, arFastNu({ typ: 'symbol', id: s.id }))),
   }));
 
-  // YTOR — en rad per NUMRERAD yta (Vidas hänsynsytor + traktdel-bitar + egna områden), i nummerordning. Flyttad hit från objektinfon:
-  // samma rader, samma ordning, samma ytkort som på kartan. Radtext = Vidas text först, annars Kompersmålas anteckning.
-  const byggYtor = (): YtaRad[] => {
-    const foersta = (s: any) => { const t = String(s ?? '').trim(); return t ? t.split(/\r?\n/)[0].trim() : ''; };
-    const ytor: { nr: number; typLabel: string; nyckel: string; vidaText: string | null; open: () => void }[] = [];
-    for (const f of (traktGeo?.features || [])) {
-      const p = f?.properties || {};
-      if (klassaTraktFeature(p).kategori !== 'hansyn') continue;
-      const lopnrRaw = p.LOPNR;
-      const nr = typeof lopnrRaw === 'number' ? lopnrRaw : parseInt(String(lopnrRaw), 10);
-      if (!Number.isFinite(nr)) continue;
-      const nyckel = ytaNyckel(p) || `hansyn:${lopnrRaw}`;
-      const vidaText = foersta(p.FLBESKR) || foersta(p.ATGARD) || null;
-      ytor.push({ nr, typLabel: 'Hänsynsyta', nyckel, vidaText, open: () => {
-        stangPlus();
-        const rader: { etikett?: string; text: string }[] = [];
-        if (String(p.FLBESKR || '').trim()) rader.push({ text: String(p.FLBESKR).trim() });
-        if (String(p.ATGARD || '').trim()) rader.push({ text: String(p.ATGARD).trim() });
-        oppnaYtaKort({ kategori: 'hansyn', kalla: 'Vida', arealHa: traktArealHa(p), rader, rubrik: `Hänsynsyta ${lopnrRaw}`, nr: '' }, nyckel, null);
-      } });
-    }
-    if (objektNumrering.visaBitNummer) {
-      for (const d of traktdelDelar) {
-        const nr = objektNumrering.bitNr.get(d.partKey);
-        if (nr == null) continue;
-        const nyckel = `traktdel:${d.partKey}`;
-        const trdel = String((d.props as any)?.TRDEL_NR_K ?? '').trim();
-        const vidaText = foersta((d.props as any)?.FLBESKR) || null;
-        ytor.push({ nr, typLabel: 'Traktdel', nyckel, vidaText, open: () => {
-          stangPlus();
-          oppnaYtaKort({ kategori: 'traktdel', arealHa: null, rader: [], rubrik: `Område ${nr}`, kalla: trdel ? `Traktdel ${trdel}` : 'Vida', nr: '' }, nyckel, { key: d.partKey, synthId: 'vida-td:' + d.partKey, ringLatLon: d.ringLatLon });
-        } });
-      }
-    }
-    if (objektNumrering.visaGransNummer) {
-      for (const m of markers as any[]) {
-        if (!(m.isLine && m.lineType === 'boundary')) continue;
-        const nr = objektNumrering.gransNr.get(String(m.id));
-        if (nr == null) continue;
-        ytor.push({ nr, typLabel: 'Eget område', nyckel: `omrade:${m.id}`, vidaText: null, open: () => { stangPlus(); oppnaGranskort(m); } });
-      }
-    }
-    ytor.sort((a, b) => a.nr - b.nr);
-    return ytor.map((y) => {
-      const yMedia = ytaMedia[y.nyckel] || [];
-      return {
-        nyckel: y.nyckel, nr: y.nr, typ: y.typLabel,
-        text: y.vidaText || foersta(anteckningar[y.nyckel]?.text) || null,
-        harLjud: yMedia.some((mm) => mm.typ === 'audio'), harFoto: yMedia.some((mm) => mm.typ === 'foto'),
-        onTryck: y.open,
-      };
-    });
-  };
+  // RITA & MÄT: de fyra verktyg som låg i Alla-arket (samma flöden — trycktPlusPost) + Spåra med GPS, som fanns i Linjer-menyn
+  // (Fler val › Linjer › Spåra med GPS, även i körvyn) och nu också ligger här: samma meny, samma startGpsTracking, ett steg närmare.
+  const byggRita = (): RitaKort[] => [
+    { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
+    { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
+    { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
+    { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
+    { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
+  ];
 
   // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil), inte en egen.
   const sparFarg = (art: 'egen' | 'andras'): string => {
     const roll = art === 'egen' ? hyttRoll : andrasRoll;
     return roll ? sparStil(roll, art).farg : art === 'egen' ? FARG.gron : FARG.text2;
   };
-  // SPÅRNING: hyttspåren — mitt spår, den andra maskinens spår och "uppdatera". De ritas bara i körvyn; i planeringsvyn säger fliken det i stället för döda reglage.
-  const byggSparning = (): SparningData => {
-    if (!korvyActive) return { rader: [], forklaring: 'Hyttspåren ritas i körvyn. Starta körvyn för att visa eller dölja dem.' };
-    const spar = (id: 'mittSpar' | 'andrasSpar', namn: string, farg: string): LagerRad => ({
-      id, namn, typ: 'vaxel', pa: !!(overlays as any)[id], bild: sparYta(farg),
-      onTryck: () => setOverlays((prev: any) => ({ ...prev, [id]: !prev[id] })),
-    });
-    return {
-      rader: [
-        spar('mittSpar', 'Mitt spår', sparFarg('egen')),
-        spar('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', sparFarg('andras')),
-        ...(andrasRoll ? [{
-          id: 'uppdatera-andras', typ: 'knapp' as const,
-          namn: andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår',
-          onTryck: () => { hamtaAndrasSpar(); stangPlus(); },
-        }] : []),
-      ],
-    };
-  };
-
   // LAGER: samma grupper i samma ordning som den gamla Lager-menyn (Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina
   // markeringar, Produktionsdata, Zontyper, Linjetyper, Varningsinställningar). Raderna skriver samma state som förut (overlays,
   // visibleLayers, visibleZones, visibleLines, mapType) — det som tvingas i körvyn tvingas av kartans effekter, inte av listan.
@@ -12756,7 +12692,7 @@ export default function PlannerPage() {
 
   const byggPlusRad = (): { poster: PlusPostVy[]; ark: ArkData } => ({
     poster: beraknaRad(plusRadState, postFinns).map((r) => postVy(r.post, r.fast)),
-    ark: { symboler: byggSymbolKategorier(), ytor: byggYtor(), sparning: byggSparning(), lager: byggLager() },
+    ark: { symboler: byggSymbolKategorier(), rita: byggRita(), lager: byggLager() },
   });
   // Klar i Redigera: arbetskopian blir dockans FASTA platser (lib/plusArk.redigeringTillState). Bara symboler som finns kommer med.
   const sparaDockaPlatser = (nycklar: string[]) => {
@@ -12767,15 +12703,6 @@ export default function PlannerPage() {
   // ── FLER VAL → objektinfon. Allt som plusmenyns "Fler val ›" hade ligger här, med samma val och samma handlingar. ──
   // `stangInfo` stänger objektinfon efter ett val (samma sak som plusmenyn gjorde med sig själv).
   const flerValGrupper = (): { id: string; titel: string; items: { label: string; icon: string; action: () => void; value?: string; danger?: boolean; avsluta?: boolean }[] }[] => [
-    {
-      id: 'rita-mat', titel: 'RITA OCH MÄT',   // låg i Alla-arket utanför de fyra flikarna — får tills vidare ligga här (se PR)
-      items: [
-        { label: RITA_NAMN.linje, icon: 'timeline', action: () => trycktPlusPost('rita:linje') },
-        { label: RITA_NAMN.yta, icon: 'crop_square', action: () => trycktPlusPost('rita:yta') },
-        { label: MAT_NAMN.strackan, icon: 'straighten', action: () => trycktPlusPost('matning:strackan') },
-        { label: MAT_NAMN.yta, icon: 'square_foot', action: () => trycktPlusPost('matning:yta') },
-      ],
-    },
     {
       id: 'rita-pa-kartan', titel: 'RITA PÅ KARTAN',
       items: [
@@ -12792,14 +12719,14 @@ export default function PlannerPage() {
       id: 'korvy', titel: 'KÖRVY',
       // Körvy 2D-raden är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv. Läget FÖLJER rollen på objektet
       // (korvyForceRoll=null). admin har ingen roll-tilldelning → får båda valen explicit (skördar-/skotarkörvy).
-      // REN SKÄRM (fältfynd): i körvy bor ALLA kontroller här (baskarta, GPS-uppdatera, avsluta) → kartytan visar bara karta + position + HUD.
-      // "Uppdatera skördarens/skotarens spår" bor numera i arkets Spårning-flik.
+      // REN SKÄRM (fältfynd): i körvy bor ALLA kontroller här (baskarta, GPS-uppdatera, uppdatera spår, avsluta) → kartytan visar bara karta + position + HUD.
       items: korvyActive
         ? [
             { label: korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta', icon: 'layers', action: () => setKorvyBasKarta(korvyBasKarta === 'lm' ? 'topo' : 'lm') },
             // GPS- + kartdata-STATUS bor här (raderna bär statustexten; tryck = uppdatera). danger=röd vid GPS-fel/ingen fix.
             { label: korvyStatus.gpsText, icon: 'my_location', action: () => { acquireGpsWithFallback(); }, danger: korvyStatus.harProblem },
             { label: korvyStatus.dataText, icon: 'refresh', action: () => { refetchMarkers(true); } },
+            ...(andrasRoll ? [{ label: andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår', icon: 'refresh', action: () => { hamtaAndrasSpar(); } }] : []),
             { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true },
           ]
         : isAdminRiktig
@@ -13976,6 +13903,50 @@ export default function PlannerPage() {
         const grotHeader = valtObjekt.grot == null ? null : (valtObjekt.grot ? 'GROT' : 'ingen GROT'); // rad under namnet
 
 
+        // === YTOR — en rad per NUMRERAD yta (Vidas hänsynsytor + traktdel-bitar + egna områden), i
+        // nummerordning. Nummer/typ/nyckel ur SAMMA numrering (numreraObjekt) som kartan. Radtext =
+        // Vidas text först, annars Kompersmålas anteckning; tryck → samma ytkort som på kartan. ===
+        const foersta = (s: any) => { const t = String(s ?? '').trim(); return t ? t.split(/\r?\n/)[0].trim() : ''; };
+        const ytor: { nr: number; typ: string; typLabel: string; nyckel: string; vidaText: string | null; open: () => void }[] = [];
+        for (const f of (traktGeo?.features || [])) {
+          const p = f?.properties || {};
+          if (klassaTraktFeature(p).kategori !== 'hansyn') continue;
+          const lopnrRaw = p.LOPNR;
+          const nr = typeof lopnrRaw === 'number' ? lopnrRaw : parseInt(String(lopnrRaw), 10);
+          if (!Number.isFinite(nr)) continue;
+          const nyckel = ytaNyckel(p) || `hansyn:${lopnrRaw}`;
+          const vidaText = foersta(p.FLBESKR) || foersta(p.ATGARD) || null;
+          ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta', nyckel, vidaText, open: () => {
+            setTraktOversiktOpen(false);
+            const rader: { etikett?: string; text: string }[] = [];
+            if (String(p.FLBESKR || '').trim()) rader.push({ text: String(p.FLBESKR).trim() });
+            if (String(p.ATGARD || '').trim()) rader.push({ text: String(p.ATGARD).trim() });
+            oppnaYtaKort({ kategori: 'hansyn', kalla: 'Vida', arealHa: traktArealHa(p), rader, rubrik: `Hänsynsyta ${lopnrRaw}`, nr: '' }, nyckel, null);
+          } });
+        }
+        if (objektNumrering.visaBitNummer) {
+          for (const d of traktdelDelar) {
+            const nr = objektNumrering.bitNr.get(d.partKey);
+            if (nr == null) continue;
+            const nyckel = `traktdel:${d.partKey}`;
+            const trdel = String((d.props as any)?.TRDEL_NR_K ?? '').trim();
+            const vidaText = foersta((d.props as any)?.FLBESKR) || null;
+            ytor.push({ nr, typ: 'traktdel', typLabel: 'Traktdel', nyckel, vidaText, open: () => {
+              setTraktOversiktOpen(false);
+              oppnaYtaKort({ kategori: 'traktdel', arealHa: null, rader: [], rubrik: `Område ${nr}`, kalla: trdel ? `Traktdel ${trdel}` : 'Vida', nr: '' }, nyckel, { key: d.partKey, synthId: 'vida-td:' + d.partKey, ringLatLon: d.ringLatLon });
+            } });
+          }
+        }
+        if (objektNumrering.visaGransNummer) {
+          for (const m of markers as any[]) {
+            if (!(m.isLine && m.lineType === 'boundary')) continue;
+            const nr = objektNumrering.gransNr.get(String(m.id));
+            if (nr == null) continue;
+            ytor.push({ nr, typ: 'omrade', typLabel: 'Eget område', nyckel: `omrade:${m.id}`, vidaText: null, open: () => { setTraktOversiktOpen(false); oppnaGranskort(m); } });
+          }
+        }
+        ytor.sort((a, b) => a.nr - b.nr);
+
         // Dokument-antal (samma chips som DokumentChips renderar) → "Dokument (N)".
         const dokBlad = (Array.isArray(valtObjekt.traktkartor) && valtObjekt.traktkartor.length > 0) ? valtObjekt.traktkartor.length : (valtObjekt.traktkarta_url ? 1 : 0);
         const dokAntal = (valtObjekt.traktdirektiv_url ? 1 : 0) + dokBlad + (valtObjekt.oversiktskarta_url ? 1 : 0) + (valtObjekt.stamplingslangd_url ? 1 : 0) + (valtObjekt.valtlapp_url ? 1 : 0) + (Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument.length : 0);
@@ -13986,7 +13957,7 @@ export default function PlannerPage() {
           setActiveCategory('settings'); setMenuOpen(true);
           if (tillGps) setTimeout(() => document.getElementById('gps-kalla-kort')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
         };
-        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || paTrakten.basvagKm || larmSatt || larmBeskr || harDok || faroLinjer.length;
+        const harAnnat = vida || egna || (restr && restr.length) || grupper.length || volymTxt || infoBarighet || infoTerrang || paTrakten.basvagKm || larmSatt || larmBeskr || harDok || faroLinjer.length || ytor.length;
 
         return (
           <>
@@ -14044,6 +14015,40 @@ export default function PlannerPage() {
                 </div>
               )}
 
+
+              {/* YTOR — en rad per numrerad yta (hänsyn + traktdel-bitar + egna områden), i nummerordning.
+                  Siffra i badge, typ, första raden av texten (Vidas först, annars Kompersmålas). Ikon om
+                  ljud/foto finns. Utan text → dämpad "Ingen anteckning". Tryck → samma ytkort som på kartan. */}
+              {ytor.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Ytor</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {ytor.map((y) => {
+                      const yMedia = ytaMedia[y.nyckel] || [];
+                      const harLjud = yMedia.some(mm => mm.typ === 'audio');
+                      const harFoto = yMedia.some(mm => mm.typ === 'foto');
+                      const text = y.vidaText || foersta(anteckningar[y.nyckel]?.text) || null;
+                      return (
+                        <button key={y.nyckel} type="button" className="btn-press" onClick={y.open}
+                          style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                          <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 13, background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>{y.nr}</span>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: '#fff' }}>{y.typLabel}</span>
+                            <span style={{ display: 'block', fontSize: 12.5, color: text ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text || 'Ingen anteckning'}</span>
+                          </span>
+                          {(harLjud || harFoto) && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, fontSize: 13 }}>
+                              {harLjud && <span role="img" aria-label="Ljud">🎤</span>}
+                              {harFoto && <span role="img" aria-label="Foto">📷</span>}
+                            </span>
+                          )}
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* DOKUMENT — hopfälld rad "Dokument (N)"; expanderar till samma chips (delad DokumentChips
                   med /objekt). Öppnas i in-app PdfLasare (aldrig window.open i PWA:n — privat bucket signeras). */}

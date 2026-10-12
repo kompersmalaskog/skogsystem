@@ -1,18 +1,20 @@
 'use client';
 
 // PLUS-ARKET ("Alla"), Apple-modell: ett ark som täcker halva skärmen och kan dras upp till hel — kartan syns ovanför. Överst en
-// flikväljare (Symboler · Ytor · Spårning · Lager) och ett kryss. Redigera uppe till vänster i Symboler-fliken.
+// flikväljare (Symboler · Rita & mät · Lager) och ett kryss. Redigera uppe till vänster i Symboler-fliken. Plus = kartan: lägga till,
+// rita, mäta, välja vad kartan visar. Arket är detsamma i körvyn och planeringsvyn; sidan avgör innehållet.
 //
-//   Symboler  de sex kategorierna som i appen, namnet som liten grå rubrik, symbolerna som färgade cirklar. Tryck = samma flöde som dockan.
-//   Ytor      listan över numrerade ytor (hänsyn, traktdelar, egna områden) — tryck öppnar ytkortet.
-//   Spårning  hyttspåren: mitt spår, den andra maskinens spår, uppdatera.
-//   Lager     alla lager i sina grupper, med liten förhandsbild och en iOS-strömbrytare.
+//   Symboler    de sex kategorierna som i appen, namnet som liten grå rubrik, symbolerna som färgade cirklar. Tryck = samma flöde som dockan.
+//   Rita & mät  stora rutor: Rita linje, Rita yta, Mät sträcka, Mät yta (och Spåra med GPS där den fanns).
+//   Lager       alla lager i sina grupper, med liten förhandsbild och en iOS-strömbrytare.
 //
-// Ren presentation: vad ett tryck GÖR (placera, växla lager, öppna ytkort, spara dockan) avgör sidan. Reglerna för Redigera
+// Mus: klick på gripen växlar halv/hel (dra går också), hjulet scrollar arket (aldrig kartan bakom), Esc eller klick på kartan stänger,
+// Redigera ordnas med musen. Inget kräver hovring eller svep.
+// Ren presentation: vad ett tryck GÖR (placera, rita, mäta, växla lager, spara dockan) avgör sidan. Reglerna för Redigera
 // och arkets lägen bor i lib/plusArk (testade); dockans regler i lib/plusRad.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
+import { AVSTAND, DELFARG, FARG, RADIE, RORELSE, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
 import {
   FLIKAR, arAndrad, dragHojd, flyttaPlats, laggTillPlats, ligger, platsUnderFinger, startaRedigering, taBortPlats, valjDetent,
   type Detent, type FlikId,
@@ -37,16 +39,9 @@ export interface PlusPostVy {
 
 export interface SymbolKategori { id: string; rubrik: string; poster: PlusPostVy[] }
 
-export interface YtaRad {
-  nyckel: string;
-  nr: number;
-  typ: string;
-  /** första raden av Vidas text, annars Kompersmålas anteckning; null → "Ingen anteckning" */
-  text: string | null;
-  harLjud: boolean;
-  harFoto: boolean;
-  onTryck: () => void;
-}
+export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps';
+/** En stor ruta i Rita & mät. Vad ett tryck gör avgör sidan (samma flöden som förut). */
+export interface RitaKort { id: string; titel: string; ikon: RitaIkonId; onTryck: () => void }
 
 /** vaxel = strömbrytare, val = en av flera (bock), knapp = går vidare/utför något (ingen brytare) */
 export type LagerRadTyp = 'vaxel' | 'val' | 'knapp';
@@ -63,16 +58,9 @@ export interface LagerRad {
 }
 export interface LagerGrupp { id: string; rubrik?: string; rader: LagerRad[] }
 
-export interface SparningData {
-  rader: LagerRad[];
-  /** när spåren inte går att visa (bara körvyn ritar dem): en förklaring i stället för döda reglage */
-  forklaring?: string;
-}
-
 export interface ArkData {
   symboler: SymbolKategori[];
-  ytor: YtaRad[];
-  sparning: SparningData;
+  rita: RitaKort[];
   lager: LagerGrupp[];
 }
 
@@ -85,6 +73,7 @@ const BRYTARE_B = 51, BRYTARE_H = 31, BRYTARE_KNOPP = 27; // iOS-strömbrytare
 const BILD_B = 64, BILD_H = 44;                           // förhandsbilden i en lagerrad
 const FLIK_HOJD = 36;
 const DRAG_START_PX = 8;
+const RITA_KORT_PX = 150;                                 // höjden på en Rita & mät-ruta (kanvasen: 150)
 
 const Kryss = () => (
   <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={FARG.text2} strokeWidth="2.6" strokeLinecap="round">
@@ -97,6 +86,22 @@ const Bock = ({ farg }: { farg: string }) => (
 const Pil = () => (
   <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={FARG.text3} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6 L15 12 L9 18" /></svg>
 );
+
+/** Rita & mät-ruta: ikonen tecknad som i kanvasen (linje med punkter, yta, sträcka, yta med mått, GPS-sikte). */
+function RitaIkon({ id }: { id: RitaIkonId }) {
+  const f = DELFARG[0];
+  const linje = { fill: 'none', stroke: f, strokeWidth: 3, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const punkter = (pp: number[][]) => pp.map(([x, y]) => <circle key={`${x}-${y}`} cx={x} cy={y} r="3.5" fill={f} />);
+  return (
+    <svg aria-hidden="true" width="40" height="40" viewBox="0 0 40 40">
+      {id === 'linje' && <><path d="M6 32 L16 14 L26 24 L34 8" {...linje} />{punkter([[6, 32], [16, 14], [26, 24], [34, 8]])}</>}
+      {id === 'yta' && <><path d="M6 10 L30 6 L35 30 L10 34 Z" {...linje} />{punkter([[6, 10], [30, 6], [35, 30], [10, 34]])}</>}
+      {id === 'strackan' && <path d="M5 20 H35 M5 13 V27 M35 13 V27" {...linje} />}
+      {id === 'matyta' && <><path d="M6 6 H34 V34 H6 Z" {...linje} strokeDasharray="4 4" /><path d="M14 20 H26" {...linje} /></>}
+      {id === 'gps' && <><circle cx="20" cy="20" r="5" {...linje} /><circle cx="20" cy="20" r="13" {...linje} /><path d="M20 3 V8 M20 32 V37 M3 20 H8 M32 20 H37" {...linje} /></>}
+    </svg>
+  );
+}
 
 function Brytare({ pa }: { pa: boolean }) {
   return (
@@ -141,6 +146,15 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
   const meddTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => { if (meddTimer.current) clearTimeout(meddTimer.current); }, []);
+
+  // Esc stänger arket (precis som krysset — i Redigera kastas ändringarna). Lyssnaren sitter bara medan arket är öppet.
+  const stangRef = useRef(onStang);
+  stangRef.current = onStang;
+  useEffect(() => {
+    const tangent = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); stangRef.current(); } };
+    window.addEventListener('keydown', tangent);
+    return () => window.removeEventListener('keydown', tangent);
+  }, []);
 
   // Alla symbolers utseende per nyckel — Redigera visar dockans platser och kategoriernas symboler med samma cirklar.
   const symbolPerNyckel = new Map<string, PlusPostVy>();
@@ -342,37 +356,21 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
     </div>
   );
 
-  const ytorFlik = (
-    <div data-testid="plus-ark-ytor">
-      {data.ytor.length === 0 ? (
-        <div data-testid="plus-ark-ytor-tom" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.xl}px ${AVSTAND.s}px`, textAlign: 'center' }}>
-          Inga numrerade ytor på objektet. Hänsynsytor från Vida, traktdelar och egna områden dyker upp här när de finns.
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: bred ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', gap: AVSTAND.s }}>
-          {data.ytor.map((y) => (
-            <button key={y.nyckel} type="button" data-testid={`plus-ark-yta-${y.nyckel}`} className="press-row" onClick={y.onTryck}
-              style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: 56, width: '100%', padding: `${AVSTAND.s}px ${AVSTAND.m}px`, textAlign: 'left', border: 'none', borderRadius: RADIE.kort, background: FARG.upphojt, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer' }}>
-              <span aria-hidden="true" style={{ width: 28, height: 28, flexShrink: 0, borderRadius: RADIE.cirkel, background: FARG.fyllning, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta, fontWeight: 700, ...TNUM }}>{y.nr}</span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', ...TYP.listtitel }}>{y.typ}</span>
-                <span style={{ display: 'block', ...TYP.meta, color: y.text ? FARG.text2 : FARG.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{y.text || 'Ingen anteckning'}</span>
-              </span>
-              {(y.harLjud || y.harFoto) && (
-                <span style={{ display: 'inline-flex', gap: AVSTAND.xs, flexShrink: 0, ...TYP.meta }}>
-                  {y.harLjud && <span role="img" aria-label="Ljud">🎤</span>}
-                  {y.harFoto && <span role="img" aria-label="Foto">📷</span>}
-                </span>
-              )}
-              <Pil />
-            </button>
-          ))}
-        </div>
-      )}
+  // RITA & MÄT: stora rutor, ett tryck. Ikonen (linje, yta, sträcka, yta med mått, GPS) är tecknad som i kanvasen (bild 14).
+  const ritaFlik = (
+    <div data-testid="plus-ark-rita" style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${bred ? 200 : 150}px, 1fr))`, gap: AVSTAND.l }}>
+      {data.rita.map((k) => (
+        <button key={k.id} type="button" data-testid={`plus-rita-${k.id}`} className="press-scale" onClick={k.onTryck}
+          style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: bred ? RITA_KORT_PX : RITA_KORT_PX - AVSTAND.xl, padding: AVSTAND.xl, textAlign: 'left',
+            border: 'none', borderRadius: RADIE.sheet, background: FARG.upphojt, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation' }}>
+          <RitaIkon id={k.ikon} />
+          <span style={{ ...TYP.rubrik, overflowWrap: 'anywhere' }}>{k.titel}</span>
+        </button>
+      ))}
     </div>
   );
 
-  // En rad i Spårning/Lager: liten förhandsbild, namn (+ ev. under), strömbrytare / bock / pil till höger
+  // En rad i Lager: liten förhandsbild, namn (+ ev. under), strömbrytare / bock / pil till höger
   const lagerRad = (r: LagerRad, sist: boolean, gid: string) => (
     <button key={r.id} type="button" data-testid={`plus-lager-${gid}-${r.id}`} data-pa={r.typ === 'knapp' ? undefined : r.pa ? '1' : '0'} data-typ={r.typ}
       role={r.typ === 'vaxel' ? 'switch' : undefined} aria-checked={r.typ === 'vaxel' ? !!r.pa : undefined}
@@ -397,14 +395,6 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
     </section>
   );
 
-  const sparningFlik = (
-    <div data-testid="plus-ark-sparning">
-      {data.sparning.forklaring
-        ? <div data-testid="plus-ark-sparning-tom" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.xl}px ${AVSTAND.s}px`, textAlign: 'center' }}>{data.sparning.forklaring}</div>
-        : grupp({ id: 'sparning', rader: data.sparning.rader })}
-    </div>
-  );
-
   const lagerFlik = (
     <div data-testid="plus-ark-lager" style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${bred ? 320 : 280}px, 1fr))`, gap: `${AVSTAND.l}px ${AVSTAND.xl}px`, alignItems: 'start' }}>
       {data.lager.map(grupp)}
@@ -418,7 +408,7 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
     <>
       <div data-testid="plus-bakgrund" onClick={stangBakgrund} style={{ position: 'fixed', inset: 0, zIndex: 640 }} />
       <div ref={arkRef} role="dialog" aria-label="Alla" data-testid="plus-alla-panel" data-detent={detent} data-redigerar={redigerar ? '1' : '0'}
-        style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 650, boxSizing: 'border-box', background: FARG.kort, color: FARG.text, fontFamily: 'inherit', display: 'flex', flexDirection: 'column',
+        style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 650, boxSizing: 'border-box', background: FARG.kort, color: FARG.text, fontFamily: 'inherit', display: 'flex', flexDirection: 'column', overscrollBehavior: 'contain',
           borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, borderTop: `1px solid ${FARG.linje}`, height: hojd, maxHeight: '100%',
           transition: dragPx != null ? 'none' : `height ${RORELSE.sheet}ms ${RORELSE.kurva}` }}>
         <button type="button" aria-label={detent === 'halv' ? 'Dra upp arket' : 'Dra ned arket'} data-testid="plus-ark-grepp"
@@ -438,8 +428,7 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
 
         <div role="tabpanel" data-testid="plus-ark-innehall" data-flik={flik} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', padding: `${AVSTAND.s}px ${AVSTAND.l}px`, paddingBottom: medSafeBotten(AVSTAND.xl) }}>
           {flik === 'symboler' && symbolerFlik}
-          {flik === 'ytor' && ytorFlik}
-          {flik === 'sparning' && sparningFlik}
+          {flik === 'rita' && ritaFlik}
           {flik === 'lager' && lagerFlik}
         </div>
       </div>

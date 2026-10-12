@@ -1,4 +1,5 @@
-// PLUS-ARKET ("Alla"): fyra flikar, ett ark som är halv skärm och kan dras upp till hel, och Redigera för dockans sex platser.
+// PLUS-ARKET ("Alla"): tre flikar (Symboler · Rita & mät · Lager), ett ark som är halv skärm och kan dras upp till hel, och Redigera för dockans sex platser.
+// Princip (Martin): plus = kartan (lägga till, rita, mäta, välja vad kartan visar). Objektnamnet = objektet.
 //
 // Rena funktioner → testbara (plusArk.test.ts). Inget här vet något om React, kartan eller vad ett tryck gör.
 // Dockans regler bor kvar i lib/plusRad (MAX_FASTA, arDockPost, vilka som får fästas) — Redigera bygger på dem, ändrar dem inte.
@@ -7,8 +8,7 @@ import { MAX_FASTA, arDockPost, arSammaPost, postNyckel, type PlusPost, type Plu
 
 export const FLIKAR = [
   { id: 'symboler', etikett: 'Symboler' },
-  { id: 'ytor', etikett: 'Ytor' },
-  { id: 'sparning', etikett: 'Spårning' },
+  { id: 'rita', etikett: 'Rita & mät' },
   { id: 'lager', etikett: 'Lager' },
 ] as const;
 export type FlikId = (typeof FLIKAR)[number]['id'];

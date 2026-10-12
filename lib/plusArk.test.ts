@@ -9,12 +9,14 @@ const sym = (id: string): PlusPost => ({ typ: 'symbol', id });
 const nycklar = (l: PlusPost[]) => l.map((p) => `${p.typ}:${p.id}`);
 
 describe('flikarna', () => {
-  it('är exakt fyra, i den ordning Martin bad om', () => {
-    expect(FLIKAR.map((f) => f.etikett)).toEqual(['Symboler', 'Ytor', 'Spårning', 'Lager']);
+  it('är exakt tre, i den ordning Martin bad om', () => {
+    expect(FLIKAR.map((f) => f.etikett)).toEqual(['Symboler', 'Rita & mät', 'Lager']);
   });
-  it('arFlikId släpper bara igenom riktiga flikar', () => {
+  it('arFlikId släpper bara igenom riktiga flikar (Ytor och Spårning är borta)', () => {
     expect(arFlikId('lager')).toBe(true);
-    expect(arFlikId('rita')).toBe(false);
+    expect(arFlikId('rita')).toBe(true);
+    expect(arFlikId('ytor')).toBe(false);
+    expect(arFlikId('sparning')).toBe(false);
     expect(arFlikId(undefined)).toBe(false);
   });
 });
