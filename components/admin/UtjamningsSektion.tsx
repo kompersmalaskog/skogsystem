@@ -114,7 +114,7 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
   const redigera = arbete.slag === "redigera" ? arbete.rad : null;
   const [urval, setUrval] = useState<Urval>(redigera ? { forsta: redigera.startdatum, sista: mandagFranSlut(redigera.slutdatum) } : { forsta: "", sista: "" });
   // Förare: Alla (en rad med medarbetare_id NULL) eller en eller flera personer (en rad var). Vid ändring gäller bara den raden.
-  const [alla, setAlla] = useState(true);
+  const [alla, setAlla] = useState(false);
   const [ids, setIds] = useState<string[]>([]);
   const [anteckning, setAnteckning] = useState(redigera?.anteckning ?? "");
   const [upptagen, setUpptagen] = useState(false);
@@ -180,7 +180,7 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
   const etikettStil = { display: "block", ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs } as const;
 
   return (
-    <Sheet titel={redigera ? "Ändra utjämningsperiod" : "Ny utjämningsperiod"} onStang={onStang} attr={{ "data-utjamning-ark": "" }}>
+    <Sheet titel={redigera ? "Ändra utjämningsperiod" : "Ny utjämningsperiod"} onStang={onStang} attr={{ "data-utjamning-ark": "" }} overlayAttr={{ "data-utjamning-overlay": "" }}>
       {redigera ? (
         <div style={{ marginBottom: AVSTAND.l }}>
           <p style={{ margin: 0, ...TYP.text, color: FARG.text }}>Gäller {namnPa(redigera.medarbetare_id)}</p>
@@ -195,7 +195,7 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
               <Bockrad key={p.id} namn={p.namn || "Namnlös"} vald={ids.includes(p.id)} onToggle={() => tryckPerson(p.id)} sista={i === personer.length - 1} />
             ))}
           </div>
-          {antalForare === 0 && <Stod farg={FARG.orange}>Välj minst en förare.</Stod>}
+          {antalForare === 0 && <Stod>Välj vilka perioden gäller</Stod>}
         </div>
       )}
 

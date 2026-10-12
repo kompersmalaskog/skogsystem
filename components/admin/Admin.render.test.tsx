@@ -211,7 +211,7 @@ async function monter(sp: string, el?: React.ReactElement) {
   await lugn();
 }
 const egenText = (e: Element) => Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent || "").join("").trim();
-const blad = (t: string) => Array.from(cont.querySelectorAll<HTMLElement>("*")).filter(e => egenText(e) === t);
+const blad = (t: string) => Array.from(document.body.querySelectorAll<HTMLElement>("*")).filter(e => egenText(e) === t);
 async function klick(t: string, narmast?: string) {
   const el = blad(t)[0];
   if (!el) throw new Error("hittar inte: " + t + " — sidan säger: " + text().slice(0, 400));
@@ -519,14 +519,15 @@ describe("Avtal → Utjämningsperioder", () => {
   const sektion = () => cont.querySelector<HTMLElement>("[data-utjamning]")!;
   const sText = () => (sektion()?.textContent || "").replace(/\s+/g, " ");
   const rader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-utjamning-rad]"));
-  const ark = () => cont.querySelector<HTMLElement>("[data-utjamning-ark]");
+  const ark = () => document.querySelector<HTMLElement>("[data-utjamning-ark]");
+  const overlay = () => document.querySelector<HTMLElement>("[data-utjamning-overlay]");
   const arkText = () => (ark()?.textContent || "").replace(/\s+/g, " ");
-  const sparaKnapp = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("[data-utjamning-ark] button")).find(b => (b.textContent || "").trim() === "Spara")!;
+  const sparaKnapp = () => Array.from(document.querySelectorAll<HTMLButtonElement>("[data-utjamning-ark] button")).find(b => (b.textContent || "").trim() === "Spara")!;
   const oppnaNy = async () => { await klick("Ny period"); };
-  const veckoRad = (m: string) => cont.querySelector<HTMLElement>(`[data-vecka="${m}"]`)!;
+  const veckoRad = (m: string) => document.querySelector<HTMLElement>(`[data-vecka="${m}"]`)!;
   const tryck = async (m: string) => { const el = veckoRad(m); if (!el) throw new Error("ingen veckorad " + m); await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
-  const valda = () => Array.from(cont.querySelectorAll<HTMLElement>('[data-vecka][aria-pressed="true"]')).map(e => e.getAttribute("data-vecka"));
-  const bockar = () => Array.from(cont.querySelectorAll<HTMLElement>('[data-utjamning-ark] [role="checkbox"]'));
+  const valda = () => Array.from(document.querySelectorAll<HTMLElement>('[data-vecka][aria-pressed="true"]')).map(e => e.getAttribute("data-vecka"));
+  const bockar = () => Array.from(document.querySelectorAll<HTMLElement>('[data-utjamning-ark] [role="checkbox"]'));
   const bock = (namn: string) => { const b = bockar().find(e => e.getAttribute("data-namn") === namn); if (!b) throw new Error("ingen bock: " + namn + " — " + bockar().map(e => e.getAttribute("data-namn")).join("|")); return b; };
   const tryckBock = async (namn: string) => { const b = bock(namn); await act(async () => { b.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
   const ibockad = (namn: string) => bock(namn).getAttribute("aria-checked") === "true";
@@ -562,18 +563,92 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(sText()).not.toContain("Inga utjämningsperioder");
   });
 
+  // ── Arket ligger fast över skärmen där man är ──
+  // Rotorsak: .tona-in har en transform-animation, och en transform gör föräldern till containing block för position: fixed.
+  // Ett ark inne i sidan placeras därför mot sidans topp, inte mot fönstret. Arket ritas därför i en portal på document.body.
+  async function arkFastOverSidan(oppna: () => Promise<void>) {
+    await monter("flik=avtal");
+    document.body.style.overflow = "";
+    await oppna();
+    const o = overlay()!;
+    expect(o).toBeTruthy();
+    expect(cont.contains(o)).toBe(false);                 // utanför sidans transformerade lager
+    expect(o.parentElement).toBe(document.body);
+    expect(o.style.position).toBe("fixed");
+    expect(o.style.inset).toMatch(/^0(px)?( 0(px)?){0,3}$/);
+    expect(o.contains(ark())).toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");  // sidan bakom är låst för scroll
+  }
+
+  it("Ny period: arket är en fast ruta över hela fönstret (portal på body) och sidan bakom är låst för scroll", async () => {
+    await arkFastOverSidan(oppnaNy);
+  });
+
+  it("en befintlig period: samma, arket ligger fast över skärmen", async () => {
+    g.__db.utjamningsperiod = [NU].map(x => ({ ...x }));
+    await arkFastOverSidan(async () => { await klick("Anna, skogsbruksplan"); });
+  });
+
+  it("scroll-låset släpps när arket stängs (Avbryt, tryck utanför, efter Spara) och skriver inte över sidans eget värde", async () => {
+    await monter("flik=avtal");
+    document.body.style.overflow = "";
+    await oppnaNy();
+    expect(document.body.style.overflow).toBe("hidden");
+    await klick("Avbryt");
+    expect(ark()).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+    await oppnaNy();
+    await act(async () => { overlay()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });   // tryck på bakgrunden
+    expect(ark()).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+    await oppnaNy();                                                                                    // tryck INUTI arket stänger inte
+    await act(async () => { ark()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(ark()).toBeTruthy();
+    await tryckBock("Alla");
+    await tryckVeckor("2026-10-19", "2026-10-19");
+    await anteckna("Sparat och stängt");
+    await spara();
+    expect(ark()).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("avmonteras sidan med arket öppet släpps låset också (annars fastnar all scroll)", async () => {
+    await monter("flik=avtal");
+    document.body.style.overflow = "";
+    await oppnaNy();
+    expect(document.body.style.overflow).toBe("hidden");
+    await act(async () => { root.unmount(); });
+    expect(document.body.style.overflow).toBe("");
+    root = createRoot(cont);                              // afterEach avmonterar igen
+  });
+
   // ── Förare: lista med bockar ──
-  it("förare är en lista med bockar: Alla överst och förvald, sedan varje förare; rullistorna är borta", async () => {
+  it("förare är en lista med bockar: Alla överst, sedan varje förare, INGEN vald; rullistorna är borta", async () => {
     await monter("flik=avtal");
     await oppnaNy();
     expect(bockar().map(b => b.getAttribute("data-namn"))).toEqual(["Alla", "Anna Berg", "Erik Lind"]);
-    expect(ibockad("Alla")).toBe(true);
-    expect(ibockad("Anna Berg")).toBe(false);
-    expect(cont.querySelectorAll("[data-utjamning-ark] select").length).toBe(0);
+    expect(bockar().map(b => b.getAttribute("aria-checked"))).toEqual(["false", "false", "false"]);
+    expect(document.querySelectorAll("[data-utjamning-ark] select").length).toBe(0);
     for (const b of bockar()) expect(parseInt(b.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
   });
 
-  it("bocka en förare tar bort Alla; bocka Alla igen tömmer förarna; tar man bort sista förarens bock är inget valt och Spara låst", async () => {
+  it("ingen förare vald: hjälptexten 'Välj vilka perioden gäller' och Spara låst, även med veckor och anteckning; hjälptexten försvinner när en är vald", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    expect(arkText()).toContain("Välj vilka perioden gäller");
+    await tryckVeckor("2026-10-19", "2026-10-26");
+    await anteckna("Test");
+    expect(sparaKnapp().disabled).toBe(true);
+    await tryckBock("Anna Berg");
+    expect(arkText()).not.toContain("Välj vilka perioden gäller");
+    expect(sparaKnapp().disabled).toBe(false);
+    await tryckBock("Anna Berg");                     // bocken kan tas bort igen
+    expect(arkText()).toContain("Välj vilka perioden gäller");
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(skrivningar()).toHaveLength(0);
+  });
+
+  it("bocka en förare tar bort Alla; bocka Alla tömmer förarna; Alla kan tas bort igen", async () => {
     await monter("flik=avtal");
     await oppnaNy();
     await tryckBock("Anna Berg");
@@ -584,12 +659,8 @@ describe("Avtal → Utjämningsperioder", () => {
     await tryckBock("Alla");
     expect(ibockad("Alla")).toBe(true);
     expect(ibockad("Anna Berg") || ibockad("Erik Lind")).toBe(false);
-    await tryckBock("Alla"); // Alla är en bock som kan tas bort: ingen vald
+    await tryckBock("Alla");
     expect(ibockad("Alla")).toBe(false);
-    await tryckVeckor("2026-10-19", "2026-10-26");
-    await anteckna("Test");
-    expect(sparaKnapp().disabled).toBe(true);
-    expect(arkText()).toContain("Välj minst en förare");
   });
 
   async function tryckVeckor(a: string, b: string) { await tryck(a); await tryck(b); }
@@ -616,6 +687,7 @@ describe("Avtal → Utjämningsperioder", () => {
   it("Alla sparar EN rad med medarbetare_id NULL", async () => {
     await monter("flik=avtal");
     await oppnaNy();
+    await tryckBock("Alla");
     await tryckVeckor("2026-10-19", "2026-10-26");
     await anteckna("Hela laget");
     await spara();
@@ -631,7 +703,7 @@ describe("Avtal → Utjämningsperioder", () => {
     expect((r.textContent || "").replace(/\s+/g, " ")).toContain("v44 · 26 okt–1 nov");
     expect(r.tagName).toBe("BUTTON");
     expect(parseInt(r.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
-    const rubriker = Array.from(cont.querySelectorAll("[data-manad]")).map(e => (e.textContent || "").trim());
+    const rubriker = Array.from(document.querySelectorAll("[data-manad]")).map(e => (e.textContent || "").trim());
     expect(rubriker).toContain("oktober 2026");
     expect(rubriker.indexOf("oktober 2026")).toBeLessThan(rubriker.indexOf("november 2026"));
     expect(veckoRad("2026-10-19").compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // stigande ordning
@@ -661,9 +733,10 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(arkText()).toContain("3 veckor, v46–48 2026");
   });
 
-  it("Spara är låst tills första OCH sista veckan är valda och anteckningen är minst 3 tecken", async () => {
+  it("Spara är låst tills förare, första OCH sista veckan är valda och anteckningen är minst 3 tecken", async () => {
     await monter("flik=avtal");
     await oppnaNy();
+    await tryckBock("Alla");
     expect(sparaKnapp().disabled).toBe(true);
     await anteckna("abc");
     expect(sparaKnapp().disabled).toBe(true);        // inga veckor
@@ -679,6 +752,7 @@ describe("Avtal → Utjämningsperioder", () => {
   it("längre än 16 veckor: varning som inte spärrar; 16 veckor ger ingen varning", async () => {
     await monter("flik=avtal");
     await oppnaNy();
+    await tryckBock("Alla");
     await anteckna("16 veckor");
     await tryckVeckor("2026-01-05", "2026-04-20");
     expect(arkText()).toContain("16 veckor, v2–17 2026");
@@ -689,10 +763,12 @@ describe("Avtal → Utjämningsperioder", () => {
   });
 
   // ── Befintliga perioder syns i kalendern ──
-  it("veckor som redan ligger i en period tonas med periodens anteckning — för Alla gäller varje period", async () => {
+  it("veckor som redan ligger i en period tonas med periodens anteckning — för Alla gäller varje period; utan vald förare tonas inget", async () => {
     g.__db.utjamningsperiod = [GAVLE, NU].map(x => ({ ...x }));
     await monter("flik=avtal");
     await oppnaNy();
+    expect(veckoRad("2026-04-27").getAttribute("data-krock")).toBeNull();
+    await tryckBock("Alla");
     expect(veckoRad("2026-04-27").getAttribute("data-krock")).toBe("Gävle, ordinarie tid utlagd ojämnt");
     expect(veckoRad("2026-04-27").textContent).toContain("Gävle, ordinarie tid utlagd ojämnt");
     expect(veckoRad("2026-10-05").getAttribute("data-krock")).toBe("Anna, skogsbruksplan");
@@ -731,6 +807,7 @@ describe("Avtal → Utjämningsperioder", () => {
     g.__db.utjamningsperiod = [GAVLE].map(x => ({ ...x }));
     await monter("flik=avtal");
     await oppnaNy();
+    await tryckBock("Alla");
     await tryckVeckor("2026-08-03", "2026-08-10");
     expect(arkText()).not.toContain("Krockar");
   });
@@ -738,6 +815,7 @@ describe("Avtal → Utjämningsperioder", () => {
   it("RLS stoppar skrivningen (0 rader utan fel): arket står kvar öppet med felet, inget 'Sparat'", async () => {
     await monter("flik=avtal");
     await oppnaNy();
+    await tryckBock("Alla");
     await tryckVeckor("2026-10-19", "2026-10-19");
     await anteckna("Test av RLS");
     g.__ingaRader = true;
@@ -985,7 +1063,7 @@ describe("Vilobrott-fliken läser förarens svar", () => {
 /* ─────────────────────────── Ny medarbetare: ett flöde, fyra steg ─────────────────────────── */
 
 const falt = (label: string) => {
-  const l = Array.from(cont.querySelectorAll<HTMLLabelElement>("label")).find(e => (e.textContent || "").trim() === label);
+  const l = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(e => (e.textContent || "").trim() === label);
   if (!l) throw new Error("hittar inget fält: " + label + " — sidan säger: " + text().slice(0, 300));
   return document.getElementById(l.htmlFor) as HTMLInputElement;
 };

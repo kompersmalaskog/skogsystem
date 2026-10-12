@@ -2,9 +2,10 @@
 // Admins byggstenar — ur lib/design/tokens, samma känsla som arbetsrapporten: kort utan ram, tysta
 // grå rader, små versala rubriker. Orange bara för det som kräver handling, grått för det som stämmer.
 // Ersätter den gamla components/admin/design.tsx (egen palett, egna mått).
-import React, { type CSSProperties, type ReactNode } from "react";
+import React, { useEffect, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
-  TYP, TNUM, AVSTAND, RADIE, FARG, KNAPP, INAKTIV, KORT, TRAFFYTA, IKON, RORELSE,
+  TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, IKON, RORELSE,
 } from "@/lib/design/tokens";
 
 /** Innehållskolumnens maxbredd på dator (Martin sitter vid skärm). Ett layoutmått, inte ett avstånd. */
@@ -264,16 +265,32 @@ export function Bekrafta({ text, ja, nej = "Avbryt", onJa, onNej, upptagen }: {
 /**
  * Ark ovanpå sidan för ETT formulär (Ny period, Ändra period). Mörk bakgrund, tryck utanför stänger.
  * Aldrig ark ovanpå ark: bekräftelser byter innehåll i samma ark. `attr` bär data-attribut (testfästen).
+ *
+ * Ritas i en PORTAL på document.body och låser sidans scroll medan det är öppet. Annars hamnar det högst upp på sidan:
+ * `.tona-in` har en transform-animation, och en transform gör sin förälder till containing block för `position: fixed`,
+ * så ett ark inne i sidan placeras mot sidans topp i stället för mot fönstret (man måste scrolla upp för att se det).
  */
-export function Sheet({ titel, onStang, children, attr }: { titel: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string> }) {
-  return (
-    <div onClick={onStang} className="tona-opacity" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.l }}>
+export function Sheet({ titel, onStang, children, attr, overlayAttr }: { titel: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string>; overlayAttr?: Record<string, string> }) {
+  useEffect(() => {
+    const kropp = document.body;
+    const fore = { overflow: kropp.style.overflow, paddingRight: kropp.style.paddingRight };
+    // Skrollisten försvinner när sidan låses: fyll ut den så innehållet bakom inte hoppar i sidled.
+    const list = window.innerWidth - document.documentElement.clientWidth;
+    kropp.style.overflow = "hidden";
+    if (list > 0) kropp.style.paddingRight = `${list}px`;
+    return () => { kropp.style.overflow = fore.overflow; kropp.style.paddingRight = fore.paddingRight; };
+  }, []);
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div onClick={onStang} className="tona-opacity" {...overlayAttr}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.l, overscrollBehavior: "contain" }}>
       <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp" {...attr}
-        style={{ background: FARG.kort, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
+        style={{ background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", overscrollBehavior: "contain", boxSizing: "border-box" }}>
         <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color: FARG.text }}>{titel}</p>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -91,6 +91,7 @@ export type Forarval = { alla: boolean; ids: string[] };
 
 /** Perioder som ligger över veckan för någon av de valda förarna. Alla valt = en period för vem som helst krockar. */
 export function krockarIVecka<T extends Krockperiod>(mandag: string, val: Forarval, befintliga: T[], utanId?: string): T[] {
+  if (!val.alla && val.ids.length === 0) return [];   // ingen förare vald: inget att krocka med
   const sondag = slutFranMandag(mandag);
   return befintliga.filter(e => e.id !== utanId && e.startdatum <= sondag && e.slutdatum >= mandag
     && (val.alla || e.medarbetare_id == null || val.ids.includes(e.medarbetare_id)));

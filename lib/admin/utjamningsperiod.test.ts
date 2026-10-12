@@ -102,6 +102,10 @@ describe("krockar: veckor som redan ligger i en period för någon av de valda f
     expect(krockarIVecka("2026-10-05", { alla: false, ids: ["m1", "m2"] }, alla).map(k => k.id)).toEqual(["anna"]);
     expect(krockarIVecka("2026-10-05", { alla: true, ids: [] }, alla).map(k => k.id)).toEqual(["anna"]);
   });
+  it("ingen förare vald: ingenting krockar (inte ens en period för alla)", () => {
+    expect(krockarIVecka("2026-04-27", { alla: false, ids: [] }, alla)).toEqual([]);
+    expect(krockarIUrval({ forsta: "2026-04-20", sista: "2026-04-27" }, { alla: false, ids: [] }, alla)).toEqual([]);
+  });
   it("veckan måste ligga i perioden: måndagen efter söndagen krockar inte", () => {
     expect(krockarIVecka("2026-07-06", { alla: true, ids: [] }, alla)).toEqual([]);
     expect(krockarIVecka("2026-06-29", { alla: true, ids: [] }, alla).map(k => k.id)).toEqual(["gavle"]);
