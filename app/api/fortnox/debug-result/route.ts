@@ -39,9 +39,11 @@ export async function GET(req: NextRequest) {
   }
 
   // Hämta vår mappning från DB
+  // Diagnostik: visa ALLA generationer MED giltighetsdatum — det är
+  // datumen som avgör ägare per period, att dölja dem döljer felet.
   const { data: mapp } = await supabase
     .from("maskin_kostnadsstalle")
-    .select("maskin_id, kostnadsstalle_kod")
+    .select("maskin_id, kostnadsstalle_kod, giltig_fran, giltig_till")
     .order("kostnadsstalle_kod");
 
   // Fortnox-anrop

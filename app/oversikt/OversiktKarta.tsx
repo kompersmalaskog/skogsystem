@@ -13,7 +13,10 @@ import {
   type MarkLevel, type FaraNiva,
 } from './markeringar';
 import SkotarRad from './SkotarRad';
+import { lastLista, lasFelOrsak } from './las-svar';
+import { LasFelRad, LASFEL_FARA, LASFEL_FARA_LADDAR, LASFEL_KO } from './LasFel';
 import type { SkordAgg } from './page';
+import { foreslaNasta, type Kandidat, type MaskinLage, type AvstandKm } from '@/lib/nastaObjekt';
 // Maskinens RIKTIGA senaste position (flytt/produktion/GPS-fix, med ärlighets-spärrar) —
 // ersätter "första objektet i kön = maskinen". Delas med maskinflytt (ej planeringsfil).
 import { hamtaSenastePlatser, relativTid, dagarSedan, type PlatsForslag } from '../maskinflytt/senastePlats';
@@ -184,9 +187,10 @@ function grotDeadlineInfo(deadline: string | null): { color: string; label: stri
    1 Titel+status · 2 typ·areal·volym · 3 Avstånd+Köplats · 4 Fara (enda röda) ·
    5 Markägare+Ring/Sms · 6 Navigera hit · 7 Visa mer (Hänsyn·Restriktioner·Trädslag·Logistik).
    Saknas data i en sektion: utelämna tyst eller visa "–", aldrig egen layout per objekt. */
-function ObjCard({ obj, warnings, koPlats, devicePos, skotar }: {
+function ObjCard({ obj, warnings, farorStatus = 'ok', koPlats, devicePos, skotar }: {
   obj: OversiktObjekt;
   warnings?: ObjWarnings;
+  farorStatus?: 'laddar' | 'ok' | 'fel';   // markeringarna: läst / misslyckad / pågår — "inga faror" får bara visas när 'ok'
   koPlats?: { pos: number; total: number };
   devicePos?: { lat: number; lng: number } | null;
   skotar?: SkotarInfo | null;
@@ -297,6 +301,10 @@ function ObjCard({ obj, warnings, koPlats, devicePos, skotar }: {
             <div style={{ ...T.caption, marginTop: SP.xs }}>Köplats</div>
           </div>
         </div>
+
+        {/* Faror och hänsyn gick inte att läsa (eller läses än): säg det — en tom plats får aldrig betyda "inga faror" */}
+        {farorStatus === 'fel' && <LasFelRad text={LASFEL_FARA} style={{ marginBottom: SP.lg }} />}
+        {farorStatus === 'laddar' && <div style={{ ...T.caption, marginBottom: SP.lg }}>{LASFEL_FARA_LADDAR}</div>}
 
         {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning).
            Visar ALLA faror staplade direkt — aldrig gömt bakom en knapp. Rad 1 =
@@ -545,7 +553,7 @@ const BARIGHET_LBL: Record<string, string> = { bra: 'Bra bärighet', god: 'Bra b
 /* ── "Härnäst närmast"-ark (planerarens beslutsstöd) — den valda maskinens Att köra-objekt
    rankade på körväg från maskinens riktiga position. Ärlig färskhet, faktor-chips, aldrig
    auto-omordning: ordningen sätts fortfarande manuellt i Maskiner-fliken. ── */
-function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rankLaddar, objektById, warningsByObj, onSelect }: {
+function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rankLaddar, objektById, warningsByObj, foreslagenId, foreslagenSkal, onSelect }: {
   maskinNamn: string | null;
   pagaendeNamn: string | null;
   plats: PlatsForslag | undefined;
@@ -554,6 +562,8 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
   rankLaddar: boolean;
   objektById: (id: string) => OversiktObjekt | undefined;
   warningsByObj: Record<string, ObjWarnings>;
+  foreslagenId: string | null;       // Steg A: objektet lib/nastaObjekt föreslår (read-only markering)
+  foreslagenSkal: string | null;
   onSelect: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -601,6 +611,7 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
             {rankad.map((r, i) => {
               const o = objektById(r.id);
               if (!o) return null;
+              const isForeslagen = o.id === foreslagenId;
               const st = ST[o.status] || ST.oplanerad;
               const w = warningsByObj[o.id];
               const barLbl = o.barighet ? (BARIGHET_LBL[o.barighet.trim().toLowerCase()] || o.barighet) : null;
@@ -609,7 +620,7 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
               return (
                 <button key={o.id} onClick={(e) => { e.stopPropagation(); onSelect(o.id); }} style={{
                   display: 'flex', alignItems: 'center', gap: SP.md, width: '100%', textAlign: 'left',
-                  padding: `${SP.md}px ${SP.xs}px`, background: 'transparent', border: 'none',
+                  padding: `${SP.md}px ${SP.xs}px`, background: isForeslagen ? 'rgba(48,209,88,0.08)' : 'transparent', border: 'none',
                   borderTop: i === 0 ? 'none' : `1px solid ${C.border}`, cursor: 'pointer', fontFamily: ff,
                 }}>
                   <div style={{ width: 62, flexShrink: 0, textAlign: 'right' }}>
@@ -617,6 +628,12 @@ function MaskinRuttSheet({ maskinNamn, pagaendeNamn, plats, laddar, rankad, rank
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ ...T.body, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
+                    {isForeslagen && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, minWidth: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.green, background: 'rgba(48,209,88,0.14)', padding: '1px 7px', borderRadius: 5, flexShrink: 0 }}>Föreslagen nästa</span>
+                        {foreslagenSkal && <span style={{ ...T.caption, fontSize: 11, color: C.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foreslagenSkal}</span>}
+                      </div>
+                    )}
                     {(barLbl || gi.label || o.transport_trailer_in === true) && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 3 }}>
                         {barLbl && <span style={chipStyle(barOrange)}>{barLbl}</span>}
@@ -874,6 +891,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   const [maskiner, setMaskiner] = useState<Maskin[]>(propMaskiner);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>(propMaskinKo);
   const [markeringar, setMarkeringar] = useState<MarkeringRow[]>([]);
+  // Markeringarna: läst (ok) / misslyckad (fel) / pågår (laddar). Bara 'ok' utan rader betyder "inga faror" — ett läsfel är OKÄNT.
+  const [markStatus, setMarkStatus] = useState<'laddar' | 'ok' | 'fel'>('laddar');
+  // Kö/maskiner: kartans egen läsning. Misslyckad = banner, aldrig en tyst tom eller gammal kö.
+  const [koFelKalla, setKoFelKalla] = useState({ ko: false, maskiner: false });
+  const koFel = koFelKalla.ko || koFelKalla.maskiner;
+  const levande = useRef(true);
+  useEffect(() => { levande.current = true; return () => { levande.current = false; }; }, []);
   const [me, setMe] = useState<Medarbetare | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -942,9 +966,62 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   }, []);
 
   const refetchKo = useCallback(async () => {
-    const { data } = await supabase.from('maskin_ko').select('*').order('ordning');
-    if (data) setMaskinKo(data as MaskinKoItem[]);
+    try {
+      const svar = await supabase.from('maskin_ko').select('*').order('ordning');
+      const lista = lastLista<MaskinKoItem>(svar);
+      if (!levande.current) return;
+      if (lista) { setMaskinKo(lista); setKoFelKalla((k) => ({ ...k, ko: false })); }
+      else { console.error('[Översikt] kö: kartans läsning av maskin_ko gick inte —', lasFelOrsak(svar)); setKoFelKalla((k) => ({ ...k, ko: true })); }
+    } catch (e) {
+      console.error('[Översikt] kö: kartans läsning av maskin_ko kastade', e);
+      if (levande.current) setKoFelKalla((k) => ({ ...k, ko: true }));
+    }
   }, []);
+
+  const laddaMaskiner = useCallback(async () => {
+    try {
+      const svar = await supabase.from('dim_maskin').select('*').order('modell');
+      const lista = lastLista<Maskin>(svar);
+      if (!levande.current) return;
+      if (lista) { setMaskiner(lista); setKoFelKalla((k) => ({ ...k, maskiner: false })); }
+      else { console.error('[Översikt] kö: kartans läsning av dim_maskin gick inte —', lasFelOrsak(svar)); setKoFelKalla((k) => ({ ...k, maskiner: true })); }
+    } catch (e) {
+      console.error('[Översikt] kö: kartans läsning av dim_maskin kastade', e);
+      if (levande.current) setKoFelKalla((k) => ({ ...k, maskiner: true }));
+    }
+  }, []);
+
+  // Hämta BARA de fem fält som klassning/kommentar läser — aldrig hela data. Raderna kan bära
+  // base64-foto i data.photoData (~9 MB/st); ett select('data') över alla objekt gav timeout.
+  // Ett läsfel är OKÄNT (markStatus 'fel' → banner), aldrig "inga faror".
+  const laddaMarkeringar = useCallback(async () => {
+    try {
+      const svar = await supabase
+        .from('planering_markeringar')
+        .select('objekt_id, typ, d_type:data->>type, d_zone:data->>zoneType, d_line:data->>lineType, d_arrow:data->>arrowType, d_comment:data->>comment')
+        .order('id', { ascending: true });
+      if (!levande.current) return;
+      const mk = lastLista<any>(svar);
+      if (!mk) { console.error('[Översikt] markeringar: läsningen gick inte —', lasFelOrsak(svar)); setMarkStatus('fel'); return; }
+      // Bygg tillbaka samma form som resten av koden läser (data.type …); null-fält utelämnas.
+      setMarkeringar(mk.map((r) => {
+        const data: Record<string, string> = {};
+        if (r.d_type) data.type = r.d_type;
+        if (r.d_zone) data.zoneType = r.d_zone;
+        if (r.d_line) data.lineType = r.d_line;
+        if (r.d_arrow) data.arrowType = r.d_arrow;
+        if (r.d_comment) data.comment = r.d_comment;
+        return { objekt_id: r.objekt_id, typ: r.typ, data } as MarkeringRow;
+      }));
+      setMarkStatus('ok');
+    } catch (e) {
+      console.error('[Översikt] markeringar: läsningen kastade', e);
+      if (levande.current) setMarkStatus('fel');
+    }
+  }, []);
+
+  // "Försök igen" i kö-bannern: båda läsningarna om
+  const laddaOmKo = useCallback(async () => { await refetchKo(); await laddaMaskiner(); }, [refetchKo, laddaMaskiner]);
 
   /* ── Mount: inloggad medarbetare (roll/maskin) + berika objekt/kö + markeringar ── */
   useEffect(() => {
@@ -961,18 +1038,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         }
       } catch { /* ej inloggad (dev) — fortsätt med prop-data */ }
 
-      await refetchObjekt();
-      await refetchKo();
-
-      const { data: maskinerData } = await supabase.from('dim_maskin').select('*').order('modell');
-      if (!cancelled && maskinerData) setMaskiner(maskinerData as Maskin[]);
-
-      const { data: mk } = await supabase
-        .from('planering_markeringar').select('objekt_id, typ, data');
-      if (!cancelled && mk) setMarkeringar(mk as MarkeringRow[]);
+      // Samma ordning som förut — men ett steg som KASTAR stoppar aldrig de andra (faror/kö läses ändå)
+      for (const steg of [refetchObjekt, refetchKo, laddaMaskiner, laddaMarkeringar]) {
+        try { await steg(); } catch (e) { console.error('[Översikt] läsningen kastade', e); }
+      }
     })();
     return () => { cancelled = true; };
-  }, [refetchObjekt, refetchKo]);
+  }, [refetchObjekt, refetchKo, laddaMaskiner, laddaMarkeringar]);
 
   /* ── Realtime (Beslut 4): omkastad kö / statusbyte syns utan omladdning ── */
   useEffect(() => {
@@ -1121,6 +1193,33 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     })();
     return () => { cancelled = true; };
   }, [maskinFilter, maskinPlatser, kandidater, pagaende]);
+
+  /* ── Steg A: "Föreslagen nästa" = lib/nastaObjekt-regeln för skördare (närmast KLAR att köra
+     UTAN öppen fara), applicerad på den redan körvägs-rankade listan. Read-only beslutsstöd åt
+     förmannen — markerar bara topp-objektet, ändrar ALDRIG rankningen (Åtgärd = underlag, inte
+     order). Skälet kommer ur libet så kartan och logiken aldrig säger olika. ── */
+  const foreslagenNasta = useMemo(() => {
+    if (!maskinFilter || rankad.length === 0) return null;
+    const kmByCoord = new Map<string, number>();
+    const kand: Kandidat[] = [];
+    for (const r of rankad) {
+      const o = objekt.find(x => x.id === r.id);
+      if (!o || o.lat == null || o.lng == null) continue;
+      kmByCoord.set(`${o.lat},${o.lng}`, r.km);
+      kand.push({
+        key: r.id, namn: o.namn, status: o.status, koordinat: { lat: o.lat, lng: o.lng },
+        skordat: 0, backen: 0, backenPalitlig: false, legatDagar: null, skordareIds: [],
+        attKora: o.status === 'planerad' || o.status === 'importerad',
+        oppenFara: warningsByObj[o.id]?.level === 'fara',
+        grotDeadline: o.grot_deadline || null, egenSkotning: false,
+      });
+    }
+    if (kand.length === 0) return null;
+    const m: MaskinLage = { maskinId: maskinFilter, typ: 'skordare', koordinat: { lat: 0, lng: 0 }, nuvarandeObjektKey: null, positionAlderDagar: null };
+    const avstandKm: AvstandKm = (_from, to) => kmByCoord.get(`${to.lat},${to.lng}`) ?? null; // återanvänd körvägs-km från rankningen
+    const f = foreslaNasta(m, kand, avstandKm);
+    return f.vald ? { id: f.vald.key, skal: f.skal } : null;
+  }, [maskinFilter, rankad, warningsByObj, objekt]);
 
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
@@ -1625,6 +1724,14 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         </div>
       )}
 
+      {/* ── Läsfel: faror/hänsyn eller kö/maskiner gick inte att läsa — ALDRIG en tyst tom karta (se las-svar.ts) ── */}
+      {(markStatus === 'fel' || koFel) && (
+        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: SP.lg, left: SP.lg, right: driverMode ? SP.lg : SP.lg + 44 + SP.md, zIndex: 16, display: 'flex', flexDirection: 'column', gap: SP.sm }}>
+          {markStatus === 'fel' && <LasFelRad text={LASFEL_FARA} onForsok={laddaMarkeringar} />}
+          {koFel && <LasFelRad text={LASFEL_KO} onForsok={laddaOmKo} />}
+        </div>
+      )}
+
       {/* ── Filter button (top right) — döljs i förarläge (read-only rutt) ── */}
       {!driverMode && (
       <button onClick={e => { e.stopPropagation(); setShowFilterPanel(p => !p); }} style={{
@@ -1756,12 +1863,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         <ObjCard
           obj={selectedObj}
           warnings={warningsByObj[selectedObj.id]}
+          farorStatus={markStatus}
           koPlats={koPlatsByObj[selectedObj.id]}
           devicePos={devicePos}
           skotar={skotarByObj[selectedObj.id]}
         />
       )}
-      {selectedGrotObj && <ObjCard obj={selectedGrotObj} warnings={warningsByObj[selectedGrotObj.id]} koPlats={koPlatsByObj[selectedGrotObj.id]} devicePos={devicePos} skotar={skotarByObj[selectedGrotObj.id]} />}
+      {selectedGrotObj && <ObjCard obj={selectedGrotObj} warnings={warningsByObj[selectedGrotObj.id]} farorStatus={markStatus} koPlats={koPlatsByObj[selectedGrotObj.id]} devicePos={devicePos} skotar={skotarByObj[selectedGrotObj.id]} />}
 
       {/* Förar-sheet (Beslut 1) — bara i förarläge när inget kort är öppet */}
       {driverMode && !selectedObj && !selectedGrotObj && (
@@ -1784,6 +1892,8 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           rankLaddar={rankLaddar}
           objektById={(id) => objekt.find(o => o.id === id)}
           warningsByObj={warningsByObj}
+          foreslagenId={foreslagenNasta?.id ?? null}
+          foreslagenSkal={foreslagenNasta?.skal ?? null}
           onSelect={(id) => setSelectedId(id)}
         />
       )}

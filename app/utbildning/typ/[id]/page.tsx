@@ -67,7 +67,7 @@ export default function UtbildningTypPage() {
     : '';
 
   return (
-    <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff, paddingBottom: 120 }}>
+    <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff, paddingBottom: 120, marginTop: 'calc(-56px - env(safe-area-inset-top))' }}>
       <UtbHeader
         title={typ?.namn ?? 'Utbildning'}
         back={{ href: '/utbildning', label: 'Utbildningar' }}

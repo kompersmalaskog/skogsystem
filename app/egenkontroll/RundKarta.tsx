@@ -20,14 +20,25 @@
 // positionen ar daremot redan WGS84 och behover ingenting.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from '@/app/oversikt/forarkarta-stil';
+import { FORARKARTA_ATTRIBUTION } from '@/app/oversikt/forarkarta-stil';
+import { BASKARTOR, BASKARTA_DEFAULT, buildKartStil, wmsTileLayers, type BaskartaId } from '@/lib/mapLayers';
+import type { MapLayers } from '@/lib/hooks/useMapLayers';
 import { signeraKartfil } from '@/lib/kartfiler';
+import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import {
-  kartOrigoFranBounds,
-  pathTillGeoJson,
-  svgTillGeoJson,
-  type Origo,
-} from '@/lib/kartkoordinater';
+  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
+  geometriKoordinater, kontextFeature, kontextLager, kontextUtanKontrollpunkter,
+  kontrollFeatures, kontrollLager, kontrollLagerIdn, provytaFeatures, provytaLager,
+  provytaLagerIdn, valdLinjeFilter, valdSymbolFilter,
+} from '@/lib/egenkontrollkarta';
+import { IKON_PIXELRATIO, provytaBildNamn, ritaProvytaIkon } from '@/lib/provytaIkon';
+import type { ProvytaStatus } from '@/lib/provytor';
+import { PIL_STIL, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
+import {
+  TRAFF_RADIE_PX, avstandTillGeometriPx, traffIdFranEgenskaper, traffKindFranEgenskaper, valjTraff,
+  type Kandidat,
+} from '@/lib/egenkontrollTryck';
+import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } from '@/lib/marker-icons';
 import { T } from '@/lib/utbildning';
 import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
 import type { LatLng } from '@/lib/provytor';
@@ -39,20 +50,6 @@ declare global {
 /** Standardhojd i rundvyn. Helskarmslaget skickar in sin egen. */
 const HOJD_INLINE = 180;
 
-/** Status som farg. Listan sager samma sak i text - fargen bar aldrig ensam. */
-const STATUSFARG: Record<string, string> = {
-  ok: '#30D158',
-  avvikelse: '#FF453A',
-  bra: '#30D158',
-  godkant: '#0A84FF',
-  battre: '#FFD60A',
-};
-const OBESVARAD = '#8E8E93';
-
-function farg(status: string | null): string {
-  return (status && STATUSFARG[status]) || OBESVARAD;
-}
-
 export type KartObjektData = {
   lat?: number | null;
   lng?: number | null;
@@ -63,47 +60,121 @@ export type KartObjektData = {
 type Geo = { type: 'FeatureCollection'; features: any[] };
 const TOM: Geo = { type: 'FeatureCollection', features: [] };
 
-/** Punktens snapshot -> GeoJSON. null nar punkten inte ar en plats. */
-function punktTillFeature(p: EgenkontrollPunkt, origo: Origo): any | null {
-  const g = p.geometri_snapshot as { x?: number; y?: number; path?: { x: number; y: number }[] } | null;
-  if (!g) return null; // kalla='fast' - utforandepunkter ar inte platser
-  const props = { id: p.id, farg: farg(p.status), status: p.status ?? 'obesvarad' };
+/**
+ * Bilderna lagren refererar: symbolerna (lib/marker-icons.ts - samma som
+ * planeringen), pilarna och basvagsnumren. Maste finnas innan lagren laggs
+ * till, annars ritas ingenting tills MapLibre hunnit be om dem.
+ *
+ * En bild som inte gar att ladda far aldrig falla kartan - da saknas bara den
+ * symbolen, och resten ritas.
+ */
+async function laggTillBilder(map: any, nummer: number[]): Promise<void> {
+  const laddar: Promise<void>[] = [];
+  for (const def of markerIconDefs) {
+    const namn = `marker-${def.id}`;
+    if (map.hasImage(namn)) continue;
+    laddar.push((async () => {
+      try {
+        const bild = await loadMarkerImageForMaplibre(def.id);
+        if (bild && !map.hasImage(namn)) map.addImage(namn, bild);
+      } catch { /* en ikon som inte gar att ladda ska inte fa falla kartan */ }
+    })());
+  }
+  for (const pil of PIL_STIL) {
+    const namn = `arrow-${pil.id}`;
+    if (map.hasImage(namn)) continue;
+    try {
+      const bild = canvasToMapLibreImage(ritaPilIkon(pil.color));
+      if (bild) map.addImage(namn, bild);
+    } catch { /* se ovan */ }
+  }
+  await Promise.all(laddar);
+  sakraNummerBilder(map, nummer);
+  sakraProvytaBilder(map);
+}
 
-  if (Array.isArray(g.path)) {
-    const coords = pathTillGeoJson(g.path, origo);
-    if (coords.length < 2) return null;
-    return { type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } };
+/**
+ * Provytornas tre ikoner (omatt, matt, overhoppad). pixelRatio 3: ritas i 3x och
+ * visas i 1x - skarpt pa tatt skarm. En ikon som saknas gor att just det
+ * tillstandet inte syns, sa det larmas hellre an tigs.
+ */
+function sakraProvytaBilder(map: any): void {
+  for (const status of ['omatt', 'matt', 'overhoppad'] as ProvytaStatus[]) {
+    const namn = provytaBildNamn(status);
+    if (map.hasImage(namn)) continue;
+    try {
+      const bild = canvasToMapLibreImage(ritaProvytaIkon(status));
+      if (bild) map.addImage(namn, bild, { pixelRatio: IKON_PIXELRATIO });
+      else console.error('[egenkontroll] provytaikonen kunde inte ritas:', status);
+    } catch (e) {
+      console.error('[egenkontroll] provytaikonen kunde inte laggas till:', status, e);
+    }
   }
-  if (typeof g.x === 'number' && typeof g.y === 'number') {
-    return {
-      type: 'Feature',
-      properties: props,
-      geometry: { type: 'Point', coordinates: svgTillGeoJson(g.x, g.y, origo) },
-    };
+}
+
+/** Basvagsnumren som ikoner. Anropas aven nar data andras - nya nummer kan tillkomma. */
+function sakraNummerBilder(map: any, nummer: number[]): void {
+  for (const nr of nummer) {
+    const namn = `nr-${nr}`;
+    if (map.hasImage(namn)) continue;
+    try {
+      const bild = canvasToMapLibreImage(ritaNummerIkon(nr));
+      if (bild) map.addImage(namn, bild);
+    } catch { /* se ovan */ }
   }
-  return null;
+}
+
+/**
+ * Laggar till ett lager och SAGER det nar MapLibre avvisat det. addLayer med ett
+ * ogiltigt uttryck kastar inte - det loggar ett fel och hoppar lagret, sa
+ * bygget ar gront och lagret ar bara borta. Lib-testet validerar uttrycken, och
+ * den har kontrollen fangar det som anda slank igenom.
+ */
+function laggTillLager(map: any, spec: any, fore?: string): void {
+  try {
+    map.addLayer(spec, fore);
+    if (!map.getLayer(spec.id)) console.error('[egenkontroll] lagret avvisades av MapLibre:', spec.id);
+  } catch (e) {
+    console.error('[egenkontroll] lagret kunde inte laggas till:', spec.id, e);
+  }
 }
 
 export default function RundKarta({
-  objekt,
+  objekt: objektProp,
   punkter,
   kontext,
   provytor,
   valdPunktId,
   onPosition,
+  position,
+  onValjPunkt,
+  onValjProvyta,
   hojd = HOJD_INLINE,
   centreraPa,
   stammar,
   visaStammar = false,
+  baskarta = BASKARTA_DEFAULT,
+  overlays,
+  egnaVarden,
 }: {
   objekt: KartObjektData | null;
   punkter: EgenkontrollPunkt[];
   /** Ravt data ur planering_markeringar - bara orientering. */
-  kontext: { data: any }[];
+  kontext: { data: any; marker_id?: string | null }[];
   provytor: EgenkontrollProvyta[];
   valdPunktId: string | null;
   /** Positionen delas uppat sa avstandslistan slipper en egen GPS-prenumeration. */
   onPosition?: (p: { lat: number; lng: number; noggrannhet: number | null } | null) => void;
+  /**
+   * Positionen UTIFRAN. Satt (aven null) = kartan hamtar ingen egen position och
+   * ritar bara det sidan ger - sidan ager en levande bevakning (useMinPosition).
+   * Utelamnad = som forut: en engangslasning vid montering (gå-vyn).
+   */
+  position?: { lat: number; lng: number; noggrannhet: number | null } | null;
+  /** Tryck pa en kontrollpunkt (id). Symbol > linje > zon, se lib/egenkontrollTryck.ts. */
+  onValjPunkt?: (punktId: string) => void;
+  /** Tryck pa en provyta (dess nummer). */
+  onValjProvyta?: (nummer: number) => void;
   /** 180 i rundvyn, '100%' i helskarm. Ett lage i taget ar monterat. */
   hojd?: number | string;
   /** Ga-vyn centrerar pa ytan. */
@@ -114,7 +185,18 @@ export default function RundKarta({
    */
   stammar?: LatLng[];
   visaStammar?: boolean;
+  /** Vald bakgrundskarta. Samma fyra som planeringsvyn. */
+  baskarta?: BaskartaId;
+  /** WMS-lager + vidaKartbild. Delas med planeringsvyn via mapLayers_v4. */
+  overlays?: MapLayers;
+  /** Egenkontrollens egna lager: punkter, provytor, stammar. */
+  egnaVarden?: Record<string, boolean>;
 }) {
+  // Lases i map.on('load') som kor asynkront - da ar props ur forsta rendret
+  // inte langre sanningen. Ref:en ger det som galler NAR lagret laggs pa.
+  const overlaysRef = useRef<MapLayers | undefined>(overlays);
+  overlaysRef.current = overlays;
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -122,58 +204,78 @@ export default function RundKarta({
   const [minPosition, setMinPosition] = useState<[number, number] | null>(null);
   const [positionsFel, setPositionsFel] = useState(false);
 
+  // OBJEKTET STABILISERAS EFTER INNEHALL. hamtaRunda bygger ett NYTT kartObjekt-
+  // objekt vid varje lasning, och kartans init-effekt beror pa det: med en tyst
+  // omlasning (efter varje sparad avvikelse, provyta, stubbe) hade hela kartan
+  // annars rivits och byggts om - kamera, tiles och lager borta mitt i rundan.
+  // Innan omlasningen blev tyst syntes det inte: hela vyn byttes ut anda.
+  const objektNyckel = objektProp
+    ? JSON.stringify([objektProp.lat ?? null, objektProp.lng ?? null, objektProp.kartbild_url ?? null, objektProp.kartbild_bounds ?? null])
+    : '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const objekt = useMemo(() => objektProp, [objektNyckel]);
   const origo = useMemo(() => (objekt ? kartOrigoFranBounds(objekt) : null), [objekt]);
   // Ref sa hamtaPosition inte behover onPosition i sitt beroende och far ny identitet.
   const onPositionRef = useRef(onPosition);
   onPositionRef.current = onPosition;
+  // Tryckhanterarna registreras EN gang vid skapandet - refs ger dem det som galler nu.
+  const onValjPunktRef = useRef(onValjPunkt);
+  onValjPunktRef.current = onValjPunkt;
+  const onValjProvytaRef = useRef(onValjProvyta);
+  onValjProvytaRef.current = onValjProvyta;
+  const styrdPosition = position !== undefined;
 
   // --- Geometrierna ---------------------------------------------------------
-  const punktGeo = useMemo<Geo>(() => {
-    if (!origo) return TOM;
-    const features = punkter.map((p) => punktTillFeature(p, origo)).filter(Boolean);
-    return { type: 'FeatureCollection', features };
-  }, [punkter, origo]);
-
-  const kontextGeo = useMemo<Geo>(() => {
-    if (!origo) return TOM;
-    const features: any[] = [];
-    for (const m of kontext) {
-      const d = m?.data;
-      if (!d || typeof d !== 'object') continue;
-      if (Array.isArray(d.path)) {
-        const coords = pathTillGeoJson(d.path, origo);
-        if (coords.length >= 2) {
-          features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
-        }
-      } else if (typeof d.x === 'number' && typeof d.y === 'number') {
-        features.push({
-          type: 'Feature', properties: {},
-          geometry: { type: 'Point', coordinates: svgTillGeoJson(d.x, d.y, origo) },
-        });
+  // KONTROLLPUNKTERNA: symbolen, linjen eller zonen sjalv, plus ett nummer mitt
+  // pa varje numrerad basvag. Allt ur geometri_snapshot + punkt_typ.
+  const kontroll = useMemo(() => {
+    const punktFeatures: any[] = [];
+    const nummerFeatures: any[] = [];
+    if (origo) {
+      for (const p of punkter) {
+        const r = kontrollFeatures(p, origo);
+        if (r.feature) punktFeatures.push(r.feature);
+        if (r.nummer) nummerFeatures.push(r.nummer);
       }
     }
+    return {
+      punktGeo: { type: 'FeatureCollection', features: punktFeatures } as Geo,
+      nummerGeo: { type: 'FeatureCollection', features: nummerFeatures } as Geo,
+      nummer: Array.from(new Set(nummerFeatures.map((f) => f.properties.nr as number))),
+    };
+  }, [punkter, origo]);
+  const punktGeo = kontroll.punktGeo;
+  const nummerGeo = kontroll.nummerGeo;
+  // Latest-varden for init-effekten, som bara kor vid mount.
+  const nummerRef = useRef<number[]>(kontroll.nummer);
+  nummerRef.current = kontroll.nummer;
+
+  // KONTEXTEN: markeringar som INTE ar kontrollpunkter. De som redan ar det
+  // dras bort - annars ritas varje kontrollpunkt tva ganger.
+  const kontextGeo = useMemo<Geo>(() => {
+    if (!origo) return TOM;
+    const features = kontextUtanKontrollpunkter(kontext, punkter)
+      .map((m) => kontextFeature(m?.data, origo))
+      .filter(Boolean) as any[];
     return { type: 'FeatureCollection', features };
-  }, [kontext, origo]);
+  }, [kontext, punkter, origo]);
 
   /**
    * Provytorna. Egen farg (bla), skild fran planens markeringar och fran
-   * statusfargerna. Matt = fylld, ej matt = ihalig ring.
+   * statusfargerna. TRE tillstand, och FORMEN skiljer dem: omatt = ihalig ring,
+   * matt = fylld med bock, overhoppad = nedtonad ring med tvarstreck
+   * (lib/provytaIkon.ts). Status harleds i provytaStatus - en yta som hoppats over
+   * har ocksa matt satt, och ritades forr som matt.
    *
    * Ritas i FAST pixelstorlek, inte i sann skala: ytan ar 5,64 m i radie och
    * trakten ar over en kilometer bred, sa en sannskalig cirkel vore mindre an
    * en bildpunkt. Kartan ska hjalpa en att HITTA ytan - avstandslistan under
    * kartan ar det man faktiskt gar efter.
    */
-  const provyteGeo = useMemo<Geo>(() => ({
-    type: 'FeatureCollection',
-    features: provytor
-      .filter((y) => y.lat != null && y.lng != null)
-      .map((y) => ({
-        type: 'Feature',
-        properties: { nummer: y.nummer, matt: y.matt != null || y.overhoppad ? 1 : 0 },
-        geometry: { type: 'Point', coordinates: [y.lng as number, y.lat as number] },
-      })),
-  }), [provytor]);
+  const provyteGeo = useMemo<Geo>(
+    () => ({ type: 'FeatureCollection', features: provytaFeatures(provytor) }),
+    [provytor],
+  );
 
   /** Stammolnet. Sma, graa, ej tryckbara - underlag, inte innehall. */
   const stamGeo = useMemo<Geo>(() => ({
@@ -214,7 +316,8 @@ export default function RundKarta({
 
   // Automatiskt forsok. I installerad PWA pa iOS ges ingen platsprompt utan en
   // riktig gest - da tystnar detta och raden nedanfor blir vagen in.
-  useEffect(() => { hamtaPosition(); }, [hamtaPosition]);
+  // STYRD position (rundvyn): sidan ager bevakningen, och kartan hamtar ingen egen.
+  useEffect(() => { if (!styrdPosition) hamtaPosition(); }, [hamtaPosition, styrdPosition]);
 
   // --- MapLibre fran CDN (samma injektion som ovriga kartvyer) -------------
   useEffect(() => {
@@ -250,19 +353,88 @@ export default function RundKarta({
 
     const map = new window.maplibregl.Map({
       container: containerRef.current,
-      style: buildForarkartaStyle(),
+      style: buildKartStil(baskarta),
       center, zoom: 14, maxPitch: 0, dragRotate: false, attributionControl: false,
     });
     mapRef.current = map;
     try { map.touchZoomRotate.disableRotation(); } catch { /* aldre maplibre */ }
+    // NERE TILL VANSTER, inte i default-hornet. Lagerknappen flyter nere till
+    // hoger i helskarmen, och attributionen far inte hamna under den - CC-BY
+    // kraver att den ar synlig.
     map.addControl(new window.maplibregl.AttributionControl({
       customAttribution: FORARKARTA_ATTRIBUTION, compact: true,
-    }));
+    }), 'bottom-left');
 
-    map.on('load', async () => {
+    // TRYCK. En ruta runt fingret (TRAFF_RADIE_PX per sida = 44 pt) i stallet for
+    // en punkt: en basvag ar nagra pixlar bred och en tum ar det inte. Bara
+    // kontrollpunkternas och provytornas lager fragas - KONTEXTEN (ek-k-*) ar
+    // orientering och ska inte ga att trycka pa. Lager som ar slackta ger inga
+    // traffar, sa en punkt man tagit bort ur kartan gar inte heller att tryck pa.
+    map.on('click', (e: any) => {
+      if (!onValjPunktRef.current && !onValjProvytaRef.current) return;
+      const lagerIdn = ((map.getStyle()?.layers ?? []) as { id: string }[])
+        .map((l) => l.id)
+        .filter((id) => id.startsWith('ek-p-') || provytaLagerIdn().includes(id));
+      if (lagerIdn.length === 0) return;
+      const r = TRAFF_RADIE_PX;
+      const traffar = map.queryRenderedFeatures(
+        [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]],
+        { layers: lagerIdn },
+      ) as { properties: Record<string, unknown>; geometry: any }[];
+      const kandidater: Kandidat[] = [];
+      for (const f of traffar) {
+        const kind = traffKindFranEgenskaper(f.properties);
+        const id = traffIdFranEgenskaper(f.properties);
+        if (!kind || id == null) continue;
+        kandidater.push({ id, kind, dPx: avstandTillGeometriPx(f.geometry, e.point, (c) => map.project(c)) });
+      }
+      const traff = valjTraff(kandidater);
+      if (!traff) return;
+      if (traff.kind === 'provyta') onValjProvytaRef.current?.(Number(traff.id));
+      else onValjPunktRef.current?.(traff.id);
+    });
+
+    // Kortet under kartan andrar hojd (kommentar, avvikelse) - da andras kartans
+    // container, och MapLibre lyssnar bara pa FONSTRETS storlek. Utan detta ritas
+    // kartan i fel storlek tills nagon vrider telefonen.
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      ro = new ResizeObserver(() => { try { map.resize(); } catch { /* kartan borttagen */ } });
+      ro.observe(containerRef.current);
+    }
+
+    // INIT PA style.load - INTE bara 'load'. MapLibres 'load' avfyras forst nar den
+    // forsta renderingen ar klar OCH alla synliga tiles ar klara, och den avfyras
+    // bara fran en renderingsram. Gar ALLA bakgrundstiles fel (ingen tackning i
+    // skogen) efter den sista ramen kommer ingen ny ram, och 'load' uteblir for
+    // alltid: kartan star kvar med bara sin bakgrund - inga kontrollpunkter, inga
+    // lager. Matt i testselen: 5 av 30 starter. Stilen ar var egen JSON utan
+    // natverkshamtning, sa style.load kommer direkt och behover inga tiles.
+    // 'load' star kvar som reserv; initierad-vakten ser till att det bara sker en gang.
+    let initierad = false;
+    const initiera = async () => {
+      if (initierad) return;
+      initierad = true;
       map.resize();
 
-      // VIDA:s kartbild som overlay, nar den finns.
+      // WMS-lagren laggs pa EN gang, alla slackta. De tands sedan ur
+      // overlays - samma monster som planeringsvyn, och samma data
+      // (lib/mapLayers.ts) sa de tva vyerna inte kan visa olika kartor.
+      for (const l of wmsTileLayers) {
+        try {
+          map.addSource(`wms-${l.id}`, { type: 'raster', tiles: l.tiles, tileSize: 256 });
+          map.addLayer({
+            id: `wms-layer-${l.id}`, type: 'raster', source: `wms-${l.id}`,
+            paint: { 'raster-opacity': l.tileOpacity ?? 0.7 },
+            layout: { visibility: 'none' },
+          });
+        } catch { /* ett trasigt lager far inte falla kartan */ }
+      }
+
+      // VIDA:s kartbild - NU ETT LAGER SOM ALLA ANDRA. Den tandes forr
+      // ovillkorligt sa fort bounds fanns; nu ar den en rad i menyn. Det gor
+      // att kartan duger aven pa de objekt som saknar bounds, dar den forr
+      // inte hade nagon bakgrund alls att erbjuda.
       if (objekt.kartbild_url && objekt.kartbild_bounds) {
         const url = await signeraKartfil(objekt.kartbild_url);
         const b = objekt.kartbild_bounds as [[number, number], [number, number]];
@@ -272,7 +444,11 @@ export default function RundKarta({
             // [[south,west],[north,east]] -> hornen medurs fran nordvast
             coordinates: [[b[0][1], b[1][0]], [b[1][1], b[1][0]], [b[1][1], b[0][0]], [b[0][1], b[0][0]]],
           });
-          map.addLayer({ id: 'ek-kartbild', type: 'raster', source: 'ek-kartbild', paint: { 'raster-opacity': 0.85 } });
+          map.addLayer({
+            id: 'ek-kartbild', type: 'raster', source: 'ek-kartbild',
+            paint: { 'raster-opacity': 0.85 },
+            layout: { visibility: overlaysRef.current?.vidaKartbild ? 'visible' : 'none' },
+          });
         }
       }
 
@@ -287,49 +463,22 @@ export default function RundKarta({
         },
       });
 
-      // KONTEXT underst: nedtonat, tunt, ej tryckbart.
-      map.addSource('ek-kontext', { type: 'geojson', data: kontextGeo });
-      map.addLayer({
-        id: 'ek-kontext-linje', type: 'line', source: 'ek-kontext',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        layout: { 'line-join': 'round' },
-        paint: { 'line-color': 'rgba(255,255,255,0.45)', 'line-width': 1.2 },
-      });
-      map.addLayer({
-        id: 'ek-kontext-punkt', type: 'circle', source: 'ek-kontext',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: { 'circle-color': 'rgba(255,255,255,0.35)', 'circle-radius': 2.5 },
-      });
+      // BILDERNA FORE LAGREN: symboler, pilar och basvagsnummer.
+      await laggTillBilder(map, nummerRef.current);
+      // Kartan kan ha tagits bort medan bilderna laddades (komponenten
+      // avmonterades). Da finns inget att lagga lager pa - och addSource pa en
+      // borttagen karta kastar.
+      if (mapRef.current !== map) return;
 
-      // KONTROLLPUNKTERNA over: status som farg.
-      map.addSource('ek-punkter', { type: 'geojson', data: punktGeo });
-      map.addLayer({
-        id: 'ek-punkt-linje', type: 'line', source: 'ek-punkter',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': ['get', 'farg'], 'line-width': 3 },
-      });
-      map.addLayer({
-        id: 'ek-punkt-symbol', type: 'circle', source: 'ek-punkter',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: {
-          'circle-color': ['get', 'farg'], 'circle-radius': 6,
-          'circle-stroke-color': '#000', 'circle-stroke-width': 1.5,
-        },
-      });
+      // KONTEXT underst: nedtonat, tunt, ej tryckbart. Typens utseende behalls.
+      map.addSource(KONTEXT_KALLA, { type: 'geojson', data: kontextGeo });
+      for (const spec of kontextLager()) laggTillLager(map, spec);
 
-      // VALD punkt: vit gloria runt den, sa den syns bland lika fargade syskon.
-      map.addLayer({
-        id: 'ek-vald-linje', type: 'line', source: 'ek-punkter',
-        filter: ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'id'], '']],
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#fff', 'line-width': 7, 'line-opacity': 0.9 },
-      }, 'ek-punkt-linje');
-      map.addLayer({
-        id: 'ek-vald-symbol', type: 'circle', source: 'ek-punkter',
-        filter: ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'id'], '']],
-        paint: { 'circle-color': '#fff', 'circle-radius': 11, 'circle-opacity': 0.9 },
-      }, 'ek-punkt-symbol');
+      // KONTROLLPUNKTERNA over: typens eget utseende, med status som en ring
+      // eller ett band RUNT - obesvarad har ingen. Se lib/kartstil.ts.
+      map.addSource(KONTROLL_KALLA, { type: 'geojson', data: punktGeo });
+      map.addSource(NUMMER_KALLA, { type: 'geojson', data: nummerGeo });
+      for (const spec of kontrollLager()) laggTillLager(map, spec);
 
       // Avvikelsernas egna GPS-positioner - eget lager, egen rymd.
       map.addSource('ek-avvikelser', { type: 'geojson', data: avvikelseGeo });
@@ -341,23 +490,9 @@ export default function RundKarta({
         },
       });
 
-      map.addSource('ek-provytor', { type: 'geojson', data: provyteGeo });
-      map.addLayer({
-        id: 'ek-provyta-matt', type: 'circle', source: 'ek-provytor',
-        filter: ['==', ['get', 'matt'], 1],
-        paint: {
-          'circle-color': '#0A84FF', 'circle-radius': 7,
-          'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
-        },
-      });
-      map.addLayer({
-        id: 'ek-provyta-omatt', type: 'circle', source: 'ek-provytor',
-        filter: ['==', ['get', 'matt'], 0],
-        paint: {
-          'circle-color': 'rgba(10,132,255,0.15)', 'circle-radius': 7,
-          'circle-stroke-color': '#0A84FF', 'circle-stroke-width': 2,
-        },
-      });
+      // PROVYTORNA: en symbol per tillstand, ur en spec som listan delar.
+      map.addSource(PROVYTA_KALLA, { type: 'geojson', data: provyteGeo });
+      for (const spec of provytaLager()) laggTillLager(map, spec);
 
       map.addSource('ek-jag', { type: 'geojson', data: TOM });
       map.addLayer({
@@ -386,27 +521,82 @@ export default function RundKarta({
         nagot = true;
       } else {
         for (const f of [...punktGeo.features, ...kontextGeo.features]) {
-          const c = f.geometry.coordinates;
-          if (f.geometry.type === 'Point') { b2.extend(c); nagot = true; }
-          else for (const q of c) { b2.extend(q); nagot = true; }
+          for (const q of geometriKoordinater(f.geometry)) { b2.extend(q); nagot = true; }
         }
       }
       if (nagot) map.fitBounds(b2, { padding: 24, maxZoom: 16, duration: 0 });
       setLaddad(true);
-    });
+    };
+    map.once('style.load', initiera);
+    map.once('load', initiera);
 
-    return () => { try { map.remove(); } catch { /* noop */ } mapRef.current = null; setLaddad(false); };
+    return () => {
+      ro?.disconnect();
+      try { map.remove(); } catch { /* noop */ }
+      mapRef.current = null;
+      setLaddad(false);
+    };
   }, [mapReady, objekt, origo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Uppdatera data nar status andras -----------------------------------
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !laddad) return;
-    map.getSource('ek-punkter')?.setData(punktGeo);
+    // Nya basvagsnummer behover sin bild FORE datan, annars ritas inget nummer.
+    sakraNummerBilder(map, kontroll.nummer);
+    map.getSource(KONTROLL_KALLA)?.setData(punktGeo);
+    map.getSource(NUMMER_KALLA)?.setData(nummerGeo);
+    map.getSource(KONTEXT_KALLA)?.setData(kontextGeo);
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
-    map.getSource('ek-provytor')?.setData(provyteGeo);
+    map.getSource(PROVYTA_KALLA)?.setData(provyteGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
-  }, [punktGeo, avvikelseGeo, provyteGeo, stamGeo, laddad]);
+  }, [punktGeo, nummerGeo, kontextGeo, kontroll.nummer, avvikelseGeo, provyteGeo, stamGeo, laddad]);
+
+  // --- Bakgrundskartan ------------------------------------------------------
+  // Alla fyra ligger redan i stilen; vi tander en och slacker de andra. Att
+  // bygga om stilen hade tagit bort varje lager kartan lagt till efterat.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad) return;
+    for (const b of BASKARTOR) {
+      if (map.getLayer(b.layerId)) {
+        map.setLayoutProperty(b.layerId, 'visibility', b.id === baskarta ? 'visible' : 'none');
+      }
+    }
+  }, [baskarta, laddad]);
+
+  // --- WMS-lagren + VIDA-bilden ---------------------------------------------
+  // Ett saknat lager ar inte ett fel: kartbilden laggs bara till nar objektet
+  // har en, och da ska raden i menyn helt enkelt inte gora nagot.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad || !overlays) return;
+    for (const l of wmsTileLayers) {
+      const id = `wms-layer-${l.id}`;
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', overlays[l.id] ? 'visible' : 'none');
+      }
+    }
+    if (map.getLayer('ek-kartbild')) {
+      map.setLayoutProperty('ek-kartbild', 'visibility', overlays.vidaKartbild ? 'visible' : 'none');
+    }
+  }, [overlays, laddad]);
+
+  // --- Egenkontrollens egna lager -------------------------------------------
+  // Punkter och provytor slacks som GRUPPER: en punkt far aldrig kunna vara
+  // tand i ett lager och slackt i ett annat. Din position har ingen strombrytare
+  // - den ar ankaret, och den som rakar slacka sig sjalv i skogen vinner inget.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !laddad || !egnaVarden) return;
+    const satt = (lagerId: string, pa: boolean) => {
+      if (map.getLayer(lagerId)) map.setLayoutProperty(lagerId, 'visibility', pa ? 'visible' : 'none');
+    };
+    const punkterPa = egnaVarden.ekPunkter !== false;
+    for (const id of [...kontrollLagerIdn(), 'ek-avvikelse']) satt(id, punkterPa);
+    const ytorPa = egnaVarden.ekProvytor !== false;
+    for (const id of provytaLagerIdn()) satt(id, ytorPa);
+  }, [egnaVarden, laddad]);
 
   // Strombrytaren tander/slacker lagret utan att rita om kartan.
   useEffect(() => {
@@ -424,31 +614,39 @@ export default function RundKarta({
     map.easeTo({ center: [centreraPa.lng, centreraPa.lat], zoom: 17, duration: 400 });
   }, [centreraPa, laddad]);
 
+  // Pricken. STYRD position = det sidan ger (null = ingen prick - en position som
+  // inte dugar ritas inte ut, en prick pa fel plats vilseleder mer an ingen).
+  const jagKoord: [number, number] | null = styrdPosition
+    ? (position ? [position.lng, position.lat] : null)
+    : minPosition;
+  const jagLng = jagKoord ? jagKoord[0] : null;
+  const jagLat = jagKoord ? jagKoord[1] : null;
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !laddad) return;
     map.getSource('ek-jag')?.setData(
-      minPosition
-        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: minPosition } }] }
+      jagLng != null && jagLat != null
+        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [jagLng, jagLat] } }] }
         : TOM,
     );
-  }, [minPosition, laddad]);
+  }, [jagLng, jagLat, laddad]);
 
   // --- Centrera pa vald punkt ---------------------------------------------
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !laddad) return;
     const id = valdPunktId ?? '';
-    map.setFilter('ek-vald-linje', ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'id'], id]]);
-    map.setFilter('ek-vald-symbol', ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'id'], id]]);
+    if (map.getLayer(VALD_LINJE_ID)) map.setFilter(VALD_LINJE_ID, valdLinjeFilter(id));
+    if (map.getLayer(VALD_SYMBOL_ID)) map.setFilter(VALD_SYMBOL_ID, valdSymbolFilter(id));
     if (!valdPunktId) return;
     const f = punktGeo.features.find((x: any) => x.properties.id === valdPunktId);
     if (!f) return;
     if (f.geometry.type === 'Point') {
       map.easeTo({ center: f.geometry.coordinates, zoom: Math.max(map.getZoom(), 16), duration: 450 });
     } else {
+      // Linjer och zoner: alla brytpunkter (en zon ar en Polygon - ringen ligger en niva ner).
       const b = new window.maplibregl.LngLatBounds();
-      for (const c of f.geometry.coordinates) b.extend(c);
+      for (const c of geometriKoordinater(f.geometry)) b.extend(c);
       map.fitBounds(b, { padding: 40, maxZoom: 17, duration: 450 });
     }
   }, [valdPunktId, punktGeo, laddad]);

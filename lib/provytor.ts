@@ -282,3 +282,114 @@ export function skadeandel(frisk: number | null, skadad: number | null): number 
   if (f + s === 0) return null;
   return Math.round((s / (f + s)) * 100);
 }
+
+// ---------------------------------------------------------------------------
+// Status och sammanstallning
+// ---------------------------------------------------------------------------
+
+/**
+ * Tre tillstand, och formen ska skilja dem - inte bara fargen:
+ *   omatt       ihalig ring
+ *   matt        fylld
+ *   overhoppad  nedtonad ring med tvarstreck
+ *
+ * EN definition, anvand av kartan, listans prick och sammanstallningen, sa de
+ * aldrig kan vara oense om vad en yta ar.
+ *
+ * OVERHOPPAD ARTER FORE MATT: hoppaOverProvyta sattar OCKSA matt (tidsstampeln for
+ * "avklarad") och lamnar eventuella tidigare varden ororda. En kontroll pa matt
+ * ensam laser darfor en overhoppad yta som matt - och det var precis vad kartan
+ * gjorde: tre matta och en overhoppad yta ritades alla fyra fyllda.
+ */
+export type ProvytaStatus = 'omatt' | 'matt' | 'overhoppad';
+
+type YtaStatusFalt = { matt: string | null; overhoppad: boolean };
+
+export function provytaStatus(y: YtaStatusFalt): ProvytaStatus {
+  if (y.overhoppad) return 'overhoppad';
+  return y.matt != null ? 'matt' : 'omatt';
+}
+
+type Numeriskt = number | string | null | undefined;
+
+/** numeric kan komma som tal eller text beroende pa vag. Tom text och NaN ar inget varde. */
+function varde(v: Numeriskt): number | null {
+  if (v == null) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
+  const n = typeof v === 'string' ? Number(v) : v;
+  return Number.isFinite(n) ? n : null;
+}
+
+export type ProvytaVarden = YtaStatusFalt & {
+  antal_frisk: number | null;
+  antal_skadad: number | null;
+  stickvagsbredd_m: Numeriskt;
+  stickvagsavstand_m: Numeriskt;
+  grundyta_m2_ha: Numeriskt;
+};
+
+/** Ett medelvarde och hur manga ytor det bygger pa. medel null = inga ytor har vardet. */
+export type Medelvarde = { medel: number | null; n: number };
+
+export type ProvytaSammanstallning = {
+  /** Alla ytor i rundan - namnaren i "N av M ytor". */
+  antalYtor: number;
+  antalMatta: number;
+  antalOverhoppade: number;
+  antalOmatta: number;
+  /**
+   * Skadeandel RAKNAD UR SUMMORNA: alla skadade traden delat med alla traden over
+   * de matta ytorna. INTE medelvardet av ytornas procent - det viktar en yta med
+   * nio trad lika tungt som en med femtio. procent null = inga trad raknade.
+   * ytor = hur manga matta ytor som har minst ett trad.
+   */
+  skadeandel: { procent: number | null; skadade: number; trad: number; ytor: number };
+  stickvagsbredd: Medelvarde;
+  stickvagsavstand: Medelvarde;
+  grundyta: Medelvarde;
+};
+
+/**
+ * Sammanstallning over de MATTA ytorna. Overhoppade och omatta raknas inte med,
+ * aven om de bar gamla varden. Medelvardena ar enkla medelvarden over de ytor dar
+ * vardet finns (alla matvarden utom antalen ar valfria i formularet), med n.
+ *
+ * Medelvardet ar en SAMMANFATTNING, aldrig kallan - varje ytas egna varden ska
+ * ga att se bredvid. Ingen grans och inget betyg harifran: vilka granser som
+ * galler ar Martins beslut, inte nagot koden ska anta.
+ */
+export function sammanstallProvytor(ytor: ProvytaVarden[]): ProvytaSammanstallning {
+  const matta = ytor.filter((y) => provytaStatus(y) === 'matt');
+
+  let skadade = 0;
+  let trad = 0;
+  let ytorMedTrad = 0;
+  for (const y of matta) {
+    const f = Math.max(0, y.antal_frisk ?? 0);
+    const s = Math.max(0, y.antal_skadad ?? 0);
+    skadade += s;
+    trad += f + s;
+    if (f + s > 0) ytorMedTrad += 1;
+  }
+
+  const medel = (hamta: (y: ProvytaVarden) => Numeriskt): Medelvarde => {
+    const v = matta.map((y) => varde(hamta(y))).filter((x): x is number => x != null);
+    return { medel: v.length === 0 ? null : v.reduce((a, b) => a + b, 0) / v.length, n: v.length };
+  };
+
+  return {
+    antalYtor: ytor.length,
+    antalMatta: matta.length,
+    antalOverhoppade: ytor.filter((y) => provytaStatus(y) === 'overhoppad').length,
+    antalOmatta: ytor.filter((y) => provytaStatus(y) === 'omatt').length,
+    skadeandel: {
+      procent: skadeandel(trad - skadade, skadade),
+      skadade,
+      trad,
+      ytor: ytorMedTrad,
+    },
+    stickvagsbredd: medel((y) => y.stickvagsbredd_m),
+    stickvagsavstand: medel((y) => y.stickvagsavstand_m),
+    grundyta: medel((y) => y.grundyta_m2_ha),
+  };
+}

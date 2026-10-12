@@ -87,4 +87,110 @@ export function valideraSegment(
   return { ok: true }
 }
 
+/**
+ * KROCK-VAKTEN: ett maskinpass får aldrig läggas ÖVER en extra_tid-period.
+ * Lönen adderar extra_tid ovanpå arbetad_min — får passet klockslag som
+ * täcker en period räknas den tiden TVÅ gånger, och båda talen ser rimliga
+ * ut var för sig. Perioder INOM ett pass ska vara segment (klassificeraPeriod
+ * → 'inne'), aldrig extra_tid; den här funktionen är samma regel sedd från
+ * passets håll. Returnerar första perioden som överlappar, annars null.
+ * Tomt klockslag = inget pass = ingen krock.
+ */
+export function passKrockarMedPerioder(
+  pass: { start: string | null | undefined; slut: string | null | undefined },
+  perioder: { start_tid: string | null; slut_tid: string | null }[],
+): { start_tid: string; slut_tid: string } | null {
+  if (!pass.start || !pass.slut) return null
+  const s = tMin(pass.start), e = tMin(pass.slut)
+  if (e <= s) return null
+  for (const p of perioder) {
+    if (!p.start_tid || !p.slut_tid) continue
+    if (s < tMin(p.slut_tid) && tMin(p.start_tid) < e) return { start_tid: p.start_tid, slut_tid: p.slut_tid }
+  }
+  return null
+}
+
+/** Feltexten för en krock — samma ord i Dag och Redigera. */
+export function passKrockText(k: { start_tid: string; slut_tid: string }): string {
+  return `Passets tider täcker en period du redan lagt in (${hhmm(k.start_tid)}–${hhmm(k.slut_tid)}). ` +
+    `Perioden är redan arbetstid — ta bort den eller ändra passets tider, annars räknas tiden två gånger.`
+}
+
+// ─── PERIODDAGEN — den tredje sortens dag ──────────────────────────────────
+// En arbetsdag-rad kan sakna BÅDE maskin och klockslag och ändå vara en riktig
+// arbetsdag: tiden bor i perioderna (extra_tid), raden är ett skal som gör
+// dagen till arbetsdag i lönen. Allt som läser arbetsdag.start_tid/slut_tid/
+// objekt_id/maskin_id för att VISA något måste därför ha en perioddags-gren —
+// tio vyer visade tomt innan det här (2026-09-28). Hjälparna nedan är den
+// grenen: objekt och tid ur perioderna, och dagens spann ur första och sista.
+
+export type PeriodRad = {
+  start_tid: string | null
+  slut_tid: string | null
+  objekt_id?: string | null
+  aktivitet_typ?: string | null
+  /** extra_tid har minuter; segment saknar den → räknas ur klockslagen. */
+  minuter?: number | null
+}
+
+export type ObjektSummaRad = {
+  objektId: string | null
+  aktivitetTyp: string | null
+  minuter: number
+  /** Första periodens start — raderna sorteras i dagens ordning. */
+  forstaStart: string
+}
+
+/**
+ * Perioderna summerade per objekt och aktivitet, i dagens ordning:
+ *   Rössmåla · 3 tim planering / Jätsbygd · 2 tim manuellt / Restid · 1 tim
+ * Objektlösa perioder (restid) grupperas på aktiviteten. Öppna perioder
+ * (sluttid saknas) hoppas över — de har ingen tid än.
+ */
+export function perioderPerObjekt(perioder: PeriodRad[]): ObjektSummaRad[] {
+  const per = new Map<string, ObjektSummaRad>()
+  for (const p of perioder) {
+    if (!p.start_tid || !p.slut_tid) continue
+    const min = p.minuter != null ? p.minuter : periodMin(p.start_tid, p.slut_tid)
+    if (min <= 0) continue
+    const objektId = p.objekt_id || null
+    const typ = p.aktivitet_typ || null
+    const k = `${objektId ?? ''}|${typ ?? ''}`
+    const start = hhmm(p.start_tid)
+    const rad = per.get(k)
+    if (rad) { rad.minuter += min; if (start < rad.forstaStart) rad.forstaStart = start }
+    else per.set(k, { objektId, aktivitetTyp: typ, minuter: min, forstaStart: start })
+  }
+  return Array.from(per.values()).sort((a, b) => a.forstaStart.localeCompare(b.forstaStart))
+}
+
+/**
+ * Perioddagens spann: första periodens start → SISTA periodens slut. Glappen
+ * mellan perioderna (07–12, 15–18) räknas INTE som vila: man var i arbete
+ * kl 18, så dygnsvilan räknas därifrån (Martin 2026-09-28). Det är samma
+ * regel som maskindagen, där rasten heller inte är vila. null = inga
+ * färdiga perioder.
+ */
+export function perioddagSpann(perioder: { start_tid: string | null; slut_tid: string | null }[]): { start_tid: string; slut_tid: string } | null {
+  let s: string | null = null, e: string | null = null
+  for (const p of perioder) {
+    if (!p.start_tid || !p.slut_tid) continue
+    if (s == null || tMin(p.start_tid) < tMin(s)) s = p.start_tid
+    if (e == null || tMin(p.slut_tid) > tMin(e)) e = p.slut_tid
+  }
+  return s != null && e != null ? { start_tid: s, slut_tid: e } : null
+}
+
 export const segHhmm = hhmm
+
+/**
+ * Har dagen en period som startat men inte avslutats (extra_tid.slut_tid = null)?
+ * En sådan dag kan INTE bekräftas — en underskrift utan sluttid är ingen
+ * underskrift. Samma regel i Dag, Redigera och (via Planera) "Starta nu — avsluta sen".
+ */
+export function harOppenPeriod(
+  rader: { datum?: string | null; start_tid?: string | null; slut_tid?: string | null }[] | null | undefined,
+  datum: string,
+): boolean {
+  return (rader || []).some(e => e.datum === datum && !!e.start_tid && !e.slut_tid)
+}

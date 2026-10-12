@@ -31,6 +31,14 @@ export const FONT =
 /** Fasta siffrbredder — siffror som ändras får aldrig flytta text runt sig. */
 export const TNUM: CSSProperties = { fontVariantNumeric: "tabular-nums" };
 
+/** Talkolumner: monospace + tabulära siffror, så kolumner står rakt och
+ *  siffror inte hoppar i sidled mellan rader. Systemstack — ingen ny
+ *  webbfont. Används där tal staplas under varandra, inte i löptext. */
+export const TAL_FONT: CSSProperties = {
+  fontFamily: 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace',
+  fontVariantNumeric: "tabular-nums",
+};
+
 /** Tre vikter. 500 finns inte. */
 export const VIKT = { normal: 400, halvfet: 600, fet: 700 } as const;
 
@@ -68,8 +76,59 @@ export const AVSTAND = {
 
 export const AVSTAND_SKALA = [0, 4, 8, 12, 16, 24, 32] as const;
 
+// ---------------------------------------------------------------------------
+// Layoutmått — INTE avstånd
+// ---------------------------------------------------------------------------
+// Ett LAYOUTMÅTT säger var ett fast element slutar: toppfältets höjd, bottenradens
+// höjd, iPhones systemfält. Ett AVSTÅND (AVSTAND ovan) säger hur mycket luft det
+// är mellan två saker. Det är olika sorters tal och de får aldrig bytas mot
+// varandra. PR #540 (2026-09-12) bytte Min tids uppmätta rubrikhöjd 126 mot
+// AVSTAND.xxl = 32 — "ett tal ur skalan" — och 92 px innehåll hamnade under
+// flikraden, på dator och telefon. Samma byte i Lön (96 och 80 → 32).
+//
+// Reglerna (skillen, "Layoutmått är inte avstånd"):
+//  1. Toppfältets och bottenradens mått finns BARA här, med safe-area inräknad.
+//  2. En rubrik inne i en vy är `position: sticky` i flödet. Den reserverar sin
+//     egen höjd, så det finns inget mått att räkna fel. Aldrig `fixed` + uppmätt
+//     paddingTop. (Kalendern har alltid gjort så och har aldrig haft felet.)
+//  3. En helskärmspanel under toppfältet sitter på underTopbar(), aldrig top: 56.
+//     På iPhone är toppfältet 56 + 47–59 px (notch/Dynamic Island); paneler på 56
+//     började under det i fem månader (maj–sep 2026) utan att någon märkte det
+//     på datorn, där safe-area är 0.
+//  4. En fast bottenrad eller ett sheet har safe-area i sin nedre padding
+//     (medSafeBotten), annars ritas den in i hemindikatorn.
+// design-lint larmar på nakna `top:` med tal och på `fixed` med `top`.
+
+/** Appens globala TopBar (components/TopBar.tsx) är 56 px + iPhones systemfält. */
+const TOPBAR_PX = 56;
+
+export const LAYOUT = {
+  /** Toppfältets höjd inkl. safe-area — var innehållet under det börjar. */
+  topbar: `calc(${TOPBAR_PX}px + env(safe-area-inset-top))`,
+  /** Bara systemfältet överst (TopBar lägger det som egen padding). */
+  safeTopp: "env(safe-area-inset-top)",
+  /** Bara hemindikatorns zon nederst. */
+  safeBotten: "env(safe-area-inset-bottom)",
+} as const;
+
+/** `top` för något som ska börja under toppfältet, + `extraPx` för en egen fast
+ *  rad i panelen (t.ex. maskinvyns flikrad på 52 px → underTopbar(52)). */
+export function underTopbar(extraPx = 0): string {
+  return extraPx ? `calc(${TOPBAR_PX}px + env(safe-area-inset-top) + ${extraPx}px)` : LAYOUT.topbar;
+}
+
+/** Nedre padding för en fast bottenrad/sheet: minst `px`, och aldrig in i
+ *  hemindikatorn (8 px luft ovanför den). Dator: `px`. iPhone: 8 + 34. */
+export function medSafeBotten(px: number): string {
+  return `max(${px}px, calc(8px + env(safe-area-inset-bottom)))`;
+}
+
 /** Radie: rad och fält 10, knapp och kort 12, sheet 16. Cirklar 50 %. */
-export const RADIE = { rad: 10, knapp: 12, kort: 12, sheet: 16, cirkel: "50%" } as const;
+export const RADIE = {
+  rad: 10, knapp: 12, kort: 12, sheet: 16, cirkel: "50%",
+  /** Stapeltopp i diagram — smala staplar (20–28 px) blir piller med 10. */
+  stapel: 4,
+} as const;
 
 /** Träffyta. Skillen: minst 44 pt, maskinen skakar. Primärknappen 48. */
 export const TRAFFYTA = { min: 44, primar: 48 } as const;
@@ -98,10 +157,29 @@ export const FARG = {
   rod:      "#ff453a",
   /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
   gul:      "#ffd60a",
-  /** Maskinfärger ur Uppföljning v6. */
-  skordare: "#a8d582",
-  skotare:  "#f0b24c",
+  /** Två extra diagram-/palettfärger (t.ex. staplar i arbetsrapporten). INTE rollfärger —
+   *  skördare/skotare färgas av rollFarg() (lila/grön), se skogsystem-design-skillen. */
+  diagram1: "#a8d582",
+  diagram2: "#f0b24c",
 } as const;
+
+/** SORTIMENT — hur virket är fördelat (timmer, kubb, massaved, övrigt). En ljushetsskala:
+ *  MÖRKAST = MEST VÄRT. Egen axel, skild från status (grönt/orange/rött säger om något är bra eller
+ *  dåligt) och från rollfärgerna (skördare/skotare). Mörkgrön betyder alltså "mest värt", aldrig "ok".
+ *  Ljushetsstegen är medvetet stora: färgen får aldrig vara ensam bärare — raden bredvid har alltid
+ *  ordet och talet. Se skogsystem-design-skillen, "Sortimentfärger". */
+export const SORTIMENTFARG = {
+  timmer: "#2f4b14",
+  kubb:   "#6e8f4a",
+  massa:  "#b4c4a0",
+  ovrigt: "#e3e8dc",
+} as const;
+
+/**
+ * Färgstapeln över en dag i Planera: EN färg per del, i ordning; rast = FARG.text3 (grå). Medvetet inte röd/orange/gul
+ * (larm och kalendermarkeringar) och inte blå (bara navigation). Färgen bär aldrig ensam — varje del har också text.
+ */
+export const DELFARG = ["#64d2ff", "#bf5af2", "#30d158", "#f0b24c", "#5e5ce6", "#ac8e68"] as const;
 
 // ---------------------------------------------------------------------------
 // Rörelse — tre tider, en kurva

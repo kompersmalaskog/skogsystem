@@ -6,7 +6,7 @@ import { kravRoll, ADMIN_ROLLER } from '@/lib/auth/server';
 /**
  * POST /api/notify
  * Body: { medarbetare_id, title, body, url }
- * Admin/chef skickar till en medarbetare — mottagar-id är målet, inte identiteten.
+ * admin skickar till en medarbetare — mottagar-id är målet, inte identiteten.
  * (Var öppen: vem som helst kunde pusha till vilken förare som helst.)
  *
  * Skickar push till ALLA registrerade enheter för medarbetaren.

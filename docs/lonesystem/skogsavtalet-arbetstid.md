@@ -6,13 +6,332 @@ Kollektivavtal arbetare skog, GS-facket / Gröna arbetsgivare, avtalsperiod
 <https://www.gsfacket.se/globalassets/dokument/avtalsbocker/avtalsbocker-2023-2026/1252065-kollektivavtal-arbetare-skog-102s.pdf>
 
 Textutdrag gjort 2026-09-17 med pdf-parse. Sidnummer = bokens tryckta
-sidor. 2025–2027-avtalet (medlemslåst) höjde beloppen; texten i §5, §8 och
-§10 antas oförändrad tills någon läst den nya boken. Beloppen nedan står
+sidor. 2025–2027-avtalet är läst 2026-10-12 — se avsnittet **Arbetstidens
+gränser — Skogsavtalet 2025–2027** direkt nedan; där gäller den texten före
+2023–2026-citaten. §10 och §12 är inte omlästa (antas oförändrade). Beloppen nedan står
 kvar bara för att citaten ska vara kompletta — **appen räknar aldrig kronor**
 (Fortnox sätter beloppen).
 
 Vad appen gör av varje paragraf står under **Konsekvens för appen**.
 Det som fortfarande är öppet står under **Öppet** längst ned.
+
+---
+
+## Arbetstidens gränser — Skogsavtalet 2025–2027 (läst 2026-10-12)
+
+**Källa:** "Skogsavtalet — Kollektivavtal skogsbruk arbetare mellan Gröna
+arbetsgivare och GS-facket, 1 april 2025 – 31 mars 2027", 108 PDF-sidor
+(tryckta sidor = PDF-sida − 2). Hämtad från Gröna arbetsgivares medlemssida
+*Våra kollektivavtal → "Kollektivavtal – Skogsbruk arbetare (Skogsavtalet)
+1 april 2025–31 mars 2027"* (kräver medlemsinloggning). Texten är utläst ur
+PDF:ens textlager; citaten nedan är ordagranna, radbrytningar i originalet
+(t.ex. "Arbetstids-\nlagen") är sammanfogade. Lagtexten (ATL, SFS 1982:673)
+är läst på lagen.nu och står markerad **[ATL]**; allt annat är avtalstext.
+
+> **Det här avsnittet ersätter "antas oförändrad" i inledningen.** §5 och §8
+> är nu lästa i 2025–2027-boken. Jämfört med 2023–2026-citaten längre ned har
+> §5 mom 2 (nytt stycke om säsongsvarierad arbetstid), mom 3 (två nya
+> stycken) och mom 5 (**250 timmar**, mertid) nytt innehåll. Mom 1, 7 och 8
+> ingick inte i 2023–2026-utdraget och är inte jämförda. Citaten under
+> rubrikerna "§ 5 Arbetstid" längre ned är alltså **2023–2026-texten**; vid
+> skillnad gäller texten här.
+
+Inledningen till **§ 5 Arbetstid (s. 15)**:
+
+> Arbetstiden regleras av Arbetstidslagen med de avvikelser som framgår av
+> följande bestämmelser.
+
+Det är avtalets grundregel för alla sju frågor: det som inte uttryckligen
+avviker i § 5 är ATL.
+
+### 1. Månadstaket för allmän övertid (ATL 8 §) — gäller det?
+
+**§ 5 mom 5, första stycket (s. 17):**
+
+> Arbetstagaren är, om arbetsgivaren så begär, skyldig att utföra arbete på
+> allmän övertid i en omfattning av 250 timmar per kalenderår. Extra övertid
+> kan tas ut i den omfattning som framgår av arbetstidslagen. Med övertid
+> avses beordrad arbetstid utöver den i mom 2 angivna eller lokalt
+> överenskomna ordinarie arbetstiden för heltidsarbete. Undantag enligt
+> anmärkning 2 nedan.
+
+**Svar:** Avtalet ersätter **kalenderårstaket** (ATL 200 → avtal 250). Avtalet
+nämner **inget månadstak** — varken 48 timmar/4 veckor eller 50 timmar/
+kalendermånad, och inte heller någon formulering om att månadstaket
+upphävs. *Avtalet säger inget om månadstaket, ATL gäller.* Mom 3 (se fråga 2)
+tillåter lokalt undantag bara för "extra uttag av övertid", inte för
+månadstaket på allmän övertid.
+
+**[ATL] 8 §:** "När det finns särskilt behov av ökad arbetstid, får övertid tas
+ut med högst 48 timmar per arbetstagare under en tid av fyra veckor eller 50
+timmar under en kalendermånad, dock med högst 200 timmar under ett
+kalenderår (allmän övertid)." Att ett centralt kollektivavtal får avvika från
+8 § följer av **[ATL] 3 §** första stycket ("avvikelser från … 8-10 b §§").
+Avtalet utnyttjar det bara för årssiffran.
+
+Följd för tolkningen av 250: det är en **årsram för allmän övertid**, inte en
+rätt att lägga 250 timmar när som helst. Månadstaket (högst 48/4 v eller
+50/mån) ligger kvar ovanpå. Det är min läsning av avtalets tystnad, inte en
+avtalsmening — den bör bekräftas av Gröna arbetsgivares arbetsgivarjour
+(08-762 79 50) innan appen visar ett rött månadsbrott.
+
+**Anm 3 (s. 17)** avgör vad som räknas mot 250:
+
+> Sådan arbetstid som kompenseras med ledighet enligt reglerna i § 8 ska inte
+> betraktas som övertid enligt Arbetstidslagen.
+
+### 2. Extra övertid — hur mycket och på vilka villkor?
+
+**§ 5 mom 5, första stycket (s. 17)** — meningen ovan: "Extra övertid kan tas
+ut i den omfattning som framgår av arbetstidslagen."
+
+**§ 5 mom 3, tredje stycket (s. 16):**
+
+> Om särskilda skäl föreligger får lokalt kollektivavtal träffas om undantag
+> från arbetstidslagens regler om natt- och veckovila samt om extra uttag av
+> övertid. Ett sådant kollektivavtal gäller för överenskommen tid med stöd av
+> bestämmelserna i 3 §, 1:a st. Arbetstidslagen.
+
+**Svar:** Avtalet anger **inget eget antal timmar** och inga egna villkor för
+extra övertid. Det hänvisar helt till ATL. *Avtalet säger inget, ATL gäller.*
+
+**[ATL] 8 a §:** "Övertid utöver allmän övertid får tas ut med högst 150
+timmar per arbetstagare under ett kalenderår om det finns särskilda skäl för
+det och situationen inte har gått att lösa på annat rimligt sätt (extra
+övertid)." Andra stycket: "Extra övertid och allmän övertid får tillsammans
+inte överstiga 48 timmar per arbetstagare under en tid av fyra veckor eller
+50 timmar under en kalendermånad."
+
+Alltså **150 h/kalenderår** i extra övertid (siffran kommer från lagen, inte
+avtalet — det är den Gröna arbetsgivare kallar "samt ev 150 timmars extra
+övertid"), med villkoren särskilda skäl + ingen annan rimlig lösning, och
+**månadstaket gäller för allmän + extra övertid sammanlagt**. Mer än så kräver
+ett **lokalt kollektivavtal** enligt mom 3 (särskilda skäl krävs även där).
+Avtalet säger inte vilka de lokala parterna är; det står bara "lokalt
+kollektivavtal".
+
+### 3. ATL 10 b § (48 timmar/vecka i snitt över högst fyra månader)
+
+> **Obs, numreringen:** Avtalet citerar regeln som "10 a § Arbetstidslagen".
+> I dagens ATL (efter 2011:740) är **10 a §** extra mertid och regeln om 48
+> timmar/sju dagar står i **10 b §**. Bilagan är daterad 2014 och har inte
+> uppdaterats. Det är samma regel.
+
+**§ 5** har **ingen** bestämmelse om den. Enda omnämnandet är i
+**Bilaga 14, Säsongsvarierad arbetstid, Anmärkning 2 (s. 100):**
+
+> Observera att den sammanlagda veckoarbetstiden under varje period om
+> sju dagar inte får överstiga 48 timmar i genomsnitt under en begräns-
+> ningsperiod om högst fyra månader, enligt 10 a § Arbetstidslagen. Vid
+> beräkning av den sammanlagda arbetstiden i detta fall ska semester och
+> sjukfrånvaro under tid då arbetstagaren annars skulle ha arbetat likställas
+> med fullgjord arbetstid.
+
+**Svar:** **Oförändrad — varken ändrad eller utesluten.** Avtalet gör ingen
+avvikelse från 10 b § (ATL 3 § tillåter central avvikelse upp till 12
+månaders beräkningsperiod; avtalet använder inte det). Avtalet påminner om
+regeln i bilagan men *avtalet säger inget i § 5, ATL gäller.* Bilaga 14
+(tecknad 26 februari 2014, SLA–GS) gäller enbart lokalt överenskommen
+säsongsvarierad arbetstid; se fråga 6.
+
+**[ATL] 10 b §:** "Den sammanlagda arbetstiden under varje period om sju dagar
+får uppgå till högst 48 timmar i genomsnitt under en beräkningsperiod om
+högst fyra månader. Vid beräkningen av den sammanlagda arbetstiden skall
+semester och sjukfrånvaro under tid då arbetstagaren annars skulle ha arbetat
+likställas med fullgjord arbetstid."
+
+### 4. Veckovila (ATL 14 §, 36 timmar per sju dagar)
+
+Avtalet har **ingen egen veckovilaregel och inget undantag för
+sjudagarsveckor eller bortaarbete.** Det som finns:
+
+**§ 5 mom 1, informativ anmärkning (s. 15):**
+
+> Beakta särskilt reglerna om dygnsvila och veckovila som finns i
+> Arbetstidslagen.
+
+**§ 5 mom 3, tredje stycket (s. 16)** — se fråga 2: lokalt kollektivavtal får
+"om särskilda skäl föreligger" ge "undantag från arbetstidslagens regler om
+natt- och veckovila".
+
+**§ 5 mom 7, sista meningen i första stycket (s. 18)** (brandrisk):
+
+> Återgång till ordinarie schema sker lämpligen i samband med veckovila.
+
+**§ 5 mom 8 (s. 18):**
+
+> Arbetsmiljöverkets rätt att medge avvikelser och undantag från angivna
+> bestämmelser regleras i Arbetstidslagen.
+
+**Svar:** Avvikelse från veckovilan finns **bara** som (a) lokalt
+kollektivavtal med särskilda skäl, eller (b) dispens av Arbetsmiljöverket.
+Inget om sjudagarsveckor vid bortaarbete — *avtalet säger inget, ATL gäller.*
+Bortavaron regleras i avtalet bara som pengar (§ 8 mom 7, lönetillägg per
+arbetad timme vid endagsförrättning över 12 timmar, och färdtid § 8 mom 6),
+aldrig som arbetstid eller vila.
+
+**[ATL] 14 §:** "Arbetstagarna skall ha minst trettiosex timmars
+sammanhängande ledighet under varje period om sju dagar (veckovila)." …
+"Veckovilan skall så långt möjligt förläggas till veckoslut." … "Avvikelse
+från första stycket får göras tillfälligtvis, om det föranleds av något
+särskilt förhållande som inte har kunnat förutses av arbetsgivaren. Sådan
+avvikelse får göras endast under förutsättning att arbetstagaren ges
+motsvarande kompensationsledighet."
+
+### 5. Dygnsvila (ATL 13 §, 11 timmar)
+
+**Svar:** Avtalet har **ingen avvikelse från elvatimmarsregeln.** Samma
+hänvisning som ovan (mom 1, informativ anmärkning). Avtalet rör däremot
+**nattvilan** (kl. 00–05, ATL 13 § andra stycket), på två ställen:
+
+**§ 5 mom 3, tredje stycket (s. 16)** — lokalt kollektivavtal får ge undantag
+från "natt- och veckovila" (citerat under fråga 2).
+
+**§ 5 mom 7, Arbetstidens förläggning vid brandrisk (s. 18):**
+
+> Vid brandrisk enligt MSB:s brandriskprognos FWI-index (dygn) klass 4 eller
+> högre tillåts avvikelse från arbetstidslagens regler om nattvila. Vid sådan
+> brandrisk kan ordinarie arbetstid enligt schema tillfälligt flyttas till
+> annan tid inkluderande kl. 00.00-05.00. Detta får inte medföra en utökning
+> av den ordinarie arbetstiden. Återgång till ordinarie schema sker lämpligen
+> i samband med veckovila.
+>
+> Arbetsgivaren ska samråda med berörd arbetstagare och ta hänsyn till
+> dennes sociala situation (exempelvis restid och barnomsorg) som kan påverka
+> dennes möjlighet att med kort varsel inställa sig till nattarbete.
+>
+> Arbetstagare ska få besked om schemaändringen så snart som möjligt för
+> inställelse inom skälig tid.
+
+Avtalet säger *"nattvila"* — det är ATL 13 § andra stycket ("I den dygnsvila
+… skall tiden mellan midnatt och klockan 5 ingå"). Under brandrisk klass 4+
+får alltså nattarbete förläggas **utan** att dygnsvilan ersätts på annat sätt
+i avtalet; elvatimmarsregeln i övrigt (13 § första stycket) rörs inte, vilket
+är min läsning. Ersättningen för nattarbete vid brandrisk står i § 8 mom 1
+(1/4 2025: 58,58 kr/tim, 1/4 2026: 60,34 kr/tim, utöver ordinarie ob).
+
+**[ATL] 13 §:** "Alla arbetstagare skall ha minst elva timmars sammanhängande
+ledighet under varje period om tjugofyra timmar (dygnsvila)." Avvikelse
+tillåten "tillfälligtvis, om det föranleds av något särskilt förhållande som
+inte har kunnat förutses av arbetsgivaren, under förutsättning att
+arbetstagaren ges motsvarande kompensationsledighet."
+
+### 6. Utjämning (§ 5 mom 2) — krävs skriftlig överenskommelse?
+
+**§ 5 mom 2 (s. 15–16):**
+
+> Den ordinarie arbetstiden är för heltidsarbetande 40 timmar per hel arbets-
+> vecka och 38 timmar vid tvåskiftsarbete bestående av två på varandra
+> följande skift, detta sett som ett genomsnitt för en sammanhängande
+> beräkningsperiod av högst 16 veckor.
+>
+> För deltidsarbetande fastställs normalarbetstiden genom överenskommelse
+> mellan arbetsgivare och arbetstagare.
+>
+> Anmärkning
+> Arbetsgivare och lokal facklig organisation kan överenskomma om längre
+> beräkningsperiod än 16 veckor.
+>
+> Parterna ser positivt på lokala lösningar som syftar till att öka antalet
+> tillsvidareanställda i branschen. Om parterna lokalt överenskommer om
+> säsongsvarierad arbetstid, för manuella och motormanuella arbeten, gäller
+> särskilt framtagna regler och riktlinjer fastställda av parterna centralt,
+> se bilaga 14.
+
+**Svar:**
+
+- **Upp till 16 veckor: ingen överenskommelse alls krävs.** 16-veckorsgenomsnittet
+  står direkt i avtalet. Ordet *skriftlig/skriftligen* förekommer inte i § 5.
+  Förläggningen styrs av mom 3, andra stycket (s. 16): "Arbetsgivaren ska före
+  beslut om annan eller ändrad förläggning än ovan angivits (t.ex. vid
+  förskjuten arbetstid och skiftgång) samråda med berörda arbetstagare och
+  beakta den i Medbestämmandelagen (MBL) föreskrivna förhandlingsskyldigheten."
+- **Längre än 16 veckor:** överenskommelse mellan **arbetsgivare och lokal
+  facklig organisation** (inte arbetstagaren). Avtalet säger inte att den ska
+  vara skriftlig och inte *när* den ska träffas (före perioden börjar eller
+  efteråt). *Avtalet säger inget om form och tidpunkt; ATL/MBL gäller.* Skriftlig
+  form är därmed god praxis, inte ett avtalskrav.
+- **Deltid:** normalarbetstiden fastställs genom överenskommelse mellan
+  **arbetsgivare och arbetstagare** (andra stycket) — det är den enda
+  arbetstagar-överenskommelsen i momentet.
+- **Något mer än 16-veckorsgränsen?** Nej i mom 2. Men gränsen **48 timmar i
+  genomsnitt per sju dagar över högst fyra månader** (ATL 10 b §, fråga 3)
+  gäller ovanpå, och övertid uppstår först när genomsnittet över perioden
+  överstiger 40 (mom 5: "utöver den i mom 2 angivna eller lokalt överenskomna
+  ordinarie arbetstiden").
+- **Säsongsvarierad arbetstid (Bilaga 14, s. 100–102)** är det enda stället med
+  formkrav: periodlängd **12 månader** i stället för 16 veckor, "Parterna
+  lokalt kan komma överens om att införa", "Besked om arbetstidens förläggning
+  lämnas till berörda senast två veckor innan ikraftträdandet", samt
+  (s. 102): "Arbetsgivaren ska skriftligen löpande redovisa saldot för över-
+  respektive underuttag av arbetstid. De kan exempelvis göras på
+  arbetstagarens lönespecifikation." Avstämning "sista dagen i gällande
+  begränsningsperiod"; "Övertidstimmar kan aldrig ingå i saldot för över- och
+  undertid i samband med reglering av ordinarie arbetstid" (Anm 1, s. 102).
+
+**Konsekvens för appen:** `utjamningsperiod` ≤ 16 v behöver ingen
+dokumenterad överenskommelse enligt avtalet. En period > 16 v (Gävle 2026 var
+11 veckor, v17–27) kräver att Martin kan visa en överenskommelse med lokal
+facklig organisation. Appen ska därför kunna flagga "längre än 16 veckor —
+överenskommelse med GS krävs" men får inte kräva skriftlig form.
+
+### 7. Anteckningskravet — § 5 mom 5 anm 4
+
+**§ 5 mom 5, Anmärkning 4 (s. 17):**
+
+> Arbetsgivaren ska föra anteckningar om övertid i enlighet med Arbetstids-
+> lagen och Arbetsmiljöverkets kungörelse härom. Därvid beaktas avvikelserna
+> från lagen enligt anm. 2 ovan.
+
+**Svar:** Avtalet säger bara **att** arbetsgivaren ska föra anteckningar **om
+övertid** och att det ska ske "i enlighet med" ATL och Arbetsmiljöverkets
+kungörelse. *Avtalet anger inget innehåll; ATL och AV:s föreskrift gäller.*
+Anm 2 (mertid vid deltidsanställning, ATL 10 §, "äger ej tillämpning") betyder
+att deltidsanställdas **mertid inte ska antecknas som övertid** utan ersätts
+enligt § 8 mom 3 (§ 5 mom 5, tredje stycket: "Om så sker ska ersättning utges
+enligt § 8 mom 3."). Anm 3: tid som kompenseras med ledighet "ska inte
+betraktas som övertid enligt Arbetstidslagen" — den hör alltså inte hemma i
+övertidsanteckningen.
+
+*Innehållet i AV:s föreskrift är inte kontrollerat här — det är en separat
+text som inte ingår i avtalsboken.*
+
+Närliggande krav i avtalet som inte är övertid:
+
+- **§ 15 mom 8 Löneunderlag (s. 53):** "Tidredovisning ska alltid föras av
+  arbetstagaren, per arbetsdag, oavsett löneform. Redovisningsmall
+  tillhandahålls av arbetsgivaren." (Arbetstagaren för tiden, inte
+  arbetsgivaren; Bilaga 12 är exemplet.)
+- **§ 6 mom 5 (s. 20):** arbetsgivaren ska lämna skriftlig uppgift om
+  ATK-avsättning före april månads utgång.
+- **Bilaga 14 (s. 102):** skriftlig löpande redovisning av arbetstidsbank-saldo
+  (bara vid säsongsvarierad arbetstid).
+
+### Övriga skillnader mot 2023–2026-texten (för kompletthet)
+
+| Fråga | 2023–2026 | 2025–2027 |
+|---|---|---|
+| Allmän övertid, § 5 mom 5 | "i den omfattning som anges i Arbetstidslagen" | "250 timmar per kalenderår"; extra övertid enligt ATL |
+| Deltids mertid | "Arbetstidslagens bestämmelser om mertid vid deltidsanställning (10 §) äger ej tillämpning" | samma, plus nytt stycke: mertid kan beordras, ersätts enligt § 8 mom 3 |
+| Lokalt undantag natt/vecka/extra övertid | saknas | § 5 mom 3, tredje stycket |
+| § 5 mom 1, 7, 8 (brandrisk, dispens) | ingick inte i utdraget | ej jämförda |
+| ATK-avsättning (§ 6 mom 2) | 3,62 % | **3,92 %** (värden intjänade 1/4 2024–31/3 2025 beräknas på 3,62 %); 68,5 tim (40 tim/v) / 65 tim (38 tim/v) |
+| Beordrad övertid, § 8 mom 3 | 51,59 / 53,29 kr/tim | 54,94 (1/4 2025) / 56,59 (1/4 2026) |
+| Ob, § 8 mom 1 (vardag kväll/natt · lördag · söndag) | 41,10 · 64,74 · 97,06 (2023) | 43,77 · 68,95 · 103,38 (1/4 2025); 45,08 · 71,02 · 106,48 (1/4 2026) |
+| Nattarbete vid brandrisk 00–05 | 55,00 / 56,82 | 58,58 (1/4 2025) / 60,34 (1/4 2026) |
+
+Beloppen står här bara som läsunderlag — **appen räknar aldrig kronor.**
+Gröna arbetsgivare har dessutom publicerat en **rättelse** (april 2025) om
+nivån för OB vid nattarbete vid brandrisk; beloppet i tabellen ovan är det som
+står i boken och kan vara det rättade, men rättelsedokumentet är inte läst här.
+
+**Obesvarat / ej verifierat i detta pass:**
+
+1. Om månadstaket i ATL 8 § verkligen ligger kvar (fråga 1) — avtalet är tyst;
+   bekräfta hos Gröna arbetsgivares arbetsgivarjour innan appen larmar på
+   månadsnivå.
+2. Rättelsedokumentet (OB brandrisk + ATK tjänstemän) — ej läst.
+3. Arbetsmiljöverkets föreskrift om övertidsanteckningar — ej läst.
 
 ---
 

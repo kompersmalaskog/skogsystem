@@ -3,7 +3,9 @@ import './globals.css'
 import TopBar from '../components/TopBar'
 import PushRegister from '../components/PushRegister'
 import VersionChecker from '../components/VersionChecker'
+import AppStartVakt from '../components/AppStartVakt'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
+import { LAYOUT } from '@/lib/design/tokens'
 
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
@@ -50,9 +52,11 @@ export default function RootLayout({
       <body style={{ margin: 0, padding: 0 }}>
         <TopBar />
         <VersionChecker />
+        <AppStartVakt />
         <PushRegister />
         <CurrentMedarbetareProvider>
-          <div style={{ paddingTop: 'calc(56px + env(safe-area-inset-top))' }}>
+          {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}
+          <div style={{ paddingTop: LAYOUT.topbar }}>
             {children}
           </div>
         </CurrentMedarbetareProvider>

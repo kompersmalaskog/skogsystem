@@ -1,32 +1,32 @@
 "use client";
-import React, { useState, useEffect, CSSProperties } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { C, secHead, Card, inputStyle, btnPrimary } from "./design";
+import { AVSTAND, FARG, RADIE, TYP, TNUM } from "@/lib/design/tokens";
+import { Sektion, Stod, Kort, Lista, Rad, Primar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
+import { ymdLokal } from "@/lib/datumLokal";
+import UtjamningsSektion from "./UtjamningsSektion";
 
 type Avtal = {
   id?: string;
   namn?: string | null;
   giltigt_fran?: string | null;
   giltigt_till?: string | null;
-  timlon_kr?: number | null;
   overtid_vardag_kr?: number | null;
   max_overtid_ar_h?: number | null;
   ob_kvall_kr?: number | null;
   ob_natt_kr?: number | null;
-  ob_lordag_kr?: number | null;
+  ob_helg_kr?: number | null;
   ob_sondag_kr?: number | null;
   km_ersattning_kr?: number | null;
   km_grans_per_dag?: number | null;
-  fardtid_kr?: number | null;
+  fardtid_kr_per_mil?: number | null;
   atk_procent?: number | null;
-  atk_period?: string | null;
   atk_procent_nasta?: number | null;
-  atk_ledig_tim?: number | null;
-  atk_faktor?: number | null;
+  atk_ledig_tid_h?: number | null;
   traktamente_hel_kr?: number | null;
   traktamente_halv_kr?: number | null;
-  skifttillagg_kr?: number | null;
-  bortovaro_kr?: number | null;
+  skift_tillagg_kr?: number | null;
+  bortovaro_12h_kr?: number | null;
   [k: string]: any;
 };
 
@@ -50,12 +50,6 @@ const GRUPPER: FältGrupp[] = [
     ],
   },
   {
-    rubrik: "Grundlön",
-    fält: [
-      { key: "timlon_kr", label: "Timlön", suffix: "kr", step: "0.01" },
-    ],
-  },
-  {
     rubrik: "Övertid",
     fält: [
       { key: "overtid_vardag_kr", label: "Övertidsersättning vardag", suffix: "kr/tim", step: "0.01" },
@@ -69,7 +63,7 @@ const GRUPPER: FältGrupp[] = [
     fält: [
       { key: "ob_kvall_kr", label: "Mån–fre kväll/natt (17–06:30)", suffix: "kr/tim", step: "0.01" },
       { key: "ob_natt_kr",  label: "Nattarbete (00–05)",             suffix: "kr/tim", step: "0.01" },
-      { key: "ob_lordag_kr", label: "Lördag",                        suffix: "kr/tim", step: "0.01" },
+      { key: "ob_helg_kr",   label: "Helg",                           suffix: "kr/tim", step: "0.01" },
       { key: "ob_sondag_kr", label: "Söndag",                        suffix: "kr/tim", step: "0.01" },
     ],
   },
@@ -78,7 +72,7 @@ const GRUPPER: FältGrupp[] = [
     fält: [
       { key: "km_ersattning_kr", label: "Färdmedelsersättning", suffix: "kr/mil", step: "0.01" },
       { key: "km_grans_per_dag", label: "Km-gräns",             suffix: "km/dag", step: "1" },
-      { key: "fardtid_kr",       label: "Färdtidsersättning",   suffix: "kr/mil", step: "0.01" },
+      { key: "fardtid_kr_per_mil", label: "Färdtidsersättning", suffix: "kr/mil", step: "0.01" },
     ],
   },
   {
@@ -86,9 +80,7 @@ const GRUPPER: FältGrupp[] = [
     fält: [
       { key: "atk_procent",        label: "Avsättning",    suffix: "%",        step: "0.01" },
       { key: "atk_procent_nasta",  label: "Nästa period",  suffix: "%",        step: "0.01" },
-      { key: "atk_period",         label: "Uttagsperiod",  type: "text" },
-      { key: "atk_ledig_tim",      label: "Ledig tid",     suffix: "tim/år",   step: "0.1" },
-      { key: "atk_faktor",         label: "ATK-faktor",                         step: "0.001" },
+      { key: "atk_ledig_tid_h",    label: "Ledig tid",     suffix: "tim/år",   step: "0.1" },
     ],
   },
   {
@@ -101,21 +93,29 @@ const GRUPPER: FältGrupp[] = [
   {
     rubrik: "Övriga tillägg",
     fält: [
-      { key: "skifttillagg_kr", label: "Skifttillägg",    suffix: "kr/tim", step: "0.01" },
-      { key: "bortovaro_kr",    label: "Bortovaro >12h",  suffix: "kr/tim", step: "0.01" },
+      { key: "skift_tillagg_kr",  label: "Skifttillägg",    suffix: "kr/tim", step: "0.01" },
+      { key: "bortovaro_12h_kr",  label: "Bortovaro >12h",  suffix: "kr/tim", step: "0.01" },
     ],
   },
 ];
 
+/** Hela månader kvar till slutdatumet (0 = under en månad). Null om inget slutdatum. Utgånget hanteras av arUtgatt. */
 function månaderKvar(giltigtTill: string | null | undefined): number | null {
-  if (!giltigtTill) return null;
-  const slut = new Date(giltigtTill);
-  if (isNaN(slut.getTime())) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(giltigtTill || "");
+  if (!m) return null;
   const nu = new Date();
-  return (slut.getFullYear() - nu.getFullYear()) * 12 + (slut.getMonth() - nu.getMonth());
+  let mån = (Number(m[1]) - nu.getFullYear()) * 12 + (Number(m[2]) - 1 - nu.getMonth());
+  if (Number(m[3]) < nu.getDate()) mån -= 1;
+  return Math.max(0, mån);
 }
 
-export default function AvtalFlik() {
+/** Slutdatumet ligger före idag (lokalt datum). */
+function arUtgatt(giltigtTill: string | null | undefined): boolean {
+  const d = (giltigtTill || "").slice(0, 10);
+  return !!d && d < ymdLokal(new Date());
+}
+
+export default function AvtalFlik({ currentUser }: { currentUser: { id: string; namn?: string | null } }) {
   const [aktuellt, setAktuellt] = useState<Avtal | null>(null);
   const [form, setForm] = useState<Avtal>({});
   const [historik, setHistorik] = useState<Avtal[]>([]);
@@ -176,215 +176,136 @@ export default function AvtalFlik() {
       }
     }
 
-    const { error } = await supabase.from("gs_avtal").update(payload).eq("id", aktuellt.id);
+    // .select() ger tillbaka raderna som faktiskt skrevs: 0 rader utan fel = RLS stoppade den tyst
+    // (gs_avtal kräver admin). Då får det aldrig stå "Sparat".
+    const { data, error } = await supabase.from("gs_avtal").update(payload).eq("id", aktuellt.id).select("id");
     setSparar(false);
     if (error) { setSparFel(error.message); return; }
+    if (!data?.length) { setSparFel("Ändringen sparades inte — raden träffades inte (bara admin kan ändra avtalet)."); return; }
     setSparOk(true);
     setTimeout(() => setSparOk(false), 2000);
     ladda();
   };
 
-  if (laddar) return <Card><p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar avtal…</p></Card>;
-  if (fel) return <Card style={{ border: `1px solid ${C.red}` }}>
-    <p style={{ margin: 0, color: C.red, fontSize: 14 }}>Kunde inte ladda avtal: {fel}</p>
-  </Card>;
-  if (!aktuellt) return <Card>
-    <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Inget avtal i databasen (gs_avtal är tom).</p>
-  </Card>;
+  if (laddar) return <Laddar>Laddar avtal…</Laddar>;
+  if (fel) return <Fel onForsok={ladda}>Kunde inte ladda avtal: {fel}</Fel>;
+  if (!aktuellt) return <Kort><Tomt>Inget avtal i databasen (gs_avtal är tom).</Tomt></Kort>;
 
-  const månKvar = månaderKvar(aktuellt.giltigt_till);
-  const varningUtgång = månKvar !== null && månKvar <= 3 && månKvar >= 0;
-  const utgåttRedan = månKvar !== null && månKvar < 0;
+  const utgåttRedan = arUtgatt(aktuellt.giltigt_till);
+  const månKvar = utgåttRedan ? null : månaderKvar(aktuellt.giltigt_till);
+  const varningUtgång = månKvar !== null && månKvar <= 3;
+  const datum = (d: string | null | undefined, kort?: boolean) =>
+    d ? new Date(d).toLocaleDateString("sv-SE", kort ? { month: "short", year: "numeric" } : { day: "numeric", month: "short", year: "numeric" }) : "—";
 
   return (
     <>
-      {/* Aktuellt avtal-header */}
-      <Card style={{
-        background: "rgba(52,199,89,0.08)",
-        border: `1px solid rgba(52,199,89,0.2)`,
-      }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <div>
-            <p style={{ margin: 0, fontSize: 11, color: C.green, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-              Aktuellt avtal
-            </p>
-            <p style={{ margin: "6px 0 0", fontSize: 20, fontWeight: 700, color: "#fff" }}>
-              {aktuellt.namn || "Namnlöst avtal"}
-            </p>
-          </div>
-        </div>
-        <p style={{ margin: "10px 0 0", fontSize: 13, color: C.label }}>
-          {aktuellt.giltigt_fran ? new Date(aktuellt.giltigt_fran).toLocaleDateString("sv-SE", { day: "numeric", month: "short", year: "numeric" }) : "—"}
-          {" – "}
-          {aktuellt.giltigt_till ? new Date(aktuellt.giltigt_till).toLocaleDateString("sv-SE", { day: "numeric", month: "short", year: "numeric" }) : "—"}
-        </p>
-      </Card>
+      {/* Aktuellt avtal */}
+      <Kort>
+        <div style={{ ...TYP.micro, color: FARG.text2 }}>Aktuellt avtal</div>
+        <div style={{ ...TYP.rubrik, color: FARG.text, marginTop: AVSTAND.xs }}>{aktuellt.namn || "Namnlöst avtal"}</div>
+        <Stod>{datum(aktuellt.giltigt_fran)} – {datum(aktuellt.giltigt_till)}</Stod>
+      </Kort>
 
       {/* Påminnelse om utgång */}
       {(varningUtgång || utgåttRedan) && (
-        <Card style={{
-          background: "rgba(255,69,58,0.08)",
-          border: `1px solid rgba(255,69,58,0.25)`,
-        }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 22, color: C.red }}>warning</span>
-            <div>
-              <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: C.red }}>
-                {utgåttRedan ? "Avtalet har gått ut" : `Avtalet går ut om ${månKvar === 0 ? "mindre än en månad" : `${månKvar} månad${månKvar === 1 ? "" : "er"}`}`}
-              </p>
-              <p style={{ margin: "4px 0 0", fontSize: 13, color: C.label }}>
-                Ladda upp ett nytt avtal eller uppdatera giltighetstiden.
-              </p>
-            </div>
+        <Kort style={{ marginTop: AVSTAND.m, display: "flex", alignItems: "flex-start", gap: AVSTAND.m }}>
+          <Ikon namn="warning" farg={FARG.orange} />
+          <div>
+            <p style={{ margin: 0, ...TYP.listtitel, color: FARG.orange }}>
+              {utgåttRedan ? "Avtalet har gått ut" : `Avtalet går ut om ${månKvar === 0 ? "mindre än en månad" : `${månKvar} månad${månKvar === 1 ? "" : "er"}`}`}
+            </p>
+            <Stod>Uppdatera giltighetstiden eller lägg in det nya avtalet.</Stod>
           </div>
-        </Card>
+        </Kort>
       )}
 
       {/* Redigerbart formulär */}
-      {GRUPPER.map(g => (
-        <div key={g.rubrik} style={{ marginTop: 22 }}>
-          <p style={secHead}>{g.rubrik}</p>
-          <Card>
-            {g.fält.map((f, i) => (
-              <AvtalFält
-                key={String(f.key)}
-                fält={f}
-                value={form[f.key]}
-                onChange={v => setForm(s => ({ ...s, [f.key]: v }))}
-                saknas={!(f.key in aktuellt)}
-                sista={i === g.fält.length - 1}
-              />
-            ))}
-          </Card>
-        </div>
-      ))}
+      {GRUPPER.map(g => {
+        // Ett fält utan kolumn i avtalsraden visas aldrig: ett tekniskt fel är inget en admin kan göra något åt.
+        const synliga = g.fält.filter(f => f.key in aktuellt);
+        if (synliga.length === 0) return null;
+        return (
+          <div key={g.rubrik}>
+            <Sektion>{g.rubrik}</Sektion>
+            <Lista>
+              {synliga.map((f, i) => (
+                <AvtalFält
+                  key={String(f.key)}
+                  fält={f}
+                  value={form[f.key]}
+                  onChange={v => setForm(s => ({ ...s, [f.key]: v }))}
+                  sista={i === synliga.length - 1}
+                />
+              ))}
+            </Lista>
+          </div>
+        );
+      })}
 
       {/* Spara */}
-      {sparFel && (
-        <div style={{
-          marginTop: 16, padding: 12,
-          background: "rgba(255,69,58,0.1)", borderRadius: 10,
-          color: C.red, fontSize: 13,
-        }}>{sparFel}</div>
-      )}
-      {sparOk && (
-        <div style={{
-          marginTop: 16, padding: 12,
-          background: "rgba(52,199,89,0.1)", borderRadius: 10,
-          color: C.green, fontSize: 13, fontWeight: 600, textAlign: "center",
-        }}>Sparat ✓</div>
-      )}
-      <button
-        onClick={spara}
-        disabled={!ändrat || sparar}
-        style={{ ...btnPrimary, marginTop: 22, opacity: !ändrat || sparar ? 0.4 : 1 }}
-      >
+      {sparFel && <Besked>{sparFel}</Besked>}
+      {sparOk && <Besked slag="ok">Sparat ✓</Besked>}
+      <Primar onClick={spara} disabled={!ändrat || sparar} style={{ marginTop: AVSTAND.xl }}>
         {sparar ? "Sparar…" : "Spara ändringar"}
-      </button>
+      </Primar>
 
-      {/* Ladda upp PDF (stub) */}
-      <p style={{ ...secHead, marginTop: 30 }}>Avtals-PDF</p>
-      <Card>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <p style={{ margin: 0, fontSize: 14, color: C.text }}>Ladda upp nytt avtal</p>
-            <p style={{ margin: "4px 0 0", fontSize: 12, color: C.label }}>
-              PDF-uppladdning kommer i senare steg. Avtalsparsning (OCR) från PDF är inte implementerad.
-            </p>
-          </div>
-          <button disabled style={{
-            padding: "8px 14px",
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 8,
-            color: C.label,
-            fontSize: 13,
-            fontFamily: "inherit",
-            cursor: "not-allowed",
-          }}>Välj fil</button>
-        </div>
-      </Card>
+      {/* Utjämningsperioder (§5 mom 2): före, hör till avtalets arbetstidsregel */}
+      <UtjamningsSektion namnInloggad={currentUser.namn || "admin"} />
 
       {/* Historik */}
-      <p style={{ ...secHead, marginTop: 30 }}>Historik ({historik.length})</p>
-      <Card style={{ padding: 0 }}>
-        {historik.length === 0 ? (
-          <p style={{ margin: 0, padding: 18, color: C.label, fontSize: 14 }}>
-            Inga tidigare avtalsversioner.
-          </p>
-        ) : historik.map((h, i) => (
-          <div key={h.id || i} style={{
-            padding: "14px 20px",
-            borderBottom: i === historik.length - 1 ? "none" : `1px solid ${C.line}`,
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                {h.namn || "Namnlöst"}
-              </span>
-              <span style={{ fontSize: 12, color: C.label }}>
-                {h.giltigt_fran ? new Date(h.giltigt_fran).toLocaleDateString("sv-SE", { month: "short", year: "numeric" }) : "—"}
-                {" – "}
-                {h.giltigt_till ? new Date(h.giltigt_till).toLocaleDateString("sv-SE", { month: "short", year: "numeric" }) : "—"}
-              </span>
-            </div>
-            <div style={{ marginTop: 6, fontSize: 12, color: C.label, display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {h.timlon_kr != null && <span>Timlön {h.timlon_kr} kr</span>}
-              {h.overtid_vardag_kr != null && <span>Övertid {h.overtid_vardag_kr} kr/tim</span>}
-              {h.traktamente_hel_kr != null && <span>Traktamente {h.traktamente_hel_kr} kr</span>}
-            </div>
-          </div>
-        ))}
-      </Card>
+      <Sektion>Tidigare avtal ({historik.length})</Sektion>
+      {historik.length === 0 ? (
+        <Kort><Tomt>Inga tidigare avtalsversioner. Den som gällde före det nuvarande står här när ett nytt läggs in.</Tomt></Kort>
+      ) : (
+        <Lista>
+          {historik.map((h, i) => (
+            <Rad key={h.id || i} sista={i === historik.length - 1}
+              rubrik={h.namn || "Namnlöst"}
+              hoger={`${datum(h.giltigt_fran, true)} – ${datum(h.giltigt_till, true)}`}
+              detalj={[h.overtid_vardag_kr != null && `Övertid ${h.overtid_vardag_kr} kr/tim`, h.traktamente_hel_kr != null && `Traktamente ${h.traktamente_hel_kr} kr`].filter(Boolean).join(" · ") || undefined} />
+          ))}
+        </Lista>
+      )}
     </>
   );
 }
 
 function AvtalFält({
-  fält, value, onChange, saknas, sista,
+  fält, value, onChange, sista,
 }: {
   fält: Fält;
   value: any;
   onChange: (v: any) => void;
-  saknas: boolean;
   sista: boolean;
 }) {
   const isDate = fält.type === "date";
   const isNumber = fält.step !== undefined;
-  const isText = fält.type === "text";
+  const id = `avtal-${String(fält.key)}`;
 
   return (
     <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "12px 0",
-      borderBottom: sista ? "none" : `1px solid ${C.line}`,
-      gap: 12,
-      opacity: saknas ? 0.5 : 1,
+      display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap",
+      gap: AVSTAND.s, padding: `${AVSTAND.s}px 0`, minHeight: 56,
+      borderBottom: sista ? "none" : `1px solid ${FARG.linje}`,
     }}>
-      <label style={{ fontSize: 14, color: C.label, flex: 1 }}>
+      <label htmlFor={id} style={{ ...TYP.text, color: FARG.text, flex: "1 1 200px" }}>
         {fält.label}
-        {saknas && <span style={{ fontSize: 10, color: C.orange, marginLeft: 6 }}>(kolumn saknas)</span>}
       </label>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "0 1 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: AVSTAND.s, flex: "0 1 auto" }}>
         <input
+          id={id}
           type={isDate ? "date" : isNumber ? "number" : "text"}
           step={fält.step}
           value={value ?? ""}
-          onChange={e => {
-            const v = e.target.value;
-            if (isNumber && v !== "") onChange(v);
-            else onChange(v);
-          }}
-          disabled={saknas}
+          onChange={e => onChange(e.target.value)}
           style={{
-            ...inputStyle as CSSProperties,
-            height: 36,
-            width: isDate ? 150 : isText ? 180 : 110,
-            fontSize: 14,
-            textAlign: isNumber ? "right" : "left",
-            padding: isDate ? "0 10px" : "0 12px",
+            minHeight: 44, boxSizing: "border-box", background: FARG.upphojt, border: "none", borderRadius: RADIE.rad,
+            padding: `0 ${AVSTAND.m}px`, color: FARG.text, fontFamily: "inherit", outline: "none",
+            width: isDate ? 160 : fält.type === "text" ? 200 : 120,
+            textAlign: isNumber ? "right" : "left", ...TYP.text, ...(isNumber ? TNUM : null),
           }}
         />
-        {fält.suffix && <span style={{ fontSize: 12, color: C.label, minWidth: 40 }}>{fält.suffix}</span>}
+        {fält.suffix && <span style={{ ...TYP.meta, color: FARG.text2, minWidth: 48 }}>{fält.suffix}</span>}
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-
+import { medSafeBotten } from '@/lib/design/tokens'; // hemindikatorn på iPhone
 type Tab = { href: string; icon: string; label: string; match: (p: string) => boolean };
 
 const TABS: Tab[] = [
@@ -10,7 +10,9 @@ const TABS: Tab[] = [
   { href: '/ekonomi/per-klass', icon: 'layers', label: 'Per klass', match: p => p.startsWith('/ekonomi/per-klass') },
   { href: '/ekonomi/mot-ackord', icon: 'balance', label: 'Mot ackord', match: p => p.startsWith('/ekonomi/mot-ackord') },
   { href: '/ekonomi/resultat', icon: 'account_balance', label: 'Resultat', match: p => p.startsWith('/ekonomi/resultat') },
-  { href: '/ekonomi/installningar', icon: 'settings', label: 'Inställningar', match: p => p.startsWith('/ekonomi/installningar') },
+  { href: '/ekonomi/fakturaunderlag', icon: 'receipt_long', label: 'Faktura', match: p => p.startsWith('/ekonomi/fakturaunderlag') },
+  { href: '/ekonomi/prislista', icon: 'sell', label: 'Priser', match: p => p.startsWith('/ekonomi/prislista') },
+  { href: '/ekonomi/installningar', icon: 'settings', label: 'Inst.', match: p => p.startsWith('/ekonomi/installningar') },
 ];
 
 export default function EkonomiBottomNav() {
@@ -19,7 +21,7 @@ export default function EkonomiBottomNav() {
     <nav style={{
       position: 'fixed', bottom: 0, left: 0, width: '100%', zIndex: 50,
       display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-      padding: '12px 16px 24px',
+      padding: `12px 16px ${medSafeBotten(24)}`,
       background: 'rgba(31,31,31,0.7)',
       backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       borderRadius: '16px 16px 0 0',

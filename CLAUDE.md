@@ -23,6 +23,7 @@ ALLTID göra så här:
 - m³/G15h = SUM(volym_m3sub) / SUM(g15_h) — viktat snitt, aldrig snitt av snitt
 - L/m³ = SUM(bransle_liter) / SUM(volym_m3sub) — viktat snitt
 - Medelstam per objekt = SUM(volym_m3sub) / SUM(stammar)
+- **Ärlig data eller ingen data.** Ett beräknat tal får aldrig lagras eller visas som om det vore en mätning. Saknas mätningen skrivs noll eller null och dagen märks synligt i datahälsan ("Motortid utan arbetstid"). Fallbacken "processing = 88 % av motortiden" (2026-04 till 2026-10) hittade på 15 h arbete på 68 flyttdagar innan den togs bort — motorn gick på trailern, maskinen arbetade inte.
 
 ### Medelstamsklasser
 - Gallringsskördare (R64101): 0.00-0.03, 0.03-0.05, 0.05-0.07, 0.07-0.09, 0.09-0.12, 0.12+
@@ -33,6 +34,17 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 
 - **`hpr_filer` / `hpr_stammar` (filnivå)** — vid visning/summering: använd BARA filen med högst `stammar_count` per objekt, aldrig alla filer.
 - **`detalj_stock` (radnivå)** — UNIQUE-constraint på `(maskin_id, stem_key, log_key)` (migration `20260507_detalj_stock_dedupe_keys.sql`) gör att importen UPSERT:ar — samma logiska stock från olika kumulativa filer skrivs över istället för att duplicera.
+
+### arbetsdag — TRE sorters dagar
+En rad i `arbetsdag` är en av tre saker, och en vy som läser raden måste klara alla tre:
+
+| Sort | Kännetecken | Var tiden bor |
+|------|-------------|---------------|
+| **Maskindag** | `start_tid`/`slut_tid`/`maskin_id` satta (MOM-synk eller Starta arbetspass) | `arbetad_min` på raden; objekt i `arbetsdag_objekt` |
+| **Perioddag** | raden är ett SKAL: `start_tid`, `slut_tid`, `maskin_id` alla NULL, ändå `bekraftad` | perioderna i `extra_tid` (klockslag, objekt, aktivitet, debiterbar); raden finns för att lönens 60-minutersregel ska se dagen |
+| **Frånvarodag** | ingen rad alls (sjuk/VAB/semester ligger i `ledighet_ansokningar`); gamla backfill-rader utan tid kan finnas | `lib/franvaro` |
+
+Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26) är den nya. Regeln: **klockslag på en perioddags rad = dubbelräkning** (`arbetad_min` + `extra_tid`), spärrad av `passKrockarMedPerioder` i `lib/dagsegment.ts`. Visa en perioddag med `perioderPerObjekt` (objekt och tid ur perioderna), räkna vilotid med `medPerioddagSpann` (`lib/vilobrott.ts`). Antagandet "raden har klockslag och maskin" gav tio tomma vyer på en gång (2026-09-28) — läs perioderna när raden är tom, säg aldrig "ingen data".
 
 ---
 
@@ -51,16 +63,15 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 
 | Rutt | Namn | Beskrivning |
 |------|------|-------------|
-| `/` | Hem | Dashboard med funktionskort till alla vyer |
+| `/` | Hem | Dashboard med funktionskort till alla vyer. **Startvakten** (`components/AppStartVakt.tsx`, beslut i `lib/appStart.ts`) avgör först: enhet med vald maskin (`enhet_maskin_id`) → `/planering` i maskinläge; serial-GPS (eller sparad GPS-port) men ingen maskin → helskärmsfrågan "Vilken maskin är det här?" (`components/maskin/VilkenMaskinSkarm.tsx`, bara aktiva maskiner ur `dim_maskin`); annars menyn. Gäller `/` alltid och `/oversikt` bara vid app-START (PWA:ns `start_url`). `/?meny=1` = "Till appen" (startvakten lämnar sessionen ifred). **I maskinläge går hem-knappen i planeringsvyn till objektlistan, aldrig till menyn.** Enheten minns förarens senast valda objekt (`lib/senasteObjekt.ts`, `enhet_senaste_objekt_v1`) och startar där tills ett annat väljs, objektet avslutas eller riktig GPS står i ett annat objekt (då bekräftelsekortet). **Roll = `dim_maskin.maskin_typ` (Harvester→skördare, Forwarder→skotare) via `rollForMaskin` — aldrig ur tilldelningsfältet, aldrig en reserv.** |
 | `/login` | Login | E-post/lösenord via Supabase Auth |
 | `/uppfoljning` | Uppföljning | Jobbuppföljning med KPI:er, maskindrift, operatörsstatistik, bränsle, sortimentsfördelning |
-| `/maskinvy` | Maskinvy | Maskinöversikt med flikar för Skördare, Skotare och jämförelse |
-| `/maskinvy2` | Skördare Analytics | Detaljerad produktionsanalys per vecka/månad/kvartal/år |
-| `/maskinvy-ny` | Maskinvy Ny | Ny maskinvy med daglig produktion, KPI:er, tidsfördelning |
+| `/maskinvy` | Maskinvy | Utan parameter: den GAMLA vyn (`maskinvy.tsx` + `skotare.tsx`), nås från bottennavigationen. **`/maskinvy?ny=1` är den levande vyn** (hemskärmens kort "Maskinvy 2"): Skördare/Skotare/Jämförelse med Översikt/Idag/Produktion/Avbrott/Kapacitet, TU i nyckeltalen (`lib/g15.ts`, `docs/tu.md`). `/maskinvy2` och `/maskinvy-ny` var döda, olänkade sidor från mars 2026 — borttagna 2026-09-30. Att göra `?ny=1` till standard väntar på att Martin frågat förarna om någon använder den gamla. |
 | `/maskinflytt` | Maskinflytt | Förarflöde: maskinlistan är startsidan med senast kända plats ifylld (`senastePlats.ts` — senaste av avslutad flytt / fakt_tid-objekt; spärrar: koordinat > 15 mil från verksamheten = osäker, objekt > 30 dagar = osäker, båda dämpade men klickbara). Starta körning → Hämtat → Vart ska den → Lämnat → dagssammanfattning; Maps öppnas ur förarens tryck (länk, ej popup). Dagmodell oförändrad: flyttdag (hem→n flyttar→hem) äger tillkörning/hemresa, flytt äger flytt_km (fakturerbar ≥ 3 mil) + mellankörning. Verkstad som destination → flytt_typ=service automatiskt. Skriver flyttdag + maskin_flytt + maskin_position |
 | `/maskinflytt/sammanstallning` | Flyttlogg | Två nivåer: Dagar (rundans verkliga körsträcka — PRIMÄRT `matare_km` (märkt "mätare"), fallback `total_km` (märkt "rutt") på gamla rundor; båda syns i expanderad ben-vy som jämförelse; hemresan är MÄTT på nya rundor sedan #380, bara gamla märks "(beräknad)") och Flyttar (fakturerbara sträckor, typ/kund-filter, per-typ-summering) — period V/M/K/Å, CSV per flik; avbrutna/pågående räknas ej |
 | `/maskinflytt/platser` | Flyttplatser | Hantera flyttplats-snabbval (verkstad/uppställning/gård/kund) — lägg till, redigera, inaktivera |
 | `/arbetsrapport` | Arbetsrapport | Generering av arbetsrapporter |
+| `/planera` | Planera | Tid på en trakt, trakten först: Pågår-kort · sök · senaste · aktiva trakter per åtgärdstyp; välj trakt → tiden stor (± kvart) → 2 tim → Spara, eller **Starta nu** (stor grön knapp, ett tryck startar: period utan slut, start = klockan nu, tillbaka till Pågår-kortet utan mellansteg; **Avsluta** bekräftar ALLT förvalt (aktivitet, faktureras, kommentar) och har **Klipp upp dagen**; dagen går att klippa i delar (färgstapel; varje del går att ändra: tider, trakt, aktivitet/rast) även i efterhand från veckolistan — Martins verkliga fall: glömde byta/avsluta. **Rasten är EN modell: lucka mellan perioder, aldrig förifylld, aldrig en siffra på en rad; dag > 5 tim utan rast → Spara frågar "Hade du rast?"**. Starta nu/Avsluta = exakt minut (kvartar bara i förifyllning/längdknappar/±-steg); glömd period får aldrig slut = nu (snabbval "Slutade 16:00?"); dag med pågående period kan inte bekräftas; ändring av en bekräftad dag bryter bekräftelsen). Idag kan aldrig sluta efter nu. Skapar bara `extra_tid`-perioder (samma regler som arbetsrapportens periodformulär, `lib/planera/spara.ts`); dagen bekräftas i Dag/Kalender. Förslag-lista (Samma som i går; bil/plats senare) sparas aldrig förrän föraren tryckt. `docs/planera.md` |
 | `/bestallningar` | Beställningar | Orderspårning med progressringar och månadsstatistik |
 | `/forbattringsforslag` | Förbättringsförslag | Feedbacksystem med ljudinspelning och textinmatning |
 | `/helikopter` | Helikopter | Helikopterlogistik och objektöversikt |
@@ -74,7 +85,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 | `/planering` | Planering | Huvudvy — traktplanering med karta, markeringar, väder, väganalys, TMA |
 | `/planner` | Planner | Förenklat planeringsverktyg med canvas-markeringar |
 | `/redigering` | Redigering | Objektredigering med extern skotning |
-| `/starta-jobb` | Starta jobb | Jobbstart för operatörer med sökning och tilldelning |
+| `/starta-jobb` | Starta jobb | Vyn för jobb UTAN Vida-objekt (privata, eller "Väntar på Vida"): typ (slutavverkning/gallring/GROT/energiklippning), P-VO, valfri plats (karta/sök/Här); på maskindator maskinens plats + tilldelad + pågående + körvyn öppnas. GROT: "Hör till objekt". Föreslår "slå ihop" när Vida levererat objektet över jobbets plats/spår (bara "Väntar på Vida"). Maskinobjekt-fliken sätter VO via RPC `tilldela_vo_maskinobjekt` (dim_objekt är skrivskyddat för förare) |
 | `/utbildning` | Utbildning | Utbildnings- och certifieringsspårning per medarbetare |
 
 ---
@@ -100,7 +111,9 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 `fakt_tid`, `fakt_produktion`, `dim_maskin`, `dim_operator`, `maskin_logg`
 
 ### Planering
-`planering_markeringar`, `dim_objekt`, `kartbilder`, `tma_assessments`, `hpr_filer`, `hpr_stammar`, `skotning_uttag`, `warning_acknowledgments`, `warning_settings`
+`planering_markeringar`, `dim_objekt`, `kartbilder`, `tma_assessments`, `hpr_filer`, `hpr_stammar`, `skotning_uttag`
+
+**Varningsavstånd ligger INTE i databasen.** Ett varningsavstånd per kategori (hur nära en markering körvyns proximitetskort växer) sparas PER ENHET i `localStorage` under nyckeln `varningar_v1` (`lib/varningsInstallningar.ts`, bara `warnDist`) — inte per objekt, inte per användare i DB. Strängar som den äldre versionen sparade (med avståndsdämpning, "Visa alla symboler", på/av per kategori) läses fortfarande; bara `warnDist` används. Tabellerna `warning_settings` och `warning_acknowledgments` har aldrig funnits i prod (PostgREST 404 `PGRST205`, verifierat 2026-10-05; tidigare stod de här som om de fanns). Körvyns kvittens (proximitets-notisen) är den riktiga tabellen `korvy_kvittens`. Reservvärdet för en kategori utan inställning är 30 m. **Det gamla körläget (`drivingMode`, avståndsdämpning, pip/vibrationskortet, geofence-frågan och körspårningen) är borttaget ur planeringsvyn (2026-10-05) — körvyn är det enda körläget.** Den separata `/planner`-sidan har sin egen, orörda kopia.
 
 ### Kalibrering
 `fakt_kalibrering`, `fakt_kalibrering_historik`, `detalj_kontroll_stock`
@@ -159,8 +172,8 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 - `hpr_stammar` — stamdata (hpr_fil_id, stam_nummer, trädslag, dbh, lat, lng, antal_stockar, total_volym, bio_energy_adaption, sortiment). UNIQUE(hpr_fil_id, stam_nummer)
 
 ### Operativa tabeller
-- `objekt` — objekt med planeringsstatus. Status-värden (ej CHECK-constrained): `oplanerad` (default för nya/importerade), `planerad` (= "klar att köra", sätts av planeringsvyns "Klar — skicka till förare"-knapp + `klar_skickad_timestamp`), `pagaende`, `avslutat`, plus äldre värden (`skordning`, `skotning`, `klar`) som översiktsvyn fortfarande använder. Tilldelningsfält: `assigned_skordare_user_id`, `assigned_skotare_user_id` (FK → medarbetare.id, ON DELETE SET NULL). Livscykel-timestamps: `klar_skickad_timestamp`, `pagaende_startad_timestamp`, `avslutad_timestamp`.
-- `maskiner` — maskinregister
+- `objekt` — objekt med planeringsstatus. **Status ÄR CHECK-constrained** (`objekt_status_check`): bara `planerad`, `pagaende`, `skotning`, `avslutat` går att spara. `oplanerad` och de äldre värdena `klar` går INTE att skriva, trots att den här raden tidigare påstod motsatsen — verifierat mot prod 2026-09-29. **Kolumnen defaultar dessutom till `planerad`**, alltså "klar att köra": en rad som skapas utan att sätta `status` dyker upp i förarkön som nästa jobb. Sätt den ALLTID explicit vid insert. `planerad` sätts annars av planeringsvyns "Klar — skicka till förare"-knapp + `klar_skickad_timestamp`. Översiktsvyn läser fortfarande de äldre värdena `skordning`/`skotning`/`klar` som kan finnas i gammal data. Tilldelningsfält: `assigned_skordare_user_id`, `assigned_skotare_user_id` (FK → medarbetare.id, ON DELETE SET NULL). Livscykel-timestamps: `klar_skickad_timestamp`, `pagaende_startad_timestamp`, `avslutad_timestamp`. **Starta jobb-kolumner (migration 20261009110000):** `typ` kan vara `grot`/`energiklippning` (en TYP — aldrig via `grot`-flaggan; `objektHuvudtyp` i lib/objektPlats), `ursprung` (`privat` | `vanta_vida` | null = vanligt Vida-objekt), `hor_till_objekt_id` (GROT → virkesobjektet; visar dess traktgräns/ytor/anteckningar/skördarspår), `sla_ihop_avvisade uuid[]`. Ett objekt utan traktgräns räknas som träff inom 300 m från sin punkt (lat/lng). **`hyttspar.objekt_id` kan vara NULL** (skyddsnät på maskindatorn: raden hör då till maskinen, unik på (maskin_id, roll, datum)); kopplas till ett objekt automatiskt när dess traktgräns täcker spåret (import-trakt, Starta jobb-kortet).
+- `maskiner` — bär BARA service-loggens nyckel (`maskin_service.maskin_id` = `maskiner.id`) och `aktiv` för service-listan. **Maskinnamn och maskintyp läses ALLTID ur `dim_maskin`** (`visningsnamn`, `maskin_typ`) via `lib/maskinNamn.ts` (`maskinVisningsnamn`, `maskinSlag`) — aldrig `maskiner.namn`/`typ`. 2026-10-02 sattes namn i `maskiner` och ingen vy ändrades.
 - `maskin_service` — serviceloggar
 - `maskin_logg` — maskinaktivitetslogg
 - `maskin_ko` — maskinko/ordning
@@ -174,7 +187,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 - `kartbilder` — kartbilder
 - `tma_assessments` — terrängframkomlighet
 - `skotning_uttag` — skotningsuttag
-- `gps_tracks` — live-inspelade körspår från `/planering` (separat från importerade `detalj_gps_spar`)
+- `gps_tracks` — tillfälliga rader för manuell GPS-ritning av linjer i `/planering` (raderas när linjen sparats; separat från importerade `detalj_gps_spar`). De 25 historiska `korspår`-raderna är kvar men skrivs/läses inte längre (körspårningen är borttagen; körvyns spår är `hyttspar`).
 - `meta_importerade_filer` — spårar vilka filer som redan importerats
 
 ---
@@ -198,6 +211,8 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 - `fakt_skift` (operatörsskift)
 - `fakt_avbrott` (störningar/underhåll)
 - `detalj_stam`, `detalj_gps_spar`
+
+**Timexporterna visar ett pågående skeende i olika skepnad i olika filer** (docs/import-exportversioner.md). Importen låter EN version gälla per identitet: tid — delat segment (`avgor_tid_vinnare`, #630); avbrott — senaste exportversion vinner per (maskin, datum, klockslag) (`avbrott_vinnare_ur_fil`/`avbrott_att_radera`; "Default"/"Other" är Ponsses/Rottnes platshållare för ett stopp som pågår, inte en vald orsak). En nyckel får aldrig innehålla ett värde som ändras mellan versionerna.
 
 ### HPR-import (Harvested Production Report)
 **Källa:** Bara skördare genererar HPR-filer.
@@ -225,6 +240,34 @@ Skotardata -> `fakt_lass`, `fakt_lass_sortiment`, `fakt_skotning_status`
 - `scripts/tag-hpr-format.py` — Taggar HPR-filer med Stanford-version och metadata
 - `scripts/link-hpr-data.py` — Länkar HPR-data till rätt objekt/maskin
 - `scripts/backfill-grot.py` — Retroaktiv GROT-taggning av hpr_stammar
+
+---
+
+## GPS-källa (Web Serial) — `lib/gpsKalla.ts`, `lib/gpsBaud.ts`
+
+Maskindatorns GPS kommer som NMEA över en COM-port (Web Serial). **Tre skydd som inte får tas bort:**
+
+- **Baudrate är valbar per enhet** (GPS-källa-kortet i planeringsvyn: Auto/4800/9600/38400/115200, `gps-serial-baud` i localStorage). Standard 4800 (som före). **Auto** provar 115200→38400→9600→4800 vid portvalet och sparar den första där giltiga meningar (rätt checksumma) kommer (`gps-serial-baud-hittad`). Skälet: Eltima/GpsGate-brygga mot en Quectel-mottagare som skickar GGA/RMC + GSV/GSA för GP/GL/GA/PQ varje sekund — mer än 4800 baud hinner, kön byggs upp och kommer fram i färsk takt. En virtuell COM-port tar emot vilken baudrate som helst men *strypar* leveransen till den; en riktig UART kräver exakt rätt. Fast val öppnar alltid med just den. Porten kan bara öppnas en gång: hubbens källa pausas under portvalet och startas om efteråt.
+- **Åldersvakt:** `giltig` mäter inte längre när meningen ANLÖT utan jämför NMEA-tiden (RMC: UTC + datum, annars GGA: klockslag) mot VERKLIG tid (datorns klocka + uppmätt avvikelse, se nästa punkt). Mer än 30 s efter (`FORDROJD_MAX_MS`) → `giltig=false`, `fordrojd=true`: ingen fix, bannern säger "GPS-data är fördröjd", och inga punkter loggas (`currentPosition` rörs bara av en giltig fix). Incident 2026-10-05 (Rottne): positioner 2,5 h gamla (NMEA-tid 11:07 UTC vid 13:37 UTC). NMEA-tid FÖRE verklig tid räknas aldrig som fördröjd.
+- **Klockavvikelse mot servern (`lib/serverKlocka.ts`):** maskindatorns klocka kan gå fel och *Ponsses system sätter troligen klockan* — "ställ in tid automatiskt" hjälper inte. Giant (Stefan) loggade inget sedan #700 (2026-10-08): datorn gick ca 4 min FÖRE, åldersvakten jämförde mot den, och all GPS såg 4 min gammal ut. Nu mäts datorns avvikelse mot servertiden (Date-huvudet i svaret från `/api/version`, som är öppen utan session, `force-dynamic` + `no-store`) vid start och var 10:e minut (+ när nätet kommer tillbaka), och NMEA jämförs mot `datorns klocka + offsetMs`. **Allt som ska bära en TID i GPS-kedjan använder `serverNu()`, aldrig `Date.now()`** — hyttspårspunktens `tid`/dag/glappvakt (`cand.ts` i planeringsvyn) gör det. Ankomsttid (`rmcTid`, `tid`) är fortfarande datorns klocka: de jämförs bara med varandra. Innan första synkförsöket är klart (någon sekund vid start) är `giltig=false` utan `fordrojd` — vi flaggar inte något vi inte vet. **Misslyckas synken (offline)** gäller datorns klocka som före; en gammal avvikelse sparas aldrig över omladdning (Ponsse kan ha rättat klockan emellan). **Klockavvikelsen visas aldrig för föraren** — det är inget förarna ska åtgärda. Synken startar med hubbens första prenumerant och stoppar med den sista (inte i fast läge). Ny kod som jämför en GPS-/NMEA-tid mot "nu" ska ta `serverNu()`.
+
+---
+
+## Körvyns meny och snabbtryck — `components/planering/{KorvyObjektPill,KorvyKvitto,KorvyNertillList,KorvySparaSom,PlusRad}.tsx`, reglerna i `lib/` (förarnas önskemål 2026-10-05, slutlig version)
+
+Pillen med räknare och prickarna gäller BARA körvyn (`korvyActive`). **Plusdockan och Mät är delade**: planeringsvyn öppnar samma dockkomponent bakom sin plus-knapp och mäter med samma figur och smala list, men där hamnar symbolen DÄR MAN TRYCKER (planeringens gamla flöde, inklusive antalsfrågan), pillen är den gamla utan räknare (räknarna ligger i objektinfon — den gamla rutan nere till vänster är borttagen), och Rita behåller planeringens egna flöden (kategoriarken). `lib/korvyMeny.test.ts` läser `page.tsx` och larmar om kopplingen bryts eller läcker.
+
+- **Objektpillen** "namn | Högstubbar n/krav | Evighetsträd n/krav": tre tryckytor à 56 px. Namnet → objektinfon. Räknarna sätter en markering på MASKINENS position (aldrig en saknad/gammal: `kanPlaceraPaPosition`), kvitto "Högstubbe satt — Ångra" i 5 s; Ångra tar bort den ur listan OCH databasen (`deleteMarkerFromDb` väntar in en pågående spar, annars kan raden återuppstå). Markeringar räknas per OBJEKT oavsett vem som satte dem; evighetsträd = evighetsträd + naturhörna.
+- **Krav** (`lib/miljokrav.ts`): högstubbar 3/ha, evighetsträd 10/ha på `objekt.areal`, avrundat uppåt, BARA certifierade objekt. **Certifierat = `objekt.cert` nämner FSC eller PEFC.** Kolumnen är fri text med sex värden i prod: "FSC PEFC", "FSC", "PEFC" (certifierade) och "Ej certifierad", "None", "Not known", null (inte). Ej certifierat → bara antalet (inget krav, ingen "efter", ingen bock). Kodbevis: 3,64 ha → 11 och 37 (Östra-Höka har dock `cert="None"` i prod, så där visas bara antal).
+- **"Efter"** = färre satta än `floor(avverkad andel × krav)` (dämpad orange siffra + "efter"); uppfyllt = grön siffra + bock. Andelen okänd (inget skördarspår loggat) → dömer aldrig.
+- **Avverkat** (`lib/avverkadAreal.ts`, samma tal i pillen och i objektinfons "Avverkat X av Y ha"): skördarens hyttspår (`hyttspar` roll='skordare'), 10 m buffert, union, klippt mot traktgränsen (`traktgransRingar`), rasterberäkning med 2 m ruta. Utan skördarspår står "inget skördarspår loggat än" — aldrig "0,00". Objektinfon har längst ner Lager, Inställningar, GPS-källa.
+- **Högstubbar/evighetsträd på kartan = små prickar** (`lib/miljokrav.ts` `PRICK_*`): ~6 px, eget lager `markers-prick` (egen cirkel, ingen ikon/etikett), symbollagret filtrerar bort dem, inget proximitetskort. Tryck på en prick → litet kort "Högstubbe · Ta bort" (kortet ÄR bekräftelsen). Lagret är PÅ som standard (saknad nyckel i `mapLayers_v4` = på, `prickarSynliga`) och växlas i Alla › Lager. Planeringsvyn visar de fulla symbolerna.
+- **Plusdockan** (`lib/plusRad.ts` + `PlusRad.tsx`, skärm 10 i Hytten-canvasen): plusknappen expanderar åt vänster till en mörk, rundad docka nere till höger (inte full bredd; ingen skugga över kartan — den stängs med dockans × ELLER ett tryck på kartan utanför den, som alla menyer; trycket gör inget annat (tryckvakterna läser `plusRadOppenRef`) och att panorera stänger inte; lyftet efter ett långtryck som öppnade dockan stänger den inte (`langtryckNereRef` + 400 ms spärr). Plusknappen tonar bort medan dockan är öppen). Sex runda symbolknappar à 56 px i symbolens RIKTIGA färg (`getIconDef(id).bg`: grön naturvård, orange kultur, röd fara, lila träd att avverka, annars mörk med vit ring) med namnet under, ett avdelarstreck, "Alla" och ×. På telefon (< 760 px) två rader à 4. **Dockan fylls BARA med symboler** (fasta först, max `MAX_FASTA`=6, resten efter mest använt — `noteraAnvandning`); Högstubbe/Evighetsträd (`PILL_SYMBOLER`, finns i pillen) och mätverktyg/Rita/lager (finns i Alla) hamnar aldrig där och går inte att fästa. Standardordning Fuktig mark, Brant, Kulturminne, Avlägg, Vindfälle, Manuell fällning. Håll fingret på en symbol → "Fast i dockan" / "Lossa". Sparas per maskin i localStorage `korvy_plusrad_v1:<maskin_id>` (en äldre sparad rad med lager/mät som fasta kastas tyst). **"Alla"** (ett ark, med skugga) = alla symboler, Rita linje/yta, Mät sträcka/yta och alla lager (växlar); **Fler val ›** öppnar den gamla plusmenyn så inget försvinner (Avsluta körvy/objekt, Byt objekt …). Mjuk ut-animation ur plusknappen (`transformOrigin: right bottom`, `RORELSE.byte`).
+- **Placera symbol**: välj → dockan stängs, smal list "Tryck där <symbol> ska stå · Vid maskinen · ×" (≤ 72 px, ovanför plus-knappen) → tryck på kartan. **Håll fingret på kartan** (`lib/langtryck.ts`, 500 ms, avbryts av rörelse/nyp/symbol/annat läge) → dockan öppnas och vald symbol hamnar där fingret var. Allt en förare satt själv i sessionen går att dra efteråt. Inget hårkors.
+- **Mät/rita** (`lib/geoMat.ts`, `lib/sparSom.ts`) — SAMMA i körvyn och planeringen (planeringens gamla mitt-panel, "Rensa" och låsta chip är borttagna): direkt tryck, **pekaren är ett kors** medan man mäter (klassen `mat-kors` på kartans container, `cursor: crosshair !important`), punkter + linjer + fylld yta syns live, längd/area som etikett i figuren (decimalkomma: "1,36 km", "0,89 ha"), smal list nertill (≤ 72 px, täcker inte kartan ovanför) "579 m · Ångra · Klar · ×" med en STOR GRÖN Klar. **Tryck på första punkten igen → ytan stängs och är klar; dubbeltryck på sista punkten (< 0,7 s) → sträckan är klar**; ett enkeltryck på sista punkten sätter ingen ny punkt (träffradie 28 px). **Klar → "Spara som…"** (yta: Blött, Hänsyn, Brant, Yta · linje: Stickväg, Linje) sparas som VANLIG markering med planeringens form och spar-kod (synlig för alla på objektet). Kasta (×) är lokalt. Mappningen (`SPARA_SOM`, bekräftad av Martin 2026-10-06): Blött→zon `wet` (Fuktig mark), Brant→zon `steep`, Hänsyn→zon `protected` (skyddad zon), Stickväg→`sideRoadRed` (standardfärg = appens förvalda röd; en gul/blå stickväg ritas via Stickväg-flödet i planeringen), Linje→`trail` (vanlig linje), Yta→eget område.
+- **Etiketten i figuren är en BILD** (`lib/figurEtikettBild.ts`): pillen i appens typsnitt ritas på en canvas → `map.addImage` → symbollager `figur-etikett`, så den ser likadan ut på alla enheter och sitter i figuren även i 3D-terräng. En HTML-`Marker` var provad och avfärdad: den räknar sin plats separat från kartlagren och hamnade 330 px fel medan höjddata laddade. **Textlager fungerar annars:** kartstilen har ingen `glyphs`-URL (`getStyle().glyphs` är null) men MapLibre 5 ritar text med enhetens egna typsnitt — kontrollerat 2026-10-06 i den riktiga motorn: siffror, bokstäver och åäö syns i alla nio textlager (`zone-label`, `line-mainroad-label`, `trakt-hansyn-label`, `trakt-punkt-label`, `yta-nr-label`, `hornedit-nr`, `markers-korvy-label`, `grot-label`, `hogar-cluster-label`; de två sista och `markers-korvy-label` har `visibility: none` tills sina lager slås på). Typsnittet blir då enhetens sans-serif, inte "Open Sans" som lagren ber om.
+- **Ytnummer** (`numreraObjekt` i `lib/traktGeometri.ts`): en ensam yta får ingen siffra (den ÄR trakten) men "ensam" räknas på HELA objektet — en Vida-yta + ett nyritat område är två ytor och får 1 och 2. Felet 2026-10-06 (Östra-Höka: 1 traktdel, inga hänsyn): regeln räknade bitar och egna områden var för sig, så båda siffrorna försvann. Låst av `lib/traktGeometri.numrering.test.ts`.
+- **FALLGROP: körvyns lager-whitelist.** I körvyn döljs ALLA lager som inte börjar på ett prefix i `KEEP_PREFIX` (page.tsx). Ett nytt lager som ska synas i körvyn MÅSTE in där — annars ligger datan i källan (alla källtester gröna) men ritas aldrig. `measure-` och `figur-etikett` saknades först; testselens skärmbild avslöjade det. `lib/korvyMeny.test.ts` vaktar nu figurens och prickarnas lager.
 
 ---
 
@@ -258,6 +301,24 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 
 ---
 
+### Maskindator-start: löpande avstämning mot GPS-positionen (`lib/objektAvstamning.ts`, `lib/objektKandidater.ts`)
+
+Fältfel (Oskar, Rottne, R64428, 2026-10-07): appen startade på senast valda objekt (Älmehult) men maskinen stod i Trestensdal och loggade 377 hyttspårspunkter på fel objekt i 4 timmar. Traktgränserna fanns och överlappade inte — **felet var flödet**, inte datan: avstämningen ("A4") gjorde EN utvärdering mot första fixen och stängdes sedan av, och kandidatladdningen räknade ett fel/tomt svar som "laddat".
+
+- **Regel: en färsk, giltig fix inne i ett annat objekts traktgräns ska ALLTID leda till byte (tilldelat) eller bekräftelsekortet (ej tilldelat) inom en minut, oavsett vad enheten minns och hur starten gick.** `stegaAvstamning` körs på VARJE fix (inte en gång): står maskinen inne i det öppna objektet → inget; annars gäller `valjObjektForPosition` bland kandidaterna; samma annat objekt ska vara träff i `AVSTAMNING_HALL_MS` (10 s) och `AVSTAMNING_MIN_FIXAR` (3) fixar i följd (annars är det GPS-fladder vid en gräns). Tilldelat denna maskin → byte med notis; annars kortet "Börja avverka/skota här?". Redan frågat om objektet → **aldrig** en ny fråga och aldrig tyst överstyrning av ett avböjt kort.
+- **Kandidaterna (planerad/pågående + `objekt_geometri`) räknas bara som laddade vid ett svar UTAN fel och MED geometri.** `supabase-js` kastar inte — den returnerar `{ data: null, error }`; och `objekt_geometri` har RLS (bara `authenticated`), så en utgången/utloggad session ger **tomma rader utan fel** medan `objekt` svarar som vanligt → alla kandidater får `geometri: null` och ingen träff blir någonsin möjlig. `startaKandidatLaddning` har tidsgräns per försök (20 s), backoff 3→6→12→30→60 s och laddar om var 5:e minut. `maskindatorGeoKlar` sätts bara vid `ok`. **Ny kod som läser objekt + geometri för positionsval ska gå via den, aldrig en engångs-`.catch(() => [])`.**
+- Testfliken (`testlageAktivRef`) kör aldrig avstämningen. Roll alltid ur maskinregistret (`enhetRollRef`). Fixturen `lib/__fixtures__/trestensdal_almehult_2026-10-07.json` är Oskars riktiga punkter + de nio kandidaternas traktgränser (prod, read-only).
+- **Observation, ej ändrad:** kandidaterna filtreras på `status in (planerad, pagaende)`. Ett objekt i status `skotning` (giltig enligt CHECK) är aldrig kandidat — en skotare som står i ett sådant objekt matchas inte mot det.
+
+### Hyttspår: RITNINGEN är utjämnad, DATAN är rå (`lib/sparJamning.ts`, `lib/sparStil.ts`)
+
+Skördarnas spår såg hackiga ut: maskinen kör sakta (1–3 m steg) eller står still medan den avverkar, och GPS-bruset (1–2 m) är lika stort som stegen. Mätt på Trestensdal 2026-10-08 (R64428): mediansteg 2,1 m, 81 % av stegen under 4 m, 33 s mellan punkterna.
+
+- **Bara ritningen.** `hyttsparRitadeLinjer(points)` (= `hyttsparTillLinjer` + `jamnaSpar`) används på exakt fyra ställen i `page.tsx`: live eget spår, tidigare dagar, den andres spår, planeringens `planspar-*`. **Allt som sparas (`hyttspar_append`, `hyttsparPointsRef`) och allt som räknas (avverkad areal `avverkadAreaM2`, skotarens stråkunderlag) använder RÅDATA via `hyttsparTillLinjer` — använd aldrig `hyttsparRitadeLinjer`/`jamnaSpar` till en beräkning.** Utjämnat spår är ~40 % kortare (bruset räknas bort) och därmed fel som mått. Låst av `lib/sparRitning.vakter.test.ts`.
+- **Kedjan** (konstanter överst i filen): spik bort (steg > 8 m dit OCH tillbaka där grannarna ligger < 4 m, eller < halva steget, isär) → hoppa över punkter < 4 m från senast ritade → fyll i så inget steg > 4 m (**de sparade punkterna är RDP-gallrade och glesa längs raka vägar — ett medelvärde över 5 PUNKTER spänner då hundratals meter och skär av varje hörn; med ≤ 4 m mellan punkterna blir 5 punkter ±8 m längs vägen**) → glidande medel över 5 → svängar hittas på det utjämnade spåret och låses → Douglas-Peucker 1,5 m per stycke. Första och sista punkten är ordagrant originalet (linjen når maskinen live). Kostar ~0,5 ms per omritning för ett helt dagspass.
+- **Svängar:** detektorn mäter vinkeln mot punkter ≥ 14 m bort (kortare bas räknar bruset som sväng — medianvinkeln på 8 m bas är redan 31–49°) på det UTJÄMNADE spåret, så låsningen slår till först kring 25–30°; svängar på 20–25° bevaras av Douglas-Peucker så länge benen är ≳ 9 m, 10–15° rätas ut. Ett glest hörn (RDP-gallrat) ligger kvar exakt. Det som är kvar av GPS-driften (±3–4 m, våglängd 20–40 m, syns längs Stefans stråk) är verklig positionsspridning — vill man ha rakare höj `SPAR_TOLERANS_M`.
+- **Stilen** bor i `lib/sparStil.ts` (en källa för körvyns egen/hist/andras och planeringens lager): **skördarens linje är alltid jämn 3 px, full färg (opacitet 1), ljus casing 5,5 px, i ALLA lager — även tidigare dagar och som "den andres" spår i skotarens körvy (skotaren följer stråken)**; skotarens linje är som förut (zoom-bredd, eget 0,95, historik smalare, den andres 0,55). Rolleffekten i `page.tsx` sätter färg, bredd och opacitet per lager ur `sparStil`.
+
 ## Verifiering — fallgropar som ger falskt godkant
 
 ### tsc i en ny worktree ljuger
@@ -288,24 +349,48 @@ att ha kort ar samma sak som ett verktyg som ljuger.** Kontrollera att det
 faktiskt kordes innan du litar pa nollan. Se ocksa STATUS.md om
 pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av samma familj.
 
+### Rendera innan leverans — hooks och nya lägen
+`tsc`, design-lint och tester fångar INTE hook-ordning. 2026-10-02 kraschade hela arbetsrapporten (React #310) eftersom en `useEffect` lagts efter `if(!medarbetare) return` — allt var grönt, sidan gick inte att öppna. Regel: **hooks ligger ALLTID före tidiga returer** i en komponent, och en ändring som lägger till hooks eller ett nytt läge (`steg`) i en stor vy ska köras genom en rendering innan PR:en rapporteras klar.
+
+- `components/arbetsrapport/Arbetsrapport.render.test.tsx` monterar hela Arbetsrapport (jsdom, kedjebar supabase-fake, ingen inloggning) genom övergången ingen medarbetare → inläst och faller på "Rendered more/fewer hooks". Verifierat rött på den kraschande versionen, grönt på rättningen. Kör: `npx vitest run components/arbetsrapport/Arbetsrapport.render.test.tsx`.
+- Ny vy med egna lägen: kopiera mönstret (en monterings-test per läge) eller gör en tillfällig testsida med påhittad data. Skriv aldrig "inte renderat" i en PR-text som levererad kontroll — antingen renderades den eller så står det som en öppen risk överst.
+
 ## Repo
 - GitHub: kompersmalaskog/skogsystem
-- Vercel bygger automatiskt vid push till main
+- Vercel: push till `main` bygger PREVIEW, produktion uppdateras bara när `production`-branchen förs fram (se Deploy-flöde). Production-branch = `production`.
 - Rätt repo: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude
 - OneDrive-mapp: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer
 - Filtyper: MOM, HPR, HQC, FPR — aldrig PRL
 
 ## Deploy-flöde
 
-**Default: feature-branch + PR.** Claude commitar på en egen branch och pushar. Martin granskar Vercel-preview, mergear PR:en själv. Detta är standardflödet för alla planerade ändringar — UI, refactors, nya features, bugfixar.
+**Produktion är gated (sedan 2026-09-29).** `main` är integrationsbranch — varje merge bygger PREVIEW, inte produktion. Förarna får en ändring först när Martin för fram `production`-branchen. Poängen: skilja *merga* (integrera, granska preview) från *släppa* (förarna får det), så ändringar kan samlas och släppas när Martin bestämmer — helst när förarna inte sitter mitt i (kväll/helg).
 
-**Hot-fix-undantag: direkt till main.** När prod är trasig och förare inte kan jobba — skippa PR-flödet, commita direkt till main. Hot-fix definieras som "förarna kan inte använda appen just nu". Allt annat är planerad ändring och ska gå via PR.
+**Default: feature-branch + PR till `main`.** Claude commitar på en egen branch och pushar. Martin granskar Vercel-preview, mergear PR:en till `main` själv. Standardflöde för alla planerade ändringar — UI, refactors, features, bugfixar. Detta når INTE förarna förrän `production` förs fram.
+
+**Släppa till produktion** (Martin gör det):
+```bash
+node scripts/vad-slapps.mjs        # visa vad som släpps + ev. migrationer FÖRST
+git checkout production && git merge --ff-only main && git push
+```
+Rollback: Vercel dashboard → Instant Rollback till förra prod-bygget.
+
+**Migrationer — den enda riktiga risken med gaten** (kod och schema kan glida isär utan att någon ser det):
+1. **Varje PR som kräver en migration ska säga det uttryckligen i beskrivningen, med filnamnet** (t.ex. `supabase/migrations/20260908_...sql`).
+2. **Migrationer körs FÖRE production förs fram, aldrig efter.** De är additiva (`ADD COLUMN IF NOT EXISTS`), så tidigt är alltid säkert — kör dem så snart PR:en mergats till main.
+3. **Innan production förs fram: lista migrationerna som tillkommit i main sedan förra releasen** så Martin kan bekräfta att de är körda. `node scripts/vad-slapps.mjs` gör det (commits + migrationer i `origin/production..origin/main`); rått: `git diff --name-only origin/production..origin/main -- supabase/migrations/`.
+
+**Hot-fix-undantag: fixa på `main`, för fram `production` direkt.** När prod är trasig och förare inte kan jobba — gaten får inte stå i vägen. Primärvägen är samma som en release men gjord med en gång: committa fixen till `main` (direkt eller via snabb-PR), kör sedan `git checkout production && git merge --ff-only main && git push`. Då förblir `production` en ren fast-forward av `main`. Bara om `main` av någon anledning är oanvändbar: committa till `production`, och **merga sedan tillbaka `production` → `main`** så de inte glider isär (annars slutar `--ff-only` fungera vid nästa release). En hot-fix som bara ligger i `main` men inte förts fram hjälper ingen förare. "Hot-fix" = "förarna kan inte använda appen just nu"; allt annat väntar på nästa release.
 
 **Branch-namn ska beskriva vad som ändras.** Exempel: `arbetsrapport-dag-stadrunda`, `fix-hpr-import-dedup`, `add-helikopter-v2`. Inte de auto-genererade `claude/optimistic-elion-904505`-namnen från worktree-systemet — om worktreen ger ett sådant, byt branch-namn innan första push.
 
 ## Arbetsregler — LÄS
 
 **En vy, en session.** Innan arbete påbörjas i en vy: kolla `git worktree list` och öppna PR:ar (`gh pr list`). Pågår redan arbete i samma vy från en annan branch — stanna och fråga Martin i stället för att bygga parallellt. Två sessioner i samma fil ger merge-konflikter, dubbelarbete och PR:ar som specas mot ett läge som redan hunnit ändras.
+
+**En vy ägs av ett spår.** Med flera parallella chattar som bygger i samma app får en vy bara byggas ut av det spår som äger den. Behöver ett annat spår något i vyn (ett fält, ett kort, en ingång) går det via ägaren — beskriv behovet, låt ägarspåret avgöra var och hur — aldrig förbi. Incident 2026-09-24: helikopter-spåret behövde lass per dag för JD810E och löste det med ett lasskort i arbetsrapportens dagsvy "eftersom föraren är där varje dag". Rimligt i stunden, fel plats i längden: arbetsrapporten handlar om TID (timmar, km, frånvaro, lön), lass är PRODUKTION. Kortet togs bort 2026-09-26 och ingången byggs om i planeringsvyn av det spåret. Testet: skulle vyns ägare ha lagt det här? Om svaret är nej hör det inte hit, oavsett hur bekvämt det är att föraren råkar stå där.
+
+**EN tung körning åt gången — aldrig typkontroll, tester eller bygge i flera worktrees samtidigt.** `tsc`, `vitest` och `next build` tar var sitt par hundra MB till över en GB. Körs de parallellt (flera worktrees, eller en körning medan en annan pågår i bakgrunden) går minnet mot taket — 94 % 2026-10-04, då hela datorn blev seg och testerna fick timeouts som inte var fel i koden. Gör så här: starta en tung process, **vänta tills den är klar**, starta nästa. Avsluta dev-servrar, testprocesser och headless-webbläsare när de är klara (`Get-CimInstance Win32_Process` och filtrera på `vitest|tsc|--headless|next`); rör aldrig importens watchdog eller MCP-servrarna. **Under arbete:** kör bara tester och `tsc` för filer som ändrats (`vitest run <sökväg>`). **Hela sviten och en full tsc-jämförelse mot main körs EN gång, precis före push.** En ny worktree behöver `npm ci` (tungt) — ta bort worktreen när PR:en är mergad.
 
 **Aldrig bar `git stash` i detta repo — använd WIP-commit.** Stash-stacken är delad per *repository*, inte per worktree, och flera sessioner arbetar parallellt i samma repo (~45 worktrees). En `git stash pop` kan plocka en ANNAN sessions stash. Behöver du gömma undan ändringar temporärt: gör en **WIP-commit** på den egna branchen i stället (`git commit -m "wip"`, ångra sedan med `git reset HEAD~1`). Ska du mäta tsc-baseline mot main: gör det i en **egen worktree på origin/main**, aldrig genom att stasha bort ditt arbete. Incident 2026-07-22: `stash push` + `stash pop` runt en tsc-körning i en worktree drog in en annan sessions ocommittade arbete (tilldelad skotare + uppföljning) i fel commit — den andra sessionens arbete försvann ur dess checkout och fick räddas som stash `de613e6d` + patch-fil. Måste stash ändå användas: `git stash push -u -m "<unik-tagg>"`, fånga SHA direkt via `git stash list --format='%H %gs'`, återställ med `git stash apply <sha>` — aldrig `pop`.
 
@@ -315,6 +400,17 @@ pagineringsbuggen, dar ett testverktyg gav 8 falsklarm av samma familj.
 
 1. **Pusha ALDRIG till en PR utan att först kolla att den fortfarande är öppen** — `gh pr view <nr> --json state`. Är den `MERGED`: öppna en NY PR för commiten. Pusha aldrig till den stängda grenen — det bygger en preview som ser rätt ut men aldrig landar i main.
 2. **Efter varje merge Martin gör: verifiera på INNEHÅLL att ändringen finns i `origin/main`** — `git fetch` + grep efter en unik markör ur diffen (`git show origin/main:<fil> | grep <markör>`), aldrig på PR-status. "Merged" betyder inte "levererad": squashen kan ha tagit bara en delmängd av commitsen (#268 tog 1 av 2 — den data-drivna korta-stopp-fixen tappades och fick återlandas i #274).
+
+**Staplade PR:ar: base är ALLTID `main` innan något mergas.** Två gånger i rad (2026-10-08) hamnade en PR i en annan grens base: #721 mergades in i `admin-design-skal` (redan squash-mergad som #719) och #724 in i `admin-ny-medarbetare`. De blev "mergade" men nådde aldrig main — ett helt flöde (Ny medarbetare, hempunktskartan, Fortnox-kontrollen, löneartskoderna) saknades i produktion tills det återlandades i en ny PR. Regler, utan undantag:
+
+1. **En PR vars base är en annan gren än `main` får aldrig mergas.** Innan merge: `gh pr view <nr> --json baseRefName` ska säga `main`. Säger den något annat: sätt om basen (`gh pr edit <nr> --base main`) eller, om den grenen redan squash-mergats, gör en NY gren från `origin/main` och plocka bara de commits som inte redan finns där (`git cherry origin/main <gren>`).
+2. **Bygger en PR på en annan, skriv det överst i PR-texten:** "Bygger på #<nr> — merga #<nr> först, sätt sedan om basen till main." Och säg det till Martin i klartext när PR:arna levereras, med merge-ordningen.
+3. **Staplad PR efter att basen mergats:** rebasa på `origin/main` med `git rebase --onto origin/main <gammal-bas> <gren>`, sätt basen till `main`, och verifiera på innehåll att en markör ur diffen saknas i main innan den mergas.
+
+**Städa efter dig — städning hör till att vara klar, inte till att städa senare.**
+
+1. **PR mergad: ta bort arbetsträdet och dess `node_modules`.** Koppla loss junctions FÖRE borttagningen — en junction som följs vid en borttagning tömmer målet, och det har hänt minst tre gånger. Ta bort länken (`cmd /c rmdir <länk>` tar bara länken), kontrollera att den är borta och att målet är intakt, och först därefter `git worktree remove`. Kedja aldrig ihop stegen och använd inte `--force`.
+2. **Körning klar: avsluta riggen och radera dess profil** (headless Edge och dess `edge-profil-*`-katalog).
 
 **En manuell km-rättning måste sätta `km_kalla='forare'`, annars är den inte skyddad.** Gäller SQL i prod lika mycket som appen. `arbetsdag.km_kalla` är sedan 2026-09-09 det ENDA skyddet mot att nattjobbet och beräkna-vid-öppning fyller en km-nolla (vakten på `redigerad` är borttagen — `redigerad` betyder att tiderna rättats, inte km). Dalarna-dagarna nollades via SQL i augusti 2026 innan fältet fanns: 30 av 106 hade fyllts på nytt (1 244 km/dag, 3 730 mil i löneunderlaget) innan det upptäcktes. Vakten skyddar bara det som faktiskt är märkt. `npx tsx scripts/km-nattjobb-torrkorning.ts` visar vad nattjobbet skulle skriva utan att röra något.
 

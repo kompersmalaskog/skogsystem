@@ -16,7 +16,7 @@ const ORSAKER = [
 type Orsak = (typeof ORSAKER)[number]['varde'];
 
 /**
- * "Lägg till stopp" — bara för godkännare (chef/admin); RLS spärrar ändå
+ * "Lägg till stopp" — bara för godkännare (admin); RLS spärrar ändå
  * skrivningen för alla andra. "Alla maskiner" expanderas VID SPARNING till
  * de aktiva maskin_id:na och skrivs som explicita stopp_maskin-rader, så
  * historiska stopp fryser rätt maskinuppsättning.

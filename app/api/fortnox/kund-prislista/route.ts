@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     }
     const { data: med } = await authClient
       .from("medarbetare").select("roll").eq("epost", user.email).single();
-    if (!med || (med.roll !== "admin" && med.roll !== "chef")) {
+    if (!med || (med.roll !== "admin")) {
       return NextResponse.json({ ok: false, meddelande: "Kräver admin-roll" }, { status: 403 });
     }
 

@@ -20,7 +20,7 @@
 
 import { useState, type ReactNode } from "react";
 import { TYP, VIKT, IKON, AVSTAND, RADIE, FARG, KNAPP, TRAFFYTA, TNUM, INAKTIV } from "@/lib/design/tokens";
-import { AKTIVITETER, EXTRA_ARBETE_TYPER, type AktivitetTyp } from "@/lib/aktiviteter";
+import { AKTIVITETER, EXTRA_ARBETE_TYPER, objektKravs, type AktivitetTyp } from "@/lib/aktiviteter";
 import { klassificeraPeriod, periodMin, type PeriodLage } from "@/lib/dagsegment";
 
 export type PeriodVarden = {
@@ -51,6 +51,12 @@ type Props = {
   objektNamn?: string | null;
   /** Renderar objektväljaren (föräldern äger ObjektValjarLista). */
   renderObjektValjare?: (valtId: string | null, onValj: (id: string | null) => void, stang: () => void) => ReactNode;
+  /** KEDJAN: perioder som redan sparats i den här omgången ("07:00–12:00 Planering · Rössmåla").
+   *  Föräldern öppnar formuläret igen efter Spara med Från = föregående Till — tiden
+   *  är KÄND, inte gissad. Tre trakter blir en handling i stället för tre. */
+  sparade?: string[];
+  /** "Klar" — stänger kedjan. Tertiär under Spara, så ingen fastnar i en loop. */
+  onKlar?: () => void;
 };
 
 const fmtMin = (m: number) => {
@@ -69,7 +75,13 @@ export default function PeriodForm(p: Props) {
     ? klassificeraPeriod({ start: v.start, slut: v.slut }, p.pass)
     : null;
   const korsar = lage === 'korsar';
-  const kanSpara = !!v.start && !!v.slut && min > 0 && !korsar && !p.sparar;
+  // TRAKTEN FÖRST och obligatorisk för planering/manuellt (lib/aktiviteter
+  // OBJEKT_KRAVS): 0 av 12 perioder sedan aug 2026 hade objekt när väljaren
+  // låg bakom ett tryck — och en planeringstimme utan trakt går varken att
+  // följa upp eller fakturera. Valfri för service, restid, utbildning m.fl.
+  const traktKravs = objektKravs(v.typ);
+  const traktSaknas = traktKravs && !v.objektId;
+  const kanSpara = !!v.start && !!v.slut && min > 0 && !korsar && !traktSaknas && !p.sparar;
 
   const falt = (etikett: string, barn: ReactNode) => (
     <label style={{ flex: 1, minWidth: 0 }}>
@@ -95,6 +107,38 @@ export default function PeriodForm(p: Props) {
           <button onClick={p.onAvbryt} style={KNAPP.lank}>Avbryt</button>
         </div>
         {p.datumText && <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{p.datumText}</p>}
+        {/* Kedjan: det som redan är sparat i omgången, dämpat — så man ser var man är. */}
+        {!!p.sparade?.length && (
+          <div style={{ marginTop: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, background: FARG.upphojt, borderRadius: RADIE.rad }}>
+            {p.sparade.map((s, i) => (
+              <p key={i} style={{ margin: 0, ...TYP.meta, ...TNUM, color: FARG.text2, display: "flex", alignItems: "center", gap: AVSTAND.xs }}>
+                <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.gron }}>check</span>
+                Sparat: {s}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* TRAKTEN FÖRST — synlig utan att leta. Förifylld av föräldern med
+            dagens objekt när dagen har ett. Orange text när den krävs och saknas;
+            färgen bär aldrig ensam, orden står där. */}
+        {p.renderObjektValjare && (
+          <button onClick={() => setValjerObjekt(true)}
+            style={{ ...KNAPP.sekundar, display: "flex", width: "100%", justifyContent: "space-between", marginTop: AVSTAND.l, padding: `0 ${AVSTAND.m}px`, ...TYP.text, color: FARG.text }}>
+            <span style={{ display: "flex", alignItems: "center", gap: AVSTAND.s, minWidth: 0 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: IKON.rad, color: v.objektId ? FARG.text : traktSaknas ? FARG.orange : FARG.text2 }}>forest</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: v.objektId ? FARG.text : traktSaknas ? FARG.orange : FARG.text2 }}>
+                {p.objektNamn || (traktKravs ? "Välj trakt" : "Trakt (valfritt)")}
+              </span>
+            </span>
+            <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3, flexShrink: 0 }}>chevron_right</span>
+          </button>
+        )}
+        {traktSaknas && p.renderObjektValjare && (
+          <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.orange }}>
+            Trakt krävs för {AKTIVITETER.find(a => a.typ === v.typ)?.label.toLowerCase() || "den här aktiviteten"} — annars går tiden inte att följa upp eller fakturera
+          </p>
+        )}
 
         {/* Två klockslag. Sluttid tom = "sluttid saknas" (föräldralös post som ska rättas). */}
         <div style={{ display: "flex", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
@@ -131,21 +175,9 @@ export default function PeriodForm(p: Props) {
           })}
         </div>
 
-        {/* Objekt (valfritt) */}
-        {p.renderObjektValjare && (
-          <button onClick={() => setValjerObjekt(true)}
-            style={{ ...KNAPP.tertiar, display: "flex", width: "100%", justifyContent: "space-between", marginTop: AVSTAND.m, ...TYP.text, color: FARG.text }}>
-            <span>Objekt</span>
-            <span style={{ display: "flex", alignItems: "center", gap: AVSTAND.xs, minWidth: 0 }}>
-              <span style={{ ...TYP.meta, color: FARG.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.objektNamn || "Valfritt"}</span>
-              <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3 }}>chevron_right</span>
-            </span>
-          </button>
-        )}
-
         {/* Faktureras */}
         <button onClick={() => p.onAndra({ ...v, deb: !v.deb })}
-          style={{ ...KNAPP.tertiar, display: "flex", width: "100%", justifyContent: "space-between", ...TYP.text, color: FARG.text }}>
+          style={{ ...KNAPP.tertiar, display: "flex", width: "100%", justifyContent: "space-between", marginTop: AVSTAND.m, ...TYP.text, color: FARG.text }}>
           <span>Ska faktureras</span>
           <span style={{ display: "flex", alignItems: "center", gap: AVSTAND.xs }}>
             <span style={{ ...TYP.meta, color: v.deb ? FARG.text : FARG.text2 }}>{v.deb ? "Ja" : "Nej"}</span>
@@ -162,6 +194,12 @@ export default function PeriodForm(p: Props) {
         <button onClick={() => { if (kanSpara) p.onSpara(); }} style={{ ...KNAPP.primar, marginTop: AVSTAND.l, ...(kanSpara ? {} : INAKTIV) }}>
           {p.sparar ? "Sparar…" : "Spara"}
         </button>
+        {/* Kedjans utgång — tertiär, aldrig automatisk stängning. */}
+        {p.onKlar && !!p.sparade?.length && (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: AVSTAND.s }}>
+            <button onClick={p.onKlar} style={KNAPP.tertiar}>Klar</button>
+          </div>
+        )}
 
         {/* Ta bort — synligt tvåstegsval, ingen window.confirm. */}
         {p.onTaBort && (bekraftaBort ? (
@@ -189,7 +227,7 @@ export default function PeriodForm(p: Props) {
           <div onClick={e => e.stopPropagation()} className="sheet-upp"
             style={{ width: "100%", maxWidth: 520, background: FARG.kort, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
             <div style={{ padding: `${AVSTAND.l}px`, borderBottom: `1px solid ${FARG.linje}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>Välj objekt</h3>
+              <h3 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>Välj trakt</h3>
               <button onClick={() => setValjerObjekt(false)} style={KNAPP.lank}>Avbryt</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto" }}>

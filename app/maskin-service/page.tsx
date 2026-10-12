@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+import { maskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from '@/lib/maskinNamn';
 
 interface Maskin {
   id: string;
@@ -30,8 +31,15 @@ export default function MaskinServicePage() {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const { data: m } = await supabase.from('maskiner').select('*').eq('aktiv', true).order('namn');
-    setMaskiner(m || []);
+    // `maskiner` bär service-loggens nyckel (id) och aktiv-flaggan; NAMNET kommer
+    // ur dim_maskin.visningsnamn (lib/maskinNamn) — en källa i hela appen.
+    const [{ data: m }, { data: dim }] = await Promise.all([
+      supabase.from('maskiner').select('*').eq('aktiv', true),
+      supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER),
+    ]);
+    const namn = maskinNamnMap(dim || []);
+    setMaskiner(((m || []) as Maskin[]).map(x => ({ ...x, namn: namn[x.maskin_id] || x.namn || x.maskin_id }))
+      .sort((a, b) => a.namn.localeCompare(b.namn, 'sv')));
     setLoading(false);
   }, []);
 

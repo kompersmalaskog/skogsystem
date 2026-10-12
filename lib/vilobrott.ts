@@ -11,17 +11,57 @@
  * Filen är fri från Supabase-imports — ren logik som är testbar utan DB.
  * Storage-lagret (hämta trösklar, spara brott) ligger i lib/vilobrott-storage.ts.
  *
+ * Importen från lib/dagsegment är ren (ingen I/O) — perioddagens spann.
+ *
  * OBS: dygnsvila_varning_h (orange "kort vila"-tröskel, default 12h) påverkar
  * INTE brott-detektering — det är ingen lagöverträdelse, bara en varningszon.
  * UI läser den direkt från gs_avtal för att färga viloperioder mellan
  * krav_h och varning_h.
  */
 
+import { perioddagSpann } from "@/lib/dagsegment";
+
 export type Arbetsdag = {
   datum: string;       // YYYY-MM-DD
   start_tid?: string | null;  // HH:MM eller HH:MM:SS
   slut_tid?: string | null;
 };
+
+/**
+ * PERIODDAGEN I VILOTIDEN. Arbetstidslagen gäller ALL arbetstid, inte bara
+ * maskintid. En dag utan pass (Joacims planering: raden saknar klockslag,
+ * tiden bor i extra_tid-perioderna) föll förut helt ur analysen — tolv
+ * timmar om dagen sju dagar i rad upptäcktes inte. Här får varje dag utan
+ * klockslag sitt spann ur perioderna (första start → SISTA slut; glappen
+ * emellan är inte vila), och datum som bara har perioder men ingen rad alls
+ * (extra tid före skalraden, 2026-09-26) blir egna dagar. Rader som redan
+ * har klockslag rörs inte: passet är passet, morgon-/kvällsperioder utanför
+ * det täcks av dygnsvilans mått mellan dagar. Ren funktion, ingen I/O —
+ * anroparen hämtar perioderna (extra_tid: datum, start_tid, slut_tid).
+ */
+export function medPerioddagSpann<T extends Arbetsdag>(
+  dagar: T[],
+  perioder: { datum: string; start_tid: string | null; slut_tid: string | null }[],
+): (T | Arbetsdag)[] {
+  const perDatum = new Map<string, { start_tid: string | null; slut_tid: string | null }[]>();
+  for (const p of perioder) {
+    if (!p.datum || !p.start_tid || !p.slut_tid) continue;
+    if (!perDatum.has(p.datum)) perDatum.set(p.datum, []);
+    perDatum.get(p.datum)!.push(p);
+  }
+  const ut: (T | Arbetsdag)[] = dagar.map(d => {
+    if (d.start_tid && d.slut_tid) return d;
+    const spann = perioddagSpann(perDatum.get(d.datum) || []);
+    return spann ? { ...d, start_tid: spann.start_tid, slut_tid: spann.slut_tid } : d;
+  });
+  const harRad = new Set(dagar.map(d => d.datum));
+  for (const [datum, rader] of Array.from(perDatum.entries())) {
+    if (harRad.has(datum)) continue;
+    const spann = perioddagSpann(rader);
+    if (spann) ut.push({ datum, start_tid: spann.start_tid, slut_tid: spann.slut_tid });
+  }
+  return ut;
+}
 
 export type VilaTrosklar = {
   dygnsvila_krav_h: number;            // Default 11 enligt §13
@@ -49,6 +89,19 @@ export type Vilobrott = {
   krav_h: number;       // kravet som överträddes (från trosklar)
   beskrivning: string;
 };
+
+/**
+ * Rimlighetskontroll för visning (Martin 2026-10-05): ett vilobrott med 0 h vila är
+ * aldrig ett riktigt brott. Två pass med ett gap har alltid mer än 0 h mellan sig; 0 h
+ * kommer av för lite underlag (raderade dagar) eller av äldre analyskod. Det är ett
+ * tecken på gammal data, och föraren ska aldrig få frågan "Varför bröts vilan?" på det.
+ * Okänd vila (null) släpps inte igenom heller. Gäller bara VISNING och frågor;
+ * raderingen av stale rader sköter re-analysen (lib/vilobrott-storage).
+ */
+export function arTroligtVilobrott(b: { typ: string; vila_h: number | string | null | undefined }): boolean {
+  const h = Number(b.vila_h);
+  return Number.isFinite(h) && h > 0;
+}
 
 function tidTillTimmar(t: string): { h: number; m: number } | null {
   const m = t.match(/^(\d{2}):(\d{2})/);
@@ -262,7 +315,13 @@ export function analyseraVilobrott(
   };
 
   for (const r of dagliga) {
-    if (r.max_h < trosklar.veckovila_krav_h) {
+    // 0 h betyder att fönstret inte har något mätbart gap alls (ett enda pass i
+    // underlaget, eller bara en kant av fönstret) — inte att föraren fick 0 h vila.
+    // Vila före första och efter sista passet räknas inte (se maxGap), så utan två pass
+    // finns ingenting att bedöma. Förr blev det "Mellan 29 sep och 29 sep hade du som
+    // mest 0 h" (Martin 2026-10-05, efter att testdata raderats och ETT pass blev kvar).
+    // Okänd vila är inget brott, och bryter därför en pågående stretch: den slås inte ihop.
+    if (r.max_h > 0 && r.max_h < trosklar.veckovila_krav_h) {
       if (!runStart) { runStart = r; runMin = r.max_h; runEnd = r.datum; }
       else { runMin = Math.min(runMin, r.max_h); runEnd = r.datum; }
     } else if (runStart) {

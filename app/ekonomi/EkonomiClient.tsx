@@ -27,6 +27,7 @@ import {
 import { type PeriodType, getPeriodDates, fetchAllRows } from '@/lib/ekonomi/period';
 import { skotningsavstandM } from '@/lib/skotningsavstand';
 import { prisPerM3 } from '@/lib/ekonomi/prisPerM3';
+import { medForestlink } from '@/lib/ekonomi/forestlink';
 import {
   EkonomiSida, Periodvaxlare, Hero, MetaRad, Lista, ListRad,
   Laddar, FelRuta, Tomt, BARNSTEN,
@@ -120,7 +121,7 @@ export default function EkonomiClient() {
         ),
         supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
         supabase.from('dim_objekt').select('objekt_id, object_name, huvudtyp, atgard, risskotning, timpeng, skordning_avslutad, skotning_avslutad, egen_skotning, skotad_volym_manuell, medelstam_manuell, sortiment_grupper_manuell, skotavstand_manuell, terrang_kr_manuell, timpeng_undantag_timmar_skordare, timpeng_undantag_timmar_skotare, timpeng_undantag_volym, timpeng_undantag_dra_skordare, timpeng_undantag_dra_skotare'),
-        supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
+        supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ, forestlink'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
         supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
@@ -146,7 +147,8 @@ export default function EkonomiClient() {
       for (const o of (objRes.data || [])) objMap[o.objekt_id] = o;
       const maskinMap: Record<string, any> = {};
       for (const m of (maskinRes.data || [])) maskinMap[m.maskin_id] = m;
-      const timprisList: MaskinTimpris[] = timprisRes.data || [];
+      // EFFEKTIVA timpriser (bas + ForestLink) — timpeng betalas med detta pris
+      const timprisList: MaskinTimpris[] = medForestlink<MaskinTimpris>(timprisRes.data || [], maskinRes.data || []);
       const acordList: AcordPris[] = acordRes.data || [];
       const avstandList: AvstandConfig[] = (avstandRes.data || []).filter((a: any) => a.grundavstand_m != null && a.kr_per_100m != null);
       const traktBrackets: TraktBracket[] = traktRes.data || [];

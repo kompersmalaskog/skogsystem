@@ -1,33 +1,39 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { anledningGiltig, ANLEDNING_MIN_TECKEN } from "@/lib/redigeraAnledning";
+import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
-import { extraMinPerDag, arbetadTidInklExtra } from "@/lib/arbetstid";
+import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
+import TimmarGraf, { type GrafDag, type GrafManad } from "./TimmarGraf";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { ymdLokal } from "@/lib/datumLokal";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
+import { byggArbetsObjektLista } from "@/lib/arbetsobjekt";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
-import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, ARBETSDAG_MAX_MINUTER, passMinuter, passOrimlighet } from "@/lib/arbetsdagRegler";
-import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, type AktivitetTyp } from "@/lib/aktiviteter";
+import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, passMinuter } from "@/lib/arbetsdagRegler";
+import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
+import { delaKorning, korningDelarText } from "@/lib/arbetsdagKorning";
+import { tidsFragor, VILA_ORSAKER, vilaSvarText, arDagensVilobrott, type VilaOrsak } from "@/lib/dagFragor";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
-import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
-import { harledGap, valideraSegment, klassificeraPeriod, periodMin } from "@/lib/dagsegment";
+import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
+import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
+import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
 // Lön, Kalender, Redigera) använder ännu den lokala TYPE-skalan nedan och
 // rättas när de rörs.
-import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss } from "@/lib/design/tokens";
+import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss, LAYOUT, medSafeBotten } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
-import LassIdag from "./LassIdag";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
@@ -119,9 +125,11 @@ const TYPE = {
   // Utanför v6-skalan — medvetet undantag: timer-klockan på pågående pass.
   display:    { fontSize:72, fontWeight:600, letterSpacing:"-3px" },
 } satisfies Record<string, CSSProperties>;
-// Interna vy-headers (fixed/sticky) ska börja UNDER appens globala TopBar
-// (56px + safe-area, zIndex 1000) — inte på viewportens y=0 som TopBar äger.
-const HEADER_TOP = "calc(56px + env(safe-area-inset-top))";
+// Interna vy-rubriker är STICKY och fastnar under appens globala TopBar
+// (56px + safe-area, zIndex 1000). Layoutmåttet bor i tokens (LAYOUT.topbar) —
+// aldrig ett tal här, och aldrig fixed + uppmätt paddingTop: #540 bytte Min tids
+// uppmätta 126 mot AVSTAND.xxl och 92 px innehåll hamnade under flikraden.
+const HEADER_TOP = LAYOUT.topbar;
 // Sidmarginal ur tokens (16) — förr 20 här och 16 i Dag/Kalender, så innehållet
 // hoppade 4 px i sidled vid varje vybyte.
 const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" as const, width:"100%" };
@@ -132,8 +140,9 @@ const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:
 
 // BottomNavBar-höjd inkl. safe-area-padding. Scrollbara vyer behöver
 // `SCROLL_BOTTOM` som paddingBottom så sista innehållet inte skärs av navet.
+// Layoutmått (inte avstånd): navet + hemindikatorns zon på iPhone.
 const NAV_HEIGHT = 80;
-const SCROLL_BOTTOM = NAV_HEIGHT + 40;
+const SCROLL_BOTTOM = `calc(${NAV_HEIGHT + 40}px + env(safe-area-inset-bottom))`;
 
 const btn = {
   primary:   { width:"100%", height:56, padding:"0 24px", background:"#2a2a2a", color:"#fff", border:"none", borderRadius:12, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
@@ -240,7 +249,7 @@ const secHead: CSSProperties = { margin:"0 0 10px",...TYPE.micro,color:"#8e8e93"
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
-    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
+    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
@@ -566,6 +575,14 @@ export default function Arbetsrapport() {
   const [trak,  setTrak]   = useState<{summa:number}|null>(null);
   const [trakÖppen, setTrakÖppen] = useState(false);
   const [hemadress, setHemadress] = useState("");
+  // Vad den sparade hemadressen hamnade på (lib/geokod via /api/medarbetare/geokoda).
+  const [hemGeokod, setHemGeokod] = useState<{ text: string; varna: boolean } | null>(null);
+  // Inloggad men ingen medarbetare kopplad (user_id saknas → RLS ger 0 rader).
+  // Förr: evig "Laddar...". Nu: e-posten, så det går att säga vad som är fel.
+  const [medSaknas, setMedSaknas] = useState<string | null>(null);
+  // Maskinen skickar inga filer (dim_maskin.datakalla='manuell', JD810E): dagen
+  // startar INTE av sig själv — föraren måste trycka Starta arbetspass.
+  const [maskinManuell, setMaskinManuell] = useState(false);
   const [redigHem, setRedigHem] = useState("");
   const [kvAvTyp,  setKvAvTyp]  = useState(null);
   const [kvAvBesk, setKvAvBesk] = useState("");
@@ -578,6 +595,14 @@ export default function Arbetsrapport() {
   const [redKm,    setRedKm]    = useState(0);
   const [redKmBerakning, setRedKmBerakning] = useState<number|null>(null);
   const [redKmChain, setRedKmChain] = useState<{fromLabel:string;toLabel:string;km:number;source:string}[]|null>(null);
+  // Redigera hämtar dagens rad ur DATABASEN vid öppning (öppnaRedigera). Månadscachen
+  // dagData laddas asynkront per kalendermånad och får aldrig avgöra "Ingen data".
+  // redLaddar = hämtningen pågår; redLasFel = den misslyckades och cachen saknade dagen
+  // (då säger vyn det ärligt i stället för "Ingen data / Lägg till manuellt").
+  // redLasId skiljer den senaste öppningen från äldre svar som landar sent.
+  const [redLaddar, setRedLaddar] = useState(false);
+  const [redLasFel, setRedLasFel] = useState(false);
+  const redLasId = useRef(0);
   // Km-källa för den beräknade siffran: 'beraknad' = riktig vägberäkning
   // (route_cache/ORS), 'fallback' = haversine × 1,4 (fågelvägen, OSÄKER),
   // null = ej beräknat. 'saknarKoord' = något objekt saknar koordinat, då
@@ -609,12 +634,37 @@ export default function Arbetsrapport() {
   // ingångar. 'ny' = lägg till period för ett datum (systemet avgör segment/
   // extra_tid mot passet); 'redigera' = befintlig extra_tid-post (tider,
   // aktivitet, objekt, faktureras, kommentar, ta bort).
-  const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null }>(null);
+  // `sparade` = kedjan: perioder sparade i samma omgång (formuläret öppnas igen
+  // efter Spara med Från = föregående Till). Bara för 'ny', aldrig synk/tidigarelagd.
+  // tabell: vilken rad som redigeras — 'segment' (arbetsdag_segment, inom passet)
+  // eller 'extra' (extra_tid). Ny period avgörs av systemet i sparaPeriod.
+  const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; tabell?: 'segment' | 'extra'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null; sparade?: string[] }>(null);
   const [periodSparar, setPeriodSparar] = useState(false);
   const [periodFel, setPeriodFel] = useState<string | null>(null);
   const [heldagsMeddelande, setHeldagsMeddelande] = useState<{text:string;icon?:string;typ:string}|null>(null);
   const [bekräftelseVisa, setBekräftelseVisa] = useState(false);
   const [visaTiderSheet, setVisaTiderSheet] = useState(false);
+  // "Något fel?" i kvällsvyn: arket med vägarna in till Tider, Körning, Mer arbete, Hela dagen.
+  const [visaFelSheet, setVisaFelSheet] = useState(false);
+  // "Saker att svara på" (kvällsvyn): EN lista med allt föraren ska svara på före Stämmer.
+  //  svarSheet        vilken fråga som besvaras just nu (ett ark, aldrig ark på ark)
+  //  besvaradeFragor  frågor som fanns som obesvarade i den här visningen och nu besvarats —
+  //                   raden ligger kvar, med svaret i grönt, tills dagen bekräftas
+  //  tidsSvar         rast-/passfrågor som bekräftats (id → signatur start|slut|rast; ändras
+  //                   tiderna gäller svaret inte längre)
+  // ALLT nycklat på datum: ETT bekräftaflöde för alla dagar (idag via Dag, äldre via väntar-raden
+  // eller Kalender → Redigera) — samma lista, samma regler, samma Stämmer.
+  const [svarSheet, setSvarSheet] = useState<{ typ: 'brand' | 'vila' | 'tid'; datum: string; id?: string } | null>(null);
+  const [besvaradeFragor, setBesvaradeFragor] = useState<Record<string, boolean>>({});
+  const [tidsSvar, setTidsSvar] = useState<Record<string, string>>({});
+  const [svarOrsak, setSvarOrsak] = useState<VilaOrsak | null>(null);
+  const [svarFritext, setSvarFritext] = useState("");
+  const [svarSparar, setSvarSparar] = useState(false);
+  const [objektSvarDatum, setObjektSvarDatum] = useState<string | null>(null);
+  // Man kom in via väntar-raden i Dag: efter Stämmer går man direkt till nästa väntande dag
+  // ("2 dagar kvar") och till sist tillbaka till Dag. Kalender-vägen sätter den aldrig.
+  const [vantarKo, setVantarKo] = useState(false);
+  useEffect(() => { if (steg !== "redigera" && steg !== "vilobrottOrsak") setVantarKo(false); }, [steg]);
   const [visaKmSheet, setVisaKmSheet] = useState(false);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [årsData, setÅrsData] = useState<any[]>([]);
@@ -701,6 +751,8 @@ export default function Arbetsrapport() {
   // PDF:en öppnas INNE i appen (PdfLasare) — aldrig ny flik/nedladdning som slänger
   // ut föraren ur den installerade appen. Han bläddrar först, delar/sparar sedan.
   const [specPdf, setSpecPdf] = useState<{ url: string; titel: string; filnamn: string } | null>(null);
+  // Dag för dag: vilken dag som är öppnad (klockslag, rast, mil bakom trycket).
+  const [lönDagÖppen, setLönDagÖppen] = useState<string | null>(null);
   useEffect(() => {
     if (steg !== "lön" || !medarbetare?.id) return;
     const ref = new Date();
@@ -718,6 +770,47 @@ export default function Arbetsrapport() {
       .catch(e => { if (!avbruten) setMinManad({ arbetsmanad, laddar: false, fel: e?.message || String(e), data: null }); });
     return () => { avbruten = true; };
   }, [steg, lönOffset, medarbetare?.id]);
+  // Min tids månadsrad ("152 tim ›") — SAMMA lönebibliotek som specen, för
+  // innevarande arbetsmånad. Egen state: Lön-flikens minManad följer lönOffset
+  // och får inte skrivas över när man står i Min tid. Blockerar aldrig vyn.
+  const [minTidManad, setMinTidManad] = useState<{ laddar: boolean; h: number | null }>({ laddar: false, h: null });
+  // Årets extra tid för årsstaplarna. extraTidData är bara de 200 senaste
+  // posterna — januari saknas då. Hämtas när Min tid öppnas; vyn ritas direkt
+  // och staplarna fylls när datan kommer.
+  const [årsExtra, setÅrsExtra] = useState<{ datum: string; minuter: number }[] | null>(null);
+  useEffect(() => {
+    if (steg !== "mintid" || !medarbetare?.id) return;
+    let avbruten = false;
+    const nu = new Date();
+    const arbetsmanad = `${nu.getFullYear()}-${String(nu.getMonth() + 1).padStart(2, "0")}`;
+    setMinTidManad(m => ({ ...m, laddar: true }));
+    fetch("/api/lon/min-manad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ arbetsmanad }), cache: "no-store" })
+      .then(async r => {
+        const j = await r.json().catch(() => ({}));
+        if (avbruten) return;
+        const m = j?.medarbetare;
+        // Fel eller ingen rad → h = null: raden faller tillbaka på "Se lönespecen"
+        // i stället för att visa en nolla som inte är sann.
+        setMinTidManad({ laddar: false, h: r.ok && j.ok && m ? (Number(m.timlon_h) || 0) + (Number(m.overtid_h) || 0) : null });
+      })
+      .catch(() => { if (!avbruten) setMinTidManad({ laddar: false, h: null }); });
+    (async () => {
+      const rader: { datum: string; minuter: number }[] = [];
+      const SIDA = 1000;
+      for (let fran = 0; ; fran += SIDA) {
+        const { data, error } = await supabase.from("extra_tid").select("id, datum, minuter")
+          .eq("medarbetare_id", medarbetare.id).gte("datum", `${nu.getFullYear()}-01-01`)
+          .order("datum", { ascending: true }).order("id", { ascending: true })
+          .range(fran, fran + SIDA - 1);
+        if (avbruten) return;
+        if (error) { console.error("[min tid] årets extra tid:", error.message); return; }
+        rader.push(...(data || []));
+        if (!data || data.length < SIDA) break;
+      }
+      setÅrsExtra(rader);
+    })();
+    return () => { avbruten = true; };
+  }, [steg, medarbetare?.id]);
   const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
   const [valtObjektId, setValtObjektId] = useState<string | null>(null);
   const [visaObjektVäljare, setVisaObjektVäljare] = useState(false);
@@ -792,25 +885,40 @@ export default function Arbetsrapport() {
   const [extraDagData, setExtraDagData] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
+    let inloggadEpost: string | null = null;
     Promise.all([
-      supabase.auth.getUser().then(({ data: { user } }) =>
-        user?.email
-          ? supabase.from("medarbetare").select("*").eq("epost", user.email).single()
-          : supabase.from("medarbetare").select("*").limit(1).single()
-      ),
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        inloggadEpost = user?.email ?? null;
+        // Uppslag på user_id, inte e-post: kopplingen görs i databasen på e-post
+        // UTAN skiftläge (20260929), medan eq('epost') är skiftlägeskänslig — en
+        // kopplad förare med "Oscar@…" i ena tabellen hade annars fått felskärmen.
+        return user?.id
+          ? supabase.from("medarbetare").select("*").eq("user_id", user.id).maybeSingle()
+          : supabase.from("medarbetare").select("*").limit(1).maybeSingle();
+      }),
       (()=>{ const idag=new Date().toISOString().slice(0,10); return supabase.from("gs_avtal").select("*").lte("giltigt_fran",idag).or(`giltigt_till.is.null,giltigt_till.gte.${idag}`).order("giltigt_fran",{ascending:false}).limit(1).maybeSingle(); })(),
       supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, huvudtyp, atgard, latitude, longitude").order("object_name"),
       // Status för objektväljarens gruppering (pågående/planerade/avslutade).
       // objekt-tabellen matchas mot dim_objekt via vo_nummer — exakt likhet.
-      supabase.from("objekt").select("vo_nummer, status"),
+      // Namn/läge läses också: ett PLANERAT objekt som maskinen inte kört än har
+      // ingen dim_objekt-rad (importen skapar den när första filen kommer) och
+      // måste ändå gå att välja — Trestensdal 2026-10-02: Joacim kunde inte
+      // lägga planeringstid på trakten.
+      supabase.from("objekt").select("vo_nummer, status, namn, markagare, lat, lng, atgard, dim_objekt_id"),
     ]).then(([med, avt, obj, objStatus]) => {
+      // Ingen medarbetare för inloggningen (user_id saknas, eller läsfel) → säg
+      // det i stället för att ladda för evigt. Oscar 2026-09-29.
+      if (!med.data) setMedSaknas(inloggadEpost || "okänd e-post");
       if(med.data) {
         setMedarbetare(med.data);
         setHemadress(med.data.hemadress || "");
         // Fetch maskin namn
         if(med.data.maskin_id) {
-          supabase.from("maskiner").select("namn").eq("maskin_id", med.data.maskin_id).single()
-            .then(r => { if(r.data?.namn) setMaskinNamn(r.data.namn); });
+          supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER).eq("maskin_id", med.data.maskin_id).maybeSingle()
+            .then(r => { if(r.data) setMaskinNamn(maskinVisningsnamn(r.data as any)); });
+          // Skickar maskinen inga filer? Då startar dagen bara med knappen.
+          supabase.from("dim_maskin").select("datakalla").eq("maskin_id", med.data.maskin_id).maybeSingle()
+            .then(r => setMaskinManuell((r.data as any)?.datakalla === "manuell"));
         }
         // Fetch historik for this medarbetare
         supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
@@ -839,7 +947,13 @@ export default function Arbetsrapport() {
           });
         // Fetch aktuella vilobrott (senaste 14 dagar) för Dag-vyns morgon-
         // varningar och Min tid-översikten. Tom array är OK.
-        hamtaAktuellaVilobrott(med.data.id, 30)
+        // STÄDNING först: obesvarade brott som nuvarande data inte längre stöder (raderad
+        // dag eller period, ändring utanför appen) raderas innan de visas — föraren ska inte
+        // få frågor om brott som inte finns. Bara radering, aldrig nya brott. Misslyckas
+        // städningen visas brotten ändå (de visas aldrig färre än de är).
+        stadaVilobrott(med.data.id)
+          .catch(err => console.error('Vilo-städning misslyckades:', err))
+          .then(() => hamtaAktuellaVilobrott(med.data.id, 30))
           .then(setAktuellaVilobrott)
           .catch(err => console.error('Vilobrott-fel:', err));
       }
@@ -854,40 +968,17 @@ export default function Arbetsrapport() {
         }
       }
       if(obj.data) {
-        const statusPerVo = new Map<string, string>(
-          (objStatus.data || []).filter((r:any) => r.vo_nummer != null && r.status)
-            .map((r:any) => [String(r.vo_nummer), r.status])
-        );
-        setObjektLista(obj.data.map(o => {
-          // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
-          // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
-          const n = (o.object_name || '').trim();
-          const raw = n && !/^\d{10,}$/.test(n)
-            ? n
-            : ([o.skogsagare, o.huvudtyp].filter(Boolean).join(' · ') || o.objekt_id);
-          return {
-            id:o.objekt_id, namn:formatObjektNamn(raw), ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude,
-            vo:o.vo_nummer ?? null, atgard:o.atgard || o.huvudtyp || null,
-            status:o.vo_nummer != null ? statusPerVo.get(String(o.vo_nummer)) ?? null : null,
-          };
-        }));
+        // EN byggare för "trakter att lägga tid på", delad med Planera-vyn (lib/arbetsobjekt):
+        // dim_objekt + planerade/pågående utan dim-rad (Trestensdal #657).
+        setObjektLista(byggArbetsObjektLista(obj.data as any[], objStatus.data as any[]));
       }
     });
-    // Hämta maskinnamn-lookup. NAMNET föraren känner igen ("Wisent2015",
-    // "Ponsse Scorpion") bor i maskiner.namn; dim_maskin.modell är
-    // tillverkarens kod ("810E") och bara en reserv när namn saknas.
-    // Ett maskinnamn i hela appen: dim_maskin.visningsnamn (admin) vinner, sedan
-    // maskiner.namn (maskin-service), sedan modell/tillverkare, sist id.
-    Promise.all([
-      supabase.from("dim_maskin").select("maskin_id, visningsnamn, tillverkare, modell"),
-      supabase.from("maskiner").select("maskin_id, namn"),
-    ]).then(([dim, mask]) => {
-      const m: Record<string, string> = {};
-      for(const r of dim.data || []) m[r.maskin_id] = r.modell || r.tillverkare || r.maskin_id;
-      for(const r of mask.data || []) if (r.namn) m[r.maskin_id] = r.namn;
-      for(const r of dim.data || []) { const v = (r.visningsnamn || "").trim(); if (v) m[r.maskin_id] = v; }
-      setMaskinNamnMap(m);
-    });
+    // Maskinnamn-lookup: EN källa, dim_maskin.visningsnamn (lib/maskinNamn) —
+    // tabellen `maskiner` läses aldrig för namn.
+    (async () => {
+      const { data } = await supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER);
+      setMaskinNamnMap(byggMaskinNamnMap(data || []));
+    })();
     // Hämta väder från SMHI via GPS
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -915,16 +1006,29 @@ export default function Arbetsrapport() {
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
-  // km-beräkning när kvällsvyn öppnas → /api/km/berakna-dag (DELADE helpern:
-  // dagensPlatser + full koordinat-fallback + samma vakt som nattjobbet). Ersätter
-  // den tidigare direkta /api/routing-vägen (enbart obj.lat/lng, ingen fallback-
-  // kedja) — EN beräkningsmodell för alla ytor. Persisterar km direkt så det finns
-  // vid bekräftelse, inte "dagen efter". Best-effort: fel visas aldrig som hårt fel.
+  // KM PÅ KVÄLLEN → /api/km/berakna-dag (DELADE helpern: dagensPlatser + full
+  // koordinat-fallback + samma vakt som nattjobbet; EN beräkningsmodell för alla ytor,
+  // samma anrop som Redigera gör vid öppning). Dagens km räknas av nattjobbet eller av
+  // helpern, så på kvällen står 0/0 i databasen tills någon räknat. Km hör till det man
+  // kontrollerar INNAN man skriver under, därför ber Dag-vyn själv om beräkningen när
+  // kvällsvyn visas (Martin, preview av #703: "kilometerna syns först efter bekräfta").
+  // Förr låg anropet bakom steg "kväll", som ingenting längre navigerar till — dött.
+  // Helpern persisterar km själv och hoppar över det som är satt av föraren, redan
+  // ifyllt eller utan koordinat: ingen gissning. Frågas en gång per dagsrad.
+  const [kmRäknar, setKmRäknar] = useState(false);
+  const kmFrågad = useRef<string | null>(null);
   useEffect(() => {
-    if (steg !== "kväll") return;
+    if (steg !== "morgon" && steg !== "dag" && steg !== "meny") return;
     if (!medarbetare?.id) return;
     const idagKey = new Date().toISOString().split('T')[0];
-    let cancelled = false;
+    const rad = dagData[idagKey];
+    if (!rad?.id || rad.bekraftad) return;
+    if (Number(rad.km_morgon || 0) + Number(rad.km_kvall || 0) > 0) return;
+    // Bara när passet är slut: slut_tid flyttar sig varje timme medan maskinen går.
+    if (!rad.slut_tid || !arDagAvslutad(idagKey, rad.slut_tid)) return;
+    if (kmFrågad.current === rad.id) return;
+    kmFrågad.current = rad.id;
+    setKmRäknar(true);
     (async () => {
       try {
         const r = await fetch('/api/km/berakna-dag', {
@@ -932,19 +1036,20 @@ export default function Arbetsrapport() {
           body: JSON.stringify({ medarbetare_id: medarbetare.id, datum: idagKey }),
         });
         const j = await r.json();
-        if (cancelled) return;
         if (j?.status === 'skrev') {
-          setKmBerakning((j.km_morgon || 0) + (j.km_kvall || 0));
-          if (kmM == null) setKmM({ km: j.km_morgon });
-          if (kmK == null) setKmK({ km: j.km_kvall });
+          const tot = (j.km_morgon || 0) + (j.km_kvall || 0);
+          setKmBerakning(tot);
+          // Cachen får värdet (inte förarens lokala km-tillstånd: det här är en
+          // beräkning, inte förarens egen uppgift).
+          setDagData(dd => ({ ...dd, [idagKey]: { ...(dd[idagKey] || {}), km_morgon: j.km_morgon || 0, km_kvall: j.km_kvall || 0, km_totalt: tot, km: tot, km_kalla: 'auto' } }));
         } else {
           // hoppad (km redan satt / forare / ingen koordinat) → ingen auto-gissning
           setKmBerakning(null);
         }
-      } catch { if (!cancelled) setKmBerakning(null); }
+      } catch { setKmBerakning(null); }
+      finally { setKmRäknar(false); }
     })();
-    return () => { cancelled = true; };
-  }, [steg, medarbetare?.id, valtObjektId, dagData]);
+  }, [steg, medarbetare?.id, dagData]);
 
   // Hämta km-kedja för en specifik dag när kalenderns redigera-vy öppnas.
   // /api/km-chain bygger hem → obj1 → obj2 → ... → hem från arbetsdag-raderna
@@ -952,6 +1057,7 @@ export default function Arbetsrapport() {
   // constraint), men infrastrukturen stödjer flera.
   useEffect(() => {
     if (steg !== "redigera" || !redDag) return;
+    if (redLaddar) return; // väntar på dagens rad (öppnaRedigera) — km-hämtningen startar när redDag är satt
     if (!medarbetare?.id || !redDag.datum) return;
     setRedKmChain(null);
     setRedKmBerakning(null);
@@ -1009,7 +1115,7 @@ export default function Arbetsrapport() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id]);
+  }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id, redLaddar]);
 
   // Hämta push-enhetsnamn för aktuell enhet när Inställningar öppnas.
   useEffect(() => {
@@ -1171,49 +1277,19 @@ export default function Arbetsrapport() {
       .finally(() => clearTimeout(timer));
   }, [minTidFlik, medarbetare?.id, fortnoxSaldoStatus]);
 
-  // === ARBETSDAG-NOTIS (start + avslut) ===
-  const [arbetsdagToast, setArbetsdagToast] = useState<{
-    typ: 'start' | 'slut'; maskin: string; objekt: string; start: string; slut?: string; tid?: string;
-  } | null>(null);
-
+  // === MASKINSTART: auto-stoppa pågående extra-aktiviteter ===
+  // Här låg förr två rutor över skärmen, "Din arbetsdag har startat" och "Din arbetsdag
+  // är avslutad" (med OK). Borttagna (Martin, preview av #703): de la sig över allt,
+  // även ovanpå en fråga man höll på att svara på. Att passet startat syns i dagskortet,
+  // och dagsslut-notisen ägs av servern (mom-import köar i notis_kö, flush-cronen skickar).
   useEffect(() => {
     if (!medarbetare?.id) return;
     const today = new Date().toISOString().slice(0, 10);
+    // En gång per dag: nyckeln hindrar att auto-stoppet körs om vid varje ny rad.
     const startKey = `arbetsdag_toast_start_${today}`;
-    const slutKey = `arbetsdag_toast_slut_${today}`;
 
     let knownIds = new Set<string>();
     let initialDone = false;
-
-    // Slut-rutan är VILLKORSBASERAD, inte förändringsbaserad: timvisa
-    // MOM-filer sätter slut_tid redan på morgonen och skjuter den framåt
-    // varje timme — "slut_tid blev satt" betyder inte längre "dagen är slut".
-    // Och efter dagens SISTA fil kommer inget nytt event, så en förändrings-
-    // lyssnare kan aldrig fånga avslutet. Villkoret (stall-detektionen i
-    // arDagAvslutad) utvärderas varje poll; localStorage-vakten ger en
-    // visning per dag.
-    const kollaSlutRuta = async (row: any) => {
-      if (localStorage.getItem(slutKey)) return false;
-      if (!row.slut_tid || !arDagAvslutad(today, row.slut_tid)) return false;
-      const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
-      const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
-      const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
-      const slutTid = row.slut_tid.slice(0, 5);
-      // Dagstotal = maskintid + dagens extra tid. Hämtas färskt här (inte
-      // ur extraTidData-state) — effekten har stale closure på state.
-      const { data: dagensExtra } = await supabase.from('extra_tid')
-        .select('minuter').eq('medarbetare_id', medarbetare.id).eq('datum', today);
-      const extraMinIdag = (dagensExtra || []).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
-      const totMin = (row.arbetad_min || 0) + extraMinIdag;
-      const tid = `${Math.floor(totMin / 60)}h ${totMin % 60}min`;
-      setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
-      localStorage.setItem(slutKey, '1');
-      setTimeout(() => setArbetsdagToast(null), 10000);
-      // Ingen klient-push längre: dagsslut-notisen ägs av servern
-      // (mom-import köar i notis_kö, flush-cronen skickar). In-app-rutan
-      // ovan behålls; den är poängen när man är inne.
-      return true;
-    };
 
     const poll = async () => {
       const { data } = await supabase.from('arbetsdag')
@@ -1225,23 +1301,16 @@ export default function Arbetsrapport() {
       if (!initialDone) {
         knownIds = new Set(data.map((r: any) => r.id));
         initialDone = true;
-        // Öppnas appen efter att dagen redan stallat ska rutan visas direkt,
-        // inte först vid nästa poll.
-        for (const row of data) { if (await kollaSlutRuta(row)) break; }
         return;
       }
 
       for (const row of data) {
-        const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
-        const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
         const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
 
-        // Ny rad → start-notis + auto-stoppa pågående extra-aktiviteter
+        // Ny rad → auto-stoppa pågående extra-aktiviteter
         if (!knownIds.has(row.id) && !localStorage.getItem(startKey)) {
           knownIds.add(row.id);
-          setArbetsdagToast({ typ: 'start', maskin, objekt: objNamn, start: startTid });
           localStorage.setItem(startKey, '1');
-          setTimeout(() => setArbetsdagToast(null), 10000);
           // Auto-stoppa pågående aktiviteter på maskinstart
           if (startTid) {
             const { data: opna } = await supabase.from('extra_tid')
@@ -1269,9 +1338,6 @@ export default function Arbetsrapport() {
           return;
         }
 
-        // Dagen ser avslutad ut (stall) → slut-ruta, en gång per dag
-        if (await kollaSlutRuta(row)) return;
-
         knownIds.add(row.id);
       }
     };
@@ -1282,7 +1348,59 @@ export default function Arbetsrapport() {
     // sig att admin-ändringar inte syns i tid kan vi lägga på polling här.
     const interval = setInterval(poll, 60000);
     return () => clearInterval(interval);
-  }, [medarbetare?.id, maskinNamnMap, objektLista]);
+  }, [medarbetare?.id]);
+
+  // EN byggare för dagens post (rad ur arbetsdag + dess arbetsdag_objekt-rader),
+  // delad av månadsladdaren nedan och av öppnaRedigera — så cachen och den
+  // auktoritativa läsningen aldrig kan skilja sig åt i form.
+  const byggDagPost = (r: any, objektRader: any[]): any => ({
+    id: r.id,
+    status: r.bekraftad ? 'ok' : 'saknas',
+    arbMin: r.arbetad_min || 0,
+    km: r.km_totalt || 0,
+    km_morgon: r.km_morgon || 0,
+    km_kvall: r.km_kvall || 0,
+    km_totalt: r.km_totalt || 0,
+    trak: !!r.traktamente,
+    traktamente: !!r.traktamente,
+    dagtyp: r.dagtyp,
+    bekraftad: !!r.bekraftad,
+    bekraftad_tid: r.bekraftad_tid,
+    // Förarens svar på brandriskfrågan och varifrån km kommer (km_kalla='forare' = medveten
+    // nolla). Saknades i posten: ett sparat Ja/Nej lästes som obesvarat efter omladdning.
+    brandrisk_beordrad: r.brandrisk_beordrad ?? null,
+    km_kalla: r.km_kalla ?? null,
+    // Förarens bekräftade rast-/passfrågor (id → start|slut|rast). Ändras tiderna gäller svaret inte.
+    tidsfragor_svar: r.tidsfragor_svar ?? null,
+    // Maskinens avvikelse mot det föraren bekräftade (synk_avvikelse) och maskinstart-gapet (tidigarelagd_start):
+    // korten i Redigera läser dem ur redDag. #702 (2026-10-05) lät byggDagPost ersätta den råa raden som redDag och tappade
+    // dem — korten "Maskintiden skiljer sig" och "Maskinstart" visades aldrig i Redigera, så en avvikelse som synken
+    // registrerat gick inte att besvara. Gul prick i kalendern fanns kvar (den läser historik).
+    synk_avvikelse: r.synk_avvikelse ?? null,
+    tidigarelagd_start: r.tidigarelagd_start ?? null,
+    start_tid: r.start_tid || null,
+    slut_tid: r.slut_tid || null,
+    rast_min: r.rast_min ?? 0,
+    start: r.start_tid ? r.start_tid.slice(0,5) : '06:00',
+    slut: r.slut_tid ? r.slut_tid.slice(0,5) : '',
+    rast: r.rast_min ?? 0,
+    maskin_id: r.maskin_id,
+    maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
+    // Primärt objekt (bakåtkompat)
+    objekt_id: r.objekt_id || null,
+    objekt_namn: objektLista.find(o => o.id === r.objekt_id)?.namn || r.objekt_id || null,
+    objekt_ägare: objektLista.find(o => o.id === r.objekt_id)?.ägare || null,
+    // Hela listan av objekt för dagen (kan vara flera vid objekt-byte)
+    objekt_lista: objektRader.map(o => ({
+      id: o.id,
+      objekt_id: o.objekt_id,
+      objekt_namn: o.objekt_namn || objektLista.find(x => x.id === o.objekt_id)?.namn || o.objekt_id,
+      start_tid: o.start_tid,
+      slut_tid: o.slut_tid,
+      arbetad_min: o.arbetad_min,
+      ordning: o.ordning,
+    })),
+  });
 
   // Hämta dagdata för kalendern när månad/år ändras. `steg` ingår också i
   // dependency-listan så att återbesök till kalender-vyn efter bekräftelse
@@ -1317,44 +1435,7 @@ export default function Arbetsrapport() {
           objektPerDag[o.arbetsdag_id].push(o);
         }
         const map: Record<string, any> = {};
-        for (const r of adRes.data) {
-          map[r.datum] = {
-            id: r.id,
-            status: r.bekraftad ? 'ok' : 'saknas',
-            arbMin: r.arbetad_min || 0,
-            km: r.km_totalt || 0,
-            km_morgon: r.km_morgon || 0,
-            km_kvall: r.km_kvall || 0,
-            km_totalt: r.km_totalt || 0,
-            trak: !!r.traktamente,
-            traktamente: !!r.traktamente,
-            dagtyp: r.dagtyp,
-            bekraftad: !!r.bekraftad,
-            bekraftad_tid: r.bekraftad_tid,
-            start_tid: r.start_tid || null,
-            slut_tid: r.slut_tid || null,
-            rast_min: r.rast_min ?? 0,
-            start: r.start_tid ? r.start_tid.slice(0,5) : '06:00',
-            slut: r.slut_tid ? r.slut_tid.slice(0,5) : '',
-            rast: r.rast_min ?? 0,
-            maskin_id: r.maskin_id,
-            maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
-            // Primärt objekt (bakåtkompat)
-            objekt_id: r.objekt_id || null,
-            objekt_namn: objektLista.find(o => o.id === r.objekt_id)?.namn || r.objekt_id || null,
-            objekt_ägare: objektLista.find(o => o.id === r.objekt_id)?.ägare || null,
-            // Hela listan av objekt för dagen (kan vara flera vid objekt-byte)
-            objekt_lista: (objektPerDag[r.id] || []).map(o => ({
-              id: o.id,
-              objekt_id: o.objekt_id,
-              objekt_namn: o.objekt_namn || objektLista.find(x => x.id === o.objekt_id)?.namn || o.objekt_id,
-              start_tid: o.start_tid,
-              slut_tid: o.slut_tid,
-              arbetad_min: o.arbetad_min,
-              ordning: o.ordning,
-            })),
-          };
-        }
+        for (const r of adRes.data) map[r.datum] = byggDagPost(r, objektPerDag[r.id] || []);
         setDagData(map);
       }
     });
@@ -1386,7 +1467,14 @@ export default function Arbetsrapport() {
   // Ingen kr-beräkning i appen: mil är mängden, satsen äger Fortnox. (fardtidPerMil/ersKr
   // räknades här men visades aldrig — död kod som bröt principen. Borttagen.)
   const arbMin = Math.max(0,tim(start,slut)-rast);
-  const totKm  = (kmM?.km||0)+(kmK?.km||0);
+  const idagKey = new Date().toISOString().split('T')[0]; // används av km-raden nedan, därför före igårKey
+  // Km: förarens egna värde (km-arket, lokalt tillstånd) går först, annars dagens
+  // km ur arbetsdag-raden. Förr lästes bara tillståndet, som aldrig fylldes från
+  // databasen: Dag visade 0 km, och km-arket öppnades 0/0 så Spara skrev 0 med
+  // km_kalla='forare' (utredning 2026-10-05). En tom rad visar fortfarande 0.
+  const kmMorgonNu = kmM?.km ?? Number(dagData[idagKey]?.km_morgon ?? 0);
+  const kmKvallNu  = kmK?.km ?? Number(dagData[idagKey]?.km_kvall ?? 0);
+  const totKm  = kmMorgonNu + kmKvallNu;
   // Maskinpassets tal räknar upp när MOM-filen flyttar slut_tid under dagen —
   // hoppar inte (RORELSE.tal). Hookarna ligger här, före alla steg-returer.
   const arbMinVisad = useRaknaUppVarde(arbMin);
@@ -1395,11 +1483,13 @@ export default function Arbetsrapport() {
   const milPåbörjade = ersattningsMilDag(totKm, frikm);            // påbörjade mil (delad lib)
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
   const totMin = arbMin+totEx;
-  const idagKey = new Date().toISOString().split('T')[0];
   const igårDate = new Date(); igårDate.setDate(igårDate.getDate()-1);
   const igårKey = igårDate.toISOString().split('T')[0];
   const igårObekräftad = dagData[igårKey] && !dagData[igårKey].status?.includes?.('ok') && dagData[igårKey].start_tid && !historik.find(d => d.datum === igårKey && d.bekraftad);
-  const isWorking = !!dagData[idagKey];
+  // "Passet pågår" = raden HAR en starttid — inte "raden finns". En skalrad
+  // (dag skapad av sin första period, utan klockslag) ritades annars som ett
+  // startat pass med Avsluta-knapp som skrev slut_tid utan start_tid.
+  const isWorking = !!dagData[idagKey]?.start_tid;
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
   // Synka dagens tider/rast/traktamente från arbetsdag-tabellen till lokala state.
@@ -1485,37 +1575,6 @@ export default function Arbetsrapport() {
 
   const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,background:"rgba(255,255,255,0.06)",outline:"none",fontFamily:"inherit",color:"#fff" };
 
-  // === ARBETSDAG TOAST (DOM element) — must be before any early return ===
-  useEffect(() => {
-    if (!arbetsdagToast) {
-      const el = document.getElementById('arbetsdag-toast');
-      if (el) el.remove();
-      return;
-    }
-    let el = document.getElementById('arbetsdag-toast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'arbetsdag-toast';
-      document.body.appendChild(el);
-    }
-    el.style.cssText = 'position:fixed;bottom:20px;left:16px;right:16px;z-index:10000;animation:slideIn 0.3s ease;';
-    const isSlut = arbetsdagToast.typ === 'slut';
-    const title = isSlut ? 'Din arbetsdag är avslutad' : 'Din arbetsdag har startat';
-    const detail = isSlut
-      ? `${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}<br>${arbetsdagToast.start} – ${arbetsdagToast.slut || ''} · ${arbetsdagToast.tid || ''}`
-      : `${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}${arbetsdagToast.start ? ' · Starttid: ' + arbetsdagToast.start : ''}`;
-    el.innerHTML = `<div style="background:#1c1c1e;border-radius:16px;padding:16px 18px;box-shadow:0 8px 30px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);">
-      <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;">${title}</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:12px;">${detail}</div>
-      <div style="display:flex;gap:8px;">
-        <button id="toast-ok" style="flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:14px;font-weight:600;cursor:pointer;">OK</button>
-      </div>
-    </div>`;
-    const okBtn = el.querySelector('#toast-ok');
-    if (okBtn) okBtn.addEventListener('click', () => { setArbetsdagToast(null); });
-    return () => { el?.remove(); };
-  }, [arbetsdagToast]);
-
   // Vilo-detektering vid arbetsdag-mutation. Anropas efter Avsluta pass,
   // Starta manuellt, och Ändra tider-sheet. Räknar fönstret datum-3 till
   // datum+3 så att både dygnsvila (par av dagar) och rullande veckovila
@@ -1528,16 +1587,17 @@ export default function Arbetsrapport() {
   // TODO: MOM-import (Python-skript) kör inte denna helper automatiskt.
   // Detektering sker nästa gång föraren öppnar appen. Löses via webhook
   // eller Edge Function vid HPR/MOM-import.
+  // OMRÄKNING mot nuvarande data efter VARJE ändring av pass eller perioder (avsluta,
+  // starta, ändra tider, lägga till/ändra/ta bort period, ta bort tom dag). Arbetsdagarna
+  // läses FÄRSKT ur databasen (lib/vilobrott-storage): förr kom de ur årsData, som är
+  // gammal efter en radering och dessutom bara täckte själva fönstret — utan de sju
+  // dagarna före, så ett enda pass gav "0 h vila". Martin 2026-10-05: ett vilobrott för
+  // raderad testdata stod kvar och föraren fick frågan "Varför bröts vilan?".
   const synkaVilobrott = async (mutationDatum: string) => {
-    if (!medarbetare?.id || !trosklar) return;
-    const fromDt = new Date(mutationDatum); fromDt.setDate(fromDt.getDate() - 3);
-    const toDt = new Date(mutationDatum); toDt.setDate(toDt.getDate() + 3);
-    const fromIso = fromDt.toISOString().slice(0, 10);
-    const toIso = toDt.toISOString().slice(0, 10);
-    const dagarIFonster = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+    if (!medarbetare?.id) return;
     try {
-      await analyseraOchSpara(medarbetare.id, dagarIFonster, trosklar, fromIso, toIso);
-      const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+      await raknaOmVilobrottEfterAndring(medarbetare.id, mutationDatum);
+      const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id, 30);
       setAktuellaVilobrott(nyaBrott);
     } catch (err) {
       // Mutationen är redan sparad i Supabase — vilo-data uppdateras vid
@@ -1567,28 +1627,103 @@ export default function Arbetsrapport() {
     setSegÖppen(true);
     oppnaPeriodNy(rd.datum, { ...opts, typ: opts?.typ || 'markagare' });
   };
-  const taBortSegment = async (id: string) => {
-    const { error } = await supabase.from('arbetsdag_segment').delete().eq('id', id);
-    if (error) { alert('Kunde inte ta bort perioden.'); return; }
-    setDagSegment(d => d.filter((x:any) => x.id !== id));
-  };
+  // (Papperskorgen på segmentraden är borta: ett segment öppnas i period-
+  // formuläret som allt annat — tider, objekt, faktureras, ta bort. En rad man
+  // bara kan slänga är inte en rad man äger; Martin fick skapa om 2026-09-15.)
 
-  const öppnaRedigera = (datum: string) => {
-    const d2 = dagData[datum];
-    setRedDag({ ...(d2 || {}), datum });
-    setRedStart(d2?.start_tid || "00:00");
-    setRedSlut(d2?.slut_tid || "00:00");
-    setRedRast(d2?.rast_min || 0);
-    setRedKm(d2?.km_totalt || 0);
+  // ── SKALRADEN: en dag som skapas av sin första period ──────────────────
+  // Joacims dagar har inget maskinpass. Lönens 60-minutersregel körs bara över
+  // arbetsdag-rader (loneberakning: dagTotalMin = arbetad_min + extra samma
+  // datum), så perioder utan rad blir betald tid men aldrig ARBETSDAG — ordinarie
+  // höjs inte och allt lutar mot övertid. Raden skapas därför av första perioden,
+  // UTAN klockslag: tiden bor i perioderna, och klockslag här vore dubbelräkning
+  // (se passKrockarMedPerioder). Samma form som sjuk-backfillen i prod (Joacim
+  // 2026-08-19). Idempotent: finns raden (maskindag, tidigare period) rörs den
+  // inte — ignoreDuplicates gör INSERT … ON CONFLICT DO NOTHING.
+  const sakerstallArbetsdagRad = async (datum: string): Promise<string | null> => {
+    if (!medarbetare?.id) return null;
+    const finns = dagData[datum]?.id;
+    if (finns) return finns;
+    const { error } = await supabase.from('arbetsdag')
+      .upsert({ medarbetare_id: medarbetare.id, datum }, { onConflict: 'medarbetare_id,datum', ignoreDuplicates: true });
+    if (error) { console.error('[skalrad] arbetsdag insert misslyckades', error); return null; }
+    // Läs tillbaka VÄRDET — ignoreDuplicates returnerar inget för en rad som
+    // redan fanns i DB men inte i dagData (annan månad laddad, race med synk).
+    const { data } = await supabase.from('arbetsdag').select('*')
+      .eq('medarbetare_id', medarbetare.id).eq('datum', datum).maybeSingle();
+    if (!data?.id) return null;
+    setDagData(d => d[datum]?.id ? d : ({ ...d, [datum]: {
+      ...(d[datum] || {}),
+      id: data.id,
+      status: data.bekraftad ? 'ok' : 'saknas',
+      arbMin: data.arbetad_min || 0,
+      km: data.km_totalt || 0, km_morgon: data.km_morgon || 0, km_kvall: data.km_kvall || 0, km_totalt: data.km_totalt || 0,
+      trak: !!data.traktamente, traktamente: !!data.traktamente,
+      dagtyp: data.dagtyp,
+      bekraftad: !!data.bekraftad, bekraftad_tid: data.bekraftad_tid,
+      start_tid: data.start_tid || null, slut_tid: data.slut_tid || null, rast_min: data.rast_min ?? 0,
+      start: data.start_tid ? data.start_tid.slice(0,5) : '', slut: data.slut_tid ? data.slut_tid.slice(0,5) : '', rast: data.rast_min ?? 0,
+      maskin_id: data.maskin_id, maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
+      objekt_id: data.objekt_id || null,
+      objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || data.objekt_id || null,
+      objekt_ägare: null, objekt_lista: [],
+    } }));
+    setRedDag((rd: any) => rd?.datum === datum && !rd.id ? { ...rd, ...data } : rd);
+    return data.id;
+  };
+  const SKALRAD_FEL = 'Kunde inte koppla perioden till dagen — inget sparat. Försök igen.';
+
+  // AUKTORITATIV läsning: databasen avgör om dagen är tom, aldrig månadscachen.
+  // dagData laddas asynkront för EN kalendermånad åt gången; byter man månad ritas
+  // den nya direkt men cachen fylls först när hämtningen landat. Ett tryck däremellan
+  // läste tom cache → "Ingen data för den här dagen" över en komplett rad (Martin
+  // 31 juli, PR #316 — gjord om 2026-10-05). Vyn öppnas därför i laddläge, dagens
+  // rad hämtas, och tomt visas först när databasen sagt att raden saknas.
+  // Läsfel är inte "tom": cachen om den har dagen, annars ett ärligt fel.
+  const öppnaRedigera = async (datum: string) => {
+    const lasId = ++redLasId.current;
+    setRedDag({ datum } as any); // useState(null) — samma "any" som resten av Redigera
+    setRedStart("00:00"); setRedSlut("00:00"); setRedRast(0); setRedKm(0);
+    setRedObjektId(null); setRedMaskinId(null);
     setRedKmBerakning(null);
     setRedAnl("");
-    setRedObjektId(d2?.objekt_id || null);
-    setRedMaskinId(d2?.maskin_id || null);
     setSparadKvittens(false);
     setSegÖppen(false); setSegForm(null); setSegFel(null);
+    setRedLasFel(false);
+    setRedLaddar(true);
     laddaDagSegment(datum);
     setRedVy("översikt");
     setSteg("redigera");
+
+    let rad: any = null;
+    let lasFel = false;
+    try {
+      const { data, error } = await supabase.from("arbetsdag").select("*")
+        .eq("medarbetare_id", medarbetare.id).eq("datum", datum).maybeSingle();
+      if (error) { lasFel = true; console.error("[redigera] kunde inte läsa dagen:", error); }
+      else if (data) {
+        // Objektlistan är sekundär: saknas den visas dagen ändå (en post utan flerobjekt-delen).
+        const { data: oj } = await supabase.from("arbetsdag_objekt")
+          .select("id, arbetsdag_id, objekt_id, objekt_namn, start_tid, slut_tid, arbetad_min, ordning")
+          .eq("arbetsdag_id", data.id).order("ordning", { ascending: true });
+        rad = byggDagPost(data, oj || []);
+        setDagData(d => ({ ...d, [datum]: rad })); // håll cachen färsk
+      }
+    } catch (e) { lasFel = true; console.error("[redigera] kunde inte läsa dagen:", e); }
+
+    if (lasId !== redLasId.current) return; // en nyare dag har öppnats under tiden
+    if (lasFel) {
+      rad = dagData[datum] || null;
+      if (!rad) { setRedLasFel(true); setRedLaddar(false); return; }
+    }
+    setRedDag({ ...(rad || {}), datum });
+    setRedStart(rad?.start_tid || "00:00");
+    setRedSlut(rad?.slut_tid || "00:00");
+    setRedRast(rad?.rast_min || 0);
+    setRedKm(rad?.km_totalt || 0);
+    setRedObjektId(rad?.objekt_id || null);
+    setRedMaskinId(rad?.maskin_id || null);
+    setRedLaddar(false);
   };
 
   // Bekräfta arbetsdagen — extraherad så samma kod kan köras både direkt
@@ -1602,12 +1737,21 @@ export default function Arbetsrapport() {
   const bekraftaDagen = async (): Promise<boolean> => {
     if (!medarbetare?.id) return false;
 
+    // PERIODDAG (Joacim): perioder finns men inget pass — dagen bekräftas UTAN
+    // klockslag på raden. Tiden bor i extra_tid som lönen adderar; hade start/
+    // slut skrivits hit räknades den två gånger (arbetad_min + extra_tid).
+    const extraFardigaIdag = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
+    const perioddag = extraFardigaIdag.length > 0 && !dagData[idagKey]?.start_tid && !start && !slut;
     // Guard: tomma tider ska aldrig skrivas till DB. Föraren måste fylla
     // i start- och sluttid (Avsluta pass eller Ändra tider) innan bekräftelse.
-    if (!start || !slut) {
+    if (!perioddag && (!start || !slut)) {
       setBekraftaFel('Tiderna saknas — fyll i start- och sluttid innan du bekräftar.');
       return false;
     }
+    // KROCK-VAKTEN (lib/dagsegment): passet får aldrig täcka en period — det är
+    // den enda vägen till dubbelräkning, och den stängs där klockslagen skrivs.
+    const krock = perioddag ? null : passKrockarMedPerioder({ start, slut }, extraFardigaIdag);
+    if (krock) { setBekraftaFel(passKrockText(krock)); return false; }
     setBekraftaFel(null);
 
     const idagArb = dagData[idagKey];
@@ -1620,7 +1764,7 @@ export default function Arbetsrapport() {
     const uppRes = await upsertVerifierat(supabase, "arbetsdag", {
       medarbetare_id: medarbetare.id,
       datum: idagKey,
-      start_tid: start, slut_tid: slut, rast_min: rast,
+      ...(perioddag ? {} : { start_tid: start, slut_tid: slut, rast_min: rast }),
       // Skriv ALDRIG lokal tom-värde över synkad/beräknad data. maskin_id
       // och km kom från synken (rätt maskin ur skiftet, beräknat vägavstånd)
       // och fanns inte i lokal state — bekräftelsen NULL:ade/nollade dem
@@ -1629,7 +1773,8 @@ export default function Arbetsrapport() {
       // för multi-maskin-förare). km: skriv inte 0 över ett befintligt värde.
       km_morgon: kmM?.km ?? idagArb?.km_morgon ?? 0,
       km_kvall: kmK?.km ?? idagArb?.km_kvall ?? 0,
-      maskin_id: idagArb?.maskin_id || medarbetare.maskin_id || null,
+      // Perioddag: ingen maskin — förarens defaultmaskin har inget här att göra.
+      maskin_id: perioddag ? (idagArb?.maskin_id || null) : (idagArb?.maskin_id || medarbetare.maskin_id || null),
       objekt_id: dagObjId,
       traktamente: trak, bekraftad: true,
       bekraftad_tid: nuBekrIso,
@@ -1647,9 +1792,7 @@ export default function Arbetsrapport() {
     const slutMedSek  = slut.length === 5  ? slut  + ':00' : slut;
     setDagData(d => ({ ...d, [idagKey]: {
       ...d[idagKey],
-      start_tid: startMedSek,
-      slut_tid: slutMedSek,
-      rast_min: rast,
+      ...(perioddag ? {} : { start_tid: startMedSek, slut_tid: slutMedSek, rast_min: rast }),
       traktamente: !!trak,
       bekraftad: true,
       bekraftad_tid: nuBekrIso,
@@ -1691,17 +1834,8 @@ export default function Arbetsrapport() {
     kontroll?: { minuter: number; passMin?: number | null; andra: () => void; godkand?: boolean },
   ): Promise<void> => {
     if (kontroll && !kontroll.godkand) {
-      const fragor: { rubrik: string; text: string }[] = [];
-      const orim = passOrimlighet(kontroll.passMin);
-      if (orim === "negativ") {
-        fragor.push({ rubrik: `Rasten är längre än passet — stämmer det?`, text: `Passet blir ${kontroll.passMin} minuter. Tiden räknas som negativ tills den rättas.` });
-      } else if (orim === "lang") {
-        const tim = (Math.round((kontroll.passMin || 0) / 6) / 10).toLocaleString("sv-SE");
-        fragor.push({ rubrik: `Passet är ${tim} tim — stämmer det?`, text: `Längre än ${ARBETSDAG_MAX_MINUTER / 60} timmar. En felskriven sluttid ger samma bild — kontrollera start och slut.` });
-      }
-      if (kontroll.minuter > RAST_FRAGA_MIN) {
-        fragor.push({ rubrik: `Rast ${kontroll.minuter} min — stämmer det?`, text: `Maskinen räknar allt som bokförts som Meal break. Stod maskinen still av annan orsak — flytt, väntan, service — är det arbetstid, inte rast. Avtalet räknar med högst 75 minuters rast per pass.` });
-      }
+      // Samma frågor som raderna i "Saker att svara på" (lib/dagFragor) — Redigera ställer dem här.
+      const fragor = tidsFragor(kontroll.minuter, kontroll.passMin);
       if (fragor.length > 0) {
         setRastFraga({
           rubrik: fragor[0].rubrik,
@@ -1716,20 +1850,21 @@ export default function Arbetsrapport() {
       const fromDt = new Date(datum + "T00:00:00"); fromDt.setDate(fromDt.getDate() - 7);
       const fromIso = franGolv(ymdLokal(fromDt));
       const toIso = datum;
-      const årStart = `${new Date().getFullYear()}-01-01`;
       try {
-        if (fromIso >= årStart && toIso >= fromIso) {
-          const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
-          await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
+        if (toIso >= fromIso) {
+          // Färska arbetsdagar ur databasen MED de sju dagarna före fönstret (förr: årsData,
+          // bara själva fönstret — för lite underlag för veckovilan, och gammalt efter en radering).
+          await omanalyseraVilobrott(medarbetare.id, fromIso, toIso, { trosklar });
         }
         // Läs fönstret direkt — hamtaAktuellaVilobrott (14 d) räcker inte för
         // en äldre dag i Redigera. Dag-vyns gula rader uppdateras separat.
         const [iFonster, nyaAktuella] = await Promise.all([
           hamtaVilobrottForPeriod(medarbetare.id, fromIso, toIso),
-          hamtaAktuellaVilobrott(medarbetare.id),
+          hamtaAktuellaVilobrott(medarbetare.id, 30),
         ]);
         setAktuellaVilobrott(nyaAktuella);
-        const obesvarade = iFonster.filter(b => !b.besvarat_av_forare);
+        // Bara DEN DAGENS brott blockerar underskriften; äldre obesvarade är en påminnelse (dagFragor).
+        const obesvarade = iFonster.filter(b => !b.besvarat_av_forare && arDagensVilobrott(b, datum));
         if (obesvarade.length > 0) {
           // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
           setVilobrottKö(obesvarade);
@@ -1904,6 +2039,39 @@ export default function Arbetsrapport() {
 
   // Sparar förarens orsak-svar för det aktuella brottet i kön och avancerar.
   // Vid sista brottet: bekräftar dagen + nollställer kön. Vid backa: avbrytsHelpern.
+  // Förarens svar på ETT vilobrott: orsak, kompensation, deadline. Delas av orsaksflödet
+  // (steget vilobrottOrsak, vid Stämmer) och av raden i "Saker att svara på". Verifierad
+  // skrivning; false = inget sparat (anroparen låter föraren försöka igen).
+  const skrivVilobrottSvar = async (aktivt: VilobrottRad, orsak: VilaOrsak, fritext: string): Promise<boolean> => {
+    if (!trosklar) return false;
+    const nuIso = new Date().toISOString();
+    const kompH = Number(aktivt.krav_h) - Number(aktivt.vila_h);
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + trosklar.kompensation_deadline_dagar);
+    const deadlineIso = deadline.toISOString().slice(0, 10);
+    try {
+      const res = await uppdateraVerifierat(supabase, "vilobrott", {
+        besvarat_av_forare: true,
+        orsak,
+        orsak_fritext: orsak === 'annat' ? fritext.trim() : null,
+        besvarat_tid: nuIso,
+        kompensation_h: kompH,
+        kompensation_deadline: deadlineIso,
+      }, { id: aktivt.id });
+      if (!res.ok) throw new Error(res.fel);
+      // Re-fetcha aktuellaVilobrott (30 dagar, som vid inläsning) så Dag-vyn uppdateras.
+      // RÖR INTE vilobrottKö — den är fryst genom hela flödet.
+      if (medarbetare?.id) {
+        const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id, 30);
+        setAktuellaVilobrott(nyaBrott);
+      }
+      return true;
+    } catch (err) {
+      console.error('Spara orsak misslyckades:', err);
+      return false;
+    }
+  };
+
   const sparaOrsakOchFortsätt = async () => {
     if (!vilobrottOrsakVal) return;
     if (vilobrottOrsakVal === 'annat' && !vilobrottOrsakFritext.trim()) return;
@@ -1911,32 +2079,7 @@ export default function Arbetsrapport() {
     const aktivt = vilobrottKö[vilobrottIdx];
     if (!aktivt) return;
 
-    const nuIso = new Date().toISOString();
-    const kompH = Number(aktivt.krav_h) - Number(aktivt.vila_h);
-    const deadline = new Date();
-    deadline.setDate(deadline.getDate() + trosklar.kompensation_deadline_dagar);
-    const deadlineIso = deadline.toISOString().slice(0, 10);
-
-    try {
-      const res = await uppdateraVerifierat(supabase, "vilobrott", {
-        besvarat_av_forare: true,
-        orsak: vilobrottOrsakVal,
-        orsak_fritext: vilobrottOrsakVal === 'annat' ? vilobrottOrsakFritext.trim() : null,
-        besvarat_tid: nuIso,
-        kompensation_h: kompH,
-        kompensation_deadline: deadlineIso,
-      }, { id: aktivt.id });
-      if (!res.ok) throw new Error(res.fel);
-      // Re-fetcha aktuellaVilobrott så Dag-vyns gula varningar uppdateras.
-      // RÖR INTE vilobrottKö — den är fryst genom hela flödet.
-      if (medarbetare?.id) {
-        const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
-        setAktuellaVilobrott(nyaBrott);
-      }
-    } catch (err) {
-      console.error('Spara orsak misslyckades:', err);
-      return; // Håll föraren kvar i vyn — låt hen försöka igen
-    }
+    if (!(await skrivVilobrottSvar(aktivt, vilobrottOrsakVal, vilobrottOrsakFritext))) return; // Håll föraren kvar i vyn — låt hen försöka igen
 
     // Avancera eller bekräfta
     if (vilobrottIdx < vilobrottKö.length - 1) {
@@ -1960,6 +2103,294 @@ export default function Arbetsrapport() {
     }
   };
 
+  // ═══ SAKER ATT SVARA PÅ — ETT bekräftaflöde för ALLA dagar ═══════════════════════════
+  // Martin 2026-10-06 (efter test av #707): listan och Stämmer fanns bara i Dag-vyn för IDAG;
+  // en äldre obekräftad dag öppnas via väntar-raden eller Kalender i Redigera, som hade den
+  // gamla knappen "Bekräfta dagen" — brandriskfrågan ställdes aldrig och rastsvaret sparades
+  // aldrig. Nu bygger BÅDA vyerna sin lista med samma funktion (fragorFor) och skriver svaren
+  // på samma sätt, nycklat på datum. Förare bekräftar ofta gårdagen; flödet är detsamma.
+  type Fraga = { nyckel: string; titel: string; fraga: string; svar: string | null; oppna: () => void };
+  /** Dagens värden oavsett vy: Redigera läser sina egna fält (redStart…), Dag sina (start…). */
+  const dagKontext = (datum: string) => {
+    const iRed = steg === "redigera" && (redDag as any)?.datum === datum;
+    const rad: any = iRed ? redDag : dagData[datum];
+    return {
+      rad,
+      start: String((iRed ? redStart : start) || ""),
+      slut: String((iRed ? redSlut : slut) || ""),
+      rast: Number((iRed ? redRast : rast) || 0),
+      andraTider: iRed
+        ? () => setRedVy("tid")
+        : () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); },
+    };
+  };
+  const tidsSig = (k: { start: string; slut: string; rast: number }) => `${k.start.slice(0, 5)}|${k.slut.slice(0, 5)}|${k.rast}`;
+  /** Skriv ett svar i dagens rad i BÅDA kopiorna (dagData och Redigeras redDag). */
+  const patchaDag = (datum: string, patch: Record<string, any>) => {
+    setDagData(d => ({ ...d, [datum]: { ...(d[datum] || {}), ...patch } }));
+    setRedDag((rd: any) => (rd?.datum === datum ? { ...rd, ...patch } : rd));
+    // Väntar-raderna i Dag räknas ur årsData: utan den här patchen låg en bekräftad dag kvar som
+    // "väntar" tills appen laddades om (Martin 2026-10-06: "3 dagar väntar" fast allt var bekräftat).
+    setÅrsData((a: any[]) => a.map((x: any) => (x.datum === datum ? { ...x, ...patch } : x)));
+    setHistorik((h: any[]) => h.map((x: any) => (x.datum === datum ? { ...x, ...patch } : x)));
+  };
+  /** Dagar som väntar på föraren, äldsta först: obekräftade (7 dagar) + bekräftade med obesvarad
+   *  brandrisk (30 dagar). EN källa för raden i Dag och för kön "N dagar kvar". */
+  const vantandeDagar = (): { datum: string; typ: 'bekraftelse' | 'brand' }[] => {
+    const sedan = (n: number) => { const d = new Date(idagKey + 'T00:00:00'); d.setDate(d.getDate() - n); return franGolv(ymdLokal(d)); };
+    const fran7 = sedan(7), fran30 = sedan(30);
+    const ut: { datum: string; typ: 'bekraftelse' | 'brand' }[] = [];
+    for (const d of (årsData || [])) {
+      if (!d.datum || d.datum >= idagKey) continue;
+      // Frånvarodagar har ingen arbetsdag-rad sedan steg 2 — inget att bekräfta.
+      if (d.datum >= fran7 && !d.bekraftad && (d.start_tid || d.slut_tid)) ut.push({ datum: d.datum, typ: 'bekraftelse' });
+      else if (d.datum >= fran30 && d.bekraftad && skaFragaBrandrisk({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null })) ut.push({ datum: d.datum, typ: 'brand' });
+    }
+    return ut.sort((a, b) => a.datum.localeCompare(b.datum));
+  };
+  /** Vidare i kön efter Stämmer (eller Klar): nästa väntande dag, annars tillbaka till Dag. */
+  const gaVidare = (fran: string) => {
+    const kvar = vantandeDagar().filter(d => d.datum !== fran);
+    if (kvar.length > 0) { öppnaRedigera(kvar[0].datum); return; }
+    setVantarKo(false);
+    setSteg("morgon");
+  };
+  const fragorFor = (datum: string): Fraga[] => {
+    const k = dagKontext(datum);
+    const rad = k.rad;
+    if (!rad) return [];
+    const harPass = !!rad.slut_tid;
+    const fragor: Fraga[] = [];
+    // Objekt: bara för en maskindag med ETT objekt (flerobjektsdagar har sina objekt som rader).
+    const dagObjId = (datum === idagKey ? valtObjektId : null) || rad.objekt_id || null;
+    const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || rad.objekt_namn || dagObjId) : '';
+    const flerObjekt = (rad.objekt_lista || []).length > 1;
+    if (harPass && !flerObjekt && (!dagObjNamn || besvaradeFragor[`${datum}|objekt`])) {
+      fragor.push({ nyckel: 'objekt', titel: dagObjNamn ? 'Objekt' : 'Objekt saknas', fraga: 'Vilken trakt var du på?', svar: dagObjNamn || null,
+        oppna: () => setObjektSvarDatum(datum) });
+    }
+    // Tidig start (brandrisk): derivat av raden, så svaret ligger kvar efter omladdning.
+    const bd = { datum, start_tid: rad.start_tid, brandrisk_beordrad: rad.brandrisk_beordrad ?? null };
+    if (arTidigVardag(bd)) {
+      const svarad = bd.brandrisk_beordrad !== null;
+      const ob = obMinuter(bd);
+      fragor.push({ nyckel: 'brand', titel: svarad ? 'Tidig start · brandrisk' : `Tidig start ${String(rad.start_tid || '').slice(0, 5)}`, fraga: 'Började du tidigt på grund av brandrisk?',
+        svar: svarad ? `${bd.brandrisk_beordrad ? 'Ja' : 'Nej'}${ob > 0 ? ` · ${fmtOb(ob)} OB` : ''}` : null,
+        oppna: () => setSvarSheet({ typ: 'brand', datum }) });
+    }
+    // Vilobrott: BARA den dagens (i natt/idag). Äldre obesvarade blockerar aldrig Stämmer.
+    const fore = new Date(datum + 'T00:00:00'); fore.setDate(fore.getDate() - 1);
+    const foreKey = ymdLokal(fore);
+    const datumKortK = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`; };
+    for (const b of aktuellaVilobrott
+      .filter(b => arDagensVilobrott(b, datum) && (!b.besvarat_av_forare || besvaradeFragor[`${datum}|vila-${b.id}`]))
+      .sort((a, c) => a.datum.localeCompare(c.datum))) {
+      const nar = b.typ === 'veckovila' ? `vecka ${isoVecka(new Date(b.datum + 'T00:00:00')).vecka}` : (b.datum === foreKey ? '' : datumKortK(b.datum));
+      const tim = (Math.round(Number(b.vila_h) * 10) / 10).toLocaleString('sv-SE');
+      fragor.push({ nyckel: 'vila-' + b.id, titel: `${b.typ === 'dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${tim} tim${nar ? ` · ${nar}` : ''}`,
+        fraga: `Kravet är ${Number(b.krav_h).toLocaleString('sv-SE')} tim. Varför bröts vilan?`,
+        svar: b.besvarat_av_forare ? vilaSvarText(b.orsak, b.orsak_fritext) : null,
+        oppna: () => { setSvarOrsak((b.orsak as VilaOrsak) || null); setSvarFritext(b.orsak_fritext || ''); setSvarSheet({ typ: 'vila', datum, id: b.id }); } });
+    }
+    // Rast/pass som avviker. Svaret ligger i databasen (arbetsdag.tidsfragor_svar) så frågan inte
+    // kommer igen efter omladdning; lokalt svar gäller i visningen om skrivningen inte gick igenom.
+    if (harPass) {
+      const sig = tidsSig(k);
+      for (const q of tidsFragor(k.rast, passMinuter(k.start, k.slut, k.rast))) {
+        const sparat = (rad.tidsfragor_svar || {})[q.id] === sig || tidsSvar[`${datum}|${q.id}`] === sig;
+        fragor.push({ nyckel: 'tid-' + q.id, titel: q.titel, fraga: 'Stämmer det?', svar: sparat ? 'Stämmer' : null,
+          oppna: () => setSvarSheet({ typ: 'tid', datum, id: q.id }) });
+      }
+    }
+    return fragor;
+  };
+  /** Listan (rubrik + rader) ovanför Stämmer. null när inga frågor finns (vanlig dag). */
+  const fragorLista = (fragor: Fraga[]): ReactNode => {
+    if (fragor.length === 0) return null;
+    const oppna = fragor.filter(f => f.svar == null);
+    return (
+      <div style={{ ...KORT, marginTop:AVSTAND.m, paddingTop:AVSTAND.m, paddingBottom:AVSTAND.xs }}>
+        <p style={{ margin:0, ...TYP.micro, color: oppna.length > 0 ? FARG.orange : FARG.text2 }}>
+          {oppna.length > 0 ? `${oppna.length} ${oppna.length === 1 ? 'sak' : 'saker'} att svara på` : 'Besvarat'}
+        </p>
+        {fragor.map((f, i) => (
+          <button key={f.nyckel} onClick={f.oppna}
+            style={{ ...KNAPP.tertiar, display:"flex", width:"100%", height:"auto", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom: i === fragor.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
+            <span style={{ minWidth:0 }}>
+              <span style={{ display:"block", ...TYP.listtitel, ...TNUM, color:FARG.text }}>{f.titel}</span>
+              {f.svar == null
+                ? <span style={{ display:"block", ...TYP.meta, color:FARG.text2 }}>{f.fraga}</span>
+                : <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, ...TYP.meta, color:FARG.gron }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check_circle</span>{f.svar}
+                  </span>}
+            </span>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+  /** Stämmer-knappens stil: grå (men inte död) så länge något är obesvarat, plus raden under. */
+  const stammerGra = (fragor: Fraga[]) => fragor.some(f => f.svar == null);
+  /** Svar på brandriskfrågan för en dag (skrivs direkt, verifierat — blockerar aldrig bekräftelsen). */
+  const svaraBrandFor = async (datum: string, val: boolean) => {
+    const rad = dagKontext(datum).rad;
+    if (!rad?.id) return;
+    const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: rad.id });
+    if (!res.ok) { setBekraftaFel(res.fel); setRedFel(res.fel); return; }
+    setBekraftaFel(null); setRedFel(null);
+    patchaDag(datum, { brandrisk_beordrad: val });
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+    setSvarSheet(null);
+  };
+  /** Arken för svaren — renderas av BÅDA vyerna. Ett ark i taget; dagen bekräftas aldrig av ett svar. */
+  const renderSvarSheet = (): ReactNode => {
+    if (!svarSheet) return null;
+    const datum = svarSheet.datum;
+    const k = dagKontext(datum);
+    const rad = k.rad;
+    const stäng = () => setSvarSheet(null);
+    const ark = (barn: ReactNode) => (
+      <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div onClick={e=>e.stopPropagation()} className="sheet-upp"
+          style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+          <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+            <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
+          </div>
+          {barn}
+        </div>
+      </div>
+    );
+    const avbryt = (
+      <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.m }}>
+        <button onClick={stäng} style={KNAPP.lank}>Avbryt</button>
+      </div>
+    );
+    if (svarSheet.typ === 'brand') {
+      const nu = rad?.brandrisk_beordrad ?? null;
+      return ark(<>
+        <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Tidig start · {String(rad?.start_tid || '').slice(0, 5)}</p>
+        <p style={{ margin:`${AVSTAND.s}px 0 ${AVSTAND.l}px`, ...TYP.text, color:FARG.text }}>Började du tidigt på grund av brandrisk?</p>
+        <div style={{ display:"flex", gap:AVSTAND.s }}>
+          {([[true, 'Ja'], [false, 'Nej']] as [boolean, string][]).map(([v, l]) => (
+            <button key={l} onClick={()=>svaraBrandFor(datum, v)} style={{ ...KNAPP.sekundar, gap:AVSTAND.xs, ...(nu === v ? { background:FARG.fyllning } : {}) }}>
+              {nu === v && <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>check</span>}{l}
+            </button>
+          ))}
+        </div>
+        {avbryt}
+      </>);
+    }
+    if (svarSheet.typ === 'vila') {
+      const b = aktuellaVilobrott.find(x => x.id === svarSheet.id);
+      if (!b) return null;
+      const klart = !!svarOrsak && (svarOrsak !== 'annat' || svarFritext.trim().length > 0);
+      return ark(<>
+        <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Varför bröts vilan?</p>
+        <p style={{ margin:`${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, color:FARG.text2 }}>{b.beskrivning}</p>
+        {VILA_ORSAKER.map(o => (
+          <button key={o.key} onClick={()=>setSvarOrsak(o.key)}
+            style={{ ...KNAPP.tertiar, display:"flex", width:"100%", height:"auto", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, textAlign:"left", borderBottom:`1px solid ${FARG.linje}` }}>
+            <span style={{ minWidth:0 }}>
+              <span style={{ display:"block", ...TYP.listtitel, color:FARG.text }}>{o.label}</span>
+              <span style={{ display:"block", ...TYP.meta, color:FARG.text2 }}>{o.sub}</span>
+            </span>
+            {svarOrsak === o.key && <span className="material-symbols-outlined" style={{ fontSize:IKON.rad, color:FARG.text }}>check</span>}
+          </button>
+        ))}
+        {svarOrsak === 'annat' && (
+          <textarea id="vila-svar-fritext" placeholder="T.ex. röjde fallna träd över vägen" value={svarFritext} onChange={e=>setSvarFritext(e.target.value)} rows={3}
+            style={{ width:"100%", marginTop:AVSTAND.m, background:FARG.upphojt, border:"none", borderRadius:RADIE.rad, color:FARG.text, padding:AVSTAND.m, ...TYP.text, outline:"none", fontFamily:"inherit", resize:"none", boxSizing:"border-box" }} />
+        )}
+        <button disabled={!klart || svarSparar} style={{ ...KNAPP.primar, marginTop:AVSTAND.l, ...(!klart || svarSparar ? INAKTIV : {}) }}
+          onClick={async ()=>{
+            if (!svarOrsak) return;
+            setSvarSparar(true);
+            const ok = await skrivVilobrottSvar(b, svarOrsak, svarFritext);
+            setSvarSparar(false);
+            if (!ok) { setBekraftaFel(SPARA_FEL); setRedFel(SPARA_FEL); return; }
+            setBekraftaFel(null); setRedFel(null);
+            setBesvaradeFragor(f => ({ ...f, [`${datum}|vila-${b.id}`]: true }));
+            setSvarSheet(null);
+          }}>Spara</button>
+        {avbryt}
+      </>);
+    }
+    // typ 'tid': rast eller pass som avviker
+    const q = tidsFragor(k.rast, passMinuter(k.start, k.slut, k.rast)).find(x => x.id === svarSheet.id);
+    if (!q) return null;
+    return ark(<>
+      <p style={{ margin:0, ...TYP.rubrik, ...TNUM, color:FARG.text }}>{q.rubrik}</p>
+      <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{q.text}</p>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
+        <button onClick={()=>{ setSvarSheet(null); k.andraTider(); }} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Ändra tider</button>
+        <button onClick={async ()=>{
+          const sig = tidsSig(k);
+          setTidsSvar(s => ({ ...s, [`${datum}|${q.id}`]: sig })); // gäller direkt, även om skrivningen nedan skulle fela
+          setSvarSheet(null);
+          if (!rad?.id) return;
+          const nytt = { ...(rad.tidsfragor_svar || {}), [q.id]: sig };
+          const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidsfragor_svar: nytt }, { id: rad.id });
+          if (!res.ok) {
+            // Syns för föraren (inte bara i konsolen): svaret gäller i den här visningen men nådde inte databasen.
+            console.error('[svar] tidsfragor_svar kunde inte sparas:', res.fel);
+            const fel = 'Svaret kunde inte sparas — det gäller bara nu. Försök igen om en stund.';
+            setBekraftaFel(fel); setRedFel(fel);
+            return;
+          }
+          setBekraftaFel(null); setRedFel(null);
+          patchaDag(datum, { tidsfragor_svar: nytt });
+        }} style={KNAPP.primar}>Ja, det stämmer</button>
+      </div>
+    </>);
+  };
+  /** Trakt-väljaren för frågan "Vilken trakt var du på?" — svaret skrivs direkt på den dagens rad. */
+  const renderObjektSvarSheet = (): ReactNode => {
+    if (!objektSvarDatum) return null;
+    const datum = objektSvarDatum;
+    const rad = dagKontext(datum).rad;
+    const stäng = () => setObjektSvarDatum(null);
+    return (
+      <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:520, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
+          <div style={{ padding:`${AVSTAND.l}px`, borderBottom:`1px solid ${FARG.linje}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <h3 style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Välj objekt</h3>
+            <button onClick={stäng} style={KNAPP.lank}>Stäng</button>
+          </div>
+          <div style={{ flex:1, overflowY:"auto" }}>
+            <ObjektValjarLista
+              objekt={objektLista}
+              valtId={rad?.objekt_id || null}
+              onVälj={async o => {
+                stäng();
+                if (!o || !rad?.id) return;
+                const res = await uppdateraVerifierat(supabase, 'arbetsdag', { objekt_id: o.id }, { id: rad.id });
+                if (!res.ok) { setBekraftaFel(res.fel); setRedFel(res.fel); return; }
+                setBekraftaFel(null); setRedFel(null);
+                patchaDag(datum, { objekt_id: o.id, objekt_namn: o.namn });
+                if (datum === idagKey) setValtObjektId(o.id);
+                setBesvaradeFragor(b => ({ ...b, [`${datum}|objekt`]: true }));
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+
+  // Inloggad men ingen medarbetare kopplad — säg vad som är fel och vad man gör.
+  if(!medarbetare && medSaknas) return (
+    <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, display:"flex", flexDirection:"column", justifyContent:"center", padding:`0 ${AVSTAND.sidmarginal}px` }}>
+      <style>{designCss}</style>
+      <h1 style={{ margin:0, ...TYP.titel, color:FARG.text }}>Kontot är inte kopplat</h1>
+      <p style={{ margin:`${AVSTAND.m}px 0 0`, ...TYP.text, color:FARG.text2 }}>
+        Du är inloggad som <span style={{ color:FARG.text }}>{medSaknas}</span>, men kontot är inte kopplat till någon medarbetare. Utan koppling kan appen inte visa din arbetsrapport.
+      </p>
+      <p style={{ margin:`${AVSTAND.m}px 0 0`, ...TYP.text, color:FARG.text2 }}>Ring Martin och be honom kontrollera din e-postadress under Admin → Medarbetare. Logga sedan ut och in igen.</p>
+      <button onClick={async ()=>{ await supabase.auth.signOut(); window.location.href='/login'; }} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.xl }}>Logga ut</button>
+    </div>
+  );
   // Loading fallback
   if(!medarbetare) return (
     <div style={shell}>
@@ -1993,16 +2424,39 @@ export default function Arbetsrapport() {
   /** Öppna en befintlig extra_tid-post för redigering (tider, aktivitet, objekt, faktureras, ta bort). */
   const oppnaPeriodRedigera = (rad: any) => {
     setPeriodFel(null);
-    setPeriodForm({ lage: 'redigera', datum: rad.datum, rad, varden: periodVardenFran(rad), pass: passFor(rad.datum) });
+    setPeriodForm({ lage: 'redigera', tabell: 'extra', datum: rad.datum, rad, varden: periodVardenFran(rad), pass: passFor(rad.datum) });
+  };
+  /** Öppna ett befintligt segment (period inom passet) — samma formulär, UPDATE mot arbetsdag_segment. */
+  const oppnaSegmentRedigera = (sg: any) => {
+    setPeriodFel(null);
+    setPeriodForm({ lage: 'redigera', tabell: 'segment', datum: sg.datum, rad: sg, varden: periodVardenFran(sg), pass: passFor(sg.datum) });
+  };
+  // KVITTOT byggs av det SPARADE svaret, aldrig av formulärets värden. Objektet
+  // på segment tappades tyst i fyra dagar (2026-09-26..30) medan kvittot sa
+  // "Betet gallring 2026" varje gång — appen bekräftade något den inte visste
+  // hade hänt. Saknas ett fält i svaret som fanns i formuläret är det ett FEL.
+  const kvittoFranRad = (rad: any) => {
+    const objNamn = rad?.objekt_id ? (objektLista.find(o => o.id === rad.objekt_id)?.namn || rad.objekt_id) : null;
+    return `${(rad?.start_tid || '').slice(0, 5)}–${(rad?.slut_tid || '').slice(0, 5)} ${aktLabel(rad?.aktivitet_typ)}${objNamn ? ` · ${objNamn}` : ''}`;
+  };
+  const sparatSkiljerSig = (v: PeriodVarden, rad: any): string | null => {
+    if (v.objektId && rad?.objekt_id !== v.objektId) return 'Perioden sparades, men objektet följde inte med. Öppna perioden och välj objektet igen — händer det igen, säg till Martin.';
+    if ((rad?.aktivitet_typ || null) !== v.typ) return 'Perioden sparades, men aktiviteten följde inte med. Öppna perioden och kontrollera.';
+    if (!!rad?.debiterbar !== v.deb) return 'Perioden sparades, men "Faktureras" följde inte med. Öppna perioden och kontrollera.';
+    return null;
   };
   /** Öppna ett tomt formulär för ett datum (lägg till i efterhand / Redigera "Lägg till period"). */
   const oppnaPeriodNy = (datum: string, opts?: { gap?: { start: string; slut: string }; typ?: AktivitetTyp; fromSynk?: boolean; fromTidigarelagd?: boolean }) => {
     const typ = opts?.typ || 'annat';
     setPeriodFel(null);
     setSegForm(opts?.fromSynk || opts?.fromTidigarelagd ? { start: '', slut: '', typ, deb: false, kommentar: '', fromSynk: opts?.fromSynk, fromTidigarelagd: opts?.fromTidigarelagd } : null);
+    // FÖRIFYLL TRAKTEN med dagens objekt när dagen har ett — den som jobbar på
+    // samma trakt behöver inte välja alls. Tomt annars (väljs i formuläret;
+    // obligatoriskt för planering/manuellt).
+    const dagensObjekt: string | null = (dagData[datum] as any)?.objekt_id || (datum === idagKey ? (valtObjektId || null) : null);
     setPeriodForm({
       lage: 'ny', datum, pass: passFor(datum),
-      varden: { start: opts?.gap?.start || '', slut: opts?.gap?.slut || '', typ, deb: AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false, kommentar: '', objektId: null },
+      varden: { start: opts?.gap?.start || '', slut: opts?.gap?.slut || '', typ, deb: AKTIVITETER.find(a => a.typ === typ)?.debDefault ?? false, kommentar: '', objektId: dagensObjekt },
     });
   };
   /** "Avsluta" på Dag: sluttiden noteras (ingen tyst radering av korta poster), sedan formuläret. */
@@ -2014,6 +2468,7 @@ export default function Arbetsrapport() {
     if (!res.ok) { setBekraftaFel(res.fel); return; }
     setBekraftaFel(null);
     const uppdaterad = res.rows[0];
+    void synkaVilobrott(uppdaterad?.datum || rad.datum); // perioden fick en sluttid: vilan kan ha ändrats
     setPagaendeAktiviteter(arr => arr.filter(x => x.id !== rad.id));
     setExtraTidData(arr => arr.map(x => x.id === rad.id ? uppdaterad : x));
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
@@ -2039,15 +2494,50 @@ export default function Arbetsrapport() {
     if (!v.start || !v.slut || min <= 0) { setPeriodFel('Sluttiden måste vara efter starttiden.'); return; }
     setPeriodSparar(true);
     try {
+      if (periodForm.lage === 'redigera' && periodForm.tabell === 'segment') {
+        // Befintligt SEGMENT (inom passet): förblir segment. Måste ligga kvar
+        // inom passet och inte överlappa dagens övriga perioder (utom sig självt).
+        const pass = periodForm.pass || { start_tid: null, slut_tid: null };
+        if (klassificeraPeriod({ start: v.start, slut: v.slut }, pass) !== 'inne') {
+          setPeriodFel(`Perioden måste ligga inom maskinpasset (${(pass.start_tid || '').slice(0, 5)}–${(pass.slut_tid || '').slice(0, 5)}). Ta bort den och lägg till på nytt om den ska ligga utanför.`);
+          return;
+        }
+        const andra = [
+          ...dagSegment.filter((x: any) => x.id !== periodForm.rad.id).map((x: any) => ({ start_tid: x.start_tid, slut_tid: x.slut_tid })),
+          ...(extraTidData || []).filter((e: any) => e.datum === periodForm.datum && e.slut_tid).map((e: any) => ({ start_tid: e.start_tid, slut_tid: e.slut_tid })),
+        ];
+        const val = valideraSegment({ start: v.start, slut: v.slut }, pass, andra);
+        if (!val.ok) { setPeriodFel(val.fel); return; }
+        const payload = {
+          start_tid: v.start, slut_tid: v.slut,
+          aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
+        };
+        const res = await uppdateraVerifierat(supabase, "arbetsdag_segment", payload, { id: periodForm.rad.id }, "*");
+        if (!res.ok) { setPeriodFel(/23P01|overlap/i.test(res.fel) ? 'Perioden överlappar en du redan märkt.' : res.fel); return; }
+        const sparad = res.rows[0] || { ...periodForm.rad, ...payload };
+        setDagSegment(d => d.map((x: any) => x.id === sparad.id ? sparad : x).sort((x: any, y: any) => (x.start_tid || '').localeCompare(y.start_tid || '')));
+        const avvik = sparatSkiljerSig(v, sparad);
+        if (avvik) { setPeriodFel(avvik); return; }
+        stangPeriodForm();
+        return;
+      }
       if (periodForm.lage === 'redigera') {
         // Befintlig extra_tid-post: förblir extra_tid. minuter räknas om — INTE genererad.
+        // Timer-startade poster saknar arbetsdag_id tills de avslutas här.
+        const arbetsdagId = periodForm.rad.arbetsdag_id || await sakerstallArbetsdagRad(periodForm.rad.datum || periodForm.datum);
+        if (!arbetsdagId) { setPeriodFel(SKALRAD_FEL); return; }
         const payload = {
           start_tid: v.start + ':00', slut_tid: v.slut + ':00', minuter: min,
           aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
+          arbetsdag_id: arbetsdagId,
         };
         const res = await uppdateraVerifierat(supabase, "extra_tid", payload, { id: periodForm.rad.id }, "*");
         if (!res.ok) { setPeriodFel(res.fel); return; }
-        speglaExtra(res.rows[0] || { ...periodForm.rad, ...payload });
+        const sparad = res.rows[0] || { ...periodForm.rad, ...payload };
+        speglaExtra(sparad);
+        void synkaVilobrott(sparad.datum || periodForm.rad.datum || periodForm.datum); // ändrad period → räkna om vilan
+        const avvik = sparatSkiljerSig(v, sparad);
+        if (avvik) { setPeriodFel(avvik); return; }
         stangPeriodForm();
         return;
       }
@@ -2062,17 +2552,21 @@ export default function Arbetsrapport() {
       ];
       const lage = klassificeraPeriod({ start: v.start, slut: v.slut }, pass);
       if (lage === 'korsar') { setPeriodFel(`Perioden korsar maskinpassets gräns (${(pass.start_tid || '').slice(0, 5)}–${(pass.slut_tid || '').slice(0, 5)}). Dela upp den.`); return; }
+      let sparadRad: any = null;
       if (lage === 'inne') {
         const val = valideraSegment({ start: v.start, slut: v.slut }, pass, befintliga);
         if (!val.ok) { setPeriodFel(val.fel); return; }
         const { data, error } = await supabase.from('arbetsdag_segment').insert({
           medarbetare_id: medarbetare.id, datum: periodForm.datum,
           start_tid: v.start, slut_tid: v.slut,
-          aktivitet_typ: v.typ, debiterbar: v.deb,
+          // objekt_id saknades här 2026-09-26..30: formuläret hade objektet, raden
+          // fick det aldrig. Samma nummer som extra_tid (dim_objekt.objekt_id).
+          aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb,
           kommentar: v.kommentar.trim() || null,
           kalla: (segForm?.fromSynk || segForm?.fromTidigarelagd) ? 'synk' : 'forare',
         }).select().single();
         if (error || !data) { setPeriodFel((error as any)?.code === '23P01' ? 'Perioden överlappar en du redan märkt.' : SPARA_FEL); return; }
+        sparadRad = data;
         const nyaSegment = [...dagSegment, data].sort((x: any, y: any) => (x.start_tid || '').localeCompare(y.start_tid || ''));
         setDagSegment(nyaSegment);
         // Tidigarelagd-start: segmentet ÄR kvittensen. Rör aldrig start_tid.
@@ -2095,35 +2589,108 @@ export default function Arbetsrapport() {
         const val = valideraSegment({ start: v.start, slut: v.slut }, { start_tid: null, slut_tid: null }, befintliga);
         if (!val.ok) { setPeriodFel(val.fel); return; }
         const kalla = lage === 'utanfor_fore' ? 'morgon' : lage === 'utanfor_efter' ? 'kvall' : 'under_dagen';
+        // Första perioden på en dag utan pass SKAPAR dagen (skalrad utan klockslag).
+        const arbetsdagId = await sakerstallArbetsdagRad(periodForm.datum);
+        if (!arbetsdagId) { setPeriodFel(SKALRAD_FEL); return; }
         const { data, error } = await supabase.from('extra_tid').insert({
-          medarbetare_id: medarbetare.id, datum: periodForm.datum,
+          medarbetare_id: medarbetare.id, datum: periodForm.datum, arbetsdag_id: arbetsdagId,
           start_tid: v.start + ':00', slut_tid: v.slut + ':00',
           minuter: min, // INTE genererad
           aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb,
           kommentar: v.kommentar.trim() || null, kalla,
         }).select().single();
         if (error || !data) { setPeriodFel(SPARA_FEL); return; }
+        sparadRad = data;
         speglaExtra(data);
+        void synkaVilobrott(periodForm.datum); // ny period utanför passet → räkna om vilan
       }
+      // Kvittot och kedjan bygger på RADEN databasen gav tillbaka. Skiljer den
+      // sig från formuläret stannar formuläret öppet med ett fel — aldrig ett
+      // kvitto som säger att något sparades som inte sparades.
+      const avvik = sparatSkiljerSig(v, sparadRad);
+      if (avvik) { setPeriodFel(avvik); return; }
       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
-      stangPeriodForm();
+      // KEDJAN: efter Spara öppnas formuläret igen med Från = den här periodens
+      // Till (känd tid, inte gissad), samma aktivitet och objekt förvalda, Till
+      // tom. Tre trakter blir en handling. Utgång: Klar eller Avbryt — aldrig
+      // automatisk stängning. Inte för synk-/tidigarelagd-perioder (en och klar).
+      if (segForm) { stangPeriodForm(); return; }
+      const kvitto = kvittoFranRad(sparadRad);
+      setPeriodFel(null);
+      setPeriodForm(f => f ? {
+        ...f,
+        sparade: [...(f.sparade || []), kvitto],
+        varden: { start: v.slut, slut: '', typ: v.typ, deb: v.deb, kommentar: '', objektId: v.objektId },
+      } : f);
     } finally {
       setPeriodSparar(false);
     }
   };
+  // ── DEN TOMMA SKALRADEN ────────────────────────────────────────────────
+  // En perioddag vars perioder tagits bort lämnade en rad utan innehåll — tom
+  // och ibland bekräftad — som inte gick att göra något med (Martin satt fast
+  // 2026-09-28, tre rader fick raderas i databasen). Regeln: raderas sista
+  // perioden försvinner skalraden med, om dagen saknar maskin och inte har
+  // något annat innehåll (km, traktamente, kommentar). Har den det står den kvar
+  // — då är den inte tom. Radering kräver RLS-policyn
+  // arbetsdag_forare_delete_skalrad (20260928); saknas den (0 rader) nollas
+  // bekräftelsen i stället, så dagen aldrig blir låst.
+  const skalradTom = (r: any): boolean =>
+    !!r && !r.start_tid && !r.slut_tid && !r.maskin_id
+    && !(r.km_morgon || 0) && !(r.km_kvall || 0) && !(r.km_totalt || 0)
+    && !r.traktamente && !r.trak && !r.kommentar;
+  const taBortTomSkalrad = async (datum: string, id: string): Promise<{ ok: true; raderad: boolean } | { ok: false; fel: string }> => {
+    if (!medarbetare?.id) return { ok: false, fel: SPARA_FEL };
+    const del = await raderaVerifierat(supabase, "arbetsdag", { id });
+    let raderad = true;
+    if (!del.ok) {
+      // Policyn inte körd (eller inte egen rad): nolla underskriften i stället.
+      const upd = await uppdateraVerifierat(supabase, "arbetsdag", { bekraftad: false, bekraftad_tid: null }, { id });
+      if (!upd.ok) return { ok: false, fel: upd.fel };
+      raderad = false;
+    }
+    if (raderad) void synkaVilobrott(datum); // raderad dag → räkna om vilan runt den
+    setDagData(d => {
+      if (!d[datum]) return d;
+      if (raderad) { const kopia = { ...d }; delete kopia[datum]; return kopia; }
+      return { ...d, [datum]: { ...d[datum], bekraftad: false, bekraftad_tid: null, status: 'saknas' } };
+    });
+    setRedDag((rd: any) => rd?.datum === datum ? (raderad ? { datum } : { ...rd, bekraftad: false, bekraftad_tid: null }) : rd);
+    setHistorik(h => raderad ? h.filter((x: any) => x.datum !== datum) : h.map((x: any) => x.datum === datum ? { ...x, bekraftad: false, bekraftad_tid: null } : x));
+    setÅrsData((a: any[]) => raderad ? a.filter((x: any) => x.datum !== datum) : a.map((x: any) => x.datum === datum ? { ...x, bekraftad: false, bekraftad_tid: null } : x));
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+    return { ok: true, raderad };
+  };
+
   // Ta bort — VERIFIERAT (0 träffade rader = ärligt fel, aldrig tyst "borttaget").
   const taBortPeriod = async () => {
     if (!periodForm?.rad) return;
     const id = periodForm.rad.id;
+    const datum: string = periodForm.rad.datum;
+    if (periodForm.tabell === 'segment') {
+      // Segment finns bara med pass — skalraden berörs aldrig.
+      const res = await raderaVerifierat(supabase, "arbetsdag_segment", { id });
+      if (!res.ok) { setPeriodFel(res.fel); return; }
+      setDagSegment(d => d.filter((x: any) => x.id !== id));
+      stangPeriodForm();
+      return;
+    }
     const res = await raderaVerifierat(supabase, "extra_tid", { id });
     if (!res.ok) { setPeriodFel(res.fel); return; }
+    void synkaVilobrott(datum); // raderad period → brott som perioden orsakade ska bort
+    const kvar = (extraTidData || []).filter((x: any) => x.id !== id && x.datum === datum);
     setExtraTidData(d => d.filter(x => x.id !== id));
     setExtraDagData(m => {
-      const datum = periodForm.rad.datum;
       if (!datum || !m[datum]) return m;
       return { ...m, [datum]: m[datum].filter((x: any) => x.id !== id) };
     });
     setPagaendeAktiviteter(arr => arr.filter(x => x.id !== id));
+    // Sista perioden borta → skalraden med (se ovan). Segment finns bara med pass.
+    const rad: any = dagData[datum];
+    if (kvar.length === 0 && rad?.id && skalradTom(rad)) {
+      const t = await taBortTomSkalrad(datum, rad.id);
+      if (!t.ok) { setPeriodFel(t.fel); return; }
+    }
     stangPeriodForm();
   };
   const periodDatumText = (datum: string) => {
@@ -2134,7 +2701,7 @@ export default function Arbetsrapport() {
   // DELAD UI (renderas i både Dag-vyn och Redigera): periodformuläret.
   const efterStoppUI = periodForm ? (
     <PeriodForm
-      rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : 'Extra arbete'}
+      rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : periodForm.tabell === 'segment' ? 'Period inom passet' : periodForm.pass?.start_tid ? 'Extra arbete' : 'Period'}
       datumText={periodDatumText(periodForm.datum)}
       varden={periodForm.varden}
       onAndra={v => setPeriodForm(f => f ? { ...f, varden: v } : f)}
@@ -2145,6 +2712,8 @@ export default function Arbetsrapport() {
       onSpara={sparaPeriod}
       onTaBort={periodForm.lage === 'redigera' ? taBortPeriod : undefined}
       onAvbryt={stangPeriodForm}
+      sparade={periodForm.sparade}
+      onKlar={stangPeriodForm}
       objektNamn={periodForm.varden.objektId ? (objektLista.find(o => o.id === periodForm.varden.objektId)?.namn || periodForm.varden.objektId) : null}
       renderObjektValjare={(valtId, onValj) => (
         <ObjektValjarLista objekt={objektLista} valtId={valtId} onVälj={o => onValj(o ? o.id : null)} tillåtInget />
@@ -2269,10 +2838,18 @@ export default function Arbetsrapport() {
      så bytet väntar → pågår → avslutad → bekräftad tonar över på samma plats.
      Inga literaler här — allt ur tokens. */
   if(steg==="morgon"||steg==="dag"||steg==="meny") {
-    const DAG_HUVUD = 64;   // fast rubrikrad överst (layoutmått, inte typ/avstånd)
     const idagArb: any = dagData[idagKey];
     const extraFärdiga = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
     const harMaskinPass = !!idagArb?.slut_tid;
+    // PERIODDAG: färdiga perioder men inget pass (Joacim: planering, restid,
+    // manuellt). Bekräftas utan klockslag — se bekraftaDagen.
+    const perioddag = extraFärdiga.length > 0 && !idagArb?.start_tid;
+    // ORDET: "Extra arbete" stämmer på en maskindag (arbete utöver passet). När
+    // dagen redan består av perioder, eller när den som saknar egen maskin inte
+    // har något pass igång, är det inte extra — det är arbetet. Då heter det
+    // "Arbete" / "Lägg till arbete". Startar ett pass (MOM eller knappen) byter
+    // ordet tillbaka: då är resten extra.
+    const arbeteUtanMaskin = perioddag || (!medarbetare?.maskin_id && !idagArb?.start_tid);
     const redanBekräftad = !!idagArb?.bekraftad;
     const varBekräftad   = !!idagArb?.bekraftad_tid;
     const ändradSedan    = varBekräftad && !redanBekräftad;
@@ -2282,8 +2859,19 @@ export default function Arbetsrapport() {
     // löpande utan bekräfta-knapp; länken låter föraren bekräfta ändå.
     const dagPågår = harMaskinPass && !redanBekräftad && !bekraftaÄndå
       && !arDagAvslutad(idagKey, idagArb?.slut_tid);
-    const visaTillstand = !redanBekräftad && !harMaskinPass;
-    const visaSammanfattning = harMaskinPass || extraFärdiga.length > 0;
+    // Perioddagen har inget tillstånd att vänta på — "Väntar på maskin" ovanför
+    // tre sparade perioder sa fel sak. Kvar blir bekräftelsekortet.
+    const visaTillstand = !redanBekräftad && !harMaskinPass && !perioddag;
+    // En bekräftad dag visas ALLTID — även utan pass och utan perioder (en
+    // skalrad som bekräftats efter att perioderna tagits bort). Förr blev det
+    // en tom sida: bara hälsningen. Ärligt tomt är ett kort som säger det.
+    const visaSammanfattning = harMaskinPass || extraFärdiga.length > 0 || redanBekräftad;
+    // KVÄLLSLÄGET: passet/perioderna är klara och dagen väntar på underskrift. Då
+    // visas EN sammanfattning och EN knapp, "Stämmer"; allt som ändrar dagen ligger
+    // bakom "Något fel?" (utredning 2026-10-05: tre kort, sju tryckbara ytor och
+    // dubbletter mötte föraren för att svara på en fråga).
+    const kvällsLäge = !redanBekräftad && !dagPågår && (harMaskinPass || perioddag);
+    const svaraBrand = (val: boolean) => svaraBrandFor(idagKey, val); // delad med Redigera
     const tillstandNyckel = [
       visaTillstand ? (isWorking ? 'pagar' : 'vantar') : '-',
       visaSammanfattning ? (redanBekräftad ? 'bekraftad' : dagPågår ? 'pagar-kort' : 'avslutad') : '-',
@@ -2333,8 +2921,10 @@ export default function Arbetsrapport() {
         : delIdag
           ? `${FRANVARO_TYP_RUBRIK[delIdag.typ]} från ${fmtKlockslag(delIdag.fran_tid)} — förmiddagen räknas som arbete`
           : !isWorking
-            ? 'Startar automatiskt vid inloggning'
-            : 'Avslutas automatiskt vid utloggning från maskinen';
+            // En maskin utan filer (JD810E) startar ingenting själv — säg det,
+            // annars väntar föraren på en dag som aldrig kommer.
+            ? (maskinManuell ? 'Maskinen skickar inga filer — tryck Starta arbetspass när du börjar' : 'Startar automatiskt vid inloggning')
+            : (maskinManuell ? 'Tryck Avsluta pass när du slutar' : 'Avslutas automatiskt vid utloggning från maskinen');
       // Maskinens NAMN ur maskiner-tabellen ("Wisent2015"), aldrig koden
       // ("810E") — maskinNamnMap föredrar maskiner.namn. Förarens maskin
       // först; saknas den (admin, vikarie) maskinen på senaste arbetsdagen.
@@ -2370,7 +2960,9 @@ export default function Arbetsrapport() {
                   medarbetare_id: medarbetare.id,
                   datum: idagKey,
                   start_tid: nuT + ":00",
-                  maskin_id: medarbetare.maskin_id || null,
+                  // Dagens maskin om den redan finns (synk), annars förarens maskin
+                  // från medarbetarraden — upserten får inte skriva över synkens.
+                  maskin_id: dagData[idagKey]?.maskin_id || medarbetare.maskin_id || null,
                   objekt_id: valtObjektId || null,
                   // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
                 }, { onConflict: 'medarbetare_id,datum', select: "*" });
@@ -2430,8 +3022,14 @@ export default function Arbetsrapport() {
       );
     })();
 
+    // Vägarna in i ändra-ytorna. Definierade här (inte inne i kortet) så att både
+    // kortet och "Något fel?"-arket når dem.
+    const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
+    const öppnaKm    = () => { setTMK(kmMorgonNu); setTKK(kmKvallNu); setVisaKmSheet(true); };
+
     /* DAGSSAMMANFATTNINGEN — kortet med det stora talet, villkorade rader och
-       en knapp. Strukturen är oförändrad; värdena kommer ur tokens. */
+       en knapp. Kvällsläget (Stämmer / Något fel?) visar bara det som går att
+       kontrollera; allt som ändrar dagen ligger bakom "Något fel?". */
     const sammanfattningKort = (() => {
       if (!visaSammanfattning) return null;
       const bekräftadTidKort = idagArb?.bekraftad_tid
@@ -2450,33 +3048,35 @@ export default function Arbetsrapport() {
       const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
       const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
       const harKmBlock = harKm && harMaskinPass;
-      const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
+      const harObjBlock = harMaskinPass;
       const linjeUnder = (aktiv: boolean): CSSProperties => aktiv
         ? { paddingBottom:AVSTAND.s, borderBottom:`1px solid ${FARG.linje}`, marginBottom:AVSTAND.s }
         : {};
       const sammanRad = (label: string, value: string, onClick?: () => void) => kortRad(label, value, onClick, true);
-      const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
-      const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
       const talBlock = (under: ReactNode, fotnot: ReactNode, onClick?: () => void, linje?: boolean) => (
         <div onClick={onClick} style={{ textAlign:"center", padding:`${AVSTAND.l}px 0`, cursor:onClick?"pointer":"default", ...linjeUnder(!!linje) }}>
           <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.meta, color:FARG.text2 }}>Maskinpass</p>
           <p style={{ margin:0, ...TYP.tal, color:FARG.text }}>{fmt(Math.round(arbMinVisad))}</p>
           <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</p>
-          <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{fotnot}</p>
+          {fotnot && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{fotnot}</p>}
           {(()=>{
             const exMinIdag = extraTidData.filter(e => e.datum === idagKey).reduce((a,e) => a + (e.minuter||0), 0);
             return exMinIdag > 0 ? (
-              <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>+ {fmt(exMinIdag)} extra arbete · totalt {fmt(arbMin + exMinIdag)} idag</p>
+              <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>+ {fmt(exMinIdag)} · totalt {fmt(arbMin + exMinIdag)}</p>
             ) : null;
           })()}
         </div>
       );
 
+      /* SAKER ATT SVARA PÅ: samma lista som Redigera visar för äldre dagar (fragorFor, komponentnivå). */
+      const fragor: Fraga[] = kvällsLäge ? fragorFor(idagKey) : [];
+      const oppnaFragor = fragor.filter(f => f.svar == null);
+
       if (dagPågår) {
         return (
           <section>
             <div style={KORT}>
-              <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>
+              {typPrefix && <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>}
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                 <span className="puls" style={{ width:AVSTAND.s, height:AVSTAND.s, borderRadius:RADIE.cirkel, background:FARG.gron, display:"inline-block" }} />
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Arbetsdagen startade {start}</span>
@@ -2497,11 +3097,25 @@ export default function Arbetsrapport() {
       return (
         <section>
           <div style={KORT}>
-            <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>
+            {typPrefix && <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{datumRubrik}</p>}
             {redanBekräftad && (
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.gron }}>check_circle</span>
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.gron }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
+              </div>
+            )}
+            {/* Ärligt tomt: bekräftad utan pass och utan perioder — säg det, och ge
+                vägen ut. En tom bekräftad dag är ett misstag (perioderna togs bort
+                efter underskriften); den tas bort, och morgonen börjar om. */}
+            {!harMaskinPass && !perioddag && (
+              <div style={{ marginTop:AVSTAND.s }}>
+                <p style={{ margin:0, ...TYP.meta, color:FARG.orange }}>Ingen tid registrerad — varken maskinpass eller perioder.</p>
+                <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.s }}>
+                  <button onClick={async ()=>{ if (!idagArb?.id) return; const t = await taBortTomSkalrad(idagKey, idagArb.id); if (!t.ok) setBekraftaFel(t.fel); }} style={KNAPP.destruktiv}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>delete</span>
+                    Ta bort den tomma dagen
+                  </button>
+                </div>
               </div>
             )}
             {/* Deldag: sjuk/VAB från ett klockslag — dagen är arbete OCH frånvaro */}
@@ -2530,15 +3144,18 @@ export default function Arbetsrapport() {
             {/* Hjälte: Maskinpass — hela blocket öppnar Ändra tider. Siffran är
                 passets tid (start→slut−rast). Extra tid är egna poster; dagens
                 TOTAL visas som dämpad rad när extra finns. */}
+            {/* Inte tryckbar: att ändra tider hör till "Något fel?" (och Ändra rapport
+                på en bekräftad dag). Lång rast står i orange i ORD — det är den som
+                frågan vid Stämmer gäller; resten är tyst grått. Ingen fotnot: förklaringen
+                av Meal break kommer med rastfrågan när den behövs. */}
             {harMaskinPass && talBlock(
-              <>{start} → {slut} · rast {rast} min <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, verticalAlign:"middle" }}>chevron_right</span></>,
-              'Rast = tid markerad som Meal break i maskinen',
-              öppnaTider,
+              <>{start} → {slut} · <span style={rast > RAST_FRAGA_MIN ? { color:FARG.orange } : undefined}>rast {rast} min</span></>,
+              null,
+              undefined,
               harObjBlock || harKmBlock,
             )}
             {harObjBlock&&(
               <div style={linjeUnder(harKmBlock)}>
-                {maskinNamnLång && sammanRad("Maskin", maskinNamnLång)}
                 {(()=>{
                   // Flera objekt per dag (Hössjömåla + Flytt etc.) — en rad var.
                   const objLista = idagArb?.objekt_lista || [];
@@ -2558,19 +3175,58 @@ export default function Arbetsrapport() {
                       );
                     });
                   }
-                  return dagObjNamn ? sammanRad("Objekt", dagObjNamn) : null;
+                  // Saknat objekt: orange i ord. Frågan står under "Saker att svara på".
+                  return dagObjNamn
+                    ? sammanRad("Objekt", dagObjNamn)
+                    : kortRad("Objekt", <span style={{ color:FARG.orange }}>Saknas</span>, undefined, true);
                 })()}
               </div>
             )}
-            {/* Körning — bara för maskinpass. Talet räknar upp när km fylls i. */}
-            {harMaskinPass && (
+            {/* PERIODDAG: EN rad per period — det man skriver under (Martin
+                2026-09-28: "innan jag bekräftar vill man se vad man gjort så det
+                inte blir fel"). Trakt och tid på första raden; aktivitet, klockslag
+                och fakturering i TEXT på andra. Raden öppnar perioden. Summeringen
+                per objekt togs bort — samma period stod två gånger. */}
+            {perioddag && (
               <div style={linjeUnder(true)}>
-                {sammanRad("Körning", `${Math.round(totKmVisad)} km`, öppnaKm)}
-                {milPåbörjade > 0 && sammanRad("Reseersättning", `${milPåbörjade} påbörjade mil`)}
+                <p style={{ margin:`0 0 ${AVSTAND.xs}px`, ...TYP.meta, color:FARG.text2 }}>Dagens arbete</p>
+                {extraFärdiga.map((e: any) => {
+                  const objNamn = e.objekt_id ? (objektLista.find(o => o.id === e.objekt_id)?.namn || e.objekt_id) : null;
+                  const akt = aktLabel(e.aktivitet_typ);
+                  const fakt = faktureringsEtikett(e.aktivitet_typ, !!e.debiterbar, !!e.objekt_id);
+                  const klock = `${(e.start_tid||'').slice(0,5)}–${(e.slut_tid||'').slice(0,5)}`;
+                  return (
+                    <div key={e.id} onClick={()=>oppnaPeriodRedigera(e)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                      <div style={{ minWidth:0 }}>
+                        <p style={{ margin:0, ...TYP.listtitel, color:FARG.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{objNamn || akt}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
+                          {objNamn ? `${akt} · ` : ''}{klock} · <span style={{ color: fakt.varna ? FARG.orange : FARG.text2 }}>{fakt.text}</span>
+                        </p>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, flexShrink:0 }}>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(e.minuter||0)}</span>
+                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
+                  Totalt {fmt(extraFärdiga.reduce((a: number, e: any) => a + (e.minuter||0), 0))} · ingen maskin
+                </p>
               </div>
             )}
-            {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar. */}
+            {/* Körning — maskinpass eller perioddag. Talet räknar upp när km fylls i. */}
+            {(harMaskinPass || perioddag) && (
+              <div style={linjeUnder(true)}>
+                {/* Medan dagens km räknas ut: säg det, visa inte ett falskt 0 km. */}
+                {/* Km och mil på EN rad ("112 km · 6 mil"); mil bara när det blir ersättning. */}
+                {sammanRad("Körning", kmRäknar ? "Räknas ut" : `${Math.round(totKmVisad)} km${milPåbörjade > 0 ? ` · ${milPåbörjade} mil` : ''}`)}
+              </div>
+            )}
+            {/* Extra tid-rader för idag (MASKINDAG) — klickbara för att redigera
+                typ/objekt/deb/kommentar. Perioddagen har sina rader ovan. */}
             {(()=>{
+              if (perioddag) return null;
               const extraIdag = (extraTidData || [])
                 .filter((e: any) => e.datum === idagKey && e.slut_tid)
                 .sort((a: any, b: any) => (a.start_tid||'').localeCompare(b.start_tid||''));
@@ -2578,6 +3234,7 @@ export default function Arbetsrapport() {
               const arbSt = idagArb?.start_tid;
               const arbEn = idagArb?.slut_tid;
               const prefixFör = (e: any): string => {
+                if (!arbSt && !arbEn) return "Period"; // perioddag: inget pass att vara före/efter
                 if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
                 if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
                 return "Extra";
@@ -2601,7 +3258,8 @@ export default function Arbetsrapport() {
                 </div>
               );
             })()}
-            {harMaskinPass && (
+            {/* Traktamente — maskinpass ELLER perioddag; en planeringsdag borta är lika mycket borta. */}
+            {(harMaskinPass || perioddag) && (
               <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
                 <span style={{ ...TYP.meta, color:FARG.text2 }}>Traktamente</span>
                 <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
@@ -2610,7 +3268,7 @@ export default function Arbetsrapport() {
                 </div>
               </div>
             )}
-            {harMaskinPass && trakÖppen&&(
+            {(harMaskinPass || perioddag) && trakÖppen&&(
               <div className="tona-in" style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
                 {/* Mängder, inte kronor: Inget / Halv / Hel. Beloppet äger Fortnox (#377). */}
                 {[{k:'inget',l:'Inget',v:null},{k:'halv',l:'Halv',v:{summa:halvKr}},{k:'hel',l:'Hel',v:{summa:helKr}}].map(opt=>{
@@ -2642,19 +3300,15 @@ export default function Arbetsrapport() {
           </div>
           {/* Brandrisk-OB — frågan VID BEKRÄFTELSEN. Villkor: vardag + start < 05:30
               + obesvarad. Blockerar ALDRIG bekräftelsen — obesvarad förblir null. */}
+          {/* SAKER ATT SVARA PÅ — på kvällen ersätter listan det här kortet. */}
+          {kvällsLäge && fragorLista(fragor)}
           {(() => {
+            if (kvällsLäge) return null;
             const dag = { datum: idagKey, start_tid: idagArb?.start_tid, brandrisk_beordrad: idagArb?.brandrisk_beordrad ?? null };
             const fråga = skaFragaBrandrisk(dag);
             const obMin = obMinuter(dag);
             if (!fråga && obMin <= 0) return null;
-            const svara = async (val: boolean) => {
-              if (!idagArb?.id) return;
-              const res = await uppdateraVerifierat(supabase, 'arbetsdag', { brandrisk_beordrad: val }, { id: idagArb.id });
-              if (!res.ok) { setBekraftaFel(res.fel); return; }
-              setBekraftaFel(null);
-              setDagData(d => ({ ...d, [idagKey]: { ...(d[idagKey]||{}), brandrisk_beordrad: val } }));
-              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
-            };
+            const svara = svaraBrand;
             if (fråga) return (
               <div style={{ ...KORT, marginTop:AVSTAND.m }}>
                 <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
@@ -2675,14 +3329,21 @@ export default function Arbetsrapport() {
               </div>
             );
           })()}
-          {/* Skärmens ENDA primära: Bekräfta dagen. Bekräftad dag → sekundär "Ändra rapport". */}
-          {harMaskinPass && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
-            <button onClick={()=>setVisaTiderSheet(false)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.l }}>
+          {/* Skärmens ENDA primära: Stämmer (= bekräfta dagen). Allt som ändrar dagen
+              ligger bakom "Något fel?". Bekräftad dag → sekundär "Ändra rapport". */}
+          {(harMaskinPass || perioddag) && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
+            <button onClick={()=>öppnaRedigera(idagKey)} style={{ ...KNAPP.sekundar, marginTop:AVSTAND.l }}>
               Ändra rapport
             </button>
-          ) : (
+          ) : (<>
+            {/* Inaktiv medan dagens km räknas ut (en stund): annars skrivs ett 0 över
+                det helpern just persisterat. */}
             <button
+              disabled={kmRäknar}
               onClick={async ()=>{
+                // Obesvarade frågor: Stämmer är grå men inte död — ett tryck öppnar den första.
+                // Dagen bekräftas aldrig förrän allt är besvarat OCH föraren tryckt igen.
+                if (oppnaFragor.length > 0) { oppnaFragor[0].oppna(); return; }
                 const nuT = nuKlock();
                 const nuTS = nuT + ":00";
                 // Stoppa eventuella pågående extra-tid-aktiviteter.
@@ -2698,12 +3359,19 @@ export default function Arbetsrapport() {
                 if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
 
                 // Rastfråga + för-check + skrivning — SAMMA funktion som Redigeras Bekräfta.
-                await bekraftaMedForcheck(idagKey, bekraftaDagen, "morgon", { minuter: rast, passMin: passMinuter(start, slut, rast), andra: () => setVisaTiderSheet(true) });
+                // godkand: rast-/passfrågorna är redan besvarade som rader i listan.
+                await bekraftaMedForcheck(idagKey, bekraftaDagen, "morgon", { minuter: rast, passMin: passMinuter(start, slut, rast), andra: () => setVisaTiderSheet(true), godkand: true });
               }}
-              style={{ ...KNAPP.primar, marginTop:AVSTAND.l }}>
-              {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
+              style={{ ...KNAPP.primar, marginTop:AVSTAND.l, ...(kmRäknar ? INAKTIV : oppnaFragor.length > 0 ? { opacity: INAKTIV.opacity } : {}) }}>
+              {ändradSedan ? "Stämmer igen" : "Stämmer"}
             </button>
-          ))}
+            {oppnaFragor.length > 0 && (
+              <p style={{ margin:`${AVSTAND.xs}px 0 0`, textAlign:"center", ...TYP.meta, color:FARG.text2 }}>Svara på frågorna först</p>
+            )}
+            <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.xs }}>
+              <button onClick={()=>setVisaFelSheet(true)} style={KNAPP.tertiar}>Något fel?</button>
+            </div>
+          </>))}
           {/* Guard-felmeddelande — visas om bekraftaDagen blockerade pga tomma tider */}
           {bekraftaFel && (
             <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.rod, textAlign:"center" }}>{bekraftaFel}</p>
@@ -2730,19 +3398,16 @@ export default function Arbetsrapport() {
       return `${d.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][d.getMonth()]}`;
     };
     const fmtTim = (h: number) => (Math.round(h * 10) / 10).toLocaleString('sv-SE');
-    const obekraftade: string[] = (årsData || [])
-      // Frånvarodagar har ingen arbetsdag-rad sedan steg 2 — inget att bekräfta.
-      .filter((d: any) => d.datum && d.datum >= fran7 && d.datum < idagKey && !d.bekraftad
-        && (d.start_tid || d.slut_tid))
-      .map((d: any) => d.datum as string)
-      .sort();
-    const brandriskObesvarade = (årsData || [])
-      .filter((d: any) => d.datum && d.datum >= fran30 && d.datum < idagKey
-        && skaFragaBrandrisk({ datum: d.datum, start_tid: d.start_tid, brandrisk_beordrad: d.brandrisk_beordrad ?? null }));
+    // EN rad för det som väntar (obekräftade dagar + bekräftade med obesvarad brandrisk): källan är
+    // vantandeDagar() (samma som kön). Brandriskfrågan har ingen egen rad — den hör till en dag och
+    // den dagen ligger här.
+    const vantande = vantandeDagar();
     // Dygnsvila räknas mellan slut_tid dag N och start_tid dag N+1 — den kan
     // alltså INTE räknas före dagens pass börjat. Det som visas är lagrade
     // brott: dygnsvilan från i natt syns först när dagens start finns.
-    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30);
+    // På kvällen är DAGENS vilobrott rader i "Saker att svara på" (ovanför Stämmer); äldre
+    // obesvarade står kvar här som en separat påminnelse som aldrig blockerar Stämmer.
+    const vilobrottObesvarade = aktuellaVilobrott.filter(b => !b.besvarat_av_forare && b.datum >= fran30 && !(kvällsLäge && arDagensVilobrott(b, idagKey)));
     type VantarRad = { nyckel: string; text: string; farg: string; onClick: () => void };
     const vantarRader: VantarRad[] = [];
     for (const b of vilobrottObesvarade) {
@@ -2753,15 +3418,15 @@ export default function Arbetsrapport() {
         text:`${b.typ === 'dygnsvila' ? 'Dygnsvila' : 'Veckovila'} ${fmtTim(Number(b.vila_h))} tim av ${fmtTim(Number(b.krav_h))} · ${nar}`,
         onClick:()=>{ setMinTidFlik('vila'); setSteg('mintid'); } });
     }
-    if (obekraftade.length === 1) {
-      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${fmtDatumKort(obekraftade[0])} väntar på bekräftelse`, onClick:()=>öppnaRedigera(obekraftade[0]) });
-    } else if (obekraftade.length > 1) {
-      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${obekraftade.length} dagar väntar på bekräftelse`, onClick:()=>setSteg('kalender') });
-    }
-    if (brandriskObesvarade.length > 0) {
-      vantarRader.push({ nyckel:'brand', farg:FARG.orange,
-        text: brandriskObesvarade.length === 1 ? '1 brandriskfråga obesvarad' : `${brandriskObesvarade.length} brandriskfrågor obesvarade`,
-        onClick:()=>setSteg('lön') });
+    if (vantande.length === 1) {
+      const v = vantande[0];
+      vantarRader.push({ nyckel:'bekr', farg:FARG.orange,
+        text: v.typ === 'brand' ? `${fmtDatumKort(v.datum)} — brandriskfråga obesvarad` : `${fmtDatumKort(v.datum)} väntar på bekräftelse`,
+        onClick:()=>{ setVantarKo(true); öppnaRedigera(v.datum); } });
+    } else if (vantande.length > 1) {
+      // Äldsta dagen öppnas direkt (inte Kalendern); efter Stämmer går man vidare till nästa.
+      vantarRader.push({ nyckel:'bekr', farg:FARG.orange, text:`${vantande.length} dagar väntar`,
+        onClick:()=>{ setVantarKo(true); öppnaRedigera(vantande[0].datum); } });
     }
     // Arbetade röda vardagar som kan bytas mot ledig dag (skoftning §5 mom 4)
     // och som inte fått något svar — frågan vid Bekräfta missar normalfallet
@@ -2797,12 +3462,9 @@ export default function Arbetsrapport() {
     <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
       <style>{css}{designCss}</style>{timerBanner}
 
-      {/* Rubrikraden */}
-      <header style={{ position:"fixed", top:0, width:"100%", height:DAG_HUVUD, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)", zIndex:50, display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" }}>
-        <span style={{ ...TYP.listtitel, color:FARG.text }}>Dag</span>
-      </header>
-
-      <main style={{ paddingTop:DAG_HUVUD + AVSTAND.xxl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
+      {/* Ingen egen rubrikrad: den satt på top:0 BAKOM appens toppfält (PR 518) —
+          osynlig, 64 px tomrum. Toppfältet säger redan "Arbetsrapport". */}
+      <main style={{ paddingTop:AVSTAND.xl, paddingBottom:SCROLL_BOTTOM, paddingLeft:AVSTAND.sidmarginal, paddingRight:AVSTAND.sidmarginal, flex:1, width:"100%", boxSizing:"border-box" }}>
 
         {/* VAD SOM VÄNTAR — ovanför hälsningen, bara när något finns. */}
         {vantarRader.length > 0 && (
@@ -2838,18 +3500,10 @@ export default function Arbetsrapport() {
           {sammanfattningKort}
         </Tillstand>
 
-        {/* LASS IDAG — bara maskiner utan automatisk källa (dim_maskin.datakalla 'manuell',
-            JD810E). Komponenten avgör själv om den ska synas; skriver fakt_lass. */}
-        <LassIdag
-          datum={idagKey}
-          idag={ymdLokal(new Date())}
-          maskinId={idagArb?.maskin_id || medarbetare?.maskin_id || null}
-          medarbetareId={medarbetare?.id ?? null}
-          arAdmin={medarbetare?.roll === 'admin'}
-          dagensObjektId={idagArb?.objekt_id || valtObjektId || null}
-          objektLista={objektLista}
-          harTimmar={harMaskinPass || (idagArb?.arbMin || 0) > 0}
-        />
+        {/* Lassregistrering (LassIdag, PR 580) låg här 24–26 sept 2026 och togs bort:
+            arbetsrapporten handlar om TID (timmar, km, frånvaro, lön); lass är
+            PRODUKTION och hör hemma där produktionen följs. Regeln "en vy ägs av
+            ett spår" i CLAUDE.md kommer härifrån. */}
 
         {/* KORT 2 — Extra arbete. Två klockslag, ingen timer: trycket noterar
             starten, "Avsluta" noterar slutet och öppnar periodformuläret där
@@ -2869,13 +3523,18 @@ export default function Arbetsrapport() {
               <button onClick={()=>oppnaPeriodRedigera(aktivTimer)} style={KNAPP.tertiar}>Ändra starttid eller ta bort</button>
             </div>
           </section>
-        ) : (
+        ) : kvällsLäge ? null : (
+          // På kvällen finns ingen Extra arbete-ruta: mer tid läggs till via Något fel? → Mer arbete.
           <div style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp('Extra arbete', 'Reservdelar, service, brandkontroll', async ()=>{
+            {kortKnapp(arbeteUtanMaskin ? 'Arbete' : 'Extra arbete', arbeteUtanMaskin ? 'Planering, restid, manuellt' : 'Reservdelar, service, brandkontroll', async ()=>{
               const startTid = nuKlock();
+              // Trycket kan vara dagens första händelse — skalraden skapas här.
+              const arbetsdagId = await sakerstallArbetsdagRad(idagKey);
+              if (!arbetsdagId) { setBekraftaFel(SKALRAD_FEL); return; }
               const { data, error } = await supabase.from("extra_tid").insert({
                 medarbetare_id: medarbetare.id,
                 datum: idagKey,
+                arbetsdag_id: arbetsdagId,
                 start_tid: startTid + ":00",
                 slut_tid: null,
                 minuter: 0,
@@ -2890,7 +3549,7 @@ export default function Arbetsrapport() {
             <div style={{ display:"flex", justifyContent:"center" }}>
               <button onClick={()=>oppnaPeriodNy(idagKey)} style={KNAPP.tertiar}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>schedule</span>
-                Lägg till i efterhand
+                {arbeteUtanMaskin ? 'Lägg till arbete' : 'Lägg till i efterhand'}
               </button>
             </div>
           </div>
@@ -2910,6 +3569,10 @@ export default function Arbetsrapport() {
           const delDag = !!(isWorking || idagArb?.start_tid); // passet har startat → resten av dagen
           if (franvaroDagar[idagKey] || deldagar[idagKey]) return null;
           if (!delDag && idagArb?.bekraftad) return null;
+          // Passet/perioderna är klara: "Åker hem — resten av dagen" betyder inget på
+          // kvällen. Deldag och frånvaro nås via Något fel? → Hela dagen (Redigera,
+          // som har klockslag), och på en bekräftad dag via Ändra rapport.
+          if ((harMaskinPass || perioddag) && !dagPågår) return null;
           return (
           <section style={{ marginTop:AVSTAND.m }}>
             {kortKnapp(delDag ? 'Åker hem' : 'Frånvaro', delDag ? `${FRANVARO_UNDERRAD} — resten av dagen` : FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
@@ -2972,6 +3635,46 @@ export default function Arbetsrapport() {
           rastfrågan saknades här (satte state utan att något syntes). */}
       {rastFragaUI}
       {byteFragaUI}
+
+      {renderSvarSheet()}
+      {renderObjektSvarSheet()}
+
+      {/* Sheet: Något fel? — vägarna in till det som ändrar dagen. Arket stängs INNAN
+          nästa yta öppnas (inga ark ovanpå ark). Rader utan innehåll visas inte:
+          Tider kräver ett pass. */}
+      {visaFelSheet && (()=>{
+        const stäng = () => setVisaFelSheet(false);
+        const felRad = (label: string, under: string, onClick: () => void, sista?: boolean) => (
+          <button key={label} onClick={()=>{ stäng(); onClick(); }}
+            style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, height:"auto", textAlign:"left", borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
+            <span style={{ minWidth:0 }}>
+              <span style={{ display:"block", ...TYP.listtitel, color:FARG.text }}>{label}</span>
+              <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>{under}</span>
+            </span>
+            <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, flexShrink:0 }}>chevron_right</span>
+          </button>
+        );
+        const rader: { label: string; under: string; gör: () => void }[] = [];
+        if (harMaskinPass) rader.push({ label:"Tider", under:`${start}–${slut} · rast ${rast} min`, gör: öppnaTider });
+        rader.push({ label:"Körning", under:`${Math.round(totKm)} km`, gör: öppnaKm });
+        rader.push({ label:"Mer arbete", under:"Lägg till tid", gör: ()=>oppnaPeriodNy(idagKey) });
+        rader.push({ label:"Hela dagen", under:"Öppna i Redigera", gör: ()=>öppnaRedigera(idagKey) });
+        return (
+          <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div onClick={e=>e.stopPropagation()} className="sheet-upp"
+              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+              <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+                <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
+              </div>
+              <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.rubrik, color:FARG.text }}>Vad vill du ändra?</p>
+              {rader.map((r, i) => felRad(r.label, r.under, r.gör, i === rader.length - 1))}
+              <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.m }}>
+                <button onClick={stäng} style={KNAPP.lank}>Avbryt</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Sheet: Ändra tider */}
       {visaTiderSheet && (()=>{
@@ -3086,6 +3789,10 @@ export default function Arbetsrapport() {
                 <button onClick={stäng} style={{ ...KNAPP.lank, display:"flex", width:"100%" }}>Avbryt</button>
                 <button
                   onClick={async ()=>{
+                    // Inget ändrat → inget skrivs. Annars låses km som förarens
+                    // (km_kalla='forare') utan att hen rört något, och nattjobbet
+                    // slutar rätta dem. Samma regel som Redigera (kmÄndrad).
+                    if (tMK === kmMorgonNu && tKK === kmKvallNu) { stäng(); return; }
                     if (idagArb?.id) {
                       const bryterBekräftelse = !!idagArb?.bekraftad;
                       // km_kalla='forare': föraren har satt km själv → helpern/
@@ -3139,7 +3846,6 @@ export default function Arbetsrapport() {
   /* ─── MIN TID ─── */
   if(steg==="mintid") {
     const nu = new Date();
-    const dagKort = ['SÖN','MÅN','TIS','ONS','TOR','FRE','LÖR'];
     const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
     const månNamn2 = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
@@ -3162,23 +3868,48 @@ export default function Arbetsrapport() {
     // EN veckonummerdefinition i hela appen: ISO (lib/vilobrott isoVecka). Förr
     // fanns tre — samma dagar kunde heta vecka 41 här och 42 i Sammanställningen.
     const veckoNr = isoVecka(nu).vecka;
-    const rödaDagarVecka = getRödaDagar(nu.getFullYear());
-    const veckoDagar: {datum:string;dag:string;h:number}[] = [];
+    // Röda dagar för veckans och årets schema — en vecka runt nyår spänner två år.
+    const rödaDagarÅr: Record<string, unknown> = { ...getRödaDagar(nu.getFullYear()-1), ...getRödaDagar(nu.getFullYear()), ...getRödaDagar(nu.getFullYear()+1) };
+    const ärRöd = (k: string) => !!rödaDagarÅr[k];
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const veckoDagar: GrafDag[] = [];
     let veckoTot = 0;
-    let veckoArbDagar = 0;
     for(let i=0;i<7;i++){
       const d=new Date(veckStart); d.setDate(veckStart.getDate()+i);
-      const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const k=ymd(d);
       const ad=årsData.find(r=>r.datum===k);
       // Extra tid räknas även på dagar UTAN maskinpass (ad saknas då)
       const h=Math.round(((ad?.arbetad_min||0)+(extraPerDag.get(k)||0))/60*10)/10;
       veckoTot+=h;
-      const dow=d.getDay();
-      if(dow!==0&&dow!==6&&!rödaDagarVecka[k]) veckoArbDagar++;
-      veckoDagar.push({datum:k,dag:dagNamn[d.getDay()],dagKort:dagKort[d.getDay()],h});
+      veckoDagar.push({ datum:k, etikett:dagNamn[d.getDay()].slice(0,3), h, idag: i===dagIdx });
     }
-    const veckoMålH = veckoArbDagar * 8;
-    const maxH = Math.max(...veckoDagar.map(d=>d.h),1);
+    // "av 40" = veckans schema — samma definition som årsstaplarnas markering.
+    const veckoMålH = schemaTimmar(ymd(veckStart), ymd(veckSlut), ärRöd);
+
+    // År: en stapel per månad = maskintid + extra tid (lib/arbetstid). Årets extra
+    // tid (årsExtra) kommer efter att vyn ritats; tills dess används de senaste
+    // 200 posterna, och staplarna fylls på när resten kommer. Innevarande månad
+    // tar lönebibliotekets tal när det finns — samma som månadsraden under, så
+    // stapeln och raden aldrig säger olika.
+    const extraFörÅret = årsExtra ?? extraTidData;
+    const årsStaplar: GrafManad[] = månNamn2.map((_, m) => {
+      const mp = `${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
+      const framtid = m > nu.getMonth();
+      const aktuell = m === nu.getMonth();
+      const { totalMin } = arbetadTidInklExtra(
+        årsData.filter(d => d.datum && d.datum.startsWith(mp)),
+        extraFörÅret.filter((e: any) => e.datum && e.datum.startsWith(mp)),
+      );
+      const h = aktuell && minTidManad.h != null ? minTidManad.h : Math.round(totalMin/60*10)/10;
+      const sista = new Date(nu.getFullYear(), m+1, 0).getDate();
+      return {
+        namn: new Date(nu.getFullYear(), m, 1).toLocaleDateString('sv-SE', { month: 'long' }),
+        h: framtid ? 0 : h,
+        schemaH: framtid ? null : schemaTimmar(`${mp}-01`, `${mp}-${String(sista).padStart(2,'0')}`, ärRöd),
+        framtid, aktuell,
+      };
+    });
+    const månNamnLång = (s => s.charAt(0).toUpperCase() + s.slice(1))(nu.toLocaleDateString('sv-SE', { month: 'long' }));
 
     // Idag
     const idagKey2 = nu.toISOString().split('T')[0];
@@ -3231,7 +3962,9 @@ export default function Arbetsrapport() {
     return (
       <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",paddingBottom:AVSTAND.xxl }}>
         <style>{css}</style>{timerBanner}
-        <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:`0 ${AVSTAND.sidmarginal}px`,paddingTop:AVSTAND.l }}>
+        {/* STICKY i flödet: rubriken reserverar sin egen höjd, så inget innehåll
+            kan hamna under flikraden (PR 540 hade fixed + ett avstånd som mått). */}
+        <header style={{ position:"sticky",top:HEADER_TOP,zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:`0 ${AVSTAND.sidmarginal}px`,paddingTop:AVSTAND.l }}>
           <h1 style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.titel,color:FARG.text }}>Min tid</h1>
           <div style={{ display:"flex",gap:0,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs,marginBottom:AVSTAND.m,overflowX:"auto" }}>
             {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster']] as const).map(([k,l])=>(
@@ -3240,12 +3973,12 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ paddingTop:AVSTAND.xxl,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
+        <main style={{ paddingTop:AVSTAND.l,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
 
           {minTidFlik==='översikt'&&<>
-          {/* Staplarna är borta (2026-09-13): fem grå block som krävde en etikett
-              under sig för att läsas, och som visade samma vecka som talet.
-              Dagarna finns i kalendern och dagvyn. Kvar: Idag, Veckan, Månaden. */}
+          {/* Staplarna tillbaka (2026-09-29) — nu med talet över, dagen under och
+              dagens stapel vit, så de läses utan etikett (TimmarGraf). */}
+          <TimmarGraf vecka={veckoDagar} ar={årsStaplar} />
           <section style={{ marginBottom:AVSTAND.xl }}>
             <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Summering</h3>
             <div style={{ ...KORT, paddingTop:0, paddingBottom:0 }}>
@@ -3260,8 +3993,17 @@ export default function Arbetsrapport() {
                 <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{(Math.round(veckoTot*10)/10).toLocaleString('sv-SE')} tim <span style={{ ...TYP.meta, color:FARG.text2 }}>av {veckoMålH}</span></span>
               </div>
               <button onClick={()=>setSteg('lön')} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", borderBottom:"none", ...TYP.meta }}>
-                <span style={{ color:FARG.text2 }}>Månaden</span>
-                <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, color:FARG.bla }}>Se lönespecen<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span></span>
+                <span style={{ color:FARG.text2 }}>{månNamnLång}</span>
+                {/* Timmarna ur lönebiblioteket — samma tal som specen. Inget "av":
+                    månadens ordinarie är arbetade dagar × 8, inte schemat. */}
+                {minTidManad.h != null ? (
+                  <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{(Math.round(minTidManad.h*10)/10).toLocaleString('sv-SE')} tim</span>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>
+                  </span>
+                ) : (
+                  <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, color:minTidManad.laddar ? FARG.text3 : FARG.bla }}>{minTidManad.laddar ? '…' : 'Se lönespecen'}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span></span>
+                )}
               </button>
             </div>
           </section>
@@ -3560,15 +4302,20 @@ export default function Arbetsrapport() {
             const brott = filtVila.filter(r => !!brottForRad(r));
             const harProblem = brott.length > 0;
             const vvHarProblem = dbVeck.length > 0;
+            const vvObesvarade = dbVeck.filter(b => !b.besvarat_av_forare).length;
             const periodLaddar = periodVilobrott === null;
             // Dygnsvila-tröskeln används i VilaKort + PDF. Veckovila-tröskeln
             // läses direkt från b.krav_h på varje brott, så den behöver inte
             // hoistas här.
             const krav_h = trosklar?.dygnsvila_krav_h ?? 11;
+            // Förarens svar i klartext, samma ord som i svarsarket (lib/dagFragor), med liten
+            // begynnelsebokstav: "Besvarat: planerat undantag enligt avtal".
             const orsakLabel = (o: string | null) => {
-              if (!o) return '';
-              return { oforutsedd:'Oförutsedd händelse', akut_jour:'Akut jour', planerad_avtal:'Planerat enligt avtal', annat:'Annat' }[o] || o;
+              const v = VILA_ORSAKER.find(x => x.key === o);
+              return v ? v.label.charAt(0).toLowerCase() + v.label.slice(1) : (o || '');
             };
+            const besvaratText = (b: VilobrottRad) =>
+              `Besvarat: ${orsakLabel(b.orsak)}${b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}${b.kompensation_h != null ? ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}` : ''}`;
 
             // Export. Dygnsvila listas per viloperiod (status från DB-brott).
             // Veckovila listas per DB-brott (rullande fönster) — inte per ISO-vecka.
@@ -3647,9 +4394,10 @@ export default function Arbetsrapport() {
             // `brott` = ett brott finns i vilobrott-TABELLEN för perioden. Tabellen
             // avgör status; den lokalt räknade vilan visar bara timmarna. Förr kunde
             // kortet lysa grönt medan tabellen hade ett brott i samma fönster.
-            const SammanfattningsKort = ({label, vilaH, kravH, saknas, brott}:{label:string;vilaH:number;kravH:number;saknas?:boolean;brott?:boolean}) => {
-              const st = brott ? 'brott' : vilaNiva(vilaH, kravH);
-              const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : '#30d158';
+            // Rött bara för OBESVARADE brott: ett besvarat brott (förarens svar finns) är grått.
+            const SammanfattningsKort = ({label, vilaH, kravH, saknas, brott, besvarat}:{label:string;vilaH:number;kravH:number;saknas?:boolean;brott?:boolean;besvarat?:boolean}) => {
+              const st = brott ? (besvarat ? 'besvarat' : 'brott') : vilaNiva(vilaH, kravH);
+              const farg = st==='brott' ? '#ff453a' : st==='nara' ? '#ff9f0a' : st==='besvarat' ? FARG.text2 : '#30d158';
               return (
                 <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,border:`1px solid ${FARG.linje}` }}>
                   <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{label}</p>
@@ -3659,7 +4407,7 @@ export default function Arbetsrapport() {
                     <p style={{ margin:0,...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{fmtStor(vilaH)}</p>
                     <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,fontWeight:VIKT.halvfet,color:farg,display:"flex",alignItems:"center",gap:AVSTAND.xs }}>
                       <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{st==='brott'?'warning':'check'}</span>
-                      {st==='brott' ? `under krav ${kravH}h` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
+                      {st==='brott' ? `under krav ${kravH}h` : st==='besvarat' ? `under krav ${kravH}h · besvarat` : st==='nara' ? `nära gränsen · krav ${kravH}h` : `krav ${kravH}h`}
                     </p>
                   </>)}
                 </div>
@@ -3668,32 +4416,30 @@ export default function Arbetsrapport() {
             const VilaKort = ({r}:{r:typeof allVila[0]}) => {
               const b = brottForRad(r);
               const ok = !b;
-              const expanderad = b && vilaKortExpanded === b.id;
+              // Rött bara för OBESVARADE brott; besvarat = grått med svaret under.
+              const besvarad = !!b?.besvarat_av_forare;
+              const brottFarg = besvarad ? FARG.text2 : FARG.rod;
+              const expanderad = b && !besvarad && vilaKortExpanded === b.id;
               const d1=new Date(r.slutDatum),d2=new Date(r.startDatum);
               return (
                 <div
-                  onClick={b ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
-                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b ? "pointer" : "default" }}>
+                  onClick={b && !besvarad ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
+                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b && !besvarad ? "pointer" : "default" }}>
                   <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{fD(d1)}</p>
                   <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Slutade kl {r.slutTid}</p>
                   <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.meta,color:FARG.text2 }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
                   <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                    {!ok&&<span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>}
-                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:FARG.rod,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
+                    {!ok&&<span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>}
+                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:brottFarg,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
                     {ok&&<span className="material-symbols-outlined" style={{ color:FARG.gron,fontSize:IKON.text }}>check</span>}
-                    {!ok&&<span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {krav_h}h)</span>}
+                    {!ok&&<span style={{ ...TYP.meta,color:brottFarg }}>(kräver {krav_h}h)</span>}
                   </div>
                   {r.anledning&&<p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{r.anledning}</p>}
+                  {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
+                  {b && besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
                   {expanderad && b && (
                     <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                      {b.besvarat_av_forare ? (
-                        <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
-                          Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
-                          {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
-                        </p>
-                      ) : (
-                        <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                      )}
+                      <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                     </div>
                   )}
                 </div>
@@ -3704,8 +4450,8 @@ export default function Arbetsrapport() {
             {/* Sammanfattning: faktiska siffror — föraren ser SIN vila, inte bara "uppfylld" */}
             <section style={{ marginBottom:AVSTAND.xl }}>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:AVSTAND.m }}>
-                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} />
-                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} />
+                <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} besvarat={!!senasteVilaRad && !!brottForRad(senasteVilaRad)?.besvarat_av_forare} />
+                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} besvarat={vvHarProblem && dbVeck.every(b => b.besvarat_av_forare)} />
               </div>
             </section>
 
@@ -3749,7 +4495,7 @@ export default function Arbetsrapport() {
                   {(()=>{
                     // Brott ur TABELLEN (samma sanning som Dag-vyn och listan ovan) — inte
                     // en lokal jämförelse mot hårdkodade 11 h.
-                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length};}).filter(x=>x.mv.length>0);
+                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length,obes:mv.filter(r=>{const b=brottForRad(r);return !!b&&!b.besvarat_av_forare;}).length};}).filter(x=>x.mv.length>0);
                     return mån.length===0?<p style={{ padding:`${AVSTAND.l}px 0`,margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data</p>:mån.map((x,i)=>{
                       const nm=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'][x.m];
                       const exp=vilaÅrExpand===x.m;
@@ -3757,7 +4503,7 @@ export default function Arbetsrapport() {
                         <div onClick={()=>setVilaÅrExpand(exp?null:x.m)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:!exp&&i<mån.length-1?`1px solid ${FARG.linje}`:"none",cursor:"pointer" }}>
                           <span style={{ ...TYP.listtitel }}>{nm}</span>
                           <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                            <span style={{ fontSize:IKON.text,color:x.brott>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.brott>0?'warning':'check'}</span></span>
+                            <span style={{ fontSize:IKON.text,color:x.obes>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.obes>0?'warning':'check'}</span></span>
                             <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text2,transform:exp?"rotate(180deg)":"",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>expand_more</span>
                           </div>
                         </div>
@@ -3789,8 +4535,9 @@ export default function Arbetsrapport() {
                     {/* Aktuell veckovila-siffra bor i sammanfattnings-kortet ovanför —
                         den här sektionen redovisar BROTT i vald period */}
                     <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                      {vvHarProblem&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
-                      <span style={{ ...TYP.meta,color:vvHarProblem?FARG.text:FARG.text2 }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:`Inga brott ${periodLabel}`}</span>
+                      {vvObesvarade>0&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
+                      {/* Rött bara för obesvarade; är alla besvarade är raden grå. */}
+                      <span style={{ ...TYP.meta,color:vvObesvarade>0?FARG.text:FARG.text2 }}>{!vvHarProblem?`Inga brott ${periodLabel}`:vvObesvarade>0?`${dbVeck.length} brott mot veckovila`:`${dbVeck.length} ${dbVeck.length===1?'brott':'brott'} mot veckovila · ${dbVeck.length===1?'besvarat':'alla besvarade'}`}</span>
                     </div>
                     {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
                   </div>
@@ -3803,28 +4550,25 @@ export default function Arbetsrapport() {
                     </div>
                   ) : dbVeck.map(b => {
                     const dt = new Date(b.datum);
-                    const expanderad = vilaKortExpanded === b.id;
+                    const besvarad = !!b.besvarat_av_forare;
+                    const brottFarg = besvarad ? FARG.text2 : FARG.rod;
+                    const expanderad = !besvarad && vilaKortExpanded === b.id;
                     return (
                       <div key={b.id}
-                        onClick={() => setVilaKortExpanded(expanderad ? null : b.id)}
-                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:"pointer" }}>
+                        onClick={besvarad ? undefined : () => setVilaKortExpanded(expanderad ? null : b.id)}
+                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:besvarad?"default":"pointer" }}>
                         <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text,textTransform:"capitalize" }}>{fD(dt)}</p>
                         <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{b.beskrivning}</p>
                         <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                          <span className="material-symbols-outlined" style={{ color:FARG.rod,fontSize:IKON.text }}>warning</span>
-                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.rod,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
-                          <span style={{ ...TYP.meta,color:FARG.rod }}>(kräver {Number(b.krav_h)}h)</span>
+                          <span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>
+                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:brottFarg,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
+                          <span style={{ ...TYP.meta,color:brottFarg }}>(kräver {Number(b.krav_h)}h)</span>
                         </div>
+                        {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
+                        {besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
                         {expanderad && (
                           <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                            {b.besvarat_av_forare ? (
-                              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
-                                Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
-                                {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
-                              </p>
-                            ) : (
-                              <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                            )}
+                            <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
                           </div>
                         )}
                       </div>
@@ -3920,13 +4664,13 @@ export default function Arbetsrapport() {
                       <div style={{ display:"flex",height:24,borderRadius:RADIE.rad,overflow:"hidden" }}>
                         {stats.map((s,i) => {
                           const w = totMin>0 ? (s.minTot/totMin*100) : 0;
-                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.skordare,FARG.skotare];
+                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.diagram1,FARG.diagram2];
                           return <div key={s.typ} title={aktLabel(s.typ)} style={{ width:`${w}%`,background:färger[i%färger.length] }}/>;
                         })}
                       </div>
                       <div style={{ display:"flex",flexWrap:"wrap",gap:AVSTAND.s,marginTop:AVSTAND.m }}>
                         {stats.map((s,i) => {
-                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.skordare,FARG.skotare];
+                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.diagram1,FARG.diagram2];
                           return (
                             <div key={s.typ} style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
                               <div style={{ width:10,height:10,borderRadius:RADIE.rad,background:färger[i%färger.length] }}/>
@@ -3977,6 +4721,9 @@ export default function Arbetsrapport() {
     const specLaddar = minManad.arbetsmanad !== lönePeriod || minManad.laddar;
     const specFel = minManad.arbetsmanad === lönePeriod ? minManad.fel : null;
     const jobbadH = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 10) / 10 : 0;
+    // Samma tal i minuter — specen skriver tid i tim och min, aldrig decimaler.
+    const jobbadMin = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 60) : 0;
+    const kmDel = kmUppdelning(spec?.dagar || [], Number(spec?.km_grans ?? 60));
     const extraTidH = spec ? Number(spec.extra_h) : 0;
     const totalKm = spec ? (spec.dagar as any[]).reduce((a: number, d: any) => a + (d.km_totalt || 0), 0) : 0;
     const trakDagar = spec ? (spec.dagar as any[]).filter((d: any) => d.traktamente).length : 0;
@@ -4076,16 +4823,20 @@ export default function Arbetsrapport() {
       if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0 };
       const m = d.arbetad_min || 0;
       const ex = extraPerDagMånad.get(d.datum) || 0;
-      veckoData[weekNum].dagar.push({ datum:d.datum, min:m, extraMin:ex });
+      // PERIODDAG (rad utan klockslag): perioderna ÄR dagens arbete — mörk
+      // stapel, inte "extra". Ljusgrönt betyder utöver ett maskinpass.
+      const perioddag = !d.start_tid && ex > 0;
+      veckoData[weekNum].dagar.push({ datum:d.datum, min: perioddag ? ex : m, extraMin: perioddag ? 0 : ex });
       veckoData[weekNum].sumH += (m + ex)/60;
     });
-    // Extra tid på dagar UTAN maskinpass — egen dagrad (bara ljusgrön stapel)
+    // Perioder på datum UTAN arbetsdag-rad (extra tid före skalraden 2026-09-26)
+    // — egen dagrad, räknas som dagens arbete precis som perioddagen ovan.
     for (const [datum, ex] of extraPerDagMånad) {
       if (!datum.startsWith(månadsPrefix) || ex <= 0) continue;
       const weekNum = veckoNrFör(datum);
       if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0 };
       if (veckoData[weekNum].dagar.find(x => x.datum === datum)) continue; // redan medräknad ovan
-      veckoData[weekNum].dagar.push({ datum, min:0, extraMin:ex });
+      veckoData[weekNum].dagar.push({ datum, min:ex, extraMin:0 });
       veckoData[weekNum].sumH += ex/60;
     }
     // Röda dagar som egna rader i veckorna — för den VISADE månaden (lönePeriod),
@@ -4124,7 +4875,22 @@ export default function Arbetsrapport() {
       }
       maskinAgg[key].dagar++;
     });
-    const objektEntries = Object.values(maskinAgg).sort((a,b) => b.dagar-a.dagar);
+    // PERIODDAGARNA: objekten bor i perioderna (raden har varken maskin eller
+    // objekt). Ett kort per objekt, aktiviteterna som underrad där maskinen
+    // annars står. Dagar = antal datum med perioder på objektet.
+    const passDatum = new Set(månadsHistorik.filter(d => d.start_tid).map(d => d.datum));
+    const periodAgg: Record<string,{namn:string;datum:Set<string>;akt:Set<string>}> = {};
+    for (const e of månadsExtraTid) {
+      if (!e.objekt_id || !e.slut_tid || passDatum.has(e.datum)) continue;
+      const key = e.objekt_id;
+      if (!periodAgg[key]) periodAgg[key] = { namn: objektLista.find(o=>o.id===e.objekt_id)?.namn || e.objekt_id, datum: new Set(), akt: new Set() };
+      periodAgg[key].datum.add(e.datum);
+      if (e.aktivitet_typ) periodAgg[key].akt.add(aktLabel(e.aktivitet_typ));
+    }
+    const objektEntries = [
+      ...Object.values(maskinAgg),
+      ...Object.values(periodAgg).map(p => ({ namn: p.namn, maskinId: Array.from(p.akt).join(' · ') || 'Perioder', dagar: p.datum.size })),
+    ].sort((a,b) => b.dagar-a.dagar);
 
     const bottomNav = <BottomNavBar aktiv="lön" onNav={s=>setSteg(s)} />;
 
@@ -4135,7 +4901,8 @@ export default function Arbetsrapport() {
       return (
         <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased" }}>
           <style>{css}</style>{timerBanner}
-          <header style={{ position:"fixed",top:HEADER_TOP,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:`0 ${AVSTAND.l}px`,height:64 }}>
+          {/* Sticky i flödet — se Min tid. */}
+          <header style={{ position:"sticky",top:HEADER_TOP,zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:`0 ${AVSTAND.l}px`,minHeight:64 }}>
             <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:`${AVSTAND.s}px ${AVSTAND.m}px ${AVSTAND.s}px ${AVSTAND.s}px`,fontFamily:"inherit",display:"flex",alignItems:"center",gap:AVSTAND.xs }}>
               <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span>
               <span style={{ color:FARG.bla,...TYP.text,fontWeight:VIKT.normal }}>Sammanställning</span>
@@ -4151,7 +4918,7 @@ export default function Arbetsrapport() {
             </div>
           </header>
 
-          <main style={{ paddingTop:AVSTAND.xxl,paddingBottom:AVSTAND.xxl,padding:`${AVSTAND.xxl}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:640,margin:"0 auto" }}>
+          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:640,margin:"0 auto" }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
@@ -4160,8 +4927,7 @@ export default function Arbetsrapport() {
               <h2 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2,marginBottom:AVSTAND.l,marginLeft:AVSTAND.xs }}>Timmar per vecka</h2>
               <div style={{ display:"flex",flexDirection:"column",gap:AVSTAND.l }}>
                 {(()=>{
-                  // Svenskt decimalkomma genomgående ("58,5" — inte "58.5")
-                  const fmtTim = (h:number) => (Math.round(h*10)/10).toString().replace('.', ',');
+                  // Tid i tim och min (lib/lonesystem/forarText) — aldrig decimaler i specen.
                   return sortedWeeks.map(([weekNum, week]) => {
                   const firstDay = week.dagar.sort((a,b)=>a.datum.localeCompare(b.datum))[0];
                   const lastDay = week.dagar[week.dagar.length-1];
@@ -4179,14 +4945,12 @@ export default function Arbetsrapport() {
                           <p style={{ margin:0,...TYP.meta,color:FARG.text3,...TNUM }}>{rangeStr}</p>
                         </div>
                         <div style={{ display:"flex",alignItems:"baseline",gap:AVSTAND.xs }}>
-                          <span style={{ ...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{fmtTim(week.sumH)}</span>
-                          <span style={{ ...TYP.meta,color:FARG.text2 }}>tim</span>
+                          <span style={{ ...TYP.rubrik,fontWeight:VIKT.fet,color:FARG.text,...TNUM }}>{timMin(week.sumH)}</span>
                         </div>
                       </div>
                       <div style={{ display:"flex",flexDirection:"column",gap:AVSTAND.m }}>
                         {week.dagar.map(dag => {
                           const dt = new Date(dag.datum);
-                          const h = Math.round((dag.min + dag.extraMin)/60*10)/10;
                           const dagLabel = dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)+' '+dt.getDate()+' '+månNamn[dt.getMonth()];
                           // Röd dag flaggas BARA visuellt (datum + namn i rött) — ingen
                           // lönelogik, ingen omräkning; det är ett separat löneprojekt.
@@ -4203,7 +4967,7 @@ export default function Arbetsrapport() {
                             <div key={dag.datum} style={{ padding:`${AVSTAND.s}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
                               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:AVSTAND.s }}>
                                 <span style={{ ...TYP.meta,color:rödNamn?FARG.rod:undefined }}>{dagLabel}{rödNamn?` · ${rödNamn}`:''}</span>
-                                <span style={{ ...TYP.listtitel,...TNUM }}>{fmtTim(h)} tim</span>
+                                <span style={{ ...TYP.listtitel,...TNUM }}>{minText(dag.min + dag.extraMin)}</span>
                               </div>
                               {/* Delad stapel: mörk grön = maskinarbete, ljus grön = extra tid.
                                   Dag utan extra = bara mörk. Skalad mot veckans längsta dag (totalt). */}
@@ -4276,7 +5040,6 @@ export default function Arbetsrapport() {
                 </div>
               ) : (()=>{
                 const fmtTid = (min:number) => { const h=Math.floor(min/60), m=min%60; return h>0?`${h} tim${m>0?` ${m} min`:''}`:`${m} min`; };
-                const fmtDecKomma = (min:number) => (Math.round(min/60*10)/10).toString().replace('.',',');
                 const fakturerbarMin = månadsExtraTid.filter(e=>e.debiterbar).reduce((a,e)=>a+(e.minuter||0),0);
                 const poster = [...månadsExtraTid].sort((a,b)=>(b.datum||'').localeCompare(a.datum||''));
                 const aktNamn = (e:any) => e.aktivitet_text || (e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : null) || e.kommentar || 'Extra arbete';
@@ -4285,13 +5048,16 @@ export default function Arbetsrapport() {
                   {/* Hjälte: får jag lön för all min tid? */}
                   {/* Hjälten läser SPECEN (extra_h) — samma tal som "varav extra tid" på översikten. */}
                   <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,borderBottom:`1px solid ${FARG.linje}` }}>
-                    <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>{extraTidH.toLocaleString('sv-SE')} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span></p>
+                    <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>
+                      {Math.floor(Math.round(extraTidH*60)/60)} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span>
+                      {Math.round(extraTidH*60) % 60 > 0 && <> {Math.round(extraTidH*60) % 60} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>min</span></>}
+                    </p>
                     <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>arbete när maskinen var avstängd</p>
                   </div>
                   {/* Stödrad: arbetsgivarfrågan — vad kan faktureras? */}
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
                     <span style={{ ...TYP.text,color:FARG.text }}>Varav fakturerbart</span>
-                    <span style={{ ...TYP.listtitel,color:fakturerbarMin>0?FARG.gron:FARG.text2,...TNUM }}>{fmtDecKomma(fakturerbarMin)} tim</span>
+                    <span style={{ ...TYP.listtitel,color:fakturerbarMin>0?FARG.gron:FARG.text2,...TNUM }}>{minText(fakturerbarMin)}</span>
                   </div>
                   {/* Poster — grön prick = fakturerbar */}
                   {poster.map((e,i)=>(
@@ -4319,12 +5085,14 @@ export default function Arbetsrapport() {
     // ─── ÖVERSIKT-VY ───
     return (
       <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-        <style>{css}</style>{timerBanner}
+        {/* designCss: Dag för dag-radens detaljer tonar in (.tona-in). */}
+        <style>{css}{designCss}</style>{timerBanner}
 
         {/* Header */}
         {/* Header: månad + pilar (44 px, blå = navigerar). Kalenderikonen som inte
             gick att trycka på är borta. */}
-        <header style={{ position:"fixed", top:HEADER_TOP, width:"100%", zIndex:50, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, height:64 }}>
+        {/* Sticky i flödet — se Min tid. */}
+        <header style={{ position:"sticky", top:HEADER_TOP, zIndex:50, background:"rgba(0,0,0,0.8)", backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", display:"flex", justifyContent:"center", alignItems:"center", padding:`0 ${AVSTAND.sidmarginal}px`, minHeight:64 }}>
           <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
             <button onClick={stegLönBak} disabled={!kanLönBak} style={{ ...KNAPP.lank, width:TRAFFYTA.min, justifyContent:"center", ...(kanLönBak ? {} : INAKTIV) }}>
               <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_left</span>
@@ -4336,7 +5104,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ paddingTop:AVSTAND.xxl,paddingBottom:AVSTAND.xxl,padding:`${AVSTAND.xxl}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:448,margin:"0 auto",width:"100%" }}>
+        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:448,margin:"0 auto",width:"100%",boxSizing:"border-box" }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
@@ -4364,37 +5132,77 @@ export default function Arbetsrapport() {
           {spec && (() => {
             const dagNamnKort = ['sön','mån','tis','ons','tor','fre','lör'];
             const fmtHm = (min: number) => { const h = Math.floor(min/60), mm = min%60; return mm ? `${h}:${String(mm).padStart(2,'0')}` : `${h}:00`; };
-            const ovrigaVarn: string[] = (spec.varningar || []).filter((v: string) => !/saknar typ|ej bekräftade/i.test(v));
-            const harSaknas = obekräftadeDagar > 0 || obObesDagar.length > 0 || (spec.synk?.length ?? 0) > 0 || (spec.ledighetskollision?.length ?? 0) > 0 || (spec.maskin_utan_typ?.length ?? 0) > 0 || ovrigaVarn.length > 0;
+            // Förarens ord ur specens strukturerade fält (lib/lonesystem/forarText) —
+            // motorns varningstexter är skrivna för granskaren och visas inte här.
+            const tittaPoster = attTittaPa(spec);
+            const harSaknas = obekräftadeDagar > 0 || obObesDagar.length > 0 || tittaPoster.length > 0;
+            // Dag för dag: tid i hela minuter per rad — summan är exakt summan av raderna.
+            const specÅr = Number(String(lönePeriod).slice(0,4));
+            const rödaSpec: Record<string,string> = { ...getRödaDagar(specÅr-1), ...getRödaDagar(specÅr) };
+            const deldagPerDatum = new Map<string, any>(((spec.deldagar || []) as any[]).map((x: any) => [x.datum, x]));
+            const ledigPerDatum = new Map<string, string>(((spec.ledighetskollision || []) as any[]).map((x: any) => [x.datum, x.typ]));
+            const dagRader = ((spec.dagar || []) as any[]).map((d: any) => ({
+              d,
+              min: Math.round((d.arbetad_min || 0) + (d.extra_min || 0)),
+              avv: dagAvvikelser(d, { rodaDagar: rödaSpec, deldag: deldagPerDatum.get(d.datum) || null, ledig: ledigPerDatum.get(d.datum) || null }),
+            }));
+            const dagSummaMin = dagRader.reduce((s, r) => s + r.min, 0);
+            // En rad i "Att titta på": datum/vad till vänster, avvikelsen i orange
+            // till höger, vad man kan göra under. Samma form för alla sorter.
+            const tittaRad = (nyckel: string, rubrik: string, hoger: string | undefined, text: ReactNode, efter?: ReactNode) => (
+              <div key={nyckel} style={{ padding:`${AVSTAND.m}px 0`, borderBottom:`1px solid ${FARG.linje}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.m }}>
+                  <span style={{ ...TYP.listtitel, color:FARG.text, ...TNUM }}>{rubrik}</span>
+                  {hoger && <span style={{ ...TYP.meta, color:FARG.orange, textAlign:"right", ...TNUM }}>{hoger}</span>}
+                </div>
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{text}</p>
+                {efter}
+              </div>
+            );
             return (
               <>
                 {/* Går till lönen */}
                 <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,marginBottom:AVSTAND.l }}>
                   <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,borderBottom:`1px solid ${FARG.linje}` }}>
                     <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>Går till lönen</p>
+                    {/* All tid i timmar och minuter (Martin 2026-09-29) — decimaler bara
+                        bredvid lönearterna, där talet går till Fortnox. */}
                     <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>
-                      {jobbadH.toLocaleString('sv-SE')} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span>
+                      {Math.floor(jobbadMin/60)} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>tim</span>
+                      {jobbadMin % 60 > 0 && <> {jobbadMin % 60} <span style={{ ...TYP.rubrik,color:FARG.text2,fontWeight:VIKT.halvfet }}>min</span></>}
                     </p>
                     <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>
-                      {spec.arbetsdagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${extraTidH.toLocaleString('sv-SE')} tim` : ''}
+                      {spec.arbetsdagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${timMin(extraTidH)}` : ''}
                     </p>
                   </div>
-                  {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => (
+                  {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => {
+                    const ärTim = loneartEnhet(r.SalaryCode) === 'tim';
+                    return (
                     <div key={r.SalaryCode + i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:`${AVSTAND.m}px 0`, borderBottom:`1px solid ${FARG.linje}`, gap:AVSTAND.m }}>
                       <span style={{ ...TYP.text, color:FARG.text }}>
                         {loneartLabel(r.SalaryCode)} <span style={{ ...TYP.micro, color:FARG.text3 }}>{r.SalaryCode}</span>
-                        {/* Reseersättning: förklaringen som underrad — förr ett eget kort i detaljer */}
-                        {String(r.SalaryCode) === '821' && <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>påbörjade mil över fri pendling {spec.km_grans} km/dag</span>}
+                        {/* Reseersättning: körda km OCH km över gränsen — "1 084 km" och
+                            "1 mil" ser annars ut som ett fel. Ersättningen räknas per dag. */}
+                        {String(r.SalaryCode) === '821' && <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>{kmDel.totalKm.toLocaleString('sv-SE')} km körda, varav {kmDel.overKm.toLocaleString('sv-SE')} km över {spec.km_grans} km/dag</span>}
                       </span>
-                      <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhet(r.SalaryCode)}</span></span>
+                      {ärTim ? (
+                        /* Tim och min först; Fortnox-decimalen under, dämpad — för avstämning. */
+                        <span style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", flexShrink:0 }}>
+                          <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{timMin(Number(r.Number))}</span>
+                          <span style={{ ...TYP.meta, ...TNUM, color:FARG.text3, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)}</span>
+                        </span>
+                      ) : (
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhet(r.SalaryCode)}</span></span>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {spec.rader.length === 0 && (
                     <p style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2 }}>Inga lönerader den här månaden.</p>
                   )}
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,gap:AVSTAND.m }}>
                     <span style={{ ...TYP.text,color:FARG.text }}>Brandrisk-OB <span style={{ ...TYP.micro,color:FARG.text3 }}>löneart ej fastställd</span></span>
-                    <span style={{ ...TYP.listtitel, ...TNUM, color:spec.ob.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{fmtMangd(spec.ob.timmar)} <span style={{ ...TYP.meta, color:FARG.text2 }}>tim</span></span>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:spec.ob.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{timMin(spec.ob.timmar)}</span>
                   </div>
                 </section>
 
@@ -4416,25 +5224,27 @@ export default function Arbetsrapport() {
                   </button>
                 </div>
 
-                {/* Saknas — det föraren själv kan fixa */}
+                {/* Att titta på — skrivet för föraren: datum, vad det gäller, vad man
+                    kan göra. Paragrafer och systemkonsekvenser hör till admin-
+                    granskningen (samma fakta, motorns varningstexter). */}
                 {harSaknas && (
                   <section style={{ background:FARG.upphojt,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
-                    <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.orange }}>Saknas — du kan fixa det</p>
-                    {obekräftadeDagar > 0 && (
-                      <div style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
-                        <p style={{ margin:0,...TYP.text,color:FARG.text }}>{obekräftadeDagar} {obekräftadeDagar === 1 ? 'dag är inte bekräftad' : 'dagar är inte bekräftade'}</p>
-                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Tiden är med i underlaget men ingen har granskat den. Bekräfta i Kalender.</p>
-                      </div>
-                    )}
+                    <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.text2 }}>Att titta på</p>
+                    {obekräftadeDagar > 0 && tittaRad('obekr', `${obekräftadeDagar} ${obekräftadeDagar === 1 ? 'dag' : 'dagar'}`, 'ej bekräftade',
+                      'Tiden är med i underlaget men ingen har granskat den. Bekräfta i Kalender.')}
                     {obObesDagar.length > 0 && (
                       <div style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
-                        <div onClick={()=>setObRetroÖppen(o=>!o)} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer" }}>
-                          <p style={{ margin:0,...TYP.text,color:FARG.text }}>{obObesDagar.length} tidig{obObesDagar.length===1?' dag':'a dagar'} väntar på brandrisk-svar</p>
+                        <button type="button" onClick={()=>setObRetroÖppen(o=>!o)} aria-expanded={obRetroÖppen}
+                          style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:AVSTAND.m,width:"100%",minHeight:TRAFFYTA.min,padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                          <span>
+                            <span style={{ display:"block",...TYP.listtitel,color:FARG.text }}>{obObesDagar.length} tidig{obObesDagar.length===1?' morgon':'a morgnar'}</span>
+                            <span style={{ display:"block",marginTop:AVSTAND.xs,...TYP.meta,color:FARG.text2 }}>Var det beordrat för brandrisk? Svara per dag.</span>
+                          </span>
                           <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.text2,transform:obRetroÖppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
-                        </div>
-                        {obRetroÖppen && obObesDagar.map((d:any, i:number) => (
+                        </button>
+                        {obRetroÖppen && obObesDagar.map((d:any) => (
                           <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0 0`,gap:AVSTAND.m }}>
-                            <span style={{ ...TYP.meta,color:FARG.text,...TNUM }}>{d.datum} · {(d.start_tid||'').slice(0,5)}</span>
+                            <span style={{ ...TYP.text,color:FARG.text,...TNUM }}>{datumLang(d.datum)} <span style={{ ...TYP.meta,color:FARG.text2 }}>{(d.start_tid||'').slice(0,5)}</span></span>
                             <div style={{ display:"flex",gap:AVSTAND.s }}>
                               <button onClick={()=>svaraBrandriskRetro(d,true)} style={{ ...KNAPP.sekundar, width:"auto", padding:`0 ${AVSTAND.l}px` }}>Ja</button>
                               <button onClick={()=>svaraBrandriskRetro(d,false)} style={{ ...KNAPP.sekundar, width:"auto", padding:`0 ${AVSTAND.l}px` }}>Nej</button>
@@ -4443,48 +5253,60 @@ export default function Arbetsrapport() {
                         ))}
                       </div>
                     )}
-                    {(spec.synk as any[]).map((s: any, i: number) => (
-                      <div key={`syn${i}`} style={{ padding:`${AVSTAND.m}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
-                        <p style={{ margin:0,...TYP.text,color:FARG.text,...TNUM }}>{s.datum}: {s.diff_min} min oförklarad tidsavvikelse</p>
-                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>Du sa {s.bekraftat}, maskinen {s.maskinen}. Öppna dagen i Kalender och förklara.</p>
-                      </div>
-                    ))}
-                    {(spec.ledighetskollision as any[]).map((k: any, i: number) => (
-                      <p key={`led${i}`} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.text,borderBottom:`1px solid ${FARG.linje}`,...TNUM }}>{k.datum}: godkänd ledighet ({k.typ}) och {fmtHm(k.arbetad_min)} arbete samma dag</p>
-                    ))}
-                    {(spec.maskin_utan_typ as string[]).map((mid: string) => (
-                      <p key={mid} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.rod,borderBottom:`1px solid ${FARG.linje}` }}>Maskin {mid} saknar typ i registret — premielön räknas inte. Säg till Martin.</p>
-                    ))}
-                    {ovrigaVarn.map((v: string, i: number) => (
-                      <p key={`v${i}`} style={{ margin:0,padding:`${AVSTAND.m}px 0`,...TYP.meta,color:FARG.text2 }}>{v}</p>
-                    ))}
-                    <div style={{ height:8 }} />
+                    {tittaPoster.map(p => tittaRad(p.nyckel, p.rubrik, p.hoger, p.text))}
+                    <div style={{ height:AVSTAND.s }} />
                   </section>
                 )}
 
-                {/* Dag för dag — tidrapporten */}
+                {/* Dag för dag — LUGN: dag, objekt, timmar. Det normala är tyst grått;
+                    det som avviker står i orange i objektets ställe. Klockslag, rast,
+                    extra tid, mil och OB ligger bakom ett tryck på raden. */}
                 <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.l}px`,marginBottom:AVSTAND.l }}>
-                  <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.s}px`,...TYP.micro,color:FARG.text2 }}>Dag för dag</p>
-                  {(spec.dagar as any[]).map((d: any, i: number, arr: any[]) => {
+                  <p style={{ margin:`${AVSTAND.l}px 0 ${AVSTAND.xs}px`,...TYP.micro,color:FARG.text2 }}>Dag för dag</p>
+                  {dagRader.map(({ d, min, avv }) => {
                     const dt = new Date(`${d.datum}T12:00:00`);
-                    const flagg = !d.bekraftad;
+                    const öppen = lönDagÖppen === d.id;
+                    const objekt = (d.objekt as string[]).join(', ');
+                    const tid = d.start_tid || d.slut_tid
+                      ? `${(d.start_tid||'').slice(0,5) || '–'}–${(d.slut_tid||'').slice(0,5) || '–'}${d.rast_min > 0 ? ` · rast ${minText(d.rast_min)}` : ''}`
+                      : (d.perioddag ? 'Tiden ligger i perioder' : null);
+                    const detaljer = [
+                      tid,
+                      d.extra_min > 0 ? `varav extra tid ${minText(d.extra_min)}` : null,
+                      avv.length > 0 && objekt ? objekt : null,
+                      d.ersattningsmil ? `${d.ersattningsmil} mil reseersättning` : null,
+                      d.ob_min > 0 ? `OB ${fmtOb(d.ob_min)}` : null,
+                    ].filter(Boolean) as string[];
                     return (
-                      <div key={d.id} style={{ padding:`${AVSTAND.s}px 0`,borderBottom:i < arr.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
-                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m }}>
-                          <span style={{ ...TYP.meta,color:flagg ? FARG.orange : FARG.text,...TNUM }}>{dagNamnKort[dt.getDay()]} {dt.getDate()}/{dt.getMonth()+1} · {(d.start_tid||'').slice(0,5) || '–'}–{(d.slut_tid||'').slice(0,5) || '–'}{d.rast_min != null ? ` · rast ${d.rast_min}` : ''}</span>
-                          <span style={{ ...TYP.meta,color:FARG.text,fontWeight:VIKT.halvfet,...TNUM,whiteSpace:"nowrap" }}>{fmtHm(d.arbetad_min)}{d.extra_min ? <span style={{ color:FARG.gron,fontWeight:VIKT.normal }}> +{fmtHm(d.extra_min)}</span> : null}</span>
-                        </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",gap:AVSTAND.m,marginTop:AVSTAND.xs }}>
-                          <span style={{ ...TYP.meta,color:FARG.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{(d.objekt as string[]).join(', ') || (d.dagtyp && d.dagtyp !== 'normal' ? d.dagtyp : '—')}</span>
-                          <span style={{ ...TYP.meta,color:FARG.text2,whiteSpace:"nowrap",...TNUM }}>
-                            {d.ersattningsmil ? `${d.ersattningsmil} mil` : ''}{d.ob_min > 0 ? `${d.ersattningsmil ? ' · ' : ''}OB ${fmtOb(d.ob_min)}` : ''}{flagg ? `${d.ersattningsmil || d.ob_min ? ' · ' : ''}ej bekräftad` : ''}
+                      <div key={d.id} style={{ borderBottom:`1px solid ${FARG.linje}` }}>
+                        <button type="button" onClick={()=>setLönDagÖppen(öppen ? null : d.id)} aria-expanded={öppen}
+                          style={{ display:"flex",alignItems:"center",gap:AVSTAND.m,width:"100%",minHeight:TRAFFYTA.min,padding:0,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                          <span style={{ ...TYP.text,color:FARG.text,...TNUM,whiteSpace:"nowrap" }}>{dagNamnKort[dt.getDay()]} {dt.getDate()}</span>
+                          <span style={{ flex:1,minWidth:0,...TYP.meta,color:avv.length ? FARG.orange : FARG.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                            {avv.length ? avv.join(' · ') : (objekt || '—')}
                           </span>
-                        </div>
+                          <span style={{ ...TYP.text,color:FARG.text,...TNUM,whiteSpace:"nowrap" }}>{minText(min)}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text3,transform:öppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
+                        </button>
+                        {öppen && (
+                          <div className="tona-in" style={{ paddingBottom:AVSTAND.m }}>
+                            {detaljer.length > 0
+                              ? detaljer.map((t, i) => <p key={i} style={{ margin:i ? `${AVSTAND.xs}px 0 0` : 0,...TYP.meta,color:FARG.text2,...TNUM }}>{t}</p>)
+                              : <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Inga klockslag på dagen.</p>}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
-                  {spec.dagar.length === 0 && <p style={{ margin:0,padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,...TYP.meta,color:FARG.text2 }}>Inga arbetsdagar den här månaden.</p>}
-                  <div style={{ height:6 }} />
+                  {dagRader.length === 0
+                    ? <p style={{ margin:0,padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,...TYP.meta,color:FARG.text2 }}>Inga arbetsdagar den här månaden.</p>
+                    : (
+                      /* Summan av raderna ovan — kontrollräkningsbar med miniräknare. */
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m,padding:`${AVSTAND.m}px 0` }}>
+                        <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{dagRader.length} {dagRader.length === 1 ? 'dag' : 'dagar'}</span>
+                        <span style={{ ...TYP.listtitel,color:FARG.text,...TNUM }}>{minText(dagSummaMin)}</span>
+                      </div>
+                    )}
                 </section>
 
               </>
@@ -4566,6 +5388,18 @@ export default function Arbetsrapport() {
         setHemadress(val);
         setMedarbetare((m:any)=>({ ...m, hemadress: val }));
         setSparatToast(true); setTimeout(()=>setSparatToast(false),2000);
+        // Geokoda direkt och säg var adressen hamnade (lib/geokod). En GPS-satt
+        // hembas skyddas och används i stället.
+        setHemGeokod({ text: "Söker adressen…", varna: false });
+        try {
+          const r = await fetch("/api/medarbetare/geokoda", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j.ok) setHemGeokod({ text: `Adressen kunde inte sökas: ${j.error || r.status} — km räknas inte förrän den hittas.`, varna: true });
+          else if (j.status === "klar") setHemGeokod({ text: `Hittad: ${j.etikett}. Km räknas härifrån.`, varna: false });
+          else if (j.status === "hoppad") setHemGeokod({ text: "Din hembas är satt med GPS och används i stället för adressen.", varna: false });
+          else if (j.status === "osaker") setHemGeokod({ text: `Hittades bara ungefär (${j.etikett}). Martin kontrollerar punkten — tills dess räknas inte km.`, varna: true });
+          else setHemGeokod({ text: "Adressen hittades inte — kontrollera stavningen. Km räknas inte förrän den hittas.", varna: true });
+        } catch { setHemGeokod({ text: "Adressen kunde inte sökas just nu — den söks igen i natt.", varna: true }); }
       }
     };
     return (
@@ -4588,6 +5422,7 @@ export default function Arbetsrapport() {
             style={{ width:"100%",padding:"13px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
           />
         </Card>
+        {hemGeokod && <p style={{ margin:`${AVSTAND.xs}px 0 ${AVSTAND.s}px`, ...TYP.meta, color: hemGeokod.varna ? FARG.orange : FARG.text2 }}>{hemGeokod.text}</p>}
         <p style={{ margin:"0 0 32px",fontSize:13,color:C.label }}>Adressen används bara för att räkna ut avstånd — aldrig delad med andra.</p>
         <Label>Maskin</Label>
         <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
@@ -4919,6 +5754,32 @@ export default function Arbetsrapport() {
 
   /* ─── REDIGERA HISTORIK ─── */
   if(steg==="redigera"&&redDag){
+    // Dagens rad hämtas ur databasen (öppnaRedigera). Tills den svarat visas
+    // "Laddar…" — aldrig en tom editor som kan misstas för en tom dag. Misslyckas
+    // läsningen och cachen saknar dagen: säg det, och ge vägen ut.
+    if (redLaddar || redLasFel) {
+      const rdLas: any = redDag; // useState(null)
+      const p = String(rdLas.datum || "").split("-");
+      const rubrik = p.length === 3 ? `${parseInt(p[2])} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][parseInt(p[1]) - 1]}` : "Dag";
+      return (
+        <div style={shell}><style>{css}</style>{timerBanner}
+          <div style={topBar}>
+            <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.l }}>
+              <BackBtn onClick={()=>setSteg("kalender")}/>
+              <h1 style={{ margin:0,...TYP.titel }}>{rubrik}</h1>
+            </div>
+          </div>
+          <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:AVSTAND.l, textAlign:"center" }}>
+            {redLasFel ? (<>
+              <p style={{ margin:0, ...TYP.text, color:FARG.text }}>Kunde inte läsa dagen. Kontrollera uppkopplingen och försök igen.</p>
+              <button onClick={()=>öppnaRedigera(rdLas.datum)} style={KNAPP.sekundar}>Försök igen</button>
+            </>) : (
+              <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>Laddar…</p>
+            )}
+          </div>
+        </div>
+      );
+    }
     const redArbMin = Math.max(0, tim(redStart,redSlut)-redRast);
     // Jämför mot snake_case-fälten i redDag — tidigare använde vi camelCase
     // (redDag.start etc.) som alltid var undefined, vilket gjorde harÄndrat=true
@@ -4938,20 +5799,40 @@ export default function Arbetsrapport() {
     // föraren bara TITTAT på dagen. Samma mönster som debDefault och de tre
     // km-implementationerna: något beräknat FÖR VISNING togs för något GJORT.
     const harÄndrat = redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig||redKm!==redKmOrig||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
+    // BEKRÄFTA-VILLKOR (en definition): (a) maskinpass avslutat, (b) heldagstyp (sjuk/vab) eller
+    // (c) bara perioder utan pass. En period utan sluttid stoppar: en underskrift utan sluttid är ingen.
+    const rdK: any = redDag; // useState(null) — samma "any" som resten av Redigera
+    const redHarStart = !!rdK?.start_tid;
+    const redHarSlut = !!rdK?.slut_tid;
+    const redErHelDag = !!franvaroDagar[rdK?.datum] && !redHarStart; // frånvarodagar utan pass har redan returnerat ovan
+    const redHarExtra = (extraTidData || []).some((e:any) => e.datum === rdK.datum && e.slut_tid);
+    const redHarOppenPeriod = harOppenPeriodPaDag(extraTidData, rdK?.datum);
+    const redKanBekrafta = !rdK?.bekraftad && !redHarOppenPeriod && (redHarSlut || redErHelDag || (redHarExtra && !redHarStart));
+    // SAMMA lista och Stämmer som i Dag-vyn för idag (fragorFor). Visas först när inget är ändrat men
+    // osparat: ändra → Spara ändring → sedan frågorna → Stämmer.
+    // En redan BEKRÄFTAD dag visar bara en obesvarad brandriskfråga (den rör inte bekräftelsen) —
+    // det är dit "1 okt — brandriskfråga obesvarad" i Dag leder.
+    const redFragor: Fraga[] = redKanBekrafta && !harÄndrat
+      ? fragorFor(rdK.datum)
+      : (rdK.bekraftad && !harÄndrat ? fragorFor(rdK.datum).filter(f => f.nyckel === 'brand') : []);
 
     // Underskriften för DEN HÄR dagen. Körs via bekraftaMedForcheck — samma
     // för-check (vilobrott → orsak) som Dag-vyns Bekräfta. Förr skrev Redigera
     // under direkt, utan att fråga.
     const skrivUnderRedDag = async (): Promise<boolean> => {
       const nuIso = new Date().toISOString();
-      const res = await uppdateraVerifierat(supabase, "arbetsdag",
-        { bekraftad: true, bekraftad_tid: nuIso },
-        { medarbetare_id: medarbetare.id, datum: redDag.datum });
+      // UPSERT, inte update: en perioddag från före skalraden (extra_tid utan
+      // arbetsdag-rad) hade träffat 0 rader och aldrig gått att skriva under.
+      // Bara nyckeln + underskriften skickas — inga klockslag, inga andra fält.
+      const res = await upsertVerifierat(supabase, "arbetsdag",
+        { medarbetare_id: medarbetare.id, datum: redDag.datum, bekraftad: true, bekraftad_tid: nuIso },
+        { onConflict: 'medarbetare_id,datum' });
       if (!res.ok) { setRedFel(res.fel); return false; }
       setRedFel(null);
-      setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
-      setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso, status: 'ok' } }));
+      // Både dagData och årsData/historik (patchaDag): väntar-raderna ska räknas om direkt.
+      patchaDag(redDag.datum, { bekraftad: true, bekraftad_tid: nuIso, status: 'ok' });
       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+      if (vantarKo) gaVidare(redDag.datum);
       return true;
     };
     // Km ändras på ETT ställe: morgon/kväll-sheeten. (Den gamla "Ändra körning"-
@@ -5030,6 +5911,10 @@ export default function Arbetsrapport() {
               <h1 style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.titel }}>
                 {(franvaroDagar[redDag?.datum] && !redDag?.start_tid) ? `${FRANVARO_TYP_RUBRIK[franvaroDagar[redDag.datum]]} — ${redDatumDisplay}` : redDatumDisplay}
               </h1>
+              {/* Kom man in via väntar-raden: säg hur många dagar som återstår (inklusive den här). */}
+              {vantarKo && vantandeDagar().length > 1 && (
+                <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.orange }}>{vantandeDagar().length} dagar kvar</p>
+              )}
               {/* Arbetad röd dag: säg det, och om den byts mot en ledig dag (§5 mom 4).
                   Ingen helglön i båda fallen — timmarna bortföll inte. */}
               {(() => {
@@ -5120,10 +6005,75 @@ export default function Arbetsrapport() {
           const prefixFörExtra = (e: any): string => {
             const arbSt = redDag?.start_tid;
             const arbEn = redDag?.slut_tid;
+            if (!arbSt && !arbEn) return "Period"; // perioddag: inget pass att vara före/efter
             if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
             if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
             return "Extra";
           };
+          // KÖRNING — EN rad, ritad i BÅDA dagkorten (maskindag och perioddag). Öppnar
+          // morgon/kväll-sheeten. Källmärkning: visa ärligt vad siffran ÄR. Beräknat men
+          // inte taget = ett FÖRSLAG föraren själv trycker in; först då blir dagen ändrad
+          // (harÄndrat) — aldrig av att den öppnas. Förslaget får ALDRIG kringgå
+          // km_kalla-skyddet: km_kalla='forare' med 0 km är en medveten nolla (boende på
+          // plats — Gävle) som helpern och nattjobbet aldrig rör; då ska appen inte
+          // heller FÖRESLÅ ett tal vi vet är fel. Och aldrig över MAX_BEN_KM per ben —
+          // samma gräns som helpern själv vägrar räkna (trolig felkoordinat).
+          const korningRadRed = (()=>{
+            const över = Math.max(0, redKm - frikm);
+            const mil  = över>0 ? Math.ceil(över/10) : 0;
+            const segs = redKmChain || [];
+            const medvetenNolla = redKm === 0 && (redDag as any).km_kalla === 'forare';
+            const benOver = segs.some((s: any) => Number(s.km) > MAX_BEN_KM);
+            const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord && !medvetenNolla && !benOver;
+            const egen = !forslag && !benOver && redKmBerakning != null && redKm !== redKmBerakning;
+            const kalla = forslag ? null
+              : benOver ? { text: `Avståndet överstiger ${MAX_BEN_KM} km enkel väg — föreslås inte (trolig felkoordinat). Fyll i själv om det stämmer.`, farg: FARG.orange }
+              : egen ? { text: medvetenNolla ? "Egen uppgift — 0 km medvetet satt" : "Egen uppgift", farg: FARG.text2 }
+              : redKmSaknarKoord ? { text: "Objektet saknar koordinat — går inte att beräkna. Fyll i själv.", farg: FARG.orange }
+              : redKmKälla === 'fallback' ? { text: "Osäker uppskattning (fågelvägen × 1,4) — kontrollera.", farg: FARG.orange }
+              : redKmKälla === 'beraknad' ? { text: `Beräknat vägavstånd${redKmKoordKälla === 'maskin' ? ' från maskinens position' : redKmKoordKälla === 'objekt' ? ' från objektets koordinat' : redKmKoordKälla === 'larm' ? ' från objektets larmkoordinat' : ''}`, farg: FARG.text2 }
+              : null;
+            // Delarna under talet är bara det som ingår i det (Morgon + Kväll). Flytt
+            // mellan objekt ingår inte i ersättningen och står som en egen rad UTANFÖR
+            // summan (lib/arbetsdagKorning) — summan är summan av det som visas.
+            const kdelar = delaKorning(segs);
+            const delar = kdelar ? korningDelarText(kdelar) : null;
+            return (
+              <div style={{ borderBottom:(redDag as any).trak?`1px solid ${FARG.linje}`:"none", paddingBottom:((redDag as any).trak || (kdelar && kdelar.flytt > 0))?AVSTAND.s:0 }}>
+                <div onClick={öppnaRedKmSheet} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.m}px 0 ${AVSTAND.xs}px`, cursor:"pointer" }}>
+                  <span style={{ ...TYP.text, color:FARG.text }}>Körning</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{redKm} km</span>
+                    <ChevronRight/>
+                  </div>
+                </div>
+                {forslag && (
+                  <button onClick={()=>setRedKm(redKmBerakning)} style={{ ...KNAPP.tertiar, gap:AVSTAND.xs }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
+                    <span style={{ ...TNUM }}>Använd beräknat {redKmBerakning} km{redKmKälla === 'fallback' ? ' (osäkert, fågelvägen)' : ' (vägavstånd)'}</span>
+                  </button>
+                )}
+                {(delar || kalla || över > 0) && (
+                  <p style={{ margin:0, ...TYP.meta, ...TNUM, color:kalla?.farg ?? FARG.text2 }}>
+                    {[delar, kalla?.text, över > 0 ? `${mil} påbörjade mil (${över} km över ${frikm})` : null].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+                {kdelar && kdelar.flytt > 0 && (<>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0 0` }}>
+                    <span style={{ ...TYP.text, color:FARG.text2 }}>Flytt</span>
+                    <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text2 }}>{kdelar.flytt} km</span>
+                  </div>
+                  <p style={{ margin:0, ...TYP.meta, color:FARG.text2 }}>Ingår inte i Körning</p>
+                </>)}
+              </div>
+            );
+          })();
+          const traktamenteRadRed = (redDag as any).trak ? (
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
+              <span style={{ ...TYP.text,color:FARG.text }}>Traktamente</span>
+              <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:FARG.text }}>Heldag</span>
+            </div>
+          ) : null;
           return (<>
         <div style={{ flex:1,overflowY:"auto",paddingTop:AVSTAND.s }}>
           {(() => {
@@ -5149,7 +6099,7 @@ export default function Arbetsrapport() {
             };
             const uppdateraTider = async () => {
               const res = await uppdateraVerifierat(supabase, 'arbetsdag',
-                { start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null },
+                { start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, redigerad_av: medarbetare.id, synk_avvikelse: null },
                 { id: rd.id });
               if (!res.ok) { setRedFel(res.fel); return; }
               setRedDag((d:any) => ({ ...d, start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null }));
@@ -5290,11 +6240,21 @@ export default function Arbetsrapport() {
               </div>
             </Card>
           ):!harData?(
-            /* Extra-tid finns men inget maskinpass: konstatera det lugnt —
-               säg ALDRIG "ingen data" när den loggade tiden listas nedanför.
-               Samma ärlighetsprincip som Saldon-tillstånden. */
-            <Card style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,textAlign:"center" as const }}>
-              <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen maskindata den här dagen</p>
+            /* PERIODDAG: perioder finns men inget maskinpass. Konstatera det
+               lugnt — säg ALDRIG "ingen data" när den loggade tiden listas
+               nedanför. MEDVETET INGEN Arbetstid-rad här: klockslag på raden
+               ovanpå perioderna räknar tiden två gånger (arbetad_min +
+               extra_tid). Körning finns — perioddagen har km som alla andra. */
+            <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
+              {/* Perioderna står EN gång — i listan "Dagens arbete" nedanför (med
+                  objekt och fakturering). Här bara summan, körning och traktamente. */}
+              <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0`,borderBottom:`1px solid ${FARG.linje}` }}>
+                <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>Dagens arbete</p>
+                <p style={{ margin:0,...TYP.tal,...TNUM,color:FARG.text }}>{fmt(extraTidForDag.reduce((a:number,e:any) => a + (e.minuter||0), 0))}</p>
+                <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text3 }}>Ingen maskin — {extraTidForDag.length} {extraTidForDag.length === 1 ? 'period' : 'perioder'} nedan</p>
+              </div>
+              {korningRadRed}
+              {traktamenteRadRed}
             </Card>
           ):(
             <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
@@ -5355,76 +6315,11 @@ export default function Arbetsrapport() {
                   </div>
                 );
               })()}
-              {/* Lass — bara maskiner med manuell datakälla; redigerbart 7 dagar bakåt, admin alltid. */}
-              <LassIdag
-                variant="rad"
-                datum={(redDag as any).datum}
-                idag={ymdLokal(new Date())}
-                maskinId={redMaskinId || (redDag as any).maskin_id || medarbetare?.maskin_id || null}
-                medarbetareId={medarbetare?.id ?? null}
-                arAdmin={medarbetare?.roll === 'admin'}
-                dagensObjektId={redObjektId || (redDag as any).objekt_id || null}
-                objektLista={objektLista}
-                harTimmar={redArbMin > 0}
-              />
-              {/* Körning — EN rad i huvudkortet, öppnar morgon/kväll-sheeten. Förr ett
-                  eget kort med morgon/kväll/totalt/källa/ersättning, plus en "Extra
-                  tid N min"-rad här som sa samma sak som periodlistan nedanför. */}
-              {(()=>{
-                const över = Math.max(0, redKm - frikm);
-                const mil  = över>0 ? Math.ceil(över/10) : 0;
-                const segs = redKmChain || [];
-                // Källmärkning — visa ärligt vad siffran ÄR. Beräknat men inte
-                // taget = ett FÖRSLAG föraren själv trycker in; först då blir dagen
-                // ändrad (harÄndrat) — aldrig av att den öppnas.
-                // Förslaget får ALDRIG kringgå km_kalla-skyddet: km_kalla='forare' med
-                // 0 km är en medveten nolla (boende på plats — Gävle) som helpern och
-                // nattjobbet aldrig rör; då ska appen inte heller FÖRESLÅ ett tal vi vet
-                // är fel. Och aldrig över MAX_BEN_KM per ben — samma gräns som helpern
-                // själv vägrar räkna (trolig felkoordinat). Ändra går via km-arket.
-                const medvetenNolla = redKm === 0 && (redDag as any).km_kalla === 'forare';
-                const benOver = segs.some((s: any) => Number(s.km) > MAX_BEN_KM);
-                const forslag = redKmBerakning != null && redKmBerakning > 0 && redKm === 0 && !redKmSaknarKoord && !medvetenNolla && !benOver;
-                const egen = !forslag && !benOver && redKmBerakning != null && redKm !== redKmBerakning;
-                const kalla = forslag ? null
-                  : benOver ? { text: `Avståndet överstiger ${MAX_BEN_KM} km enkel väg — föreslås inte (trolig felkoordinat). Fyll i själv om det stämmer.`, farg: FARG.orange }
-                  : egen ? { text: medvetenNolla ? "Egen uppgift — 0 km medvetet satt" : "Egen uppgift", farg: FARG.text2 }
-                  : redKmSaknarKoord ? { text: "Objektet saknar koordinat — går inte att beräkna. Fyll i själv.", farg: FARG.orange }
-                  : redKmKälla === 'fallback' ? { text: "Osäker uppskattning (fågelvägen × 1,4) — kontrollera.", farg: FARG.orange }
-                  : redKmKälla === 'beraknad' ? { text: `Beräknat vägavstånd${redKmKoordKälla === 'maskin' ? ' från maskinens position' : redKmKoordKälla === 'objekt' ? ' från objektets koordinat' : redKmKoordKälla === 'larm' ? ' från objektets larmkoordinat' : ''}`, farg: FARG.text2 }
-                  : null;
-                const delar = segs.length >= 2
-                  ? segs.map((s, i) => `${i === 0 ? 'Morgon' : i === segs.length-1 ? 'Kväll' : 'Flytt'} ${s.km}`).join(' · ')
-                  : null;
-                return (
-                  <div style={{ borderBottom:(redDag as any).trak?`1px solid ${FARG.linje}`:"none", paddingBottom:(redDag as any).trak?AVSTAND.s:0 }}>
-                    <div onClick={öppnaRedKmSheet} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", minHeight:TRAFFYTA.min, padding:`${AVSTAND.m}px 0 ${AVSTAND.xs}px`, cursor:"pointer" }}>
-                      <span style={{ ...TYP.text, color:FARG.text }}>Körning</span>
-                      <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.s }}>
-                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{redKm} km</span>
-                        <ChevronRight/>
-                      </div>
-                    </div>
-                    {forslag && (
-                      <button onClick={()=>setRedKm(redKmBerakning)} style={{ ...KNAPP.tertiar, gap:AVSTAND.xs }}>
-                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>add</span>
-                        <span style={{ ...TNUM }}>Använd beräknat {redKmBerakning} km{redKmKälla === 'fallback' ? ' (osäkert, fågelvägen)' : ' (vägavstånd)'}</span>
-                      </button>
-                    )}
-                    {(delar || kalla || över > 0) && (
-                      <p style={{ margin:0, ...TYP.meta, ...TNUM, color:kalla?.farg ?? FARG.text2 }}>
-                        {[delar, kalla?.text, över > 0 ? `${mil} påbörjade mil (${över} km över ${frikm})` : null].filter(Boolean).join(' · ')}
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
-              {redDag.trak&&(
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
-                  <span style={{ ...TYP.text,color:FARG.text }}>Traktamente</span>
-                  <span style={{ ...TYP.text,fontWeight:VIKT.halvfet,color:FARG.text }}>Heldag</span>
-                </div>
-              )}
+              {/* Körning + traktamente — SAMMA rader som perioddagens kort (korningRadRed/
+                  traktamenteRadRed ovan). Förr ett eget kort med morgon/kväll/totalt/källa/
+                  ersättning, plus en "Extra tid N min"-rad som sa samma sak som periodlistan. */}
+              {korningRadRed}
+              {traktamenteRadRed}
             </Card>
           )}
 
@@ -5433,12 +6328,15 @@ export default function Arbetsrapport() {
               betald, märks bara). Period UTANFÖR → extra_tid (läggs till, ger
               ersättning). Föraren säger bara "jag gjorde det här mellan de här
               klockslagen" — samma formulär, samma knappar. */}
-          {redDag && (harData || dagSegment.length > 0 || harExtra) && (() => {
+          {/* Ritas för varje dag som HAR en rad — även en skalrad utan perioder, så
+              att "Lägg till period" alltid finns (annars var enda vägen "Lägg till
+              manuellt" = klockslag, fel flöde för en perioddag). */}
+          {redDag && (harData || dagSegment.length > 0 || harExtra || !!(redDag as any).id) && (() => {
             const pass = { start_tid: (redDag as any).start_tid || null, slut_tid: (redDag as any).slut_tid || null };
             const perioder: any[] = [
-              ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla })),
-              ...extraTidForDag.map((e:any) => ({ kind:'extra', id:e.id, start:(e.start_tid||'').slice(0,5), slut:(e.slut_tid||'').slice(0,5), typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:e.minuter||0, raw:e })),
-              ...extraOppnaForDag.map((e:any) => ({ kind:'extra', oppen:true, id:e.id, start:(e.start_tid||'').slice(0,5), slut:'', typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:0, raw:e })),
+              ...dagSegment.map((sg:any) => ({ kind:'segment', id:sg.id, start:(sg.start_tid||'').slice(0,5), slut:(sg.slut_tid||'').slice(0,5), typ:sg.aktivitet_typ, deb:sg.debiterbar, kommentar:sg.kommentar, kalla:sg.kalla, raw:sg, objektId: sg.objekt_id || null })),
+              ...extraTidForDag.map((e:any) => ({ kind:'extra', id:e.id, start:(e.start_tid||'').slice(0,5), slut:(e.slut_tid||'').slice(0,5), typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:e.minuter||0, raw:e, objektId: e.objekt_id || null })),
+              ...extraOppnaForDag.map((e:any) => ({ kind:'extra', oppen:true, id:e.id, start:(e.start_tid||'').slice(0,5), slut:'', typ:e.aktivitet_typ, deb:e.debiterbar, kommentar:e.kommentar, minuter:0, raw:e, objektId: e.objekt_id || null })),
             ].sort((a,b)=>a.start.localeCompare(b.start));
             const antal = perioder.length;
             const öppen = segÖppen || antal > 0;
@@ -5448,7 +6346,7 @@ export default function Arbetsrapport() {
             <div style={{ marginTop:AVSTAND.l }}>
               <Card style={{ padding:`${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
                 <div onClick={()=>setSegÖppen(o=>!o)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,cursor:"pointer",borderBottom: öppen ? `1px solid ${FARG.linje}` : "none",minHeight:44 }}>
-                  <span style={{ ...TYP.text,color:FARG.text }}>Var du iväg en del av dagen?</span>
+                  <span style={{ ...TYP.text,color:FARG.text }}>{harData ? "Var du iväg en del av dagen?" : "Dagens arbete"}</span>
                   <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m }}>
                     {antal>0 && <span style={{ ...TYP.meta,color:FARG.orange }}>{antal} st</span>}
                     <span className="material-symbols-outlined" style={{ fontSize:IKON.rad,color:FARG.text2,transform: öppen?"rotate(90deg)":"none",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
@@ -5457,20 +6355,18 @@ export default function Arbetsrapport() {
 
                 {öppen && perioder.map((p:any, i:number) => (
                   <div key={p.kind+p.id}
-                    onClick={p.kind==='extra' ? () => oppnaPeriodRedigera(p.raw) : undefined}
-                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0`,borderBottom: (i<antal-1||!!segForm) ? `1px solid ${FARG.linje}` : "none",gap:AVSTAND.m,cursor: p.kind==='extra'?"pointer":"default" }}>
+                    onClick={p.kind==='extra' ? () => oppnaPeriodRedigera(p.raw) : () => oppnaSegmentRedigera(p.raw)}
+                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.m}px 0`,borderBottom: (i<antal-1||!!segForm) ? `1px solid ${FARG.linje}` : "none",gap:AVSTAND.m,cursor:"pointer" }}>
                     <div style={{ minWidth:0 }}>
                       <span style={{ ...TYP.text,color:FARG.text }}>{aktLabel(p.typ)}</span>
+                      {/* Objektet syns på raden — utan det skrev man under en perioddag i blindo. */}
+                      {p.objektId && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{objektLista.find(o=>o.id===p.objektId)?.namn || p.objektId}</span>}
                       {p.kind==='extra' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.gron,...TNUM }}>+{fmt(p.minuter)}</span>}
-                      {p.deb && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.gron }}>faktureras</span>}
+                      {(()=>{ const f = faktureringsEtikett(p.typ, !!p.deb, !!p.objektId); return <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:f.varna?FARG.orange:FARG.text2 }}>{f.text}</span>; })()}
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
                       <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
                     </div>
-                    {p.kind==='segment'
-                      ? <button onClick={()=>taBortSegment(p.id)} style={{ background:"none",border:"none",color:FARG.text2,cursor:"pointer",width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",flexShrink:0 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>delete</span>
-                        </button>
-                      : <ChevronRight/>}
+                    <ChevronRight/>
                   </div>
                 ))}
 
@@ -5499,8 +6395,14 @@ export default function Arbetsrapport() {
                 onChange={e=>setRedAnl(e.target.value)}
                 style={{ width:"100%",padding:`${AVSTAND.l}px ${AVSTAND.l}px`,...TYP.text,border:"none",borderRadius:RADIE.kort,background:FARG.kort,outline:"none",boxShadow:"none",fontFamily:"inherit",color:FARG.text }}
               />
+              {/* En anledning är ett ord, inte ett skiljetecken: minst 3 tecken och minst en bokstav eller siffra. */}
+              {!anledningGiltig(redAnl)&&(
+                <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>Skriv minst {ANLEDNING_MIN_TECKEN} tecken — vad ändrade du och varför?</p>
+              )}
             </div>
           )}
+          {/* SAKER ATT SVARA PÅ — samma lista som Dag-vyn visar för idag. */}
+          {redFragor.length > 0 && <div style={{ paddingBottom:AVSTAND.m }}>{fragorLista(redFragor)}</div>}
         </div>
         <div style={bottom}>
           {(()=>{
@@ -5514,21 +6416,23 @@ export default function Arbetsrapport() {
             //  (c) bara extra_tid utan maskinpass — inget att vänta på
             // Om passet pågår (start utan slut) visar vi istället en grå
             // väntetext.
-            const harStart = !!redDag?.start_tid;
-            const harSlut = !!redDag?.slut_tid;
-            const erHelDag = !!franvaroDagar[redDag?.datum] && !harStart; // frånvarodagar utan pass har redan returnerat ovan
-            const harExtra = (extraTidData || []).some((e:any) => e.datum === redDag.datum && e.slut_tid);
-            const kanBekrafta = !bekraftadRedan && (harSlut || erHelDag || (harExtra && !harStart));
+            const harStart = redHarStart, harSlut = redHarSlut, erHelDag = redErHelDag, harExtra = redHarExtra;
+            // En period utan sluttid (Planera: "Starta nu — avsluta sen", eller glömd) — en
+            // underskrift utan sluttid är ingen underskrift. Avsluta eller ta bort den först.
+            const harOppenPeriod = redHarOppenPeriod;
+            const kanBekrafta = redKanBekrafta;
             const passPågår = harStart && !harSlut && !erHelDag;
-            if (!harData && redStart==="00:00" && redSlut==="00:00" && redRast===0) {
+            // "Lägg till manuellt" (klockslag på raden) visas ALDRIG när perioder
+            // finns — en perioddag går direkt till Bekräfta (kanBekrafta nedan).
+            if (!harData && !harExtra && redStart==="00:00" && redSlut==="00:00" && redRast===0) {
               return (<>{felRad}<button style={KNAPP.primar} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>{tillbakaKnapp}</>);
             }
             if (harÄndrat) {
               return (<>
                 {felRad}
                 <button
-                  style={{ ...KNAPP.primar, ...(!redAnl ? INAKTIV : {}) }}
-                  disabled={!redAnl}
+                  style={{ ...KNAPP.primar, ...(!anledningGiltig(redAnl) ? INAKTIV : {}) }}
+                  disabled={!anledningGiltig(redAnl)}
                   onClick={async ()=>{
                     try {
                       // arbetad_min + km_totalt är generated columns — räknas från rast_min
@@ -5553,16 +6457,29 @@ export default function Arbetsrapport() {
                       // äger hen värdet (km_kalla='forare', inkl. medveten 0).
                       const bryterBekräftelse = !!(redDag as any)?.bekraftad;
                       const kmÄndrad = redKm !== redKmOrig;
+                      // PERIODDAG (inget pass, perioder finns): klockslagen skrivs
+                      // ALDRIG till raden — 00:00/00:00 från hjulen hade gjort
+                      // skalraden till ett pass. KROCK-VAKTEN för passdagar: ett
+                      // pass som täcker en period = dubbelräkning, stoppas här.
+                      const redPerioddag = !harData && harExtra;
+                      const krock = redPerioddag ? null : passKrockarMedPerioder({ start: redStart, slut: redSlut }, extraTidForDag);
+                      if (krock) { setRedFel(passKrockText(krock)); return; }
+                      // En dag med klockslag utan maskin ÄRVER förarens maskin från
+                      // medarbetarraden — annars tappar timmarna premien (Martin
+                      // sep 2026: 4 dagar, 19,96 tim). Perioddagen aldrig: skalraden
+                      // är maskinlös med flit (lib/dagsegment, RLS-radering).
+                      const sparMaskinId = redMaskinId || (redDag as any).maskin_id || (redPerioddag ? null : medarbetare.maskin_id) || null;
                       const res = await upsertVerifierat(supabase, "arbetsdag", {
                         medarbetare_id: medarbetare.id,
                         datum: redDag.datum,
-                        start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
+                        ...(redPerioddag ? {} : { start_tid: redStart, slut_tid: redSlut, rast_min: redRast }),
                         km_morgon: kmMorg, km_kvall: kmKvall,
                         ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || redDag.objekt_id || null,
-                        maskin_id: redMaskinId || redDag.maskin_id || null,
+                        maskin_id: sparMaskinId,
                         redigerad: true,
                         redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
+                        redigerad_av: medarbetare.id,
                         ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                       }, { onConflict: 'medarbetare_id,datum' });
                       if (!res.ok) throw new Error(res.fel);
@@ -5572,11 +6489,11 @@ export default function Arbetsrapport() {
                       // dagen". Rätta → spara → bekräfta, utan att lämna dagen.
                       // redigerad förblir true (både rättad OCH underskriven).
                       const sparad = {
-                        start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
+                        ...(redPerioddag ? {} : { start_tid: redStart, slut_tid: redSlut, rast_min: redRast }),
                         km_morgon: kmMorg, km_kvall: kmKvall, km_totalt: kmMorg + kmKvall,
                         ...(kmÄndrad ? { km_kalla: 'forare' } : {}),
                         objekt_id: redObjektId || (redDag as any).objekt_id || null,
-                        maskin_id: redMaskinId || (redDag as any).maskin_id || null,
+                        maskin_id: sparMaskinId,
                         redigerad: true,
                         ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                       };
@@ -5606,10 +6523,27 @@ export default function Arbetsrapport() {
                     Sparat — tryck Bekräfta för att skriva under
                   </div>
                 )}
-                {/* SAMMA väg som Dag-vyns Bekräfta: för-check → ev. orsak → underskrift. */}
-                <button style={KNAPP.primar} onClick={()=>bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid") })}>
-                  Bekräfta dagen
+                {/* SAMMA Stämmer som Dag-vyn: grå (men inte död) tills allt är besvarat; ett tryck öppnar
+                    första obesvarade. Aldrig automatiskt efter sista svaret. Sedan samma väg som Dag:
+                    för-check (nya vilobrott) → underskrift. Rast-/passfrågorna är redan besvarade i listan. */}
+                <button
+                  style={{ ...KNAPP.primar, ...(stammerGra(redFragor) ? { opacity: INAKTIV.opacity } : {}) }}
+                  onClick={()=>{
+                    const forsta = redFragor.find(f => f.svar == null);
+                    if (forsta) { forsta.oppna(); return; }
+                    return bekraftaMedForcheck(redDag.datum, skrivUnderRedDag, "redigera", { minuter: redRast, passMin: passMinuter(redStart, redSlut, redRast), andra: () => setRedVy("tid"), godkand: true });
+                  }}>
+                  Stämmer
                 </button>
+                {stammerGra(redFragor) && (
+                  <p style={{ margin:0, textAlign:"center", ...TYP.meta, color:FARG.text2 }}>Svara på frågorna först</p>
+                )}
+                {tillbakaKnapp}
+              </>);
+            }
+            if (harOppenPeriod && !bekraftadRedan) {
+              return (<>
+                <p style={{ margin:0, ...TYP.meta, color:FARG.orange, textAlign:"center" }}>Extra arbete utan sluttid — avsluta eller ta bort det först, sedan kan dagen bekräftas</p>
                 {tillbakaKnapp}
               </>);
             }
@@ -5620,7 +6554,30 @@ export default function Arbetsrapport() {
               </>);
             }
             if (bekraftadRedan) {
-              return (<>{bekraftadRad(bekraftadTidFmt)}{tillbakaKnapp}</>);
+              // Tom bekräftad skalrad: ge vägen ut här också (samma som Dag-vyn).
+              const tomSkalrad = !harData && !harExtra && dagSegment.length === 0 && skalradTom(redDag);
+              return (<>
+                {felRad}
+                {bekraftadRad(bekraftadTidFmt)}
+                {vantarKo && (()=>{
+                  const oppen = redFragor.some(f => f.svar == null);
+                  const kvar = vantandeDagar().filter(d => d.datum !== rdK.datum).length;
+                  return (
+                    <button onClick={()=>gaVidare(rdK.datum)} style={oppen ? KNAPP.sekundar : KNAPP.primar}>
+                      {oppen ? 'Hoppa över' : (kvar > 0 ? 'Nästa' : 'Klar')}
+                    </button>
+                  );
+                })()}
+                {tomSkalrad && (
+                  <div style={{ display:"flex", justifyContent:"center" }}>
+                    <button onClick={async ()=>{ const t = await taBortTomSkalrad((redDag as any).datum, (redDag as any).id); if (!t.ok) setRedFel(t.fel); else setSteg("kalender"); }} style={KNAPP.destruktiv}>
+                      <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>delete</span>
+                      Ta bort den tomma dagen
+                    </button>
+                  </div>
+                )}
+                {tillbakaKnapp}
+              </>);
             }
             return tillbakaKnapp;
           })()}
@@ -5634,6 +6591,8 @@ export default function Arbetsrapport() {
         {rastFragaUI}
         {byteFragaUI}
         {deldagSheetUI}
+        {renderSvarSheet()}
+        {renderObjektSvarSheet()}
 
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
@@ -5730,7 +6689,7 @@ export default function Arbetsrapport() {
                       if (redDag?.id) {
                         const bryterBekräftelse = !!redDag?.bekraftad;
                         // km_kalla='forare': föraren äger km-värdet (inkl. medveten 0).
-                        const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_kalla: 'forare', redigerad: true, redigerad_tid: new Date().toISOString() };
+                        const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_kalla: 'forare', redigerad: true, redigerad_tid: new Date().toISOString(), redigerad_av: medarbetare.id };
                         if (bryterBekräftelse) { payload.bekraftad = false; payload.bekraftad_tid = null; }
                         const res = await uppdateraVerifierat(supabase, "arbetsdag", payload, { id: redDag.id });
                         if (!res.ok) {
@@ -5867,7 +6826,9 @@ export default function Arbetsrapport() {
       const dow = new Date(kalÅr, kalMånad, d).getDay();
       const helg = dow === 0 || dow === 6;
       const min = minPerDatum.get(k) || 0;
-      const extra = (extraDagData[k] || []).length > 0;
+      // Blå prick = extra tid UTÖVER ett maskinpass. På en perioddag är
+      // perioderna hela dagen — då räcker statuspricken.
+      const extra = (extraDagData[k] || []).length > 0 && !!dag?.start_tid;
       const _sh = historik.find((x: any) => x.datum === k);
       // Gul synk-prick bara från skarp start (lib/skarpStart) — före golvet visas dagen, larmas inte.
       const synk = !!_sh?.synk_avvikelse && !_sh.synk_avvikelse.kvitterad && !foreSkarpStart(k);
@@ -5924,7 +6885,7 @@ export default function Arbetsrapport() {
           </button>
         </header>
 
-        <main style={{ flex:1, padding:`0 ${AVSTAND.sidmarginal}px ${SCROLL_BOTTOM}px`, overflowY:"auto" }}>
+        <main style={{ flex:1, padding:`0 ${AVSTAND.sidmarginal}px ${SCROLL_BOTTOM}`, overflowY:"auto" }}>
 
           {/* Månadskortet: ETT tal (jobbat av mål, centrerat) + uppdelningen —
               vardagar, helgdagar, frånvaro per typ, vardagar utan rapport.

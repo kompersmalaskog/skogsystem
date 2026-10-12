@@ -142,12 +142,14 @@ aldrig i repot. Migrationerna `20261009170000` … `20261020110000` är redan k�
   "Löneunderlag" istället — verifiera
 
 ## Nästa
+- 26 /api-rutter saknar egen auth (bara middleware skyddar dem). Egen säkerhets-PR med kravInloggad() — inte nu. Rutter (grov sökning, verifiera per rutt): app-state, forarkarta, handelse, kalibrering/{bedomning,diagnos,kalender,kontroll,objekt,tradslag}, kontroll/[id], korbarhet-tiles, parse-pdf, resurs, resurs/[id], roadcheck, routing, sgu-proxy, slu-geotiff, smhi-nederb, tract-analysis, wms-proxy. Öppna med avsikt (ska INTE få kravInloggad): auth/callback, fortnox/auth, fortnox/callback, version, mom-import (IMPORT_SECRET — verifiera)
 - Fixa kalenderklick
 - Timer-banner testad med fliknavigation
 - Sjuk/VAB hela flödet verifierat
 - Push-notiser vid obekräftad dag
 - Vila-fliken (11h dygnsvila, 250h övertidstak)
 - Löneunderlag → Fortnox
+- ObjektValjare / objekt_geometri (efter fix-objektvaljare-effekt-loop, 2026-10-06): (2) hämta traktgeometrin EN gång — `planering/page.tsx` (maskindator-start, kandidaterP) och `ObjektValjare.tsx` läser båda hela `objekt_geometri` ofiltrerat; cacha i en modul eller skicka ner som prop. (3) listan behöver bara traktgränsen — hämta `geometri` först när den ritas, eller lägg en smal vy/kolumn (raden är hela envz-FeatureCollection). (5) sök efter samma mönster: `useEffect` med objekt/array/funktion i dep-listan där föräldern skapar värdet vid varje rendering, särskilt på sidor som ritas om i takt med GPS/timers. Intervallspärr (max en hämtning per 60 s) medvetet INTE gjord.
 
 ## Avtalsvärden (gs_avtal)
 - OB, övertid, helglön — ej implementerat
@@ -1379,5 +1381,52 @@ over utfardade rapporter. Bor utredas.
 Facit att stamma av mot finns hogre upp i filen:
 Husjonas (objekt_id 11124938) = 1 349 stammar,
 678 m3sub, 433 163 kr.
+
+## SAKNAS — LOGG OVER UTFARDADE MARKAGARRAPPORTER
+
+Det finns ingen registrering av vilka markagarrapporter
+som genererats eller skickats. Vyn
+/admin/markagarrapport/[objekt_id] renderar pa
+begaran och lamnar inga spar.
+
+Det blev akut i och med pagineringsbuggen (#466):
+aggregate.ts paginerade tre tabeller UTAN .order(), sa
+rapporter fore 2026-08-24 kan ha innehallit godtyckliga
+rader — inte bara fel ordning. Fragan "vilka rapporter
+har gatt ut, och till vem" gar inte att besvara idag.
+Utan logg kan vi varken sparbara eller ratta.
+
+### Enklaste losningen — EN rad per generering
+Ny tabell markagarrapport_logg, en rad varje gang en
+rapport oppnas eller exporteras:
+
+  id                uuid
+  objekt_id         text        vilket objekt
+  utfardad          timestamptz nar
+  utfardad_av       uuid        medarbetare.id
+  mottagare         text        markagarens namn, fritext
+  -- talen SOM RAPPORTEN VISADE, frusna:
+  stammar           int
+  volym_m3sub       numeric
+  virkesvarde_kr    numeric
+  vardeforlust_kr   numeric
+  -- sparbarhet bakat:
+  kodversion        text        BUILD_SHA
+  underlag_filnamn  text[]      hpr-filerna rapporten byggde pa
+
+Poangen ar de FRUSNA talen. Att veta att en rapport
+utfardades racker inte — man maste kunna se VAD den
+sa, for att kunna jamfora mot en omrakning och avgora
+om markagaren fick fel siffror. Kodversionen gor att
+man kan skilja rapporter genererade fore #466 fran
+efter.
+
+Skrivningen bor ske nar rapporten faktiskt lamnar
+huset (export/utskrift), inte vid varje sidladdning —
+annars fylls loggen av egna kontroller. Enklast:
+knappen som genererar PDF:en skriver raden.
+
+INTE BYGGD. Beskrivningen finns har for att beslutet
+ska kunna tas utan att utreda om igen.
 
 Uppdatera denna fil vid varje commit.

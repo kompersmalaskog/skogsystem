@@ -39,6 +39,9 @@ export default function GaTillYta({
   punkter,
   kontext,
   provytor,
+  baskarta,
+  overlays,
+  egnaVarden,
   onStang,
   onMat,
 }: {
@@ -47,6 +50,11 @@ export default function GaTillYta({
   punkter: Parameters<typeof RundKarta>[0]['punkter'];
   kontext: { data: any }[];
   provytor: EgenkontrollProvyta[];
+  // Kartvalen foljer med hit - ga-vyn ska inte visa en annan karta an den man
+  // just tittade pa i helskarmen.
+  baskarta?: Parameters<typeof RundKarta>[0]['baskarta'];
+  overlays?: Parameters<typeof RundKarta>[0]['overlays'];
+  egnaVarden?: Record<string, boolean>;
   onStang: () => void;
   onMat: () => void;
 }) {
@@ -196,6 +204,9 @@ export default function GaTillYta({
           valdPunktId={null}
           hojd="100%"
           centreraPa={mal}
+          baskarta={baskarta}
+          overlays={overlays}
+          egnaVarden={egnaVarden}
           onPosition={setMinPosition}
         />
       </div>

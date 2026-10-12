@@ -23,7 +23,7 @@ const ROT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TYP_STORLEKAR = new Set([32, 30, 20, 17, 13, 11]);
 const VIKTER = new Set([400, 600, 700]);
 const AVSTAND = new Set([0, 4, 8, 12, 16, 24, 32]);
-const RADIER = new Set([10, 12, 16]);
+const RADIER = new Set([4, 10, 12, 16]); // 4 = RADIE.stapel (diagramstaplar)
 const TIDER = new Set([150, 250, 350, 400]);
 const FARGER = new Set([
   "#000000", "#000", "#1c1c1e", "#2c2c2e", "#ffffff", "#fff", "#8e8e93", "#636366",
@@ -34,6 +34,30 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
   "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
+  // Admin (2026-10): flyttat till tokens, noll literaler. components/admin/ui.tsx är byggstenarna.
+  "components/admin/ui.tsx",
+  "components/admin/AdminClient.tsx",
+  "components/admin/Oversikt.tsx",
+  "components/admin/MedarbetareFlik.tsx",
+  "components/admin/MedarbetareKontroller.tsx",
+  "components/admin/NyMedarbetare.tsx",
+  "components/admin/medarbetarDelar.tsx",
+  "components/admin/HempunktKarta.tsx",
+  "components/admin/MaskinerFlik.tsx",
+  "components/admin/AvtalFlik.tsx",
+  "components/admin/AtkUnderflik.tsx",
+  "components/admin/LonesystemUnderflik.tsx",
+  "components/admin/VilobrottUnderflik.tsx",
+  "components/admin/DagarUnderflik.tsx",
+  "components/admin/LonFlik.tsx",
+  "components/admin/ArsovertidKort.tsx",
+  "components/admin/UtjamningsSektion.tsx",
+  "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
+  "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
+  "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad
+  "app/ekonomi/mot-ackord/MotAckordClient.tsx", // Mot ackord — tokenstädad
+  "app/ekonomi/resultat/ResultatClient.tsx",    // Resultat — tokenstädad
+  "app/ekonomi/prislista/PrislistaClient.tsx",  // Prislista — tokenstädad
 ];
 
 // --- Regler ---------------------------------------------------------------
@@ -49,6 +73,17 @@ const REGLER = [
   { namn: "vit alfa", re: /rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/g, ok: (m) => ALFA.has(m[1]) },
   { namn: "rörelsetid", re: /(\d+(?:\.\d+)?)(ms|s)\b(?=[^;"']*(?:ease|linear|cubic|,|"|'))/g, ok: (m) => TIDER.has(m[2] === "s" ? Number(m[1]) * 1000 : Number(m[1])) },
   { namn: "egen @keyframes", re: /@keyframes\s+(\w+)/g, ok: () => false },
+  // LAYOUTMÅTT ÄR INTE AVSTÅND (lib/design/tokens LAYOUT). Ett naket `top:` med tal
+  // är nästan alltid toppfältets höjd skriven för hand — och fel på iPhone, där
+  // toppfältet är 56 + 47–59 px. Paneler satt på top: 56 i fem månader (maj–sep 2026).
+  // `top: 0` är tillåtet (overlays, sticky i en egen scrollbox), liksom små
+  // förskjutningar inne i ett `position: absolute`-element (en ikon i ett kort)
+  // — de är placering i komponenten, inte ett mått mot skärmens kanter.
+  { namn: "naket layoutmått (top)", re: /\btop:\s*['"`]?(-?\d+)(?:px)?['"`]?\s*[,}]/g, ok: (m, rad) => Number(m[1]) === 0 || /position:\s*['"]absolute['"]/.test(rad) },
+  // En FAST rubrik med `top` (utom helskärmspaneler som även har bottom: 0/inset)
+  // ska vara `sticky` i flödet: då reserverar den sin egen höjd och inget mått kan
+  // bli fel. #540 hade fixed + AVSTAND.xxl som mått → 92 px innehåll under flikraden.
+  { namn: "fixed rubrik med top", re: /position:\s*['"]fixed['"][^}]*?\btop:\s*([^,}]+)/g, ok: (m, rad) => /^\s*0\s*$/.test(m[1]) || /\bbottom:\s*0\b|\binset:/.test(rad) },
   { namn: "window.alert", re: /(^|[^A-Za-z.])alert\(/g, ok: () => false },
 ];
 

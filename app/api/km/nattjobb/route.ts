@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { beraknaOchPersisteraDagKm, hamtaObjektKoordinater, ObjektKoord } from "@/lib/routing";
 import { ymdLokal } from "@/lib/datumLokal";
 import { franGolv } from "@/lib/skarpStart";
+import { geokodaMedarbetare } from "@/lib/geokod";
+import { hamtaMedarbetarKontroller } from "@/lib/medarbetarKontroll";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -55,8 +57,32 @@ export async function GET(request: NextRequest) {
   let orsAnrop = 0;
   let kandidaterAntal = 0;
   let fran = "", idag = "";
+  const geokod: any[] = [];
+  let kontroller: any = null;
 
   try {
+    // 0a. GEOKODNING av hemadresser som väntar (ändrade via formulär ELLER SQL —
+    //     triggern hemadress_andrad märker dem). Görs FÖRE km-loopen så en ny
+    //     punkt räknas redan i natt. Gps/manuella punkter skyddas i lib/geokod.
+    //     Tak: några anrop per natt räcker, adresser ändras sällan.
+    const { data: vantar, error: vantarFel } = await supabase
+      .from("medarbetare").select("id, namn").eq("hem_geokod_status", "vantar").limit(10);
+    if (vantarFel) geokod.push({ fel: `kunde inte läsa väntande adresser: ${vantarFel.message}` });
+    for (const m of (vantar as any[]) || []) {
+      const r = await geokodaMedarbetare(supabase, m.id);
+      geokod.push({ medarbetare_id: m.id, namn: m.namn, ...r });
+    }
+
+    // 0b. KONTROLLERNA (lib/medarbetarKontroll): okopplade operatörer med
+    //     namnmatch, förare utan maskin, saknad hempunkt. Rapporteras i svaret
+    //     och loggen — admin kopplar med ett klick i Medarbetare-fliken. Ett fel
+    //     här får aldrig stoppa km-jobbet, men det ska synas.
+    try {
+      kontroller = await hamtaMedarbetarKontroller(supabase);
+    } catch (e: any) {
+      kontroller = { fel: e?.message || String(e) };
+    }
+
     idag = ymdLokal(new Date());
     const franDate = new Date();
     franDate.setDate(franDate.getDate() - FONSTER_DAGAR);
@@ -122,9 +148,12 @@ export async function GET(request: NextRequest) {
       kord_tid: startad.toISOString(),
       fonster_fran: fran, fonster_till: idag,
       kandidater: kandidaterAntal, fyllda: fyllda.length, hoppade: hoppade.length,
-      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade },
+      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade, geokod, kontroller },
     });
     console.log(`[km/nattjobb] ${fran}..${idag}: kandidater=${kandidaterAntal} fyllda=${fyllda.length} hoppade=${hoppade.length} ors=${orsAnrop} logg=${loggId ?? "EJ SKRIVEN"}`);
+    for (const g of geokod) console.log(`[km/nattjobb] geokod ${g.namn ?? ""}: ${g.status ?? g.fel} ${g.etikett ?? ""}`);
+    for (const o of kontroller?.okandaOperatorer || []) console.log(`[km/nattjobb] OKOPPLAD operatör ${o.operator_id} "${o.operator_namn}" → ${o.medarbetare.namn}: ${o.datum.length} dagar`);
+    for (const f of kontroller?.forareUtanMaskin || []) console.log(`[km/nattjobb] förare utan maskin: ${f.namn}`);
     for (const h of hoppade) console.log(`[km/nattjobb] hoppad ${h.datum} ${h.medarbetare_id}: ${h.orsak}`);
 
     return NextResponse.json({
@@ -134,6 +163,8 @@ export async function GET(request: NextRequest) {
       fyllda,
       hoppade,
       orsAnrop,
+      geokod,
+      kontroller,
       logg_id: loggId,
     });
   } catch (e: any) {
@@ -143,7 +174,7 @@ export async function GET(request: NextRequest) {
       kord_tid: startad.toISOString(),
       fonster_fran: fran || null, fonster_till: idag || null,
       kandidater: kandidaterAntal, fyllda: fyllda.length, hoppade: hoppade.length,
-      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade }, fel,
+      ors_anrop: orsAnrop, detaljer: { fyllda, hoppade, geokod, kontroller }, fel,
     });
     return NextResponse.json({ ok: false, error: fel, logg_id: loggId }, { status: 500 });
   }

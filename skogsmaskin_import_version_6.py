@@ -117,6 +117,18 @@ MOM_SYNK_FRAN = _env.get('MOM_SYNK_FRAN') or os.getenv('MOM_SYNK_FRAN') or '2026
 # Läses ur .env.local (STEG_B_LAGE=logga|skriv) i driftklonen; saknas → 'logga'.
 STEG_B_LAGE = (_env.get('STEG_B_LAGE') or os.getenv('STEG_B_LAGE') or 'logga').strip().lower()
 
+# Auto-status-läge: en inkommande prod-fil (HPR/FPR) för ett 'planerad'-objekt flippar det till
+# 'pagaende' och matar av filens maskins kö-rad. 'logga' (DEFAULT) kör regeln men SKRIVER INGET —
+# loggar "Auto-status [logga] skulle …". 'skriv' gör det på riktigt. Aldrig avslutade objekt.
+# Samma mönster som STEG_B_LAGE. Läses ur .env.local (AUTO_STATUS_LAGE=logga|skriv); saknas → 'logga'.
+AUTO_STATUS_LAGE = (_env.get('AUTO_STATUS_LAGE') or os.getenv('AUTO_STATUS_LAGE') or 'logga').strip().lower()
+
+# Auto-avslut-läge: en inkommande prod-fil sätter skordning_avslutad / skotning_avslutad automatiskt
+# när maskinen flyttat vidare (filerna vet). Båda satta → samma avslut som lib/avslutaObjekt
+# (status='avslutat', ur ALLA maskin_ko). 'logga' (DEFAULT) loggar "Auto-avslut [logga] skulle …",
+# 'skriv' gör det. En människas satta flaggor rörs aldrig. Läses ur .env.local; saknas → 'logga'.
+AUTO_AVSLUT_LAGE = (_env.get('AUTO_AVSLUT_LAGE') or os.getenv('AUTO_AVSLUT_LAGE') or 'logga').strip().lower()
+
 # OneDrive-mappar
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 INKOMMANDE = os.path.join(ONEDRIVE_BASE, "Inkommande")
@@ -676,6 +688,374 @@ def parse_datetime(dt_str) -> Optional[datetime]:
         return datetime.fromisoformat(dt_str)
     except:
         return None
+
+# ============================================================
+# SYNTETISKA SKIFT (Rottne) — slutar när nästa förare loggar in
+# ============================================================
+# Rottne saknar OperatorShiftDefinition: parsern bygger syntetiska skift (shift_key "SYN_<datum>_<operator>") av WorkTime
+# och fyller utloggningen ut till filens ReportEndTime. Förr gällde fyllnaden ALLA förare den dagen — R64428 2026-10-07 fick
+# Oskar (slutade 16:50) och Martin (16:50-20:50) exakt samma utloggning 20:50:51.132817, och Oskars arbetsdag blev
+# 06:59-20:50. Dessutom slår kuvert-sammanslagningen ihop utloggning med GREATEST, så ett för långt slut kunde aldrig
+# krympa igen.
+#
+# Regeln (Martin 2026-10-08): ett SYNTETISKT pass slutar när en ANNAN förare loggar in på samma maskin medan passet är
+# öppet. Äkta skift (Ponsse, ShifKey) rörs ALDRIG — där är utloggningen maskinens egen uppgift, inte en gissning.
+# Samma regel finns i /api/mom-import (lib/skiftKapning.ts) som skydd — håll dem i synk.
+# Testas i scripts/test_skift_overlapp.py.
+
+def arsyntetiskt_skift(rad: Dict) -> bool:
+    return str(rad.get('shift_key') or '').startswith('SYN_')
+
+
+def kapa_syntetiska_skift(rader: List[Dict]) -> List[Dict]:
+    """Kapa varje syntetiskt pass till den inloggning en annan förare gör på samma maskin och dag medan passet är
+    öppet (strikt efter passets egen inloggning, strikt före dess utloggning). langd_sek räknas om (int(), som resten
+    av importen). Ren: indatan ändras inte, ett redan kapat pass kapas inte igen."""
+    grupper = defaultdict(list)
+    for r in rader:
+        grupper[(r.get('maskin_id'), str(r.get('datum')))].append(r)
+    ut = []
+    for r in rader:
+        inn, slut = r.get('inloggning_tid'), r.get('utloggning_tid')
+        if not arsyntetiskt_skift(r) or not inn or not slut:
+            ut.append(r)
+            continue
+        kap = None
+        for o in grupper[(r.get('maskin_id'), str(r.get('datum')))]:
+            if o.get('operator_id') == r.get('operator_id'):
+                continue
+            oin = o.get('inloggning_tid')
+            if oin and inn < oin < slut and (kap is None or oin < kap):
+                kap = oin
+        if kap is None:
+            ut.append(r)
+            continue
+        ny = dict(r)
+        ny['utloggning_tid'] = kap
+        ny['langd_sek'] = int((kap - inn).total_seconds())
+        ut.append(ny)
+    return ut
+
+
+def bygg_syntetiska_skift(op_dag_times, report_end_dt, maskin_id: str, filnamn: str, maskin_login) -> List[Dict]:
+    """Bygg syntetiska skift ur WorkTime-poster: {(operator_id, datum): [(start_dt, duration_sek), ...]}.
+
+    Sluttid = senaste postens start + dess duration. ReportEndTime = rapportens sanna slut = den SISTA förarens
+    utloggning: den fyller bara ut för den förare som slutar sist den maskindagen (inte alla), och bara för filens
+    sista dag. OBS: ReportStartTime används ALDRIG — den är KUMULATIV (arkivets början), inte dagens start. max()-
+    semantiken: förlänger aldrig bakåt, kortar aldrig. Slutligen kapas pass som överlappar en annan förares inloggning."""
+    per_op = {}
+    for (op_id, datum), entries in op_dag_times.items():
+        if not entries:
+            continue
+        latest_entry = max(entries, key=lambda e: e[0])
+        per_op[(op_id, datum)] = {
+            'earliest': min(e[0] for e in entries),
+            'latest_end': latest_entry[0] + timedelta(seconds=latest_entry[1]),
+            'total_sek': sum(e[1] for e in entries),
+        }
+    sista_slut = {}
+    for (op_id, datum), v in per_op.items():
+        if datum not in sista_slut or v['latest_end'] > sista_slut[datum]:
+            sista_slut[datum] = v['latest_end']
+
+    skift = []
+    for (op_id, datum), v in per_op.items():
+        utloggning = v['latest_end']
+        if (report_end_dt and report_end_dt.date() == datum and report_end_dt > v['latest_end']
+                and v['latest_end'] == sista_slut[datum]):
+            utloggning = report_end_dt
+        skift.append({
+            'datum': datum,
+            'maskin_id': maskin_id,
+            'operator_id': op_id,
+            'inloggning_tid': v['earliest'],
+            'maskin_inloggning_tid': maskin_login.get((op_id, datum)),
+            'utloggning_tid': utloggning,
+            'langd_sek': v['total_sek'],
+            'gps_lat': None,
+            'gps_long': None,
+            'logout_lat': None,
+            'logout_lon': None,
+            'filnamn': filnamn,
+            # Rottne saknar ShifKey — deterministisk nyckel per (dag, operator) så timvisa snapshot-filer
+            # upsert:ar samma rad i stället för att stapla dubbletter
+            'shift_key': f"SYN_{datum}_{op_id}",
+        })
+    return kapa_syntetiska_skift(skift)
+
+
+def kapa_syntetiska_skift_i_db(maskin_id: str, datum) -> int:
+    """Efter upserten: kapa maskindagens syntetiska pass i DATABASEN (GREATEST-sammanslagningen krymper inget av sig
+    själv). Läser ALLA dagens skift på maskinen, PATCH:ar bara de pass som ändras. Best effort — ett fel loggas och
+    stoppar aldrig importen (/api/mom-import kapar samma sak för arbetsdagen). Returnerar antal ändrade rader."""
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/fakt_skift",
+            params={'maskin_id': f"eq.{maskin_id}", 'datum': f"eq.{datum}",
+                    'select': 'id,maskin_id,datum,operator_id,shift_key,inloggning_tid,utloggning_tid,langd_sek'},
+            headers=SUPABASE_HEADERS, timeout=30)
+        if not resp.ok:
+            logger.warning(f"  Skiftkapning: kunde inte läsa fakt_skift {maskin_id} {datum} ({resp.status_code})")
+            return 0
+        lasta = resp.json()
+    except Exception as e:
+        logger.warning(f"  Skiftkapning: kunde inte läsa fakt_skift {maskin_id} {datum} ({e})")
+        return 0
+    rader = []
+    for r in lasta:
+        p = dict(r)
+        p['inloggning_tid'] = parse_datetime(r.get('inloggning_tid'))
+        p['utloggning_tid'] = parse_datetime(r.get('utloggning_tid'))
+        rader.append(p)
+    n = 0
+    for orig, ny in zip(rader, kapa_syntetiska_skift(rader)):
+        if ny is orig or ny['utloggning_tid'] == orig['utloggning_tid']:
+            continue
+        try:
+            pr = requests.patch(
+                f"{SUPABASE_URL}/rest/v1/fakt_skift?id=eq.{orig['id']}",
+                headers=SUPABASE_HEADERS,
+                data=json.dumps({'utloggning_tid': ny['utloggning_tid'].isoformat(), 'langd_sek': ny['langd_sek']}),
+                timeout=30)
+            if pr.status_code in (200, 204):
+                n += 1
+                logger.info(
+                    f"  Skiftkapning: {maskin_id} {datum} {orig.get('operator_id')} slutar nu "
+                    f"{ny['utloggning_tid'].strftime('%H:%M:%S')} (var {orig['utloggning_tid'].strftime('%H:%M:%S')}) "
+                    f"— nästa förare loggade in då")
+            else:
+                logger.warning(f"  Skiftkapning: PATCH fakt_skift id={orig['id']} gav {pr.status_code}")
+        except Exception as e:
+            logger.warning(f"  Skiftkapning: PATCH fakt_skift id={orig['id']} misslyckades ({e})")
+    return n
+
+
+# ============================================================
+# FAKT_TID — SAMMANSLAGNING AV SEGMENT ÖVER EXPORTVERSIONER
+# Modulnivå så att omräkningsskriptet (scripts/omrakna_fakt_tid_delat_segment.py)
+# använder EXAKT samma regel som importen — en sanning, aldrig en kopia.
+# ============================================================
+
+TID_FIELDS = ['processing_sek', 'terrain_sek', 'other_work_sek',
+              'maintenance_sek', 'disturbance_sek', 'rast_sek',
+              'avbrott_sek', 'kort_stopp_sek', 'bransle_liter',
+              'engine_time_sek', 'korstracka_m',
+              'terrain_korstracka_m', 'terrain_bransle_liter']
+
+
+def fil_recency(namn_eller_path) -> float:
+    """Exportversionens ålder: maskinens _YYYYMMDDHHMMSS i filnamnet, annars
+    Behandlade-suffixet _YYYYMMDD_HHMMSS (sätts vid namnkrock), annars mtime,
+    annars 0. OBS: suffix och mtime är olika klockor — en suffixlös basfil vars
+    mtime bumpas i efterhand (OneDrive-omsynk) kan tillfälligt rankas före
+    senare suffixade versioner; byten loggas alltid och nästa export rättar."""
+    bas = os.path.basename(namn_eller_path)
+    m14 = re.search(r'_(\d{14})(?=\.|_|$)', bas)
+    if m14:
+        try:
+            return datetime.strptime(m14.group(1), '%Y%m%d%H%M%S').timestamp()
+        except ValueError:
+            pass
+    m = re.findall(r'_(\d{8})_(\d{6})', bas)
+    if m:
+        try:
+            return datetime.strptime(m[-1][0] + m[-1][1], '%Y%m%d%H%M%S').timestamp()
+        except ValueError:
+            pass
+    try:
+        return os.path.getmtime(namn_eller_path)
+    except OSError:
+        return 0.0
+
+
+def tid_vikt(entry: Dict) -> int:
+    """Segmentets hela duration oavsett klass (RUN/DOWN/UNUT) — P+T räcker inte:
+    DOWN-/rast-varianter har P+T = 0."""
+    return sum((entry.get(f) or 0) for f in (
+        'processing_sek', 'terrain_sek', 'other_work_sek',
+        'maintenance_sek', 'disturbance_sek', 'rast_sek', 'avbrott_sek'))
+
+
+def samla_tid_variant(varianter: Dict, ek, entry: Dict, recency: float) -> None:
+    """Samla en variant av segmentet (identitet = (start_time, maskin)). ek är
+    importens 4-tupel (start_time, maskin, objekt, operator)."""
+    ident = (ek[0], ek[1])
+    varianter.setdefault(ident, []).append((tid_vikt(entry), recency, entry, ek[2], ek[3]))
+
+
+def avgor_tid_vinnare(varianter: Dict):
+    """Per identitet (start_time, maskin) över ALLA exportversioner:
+
+      VÄRDE       = varianten med STÖRST vikt (tie → högst recency). Ponsse
+                    exporterar ibland samma starttid med olika durationer; en
+                    senare, kortare variant får inte klubba den mest kompletta
+                    (#40-skyddet, PONS 2026-03-17: fem varianter 4987–13015 s).
+                    UTOM vid DELAT SEGMENT (2026-10-01): de timvisa exporterna
+                    skriver ett pågående segment med full längd, nästa export har
+                    delat det (kortare + nytt segment som börjar inuti spannet).
+                    Då vinner den senare (kortare) — annars räknas överlappet
+                    dubbelt (+6–13 min/dag, 3,7 h Scorpion / 4,2 h Rottne sedan
+                    aug 2026; verifierat 11/11 dagar mot Ponsses Skift-PDF).
+      ATTRIBUTION = versionen med högst recency (tie → störst vikt) äger
+                    (objekt, operator) — senaste exportversionens bokföring gäller.
+
+    Returnerar (merged_entries, merged_attr, delade) där
+    merged_entries[ident] = entry, merged_attr[ident] = (recency, objekt, operator, vikt)."""
+    merged_entries, merged_attr = {}, {}
+    starter_per_maskin: Dict[str, List[datetime]] = {}
+    for (start_str, maskin) in varianter:
+        dt = parse_datetime(start_str)
+        if dt:
+            starter_per_maskin.setdefault(maskin, []).append(dt)
+    delade = 0
+    for ident, lista in varianter.items():
+        start_str, maskin = ident
+        storst = max(lista, key=lambda v: (v[0], v[1]))
+        senaste = max(lista, key=lambda v: (v[1], v[0]))
+        vinnare = storst
+        if senaste is not storst and senaste[0] < storst[0]:
+            t0 = parse_datetime(start_str)
+            if t0 is not None:
+                t1 = t0 + timedelta(seconds=storst[0])
+                if any(t0 < s < t1 for s in starter_per_maskin.get(maskin, [])):
+                    vinnare = senaste
+                    delade += 1
+                    logger.info(f"  Delat segment {start_str} ({maskin}): {storst[0]} s -> {senaste[0]} s "
+                                f"— senare export delade det, kortare varianten vinner")
+        merged_entries[ident] = vinnare[2]
+        attr = senaste
+        andra = {(v[3], v[4]) for v in lista} - {(attr[3], attr[4])}
+        if andra:
+            logger.info(f"  Attribution för segment {start_str} ({maskin}): {sorted(andra)} -> "
+                        f"({attr[3]}, {attr[4]}) — senaste exportversion vinner")
+        merged_attr[ident] = (attr[1], attr[3], attr[4], attr[0])
+    if delade:
+        logger.info(f"  Delade segment: {delade} (kortare senare variant vann)")
+    return merged_entries, merged_attr, delade
+
+
+def bygg_fakt_tid_rader(merged_entries: Dict, merged_attr: Dict, filnamn: str,
+                        dates_by_maskin: Optional[Dict[str, set]] = None) -> List[Dict]:
+    """Aggregera vinnande segment per (datum, maskin, objekt, operator) till
+    fakt_tid-rader — attributionen ur merged_attr, tomgång härledd.
+    dates_by_maskin begränsar till berörda dagar.
+
+    INGEN FALLBACK. P = T = 0 med motortid > 0 är ÄRLIG data: motorn gick
+    utan arbete (lastning på trailer, rast med motorn på). Fallbacken
+    "processing = 88 % av motortiden" (2026-04-07 → 2026-10-01) hittade på
+    15 h arbete på 68 flyttdagar. Saknas mätningen skrivs noll; datahälsan
+    visar dagen under "Motortid utan arbetstid"."""
+    agg = defaultdict(lambda: {**{f: 0 for f in TID_FIELDS}, 'other_work_kategorier': {}})
+    for ident, entry in merged_entries.items():
+        _, maskin = ident
+        _, objekt, operator, _ = merged_attr[ident]
+        datum = str(entry.get('datum') or '')
+        if not datum:
+            continue
+        if dates_by_maskin is not None and datum not in dates_by_maskin.get(maskin, ()):
+            continue
+        dag_key = (datum, maskin, objekt, operator)
+        for f in TID_FIELDS:
+            agg[dag_key][f] += (entry.get(f) or 0)
+        okat = agg[dag_key]['other_work_kategorier']
+        for k, v in (entry.get('other_work_kategorier') or {}).items():
+            okat[k] = okat.get(k, 0) + v
+    rows = []
+    for dag_key, values in agg.items():
+        datum, maskin, objekt, operator = dag_key
+        runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
+        g0 = runtime - values['kort_stopp_sek']
+        tomgang = max(0, values['engine_time_sek'] - g0)
+        rows.append({
+            'datum': datum, 'maskin_id': maskin, 'operator_id': operator, 'objekt_id': objekt,
+            **values, 'tomgang_sek': tomgang, 'filnamn': filnamn,
+        })
+        if runtime == 0 and values['engine_time_sek'] > 0:
+            logger.info(f"  Motortid utan arbetstid: {maskin} {datum} obj={objekt} "
+                        f"(engine={values['engine_time_sek']}s, ingen RUN-kategori — skrivs som noll)")
+    return rows
+
+
+# ─── fakt_avbrott: senaste exportversion vinner per starttid ────────────────
+# SAMMA FAMILJ SOM DELAT SEGMENT (#630): de timvisa exporterna visar ett
+# pågående stopp i olika skepnad i olika filer. Så länge stoppet pågår skriver
+# Ponsse OtherMachineDownTime "Default" (Rottne: "Other") — föraren väljer orsak
+# först när stoppet avslutas, och nästa fil bär samma starttid med slutlig
+# kategori och full längd (eller som rast/arbete, utan avbrottsrad alls).
+# fakt_avbrott:s nyckel (maskin, datum, klockslag, kategori_kod) + ignore-
+# duplicates lät ögonblicksbilden stå kvar bredvid slutversionen: Scorpion 27
+# rader / 18,0 h "Default", Rottne 27 / 11,8 h "Other" sedan aug 2026, varav
+# 3,7 + 4,1 h i själva verket raster (dubbelräknade mot rast_sek).
+# Regeln: per (maskin, datum, klockslag) gäller SENASTE exportversionens
+# kategori; är segmentet inte längre ett avbrott finns ingen rad. Delas med
+# scripts/omrakna_fakt_avbrott_ogonblicksbilder.py — EN implementation.
+
+def avbrott_vinnare_ur_fil(data: Dict) -> Dict:
+    """Slutversionen av varje segment i EN exportfil:
+    {(maskin, 'YYYY-MM-DD', 'HH:MM:SS'): kategori_kod | None}.
+    None = segmentet är arbete eller rast i den här filen → ingen avbrottsrad ska finnas."""
+    vinnare: Dict = {}
+    for ek in (data.get('tid_entries') or {}):
+        if len(ek) != 4:
+            continue
+        dt = parse_datetime(ek[0])
+        if dt is None:
+            continue
+        vinnare[(ek[1], dt.date().isoformat(), dt.strftime('%H:%M:%S'))] = None
+    for a in (data.get('avbrott') or []):
+        if a.get('datum') is None or a.get('klockslag') is None:
+            continue
+        vinnare[(a['maskin_id'], str(a['datum']), str(a['klockslag'])[:8])] = a.get('kategori_kod')
+    return vinnare
+
+
+def avbrott_att_radera(befintliga: List[Dict], vinnare: Dict, fil_rec: Optional[float] = None) -> List[Dict]:
+    """Rader i fakt_avbrott som är ÖGONBLICKSBILDER: samma (maskin, datum, klockslag)
+    som ett segment i vinnare men annan kategori, eller segmentet är inte längre ett
+    avbrott (None). fil_rec: rader ur en NYARE exportversion (rad.filnamn) rörs inte,
+    så en omimport av en gammal fil inte kan klubba slutversionen."""
+    ut = []
+    for r in befintliga:
+        key = (r.get('maskin_id'), str(r.get('datum')), str(r.get('klockslag') or '')[:8])
+        if key not in vinnare:
+            continue
+        slutlig = vinnare[key]
+        if slutlig is not None and slutlig == r.get('kategori_kod'):
+            continue
+        if fil_rec is not None and fil_recency(r.get('filnamn') or '') > fil_rec:
+            continue
+        ut.append(r)
+    return ut
+
+
+def hamta_avbrott_rader(maskin: str, datum_lista: List[str]) -> List[Dict]:
+    """Befintliga fakt_avbrott-rader för en maskin och ett antal datum (chunkat)."""
+    rader: List[Dict] = []
+    datum_lista = sorted({str(d) for d in datum_lista if d})
+    for i in range(0, len(datum_lista), 50):
+        chunk = ','.join(datum_lista[i:i + 50])
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/fakt_avbrott?maskin_id=eq.{maskin}&datum=in.({chunk})"
+            f"&select=id,maskin_id,datum,klockslag,kategori_kod,langd_sek,filnamn&limit=5000",
+            headers=SUPABASE_HEADERS, timeout=60)
+        r.raise_for_status()
+        rader.extend(r.json())
+    return rader
+
+
+def radera_avbrott_rader(rader: List[Dict]) -> int:
+    """DELETE på id, chunkat. Returnerar antal raderade (verifierat: svaret räknas)."""
+    raderade = 0
+    ids = [r['id'] for r in rader if r.get('id') is not None]
+    for i in range(0, len(ids), 100):
+        chunk = ','.join(str(x) for x in ids[i:i + 100])
+        r = requests.delete(f"{SUPABASE_URL}/rest/v1/fakt_avbrott?id=in.({chunk})",
+                            headers={**SUPABASE_HEADERS, 'Prefer': 'return=representation'}, timeout=60)
+        r.raise_for_status()
+        raderade += len(r.json())
+    return raderade
+
 
 def get_file_hash(filepath: str) -> str:
     """Beräkna MD5-hash för fil"""
@@ -1478,57 +1858,13 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     duration_sek += entry.get(f, 0)
                 op_dag_times[(op_id, dt.date())].append((dt, duration_sek))
 
-        # ReportEndTime = rapportens sanna slut = förarens utloggning.
-        # Rottne saknar OperatorShiftDefinition, så syntetiska skift byggs av
-        # WorkTime-slut — vilket missar efterarbete efter sista stocken (körning,
-        # service, tomgång utan bucket). ReportEndTime fyller ut det.
-        # OBS: ReportStartTime används ALDRIG — den är KUMULATIV (arkivets
-        # början, t.ex. 29 juli i en 3-aug-fil), inte dagens start. ReportEndTime
-        # gäller filens SISTA dag; tidigare dagar i en kumulativ fil fick sin
-        # egen ReportEndTime när deras egen fil kom in.
+        # ReportEndTime = rapportens sanna slut = den SISTA förarens utloggning (se bygg_syntetiska_skift).
         report_end_dt = None
         report_interval = find_element(machine, 'ReportInterval', ns)
         if report_interval is not None:
             report_end_dt = parse_datetime(get_text(report_interval, 'ReportEndTime', ns))
 
-        for (op_id, datum), entries in op_dag_times.items():
-            if not entries:
-                continue
-            earliest = min(e[0] for e in entries)
-            # Sluttid = senaste start + dess duration
-            latest_entry = max(entries, key=lambda e: e[0])
-            latest_end = latest_entry[0] + __import__('datetime').timedelta(seconds=latest_entry[1])
-            total_sek = sum(e[1] for e in entries)
-
-            # Fyll ut till förarens sanna utloggning BARA för filens sista dag
-            # (report_end_dt.date() == datum). max()-semantiken: förläng aldrig
-            # bakåt, korta aldrig — bara ut till utloggningen. Saknas
-            # ReportEndTime eller är den <= sista aktiviteten -> oförändrat
-            # (ingen regression). Idempotent: kuvert-merget vid upsert gör
-            # GREATEST(utloggning) och report_end är stabilt per fil, så
-            # omimport av samma fil ger samma resultat.
-            utloggning = latest_end
-            if report_end_dt and report_end_dt.date() == datum and report_end_dt > latest_end:
-                utloggning = report_end_dt
-
-            data['skift'].append({
-                'datum': datum,
-                'maskin_id': maskin_id,
-                'operator_id': op_id,
-                'inloggning_tid': earliest,
-                'maskin_inloggning_tid': maskin_login.get((op_id, datum)),
-                'utloggning_tid': utloggning,
-                'langd_sek': total_sek,
-                'gps_lat': None,
-                'gps_long': None,
-                'logout_lat': None,
-                'logout_lon': None,
-                'filnamn': filnamn,
-                # Rottne saknar ShifKey — deterministisk nyckel per (dag,
-                # operator) så timvisa snapshot-filer upsert:ar samma rad
-                # i stället för att stapla dubbletter
-                'shift_key': f"SYN_{datum}_{op_id}"
-            })
+        data['skift'].extend(bygg_syntetiska_skift(op_dag_times, report_end_dt, maskin_id, filnamn, maskin_login))
 
         if data['skift']:
             logger.info(f"  Syntetiska skift: {len(data['skift'])} (från WorkTime)")
@@ -3405,6 +3741,17 @@ def upsert_arbetsdag(rows: List[Dict]) -> int:
     ifyllnad, inte överskrivning (#312: en dag kan bekräftas innan skiftet
     importerats och då sakna maskin). Oskyddade/nya rader upsert:as fullt ut.
 
+    MASKIN OCH OBJEKT ÄR IFYLLNAD, ALDRIG ERSÄTTNING — på ALLA befintliga rader,
+    skyddade eller inte (Martin 2026-10-02). Joacims 2 okt: skalraden från
+    "Arbete" 07:47 (planering, perioder i extra_tid) var oskyddad och skrevs
+    över helt när Scorpion loggade in 09:52 — dagen fick maskinens objekt och
+    planeringstimmarna såg ut att höra till skördarens trakt. Regeln nu:
+      - maskin_id/objekt_id sätts bara där DB-raden har NULL;
+      - en dag vars perioder (extra_tid) redan bär ett objekt räknas som
+        ifylld — objekt_id lämnas då orörd (perioderna är dagens objekt,
+        maskindelens objekt finns i fakt_tid).
+    Tider (start/slut/rast) på en OSKYDDAD rad fylls fortfarande ur maskinen.
+
     Loggar (INFO) varje gång skyddet hindrar en tid-överskrivning, så att man
     kan se i drift att det verkar — tyst skydd går inte att verifiera.
 
@@ -3433,12 +3780,41 @@ def upsert_arbetsdag(rows: List[Dict]) -> int:
     def _hhmm(v):
         return (v or '')[:5]
 
-    oskyddade = []  # full upsert
+    # Dagar vars perioder (extra_tid) redan bär ett objekt — objekt_id på
+    # arbetsdag-raden lämnas orörd där (ifylld via perioderna).
+    perioder_med_objekt = set()
+    for mid in medarb_ids:
+        pr = requests.get(
+            f"{SUPABASE_URL}/rest/v1/extra_tid?medarbetare_id=eq.{mid}&objekt_id=not.is.null"
+            f"&select=medarbetare_id,datum&limit=5000",
+            headers=SUPABASE_HEADERS, timeout=30)
+        if pr.status_code == 200:
+            for row in pr.json():
+                perioder_med_objekt.add((row['medarbetare_id'], str(row['datum'])))
+
+    def _ifyllnad(key, bef, ny):
+        """maskin_id/objekt_id: behåll DB-värdet om satt; objekt_id aldrig när
+        dagens perioder redan har objekt. Returnerar raden att skriva."""
+        ut = dict(ny)
+        if bef.get('maskin_id'):
+            ut['maskin_id'] = bef['maskin_id']
+        if bef.get('objekt_id'):
+            ut['objekt_id'] = bef['objekt_id']
+        elif key in perioder_med_objekt:
+            ut['objekt_id'] = None
+        for fld in _ARBETSDAG_KOMPLETTFALT:
+            if (ny.get(fld) or None) != (ut.get(fld) or None):
+                logger.info(
+                    f"  Ifyllnad: arbetsdag {key[0]} {key[1]} behåller {fld}="
+                    f"{ut.get(fld)} (maskinen sa {ny.get(fld)}) — maskin/objekt ersätts aldrig")
+        return ut
+
+    oskyddade = []  # full upsert (tider ur maskinen; maskin/objekt bara ifyllnad)
     for key, ny in by_key.items():
         bef = befintliga.get(key)
         skyddad = bool(bef) and (bef.get('redigerad') is True or bef.get('bekraftad') is True)
         if not skyddad:
-            oskyddade.append(ny)
+            oskyddade.append(_ifyllnad(key, bef, ny) if bef else ny)
             continue
 
         # SKYDDAD dag: rör aldrig tider. Logga om en tid SKULLE ha ändrats.
@@ -3457,6 +3833,8 @@ def upsert_arbetsdag(rows: List[Dict]) -> int:
         # Komplettering: fyll BARA fält som är NULL i DB. is.null-guard gör
         # PATCHen idempotent och ofarlig vid samtidig ifyllnad (Vercel 5e).
         for fld in _ARBETSDAG_KOMPLETTFALT:
+            if fld == 'objekt_id' and key in perioder_med_objekt:
+                continue  # perioderna bär dagens objekt — fyll inte maskinens
             if not bef.get(fld) and ny.get(fld):
                 pr = requests.patch(
                     f"{SUPABASE_URL}/rest/v1/arbetsdag?id=eq.{bef['id']}&{fld}=is.null",
@@ -3576,6 +3954,10 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
         # 6. Bygg rast-lookup + objekt-lookup från DB-datat.
         rast_lookup = {}
         objekt_lookup = {}
+        # Förarens EGEN rast = summan över ALLA hans operatör-id (en person kan ha flera, t.ex. Max på A030353).
+        ops_per_forare = defaultdict(set)
+        for _op, _med in op_to_medarb.items():
+            ops_per_forare[_med].add(_op)
         for row in alla_tid:
             op_id = row.get('operator_id')
             datum = str(row.get('datum', ''))
@@ -3652,7 +4034,7 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
             # våren 2026). Det är INTE ett saknat värde: skotarförarna kör i regel
             # hela dagar utan rast (Martin 2026-09-15), så noll är korrekt.
             # Skördarna (Scorpion, Rottne) loggar rasten. Utred inte om igen.
-            rast_sek = rast_lookup.get((agg['op_id'], datum_str), 0)
+            rast_sek = sum(rast_lookup.get((o, datum_str), 0) for o in ops_per_forare[medarb_id])
             rast_min = int(rast_sek / 60)
             objekt_id = objekt_lookup.get((agg['op_id'], datum_str))
 
@@ -3774,6 +4156,12 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 logger.error(
                     f"  SKIFT-DATA FÖRLORAD ({len(data['skift'])} rader ur {skift_fil}): "
                     f"{forlorade} — lönedata saknas tills filen omimporteras!")
+            else:
+                # Syntetiska pass (Rottne) slutar när nästa förare loggar in — i DATABASEN, så att GREATEST-merge ovan
+                # inte lämnar kvar ett för långt slut (R64428 2026-10-07).
+                for maskin_dag in sorted({(r.get('maskin_id'), str(r.get('datum'))) for r in data['skift']
+                                          if arsyntetiskt_skift(r) and r.get('datum')}):
+                    kapa_syntetiska_skift_i_db(*maskin_dag)
 
         # Tid — re-aggregera från ALLA filer i Behandlade/<maskin>/mom/ för
         # berörda (datum, maskin). Segment-IDENTITET är (start_time, maskin);
@@ -3838,59 +4226,31 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 #   ATTRIBUTION = versionen med HÖGST recency (suffix/mtime; tie →
                 #                störst vikt) äger (objekt, operator) — senaste
                 #                exportversionens bokföring gäller (op-flip-fixen).
-                merged_entries = {}   # (start_time, maskin) -> värde-vinnande entry
-                merged_attr = {}      # (start_time, maskin) -> (recency, objekt, operator, vikt)
-                _varde_meta = {}      # (start_time, maskin) -> (vikt, recency) för värde-vinnaren
+                #
+                # DELAT SEGMENT (2026-10-01, Scorpion 22–28 sep mot Ponsses PDF): de
+                # timvisa exporterna skriver ett PÅGÅENDE segment med full längd
+                # (06:25:25 → 14 404 s); nästa export har DELAT det (06:25:25 → 14 055 s
+                # + nytt segment 10:19:40 inuti det gamla spannet). "Störst vikt
+                # vinner" behöll den långa varianten OCH det nya segmentet → överlappet
+                # räknades dubbelt: +6/+13/+12 min per dag, 3,7 h (1 %) på Scorpion och
+                # 4,2 h (1,2 %) på Rottne sedan aug 2026. Skotarna (dagsexport) 0.
+                # Regel: störst vinner — UTOM när en SENARE version är kortare OCH ett
+                # annat segment på samma maskin börjar inom den större variantens
+                # spann: då är segmentet delat och den senare (kortare) vinner.
+                # Avgörs EFTER att alla filer lästs (kräver alla starttider), inte
+                # löpande som förr. "Senaste vinner" rakt av vore enklare men river
+                # #40-skyddet (PONS 2026-03-17: fem varianter utan nytt segment inuti).
+                # Verifierat: 11 av 11 jämförbara dagar på minuten mot Ponsse Skift-
+                # rapporterna (Östra-Hoka 23–28 sep, Akelius 11–13 aug + 1–7 sep).
+                # Regeln bor på modulnivå (fil_recency / samla_tid_variant /
+                # avgor_tid_vinnare / bygg_fakt_tid_rader) — delas med
+                # scripts/omrakna_fakt_tid_delat_segment.py, EN sanning.
+                _varianter = {}       # (start_time, maskin) -> [(vikt, recency, entry, objekt, operator), ...]
                 files_scanned = 0
-
-                def _fil_recency(namn_eller_path):
-                    """Exportversionens ålder: sista _YYYYMMDD_HHMMSS-suffixet i
-                    filnamnet (sätts av vår Behandlade-flytt vid namnkrock, rad
-                    ~3450), annars filens mtime, annars 0. OBS: suffix och mtime
-                    är olika klockor — en suffixlös basfil vars mtime bumpas i
-                    efterhand (t.ex. OneDrive-omsynk) kan tillfälligt rankas
-                    före senare suffixade versioner; byten loggas alltid (INFO)
-                    och nästa nyare export rättar attributionen."""
-                    bas = os.path.basename(namn_eller_path)
-                    # Maskin-genererade filnamn: 14 sammanhängande siffror (_YYYYMMDDHHMMSS)
-                    m14 = re.search(r'_(\d{14})(?=\.|_|$)', bas)
-                    if m14:
-                        try:
-                            return datetime.strptime(m14.group(1), '%Y%m%d%H%M%S').timestamp()
-                        except ValueError:
-                            pass
-                    # Behandlade-suffix: _YYYYMMDD_HHMMSS (sätts vid namnkrock)
-                    m = re.findall(r'_(\d{8})_(\d{6})', bas)
-                    if m:
-                        try:
-                            return datetime.strptime(m[-1][0] + m[-1][1], '%Y%m%d%H%M%S').timestamp()
-                        except ValueError:
-                            pass
-                    try:
-                        return os.path.getmtime(namn_eller_path)
-                    except OSError:
-                        return 0.0
+                _fil_recency = fil_recency
 
                 def _keep(ek, entry, recency):
-                    ident = (ek[0], ek[1])
-                    objekt, operator = ek[2], ek[3]
-                    # vikt = segmentets hela duration oavsett klass (RUN/DOWN/UNUT) —
-                    # P+T räcker inte: DOWN-/rast-varianter har P+T = 0.
-                    vikt = sum((entry.get(f) or 0) for f in (
-                        'processing_sek', 'terrain_sek', 'other_work_sek',
-                        'maintenance_sek', 'disturbance_sek', 'rast_sek', 'avbrott_sek'))
-                    # 1) VÄRDE-vinnaren: störst vikt (tie → högst recency)
-                    v = _varde_meta.get(ident)
-                    if v is None or vikt > v[0] or (vikt == v[0] and recency > v[1]):
-                        merged_entries[ident] = entry
-                        _varde_meta[ident] = (vikt, recency)
-                    # 2) ATTRIBUTIONS-vinnaren: högst recency (tie → störst vikt)
-                    a = merged_attr.get(ident)
-                    if a is None or recency > a[0] or (recency == a[0] and vikt > a[3]):
-                        if a is not None and (a[1], a[2]) != (objekt, operator):
-                            logger.info(f"  Attribution bytt för segment {ek[0]} ({ek[1]}): "
-                                        f"({a[1]}, {a[2]}) -> ({objekt}, {operator}) — senaste exportversion vinner")
-                        merged_attr[ident] = (recency, objekt, operator, vikt)
+                    samla_tid_variant(_varianter, ek, entry, recency)
                 affected_maskins = sorted({m for m, _ in affected})
                 affected_dates_all = sorted({d for _, d in affected})
                 logger.info(f"  Re-aggregerar tid för maskin={affected_maskins} datum={affected_dates_all[0]}->{affected_dates_all[-1]}")
@@ -3948,71 +4308,20 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 for ek, entry in data['tid_entries'].items():
                     if len(ek) == 4:
                         _keep(ek, entry, aktuell_recency)
+                merged_entries, merged_attr, _ = avgor_tid_vinnare(_varianter)
 
                 logger.info(f"  Scannade {files_scanned} filer, {len(merged_entries)} unika entries efter dedup")
-
-                tid_fields = ['processing_sek', 'terrain_sek', 'other_work_sek',
-                              'maintenance_sek', 'disturbance_sek', 'rast_sek',
-                              'avbrott_sek', 'kort_stopp_sek', 'bransle_liter',
-                              'engine_time_sek', 'korstracka_m',
-                              'terrain_korstracka_m', 'terrain_bransle_liter']
 
                 # Steg 4: aggregera per (datum, maskin, objekt, operator) för ALLA
                 # segment på berörda (maskin, datum) — attributionen kommer från
                 # den vinnande (senaste) exportversionen. Dagen byggs om komplett;
                 # äkta fleroperatörs-/flerobjektsdagar behåller sin uppdelning
                 # eftersom olika segment (olika start_time) behåller var sin
-                # attribution.
+                # attribution. Aggregering + 88 %-fallback bor i bygg_fakt_tid_rader
+                # (modulnivå — delas med omräkningsskriptet).
                 dates_by_maskin = {m: {d for m2, d in affected if m2 == m}
                                    for m in affected_maskins}
-                agg = defaultdict(lambda: {**{f: 0 for f in tid_fields},
-                                           'other_work_kategorier': {}})
-                for ident, entry in merged_entries.items():
-                    _, maskin = ident
-                    _, objekt, operator, _ = merged_attr[ident]
-                    datum = str(entry.get('datum') or '')
-                    if not datum or datum not in dates_by_maskin.get(maskin, ()):
-                        continue
-                    dag_key = (datum, maskin, objekt, operator)
-                    for f in tid_fields:
-                        agg[dag_key][f] += (entry.get(f) or 0)
-                    # other_work_kategorier mergas (ej summeras som skalär) —
-                    # {kategori: sekunder} följer med **values till upserten.
-                    okat = agg[dag_key]['other_work_kategorier']
-                    for k, v in (entry.get('other_work_kategorier') or {}).items():
-                        okat[k] = okat.get(k, 0) + v
-
-                for dag_key, values in agg.items():
-                    datum, maskin, objekt, operator = dag_key
-                    runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
-                    g0 = runtime - values['kort_stopp_sek']
-                    tomgang = max(0, values['engine_time_sek'] - g0)
-                    rows.append({
-                        'datum': datum,
-                        'maskin_id': maskin,
-                        'operator_id': operator,
-                        'objekt_id': objekt,
-                        **values,
-                        'tomgang_sek': tomgang,
-                        'filnamn': data.get('filnamn', ''),
-                    })
-
-            # Fallback: om WorkCategory saknas i MOM-filen → processing_sek = 0 och terrain_sek = 0
-            # men engine_time_sek > 0. Sätt processing_sek = 88% av engine_time_sek som uppskattning.
-            for row in rows:
-                if row.get('processing_sek', 0) == 0 and row.get('terrain_sek', 0) == 0 and row.get('engine_time_sek', 0) > 0:
-                    fallback_sek = int(row['engine_time_sek'] * 0.88)
-                    row['processing_sek'] = fallback_sek
-                    # Håll raden konsistent: tomgang_sek beräknades i Steg 4 med
-                    # proc = 0 (≈ hela motortiden blev tomgång) — räkna om med
-                    # fallback-procen. Fallbacken påstår 88 % arbete ⇒ tomgången
-                    # är resterande ~12 % + ev. kort_stopp. Utan detta bokförs
-                    # motortiden DUBBELT i raden (som proc OCH tomgång) — bevisat
-                    # 41 rader / +7,3 h fejk-tomgång 2026-07-10.
-                    g0_fb = (fallback_sek + row.get('terrain_sek', 0)
-                             + row.get('other_work_sek', 0) - row.get('kort_stopp_sek', 0))
-                    row['tomgang_sek'] = max(0, row['engine_time_sek'] - g0_fb)
-                    logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s, tomgang={row['tomgang_sek']}s)")
+                rows = bygg_fakt_tid_rader(merged_entries, merged_attr, data.get('filnamn', ''), dates_by_maskin)
 
             if rows:
                 # DAG-REBUILD: raderna är en KOMPLETT omaggregering av berörda
@@ -4058,6 +4367,26 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     deduped.append(a)
             if len(deduped) < len(data['avbrott']):
                 logger.info(f"  Avbrott dedup: {len(data['avbrott'])} → {len(deduped)} (tog bort {len(data['avbrott']) - len(deduped)} dubletter i batch)")
+            # Senaste exportversion vinner per starttid (se avbrott_vinnare_ur_fil):
+            # ögonblicksbilder av pågående stopp ("Default"/"Other") raderas när
+            # den här filen bär segmentets slutliga kategori — eller när segmentet
+            # inte längre är ett avbrott (rast, arbete). Nyare rader rörs inte.
+            try:
+                vinnare = avbrott_vinnare_ur_fil(data)
+                per_maskin: Dict[str, set] = {}
+                for (m, d, _k) in vinnare:
+                    per_maskin.setdefault(m, set()).add(d)
+                att_radera: List[Dict] = []
+                for m, dagar in per_maskin.items():
+                    att_radera.extend(avbrott_att_radera(
+                        hamta_avbrott_rader(m, sorted(dagar)), vinnare, fil_recency(data.get('filnamn', ''))))
+                if att_radera:
+                    n = radera_avbrott_rader(att_radera)
+                    exempel = ', '.join(f"{r['datum']} {str(r['klockslag'])[:5]} {r.get('kategori_kod')}" for r in att_radera[:5])
+                    logger.info(f"  Avbrott: {n} ögonblicksbild(er) raderade — senaste exportversion vinner "
+                                f"({exempel}{' …' if len(att_radera) > 5 else ''})")
+            except Exception as e:  # noqa: BLE001 — radering är städning; insert nedan ska ändå ske
+                logger.warning(f"  Kunde inte städa avbrotts-ögonblicksbilder: {e}")
             if upsert_data('fakt_avbrott', deduped,
                            ['maskin_id', 'datum', 'klockslag', 'kategori_kod'],
                            on_conflict='ignore') == 0:
@@ -4436,6 +4765,339 @@ def rebuild_fakt_sortiment(maskin_id: str, objekt_id: str) -> Optional[Dict]:
         return None
 
 
+def auto_status_pagaende(data: Dict) -> None:
+    """Prod-fil (HPR/FPR) in → objekt med status 'planerad' som filen rör flippas till 'pagaende'
+    (+ pagaende_startad_timestamp=now) och filens maskins rad tas bort ur maskin_ko (kön matas av).
+    ALDRIG avslutade/pågående. Objekt i ANDRA maskiners köer lämnas kvar. Styrs av AUTO_STATUS_LAGE
+    ('logga' default = logga bara, 'skriv' = gör det). Egna fel får aldrig fälla importen."""
+    try:
+        maskin_id = (data.get('maskin') or {}).get('maskin_id')
+        objekt_rader = data.get('objekt') or []
+        filnamn = data.get('filnamn') or '?'
+        if not maskin_id or not objekt_rader:
+            return
+        import urllib.parse
+        from datetime import datetime, timezone
+        tagg = '' if AUTO_STATUS_LAGE == 'skriv' else '[logga] '
+        sedda = set()
+        for o in objekt_rader:
+            oid = o.get('objekt_id'); vo = o.get('vo_nummer')
+            if not oid or oid in sedda:
+                continue
+            sedda.add(oid)
+            # Operativa objekt-raden: vo_nummer ELLER dim_objekt_id == importens objekt_id (46 via vo, 3 via dim).
+            ors = [f'dim_objekt_id.eq.{oid}']
+            if vo:
+                ors.insert(0, f'vo_nummer.eq.{vo}')
+            try:
+                resp = requests.get(f"{SUPABASE_URL}/rest/v1/objekt",
+                                    params={'select': 'id,namn,status', 'or': f"({','.join(ors)})"},
+                                    headers=SUPABASE_HEADERS, timeout=30)
+                rader = resp.json() if resp.status_code == 200 else []
+            except Exception as e:
+                logger.warning(f"  Auto-status: kunde inte läsa objekt {oid} ({e})")
+                continue
+            for rad in rader:
+                namn = rad.get('namn') or oid
+                if rad.get('status') == 'avslutat':
+                    # Avslutat objekt får ny produktion → bara en varning. Status ändras ALDRIG
+                    # automatiskt tillbaka; det är en människas beslut.
+                    logger.warning(f"Produktion på avslutat objekt: {namn} (ur {filnamn}) — status oförändrad")
+                    continue
+                if rad.get('status') != 'planerad':
+                    continue  # bara planerad→pagaende; aldrig pågående
+                logger.info(f"Auto-status {tagg}skulle satt {namn} planerad→pagaende ur {filnamn}"
+                            if AUTO_STATUS_LAGE != 'skriv'
+                            else f"Auto-status satte {namn} planerad→pagaende ur {filnamn}")
+                if AUTO_STATUS_LAGE == 'skriv':
+                    try:
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/objekt?id=eq.{rad['id']}",
+                                       headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+                                       json={'status': 'pagaende', 'pagaende_startad_timestamp': datetime.now(timezone.utc).isoformat()},
+                                       timeout=10)
+                    except Exception as e:
+                        logger.warning(f"  Auto-status: PATCH status {namn} misslyckades ({e})")
+                # Mata av kön: ta bort filens maskins rad för objektet (lämna andra maskiners köer).
+                try:
+                    kq = requests.get(f"{SUPABASE_URL}/rest/v1/maskin_ko",
+                                      params={'select': 'id', 'objekt_id': f'eq.{rad["id"]}', 'maskin_id': f'eq.{maskin_id}'},
+                                      headers=SUPABASE_HEADERS, timeout=30)
+                    korader = kq.json() if kq.status_code == 200 else []
+                except Exception:
+                    korader = []
+                if korader:
+                    logger.info(f"Auto-status {tagg}skulle tagit {namn} ur kön för {maskin_id}"
+                                if AUTO_STATUS_LAGE != 'skriv'
+                                else f"Auto-status tog {namn} ur kön för {maskin_id}")
+                    if AUTO_STATUS_LAGE == 'skriv':
+                        try:
+                            requests.delete(f"{SUPABASE_URL}/rest/v1/maskin_ko?objekt_id=eq.{rad['id']}&maskin_id=eq.{maskin_id}",
+                                            headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, timeout=10)
+                        except Exception as e:
+                            logger.warning(f"  Auto-status: DELETE kö {namn} misslyckades ({e})")
+    except Exception as e:
+        logger.warning(f"  Auto-status: oväntat fel ({e})")
+
+
+# ── AUTO-AVSLUT (filerna vet) ──────────────────────────────────────────────────────────────────
+def _rest_get(table: str, params: Dict) -> list:
+    """GET mot PostgREST, tom lista vid fel. SUPABASE_HEADERS måste vara satta (init_supabase)."""
+    try:
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", params=params, headers=SUPABASE_HEADERS, timeout=30)
+        return r.json() if r.status_code == 200 else []
+    except Exception:
+        return []
+
+
+def _resolve_egen_skotning(rad, matt: float) -> float:
+    """Spegling av lib/skotat.resolveSkotareVolym: EGEN skotad volym (m³fub). OMLASTNING räknas ALDRIG.
+    Ingen rad → egen = mätt (ren lass-maskin)."""
+    if not rad:
+        return max(0.0, float(matt or 0))
+    egen = rad.get('volym_egen_skotning')
+    if egen is not None:
+        return float(egen)
+    if rad.get('ar_omlastning') is True:
+        return 0.0
+    legacy = rad.get('volym_m3')
+    if legacy is not None:
+        return float(legacy)
+    oml = rad.get('volym_omlastning') or 0
+    return max(0.0, float(matt or 0) - float(oml))
+
+
+def utvardera_avslut(oid, vo) -> Dict:
+    """REN utvärdering (bara läsningar) av auto-avslut-regeln för ETT objekt (importens objekt_id = oid).
+    Delad av auto_avslut (importen) och scripts/auto-avslut-dry-run.py. Skriver inget.
+      skordning_avslutad = skördarens sista hpr-datum NÄR samma skördare producerat på annat objekt efter.
+      skotning_avslutad  = skotarens sista fpr-datum NÄR skotaren flyttat OCH backen (lib/skotat: utan
+                           omlastning, klamp ≥0) < 15 m³fub. skotat=0 → ALDRIG. Egen skotning = skördning."""
+    dim = _rest_get('dim_objekt', {'select': 'skordning_avslutad,skotning_avslutad,egen_skotning,object_name', 'objekt_id': f'eq.{oid}'})
+    d = dim[0] if dim else {}
+    bef_skord = d.get('skordning_avslutad'); bef_skot = d.get('skotning_avslutad')
+    egen = d.get('egen_skotning') is True; namn = d.get('object_name') or str(oid)
+
+    prod = _rest_get('vy_uppf_prod_per_objekt', {'select': 'volym_m3sub', 'objekt_id': f'eq.{oid}'})
+    skordat = float(prod[0]['volym_m3sub']) if prod and prod[0].get('volym_m3sub') is not None else 0.0
+
+    obj_niv = _rest_get('skotare_objekt_manuell', {'select': 'volym_egen_skotning,volym_m3,ar_omlastning,volym_omlastning', 'objekt_id': f'eq.{oid}', 'maskin_id': 'is.null'})
+    if obj_niv:
+        skotat = _resolve_egen_skotning(obj_niv[0], 0.0)
+    else:
+        matt: Dict[str, float] = {}
+        for r in _rest_get('fakt_lass', {'select': 'maskin_id,volym_m3sub', 'objekt_id': f'eq.{oid}'}):
+            m = r.get('maskin_id')
+            if m:
+                matt[m] = matt.get(m, 0.0) + float(r.get('volym_m3sub') or 0)
+        man: Dict[str, Dict] = {}
+        for r in _rest_get('skotare_objekt_manuell', {'select': 'maskin_id,volym_egen_skotning,volym_m3,ar_omlastning,volym_omlastning', 'objekt_id': f'eq.{oid}', 'maskin_id': 'not.is.null'}):
+            if r.get('maskin_id'):
+                man[r['maskin_id']] = r
+        skotat = sum(_resolve_egen_skotning(man.get(m), matt.get(m, 0.0)) for m in (set(matt) | set(man)))
+    backen = max(0.0, skordat - skotat)
+
+    def _nu_pa(objekt_id):
+        nd = _rest_get('dim_objekt', {'select': 'object_name', 'objekt_id': f'eq.{objekt_id}'})
+        return (nd[0].get('object_name') if nd else None) or objekt_id
+
+    # Skördning: sista hpr + skördaren har flyttat till annat objekt efter (ingen volymtröskel)
+    skord_rule = None; skord_nu_pa = None
+    sh = _rest_get('fakt_sortiment', {'select': 'maskin_id,datum', 'objekt_id': f'eq.{oid}', 'order': 'datum.desc', 'limit': '1'})
+    if sh and sh[0].get('maskin_id') and sh[0].get('datum'):
+        flytt = _rest_get('fakt_sortiment', {'select': 'objekt_id,datum', 'maskin_id': f"eq.{sh[0]['maskin_id']}", 'objekt_id': f'neq.{oid}', 'datum': f"gt.{sh[0]['datum']}", 'order': 'datum.desc', 'limit': '1'})
+        if flytt:
+            skord_rule = sh[0]['datum']; skord_nu_pa = _nu_pa(flytt[0].get('objekt_id'))
+    final_skord = bef_skord or skord_rule
+
+    # Skotning
+    skot_rule = None; skot_nu_pa = None
+    if egen:
+        skot_rule = final_skord  # egen skotning = skördning
+    else:
+        sf = _rest_get('fakt_lass', {'select': 'maskin_id,datum', 'objekt_id': f'eq.{oid}', 'order': 'datum.desc', 'limit': '1'})
+        if sf and skotat > 0 and sf[0].get('maskin_id') and sf[0].get('datum'):  # skotat=0 → sätts aldrig
+            flytt2 = _rest_get('fakt_lass', {'select': 'objekt_id,datum', 'maskin_id': f"eq.{sf[0]['maskin_id']}", 'objekt_id': f'neq.{oid}', 'datum': f"gt.{sf[0]['datum']}", 'order': 'datum.desc', 'limit': '1'})
+            if flytt2 and backen < 15:
+                skot_rule = sf[0]['datum']; skot_nu_pa = _nu_pa(flytt2[0].get('objekt_id'))
+    final_skot = bef_skot or skot_rule
+
+    return {'oid': oid, 'vo': vo, 'namn': namn, 'egen': egen, 'bef_skord': bef_skord, 'bef_skot': bef_skot,
+            'skord_rule': skord_rule, 'skot_rule': skot_rule, 'skord_nu_pa': skord_nu_pa, 'skot_nu_pa': skot_nu_pa,
+            'skordat': skordat, 'skotat': skotat, 'backen': backen,
+            'satter_skord': bool(skord_rule) and not bef_skord,
+            'satter_skot': bool(skot_rule) and not bef_skot,
+            'blir_avslutat': bool(final_skord) and bool(final_skot)}
+
+
+def _avsluta_objekt_rest(oid, vo, namn, tagg):
+    """Samma avslut som lib/avslutaObjekt: status='avslutat' + avslutad_timestamp och UR ALLA maskin_ko.
+    Loggar/skriver bara om något faktiskt är kvar att avsluta (redan avslutat → tyst)."""
+    from datetime import datetime, timezone
+    ors = [f'dim_objekt_id.eq.{oid}']
+    if vo:
+        ors.insert(0, f'vo_nummer.eq.{vo}')
+    rader = _rest_get('objekt', {'select': 'id,status', 'or': f"({','.join(ors)})"})
+    ej = [r for r in rader if r.get('status') != 'avslutat']
+    if not ej:
+        return
+    logger.info(f"Auto-avslut {tagg}{namn} avslutat (båda flaggor)")
+    if AUTO_AVSLUT_LAGE == 'skriv':
+        try:
+            for r in ej:
+                requests.patch(f"{SUPABASE_URL}/rest/v1/objekt?id=eq.{r['id']}",
+                               headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+                               json={'status': 'avslutat', 'avslutad_timestamp': datetime.now(timezone.utc).isoformat()}, timeout=10)
+            for r in rader:
+                if r.get('id'):
+                    requests.delete(f"{SUPABASE_URL}/rest/v1/maskin_ko?objekt_id=eq.{r['id']}",
+                                    headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, timeout=10)
+        except Exception as e:
+            logger.warning(f"  Auto-avslut: avslut {namn} misslyckades ({e})")
+
+
+_PER_MASKIN_NYCKEL_RE = re.compile(r'^[A-Za-z0-9]+_\d+$')
+
+
+def ar_per_maskin_nyckel(oid) -> bool:
+    """objekt_id på formen <maskin_id>_<n> (t.ex. A030353_135, PONS20SDJAA270231_101) = make_objekt_id när filen
+    saknar numeriskt kontraktsnr. Nyckeln är PER MASKIN: skördarens och skotarens rader för samma jobb får olika
+    objekt_id och är inte kopplade → skördat/skotat/backen kan inte jämföras (backen blir 0 → skotning kunde
+    flaggas för tidigt). Auto-avslut rör dem därför ALDRIG, oavsett bolag. Äkta kontraktsnr/VO-nummer är bara
+    siffror (inget understreck) → ett riktigt, kopplat kundjobb matchar aldrig. Mätt 2026-10-02: alla 34
+    understreck-id i dim_objekt matchar och har en riktig maskin som prefix; inga andra id-former finns."""
+    return bool(oid) and _PER_MASKIN_NYCKEL_RE.match(str(oid)) is not None
+
+
+def _bolag_satt(oid, vo) -> bool:
+    """Objektet har bolag SATT (tomt/blankt = ej satt). Samma signal som /oversikt-v2:s nästa-förslag
+    (`!o.bolag` → aldrig kandidat). Källor: dim_objekt.bolag (täcker även objekt UTAN planerings-rad — 85 av
+    139 objekt med produktion saknar objekt-rad) ELLER objekt.bolag (via vo_nummer/dim_objekt_id). Mätt
+    2026-10-02: tabellerna divergerar aldrig där båda har rad. OBS tom STRÄNG räknas som tomt (7 dim-rader
+    har bolag='' — ett rent IS NOT NULL släpper igenom dem)."""
+    def _satt(v):
+        return v is not None and str(v).strip() != ''
+    d = _rest_get('dim_objekt', {'select': 'bolag', 'objekt_id': f'eq.{oid}'})
+    if d and _satt(d[0].get('bolag')):
+        return True
+    ors = [f'dim_objekt_id.eq.{oid}']
+    if vo:
+        ors.insert(0, f'vo_nummer.eq.{vo}')
+    return any(_satt(r.get('bolag')) for r in _rest_get('objekt', {'select': 'bolag', 'or': f"({','.join(ors)})"}))
+
+
+def ar_kundjobb(oid, vo) -> bool:
+    """SKRÄPFILTER: bara 'riktiga kundjobb' auto-flaggas = objekt_id är INTE en per-maskin-nyckel
+    (<maskin_id>_<n>, oavsett bolag — se ar_per_maskin_nyckel) OCH objektet har bolag satt (_bolag_satt)."""
+    if ar_per_maskin_nyckel(oid):
+        return False  # billigast först — ingen DB-läsning
+    return _bolag_satt(oid, vo)
+
+
+def auto_avslut(data: Dict) -> None:
+    """Prod-fil in → sätt skordning/skotning_avslutad när maskinen flyttat vidare (filerna vet) och
+    avsluta när båda är satta. SKRÄPFILTER (ar_kundjobb): bolag satt OCH inte en per-maskin-nyckel
+    (<maskin_id>_<n>). En människas satta flaggor rörs ALDRIG. Styrs av AUTO_AVSLUT_LAGE. Egna fel får
+    aldrig fälla importen."""
+    try:
+        import urllib.parse
+        tagg = '' if AUTO_AVSLUT_LAGE == 'skriv' else '[logga] '
+        sedda = set()
+        for o in (data.get('objekt') or []):
+            oid = o.get('objekt_id'); vo = o.get('vo_nummer')
+            if not oid or oid in sedda:
+                continue
+            sedda.add(oid)
+            if not ar_kundjobb(oid, vo):  # bolag tomt (flytt/service/bärgning/egen skog) ELLER per-maskin-nyckel → aldrig
+                continue
+            r = utvardera_avslut(oid, vo)
+            enc = urllib.parse.quote(str(oid))
+            if r['satter_skord']:
+                logger.info((f"Auto-avslut {tagg}skulle satt" if AUTO_AVSLUT_LAGE != 'skriv' else "Auto-avslut satte")
+                            + f" skordning_avslutad {r['skord_rule']} på {r['namn']} (skördaren nu på {r['skord_nu_pa']})")
+                if AUTO_AVSLUT_LAGE == 'skriv':
+                    try:
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/dim_objekt?objekt_id=eq.{enc}&skordning_avslutad=is.null",
+                                       headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, json={'skordning_avslutad': r['skord_rule']}, timeout=10)
+                    except Exception as e:
+                        logger.warning(f"  Auto-avslut: PATCH skordning {r['namn']} misslyckades ({e})")
+            if r['satter_skot']:
+                logger.info((f"Auto-avslut {tagg}skulle satt" if AUTO_AVSLUT_LAGE != 'skriv' else "Auto-avslut satte")
+                            + f" skotning_avslutad {r['skot_rule']} på {r['namn']} (backen {r['backen']:.0f} m³)")
+                if AUTO_AVSLUT_LAGE == 'skriv':
+                    try:
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/dim_objekt?objekt_id=eq.{enc}&skotning_avslutad=is.null",
+                                       headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'}, json={'skotning_avslutad': r['skot_rule']}, timeout=10)
+                    except Exception as e:
+                        logger.warning(f"  Auto-avslut: PATCH skotning {r['namn']} misslyckades ({e})")
+            if r['blir_avslutat']:
+                _avsluta_objekt_rest(oid, vo, r['namn'], tagg)
+    except Exception as e:
+        logger.warning(f"  Auto-avslut: oväntat fel ({e})")
+
+
+def har_namn(sortiment: Dict) -> bool:
+    """Har sortimentet ett RIKTIGT namn? Tom sträng och bara blanksteg räknas som tomt."""
+    return bool((sortiment.get('namn') or '').strip())
+
+
+def hamta_befintliga_sortiment_id(ids: List[str]) -> Optional[set]:
+    """sortiment_id som redan finns i dim_sortiment. None om det inte gick att läsa —
+    anroparen ska då anta att allt kan finnas (fail-safe: rör inga namn)."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return set()
+    try:
+        id_list = ','.join(f'"{i}"' for i in ids)
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_sortiment",
+            params={'sortiment_id': f'in.({id_list})', 'select': 'sortiment_id'},
+            headers=SUPABASE_HEADERS, timeout=30)
+        if resp.status_code != 200:
+            return None
+        return {r['sortiment_id'] for r in resp.json()}
+    except Exception:
+        return None
+
+
+def sortiment_utan_namn_for_skrivning(rader: List[Dict], befintliga: Optional[set]) -> List[Dict]:
+    """Raderna som får skrivas för sortiment UTAN namn i filen.
+
+    Bakgrund: dim_sortiment upsertas med merge på sortiment_id, och en rad med
+    nyckeln namn='' skriver över ett befintligt namn med tom sträng. Så blev elva
+    sortiment tomma (grupp NULL → massaved syntes inte, #668). Regel: ett tomt
+    namn skrivs ALDRIG över ett befintligt.
+
+      * sortimentet finns redan -> raden skickas UTAN nyckeln namn: övriga fält
+        (produktgrupp, kundkod ...) kan fortfarande fyllas, namnet rörs inte;
+      * sortimentet är nytt     -> raden skickas som förut (namn ''), den kan inte
+        skriva över något;
+      * befintliga är None (kunde inte läsa) -> som 'finns redan': hellre ett
+        nytt sortiment utan namnkolumn än ett blankat namn.
+    """
+    ut = []
+    for r in rader:
+        if har_namn(r):
+            ut.append(r)
+        elif befintliga is not None and r.get('sortiment_id') not in befintliga:
+            ut.append(r)
+        else:
+            ut.append({k: v for k, v in r.items() if k != 'namn'})
+    return ut
+
+
+def skriv_sortiment_utan_namn(rader: List[Dict]) -> int:
+    """Skriv sortiment utan namn: lägg till det som saknas, rör aldrig befintliga namn."""
+    if not rader:
+        return 0
+    befintliga = hamta_befintliga_sortiment_id([r.get('sortiment_id') for r in rader])
+    if befintliga is None:
+        logger.warning("  dim_sortiment: kunde inte läsa befintliga sortiment — namnlösa rader "
+                       "skrivs utan namnkolumn (inga befintliga namn rörs)")
+    return upsert_nyckelgrupperat('dim_sortiment',
+                                  sortiment_utan_namn_for_skrivning(rader, befintliga),
+                                  ['sortiment_id'])
+
+
 def save_hpr_to_supabase(data: Dict) -> bool:
     """Spara HPR-data till Supabase"""
     try:
@@ -4454,14 +5116,15 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 
         if data.get('sortiment'):
             # Filtrera bort sortiment utan namn - behåll FPR-importerade namn
-            sortiment_med_namn = [s for s in data['sortiment'] if s.get('namn')]
-            sortiment_utan_namn = [s for s in data['sortiment'] if not s.get('namn')]
+            sortiment_med_namn = [s for s in data['sortiment'] if har_namn(s)]
+            sortiment_utan_namn = [s for s in data['sortiment'] if not har_namn(s)]
             if sortiment_med_namn:
                 if upsert_nyckelgrupperat('dim_sortiment', sortiment_med_namn, ['sortiment_id']) == 0:
                     fel.append('dim_sortiment')
             if sortiment_utan_namn:
-                # Bara insert om sortiment saknas, skriv inte över befintliga namn
-                upsert_nyckelgrupperat('dim_sortiment', sortiment_utan_namn, ['sortiment_id'])
+                # Bara insert om sortiment saknas, skriv ALDRIG över befintliga namn
+                # med tom sträng (tidigare skickades namn='' och merge blankade dem).
+                skriv_sortiment_utan_namn(sortiment_utan_namn)
 
         # Pris-matris från ProductMatrixItem (en rad per lower-threshold-kombination)
         if data.get('sortiment_pris'):
@@ -4482,10 +5145,25 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 
         # Stammar (batcha, ej kritiskt att stoppa vid fel)
         if data.get('stammar'):
-            # Filtrera bort hpr_*-fält som inte finns i detalj_stam
-            hpr_keys = {'hpr_stam_nummer', 'hpr_tradslag_namn', 'hpr_antal_stockar',
-                        'hpr_total_volym', 'hpr_bio_energy_adaption', 'hpr_sortiment'}
-            clean_stammar = [{k: v for k, v in s.items() if k not in hpr_keys} for s in data['stammar']]
+            # Kartans produktionshögar läser detalj_stam (okapad) i st.f. hpr_stammar
+            # (som kapas per fil). Mappa därför de tre HPR-aggregaten till detalj_stam-
+            # kolumner: hpr_total_volym→total_volym, hpr_sortiment→sortiment,
+            # hpr_bio_energy_adaption→bio_energy_adaption. Se migration
+            # 20260930_detalj_stam_karthogar.sql. Övriga hpr_*-fält finns inte i
+            # detalj_stam och tas bort. MOM-batchar saknar dessa nycklar helt, så
+            # deras payload rör aldrig kolumnerna (befintlig HPR-volym skrivs ej över).
+            drop_keys = {'hpr_stam_nummer', 'hpr_tradslag_namn', 'hpr_antal_stockar'}
+            rename_keys = {'hpr_total_volym': 'total_volym',
+                           'hpr_bio_energy_adaption': 'bio_energy_adaption',
+                           'hpr_sortiment': 'sortiment'}
+            clean_stammar = []
+            for s in data['stammar']:
+                row = {}
+                for k, v in s.items():
+                    if k in drop_keys:
+                        continue
+                    row[rename_keys.get(k, k)] = v
+                clean_stammar.append(row)
             batch_size = 500
             for i in range(0, len(clean_stammar), batch_size):
                 batch = clean_stammar[i:i+batch_size]
@@ -4559,6 +5237,8 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             logger.error(f"  ✗ Misslyckades spara till: {', '.join(fel)}")
             return False
 
+        auto_status_pagaende(data)  # planerad→pagaende + mata av kön (AUTO_STATUS_LAGE)
+        auto_avslut(data)           # sätt avslut-flaggor när maskinen flyttat + avsluta (AUTO_AVSLUT_LAGE)
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av HPR: {e}")
@@ -4725,7 +5405,7 @@ def save_fpr_to_supabase(data: Dict) -> bool:
                 fel.append('dim_destination')
 
         if data.get('sortiment'):
-            sortiment_med_namn = [s for s in data['sortiment'] if s.get('namn')]
+            sortiment_med_namn = [s for s in data['sortiment'] if har_namn(s)]
             if sortiment_med_namn:
                 upsert_nyckelgrupperat('dim_sortiment', sortiment_med_namn, ['sortiment_id'])
 
@@ -4773,6 +5453,8 @@ def save_fpr_to_supabase(data: Dict) -> bool:
             logger.error(f"  ✗ Misslyckades spara till: {', '.join(fel)}")
             return False
 
+        auto_status_pagaende(data)  # planerad→pagaende + mata av kön (AUTO_STATUS_LAGE)
+        auto_avslut(data)           # sätt avslut-flaggor när maskinen flyttat + avsluta (AUTO_AVSLUT_LAGE)
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av FPR: {e}")

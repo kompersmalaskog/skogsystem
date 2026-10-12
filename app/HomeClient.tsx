@@ -16,7 +16,6 @@ function getDatum() {
 const productionApps = [
   { href: '/uppfoljning',   label: 'Uppföljning', icon: 'monitoring'         },
   { href: '/uppfoljning/fordelning', label: 'Aptering', icon: 'content_cut'  },
-  { href: '/rotkap',        label: 'Rotkap',      icon: 'carpenter'           },
   { href: '/maskinvy',      label: 'Maskinvy',    icon: 'visibility'          },
   { href: '/maskinvy?ny=1', label: 'Maskinvy 2',  icon: 'new_releases'        },
   { href: '/starta-jobb',   label: 'Starta jobb', icon: 'power_settings_new'  },
@@ -29,6 +28,10 @@ const productionApps = [
 const adminApps = [
   { href: '/egenkontroll', label: 'Egenkontroll', icon: 'fact_check' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: 'description' },
+  // Planera = egen vy, trakten först (tid på en trakt utan att gå via dagen).
+  // Samma tabeller, kalender och lön som Arbetsrapport. Synlig för alla — ett
+  // sätt in, inte en roll. (Planering längre ned = traktplaneringen med karta.)
+  { href: '/planera', label: 'Planera', icon: 'edit_calendar' },
   { href: '/planering', label: 'Planering', icon: 'event_note' },
   { href: '/objekt', label: 'Objekt', icon: 'layers' },
   { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
@@ -39,7 +42,7 @@ const adminApps = [
   { href: '/helikopter', label: 'Helikopter', icon: 'flight' },
   { href: '/helikopter-v2', label: 'Helikopter v2', icon: 'helicopter' },
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
-  { href: '/fordonsoversikt', label: 'Fordon', icon: 'local_shipping' },
+  { href: '/kontroller', label: 'Kontroller', icon: 'fact_check' },
   { href: '/maskinflytt', label: 'Maskinflytt', icon: 'delivery_truck_speed' },
   { href: '/maskinflytt/sammanstallning', label: 'Flyttlogg', icon: 'list_alt' },
   { href: '/lastbil', label: 'Lastbilen', icon: 'pin_drop' },
@@ -159,7 +162,7 @@ export default function HomeClient() {
       .catch(() => setVantandeEgenkontroll(null))
   }, [])
 
-  const synligaAdminApps = (roll === 'chef' || roll === 'admin')
+  const synligaAdminApps = (roll === 'admin')
     ? [...adminApps, markagarrapportEntry, ekonomiAppEntry, adminAppEntry]
     : adminApps
 

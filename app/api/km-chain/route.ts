@@ -6,7 +6,7 @@ import { målMedarbetareId } from "@/lib/auth/server";
 
 /**
  * GET /api/km-chain?medarbetare_id=&datum=YYYY-MM-DD
- * medarbetare_id härleds ur sessionen (admin/chef får peka på annan).
+ * medarbetare_id härleds ur sessionen (admin får peka på annan).
  *
  * Bygger körkedjan för en specifik dag: [hem, obj1, obj2, ..., objN, hem].
  * Samlar alla arbetsdag-rader för dagen (sorterat på start_tid ASC) och

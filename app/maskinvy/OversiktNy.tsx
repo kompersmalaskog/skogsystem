@@ -1,4 +1,5 @@
 'use client'
+import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useState } from 'react'
 import {
@@ -66,7 +67,7 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
 
   return (
     <div style={{
-      position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
+      position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
       overflow: 'auto', background: C.bg, color: C.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
       // Lyft z-index när djupvy är öppen — annars hamnar djupvyns z-index:200

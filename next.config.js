@@ -67,6 +67,21 @@ const nextConfig = {
       },
     ];
   },
+  // Affärsuppföljningen är en helhet med tre flikar (Översikt, Räkna, Kvalitet). Massaved och rotkap bor nu under den: listan blev
+  // fliken Kvalitet, ett objekt är EN skärm (/affarsuppfoljning/objekt/<id>) och rotkap är en undersida av objektet. Gamla adresser
+  // (bokmärken, delade länkar) omdirigeras; frågesträngen (?manad=, ?vy=, ?sort=) följer med. Tillfälliga (307) tills det har visat
+  // sig hålla — då kan de göras permanenta. Omdirigeringar körs före middleware, så en utloggad hamnar ändå på inloggningen med rätt mål.
+  async redirects() {
+    return [
+      { source: '/massaved', destination: '/affarsuppfoljning/kvalitet', permanent: false },
+      { source: '/massaved/:objektId/bitar', destination: '/affarsuppfoljning/objekt/:objektId/bitar', permanent: false },
+      { source: '/massaved/:objektId', destination: '/affarsuppfoljning/objekt/:objektId', permanent: false },
+      { source: '/rotkap', has: [{ type: 'query', key: 'objekt', value: '(?<objekt>.+)' }], destination: '/affarsuppfoljning/objekt/:objekt/rotkap', permanent: false },
+      { source: '/rotkap', destination: '/affarsuppfoljning/kvalitet', permanent: false },
+      // Gamla menyn "Räkna på post" (?vy=rakna) är nu fliken Räkna.
+      { source: '/affarsuppfoljning', has: [{ type: 'query', key: 'vy', value: 'rakna' }], destination: '/affarsuppfoljning/rakna', permanent: false },
+    ];
+  },
 }
 
 module.exports = nextConfig

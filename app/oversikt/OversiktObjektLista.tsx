@@ -2,13 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { OversiktObjekt, C, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
+import { OversiktObjekt, C, SP, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, skotarTillstand } from './oversikt-utils';
 import { paBackenKvar } from '@/lib/skotat';
 import { supabase } from '@/lib/supabase';
 import ObjektEgenkontroll from './ObjektEgenkontroll';
 import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
+import { lastLista, lasFelOrsak } from './las-svar';
+import { LasFelRad, LASFEL_FARA } from './LasFel';
 import type { SkordAgg } from './page';
 import SkordarKarta from './SkordarKarta';
 import SkotarRad from './SkotarRad';
@@ -138,6 +140,8 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   // i stället för att poppa in en och en → ingen layout-shift.
   const [marks, setMarks] = useState<MarkItem[]>([]);
   const [marksLaddat, setMarksLaddat] = useState(false);
+  const [marksFel, setMarksFel] = useState(false);       // läsningen misslyckades → orange meddelande i stället för en tyst saknad Hänsyn-sektion
+  const [marksForsok, setMarksForsok] = useState(0);     // "Försök igen" räknar upp → effekten läser om
   // Helsidan glider in från höger + tonar (samma taktkänsla som flik-fadet). Stängning spelar
   // ut-animationen först, sedan avmonterar föräldern (setSel(null)) → ingen hård pop åt något håll.
   const [closing, setClosing] = useState(false);
@@ -145,20 +149,33 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from('planering_markeringar').select('data').eq('objekt_id', obj.id);
-      if (cancelled) return;
-      const list: MarkItem[] = (data || []).map((r: any) => {
-        const sub = markeringSub(r.data);
-        const comment = (r.data && typeof r.data === 'object' && typeof r.data.comment === 'string')
-          ? r.data.comment.trim() : '';
-        return { sub, label: sub ? subLabel(sub) : 'Markering', comment };
-      }).filter((m) => m.sub || m.comment);
-      setMarks(list);
-      setMarksLaddat(true);
+      try {
+        const svar = await supabase
+          .from('planering_markeringar').select('data').eq('objekt_id', obj.id);
+        if (cancelled) return;
+        const rader = lastLista<any>(svar);
+        if (!rader) {
+          // Ett läsfel är OKÄNT — aldrig "ingen hänsyn": detaljen visar meddelandet i stället för en tom sektion
+          console.error('[Översikt] markeringar: läsningen för objektet gick inte —', lasFelOrsak(svar));
+          setMarksFel(true); setMarksLaddat(true);
+          return;
+        }
+        const list: MarkItem[] = rader.map((r: any) => {
+          const sub = markeringSub(r.data);
+          const comment = (r.data && typeof r.data === 'object' && typeof r.data.comment === 'string')
+            ? r.data.comment.trim() : '';
+          return { sub, label: sub ? subLabel(sub) : 'Markering', comment };
+        }).filter((m) => m.sub || m.comment);
+        setMarks(list);
+        setMarksFel(false);
+        setMarksLaddat(true);
+      } catch (e) {
+        console.error('[Översikt] markeringar: läsningen för objektet kastade', e);
+        if (!cancelled) { setMarksFel(true); setMarksLaddat(true); }
+      }
     })();
     return () => { cancelled = true; };
-  }, [obj.id]);
+  }, [obj.id, marksForsok]);
 
   // Hemknappen (TopBar) döljs medan helsidan är öppen → tillbaka-pilen ersätter huset.
   useEffect(() => {
@@ -327,7 +344,12 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
             </Section>
           )}
 
-          {/* Hänsyn — samma gruppering/humanisering som Karta-fliken (faror högst) */}
+          {/* Hänsyn — samma gruppering/humanisering som Karta-fliken (faror högst). Läsfel → meddelandet, aldrig en tyst saknad sektion. */}
+          {marksFel && (
+            <Section title="Hänsyn">
+              <LasFelRad text={LASFEL_FARA} onForsok={() => setMarksForsok((n) => n + 1)} />
+            </Section>
+          )}
           {harHansyn && (
             <Section title="Hänsyn">
               {faror.length > 0 && (
@@ -589,6 +611,8 @@ export default function OversiktObjektLista({ objekt, skordMap, skordKlar }: Pro
   // Fara-status per objekt (röd markör) — lazy, cachead. Hämtas scoped per objekt_id (aldrig bulk →
   // aldrig timeout på stora markerings-JSONB). Saknad nyckel = ej hämtad än (tom reserverad slot).
   const [faraCache, setFaraCache] = useState<Record<string, boolean>>({});
+  const [faraFel, setFaraFel] = useState(false);       // fara-läsningen misslyckades → listan säger det (annars ser "inga röda markörer" ut som "inga faror")
+  const [faraForsok, setFaraForsok] = useState(0);     // "Försök igen" räknar upp → effekten läser om
 
   const bolagLista = Array.from(new Set(objekt.map(o => o.bolag).filter(Boolean))) as string[];
   const selectedObj = sel ? objekt.find(o => o.id === sel) : null;
@@ -704,19 +728,31 @@ export default function OversiktObjektLista({ objekt, skordMap, skordKlar }: Pro
     (async () => {
       // EN batch-query för alla behövda objekt (i stället för en per objekt = N+1). Samma fara-flagga,
       // en round-trip: returnerar de objekt_id som HAR en fara-markering; övriga sätts false.
-      const { data, error } = await supabase
-        .from('planering_markeringar').select('objekt_id').in('objekt_id', behovs).or(FARA_OR_FILTER);
-      if (error || avbruten) return;                    // fel → cachea inte, försök igen senare
-      const harFara = new Set((data || []).map((r: { objekt_id: string }) => r.objekt_id));
-      setFaraCache((prev) => {
-        const n = { ...prev };
-        for (const id of behovs) n[id] = harFara.has(id);
-        return n;
-      });
+      try {
+        const svar = await supabase
+          .from('planering_markeringar').select('objekt_id').in('objekt_id', behovs).or(FARA_OR_FILTER);
+        if (avbruten) return;
+        const rader = lastLista<{ objekt_id: string }>(svar);
+        if (!rader) {                                   // fel → cachea inte (försök igen senare) MEN säg det: en saknad röd markör får aldrig se ut som "ingen fara"
+          console.error('[Översikt] markeringar: fara-läsningen i listan gick inte —', lasFelOrsak(svar));
+          setFaraFel(true);
+          return;
+        }
+        const harFara = new Set(rader.map((r) => r.objekt_id));
+        setFaraCache((prev) => {
+          const n = { ...prev };
+          for (const id of behovs) n[id] = harFara.has(id);
+          return n;
+        });
+        setFaraFel(false);
+      } catch (e) {
+        console.error('[Översikt] markeringar: fara-läsningen i listan kastade', e);
+        if (!avbruten) setFaraFel(true);
+      }
     })();
     return () => { avbruten = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [synligaNyckel]);
+  }, [synligaNyckel, faraForsok]);
 
   // FAS B (skörd/skotat) ännu inte klar → skelett. Renderar vi listan nu hänger gruppering, på-backen
   // och effektiv status på en tom skordMap → allt poppar om när den landar. Alla hooks har redan körts.
@@ -841,6 +877,7 @@ export default function OversiktObjektLista({ objekt, skordMap, skordKlar }: Pro
             }}>{s.l}</button>
           ))}
         </div>
+        {faraFel && <LasFelRad text={LASFEL_FARA} onForsok={() => setFaraForsok((n) => n + 1)} style={{ marginTop: SP.sm }} />}
       </div>
 
       {/* Lista — Pågår grupperas per skotare (arbetslistan); annars en rad per objekt (reglaget kan

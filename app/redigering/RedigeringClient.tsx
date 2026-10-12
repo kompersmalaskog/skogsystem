@@ -1,4 +1,5 @@
 "use client"
+import { underTopbar, medSafeBotten } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useState, useEffect, useRef, Fragment, Children, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -11,6 +12,7 @@ import MatchningsVy from './MatchningsVy'
 import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
+import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import { harStubbehandling } from '@/lib/egenkontroll'
 import DokumentChips from '@/components/DokumentChips'
 import PdfLasare from '@/app/planering/PdfLasare'
@@ -422,6 +424,14 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
   // hålls i sync tills kolumnerna tas bort i städ-PR efter att skotare_objekt_manuell är enda källa.
   const r3 = await direktPatchDimObjekt(skotarIds, skotarPatch)
   if (!r3.ok) return { ok: false, message: 'Skotarfälten: ' + r3.message }
+
+  // Avslut (väg A): när sparningen gör att BÅDA avslut-flaggorna är satta → delad avslut-regel
+  // (objekt.status='avslutat' + avslutad_timestamp + ur ALLA maskin_ko). Flaggorna är redan satta av
+  // spar → sattFlaggor utelämnas. Härledd status → avslutaObjekt kastar aldrig; resultatet ignoreras
+  // (ett avslut-fel får inte fälla saven). Samma funktion som planeringens Avsluta-knapp anropar.
+  if (obj.skordning_avslutad && obj.skotning_avslutad && obj.vo_nummer) {
+    await avslutaObjekt(supabase, { voNummer: obj.vo_nummer })
+  }
   // Spegla skotarvolym/G15 till skotare_objekt_manuell (primär läskälla sedan DEL 0).
   // UI-inmatning skriver om objektets manuella data i sin helhet — DELETE utan
   // maskin_id-filter tar även bort eventuella maskinspecifika rader (migrerade
@@ -2452,6 +2462,66 @@ function PlanDate({ label, value, onCommit, disabled }: any) {
   )
 }
 
+// Markägarens önskemål om GROT: bortkört senast <datum>, med skäl. Läses av GROT-arket i /oversikt-v2 (överst i listan).
+// Direktsave via två-tabell-routern (verifierad: värdet läses tillbaka). Datumet bor på dim_objekt,
+// så det kan sättas även för trakter som saknar objekt-rad i planeringen. Ett skäl utan datum är ett
+// löst påstående som ingen vy visar — därför nollas skälet tillsammans med datumet, och skälvalet
+// syns först när datum finns. Pekskärmen har ingen "rensa"-knapp i datumväljaren → egen knapp.
+const GROT_SKAL_VAL = [
+  { varde: 'markberedning', label: 'Markberedning' },
+  { varde: 'plantering', label: 'Plantering' },
+  { varde: 'annat', label: 'Annat' },
+]
+function GrotSenastFalt({ obj, direktSpara }: any) {
+  const senast: string = obj.grot_senast || ''
+  const skal: string | null = obj.grot_skal || null
+  const [lokal, setLokal] = useState<string>(senast)
+  useEffect(() => { setLokal(senast) }, [senast])
+  const spara = async (patch: Record<string, any>) => {
+    const ok = await direktSpara(patch)
+    if (!ok) setLokal(senast) // misslyckad sparning ska inte lämna ett datum i fältet som inte finns i databasen
+    return ok
+  }
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44 }}>
+        <span style={styles.directRowLabel as any}>Markägaren vill ha GROT bort senast</span>
+        <input type="date" value={lokal}
+          onChange={(e) => {
+            // Tomt värde betyder en halvskriven dag, inte "rensa" (rensa = knappen nedan). Och ett år som
+            // "0002" är bara mellanläget när man skriver 2026 — spara först när datumet är rimligt.
+            const v = e.target.value; setLokal(v)
+            if (v >= '2000-01-01' && v <= '2100-12-31') spara({ grot_senast: v })
+          }}
+          style={{ ...PLAN_INPUT, flex: 'none', maxWidth: 'none', width: 150, colorScheme: 'dark' } as any} />
+      </div>
+      {senast && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <span style={styles.directRowLabel as any}>Skäl</span>
+            {GROT_SKAL_VAL.map((o) => {
+              const vald = skal === o.varde
+              return (
+                <button key={o.varde} onClick={() => spara({ grot_skal: vald ? null : o.varde })} className="tap-press"
+                  style={{ minHeight: 44, padding: '0 14px', borderRadius: 12, fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                    border: vald ? '1px solid rgba(240,178,76,0.6)' : '1px solid rgba(255,255,255,0.15)',
+                    background: vald ? 'rgba(240,178,76,0.18)' : 'transparent',
+                    color: vald ? '#f0b24c' : 'rgba(255,255,255,0.7)' }}>
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
+          <button onClick={() => spara({ grot_senast: null, grot_skal: null })} className="tap-press"
+            style={{ marginTop: 8, width: '100%', minHeight: 44, borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+            Ta bort markägarens datum
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 // Read-only rad i "Från maskinen" — data som kommer av sig själv (import),
 // aldrig redigerbar. Dämpad så den läses som fakta, inte som ett fält.
 function MaskinRad({ label, value, suffix }: any) {
@@ -2836,6 +2906,10 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
               )}
             </div>
           )}
+          {/* Markägarens datum + skäl — bara medan GROT väntar; när riset är hämtat finns ingen önskan kvar att visa. */}
+          {obj.grot_anpassad === true && !obj.grot_hamtad && (
+            <GrotSenastFalt obj={obj} direktSpara={direktSpara} />
+          )}
         </div>
       </IosGroup>
 
@@ -3207,7 +3281,12 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
         contentKey={subpage || 'oversikt'}
         footer={valtObjekt && subpage
           ? (isDirty
-              ? <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} dirty={isDirty} antal={andradeNycklar.length} />
+              ? <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {valtObjekt.skordning_avslutad && valtObjekt.skotning_avslutad && (
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#ff9f0a', textAlign: 'center' }}>Objektet avslutas och tas ur köerna</div>
+                  )}
+                  <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} dirty={isDirty} antal={andradeNycklar.length} />
+                </div>
               : <button onClick={() => setSubpage(null)} className="tap-press" style={styles.klarBtn}>Klar</button>)
           : null}
       >
@@ -4316,7 +4395,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
 }
 
 const styles = {
-  container: { position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: '#000', fontFamily: "'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif", color: '#fff', padding: '16px 20px 100px', WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
+  container: { position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: '#000', fontFamily: "'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif", color: '#fff', padding: '16px 20px 100px', WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
   headerCenter: { textAlign: 'center', flex: 1 },
   backBtn: { width: 48, height: 48, borderRadius: 24, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 24, cursor: 'pointer', transition: 'all 0.2s ease' },
@@ -4413,7 +4492,7 @@ const styles = {
   sheetHeader: { padding: '4px 24px 20px', transition: 'border-color 0.2s ease' },
   sheetTitel: { fontSize: 22, fontWeight: 700 },
   scrollFade: { position: 'absolute', top: 80, left: 0, right: 0, height: 30, background: 'linear-gradient(to bottom, #1c1c1e, transparent)', zIndex: 1, pointerEvents: 'none', transition: 'opacity 0.2s ease' },
-  sheetContent: { flex: 1, overflowY: 'auto', padding: '0 24px 24px' },
+  sheetContent: { flex: 1, overflowY: 'auto', padding: `0 24px ${medSafeBotten(24)}` },
   sheetFooter: { padding: '16px 24px 40px' },
   saveBtn: { width: '100%', padding: '18px', borderRadius: 16, border: 'none', background: '#adc6ff', color: '#000', fontSize: 17, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s ease' },
   progressHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' },

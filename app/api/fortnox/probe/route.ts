@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await authClient.auth.getUser();
     if (!user?.email) return NextResponse.json({ ok: false, meddelande: "Ej inloggad" }, { status: 401 });
     const { data: med } = await authClient.from("medarbetare").select("roll").eq("epost", user.email).single();
-    if (!med || (med.roll !== "admin" && med.roll !== "chef")) {
+    if (!med || (med.roll !== "admin")) {
       return NextResponse.json({ ok: false, meddelande: "Kräver admin-roll" }, { status: 403 });
     }
 
@@ -92,7 +92,8 @@ export async function GET(req: NextRequest) {
     // Fyll i cc från mappning om inte angivet
     if (!cc) {
       const supabase = serverSupabase();
-      const { data } = await supabase.from("maskin_kostnadsstalle").select("kostnadsstalle_kod").limit(1);
+      // Nu-giltig kod (öppen rad) — en historisk kod kan vara död i Fortnox
+      const { data } = await supabase.from("maskin_kostnadsstalle").select("kostnadsstalle_kod").is("giltig_till", null).limit(1);
       cc = data?.[0]?.kostnadsstalle_kod || "M1";
     }
 

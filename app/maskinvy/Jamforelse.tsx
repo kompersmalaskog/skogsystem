@@ -1,7 +1,9 @@
 'use client';
+import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import TuTabell from '@/components/maskinvy/TuTabell';
 
 const EK_ID = 'A110148';
 const WI_ID = 'A030353';
@@ -334,7 +336,7 @@ export default function Jamforelse() {
   if (loading) {
     return (
       <div style={{
-        position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
+        position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
         background: C.bg, display: 'flex', alignItems: 'center',
         justifyContent: 'center', color: C.t3, fontFamily: ff, fontSize: 13, zIndex: 1,
       }}>
@@ -345,11 +347,15 @@ export default function Jamforelse() {
 
   return (
     <div style={{
-      position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
+      position: 'fixed', top: underTopbar(52), left: 0, right: 0, bottom: 0,
       overflow: 'auto', WebkitOverflowScrolling: 'touch' as const,
       background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
     }}>
       <div style={{ padding: '20px 20px 60px', maxWidth: 900, margin: '0 auto' }}>
+
+      {/* TU för ALLA maskiner (skördare + skotare) — resten av fliken jämför
+          bara de två skotarna. Egen komponent mot tokens (components/maskinvy). */}
+      <TuTabell />
 
       {/* ── HEADER ── */}
       <div style={{ marginBottom: 24 }}>

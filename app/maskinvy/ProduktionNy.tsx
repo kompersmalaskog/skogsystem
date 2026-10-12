@@ -1,4 +1,5 @@
 'use client'
+import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -544,7 +545,7 @@ function PeriodDetalj({ bucket, onClose }: {
       role="dialog"
       aria-label={`Detalj: ${bucket.titleLabel}`}
       style={{
-        position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
+        position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
         overflow: 'auto', background: C.bg, color: C.text,
         fontFamily: FONT, fontFeatureSettings: '"tnum"',
         transform: shown ? 'translateX(0)' : 'translateX(100%)',
@@ -751,7 +752,7 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
 
   return (
     <div style={{
-      position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
+      position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
       overflow: 'auto', background: C.bg, color: C.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
     }}>

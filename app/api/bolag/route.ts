@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  // Skapar register-rader — admin/chef.
+  // Skapar register-rader — admin.
   const vakt = await kravRoll(ADMIN_ROLLER)
   if (!vakt.ok) return vakt.res
   let body: any

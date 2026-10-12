@@ -16,7 +16,8 @@ snäll "obs" i juni-loggarna utan att någon larmade):
    - identitet (MonitoringStartTime, maskin) — objekt/operator är attribut
    - BELOPP från varianten med störst vikt (total duration alla tidshinkar)
    - ATTRIBUTION från versionen med högst recency (filnamnssuffix, annars mtime)
-   - fallback per dag-nyckel: P=0 & T=0 & engine>0 -> P = int(0.88 * engine)
+   - INGEN fallback: P=0 & T=0 med motortid är ärlig data (motorn gick utan
+     arbete). 88 %-fallbacken togs bort ur importen 2026-10-01.
 
    LARM : (tak − DB) > ABS_THRESHOLD_H   (under-count, importen tappar)
    LARM : (DB − tak) > ABS_THRESHOLD_H   (över-count/dubblering ELLER MOM-fil
@@ -36,7 +37,7 @@ Körning:
   python gap_check.py --quiet    # bara logg (för schemalagd körning)
   python gap_check.py --days 30  # annat fönster
 """
-import os, sys, glob, json, argparse, datetime, urllib.request, urllib.error
+import os, sys, glob, json, time, argparse, datetime, urllib.request, urllib.error, urllib.parse
 from collections import defaultdict
 
 try:  # Windows-konsol är ofta cp1252 — loggen är utf-8, gör utskriften det med
@@ -67,9 +68,14 @@ LARM_FIL = os.path.join(getattr(imp, 'ONEDRIVE_BASE', REPO), 'gap_LARM_senaste.t
 # Deploy-drift-kontroll: katalogen där importkoden KÖR (deploy-klonen) jämförs
 # mot origin/main. HÅLL I SYNK med $ImportFiler i deploy_import.ps1.
 DEPLOY_DIR = r'C:\skogsystem-import'
+
+# Kön: en importerbar fil i Inkommande ska vara läst inom minuter (watchern
+# reagerar på events, scannen var femte minut). Ett dygn i kön = kedjan står.
+KO_MAX_H = 24.0
 DRIFT_FILER = ['skogsmaskin_import_version_6.py', 'import_hpr.py',
                'auto_import_watch.py', 'gap_check.py',
-               'import_diameterserie.py', 'berakna_rotkap.py']
+               'import_diameterserie.py', 'berakna_rotkap.py',
+               'berakna_utfall_objekt.py', 'berakna_stamplingsmodell.py']
 
 # 13 tid-fält (samma som importern/reparationen)
 TID_FIELDS = ['processing_sek', 'terrain_sek', 'other_work_sek', 'maintenance_sek',
@@ -157,7 +163,9 @@ def mom_ceiling(maskin, dayset):
             a = attrs.get(ident)
             if a is None or rec > a[0] or (rec == a[0] and vikt > a[3]):
                 attrs[ident] = (rec, ek[2], ek[3], vikt)
-    # aggregera per (datum, objekt, operator), tillämpa fallback, summera P+T per datum
+    # aggregera per (datum, objekt, operator), summera P+T per datum.
+    # Ingen fallback (samma som importern sedan 2026-10-01): motortid utan
+    # RUN-kategori är noll arbete, inte 88 %.
     agg = defaultdict(lambda: {f: 0 for f in TID_FIELDS})
     for ident, e in entries.items():
         _, objekt, operator, _ = attrs[ident]
@@ -166,10 +174,7 @@ def mom_ceiling(maskin, dayset):
             agg[(datum, objekt, operator)][f] += (e.get(f) or 0)
     day_pt = defaultdict(int)
     for (datum, _o, _op), vals in agg.items():
-        P, T = vals['processing_sek'], vals['terrain_sek']
-        if P == 0 and T == 0 and vals['engine_time_sek'] > 0:
-            P = int(vals['engine_time_sek'] * 0.88)  # samma fallback som importern
-        day_pt[datum] += P + T
+        day_pt[datum] += vals['processing_sek'] + vals['terrain_sek']
     return dict(day_pt)
 
 
@@ -391,6 +396,186 @@ def check_import_fel():
     return larm, len(rows)
 
 
+def check_stammar_utan_stockar():
+    """Objekt med stammar i detalj_stam men inga joinbara stockar i
+    detalj_stock. Aldrig rimligt — en skördad stam har alltid minst en stock —
+    och osynligt i nio månader (jan–apr 2026, 41 objekt, ~65 000 stammar)
+    eftersom alla vyer bygger på stockar: ett objekt utan stockar finns inte i
+    dem. Orsaken var en parser som inte skrev stockar före 2026-04-21 och
+    filer som meta_importerade_filer markerat OK. Läser RPC
+    kontroll_stammar_utan_stockar (migration 20261001). READ-ONLY.
+    -> (larmrader, antal | None om RPC:n inte kunde läsas)."""
+    try:
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/rpc/kontroll_stammar_utan_stockar',
+            data=json.dumps({'p_min_stammar': 100}).encode('utf-8'),
+            headers=dict(_hdr(), **{'Content-Type': 'application/json'}), method='POST')
+        rows = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', 'replace')[:200]
+        if 'Could not find the function' in body or 'PGRST202' in body:
+            return [], None
+        return [f'  LARM  kontroll_stammar_utan_stockar gick inte att läsa (HTTP {e.code}): {body}'], None
+    except Exception as e:
+        return [f'  LARM  kontroll_stammar_utan_stockar gick inte att läsa: {e}'], None
+    larm = [
+        f'  LARM  STAMMAR UTAN STOCKAR {r.get("objekt_id")} {(r.get("namn") or "?")[:30]}: '
+        f'{r.get("stammar")} stammar ({r.get("kalla")}, {r.get("forsta") or "datum saknas"}) '
+        f'men inga joinbara stockar — läs om filen (reimport_hpr_stockar.py)'
+        for r in rows
+    ]
+    return larm, len(rows)
+
+
+def check_fakt_sortiment_mot_stock():
+    """fakt_sortiment härleds ur detalj_stock (#444). Säger de olika saker om
+    ett objekt har en ombyggnad hoppats över (inga joinbara stockar, stammar
+    utan tidpunkt) eller stockar saknas. Jörgen Olsson Björkebråten stod
+    2026-10-01 med 1 168,7 m³ mot 507,5 — den gamla importens dubbelräkning,
+    kvarlämnad och rimlig att se på. Samma klass som stammar utan stockar:
+    tyst, och det ser rätt ut. Läser RPC kontroll_fakt_sortiment_mot_stock
+    (tolerans 1 %%, migration 20261001). READ-ONLY.
+    -> (larmrader, antal | None om RPC:n inte kunde läsas)."""
+    try:
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/rpc/kontroll_fakt_sortiment_mot_stock',
+            data=json.dumps({'p_tolerans': 0.01}).encode('utf-8'),
+            headers=dict(_hdr(), **{'Content-Type': 'application/json'}), method='POST')
+        rows = json.loads(urllib.request.urlopen(req, timeout=120).read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', 'replace')[:200]
+        if 'Could not find the function' in body or 'PGRST202' in body:
+            return [], None
+        return [f'  LARM  kontroll_fakt_sortiment_mot_stock gick inte att läsa (HTTP {e.code}): {body}'], None
+    except Exception as e:
+        return [f'  LARM  kontroll_fakt_sortiment_mot_stock gick inte att läsa: {e}'], None
+    larm = []
+    for r in rows:
+        orsak = ('inga joinbara stockar' if not r.get('stockar')
+                 else f'{r.get("stammar_utan_tidpunkt")} stammar utan tidpunkt' if r.get('stammar_utan_tidpunkt')
+                 else 'ingen fakt_sortiment' if not r.get('fakt_sortiment_rader')
+                 else 'ombyggnad saknas?')
+        larm.append(f'  LARM  FAKT_SORTIMENT MOT STOCK {r.get("objekt_id")} {(r.get("namn") or "?")[:30]}: '
+                    f'fakt_sortiment {r.get("fakt_sortiment_m3")} m³, stockar {r.get("stock_m3")} m³ '
+                    f'({r.get("skillnad_pct")} %) — {orsak}')
+    return larm, len(rows)
+
+
+def _importerade_ok(namn):
+    """Vilka av filnamnen har status OK i meta_importerade_filer? Batchar om
+    60 (URL-längd). Kastar vidare vid HTTP-fel — anroparen avgör larmtext."""
+    importerade = set()
+    namn = sorted(set(namn))
+    for i in range(0, len(namn), 60):
+        filt = 'filnamn=in.(' + ','.join('"' + urllib.parse.quote(x, safe='') + '"' for x in namn[i:i + 60]) + ')'
+        req = urllib.request.Request(
+            imp.SUPABASE_URL + '/rest/v1/meta_importerade_filer?select=filnamn&status=eq.OK&' + filt,
+            headers=_hdr())
+        for r in json.loads(urllib.request.urlopen(req, timeout=60).read()):
+            importerade.add(r['filnamn'])
+    return importerade
+
+
+def check_inkommande_ko():
+    """Del 8 — kön. Importerbara filer (mom/hpr/hqc/fpr) som legat i
+    Inkommande längre än KO_MAX_H. Watchern tar en fil inom minuter; ligger
+    den kvar efter ett dygn står kedjan: watchern är nere, importen kraschar
+    på filen, eller flytten till Behandlade misslyckas (filen är då redan OK
+    i meta men ligger kvar och körs om vid varje scan — larmet säger vilket).
+    Del 7 tittar på parkeringsmapparna, inte på kön; den här tittar BARA på
+    kön. Bara toppnivån, samma som watchern ser. READ-ONLY.
+    -> (larmrader, antal | None om mappen inte kunde läsas)."""
+    nu = time.time()
+    gamla = []   # (filnamn, typ, ålder_h)
+    try:
+        for fn in os.listdir(imp.INKOMMANDE):
+            p = os.path.join(imp.INKOMMANDE, fn)
+            if not os.path.isfile(p):
+                continue
+            typ = os.path.splitext(fn)[1].lower().lstrip('.')
+            if typ not in ('mom', 'hpr', 'hqc', 'fpr'):
+                continue
+            alder_h = (nu - os.path.getmtime(p)) / 3600.0
+            if alder_h > KO_MAX_H:
+                gamla.append((fn, typ, alder_h))
+    except Exception as e:
+        return [f'  LARM  kön: kunde inte läsa {imp.INKOMMANDE}: {e}'], None
+    if not gamla:
+        return [], 0
+    try:
+        importerade = _importerade_ok(g[0] for g in gamla)
+    except Exception as e:
+        return [f'  LARM  kön: kunde inte läsa meta_importerade_filer: {e}'], None
+    larm = []
+    for fn, typ, h in sorted(gamla, key=lambda x: -x[2]):
+        if fn in importerade:
+            orsak = ('redan OK i meta men inte flyttad till Behandlade — flytten misslyckas '
+                     'och filen körs om vid varje scan')
+        else:
+            orsak = ('aldrig importerad — watchern nere eller importen kraschar på filen '
+                     '(se import_logg.txt i drift)')
+        larm.append(f'  LARM  KÖN STÅR STILL: {fn} ({typ}) har legat {h / 24:.1f} dygn i Inkommande — {orsak}')
+    return larm, len(gamla)
+
+
+def check_parkerade_filer():
+    """Del 7 — parkeringsmapparna. Filer i en handgjord mapp under MOM-filer
+    (_InkTemp, _TEMP_*, _vanta_*, _pause ...) utan att vara importerade
+    (status OK i meta_importerade_filer). Dagens övriga kontroller utgår från
+    objekt som FINNS i databasen — ett objekt som bara finns som fil är
+    osynligt för dem alla. 2026-10-01 låg 55 HPR- och 20 HQC-filer från
+    26 maj–6 juni i tre handflyttade mappar sedan driftkonsolideringen,
+    aldrig lästa. Watchern läser bara toppnivån i Inkommande, så inget
+    plockar upp en undermapp av sig självt. Själva kön (Inkommande) är del 8,
+    check_inkommande_ko — inte den här. .prl och .txt importeras aldrig och
+    räknas inte. READ-ONLY.
+    -> (larmrader, antal | None om mappen inte kunde läsas)."""
+    bas = os.path.dirname(imp.INKOMMANDE)
+    try:
+        mappar = sorted(
+            os.path.join(bas, d) for d in os.listdir(bas)
+            if d.startswith('_') and os.path.isdir(os.path.join(bas, d)))
+    except Exception as e:
+        return [f'  LARM  parkerade filer: kunde inte läsa {bas}: {e}'], None
+    nu = time.time()
+    kandidater = []   # (mapp, filnamn, typ, ålder_dagar)
+    for d in mappar:
+        try:
+            for fn in os.listdir(d):
+                p = os.path.join(d, fn)
+                if not os.path.isfile(p):
+                    continue
+                typ = os.path.splitext(fn)[1].lower().lstrip('.')
+                if typ not in ('mom', 'hpr', 'hqc', 'fpr'):
+                    continue
+                alder_h = (nu - os.path.getmtime(p)) / 3600.0
+                kandidater.append((os.path.basename(d), fn, typ, alder_h / 24.0))
+        except Exception as e:
+            return [f'  LARM  parkerade filer: kunde inte läsa {d}: {e}'], None
+    if not kandidater:
+        return [], 0
+    # Vilka av dem är importerade? Fråga meta i batchar.
+    try:
+        importerade = _importerade_ok(k[1] for k in kandidater)
+    except Exception as e:
+        return [f'  LARM  parkerade filer: kunde inte läsa meta_importerade_filer: {e}'], None
+    oimporterade = [k for k in kandidater if k[1] not in importerade]
+    larm = []
+    per_mapp = {}
+    for mapp, fn, typ, dagar in oimporterade:
+        per_mapp.setdefault(mapp, []).append((fn, typ, dagar))
+    for mapp, lst in sorted(per_mapp.items()):
+        typer = {}
+        for fn, typ, dagar in lst:
+            typer[typ] = typer.get(typ, 0) + 1
+        aldst = max(d for _, _, d in lst)
+        larm.append(f'  LARM  OIMPORTERADE FILER i {mapp}: {len(lst)} st ('
+                    + ', '.join(f'{n} {t}' for t, n in sorted(typer.items()))
+                    + f'), äldsta {aldst:.0f} dagar — ingen kontroll ser objekt som bara finns som fil. '
+                    + 'Exempel: ' + ', '.join(fn for fn, _, _ in sorted(lst, key=lambda x: -x[2])[:3]))
+    return larm, len(oimporterade)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--quiet', action='store_true', help='Bara logg, ingen utskrift (schemalagd körning).')
@@ -448,6 +633,39 @@ def main():
         L.append(f'    import_fel senaste 8 dygnen: {fel_antal if fel_antal is not None else "?"} rader')
     L.extend(fel_larm)
     alarms.extend(fel_larm)     # datatapp ska larma — det var så Wisent-tappet gömde sig
+    # ── Del 5: objekt med stammar men inga stockar ──
+    stock_larm, stock_antal = check_stammar_utan_stockar()
+    if stock_antal is None and not stock_larm:
+        L.append('    stammar utan stockar: RPC saknas (migration ej körd) — hoppar kontrollen')
+    else:
+        L.append(f'    stammar utan stockar: {stock_antal if stock_antal is not None else "?"} objekt')
+    L.extend(stock_larm)
+    alarms.extend(stock_larm)   # osynligt i nio månader — ska larma tills det är läst om
+    # ── Del 6: fakt_sortiment mot stockarna, per objekt ──
+    fs_larm, fs_antal = check_fakt_sortiment_mot_stock()
+    if fs_antal is None and not fs_larm:
+        L.append('    fakt_sortiment mot stock: RPC saknas (migration ej körd) — hoppar kontrollen')
+    else:
+        L.append(f'    fakt_sortiment mot stock: {fs_antal if fs_antal is not None else "?"} objekt avviker > 1 %')
+    L.extend(fs_larm)
+    alarms.extend(fs_larm)      # två källor som säger olika — ska larma tills de säger samma
+    # ── Del 7: filer som ligger oimporterade i Inkommande eller en parkeringsmapp ──
+    park_larm, park_antal = check_parkerade_filer()
+    if park_antal is None and not park_larm:
+        L.append('    parkerade filer: kunde inte kontrolleras')
+    else:
+        L.append(f'    parkerade filer: {park_antal if park_antal is not None else "?"} oimporterade')
+    L.extend(park_larm)
+    alarms.extend(park_larm)    # ett objekt som bara finns som fil syns ingen annanstans
+
+    # ── Del 8: står kön? (importerbar fil äldre än KO_MAX_H i Inkommande) ──
+    ko_larm, ko_antal = check_inkommande_ko()
+    if ko_antal is None and not ko_larm:
+        L.append('    kön (Inkommande): kunde inte kontrolleras')
+    else:
+        L.append(f'    kön (Inkommande): {ko_antal if ko_antal is not None else "?"} filer äldre än {KO_MAX_H:.0f} h')
+    L.extend(ko_larm)
+    alarms.extend(ko_larm)      # kedjan står — ingen ny data kommer in förrän någon tittar
 
     if alarms:
         L.append(f'>>> {len(alarms)} LARM — kontrollera per (maskin, dag) ovan.')
@@ -486,6 +704,38 @@ def main():
             'larm_antal': len(drift_larm),
             'sammanfattning': ('\n'.join(r.strip() for r in drift_larm)[:1500]
                                if drift_larm else drift_detalj[:1500]),
+        }, {
+            'id': 'stammar_utan_stockar',
+            'kord_tid': nu,
+            'status': 'OKÄND' if stock_antal is None else ('LARM' if stock_larm else 'OK'),
+            'larm_antal': len(stock_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in stock_larm)[:1500] if stock_larm
+                               else ('RPC saknas' if stock_antal is None
+                                     else 'Alla objekt med stammar har stockar')),
+        }, {
+            'id': 'fakt_sortiment_mot_stock',
+            'kord_tid': nu,
+            'status': 'OKÄND' if fs_antal is None else ('LARM' if fs_larm else 'OK'),
+            'larm_antal': len(fs_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in fs_larm)[:1500] if fs_larm
+                               else ('RPC saknas' if fs_antal is None
+                                     else 'fakt_sortiment och stockarna säger samma sak för alla objekt')),
+        }, {
+            'id': 'parkerade_filer',
+            'kord_tid': nu,
+            'status': 'OKÄND' if park_antal is None else ('LARM' if park_larm else 'OK'),
+            'larm_antal': len(park_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in park_larm)[:1500] if park_larm
+                               else ('kunde inte kontrolleras' if park_antal is None
+                                     else 'Inga oimporterade filer i parkeringsmapparna')),
+        }, {
+            'id': 'inkommande_ko',
+            'kord_tid': nu,
+            'status': 'OKÄND' if ko_antal is None else ('LARM' if ko_larm else 'OK'),
+            'larm_antal': len(ko_larm),
+            'sammanfattning': ('\n'.join(r.strip() for r in ko_larm)[:1500] if ko_larm
+                               else ('kunde inte kontrolleras' if ko_antal is None
+                                     else f'Inga filer äldre än {KO_MAX_H:.0f} h i Inkommande')),
         }]
         hdr = dict(_hdr())
         hdr.update({'Content-Type': 'application/json',

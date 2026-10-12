@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { maskinVisningsnamn, DIM_MASKIN_NAMN_KOLUMNER } from '@/lib/maskinNamn';
 import Link from 'next/link';
+import { medSafeBotten } from '@/lib/design/tokens'; // hemindikatorn på iPhone
 
 const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
 const card = { backgroundColor: '#1c1c1e', borderRadius: 12 } as const;
@@ -122,6 +124,11 @@ export default function MaskinDetailPage() {
       supabase.from('fakt_skift').select('maskin_id, langd_sek'),
     ]);
 
+    // Namnet ur dim_maskin.visningsnamn (lib/maskinNamn) — `maskiner` bär bara nyckeln.
+    if (m?.maskin_id) {
+      const { data: dim } = await supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER).eq('maskin_id', m.maskin_id).maybeSingle();
+      if (dim) m.namn = maskinVisningsnamn(dim as any);
+    }
     setMaskin(m);
     setEntries(s || []);
 
@@ -388,7 +395,7 @@ export default function MaskinDetailPage() {
             position: 'fixed', bottom: 0, left: 0, right: 0,
             backgroundColor: '#1c1c1e',
             borderRadius: '20px 20px 0 0',
-            padding: '24px 20px 40px',
+            padding: `24px 20px ${medSafeBotten(40)}`,
             zIndex: 100,
             maxHeight: '85vh', overflowY: 'auto',
           }}>

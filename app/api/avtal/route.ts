@@ -53,8 +53,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const { user, roll } = await autentisera();
   if (!user) return NextResponse.json({ ok: false, error: "Ej inloggad" }, { status: 401 });
-  if (roll !== "admin" && roll !== "chef") {
-    return NextResponse.json({ ok: false, error: "Kräver admin/chef" }, { status: 403 });
+  if (roll !== "admin") {
+    return NextResponse.json({ ok: false, error: "Kräver admin" }, { status: 403 });
   }
 
   const body = await req.json();

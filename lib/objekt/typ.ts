@@ -18,7 +18,8 @@
 //     i typen) att visa "Slutavverkning" — en lögn som såg ut som data. Objekt
 //     utan huvudtyp är OFULLSTÄNDIGA (varning i Att åtgärda), inte en typ.
 
-export type ObjektTyp = 'slutavverkning' | 'gallring' | 'grot' | null;
+// 'energiklippning' kommer från Starta jobb (ett eget jobb, inte ett virkesobjekt) — se lib/startaJobb.
+export type ObjektTyp = 'slutavverkning' | 'gallring' | 'grot' | 'energiklippning' | null;
 
 // Är huvudtyp-texten det explicita Grot-värdet? Vallistan skriver exakt 'Grot',
 // men vi tål äldre versaler/gemener och ev. blanksteg.
@@ -40,12 +41,14 @@ export function harledTyp(risskotning: boolean | null | undefined, huvudtyp: str
   if (risskotning === true) return 'grot';
   if (!huvudtyp) return null;
   if (arGrotHuvudtyp(huvudtyp)) return 'grot';
+  if (huvudtyp.toLowerCase().includes('energi')) return 'energiklippning';
   return huvudtyp.toLowerCase().includes('gallr') ? 'gallring' : 'slutavverkning';
 }
 
 // Lång etikett (rubriker, detaljvy)
 export function typLabel(t: ObjektTyp): string {
   return t === 'grot' ? 'Grot'
+    : t === 'energiklippning' ? 'Energiklippning'
     : t === 'gallring' ? 'Gallring'
     : t === 'slutavverkning' ? 'Slutavverkning'
     : 'Typ okänd';
@@ -54,6 +57,7 @@ export function typLabel(t: ObjektTyp): string {
 // Kort etikett (taggar i listor)
 export function typKort(t: ObjektTyp): string {
   return t === 'grot' ? 'Grot'
+    : t === 'energiklippning' ? 'Energi'
     : t === 'gallring' ? 'Gallring'
     : t === 'slutavverkning' ? 'Slutavv.'
     : 'Okänd';

@@ -335,7 +335,9 @@ def main():
 
     t0 = time.time(); utfall = []; fel = 0; raknade = 0
     for objekt_id in ids:
-        stockar_antal = rakna('detalj_stock', 'objekt_id=eq.%s' % objekt_id)
+        # Bara joinbara stockar: nyckellösa kopior (parsern 21 apr–7 maj 2026)
+        # räknades annars med — Stensjömåla visade 159 333 stockar där 8 961 är verkliga.
+        stockar_antal = rakna('detalj_stock', 'objekt_id=eq.%s&stem_key=not.is.null&log_key=not.is.null' % objekt_id)
         serier_antal = sum(p['serier'] for p in per_objekt[objekt_id])
         f = forra.get(objekt_id)
         if f and not alla and not bara and f['stockar_antal'] == stockar_antal and f['serier_antal'] == serier_antal:

@@ -483,9 +483,13 @@ export default function MaskinflyttClient() {
 
         let m: Medarb | null = null
         if (user?.email) {
+          // user_id, inte e-post (skiftlägeskänslig) — se Arbetsrapport.
           const { data } = await supabase.from('medarbetare')
-            .select('id, namn, hem_lat, hem_lng').eq('epost', user.email).single()
+            .select('id, namn, hem_lat, hem_lng').eq('user_id', user.id).maybeSingle()
           if (data) { m = data; setMedarb(data) }
+          // Inloggad men ingen medarbetare kopplad (user_id saknas → RLS ger 0
+          // rader). Säg vad som är fel i stället för att fortsätta utan förare.
+          else setLaddFel(`Ditt konto (${user.email}) är inte kopplat till någon medarbetare. Ring Martin — logga sedan ut och in igen.`)
         }
         await laddaDag(m)
       } catch (e: any) {
@@ -1294,8 +1298,10 @@ export default function MaskinflyttClient() {
     try {
       const p = await getFarskGps()
       if (!rimligGpsPunkt(p.lat, p.lng)) throw new Error('GPS-punkten ser trasig ut — försök igen utomhus')
+      // hem_koord_kalla='gps' skyddar punkten: nattjobbets geokodning skriver
+      // aldrig över den (lib/geokod, samma skydd som km_kalla).
       const { data, error } = await supabase.from('medarbetare')
-        .update({ hem_lat: p.lat, hem_lng: p.lng })
+        .update({ hem_lat: p.lat, hem_lng: p.lng, hem_koord_kalla: 'gps', hem_geokod_status: 'klar', hem_geokod_tid: new Date().toISOString() })
         .eq('id', medarb.id).select('id')
       if (error || !data?.length) throw new Error(error?.message || 'inga rader sparades')
       setMedarb({ ...medarb, hem_lat: p.lat, hem_lng: p.lng })

@@ -35,7 +35,7 @@ export default async function Page() {
     .eq("epost", user.email)
     .maybeSingle();
 
-  const kanRedigera = med?.roll === "admin" || med?.roll === "chef";
+  const kanRedigera = med?.roll === "admin";
 
   return <PersonalClient kanRedigera={kanRedigera} />;
 }

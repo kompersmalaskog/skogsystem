@@ -1,381 +1,127 @@
 "use client";
-import React, { useState, useEffect, CSSProperties } from "react";
+// Admin-skalet. Dator först: sidomeny till vänster, innehåll med maxbredd. I telefon faller menyn tillbaka på
+// en bottenmeny. Flik och underflik står i adressen (nav.tsx). Översikten är en att-göra-lista (Oversikt.tsx)
+// och siffran i menyn är samma lista.
+import React from "react";
 import { useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import { expectedWorkMinutes } from "@/lib/roda-dagar";
-import { C, adminCss as css, secHead, Card } from "./design";
-import { AVSTAND, FARG, RADIE, TYP } from "@/lib/design/tokens";
+import { AVSTAND, FARG, FONT, LAYOUT, RADIE, TRAFFYTA, TYP, designCss, medSafeBotten } from "@/lib/design/tokens";
+import { Ikon, Markering, Titel, MAXBREDD_ADMIN } from "./ui";
+import { AdminNavProvider, FLIKAR, lasNav, useAdminNav } from "./nav";
+import { useAttGora } from "./useAttGora";
+import Oversikt from "./Oversikt";
 import MedarbetareFlik from "./MedarbetareFlik";
 import MaskinerFlik from "./MaskinerFlik";
 import AvtalFlik from "./AvtalFlik";
 import LonFlik from "./LonFlik";
 
-const shell: CSSProperties = {
-  minHeight: "100vh",
-  background: "#000",
-  color: "#e2e2e2",
-  fontFamily: "'Inter',-apple-system,'SF Pro Display',sans-serif",
-  WebkitFontSmoothing: "antialiased",
-  display: "flex",
-  flexDirection: "column",
-  padding: "0 20px 100px",
-  boxSizing: "border-box",
-  width: "100%",
-};
+/** Sidomenyns bredd på dator. Ett layoutmått. */
+const MENYBREDD = 240;
+const DATORBREDD = 900;
+/** Bottenmenyns höjd i telefon, utan hemindikatorn. Ett layoutmått. */
+const BOTTENHOJD = 64;
 
-const topBar: CSSProperties = { paddingTop: 24, paddingBottom: 12 };
+// Klasser, för det inline-stilar inte kan: bredd-brytpunkten mellan sidomeny och bottenmeny.
+const adminCss = `
+  .adm-rot { background: ${FARG.bg}; color: ${FARG.text}; font-family: ${FONT}; min-height: calc(100vh - ${LAYOUT.topbar}); }
+  .adm-meny { display: none; }
+  .adm-bott { display: flex; }
+  .adm-inn { padding: ${AVSTAND.xl}px ${AVSTAND.sidmarginal}px calc(${BOTTENHOJD + AVSTAND.xl}px + ${LAYOUT.safeBotten}); }
+  .adm-kol { max-width: ${MAXBREDD_ADMIN}px; margin: 0 auto; }
+  .adm-post:focus-visible { outline: 2px solid ${FARG.text2}; outline-offset: 2px; }
+  @media (min-width: ${DATORBREDD}px) {
+    .adm-rot { display: flex; }
+    .adm-meny { display: flex; flex-direction: column; gap: ${AVSTAND.xs}px; flex: 0 0 ${MENYBREDD}px; box-sizing: border-box;
+      position: sticky; top: ${LAYOUT.topbar}; height: calc(100vh - ${LAYOUT.topbar}); overflow-y: auto;
+      padding: ${AVSTAND.xl}px ${AVSTAND.l}px; border-right: 1px solid ${FARG.linje}; }
+    .adm-bott { display: none; }
+    .adm-inn { flex: 1; min-width: 0; padding: ${AVSTAND.xxl}px ${AVSTAND.xl}px ${AVSTAND.xxl}px; }
+  }
+`;
 
-type Tab = "oversikt" | "medarbetare" | "maskiner" | "avtal" | "lon" | "installningar";
+type Anvandare = { id: string; namn?: string | null; roll: string };
 
-const TABS: { key: Tab; icon: string; label: string }[] = [
-  { key: "oversikt",      icon: "dashboard",   label: "Översikt" },
-  { key: "medarbetare",   icon: "group",       label: "Medarbetare" },
-  { key: "maskiner",      icon: "agriculture", label: "Maskiner" },
-  { key: "avtal",         icon: "description", label: "Avtal" },
-  { key: "lon",           icon: "payments",    label: "Lön" },
-  { key: "installningar", icon: "settings",    label: "Inst." },
-];
-
-function BottomNav({ aktiv, onNav }: { aktiv: Tab; onNav: (t: Tab) => void }) {
-  return (
-    <nav style={{
-      position: "fixed",
-      bottom: 0,
-      left: 0,
-      width: "100%",
-      zIndex: 50,
-      display: "flex",
-      justifyContent: "space-around",
-      alignItems: "center",
-      padding: "10px 8px 22px",
-      background: "rgba(31,31,31,0.7)",
-      backdropFilter: "blur(20px)",
-      WebkitBackdropFilter: "blur(20px)",
-      borderRadius: "16px 16px 0 0",
-      boxShadow: "0 -4px 20px rgba(0,0,0,0.5)",
-    }}>
-      {TABS.map(t => (
-        <button key={t.key} onClick={() => onNav(t.key)} style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          color: aktiv === t.key ? "#adc6ff" : "#8b90a0",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          fontFamily: "'Inter',sans-serif",
-          borderRadius: 12,
-          height: 48,
-          minWidth: 56,
-          padding: "0 4px",
-        }}>
-          <span className="material-symbols-outlined" style={{
-            fontSize: 22,
-            marginBottom: 2,
-            fontVariationSettings: aktiv === t.key ? "'FILL' 1" : "'FILL' 0",
-          }}>{t.icon}</span>
-          <span style={{ fontSize: 10, fontWeight: aktiv === t.key ? 600 : 500 }}>{t.label}</span>
-        </button>
-      ))}
-    </nav>
-  );
-}
-
-export default function AdminClient({ currentUser }: { currentUser: { id: string; namn?: string | null; roll: string } }) {
+export default function AdminClient({ currentUser }: { currentUser: Anvandare }) {
   const sp = useSearchParams();
-  const förvald = sp?.get("flik") as Tab | null;
-  const giltig = förvald && TABS.some(t => t.key === förvald);
-  const [aktiv, setAktiv] = useState<Tab>(giltig ? (förvald as Tab) : "oversikt");
   return (
-    <div style={shell}>
-      <style>{css}</style>
-      <div style={topBar}>
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em" }}>Admin</h1>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: C.label }}>
-          {currentUser.namn || "—"} · {currentUser.roll}
-        </p>
-      </div>
-
-      {currentUser.roll === "admin" && (
-        <a href="/admin/historik" style={{ display: "block", marginTop: AVSTAND.m, padding: AVSTAND.l, borderRadius: RADIE.kort, background: FARG.kort, color: FARG.text, textDecoration: "none", ...TYP.listtitel }}>
-          Historik: produktionsrapporter 2011–2026 ›
-        </a>
-      )}
-
-      <main style={{ flex: 1, paddingTop: 16, animation: "fadeUp 0.25s ease-out" }} key={aktiv}>
-        {aktiv === "oversikt"      && <OversiktFlik />}
-        {aktiv === "medarbetare"   && <MedarbetareFlik />}
-        {aktiv === "maskiner"      && <MaskinerFlik />}
-        {aktiv === "avtal"         && <AvtalFlik />}
-        {aktiv === "lon"           && <LonFlik currentUser={currentUser} />}
-        {aktiv === "installningar" && <Placeholder label="Inställningar" />}
-      </main>
-
-      <BottomNav aktiv={aktiv} onNav={setAktiv} />
-    </div>
+    <AdminNavProvider initial={lasNav(sp)}>
+      <Skal currentUser={currentUser} />
+    </AdminNavProvider>
   );
 }
 
-function Placeholder({ label }: { label: string }) {
-  return (
-    <Card>
-      <p style={{ margin: 0, fontSize: 15, color: C.label }}>{label} — kommer i nästa steg.</p>
-    </Card>
-  );
-}
+function Skal({ currentUser }: { currentUser: Anvandare }) {
+  const { nav, gaTill } = useAdminNav();
+  const att = useAttGora();
+  const antal = att.laddar ? 0 : att.saker.length;
+  const aktiv = FLIKAR.find(f => f.key === nav.flik) || FLIKAR[0];
+  const nyMedarbetare = nav.flik === "medarbetare" && !!nav.params.ny;
 
-/* ─── ÖVERSIKT ─── */
-
-type ÖversiktData = {
-  antalMedarbetare: number;
-  dagensInloggade: number;
-  dagensBekraftade: number;
-  vilobrottAntal: number;
-  förväntadeMin: number;
-  månadensÖvertid: { medarbetare: string; jobbade: number; övertid: number }[];
-  momFiler: { filnamn: string; importerad_tid: string; maskin_id: string; status: string }[];
-  laddar: boolean;
-  fel: string | null;
-};
-
-// Övertidstak per månad (kollektivavtal: 250h/år ≈ 21h/mån, vi använder 25h som progress-cap)
-const ÖVERTID_REFERENS_MIN = 25 * 60;
-
-function OversiktFlik() {
-  const [data, setData] = useState<ÖversiktData>({
-    antalMedarbetare: 0,
-    dagensInloggade: 0,
-    dagensBekraftade: 0,
-    vilobrottAntal: 0,
-    förväntadeMin: 0,
-    månadensÖvertid: [],
-    momFiler: [],
-    laddar: true,
-    fel: null,
+  const postStil = (vald: boolean) => ({
+    display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min,
+    padding: `0 ${AVSTAND.m}px`, borderRadius: RADIE.rad, border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const,
+    background: vald ? FARG.fyllning : "transparent", color: vald ? FARG.text : FARG.text2, ...TYP.listtitel,
   });
 
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const nu = new Date();
-        const idag = nu.toISOString().slice(0, 10);
-        const månStart = idag.slice(0, 7) + "-01";
-        const förväntadeMin = expectedWorkMinutes(nu.getFullYear(), nu.getMonth());
-        // ISO-vecka (mån-sön). Räknar alla vilobrott vars datum-fält ligger
-        // i veckan, oavsett besvarad status — ett brott är ett brott även om
-        // föraren har angett orsak. För en chef är det relevant att veta
-        // antalet, inte deras besvar-status.
-        const veckStartDt = new Date(nu);
-        veckStartDt.setDate(nu.getDate() - ((nu.getDay() + 6) % 7));
-        const veckStart = veckStartDt.toISOString().slice(0, 10);
-
-        const [med, dagensRes, månadRes, månadExtraRes, momRes, vilobrottRes] = await Promise.all([
-          supabase.from("medarbetare").select("id, namn", { count: "exact" }),
-          supabase.from("arbetsdag").select("medarbetare_id, bekraftad").eq("datum", idag),
-          supabase.from("arbetsdag").select("medarbetare_id, arbetad_min").gte("datum", månStart),
-          // Extra tid räknas in i månadens jobbade tid (samma som löneexporten)
-          supabase.from("extra_tid").select("medarbetare_id, minuter").gte("datum", månStart),
-          supabase.from("meta_importerade_filer")
-            .select("filnamn, importerad_tid, maskin_id, status")
-            .order("importerad_tid", { ascending: false })
-            .limit(5),
-          supabase.from("vilobrott")
-            .select("id", { count: "exact", head: true })
-            .gte("datum", veckStart)
-            .lte("datum", idag),
-        ]);
-
-        if (cancelled) return;
-
-        const namnMap = new Map<string, string>(
-          (med.data || []).map((m: any) => [m.id, m.namn || "—"])
-        );
-
-        const antal = med.count ?? (med.data?.length || 0);
-        const dagensRader = dagensRes.data || [];
-        const dagensInloggade = new Set(dagensRader.map((d: any) => d.medarbetare_id)).size;
-        const dagensBekraftade = dagensRader.filter((d: any) => d.bekraftad).length;
-
-        const minMap: Record<string, number> = {};
-        for (const d of (månadRes.data || [])) {
-          if (!d.medarbetare_id) continue;
-          minMap[d.medarbetare_id] = (minMap[d.medarbetare_id] || 0) + (d.arbetad_min || 0);
-        }
-        // Extra tid per medarbetare — total arbetstid, inte bara maskintid
-        for (const e of ((månadExtraRes.data || []) as any[])) {
-          if (!e.medarbetare_id) continue;
-          minMap[e.medarbetare_id] = (minMap[e.medarbetare_id] || 0) + (e.minuter || 0);
-        }
-        const månadensÖvertid = Object.entries(minMap)
-          .map(([id, jobbade]) => ({
-            medarbetare: namnMap.get(id) || id.slice(0, 8),
-            jobbade,
-            övertid: Math.max(0, jobbade - förväntadeMin),
-          }))
-          .filter(r => r.övertid > 0)
-          .sort((a, b) => b.övertid - a.övertid);
-
-        setData({
-          antalMedarbetare: antal,
-          dagensInloggade,
-          dagensBekraftade,
-          vilobrottAntal: vilobrottRes.count ?? 0,
-          förväntadeMin,
-          månadensÖvertid,
-          momFiler: momRes.data || [],
-          laddar: false,
-          fel: null,
-        });
-      } catch (e: any) {
-        if (!cancelled) setData(d => ({ ...d, laddar: false, fel: e.message || String(e) }));
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, []);
-
-  if (data.laddar) {
-    return <Card><p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar…</p></Card>;
-  }
-  if (data.fel) {
-    return <Card style={{ border: `1px solid ${C.red}` }}>
-      <p style={{ margin: 0, color: C.red, fontSize: 14 }}>Kunde inte ladda översikt: {data.fel}</p>
-    </Card>;
-  }
-
   return (
-    <>
-      {/* KPI-kort */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
-        <Kpi label="Medarbetare" value={String(data.antalMedarbetare)} />
-        <Kpi label="Inloggade idag" value={`${data.dagensInloggade} st`} />
-        <Kpi label="Bekräftade idag" value={`${data.dagensBekraftade} st`} />
-        <Kpi
-          label="Vilobrott vecka"
-          value={data.vilobrottAntal === 0 ? "0" : `${data.vilobrottAntal}`}
-          highlight={data.vilobrottAntal > 0}
-        />
-      </div>
+    <div className="adm-rot">
+      <style>{designCss}{adminCss}</style>
 
-      {/* Månadens övertid per förare */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-        <p style={{ ...secHead, margin: 0 }}>Månadens övertid</p>
-        <span style={{ fontSize: 11, color: C.label, fontWeight: 500 }}>
-          ref. {(data.förväntadeMin / 60).toFixed(0)} h normaltid
-        </span>
-      </div>
-      <Card>
-        {data.månadensÖvertid.length === 0 ? (
-          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Ingen övertid registrerad denna månad.</p>
-        ) : (
-          data.månadensÖvertid.map((r, i) => {
-            const övTim = r.övertid / 60;
-            const jobbTim = r.jobbade / 60;
-            const procent = Math.min(100, (r.övertid / ÖVERTID_REFERENS_MIN) * 100);
-            const överTak = r.övertid > ÖVERTID_REFERENS_MIN;
-            return (
-              <div key={i} style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                padding: "10px 0",
-                borderBottom: i === data.månadensÖvertid.length - 1 ? "none" : `1px solid ${C.line}`,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 14 }}>
-                  <span style={{ color: C.text, fontWeight: 500 }}>{r.medarbetare}</span>
-                  <span style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                    <span style={{ color: C.label, fontSize: 12 }}>{jobbTim.toFixed(1)} h jobbade</span>
-                    <span style={{ color: överTak ? C.red : C.orange, fontWeight: 700 }}>
-                      +{övTim.toFixed(1)} h
-                    </span>
-                  </span>
-                </div>
-                <div style={{
-                  height: 4,
-                  background: "rgba(255,255,255,0.08)",
-                  borderRadius: 2,
-                  overflow: "hidden",
-                }}>
-                  <div style={{
-                    height: "100%",
-                    width: `${procent}%`,
-                    background: överTak ? C.red : C.orange,
-                    transition: "width 0.3s",
-                  }} />
-                </div>
-              </div>
-            );
-          })
+      <aside className="adm-meny" aria-label="Admin">
+        {FLIKAR.map(f => {
+          const vald = nav.flik === f.key && !nyMedarbetare;
+          return (
+            <button key={f.key} type="button" className="adm-post" onClick={() => gaTill({ flik: f.key })} aria-current={vald ? "page" : undefined} style={postStil(vald)}>
+              <Ikon namn={f.ikon} farg={vald ? FARG.text : FARG.text2} fylld={vald} />
+              <span style={{ flex: 1 }}>{f.label}</span>
+              {f.key === "oversikt" && antal > 0 && <Markering antal={antal} />}
+            </button>
+          );
+        })}
+        <div style={{ height: 1, background: FARG.linje, margin: `${AVSTAND.m}px 0` }} />
+        <button type="button" className="adm-post" onClick={() => gaTill({ flik: "medarbetare", params: { ny: "1" } })} aria-current={nyMedarbetare ? "page" : undefined}
+          style={{ ...postStil(nyMedarbetare), color: FARG.text }}>
+          <Ikon namn="add" farg={FARG.text} />
+          <span>Ny medarbetare</span>
+        </button>
+        {currentUser.roll === "admin" && (
+          <a href="/admin/historik" className="adm-post" style={{ ...postStil(false), textDecoration: "none", boxSizing: "border-box" }}>
+            <Ikon namn="history" farg={FARG.text2} />
+            <span>Historik</span>
+          </a>
         )}
-      </Card>
+        <div style={{ flex: 1 }} />
+        <div style={{ ...TYP.meta, color: FARG.text3, padding: `0 ${AVSTAND.m}px` }}>{currentUser.namn || "—"} · admin</div>
+      </aside>
 
-      {/* Senaste MOM-filer */}
-      <p style={{ ...secHead, marginTop: 22 }}>Senast importerade MOM-filer</p>
-      <Card>
-        {data.momFiler.length === 0 ? (
-          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Inga importerade filer hittade.</p>
-        ) : (
-          data.momFiler.map((f, i) => (
-            <div key={i} style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 0",
-              borderBottom: i === data.momFiler.length - 1 ? "none" : `1px solid ${C.line}`,
-              fontSize: 13,
-            }}>
-              <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, flex: 1 }}>
-                <span style={{
-                  color: C.text,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}>{f.filnamn}</span>
-                <span style={{ color: C.label, fontSize: 11, marginTop: 2 }}>{f.maskin_id}</span>
-              </div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <span style={{ color: f.status === "OK" ? C.green : C.red, fontSize: 11, fontWeight: 600 }}>
-                  {f.status}
-                </span>
-                <div style={{ color: C.label, fontSize: 11 }}>
-                  {f.importerad_tid ? new Date(f.importerad_tid).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "—"}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </Card>
-    </>
-  );
-}
+      <main className="adm-inn">
+        <div className="adm-kol" key={`${nav.flik}-${nyMedarbetare ? "ny" : ""}`}>
+          <div className="tona-in">
+            {!nyMedarbetare && <Titel>{aktiv.label}</Titel>}
+            {nav.flik === "oversikt"    && <Oversikt att={att} />}
+            {nav.flik === "medarbetare" && <MedarbetareFlik />}
+            {nav.flik === "maskiner"    && <MaskinerFlik />}
+            {nav.flik === "lon"         && <LonFlik currentUser={currentUser} />}
+            {nav.flik === "avtal"       && <AvtalFlik currentUser={currentUser} />}
+          </div>
+        </div>
+      </main>
 
-function Kpi({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div style={{
-      background: "#1c1c1e",
-      borderRadius: 12,
-      padding: 16,
-      border: highlight ? `1px solid ${C.red}` : "1px solid rgba(255,255,255,0.06)",
-    }}>
-      <p style={{
-        margin: 0,
-        fontSize: 11,
-        color: C.label,
-        fontWeight: 600,
-        textTransform: "uppercase",
-        letterSpacing: "0.1em",
-      }}>{label}</p>
-      <p style={{
-        margin: "8px 0 0",
-        fontSize: 26,
-        fontWeight: 700,
-        color: highlight ? C.red : C.text,
-        letterSpacing: "-0.02em",
-      }}>{value}</p>
+      <nav className="adm-bott" aria-label="Admin"
+        style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 50, justifyContent: "space-around", alignItems: "flex-start", background: FARG.kort, borderTop: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px ${AVSTAND.s}px ${medSafeBotten(AVSTAND.s)}` }}>
+        {FLIKAR.map(f => {
+          const vald = nav.flik === f.key;
+          return (
+            <button key={f.key} type="button" className="adm-post" onClick={() => gaTill({ flik: f.key })} aria-current={vald ? "page" : undefined}
+              style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: AVSTAND.xs, minHeight: TRAFFYTA.primar, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", color: vald ? FARG.text : FARG.text2, ...TYP.micro, textTransform: "none", letterSpacing: 0 }}>
+              <Ikon namn={f.ikon} farg={vald ? FARG.text : FARG.text2} fylld={vald} />
+              <span>{f.label}</span>
+              {f.key === "oversikt" && antal > 0 && (
+                <span style={{ position: "absolute", top: 0, left: "calc(50% + 6px)" }}><Markering antal={antal} /></span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

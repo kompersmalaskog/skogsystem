@@ -6,8 +6,8 @@
 //
 // Tre nivåer:
 //   kravInloggad()      — alla inloggade (kartproxies, egen data)
-//   kravRoll([...])     — t.ex. ['admin','chef'] för Fortnox/lön/register
-//   målMedarbetareId(x) — "vems data?": alltid den inloggades egen; admin/chef
+//   kravRoll([...])     — t.ex. ['admin'] för Fortnox/lön/register
+//   målMedarbetareId(x) — "vems data?": alltid den inloggades egen; admin
 //                         får peka på någon annan; alla andra som skickar ett
 //                         främmande id får 403 (larm, inte tyst rättning).
 // ─────────────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-export const ADMIN_ROLLER = ["admin", "chef"] as const;
+export const ADMIN_ROLLER = ["admin"] as const;
 
 export type AuthSession = {
   user: { id: string; email: string } | null;
@@ -78,7 +78,7 @@ export async function kravRoll(roller: readonly string[]): Promise<Vakt<{ sessio
 
 /**
  * Vems medarbetare-id gäller anropet? Egen id ur sessionen. Ett `begart` id
- * som avviker accepteras BARA för admin/chef — för alla andra är det ett
+ * som avviker accepteras BARA för admin — för alla andra är det ett
  * försök att läsa någon annans data → 403, aldrig tyst byte till egen.
  */
 export async function målMedarbetareId(begart: string | null | undefined): Promise<Vakt<{ id: string; session: AuthSession }>> {

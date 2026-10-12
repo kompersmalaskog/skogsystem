@@ -275,7 +275,7 @@ export default function HelikopterVy() {
             ar={ar}
             manad={manad}
             manuella={manuella}
-            arAdmin={medarbetare?.roll === 'admin' || medarbetare?.roll === 'chef'}
+            arAdmin={medarbetare?.roll === 'admin'}
           />
         )}
       </PageContainer>

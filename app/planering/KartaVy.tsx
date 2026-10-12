@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { signeraKartfil } from '@/lib/kartfiler';
+import { objektHuvudtyp } from '@/lib/objektPlats';
+import { typLabel } from '@/lib/objekt/typ';
 
 interface KartaVyProps {
   objekt: any;
@@ -194,7 +196,7 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
           {objekt.namn}
         </div>
         <div style={{ fontSize: '12px', color: '#999' }}>
-          {objekt.volym || 0} m³ · {objekt.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
+          {objekt.volym || 0} m³ · {typLabel(objektHuvudtyp(objekt)) === 'Typ okänd' ? 'Gallring' : typLabel(objektHuvudtyp(objekt))}
         </div>
       </div>
 

@@ -4,12 +4,14 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CURRENT_VERSION } from '@/lib/changelog'
+import { LAYOUT } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
 
 const pageNames: Record<string, string> = {
   '/': 'Kompersmåla Skog',
   '/uppfoljning': 'Uppföljning',
   '/maskinvy': 'Maskinvy',
   '/arbetsrapport': 'Arbetsrapport',
+  '/planera': 'Planera',
   '/starta-jobb': 'Starta jobb',
   '/planering': 'Planering',
   '/objekt': 'Objekt',
@@ -26,9 +28,9 @@ const pageNames: Record<string, string> = {
   '/utbildning': 'Utbildning',
   '/egenkontroll': 'Egenkontroll',
   '/gallring': 'Gallring',
-  '/rotkap': 'Rotkap',
-  '/massaved': 'Massaved',
-  '/fordonsoversikt': 'Fordonsöversikt',
+  '/matning': 'Mätning',
+  '/affarsuppfoljning': 'Affärsuppföljning',
+  '/kontroller': 'Kontroller',
   '/maskinflytt': 'Maskinflytt',
   '/maskinflytt/sammanstallning': 'Flyttlogg',
   '/maskinflytt/platser': 'Flyttplatser',
@@ -44,7 +46,7 @@ export default function TopBar() {
   const pageName = pageNames[pathname]
     // Rundvyn ligger på /egenkontroll/<objekt-uuid> — utan detta hade titeln
     // blivit "Egenkontroll/9cd47e9c-…" via fallbacken längst ner.
-    || (pathname.startsWith('/massaved/') ? 'Massaved'
+    || (pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
     : pathname.startsWith('/egenkontroll/') ? 'Egenkontroll'
     : pathname.startsWith('/gallring/') ? 'Gallring'
     : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
@@ -64,8 +66,11 @@ export default function TopBar() {
   }, [])
 
   if (isHome) return null
-  // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick)
-  if (pathname === '/planering') return null
+  // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick). /maskin är SAMMA vy i maskinläge
+  // ("Öppna som maskin") — utan den här raden ritades ett "Maskin v1.0.0"-fält ovanpå kartan.
+  if (pathname === '/planering' || pathname === '/maskin') return null
+  // Utbildningssidorna har sina egna sidhuvuden (stor iOS-titel per sida)
+  if (pathname.startsWith('/utbildning')) return null
 
   return (
     <header style={{
@@ -73,8 +78,8 @@ export default function TopBar() {
       top: 0,
       left: 0,
       right: 0,
-      height: 'calc(56px + env(safe-area-inset-top))',
-      paddingTop: 'env(safe-area-inset-top)',
+      height: LAYOUT.topbar,
+      paddingTop: LAYOUT.safeTopp,
       background: 'rgba(13,13,15,0.92)',
       backdropFilter: 'blur(20px)',
       WebkitBackdropFilter: 'blur(20px)',

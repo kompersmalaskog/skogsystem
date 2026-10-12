@@ -3,7 +3,7 @@ import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 
 /**
- * GET /api/fortnox/debug-saldon?id=07   (admin/chef)
+ * GET /api/fortnox/debug-saldon?id=07   (admin)
  *
  * Dumpar rå data för att felsöka saldo-uträkningen.
  * Hämtar fält som matchar /vacation|atk|atf|saved/i från Fortnox-employee

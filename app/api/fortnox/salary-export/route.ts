@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { beraknaLoneunderlag } from "@/lib/lonesystem/loneunderlag";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
+import { loneartInfo } from "@/lib/lonesystem/loneart";
 
 /**
  * POST /api/fortnox/salary-export
@@ -17,7 +18,7 @@ import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
  * tidsspecifikation). Routen är ett skal: auth → beräkna → returnera/skicka.
  */
 export async function POST(req: NextRequest) {
-  // Allas löneunderlag + skarp Fortnox-sändning: admin/chef, inget annat.
+  // Allas löneunderlag + skarp Fortnox-sändning: admin, inget annat.
   // (Var helt öppen — oinloggad POST gav alla förares underlag.)
   const vakt = await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;
@@ -32,7 +33,9 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = serverSupabase();
-    const u = await beraknaLoneunderlag(supabase, { period, medarbetareIds: filterIds });
+    // medMaskintid bara i dry_run (kontrollvyn Dagar, admin) — aldrig i sändningen,
+    // aldrig i förarens egen spec (min-manad begär den inte).
+    const u = await beraknaLoneunderlag(supabase, { period, medarbetareIds: filterIds, medMaskintid: !!dryRun });
     const { arbetsperiod, resultat, synkAvvikelser } = u;
 
     // Dry run — returnera beräkningar utan att skicka (berikat per medarbetare
@@ -48,6 +51,13 @@ export async function POST(req: NextRequest) {
         synkAvvikelser,
         oenighet: u.oenighet,
       });
+    }
+
+    // En löneart utan kod i mappningen får aldrig bli en tyst saknad rad i en skarp sändning: stoppa före första raden.
+    const saknas = Array.from(new Set(resultat.filter(r => r.status !== "skickat").flatMap(r => r.saknade_loneartskoder || [])));
+    if (saknas.length > 0) {
+      const namn = saknas.map(k => loneartInfo(k)?.label || k).join(", ");
+      return NextResponse.json({ ok: false, meddelande: `Löneartskod saknas för ${namn}. Fyll i koden under Lön → Lönesystem innan något skickas. Inget är skickat.` }, { status: 409 });
     }
 
     // Skicka till Fortnox

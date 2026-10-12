@@ -180,10 +180,10 @@ export default function SammanstallningClient() {
   const [underlagFel, setUnderlagFel] = useState(false)
 
   // Fakturering är ekonomidata (admin-only RLS). Gejta fliken på samma predikat
-  // som RLS (ar_admin = admin/chef) — annars ser en förare en evigt tom flik
+  // som RLS (ar_admin = admin) — annars ser en förare en evigt tom flik
   // (RLS-tomt) i stället för ingen flik alls.
   const { medarbetare } = useCurrentMedarbetare()
-  const arAdmin = medarbetare?.roll === 'admin' || medarbetare?.roll === 'chef'
+  const arAdmin = medarbetare?.roll === 'admin'
 
   const period = useMemo(() => periodIntervall(periodTyp, offset), [periodTyp, offset])
 

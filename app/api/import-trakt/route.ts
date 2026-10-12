@@ -9,6 +9,7 @@ import { parseObjektInfo } from '@/lib/trakt/objektinfo';
 import { parseTraktdirektivText } from '@/lib/trakt/td-parser';
 import { mergeFalt, executorGodkand, forvantadExecutorOrgnr } from '@/lib/trakt/merge';
 import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
+import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
 
 export const runtime = 'nodejs'; // JSZip + unpdf + fast-xml-parser behöver Node-runtime, inte edge
@@ -468,6 +469,19 @@ export async function POST(request: NextRequest) {
           kalla: 'envz',
         });
         if (geoErr) console.error('objekt_geometri insert misslyckades:', geoErr);
+      }
+    }
+
+    // Hyttspår som loggats UTAN objekt (maskindatorns skyddsnät: ingen svarade på "Inget objekt här — Starta jobb?") kopplas automatiskt när det här
+    // objektets traktgräns täcker dem. Best-effort: objektet är redan skrivet, så ett fel här får aldrig fälla importen — det loggas synligt i import_fel
+    // och spåren ligger kvar orörda (importen kan köras om).
+    if (saved?.id && geoFeatures.length > 0) {
+      try {
+        const kopplat = await kopplaHyttsparTillObjekt(service, { id: saved.id, lat: saved.lat, lng: saved.lng, geometri: { type: 'FeatureCollection', features: geoFeatures } as any });
+        if (!kopplat.ok) await loggaImportFel(service, sokvag, 'HYTTSPAR_KOPPLING', kopplat.fel ?? 'okänt fel');
+        else if (kopplat.kopplade > 0) varningar.push(`${kopplat.kopplade} hyttspår utan objekt kopplades till objektet (traktgränsen täcker dem).`);
+      } catch (e: any) {
+        await loggaImportFel(service, sokvag, 'HYTTSPAR_KOPPLING', e?.message ?? String(e));
       }
     }
 

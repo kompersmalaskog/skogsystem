@@ -27,6 +27,35 @@ export function extraMinPerDag(extraPoster: ExtraTidPost[]): Map<string, number>
   return map;
 }
 
+/**
+ * SCHEMAT — vardagar (mån–fre) som inte är röda dagar × timmar per dag, för
+ * datumen fran..till (inklusive, YYYY-MM-DD). EN definition för Min tids
+ * veckorad ("av 40"), årsvyns markering per månad och övertidskortets
+ * "kalenderns vardagar × 8". Det är ett SCHEMA — vad en vanlig period
+ * innehåller — INTE lönens ordinarie (som är arbetade dagar × 8, se
+ * lib/lonesystem/loneberakning). Därför visas det aldrig som "av" på
+ * månadsraden: en månad med semester eller sjukdom ser då ut att sakna timmar.
+ */
+export function schemaTimmar(
+  fran: string,
+  till: string,
+  arRodDag: (datum: string) => boolean,
+  timmarPerDag = 8,
+): number {
+  const [fy, fm, fd] = fran.split("-").map(Number);
+  const [ty, tm, td] = till.split("-").map(Number);
+  const d = new Date(fy, fm - 1, fd);
+  const slut = new Date(ty, tm - 1, td);
+  let dagar = 0;
+  while (d.getTime() <= slut.getTime()) {
+    const dow = d.getDay();
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (dow !== 0 && dow !== 6 && !arRodDag(k)) dagar++;
+    d.setDate(d.getDate() + 1);
+  }
+  return dagar * timmarPerDag;
+}
+
 /** Total arbetad tid i minuter = maskintid (arbetad_min) + extra tid.
  *  Delarna returneras separat så vyer kan särredovisa (delade staplar,
  *  "varav extra tid"-rader) utan att räkna om själva. */

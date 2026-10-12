@@ -15,7 +15,7 @@ import * as path from "path";
 for (const l of fs.readFileSync(path.resolve(__dirname, "../../.env.local"), "utf8").split("\n")) {
   const i = l.indexOf("="); if (i > 0 && !l.startsWith("#")) process.env[l.slice(0, i).trim()] ??= l.slice(i + 1).trim();
 }
-vi.mock("@/lib/auth/server", () => ({ kravRoll: async () => ({ ok: true, session: {} }), ADMIN_ROLLER: ["admin", "chef"] }));
+vi.mock("@/lib/auth/server", () => ({ kravRoll: async () => ({ ok: true, session: {} }), ADMIN_ROLLER: ["admin"] }));
 
 const req = (body: any) => ({ json: async () => body }) as any;
 const kör = async (mod: any, body: any) => { const res = await mod.POST(req(body)); return { status: res.status, text: await res.text() }; };
