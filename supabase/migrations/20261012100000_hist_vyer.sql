@@ -160,12 +160,14 @@ left join k on k.atgard = b.atgard and b.g15_h >= 2 and b.stammar > 0 and b.voly
 where b.maskin_typ = 'skördare';
 
 -- ------------------------------------------------------------------------------------------------ 3. index per maskin, år och åtgärd
+-- urval = 'namn' när åtgärden kommer ur objektnamn/mejlämne/rapportkategori, 'standard' när den kommer från maskinstandard.
 -- viktat_index = summa volym / summa (G15 * förväntad m3/G15) * 100 (G15-viktat).
 create view vy_hist_index_ar with (security_invoker = true) as
 select
   maskin,
   ar,
   atgard,
+  case when coalesce(atgard_kalla, '') <> 'maskinstandard' then 'namn' else 'standard' end as urval,
   count(*)::int as antal_objekt,
   round(sum(g15_h), 1) as summa_g15_h,
   round((percentile_cont(0.5) within group (order by medelstam::float8))::numeric, 3) as median_medelstam,
@@ -173,7 +175,7 @@ select
   round((sum(volym_m3fub)::float8 / sum(g15_h::float8 * forvantad_m3_per_g15) * 100)::numeric, 1) as viktat_index
 from vy_hist_objekt_index
 where index is not null
-group by maskin, ar, atgard;
+group by maskin, ar, atgard, case when coalesce(atgard_kalla, '') <> 'maskinstandard' then 'namn' else 'standard' end;
 
 -- ------------------------------------------------------------------------------------------------ 4. index per förare och maskin
 -- Bara objekt där föraren kört minst 80 % av G15 (andel_kalla g15, eller tid där G15 per förare saknas i rapporten).
@@ -183,6 +185,7 @@ select
   maskin,
   ar,
   atgard,
+  case when coalesce(atgard_kalla, '') <> 'maskinstandard' then 'namn' else 'standard' end as urval,
   count(*)::int as antal_objekt,
   round(sum(g15_h), 1) as summa_g15_h,
   round((percentile_cont(0.5) within group (order by g15_h::float8))::numeric, 1) as median_g15_h_per_objekt,
@@ -194,7 +197,7 @@ where index is not null
   and forare is not null
   and forare_andel >= 0.8
   and andel_kalla in ('g15', 'tid')
-group by forare, maskin, ar, atgard;
+group by forare, maskin, ar, atgard, case when coalesce(atgard_kalla, '') <> 'maskinstandard' then 'namn' else 'standard' end;
 
 -- ------------------------------------------------------------------------------------------------ 5. tid och avbrott per maskin och år
 -- Alla egna maskiner (även skotare). andel_rapporter_med_avbrott = rapporter med avbrott_registrerade 'ja' av de som redovisar avbrott (ja/nej/osaker).
