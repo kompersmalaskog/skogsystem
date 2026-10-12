@@ -54,6 +54,12 @@ def tim(hm):
     return round(int(m.group(1)) + int(m.group(2)) / 60, 3) if m else ""
 
 
+def tu_rapp(o):
+    """Rapporterat tekniskt utnyttjande = G15 / Arbetstid ur samma rapportblock (Ponsse Skift). Rapporten anger bara tider och G15-procent, ingen avbrottsfördelning."""
+    a, g = tim(o.get("arbetstid", "")), tim(o.get("g15_arbetstid", ""))
+    return round(g / a, 4) if a not in ("", 0) and g != "" else ""
+
+
 def num(x):
     return "" if x in ("", None) else x
 
@@ -181,7 +187,8 @@ def main():
                               avbrott_reparation_min=g["reparation"], avbrott_service_min=g["service"], avbrott_storning_min=g["storning"], avbrott_flytt_min=g["flytt"],
                               avbrott_trailer_min=g["trailer"], avbrott_varmkorning_min=g["varmkorning"], avbrott_ovrigt_min=g["ovrigt"], avbrott_totalt_min=g["totalt"],
                               avbrott_registrerade=reg_, objekt_nyckel=o["objekt_nyckel"], programversion=o["programversion"], antal_lass=num(o["antal_lass"]),
-                              volym_kvalitet=o["volym_kvalitet"], livstid_h=num(o["livstid_h"])))
+                              volym_kvalitet=o["volym_kvalitet"], livstid_h=num(o["livstid_h"]),
+                              arbetstid_h=tim(o.get("arbetstid", "")), tu_rapporterad=tu_rapp(o)))
     # ------------------------------------------------------------------ regler -> hist_korrigering (steg 11)
     # hist_objekt.atgard / atgard_kalla är det rapporten (namn, mejlämne, rapportkategori) sa, eller Komatsu/Ponsse/AptMan-maskinstandard som förut.
     # Två regler skrivs i stället som rader i hist_korrigering (orsak "regel: ...") och läses av vyerna först:
@@ -259,7 +266,7 @@ def main():
             w.writerow([sha, "atgard", nytt, orsak])
     okol = ["sha256", "maskin_namn", "objekt", "objektnr", "startdatum", "slutdatum", "rapportdatum", "atgard", "atgard_kalla", "stammar", "volym_m3fub", "volym_enhet", "g15_h", "g0_h",
             "motortid_h", "bransle_l", "avbrott_reparation_min", "avbrott_service_min", "avbrott_storning_min", "avbrott_flytt_min", "avbrott_trailer_min", "avbrott_varmkorning_min",
-            "avbrott_ovrigt_min", "avbrott_totalt_min", "avbrott_registrerade", "objekt_nyckel", "programversion", "antal_lass", "volym_kvalitet", "livstid_h"]
+            "avbrott_ovrigt_min", "avbrott_totalt_min", "avbrott_registrerade", "objekt_nyckel", "programversion", "antal_lass", "volym_kvalitet", "livstid_h", "arbetstid_h", "tu_rapporterad"]
 
     # ------------------------------------------------------------------ hist_skift
     sk_rader, kolliderar = {}, 0

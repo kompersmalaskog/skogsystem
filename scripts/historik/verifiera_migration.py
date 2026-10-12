@@ -16,7 +16,8 @@ from pathlib import Path
 
 STD = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261009170000_hist_tabeller.sql"
 EXTRA = ["20261009180000_hist_objekt_raknas.sql", "20261012100000_hist_vyer.sql", "20261013100000_hist_las_admin.sql",
-         "20261014100000_hist_korrigering_lass.sql", "20261014110000_hist_vyer_korrigering.sql", "20261015100000_hist_vyer_regler.sql", "20261015110000_hist_vyer_appen.sql", "20261015120000_hist_maskin_ar_summor.sql"]
+         "20261014100000_hist_korrigering_lass.sql", "20261014110000_hist_vyer_korrigering.sql", "20261015100000_hist_vyer_regler.sql", "20261015110000_hist_vyer_appen.sql", "20261015120000_hist_maskin_ar_summor.sql",
+         "20261016100000_hist_steg13_tu_rapporterad.sql"]
 ADMIN = r"\(\(select public\.ar_admin\(\)\)\)"
 
 # (regex, etikett, grupp med tabell- eller vynamn)
@@ -28,7 +29,7 @@ MONSTER = [
     (r"^alter policy hist_\w+_las on (hist_\w+) using " + ADMIN + "$", "alter policy (admin)"),
     (r"^create policy historik_las_admin on (storage\.objects) for select to authenticated using \(bucket_id = 'historik' and \(select public\.ar_admin\(\)\)\)$",
      "create policy storage.objects (bara bucket historik)"),
-    (r"^alter table (hist_objekt) add column (?:raknas boolean not null default false|dubblett_av text)$", "add column"),
+    (r"^alter table (hist_objekt) add column (?:if not exists )?(?:raknas boolean not null default false|dubblett_av text|arbetstid_h numeric|tu_rapporterad numeric)$", "add column"),
     (r"^alter table (hist_skift) add column antal_lass integer$", "add column"),
     (r"^alter table (hist_\w+) enable row level security$", "enable rls"),
     (r"^create (?:or replace )?view (vy_hist_\w+) with \(security_invoker = true\) as (?:select|with) ", "create view"),

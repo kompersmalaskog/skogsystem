@@ -84,19 +84,28 @@ def parse_skift(sidor):
             continue
         if cur is None:
             continue
-        if x.startswith("Arbetstid |"):
-            m = re.search(r"Arbetstid \| " + TID + r" \| Rast \| " + TID + r" \| G0 \| " + TID + r".*?G15 \| " + TID, x)
-            if m:
-                g = m.groups()
-                cur["arbetstid"], cur["rast"], cur["g0"], cur["g15"] = (f"{int(g[0])}:{g[1]}", f"{int(g[2])}:{g[3]}", f"{int(g[4])}:{g[5]}", f"{int(g[6])}:{g[7]}")
-        elif re.match(r"m\S* \| " + NUM, x) and "Stam" in x:
+        if x.startswith("Arbetstid"):
+            # pipe efter "Arbetstid" saknas ibland ("Arbetstid 175:23 | Rast | ...") och siffror kan ha mellanslag ("221 :57", "1 75:23")
+            hm_ = lambda ord_: (re.search(ord_ + r"[\s|]*(\d[\d ]*?)\s*:\s*(\d\s?\d)", x))
+            vals = {k: hm_(v) for k, v in (("Arbetstid", "Arbetstid"), ("Rast", "(?:Rast|Annan tid)"), ("G0", "G0"), ("G15", "G15"))}
+            if all(vals.values()):
+                f = {k: f"{int(m.group(1).replace(' ', ''))}:{m.group(2).replace(' ', '')}" for k, m in vals.items()}
+                cur["arbetstid"], cur["rast"], cur["g0"], cur["g15"] = f["Arbetstid"], f["Rast"], f["G0"], f["G15"]
+                mp = re.search(r"G15[\s|]*\d[\d ]*?\s*:\s*\d\d\s*\((\d[\d ]*)\s*%", x)
+                if mp:
+                    cur["g15_pct_rapport"] = int(mp.group(1).replace(" ", ""))
+        elif re.match(r"m\S* \| " + NUM, x) and "Stam" in x and "rbrukning" not in x:
             m = re.search(r"^m\S* \| " + NUM + r" \| .*?\| " + NUM + r" \| m\S* ?/ ?[Ss]tam \| " + NUM + r" \| Stammar \| " + NUM, x)
             if m:
                 cur["m3"], cur["medelstam_rad"], cur["stammar"] = tal(m.group(1)), tal(m.group(3)), int(tal(m.group(4)))
-        elif x.startswith("m") and "G15" in x and "Stammar" in x:
-            m = re.search(r"G15 \| " + NUM + r" \| .*?\| " + NUM + r" \| F.rbrukning \| " + NUM + r" \| Stammar ?/ ?G15 \| " + NUM, x)
+        elif x.startswith("m") and "G15" in x and "rbrukning" in x:
+            m = re.search(r"G15 \| " + NUM + r" \| .*?\| " + NUM + r" \| F.rbrukning", x)
             if m:
-                cur["m3_per_g15"], cur["m3_per_h"], cur["forbrukning_l"] = tal(m.group(1)), tal(m.group(2)), tal(m.group(3))
+                cur["m3_per_g15"], cur["m3_per_h"] = tal(m.group(1)), tal(m.group(2))
+            # Förbrukning i liter (kontroll: ~20 l/G15). Pipe efter ordet saknas ibland; "951 ,0" = 951,0
+            m = re.search(r"F.rbrukning[\s|]*(\d[\d ]*(?:\s*,\s*\d+)?)", x)
+            if m:
+                cur["forbrukning_l"] = tal(m.group(1))
         elif x.startswith("Bearbetade m"):
             nums = re.findall(NUM, x)
             cur["mth_rad"] = x[:80]

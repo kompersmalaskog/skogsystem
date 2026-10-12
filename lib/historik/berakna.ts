@@ -307,24 +307,35 @@ export function standardAtgard(rader: MaskinArRad[], maskin: string, typ: Maskin
 export const JAMFOR_MIN = 2;
 export const JAMFOR_MAX = 4;
 
-/** Maskiner av en typ som har objekt i åtgärden (null = alla åtgärder, för skotare), flest objekt först. */
-export function maskinerMedObjekt(rader: MaskinArRad[], typ: MaskinTyp, atgard: AtgardKod | null, medAntagna: boolean): { maskin: string; antal: number; antagna: number }[] {
-  const urval: Urval = medAntagna ? "alla" : "namn";
-  const ut: { maskin: string; antal: number; antagna: number }[] = [];
+/**
+ * Maskiner av en typ som har minst ett objekt i åtgärden (null = alla åtgärder, för skotare), flest objekt först. Valbar = minst 1 objekt bland ALLA objekt
+ * (även antagna), oavsett om åtgärden kommer ur namn/ämne, bekräftad standard eller obekräftad maskinstandard. urval = vilka objekt jämförelsen använder
+ * för maskinen: 'namn' om det finns sådana och antagna inte tagits med, annars 'alla' (en maskin med bara antagna objekt jämförs på dem, med text).
+ */
+export function maskinerMedObjekt(rader: MaskinArRad[], typ: MaskinTyp, atgard: AtgardKod | null, medAntagna: boolean): { maskin: string; antal: number; antagna: number; urval: Urval }[] {
+  const ut: { maskin: string; antal: number; antagna: number; urval: Urval }[] = [];
   for (const m of maskiner(rader, typ)) {
-    const antal = rad(rader, m, atgard, null, urval)?.antal_objekt ?? 0;
-    const antagna = Math.max(0, (rad(rader, m, atgard, null, "alla")?.antal_objekt ?? 0) - (rad(rader, m, atgard, null, "namn")?.antal_objekt ?? 0));
-    if (antal > 0) ut.push({ maskin: m, antal, antagna });
+    const alla = rad(rader, m, atgard, null, "alla")?.antal_objekt ?? 0;
+    const namn = rad(rader, m, atgard, null, "namn")?.antal_objekt ?? 0;
+    if (alla === 0) continue;
+    const urval: Urval = medAntagna || namn === 0 ? "alla" : "namn";
+    ut.push({ maskin: m, antal: urval === "alla" ? alla : namn, antagna: Math.max(0, alla - namn), urval });
   }
   return ut.sort((a, b) => b.antal - a.antal || a.maskin.localeCompare(b.maskin, "sv"));
 }
 
-export type JamforCell = { text: string; ord: boolean; notis: string | null; tal: number | null; bast: boolean };
+/** Vilket urval jämförelsen använder för en maskin (se maskinerMedObjekt). */
+export function jamforUrval(rader: MaskinArRad[], maskin: string, atgard: AtgardKod | null, medAntagna: boolean): Urval {
+  const namn = rad(rader, maskin, atgard, null, "namn")?.antal_objekt ?? 0;
+  return medAntagna || namn === 0 ? "alla" : "namn";
+}
+
+export type JamforCell = { text: string; ord: boolean; notis: string | null; tal: number | null; bast: boolean; extra?: string };
 export type JamforRad = { etikett: string; celler: JamforCell[]; bastRiktning: "hog" | "lag" | null };
 
 /** Index/linje-serie för diagrammet: viktat index (skördare) eller m³/G15 (skotare), ett värde per år. */
 export function jamforSerie(rader: MaskinArRad[], maskin: string, atgard: AtgardKod | null, medAntagna: boolean): { ar: number; varde: number | null; n: number }[] {
-  const urval: Urval = medAntagna ? "alla" : "namn";
+  const urval: Urval = jamforUrval(rader, maskin, atgard, medAntagna);
   return rader
     .filter((r) => r.maskin === maskin && r.atgard === atgard && r.urval === urval && r.ar !== null)
     .sort((a, b) => (a.ar as number) - (b.ar as number))
@@ -334,11 +345,11 @@ export function jamforSerie(rader: MaskinArRad[], maskin: string, atgard: Atgard
 /**
  * Tabellen under diagrammet: en kolumn per maskin, hela perioden. Skördare: år, objekt, volym, G15, m³/G15, stammar/G15, medelstam, viktat index, TU,
  * bränsle. Skotare: år, objekt, volym, G15, m³/G15, lass/G15, TU, bränsle (inget index). "Bäst" markeras bara i rader där riktningen är entydig
- * (m³/G15, viktat index, TU högst; bränsle lägst) och bara bland värden som är tillförlitliga: minst 5 objekt, och TU bara om stopp finns i minst 70 % av rapporterna.
+ * (viktat index och TU, högst) och bara bland värden som är tillförlitliga: minst 5 objekt, och TU bara om stopp finns i minst 70 % av rapporterna.
  */
 export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: MaskinTyp, atgard: AtgardKod | null, medAntagna: boolean): JamforRad[] {
-  const urval: Urval = medAntagna ? "alla" : "namn";
-  const rs = maskinerValda.map((m) => rad(rader, m, atgard, null, urval));
+  const urvalAv = (m: string) => jamforUrval(rader, m, atgard, medAntagna);
+  const rs = maskinerValda.map((m) => rad(rader, m, atgard, null, urvalAv(m)));
   const skordare = typ === "skördare";
   const cell = (r: MaskinArRad | undefined, f: (r: MaskinArRad) => { text: string; ord: boolean; notis: string | null; tal: number | null; osaker?: boolean }): JamforCell => {
     if (!r) return { text: "Inga objekt", ord: true, notis: null, tal: null, bast: false };
@@ -353,15 +364,22 @@ export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: 
   ut.push({
     etikett: "Kördes",
     celler: maskinerValda.map((m, i) => cell(rs[i], () => {
-      const a = aren(rader, m, atgard, urval);
+      const a = aren(rader, m, atgard, urvalAv(m));
       return { text: a.length ? arSpann(a[0], a[a.length - 1]) : "–", ord: !a.length, notis: null, tal: null };
     })),
     bastRiktning: null,
   });
-  ut.push({ etikett: "Antal objekt", celler: rs.map((r) => cell(r, (x) => ({ text: String(x.antal_objekt), ord: false, notis: fewObjects(x.antal_objekt), tal: x.antal_objekt }))), bastRiktning: null });
+  ut.push({
+    etikett: "Antal objekt",
+    celler: rs.map((r, i) => cell(r, (x) => {
+      const bara = !medAntagna && urvalAv(maskinerValda[i]) === "alla";
+      return { text: String(x.antal_objekt), ord: false, notis: bara ? "Bara antagna objekt (maskinstandard)" : fewObjects(x.antal_objekt), tal: x.antal_objekt };
+    })),
+    bastRiktning: null,
+  });
   ut.push({ etikett: "Total volym (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.volym_m3fub, 0, "", "Volym saknas", x.antal_volym_osaker > 0 ? `Osäker i ${x.antal_volym_osaker} objekt` : null))), bastRiktning: null });
   ut.push({ etikett: "G15 (h)", celler: rs.map((r) => cell(r, (x) => tal(x.g15_h, 0, "", "G15 saknas", null))), bastRiktning: null });
-  ut.push({ etikett: "m³/G15", celler: rs.map((r) => cell(r, (x) => tal(x.m3_per_g15, 1, "", "G15 saknas i rapporten", fewObjects(x.antal_med_g15), x.antal_med_g15 < MIN_OBJEKT))), bastRiktning: "hog" });
+  ut.push({ etikett: "m³/G15", celler: rs.map((r) => cell(r, (x) => tal(x.m3_per_g15, 1, "", "G15 saknas i rapporten", fewObjects(x.antal_med_g15), x.antal_med_g15 < MIN_OBJEKT))), bastRiktning: null });
   if (skordare) {
     ut.push({ etikett: "Stammar/G15", celler: rs.map((r) => cell(r, (x) => tal(x.stammar_per_g15, 0, "", `Stammar ${SAKNAS_FORMAT}`, null))), bastRiktning: null });
     ut.push({ etikett: "Medelstam (m³)", celler: rs.map((r) => cell(r, (x) => tal(x.medelstam, 3, "", "Stammar saknas", null))), bastRiktning: null });
@@ -377,7 +395,17 @@ export function jamforRader(rader: MaskinArRad[], maskinerValda: string[], typ: 
     })),
     bastRiktning: "hog",
   });
-  ut.push({ etikett: "Bränsle l/m³", celler: rs.map((r) => cell(r, (x) => tal(x.bransle_l_per_m3, 2, "", `Bränsle ${SAKNAS_FORMAT}`, null))), bastRiktning: "lag" });
+  ut.push({ etikett: "Bränsle l/m³", celler: rs.map((r) => cell(r, (x) => tal(x.bransle_l_per_m3, 2, "", `Bränsle ${SAKNAS_FORMAT}`, null))), bastRiktning: null });
+  // medelstammen visas under m³/G15 och bränsle (de påverkas av stamstorleken) i stället för att markeras som bäst
+  if (skordare) {
+    for (const rad_ of ut) {
+      if (rad_.etikett !== "m³/G15" && rad_.etikett !== "Bränsle l/m³") continue;
+      rad_.celler.forEach((c, i) => {
+        const ms = fmt(rs[i]?.medelstam ?? null, 3);
+        if (!c.ord && ms) c.extra = `medelstam ${ms} m³`;
+      });
+    }
+  }
   // tabellcellerna är smala: "…saknas i rapportformatet" blir "Saknas i formatet" (förklaras under tabellen)
   for (const rad_ of ut) for (const c of rad_.celler) if (c.ord && c.text.endsWith(SAKNAS_FORMAT)) c.text = "Saknas i formatet";
   // markera bästa (bara tillförlitliga tal; lika värden delar markeringen)

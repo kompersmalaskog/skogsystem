@@ -165,7 +165,7 @@ describe("standardåtgärd (steg 12): den åtgärd maskinen har flest objekt i",
 describe("jämförelsen (steg 12)", () => {
   const a = (maskin: string, p: Partial<MaskinArRad>, ar: number | null = null) =>
     r({ maskin, typ: "skördare", atgard: "gallring", ar, urval: "namn", ...p });
-  const d: MaskinArRad[] = [
+  const namnRader: MaskinArRad[] = [
     a("A", { antal_objekt: 50, antal_med_index: 50, antal_med_g15: 50, m3_per_g15: 5.4, viktat_index: 102, tu: 0.94, andel_rapporter_med_stopp: 0.98, bransle_l_per_m3: 2.2 }),
     a("A", { viktat_index: 108, antal_med_index: 30 }, 2023),
     a("A", { viktat_index: 99, antal_med_index: 20 }, 2024),
@@ -173,6 +173,7 @@ describe("jämförelsen (steg 12)", () => {
     a("C", { antal_objekt: 3, antal_med_index: 3, antal_med_g15: 3, m3_per_g15: 9, viktat_index: 120, tu: 0.99, andel_rapporter_med_stopp: 0.4, bransle_l_per_m3: 1.0 }),
     a("D", { antal_objekt: 20, antal_med_index: 20, antal_med_g15: 20, m3_per_g15: 5.6, viktat_index: 97, tu: null, andel_rapporter_med_stopp: null, bransle_l_per_m3: null }),
   ];
+  const d: MaskinArRad[] = [...namnRader, ...namnRader.map((x) => ({ ...x, urval: "alla" as Urval }))]; // databasen har alltid både namn- och alla-rader
   it("maskinerMedObjekt: bara maskiner med objekt i åtgärden, flest först", () => {
     expect(maskinerMedObjekt(d, "skördare", "gallring", false).map((x) => x.maskin)).toEqual(["A", "B", "D", "C"]);
     expect(maskinerMedObjekt(d, "skördare", "slutavverkning", false)).toEqual([]);
@@ -183,17 +184,19 @@ describe("jämförelsen (steg 12)", () => {
   it("bäst markeras i m³/G15, index, TU (högst) och bränsle (lägst), bara bland tillförlitliga värden", () => {
     const rader_ = Object.fromEntries(jamforRader(d, ["A", "B", "C"], "skördare", "gallring", false).map((x) => [x.etikett, x]));
     // C har 3 objekt (osäker) och TU i 40 % av rapporterna -> räknas inte som bäst trots högst siffror
-    expect(rader_["m³/G15"].celler.map((c) => c.bast)).toEqual([false, true, false]);
+    expect(rader_["m³/G15"].celler.map((c) => c.bast)).toEqual([false, false, false]); // m³/G15 och bränsle markeras inte (steg 13)
     expect(rader_["Viktat index"].celler.map((c) => c.bast)).toEqual([true, false, false]);
     expect(rader_["TU"].celler.map((c) => c.bast)).toEqual([true, false, false]);
-    expect(rader_["Bränsle l/m³"].celler.map((c) => c.bast)).toEqual([false, true, false]);
+    expect(rader_["Bränsle l/m³"].celler.map((c) => c.bast)).toEqual([false, false, false]);
+    expect(rader_["m³/G15"].celler[0].extra).toBe("medelstam 0,200 m³");
+    expect(rader_["Bränsle l/m³"].celler[0].extra).toBe("medelstam 0,200 m³");
     expect(rader_["Antal objekt"].celler.some((c) => c.bast)).toBe(false);
     expect(rader_["m³/G15"].celler[2].notis).toBe("Bygger på 3 objekt");
     expect(rader_["TU"].celler[2].notis).toMatch(/TU osäker: stopp registrerade i 40\s%/);
   });
   it("lika värden delar markeringen; saknad data är ord och aldrig bäst", () => {
     const rader_ = Object.fromEntries(jamforRader(d, ["B", "D"], "skördare", "gallring", false).map((x) => [x.etikett, x]));
-    expect(rader_["m³/G15"].celler.map((c) => c.bast)).toEqual([true, true]);
+    expect(rader_["Viktat index"].celler.map((c) => c.bast)).toEqual([true, true]);
     expect(rader_["TU"].celler[1]).toMatchObject({ text: "Saknas i formatet", ord: true, bast: false });
     expect(rader_["Bränsle l/m³"].celler[1].text).toBe("Saknas i formatet");
   });
@@ -201,5 +204,21 @@ describe("jämförelsen (steg 12)", () => {
     const sk = [r({ maskin: "S1", typ: "skotare", atgard: null, ar: null, urval: "namn", lass_per_g15: 1.2 }), r({ maskin: "S2", typ: "skotare", atgard: null, ar: null, urval: "namn", lass_per_g15: 1.4 })];
     const e = jamforRader(sk, ["S1", "S2"], "skotare", null, false).map((x) => x.etikett);
     expect(e).toEqual(["Kördes", "Antal objekt", "Total volym (m³)", "G15 (h)", "m³/G15", "Lass/G15", "TU", "Bränsle l/m³"]);
+  });
+});
+
+describe("väljare (steg 13): varje maskin med minst 1 objekt i åtgärden är valbar", () => {
+  const d: MaskinArRad[] = [
+    r({ maskin: "911.3", typ: "skördare", atgard: "gallring", ar: null, urval: "alla", antal_objekt: 164 }),
+    r({ maskin: "911.3", typ: "skördare", atgard: "gallring", ar: null, urval: "namn", antal_objekt: 110 }),
+    r({ maskin: "901XC", typ: "skördare", atgard: "gallring", ar: null, urval: "alla", antal_objekt: 83 }),
+    r({ maskin: "901XC", typ: "skördare", atgard: "gallring", ar: null, urval: "namn", antal_objekt: 83 }),
+    r({ maskin: "Bara antagna", typ: "skördare", atgard: "gallring", ar: null, urval: "alla", antal_objekt: 7 }),
+  ];
+  it("alla tre är valbara; antal visar namn-objekt tills antagna tas med; maskin med bara antagna jämförs på dem", () => {
+    const k = maskinerMedObjekt(d, "skördare", "gallring", false);
+    expect(k.map((x) => [x.maskin, x.antal, x.urval])).toEqual([["911.3", 110, "namn"], ["901XC", 83, "namn"], ["Bara antagna", 7, "alla"]]);
+    const k2 = maskinerMedObjekt(d, "skördare", "gallring", true);
+    expect(k2.map((x) => [x.maskin, x.antal])).toEqual([["911.3", 164], ["901XC", 83], ["Bara antagna", 7]]);
   });
 });

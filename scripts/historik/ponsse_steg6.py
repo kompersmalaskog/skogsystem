@@ -40,8 +40,14 @@ def tot(blocks):
         return None
     g15 = sum(P.minuter(b["g15"]) for b in src if "g15" in b)
     g0 = sum(P.minuter(b["g0"]) for b in src if "g0" in b)
+    # bränsle (rapportens "Förbrukning", liter) och arbetstid (G15 + reparation + service + störning ... enligt rapportens definition) ur samma block som G15
+    med = [b for b in src if "g15" in b and "arbetstid" in b]
+    arb = sum(P.minuter(b["arbetstid"]) for b in med)
+    g15_arb = sum(P.minuter(b["g15"]) for b in med)
+    fuel = sum(b["forbrukning_l"] for b in src if "forbrukning_l" in b)
     kat = {KAT_MAP.get(b["kategori"].lower(), "?") for b in blocks if b["kategori"] != "Alla"}
-    return dict(g15=g15, g0=g0, m3=sum(b["m3"] for b in src), stammar=sum(b.get("stammar", 0) for b in src), saknar=len(saknar) if not alla else 0,
+    return dict(g15=g15, g0=g0, arbetstid=arb, g15_arb=g15_arb, bransle_l=fuel if any("forbrukning_l" in b for b in src) else None,
+                fuel_g15=sum(P.minuter(b["g15"]) for b in src if "g15" in b and "forbrukning_l" in b), m3=sum(b["m3"] for b in src), stammar=sum(b.get("stammar", 0) for b in src), saknar=len(saknar) if not alla else 0,
                 kat="/".join(sorted(blocks and {b["kategori"] for b in blocks if b["kategori"] != "Alla"})), katset=kat,
                 forare=",".join(sorted({b["forare"] for b in bl})))
 
@@ -99,7 +105,8 @@ def main():
                  rapporttyp=rt, objekt=objekt, antal_skift=len(s["dagrader"]), kalla_typ="vektor-pdf", filnamn=s["fil"], maskin_kalla=s["maskin_kalla"],
                  objekt_nyckel=f'{s["maskin"]}|S|{P.normtext(objekt)}|{a or ""}|{b or ""}', fran=a or "", till=b or "")
         if t:
-            o.update(g15=hm(t["g15"]), g0=hm(t["g0"]), stammar=t["stammar"], volym_m3fub=round(t["m3"], 3), forare=t["forare"], volym_per_tradslag=t["kat"])
+            o.update(arbetstid=hm(t["arbetstid"]) if t["arbetstid"] else "", g15_arbetstid=hm(t["g15_arb"]) if t["arbetstid"] else "",
+                     bransle_l=round(t["bransle_l"], 1) if t["bransle_l"] is not None and t["fuel_g15"] == t["g15"] else "", g15=hm(t["g15"]), g0=hm(t["g0"]), stammar=t["stammar"], volym_m3fub=round(t["m3"], 3), forare=t["forare"], volym_per_tradslag=t["kat"])
             ks = {KAT_MAP[x] for x in t["katset"] if x in KAT_MAP}
             o["atgard_rapport"] = (next(iter(ks)) if len(ks) == 1 else "okänd (flera)") if ks and "?" not in t["katset"] else ""
             if t["saknar"]:
@@ -201,7 +208,10 @@ def main():
                 ks2 |= {KAT_MAP.get(k.lower(), "?") for k in t["kat"].split("/") if k}
         if not ar and ks2:
             ar = next(iter(ks2)) if len(ks2) == 1 and "?" not in ks2 else "okänd (flera)"
-        ack.append(dict(status="ok", format="ponsse_skift_objekt", volym_enhet="fub", sha256=(mxs["sha"] if mxs else first["sha256"]), rapportdatum=last["datum"],
+        ext = {}
+        if mx and mx[0]["g15"] and abs(g15 - mx[0]["g15"]) <= 0.05 * mx[0]["g15"] and mx[0]["bransle_l"] is not None and mx[0]["fuel_g15"] == mx[0]["g15"]:
+            ext = dict(bransle_l=round(mx[0]["bransle_l"], 1), arbetstid=hm(mx[0]["arbetstid"]), g15_arbetstid=hm(mx[0]["g15_arb"])) if mx[0]["arbetstid"] else dict(bransle_l=round(mx[0]["bransle_l"], 1))
+        ack.append(dict(**ext, status="ok", format="ponsse_skift_objekt", volym_enhet="fub", sha256=(mxs["sha"] if mxs else first["sha256"]), rapportdatum=last["datum"],
                         maskin_namn=mk, typ="skördare", rapporttyp="objekt_aggregat", objekt=(mxs and kum[(mk, on)][4][2]) or first["objekt"], stammar=st,
                         volym_m3fub=round(m3, 3), g15=hm(g15), antal_skift=len(rows), kalla_typ="vektor-pdf", filnamn=(mxs["fil"] if mxs else ""),
                         maskin_kalla=first["maskin_kalla"], objekt_nyckel=f"{mk}|SA|{on}", atgard_rapport=ar, fran=first["datum"], till=last["datum"]))
@@ -213,7 +223,9 @@ def main():
     for (mk, on), lst in utan.items():
         t, s, ob, a, b = max(lst, key=lambda x: x[0]["g15"])
         ks = {KAT_MAP.get(k.lower(), "?") for k in t["kat"].split("/") if k}
-        ack.append(dict(status="ok", format="ponsse_skift_objekt", volym_enhet="fub", sha256=s["sha"], rapportdatum=b.isoformat() if b else s["utskriven"], maskin_namn=mk,
+        ext = dict(bransle_l=round(t["bransle_l"], 1) if t["bransle_l"] is not None and t["fuel_g15"] == t["g15"] else "",
+                   arbetstid=hm(t["arbetstid"]) if t["arbetstid"] else "", g15_arbetstid=hm(t["g15_arb"]) if t["arbetstid"] else "")
+        ack.append(dict(**ext, status="ok", format="ponsse_skift_objekt", volym_enhet="fub", sha256=s["sha"], rapportdatum=b.isoformat() if b else s["utskriven"], maskin_namn=mk,
                         typ="skördare", rapporttyp="objekt_aggregat", objekt=ob, stammar=t["stammar"], volym_m3fub=round(t["m3"], 3), g15=hm(t["g15"]), antal_skift=0,
                         kalla_typ="vektor-pdf", filnamn=s["fil"], maskin_kalla=s["maskin_kalla"], objekt_nyckel=f"{mk}|SA|{on}",
                         atgard_rapport=(next(iter(ks)) if len(ks) == 1 and "?" not in ks else ("okänd (flera)" if ks else "")), fran=a or "", till=b or ""))
@@ -221,7 +233,7 @@ def main():
 
     # ---------------------------------------------------------- skriv in i objekt.csv / skift.csv / avvikelser.csv (idempotent)
     O, ok = las_csv("objekt.csv")
-    for k in ("maskin_kalla", "atgard_rapport", "fran", "till"):
+    for k in ("maskin_kalla", "atgard_rapport", "fran", "till", "arbetstid", "g15_arbetstid"):
         if k not in ok:
             ok.append(k)
     O = [o for o in O if o["format"] not in NYA_FORMAT and o["format"] != "ponsse_skift_objekt"]

@@ -40,7 +40,7 @@ SCHEMA = {
     "hist_objekt": dict(sha256="text", objekt="text", objektnr="text", startdatum="date", slutdatum="date", rapportdatum="date", atgard="text", atgard_kalla="text", stammar="int",
                         volym_m3fub="num", volym_enhet="text", g15_h="num", g0_h="num", motortid_h="num", bransle_l="num", avbrott_reparation_min="int", avbrott_service_min="int",
                         avbrott_storning_min="int", avbrott_flytt_min="int", avbrott_trailer_min="int", avbrott_varmkorning_min="int", avbrott_ovrigt_min="int",
-                        avbrott_totalt_min="int", avbrott_registrerade="text", objekt_nyckel="text", programversion="text", antal_lass="int", volym_kvalitet="text", livstid_h="num", raknas="bool", dubblett_av="text"),
+                        avbrott_totalt_min="int", avbrott_registrerade="text", objekt_nyckel="text", programversion="text", antal_lass="int", volym_kvalitet="text", livstid_h="num", arbetstid_h="num", tu_rapporterad="num", raknas="bool", dubblett_av="text"),
     "hist_skift": dict(datum="date", in_tid="time", ut_tid="time", g15_h="num", g0_h="num", volym="num", volym_enhet="text", stammar="int", bransle_l="num", motortid_h="num",
                        sha256="text", kalla="text", objekt="text", antal_lass="int"),
     "hist_forare_objekt": dict(sha256="text", g15_h="num", volym="num", stammar="int"),

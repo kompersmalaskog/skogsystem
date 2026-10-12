@@ -103,7 +103,8 @@ function Jamfor({ rader, jv, gaTill }: { rader: MaskinArRad[]; jv: Jv; gaTill: (
   const tabell = valda.length >= JAMFOR_MIN ? jamforRader(rader, valda, typ, atgard, medAntagna) : [];
 
   function vaxla(m: string) {
-    const nu = valda.includes(m) ? valda.filter((x) => x !== m) : valda.length < JAMFOR_MAX ? [...valda, m] : valda;
+    // en femte maskin byter ut den äldst valda: ingen knapp är någonsin inaktiv
+    const nu = valda.includes(m) ? valda.filter((x) => x !== m) : valda.length < JAMFOR_MAX ? [...valda, m] : [...valda.slice(1), m];
     gaTill({ valda: nu });
   }
 
@@ -133,27 +134,25 @@ function Jamfor({ rader, jv, gaTill }: { rader: MaskinArRad[]; jv: Jv; gaTill: (
           <div style={{ display: "flex", flexWrap: "wrap", gap: AVSTAND.s }}>
             {kandidater.map((k) => {
               const vald = valda.includes(k.maskin);
-              const last = !vald && valda.length >= JAMFOR_MAX;
               return (
                 <button
                   key={k.maskin}
                   type="button"
                   aria-pressed={vald}
-                  disabled={last}
                   onClick={() => vaxla(k.maskin)}
                   style={{
-                    minHeight: TRAFFYTA.min, border: "none", borderRadius: RADIE.knapp, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, cursor: last ? "default" : "pointer", fontFamily: "inherit", textAlign: "left",
-                    background: vald ? FARG.upphojt : FARG.kort, color: FARG.text, opacity: last ? 0.4 : 1, ...(vald ? TYP.listtitel : TYP.text), fontSize: TYP.meta.fontSize,
+                    minHeight: TRAFFYTA.min, border: "none", borderRadius: RADIE.knapp, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                    background: vald ? FARG.upphojt : FARG.kort, color: FARG.text, ...(vald ? TYP.listtitel : TYP.text), fontSize: TYP.meta.fontSize,
                   }}
                 >
                   {vald ? `${linjeGlyf(valda.indexOf(k.maskin))} ` : ""}{k.maskin}
-                  <span style={{ display: "block", ...TYP.micro, textTransform: "none", color: FARG.text2, fontWeight: 400 }}>{k.antal} objekt</span>
+                  <span style={{ display: "block", ...TYP.micro, textTransform: "none", color: FARG.text2, fontWeight: 400 }}>{k.antal} objekt{!jv.antagna && k.urval === "alla" ? " (bara antagna)" : ""}</span>
                 </button>
               );
             })}
           </div>
         )}
-        {valda.length >= JAMFOR_MAX && <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Högst {JAMFOR_MAX} maskiner. Ta bort en för att välja en annan.</p>}
+        {valda.length >= JAMFOR_MAX && <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Högst {JAMFOR_MAX} maskiner. Väljer du en till byts den som valdes först ut.</p>}
         {valda.length < JAMFOR_MIN && kandidater.length > 0 && <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Välj minst {JAMFOR_MIN} maskiner för att se jämförelsen.</p>}
       </Sektion>
 
@@ -184,6 +183,7 @@ function Jamfor({ rader, jv, gaTill }: { rader: MaskinArRad[]; jv: Jv; gaTill: (
                         <td key={i} style={{ textAlign: "right", verticalAlign: "top", padding: `${AVSTAND.m}px ${AVSTAND.xs}px`, borderBottom: `1px solid ${FARG.linje}`, overflowWrap: "anywhere" }}>
                           <div style={c.ord ? { ...TYP.meta, color: FARG.text2 } : { ...TYP.meta, ...TNUM, fontWeight: c.bast ? 700 : 400 }}>{c.text}</div>
                           {c.bast && <div style={{ ...TYP.micro, textTransform: "none", color: FARG.text }}>bäst</div>}
+                          {c.extra && <div style={{ ...TYP.micro, textTransform: "none", color: FARG.text2, fontWeight: 400 }}>{c.extra}</div>}
                           {c.notis && <div style={{ display: "flex", justifyContent: "flex-end" }}><Notis text={c.notis} /></div>}
                         </td>
                       ))}
@@ -196,8 +196,8 @@ function Jamfor({ rader, jv, gaTill }: { rader: MaskinArRad[]; jv: Jv; gaTill: (
               <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.m}px 0 0` }}>Saknas i formatet: rapportformatet för den maskinen redovisar inte uppgiften (avbrott, bränsle, lass eller stammar).</p>
             )}
             <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.m}px 0 0` }}>
-              Fetstil och ordet "bäst" markerar bästa värdet i raderna m³/G15, {index ? "viktat index, " : ""}TU (högst) och bränsle (lägst). Värden på färre än 5 objekt, eller TU med stopp i färre än 70 % av rapporterna, räknas inte som bäst.
-              {index ? " m³/G15 påverkas av medelstam: jämför helst index." : " Skotarnas m³/G15 påverkas av avstånd och sortiment."}
+              Fetstil och ordet "bäst" markerar bästa värdet i raderna viktat index och TU (högst). m³/G15 och bränsle markeras inte: de påverkas av stamstorleken, så medelstammen står under dem. Värden på färre än 5 objekt, eller TU med stopp i färre än 70 % av rapporterna, räknas inte som bäst.
+              {index ? "" : " Skotarnas m³/G15 påverkas av avstånd och sortiment."}
             </p>
           </Sektion>
         </>
