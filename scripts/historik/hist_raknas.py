@@ -4,7 +4,7 @@ raknas = true för EXAKT EN rapport per objekt och maskin: ej exkluderad, typ = 
   rangordning inom en grupp: har G15 (Ponsse: Skift med G15 före Mätbevis utan), störst G15, störst volym, senast rapportdatum.
 Grupper (samma maskin):
   - samma objektnyckel (kumulativa utskrifter av samma objekt: Komatsu/Rottne/AptMan/Ponsse Maskinspecifik/Lastcertifikat/Ponsse Skift)
-  - Ponsse Mätbevis (ny) ingår i samma grupp som Skift-rapporten för samma objekt (objektnamn lik >= 0,8 och +-45 dagar)
+  - Ponsse Mätbevis (ny) ingår i samma grupp som Skift-rapporten för samma objekt (objektnamn lik >= 0,8 och +-45 dagar, eller samma stammar och volym +-1 %)
   - OptiWin-Mätbevis (Bear m.fl.) ingår i samma grupp som Maskinspecifik för samma objekt (nummer ur objekt.csv:dubblett_av, annars namn >= 0,8 och +-45 dagar)
   - AptMan produktionsnota ingår i samma grupp som DRIFT-INFO för samma objekt (samma nyckel, annars samma namn och maskin)
 dubblett_av = sha256 för den rapport som räknas, på alla övriga rapporter i gruppen. Exkluderade, månads- och sök-rapporter: raknas=false, dubblett_av tomt.
@@ -93,6 +93,15 @@ def main():
             if best[0] >= 0.8:
                 union(best[1]["sha256"], mb["sha256"])
                 stat["mätbevis_ny -> skift"] += 1
+                continue
+            # namnen läses ibland fel ur ritad text ('?' för å/ä/ö): samma stammar och samma volym (+-1 %) inom +-45 dagar = samma objekt
+            if mb["stammar"] and mb["volym_m3fub"]:
+                v = float(mb["volym_m3fub"])
+                for s in skift:
+                    if s["stammar"] == mb["stammar"] and s["volym_m3fub"] and abs(float(s["volym_m3fub"]) - v) <= 0.01 * v + 0.2 and nara(mb, s):
+                        union(s["sha256"], mb["sha256"])
+                        stat["mätbevis_ny -> skift (stammar+volym)"] += 1
+                        break
         # OptiWin-Mätbevis -> Maskinspecifik
         ms = [h for h in rows if h["_f"] == "ponsse_maskinspecifik_summering"]
         for mb in (h for h in rows if h["_f"] == "matbevis"):

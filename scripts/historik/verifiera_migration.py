@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 STD = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261009170000_hist_tabeller.sql"
-EXTRA = ["20261009180000_hist_objekt_raknas.sql", "20261012100000_hist_vyer.sql"]
+EXTRA = ["20261009180000_hist_objekt_raknas.sql", "20261012100000_hist_vyer.sql", "20261013100000_hist_las_admin.sql"]
 
 
 def satser(sql):
@@ -68,7 +68,9 @@ def kontrollera(sql):
             or (re.match(r"^create policy \w+ on (hist_\w+) for select to authenticated using \(true\)$", low)
                 and ("create policy", re.match(r"^create policy \w+ on (hist_\w+) for", low).group(1))) \
             or (re.match(r"^alter table hist_objekt add column (raknas boolean not null default false|dubblett_av text)$", low) and ("add column", "hist_objekt"))             or (re.match(r"^create view (vy_hist_\w+) with \(security_invoker = true\) as select|^create view (vy_hist_\w+) with \(security_invoker = true\) as with ", low)
-                and ("create view", re.match(r"^create view (vy_hist_\w+)", low).group(1)))             or (re.match(r"^alter table (hist_\w+) enable row level security$", low) and ("enable rls", re.match(r"^alter table (hist_\w+) enable", low).group(1)))
+                and ("create view", re.match(r"^create view (vy_hist_\w+)", low).group(1)))             or (re.match(r"^alter policy (hist_\w+_las) on (hist_\w+) using \(\(select public\.ar_admin\(\)\)\)$", low)
+                and ("alter policy", re.match(r"^alter policy hist_\w+_las on (hist_\w+)", low).group(1)))             or (re.match(r"^create policy historik_las_admin on storage\.objects for select to authenticated using \(bucket_id = 'historik' and \(select public\.ar_admin\(\)\)\)$", low)
+                and ("create policy storage.objects (bara bucket historik)", "hist_storage"))             or (re.match(r"^alter table (hist_\w+) enable row level security$", low) and ("enable rls", re.match(r"^alter table (hist_\w+) enable", low).group(1)))
         if not m:
             fel.append(j[:120])
             continue
