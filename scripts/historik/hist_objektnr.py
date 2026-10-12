@@ -26,7 +26,14 @@ def datum_lik8(s):
 
 
 def datum_lik(s):
-    return len(s) == 6 and 10 <= int(s[:2]) <= 29 and 1 <= int(s[2:4]) <= 12 and 1 <= int(s[4:6]) <= 31
+    """yymmdd (10-29) eller ddmmyy (år 10-29)."""
+    if len(s) != 6:
+        return False
+    yymmdd = 10 <= int(s[:2]) <= 29 and 1 <= int(s[2:4]) <= 12 and 1 <= int(s[4:6]) <= 31
+    ddmmyy = 1 <= int(s[:2]) <= 31 and 1 <= int(s[2:4]) <= 12 and 10 <= int(s[4:6]) <= 29
+    # klockslag hhmmss (06-21): stjärtfragment av 12-siffriga tidsstämplar i parsrarnas objektnr. 22xxxx/23xxxx behålls: de är riktiga objektnummer (Rottne, Opti4G)
+    hhmmss = 1 <= int(s[:2]) <= 21 and int(s[2:4]) <= 59 and int(s[4:6]) <= 59 and s[0] in "01"
+    return yymmdd or ddmmyy or hhmmss
 
 
 def tokens(rad):
@@ -81,6 +88,10 @@ def main():
         src = {"text": ur_text(T.get(sha, "")) + (ur_huvud(T.get(sha, "")) if rap[sha]["format"] in PONSSE_HUVUD else []), "namn": ur_namn(o["objekt"]), "filnamn": ur_namn(rap[sha]["filnamn"]), "amne": ur_namn(amne.get(sha, ""))}
         if o["objektnr"]:
             src["parser"] = ur_namn(o["objektnr"]) if re.fullmatch(r"\d{6}|\d{8}", o["objektnr"] or "") else []
+        # 6-siffriga fragment som är de sista sex siffrorna i en 12-siffrig tidsstämpel (yymmddhhmmss) i samma rapport är inte objektnummer
+        tidsstampel = set(re.findall(r"(?<!\d)\d{6}(\d{6})(?!\d)", " ".join([T.get(sha, ""), o["objektnr"] or "", rap[sha]["filnamn"], amne.get(sha, "")])))
+        for k in src:
+            src[k] = [n for n in src[k] if n not in tidsstampel]
         alla = Counter()
         kalla = defaultdict(set)
         for k, v in src.items():
