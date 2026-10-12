@@ -92,6 +92,9 @@ juni 2024 (två lastcertifikat 36,73 + 79,90 h mot summering 91,50 h, ca 40 h) k
 **Wisent-volym (migration `20261018100000_hist_wisent_flaggregel.sql`, KÖRD 2026-10-13, verifierad mot simuleringen; övriga maskiners vy-rader oförändrade):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
 flagga men < 3 m³/lass behandlas som `laster_x_1m3` via `hist_korrigering` (falt `volym_kvalitet`, orsak `regel: wisent_lass_x_1m3_utan_flagga`); Wisent med m³/lass utanför 6–18 märks
 `osaker_lasstorlek` ("Osäker volym" i appen), behåller volymen i summan men räknas inte i m³/G15, medelstam, index eller bränsle per m³.
+**DEL B (förberedd, ej körd):** migration `20261019100000_hist_objektnr.sql` (kolumnerna `objektnr_normaliserat`, `virkesordernr_normaliserat`, `objektnr_alla text[]` + GIN-index, och
+`g15_per_timraknare` sist i `vy_hist_maskin_ar`). Värdena kommer från `hist_objektnr.py` (4 598 av 6 788 rader med maskin får minst ett nummer; Komatsu 911.3 och 941 AptMan nästan inga).
+Wisent 2023: 5 av 21 objekt saknar volym (222 h G15) – fristående summeringar utan lastcertifikat, utan lass, 4 av 5 utan nummer; kan inte fyllas via skördare.
 **Återstår (väntar på beslut):** DEL A: G15/timräknare som kolumn i `vy_hist_maskin_ar`. DEL B: `objektnr_normaliserat` (6 siffror), `virkesordernr_normaliserat`
 (8 siffror), `objektnr_alla text[]` med GIN-index i `hist_objekt` (skript `hist_objektnr.py`, ej körd). DEL C: volym från skördare till skotare via delat
 nummer (`hist_koppling_nr.py`), lagras i `hist_korrigering` med orsak `regel: volym_fran_skordare_objektnr`, kontroll 8–14 m³/lass per Wisent-objekt,
