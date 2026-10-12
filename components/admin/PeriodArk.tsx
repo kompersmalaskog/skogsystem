@@ -28,7 +28,7 @@ import { ymdLokal } from "@/lib/datumLokal";
 import {
   veckoText, arLangPeriod, slutFranMandag, mandagFranSlut, kontrolleraPeriod, forareNamn, forareRadText, kortDatumMedAr, planeraAndring,
   krockMening, krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, borjarText, slutarText, slutMandag, langdVeckor,
-  mandagForDag, KRAVER_FACKLIG_OVERENSKOMMELSE, MAX_NAMN_TECKEN, type PeriodGrupp, type PeriodRad,
+  mandagForDag, flyttaManad, KRAVER_FACKLIG_OVERENSKOMMELSE, MAX_NAMN_TECKEN, type PeriodGrupp, type PeriodRad,
 } from "@/lib/admin/utjamningsperiod";
 import { Stod, Tertiar, Destruktiv, Besked, Bekrafta, Sheet, Ikon } from "./ui";
 import PeriodKalender, { type ManadVal } from "./PeriodKalender";
@@ -40,6 +40,8 @@ const mandagIdag = () => mandagForDag(ymdLokal(new Date()));
 const raderText = (n: number) => (n > 1 ? ` (${n} rader)` : "");
 const manadFor = (dag: string): ManadVal => ({ ar: Number(dag.slice(0, 4)), manad0: Number(dag.slice(5, 7)) - 1 });
 const navKnapp = { ...KNAPP.lank, width: "auto", display: "inline-flex", alignItems: "center", gap: AVSTAND.xs, fontFamily: "inherit", ...TYP.text } as const;
+/** Lägg till / Spara när något saknas: grå text, inte blå som dämpats. Blå betyder "går att trycka", och det gör den inte. */
+const navInaktiv = { color: FARG.text3, cursor: "default" } as const;
 
 /** En rad i förarlistan: namnet, och en bock när den är vald. Hela raden är träffytan (44 px). */
 function Bockrad({ namn, vald, onToggle, sista }: { namn: string; vald: boolean; onToggle: () => void; sista: boolean }) {
@@ -192,7 +194,7 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
   // ── Förarlistan: en push-vy med tillbakapil, ingen Klar ──
   if (vy === "forare") {
     return (
-      <Sheet titel="Förare" onStang={onStang} attr={attr} overlayAttr={overlayAttr}
+      <Sheet titel="Förare" vyNyckel="forare" onStang={onStang} attr={attr} overlayAttr={overlayAttr}
         vanster={(
           <button type="button" data-tillbaka onClick={() => setVy("form")} style={navKnapp}>
             <Ikon namn="chevron_left" farg={FARG.bla} />{arkTitel}
@@ -239,11 +241,11 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
   const arLang = arLangPeriod(period);
 
   return (
-    <Sheet titel={arkTitel} onStang={onStang} attr={attr} overlayAttr={overlayAttr}
+    <Sheet titel={arkTitel} vyNyckel="form" onStang={onStang} attr={attr} overlayAttr={overlayAttr}
       vanster={<button type="button" onClick={onStang} style={navKnapp}>Avbryt</button>}
       hoger={(
         <button type="button" data-spara disabled={!!hinder || upptagen} onClick={spara}
-          style={{ ...navKnapp, fontWeight: TYP.listtitel.fontWeight, ...(hinder || upptagen ? INAKTIV : null) }}>
+          style={{ ...navKnapp, fontWeight: TYP.listtitel.fontWeight, ...(hinder || upptagen ? navInaktiv : null) }}>
           {upptagen ? "Sparar…" : grupp ? "Spara" : "Lägg till"}
         </button>
       )}>
@@ -257,7 +259,7 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
 
         {inkapsla("borjar", knappRad("borjar", "Börjar", borjarText(borjar, innevarandeAr), () => setOppnaKalender(o => !o), oppnaKalender))}
         {oppnaKalender && (
-          <PeriodKalender borjar={borjar} langd={langd} manad={manad} onManad={setManad} krockerIVecka={krockerIVecka}
+          <PeriodKalender borjar={borjar} langd={langd} manad={manad} onFlytta={delta => setManad(m => flyttaManad(m.ar, m.manad0, delta))} krockerIVecka={krockerIVecka}
             onTryck={dag => setBorjar(mandagForDag(dag))} />
         )}
 

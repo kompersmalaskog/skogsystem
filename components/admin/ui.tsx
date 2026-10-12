@@ -2,7 +2,7 @@
 // Admins byggstenar — ur lib/design/tokens, samma känsla som arbetsrapporten: kort utan ram, tysta
 // grå rader, små versala rubriker. Orange bara för det som kräver handling, grått för det som stämmer.
 // Ersätter den gamla components/admin/design.tsx (egen palett, egna mått).
-import React, { useEffect, type CSSProperties, type ReactNode } from "react";
+import React, { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, IKON, RORELSE,
@@ -271,7 +271,33 @@ export function Bekrafta({ text, ja, nej = "Avbryt", onJa, onNej, upptagen }: {
  * `.tona-in` har en transform-animation, och en transform gör sin förälder till containing block för `position: fixed`,
  * så ett ark inne i sidan placeras mot sidans topp i stället för mot fönstret (man måste scrolla upp för att se det).
  */
-export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayAttr }: { titel: ReactNode; /** Uppe till vänster i navigationsraden (iOS: Avbryt eller ‹ tillbaka). */ vanster?: ReactNode; /** Uppe till höger (iOS: Lägg till / Spara). */ hoger?: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string>; overlayAttr?: Record<string, string> }) {
+export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayAttr, vyNyckel }: { titel: ReactNode; /** Byter innehåll i arket (formulär → förarlista): ett dubbelklick får inte nå det nya innehållet. */ vyNyckel?: string; /** Uppe till vänster i navigationsraden (iOS: Avbryt eller ‹ tillbaka). */ vanster?: ReactNode; /** Uppe till höger (iOS: Lägg till / Spara). */ hoger?: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string>; overlayAttr?: Record<string, string> }) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const bytte = useRef(0);
+  useLayoutEffect(() => { bytte.current = Date.now(); }, [vyNyckel]);
+
+  // Medan arket är öppet finns resten av sidan (sidomenyn, bottenmenyn, innehållet) inte: inert tar bort den ur tab-ordningen,
+  // ur tillgänglighetsträdet och från tryck. Fokus flyttas in i dialogen och tillbaka till knappen som öppnade den när arket stängs.
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const tidigareFokus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dolda: { el: Element; inert: string | null; ariaHidden: string | null }[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === overlay || el.hasAttribute("data-ark-overlay")) continue;
+      dolda.push({ el, inert: el.getAttribute("inert"), ariaHidden: el.getAttribute("aria-hidden") });
+      el.setAttribute("inert", ""); el.setAttribute("aria-hidden", "true");
+    }
+    dialogRef.current?.focus({ preventScroll: true });
+    return () => {
+      for (const d of dolda) {
+        if (d.inert == null) d.el.removeAttribute("inert"); else d.el.setAttribute("inert", d.inert);
+        if (d.ariaHidden == null) d.el.removeAttribute("aria-hidden"); else d.el.setAttribute("aria-hidden", d.ariaHidden);
+      }
+      if (tidigareFokus && document.contains(tidigareFokus)) tidigareFokus.focus({ preventScroll: true });
+    };
+  }, []);
+
   useEffect(() => {
     const kropp = document.body;
     const fore = { overflow: kropp.style.overflow, paddingRight: kropp.style.paddingRight };
@@ -283,10 +309,13 @@ export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayA
   }, []);
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div onClick={onStang} className="tona-opacity" {...overlayAttr}
+    <div ref={overlayRef} data-ark-overlay="" onClick={onStang} className="tona-opacity" {...overlayAttr}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.l, overscrollBehavior: "contain" }}>
-      <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp" {...attr}
-        style={{ background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", overscrollBehavior: "contain", boxSizing: "border-box", colorScheme: "dark" }}>
+      <div ref={dialogRef} tabIndex={-1} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp" {...attr}
+        // Andra trycket i ett dubbelklick (detail > 1) strax efter att arket öppnats eller bytt innehåll sväljs: det landar annars på det nya
+        // innehållet, som råkar ligga på samma plats (Förare → en förare vald; ‹ Ny period → Avbryt).
+        onClickCapture={e => { if (e.detail > 1 && Date.now() - bytte.current < 700) { e.stopPropagation(); e.preventDefault(); } }}
+        style={{ outline: "none", background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", overscrollBehavior: "contain", boxSizing: "border-box", colorScheme: "dark" }}>
         <div data-ark-rubrik style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: AVSTAND.s, margin: `0 0 ${AVSTAND.l}px` }}>
           <div style={{ justifySelf: "start" }}>{vanster}</div>
           <p style={{ margin: 0, ...TYP.listtitel, color: FARG.text, textAlign: "center" }}>{titel}</p>

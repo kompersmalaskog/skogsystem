@@ -1405,6 +1405,164 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(arkText()).toContain("togs inte bort");
     expect(g.__db.utjamningsperiod).toHaveLength(2);
   });
+
+  // ── Martins tre fel i preview jxt707f10 (2026-10-12) ──
+  it("Lägg till är GRÅ — inte blå — tills namn, Börjar och förare är satta; blå först när alla tre finns (testen kollade förut bara disabled, aldrig färgen)", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const grå = farg(FARG.text3), blå = farg(FARG.bla);
+    expect(grå).not.toBe(blå);
+    const knappFarg = () => sparaKnapp().style.color;
+    // Börjar är satt från början (veckan vi är i) — det är namnet och förarna som saknas
+    expect(varde("borjar")).toContain("v41");
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(knappFarg()).toBe(grå);
+    expect(sparaKnapp().style.opacity).toBe("");                      // grå text, inte blå som dämpats
+    await namnge("Test");
+    expect(sparaKnapp().disabled).toBe(true);                         // förare saknas
+    expect(knappFarg()).toBe(grå);
+    await tryckBock("Alla");
+    expect(sparaKnapp().disabled).toBe(false);
+    expect(knappFarg()).toBe(blå);
+    await tryckBock("Alla");                                          // förarna bort igen → grå igen
+    expect(knappFarg()).toBe(grå);
+    await tryckBock("Anna Berg");
+    expect(knappFarg()).toBe(blå);
+    await namnge("");                                                 // namnet bort → grå igen
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(knappFarg()).toBe(grå);
+  });
+
+  it("Spara i en befintlig period är också grå när namnet tas bort, och blå när det finns", async () => {
+    g.__db.utjamningsperiod = kopia(SENARE);
+    await monter("flik=avtal");
+    await klick("Vinter");
+    expect(sparaKnapp().style.color).toBe(farg(FARG.bla));
+    await namnge("");
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(sparaKnapp().style.color).toBe(farg(FARG.text3));
+    await namnge("Vinter");
+    expect(sparaKnapp().style.color).toBe(farg(FARG.bla));
+  });
+
+  it("kalenderbladet bläddrar över månadsskiftet: Börjar v42 + Längd 5 v → bandet fortsätter i november (1–15 nov), ‹ går tillbaka", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjBorjar("2026-10-12");                                   // måndag v42
+    await sattLangd(5);
+    expect(slutar()).toContain("15 nov");
+    expect(synligManad()).toBe("2026-10");
+    const tryckt = (d: string) => dagEl(d)?.getAttribute("aria-pressed");
+    expect(dagEl("2026-10-12")!.getAttribute("data-start")).toBe("true");
+    expect(tryckt("2026-10-11")).toBe("false");
+    expect(tryckt("2026-10-31")).toBe("true");                        // bandet når månadens slut …
+
+    await klickEl(knappMed("Nästa månad"));                           // › : november
+    expect(synligManad()).toBe("2026-11");
+    expect(document.querySelector("[data-manad-rubrik]")!.textContent).toBe("november 2026");
+    for (let d = 1; d <= 15; d++) expect(tryckt(`2026-11-${String(d).padStart(2, "0")}`), `${d} nov`).toBe("true");   // … och fortsätter över skiftet
+    expect(tryckt("2026-11-16")).toBe("false");
+    expect(dagEl("2026-11-02")!.getAttribute("data-start")).toBeNull();   // starten ligger i oktober
+
+    await klickEl(knappMed("Nästa månad"));                           // december: inget band
+    expect(synligManad()).toBe("2026-12");
+    expect(Array.from(document.querySelectorAll("[data-utjamning-ark] [data-dag]")).filter(e => e.getAttribute("aria-pressed") === "true")).toHaveLength(0);
+
+    await klickEl(knappMed("Föregående månad"));                      // ‹ : november igen, bandet kvar
+    await klickEl(knappMed("Föregående månad"));                      // ‹ : oktober
+    expect(synligManad()).toBe("2026-10");
+    expect(tryckt("2026-10-12")).toBe("true");
+    expect(tryckt("2026-10-31")).toBe("true");
+  });
+
+  it("två snabba tryck på › ger två månader (ingen tappas) och Längd/Börjar rör inte månaden man tittar på", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await oppnaBorjar();
+    expect(synligManad()).toBe("2026-10");
+    await act(async () => { knappMed("Nästa månad").click(); knappMed("Nästa månad").click(); });
+    expect(synligManad()).toBe("2026-12");
+    await sattLangd(3);
+    expect(synligManad()).toBe("2026-12");                            // att ändra Längd flyttar inte bladet
+    await klickEl(dagEl("2026-12-09")!);                              // en dag i december → Börjar v50, bladet kvar i december
+    expect(synligManad()).toBe("2026-12");
+    expect(varde("borjar")).toContain("v50");
+    await act(async () => { knappMed("Föregående månad").click(); knappMed("Föregående månad").click(); knappMed("Föregående månad").click(); });
+    expect(synligManad()).toBe("2026-09");
+  });
+
+  it("raden Förare öppnar förarlistan INNE i arket med '‹ Ny period' — den navigerar aldrig bort (varken till Ny medarbetare eller något annat)", async () => {
+    await monter("flik=avtal");
+    const adressFore = window.location.search;
+    await oppnaNy();
+    await tryckRad("forare");
+    expect(ark()).not.toBeNull();
+    expect(document.querySelector("[data-forare-vy]")).not.toBeNull();
+    expect((tillbakaKnapp()!.textContent || "").trim()).toContain("Ny period");
+    expect(arkText()).toContain("Förare");
+    expect(window.location.search).toBe(adressFore);                  // adressen rörd: ingen ?ny=1, ingen annan flik
+    expect(window.location.search).not.toContain("ny=1");
+    expect(document.body.textContent).not.toContain("Steg 1 av 4");   // Ny medarbetare-guiden
+    expect(document.body.textContent).toContain("Utjämningsperioder"); // Avtal-fliken ligger kvar bakom
+    await tillbaka();
+    expect(document.querySelector("[data-forare-vy]")).toBeNull();
+    expect(arkText()).toContain("Ny period");
+    expect(window.location.search).not.toContain("ny=1");
+  });
+
+  it("medan arket är öppet är sidan bakom (sidomenyn med 'Ny medarbetare', bottenmenyn, innehållet) inert + aria-hidden, och fokus ligger i dialogen; stängs arket är allt som förut och fokus tillbaka", async () => {
+    await monter("flik=avtal");
+    const nyPeriod = Array.from(cont.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Ny period")!;
+    const gomdaFore = document.querySelectorAll("[aria-hidden='true']").length;     // ikoner o.d. som redan var dolda
+    nyPeriod.focus();
+    expect(document.activeElement).toBe(nyPeriod);
+    await oppnaNy();
+    const sidomeny = cont.querySelector<HTMLElement>("aside.adm-meny")!;
+    const nyMedarbetare = Array.from(sidomeny.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").includes("Ny medarbetare"))!;
+    expect(nyMedarbetare).toBeTruthy();
+    const bakom = (el: Element) => { for (let n: Element | null = el; n && n !== document.documentElement; n = n.parentElement) if (n.hasAttribute("inert")) return n; return null; };
+    expect(bakom(nyMedarbetare), "Ny medarbetare ska ligga bakom inert").not.toBeNull();
+    expect(nyMedarbetare.closest("[aria-hidden='true']")).not.toBeNull();
+    expect(bakom(ark()!)).toBeNull();                                   // arket självt är aldrig inert
+    expect(overlay()!.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement).toBe(ark());                         // fokus in i dialogen
+    expect(ark()!.getAttribute("role")).toBe("dialog");
+    // förarlistan (innehållet byts i samma ark) behåller skyddet
+    await tryckRad("forare");
+    expect(bakom(nyMedarbetare)).not.toBeNull();
+    await tillbaka();
+    expect(bakom(nyMedarbetare)).not.toBeNull();
+    // stäng → tillbaka som förut
+    await klickEl(Array.from(ark()!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Avbryt")!);
+    expect(ark()).toBeNull();
+    expect(document.querySelectorAll("[inert]")).toHaveLength(0);
+    expect(document.querySelectorAll("[aria-hidden='true']").length).toBe(gomdaFore);
+    expect(document.activeElement).toBe(nyPeriod);                       // fokus till knappen som öppnade arket
+  });
+
+  it("andra trycket i ett DUBBELKLICK sväljs strax efter ett vybyte: Förare → ingen förare vald, ‹ Ny period → Avbryt stänger inte arket; senare snabba tryck (stegaren) går igenom", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const dubbel = async (el: HTMLElement) => { await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 })); }); };
+    // Förare-raden: andra klicket hamnar på listan (en förare ligger på samma plats)
+    await tryckRad("forare");
+    await dubbel(bock("Anna Berg"));
+    expect(ibockad("Anna Berg")).toBe(false);
+    await klickaBock("Anna Berg");                                           // ett enkelt tryck räknas
+    expect(ibockad("Anna Berg")).toBe(true);
+    // ‹ Ny period: andra klicket hamnar på Avbryt
+    await tillbaka();
+    await dubbel(Array.from(ark()!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Avbryt")!);
+    expect(ark()).not.toBeNull();
+    // en bra stund senare: snabba tryck på + (detail 2, 3, 4 …) räknas alla
+    const nu = Date.now();
+    const spion = vi.spyOn(Date, "now").mockReturnValue(nu + 5000);
+    try {
+      const fore = antalVeckorNu();
+      for (const detail of [2, 3, 4]) await act(async () => { knappMed("Öka längd").dispatchEvent(new MouseEvent("click", { bubbles: true, detail })); });
+      expect(antalVeckorNu()).toBe(fore + 3);
+    } finally { spion.mockRestore(); }
+  });
 });
 
 describe("ATK-godkännande", () => {

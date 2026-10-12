@@ -30,29 +30,29 @@ function Pil({ riktning, onClick }: { riktning: "bakat" | "framat"; onClick: () 
   );
 }
 
-export default function PeriodKalender({ borjar, langd, manad, onManad, onTryck, krockerIVecka }: {
+export default function PeriodKalender({ borjar, langd, manad, onFlytta, onTryck, krockerIVecka }: {
   /** Måndagen i första veckan. */
   borjar: string;
   /** Antal veckor. */
   langd: number;
   manad: ManadVal;
-  onManad: (m: ManadVal) => void;
+  /** Bläddra: −1 = föregående månad, 1 = nästa. Ägaren räknar ur sitt EGET senaste värde, så två snabba tryck ger två månader. */
+  onFlytta: (delta: number) => void;
   onTryck: (dag: string) => void;
   /** Perioder som ligger över veckan (måndag) för de valda förarna. */
   krockerIVecka: (mandag: string) => Krock[];
 }) {
   const idag = ymdLokal(new Date());
   const rader = manadVeckor(manad.ar, manad.manad0);
-  const flytta = (delta: number) => { const d = new Date(manad.ar, manad.manad0 + delta, 1); onManad({ ar: d.getFullYear(), manad0: d.getMonth() }); };
   const period = { fran: borjar, till: slutMandag(borjar, langd) };
   const roda = getRödaDagar(manad.ar);
 
   return (
     <div data-period-kalender style={{ padding: `${AVSTAND.xs}px ${AVSTAND.xs}px ${AVSTAND.s}px` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Pil riktning="bakat" onClick={() => flytta(-1)} />
+        <Pil riktning="bakat" onClick={() => onFlytta(-1)} />
         <span data-manad-rubrik style={{ ...TYP.listtitel, color: FARG.text }}>{manadRubrik(manad.ar, manad.manad0)}</span>
-        <Pil riktning="framat" onClick={() => flytta(1)} />
+        <Pil riktning="framat" onClick={() => onFlytta(1)} />
       </div>
       <div data-manad-nu={`${manad.ar}-${String(manad.manad0 + 1).padStart(2, "0")}`}>
         <div style={KOLUMNER}>
