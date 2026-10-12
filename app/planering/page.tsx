@@ -705,6 +705,7 @@ export default function PlannerPage() {
   // syncTimeoutRef (befintlig) = osparad sync i 1s-debouncen. Är något av dem sant → skjut upp.
   const sparPagarRef = useRef(false);
   const upptagenRef = useRef(false);
+  const ritlageRef = useRef(false);                          // Rita linje/Rita yta pågår (typ vald): ett tryck är en PUNKT — inget Vida-ytkort ska öppnas
   const refetchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const refetchForsokRef = useRef(0);
 
@@ -3049,6 +3050,7 @@ export default function PlannerPage() {
   // (markerMenuOpen) samt kort där man skriver kommentar (editingMarker). De två sista lades till
   // efter att refetch (#331/#336) råkade stänga öppna kort och tappa kommentarer mitt i skrivning.
   useEffect(() => {
+    ritlageRef.current = isDrawMode || isZoneMode;
     upptagenRef.current = isDrawing || currentDrawCoords.length > 0 || isDrawMode || isZoneMode
       || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode
       || markerMenuOpen != null || editingMarker != null || risaMarkMode;
@@ -6249,6 +6251,7 @@ export default function PlannerPage() {
     };
     const onKlick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;   // urvalsritning: tryck = hörn
+      if (ritlageRef.current) return;            // Rita linje/Rita yta: tryck = punkt, inget ytkort (körvyn visar Vida-ytorna alltid)
       if (larmPlacering) return;                 // mitt i en larmflytt
       // Prioritet (lib/klickPrioritet): avstå om ett HÖGRE lager utanför trakt-setet vann
       // (hög/markör över en traktdels-yta, ytnummer, larm). valjMinstaYta väljer redan den
@@ -6304,6 +6307,7 @@ export default function PlannerPage() {
     // feature-identiteten (boundary → markörens gränskort, traktdel → Vida-bitens kort).
     const onYtaNrKlick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;
+      if (ritlageRef.current) return;            // Rita linje/Rita yta: tryck = punkt, inget ytkort
       if (larmPlacering) return;
       if (vinnandeKategoriForKarta(map, e.point) !== 'yta-nr') return;   // bara larmet är högre
       const p = e.features?.[0]?.properties;
@@ -8181,7 +8185,6 @@ export default function PlannerPage() {
     { id: 'lines', name: 'Linjer', desc: 'Rita linjer och gränser', icon: 'menu-lines' },
     { id: 'zones', name: 'Zoner', desc: 'Markera områden', icon: 'menu-zones' },
     { id: 'arrows', name: 'Pilar', desc: 'Visa riktningar', icon: 'menu-arrows' },
-    { id: 'measure', name: 'Mätning', desc: 'Mät avstånd på kartan', icon: 'menu-measure' },
     { id: 'gallring', name: 'Gallring', desc: 'Snitsla stickvägar', icon: 'menu-gallring' },
     { id: 'checklist', name: 'Checklista', desc: 'Kontrollera punkter', icon: 'menu-checklist' },
     { id: 'prognos', name: 'Prognos', desc: 'Produktivitetsberäkning', icon: 'menu-prognos' },
@@ -12619,8 +12622,8 @@ export default function PlannerPage() {
 
   // RITA & MÄT: ALLA ritverktyg bor här och ingen annanstans, SJU rutor: Rita linje, Rita yta, Nytt område (planerare), Pilar, Mät sträcka,
   // Mät yta, Spåra med GPS. Linjer-, Zoner- och Mätning-rutorna finns inte: de gjorde samma sak som Rita linje, Rita yta och Mät sträcka/yta.
-  // Symboler har sin flik. Rita linje/Rita yta: körvyn startar ritfiguren (→ Spara som…, som förut); planeringsvyn öppnar typlistan direkt
-  // (se trycktPlusPost). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
+  // Symboler har sin flik. Rita linje/Rita yta: typlistan öppnas direkt, i körvyn OCH planeringsvyn (typ först, sedan ritning; se
+  // trycktPlusPost). Mät sträcka/Mät yta startar mätfiguren (→ Spara som…). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
   const byggRita = (): RitaKort[] => {
     return [
       { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
@@ -12937,10 +12940,9 @@ export default function PlannerPage() {
     }
     noteraPlus(post);
     const yta = post.id === 'yta';
-    if (post.typ === 'matning') startaFigur(yta);                                 // samma figur och smala list i körvyn och planeringen
-    else if (korvyActive) startaFigur(yta);                                       // körvyns Rita = samma figur → Spara som…
-    else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }               // planeringen: zontyperna (samma lista som förut)
-    else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }   // planeringen: linjetyperna direkt — inget tomt mellansteg
+    if (post.typ === 'matning') startaFigur(yta);                                 // Mät sträcka/yta: samma figur och smala list i körvyn och planeringen (→ Spara som…)
+    else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }               // Rita yta: zontyperna, i körvyn och planeringen (typ först, sedan ritning)
+    else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }   // Rita linje: linjetyperna direkt, i körvyn och planeringen — inget tomt mellansteg
   };
   const placeraListSynlig = !!selectedSymbol && !plusRadOppen && !menuOpen && !isDrawMode && !isZoneMode && !isArrowMode && !figur;
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !sparaSomOppen && !prickValt
@@ -18105,66 +18107,6 @@ export default function PlannerPage() {
                         <span style={{ fontSize: '13px', opacity: 0.7 }}>{type.name}</span>
                       </div>
                     ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* === MÄTNING === */}
-            {activeCategory === 'measure' && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                }}>
-                  <div
-                    onClick={() => startaFigur(false)}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 20 L20 4" />
-                        <path d="M4 20 L4 15" />
-                        <path d="M4 20 L9 20" />
-                        <path d="M20 4 L20 9" />
-                        <path d="M20 4 L15 4" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Mät avstånd</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Punkt till punkt</div>
-                    </div>
-                  </div>
-
-                  <div
-                    onClick={() => startaFigur(true)}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 4 L20 4 L20 20 L4 20 Z" />
-                        <path d="M4 4 L20 20" strokeDasharray="3,3" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Mät area</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Rita område</div>
-                    </div>
                   </div>
                 </div>
               </div>

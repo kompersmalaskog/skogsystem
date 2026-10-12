@@ -130,12 +130,14 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
     expect(page).toContain('{figur && !sparaSomOppen && (() => {');
     expect(page).toContain('{figur && sparaSomOppen && (');
     expect(page).not.toContain('{korvyActive && figur');
-    // plusdockan och den gamla Mätning-menyn startar båda figuren — aldrig den gamla startaMatning direkt
-    expect(page).toContain("onClick={() => startaFigur(false)}");
-    expect(page).toContain("onClick={() => startaFigur(true)}");
+    // Mät sträcka/Mät yta (plusdockan) startar figuren — aldrig den gamla startaMatning direkt. Rita linje/Rita yta startar INTE figuren längre:
+    // typlistan först (körvyn och planeringen), sedan ritning.
     expect(page).toContain("if (post.typ === 'matning') startaFigur(yta);");
     expect(page).toContain("else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }");
     expect(page).toContain("else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }");
+    expect(page).not.toContain('else if (korvyActive) startaFigur(yta);');
+    expect(page.split('startaFigur(').length - 1).toBe(1);   // enda anropet: Mät sträcka/yta i trycktPlusPost
+    expect(page).not.toContain("onClick={() => startaFigur(false)}");   // den gamla Mätning-menyn är borta
     expect(page.match(/startaMatning\(/g)?.length).toBe(1);   // bara startaFigur anropar den
   });
   it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {

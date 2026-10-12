@@ -140,13 +140,28 @@ describe('Rita & mät: SJU rutor — alla ritverktyg, inga dubbletter, och ingen
       "id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta')",
     ]) expect(rita, s).toContain(s);
   });
-  it('Rita linje / Rita yta: körvyn startar ritfiguren som före PR:en; planeringsvyn går DIREKT till linjetyperna (inget tomt mellansteg) respektive zontyperna', () => {
+  it('Rita linje / Rita yta: typlistan FÖRST, i körvyn (hytten) OCH planeringsvyn — linjetyperna direkt (inget tomt mellansteg), zontyperna; ingen ritfigur/Spara som-väg för dem', () => {
     expect(tryck).toContain("if (post.typ === 'matning') startaFigur(yta);");
-    expect(tryck).toContain('else if (korvyActive) startaFigur(yta);');
     expect(tryck).toContain("else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }");
     expect(tryck).toContain("else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }");
-    // ordningen: körvyn avgörs FÖRE planeringens grenar
-    expect(tryck.indexOf('else if (korvyActive)')).toBeLessThan(tryck.indexOf("setSubMenu('draw-lines')"));
+    expect(tryck).not.toContain('korvyActive');           // ingen vy-skillnad längre
+    expect(tryck.split('startaFigur(').length - 1).toBe(1); // bara Mät sträcka/yta startar mätfiguren
+  });
+  it('Rita linje/Rita yta (hytten ritar nu med typ först): ett tryck inne i trakten är en PUNKT — Vida-ytkortet (ytfyllnad och ytnummer) öppnas inte under ritning', () => {
+    expect(page).toContain('const ritlageRef = useRef(false);');
+    expect(page).toContain('ritlageRef.current = isDrawMode || isZoneMode;');
+    const vida = mellan(page, 'const onYtaNrKlick = (e: any) => {', 'if (larmPlacering) return;');
+    expect(vida).toContain('if (ritlageRef.current) return;');
+    const fyll = mellan(page, '// urvalsritning: tryck = hörn\n      if (ritlageRef.current)', 'if (larmPlacering) return;');
+    expect(fyll).toContain('ritlageRef.current');
+    expect(page.split('if (ritlageRef.current) return;').length - 1).toBe(2);
+  });
+  it('Mätning-menyn (Mät avstånd/area; nåddes bara via den borttagna Mätning-rutan — samma anrop som Mät sträcka/yta) är borta', () => {
+    expect(page).not.toContain("activeCategory === 'measure'");
+    expect(page).not.toContain("{ id: 'measure', name: 'Mätning'");
+    expect(page).not.toContain('{/* === MÄTNING === */}');
+    expect(page).not.toContain('Mät avstånd');
+    expect(page).not.toContain("setActiveCategory('measure')");
   });
   it('typlistorna är oförändrade: samma filter och samma klick för linjetyper (rita och GPS), samma zontyper med Gallringszonens trädslag', () => {
     const rit = mellan(page, '{/* Linjer - Rita */}', '{/* === ZONER === */}');
