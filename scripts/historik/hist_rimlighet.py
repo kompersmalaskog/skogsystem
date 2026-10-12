@@ -5,6 +5,8 @@ import json
 import re
 import statistics
 import sys
+from pathlib import Path as _P
+sys.path.insert(0, str(_P(__file__).parent))
 from collections import defaultdict
 from pathlib import Path
 
@@ -35,6 +37,14 @@ def lastcert_info():
     return ut
 
 
+_TEXT = None
+
+
+def _lik(a, b):
+    import bygg_skift
+    return bygg_skift.lik(a, b)
+
+
 MANADER = {"januari": 1, "februari": 2, "mars": 3, "april": 4, "maj": 5, "juni": 6, "juli": 7, "augusti": 8, "september": 9, "oktober": 10, "november": 11, "december": 12}
 
 
@@ -62,12 +72,39 @@ def foresla_raknas(obj, rap):
         lcs = [o for o in lst if rap[o["sha256"]]["format"] == "lastcertifikat"]
         if not ms or not lcs:
             continue
-        for l in sorted(lcs, key=lambda o: o["rapportdatum"]):
+        # R1: parvis, bästa (minsta G15-skillnad) först, en tvilling per certifikat och tvärtom
+        from hist_objektnr_text import las_text
+        global _TEXT
+        if _TEXT is None:
+            _TEXT = las_text()
+        tok = lambda t: set(re.findall(r"(?<!\d)(\d{6}|\d{8})(?!\d)", t)) - {"12345", "98765"}
+        kand = []
+        for l in lcs:
             if manad_ur_filnamn(rap[l["sha256"]]["filnamn"]) and not l["objekt"]:
                 continue
-            c = [m for m in ms if abs(g(m) - g(l)) <= 0.3 and abs((d(m["rapportdatum"]) - d(l["rapportdatum"])).days) <= 10 and m["sha256"] not in {v[1] for v in ut.values()}]
-            if c:
-                ut[l["sha256"]] = ("R1: samma jobb som maskinspecifik summering", c[0]["sha256"])
+            for m in ms:
+                dd = abs((d(m["rapportdatum"]) - d(l["rapportdatum"])).days)
+                dg = abs(g(m) - g(l))
+                if dd > 5:
+                    continue
+                rel = dg / max(g(m), g(l))
+                namn = l["objekt"] not in ("", "98765 12345") and m["objekt"] not in ("", "-") and _lik(l["objekt"], m["objekt"]) >= 0.6
+                delat = bool(tok(_TEXT.get(l["sha256"], "")) & tok(_TEXT.get(m["sha256"], "")))
+                if dg <= 0.005 and dd <= 1:
+                    ok = True
+                elif dg <= 0.04 or rel <= 0.025:
+                    ok = namn or delat
+                else:
+                    ok = False
+                if ok:
+                    kand.append((dg, dd, l["sha256"], m["sha256"]))
+        tagna_l, tagna_m = set(), set()
+        for dg, dd, ls, ms_ in sorted(kand):
+            if ls in tagna_l or ms_ in tagna_m:
+                continue
+            tagna_l.add(ls)
+            tagna_m.add(ms_)
+            ut[ls] = ("R1: samma jobb som maskinspecifik summering", ms_)
         kvar = [o for o in lst if o["sha256"] not in ut]
         tackta = {(d(o["startdatum"] or o["rapportdatum"]).year, d(o["startdatum"] or o["rapportdatum"]).month) for o in kvar
                   if not (rap[o["sha256"]]["format"] == "lastcertifikat" and not o["objekt"] and manad_ur_filnamn(rap[o["sha256"]]["filnamn"]))}
@@ -173,7 +210,9 @@ def fore_efter(maskiner=("Ponsse Wisent", "Elephant King gammal", "Elephant King
     får lass och volym från sin lastcertifikat-tvilling (R1). Volym är rapportens råa volym (före Wisent-regeln 'lass utan storlek')."""
     rap = {r["sha256"]: r for r in csv.DictReader(open(OUT / "hist_rapport.csv", encoding="utf-8"))}
     obj = {o["sha256"]: o for o in csv.DictReader(open(OUT / "hist_objekt.csv", encoding="utf-8"))}
-    foresl = foresla_raknas(list(obj.values()), rap)
+    foresl = {r["sha256"]: (r["orsak"], r["dubblett_av"]) for r in csv.DictReader(open(OUT / "hist_foreslagen_raknas_steg14.csv", encoding="utf-8"))}
+    for sha in foresl:
+        obj[sha]["raknas"] = "true"  # före steg 14 räknades de
     skift_lass = defaultdict(float)
     harskift = set()
     for s in csv.DictReader(open(OUT / "hist_skift.csv", encoding="utf-8")):
@@ -221,3 +260,27 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "fore_efter":
 
 if __name__ == "__main__" and len(sys.argv) == 1:
     main()
+
+
+def tillampa():
+    """Skriver förslaget (R1/R2) in i lokala hist_objekt.csv så att den motsvarar databasen efter steg 14. Idempotent: kör efter hist_raknas.py."""
+    rap = {r["sha256"]: r for r in csv.DictReader(open(OUT / "hist_rapport.csv", encoding="utf-8"))}
+    fn = OUT / "hist_objekt.csv"
+    rader = list(csv.DictReader(open(fn, encoding="utf-8")))
+    foresl = foresla_raknas(rader, rap)
+    n = 0
+    for o in rader:
+        v = foresl.get(o["sha256"])
+        if v and o["raknas"] in ("true", "True"):
+            o["raknas"] = "false"
+            o["dubblett_av"] = v[1]
+            n += 1
+    with open(fn, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rader[0]))
+        w.writeheader()
+        w.writerows(rader)
+    print("tillämpade", n, "rader i hist_objekt.csv")
+
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "tillampa":
+    tillampa()
