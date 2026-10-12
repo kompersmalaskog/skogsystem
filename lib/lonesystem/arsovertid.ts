@@ -28,11 +28,14 @@
 // från sensommaren, inte från Gävle. Fasta block från v1 kapade perioden mitt
 // itu och gav 92 i stället för 44.
 //
-// FÖRBEHÅLL (står också i tabellens kommentar): en tom vecka räknas i basen
-// bara om den är utjämnad ordinarie tid. Var den semester ska den inte vara
-// med, och då stiger övertiden. Inom en markerad period vet appen vad en tom
-// vecka betyder — utanför vet den det inte. Frånvaro per vecka dras inte av
-// än (frånvaromodellen steg 3).
+// BAS (rättad 2026-10-09): basen per vecka är 40 tim MINUS FRÅNVARO (semester,
+// sjuk, VAB, föräldraledig, ATK, komp, tjänstledig, permission; 8 tim/dag ur
+// lib/franvaro) och MINUS RÖDA VARDAGAR (lib/roda-dagar, 8 tim/dag) — både i
+// markerade perioder och antagna block. Förr räknades varje vecka som 40 tim,
+// även semestervecka: Stefans v28–29 (semester 29/6–17/7) tog 80 tim övertid
+// ur blocket och v1 (nyår, 1,7 tim arbetat) räknades som full vecka — 74,5 i
+// stället för ca 190. Kvarstående förbehåll: en tom vecka UTAN registrerad
+// frånvaro räknas fortfarande i basen (appen vet inte att den var ledig).
 //
 // Komp (§8 mom 3, 1,4×) räknas inte som övertid enligt ATL (§5 mom 5 anm 3)
 // och finns inte i data. Därför inget rött "passerat taket" i admin. Taket
@@ -43,6 +46,7 @@
 import { getRödaDagar } from "../roda-dagar";
 import { isoVecka } from "../vilobrott";
 import { arArbetsdag } from "../arbetsdagRegler";
+import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, FRANVARO_STATUS_GALLER, type FranvaroRad } from "../franvaro";
 
 export type OvertidModell = "vardagar" | "dagar" | "vecka" | "genomsnitt";
 
@@ -68,6 +72,11 @@ export type Berakningsperiod = {
   till: number;        // ISO-vecka (t.o.m. innevarande vecka om perioden pågår)
   veckor: number;
   timmar: number;
+  /** Basen i timmar: 40 per vecka minus frånvaro och röda vardagar (8 tim/dag). */
+  bas: number;
+  /** Av basen: timmar som drogs för frånvaro resp. röda vardagar i perioden. */
+  franvaroTimmar: number;
+  rodaTimmar: number;
   overtid: number;
   markerad: boolean;   // true = ur utjamningsperiod (faktum), false = antaget block
   anteckning?: string | null;
@@ -79,6 +88,8 @@ export type Arsovertid = {
   timmar: number;                       // totalt maskin + extra, hela året hittills
   modeller: Record<OvertidModell, number>;
   perioder: Berakningsperiod[];         // genomsnittsmodellens perioder, i ordning
+  /** Hela årets (t.o.m. tomDatum) avdrag ur basen: frånvaro och röda vardagar, i timmar à 8 tim/dag. */
+  basavdrag: { franvaroTimmar: number; rodaTimmar: number };
 };
 
 const r1 = (x: number) => Math.round(x * 10) / 10;
@@ -94,6 +105,7 @@ export function beraknaArsovertid(
   ar: number,
   tomDatum: string,
   perioder: Utjamningsperiod[] = [],
+  franvaro: FranvaroRad[] = [],
 ): Arsovertid {
   // arbetsdag.dagtyp läses inte (steg 3, 2026-09-25): frånvaro i sig läses
   // inte här än — veckor med frånvaro dras inte av basen (förbehållet i
@@ -159,11 +171,52 @@ export function beraknaArsovertid(
   // ── Genomsnitt över beräkningsperiod (avtalet §5 mom 2) ──
   // Veckorna 1..idag delas i beräkningsperioder: markerade utjämningsperioder
   // först (fakta), resten i block om högst 16 veckor från blockets första
-  // vecka (antaget). Basen = 40 × veckor i perioden t.o.m. idag; veckor utan
-  // arbete räknas med i basen — se förbehållet i filhuvudet.
+  // vecka (antaget). BASEN per vecka = 40 tim minus FRÅNVARO (semester, sjuk,
+  // VAB, föräldraledig, ATK, komp, tjänstledig, permission) minus RÖDA VARDAGAR,
+  // 8 tim per dag (se basPerVecka nedan). Förr var basen 40 × veckor rakt av.
   const idagV = isoVecka(new Date(tomDatum + "T00:00:00"));
   const sistaVecka = idagV.år === ar ? idagV.vecka : (idagV.år > ar ? 53 : 0);
   const minPerVecka = (v: number) => veckor.get(`${ar}-${v}`) || 0;
+
+  // ── Basen per ISO-vecka ──
+  // Ordinarie tid är 40 tim/vecka = 8 tim per vardag. En vardag som är röd eller frånvaro är ingen ordinarie arbetsdag:
+  // basen minskar med 8 (en gång per dag, även om den både är röd och täcks av en semesterrad). Veckan är ISO-veckan med
+  // alla sina fem vardagar (v1 börjar måndagen före nyår, så 29–31/12 räknas dit — som varje annan ledig vardag utan
+  // registrerad frånvaro) och räknas t.o.m. tomDatum: den pågående veckan är ingen hel vecka. Frånvaro: hamtaFranvaro-rader
+  // som gäller (godkänd/registrerad); 'inarbetad' (skoftning) är ingen frånvaro. ARBETE VINNER: en heldagsrad över en
+  // arbetad dag drar inget; en deldag drar schematimmar minus arbetade (lib/franvaro.deldagTimmar).
+  const DAG_H = 40 / 5;
+  const gallande = franvaro.filter(r => (FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status) && r.typ !== "inarbetad");
+  // v1 börjar måndagen i ISO-vecka 1 (4 januari ligger alltid i den).
+  const vecka1Start = new Date(ar, 0, 4);
+  vecka1Start.setDate(vecka1Start.getDate() - ((vecka1Start.getDay() + 6) % 7));
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const basFran = iso(vecka1Start);
+  const rodaBas = { ...getRödaDagar(ar - 1), ...roda };
+  const heldagFr = franvaroPerDatum(gallande, basFran, tomDatum);
+  const deldagFr = deldagarPerDatum(gallande, basFran, tomDatum);
+  const basPerVecka = new Map<number, { bas: number; franvaro: number; roda: number }>();
+  for (const d = new Date(vecka1Start); ; d.setDate(d.getDate() + 1)) {
+    const k = iso(d);
+    if (k > tomDatum) break;
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) continue;
+    const iv = isoVecka(d);
+    if (iv.år !== ar) continue;
+    const e = basPerVecka.get(iv.vecka) || { bas: 0, franvaro: 0, roda: 0 };
+    let avdrag = 0;
+    if (rodaBas[k]) { avdrag = DAG_H; e.roda += DAG_H; }
+    else {
+      const min = minPerDatum.get(k) || 0;
+      if (heldagFr[k] && !arArbetsdag(min)) avdrag = DAG_H;
+      else if (deldagFr[k]) avdrag = deldagTimmar(DAG_H, min);
+      e.franvaro += avdrag;
+    }
+    e.bas += DAG_H - avdrag;
+    basPerVecka.set(iv.vecka, e);
+  }
+  let avdragFranvaro = 0, avdragRoda = 0;
+  basPerVecka.forEach(e => { avdragFranvaro += e.franvaro; avdragRoda += e.roda; });
 
   const agare = new Map<number, number>(); // vecka → index i `markerade`
   const markerade: { fran: number; till: number; anteckning?: string | null }[] = [];
@@ -180,10 +233,17 @@ export function beraknaArsovertid(
 
   const perioderUt: Berakningsperiod[] = [];
   const laggTill = (fran: number, till: number, markerad: boolean, anteckning?: string | null) => {
-    let min = 0;
-    for (let v = fran; v <= till; v++) min += minPerVecka(v);
+    let min = 0, bas = 0, frH = 0, rodaH = 0;
+    for (let v = fran; v <= till; v++) {
+      min += minPerVecka(v);
+      const b = basPerVecka.get(v);
+      if (b) { bas += b.bas; frH += b.franvaro; rodaH += b.roda; }
+    }
     const n = till - fran + 1;
-    perioderUt.push({ fran, till, veckor: n, timmar: r1(min / 60), overtid: r1(Math.max(0, min / 60 - 40 * n)), markerad, anteckning: anteckning ?? undefined });
+    perioderUt.push({
+      fran, till, veckor: n, timmar: r1(min / 60), bas: r1(bas), franvaroTimmar: r1(frH), rodaTimmar: r1(rodaH),
+      overtid: r1(Math.max(0, min / 60 - bas)), markerad, anteckning: anteckning ?? undefined,
+    });
   };
   let v = 1;
   while (v <= sistaVecka) {
@@ -209,5 +269,6 @@ export function beraknaArsovertid(
     timmar: r1(timmar),
     modeller: { vardagar: r1(ovVardagar), dagar: r1(ovDagar), vecka: r1(ovVecka), genomsnitt: r1(ovGenomsnitt) },
     perioder: perioderUt,
+    basavdrag: { franvaroTimmar: r1(avdragFranvaro), rodaTimmar: r1(avdragRoda) },
   };
 }

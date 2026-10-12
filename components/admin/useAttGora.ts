@@ -7,6 +7,7 @@ import { ymdLokal } from "@/lib/datumLokal";
 import { franGolv } from "@/lib/skarpStart";
 import { useDatahalsa } from "@/app/datahalsa/useDatahalsa";
 import { laddaVilobrottLista } from "@/lib/admin/vilobrottLista";
+import { arsovertidRader, type ArsovertidRad } from "@/lib/admin/arsovertidVy";
 import {
   byggAttGora, type AttGoraIndata, type Kalla, type Sak, type StammerRad,
   type Person, type MaskinRad, type ObekraftadDag, type LonLage, type AvtalRad,
@@ -25,7 +26,7 @@ export type AttGora = { laddar: boolean; saker: Sak[]; stammer: StammerRad[]; la
 export function useAttGora(): AttGora {
   const dh = useDatahalsa();
   const [indata, setIndata] = useState<Omit<AttGoraIndata, "leverans">>({
-    kontroller: tom(), personer: tom(), maskiner: tom(), obekraftade: tom(), lon: tom(), vilobrott: tom(), avtal: tom(),
+    kontroller: tom(), personer: tom(), maskiner: tom(), obekraftade: tom(), lon: tom(), vilobrott: tom(), avtal: tom(), arsovertid: tom(),
   });
   const [klart, setKlart] = useState(false);
   const [omgang, setOmgang] = useState(0);
@@ -51,7 +52,7 @@ export function useAttGora(): AttGora {
         return (r.data || []) as { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null; bekraftad: boolean | null }[];
       });
 
-      const [kontroller, personer, maskiner, ad, logg, vilobrott, avtal] = await Promise.all([
+      const [kontroller, personer, maskiner, ad, logg, vilobrott, avtal, arsovertid] = await Promise.all([
         las<MedarbetarKontroller>(async () => {
           const r = await fetch("/api/medarbetare/kontroller", { cache: "no-store" });
           const j = await r.json().catch(() => ({}));
@@ -80,6 +81,13 @@ export function useAttGora(): AttGora {
           if (r.error) throw r.error;
           return (r.data as AvtalRad | null) ?? null;
         }),
+        // Årsövertid: avtalets modell per förare. Ett läsfel är en sak att åtgärda, aldrig "ingen övertid".
+        las<ArsovertidRad[]>(async () => {
+          const r = await fetch("/api/lon/arsovertid", { cache: "no-store" });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j.ok) throw new Error(j.meddelande || `HTTP ${r.status}`);
+          return arsovertidRader(j);
+        }),
       ]);
       if (avbruten) return;
 
@@ -95,7 +103,7 @@ export function useAttGora(): AttGora {
             return { data: { arbetsManad, antalMedDagar: medDagar.size, antalSkickade: skickade.size }, fel: null };
           })();
 
-      setIndata({ kontroller, personer, maskiner, obekraftade, lon, vilobrott, avtal });
+      setIndata({ kontroller, personer, maskiner, obekraftade, lon, vilobrott, avtal, arsovertid });
       setKlart(true);
     })();
     return () => { avbruten = true; };

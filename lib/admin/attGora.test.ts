@@ -14,6 +14,7 @@ const lugnt = (): AttGoraIndata => ({
   lon: ok({ arbetsManad: "2026-09", antalMedDagar: 2, antalSkickade: 2 }),
   vilobrott: ok([]),
   avtal: ok({ giltigt_till: "2027-03-31" }),
+  arsovertid: ok([]),
   leverans: ok([{ maskinId: "R1", namn: "H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }]),
 });
 
@@ -111,5 +112,46 @@ describe("byggAttGora: hempunkt som ingen bekräftat", () => {
   it("när alla är bekräftade finns ingen sådan rad", () => {
     const r = byggAttGora(lugnt(), "2026-10-07");
     expect(r.saker.some(x => x.id.startsWith("hempunkt-"))).toBe(false);
+  });
+});
+
+describe("byggAttGora: årsövertid — bara när någon passerar 200 tim", () => {
+  const rad = (id: string, namn: string, timmar: number) => ({ id, namn, timmar, tak: 250, andel: timmar / 250, niva: "lugn" as const });
+
+  it("passerar någon 200: en rad per förare, '[Namn] har X tim övertid i år, taket är 250', som leder till Lön → Löneunderlag", () => {
+    const i = lugnt(); i.arsovertid = ok([rad("s", "Stefan Karlsson", 212.5), rad("m", "Martin Lindqvist", 40)]);
+    const r = byggAttGora(i, "2026-10-09");
+    const s = r.saker.filter(x => x.id.startsWith("arsovertid-"));
+    expect(s).toHaveLength(1);
+    expect(s[0].rubrik).toBe("Stefan Karlsson har 212,5 tim övertid i år, taket är 250");
+    expect(s[0].knapp).toBe("Visa");
+    expect(s[0].mal).toEqual({ typ: "flik", flik: "lon", underflik: "underlag" });
+  });
+
+  it("exakt 200 passerar inte; 200,1 gör det", () => {
+    const a = lugnt(); a.arsovertid = ok([rad("s", "Stefan", 200)]);
+    expect(byggAttGora(a, "2026-10-09").saker.some(x => x.id.startsWith("arsovertid-"))).toBe(false);
+    const b = lugnt(); b.arsovertid = ok([rad("s", "Stefan", 200.1)]);
+    expect(byggAttGora(b, "2026-10-09").saker.find(x => x.id.startsWith("arsovertid-"))!.rubrik).toBe("Stefan har 200,1 tim övertid i år, taket är 250");
+  });
+
+  it("flera förare över 200: en rad var, störst först; över taket står samma mening", () => {
+    const i = lugnt(); i.arsovertid = ok([rad("a", "Anna", 205), rad("b", "Bo", 260)]);
+    const s = byggAttGora(i, "2026-10-09").saker.filter(x => x.id.startsWith("arsovertid-"));
+    expect(s.map(x => x.rubrik)).toEqual(["Bo har 260 tim övertid i år, taket är 250", "Anna har 205 tim övertid i år, taket är 250"]);
+  });
+
+  it("annars ingenting: varken en sak eller en 'stämmer'-rad (dagens tal: Stefan 74,5, övriga 0)", () => {
+    const i = lugnt(); i.arsovertid = ok([rad("s", "Stefan Karlsson", 74.5), rad("m", "Martin", 0)]);
+    const r = byggAttGora(i, "2026-10-09");
+    expect(r.saker).toEqual([]);
+    expect(r.stammer.map(x => x.id).sort()).toEqual(["avtal", "dagar", "lon", "maskinfiler", "operatorer", "personer", "vila"]);
+  });
+
+  it("en källa som inte gick att läsa är en sak, inte 'ingen övertid'", () => {
+    const i = lugnt(); i.arsovertid = { data: null, fel: "HTTP 500" };
+    const s = byggAttGora(i, "2026-10-09").saker;
+    expect(s).toHaveLength(1);
+    expect(s[0]).toMatchObject({ rubrik: "Kunde inte kontrollera årsövertiden", detalj: "HTTP 500", mal: { typ: "forsok" } });
   });
 });
