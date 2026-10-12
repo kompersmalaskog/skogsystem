@@ -69,7 +69,7 @@ namn ≥ 0,9 inom 180 dagar). Index finns bara för skördare i gallring och slu
 
 **Sidan** (`app/admin/historik`, `components/historik/`, `lib/historik/`): lista (skördare med växel Gallring / Slutavverkning / Skada och special,
 skotare med alla åtgärder), maskinsida (åtgärdsrader, diagram år för år, nyckeltal) och år med objekt och länk till originalrapporten. "+N antagna"
-= objekt med obekräftad maskinstandard, med först vid tryck. Färre än 5 objekt eller stopp i färre än 70 % av rapporterna står med text.
+= objekt med obekräftad maskinstandard, som tas med först vid tryck. Färre än 5 objekt eller stopp i färre än 70 % av rapporterna står med text.
 Saknad data är ord ("Avbrott saknas i rapportformatet"), aldrig 0. Renderad bara i testsele (mockad supabase), inte med riktig inloggning.
 
 **Kända begränsningar:** Giant 2023/2025 och King ny saknar avbrottsdata i formatet (ingen TU). Skotarnas åtgärd är okänd för cirka 50–70 % av
