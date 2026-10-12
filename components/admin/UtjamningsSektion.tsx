@@ -11,13 +11,13 @@ import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
 import {
-  veckoText, arLangPeriod, slutFranMandag, mandagFranSlut, kontrolleraPeriod, delaUpp, tryckVecka, periodSammanfattning,
-  krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, type Urval,
+  veckoText, arLangPeriod, slutFranMandag, mandagFranSlut, kontrolleraPeriod, delaUpp, tryckVecka, periodSammanfattning, periodNamn, krockMening,
+  krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, MAX_NAMN_TECKEN, type Urval,
 } from "@/lib/admin/utjamningsperiod";
 import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Primar, Lank, Destruktiv, Besked, Fel, Laddar, Tomt, Etikett, Falt, Bekrafta, Sheet, Ikon } from "./ui";
 import VeckoKalender from "./VeckoKalender";
 
-type Period = { id: string; startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string; skapad_av?: string | null };
+type Period = { id: string; namn?: string | null; startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string; skapad_av?: string | null };
 type Person = { id: string; namn: string | null };
 type Arbete = { slag: "ny" } | { slag: "redigera"; rad: Period };
 
@@ -35,7 +35,7 @@ export default function UtjamningsSektion({ namnInloggad }: { namnInloggad: stri
   const ladda = useCallback(async () => {
     setFel(null);
     const [p, m] = await Promise.all([
-      supabase.from("utjamningsperiod").select("id, startdatum, slutdatum, medarbetare_id, anteckning, skapad_av").order("startdatum", { ascending: true }),
+      supabase.from("utjamningsperiod").select("id, namn, startdatum, slutdatum, medarbetare_id, anteckning, skapad_av").order("startdatum", { ascending: true }),
       supabase.from("medarbetare").select("id, namn").order("namn", { ascending: true }),
     ]);
     const e = p.error || m.error;
@@ -52,8 +52,8 @@ export default function UtjamningsSektion({ namnInloggad }: { namnInloggad: stri
   const radUI = (r: Period, sista: boolean) => (
     <div key={r.id} data-utjamning-rad={r.id}>
       <Rad sista={sista} onClick={() => setArbete({ slag: "redigera", rad: r })} chevron
-        rubrik={<>{veckoText(r)} <span style={{ ...TYP.meta, color: FARG.text2 }}>{kortDatum(r.startdatum)}–{kortDatum(r.slutdatum)}</span></>}
-        detalj={r.anteckning}
+        rubrik={periodNamn(r)}
+        detalj={`${veckoText(r)} · ${kortDatum(r.startdatum)}–${kortDatum(r.slutdatum)}`}
         hoger={<span style={{ display: "inline-flex", alignItems: "center", gap: AVSTAND.s }}>
           {r.startdatum <= idag && r.slutdatum >= idag && <Etikett>Pågår</Etikett>}
           <span>{namnPa(r.medarbetare_id)}</span>
@@ -116,6 +116,7 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
   // Förare: Alla (en rad med medarbetare_id NULL) eller en eller flera personer (en rad var). Vid ändring gäller bara den raden.
   const [alla, setAlla] = useState(false);
   const [ids, setIds] = useState<string[]>([]);
+  const [namn, setNamn] = useState(redigera ? periodNamn(redigera) : "");
   const [anteckning, setAnteckning] = useState(redigera?.anteckning ?? "");
   const [upptagen, setUpptagen] = useState(false);
   const [sparFel, setSparFel] = useState<string | null>(null);
@@ -124,10 +125,13 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
 
   const val = useMemo(() => redigera ? { alla: redigera.medarbetare_id == null, ids: redigera.medarbetare_id ? [redigera.medarbetare_id] : [] } : { alla, ids }, [redigera, alla, ids]);
   const antalForare = redigera ? 1 : alla ? 1 : ids.length;
-  const hinder = kontrolleraPeriod({ forsta: urval.forsta, sista: urval.sista, anteckning, antalForare });
+  const hinder = kontrolleraPeriod({ forsta: urval.forsta, sista: urval.sista, namn, antalForare });
 
   const period = urval.forsta && urval.sista ? { startdatum: urval.forsta, slutdatum: slutFranMandag(urval.sista) } : null;
-  const krockar = useMemo(() => krockarIUrval(urval, val, befintliga, redigera?.id), [urval, val, befintliga, redigera]);
+  // Samma namn och samma veckor som en befintlig period = samma period för andra förare, ingen krock.
+  const ny = period && namn.trim() ? { namn, startdatum: period.startdatum, slutdatum: period.slutdatum } : undefined;
+  const krockar = useMemo(() => krockarIUrval(urval, val, befintliga, redigera?.id, ny), [urval, val, befintliga, redigera, ny?.namn, ny?.startdatum, ny?.slutdatum]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fornamn = (id: string) => (personer.find(x => x.id === id)?.namn || "Okänd").split(" ")[0];
 
   const tryckAlla = () => { setAlla(a => !a); setIds([]); };
   const tryckPerson = (id: string) => { setAlla(false); setIds(cur => (cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id])); };
@@ -138,11 +142,11 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
     let antalForvantat = 1;
     let svar;
     if (redigera) {
-      svar = await supabase.from("utjamningsperiod").update({ startdatum: period.startdatum, slutdatum: period.slutdatum, anteckning: anteckning.trim() }).eq("id", redigera.id).select("id");
+      svar = await supabase.from("utjamningsperiod").update({ startdatum: period.startdatum, slutdatum: period.slutdatum, namn: namn.trim(), anteckning: anteckning.trim() }).eq("id", redigera.id).select("id");
     } else {
       const forare = alla ? [null] : personer.filter(p => ids.includes(p.id)).map(p => p.id);
       antalForvantat = forare.length;
-      const nya = forare.map(id => ({ startdatum: period.startdatum, slutdatum: period.slutdatum, medarbetare_id: id, anteckning: anteckning.trim(), skapad_av: namnInloggad }));
+      const nya = forare.map(id => ({ startdatum: period.startdatum, slutdatum: period.slutdatum, medarbetare_id: id, namn: namn.trim(), anteckning: anteckning.trim(), skapad_av: namnInloggad }));
       svar = await supabase.from("utjamningsperiod").insert(nya).select("id"); // ett anrop: alla rader eller ingen
     }
     setUpptagen(false);
@@ -181,6 +185,8 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
 
   return (
     <Sheet titel={redigera ? "Ändra utjämningsperiod" : "Ny utjämningsperiod"} onStang={onStang} attr={{ "data-utjamning-ark": "" }} overlayAttr={{ "data-utjamning-overlay": "" }}>
+      <Falt label="Namn" value={namn} onChange={setNamn} maxLength={MAX_NAMN_TECKEN} placeholder="t.ex. Gävle" />
+
       {redigera ? (
         <div style={{ marginBottom: AVSTAND.l }}>
           <p style={{ margin: 0, ...TYP.text, color: FARG.text }}>Gäller {namnPa(redigera.medarbetare_id)}</p>
@@ -202,20 +208,15 @@ function PeriodArk({ arbete, personer, befintliga, namnInloggad, namnPa, onStang
       <div style={{ marginBottom: AVSTAND.l }}>
         <span style={etikettStil}>Veckor</span>
         <VeckoKalender urval={urval} onTryck={m => setUrval(u => tryckVecka(u, m))}
-          krockerIVecka={m => krockarIVecka(m, val, befintliga, redigera?.id)}
-          extra={redigera ? [redigera.startdatum, redigera.slutdatum] : []} />
+          krockerIVecka={m => krockarIVecka(m, val, befintliga, redigera?.id, ny)} />
         <Stod>{periodSammanfattning(urval.forsta, urval.sista)}</Stod>
         {period && arLangPeriod(period) && (
           <Stod farg={FARG.orange}>Längre än {MAX_VECKOR_UTAN_ÖVERENSKOMMELSE} veckor kräver lokal överenskommelse (§5 mom 2).</Stod>
         )}
-        {krockar.length > 0 && (
-          <Stod farg={FARG.orange}>
-            Krockar med befintlig period: {krockar.map(k => `${veckoText(k)} ${k.anteckning}`).join("; ")}. Du kan spara ändå.
-          </Stod>
-        )}
+        {krockar.length > 0 && <Stod attr={{ "data-krock-varning": "" }}>{krockMening(krockar, fornamn)}</Stod>}
       </div>
 
-      <Falt label="Anteckning" value={anteckning} onChange={setAnteckning} hint="Vad som gjordes, minst 3 tecken." />
+      <Falt label="Anteckning (valfri)" value={anteckning} onChange={setAnteckning} />
 
       {sparFel && <Besked>{sparFel}</Besked>}
       {nekad && <Besked>{nekad}</Besked>}

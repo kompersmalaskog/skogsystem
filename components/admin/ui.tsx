@@ -30,8 +30,8 @@ export function Sektion({ children, orange, topp = AVSTAND.sektion }: { children
 }
 
 /** Stödtext under en lista eller ett fält. */
-export function Stod({ children, farg = FARG.text2, style }: { children: ReactNode; farg?: string; style?: CSSProperties }) {
-  return <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: farg, ...style }}>{children}</p>;
+export function Stod({ children, farg = FARG.text2, style, attr }: { children: ReactNode; farg?: string; style?: CSSProperties; attr?: Record<string, string> }) {
+  return <p {...attr} style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: farg, ...style }}>{children}</p>;
 }
 
 // ── Ytor ────────────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ const faltStil: CSSProperties = {
   outline: "none",
 };
 
-export function Falt({ label, value, onChange, placeholder, type = "text", hint, min, max, step, disabled, id }: {
+export function Falt({ label, value, onChange, placeholder, type = "text", hint, min, max, step, disabled, id, maxLength }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -173,13 +173,14 @@ export function Falt({ label, value, onChange, placeholder, type = "text", hint,
   step?: string;
   disabled?: boolean;
   id?: string;
+  maxLength?: number;
 }) {
   const nyckel = id || `falt-${label.replace(/\W+/g, "-").toLowerCase()}`;
   return (
     <div style={{ marginBottom: AVSTAND.l }}>
       <label htmlFor={nyckel} style={{ display: "block", ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{label}</label>
       <input id={nyckel} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        min={min} max={max} step={step} disabled={disabled} style={{ ...faltStil, ...(disabled ? { opacity: 0.4 } : null) }} />
+        min={min} max={max} step={step} maxLength={maxLength} disabled={disabled} style={{ ...faltStil, ...(disabled ? { opacity: 0.4 } : null) }} />
       {hint && <Stod>{hint}</Stod>}
     </div>
   );
