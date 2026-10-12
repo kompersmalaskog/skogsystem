@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 // Vakt mot att körvyns nya meny/snabbtryck (pill, plusrad, placering, prickar, Mät/Rita, kvitto) kopplas bort eller läcker in i planeringsvyn.
 // planering/page.tsx är 23 000 rader och körs inte i enhetstester; beteendet är provat i den riktiga sidan (testsele, se PR) och
@@ -120,15 +120,15 @@ describe('prickar: högstubbe/evighetsträd i körvyn', () => {
   });
 });
 
-describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
+describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
   it('EN smal list i båda vyerna: planeringens gamla mätpanel och låsta chip är borta, alla vägar startar samma figur', () => {
     expect(page).not.toContain('MÄTVERKTYG (geo, klicka-punkter)');
     expect(page).not.toContain('Tryck på kartan för att sätta punkter');
     expect(page).not.toContain('panorera mellan tryck');
-    expect(page).not.toContain('const klarMatning');
+    expect(page).not.toContain('const klarMatning');   // gamla låsta chip-flödet
     expect(page).not.toContain('{!korvyActive && measureLocked');
-    expect(page).toContain('{figur && !sparaSomOppen && (() => {');
-    expect(page).toContain('{figur && sparaSomOppen && (');
+    expect(page).toContain('{figur && (() => {');
+    expect(page).not.toContain('sparaSomOppen');
     expect(page).not.toContain('{korvyActive && figur');
     // Mät sträcka/Mät yta (plusdockan) startar figuren — aldrig den gamla startaMatning direkt. Rita linje/Rita yta startar INTE figuren längre:
     // typlistan först (körvyn och planeringen), sedan ritning.
@@ -172,18 +172,18 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
     expect(page).toContain('data-testid="objektinfo-miljo"');
     expect(page).toMatch(/\{!korvyActive && \(\s*<div data-testid="objektinfo-miljo"/);
   });
-  it('Klar → Spara som: vanlig markering via planeringens form och markörsynk, synlig för alla', () => {
-    expect(page).toContain('byggFigurMarkering(val, measureGeo, id, latLonToSvg, numreringRef.current.nastaGransNr)');
-    expect(page).toContain('setMarkers((prev: any[]) => [...prev, m]);\n    avslutaFigur();');
-    expect(page).toContain("{ etikett: 'Klar', onClick: () => setSparaSomOppen(true)");
+  it('Klar låser mätningen och visar talet — ingenting sparas (Spara som finns inte längre)', () => {
+    expect(page).toContain("const lasMatning = () => { if (figur && measureGeoRef.current.length >= (figur.yta ? 3 : 2)) setMeasureLocked({ yta: figur.yta }); };");
+    expect(page).toContain("{ etikett: '✓', aria: 'Klar', onClick: lasMatning,");
+    for (const s of ['byggFigurMarkering', 'SPARA_SOM', 'sparaFigurSom', 'KorvySparaSom', "from '../../lib/sparSom'"]) expect(page, s).not.toContain(s);
+    expect(existsSync(new URL('./sparSom.ts', import.meta.url))).toBe(false);
+    expect(existsSync(new URL('../components/planering/KorvySparaSom.tsx', import.meta.url))).toBe(false);
   });
-  it('Spara som-valen pekar på typer som finns i planeringen (zoner och linjer)', async () => {
-    const { SPARA_SOM } = await import('./sparSom');
-    for (const v of SPARA_SOM) {
-      if (v.mal.slag === 'zon') expect(page).toContain(`{ id: '${v.mal.zoneType}', name:`);
-      if (v.mal.slag === 'linje') expect(page).toContain(`{ id: '${v.mal.lineType}', name:`);
-    }
-    expect(page).toContain("lineType: 'boundary'");
+  it('alla typer som Spara som kunde spara går att rita: zonerna i Rita yta, Trail/Stickväg i Rita linje, Yta = Nytt område (traktgräns med nummer)', () => {
+    for (const [id, namn] of [['wet', 'Blött'], ['protected', 'Naturvård'], ['steep', 'Brant']]) expect(page).toContain(`{ id: '${id}', name: '${namn}',`);   // zoner (Blött, Naturvård = Hänsyn, Brant)
+    expect(page).toContain("{ id: 'trail', name: 'Stig/Led',");
+    expect(page).toContain("...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg' })),");
+    expect(page).toContain("{ id: Date.now(), isLine: true, lineType: 'boundary', nummer, path }");   // Nytt område
   });
   it('etiketten i figuren följer punkterna — en BILD per text i ett symbollager (inte textlager eller HTML-markör)', () => {
     expect(page).toContain("map.getSource('figur-etikett-source')");
@@ -211,7 +211,7 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
 });
 
 describe('komponenterna: tokens och stora tryckytor', () => {
-  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'PlusArk', 'KorvySparaSom'];
+  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'PlusArk'];
   const kall = Object.fromEntries(filer.map((n) => [n, las(`../components/planering/${n}.tsx`)]));
   it('alla importerar designtokens och har inga färgliteraler (hex) eller egna textstorlekar', () => {
     for (const n of filer) {
