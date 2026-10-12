@@ -1,16 +1,18 @@
 "use client";
 // ─────────────────────────────────────────────────────────────
-// Inline kalenderblad för utjämningsperiodens ark (iOS-stil): en månad åt gången med pilar för att bläddra. Tryck en startdag,
-// tryck en slutdag. Perioden snäpper till HELA veckor (start måndag, slut söndag), och hela veckorna ligger som ett band i bladet.
+// Inline kalenderblad för raden Börjar i utjämningsperiodens ark (iOS-stil): en månad åt gången med pilar för att bläddra.
+// Ett tryck på valfri dag sätter Börjar till den veckans måndag. Bladet visar HELA perioden som ett band (alla veckor från Börjar
+// och Längd veckor framåt), med måndagen i första veckan som cirkel, så man ser vad Längd gör medan man trycker − och +.
 // Bladet ligger i flödet: det trycker ner raderna under sig i stället för att lägga sig över dem.
 //
-// Dagar som redan ligger i en annan period för de valda förarna får en liten prick (periodens namn i data-krock). Det är en upplysning,
-// aldrig en spärr. Markeringen bärs av bandet OCH av resultatraden ovanför bladet, inte av färgen ensam.
+// Röda dagar (lib/roda-dagar) har röd siffra, data-roda och en beskrivning i aria-label; dagar som redan ligger i en annan period för
+// de valda förarna får en liten prick (periodens namn i data-krock). Det är upplysningar, aldrig spärrar.
 // ─────────────────────────────────────────────────────────────
 import React from "react";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
-import { arDagIPerioden, krockText, manadRubrik, manadVeckor, mandagForDag, slutFranMandag, type Valt } from "@/lib/admin/utjamningsperiod";
+import { getRödaDagar } from "@/lib/roda-dagar";
+import { arDagIPerioden, krockText, manadRubrik, manadVeckor, mandagForDag, slutMandag } from "@/lib/admin/utjamningsperiod";
 import { Ikon } from "./ui";
 
 type Krock = { namn?: string | null; anteckning?: string | null; startdatum?: string; slutdatum?: string };
@@ -28,8 +30,11 @@ function Pil({ riktning, onClick }: { riktning: "bakat" | "framat"; onClick: () 
   );
 }
 
-export default function PeriodKalender({ valt, manad, onManad, onTryck, krockerIVecka }: {
-  valt: Valt;
+export default function PeriodKalender({ borjar, langd, manad, onManad, onTryck, krockerIVecka }: {
+  /** Måndagen i första veckan. */
+  borjar: string;
+  /** Antal veckor. */
+  langd: number;
   manad: ManadVal;
   onManad: (m: ManadVal) => void;
   onTryck: (dag: string) => void;
@@ -39,7 +44,8 @@ export default function PeriodKalender({ valt, manad, onManad, onTryck, krockerI
   const idag = ymdLokal(new Date());
   const rader = manadVeckor(manad.ar, manad.manad0);
   const flytta = (delta: number) => { const d = new Date(manad.ar, manad.manad0 + delta, 1); onManad({ ar: d.getFullYear(), manad0: d.getMonth() }); };
-  const slutDag = slutFranMandag(valt.till);
+  const period = { fran: borjar, till: slutMandag(borjar, langd) };
+  const roda = getRödaDagar(manad.ar);
 
   return (
     <div data-period-kalender style={{ padding: `${AVSTAND.xs}px ${AVSTAND.xs}px ${AVSTAND.s}px` }}>
@@ -56,17 +62,20 @@ export default function PeriodKalender({ valt, manad, onManad, onTryck, krockerI
           <div key={r} style={KOLUMNER}>
             {rad.map((dag, k) => {
               if (!dag) return <span key={k} />;
-              const iPerioden = arDagIPerioden(valt, dag);
-              const arStart = dag === valt.fran, arSlut = dag === slutDag;
+              const iPerioden = arDagIPerioden(period, dag);
+              const arStart = dag === borjar;
               const kt = krockText(krockerIVecka(mandagForDag(dag)));
+              const rod = roda[dag];
+              const dagNr = Number(dag.slice(8));
               return (
-                <button key={dag} type="button" data-dag={dag} data-veckodag-nr={k} aria-pressed={iPerioden} aria-label={`${Number(dag.slice(8))} ${manadRubrik(manad.ar, manad.manad0)}${kt ? `, ${kt}` : ""}`}
-                  data-start={arStart ? "true" : undefined} data-slut={arSlut ? "true" : undefined} data-krock={kt || undefined}
+                <button key={dag} type="button" data-dag={dag} data-veckodag-nr={k} aria-pressed={iPerioden}
+                  aria-label={`${dagNr} ${manadRubrik(manad.ar, manad.manad0)}${rod ? `, röd dag (${rod})` : ""}${kt ? `, ${kt}` : ""}`}
+                  data-start={arStart ? "true" : undefined} data-roda={rod ? "true" : undefined} data-krock={kt || undefined}
                   onClick={() => onTryck(dag)}
                   style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", minHeight: TRAFFYTA.min, padding: 0, border: "none", cursor: "pointer", fontFamily: "inherit",
-                    background: iPerioden ? FARG.upphojt : "transparent", color: FARG.text, ...TYP.text, ...(dag === idag ? { fontWeight: TYP.listtitel.fontWeight } : null) }}>
+                    background: iPerioden ? FARG.upphojt : "transparent", color: rod && !arStart ? FARG.rod : FARG.text, ...TYP.text, ...(dag === idag ? { fontWeight: TYP.listtitel.fontWeight } : null) }}>
                   <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xxl + AVSTAND.s, borderRadius: RADIE.cirkel,
-                    ...(arStart || arSlut ? { background: FARG.text, color: FARG.bg, fontWeight: TYP.listtitel.fontWeight } : null) }}>{Number(dag.slice(8))}</span>
+                    ...(arStart ? { background: FARG.text, color: FARG.bg, fontWeight: TYP.listtitel.fontWeight } : null) }}>{dagNr}</span>
                   {kt && <span data-krock-prick style={{ position: "absolute", bottom: AVSTAND.xs, width: AVSTAND.xs, height: AVSTAND.xs, borderRadius: RADIE.cirkel, background: FARG.text3 }} />}
                 </button>
               );

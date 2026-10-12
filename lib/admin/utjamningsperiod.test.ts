@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  veckoText, antalVeckor, arLangPeriod, tryckDag, arDagIPerioden, manadVeckor, manadRubrik, flyttaManad, periodResultat,
+  veckoText, antalVeckor, arLangPeriod, arDagIPerioden, manadVeckor, manadRubrik, flyttaManad, borjarText, slutarText, slutMandag, langdVeckor,
   krockarIVecka, krockarIUrval, krockText, krockMening, periodNamn, slutFranMandag, kontrolleraPeriod, delaUpp, loneperioderBerorda,
   arExporterad, mandagFranSlut, grupperaPerioder, planeraAndring, forareNamn, forareRadText, overenskommenText, overenskommelseRad,
   KRAVER_FACKLIG_OVERENSKOMMELSE, kortDatumMedAr, MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, MAX_NAMN_TECKEN,
@@ -26,23 +26,27 @@ describe("antalVeckor och gränsen 16 veckor (§5 mom 2)", () => {
   });
 });
 
-describe("tryckDag: tryck startdag, tryck slutdag — snäpper till hela veckor (måndag–söndag)", () => {
-  const klar = { fran: "2026-10-05", till: "2026-10-05", fas: "klar" as const };
-  it("första trycket väljer VECKAN för dagen (en onsdag → måndagen) som en hel vecka och väntar på slutdagen", () => {
-    expect(tryckDag(klar, "2026-10-14")).toEqual({ fran: "2026-10-12", till: "2026-10-12", fas: "slut" });
-    expect(tryckDag(klar, "2026-10-18")).toEqual({ fran: "2026-10-12", till: "2026-10-12", fas: "slut" });   // en söndag hör till veckan som slutar på den
+describe("Börjar + Längd: ett tryck sätter måndagen, stegaren sätter antal veckor", () => {
+  it("borjarText: 'mån 20 apr · v17'; årtal när det inte är innevarande år", () => {
+    expect(borjarText("2026-04-20", 2026)).toBe("mån 20 apr · v17");
+    expect(borjarText("2026-10-05", 2026)).toBe("mån 5 okt · v41");
+    expect(borjarText("2027-01-04", 2026)).toBe("mån 4 jan 2027 · v1");
   });
-  it("andra trycket väljer slutveckan: valfri dag i veckan, perioden slutar den veckans söndag", () => {
-    const v = { fran: "2026-10-12", till: "2026-10-12", fas: "slut" as const };
-    expect(tryckDag(v, "2026-11-04")).toEqual({ fran: "2026-10-12", till: "2026-11-02", fas: "klar" });
-    expect(slutFranMandag("2026-11-02")).toBe("2026-11-08");
-    expect(tryckDag(v, "2026-10-13")).toEqual({ fran: "2026-10-12", till: "2026-10-12", fas: "klar" });       // samma vecka = en vecka
+  it("slutMandag: måndagen i sista veckan (längd 1 = samma vecka)", () => {
+    expect(slutMandag("2026-04-20", 11)).toBe("2026-06-29");
+    expect(slutMandag("2026-04-20", 1)).toBe("2026-04-20");
+    expect(slutMandag("2026-12-21", 3)).toBe("2027-01-04");
   });
-  it("slutdagen före startdagen byter plats i stället för att ge fel", () => {
-    expect(tryckDag({ fran: "2026-10-26", till: "2026-10-26", fas: "slut" }, "2026-10-14")).toEqual({ fran: "2026-10-12", till: "2026-10-26", fas: "klar" });
+  it("slutarText: 'Slutar sön 5 jul · v27' — söndagen i sista veckan och dess veckonummer", () => {
+    expect(slutarText("2026-04-20", 11, 2026)).toBe("Slutar sön 5 jul · v27");
+    expect(slutarText("2026-04-20", 1, 2026)).toBe("Slutar sön 26 apr · v17");
+    expect(slutarText("2026-12-28", 1, 2026)).toBe("Slutar sön 3 jan 2027 · v53");
+    expect(slutarText("2027-02-01", 2, 2026)).toBe("Slutar sön 14 feb 2027 · v6");
   });
-  it("ett tryck när perioden är klar börjar om", () => {
-    expect(tryckDag({ fran: "2026-10-12", till: "2026-11-02", fas: "klar" }, "2026-12-01")).toEqual({ fran: "2026-11-30", till: "2026-11-30", fas: "slut" });
+  it("langdVeckor: antal veckor mellan första veckans måndag och sista veckans måndag, inklusive båda", () => {
+    expect(langdVeckor("2026-04-20", "2026-06-29")).toBe(11);
+    expect(langdVeckor("2026-04-20", "2026-04-20")).toBe(1);
+    expect(langdVeckor("2026-12-21", "2027-01-04")).toBe(3);
   });
   it("arDagIPerioden: varje dag från måndagen i första veckan till söndagen i sista", () => {
     const v = { fran: "2026-10-12", till: "2026-10-26" };
@@ -78,23 +82,6 @@ describe("manadRubrik och flyttaManad", () => {
   });
 });
 
-describe("periodResultat: 'v42–v45 · 12 okt–8 nov · 4 veckor'", () => {
-  it("veckor, datum (måndag–söndag) och antal", () => {
-    expect(periodResultat("2026-10-12", "2026-11-02", 2026)).toBe("v42–v45 · 12 okt–8 nov · 4 veckor");
-    expect(periodResultat("2026-04-20", "2026-06-29", 2026)).toBe("v17–v27 · 20 apr–5 jul · 11 veckor");
-  });
-  it("en vecka: 'v42 · 12–18 okt · 1 vecka'; inom en månad slås datumen ihop", () => {
-    expect(periodResultat("2026-10-12", "2026-10-12", 2026)).toBe("v42 · 12–18 okt · 1 vecka");
-    expect(periodResultat("2026-10-12", "2026-10-19", 2026)).toBe("v42–v43 · 12–25 okt · 2 veckor");
-    expect(periodResultat("2026-09-28", "2026-09-28", 2026)).toBe("v40 · 28 sep–4 okt · 1 vecka");
-  });
-  it("årtal när perioden inte ligger i innevarande år, och när den går över årsskiftet", () => {
-    expect(periodResultat("2026-12-14", "2027-01-11", 2026)).toBe("v51–v2 · 14 dec 2026–17 jan 2027 · 5 veckor");
-    expect(periodResultat("2027-02-01", "2027-02-08", 2026)).toBe("v5–v6 · 1–14 feb 2027 · 2 veckor");
-    expect(periodResultat("2026-12-28", "2026-12-28", 2026)).toBe("v53 · 28 dec 2026–3 jan 2027 · 1 vecka");
-  });
-});
-
 describe("kortDatumMedAr och overenskommenText", () => {
   it("'12 okt 2026' och 'Överenskommen 12 okt 2026'", () => {
     expect(kortDatumMedAr("2026-10-12")).toBe("12 okt 2026");
@@ -119,7 +106,7 @@ describe("overenskommelseRad: §5 mom 2 — krävs bara över 16 veckor, och då
     expect(overenskommelseRad({ ...sjutton, overenskommen: "2026-01-02" })).toEqual({ text: "Överenskommen 2 jan 2026", orange: false });
   });
   it("texten vid fältet nämner den lokala fackliga organisationen, inte arbetstagaren", () => {
-    expect(KRAVER_FACKLIG_OVERENSKOMMELSE).toBe("Kräver överenskommelse med lokal facklig organisation");
+    expect(KRAVER_FACKLIG_OVERENSKOMMELSE).toBe("Över 16 veckor kräver överenskommelse med lokal facklig organisation");
     expect(KRAVER_FACKLIG_OVERENSKOMMELSE).not.toMatch(/arbetstagar/i);
   });
 });

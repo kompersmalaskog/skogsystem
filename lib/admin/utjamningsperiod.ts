@@ -50,19 +50,26 @@ export const mandagForDag = (s: string) => iso(mandagFor(s));
 
 export type Urval = { forsta: string; sista: string };
 
-/** Valet i månadsbladet: första veckans måndag, sista veckans MÅNDAG (perioden slutar den veckans söndag), och var man är i valet. */
-export type Valt = { fran: string; till: string; fas: "klar" | "slut" };
+const VECKODAG_KORT = ["sön", "mån", "tis", "ons", "tors", "fre", "lör"];
 
-/**
- * Ett tryck på en dag i månadsbladet. Perioden snäpper alltid till HELA veckor (start måndag, slut söndag): första trycket väljer veckan
- * för dagen och väntar på slutdagen, andra trycket väljer slutveckan (en slutdag före startdagen byter plats), och ett tryck när
- * perioden är klar börjar om.
- */
-export function tryckDag(v: Valt, dag: string): Valt {
-  const m = iso(mandagFor(dag));
-  if (v.fas === "klar") return { fran: m, till: m, fas: "slut" };
-  return m < v.fran ? { fran: m, till: v.fran, fas: "klar" } : { fran: v.fran, till: m, fas: "klar" };
+/** Värdet på raden Börjar: 'mån 20 apr · v17' (måndagen och veckan). Årtal när det inte är innevarande år. */
+export function borjarText(mandag: string, innevarandeAr: number): string {
+  const d = lokal(mandag);
+  return `${VECKODAG_KORT[d.getDay()]} ${d.getDate()} ${MAN_KORT[d.getMonth()]}${d.getFullYear() === innevarandeAr ? "" : ` ${d.getFullYear()}`} · v${isoVecka(d).vecka}`;
 }
+
+/** Måndagen i sista veckan för en period som börjar `borjar` (måndag) och är `langd` veckor lång (minst 1). */
+export const slutMandag = (borjar: string, langd: number) => iso(dagar(lokal(borjar), 7 * (Math.max(1, langd) - 1)));
+
+/** Raden under Längd: 'Slutar sön 5 jul · v27' — söndagen i sista veckan och veckans nummer. */
+export function slutarText(borjar: string, langd: number, innevarandeAr: number): string {
+  const sistaMandag = slutMandag(borjar, langd);
+  const d = lokal(slutFranMandag(sistaMandag));
+  return `Slutar ${VECKODAG_KORT[d.getDay()]} ${d.getDate()} ${MAN_KORT[d.getMonth()]}${d.getFullYear() === innevarandeAr ? "" : ` ${d.getFullYear()}`} · v${isoVecka(lokal(sistaMandag)).vecka}`;
+}
+
+/** Antal veckor från första veckans måndag till sista veckans måndag, inklusive båda. */
+export const langdVeckor = (fran: string, till: string) => antalVeckor({ startdatum: fran, slutdatum: slutFranMandag(till) });
 
 /** Ligger dagen i perioden? Från måndagen i första veckan till söndagen i sista. */
 export const arDagIPerioden = (v: { fran: string; till: string }, dag: string) => dag >= v.fran && dag <= slutFranMandag(v.till);
@@ -83,22 +90,6 @@ export function flyttaManad(ar: number, manad0: number, delta: number): { ar: nu
   return { ar: d.getFullYear(), manad0: d.getMonth() };
 }
 
-/** Resultatet under valet: 'v42–v45 · 12 okt–8 nov · 4 veckor'. Årtal när perioden inte ligger i innevarande år eller går över årsskiftet. */
-export function periodResultat(fran: string, till: string, innevarandeAr: number): string {
-  const a = lokal(fran), b = lokal(slutFranMandag(till));
-  const va = isoVecka(a).vecka, vb = isoVecka(lokal(till)).vecka;
-  const n = antalVeckor({ startdatum: fran, slutdatum: slutFranMandag(till) });
-  const veckor = fran === till ? `v${va}` : `v${va}–v${vb}`;
-  const dm = (d: Date) => `${d.getDate()} ${MAN_KORT[d.getMonth()]}`;
-  let datum: string;
-  if (a.getFullYear() !== b.getFullYear()) datum = `${dm(a)} ${a.getFullYear()}–${dm(b)} ${b.getFullYear()}`;
-  else {
-    const ar = a.getFullYear() === innevarandeAr ? "" : ` ${a.getFullYear()}`;
-    datum = a.getMonth() === b.getMonth() ? `${a.getDate()}–${dm(b)}${ar}` : `${dm(a)}–${dm(b)}${ar}`;
-  }
-  return `${veckor} · ${datum} · ${n} ${n === 1 ? "vecka" : "veckor"}`;
-}
-
 /** "12 okt 2026". */
 export function kortDatumMedAr(s: string): string {
   const d = lokal(s);
@@ -112,7 +103,7 @@ export const overenskommenText = (datum: string) => `Överenskommen ${kortDatumM
  * Skogsavtalet §5 mom 2: en beräkningsperiod på högst 16 veckor kräver ingen överenskommelse. Över 16 veckor krävs en överenskommelse
  * med LOKAL FACKLIG ORGANISATION (inte med arbetstagaren). Texten som står vid fältet för perioder över 16 veckor:
  */
-export const KRAVER_FACKLIG_OVERENSKOMMELSE = "Kräver överenskommelse med lokal facklig organisation";
+export const KRAVER_FACKLIG_OVERENSKOMMELSE = "Över 16 veckor kräver överenskommelse med lokal facklig organisation";
 const SAKNAR_FACKLIG_OVERENSKOMMELSE = "Saknar överenskommelse med lokal facklig organisation";
 
 /**
