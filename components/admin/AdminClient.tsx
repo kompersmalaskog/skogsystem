@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { expectedWorkMinutes } from "@/lib/roda-dagar";
 import { C, adminCss as css, secHead, Card } from "./design";
+import { AVSTAND, FARG, RADIE, TYP } from "@/lib/design/tokens";
 import MedarbetareFlik from "./MedarbetareFlik";
 import MaskinerFlik from "./MaskinerFlik";
 import AvtalFlik from "./AvtalFlik";
@@ -95,6 +96,12 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
           {currentUser.namn || "—"} · {currentUser.roll}
         </p>
       </div>
+
+      {currentUser.roll === "admin" && (
+        <a href="/admin/historik" style={{ display: "block", marginTop: AVSTAND.m, padding: AVSTAND.l, borderRadius: RADIE.kort, background: FARG.kort, color: FARG.text, textDecoration: "none", ...TYP.listtitel }}>
+          Historik: produktionsrapporter 2011–2026 ›
+        </a>
+      )}
 
       <main style={{ flex: 1, paddingTop: 16, animation: "fadeUp 0.25s ease-out" }} key={aktiv}>
         {aktiv === "oversikt"      && <OversiktFlik />}
