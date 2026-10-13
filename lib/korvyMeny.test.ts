@@ -31,7 +31,10 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
 describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
   it('plus-knappen öppnar raden i BÅDA vyerna; "Fler val" finns inte längre i arket — dess innehåll bor i objektinfon', () => {
     expect(page).toContain('if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); }');
-    expect(page).toContain('{plusRadOppen && (() => {\n        const { poster, ark } = byggPlusRad();');
+    // Innehållet byggs BARA medan plus är öppet; vid stängning ligger det senaste kvar så panelen (≥ 900 px) hinner glida undan.
+    expect(page).toContain('if (plusRadOppen) {\n    const { poster, ark } = byggPlusRad();');
+    expect(page).toContain('{plusRadVisning && (\n        <PlusRad');
+    expect(page).toContain('oppen={plusRadOppen}');
     expect(page).toContain('onSparaDocka={sparaDockaPlatser}');
     expect(page).toContain('{renderFlerVal(stang)}');
     // den gamla plusmenyn (bottom sheet) och den gamla helskärms-Lager-menyn är borta — inga döda ingångar kvar

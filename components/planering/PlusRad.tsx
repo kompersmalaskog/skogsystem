@@ -15,7 +15,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AVSTAND, FARG, RADIE, RORELSE, TYP } from '@/lib/design/tokens';
 import { skapaLangtryck } from '@/lib/langtryck';
 import { MAX_FASTA } from '@/lib/plusRad';
-import type { FlikId } from '@/lib/plusArk';
+import { plusLage, type FlikId, type PlusLage } from '@/lib/plusArk';
 import { PlusArk, type ArkData, type PlusPostVy } from './PlusArk';
 
 export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRad, LagerGrupp } from './PlusArk';
@@ -23,6 +23,7 @@ export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRa
 export interface HallSvar { ok: boolean; text: string }
 
 export const DOCK_KNAPP_PX = 56;
+const RAD_KNAPP_PX = 48;                                 // symbolknappen i panelens rad (sex ryms på 380 px)
 const DOCK_RADIE_PX = AVSTAND.xl + AVSTAND.s;          // 32 — en mjuk pill
 const DOCK_BRED_MIN_PX = 760;                            // under det: två rader (4 + 4) i stället för en
 
@@ -38,6 +39,22 @@ function useMinBredd(px: number): boolean {
     return () => mq.removeEventListener?.('change', upd);
   }, [px]);
   return bred;
+}
+
+/** Fönstrets bredd → 'ark' (< 900 px) eller 'panel' (≥ 900 px), via lib/plusArk.plusLage. */
+const lageNu = (): PlusLage => (typeof window !== 'undefined' ? plusLage(window.innerWidth) : 'panel');
+
+/**
+ * Läget avgörs VARJE GÅNG plus öppnas (oppen false → true läser bredden på nytt) och ligger sedan fast tills nästa öppning: en iPad som vrids eller ett
+ * fönster som ändras medan menyn är stängd ger rätt läge vid nästa öppning, och ingenting byter ram mitt i en öppen meny eller mitt i en utglidning.
+ * Ingen resize-lyssnare, ingen extra rendering; läses redan vid första renderingen (ingen bildruta med fel läge).
+ */
+function usePlusLage(oppen: boolean): PlusLage {
+  const lageRef = useRef<PlusLage>(lageNu());
+  const forraOppen = useRef(oppen);
+  if (oppen && !forraOppen.current) lageRef.current = lageNu();
+  forraOppen.current = oppen;
+  return lageRef.current;
 }
 
 const Nal = () => (
@@ -59,9 +76,11 @@ const StangIkon = () => (
   </svg>
 );
 
-export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka, onAterstall, onStang }: {
+export function PlusRad({ poster, ark, oppen = true, startFlik, onPost, onFastna, onSparaDocka, onAterstall, onStang }: {
   poster: PlusPostVy[];
   ark: ArkData;
+  /** false = stängd. Panelen (≥ 900 px) glider då ut och försvinner; dockan och arket (< 900 px) försvinner direkt som förut. Sidan lämnar komponenten monterad medan panelen glider. */
+  oppen?: boolean;
   /** öppna direkt i arket på den här fliken (t.ex. från objektinfons Lager-rad) i stället för att börja i dockan */
   startFlik?: FlikId | null;
   onPost: (nyckel: string) => void;
@@ -77,7 +96,20 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
   const [hall, setHall] = useState<{ nyckel: string; etikett: string; svar?: string } | null>(null);
   const [inne, setInne] = useState(false);
   const bred = useMinBredd(DOCK_BRED_MIN_PX);
+  const lage = usePlusLage(oppen);
+  // Under 900 px börjar plus i dockan och "Alla" öppnar arket. Från 900 px finns ingen docka: plus öppnar panelen direkt, med dockans symboler som en rad överst.
+  const alla = visaAlla || lage === 'panel';
+  const [utglidet, setUtglidet] = useState(false);
   const lt = useRef(skapaLangtryck()).current;
+
+  // Panelen som glidit undan tas bort ur DOM först när rörelsen är klar. En ny öppning (samma instans) börjar om: nästa utglidning ska animeras igen.
+  useEffect(() => {
+    if (oppen) { setUtglidet(false); return; }
+    if (!alla || lage !== 'panel') return;
+    const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const t = setTimeout(() => setUtglidet(true), minskad ? 0 : RORELSE.byte + 50);
+    return () => clearTimeout(t);
+  }, [oppen, alla, lage]);
 
   // Mjuk ut-animation ur plusknappen: dockan startar liten i nedre högra hörnet (där plusset sitter) och växer åt vänster.
   useEffect(() => {
@@ -138,25 +170,11 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
     </>
   );
 
-  // ── Arket (Alla) ──
-  if (visaAlla) {
-    return (
-      <PlusArk
-        data={ark}
-        flik={flik}
-        onFlik={setFlik}
-        bred={bred}
-        dockNu={poster}
-        onPost={onPost}
-        onSparaDocka={onSparaDocka}
-        onAterstall={onAterstall}
-        onStang={onStang}
-      />
-    );
-  }
+  // ── Stängd: dockan och arket försvinner direkt (som förut). Bara en panel som glider undan ligger kvar tills den är ute. ──
+  if (!oppen && !(alla && lage === 'panel' && !utglidet)) return null;
 
   // ── Dockan ──
-  const symbolKnapp = (p: PlusPostVy) => (
+  const symbolKnapp = (p: PlusPostVy, kompakt = false) => (
     <button
       key={p.nyckel}
       type="button"
@@ -166,21 +184,22 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
       className="press-scale"
       {...hallProps(p, () => onPost(p.nyckel))}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.xs, width: bred ? 84 : 80, padding: 0, border: 'none', background: 'transparent',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.xs, width: kompakt ? '100%' : bred ? 84 : 80, padding: 0, border: 'none', background: 'transparent',
         color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation', WebkitTouchCallout: 'none', userSelect: 'none',
+        ...(kompakt ? { minWidth: 0 } : null),
       }}
     >
       <span
         aria-hidden="true"
         style={{
-          position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: DOCK_KNAPP_PX, height: DOCK_KNAPP_PX, borderRadius: RADIE.cirkel,
+          position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX, height: kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX, borderRadius: RADIE.cirkel,
           background: p.dockFarg ?? FARG.upphojt, boxShadow: `0 0 0 ${AVSTAND.xs / 2}px ${p.dockRing ?? FARG.fyllning}`, boxSizing: 'border-box',
         }}
       >
         {p.dockGlyf}
         {p.fast && <Nal />}
       </span>
-      <span style={{ ...TYP.meta, fontWeight: 600, textAlign: 'center', lineHeight: 1.15, maxWidth: '100%' }}>{p.etikett}</span>
+      <span style={{ ...TYP.meta, fontWeight: 600, textAlign: 'center', lineHeight: 1.15, maxWidth: '100%', ...(kompakt ? { fontSize: TYP.micro.fontSize, fontWeight: TYP.meta.fontWeight, letterSpacing: TYP.text.letterSpacing, hyphens: 'auto' as const, WebkitHyphens: 'auto' as const, overflowWrap: 'break-word' as const } : null) }}>{p.etikett}</span>
     </button>
   );
   const allaKnapp = (
@@ -214,6 +233,30 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
   );
   const avdelare = <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', margin: `0 ${AVSTAND.xs}px`, background: FARG.fyllning }} />;
 
+  // ── Arket (Alla) — under 900 px nerifrån, från 900 px som panel från höger. SAMMA komponent; bredden avgör (lib/plusArk.plusLage). ──
+  // Panelen har dockans sex symboler som en rad överst (samma knappar som dockan, samma håll-fingret-meny) — ett tryck = samma som från dockan.
+  if (alla) {
+    return (
+      <>
+        <PlusArk
+          data={ark}
+          flik={flik}
+          onFlik={setFlik}
+          bred={bred}
+          lage={lage}
+          oppen={oppen}
+          dockRad={lage === 'panel' ? poster.slice(0, MAX_FASTA).map((p) => symbolKnapp(p, true)) : undefined}
+          dockNu={poster}
+          onPost={onPost}
+          onSparaDocka={onSparaDocka}
+          onAterstall={onAterstall}
+          onStang={onStang}
+        />
+        {hallKort}
+      </>
+    );
+  }
+
   return (
     <>
       <div
@@ -231,7 +274,7 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
             : { display: 'grid', gridTemplateColumns: 'repeat(4, auto)', gap: `${AVSTAND.m}px ${AVSTAND.xs}px`, justifyItems: 'center' }),
         }}
       >
-        {poster.slice(0, MAX_FASTA).map(symbolKnapp)}
+        {poster.slice(0, MAX_FASTA).map((p) => symbolKnapp(p))}
         {bred && avdelare}
         {allaKnapp}
         {stangKnapp}

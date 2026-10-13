@@ -10,6 +10,10 @@
 //               Mät sträcka, Mät yta och Spåra med GPS. Typlistorna (linjetyp, zontyp) öppnas ur Rita linje/Rita yta i planeringsvyn.
 //   Lager       alla lager i sina grupper, med liten förhandsbild och en iOS-strömbrytare.
 //
+// PANEL (≥ 900 px bred, lib/plusArk.plusLage): SAMMA komponent, samma flikar och samma Redigera — men som en panel från höger (380 px, full höjd
+// med marginal) i stället för ett ark nerifrån, så den inte täcker maskinen längst ner i körvyn eller halva kartan. Ingen mörk bakgrund: kartan
+// syns. Glider in/ut på RORELSE.byte utan studs. Innehållet läggs ut som på en smal skärm (panelen är smal). Under 900 px är allt som förut.
+//
 // Mus: klick på gripen växlar halv/hel (dra går också), hjulet scrollar arket (aldrig kartan bakom), Esc eller klick på kartan stänger,
 // Redigera ordnas med musen. Inget kräver hovring eller svep.
 // Ren presentation: vad ett tryck GÖR (placera, rita, mäta, växla lager, spara dockan) avgör sidan. Reglerna för Redigera
@@ -19,7 +23,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AVSTAND, DELFARG, FARG, INAKTIV, KNAPP, RADIE, RORELSE, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
 import {
   FLIKAR, arAndrad, dragHojd, flyttaPlats, laggTillPlats, ligger, platsUnderFinger, startaRedigering, taBortPlats, valjDetent,
-  type Detent, type FlikId,
+  PANEL_BREDD_PX, type Detent, type FlikId, type PlusLage,
 } from '@/lib/plusArk';
 import { MAX_FASTA, nyckelTillPost, postNyckel, type PlusPost } from '@/lib/plusRad';
 
@@ -126,12 +130,18 @@ function Cirkel({ p, px = CIRKEL_PX }: { p: PlusPostVy; px?: number }) {
   );
 }
 
-export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka, onAterstall, onStang }: {
+export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppen = true, dockRad, dockNu, onPost, onSparaDocka, onAterstall, onStang }: {
   data: ArkData;
   flik: FlikId;
   onFlik: (f: FlikId) => void;
-  /** minst 760 px brett: allt i en rad överst och två kolumner av kategorier/grupper */
+  /** minst 760 px brett: allt i en rad överst och två kolumner av kategorier/grupper (ignoreras i panelen — den är smal) */
   bred: boolean;
+  /** 'ark' = nerifrån (under 900 px, som förut), 'panel' = från höger (900 px och bredare) */
+  lage?: PlusLage;
+  /** panelen: öppen eller på väg ut (glider undan; komponenten ligger kvar i DOM tills sidan tar bort den). Arket tas bort direkt som förut. */
+  oppen?: boolean;
+  /** panelen: dockans symboler som en rad överst, ovanför flikarna (sidan/PlusRad bygger knapparna — samma som i dockan) */
+  dockRad?: React.ReactNode;
   /** dockans platser just nu (fasta först, sedan mest använda) */
   dockNu: PlusPostVy[];
   onPost: (nyckel: string) => void;
@@ -141,6 +151,10 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
   onAterstall: (klart: () => void) => void;
   onStang: () => void;
 }) {
+  const panel = lage === 'panel';
+  const bred = panel ? false : bredProp;
+  // Panelen startar utanför skärmen och glider in en bildruta efter monteringen (samma mönster som dockan).
+  const [inne, setInne] = useState(false);
   const [detent, setDetent] = useState<Detent>('halv');
   const [dragPx, setDragPx] = useState<number | null>(null);
   const drag = useRef<{ y0: number; h0: number; flyttat: boolean } | null>(null);
@@ -157,17 +171,28 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
   const stangRef = useRef(onStang);
   stangRef.current = onStang;
   useEffect(() => {
+    if (!oppen) return;   // en panel som glider undan lyssnar inte längre
     // Ligger appens bekräftelsedialog (Återställ) ovanpå är det den som får Esc-trycket, inte arket under.
     const tangent = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"][aria-modal="true"]')) { e.preventDefault(); stangRef.current(); } };
     window.addEventListener('keydown', tangent);
     return () => window.removeEventListener('keydown', tangent);
-  }, []);
+  }, [oppen]);
+
+  useEffect(() => {
+    if (!panel) return;
+    const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (minskad) { setInne(true); return; }
+    const id = requestAnimationFrame(() => setInne(true));
+    return () => cancelAnimationFrame(id);
+  }, [panel]);
 
   // Alla symbolers utseende per nyckel — Redigera visar dockans platser och kategoriernas symboler med samma cirklar.
   const symbolPerNyckel = new Map<string, PlusPostVy>();
   for (const k of data.symboler) for (const p of k.poster) symbolPerNyckel.set(p.nyckel, p);
   const dockPosterNu: PlusPost[] = startaRedigering(dockNu.map((p) => nyckelTillPost(p.nyckel)).filter((p): p is PlusPost => !!p));
 
+  // Klickvakten (långtryckets släpp) räknas från varje öppning — även när samma instans öppnas igen.
+  useEffect(() => { if (oppen) monterad.current = Date.now(); }, [oppen]);
   const stangBakgrund = () => { if (Date.now() - monterad.current < 450) return; onStang(); };
 
   // ── Arkets höjd: halv eller hel, dras på gripen ──
@@ -420,6 +445,55 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
   // Procent av fönstret (arket är position: fixed) — fungerar överallt, till skillnad från dvh som äldre iOS saknar.
   const hojd = dragPx != null ? `${dragPx}px` : detent === 'hel' ? `calc(100% - env(safe-area-inset-top, 0px) - ${AVSTAND.s}px)` : '50%';
 
+  // Rubrikraden (flikar, Redigera, kryss) och innehållet är DETSAMMA i arket och panelen — en uppsättning, två ramar.
+  const rubrikRad = (
+    <div style={{ flexShrink: 0, display: 'grid', alignItems: 'center', gap: `${AVSTAND.xs}px ${AVSTAND.m}px`, padding: `0 ${AVSTAND.l}px ${AVSTAND.s}px`,
+      ...(bred
+        ? { gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', gridTemplateAreas: '"redigera flikar stang"' }
+        : { gridTemplateColumns: 'minmax(0, 1fr) auto', gridTemplateAreas: '"flikar stang"' }) }}>
+      {bred && <div style={{ gridArea: 'redigera', justifySelf: 'start' }}>{redigeraKnapp}</div>}
+      <div style={{ gridArea: 'flikar', minWidth: 0 }}>{flikRad}</div>
+      <div style={{ gridArea: 'stang', justifySelf: 'end' }}>{stangKnapp}</div>
+    </div>
+  );
+
+  const innehallRad = (
+    <div role="tabpanel" data-testid="plus-ark-innehall" data-flik={flik} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', padding: `${AVSTAND.s}px ${AVSTAND.l}px`, paddingBottom: medSafeBotten(AVSTAND.xl) }}>
+      {flik === 'symboler' && symbolerFlik}
+      {flik === 'rita' && ritaFlik}
+      {flik === 'lager' && lagerFlik}
+    </div>
+  );
+
+  // ── PANEL (≥ 900 px): från höger, samma sida som plusknappen. Full höjd med marginal, samma mörka stil och rundade hörn som arket. ──
+  // Ingen mörk bakgrund — bara en osynlig fångst så ett tryck på kartan stänger (som arket). Glider på RORELSE.byte, ingen studs.
+  if (panel) {
+    const glidInne = oppen && inne;
+    const minskadRorelse = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return (
+      <>
+        {oppen && <div data-testid="plus-bakgrund" onClick={stangBakgrund} style={{ position: 'fixed', inset: 0, zIndex: 640 }} />}
+        <div ref={arkRef} role="dialog" aria-label="Alla" data-testid="plus-alla-panel" data-lage="panel" data-oppen={oppen ? '1' : '0'} data-redigerar={redigerar ? '1' : '0'}
+          aria-hidden={oppen ? undefined : true}
+          style={{ position: 'fixed', top: `calc(env(safe-area-inset-top, 0px) + ${AVSTAND.s}px)`, right: AVSTAND.s, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${AVSTAND.s}px)`,
+            width: `min(${PANEL_BREDD_PX}px, calc(100vw - ${2 * AVSTAND.s}px))`, zIndex: 650, boxSizing: 'border-box', background: FARG.kort, color: FARG.text, fontFamily: 'inherit',
+            display: 'flex', flexDirection: 'column', overscrollBehavior: 'contain', paddingTop: AVSTAND.l, borderRadius: RADIE.sheet, border: `1px solid ${FARG.linje}`,
+            transform: glidInne ? 'translateX(0)' : `translateX(calc(100% + ${2 * AVSTAND.s}px))`, pointerEvents: oppen ? 'auto' : 'none',
+            transition: minskadRorelse ? 'none' : `transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>
+          {dockRad && (
+            <div role="group" lang="sv" aria-label="Dockan" data-testid="plus-panel-docka" style={{ flexShrink: 0, display: 'grid', gridTemplateColumns: `repeat(${MAX_FASTA}, minmax(0, 1fr))`, alignItems: 'start', gap: 0,
+              margin: `0 0 ${AVSTAND.s}px`, padding: `0 0 ${AVSTAND.s}px`, borderBottom: `1px solid ${FARG.linje}` }}>
+              {dockRad}
+            </div>
+          )}
+          {rubrikRad}
+          {innehallRad}
+        </div>
+      </>
+    );
+  }
+
+  // ── ARK (< 900 px): nerifrån, exakt som förut ──
   return (
     <>
       <div data-testid="plus-bakgrund" onClick={stangBakgrund} style={{ position: 'fixed', inset: 0, zIndex: 640 }} />
@@ -432,21 +506,8 @@ export function PlusArk({ data, flik, onFlik, bred, dockNu, onPost, onSparaDocka
           style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: GREPP_HOJD_PX, padding: 0, border: 'none', background: 'transparent', cursor: 'grab', touchAction: 'none' }}>
           <span style={{ width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xs, borderRadius: AVSTAND.xs, background: FARG.text3 }} />
         </button>
-
-        <div style={{ flexShrink: 0, display: 'grid', alignItems: 'center', gap: `${AVSTAND.xs}px ${AVSTAND.m}px`, padding: `0 ${AVSTAND.l}px ${AVSTAND.s}px`,
-          ...(bred
-            ? { gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', gridTemplateAreas: '"redigera flikar stang"' }
-            : { gridTemplateColumns: 'minmax(0, 1fr) auto', gridTemplateAreas: '"flikar stang"' }) }}>
-          {bred && <div style={{ gridArea: 'redigera', justifySelf: 'start' }}>{redigeraKnapp}</div>}
-          <div style={{ gridArea: 'flikar', minWidth: 0 }}>{flikRad}</div>
-          <div style={{ gridArea: 'stang', justifySelf: 'end' }}>{stangKnapp}</div>
-        </div>
-
-        <div role="tabpanel" data-testid="plus-ark-innehall" data-flik={flik} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', padding: `${AVSTAND.s}px ${AVSTAND.l}px`, paddingBottom: medSafeBotten(AVSTAND.xl) }}>
-          {flik === 'symboler' && symbolerFlik}
-          {flik === 'rita' && ritaFlik}
-          {flik === 'lager' && lagerFlik}
-        </div>
+        {rubrikRad}
+        {innehallRad}
       </div>
     </>
   );

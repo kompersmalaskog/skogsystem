@@ -254,8 +254,10 @@ describe('ingångarna till Lager-fliken — den gamla helskärmsmenyn är borta,
     const rad = las('../components/planering/PlusRad.tsx');
     expect(rad).toContain('const [visaAlla, setVisaAlla] = useState(!!startFlik);');
     expect(rad).toContain("const [flik, setFlik] = useState<FlikId>(startFlik ?? 'symboler');");
-    expect(page).toContain("key={plusArkStart ?? 'docka'}");
-    expect(page).toContain('startFlik={plusArkStart}');
+    // nyckeln = öppningsnummer + startflik; fryst medan panelen glider ut (annars byts den när plusArkStart nollas och panelen blinkar bort)
+    expect(page).toContain("nyckel: `${plusEpokRef.current}:${plusArkStart ?? 'docka'}`");
+    expect(page).toContain('key={plusRadVisning.nyckel}');
+    expect(page).toContain('startFlik={plusRadVisning.start}');
   });
   it('plusknappen och stängning nollar startfliken, så nästa öppning börjar i dockan', () => {
     expect(page).toContain('const stangPlus = () => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); };');
