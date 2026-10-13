@@ -178,7 +178,7 @@ const LINJE_PUNKTER: Record<string, PunktMall> = {
 
 /** data->>'zoneType' pa markeringar med typ='zon'. */
 const ZON_PUNKTER: Record<string, PunktMall> = {
-  protected: { rubrik: 'Skyddad zon', grupp: 'Naturvård' },
+  protected: { rubrik: 'Hänsyn', grupp: 'Naturvård' },
   fornlamning: { rubrik: 'Fornlämning', grupp: 'Kulturlämning' },
   culture: { rubrik: 'Kulturmiljö', grupp: 'Kulturlämning' },
   wet: { rubrik: 'Blöt zon', grupp: 'Mark och vatten' },

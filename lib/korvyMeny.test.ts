@@ -180,7 +180,7 @@ describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
     expect(existsSync(new URL('../components/planering/KorvySparaSom.tsx', import.meta.url))).toBe(false);
   });
   it('alla typer som Spara som kunde spara går att rita: zonerna i Rita yta, Trail/Stickväg i Rita linje, Yta = Nytt område (traktgräns med nummer)', () => {
-    for (const [id, namn] of [['wet', 'Blött'], ['protected', 'Naturvård'], ['steep', 'Brant']]) expect(page).toContain(`{ id: '${id}', name: '${namn}',`);   // zoner (Blött, Naturvård = Hänsyn, Brant)
+    for (const [id, namn] of [['wet', 'Blött'], ['protected', 'Hänsyn'], ['steep', 'Brant']]) expect(page).toContain(`{ id: '${id}', name: '${namn}',`);   // zoner (Blött, Naturvård = Hänsyn, Brant)
     expect(page).toContain("{ id: 'trail', name: 'Stig/Led',");
     expect(page).toContain("...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg' })),");
     expect(page).toContain("{ id: Date.now(), isLine: true, lineType: 'boundary', nummer, path }");   // Nytt område

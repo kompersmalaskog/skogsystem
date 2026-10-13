@@ -2945,6 +2945,7 @@ export default function PlannerPage() {
   const [drawType, setDrawType] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<Point[]>([]); // SVG coords (behålls för kompatibilitet)
   const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
+  const [ritaHistoria, setRitaHistoria] = useState<[number, number][][]>([]);   // ↩ i Rita: koordinaterna FÖRE varje handling (ett tryck = en punkt, ett frihandsdrag = hela draget)
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
   // "Redigera hörn" på ett eget område: redigera path på BEFINTLIG boundary-markör (behåll id → nummer,
@@ -3053,6 +3054,9 @@ export default function PlannerPage() {
       || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode
       || markerMenuOpen != null || editingMarker != null || risaMarkMode;
   }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode, markerMenuOpen, editingMarker, risaMarkMode]);
+
+  // ↩-historiken hör till EN ritning: ny typ/nytt läge eller avslut börjar om. Koordinater som lästs in i förväg (Förläng) är utgångsläget och går inte att ångra.
+  useEffect(() => { setRitaHistoria([]); }, [isDrawMode, isZoneMode, drawType, zoneType]);
 
   // Geo-mätning: committad path i lng/lat (sanning för siffran), live-drag i ref (ingen re-render
   // per punkt), och ett ref till siffer-etiketten för live-uppdatering under drag.
@@ -5939,6 +5943,7 @@ export default function PlannerPage() {
           }
         }
 
+        setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort hela draget
         setCurrentDrawCoords(simplified);
         setDrawPaused(true);
       } else if (!wasFreehand && coords.length > 0) {
@@ -5961,7 +5966,8 @@ export default function PlannerPage() {
             return;
           }
         }
-        setCurrentDrawCoords(prev => [...prev, lastCoord]);
+        setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort just den här punkten
+        setCurrentDrawCoords([...currentDrawCoords, lastCoord]);
       }
     };
 
@@ -8111,7 +8117,7 @@ export default function PlannerPage() {
   const zoneTypes = [
     { id: 'wet', name: 'Blött', color: ZONE_COLORS.wet, icon: 'wet' },
     { id: 'steep', name: 'Brant', color: ZONE_COLORS.steep, icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: ZONE_COLORS.protected, icon: 'naturecorner' },
+    { id: 'protected', name: 'Hänsyn', color: ZONE_COLORS.protected, icon: 'naturecorner' },
     { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
     { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
@@ -8153,7 +8159,7 @@ export default function PlannerPage() {
     { section: 'Zoner', items: [
       { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30 },
       { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30 },
-      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30 },
+      { id: 'zone_protected',  name: 'Hänsyn',           color: '#30d158', defaultWarn: 30 },
       { id: 'zone_culture',    name: 'Kulturmiljö',      color: ZONE_COLORS.culture, defaultWarn: 50 },   // styr zonen "Kulturmiljö" (zoneType culture) — raden hette förut felaktigt "Fornlämningszon"
       { id: 'zone_fornlamning', name: 'Fornlämning',     color: ZONE_COLORS.fornlamning, defaultWarn: 50 },   // zonen "Fornlämning" (zoneType fornlamning) hade inställning men ingen rad
       { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30 },
@@ -12298,14 +12304,11 @@ export default function PlannerPage() {
     }
   };
   
-  // Ångra senaste segmentet medan man ritar (ta bort ~20%, minst 3 punkter)
+  // ↩ ångrar SENASTE HANDLINGEN medan man ritar: ett tryck = en punkt, ett frihandsdrag = hela draget (inte ett fast antal punkter)
   const undoLastSegment = () => {
-    if (currentDrawCoords.length <= 1) {
-      cancelDrawing();
-      return;
-    }
-    const removeCount = Math.max(3, Math.floor(currentDrawCoords.length * 0.2));
-    setCurrentDrawCoords(prev => prev.slice(0, -removeCount));
+    if (ritaHistoria.length === 0) return;
+    setCurrentDrawCoords(ritaHistoria[ritaHistoria.length - 1]);
+    setRitaHistoria(ritaHistoria.slice(0, -1));
   };
 
   const cancelDrawing = () => {
@@ -14760,7 +14763,7 @@ export default function PlannerPage() {
           smal={smalSkarm}
           text={`${ritNamn} · ${ritFramsteg}`}
           knappar={[
-            { etikett: '↩', aria: 'Ångra', onClick: undoLastSegment, av: nRit < 2, testid: 'rita-angra' },
+            { etikett: '↩', aria: 'Ångra', onClick: undoLastSegment, av: ritaHistoria.length === 0, testid: 'rita-angra' },
             { etikett: '✓', aria: 'Klar', onClick: isZoneMode ? finishZone : finishLine, av: nRit < (isZoneMode ? 3 : 2), gron: true, testid: 'rita-klar' },
             AVBRYT_KNAPP(cancelDrawing, 'rita-avbryt'),
           ]}

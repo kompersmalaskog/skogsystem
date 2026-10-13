@@ -31,7 +31,7 @@ describe('EN rad längst ner per läge', () => {
   });
   it('knapparna: ↩ ✓ × för rita, område och mät; bara × för placera och pil', () => {
     const rita = mellan(page, 'testid="rita-list"', 'testid="omrade-list"');
-    expect(rita).toContain("{ etikett: '↩', aria: 'Ångra', onClick: undoLastSegment, av: nRit < 2, testid: 'rita-angra' }");
+    expect(rita).toContain("{ etikett: '↩', aria: 'Ångra', onClick: undoLastSegment, av: ritaHistoria.length === 0, testid: 'rita-angra' }");
     expect(rita).toContain("{ etikett: '✓', aria: 'Klar', onClick: isZoneMode ? finishZone : finishLine, av: nRit < (isZoneMode ? 3 : 2), gron: true, testid: 'rita-klar' }");
     expect(rita).toContain("AVBRYT_KNAPP(cancelDrawing, 'rita-avbryt')");
     const omrade = mellan(page, 'testid="omrade-list"', '{/* MÄT (körvy OCH planering)');
@@ -130,5 +130,42 @@ describe('telefonbredd: texten får plats bredvid tre knappar', () => {
     const k = las('../components/planering/KorvyNertillList.tsx');
     expect(k).toContain('minWidth: k.gron && !smal ? KNAPP_HOJD_PX * 2 : KNAPP_HOJD_PX');
     expect(k).toContain("padding: `0 ${k.gron && !smal ? AVSTAND.l : AVSTAND.m}px`");
+  });
+});
+
+describe('↩ i Rita ångrar senaste handlingen — inte ett fast antal punkter', () => {
+  it('historik av koordinater före varje handling: ett tryck = en punkt, ett frihandsdrag = hela draget', () => {
+    expect(page).toContain("const [ritaHistoria, setRitaHistoria] = useState<[number, number][][]>([]);");
+    expect(page).toContain("setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort just den här punkten\n        setCurrentDrawCoords([...currentDrawCoords, lastCoord]);");
+    expect(page).toContain("setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort hela draget\n        setCurrentDrawCoords(simplified);");
+    const f = mellan(page, 'const undoLastSegment = () => {', '  const cancelDrawing = () => {');
+    expect(f).toContain('if (ritaHistoria.length === 0) return;');
+    expect(f).toContain('setCurrentDrawCoords(ritaHistoria[ritaHistoria.length - 1]);');
+    expect(f).toContain('setRitaHistoria(ritaHistoria.slice(0, -1));');
+    for (const s of ['removeCount', '0.2', 'Math.max(3', 'cancelDrawing']) expect(f, s).not.toContain(s);   // gamla regeln: max(3, 20 %) och "avbryt vid ≤ 1 punkt"
+  });
+  it('historiken börjar om för varje ritning (typ/läge byts eller ritningen avslutas)', () => {
+    expect(page).toContain('useEffect(() => { setRitaHistoria([]); }, [isDrawMode, isZoneMode, drawType, zoneType]);');
+  });
+});
+
+describe('ett ord för samma sak: zontypen "protected" heter Hänsyn överallt (lagrad typ oförändrad)', () => {
+  it('planeringsvyn: Rita yta-listan, Lager (Zontyper), kortet, briefingen och översiktslistan läser alla zoneTypes — namnet står på ETT ställe', () => {
+    expect(page).toContain("{ id: 'protected', name: 'Hänsyn', color: ZONE_COLORS.protected, icon: 'naturecorner' },");
+    expect(page).not.toContain("{ id: 'protected', name: 'Naturvård'");
+    expect(page).toContain("{ id: 'zone_protected',  name: 'Hänsyn',");      // Varningsavstånd (Zoner)
+    expect(page).not.toContain('Naturvårdszon');
+    expect(page).toContain("zoneTypes.find(t => t.id === marker.zoneType)?.name || 'Zon'");   // kortets rubrik
+  });
+  it('/planner, översikten och egenkontrollen: samma ord', () => {
+    expect(las('../app/planner/page.tsx')).toContain("{ id: 'protected', name: 'Hänsyn',");
+    expect(las('../app/oversikt/markeringar.ts')).toContain("protected: 'Hänsyn',");
+    expect(las('./egenkontroll.ts')).toContain("protected: { rubrik: 'Hänsyn', grupp: 'Naturvård' },");
+    for (const [fil, gammal] of [['../app/oversikt/markeringar.ts', 'Skyddat område'], ['./egenkontroll.ts', 'Skyddad zon'], ['../app/planner/page.tsx', "{ id: 'protected', name: 'Naturvård'"]]) expect(las(fil), gammal).not.toContain(gammal);
+  });
+  it('den lagrade typen är orörd: id och färg', () => {
+    expect(page).toContain("{ id: 'zone_protected',");
+    expect(las('./zone-colors.ts')).toContain("protected:   '#30d158'");
+    expect(las('./varningsInstallningar.ts')).toContain('zone_protected:   K(30),');
   });
 });
