@@ -15,7 +15,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AVSTAND, FARG, RADIE, RORELSE, TYP } from '@/lib/design/tokens';
 import { skapaLangtryck } from '@/lib/langtryck';
 import { MAX_FASTA } from '@/lib/plusRad';
-import type { FlikId } from '@/lib/plusArk';
+import { plusLage, type FlikId } from '@/lib/plusArk';
 import { PlusArk, type ArkData, type PlusPostVy } from './PlusArk';
 
 export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRad, LagerGrupp } from './PlusArk';
@@ -40,6 +40,20 @@ function useMinBredd(px: number): boolean {
   return bred;
 }
 
+/** Fönstrets bredd just nu → 'ark' (< 900 px) eller 'panel' (≥ 900 px), via lib/plusArk.plusLage. Läses redan vid första renderingen (ingen bildruta med fel läge) och följer storleksändringar. */
+function usePlusLage() {
+  const nu = () => (typeof window !== 'undefined' ? plusLage(window.innerWidth) : 'panel');
+  const [lage, setLage] = useState<'ark' | 'panel'>(nu);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const upd = () => setLage(plusLage(window.innerWidth));
+    upd();
+    window.addEventListener('resize', upd);
+    return () => window.removeEventListener('resize', upd);
+  }, []);
+  return lage;
+}
+
 const Nal = () => (
   <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill={FARG.text} style={{ position: 'absolute', top: -AVSTAND.xs, right: -AVSTAND.xs, filter: `drop-shadow(0 0 2px ${FARG.bg})` }}>
     <path d="M14 3l7 7-3 1-3.5 3.5.5 4.5-1.5 1.5-4-4-5.5 5.5-1-1L9.5 14l-4-4L7 8.5 11.5 9 15 5.5z" />
@@ -59,9 +73,11 @@ const StangIkon = () => (
   </svg>
 );
 
-export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka, onAterstall, onStang }: {
+export function PlusRad({ poster, ark, oppen = true, startFlik, onPost, onFastna, onSparaDocka, onAterstall, onStang }: {
   poster: PlusPostVy[];
   ark: ArkData;
+  /** false = stängd. Panelen (≥ 900 px) glider då ut och försvinner; dockan och arket (< 900 px) försvinner direkt som förut. Sidan lämnar komponenten monterad medan panelen glider. */
+  oppen?: boolean;
   /** öppna direkt i arket på den här fliken (t.ex. från objektinfons Lager-rad) i stället för att börja i dockan */
   startFlik?: FlikId | null;
   onPost: (nyckel: string) => void;
@@ -77,7 +93,17 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
   const [hall, setHall] = useState<{ nyckel: string; etikett: string; svar?: string } | null>(null);
   const [inne, setInne] = useState(false);
   const bred = useMinBredd(DOCK_BRED_MIN_PX);
+  const lage = usePlusLage();
+  const [utglidet, setUtglidet] = useState(false);
   const lt = useRef(skapaLangtryck()).current;
+
+  // Panelen som glidit undan tas bort ur DOM först när rörelsen är klar.
+  useEffect(() => {
+    if (oppen || !visaAlla || lage !== 'panel') return;
+    const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const t = setTimeout(() => setUtglidet(true), minskad ? 0 : RORELSE.byte + 50);
+    return () => clearTimeout(t);
+  }, [oppen, visaAlla, lage]);
 
   // Mjuk ut-animation ur plusknappen: dockan startar liten i nedre högra hörnet (där plusset sitter) och växer åt vänster.
   useEffect(() => {
@@ -138,7 +164,10 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
     </>
   );
 
-  // ── Arket (Alla) ──
+  // ── Stängd: dockan och arket försvinner direkt (som förut). Bara en panel som glider undan ligger kvar tills den är ute. ──
+  if (!oppen && !(visaAlla && lage === 'panel' && !utglidet)) return null;
+
+  // ── Arket (Alla) — under 900 px nerifrån, från 900 px som panel från höger. SAMMA komponent; bredden avgör (lib/plusArk.plusLage). ──
   if (visaAlla) {
     return (
       <PlusArk
@@ -146,6 +175,8 @@ export function PlusRad({ poster, ark, startFlik, onPost, onFastna, onSparaDocka
         flik={flik}
         onFlik={setFlik}
         bred={bred}
+        lage={lage}
+        oppen={oppen}
         dockNu={poster}
         onPost={onPost}
         onSparaDocka={onSparaDocka}

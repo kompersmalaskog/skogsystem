@@ -12673,6 +12673,17 @@ export default function PlannerPage() {
     poster: beraknaRad(plusRadState, postFinns).map((r) => postVy(r.post, r.fast)),
     ark: { symboler: byggSymbolKategorier(), rita: byggRita(), lager: byggLager() },
   });
+  // Det PlusRad visar: byggs bara medan plus är öppet; vid stängning ligger det senaste kvar (panelen glider ut med samma innehåll och flik).
+  const plusRadSenasteRef = useRef<{ nyckel: string; poster: PlusPostVy[]; ark: ArkData; start: FlikId | null } | null>(null);
+  const plusEpokRef = useRef(0);
+  const plusForraOppenRef = useRef(false);
+  if (plusRadOppen && !plusForraOppenRef.current) plusEpokRef.current += 1;
+  plusForraOppenRef.current = plusRadOppen;
+  if (plusRadOppen) {
+    const { poster, ark } = byggPlusRad();
+    plusRadSenasteRef.current = { nyckel: `${plusEpokRef.current}:${plusArkStart ?? 'docka'}`, poster, ark, start: plusArkStart };
+  }
+  const plusRadVisning = plusRadSenasteRef.current;
   // Klar i Redigera: arbetskopian blir dockans FASTA platser (lib/plusArk.redigeringTillState). Bara symboler som finns kommer med.
   const sparaDockaPlatser = (nycklar: string[]) => {
     const lista = nycklar.map(nyckelTillPost).filter((p): p is PlusPost => !!p && postFinns(p));
@@ -14689,22 +14700,23 @@ export default function PlannerPage() {
       {/* === PLUSRADEN (plus-knappen) — DELAD komponent för körvyn och planeringen. "Alla" → arket med flikarna Symboler · Ytor · Spårning · Lager.
              "Fler val" finns inte längre här — dess innehåll ligger i objektinfon (tryck på objektnamnet). `key` gör att ett ark som öppnas
              rakt på en flik (objektinfons Lager-rad) alltid startar på rätt flik, även om dockan redan stod öppen. === */}
-      {plusRadOppen && (() => {
-        const { poster, ark } = byggPlusRad();
-        return (
-          <PlusRad
-            key={plusArkStart ?? 'docka'}
-            poster={poster}
-            ark={ark}
-            startFlik={plusArkStart}
-            onPost={trycktPlusPost}
-            onFastna={fastnaPlusPost}
-            onAterstall={aterstallPlusDocka}
-            onSparaDocka={sparaDockaPlatser}
-            onStang={stangPlus}
-          />
-        );
-      })()}
+      {/* PlusRad ligger kvar monterad efter en stängning (med senast byggda innehåll) så panelen (≥ 900 px) hinner glida undan; under 900 px och för
+             dockan returnerar den null direkt — exakt som när den avmonterades. Nyckeln fryses medan den stängs (annars byts den när plusArkStart nollas
+             och panelen blinkar bort) och räknas upp vid varje öppning så den alltid startar om rent. */}
+      {plusRadVisning && (
+        <PlusRad
+          key={plusRadVisning.nyckel}
+          oppen={plusRadOppen}
+          poster={plusRadVisning.poster}
+          ark={plusRadVisning.ark}
+          startFlik={plusRadVisning.start}
+          onPost={trycktPlusPost}
+          onFastna={fastnaPlusPost}
+          onAterstall={aterstallPlusDocka}
+          onSparaDocka={sparaDockaPlatser}
+          onStang={stangPlus}
+        />
+      )}
       {/* PLACERA SYMBOL: raden stängd, smal list nertill — tryck på kartan, eller "Vid maskinen" (körvy). Inget hårkors. */}
       {placeraListSynlig && selectedSymbol && (
         <KorvyNertillList

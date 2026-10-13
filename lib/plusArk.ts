@@ -15,6 +15,14 @@ export type FlikId = (typeof FLIKAR)[number]['id'];
 export const FLIK_IDN: readonly FlikId[] = FLIKAR.map((f) => f.id);
 export const arFlikId = (x: unknown): x is FlikId => typeof x === 'string' && (FLIK_IDN as readonly string[]).includes(x);
 
+// ── Ark eller panel: SKÄRMENS BREDD styr, inte enheten ──
+// Under 900 px: arket nerifrån (halv skärm, kan dras till hel) — exakt som förut. 900 px och bredare: en panel från höger, så ett ark inte
+// lägger sig över maskinen längst ner i körvyn (maskindatorn är 1280×800) eller halva kartan vid datorn. Samma komponent (PlusArk), samma flikar.
+export type PlusLage = 'ark' | 'panel';
+export const PANEL_MIN_BREDD_PX = 900;
+export const PANEL_BREDD_PX = 380;
+export const plusLage = (fonsterBredd: number): PlusLage => (fonsterBredd >= PANEL_MIN_BREDD_PX ? 'panel' : 'ark');
+
 // ── Arkets två lägen ──
 export type Detent = 'halv' | 'hel';
 /** Så långt (px) fingret måste dras för att arket byter läge. Kortare drag → arket far tillbaka. */
