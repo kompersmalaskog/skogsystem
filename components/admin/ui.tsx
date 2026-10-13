@@ -2,9 +2,10 @@
 // Admins byggstenar — ur lib/design/tokens, samma känsla som arbetsrapporten: kort utan ram, tysta
 // grå rader, små versala rubriker. Orange bara för det som kräver handling, grått för det som stämmer.
 // Ersätter den gamla components/admin/design.tsx (egen palett, egna mått).
-import React, { type CSSProperties, type ReactNode } from "react";
+import React, { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
-  TYP, TNUM, AVSTAND, RADIE, FARG, KNAPP, INAKTIV, KORT, TRAFFYTA, IKON, RORELSE,
+  TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, IKON, RORELSE, LAYOUT,
 } from "@/lib/design/tokens";
 
 /** Innehållskolumnens maxbredd på dator (Martin sitter vid skärm). Ett layoutmått, inte ett avstånd. */
@@ -29,8 +30,8 @@ export function Sektion({ children, orange, topp = AVSTAND.sektion }: { children
 }
 
 /** Stödtext under en lista eller ett fält. */
-export function Stod({ children, farg = FARG.text2, style }: { children: ReactNode; farg?: string; style?: CSSProperties }) {
-  return <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: farg, ...style }}>{children}</p>;
+export function Stod({ children, farg = FARG.text2, style, attr }: { children: ReactNode; farg?: string; style?: CSSProperties; attr?: Record<string, string> }) {
+  return <p {...attr} style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: farg, ...style }}>{children}</p>;
 }
 
 // ── Ytor ────────────────────────────────────────────────────────────────
@@ -160,7 +161,7 @@ const faltStil: CSSProperties = {
   outline: "none",
 };
 
-export function Falt({ label, value, onChange, placeholder, type = "text", hint, min, max, step, disabled, id }: {
+export function Falt({ label, value, onChange, placeholder, type = "text", hint, min, max, step, disabled, id, maxLength }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -172,13 +173,14 @@ export function Falt({ label, value, onChange, placeholder, type = "text", hint,
   step?: string;
   disabled?: boolean;
   id?: string;
+  maxLength?: number;
 }) {
   const nyckel = id || `falt-${label.replace(/\W+/g, "-").toLowerCase()}`;
   return (
     <div style={{ marginBottom: AVSTAND.l }}>
       <label htmlFor={nyckel} style={{ display: "block", ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{label}</label>
       <input id={nyckel} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        min={min} max={max} step={step} disabled={disabled} style={{ ...faltStil, ...(disabled ? { opacity: 0.4 } : null) }} />
+        min={min} max={max} step={step} maxLength={maxLength} disabled={disabled} style={{ ...faltStil, ...(disabled ? { opacity: 0.4 } : null) }} />
       {hint && <Stod>{hint}</Stod>}
     </div>
   );
@@ -261,19 +263,80 @@ export function Bekrafta({ text, ja, nej = "Avbryt", onJa, onNej, upptagen }: {
   );
 }
 
+/** Arkets höjd är FAST, inte innehållets: på telefon nästan hela fönstret under toppfältet, på dator högst 85 %. dvh följer adressfältet; vh är reserv. */
+const ARK_UTRYMME = `${LAYOUT.topbar} - ${2 * AVSTAND.l}px`;
+const arkCss = `
+  .ark-dialog { height: calc(100vh - ${ARK_UTRYMME}); height: calc(100dvh - ${ARK_UTRYMME}); }
+  @media (min-width: 760px) { .ark-dialog { height: min(85vh, calc(100vh - ${ARK_UTRYMME})); height: min(85dvh, calc(100dvh - ${ARK_UTRYMME})); } }
+`;
+
 /**
  * Ark ovanpå sidan för ETT formulär (Ny period, Ändra period). Mörk bakgrund, tryck utanför stänger.
  * Aldrig ark ovanpå ark: bekräftelser byter innehåll i samma ark. `attr` bär data-attribut (testfästen).
+ *
+ * Ritas i en PORTAL på document.body och låser sidans scroll medan det är öppet. Annars hamnar det högst upp på sidan:
+ * `.tona-in` har en transform-animation, och en transform gör sin förälder till containing block för `position: fixed`,
+ * så ett ark inne i sidan placeras mot sidans topp i stället för mot fönstret (man måste scrolla upp för att se det).
  */
-export function Sheet({ titel, onStang, children, attr }: { titel: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string> }) {
-  return (
-    <div onClick={onStang} className="tona-opacity" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.l }}>
-      <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp" {...attr}
-        style={{ background: FARG.kort, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
-        <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.rubrik, color: FARG.text }}>{titel}</p>
-        {children}
+export function Sheet({ titel, vanster, hoger, onStang, children, attr, overlayAttr, vyNyckel }: { titel: ReactNode; /** Byter innehåll i arket (formulär → förarlista): ett dubbelklick får inte nå det nya innehållet. */ vyNyckel?: string; /** Uppe till vänster i navigationsraden (iOS: Avbryt eller ‹ tillbaka). */ vanster?: ReactNode; /** Uppe till höger (iOS: Lägg till / Spara). */ hoger?: ReactNode; onStang: () => void; children: ReactNode; attr?: Record<string, string>; overlayAttr?: Record<string, string> }) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const bytte = useRef(0);
+  useLayoutEffect(() => { bytte.current = Date.now(); }, [vyNyckel]);
+
+  // Medan arket är öppet finns resten av sidan (sidomenyn, bottenmenyn, innehållet) inte: inert tar bort den ur tab-ordningen,
+  // ur tillgänglighetsträdet och från tryck. Fokus flyttas in i dialogen och tillbaka till knappen som öppnade den när arket stängs.
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const tidigareFokus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dolda: { el: Element; inert: string | null; ariaHidden: string | null }[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === overlay || el.hasAttribute("data-ark-overlay")) continue;
+      dolda.push({ el, inert: el.getAttribute("inert"), ariaHidden: el.getAttribute("aria-hidden") });
+      el.setAttribute("inert", ""); el.setAttribute("aria-hidden", "true");
+    }
+    dialogRef.current?.focus({ preventScroll: true });
+    return () => {
+      for (const d of dolda) {
+        if (d.inert == null) d.el.removeAttribute("inert"); else d.el.setAttribute("inert", d.inert);
+        if (d.ariaHidden == null) d.el.removeAttribute("aria-hidden"); else d.el.setAttribute("aria-hidden", d.ariaHidden);
+      }
+      if (tidigareFokus && document.contains(tidigareFokus)) tidigareFokus.focus({ preventScroll: true });
+    };
+  }, []);
+
+  useEffect(() => {
+    const kropp = document.body;
+    const fore = { overflow: kropp.style.overflow, paddingRight: kropp.style.paddingRight };
+    // Skrollisten försvinner när sidan låses: fyll ut den så innehållet bakom inte hoppar i sidled.
+    const list = window.innerWidth - document.documentElement.clientWidth;
+    kropp.style.overflow = "hidden";
+    if (list > 0) kropp.style.paddingRight = `${list}px`;
+    return () => { kropp.style.overflow = fore.overflow; kropp.style.paddingRight = fore.paddingRight; };
+  }, []);
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div ref={overlayRef} data-ark-overlay="" onClick={onStang} className="tona-opacity" {...overlayAttr}
+      // Andra trycket i ett dubbelklick (detail > 1) strax efter att arket öppnats eller bytt innehåll sväljs, OAVSETT var det landar. Arket byter
+      // höjd när innehållet byts (förarlistan är lägre än formuläret) och centreras om, så andra trycket hamnar på det nya innehållet
+      // (Förare → en förare vald; ‹ Ny period → Avbryt) eller UTANFÖR dialogen, på bakgrunden, som stänger arket. Mätt i Chrome: 13 ms mellan trycken.
+      onClickCapture={e => { if (e.detail > 1 && Date.now() - bytte.current < 700) { e.stopPropagation(); e.preventDefault(); } }}
+      // Arket sitter FAST: förankrat uppifrån, under toppfältet, med fast höjd (se .ark-dialog). Det centreras aldrig och byter aldrig höjd efter
+      // innehållet, så toppen står på exakt samma plats i formuläret, med kalendern utfälld, vid Längd 20 v och i förarlistan. Innehållet rullar inuti.
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center",
+        padding: `calc(${LAYOUT.topbar} + ${AVSTAND.l}px) ${AVSTAND.l}px ${AVSTAND.l}px`, overscrollBehavior: "contain" }}>
+      <style>{arkCss}</style>
+      <div ref={dialogRef} tabIndex={-1} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" className="sheet-upp ark-dialog" {...attr}
+        style={{ outline: "none", background: FARG.kort, color: FARG.text, fontFamily: FONT, borderRadius: RADIE.sheet, padding: AVSTAND.xl, width: "100%", maxWidth: 520, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box", colorScheme: "dark" }}>
+        <div data-ark-rubrik style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: AVSTAND.s, margin: `0 0 ${AVSTAND.l}px`, flexShrink: 0 }}>
+          <div style={{ justifySelf: "start" }}>{vanster}</div>
+          <p style={{ margin: 0, ...TYP.listtitel, color: FARG.text, textAlign: "center" }}>{titel}</p>
+          <div style={{ justifySelf: "end" }}>{hoger}</div>
+        </div>
+        <div data-ark-innehall style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

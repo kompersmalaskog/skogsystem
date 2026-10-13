@@ -16,7 +16,7 @@ export const SUB_LABEL: Record<string, string> = {
   // Faror
   powerline: 'Kraftledning', warning: 'Varning',
   // Hänsyn
-  eternitytree: 'Eternitträd', naturecorner: 'Naturhörn', protected: 'Skyddat område',
+  eternitytree: 'Eternitträd', naturecorner: 'Naturhörn', protected: 'Hänsyn',
   fornlamning: 'Fornlämning', culture: 'Kulturmiljö', culturemonument: 'Kulturminne',
   highstump: 'Högstubbe',
   // Övrigt — punkter

@@ -79,12 +79,14 @@ import GaTillYta from '../GaTillYta';
 import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
 import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import { anmarkningsText, kortDatum } from '../format';
-import { designCss, medSafeBotten, underTopbar } from '@/lib/design/tokens';
+import { LAYOUT, designCss, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import {
+  SAKNAR_PLATS_MENING,
   UTAN_POSITION_MENING,
   arForstaSvaret,
   avstandPerPunkt as beraknaAvstand,
   efterSvar,
+  kortStangning,
   narmasteObesvarade,
   ordnaGruppEfterAvstand,
   positionSkalText,
@@ -93,13 +95,9 @@ import {
   terrangKvar as raknaTerrangKvar,
 } from '@/lib/egenkontrollFlode';
 import { useLevandePosition, type LevandePosition } from '../useMinPosition';
-
-// GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
-// rott slutar folk satta det, och da far vi "Godkant" pa allt och verktyget ar
-// dott. Rott ar reserverat for avvikelser mot planen i Del 1.
-// #FFD60A ar samma gult som datahalsobannern pa startsidan; T.orange betyder
-// redan "gar ut snart" pa utbildningssidorna.
-const GUL = '#FFD60A';
+import UtforandeSerie from '../UtforandeSerie';
+import { GUL, SVARSALTERNATIV, statusEtikett } from '../svar';
+import { arSerieLage, avslutaStatus, byggSerie } from '@/lib/egenkontrollSerie';
 
 /** Hela meter. GPS:en under krontak ar 5-15 m - decimaler hade latsats om en
  *  precision som inte finns. Over en kilometer: en decimal i km. */
@@ -126,33 +124,6 @@ function stamBeskrivning(stammar: LatLng[] | null, fel: boolean): string {
   if (stammar.length === 0) return 'Inga hittades för objektet';
   return `${stammar.length.toLocaleString('sv-SE')} stammar ur maskindatan`;
 }
-
-/** Status i TEXT. Fargen upprepar bara det som redan star - den bar aldrig ensam. */
-const STATUS_TEXT: Record<string, { text: string; farg: string }> = {
-  ok: { text: 'OK', farg: T.green },
-  avvikelse: { text: 'Avvikelse', farg: T.red },
-  bra: { text: 'Bra', farg: T.green },
-  godkant: { text: 'Godkänt', farg: T.blue },
-  battre: { text: 'Kan bli bättre', farg: GUL },
-};
-
-function statusEtikett(status: string | null): { text: string; farg: string } {
-  if (status && STATUS_TEXT[status]) return STATUS_TEXT[status];
-  return { text: 'Obesvarad', farg: T.t2 };
-}
-
-/** Knapparna per del. Aldrig fler an dessa - tre val ar redan gransen i hytt. */
-const SVARSALTERNATIV: Record<PunktDel, { status: PunktStatus; etikett: string; farg: string }[]> = {
-  plan: [
-    { status: 'ok', etikett: 'OK', farg: T.green },
-    { status: 'avvikelse', etikett: 'Avvikelse', farg: T.red },
-  ],
-  utforande: [
-    { status: 'bra', etikett: 'Bra', farg: T.green },
-    { status: 'godkant', etikett: 'Godkänt', farg: T.blue },
-    { status: 'battre', etikett: 'Kan bli bättre', farg: GUL },
-  ],
-};
 
 /**
  * Grupp och sedan ordning. Presentationsordning valjs HAR, i vyn - ordning
@@ -573,6 +544,9 @@ function VaxlaVyKnapp({ till, onClick }: { till: 'karta' | 'lista'; onClick: () 
   );
 }
 
+/** Rubrikradens hojd i listan (tillbaka-lank + ikon). Serien fyller resten av ytan - ett layoutmatt, aldrig ett avstand. */
+const RUBRIKRAD_PX = 56;
+
 /** Sidmarginalen - samma pa ikonen i kartan och i listan, sa den sitter i samma horn. */
 const SIDMARGINAL = 16;
 
@@ -612,6 +586,8 @@ export default function EgenkontrollRundaPage() {
   const [kartaMonterad, setKartaMonterad] = useState(false);
   // Tillstand 3: terrangpunkterna ihopvikta, och utvikbara for att ratta.
   const [visaTerrang, setVisaTerrang] = useState(false);
+  // Kortet man sjalv gatt tillbaka till i avsluta-laget. null = det forsta obesvarade - och det ar det vanliga.
+  const [valtKortId, setValtKortId] = useState<string | null>(null);
   // Den korta stunden efter sista terrangsvaret, innan vyn byter till avslutet.
   const [klartKort, setKlartKort] = useState(false);
   // Har terrangen nagon gang varit helt besvarad i den har sessionen? Bara for
@@ -708,11 +684,13 @@ export default function EgenkontrollRundaPage() {
   // Lopnumret gor att det SENASTE anropet vinner. Tva sparningar tat efter varandra
   // far annars svaren i fel ordning, och den aldre kan skriva over den nyare.
   const rundaId = vy?.egenkontroll?.id;
+  // Forst nar provytorna ar inlasta kan Avsluta-knappen veta om nagon yta ar omatt; annars blinkar den till aktiv.
+  const [ytorLasta, setYtorLasta] = useState(false);
   const tillbehorLopnr = useRef(0);
   const laddaTillbehor = useCallback(async (omlasning = false) => {
     const mitt = ++tillbehorLopnr.current;
     const galler = () => mitt === tillbehorLopnr.current;
-    if (!rundaId) { setFotoPerPunkt({}); setProvytor([]); return; }
+    if (!rundaId) { setFotoPerPunkt({}); setProvytor([]); setYtorLasta(false); return; }
     let miste = false;
     try {
       const ytor = await hamtaProvytor(rundaId);
@@ -721,6 +699,7 @@ export default function EgenkontrollRundaPage() {
       // Forsta laddningen: tomt, som forr. Omlasning: behall det som visas och SAG det.
       if (galler()) { if (omlasning) miste = true; else setProvytor([]); }
     }
+    if (galler()) setYtorLasta(true);
     try {
       const foton = await hamtaFoton(rundaId);
       const par = await Promise.all(
@@ -763,9 +742,10 @@ export default function EgenkontrollRundaPage() {
     }
   };
 
-  const svara = async (punkt: EgenkontrollPunkt, status: PunktStatus) => {
-    // Trycket pa redan valt svar ar en no-op: ingen skrivning, ingen blink.
-    if (punkt.status === status) return;
+  const svara = async (punkt: EgenkontrollPunkt, status: PunktStatus): Promise<boolean> => {
+    // Trycket pa redan valt svar ar en no-op: ingen skrivning, ingen blink. Det raknas
+    // som lyckat - serien gar da vidare utan att skriva nagot.
+    if (punkt.status === status) return true;
     setSparStatus((s) => ({ ...s, [punkt.id]: true }));
     setSparFel(null);
     try {
@@ -776,8 +756,10 @@ export default function EgenkontrollRundaPage() {
       setVy((v) =>
         v ? { ...v, punkter: v.punkter.map((p) => (p.id === sparad.id ? sparad : p)) } : v,
       );
+      return true;
     } catch (e) {
       setSparFel(e instanceof Error ? e.message : 'Kunde inte spara svaret.');
+      return false;
     } finally {
       setSparStatus((s) => ({ ...s, [punkt.id]: false }));
     }
@@ -870,7 +852,11 @@ export default function EgenkontrollRundaPage() {
   const kvar = allaPunkter.filter((p) => p.status === null).length;
   const antalBattre = allaPunkter.filter((p) => p.status === 'battre').length;
   const rundanKlar = vy?.egenkontroll?.status === 'klar';
-  const kanAvsluta = !!vy?.egenkontroll && !rundanKlar && allaPunkter.length > 0 && kvar === 0;
+  // AVSLUTA RAKNAR BADA SLAGEN, som avslutaRunda. Forr raknade knappen bara punkterna: den var
+  // aktiv med omatta provytor kvar och gav sedan ett fel ("6 provytor aterstar") - sedan
+  // provytorna byggdes. Sa "kan avslutas" och "avslutaRunda tar emot det" kan inte vara oense.
+  const avsl = avslutaStatus(allaPunkter, provytor);
+  const kanAvsluta = !!vy?.egenkontroll && !rundanKlar && avsl.kan && ytorLasta;
 
   // --- TILLSTANDET: harlett ur data, aldrig lagrat -------------------------
   const terrangKvar = raknaTerrangKvar(allaPunkter);
@@ -891,6 +877,13 @@ export default function EgenkontrollRundaPage() {
   const radL = rundanKlar ? 'full' : radLage({ harFrystPosition: frystPos != null, terrangKvar });
   // Terrangen har varit helt besvarad i den har sessionen men ar det inte langre.
   const obesvaradIgen = nattAvslut.current && terrangKvar > 0 && !rundanKlar;
+
+  // AVSLUTA-LAGET SOM SERIE: terrangen klar (eller saknas), pagaende runda, minst ett kort.
+  // Tillstand 2 behaller sin kolumn, och en avslutad runda ar ett dokument - se arSerieLage.
+  const serie = useMemo(() => byggSerie(vy?.punkter ?? []), [vy?.punkter]);
+  const serieLage = arSerieLage({ harRunda: !!vy?.egenkontroll, klar: rundanKlar, terrangKvar, serieLangd: serie.length });
+  // Ett val man gjort gallde dar och da - lamnar man avsluta-laget ska man mota det forsta obesvarade nasta gang.
+  useEffect(() => { if (!serieLage) setValtKortId(null); }, [serieLage]);
 
   // Beslutet att oppna i listan FRYSER (forsta gangen): kommer positionen i
   // efterhand ska vyn inte byta under en - det vore att kasta ut anvandaren.
@@ -947,6 +940,8 @@ export default function EgenkontrollRundaPage() {
   const gaTillKarta = () => { setKlartKort(false); setFrystPos(null); setLage('karta'); };
   /** Tryck pa en symbol pa kartan: byt kort. */
   const valjPunktPaKartan = (id: string) => { setKlartKort(false); setValdPunktId(id); };
+  /** Stang kortet: tomt kort. Fylls av sig sjalv med narmaste obesvarade sa fort en sadan kan pekas ut. */
+  const stangKortet = () => { setKlartKort(false); setValdPunktId(null); };
   /** Tryck pa en rad i listan: till kartan med punkten i kortet. */
   const oppnaPunktPaKartan = (id: string) => {
     setKlartKort(false); setValdPunktId(id); setFrystPos(null); setLage('karta');
@@ -956,6 +951,15 @@ export default function EgenkontrollRundaPage() {
   // den kvar monterad men dold - se kartaMonterad.
   const kartaSynlig = effLage === 'karta' && !!vy?.egenkontroll && !laddar && !fel;
   const kortPunkt = valdPunktId ? allaPunkter.find((p) => p.id === valdPunktId) ?? null : null;
+  // En besvarad punkt i kortet gar att stanga. Star den kvar for att ingen nasta kan
+  // pekas ut sags varfor - ingen position, eller det som aterstar saknar plats.
+  const kortStang = kortStangning({
+    kort: kortPunkt,
+    klartKort,
+    terrangKvar,
+    nastaFinns: narmasteObesvarade(planpunkter, avstandLive) !== null,
+    positionOk: pos.status === 'ok',
+  });
   const kanVisaKarta = !!vy?.egenkontroll && harPlats.size > 0;
   const lagerKnappStil = {
     minHeight: 44, minWidth: 44, padding: '0 14px', borderRadius: 22,
@@ -1101,9 +1105,37 @@ export default function EgenkontrollRundaPage() {
               padding: `12px ${SIDMARGINAL}px ${medSafeBotten(12)}`,
             }}
           >
-            {terrangKvar > 0 && (
-              <div style={{ fontSize: 13, color: T.t2, margin: '0 0 8px' }}>
-                Kvar i terrängen: {terrangKvar}
+            {(terrangKvar > 0 || kortStang.kanStangas) && (
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 12, margin: '0 0 8px',
+                }}
+              >
+                <div style={{ fontSize: 13, color: T.t2 }}>
+                  {terrangKvar > 0 ? `Kvar i terrängen: ${terrangKvar}` : ''}
+                </div>
+                {/* VAGEN UT. En besvarad punkt som inte har nagon nasta att ga till
+                    (ingen position, eller det som aterstar saknar plats) lamnades kvar
+                    i kortet, och da fanns bara ett tryck pa en annan symbol som vag ut. */}
+                {kortStang.kanStangas && (
+                  <button onClick={stangKortet} aria-label="Stäng kortet" style={lagerKnappStil}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
+                      close
+                    </span>
+                    Stäng
+                  </button>
+                )}
+              </div>
+            )}
+            {/* VARFOR DET INTE GAR VIDARE, i kortet och OVAN punkten - inte under den, dar en
+                lang plankommentar skjuter ut den ur de 45 % kortet far ta. */}
+            {kortStang.forklaring === 'position' && (
+              <div style={{ margin: '0 0 10px' }}><PositionRad pos={pos} /></div>
+            )}
+            {kortStang.forklaring === 'plats' && (
+              <div role="status" style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 0 10px' }}>
+                {SAKNAR_PLATS_MENING}
               </div>
             )}
             {kortPunkt ? (
@@ -1128,7 +1160,7 @@ export default function EgenkontrollRundaPage() {
                 )}
                 {/* Tappas positionen medan man har ett kort kvar star kortet kvar -
                     men det ska sagas att ingen "narmaste" kan raknas ut. */}
-                {pos.status !== 'ok' && !klartKort && (
+                {pos.status !== 'ok' && !klartKort && kortStang.forklaring !== 'position' && (
                   <div style={{ marginTop: 10 }}><PositionRad pos={pos} /></div>
                 )}
               </>
@@ -1140,7 +1172,7 @@ export default function EgenkontrollRundaPage() {
               <PositionRad pos={pos} />
             ) : (
               <div role="status" style={{ fontSize: 15, color: T.t2, lineHeight: 1.45 }}>
-                Punkterna som återstår saknar plats på kartan. Svara på dem i listan.
+                {SAKNAR_PLATS_MENING}
               </div>
             )}
           </div>
@@ -1158,7 +1190,7 @@ export default function EgenkontrollRundaPage() {
         <div
           style={{
             position: 'sticky', top: underTopbar(), zIndex: 20, background: T.bg,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: 56,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: RUBRIKRAD_PX,
           }}
         >
           {kanVisaKarta && !laddar && !fel && <VaxlaVyKnapp till="karta" onClick={gaTillKarta} />}
@@ -1192,6 +1224,31 @@ export default function EgenkontrollRundaPage() {
 
         {!laddar && !fel && vy && (
           <>
+            {/* SERIEN FORST (tillstand 3): den ar arbetet nu, och att scrolla forbi sju provyterader
+                for att na forsta kortet ar precis det den ersatter. Forutsattningar, provytor och
+                terrangraden ligger under. */}
+            {serieLage && vy.egenkontroll && (
+              <UtforandeSerie
+                serie={serie}
+                valtId={valtKortId}
+                onVal={setValtKortId}
+                objektNamn={vy.objektNamn}
+                fotoPerPunkt={fotoPerPunkt}
+                sparStatus={sparStatus}
+                onSvara={svara}
+                onFoto={(p) => setSheet({ lage: 'foto', punkt: p })}
+                onStubbe={(p) => setStubbePunkt(p)}
+                slut={{
+                  status: { ...avsl, kan: kanAvsluta },
+                  antalAvvikelser,
+                  antalBattre,
+                  avslutar,
+                  onAvsluta: () => setVisaAvslutsdialog(true),
+                }}
+                minHojd={`calc(100dvh - ${LAYOUT.topbar} - ${RUBRIKRAD_PX}px)`}
+              />
+            )}
+
             <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: -0.5, margin: '4px 0 4px' }}>
               {vy.objektNamn}
             </h1>
@@ -1346,7 +1403,7 @@ export default function EgenkontrollRundaPage() {
                 {/* Del 2. Doljs HELT nar rundan saknar utforandepunkter - en
                     runda som startades fore denna PR far dem aldrig, sa det
                     finns ingenting att forklara sig ur. */}
-                {antalUtforande > 0 && (
+                {antalUtforande > 0 && !serieLage && (
                   <div>
                     <SectionHeader>Utförandet</SectionHeader>
                     <div style={{ fontSize: 15, color: T.t2, padding: '0 16px 8px' }}>
@@ -1374,10 +1431,10 @@ export default function EgenkontrollRundaPage() {
                     det bara finns en punkt - fler kommer i provyte-PR:en, och
                     en rubrik som byter namn nar innehallet vaxer ar samre an
                     en som star kvar. */}
-                {(antalMatning > 0 || provytor.length > 0) && (
+                {((!serieLage && antalMatning > 0) || provytor.length > 0) && (
                   <div>
                     <SectionHeader>Mätningar</SectionHeader>
-                    {antalMatning > 0 && (
+                    {!serieLage && antalMatning > 0 && (
                       <div style={{ fontSize: 15, color: T.t2, padding: '0 16px 8px' }}>
                         {besvaradeMatning} av {antalMatning}
                       </div>
@@ -1388,7 +1445,7 @@ export default function EgenkontrollRundaPage() {
                       </div>
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {matningspunkter.map((p) => (
+                      {(serieLage ? [] : matningspunkter).map((p) => (
                         <MatningsKort
                           key={p.id}
                           punkt={p}
@@ -1402,7 +1459,7 @@ export default function EgenkontrollRundaPage() {
                 )}
 
                 {/* Fallback: okand del ska synas, inte forsvinna. */}
-                {ovrigaPunkter.length > 0 && (
+                {!serieLage && ovrigaPunkter.length > 0 && (
                   <div>
                     <SectionHeader>Övrigt</SectionHeader>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1450,7 +1507,7 @@ export default function EgenkontrollRundaPage() {
                       {anmarkningsText(antalAvvikelser, antalBattre)}
                     </span>
                   </div>
-                ) : (
+                ) : serieLage ? null : (
                   <button
                     onClick={() => setVisaAvslutsdialog(true)}
                     disabled={!kanAvsluta}
@@ -1467,9 +1524,7 @@ export default function EgenkontrollRundaPage() {
                       fontFamily: T.ff,
                     }}
                   >
-                    {kanAvsluta
-                      ? 'Avsluta rundan'
-                      : `Avsluta rundan — ${kvar} kvar`}
+                    {avsl.etikett}
                   </button>
                 )}
               </>
@@ -1538,7 +1593,14 @@ export default function EgenkontrollRundaPage() {
             egenkontrollId={vy.egenkontroll.id}
             antalSedanTidigare={(fotoPerPunkt[stubbePunkt.id] ?? []).length}
             onStang={() => setStubbePunkt(null)}
-            onSparad={() => { setStubbePunkt(null); ladda({ tyst: true }); laddaTillbehor(true); }}
+            onSparad={() => {
+              // Efter en stubbe star kortet kvar ("Fler stubbar" / "Klar"): man tar ofta flera.
+              const id = stubbePunkt.id;
+              setStubbePunkt(null);
+              if (serieLage) setValtKortId(id);
+              ladda({ tyst: true });
+              laddaTillbehor(true);
+            }}
           />
         )}
 

@@ -3,10 +3,12 @@ import type { EgenkontrollPunkt } from './egenkontroll';
 import {
   FIX_GAMMAL_MS,
   POSITION_MAX_NOGGRANNHET_M,
+  SAKNAR_PLATS_MENING,
   arForstaSvaret,
   avstandPerPunkt,
   bedomPosition,
   efterSvar,
+  kortStangning,
   narmasteObesvarade,
   ordnaGruppEfterAvstand,
   positionSkalText,
@@ -218,6 +220,67 @@ describe('efterSvar - vart kortet gar nar en punkt fatt sitt forsta svar', () =>
   it('bara punkter utan plats kvar: stanna, inte klart - terrangen ar inte klar', () => {
     const ps = [punkt('a', { status: 'ok' }), punkt('b')];
     expect(efterSvar({ planpunkter: ps, besvaradId: 'a', avstand: avst({ a: 5 }) })).toEqual({ typ: 'stanna' });
+  });
+});
+
+describe('kortStangning - en besvarad punkt i kortet gar alltid att stanga', () => {
+  const bas = { klartKort: false, terrangKvar: 3, nastaFinns: false, positionOk: false };
+
+  it('VERKLIGA FALLET: svarat utan position, ingen nasta - kortet gar att stanga, och det sags varfor', () => {
+    expect(kortStangning({ ...bas, kort: { status: 'ok' } }))
+      .toEqual({ kanStangas: true, forklaring: 'position' });
+  });
+  it('MED position men det som aterstar saknar plats: samma fastnade kort, annan forklaring', () => {
+    expect(kortStangning({ ...bas, kort: { status: 'ok' }, positionOk: true }))
+      .toEqual({ kanStangas: true, forklaring: 'plats' });
+  });
+  it('en nasta finns att peka ut: gar att stanga, men ingen forklaring - inget ar fel', () => {
+    expect(kortStangning({ ...bas, kort: { status: 'avvikelse' }, nastaFinns: true, positionOk: true }))
+      .toEqual({ kanStangas: true, forklaring: null });
+  });
+  it('en besvarad punkt som bara ska ses igenom (terrangen klar): gar att stanga, ingen forklaring', () => {
+    expect(kortStangning({ ...bas, kort: { status: 'ok' }, terrangKvar: 0 }))
+      .toEqual({ kanStangas: true, forklaring: null });
+  });
+  it('alla svar raknas som besvarat - ocksa battre', () => {
+    for (const status of ['ok', 'avvikelse', 'battre'] as const) {
+      expect(kortStangning({ ...bas, kort: { status } }).kanStangas).toBe(true);
+    }
+  });
+  it('en OBESVARAD punkt stangs aldrig - den ska besvaras', () => {
+    expect(kortStangning({ ...bas, kort: { status: null } })).toEqual({ kanStangas: false, forklaring: null });
+    expect(kortStangning({ ...bas, kort: { status: null }, positionOk: true, nastaFinns: true }).kanStangas).toBe(false);
+  });
+  it('inget kort: inget att stanga', () => {
+    expect(kortStangning({ ...bas, kort: null })).toEqual({ kanStangas: false, forklaring: null });
+  });
+  it('pa vag till avslutet (sista punkten besvarad): ingen stang-knapp, vyn byter sjalv', () => {
+    expect(kortStangning({ ...bas, kort: { status: 'ok' }, klartKort: true, terrangKvar: 0 }))
+      .toEqual({ kanStangas: false, forklaring: null });
+  });
+  it('hangs ihop med efterSvar: varje utfall som lamnar kortet kvar ("stanna") ger en stang-knapp', () => {
+    const avst = (rader: Record<string, number>) =>
+      new Map<string, AvstandRad>(Object.entries(rader).map(([id, m]) => [id, { m, r: 'N' }]));
+    // utan position
+    const utanPos = [punkt('a', { status: 'ok' }), punkt('b')];
+    expect(efterSvar({ planpunkter: utanPos, besvaradId: 'a', avstand: avst({}) })).toEqual({ typ: 'stanna' });
+    expect(kortStangning({ ...bas, kort: utanPos[0], terrangKvar: terrangKvar(utanPos) }).forklaring).toBe('position');
+    // med position, men b saknar plats
+    const medPos = [punkt('a', { status: 'ok' }), punkt('b')];
+    const a = avst({ a: 5 });
+    expect(efterSvar({ planpunkter: medPos, besvaradId: 'a', avstand: a })).toEqual({ typ: 'stanna' });
+    expect(
+      kortStangning({
+        ...bas, kort: medPos[0], terrangKvar: terrangKvar(medPos),
+        nastaFinns: narmasteObesvarade(medPos, a) !== null, positionOk: true,
+      }).forklaring,
+    ).toBe('plats');
+  });
+});
+
+describe('texterna i kortet', () => {
+  it('saknar-plats-meningen ar samma som i det tomma kortet (en kalla)', () => {
+    expect(SAKNAR_PLATS_MENING).toBe('Punkterna som återstår saknar plats på kartan. Svara på dem i listan.');
   });
 });
 

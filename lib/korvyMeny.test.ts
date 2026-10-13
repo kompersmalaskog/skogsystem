@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 // Vakt mot att körvyns nya meny/snabbtryck (pill, plusrad, placering, prickar, Mät/Rita, kvitto) kopplas bort eller läcker in i planeringsvyn.
 // planering/page.tsx är 23 000 rader och körs inte i enhetstester; beteendet är provat i den riktiga sidan (testsele, se PR) och
@@ -29,11 +29,20 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
 });
 
 describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
-  it('plus-knappen öppnar raden i BÅDA vyerna; den gamla menyn nås via Alla › Fler val', () => {
-    expect(page).toContain('if (plusMenuOpen) setPlusMenuOpen(false); else if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); } else setPlusRadOppen(true);');
-    expect(page).toContain('{plusRadOppen && (() => {\n        const { poster, alla } = byggPlusRad();');
-    expect(page).toContain('onFlerVal={() => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusMenuOpen(true); }}');
-    expect(page).toContain('{/* === PLUS-MENY (bottom sheet) === */}');   // den gamla menyn finns kvar, oförändrad
+  it('plus-knappen öppnar raden i BÅDA vyerna; "Fler val" finns inte längre i arket — dess innehåll bor i objektinfon', () => {
+    expect(page).toContain('if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); }');
+    expect(page).toContain('{plusRadOppen && (() => {\n        const { poster, ark } = byggPlusRad();');
+    expect(page).toContain('onSparaDocka={sparaDockaPlatser}');
+    expect(page).toContain('{renderFlerVal(stang)}');
+    // den gamla plusmenyn (bottom sheet) och den gamla helskärms-Lager-menyn är borta — inga döda ingångar kvar
+    expect(page).not.toContain('PLUS-MENY (bottom sheet)');
+    expect(page).not.toContain('plusMenuOpen');
+    expect(page).not.toContain('onFlerVal');
+    expect(page).not.toContain('layerMenuOpen');
+    expect(page).not.toContain('=== LAGER-MENY ===');
+    const arket = las('../components/planering/PlusRad.tsx') + las('../components/planering/PlusArk.tsx');
+    expect(arket).not.toContain('Fler val');
+    expect(arket).not.toContain('Dockan</');   // "‹ Dockan"-knappen är borta
   });
   it('Inställningar har flyttat till objektinfon i körvy men finns kvar i planeringens gamla meny', () => {
     expect(page).toContain("...(korvyActive ? [] : [{ label: 'Inställningar'");
@@ -45,9 +54,8 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('if (!testlageAktivRef.current) sparaPlusRad(enhetMaskinId, ny);');
     expect(page).toContain('const r = fastaPost(plusRadRef.current, post);');
   });
-  it('lagerväxlarna i raden och i Lager-menyn är SAMMA lista och SAMMA växel', () => {
-    expect(page).toContain('{overlayLista.map(overlay => (');
-    expect(page).toContain("onClick={() => { overlay.enabled && vaxlaLager(overlay.id); }}");
+  it('lagerväxlarna i arkets Lager-flik använder SAMMA lista (overlayLista) och SAMMA växel (vaxlaLager) som förut', () => {
+    expect(page).toContain("overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); }))");
     expect(page).toContain("if (post.typ === 'lager') { vaxlaLager(post.id); noteraPlus(post); return; }");
   });
 });
@@ -112,21 +120,24 @@ describe('prickar: högstubbe/evighetsträd i körvyn', () => {
   });
 });
 
-describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
+describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
   it('EN smal list i båda vyerna: planeringens gamla mätpanel och låsta chip är borta, alla vägar startar samma figur', () => {
     expect(page).not.toContain('MÄTVERKTYG (geo, klicka-punkter)');
     expect(page).not.toContain('Tryck på kartan för att sätta punkter');
     expect(page).not.toContain('panorera mellan tryck');
-    expect(page).not.toContain('const klarMatning');
+    expect(page).not.toContain('const klarMatning');   // gamla låsta chip-flödet
     expect(page).not.toContain('{!korvyActive && measureLocked');
-    expect(page).toContain('{figur && !sparaSomOppen && (() => {');
-    expect(page).toContain('{figur && sparaSomOppen && (');
+    expect(page).toContain('{figur && (() => {');
+    expect(page).not.toContain('sparaSomOppen');
     expect(page).not.toContain('{korvyActive && figur');
-    // plusdockan och den gamla Mätning-menyn startar båda figuren — aldrig den gamla startaMatning direkt
-    expect(page).toContain("onClick={() => startaFigur(false)}");
-    expect(page).toContain("onClick={() => startaFigur(true)}");
+    // Mät sträcka/Mät yta (plusdockan) startar figuren — aldrig den gamla startaMatning direkt. Rita linje/Rita yta startar INTE figuren längre:
+    // typlistan först (körvyn och planeringen), sedan ritning.
     expect(page).toContain("if (post.typ === 'matning') startaFigur(yta);");
-    expect(page).toContain("else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }");
+    expect(page).toContain("else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }");
+    expect(page).toContain("else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }");
+    expect(page).not.toContain('else if (korvyActive) startaFigur(yta);');
+    expect(page.split('startaFigur(').length - 1).toBe(1);   // enda anropet: Mät sträcka/yta i trycktPlusPost
+    expect(page).not.toContain("onClick={() => startaFigur(false)}");   // den gamla Mätning-menyn är borta
     expect(page.match(/startaMatning\(/g)?.length).toBe(1);   // bara startaFigur anropar den
   });
   it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {
@@ -161,18 +172,18 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
     expect(page).toContain('data-testid="objektinfo-miljo"');
     expect(page).toMatch(/\{!korvyActive && \(\s*<div data-testid="objektinfo-miljo"/);
   });
-  it('Klar → Spara som: vanlig markering via planeringens form och markörsynk, synlig för alla', () => {
-    expect(page).toContain('byggFigurMarkering(val, measureGeo, id, latLonToSvg, numreringRef.current.nastaGransNr)');
-    expect(page).toContain('setMarkers((prev: any[]) => [...prev, m]);\n    avslutaFigur();');
-    expect(page).toContain("{ etikett: 'Klar', onClick: () => setSparaSomOppen(true)");
+  it('Klar låser mätningen och visar talet — ingenting sparas (Spara som finns inte längre)', () => {
+    expect(page).toContain("const lasMatning = () => { if (figur && measureGeoRef.current.length >= (figur.yta ? 3 : 2)) setMeasureLocked({ yta: figur.yta }); };");
+    expect(page).toContain("{ etikett: '✓', aria: 'Klar', onClick: lasMatning,");
+    for (const s of ['byggFigurMarkering', 'SPARA_SOM', 'sparaFigurSom', 'KorvySparaSom', "from '../../lib/sparSom'"]) expect(page, s).not.toContain(s);
+    expect(existsSync(new URL('./sparSom.ts', import.meta.url))).toBe(false);
+    expect(existsSync(new URL('../components/planering/KorvySparaSom.tsx', import.meta.url))).toBe(false);
   });
-  it('Spara som-valen pekar på typer som finns i planeringen (zoner och linjer)', async () => {
-    const { SPARA_SOM } = await import('./sparSom');
-    for (const v of SPARA_SOM) {
-      if (v.mal.slag === 'zon') expect(page).toContain(`{ id: '${v.mal.zoneType}', name:`);
-      if (v.mal.slag === 'linje') expect(page).toContain(`{ id: '${v.mal.lineType}', name:`);
-    }
-    expect(page).toContain("lineType: 'boundary'");
+  it('alla typer som Spara som kunde spara går att rita: zonerna i Rita yta, Trail/Stickväg i Rita linje, Yta = Nytt område (traktgräns med nummer)', () => {
+    for (const [id, namn] of [['wet', 'Blött'], ['protected', 'Hänsyn'], ['steep', 'Brant']]) expect(page).toContain(`{ id: '${id}', name: '${namn}',`);   // zoner (Blött, Naturvård = Hänsyn, Brant)
+    expect(page).toContain("{ id: 'trail', name: 'Stig/Led',");
+    expect(page).toContain("...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg' })),");
+    expect(page).toContain("{ id: Date.now(), isLine: true, lineType: 'boundary', nummer, path }");   // Nytt område
   });
   it('etiketten i figuren följer punkterna — en BILD per text i ett symbollager (inte textlager eller HTML-markör)', () => {
     expect(page).toContain("map.getSource('figur-etikett-source')");
@@ -200,7 +211,7 @@ describe('Mät/Rita i körvyn OCH planeringen → Spara som', () => {
 });
 
 describe('komponenterna: tokens och stora tryckytor', () => {
-  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'KorvySparaSom'];
+  const filer = ['KorvyObjektPill', 'KorvyKvitto', 'KorvyNertillList', 'PlusRad', 'PlusArk'];
   const kall = Object.fromEntries(filer.map((n) => [n, las(`../components/planering/${n}.tsx`)]));
   it('alla importerar designtokens och har inga färgliteraler (hex) eller egna textstorlekar', () => {
     for (const n of filer) {
@@ -224,8 +235,11 @@ describe('komponenterna: tokens och stora tryckytor', () => {
     expect(kall.PlusRad).toContain('poster.slice(0, MAX_FASTA)');
     expect(kall.PlusRad).toContain('data-testid="plus-alla"');
     expect(kall.PlusRad).toContain('data-testid="plus-stang"');
-    expect(kall.PlusRad).toContain("'Fast i dockan'");
-    expect(kall.PlusRad).toContain("'Lossa'");
+    expect(kall.PlusRad).toContain('data-testid="plus-hall-fast"');
+    expect(kall.PlusRad).toMatch(/>\s*Fast i dockan\s*</);
+    // ingen "Lossa" per symbol: en fast symbol har inget håll-kort, vägen tillbaka är Återställ i Redigera
+    expect(kall.PlusRad).not.toContain('Lossa');
+    expect(kall.PlusRad).toContain('lt.start(() => { if (!p.fast) setHall(');
     expect(kall.PlusRad).toContain("transformOrigin: 'right bottom'");
     // dockan har INGEN bakgrundsskugga (kartan ovanför är fri) — det har bara Alla-arket
     const dockDel = kall.PlusRad.slice(kall.PlusRad.indexOf('// ── Dockan ──'));

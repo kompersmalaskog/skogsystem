@@ -5,17 +5,24 @@ import {
   kontextUtanKontrollpunkter, kontrollFeatures, kontrollLager, kontrollLagerIdn,
   mittpunktPaLinje, pilVinkel, valdLinjeFilter, valdSymbolFilter,
   provytaFeatures, provytaLager, provytaLagerIdn,
-  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
+  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, PROVYTA_KALLA, TRAKTGRANS_TYP, VALD_LINJE_ID, VALD_SYMBOL_ID,
 } from './egenkontrollkarta';
 import { provytaBildNamn } from './provytaIkon';
 import { traffKindFranEgenskaper } from './egenkontrollTryck';
 import type { ProvytaStatus } from './provytor';
-import { LINJE_STIL, PIL_STIL, zoomKurva } from './kartstil';
+import {
+  KANT_SVART_STARK, LEGEND, LINJE_BREDD_GRANS, LINJE_KANT_BREDD_GRANS, LINJE_STIL, PIL_STIL, STRECK_RANDAD,
+  linjeLager, zoomKurva,
+} from './kartstil';
 import { markerIconDefs } from './marker-icons';
 import { ZONE_COLORS } from './zone-colors';
 
 // Origo och koordinater: samma rymd som kartan. Ett litet origo racker.
 const ORIGO = { lat: 56.5, lng: 14.7, zoom: 15 };
+
+/** Kontextlagrets traktgransslager: ek-k-lin-boundary-kant, ek-k-lin-boundary, ek-k-lin-boundary-streck. */
+const arTraktgransLager = (id: string) =>
+  id === `ek-k-lin-${TRAKTGRANS_TYP}` || id.startsWith(`ek-k-lin-${TRAKTGRANS_TYP}-`);
 
 describe('lagren ar giltiga enligt MapLibres egen stil-spec', () => {
   // addLayer med ett ogiltigt uttryck KASTAR INTE - MapLibre loggar och hoppar
@@ -91,11 +98,12 @@ describe('lagren ar giltiga enligt MapLibres egen stil-spec', () => {
     expect(valdSymbolFilter('x')).toEqual(['all', ['==', ['get', 'kind'], 'symbol'], ['==', ['get', 'id'], 'x']]);
   });
 
-  it('kontextlagret ar underordnat: lag opacitet, och inga tryckytor', () => {
+  it('kontextlagret ar underordnat: lag opacitet, och inga tryckytor - UTOM traktgransen', () => {
     for (const l of kontextLager()) {
+      expect(l.id).not.toMatch(/hit/i);
+      if (arTraktgransLager(l.id)) continue; // ritas som i planeringen, se nedan
       const o = l.paint?.['line-opacity'] ?? l.paint?.['icon-opacity'] ?? l.paint?.['fill-opacity'];
       expect(o, l.id).toBeLessThanOrEqual(0.5);
-      expect(l.id).not.toMatch(/hit/i);
     }
   });
 
@@ -406,5 +414,104 @@ describe('provytorna - tre tillstand i kartan', () => {
     const [f] = provytaFeatures([ruta('matt')]);
     expect(f.properties.kind).toBeUndefined();
     expect(traffKindFranEgenskaper(f.properties)).toBe('provyta');
+  });
+});
+
+describe('traktgransen i kontextlagret - ritas som i planeringen, inte nedtonad', () => {
+  const kontext = kontextLager();
+  const grans = kontext.filter((l) => arTraktgransLager(l.id));
+  const lagerMedId = (lager: any[], id: string) => lager.find((l) => l.id === id);
+  const kant = lagerMedId(kontext, 'ek-k-lin-boundary-kant');
+  const grund = lagerMedId(kontext, 'ek-k-lin-boundary');
+  const streck = lagerMedId(kontext, 'ek-k-lin-boundary-streck');
+
+  it('tre lager: svart kant, rod grund, gul streckning - i den ordningen, nerifran', () => {
+    expect(grans.map((l) => l.id)).toEqual(['ek-k-lin-boundary-kant', 'ek-k-lin-boundary', 'ek-k-lin-boundary-streck']);
+    expect(kontext.indexOf(kant)).toBeLessThan(kontext.indexOf(grund));
+    expect(kontext.indexOf(grund)).toBeLessThan(kontext.indexOf(streck));
+  });
+
+  it('farg och streckning som planeringen: rod + gul [2,2], svart kant', () => {
+    expect(kant.paint['line-color']).toBe(KANT_SVART_STARK);
+    expect(grund.paint['line-color']).toBe(LEGEND.fara);
+    expect(streck.paint['line-color']).toBe(LEGEND.gul);
+    expect(streck.paint['line-dasharray']).toEqual([...STRECK_RANDAD]);
+    expect(grund.paint['line-dasharray']).toBeUndefined(); // grunden ar heldragen, streckningen ligger ovanpa
+  });
+
+  it('bredd som planeringens (faktor 1, inte 0,6): grans- och kantkurvan', () => {
+    expect(grund.paint['line-width']).toEqual(zoomKurva(LINJE_BREDD_GRANS));
+    expect(streck.paint['line-width']).toEqual(zoomKurva(LINJE_BREDD_GRANS));
+    expect(kant.paint['line-width']).toEqual(zoomKurva(LINJE_KANT_BREDD_GRANS));
+  });
+
+  it('INGEN opacitet pa nagot av lagren - det var nedtoningen som gjorde den orange', () => {
+    for (const l of grans) expect(l.paint['line-opacity'], l.id).toBeUndefined();
+  });
+
+  it('identisk med kontrollagrets gransstil (utom id och kalla) - en stil, inte tva', () => {
+    const likna = (l: any) => JSON.stringify({ ...l, id: undefined, source: undefined, filter: undefined });
+    for (const suffix of ['-kant', '', '-streck']) {
+      expect(likna(lagerMedId(kontext, `ek-k-lin-boundary${suffix}`)), suffix).toBe(
+        likna(lagerMedId(kontrollLager(), `ek-p-lin-boundary${suffix}`)),
+      );
+    }
+  });
+
+  it('filtret tar bara traktgransen (kind linje, typ boundary), inga andra linjer', () => {
+    for (const l of grans) {
+      const f = featureFilter(l.filter);
+      const linje = (typ: string) => ({ type: 'Feature', properties: { kind: 'linje', typ }, geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] } });
+      expect(f.filter({ zoom: 14 }, linje('boundary') as any), l.id).toBe(true);
+      expect(f.filter({ zoom: 14 }, linje('ditch') as any), l.id).toBe(false);
+    }
+  });
+
+  it('allt ANNAT i kontextlagret ar fortfarande nedtonat (undantaget ar bara granstypen)', () => {
+    const diket = lagerMedId(kontext, 'ek-k-lin-ditch');
+    expect(diket.paint['line-opacity']).toBe(0.4);
+    expect(lagerMedId(kontext, 'ek-k-lin-ditch-kant')).toBeUndefined(); // utanKant
+    expect(lagerMedId(kontext, 'ek-k-lin-okand').paint['line-opacity']).toBe(0.4);
+    const bredd = (l: any) => l.paint['line-width'][4]; // forsta stoppets varde
+    expect(bredd(diket)).toBeLessThan(bredd(grund) as number);
+  });
+
+  it('inget lager dubblerat: varje id finns en gang, och granslagren finns inte i den nedtonade delen', () => {
+    const idn = kontext.map((l) => l.id);
+    expect(new Set(idn).size).toBe(idn.length);
+    expect(linjeLager(KONTEXT_KALLA, 'ek-k', null, { opacitet: 0.4, breddFaktor: 0.6, utanKant: true }, { utom: [TRAKTGRANS_TYP] })
+      .some((l) => arTraktgransLager(l.id))).toBe(false);
+  });
+});
+
+describe('linjeLager - urval av linjetyper', () => {
+  const idn = (lager: any[]) => lager.map((l) => l.id);
+
+  it('utan urval: alla typer och den okanda fallbacken (som forr)', () => {
+    const alla = idn(linjeLager(KONTEXT_KALLA, 'x', null));
+    expect(alla).toContain('x-lin-boundary');
+    expect(alla).toContain('x-lin-ditch');
+    expect(alla).toContain('x-lin-okand');
+  });
+
+  it('endast: bara de typerna, och ingen okand fallback', () => {
+    const ur = idn(linjeLager(KONTEXT_KALLA, 'x', null, undefined, { endast: ['boundary'] }));
+    expect(ur).toEqual(['x-lin-boundary-kant', 'x-lin-boundary', 'x-lin-boundary-streck']);
+  });
+
+  it('utom: allt utom de typerna, fallbacken kvar', () => {
+    const ur = idn(linjeLager(KONTEXT_KALLA, 'x', null, undefined, { utom: ['boundary'] }));
+    expect(ur.some((i) => i.startsWith('x-lin-boundary'))).toBe(false);
+    expect(ur).toContain('x-lin-ditch');
+    expect(ur).toContain('x-lin-okand');
+  });
+
+  it('endast + utom tillsammans delar upp alla lager utan overlapp eller luckor', () => {
+    const helt = idn(linjeLager(KONTEXT_KALLA, 'x', null));
+    const delad = [
+      ...idn(linjeLager(KONTEXT_KALLA, 'x', null, undefined, { endast: ['boundary'] })),
+      ...idn(linjeLager(KONTEXT_KALLA, 'x', null, undefined, { utom: ['boundary'] })),
+    ];
+    expect([...delad].sort()).toEqual([...helt].sort());
   });
 });

@@ -131,6 +131,16 @@ describe('linjetyperna (lineTypeDefs)', () => {
     expect(k).toContain(sammanfoga(`paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': ${a(STRECK_RANDAD)} }`));
   });
 
+  it('planeringen tonar ALDRIG ner traktgransen (undantaget som kontextlagret speglar)', () => {
+    // Kontextlagret i egenkontrollen tonar ner linjerna men inte traktgransen
+    // (TRAKTGRANS_TYP i lib/egenkontrollkarta.ts). Det ar planeringens regel:
+    // gransen tas bort ur listan av nedtonbara typer. Andras den regeln dar
+    // maste kontextlagret ses over - annars glider utseendet isar igen.
+    const k = sammanfoga(KALLA);
+    expect(k).toContain(sammanfoga('const dimmableLineTypes = lineTypeIds.filter(lt => lt !== \'boundary\');'));
+    expect(k).toContain(sammanfoga('// Traktgräns: alltid tydlig'));
+  });
+
   it('stenmur: farg, bredd och streckning', () => {
     const block = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
     expect(block).toContain(`'line-color': '${STENMUR_FARG}'`);

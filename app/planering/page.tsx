@@ -17,6 +17,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
+import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
 import { HYTTSPAR_CASING_COLOR, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH, ROLLFARG_SKOTARE, ROLLFARG_SKORDARE, sparStil } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, type InfoRad } from '../../lib/objektInfoSpar'
@@ -48,17 +49,17 @@ import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { KorvyObjektPill } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
-import { PlusRad, type PlusPostVy, type AllaSektion, type HallSvar } from '../../components/planering/PlusRad'
-import { KorvySparaSom } from '../../components/planering/KorvySparaSom'
+import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
+import { redigeringTillState, type FlikId } from '../../lib/plusArk'
+import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
-import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, lossaPost, arDockPost, postNyckel, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
-import { SPARA_SOM, valForFigur, minPunkter, byggFigurMarkering } from '../../lib/sparSom'
+import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
-import { FARG, DELFARG, TYP, RADIE, AVSTAND } from '../../lib/design/tokens'
+import { FARG, DELFARG, TYP, RADIE, AVSTAND, IKON } from '../../lib/design/tokens'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'
 import { hamtaKandidatSvar, startaKandidatLaddning } from '../../lib/objektKandidater'
@@ -440,11 +441,8 @@ function maskinModell(m: DimMaskin | undefined | null): string {
 // Linjetyper som ritas som stängda polygoner.
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 // Polygon-linjetyper: ritas punkt-för-punkt, sluts automatiskt (sista punkt == första) och
-// behåller råa hörn (ingen smoothing). EN källa — allt polygon-beteende gate:as mot detta set.
+// behåller råa hörn. EN källa — allt polygon-beteende gate:as mot detta set. Ingen ritad markering utjämnas någonsin (lib/ritaPunkter.ts).
 const POLYGON_LINE_TYPES = new Set<string>(['boundary', 'nature']);
-// Öppna linjer (INTE polygoner → ingen autostängning) som ändå ritas med RÅA hörn, ingen smoothing.
-// Stenmur: raka murstycken mellan hörn. Skilt från POLYGON_LINE_TYPES så stonewall inte blir polygon.
-const RAW_POINT_LINE_TYPES = new Set<string>(['stonewall']);
 
 // Basväg-merge: max ändpunkt-till-ändpunkt-avstånd (haversine, METER — aldrig skärmenheter) för att
 // ERBJUDA en sammanslagning. Bara ändpunkt mot ändpunkt räknas (en ände nära en annan vägs MITT är en
@@ -703,6 +701,7 @@ export default function PlannerPage() {
   // syncTimeoutRef (befintlig) = osparad sync i 1s-debouncen. Är något av dem sant → skjut upp.
   const sparPagarRef = useRef(false);
   const upptagenRef = useRef(false);
+  const ritlageRef = useRef(false);                          // Rita linje/Rita yta pågår (typ vald): ett tryck är en PUNKT — inget Vida-ytkort ska öppnas
   const refetchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const refetchForsokRef = useRef(0);
 
@@ -1481,11 +1480,11 @@ export default function PlannerPage() {
     const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
     const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
-    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring', type: 'line', source: 'zones-source', filter: gallringEjLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthGallring }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring-lov', type: 'line', source: 'zones-source', filter: gallringLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthLov }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
     // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
     map.addLayer({
@@ -1537,7 +1536,7 @@ export default function PlannerPage() {
             'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 6, 15, 7, 17, 9],
             'line-dasharray': [2, 0.85], // ~12/5 px vid ~6px bredd → läser som stenar på rad
           },
-          layout: { 'line-cap': 'butt', 'line-join': 'round' },
+          layout: { 'line-cap': 'butt', 'line-join': 'miter' },
         });
         return;
       }
@@ -1558,20 +1557,20 @@ export default function PlannerPage() {
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
         paint: { 'line-color': casingColor, 'line-width': cwLw },
-        layout: { 'line-cap': 'round', 'line-join': 'round' }
+        layout: { 'line-cap': 'round', 'line-join': 'miter' }
       });
       map.addLayer({
         id: `line-${lt.id}-base`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
         paint: { 'line-color': lt.color, 'line-width': lw, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
-        layout: { 'line-cap': 'round', 'line-join': 'round' }
+        layout: { 'line-cap': 'round', 'line-join': 'miter' }
       });
       if (lt.striped && lt.color2) {
         map.addLayer({
           id: `line-${lt.id}-stripe`, type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], lt.id],
           paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': [2, 2] },
-          layout: { 'line-cap': 'round', 'line-join': 'round' }
+          layout: { 'line-cap': 'round', 'line-join': 'miter' }
         });
       }
     });
@@ -1582,7 +1581,7 @@ export default function PlannerPage() {
       id: 'line-mainroad-risa', type: 'line', source: 'lines-source',
       filter: ['==', ['get', 'isRisa'], true],
       paint: { 'line-color': '#3b82f6', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 11, 3, 13, 4, 15, 6, 17, 7] as any },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      layout: { 'line-cap': 'round', 'line-join': 'miter' },
     });
     // === Basväg-etikett: nummer (+ längd i planering) mitt på vägen (symbol-placement 'line-center'). ===
     map.addLayer({
@@ -1682,8 +1681,8 @@ export default function PlannerPage() {
 
     // === Drawing preview layers ===
     map.addLayer({ id: 'drawing-fill', type: 'fill', source: 'drawing-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#7cba3f', 'fill-opacity': 0.15 } });
-    map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'drawing-line', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    map.addLayer({ id: 'drawing-line', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'drawing-points-layer', type: 'circle', source: 'drawing-points-source', paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#7cba3f', 'circle-stroke-width': 2 } });
     // Streckad stängningslinje (sista→första punkt)
     map.addSource('drawing-close-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -2932,8 +2931,6 @@ export default function PlannerPage() {
   // Meny
   const [menuOpen, setMenuOpen] = useState(false);
   const [antalPrompt, setAntalPrompt] = useState<{ markerId: string; type: string } | null>(null);
-  // Plus-meny (bottom-sheet) — öppnas från plus-knappen nere höger
-  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [menuTab, setMenuTab] = useState('symbols'); // symbols, lines, zones, arrows, settings
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
@@ -2946,6 +2943,7 @@ export default function PlannerPage() {
   const [drawType, setDrawType] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<Point[]>([]); // SVG coords (behålls för kompatibilitet)
   const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
+  const [ritaHistoria, setRitaHistoria] = useState<[number, number][][]>([]);   // ↩ i Rita: koordinaterna FÖRE varje handling (ett tryck = en punkt, ett frihandsdrag = hela draget)
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
   // "Redigera hörn" på ett eget område: redigera path på BEFINTLIG boundary-markör (behåll id → nummer,
@@ -2963,6 +2961,8 @@ export default function PlannerPage() {
   // Freehand drawing refs (avoid stale closures in document-level listeners)
   const freehandCoordsRef = useRef<[number, number][]>([]);
   const freehandActiveRef = useRef(false);
+  const senasteTouchRef = useRef(0);                      // klockslag för senaste touch-händelse i ritläget — musen som webbläsaren emulerar efter ett tryck ska ignoreras (lib/ritaPunkter)
+  const senasteTryckRef = useRef<TryckPunkt | null>(null);   // senast godtagna tryck (skärm-px + tid) → samma tryck två gånger blir EN punkt
   const freehandStartScreenRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   
   // Skotning-markering (polygon-ritning för skotare)
@@ -3049,10 +3049,14 @@ export default function PlannerPage() {
   // (markerMenuOpen) samt kort där man skriver kommentar (editingMarker). De två sista lades till
   // efter att refetch (#331/#336) råkade stänga öppna kort och tappa kommentarer mitt i skrivning.
   useEffect(() => {
+    ritlageRef.current = isDrawMode || isZoneMode;
     upptagenRef.current = isDrawing || currentDrawCoords.length > 0 || isDrawMode || isZoneMode
       || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode
       || markerMenuOpen != null || editingMarker != null || risaMarkMode;
   }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode, markerMenuOpen, editingMarker, risaMarkMode]);
+
+  // ↩-historiken hör till EN ritning: ny typ/nytt läge eller avslut börjar om. Koordinater som lästs in i förväg (Förläng) är utgångsläget och går inte att ångra.
+  useEffect(() => { setRitaHistoria([]); }, [isDrawMode, isZoneMode, drawType, zoneType]);
 
   // Geo-mätning: committad path i lng/lat (sanning för siffran), live-drag i ref (ingen re-render
   // per punkt), och ett ref till siffer-etiketten för live-uppdatering under drag.
@@ -3742,7 +3746,7 @@ export default function PlannerPage() {
     if (!error) {
       setValtObjekt({ ...valtObjekt, status: 'planerad', klar_skickad_timestamp: nowIso });
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
-      setPlusMenuOpen(false);
+      setTraktOversiktOpen(false);   // "Klar — skicka till förare" bor i objektinfon (flyttad dit från Fler val)
     }
   }, [valtObjekt, sendingKlar]);
 
@@ -4459,6 +4463,7 @@ export default function PlannerPage() {
   // tillståndet och kopplingen. Plusraden och symbolplaceringen är DELADE mellan körvyn och planeringen. Pillens räknare, prickarna,
   // Mät/Rita-figuren och kvittot är körvy (korvyActive).
   const [plusRadOppen, setPlusRadOppen] = useState(false);
+  const [plusArkStart, setPlusArkStart] = useState<FlikId | null>(null);   // öppna direkt i arket på den här fliken (objektinfons Lager-rad, Inställningar → Lager)
   plusRadOppenRef.current = plusRadOppen;   // läses av tryckvakterna (ett tryck på kartan stänger dockan, det öppnar inget kort)
   const [plusRadState, setPlusRadState] = useState<PlusRadState>(tomtPlusRad());
   const plusRadRef = useRef<PlusRadState>(tomtPlusRad());           // källan till sanning för handlers (state hinner inte med två anrop i ett tick)
@@ -4466,7 +4471,6 @@ export default function PlannerPage() {
   const [korvyKvitto, setKorvyKvitto] = useState<{ text: string; ton: 'ok' | 'fel'; markerId?: number } | null>(null);
   const korvyKvittoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [figur, setFigur] = useState<{ yta: boolean } | null>(null);   // Mät sträcka/yta + Rita linje/yta i körvyn (samma verktyg)
-  const [sparaSomOppen, setSparaSomOppen] = useState(false);
   const [prickValt, setPrickValt] = useState<{ id: string; typ: string } | null>(null);   // tryckt prick → "vad det är + Ta bort"
   // Avverkat (skördarens hyttspår, 10 m buffert, klippt mot traktgränsen) — pillens "efter" och objektinfons "Avverkat X av Y ha"
   const [avverkat, setAvverkat] = useState<{ m2: number; ha: number; andel: number | null; harSpar: boolean } | null>(null);
@@ -4545,7 +4549,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive) return;
     setKorvyKvitto(null); setPrickValt(null);
-    if (figur) { setFigur(null); setSparaSomOppen(false); setMeasureGeo([]); setMeasureLocked(null); setMeasureMode(false); setMeasureAreaMode(false); }
+    if (figur) { setFigur(null); setMeasureGeo([]); setMeasureLocked(null); setMeasureMode(false); setMeasureAreaMode(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive]);
   useEffect(() => () => { if (korvyKvittoTimerRef.current) clearTimeout(korvyKvittoTimerRef.current); }, []);
@@ -5933,17 +5937,22 @@ export default function PlannerPage() {
           const snapDist = Math.sqrt((firstScreen.x - lastScreen.x) ** 2 + (firstScreen.y - lastScreen.y) ** 2);
           if (snapDist < 15) {
             const closed = [...simplified.slice(0, -1), simplified[0]];
-            if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
+            if (isDrawMode) finishLineFromCoords(slutaRitning(closed, true));
+            if (isZoneMode) finishZoneFromCoords(slutaRitning(closed, true));
             return;
           }
         }
 
+        setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort hela draget
         setCurrentDrawCoords(simplified);
         setDrawPaused(true);
       } else if (!wasFreehand && coords.length > 0) {
-        // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge)
+        // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge). Ett tryck = EXAKT en punkt.
         const lastCoord = coords[coords.length - 1];
+        const tryckPx = map.project(lastCoord as any);
+        const detta: TryckPunkt = { x: tryckPx.x, y: tryckPx.y, tid: Date.now() };
+        if (arDubbeltryck(senasteTryckRef.current, detta)) return;   // samma tryck igen (dubbelhändelse/dubbelklick) → aldrig en andra punkt
+        senasteTryckRef.current = detta;
         const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
 
         // Klick nära första punkten → stäng polygon (bara för polygon-typer)
@@ -5956,14 +5965,20 @@ export default function PlannerPage() {
           const closeDist = Math.sqrt(ddx * ddx + ddy * ddy);
           if (closeDist < 15) {
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
-            if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
+            if (isDrawMode) finishLineFromCoords(slutaRitning(closed, true));
+            if (isZoneMode) finishZoneFromCoords(slutaRitning(closed, true));
             return;
           }
         }
-        setCurrentDrawCoords(prev => [...prev, lastCoord]);
+        setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort just den här punkten
+        setCurrentDrawCoords([...currentDrawCoords, lastCoord]);
       }
     };
+
+    const onTouchStartRita = (e: TouchEvent) => { senasteTouchRef.current = Date.now(); onPointerDown(e); };
+    const onTouchEndRita = (e: TouchEvent) => { senasteTouchRef.current = Date.now(); onPointerUp(e); };
+    const onMouseDownRita = (e: MouseEvent) => { if (arEmuleradMus(Date.now(), senasteTouchRef.current)) return; onPointerDown(e); };
+    const onMouseUpRita = (e: MouseEvent) => { if (arEmuleradMus(Date.now(), senasteTouchRef.current)) return; onPointerUp(e); };
 
     // Dubbelklick → avsluta ritning (stäng polygon-typer)
     const onDblClick = (e: any) => {
@@ -5971,15 +5986,8 @@ export default function PlannerPage() {
       e.preventDefault();
       if (currentDrawCoords.length >= 2) {
         const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
-        let finalCoords: [number, number][];
-        if (shouldClose) {
-          const closed = [...currentDrawCoords, currentDrawCoords[0]];
-          // Boundary + gallringszon: skarpa hörn (ingen smoothing). Övriga zoner: mjuka kurvor.
-          finalCoords = ((isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) || (isZoneMode && zoneType === 'gallring')) ? closed : smoothCoords(closed, 2, true);
-        } else {
-          // Öppna linjer: smootha om inte polygon-typ ELLER rå-punkt-typ (stenmur = raka murstycken)
-          finalCoords = (!POLYGON_LINE_TYPES.has(drawType || '') && !RAW_POINT_LINE_TYPES.has(drawType || '') && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
-        }
+        // Punkterna sparas exakt som tryckta: ytor sluts med första punkten, linjer lämnas som de är. Ingen utjämning.
+        const finalCoords = slutaRitning(currentDrawCoords, shouldClose);
         if (isDrawMode) finishLineFromCoords(finalCoords);
         if (isZoneMode) finishZoneFromCoords(finalCoords);
       }
@@ -5998,23 +6006,25 @@ export default function PlannerPage() {
 
     // Registrera DOM events för freehand drawing
     if (isDrawingMode) {
-      canvas.addEventListener('mousedown', onPointerDown);
-      canvas.addEventListener('touchstart', onPointerDown, { passive: true });
+      // En pekskärm skickar touchstart/touchend OCH sedan den emulerade musen (mousedown/mouseup) för samma tryck.
+      // Lyssnade vi på båda lades varje hörn till två gånger. Touch sätter tidsstämpeln; musen ignoreras strax efter.
+      canvas.addEventListener('mousedown', onMouseDownRita);
+      canvas.addEventListener('touchstart', onTouchStartRita, { passive: true });
       document.addEventListener('mousemove', onPointerMove);
       document.addEventListener('touchmove', onPointerMove, { passive: true });
-      document.addEventListener('mouseup', onPointerUp);
-      document.addEventListener('touchend', onPointerUp);
+      document.addEventListener('mouseup', onMouseUpRita);
+      document.addEventListener('touchend', onTouchEndRita);
     }
 
     return () => {
       map.off('click', onClick);
       map.off('dblclick', onDblClick);
-      canvas.removeEventListener('mousedown', onPointerDown);
-      canvas.removeEventListener('touchstart', onPointerDown);
+      canvas.removeEventListener('mousedown', onMouseDownRita);
+      canvas.removeEventListener('touchstart', onTouchStartRita);
       document.removeEventListener('mousemove', onPointerMove);
       document.removeEventListener('touchmove', onPointerMove);
-      document.removeEventListener('mouseup', onPointerUp);
-      document.removeEventListener('touchend', onPointerUp);
+      document.removeEventListener('mouseup', onMouseUpRita);
+      document.removeEventListener('touchend', onTouchEndRita);
       canvasContainer.style.removeProperty('cursor');
       // Säkerställ att dragPan är aktiverad vid cleanup
       if (map.dragPan) map.dragPan.enable();
@@ -6248,6 +6258,7 @@ export default function PlannerPage() {
     };
     const onKlick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;   // urvalsritning: tryck = hörn
+      if (ritlageRef.current) return;            // Rita linje/Rita yta: tryck = punkt, inget ytkort (körvyn visar Vida-ytorna alltid)
       if (larmPlacering) return;                 // mitt i en larmflytt
       // Prioritet (lib/klickPrioritet): avstå om ett HÖGRE lager utanför trakt-setet vann
       // (hög/markör över en traktdels-yta, ytnummer, larm). valjMinstaYta väljer redan den
@@ -6303,6 +6314,7 @@ export default function PlannerPage() {
     // feature-identiteten (boundary → markörens gränskort, traktdel → Vida-bitens kort).
     const onYtaNrKlick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;
+      if (ritlageRef.current) return;            // Rita linje/Rita yta: tryck = punkt, inget ytkort
       if (larmPlacering) return;
       if (vinnandeKategoriForKarta(map, e.point) !== 'yta-nr') return;   // bara larmet är högre
       const p = e.features?.[0]?.properties;
@@ -6736,27 +6748,6 @@ export default function PlannerPage() {
     return [coords[0], coords[coords.length - 1]];
   };
 
-  // Chaikin's corner-cutting algorithm för mjuka kurvor
-  // closed=true → stäng polygonen efter varje iteration, closed=false → öppen linje
-  const smoothCoords = (coords: [number, number][], iterations: number = 2, closed: boolean = true): [number, number][] => {
-    if (coords.length < 3) return coords;
-    const beforeLen = coords.length;
-    let pts = coords;
-    for (let iter = 0; iter < iterations; iter++) {
-      const smoothed: [number, number][] = [];
-      for (let j = 0; j < pts.length - 1; j++) {
-        const p0 = pts[j];
-        const p1 = pts[j + 1];
-        smoothed.push([p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]);
-        smoothed.push([p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]);
-      }
-      if (closed && smoothed.length > 0) smoothed.push(smoothed[0]);
-      pts = smoothed;
-    }
-    console.log('Smoothing applied, before:', beforeLen, 'after:', pts.length, 'closed:', closed);
-    return pts;
-  };
-
   // Hjälpfunktioner för att avsluta ritning med [lng,lat]-coords
   // Rensa ritnings-preview layers
   const clearDrawingPreview = () => {
@@ -7177,7 +7168,6 @@ export default function PlannerPage() {
       localStorage.setItem('skogLager_v1_' + valtObjekt.id, JSON.stringify({ lines: visibleLines, zones: visibleZones, layers: visibleLayers }));
     } catch {}
   }, [visibleLines, visibleZones, visibleLayers]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
   const [warningMenuOpen, setWarningMenuOpen] = useState(false);
   const [warningSettings, setWarningSettings] = useState<VarningInstallningar>(standardInstallningar);   // standardvärden + inläsning från enheten: lib/varningsInstallningar
 
@@ -8110,7 +8100,7 @@ export default function PlannerPage() {
   const zoneTypes = [
     { id: 'wet', name: 'Blött', color: ZONE_COLORS.wet, icon: 'wet' },
     { id: 'steep', name: 'Brant', color: ZONE_COLORS.steep, icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: ZONE_COLORS.protected, icon: 'naturecorner' },
+    { id: 'protected', name: 'Hänsyn', color: ZONE_COLORS.protected, icon: 'naturecorner' },
     { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
     { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
@@ -8152,7 +8142,7 @@ export default function PlannerPage() {
     { section: 'Zoner', items: [
       { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30 },
       { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30 },
-      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30 },
+      { id: 'zone_protected',  name: 'Hänsyn',           color: '#30d158', defaultWarn: 30 },
       { id: 'zone_culture',    name: 'Kulturmiljö',      color: ZONE_COLORS.culture, defaultWarn: 50 },   // styr zonen "Kulturmiljö" (zoneType culture) — raden hette förut felaktigt "Fornlämningszon"
       { id: 'zone_fornlamning', name: 'Fornlämning',     color: ZONE_COLORS.fornlamning, defaultWarn: 50 },   // zonen "Fornlämning" (zoneType fornlamning) hade inställning men ingen rad
       { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30 },
@@ -8178,11 +8168,9 @@ export default function PlannerPage() {
 
   // Meny-kategorier för fullskärmsmenyn
   const menuCategories = [
-    { id: 'symbols', name: 'Symboler', desc: 'Placera markeringar', icon: 'menu-symbols' },
     { id: 'lines', name: 'Linjer', desc: 'Rita linjer och gränser', icon: 'menu-lines' },
     { id: 'zones', name: 'Zoner', desc: 'Markera områden', icon: 'menu-zones' },
     { id: 'arrows', name: 'Pilar', desc: 'Visa riktningar', icon: 'menu-arrows' },
-    { id: 'measure', name: 'Mätning', desc: 'Mät avstånd på kartan', icon: 'menu-measure' },
     { id: 'gallring', name: 'Gallring', desc: 'Snitsla stickvägar', icon: 'menu-gallring' },
     { id: 'checklist', name: 'Checklista', desc: 'Kontrollera punkter', icon: 'menu-checklist' },
     { id: 'prognos', name: 'Prognos', desc: 'Produktivitetsberäkning', icon: 'menu-prognos' },
@@ -12012,11 +12000,6 @@ export default function PlannerPage() {
       return;
     }
     
-    if (layerMenuOpen) {
-      setLayerMenuOpen(false);
-      return;
-    }
-    
     if (menuOpen) return;
     
     const rect = e.currentTarget.getBoundingClientRect();
@@ -12111,18 +12094,8 @@ export default function PlannerPage() {
   const finishLine = () => {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 1 && drawType) {
-      const shouldClose = POLYGON_LINE_TYPES.has(drawType);
-      let finalCoords = [...currentDrawCoords];
-      if (shouldClose && finalCoords.length >= 3) {
-        finalCoords.push(finalCoords[0]);
-        // Polygon-typer (boundary/nature): skarpa hörn (ingen smoothing)
-        if (!POLYGON_LINE_TYPES.has(drawType)) {
-          finalCoords = smoothCoords(finalCoords, 2, true);
-        }
-      } else if (!POLYGON_LINE_TYPES.has(drawType) && !RAW_POINT_LINE_TYPES.has(drawType) && finalCoords.length >= 3) {
-        finalCoords = smoothCoords(finalCoords, 2, false);
-      }
-      finishLineFromCoords(finalCoords);
+      const shouldClose = POLYGON_LINE_TYPES.has(drawType) && currentDrawCoords.length >= 3;
+      finishLineFromCoords(slutaRitning(currentDrawCoords, shouldClose));   // exakt de tryckta punkterna — ingen utjämning
       return;
     }
     if (currentPath.length > 1 && drawType) {
@@ -12146,10 +12119,7 @@ export default function PlannerPage() {
   const finishZone = () => {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 2 && zoneType) {
-      let finalCoords = [...currentDrawCoords, currentDrawCoords[0]];
-      if (zoneType !== 'gallring') finalCoords = smoothCoords(finalCoords, 2, true); // gallring: råa hörn där man tryckte
-      console.log('Zon stängd (knapp), antal punkter:', currentDrawCoords.length, 'första:', finalCoords[0], 'sista:', finalCoords[finalCoords.length-1], 'efter smooth:', finalCoords.length);
-      finishZoneFromCoords(finalCoords);
+      finishZoneFromCoords(slutaRitning(currentDrawCoords, true));   // hörn exakt där man tryckte + första punkten sist — ingen utjämning, för alla zontyper
       return;
     }
     if (currentPath.length > 2 && zoneType) {
@@ -12304,14 +12274,11 @@ export default function PlannerPage() {
     }
   };
   
-  // Ångra senaste segmentet medan man ritar (ta bort ~20%, minst 3 punkter)
+  // ↩ ångrar SENASTE HANDLINGEN medan man ritar: ett tryck = en punkt, ett frihandsdrag = hela draget (inte ett fast antal punkter)
   const undoLastSegment = () => {
-    if (currentDrawCoords.length <= 1) {
-      cancelDrawing();
-      return;
-    }
-    const removeCount = Math.max(3, Math.floor(currentDrawCoords.length * 0.2));
-    setCurrentDrawCoords(prev => prev.slice(0, -removeCount));
+    if (ritaHistoria.length === 0) return;
+    setCurrentDrawCoords(ritaHistoria[ritaHistoria.length - 1]);
+    setRitaHistoria(ritaHistoria.slice(0, -1));
   };
 
   const cancelDrawing = () => {
@@ -12558,7 +12525,7 @@ export default function PlannerPage() {
     { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
     // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
     // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
-    ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+    ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsynsytor – Vida', desc: 'Hänsynsytor att spara', enabled: true }] : []),
     ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
     ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
     ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
@@ -12613,53 +12580,318 @@ export default function PlannerPage() {
     const dock = p.typ === 'symbol' ? { dockFarg: getIconDef(p.id).bg, dockRing: getIconDef(p.id).outline, dockGlyf: renderIcon(p.id, 30, FARG.text) } : {};
     return { nyckel: postNyckel(p), etikett: postEtikett(p), ikon: postIkon(p), fast, pa: p.typ === 'lager' ? lagerPa(p.id) : undefined, fastbar: arDockPost(p), ...dock };
   };
-  const byggPlusRad = (): { poster: PlusPostVy[]; alla: AllaSektion[] } => ({
+  // ── PLUS-ARKET: dockan + arkets tre flikar (Symboler · Rita & mät · Lager) — plus = kartan ──
+  const stangPlus = () => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); };
+  const oppnaPlusArk = (flik: FlikId) => { setLangtryckPunkt(null); setPlusArkStart(flik); setPlusRadOppen(true); };
+
+  // SYMBOLER: samma sex kategorier, samma namn och samma ordning som symbolCategories (menyn "Symboler" har alltid använt dem).
+  const byggSymbolKategorier = (): SymbolKategori[] => symbolCategories.map((k) => ({
+    id: k.name, rubrik: k.name,
+    poster: k.symbols.map((s) => postVy({ typ: 'symbol', id: s.id }, arFastNu({ typ: 'symbol', id: s.id }))),
+  }));
+
+  // RITA & MÄT: ALLA ritverktyg bor här och ingen annanstans, SJU rutor: Rita linje, Rita yta, Nytt område, Pilar, Mät sträcka,
+  // Mät yta, Spåra med GPS. Linjer-, Zoner- och Mätning-rutorna finns inte: de gjorde samma sak som Rita linje, Rita yta och Mät sträcka/yta.
+  // Symboler har sin flik. Rita linje/Rita yta: typlistan öppnas direkt, i körvyn OCH planeringsvyn (typ först, sedan ritning; se
+  // trycktPlusPost). Mät sträcka/Mät yta startar mätfiguren (Klar visar talet, inget sparas). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
+  const byggRita = (): RitaKort[] => {
+    return [
+      { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
+      { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
+      // Eget område (ersätter "Spara som › Yta"): samma markering — traktgräns med nummer. Ritmekaniken = tryck hörn, stäng på första hörnet.
+      { id: 'omrade', titel: 'Nytt område', ikon: 'omrade', onTryck: () => { stangPlus(); avslutaPagaendeLage(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } },
+      { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('arrows'); setMenuOpen(true); } },
+      { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
+      { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
+      { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
+    ];
+  };
+
+  // Spårens förhandsfärg = linjens riktiga färg på kartan (lib/sparStil), inte en egen.
+  const sparFarg = (art: 'egen' | 'andras'): string => {
+    const roll = art === 'egen' ? hyttRoll : andrasRoll;
+    return roll ? sparStil(roll, art).farg : art === 'egen' ? FARG.gron : FARG.text2;
+  };
+  // LAGER: samma grupper i samma ordning som den gamla Lager-menyn (Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina
+  // markeringar, Produktionsdata, Zontyper, Linjetyper, Varningsinställningar). Raderna skriver samma state som förut (overlays,
+  // visibleLayers, visibleZones, visibleLines, mapType) — det som tvingas i körvyn tvingas av kartans effekter, inte av listan.
+  const byggLager = (): LagerGrupp[] => {
+    const vaxel = (id: string, namn: string, under: string | undefined, pa: boolean, bild: string, onTryck: () => void): LagerRad => ({ id, namn, under, typ: 'vaxel', pa, bild, onTryck });
+    const sla = (id: string) => () => setOverlays((prev: any) => ({ ...prev, [id]: !prev[id] }));
+    const g: LagerGrupp[] = [];
+    g.push({
+      id: 'bakgrundskarta', rubrik: 'Bakgrundskarta',
+      rader: ([
+        { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — dämpad' },
+        { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
+        { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
+        { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
+      ] as const).map((t): LagerRad => ({ id: t.id, namn: t.name, under: t.desc, typ: 'val', pa: mapType === t.id, bild: lagerBild(t.id), onTryck: () => setMapType(t.id) })),
+    });
+    g.push({
+      id: 'kompass',
+      rader: [vaxel('kompass', 'Kompass',
+        korvyKompass === 'aktiv' ? 'På — kartan följer enhetens kompass'
+          : korvyKompass === 'nekad' ? 'Nekad — tillåt rörelsesensorer i Inställningar och försök igen'
+          : korvyKompass === 'saknas' ? 'Ingen kompass på enheten' : undefined,
+        korvyKompass === 'aktiv', lagerBild('kompass'), () => { if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); })],
+    });
+    g.push({ id: 'overlay', rubrik: 'Overlay', rader: overlayLista.map((o) => vaxel(o.id, o.name, o.desc, lagerPa(o.id), lagerBild(o.id), () => { if (o.enabled) vaxlaLager(o.id); })) });
+    for (const grp of wmsLayerGroups) {
+      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: grp.layers.map((l) => vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id))) });
+    }
+    g.push({ id: 'smhi', rubrik: 'SMHI', rader: [vaxel('brandrisk', 'Brandrisk', 'SMHI prognos, uppdateras dagligen', !!(overlays as any).brandrisk, lagerBild('brandrisk'), sla('brandrisk'))] });
+    g.push({
+      id: 'markeringar', rubrik: 'Dina markeringar',
+      rader: ([['symbols', 'Symboler'], ['lines', 'Linjer'], ['zones', 'Zoner'], ['arrows', 'Pilar']] as const)
+        .map(([id, namn]) => vaxel(id, namn, undefined, !!visibleLayers[id], lagerBild(`markeringar-${id}`), () => setVisibleLayers((prev) => ({ ...prev, [id]: !prev[id] })))),
+    });
+    g.push({
+      id: 'produktionsdata', rubrik: 'Produktionsdata',
+      rader: [
+        vaxel('produktionshogar', 'Avverkade stammar', undefined, !!(overlays as any).produktionshogar, lagerBild('produktionshogar'), sla('produktionshogar')),
+        vaxel('grothogar', 'GROT (grenar & toppar)', undefined, !!(overlays as any).grothogar, lagerBild('grothogar'), sla('grothogar')),
+        vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
+        vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
+      ],
+    });
+    if (visibleLayers.zones) {
+      g.push({ id: 'zontyper', rubrik: 'Zontyper', rader: zoneTypes.map((z) => vaxel(z.id, z.name, undefined, visibleZones[z.id] !== false, tonadYta(z.color), () => setVisibleZones((prev) => ({ ...prev, [z.id]: prev[z.id] === false })))) });
+    }
+    if (visibleLayers.lines) {
+      g.push({
+        id: 'linjetyper', rubrik: 'Linjetyper',
+        rader: lineTypes.filter((l) => !l.id.includes('sideRoad') && !l.id.includes('backRoad'))
+          .map((l) => vaxel(l.id, l.name, undefined, visibleLines[l.id] !== false, linjeYta(l.color, l.striped ? l.color2 : undefined), () => setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false })))),
+      });
+    }
+    g.push({ id: 'varning', rader: [{ id: 'varningsinstallningar', namn: 'Varningsinställningar', typ: 'knapp', onTryck: () => { stangPlus(); setWarningMenuOpen(true); } }] });
+    return g;
+  };
+
+  const byggPlusRad = (): { poster: PlusPostVy[]; ark: ArkData } => ({
     poster: beraknaRad(plusRadState, postFinns).map((r) => postVy(r.post, r.fast)),
-    alla: [
-      { id: 'symboler', rubrik: 'Symboler', slag: 'ruta', poster: markerTypes.map((s) => postVy({ typ: 'symbol', id: s.id }, arFastNu({ typ: 'symbol', id: s.id }))) },
-      {
-        id: 'rita-mat', rubrik: 'Rita och mät', slag: 'ruta',
-        poster: ([{ typ: 'rita', id: 'linje' }, { typ: 'rita', id: 'yta' }, { typ: 'matning', id: 'strackan' }, { typ: 'matning', id: 'yta' }] as PlusPost[]).map((p) => postVy(p, arFastNu(p))),
-      },
-      { id: 'lager', rubrik: 'Lager', slag: 'vaxel', poster: lagerPoster.map((l) => postVy({ typ: 'lager', id: l.id }, arFastNu({ typ: 'lager', id: l.id }))) },
-    ],
+    ark: { symboler: byggSymbolKategorier(), rita: byggRita(), lager: byggLager() },
   });
+  // Klar i Redigera: arbetskopian blir dockans FASTA platser (lib/plusArk.redigeringTillState). Bara symboler som finns kommer med.
+  const sparaDockaPlatser = (nycklar: string[]) => {
+    const lista = nycklar.map(nyckelTillPost).filter((p): p is PlusPost => !!p && postFinns(p));
+    uppdateraPlusRad((s) => redigeringTillState(s, lista));
+  };
+
+  // ── FLER VAL → objektinfon. Allt som plusmenyns "Fler val ›" hade ligger här, med samma val och samma handlingar. ──
+  // `stangInfo` stänger objektinfon efter ett val (samma sak som plusmenyn gjorde med sig själv).
+  const flerValGrupper = (): { id: string; titel: string; items: { label: string; icon: string; action: () => void; value?: string; danger?: boolean; avsluta?: boolean }[] }[] => [
+    {
+      id: 'korvy', titel: 'KÖRVY',
+      // Körvy 2D-raden är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv. Läget FÖLJER rollen på objektet
+      // (korvyForceRoll=null). admin har ingen roll-tilldelning → får båda valen explicit (skördar-/skotarkörvy).
+      // REN SKÄRM (fältfynd): i körvy bor ALLA kontroller här (baskarta, GPS-uppdatera, uppdatera spår, avsluta) → kartytan visar bara karta + position + HUD.
+      items: korvyActive
+        ? [
+            { label: korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta', icon: 'layers', action: () => setKorvyBasKarta(korvyBasKarta === 'lm' ? 'topo' : 'lm') },
+            // GPS- + kartdata-STATUS bor här (raderna bär statustexten; tryck = uppdatera). danger=röd vid GPS-fel/ingen fix.
+            { label: korvyStatus.gpsText, icon: 'my_location', action: () => { acquireGpsWithFallback(); }, danger: korvyStatus.harProblem },
+            { label: korvyStatus.dataText, icon: 'refresh', action: () => { refetchMarkers(true); } },
+            ...(andrasRoll ? [{ label: andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår', icon: 'refresh', action: () => { hamtaAndrasSpar(); } }] : []),
+            { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true },
+          ]
+        : isAdminRiktig
+          ? [
+              { label: 'Skördarkörvy', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); } },
+              { label: 'Skotarkörvy', icon: 'local_shipping', action: () => { setKorvyForceRoll('skotare'); setKorvyActive(true); } },
+            ]
+          : [{ label: 'Körvy 2D', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll(null); setKorvyActive(true); } }],
+    },
+    {
+      id: 'skotare', titel: 'SKOTARE',
+      items: [
+        { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
+        { label: 'Markera utkört', icon: 'edit', action: () => {
+          const map = mapInstanceRef.current;
+          setSkotningDrawing(true);
+          setSkotningPolygon(null);
+          setSkotningPanel(false);
+          setSkotningHogar([]);
+          setSkotningSparat(false);
+          if (map) {
+            map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+            try {
+              const src = map.getSource('skotning-source') as any;
+              if (src) src.setData({ type: 'FeatureCollection', features: [] });
+              const dashSrc = map.getSource('skotning-dash-source') as any;
+              if (dashSrc) dashSrc.setData({ type: 'FeatureCollection', features: [] });
+            } catch { /* */ }
+            // Kartan låses INTE — zoom/pan mitt i ritningen ska funka (hörnen omprojiceras).
+          }
+        } },
+      ],
+    },
+    {
+      id: 'information', titel: 'INFORMATION',
+      items: [
+        { label: 'Brandrisk', icon: 'local_fire_department', action: () => { setActiveCategory('brandrisk'); setMenuOpen(true); } },
+        { label: 'Trakt', icon: 'info', action: () => { setTraktOpen(true); } },
+        { label: 'Gallring', icon: 'nature', action: () => { setActiveCategory('gallring'); setMenuOpen(true); } },
+      ],
+    },
+    {
+      id: 'floden', titel: 'FLÖDEN',
+      items: [
+        { label: 'Briefing', icon: 'menu_book', action: () => { setBriefingMode(true); setActiveCategory(null); } },
+        { label: 'Kvittera markeringar', icon: 'task_alt', action: () => { setBriefingChecklistMode(true); } },
+        { label: 'Checklista', icon: 'check_circle', action: () => { setChecklistOpen(true); } },
+      ],
+    },
+    // OBJEKT — Vägdata-status (första rad, syns i BÅDE planering och körvy när objekt valt) + Avsluta (danger, SIST, bara när
+    // status=pagaende). Vägdata: cache-först server-side; planerare (isAdminRiktig) kan trigga om-hämtning (samma /api/vagdata-hamta
+    // som /objekt), förare ser bara statusen. Röd prick på +-knappen vid 'misslyckad' är enda kartsignalen.
+    ...(valtObjekt?.id ? [{
+      id: 'objekt', titel: 'OBJEKT',
+      items: [
+        ...(vagdataStatusKod ? [{
+          label: 'Vägdata',
+          value: vagdataVarde,
+          icon: vagdataStatusKod === 'misslyckad' ? 'error' : 'route',
+          action: isAdminRiktig ? () => { korOmVagdata(); } : () => {},
+          danger: vagdataStatusKod === 'misslyckad',
+        }] : []),
+        ...(valtObjekt?.status === 'pagaende' ? [{ label: 'Avsluta objekt', icon: 'check_circle', avsluta: true, action: () => { setVisarAvslutaConfirmation(true); } }] : []),
+      ],
+    }] : []),
+    {
+      id: 'ovrigt', titel: 'ÖVRIGT',
+      items: [
+        // Körvy: Inställningar (och GPS-källa) ligger redan som egna rader i objektinfon (Verktyg).
+        ...(korvyActive ? [] : [{ label: 'Inställningar', icon: 'settings', action: () => { setActiveCategory('settings'); setMenuOpen(true); } }]),
+        { label: 'Förslag', icon: 'lightbulb', action: () => { window.location.href = '/forbattringsforslag'; } },
+        { label: 'Byt objekt', icon: 'swap_horiz', action: () => { setValtObjekt(null); } },
+      ],
+    },
+  ];
+  const renderFlerVal = (stangInfo: () => void) => {
+    const rubrik = (t: string) => <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.xs}px ${AVSTAND.s}px` }}>{t}</div>;
+    const kort: React.CSSProperties = { background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.kort, overflow: 'hidden' };
+    const ikon = (namn: string, farg: string) => <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: farg, flexShrink: 0, width: 32, textAlign: 'center' }}>{namn}</span>;
+    const radStil = (i: number, farg: string): React.CSSProperties => ({
+      width: '100%', minHeight: 56, padding: `0 ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none',
+      borderTop: i > 0 ? `1px solid ${FARG.linje}` : 'none', color: farg, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+    });
+    const valjareStil: React.CSSProperties = { flex: 1, minHeight: 44, padding: `0 ${AVSTAND.m}px`, background: FARG.fyllning, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, color: FARG.text, ...TYP.text, appearance: 'none', WebkitAppearance: 'none', colorScheme: 'dark', fontFamily: 'inherit' };
+    return (
+      <div data-testid="objektinfo-flerval" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+        {/* VY-växlare — bara för admin. "Visa som <förare>" för felsökning eller hjälp. Actions i "Visa som"-läge påverkar föraren på riktigt. */}
+        {isAdminRiktig && (
+          <div data-testid="flerval-vy">
+            {rubrik('VY')}
+            <div style={kort}>
+              {[{ id: null as string | null, label: 'Planerare' }, ...medarbetareLista.filter((m) => m.roll === 'forare').map((m) => ({ id: m.id as string | null, label: `Visa som ${m.namn}` }))].map((item, i) => {
+                const aktiv = simuleradForareId === item.id;
+                return (
+                  <button key={item.id ?? 'planerare'} type="button" className="press-row" style={radStil(i, aktiv ? FARG.orange : FARG.text)}
+                    onClick={() => { if (navigator.vibrate) navigator.vibrate(8); handleVaxlaVy(item.id); stangInfo(); }}>
+                    {ikon(aktiv ? 'radio_button_checked' : 'radio_button_unchecked', aktiv ? FARG.orange : FARG.text)}
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare". Döljs för förare (planerarens funktion) och för avslutade objekt. */}
+        {!isForare && valtObjekt && valtObjekt.status !== 'avslutat' && (
+          <div data-testid="flerval-aktuellt-objekt">
+            {rubrik('AKTUELLT OBJEKT')}
+            <div style={kort}>
+              {([
+                { roll: 'Skördare', icon: 'person', varde: valtObjekt.assigned_skordare_user_id ?? '', set: handleAssignSkordare },
+                { roll: 'Skotare', icon: 'local_shipping', varde: valtObjekt.assigned_skotare_user_id ?? '', set: handleAssignSkotare },
+              ] as const).map((r, i) => (
+                <div key={r.roll} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, minHeight: 56, borderTop: i > 0 ? `1px solid ${FARG.linje}` : 'none' }}>
+                  {ikon(r.icon, FARG.text)}
+                  <span style={{ width: 80, flexShrink: 0, ...TYP.text }}>{r.roll}</span>
+                  <select value={r.varde} onChange={(e) => r.set(e.target.value || null)} style={valjareStil}>
+                    {/* Inline color+background på <option> krävs för att popup-listan ska vara läsbar i Edge — colorScheme: 'dark' räcker inte där. */}
+                    <option value="" style={{ color: FARG.text, background: FARG.kort }}>Välj förare…</option>
+                    {medarbetareLista.map((m) => <option key={m.id} value={m.id} style={{ color: FARG.text, background: FARG.kort }}>{m.namn}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            {valtObjekt.klar_skickad_timestamp ? (
+              <div style={{ marginTop: AVSTAND.s, minHeight: 56, borderRadius: RADIE.kort, border: `1px solid ${FARG.gron}`, color: FARG.gron, ...TYP.listtitel, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s }}>
+                {ikon('check_circle', FARG.gron)}Skickad till förare
+              </div>
+            ) : (
+              <button type="button" data-testid="flerval-klar-skicka" onClick={handleSendKlar} disabled={!valtObjekt.assigned_skordare_user_id || sendingKlar}
+                style={{ marginTop: AVSTAND.s, width: '100%', minHeight: 56, border: 'none', borderRadius: RADIE.kort, background: valtObjekt.assigned_skordare_user_id ? FARG.gron : FARG.fyllning,
+                  color: valtObjekt.assigned_skordare_user_id ? FARG.bg : FARG.text3, ...TYP.listtitel, cursor: valtObjekt.assigned_skordare_user_id ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s, fontFamily: 'inherit' }}>
+                {ikon('send', valtObjekt.assigned_skordare_user_id ? FARG.bg : FARG.text3)}{sendingKlar ? 'Skickar…' : 'Klar — skicka till förare'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {flerValGrupper().filter((grp) => grp.items.length > 0).map((grp) => (
+          <div key={grp.id} data-testid={`flerval-${grp.id}`}>
+            {rubrik(grp.titel)}
+            <div style={kort}>
+              {grp.items.map((item, i) => {
+                const farg = item.danger ? FARG.rod : item.avsluta ? FARG.orange : FARG.text;
+                return (
+                  <button key={item.label} type="button" className="press-row" style={radStil(i, farg)} data-testid={`flerval-${grp.id}-${i}`}
+                    onClick={() => { if (navigator.vibrate) navigator.vibrate(8); item.action(); stangInfo(); }}>
+                    {ikon(item.icon, item.danger || item.avsluta ? farg : FARG.text)}
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                    {item.value && <span style={{ ...TYP.meta, color: item.danger ? FARG.rod : FARG.text2, flexShrink: 0, marginLeft: AVSTAND.s }}>{item.value}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
   const fastnaPlusPost = (nyckel: string): HallSvar => {
     const post = hittaPost(nyckel);
     if (!post) return { ok: false, text: 'Hittar inte posten' };
     const r = fastaPost(plusRadRef.current, post);
-    if (!r.ok) return { ok: false, text: r.skal === 'full' ? `Dockan är full (${MAX_FASTA}/${MAX_FASTA}) — lossa en först` : r.skal === 'ej-symbol' ? 'Bara symboler går att fästa i dockan' : 'Redan fast i dockan' };
+    if (!r.ok) return { ok: false, text: r.skal === 'full' ? `Dockan är full (${MAX_FASTA}/${MAX_FASTA}) — ta bort en under Redigera först` : r.skal === 'ej-symbol' ? 'Bara symboler går att fästa i dockan' : 'Redan fast i dockan' };
     uppdateraPlusRad(() => r.state);
     return { ok: true, text: 'Fast i dockan' };
   };
-  const lossaPlusPost = (nyckel: string) => {
-    const post = hittaPost(nyckel);
-    if (post) uppdateraPlusRad((s) => lossaPost(s, post));
-  };
+  // Återställ (längst ner i Redigera): alla dockans platser automatiska igen. Appens egen dialog frågar först (window.confirm blockeras tyst).
+  const aterstallPlusDocka = (klart: () => void) => setAppDialog({
+    message: 'Återställ dockan?\nDe sex platserna väljs automatiskt igen, efter vad du använder mest.',
+    okLabel: 'Återställ', cancelLabel: 'Avbryt',
+    onOk: () => { uppdateraPlusRad((s) => aterstallDocka(s)); klart(); },
+  });
 
   // ── MÄT/RITA i körvyn: tryck punkter (samma klick-effekt som planeringens mätning), figuren syns live med längd/area i sig ──
   const startaFigur = (yta: boolean) => {
     setFigur({ yta });
-    setSparaSomOppen(false);
     setKorvyFollowPaused(true);   // kartan står still medan punkterna sätts
     startaMatning(yta);
   };
-  const avslutaFigur = () => {   // Kasta (lokalt) eller efter sparat
+  const avslutaFigur = () => {   // × — mätningen stängs, ingenting sparas
     rensaMatning();
     setMeasureMode(false); setMeasureAreaMode(false);
-    setFigur(null); setSparaSomOppen(false);
+    setFigur(null);
     setKorvyFollowPaused(false);
   };
-  // SPARA SOM: en vanlig markering med planeringens form (lib/sparSom) — synlig för alla på objektet via vanliga markörsynken
-  const sparaFigurSom = (valId: string) => {
-    const val = SPARA_SOM.find((v) => v.id === valId);
-    if (!val || !figur) return;
-    const id = Date.now();
-    const m = byggFigurMarkering(val, measureGeo, id, latLonToSvg, numreringRef.current.nastaGransNr);
-    if (!m) { visaKvitto('För få punkter för att spara', 'fel'); return; }
-    setMarkers((prev: any[]) => [...prev, m]);
-    avslutaFigur();
-    visaKvitto(`${val.etikett} sparad`, 'ok', id);
+  // ✓ Klar: talet står kvar och punkterna låses (inga fler tryck sätter punkter). Ingenting sparas — en mätning är en siffra, inte en markering.
+  const lasMatning = () => { if (figur && measureGeoRef.current.length >= (figur.yta ? 3 : 2)) setMeasureLocked({ yta: figur.yta }); };
+  // ↩ tar bort senaste punkten och öppnar en låst mätning igen
+  const angraMatning = () => { setMeasureLocked(null); angraSista(); };
+  // ETT LÄGE I TAGET: det som pågår (placera, rita, pil, mät, Nytt område) avslutas när ett annat verktyg väljs — annars visas två rader.
+  const avslutaPagaendeLage = () => {
+    if (figur) avslutaFigur();
+    if (isDrawMode || isZoneMode || currentDrawCoords.length > 0) cancelDrawing();
+    if (selectedSymbol) setSelectedSymbol(null);
+    if (isArrowMode) { setIsArrowMode(false); setArrowType(null); }
+    if (omradeRitning) setOmradeRitning(false);
   };
 
   // ── PLUSRADENS TRYCK ──
@@ -12668,7 +12900,7 @@ export default function PlannerPage() {
     if (!post) return;
     if (post.typ === 'lager') { vaxlaLager(post.id); noteraPlus(post); return; }   // raden stannar öppen — man ser att lagret slog om
     setPlusRadOppen(false);
-    if (figur) avslutaFigur();
+    avslutaPagaendeLage();
     const punkt = langtryckPunkt;
     setLangtryckPunkt(null);
     if (post.typ === 'symbol') {
@@ -12678,12 +12910,27 @@ export default function PlannerPage() {
     }
     noteraPlus(post);
     const yta = post.id === 'yta';
-    if (post.typ === 'matning') startaFigur(yta);                                 // samma figur och smala list i körvyn och planeringen
-    else if (korvyActive) startaFigur(yta);                                       // körvyns Rita = samma figur → Spara som…
-    else { setActiveCategory(yta ? 'zones' : 'lines'); setMenuOpen(true); }       // planeringen behåller sina rit-flöden
+    if (post.typ === 'matning') startaFigur(yta);                                 // Mät sträcka/yta: samma figur och smala rad i körvyn och planeringen (Klar visar talet, inget sparas)
+    else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }               // Rita yta: zontyperna, i körvyn och planeringen (typ först, sedan ritning)
+    else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }   // Rita linje: linjetyperna direkt, i körvyn och planeringen — inget tomt mellansteg
   };
-  const placeraListSynlig = !!selectedSymbol && !plusRadOppen && !menuOpen && !plusMenuOpen && !isDrawMode && !isZoneMode && !isArrowMode && !figur;
-  langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !plusMenuOpen && !menuOpen && !layerMenuOpen && !selectedSymbol && !figur && !sparaSomOppen && !prickValt
+  const placeraListSynlig = !!selectedSymbol && !plusRadOppen && !menuOpen && !isDrawMode && !isZoneMode && !isArrowMode && !figur;
+  // RITA LINJE/YTA + PIL + NYTT OMRÅDE: samma rad längst ner som placera och mät — vad som pågår, hur långt man kommit, och ↩ ✓ ×.
+  const ritListSynlig = (isDrawMode || isZoneMode) && !plusRadOppen && !menuOpen && !figur;
+  const pilListSynlig = isArrowMode && !!arrowType && !plusRadOppen && !menuOpen && !figur;
+  const omradeListSynlig = omradeRitning && !plusRadOppen && !menuOpen && !figur;
+  const punktText = (n: number) => (n === 0 ? 'tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`);
+  const ritaLinjeTyper = [
+    ...lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')),
+    // Stickväg (röd): samma typ som "Spara som › Stickväg" gav — lineType sideRoadRed, som en vanlig linje
+    ...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg' })),
+  ];
+  const ritNamn = isZoneMode
+    ? `${zoneTypes.find((t) => t.id === zoneType)?.name ?? 'Yta'}${zoneType === 'gallring' && gallringTradslag ? ` · ${GALLRING_TRADSLAG.find((t) => t.id === gallringTradslag)?.name ?? ''}` : ''}`
+    : (ritaLinjeTyper.find((t) => t.id === drawType) ?? lineTypes.find((t) => t.id === drawType))?.name ?? 'Linje';
+  const nRit = currentDrawCoords.length;
+  const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
+  langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
     && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode;
 
@@ -12693,7 +12940,7 @@ export default function PlannerPage() {
   const andelAvverkat = avverkat?.andel ?? null;
   const hogstubbarVy = { antal: miljoAntal.hogstubbar, krav: miljoKravVal.hogstubbar, status: kravStatus(miljoAntal.hogstubbar, miljoKravVal.hogstubbar, andelAvverkat) };
   const evighetstradVy = { antal: miljoAntal.evighetstrad, krav: miljoKravVal.evighetstrad, status: kravStatus(miljoAntal.evighetstrad, miljoKravVal.evighetstrad, andelAvverkat) };
-  const plusOppen = plusRadOppen || plusMenuOpen;   // plus-knappens vridning/badge/prickar
+  const plusOppen = plusRadOppen;   // plus-knappens vridning/badge/prickar
 
   // === RISA-DEL på basväg: starta två-tapp / avbryt / committa / ta bort ===
   const startaRisaMarkering = (roadId: string | number) => {
@@ -12867,11 +13114,11 @@ export default function PlannerPage() {
   const measureGeoRef = useRef<[number, number][]>([]);
   measureGeoRef.current = measureGeo;
   const figurKlarRef = useRef<() => void>(() => {});
-  figurKlarRef.current = () => setSparaSomOppen(true);
+  figurKlarRef.current = lasMatning;
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    if (!measureMode && !measureAreaMode) return;
+    if ((!measureMode && !measureAreaMode) || measureLocked) return;
     const yta = measureAreaMode;
     const minPunkterNu = yta ? 3 : 2;
     const TRYCK_RADIE_PX = 28;     // ett finger träffar inte exakt — samma storleksordning som en tryckyta
@@ -12898,16 +13145,16 @@ export default function PlannerPage() {
       map.off('click', onClick);
       if (map.doubleClickZoom) map.doubleClickZoom.enable();
     };
-  }, [measureMode, measureAreaMode, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [measureMode, measureAreaMode, measureLocked, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pekaren är ett KORS medan man mäter (inte en hand): klass på kartans container, CSS i stilblocket (!important slår MapLibres inline-cursor).
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !(measureMode || measureAreaMode)) return;
+    if (!map || !mapLibreReady || !(measureMode || measureAreaMode) || measureLocked) return;
     const c = map.getCanvasContainer();
     c.classList.add('mat-kors');
     return () => c.classList.remove('mat-kors');
-  }, [measureMode, measureAreaMode, mapLibreReady]);
+  }, [measureMode, measureAreaMode, measureLocked, mapLibreReady]);
 
   // RISA-DEL via KLICK: två tapp (start + slut) längs den valda basvägen. Samma tap-mönster som
   // mätverktyget — MapLibres 'click' fyrar bara vid tap (utan drag), så drag panorerar fortfarande.
@@ -13265,28 +13512,9 @@ export default function PlannerPage() {
     return Math.max(0, uncheckedSymbols) + newNotes.length;
   })();
 
-  // Aktivt verktygsläge (mode-banner). En mode i taget.
+  // Toppbannern finns kvar för skotningens "Markera utkört" (skotningsspåret äger den). Rita, mät, placera och Nytt område har sin rad längst ner.
   const activeMode: { label: string; onExit: () => void; exitLabel: string; onDone?: () => void; doneLabel?: string } | null =
-    isDrawMode ? {
-      label: drawType === 'boundary' ? 'Ritar traktgräns'
-        : drawType === 'trail' ? 'Ritar stig'
-        : drawType === 'mainRoad' ? 'Ritar huvudväg'
-        : drawType ? `Ritar ${drawType}` : 'Ritar linje',
-      onExit: finishLine,
-      exitLabel: 'Avsluta',
-    } : isZoneMode ? {
-      label: zoneType ? `Ritar zon · ${zoneType}` : 'Ritar zon',
-      onExit: finishZone,
-      exitLabel: 'Avsluta',
-    } : isArrowMode ? {
-      label: 'Placerar pil',
-      onExit: () => { setIsArrowMode(false); setArrowType(null); },
-      exitLabel: 'Avsluta',
-    } : isMeasuring ? {
-      label: 'Mäter',
-      onExit: () => setIsMeasuring(false),
-      exitLabel: 'Avsluta',
-    } : (skotningDrawing && !skotningPanel) ? {
+    (skotningDrawing && !skotningPanel) ? {
       label: 'Markera utkört',
       onExit: () => {
         setSkotningDrawing(false);
@@ -13300,13 +13528,6 @@ export default function PlannerPage() {
       exitLabel: 'Avsluta',
       // "Klar" sluter ringen (visas när ≥3 hörn satts) — samma som tryck nära första hörnet
       onDone: skotningPunkter >= 3 ? () => { if (navigator.vibrate) navigator.vibrate(12); skotningFinalizeRef.current?.(); } : undefined,
-      doneLabel: 'Klar',
-    } : omradeRitning ? {
-      // Egna områden (PR B) — samma ritmekanik/banner som "Markera utkört".
-      label: 'Nytt område',
-      onExit: () => { setOmradeRitning(false); },   // effektens cleanup river canvas + återaktiverar pan
-      exitLabel: 'Avbryt',
-      onDone: omradePunkter >= 3 ? () => { if (navigator.vibrate) navigator.vibrate(12); omradeRitningHandleRef.current?.finalize(); } : undefined,
       doneLabel: 'Klar',
     } : null;
 
@@ -13639,6 +13860,7 @@ export default function PlannerPage() {
         const certTxt = (valtObjekt.cert || '').trim() || null;
         const grotHeader = valtObjekt.grot == null ? null : (valtObjekt.grot ? 'GROT' : 'ingen GROT'); // rad under namnet
 
+
         // === YTOR — en rad per NUMRERAD yta (Vidas hänsynsytor + traktdel-bitar + egna områden), i
         // nummerordning. Nummer/typ/nyckel ur SAMMA numrering (numreraObjekt) som kartan. Radtext =
         // Vidas text först, annars Kompersmålas anteckning; tryck → samma ytkort som på kartan. ===
@@ -13750,6 +13972,7 @@ export default function PlannerPage() {
                   )}
                 </div>
               )}
+
 
               {/* YTOR — en rad per numrerad yta (hänsyn + traktdel-bitar + egna områden), i nummerordning.
                   Siffra i badge, typ, första raden av texten (Vidas först, annars Kompersmålas). Ikon om
@@ -14003,7 +14226,7 @@ export default function PlannerPage() {
               {korvyActive && (
                 <div data-testid="objektinfo-verktyg" style={{ marginTop: AVSTAND.xl, paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}`, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
                   {[
-                    { id: 'lager', etikett: 'Lager', under: 'Visa och dölj kartlager', gor: () => { stang(); setLayerMenuOpen(true); } },
+                    { id: 'lager', etikett: 'Lager', under: 'Visa och dölj kartlager', gor: () => { stang(); oppnaPlusArk('lager'); } },
                     { id: 'installningar', etikett: 'Inställningar', under: 'Kompass, tillstånd, karta', gor: () => oppnaInst(false) },
                     ...(webSerialStott ? [{ id: 'gps-kalla', etikett: 'GPS-källa', under: 'Serieport och baudrate', gor: () => oppnaInst(true) }] : []),
                   ].map((r) => (
@@ -14015,6 +14238,9 @@ export default function PlannerPage() {
                   ))}
                 </div>
               )}
+
+              {/* FLER VAL — flyttat hit från plusmenyn (Alla-arkets "Fler val ›" finns inte längre). Samma val, samma handlingar; ett val stänger objektinfon. */}
+              <div style={{ marginTop: AVSTAND.xl, paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}` }}>{renderFlerVal(stang)}</div>
             </div>
           </>
         );
@@ -14372,7 +14598,7 @@ export default function PlannerPage() {
       {(korvyActive || (!briefingMode && !(volymLoading || volymResultat))) && (
         <button
           type="button"
-          onClick={() => { if (navigator.vibrate) navigator.vibrate(10); if (plusMenuOpen) setPlusMenuOpen(false); else if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); } else setPlusRadOppen(true); }}
+          onClick={() => { if (navigator.vibrate) navigator.vibrate(10); if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); } }}
           aria-label={plusOppen ? 'Stäng meny' : 'Öppna meny'}
           aria-expanded={plusOppen}
           className="press-dim"
@@ -14399,7 +14625,7 @@ export default function PlannerPage() {
             zIndex: 630,
             transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.15s ease',
             transform: plusOppen ? 'rotate(45deg)' : 'rotate(0deg)',
-            // dockan (plusRadOppen) har egen × — plusknappen tonar bort medan den växer ut; det gamla menyarket (plusMenuOpen) använder den som förut
+            // dockan (plusRadOppen) har egen × — plusknappen tonar bort medan den växer ut
             opacity: plusRadOppen ? 0 : 1,
             pointerEvents: plusRadOppen ? 'none' : 'auto',
           }}
@@ -14460,19 +14686,22 @@ export default function PlannerPage() {
         </button>
       )}
 
-      {/* === PLUSRADEN (plus-knappen) — DELAD komponent för körvyn och planeringen. "Alla" → symboler, rita/mät, lager; "Fler val ›" → den gamla menyn. === */}
+      {/* === PLUSRADEN (plus-knappen) — DELAD komponent för körvyn och planeringen. "Alla" → arket med flikarna Symboler · Ytor · Spårning · Lager.
+             "Fler val" finns inte längre här — dess innehåll ligger i objektinfon (tryck på objektnamnet). `key` gör att ett ark som öppnas
+             rakt på en flik (objektinfons Lager-rad) alltid startar på rätt flik, även om dockan redan stod öppen. === */}
       {plusRadOppen && (() => {
-        const { poster, alla } = byggPlusRad();
+        const { poster, ark } = byggPlusRad();
         return (
           <PlusRad
+            key={plusArkStart ?? 'docka'}
             poster={poster}
-            alla={alla}
-            smal={smalSkarm}
+            ark={ark}
+            startFlik={plusArkStart}
             onPost={trycktPlusPost}
             onFastna={fastnaPlusPost}
-            onLossa={lossaPlusPost}
-            onFlerVal={() => { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusMenuOpen(true); }}
-            onStang={() => { setPlusRadOppen(false); setLangtryckPunkt(null); }}
+            onAterstall={aterstallPlusDocka}
+            onSparaDocka={sparaDockaPlatser}
+            onStang={stangPlus}
           />
         );
       })()}
@@ -14488,33 +14717,59 @@ export default function PlannerPage() {
           ]}
         />
       )}
-      {/* MÄT/RITA (körvy OCH planering): smal list nertill "579 m · Ångra · Klar · ×" — max 72 px, täcker inte kartan ovanför */}
-      {figur && !sparaSomOppen && (() => {
+      {/* PIL: samma rad som placera symbol */}
+      {pilListSynlig && (
+        <KorvyNertillList
+          testid="pil-list"
+          smal={smalSkarm}
+          text={`Tryck där ${arrowTypes.find((t) => t.id === arrowType)?.name ?? 'pilen'} ska stå`}
+          knappar={[AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt')]}
+        />
+      )}
+      {/* RITA LINJE/YTA: EN rad längst ner — typen och hur långt man kommit ("Basväg · 120 m", "Ej framkomlig · 4 punkter") — och ↩ ✓ × */}
+      {ritListSynlig && (
+        <KorvyNertillList
+          testid="rita-list"
+          smal={smalSkarm}
+          text={`${ritNamn} · ${ritFramsteg}`}
+          knappar={[
+            { etikett: '↩', aria: 'Ångra', onClick: undoLastSegment, av: ritaHistoria.length === 0, testid: 'rita-angra' },
+            { etikett: '✓', aria: 'Klar', onClick: isZoneMode ? finishZone : finishLine, av: nRit < (isZoneMode ? 3 : 2), gron: true, testid: 'rita-klar' },
+            AVBRYT_KNAPP(cancelDrawing, 'rita-avbryt'),
+          ]}
+        />
+      )}
+      {/* NYTT OMRÅDE: samma rad — antal hörn, ↩ ✓ × (✓ från tre hörn; tryck nära första hörnet sluter också) */}
+      {omradeListSynlig && (
+        <KorvyNertillList
+          testid="omrade-list"
+          smal={smalSkarm}
+          text={`Nytt område · ${punktText(omradePunkter)}`}
+          knappar={[
+            { etikett: '↩', aria: 'Ångra', onClick: () => omradeRitningHandleRef.current?.angra(), av: omradePunkter < 1, testid: 'omrade-angra' },
+            { etikett: '✓', aria: 'Klar', onClick: () => omradeRitningHandleRef.current?.finalize(), av: omradePunkter < 3, gron: true, testid: 'omrade-klar' },
+            AVBRYT_KNAPP(() => setOmradeRitning(false), 'omrade-avbryt'),
+          ]}
+        />
+      )}
+      {/* MÄT (körvy OCH planering): EN rad längst ner — "Mät yta · 1,4 ha", ↩ ✓ ×. Klar låser och visar talet; inget sparas. */}
+      {figur && (() => {
         const n = measureGeo.length;
         const e = figurEtikett(measureGeo, figur.yta);
+        const klar = !!measureLocked;
         return (
           <KorvyNertillList
             testid="figur-list"
             smal={smalSkarm}
-            text={e ? e.text : n === 0 ? 'Tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`}
+            text={`${figur.yta ? 'Mät yta' : 'Mät sträcka'} · ${e ? e.text : punktText(n)}${klar ? ' · klar' : ''}`}
             knappar={[
-              { etikett: 'Ångra', onClick: angraSista, av: n === 0, testid: 'figur-angra' },
-              { etikett: 'Klar', onClick: () => setSparaSomOppen(true), av: n < minPunkter(figur.yta ? 'yta' : 'linje'), gron: true, testid: 'figur-klar' },
+              { etikett: '↩', aria: 'Ångra', onClick: angraMatning, av: n === 0, testid: 'figur-angra' },
+              { etikett: '✓', aria: 'Klar', onClick: lasMatning, av: klar || n < (figur.yta ? 3 : 2), gron: true, testid: 'figur-klar' },
               AVBRYT_KNAPP(avslutaFigur, 'figur-kasta'),
             ]}
           />
         );
       })()}
-      {figur && sparaSomOppen && (
-        <KorvySparaSom
-          mattText={figurEtikett(measureGeo, figur.yta)?.text ?? ''}
-          val={valForFigur(figur.yta ? 'yta' : 'linje')}
-          smal={smalSkarm}
-          onVal={sparaFigurSom}
-          onTillbaka={() => setSparaSomOppen(false)}
-          onKasta={avslutaFigur}
-        />
-      )}
       {/* PRICK (körvy): tryck → vad det är + Ta bort */}
       {korvyActive && prickValt && (
         <KorvyNertillList
@@ -14527,394 +14782,10 @@ export default function PlannerPage() {
           ]}
         />
       )}
-      {korvyActive && korvyKvitto && !plusRadOppen && !sparaSomOppen && !prickValt && !figur && !placeraListSynlig && (
+      {korvyActive && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
         <KorvyKvitto text={korvyKvitto.text} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
       )}
 
-      {/* === PLUS-MENY (bottom sheet) === */}
-      {plusMenuOpen && (
-        <>
-          {/* Backdrop. ROTORSAK-FIX (fältfynd): +-menyn låg tidigare på z-index 450, MEN flera
-              full-skärms-backdrops finns på högre z (objekt-info/traktöversikt z470, m.fl.) — låg en
-              sådan över menyn svalde den klicket på menyraderna (t.ex. "Avsluta körvy"): knappen syntes,
-              trycket dog. En meny MÅSTE vara översta interaktiva lagret. Höjt till 640/650 → över alla
-              yt-overlays, under bara de kritiska bekräftelse-modalerna (9999). */}
-          <div
-            onClick={() => setPlusMenuOpen(false)}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0,0,0,0.3)',
-              backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
-              zIndex: 640,
-              animation: 'fadeIn 0.2s ease',
-            }}
-          />
-          {/* Sheet */}
-          <div style={{
-            position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(20,20,22,0.92)',
-            backdropFilter: 'blur(30px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(30px) saturate(180%)',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            borderTop: '1px solid rgba(255,255,255,0.08)',
-            padding: '10px 16px calc(env(safe-area-inset-bottom, 10px) + 16px)',
-            zIndex: 650,   // se backdrop-kommentaren: menyn måste vara översta interaktiva lagret
-            maxHeight: '80vh',
-            overflowY: 'auto',
-            animation: 'slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
-            color: '#fff',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-          }}>
-            <style>{`
-              @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-              @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-            `}</style>
-            {/* Drag handle */}
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}>
-              <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.25)' }} />
-            </div>
-
-            {/* STEG 4: VY-växlare — bara för admin. Tillåter "Visa som
-                <förare>" för felsökning eller hjälp. Actions i "Visa som"-läge
-                påverkar föraren på riktigt — se audit-trail-kommentar vid
-                simuleradForareId-state. */}
-            {isAdminRiktig && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{
-                  padding: '8px 12px 6px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: '#8e8e93',
-                }}>
-                  VY
-                </div>
-                <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 14, overflow: 'hidden' }}>
-                  {[
-                    { id: null as string | null, label: 'Planerare' },
-                    ...medarbetareLista
-                      .filter(m => m.roll === 'forare')
-                      .map(m => ({ id: m.id as string | null, label: `Visa som ${m.namn}` })),
-                  ].map((item, i) => {
-                    const aktiv = simuleradForareId === item.id;
-                    return (
-                      <button
-                        key={item.id ?? 'planerare'}
-                        type="button"
-                        onClick={() => {
-                          if (navigator.vibrate) navigator.vibrate(8);
-                          handleVaxlaVy(item.id);
-                          setPlusMenuOpen(false);
-                        }}
-                        style={{
-                          width: '100%', minHeight: 56, padding: '0 16px',
-                          display: 'flex', alignItems: 'center', gap: 14,
-                          background: 'transparent', border: 'none',
-                          borderTop: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
-                          color: aktiv ? '#ff9f0a' : '#fff',
-                          fontSize: '15px', fontWeight: aktiv ? 600 : 500,
-                          textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
-                        }}
-                      >
-                        <span
-                          className="material-symbols-outlined"
-                          aria-hidden="true"
-                          style={{
-                            fontSize: '26px',
-                            color: aktiv ? '#ff9f0a' : 'rgba(255,255,255,0.85)',
-                            flexShrink: 0,
-                            width: 32,
-                            textAlign: 'center',
-                          }}
-                        >
-                          {aktiv ? 'radio_button_checked' : 'radio_button_unchecked'}
-                        </span>
-                        <span style={{ flex: 1 }}>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1)
-                STEG 3: döljs helt för förare — planerarens funktion
-                STEG 7: döljs också för avslutade objekt (read-only kvalitetskontroll) */}
-            {!isForare && valtObjekt && valtObjekt.status !== 'avslutat' && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{
-                  padding: '8px 12px 6px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: '#8e8e93',
-                }}>
-                  AKTUELLT OBJEKT
-                </div>
-                <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 14, overflow: 'hidden' }}>
-                  {/* Skördare */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56 }}>
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '26px', color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>person</span>
-                    <span style={{ fontSize: '15px', width: 80, flexShrink: 0 }}>Skördare</span>
-                    <select
-                      value={valtObjekt.assigned_skordare_user_id ?? ''}
-                      onChange={e => handleAssignSkordare(e.target.value || null)}
-                      style={{
-                        flex: 1, minHeight: 44, padding: '0 12px',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 10,
-                        color: '#fff', fontSize: '15px',
-                        appearance: 'none', WebkitAppearance: 'none',
-                        colorScheme: 'dark',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      {/* Inline color+background på <option> krävs för att popup-listan
-                          ska vara läsbar i Edge — colorScheme: 'dark' räcker inte där. */}
-                      <option value="" style={{ color: '#fff', background: '#1a1a1a' }}>Välj förare…</option>
-                      {medarbetareLista.map(m => (
-                        <option key={m.id} value={m.id} style={{ color: '#fff', background: '#1a1a1a' }}>{m.namn}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {/* Skotare */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '26px', color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>local_shipping</span>
-                    <span style={{ fontSize: '15px', width: 80, flexShrink: 0 }}>Skotare</span>
-                    <select
-                      value={valtObjekt.assigned_skotare_user_id ?? ''}
-                      onChange={e => handleAssignSkotare(e.target.value || null)}
-                      style={{
-                        flex: 1, minHeight: 44, padding: '0 12px',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: 10,
-                        color: '#fff', fontSize: '15px',
-                        appearance: 'none', WebkitAppearance: 'none',
-                        colorScheme: 'dark',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <option value="" style={{ color: '#fff', background: '#1a1a1a' }}>Välj förare…</option>
-                      {medarbetareLista.map(m => (
-                        <option key={m.id} value={m.id} style={{ color: '#fff', background: '#1a1a1a' }}>{m.namn}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Klar-knapp (visas tills den klickats) eller "Skickad"-pill */}
-                {valtObjekt.klar_skickad_timestamp ? (
-                  <div style={{
-                    marginTop: 10, width: '100%', minHeight: 56,
-                    background: 'rgba(48, 209, 88, 0.12)',
-                    border: '1px solid rgba(48, 209, 88, 0.3)',
-                    borderRadius: 14,
-                    color: '#30d158',
-                    fontSize: '17px', fontWeight: '600',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                  }}>
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>check_circle</span>
-                    Skickad till förare
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleSendKlar}
-                    disabled={!valtObjekt.assigned_skordare_user_id || sendingKlar}
-                    style={{
-                      marginTop: 10, width: '100%', minHeight: 56,
-                      background: valtObjekt.assigned_skordare_user_id ? '#30d158' : 'rgba(255,255,255,0.06)',
-                      border: 'none', borderRadius: 14,
-                      color: valtObjekt.assigned_skordare_user_id ? '#fff' : 'rgba(255,255,255,0.35)',
-                      fontSize: '17px', fontWeight: '600',
-                      cursor: valtObjekt.assigned_skordare_user_id ? 'pointer' : 'not-allowed',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>send</span>
-                    {sendingKlar ? 'Skickar…' : 'Klar — skicka till förare'}
-                  </button>
-                )}
-              </div>
-            )}
-
-
-            {[
-              {
-                title: 'RITA PÅ KARTAN',
-                items: [
-                  { label: 'Symboler', icon: 'category', action: () => { setActiveCategory('symbols'); setMenuOpen(true); } },
-                  { label: 'Linjer', icon: 'timeline', action: () => { setActiveCategory('lines'); setMenuOpen(true); } },
-                  { label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); } },
-                  // Egna områden (PR B) — bara planerare. Ritmekaniken = tryck hörn, stäng på första hörnet.
-                  ...(isAdminRiktig ? [{ label: 'Nytt område', icon: 'add_location_alt', action: () => { const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } }] : []),
-                  { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
-                  { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
-                ],
-              },
-              {
-                title: 'KÖRVY',
-                // Körvy 2D-raden är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv.
-                // Läget FÖLJER rollen på objektet (korvyForceRoll=null). admin har ingen roll-
-                // tilldelning → får båda valen explicit (skördar-/skotarkörvy).
-                // REN SKÄRM (fältfynd): i körvy bor ALLA kontroller här i menyn (baskarta, GPS-uppdatera,
-                // uppdatera spår, avsluta) → kartytan visar bara karta + position + autopanel/HUD.
-                items: korvyActive
-                  ? [
-                      { label: korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta', icon: 'layers', action: () => setKorvyBasKarta(korvyBasKarta === 'lm' ? 'topo' : 'lm') },
-                      // GPS- + kartdata-STATUS bor nu här (raderna bär statustexten; tryck = uppdatera) →
-                      // ingen krockande statusrad på kartytan. danger=röd vid GPS-fel/ingen fix.
-                      { label: korvyStatus.gpsText, icon: 'my_location', action: () => { acquireGpsWithFallback(); }, danger: korvyStatus.harProblem },
-                      { label: korvyStatus.dataText, icon: 'refresh', action: () => { refetchMarkers(true); } },
-                      ...(andrasRoll ? [{ label: andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår', icon: 'refresh', action: () => { hamtaAndrasSpar(); } }] : []),
-                      { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); setKorvyForceRoll(null); }, danger: true },
-                    ]
-                  : isAdminRiktig
-                    ? [
-                        { label: 'Skördarkörvy', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); } },
-                        { label: 'Skotarkörvy', icon: 'local_shipping', action: () => { setKorvyForceRoll('skotare'); setKorvyActive(true); } },
-                      ]
-                    : [{ label: 'Körvy 2D', icon: 'navigation', action: () => { unlockKorvyLjud(); setKorvyForceRoll(null); setKorvyActive(true); } }],
-              },
-              {
-                title: 'SKOTARE',
-                items: [
-                  { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
-                  { label: 'Markera utkört', icon: 'edit', action: () => {
-                    const map = mapInstanceRef.current;
-                    setSkotningDrawing(true);
-                    setSkotningPolygon(null);
-                    setSkotningPanel(false);
-                    setSkotningHogar([]);
-                    setSkotningSparat(false);
-                    if (map) {
-                      map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
-                      try {
-                        const src = map.getSource('skotning-source') as any;
-                        if (src) src.setData({ type: 'FeatureCollection', features: [] });
-                        const dashSrc = map.getSource('skotning-dash-source') as any;
-                        if (dashSrc) dashSrc.setData({ type: 'FeatureCollection', features: [] });
-                      } catch { /* */ }
-                      // Kartan låses INTE — zoom/pan mitt i ritningen ska funka (hörnen omprojiceras).
-                    }
-                  } },
-                ],
-              },
-              {
-                title: 'INFORMATION',
-                items: [
-                  { label: 'Brandrisk', icon: 'local_fire_department', action: () => { setActiveCategory('brandrisk'); setMenuOpen(true); } },
-                  { label: 'Trakt', icon: 'info', action: () => { setTraktOpen(true); } },
-                  { label: 'Gallring', icon: 'nature', action: () => { setActiveCategory('gallring'); setMenuOpen(true); } },
-                ],
-              },
-              {
-                title: 'FLÖDEN',
-                items: [
-                  { label: 'Briefing', icon: 'menu_book', action: () => { setBriefingMode(true); setActiveCategory(null); } },
-                  { label: 'Kvittera markeringar', icon: 'task_alt', action: () => { setBriefingChecklistMode(true); } },
-                  { label: 'Checklista', icon: 'check_circle', action: () => { setChecklistOpen(true); } },
-                ],
-              },
-              // OBJEKT — Vägdata-status (första rad, syns i BÅDE planering och körvy när objekt valt) +
-              // Avsluta (danger, SIST, bara när status=pagaende). Vägdata: cache-först server-side; planerare
-              // (isAdminRiktig) kan trigga om-hämtning (samma /api/vagdata-hamta som /objekt), förare ser bara
-              // statusen. Röd prick på +-knappen vid 'misslyckad' är enda kartsignalen.
-              ...(valtObjekt?.id ? [{
-                title: 'OBJEKT',
-                items: [
-                  ...(vagdataStatusKod ? [{
-                    label: 'Vägdata',
-                    value: vagdataVarde,
-                    icon: vagdataStatusKod === 'misslyckad' ? 'error' : 'route',
-                    action: isAdminRiktig ? () => { korOmVagdata(); } : () => {},
-                    danger: vagdataStatusKod === 'misslyckad',
-                  }] : []),
-                  ...(valtObjekt?.status === 'pagaende' ? [{ label: 'Avsluta objekt', icon: 'check_circle', avsluta: true, action: () => { setVisarAvslutaConfirmation(true); } }] : []),
-                ],
-              }] : []),
-              {
-                title: 'ÖVRIGT',
-                items: [
-                  // Körvy: Inställningar (och Lager/GPS-källa) har flyttat till objektinfon — tryck på objektnamnet.
-                  ...(korvyActive ? [] : [{ label: 'Inställningar', icon: 'settings', action: () => { setActiveCategory('settings'); setMenuOpen(true); } }]),
-                  { label: 'Förslag', icon: 'lightbulb', action: () => { window.location.href = '/forbattringsforslag'; } },
-                  { label: 'Byt objekt', icon: 'swap_horiz', action: () => { setValtObjekt(null); } },
-                ],
-              },
-            ].map(group => (
-              <div key={group.title} style={{ marginTop: 12 }}>
-                <div style={{
-                  padding: '8px 12px 6px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: '#8e8e93',
-                }}>
-                  {group.title}
-                </div>
-                <div style={{
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: 14,
-                  overflow: 'hidden',
-                }}>
-                  {group.items.map((item, i) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      onClick={() => { if (navigator.vibrate) navigator.vibrate(8); item.action(); setPlusMenuOpen(false); }}
-                      className="press-row"
-                      style={{
-                        width: '100%',
-                        minHeight: 56,
-                        padding: '0 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 14,
-                        background: 'transparent',
-                        border: 'none',
-                        borderTop: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
-                        color: (item as any).danger ? '#ff453a' : (item as any).avsluta ? '#e8832a' : '#fff',
-                        fontSize: '15px',
-                        fontWeight: '500',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <span
-                        className="material-symbols-outlined"
-                        aria-hidden="true"
-                        style={{
-                          fontSize: '26px',
-                          color: (item as any).danger ? '#ff453a' : (item as any).avsluta ? '#e8832a' : 'rgba(255,255,255,0.85)',
-                          flexShrink: 0,
-                          width: 32,
-                          textAlign: 'center',
-                        }}
-                      >
-                        {item.icon}
-                      </span>
-                      <span style={{ flex: 1 }}>{item.label}</span>
-                      {(item as any).value && (
-                        <span style={{ fontSize: '14px', fontWeight: 400, color: (item as any).danger ? '#ff453a' : 'rgba(255,255,255,0.5)', flexShrink: 0, marginLeft: 8 }}>
-                          {(item as any).value}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
 
 
       {/* STEG 7: confirmation-modal innan avsluta. Slutlig action — kan inte ångras via UI. */}
@@ -17128,190 +16999,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === MÄTNINGS-INDIKATOR === */}
-      {/* Ersatt av det samlade geo-mätverktyget (siffra + Rensa/Stäng) högre upp. */}
-      {false && measureMode && !isMeasuring && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 200,
-        }}>
-          {measurePath.length > 1 ? (
-            <>
-              {/* Börja om */}
-              <button
-                onClick={() => setMeasurePath([])}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ↩
-              </button>
-              {/* Klar */}
-              <button
-                onClick={() => {
-                  setMeasureMode(false);
-                  setMeasurePath([]);
-                  setIsMeasuring(false);
-                }}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: '#30d158',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ✓
-              </button>
-            </>
-          ) : (
-            <>
-              <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta</span>
-            </>
-          )}
-          {/* Stäng */}
-          <button
-            onClick={() => {
-              setMeasureMode(false);
-              setMeasurePath([]);
-              setIsMeasuring(false);
-            }}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* === YTMÄTNINGS-INDIKATOR === */}
-      {/* Ersatt av det samlade geo-mätverktyget högre upp. */}
-      {false && measureAreaMode && !isMeasuring && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 200,
-        }}>
-          {measurePath.length > 2 ? (
-            <>
-              {/* Börja om */}
-              <button
-                onClick={() => setMeasurePath([])}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ↩
-              </button>
-              {/* Klar */}
-              <button
-                onClick={() => {
-                  setMeasureAreaMode(false);
-                  setMeasurePath([]);
-                  setIsMeasuring(false);
-                }}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: '#30d158',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ✓
-              </button>
-            </>
-          ) : (
-            <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta yta</span>
-          )}
-          {/* Stäng */}
-          <button
-            onClick={() => {
-              setMeasureAreaMode(false);
-              setMeasurePath([]);
-              setIsMeasuring(false);
-            }}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* === GPS-SPÅRNINGS-INDIKATOR === */}
       {gpsLineType && isTracking && !stickvagMode && (
         <div style={{
@@ -17416,806 +17103,6 @@ export default function PlannerPage() {
           >
             ✕
           </button>
-        </div>
-      )}
-
-      {/* === AKTIV RITNING INDIKATOR === */}
-      {(isDrawMode || isZoneMode) && currentDrawCoords.length > 1 && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 700,
-        }}>
-          {/* Ångra */}
-          <button
-            onClick={undoLastSegment}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ↩
-          </button>
-          
-          {/* Klar */}
-          <button
-            onClick={() => isDrawMode ? finishLine() : finishZone()}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: '#30d158',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✓
-          </button>
-          
-          {/* Avbryt */}
-          <button
-            onClick={cancelDrawing}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
-      {/* Dra för att rita - visas innan man börjat */}
-      {(isDrawMode || isZoneMode) && currentDrawCoords.length === 0 && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 700,
-        }}>
-          <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
-          <button
-            onClick={cancelDrawing}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
-      {/* Placera symbol/pil */}
-      {(isArrowMode || selectedSymbol) && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-        }}>
-          <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Tryck för att placera</span>
-          <button
-            onClick={cancelDrawing}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
-      {/* === LAGER-MENY === */}
-      {layerMenuOpen && !briefingMode && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: '#000',
-          zIndex: 500,
-          display: 'flex',
-          flexDirection: 'column',
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',
-        }}>
-          {/* Header */}
-          <div style={{
-            padding: '55px 20px 20px',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <div 
-              onClick={() => setLayerMenuOpen(false)}
-              style={{ 
-                padding: '8px', 
-                marginLeft: '-8px', 
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" style={{ opacity: 0.6 }}>
-                <path d="M15 18l-6-6 6-6"/>
-              </svg>
-              <span style={{ fontSize: '17px', opacity: 0.6 }}>Tillbaka</span>
-            </div>
-            <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>Lager</span>
-            <div style={{ width: '80px' }} />
-          </div>
-
-          {/* Content */}
-          <div style={{ 
-            flex: 1, 
-            overflowY: 'auto',
-            padding: '12px',
-          }}>
-            {/* Bakgrundskarta */}
-            <div style={{
-              background: '#0a0a0a', 
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '8px',
-              marginBottom: '16px',
-            }}>
-              <div style={{ 
-                padding: '12px 16px 8px', 
-                fontSize: '13px', 
-                opacity: 0.4, 
- 
- 
-              }}>
-                Bakgrundskarta
-              </div>
-              {[
-                { id: 'lantmateriet', name: 'Karta', desc: 'Lantmäteriet — dämpad' },
-                { id: 'satellite', name: 'Flygfoto', desc: 'Lantmäteriet ortofoto 0,5 m' },
-                { id: 'terrain', name: 'Topokarta', desc: 'Lantmäteriet — full färg' },
-                { id: 'osm', name: 'OpenStreetMap', desc: 'Standardkarta' },
-              ].map(type => (
-                <div
-                  key={type.id}
-                  onClick={() => setMapType(type.id as 'osm' | 'satellite' | 'terrain' | 'lantmateriet')}
-                  style={{
-                    padding: '14px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '24px',
-                    height: '24px',
-                    borderRadius: '50%',
-                    border: mapType === type.id ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                    background: mapType === type.id ? '#30d158' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    {mapType === type.id && (
-                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }} />
-                    )}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '15px', color: '#fff' }}>{type.name}</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{type.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Kompass — AV som standard. Slår på kartrotation efter enhetens kompass (iOS frågar om tillstånd vid första tryck). */}
-            <div style={{
-              background: '#0a0a0a',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '8px',
-              marginBottom: '16px',
-            }}>
-              <div
-                data-testid="lager-kompass"
-                onClick={() => { if (korvyKompass === 'aktiv') stoppaKompass(); else aktiveraKompass(true); }}
-                style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '16px', borderRadius: '12px', cursor: 'pointer' }}
-              >
-                <span style={{ flex: 1 }}>
-                  <div style={{ fontSize: '15px', color: '#fff' }}>Kompass</div>
-                  <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>
-                    {korvyKompass === 'aktiv' ? 'På — kartan följer enhetens kompass'
-                      : korvyKompass === 'nekad' ? 'Nekad — tillåt rörelsesensorer i Inställningar och försök igen'
-                      : korvyKompass === 'saknas' ? 'Ingen kompass på enheten'
-                      : 'Av'}
-                  </div>
-                </span>
-                <div style={{
-                  width: '44px',
-                  height: '26px',
-                  borderRadius: '13px',
-                  background: korvyKompass === 'aktiv' ? '#30d158' : 'rgba(255,255,255,0.1)',
-                  padding: '2px',
-                  transition: 'background 0.2s ease',
-                }}>
-                  <div style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transform: korvyKompass === 'aktiv' ? 'translateX(18px)' : 'translateX(0)',
-                    transition: 'transform 0.2s ease',
-                  }} />
-                </div>
-              </div>
-            </div>
-
-            {/* Overlay-lager */}
-            <div style={{
-              background: '#0a0a0a', 
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '8px',
-              marginBottom: '16px',
-            }}>
-              <div style={{ 
-                padding: '12px 16px 8px', 
-                fontSize: '13px', 
-                opacity: 0.4, 
- 
- 
-              }}>
-                Overlay
-              </div>
-              {overlayLista.map(overlay => (
-                <div
-                  key={overlay.id}
-                  onClick={() => { overlay.enabled && vaxlaLager(overlay.id); }}
-                  style={{
-                    padding: '14px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    borderRadius: '12px',
-                    cursor: overlay.enabled ? 'pointer' : 'not-allowed',
-                    opacity: overlay.enabled ? 1 : 0.4,
-                  }}
-                >
-                  <span style={{ flex: 1 }}>
-                    <div style={{ fontSize: '15px', color: '#fff' }}>{overlay.name}</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{overlay.desc}</div>
-                  </span>
-                  <div style={{
-                    width: '44px',
-                    height: '26px',
-                    borderRadius: '13px',
-                    background: lagerPa(overlay.id) ? '#30d158' : 'rgba(255,255,255,0.1)',
-                    padding: '2px',
-                    transition: 'background 0.2s ease',
-                  }}>
-                    <div style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '50%',
-                      background: '#fff',
-                      transform: lagerPa(overlay.id) ? 'translateX(18px)' : 'translateX(0)',
-                      transition: 'transform 0.2s ease',
-                    }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* WMS-lager grupperade */}
-            {wmsLayerGroups.map(group => (
-              <div key={group.group} style={{
-                background: '#0a0a0a',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '16px',
-                padding: '8px',
-                marginBottom: '16px',
-              }}>
-                <div style={{
-                  padding: '12px 16px 8px',
-                  fontSize: '13px',
-                  opacity: 0.4,
-                }}>
-                  {group.group}
-                </div>
-                {group.layers.map(layer => (
-                  <div
-                    key={layer.id}
-                    onClick={() => setOverlays(prev => ({ ...prev, [layer.id]: !prev[layer.id] }))}
-                    style={{
-                      padding: '14px 16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '14px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '10px',
-                      height: '10px',
-                      borderRadius: '50%',
-                      background: layer.color,
-                      flexShrink: 0,
-                      opacity: overlays[layer.id] ? 1 : 0.3,
-                      transition: 'opacity 0.2s ease',
-                    }} />
-                    <span style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>{layer.name}</div>
-                      {layer.desc && <div style={{ fontSize: '13px', opacity: 0.4, marginTop: '2px' }}>{layer.desc}</div>}
-                    </span>
-                    <div style={{
-                      width: '44px',
-                      height: '26px',
-                      borderRadius: '13px',
-                      background: overlays[layer.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
-                      padding: '2px',
-                      transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{
-                        width: '22px',
-                        height: '22px',
-                        borderRadius: '50%',
-                        background: '#fff',
-                        transform: overlays[layer.id] ? 'translateX(18px)' : 'translateX(0)',
-                        transition: 'transform 0.2s ease',
-                      }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-
-            {/* SMHI Brandrisk (API-baserad) */}
-            <div style={{
-              background: '#0a0a0a',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '8px',
-              marginBottom: '16px',
-            }}>
-              <div style={{
-                padding: '12px 16px 8px',
-                fontSize: '13px',
-                opacity: 0.4,
-              }}>
-                SMHI
-              </div>
-              <div
-                onClick={() => setOverlays(prev => ({ ...prev, brandrisk: !prev.brandrisk }))}
-                style={{
-                  padding: '14px 16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '14px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  width: '10px',
-                  height: '10px',
-                  borderRadius: '50%',
-                  background: '#f97316',
-                  flexShrink: 0,
-                  opacity: overlays.brandrisk ? 1 : 0.3,
-                  transition: 'opacity 0.2s ease',
-                }} />
-                <span style={{ flex: 1 }}>
-                  <span style={{ fontSize: '15px', color: '#fff' }}>Brandrisk</span>
-                  <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>SMHI prognos, uppdateras dagligen</div>
-                </span>
-                <div style={{
-                  width: '44px',
-                  height: '26px',
-                  borderRadius: '13px',
-                  background: overlays.brandrisk ? '#30d158' : 'rgba(255,255,255,0.1)',
-                  padding: '2px',
-                  transition: 'background 0.2s ease',
-                }}>
-                  <div style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transform: overlays.brandrisk ? 'translateX(18px)' : 'translateX(0)',
-                    transition: 'transform 0.2s ease',
-                  }} />
-                </div>
-              </div>
-            </div>
-
-            {/* Dina markeringar */}
-            <div style={{
-              background: '#0a0a0a',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '8px',
-              marginBottom: '16px',
-            }}>
-              <div style={{
-                padding: '12px 16px 8px',
-                fontSize: '13px',
-                opacity: 0.4,
-              }}>
-                Dina markeringar
-              </div>
-              {[
-                { id: 'symbols', name: 'Symboler', icon: '●' },
-                { id: 'lines', name: 'Linjer', icon: '━' },
-                { id: 'zones', name: 'Zoner', icon: '▢' },
-                { id: 'arrows', name: 'Pilar', icon: '→' },
-              ].map(layer => (
-                <div
-                  key={layer.id}
-                  onClick={() => setVisibleLayers(prev => ({ ...prev, [layer.id]: !prev[layer.id] }))}
-                  style={{
-                    padding: '16px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <span style={{ fontSize: '20px', opacity: 0.6, width: '28px', textAlign: 'center' }}>
-                    {layer.icon}
-                  </span>
-                  <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{layer.name}</span>
-                  <div style={{
-                    width: '44px',
-                    height: '26px',
-                    borderRadius: '13px',
-                    background: visibleLayers[layer.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
-                    padding: '2px',
-                    transition: 'background 0.2s ease',
-                  }}>
-                    <div style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '50%',
-                      background: '#fff',
-                      transform: visibleLayers[layer.id] ? 'translateX(18px)' : 'translateX(0)',
-                      transition: 'transform 0.2s ease',
-                    }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Produktionshögar (HPR) */}
-            <div style={{
-              background: '#0a0a0a',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '16px',
-              padding: '8px',
-              marginBottom: '16px',
-            }}>
-              <div style={{
-                padding: '12px 16px 8px',
-                fontSize: '13px',
-                opacity: 0.4,
-              }}>
-                Produktionsdata
-              </div>
-              <div
-                onClick={() => setOverlays(prev => ({ ...prev, produktionshogar: !prev.produktionshogar }))}
-                style={{
-                  padding: '16px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  background: overlays.produktionshogar
-                    ? '#2d6a4f'
-                    : 'rgba(255,255,255,0.1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.2s ease',
-                }} />
-                <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>Avverkade stammar</span>
-                <div style={{
-                  width: '44px',
-                  height: '26px',
-                  borderRadius: '13px',
-                  background: overlays.produktionshogar ? '#30d158' : 'rgba(255,255,255,0.1)',
-                  padding: '2px',
-                  transition: 'background 0.2s ease',
-                }}>
-                  <div style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transform: overlays.produktionshogar ? 'translateX(18px)' : 'translateX(0)',
-                    transition: 'transform 0.2s ease',
-                  }} />
-                </div>
-              </div>
-              <div
-                onClick={() => setOverlays(prev => ({ ...prev, grothogar: !prev.grothogar }))}
-                style={{
-                  padding: '16px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  background: overlays.grothogar
-                    ? '#f59e0b'
-                    : 'rgba(255,255,255,0.1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.2s ease',
-                }} />
-                <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>GROT (grenar & toppar)</span>
-                <div style={{
-                  width: '44px',
-                  height: '26px',
-                  borderRadius: '13px',
-                  background: overlays.grothogar ? '#30d158' : 'rgba(255,255,255,0.1)',
-                  padding: '2px',
-                  transition: 'background 0.2s ease',
-                }}>
-                  <div style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transform: overlays.grothogar ? 'translateX(18px)' : 'translateX(0)',
-                    transition: 'transform 0.2s ease',
-                  }} />
-                </div>
-              </div>
-              {/* Körvy-spår: mitt spår, andras spår (bara RIKTIGA hyttspår — inga rekonstruerade stråk). Default på, sparas per enhet. */}
-              {[
-                { key: 'mittSpar' as const, label: 'Mitt spår', farg: '#30d158' },
-                { key: 'andrasSpar' as const, label: andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', farg: '#a78bfa' },
-              ].map(rad => (
-                <div key={rad.key}
-                  onClick={() => setOverlays(prev => ({ ...prev, [rad.key]: !prev[rad.key] }))}
-                  style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px', borderRadius: '12px', cursor: 'pointer' }}
-                >
-                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: overlays[rad.key] ? rad.farg : 'rgba(255,255,255,0.1)', transition: 'all 0.2s ease' }} />
-                  <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{rad.label}</span>
-                  <div style={{ width: '44px', height: '26px', borderRadius: '13px', background: overlays[rad.key] ? '#30d158' : 'rgba(255,255,255,0.1)', padding: '2px', transition: 'background 0.2s ease' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: overlays[rad.key] ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                  </div>
-                </div>
-              ))}
-              {/* Kvar att köra — flyttad till huvudmenyn */}
-            </div>
-
-            {/* Zontyper - visas om zoner är på */}
-            {visibleLayers.zones && (
-              <div style={{
-                background: '#0a0a0a', 
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '16px',
-                padding: '8px',
-                marginBottom: '16px',
-              }}>
-                <div style={{ 
-                  padding: '12px 16px 8px', 
-                  fontSize: '13px', 
-                  opacity: 0.4, 
- 
- 
-                }}>
-                  Zontyper
-                </div>
-                {zoneTypes.map(zone => (
-                  <div
-                    key={zone.id}
-                    onClick={() => setVisibleZones(prev => ({ ...prev, [zone.id]: prev[zone.id] === false }))}
-                    style={{
-                      padding: '14px 16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '6px',
-                      background: `${zone.color}30`,
-                      border: `2px solid ${zone.color}`,
-                    }} />
-                    <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{zone.name}</span>
-                    <div style={{
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '50%',
-                      border: visibleZones[zone.id] !== false ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: visibleZones[zone.id] !== false ? '#30d158' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      {visibleZones[zone.id] !== false && (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
-                          <path d="M5 12 L10 17 L19 8" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Linjetyper - visas om linjer är på */}
-            {visibleLayers.lines && (
-              <div style={{
-                background: '#0a0a0a',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '16px',
-                padding: '8px',
-                marginBottom: '16px',
-              }}>
-                <div style={{
-                  padding: '12px 16px 8px',
-                  fontSize: '13px',
-                  opacity: 0.4,
-                }}>
-                  Linjetyper
-                </div>
-                {lineTypes.filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad')).map(line => (
-                  <div
-                    key={line.id}
-                    onClick={() => setVisibleLines(prev => ({ ...prev, [line.id]: prev[line.id] === false }))}
-                    style={{
-                      padding: '14px 16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '36px',
-                      height: '4px',
-                      borderRadius: '2px',
-                      background: line.striped
-                        ? `repeating-linear-gradient(90deg, ${line.color} 0px, ${line.color} 4px, ${line.color2} 4px, ${line.color2} 8px)`
-                        : line.color,
-                    }} />
-                    <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{line.name}</span>
-                    <div style={{
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '50%',
-                      border: visibleLines[line.id] !== false ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: visibleLines[line.id] !== false ? '#30d158' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      {visibleLines[line.id] !== false && (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
-                          <path d="M5 12 L10 17 L19 8" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Varningsinställningar - öppna knapp */}
-            <div
-              onClick={() => setWarningMenuOpen(true)}
-              style={{
-                background: '#0a0a0a',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '16px',
-                padding: '18px 20px',
-                marginBottom: '16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '14px',
-                cursor: 'pointer',
-              }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-              <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>Varningsinställningar</span>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" style={{ opacity: 0.4 }}>
-                <path d="M9 18l6-6-6-6"/>
-              </svg>
-            </div>
-          </div>
         </div>
       )}
 
@@ -18407,7 +17294,7 @@ export default function PlannerPage() {
             flexShrink: 0,
           }}>
             {/* Back-pil (bara synlig vid submenu/camera/colorPicker) */}
-            {subMenu ? (
+            {subMenu && activeCategory !== 'lines' ? (
               <button
                 type="button"
                 aria-label="Tillbaka"
@@ -18448,7 +17335,6 @@ export default function PlannerPage() {
               letterSpacing: '-0.2px',
             }}>
               {subMenu ? (
-                 activeCategory === 'symbols' ? symbolCategories.find(c => c.name === subMenu)?.name :
                  subMenu === 'gps-lines' ? 'Spåra med GPS' :
                  subMenu === 'draw-lines' ? 'Rita manuellt' :
                  subMenu
@@ -18578,200 +17464,6 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* === SYMBOLER === */}
-            {activeCategory === 'symbols' && !subMenu && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                }}>
-                  {symbolCategories.map((category) => (
-                    <div
-                      key={category.name}
-                      onClick={() => setSubMenu(category.name)}
-                      style={{
-                        padding: '16px 20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '16px',
-                        borderRadius: '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '50%',
-                        background: category.bgColor || 'rgba(0,0,0,0.6)',
-                        border: '2px solid rgba(255,255,255,0.7)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-
-                      }}>
-                        <div style={{ filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.6))' }}>
-                          {renderIcon(category.symbols[0]?.id || 'default', 18, '#fff')}
-                        </div>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '15px', color: '#fff' }}>{category.name}</div>
-                        <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{category.symbols.length} symboler</div>
-                      </div>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                        <path d="M9 6 L15 12 L9 18" />
-                      </svg>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Symboler - vald kategori */}
-            {activeCategory === 'symbols' && subMenu && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '20px',
-                }}>
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '16px',
-                  }}>
-                    {symbolCategories.find(c => c.name === subMenu)?.symbols.map(type => {
-                      const bgColor = getIconBackground(type.id);
-                      return (
-                        <div
-                          key={type.id}
-                          onClick={() => {
-                            if (stickvagMode && gpsMapPosition) {
-                              // I stickvagMode: placera direkt på GPS-position
-                              const newMarker: Marker = {
-                                id: Date.now().toString(),
-                                x: gpsMapPosition.x,
-                                y: gpsMapPosition.y,
-                                type: type.id,
-                                isMarker: true,
-                              };
-                              setMarkers(prev => [...prev, newMarker]);
-                              // Stäng menyn
-                              setMenuOpen(false);
-                              setMenuHeight(0);
-                              setSubMenu(null);
-                              setActiveCategory(null);
-                            } else {
-                              // Normalt läge: välj symbol och stäng meny
-                              setSelectedSymbol(type.id);
-                              setMenuOpen(false);
-                              setMenuHeight(0);
-                              setSubMenu(null);
-                              setActiveCategory(null);
-                            }
-                          }}
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '10px',
-                            padding: '16px 8px',
-                            borderRadius: '12px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <div style={{
-                            width: '48px',
-                            height: '48px',
-                            borderRadius: '50%',
-                            background: bgColor,
-                            border: '2px solid rgba(255,255,255,0.7)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-
-                          }}>
-                            <div style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))' }}>
-                              {renderIcon(type.id, 24, '#fff')}
-                            </div>
-                          </div>
-                          <span style={{ fontSize: '13px', opacity: 0.6, textAlign: 'center' }}>
-                            {type.name}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* === LINJER === */}
-            {activeCategory === 'lines' && !subMenu && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                }}>
-                  <div
-                    onClick={() => setSubMenu('gps-lines')}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="3" />
-                        <circle cx="12" cy="12" r="8" />
-                        <line x1="12" y1="2" x2="12" y2="4" />
-                        <line x1="12" y1="20" x2="12" y2="22" />
-                        <line x1="2" y1="12" x2="4" y2="12" />
-                        <line x1="20" y1="12" x2="22" y2="12" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Spåra med GPS</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Gå längs linjen</div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                      <path d="M9 6 L15 12 L9 18" />
-                    </svg>
-                  </div>
-                  
-                  <div
-                    onClick={() => setSubMenu('draw-lines')}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 20 L4 20 Q4 12 12 12 Q20 12 20 4" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Rita manuellt</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Tryck för punkter</div>
-                    </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                      <path d="M9 6 L15 12 L9 18" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Linjer - GPS */}
             {activeCategory === 'lines' && subMenu === 'gps-lines' && (
               <div style={{ padding: '12px' }}>
@@ -18837,7 +17529,7 @@ export default function PlannerPage() {
                   borderRadius: '16px',
                   padding: '16px',
                 }}>
-                  {lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (
+                  {ritaLinjeTyper.map(type => (
                     <div
                       key={type.id}
                       onClick={() => {
@@ -19062,66 +17754,6 @@ export default function PlannerPage() {
                         <span style={{ fontSize: '13px', opacity: 0.7 }}>{type.name}</span>
                       </div>
                     ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* === MÄTNING === */}
-            {activeCategory === 'measure' && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '8px',
-                }}>
-                  <div
-                    onClick={() => startaFigur(false)}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 20 L20 4" />
-                        <path d="M4 20 L4 15" />
-                        <path d="M4 20 L9 20" />
-                        <path d="M20 4 L20 9" />
-                        <path d="M20 4 L15 4" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Mät avstånd</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Punkt till punkt</div>
-                    </div>
-                  </div>
-
-                  <div
-                    onClick={() => startaFigur(true)}
-                    style={{
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6 }}>
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 4 L20 4 L20 20 L4 20 Z" />
-                        <path d="M4 4 L20 20" strokeDasharray="3,3" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Mät area</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Rita område</div>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -19691,10 +18323,10 @@ export default function PlannerPage() {
                   {/* Lager */}
                   <div
                     onClick={() => {
-                      setLayerMenuOpen(!layerMenuOpen);
                       setMenuOpen(false);
                       setMenuHeight(0);
                       setActiveCategory(null);
+                      oppnaPlusArk('lager');   // Lager bor i plusarkets Lager-flik (den gamla helskärmsmenyn är borta)
                     }}
                     style={{
                       padding: '16px 20px',
