@@ -319,6 +319,14 @@ Skördarnas spår såg hackiga ut: maskinen kör sakta (1–3 m steg) eller stå
 - **Svängar:** detektorn mäter vinkeln mot punkter ≥ 14 m bort (kortare bas räknar bruset som sväng — medianvinkeln på 8 m bas är redan 31–49°) på det UTJÄMNADE spåret, så låsningen slår till först kring 25–30°; svängar på 20–25° bevaras av Douglas-Peucker så länge benen är ≳ 9 m, 10–15° rätas ut. Ett glest hörn (RDP-gallrat) ligger kvar exakt. Det som är kvar av GPS-driften (±3–4 m, våglängd 20–40 m, syns längs Stefans stråk) är verklig positionsspridning — vill man ha rakare höj `SPAR_TOLERANS_M`.
 - **Stilen** bor i `lib/sparStil.ts` (en källa för körvyns egen/hist/andras och planeringens lager): **skördarens linje är alltid jämn 3 px, full färg (opacitet 1), ljus casing 5,5 px, i ALLA lager — även tidigare dagar och som "den andres" spår i skotarens körvy (skotaren följer stråken)**; skotarens linje är som förut (zoom-bredd, eget 0,95, historik smalare, den andres 0,55). Rolleffekten i `page.tsx` sätter färg, bredd och opacitet per lager ur `sparStil`.
 
+### Ritade linjer och ytor: ett tryck = EXAKT en punkt, ALDRIG utjämnat (`lib/ritaPunkter.ts`)
+
+Utjämning finns bara för hyttspår (`lib/sparJamning.ts`). Ritade markeringar (zoner, linjer, områden) sparas som tryckta: inga mellanpunkter, inga dubbletter, hörn exakt där man tryckte; ytor sluts med första punkten sist (4 tryck → 5 punkter), linjer sparas som de är (4 tryck → 4). Frihandsdrag förenklas med Douglas-Peucker som förut och utjämnas inte.
+
+- **Incident 2026-10-13 (Martin):** ritade ytor/linjer blev runda och 4 tryck blev 25–33 punkter. Två orsaker: `smoothCoords` (Chaikin, 2 varv) kördes vid sparning på allt utom gallringszoner, och en pekskärm skickar touchstart/touchend OCH emulerad mus (mousedown/mouseup) för samma tryck — ritverktyget lyssnade på båda, så varje hörn kom in två gånger. Ett dubblerat hörn överlever Chaikin (punkten står två gånger) men får sex mellanpunkter på raka kanten; ett hörn som trycks en gång kapas till en kurva. `lib/ritaPunkter.test.ts` återskapar de 33 lagrade punkterna ur fyra hörn.
+- **Pekarhändelser:** touch sätter `senasteTouchRef`; `onMouseDownRita`/`onMouseUpRita` ignoreras `EMULERAD_MUS_MS` efteråt. Ett tryck inom 4 px och 0,8 s från förra godtagna är samma tryck (`arDubbeltryck`).
+- **Ritningen** är rak mellan punkterna med `line-join: miter` på zon-/linje-/ritlagren. Gammal data som redan sparats utjämnad kan inte rättas i efterhand (hörnen är borta ur datan); data med dubblerade hörn är redan rak och ritas som den är.
+
 ## Verifiering — fallgropar som ger falskt godkant
 
 ### tsc i en ny worktree ljuger
