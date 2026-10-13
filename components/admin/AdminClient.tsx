@@ -99,7 +99,7 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
             {!nyMedarbetare && <Titel>{aktiv.label}</Titel>}
             {nav.flik === "oversikt"    && <Oversikt att={att} />}
             {nav.flik === "medarbetare" && <MedarbetareFlik />}
-            {nav.flik === "maskiner"    && <MaskinerFlik />}
+            {nav.flik === "maskiner"    && <MaskinerFlik visaHistorik={currentUser.roll === "admin"} />}
             {nav.flik === "lon"         && <LonFlik currentUser={currentUser} />}
             {nav.flik === "avtal"       && <AvtalFlik currentUser={currentUser} />}
           </div>
