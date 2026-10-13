@@ -14,7 +14,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 
 type Svar = { data?: unknown; error?: unknown } | "aldrig";
 const mock = vi.hoisted(() => ({
@@ -77,7 +77,7 @@ const ALLA_TYPER = [
 let rot: ReturnType<typeof createRoot> | null = null;
 let behallare: HTMLDivElement | null = null;
 let konsol: ReturnType<typeof vi.spyOn>;
-let confirmSpy: ReturnType<typeof vi.spyOn>;
+let confirmSpy: MockInstance<typeof window.confirm>;
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
