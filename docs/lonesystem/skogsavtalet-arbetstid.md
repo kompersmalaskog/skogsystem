@@ -637,6 +637,78 @@ Martins lista.
 
 ---
 
+## Lagkontroll i appen — Admin → Översikt → Arbetstid (byggt 2026-10-13)
+
+Kod: `lib/arbetstidsgranser.ts` (ren logik), `app/api/lon/arbetstid/route.ts`, `components/admin/ArbetstidKort.tsx`. Sex gränser per förare;
+gul från 90 % av gränsen, röd först OVER den (gränsen själv är tillåten). "Varför?" i kortet visar paragrafen.
+
+| # | Gräns | Källa | Mätvärde |
+|---|---|---|---|
+| 1 | Allmän övertid ≤ 250 tim/kalenderår | Skogsavtalet §5 mom 5 | `beraknaArsovertid` (avtalets genomsnittsmodell), `gs_avtal.max_overtid_ar_h` |
+| 2 | Extra övertid ≤ 150 tim/kalenderår | ATL 8 a § | **Räknat:** det som överstiger 250 (appen vet inte vilka timmar som beordrats som extra) |
+| 3 | Övertid ≤ 50 tim/kalendermånad | ATL 8 §, 8 a § 2 st. (avtalet avviker inte) | se nedan |
+| 4 | ≤ 48 tim/vecka i snitt, fyra månader | ATL 10 b § | arbetsdag + extra_tid, fönster = senaste fyra månaderna |
+| 5 | Veckovila ≥ 36 tim per 7 dagar | ATL 14 § | `veckovilaPerDag` (lib/vilobrott), lägsta dag senaste 28 dagarna |
+| 6 | Dygnsvila ≥ 11 tim per 24 tim | ATL 13 § | `analyseraVilobrott` (lib/vilobrott), lägsta senaste 28 dagarna |
+
+**Månadsgränsen (3) — Martins beslut 2026-10-13.** Avtalet är tyst om månadstaket (se fråga 1 ovan); appen tillämpar ATL 8 §. Övertid
+uppstår enligt §5 mom 2 först när genomsnittet över en beräkningsperiod överstiger 40 tim/vecka, så:
+- **Fastställd övertid** (veckor utanför markerad utjämningsperiod, inklusive pågående antagna block) fördelas per vecka — veckans
+  överskott, skalat så att summan blir periodens övertid — på månaden där veckans torsdag ligger. Kan ge **RÖD**.
+- **Övertid ur en markerad utjämningsperiod** läggs hela på periodens slutmånad (pågående period: innevarande månad) och märks
+  **"uppskattad fördelning"**. Kan bara ge **GUL**, hur stor den än är: hur den verkligen fördelas på månader avgörs av hur utjämningen
+  lades ut.
+- Bara innevarande och föregående månad bedöms; äldre månader är historia.
+
+**48-timmarssnittet (4) — tolkning, märkt så i Varför-texten.** Semester och sjukfrånvaro under tid då föraren annars skulle ha arbetat
+likställs med fullgjord arbetstid (ATL 10 b §). Appen räknar 8 tim per vardag (heldag; deldag fyller upp till 8; röda dagar och helger
+räknas inte; arbete en sådan dag vinner). Andra frånvarotyper (VAB, ATK, komp, föräldraledig, tjänstledig, permission) räknas som 0 tim.
+Fönstret börjar aldrig före förarens första registrerade tid och ett snitt visas först efter 28 dagars underlag (annars `null`).
+
+**Vilan (5, 6).** Gul under dygnsvilans varningsgräns (`gs_avtal.dygnsvila_varning_h`, 12) resp. veckovilans krav / 0,9 (36 → 40).
+Perioddagar (planering, restid, manuellt arbete) räknas med klockslag ur `extra_tid`. Veckovilan bedöms dag för dag — inte per
+sammanslagen "stretch" — så att ett gammalt brott inte döljer en vila som fortfarande är för kort. Efter prod-kontrollen 2026-10-13
+(`Oscar Ringberg` 14,5 tim och `Joacim` 13,3 tim var falsklarm) räknas **ändarna**:
+- tiden från fönstrets start fram till förarens *första* pass är vila (nyanställd: anställd 28 sep, inga pass före);
+- vilan från *sista* passet fram till nu är vila (öppen lucka = slutar nu), och dagarna bedöms t.o.m. förarens sista passdatum;
+- visas aldrig över 168 tim (fönstret på 7 dygn).
+Dygnsvilan räknar ett pass vars slut ligger före starten (22:00–02:00) som slutande nästa dygn (`analyseraVilobrott(…, { passOverMidnatt })`;
+Vilobrott-listan och förarens appar räknar fortfarande utan den — samma sak gäller dem, se Öppet).
+
+**Maskinflytt (flyttdag) i gräns 4–6 (Martin 2026-10-13) — bara i kortet, lönen läser den inte.** Maskinflyttens körtid ligger i
+`flyttdag`, inte i `arbetsdag`/`extra_tid` (2026-09-25: 400 min flytt, 0 min i underlaget) och är arbetstid. Kortet räknar den:
+- Mätt tid = `total_tid_min` (starttid → "Kör hem"; **hemresan ingår inte**). En pågående dag (ingen sluttid, ingen mätt tid) räknas
+  t.o.m. nu. Dagar utan mätt tid, med 0 min eller över 16 tim (klientens skräpskydd) räknas inte, och kortet säger hur många.
+- `starttid` är `timestamptz` och räknas om till **Stockholmstid** (servern kör UTC) innan den jämförs med arbetsdagens klockslag.
+- *Gräns 4:* bara det som inte redan ligger i `arbetsdag`/`extra_tid` med klockslag samma dag läggs till (ingen dubbelräkning om
+  flytten också är inmatad som pass eller period). Rader utan klockslag går inte att jämföra mot och räknas inte som överlapp.
+- *Gräns 5–6:* flytten förlänger dagens pass (första start → sista slut) eller blir dagens pass.
+- Flyttdagar utan `medarbetare_id` kopplas till en förare bara om `forare` är exakt ett (entydigt) medarbetarnamn; övriga räknas inte,
+  och svaret säger hur många (`varningar`). Kan `flyttdag` inte läsas visas kortet ändå med en varning.
+- Kortet säger "Maskinflytt ingår: N flyttdagar, X tim (… hemresan ingår inte)" och säger då **inte** "Restid ingår inte". Utan vare
+  sig restid (`extra_tid`, aktivitet `restid`) eller flyttdagar de senaste fyra månaderna står "Restid ingår inte".
+- Övertiden (gräns 1–3) påverkas inte: den räknas på `arbetsdag` + `extra_tid` som förut.
+
+**Företagsledare / delägare (Martin 2026-10-13).** Arbetstidslagen gäller inte den som leder företaget eller är delägare med bestämmande
+över sin egen arbetstid. `medarbetare.foretagsledare` (boolean, default false, migration `20261013170000_medarbetare_foretagsledare.sql`)
+sätts i Admin → Medarbetare (rutan "Företagsledare / delägare"). En sådan person räknas ändå, men visas aldrig som gul eller röd:
+`varsta` är alltid "lugn" (`skulleVarit` bär vad det hade blivit), raden i kortet är grå med "Delägare – arbetstidslagen gäller inte", går
+inte att fälla ut, kommer sist, och räknas inte i menysiffran. Hen visas bara när hen annars hade varit gul eller röd (annars finns inget att
+förklara), och "Ingen närmar sig en gräns" står kvar om det bara är delägare som är gula/röda. Martin och Joacim bockas i av Martin själv
+efter merge. Före migrationen kör kortet ändå (utan undantag) med en varning, och Medarbetare-fliken döljer rutan.
+
+**Luckor kortet säger högt.**
+- *Restid ingår inte* när varken restid eller maskinflytt finns i underlaget. Hemresan efter maskinflytt och annan privat restid
+  utanför `extra_tid` ingår inte.
+- Övertiden kan bli **för låg** när en tom vecka saknar registrerad frånvaro (basen räknas som 40, se filhuvudet i `arsovertid.ts`).
+- Kan frånvaron, avtalsraden, utjämningsperioderna eller flyttdag inte läsas står en orange rad under kortet (aldrig "ingen gräns nådd").
+
+**Kontroll mot prod.** `scripts/arbetstid-kontroll.sql` (bara SELECT) räknar samma tal oberoende av koden, med samma regler (maskinflytt,
+vilans ändar, nattpass); fixturerna körda mot en lokal Postgres 16 är bundna till koden i `lib/arbetstidsgranser.sqlkontroll.test.ts`. Mutationskontroll av gränslogiken: `node scripts/mutationskontroll-arbetstid.mjs`
+(varje tröskel och jämförelse ändras en i taget, även i `lib/vilobrott.ts`; testerna ska bli röda).
+
+---
+
 ## Öppet (Martin tar med löneansvarig / beslutar själv)
 
 Rena frågor till löneansvarig:
@@ -652,6 +724,12 @@ Bekräftelser av avtalstexten ovan (ja/nej):
 4. Komp-tid räknas inte mot 250-taket (§ 5 mom 5 anm 3, § 8 mom 3).
 5. Arbetad röd dag ger lön + söndagstillägg, ingen helglön (§ 10 mom 2, § 8 mom 1).
 6. Bytesdag är skoftning med ersätter-datum (§ 5 mom 4).
+
+Funnet vid bygget av lagkontrollen (2026-10-13), inte åtgärdat utanför kortet:
+- `analyseraVilobrott` räknar dygnsvilan från passets sluttid SAMMA datum, så ett pass över midnatt får 24 tim för mycket vila. Det
+  gäller Vilobrott-listan (Lön → Vilobrott) och förarens appar. Kortet räknar rätt via `passOverMidnatt`.
+- I Vilobrott-listan ger veckovilan falska brott i datafönstrets första dagar (samma orsak som Oscar-fallet: tiden före första passet
+  räknas inte). Kortet bedömer bara de senaste 28 dagarna med vilan före första passet inräknad.
 
 Martins egna beslut som arbetsgivare:
 

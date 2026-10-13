@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Primar, Sekundar, Tillbaka, Destruktiv, Lank, Besked, Fel, Laddar, Tomt, Bekrafta, Etikett } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Reglage, Primar, Sekundar, Tillbaka, Destruktiv, Lank, Besked, Fel, Laddar, Tomt, Bekrafta, Etikett } from "./ui";
 import { useAdminNav } from "./nav";
 import MedarbetareKontroller from "./MedarbetareKontroller";
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
@@ -13,6 +13,9 @@ import NyMedarbetare from "./NyMedarbetare";
 import { ROLLER, HempunktKort, KopplaOperatörModal, useAnstKontroll, AnstKontrollText, type Medarbetare, type OperatorRad } from "./medarbetarDelar";
 
 const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
+
+/** Kolumnerna i personlistan. `foretagsledare` läggs till separat (migration 20261013170000) så listan går att läsa före den. */
+const MED_KOLUMNER = "id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng, hem_bekraftad_tid";
 
 export default function MedarbetareFlik() {
   // Vad som är öppet står i adressen (?person=…, ?ny=1), så en omladdning stannar kvar.
@@ -29,6 +32,8 @@ export default function MedarbetareFlik() {
   const [fel, setFel] = useState<string | null>(null);
   const [kontroller, setKontroller] = useState<MedarbetarKontroller | null>(null);
   const [kontrollFel, setKontrollFel] = useState<string | null>(null);
+  // false tills migrationen 20261013170000 är körd: då finns ingen kolumn att visa eller skriva.
+  const [harForetagsledare, setHarForetagsledare] = useState(true);
 
   const ladda = async () => {
     setLaddar(true);
@@ -39,16 +44,24 @@ export default function MedarbetareFlik() {
       .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`); setKontroller(j); setKontrollFel(null); })
       .catch(e => { setKontroller(null); setKontrollFel(e?.message || String(e)); });
     try {
-      const [medRes, opMedRes, dimOpRes, maskinRes] = await Promise.all([
+      const [medRes0, opMedRes, dimOpRes, maskinRes] = await Promise.all([
         supabase.from("medarbetare")
-          .select("id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng, hem_bekraftad_tid")
+          .select(`${MED_KOLUMNER}, foretagsledare`)
           .order("namn"),
         supabase.from("operator_medarbetare").select("operator_id, medarbetare_id"),
         supabase.from("dim_operator").select("operator_id, operator_namn, operator_key, maskin_id"),
         // Maskinnamn: EN källa, dim_maskin (lib/maskinNamn) — aldrig `maskiner`.
         supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER),
       ]);
+      // Kolumnen foretagsledare kommer med migrationen 20261013170000. Före den läses listan utan den (och rutan döljs).
+      let medRes: { data: any[] | null; error: any } = medRes0 as any;
+      let harForetagsledare = true;
+      if (medRes0.error && /foretagsledare/i.test(String(medRes0.error.message || ""))) {
+        harForetagsledare = false;
+        medRes = await supabase.from("medarbetare").select(MED_KOLUMNER).order("namn") as any;
+      }
       if (medRes.error) throw medRes.error;
+      setHarForetagsledare(harForetagsledare);
 
       const opMap = new Map<string, OperatorRad>();
       for (const o of (dimOpRes.data || [])) opMap.set(o.operator_id, o);
@@ -95,6 +108,7 @@ export default function MedarbetareFlik() {
         medarbetare={m}
         operatorer={operatorerPerMed[m.id] || []}
         maskiner={maskiner}
+        harForetagsledare={harForetagsledare}
         onKlar={() => { tillLista(); ladda(); }}
         onLadda={() => ladda()}
         onTillbaka={tillLista}
@@ -158,11 +172,13 @@ function ListaVy({
 /* ─── DETALJ ─── */
 
 function DetaljVy({
-  medarbetare, operatorer, maskiner, onKlar, onLadda, onTillbaka,
+  medarbetare, operatorer, maskiner, harForetagsledare, onKlar, onLadda, onTillbaka,
 }: {
   medarbetare: Medarbetare;
   operatorer: OperatorRad[];
   maskiner: Record<string, string>;
+  /** Kolumnen medarbetare.foretagsledare finns (migration 20261013170000 körd). */
+  harForetagsledare: boolean;
   onKlar: () => void;
   /** Ladda om och STANNA på personen (efter geokodning — se var adressen hamnade). */
   onLadda: () => void;
@@ -178,6 +194,7 @@ function DetaljVy({
   const [timlon, setTimlon] = useState<string>(medarbetare.timlon_kr != null ? String(medarbetare.timlon_kr) : "");
   const [manadslon, setManadslon] = useState<string>(medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "");
   const [anstallningsdatum, setAnstallningsdatum] = useState(medarbetare.anstallningsdatum || "");
+  const [foretagsledare, setForetagsledare] = useState(medarbetare.foretagsledare === true);
   const [sparar, setSparar] = useState(false);
   const [sparFel, setSparFel] = useState<string | null>(null);
   const [taBortLäge, setTaBortLäge] = useState(false);
@@ -206,7 +223,8 @@ function DetaljVy({
     maskinId !== (medarbetare.maskin_id || "") ||
     timlon !== (medarbetare.timlon_kr != null ? String(medarbetare.timlon_kr) : "") ||
     manadslon !== (medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "") ||
-    anstallningsdatum !== (medarbetare.anstallningsdatum || "");
+    anstallningsdatum !== (medarbetare.anstallningsdatum || "") ||
+    (harForetagsledare && foretagsledare !== (medarbetare.foretagsledare === true));
   const anstAndrat = anstLaddad && anst.trim() !== anstOriginal;
   // Det SPARADE numret kontrolleras mot Fortnox när anslutningen finns (annars: "kontrolleras när anslutningen finns").
   const anstKontroll = useAnstKontroll(anstOriginal, anstLaddad);
@@ -233,6 +251,8 @@ function DetaljVy({
       manadslon_kr: manadslon === "" ? null : parseFloat(manadslon),
       anstallningsdatum: anstallningsdatum || null,
     };
+    // Bara när den ändrats: en person går att spara även om kolumnen inte finns än.
+    if (harForetagsledare && foretagsledare !== (medarbetare.foretagsledare === true)) update.foretagsledare = foretagsledare;
     const { data: skrivet, error } = await supabase.from("medarbetare").update(update).eq("id", medarbetare.id).select("id");
     if (error || !skrivet?.length) { setSparar(false); setSparFel(error?.message || "Inget sparades — raden träffades inte"); return; }
     if (anstAndrat) {
@@ -305,6 +325,10 @@ function DetaljVy({
           { value: "", label: "Ingen maskin" },
           ...Object.entries(maskiner).sort((a, b) => a[1].localeCompare(b[1])).map(([id, n]) => ({ value: id, label: `${n} (${id})` })),
         ]} />
+        {harForetagsledare && (
+          <Reglage label="Företagsledare / delägare" value={foretagsledare} onChange={setForetagsledare}
+            hint="Arbetstidslagen gäller inte företagsledare. Personen visas då grått i Arbetstid på Översikten, utan gul eller röd, och räknas inte som något som kräver dig." />
+        )}
       </Kort>
 
       {/* Hempunkten — var km räknas ifrån. Visar VAR adressen hamnade. */}

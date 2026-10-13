@@ -7,12 +7,12 @@ import { ymdLokal } from "@/lib/datumLokal";
 import { franGolv } from "@/lib/skarpStart";
 import { useDatahalsa } from "@/app/datahalsa/useDatahalsa";
 import { laddaVilobrottLista } from "@/lib/admin/vilobrottLista";
-import { arsovertidRader, type ArsovertidRad } from "@/lib/admin/arsovertidVy";
 import {
   byggAttGora, type AttGoraIndata, type Kalla, type Sak, type StammerRad,
-  type Person, type MaskinRad, type ObekraftadDag, type LonLage, type AvtalRad,
+  type Person, type MaskinRad, type ObekraftadDag, type LonLage, type AvtalRad, type ArbetstidSvar,
 } from "@/lib/admin/attGora";
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
+import type { ArbetstidForare } from "@/lib/arbetstidsgranser";
 
 const tom = <T,>(): Kalla<T> => ({ data: null, fel: null });
 const felText = (e: any) => String(e?.message || e);
@@ -21,12 +21,16 @@ async function las<T>(f: () => Promise<T>): Promise<Kalla<T>> {
   try { return { data: await f(), fel: null }; } catch (e) { return { data: null, fel: felText(e) }; }
 }
 
-export type AttGora = { laddar: boolean; saker: Sak[]; stammer: StammerRad[]; ladda: () => void };
+export type AttGora = {
+  laddar: boolean; saker: Sak[]; stammer: StammerRad[]; ladda: () => void;
+  /** Förare som är gula eller röda på en arbetstidsgräns (röda först) och läsfel som påverkar talen. */
+  arbetstid: ArbetstidForare[]; arbetstidVarningar: string[];
+};
 
 export function useAttGora(): AttGora {
   const dh = useDatahalsa();
   const [indata, setIndata] = useState<Omit<AttGoraIndata, "leverans">>({
-    kontroller: tom(), personer: tom(), maskiner: tom(), obekraftade: tom(), lon: tom(), vilobrott: tom(), avtal: tom(), arsovertid: tom(),
+    kontroller: tom(), personer: tom(), maskiner: tom(), obekraftade: tom(), lon: tom(), vilobrott: tom(), avtal: tom(), arbetstid: tom(),
   });
   const [klart, setKlart] = useState(false);
   const [omgang, setOmgang] = useState(0);
@@ -52,7 +56,7 @@ export function useAttGora(): AttGora {
         return (r.data || []) as { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null; bekraftad: boolean | null }[];
       });
 
-      const [kontroller, personer, maskiner, ad, logg, vilobrott, avtal, arsovertid] = await Promise.all([
+      const [kontroller, personer, maskiner, ad, logg, vilobrott, avtal, arbetstid] = await Promise.all([
         las<MedarbetarKontroller>(async () => {
           const r = await fetch("/api/medarbetare/kontroller", { cache: "no-store" });
           const j = await r.json().catch(() => ({}));
@@ -81,12 +85,12 @@ export function useAttGora(): AttGora {
           if (r.error) throw r.error;
           return (r.data as AvtalRad | null) ?? null;
         }),
-        // Årsövertid: avtalets modell per förare. Ett läsfel är en sak att åtgärda, aldrig "ingen övertid".
-        las<ArsovertidRad[]>(async () => {
-          const r = await fetch("/api/lon/arsovertid", { cache: "no-store" });
+        // Arbetstid: lagens sex gränser per förare. Ett läsfel är en sak att åtgärda, aldrig "ingen gräns nådd".
+        las<ArbetstidSvar>(async () => {
+          const r = await fetch("/api/lon/arbetstid", { cache: "no-store" });
           const j = await r.json().catch(() => ({}));
           if (!r.ok || !j.ok) throw new Error(j.meddelande || `HTTP ${r.status}`);
-          return arsovertidRader(j);
+          return { forare: j.forare || [], varningar: j.varningar || [] };
         }),
       ]);
       if (avbruten) return;
@@ -103,7 +107,7 @@ export function useAttGora(): AttGora {
             return { data: { arbetsManad, antalMedDagar: medDagar.size, antalSkickade: skickade.size }, fel: null };
           })();
 
-      setIndata({ kontroller, personer, maskiner, obekraftade, lon, vilobrott, avtal, arsovertid });
+      setIndata({ kontroller, personer, maskiner, obekraftade, lon, vilobrott, avtal, arbetstid });
       setKlart(true);
     })();
     return () => { avbruten = true; };
@@ -113,10 +117,10 @@ export function useAttGora(): AttGora {
   const laddar = !klart || dh.leverans.laddar;
 
   const byggt = useMemo(() => {
-    if (laddar) return { saker: [] as Sak[], stammer: [] as StammerRad[] };
+    if (laddar) return { saker: [] as Sak[], stammer: [] as StammerRad[], arbetstid: [] as ArbetstidForare[], arbetstidVarningar: [] as string[] };
     return byggAttGora({ ...indata, leverans: leverans as AttGoraIndata["leverans"] }, ymdLokal(new Date()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [laddar, indata, dh.leverans.data, dh.leverans.fel]);
 
-  return { laddar, saker: byggt.saker, stammer: byggt.stammer, ladda };
+  return { laddar, saker: byggt.saker, stammer: byggt.stammer, arbetstid: byggt.arbetstid, arbetstidVarningar: byggt.arbetstidVarningar, ladda };
 }

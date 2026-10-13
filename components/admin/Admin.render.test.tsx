@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { FARG } from "@/lib/design/tokens";
 import { analyseraVilobrott, medPerioddagSpann } from "@/lib/vilobrott";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
+import { byggArbetstid } from "@/lib/arbetstidsgranser";
 
 vi.mock("next/navigation", () => ({ useSearchParams: () => (globalThis as any).__sp }));
 
@@ -32,7 +33,8 @@ vi.mock("@/lib/supabase", () => {
     vals: any = null;
     valjSkrivet = false;
     constructor(public t: string) {}
-    select(_c?: string, o?: any) { if (this.mode !== "select") this.valjSkrivet = true; if (o?.count) this.count = true; if (o?.head) this.head = true; return this; }
+    cols = "";
+    select(c?: string, o?: any) { if (this.mode === "select") this.cols = c || ""; if (this.mode !== "select") this.valjSkrivet = true; if (o?.count) this.count = true; if (o?.head) this.head = true; return this; }
     eq(k: string, v: any) { (globalThis as any).__eq.push([this.t, k, v]); this.f.push(r => r[k] === v); return this; }
     gte(k: string, v: any) { this.f.push(r => r[k] != null && r[k] >= v); return this; }
     lte(k: string, v: any) { this.f.push(r => r[k] != null && r[k] <= v); return this; }
@@ -55,6 +57,8 @@ vi.mock("@/lib/supabase", () => {
       const klar = (o: any) => Promise.resolve(o).then(res, rej);
       if (this.mode === "select") {
         if (g.__dbFel?.[this.t]) return klar({ data: null, error: { message: g.__dbFel[this.t] }, count: null }); // läsfel (permission denied, timeout …)
+        const saknas = ((g.__saknasLasKolumner?.[this.t] || []) as string[]).find(k => this.cols.includes(k));   // kolumnen finns inte än (migration ej körd)
+        if (saknas) return klar({ data: null, error: { message: `column ${this.t}.${saknas} does not exist` }, count: null });
         const rader = tab.filter(r => this.f.every(fn => fn(r))).map(r => ({ ...r }));
         return klar({ data: this.head ? null : this.enkel ? rader[0] ?? null : rader, error: null, count: this.count ? rader.length : null });
       }
@@ -117,9 +121,9 @@ function seed(extra: Record<string, any[]> = {}) {
     medarbetare_lonesystem: [{ id: "l1", medarbetare_id: "m1", lonesystem_id: "ls1", anstallningsnummer: "1001", skapad: "2026-04-17" }],
     ...extra,
   };
-  g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {}; g.__dbFel = null;
+  g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {}; g.__dbFel = null; g.__saknasLasKolumner = {};
   g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
-  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null;
+  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null; g.__arbetstid = null;
   g.fetch = vi.fn(async (url: string, init?: any) => {
     const u = String(url); g.__fetchAnrop.push([u, init?.method || "GET"]);
     if (u.includes("/api/fortnox/kontrollera-anstallningsnummer")) {
@@ -144,7 +148,8 @@ function seed(extra: Record<string, any[]> = {}) {
       g.__geokodAnrop.push(b);
       return { ok: true, status: 200, json: async () => (g.__geokod ? g.__geokod(b) : { ok: true }) } as any;
     }
-    const body = u.includes("/api/lon/arsovertid") ? (g.__arsovertid ?? { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: [] })
+    const body = u.includes("/api/lon/arbetstid") ? (g.__arbetstid ?? { ok: true, ar: 2026, tomDatum: "2026-10-13", forare: [], varningar: [] })
+      : u.includes("/api/lon/arsovertid") ? (g.__arsovertid ?? { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: [] })
       : u.includes("/api/fortnox/salary-export") ? (g.__salary || SALARY)
       : u.includes("/api/fortnox/status") ? { connected: true, token_utgar: null, senast_synkad: null }
       : u.includes("/api/medarbetare/kontroller") ? (g.__kontroller || { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [] })
@@ -352,6 +357,7 @@ describe("Översikt = att-göra-lista", () => {
     g.fetch = vi.fn(async (url: string) => {
       if (String(url).includes("/api/medarbetare/kontroller")) return { ok: false, status: 500, json: async () => ({ ok: false, error: "kontrollerna är nere" }) } as any;
       if (String(url).includes("/api/lon/arsovertid")) return { ok: true, status: 200, json: async () => ({ ok: true, ar: 2026, tak: 250, medarbetare: [], utjamning: [] }) } as any;
+      if (String(url).includes("/api/lon/arbetstid")) return { ok: true, status: 200, json: async () => ({ ok: true, ar: 2026, tomDatum: "2026-10-13", forare: [], varningar: [] }) } as any;
       return { ok: true, status: 200, json: async () => ({}) } as any;
     });
     await monter("flik=oversikt");
@@ -2599,32 +2605,270 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
     expect(kortText()).not.toContain("Kunde inte läsa frånvaron");
   });
 
-  // ── Översikt ──
-  it("Översikt: passerar någon 200 tim står en rad '[Namn] har X tim övertid i år, taket är 250' som leder till Lön", async () => {
-    g.__arsovertid = svar([["s", "Stefan Karlsson", 212.5], ["m", "Martin Lindqvist", 0]]);
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ARBETSTID (Översikten): lagens sex gränser per förare. Gul från 90 %, röd över gränsen; tryck på förare → de sex gränserna.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Översikten: kortet Arbetstid", () => {
+  const TROSKLAR = { dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
+  /** En förare med givet årsövertidstal (resten tomt) — byggd av den riktiga logiken, så UI:t visar exakt det servern skickar. */
+  const forareMed = (id: string, namn: string, ov: number) => byggArbetstid({
+    medarbetare_id: id, namn, tomDatum: "2026-10-13",
+    arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: ov }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
+    dagar: [], extra: [], franvaro: [], trosklar: TROSKLAR, tak: 250,
+  });
+  const svar = (forare: any[], varningar: string[] = []) => ({ ok: true, ar: 2026, tomDatum: "2026-10-13", forare, varningar });
+  const kort = () => cont.querySelector<HTMLElement>("[data-arbetstid-kort]");
+  const kortText = () => (kort()?.textContent || "").replace(/\s+/g, " ");
+  const forareRader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-arbetstid-forare]"));
+  const knappen = (rad: HTMLElement) => rad.querySelector<HTMLButtonElement>("button")!;
+
+  it("ingen förare nära en gräns: inget kort, en rad under Stämmer", async () => {
+    g.__arbetstid = svar([forareMed("a", "Anna Berg", 10)]);
     await monter("flik=oversikt");
-    expect(text()).toContain("Stefan Karlsson har 212,5 tim övertid i år, taket är 250");
-    expect(text()).not.toContain("Martin Lindqvist har");
-    await klick("Visa");
-    expect(window.location.search).toContain("flik=lon");
+    expect(kort()).toBeNull();
+    expect(text()).toContain("Ingen närmar sig en gräns för arbetstid");
   });
 
-  it("Översikt: dagens tal (Stefan 74,5, övriga 0) ger ingenting — ingen rad och ingen 'stämmer'-rad om övertid", async () => {
-    g.__arsovertid = svar(IDAG);
+  it("en förare över taket: namn, ordet 'Över gränsen' och EN mening med talet i", async () => {
+    g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 262)]);
     await monter("flik=oversikt");
-    expect(text()).not.toContain("tim övertid i år");
-    expect(text()).not.toMatch(/övertid/i);
+    expect(forareRader()).toHaveLength(1);
+    const t = kortText();
+    expect(t).toContain("Stefan Karlsson");
+    expect(t).toContain("Över gränsen");
+    expect(t).toContain("262 av 250 tim övertid i år — taket är passerat");
+    expect(text()).not.toContain("Ingen närmar sig en gräns för arbetstid");
   });
 
-  it("Översikt: exakt 200 tim passerar inte", async () => {
-    g.__arsovertid = svar([["s", "Stefan Karlsson", 200]]);
+  it("gul vid 90 %: ordet är 'Nära gränsen' (färgen bär inte ensam)", async () => {
+    g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 230)]);
     await monter("flik=oversikt");
-    expect(text()).not.toContain("tim övertid i år");
+    expect(forareRader()[0].getAttribute("data-niva")).toBe("gul");
+    expect(kortText()).toContain("Nära gränsen");
+    expect(kortText()).toContain("230 av 250 tim övertid i år — närmar sig taket");
   });
 
-  it("Översikt: kan årsövertiden inte läsas säger Översikten det i stället för att tiga", async () => {
-    g.__arsovertid = { ok: false, meddelande: "nät" };
+  it("röda före gula", async () => {
+    g.__arbetstid = svar([forareMed("g", "Gul Person", 230), forareMed("r", "Röd Person", 262)]);
     await monter("flik=oversikt");
-    expect(text()).toContain("Kunde inte kontrollera årsövertiden");
+    // byggAttGora sorterar: servern skickar alla, kortet visar röda först
+    expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["rod", "gul"]);
+  });
+
+  it("tryck på en förare: de sex gränserna i lagens ordning, ihopfällt innan", async () => {
+    g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 262)]);
+    await monter("flik=oversikt");
+    expect(cont.querySelectorAll("[data-arbetstid-grans]")).toHaveLength(0);
+    await act(async () => { knappen(forareRader()[0]).click(); });
+    const rader = Array.from(cont.querySelectorAll<HTMLElement>("[data-arbetstid-grans]"));
+    expect(rader.map(r => r.getAttribute("data-arbetstid-grans"))).toEqual(["allman_overtid_ar", "extra_overtid_ar", "overtid_manad", "snitt_48", "veckovila", "dygnsvila"]);
+    const allman = rader[0];
+    expect(allman.getAttribute("data-niva")).toBe("rod");
+    expect((allman.querySelector("[data-arbetstid-tal]")?.textContent || "")).toBe("262 av 250 tim");
+    expect(allman.querySelector("[role=progressbar]")).not.toBeNull();
+    // vila är ett "minst": ingen stapel
+    expect(rader[4].querySelector("[role=progressbar]")).toBeNull();
+    // tryck igen fäller ihop
+    await act(async () => { knappen(forareRader()[0]).click(); });
+    expect(cont.querySelectorAll("[data-arbetstid-grans]")).toHaveLength(0);
+  });
+
+  it("Varför? visar paragrafen, och tolkningar är märkta", async () => {
+    g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 262)]);
+    await monter("flik=oversikt");
+    await act(async () => { knappen(forareRader()[0]).click(); });
+    expect(cont.querySelector("[data-arbetstid-varfor]")).toBeNull();
+    const rad = cont.querySelector<HTMLElement>("[data-arbetstid-grans=allman_overtid_ar]")!;
+    const varfor = Array.from(rad.querySelectorAll<HTMLButtonElement>("button")).find(b => b.textContent === "Varför?")!;
+    await act(async () => { varfor.click(); });
+    expect(rad.querySelector("[data-arbetstid-varfor]")!.textContent).toContain("Skogsavtalet §5 mom 5");
+    const extra = cont.querySelector<HTMLElement>("[data-arbetstid-grans=extra_overtid_ar]")!;
+    expect(extra.textContent).toContain("Räknat");
+    expect(cont.querySelector<HTMLElement>("[data-arbetstid-grans=snitt_48]")!.textContent).toContain("Tolkning");
+  });
+
+  it("en vila under kravet heter 'Under kravet', inte 'Över gränsen' (vila är ett minst)", async () => {
+    const vila = forareMed("v", "Vila Person", 10);
+    vila.granser = vila.granser.map(g => g.id === "dygnsvila" ? { ...g, niva: "rod" as const, varde: 10, mening: "Dygnsvilan blev 10 tim den 12 okt — minst 11 krävs" } : g);
+    vila.varsta = "rod";
+    g.__arbetstid = svar([vila]);
+    await monter("flik=oversikt");
+    expect(kortText()).toContain("Under kravet");
+    expect(kortText()).not.toContain("Över gränsen");
+    await act(async () => { knappen(forareRader()[0]).click(); });
+    expect(cont.querySelector<HTMLElement>("[data-arbetstid-grans=dygnsvila]")!.textContent).toContain("Under kravet");
+  });
+
+  it("'Restid ingår inte' står i förarens detalj när restid saknas i underlaget", async () => {
+    g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 262)]);
+    await monter("flik=oversikt");
+    await act(async () => { knappen(forareRader()[0]).click(); });
+    expect(cont.querySelector("[data-arbetstid-notis]")!.textContent).toContain("Restid ingår inte");
+  });
+
+  it("maskinflytt i underlaget: detaljen säger 'Maskinflytt ingår: …' och INTE 'Restid ingår inte'", async () => {
+    const f = byggArbetstid({
+      medarbetare_id: "s", namn: "Stefan Karlsson", tomDatum: "2026-10-13",
+      arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: 262 }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
+      dagar: [], extra: [], franvaro: [], trosklar: TROSKLAR, tak: 250, nu: new Date("2026-10-13T10:00:00Z"),
+      flytt: [{ starttid: "2026-09-25T04:00:00Z", sluttid: "2026-09-25T13:00:00Z", total_tid_min: 400 }],
+    });
+    g.__arbetstid = svar([f]);
+    await monter("flik=oversikt");
+    await act(async () => { knappen(forareRader()[0]).click(); });
+    const notis = cont.querySelector("[data-arbetstid-notis]")!.textContent || "";
+    expect(notis).toContain("Maskinflytt ingår: 1 flyttdag, 6,7 tim");
+    expect(notis).toContain("hemresan ingår inte");
+    expect(kortText()).not.toContain("Restid ingår inte");
+  });
+
+  it("läsvarningar (frånvaro, avtal, utjämning) står under kortet i orange — aldrig tyst", async () => {
+    g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 262)], ["Kunde inte läsa frånvaron (permission denied) — övertid och 48-timmarssnittet räknas utan den och kan vara för låga."]);
+    await monter("flik=oversikt");
+    expect(cont.querySelector("[data-arbetstid-varning]")!.textContent).toContain("Kunde inte läsa frånvaron");
+  });
+
+  it("kan arbetstiden inte läsas säger Översikten det i stället för att tiga", async () => {
+    g.__arbetstid = { ok: false, meddelande: "nät" };
+    await monter("flik=oversikt");
+    expect(text()).toContain("Kunde inte kontrollera arbetstiden");
+    expect(text()).not.toContain("Ingen närmar sig en gräns för arbetstid");
+  });
+
+  it("den gamla raden vid 200 tim finns inte längre (det nya kortet är enda källan)", async () => {
+    g.__arsovertid = { ok: true, ar: 2026, tak: 250, tomDatum: "2026-10-13", modeller: [], medarbetare: [{ medarbetare_id: "s", namn: "Stefan Karlsson", timmar: 1, modeller: { genomsnitt: 212.5 } }], utjamning: [] };
+    await monter("flik=oversikt");
+    expect(text()).not.toContain("tim övertid i år, taket är");
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// FÖRETAGSLEDARE / DELÄGARE (Martin 2026-10-13): arbetstidslagen gäller inte. Rutan i Admin → Medarbetare, grå rad i kortet.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", () => {
+  const TROSKLAR = { dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
+  const forareMed = (id: string, namn: string, ov: number, foretagsledare = false) => byggArbetstid({
+    medarbetare_id: id, namn, tomDatum: "2026-10-13", foretagsledare,
+    arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: ov }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
+    dagar: [], extra: [], franvaro: [], trosklar: TROSKLAR, tak: 250,
+  });
+  const svar = (forare: any[], varningar: string[] = []) => ({ ok: true, ar: 2026, tomDatum: "2026-10-13", forare, varningar });
+  const forareRader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-arbetstid-forare]"));
+  const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+  const reglage = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("[role=switch]")).find(b => b.getAttribute("aria-label") === "Företagsledare / delägare");
+  /** Menyns siffra: orange cirkel vid Översikt i sidomenyn/bottenraden. */
+  const menysiffror = () => Array.from(document.querySelectorAll<HTMLElement>("nav *")).filter(e => e.children.length === 0 && /^\d+$/.test((e.textContent || "").trim()) && getComputedStyle(e).background.includes("255, 159, 10")).map(e => (e.textContent || "").trim());
+
+  it("delägaren visas GRÅTT med 'Delägare – arbetstidslagen gäller inte': ingen nivå, inget ord om gräns, går inte att fälla ut", async () => {
+    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true)]);
+    await monter("flik=oversikt");
+    const rad = forareRader()[0];
+    expect(rad.getAttribute("data-niva")).toBe("delagare");
+    expect(rad.textContent).toContain("Martin Lindqvist");
+    expect(rad.textContent).toContain("Delägare – arbetstidslagen gäller inte");
+    expect(rad.textContent).not.toMatch(/Över gränsen|Nära gränsen|Under kravet|passerat/);
+    expect(rad.querySelector("button")).toBeNull();
+  });
+
+  it("raden är grå: namnet i FARG.text2, förklaringen i FARG.text3 — aldrig orange eller röd", async () => {
+    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true)]);
+    await monter("flik=oversikt");
+    const spans = Array.from(forareRader()[0].querySelectorAll<HTMLElement>("span"));
+    const farger = spans.map(e => getComputedStyle(e).color);
+    expect(farger[0]).toBe(rgb(FARG.text2));
+    expect(farger[1]).toBe(rgb(FARG.text3));
+  });
+
+  it("en delägare som inte skulle ha varit gul/röd visas inte alls (inget att förklara)", async () => {
+    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 10, true)]);
+    await monter("flik=oversikt");
+    expect(cont.querySelector("[data-arbetstid-kort]")).toBeNull();
+    expect(text()).toContain("Ingen närmar sig en gräns för arbetstid");
+  });
+
+  it("bara delägare är gula/röda: 'Ingen närmar sig en gräns' står kvar — de är inte ett problem", async () => {
+    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true), forareMed("j", "Joacim", 230, true)]);
+    await monter("flik=oversikt");
+    expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["delagare", "delagare"]);
+    expect(text()).toContain("Ingen närmar sig en gräns för arbetstid");
+  });
+
+  it("en vanlig röd förare kommer före delägaren, och sektionen är orange bara för den vanliga", async () => {
+    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true), forareMed("s", "Stefan Karlsson", 262)]);
+    await monter("flik=oversikt");
+    expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["rod", "delagare"]);
+    expect(text()).not.toContain("Ingen närmar sig en gräns för arbetstid");
+  });
+
+  it("delägaren räknas INTE i menysiffran: en röd delägare ger ingen siffra, en röd vanlig förare ger 1", async () => {
+    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true)]);
+    await monter("flik=oversikt");
+    expect(menysiffror()).toEqual([]);
+    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true), forareMed("s", "Stefan Karlsson", 262)]);
+    await monter("flik=oversikt");
+    expect(menysiffror().length).toBeGreaterThan(0);
+    expect(menysiffror().every(t => t === "1")).toBe(true);
+  });
+
+  it("Admin → Medarbetare: rutan 'Företagsledare / delägare' finns, är av som standard och sparar foretagsledare = true", async () => {
+    await monter("flik=medarbetare&person=m1");
+    const r = reglage()!;
+    expect(r).toBeTruthy();
+    expect(r.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Arbetstidslagen gäller inte företagsledare");
+    await act(async () => { r.click(); });
+    expect(reglage()!.getAttribute("aria-checked")).toBe("true");
+    await klick("Spara ändringar");
+    expect(g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update").vals.foretagsledare).toBe(true);
+    expect(g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare).toBe(true);
+  });
+
+  it("rutan visar det sparade värdet, och Spara är inaktiv tills den ändrats", async () => {
+    g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare = true;
+    await monter("flik=medarbetare&person=m1");
+    expect(reglage()!.getAttribute("aria-checked")).toBe("true");
+    const spara = blad("Spara ändringar").map(e => e.closest("button")!).find(Boolean)!;
+    expect(spara.disabled).toBe(true);
+    await act(async () => { reglage()!.click(); });
+    expect(spara.disabled).toBe(false);
+  });
+
+  it("foretagsledare skickas BARA när den ändrats — en annan ändring skriver inte kolumnen", async () => {
+    await monter("flik=medarbetare&person=m1");
+    await skriv(falt("Namn"), "Anna Bergström");
+    await klick("Spara ändringar");
+    const skriv1 = g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update");
+    expect(skriv1.vals.namn).toBe("Anna Bergström");
+    expect("foretagsledare" in skriv1.vals).toBe(false);
+  });
+
+  it("kan man bocka ur den igen: sparas som false", async () => {
+    g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare = true;
+    await monter("flik=medarbetare&person=m1");
+    await act(async () => { reglage()!.click(); });
+    await klick("Spara ändringar");
+    expect(g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update").vals.foretagsledare).toBe(false);
+  });
+
+  it("migrationen är inte körd (kolumnen saknas): personlistan läses ändå, rutan döljs och en annan ändring sparas", async () => {
+    g.__saknasLasKolumner = { medarbetare: ["foretagsledare"] };
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).toContain("Personuppgifter");
+    expect(text()).not.toContain("Kunde inte ladda medarbetare");
+    expect(reglage()).toBeUndefined();
+    await skriv(falt("Namn"), "Anna B");
+    await klick("Spara ändringar");
+    expect("foretagsledare" in g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update").vals).toBe(false);
+  });
+
+  it("andra läsfel på medarbetare döljs inte av fallbacken: de visas som förut", async () => {
+    g.__dbFel = { medarbetare: "permission denied" };
+    await monter("flik=medarbetare");
+    expect(text()).toContain("Kunde inte ladda medarbetare");
+    expect(text()).toContain("permission denied");
   });
 });
