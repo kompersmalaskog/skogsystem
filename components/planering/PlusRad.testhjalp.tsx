@@ -19,17 +19,23 @@ export type Spion = { post: string[]; stang: number; rita: string[] };
 
 const post = (nyckel: string, etikett: string, farg: string) => ({ nyckel, etikett, ikon: null, fast: false, fastbar: true, dockFarg: farg, dockGlyf: null });
 
-export function Vard({ Komp, start, spion }: { Komp: ComponentType<any>; start?: string | null; spion: Spion }) {
-  const [oppen, setOppen] = useState(true);
+function testData(spion: Spion, stang: () => void) {
   const poster = [post('symbol:wet', 'Fuktig mark', '#2a7a4b'), post('symbol:steep', 'Brant', '#a33'), post('symbol:culturemonument', 'Kulturminne', '#c80')];
   const ark = {
     symboler: [{ id: 'Fara', rubrik: 'Fara', poster }],
     rita: [
-      { id: 'linje', titel: 'Rita linje', ikon: 'linje', onTryck: () => { spion.rita.push('linje'); setOppen(false); } },
-      { id: 'strackan', titel: 'Mät sträcka', ikon: 'strackan', onTryck: () => { spion.rita.push('strackan'); setOppen(false); } },
+      { id: 'linje', titel: 'Rita linje', ikon: 'linje', onTryck: () => { spion.rita.push('linje'); stang(); } },
+      { id: 'strackan', titel: 'Mät sträcka', ikon: 'strackan', onTryck: () => { spion.rita.push('strackan'); stang(); } },
     ],
     lager: [{ id: 'bakgrund', rubrik: 'Bakgrundskarta', rader: [{ id: 'lm', namn: 'Karta', typ: 'val', pa: true, onTryck: () => {} }] }],
   };
+  return { poster, ark };
+}
+
+/** Beter sig som sidan: ett verktyg eller × stänger (oppen=false). */
+export function Vard({ Komp, start, spion }: { Komp: ComponentType<any>; start?: string | null; spion: Spion }) {
+  const [oppen, setOppen] = useState(true);
+  const { poster, ark } = testData(spion, () => setOppen(false));
   return (
     <Komp
       oppen={oppen}
@@ -41,6 +47,24 @@ export function Vard({ Komp, start, spion }: { Komp: ComponentType<any>; start?:
       onSparaDocka={() => {}}
       onAterstall={() => {}}
       onStang={() => { spion.stang += 1; setOppen(false); }}
+    />
+  );
+}
+
+/** Ägaren styr `oppen` utifrån (och instansen är densamma mellan öppningarna — ingen ny nyckel): provar att bredden läses vid VARJE öppning. */
+export function Styrd({ Komp, oppen, start, spion }: { Komp: ComponentType<any>; oppen: boolean; start?: string | null; spion: Spion }) {
+  const { poster, ark } = testData(spion, () => {});
+  return (
+    <Komp
+      oppen={oppen}
+      poster={poster}
+      ark={ark}
+      startFlik={start ?? null}
+      onPost={() => {}}
+      onFastna={() => ({ ok: true, text: 'Fast' })}
+      onSparaDocka={() => {}}
+      onAterstall={() => {}}
+      onStang={() => { spion.stang += 1; }}
     />
   );
 }

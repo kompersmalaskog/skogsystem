@@ -15,7 +15,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AVSTAND, FARG, RADIE, RORELSE, TYP } from '@/lib/design/tokens';
 import { skapaLangtryck } from '@/lib/langtryck';
 import { MAX_FASTA } from '@/lib/plusRad';
-import { plusLage, type FlikId } from '@/lib/plusArk';
+import { plusLage, type FlikId, type PlusLage } from '@/lib/plusArk';
 import { PlusArk, type ArkData, type PlusPostVy } from './PlusArk';
 
 export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRad, LagerGrupp } from './PlusArk';
@@ -40,18 +40,20 @@ function useMinBredd(px: number): boolean {
   return bred;
 }
 
-/** Fönstrets bredd just nu → 'ark' (< 900 px) eller 'panel' (≥ 900 px), via lib/plusArk.plusLage. Läses redan vid första renderingen (ingen bildruta med fel läge) och följer storleksändringar. */
-function usePlusLage() {
-  const nu = () => (typeof window !== 'undefined' ? plusLage(window.innerWidth) : 'panel');
-  const [lage, setLage] = useState<'ark' | 'panel'>(nu);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const upd = () => setLage(plusLage(window.innerWidth));
-    upd();
-    window.addEventListener('resize', upd);
-    return () => window.removeEventListener('resize', upd);
-  }, []);
-  return lage;
+/** Fönstrets bredd → 'ark' (< 900 px) eller 'panel' (≥ 900 px), via lib/plusArk.plusLage. */
+const lageNu = (): PlusLage => (typeof window !== 'undefined' ? plusLage(window.innerWidth) : 'panel');
+
+/**
+ * Läget avgörs VARJE GÅNG plus öppnas (oppen false → true läser bredden på nytt) och ligger sedan fast tills nästa öppning: en iPad som vrids eller ett
+ * fönster som ändras medan menyn är stängd ger rätt läge vid nästa öppning, och ingenting byter ram mitt i en öppen meny eller mitt i en utglidning.
+ * Ingen resize-lyssnare, ingen extra rendering; läses redan vid första renderingen (ingen bildruta med fel läge).
+ */
+function usePlusLage(oppen: boolean): PlusLage {
+  const lageRef = useRef<PlusLage>(lageNu());
+  const forraOppen = useRef(oppen);
+  if (oppen && !forraOppen.current) lageRef.current = lageNu();
+  forraOppen.current = oppen;
+  return lageRef.current;
 }
 
 const Nal = () => (
@@ -93,13 +95,14 @@ export function PlusRad({ poster, ark, oppen = true, startFlik, onPost, onFastna
   const [hall, setHall] = useState<{ nyckel: string; etikett: string; svar?: string } | null>(null);
   const [inne, setInne] = useState(false);
   const bred = useMinBredd(DOCK_BRED_MIN_PX);
-  const lage = usePlusLage();
+  const lage = usePlusLage(oppen);
   const [utglidet, setUtglidet] = useState(false);
   const lt = useRef(skapaLangtryck()).current;
 
-  // Panelen som glidit undan tas bort ur DOM först när rörelsen är klar.
+  // Panelen som glidit undan tas bort ur DOM först när rörelsen är klar. En ny öppning (samma instans) börjar om: nästa utglidning ska animeras igen.
   useEffect(() => {
-    if (oppen || !visaAlla || lage !== 'panel') return;
+    if (oppen) { setUtglidet(false); return; }
+    if (!visaAlla || lage !== 'panel') return;
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const t = setTimeout(() => setUtglidet(true), minskad ? 0 : RORELSE.byte + 50);
     return () => clearTimeout(t);

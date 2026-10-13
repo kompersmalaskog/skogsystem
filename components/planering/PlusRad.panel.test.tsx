@@ -8,7 +8,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PlusRad } from './PlusRad';
 import { PlusArk } from './PlusArk';
-import { montera, renderaHtml, sattBredd, type Monterad } from './PlusRad.testhjalp';
+import { montera, renderaHtml, sattBredd, Styrd, type Monterad, type Spion } from './PlusRad.testhjalp';
+import { createRoot } from 'react-dom/client';
 import { PANEL_BREDD_PX, PANEL_MIN_BREDD_PX, plusLage } from '@/lib/plusArk';
 import { RORELSE } from '@/lib/design/tokens';
 
@@ -159,12 +160,83 @@ describe.each([[1280, 800], [1440, 900]])('%i×%i: panelen från höger', (bredd
   });
 });
 
+describe('bredden avgörs VARJE gång plus öppnas', () => {
+  // Samma PlusRad-instans hela tiden (ingen ny nyckel) — så provet fångar att läget läses vid öppningen och inte bara vid första renderingen.
+  const upplagg = (start: string) => {
+    const behallare = document.createElement('div');
+    document.body.appendChild(behallare);
+    const rot = createRoot(behallare);
+    const spion: Spion = { post: [], stang: 0, rita: [] };
+    const visa = (oppen: boolean) => act(() => { rot.render(<Styrd Komp={PlusRad} oppen={oppen} start={start} spion={spion} />); });
+    const lage = () => behallare.querySelector('[data-testid="plus-alla-panel"]')?.getAttribute('data-lage') ?? (behallare.querySelector('[data-testid="plus-ark-grepp"]') ? 'ark' : 'inget');
+    return { visa, lage, behallare, avmontera: () => { act(() => rot.unmount()); behallare.remove(); } };
+  };
+
+  it('stängd på bred skärm, fönstret smalnar (iPad vrids), nästa öppning = ark', () => {
+    sattBredd(1280);
+    const u = upplagg('symboler');
+    u.visa(true); avancera(50);
+    expect(u.lage()).toBe('panel');
+    u.visa(false); avancera(ut);
+    expect(u.behallare.innerHTML).toBe('');
+    sattBredd(820);                       // vriden iPad / ändrat fönster medan menyn är stängd
+    u.visa(true); avancera(50);
+    expect(u.lage()).toBe('ark');
+    u.avmontera();
+  });
+
+  it('stängd på smal skärm, fönstret breddas, nästa öppning = panel — och den glider ut som vanligt', () => {
+    sattBredd(820);
+    const u = upplagg('symboler');
+    u.visa(true); avancera(50);
+    expect(u.lage()).toBe('ark');
+    u.visa(false);
+    expect(u.behallare.innerHTML).toBe('');
+    sattBredd(1180);
+    u.visa(true); avancera(50);
+    expect(u.lage()).toBe('panel');
+    expect(u.behallare.querySelector('[data-testid="plus-alla-panel"]')!.getAttribute('data-oppen')).toBe('1');
+    u.visa(false);                        // nästa stängning ska animeras igen (utglidet nollställs vid öppningen)
+    expect(u.behallare.querySelector('[data-testid="plus-alla-panel"]')!.getAttribute('data-oppen')).toBe('0');
+    avancera(ut);
+    expect(u.behallare.innerHTML).toBe('');
+    u.avmontera();
+  });
+
+  it('byte MEDAN den är öppen behövs inte: ramen ligger fast tills nästa öppning (ingen omkoppling mitt i)', () => {
+    sattBredd(1280);
+    const u = upplagg('symboler');
+    u.visa(true); avancera(50);
+    expect(u.lage()).toBe('panel');
+    sattBredd(700);
+    act(() => { window.dispatchEvent(new Event('resize')); });
+    avancera(50);
+    expect(u.lage()).toBe('panel');
+    u.avmontera();
+  });
+
+  it('en panel som glider ut byter inte ram om bredden ändras under utglidningen', () => {
+    sattBredd(1280);
+    const u = upplagg('symboler');
+    u.visa(true); avancera(50);
+    u.visa(false);
+    sattBredd(600);
+    act(() => { window.dispatchEvent(new Event('resize')); });
+    expect(u.lage()).toBe('panel');
+    expect(u.behallare.querySelector('[data-testid="plus-alla-panel"]')!.getAttribute('data-oppen')).toBe('0');
+    avancera(ut);
+    expect(u.behallare.innerHTML).toBe('');
+    u.avmontera();
+  });
+});
+
 describe('samma komponent — ingen kopia', () => {
   it('PlusRad renderar PlusArk i båda lägena och bara lage skiljer', () => {
     const rad = lasFil('PlusRad.tsx');
     expect((rad.match(/<PlusArk\b/g) || []).length).toBe(1);
     expect(rad).toContain('lage={lage}');
     expect(rad).toContain('plusLage(window.innerWidth)');
+    expect(rad).not.toContain("addEventListener('resize'");   // läget läses vid öppningen, inte via lyssnare
     const ark = lasFil('PlusArk.tsx');
     expect((ark.match(/export function PlusArk/g) || []).length).toBe(1);
     expect((ark.match(/data-testid="plus-alla-panel"/g) || []).length).toBe(2);   // ramen: en för panelen, en för arket — innehållet (rubrikRad/innehallRad) delas

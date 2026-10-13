@@ -189,6 +189,8 @@ export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppe
   for (const k of data.symboler) for (const p of k.poster) symbolPerNyckel.set(p.nyckel, p);
   const dockPosterNu: PlusPost[] = startaRedigering(dockNu.map((p) => nyckelTillPost(p.nyckel)).filter((p): p is PlusPost => !!p));
 
+  // Klickvakten (långtryckets släpp) räknas från varje öppning — även när samma instans öppnas igen.
+  useEffect(() => { if (oppen) monterad.current = Date.now(); }, [oppen]);
   const stangBakgrund = () => { if (Date.now() - monterad.current < 450) return; onStang(); };
 
   // ── Arkets höjd: halv eller hel, dras på gripen ──
