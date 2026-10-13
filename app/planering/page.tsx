@@ -8,6 +8,11 @@ import { signeraKartfil } from '@/lib/kartfiler'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
 import ObjektValjare from './ObjektValjare'
+import ObjektLista from '../../components/planering/ObjektLista'
+import { usePlaneringsObjekt, type HamtaObjektSvar } from '../../lib/hooks/usePlaneringsObjekt'
+import { rensaSenastePlanering } from '../../lib/senastePlanering'
+import { anvandObjektLista } from '../../lib/objektVal'
+import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
@@ -59,7 +64,7 @@ import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, k
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
-import { FARG, DELFARG, TYP, RADIE, AVSTAND, IKON } from '../../lib/design/tokens'
+import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON } from '../../lib/design/tokens'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'
 import { hamtaKandidatSvar, startaKandidatLaddning } from '../../lib/objektKandidater'
@@ -532,6 +537,13 @@ function vinnandeKategoriForKarta(map: any, point: any): KlickKategori | null {
   if (!lager.length) return null;
   const feats = map.queryRenderedFeatures(point, { layers: lager });
   return valjKlickKategori(feats.map((f: any) => f.layer?.id).filter(Boolean));
+}
+
+/** Ett objekt per id för planeringsvyns start/adress/bakåt (lib/hooks/usePlaneringsObjekt). Fel (nätet) ≠ saknas: bara "saknas" rensar minnet. */
+async function hamtaPlaneringsObjekt(id: string): Promise<HamtaObjektSvar<any>> {
+  const { data, error } = await supabase.from('objekt').select('*').eq('id', id).maybeSingle();
+  if (error) return { typ: 'fel' };
+  return data ? { typ: 'hittad', objekt: data } : { typ: 'saknas' };
 }
 
 export default function PlannerPage() {
@@ -3162,6 +3174,20 @@ export default function PlannerPage() {
   // Ersätter det som tidigare blev en död/svart start: utan maskin vet appen inte rollen, objektet eller vems hyttspår det är.
   const maskinFragaSynlig = enhetMaskinLast && !enhetMaskinId && !testlage && !maskinSomParam
     && ((serialGpsAktiv && !maskinFragaHoppad) || valjMaskinBegard);
+  // === Objektval i planeringsvyn (telefon/dator): listan är ett ark/panel över kartan, och vyn minns senaste objektet ===
+  // Gäller INTE maskinläget, /maskin och körvyn — de behåller sin egen väg (förarlistan / ObjektValjare) exakt som förut.
+  // Hooken väntar tills enheten vet att den inte är en maskindator (enhetMaskinLast) och att inloggningen är läst.
+  const nyttObjektval = !maskinlage && !maskinSomParam;
+  const planeringsObjektAktiv = enhetMaskinLast && nyttObjektval && !maskinFragaSynlig && !medarbetareLaddar;
+  const [objektListaOppen, setObjektListaOppen] = useState(false);
+  const { startKlar: planeringsStartKlar } = usePlaneringsObjekt<any>({
+    aktiv: planeringsObjektAktiv,
+    anvandarId: planeringsObjektAktiv ? (currentMedarbetare?.id ?? 'okand') : null,   // inloggad men utan medarbetarrad → minnet gäller enheten
+    hoppaStartval: !!pendingRestore,                                                     // auto-uppdateringen återställer objektet (pendingRestore nedan)
+    valtObjektId: valtObjekt?.id ?? null,
+    hamtaObjekt: hamtaPlaneringsObjekt,
+    onValj: (o) => { setValtObjekt(o); if (o) { setPan({ x: screenSize.width / 2, y: screenSize.height / 2 }); setZoom(1); } },
+  });
   // Kan starten inte fortsätta (registret gick inte att hämta / maskinen finns inte / saknar roll) → text + väg vidare, aldrig svart.
   const idagISOStr = new Date().toISOString().slice(0, 10);
   const startHinderNu = (maskinlage && enhetMaskinId)
@@ -3519,6 +3545,7 @@ export default function PlannerPage() {
     if (autoValjGjordRef.current) return;
     if (maskinlage && enhetMaskinId) return;   // maskinläge (serial/visa-som-maskin) → maskindator-starten äger objektvalet
     if (maskinFragaSynlig) return;             // maskinfrågan väntar på svar → öppna inget objekt bakom den (valet styr roll och objekt)
+    if (planeringsObjektAktiv && !planeringsStartKlar) return;   // adressens objekt / senaste objektet har företräde — vänta in det
 
     let cancelled = false;
     (async () => {
@@ -3546,7 +3573,7 @@ export default function PlannerPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [isForare, effectiveMedarbetare?.id, valtObjekt, maskinlage, enhetMaskinId, maskinFragaSynlig]);
+  }, [isForare, effectiveMedarbetare?.id, valtObjekt, maskinlage, enhetMaskinId, maskinFragaSynlig, planeringsObjektAktiv, planeringsStartKlar]);
 
   // === Maskindator-start (sektion A) ===
   // Maskinläge (serial-GPS eller admin "öppna som maskin") öppnar rätt objekt utan tryck. Ett skott per app-laddning.
@@ -3814,9 +3841,10 @@ export default function PlannerPage() {
     if (res.ok) {
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
       rensaSenasteObjekt({ maskinId: hamtaEnhetMaskin(), objektId: valtObjekt.id });   // avslutat objekt är inget startobjekt längre
+      rensaSenastePlanering(currentMedarbetare?.id ?? 'okand', valtObjekt.id);          // …och inte heller det objekt planeringsvyn öppnar nästa gång
       setValtObjekt(null); // öppnar ObjektValjare — samma mekanik som "Byt objekt"
     }
-  }, [valtObjekt, avsluterObjekt]);
+  }, [valtObjekt, avsluterObjekt, currentMedarbetare?.id]);
 
   // === "Öppna som maskin"-helpers (behöver maskindator-refs → deklareras här) ===
   // Avsluta = tillbaka till vanliga appen. Hård navigering (inte state-återställning): då försvinner
@@ -3953,6 +3981,8 @@ export default function PlannerPage() {
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
+  // Nya objektlistan (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
+  const objektListaVal = anvandObjektLista({ maskinlage, maskinSom: !!maskinSomParam, korvyActive });
   // Körvyn äger kameran: centrerings-jump och geometrins fitBounds ska vara tysta när den är öppen. Ref skrivs i render
   // (idempotent) så effekter i samma commit ser rätt värde.
   const korvyOppenRef = useRef(false);
@@ -12776,7 +12806,7 @@ export default function PlannerPage() {
         // Körvy: Inställningar (och GPS-källa) ligger redan som egna rader i objektinfon (Verktyg).
         ...(korvyActive ? [] : [{ label: 'Inställningar', icon: 'settings', action: () => { setActiveCategory('settings'); setMenuOpen(true); } }]),
         { label: 'Förslag', icon: 'lightbulb', action: () => { window.location.href = '/forbattringsforslag'; } },
-        { label: 'Byt objekt', icon: 'swap_horiz', action: () => { setValtObjekt(null); } },
+        { label: 'Byt objekt', icon: 'swap_horiz', action: () => { if (objektListaVal) setObjektListaOppen(true); else setValtObjekt(null); } },
       ],
     },
   ];
@@ -13465,8 +13495,35 @@ export default function PlannerPage() {
     />
   ) : null;
 
+  // Välj ett objekt ur listan (arket/panelen) → kartan öppnas på det. Kart-origot sätts av centrerings-effekten på valtObjekt.id.
+  const valjObjektUrLista = (obj: any) => {
+    setObjektListaOppen(false);
+    if (valtObjekt?.id === obj.id) return;
+    setValtObjekt(obj);
+    setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
+    setZoom(1);
+  };
+
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
+    // Planeringsvyn (telefon/dator, inte körvy): listan ÄR det enda som finns — första gången, eller när objektet är borttaget/avslutat.
+    // Ingen karta finns utan objekt, så listan ligger på ett mörkt underlag; den kan inte stängas (inget bakom). Under inläsningen av
+    // adressens/minnets objekt visas inget alls (aldrig en lista som blinkar förbi).
+    if (objektListaVal) {
+      const visaListan = planeringsObjektAktiv ? planeringsStartKlar : (enhetMaskinLast && !medarbetareLaddar);
+      return (
+        <>
+          <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
+            {!visaListan && 'Hämtar objekt…'}
+          </div>
+          {visaListan && (
+            <ObjektLista oppen kanStangas={false} valtId={null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => {}} />
+          )}
+          {maskinLager}
+          {ingetObjektKortEl}
+        </>
+      );
+    }
     return (
       <>
       {/* Gula bannern ryms i layoutens toppmarginal (LAYOUT.topbar; TopBar är dold här) → ingen extra padding */}
@@ -13651,9 +13708,13 @@ export default function PlannerPage() {
           <div
             role="button"
             tabIndex={0}
-            onClick={() => setTraktOversiktOpen(o => !o)}
+            data-testid="objekt-pill"
+            aria-label={objektListaVal ? 'Byt objekt' : undefined}
+            aria-haspopup={objektListaVal ? 'dialog' : undefined}
+            aria-expanded={objektListaVal ? objektListaOppen : undefined}
+            onClick={() => { if (objektListaVal) setObjektListaOppen(true); else setTraktOversiktOpen(o => !o); }}
             onKeyDown={(e: React.KeyboardEvent) => {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTraktOversiktOpen(o => !o); }
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (objektListaVal) setObjektListaOppen(true); else setTraktOversiktOpen(o => !o); }
             }}
             style={{
             pointerEvents: 'auto',
@@ -13691,11 +13752,24 @@ export default function PlannerPage() {
                 )}
               </>
             ) : 'Inget objekt'}
+            {objektListaVal && (
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: AVSTAND.xs, verticalAlign: '-2px', opacity: 0.7 }}><path d="M6 9 L12 15 L18 9" /></svg>
+            )}
           </div>
           )}
 
           {/* Platshållare där nödlägesknappen satt — håller objekt-pillen centrerad (körvy på telefon: pillen får hela bredden i stället) */}
-          {!(korvyActive && screenSize.width < 640) && <span style={{ width: '44px', flexShrink: 0 }} aria-hidden="true" />}
+          {objektListaVal ? (
+            /* Objektinfon (traktöversikten) hade pillen som enda ingång — nu bär pillen "byt objekt", så infon får en egen knapp på platshållarens plats. */
+            <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale"
+              onClick={() => setTraktOversiktOpen(o => !o)}
+              style={{ pointerEvents: 'auto', width: '44px', height: '44px', borderRadius: '22px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0, cursor: 'pointer' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11 V16.5" /><circle cx="12" cy="7.8" r="0.6" fill="#fff" /></svg>
+            </button>
+          ) : (
+            !(korvyActive && screenSize.width < 640) && <span style={{ width: '44px', flexShrink: 0 }} aria-hidden="true" />
+          )}
         </div>
       )}
 
@@ -14234,6 +14308,15 @@ export default function PlannerPage() {
                 <div style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '4px 0 2px' }}>Inget mer ifyllt för den här trakten ännu.</div>
               )}
 
+              {/* VÄGBESKRIVNING — samma navigering som km-knappen i objektlistan. Bara planeringsvyn (inte körvyn/maskinläget). */}
+              {objektListaVal && harKoordinat(valtObjekt) && (
+                <button type="button" data-testid="objektinfo-vagbeskrivning" onClick={() => { startaNavigering(valtObjekt); }} className="press-row"
+                  style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', marginTop: AVSTAND.xl, minHeight: 56, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.kort, border: `1px solid ${FARG.linje}`, background: FARG.kort, color: FARG.text, ...TYP.listtitel, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+                  <span style={{ flex: 1 }}>Vägbeskrivning<span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Navigera till objektet</span></span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={FARG.text3} strokeWidth="2" aria-hidden="true"><path d="M9 6 L15 12 L9 18" /></svg>
+                </button>
+              )}
+
               {korvyActive && (
                 <div data-testid="objektinfo-verktyg" style={{ marginTop: AVSTAND.xl, paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}`, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
                   {[
@@ -14703,6 +14786,10 @@ export default function PlannerPage() {
       {/* PlusRad ligger kvar monterad efter en stängning (med senast byggda innehåll) så panelen (≥ 900 px) hinner glida undan; under 900 px och för
              dockan returnerar den null direkt — exakt som när den avmonterades. Nyckeln fryses medan den stängs (annars byts den när plusArkStart nollas
              och panelen blinkar bort) och räknas upp vid varje öppning så den alltid startar om rent. */}
+      {/* OBJEKTLISTAN (ark under 900 px, panel från 900 px) — bara planeringsvyn; körvyn och maskinläget har sin egen väg. Monterad hela tiden så utglidningen hinner spelas. */}
+      {objektListaVal && (
+        <ObjektLista oppen={objektListaOppen} kanStangas valtId={valtObjekt?.id ?? null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => setObjektListaOppen(false)} />
+      )}
       {plusRadVisning && (
         <PlusRad
           key={plusRadVisning.nyckel}

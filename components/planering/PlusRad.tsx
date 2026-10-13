@@ -15,7 +15,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AVSTAND, FARG, RADIE, RORELSE, TYP } from '@/lib/design/tokens';
 import { skapaLangtryck } from '@/lib/langtryck';
 import { MAX_FASTA } from '@/lib/plusRad';
-import { plusLage, type FlikId, type PlusLage } from '@/lib/plusArk';
+import type { FlikId } from '@/lib/plusArk';
+import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { PlusArk, type ArkData, type PlusPostVy } from './PlusArk';
 
 export type { ArkData, PlusPostVy, SymbolKategori, RitaKort, RitaIkonId, LagerRad, LagerGrupp } from './PlusArk';
@@ -39,22 +40,6 @@ function useMinBredd(px: number): boolean {
     return () => mq.removeEventListener?.('change', upd);
   }, [px]);
   return bred;
-}
-
-/** Fönstrets bredd → 'ark' (< 900 px) eller 'panel' (≥ 900 px), via lib/plusArk.plusLage. */
-const lageNu = (): PlusLage => (typeof window !== 'undefined' ? plusLage(window.innerWidth) : 'panel');
-
-/**
- * Läget avgörs VARJE GÅNG plus öppnas (oppen false → true läser bredden på nytt) och ligger sedan fast tills nästa öppning: en iPad som vrids eller ett
- * fönster som ändras medan menyn är stängd ger rätt läge vid nästa öppning, och ingenting byter ram mitt i en öppen meny eller mitt i en utglidning.
- * Ingen resize-lyssnare, ingen extra rendering; läses redan vid första renderingen (ingen bildruta med fel läge).
- */
-function usePlusLage(oppen: boolean): PlusLage {
-  const lageRef = useRef<PlusLage>(lageNu());
-  const forraOppen = useRef(oppen);
-  if (oppen && !forraOppen.current) lageRef.current = lageNu();
-  forraOppen.current = oppen;
-  return lageRef.current;
 }
 
 const Nal = () => (
@@ -96,7 +81,7 @@ export function PlusRad({ poster, ark, oppen = true, startFlik, onPost, onFastna
   const [hall, setHall] = useState<{ nyckel: string; etikett: string; svar?: string } | null>(null);
   const [inne, setInne] = useState(false);
   const bred = useMinBredd(DOCK_BRED_MIN_PX);
-  const lage = usePlusLage(oppen);
+  const lage = useSkarmLage(oppen);
   // Under 900 px börjar plus i dockan och "Alla" öppnar arket. Från 900 px finns ingen docka: plus öppnar panelen direkt, med dockans symboler som en rad överst.
   const alla = visaAlla || lage === 'panel';
   const [utglidet, setUtglidet] = useState(false);

@@ -82,7 +82,7 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 | `/maskin-service` | Maskinservice | Servicelogg per maskin med hjuldiagram |
 | `/objekt` | Objekt | Objekthantering med månadsplanering |
 | `/oversikt` | Översikt | Dashboard med maskinstatus, karta, GROT-efterlevnad |
-| `/planering` | Planering | Huvudvy — traktplanering med karta, markeringar, väder, väganalys, TMA |
+| `/planering` | Planering | Huvudvy — traktplanering med karta, markeringar, väder, väganalys, TMA. **Objektvalet är ett ark/panel över kartan och vyn minns senaste objektet — se "Objektval i planeringsvyn" nedan (gäller bara planeringsvyn, inte maskinläget, `/maskin` eller körvyn).** |
 | `/planner` | Planner | Förenklat planeringsverktyg med canvas-markeringar |
 | `/redigering` | Redigering | Objektredigering med extern skotning |
 | `/starta-jobb` | Starta jobb | Vyn för jobb UTAN Vida-objekt (privata, eller "Väntar på Vida"): typ (slutavverkning/gallring/GROT/energiklippning), P-VO, valfri plats (karta/sök/Här); på maskindator maskinens plats + tilldelad + pågående + körvyn öppnas. GROT: "Hör till objekt". Föreslår "slå ihop" när Vida levererat objektet över jobbets plats/spår (bara "Väntar på Vida"). Maskinobjekt-fliken sätter VO via RPC `tilldela_vo_maskinobjekt` (dim_objekt är skrivskyddat för förare) |
@@ -301,6 +301,16 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 - Statushantering (planerad/pågående/avslutat)
 
 ---
+
+### Objektval i planeringsvyn (telefon och dator) — `components/planering/ObjektLista.tsx`, `lib/objektVal.ts`, `lib/senastePlanering.ts`, `lib/hooks/usePlaneringsObjekt.ts`
+
+Den gamla vägen (startsida → Planering → "Välj objekt"-sida → objekt → ark med Planera/Navigera → karta) är ersatt i planeringsvyn. **Maskinläget (maskindator, "öppna som maskin"), `/maskin` och körvyn rörs inte** — de behåller `ObjektValjare` och förarlistan exakt som förut; ETT villkor styr det (`anvandObjektLista`: `!maskinlage && !maskinSom && !korvyActive`, vaktat i `lib/objektVal.vakter.test.ts`).
+
+- **Start:** `/planering?objekt=<id>` → annars senaste objektet (minnet) → annars listan. Objektet borttaget → listan (minnet och parametern rensas); ett hämtfel (nätet) rensar ingenting. Valt objekt skrivs till adressen (`replaceState` från "inget objekt", `pushState` från ett objekt till ett annat → bakåtknappen tar tillbaka förra objektet); omladdning, delad länk och startsidan-och-tillbaka hamnar rätt. Hooken är helt inaktiv i maskinläge/`/maskin`/medan maskinfrågan visas.
+- **Minnet är PER ENHET** (localStorage `planering_senaste_objekt_v1`) och knutet till inloggad medarbetare — inte per användare över enheter: det kräver en kolumn/tabell i databasen (migration + RLS). Maskindatorns minne (`enhet_senaste_objekt_v1`) är en annan nyckel och rörs aldrig. Förarens auto-val av tilldelat objekt (STEG 3) ligger kvar som reserv när inget minne/adress finns.
+- **Byt objekt:** tryck på objektnamnet överst på kartan (⌄). Listan öppnas som ark nerifrån under 900 px och panel från höger från 900 px (samma `plusLage`/`useSkarmLage`/`RORELSE.byte` som plus-arket); × / Esc / tryck på kartan stänger; utan valt objekt (första gången) är listan det enda som finns och kan inte stängas. Objektinfon (traktöversikten), som pillen förut öppnade, har en egen ⓘ-knapp på platshållarens plats (till höger om pillen).
+- **Grupperna utgår från `objekt.status` — och inget annat:** Pågår (`pagaende`, `skotning`, `skordning`; grön prick) · Planerade (`planerad`) · Oplanerade (saknad/okänd status; bara om sådana finns) · en rad "Avslutade (N)" (`avslutat`, gamla `klar`) som öppnar dem i samma ark. Inom en grupp närmast först (vägavstånd via OSRM, fågelväg `~` tills det kommit); avslutade senast avslutat först. Alla typer visas, även GROT och energiklippning; inga typknappar eller flikar. Felet som rättades: den gamla väljaren delade i flikar efter `ar && manad` (planerad månad) och undantog bara avslutade när skotningen var klar (`skotKvarVo`), så ett avslutat objekt med virke kvar på backen (eller med den gamla statusen `klar`) blev kvar under Planerade/Pågående.
+- **Raden:** namn (fet), under typ · källa (`objekt.bolag`) · m³; till höger en knapp med bil och avstånd som startar navigeringen (`lib/navigera`, samma som objektinfons Vägbeskrivning); tryck på resten av raden öppnar objektet.
 
 ### Maskindator-start: löpande avstämning mot GPS-positionen (`lib/objektAvstamning.ts`, `lib/objektKandidater.ts`)
 
