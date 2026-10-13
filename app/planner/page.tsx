@@ -762,7 +762,7 @@ export default function PlannerPage() {
   const zoneTypes = [
     { id: 'wet', name: 'Blött', color: '#3b82f6', icon: 'wet' },
     { id: 'steep', name: 'Brant', color: '#a855f7', icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: '#22c55e', icon: 'naturecorner' },
+    { id: 'protected', name: 'Hänsyn', color: '#22c55e', icon: 'naturecorner' },
     { id: 'culture', name: 'Kulturmiljö', color: '#f59e0b', icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: '#ef4444', icon: 'warning' },
   ];

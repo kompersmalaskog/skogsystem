@@ -51,11 +51,9 @@ import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/Korvy
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { redigeringTillState, type FlikId } from '../../lib/plusArk'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
-import { KorvySparaSom } from '../../components/planering/KorvySparaSom'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
-import { SPARA_SOM, valForFigur, minPunkter, byggFigurMarkering } from '../../lib/sparSom'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
@@ -2947,6 +2945,7 @@ export default function PlannerPage() {
   const [drawType, setDrawType] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<Point[]>([]); // SVG coords (behålls för kompatibilitet)
   const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
+  const [ritaHistoria, setRitaHistoria] = useState<[number, number][][]>([]);   // ↩ i Rita: koordinaterna FÖRE varje handling (ett tryck = en punkt, ett frihandsdrag = hela draget)
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
   // "Redigera hörn" på ett eget område: redigera path på BEFINTLIG boundary-markör (behåll id → nummer,
@@ -3055,6 +3054,9 @@ export default function PlannerPage() {
       || isArrowMode || !!selectedSymbol || larmPlacering || measureMode || measureAreaMode
       || markerMenuOpen != null || editingMarker != null || risaMarkMode;
   }, [isDrawing, currentDrawCoords.length, isDrawMode, isZoneMode, isArrowMode, selectedSymbol, larmPlacering, measureMode, measureAreaMode, markerMenuOpen, editingMarker, risaMarkMode]);
+
+  // ↩-historiken hör till EN ritning: ny typ/nytt läge eller avslut börjar om. Koordinater som lästs in i förväg (Förläng) är utgångsläget och går inte att ångra.
+  useEffect(() => { setRitaHistoria([]); }, [isDrawMode, isZoneMode, drawType, zoneType]);
 
   // Geo-mätning: committad path i lng/lat (sanning för siffran), live-drag i ref (ingen re-render
   // per punkt), och ett ref till siffer-etiketten för live-uppdatering under drag.
@@ -4469,7 +4471,6 @@ export default function PlannerPage() {
   const [korvyKvitto, setKorvyKvitto] = useState<{ text: string; ton: 'ok' | 'fel'; markerId?: number } | null>(null);
   const korvyKvittoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [figur, setFigur] = useState<{ yta: boolean } | null>(null);   // Mät sträcka/yta + Rita linje/yta i körvyn (samma verktyg)
-  const [sparaSomOppen, setSparaSomOppen] = useState(false);
   const [prickValt, setPrickValt] = useState<{ id: string; typ: string } | null>(null);   // tryckt prick → "vad det är + Ta bort"
   // Avverkat (skördarens hyttspår, 10 m buffert, klippt mot traktgränsen) — pillens "efter" och objektinfons "Avverkat X av Y ha"
   const [avverkat, setAvverkat] = useState<{ m2: number; ha: number; andel: number | null; harSpar: boolean } | null>(null);
@@ -4548,7 +4549,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (korvyActive) return;
     setKorvyKvitto(null); setPrickValt(null);
-    if (figur) { setFigur(null); setSparaSomOppen(false); setMeasureGeo([]); setMeasureLocked(null); setMeasureMode(false); setMeasureAreaMode(false); }
+    if (figur) { setFigur(null); setMeasureGeo([]); setMeasureLocked(null); setMeasureMode(false); setMeasureAreaMode(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive]);
   useEffect(() => () => { if (korvyKvittoTimerRef.current) clearTimeout(korvyKvittoTimerRef.current); }, []);
@@ -5942,6 +5943,7 @@ export default function PlannerPage() {
           }
         }
 
+        setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort hela draget
         setCurrentDrawCoords(simplified);
         setDrawPaused(true);
       } else if (!wasFreehand && coords.length > 0) {
@@ -5964,7 +5966,8 @@ export default function PlannerPage() {
             return;
           }
         }
-        setCurrentDrawCoords(prev => [...prev, lastCoord]);
+        setRitaHistoria(h => [...h, currentDrawCoords]);   // ↩ tar bort just den här punkten
+        setCurrentDrawCoords([...currentDrawCoords, lastCoord]);
       }
     };
 
@@ -8114,7 +8117,7 @@ export default function PlannerPage() {
   const zoneTypes = [
     { id: 'wet', name: 'Blött', color: ZONE_COLORS.wet, icon: 'wet' },
     { id: 'steep', name: 'Brant', color: ZONE_COLORS.steep, icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: ZONE_COLORS.protected, icon: 'naturecorner' },
+    { id: 'protected', name: 'Hänsyn', color: ZONE_COLORS.protected, icon: 'naturecorner' },
     { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
     { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
@@ -8156,7 +8159,7 @@ export default function PlannerPage() {
     { section: 'Zoner', items: [
       { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30 },
       { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30 },
-      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30 },
+      { id: 'zone_protected',  name: 'Hänsyn',           color: '#30d158', defaultWarn: 30 },
       { id: 'zone_culture',    name: 'Kulturmiljö',      color: ZONE_COLORS.culture, defaultWarn: 50 },   // styr zonen "Kulturmiljö" (zoneType culture) — raden hette förut felaktigt "Fornlämningszon"
       { id: 'zone_fornlamning', name: 'Fornlämning',     color: ZONE_COLORS.fornlamning, defaultWarn: 50 },   // zonen "Fornlämning" (zoneType fornlamning) hade inställning men ingen rad
       { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30 },
@@ -12301,14 +12304,11 @@ export default function PlannerPage() {
     }
   };
   
-  // Ångra senaste segmentet medan man ritar (ta bort ~20%, minst 3 punkter)
+  // ↩ ångrar SENASTE HANDLINGEN medan man ritar: ett tryck = en punkt, ett frihandsdrag = hela draget (inte ett fast antal punkter)
   const undoLastSegment = () => {
-    if (currentDrawCoords.length <= 1) {
-      cancelDrawing();
-      return;
-    }
-    const removeCount = Math.max(3, Math.floor(currentDrawCoords.length * 0.2));
-    setCurrentDrawCoords(prev => prev.slice(0, -removeCount));
+    if (ritaHistoria.length === 0) return;
+    setCurrentDrawCoords(ritaHistoria[ritaHistoria.length - 1]);
+    setRitaHistoria(ritaHistoria.slice(0, -1));
   };
 
   const cancelDrawing = () => {
@@ -12555,7 +12555,7 @@ export default function PlannerPage() {
     { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
     // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
     // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
-    ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+    ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsynsytor – Vida', desc: 'Hänsynsytor att spara', enabled: true }] : []),
     ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
     ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
     ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),
@@ -12620,20 +12620,20 @@ export default function PlannerPage() {
     poster: k.symbols.map((s) => postVy({ typ: 'symbol', id: s.id }, arFastNu({ typ: 'symbol', id: s.id }))),
   }));
 
-  // RITA & MÄT: ALLA ritverktyg bor här och ingen annanstans, SJU rutor: Rita linje, Rita yta, Nytt område (planerare), Pilar, Mät sträcka,
+  // RITA & MÄT: ALLA ritverktyg bor här och ingen annanstans, SJU rutor: Rita linje, Rita yta, Nytt område, Pilar, Mät sträcka,
   // Mät yta, Spåra med GPS. Linjer-, Zoner- och Mätning-rutorna finns inte: de gjorde samma sak som Rita linje, Rita yta och Mät sträcka/yta.
   // Symboler har sin flik. Rita linje/Rita yta: typlistan öppnas direkt, i körvyn OCH planeringsvyn (typ först, sedan ritning; se
-  // trycktPlusPost). Mät sträcka/Mät yta startar mätfiguren (→ Spara som…). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
+  // trycktPlusPost). Mät sträcka/Mät yta startar mätfiguren (Klar visar talet, inget sparas). Spåra med GPS öppnar GPS-undermenyn (samma startGpsTracking).
   const byggRita = (): RitaKort[] => {
     return [
       { id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje') },
       { id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta') },
-      // Egna områden (PR B) — bara planerare. Ritmekaniken = tryck hörn, stäng på första hörnet.
-      ...(isAdminRiktig ? [{ id: 'omrade', titel: 'Nytt område', ikon: 'omrade' as const, onTryck: () => { stangPlus(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } }] : []),
-      { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); setActiveCategory('arrows'); setMenuOpen(true); } },
+      // Eget område (ersätter "Spara som › Yta"): samma markering — traktgräns med nummer. Ritmekaniken = tryck hörn, stäng på första hörnet.
+      { id: 'omrade', titel: 'Nytt område', ikon: 'omrade', onTryck: () => { stangPlus(); avslutaPagaendeLage(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 }); } },
+      { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('arrows'); setMenuOpen(true); } },
       { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
       { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
-      { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
+      { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
     ];
   };
 
@@ -12902,26 +12902,26 @@ export default function PlannerPage() {
   // ── MÄT/RITA i körvyn: tryck punkter (samma klick-effekt som planeringens mätning), figuren syns live med längd/area i sig ──
   const startaFigur = (yta: boolean) => {
     setFigur({ yta });
-    setSparaSomOppen(false);
     setKorvyFollowPaused(true);   // kartan står still medan punkterna sätts
     startaMatning(yta);
   };
-  const avslutaFigur = () => {   // Kasta (lokalt) eller efter sparat
+  const avslutaFigur = () => {   // × — mätningen stängs, ingenting sparas
     rensaMatning();
     setMeasureMode(false); setMeasureAreaMode(false);
-    setFigur(null); setSparaSomOppen(false);
+    setFigur(null);
     setKorvyFollowPaused(false);
   };
-  // SPARA SOM: en vanlig markering med planeringens form (lib/sparSom) — synlig för alla på objektet via vanliga markörsynken
-  const sparaFigurSom = (valId: string) => {
-    const val = SPARA_SOM.find((v) => v.id === valId);
-    if (!val || !figur) return;
-    const id = Date.now();
-    const m = byggFigurMarkering(val, measureGeo, id, latLonToSvg, numreringRef.current.nastaGransNr);
-    if (!m) { visaKvitto('För få punkter för att spara', 'fel'); return; }
-    setMarkers((prev: any[]) => [...prev, m]);
-    avslutaFigur();
-    visaKvitto(`${val.etikett} sparad`, 'ok', id);
+  // ✓ Klar: talet står kvar och punkterna låses (inga fler tryck sätter punkter). Ingenting sparas — en mätning är en siffra, inte en markering.
+  const lasMatning = () => { if (figur && measureGeoRef.current.length >= (figur.yta ? 3 : 2)) setMeasureLocked({ yta: figur.yta }); };
+  // ↩ tar bort senaste punkten och öppnar en låst mätning igen
+  const angraMatning = () => { setMeasureLocked(null); angraSista(); };
+  // ETT LÄGE I TAGET: det som pågår (placera, rita, pil, mät, Nytt område) avslutas när ett annat verktyg väljs — annars visas två rader.
+  const avslutaPagaendeLage = () => {
+    if (figur) avslutaFigur();
+    if (isDrawMode || isZoneMode || currentDrawCoords.length > 0) cancelDrawing();
+    if (selectedSymbol) setSelectedSymbol(null);
+    if (isArrowMode) { setIsArrowMode(false); setArrowType(null); }
+    if (omradeRitning) setOmradeRitning(false);
   };
 
   // ── PLUSRADENS TRYCK ──
@@ -12930,7 +12930,7 @@ export default function PlannerPage() {
     if (!post) return;
     if (post.typ === 'lager') { vaxlaLager(post.id); noteraPlus(post); return; }   // raden stannar öppen — man ser att lagret slog om
     setPlusRadOppen(false);
-    if (figur) avslutaFigur();
+    avslutaPagaendeLage();
     const punkt = langtryckPunkt;
     setLangtryckPunkt(null);
     if (post.typ === 'symbol') {
@@ -12940,12 +12940,27 @@ export default function PlannerPage() {
     }
     noteraPlus(post);
     const yta = post.id === 'yta';
-    if (post.typ === 'matning') startaFigur(yta);                                 // Mät sträcka/yta: samma figur och smala list i körvyn och planeringen (→ Spara som…)
+    if (post.typ === 'matning') startaFigur(yta);                                 // Mät sträcka/yta: samma figur och smala rad i körvyn och planeringen (Klar visar talet, inget sparas)
     else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }               // Rita yta: zontyperna, i körvyn och planeringen (typ först, sedan ritning)
     else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }   // Rita linje: linjetyperna direkt, i körvyn och planeringen — inget tomt mellansteg
   };
   const placeraListSynlig = !!selectedSymbol && !plusRadOppen && !menuOpen && !isDrawMode && !isZoneMode && !isArrowMode && !figur;
-  langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !sparaSomOppen && !prickValt
+  // RITA LINJE/YTA + PIL + NYTT OMRÅDE: samma rad längst ner som placera och mät — vad som pågår, hur långt man kommit, och ↩ ✓ ×.
+  const ritListSynlig = (isDrawMode || isZoneMode) && !plusRadOppen && !menuOpen && !figur;
+  const pilListSynlig = isArrowMode && !!arrowType && !plusRadOppen && !menuOpen && !figur;
+  const omradeListSynlig = omradeRitning && !plusRadOppen && !menuOpen && !figur;
+  const punktText = (n: number) => (n === 0 ? 'tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`);
+  const ritaLinjeTyper = [
+    ...lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')),
+    // Stickväg (röd): samma typ som "Spara som › Stickväg" gav — lineType sideRoadRed, som en vanlig linje
+    ...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg' })),
+  ];
+  const ritNamn = isZoneMode
+    ? `${zoneTypes.find((t) => t.id === zoneType)?.name ?? 'Yta'}${zoneType === 'gallring' && gallringTradslag ? ` · ${GALLRING_TRADSLAG.find((t) => t.id === gallringTradslag)?.name ?? ''}` : ''}`
+    : (ritaLinjeTyper.find((t) => t.id === drawType) ?? lineTypes.find((t) => t.id === drawType))?.name ?? 'Linje';
+  const nRit = currentDrawCoords.length;
+  const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
+  langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
     && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode;
 
@@ -13129,11 +13144,11 @@ export default function PlannerPage() {
   const measureGeoRef = useRef<[number, number][]>([]);
   measureGeoRef.current = measureGeo;
   const figurKlarRef = useRef<() => void>(() => {});
-  figurKlarRef.current = () => setSparaSomOppen(true);
+  figurKlarRef.current = lasMatning;
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    if (!measureMode && !measureAreaMode) return;
+    if ((!measureMode && !measureAreaMode) || measureLocked) return;
     const yta = measureAreaMode;
     const minPunkterNu = yta ? 3 : 2;
     const TRYCK_RADIE_PX = 28;     // ett finger träffar inte exakt — samma storleksordning som en tryckyta
@@ -13160,16 +13175,16 @@ export default function PlannerPage() {
       map.off('click', onClick);
       if (map.doubleClickZoom) map.doubleClickZoom.enable();
     };
-  }, [measureMode, measureAreaMode, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [measureMode, measureAreaMode, measureLocked, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pekaren är ett KORS medan man mäter (inte en hand): klass på kartans container, CSS i stilblocket (!important slår MapLibres inline-cursor).
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !(measureMode || measureAreaMode)) return;
+    if (!map || !mapLibreReady || !(measureMode || measureAreaMode) || measureLocked) return;
     const c = map.getCanvasContainer();
     c.classList.add('mat-kors');
     return () => c.classList.remove('mat-kors');
-  }, [measureMode, measureAreaMode, mapLibreReady]);
+  }, [measureMode, measureAreaMode, measureLocked, mapLibreReady]);
 
   // RISA-DEL via KLICK: två tapp (start + slut) längs den valda basvägen. Samma tap-mönster som
   // mätverktyget — MapLibres 'click' fyrar bara vid tap (utan drag), så drag panorerar fortfarande.
@@ -13527,28 +13542,9 @@ export default function PlannerPage() {
     return Math.max(0, uncheckedSymbols) + newNotes.length;
   })();
 
-  // Aktivt verktygsläge (mode-banner). En mode i taget.
+  // Toppbannern finns kvar för skotningens "Markera utkört" (skotningsspåret äger den). Rita, mät, placera och Nytt område har sin rad längst ner.
   const activeMode: { label: string; onExit: () => void; exitLabel: string; onDone?: () => void; doneLabel?: string } | null =
-    isDrawMode ? {
-      label: drawType === 'boundary' ? 'Ritar traktgräns'
-        : drawType === 'trail' ? 'Ritar stig'
-        : drawType === 'mainRoad' ? 'Ritar huvudväg'
-        : drawType ? `Ritar ${drawType}` : 'Ritar linje',
-      onExit: finishLine,
-      exitLabel: 'Avsluta',
-    } : isZoneMode ? {
-      label: zoneType ? `Ritar zon · ${zoneType}` : 'Ritar zon',
-      onExit: finishZone,
-      exitLabel: 'Avsluta',
-    } : isArrowMode ? {
-      label: 'Placerar pil',
-      onExit: () => { setIsArrowMode(false); setArrowType(null); },
-      exitLabel: 'Avsluta',
-    } : isMeasuring ? {
-      label: 'Mäter',
-      onExit: () => setIsMeasuring(false),
-      exitLabel: 'Avsluta',
-    } : (skotningDrawing && !skotningPanel) ? {
+    (skotningDrawing && !skotningPanel) ? {
       label: 'Markera utkört',
       onExit: () => {
         setSkotningDrawing(false);
@@ -13562,13 +13558,6 @@ export default function PlannerPage() {
       exitLabel: 'Avsluta',
       // "Klar" sluter ringen (visas när ≥3 hörn satts) — samma som tryck nära första hörnet
       onDone: skotningPunkter >= 3 ? () => { if (navigator.vibrate) navigator.vibrate(12); skotningFinalizeRef.current?.(); } : undefined,
-      doneLabel: 'Klar',
-    } : omradeRitning ? {
-      // Egna områden (PR B) — samma ritmekanik/banner som "Markera utkört".
-      label: 'Nytt område',
-      onExit: () => { setOmradeRitning(false); },   // effektens cleanup river canvas + återaktiverar pan
-      exitLabel: 'Avbryt',
-      onDone: omradePunkter >= 3 ? () => { if (navigator.vibrate) navigator.vibrate(12); omradeRitningHandleRef.current?.finalize(); } : undefined,
       doneLabel: 'Klar',
     } : null;
 
@@ -14758,33 +14747,59 @@ export default function PlannerPage() {
           ]}
         />
       )}
-      {/* MÄT/RITA (körvy OCH planering): smal list nertill "579 m · Ångra · Klar · ×" — max 72 px, täcker inte kartan ovanför */}
-      {figur && !sparaSomOppen && (() => {
+      {/* PIL: samma rad som placera symbol */}
+      {pilListSynlig && (
+        <KorvyNertillList
+          testid="pil-list"
+          smal={smalSkarm}
+          text={`Tryck där ${arrowTypes.find((t) => t.id === arrowType)?.name ?? 'pilen'} ska stå`}
+          knappar={[AVBRYT_KNAPP(() => { setIsArrowMode(false); setArrowType(null); }, 'pil-avbryt')]}
+        />
+      )}
+      {/* RITA LINJE/YTA: EN rad längst ner — typen och hur långt man kommit ("Basväg · 120 m", "Ej framkomlig · 4 punkter") — och ↩ ✓ × */}
+      {ritListSynlig && (
+        <KorvyNertillList
+          testid="rita-list"
+          smal={smalSkarm}
+          text={`${ritNamn} · ${ritFramsteg}`}
+          knappar={[
+            { etikett: '↩', aria: 'Ångra', onClick: undoLastSegment, av: ritaHistoria.length === 0, testid: 'rita-angra' },
+            { etikett: '✓', aria: 'Klar', onClick: isZoneMode ? finishZone : finishLine, av: nRit < (isZoneMode ? 3 : 2), gron: true, testid: 'rita-klar' },
+            AVBRYT_KNAPP(cancelDrawing, 'rita-avbryt'),
+          ]}
+        />
+      )}
+      {/* NYTT OMRÅDE: samma rad — antal hörn, ↩ ✓ × (✓ från tre hörn; tryck nära första hörnet sluter också) */}
+      {omradeListSynlig && (
+        <KorvyNertillList
+          testid="omrade-list"
+          smal={smalSkarm}
+          text={`Nytt område · ${punktText(omradePunkter)}`}
+          knappar={[
+            { etikett: '↩', aria: 'Ångra', onClick: () => omradeRitningHandleRef.current?.angra(), av: omradePunkter < 1, testid: 'omrade-angra' },
+            { etikett: '✓', aria: 'Klar', onClick: () => omradeRitningHandleRef.current?.finalize(), av: omradePunkter < 3, gron: true, testid: 'omrade-klar' },
+            AVBRYT_KNAPP(() => setOmradeRitning(false), 'omrade-avbryt'),
+          ]}
+        />
+      )}
+      {/* MÄT (körvy OCH planering): EN rad längst ner — "Mät yta · 1,4 ha", ↩ ✓ ×. Klar låser och visar talet; inget sparas. */}
+      {figur && (() => {
         const n = measureGeo.length;
         const e = figurEtikett(measureGeo, figur.yta);
+        const klar = !!measureLocked;
         return (
           <KorvyNertillList
             testid="figur-list"
             smal={smalSkarm}
-            text={e ? e.text : n === 0 ? 'Tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`}
+            text={`${figur.yta ? 'Mät yta' : 'Mät sträcka'} · ${e ? e.text : punktText(n)}${klar ? ' · klar' : ''}`}
             knappar={[
-              { etikett: 'Ångra', onClick: angraSista, av: n === 0, testid: 'figur-angra' },
-              { etikett: 'Klar', onClick: () => setSparaSomOppen(true), av: n < minPunkter(figur.yta ? 'yta' : 'linje'), gron: true, testid: 'figur-klar' },
+              { etikett: '↩', aria: 'Ångra', onClick: angraMatning, av: n === 0, testid: 'figur-angra' },
+              { etikett: '✓', aria: 'Klar', onClick: lasMatning, av: klar || n < (figur.yta ? 3 : 2), gron: true, testid: 'figur-klar' },
               AVBRYT_KNAPP(avslutaFigur, 'figur-kasta'),
             ]}
           />
         );
       })()}
-      {figur && sparaSomOppen && (
-        <KorvySparaSom
-          mattText={figurEtikett(measureGeo, figur.yta)?.text ?? ''}
-          val={valForFigur(figur.yta ? 'yta' : 'linje')}
-          smal={smalSkarm}
-          onVal={sparaFigurSom}
-          onTillbaka={() => setSparaSomOppen(false)}
-          onKasta={avslutaFigur}
-        />
-      )}
       {/* PRICK (körvy): tryck → vad det är + Ta bort */}
       {korvyActive && prickValt && (
         <KorvyNertillList
@@ -14797,7 +14812,7 @@ export default function PlannerPage() {
           ]}
         />
       )}
-      {korvyActive && korvyKvitto && !plusRadOppen && !sparaSomOppen && !prickValt && !figur && !placeraListSynlig && (
+      {korvyActive && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
         <KorvyKvitto text={korvyKvitto.text} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
       )}
 
@@ -17014,190 +17029,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === MÄTNINGS-INDIKATOR === */}
-      {/* Ersatt av det samlade geo-mätverktyget (siffra + Rensa/Stäng) högre upp. */}
-      {false && measureMode && !isMeasuring && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 200,
-        }}>
-          {measurePath.length > 1 ? (
-            <>
-              {/* Börja om */}
-              <button
-                onClick={() => setMeasurePath([])}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ↩
-              </button>
-              {/* Klar */}
-              <button
-                onClick={() => {
-                  setMeasureMode(false);
-                  setMeasurePath([]);
-                  setIsMeasuring(false);
-                }}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: '#30d158',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ✓
-              </button>
-            </>
-          ) : (
-            <>
-              <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta</span>
-            </>
-          )}
-          {/* Stäng */}
-          <button
-            onClick={() => {
-              setMeasureMode(false);
-              setMeasurePath([]);
-              setIsMeasuring(false);
-            }}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* === YTMÄTNINGS-INDIKATOR === */}
-      {/* Ersatt av det samlade geo-mätverktyget högre upp. */}
-      {false && measureAreaMode && !isMeasuring && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 200,
-        }}>
-          {measurePath.length > 2 ? (
-            <>
-              {/* Börja om */}
-              <button
-                onClick={() => setMeasurePath([])}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ↩
-              </button>
-              {/* Klar */}
-              <button
-                onClick={() => {
-                  setMeasureAreaMode(false);
-                  setMeasurePath([]);
-                  setIsMeasuring(false);
-                }}
-                style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: '#30d158',
-                  color: '#fff',
-                  fontSize: '17px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ✓
-              </button>
-            </>
-          ) : (
-            <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta yta</span>
-          )}
-          {/* Stäng */}
-          <button
-            onClick={() => {
-              setMeasureAreaMode(false);
-              setMeasurePath([]);
-              setIsMeasuring(false);
-            }}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* === GPS-SPÅRNINGS-INDIKATOR === */}
       {gpsLineType && isTracking && !stickvagMode && (
         <div style={{
@@ -17304,160 +17135,6 @@ export default function PlannerPage() {
           </button>
         </div>
       )}
-
-      {/* === AKTIV RITNING INDIKATOR === */}
-      {(isDrawMode || isZoneMode) && currentDrawCoords.length > 1 && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 700,
-        }}>
-          {/* Ångra */}
-          <button
-            onClick={undoLastSegment}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ↩
-          </button>
-          
-          {/* Klar */}
-          <button
-            onClick={() => isDrawMode ? finishLine() : finishZone()}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: '#30d158',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✓
-          </button>
-          
-          {/* Avbryt */}
-          <button
-            onClick={cancelDrawing}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
-      {/* Dra för att rita - visas innan man börjat */}
-      {(isDrawMode || isZoneMode) && currentDrawCoords.length === 0 && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-          zIndex: 700,
-        }}>
-          <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
-          <button
-            onClick={cancelDrawing}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
-      {/* Placera symbol/pil */}
-      {(isArrowMode || selectedSymbol) && (
-        <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-          padding: '4px',
-
-        }}>
-          <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Tryck för att placera</span>
-          <button
-            onClick={cancelDrawing}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.06)',
-              color: '#fff',
-              fontSize: '17px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
 
       {/* === VARNINGSAVSTÅND (per kategori) === */}
       {warningMenuOpen && !briefingMode && (
@@ -17882,7 +17559,7 @@ export default function PlannerPage() {
                   borderRadius: '16px',
                   padding: '16px',
                 }}>
-                  {lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (
+                  {ritaLinjeTyper.map(type => (
                     <div
                       key={type.id}
                       onClick={() => {

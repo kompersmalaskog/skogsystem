@@ -14,6 +14,8 @@ export interface PolygonRitningHandle {
   avbryt: () => void;
   /** Antal satta hörn just nu. */
   antal: () => number;
+  /** Ta bort senast satta hörn (↩). No-op utan hörn. */
+  angra: () => void;
 }
 
 export interface PolygonRitningOpts {
@@ -146,7 +148,14 @@ export function startaPolygonRitning(opts: PolygonRitningOpts): PolygonRitningHa
   map.on('move', drawOverlay);
   try { map.getCanvasContainer().classList.add('skotning-rita'); } catch { /* */ }
 
-  return { finalize, avbryt: teardown, antal: () => coords.length };
+  const angra = () => {
+    if (rivits || coords.length === 0) return;
+    coords.pop();
+    opts.onPunkter?.(coords.length);
+    drawOverlay();
+  };
+
+  return { finalize, avbryt: teardown, antal: () => coords.length, angra };
 }
 
 /** #rrggbb → rgba(r,g,b,a). Faller tillbaka till grön vid ogiltig hex. */

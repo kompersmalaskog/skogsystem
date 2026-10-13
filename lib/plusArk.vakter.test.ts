@@ -119,10 +119,11 @@ describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon som för
 describe('Rita & mät: SJU rutor — alla ritverktyg, inga dubbletter, och ingen annanstans', () => {
   const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
   const tryck = mellan(page, 'const trycktPlusPost = ', 'const placeraListSynlig');
-  it('sju rutor i den här ordningen: Rita linje, Rita yta, Nytt område (bara planerare), Pilar, Mät sträcka, Mät yta, Spåra med GPS', () => {
+  it('sju rutor i den här ordningen: Rita linje, Rita yta, Nytt område (alla), Pilar, Mät sträcka, Mät yta, Spåra med GPS', () => {
     const ids = Array.from(rita.matchAll(/\{ id: '([a-z]+)', titel:/g)).map((m) => m[1]);
     expect(ids).toEqual(['linje', 'yta', 'omrade', 'pilar', 'strackan', 'matyta', 'gps']);
-    expect(rita).toContain("...(isAdminRiktig ? [{ id: 'omrade', titel: 'Nytt område'");
+    expect(rita).not.toContain('isAdminRiktig');   // Nytt område för alla: ersätter Spara som › Yta, som alla (även förare) hade
+    expect(rita).toContain("{ id: 'omrade', titel: 'Nytt område', ikon: 'omrade', onTryck:");
   });
   it('INGA dubbletter: rutorna Linjer, Zoner och Mätning finns inte (de gjorde samma sak som Rita linje, Rita yta och Mät sträcka/Mät yta)', () => {
     for (const s of ["titel: 'Linjer'", "titel: 'Zoner'", "titel: 'Mätning'", "id: 'linjer'", "id: 'zoner'", "id: 'matning'", 'oppnaMeny', "setActiveCategory('measure')"]) expect(rita, s).not.toContain(s);
@@ -131,16 +132,16 @@ describe('Rita & mät: SJU rutor — alla ritverktyg, inga dubbletter, och ingen
   });
   it('rutorna startar sina verktyg: Pilar öppnar pil-menyn, Nytt område samma ritläge, Mät sträcka/yta samma figur, Spåra med GPS samma undermeny', () => {
     for (const s of [
-      "{ id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); setActiveCategory('arrows'); setMenuOpen(true); } }",
-      "const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 });",
+      "{ id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('arrows'); setMenuOpen(true); } }",
+      "stangPlus(); avslutaPagaendeLage(); const map = mapInstanceRef.current; setOmradeRitning(true); if (map) map.easeTo({ pitch: 0, bearing: 0, duration: 400 });",
       "id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan')",
       "id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta')",
-      "id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); }",
+      "id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); }",
       "id: 'linje', titel: RITA_NAMN.linje, ikon: 'linje', onTryck: () => trycktPlusPost('rita:linje')",
       "id: 'yta', titel: RITA_NAMN.yta, ikon: 'yta', onTryck: () => trycktPlusPost('rita:yta')",
     ]) expect(rita, s).toContain(s);
   });
-  it('Rita linje / Rita yta: typlistan FÖRST, i körvyn (hytten) OCH planeringsvyn — linjetyperna direkt (inget tomt mellansteg), zontyperna; ingen ritfigur/Spara som-väg för dem', () => {
+  it('Rita linje / Rita yta: typlistan FÖRST, i körvyn (hytten) OCH planeringsvyn — linjetyperna direkt (inget tomt mellansteg), zontyperna; ingen ritfigur för dem', () => {
     expect(tryck).toContain("if (post.typ === 'matning') startaFigur(yta);");
     expect(tryck).toContain("else if (yta) { setActiveCategory('zones'); setMenuOpen(true); }");
     expect(tryck).toContain("else { setActiveCategory('lines'); setSubMenu('draw-lines'); setMenuOpen(true); }");
@@ -167,7 +168,9 @@ describe('Rita & mät: SJU rutor — alla ritverktyg, inga dubbletter, och ingen
     const rit = mellan(page, '{/* Linjer - Rita */}', '{/* === ZONER === */}');
     const gps = mellan(page, '{/* Linjer - GPS */}', '{/* Linjer - Rita */}');
     const filter = "lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (";
-    expect(rit).toContain(filter);
+    // Rita linje: samma lista som förut + Stickväg (röd) sist (ritaLinjeTyper, se enRad.vakter.test.ts); GPS-listan är oförändrad
+    expect(rit).toContain('{ritaLinjeTyper.map(type => (');
+    expect(page).toContain("const ritaLinjeTyper = [\n    ...lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')),");
     expect(gps).toContain(filter);
     expect(rit).toContain('setDrawType(type.id);');
     expect(rit).toContain('setIsDrawMode(true);');
