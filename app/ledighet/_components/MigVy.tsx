@@ -20,7 +20,7 @@ import Toast from './Toast';
  * medarbetare_saldo; ansökningar filtreras på egen medarbetare_id.
  */
 export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare }) {
-  const { saldo, saldoSaknas, ansokningar, laddar, lasfel, hamtaOm } = useLedighetData(medarbetare.id);
+  const { saldo, saldoSaknas, saldoLasfel, ansokningar, laddar, lasfel, hamtaOm } = useLedighetData(medarbetare.id);
   const [formOppen, setFormOppen] = useState(false);
   const [redigerar, setRedigerar] = useState<Ansokan | null>(null);
   const [fel, setFel] = useState<string | null>(null);
@@ -28,6 +28,10 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
 
   const arGodkannare = medarbetare.roll === 'admin';
   const idag = toISO(new Date());
+  // Ansök kräver att ansökningarna ÄR lästa: dubbelbokning och krock jämförs mot dem.
+  // Medan de läses, eller när läsningen felade, är listan tom (eller gammal) — då
+  // skulle en överlappande ansökan godkännas utan varning.
+  const kanAnsoka = !laddar && !lasfel;
 
   const mina = useMemo(
     () => ansokningar.filter(a => a.medarbetare_id === medarbetare.id),
@@ -72,21 +76,22 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     <div style={{ fontFamily: ff }}>
       <Toast text={fel} onDold={() => setFel(null)} />
 
-      {arGodkannare && (
+      {arGodkannare && !lasfel && (
         <GodkannSektion vantande={vantandeAlla} onKlar={hamtaOm} visaFel={setFel} />
       )}
 
       <div style={{ marginBottom: 20 }}>
-        <SaldoKort saldo={saldo} saldoSaknas={saldoSaknas} />
+        <SaldoKort saldo={saldo} saldoSaknas={saldoSaknas} saldoLasfel={saldoLasfel} />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <span style={{ fontSize: 16, fontWeight: 700, color: C.t1 }}>Mina ansökningar</span>
-        <button onClick={() => { setRedigerar(null); setFormOppen(true); }} style={{
+        <button disabled={!kanAnsoka} onClick={() => { setRedigerar(null); setFormOppen(true); }} style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px',
           borderRadius: 10, border: 'none',
           background: C.blue, color: '#fff', fontSize: 13, fontWeight: 600,
-          fontFamily: ff, cursor: 'pointer',
+          fontFamily: ff, cursor: kanAnsoka ? 'pointer' : 'default',
+          opacity: kanAnsoka ? 1 : 0.4,
         }}>
           + Ansök om ledighet
         </button>

@@ -12,8 +12,14 @@ function fmtTal(v: number): string {
 /**
  * Två saldokort — värdena kommer LAGRADE ur medarbetare_saldo (manuellt/Fortnox),
  * aldrig beräknade ur ansökningar. NULL betyder "okänt", aldrig 0.
+ *
+ * Tre olika "tomt" som aldrig får blandas ihop:
+ *  - `saldoLasfel`: läsningen FELADE — vi vet inget. Kortet säger det, och påstår
+ *    inte "Kopplas via Fortnox" / "Inte satt ännu" (det är kunskap vi inte har).
+ *  - `saldoSaknas`: läsningen gick bra men raden finns inte (nyanställd utan seed).
+ *  - NULL i fältet: raden finns, admin har inte satt värdet / Fortnox är inte kopplat.
  */
-export default function SaldoKort({ saldo, saldoSaknas }: { saldo: Saldo | null; saldoSaknas: boolean }) {
+export default function SaldoKort({ saldo, saldoSaknas, saldoLasfel = false }: { saldo: Saldo | null; saldoSaknas: boolean; saldoLasfel?: boolean }) {
   const uppdaterad = saldo ? `uppdaterad ${fmtTidpunkt(saldo.uppdaterad_at)}` : null;
 
   const tomText = (text: string, hint: string) => (
@@ -28,7 +34,9 @@ export default function SaldoKort({ saldo, saldoSaknas }: { saldo: Saldo | null;
       {/* ATK — timmar */}
       <div style={kortStyle}>
         <div style={labelStyle}>ATK KVAR</div>
-        {saldoSaknas ? (
+        {saldoLasfel ? (
+          tomText('Kunde inte läsas', 'ladda om appen')
+        ) : saldoSaknas ? (
           tomText('Saldo saknas', 'be admin lägga upp dig')
         ) : saldo?.atk_timmar_kvar == null ? (
           tomText('Kopplas via Fortnox', 'ingen siffra ännu')
@@ -45,7 +53,9 @@ export default function SaldoKort({ saldo, saldoSaknas }: { saldo: Saldo | null;
       {/* Semester — dagar */}
       <div style={kortStyle}>
         <div style={labelStyle}>SEMESTER KVAR</div>
-        {saldoSaknas ? (
+        {saldoLasfel ? (
+          tomText('Kunde inte läsas', 'ladda om appen')
+        ) : saldoSaknas ? (
           tomText('Saldo saknas', 'be admin lägga upp dig')
         ) : saldo?.semester_dagar_kvar == null ? (
           tomText('Inte satt ännu', 'admin sätter ditt saldo')
