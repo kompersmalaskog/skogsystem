@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  veckoText, antalVeckor, arLangPeriod, arDagIPerioden, manadVeckor, manadRubrik, flyttaManad, borjarText, slutarText, slutMandag, langdVeckor,
+  veckoText, antalVeckor, arLangPeriod, arDagIPerioden, manadVeckor, manadRubrik, flyttaManad, borjarText, slutVardeText, veckorText, langdVeckor,
   krockarIVecka, krockarIUrval, krockText, krockMening, periodNamn, slutFranMandag, kontrolleraPeriod, delaUpp, loneperioderBerorda,
   arExporterad, mandagFranSlut, grupperaPerioder, planeraAndring, forareNamn, forareRadText, overenskommenText, overenskommelseRad,
   KRAVER_FACKLIG_OVERENSKOMMELSE, kortDatumMedAr, MAX_VECKOR_UTAN_ÖVERENSKOMMELSE, MAX_NAMN_TECKEN,
@@ -32,16 +32,16 @@ describe("Börjar + Längd: ett tryck sätter måndagen, stegaren sätter antal 
     expect(borjarText("2026-10-05", 2026)).toBe("mån 5 okt · v41");
     expect(borjarText("2027-01-04", 2026)).toBe("mån 4 jan 2027 · v1");
   });
-  it("slutMandag: måndagen i sista veckan (längd 1 = samma vecka)", () => {
-    expect(slutMandag("2026-04-20", 11)).toBe("2026-06-29");
-    expect(slutMandag("2026-04-20", 1)).toBe("2026-04-20");
-    expect(slutMandag("2026-12-21", 3)).toBe("2027-01-04");
+  it("slutVardeText: 'sön 5 jul · v27' — söndagen i sista veckan och dess veckonummer (indata: måndagen i den veckan)", () => {
+    expect(slutVardeText("2026-06-29", 2026)).toBe("sön 5 jul · v27");
+    expect(slutVardeText("2026-04-20", 2026)).toBe("sön 26 apr · v17");
+    expect(slutVardeText("2026-12-28", 2026)).toBe("sön 3 jan 2027 · v53");
+    expect(slutVardeText("2027-02-08", 2026)).toBe("sön 14 feb 2027 · v6");
   });
-  it("slutarText: 'Slutar sön 5 jul · v27' — söndagen i sista veckan och dess veckonummer", () => {
-    expect(slutarText("2026-04-20", 11, 2026)).toBe("Slutar sön 5 jul · v27");
-    expect(slutarText("2026-04-20", 1, 2026)).toBe("Slutar sön 26 apr · v17");
-    expect(slutarText("2026-12-28", 1, 2026)).toBe("Slutar sön 3 jan 2027 · v53");
-    expect(slutarText("2027-02-01", 2, 2026)).toBe("Slutar sön 14 feb 2027 · v6");
+  it("veckorText: '6 veckor', '1 vecka'", () => {
+    expect(veckorText(6)).toBe("6 veckor");
+    expect(veckorText(1)).toBe("1 vecka");
+    expect(veckorText(20)).toBe("20 veckor");
   });
   it("langdVeckor: antal veckor mellan första veckans måndag och sista veckans måndag, inklusive båda", () => {
     expect(langdVeckor("2026-04-20", "2026-06-29")).toBe(11);

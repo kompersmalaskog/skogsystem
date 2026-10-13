@@ -23,20 +23,21 @@
 // ─────────────────────────────────────────────────────────────
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
+import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
 import {
   veckoText, arLangPeriod, slutFranMandag, mandagFranSlut, kontrolleraPeriod, forareNamn, forareRadText, kortDatumMedAr, planeraAndring,
-  krockMening, krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, borjarText, slutarText, slutMandag, langdVeckor,
+  krockMening, krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, borjarText, slutVardeText, veckorText, langdVeckor,
   mandagForDag, KRAVER_FACKLIG_OVERENSKOMMELSE, MAX_NAMN_TECKEN, type PeriodGrupp, type PeriodRad,
 } from "@/lib/admin/utjamningsperiod";
 import { Stod, Tertiar, Destruktiv, Besked, Bekrafta, Sheet, Ikon } from "./ui";
-import PeriodKalender from "./PeriodKalender";
+import PeriodKalender, { type ManadVal } from "./PeriodKalender";
 
 export type Person = { id: string; namn: string | null };
 export type Arbete = { slag: "ny" } | { slag: "redigera"; grupp: PeriodGrupp };
 
 const mandagIdag = () => mandagForDag(ymdLokal(new Date()));
+const manadFor = (dag: string): ManadVal => ({ ar: Number(dag.slice(0, 4)), manad0: Number(dag.slice(5, 7)) - 1 });
 const raderText = (n: number) => (n > 1 ? ` (${n} rader)` : "");
 const navKnapp = { ...KNAPP.lank, width: "auto", display: "inline-flex", alignItems: "center", gap: AVSTAND.xs, fontFamily: "inherit", ...TYP.text } as const;
 /** Lägg till / Spara när något saknas: grå text, inte blå som dämpats. Blå betyder "går att trycka", och det gör den inte. */
@@ -60,10 +61,12 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
 }) {
   const grupp = arbete.slag === "redigera" ? arbete.grupp : null;
   const [namn, setNamn] = useState(grupp ? grupp.namn : "");
-  // Börjar (måndag) + Längd (veckor). En ny period börjar på veckan vi är i och är en vecka lång; en befintlig öppnas som den är.
+  // Börjar (måndag i första veckan) och Slutar (söndag i sista veckan; här som måndagen i den veckan). En ny period är veckan vi är i; en befintlig öppnas som den är.
   const [borjar, setBorjar] = useState(grupp ? grupp.startdatum : mandagIdag());
-  const [langd, setLangd] = useState(grupp ? langdVeckor(grupp.startdatum, mandagFranSlut(grupp.slutdatum)) : 1);
-  const [oppnaKalender, setOppnaKalender] = useState(false);
+  const [sista, setSista] = useState(grupp ? mandagFranSlut(grupp.slutdatum) : mandagIdag());
+  // Vilken rad som har sin kalender utfälld (bara en åt gången) och vilken månad den visar: alltid radens eget datum när den öppnas.
+  const [oppen, setOppen] = useState<"borjar" | "slutar" | null>(null);
+  const [manad, setManad] = useState<ManadVal>(manadFor(grupp ? grupp.startdatum : mandagIdag()));
   // Förare: Alla (en rad med medarbetare_id NULL) och/eller personer (en rad var).
   const [alla, setAlla] = useState(grupp ? grupp.alla : false);
   const [ids, setIds] = useState<string[]>(grupp ? grupp.forare : []);
@@ -78,7 +81,8 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
 
   const val = useMemo(() => ({ alla, ids }), [alla, ids]);
   const antalForare = (alla ? 1 : 0) + ids.length;
-  const till = slutMandag(borjar, langd);                     // måndagen i sista veckan
+  const till = sista;                                         // måndagen i sista veckan
+  const langd = langdVeckor(borjar, till);                    // antal veckor
   const hinder = kontrolleraPeriod({ forsta: borjar, sista: till, namn, antalForare });
   const period = { startdatum: borjar, slutdatum: slutFranMandag(till) };
   const innevarandeAr = new Date().getFullYear();
@@ -218,26 +222,28 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
   const inmatning = { flex: 1, minWidth: 0, minHeight: TRAFFYTA.min, background: "transparent", border: "none", outline: "none", color: FARG.text2, fontFamily: "inherit", textAlign: "right", ...TYP.text } as const;
 
   /** En rad som öppnar något: etikett till vänster, värde och pil till höger. */
-  const knappRad = (k: string, label: string, varde: string, onClick: () => void, oppen: boolean, ref?: React.Ref<HTMLSpanElement>) => (
-    <button type="button" data-falt={k} aria-expanded={oppen} onClick={onClick}
+  const knappRad = (k: string, label: string, varde: string, onClick: () => void, utfalld: boolean, ref?: React.Ref<HTMLSpanElement>, iso?: string) => (
+    <button type="button" data-falt={k} aria-expanded={utfalld} onClick={onClick}
       style={{ ...radInnehall, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
       <span style={etikett}>{label}</span>
-      <span ref={ref} data-varde style={{ flex: 1, minWidth: 0, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", ...TYP.text, color: oppen ? FARG.text : FARG.text2 }}>{varde}</span>
-      <span style={{ display: "inline-flex", transform: oppen ? "rotate(90deg)" : "none" }}><Ikon namn="chevron_right" farg={FARG.text3} /></span>
+      <span ref={ref} data-varde data-iso={iso} style={{ flex: 1, minWidth: 0, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", ...TYP.text, color: utfalld ? FARG.text : FARG.text2 }}>{varde}</span>
+      <span style={{ display: "inline-flex", transform: utfalld ? "rotate(90deg)" : "none" }}><Ikon namn="chevron_right" farg={FARG.text3} /></span>
     </button>
   );
   const inkapsla = (k: string, barn: React.ReactNode, sista = false, ref?: React.Ref<HTMLDivElement>) => <div ref={ref} data-falt-rad={k} style={radStil(sista)}>{barn}</div>;
 
-  // Stegaren: − och + i en kapsel, 44 px träffyta var. Minst 1 vecka.
-  const stegKnapp = (etiketten: string, ikon: string, onClick: () => void, inaktiv: boolean) => (
-    <button type="button" aria-label={etiketten} disabled={inaktiv} onClick={onClick}
-      style={{ width: TRAFFYTA.min, minHeight: TRAFFYTA.min, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", padding: 0, cursor: "pointer", ...(inaktiv ? INAKTIV : null) }}>
-      <Ikon namn={ikon} farg={FARG.text} />
-    </button>
-  );
-
   // §5 mom 2: högst 16 veckor kräver ingen överenskommelse; över 16 veckor krävs en med LOKAL FACKLIG ORGANISATION.
   const arLang = arLangPeriod(period);
+
+  // Tryck på en rad fäller ut dess kalender på radens eget datum (Slutar: slutmånaden); tryck igen, eller på den andra raden, stänger/byter.
+  const oppna = (rad: "borjar" | "slutar") => {
+    if (oppen === rad) { setOppen(null); return; }
+    setOppen(rad);
+    setManad(manadFor(rad === "borjar" ? borjar : slutFranMandag(sista)));
+  };
+  // Ett tryck på en dag sätter bara den radens värde. Börjar snäpper till måndag, Slutar till söndag. Slutar före Börjar flyttas till samma vecka som Börjar.
+  const valjBorjar = (dag: string) => { const m = mandagForDag(dag); setBorjar(m); setSista(s => (s < m ? m : s)); };
+  const valjSlut = (dag: string) => { const m = mandagForDag(dag); setSista(m < borjar ? borjar : m); };
 
   return (
     <Sheet titel={arkTitel} vyNyckel="form" onStang={onStang} attr={attr} overlayAttr={overlayAttr}
@@ -256,24 +262,15 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
           </label>
         ))}
 
-        {inkapsla("borjar", knappRad("borjar", "Börjar", borjarText(borjar, innevarandeAr), () => setOppnaKalender(o => !o), oppnaKalender))}
-        {oppnaKalender && (
-          <PeriodKalender borjar={borjar} langd={langd} krockerIVecka={krockerIVecka}
-            onTryck={dag => setBorjar(mandagForDag(dag))} />
+        {inkapsla("borjar", knappRad("borjar", "Börjar", borjarText(borjar, innevarandeAr), () => oppna("borjar"), oppen === "borjar", undefined, borjar))}
+        {oppen === "borjar" && (
+          <PeriodKalender borjar={borjar} sista={sista} markera="borjar" manad={manad} onManad={setManad} krockerIVecka={krockerIVecka} onTryck={valjBorjar} />
         )}
-
-        {inkapsla("langd", (
-          <div style={radInnehall}>
-            <span style={etikett}>Längd</span>
-            <span style={{ flex: 1 }} />
-            <span data-langd-varde style={{ ...TYP.text, color: FARG.text2 }}>{langd} v</span>
-            <span style={{ display: "inline-flex", background: FARG.upphojt, borderRadius: RADIE.rad }}>
-              {stegKnapp("Minska längd", "remove", () => setLangd(n => Math.max(1, n - 1)), langd <= 1)}
-              {stegKnapp("Öka längd", "add", () => setLangd(n => n + 1), false)}
-            </span>
-          </div>
-        ), true)}
-        <div data-slutar style={{ ...TYP.meta, color: FARG.text2, padding: `0 ${AVSTAND.m}px ${AVSTAND.m}px`, ...radStil(arLang) }}>{slutarText(borjar, langd, innevarandeAr)}</div>
+        {inkapsla("slutar", knappRad("slutar", "Slutar", slutVardeText(sista, innevarandeAr), () => oppna("slutar"), oppen === "slutar", undefined, slutFranMandag(sista)), true)}
+        {oppen === "slutar" && (
+          <PeriodKalender borjar={borjar} sista={sista} markera="slutar" manad={manad} onManad={setManad} krockerIVecka={krockerIVecka} onTryck={valjSlut} />
+        )}
+        <div data-veckor style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.s}px ${AVSTAND.m}px ${AVSTAND.m}px`, ...radStil(arLang) }}>{veckorText(langd)}</div>
 
         {arLang && (
           <div data-overenskommelse-krav style={{ ...TYP.meta, color: overenskommen ? FARG.text2 : FARG.orange, padding: `0 ${AVSTAND.m}px ${AVSTAND.m}px` }}>

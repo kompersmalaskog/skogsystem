@@ -58,15 +58,14 @@ export function borjarText(mandag: string, innevarandeAr: number): string {
   return `${VECKODAG_KORT[d.getDay()]} ${d.getDate()} ${MAN_KORT[d.getMonth()]}${d.getFullYear() === innevarandeAr ? "" : ` ${d.getFullYear()}`} · v${isoVecka(d).vecka}`;
 }
 
-/** Måndagen i sista veckan för en period som börjar `borjar` (måndag) och är `langd` veckor lång (minst 1). */
-export const slutMandag = (borjar: string, langd: number) => iso(dagar(lokal(borjar), 7 * (Math.max(1, langd) - 1)));
-
-/** Raden under Längd: 'Slutar sön 5 jul · v27' — söndagen i sista veckan och veckans nummer. */
-export function slutarText(borjar: string, langd: number, innevarandeAr: number): string {
-  const sistaMandag = slutMandag(borjar, langd);
+/** Värdet på raden Slutar: 'sön 5 jul · v27' — söndagen i sista veckan (`sistaMandag` = måndagen i den veckan) och veckans nummer. */
+export function slutVardeText(sistaMandag: string, innevarandeAr: number): string {
   const d = lokal(slutFranMandag(sistaMandag));
-  return `Slutar ${VECKODAG_KORT[d.getDay()]} ${d.getDate()} ${MAN_KORT[d.getMonth()]}${d.getFullYear() === innevarandeAr ? "" : ` ${d.getFullYear()}`} · v${isoVecka(lokal(sistaMandag)).vecka}`;
+  return `${VECKODAG_KORT[d.getDay()]} ${d.getDate()} ${MAN_KORT[d.getMonth()]}${d.getFullYear() === innevarandeAr ? "" : ` ${d.getFullYear()}`} · v${isoVecka(lokal(sistaMandag)).vecka}`;
 }
+
+/** Raden under datumraderna: '6 veckor' (grå), '1 vecka'. */
+export const veckorText = (antal: number) => `${antal} ${antal === 1 ? "vecka" : "veckor"}`;
 
 /** Antal veckor från första veckans måndag till sista veckans måndag, inklusive båda. */
 export const langdVeckor = (fran: string, till: string) => antalVeckor({ startdatum: fran, slutdatum: slutFranMandag(till) });
