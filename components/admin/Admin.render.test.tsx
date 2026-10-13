@@ -10,6 +10,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { FARG } from "@/lib/design/tokens";
 import { analyseraVilobrott, medPerioddagSpann } from "@/lib/vilobrott";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 
@@ -67,7 +68,7 @@ vi.mock("@/lib/supabase", () => {
       let traff: any[] = [];
       if (this.mode === "update") { traff = tab.filter(r => this.f.every(fn => fn(r))); traff.forEach(r => Object.assign(r, this.vals)); }
       else if (this.mode === "delete") { traff = tab.filter(r => this.f.every(fn => fn(r))); db[this.t] = tab.filter(r => !traff.includes(r)); }
-      else { const nya = (Array.isArray(this.vals) ? this.vals : [this.vals]).map((v: any) => ({ id: `ny-${tab.length}`, ...v })); tab.push(...nya); traff = nya; }
+      else { const nya = (Array.isArray(this.vals) ? this.vals : [this.vals]).map((v: any, i: number) => ({ id: `ny-${tab.length + i}`, ...v })); tab.push(...nya); traff = nya; }
       return klar({ data: this.valjSkrivet ? traff.map(r => ({ ...r })) : null, error: null, count: null });
     }
   }
@@ -211,7 +212,7 @@ async function monter(sp: string, el?: React.ReactElement) {
   await lugn();
 }
 const egenText = (e: Element) => Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent || "").join("").trim();
-const blad = (t: string) => Array.from(cont.querySelectorAll<HTMLElement>("*")).filter(e => egenText(e) === t);
+const blad = (t: string) => Array.from(document.body.querySelectorAll<HTMLElement>("*")).filter(e => egenText(e) === t);
 async function klick(t: string, narmast?: string) {
   const el = blad(t)[0];
   if (!el) throw new Error("hittar inte: " + t + " — sidan säger: " + text().slice(0, 400));
@@ -512,35 +513,136 @@ describe("Avtal", () => {
 });
 
 describe("Avtal → Utjämningsperioder", () => {
-  // idag = 7 okt 2026. Gävle v17–27 är avslutad; "Nu" pågår; "Senare" kommer.
-  const GAVLE = { id: "p-gavle", startdatum: "2026-04-20", slutdatum: "2026-07-05", medarbetare_id: null, anteckning: "Gävle, ordinarie tid utlagd ojämnt", skapad_av: "migration", skapad_at: "2026-09-18T10:00:00Z" };
-  const NU = { id: "p-nu", startdatum: "2026-10-05", slutdatum: "2026-10-18", medarbetare_id: "m1", anteckning: "Anna, skogsbruksplan", skapad_av: "Erik Lind", skapad_at: "2026-10-01T10:00:00Z" };
-  const SENARE = { id: "p-senare", startdatum: "2026-11-02", slutdatum: "2026-11-15", medarbetare_id: null, anteckning: "Hela laget, vinterlager", skapad_av: "Erik Lind", skapad_at: "2026-10-02T10:00:00Z" };
+  // idag = 7 okt 2026 (onsdag, v41). Gävle v17–27 är avslutad (en grupp: Alla + Anna + Erik); "Anna" pågår; "Vinter" kommer.
+  const G = { namn: "Gävle", startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "Gävle, ordinarie tid utlagd ojämnt", skapad_av: "migration", skapad_at: "2026-09-18T10:00:00Z" };
+  const GAVLE = { id: "g-alla", ...G, medarbetare_id: null };
+  const GAVLE_ANNA = { id: "g-anna", ...G, medarbetare_id: "m1" };
+  const GAVLE_ERIK = { id: "g-erik", ...G, medarbetare_id: "m2" };
+  const NU = { id: "p-nu", namn: "Anna", startdatum: "2026-10-05", slutdatum: "2026-10-18", medarbetare_id: "m1", anteckning: "Anna, skogsbruksplan", skapad_av: "Erik Lind", skapad_at: "2026-10-01T10:00:00Z" };
+  const SENARE = { id: "p-senare", namn: "Vinter", startdatum: "2026-11-02", slutdatum: "2026-11-15", medarbetare_id: null, anteckning: "Hela laget, vinterlager", overenskommen_datum: "2026-10-01", skapad_av: "Erik Lind", skapad_at: "2026-10-02T10:00:00Z" };
+  // 17 veckor (v2–18): över 16 veckor kräver §5 mom 2 en överenskommelse med lokal facklig organisation
+  const LANG = { id: "p-lang", namn: "Lång", startdatum: "2026-01-05", slutdatum: "2026-05-03", medarbetare_id: null, anteckning: "", skapad_av: "Erik Lind", skapad_at: "2026-01-02T10:00:00Z" };
+  const kopia = (...r: any[]) => r.map(x => ({ ...x }));
   const sektion = () => cont.querySelector<HTMLElement>("[data-utjamning]")!;
   const sText = () => (sektion()?.textContent || "").replace(/\s+/g, " ");
   const rader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-utjamning-rad]"));
-  const ark = () => cont.querySelector<HTMLElement>("[data-utjamning-ark]");
+  const ark = () => document.querySelector<HTMLElement>("[data-utjamning-ark]");
+  const overlay = () => document.querySelector<HTMLElement>("[data-utjamning-overlay]");
   const arkText = () => (ark()?.textContent || "").replace(/\s+/g, " ");
-  const sparaKnapp = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("[data-utjamning-ark] button")).find(b => (b.textContent || "").trim() === "Spara")!;
+  /** Knappen uppe till höger i navigationsraden: "Lägg till" (ny period) eller "Spara" (ändra). */
+  const sparaKnapp = () => document.querySelector<HTMLButtonElement>("[data-utjamning-ark] [data-spara]")!;
   const oppnaNy = async () => { await klick("Ny period"); };
-  const fyll = async (forsta: string, sista: string, anteckning: string) => {
-    await valj(valFalt("Första veckan"), forsta);
-    await valj(valFalt("Sista veckan"), sista);
-    await skriv(falt("Anteckning"), anteckning);
+  const skrivningar = () => g.__skriv.filter((x: any) => x.tabell === "utjamningsperiod");
+  const radFalt = (k: string) => document.querySelector<HTMLElement>(`[data-utjamning-ark] [data-falt="${k}"]`)!;
+  const varde = (k: string) => (radFalt(k).querySelector("[data-varde]")?.textContent || "").trim();
+  const panel = (k: string) => document.querySelector<HTMLElement>(`[data-utjamning-ark] [data-panel="${k}"]`);
+  const tryckRad = async (k: string) => { const el = radFalt(k); if (!el) throw new Error("ingen rad " + k); await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
+  const klickEl = async (el: HTMLElement) => { await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
+  const dagEl = (d: string) => document.querySelector<HTMLElement>(`[data-utjamning-ark] [data-dag="${d}"]`);
+  const kalender = () => document.querySelector<HTMLElement>("[data-utjamning-ark] [data-period-kalender]");
+  /** Månaden som kalendern visar: '2026-10'. */
+  const synligManad = () => document.querySelector<HTMLElement>("[data-utjamning-ark] [data-manad-nu]")?.getAttribute("data-manad-nu") || "";
+  /** Vilken rads kalender som är öppen ('borjar' | 'slutar') eller null. */
+  const oppenRad = () => kalender()?.getAttribute("data-period-kalender") || null;
+  const knappMed = (etikett: string) => document.querySelector<HTMLButtonElement>(`[data-utjamning-ark] [aria-label="${etikett}"]`)!;
+  /** Fäller ut radens kalender (stänger den andra). Gör inget om den redan är öppen. */
+  const oppnaRad = async (rad: "borjar" | "slutar") => { if (oppenRad() !== rad) await tryckRad(rad); };
+  const oppnaBorjar = () => oppnaRad("borjar");
+  /** Visar månaden för datumet i radens kalender, med ‹ ›. */
+  async function visaManad(datum: string, rad: "borjar" | "slutar" = "borjar") {
+    await oppnaRad(rad);
+    for (let i = 0; i < 80 && synligManad() !== datum.slice(0, 7); i++) await klickEl(knappMed(synligManad() < datum.slice(0, 7) ? "Nästa månad" : "Föregående månad"));
+    if (synligManad() !== datum.slice(0, 7)) throw new Error("kom inte till " + datum + " — visar " + synligManad());
+  }
+  /** Ett tryck på en dag i bladet. Kalendern förblir öppen. */
+  const tryckDag = async (dag: string) => { await klickEl(dagEl(dag)!); };
+  /** Sätter Börjar: öppnar Börjar-kalendern, bläddrar dit och trycker på dagen. */
+  const valjBorjar = async (dag: string) => { await visaManad(dag, "borjar"); await tryckDag(dag); };
+  /** Sätter Slutar: öppnar Slutar-kalendern, bläddrar dit och trycker på dagen. */
+  const valjSlut = async (dag: string) => { await visaManad(dag, "slutar"); await tryckDag(dag); };
+  const iso = (k: "borjar" | "slutar") => radFalt(k).querySelector<HTMLElement>("[data-varde]")!.getAttribute("data-iso")!;
+  /** Antal veckor, som '11 v' (raden under datumraderna säger '11 veckor'). */
+  const langd = () => { const t = (document.querySelector("[data-veckor]")?.textContent || "").replace(/\s+/g, " ").trim(); return t.replace(/ veckor?$/, " v"); };
+  /** Raden Slutar som text: 'Slutar sön 5 jul · v27'. */
+  const slutar = () => "Slutar " + varde("slutar");
+  const antalVeckorNu = () => parseInt(langd(), 10);
+  const mandagMs = (d: string) => { const [y, m, dd] = d.split("-").map(Number); const x = new Date(y, m - 1, dd); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()); };
+  const plusDagar = (d: string, n: number) => { const [y, m, dd] = d.split("-").map(Number); const x = new Date(y, m - 1, dd + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
+  /** Genväg: Slutar så att perioden blir n veckor lång, räknat från Börjar (söndagen i vecka n). */
+  const sattLangd = async (n: number) => { await valjSlut(plusDagar(iso("borjar"), 7 * n - 1)); if (antalVeckorNu() !== n) throw new Error("längd " + langd() + " ≠ " + n); };
+  /** Välj Börjar (en dag i första veckan) och Slutar (en dag i sista veckan). Kalendern stängs efteråt: det är bara en genväg i testerna. */
+  const valjPeriod = async (franDag: string, tillDag: string) => {
+    await valjBorjar(franDag);
+    await valjSlut(tillDag);
+    if (kalender()) await tryckRad(oppenRad()!);
   };
+  const bockar = () => Array.from(document.querySelectorAll<HTMLElement>('[data-utjamning-ark] [role="checkbox"]'));
+  const bock = (namn: string) => { const b = bockar().find(e => e.getAttribute("data-namn") === namn); if (!b) throw new Error("ingen bock: " + namn + " — " + bockar().map(e => e.getAttribute("data-namn")).join("|")); return b; };
+  const klickaBock = async (namn: string) => { await klickEl(bock(namn)); };
+  const oppnaForare = async () => { if (!document.querySelector("[data-forare-vy]")) await tryckRad("forare"); };
+  const tillbakaKnapp = () => document.querySelector<HTMLButtonElement>("[data-utjamning-ark] [data-tillbaka]");
+  /** Tillbakapilen uppe till vänster i förarlistan. Valet sparas redan: state ligger i arket. */
+  const tillbaka = async () => { const k = tillbakaKnapp(); if (!k) throw new Error("ingen tillbakapil"); await klickEl(k); };
+  const klar = tillbaka;
+  /** Bocka en förare i förarlistan och gå tillbaka till formuläret. */
+  const tryckBock = async (namn: string) => { await oppnaForare(); await klickaBock(namn); await tillbaka(); };
+  const ibockad = (namn: string) => bock(namn).getAttribute("aria-checked") === "true";
+  /** Fältet med etiketten INOM arket: Avtal-sidan bakom har också ett fält som heter Namn (avtalets). */
+  const arkFalt = (label: string) => {
+    const l = Array.from(ark()!.querySelectorAll<HTMLLabelElement>("label")).find(e => (e.textContent || "").trim() === label);
+    if (!l) throw new Error("hittar inget fält i arket: " + label);
+    return document.getElementById(l.htmlFor) as HTMLInputElement;
+  };
+  const namnge = async (t: string) => { await skriv(arkFalt("Namn"), t); };
+  const anteckna = async (t: string) => { await skriv(arkFalt("Anteckning (valfri)"), t); };
+  const spara = async () => { await act(async () => { sparaKnapp().click(); }); await lugn(); };
+  const status = () => (document.querySelector("[data-utjamning-status]")?.textContent || "").replace(/\s+/g, " ");
+  const krockRad = () => document.querySelector<HTMLElement>("[data-krock-varning]");
+  /** Färgen som webbläsaren/jsdom skriver ut för en hex-token (style.color normaliseras till rgb). */
+  const farg = (hex: string) => { const e = document.createElement("span"); e.style.color = hex; return e.style.color; };
 
-  it("listan: kommande och pågående överst (tidigast först), avslutade under med egen rubrik; 'v17–27' och vem det gäller", async () => {
-    g.__db.utjamningsperiod = [GAVLE, SENARE, NU].map(x => ({ ...x }));
+  // ── Listan: EN period = EN rad ──
+  it("rader med samma namn, start och slut är EN rad: 'Gävle · v17–27 · Alla, Anna, Erik'; pågående överst, avslutade under egen rubrik", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, GAVLE_ANNA, GAVLE_ERIK, SENARE, NU);
     await monter("flik=avtal");
-    expect(sektion()).toBeTruthy();
-    expect(rader().map(r => r.getAttribute("data-utjamning-rad"))).toEqual(["p-nu", "p-senare", "p-gavle"]);
+    expect(rader().map(r => r.getAttribute("data-utjamning-rad"))).toEqual(["Anna", "Vinter", "Gävle"]);   // inte fem rader
+    const gavle = (rader()[2].textContent || "").replace(/\s+/g, " ");
+    expect(gavle).toContain("Gävle");
+    expect(gavle).toContain("v17–27");
+    expect(gavle).toContain("Alla, Anna, Erik");                       // en NULL-rad och två personrader i samma period
     const t = sText();
-    expect(t).toContain("v17–27");
-    expect(t).toContain("Alla"); // Gävle gäller alla
-    expect(t).toContain("Anna Berg"); // personlig period
-    expect(t).toContain("Gävle, ordinarie tid utlagd ojämnt");
     expect(t.indexOf("Avslutade")).toBeGreaterThan(t.indexOf("v45–46"));
     expect(t.indexOf("Avslutade")).toBeLessThan(t.indexOf("v17–27"));
+    expect(t).toContain("Pågår");
+    for (const lang of ["ordinarie tid utlagd ojämnt", "skogsbruksplan", "vinterlager"]) expect(t, lang).not.toContain(lang);   // anteckningen hör inte till listan
+  });
+
+  it("överenskommelsen i listan: högst 16 veckor visar INGET (inte 'Ej dokumenterad'); över 16 veckor orange varning utan datum, grått datum med", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, SENARE, LANG, { ...LANG, id: "p-lang2", namn: "Lång 2", overenskommen_datum: "2026-01-02" });
+    await monter("flik=avtal");
+    const radMed = (namn: string) => rader().find(r => r.getAttribute("data-utjamning-rad") === namn)!;
+    const t = (namn: string) => (radMed(namn).textContent || "").replace(/\s+/g, " ");
+    const rad = (namn: string, text: string) => Array.from(radMed(namn).querySelectorAll<HTMLElement>("*")).find(e => egenText(e) === text)!;
+    // Gävle: 11 veckor, ingen överenskommelse krävs → ingen rad om det
+    expect(t("Gävle").toLowerCase()).not.toContain("överenskomm");
+    expect(sText()).not.toContain("Ej dokumenterad");
+    // Vinter: 2 veckor men ett datum finns → det visas (ett faktum som finns döljs inte)
+    expect(t("Vinter")).toContain("Överenskommen 1 okt 2026");
+    // Lång: 17 veckor utan datum → orange varning
+    const varning = rad("Lång", "Saknar överenskommelse med lokal facklig organisation");
+    expect(varning).toBeTruthy();
+    expect(varning.style.color).toBe(farg(FARG.orange));
+    // Lång 2: 17 veckor med datum → datumet, grått (inte orange)
+    const datum = rad("Lång 2", "Överenskommen 2 jan 2026");
+    expect(datum.style.color).toBe(farg(FARG.text2));
+    expect(t("Lång 2")).not.toContain("Saknar");
+  });
+
+  it("en rad utan namn visar de första 20 tecknen av anteckningen i stället för ett tomt namn", async () => {
+    g.__db.utjamningsperiod = kopia({ ...GAVLE, namn: null, anteckning: "Gävle/Hedemora–Sandviken 22 apr–29 jun 2026" });
+    await monter("flik=avtal");
+    expect(sText()).toContain("Gävle/Hedemora–Sandv");
+    expect(sText()).not.toContain("29 jun 2026");
   });
 
   it("tom lista förklarar varför och vad som fyller den", async () => {
@@ -557,133 +659,1028 @@ describe("Avtal → Utjämningsperioder", () => {
     expect(sText()).not.toContain("Inga utjämningsperioder");
   });
 
-  it("Ny period: veckor väljs, sparar måndag–söndag, förare Alla = NULL, skapad_av = inloggad admin; arket stängs och raden syns", async () => {
+  // ── Arket ligger fast över skärmen där man är ──
+  // Rotorsak: .tona-in har en transform-animation, och en transform gör föräldern till containing block för position: fixed.
+  // Ett ark inne i sidan placeras därför mot sidans topp, inte mot fönstret. Arket ritas därför i en portal på document.body.
+  async function arkFastOverSidan(oppna: () => Promise<void>) {
     await monter("flik=avtal");
+    document.body.style.overflow = "";
+    await oppna();
+    const o = overlay()!;
+    expect(o).toBeTruthy();
+    expect(cont.contains(o)).toBe(false);                 // utanför sidans transformerade lager
+    expect(o.parentElement).toBe(document.body);
+    expect(o.style.position).toBe("fixed");
+    expect(o.style.inset).toMatch(/^0(px)?( 0(px)?){0,3}$/);
+    expect(o.contains(ark())).toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");  // sidan bakom är låst för scroll
+  }
+
+  it("Ny period: arket är en fast ruta över hela fönstret (portal på body) och sidan bakom är låst för scroll", async () => {
+    await arkFastOverSidan(oppnaNy);
+  });
+
+  it("en befintlig period: samma, arket ligger fast över skärmen", async () => {
+    g.__db.utjamningsperiod = kopia(NU);
+    await arkFastOverSidan(async () => { await klick("Anna"); });
+  });
+
+  it("scroll-låset släpps när arket stängs (Avbryt, tryck utanför, efter Spara) och skriver inte över sidans eget värde", async () => {
+    await monter("flik=avtal");
+    document.body.style.overflow = "";
     await oppnaNy();
-    expect(ark()).toBeTruthy();
-    await fyll("2026-10-19", "2026-10-26", "Skogsbruksplan, ojämn vecka");
-    await act(async () => { sparaKnapp().click(); });
-    await lugn();
-    const skr = g.__skriv.find((x: any) => x.tabell === "utjamningsperiod");
-    expect(skr.op).toBe("insert");
-    expect(skr.vals).toEqual({ startdatum: "2026-10-19", slutdatum: "2026-11-01", medarbetare_id: null, anteckning: "Skogsbruksplan, ojämn vecka", skapad_av: "Inloggad Admin" });
+    expect(document.body.style.overflow).toBe("hidden");
+    await klick("Avbryt");
     expect(ark()).toBeNull();
-    expect(sText()).toContain("v43–44");
+    expect(document.body.style.overflow).toBe("");
+    await oppnaNy();
+    await act(async () => { overlay()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });   // tryck på bakgrunden
+    expect(ark()).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+    await oppnaNy();                                                                                    // tryck INUTI arket stänger inte
+    await act(async () => { ark()!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(ark()).toBeTruthy();
+    await tryckBock("Alla");
+    await namnge("Sparat");
+    await spara();
+    expect(ark()).toBeNull();
+    expect(document.body.style.overflow).toBe("");
   });
 
-  it("förare kan väljas: personlig period sparas med medarbetarens id", async () => {
+  it("avmonteras sidan med arket öppet släpps låset också (annars fastnar all scroll)", async () => {
     await monter("flik=avtal");
+    document.body.style.overflow = "";
     await oppnaNy();
-    await valj(valFalt("Förare"), "m1");
-    await fyll("2026-10-19", "2026-10-19", "Anna, en vecka");
-    await act(async () => { sparaKnapp().click(); });
-    await lugn();
-    expect(g.__skriv.find((x: any) => x.tabell === "utjamningsperiod").vals.medarbetare_id).toBe("m1");
+    expect(document.body.style.overflow).toBe("hidden");
+    await act(async () => { root.unmount(); });
+    expect(document.body.style.overflow).toBe("");
+    root = createRoot(cont);                              // afterEach avmonterar igen
   });
 
-  it("Spara är inaktiv tills allt är ifyllt: ingen anteckning, för kort anteckning eller sista vecka före första", async () => {
+  // ── Navigationsraden ──
+  it("navigationsraden: 'Avbryt' vänster, titel i mitten, 'Lägg till' höger — grå tills namn och förare är satta; ingen Spara/Avbryt-knapp längst ner", async () => {
     await monter("flik=avtal");
     await oppnaNy();
-    expect(sparaKnapp().disabled).toBe(true);
-    await fyll("2026-10-19", "2026-10-19", "ab");
-    expect(sparaKnapp().disabled).toBe(true);
-    await skriv(falt("Anteckning"), "abc");
+    const nav = ark()!.querySelector<HTMLElement>("[data-ark-rubrik]")!;
+    const text = (nav.textContent || "").replace(/\s+/g, " ");
+    expect(text.indexOf("Avbryt")).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf("Ny period")).toBeGreaterThan(text.indexOf("Avbryt"));
+    expect(text.indexOf("Lägg till")).toBeGreaterThan(text.indexOf("Ny period"));
+    expect(nav.contains(sparaKnapp())).toBe(true);
+    expect((sparaKnapp().textContent || "").trim()).toBe("Lägg till");
+    const knappar = Array.from(ark()!.querySelectorAll<HTMLButtonElement>("button")).map(b => (b.textContent || "").trim());
+    expect(knappar.filter(t => t === "Avbryt")).toHaveLength(1);                // bara i navigationsraden
+    expect(knappar.filter(t => t === "Spara" || t === "Lägg till")).toHaveLength(1);
+    expect(sparaKnapp().disabled).toBe(true);                                   // grå: ingen förare, inget namn
+    await namnge("Test");
+    expect(sparaKnapp().disabled).toBe(true);                                   // förare saknas
+    await tryckBock("Alla");
     expect(sparaKnapp().disabled).toBe(false);
-    await valj(valFalt("Sista veckan"), "2026-10-12");
-    expect(sparaKnapp().disabled).toBe(true);
-    expect(arkText()).toContain("Sista veckan ligger före den första");
-    expect(g.__skriv.filter((x: any) => x.tabell === "utjamningsperiod")).toHaveLength(0);
   });
 
-  it("längre än 16 veckor: varning som inte spärrar; 16 veckor ger ingen varning", async () => {
+  it("'Ändra period' och 'Spara' när en befintlig period öppnas", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, GAVLE_ANNA);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    const nav = (ark()!.querySelector("[data-ark-rubrik]")!.textContent || "").replace(/\s+/g, " ");
+    expect(nav).toContain("Ändra period");
+    expect((sparaKnapp().textContent || "").trim()).toBe("Spara");
+    expect(sparaKnapp().disabled).toBe(false);                                  // namn, Börjar och förare finns
+  });
+
+  // ── Börjar + Längd ──
+  it("raderna i ordning: Namn · Börjar · Slutar · Förare · Anteckning (valfri); kalendern är stängd, ingen Längd-stegare, inga bockar", async () => {
     await monter("flik=avtal");
     await oppnaNy();
-    await fyll("2026-01-05", "2026-04-20", "16 veckor");
-    expect(arkText()).not.toContain("lokal överenskommelse");
-    await valj(valFalt("Sista veckan"), "2026-04-27");
-    expect(arkText()).toContain("Längre än 16 veckor kräver lokal överenskommelse (§5 mom 2)");
+    const rader_ = Array.from(ark()!.querySelectorAll<HTMLElement>("[data-falt-rad]")).map(e => e.getAttribute("data-falt-rad"));
+    expect(rader_).toEqual(["namn", "borjar", "slutar", "forare", "anteckning"]);
+    expect(radFalt("fran")).toBeNull();
+    expect(radFalt("till")).toBeNull();
+    expect(radFalt("langd")).toBeNull();                                        // ingen Längd-rad
+    expect(knappMed("Öka längd")).toBeNull();                                   // och ingen stegare
+    expect(knappMed("Minska längd")).toBeNull();
+    const text = arkText();
+    let senast = -1;
+    for (const l of ["Namn", "Börjar", "Slutar", "Förare", "Anteckning (valfri)"]) { const i = text.indexOf(l); expect(i, l).toBeGreaterThan(senast); senast = i; }
+    expect(kalender()).toBeNull();
+    expect(document.querySelectorAll("[data-utjamning-ark] [data-dag]").length).toBe(0);
+    expect(document.querySelectorAll("[data-utjamning-ark] [role=\"checkbox\"]").length).toBe(0);
+    expect(document.querySelectorAll("[data-utjamning-ark] select").length).toBe(0);
+  });
+
+  it("en ny period börjar på veckan vi är i: Börjar 'mån 5 okt · v41', Slutar 'sön 11 okt · v41', '1 vecka', förare 'Välj'", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    expect(varde("borjar")).toBe("mån 5 okt · v41");
+    expect(varde("slutar")).toBe("sön 11 okt · v41");
+    expect((document.querySelector("[data-veckor]")!.textContent || "").trim()).toBe("1 vecka");
+    expect(varde("forare")).toBe("Välj");
+    expect(arkFalt("Namn").maxLength).toBe(20);
+    expect(arkFalt("Namn").value).toBe("");
+  });
+
+  it("tryck på en rad fäller ut ETT kalenderblad direkt under raden (i flödet), alltid på radens eget datum; bara ett blad åt gången; tryck igen stänger", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjPeriod("2026-10-12", "2026-11-22");                                // Börjar i oktober, Slutar i november
+    await tryckRad("borjar");
+    expect(document.querySelectorAll("[data-utjamning-ark] [data-period-kalender]")).toHaveLength(1);
+    expect(radFalt("borjar").getAttribute("aria-expanded")).toBe("true");
+    const rad = radFalt("borjar").closest("[data-falt-rad]")!;
+    expect(rad.nextElementSibling!.contains(kalender())).toBe(true);            // direkt under raden
+    expect(["", "static", "relative"]).toContain(kalender()!.style.position);   // aldrig absolute/fixed
+    expect(synligManad()).toBe("2026-10");                                       // Börjar öppnas på startmånaden
+    expect((document.querySelector("[data-manad-rubrik]")!.textContent || "").trim()).toBe("oktober 2026");
+    await tryckRad("slutar");                                                    // den andra raden: ett blad åt gången
+    expect(document.querySelectorAll("[data-utjamning-ark] [data-period-kalender]")).toHaveLength(1);
+    expect(oppenRad()).toBe("slutar");
+    expect(radFalt("borjar").getAttribute("aria-expanded")).toBe("false");
+    expect(radFalt("slutar").getAttribute("aria-expanded")).toBe("true");
+    expect(radFalt("slutar").closest("[data-falt-rad]")!.nextElementSibling!.contains(kalender())).toBe(true);
+    expect(synligManad()).toBe("2026-11");                                       // Slutar öppnas på SLUTmånaden
+    await klickEl(knappMed("Nästa månad"));                                      // bläddra bort från slutmånaden …
+    expect(synligManad()).toBe("2026-12");
+    await tryckRad("slutar");                                                    // stäng
+    await tryckRad("slutar");                                                    // öppna igen: tillbaka på radens eget datum, inte där man bläddrade
+    expect(synligManad()).toBe("2026-11");
+    await tryckRad("slutar");
+    expect(kalender()).toBeNull();
+    expect(radFalt("slutar").getAttribute("aria-expanded")).toBe("false");
+    // Börjar öppnas också alltid på sitt eget datum, även om Slutar-bladet var framme
+    await tryckRad("borjar");
+    expect(synligManad()).toBe("2026-10");
+  });
+
+  it("ETT tryck på en dag sätter bara den radens värde, snäppt: Börjar → måndagen, Slutar → söndagen; inga tryck-sekvenser, ingen start/slut-växling", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjBorjar("2026-10-14");                                              // onsdag
+    expect(varde("borjar")).toBe("mån 12 okt · v42");
+    await valjBorjar("2026-10-23");                                              // fredag
+    expect(varde("borjar")).toBe("mån 19 okt · v43");
+    await valjBorjar("2026-10-25");                                              // söndag hör till veckan som slutar på den
+    expect(varde("borjar")).toBe("mån 19 okt · v43");
+    await valjSlut("2026-11-18");                                                // onsdag → söndagen den veckan
+    expect(varde("slutar")).toBe("sön 22 nov · v47");
+    expect(varde("borjar")).toBe("mån 19 okt · v43");                            // Slutar rör inte Börjar
+    await valjSlut("2026-11-21");                                                // lördag → samma söndag
+    expect(varde("slutar")).toBe("sön 22 nov · v47");
+    await valjBorjar("2026-10-05");                                              // Börjar tillbaka: Slutar rörs inte
+    expect(varde("borjar")).toBe("mån 5 okt · v41");
+    expect(varde("slutar")).toBe("sön 22 nov · v47");
+    await valjBorjar("2026-10-06"); await valjBorjar("2026-10-06"); await valjBorjar("2026-10-06");   // tre tryck på samma dag: samma resultat
+    expect(varde("borjar")).toBe("mån 5 okt · v41");
+    expect(arkText()).not.toContain("Tryck på sista dagen");
+    expect(kalender()).toBeTruthy();                                             // bladet förblir öppet
+  });
+
+  it("Slutar före Börjar flyttas till samma vecka som Börjar; och flyttas Börjar förbi Slutar följer Slutar med", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjBorjar("2026-10-19");                                              // Slutar var vecka 41 (före) → följer med: samma vecka
+    expect(varde("borjar")).toBe("mån 19 okt · v43");
+    expect(varde("slutar")).toBe("sön 25 okt · v43");
+    await valjSlut("2026-12-06");
+    expect(varde("slutar")).toBe("sön 6 dec · v49");
+    await valjSlut("2026-10-06");                                                // en dag före Börjar → Börjars vecka
+    expect(varde("slutar")).toBe("sön 25 okt · v43");
+    expect(varde("borjar")).toBe("mån 19 okt · v43");                            // Börjar rörs inte
+    expect((document.querySelector("[data-veckor]")!.textContent || "").trim()).toBe("1 vecka");
+    await valjSlut("2026-11-29");
+    await valjBorjar("2026-12-02");                                              // Börjar förbi Slutar → Slutar flyttas till samma vecka
+    expect(varde("borjar")).toBe("mån 30 nov · v49");
+    expect(varde("slutar")).toBe("sön 6 dec · v49");
+  });
+
+  it("raden under datumraderna säger antal veckor, grått: '1 vecka', '6 veckor'; uppdateras vid varje tryck", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const rad = () => document.querySelector<HTMLElement>("[data-veckor]")!;
+    expect((rad().textContent || "").trim()).toBe("1 vecka");
+    await valjSlut("2026-11-15");                                                // v41 – v46
+    expect((rad().textContent || "").trim()).toBe("6 veckor");
+    expect(varde("slutar")).toBe("sön 15 nov · v46");
+    await sattLangd(11);
+    expect((rad().textContent || "").trim()).toBe("11 veckor");
+    expect(varde("slutar")).toBe("sön 20 dec · v51");
+    expect(rad().style.color).toBe(farg(FARG.text2));                            // grå
+    await sattLangd(1);
+    expect((rad().textContent || "").trim()).toBe("1 vecka");
+    expect(varde("slutar")).toBe("sön 11 okt · v41");
+  });
+
+  it("grå rad direkt under Slutar (inte en rad man väljer i): '6 veckor' är text, ingen knapp", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const el = document.querySelector<HTMLElement>("[data-veckor]")!;
+    expect(el.tagName).not.toBe("BUTTON");
+    expect(el.closest("button")).toBeNull();
+    expect(el.style.color).toBe(farg(FARG.text2));
+    expect(ark()!.querySelector('[data-falt-rad="slutar"]')!.nextElementSibling).toBe(el);   // direkt under Slutar
+  });
+
+  it("bladet visar HELA perioden som band, med dagen raden gäller som cirkel (Börjar: måndagen, Slutar: söndagen); bandet växer och krymper direkt när Slutar ändras", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjBorjar("2026-10-12");
+    await valjSlut("2026-11-08");                                                // 12 okt–8 nov; Slutar-bladet står på november
+    const markerade = () => Array.from(document.querySelectorAll<HTMLElement>('[data-utjamning-ark] [data-dag][aria-pressed="true"]')).map(e => e.getAttribute("data-dag"));
+    expect(synligManad()).toBe("2026-11");
+    expect(markerade()).toEqual(["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"]);   // bandet fortsätter över månadsskiftet
+    expect(dagEl("2026-11-08")!.getAttribute("data-slut")).toBe("true");         // cirkel på söndagen i sista veckan
+    expect(dagEl("2026-11-08")!.querySelector("span")!.style.background).toBe(farg(FARG.text));
+    expect(dagEl("2026-11-02")!.querySelector("span")!.style.background).not.toBe(farg(FARG.text));
+    await tryckDag("2026-11-15");                                                // bladet öppet: bandet växer direkt
+    expect(markerade()).toHaveLength(15);
+    expect(dagEl("2026-11-15")!.getAttribute("aria-pressed")).toBe("true");
+    await tryckDag("2026-11-01");                                                // krymper direkt
+    expect(dagEl("2026-11-09")!.getAttribute("aria-pressed")).toBe("false");
+    expect(markerade()).toEqual(["2026-11-01"]);
+    expect(slutar()).toBe("Slutar sön 1 nov · v44");
+    await tryckRad("borjar");                                                    // Börjar-bladet: oktober, cirkeln på måndagen i första veckan
+    expect(synligManad()).toBe("2026-10");
+    expect(markerade()[0]).toBe("2026-10-12");
+    expect(markerade()).toHaveLength(20);
+    expect(dagEl("2026-10-12")!.getAttribute("data-start")).toBe("true");
+    expect(dagEl("2026-10-12")!.querySelector("span")!.style.background).toBe(farg(FARG.text));
+    expect(Array.from(document.querySelectorAll('[data-utjamning-ark] [data-start="true"]'))).toHaveLength(1);
+    expect(dagEl("2026-10-11")!.getAttribute("aria-pressed")).toBe("false");
+    expect(kalender()).toBeTruthy();
+  });
+
+  it("röda dagar markeras i bladet (julafton, juldagen, annandag jul …) med en egen markering och beskrivning, vardagar inte", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await visaManad("2026-12-24");
+    for (const d of ["2026-12-24", "2026-12-25", "2026-12-26"]) {
+      expect(dagEl(d)!.getAttribute("data-roda"), d).toBe("true");
+      expect(dagEl(d)!.getAttribute("aria-label"), d).toMatch(/röd dag/i);
+    }
+    expect(dagEl("2026-12-22")!.getAttribute("data-roda")).toBeNull();
+    expect(dagEl("2026-12-23")!.getAttribute("data-roda")).toBeNull();
+    expect(dagEl("2026-12-24")!.getAttribute("aria-label")).toContain("Julafton");
+    await visaManad("2027-01-01");                                              // månaden efter perioden ritas redan: ingen rullning behövs
+    expect(dagEl("2027-01-01")!.getAttribute("data-roda")).toBe("true");        // nyårsdagen ligger i januari 2027
+  });
+
+  it("bandet löper över månadsskiftet och årsskiftet när man bläddrar; Slutar öppnas på slutmånaden, Börjar på startmånaden", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjPeriod("2026-12-21", "2027-01-11");                                // v52 – v2: 4 veckor, 21 dec–17 jan
+    await oppnaRad("slutar");
+    expect(synligManad()).toBe("2027-01");                                       // slutmånaden
+    expect((document.querySelector("[data-manad-rubrik]")!.textContent || "").trim()).toBe("januari 2027");
+    expect(dagEl("2027-01-01")!.getAttribute("aria-pressed")).toBe("true");      // bandet över årsskiftet …
+    expect(dagEl("2027-01-17")!.getAttribute("aria-pressed")).toBe("true");
+    expect(dagEl("2027-01-17")!.getAttribute("data-slut")).toBe("true");
+    expect(dagEl("2027-01-18")!.getAttribute("aria-pressed")).toBe("false");
+    await klickEl(knappMed("Föregående månad"));
+    expect(synligManad()).toBe("2026-12");
+    expect(dagEl("2026-12-31")!.getAttribute("aria-pressed")).toBe("true");      // … och i december
+    expect(dagEl("2026-12-21")!.getAttribute("data-start")).toBe("true");
+    expect(dagEl("2026-12-20")!.getAttribute("aria-pressed")).toBe("false");
+    await oppnaRad("borjar");
+    expect(synligManad()).toBe("2026-12");                                       // startmånaden
+  });
+
+  it("över 16 veckor: orange text direkt under veckoraden och raden Överenskommen; högst 16 veckor: ingen av dem", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await sattLangd(16);
+    expect(radFalt("overenskommen")).toBeNull();
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
+    expect(arkText().toLowerCase()).not.toContain("överenskomm");
+    await sattLangd(17);
+    expect((document.querySelector("[data-veckor]")!.textContent || "").trim()).toBe("17 veckor");
+    const krav = document.querySelector<HTMLElement>("[data-overenskommelse-krav]")!;
+    expect(krav.textContent).toBe("Över 16 veckor kräver överenskommelse med lokal facklig organisation");
+    expect(krav.style.color).toBe(farg(FARG.orange));
+    const falt_ = Array.from(ark()!.querySelectorAll<HTMLElement>("[data-falt-rad]")).map(e => e.getAttribute("data-falt-rad"));
+    expect(falt_).toEqual(["namn", "borjar", "slutar", "overenskommen", "forare", "anteckning"]);
+    expect(varde("overenskommen")).toBe("—");
+    // texten och raden ligger direkt under Slutar/veckoraden, före Förare
+    const veckorEl = document.querySelector("[data-veckor]")!;
+    expect(veckorEl.compareDocumentPosition(krav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(krav.compareDocumentPosition(radFalt("overenskommen")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(radFalt("overenskommen").compareDocumentPosition(radFalt("forare")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await sattLangd(16);
+    expect(radFalt("overenskommen")).toBeNull();
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
+  });
+
+  it("Längd 20 v: orange läge — texten är orange utan datum och grå med datum; Lägg till spärras aldrig", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await namnge("Lång");
+    await tryckBock("Alla");
+    await sattLangd(20);
+    expect(langd()).toBe("20 v");
+    const krav = () => document.querySelector<HTMLElement>("[data-overenskommelse-krav]")!;
+    expect(krav().style.color).toBe(farg(FARG.orange));
     expect(sparaKnapp().disabled).toBe(false);
+    await tryckRad("overenskommen");
+    await skriv(panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!, "2026-10-02");
+    expect(krav().style.color).toBe(farg(FARG.text2));
   });
 
-  it("RLS stoppar skrivningen (0 rader utan fel): arket står kvar öppet med felet, inget 'Sparat'", async () => {
+  // ── Förare: push-vy med tillbakapil ──
+  it("Förare öppnar en push-vy: ren tillbakapil '‹' uppe till vänster (utan text), titel 'Förare' i mitten, 'Klar' (blå) uppe till höger; Alla överst som egen grupp; formuläret göms", async () => {
     await monter("flik=avtal");
     await oppnaNy();
-    await fyll("2026-10-19", "2026-10-19", "Test av RLS");
+    await tryckRad("forare");
+    expect(document.querySelector("[data-forare-vy]")).toBeTruthy();
+    expect(ark()!.querySelector("[data-falt-rad]")).toBeNull();                 // formulärets rader är borta
+    expect(sparaKnapp()).toBeNull();                                            // och Lägg till: här finns tillbakapilen och Klar
+    const nav = ark()!.querySelector<HTMLElement>("[data-ark-rubrik]")!;
+    const [vanster, mitt, hoger] = Array.from(nav.children) as HTMLElement[];
+    expect((mitt.textContent || "").trim()).toBe("Förare");
+    const pil = tillbakaKnapp()!;
+    expect(vanster.contains(pil)).toBe(true);                                    // uppe till vänster
+    expect((pil.textContent || "").replace("chevron_left", "").trim()).toBe(""); // ingen text: bara pilen
+    expect(pil.getAttribute("aria-label")).toBe("Tillbaka till Ny period");
+    expect(parseInt(pil.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
+    const klarKnapp = document.querySelector<HTMLButtonElement>("[data-utjamning-ark] [data-klar]")!;
+    expect(hoger.contains(klarKnapp)).toBe(true);                                // uppe till höger
+    expect((klarKnapp.textContent || "").trim()).toBe("Klar");
+    expect(klarKnapp.style.color).toBe(farg(FARG.bla));                          // blå
+    expect(parseInt(klarKnapp.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
+    expect(Array.from(ark()!.querySelectorAll("button")).some(b => (b.textContent || "").includes("Ny period"))).toBe(false);   // inget som läses som 'skapa ny period'
+    const grupper = Array.from(ark()!.querySelectorAll<HTMLElement>("[data-forare-grupp]"));
+    expect(grupper.map(g => g.getAttribute("data-forare-grupp"))).toEqual(["alla", "forare"]);
+    expect(Array.from(grupper[0].querySelectorAll("[role=checkbox]")).map(b => b.getAttribute("data-namn"))).toEqual(["Alla"]);
+    expect(Array.from(grupper[1].querySelectorAll("[role=checkbox]")).map(b => b.getAttribute("data-namn"))).toEqual(["Anna Berg", "Erik Lind"]);
+    expect(bockar().map(b => b.getAttribute("aria-checked"))).toEqual(["false", "false", "false"]);
+    for (const b of bockar()) expect(parseInt(b.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
+  });
+
+  for (const knapp of ["klar", "tillbaka"]) it(`${knapp === "klar" ? "Klar" : "‹"}: sparar valet och går tillbaka till formuläret, som visar namnen (samma sak som ${knapp === "klar" ? "‹" : "Klar"})`, async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await tryckRad("forare");
+    await klickaBock("Anna Berg");
+    await klickaBock("Erik Lind");
+    await klickEl(document.querySelector<HTMLElement>(`[data-utjamning-ark] [data-${knapp}]`)!);
+    expect(document.querySelector("[data-forare-vy]")).toBeNull();               // tillbaka i formuläret
+    expect(varde("forare")).toBe("Anna, Erik");                                  // valet sparades
+    await tryckRad("forare");                                                    // och står kvar när man öppnar listan igen
+    expect(ibockad("Anna Berg")).toBe(true);
+    expect(ibockad("Erik Lind")).toBe(true);
+  });
+
+  it("valet sparas vid tillbaka (och finns kvar om man går in igen)", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await oppnaForare();
+    await klickaBock("Anna Berg");
+    await tillbaka();
+    expect(document.querySelector("[data-forare-vy]")).toBeNull();
+    expect(varde("forare")).toBe("Anna");
+    await tryckRad("forare");
+    expect(ibockad("Anna Berg")).toBe(true);
+    await tillbaka();
+  });
+
+  it("tillbakapilen säger vart den går: 'Tillbaka till Ändra period' (skärmläsare) när en befintlig period ändras", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await tryckRad("forare");
+    expect(tillbakaKnapp()!.getAttribute("aria-label")).toBe("Tillbaka till Ändra period");
+  });
+
+  it("i förarlistan: Alla på rensar personerna, en person på tar bort Alla, Alla/person av rör inte de andra", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await oppnaForare();
+    await klickaBock("Anna Berg");
+    expect(ibockad("Anna Berg")).toBe(true);
+    expect(ibockad("Alla")).toBe(false);
+    await klickaBock("Erik Lind");
+    expect(ibockad("Anna Berg") && ibockad("Erik Lind")).toBe(true);
+    await klickaBock("Alla");                                   // Alla tömmer personerna
+    expect(ibockad("Alla")).toBe(true);
+    expect(ibockad("Anna Berg") || ibockad("Erik Lind")).toBe(false);
+    await klickaBock("Anna Berg");                              // en person tar bort Alla
+    expect(ibockad("Alla")).toBe(false);
+    await klickaBock("Anna Berg");
+    await tillbaka();
+    expect(varde("forare")).toBe("Välj");
+  });
+
+  it("Förare-raden visar valda namn: 'Anna, Erik' när de får plats, 'Alla' för alla; Välj när ingen är vald", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    expect(varde("forare")).toBe("Välj");
+    await tryckBock("Anna Berg");
+    expect(varde("forare")).toBe("Anna");
+    await tryckBock("Erik Lind");
+    expect(varde("forare")).toBe("Anna, Erik");
+    await tryckBock("Alla");
+    expect(varde("forare")).toBe("Alla");
+  });
+
+  it("får namnen inte plats på raden visas 'N förare' (mätt: namnen är bredare än raden), och namnen kommer tillbaka när de får plats", async () => {
+    g.__db.medarbetare.push(...[["m3", "Stefan Karlsson"], ["m4", "Daniel Johansson"], ["m5", "Joacim Ringberg"]].map(([id, namn]) => ({ ...MED[0], id, namn, epost: id + "@example.se", user_id: "u" + id })));
+    const ärVärde = (e: any) => e.hasAttribute?.("data-varde");
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, get() { return ärVärde(this) ? (this.textContent || "").length * 10 : 0; } });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get() { return ärVärde(this) ? 150 : 0; } });
+    try {
+      await monter("flik=avtal");
+      await oppnaNy();
+      await tryckBock("Stefan Karlsson");
+      await tryckBock("Daniel Johansson");
+      expect(varde("forare")).toBe("Stefan, Daniel");                       // 14 tecken = 140 ≤ 150: får plats
+      await tryckBock("Joacim Ringberg");
+      expect(varde("forare")).toBe("3 förare");                             // "Stefan, Daniel, Joacim" = 22 tecken = 220 > 150
+      await tryckBock("Joacim Ringberg");                                    // bocka ur: namnen får plats igen
+      expect(varde("forare")).toBe("Stefan, Daniel");
+      await tryckBock("Alla");
+      expect(varde("forare")).toBe("Alla");
+    } finally {
+      delete (HTMLElement.prototype as any).scrollWidth; delete (HTMLElement.prototype as any).clientWidth;
+    }
+  });
+
+  it("Anteckning ligger DIREKT under Förare, rullas i sikte när man kommer tillbaka från förarlistan och går att skriva i direkt", async () => {
+    const anrop: Element[] = [];
+    (Element.prototype as any).scrollIntoView = function () { anrop.push(this); };
+    try {
+      await monter("flik=avtal");
+      await oppnaNy();
+      const efter = (k: string) => (ark()!.querySelector(`[data-falt-rad="${k}"]`)!.nextElementSibling as HTMLElement | null)?.getAttribute("data-falt-rad");
+      expect(efter("forare")).toBe("anteckning");
+      await oppnaForare();
+      await klickaBock("Anna Berg");
+      await tillbaka();
+      const rad = ark()!.querySelector('[data-falt-rad="anteckning"]')!;
+      expect(anrop).toContain(rad);
+      expect(efter("forare")).toBe("anteckning");
+      await anteckna("Skrivet direkt efter förarvalet");
+      expect(arkFalt("Anteckning (valfri)").value).toBe("Skrivet direkt efter förarvalet");
+      await sattLangd(17);
+      expect(efter("forare")).toBe("anteckning");                             // Överenskommen ligger före Förare, så Anteckning är fortfarande direkt under
+    } finally { delete (Element.prototype as any).scrollIntoView; }
+  });
+
+  it("Överenskommen: tryck öppnar en datumväljare, datumet visas på raden (och går att ta bort); stängs inte av att man skriver datumet", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjPeriod("2026-10-05", "2027-01-25");               // över 16 veckor: raden finns
+    await tryckRad("overenskommen");
+    const d = panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!;
+    expect(d).toBeTruthy();
+    await skriv(d, "2026-10-12");
+    expect(varde("overenskommen")).toBe("12 okt 2026");
+    expect(panel("overenskommen")).toBeTruthy();
+    expect((document.querySelector("[data-overenskommelse-krav]") as HTMLElement).style.color).toBe(farg(FARG.text2));   // datum finns: grått
+    await klick("Ta bort datum");
+    expect(varde("overenskommen")).toBe("—");
+    expect((document.querySelector("[data-overenskommelse-krav]") as HTMLElement).style.color).toBe(farg(FARG.orange));  // saknas: orange
+  });
+
+  it("Spara är låst tills ett NAMN och minst en FÖRARE är valda — Från/Till är alltid giltiga, anteckning och överenskommelse behövs inte", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    expect(sparaKnapp().disabled).toBe(true);
+    await namnge("abc");
+    expect(sparaKnapp().disabled).toBe(true);                  // ingen förare
+    expect(status()).toContain("Välj vilka perioden gäller");
+    await tryckBock("Alla");
+    expect(sparaKnapp().disabled).toBe(false);
+    expect(status()).not.toContain("Välj vilka perioden gäller");
+    await namnge("   ");
+    expect(sparaKnapp().disabled).toBe(true);                  // bara blanksteg är inget namn
+    await namnge("");
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(skrivningar()).toHaveLength(0);
+  });
+
+  it("Spara skapar EN rad per vald förare i ett anrop: namn, veckor, anteckning, överenskommelse och skapad_av", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await namnge("  Skogsbruk  ");
+    await valjPeriod("2026-10-19", "2027-02-08");               // 17 veckor: då finns Överenskommen-raden
+    await tryckBock("Anna Berg");
+    await tryckBock("Erik Lind");
+    await anteckna("Skogsbruksplan, ojämn vecka");
+    await tryckRad("overenskommen");
+    await skriv(panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!, "2026-10-12");
+    await spara();
+    const s = skrivningar();
+    expect(s).toHaveLength(1);
+    expect(s[0].op).toBe("insert");
+    const gemensamt = { startdatum: "2026-10-19", slutdatum: "2027-02-14", namn: "Skogsbruk", anteckning: "Skogsbruksplan, ojämn vecka", overenskommen_datum: "2026-10-12", skapad_av: "Inloggad Admin" };
+    expect(s[0].vals).toEqual([{ ...gemensamt, medarbetare_id: "m1" }, { ...gemensamt, medarbetare_id: "m2" }]);
+    expect(ark()).toBeNull();
+    expect(rader().map(r => r.getAttribute("data-utjamning-rad"))).toEqual(["Skogsbruk"]);   // två rader, EN period i listan
+  });
+
+  it("Alla sparar EN rad med medarbetare_id NULL; utan anteckning och överenskommelse sparas '' och null", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await namnge("Hela laget");
+    await tryckBock("Alla");
+    await spara();
+    expect(skrivningar()[0].vals).toEqual([{ startdatum: "2026-10-05", slutdatum: "2026-10-11", medarbetare_id: null, namn: "Hela laget", anteckning: "", overenskommen_datum: null, skapad_av: "Inloggad Admin" }]);
+  });
+
+  it("över 16 veckor: 'Kräver överenskommelse med lokal facklig organisation' vid fältet (orange utan datum, grått med) — aldrig en spärr, och inte 'arbetstagaren'", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await namnge("Lång");
+    await tryckBock("Alla");
+    await valjPeriod("2026-10-05", "2027-01-18");               // v41 2026 – v3 2027 = 16 veckor
+    expect(langd()).toBe("16 v");
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
+    await valjPeriod("2026-10-05", "2027-01-25");
+    expect(langd()).toBe("17 v");
+    const krav = () => document.querySelector<HTMLElement>("[data-overenskommelse-krav]")!;
+    expect(krav().textContent).toBe("Över 16 veckor kräver överenskommelse med lokal facklig organisation");
+    expect(krav().style.color).toBe(farg(FARG.orange));        // datum saknas
+    expect(arkText()).not.toContain("Längre än 16 veckor kräver lokal överenskommelse");   // den gamla, felaktiga texten
+    expect(arkText()).not.toMatch(/arbetstagar/i);
+    expect(sparaKnapp().disabled).toBe(false);                  // varning, aldrig spärr
+    await tryckRad("overenskommen");
+    await skriv(panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!, "2026-10-02");
+    expect(krav().style.color).toBe(farg(FARG.text2));         // datum finns
+  });
+
+  // ── Befintliga perioder ──
+  it("dagar i en annan period får en liten prick (periodens NAMN i data-krock, aldrig anteckningen); utan vald förare ingen", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, GAVLE_ANNA, NU);
+    await monter("flik=avtal");
+    await oppnaNy();
+    await visaManad("2026-04-27");
+    expect(dagEl("2026-04-27")!.getAttribute("data-krock")).toBeNull();
+    await tryckBock("Alla");
+    await visaManad("2026-04-27");                                    // månaden följer med tillbaka från förarlistan
+    expect(dagEl("2026-04-27")!.getAttribute("data-krock")).toBe("Gävle");
+    expect((dagEl("2026-04-27")!.textContent || "")).not.toContain("ordinarie tid utlagd ojämnt");
+    expect(dagEl("2026-04-27")!.querySelector("[data-krock-prick]")).toBeTruthy();
+    await visaManad("2026-07-06");
+    expect(dagEl("2026-07-06")!.getAttribute("data-krock")).toBeNull();      // veckan efter Gävle
+    await visaManad("2026-10-05");
+    expect(dagEl("2026-10-05")!.getAttribute("data-krock")).toBe("Anna");
+  });
+
+  it("krockvarningen är EN grå rad: 'Krockar med Gävle v17–27 (alla)' — utan anteckning; Spara går att trycka", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, NU);
+    await monter("flik=avtal");
+    await oppnaNy();
+    await tryckBock("Erik Lind");
+    await valjPeriod("2026-04-13", "2026-04-27");
+    expect(krockRad()!.textContent).toBe("Krockar med Gävle v17–27 (alla)");
+    expect(document.querySelectorAll("[data-krock-varning]")).toHaveLength(1);
+    expect(arkText()).not.toContain("ordinarie tid utlagd ojämnt");
+    expect(krockRad()!.style.color).not.toBe(farg(FARG.orange));
+    await namnge("Dubbel");
+    expect(sparaKnapp().disabled).toBe(false);
+    await spara();
+    expect(skrivningar()).toHaveLength(1);
+  });
+
+  it("flera förare med samma period är EN post: 'Krockar med Gävle v17–27 (Anna, Erik)'", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA, GAVLE_ERIK);
+    await monter("flik=avtal");
+    await oppnaNy();
+    await tryckBock("Alla");
+    await valjPeriod("2026-04-20", "2026-04-27");
+    expect(krockRad()!.textContent).toBe("Krockar med Gävle v17–27 (Anna, Erik)");
+  });
+
+  it("samma namn och samma veckor är ingen krock (samma period för andra förare); annat namn eller andra veckor är det", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA);
+    await monter("flik=avtal");
+    await oppnaNy();
+    await tryckBock("Anna Berg");
+    await valjPeriod("2026-04-20", "2026-06-29");               // 20 apr–5 jul, exakt som Gävle
+    expect(krockRad()!.textContent).toBe("Krockar med Gävle v17–27 (Anna)");
+    await namnge("gävle");                                       // samma namn (skiftläge spelar ingen roll) och samma veckor
+    expect(krockRad()).toBeNull();
+    await namnge("Annat");
+    expect(krockRad()).not.toBeNull();
+    await namnge("Gävle");
+    await valjPeriod("2026-04-20", "2026-06-22");                // en vecka kortare
+    expect(krockRad()!.textContent).toBe("Krockar med Gävle v17–27 (Anna)");
+  });
+
+  it("RLS stoppar skrivningen (0 rader utan fel): arket står kvar öppet med felet", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await namnge("RLS");
+    await tryckBock("Alla");
     g.__ingaRader = true;
-    await act(async () => { sparaKnapp().click(); });
-    await lugn();
+    await spara();
     expect(ark()).toBeTruthy();
     expect(arkText()).toContain("sparades inte");
     expect(arkText()).toContain("bara admin");
   });
 
-  it("redigera: arket fylls med periodens värden, uppdatering skickar INTE skapad_av och rör bara den raden", async () => {
-    g.__db.utjamningsperiod = [GAVLE, NU].map(x => ({ ...x }));
+  // ── Ändra: gäller hela gruppen ──
+  it("ändra: arket visar gruppen som EN period — namn, Från/Till, 'N valda', överenskommelse; inga texter om 'den här raden'", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, GAVLE_ANNA, GAVLE_ERIK);
     await monter("flik=avtal");
-    await klick("Anna, skogsbruksplan");
-    expect(valFalt("Första veckan").value).toBe("2026-10-05");
-    expect(valFalt("Sista veckan").value).toBe("2026-10-12");
-    expect(valFalt("Förare").value).toBe("m1");
-    expect(falt("Anteckning").value).toBe("Anna, skogsbruksplan");
-    await skriv(falt("Anteckning"), "Anna, skogsbruksplan och röjning");
-    await act(async () => { sparaKnapp().click(); });
-    await lugn();
-    const skr = g.__skriv.find((x: any) => x.tabell === "utjamningsperiod");
-    expect(skr.op).toBe("update");
-    expect(skr.vals).toEqual({ startdatum: "2026-10-05", slutdatum: "2026-10-18", medarbetare_id: "m1", anteckning: "Anna, skogsbruksplan och röjning" });
-    expect(g.__eq.some((e: any[]) => e[0] === "utjamningsperiod" && e[1] === "id" && e[2] === "p-nu")).toBe(true);
-    expect(g.__db.utjamningsperiod.find((r: any) => r.id === "p-gavle").anteckning).toContain("Gävle");
+    await klick("Gävle");
+    expect(arkFalt("Namn").value).toBe("Gävle");
+    expect(varde("borjar")).toBe("mån 20 apr · v17");           // Börjar = startdatum
+    expect(langd()).toBe("11 v");                               // Längd = antal veckor
+    expect(slutar()).toBe("Slutar sön 5 jul · v27");
+    expect(kalender()).toBeNull();
+    await oppnaBorjar();
+    expect(synligManad()).toBe("2026-04");                      // Börjar öppnas på startmånaden …
+    await oppnaRad("slutar");
+    expect(synligManad()).toBe("2026-07");                      // … och Slutar på slutmånaden
+    await oppnaBorjar();
+    expect(dagEl("2026-04-20")!.getAttribute("data-start")).toBe("true");
+    expect(dagEl("2026-04-30")!.getAttribute("aria-pressed")).toBe("true");
+    expect(varde("forare")).toBe("Alla, Anna, Erik");            // Alla + Anna + Erik
+    expect(radFalt("overenskommen")).toBeNull();                // 11 veckor: ingen överenskommelse krävs
+    expect(arkFalt("Anteckning (valfri)").value).toBe("Gävle, ordinarie tid utlagd ojämnt");
+    expect(arkText()).not.toContain("Ändringen gäller bara den här raden");
+    expect(arkText()).not.toContain("Gäller ");
+    expect(krockRad()).toBeNull();                              // gruppens egna rader krockar inte med varandra
   });
 
-  it("ta bort kräver bekräftelse: första trycket raderar inget, Avbryt lämnar raden, 'Ja, ta bort' raderar", async () => {
-    g.__db.utjamningsperiod = [NU].map(x => ({ ...x }));
+  it("ändra en period på högst 16 veckor som redan har ett datum: ingen Överenskommen-rad och ingen text om att det krävs (listan visar datumet)", async () => {
+    g.__db.utjamningsperiod = kopia({ ...GAVLE_ANNA, overenskommen_datum: "2026-04-10" });
     await monter("flik=avtal");
-    await klick("Anna, skogsbruksplan");
+    expect(sText()).toContain("Överenskommen 10 apr 2026");
+    await klick("Gävle");
+    expect(radFalt("overenskommen")).toBeNull();
+    expect(document.querySelector("[data-overenskommelse-krav]")).toBeNull();
+    await spara();
+    expect(g.__db.utjamningsperiod[0].overenskommen_datum).toBe("2026-04-10");     // datumet rörs inte av ett sparande
+  });
+
+  it("ändra en grupp med bara personer: 'Anna Berg' och 'Erik Lind' bockade i listan", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA, GAVLE_ERIK);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await tryckRad("forare");
+    expect(ibockad("Anna Berg") && ibockad("Erik Lind")).toBe(true);
+    expect(ibockad("Alla")).toBe(false);
+  });
+
+  it("ändra: EN uppdatering för alla rader i gruppen (namn, veckor, anteckning, överenskommelse), inga infogningar eller raderingar", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA, GAVLE_ERIK, NU);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await namnge("Gävle 2026");
+    await valjPeriod("2026-04-20", "2026-08-17");               // 18 veckor: då finns Överenskommen-raden
+    await anteckna("Ny anteckning");
+    await tryckRad("overenskommen");
+    await skriv(panel("overenskommen")!.querySelector<HTMLInputElement>('input[type="date"]')!, "2026-04-10");
+    await spara();
+    const s = skrivningar();
+    expect(s).toHaveLength(1);
+    expect(s[0].op).toBe("update");
+    expect(s[0].vals).toEqual({ startdatum: "2026-04-20", slutdatum: "2026-08-23", namn: "Gävle 2026", anteckning: "Ny anteckning", overenskommen_datum: "2026-04-10" });
+    const db = g.__db.utjamningsperiod;
+    for (const id of ["g-anna", "g-erik"]) expect(db.find((r: any) => r.id === id)).toMatchObject({ namn: "Gävle 2026", slutdatum: "2026-08-23", overenskommen_datum: "2026-04-10" });
+    expect(db.find((r: any) => r.id === "p-nu").namn).toBe("Anna");   // andra perioder rörs inte
+    expect(db).toHaveLength(3);
+    expect(ark()).toBeNull();
+    expect(rader().map(r => r.getAttribute("data-utjamning-rad"))).toContain("Gävle 2026");
+  });
+
+  it("bocka ur en förare raderar den raden; de andra uppdateras", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA, GAVLE_ERIK);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await tryckBock("Erik Lind");
+    expect(varde("forare")).toBe("Anna");
+    await spara();
+    const ops = skrivningar().map((x: any) => x.op);
+    expect(ops).toEqual(["update", "delete"]);
+    expect(g.__db.utjamningsperiod.map((r: any) => r.id)).toEqual(["g-anna"]);
+    expect(g.__db.utjamningsperiod[0].namn).toBe("Gävle");
+  });
+
+  it("bocka i en förare skapar en NY rad med gruppens namn, veckor, anteckning, överenskommelse och skapad_av", async () => {
+    g.__db.utjamningsperiod = kopia({ ...GAVLE_ANNA, overenskommen_datum: "2026-04-10" });
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await tryckBock("Erik Lind");
+    expect(varde("forare")).toBe("Anna, Erik");
+    await spara();
+    const ops = skrivningar().map((x: any) => x.op);
+    expect(ops).toEqual(["update", "insert"]);
+    const ny = skrivningar()[1].vals;
+    expect(ny).toEqual([{ startdatum: "2026-04-20", slutdatum: "2026-07-05", medarbetare_id: "m2", namn: "Gävle", anteckning: "Gävle, ordinarie tid utlagd ojämnt", overenskommen_datum: "2026-04-10", skapad_av: "Inloggad Admin" }]);
+    expect(g.__db.utjamningsperiod).toHaveLength(2);
+    expect(rader()).toHaveLength(1);                             // fortfarande EN period i listan
+  });
+
+  it("Alla ur bocken raderar NULL-raden (Gävle-gruppens dubblett) och lämnar personraderna; Alla på rensar personerna", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, GAVLE_ANNA, GAVLE_ERIK);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await tryckRad("forare");
+    expect(ibockad("Alla") && ibockad("Anna Berg") && ibockad("Erik Lind")).toBe(true);   // som i prod: en NULL-rad OCH personrader
+    await klickaBock("Alla");
+    expect(ibockad("Alla")).toBe(false);
+    expect(ibockad("Anna Berg") && ibockad("Erik Lind")).toBe(true);                     // personerna rörs inte
+    await klar();
+    expect(varde("forare")).toBe("Anna, Erik");
+    await spara();
+    expect(skrivningar().map((x: any) => x.op)).toEqual(["update", "delete"]);
+    expect(g.__db.utjamningsperiod.map((r: any) => r.id)).toEqual(["g-anna", "g-erik"]);
+  });
+
+  it("en person ur bocken rör inte Alla (annars försvinner NULL-raden av misstag)", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, GAVLE_ANNA, GAVLE_ERIK);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await oppnaForare();
+    await klickaBock("Erik Lind");
+    expect(ibockad("Alla")).toBe(true);
+    expect(ibockad("Erik Lind")).toBe(false);
+    await klar();
+    await spara();
+    expect(g.__db.utjamningsperiod.map((r: any) => r.id).sort()).toEqual(["g-alla", "g-anna"]);
+  });
+
+  it("RLS stoppar uppdateringen (0 rader): felet står, inget raderas eller läggs till", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA, GAVLE_ERIK);
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await tryckBock("Erik Lind");
+    g.__ingaRader = true;
+    await spara();
+    expect(ark()).toBeTruthy();
+    expect(arkText()).toContain("sparades inte");
+    expect(skrivningar().map((x: any) => x.op)).toEqual(["update"]);        // stannar efter första misslyckade steget
+    g.__ingaRader = false;
+    expect(g.__db.utjamningsperiod).toHaveLength(2);
+  });
+
+  // ── Ta bort = alla rader i gruppen ──
+  it("ta bort tar bort ALLA rader i gruppen, med bekräftelse; Avbryt raderar inget", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE, GAVLE_ANNA, GAVLE_ERIK, NU);
+    await monter("flik=avtal");
+    await klick("Gävle");
     await klick("Ta bort");
-    expect(arkText()).toContain("Ta bort perioden v41–42");
+    expect(arkText()).toContain("Ta bort perioden Gävle v17–27");
+    expect(arkText()).toContain("3 rader");
     expect(g.__skriv.filter((x: any) => x.op === "delete")).toHaveLength(0);
-    await klick("Avbryt");
-    expect(g.__db.utjamningsperiod).toHaveLength(1);
+    await klick("Behåll");
+    expect(g.__db.utjamningsperiod).toHaveLength(4);
     await klick("Ta bort");
     await klick("Ja, ta bort");
-    expect(g.__db.utjamningsperiod).toHaveLength(0);
+    const dels = g.__skriv.filter((x: any) => x.op === "delete");
+    expect(dels).toHaveLength(1);                                // ett anrop
+    expect(g.__db.utjamningsperiod.map((r: any) => r.id)).toEqual(["p-nu"]);
     expect(ark()).toBeNull();
-    expect(sText()).toContain("Inga utjämningsperioder");
+    expect(rader().map(r => r.getAttribute("data-utjamning-rad"))).toEqual(["Anna"]);
   });
 
-  it("ta bort nekas om perioden berört en redan exporterad löneperiod: ingenting raderas och skälet står", async () => {
-    g.__db.utjamningsperiod = [GAVLE].map(x => ({ ...x }));
-    g.__db.fortnox_export_logg = [{ medarbetare_id: "m1", status: "skickat", period: "2026-06" }];
+  it("en period med en enda rad: bekräftelsen säger inte 'rader'", async () => {
+    g.__db.utjamningsperiod = kopia(NU);
     await monter("flik=avtal");
-    await klick("Gävle, ordinarie tid utlagd ojämnt");
+    await klick("Anna");
+    await klick("Ta bort");
+    expect(arkText()).toContain("Ta bort perioden Anna v41–42");
+    expect(arkText()).not.toMatch(/\d+ rader/);
+  });
+
+  it("ta bort nekas om NÅGON rad i gruppen berört en redan exporterad löneperiod: ingenting raderas och skälet står", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA, GAVLE_ERIK);
+    g.__db.fortnox_export_logg = [{ medarbetare_id: "m2", status: "skickat", period: "2026-06" }];
+    await monter("flik=avtal");
+    await klick("Gävle");
     await klick("Ta bort");
     expect(arkText()).toContain("kan inte tas bort");
     expect(arkText()).toContain("2026-06");
     expect(blad("Ja, ta bort").length).toBe(0);
     expect(g.__skriv.filter((x: any) => x.op === "delete")).toHaveLength(0);
-    expect(g.__db.utjamningsperiod).toHaveLength(1);
+    expect(g.__db.utjamningsperiod).toHaveLength(2);
+  });
+
+  it("export för en förare som INTE finns i gruppen hindrar inte borttagningen", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA);
+    g.__db.fortnox_export_logg = [{ medarbetare_id: "m2", status: "skickat", period: "2026-06" }];
+    await monter("flik=avtal");
+    await klick("Gävle");
+    await klick("Ta bort");
+    expect(blad("Ja, ta bort").length).toBe(1);
   });
 
   it("kan exportloggen inte läsas nekas borttagningen också (ett okänt läge är inte 'ingen export')", async () => {
-    g.__db.utjamningsperiod = [NU].map(x => ({ ...x }));
+    g.__db.utjamningsperiod = kopia(NU);
     g.__dbFel = { fortnox_export_logg: "timeout" };
     await monter("flik=avtal");
-    await klick("Anna, skogsbruksplan");
+    await klick("Anna");
     await klick("Ta bort");
     expect(arkText()).toContain("Kunde inte kontrollera om lönen är exporterad");
     expect(blad("Ja, ta bort").length).toBe(0);
     expect(g.__db.utjamningsperiod).toHaveLength(1);
   });
 
-  it("borttagning som RLS stoppar (0 rader) säger det och behåller raden i listan", async () => {
-    g.__db.utjamningsperiod = [NU].map(x => ({ ...x }));
+  it("borttagning som RLS stoppar (0 rader) säger det och behåller raderna i listan", async () => {
+    g.__db.utjamningsperiod = kopia(GAVLE_ANNA, GAVLE_ERIK);
     await monter("flik=avtal");
-    await klick("Anna, skogsbruksplan");
+    await klick("Gävle");
     await klick("Ta bort");
     g.__ingaRader = true;
     await klick("Ja, ta bort");
     expect(arkText()).toContain("togs inte bort");
-    expect(g.__db.utjamningsperiod).toHaveLength(1);
+    expect(g.__db.utjamningsperiod).toHaveLength(2);
+  });
+
+  // ── Martins tre fel i preview jxt707f10 (2026-10-12) ──
+  it("Lägg till är GRÅ — inte blå — tills namn, Börjar och förare är satta; blå först när alla tre finns (testen kollade förut bara disabled, aldrig färgen)", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const grå = farg(FARG.text3), blå = farg(FARG.bla);
+    expect(grå).not.toBe(blå);
+    const knappFarg = () => sparaKnapp().style.color;
+    // Börjar är satt från början (veckan vi är i) — det är namnet och förarna som saknas
+    expect(varde("borjar")).toContain("v41");
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(knappFarg()).toBe(grå);
+    expect(sparaKnapp().style.opacity).toBe("");                      // grå text, inte blå som dämpats
+    await namnge("Test");
+    expect(sparaKnapp().disabled).toBe(true);                         // förare saknas
+    expect(knappFarg()).toBe(grå);
+    await tryckBock("Alla");
+    expect(sparaKnapp().disabled).toBe(false);
+    expect(knappFarg()).toBe(blå);
+    await tryckBock("Alla");                                          // förarna bort igen → grå igen
+    expect(knappFarg()).toBe(grå);
+    await tryckBock("Anna Berg");
+    expect(knappFarg()).toBe(blå);
+    await namnge("");                                                 // namnet bort → grå igen
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(knappFarg()).toBe(grå);
+  });
+
+  it("Spara i en befintlig period är också grå när namnet tas bort, och blå när det finns", async () => {
+    g.__db.utjamningsperiod = kopia(SENARE);
+    await monter("flik=avtal");
+    await klick("Vinter");
+    expect(sparaKnapp().style.color).toBe(farg(FARG.bla));
+    await namnge("");
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(sparaKnapp().style.color).toBe(farg(FARG.text3));
+    await namnge("Vinter");
+    expect(sparaKnapp().style.color).toBe(farg(FARG.bla));
+  });
+
+  it("Namn-fältet är tomt: ingen platshållare (inget 't.ex. Gävle' som ser ifyllt ut)", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    expect(arkFalt("Namn").value).toBe("");
+    expect(arkFalt("Namn").getAttribute("placeholder")).toBeNull();
+    expect(arkText()).not.toContain("t.ex.");
+  });
+
+  it("Börjar v42, Slutar v47 (22 nov): ‹ › byter månad, bandet löper över månadsskiftet (12 okt–22 nov); två snabba tryck på › ger två månader", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    await valjBorjar("2026-10-12");                                   // måndag v42
+    await valjSlut("2026-11-22");                                     // söndag v47
+    expect((document.querySelector("[data-veckor]")!.textContent || "").trim()).toBe("6 veckor");
+    expect(slutar()).toBe("Slutar sön 22 nov · v47");
+    await oppnaRad("borjar");
+    expect(synligManad()).toBe("2026-10");
+    const tryckt = (d: string) => dagEl(d)?.getAttribute("aria-pressed");
+    expect(dagEl("2026-10-12")!.getAttribute("data-start")).toBe("true");
+    expect(tryckt("2026-10-11")).toBe("false");
+    expect(tryckt("2026-10-31")).toBe("true");                        // bandet når oktobers slut …
+    await klickEl(knappMed("Nästa månad"));                           // › : november
+    expect(synligManad()).toBe("2026-11");
+    for (let d = 1; d <= 22; d++) expect(tryckt(`2026-11-${String(d).padStart(2, "0")}`), `${d} nov`).toBe("true");   // … och fortsätter över skiftet
+    expect(tryckt("2026-11-23")).toBe("false");
+    await klickEl(knappMed("Nästa månad"));                           // december: inget band
+    expect(Array.from(document.querySelectorAll("[data-utjamning-ark] [data-dag]")).filter(e => e.getAttribute("aria-pressed") === "true")).toHaveLength(0);
+    await klickEl(knappMed("Föregående månad")); await klickEl(knappMed("Föregående månad"));   // ‹ ‹ : oktober
+    expect(synligManad()).toBe("2026-10");
+    await act(async () => { knappMed("Nästa månad").click(); knappMed("Nästa månad").click(); });   // två tryck innan något ritats om
+    expect(synligManad()).toBe("2026-12");
+    await act(async () => { knappMed("Föregående månad").click(); knappMed("Föregående månad").click(); knappMed("Föregående månad").click(); });
+    expect(synligManad()).toBe("2026-09");
+  });
+
+  it("raden Förare öppnar förarlistan INNE i arket med '‹' — den navigerar aldrig bort (varken till Ny medarbetare eller något annat)", async () => {
+    await monter("flik=avtal");
+    const adressFore = window.location.search;
+    await oppnaNy();
+    await tryckRad("forare");
+    expect(ark()).not.toBeNull();
+    expect(document.querySelector("[data-forare-vy]")).not.toBeNull();
+    expect(tillbakaKnapp()!.getAttribute("aria-label")).toBe("Tillbaka till Ny period");
+    expect(arkText()).toContain("Förare");
+    expect(window.location.search).toBe(adressFore);                  // adressen rörd: ingen ?ny=1, ingen annan flik
+    expect(window.location.search).not.toContain("ny=1");
+    expect(document.body.textContent).not.toContain("Steg 1 av 4");   // Ny medarbetare-guiden
+    expect(document.body.textContent).toContain("Utjämningsperioder"); // Avtal-fliken ligger kvar bakom
+    await tillbaka();
+    expect(document.querySelector("[data-forare-vy]")).toBeNull();
+    expect(arkText()).toContain("Ny period");
+    expect(window.location.search).not.toContain("ny=1");
+  });
+
+  it("medan arket är öppet är sidan bakom (sidomenyn med 'Ny medarbetare', bottenmenyn, innehållet) inert + aria-hidden, och fokus ligger i dialogen; stängs arket är allt som förut och fokus tillbaka", async () => {
+    await monter("flik=avtal");
+    const nyPeriod = Array.from(cont.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Ny period")!;
+    const gomdaFore = document.querySelectorAll("[aria-hidden='true']").length;     // ikoner o.d. som redan var dolda
+    nyPeriod.focus();
+    expect(document.activeElement).toBe(nyPeriod);
+    await oppnaNy();
+    const sidomeny = cont.querySelector<HTMLElement>("aside.adm-meny")!;
+    const nyMedarbetare = Array.from(sidomeny.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").includes("Ny medarbetare"))!;
+    expect(nyMedarbetare).toBeTruthy();
+    const bakom = (el: Element) => { for (let n: Element | null = el; n && n !== document.documentElement; n = n.parentElement) if (n.hasAttribute("inert")) return n; return null; };
+    expect(bakom(nyMedarbetare), "Ny medarbetare ska ligga bakom inert").not.toBeNull();
+    expect(nyMedarbetare.closest("[aria-hidden='true']")).not.toBeNull();
+    expect(bakom(ark()!)).toBeNull();                                   // arket självt är aldrig inert
+    expect(overlay()!.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement).toBe(ark());                         // fokus in i dialogen
+    expect(ark()!.getAttribute("role")).toBe("dialog");
+    // förarlistan (innehållet byts i samma ark) behåller skyddet
+    await tryckRad("forare");
+    expect(bakom(nyMedarbetare)).not.toBeNull();
+    await tillbaka();
+    expect(bakom(nyMedarbetare)).not.toBeNull();
+    // stäng → tillbaka som förut
+    await klickEl(Array.from(ark()!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Avbryt")!);
+    expect(ark()).toBeNull();
+    expect(document.querySelectorAll("[inert]")).toHaveLength(0);
+    expect(document.querySelectorAll("[aria-hidden='true']").length).toBe(gomdaFore);
+    expect(document.activeElement).toBe(nyPeriod);                       // fokus till knappen som öppnade arket
+  });
+
+  it("arket SITTER FAST: förankrat uppifrån, aldrig centrerat, fast höjd — samma stil i formuläret, med kalendern utfälld, vid Längd 20 v och i förarlistan; rubrikraden står still och innehållet rullar inuti", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const ovl = () => overlay()!;
+    const lage = () => ({ overlay: ovl().getAttribute("style"), dialog: ark()!.getAttribute("style"), klass: ark()!.className });
+    const forsta = lage();
+    // förankrad uppifrån under toppfältet, inte centrerad
+    expect(ovl().style.alignItems).toBe("flex-start");
+    expect(ovl().style.alignItems).not.toBe("center");
+    // fast höjd ur en klass (inte ur innehållet): ingen inline height/max-height som kan följa innehållet
+    expect(ark()!.className).toContain("ark-dialog");
+    expect(ark()!.style.height).toBe("");
+    expect(ark()!.style.maxHeight).toBe("");
+    const css = ovl().querySelector("style")!.textContent || "";
+    expect(css).toMatch(/\.ark-dialog\s*\{[^}]*height:\s*calc\(100dvh/);            // telefon: nästan hela fönstret under toppfältet
+    expect(css).toMatch(/min-width:\s*760px[^}]*\{[^}]*height:\s*min\(85dvh/);        // dator: högst 85 %
+    // rubrikraden ligger utanför det som rullar; innehållet rullar inuti
+    const rubrik = ark()!.querySelector<HTMLElement>("[data-ark-rubrik]")!;
+    const innehall = ark()!.querySelector<HTMLElement>("[data-ark-innehall]")!;
+    expect(innehall.style.overflowY).toBe("auto");
+    expect(innehall.contains(rubrik)).toBe(false);
+    expect(sparaKnapp() && rubrik.contains(sparaKnapp())).toBe(true);        // Lägg till rullar aldrig bort
+    // kalendern utfälld
+    await oppnaBorjar();
+    expect(lage()).toEqual(forsta);
+    // Längd 20 v (orange läge, överenskommelse-raden dyker upp)
+    await sattLangd(20);
+    expect(lage()).toEqual(forsta);
+    await tryckRad("overenskommen");
+    expect(lage()).toEqual(forsta);
+    // förarlistan och tillbaka
+    await tryckRad("forare");
+    expect(document.querySelector("[data-forare-vy]")).not.toBeNull();
+    expect(lage()).toEqual(forsta);
+    await tillbaka();
+    expect(lage()).toEqual(forsta);
+  });
+
+  it("andra trycket i ett DUBBELKLICK sväljs strax efter ett vybyte: Förare → ingen förare vald, ‹ Ny period → Avbryt stänger inte arket; senare snabba tryck (›) går igenom", async () => {
+    await monter("flik=avtal");
+    await oppnaNy();
+    const dubbel = async (el: HTMLElement) => { await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 })); }); };
+    // Förare-raden: andra klicket hamnar på listan (en förare ligger på samma plats)
+    await tryckRad("forare");
+    await dubbel(bock("Anna Berg"));
+    expect(ibockad("Anna Berg")).toBe(false);
+    await klickaBock("Anna Berg");                                           // ett enkelt tryck räknas
+    expect(ibockad("Anna Berg")).toBe(true);
+    // ‹ Ny period: andra klicket hamnar på Avbryt
+    await tillbaka();
+    await dubbel(Array.from(ark()!.querySelectorAll<HTMLButtonElement>("button")).find(b => (b.textContent || "").trim() === "Avbryt")!);
+    expect(ark()).not.toBeNull();
+    // … och arket byter höjd när innehållet byts (förarlistan är lägre), så andra klicket kan hamna UTANFÖR dialogen, på bakgrunden, som annars stänger arket
+    // (mätt i Chrome: 13 ms mellan trycken, andra trycket på överlägget, arket borta)
+    await tryckRad("forare");
+    await tillbaka();
+    await dubbel(overlay()!);
+    expect(ark()).not.toBeNull();
+    await klickEl(overlay()!);                                          // ett vanligt tryck på bakgrunden stänger fortfarande (efter fönstret: ett enkelt klick räknas alltid)
+    expect(ark()).toBeNull();
+    await oppnaNy();
+    // en bra stund senare: snabba tryck på › (detail 2, 3, 4 …) räknas alla
+    await oppnaBorjar();
+    const nu = Date.now();
+    const spion = vi.spyOn(Date, "now").mockReturnValue(nu + 5000);
+    try {
+      const fore = synligManad();
+      for (const detail of [2, 3, 4]) await act(async () => { knappMed("Nästa månad").dispatchEvent(new MouseEvent("click", { bubbles: true, detail })); });
+      expect(synligManad()).not.toBe(fore);
+      expect(synligManad()).toBe("2027-01");                            // 2026-10 + 3 månader
+    } finally { spion.mockRestore(); }
   });
 });
 
@@ -836,7 +1833,7 @@ describe("Vilobrott-fliken läser förarens svar", () => {
 /* ─────────────────────────── Ny medarbetare: ett flöde, fyra steg ─────────────────────────── */
 
 const falt = (label: string) => {
-  const l = Array.from(cont.querySelectorAll<HTMLLabelElement>("label")).find(e => (e.textContent || "").trim() === label);
+  const l = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(e => (e.textContent || "").trim() === label);
   if (!l) throw new Error("hittar inget fält: " + label + " — sidan säger: " + text().slice(0, 300));
   return document.getElementById(l.htmlFor) as HTMLInputElement;
 };
