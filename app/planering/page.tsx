@@ -17,6 +17,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
+import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
 import { HYTTSPAR_CASING_COLOR, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH, ROLLFARG_SKOTARE, ROLLFARG_SKORDARE, sparStil } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, type InfoRad } from '../../lib/objektInfoSpar'
@@ -440,11 +441,8 @@ function maskinModell(m: DimMaskin | undefined | null): string {
 // Linjetyper som ritas som stängda polygoner.
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 // Polygon-linjetyper: ritas punkt-för-punkt, sluts automatiskt (sista punkt == första) och
-// behåller råa hörn (ingen smoothing). EN källa — allt polygon-beteende gate:as mot detta set.
+// behåller råa hörn. EN källa — allt polygon-beteende gate:as mot detta set. Ingen ritad markering utjämnas någonsin (lib/ritaPunkter.ts).
 const POLYGON_LINE_TYPES = new Set<string>(['boundary', 'nature']);
-// Öppna linjer (INTE polygoner → ingen autostängning) som ändå ritas med RÅA hörn, ingen smoothing.
-// Stenmur: raka murstycken mellan hörn. Skilt från POLYGON_LINE_TYPES så stonewall inte blir polygon.
-const RAW_POINT_LINE_TYPES = new Set<string>(['stonewall']);
 
 // Basväg-merge: max ändpunkt-till-ändpunkt-avstånd (haversine, METER — aldrig skärmenheter) för att
 // ERBJUDA en sammanslagning. Bara ändpunkt mot ändpunkt räknas (en ände nära en annan vägs MITT är en
@@ -1482,11 +1480,11 @@ export default function PlannerPage() {
     const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
     const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
-    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring', type: 'line', source: 'zones-source', filter: gallringEjLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthGallring }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring-lov', type: 'line', source: 'zones-source', filter: gallringLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthLov }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
     // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
     map.addLayer({
@@ -1538,7 +1536,7 @@ export default function PlannerPage() {
             'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 6, 15, 7, 17, 9],
             'line-dasharray': [2, 0.85], // ~12/5 px vid ~6px bredd → läser som stenar på rad
           },
-          layout: { 'line-cap': 'butt', 'line-join': 'round' },
+          layout: { 'line-cap': 'butt', 'line-join': 'miter' },
         });
         return;
       }
@@ -1559,20 +1557,20 @@ export default function PlannerPage() {
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
         paint: { 'line-color': casingColor, 'line-width': cwLw },
-        layout: { 'line-cap': 'round', 'line-join': 'round' }
+        layout: { 'line-cap': 'round', 'line-join': 'miter' }
       });
       map.addLayer({
         id: `line-${lt.id}-base`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
         paint: { 'line-color': lt.color, 'line-width': lw, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
-        layout: { 'line-cap': 'round', 'line-join': 'round' }
+        layout: { 'line-cap': 'round', 'line-join': 'miter' }
       });
       if (lt.striped && lt.color2) {
         map.addLayer({
           id: `line-${lt.id}-stripe`, type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], lt.id],
           paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': [2, 2] },
-          layout: { 'line-cap': 'round', 'line-join': 'round' }
+          layout: { 'line-cap': 'round', 'line-join': 'miter' }
         });
       }
     });
@@ -1583,7 +1581,7 @@ export default function PlannerPage() {
       id: 'line-mainroad-risa', type: 'line', source: 'lines-source',
       filter: ['==', ['get', 'isRisa'], true],
       paint: { 'line-color': '#3b82f6', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 11, 3, 13, 4, 15, 6, 17, 7] as any },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      layout: { 'line-cap': 'round', 'line-join': 'miter' },
     });
     // === Basväg-etikett: nummer (+ längd i planering) mitt på vägen (symbol-placement 'line-center'). ===
     map.addLayer({
@@ -1683,8 +1681,8 @@ export default function PlannerPage() {
 
     // === Drawing preview layers ===
     map.addLayer({ id: 'drawing-fill', type: 'fill', source: 'drawing-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#7cba3f', 'fill-opacity': 0.15 } });
-    map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'drawing-line', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    map.addLayer({ id: 'drawing-line', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'drawing-points-layer', type: 'circle', source: 'drawing-points-source', paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#7cba3f', 'circle-stroke-width': 2 } });
     // Streckad stängningslinje (sista→första punkt)
     map.addSource('drawing-close-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -2963,6 +2961,8 @@ export default function PlannerPage() {
   // Freehand drawing refs (avoid stale closures in document-level listeners)
   const freehandCoordsRef = useRef<[number, number][]>([]);
   const freehandActiveRef = useRef(false);
+  const senasteTouchRef = useRef(0);                      // klockslag för senaste touch-händelse i ritläget — musen som webbläsaren emulerar efter ett tryck ska ignoreras (lib/ritaPunkter)
+  const senasteTryckRef = useRef<TryckPunkt | null>(null);   // senast godtagna tryck (skärm-px + tid) → samma tryck två gånger blir EN punkt
   const freehandStartScreenRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   
   // Skotning-markering (polygon-ritning för skotare)
@@ -5937,8 +5937,8 @@ export default function PlannerPage() {
           const snapDist = Math.sqrt((firstScreen.x - lastScreen.x) ** 2 + (firstScreen.y - lastScreen.y) ** 2);
           if (snapDist < 15) {
             const closed = [...simplified.slice(0, -1), simplified[0]];
-            if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
+            if (isDrawMode) finishLineFromCoords(slutaRitning(closed, true));
+            if (isZoneMode) finishZoneFromCoords(slutaRitning(closed, true));
             return;
           }
         }
@@ -5947,8 +5947,12 @@ export default function PlannerPage() {
         setCurrentDrawCoords(simplified);
         setDrawPaused(true);
       } else if (!wasFreehand && coords.length > 0) {
-        // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge)
+        // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge). Ett tryck = EXAKT en punkt.
         const lastCoord = coords[coords.length - 1];
+        const tryckPx = map.project(lastCoord as any);
+        const detta: TryckPunkt = { x: tryckPx.x, y: tryckPx.y, tid: Date.now() };
+        if (arDubbeltryck(senasteTryckRef.current, detta)) return;   // samma tryck igen (dubbelhändelse/dubbelklick) → aldrig en andra punkt
+        senasteTryckRef.current = detta;
         const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
 
         // Klick nära första punkten → stäng polygon (bara för polygon-typer)
@@ -5961,8 +5965,8 @@ export default function PlannerPage() {
           const closeDist = Math.sqrt(ddx * ddx + ddy * ddy);
           if (closeDist < 15) {
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
-            if (isDrawMode) finishLineFromCoords(POLYGON_LINE_TYPES.has(drawType || '') ? closed : smoothCoords(closed, 2, true));
-            if (isZoneMode) finishZoneFromCoords(zoneType === 'gallring' ? closed : smoothCoords(closed, 2, true));
+            if (isDrawMode) finishLineFromCoords(slutaRitning(closed, true));
+            if (isZoneMode) finishZoneFromCoords(slutaRitning(closed, true));
             return;
           }
         }
@@ -5971,21 +5975,19 @@ export default function PlannerPage() {
       }
     };
 
+    const onTouchStartRita = (e: TouchEvent) => { senasteTouchRef.current = Date.now(); onPointerDown(e); };
+    const onTouchEndRita = (e: TouchEvent) => { senasteTouchRef.current = Date.now(); onPointerUp(e); };
+    const onMouseDownRita = (e: MouseEvent) => { if (arEmuleradMus(Date.now(), senasteTouchRef.current)) return; onPointerDown(e); };
+    const onMouseUpRita = (e: MouseEvent) => { if (arEmuleradMus(Date.now(), senasteTouchRef.current)) return; onPointerUp(e); };
+
     // Dubbelklick → avsluta ritning (stäng polygon-typer)
     const onDblClick = (e: any) => {
       if (!isDrawingMode) return;
       e.preventDefault();
       if (currentDrawCoords.length >= 2) {
         const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
-        let finalCoords: [number, number][];
-        if (shouldClose) {
-          const closed = [...currentDrawCoords, currentDrawCoords[0]];
-          // Boundary + gallringszon: skarpa hörn (ingen smoothing). Övriga zoner: mjuka kurvor.
-          finalCoords = ((isDrawMode && POLYGON_LINE_TYPES.has(drawType || '')) || (isZoneMode && zoneType === 'gallring')) ? closed : smoothCoords(closed, 2, true);
-        } else {
-          // Öppna linjer: smootha om inte polygon-typ ELLER rå-punkt-typ (stenmur = raka murstycken)
-          finalCoords = (!POLYGON_LINE_TYPES.has(drawType || '') && !RAW_POINT_LINE_TYPES.has(drawType || '') && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
-        }
+        // Punkterna sparas exakt som tryckta: ytor sluts med första punkten, linjer lämnas som de är. Ingen utjämning.
+        const finalCoords = slutaRitning(currentDrawCoords, shouldClose);
         if (isDrawMode) finishLineFromCoords(finalCoords);
         if (isZoneMode) finishZoneFromCoords(finalCoords);
       }
@@ -6004,23 +6006,25 @@ export default function PlannerPage() {
 
     // Registrera DOM events för freehand drawing
     if (isDrawingMode) {
-      canvas.addEventListener('mousedown', onPointerDown);
-      canvas.addEventListener('touchstart', onPointerDown, { passive: true });
+      // En pekskärm skickar touchstart/touchend OCH sedan den emulerade musen (mousedown/mouseup) för samma tryck.
+      // Lyssnade vi på båda lades varje hörn till två gånger. Touch sätter tidsstämpeln; musen ignoreras strax efter.
+      canvas.addEventListener('mousedown', onMouseDownRita);
+      canvas.addEventListener('touchstart', onTouchStartRita, { passive: true });
       document.addEventListener('mousemove', onPointerMove);
       document.addEventListener('touchmove', onPointerMove, { passive: true });
-      document.addEventListener('mouseup', onPointerUp);
-      document.addEventListener('touchend', onPointerUp);
+      document.addEventListener('mouseup', onMouseUpRita);
+      document.addEventListener('touchend', onTouchEndRita);
     }
 
     return () => {
       map.off('click', onClick);
       map.off('dblclick', onDblClick);
-      canvas.removeEventListener('mousedown', onPointerDown);
-      canvas.removeEventListener('touchstart', onPointerDown);
+      canvas.removeEventListener('mousedown', onMouseDownRita);
+      canvas.removeEventListener('touchstart', onTouchStartRita);
       document.removeEventListener('mousemove', onPointerMove);
       document.removeEventListener('touchmove', onPointerMove);
-      document.removeEventListener('mouseup', onPointerUp);
-      document.removeEventListener('touchend', onPointerUp);
+      document.removeEventListener('mouseup', onMouseUpRita);
+      document.removeEventListener('touchend', onTouchEndRita);
       canvasContainer.style.removeProperty('cursor');
       // Säkerställ att dragPan är aktiverad vid cleanup
       if (map.dragPan) map.dragPan.enable();
@@ -6742,27 +6746,6 @@ export default function PlannerPage() {
       return [...left.slice(0, -1), ...right];
     }
     return [coords[0], coords[coords.length - 1]];
-  };
-
-  // Chaikin's corner-cutting algorithm för mjuka kurvor
-  // closed=true → stäng polygonen efter varje iteration, closed=false → öppen linje
-  const smoothCoords = (coords: [number, number][], iterations: number = 2, closed: boolean = true): [number, number][] => {
-    if (coords.length < 3) return coords;
-    const beforeLen = coords.length;
-    let pts = coords;
-    for (let iter = 0; iter < iterations; iter++) {
-      const smoothed: [number, number][] = [];
-      for (let j = 0; j < pts.length - 1; j++) {
-        const p0 = pts[j];
-        const p1 = pts[j + 1];
-        smoothed.push([p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]);
-        smoothed.push([p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]);
-      }
-      if (closed && smoothed.length > 0) smoothed.push(smoothed[0]);
-      pts = smoothed;
-    }
-    console.log('Smoothing applied, before:', beforeLen, 'after:', pts.length, 'closed:', closed);
-    return pts;
   };
 
   // Hjälpfunktioner för att avsluta ritning med [lng,lat]-coords
@@ -12111,18 +12094,8 @@ export default function PlannerPage() {
   const finishLine = () => {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 1 && drawType) {
-      const shouldClose = POLYGON_LINE_TYPES.has(drawType);
-      let finalCoords = [...currentDrawCoords];
-      if (shouldClose && finalCoords.length >= 3) {
-        finalCoords.push(finalCoords[0]);
-        // Polygon-typer (boundary/nature): skarpa hörn (ingen smoothing)
-        if (!POLYGON_LINE_TYPES.has(drawType)) {
-          finalCoords = smoothCoords(finalCoords, 2, true);
-        }
-      } else if (!POLYGON_LINE_TYPES.has(drawType) && !RAW_POINT_LINE_TYPES.has(drawType) && finalCoords.length >= 3) {
-        finalCoords = smoothCoords(finalCoords, 2, false);
-      }
-      finishLineFromCoords(finalCoords);
+      const shouldClose = POLYGON_LINE_TYPES.has(drawType) && currentDrawCoords.length >= 3;
+      finishLineFromCoords(slutaRitning(currentDrawCoords, shouldClose));   // exakt de tryckta punkterna — ingen utjämning
       return;
     }
     if (currentPath.length > 1 && drawType) {
@@ -12146,10 +12119,7 @@ export default function PlannerPage() {
   const finishZone = () => {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 2 && zoneType) {
-      let finalCoords = [...currentDrawCoords, currentDrawCoords[0]];
-      if (zoneType !== 'gallring') finalCoords = smoothCoords(finalCoords, 2, true); // gallring: råa hörn där man tryckte
-      console.log('Zon stängd (knapp), antal punkter:', currentDrawCoords.length, 'första:', finalCoords[0], 'sista:', finalCoords[finalCoords.length-1], 'efter smooth:', finalCoords.length);
-      finishZoneFromCoords(finalCoords);
+      finishZoneFromCoords(slutaRitning(currentDrawCoords, true));   // hörn exakt där man tryckte + första punkten sist — ingen utjämning, för alla zontyper
       return;
     }
     if (currentPath.length > 2 && zoneType) {
