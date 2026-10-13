@@ -43,11 +43,32 @@ describe('under 900 px: arket är OFÖRÄNDRAT mot main (HTML bit för bit)', ()
     sattBredd(bredd);
     expect(renderaHtml(PlusRad, flik, (ms) => vi.advanceTimersByTime(ms))).toBe(golden(fil));
   });
-  it('dockan är oförändrad mot main i båda lägena (390 och 1280)', () => {
+  it('dockan är oförändrad mot main under 900 px (390 = två rader, 899 = en rad)', () => {
     sattBredd(390);
     expect(renderaHtml(PlusRad, null, (ms) => vi.advanceTimersByTime(ms))).toBe(golden('main_docka_390'));
-    sattBredd(1280);
-    expect(renderaHtml(PlusRad, null, (ms) => vi.advanceTimersByTime(ms))).toBe(golden('main_docka_1280'));
+    sattBredd(899);
+    expect(renderaHtml(PlusRad, null, (ms) => vi.advanceTimersByTime(ms))).toBe(golden('main_docka_899'));
+  });
+  it.each([390, 899])('%i px: plus öppnar dockan (ingen panel, ingen symbolrad), Alla öppnar arket nerifrån — utan panelens rad', (bredd) => {
+    sattBredd(bredd);
+    m = montera(PlusRad, null); avancera(50);
+    expect(q(m, 'plus-rad')).not.toBeNull();
+    expect(q(m, 'plus-alla-panel')).toBeNull();
+    expect(q(m, 'plus-panel-docka')).toBeNull();
+    expect(m.behallare.querySelectorAll('[data-testid^="plus-post-"]').length).toBe(3);   // dockans symboler
+    klicka(q(m, 'plus-alla'));
+    avancera(50);
+    expect(q(m, 'plus-rad')).toBeNull();
+    expect(q(m, 'plus-ark-grepp')).not.toBeNull();             // arket, med grepp
+    expect(q(m, 'plus-alla-panel')!.getAttribute('data-lage')).toBeNull();
+    expect(q(m, 'plus-panel-docka')).toBeNull();                // raden hör bara till panelen
+  });
+  it('dockans symbol (under 900 px) fungerar som förut: ett tryck = onPost och dockan försvinner direkt', () => {
+    sattBredd(390);
+    m = montera(PlusRad, null); avancera(50);
+    klicka(q(m, 'plus-post-symbol:steep'));
+    expect(m.spion.post).toEqual(['symbol:steep']);
+    expect(m.behallare.innerHTML).toBe('');
   });
   it('arket försvinner direkt vid stängning (ingen glid-ut under 900 px)', () => {
     sattBredd(390);
@@ -61,17 +82,55 @@ describe('under 900 px: arket är OFÖRÄNDRAT mot main (HTML bit för bit)', ()
 describe.each([[1280, 800], [1440, 900]])('%i×%i: panelen från höger', (bredd) => {
   beforeEach(() => sattBredd(bredd));
 
-  it('stängd från början: plus → Alla öppnar panelen (samma komponent, samma flikar)', () => {
+  it('plus öppnar panelen DIREKT — ingen docka först: samma komponent, samma flikar, samma Redigera', () => {
     m = montera(PlusRad, null); avancera(50);
-    expect(q(m, 'plus-alla-panel')).toBeNull();   // bara dockan
-    klicka(q(m, 'plus-alla'));
-    avancera(50);
+    expect(q(m, 'plus-rad')).toBeNull();            // ingen docka
+    expect(q(m, 'plus-alla')).toBeNull();           // ingen "Alla"-knapp att trycka på först
     const p = q(m, 'plus-alla-panel')!;
     expect(p.getAttribute('data-lage')).toBe('panel');
     expect(p.getAttribute('data-oppen')).toBe('1');
     expect(q(m, 'plus-ark-grepp')).toBeNull();   // inget drag-grepp: en panel är inte ett ark
     expect(Array.from(m.behallare.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(['Symboler', 'Rita & mät', 'Lager']);
     expect(q(m, 'plus-ark-redigera')).not.toBeNull();
+  });
+
+  it('dockans symboler ligger som en rad ÖVERST i panelen, ovanför flikarna: samma symboler i samma ordning som dockan', () => {
+    m = montera(PlusRad, null); avancera(50);
+    const rad = q(m, 'plus-panel-docka')!;
+    expect(rad).not.toBeNull();
+    const nycklar = Array.from(rad.querySelectorAll('[data-testid^="plus-post-"]')).map((e) => e.getAttribute('data-testid'));
+    expect(nycklar).toEqual(['plus-post-symbol:wet', 'plus-post-symbol:steep', 'plus-post-symbol:culturemonument']);   // = poster, i dockans ordning
+    expect(Array.from(rad.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'))).toEqual(['Fuktig mark', 'Brant', 'Kulturminne']);
+    const flikar = q(m, 'plus-ark-flikar')!;
+    expect(rad.compareDocumentPosition(flikar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // raden kommer före flikarna
+    const panel = q(m, 'plus-alla-panel')!;
+    expect(panel.firstElementChild).toBe(rad);                                                      // överst i panelen
+  });
+
+  it('tryck på en symbol i raden = som från dockan: onPost(nyckel), panelen glider undan direkt, borta när rörelsen är klar', () => {
+    m = montera(PlusRad, null); avancera(50);
+    const p = q(m, 'plus-alla-panel')!;
+    klicka(q(m, 'plus-post-symbol:steep'));
+    expect(m.spion.post).toEqual(['symbol:steep']);
+    expect(p.getAttribute('data-oppen')).toBe('0');
+    expect(p.style.transform).toContain('translateX(calc(100%');
+    avancera(ut);
+    expect(q(m, 'plus-alla-panel')).toBeNull();
+  });
+
+  it('håll fingret på en symbol i raden → "Fast i dockan" (samma meny som dockan); ett vanligt tryck efter det placerar inte', () => {
+    m = montera(PlusRad, null); avancera(50);
+    const knapp = q(m, 'plus-post-symbol:wet')!;
+    act(() => { knapp.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 })); });
+    avancera(600);
+    expect(q(m, 'plus-hall')).not.toBeNull();
+    expect(q(m, 'plus-hall-fast')).not.toBeNull();
+    act(() => { knapp.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); });
+    klicka(knapp);                                   // lyftet efter hållet kommer som ett klick — sväljs
+    expect(m.spion.post).toEqual([]);
+    klicka(q(m, 'plus-hall-avbryt'));
+    expect(q(m, 'plus-hall')).toBeNull();
+    expect(q(m, 'plus-alla-panel')!.getAttribute('data-oppen')).toBe('1');
   });
 
   it('panelen: höger sida, ~380 px, full höjd med marginal, rundade hörn, glider in utan studs — och ingen mörk bakgrund', () => {
@@ -160,14 +219,29 @@ describe.each([[1280, 800], [1440, 900]])('%i×%i: panelen från höger', (bredd
   });
 });
 
+describe('gränsen: exakt 900 px', () => {
+  it('900 px = panel direkt med symbolrad, 899 px = docka', () => {
+    sattBredd(900);
+    m = montera(PlusRad, null); avancera(50);
+    expect(q(m, 'plus-alla-panel')!.getAttribute('data-lage')).toBe('panel');
+    expect(q(m, 'plus-rad')).toBeNull();
+    expect(q(m, 'plus-panel-docka')).not.toBeNull();
+    m.avmontera(); m = null;
+    sattBredd(899);
+    m = montera(PlusRad, null); avancera(50);
+    expect(q(m, 'plus-rad')).not.toBeNull();
+    expect(q(m, 'plus-alla-panel')).toBeNull();
+  });
+});
+
 describe('bredden avgörs VARJE gång plus öppnas', () => {
   // Samma PlusRad-instans hela tiden (ingen ny nyckel) — så provet fångar att läget läses vid öppningen och inte bara vid första renderingen.
-  const upplagg = (start: string) => {
+  const upplagg = (start: string) => {   // '' = ingen startflik (plus öppnar dockan/panelen, inte ett färdigt ark)
     const behallare = document.createElement('div');
     document.body.appendChild(behallare);
     const rot = createRoot(behallare);
     const spion: Spion = { post: [], stang: 0, rita: [] };
-    const visa = (oppen: boolean) => act(() => { rot.render(<Styrd Komp={PlusRad} oppen={oppen} start={start} spion={spion} />); });
+    const visa = (oppen: boolean) => act(() => { rot.render(<Styrd Komp={PlusRad} oppen={oppen} start={start || null} spion={spion} />); });
     const lage = () => behallare.querySelector('[data-testid="plus-alla-panel"]')?.getAttribute('data-lage') ?? (behallare.querySelector('[data-testid="plus-ark-grepp"]') ? 'ark' : 'inget');
     return { visa, lage, behallare, avmontera: () => { act(() => rot.unmount()); behallare.remove(); } };
   };
@@ -200,6 +274,27 @@ describe('bredden avgörs VARJE gång plus öppnas', () => {
     expect(u.behallare.querySelector('[data-testid="plus-alla-panel"]')!.getAttribute('data-oppen')).toBe('0');
     avancera(ut);
     expect(u.behallare.innerHTML).toBe('');
+    u.avmontera();
+  });
+
+  it('utan startflik: smal skärm → dockan först; efter breddning → panelen direkt (ingen docka); och tillbaka', () => {
+    sattBredd(820);
+    const u = upplagg('');
+    u.visa(true); avancera(50);
+    expect(u.behallare.querySelector('[data-testid="plus-rad"]')).not.toBeNull();
+    u.visa(false);
+    expect(u.behallare.innerHTML).toBe('');
+    sattBredd(1280);
+    u.visa(true); avancera(50);
+    expect(u.behallare.querySelector('[data-testid="plus-rad"]')).toBeNull();
+    expect(u.lage()).toBe('panel');
+    expect(u.behallare.querySelector('[data-testid="plus-panel-docka"]')).not.toBeNull();
+    u.visa(false); avancera(ut);
+    expect(u.behallare.innerHTML).toBe('');
+    sattBredd(700);
+    u.visa(true); avancera(50);
+    expect(u.behallare.querySelector('[data-testid="plus-rad"]')).not.toBeNull();   // dockan först igen
+    expect(u.behallare.querySelector('[data-testid="plus-alla-panel"]')).toBeNull();
     u.avmontera();
   });
 

@@ -130,7 +130,7 @@ function Cirkel({ p, px = CIRKEL_PX }: { p: PlusPostVy; px?: number }) {
   );
 }
 
-export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppen = true, dockNu, onPost, onSparaDocka, onAterstall, onStang }: {
+export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppen = true, dockRad, dockNu, onPost, onSparaDocka, onAterstall, onStang }: {
   data: ArkData;
   flik: FlikId;
   onFlik: (f: FlikId) => void;
@@ -140,6 +140,8 @@ export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppe
   lage?: PlusLage;
   /** panelen: öppen eller på väg ut (glider undan; komponenten ligger kvar i DOM tills sidan tar bort den). Arket tas bort direkt som förut. */
   oppen?: boolean;
+  /** panelen: dockans symboler som en rad överst, ovanför flikarna (sidan/PlusRad bygger knapparna — samma som i dockan) */
+  dockRad?: React.ReactNode;
   /** dockans platser just nu (fasta först, sedan mest använda) */
   dockNu: PlusPostVy[];
   onPost: (nyckel: string) => void;
@@ -478,6 +480,12 @@ export function PlusArk({ data, flik, onFlik, bred: bredProp, lage = 'ark', oppe
             display: 'flex', flexDirection: 'column', overscrollBehavior: 'contain', paddingTop: AVSTAND.l, borderRadius: RADIE.sheet, border: `1px solid ${FARG.linje}`,
             transform: glidInne ? 'translateX(0)' : `translateX(calc(100% + ${2 * AVSTAND.s}px))`, pointerEvents: oppen ? 'auto' : 'none',
             transition: minskadRorelse ? 'none' : `transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>
+          {dockRad && (
+            <div role="group" lang="sv" aria-label="Dockan" data-testid="plus-panel-docka" style={{ flexShrink: 0, display: 'grid', gridTemplateColumns: `repeat(${MAX_FASTA}, minmax(0, 1fr))`, alignItems: 'start', gap: 0,
+              margin: `0 0 ${AVSTAND.s}px`, padding: `0 0 ${AVSTAND.s}px`, borderBottom: `1px solid ${FARG.linje}` }}>
+              {dockRad}
+            </div>
+          )}
           {rubrikRad}
           {innehallRad}
         </div>
