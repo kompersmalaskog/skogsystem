@@ -52,8 +52,8 @@ export default function AdminClient({ currentUser }: { currentUser: Anvandare })
 function Skal({ currentUser }: { currentUser: Anvandare }) {
   const { nav, gaTill } = useAdminNav();
   const att = useAttGora();
-  // Menyns siffra: sakerna plus förare som passerat en arbetstidsgräns (lag, inte rekommendation). Gula räknas inte.
-  const antal = att.laddar ? 0 : att.saker.length + att.arbetstid.filter(f => f.varsta === "rod").length;
+  // Menyns siffra: sakerna plus förare som passerat en arbetstidsgräns (lag, inte rekommendation). Gula räknas inte, och inte heller delägare (arbetstidslagen gäller inte).
+  const antal = att.laddar ? 0 : att.saker.length + att.arbetstid.filter(f => f.varsta === "rod" && !f.foretagsledare).length;
   const aktiv = FLIKAR.find(f => f.key === nav.flik) || FLIKAR[0];
   const nyMedarbetare = nav.flik === "medarbetare" && !!nav.params.ny;
 

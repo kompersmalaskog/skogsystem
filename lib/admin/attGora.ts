@@ -211,7 +211,8 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
   else if (i.arbetstid.data) {
     arbetstid = sorteraAttGora(i.arbetstid.data.forare);
     arbetstidVarningar = i.arbetstid.data.varningar;
-    if (arbetstid.length === 0) {
+    // Delägare (arbetstidslagen gäller inte) visas grått i kortet men betyder aldrig att någon närmar sig en gräns.
+    if (arbetstid.every(f => f.foretagsledare)) {
       stammer.push({ id: "arbetstid", rubrik: "Ingen närmar sig en gräns för arbetstid", detalj: "Övertid, 48-timmarssnitt, dygns- och veckovila" });
     }
   }

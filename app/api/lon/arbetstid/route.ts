@@ -53,8 +53,8 @@ export async function GET(_req: NextRequest) {
     if (franvaroRes.fel) varningar.push(`Kunde inte läsa frånvaron (${franvaroRes.fel}) — övertid och 48-timmarssnittet räknas utan den och kan vara för låga.`);
 
     const nu = new Date();
-    const [medRes, avtalRes, utjRes, dagar, extra, flyttRes] = await Promise.all([
-      supabase.from("medarbetare").select("id, namn").order("namn"),
+    const [medRes0, avtalRes, utjRes, dagar, extra, flyttRes] = await Promise.all([
+      supabase.from("medarbetare").select("id, namn, foretagsledare").order("namn"),
       supabase.from("gs_avtal")
         .select("max_overtid_ar_h, dygnsvila_krav_h, dygnsvila_varning_h, veckovila_krav_h, veckovila_fonster_dagar, kompensation_deadline_dagar")
         .order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
@@ -72,6 +72,12 @@ export async function GET(_req: NextRequest) {
     // Maskinflytten är ett tillägg till arbetstiden, inte grunden: går den inte att läsa visas kortet ändå, med en varning.
     if (flyttRes.fel) varningar.push(`Kunde inte läsa maskinflytten (flyttdag: ${flyttRes.fel}) — flyttdagarna ingår inte, och arbetstid och vila kan vara för låga.`);
     const flyttRader = flyttRes.rader;
+    // Kolumnen foretagsledare kommer med migrationen 20261013170000. Före den kör kortet ändå, utan delägarundantag, och säger det.
+    let medRes: { data: any[] | null; error: any } = medRes0 as any;
+    if (medRes0.error && /foretagsledare/i.test(String(medRes0.error.message || ""))) {
+      varningar.push("Kolumnen medarbetare.foretagsledare finns inte än (migration 20261013170000_medarbetare_foretagsledare.sql är inte körd) — ingen person räknas som delägare, så delägare kan visas som gula eller röda.");
+      medRes = await supabase.from("medarbetare").select("id, namn").order("namn") as any;
+    }
     if (medRes.error) throw medRes.error;
 
     const avtal: any = avtalRes.error ? null : avtalRes.data;
@@ -112,7 +118,7 @@ export async function GET(_req: NextRequest) {
       const perioder = utjamning.filter(u => !u.medarbetare_id || u.medarbetare_id === m.id);
       const franvaro = franvaroRes.rader.filter(f => f.medarbetare_id === m.id);
       const arsovertid = beraknaArsovertid(sina, sinaExtra, ar, tomDatum, perioder, franvaro);
-      return byggArbetstid({ medarbetare_id: m.id, namn: m.namn || "Namnlös", tomDatum, arsovertid, dagar: sina, extra: sinaExtra, franvaro, trosklar, tak, flytt: sinFlytt, nu });
+      return byggArbetstid({ medarbetare_id: m.id, namn: m.namn || "Namnlös", tomDatum, arsovertid, dagar: sina, extra: sinaExtra, franvaro, trosklar, tak, flytt: sinFlytt, nu, foretagsledare: m.foretagsledare === true });
     }).filter(Boolean);
 
     return NextResponse.json({ ok: true, ar, tomDatum, forare, varningar });

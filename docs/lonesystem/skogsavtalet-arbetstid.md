@@ -689,6 +689,14 @@ Vilobrott-listan och förarens appar räknar fortfarande utan den — samma sak 
   sig restid (`extra_tid`, aktivitet `restid`) eller flyttdagar de senaste fyra månaderna står "Restid ingår inte".
 - Övertiden (gräns 1–3) påverkas inte: den räknas på `arbetsdag` + `extra_tid` som förut.
 
+**Företagsledare / delägare (Martin 2026-10-13).** Arbetstidslagen gäller inte den som leder företaget eller är delägare med bestämmande
+över sin egen arbetstid. `medarbetare.foretagsledare` (boolean, default false, migration `20261013170000_medarbetare_foretagsledare.sql`)
+sätts i Admin → Medarbetare (rutan "Företagsledare / delägare"). En sådan person räknas ändå, men visas aldrig som gul eller röd:
+`varsta` är alltid "lugn" (`skulleVarit` bär vad det hade blivit), raden i kortet är grå med "Delägare – arbetstidslagen gäller inte", går
+inte att fälla ut, kommer sist, och räknas inte i menysiffran. Hen visas bara när hen annars hade varit gul eller röd (annars finns inget att
+förklara), och "Ingen närmar sig en gräns" står kvar om det bara är delägare som är gula/röda. Martin och Joacim bockas i av Martin själv
+efter merge. Före migrationen kör kortet ändå (utan undantag) med en varning, och Medarbetare-fliken döljer rutan.
+
 **Luckor kortet säger högt.**
 - *Restid ingår inte* när varken restid eller maskinflytt finns i underlaget. Hemresan efter maskinflytt och annan privat restid
   utanför `extra_tid` ingår inte.

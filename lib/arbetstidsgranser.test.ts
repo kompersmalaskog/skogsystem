@@ -649,6 +649,54 @@ describe("förarens värsta nivå", () => {
   });
 });
 
+describe("företagsledare / delägare: arbetstidslagen gäller inte (Martin 2026-10-13)", () => {
+  const delagare = (ov: number, o: Partial<ArbetstidIndata> = {}) => byggArbetstid(indata({ medarbetare_id: "m", namn: "Martin", arsovertid: ars({ tomDatum: "2026-10-13", genomsnitt: ov }), foretagsledare: true, ...o }));
+  const vanlig = (namn: string, ov: number) => byggArbetstid(indata({ medarbetare_id: namn, namn, arsovertid: ars({ tomDatum: "2026-10-13", genomsnitt: ov }) }));
+
+  it("är aldrig gul eller röd: varsta = lugn även när siffrorna skulle ha gett röd — 'skulleVarit' bär vad det hade blivit", () => {
+    const f = delagare(300);
+    expect(f.foretagsledare).toBe(true);
+    expect(f.varsta).toBe("lugn");
+    expect(f.skulleVarit).toBe("rod");
+    expect(delagare(230).skulleVarit).toBe("gul");
+    expect(delagare(10).skulleVarit).toBe("lugn");
+  });
+
+  it("en vanlig förare är ingen företagsledare och har ingen 'skulleVarit'", () => {
+    const f = vanlig("Anna", 300);
+    expect(f.foretagsledare).toBe(false);
+    expect(f.skulleVarit).toBeUndefined();
+    expect(f.varsta).toBe("rod");
+  });
+
+  it("siffrorna räknas ändå (de visas inte som varning, men finns om någon vill se dem)", () => {
+    const f = delagare(300);
+    expect(f.granser).toHaveLength(6);
+    expect(gr(f, "allman_overtid_ar").niva).toBe("rod");
+  });
+
+  it("sortering: delägare som skulle ha varit gula/röda kommer SIST, grå; lugna delägare tas inte med", () => {
+    const lista = sorteraAttGora([delagare(300, { medarbetare_id: "d1", namn: "Delägare Röd" }), vanlig("Vanlig Gul", 230), delagare(10, { medarbetare_id: "d2", namn: "Delägare Lugn" }), vanlig("Vanlig Röd", 262)]);
+    expect(lista.map(f => f.namn)).toEqual(["Vanlig Röd", "Vanlig Gul", "Delägare Röd"]);
+  });
+
+  it("flera delägare: efter namn", () => {
+    const lista = sorteraAttGora([delagare(300, { medarbetare_id: "b", namn: "Östen" }), delagare(300, { medarbetare_id: "a", namn: "Anna" })]);
+    expect(lista.map(f => f.namn)).toEqual(["Anna", "Östen"]);
+  });
+
+  it("försvar mot inkonsekvent data: en delägare som ändå bär varsta = röd räknas som delägare (grå, sist), aldrig som flaggad förare", () => {
+    const inkonsekvent = { ...delagare(300), varsta: "rod" as const };
+    const lista = sorteraAttGora([inkonsekvent, vanlig("Anna", 262)]);
+    expect(lista.map(f => f.namn)).toEqual(["Anna", "Martin"]);
+  });
+
+  it("endast delägare i listan: ingen vanlig förare är flaggad", () => {
+    const lista = sorteraAttGora([delagare(300)]);
+    expect(lista.filter(f => !f.foretagsledare)).toEqual([]);
+  });
+});
+
 describe("sorteraAttGora: Översiktens ordning", () => {
   const forare = (namn: string, ov: number) => byggArbetstid(indata({ medarbetare_id: namn, namn, arsovertid: ars({ tomDatum: "2026-10-13", genomsnitt: ov }) }));
   it("lugna förare tas inte med", () => {

@@ -131,6 +131,12 @@ const M = [
   ["flytt: flyttnotisens timmar = dagar", "const h = flytt.pass.reduce((s, f) => s + f.min, 0) / 60;", "const h = flytt.pass.length;"],
   ["flytt: notisen om uteslutna dagar saknas", "if (flytt.uteslutna > 0) notiser.push(", "if (false) notiser.push("],
   ["flytt: restidsnotisen läggs sist i stället för först", "if (restidSaknas) notiser.unshift(RESTID_NOTIS);", "if (restidSaknas) notiser.push(RESTID_NOTIS);"],
+  // företagsledare / delägare (arbetstidslagen gäller inte)
+  ["delägare: varsta blir ändå gul/röd", 'varsta: "lugn", foretagsledare: true, skulleVarit: varsta,', "varsta, foretagsledare: true, skulleVarit: varsta,"],
+  ["delägare: skulleVarit alltid lugn (visas aldrig)", 'foretagsledare: true, skulleVarit: varsta,', 'foretagsledare: true, skulleVarit: "lugn" as Niva,'],
+  ["delägare: tas med bland de flaggade", ".filter(f => !f.foretagsledare && f.varsta !== \"lugn\")", ".filter(f => f.varsta !== \"lugn\")"],
+  ["delägare: visas även när de inte skulle varit gula/röda", "f.foretagsledare && f.skulleVarit != null && f.skulleVarit !== \"lugn\"", "f.foretagsledare"],
+  ["delägare: kommer först i stället för sist", "return [...flaggade, ...delagare];", "return [...delagare, ...flaggade];"],
   // sortering
   ["sortering: lugna förare tas med", 'f.varsta !== "lugn"', "true"],
   ["sortering: gula före röda", "NIVA_RANG[b.varsta] - NIVA_RANG[a.varsta]", "NIVA_RANG[a.varsta] - NIVA_RANG[b.varsta]"],

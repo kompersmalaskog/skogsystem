@@ -118,7 +118,7 @@ describe("byggAttGora: hempunkt som ingen bekräftat", () => {
 
 describe("byggAttGora: arbetstid — lagens sex gränser (lib/arbetstidsgranser)", () => {
   const gr = (id: Gransstatus["id"], niva: Niva): Gransstatus => ({ id, namn: id, niva, varde: 1, grans: 2, enhet: "tim", andel: 0.5, mening: "x", varfor: "§" });
-  const forare = (namn: string, varsta: Niva): ArbetstidForare => ({ medarbetare_id: namn, namn, varsta, granser: [gr("allman_overtid_ar", varsta)], notiser: [], restidSaknas: false });
+  const forare = (namn: string, varsta: Niva, delagare = false): ArbetstidForare => ({ medarbetare_id: namn, namn, varsta: delagare ? "lugn" : varsta, foretagsledare: delagare, ...(delagare ? { skulleVarit: varsta } : {}), granser: [gr("allman_overtid_ar", varsta)], notiser: [], restidSaknas: false });
 
   it("ingen närmar sig: en 'stämmer'-rad, inga saker, ingen förare i listan", () => {
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Anna", "lugn")], varningar: [] });
@@ -132,6 +132,20 @@ describe("byggAttGora: arbetstid — lagens sex gränser (lib/arbetstidsgranser)
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Lugn", "lugn"), forare("Röd", "rod")], varningar: [] });
     const r = byggAttGora(i, "2026-10-13");
     expect(r.arbetstid.map(f => f.namn)).toEqual(["Röd", "Gul"]);
+    expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
+  });
+
+  it("bara delägare är gula/röda: de visas (grå) men 'Ingen närmar sig en gräns' står kvar under Stämmer", () => {
+    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Joacim", "gul", true), forare("Anna", "lugn")], varningar: [] });
+    const r = byggAttGora(i, "2026-10-13");
+    expect(r.arbetstid.map(f => f.namn)).toEqual(["Joacim", "Martin"]);
+    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen närmar sig en gräns för arbetstid" });
+  });
+
+  it("delägare efter en vanlig röd förare: ingen 'stämmer'-rad, den röda först", () => {
+    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Stefan", "rod")], varningar: [] });
+    const r = byggAttGora(i, "2026-10-13");
+    expect(r.arbetstid.map(f => f.namn)).toEqual(["Stefan", "Martin"]);
     expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
   });
 

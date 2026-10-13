@@ -13,6 +13,8 @@ const FARG_PER_NIVA: Record<Niva, string> = { lugn: FARG.text2, gul: FARG.orange
 const ORD_PER_NIVA: Record<Niva, string | null> = { lugn: null, gul: "Nära gränsen", rod: "Över gränsen" };
 /** Vila är ett "minst": under kravet är inte "över gränsen". */
 const ordFor = (niva: Niva, g?: Gransstatus): string | null => (niva === "rod" && g?.enhet === "tim vila" ? "Under kravet" : ORD_PER_NIVA[niva]);
+/** Företagsledare / delägare: arbetstidslagen gäller inte. Raden är grå, utan nivå, och går inte att fälla ut. */
+export const DELAGARE_TEXT = "Delägare – arbetstidslagen gäller inte";
 const MARKNING_TEXT: Record<NonNullable<Gransstatus["markning"]>, string> = { räknat: "Räknat", uppskattad: "Uppskattad fördelning", tolkning: "Tolkning" };
 
 /** "262 av 250 tim", "36 tim · minst 36", "—" när underlag saknas. */
@@ -65,10 +67,19 @@ export default function ArbetstidKort({ forare, varningar }: { forare: Arbetstid
 
   return (
     <div data-arbetstid-kort>
-      <Sektion orange={forare.some(f => f.varsta === "rod")}>Arbetstid</Sektion>
+      <Sektion orange={forare.some(f => f.varsta === "rod" && !f.foretagsledare)}>Arbetstid</Sektion>
       {forare.length > 0 && (
         <Lista>
           {forare.map((f, i) => {
+            if (f.foretagsledare) {
+              return (
+                <div key={f.medarbetare_id} data-arbetstid-forare={f.medarbetare_id} data-niva="delagare"
+                  style={{ padding: `${AVSTAND.m}px 0`, borderBottom: i === forare.length - 1 ? "none" : `1px solid ${FARG.linje}`, minHeight: TRAFFYTA.min, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <span style={{ ...TYP.listtitel, color: FARG.text2, overflowWrap: "anywhere" }}>{f.namn}</span>
+                  <span data-arbetstid-delagare style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xs }}>{DELAGARE_TEXT}</span>
+                </div>
+              );
+            }
             const vard = f.granser.filter(g => g.niva === f.varsta);
             const forsta = vard[0];
             const ord = ordFor(f.varsta, forsta);

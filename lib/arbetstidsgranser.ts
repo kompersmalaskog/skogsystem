@@ -92,6 +92,8 @@ export type ArbetstidIndata = {
   tak?: number;
   /** flyttdag-rader (maskinflyttens körtid). Räknas i gränserna 4–6 — bara här, aldrig i lönen. */
   flytt?: ArbetstidFlytt[];
+  /** Företagsledare / delägare (medarbetare.foretagsledare): arbetstidslagen gäller inte. Räknas ändå, men visas aldrig som gul/röd. */
+  foretagsledare?: boolean;
   /** Det RIKTIGA ögonblicket (new Date()): vilan efter sista passet fram till nu räknas, och en pågående flyttdag räknas t.o.m. nu. */
   nu?: Date;
 };
@@ -99,7 +101,12 @@ export type ArbetstidIndata = {
 export type ArbetstidForare = {
   medarbetare_id: string;
   namn: string;
+  /** Den värsta gränsen. ALLTID "lugn" för en företagsledare (lagen gäller inte) — se `skulleVarit`. */
   varsta: Niva;
+  /** Företagsledare / delägare: visas grått ("Delägare – arbetstidslagen gäller inte"), räknas aldrig i menysiffran. */
+  foretagsledare: boolean;
+  /** Bara för en företagsledare: vad `varsta` hade blivit för en vanlig förare. Styr om hen visas alls (grått) i Översikten. */
+  skulleVarit?: Niva;
   granser: Gransstatus[];
   /** Saker föraren/admin ska veta om underlaget (t.ex. "Restid ingår inte"). */
   notiser: string[];
@@ -516,18 +523,23 @@ export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
   if (flytt.uteslutna > 0) notiser.push(`${flytt.uteslutna} ${flytt.uteslutna === 1 ? "flyttdag saknar" : "flyttdagar saknar"} mätt tid eller ${flytt.uteslutna === 1 ? "är" : "är"} över 16 tim och ingår inte.`);
   if (restidSaknas) notiser.unshift(RESTID_NOTIS);
 
-  return {
-    medarbetare_id: i.medarbetare_id, namn: i.namn,
-    varsta: granser.reduce<Niva>((v, g) => varre(v, g.niva), "lugn"),
-    granser, notiser, restidSaknas,
-  };
+  const varsta = granser.reduce<Niva>((v, g) => varre(v, g.niva), "lugn");
+  if (i.foretagsledare) return { medarbetare_id: i.medarbetare_id, namn: i.namn, varsta: "lugn", foretagsledare: true, skulleVarit: varsta, granser, notiser, restidSaknas };
+  return { medarbetare_id: i.medarbetare_id, namn: i.namn, varsta, foretagsledare: false, granser, notiser, restidSaknas };
 }
 
-/** Röda först, sedan gula; inom nivån den som är närmast sin gräns. Lugna förare tas inte med. */
+/**
+ * Röda först, sedan gula; inom nivån den som är närmast sin gräns. Lugna förare tas inte med. Företagsledare / delägare
+ * (arbetstidslagen gäller inte) kommer SIST och bara om de annars hade varit gula eller röda — grå, utan nivå.
+ */
 export function sorteraAttGora(forare: ArbetstidForare[]): ArbetstidForare[] {
   // ogrånsad kvot (inte den kapade stapeln): 300 av 250 ska ligga före 255 av 250
   const narmast = (f: ArbetstidForare) => Math.max(0, ...f.granser.filter(g => g.niva === f.varsta && g.andel != null && g.varde != null).map(g => (g.varde as number) / g.grans));
-  return forare
-    .filter(f => f.varsta !== "lugn")
+  const flaggade = forare
+    .filter(f => !f.foretagsledare && f.varsta !== "lugn")
     .sort((a, b) => NIVA_RANG[b.varsta] - NIVA_RANG[a.varsta] || narmast(b) - narmast(a) || a.namn.localeCompare(b.namn, "sv"));
+  const delagare = forare
+    .filter(f => f.foretagsledare && f.skulleVarit != null && f.skulleVarit !== "lugn")
+    .sort((a, b) => a.namn.localeCompare(b.namn, "sv"));
+  return [...flaggade, ...delagare];
 }

@@ -15,7 +15,8 @@ vi.mock("@/lib/lonesystem/server", () => {
     f: ((r: any) => boolean)[] = [];
     sida: [number, number] | null = null;
     constructor(public t: string) {}
-    select() { return this; } order() { return this; } limit() { return this; }
+    cols = "";
+    select(c?: string) { this.cols = c || ""; return this; } order() { return this; } limit() { return this; }
     eq(k: string, v: any) { this.f.push(r => r[k] === v); return this; }
     gte(k: string, v: any) { this.f.push(r => r[k] != null && r[k] >= v); return this; }
     lte(k: string, v: any) { this.f.push(r => r[k] != null && r[k] <= v); return this; }
@@ -24,6 +25,7 @@ vi.mock("@/lib/lonesystem/server", () => {
     maybeSingle() { (this as any).enkel = true; return this; }
     then(res: any, rej: any) {
       g.__anrop.push({ t: this.t, sida: this.sida });
+      if (g.__saknarForetagsledare && this.t === "medarbetare" && this.cols.includes("foretagsledare")) return Promise.resolve({ data: null, error: { message: "column medarbetare.foretagsledare does not exist" } }).then(res, rej);
       if (g.__fel?.[this.t]) return Promise.resolve({ data: null, error: { message: g.__fel[this.t] } }).then(res, rej);
       let rader = ((g.__db[this.t] || []) as any[]).filter(r => this.f.every(fn => fn(r)));
       if (this.sida) rader = rader.slice(this.sida[0], this.sida[1] + 1);      // som PostgREST: max 1000 per anrop
@@ -43,7 +45,7 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const vardagar = (fran: string, till: string) => { const ut: string[] = []; for (let d = lok(fran); iso(d) <= till; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) ut.push(iso(d)); return ut; };
 
 beforeEach(() => {
-  g.__nekad = false; g.__fel = {}; g.__anrop = [];
+  g.__nekad = false; g.__fel = {}; g.__anrop = []; g.__saknarForetagsledare = false;
   g.__db = {
     medarbetare: [{ id: "s", namn: "Stefan Karlsson" }],
     arbetsdag: vardagar("2026-08-24", "2026-10-13").map(d => dag("s", d)),
@@ -162,6 +164,25 @@ describe("GET /api/lon/arbetstid", () => {
     expect(j.ok).toBe(true);
     expect(j.forare).toHaveLength(1);
     expect(j.varningar.join(" ")).toContain("Kunde inte läsa maskinflytten (flyttdag: permission denied)");
+  });
+
+  it("företagsledare (medarbetare.foretagsledare = true): flaggan följer med, varsta är lugn, skulleVarit bär nivån", async () => {
+    g.__db.medarbetare = [{ id: "s", namn: "Stefan Karlsson", foretagsledare: false }, { id: "d", namn: "Delägare", foretagsledare: true }];
+    g.__db.arbetsdag = [...vardagar("2026-08-24", "2026-10-13").map(d => dag("s", d)), ...vardagar("2026-08-24", "2026-10-13").map(d => dag("d", d, 12))];   // 12 tim/dag → över 48 i snitt
+    const j = await (await anropa()).json();
+    const d = j.forare.find((f: any) => f.medarbetare_id === "d");
+    const s = j.forare.find((f: any) => f.medarbetare_id === "s");
+    expect(d).toMatchObject({ foretagsledare: true, varsta: "lugn", skulleVarit: "rod" });
+    expect(s).toMatchObject({ foretagsledare: false });
+  });
+
+  it("migrationen är inte körd (kolumnen saknas): kortet kör ändå, utan delägarundantag, och en varning säger det", async () => {
+    g.__saknarForetagsledare = true;
+    const j = await (await anropa()).json();
+    expect(j.ok).toBe(true);
+    expect(j.forare).toHaveLength(1);
+    expect(j.forare[0].foretagsledare).toBe(false);
+    expect(j.varningar.join(" ")).toContain("20261013170000_medarbetare_foretagsledare.sql");
   });
 
   it("förare utan någon registrerad tid tas inte med", async () => {
