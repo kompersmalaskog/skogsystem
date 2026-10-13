@@ -28,17 +28,16 @@ import { ymdLokal } from "@/lib/datumLokal";
 import {
   veckoText, arLangPeriod, slutFranMandag, mandagFranSlut, kontrolleraPeriod, forareNamn, forareRadText, kortDatumMedAr, planeraAndring,
   krockMening, krockarIVecka, krockarIUrval, loneperioderBerorda, arExporterad, borjarText, slutarText, slutMandag, langdVeckor,
-  mandagForDag, flyttaManad, KRAVER_FACKLIG_OVERENSKOMMELSE, MAX_NAMN_TECKEN, type PeriodGrupp, type PeriodRad,
+  mandagForDag, KRAVER_FACKLIG_OVERENSKOMMELSE, MAX_NAMN_TECKEN, type PeriodGrupp, type PeriodRad,
 } from "@/lib/admin/utjamningsperiod";
 import { Stod, Tertiar, Destruktiv, Besked, Bekrafta, Sheet, Ikon } from "./ui";
-import PeriodKalender, { type ManadVal } from "./PeriodKalender";
+import PeriodKalender from "./PeriodKalender";
 
 export type Person = { id: string; namn: string | null };
 export type Arbete = { slag: "ny" } | { slag: "redigera"; grupp: PeriodGrupp };
 
 const mandagIdag = () => mandagForDag(ymdLokal(new Date()));
 const raderText = (n: number) => (n > 1 ? ` (${n} rader)` : "");
-const manadFor = (dag: string): ManadVal => ({ ar: Number(dag.slice(0, 4)), manad0: Number(dag.slice(5, 7)) - 1 });
 const navKnapp = { ...KNAPP.lank, width: "auto", display: "inline-flex", alignItems: "center", gap: AVSTAND.xs, fontFamily: "inherit", ...TYP.text } as const;
 /** Lägg till / Spara när något saknas: grå text, inte blå som dämpats. Blå betyder "går att trycka", och det gör den inte. */
 const navInaktiv = { color: FARG.text3, cursor: "default" } as const;
@@ -65,7 +64,6 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
   const [borjar, setBorjar] = useState(grupp ? grupp.startdatum : mandagIdag());
   const [langd, setLangd] = useState(grupp ? langdVeckor(grupp.startdatum, mandagFranSlut(grupp.slutdatum)) : 1);
   const [oppnaKalender, setOppnaKalender] = useState(false);
-  const [manad, setManad] = useState<ManadVal>(manadFor(grupp ? grupp.startdatum : mandagIdag()));
   // Förare: Alla (en rad med medarbetare_id NULL) och/eller personer (en rad var).
   const [alla, setAlla] = useState(grupp ? grupp.alla : false);
   const [ids, setIds] = useState<string[]>(grupp ? grupp.forare : []);
@@ -196,10 +194,11 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
     return (
       <Sheet titel="Förare" vyNyckel="forare" onStang={onStang} attr={attr} overlayAttr={overlayAttr}
         vanster={(
-          <button type="button" data-tillbaka onClick={() => setVy("form")} style={navKnapp}>
-            <Ikon namn="chevron_left" farg={FARG.bla} />{arkTitel}
+          <button type="button" data-tillbaka aria-label={`Tillbaka till ${arkTitel}`} onClick={() => setVy("form")} style={navKnapp}>
+            <Ikon namn="chevron_left" farg={FARG.bla} />
           </button>
-        )}>
+        )}
+        hoger={<button type="button" data-klar onClick={() => setVy("form")} style={{ ...navKnapp, fontWeight: TYP.listtitel.fontWeight }}>Klar</button>}>
         <div data-forare-vy>
           <div data-forare-grupp="alla" style={{ background: FARG.bg, borderRadius: RADIE.rad, overflow: "hidden" }}>
             <Bockrad namn="Alla" vald={alla} onToggle={tryckAlla} sista />
@@ -253,13 +252,13 @@ export default function PeriodArk({ arbete, personer, befintliga, namnInloggad, 
         {inkapsla("namn", (
           <label htmlFor="period-namn" style={{ ...radInnehall, cursor: "text" }}>
             <span style={etikett}>Namn</span>
-            <input id="period-namn" type="text" value={namn} maxLength={MAX_NAMN_TECKEN} placeholder="t.ex. Gävle" onChange={e => setNamn(e.target.value)} style={inmatning} />
+            <input id="period-namn" type="text" value={namn} maxLength={MAX_NAMN_TECKEN} onChange={e => setNamn(e.target.value)} style={inmatning} />
           </label>
         ))}
 
         {inkapsla("borjar", knappRad("borjar", "Börjar", borjarText(borjar, innevarandeAr), () => setOppnaKalender(o => !o), oppnaKalender))}
         {oppnaKalender && (
-          <PeriodKalender borjar={borjar} langd={langd} manad={manad} onFlytta={delta => setManad(m => flyttaManad(m.ar, m.manad0, delta))} krockerIVecka={krockerIVecka}
+          <PeriodKalender borjar={borjar} langd={langd} krockerIVecka={krockerIVecka}
             onTryck={dag => setBorjar(mandagForDag(dag))} />
         )}
 
