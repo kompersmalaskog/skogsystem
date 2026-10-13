@@ -4,7 +4,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { upsertVerifierat, uppdateraVerifierat } from '@/lib/supabase-save';
 import { rodaVardagarForByte, rodVardagNamn, bytesdagFel } from '@/lib/franvaro';
-import { C, ff, inputStyle, labelStyle, TYPINFO, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
+import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import Ark from '@/components/design/Ark';
+import { TYPINFO, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
+import { FelText, Ikon, KORT_TEXTKNAPP } from './delar';
 import { arbetsdagar, arHelg, fmtDatum, fmtPeriod, toISO } from './datum';
 import type { Ansokan } from './typer';
 import ValjKalender from './ValjKalender';
@@ -137,163 +140,119 @@ export default function AnsokFormular({
     onSparad();
   };
 
+  // Valbar knapp i arket: vald = FARG.fyllning + 600 + bock (PeriodForm), aldrig en andra vit
+  // fyllning — arkets enda primära knapp är Skicka.
+  const val = (vald: boolean): React.CSSProperties => ({
+    ...KNAPP.sekundar, flex: 1, width: 'auto', padding: `0 ${AVSTAND.m}px`, ...TYP.meta,
+    fontWeight: vald ? VIKT.halvfet : VIKT.normal,
+    background: vald ? FARG.fyllning : FARG.tonad, color: vald ? FARG.text : FARG.text2, gap: AVSTAND.xs,
+  });
+  const etikett = (text: string) => <p style={{ margin: `${AVSTAND.l}px 0 ${AVSTAND.s}px`, ...TYP.micro, color: FARG.text2 }}>{text}</p>;
+
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', fontFamily: ff }}>
-      <div onClick={onStang} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
-      <div style={{
-        position: 'relative', width: '100%', maxWidth: 480,
-        background: C.surface, borderRadius: '20px 20px 0 0', padding: '24px 20px 32px',
-        maxHeight: '88vh', overflowY: 'auto',
-      }}>
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: C.t4, margin: '0 auto 16px' }} />
-        <div style={{ fontSize: 16, fontWeight: 700, color: C.t1, marginBottom: 16 }}>
-          {redigerar ? 'Ändra ansökan' : 'Ansök om ledighet'}
-        </div>
-
-        {/* Typval — bara det som går att ANSÖKA om (tema.ANSOKBARA_TYPER); TYPINFO
-            täcker alla nio typer i tabellen men sjuk/vab anmäls i morgonkortet. */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          {ANSOKBARA_TYPER.map(val => {
-            const aktiv = typ === val;
-            return (
-              <button key={val} onClick={() => valjTyp(val)} style={{
-                flex: 1, height: 48, borderRadius: 12,
-                background: aktiv ? '#fff' : 'rgba(255,255,255,0.06)',
-                border: aktiv ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                color: aktiv ? '#111' : '#fff',
-                fontSize: 15, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-              }}>
-                {TYPINFO[val].label}
-              </button>
-            );
-          })}
-        </div>
-
-        {arByte && (
-          <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`, marginBottom: 10 }}>
-            <span style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
-              Du jobbar en röd vardag och är ledig en annan vardag i stället (Skogsavtalet §5 mom 4). Lön enligt schemat, inget avdrag för den lediga dagen. Helglönen flyttas inte.
-            </span>
-          </div>
-        )}
-
-        {/* Tryck-kalender: tryck startdag, tryck slutdag — spannet fylls i.
-            Bytesdag: en dag, slut = start. */}
-        <div style={{
-          background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`,
-          borderRadius: 12, padding: '12px 10px 8px', marginBottom: 10,
-        }}>
-          <ValjKalender
-            valdStart={start}
-            valdSlut={arByte ? start : slut}
-            onValj={(s, e) => { setStart(s); setSlut(arByte ? s : e); }}
-          />
-        </div>
-
-        {/* Vald period + arbetsdagar, räknas om medan man trycker */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 34, marginBottom: 12 }}>
-          {start ? (
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>
-                {arByte ? `Ledig ${fmtPeriod(start, start)}` : fmtPeriod(start, effektivtSlut)}
-              </div>
-              <div style={{ fontSize: 12, color: ledigDagFel ? C.red : C.t3, marginTop: 2 }}>
-                {ledigDagFel ?? (arByte ? 'en vardag som byts mot den röda dagen nedan' : (() => {
-                  const ad = arbetsdagar(start, effektivtSlut);
-                  return `${ad} arbetsdag${ad === 1 ? '' : 'ar'} · helg och röda dagar räknas inte`;
-                })())}
-              </div>
-            </div>
-          ) : (
-            <div style={{ fontSize: 13, color: C.t3 }}>{arByte ? 'Tryck på den vardag du vill vara ledig' : 'Tryck på en dag i kalendern för att välja period'}</div>
-          )}
-          {start && (
-            <button
-              type="button"
-              onClick={() => { setStart(null); setSlut(null); }}
-              style={{
-                background: 'none', border: `1px solid ${C.border}`, borderRadius: 8,
-                color: C.t2, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                fontFamily: ff, padding: '6px 12px', flexShrink: 0,
-              }}
-            >
-              Rensa
+    <Ark
+      rubrik={redigerar ? 'Ändra ansökan' : 'Ansök om ledighet'}
+      onStang={onStang}
+      fot={
+        <>
+          {/* Död knapp utan förklaring förvirrar — säg vad som saknas, i ord */}
+          {saknas.length > 0 && <p style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>Välj {saknas.join(' + ')} för att skicka</p>}
+          <FelText text={sparfel} />
+          <button onClick={spara} disabled={!kanSkicka} style={{ ...KNAPP.primar, ...(kanSkicka ? {} : INAKTIV) }}>
+            {sparar ? 'Sparar…' : redigerar ? 'Spara ändring' : 'Skicka ansökan'}
+          </button>
+        </>
+      }
+    >
+      {/* Typval — bara det som går att ANSÖKA om (tema.ANSOKBARA_TYPER); TYPINFO
+          täcker alla nio typer i tabellen men sjuk/vab anmäls i morgonkortet. */}
+      {etikett('Typ')}
+      <div style={{ display: 'flex', gap: AVSTAND.s }}>
+        {ANSOKBARA_TYPER.map(v => {
+          const aktiv = typ === v;
+          return (
+            <button key={v} onClick={() => valjTyp(v)} aria-pressed={aktiv} style={val(aktiv)}>
+              {aktiv && <Ikon namn="check" />}{TYPINFO[v].label}
             </button>
-          )}
-        </div>
-
-        {/* Bytesdag: vilken röd vardag som arbetas i stället — bara ur lib/roda-dagar */}
-        {arByte && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={labelStyle}>ERSÄTTER RÖD DAG</div>
-            {rodaVal.length === 0 ? (
-              <div style={{ fontSize: 13, color: C.t3 }}>Ingen röd vardag inom ett halvår som inte redan är bytt.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {rodaVal.map(r => {
-                  const aktiv = ersatter === r.datum;
-                  return (
-                    <button key={r.datum} type="button" onClick={() => setErsatter(r.datum)} style={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      padding: '10px 14px', borderRadius: 10, textAlign: 'left',
-                      background: aktiv ? '#fff' : 'rgba(255,255,255,0.06)',
-                      border: aktiv ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                      color: aktiv ? '#111' : '#fff', fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                    }}>
-                      <span>{r.namn}</span>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: aktiv ? '#444' : C.t3 }}>{fmtDatum(r.datum)} {r.datum.slice(0, 4)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{ marginBottom: 14 }}>
-          <div style={labelStyle}>KOMMENTAR</div>
-          <textarea placeholder="Valfritt..." value={kommentar} onChange={e => setKommentar(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'none' }} />
-        </div>
-
-        {dubbelbokning && (
-          <div style={{ padding: '12px 14px', background: C.nekadDim, border: '1px solid rgba(190,24,93,0.25)', borderRadius: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 13, color: C.nekad, lineHeight: 1.5 }}>{dubbelbokning}</span>
-          </div>
-        )}
-
-        {!dubbelbokning && kollision.length > 0 && (
-          <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.2)', marginBottom: 10 }}>
-            <span style={{ fontSize: 13, color: '#fb923c', lineHeight: 1.4 }}>
-              <strong>Krock</strong> — {kollision.join(' och ')} har godkänd ledighet under dessa datum. Du kan ändå ansöka.
-            </span>
-          </div>
-        )}
-
-        {sparfel && (
-          <div style={{ padding: '12px 14px', background: C.redDim, border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 13, color: C.red, lineHeight: 1.4 }}>{sparfel}</span>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
-          {saknas.length > 0 && (
-            <span style={{ fontSize: 12, color: C.t3, marginRight: 'auto' }}>
-              Välj {saknas.join(' + ')} för att skicka
-            </span>
-          )}
-          <button onClick={onStang} style={{ background: 'none', border: 'none', color: C.t2, fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: ff, padding: '10px 16px' }}>
-            Avbryt
-          </button>
-          <button onClick={spara} disabled={!kanSkicka} style={{
-            padding: '10px 24px', borderRadius: 10, border: 'none',
-            background: C.blue, color: '#fff',
-            fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-            opacity: kanSkicka ? 1 : 0.5,
-          }}>
-            {sparar ? 'Sparar...' : redigerar ? 'Spara ändring' : 'Skicka ansökan'}
-          </button>
-        </div>
+          );
+        })}
       </div>
-    </div>
+
+      {arByte && (
+        <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
+          Du jobbar en röd vardag och är ledig en annan vardag i stället (Skogsavtalet §5 mom 4). Lön enligt schemat, inget avdrag för den lediga dagen. Helglönen flyttas inte.
+        </p>
+      )}
+
+      {/* Tryck-kalender: tryck startdag, tryck slutdag — spannet fylls i.
+          Bytesdag: en dag, slut = start. */}
+      {etikett('Period')}
+      <div style={{ background: FARG.upphojt, borderRadius: RADIE.kort, padding: `${AVSTAND.s}px ${AVSTAND.s}px ${AVSTAND.xs}px` }}>
+        <ValjKalender
+          valdStart={start}
+          valdSlut={arByte ? start : slut}
+          onValj={(s, e) => { setStart(s); setSlut(arByte ? s : e); }}
+        />
+      </div>
+
+      {/* Vald period + arbetsdagar, räknas om medan man trycker */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, minHeight: TRAFFYTA.min, marginTop: AVSTAND.s }}>
+        {start ? (
+          <div>
+            <div style={{ ...TYP.listtitel, ...TNUM, color: FARG.text }}>
+              {arByte ? `Ledig ${fmtPeriod(start, start)}` : fmtPeriod(start, effektivtSlut)}
+            </div>
+            <div style={{ ...TYP.meta, marginTop: AVSTAND.xs, color: ledigDagFel ? FARG.rod : FARG.text2 }}>
+              {ledigDagFel ?? (arByte ? 'en vardag som byts mot den röda dagen nedan' : (() => {
+                const ad = arbetsdagar(start, effektivtSlut);
+                return `${ad} arbetsdag${ad === 1 ? '' : 'ar'} · helg och röda dagar räknas inte`;
+              })())}
+            </div>
+          </div>
+        ) : (
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>{arByte ? 'Tryck på den vardag du vill vara ledig' : 'Tryck på en dag i kalendern för att välja period'}</div>
+        )}
+        {start && (
+          <button type="button" onClick={() => { setStart(null); setSlut(null); }} style={{ ...KNAPP.tertiar, ...KORT_TEXTKNAPP }}>Rensa</button>
+        )}
+      </div>
+
+      {/* Bytesdag: vilken röd vardag som arbetas i stället — bara ur lib/roda-dagar */}
+      {arByte && (
+        <>
+          {etikett('Ersätter röd dag')}
+          {rodaVal.length === 0 ? (
+            <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Ingen röd vardag inom ett halvår som inte redan är bytt.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+              {rodaVal.map(r => {
+                const aktiv = ersatter === r.datum;
+                return (
+                  <button key={r.datum} type="button" onClick={() => setErsatter(r.datum)} aria-pressed={aktiv}
+                    style={{ ...val(aktiv), flex: 'none', width: '100%', justifyContent: 'space-between', ...TYP.text, fontWeight: aktiv ? VIKT.halvfet : VIKT.normal }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>{aktiv && <Ikon namn="check" />}{r.namn}</span>
+                    <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>{fmtDatum(r.datum)} {r.datum.slice(0, 4)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {etikett('Kommentar (valfritt)')}
+      <textarea placeholder="Valfritt…" value={kommentar} onChange={e => setKommentar(e.target.value)} rows={2}
+        style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.primar * 2, padding: `${AVSTAND.m}px`, background: FARG.upphojt, border: 'none', borderRadius: RADIE.rad, color: FARG.text, ...TYP.text, fontFamily: 'inherit', resize: 'none', colorScheme: 'dark' }} />
+
+      {/* Blockerande: egen godkänd ledighet i intervallet. Ord i rött — ingen färgad ruta. */}
+      {dubbelbokning && <div style={{ marginTop: AVSTAND.m }}><FelText text={dubbelbokning} /></div>}
+
+      {/* Icke-blockerande: andras godkända ledighet samma datum (kollision) */}
+      {!dubbelbokning && kollision.length > 0 && (
+        <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>
+          <span style={{ fontWeight: VIKT.halvfet }}>Krock</span> — {kollision.join(' och ')} har godkänd ledighet under dessa datum. Du kan ändå ansöka.
+        </p>
+      )}
+    </Ark>
   );
 }

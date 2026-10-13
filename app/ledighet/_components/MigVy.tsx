@@ -4,15 +4,15 @@ import React, { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { raderaVerifierat } from '@/lib/supabase-save';
 import type { CurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
-import { C, ff, labelStyle } from './tema';
+import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { toISO } from './datum';
 import { useLedighetData } from './useLedighetData';
 import type { Ansokan } from './typer';
 import SaldoKort from './SaldoKort';
-import AnsokanKort from './AnsokanKort';
+import AnsokanRad from './AnsokanRad';
 import AnsokFormular from './AnsokFormular';
 import GodkannSektion from './GodkannSektion';
-import Toast from './Toast';
+import { FelText, Grupp, Ikon, LasFel, StatusText } from './delar';
 
 /**
  * "Mig" — inloggad person är alltid "jag" (scopat på medarbetare.id från
@@ -60,8 +60,10 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     [ansokningar],
   );
 
+  // Bekräftelsen ("Ta bort ansökan? Nej / Ja, ta bort") sker i raden (AnsokanRad) —
+  // hit kommer vi först när föraren sagt ja.
   const taBort = async (a: Ansokan) => {
-    if (!window.confirm('Ta bort denna ansökan?')) return;
+    setFel(null);
     const res = await raderaVerifierat(supabase, 'ledighet_ansokningar', {
       id: a.id, medarbetare_id: medarbetare.id,
     });
@@ -72,97 +74,69 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     hamtaOm();
   };
 
+  const rader = (lista: Ansokan[], extra: { tidigare?: boolean; redigera?: boolean }) => lista.map((a, i) => (
+    <AnsokanRad key={a.id} a={a} arEgen tidigare={extra.tidigare} sista={i === lista.length - 1}
+      onRedigera={extra.redigera ? (x => { setRedigerar(x); setFormOppen(true); }) : undefined}
+      onTaBort={a.status === 'väntar' ? taBort : undefined} />
+  ));
+
   return (
-    <div style={{ fontFamily: ff }}>
-      <Toast text={fel} onDold={() => setFel(null)} />
-
+    <div>
       {arGodkannare && !lasfel && (
-        <GodkannSektion vantande={vantandeAlla} onKlar={hamtaOm} visaFel={setFel} />
+        <GodkannSektion vantande={vantandeAlla} onKlar={hamtaOm} />
       )}
 
-      <div style={{ marginBottom: 20 }}>
-        <SaldoKort saldo={saldo} saldoSaknas={saldoSaknas} saldoLasfel={saldoLasfel} />
+      <div style={{ marginBottom: AVSTAND.l }}>
+        <SaldoKort saldo={saldo} saldoSaknas={saldoSaknas} saldoLasfel={saldoLasfel} onForsok={hamtaOm} />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <span style={{ fontSize: 16, fontWeight: 700, color: C.t1 }}>Mina ansökningar</span>
-        <button disabled={!kanAnsoka} onClick={() => { setRedigerar(null); setFormOppen(true); }} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px',
-          borderRadius: 10, border: 'none',
-          background: C.blue, color: '#fff', fontSize: 13, fontWeight: 600,
-          fontFamily: ff, cursor: kanAnsoka ? 'pointer' : 'default',
-          opacity: kanAnsoka ? 1 : 0.4,
-        }}>
-          + Ansök om ledighet
-        </button>
+      {/* Vyns EN primära handling: stor, helbredd, under saldot. Spärrad (men synlig) tills
+          ansökningarna är lästa — krock och dubbelbokning jämförs mot dem. */}
+      <button disabled={!kanAnsoka} onClick={() => { setFel(null); setRedigerar(null); setFormOppen(true); }}
+        style={{ ...KNAPP.primar, ...(kanAnsoka ? {} : INAKTIV) }}>
+        <Ikon namn="add" storlek={22} />Ansök om ledighet
+      </button>
+
+      {/* Fel vid en åtgärd i listan (Ta bort) står direkt ovanför listan, kvar tills man gjort något nytt */}
+      {fel && <div style={{ marginTop: AVSTAND.l }}><FelText text={fel} /></div>}
+
+      <div style={{ marginTop: AVSTAND.xl }}>
+        {lasfel ? (
+          <LasFel text={lasfel} onForsok={hamtaOm} />
+        ) : laddar ? (
+          <StatusText text="Läser dina ansökningar…" />
+        ) : (
+          <>
+            {/* 1. Väntar på besked — kan ändras/tas bort */}
+            {vantarPaBesked.length > 0 && (
+              <Grupp rubrik="Väntar på besked">{rader(vantarPaBesked, { redigera: true })}</Grupp>
+            )}
+
+            {/* 2. Kommande ledighet — beviljad, ej passerad; låst men synlig */}
+            {kommandeLedighet.length > 0 && (
+              <Grupp rubrik="Kommande ledighet">{rader(kommandeLedighet, {})}</Grupp>
+            )}
+
+            {/* 3. Historik — passerat (och avslag); hopfälld så den inte tar plats */}
+            {historik.length > 0 && (
+              <section>
+                <button onClick={() => setHistorikOppen(!historikOppen)} aria-expanded={historikOppen}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.xs}px`, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.micro, color: FARG.text2 }}>
+                  <span>Historik ({historik.length})</span>
+                  <Ikon namn="chevron_right" storlek={22} farg={FARG.text3} vrid={historikOppen} />
+                </button>
+                {historikOppen && (
+                  <div className="tona-in" style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>{rader(historik, { tidigare: true })}</div>
+                )}
+              </section>
+            )}
+
+            {vantarPaBesked.length === 0 && kommandeLedighet.length === 0 && historik.length === 0 && (
+              <StatusText text={'Inga ansökningar ännu. Tryck "Ansök om ledighet" för att skapa din första.'} />
+            )}
+          </>
+        )}
       </div>
-
-      {lasfel ? (
-        <div style={{
-          color: C.red, padding: 24, textAlign: 'center', fontSize: 13,
-          background: C.redDim, borderRadius: 12, border: '1px solid rgba(239,68,68,0.3)',
-        }}>
-          {lasfel}
-        </div>
-      ) : laddar ? (
-        <div style={{ color: C.t3, padding: 40, textAlign: 'center', fontSize: 13 }}>Laddar...</div>
-      ) : (
-        <>
-          {/* 1. Väntar på besked — kan ändras/tas bort */}
-          {vantarPaBesked.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 22 }}>
-              <div style={labelStyle}>VÄNTAR PÅ BESKED</div>
-              {vantarPaBesked.map(a => (
-                <AnsokanKort key={a.id} a={a} arEgen
-                  onRedigera={x => { setRedigerar(x); setFormOppen(true); }}
-                  onTaBort={taBort} />
-              ))}
-            </div>
-          )}
-
-          {/* 2. Kommande ledighet — beviljad, ej passerad; låst men synlig */}
-          {kommandeLedighet.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 22 }}>
-              <div style={labelStyle}>KOMMANDE LEDIGHET</div>
-              {kommandeLedighet.map(a => (
-                <AnsokanKort key={a.id} a={a} arEgen />
-              ))}
-            </div>
-          )}
-
-          {/* 3. Historik — passerat (och avslag); hopfällt så det inte tar plats */}
-          {historik.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <button
-                onClick={() => setHistorikOppen(!historikOppen)}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  background: 'none', border: 'none', padding: '4px 0',
-                  cursor: 'pointer', fontFamily: ff, width: '100%',
-                }}
-              >
-                <span style={labelStyle}>HISTORIK ({historik.length})</span>
-                <span style={{
-                  fontSize: 13, color: C.t3,
-                  transform: historikOppen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s',
-                }}>›</span>
-              </button>
-              {historikOppen && historik.map(a => (
-                <AnsokanKort key={a.id} a={a} arEgen tidigare onTaBort={taBort} />
-              ))}
-            </div>
-          )}
-
-          {vantarPaBesked.length === 0 && kommandeLedighet.length === 0 && historik.length === 0 && (
-            <div style={{
-              color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
-              background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-            }}>
-              Inga ansökningar ännu. Tryck &quot;Ansök om ledighet&quot; för att skapa din första.
-            </div>
-          )}
-        </>
-      )}
 
       {formOppen && (
         <AnsokFormular

@@ -3,7 +3,9 @@
 import React, { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { raderaVerifierat, upsertVerifierat } from '@/lib/supabase-save';
-import { C, ff, inputStyle, labelStyle } from './tema';
+import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import Ark from '@/components/design/Ark';
+import { FelText, Ikon, KORT_TEXTKNAPP } from './delar';
 import { arbetsdagar, fmtPeriod, kalenderdagar } from './datum';
 import ValjKalender from './ValjKalender';
 import type { SchemaMaskin } from './useSchemaData';
@@ -100,129 +102,88 @@ export default function StoppFormular({
     onSparad();
   };
 
+  // Valbar knapp: vald = FARG.fyllning + 600 + bock (som PeriodForm). Ingen röd fyllning:
+  // röd är för "radera", inte för att välja.
   const chip = (aktiv: boolean): React.CSSProperties => ({
-    padding: '9px 14px', borderRadius: 10,
-    border: `1px solid ${aktiv ? C.red : C.border}`,
-    background: aktiv ? C.redDim : 'rgba(255,255,255,0.04)',
-    color: aktiv ? '#fca5a5' : C.t2,
-    fontSize: 13, fontWeight: 500, fontFamily: ff, cursor: 'pointer',
-    textAlign: 'left' as const,
+    ...KNAPP.sekundar, width: 'auto', padding: `0 ${AVSTAND.m}px`, ...TYP.meta, gap: AVSTAND.xs,
+    fontWeight: aktiv ? VIKT.halvfet : VIKT.normal,
+    background: aktiv ? FARG.fyllning : FARG.tonad, color: aktiv ? FARG.text : FARG.text2,
   });
+  const etikett = (text: string) => <p style={{ margin: `${AVSTAND.l}px 0 ${AVSTAND.s}px`, ...TYP.micro, color: FARG.text2 }}>{text}</p>;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', fontFamily: ff }}>
-      <div onClick={onStang} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
-      <div style={{
-        position: 'relative', width: '100%', maxWidth: 480,
-        background: C.surface, borderRadius: '20px 20px 0 0', padding: '24px 20px 32px',
-        maxHeight: '88vh', overflowY: 'auto',
-      }}>
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: C.t4, margin: '0 auto 16px' }} />
-        <div style={{ fontSize: 16, fontWeight: 700, color: C.t1, marginBottom: 16 }}>Lägg till stopp</div>
-
-        {/* Maskinval — flerval, "Alla" expanderas vid sparning */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={labelStyle}>MASKINER</div>
-          <button type="button" onClick={() => { setAlla(!alla); setValda(new Set()); }}
-            style={{ ...chip(alla), width: '100%', marginTop: 6, fontWeight: 600 }}>
-            Alla maskiner{alla ? ` — ${maskiner.length} st` : ''}
+    <Ark
+      rubrik="Lägg till stopp"
+      onStang={onStang}
+      fot={
+        <>
+          {/* Död knapp utan förklaring förvirrar — säg vad som saknas, i ord */}
+          {saknas.length > 0 && <p style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>Välj {saknas.join(' + ')} för att spara</p>}
+          <FelText text={sparfel} />
+          <button onClick={spara} disabled={!kanSpara} style={{ ...KNAPP.primar, ...(kanSpara ? {} : INAKTIV) }}>
+            {sparar ? 'Sparar…' : 'Spara stopp'}
           </button>
-          {grupper.map(g => (
-            <div key={g.rubrik} style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.t4, marginBottom: 6 }}>
-                {g.rubrik}
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {g.maskiner.map(m => (
-                  <button key={m.maskin_id} type="button" onClick={() => toggla(m.maskin_id)}
-                    style={chip(!alla && valda.has(m.maskin_id))}>
-                    {m.namn}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Orsak — exakt två val */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={labelStyle}>ORSAK</div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-            {ORSAKER.map(o => {
-              const aktiv = orsak === o.varde;
+        </>
+      }
+    >
+      {/* Maskinval — flerval, "Alla" expanderas vid sparning */}
+      {etikett('Maskiner')}
+      <button type="button" onClick={() => { setAlla(!alla); setValda(new Set()); }} aria-pressed={alla}
+        style={{ ...chip(alla), width: '100%', justifyContent: 'flex-start' }}>
+        {alla && <Ikon namn="check" />}Alla maskiner{alla ? ` — ${maskiner.length} st` : ''}
+      </button>
+      {grupper.map(g => (
+        <div key={g.rubrik} style={{ marginTop: AVSTAND.m }}>
+          <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.micro, color: FARG.text2 }}>{g.rubrik}</p>
+          <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
+            {g.maskiner.map(m => {
+              const vald = !alla && valda.has(m.maskin_id);
               return (
-                <button key={o.varde} type="button" onClick={() => setOrsak(o.varde)} style={{
-                  flex: 1, padding: '11px 0', borderRadius: 12,
-                  background: aktiv ? '#fff' : 'rgba(255,255,255,0.06)',
-                  border: aktiv ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                  color: aktiv ? '#111' : '#fff',
-                  fontSize: 13, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                }}>
-                  {o.label}
+                <button key={m.maskin_id} type="button" onClick={() => toggla(m.maskin_id)} aria-pressed={vald} style={chip(vald)}>
+                  {vald && <Ikon namn="check" />}{m.namn}
                 </button>
               );
             })}
           </div>
         </div>
+      ))}
 
-        {/* Datum — samma tryck-kalender som ansök-flödet */}
-        <div style={{
-          background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`,
-          borderRadius: 12, padding: '12px 10px 8px', marginBottom: 10,
-        }}>
-          <ValjKalender valdStart={start} valdSlut={slut} onValj={(s, e) => { setStart(s); setSlut(e); }} />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 30, marginBottom: 12 }}>
-          {start ? (
-            <div>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{fmtPeriod(start, effektivtSlut)}</span>
-              <span style={{ fontSize: 12, color: C.t3, marginLeft: 8 }}>
-                {kalenderdagar(start, effektivtSlut)} dagar ({arbetsdagar(start, effektivtSlut)} arbetsdagar)
-              </span>
-            </div>
-          ) : (
-            <span style={{ fontSize: 13, color: C.t3 }}>Tryck på en dag i kalendern</span>
-          )}
-          {start && (
-            <button type="button" onClick={() => { setStart(null); setSlut(null); }}
-              style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, color: C.t2, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: ff, padding: '6px 12px', flexShrink: 0 }}>
-              Rensa
+      {/* Orsak — exakt två val */}
+      {etikett('Orsak')}
+      <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
+        {ORSAKER.map(o => {
+          const aktiv = orsak === o.varde;
+          return (
+            <button key={o.varde} type="button" onClick={() => setOrsak(o.varde)} aria-pressed={aktiv} style={{ ...chip(aktiv), flex: 1 }}>
+              {aktiv && <Ikon namn="check" />}{o.label}
             </button>
-          )}
-        </div>
-
-        {/* Kommentar */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={labelStyle}>KOMMENTAR</div>
-          <input placeholder='Valfritt — t.ex. "fullt gallringslager"' value={kommentar}
-            onChange={e => setKommentar(e.target.value)} style={inputStyle} />
-        </div>
-
-        {sparfel && (
-          <div style={{ padding: '12px 14px', background: C.redDim, border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 13, color: C.red, lineHeight: 1.4 }}>{sparfel}</span>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
-          {saknas.length > 0 && (
-            <span style={{ fontSize: 12, color: C.t3, marginRight: 'auto' }}>
-              Välj {saknas.join(' + ')} för att spara
-            </span>
-          )}
-          <button onClick={onStang} style={{ background: 'none', border: 'none', color: C.t2, fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: ff, padding: '10px 16px' }}>
-            Avbryt
-          </button>
-          <button onClick={spara} disabled={!kanSpara} style={{
-            padding: '10px 24px', borderRadius: 10, border: 'none',
-            background: C.red, color: '#fff',
-            fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-            opacity: kanSpara ? 1 : 0.5,
-          }}>
-            {sparar ? 'Sparar...' : 'Spara stopp'}
-          </button>
-        </div>
+          );
+        })}
       </div>
-    </div>
+
+      {/* Datum — samma tryck-kalender som ansök-flödet */}
+      {etikett('Period')}
+      <div style={{ background: FARG.upphojt, borderRadius: RADIE.kort, padding: `${AVSTAND.s}px ${AVSTAND.s}px ${AVSTAND.xs}px` }}>
+        <ValjKalender valdStart={start} valdSlut={slut} onValj={(s, e) => { setStart(s); setSlut(e); }} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, minHeight: TRAFFYTA.min, marginTop: AVSTAND.s }}>
+        {start ? (
+          <div>
+            <div style={{ ...TYP.listtitel, ...TNUM, color: FARG.text }}>{fmtPeriod(start, effektivtSlut)}</div>
+            <div style={{ ...TYP.meta, ...TNUM, marginTop: AVSTAND.xs, color: FARG.text2 }}>
+              {kalenderdagar(start, effektivtSlut)} dagar ({arbetsdagar(start, effektivtSlut)} arbetsdagar)
+            </div>
+          </div>
+        ) : (
+          <span style={{ ...TYP.meta, color: FARG.text2 }}>Tryck på en dag i kalendern</span>
+        )}
+        {start && <button type="button" onClick={() => { setStart(null); setSlut(null); }} style={{ ...KNAPP.tertiar, ...KORT_TEXTKNAPP }}>Rensa</button>}
+      </div>
+
+      {/* Kommentar */}
+      {etikett('Kommentar (valfritt)')}
+      <input placeholder='Valfritt — t.ex. "fullt gallringslager"' value={kommentar} onChange={e => setKommentar(e.target.value)}
+        style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.primar, padding: `0 ${AVSTAND.m}px`, background: FARG.upphojt, border: 'none', borderRadius: RADIE.rad, color: FARG.text, ...TYP.text, fontFamily: 'inherit', colorScheme: 'dark' }} />
+    </Ark>
   );
 }

@@ -1,0 +1,2881 @@
+{
+ "mig": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 358,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 358,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   }
+  ]
+ },
+ "mig-admin": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "4 att godkännachevron_right",
+    "w": 358,
+    "h": 54.1
+   },
+   {
+    "label": "Godkänn",
+    "w": 171,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 139,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 171,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 139,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 171,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 139,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 171,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 139,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 358,
+    "h": 48
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "4 att godkännachevron_right",
+    "w": 640,
+    "h": 54.1
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "4 att godkännachevron_right",
+    "w": 640,
+    "h": 54.1
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   }
+  ]
+ },
+ "schema": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   }
+  ]
+ },
+ "schema-admin": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 358,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 992,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 1120,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   }
+  ]
+ },
+ "ark-ansok": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 358,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 358,
+    "h": 44
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "checkSemester",
+    "w": 114,
+    "h": 44
+   },
+   {
+    "label": "ATK",
+    "w": 114,
+    "h": 44
+   },
+   {
+    "label": "Inarbetad dag",
+    "w": 114,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "1",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "2",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "3",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "4",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "5",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "6",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "7",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "8",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "9",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "10",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "11",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "12",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "13",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "14",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "15",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "16",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "17",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "18",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "19",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "20",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "21",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "22",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "23",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "24",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "25",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "26",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "27",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "28",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "29",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "30",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "31",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "Rensa",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Valfritt…",
+    "w": 358,
+    "h": 96
+   },
+   {
+    "label": "Skicka ansökan",
+    "w": 358,
+    "h": 48
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "checkSemester",
+    "w": 157.3,
+    "h": 44
+   },
+   {
+    "label": "ATK",
+    "w": 157.3,
+    "h": 44
+   },
+   {
+    "label": "Inarbetad dag",
+    "w": 157.3,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "1",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "2",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "3",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "4",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "5",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "6",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "7",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "8",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "9",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "10",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "11",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "12",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "13",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "14",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "15",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "16",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "17",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "18",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "19",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "20",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "21",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "22",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "23",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "24",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "25",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "26",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "27",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "28",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "29",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "30",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "31",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "Rensa",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Valfritt…",
+    "w": 488,
+    "h": 96
+   },
+   {
+    "label": "Skicka ansökan",
+    "w": 488,
+    "h": 48
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "checkSemester",
+    "w": 157.3,
+    "h": 44
+   },
+   {
+    "label": "ATK",
+    "w": 157.3,
+    "h": 44
+   },
+   {
+    "label": "Inarbetad dag",
+    "w": 157.3,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "1",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "2",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "3",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "4",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "5",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "6",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "7",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "8",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "9",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "10",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "11",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "12",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "13",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "14",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "15",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "16",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "17",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "18",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "19",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "20",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "21",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "22",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "23",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "24",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "25",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "26",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "27",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "28",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "29",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "30",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "31",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "Rensa",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Valfritt…",
+    "w": 488,
+    "h": 96
+   },
+   {
+    "label": "Skicka ansökan",
+    "w": 488,
+    "h": 48
+   }
+  ]
+ },
+ "ark-stopp": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 358,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "Alla maskiner",
+    "w": 358,
+    "h": 44
+   },
+   {
+    "label": "Giant",
+    "w": 55.1,
+    "h": 44
+   },
+   {
+    "label": "Rottne 101",
+    "w": 83.9,
+    "h": 44
+   },
+   {
+    "label": "Rottne 428",
+    "w": 89.5,
+    "h": 44
+   },
+   {
+    "label": "Elephant King",
+    "w": 106.2,
+    "h": 44
+   },
+   {
+    "label": "Wisent2015",
+    "w": 93.7,
+    "h": 44
+   },
+   {
+    "label": "Semesterstopp",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Produktionsbegränsning",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "1",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "2",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "3",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "4",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "5",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "6",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "7",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "8",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "9",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "10",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "11",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "12",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "13",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "14",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "15",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "16",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "17",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "18",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "19",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "20",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "21",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "22",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "23",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "24",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "25",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "26",
+    "w": 48.8,
+    "h": 44
+   },
+   {
+    "label": "27",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "28",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "29",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "30",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "31",
+    "w": 48.9,
+    "h": 44
+   },
+   {
+    "label": "Valfritt — t.ex. \"fullt gall",
+    "w": 358,
+    "h": 48
+   },
+   {
+    "label": "Spara stopp",
+    "w": 358,
+    "h": 48
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 992,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "Alla maskiner",
+    "w": 488,
+    "h": 44
+   },
+   {
+    "label": "Giant",
+    "w": 55.1,
+    "h": 44
+   },
+   {
+    "label": "Rottne 101",
+    "w": 83.9,
+    "h": 44
+   },
+   {
+    "label": "Rottne 428",
+    "w": 89.5,
+    "h": 44
+   },
+   {
+    "label": "Elephant King",
+    "w": 106.2,
+    "h": 44
+   },
+   {
+    "label": "Wisent2015",
+    "w": 93.7,
+    "h": 44
+   },
+   {
+    "label": "Semesterstopp",
+    "w": 240,
+    "h": 44
+   },
+   {
+    "label": "Produktionsbegränsning",
+    "w": 240,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "1",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "2",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "3",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "4",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "5",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "6",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "7",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "8",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "9",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "10",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "11",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "12",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "13",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "14",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "15",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "16",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "17",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "18",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "19",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "20",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "21",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "22",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "23",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "24",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "25",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "26",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "27",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "28",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "29",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "30",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "31",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "Valfritt — t.ex. \"fullt gall",
+    "w": 488,
+    "h": 48
+   },
+   {
+    "label": "Spara stopp",
+    "w": 488,
+    "h": 48
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 1120,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "Alla maskiner",
+    "w": 488,
+    "h": 44
+   },
+   {
+    "label": "Giant",
+    "w": 55.1,
+    "h": 44
+   },
+   {
+    "label": "Rottne 101",
+    "w": 83.9,
+    "h": 44
+   },
+   {
+    "label": "Rottne 428",
+    "w": 89.5,
+    "h": 44
+   },
+   {
+    "label": "Elephant King",
+    "w": 106.2,
+    "h": 44
+   },
+   {
+    "label": "Wisent2015",
+    "w": 93.7,
+    "h": 44
+   },
+   {
+    "label": "Semesterstopp",
+    "w": 240,
+    "h": 44
+   },
+   {
+    "label": "Produktionsbegränsning",
+    "w": 240,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "1",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "2",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "3",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "4",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "5",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "6",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "7",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "8",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "9",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "10",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "11",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "12",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "13",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "14",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "15",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "16",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "17",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "18",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "19",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "20",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "21",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "22",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "23",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "24",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "25",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "26",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "27",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "28",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "29",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "30",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "31",
+    "w": 67.4,
+    "h": 44
+   },
+   {
+    "label": "Valfritt — t.ex. \"fullt gall",
+    "w": 488,
+    "h": 48
+   },
+   {
+    "label": "Spara stopp",
+    "w": 488,
+    "h": 48
+   }
+  ]
+ },
+ "stopp-detalj": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 358,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort stopp",
+    "w": 358,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 992,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort stopp",
+    "w": 488,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 1120,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort stopp",
+    "w": 488,
+    "h": 44
+   }
+  ]
+ },
+ "stopp-bekraftelse": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 358,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 166,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, ta bort",
+    "w": 79.5,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 992,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 206,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, ta bort",
+    "w": 79.5,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "chevron_left",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "chevron_right",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "addLägg till stopp",
+    "w": 1120,
+    "h": 44
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   },
+   {
+    "label": "Maskinstopp 19 – 23 oktober ",
+    "w": 176.3,
+    "h": 48
+   },
+   {
+    "label": "Avbryt",
+    "w": 51.5,
+    "h": 44
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, ta bort",
+    "w": 79.5,
+    "h": 44
+   }
+  ]
+ },
+ "ta-bort-bekraftelse": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 358,
+    "h": 48
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, ta bort",
+    "w": 79.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 358,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, ta bort",
+    "w": 79.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, ta bort",
+    "w": 79.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   }
+  ]
+ },
+ "neka-bekraftelse": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "4 att godkännachevron_right",
+    "w": 358,
+    "h": 54.1
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, neka",
+    "w": 66.2,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 171,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 139,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 171,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 139,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 171,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 139,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 358,
+    "h": 48
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "4 att godkännachevron_right",
+    "w": 640,
+    "h": 54.1
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, neka",
+    "w": 66.2,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "4 att godkännachevron_right",
+    "w": 640,
+    "h": 54.1
+   },
+   {
+    "label": "Nej",
+    "w": 44,
+    "h": 44
+   },
+   {
+    "label": "Ja, neka",
+    "w": 66.2,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "Godkänn",
+    "w": 312,
+    "h": 44
+   },
+   {
+    "label": "Neka",
+    "w": 280,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   }
+  ]
+ },
+ "lasfel-ansokningar": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 358,
+    "h": 48
+   },
+   {
+    "label": "Försök igen",
+    "w": 144,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Försök igen",
+    "w": 144,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Försök igen",
+    "w": 144,
+    "h": 44
+   }
+  ]
+ },
+ "lasfel-saldo": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Försök igen",
+    "w": 71.7,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 358,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 358,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Försök igen",
+    "w": 71.7,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 316,
+    "h": 44
+   },
+   {
+    "label": "Försök igen",
+    "w": 71.7,
+    "h": 44
+   },
+   {
+    "label": "addAnsök om ledighet",
+    "w": 640,
+    "h": 48
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Ändra",
+    "w": 47.1,
+    "h": 44
+   },
+   {
+    "label": "deleteTa bort",
+    "w": 81.5,
+    "h": 44
+   },
+   {
+    "label": "Historik (3)chevron_right",
+    "w": 640,
+    "h": 44
+   }
+  ]
+ },
+ "lasfel-schema": {
+  "390": [
+   {
+    "label": "Mig",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 175,
+    "h": 44
+   },
+   {
+    "label": "Försök igen",
+    "w": 144,
+    "h": 44
+   }
+  ],
+  "1024": [
+   {
+    "label": "Mig",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 492,
+    "h": 44
+   },
+   {
+    "label": "Försök igen",
+    "w": 144,
+    "h": 44
+   }
+  ],
+  "1440": [
+   {
+    "label": "Mig",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "Schema",
+    "w": 556,
+    "h": 44
+   },
+   {
+    "label": "Försök igen",
+    "w": 144,
+    "h": 44
+   }
+  ]
+ }
+}

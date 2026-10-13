@@ -123,6 +123,26 @@ export function medSafeBotten(px: number): string {
   return `max(${px}px, calc(8px + env(safe-area-inset-bottom)))`;
 }
 
+/**
+ * KOLUMNEN — EN regel för bredd (beslut 2026-10-13, ledighet först).
+ *
+ * Arbetsrapport har fyra bredder i samma app (Dag/Kalender/Min tid full bredd, Lön 448,
+ * Lön-detaljer 640, ark 500/520/560) och är därför INTE förebild för bredd, bara för färg
+ * och typografi. Regeln:
+ *  - allt i vyn (flikrad, kort, listor) bor i EN centrerad kolumn — aldrig kant till kant;
+ *  - `smal` för listor, kort och formulär, `bred` för rutnät och tidslinjer;
+ *  - under `telefonMax` px händer ingenting: full bredd, sidmarginal 16, som förut;
+ *  - ark är `ark` px breda, förankrade nederst och centrerade.
+ * Ett layoutmått, inte ett avstånd (se LAYOUT ovan): det byts aldrig mot AVSTAND.
+ */
+export const KOLUMN = {
+  smal: 640,
+  bred: 1120,
+  ark: 520,
+  /** Fönsterbredd under vilken kolumnreglerna inte gäller (telefon). */
+  telefonMax: 670,
+} as const;
+
 /** Radie: rad och fält 10, knapp och kort 12, sheet 16. Cirklar 50 %. */
 export const RADIE = {
   rad: 10, knapp: 12, kort: 12, sheet: 16, cirkel: "50%",

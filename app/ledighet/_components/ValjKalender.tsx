@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { C, ff } from './tema';
+import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
 import { MANADSNAMN, arHelg, arRodDag, toISO } from './datum';
+import { Ikon } from './delar';
 
 const VECKODAGAR = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
+/** Cirkelns diameter (layoutmått). Träffytan är HELA cellen, minst `TRAFFYTA.min` hög. */
+const DAGRUTA = 40;
 
 /**
  * Tryck-kalender för periodval. Ingen dold fas-logik:
@@ -14,6 +17,10 @@ const VECKODAGAR = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
  * - "Rensa" (synlig knapp i föräldern) nollställer via onValj(null, null)
  * Helger/röda dagar går att ta med i spannet men exkluderas ur
  * arbetsdagsräkningen (samma logik som steg 4 — bara kopplad till tryck).
+ *
+ * Markering i tokens-färger (blått är aldrig vald rad): ändpunkter vit fyllning med svart
+ * siffra, spannet `FARG.fyllning`, idag = blå ring (som Arbetsrapports kalender).
+ * Varje dagcell är minst 44 px hög; månadspilarna 44 × 44.
  */
 export default function ValjKalender({
   valdStart, valdSlut, onValj,
@@ -60,33 +67,25 @@ export default function ValjKalender({
   const rader: (number | null)[][] = [];
   for (let i = 0; i < celler.length; i += 7) rader.push(celler.slice(i, i + 7));
 
-  const navKnapp: React.CSSProperties = {
-    background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.border}`,
-    borderRadius: 10, width: 34, height: 34, color: C.t2,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    cursor: 'pointer', fontSize: 16, fontFamily: ff,
-  };
+  const pil: React.CSSProperties = { ...KNAPP.tertiar, width: TRAFFYTA.min, justifyContent: 'center', color: FARG.text };
 
   return (
-    <div style={{ fontFamily: ff }}>
+    <div>
       {/* Månadsnavigering */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '0 2px' }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: C.t1, textTransform: 'capitalize' }}>
-          {MANADSNAMN[manad]} <span style={{ fontWeight: 400, color: C.t3 }}>{ar}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: AVSTAND.xs }}>
+        <span style={{ ...TYP.listtitel, color: FARG.text, textTransform: 'capitalize' }}>
+          {MANADSNAMN[manad]} <span style={{ fontWeight: VIKT.normal, color: FARG.text2 }}>{ar}</span>
         </span>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button type="button" onClick={() => bytManad(-1)} style={navKnapp}>‹</button>
-          <button type="button" onClick={() => bytManad(1)} style={navKnapp}>›</button>
+        <div style={{ display: 'flex', gap: AVSTAND.xs }}>
+          <button type="button" aria-label="Föregående månad" onClick={() => bytManad(-1)} style={pil}><Ikon namn="chevron_left" storlek={22} /></button>
+          <button type="button" aria-label="Nästa månad" onClick={() => bytManad(1)} style={pil}><Ikon namn="chevron_right" storlek={22} /></button>
         </div>
       </div>
 
       {/* Veckodagsrubriker */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 2 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: AVSTAND.xs }}>
         {VECKODAGAR.map((v, i) => (
-          <div key={v} style={{
-            textAlign: 'center', fontSize: 11, fontWeight: 500, padding: '4px 0',
-            color: i >= 5 ? 'rgba(239,68,68,0.7)' : C.t3,
-          }}>
+          <div key={v} style={{ textAlign: 'center', padding: `${AVSTAND.xs}px 0`, ...TYP.micro, color: i >= 5 ? FARG.rod : FARG.text2 }}>
             {v}
           </div>
         ))}
@@ -96,7 +95,7 @@ export default function ValjKalender({
       {rader.map((rad, ri) => (
         <div key={ri} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
           {rad.map((dag, ci) => {
-            if (dag === null) return <div key={`t${ci}`} style={{ aspectRatio: '1' }} />;
+            if (dag === null) return <div key={`t${ci}`} style={{ minHeight: TRAFFYTA.min }} />;
 
             const iso = toISO(new Date(ar, manad, dag));
             const ledigDag = arHelg(iso) || arRodDag(iso); // räknas ej som arbetsdag
@@ -109,29 +108,25 @@ export default function ValjKalender({
               <button
                 key={dag}
                 type="button"
+                aria-pressed={iSpann}
                 onClick={() => tryck(iso)}
                 style={{
-                  aspectRatio: '1', background: 'transparent', border: 'none',
+                  minHeight: TRAFFYTA.min, background: 'transparent', border: 'none', padding: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', padding: 0, fontFamily: ff, position: 'relative',
+                  cursor: 'pointer', fontFamily: 'inherit',
                 }}
               >
-                <div style={{
-                  width: 32, height: 32, borderRadius: 16,
+                <span style={{
+                  width: DAGRUTA, height: DAGRUTA, borderRadius: RADIE.cirkel,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: iSpann ? (arKant ? C.blue : C.blueDim) : 'transparent',
-                  border: arIdag && !iSpann ? `1.5px solid ${C.blue}` : 'none',
+                  background: iSpann ? (arKant ? FARG.text : FARG.fyllning) : 'transparent',
+                  boxShadow: arIdag && !arKant ? `inset 0 0 0 2px ${FARG.bla}` : 'none',
+                  ...TYP.text, ...TNUM,
+                  fontWeight: arKant ? VIKT.fet : VIKT.normal,
+                  color: arKant ? FARG.bg : ledigDag ? FARG.rod : FARG.text,
                 }}>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: arKant ? 700 : 400,
-                    color: iSpann
-                      ? (arKant ? '#fff' : C.t1)
-                      : ledigDag ? 'rgba(239,68,68,0.55)' : C.t1,
-                  }}>
-                    {dag}
-                  </span>
-                </div>
+                  {dag}
+                </span>
               </button>
             );
           })}

@@ -6,7 +6,7 @@ import type { Ansokan, Saldo } from './typer';
 
 /** Säger vad som händer och vad man gör: Ansök är spärrad tills ansökningarna går att läsa. */
 export const ANSOKNINGAR_LASFEL =
-  'Kunde inte läsa dina ansökningar. Ansök om ledighet är spärrad tills de går att läsa — ladda om appen.';
+  'Kunde inte läsa dina ansökningar. Ansök om ledighet är spärrad tills de går att läsa — kontrollera uppkopplingen och försök igen.';
 
 /**
  * Hämtar den inloggades saldo + ALLA ansökningar (RLS: alla läser allt —

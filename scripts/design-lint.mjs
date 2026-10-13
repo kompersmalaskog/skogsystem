@@ -60,6 +60,18 @@ export const SKARPA = [
   "app/ekonomi/mot-ackord/MotAckordClient.tsx", // Mot ackord — tokenstädad
   "app/ekonomi/resultat/ResultatClient.tsx",    // Resultat — tokenstädad
   "app/ekonomi/prislista/PrislistaClient.tsx",  // Prislista — tokenstädad
+  // Ledighet (2026-10): tokens i stället för eget tema, Kolumnen (KOLUMN), träffytor ≥ 44 px.
+  "app/ledighet/page.tsx",
+  "app/ledighet/_components/MigVy.tsx",
+  "app/ledighet/_components/SaldoKort.tsx",
+  "app/ledighet/_components/AnsokanRad.tsx",
+  "app/ledighet/_components/GodkannSektion.tsx",
+  "app/ledighet/_components/AnsokFormular.tsx",
+  "app/ledighet/_components/StoppFormular.tsx",
+  "app/ledighet/_components/StoppDetalj.tsx",
+  "app/ledighet/_components/SchemaVy.tsx",
+  "app/ledighet/_components/ValjKalender.tsx",
+  "app/ledighet/_components/delar.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

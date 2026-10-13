@@ -64,7 +64,7 @@ export function useSchemaData() {
     const fel = pers.error ?? led.error ?? mask.error ?? st.error ?? stMask.error;
     if (fel) {
       console.error('[schema] läsfel:', fel);
-      setLasfel('Kunde inte läsa schemat — ladda om appen.');
+      setLasfel('Kunde inte läsa schemat. Kontrollera uppkopplingen och försök igen.');
       setLaddar(false);
       return;
     }
