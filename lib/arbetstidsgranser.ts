@@ -72,6 +72,12 @@ export type Gransstatus = {
 export type ArbetstidDag = { datum: string; arbetad_min: number | null; start_tid?: string | null; slut_tid?: string | null };
 export type ArbetstidExtra = { datum: string | null; minuter: number | null; start_tid?: string | null; slut_tid?: string | null; aktivitet_typ?: string | null };
 
+/** En rad ur flyttdag (maskinflyttens dag): starttid/sluttid är timestamptz, total_tid_min är MÄTT starttid → "Kör hem" och exkluderar hemresan. */
+export type ArbetstidFlytt = { starttid: string; sluttid?: string | null; total_tid_min?: number | null };
+
+/** En flyttdag som arbetstid, i Stockholmstid: lokalt datum, minuter från midnatt (slutMin kan passera 1440 vid pass över midnatt). */
+export type FlyttPass = { datum: string; startMin: number; slutMin: number; min: number };
+
 export type ArbetstidIndata = {
   medarbetare_id: string;
   namn: string;
@@ -84,6 +90,10 @@ export type ArbetstidIndata = {
   trosklar: VilaTrosklar;
   /** gs_avtal.max_overtid_ar_h; 250 om den inte kunnat läsas. */
   tak?: number;
+  /** flyttdag-rader (maskinflyttens körtid). Räknas i gränserna 4–6 — bara här, aldrig i lönen. */
+  flytt?: ArbetstidFlytt[];
+  /** Det RIKTIGA ögonblicket (new Date()): vilan efter sista passet fram till nu räknas, och en pågående flyttdag räknas t.o.m. nu. */
+  nu?: Date;
 };
 
 export type ArbetstidForare = {
@@ -101,6 +111,99 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const lokal = (s: string) => { const [y, m, d] = s.slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
 const plusDagar = (s: string, n: number) => { const d = lokal(s); d.setDate(d.getDate() + n); return iso(d); };
 const r1 = (x: number) => Math.round(x * 10) / 10;
+
+// ─── Stockholmstid och flyttdag ──────────────────────────────
+// arbetsdag.start_tid/slut_tid är lokal klocktid (Stockholm). flyttdag.starttid är timestamptz (UTC). Tiderna måste därför
+// räknas om till Stockholmstid innan de jämförs — servern (Vercel) kör UTC, så datorns lokala tidszon duger inte.
+const STHLM = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+function sthlmDelar(d: Date): { datum: string; min: number; ar: number; man: number; dag: number; h: number; mi: number } | null {
+  if (Number.isNaN(d.getTime())) return null;
+  const p: Record<string, number> = {};
+  for (const x of STHLM.formatToParts(d)) if (x.type !== "literal") p[x.type] = Number(x.value);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return { datum: `${p.year}-${pad(p.month)}-${pad(p.day)}`, min: p.hour * 60 + p.minute, ar: p.year, man: p.month, dag: p.day, h: p.hour, mi: p.minute };
+}
+
+/** Stockholms väggklocka just nu, uttryckt i datorns lokala ram — samma ram som lib/vilobrott läser arbetsdagarnas klockslag i. */
+export function sthlmVaggklocka(d: Date): Date | undefined {
+  const p = sthlmDelar(d);
+  return p ? new Date(p.ar, p.man - 1, p.dag, p.h, p.mi) : undefined;
+}
+
+/** Flyttdagar längre än så är skräp (samma skräpskydd som klienten: 16 tim). */
+export const FLYTT_MAX_MIN = 16 * 60;
+
+/**
+ * Flyttdagarna som arbetstid i Stockholmstid. Tiden är den MÄTTA (total_tid_min: starttid → "Kör hem"; hemresan ingår inte).
+ * En pågående dag (ingen sluttid, ingen mätt tid) räknas t.o.m. `nu`. Dagar utan mätt tid, med 0 min eller över 16 tim
+ * utesluts och räknas i `uteslutna` — okänt är aldrig noll. `fonster` begränsar till lokala datum (inklusive).
+ */
+export function flyttdagTillPass(rader: ArbetstidFlytt[], nu?: Date, fonster?: { fran: string; till: string }): { pass: FlyttPass[]; uteslutna: number } {
+  const pass: FlyttPass[] = [];
+  let uteslutna = 0;
+  for (const r of rader) {
+    const start = new Date(r.starttid);
+    const lokalStart = sthlmDelar(start);
+    if (!lokalStart) { uteslutna++; continue; }
+    if (fonster && (lokalStart.datum < fonster.fran || lokalStart.datum > fonster.till)) continue;
+    let min: number | null = null;
+    if (r.total_tid_min != null && Number.isFinite(Number(r.total_tid_min))) min = Number(r.total_tid_min);
+    else if (!r.sluttid && nu) min = Math.round((nu.getTime() - start.getTime()) / 60000);
+    if (min == null || !(min > 0) || min > FLYTT_MAX_MIN) { uteslutna++; continue; }
+    pass.push({ datum: lokalStart.datum, startMin: lokalStart.min, slutMin: lokalStart.min + min, min });
+  }
+  return { pass, uteslutna };
+}
+
+const klockaMin = (t: string | null | undefined): number | null => {
+  const m = String(t || "").match(/(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+/** Ett pass som [start, slut] i minuter från datumets midnatt; slut ≤ start betyder nästa dygn. */
+function tidsrad(start?: string | null, slut?: string | null): [number, number] | null {
+  const s = klockaMin(start), e = klockaMin(slut);
+  if (s == null || e == null) return null;
+  return [s, e <= s ? e + 1440 : e];
+}
+const hhmm = (min: number) => `${String(Math.floor((min % 1440) / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+/** Flyttens minuter som INTE redan finns i underlaget samma dag (maskinpass och perioder med klockslag; rader utan klockslag kan inte jämföras och räknas inte som överlapp). */
+function flyttNettoMin(f: FlyttPass, dagar: ArbetstidDag[], extra: ArbetstidExtra[]): number {
+  const befintliga: [number, number][] = [];
+  for (const d of dagar) if (d.datum === f.datum) { const r = tidsrad(d.start_tid, d.slut_tid); if (r) befintliga.push(r); }
+  for (const e of extra) if (e.datum === f.datum) { const r = tidsrad(e.start_tid, e.slut_tid); if (r) befintliga.push(r); }
+  befintliga.sort((a, b) => a[0] - b[0]);
+  const sammanslagna: [number, number][] = [];
+  for (const r of befintliga) {
+    const sista = sammanslagna[sammanslagna.length - 1];
+    if (sista && r[0] <= sista[1]) sista[1] = Math.max(sista[1], r[1]); else sammanslagna.push([r[0], r[1]]);
+  }
+  let overlapp = 0;
+  for (const [s, e] of sammanslagna) overlapp += Math.max(0, Math.min(e, f.slutMin) - Math.max(s, f.startMin));
+  return Math.max(0, f.min - overlapp);
+}
+
+/** Flytten förlänger dagens pass (första start → sista slut), eller blir dagens pass där inget pass finns. */
+function medFlyttSpann<T extends { datum: string; start_tid?: string | null; slut_tid?: string | null }>(spann: T[], flytt: FlyttPass[]): (T | { datum: string; start_tid: string; slut_tid: string })[] {
+  const perDatum = new Map<string, { s: number; e: number }>();
+  for (const f of flytt) {
+    const c = perDatum.get(f.datum);
+    perDatum.set(f.datum, c ? { s: Math.min(c.s, f.startMin), e: Math.max(c.e, f.slutMin) } : { s: f.startMin, e: f.slutMin });
+  }
+  const harPass = new Set<string>();
+  const ut: (T | { datum: string; start_tid: string; slut_tid: string })[] = spann.map(row => {
+    const f = perDatum.get(row.datum);
+    const r = tidsrad(row.start_tid, row.slut_tid);
+    if (!r) return row;
+    harPass.add(row.datum);
+    if (!f) return row;
+    const s = Math.min(r[0], f.s);
+    return { ...row, start_tid: hhmm(s), slut_tid: hhmm(Math.max(r[1], f.e)) };
+  });
+  perDatum.forEach((f, datum) => { if (!harPass.has(datum)) ut.push({ datum, start_tid: hhmm(f.s), slut_tid: hhmm(f.e) }); });
+  return ut;
+}
 
 /** Måndagen i ISO-vecka `vecka` i ISO-året `ar` (vecka 1 är den som innehåller 4 januari). */
 export function isoVeckaMandag(ar: number, vecka: number): Date {
@@ -223,8 +326,9 @@ export type SnittResultat = {
  * Fönstret är de fyra senaste månaderna fram t.o.m. tomDatum (startdagen exklusive: 31 maj → 1 feb), men börjar aldrig
  * före förarens första registrerade tid. TOLKNING: semester och sjukfrånvaro under tid då föraren annars skulle ha arbetat
  * likställs med fullgjord arbetstid (ATL 10 b §) och räknas som 8 tim per vardag; "arbete vinner" och röda dagar räknas inte.
+ * Maskinflyttens körtid (flyttdag) räknas som arbetstid.
  */
-export function snittVeckaH(i: { dagar: ArbetstidDag[]; extra: ArbetstidExtra[]; franvaro: FranvaroRad[]; tomDatum: string }): SnittResultat {
+export function snittVeckaH(i: { dagar: ArbetstidDag[]; extra: ArbetstidExtra[]; franvaro: FranvaroRad[]; tomDatum: string; flytt?: ArbetstidFlytt[]; nu?: Date }): SnittResultat {
   const fonsterStart = plusDagar(minusManader(i.tomDatum, GRANSER.snittManader), 1);
   const minPerDatum = new Map<string, number>();
   const lagg = (datum: string | null, min: number | null) => {
@@ -233,6 +337,9 @@ export function snittVeckaH(i: { dagar: ArbetstidDag[]; extra: ArbetstidExtra[];
   };
   for (const d of i.dagar) lagg(d.datum, d.arbetad_min);
   for (const e of i.extra) lagg(e.datum, e.minuter);
+  // Maskinflyttens körtid (flyttdag): bara det som inte redan finns i underlaget samma dag, så att en flytt som även är inmatad
+  // som maskinpass eller period inte räknas två gånger.
+  for (const f of flyttdagTillPass(i.flytt || [], i.nu, { fran: fonsterStart, till: i.tomDatum }).pass) lagg(f.datum, flyttNettoMin(f, i.dagar, i.extra));
   const forsta = Array.from(minPerDatum.keys()).filter(d => d >= fonsterStart).sort()[0];
   if (!forsta) return { snitt: null, timmar: 0, franvaroTimmar: 0, fran: fonsterStart, dagar: 0 };
   const fran = forsta;                                         // forsta ≥ fonsterStart: aldrig före fönstret
@@ -270,25 +377,29 @@ function bedomVila(i: ArbetstidIndata): { vecka: VilaMatt; dygn: VilaMatt } {
   const perioder = i.extra
     .filter(e => e.datum && e.datum <= tom && e.start_tid && e.slut_tid)
     .map(e => ({ datum: e.datum as string, start_tid: e.start_tid as string, slut_tid: e.slut_tid as string }));
-  const spann = medPerioddagSpann(pass, perioder);
+  const flyttPass = flyttdagTillPass(i.flytt || [], i.nu, { fran: plusDagar(fran, -8), till: tom }).pass;
+  // Maskinflytten är arbetstid och förlänger dagens pass (eller blir dagens pass) — den ligger varken i arbetsdag eller extra_tid.
+  const spann = medFlyttSpann(medPerioddagSpann(pass, perioder), flyttPass);
   const T = i.trosklar;
+  const nu = i.nu ? sthlmVaggklocka(i.nu) : undefined;
 
   // Veckovila: varje dags EGET värde (lib/vilobrott.veckovilaPerDag), inte stretchens första dag — ett gammalt brott får inte
-  // dölja en vila som fortfarande är för kort.
+  // dölja en vila som fortfarande är för kort. Ändarna räknas: tiden före förarens första pass är vila (nyanställd), och vilan från
+  // sista passet fram till nu är vila (öppen lucka = slutar nu) — prod-kontroll 2026-10-13.
   const vkrav = T.veckovila_krav_h;
   const vgul = r1(vkrav / GRANSER.gulAndel);
   let vMin: { h: number; datum: string } | null = null;
-  for (const d of veckovilaPerDag(spann, T.veckovila_fonster_dagar)) {
-    if (d.datum < fran || !(d.max_h > 0)) continue;   // pass efter tomDatum är redan bortfiltrerade ovan
+  for (const d of veckovilaPerDag(spann, T.veckovila_fonster_dagar, { nu, vilaForeForstaPass: true })) {
+    if (d.datum < fran) continue;   // pass efter tomDatum är redan bortfiltrerade ovan; 0 tim betyder nu 'ingen vila alls' (ändarna räknas), inte 'okänt'
     if (!vMin || d.max_h < vMin.h) vMin = { h: d.max_h, datum: d.datum };
   }
   const vecka: VilaMatt = !vMin ? { varde: null, datum: null, niva: "lugn" }
-    : { varde: r1(vMin.h), datum: vMin.datum, niva: vMin.h < vkrav ? "rod" : vMin.h < vgul ? "gul" : "lugn" };
+    : { varde: r1(Math.min(vMin.h, T.veckovila_fonster_dagar * 24)), datum: vMin.datum, niva: vMin.h < vkrav ? "rod" : vMin.h < vgul ? "gul" : "lugn" };   // visas aldrig över fönstret (7 dygn)
 
   // Dygnsvila: lib/vilobrott.analyseraVilobrott tre gånger — med kravet (röd), med varningsgränsen (gul) och med en
   // orimligt hög gräns (alla par, för det lägsta värdet). Rod/gul avgörs av analysens egen jämförelse på OAVRUNDAD vila:
   // 10 h 58 min visas som "11" men är under kravet.
-  const dygnIFonster = (krav: number) => analyseraVilobrott(spann, { ...T, dygnsvila_krav_h: krav })
+  const dygnIFonster = (krav: number) => analyseraVilobrott(spann, { ...T, dygnsvila_krav_h: krav }, { passOverMidnatt: true })
     .filter(b => b.typ === "dygnsvila" && b.datum >= fran && b.vila_h > 0);
   const alla = dygnIFonster(1e6);
   const rod = dygnIFonster(T.dygnsvila_krav_h).length > 0;
@@ -314,7 +425,7 @@ const VARFOR = {
     "ATL 13 § (arbetstidslagen): minst 11 timmar sammanhängande ledighet under varje period om 24 timmar. Avtalet har ingen egen regel (Skogsavtalet §5 mom 1). Gul under 12 tim. Perioddagar (planering, restid, manuellt arbete) räknas med sina klockslag.",
 } as const;
 
-export const RESTID_NOTIS = "Restid ingår inte: ingen restid finns registrerad de senaste fyra månaderna, så arbetstiden och vilan kan vara kortare än den verkliga.";
+export const RESTID_NOTIS = "Restid ingår inte: ingen restid och ingen maskinflytt finns registrerad de senaste fyra månaderna, så arbetstiden och vilan kan vara kortare än den verkliga.";
 
 // ─── bygg allt för en förare ─────────────────────────────────
 export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
@@ -357,7 +468,7 @@ export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
   }
   // 4 — 48 tim/vecka i snitt
   {
-    const r = snittVeckaH({ dagar: i.dagar, extra: i.extra, franvaro: i.franvaro, tomDatum: i.tomDatum });
+    const r = snittVeckaH({ dagar: i.dagar, extra: i.extra, franvaro: i.franvaro, tomDatum: i.tomDatum, flytt: i.flytt, nu: i.nu });
     const G = GRANSER.snittVeckaH;
     const niva: Niva = r.snitt == null ? "lugn" : nivaMotTak(r.snitt, G);
     const v = r.snitt == null ? null : r1(r.snitt);
@@ -390,10 +501,20 @@ export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
     });
   }
 
-  // Restid: finns den i underlaget (extra_tid med aktivitet 'restid' de senaste fyra månaderna)? Annars sägs det.
+  // Restid och maskinflytt: finns de i underlaget (extra_tid med aktivitet 'restid', flyttdag) de senaste fyra månaderna? Flytten ingår
+  // i gränserna 4–6, så med flyttdagar säger kortet det i stället för att säga att restid saknas.
   const restFran = plusDagar(minusManader(i.tomDatum, GRANSER.snittManader), 1);
-  const restidSaknas = !i.extra.some(e => e.aktivitet_typ === "restid" && !!e.datum && e.datum >= restFran && e.datum <= i.tomDatum);
-  const notiser = restidSaknas ? [RESTID_NOTIS] : [];
+  const harRestid = i.extra.some(e => e.aktivitet_typ === "restid" && !!e.datum && e.datum >= restFran && e.datum <= i.tomDatum);
+  const flytt = flyttdagTillPass(i.flytt || [], i.nu, { fran: restFran, till: i.tomDatum });
+  const restidSaknas = !harRestid && flytt.pass.length === 0;
+  const notiser: string[] = [];
+  if (flytt.pass.length > 0) {
+    const n = flytt.pass.length;
+    const h = flytt.pass.reduce((s, f) => s + f.min, 0) / 60;
+    notiser.push(`Maskinflytt ingår: ${n} ${n === 1 ? "flyttdag" : "flyttdagar"}, ${tim(h)} tim (körningen fram till sista objektet; hemresan ingår inte).`);
+  }
+  if (flytt.uteslutna > 0) notiser.push(`${flytt.uteslutna} ${flytt.uteslutna === 1 ? "flyttdag saknar" : "flyttdagar saknar"} mätt tid eller ${flytt.uteslutna === 1 ? "är" : "är"} över 16 tim och ingår inte.`);
+  if (restidSaknas) notiser.unshift(RESTID_NOTIS);
 
   return {
     medarbetare_id: i.medarbetare_id, namn: i.namn,

@@ -4,15 +4,17 @@
 // lib/arbetstidsgranser.test.ts och kräver att testerna blir RÖDA. En mutant som överlever betyder att en gräns kan flyttas
 // utan att något test märker det. Originalfilen återställs alltid (även vid avbrott); scriptet avslutar med 1 om någon överlevde.
 //
+// Filerna återställs alltid, även när skriptet avbryts av ett fel i mönstren (aterstall() före varje process.exit — en finally körs inte då).
 // Kör:  node scripts/mutationskontroll-arbetstid.mjs         (EN tung körning åt gången: kör inte tillsammans med tsc/build)
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const FIL = "lib/arbetstidsgranser.ts";
+const VILA = "lib/vilobrott.ts";
 const TEST = "lib/arbetstidsgranser.test.ts";
-const original = readFileSync(FIL, "utf8");
+const originalFil = { [FIL]: readFileSync(FIL, "utf8"), [VILA]: readFileSync(VILA, "utf8") };
 
-/** [namn, från, till] — `från` måste finnas EXAKT en gång (annars är mutationen tvetydig och scriptet stannar). */
+/** [namn, från, till, fil?] — `från` måste finnas EXAKT en gång i filen (annars är mutationen tvetydig och scriptet stannar). Standardfil: lib/arbetstidsgranser.ts. */
 const M = [
   // nivå
   ["röd först OVER gränsen (> → >=)", 'if (varde > grans) return "rod";', 'if (varde >= grans) return "rod";'],
@@ -68,9 +70,8 @@ const M = [
   ["snitt: frånvaro räknas inte med i timmar", "const timmar = arbetadMin / 60 + franvaroTimmar;", "const timmar = arbetadMin / 60;"],
   ["snitt: fönstret börjar före förarens första dag", "const fran = forsta;", "const fran = fonsterStart;"],
   // vila
-  ["vila: gammalt brott räknas (fran-gräns <)", "if (d.datum < fran || !(d.max_h > 0)) continue;   // pass efter tomDatum är redan bortfiltrerade ovan", "if (d.datum <= fran || !(d.max_h > 0)) continue;   // pass efter tomDatum är redan bortfiltrerade ovan"],
+  ["vila: gammalt brott räknas (fran-gräns <)", "if (d.datum < fran) continue;", "if (d.datum <= fran) continue;"],
   ["vila: pass efter tomDatum räknas", "const pass = i.dagar.filter(d => d.datum <= tom)", "const pass = i.dagar"],
-  ["vila: 0-h-fönster räknas som brott", "|| !(d.max_h > 0)) continue;", "|| false) continue;"],
   ["veckovila: röd vid <= krav", "vMin.h < vkrav ? \"rod\"", "vMin.h <= vkrav ? \"rod\""],
   ["veckovila: gul vid <= gul-gräns", "vMin.h < vgul ? \"gul\"", "vMin.h <= vgul ? \"gul\""],
   ["veckovila: gul-gräns = krav", "const vgul = r1(vkrav / GRANSER.gulAndel);", "const vgul = vkrav;"],
@@ -91,6 +92,45 @@ const M = [
   ["förare: värsta nivån = bästa", "varre(v, g.niva)", "(NIVA_RANG[v] <= NIVA_RANG[g.niva] ? v : g.niva)"],
   ["dataFranDatum: årets början ignoreras", "[`${tomDatum.slice(0, 4)}-01-01`, minusManader(tomDatum, GRANSER.snittManader)].sort()[0]", "minusManader(tomDatum, GRANSER.snittManader)"],
   ["dataFranDatum: fyra månader ignoreras", "[`${tomDatum.slice(0, 4)}-01-01`, minusManader(tomDatum, GRANSER.snittManader)].sort()[0]", "`${tomDatum.slice(0, 4)}-01-01`"],
+  // veckovilans ändar och nattpass (lib/vilobrott.ts) — kortet sätter flaggorna, testerna ska se skillnaden
+  ["vila: ledande vila (före första passet) räknas inte", "if (forstaStart > wsT) maxMs = forstaStart - wsT;", "if (false) maxMs = forstaStart - wsT;", VILA],
+  ["vila: avslutande vila (efter sista passet, till nu) räknas inte", "if (nuT > cursor && nuT > wsT && cursor < weT && nuT - cursor > maxMs) maxMs = nuT - cursor;", "if (false) maxMs = nuT - cursor;", VILA],
+  ["vila: avslutande vila räknas även när den inte överlappar fönstret", "if (nuT > cursor && nuT > wsT && cursor < weT && nuT - cursor > maxMs)", "if (nuT > cursor && nuT - cursor > maxMs)", VILA],
+  ["vila: ett enda pass ger ingen ledande/avslutande vila", "if (intervaller.length < 2 && !andar) return 0;", "if (intervaller.length < 2) return 0;", VILA],
+  ["dygnsvila: pass över midnatt slutar samma dygn", "if (start1 && slut1.h * 60 + slut1.m <= start1.h * 60 + start1.m) d1 = new Date(d1.getTime() + 86400000);", "", VILA],
+  ["dygnsvila: pass över midnatt, <= → <", "slut1.h * 60 + slut1.m <= start1.h * 60 + start1.m", "slut1.h * 60 + slut1.m < start1.h * 60 + start1.m", VILA],
+  // kortets anrop av ändarna
+  ["veckovila: kortet sätter inte vilaForeForstaPass", "{ nu, vilaForeForstaPass: true }", "{ nu }"],
+  ["veckovila: kortet skickar inte nu", "{ nu, vilaForeForstaPass: true }", "{ vilaForeForstaPass: true }"],
+  ["dygnsvila: kortet sätter inte passOverMidnatt", "{ passOverMidnatt: true }", "{}"],
+  ["veckovila: visas över fönstret (168-taket borta)", "Math.min(vMin.h, T.veckovila_fonster_dagar * 24)", "vMin.h"],
+  ["nu: väggklocka i fel tidszon (UTC i stället för Stockholm)", 'timeZone: "Europe/Stockholm", year', 'timeZone: "UTC", year'],
+  // maskinflytt
+  ["flytt: skräpgräns 16 → 17 tim", "export const FLYTT_MAX_MIN = 16 * 60;", "export const FLYTT_MAX_MIN = 17 * 60;"],
+  ["flytt: skräpgräns 16 → 15 tim", "export const FLYTT_MAX_MIN = 16 * 60;", "export const FLYTT_MAX_MIN = 15 * 60;"],
+  ["flytt: 0 min räknas", "if (min == null || !(min > 0) || min > FLYTT_MAX_MIN)", "if (min == null || min > FLYTT_MAX_MIN)"],
+  ["flytt: över gränsen räknas (> → >=)", "min > FLYTT_MAX_MIN)", "min >= FLYTT_MAX_MIN)"],
+  ["flytt: pågående dag räknas inte", "else if (!r.sluttid && nu) min = Math.round((nu.getTime() - start.getTime()) / 60000);", ""],
+  ["flytt: avslutad dag utan mätt tid räknas som pågående", "else if (!r.sluttid && nu)", "else if (nu)"],
+  ["flytt: fönstret (lokalt datum, från) ignoreras", "lokalStart.datum < fonster.fran || lokalStart.datum > fonster.till", "lokalStart.datum > fonster.till"],
+  ["flytt: fönstret (lokalt datum, till) ignoreras", "lokalStart.datum < fonster.fran || lokalStart.datum > fonster.till", "lokalStart.datum < fonster.fran"],
+  ["flytt: slutMin = start + 0", "slutMin: lokalStart.min + min, min", "slutMin: lokalStart.min, min"],
+  ["flytt: tim-summan utan nettning mot underlaget (dubbelräkning)", "lagg(f.datum, flyttNettoMin(f, i.dagar, i.extra));", "lagg(f.datum, f.min);"],
+  ["flytt: nettning ignorerar extra_tid", "for (const e of extra) if (e.datum === f.datum) { const r = tidsrad(e.start_tid, e.slut_tid); if (r) befintliga.push(r); }", ""],
+  ["flytt: nettning ignorerar maskinpass", "for (const d of dagar) if (d.datum === f.datum) { const r = tidsrad(d.start_tid, d.slut_tid); if (r) befintliga.push(r); }", ""],
+  ["flytt: överlapp räknas bara från flyttens start", "Math.max(0, Math.min(e, f.slutMin) - Math.max(s, f.startMin))", "Math.max(0, Math.min(e, f.slutMin) - f.startMin)"],
+  ["flytt: förlänger inte dagens pass (start)", "const s = Math.min(r[0], f.s);", "const s = r[0];"],
+  ["flytt: förlänger inte dagens pass (slut)", "slut_tid: hhmm(Math.max(r[1], f.e)) };", "slut_tid: hhmm(r[1]) };"],
+  ["flytt: blir inte eget pass där inget pass finns", "perDatum.forEach((f, datum) => { if (!harPass.has(datum)) ut.push(", "perDatum.forEach((f, datum) => { if (false) ut.push("],
+  ["flytt: flyttdagar läggs inte till i vilan", "const spann = medFlyttSpann(medPerioddagSpann(pass, perioder), flyttPass);", "const spann = medPerioddagSpann(pass, perioder);"],
+  ["flytt: flyttdagar läggs inte till i snittet", "for (const f of flyttdagTillPass(i.flytt || [], i.nu, { fran: fonsterStart, till: i.tomDatum }).pass)", "for (const f of [] as FlyttPass[])"],
+  ["flytt: pågående flytt räknas utan nu i vilan", "flyttdagTillPass(i.flytt || [], i.nu, { fran: plusDagar(fran, -8), till: tom }).pass", "flyttdagTillPass(i.flytt || [], undefined, { fran: plusDagar(fran, -8), till: tom }).pass"],
+  ["flytt: restidSaknas ignorerar flytt", "const restidSaknas = !harRestid && flytt.pass.length === 0;", "const restidSaknas = !harRestid;"],
+  ["flytt: restidSaknas ignorerar registrerad restid", "const restidSaknas = !harRestid && flytt.pass.length === 0;", "const restidSaknas = flytt.pass.length === 0;"],
+  ["flytt: flyttnotisen saknas", "if (flytt.pass.length > 0) {\n    const n = flytt.pass.length;", "if (false) {\n    const n = flytt.pass.length;"],
+  ["flytt: flyttnotisens timmar = dagar", "const h = flytt.pass.reduce((s, f) => s + f.min, 0) / 60;", "const h = flytt.pass.length;"],
+  ["flytt: notisen om uteslutna dagar saknas", "if (flytt.uteslutna > 0) notiser.push(", "if (false) notiser.push("],
+  ["flytt: restidsnotisen läggs sist i stället för först", "if (restidSaknas) notiser.unshift(RESTID_NOTIS);", "if (restidSaknas) notiser.push(RESTID_NOTIS);"],
   // sortering
   ["sortering: lugna förare tas med", 'f.varsta !== "lugn"', "true"],
   ["sortering: gula före röda", "NIVA_RANG[b.varsta] - NIVA_RANG[a.varsta]", "NIVA_RANG[a.varsta] - NIVA_RANG[b.varsta]"],
@@ -98,6 +138,7 @@ const M = [
 ];
 
 const raknaForekomster = (s, d) => (d ? s.split(d).length - 1 : 0);
+const aterstall = () => { for (const [fil, innehall] of Object.entries(originalFil)) writeFileSync(fil, innehall); };
 const kor = () => spawnSync("npx", ["vitest", "run", TEST, "--reporter=dot"], { encoding: "utf8", env: { ...process.env, CI: "1" } });
 
 let overlevde = [];
@@ -105,21 +146,24 @@ let dog = 0;
 try {
   // Utgångsläget måste vara grönt, annars säger "rött" ingenting.
   const grund = kor();
-  if (grund.status !== 0) { console.error("Testerna är röda innan mutationerna — rätta dem först.\n" + grund.stdout + grund.stderr); process.exit(2); }
+  if (grund.status !== 0) { console.error("Testerna är röda innan mutationerna — rätta dem först.\n" + grund.stdout + grund.stderr); aterstall(); process.exit(2); }
 
-  for (const [namn, fran, till] of M) {
+  for (const [namn, fran, till, fil = FIL] of M) {
+    const original = originalFil[fil];
     const n = raknaForekomster(original, fran);
-    if (n !== 1) { console.error(`✗ "${namn}": mönstret finns ${n} gånger (ska vara exakt 1):\n   ${fran}`); process.exit(2); }
-    writeFileSync(FIL, original.replace(fran, () => till));
+    if (n !== 1) { console.error(`✗ "${namn}": mönstret finns ${n} gånger i ${fil} (ska vara exakt 1):\n   ${fran}`); aterstall(); process.exit(2); }
+    aterstall();
+    writeFileSync(fil, original.replace(fran, () => till));
     const r = kor();
     const dod = r.status !== 0;
     if (dod) dog++; else overlevde.push(namn);
     console.log(`${dod ? "död     " : "ÖVERLEVDE"}  ${namn}`);
   }
 } finally {
-  writeFileSync(FIL, original);
+  aterstall();
 }
 const allt = M.length;
 console.log(`\n${dog} av ${allt} mutanter dödades${overlevde.length ? `, ${overlevde.length} överlevde:` : "."}`);
 for (const n of overlevde) console.log("  - " + n);
+aterstall();
 process.exit(overlevde.length ? 1 : 0);

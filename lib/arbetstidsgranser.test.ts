@@ -3,10 +3,11 @@
 // att den här filen blir röd för varje ändring.
 import { describe, it, expect } from "vitest";
 import {
-  GRANSER, nivaMotTak, isoVeckaMandag, overtidPerManad, manadsstatus, snittVeckaH, byggArbetstid, sorteraAttGora, dataFranDatum,
+  GRANSER, nivaMotTak, isoVeckaMandag, overtidPerManad, manadsstatus, snittVeckaH, byggArbetstid, sorteraAttGora, dataFranDatum, flyttdagTillPass,
   type ArbetstidIndata,
 } from "./arbetstidsgranser";
 import { beraknaArsovertid, type Arsovertid, type Berakningsperiod } from "./lonesystem/arsovertid";
+import { veckovilaPerDag } from "./vilobrott";
 import fx from "./lonesystem/testdata/stefan2026.json";
 
 const TROSKLAR = { dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
@@ -437,6 +438,20 @@ describe("gräns 5 (veckovila, ATL 14 §) och gräns 6 (dygnsvila, ATL 13 §)", 
     expect(niva("18:54")).toBe("gul");   // 11 h 06 min
   });
 
+  it("NATTPASS över midnatt: pass mån 22:00–06:00 och tis 14:00 ger 8 tim vila (inte 32 — sluttiden är nästa dygn)", () => {
+    const dagar = [...utan(grund(), "2026-10-05", "2026-10-06"), pass("2026-10-05", "22:00", "06:00"), pass("2026-10-06", "14:00", "22:00")];
+    const g = gr(vila(dagar), "dygnsvila");
+    expect(g.niva).toBe("rod");
+    expect(g.varde).toBe(8);
+  });
+
+  it("ett pass med samma start och slut (06:00–06:00) är 24 tim och slutar nästa dygn — som arbetsdagSpanMin", () => {
+    const dagar = [...utan(grund(), "2026-10-05", "2026-10-06"), pass("2026-10-05", "06:00", "06:00"), pass("2026-10-06", "14:00", "22:00")];
+    const g = gr(vila(dagar), "dygnsvila");
+    expect(g.niva).toBe("rod");
+    expect(g.varde).toBe(8);
+  });
+
   it("en dygnsvila bedöms efter det PASS som ledde fram till den (datumet visas)", () => {
     const g = gr(vila([...grund(), ...testvecka("20:00")]), "dygnsvila");
     expect(g.mening).toContain("5 okt");
@@ -505,10 +520,61 @@ describe("gräns 5 (veckovila, ATL 14 §) och gräns 6 (dygnsvila, ATL 13 §)", 
     });
   });
 
-  it("ETT pass i fönstret ger ingen veckovila att bedöma (0 h är inte 'ingen vila')", () => {
+  it("ETT pass i fönstret: tiden FÖRE första passet räknas som vila (6 dygn + 6 tim = 150 tim), inte 'ingen vila'", () => {
     const g = gr(vila([pass("2026-10-08")]), "veckovila");
-    expect(g.varde).toBeNull();
+    expect(g.varde).toBe(150);
     expect(g.niva).toBe("lugn");
+  });
+
+  describe("veckovilan i ändarna (prod-kontroll 2026-10-13: Oscar Ringberg 14,5 tim, Joacim 13,3 tim var falsklarm)", () => {
+    const NU = new Date("2026-10-13T10:00:00Z");   // 12:00 i Stockholm (CEST) — nu är ett RIKTIGT ögonblick, kortet gör om det till väggklocka
+    const med = (dagar: any[], nu?: Date, extra: any[] = []) =>
+      gr(byggArbetstid(indata({ arsovertid: ars({ tomDatum: "2026-10-13" }), dagar, extra, nu })), "veckovila");
+    const rad = (fran: string, antal: number) => Array.from({ length: antal }, (_, k) => pass(plusDagar(fran, k)));
+    const grundTillFre25 = () => [0, 7, 14, 21, 28].flatMap(n => normalvecka(plusDagar("2026-08-24", n)));   // 24 aug – 25 sep
+
+    it("NY FÖRARE (Oscar): anställd 28 sep, inga pass före — vilan före första passet räknas, så inget brott de första dagarna", () => {
+      // mån–fre från 28 sep, sedan mån 12 och tis 13 okt
+      const dagar = [...normalvecka("2026-09-28"), ...normalvecka("2026-10-05"), pass("2026-10-12"), pass("2026-10-13")];
+      const g = med(dagar, NU);
+      expect(g.niva).toBe("lugn");
+      expect(g.varde!).toBeGreaterThanOrEqual(36);
+    });
+
+    it("samma nyanställd UTAN den regeln hade gett falsklarmet (15 tim, röd) — fönstren 29 sep–2 okt har bara en vecka pass", () => {
+      // dokumenterar vad som rättades: veckovilaPerDag utan vilaForeForstaPass ger 15 tim
+      const dagar = [...normalvecka("2026-09-28"), ...normalvecka("2026-10-05"), pass("2026-10-12"), pass("2026-10-13")];
+      const utanRegel = veckovilaPerDag(dagar.map(d => ({ datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid })), 7).filter(d => d.datum >= "2026-09-29" && d.datum <= "2026-10-02");
+      expect(Math.min(...utanRegel.map(d => d.max_h))).toBe(15);
+      const medRegel = veckovilaPerDag(dagar.map(d => ({ datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid })), 7, { vilaForeForstaPass: true }).filter(d => d.datum >= "2026-09-29" && d.datum <= "2026-10-02");
+      expect(Math.min(...medRegel.map(d => d.max_h))).toBeGreaterThanOrEqual(36);
+    });
+
+    it("PÅGÅENDE VILA (Joacim): 8 dagar i rad t.o.m. 6 okt, sedan ledig — vilan efter sista passet fram till nu räknas (öppen lucka = slutar nu)", () => {
+      const dagar = [...grundTillFre25(), ...rad("2026-09-29", 8)];                 // tis 29 sep – tis 6 okt, sedan inget
+      expect(med(dagar, NU).niva).toBe("lugn");                                     // 6 okt 15:00 → 13 okt 12:00 = 165 tim
+      expect(med(dagar).niva).toBe("rod");                                          // utan "nu": som förut, 15 tim
+      expect(med(dagar).varde).toBe(15);
+    });
+
+    it("en riktig sjuk-dagars-streak döljs inte av vilan efter den: 10 dagar i rad ger fortfarande röd (fönstret 6 okt saknar vila)", () => {
+      const dagar = [...grundTillFre25(), ...rad("2026-09-29", 10)];                // 29 sep – 8 okt
+      const g = med(dagar, NU);
+      expect(g.niva).toBe("rod");
+      expect(g.varde).toBe(15);
+    });
+
+    it("öppen lucka under 36 tim räcker inte: 8 dagar i rad t.o.m. 12 okt 15:00, nu 13 okt 11:00 → 20 tim, röd", () => {
+      const dagar = [...grundTillFre25(), ...normalvecka("2026-09-28"), ...rad("2026-10-05", 8)];   // vanlig vecka, sedan 5–12 okt utan vilodag
+      const g = med(dagar, new Date("2026-10-13T09:00:00Z"));   // 11:00 i Stockholm
+      expect(g.niva).toBe("rod");
+      expect(g.varde).toBe(20);
+    });
+
+    it("vilan visas aldrig längre än fönstret (168 tim = 7 dygn) — en förare som varit ledig länge får '168', inte '500'", () => {
+      const g = med([pass("2026-09-20")], NU);
+      expect(g.varde).toBe(168);
+    });
   });
 
   it("perioddagar (extra_tid med klockslag) räknas in i vilan precis som i Vilobrott-listan", () => {
@@ -594,6 +660,189 @@ describe("sorteraAttGora: Översiktens ordning", () => {
   });
   it("lika nära: efter namn", () => {
     expect(sorteraAttGora([forare("Östen", 260), forare("Anna", 260)]).map(f => f.namn)).toEqual(["Anna", "Östen"]);
+  });
+});
+
+// ─── maskinflytt (flyttdag) ──────────────────────────────────
+describe("flyttdag: maskinflyttens körtid räknas i gränserna 4–6 (bara i kortet)", () => {
+  // Prod 2026-09-25: 400 min flytt, 0 min i arbetsdag/extra_tid. flyttdag.starttid är timestamptz (UTC); arbetsdag-tider är lokal klocktid.
+  const NU = new Date("2026-10-13T10:00:00Z");   // 12:00 i Stockholm (CEST)
+  const f = (starttid: string, total_tid_min: number | null, o: { sluttid?: string | null } = {}) => ({ starttid, total_tid_min, sluttid: o.sluttid ?? null });
+
+  describe("flyttdagTillPass: UTC → Stockholmstid", () => {
+    it("sommartid (UTC+2): 04:00Z = 06:00, 400 min → 06:00–12:40", () => {
+      const r = flyttdagTillPass([f("2026-09-25T04:00:00Z", 400)], NU);
+      expect(r.pass).toEqual([{ datum: "2026-09-25", startMin: 360, slutMin: 760, min: 400 }]);
+    });
+    it("vintertid (UTC+1): 05:00Z = 06:00", () => {
+      expect(flyttdagTillPass([f("2026-12-01T05:00:00Z", 60)], NU).pass[0]).toMatchObject({ datum: "2026-12-01", startMin: 360 });
+    });
+    it("lokal midnatt: 22:30Z den 25 sep = 00:30 den 26 sep (datumet är det lokala)", () => {
+      expect(flyttdagTillPass([f("2026-09-25T22:30:00Z", 120)], NU).pass[0]).toMatchObject({ datum: "2026-09-26", startMin: 30, slutMin: 150 });
+    });
+    it("sommartidens slut 25 okt 2026 (03:00 → 02:00 vid 01:00Z): 23:30Z = 01:30 CEST, 01:30Z = 02:30 CET", () => {
+      expect(flyttdagTillPass([f("2026-10-24T23:30:00Z", 60)], NU).pass[0]).toMatchObject({ datum: "2026-10-25", startMin: 90 });
+      expect(flyttdagTillPass([f("2026-10-25T01:30:00Z", 60)], NU).pass[0]).toMatchObject({ datum: "2026-10-25", startMin: 150 });
+    });
+    it("pågående dag (ingen sluttid, ingen mätt tid) räknas t.o.m. nu", () => {
+      const r = flyttdagTillPass([f("2026-10-13T06:00:00Z", null)], NU);          // 08:00 lokal, nu 12:00 → 240 min
+      expect(r.pass).toEqual([{ datum: "2026-10-13", startMin: 480, slutMin: 720, min: 240 }]);
+    });
+    it("pågående dag utan 'nu' går inte att räkna: utesluten, inte noll", () => {
+      const r = flyttdagTillPass([f("2026-10-13T06:00:00Z", null)]);
+      expect(r.pass).toEqual([]);
+      expect(r.uteslutna).toBe(1);
+    });
+    it("avslutad dag utan mätt tid, och dag över 16 tim (skräpskydd), utesluts och räknas", () => {
+      const r = flyttdagTillPass([f("2026-10-13T00:00:00Z", null, { sluttid: "2026-10-13T05:00:00Z" }), f("2026-09-26T04:00:00Z", 961), f("2026-09-27T04:00:00Z", 960), f("2026-09-28T04:00:00Z", 0)], NU);
+      expect(r.pass.map(p => p.datum)).toEqual(["2026-09-27"]);
+      expect(r.uteslutna).toBe(3);      // den avslutade dagen startade 2 tim före 'nu' och skulle annars ha blivit 600 min
+    });
+    it("fönstret är LOKALA datum, båda ändar inklusive: före 'fran' och efter 'till' räknas inte", () => {
+      const rader = [f("2026-09-24T04:00:00Z", 60), f("2026-09-25T04:00:00Z", 60), f("2026-09-26T04:00:00Z", 60), f("2026-09-27T04:00:00Z", 60)];
+      const r = flyttdagTillPass(rader, NU, { fran: "2026-09-25", till: "2026-09-26" });
+      expect(r.pass.map(p => p.datum)).toEqual(["2026-09-25", "2026-09-26"]);
+      expect(r.uteslutna).toBe(0);
+    });
+    it("pågående dag som startade för mer än 16 tim sedan är skräp — utesluten", () => {
+      expect(flyttdagTillPass([f("2026-10-12T10:00:00Z", null)], NU).pass).toEqual([]);   // 12 okt 12:00 lokal → 24 tim
+    });
+  });
+
+  describe("gräns 4: tiden läggs till, utan dubbelräkning mot det som redan finns", () => {
+    const TOM = "2026-10-13";
+    const FRAN = "2026-09-14";
+    const mf = (fl: any[], o: { dagar?: any[]; extra?: any[] } = {}) => snittVeckaH({ dagar: o.dagar ?? [], extra: o.extra ?? [], franvaro: [], tomDatum: TOM, flytt: fl, nu: NU } as any);
+    const start = { datum: FRAN, arbetad_min: 60 };            // förarens första registrerade tid (gör fönstret 30 dagar)
+
+    it("400 min flytt utan annat underlag den dagen = +6,67 tim (2026-09-25: 400 min flytt, 0 min i underlaget)", () => {
+      const utan = mf([], { dagar: [start] });
+      const med = mf([f("2026-09-25T04:00:00Z", 400)], { dagar: [start] });
+      expect(Math.round((med.timmar - utan.timmar) * 100) / 100).toBe(6.67);
+    });
+    it("flytten överlappar ett maskinpass 08:00–15:00 (480 min): bara det som ligger utanför passet läggs till (06:00–12:40 → 120 min)", () => {
+      const dag = { datum: "2026-09-25", arbetad_min: 480, start_tid: "08:00:00", slut_tid: "15:00:00" };
+      const utan = mf([], { dagar: [start, dag] });
+      const med = mf([f("2026-09-25T04:00:00Z", 400)], { dagar: [start, dag] });
+      expect(Math.round((med.timmar - utan.timmar) * 100) / 100).toBe(2);
+    });
+    it("flytten överlappar en extra_tid-period med klockslag: samma sak", () => {
+      const ex = { datum: "2026-09-25", minuter: 120, start_tid: "10:00", slut_tid: "12:00" };
+      const utan = mf([], { dagar: [start], extra: [ex] });
+      const med = mf([f("2026-09-25T04:00:00Z", 400)], { dagar: [start], extra: [ex] });
+      expect(Math.round((med.timmar - utan.timmar) * 100) / 100).toBe(4.67);      // 400 − 120 = 280 min
+    });
+    it("maskinrad utan klockslag går inte att jämföra mot: hela flytten läggs till", () => {
+      const dag = { datum: "2026-09-25", arbetad_min: 480 };
+      const utan = mf([], { dagar: [start, dag] });
+      const med = mf([f("2026-09-25T04:00:00Z", 400)], { dagar: [start, dag] });
+      expect(Math.round((med.timmar - utan.timmar) * 100) / 100).toBe(6.67);
+    });
+    it("flytten är en egen sak per dag: två flyttdagar summeras", () => {
+      const utan = mf([], { dagar: [start] });
+      const med = mf([f("2026-09-25T04:00:00Z", 60), f("2026-09-26T04:00:00Z", 120)], { dagar: [start] });
+      expect(med.timmar - utan.timmar).toBe(3);
+    });
+    it("ger fortfarande ett snitt när flytten är första registrerade tid (första dagen med tid räknas)", () => {
+      const r = mf([f("2026-09-14T04:00:00Z", 480)]);
+      expect(r.fran).toBe("2026-09-14");
+      expect(r.snitt).not.toBeNull();
+    });
+  });
+
+  describe("gräns 5 och 6: flytten är arbetstid och förlänger passet", () => {
+    const pass = (datum: string, start = "06:00", slut = "15:00") => ({ datum, start_tid: start, slut_tid: slut, arbetad_min: 480 });
+    const normal = (mandag: string) => [0, 1, 2, 3, 4].map(i => pass(plusDagar(mandag, i)));
+    const grund = () => [0, 7, 14, 21, 28, 35, 42].flatMap(n => normal(plusDagar("2026-08-24", n)));   // 24 aug – 9 okt
+    const utan = <T extends { datum: string }>(dagar: T[], ...d: string[]) => dagar.filter(x => !d.includes(x.datum));
+    const med = (dagar: any[], flytt: any[]) => byggArbetstid(indata({ arsovertid: ars({ tomDatum: "2026-10-13" }), dagar, flytt, nu: NU }));
+    // 2026-10: sommartid, lokal = UTC + 2 tim
+
+    it("flytt tis 6 okt 01:00–08:00 (23:00Z mån) efter pass mån 06–15 → dygnsvila 10 tim, röd — flytten var inte med i arbetsdag", () => {
+      const g = gr(med(utan(grund(), "2026-10-06"), [f("2026-10-05T23:00:00Z", 420)]), "dygnsvila");
+      expect(g.niva).toBe("rod");
+      expect(g.varde).toBe(10);
+    });
+    it("samma flytt starttid 02:00 → 11 tim (gul), 03:00 → 12 tim (lugn)", () => {
+      expect(gr(med(utan(grund(), "2026-10-06"), [f("2026-10-06T00:00:00Z", 360)]), "dygnsvila")).toMatchObject({ niva: "gul", varde: 11 });
+      expect(gr(med(utan(grund(), "2026-10-06"), [f("2026-10-06T01:00:00Z", 360)]), "dygnsvila").niva).toBe("lugn");
+    });
+    it("flytt EFTER ett maskinpass samma dag förlänger passet: pass 06–15 + flytt 15:00–21:00, nästa pass 06:00 → 9 tim vila", () => {
+      // 15:00 lokal = 13:00Z
+      const g = gr(med(grund(), [f("2026-10-07T13:00:00Z", 360)]), "dygnsvila");
+      expect(g.niva).toBe("rod");
+      expect(g.varde).toBe(9);
+    });
+    it("flytt som korsar midnatt (22:00–02:00) på en dag utan pass: vilan räknas från 02:00", () => {
+      // tis 6 okt 22:00 lokal = 20:00Z; slutar ons 02:00 → ons-passet 06:00 ger 4 tim
+      const g = gr(med(utan(grund(), "2026-10-06"), [f("2026-10-06T20:00:00Z", 240)]), "dygnsvila");
+      expect(g.niva).toBe("rod");
+      expect(g.varde).toBe(4);
+    });
+    it("flytt FÖRE dagens maskinpass förlänger passets start: pass tis 08–16 + flytt 02:00–07:00 → vila efter måndagens 15:00 blir 11 tim, gul", () => {
+      // 02:00 lokal = 00:00Z, 300 min
+      const g = gr(med(utan(grund(), "2026-10-06").concat([pass("2026-10-06", "08:00", "16:00")]), [f("2026-10-06T00:00:00Z", 300)]), "dygnsvila");
+      expect(g.niva).toBe("gul");
+      expect(g.varde).toBe(11);
+    });
+    it("PÅGÅENDE flytt (ingen sluttid, ingen mätt tid) räknas t.o.m. nu: startade tis 13 okt 03:00, nu 08:00 → måndagens pass 06–20 ger 7 tim vila", () => {
+      const dagar = [...utan(grund(), "2026-10-05"), pass("2026-10-12", "06:00", "20:00")];
+      const g = gr(byggArbetstid(indata({ arsovertid: ars({ tomDatum: "2026-10-13" }), dagar, flytt: [f("2026-10-13T01:00:00Z", null)], nu: new Date("2026-10-13T06:00:00Z") })), "dygnsvila");
+      expect(g.niva).toBe("rod");
+      expect(g.varde).toBe(7);
+    });
+    it("flytt på en dag där maskinpasset redan innehåller den (06:00–12:40 inom 06–15) ändrar ingenting", () => {
+      const g = gr(med(grund(), [f("2026-10-07T04:00:00Z", 400)]), "dygnsvila");
+      expect(g.niva).toBe("lugn");
+      expect(g.varde).toBe(15);
+    });
+    it("veckovila: flytt lör 06:00–12:40 delar helgvilan i 15 + 41,3 tim — fortfarande ≥ 40, lugn", () => {
+      const g = gr(med(grund(), [f("2026-10-03T04:00:00Z", 400)]), "veckovila");
+      expect(g.niva).toBe("lugn");
+    });
+    it("veckovila: flytt lör 06:00–16:40 (700 min) lämnar 37,3 tim → gul; söndag 12:00–14:00 på toppen lämnar 18/20 → röd", () => {
+      const lor = med(grund(), [f("2026-10-03T04:00:00Z", 640)]);                    // lör 06:00–16:40 → mån 06:00 = 37,3 tim
+      expect(gr(lor, "veckovila")).toMatchObject({ niva: "gul", varde: 37.3 });
+      const bada = med(grund(), [f("2026-10-03T04:00:00Z", 640), f("2026-10-04T10:00:00Z", 120)]);   // + sön 12:00–14:00 → luckor ≈ 19,3 och 16
+      expect(gr(bada, "veckovila").niva).toBe("rod");
+    });
+  });
+
+  describe("kortets text om restid och maskinflytt", () => {
+    const TOM = "2026-10-13";
+    const bygg = (o: Partial<ArbetstidIndata>) => byggArbetstid(indata({ arsovertid: ars({ tomDatum: TOM }), nu: NU, ...o }));
+    it("flyttdagar i underlaget: kortet säger INTE 'Restid ingår inte' — det säger att maskinflytt ingår, med dagar och timmar", () => {
+      const r = bygg({ flytt: [f("2026-09-25T04:00:00Z", 400), f("2026-09-26T04:00:00Z", 120)] });
+      expect(r.restidSaknas).toBe(false);
+      expect(r.notiser.join(" ")).not.toContain("Restid ingår inte");
+      expect(r.notiser[0]).toBe("Maskinflytt ingår: 2 flyttdagar, 8,7 tim (körningen fram till sista objektet; hemresan ingår inte).");
+    });
+    it("en flyttdag: singular", () => {
+      expect(bygg({ flytt: [f("2026-09-25T04:00:00Z", 60)] }).notiser[0]).toBe("Maskinflytt ingår: 1 flyttdag, 1 tim (körningen fram till sista objektet; hemresan ingår inte).");
+    });
+    it("varken restid eller flytt: 'Restid ingår inte' (och maskinflytt)", () => {
+      const r = bygg({});
+      expect(r.restidSaknas).toBe(true);
+      expect(r.notiser[0]).toMatch(/^Restid ingår inte/);
+      expect(r.notiser[0]).toMatch(/maskinflytt/);
+    });
+    it("registrerad restid och inga flyttdagar: ingen notis alls", () => {
+      const r = bygg({ extra: [{ datum: "2026-09-05", minuter: 60, start_tid: null, slut_tid: null, aktivitet_typ: "restid" }] });
+      expect(r.notiser).toEqual([]);
+    });
+    it("uteslutna flyttdagar (saknar mätt tid / över 16 tim) sägs", () => {
+      const r = bygg({ flytt: [f("2026-09-25T04:00:00Z", 400), f("2026-09-26T04:00:00Z", 999)] });
+      expect(r.notiser.join(" ")).toContain("1 flyttdag saknar mätt tid eller är över 16 tim och ingår inte");
+    });
+    it("både 'Restid ingår inte' och uteslutna flyttdagar: restidsnotisen står först", () => {
+      const r = bygg({ flytt: [f("2026-09-26T04:00:00Z", 999)] });
+      expect(r.notiser[0]).toMatch(/^Restid ingår inte/);
+      expect(r.notiser[1]).toContain("saknar mätt tid");
+    });
+    it("flytt äldre än fyra månader räknas inte: kortet har ingen flytt att nämna", () => {
+      const r = bygg({ flytt: [f("2026-05-25T04:00:00Z", 400)] });
+      expect(r.restidSaknas).toBe(true);
+    });
   });
 });
 

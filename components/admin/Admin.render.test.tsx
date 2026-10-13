@@ -2706,6 +2706,22 @@ describe("Översikten: kortet Arbetstid", () => {
     expect(cont.querySelector("[data-arbetstid-notis]")!.textContent).toContain("Restid ingår inte");
   });
 
+  it("maskinflytt i underlaget: detaljen säger 'Maskinflytt ingår: …' och INTE 'Restid ingår inte'", async () => {
+    const f = byggArbetstid({
+      medarbetare_id: "s", namn: "Stefan Karlsson", tomDatum: "2026-10-13",
+      arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: 262 }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
+      dagar: [], extra: [], franvaro: [], trosklar: TROSKLAR, tak: 250, nu: new Date("2026-10-13T10:00:00Z"),
+      flytt: [{ starttid: "2026-09-25T04:00:00Z", sluttid: "2026-09-25T13:00:00Z", total_tid_min: 400 }],
+    });
+    g.__arbetstid = svar([f]);
+    await monter("flik=oversikt");
+    await act(async () => { knappen(forareRader()[0]).click(); });
+    const notis = cont.querySelector("[data-arbetstid-notis]")!.textContent || "";
+    expect(notis).toContain("Maskinflytt ingår: 1 flyttdag, 6,7 tim");
+    expect(notis).toContain("hemresan ingår inte");
+    expect(kortText()).not.toContain("Restid ingår inte");
+  });
+
   it("läsvarningar (frånvaro, avtal, utjämning) står under kortet i orange — aldrig tyst", async () => {
     g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 262)], ["Kunde inte läsa frånvaron (permission denied) — övertid och 48-timmarssnittet räknas utan den och kan vara för låga."]);
     await monter("flik=oversikt");

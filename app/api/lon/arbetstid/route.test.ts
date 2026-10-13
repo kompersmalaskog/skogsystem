@@ -47,7 +47,7 @@ beforeEach(() => {
   g.__db = {
     medarbetare: [{ id: "s", namn: "Stefan Karlsson" }],
     arbetsdag: vardagar("2026-08-24", "2026-10-13").map(d => dag("s", d)),
-    extra_tid: [], gs_avtal: [], utjamningsperiod: [], ledighet_ansokningar: [],
+    extra_tid: [], gs_avtal: [], utjamningsperiod: [], ledighet_ansokningar: [], flyttdag: [],
   };
   vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 9, 13, 12, 0));
 });
@@ -120,6 +120,48 @@ describe("GET /api/lon/arbetstid", () => {
     const r = await anropa();
     expect(r.status).toBe(500);
     expect((await r.json()).meddelande).toContain("timeout");
+  });
+
+  it("maskinflytten (flyttdag) räknas: notisen säger det, och den räknas till rätt förare", async () => {
+    // 25 sep 06:00 lokal (04:00Z), 400 min — ingenting av det finns i arbetsdag/extra_tid
+    g.__db.flyttdag = [{ medarbetare_id: "s", forare: "Stefan", starttid: "2026-09-25T04:00:00Z", sluttid: "2026-09-25T13:00:00Z", total_tid_min: 400 }];
+    const f = (await (await anropa()).json()).forare[0];
+    expect(f.restidSaknas).toBe(false);
+    expect(f.notiser.join(" ")).toContain("Maskinflytt ingår: 1 flyttdag, 6,7 tim");
+    expect(f.notiser.join(" ")).not.toContain("Restid ingår inte");
+  });
+
+  it("en förare som BARA har flyttdagar (ingen arbetsdag, ingen extra_tid) tas med", async () => {
+    g.__db.medarbetare = [{ id: "s", namn: "Stefan Karlsson" }, { id: "l", namn: "Lastbil Lasse" }];
+    g.__db.flyttdag = [{ medarbetare_id: "l", forare: "Lasse", starttid: "2026-10-05T04:00:00Z", sluttid: null, total_tid_min: 300 }];
+    const j = await (await anropa()).json();
+    expect(j.forare.map((f: any) => f.medarbetare_id).sort()).toEqual(["l", "s"]);
+  });
+
+  it("flyttdag utan medarbetare_id: kopplas via exakt namn i `forare`, annars en varning (aldrig tyst)", async () => {
+    g.__db.flyttdag = [
+      { medarbetare_id: null, forare: "stefan karlsson", starttid: "2026-09-25T04:00:00Z", sluttid: null, total_tid_min: 400 },
+      { medarbetare_id: null, forare: "Okänd Person", starttid: "2026-09-26T04:00:00Z", sluttid: null, total_tid_min: 200 },
+    ];
+    const j = await (await anropa()).json();
+    expect(j.forare[0].notiser.join(" ")).toContain("Maskinflytt ingår: 1 flyttdag, 6,7 tim");
+    expect(j.varningar.join(" ")).toContain("1 flyttdag kunde inte kopplas till en förare");
+  });
+
+  it("tvetydigt namn (två medarbetare med samma namn) kopplas inte — det räknas som okopplat", async () => {
+    g.__db.medarbetare = [{ id: "a", namn: "Anna Berg" }, { id: "b", namn: "Anna Berg" }];
+    g.__db.arbetsdag = [dag("a", "2026-10-05"), dag("b", "2026-10-05")];
+    g.__db.flyttdag = [{ medarbetare_id: null, forare: "Anna Berg", starttid: "2026-10-05T04:00:00Z", sluttid: null, total_tid_min: 100 }];
+    const j = await (await anropa()).json();
+    expect(j.varningar.join(" ")).toContain("1 flyttdag kunde inte kopplas");
+  });
+
+  it("flyttdag går inte att läsa: kortet visas ändå, med en varning — flytten är ett tillägg, inte grunden", async () => {
+    g.__fel = { flyttdag: "permission denied" };
+    const j = await (await anropa()).json();
+    expect(j.ok).toBe(true);
+    expect(j.forare).toHaveLength(1);
+    expect(j.varningar.join(" ")).toContain("Kunde inte läsa maskinflytten (flyttdag: permission denied)");
   });
 
   it("förare utan någon registrerad tid tas inte med", async () => {
