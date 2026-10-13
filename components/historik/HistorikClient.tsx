@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { AVSTAND, designCss, FARG, KNAPP, RADIE, TYP, VY_ROT } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { hamtaMaskinAr, hamtaObjekt, signeradLank } from "@/lib/historik/data";
+import { felSlag, felText, type HistorikFelSlag } from "@/lib/historik/fel";
 import {
   ATGARD_ETIKETT, SEGMENT_ETIKETT, antagnaIAtgard, arSpann, aren, atgardsrader, fewObjects, fmt, FOR_LITE_DATA, harIndex, huvudtal, kandaLuckor, MIN_OBJEKT, nyckeltal, okandaObjekt, procent, rad,
   skordarlista, skotarlista, standardAtgard, VOLYM_SAKNAS_LASS, type ListRad, type Segment,
@@ -67,14 +68,14 @@ function useVy() {
 
 export default function HistorikClient() {
   const [rader, setRader] = useState<MaskinArRad[] | null>(null);
-  const [fel, setFel] = useState<string | null>(null);
+  const [fel, setFel] = useState<HistorikFelSlag | null>(null);
   const [vy, gaTill] = useVy();
 
   useEffect(() => {
     let avbruten = false;
     hamtaMaskinAr(supabase)
       .then((r) => { if (!avbruten) setRader(r); })
-      .catch((e: Error) => { if (!avbruten) setFel(e.message); });
+      .catch((e: unknown) => { console.error("historik: kunde inte läsa vy_hist_maskin_ar", e); if (!avbruten) setFel(felSlag(e)); });
     return () => { avbruten = true; };
   }, []);
 
@@ -84,7 +85,7 @@ export default function HistorikClient() {
       <style>{designCss}</style>
       <div style={{ maxWidth: AVSTAND.xxl * 20, margin: "0 auto", paddingBottom: AVSTAND.xxl * 2 }}>
         {fel ? (
-          <Fel text={fel} />
+          <Fel slag={fel} />
         ) : rader === null ? (
           <p style={{ ...TYP.text, color: FARG.text2, paddingTop: AVSTAND.xl }}>Hämtar maskinsammanställningen …</p>
         ) : (
@@ -101,12 +102,11 @@ export default function HistorikClient() {
 
 type SidProps = { rader: MaskinArRad[]; vy: Vy; gaTill: (patch: Partial<Vy>, ersatt?: boolean) => void };
 
-function Fel({ text }: { text: string }) {
+function Fel({ slag }: { slag: HistorikFelSlag }) {
   return (
     <div style={{ paddingTop: AVSTAND.xl }}>
       <h1 style={{ margin: 0, ...TYP.rubrik }}>Kunde inte läsa historiken</h1>
-      <p style={{ ...TYP.text, color: FARG.text2 }}>Ladda om sidan. Fortsätter det saknar du troligen admin-behörighet (bara roll admin får läsa historiken).</p>
-      <p style={{ ...TYP.meta, color: FARG.text3 }}>{text}</p>
+      <p style={{ ...TYP.text, color: FARG.text2 }}>{felText(slag)}</p>
     </div>
   );
 }
@@ -316,7 +316,7 @@ function ArSida({ rader, vy, gaTill }: SidProps) {
   const ar = vy.ar;
   const typ: MaskinTyp = rader.find((r) => r.maskin === maskin)?.typ ?? "skördare";
   const [objekt, setObjekt] = useState<ObjektRad[] | null>(null);
-  const [fel, setFel] = useState<string | null>(null);
+  const [fel, setFel] = useState<HistorikFelSlag | null>(null);
   const [oppnar, setOppnar] = useState<string | null>(null);
   const [lankFel, setLankFel] = useState<string | null>(null);
 
@@ -326,7 +326,7 @@ function ArSida({ rader, vy, gaTill }: SidProps) {
     setObjekt(null);
     hamtaObjekt(supabase, maskin, ar, vy.atgard, vy.antagna)
       .then((o) => { if (!avbruten) setObjekt(o); })
-      .catch((e: Error) => { if (!avbruten) setFel(e.message); });
+      .catch((e: unknown) => { console.error("historik: kunde inte läsa vy_hist_objekt_lista", e); if (!avbruten) setFel(felSlag(e)); });
     return () => { avbruten = true; };
   }, [maskin, ar, vy.atgard, vy.antagna]);
 
@@ -356,7 +356,7 @@ function ArSida({ rader, vy, gaTill }: SidProps) {
       {lankFel && <Notis text={lankFel} />}
       <div style={{ marginTop: AVSTAND.l }}>
         {fel ? (
-          <p style={{ ...TYP.text, color: FARG.text2 }}>Kunde inte hämta objekten. Ladda om sidan. ({fel})</p>
+          <p style={{ ...TYP.text, color: FARG.text2 }}>{felText(fel, "objekten")}</p>
         ) : objekt === null ? (
           <p style={{ ...TYP.text, color: FARG.text2 }}>Hämtar objekten bakom {ar} …</p>
         ) : objekt.length === 0 ? (

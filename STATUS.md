@@ -136,6 +136,15 @@ kan inte räknas bort (sortiment finns inte i `hist_*`).
 `verifiera_migration.py` bevisar att hist-migrationerna bara rör `hist_*` / `vy_hist_*` och policyn på bucketen `historik`. Mbox och PDF ligger
 aldrig i repot. Migrationerna `20261009155903` … `20261012133150` är körda i prod via MCP (filnamnen har prodens versionsnummer).
 
+**Steg 16 (2026-10-13), prestanda och felmeddelanden — migration `20261013154921_hist_prestanda.sql`:** inloggade har `statement_timeout` 8 s och `vy_hist_objekt_lista` (32 s)
+och `vy_hist_maskin_ar` (24 s) överskred den: sidan visade "canceling statement due to statement timeout". Orsaker: `hist_objekt.dubblett_av` saknade index (tvillinguppslagningen och
+`antal_andra_utskrifter` gjorde Seq Scan per rad) och förartilldelningen i `vy_hist_objekt_index` (`row_number` + `rn = 1`) nested-loopades (14 miljoner bortfiltrerade rader). Åtgärd: partiellt index
+`hist_objekt_dubblett_av_idx`, tvillingen och skiftens lass tas fram en gång som vanliga LEFT JOIN i `vy_hist_objekt_bas`, `DISTINCT ON (sha256)` i `vy_hist_objekt_index`, `ANALYZE` på fyra tabeller.
+Alla nio `vy_hist_`-vyer går nu på under 0,5 s som inloggad admin (mätt med EXPLAIN ANALYZE under 8 s-gränsen). Raderna är desamma; **`vy_hist_normkurva` skiljer sig i sista decimalerna**
+(regressionen summerar `double precision` i radordning, och en ny plan ger en annan ordning: b = 0,7364076124465956 → 0,7364076124464916), och därmed `forvantad_m3_per_g15`/`index` i `objekt_lista`/`objekt_index` från ca 12:e
+decimalen. Avrundat till 8 decimaler är hasharna identiska; alla andra kolumner och `vy_hist_maskin_ar` är bit för bit lika. Felen i appen: 57014 säger "Det tog för lång tid att hämta historiken. Försök igen om en stund.",
+behörighetstexten visas bara vid 42501 eller tomt svar (RLS), och databasens egen text visas aldrig (loggas i konsolen). `lib/historik/fel.ts`, vakt i `components/historik/Historik.render.test.tsx`.
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,

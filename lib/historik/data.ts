@@ -2,6 +2,7 @@
 // All åtkomst går via inloggad klient (RLS: bara admin). Inget skrivs.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { HistorikFel, tillHistorikFel } from "./fel";
 import { tillMaskinAr, tillObjekt, type AtgardKod, type MaskinArRad, type ObjektRad } from "./typer";
 
 const SIDA = 1000;
@@ -18,11 +19,14 @@ export async function hamtaMaskinAr(supabase: SupabaseClient): Promise<MaskinArR
       .order("ar", { nullsFirst: true })
       .order("urval")
       .range(fran, fran + SIDA - 1);
-    if (error) throw new Error(error.message);
+    if (error) throw tillHistorikFel(error);
     const rader = (data ?? []) as Record<string, unknown>[];
     ut.push(...rader.map(tillMaskinAr));
-    if (rader.length < SIDA) return ut;
+    if (rader.length < SIDA) break;
   }
+  // RLS ger tomt svar UTAN fel för den som inte är admin. En admin har alltid hundratals rader, så tomt = saknad behörighet.
+  if (ut.length === 0) throw new HistorikFel("behorighet", "vy_hist_maskin_ar gav inga rader (RLS)");
+  return ut;
 }
 
 /** Objekten bakom ett år. atgard null = alla åtgärder (skotare). medAntagna=false utesluter obekräftad maskinstandard. */
@@ -39,7 +43,7 @@ export async function hamtaObjekt(
     if (atgard) q = q.eq("atgard", atgard);
     if (!medAntagna) q = q.eq("urval", "namn");
     const { data, error } = await q.order("rapportdatum", { nullsFirst: false }).order("sha256").range(fran, fran + SIDA - 1);
-    if (error) throw new Error(error.message);
+    if (error) throw tillHistorikFel(error);
     const rader = (data ?? []) as Record<string, unknown>[];
     ut.push(...rader.map(tillObjekt));
     if (rader.length < SIDA) return ut;

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, designCss, FARG, KNAPP, RAD, TNUM, TRAFFYTA, TYP, VY_ROT, RADIE } from "@/lib/design/tokens";
 import { hamtaMaskinAr } from "@/lib/historik/data";
+import { felSlag, felText, type HistorikFelSlag } from "@/lib/historik/fel";
 import { ATGARD_ETIKETT, antagnaTotalt, jamforRader, jamforSerie, JAMFOR_MAX, JAMFOR_MIN, maskinerMedObjekt } from "@/lib/historik/berakna";
 import type { AtgardKod, MaskinArRad, MaskinTyp } from "@/lib/historik/typer";
 import { Linjediagram, linjeGlyf, maskinFarg, Notis, Sektion, Vaxel } from "./delar";
@@ -56,14 +57,14 @@ function useJv() {
 
 export default function JamforClient() {
   const [rader, setRader] = useState<MaskinArRad[] | null>(null);
-  const [fel, setFel] = useState<string | null>(null);
+  const [fel, setFel] = useState<HistorikFelSlag | null>(null);
   const [jv, gaTill] = useJv();
 
   useEffect(() => {
     let avbruten = false;
     hamtaMaskinAr(supabase)
       .then((r) => { if (!avbruten) setRader(r); })
-      .catch((e: Error) => { if (!avbruten) setFel(e.message); });
+      .catch((e: unknown) => { console.error("historik: kunde inte läsa vy_hist_maskin_ar", e); if (!avbruten) setFel(felSlag(e)); });
     return () => { avbruten = true; };
   }, []);
 
@@ -76,8 +77,7 @@ export default function JamforClient() {
         {fel ? (
           <div style={{ paddingTop: AVSTAND.xl }}>
             <h2 style={{ margin: 0, ...TYP.rubrik }}>Kunde inte läsa historiken</h2>
-            <p style={{ ...TYP.text, color: FARG.text2 }}>Ladda om sidan. Fortsätter det saknar du troligen admin-behörighet.</p>
-            <p style={{ ...TYP.meta, color: FARG.text3 }}>{fel}</p>
+            <p style={{ ...TYP.text, color: FARG.text2 }}>{felText(fel)}</p>
           </div>
         ) : rader === null ? (
           <p style={{ ...TYP.text, color: FARG.text2, paddingTop: AVSTAND.xl }}>Hämtar maskinsammanställningen …</p>

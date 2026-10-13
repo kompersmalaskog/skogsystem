@@ -17,13 +17,14 @@ from pathlib import Path
 STD = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261009155903_hist_tabeller.sql"
 EXTRA = ["20261009173956_hist_objekt_raknas.sql", "20261012063316_hist_vyer.sql", "20261012071940_hist_las_admin.sql",
          "20261012072915_hist_korrigering_lass.sql", "20261012073452_hist_vyer_korrigering.sql", "20261012075034_hist_vyer_regler.sql", "20261012075312_hist_vyer_appen.sql", "20261012075412_hist_maskin_ar_summor.sql",
-         "20261012100538_hist_steg13_tu_rapporterad.sql", "20261012101158_hist_skotare_koppling.sql", "20261012113105_hist_tvilling_lastcert.sql", "20261012123349_hist_wisent_flaggregel.sql", "20261012125005_hist_objektnr.sql", "20261012131833_hist_volym_harledd.sql", "20261012133150_hist_gavle_kalla.sql"]
+         "20261012100538_hist_steg13_tu_rapporterad.sql", "20261012101158_hist_skotare_koppling.sql", "20261012113105_hist_tvilling_lastcert.sql", "20261012123349_hist_wisent_flaggregel.sql", "20261012125005_hist_objektnr.sql", "20261012131833_hist_volym_harledd.sql", "20261012133150_hist_gavle_kalla.sql", "20261013154921_hist_prestanda.sql"]
 ADMIN = r"\(\(select public\.ar_admin\(\)\)\)"
 
 # (regex, etikett, grupp med tabell- eller vynamn)
 MONSTER = [
     (r"^create table (hist_\w+) \(", "create table"),
-    (r"^create index \w+ on (hist_\w+) \(", "create index"),
+    (r"^create index (?:if not exists )?\w+ on (?:public\.)?(hist_\w+) \(", "create index"),
+    (r"^analyze (?:public\.)?(hist_\w+)$", "analyze"),
     (r"^create index (?:if not exists )?\w+ on (hist_\w+) using gin \(\w+\)$", "create index (gin)"),
     (r"^create policy \w+ on (hist_\w+) for select to authenticated using \(true\)$", "create policy (alla inloggade)"),
     (r"^create policy hist_\w+_las on (hist_\w+) for select to authenticated using " + ADMIN + "$", "create policy (admin)"),
@@ -33,7 +34,7 @@ MONSTER = [
     (r"^alter table (hist_objekt) add column (?:if not exists )?(?:raknas boolean not null default false|dubblett_av text|arbetstid_h numeric|tu_rapporterad numeric|objektnr_normaliserat text|virkesordernr_normaliserat text|objektnr_alla text\[\])$", "add column"),
     (r"^alter table (hist_skift) add column antal_lass integer$", "add column"),
     (r"^alter table (hist_\w+) enable row level security$", "enable rls"),
-    (r"^create (?:or replace )?view (vy_hist_\w+) with \(security_invoker = true\) as (?:select|with) ", "create view"),
+    (r"^create (?:or replace )?view (?:public\.)?(vy_hist_\w+) with \(security_invoker = true\) as (?:select|with) ", "create view"),
 ]
 FORBJUDET = ("drop ", "truncate", "update ", "delete ", "insert ", "grant ", "revoke ", "create extension", "create function", "create or replace function",
              "create trigger", "create or replace trigger", "create materialized", "alter column")
