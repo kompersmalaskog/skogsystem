@@ -89,7 +89,7 @@ describe("Ledighet — Mig: läsfel är aldrig 'ingen'", () => {
     expect(ansokKnapp().disabled).toBe(false);
     expect(text()).toContain("12,5");
     expect(text()).toContain("24");
-    expect(text()).toContain("VÄNTAR PÅ BESKED");
+    expect(text()).toContain("Väntar på besked");
     expect(text()).not.toContain("Kunde inte");
   });
 
@@ -98,7 +98,7 @@ describe("Ledighet — Mig: läsfel är aldrig 'ingen'", () => {
     expect(ansokKnapp().disabled).toBe(true);
     expect(text()).toContain("Kunde inte läsa dina ansökningar");
     expect(text()).toContain("spärrad");
-    expect(text()).not.toContain("VÄNTAR PÅ BESKED");
+    expect(text()).not.toContain("Väntar på besked");
     // Saldot lästes — ett fel i den andra läsningen får inte kasta det.
     expect(text()).toContain("12,5");
     expect(text()).not.toContain("Kunde inte läsas");
@@ -111,7 +111,7 @@ describe("Ledighet — Mig: läsfel är aldrig 'ingen'", () => {
     expect(text()).not.toContain("Inte satt ännu");
     expect(text()).not.toContain("Saldo saknas");
     // Ansökningarna lästes — listan visas och Ansök är aktiv.
-    expect(text()).toContain("VÄNTAR PÅ BESKED");
+    expect(text()).toContain("Väntar på besked");
     expect(ansokKnapp().disabled).toBe(false);
   });
 
@@ -122,16 +122,16 @@ describe("Ledighet — Mig: läsfel är aldrig 'ingen'", () => {
     expect(text().match(/Kunde inte läsas/g)?.length).toBe(2);
   });
 
-  it("ett KASTAT fel (nätverket föll) blir också ett läsfel — inte 'Laddar…' för alltid", async () => {
+  it("ett KASTAT fel (nätverket föll) blir också ett läsfel — inte 'Läser…' för alltid", async () => {
     await visa({ medarbetare_saldo: "kasta", ledighet_ansokningar: "kasta" });
-    expect(text()).not.toContain("Laddar");
+    expect(text()).not.toContain("Läser dina ansökningar");
     expect(ansokKnapp().disabled).toBe(true);
     expect(text()).toContain("Kunde inte läsa dina ansökningar");
   });
 
   it("medan ansökningarna läses är Ansök spärrad (listan är då tom, inte 'ingen krock')", async () => {
     await visa({ medarbetare_saldo: { data: SALDO }, ledighet_ansokningar: "aldrig" });
-    expect(text()).toContain("Laddar");
+    expect(text()).toContain("Läser dina ansökningar");
     expect(ansokKnapp().disabled).toBe(true);
   });
 
