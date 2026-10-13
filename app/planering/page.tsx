@@ -12555,7 +12555,7 @@ export default function PlannerPage() {
     { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
     // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
     // Traktdelar har ingen knapp — de är alltid tända (kontexten för allt annat).
-    ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsyn', desc: 'Hänsynsytor att spara', enabled: true }] : []),
+    ...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsynsytor – Vida', desc: 'Hänsynsytor att spara', enabled: true }] : []),
     ...(geoKategorier.has('nyckelbiotop') ? [{ id: 'traktNyckelbiotop', name: 'Nyckelbiotoper', desc: 'Skogsstyrelsens registrerade', enabled: true }] : []),
     ...(geoKategorier.has('lamning') ? [{ id: 'traktLamning', name: 'Fornlämningar', desc: 'Riksantikvarieämbetet (RAÄ)', enabled: true }] : []),
     ...((geoTyper.has('linje') || geoTyper.has('punkt')) ? [{ id: 'korFara', name: 'Kör & fara', desc: 'Basväg, avlägg, larm & kraftledning', enabled: true }] : []),

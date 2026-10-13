@@ -169,3 +169,16 @@ describe('ett ord för samma sak: zontypen "protected" heter Hänsyn överallt (
     expect(las('./varningsInstallningar.ts')).toContain('zone_protected:   K(30),');
   });
 });
+
+describe('Vida-raden i Lager (overlay-hansyn) heter "Hänsynsytor – Vida" — dina egna zoner heter fortsatt "Hänsyn"', () => {
+  it('bara etiketten är ändrad: id, beskrivning och villkor (data finns) oförändrade', () => {
+    const rad = "...(geoTyper.has('hänsynsyta') ? [{ id: 'hansyn', name: 'Hänsynsytor – Vida', desc: 'Hänsynsytor att spara', enabled: true }] : []),";
+    expect(page).toContain(rad);
+    expect(las('../components/KartLagerMeny.tsx')).toContain(rad);   // samma lager, samma etikett i egenkontrollens meny
+    expect(page).not.toContain("{ id: 'hansyn', name: 'Hänsyn',");
+    expect(las('../components/KartLagerMeny.tsx')).not.toContain("{ id: 'hansyn', name: 'Hänsyn',");
+  });
+  it('zonen heter fortfarande Hänsyn', () => {
+    expect(page).toContain("{ id: 'protected', name: 'Hänsyn', color: ZONE_COLORS.protected, icon: 'naturecorner' },");
+  });
+});
