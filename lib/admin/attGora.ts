@@ -7,7 +7,7 @@ import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
 import type { LeveransRad } from "@/app/datahalsa/useDatahalsa";
 import { LEV_GUL_DYGN } from "@/app/datahalsa/useDatahalsa";
 import type { VilobrottRad } from "@/lib/admin/vilobrottLista";
-import { timmarText, STANDARD_TAK_H, VARNING_UNDER_TAK_H, type ArsovertidRad } from "@/lib/admin/arsovertidVy";
+import { sorteraAttGora, type ArbetstidForare } from "@/lib/arbetstidsgranser";
 
 export type AdminFlik = "oversikt" | "medarbetare" | "maskiner" | "lon" | "avtal";
 
@@ -29,6 +29,8 @@ export type ObekraftadDag = { medarbetare_id: string; datum: string };
 export type LonLage = { arbetsManad: string; antalMedDagar: number; antalSkickade: number };
 export type AvtalRad = { giltigt_till: string | null };
 
+export type ArbetstidSvar = { forare: ArbetstidForare[]; varningar: string[] };
+
 export type AttGoraIndata = {
   kontroller: Kalla<MedarbetarKontroller>;
   personer: Kalla<Person[]>;
@@ -37,7 +39,8 @@ export type AttGoraIndata = {
   lon: Kalla<LonLage>;
   vilobrott: Kalla<VilobrottRad[]>;
   avtal: Kalla<AvtalRad | null>;
-  arsovertid: Kalla<ArsovertidRad[]>;
+  /** Lagkontrollen för arbetstid (/api/lon/arbetstid): alla förare med data, sex gränser var. */
+  arbetstid: Kalla<ArbetstidSvar>;
   leverans: Kalla<LeveransRad[]>;
 };
 
@@ -62,7 +65,16 @@ export function avtalKraverDig(giltigtTill: string | null, idag: string): "utgat
   return dagarKvar <= 31 ? "snart" : null;
 }
 
-export function byggAttGora(i: AttGoraIndata, idag: string): { saker: Sak[]; stammer: StammerRad[] } {
+export type AttGoraUt = {
+  saker: Sak[];
+  stammer: StammerRad[];
+  /** Förare som är gula eller röda på någon arbetstidsgräns, röda först. Tom när ingen närmar sig eller källan fallerade. */
+  arbetstid: ArbetstidForare[];
+  /** Läsfel som påverkar arbetstidstalen (frånvaro, avtal, utjämning) — visas under kortet, aldrig tyst. */
+  arbetstidVarningar: string[];
+};
+
+export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
   const saker: Sak[] = [];
   const stammer: StammerRad[] = [];
   const felRad = (id: string, vad: string, fel: string) =>
@@ -191,14 +203,16 @@ export function byggAttGora(i: AttGoraIndata, idag: string): { saker: Sak[]; sta
     } else stammer.push({ id: "avtal", rubrik: i.avtal.data.giltigt_till ? `Avtalet gäller till ${datumLangt(i.avtal.data.giltigt_till)}` : "Avtalet har inget slutdatum" });
   }
 
-  // ── Årsövertid: bara när någon passerar (tak − 50) = 200 tim. Annars ingenting — varken en sak eller en "stämmer"-rad. ──
-  if (i.arsovertid.fel) felRad("arsovertid", "årsövertiden", i.arsovertid.fel);
-  else if (i.arsovertid.data) {
-    for (const r of i.arsovertid.data.filter(x => x.timmar > (x.tak || STANDARD_TAK_H) - VARNING_UNDER_TAK_H).sort((a, b) => b.timmar - a.timmar)) {
-      saker.push({
-        id: `arsovertid-${r.id}`, rubrik: `${r.namn} har ${timmarText(r.timmar)} tim övertid i år, taket är ${r.tak || STANDARD_TAK_H}`,
-        knapp: "Visa", mal: { typ: "flik", flik: "lon", underflik: "underlag" },
-      });
+  // ── Arbetstid: lagens sex gränser (lib/arbetstidsgranser). Förarna visas i sitt eget kort i Översikten (gul från 90 %, röd över
+  //    gränsen); här blir det bara en "stämmer"-rad när ingen närmar sig, eller en sak när källan inte gick att läsa. ──
+  let arbetstid: ArbetstidForare[] = [];
+  let arbetstidVarningar: string[] = [];
+  if (i.arbetstid.fel) felRad("arbetstid", "arbetstiden", i.arbetstid.fel);
+  else if (i.arbetstid.data) {
+    arbetstid = sorteraAttGora(i.arbetstid.data.forare);
+    arbetstidVarningar = i.arbetstid.data.varningar;
+    if (arbetstid.length === 0) {
+      stammer.push({ id: "arbetstid", rubrik: "Ingen närmar sig en gräns för arbetstid", detalj: "Övertid, 48-timmarssnitt, dygns- och veckovila" });
     }
   }
 
@@ -216,5 +230,5 @@ export function byggAttGora(i: AttGoraIndata, idag: string): { saker: Sak[]; sta
     if (tysta.length === 0) stammer.push({ id: "maskinfiler", rubrik: `Alla maskiner har skickat fil inom ${dygn(LEV_GUL_DYGN)}` });
   }
 
-  return { saker, stammer };
+  return { saker, stammer, arbetstid, arbetstidVarningar };
 }

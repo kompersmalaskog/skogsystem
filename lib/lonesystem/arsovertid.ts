@@ -80,7 +80,12 @@ export type Berakningsperiod = {
   overtid: number;
   markerad: boolean;   // true = ur utjamningsperiod (faktum), false = antaget block
   anteckning?: string | null;
+  /** Periodens sista vecka är slut (söndagen ≤ tomDatum). En pågående period har ännu ingen fastställd övertid. */
+  avslutad: boolean;
 };
+
+/** Veckan som den ingår i basen: arbetade timmar och basen (40 − frånvaro − röda vardagar). */
+export type ArsovertidVecka = { vecka: number; timmar: number; bas: number };
 
 export type Arsovertid = {
   ar: number;
@@ -88,6 +93,8 @@ export type Arsovertid = {
   timmar: number;                       // totalt maskin + extra, hela året hittills
   modeller: Record<OvertidModell, number>;
   perioder: Berakningsperiod[];         // genomsnittsmodellens perioder, i ordning
+  /** Vecka 1..innevarande, för den som ska fördela periodens övertid på veckor (lib/arbetstidsgranser). */
+  veckor: ArsovertidVecka[];
   /** Hela årets (t.o.m. tomDatum) avdrag ur basen: frånvaro och röda vardagar, i timmar à 8 tim/dag. */
   basavdrag: { franvaroTimmar: number; rodaTimmar: number };
 };
@@ -240,9 +247,12 @@ export function beraknaArsovertid(
       if (b) { bas += b.bas; frH += b.franvaro; rodaH += b.roda; }
     }
     const n = till - fran + 1;
+    const sondag = new Date(vecka1Start);
+    sondag.setDate(sondag.getDate() + (till - 1) * 7 + 6);
     perioderUt.push({
       fran, till, veckor: n, timmar: r1(min / 60), bas: r1(bas), franvaroTimmar: r1(frH), rodaTimmar: r1(rodaH),
       overtid: r1(Math.max(0, min / 60 - bas)), markerad, anteckning: anteckning ?? undefined,
+      avslutad: iso(sondag) <= tomDatum,
     });
   };
   let v = 1;
@@ -269,6 +279,7 @@ export function beraknaArsovertid(
     timmar: r1(timmar),
     modeller: { vardagar: r1(ovVardagar), dagar: r1(ovDagar), vecka: r1(ovVecka), genomsnitt: r1(ovGenomsnitt) },
     perioder: perioderUt,
+    veckor: Array.from({ length: sistaVecka }, (_, i) => ({ vecka: i + 1, timmar: r1(minPerVecka(i + 1) / 60), bas: r1(basPerVecka.get(i + 1)?.bas ?? 0) })),
     basavdrag: { franvaroTimmar: r1(avdragFranvaro), rodaTimmar: r1(avdragRoda) },
   };
 }

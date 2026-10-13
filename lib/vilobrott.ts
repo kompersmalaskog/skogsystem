@@ -214,6 +214,51 @@ function maxGap(windowStart: Date, windowEnd: Date, intervaller: Intervall[]): n
   return maxMs / 3600000;
 }
 
+export type DagligVeckovila = { datum: string; max_h: number };
+
+/**
+ * Veckovilan dag för dag: för varje datum N mellan första och sista passet, det längsta sammanhängande
+ * vilo-gapet (timmar) i fönstret [N-(P-1) dagar 00:00, N 23:59:59]. 0 = inget mätbart gap (för lite underlag).
+ * `sorterad` är redan filtrerad (pass med klockslag, minst MIN_ARBETSDAG_MIN) och sorterad på datum.
+ *
+ * Fönstrets första dagar efter datats början ser bara de pass som finns med — ett normalt veckoschema ger där
+ * falska brott. Den som bedömer ENSKILDA dagar (lib/arbetstidsgranser) matar därför in data minst P dagar före
+ * den första dag som bedöms.
+ */
+function dagligVeckovila(sorterad: Arbetsdag[], fonsterDagar: number): DagligVeckovila[] {
+  const intervaller = arbetsIntervaller(sorterad);
+  if (intervaller.length === 0) return [];
+
+  const första = new Date(sorterad[0].datum + "T00:00:00");
+  const sista = new Date(sorterad[sorterad.length - 1].datum + "T00:00:00");
+  const fönsterDagarBakåt = fonsterDagar - 1;
+
+  const dagliga: DagligVeckovila[] = [];
+  for (let dt = new Date(första); dt.getTime() <= sista.getTime(); dt.setDate(dt.getDate() + 1)) {
+    const windowStart = new Date(dt);
+    windowStart.setDate(dt.getDate() - fönsterDagarBakåt);
+    windowStart.setHours(0, 0, 0, 0);
+    const windowEnd = new Date(dt);
+    windowEnd.setHours(23, 59, 59, 999);
+    const max_h = maxGap(windowStart, windowEnd, intervaller);
+    dagliga.push({ datum: datumStr(dt), max_h });
+  }
+  return dagliga;
+}
+
+/** Samma pass-urval som analyseraVilobrott (klockslag finns, minst MIN_ARBETSDAG_MIN), sorterat på datum. */
+function passUrval(arbetsdagar: Arbetsdag[]): Arbetsdag[] {
+  return [...arbetsdagar]
+    .filter(r => r.start_tid && r.slut_tid)
+    .filter(r => arbetsdagSpanMin(r) >= MIN_ARBETSDAG_MIN)
+    .sort((a, b) => a.datum.localeCompare(b.datum));
+}
+
+/** Veckovilan dag för dag (se dagligVeckovila). Ger bedömaren varje dags EGET värde i stället för stretchens första dag. */
+export function veckovilaPerDag(arbetsdagar: Arbetsdag[], fonsterDagar: number): DagligVeckovila[] {
+  return dagligVeckovila(passUrval(arbetsdagar), fonsterDagar);
+}
+
 export function analyseraVilobrott(
   arbetsdagar: Arbetsdag[],
   trosklar: VilaTrosklar,
@@ -270,28 +315,11 @@ export function analyseraVilobrott(
      slås konsekutiva brott-dagar ihop till ETT brott som visar startdatum
      och den lägsta vila-tid som uppmättes under stretchen.
   */
-  const intervaller = arbetsIntervaller(sorterad);
-  if (intervaller.length === 0) return brott;
-
-  const första = new Date(sorterad[0].datum + "T00:00:00");
-  const sista = new Date(sorterad[sorterad.length - 1].datum + "T00:00:00");
-  const fönsterDagarBakåt = trosklar.veckovila_fonster_dagar - 1;
-
-  type DagligResultat = { datum: string; max_h: number };
-  const dagliga: DagligResultat[] = [];
-
-  for (let dt = new Date(första); dt.getTime() <= sista.getTime(); dt.setDate(dt.getDate() + 1)) {
-    const windowStart = new Date(dt);
-    windowStart.setDate(dt.getDate() - fönsterDagarBakåt);
-    windowStart.setHours(0, 0, 0, 0);
-    const windowEnd = new Date(dt);
-    windowEnd.setHours(23, 59, 59, 999);
-    const max_h = maxGap(windowStart, windowEnd, intervaller);
-    dagliga.push({ datum: datumStr(dt), max_h });
-  }
+  const dagliga = dagligVeckovila(sorterad, trosklar.veckovila_fonster_dagar);
+  if (dagliga.length === 0) return brott;
 
   // Slå ihop konsekutiva brott-dagar till en stretch
-  let runStart: DagligResultat | null = null;
+  let runStart: DagligVeckovila | null = null;
   let runMin = Infinity;
   let runEnd: string | null = null;
 

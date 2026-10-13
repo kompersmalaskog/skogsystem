@@ -7,6 +7,7 @@ import type { Sak } from "@/lib/admin/attGora";
 import { Sektion, Lista, Laddar, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import type { AttGora } from "./useAttGora";
+import ArbetstidKort from "./ArbetstidKort";
 
 export default function Oversikt({ att }: { att: AttGora }) {
   const { gaTill } = useAdminNav();
@@ -43,9 +44,11 @@ export default function Oversikt({ att }: { att: AttGora }) {
         </>
       )}
 
+      <ArbetstidKort forare={att.arbetstid} varningar={att.arbetstidVarningar} />
+
       {att.stammer.length > 0 && (
         <>
-          <Sektion topp={att.saker.length > 0 ? AVSTAND.sektion : 0}>Stämmer</Sektion>
+          <Sektion topp={att.saker.length > 0 || att.arbetstid.length > 0 ? AVSTAND.sektion : 0}>Stämmer</Sektion>
           <Lista>
             {att.stammer.map((r, i) => (
               <div key={r.id} style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, padding: `${AVSTAND.m}px 0`, borderBottom: i === att.stammer.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
