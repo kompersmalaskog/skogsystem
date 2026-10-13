@@ -6,7 +6,7 @@ Idempotent: upsert på sha256 / skiftnyckel / stoppnyckel; filer som redan finns
 Lägen
   python importera.py --torrkorning          (standard) validerar CSV mot schemat, räknar, öppnar INGEN nätverksanslutning
   python importera.py --utfor                skriver till databasen + laddar upp filer. Kräver SUPABASE_URL och SUPABASE_SERVICE_ROLE_KEY i miljön
-                                             OCH HIST_IMPORT_OK=ja (Martins ja). Migrationen 20261009170000_hist_tabeller.sql måste redan vara körd.
+                                             OCH HIST_IMPORT_OK=ja (Martins ja). Migrationen 20261009155903_hist_tabeller.sql måste redan vara körd.
   python importera.py --bara-kontroll        kontrolldelen mot databasen (läser bara)
   python importera.py --utfor --utan-filer   bara tabellerna, inte filuppladdning
 

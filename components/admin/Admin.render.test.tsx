@@ -453,9 +453,9 @@ describe("Maskiner: ingång till Produktionshistorik", () => {
     await klick("Produktionshistorik");
     expect(g.__push).toEqual(["/admin/historik"]);
   });
-  it("chef ser ingen rad", async () => {
+  it("förare ser ingen rad", async () => {
     g.__push = [];
-    await monter("flik=maskiner", <AdminClient currentUser={{ id: "m3", namn: "Chef", roll: "chef" }} />);
+    await monter("flik=maskiner", <AdminClient currentUser={{ id: "m1", namn: "Anna Berg", roll: "forare" }} />);
     expect(blad("Rottne H8E").length).toBeGreaterThan(0);
     expect(text()).not.toContain("Produktionshistorik");
   });

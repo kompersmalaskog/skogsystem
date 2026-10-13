@@ -89,7 +89,7 @@ eller LC delvis) och räknas fortfarande; Wisent-volym efter 2024-09 döljs per 
 **R3 (lastcertifikat som delutskrift av summering) är analyserad och bestämd att INTE köras** (`hist_r3.py`, förslag i `hist_csv/hist_r3_forslag.csv`, sparade): den sänker årskvoterna
 G15/räknare till 0,94–0,96 för 2023/2025/2026 och tar riktig tid. Wisent 2024 ligger på 1,05, samma nivå som Komatsu och Rottne. **Känt kvarvarande överskott:** Godsförvaltning
 juni 2024 (två lastcertifikat 36,73 + 79,90 h mot summering 91,50 h, ca 40 h) kan rättas manuellt senare.
-**Wisent-volym (migration `20261018100000_hist_wisent_flaggregel.sql`, KÖRD 2026-10-13, verifierad mot simuleringen; övriga maskiners vy-rader oförändrade):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
+**Wisent-volym (migration `20261012123349_hist_wisent_flaggregel.sql`, KÖRD 2026-10-13, verifierad mot simuleringen; övriga maskiners vy-rader oförändrade):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
 flagga men < 3 m³/lass behandlas som `laster_x_1m3` via `hist_korrigering` (falt `volym_kvalitet`, orsak `regel: wisent_lass_x_1m3_utan_flagga`); Wisent med m³/lass utanför 6–18 märks
 `osaker_lasstorlek` ("Osäker volym" i appen), behåller volymen i summan men räknas inte i m³/G15, medelstam, index eller bränsle per m³.
 **Steg 15 (2026-10-13/14), objektnummer och volym från skördare till skotare — datan låst efter STOPP 1:**
@@ -107,7 +107,7 @@ flagga men < 3 m³/lass behandlas som `laster_x_1m3` via `hist_korrigering` (fal
   17 objekt fyllda, 128 stoppade (`hist_volym_ek_harledd.csv`, `hist_volym_ek_stoppade.csv`).
   **Gävle 2026:** Elephant Kings skadeobjekt får Giants volym på samma objekt (namn, sedan period; Hushållningssällskapet 1 mot Giant 332, 2 mot Giant 887), EK:s G15 är egen. Sex Giant-objekt
   (Elisabeth Hanako Leander, Granne Peter, Kenneth Karlsson, Peter Eklund, Ingeröslund, Åkes Magnus Åkerberg) kördes av extern skotare, bekräftat, och ger ingen Elephant-volym.
-  Migrationer `20261020100000_hist_volym_harledd.sql` och `20261020110000_hist_gavle_kalla.sql` (bara vyer; nya sista kolumner i `vy_hist_objekt_bas`, `vy_hist_maskin_ar`).
+  Migrationer `20261012131833_hist_volym_harledd.sql` och `20261012133150_hist_gavle_kalla.sql` (bara vyer; nya sista kolumner i `vy_hist_objekt_bas`, `vy_hist_maskin_ar`).
   Alla skördares rader i `vy_hist_maskin_ar` var oförändrade före/efter (radjämförelse mot kopia, raderad efter låsning); bara Wisent och Elephant King gammal ändrades.
 - **App:** m³/G15 och viktat index per år: under 25 % av G15 med volym visas ingen siffra ("För lite data", t.ex. Elephant King gammal 2025, 4 %); 25–90 % "baserat på X % av timmarna"; över 90 % bara siffran.
   Samma regel i listan, diagrammet och jämförelsen, och en siffra under 25 % kan aldrig markeras "bäst". Härledd volym märks "Från skördare" i grå text (nyckeltal, jämförelse, objektlistan);
@@ -134,7 +134,7 @@ kan inte räknas bort (sortiment finns inte i `hist_*`).
 **Skript** (`scripts/historik/`, kör i ordning): `hist_underlag.py` → `hist_avbrott.py` → `hist_bygg.py` → `hist_raknas.py` → `hist_korrigering.py` →
 `importera.py` (torrkörning är standard; `--utfor` kräver servicenyckel + `HIST_IMPORT_OK=ja`; vitlista: bara `hist_*` och bucketen `historik`).
 `verifiera_migration.py` bevisar att hist-migrationerna bara rör `hist_*` / `vy_hist_*` och policyn på bucketen `historik`. Mbox och PDF ligger
-aldrig i repot. Migrationerna `20261009170000` … `20261020110000` är redan körda i prod via MCP.
+aldrig i repot. Migrationerna `20261009155903` … `20261012133150` är körda i prod via MCP (filnamnen har prodens versionsnummer).
 
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
