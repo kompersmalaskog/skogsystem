@@ -166,13 +166,22 @@ function och(...delar: any[]): any[] {
 }
 const ar = (nyckel: string, varde: string) => ['==', ['get', nyckel], varde];
 
+/**
+ * Vilka linjetyper ett anrop ritar. Utan urval: alla, plus den okanda fallbacken.
+ * `endast` ritar bara de typerna (och ingen fallback); `utom` hoppar over typer.
+ * Lagrens id:n ar desamma oavsett urval - ett lager ritas av EXAKT ETT anrop.
+ */
+export type LinjeUrval = { endast?: readonly string[]; utom?: readonly string[] };
+
 /** Linjetyperna, ett lager-set per typ: kant, grund och eventuell strackning. */
-export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim?: Dimning): any[] {
+export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim?: Dimning, urval?: LinjeUrval): any[] {
   const lager: any[] = [];
   const op = dim ? { 'line-opacity': dim.opacitet } : {};
   const bf = dim?.breddFaktor ?? 1;
 
   for (const lt of LINJE_STIL) {
+    if (urval?.endast && !urval.endast.includes(lt.id)) continue;
+    if (urval?.utom?.includes(lt.id)) continue;
     const filter = och(ar('kind', 'linje'), ar('typ', lt.id), bas);
 
     if (lt.stonewall) {
@@ -217,6 +226,7 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
   }
 
   // Okand linjetyp: neutral och synlig. Utan det forsvinner den tyst.
+  if (urval?.endast) return lager;
   lager.push({
     id: `${prefix}-lin-okand`, type: 'line', source: kalla,
     filter: och(ar('kind', 'linje'), ['!', ['in', ['get', 'typ'], ['literal', LINJE_TYP_IDN]]], bas),
