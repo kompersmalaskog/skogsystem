@@ -52,7 +52,7 @@ som standard, raderar bara, lägger aldrig till.
 | Tabell | Nyckel | Vid ny version | Risk |
 |---|---|---|---|
 | `fakt_produktion` | maskin, operator, objekt, trädslag, processtyp, monitoring_start | merge → senaste skriver över | låg; byter attribution (operator/objekt) mellan versioner blir det en ny rad — samma sak som #115 för tid. Kontrollerat 2026-10-01: 0 av 1 964 segment sedan aug har mer än en rad |
-| `fakt_skift` | maskin, datum, shift_key | merge | låg |
+| `fakt_skift` | maskin, datum, shift_key | merge → **kuvert: bara utöka** (tidigaste inloggning, senaste utloggning; `sla_ihop_skift_kuvert`). Kan det befintliga passet inte läsas skrivs raden INTE (förut: tyst överskrivning, R64428 2026-10-12 — Rottne-filerna är per objekt och en fil bär bara sin del av dagen). Databasen vaktar samma regel (trigger `fakt_skift_bara_utoka`) | rättad 2026-10-14 |
 | `mom_tider` | — | delete + insert per dag | ingen |
 | `fakt_lass`, `fakt_lass_sortiment` | maskin, objekt, lassnummer, datum | merge; FPR per dygn | ingen |
 | `fakt_maskin_statistik` | maskin, filnamn | en rad per fil, avsiktligt | ingen |

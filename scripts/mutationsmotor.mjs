@@ -10,14 +10,17 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 /**
- * @param {{ filer: string[], tester: string[], standardFil: string, mutationer: [string, string, string, string?][] }} cfg
+ * @param {{ filer: string[], tester: string[], standardFil: string, mutationer: [string, string, string, string?][], kommando?: string[] }} cfg
  *   mutationer: [namn, från, till, fil?] — `från` måste finnas EXAKT en gång i filen (annars är mutationen tvetydig och motorn stannar).
  */
-export function kor({ filer, tester, standardFil, mutationer }) {
+export function kor({ filer, tester, standardFil, mutationer, kommando }) {
   const originalFil = Object.fromEntries(filer.map(f => [f, readFileSync(f, "utf8")]));
   const aterstall = () => { for (const [fil, innehall] of Object.entries(originalFil)) writeFileSync(fil, innehall); };
   const raknaForekomster = (s, d) => (d ? s.split(d).length - 1 : 0);
-  const vitest = () => spawnSync("npx", ["vitest", "run", ...tester, "--reporter=dot"], { encoding: "utf8", env: { ...process.env, CI: "1" } });
+  // `kommando` (valfritt): annat testkommando än vitest, t.ex. ["python3", "scripts/test_skift_kuvert.py"] för importskriptet.
+  const vitest = () => (kommando
+    ? spawnSync(kommando[0], kommando.slice(1), { encoding: "utf8", env: { ...process.env, CI: "1" } })
+    : spawnSync("npx", ["vitest", "run", ...tester, "--reporter=dot"], { encoding: "utf8", env: { ...process.env, CI: "1" } }));
 
   const overlevde = [];
   let dog = 0;
