@@ -20,7 +20,7 @@ export function Notis({ text }: { text: string }) {
   );
 }
 
-export function Sektion({ typ, titel, children }: { typ?: MaskinTyp; titel: string; children: ReactNode }) {
+export function Sektion({ typ, titel, children }: { typ?: MaskinTyp; titel: ReactNode; children: ReactNode }) {
   return (
     <section style={{ marginTop: AVSTAND.sektion }}>
       <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: AVSTAND.s, ...TYP.micro, color: FARG.text2 }}>

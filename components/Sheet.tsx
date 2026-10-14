@@ -1,21 +1,60 @@
 'use client';
 
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { T } from '@/lib/utbildning';
+import { AVSTAND, RORELSE } from '@/lib/design/tokens';
 
-// iOS-bottensheet med bakgrundsdimma. Renderar inget när open=false.
+// Hur långt ner man drar för att stänga, och hur långt man måste röra fingret innan det räknas som drag (så ett tryck på "Klar" förblir ett tryck).
+const DRAG_STANG = AVSTAND.xxl * 3;
+const DRAG_START = AVSTAND.s;
+
+// iOS-bottensheet med bakgrundsdimma. Renderar inget när open=false. Stängs med "Klar" och med tryck utanför;
+// med `dragNedStanger` även med drag nedåt i grepp-området (strecket och rubrikraden). Av som standard: de andra sheetsen i appen är oförändrade.
 export function Sheet({
   open,
   onClose,
   title,
   children,
+  dragNedStanger = false,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  dragNedStanger?: boolean;
 }) {
+  const [dy, setDy] = useState(0);
+  const [drar, setDrar] = useState(false);
+  const start = useRef<{ y: number; fast: boolean } | null>(null);
   if (!open) return null;
+
+  const grepp = dragNedStanger
+    ? {
+        'data-sheet-grepp': '',
+        onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => { start.current = { y: e.clientY, fast: false }; },
+        onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+          const st = start.current;
+          if (!st) return;
+          const d = e.clientY - st.y;
+          if (!st.fast && d > DRAG_START) {
+            st.fast = true;
+            setDrar(true);
+            // Greppet tas först när det är ett drag, annars skulle ett tryck på "Klar" hamna på fel element.
+            try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* inte alla miljöer har pekarfångst */ }
+          }
+          if (st.fast) setDy(Math.max(0, d));
+        },
+        onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => {
+          const st = start.current;
+          start.current = null;
+          setDrar(false);
+          if (st?.fast && e.clientY - st.y > DRAG_STANG) { setDy(0); onClose(); } else setDy(0);
+        },
+        onPointerCancel: () => { start.current = null; setDrar(false); setDy(0); },
+        style: { touchAction: 'none' as const },
+      }
+    : {};
+
   return (
     <div
       style={{
@@ -42,18 +81,22 @@ export function Sheet({
           maxHeight: '92vh',
           overflowY: 'auto',
           fontFamily: T.ff,
+          transform: dy > 0 ? `translateY(${dy}px)` : undefined,
+          transition: drar ? 'none' : `transform ${RORELSE.byte}ms ${RORELSE.kurva}`,
         }}
       >
-        <div style={{ width: 36, height: 5, borderRadius: 3, background: 'rgba(235,235,245,0.3)', margin: '0 auto 14px' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: T.t1 }}>{title}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Stäng"
-            style={{ background: 'none', border: 'none', color: T.blue, fontSize: 17, cursor: 'pointer', fontFamily: T.ff, padding: 4 }}
-          >
-            Klar
-          </button>
+        <div {...grepp}>
+          <div style={{ width: 36, height: 5, borderRadius: 3, background: 'rgba(235,235,245,0.3)', margin: '0 auto 14px' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: T.t1 }}>{title}</h2>
+            <button
+              onClick={onClose}
+              aria-label="Stäng"
+              style={{ background: 'none', border: 'none', color: T.blue, fontSize: 17, cursor: 'pointer', fontFamily: T.ff, padding: 4 }}
+            >
+              Klar
+            </button>
+          </div>
         </div>
         {children}
       </div>

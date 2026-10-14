@@ -9,12 +9,14 @@ import { AVSTAND, designCss, FARG, KNAPP, RADIE, TYP, VY_ROT } from "@/lib/desig
 import Tillstand from "@/components/design/Tillstand";
 import { hamtaMaskinAr, hamtaObjekt, signeradLank } from "@/lib/historik/data";
 import { felSlag, felText, type HistorikFelSlag } from "@/lib/historik/fel";
+import { indexAtgard } from "@/lib/historik/indexForklaring";
 import {
   ATGARD_ETIKETT, SEGMENT_ETIKETT, antagnaIAtgard, arSpann, aren, atgardsrader, fewObjects, fmt, FOR_LITE_DATA, harIndex, huvudtal, kandaLuckor, MIN_OBJEKT, nyckeltal, okandaObjekt, procent, rad,
   skordarlista, skotarlista, standardAtgard, VOLYM_SAKNAS_LASS, type ListRad, type Segment,
 } from "@/lib/historik/berakna";
 import type { AtgardKod, MaskinArRad, MaskinTyp, ObjektRad } from "@/lib/historik/typer";
 import { Diagram, Listrad, maskinFarg, Notis, Nyckelrad, Sektion, Tillbaka, Vaxel } from "./delar";
+import IndexInfo from "./IndexInfo";
 
 type Vy = { seg: Segment; maskin: string | null; atgard: AtgardKod | null; ar: number | null; antagna: boolean; objekt: boolean };
 const START: Vy = { seg: "slutavverkning", maskin: null, atgard: null, ar: null, antagna: false, objekt: false };
@@ -157,7 +159,7 @@ function Lista({ rader, vy, gaTill }: SidProps) {
         <h1 style={{ margin: 0, ...TYP.titel }}>Historik</h1>
         <a href="/admin/historik/jamfor" style={{ ...KNAPP.sekundar, width: "auto", textDecoration: "none", flexShrink: 0 }}>Jämför</a>
       </div>
-      <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Produktionsrapporter 2011–2026 · bara admin. Index jämför bara inom samma åtgärd.</p>
+      <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>Produktionsrapporter 2011–2026 · bara admin. Index<IndexInfo atgard={indexAtgard(atgard)} /> jämför bara inom samma åtgärd.</p>
 
       <Sektion typ="skördare" titel="Skördare">
         <Vaxel
@@ -282,7 +284,7 @@ function MaskinSida({ rader, vy, gaTill }: SidProps) {
       </Sektion>
 
       {serie.length > 0 && (
-        <Sektion titel={`År för år · ${index ? "viktat index" : "m³/G15"}`}>
+        <Sektion titel={index ? <>År för år · viktat index<IndexInfo atgard={indexAtgard(valdAtgard)} /></> : "År för år · m³/G15"}>
           <Diagram rader={serie} valdAr={vy.ar} onVal={(a) => gaTill({ ar: a }, true)} farg={maskinFarg(typ)} referens={index ? 100 : undefined} etikett={index ? "Viktat index" : "m³/G15"} />
           <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>
             {index ? "100 = lika snabb som kurvan för åtgärden. " : ""}Tryck på ett år för detaljer. Dämpad stapel och n=… betyder färre än {MIN_OBJEKT} objekt.
@@ -351,7 +353,7 @@ function ArSida({ rader, vy, gaTill }: SidProps) {
       <Tillbaka text={maskin} onClick={() => gaTill({ objekt: false })} />
       <h1 style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.titel }}>{ar}</h1>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 0` }}>
-        {maskin} · {atgLabel}{objekt ? ` · ${objekt.length} objekt` : ""}
+        {maskin} · {atgLabel}{objekt ? ` · ${objekt.length} objekt` : ""}{index && <> · index<IndexInfo atgard={indexAtgard(vy.atgard)} /></>}
       </p>
       {lankFel && <Notis text={lankFel} />}
       <div style={{ marginTop: AVSTAND.l }}>

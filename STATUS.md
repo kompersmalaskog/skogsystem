@@ -145,6 +145,13 @@ Alla nio `vy_hist_`-vyer går nu på under 0,5 s som inloggad admin (mätt med E
 decimalen. Avrundat till 8 decimaler är hasharna identiska; alla andra kolumner och `vy_hist_maskin_ar` är bit för bit lika. Felen i appen: 57014 säger "Det tog för lång tid att hämta historiken. Försök igen om en stund.",
 behörighetstexten visas bara vid 42501 eller tomt svar (RLS), och databasens egen text visas aldrig (loggas i konsolen). `lib/historik/fel.ts`, vakt i `components/historik/Historik.render.test.tsx`.
 
+**Steg 17 (2026-10-14), förklaringen av index:** en ⓘ-knapp (`components/historik/IndexInfo.tsx`, EN komponent) direkt efter ordet Index på startlistan, maskinsidan ("År för år · viktat index"), årslistan och i jämförelsen
+(förklaringsraden och rubriken "Viktat index år för år"). Tryck öppnar bladet "Vad är index?" i appens vanliga bottenblad (`components/Sheet.tsx`, nu med valfri `dragNedStanger`: drag nedåt i greppet stänger; övriga sheets oförändrade).
+Tabellen (medelstam 0,08/0,12/0,16 för gallring, 0,25/0,40/0,60 för slutavverkning) och exemplet (medelstam 0,12 resp. 0,40; "maskinen gjorde" = normalt × 1,1, alltså alltid index 110) RÄKNAS ur `vy_hist_normkurva` (variant `g15-viktad`)
+med samma uttryck som `vy_hist_objekt_index.forvantad_m3_per_g15`: `exp(a + b · ln(medelstam))` (`lib/historik/indexForklaring.ts`, hämtas när bladet öppnas). Inga normalvärden är hårdkodade; antalet objekt ("679 i gallring, 896 i slutavverkning")
+kommer ur vyns `n`. Bladet visar den åtgärd man står i, och båda i jämförelsen och när ingen åtgärd gäller. Kurvan är räknad på skördarobjekt med känd åtgärd (inte maskinstandard), därför står det "där åtgärden är känd" och inte "alla våra objekt".
+Skotare får inget index: skotarrapporterna har inga stammar (0 av 1 825 rader i `vy_hist_objekt_bas`), så ingen medelstam kan räknas.
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,

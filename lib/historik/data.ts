@@ -3,6 +3,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HistorikFel, tillHistorikFel } from "./fel";
+import type { IndexAtgard, Kurvor } from "./indexForklaring";
 import { tillMaskinAr, tillObjekt, type AtgardKod, type MaskinArRad, type ObjektRad } from "./typer";
 
 const SIDA = 1000;
@@ -48,6 +49,18 @@ export async function hamtaObjekt(
     ut.push(...rader.map(tillObjekt));
     if (rader.length < SIDA) return ut;
   }
+}
+
+/** Kurvan index räknas mot: vy_hist_normkurva, varianten som vy_hist_objekt_index använder (g15-viktad). En rad per åtgärd. */
+export async function hamtaNormkurva(supabase: SupabaseClient): Promise<Kurvor> {
+  const { data, error } = await supabase.from("vy_hist_normkurva").select("atgard,a,b,n").eq("variant", "g15-viktad");
+  if (error) throw tillHistorikFel(error);
+  const ut: Kurvor = {};
+  for (const r of (data ?? []) as { atgard: string; a: unknown; b: unknown; n: unknown }[]) {
+    const a = Number(r.a), b = Number(r.b), n = Number(r.n);
+    if ((r.atgard === "gallring" || r.atgard === "slutavverkning") && Number.isFinite(a) && Number.isFinite(b)) ut[r.atgard as IndexAtgard] = { a, b, n };
+  }
+  return ut;
 }
 
 export const SIGNERAD_LANK_SEKUNDER = 60;
