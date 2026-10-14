@@ -7,6 +7,7 @@ import type { CurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { toISO } from './datum';
 import { useLedighetData } from './useLedighetData';
+import { useNyaBeslut } from './useNyaBeslut';
 import type { Ansokan } from './typer';
 import SaldoKort from './SaldoKort';
 import AnsokanRad from './AnsokanRad';
@@ -32,28 +33,39 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
   // Medan de läses, eller när läsningen felade, är listan tom (eller gammal) — då
   // skulle en överlappande ansökan godkännas utan varning.
   const kanAnsoka = !laddar && !lasfel;
+  // Push-notisen till en godkännare öppnar vyn med "att godkänna" uppfälld.
+  const [godkannOppen] = useState(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('godkann') === '1',
+  );
+  // Nya beslut jag inte sett: visas överst och kvitteras först när de lästs och visats.
+  const nyaIds = useNyaBeslut(kanAnsoka);
 
   const mina = useMemo(
     () => ansokningar.filter(a => a.medarbetare_id === medarbetare.id),
     [ansokningar, medarbetare.id],
   );
+  // Ett nytt beslut står BARA under "Nytt besked" (inte också i Kommande/Historik) tills det setts.
+  const nyaBesked = useMemo(
+    () => mina.filter(a => nyaIds.includes(a.id)),
+    [mina, nyaIds],
+  );
   // Tre grupper efter TID, inte bara status: en beviljad ledighet flyttar
   // till Historik när den PASSERAT (slutdatum < idag), inte när den godkänns.
   const vantarPaBesked = useMemo(
-    () => mina.filter(a => a.status === 'väntar' && a.slutdatum >= idag)
+    () => mina.filter(a => a.status === 'väntar' && a.slutdatum >= idag && !nyaIds.includes(a.id))
       .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
-    [mina, idag],
+    [mina, idag, nyaIds],
   );
   // 'registrerad' = anmäld i morgonkortet (sjuk/vab/föräldraledig) — gäller som godkänd
   const kommandeLedighet = useMemo(
-    () => mina.filter(a => (a.status === 'godkänd' || a.status === 'registrerad') && a.slutdatum >= idag)
+    () => mina.filter(a => (a.status === 'godkänd' || a.status === 'registrerad') && a.slutdatum >= idag && !nyaIds.includes(a.id))
       .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
-    [mina, idag],
+    [mina, idag, nyaIds],
   );
   // Passerat (oavsett status) + avslag (beskedet är avklarat oavsett datum)
   const historik = useMemo(
-    () => mina.filter(a => a.slutdatum < idag || a.status === 'nekad'),
-    [mina, idag],
+    () => mina.filter(a => (a.slutdatum < idag || a.status === 'nekad') && !nyaIds.includes(a.id)),
+    [mina, idag, nyaIds],
   );
   const vantandeAlla = useMemo(
     () => ansokningar.filter(a => a.status === 'väntar'),
@@ -83,7 +95,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
   return (
     <div>
       {arGodkannare && !lasfel && (
-        <GodkannSektion vantande={vantandeAlla} onKlar={hamtaOm} />
+        <GodkannSektion vantande={vantandeAlla} onKlar={hamtaOm} startOppen={godkannOppen} />
       )}
 
       <div style={{ marginBottom: AVSTAND.l }}>
@@ -107,6 +119,11 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
           <StatusText text="Läser dina ansökningar…" />
         ) : (
           <>
+            {/* 0. Nytt besked — beslut jag inte sett (godkänd/nekad). Pricken på hemskärmen pekar hit. */}
+            {nyaBesked.length > 0 && (
+              <Grupp rubrik="Nytt besked">{rader(nyaBesked, {})}</Grupp>
+            )}
+
             {/* 1. Väntar på besked — kan ändras/tas bort */}
             {vantarPaBesked.length > 0 && (
               <Grupp rubrik="Väntar på besked">{rader(vantarPaBesked, { redigera: true })}</Grupp>
@@ -131,7 +148,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
               </section>
             )}
 
-            {vantarPaBesked.length === 0 && kommandeLedighet.length === 0 && historik.length === 0 && (
+            {nyaBesked.length === 0 && vantarPaBesked.length === 0 && kommandeLedighet.length === 0 && historik.length === 0 && (
               <StatusText text={'Inga ansökningar ännu. Tryck "Ansök om ledighet" för att skapa din första.'} />
             )}
           </>

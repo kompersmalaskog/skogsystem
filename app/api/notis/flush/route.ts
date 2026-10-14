@@ -8,6 +8,7 @@ import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
 import { formateraVeckoNotis } from "@/app/helikopter/_lib/veckoNotis";
 import { idagStockholm } from "@/lib/grotvy/format";
 import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
+import { arLedighetNotis, byggLedighetNotis, type HamtaRad } from "@/lib/ledighet/notis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -129,6 +130,20 @@ async function flush() {
         }
       }
 
+      // Ledighet: texten byggs ur ansökan som den ser ut NU. Hanterad/borttagen ansökan → ingen
+      // utskick (notisen är inte längre sann). Läsfel → raden lämnas oskickad, nästa cron försöker igen.
+      let ledighetMeddelande: Awaited<ReturnType<typeof byggMeddelande>> | null = null;
+      if (arLedighetNotis(n.typ)) {
+        const u = await byggLedighetNotis(n, hamtaLedighetsrad);
+        if (u.typ === "uppskjut") { uppskjutna++; continue; }
+        if (u.typ === "hoppa_over") {
+          await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: u.orsak }).eq("id", n.id);
+          skippade++;
+          continue;
+        }
+        ledighetMeddelande = u.meddelande;
+      }
+
       // Prenumerationer ur push_subscriptions-TABELLEN (alla enheter) — inte
       // den döda kolumnen medarbetare.push_subscription som aldrig fylls.
       // Samma 410/404-städning som /api/notify.
@@ -147,7 +162,7 @@ async function flush() {
       }
 
       // Bygg titel/body baserat på typ — FÄRSKT vid utskick
-      const meddelande = await byggMeddelande(n);
+      const meddelande = ledighetMeddelande ?? await byggMeddelande(n);
 
       let sänt = 0;
       const döda: string[] = [];
@@ -185,6 +200,20 @@ async function flush() {
     fel,
   });
 }
+
+// Ansökan + sökandens namn för ledighetsnotiserna. `rad: null` = finns inte; `fel` = kunde inte läsas.
+const hamtaLedighetsrad: HamtaRad = async (ansokanId) => {
+  const { data, error } = await supabase
+    .from("ledighet_ansokningar")
+    .select("id, status, startdatum, slutdatum, medarbetare:medarbetare_id(namn)")
+    .eq("id", ansokanId)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const med = Array.isArray(d.medarbetare) ? d.medarbetare[0] : d.medarbetare;
+  return { rad: { id: d.id, status: d.status, startdatum: d.startdatum, slutdatum: d.slutdatum, namn: med?.namn ?? null } };
+};
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
 
