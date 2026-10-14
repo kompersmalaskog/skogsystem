@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import DokumentChips, { harDokument } from '@/components/DokumentChips';
 import PageContainer from '@/components/PageContainer';
 import proj4 from 'proj4';
+import { AVTALSFORMER } from '@/lib/trakt/avtalsform';
 import { TreePine, Trees } from 'lucide-react';
 
 // SWEREF99 TM (EPSG:3006) → WGS84 — samma logik som /api/import-trakt
@@ -148,6 +149,7 @@ function ObjektPageInner() {
 
 
   const [objekt, setObjekt] = useState<any[]>([]);
+  const [avtalsformKolumn, setAvtalsformKolumn] = useState(false);
   // TMA-vägdata (cache-först): status per objekt så planeraren ser vilka trakter som har väggeometri
   // och vilka som väntar/misslyckats — tyst väntan är samma fel i ny kostym.
   const [vagdataMap, setVagdataMap] = useState<Record<string, { status: string; hamtad_at: string | null }>>({});
@@ -168,6 +170,8 @@ function ObjektPageInner() {
     }
 
     setObjekt(data || []);
+    // select('*') ger bara kolumnen om migrationen 20261015090000 är körd — annars visas/skrivs avtalsform inte (ett update med okänd kolumn skulle fälla ALLA sparningar).
+    setAvtalsformKolumn((data || []).some((o: any) => 'avtalsform' in o));
   };
 
   const fetchVagdata = async () => {
@@ -225,7 +229,7 @@ function ObjektPageInner() {
   const [form, setForm] = useState({ 
     voNummer: '', traktNr: '', namn: '', bolag: '', 
     inkopare: '', inkoparetel: '', markagare: '', markagaretel: '', markagareepost: '',
-    cert: '', typ: 'slut', atgard: '', volym: '', areal: '', grot: false, svarighet: 'normal' as 'normal' | 'svar' | 'vf',
+    cert: '', typ: 'slut', atgard: '', avtalsform: '', volym: '', areal: '', grot: false, svarighet: 'normal' as 'normal' | 'svar' | 'vf',
     maskiner: [] as string[], koordinatX: '', koordinatY: '',
     sortiment: [] as string[], anteckningar: '', forardirektiv: '',
     ar: 2026, manad: 1, ordning: 1, status: 'planerad'
@@ -244,8 +248,9 @@ function ObjektPageInner() {
   const [sparadeBolag, setSparadeBolag] = useState(['Vida', 'Södra', 'ATA', 'JGA', 'Rönås', 'Privat']);
   const [sparadeMaskiner, setSparadeMaskiner] = useState(['PONSSE Scorpion Giant 8W', 'Wisent 2015', 'Elephant King AF', 'Rottne']);
   const [sparadeAtgarder, setSparadeAtgarder] = useState<Record<string, string[]>>({ 
-    slut: ['Rp', 'Lrk', 'Au', 'VF/BarkB'], 
-    gallring: ['Första gallring', 'Andra gallring', 'Gallring'] 
+    // Åtgärd, inte avtalsform: Au/Rp/LRK/VF/Bark har ett eget fält (AVTALSFORM nedan).
+    slut: ['Föryngring', 'Special'], 
+    gallring: ['Första gallring', 'Andra gallring', 'Gallring', 'Lövgallring'] 
   });
   const [sparadeCert, setSparadeCert] = useState(['FSC', 'PEFC', 'FSC PEFC', 'Ej certifierad']);
   const [sparadeSortiment, setSparadeSortiment] = useState([
@@ -442,6 +447,7 @@ function ObjektPageInner() {
       markagare: form.markagare || null, markagare_tel: form.markagaretel || null, markagare_epost: form.markagareepost || null,
       cert: form.cert || null, typ: form.typ === 'slut' ? 'slutavverkning' : 'gallring',
       atgard: form.atgard || null, volym: parseInt(form.volym),
+      ...(avtalsformKolumn || form.avtalsform ? { avtalsform: form.avtalsform || null } : {}),
       areal: form.areal ? parseFloat(form.areal) : null, grot: form.grot,
       // Svårighet: datainsamling för kommande prognosmodell — används inte i beräkningar än.
       svarighet: form.svarighet,
@@ -477,7 +483,7 @@ function ObjektPageInner() {
       inkopare: obj.inkopare || '', inkoparetel: obj.inkopare_tel || '',
       markagare: obj.markagare || '', markagaretel: obj.markagare_tel || '', markagareepost: obj.markagare_epost || '',
       cert: obj.cert || '', typ: obj.typ === 'slutavverkning' ? 'slut' : 'gallring',
-      atgard: obj.atgard || '', volym: obj.volym?.toString() || '',
+      atgard: obj.atgard || '', avtalsform: obj.avtalsform || '', volym: obj.volym?.toString() || '',
       areal: obj.areal?.toString() || '', grot: obj.grot || false, svarighet: (obj.svarighet === 'svar' || obj.svarighet === 'vf') ? obj.svarighet : 'normal',
       maskiner: obj.maskiner || [], koordinatX: obj.lat?.toString() || '', koordinatY: obj.lng?.toString() || '',
       sortiment: obj.sortiment || [], anteckningar: obj.anteckningar || '', forardirektiv: obj.forardirektiv || '',
@@ -556,12 +562,14 @@ function ObjektPageInner() {
     return <>{displayValue}</>;
   };
 
-  const ChipSelect = ({ items, selected, onSelect, label, editKey, onAdd, onRemove, multi = false }: any) => {
+  // fast = fast lista (avtalsform): ingen Ändra/+, och ett tryck på det valda värdet tar bort det.
+  const ChipSelect = ({ items, selected, onSelect, label, editKey, onAdd, onRemove, multi = false, fast = false }: any) => {
     const isEditing = editMode === editKey;
     const isAdding = showAdd === editKey;
     const isSelected = (item: string) => multi ? (selected || []).includes(item) : selected === item;
     const handleSelect = (item: string) => {
       if (isEditing) return;
+      if (fast && !multi && selected === item) { onSelect(''); return; }
       if (multi) {
         if (isSelected(item)) onSelect(selected.filter((s: string) => s !== item));
         else onSelect([...(selected || []), item]);
@@ -578,10 +586,10 @@ function ObjektPageInner() {
       <div style={{ marginBottom: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
           <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
-          <button onClick={() => setEditMode(isEditing ? null : editKey)}
+          {!fast && <button onClick={() => setEditMode(isEditing ? null : editKey)}
             style={{ background: 'none', border: 'none', fontSize: '11px', color: isEditing ? '#ef4444' : 'rgba(255,255,255,0.2)', cursor: 'pointer' }}>
             {isEditing ? 'Klar' : 'Ändra'}
-          </button>
+          </button>}
         </div>
         {isAdding ? (
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -609,8 +617,8 @@ function ObjektPageInner() {
                 )}
               </button>
             ))}
-            <button onClick={() => setShowAdd(editKey)}
-              style={{ padding: '10px 16px', borderRadius: '10px', border: '1px dashed rgba(255,255,255,0.12)', background: 'transparent', color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'pointer' }}>+</button>
+            {!fast && <button onClick={() => setShowAdd(editKey)}
+              style={{ padding: '10px 16px', borderRadius: '10px', border: '1px dashed rgba(255,255,255,0.12)', background: 'transparent', color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'pointer' }}>+</button>}
           </div>
         )}
       </div>
@@ -1006,6 +1014,10 @@ function ObjektPageInner() {
                   <ChipSelect items={sparadeBolag} selected={form.bolag} onSelect={(v: string) => setForm({ ...form, bolag: v })} label="BOLAG · KRÄVS" editKey="bolag" onAdd={addBolag} onRemove={removeBolag} />
                   <ChipSelect items={sparadeCert} selected={form.cert} onSelect={(v: string) => setForm({ ...form, cert: v })} label="CERTIFIERING" editKey="cert" onAdd={addCert} onRemove={removeCert} />
                   <ChipSelect items={sparadeAtgarder[form.typ] || []} selected={form.atgard} onSelect={(v: string) => setForm({ ...form, atgard: v })} label="ÅTGÄRD" editKey="atgard" onAdd={addAtgard} onRemove={removeAtgard} />
+                  {/* Avtalsform (hur trakten är avtalad) är skild från åtgärd (vad som görs). Bara slutavverkning; visas när kolumnen finns. */}
+                  {form.typ === 'slut' && avtalsformKolumn && (
+                    <ChipSelect fast items={[...AVTALSFORMER]} selected={form.avtalsform} onSelect={(v: string) => setForm({ ...form, avtalsform: v })} label="AVTALSFORM" editKey="avtalsform" />
+                  )}
                   {/* Svårighet — segmenterad kontroll. Datainsamling för kommande prognosmodell; styr inget än. */}
                   <div style={{ marginBottom: '16px' }}>
                     <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>SVÅRIGHET</label>
@@ -1040,6 +1052,7 @@ function ObjektPageInner() {
                   <Las label="BOLAG" value={cap(form.bolag)} />
                   <Las label="CERTIFIERING" value={form.cert} />
                   <Las label="ÅTGÄRD" value={form.atgard} />
+                  {form.typ === 'slut' && avtalsformKolumn && <Las label="AVTALSFORM" value={form.avtalsform} />}
                   <Las label="SVÅRIGHET" value={SVARIGHET_VAL.find(v => v.varde === form.svarighet)?.label || 'Normal'} />
                   <Las label="VOLYM" value={form.volym ? `${form.volym} m³fub` : ''} />
                   <Las label="AREAL" value={form.areal ? `${form.areal} ha` : ''} />

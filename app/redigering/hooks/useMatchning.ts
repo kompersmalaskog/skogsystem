@@ -16,6 +16,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { medAvtalsformSvar } from '@/lib/avtalsformKolumn';
+import { kravAvtalsform } from '@/lib/redigering/avtalsformKrav';
 import { hamtaExkluderadeObjektId } from '@/lib/objekt/exkludera';
 import { objektSkotat, resolveSkotareVolym, type SkotareManuellRad } from '@/lib/skotat';
 
@@ -105,7 +107,8 @@ export function useMatchning(): MatchningData {
       setStatus('laddar');
       try {
         const [dimRes, planRes, maskinRes, exkluderade, prodRows, lassRows, tidRows, manuellRes] = await Promise.all([
-          supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, maskin_id, bolag, inkopare, huvudtyp, atgard, start_date, exkludera'),
+          // avtalsform finns först efter migrationen 20261015090000 — medAvtalsformSvar kör om utan kolumnen om den saknas.
+          medAvtalsformSvar((med) => supabase.from('dim_objekt').select(`objekt_id, object_name, vo_nummer, maskin_id, bolag, inkopare, huvudtyp, atgard,${med ? ' avtalsform,' : ''} start_date, exkludera`)),
           supabase.from('objekt').select('id, namn, vo_nummer, status, dim_objekt_id'),
           supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),
           hamtaExkluderadeObjektId(),
@@ -207,7 +210,9 @@ export function useMatchning(): MatchningData {
           if (!d.bolag) saknade.push('Bolag');
           if (!d.inkopare) saknade.push('Inköpare');
           if (!d.huvudtyp) saknade.push('Huvudtyp');
-          if (!d.atgard) saknade.push('Åtgärd');
+          // Slutavverkning kräver avtalsform i stället för åtgärd (när kolumnen finns); gallring och övrigt: åtgärd som förut.
+          if (kravAvtalsform(d)) { if (!d.avtalsform) saknade.push('Avtalsform'); }
+          else if (!d.atgard) saknade.push('Åtgärd');
 
           // FK primärt, exakt vo-likhet som legacy-fallback
           const planerat = planPerDimId.get(d.objekt_id)

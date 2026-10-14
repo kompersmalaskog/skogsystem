@@ -12,6 +12,9 @@ import MatchningsVy from './MatchningsVy'
 import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
+import { AVTALSFORMER } from '@/lib/trakt/avtalsform'
+import { kravAvtalsform, saknarAvtalsformEllerAtgard } from '@/lib/redigering/avtalsformKrav'
+import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import { harStubbehandling } from '@/lib/egenkontroll'
 import DokumentChips from '@/components/DokumentChips'
@@ -110,7 +113,7 @@ async function hamtaMaskinerFranSupabase() {
 // fylls i EN gång och skrivs till ALLA rader i gruppen; maskinspecifika
 // skrivs till respektive maskinslags rader.
 const GEMENSAMMA_FALT = ['vo_nummer', 'object_name', 'skogsagare', 'bolag', 'inkopare',
-  'huvudtyp', 'atgard', 'grot_anpassad', 'timpeng', 'exkludera', 'extern_skordning',
+  'huvudtyp', 'atgard', 'avtalsform', 'grot_anpassad', 'timpeng', 'exkludera', 'extern_skordning',
   'timpeng_undantag_timmar_skordare', 'timpeng_undantag_timmar_skotare',
   'timpeng_undantag_volym', 'timpeng_undantag_dra_skordare', 'timpeng_undantag_dra_skotare',
   // Ackordgrund-overrides på objektnivå (används av BÅDA maskindelarnas prisuppslag)
@@ -554,7 +557,10 @@ function getWarnings(obj, volym?: { skordat: number; skotat: number }) {
   // Risjobb: typen ÄR risskotning — huvudtyp/åtgärd efterfrågas aldrig.
   if (!arRisjobb(obj)) {
     if (!obj.huvudtyp) w.push({ key: 'huvudtyp', text: 'Saknar huvudtyp', target: 'huvudtyp-section' })
-    if (obj.huvudtyp && !obj.atgard) w.push({ key: 'atgard', text: 'Saknar åtgärd', target: 'atgard-section' })
+    // Slutavverkning: det som SKA vara satt är avtalsformen (Au/Rp …) — åtgärd är valfri där. Gallring: åtgärd som förut.
+    // Före migrationen 20261015090000 finns ingen avtalsform-kolumn (obj har inte nyckeln): då gäller åtgärd som förut.
+    const saknar = saknarAvtalsformEllerAtgard(obj)
+    if (saknar) w.push(saknar)
   }
   if (looksLikeAutoDate(obj.object_name)) w.push({ key: 'autoname', text: 'Autogenererat namn', target: 'object_name-section' })
   if (!obj.skogsagare) w.push({ key: 'skogsagare', text: 'Saknar markägare', target: 'skogsagare-section' })
@@ -605,10 +611,12 @@ const KRAV_FALT = [
 // åtgärd undantas därför från kravet, i takt med getWarnings som hoppar över
 // samma två via arRisjobb. Att kräva åtgärd på grot tvingade fram felmärkningar.
 function kravFaltFor(obj: any) {
-  return arRisjobb(obj)
-    ? KRAV_FALT.filter(f => f.key !== 'huvudtyp' && f.key !== 'atgard')
-    : KRAV_FALT
+  if (arRisjobb(obj)) return KRAV_FALT.filter(f => f.key !== 'huvudtyp' && f.key !== 'atgard')
+  // Slutavverkning kräver avtalsform i stället för åtgärd (samma plats i listan).
+  if (kravAvtalsform(obj)) return KRAV_FALT.map(f => f.key === 'atgard' ? { key: 'avtalsform', label: 'Avtalsform', target: 'avtalsform-section' } : f)
+  return KRAV_FALT
 }
+
 
 // "12 maj" ur "YYYY-MM-DD" — fasta namn, ingen locale-överraskning
 const MANADER_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
@@ -803,7 +811,8 @@ function FilterChip({ label, active, onClick }) {
 }
 
 // Chip Input
-function ChipInput({ label, value, options, setOptions, onChange, embedded = false, onAddOption, onRemoveOption }: any) {
+// fast = fast lista (t.ex. avtalsform): inga fria värden — varken sökfältet eller "+ ny".
+function ChipInput({ label, value, options, setOptions, onChange, embedded = false, onAddOption, onRemoveOption, fast = false }: any) {
   const [input, setInput] = useState('')
   const [hantera, setHantera] = useState(false)
   const filtered = input.trim() ? options.filter(o => o.toLowerCase().includes(input.toLowerCase())) : options
@@ -845,7 +854,7 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
           <button onClick={() => onChange('')} style={styles.chipClear}>✕</button>
         </div>
       )}
-      {!value && (
+      {!value && !fast && (
         <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => {
           if (e.key === 'Enter') {
             if (filtered.length === 1) handleSelect(filtered[0])
@@ -865,7 +874,7 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
             onDelete={() => handleRemove(opt)}
           />
         ))}
-        {input.trim() && !options.some(o => o.toLowerCase() === input.toLowerCase()) && (
+        {!fast && input.trim() && !options.some(o => o.toLowerCase() === input.toLowerCase()) && (
           <div onClick={handleCreate} style={styles.chipNew}>+ {input}</div>
         )}
       </div>
@@ -2397,6 +2406,9 @@ function TraktSager({ trakt, dim, provenans, onAnvand }: any) {
   )
 }
 
+// Är värdet en avtalsform (Au/Rp/LRK/VF/Bark)? Äldre rader har dem i åtgärden; de ska inte erbjudas som åtgärd.
+const arAvtalsformVarde = (v: any) => AVTALSFORMER.some(a => a.toLowerCase() === String(v ?? '').trim().toLowerCase())
+
 function PlanRad({ label, children }: any) {
   return (
     <div style={styles.kravRad as any}>
@@ -2836,7 +2848,22 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
               <div style={{ padding: '0 16px 16px', fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Välj huvudtyp först.</div>
             )}
           </KravRad>
+          {/* Importens åtgärd (ur TD:ns Arbetsform). Äldre rader har en AVTALSFORM (Au/Rp …) i objekt.atgard — den erbjuds inte som åtgärd. */}
+          {objektRad && !arAvtalsformVarde(objektRad.atgard) && <TraktSager trakt={objektRad.atgard} dim={obj.atgard}
+            onAnvand={(v: string) => { set({ ...obj, atgard: v }); direktSpara({ atgard: v }) }} />}
         </div>
+        {/* Avtalsform (hur trakten är avtalad) är ett eget fält, skilt från Åtgärd (vad som görs). Bara slutavverkning har avtalsform. Importen läser den
+            ur TD:ns "Ursprung" (Rotpost → Rp); "trakt säger" visar den så den kan tas med ett tryck. */}
+        {obj.huvudtyp === 'Slutavverkning' && (
+          <div id="avtalsform-section">
+            <KravRad label="Avtalsform" value={obj.avtalsform} expanded={oppetFalt === 'avtalsform'} onToggle={() => setOppetFalt(oppetFalt === 'avtalsform' ? null : 'avtalsform')}>
+              <ChipInput embedded fast label={null} value={obj.avtalsform || ''} options={[...AVTALSFORMER]} setOptions={() => {}}
+                onChange={(v: any) => { set({ ...obj, avtalsform: v }); direktSpara({ avtalsform: v || null }); if (v) setOppetFalt(null) }} />
+            </KravRad>
+            {objektRad && <TraktSager trakt={objektRad.avtalsform} dim={obj.avtalsform}
+              onAnvand={(v: string) => { set({ ...obj, avtalsform: v }); direktSpara({ avtalsform: v }) }} />}
+          </div>
+        )}
         {/* Etapp 1c — uppdraget ur Identitet-undersidan. VO/namn skrivs aldrig TOMMA
             (som #407-synken): ett blankat VO skulle nolla objekt-speglingen. */}
         <PlanText label="VO-nummer" value={obj.vo_nummer} placeholder="Ange VO …"
@@ -3034,9 +3061,11 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       const rad = await resolveObjektRad(ids, vo)
       if (avbruten) return
       if (!rad) { setObjektRad(null); setObjektRadLaddar(false); return }
-      const { data } = await supabase.from('objekt')
-        .select('id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform')
-        .eq('id', rad.id).limit(1)
+      // atgard + avtalsform: "trakt säger" under Åtgärd/Avtalsform. avtalsform finns först efter migrationen 20261015090000 —
+      // medAvtalsformSvar kör om utan kolumnen om den saknas, så resten av objektraden (kartor, tilldelning …) alltid laddas.
+      const { data } = await medAvtalsformSvar((med) => supabase.from('objekt')
+        .select(`id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform, atgard${med ? ', avtalsform' : ''}`)
+        .eq('id', rad.id).limit(1))
       if (avbruten) return
       setObjektRad((data && data[0]) || { id: rad.id })
       setObjektRadLaddar(false)
@@ -3603,8 +3632,9 @@ function ObjektRedigeringInner() {
   const [error, setError] = useState(null)
   const [bolag, setBolag] = useState(STANDARD_BOLAG)
   const [inkopare, setInkopare] = useState<string[]>([])
-  const [atgarderSlut, setAtgarderSlut] = useState(['LRK', 'Rp', 'Au', 'Special', 'VF/Bark'])
-  const [atgarderGallring, setAtgarderGallring] = useState(['Första gallring', 'Andra gallring'])
+  // Åtgärd, inte avtalsform: Au/Rp/LRK/VF/Bark har ett eget fält (Avtalsform) och står inte här.
+  const [atgarderSlut, setAtgarderSlut] = useState(['Föryngring', 'Special'])
+  const [atgarderGallring, setAtgarderGallring] = useState(['Första gallring', 'Andra gallring', 'Gallring', 'Lövgallring'])
   // Objektet som redigeras — all sheet-logik bor i ObjektEditor
   const [redigerObj, setRedigerObj] = useState<any>(null)
   const [saveError, setSaveError] = useState('')

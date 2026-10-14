@@ -96,29 +96,102 @@ describe('hittaBefintligtObjekt — läsfel är aldrig "ingen träff"', () => {
   });
 });
 
-describe('byggOmimportPatch — oförändrat utom objektets nummer', () => {
+describe('byggOmimportPatch — skyddade fält, nummer och larm är som förut', () => {
   const data = {
     vo_nummer: '11166440', namn: 'Bågskyttebanan RP J-Hus- 25', bolag: 'Vida', typ: 'slutavverkning', volym: 900,
     lat: 56.1, lng: 14.2, anteckningar: 'egen text', status: undefined, areal: null, traktnr: '  ',
     larmkoordinat_lat: 56.2, larmkoordinat_lng: 14.3, larmkoordinat_kalla: 'envz', ar: 2026,
   };
   const SKYDDADE = ['lat', 'lng', 'anteckningar', 'ar', 'manad', 'ordning', 'status'];
+  // Raden är tom på det leveransen vill skriva → allt som inte är skyddat/tomt skrivs, som förut.
+  const TOM_RAD = { id: 'u1' };
+  const opt = (o: Partial<Parameters<typeof byggOmimportPatch>[1]> = {}) =>
+    ({ skyddade: SKYDDADE, bevaraLarm: false, behallVoNummer: false, nuvarande: TOM_RAD, importVarden: null, ...o });
 
-  it('omimport på vo_nummer: som förut (skyddade, nollor och tomma strängar skrivs aldrig; vo_nummer skrivs)', () => {
-    expect(byggOmimportPatch(data, { skyddade: SKYDDADE, bevaraLarm: false, behallVoNummer: false })).toEqual({
+  it('omimport på vo_nummer: skyddade, nollor och tomma strängar skrivs aldrig; vo_nummer skrivs', () => {
+    expect(byggOmimportPatch(data, opt()).patch).toEqual({
       vo_nummer: '11166440', namn: 'Bågskyttebanan RP J-Hus- 25', bolag: 'Vida', typ: 'slutavverkning', volym: 900,
       larmkoordinat_lat: 56.2, larmkoordinat_lng: 14.3, larmkoordinat_kalla: 'envz',
     });
   });
   it("larmkoordinat 'egen' bevaras som förut", () => {
-    const p = byggOmimportPatch(data, { skyddade: SKYDDADE, bevaraLarm: true, behallVoNummer: false });
-    expect(Object.keys(p).some((k) => k.startsWith('larmkoordinat_'))).toBe(false);
-    expect(p.vo_nummer).toBe('11166440');
+    const { patch } = byggOmimportPatch(data, opt({ bevaraLarm: true }));
+    expect(Object.keys(patch).some((k) => k.startsWith('larmkoordinat_'))).toBe(false);
+    expect(patch.vo_nummer).toBe('11166440');
   });
   it('träff via extra nummer: leveransens (gamla) vo_nummer skrivs INTE över objektets nuvarande — resten uppdateras', () => {
-    const p = byggOmimportPatch(data, { skyddade: SKYDDADE, bevaraLarm: false, behallVoNummer: true });
-    expect('vo_nummer' in p).toBe(false);
-    expect(p).toMatchObject({ namn: 'Bågskyttebanan RP J-Hus- 25', bolag: 'Vida', volym: 900 });
+    const { patch } = byggOmimportPatch(data, opt({ behallVoNummer: true }));
+    expect('vo_nummer' in patch).toBe(false);
+    expect(patch).toMatchObject({ namn: 'Bågskyttebanan RP J-Hus- 25', bolag: 'Vida', volym: 900 });
+  });
+  it('0 i volym/areal betyder "hittades inte i filen" och skriver aldrig över ett riktigt värde', () => {
+    const { patch } = byggOmimportPatch({ volym: 0, areal: 0, namn: 'X' }, opt({ nuvarande: { volym: 950, areal: 3.6 } }));
+    expect(patch).toEqual({ namn: 'X' });
+  });
+});
+
+describe('byggOmimportPatch — skriv bara över det importen själv har satt', () => {
+  const O = { skyddade: ['status'], bevaraLarm: false, behallVoNummer: false };
+
+  it('tomt fält → skrivs, och importen minns vad den satte', () => {
+    const r = byggOmimportPatch({ atgard: 'Första gallring', avtalsform: 'Rp' }, { ...O, nuvarande: { atgard: null, avtalsform: '' }, importVarden: null });
+    expect(r.patch).toEqual({ atgard: 'Första gallring', avtalsform: 'Rp' });
+    expect(r.importVarden).toEqual({ atgard: 'Första gallring', avtalsform: 'Rp' });
+    expect(r.behollna).toEqual([]);
+  });
+
+  it('fältet har exakt det värde förra importen satte → skrivs över med det nya', () => {
+    const r = byggOmimportPatch({ volym: 1200, avverkningsform: 'Föryngringsavverkning' }, {
+      ...O, nuvarande: { volym: 1000, avverkningsform: 'Föryngringsavverkning' }, importVarden: { volym: 1000, avverkningsform: 'Föryngringsavverkning' },
+    });
+    expect(r.patch).toEqual({ volym: 1200 });                        // avverkningsform är oförändrad: inget att skriva
+    expect(r.importVarden).toMatchObject({ volym: 1200, avverkningsform: 'Föryngringsavverkning' });
+    expect(r.behollna).toEqual([]);
+  });
+
+  it('Martin har rättat fältet → det ligger kvar, och importen säger det', () => {
+    const r = byggOmimportPatch({ atgard: 'Gallring', typ: 'gallring', volym: 1200 }, {
+      ...O, nuvarande: { atgard: 'Första gallring', typ: 'gallring', volym: 1000 }, importVarden: { atgard: 'Gallring', typ: 'gallring', volym: 1000 },
+    });
+    expect(r.patch).toEqual({ volym: 1200 });                        // volym orörd sedan importen → uppdateras; åtgärden rättades → kvar
+    expect(r.behollna).toEqual(['atgard']);
+    expect(r.importVarden.atgard).toBe('Gallring');                  // importens minne ändras inte av en kvarbehållen rättning
+  });
+
+  it('rad från före import_varden (inget minne): ett icke-tomt värde som skiljer sig behålls — ursprunget går inte att veta', () => {
+    const r = byggOmimportPatch({ atgard: 'Gallring', cert: 'FSC PEFC', volym: 1000 }, {
+      ...O, nuvarande: { atgard: 'Första gallring', cert: 'FSC PEFC', volym: 1000 }, importVarden: null,
+    });
+    expect(r.patch).toEqual({});
+    expect(r.behollna).toEqual(['atgard']);
+    expect(r.importVarden).toEqual({ cert: 'FSC PEFC', volym: 1000 });   // det som stämmer lärs in som importens
+  });
+
+  it('en rättning till samma värde som leveransen ger är bara samma värde: ingen skrivning, ingen "behållen"', () => {
+    const r = byggOmimportPatch({ atgard: 'Gallring' }, { ...O, nuvarande: { atgard: 'Gallring' }, importVarden: { atgard: 'Första gallring' } });
+    expect(r.patch).toEqual({});
+    expect(r.behollna).toEqual([]);
+  });
+
+  it('tal och talsträngar är samma värde (numeric kan komma tillbaka som text)', () => {
+    const r = byggOmimportPatch({ areal: 3.64 }, { ...O, nuvarande: { areal: '3.64' }, importVarden: null });
+    expect(r.patch).toEqual({});
+    expect(r.behollna).toEqual([]);
+  });
+
+  it('leveransen har inget värde (null/tomt) → fältet rörs inte, även om det är importens eget', () => {
+    const r = byggOmimportPatch({ atgard: null, avtalsform: '', sortiment: [] }, {
+      ...O, nuvarande: { atgard: 'Gallring', avtalsform: 'Rp', sortiment: ['Massa · Barr'] }, importVarden: { atgard: 'Gallring', avtalsform: 'Rp' },
+    });
+    expect(r.patch).toEqual({});
+  });
+
+  it('importägda artefakter (dokumentvägar, kartor, checklista, kalla) skrivs alltid över — de redigeras aldrig för hand', () => {
+    const r = byggOmimportPatch({ traktkartor: [{ path: 'ny.pdf' }], traktdirektiv_url: '1_td.pdf', kalla: 'envz', import_varningar: ['v'] }, {
+      ...O, nuvarande: { traktkartor: [{ path: 'gammal.pdf' }], traktdirektiv_url: 'annat.pdf', kalla: 'traktdirektiv' }, importVarden: null,
+    });
+    expect(r.patch).toEqual({ traktkartor: [{ path: 'ny.pdf' }], traktdirektiv_url: '1_td.pdf', kalla: 'envz', import_varningar: ['v'] });
+    expect(r.importVarden).toEqual({});                               // artefakter hamnar inte i minnet
   });
 });
 
@@ -128,15 +201,17 @@ describe('Bågskyttebanan genom hela omimporten (uppslag + patch)', () => {
     const sok = await hittaBefintligtObjekt(klient, '11166440');
     expect(sok.typ).toBe('traff');                                    // → routen tar UPDATE-grenen, inte INSERT
     if (sok.typ !== 'traff') return;
-    const patch = byggOmimportPatch({ vo_nummer: '11166440', namn: 'Bågskyttebanan RP J-Hus- 25', volym: 950 }, { skyddade: ['status'], bevaraLarm: false, behallVoNummer: sok.objekt.via === 'extra_nummer' });
-    expect(patch).toEqual({ namn: 'Bågskyttebanan RP J-Hus- 25', volym: 950 });
+    const { patch } = byggOmimportPatch({ vo_nummer: '11166440', namn: 'Bågskyttebanan RP J-Hus- 25', volym: 950 }, {
+      skyddade: ['status'], bevaraLarm: false, behallVoNummer: sok.objekt.via === 'extra_nummer', nuvarande: sok.objekt.rad, importVarden: null,
+    });
+    expect(patch).toEqual({ volym: 950 });                            // namnet stämmer redan med raden
   });
 });
 
 describe('källvakt: routen använder uppslaget och patch-byggaren', () => {
   const route = readFileSync(resolve(__dirname, '../../app/api/import-trakt/route.ts'), 'utf8');
   it('uppslag via hittaBefintligtObjekt — inget kvar av det gamla enbart-vo_nummer-uppslaget', () => {
-    expect(route).toContain("import { byggOmimportPatch, hittaBefintligtObjekt, type BefintligtObjekt } from '@/lib/trakt/befintligt';");
+    expect(route).toContain("import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';");
     expect(route).toContain('await hittaBefintligtObjekt(supabase, String(falt.vo_nummer))');
     expect(route).not.toContain(".eq('vo_nummer', String(falt.vo_nummer))");
   });

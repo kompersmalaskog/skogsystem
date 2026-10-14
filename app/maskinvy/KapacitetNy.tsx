@@ -3,6 +3,7 @@ import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { medAvtalsformEllerUtan } from '@/lib/avtalsformKolumn'
 import { g15Sek } from '@/lib/g15'
 import {
   bedomObjekt, kapacitetSnitt, kapacitetKlarsprak, behovText, kapacitetKategori, arExtern, arVindfalle,
@@ -35,7 +36,7 @@ const KATEGORIER: KapacitetKategori[] = ['gallring', 'slutavverkning', 'vindfall
 
 type DimObjektRad = {
   objekt_id: string; vo_nummer: string | null; object_name: string | null
-  huvudtyp: string | null; atgard: string | null; risskotning: boolean | null
+  huvudtyp: string | null; atgard: string | null; avtalsform?: string | null; risskotning: boolean | null
   extern_skordning: boolean | null; ovrigt_info: unknown
   skotning_avslutad: string | null; skotning_avslutad_auto: boolean | null
 }
@@ -81,7 +82,8 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
   const egnaIds = Array.from(egna)
 
   const [dimObjekt, tidRader, manuellRader, prodRader] = await Promise.all([
-    hamtaAlla<DimObjektRad>(() => supabase.from('dim_objekt').select('objekt_id, vo_nummer, object_name, huvudtyp, atgard, risskotning, extern_skordning, ovrigt_info, skotning_avslutad, skotning_avslutad_auto').order('objekt_id')),
+    // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261015090000 — medAvtalsformEllerUtan kör om utan kolumnen om den saknas.
+    medAvtalsformEllerUtan((med) => hamtaAlla<DimObjektRad>(() => supabase.from('dim_objekt').select(`objekt_id, vo_nummer, object_name, huvudtyp, atgard,${med ? ' avtalsform,' : ''} risskotning, extern_skordning, ovrigt_info, skotning_avslutad, skotning_avslutad_auto`).order('objekt_id'))),
     hamtaAlla<{ objekt_id: string | null; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }>(
       () => supabase.rpc('maskindata_tid', { p_maskin_ids: allaMaskinIds, p_datum_start: null, p_datum_slut: null })),
     hamtaAlla<{ objekt_id: string; maskin_id: string | null; g15_timmar: number | null }>(() => supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, g15_timmar').order('id')),
@@ -101,7 +103,7 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
     const g = o.vo_nummer ? `VO:${o.vo_nummer}` : `OBJ:${o.objekt_id}`
     gruppAv.set(o.objekt_id, g)
     const m = meta.get(g) || { namn: o.object_name || g, kategori: null, extern: false, skotningAvslutad: null }
-    if (o.huvudtyp || arVindfalle(o.atgard)) m.kategori = kapacitetKategori(o) ?? m.kategori
+    if (o.huvudtyp || arVindfalle(o.atgard, o.avtalsform)) m.kategori = kapacitetKategori(o) ?? m.kategori
     if (arExtern(o)) m.extern = true
     const klar = o.skotning_avslutad || (o.skotning_avslutad_auto ? '9999-12-31' : null)
     if (klar && (!m.skotningAvslutad || klar > m.skotningAvslutad)) m.skotningAvslutad = klar

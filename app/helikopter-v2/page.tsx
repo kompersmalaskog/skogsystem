@@ -7,6 +7,7 @@ import { TreePine, Trees } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ymdLokal } from '@/lib/datumLokal'
 import { hamtaAlla } from '@/lib/supabaseAlla'
+import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { arbetsdagarIManad, ledigaVardagarIManad } from '@/app/ledighet/_components/datum'
 
 // ============================================================
@@ -187,8 +188,9 @@ function utfallTyp(huvudtyp: string | null, namn: string | null): 'Slutavverknin
   return 'GROT'
 }
 // VF/Bark (vindfällen) döljs helt — de går ~70 % av normal takt och bär orimliga siffror.
-function arVindfalle(atgard: string | null): boolean {
-  const a = (atgard || '').toLowerCase()
+// VF/Bark är en AVTALSFORM (dim_objekt.avtalsform) sedan avtalsform fick eget fält; äldre rader har det kvar i åtgärden (atgard). Båda gäller.
+function arVindfalle(atgard: string | null, avtalsform?: string | null): boolean {
+  const a = `${atgard || ''} ${avtalsform || ''}`.toLowerCase()
   return a.includes('vf') || a.includes('vindfäll')
 }
 
@@ -230,7 +232,7 @@ export default function HelikopterV2Page() {
   const [maskinstoppData, setMaskinstoppData] = useState<{ maskin_id: string; fran_datum: string; till_datum: string; orsak: string }[]>([])
   const [avslutByVo, setAvslutByVo] = useState<Record<string, { skord: boolean; skot: boolean }>>({}) // vo_nummer → avslutstatus per roll (ur dim_objekt)
   const [utfallVy, setUtfallVy] = useState<UtfallVyRad[]>([]) // per (objekt_id, roll) ur vy_objekt_utfall
-  const [avslutObjekt, setAvslutObjekt] = useState<{ objekt_id: string; object_name: string | null; vo_nummer: string | null; skordning_avslutad: string | null; skotning_avslutad: string | null; huvudtyp: string | null; atgard: string | null }[]>([])
+  const [avslutObjekt, setAvslutObjekt] = useState<{ objekt_id: string; object_name: string | null; vo_nummer: string | null; skordning_avslutad: string | null; skotning_avslutad: string | null; huvudtyp: string | null; atgard: string | null; avtalsform?: string | null }[]>([])
   const [visaAldre, setVisaAldre] = useState<Record<string, boolean>>({}) // per Utfall-typ: expandera äldre
   const [loading, setLoading] = useState(true)
   const [ar, setAr] = useState(() => new Date().getFullYear())
@@ -259,7 +261,8 @@ export default function HelikopterV2Page() {
       const svar = await Promise.all([
         hamtaAlla<any>(() => supabase.from('helikopter_vy').select('*'), 'objekt_id'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
-        hamtaAlla<any>(() => supabase.from('dim_objekt').select('objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto'), 'objekt_id'),
+        // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261015090000 — medAvtalsformSvar kör om utan kolumnen om den saknas.
+        medAvtalsformSvar((med) => hamtaAlla<any>(() => supabase.from('dim_objekt').select(`objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,${med ? 'avtalsform,' : ''}skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto`), 'objekt_id')),
         hamtaAlla<any>(() => supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'), 'id'),
         supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),
         supabase.from('stopp').select('id,fran_datum,till_datum,orsak'),
@@ -314,7 +317,7 @@ export default function HelikopterV2Page() {
       setUtfallVy((utfall.data || []) as UtfallVyRad[])
       setAvslutObjekt(((dimo.data || []) as any[])
         .filter(d => d.skordning_avslutad != null || d.skotning_avslutad != null)
-        .map(d => ({ objekt_id: d.objekt_id, object_name: d.object_name, vo_nummer: d.vo_nummer, skordning_avslutad: d.skordning_avslutad, skotning_avslutad: d.skotning_avslutad, huvudtyp: d.huvudtyp, atgard: d.atgard })))
+        .map(d => ({ objekt_id: d.objekt_id, object_name: d.object_name, vo_nummer: d.vo_nummer, skordning_avslutad: d.skordning_avslutad, skotning_avslutad: d.skotning_avslutad, huvudtyp: d.huvudtyp, atgard: d.atgard, avtalsform: d.avtalsform })))
       setFel(null)
     } catch (e: any) {
       console.error('[helikopter-v2] läsning kastade', e)
@@ -611,7 +614,7 @@ export default function HelikopterV2Page() {
     const utfallByKey = new Map<string, UtfallVyRad>()
     for (const u of utfallVy) utfallByKey.set(`${u.objekt_id}|${u.roll}`, u)
     return avslutObjekt
-      .filter(a => !arVindfalle(a.atgard)) // VF/Bark döljs helt
+      .filter(a => !arVindfalle(a.atgard, a.avtalsform)) // VF/Bark döljs helt
       .map(a => {
         const prog = prognosByVo.get(String(a.vo_nummer || '').trim())
         const bygg = (roll: 'skordare' | 'skotare', avslutDatum: string | null) => ({
