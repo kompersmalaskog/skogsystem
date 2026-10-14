@@ -45,6 +45,114 @@ Ingen explicit symboltyp idag. Lägg till
 `grothög` i planeringsvyn när det blir aktuellt,
 eller härleda från `landing` (avlägg).
 
+## Historik — produktionsrapporter 2011–2026 (bara admin)
+
+Historiken är 7 592 produktionsrapporter (PDF, PRT, XPS) ur två Google Takeout-mbox (kompersmalaskog@ och kompersmalaskog.objekt@), inläst
+2026-10 på grenen `historik-inventering-mejl`. Den innehåller bara fakta ur rapporterna (volym, G15, stammar, avbrott, bränsle, förare, stopp).
+Index, normkurvor och jämförelser lagras INTE: de räknas i vyerna när de läses. **Sidan `/admin/historik` och all historikdata är bara för
+roll = `admin`** (chef kommer in på `/admin` men inte hit). Skyddet ligger i databasen: RLS på alla `hist_`-tabeller och på bucketen
+`historik` kräver `public.ar_admin()`. Sidans server-kontroll är bara omdirigering.
+
+**Tabeller** (alla RLS, läs bara admin, skrivning bara service_role): `hist_maskin`, `hist_forare` (alias, t.ex. Jocke = Joacim Ringberg),
+`hist_rapport` (sha256, format, typ, maskin, `storage_path`, `exkluderad` + orsak), `hist_objekt` (en rad per rapport; `raknas` = exakt en rapport
+per objekt och maskin, `dubblett_av` pekar på den som räknas), `hist_skift` (skiftrader med G15, volym, lass), `hist_forare_objekt`, `hist_stopp`
+(Komatsu-stopp med felkod), `hist_korrigering` (manuella beslut och regler som ändrar åtgärd: `hist_objekt.atgard` skrivs aldrig över).
+**Bucket** `historik` (privat): `<år>/<sha256>.<pdf|prt|xps>`, 7 592 filer, 756 MB; öppnas med signerad länk (60 s).
+**Vyer** (alla `security_invoker`, bara `raknas = true` och egna maskiner): `vy_hist_objekt_bas`, `vy_hist_normkurva` (oviktad + G15-viktad),
+`vy_hist_objekt_index`, `vy_hist_index_ar`, `vy_hist_forare_maskin`, `vy_hist_tid_ar`, `vy_hist_stopp_topp`, `vy_hist_maskin_ar` (appens huvudvy,
+med summarader) och `vy_hist_objekt_lista` (objekten bakom ett år med `storage_path`).
+
+**Åtgärd** (gallring, slutavverkning, skada, special, okänd): ur objektnamn, mejlämne eller rapportens kategori; Komatsu 941/AptMan och Bear
+får "maskinstandard" (slutavverkning) som obekräftad antagen åtgärd, Rottne gallring är bekräftad (98 %). Korrigeringar: vindfällor AB Karl Hedin,
+Gävle 2026 = skada; tio specialjobb = special. Skotarnas åtgärd ärvs från skördarens objekt med samma namn/objektnr (exakt inom 60 dagar, fuzzy
+namn ≥ 0,9 inom 180 dagar). Index finns bara för skördare i gallring och slutavverkning; m³/G15 jämförs aldrig mellan åtgärder.
+
+**Sidan** (`app/admin/historik`, `components/historik/`, `lib/historik/`): lista (skördare med växel Gallring / Slutavverkning / Skada och special,
+skotare med alla åtgärder), maskinsida (åtgärdsrader, diagram år för år, nyckeltal) och år med objekt och länk till originalrapporten. "+N antagna"
+= objekt med obekräftad maskinstandard, som tas med först vid tryck. Färre än 5 objekt eller stopp i färre än 70 % av rapporterna står med text.
+Saknad data är ord ("Avbrott saknas i rapportformatet"), aldrig 0. Renderad bara i testsele (mockad supabase), inte med riktig inloggning.
+
+**Steg 13 (2026-10-12):** Ponsse Skift-parsern läser nu "Förbrukning" (liter, 786 av 786 förarblock; Giant 18,5–20,4 l/G15, King ny 16,7) och
+Arbetstid. Skift-rapporterna har ingen avbrottsfördelning (Reparation/Service/Störning står bara i förklaringsrutan): TU för Giant/King ny är
+**G15 / arbetstid** (`hist_objekt.arbetstid_h`, `tu_rapporterad`; 92–94 %) och märks "TU enligt Ponsse (G15 / arbetstid)", markeras aldrig som bäst.
+Skotare kopplas till skördare i `hist_skotare_koppling` (metod a = samma objekt i Skogsystem, b = samma objektnr, c = namn ≥ 0,9 och 0–120 dagar;
+592 länkar). Kopplingen används **aldrig för volym**, bara för skotarens åtgärd (`hist_korrigering`, orsak `regel: kopplad_till_skordare_<metod>`).
+Wisent från 2024-09 har lass utan storlek: volymen är NULL i `vy_hist_objekt_bas` och visas "Volym saknas: lass utan storlek". Sju Elephant King gammal-objekt
+(Gävle 2026) är skada med orsak "Vindfällor AB Karl Hedin, Gävle 2026". Rader skrivna med SQL finns i `scripts/historik/korrigering_steg13.csv`.
+Jämförelsen: varje maskin med minst ett objekt i åtgärden är valbar; "bäst" bara på viktat index och TU; medelstam under m³/G15 och bränsle.
+
+**Steg 14 (2026-10-12/13), dubbelräknade timmar:** Ponsse lastcertifikat (LC) och maskinspecifik summering (SUM) är ofta samma jobb. Summeringen räknas;
+LC pekar på den via `dubblett_av` (202 rapporter slutar räknas: 188 R1 + 14 R2 månadscertifikat). Vyerna hämtar lass och volym från LC-tvillingen
+(`vy_hist_objekt_bas.tvilling_*`); G15, bränsle, avbrott, livstid från SUM. Bränsle och avbrott låg dubbelt precis som G15. Wisent G15/timräknare efter
+rättning: 2023 0,98, 2024 1,07, 2025 1,01, 2026 0,97. Kvar: ~14 LC 2024 (236 h) delar nummer med en SUM men har olika G15 (SUM är kumulativ per objekt
+eller LC delvis) och räknas fortfarande; Wisent-volym efter 2024-09 döljs per datum men LC från 2026-01 har riktiga m³ (se nedan).
+**R3 (lastcertifikat som delutskrift av summering) är analyserad och bestämd att INTE köras** (`hist_r3.py`, förslag i `hist_csv/hist_r3_forslag.csv`, sparade): den sänker årskvoterna
+G15/räknare till 0,94–0,96 för 2023/2025/2026 och tar riktig tid. Wisent 2024 ligger på 1,05, samma nivå som Komatsu och Rottne. **Känt kvarvarande överskott:** Godsförvaltning
+juni 2024 (två lastcertifikat 36,73 + 79,90 h mot summering 91,50 h, ca 40 h) kan rättas manuellt senare.
+**Wisent-volym (migration `20261012123349_hist_wisent_flaggregel.sql`, KÖRD 2026-10-13, verifierad mot simuleringen; övriga maskiners vy-rader oförändrade):** volym döljs efter flagga (`laster_x_1m3`, `schablon_10m3`) i stället för datum; fyra 2025-objekt utan
+flagga men < 3 m³/lass behandlas som `laster_x_1m3` via `hist_korrigering` (falt `volym_kvalitet`, orsak `regel: wisent_lass_x_1m3_utan_flagga`); Wisent med m³/lass utanför 6–18 märks
+`osaker_lasstorlek` ("Osäker volym" i appen), behåller volymen i summan men räknas inte i m³/G15, medelstam, index eller bränsle per m³.
+**Steg 15 (2026-10-13/14), objektnummer och volym från skördare till skotare — datan låst efter STOPP 1:**
+- **Objektnummer (KÖRD):** `hist_objekt.objektnr_normaliserat` (6 siffror), `virkesordernr_normaliserat` (8 siffror), `objektnr_alla text[]` + GIN-index ur `hist_objektnr.py`
+  (4 539 rader med nummer, 945 med flera; striktare än första förslaget 4 609/1 110 eftersom datum- och tidsfragment, som yymmdd, ddmmyy och hhmmss, utesluts — godkänt).
+  Hash av sorterade `objektnr_alla` är lika lokalt och i databasen. `vy_hist_maskin_ar.g15_per_timraknare` (G15 / Ponsses timräknare) visas bara på maskinsidan.
+- **Volym från skördare (`hist_korrigering`, falt `volym_harledd`, nytt_varde = m³):** skotaren får skördarens volym via delat objektnummer, bara där egen uppmätt volym saknas, med
+  tidsfönster (skotaren klar före skördarens start, eller start > 180 dagar efter skördarens slut ⇒ bort), flera skotare på samma nummer fördelas efter lass (Elephant King utan lass: efter G15),
+  G15 alltid ur skotarens egen rapport. (a) Skogsystem (`dim_objekt.vo_nummer` + `fakt_*`, läst) före (b) PDF-skördare; i praktiken gav (a) bara ett fynd (Anders Ingemarsson), eftersom
+  Skogsystem bara har produktion från aug 2025 (Giant) och Wisents volym 2026 redan är uppmätt (stämmer mot Skogsystem inom ±2 %).
+  Orsaker: `regel: volym_fran_skordare_pdf`, `regel: volym_fran_skordare_skogsystem`, `regel: gavle_volym_fran_giant` (visas "Från skördare").
+  **Wisent:** kontroll 6–18 m³/lass per objekt; 66 objekt fyllda (24 år 2024, 42 år 2025; median 13,7 resp. 11,6 m³/lass), 219 kandidater stoppade (181 utan kopplad skördare,
+  23 utan lass, 10 utanför gränsen, 4 redan uppmätta, 1 Skogsystem "kvar −21"; lista i `hist_csv/hist_volym_stoppade.csv`).
+  **Elephant King (inget lass):** kontroll m³/G15 inom 0,5–2,0 × maskinens egen referens (median per åtgärd, Elephant King gammal 2022–2023: slutavverkning 25,1, okänd 22,3, skada 16,8, alla 24,2);
+  17 objekt fyllda, 128 stoppade (`hist_volym_ek_harledd.csv`, `hist_volym_ek_stoppade.csv`).
+  **Gävle 2026:** Elephant Kings skadeobjekt får Giants volym på samma objekt (namn, sedan period; Hushållningssällskapet 1 mot Giant 332, 2 mot Giant 887), EK:s G15 är egen. Sex Giant-objekt
+  (Elisabeth Hanako Leander, Granne Peter, Kenneth Karlsson, Peter Eklund, Ingeröslund, Åkes Magnus Åkerberg) kördes av extern skotare, bekräftat, och ger ingen Elephant-volym.
+  Migrationer `20261012131833_hist_volym_harledd.sql` och `20261012133150_hist_gavle_kalla.sql` (bara vyer; nya sista kolumner i `vy_hist_objekt_bas`, `vy_hist_maskin_ar`).
+  Alla skördares rader i `vy_hist_maskin_ar` var oförändrade före/efter (radjämförelse mot kopia, raderad efter låsning); bara Wisent och Elephant King gammal ändrades.
+- **App:** m³/G15 och viktat index per år: under 25 % av G15 med volym visas ingen siffra ("För lite data", t.ex. Elephant King gammal 2025, 4 %); 25–90 % "baserat på X % av timmarna"; över 90 % bara siffran.
+  Samma regel i listan, diagrammet och jämförelsen, och en siffra under 25 % kan aldrig markeras "bäst". Härledd volym märks "Från skördare" i grå text (nyckeltal, jämförelse, objektlistan);
+  osäker volym märks "Osäker". Lass/G15 för skotare är en egen rad i jämförelsen. G15/timräknare finns bara på maskinsidan.
+- **Kända luckor** (visas som korta grå rader under maskinen i appen, aldrig som fel; text i `KANDA_LUCKOR` i `lib/historik/berakna.ts`):
+  - Skotarvolym saknas i rapporterna från hösten 2024, när skotarna började rapportera i ett annat system. Volymen är härledd från skördare där det gick.
+  - Elephant King gammal 2025–2026 och Elephant King ny saknar skotarvolym i rapporterna (annat system från hösten 2024). Bara enstaka objekt har kunnat få volym från skördare.
+  - Wisent 2026: färre lass per G15 än tidigare år (slutavverkning 1,18 mot 1,52 år 2025). Volymen är bekräftad mot Skogsystem (±2 %), så det är ingen mätfel.
+  - Godsförvaltning juni 2024 (Wisent): cirka 40 h G15 för mycket, inte rättat.
+  - Wisent 2023: fem summeringar utan objektnummer (222 h G15) har ingen volym.
+  - Komatsu 911.3 och 941 AptMan saknar objektnummer, så ingen skotarvolym kan hämtas från dem.
+  - Elephant King gammal 2024: lass saknas för delar av året (lastcertifikat saknas i april, maj och juni–december; februari saknar rapporter helt), därför lass/G15 0,34 mot 1,0 år 2023 och G15/timräknare 0,81.
+  - Gävle 2026: några Giant-objekt kördes av en extern skotare och räknas inte på Elephant King.
+  - Komatsu 830.3 2018–2019: lass/G15 0,18–0,27, troligen saknade lastcertifikat.
+- **Återstår:** Wisent 2025 har volym på 47 % av G15 (39 objekt kvar utan volym); Elephant King gammal 2025/Elephant King ny har nästan ingen volym; R3 (se ovan) körs inte;
+  Godsförvaltning-överskottet kan rättas manuellt; PR och merge till main väntar på Martins ja.
+
+**Kända begränsningar:** Giant 2023/2025 och King ny saknar avbrottsfördelning i formatet (TU = G15 / arbetstid enligt Ponsse). Komatsu 911.3 och
+941 AptMan saknar bränsle. Skotarnas åtgärd är okänd för cirka 850 av objekten. 435 MaxiXplorer-produktionsrapporter (volym utan tider) är
+uppladdade men inte tolkade. Lastcertifikat för Wisent 2025 har volym = antal lass × 1 m³ (flaggat som osäker). Objektnamn har `?` där å/ä/ö inte
+gick att läsa ur ritad text. Kopplingen skotare–skördare har stor spridning (metod c: mittenhälften −12 till +1 % mot skördarens volym), ris/GROT
+kan inte räknas bort (sortiment finns inte i `hist_*`).
+
+**Skript** (`scripts/historik/`, kör i ordning): `hist_underlag.py` → `hist_avbrott.py` → `hist_bygg.py` → `hist_raknas.py` → `hist_korrigering.py` →
+`importera.py` (torrkörning är standard; `--utfor` kräver servicenyckel + `HIST_IMPORT_OK=ja`; vitlista: bara `hist_*` och bucketen `historik`).
+`verifiera_migration.py` bevisar att hist-migrationerna bara rör `hist_*` / `vy_hist_*` och policyn på bucketen `historik`. Mbox och PDF ligger
+aldrig i repot. Migrationerna `20261009155903` … `20261012133150` är körda i prod via MCP (filnamnen har prodens versionsnummer).
+
+**Steg 16 (2026-10-13), prestanda och felmeddelanden — migration `20261013154921_hist_prestanda.sql`:** inloggade har `statement_timeout` 8 s och `vy_hist_objekt_lista` (32 s)
+och `vy_hist_maskin_ar` (24 s) överskred den: sidan visade "canceling statement due to statement timeout". Orsaker: `hist_objekt.dubblett_av` saknade index (tvillinguppslagningen och
+`antal_andra_utskrifter` gjorde Seq Scan per rad) och förartilldelningen i `vy_hist_objekt_index` (`row_number` + `rn = 1`) nested-loopades (14 miljoner bortfiltrerade rader). Åtgärd: partiellt index
+`hist_objekt_dubblett_av_idx`, tvillingen och skiftens lass tas fram en gång som vanliga LEFT JOIN i `vy_hist_objekt_bas`, `DISTINCT ON (sha256)` i `vy_hist_objekt_index`, `ANALYZE` på fyra tabeller.
+Alla nio `vy_hist_`-vyer går nu på under 0,5 s som inloggad admin (mätt med EXPLAIN ANALYZE under 8 s-gränsen). Raderna är desamma; **`vy_hist_normkurva` skiljer sig i sista decimalerna**
+(regressionen summerar `double precision` i radordning, och en ny plan ger en annan ordning: b = 0,7364076124465956 → 0,7364076124464916), och därmed `forvantad_m3_per_g15`/`index` i `objekt_lista`/`objekt_index` från ca 12:e
+decimalen. Avrundat till 8 decimaler är hasharna identiska; alla andra kolumner och `vy_hist_maskin_ar` är bit för bit lika. Felen i appen: 57014 säger "Det tog för lång tid att hämta historiken. Försök igen om en stund.",
+behörighetstexten visas bara vid 42501 eller tomt svar (RLS), och databasens egen text visas aldrig (loggas i konsolen). `lib/historik/fel.ts`, vakt i `components/historik/Historik.render.test.tsx`.
+
+**Steg 17 (2026-10-14), förklaringen av index:** en ⓘ-knapp (`components/historik/IndexInfo.tsx`, EN komponent) direkt efter ordet Index på startlistan, maskinsidan ("År för år · viktat index"), årslistan och i jämförelsen
+(förklaringsraden och rubriken "Viktat index år för år"). Tryck öppnar bladet "Vad är index?" i appens vanliga bottenblad (`components/Sheet.tsx`, nu med valfri `dragNedStanger`: drag nedåt i greppet stänger; övriga sheets oförändrade).
+Tabellen (medelstam 0,08/0,12/0,16 för gallring, 0,25/0,40/0,60 för slutavverkning) och exemplet (medelstam 0,12 resp. 0,40; "maskinen gjorde" = normalt × 1,1, avrundat) RÄKNAS ur `vy_hist_normkurva` (variant `g15-viktad`)
+med samma uttryck som `vy_hist_objekt_index.forvantad_m3_per_g15`: `exp(a + b · ln(medelstam))` (`lib/historik/indexForklaring.ts`, hämtas när bladet öppnas). Inga normalvärden är hårdkodade; antalet objekt ("679 i gallring, 896 i slutavverkning")
+kommer ur vyns `n` och åren ur `vy_hist_maskin_ar` (åren med objekt med index, urval 'namn'; visas bara om summan av `antal_med_index` är exakt kurvans `n`, annars står bara antalet): "Räknat från 896 egna slutavverkningar 2012–2026." Bladet visar den åtgärd man står i, och båda i jämförelsen.
+Exemplet har bara hela tal och index räknas från de avrundade talen ("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 30 → index 111."). Skotare: EN mening, konstanten `SKOTARE_UTAN_INDEX` (`lib/historik/indexForklaring.ts`) i bladet, på startlistan och i
+jämförelsen: "Skotare får inget index. Det som styr en skotare är skotningsavståndet, och det finns inte i rapporterna." (`hist_*` har ingen avståndskolumn.) Bladets övriga sheets är oförändrade: `dragNedStanger` är av som standard.
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,

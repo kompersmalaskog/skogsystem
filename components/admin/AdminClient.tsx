@@ -84,6 +84,12 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
           <Ikon namn="add" farg={FARG.text} />
           <span>Ny medarbetare</span>
         </button>
+        {currentUser.roll === "admin" && (
+          <a href="/admin/historik" className="adm-post" style={{ ...postStil(false), textDecoration: "none", boxSizing: "border-box" }}>
+            <Ikon namn="history" farg={FARG.text2} />
+            <span>Historik</span>
+          </a>
+        )}
         <div style={{ flex: 1 }} />
         <div style={{ ...TYP.meta, color: FARG.text3, padding: `0 ${AVSTAND.m}px` }}>{currentUser.namn || "—"} · admin</div>
       </aside>
@@ -94,7 +100,7 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
             {!nyMedarbetare && <Titel>{aktiv.label}</Titel>}
             {nav.flik === "oversikt"    && <Oversikt att={att} />}
             {nav.flik === "medarbetare" && <MedarbetareFlik />}
-            {nav.flik === "maskiner"    && <MaskinerFlik />}
+            {nav.flik === "maskiner"    && <MaskinerFlik visaHistorik={currentUser.roll === "admin"} />}
             {nav.flik === "lon"         && <LonFlik currentUser={currentUser} />}
             {nav.flik === "avtal"       && <AvtalFlik currentUser={currentUser} />}
           </div>

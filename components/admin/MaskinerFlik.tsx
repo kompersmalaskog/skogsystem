@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
 import { maskinSomUrl } from "@/lib/maskinSom";
@@ -67,7 +68,7 @@ function datumFel(s: string, etikett: string): string | null {
   return null;
 }
 
-export default function MaskinerFlik() {
+export default function MaskinerFlik({ visaHistorik = false }: { visaHistorik?: boolean }) {
   // Vilken maskin som är öppen står i adressen (?maskin=…).
   const { nav, gaTill } = useAdminNav();
   const valdId = nav.params.maskin || null;
@@ -144,18 +145,20 @@ export default function MaskinerFlik() {
     );
   }
 
-  return <ListaVy maskiner={maskiner} filinfo={filinfo} onValj={oppna} />;
+  return <ListaVy maskiner={maskiner} filinfo={filinfo} onValj={oppna} visaHistorik={visaHistorik} />;
 }
 
 /* ─── LISTA ─── */
 
 function ListaVy({
-  maskiner, filinfo, onValj,
+  maskiner, filinfo, onValj, visaHistorik,
 }: {
   maskiner: Maskin[];
   filinfo: Record<string, FilInfo>;
   onValj: (id: string) => void;
+  visaHistorik: boolean;
 }) {
+  const router = useRouter();
   // Status ur DATUM/BEKRÄFTELSE, aldrig ur filtystnad (en tyst maskin kan vara
   // på semester, inte ur drift). Obekräftad = Väntar; aktiv_till satt = Ur drift.
   const obekraftade = maskiner.filter(m => !m.bekraftad && !m.aktiv_till);
@@ -200,6 +203,16 @@ function ListaVy({
           <Sektion>Ur drift ({urDrift.length})</Sektion>
           <Lista>
             {urDrift.map((m, i) => <MaskinRad key={m.maskin_id} m={m} sist={i === urDrift.length - 1} onValj={onValj} grattonad />)}
+          </Lista>
+        </>
+      )}
+
+      {/* Bara admin (datormenyn har samma länk). Telefonen har ingen sjätte flik, så ingången bor här. */}
+      {visaHistorik && (
+        <>
+          <Sektion>Arkiv</Sektion>
+          <Lista>
+            <Rad onClick={() => router.push("/admin/historik")} sista rubrik="Produktionshistorik" detalj="2011–2026" chevron />
           </Lista>
         </>
       )}

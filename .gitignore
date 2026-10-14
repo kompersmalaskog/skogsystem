@@ -89,3 +89,8 @@ diameter_utfall.json
 diameter_verifiering.json
 .diameter_lasta.json
 .rotkap_utfall.json
+
+# Historik-inventering: mejlexporter och PDF:er ska aldrig in i repot
+*.mbox
+scripts/historik/**/*.pdf
+/takeout-*/

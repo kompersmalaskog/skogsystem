@@ -15,7 +15,7 @@ import { analyseraVilobrott, medPerioddagSpann } from "@/lib/vilobrott";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { byggArbetstid } from "@/lib/arbetstidsgranser";
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => (globalThis as any).__sp }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => (globalThis as any).__sp, useRouter: () => ({ push: (u: string) => { (globalThis as any).__push.push(u); } }) }));
 
 // Datahälsas leverans-regel är EN delad sanning (useDatahalsa). Testet styr vad den svarar.
 vi.mock("@/app/datahalsa/useDatahalsa", () => ({
@@ -448,6 +448,27 @@ describe("Maskiner", () => {
     await klick("Ja, ta ur drift");
     const skr = g.__skriv.find((s: any) => s.tabell === "dim_maskin");
     expect(skr.vals.aktiv_till).toBe("2026-07-01");
+  });
+});
+
+describe("Maskiner: ingång till Produktionshistorik", () => {
+  it("admin ser raden Produktionshistorik (2011–2026) i Maskiner, och trycket går till /admin/historik", async () => {
+    g.__push = [];
+    await monter("flik=maskiner");
+    expect(blad("Produktionshistorik").length).toBeGreaterThan(0);
+    expect(text()).toContain("2011–2026");
+    await klick("Produktionshistorik");
+    expect(g.__push).toEqual(["/admin/historik"]);
+  });
+  it("förare ser ingen rad", async () => {
+    g.__push = [];
+    await monter("flik=maskiner", <AdminClient currentUser={{ id: "m1", namn: "Anna Berg", roll: "forare" }} />);
+    expect(blad("Rottne H8E").length).toBeGreaterThan(0);
+    expect(text()).not.toContain("Produktionshistorik");
+  });
+  it("raden finns bara i listan, inte inne på en maskin", async () => {
+    await monter("flik=maskiner&maskin=R64101");
+    expect(text()).not.toContain("Produktionshistorik");
   });
 });
 
