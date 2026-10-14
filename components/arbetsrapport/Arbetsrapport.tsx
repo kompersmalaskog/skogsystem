@@ -13,6 +13,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { byggArbetsObjektLista } from "@/lib/arbetsobjekt";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
+import { byggAvtalGrupper } from "@/lib/avtalVy";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
@@ -869,7 +870,7 @@ export default function Arbetsrapport() {
   const [fortnoxSaldo, setFortnoxSaldo] = useState<{
     semester:{betalda:number;obetalda:number;sparade:number;uttagna:number;kvar:number};
     atk:{saldo_kr:number;timmar:number|null};
-    lon:{timlon:number};
+    lon:{timlon:number|null};
   } | null>(null);
   // 'tom' = anropet lyckades men medarbetaren saknar lönesystem-koppling (404)
   // — inte samma sak som 'error' (nätverk/Fortnox nere/timeout).
@@ -5436,7 +5437,7 @@ export default function Arbetsrapport() {
         <Card onClick={()=>setSteg("avtal")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:24 }}>
           <div>
             <p style={{ margin:0,...TYPE.bodyList }}>Mitt avtal</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'GS-avtalet'}</p>
+            {gsAvtal?.namn && <p style={{ margin:`${AVSTAND.xs / 2}px 0 0`,...TYP.meta,color:C.label }}>{gsAvtal.namn}</p>}
           </div>
           <ChevronRight/>
         </Card>
@@ -5596,50 +5597,16 @@ export default function Arbetsrapport() {
           <BackBtn onClick={()=>setSteg("inst")}/>
           <div>
             <h1 style={{ margin:0,...TYPE.h1 }}>Mitt avtal</h1>
-            <p style={{ margin:"4px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'Skogsavtalet 2025-2027'}</p>
+            {gsAvtal?.namn && <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:C.label }}>{gsAvtal.namn}</p>}
           </div>
         </div>
       </div>
       <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:SCROLL_BOTTOM }}>
-        {[
-          {rubrik:"Avtalsperiod",rader:[
-            ["Avtal",gsAvtal?.namn||"Skogsavtalet 2025-2027"],
-            ["Gäller","1 apr 2025 – 31 mar 2027"],
-          ]},
-          {rubrik:"Övertid",rader:[
-            ["Max övertid",`${gsAvtal?.max_overtid_ar_h??250} tim/år`],
-          ]},
-          // Kr-satser (övertid, OB, färdmedel, färdtid) borttagna — satser ägs av
-          // lönesystemet/Fortnox, inte appen. Färdmedelsersättningen (27,50 kr/mil)
-          // skickades dessutom aldrig i exporten = ett löfte systemet inte höll.
-          // Km-gränsen är en MÄNGD (km/dag) och står kvar.
-          {rubrik:"Färdmedel & färdtid",rader:[
-            ["Km-gräns",`${gsAvtal?.km_grans_per_dag??60} km/dag`],
-          ]},
-          {rubrik:"ATK",rader:[
-            ["Avsättning",`${gsAvtal?.atk_procent??3.62}% (uttagsår ${gsAvtal?.atk_period??'2025-2026'})`],
-            ["Nästa period",`${gsAvtal?.atk_procent_nasta??3.92}%`],
-            ["Ledig tid",`${gsAvtal?.atk_ledig_tim??65.2} tim/år`],
-            ["Pension-tillägg","+20%"],
-          ]},
-          // Traktamente-belopp (kr) borttagna — beloppen ägs av lönesystemet.
-          // Föraren markerar hel/halvdag i dagsvyn; kronorna räknas i Fortnox.
-          {rubrik:"Sjuklön",rader:[
-            ["Ersättning","80% av lön efter karens"],
-          ]},
-          {rubrik:"Semester",rader:[
-            ["Semesterdagar","25 dagar/år"],
-            ["Intjäningsår","1 april – 31 mars"],
-            ["Ersättning tidsbegränsad","13%"],
-          ]},
-          {rubrik:"Helglön (timavlönade)",rader:[
-            ["Dagar","Nyårsdagen, Trettondagen, Långfredagen, Annandag påsk, 1 maj, Kristi himmelf., Nationaldagen, Midsommarafton, Julafton, Juldagen, Annandag jul, Nyårsafton"],
-          ]},
-          {rubrik:"Övriga tillägg",rader:[
-            ["Skifttillägg",`${gsAvtal?.skifttillagg_kr??8.00} kr/tim`],
-            ["Bortovaro >12h",`${gsAvtal?.bortovaro_kr??8.03} kr/tim`],
-          ]},
-        ].map(({rubrik,rader})=>(
+        {/* Värdena byggs i lib/avtalVy ur riktiga gs_avtal-kolumner; saknas ett värde står "–", aldrig en reserv.
+            Kr-satser (övertid, OB, färdmedel, färdtid, traktamente) visas inte — satser ägs av lönesystemet/Fortnox,
+            inte appen. Färdmedelsersättningen (27,50 kr/mil) skickades dessutom aldrig i exporten = ett löfte systemet
+            inte höll. Km-gränsen är en MÄNGD (km/dag) och står kvar. Föraren markerar hel/halvdag i dagsvyn. */}
+        {byggAvtalGrupper(gsAvtal).map(({rubrik,rader})=>(
           <div key={rubrik} style={{ marginBottom:20 }}>
             <Label>{rubrik}</Label>
             <Card style={{ padding:"4px 20px" }}>
@@ -5656,7 +5623,9 @@ export default function Arbetsrapport() {
           Läs hela avtalet →
         </button>
         <div style={{ background:"rgba(10,132,255,0.08)",borderRadius:12,padding:"14px 16px",marginBottom:24,border:"1px solid rgba(10,132,255,0.15)" }}>
-          <p style={{ margin:0,fontSize:13,color:C.blue,fontWeight:500 }}>Värdena hämtas från Supabase och uppdateras automatiskt om avtalet ändras.</p>
+          {gsAvtal
+            ? <p style={{ margin:0,...TYPE.meta,color:C.blue }}>Värdena hämtas från databasen och uppdateras automatiskt om avtalet ändras. Ett – betyder att värdet inte finns registrerat i avtalet.</p>
+            : <p style={{ margin:0,...TYPE.meta,color:C.blue }}>Avtalet kunde inte läsas just nu, därför står det – på alla rader. Starta om appen; står det kvar, säg till Martin.</p>}
         </div>
       </div>
     </div>
