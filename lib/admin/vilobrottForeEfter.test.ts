@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fixtur from "@/lib/__fixtures__/vilobrott_fore_efter_exempel.json";
-import { jamforVilobrott, rapportText, type Analys, type ForeEfterExport } from "./vilobrottForeEfter";
+import { FORE_REF_STANDARD, jamforVilobrott, rapportText, tolkaArgument, type Analys, type ForeEfterExport } from "./vilobrottForeEfter";
 import type { Vilobrott } from "@/lib/vilobrott";
 
 const A = "a0000000-0000-0000-0000-000000000001";
@@ -138,5 +138,27 @@ describe("exempelunderlaget med de riktiga analyserna (nya) — varje slags skil
     const nu = sthlmVaggklocka(new Date(e.nu))!;
     const alla = e.medarbetare.flatMap(m => analyseraVilobrott(medPerioddagSpann(e.arbetsdag.filter(d => d.medarbetare_id === m.id), []), e.trosklar, nu).filter(arTroligtVilobrott));
     expect(alla.map(b => `${b.typ}:${b.datum}`)).toEqual(["dygnsvila:2026-10-05"]);
+  });
+});
+
+describe("tolkaArgument — kommandoraden", () => {
+  it("utan argument: ingen fil (exempeldatan) och standardversionen", () => {
+    expect(tolkaArgument([])).toEqual({ fil: undefined, foreRef: FORE_REF_STANDARD });
+  });
+  it("BARA en fil, utan --fore-ref: filen används (felet: indexet -1 uteslöt första argumentet)", () => {
+    expect(tolkaArgument(["export.json"])).toEqual({ fil: "export.json", foreRef: FORE_REF_STANDARD });
+  });
+  it("fil + --fore-ref, i båda ordningarna", () => {
+    expect(tolkaArgument(["export.json", "--fore-ref", "abc123"])).toEqual({ fil: "export.json", foreRef: "abc123" });
+    expect(tolkaArgument(["--fore-ref", "abc123", "export.json"])).toEqual({ fil: "export.json", foreRef: "abc123" });
+  });
+  it("bara --fore-ref: exempeldatan med vald version", () => {
+    expect(tolkaArgument(["--fore-ref", "abc123"])).toEqual({ fil: undefined, foreRef: "abc123" });
+  });
+  it("saknat flaggvärde, okänd flagga och två filer är fel — aldrig tyst ignorerade", () => {
+    expect(() => tolkaArgument(["export.json", "--fore-ref"])).toThrow(/saknar värde/);
+    expect(() => tolkaArgument(["--fore-ref", "--annat"])).toThrow(/saknar värde/);
+    expect(() => tolkaArgument(["--fore-reff", "x"])).toThrow(/Okänd flagga/);
+    expect(() => tolkaArgument(["a.json", "b.json"])).toThrow(/Bara en exportfil/);
   });
 });

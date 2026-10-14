@@ -62,6 +62,35 @@ export type ForeEfterResultat = {
   lagrade: LagradEffekt[];
 };
 
+/** Standardversion för "före": sista commit före de gemensamma vilareglerna. */
+export const FORE_REF_STANDARD = "39ce42b";
+
+/**
+ * Kommandoradens argument för scripts/vilobrott-fore-efter.ts: valfri exportfil + `--fore-ref <commit>`, i valfri ordning.
+ * (Felet 2026-10-14: utan --fore-ref blev indexet -1 och filen räknades som flaggans värde — exempeldatan kördes i tysthet i stället för
+ * exporten. Därför är tolkningen en egen, testad funktion.) Okända flaggor och en saknad flaggvärde är fel, aldrig tyst ignorerade.
+ */
+export function tolkaArgument(args: string[]): { fil: string | undefined; foreRef: string } {
+  let fil: string | undefined;
+  let foreRef = FORE_REF_STANDARD;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--fore-ref") {
+      const v = args[i + 1];
+      if (!v || v.startsWith("--")) throw new Error("--fore-ref saknar värde (en commit eller gren)");
+      foreRef = v;
+      i++;
+    } else if (a.startsWith("--")) {
+      throw new Error(`Okänd flagga: ${a}`);
+    } else if (fil !== undefined) {
+      throw new Error(`Bara en exportfil kan anges (fick både ${fil} och ${a})`);
+    } else {
+      fil = a;
+    }
+  }
+  return { fil, foreRef };
+}
+
 const nyckel = (m: string, typ: string, datum: string) => `${m}|${typ}|${datum}`;
 const dagTid = (t: string | null | undefined) => (t ? String(t).slice(0, 5) : "");
 const minuter = (t: string) => { const m = t.match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
