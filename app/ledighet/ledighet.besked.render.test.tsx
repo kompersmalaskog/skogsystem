@@ -112,7 +112,7 @@ describe("Beskedsvyn — godkänd", () => {
     expect(v).not.toBeNull();
     expect(v.getAttribute("data-besked")).toBe("godkand");
     expect(v.textContent).toContain("Din semester är godkänd");
-    expect(v.querySelector("[data-besked-period]")!.textContent).toBe("2 – 6 november");
+    expect(v.querySelector("[data-besked-period]")!.textContent).toBe("2\u00A0– 6\u00A0november"); // fasta mellanrum: dag+månad hålls ihop
     expect(v.textContent).toContain("5 arbetsdagar");
     expect(v.textContent).toContain("Ha en skön ledighet!");
     expect(v.textContent).toContain("check"); // ikonen (Material Symbols-ligatur)
@@ -155,13 +155,35 @@ describe("Beskedsvyn — godkänd", () => {
   });
 });
 
+describe("Beskedsvyn — datumet över årsskiftet bryts aldrig mitt i (29 dec – 2 jan)", () => {
+  const NB = "\u00A0";
+  const ARSSKIFTE = { startdatum: "2099-12-29", slutdatum: "2100-01-02" };
+
+  it("godkänd: dag+månad hålls ihop ('2 januari') och tankstrecket följer med första datumet — enda mellanrummet att bryta på är efter strecket", async () => {
+    h.rpc.ledighet_prick = nya(["a1"]);
+    await visa("/ledighet?besked=a1", friska([ANSOKAN("a1", "m-1", "godkänd", ARSSKIFTE)]));
+    const period = besked()!.querySelector("[data-besked-period]")!.textContent!;
+    expect(period).toBe(`29${NB}december${NB}– 2${NB}januari`);
+    expect(period.split(" ")).toEqual([`29${NB}december${NB}–`, `2${NB}januari`]);
+  });
+
+  it("nekad: samma i meningen — '29 december –' och '2 januari' hålls ihop var för sig", async () => {
+    h.rpc.ledighet_prick = nya(["n1"]);
+    await visa("/ledighet?besked=n1", friska([ANSOKAN("n1", "m-1", "nekad", ARSSKIFTE)]));
+    const mening = besked()!.querySelector("h1")!.textContent!;
+    expect(mening).toContain(`29${NB}december${NB}–`);
+    expect(mening).toContain(`2${NB}januari gick inte igenom.`);
+    expect(mening).not.toMatch(/\d [a-zåäö]/i); // inget vanligt mellanrum mellan siffra och månad
+  });
+});
+
 describe("Beskedsvyn — nekad: stillsam", () => {
   it("en saklig mening, dämpad ikon, ingen bock, inget rött, inget 'tyvärr', ingen 'prata med någon'", async () => {
     h.rpc.ledighet_prick = nya(["n1"]);
     await visa("/ledighet?besked=n1", friska([ANSOKAN("n1", "m-1", "nekad")]));
     const v = besked()!;
     expect(v.getAttribute("data-besked")).toBe("nekad");
-    expect(v.textContent).toContain("Din ansökan 2 – 6 november gick inte igenom.");
+    expect((v.textContent ?? "").replace(/\u00A0/g, " ")).toContain("Din ansökan 2 – 6 november gick inte igenom.");
     expect(v.textContent).toContain("event_busy");
     expect(v.textContent).not.toContain("check");
     expect(v.textContent).not.toContain("godkänd");

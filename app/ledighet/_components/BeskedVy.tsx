@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import { AVSTAND, FARG, IKON, KNAPP, KOLUMN, RADIE, TNUM, TYP, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import { Ikon } from './delar';
-import { beskedText, type BeskedBeslut } from './besked';
+import { beskedText, utanBrott, type BeskedBeslut } from './besked';
 
 /**
  * Beskedsvyn — det en beslutsnotis lovar. EN skärm, EN sak: beskedet, och vägen vidare.
@@ -40,7 +40,7 @@ export default function BeskedVy({ a, onTillVyn, onAnsokIgen }: {
                 <Ikon namn="check" storlek={IKON.stor / 2} farg={FARG.bg} />
               </div>
               <h1 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>{t.rubrik}</h1>
-              <p data-besked-period style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.tal, color: FARG.text }}>{t.period}</p>
+              <p data-besked-period style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.tal, color: FARG.text }}>{utanBrott(t.period)}</p>
               {t.langd && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text, ...TNUM, color: FARG.text2 }}>{t.langd}</p>}
               <p style={{ margin: `${AVSTAND.xl}px 0 0`, ...TYP.text, color: FARG.text }}>{t.hals}</p>
             </>
@@ -49,7 +49,7 @@ export default function BeskedVy({ a, onTillVyn, onAnsokIgen }: {
               <div className="tona-in" style={{ marginBottom: AVSTAND.xl }}>
                 <Ikon namn="event_busy" storlek={IKON.stor} farg={FARG.text2} />
               </div>
-              <h1 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>{t.rubrik}</h1>
+              <h1 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>{utanBrott(t.rubrik)}</h1>
             </>
           )}
         </div>

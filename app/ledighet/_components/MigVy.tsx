@@ -162,6 +162,11 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     setFormOppen(true);
   };
 
+  // Godkänd ledighet är låst — sägs EN gång per grupp som innehåller en (inte på varje rad).
+  const lastNot = (lista: Ansokan[]) => (lista.some(a => a.status === 'godkänd')
+    ? <><Ikon namn="lock" />Godkänd ledighet är låst — ändringar går via admin</>
+    : undefined);
+
   const rader = (lista: Ansokan[], extra: { tidigare?: boolean; redigera?: boolean }) => lista.map((a, i) => (
     <AnsokanRad key={a.id} a={a} arEgen tidigare={extra.tidigare} sista={i === lista.length - 1}
       domId={`ansokan-${a.id}`} markerad={markerad === `ansokan-${a.id}`}
@@ -180,7 +185,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
       {/* Besked jag inte sett (och ansökan en notis pekade på) ÖVERST — inte under saldot och Ansök-knappen,
           där det hamnar under vikningen på en telefon. Pricken på hemskärmen pekar hit. */}
       {!laddar && !lasfel && toppRader.length > 0 && (
-        <Grupp rubrik={toppRubrik}>{rader(toppRader, {})}</Grupp>
+        <Grupp rubrik={toppRubrik} not={lastNot(toppRader)}>{rader(toppRader, {})}</Grupp>
       )}
 
       {arGodkannare && !lasfel && (
@@ -215,7 +220,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
 
             {/* 2. Kommande ledighet — beviljad, ej passerad; låst men synlig */}
             {kommandeLedighet.length > 0 && (
-              <Grupp rubrik="Kommande ledighet">{rader(kommandeLedighet, {})}</Grupp>
+              <Grupp rubrik="Kommande ledighet" not={lastNot(kommandeLedighet)}>{rader(kommandeLedighet, {})}</Grupp>
             )}
 
             {/* 3. Historik — passerat (och avslag); hopfälld så den inte tar plats */}

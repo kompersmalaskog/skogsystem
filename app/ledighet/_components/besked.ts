@@ -12,6 +12,15 @@ import type { Ansokan } from './typer';
 /** Hur länge vyn väntar på serverns svar om vad som är nytt, innan den ger upp och visar ledighetsvyn som vanligt. */
 export const BESKED_MAX_VANTAN_MS = 6000;
 
+/**
+ * Håller ihop dag och månad ("2 januari") och tankstrecket med datumet före ("29 december –"): ett datum bryts aldrig
+ * mitt i, och en period bryts bara EFTER tankstrecket. Utan det blev 32 px-perioden "29 december – 2 / januari" på
+ * en telefon — dagen på ena raden, månaden på nästa. Ren textfunktion (U+00A0), ingen layout.
+ */
+export function utanBrott(text: string): string {
+  return text.replace(/ – /g, '\u00A0– ').replace(/(\d) (?=[A-Za-zÅÄÖåäö])/g, '$1\u00A0');
+}
+
 export type BeskedBeslut = Ansokan & { status: 'godkänd' | 'nekad' };
 
 export function valjBesked(p: { besked: string | null; mina: Ansokan[]; nyaIds: string[] }): BeskedBeslut | null {

@@ -3,10 +3,10 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { raderaVerifierat } from '@/lib/supabase-save';
-import { AVSTAND, FARG, KNAPP, KORT, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import { AVSTAND, FARG, KNAPP, KORT, RADIE, TNUM, TRAFFYTA, TYP, VIKT, overgang } from '@/lib/design/tokens';
 import { MANADSNAMN, arHelg, arRodDag, fmtPeriod, toISO } from './datum';
 import { useSchemaData, type SchemaStopp } from './useSchemaData';
-import { AVDELARE_H, HUVUD_H, MASKIN_H, NAMN_W, PERSON_H, schemaDagar } from './schemaMatt';
+import { AVDELARE_H, HUVUD_H, MASKIN_H, NAMN_W, PERSON_H, merAttSeAtHoger, schemaDagar } from './schemaMatt';
 import StoppFormular from './StoppFormular';
 import StoppDetalj from './StoppDetalj';
 import { Ikon, KORT_TEXTKNAPP, LasFel, StatusText } from './delar';
@@ -68,6 +68,14 @@ export default function SchemaVy({
     return () => ro.disconnect();
   }, [laddar, lasfel]);
   const { antal, dagBredd } = schemaDagar(kolumnBredd);
+
+  // Mer att se åt höger? Då tonar rutans högerkant ut — den enda antydan om att det går att svepa i sidled (telefon).
+  const [merAtHoger, setMerAtHoger] = useState(false);
+  const uppdateraSkroll = () => {
+    const el = ramRef.current;
+    if (el) setMerAtHoger(merAttSeAtHoger(el.scrollLeft, el.clientWidth, el.scrollWidth));
+  };
+  useLayoutEffect(uppdateraSkroll, [laddar, lasfel, antal, dagBredd, kolumnBredd, personer.length, maskiner.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bekräftelsen sker i StoppDetalj ("Nej / Ja, ta bort") — hit kommer vi först när godkännaren sagt ja.
   const taBortStopp = async (s: SchemaStopp) => {
@@ -156,8 +164,21 @@ export default function SchemaVy({
         </button>
       )}
 
+      {/* Teckenförklaring ÖVERST, över tabellen (alla bredder): färgen i staplarna är värdelös utan den. Ord bär, färgen förstärker.
+          "Tomt = på jobbet" står kvar bredvid, så grönt aldrig kan läsas som "på jobbet". */}
+      <div style={{ display: 'flex', gap: AVSTAND.l, flexWrap: 'wrap', marginBottom: AVSTAND.s, padding: `0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+          <span aria-hidden style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: RADIE.stapel, background: FARG.gron, display: 'inline-block' }} />Ledig
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+          <span aria-hidden style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: RADIE.stapel, background: FARG.rod, display: 'inline-block' }} />Maskinstopp
+        </span>
+        <span>Tomt = på jobbet</span>
+      </div>
+
       {/* Tidslinjen — på telefon scroll i sidled bakom fast namnkolumn, på bred skärm ryms den */}
-      <div ref={ramRef} style={{ ...KORT, padding: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <div style={{ position: 'relative' }}>
+      <div ref={ramRef} onScroll={uppdateraSkroll} data-schema-ram style={{ ...KORT, padding: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
         <div style={{ width: NAMN_W + gridBredd }}>
 
           {/* Rubrikrad: veckodag + dagnummer (månadsbyte visar månad) */}
@@ -176,10 +197,10 @@ export default function SchemaVy({
                     borderRight: `1px solid ${FARG.tonad}`, borderBottom: `1px solid ${FARG.linje}`,
                     background: dagBakgrund(iso),
                   }}>
-                    <span style={{ ...TYP.micro, color: helgdag ? FARG.rod : FARG.text2 }}>
+                    <span style={{ ...TYP.micro, color: helgdag ? FARG.rod : arIdag ? FARG.text : FARG.text2 }}>
                       {forstaIManad ? MANADSNAMN[d.getMonth()].substring(0, 3) : VECKOBOKSTAV[d.getDay()]}
                     </span>
-                    <span style={{ ...TYP.meta, ...TNUM, fontWeight: arIdag ? VIKT.halvfet : VIKT.normal, color: arIdag ? FARG.bla : helgdag ? FARG.rod : FARG.text }}>
+                    <span style={{ ...TYP.meta, ...TNUM, fontWeight: arIdag ? VIKT.halvfet : VIKT.normal, color: arIdag ? FARG.text : helgdag ? FARG.rod : FARG.text }}>
                       {d.getDate()}
                     </span>
                   </div>
@@ -259,18 +280,11 @@ export default function SchemaVy({
           })}
         </div>
       </div>
-
-      {/* Teckenförklaring — ord bär, färgen förstärker */}
-      <div style={{ display: 'flex', gap: AVSTAND.l, flexWrap: 'wrap', marginTop: AVSTAND.m, padding: `0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
-          <span aria-hidden style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: RADIE.stapel, background: FARG.gron, display: 'inline-block' }} />Ledig
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
-          <span aria-hidden style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: RADIE.stapel, background: FARG.rod, display: 'inline-block' }} />Maskinstopp
-        </span>
-        <span>Tomt = på jobbet</span>
-        {arGodkannare && <span>Tryck på ett rött block för att se stoppet eller ta bort det</span>}
+        {/* Högerkanten tonar ut när fler dagar väntar åt höger; försvinner när man svept till slutet. Rör inte tryck (pointer-events). */}
+        <div aria-hidden data-schema-mer={merAtHoger ? 'ja' : 'nej'} style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: AVSTAND.xxl, pointerEvents: 'none', borderRadius: `0 ${RADIE.kort}px ${RADIE.kort}px 0`, background: `linear-gradient(to right, transparent, ${FARG.kort})`, opacity: merAtHoger ? 1 : 0, transition: overgang('opacity') }} />
       </div>
+
+      {arGodkannare && <p style={{ margin: `${AVSTAND.m}px 0 0`, padding: `0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>Tryck på ett rött block för att se stoppet eller ta bort det</p>}
 
       {stoppFormOppen && egenMedarbetareId && (
         <StoppFormular

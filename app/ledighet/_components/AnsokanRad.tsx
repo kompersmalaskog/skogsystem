@@ -37,7 +37,7 @@ function statusAv(a: Ansokan, tidigare: boolean): { ord: string; farg: string } 
  */
 export default function AnsokanRad({
   a, visaNamn = false, arEgen = false, tidigare = false, sista = false,
-  onRedigera, onTaBort, onHantera, hanterar = false, domId, markerad = false,
+  onRedigera, onTaBort, onHantera, hanterar = false, domId, markerad = false, dolStatus = false,
 }: {
   a: Ansokan;
   visaNamn?: boolean;
@@ -52,6 +52,8 @@ export default function AnsokanRad({
   domId?: string;
   /** Markerad en stund efter att en notis tagit dig hit; tonar ut när den blir false. */
   markerad?: boolean;
+  /** Dölj statusordet: i godkänn-listan väntar alla rader, så "Väntar" på varje rad är bara brus. */
+  dolStatus?: boolean;
 }) {
   const [bekrafta, setBekrafta] = useState<null | 'bort' | 'neka'>(null);
   const status = statusAv(a, tidigare);
@@ -80,7 +82,7 @@ export default function AnsokanRad({
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: AVSTAND.s }}>
         {/* Perioden är rubriken — det man letar efter */}
         <span style={{ ...TYP.listtitel, ...TNUM, color: textfarg }}>{fmtPeriod(a.startdatum, a.slutdatum)}</span>
-        <Status ord={status.ord} farg={status.farg} />
+        {!dolStatus && <Status ord={status.ord} farg={status.farg} />}
       </div>
       <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{fmtLangdTyp(a)}</p>
 
@@ -113,12 +115,7 @@ export default function AnsokanRad({
           </div>
         ))}
 
-      {/* Godkänd (kommande): förklara låset, visa inte bara tomt */}
-      {arEgen && a.status === 'godkänd' && !tidigare && (
-        <p style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
-          <Ikon namn="lock" />Låst — ändringar går via admin
-        </p>
-      )}
+      {/* Godkänd (kommande) är låst — det säger GRUPPEN en gång (MigVy, `not` på Grupp), inte varje rad. */}
 
       {/* Godkännar-läge (väntande i godkänn-listan): Godkänn är sekundär, Neka destruktiv + bekräftelse */}
       {onHantera && a.status === 'väntar' && (bekrafta === 'neka'

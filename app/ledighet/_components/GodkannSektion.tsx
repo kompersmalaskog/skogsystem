@@ -62,6 +62,7 @@ export default function GodkannSektion({
               domId={`godkann-${a.id}`}
               markerad={markeradDomId === `godkann-${a.id}`}
               visaNamn
+              dolStatus
               sista={i === vantande.length - 1}
               onHantera={hantera}
               hanterar={hanterarId === a.id}

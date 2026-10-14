@@ -120,9 +120,9 @@ export default function ValjKalender({
                   width: DAGRUTA, height: DAGRUTA, borderRadius: RADIE.cirkel,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   background: iSpann ? (arKant ? FARG.text : FARG.fyllning) : 'transparent',
-                  boxShadow: arIdag && !arKant ? `inset 0 0 0 2px ${FARG.bla}` : 'none',
+                  boxShadow: arIdag && !arKant ? `inset 0 0 0 2px ${FARG.text2}` : 'none', // dagens datum: ring i dämpad text + halvfet — inte navigeringsblå
                   ...TYP.text, ...TNUM,
-                  fontWeight: arKant ? VIKT.fet : VIKT.normal,
+                  fontWeight: arKant ? VIKT.fet : arIdag ? VIKT.halvfet : VIKT.normal,
                   color: arKant ? FARG.bg : ledigDag ? FARG.rod : FARG.text,
                 }}>
                   {dag}

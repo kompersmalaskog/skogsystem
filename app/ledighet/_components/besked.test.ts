@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BESKED_MAX_VANTAN_MS, beskedLangd, beskedText, forvaldTyp, valjBesked, type BeskedBeslut } from "./besked";
+import { BESKED_MAX_VANTAN_MS, beskedLangd, beskedText, forvaldTyp, utanBrott, valjBesked, type BeskedBeslut } from "./besked";
 import type { Ansokan } from "./typer";
 
 const A = (over: Partial<Ansokan> = {}): Ansokan => ({
@@ -77,5 +77,27 @@ describe("forvaldTyp — typen följer med till 'Ansök om andra datum'", () => 
     expect(forvaldTyp({ typ: "atk" })).toBe("atk");
     expect(forvaldTyp({ typ: "inarbetad" })).toBeNull();
     expect(forvaldTyp({ typ: "komp" })).toBeNull();
+  });
+});
+
+describe("utanBrott — ett datum bryts aldrig mitt i, en period bara efter tankstrecket", () => {
+  const NB = "\u00A0";
+  it("dag+månad hålls ihop och tankstrecket följer med datumet före", () => {
+    expect(utanBrott("29 december – 2 januari")).toBe(`29${NB}december${NB}– 2${NB}januari`);
+    expect(utanBrott("2 – 6 november")).toBe(`2${NB}– 6${NB}november`);
+    expect(utanBrott("3 november")).toBe(`3${NB}november`);
+  });
+  it("det enda vanliga mellanrummet kvar i en period är det EFTER tankstrecket (där brytningen får ske)", () => {
+    const rest = utanBrott("29 december – 2 januari").split(" ");
+    expect(rest).toEqual([`29${NB}december${NB}–`, `2${NB}januari`]);
+  });
+  it("hela nekad-meningen: perioden hålls ihop, resten bryts som vanligt", () => {
+    const m = utanBrott("Din ansökan 29 december – 2 januari gick inte igenom.");
+    expect(m).toContain(`29${NB}december${NB}–`);
+    expect(m).toContain(`2${NB}januari gick`);
+    expect(m.split(" ").length).toBeGreaterThan(4); // fortfarande brytbar på andra ställen
+  });
+  it("text utan datum rörs inte", () => {
+    expect(utanBrott("Din semester är godkänd")).toBe("Din semester är godkänd");
   });
 });
