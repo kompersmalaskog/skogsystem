@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useDatahalsa } from './datahalsa/useDatahalsa'
 import { hamtaVantande } from '@/lib/egenkontroll'
+import { hamtaLedighetPrick, type LedighetPrick } from '@/lib/ledighet/prick'
 
 function getDatum() {
   const now = new Date()
@@ -147,6 +148,18 @@ export default function HomeClient() {
   // null = vet inte än (laddar, eller kunde inte läsas). Märket visas först
   // när siffran är känd — ett märke som gissar är värre än inget märke.
   const [vantandeEgenkontroll, setVantandeEgenkontroll] = useState<number | null>(null)
+  // Ledighet: väntande att godkänna (admin) + egna nya beslut. null = okänt (läsfel/laddar) ⇒ inget märke.
+  const [ledighetPrick, setLedighetPrick] = useState<LedighetPrick | null>(null)
+
+  // Märket ska stämma när man kommer tillbaka till appen (t.ex. från en push), inte bara vid första laddningen.
+  useEffect(() => {
+    let vid = true
+    const hamta = () => { hamtaLedighetPrick(supabase).then(p => { if (vid) setLedighetPrick(p) }) }
+    hamta()
+    const synlig = () => { if (document.visibilityState === 'visible') hamta() }
+    document.addEventListener('visibilitychange', synlig)
+    return () => { vid = false; document.removeEventListener('visibilitychange', synlig) }
+  }, [])
 
   useEffect(() => {
     setDatum(getDatum())
@@ -231,7 +244,13 @@ export default function HomeClient() {
             gap: '24px 16px',
           }}>
             {synligaAdminApps.map(app => (
-              <AppIcon key={app.href} {...app} variant="admin" />
+              <AppIcon
+                key={app.href}
+                {...app}
+                variant="admin"
+                badge={app.href === '/ledighet' ? ledighetPrick?.antal : undefined}
+                badgeLabel="att göra i ledighet"
+              />
             ))}
           </div>
         </div>

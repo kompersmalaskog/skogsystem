@@ -16,6 +16,9 @@ export type LedighetStatus = FranvaroStatus;
  *  beslut (komp-saldots hemvist). */
 export const ANSOKBARA_TYPER: readonly LedighetTyp[] = ['semester', 'atk', 'inarbetad'];
 
+/** Kortare ord i en trång knapp (Typ-raden i Ansök-arket): "Inarbetad dag" fick två rader när bocken tillkom. */
+export const TYPKORT: Partial<Record<LedighetTyp, string>> = { inarbetad: 'Inarbetad' };
+
 export const TYPINFO: Record<LedighetTyp, { label: string }> = {
   semester:      { label: FRANVARO_TYP_RUBRIK.semester },
   atk:           { label: FRANVARO_TYP_RUBRIK.atk },

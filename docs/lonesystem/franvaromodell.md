@@ -193,4 +193,4 @@ ordinarie, ingen övertid).
 - `components/arbetsrapport/Arbetsrapport.tsx` — `franvaroDagar` (år + kalendermånad)
 - `app/ledighet/_components/useSchemaData.ts` — schemavyn (`FRANVARO_STATUS_GALLER`)
 - `app/ledighet/_components/useLedighetData.ts` — ansökningslistan (alla rader, alla statusar)
-- `app/components/Navigation.tsx` — räknar väntande (oförändrad)
+- `lib/ledighet/prick.ts` (RPC `ledighet_prick`) — räknar väntande/nya beslut för hemskärmens märke. (Den döda `app/components/Navigation.tsx`, som räknade alla väntande för alla, är borttagen.)
