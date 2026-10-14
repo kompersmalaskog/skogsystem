@@ -77,6 +77,7 @@ import { beslutaMaskinSom, maskinSomFelText, VANTA_MAX_MS } from '../../lib/mask
 import { StartSvartSkarm, MaskinSomFelSkarm, MaskinFelSkarm } from '../../components/maskin/StartSkarmar'
 import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
+import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
 import { filtreraHyttsparRad, hyttsparInsertRad, kanLoggaHyttspar, type HyttsparCtx } from '../../lib/hyttsparNyckel'
 import { skapaJobb, narmasteVirkesobjekt, ytaKontextIds, avstandText as startaJobbAvstandText } from '../../lib/startaJobb'
 import { lasBesked } from '../../lib/startaJobbOverlamning'
@@ -5463,15 +5464,23 @@ export default function PlannerPage() {
       // som idag i klienten. Inget nuvarande objekt når taket (störst ~12,5k), men det
       // skyddar mot att en framtida mega-slutavverkning laddar hundratusentals rader.
       const STAM_TAK = 20000;
+      // Objektets extra nummer (objekt_alt_nummer): en HPR-fil vars ordernummer inte är objektets vo_nummer ligger under
+      // sitt eget nummer i detalj_stam.objekt_id och hör ändå hit (lib/objektNummer). Utan extra nummer: bara vo, som förut.
+      const hogarIds = hogarObjektIds(vo, await hamtaAltNummer(supabase, valtObjekt.id));
+
       const { count: stamAntal } = await supabase
         .from('detalj_stam').select('id', { count: 'exact', head: true })
-        .eq('objekt_id', vo).not('latitude', 'is', null);
+        .in('objekt_id', hogarIds).not('latitude', 'is', null);
 
       if ((stamAntal ?? 0) > STAM_TAK) {
         console.log(`[HOGAR] vo=${vo}, ${stamAntal} stammar > ${STAM_TAK} → server-side RPC`);
-        const { data: celler, error: rpcErr } = await supabase.rpc('hogar_for_objekt', { p_objekt_id: vo });
-        if (rpcErr) console.error('[HOGAR] RPC-fel:', rpcErr);
-        for (const c of celler || []) {
+        const celler: any[] = [];
+        for (const rpcId of hogarIds) {
+          const { data: rpcCeller, error: rpcErr } = await supabase.rpc('hogar_for_objekt', { p_objekt_id: rpcId });
+          if (rpcErr) console.error('[HOGAR] RPC-fel:', rpcErr);
+          celler.push(...(rpcCeller || []));
+        }
+        for (const c of celler) {
           const tj = (c.tradslag_json || {}) as Record<string, number>;
           const sj = (c.sortiment_json || {}) as Record<string, number>;
           byggHog(c.lat, c.lng, c.stammar || 0, Number(c.volym) || 0, tj, sj, c.grot_stammar || 0, c.datum ? String(c.datum).slice(0, 10) : '');
@@ -5484,7 +5493,7 @@ export default function PlannerPage() {
           const { data, error } = await supabase
             .from('detalj_stam')
             .select('latitude, longitude, total_volym, tradslag_id, sortiment, bio_energy_adaption, tidpunkt')
-            .eq('objekt_id', vo)
+            .in('objekt_id', hogarIds)
             .not('latitude', 'is', null)
             .order('id')  // unik tiebreaker — .range() kräver total ordning
             .range(offset, offset + 999);
@@ -5710,12 +5719,13 @@ export default function PlannerPage() {
       // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — exakt vo-segment-jämförelse
       // klientsida (split ':' + ===), ingen LIKE. stammar_count är opålitlig — används ej.
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
+      const altNummer = /^\d+$/.test(vo) ? await hamtaAltNummer(supabase, valtObjekt.id) : [];   // extra nummer: filer under annat ordernummer
       const { data: kandidatFiler } = /^\d+$/.test(vo)
         ? await supabase.from('hpr_filer').select('id, fil_datum, objekt_nyckel')
             .order('fil_datum', { ascending: false, nullsFirst: false })
         : { data: [] as { id: string; fil_datum: string | null; objekt_nyckel: string | null }[] };
       const filer = (kandidatFiler ?? [])
-        .filter(f => String(f.objekt_nyckel ?? '').split(':')[1] === vo)
+        .filter(f => nyckelHorTillObjekt(f.objekt_nyckel, vo, altNummer))   // exakt vo-segment (som #78) eller objektets extra nummer
         .slice(0, 1);
       if (!filer || filer.length === 0) { setKvarData([]); return; }
       const senasteFil = filer[0];

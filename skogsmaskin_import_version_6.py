@@ -35,6 +35,11 @@ from typing import Dict, List, Optional, Any
 import hashlib
 import uuid
 
+try:
+    import objekt_koppling   # HPR-fil → objekt när ordernumret inte matchar (delas med import_hpr.py)
+except ImportError:           # driftklonen utan filen: importen går som förut, okopplade filer loggas inte
+    objekt_koppling = None
+
 # Tredjepartsbibliotek
 try:
     import requests
@@ -3603,6 +3608,25 @@ def _arv_skotartilldelning(nyfodda: List[str]):
     except Exception as e:
         logger.warning(f"  tilldelad_skotare: arv hoppades over ({e})")
 
+def _kopplas_till_befintligt_objekt(vo, maskin_id, namn) -> bool:
+    """True om ett nummer utan egen objekt-rad ändå hör till ett befintligt objekt (extra nummer, eller namnet
+    träffar exakt ett objekt) — då skapas ingen ny stub-rad, som annars skulle bli en dubblett med samma namn
+    och göra namnmatchningen tvetydig. Läsfel → False (som förut)."""
+    if objekt_koppling is None:
+        return False
+    try:
+        if objekt_koppling.hitta_alias(objekt_koppling.las_alias(requests, SUPABASE_URL, SUPABASE_HEADERS), vo, None):
+            logger.info(f"Steg B skapar inget objekt för {vo}: numret är ett extra nummer på ett befintligt objekt")
+            return True
+        traff, orsak = objekt_koppling.hitta_objekt_via_namn(
+            namn, objekt_koppling.las_objekt(requests, SUPABASE_URL, SUPABASE_HEADERS))
+        if traff is not None:
+            logger.info(f"Steg B skapar inget objekt för {vo}: namnet hör till ett befintligt objekt ({orsak})")
+            return True
+    except Exception as e:
+        logger.warning(f"  Steg B: kopplingskontroll för {vo} misslyckades ({e}) — fortsätter som förut")
+    return False
+
 def _sakerstall_objekt_rad(nyfodda, objekt_rows):
     """Steg B: en NYFÖDD dim_objekt-rad MED kontraktsnr och UTAN objekt-rad → skapa en
     objekt-rad (status 'pagaende', saknar_planering=true) så filens produktion får ett
@@ -3625,6 +3649,8 @@ def _sakerstall_objekt_rad(nyfodda, objekt_rows):
                 headers=SUPABASE_HEADERS, timeout=30)
             if r.status_code == 200 and (r.json() or []):
                 continue  # objekt-rad finns redan → rör aldrig
+            if _kopplas_till_befintligt_objekt(vo, o.get('maskin_id'), o.get('object_name')):
+                continue  # numret är ett extra nummer på, eller namnet träffar exakt ETT, befintligt objekt → ingen dubblett
             namn = o.get('object_name')
             if ar_tidsstampelnamn(namn):
                 namn = None  # aldrig ett klockslag som namn
@@ -4617,6 +4643,16 @@ def _save_hpr_tables(data: Dict):
         if vo and vo in objekt_map:
             objekt_uuid = objekt_map[vo]
             break
+
+    # Matchar numret inget objekt: extra nummer (objekt_alt_nummer), sedan objektnamnet mot objekt.namn
+    # (exakt, sedan utan skillnad i mellanslag/versaler; exakt EN träff). Se objekt_koppling.py.
+    # Nycklarna filen skrivs under ändras ALDRIG av detta — bara hpr_filer.objekt_id och aliaset sätts.
+    if not objekt_uuid and objekt_koppling is not None:
+        objekt_uuid = objekt_koppling.koppla_fil(
+            requests, SUPABASE_URL, SUPABASE_HEADERS, logger,
+            filnamn=filnamn, maskin_id=maskin_id,
+            objekt_defs=[{'vo_nummer': remap_vo(o.get('vo_nummer', '')), 'object_key': o.get('object_key', ''),
+                          'object_name': o.get('object_name')} for o in data.get('objekt', [])])
 
     # Beräkna stammar med koordinater
     stammar_med_koordinat = sum(1 for s in stammar if s.get('latitude') and s.get('longitude'))
