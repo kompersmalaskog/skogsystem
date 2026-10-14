@@ -4,6 +4,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HistorikFel, tillHistorikFel } from "./fel";
 import type { IndexAtgard, Kurvor } from "./indexForklaring";
+import { tillForareMaskin, type ForareMaskinRad } from "./sammaForare";
 import { tillMaskinAr, tillObjekt, type AtgardKod, type MaskinArRad, type ObjektRad } from "./typer";
 
 const SIDA = 1000;
@@ -49,6 +50,25 @@ export async function hamtaObjekt(
     ut.push(...rader.map(tillObjekt));
     if (rader.length < SIDA) return ut;
   }
+}
+
+/**
+ * Samma förare på olika maskiner: vy_hist_forare_maskin_jamfor (en rad per förare × åtgärd × maskin, ett par dussin rader).
+ * RLS ger tomt svar UTAN fel för den som inte är admin, och en admin har alltid rader: tomt = saknad behörighet.
+ */
+export async function hamtaForareMaskin(supabase: SupabaseClient): Promise<ForareMaskinRad[]> {
+  const { data, error } = await supabase
+    .from("vy_hist_forare_maskin_jamfor")
+    .select("*")
+    .order("forare")
+    .order("atgard")
+    .order("ar_fran")
+    .order("maskin")
+    .range(0, 999);
+  if (error) throw tillHistorikFel(error);
+  const rader = ((data ?? []) as Record<string, unknown>[]).map(tillForareMaskin);
+  if (rader.length === 0) throw new HistorikFel("behorighet", "vy_hist_forare_maskin_jamfor gav inga rader (RLS)");
+  return rader;
 }
 
 /** Kurvan index räknas mot: vy_hist_normkurva, varianten som vy_hist_objekt_index använder (g15-viktad). En rad per åtgärd. */

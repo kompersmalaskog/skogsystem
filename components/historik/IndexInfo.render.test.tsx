@@ -26,21 +26,22 @@ import HistorikClient from "./HistorikClient";
 import JamforClient from "./JamforClient";
 
 const KURVOR = [
-  { atgard: "gallring", variant: "g15-viktad", a: 3.75895561541139, b: 0.736407612446492, n: 679 },
-  { atgard: "slutavverkning", variant: "g15-viktad", a: 4.01736406793956, b: 0.77799640669071, n: 896 },
+  { atgard: "gallring", variant: "g15-viktad", a: 3.76145382237671, b: 0.737428242871544, n: 681 },
+  { atgard: "slutavverkning", variant: "g15-viktad", a: 3.94779494993236, b: 0.676473132759643, n: 893 },
 ];
 const ar = (o: Record<string, unknown>) => ({
   maskin: "R64101", typ: "skördare", atgard: "gallring", ar: null, urval: "namn", antal_objekt: 20, antal_med_g15: 20, volym_m3fub: 12000, g15_h: 1500,
   m3_per_g15: 8, stammar_per_g15: 100, medelstam: 0.1, antal_med_index: 20, viktat_index: 105, ...o,
 });
 // vy_hist_maskin_ar: en rad per maskin, åtgärd och år (+ hela perioden, ar = null) och urval. Åren med index summerar till kurvans n,
-// som i prod: gallring 300 + 200 + 79 + 100 = 679 (2013–2026), slutavverkning 500 + 396 = 896 (2012–2026).
+// som i prod: gallring 300 + 200 + 81 + 100 = 681 (2013–2026). Slutavverkning 500 + 394 = 894 objekt har index, men kurvan (n = 893) är anpassad
+// på medelstam 0,10–1,5 m³ och räknar inte Hästhagen (2025): åren är ändå säkra eftersom 2012 och 2026 har långt fler än ett objekt.
 const arRad = (maskin: string, atgard: string | null, aar: number | null, antal: number) => ar({ maskin, atgard, ar: aar, antal_med_index: antal, antal_objekt: antal });
 const MASKINER = [
-  arRad("R64101", "gallring", 2013, 300), arRad("R64101", "gallring", 2024, 200), arRad("R64428", "gallring", 2024, 79), arRad("R64428", "gallring", 2026, 100),
-  arRad("R64101", "slutavverkning", 2012, 500), arRad("R64428", "slutavverkning", 2026, 396),
-  arRad("R64101", "gallring", null, 500), arRad("R64428", "gallring", null, 179),
-  arRad("R64101", "slutavverkning", null, 500), arRad("R64428", "slutavverkning", null, 396),
+  arRad("R64101", "gallring", 2013, 300), arRad("R64101", "gallring", 2024, 200), arRad("R64428", "gallring", 2024, 81), arRad("R64428", "gallring", 2026, 100),
+  arRad("R64101", "slutavverkning", 2012, 500), arRad("R64428", "slutavverkning", 2026, 394),
+  arRad("R64101", "gallring", null, 500), arRad("R64428", "gallring", null, 181),
+  arRad("R64101", "slutavverkning", null, 500), arRad("R64428", "slutavverkning", null, 394),
   arRad("R64101", null, null, 0),
 ].flatMap((r) => [r, { ...r, urval: "alla" }]);
 
@@ -69,6 +70,9 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(async () => { await act(async () => { root?.unmount(); }); cont?.remove(); document.body.innerHTML = ""; root = null; vi.restoreAllMocks(); });
+
+// steg 20: slutavverkningens kurva anpassas på medelstam 0,10–1,5 m³; meningen står under slutavverkningens tabell, aldrig under gallringens
+const NORMALOMRADE_MENING = "Objekt med medelstam under 0,10 m³ ingår inte i normalen, eftersom de är för få för att säga vad som är normalt.";
 
 const ordning = (t: string, ...delar: string[]) => {
   let pos = -1;
@@ -101,9 +105,10 @@ describe("startlistan", () => {
     expect(infoKnappar()).toHaveLength(1);
     await klick(infoKnappar()[0]);
     ordning(blad(), "Vad är index?", "Normalt m³/G15", "Exempel");
-    expect(blad()).toContain("Räknat från 679 egna gallringar 2013–2026. Så här mycket gör en maskin normalt per G15-timme:");
+    expect(blad()).toContain("Räknat från 681 egna gallringar 2013–2026. Så här mycket gör en maskin normalt per G15-timme:");
     expect(blad()).toContain("Gallring");
     expect(blad()).not.toContain("Slutavverkning");
+    expect(blad()).not.toContain(NORMALOMRADE_MENING); // gallring har inget anpassningsområde
   });
   it("Skada och special: bladet visar båda åtgärderna", async () => {
     await monter(<HistorikClient />, "#s=skadaspecial");
@@ -121,11 +126,12 @@ describe("maskinsidan", () => {
     const knapp = rubrik.querySelector<HTMLButtonElement>('button[aria-label="Vad är index?"]');
     expect(knapp).not.toBeNull();
     await klick(knapp!);
-    ordning(blad(), "Vad är index?", "Slutavverkning", "Medelstam", "Exempel", "Tänk på");
-    expect(blad()).toContain("Räknat från 896 egna slutavverkningar 2012–2026. Så här mycket");
+    ordning(blad(), "Vad är index?", "Slutavverkning", "Medelstam", NORMALOMRADE_MENING, "Exempel", "Tänk på");
+    expect(blad().split(NORMALOMRADE_MENING)).toHaveLength(2); // en gång
+    expect(blad()).toContain("Räknat från 893 egna slutavverkningar 2012–2026. Så här mycket");
     expect(blad()).toContain("SlutavverkningMedelstam"); // tabellens åtgärdsrubrik
     expect(blad()).not.toContain("GallringMedelstam");
-    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 30 → index 111.");
+    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 28 m³/G15. Maskinen gjorde 31 → index 111.");
   });
 });
 
@@ -148,7 +154,7 @@ describe("jämförelsen", () => {
     expect(blad()).toContain("Gallring");
     expect(blad()).toContain("Slutavverkning");
     expect(blad()).toContain("Medelstam 0,12 m³. Normalt 9 m³/G15. Maskinen gjorde 10 → index 111.");
-    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 30 → index 111.");
+    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 28 m³/G15. Maskinen gjorde 31 → index 111.");
   });
 });
 
@@ -165,8 +171,9 @@ describe("bladets innehåll", () => {
       "Varför inte bara m³/G15?",
       "Grova träd ger alltid fler m³ per timme än klena. Index räknar bort trädstorleken, så två objekt med olika grova träd kan jämföras rättvist. Gallring och slutavverkning har var sin normal.",
       "Vad är normalt?",
-      "Räknat från 679 egna gallringar 2013–2026 och 896 egna slutavverkningar 2012–2026. Så här mycket gör en maskin normalt per G15-timme:",
+      "Räknat från 681 egna gallringar 2013–2026 och 893 egna slutavverkningar 2012–2026. Så här mycket gör en maskin normalt per G15-timme:",
       "Medelstam", "Normalt m³/G15", "0,08 m³", "0,12 m³", "0,16 m³", "0,25 m³", "0,40 m³", "0,60 m³",
+      NORMALOMRADE_MENING,
       "Exempel",
       "Tänk på",
       "Index tar bara hänsyn till trädstorleken. Föraren, terrängen och hur ofta maskinen står still (se TU) påverkar också. Jämför därför alltid index och TU tillsammans.",
@@ -176,7 +183,7 @@ describe("bladets innehåll", () => {
     const rader = Array.from(document.body.querySelectorAll('[role="row"]')).map((r) => Array.from(r.querySelectorAll('[role="cell"]')).map((c) => vanlig(c.textContent)));
     expect(rader.filter((r) => r.length)).toEqual([
       ["0,08 m³", "7"], ["0,12 m³", "9"], ["0,16 m³", "11"],
-      ["0,25 m³", "19"], ["0,40 m³", "27"], ["0,60 m³", "37"],
+      ["0,25 m³", "20"], ["0,40 m³", "28"], ["0,60 m³", "37"],
     ]);
     // inga ord som förklaringen ska vara fri från
     expect(t).not.toMatch(/regression|logaritm|r²|formel/i);
@@ -207,7 +214,7 @@ describe("åren i underlaget", () => {
     g.__tabeller.vy_hist_maskin_ar = MASKINER.filter((r) => !(r.maskin === "R64101" && r.atgard === "slutavverkning" && r.ar === 2012));
     await monter(<HistorikClient />, "#s=slutavverkning");
     await klick(infoKnappar()[0]);
-    expect(blad()).toContain("Räknat från 896 egna slutavverkningar. Så här mycket");
+    expect(blad()).toContain("Räknat från 893 egna slutavverkningar. Så här mycket");
     expect(blad()).not.toMatch(/slutavverkningar \d{4}/);
   });
 });

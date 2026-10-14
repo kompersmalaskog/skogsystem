@@ -71,8 +71,8 @@ export function Vaxel<T extends string>({ varden, valt, onVal }: { varden: { id:
 
 /** En tryckbar listrad: namn + meta till vänster, en siffra till höger. */
 export function Listrad({
-  namn, meta, siffra, enhet, notiser, onClick, vald,
-}: { namn: string; meta?: string; siffra?: string | null; enhet?: string; notiser?: string[]; onClick?: () => void; vald?: boolean }) {
+  namn, meta, siffra, enhet, fotnot, notiser, onClick, vald,
+}: { namn: string; meta?: string; siffra?: string | null; enhet?: string; /** grå text under enheten, radbryts i två rader */ fotnot?: string; notiser?: string[]; onClick?: () => void; vald?: boolean }) {
   const innehall = (
     <>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -86,6 +86,7 @@ export function Listrad({
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ ...TYP.rubrik, ...TNUM }}>{siffra ?? "–"}</div>
           {enhet && <div style={{ ...TYP.meta, color: FARG.text2 }}>{enhet}</div>}
+          {fotnot && <div style={{ ...TYP.meta, color: FARG.text2, maxWidth: AVSTAND.xxl * 3 }}>{fotnot}</div>}
         </div>
       )}
     </>
