@@ -6,6 +6,8 @@
 //
 // Nyckel = vo_nummer (objekt_id i dim_objekt om vo_nummer saknas), som i vyerna fakt_lass/produktion.
 
+import { hamtaAlla } from './supabaseAlla';
+
 /** Mer än så här kvar (m³fub, skördat − skotat) räknas som virke på backen. Samma tal som gamla väljarens `> 5`. */
 export const SKOTNING_KVAR_MIN_M3 = 5;
 
@@ -53,19 +55,24 @@ interface Klient {
 }
 
 /**
- * Hämtar underlaget och räknar. `null` = det gick inte att veta (någon fråga gav fel) — då visas ingenting som "skotning kvar"
+ * Hämtar underlaget i omgångar (lib/supabaseAlla, 1 000 rader per svar) tills allt är läst, och räknar.
+ * PostgREST kapar tyst vid 1 000 rader; en klippt läsning ger för lite skördat/skotat och objekt som saknas ur underlaget.
+ * Varje fråga sorteras på en UNIK nyckel (annars ger .range() dubbletter och saknade rader — STATUS.md, pagineringsbuggen):
+ * dim_objekt och de två vyerna har en rad per objekt_id (vyerna är GROUP BY objekt_id), skotare_objekt_manuell har id.
+ *
+ * `null` = det gick inte att veta (någon fråga, på vilken sida som helst, gav fel) — då visas ingenting som "skotning kvar"
  * i stället för en gissning byggd på halva underlaget (supabase-js kastar inte, den returnerar { data: null, error }).
  */
-export async function hamtaSkotningKvar(supabase: Klient): Promise<Set<string> | null> {
+export async function hamtaSkotningKvar(supabase: Klient, sidstorlek?: number): Promise<Set<string> | null> {
   try {
     const [dimR, prodR, lassR, manR] = await Promise.all([
-      supabase.from('dim_objekt').select('objekt_id, vo_nummer, skotning_avslutad, egen_skotning'),
-      supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub'),
-      supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub'),
-      supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_egen_skotning, volym_m3, ar_omlastning').is('datum_fran', null),
+      hamtaAlla(() => supabase.from('dim_objekt').select('objekt_id, vo_nummer, skotning_avslutad, egen_skotning'), 'objekt_id', sidstorlek),
+      hamtaAlla(() => supabase.from('vy_uppf_prod_per_objekt').select('objekt_id, volym_m3sub'), 'objekt_id', sidstorlek),
+      hamtaAlla(() => supabase.from('vy_uppf_lass_per_objekt').select('objekt_id, volym_m3sub'), 'objekt_id', sidstorlek),
+      hamtaAlla(() => supabase.from('skotare_objekt_manuell').select('objekt_id, maskin_id, volym_egen_skotning, volym_m3, ar_omlastning').is('datum_fran', null), 'id', sidstorlek),
     ]);
     if (dimR.error || prodR.error || lassR.error || manR.error) return null;
-    return raknaSkotningKvar({ dim: dimR.data || [], prod: prodR.data || [], lass: lassR.data || [], manuell: manR.data || [] });
+    return raknaSkotningKvar({ dim: dimR.data, prod: prodR.data, lass: lassR.data, manuell: manR.data });
   } catch {
     return null;
   }

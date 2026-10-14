@@ -21,10 +21,17 @@ vi.mock('@/lib/supabase', () => ({
           if (tabell === 'objekt') return h.fel ? { data: null, error: { message: 'nät' } } : { data: h.rader, error: null };
           return h.tabellFel[tabell] ? { data: null, error: { message: 'nät' } } : { data: h.tabeller[tabell] ?? [], error: null };
         };
-        const p: any = Promise.resolve(svar());
-        p.order = () => Promise.resolve(svar());
-        p.is = () => Promise.resolve(svar());
-        return p;
+        // Byggaren är både väntbar (objekt: .order() → await) och sidindelad (.range(), som lib/supabaseAlla använder).
+        const b: any = {
+          then: (ok: any, nej: any) => Promise.resolve(svar()).then(ok, nej),
+          order: () => b,
+          is: () => b,
+          range: (fran: number, till: number) => {
+            const r: any = svar();
+            return Promise.resolve(r.error ? r : { data: (r.data ?? []).slice(fran, till + 1), error: null });
+          },
+        };
+        return b;
       },
     }),
   },
