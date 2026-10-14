@@ -2835,44 +2835,85 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
     expect(menysiffror().every(t => t === "1")).toBe(true);
   });
 
-  it("Admin → Medarbetare: rutan 'Företagsledare / delägare' finns, är av som standard och sparar foretagsledare = true", async () => {
+  const medUpdates = () => g.__skriv.filter((x: any) => x.tabell === "medarbetare" && x.op === "update");
+  const sparaKnapp = () => blad("Spara ändringar").map(e => e.closest("button")!).find(Boolean)!;
+
+  it("Admin → Medarbetare: rutan 'Företagsledare / delägare' finns, är av som standard och SPARAR DIREKT när den slås på — utan 'Spara ändringar'", async () => {
     await monter("flik=medarbetare&person=m1");
     const r = reglage()!;
     expect(r).toBeTruthy();
     expect(r.getAttribute("aria-checked")).toBe("false");
     expect(text()).toContain("Arbetstidslagen gäller inte företagsledare");
+    expect(medUpdates()).toHaveLength(0);
     await act(async () => { r.click(); });
     expect(reglage()!.getAttribute("aria-checked")).toBe("true");
-    await klick("Spara ändringar");
-    expect(g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update").vals.foretagsledare).toBe(true);
+    // Felet 2026-10-14: reglaget slogs på men raden skrevs aldrig, eftersom sparandet låg bakom knappen längst ner.
+    expect(medUpdates()).toHaveLength(1);
+    expect(medUpdates()[0].vals).toEqual({ foretagsledare: true });
     expect(g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare).toBe(true);
+    expect(g.__eq.some((e: any) => e[0] === "medarbetare" && e[1] === "id" && e[2] === "m1")).toBe(true);   // rätt rad
+    expect(sparaKnapp().disabled).toBe(true);   // inget väntar på "Spara ändringar"
   });
 
-  it("rutan visar det sparade värdet, och Spara är inaktiv tills den ändrats", async () => {
+  it("rutan visar det sparade värdet, och slås den om är det sparat — Spara-knappen väntar inte på det", async () => {
     g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare = true;
     await monter("flik=medarbetare&person=m1");
     expect(reglage()!.getAttribute("aria-checked")).toBe("true");
-    const spara = blad("Spara ändringar").map(e => e.closest("button")!).find(Boolean)!;
-    expect(spara.disabled).toBe(true);
+    expect(sparaKnapp().disabled).toBe(true);
     await act(async () => { reglage()!.click(); });
-    expect(spara.disabled).toBe(false);
+    expect(sparaKnapp().disabled).toBe(true);
+    expect(g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare).toBe(false);
   });
 
-  it("foretagsledare skickas BARA när den ändrats — en annan ändring skriver inte kolumnen", async () => {
+  it("de andra fälten sparas som förut och skriver ALDRIG foretagsledare; reglaget skriver BARA foretagsledare", async () => {
     await monter("flik=medarbetare&person=m1");
     await skriv(falt("Namn"), "Anna Bergström");
     await klick("Spara ändringar");
-    const skriv1 = g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update");
-    expect(skriv1.vals.namn).toBe("Anna Bergström");
-    expect("foretagsledare" in skriv1.vals).toBe(false);
+    expect(medUpdates()).toHaveLength(1);
+    expect(medUpdates()[0].vals.namn).toBe("Anna Bergström");
+    expect("foretagsledare" in medUpdates()[0].vals).toBe(false);
+    // …och tvärtom: ett osparat namn dras inte med när reglaget slås om.
+    g.__skriv.length = 0;
+    await monter("flik=medarbetare&person=m1");
+    await skriv(falt("Namn"), "Annan Berg");
+    await act(async () => { reglage()!.click(); });
+    expect(medUpdates()).toHaveLength(1);
+    expect(medUpdates()[0].vals).toEqual({ foretagsledare: true });
   });
 
-  it("kan man bocka ur den igen: sparas som false", async () => {
+  it("kan man bocka ur den igen: sparas som false direkt", async () => {
     g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare = true;
     await monter("flik=medarbetare&person=m1");
     await act(async () => { reglage()!.click(); });
-    await klick("Spara ändringar");
-    expect(g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update").vals.foretagsledare).toBe(false);
+    expect(medUpdates()[0].vals).toEqual({ foretagsledare: false });
+    expect(g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare).toBe(false);
+  });
+
+  it("databasen skriver inget (RLS: 0 rader utan fel): reglaget går tillbaka och felet står, inte ett falskt 'sparat'", async () => {
+    await monter("flik=medarbetare&person=m1");
+    g.__ingaRader = true;
+    await act(async () => { reglage()!.click(); });
+    expect(reglage()!.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Företagsledare sparades inte");
+    expect(text()).toContain("raden träffades inte");
+    expect(g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare).toBeFalsy();
+  });
+
+  it("databasen avvisar kolumnen (schemacachen): reglaget går tillbaka och felet från databasen står", async () => {
+    await monter("flik=medarbetare&person=m1");
+    g.__avvisaKolumner = { medarbetare: ["foretagsledare"] };
+    await act(async () => { reglage()!.click(); });
+    expect(reglage()!.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Företagsledare sparades inte: Could not find the 'foretagsledare' column");
+  });
+
+  it("det sparade följer med tillbaka till listan: öppnas personen igen utan omladdning visar reglaget det sparade", async () => {
+    await monter("flik=medarbetare&person=m1");
+    await act(async () => { reglage()!.click(); });
+    g.__db.medarbetare.find((m: any) => m.id === "m1").foretagsledare = false;   // databasen får inte vara det som ger svaret här
+    await klick("Medarbetare");                      // Tillbaka till listan
+    await klick("Anna Berg");
+    expect(reglage()!.getAttribute("aria-checked")).toBe("true");
   });
 
   it("migrationen är inte körd (kolumnen saknas): personlistan läses ändå, rutan döljs och en annan ändring sparas", async () => {

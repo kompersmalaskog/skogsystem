@@ -109,6 +109,8 @@ export default function MedarbetareFlik() {
         operatorer={operatorerPerMed[m.id] || []}
         maskiner={maskiner}
         harForetagsledare={harForetagsledare}
+        // Listan i minnet följer med: öppnas personen igen utan omladdning ska reglaget visa det som sparades.
+        onForetagsledareSparad={(id, v) => setMedarbetare(lista => lista.map(x => x.id === id ? { ...x, foretagsledare: v } : x))}
         onKlar={() => { tillLista(); ladda(); }}
         onLadda={() => ladda()}
         onTillbaka={tillLista}
@@ -172,13 +174,15 @@ function ListaVy({
 /* ─── DETALJ ─── */
 
 function DetaljVy({
-  medarbetare, operatorer, maskiner, harForetagsledare, onKlar, onLadda, onTillbaka,
+  medarbetare, operatorer, maskiner, harForetagsledare, onForetagsledareSparad, onKlar, onLadda, onTillbaka,
 }: {
   medarbetare: Medarbetare;
   operatorer: OperatorRad[];
   maskiner: Record<string, string>;
   /** Kolumnen medarbetare.foretagsledare finns (migration 20261013170000 körd). */
   harForetagsledare: boolean;
+  /** Reglaget sparades (verifierat med .select()): uppdatera personen i listans minne. */
+  onForetagsledareSparad: (id: string, varde: boolean) => void;
   onKlar: () => void;
   /** Ladda om och STANNA på personen (efter geokodning — se var adressen hamnade). */
   onLadda: () => void;
@@ -194,7 +198,9 @@ function DetaljVy({
   const [timlon, setTimlon] = useState<string>(medarbetare.timlon_kr != null ? String(medarbetare.timlon_kr) : "");
   const [manadslon, setManadslon] = useState<string>(medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "");
   const [anstallningsdatum, setAnstallningsdatum] = useState(medarbetare.anstallningsdatum || "");
+  // Reglaget sparar SJÄLVT, direkt när det slås om (se valjForetagsledare) — det hör inte till formulärets "Spara ändringar".
   const [foretagsledare, setForetagsledare] = useState(medarbetare.foretagsledare === true);
+  const [foretagsledareSparar, setForetagsledareSparar] = useState(false);
   const [sparar, setSparar] = useState(false);
   const [sparFel, setSparFel] = useState<string | null>(null);
   const [taBortLäge, setTaBortLäge] = useState(false);
@@ -223,12 +229,32 @@ function DetaljVy({
     maskinId !== (medarbetare.maskin_id || "") ||
     timlon !== (medarbetare.timlon_kr != null ? String(medarbetare.timlon_kr) : "") ||
     manadslon !== (medarbetare.manadslon_kr != null ? String(medarbetare.manadslon_kr) : "") ||
-    anstallningsdatum !== (medarbetare.anstallningsdatum || "") ||
-    (harForetagsledare && foretagsledare !== (medarbetare.foretagsledare === true));
+    anstallningsdatum !== (medarbetare.anstallningsdatum || "");
   const anstAndrat = anstLaddad && anst.trim() !== anstOriginal;
   // Det SPARADE numret kontrolleras mot Fortnox när anslutningen finns (annars: "kontrolleras när anslutningen finns").
   const anstKontroll = useAnstKontroll(anstOriginal, anstLaddad);
   const ändrat = personAndrat || anstAndrat;
+
+  /**
+   * Företagsledare / delägare sparas direkt när reglaget slås om. Förut låg det bakom "Spara ändringar" längst ner på sidan, och ett
+   * reglage ser ut som något som gäller på en gång: Martin slog på det för sig själv och Joacim, gick därifrån, och prod hade false
+   * (2026-10-14: inget skrivanrop mot medarbetare nådde Supabase; databasen släpper igenom skrivningen). Skrivningen verifieras som
+   * övriga: .select() visar vad som faktiskt landade, och 0 rader eller fel sätter tillbaka reglaget och säger varför.
+   */
+  const valjForetagsledare = async (nytt: boolean) => {
+    const fore = foretagsledare;
+    setForetagsledare(nytt);
+    setForetagsledareSparar(true);
+    setSparFel(null);
+    const { data: skrivet, error } = await supabase.from("medarbetare").update({ foretagsledare: nytt }).eq("id", medarbetare.id).select("id, foretagsledare");
+    setForetagsledareSparar(false);
+    if (error || !skrivet?.length || skrivet[0].foretagsledare !== nytt) {
+      setForetagsledare(fore);
+      setSparFel(`Företagsledare sparades inte: ${error?.message || "inget sparades — raden träffades inte"}`);
+      return;
+    }
+    onForetagsledareSparad(medarbetare.id, nytt);
+  };
 
   const spara = async () => {
     setSparar(true);
@@ -251,8 +277,6 @@ function DetaljVy({
       manadslon_kr: manadslon === "" ? null : parseFloat(manadslon),
       anstallningsdatum: anstallningsdatum || null,
     };
-    // Bara när den ändrats: en person går att spara även om kolumnen inte finns än.
-    if (harForetagsledare && foretagsledare !== (medarbetare.foretagsledare === true)) update.foretagsledare = foretagsledare;
     const { data: skrivet, error } = await supabase.from("medarbetare").update(update).eq("id", medarbetare.id).select("id");
     if (error || !skrivet?.length) { setSparar(false); setSparFel(error?.message || "Inget sparades — raden träffades inte"); return; }
     if (anstAndrat) {
@@ -326,8 +350,10 @@ function DetaljVy({
           ...Object.entries(maskiner).sort((a, b) => a[1].localeCompare(b[1])).map(([id, n]) => ({ value: id, label: `${n} (${id})` })),
         ]} />
         {harForetagsledare && (
-          <Reglage label="Företagsledare / delägare" value={foretagsledare} onChange={setForetagsledare}
-            hint="Arbetstidslagen gäller inte företagsledare. Personen visas då grått i Arbetstid på Översikten, utan gul eller röd, och räknas inte som något som kräver dig." />
+          <Reglage label="Företagsledare / delägare" value={foretagsledare} onChange={v => { if (!foretagsledareSparar) valjForetagsledare(v); }}
+            hint={foretagsledareSparar
+              ? "Sparar…"
+              : "Sparas direkt. Arbetstidslagen gäller inte företagsledare. Personen visas då grått i Arbetstid på Översikten, utan gul eller röd, och räknas inte som något som kräver dig."} />
         )}
       </Kort>
 
