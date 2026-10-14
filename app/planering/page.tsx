@@ -9,6 +9,13 @@ import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
 import ObjektValjare from './ObjektValjare'
 import ObjektLista from '../../components/planering/ObjektLista'
+import ObjektKartaTom from '../../components/planering/ObjektKartaTom'
+import { useObjektPrickar } from '../../lib/hooks/useObjektPrickar'
+import type { KartPrickar } from '../../lib/objektKarta'
+import { skapaLagerDoljare } from '../../lib/objektKartaDolj'
+import { symbolTroskel, tillampaSymbolZoom, traktStorlekM } from '../../lib/symbolZoom'
+import { objektStartKamera } from '../../lib/objektFlyg'
+import { useObjektFlyg } from '../../lib/hooks/useObjektFlyg'
 import { usePlaneringsObjekt, type HamtaObjektSvar } from '../../lib/hooks/usePlaneringsObjekt'
 import { rensaSenastePlanering } from '../../lib/senastePlanering'
 import { anvandObjektLista } from '../../lib/objektVal'
@@ -3181,6 +3188,8 @@ export default function PlannerPage() {
   const nyttObjektval = !maskinlage && !maskinSomParam;
   const planeringsObjektAktiv = enhetMaskinLast && nyttObjektval && !maskinFragaSynlig && !medarbetareLaddar;
   const [objektListaOppen, setObjektListaOppen] = useState(false);
+  const svepFranListaRef = useRef(false);   // sant mellan ett val i listan och objektets centrering (page.centreraPaObjekt)
+  const [listPrickar, setListPrickar] = useState<KartPrickar | null>(null);   // objekten som prickar på kartan medan listan är öppen (lib/objektKarta)
   const { startKlar: planeringsStartKlar } = usePlaneringsObjekt<any>({
     aktiv: planeringsObjektAktiv,
     anvandarId: planeringsObjektAktiv ? (currentMedarbetare?.id ?? 'okand') : null,   // inloggad men utan medarbetarrad → minnet gäller enheten
@@ -3916,15 +3925,8 @@ export default function PlannerPage() {
   // Buggen: mapCenter sattes BARA av ObjektVäljaren. Förarens objekt auto-väljs (tilldelat
   // pågående/planerat) eller sätts vid "starta körning" — båda gick förbi den, så mapCenter fastnade
   // på default-Stenshult (~8 mil fel). Fixen: en effekt sätter origot på VARJE objekt-inladdning.
-  const objektKartCenter = (obj: any): { lat: number; lng: number; zoom: number } | null => {
-    if (!obj) return null;
-    const b = obj.kartbild_bounds;
-    if (b && Array.isArray(b) && Array.isArray(b[0]) && Array.isArray(b[1]) && b[0][0] != null && b[1][0] != null) {
-      return { lat: (b[0][0] + b[1][0]) / 2, lng: (b[0][1] + b[1][1]) / 2, zoom: 15 };
-    }
-    if (obj.lat != null && obj.lng != null) return { lat: obj.lat, lng: obj.lng, zoom: 16 };
-    return null; // saknar BÅDE bounds och lat/lng → origo kan inte härledas (se objektSaknarPosition)
-  };
+  // (Regeln bor i lib/objektFlyg.objektStartKamera — samma som svepet till ett valt objekt använder när traktgräns saknas.)
+  const objektKartCenter = (obj: any): { lat: number; lng: number; zoom: number } | null => objektStartKamera(obj); // null = saknar BÅDE bounds och lat/lng → origo kan inte härledas (se objektSaknarPosition)
 
   // Objekt utan härledbart origo. Då kan SVG-markörer INTE placeras rätt — vi ritar dem inte (de
   // skulle se rätt ut men mata fällningsradien mot fel plats) och varnar tydligt i stället.
@@ -3933,6 +3935,8 @@ export default function PlannerPage() {
   // Centrera SVG-origot (och MapLibre-kameran) på objektet. Samma logik och samma zoom som
   // ObjektVäljaren använde när markörerna ritades → läs-origo/skala == rit-origo/skala.
   const centreraPaObjekt = (obj: any) => {
+    const svepFranLista = svepFranListaRef.current;   // valt i listan: kartan står i översikten och SVEPER till objektet (useObjektFlyg) — ingen jump dit först
+    svepFranListaRef.current = false;
     const cc = objektKartCenter(obj);
     if (!cc) return; // gissa ALDRIG ett origo för ett positionslöst objekt — varna i stället
     setMapCenter({ lat: cc.lat, lng: cc.lng });
@@ -3940,7 +3944,7 @@ export default function PlannerPage() {
     if (mapInstanceRef.current) {
       // Startsekvensen/körvyn äger kameran → ingen centrerings-jump (den ryckte kameran till pitch 50/zoom 16 mitt i
       // sekvensen och igen varje gång kartan blev redo). Origot (mapCenter/mapZoom ovan) sätts ändå.
-      if (!startKameraLasRef.current && !korvyOppenRef.current) {
+      if (!startKameraLasRef.current && !korvyOppenRef.current && !svepFranLista) {
         mapInstanceRef.current.jumpTo({ center: [cc.lng, cc.lat], zoom: cc.zoom, pitch: 50, bearing: 0 });
       }
       setTimeout(() => mapInstanceRef.current?.resize(), 50);
@@ -4924,7 +4928,8 @@ export default function PlannerPage() {
       // den skulle avbryta flygningen → tyst medan sekvensen äger kameran. Vanliga appen: oförändrat.
       // Körvyn äger kameran (följer maskinen på körvyns zoom) → ingen zoom-ut över ALLA features (fastighet, bestånd):
       // med en stillastående position (testfliken) kommer ingen GPS-tick som rättar kameran efteråt.
-      if (Number.isFinite(minLng) && !startKameraLasRef.current && !korvyOppenRef.current) {
+      // Planeringsvyn (objektListaVal): kameran sveps av useObjektFlyg till TRAKTGRÄNSEN — inte över alla features (en stor fastighetsyta gav en regional fläck).
+      if (Number.isFinite(minLng) && !startKameraLasRef.current && !korvyOppenRef.current && !objektListaVal) {
         try { map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, duration: 600, maxZoom: 16 }); } catch {}
       }
     })();
@@ -12983,7 +12988,60 @@ export default function PlannerPage() {
   const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
-    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode;
+    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !objektListaOppen;
+
+  // Objektlistan öppen: objekten som prickar på kartan, tryck på en prick = raden, kartan i övrigt fri att använda (listan stängs med ×, Esc, drag ned), stängd utan val = kartan tillbaka.
+  // Bara planeringsvyn (objektListaVal) — maskinläget, /maskin och körvyn öppnar aldrig listan och rörs inte. Pågår ett kartläge (rita, mät, placera
+  // symbol …) tar kartan trycken som förut: ingen prickkarta då, listan är det gamla arket med fångsten över kartan.
+  const kartLageIgang = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
+    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen;
+  const objektKartaTryck = objektListaVal && mapLibreReady && !kartLageIgang;
+  const { markeraVal: markeraListVal } = useObjektPrickar({
+    map: objektKartaTryck ? mapInstanceRef.current : null,
+    aktiv: objektKartaTryck && objektListaOppen,
+    prickar: objektKartaTryck && objektListaOppen ? listPrickar : null,
+    aterstall: true,
+  });
+
+  // Objektlistan öppen (och kartan tar trycken): det valda objektets markeringar — symboler, linjer, zoner, pilar, etiketter, traktgräns, högar, spår —
+  // göms så att BARA prickarna syns (lib/objektKartaDolj). De kommer tillbaka när listan stängs eller ett objekt väljs. Baskartan, prickarna och
+  // förarens egen position rörs inte.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !(objektKartaTryck && objektListaOppen)) return;
+    const d = skapaLagerDoljare(map);
+    d.dolj();
+    map.on('styledata', d.dolj);       // lager som skapas eller tänds medan listan är öppen göms också
+    return () => { try { map.off('styledata', d.dolj); } catch { /* kartan är borta */ } d.aterstall(); };
+  }, [objektKartaTryck, objektListaOppen, mapLibreReady]);
+
+  // Planeringsvyn (även utan lista): symboler och deras etiketter klipps bort på en zoomnivå där trakten är för liten för att läsas och kommer tillbaka vid
+  // inzoomning — tröskeln = zoomen där HELA trakten fyller ungefär halva skärmen (lib/symbolZoom). Körvyn och /maskin (objektListaVal=false) rörs inte.
+  // Kartan sveper till det valda objektet: rad, prick eller Planering som öppnar senaste objektet direkt (lib/objektFlyg, useObjektFlyg). Bara planeringsvyn.
+  useObjektFlyg({
+    map: mapLibreReady ? mapInstanceRef.current : null,
+    aktiv: objektListaVal,
+    objekt: valtObjekt,
+    geometriHamtadFor: traktGeoHamtadFor,
+    geometri: traktGeo,
+    kameraUpptagen: () => startKameraLasRef.current || korvyOppenRef.current,
+  });
+
+  const symbolTraktM = useMemo(() => traktStorlekM(traktGeo as any), [traktGeo]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    if (!objektListaVal) { tillampaSymbolZoom(map, null); return; }
+    const kor = () => {
+      const c = map.getContainer?.();
+      const kort = Math.min(c?.clientWidth || window.innerWidth, c?.clientHeight || window.innerHeight);
+      tillampaSymbolZoom(map, symbolTroskel({ traktM: symbolTraktM, lat: map.getCenter().lat, kortsidaPx: kort }));
+    };
+    kor();
+    map.on('styledata', kor);          // symbollagren skapas i omgångar (ikonerna laddas först)
+    map.on('resize', kor);
+    return () => { try { map.off('styledata', kor); map.off('resize', kor); } catch { /* kartan är borta */ } tillampaSymbolZoom(map, null); };
+  }, [objektListaVal, mapLibreReady, symbolTraktM]);
 
   // Pillens räknare: ALLA markeringar på objektet räknas, oavsett vem som satte dem; krav bara för certifierade objekt.
   const miljoAntal = useMemo(() => raknaMiljo(markers), [markers]);
@@ -13508,7 +13566,9 @@ export default function PlannerPage() {
   // Välj ett objekt ur listan (arket/panelen) → kartan öppnas på det. Kart-origot sätts av centrerings-effekten på valtObjekt.id.
   const valjObjektUrLista = (obj: any) => {
     setObjektListaOppen(false);
-    if (valtObjekt?.id === obj.id) return;
+    if (valtObjekt?.id === obj.id) return;   // samma objekt: stängs som förut, och kartan går tillbaka till vyn den hade (useObjektPrickar)
+    markeraListVal();                        // ett annat objekt: svepet till det tar kameran (useObjektFlyg) — ingen återgång
+    svepFranListaRef.current = true;         // kartan står i översikten: ingen jump till objektet först, bara svepet
     setValtObjekt(obj);
     setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
     setZoom(1);
@@ -13523,11 +13583,13 @@ export default function PlannerPage() {
       const visaListan = planeringsObjektAktiv ? planeringsStartKlar : (enhetMaskinLast && !medarbetareLaddar);
       return (
         <>
-          <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
-            {!visaListan && 'Hämtar objekt…'}
-          </div>
-          {visaListan && (
-            <ObjektLista oppen kanStangas={false} valtId={null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => {}} />
+          {visaListan ? (
+            // Kartan med alla objekt som prickar och listan ovanpå (lib/objektKarta) — aldrig en svart tom yta. Listan går inte att stänga här.
+            <ObjektKartaTom onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} />
+          ) : (
+            <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
+              Hämtar objekt…
+            </div>
           )}
           {maskinLager}
           {ingetObjektKortEl}
@@ -14798,7 +14860,7 @@ export default function PlannerPage() {
              och panelen blinkar bort) och räknas upp vid varje öppning så den alltid startar om rent. */}
       {/* OBJEKTLISTAN (ark under 900 px, panel från 900 px) — bara planeringsvyn; körvyn och maskinläget har sin egen väg. Monterad hela tiden så utglidningen hinner spelas. */}
       {objektListaVal && (
-        <ObjektLista oppen={objektListaOppen} kanStangas valtId={valtObjekt?.id ?? null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => setObjektListaOppen(false)} />
+        <ObjektLista oppen={objektListaOppen} kanStangas valtId={valtObjekt?.id ?? null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => setObjektListaOppen(false)} onPrickar={setListPrickar} kartaTryck={objektKartaTryck} />
       )}
       {plusRadVisning && (
         <PlusRad

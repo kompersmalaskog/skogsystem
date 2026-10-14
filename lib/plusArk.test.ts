@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DETENT_TARSKEL_PX, FLIKAR, arAndrad, arFlikId, dragHojd, flyttaPlats, laggTillPlats, ligger, platsUnderFinger, redigeringTillState,
-  startaRedigering, taBortPlats, valjDetent,
+  startaRedigering, taBortPlats, valjDetent, valjListdetent,
 } from './plusArk';
 import { MAX_FASTA, STANDARD_ORDNING, type PlusPost, type PlusRadState } from './plusRad';
 
@@ -36,6 +36,29 @@ describe('valjDetent — arket halv ↔ hel', () => {
     expect(valjDetent('hel', DETENT_TARSKEL_PX)).toBe('halv');
     expect(valjDetent('hel', DETENT_TARSKEL_PX - 1)).toBe('hel');
     expect(valjDetent('hel', -200)).toBe('hel');
+  });
+});
+
+describe('valjListdetent — objektlistans ark: halv ↔ hel, och ett halvt ark som dras ned STÄNGS', () => {
+  const T = DETENT_TARSKEL_PX;
+  it('halvt ark dras uppåt över tröskeln → hel; under tröskeln → kvar halvt', () => {
+    expect(valjListdetent('halv', -T, true)).toBe('hel');
+    expect(valjListdetent('halv', -(T - 1), true)).toBe('halv');
+  });
+  it('halvt ark dras nedåt över tröskeln → stäng (till skillnad från plus-arket); under tröskeln → far tillbaka', () => {
+    expect(valjListdetent('halv', T, true)).toBe('stang');
+    expect(valjListdetent('halv', 400, true)).toBe('stang');
+    expect(valjListdetent('halv', T - 1, true)).toBe('halv');
+  });
+  it('listan som inte går att stänga (inget objekt valt): halvt ark dras ned → far tillbaka, aldrig stäng', () => {
+    expect(valjListdetent('halv', 400, false)).toBe('halv');
+    expect(valjListdetent('halv', -T, false)).toBe('hel');
+  });
+  it('helt ark dras nedåt över tröskeln → halvt (inte stäng direkt), under → kvar helt', () => {
+    expect(valjListdetent('hel', T, true)).toBe('halv');
+    expect(valjListdetent('hel', 900, true)).toBe('halv');
+    expect(valjListdetent('hel', T - 1, true)).toBe('hel');
+    expect(valjListdetent('hel', -200, true)).toBe('hel');
   });
 });
 

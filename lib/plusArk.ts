@@ -38,6 +38,20 @@ export function valjDetent(nu: Detent, dy: number, tarskel: number = DETENT_TARS
   return dy >= tarskel ? 'halv' : 'hel';
 }
 
+/**
+ * Objektlistans ark (telefon): som `valjDetent`, men ett halvt ark som dras NED över tröskeln STÄNGS (`kanStangas`) — listan har inget annat sätt att
+ * stängas med fingret nu när ett tryck på kartan inte stänger. Plus-arket far tillbaka i stället (det stängs med krysset). Utan `kanStangas`
+ * (inget objekt valt, listan är det enda som finns) far ett halvt ark som dras ned tillbaka.
+ */
+export function valjListdetent(nu: Detent, dy: number, kanStangas: boolean, tarskel: number = DETENT_TARSKEL_PX): Detent | 'stang' {
+  if (nu === 'halv') {
+    if (dy <= -tarskel) return 'hel';
+    if (dy >= tarskel) return kanStangas ? 'stang' : 'halv';
+    return 'halv';
+  }
+  return dy >= tarskel ? 'halv' : 'hel';
+}
+
 /** Arkets höjd i px under ett pågående drag: följer fingret men aldrig under 30 % eller över fönstret. */
 export function dragHojd(startHojd: number, dy: number, fonsterHojd: number): number {
   const min = Math.round(fonsterHojd * 0.3);
