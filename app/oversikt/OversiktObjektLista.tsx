@@ -1,5 +1,6 @@
 'use client';
 
+import { klassaObjektTyp as klassaTyp } from '@/lib/objekt/atgardTyp';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { OversiktObjekt, C, SP, statusVisning, STATUS_AVSLUTADE, type StatusHink } from './oversikt-types';
@@ -444,14 +445,9 @@ type StatusBucket = StatusHink;   // 'planera' | 'kora' | 'pagar' | 'klar'
 type StatusFilter = 'alla' | StatusBucket;
 type TypFilter = 'alla' | 'slutavverkning' | 'gallring';
 
-// Åtgärd → traktyp. Martins mappning: Au/Rp/Lrk = Slutavverkning, Gallring = Gallring.
-// Saknad/okänd åtgärd faller tillbaka på objektets typ-fält.
-const SLUTAVV_ATGARDER = new Set(['au', 'rp', 'lrk']);
+// Åtgärd → traktyp (Martins mappning bor i lib/objekt/atgardTyp.ts). Saknad/okänd åtgärd faller tillbaka på objektets typ-fält.
 function klassaObjektTyp(o: OversiktObjekt): 'slutavverkning' | 'gallring' {
-  const a = (o.atgard || '').trim().toLowerCase();
-  if (SLUTAVV_ATGARDER.has(a)) return 'slutavverkning';
-  if (a === 'gallring') return 'gallring';
-  return o.typ === 'slutavverkning' ? 'slutavverkning' : 'gallring';
+  return klassaTyp(o.atgard, o.typ);
 }
 
 // Filterhink via den DELADE mappningen (oversikt-types.statusVisning) — EN källa

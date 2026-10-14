@@ -82,12 +82,18 @@ function parseChecklist(oi: any): ChecklistPost[] {
   return ut;
 }
 
-// typ har bara gemener i prod ('slutavverkning' | 'gallring'). Purpose gemeniseras och måste
-// matcha en känd kategori — okänt värde skrivs INTE (hittar inte på en ny kategori).
-const KÄNDA_TYP = new Set(['slutavverkning', 'gallring']);
+// typ har bara gemener i prod ('slutavverkning' | 'gallring' | 'grot'). Purpose gemeniseras och måste
+// matcha en känd kategori — okänt värde skrivs INTE (hittar inte på en ny kategori). Purpose säger TYP, aldrig åtgärd: Vida använder
+// "Gallring" både för gallring och första gallring, så åtgärden läses ur TD:ns Arbetsform (lib/trakt/avtalsform.ts), inte härifrån.
+// "GROT-skotning" blir typ grot (som Starta jobb skriver det). "Övrig Avverkning" och annat okänt ger en varning, ingen typ.
+const PURPOSE_TILL_TYP = new Map<string, string>([
+  ['slutavverkning', 'slutavverkning'],
+  ['gallring', 'gallring'],
+  ['grot-skotning', 'grot'],
+]);
 
 // Fältnycklarna följer objekt-tabellens kolumnnamn. region + avverkningsform är nya kolumner
-// (migration). atgard behålls från TD (Purpose är kategorin typ, inte åtgärdskoden). volym
+// (migration). Åtgärd och avtalsform ingår INTE här: de läses ur TD-texten (lib/trakt/avtalsform.ts); Purpose är kategorin typ. volym
 // skrivs av Target (volym_planerad är död kolumn — 0/45 rader — och rörs inte).
 export interface EnvzFalt {
   traktnr?: string;
@@ -131,8 +137,8 @@ export function parseObjektInfo(objectInfoXml: string, ogiXml: string | null): E
   // Purpose -> typ (gemener, validerad). Okänt -> logga, skriv inget.
   const purpose = forsta(oi, 'Purpose');
   if (purpose) {
-    const t = purpose.toLowerCase();
-    if (KÄNDA_TYP.has(t)) falt.typ = t;
+    const t = PURPOSE_TILL_TYP.get(purpose.toLowerCase().replace(/\s+/g, ' ').trim());
+    if (t) falt.typ = t;
     else varningar.push(`Okänt Purpose "${purpose}" — sätter inte typ.`);
   }
 

@@ -18,6 +18,24 @@ export function arVarningskolumnFel(e: DbFel | null | undefined): boolean {
   return e.code === 'PGRST204' || e.code === '42703' || /column|schema cache|does not exist/i.test(msg);
 }
 
+/**
+ * Kolumner importen skriver men som kan saknas i en databas där migrationen ännu inte körts. Saknas en av dem ska objektet ändå sparas
+ * (importen får inte falla för en kolumn) — men aldrig tyst: se `ejSkrivnaKolumner` och `rapporteraEjSkrivnaKolumner`.
+ *   import_varningar            20260805_6_objekt_dokument_varningar.sql
+ *   avtalsform, import_varden   20261015090000_avtalsform_och_import_varden.sql
+ */
+export const VALFRIA_KOLUMNER = ['import_varningar', 'avtalsform', 'import_varden'] as const;
+
+/** Vilken valfri kolumn skrivfelet gäller (PostgREST "Could not find the 'x' column …" / Postgres 42703) — null om det är något annat fel. */
+export function saknadValfriKolumn(e: DbFel | null | undefined): string | null {
+  if (!e) return null;
+  const msg = String(e.message ?? '');
+  const schemaFel = e.code === 'PGRST204' || e.code === '42703' || /column|schema cache|does not exist/i.test(msg);
+  if (!schemaFel) return null;
+  for (const k of VALFRIA_KOLUMNER) if (new RegExp(`\\b${k}\\b`, 'i').test(msg)) return k;
+  return null;
+}
+
 export interface TolerantSkrivning<T> {
   data: T | null;
   error: DbFel | null;
@@ -27,29 +45,40 @@ export interface TolerantSkrivning<T> {
   kolumnFel?: string;
   /** varningarna som INTE hamnade i kolumnen (kan vara tom om det inte fanns några) */
   ejSparade: string[];
+  /** valfria kolumner som avvisades och därför INTE skrevs (t.ex. avtalsform, import_varden när migrationen inte är körd) */
+  ejSkrivnaKolumner: string[];
 }
 
 /**
- * Kör `skriv(payload)`. Avvisas den för att `import_varningar` saknas körs den en gång till utan kolumnen. Övriga fel returneras som de är.
- * Anroparen avgör vad som händer med `ejSparade` (se `rapporteraEjSparadeVarningar`).
+ * Kör `skriv(payload)`. Avvisas den för att en valfri kolumn saknas (se VALFRIA_KOLUMNER) körs den igen utan just den kolumnen, tills den går
+ * igenom. Övriga fel returneras som de är. Anroparen avgör vad som händer med `ejSparade`/`ejSkrivnaKolumner` (se rapportera…-funktionerna).
  */
 export async function skrivObjektTolerantMotVarningskolumn<T>(
   payload: Record<string, any>,
   skriv: (p: Record<string, any>) => PromiseLike<{ data: T | null; error: DbFel | null }>,
 ): Promise<TolerantSkrivning<T>> {
-  const forsta = await skriv(payload);
-  if (!forsta.error || !arVarningskolumnFel(forsta.error)) {
-    return { data: forsta.data, error: forsta.error, varningarSparade: !forsta.error, ejSparade: [] };
+  let p = payload;
+  const ejSkrivna: string[] = [];
+  let forstaFel: string | undefined;
+  for (;;) {
+    const r = await skriv(p);
+    const kol = r.error ? saknadValfriKolumn(r.error) : null;
+    if (!r.error || !kol || !(kol in p)) {
+      const varningarBortfallna = ejSkrivna.includes('import_varningar');
+      return {
+        data: r.data,
+        error: r.error,
+        varningarSparade: !r.error && !varningarBortfallna,
+        kolumnFel: varningarBortfallna ? forstaFel : undefined,
+        ejSparade: varningarBortfallna && Array.isArray(payload.import_varningar) ? payload.import_varningar.map(String) : [],
+        ejSkrivnaKolumner: ejSkrivna,
+      };
+    }
+    forstaFel ??= String(r.error.message ?? '');
+    ejSkrivna.push(kol);
+    const { [kol]: _bort, ...utan } = p;
+    p = utan;
   }
-  const { import_varningar, ...utan } = payload;
-  const andra = await skriv(utan);
-  return {
-    data: andra.data,
-    error: andra.error,
-    varningarSparade: false,
-    kolumnFel: String(forsta.error.message ?? ''),
-    ejSparade: Array.isArray(import_varningar) ? import_varningar.map(String) : [],
-  };
 }
 
 /**
@@ -84,4 +113,16 @@ export async function rapporteraEjSparadeVarningar(
   const text = `Objektet ${objektNamn ?? ''} sparades, men varningslistan kunde inte skrivas till objekt.import_varningar (${s.kolumnFel ?? 'okänt fel'}). `
     + `Kör migrationen 20260805_6_objekt_dokument_varningar.sql. Varningar: ${lista}`;
   return loggaImportFel(service, filnamn, 'VARNINGAR_EJ_SPARADE', text);
+}
+
+/**
+ * En valfri kolumn (avtalsform, import_varden) kunde inte skrivas för att migrationen inte är körd. Då har importen tappat uppgifter
+ * (avtalsformen, och minnet som skyddar handrättningar vid nästa omimport) — det loggas i import_fel (syns i /datahalsa).
+ */
+export async function rapporteraEjSkrivnaKolumner(service: any, filnamn: string | null, objektNamn: string | null, kolumner: string[]): Promise<boolean> {
+  const nyaKolumner = kolumner.filter((k) => k !== 'import_varningar');
+  if (nyaKolumner.length === 0) return true;
+  const text = `Objektet ${objektNamn ?? ''} sparades, men kolumnerna ${nyaKolumner.join(', ')} saknas i databasen och skrevs inte. `
+    + 'Kör migrationen 20261015090000_avtalsform_och_import_varden.sql och importera om.';
+  return loggaImportFel(service, filnamn, 'KOLUMN_SAKNAS', text);
 }

@@ -11,10 +11,10 @@ import { mergeFalt, executorGodkand, forvantadExecutorOrgnr } from '@/lib/trakt/
 import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
-import { byggOmimportPatch, hittaBefintligtObjekt, type BefintligtObjekt } from '@/lib/trakt/befintligt';
+import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';
 // loggaImportFel (flyttad hit ur routen: loggar i import_fel, läses av /datahalsa — se kommentaren där) + skrivning som tål att
 // objekt.import_varningar inte går att skriva.
-import { loggaImportFel, rapporteraEjSparadeVarningar, skrivObjektTolerantMotVarningskolumn } from '@/lib/trakt/importVarningar';
+import { loggaImportFel, rapporteraEjSkrivnaKolumner, rapporteraEjSparadeVarningar, skrivObjektTolerantMotVarningskolumn } from '@/lib/trakt/importVarningar';
 
 export const runtime = 'nodejs'; // JSZip + unpdf + fast-xml-parser behöver Node-runtime, inte edge
 // Stora trakter (fyra traktkartor + översikt = 40+ MB) tar tid: uppackning + base64 av ~46
@@ -206,6 +206,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Kunde inte läsa PDF' }, { status: 500 });
     }
     const td = parseTraktdirektivText(text, traktnrFromFilename);
+    // Avtalsform/åtgärd som INTE gick att läsa ur filen: tomma fält + en varning med råtexten (aldrig en gissning).
+    varningar.push(...td.tolkningsvarningar);
 
     // Merge: TD som bas, envz vinner ENDAST där envz har ett värde.
     const tdRecord: Record<string, any> = {
@@ -218,6 +220,8 @@ export async function POST(request: NextRequest) {
       // Kontraktsnr finns BARA i TD-texten (OGI ContractNumber = VO, mappas ej sedan #512).
       // envz vinner bara där den har värde → TD-värdet står kvar.
       kontraktsnummer: td.kontraktsnummer,
+      // Avtalsform (Ursprung) och åtgärd (Arbetsform) finns bara i TD-texten; envz-uttaget bär dem inte.
+      avtalsform: td.avtalsform, atgard: td.atgard,
     };
     const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
 
@@ -343,7 +347,10 @@ export async function POST(request: NextRequest) {
       kontraktsnummer: falt.kontraktsnummer || null,        // TD-parsern (header "Kontraktsnr … anges vid fakturering"); aldrig VO
       cert: falt.cert || null,
       typ: falt.typ,
-      atgard: falt.typ === 'slutavverkning' ? 'Au' : 'Gallring',
+      // Åtgärd och avtalsform LÄSES ur filen (Arbetsform / Ursprung ur TD) — tomt om filen inte säger. De hårdkodades förut
+      // ('Au' för alla slutavverkningar, 'Gallring' för resten): Skälviken (rotpost) blev Au, första gallring blev Gallring.
+      atgard: falt.atgard || null,
+      avtalsform: falt.avtalsform || null,
       volym: falt.volym,
       areal: falt.areal ?? null,
       avverkningsform: falt.avverkningsform || null,
@@ -400,6 +407,8 @@ export async function POST(request: NextRequest) {
     let saved: any = null;
     // Satt när objektet skrevs UTAN import_varningar-kolumnen (se lib/trakt/importVarningar.ts) — varningarna ska då inte försvinna.
     let skrivning: { kolumnFel?: string; ejSparade: string[] } | null = null;
+    // Valfria kolumner som avvisades (avtalsform, import_varden: migrationen 20261015090000 ej körd) — objektet sparas ändå, men det loggas.
+    let ejSkrivnaKolumner: string[] = [];
 
     if (befintlig) {
       // === UPDATE (omimport) — bevara det användaren äger ===
@@ -410,16 +419,28 @@ export async function POST(request: NextRequest) {
       //   ar, manad, ordning  planering (envz har dem inte ändå — skydda ändå explicit)
       //   status              planeringsstatus (sätts av planeringsvyn)
       //   larmkoordinat_*     villkorat nedan (bevaras helt om kalla='egen')
-      const SKYDDADE = ['lat', 'lng', 'anteckningar', 'ar', 'manad', 'ordning', 'status'];
+      const SKYDDADE = SKYDDADE_VID_OMIMPORT;
 
-      // Larmkoordinat satt på plats ('egen') slår alltid en kontorsräknad koordinat -> rör
-      // varken lat/lng/kalla/bekraftad. Logga att envz hade ett värde som inte skrevs.
-      const bevaraLarm = befintlig.larmkoordinat_kalla === 'egen';
+      // Larmkoordinat satt på plats ('egen') eller bekräftad av en person slår alltid en kontorsräknad koordinat -> rör
+      // varken lat/lng/kalla/bekraftad. Logga att envz hade ett värde som inte skrevs över.
+      const larmEgen = befintlig.larmkoordinat_kalla === 'egen';
+      const bevaraLarm = larmEgen || befintlig.rad?.larmkoordinat_bekraftad === true;
       if (bevaraLarm && harLarm) {
-        varningar.push('Larmkoordinat bevarad (satt på plats, kalla=egen) — envz hade ett värde som inte skrevs över.');
+        varningar.push(larmEgen
+          ? 'Larmkoordinat bevarad (satt på plats, kalla=egen) — envz hade ett värde som inte skrevs över.'
+          : 'Larmkoordinat bevarad (bekräftad) — leveransen hade ett värde som inte skrevs över.');
       }
 
-      const patch = byggOmimportPatch(data, { skyddade: SKYDDADE, bevaraLarm, behallVoNummer: befintlig.via === 'extra_nummer' });
+      // Omimport skriver bara över det importen själv satte (tomt fält, eller exakt värdet förra importen skrev) — se byggOmimportPatch.
+      // Namnet får inte vara reserven 'Okänt objekt' här: den finns för INSERT (NOT NULL), inte för att skriva över ett riktigt namn.
+      const { patch, behollna, importVarden } = byggOmimportPatch({ ...data, namn: falt.namn || null }, {
+        skyddade: SKYDDADE, bevaraLarm, behallVoNummer: befintlig.via === 'extra_nummer',
+        nuvarande: befintlig.rad, importVarden: befintlig.rad?.import_varden,
+      });
+      if (behollna.length > 0) {
+        varningar.push(`Omimport: lät dina ändringar ligga kvar i ${behollna.join(', ')} (leveransen hade ett annat värde).`);
+      }
+      patch.import_varden = importVarden;
       patch.import_varningar = varningar.length > 0 ? varningar : null;       // varningar refreshas alltid
 
       const skrivUpd = await skrivObjektTolerantMotVarningskolumn<any>(patch, (p) =>
@@ -430,6 +451,7 @@ export async function POST(request: NextRequest) {
       }
       saved = skrivUpd.data;
       if (!skrivUpd.varningarSparade) skrivning = skrivUpd;
+      ejSkrivnaKolumner = skrivUpd.ejSkrivnaKolumner;
 
       // Geometrin är importerad (inga manuella ändringar) -> ersätt helt: radera + skriv ny.
       await service.from('objekt_geometri').delete().eq('objekt_id', befintlig.id);
@@ -443,6 +465,8 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // === INSERT (nytt objekt) — hela data, inkl. lat/lng/anteckningar ===
+      // Minnet av vad importen satte (byggOmimportPatch läser det vid nästa leverans).
+      data.import_varden = importVardenForNyttObjekt(data);
       const skrivIns = await skrivObjektTolerantMotVarningskolumn<any>(data, (p) =>
         supabase.from('objekt').insert(p).select().single());
       if (skrivIns.error) {
@@ -455,6 +479,7 @@ export async function POST(request: NextRequest) {
       }
       saved = skrivIns.data;
       if (!skrivIns.varningarSparade) skrivning = skrivIns;
+      ejSkrivnaKolumner = skrivIns.ejSkrivnaKolumner;
       if (geoFeatures.length > 0 && saved?.id) {
         const { error: geoErr } = await service.from('objekt_geometri').insert({
           objekt_id: saved.id,
@@ -491,7 +516,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: true, objekt: saved, uppdaterad: !!befintlig, varningar, varningarSparade, varningarILogg });
+    // Avtalsform/import_varden kunde inte skrivas (migrationen ej körd): synligt i import_fel (/datahalsa) och i svaret — aldrig tyst.
+    const nyaKolumnerSaknas = ejSkrivnaKolumner.filter((k) => k !== 'import_varningar');
+    if (nyaKolumnerSaknas.length > 0) await rapporteraEjSkrivnaKolumner(service, sokvag, saved?.namn ?? null, nyaKolumnerSaknas);
+
+    return NextResponse.json({ success: true, objekt: saved, uppdaterad: !!befintlig, varningar, varningarSparade, varningarILogg, ejSkrivnaKolumner: nyaKolumnerSaknas });
 
   } catch (err: any) {
     console.error('Import error:', err);
