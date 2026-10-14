@@ -153,6 +153,14 @@ kommer ur vyns `n` och åren ur `vy_hist_maskin_ar` (åren med objekt med index,
 Exemplet har bara hela tal och index räknas från de avrundade talen ("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 30 → index 111."). Skotare: EN mening, konstanten `SKOTARE_UTAN_INDEX` (`lib/historik/indexForklaring.ts`) i bladet, på startlistan och i
 jämförelsen: "Skotare får inget index. Det som styr en skotare är skotningsavståndet, och det finns inte i rapporterna." (`hist_*` har ingen avståndskolumn.) Bladets övriga sheets är oförändrade: `dragNedStanger` är av som standard.
 
+**Steg 18 (2026-10-14), samma förare på olika maskiner — migration `20261014084857_hist_forare_maskin_jamfor.sql`:** i jämförelsen (`/admin/historik/jamfor`) en segmentväljare "Maskiner | Samma förare".
+Samma förare på olika maskiner är den rättvisaste jämförelsen vi har: den skiljer maskinens effekt från förarens. Ny vy `vy_hist_forare_maskin_jamfor` (security_invoker, en rad per förare × åtgärd × maskin; bara skördare i gallring och slutavverkning,
+aldrig tekniska förare, bara objekt där föraren kört minst 80 % av G15, åtgärd ur namn/rapport, aldrig antagen maskinstandard); siffrorna räknas som i `vy_hist_maskin_ar`, men på förarens objekt. G15 är därför objektens G15, inte förarens exakta timmar.
+Urvalet bor i appen (`lib/historik/sammaForare.ts`, `components/historik/SammaForare.tsx`): bara förare/åtgärder där minst två maskiner har minst 200 G15-timmar (i dag Martin gallring, Oskar gallring och Stefan slutavverkning); maskiner under 200 h
+visas som "För lite data" i stället för index, TU och m³/G15; kolumnerna står äldst till vänster med åren överst; "bäst" bara på index och TU, aldrig på "För lite data", och TU bara bland maskiner med samma källa ("enligt Ponsse" = G15 / arbetstid eller "ur avbrott")
+och bara om minst två har den; grå rad "Olika år. Förarens erfarenhet kan förklara en del av skillnaden." bara när ingen av maskinerna med data överlappar någon annan i tid. Inga namn är hårdkodade: externa förare (Magnus Gustafsson, Erik Garpenstedt) har ett objekt
+var och faller på kravet om två maskiner; "Kalle" finns inte i `hist_forare`. Åtkomst: bara admin (RLS; icke-admin får tomt svar, som klienten visar som "Du saknar behörighet"; sidorna omdirigerar förare till `/admin`, `app/admin/historik/atkomst.test.tsx`).
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,
