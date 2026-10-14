@@ -18,7 +18,7 @@
 //      "ej pålitlig data", aldrig en siffra som ser säker ut.
 //   2. JD810E kan inte sända filer — skotartid ur skotare_objekt_manuell
 //      räknas, men blandas inte med maskinmätt som lika exakt (egen rad).
-//   3. Vindfälle (dim_objekt.atgard = 'VF/Bark') är egen kategori, aldrig i
+//   3. Vindfälle (dim_objekt.avtalsform = 'VF/Bark', äldre: dim_objekt.atgard) är egen kategori, aldrig i
 //      gallringens eller slutavverkningens snitt. Oplanerat arbete.
 //   4. Extern skördare/skotare utesluts helt — halva paret saknas.
 //   + färdigskotat, båda maskintyperna med egen G15, och rimlighetsvakt mot
@@ -50,9 +50,13 @@ export const KATEGORI_LABEL: Record<KapacitetKategori, string> = {
   vindfalle: 'Vindfälle',
 };
 
-/** Är åtgärden vindfälle/barkborre? Vallistan skriver exakt 'VF/Bark'. */
-export function arVindfalle(atgard: string | null | undefined): boolean {
-  return typeof atgard === 'string' && atgard.trim().toLowerCase() === 'vf/bark';
+/**
+ * Är objektet vindfälle/barkborre? VF/Bark är en AVTALSFORM (dim_objekt.avtalsform) sedan avtalsform fick eget fält; äldre rader och rader
+ * där migrationen inte körts har det kvar i åtgärden (dim_objekt.atgard). Båda gäller. Vallistan skriver exakt 'VF/Bark'.
+ */
+export function arVindfalle(atgard: string | null | undefined, avtalsform?: string | null): boolean {
+  const ar = (v: string | null | undefined) => typeof v === 'string' && v.trim().toLowerCase() === 'vf/bark';
+  return ar(atgard) || ar(avtalsform);
 }
 
 /**
@@ -61,9 +65,9 @@ export function arVindfalle(atgard: string | null | undefined): boolean {
  * → null, annars gallring/slutavverkning. Saknad huvudtyp → null (aldrig gissad).
  */
 export function kapacitetKategori(o: {
-  risskotning?: boolean | null; huvudtyp?: string | null; atgard?: string | null;
+  risskotning?: boolean | null; huvudtyp?: string | null; atgard?: string | null; avtalsform?: string | null;
 }): KapacitetKategori | null {
-  if (arVindfalle(o.atgard)) return 'vindfalle';
+  if (arVindfalle(o.atgard, o.avtalsform)) return 'vindfalle';
   const typ = harledTyp(o.risskotning, o.huvudtyp);
   if (typ === 'gallring' || typ === 'slutavverkning') return typ;
   return null;
