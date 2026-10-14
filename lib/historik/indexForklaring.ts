@@ -24,6 +24,22 @@ export const EXEMPEL_MEDELSTAM: Record<IndexAtgard, number> = { gallring: 0.12, 
 /** "Maskinen gjorde" i exemplet = normalt × 1,1, avrundat till heltal. */
 export const EXEMPEL_FAKTOR = 1.1;
 
+/**
+ * Anpassningsområde (steg 20): slutavverkningens kurva anpassas bara på objekt med medelstam FRAN–TILL m³. Gallring har inget område.
+ * Samma gränser står i supabase/migrations/*_hist_normalomrade.sql (två ställen); lib/historik/normalomrade.test.ts larmar om de glider isär.
+ * Objekt utanför området får fortfarande index, men märks "utanför normalområdet".
+ */
+export const NORMALOMRADE: Partial<Record<IndexAtgard, { fran: number; till: number }>> = { slutavverkning: { fran: 0.1, till: 1.5 } };
+
+/** Grå text efter index i objektlistan för ett objekt utanför området (vy_hist_objekt_index.utanfor_normalomrade). */
+export const UTANFOR_NORMALOMRADET = "utanför normalområdet";
+
+/** Meningen i bladet under "Vad är normalt?" för åtgärder med anpassningsområde; null för gallring. */
+export function normalomradeText(atgard: IndexAtgard): string | null {
+  const o = NORMALOMRADE[atgard];
+  return o ? `Objekt med medelstam under ${fmt(o.fran, 2)} m³ ingår inte i normalen, eftersom de är för få för att säga vad som är normalt.` : null;
+}
+
 /** Förväntat m³/G15 vid en medelstam: exakt vy_hist_objekt_index.forvantad_m3_per_g15. */
 export function normalt(k: Kurva, medelstam: number): number {
   return Math.exp(k.a + k.b * Math.log(medelstam));
@@ -65,18 +81,26 @@ export const SKOTARE_UTAN_INDEX = "Skotare får inget index. Det som styr en sko
 
 /**
  * Åren kurvan är räknad på, ur vy_hist_maskin_ar: åren som har objekt med index (urval 'namn', skördare). Räkningen kontrolleras mot
- * kurvans egna n (summan av antal_med_index per år måste vara exakt n), annars visas inga år: hellre inget år än ett som inte hör till kurvan.
+ * kurvans egna n, annars visas inga år: hellre inget år än ett som inte hör till kurvan.
+ *
+ * Utan anpassningsområde är summan av antal_med_index per år exakt n. Med område (slutavverkning) har några objekt index men ingår inte i
+ * kurvan, så summan kan vara större än n med `extra` objekt. Då är första och sista året ändå säkra om vart och ett har fler än `extra`
+ * objekt: ingen uppsättning av `extra` objekt kan tömma ett ytterår. Är summan mindre än n, eller hotas ett ytterår, visas inga år.
  */
 export function underlagAr(rader: MaskinArRad[] | undefined, atgard: IndexAtgard, n: number): { fran: number; till: number } | null {
   if (!rader) return null;
-  let summa = 0, fran = Infinity, till = -Infinity;
-  for (const r of rader) {
-    if (r.typ !== "skördare" || r.urval !== "namn" || r.atgard !== atgard || r.ar === null || r.antal_med_index <= 0) continue;
-    summa += r.antal_med_index;
-    fran = Math.min(fran, r.ar);
-    till = Math.max(till, r.ar);
-  }
-  return summa === n && Number.isFinite(fran) ? { fran, till } : null;
+  const perAr = new Map<number, number>();
+  rader.forEach((r) => {
+    if (r.typ !== "skördare" || r.urval !== "namn" || r.atgard !== atgard || r.ar === null || r.antal_med_index <= 0) return;
+    perAr.set(r.ar, (perAr.get(r.ar) ?? 0) + r.antal_med_index);
+  });
+  if (perAr.size === 0) return null;
+  const ar = Array.from(perAr.keys());
+  const fran = Math.min(...ar), till = Math.max(...ar);
+  const summa = Array.from(perAr.values()).reduce((s, v) => s + v, 0);
+  const extra = summa - n;
+  if (extra < 0) return null;
+  return (perAr.get(fran) as number) > extra && (perAr.get(till) as number) > extra ? { fran, till } : null;
 }
 
 const PLURAL: Record<IndexAtgard, { en: string; flera: string }> = {

@@ -163,7 +163,7 @@ describe("tabellen", () => {
     await monter("#l=forare&f=Stefan%20Karlsson&g=slutavverkning");
     expect(kolumnTexter()).toEqual(["2018–2021Komatsu 901XC", "2023Scorpion King ny", "2023–2025Scorpion Giant 2023", "2025–2026Scorpion Giant 2025"]);
     expect(rad("TU")).toEqual(["85,0 %ur avbrott", "92,8 %enligt Ponsse", "92,5 %enligt Ponsse", "93,0 %enligt Ponssebäst"]);
-    expect(rad("Index")).toEqual(["90", "99", "106", "107bäst"]);
+    expect(rad("Index")).toEqual(["89", "98", "107", "107bäst"]);
   });
   it("ⓘ vid Index öppnar förklaringen för åtgärden man står i", async () => {
     await monter("#l=forare&f=Stefan%20Karlsson&g=slutavverkning");
