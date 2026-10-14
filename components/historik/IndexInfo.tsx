@@ -10,7 +10,7 @@ import { Sheet } from "@/components/Sheet";
 import { AVSTAND, FARG, IKON, TNUM, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { hamtaNormkurva } from "@/lib/historik/data";
 import { felSlag, felText, type HistorikFelSlag } from "@/lib/historik/fel";
-import { atgarderAtt, indexExempel, normaltTabell, SKOTARE_UTAN_INDEX, underlagText, type IndexAtgard, type Kurvor } from "@/lib/historik/indexForklaring";
+import { atgarderAtt, indexExempel, normalomradeText, normaltTabell, SKOTARE_UTAN_INDEX, underlagText, type IndexAtgard, type Kurvor } from "@/lib/historik/indexForklaring";
 import type { MaskinArRad } from "@/lib/historik/typer";
 
 /** Kurvan hämtas en gång per sidladdning; ett misslyckande cachas inte, så nästa öppning försöker igen. */
@@ -90,6 +90,7 @@ function IndexBlad({ atgard, rader, onStang }: { atgard: IndexAtgard | null; rad
           <div key={a} style={{ marginTop: AVSTAND.m }}>
             <div style={{ ...TYP.micro, color: FARG.text2 }}>{ATGARD_NAMN[a]}</div>
             <Tabell rader={normaltTabell(k[a]!, a)} />
+            {normalomradeText(a) && <p style={liten}>{normalomradeText(a)}</p>}
           </div>
         ))}
 

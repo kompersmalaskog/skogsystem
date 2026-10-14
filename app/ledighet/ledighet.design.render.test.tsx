@@ -129,7 +129,7 @@ describe("Mig — grupperad lista, saldo, inline-bekräftelse", () => {
     expect(t.indexOf("Väntar på besked")).toBeGreaterThan(-1);
     expect(t.indexOf("Väntar på besked")).toBeLessThan(t.indexOf("Kommande ledighet"));
     expect(t.indexOf("Kommande ledighet")).toBeLessThan(t.indexOf("Historik (2)"));
-    expect(t).toContain("Låst — ändringar går via admin");
+    expect(t).toContain("Godkänd ledighet är låst — ändringar går via admin"); // en gång per grupp (se ledighet.fixar.render.test.tsx)
     // Hopfälld: historikens rader syns inte förrän man trycker
     expect(t).not.toContain("Togs ut");
     await klicka(knapp(/Historik \(2\)/));
@@ -409,7 +409,7 @@ describe("Träffytor — alla tryckbara mål, alla lägen", () => {
     await klicka(knapp(/^20$/));
     await klicka(knapp(/^22$/));
     expect(forLitet()).toEqual([]);
-    await klicka(knapp(/Inarbetad dag/));
+    await klicka(knapp(/Inarbetad$/));
     expect(forLitet()).toEqual([]);
   });
 

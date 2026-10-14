@@ -6,7 +6,7 @@ import { upsertVerifierat, uppdateraVerifierat } from '@/lib/supabase-save';
 import { rodaVardagarForByte, rodVardagNamn, bytesdagFel } from '@/lib/franvaro';
 import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
 import Ark from '@/components/design/Ark';
-import { TYPINFO, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
+import { TYPINFO, TYPKORT, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
 import { FelText, Ikon, KORT_TEXTKNAPP } from './delar';
 import { arbetsdagar, arHelg, fmtDatum, fmtPeriod, toISO } from './datum';
 import type { Ansokan } from './typer';
@@ -24,7 +24,7 @@ import ValjKalender from './ValjKalender';
  * ledighet — avtalet: ledighet och inarbetning överenskoms samtidigt.
  */
 export default function AnsokFormular({
-  redigerar, egenId, egenNamn, ansokningar, onStang, onSparad,
+  redigerar, egenId, egenNamn, ansokningar, onStang, onSparad, startTyp = null,
 }: {
   redigerar: Ansokan | null; // null = ny ansökan
   egenId: string;
@@ -32,8 +32,10 @@ export default function AnsokFormular({
   ansokningar: Ansokan[];
   onStang: () => void;
   onSparad: () => void;
+  /** Förvald typ för en NY ansökan ("Ansök om andra datum" efter ett avslag). Bara startvärdet — inget annat ändras. */
+  startTyp?: LedighetTyp | null;
 }) {
-  const [typ, setTyp] = useState<LedighetTyp | ''>(redigerar?.typ ?? '');
+  const [typ, setTyp] = useState<LedighetTyp | ''>(redigerar?.typ ?? startTyp ?? '');
   // Periodval via tryck-kalendern: start utan slut = endagsperiod tills vidare
   const [start, setStart] = useState<string | null>(redigerar?.startdatum ?? null);
   const [slut, setSlut] = useState<string | null>(redigerar?.slutdatum ?? null);
@@ -171,8 +173,8 @@ export default function AnsokFormular({
         {ANSOKBARA_TYPER.map(v => {
           const aktiv = typ === v;
           return (
-            <button key={v} onClick={() => valjTyp(v)} aria-pressed={aktiv} style={val(aktiv)}>
-              {aktiv && <Ikon namn="check" />}{TYPINFO[v].label}
+            <button key={v} onClick={() => valjTyp(v)} aria-pressed={aktiv} style={{ ...val(aktiv), padding: `0 ${AVSTAND.s}px`, whiteSpace: 'nowrap' }}>
+              {aktiv && <Ikon namn="check" />}{TYPKORT[v] ?? TYPINFO[v].label}
             </button>
           );
         })}

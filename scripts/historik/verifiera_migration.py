@@ -17,7 +17,7 @@ from pathlib import Path
 STD = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20261009155903_hist_tabeller.sql"
 EXTRA = ["20261009173956_hist_objekt_raknas.sql", "20261012063316_hist_vyer.sql", "20261012071940_hist_las_admin.sql",
          "20261012072915_hist_korrigering_lass.sql", "20261012073452_hist_vyer_korrigering.sql", "20261012075034_hist_vyer_regler.sql", "20261012075312_hist_vyer_appen.sql", "20261012075412_hist_maskin_ar_summor.sql",
-         "20261012100538_hist_steg13_tu_rapporterad.sql", "20261012101158_hist_skotare_koppling.sql", "20261012113105_hist_tvilling_lastcert.sql", "20261012123349_hist_wisent_flaggregel.sql", "20261012125005_hist_objektnr.sql", "20261012131833_hist_volym_harledd.sql", "20261012133150_hist_gavle_kalla.sql", "20261013154921_hist_prestanda.sql"]
+         "20261012100538_hist_steg13_tu_rapporterad.sql", "20261012101158_hist_skotare_koppling.sql", "20261012113105_hist_tvilling_lastcert.sql", "20261012123349_hist_wisent_flaggregel.sql", "20261012125005_hist_objektnr.sql", "20261012131833_hist_volym_harledd.sql", "20261012133150_hist_gavle_kalla.sql", "20261013154921_hist_prestanda.sql", "20261014084857_hist_forare_maskin_jamfor.sql", "20261014100408_hist_normalomrade.sql"]
 ADMIN = r"\(\(select public\.ar_admin\(\)\)\)"
 
 # (regex, etikett, grupp med tabell- eller vynamn)

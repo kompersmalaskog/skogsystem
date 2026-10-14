@@ -63,6 +63,8 @@ export type ObjektRad = {
   m3_per_g15: number | null;
   forvantad_m3_per_g15: number | null;
   index: number | null;
+  /** Slutavverkning med medelstam utanför det området kurvan är anpassad på (vy_hist_objekt_index.utanfor_normalomrade). Indexet finns ändå. */
+  utanfor_normalomrade: boolean;
   forare: string | null;
   forare_andel: number | null;
   forare_andel_kalla: string | null;
@@ -138,6 +140,7 @@ export function tillObjekt(r: Record<string, unknown>): ObjektRad {
     m3_per_g15: tal(r.m3_per_g15),
     forvantad_m3_per_g15: tal(r.forvantad_m3_per_g15),
     index: tal(r.index),
+    utanfor_normalomrade: r.utanfor_normalomrade === true,
     forare: (r.forare ?? null) as string | null,
     forare_andel: tal(r.forare_andel),
     forare_andel_kalla: (r.forare_andel_kalla ?? null) as string | null,

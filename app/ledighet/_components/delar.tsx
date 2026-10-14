@@ -42,11 +42,13 @@ export function LasFel({ text, onForsok }: { text: string; onForsok: () => void 
 }
 
 /** En grupp i iOS-inset-form: liten versal rubrik, ett kort med rader (hårlinje mellan raderna). */
-export function Grupp({ rubrik, children }: { rubrik: string; children: React.ReactNode }) {
+export function Grupp({ rubrik, not, children }: { rubrik: string; not?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section style={{ marginBottom: AVSTAND.xl }}>
       <h3 style={{ margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px`, ...TYP.micro, color: FARG.text2 }}>{rubrik}</h3>
       <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>{children}</div>
+      {/* En förklaring som gäller hela gruppen står EN gång här — inte upprepad på varje rad. */}
+      {not && <p style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0`, ...TYP.meta, color: FARG.text2 }}>{not}</p>}
     </section>
   );
 }

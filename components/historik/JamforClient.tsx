@@ -1,7 +1,7 @@
 "use client";
-// Historikvyn (admin): jämför 2–4 maskiner. Skördare: en åtgärd i taget (gallring/slutavverkning) med viktat index mot åtgärdens egen kurva.
+// Historikvyn (admin): jämför 2–4 maskiner, eller "Samma förare" (SammaForare.tsx: en förare på flera maskiner). Skördare: en åtgärd i taget (gallring/slutavverkning) med viktat index mot åtgärdens egen kurva.
 // Skotare: alla åtgärder tillsammans, m³/G15 och lass/G15, inget index (skotningsavstånd saknas).
-// Tillstånd i URL:ens hash (#t=skordare&g=gallring&m=A|B&an=1). Läser bara; RLS släpper bara in roll = 'admin'.
+// Tillstånd i URL:ens hash (#t=skordare&g=gallring&m=A|B&an=1; samma förare: #l=forare&f=Namn&g=gallring). Läser bara; RLS släpper bara in roll = 'admin'.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -13,15 +13,19 @@ import IndexInfo from "./IndexInfo";
 import { ATGARD_ETIKETT, antagnaTotalt, jamforRader, jamforSerie, JAMFOR_MAX, JAMFOR_MIN, maskinerMedObjekt } from "@/lib/historik/berakna";
 import type { AtgardKod, MaskinArRad, MaskinTyp } from "@/lib/historik/typer";
 import { Linjediagram, linjeGlyf, maskinFarg, Notis, Sektion, Vaxel } from "./delar";
+import SammaForare from "./SammaForare";
 
-type Jv = { typ: MaskinTyp; atgard: "gallring" | "slutavverkning"; valda: string[] | null; antagna: boolean };
-const START: Jv = { typ: "skördare", atgard: "gallring", valda: null, antagna: false };
+type Lage = "maskiner" | "forare";
+type Jv = { lage: Lage; typ: MaskinTyp; atgard: "gallring" | "slutavverkning"; valda: string[] | null; antagna: boolean; forare: string | null };
+const START: Jv = { lage: "maskiner", typ: "skördare", atgard: "gallring", valda: null, antagna: false, forare: null };
 
 function urHash(): Jv {
   if (typeof window === "undefined") return START;
   const p = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const m = p.get("m");
   return {
+    lage: p.get("l") === "forare" ? "forare" : "maskiner",
+    forare: p.get("f") || null,
     typ: p.get("t") === "skotare" ? "skotare" : "skördare",
     atgard: p.get("g") === "slutavverkning" ? "slutavverkning" : "gallring",
     valda: m ? m.split("|").filter(Boolean) : null,
@@ -31,6 +35,8 @@ function urHash(): Jv {
 
 function tillHash(v: Jv): string {
   const p = new URLSearchParams();
+  if (v.lage === "forare") p.set("l", "forare");
+  if (v.lage === "forare" && v.forare) p.set("f", v.forare);
   p.set("t", v.typ === "skotare" ? "skotare" : "skordare");
   if (v.typ === "skördare") p.set("g", v.atgard);
   if (v.valda) p.set("m", v.valda.join("|"));
@@ -84,7 +90,12 @@ export default function JamforClient() {
         ) : rader === null ? (
           <p style={{ ...TYP.text, color: FARG.text2, paddingTop: AVSTAND.xl }}>Hämtar maskinsammanställningen …</p>
         ) : (
-          <Jamfor rader={rader} jv={jv} gaTill={gaTill} />
+          <>
+            <div style={{ marginTop: AVSTAND.l }}>
+              <Vaxel varden={[{ id: "maskiner" as Lage, etikett: "Maskiner" }, { id: "forare" as Lage, etikett: "Samma förare" }]} valt={jv.lage} onVal={(l) => gaTill({ lage: l })} />
+            </div>
+            {jv.lage === "forare" ? <SammaForare rader={rader} forare={jv.forare} atgard={jv.atgard} gaTill={gaTill} /> : <Jamfor rader={rader} jv={jv} gaTill={gaTill} />}
+          </>
         )}
       </div>
     </div>

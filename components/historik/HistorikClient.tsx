@@ -9,7 +9,7 @@ import { AVSTAND, designCss, FARG, KNAPP, RADIE, TYP, VY_ROT } from "@/lib/desig
 import Tillstand from "@/components/design/Tillstand";
 import { hamtaMaskinAr, hamtaObjekt, signeradLank } from "@/lib/historik/data";
 import { felSlag, felText, type HistorikFelSlag } from "@/lib/historik/fel";
-import { indexAtgard, SKOTARE_UTAN_INDEX } from "@/lib/historik/indexForklaring";
+import { indexAtgard, SKOTARE_UTAN_INDEX, UTANFOR_NORMALOMRADET } from "@/lib/historik/indexForklaring";
 import {
   ATGARD_ETIKETT, SEGMENT_ETIKETT, antagnaIAtgard, arSpann, aren, atgardsrader, fewObjects, fmt, FOR_LITE_DATA, harIndex, huvudtal, kandaLuckor, MIN_OBJEKT, nyckeltal, okandaObjekt, procent, rad,
   skordarlista, skotarlista, standardAtgard, VOLYM_SAKNAS_LASS, type ListRad, type Segment,
@@ -383,6 +383,7 @@ function ArSida({ rader, vy, gaTill }: SidProps) {
                   meta={delar.join(" · ") + (meta2 ? `\n${meta2}` : "")}
                   siffra={siffra ?? "–"}
                   enhet={siffra === null ? (index ? "index saknas" : "m³/G15 saknas") : index ? "index" : "m³/G15"}
+                  fotnot={index && siffra !== null && o.utanfor_normalomrade ? UTANFOR_NORMALOMRADET : undefined}
                   notiser={notiser}
                 />
                 {o.storage_path && (

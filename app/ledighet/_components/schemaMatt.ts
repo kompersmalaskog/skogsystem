@@ -9,6 +9,11 @@ export const PERSON_H = 44;         // en person — minst en träffyta hög
 export const MASKIN_H = 48;         // en maskin — stoppblocket är en knapp och fyller hela raden i höjd
 export const AVDELARE_H = 32;
 
+/** Finns det mer att se åt höger i en sidscrollande ruta? (1 px marginal för avrundning.) */
+export function merAttSeAtHoger(scrollLeft: number, clientWidth: number, scrollWidth: number): boolean {
+  return scrollWidth - clientWidth - scrollLeft > 1;
+}
+
 /**
  * Hur många dagar rutnätet visar, och hur breda de är, för en given kolumnbredd (px).
  *
