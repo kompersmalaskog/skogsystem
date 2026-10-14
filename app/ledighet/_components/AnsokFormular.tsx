@@ -24,7 +24,7 @@ import ValjKalender from './ValjKalender';
  * ledighet — avtalet: ledighet och inarbetning överenskoms samtidigt.
  */
 export default function AnsokFormular({
-  redigerar, egenId, egenNamn, ansokningar, onStang, onSparad,
+  redigerar, egenId, egenNamn, ansokningar, onStang, onSparad, startTyp = null,
 }: {
   redigerar: Ansokan | null; // null = ny ansökan
   egenId: string;
@@ -32,8 +32,10 @@ export default function AnsokFormular({
   ansokningar: Ansokan[];
   onStang: () => void;
   onSparad: () => void;
+  /** Förvald typ för en NY ansökan ("Ansök om andra datum" efter ett avslag). Bara startvärdet — inget annat ändras. */
+  startTyp?: LedighetTyp | null;
 }) {
-  const [typ, setTyp] = useState<LedighetTyp | ''>(redigerar?.typ ?? '');
+  const [typ, setTyp] = useState<LedighetTyp | ''>(redigerar?.typ ?? startTyp ?? '');
   // Periodval via tryck-kalendern: start utan slut = endagsperiod tills vidare
   const [start, setStart] = useState<string | null>(redigerar?.startdatum ?? null);
   const [slut, setSlut] = useState<string | null>(redigerar?.slutdatum ?? null);

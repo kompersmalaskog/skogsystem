@@ -2,6 +2,9 @@
 /**
  * Tryck på en push-notis → vyn landar PÅ ansökan: överst, scrollad till och markerad en stund (som sedan tonar ut).
  *
+ * OBS: ett NYTT beslut (godkänd/nekad som personen inte sett) tar beskedsvyn hand om (ledighet.besked.render.test.tsx).
+ * Markeringen här gäller det som blir kvar: ett REDAN SETT besked, och beslut som inte längre gäller.
+ *
  * Före: beslutsnotisen öppnade bara /ledighet. "Nytt besked" låg UNDER godkänn-raden, saldot och Ansök-knappen
  * (under vikningen på en telefon), och ett redan sett besked låg gömt i Kommande eller den hopfällda Historiken.
  */
@@ -96,10 +99,11 @@ const tonaUt = async () => { await act(async () => { vi.advanceTimersByTime(MARK
 const raderIOrdning = () => Array.from(document.querySelectorAll('[id^="ansokan-"]')).map(e => e.id);
 
 describe("Beslutsnotisen — ?besked=<id>", () => {
-  it("nytt beslut: överst under 'Nytt besked', scrollad till, markerad — och markeringen tonar ut", async () => {
-    h.rpc.ledighet_prick = nya(["g1"]);
+  it("redan sett besked: överst under 'Besked', scrollad till, markerad — och markeringen tonar ut", async () => {
+    h.rpc.ledighet_prick = nya([]);
     await visa("/ledighet?besked=g1", friska([ANSOKAN("g1", "m-1", "godkänd")]));
-    expect(text()).toContain("Nytt besked");
+    expect(text()).toContain("Besked");
+    expect(text()).not.toContain("Nytt besked");
     expect(rad("ansokan-g1")).not.toBeNull();
     expect(scrollat).toEqual([{ id: "ansokan-g1", arg: { block: "center", behavior: "smooth" } }]);
     expect(markerad("ansokan-g1")).toBe(true);
@@ -109,11 +113,11 @@ describe("Beslutsnotisen — ?besked=<id>", () => {
   });
 
   it("gruppen står ÖVERST: före saldot och Ansök-knappen (inte under vikningen)", async () => {
-    h.rpc.ledighet_prick = nya(["g1"]);
+    h.rpc.ledighet_prick = nya([]);
     await visa("/ledighet?besked=g1", friska([ANSOKAN("g1", "m-1", "godkänd")]));
-    expect(text().indexOf("Nytt besked")).toBeGreaterThan(-1);
-    expect(text().indexOf("Nytt besked")).toBeLessThan(text().indexOf("Semester kvar"));
-    expect(text().indexOf("Nytt besked")).toBeLessThan(text().indexOf("Ansök om ledighet"));
+    expect(text().indexOf("Besked")).toBeGreaterThan(-1);
+    expect(text().indexOf("Besked")).toBeLessThan(text().indexOf("Semester kvar"));
+    expect(text().indexOf("Besked")).toBeLessThan(text().indexOf("Ansök om ledighet"));
   });
 
   it("ett redan SETT besked (ligger annars gömt i Historik) lyfts upp under rubriken 'Besked' — inte 'Nytt besked'", async () => {
@@ -127,11 +131,12 @@ describe("Beslutsnotisen — ?besked=<id>", () => {
     expect(markerad("ansokan-n1")).toBe(true);
   });
 
-  it("målet står FÖRST i gruppen, före andra nya beslut (andra rader kommer in senare och skiftar inte målet)", async () => {
-    h.rpc.ledighet_prick = nya(["n2", "g1"]);
+  it("målet (redan sett) står FÖRST i gruppen, före ett annat nytt beslut", async () => {
+    h.rpc.ledighet_prick = nya(["n2"]);
     await visa("/ledighet?besked=g1", friska([ANSOKAN("n2", "m-1", "nekad", "2099-12-01", "2099-12-02"), ANSOKAN("g1", "m-1", "godkänd")]));
     expect(raderIOrdning()).toEqual(["ansokan-g1", "ansokan-n2"]);
-    expect(text()).toContain("Nytt besked"); // allt i gruppen är nytt
+    expect(text()).toContain("Besked");
+    expect(text()).not.toContain("Nytt besked"); // g1 är inte nytt → gruppen heter inte "Nytt besked"
     expect(markerad("ansokan-g1")).toBe(true);
     expect(markerad("ansokan-n2")).toBe(false); // bara EN rad markeras
   });
@@ -170,7 +175,7 @@ describe("Beslutsnotisen — ?besked=<id>", () => {
 
   it("'minska rörelser' i systemet → scrollar utan animation", async () => {
     stillRorelse = true;
-    h.rpc.ledighet_prick = nya(["g1"]);
+    h.rpc.ledighet_prick = nya([]);
     await visa("/ledighet?besked=g1", friska([ANSOKAN("g1", "m-1", "godkänd")]));
     expect(scrollat).toEqual([{ id: "ansokan-g1", arg: { block: "center", behavior: "auto" } }]);
   });

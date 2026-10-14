@@ -9,7 +9,10 @@ import { toISO } from './datum';
 import { useLedighetData } from './useLedighetData';
 import { useNyaBeslut } from './useNyaBeslut';
 import { INGEN_FOKUS, MARKERING_MS, lasFokus } from './fokus';
+import { BESKED_MAX_VANTAN_MS, forvaldTyp, valjBesked, type BeskedBeslut } from './besked';
+import BeskedVy from './BeskedVy';
 import type { Ansokan } from './typer';
+import type { LedighetTyp } from './tema';
 import SaldoKort from './SaldoKort';
 import AnsokanRad from './AnsokanRad';
 import AnsokFormular from './AnsokFormular';
@@ -27,6 +30,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
   const [redigerar, setRedigerar] = useState<Ansokan | null>(null);
   const [fel, setFel] = useState<string | null>(null);
   const [historikOppen, setHistorikOppen] = useState(false);
+  const [formStartTyp, setFormStartTyp] = useState<LedighetTyp | null>(null);
 
   const arGodkannare = medarbetare.roll === 'admin';
   const idag = toISO(new Date());
@@ -37,25 +41,51 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
   // Länken ur en push-notis pekar på EN ansökan (?besked=<id> / ?godkann=<id>): vyn landar PÅ den (fokus.ts).
   const [fokus] = useState(() => (typeof window === 'undefined' ? INGEN_FOKUS : lasFokus(window.location.search)));
   // Nya beslut jag inte sett: visas överst och kvitteras först när de lästs och visats.
-  const nyaIds = useNyaBeslut(kanAnsoka);
+  const { ids: nyaIds, klar: nyaKlar } = useNyaBeslut(kanAnsoka);
+
+  // BESKEDSVYN (beslutsnotisen, ?besked=<id>): EN skärm med beskedet i stället för en lista att skanna.
+  //   vantar → visa    ansökan är min, godkänd/nekad och beslutet är NYTT för mig (står i serverns lista)
+  //   vantar → nej     allt annat (finns inte, någon annans, redan sett, väntar, läsfel, ingen länkparameter,
+  //                    serverns svar dröjer för länge): ledighetsvyn som förut, med raden överst och markerad
+  //   visa   → stangd  "Till ledighetsvyn" / "Ansök om andra datum" / Esc: ett vanligt beslut i listan
+  // Avgörs EN gång (och sparar raden som visades) — en omläsning av listan ändrar aldrig skärmen under fingret.
+  // Ingen länkparameter → 'nej' från start, så vyn aldrig väntar på något den inte ska visa.
+  const [beskedLage, setBeskedLage] = useState<'vantar' | 'visa' | 'nej' | 'stangd'>(() => (fokus.besked ? 'vantar' : 'nej'));
+  const [beskedRad, setBeskedRad] = useState<BeskedBeslut | null>(null);
 
   const mina = useMemo(
     () => ansokningar.filter(a => a.medarbetare_id === medarbetare.id),
     [ansokningar, medarbetare.id],
   );
+  useEffect(() => {
+    if (beskedLage !== 'vantar') return;
+    if (lasfel) { setBeskedLage('nej'); return; }
+    if (laddar || !nyaKlar) return;
+    const rad = valjBesked({ besked: fokus.besked, mina, nyaIds });
+    setBeskedRad(rad);
+    setBeskedLage(rad ? 'visa' : 'nej');
+  }, [beskedLage, lasfel, laddar, nyaKlar, mina, nyaIds, fokus.besked]);
+  useEffect(() => {
+    if (beskedLage !== 'vantar') return;
+    const t = setTimeout(() => setBeskedLage('nej'), BESKED_MAX_VANTAN_MS);
+    return () => clearTimeout(t);
+  }, [beskedLage]);
+  // Beskedet som beskedsvyn redan levererat står inte också under "Nytt besked" — det är inte längre nytt.
+  const nyaKvar = useMemo(() => nyaIds.filter(id => id !== beskedRad?.id), [nyaIds, beskedRad]);
   // Toppgruppen: ansökan som notisen pekade på FÖRST (även om beslutet redan setts — då ligger det annars gömt i
   // Kommande eller den hopfällda Historiken), sedan beslut jag inte sett. Står bara här, aldrig också längre ned.
+  // Bara när beskedsvyn INTE tog hand om länken (beskedLage 'nej'): redan sett beslut, eller beslutet gäller inte längre.
   const fokusRad = useMemo(
-    () => (fokus.besked ? mina.find(a => a.id === fokus.besked) : undefined),
-    [mina, fokus.besked],
+    () => (fokus.besked && beskedLage === 'nej' ? mina.find(a => a.id === fokus.besked) : undefined),
+    [mina, fokus.besked, beskedLage],
   );
   const toppRader = useMemo(() => {
-    const ordning = [fokusRad?.id, ...nyaIds].filter((x): x is string => !!x);
+    const ordning = [fokusRad?.id, ...nyaKvar].filter((x): x is string => !!x);
     return Array.from(new Set(ordning)).map(id => mina.find(a => a.id === id)).filter((a): a is Ansokan => !!a);
-  }, [mina, nyaIds, fokusRad]);
+  }, [mina, nyaKvar, fokusRad]);
   const toppIds = useMemo(() => new Set(toppRader.map(a => a.id)), [toppRader]);
   // "Nytt besked" bara om allt i gruppen faktiskt är nytt; ett redan sett besked som notisen pekar på heter "Besked".
-  const toppRubrik = toppRader.every(a => nyaIds.includes(a.id)) ? 'Nytt besked' : 'Besked';
+  const toppRubrik = toppRader.every(a => nyaKvar.includes(a.id)) ? 'Nytt besked' : 'Besked';
   // Tre grupper efter TID, inte bara status: en beviljad ledighet flyttar
   // till Historik när den PASSERAT (slutdatum < idag), inte när den godkänns.
   const vantarPaBesked = useMemo(
@@ -84,7 +114,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     : fokus.besked ? (fokusRad ? `ansokan-${fokus.besked}` : null)
     : (arGodkannare && vantandeAlla.some(a => a.id === fokus.godkannId) ? `godkann-${fokus.godkannId}` : null);
   // Pekar länken på en ansökan som inte finns kvar / redan är hanterad: SÄG det i stället för att landa utan förklaring.
-  const notering = laddar || lasfel ? null
+  const notering = laddar || lasfel || beskedLage !== 'nej' ? null
     : fokus.besked && !fokusRad ? 'Den ansökan finns inte längre.'
     : fokus.godkannId && arGodkannare && !malDomId ? 'Den ansökan är redan hanterad.'
     : null;
@@ -121,6 +151,17 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     hamtaOm();
   };
 
+  const stangBesked = () => setBeskedLage('stangd');
+  // Efter ett avslag: ansökan öppnas direkt (tryck-kalendern), typen förvald. Beskedsvyn stängs först — aldrig ett ark ovanpå den.
+  const ansokIgen = () => {
+    const typ = beskedRad ? forvaldTyp(beskedRad) : null;
+    setBeskedLage('stangd');
+    setFel(null);
+    setRedigerar(null);
+    setFormStartTyp(typ);
+    setFormOppen(true);
+  };
+
   const rader = (lista: Ansokan[], extra: { tidigare?: boolean; redigera?: boolean }) => lista.map((a, i) => (
     <AnsokanRad key={a.id} a={a} arEgen tidigare={extra.tidigare} sista={i === lista.length - 1}
       domId={`ansokan-${a.id}`} markerad={markerad === `ansokan-${a.id}`}
@@ -128,8 +169,12 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
       onTaBort={a.status === 'väntar' ? taBort : undefined} />
   ));
 
+  // Kom hit via en beslutsnotis: visa ingen lista medan vi avgör om beskedsvyn ska upp (annars blinkar listan förbi).
+  if (beskedLage === 'vantar' && !lasfel) return <StatusText text="Läser ditt besked…" />;
+
   return (
     <div>
+      {beskedLage === 'visa' && beskedRad && <BeskedVy a={beskedRad} onTillVyn={stangBesked} onAnsokIgen={ansokIgen} />}
       {notering && <p role="status" style={{ margin: 0, paddingBottom: AVSTAND.l, ...TYP.meta, color: FARG.text2 }}>{notering}</p>}
 
       {/* Besked jag inte sett (och ansökan en notis pekade på) ÖVERST — inte under saldot och Ansök-knappen,
@@ -200,8 +245,9 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
           egenId={medarbetare.id}
           egenNamn={medarbetare.namn}
           ansokningar={ansokningar}
-          onStang={() => { setFormOppen(false); setRedigerar(null); }}
-          onSparad={() => { setFormOppen(false); setRedigerar(null); hamtaOm(); }}
+          startTyp={formStartTyp}
+          onStang={() => { setFormOppen(false); setRedigerar(null); setFormStartTyp(null); }}
+          onSparad={() => { setFormOppen(false); setRedigerar(null); setFormStartTyp(null); hamtaOm(); }}
         />
       )}
     </div>
