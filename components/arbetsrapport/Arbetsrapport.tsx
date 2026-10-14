@@ -14,6 +14,7 @@ import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { byggArbetsObjektLista } from "@/lib/arbetsobjekt";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { byggAvtalGrupper } from "@/lib/avtalVy";
+import { oppnaAvtalPdf as oppnaAvtalPdfFil, MEDD_EJ_UPPLADDAT } from "@/lib/avtalPdf";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
@@ -742,6 +743,16 @@ export default function Arbetsrapport() {
   // Supabase data
   const [medarbetare, setMedarbetare] = useState<any>(null);
   const [gsAvtal, setGsAvtal] = useState<any>(null);
+  // "Läs hela avtalet": pågår = länken hämtas; meddelande = det som står under knappen (saknad fil, fel).
+  const [avtalPdf, setAvtalPdf] = useState<{ upptagen: boolean; meddelande: string | null }>({ upptagen: false, meddelande: null });
+  const oppnaAvtalPdf = async () => {
+    if (avtalPdf.upptagen) return;
+    setAvtalPdf({ upptagen: true, meddelande: null });
+    const r = await oppnaAvtalPdfFil(supabase, gsAvtal?.avtal_pdf_path);
+    setAvtalPdf({ upptagen: false, meddelande: r.ok ? null : r.meddelande });
+  };
+  // Raden under knappen: raden kunde inte läsas → inget (notrutan längst ner säger det); ingen sökväg → "inte uppladdat än".
+  const avtalPdfRad = !gsAvtal ? null : !gsAvtal.avtal_pdf_path ? MEDD_EJ_UPPLADDAT : avtalPdf.meddelande;
   const [objektLista, setObjektLista] = useState<any[]>([]);
   const [historik, setHistorik] = useState<any[]>([]);
   // Förarens tidsspecifikation för vald månad — SAMMA beräkning som Fortnox-
@@ -5619,9 +5630,12 @@ export default function Arbetsrapport() {
             </Card>
           </div>
         ))}
-        <button onClick={()=>window.open('/avtal/skogsavtalet-2025-2027.pdf','_blank')} style={{ width:"100%",height:48,background:"#2a2a2a",border:"none",borderRadius:12,color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
-          Läs hela avtalet →
+        {/* Avtalets PDF ligger i den privata bucketen `avtal` och styrs av gs_avtal.avtal_pdf_path (lib/avtalPdf):
+            signerad länk (60 s), bara inloggade. Saknas filen står det så i stället för en 404-sida. */}
+        <button onClick={oppnaAvtalPdf} disabled={!gsAvtal?.avtal_pdf_path || avtalPdf.upptagen} style={{ ...KNAPP.sekundar, height:TRAFFYTA.primar, marginBottom:avtalPdfRad ? AVSTAND.s : AVSTAND.l, ...(!gsAvtal?.avtal_pdf_path ? INAKTIV : null) }}>
+          {avtalPdf.upptagen ? "Öppnar…" : "Läs hela avtalet →"}
         </button>
+        {avtalPdfRad && <p role="status" style={{ margin:`0 0 ${AVSTAND.l}px`,textAlign:"center",...TYPE.meta,color:C.label }}>{avtalPdfRad}</p>}
         <div style={{ background:"rgba(10,132,255,0.08)",borderRadius:12,padding:"14px 16px",marginBottom:24,border:"1px solid rgba(10,132,255,0.15)" }}>
           {gsAvtal
             ? <p style={{ margin:0,...TYPE.meta,color:C.blue }}>Värdena hämtas från databasen och uppdateras automatiskt om avtalet ändras. Ett – betyder att värdet inte finns registrerat i avtalet.</p>

@@ -719,6 +719,22 @@ vilans ändar, nattpass); fixturerna körda mot en lokal Postgres 16 är bundna 
 
 ---
 
+## Avtalets PDF i appen (Mitt avtal → Läs hela avtalet)
+
+Avtalet kommer från Grönas medlemssidor och ska bara nå inloggade. Därför ligger PDF:en i den PRIVATA Storage-bucketen `avtal`
+(aldrig i `public/`), och vilken fil som visas styr `gs_avtal.avtal_pdf_path` — nytt avtal = ny uppladdning, ingen kodändring.
+- **Ladda upp:** Admin → Avtal → "Avtalet som PDF" (bara admin; PDF, högst 20 MB). Sökvägen blir `<gs_avtal.id>.pdf`; en ny
+  uppladdning ersätter den förra. Ett nytt avtal (ny `gs_avtal`-rad) får sin egen fil.
+- **Läsa:** knappen hämtar en signerad länk (`createSignedUrl`, 60 s) och öppnar den i en ny flik (`lib/avtalPdf.ts`). Saknas
+  sökvägen eller filen står "Avtalet är inte uppladdat än" i sidan, aldrig en 404. Andra fel (nät, session) säger att man kan
+  försöka igen.
+- **Behörighet:** läsa = alla inloggade (policyn `avtal_las_inloggad`), skriva/ersätta/radera = bara admin (`ar_admin()`).
+  Ingen anon-policy finns för bucketen. Migration: `supabase/migrations/20261014160000_avtal_pdf_bucket.sql` (kolumn + bucket +
+  policyer), körs av planeringschatten före release, efter `20261014120000_gs_avtal_las_for_inloggade.sql` (utan den kan en
+  förare inte läsa avtalsraden och därmed inte sökvägen).
+
+---
+
 ## Öppet (Martin tar med löneansvarig / beslutar själv)
 
 Rena frågor till löneansvarig:

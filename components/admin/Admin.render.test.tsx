@@ -76,7 +76,20 @@ vi.mock("@/lib/supabase", () => {
       return klar({ data: this.valjSkrivet ? traff.map(r => ({ ...r })) : null, error: null, count: null });
     }
   }
-  return { supabase: { from: (t: string) => new Q(t) } };
+  // Storage: uppladdningar och signerade länkar registreras i g.__storage; g.__storage.uppFel / signFel styr felvägarna.
+  const storage = { from: (bucket: string) => ({
+    upload: async (path: string, fil: any, opts: any) => {
+      const g = globalThis as any;
+      g.__storage.upp.push({ bucket, path, namn: fil?.name, typ: fil?.type, opts });
+      return g.__storage.uppFel ? { data: null, error: { message: g.__storage.uppFel } } : { data: { path }, error: null };
+    },
+    createSignedUrl: async (path: string, sek: number) => {
+      const g = globalThis as any;
+      g.__storage.signerade.push({ bucket, path, sek });
+      return g.__storage.signFel ? { data: null, error: g.__storage.signFel } : { data: { signedUrl: `https://signerad.example/${bucket}/${path}?t=1` }, error: null };
+    },
+  }) };
+  return { supabase: { from: (t: string) => new Q(t), storage } };
 });
 
 import AdminClient from "./AdminClient";
@@ -121,6 +134,7 @@ function seed(extra: Record<string, any[]> = {}) {
     medarbetare_lonesystem: [{ id: "l1", medarbetare_id: "m1", lonesystem_id: "ls1", anstallningsnummer: "1001", skapad: "2026-04-17" }],
     ...extra,
   };
+  g.__storage = { upp: [], signerade: [], uppFel: null, signFel: null };
   g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {}; g.__dbFel = null; g.__saknasLasKolumner = {};
   g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
   g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null; g.__arbetstid = null;
@@ -538,6 +552,134 @@ describe("Avtal", () => {
     g.__db.gs_avtal[0].giltigt_till = "2026-12-20";
     await monter("flik=avtal");
     expect(text()).toContain("går ut om 2 månader");
+  });
+});
+
+describe("Avtal → Avtalet som PDF (privat bucket avtal)", () => {
+  const pdfFil = (over: Partial<{ name: string; type: string; size: number }> = {}) => {
+    const f = new File(["%PDF-1.7 testinnehåll"], over.name ?? "Skogsbruk arbetare 2025-2027.pdf", { type: over.type ?? "application/pdf" });
+    if (over.size != null) Object.defineProperty(f, "size", { value: over.size });
+    return f;
+  };
+  async function valjFil(f: File) {
+    const input = cont.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await act(async () => {
+      Object.defineProperty(input, "files", { value: [f], configurable: true });
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await lugn();
+  }
+  const medKolumn = (path: string | null = null) => { g.__db.gs_avtal[0].avtal_pdf_path = path; };
+
+  it("kolumnen finns inte än (migrationen ej körd): sidan säger det och erbjuder ingen uppladdning", async () => {
+    await monter("flik=avtal");
+    expect(text()).toContain("Avtalet som PDF");
+    expect(text()).toContain("databasen saknar kolumnen avtal_pdf_path");
+    expect(text()).toContain("20261014160000_avtal_pdf_bucket.sql");
+    expect(cont.querySelector('input[type="file"]')).toBeNull();
+    expect(blad("Ladda upp PDF").length).toBe(0);
+  });
+
+  it("ingen PDF än: 'Inte uppladdad än', uppladdningsknapp, ingen Öppna-knapp", async () => {
+    medKolumn(null);
+    await monter("flik=avtal");
+    expect(text()).toContain("Inte uppladdad än");
+    expect(text()).toContain("Avtalet är inte uppladdat än");   // det förarna ser tills filen finns
+    expect(blad("Ladda upp PDF").length).toBe(1);
+    expect(blad("Öppna PDF").length).toBe(0);
+  });
+
+  it("väljer man en PDF: den går till bucketen avtal på avtalets egen sökväg (upsert) och sökvägen sparas på avtalsraden", async () => {
+    medKolumn(null);
+    await monter("flik=avtal");
+    await valjFil(pdfFil());
+    expect(g.__storage.upp).toEqual([{ bucket: "avtal", path: "a1.pdf", namn: "Skogsbruk arbetare 2025-2027.pdf", typ: "application/pdf", opts: { upsert: true, contentType: "application/pdf" } }]);
+    expect(g.__db.gs_avtal[0].avtal_pdf_path).toBe("a1.pdf");
+    expect(g.__skriv.find((x: any) => x.tabell === "gs_avtal" && x.op === "update").vals).toEqual({ avtal_pdf_path: "a1.pdf" });
+    expect(g.__eq.some((e: any) => e[0] === "gs_avtal" && e[1] === "id" && e[2] === "a1")).toBe(true);
+    expect(text()).toContain("PDF:en är uppladdad");
+    expect(text()).toContain("Uppladdad");
+    expect(blad("Ersätt PDF").length).toBe(1);
+    expect(blad("Öppna PDF").length).toBe(1);
+  });
+
+  it("det som står i formuläret men inte är sparat går inte förlorat när PDF:en laddas upp, och Spara väntar fortfarande", async () => {
+    medKolumn(null);
+    await monter("flik=avtal");
+    await skriv(falt("Övertidsersättning vardag"), "61.5");
+    await valjFil(pdfFil());
+    expect(falt("Övertidsersättning vardag").value).toBe("61.5");
+    expect(g.__db.gs_avtal[0].overtid_vardag_kr).not.toBe(61.5);
+    const spara = blad("Spara ändringar").map(e => e.closest("button")!).find(Boolean)!;
+    expect(spara.disabled).toBe(false);
+    // ...och en PDF-uppladdning skriver aldrig formulärets fält
+    expect(Object.keys(g.__skriv.find((x: any) => x.tabell === "gs_avtal" && x.op === "update").vals)).toEqual(["avtal_pdf_path"]);
+  });
+
+  it("ersätta: en ny uppladdning går till samma sökväg", async () => {
+    medKolumn("a1.pdf");
+    await monter("flik=avtal");
+    expect(text()).toContain("Uppladdad");
+    await valjFil(pdfFil({ name: "nytt.pdf" }));
+    expect(g.__storage.upp).toHaveLength(1);
+    expect(g.__storage.upp[0].path).toBe("a1.pdf");
+    expect(g.__storage.upp[0].opts.upsert).toBe(true);
+  });
+
+  it("en fil som inte är en PDF, en tom och en för stor avvisas före uppladdning — med en mening som säger vad man gör", async () => {
+    medKolumn(null);
+    await monter("flik=avtal");
+    await valjFil(pdfFil({ name: "avtal.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+    expect(text()).toContain("Filen är inte en PDF. Välj avtalet som PDF-fil.");
+    await valjFil(pdfFil({ size: 21 * 1024 * 1024 }));
+    expect(text()).toContain("Filen är för stor (21 MB). Största tillåtna är 20 MB.");
+    expect(g.__storage.upp).toHaveLength(0);
+    expect(g.__skriv.filter((x: any) => x.tabell === "gs_avtal")).toHaveLength(0);
+  });
+
+  it("uppladdningen misslyckas (t.ex. policyn): felet står, ingenting kopplas till avtalsraden och det står aldrig 'uppladdad'", async () => {
+    medKolumn(null);
+    g.__storage.uppFel = "new row violates row-level security policy";
+    await monter("flik=avtal");
+    await valjFil(pdfFil());
+    expect(text()).toContain("PDF:en laddades inte upp: new row violates row-level security policy");
+    expect(g.__skriv.filter((x: any) => x.tabell === "gs_avtal")).toHaveLength(0);
+    expect(text()).not.toContain("PDF:en är uppladdad");
+    expect(text()).toContain("Inte uppladdad än");
+  });
+
+  it("filen laddades upp men raden skrevs inte (RLS: 0 rader utan fel): det står, och PDF:en visas inte som uppladdad", async () => {
+    medKolumn(null);
+    await monter("flik=avtal");
+    g.__ingaRader = true;
+    await valjFil(pdfFil());
+    expect(text()).toContain("PDF:en laddades upp men kopplades inte till avtalet");
+    expect(text()).not.toContain("PDF:en är uppladdad");
+    expect(text()).toContain("Inte uppladdad än");
+  });
+
+  it("Öppna PDF: en signerad länk med kort giltighet (60 s) för just den sökvägen, i en flik som öppnades i klicket", async () => {
+    medKolumn("a1.pdf");
+    const flik = { location: { href: "" }, close: vi.fn() };
+    const oppna = vi.spyOn(window, "open").mockImplementation(() => flik as any);
+    await monter("flik=avtal");
+    await klick("Öppna PDF");
+    expect(oppna).toHaveBeenCalledWith("", "_blank");
+    expect(g.__storage.signerade).toEqual([{ bucket: "avtal", path: "a1.pdf", sek: 60 }]);
+    expect(flik.location.href).toBe("https://signerad.example/avtal/a1.pdf?t=1");
+    expect(flik.close).not.toHaveBeenCalled();
+  });
+
+  it("Öppna PDF när filen saknas i bucketen: 'Avtalet är inte uppladdat än' i sidan, ingen blank flik kvar", async () => {
+    medKolumn("a1.pdf");
+    g.__storage.signFel = { message: "Object not found", statusCode: "404" };
+    const flik = { location: { href: "" }, close: vi.fn() };
+    vi.spyOn(window, "open").mockImplementation(() => flik as any);
+    await monter("flik=avtal");
+    await klick("Öppna PDF");
+    expect(text()).toContain("Avtalet är inte uppladdat än");
+    expect(flik.close).toHaveBeenCalled();
+    expect(flik.location.href).toBe("");
   });
 });
 

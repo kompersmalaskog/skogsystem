@@ -1,9 +1,10 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TYP, TNUM } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Rad, Primar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Primar, Sekundar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
 import { ymdLokal } from "@/lib/datumLokal";
+import { AVTAL_BUCKET, avtalPdfPath, kontrolleraAvtalPdf, oppnaAvtalPdf } from "@/lib/avtalPdf";
 import UtjamningsSektion from "./UtjamningsSektion";
 
 type Avtal = {
@@ -27,6 +28,8 @@ type Avtal = {
   traktamente_halv_kr?: number | null;
   skift_tillagg_kr?: number | null;
   bortovaro_12h_kr?: number | null;
+  /** Sökväg i bucketen `avtal` (migration 20261014160000). Finns inte som nyckel före migrationen. */
+  avtal_pdf_path?: string | null;
   [k: string]: any;
 };
 
@@ -124,6 +127,11 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
   const [sparar, setSparar] = useState(false);
   const [sparFel, setSparFel] = useState<string | null>(null);
   const [sparOk, setSparOk] = useState(false);
+  // Avtalets PDF: en egen handling (väljer man en fil är den uppladdad), inte en del av formuläret och dess Spara.
+  const pdfInput = useRef<HTMLInputElement>(null);
+  const [pdfUpptagen, setPdfUpptagen] = useState(false);
+  const [pdfFel, setPdfFel] = useState<string | null>(null);
+  const [pdfOk, setPdfOk] = useState<string | null>(null);
 
   const ladda = async () => {
     setLaddar(true);
@@ -187,6 +195,38 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
     ladda();
   };
 
+  const valjPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fil = e.target.files?.[0];
+    e.target.value = ""; // samma fil ska gå att välja igen
+    if (!fil || !aktuellt?.id) return;
+    setPdfFel(null); setPdfOk(null);
+    const kontroll = kontrolleraAvtalPdf(fil);
+    if (kontroll) { setPdfFel(kontroll); return; }
+    setPdfUpptagen(true);
+    const path = avtalPdfPath(aktuellt.id);
+    const upp = await supabase.storage.from(AVTAL_BUCKET).upload(path, fil, { upsert: true, contentType: "application/pdf" });
+    if (upp.error) { setPdfUpptagen(false); setPdfFel(`PDF:en laddades inte upp: ${upp.error.message}`); return; }
+    // .select() visar vad som landade: 0 rader utan fel = RLS stoppade den tyst (gs_avtal kräver admin).
+    const { data, error } = await supabase.from("gs_avtal").update({ avtal_pdf_path: path }).eq("id", aktuellt.id).select("id, avtal_pdf_path");
+    setPdfUpptagen(false);
+    if (error || !data?.length || data[0].avtal_pdf_path !== path) {
+      setPdfFel(`PDF:en laddades upp men kopplades inte till avtalet: ${error?.message || "raden träffades inte"}. Försök igen.`);
+      return;
+    }
+    // Bara sökvägen uppdateras i minnet: en ny ladda() skulle kasta ändringar man gjort i formuläret men inte sparat.
+    setAktuellt(a => (a ? { ...a, avtal_pdf_path: path } : a));
+    setPdfOk("PDF:en är uppladdad. Förarna öppnar den under Mitt avtal.");
+    setTimeout(() => setPdfOk(null), 5000);
+  };
+
+  const visaPdf = async () => {
+    setPdfFel(null); setPdfOk(null);
+    setPdfUpptagen(true);
+    const r = await oppnaAvtalPdf(supabase, aktuellt?.avtal_pdf_path);
+    setPdfUpptagen(false);
+    if (!r.ok) setPdfFel(r.meddelande);
+  };
+
   if (laddar) return <Laddar>Laddar avtal…</Laddar>;
   if (fel) return <Fel onForsok={ladda}>Kunde inte ladda avtal: {fel}</Fel>;
   if (!aktuellt) return <Kort><Tomt>Inget avtal i databasen (gs_avtal är tom).</Tomt></Kort>;
@@ -218,6 +258,34 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
           </div>
         </Kort>
       )}
+
+      {/* Avtalets PDF (privat bucket `avtal`): vilken fil som gäller styrs av avtalsraden, nytt avtal = ny uppladdning */}
+      <Sektion>Avtalet som PDF</Sektion>
+      <Kort>
+        {!("avtal_pdf_path" in aktuellt) ? (
+          <Stod>PDF:en kan inte laddas upp än: databasen saknar kolumnen avtal_pdf_path. Planeringschatten kör migrationen 20261014160000_avtal_pdf_bucket.sql.</Stod>
+        ) : (
+          <>
+            <div style={{ ...TYP.listtitel, color: aktuellt.avtal_pdf_path ? FARG.text : FARG.text2 }}>
+              {aktuellt.avtal_pdf_path ? "Uppladdad" : "Inte uppladdad än"}
+            </div>
+            <Stod>
+              {aktuellt.avtal_pdf_path
+                ? "Förarna öppnar den under Mitt avtal → Läs hela avtalet. Ladda upp en ny fil för att ersätta den."
+                : "Förarna ser \"Avtalet är inte uppladdat än\" tills du laddar upp avtalet som PDF (högst 20 MB)."}
+            </Stod>
+            <input ref={pdfInput} type="file" accept="application/pdf,.pdf" onChange={valjPdf} style={{ display: "none" }} aria-label="Välj avtalets PDF-fil" />
+            <div style={{ display: "flex", flexDirection: "column", gap: AVSTAND.s, marginTop: AVSTAND.m }}>
+              <Sekundar onClick={() => pdfInput.current?.click()} disabled={pdfUpptagen}>
+                {pdfUpptagen ? "Arbetar…" : aktuellt.avtal_pdf_path ? "Ersätt PDF" : "Ladda upp PDF"}
+              </Sekundar>
+              {aktuellt.avtal_pdf_path && <Sekundar onClick={visaPdf} disabled={pdfUpptagen}>Öppna PDF</Sekundar>}
+            </div>
+          </>
+        )}
+      </Kort>
+      {pdfFel && <Besked>{pdfFel}</Besked>}
+      {pdfOk && <Besked slag="ok">{pdfOk}</Besked>}
 
       {/* Redigerbart formulär */}
       {GRUPPER.map(g => {

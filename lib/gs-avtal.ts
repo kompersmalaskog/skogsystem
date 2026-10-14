@@ -34,6 +34,9 @@ export const GS_AVTAL_KOLUMNER = [
   // ATK, pension, sjuklön, semester, helglön
   "atk_procent", "atk_procent_nasta", "atk_ledig_tid_h", "pension_tillagg_pct", "sjuklon_pct",
   "semester_dagar_ar", "semester_ersattning_pct", "helglon_dagar",
+  // Avtalets PDF: sökvägen i den privata bucketen `avtal` (lib/avtalPdf). Kolumnen kommer med migrationen
+  // 20261014160000_avtal_pdf_bucket.sql — före den finns den inte i prod, och ett avtal utan sökväg är "inte uppladdat än".
+  "avtal_pdf_path",
   // Vila-trösklar (20260520-migrationen). NOT NULL i DB med defaults.
   "dygnsvila_krav_h", "dygnsvila_varning_h", "veckovila_krav_h", "veckovila_fonster_dagar", "kompensation_deadline_dagar",
 ] as const;
@@ -50,7 +53,7 @@ export type GsAvtalKolumn = (typeof GS_AVTAL_KOLUMNER)[number];
  * löneansvariga). Beslutet måste tas om ifall firmabil någon gång inte gäller alla.
  */
 export type GsAvtal = { id: string } & {
-  [K in Exclude<GsAvtalKolumn, "id" | "namn" | "giltigt_fran" | "giltigt_till" | "skapad" | "helglon_dagar">]?: number | null;
+  [K in Exclude<GsAvtalKolumn, "id" | "namn" | "giltigt_fran" | "giltigt_till" | "skapad" | "helglon_dagar" | "avtal_pdf_path">]?: number | null;
 } & {
   namn?: string | null;
   giltigt_fran?: string | null;
@@ -58,6 +61,8 @@ export type GsAvtal = { id: string } & {
   skapad?: string | null;
   /** Avtalets dagar, kommaseparerade ("Nyårsdagen,Trettondagen,…"). */
   helglon_dagar?: string | null;
+  /** Sökväg i bucketen `avtal` ("<avtalets id>.pdf"). null/saknas = inte uppladdat. */
+  avtal_pdf_path?: string | null;
 };
 
 function tillIsoDate(d: Date): string {

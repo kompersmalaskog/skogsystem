@@ -20,6 +20,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const FORARE = { id: "m-1", namn: "Test Förare", epost: "test@example.com", roll: "forare", maskin_id: "PONS20SDJAA270231", user_id: "u-1", hemadress: "" };
 // gs_avtal-raden som databasen svarar med. null = ingen läsbar rad (en förare som inte får läsa tabellen får 0 rader utan fel).
 const AVTAL: { rad: any } = { rad: null };
+// Storage: signerade länkar registreras; signFel styr felvägen.
+const STORAGE: { signerade: { bucket: string; path: string; sek: number }[]; signFel: any } = { signerade: [], signFel: null };
 // Raden som den ser ut i prod (2026-10-14).
 const PROD_AVTAL = { id: "f5b40c12", namn: "Skogsavtalet 2025-2027", giltigt_fran: "2025-04-01", giltigt_till: "2027-03-31", max_overtid_ar_h: 250, km_grans_per_dag: 60, atk_procent: 3.62, atk_procent_nasta: 3.92, atk_ledig_tid_h: 65.2, pension_tillagg_pct: 20, sjuklon_pct: 80, semester_dagar_ar: 25, semester_ersattning_pct: 13, skift_tillagg_kr: 8, bortovaro_12h_kr: 8.03, helglon_dagar: "Nyårsdagen,Trettondagen,Långfredagen,Annandag påsk,1 maj,Kristi himmelsfärd,Nationaldagen,Midsommarafton,Julafton,Juldagen,Annandag jul,Nyårsafton", dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
 
@@ -48,6 +50,10 @@ vi.mock("@/lib/supabase", () => {
         getSession: async () => ({ data: { session: null } }),
         onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
       },
+      storage: { from: (bucket: string) => ({ createSignedUrl: async (path: string, sek: number) => {
+        STORAGE.signerade.push({ bucket, path, sek });
+        return STORAGE.signFel ? { data: null, error: STORAGE.signFel } : { data: { signedUrl: `https://signerad.example/${bucket}/${path}?t=1` }, error: null };
+      } }) },
       rpc: () => kedja("rpc"),
       channel: () => ({ on() { return this; }, subscribe() { return this; }, unsubscribe() {} }),
       removeChannel: () => {},
@@ -62,7 +68,7 @@ let konsolFel: string[] = [];
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   konsolFel = [];
-  AVTAL.rad = null;
+  AVTAL.rad = null; STORAGE.signerade = []; STORAGE.signFel = null;
   vi.spyOn(console, "error").mockImplementation((...a: any[]) => { konsolFel.push(a.map(String).join(" ")); });
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => "" })));
@@ -156,5 +162,87 @@ describe("Mitt avtal visar avtalet — eller –, aldrig en gissning", () => {
     }
     expect(text()).toContain("Avtalet kunde inte läsas");
     for (const hittat of ["Skogsavtalet 2025-2027", "GS-avtalet", "65,2", "8,03", "1 apr 2025", "250 tim", "25 dagar", "+20%", "80%"]) expect(text(), hittat).not.toContain(hittat);
+  });
+});
+
+// ── Läs hela avtalet: signerad länk ur den privata bucketen, aldrig en 404 ──
+describe("Läs hela avtalet", () => {
+  const knapp = () => Array.from(behallare!.querySelectorAll("button")).find(b => (b.textContent || "").includes("Läs hela avtalet") || (b.textContent || "").includes("Öppnar"))!;
+  const klickaKnapp = async () => {
+    await act(async () => { knapp().dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    for (let i = 0; i < 3; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+  };
+  const fakeFlik = () => ({ location: { href: "" }, close: vi.fn() });
+
+  it("avtalet är uppladdat: en signerad länk (60 s) för sökvägen på avtalsraden öppnas i fliken som öppnades i klicket", async () => {
+    AVTAL.rad = { ...PROD_AVTAL, avtal_pdf_path: "f5b40c12.pdf" };
+    const flik = fakeFlik();
+    const oppna = vi.spyOn(window, "open").mockImplementation(() => flik as any);
+    const { text } = await oppnaMittAvtal();
+    expect(knapp().disabled).toBe(false);
+    expect(text()).not.toContain("Avtalet är inte uppladdat än");
+    await klickaKnapp();
+    expect(oppna).toHaveBeenCalledWith("", "_blank");
+    expect(STORAGE.signerade).toEqual([{ bucket: "avtal", path: "f5b40c12.pdf", sek: 60 }]);
+    expect(flik.location.href).toBe("https://signerad.example/avtal/f5b40c12.pdf?t=1");
+    expect(flik.close).not.toHaveBeenCalled();
+  });
+
+  it("ett annat avtal = en annan fil, utan kodändring: sökvägen ur raden styr", async () => {
+    AVTAL.rad = { ...PROD_AVTAL, namn: "Skogsavtalet 2027-2029", avtal_pdf_path: "ett-annat-id.pdf" };
+    vi.spyOn(window, "open").mockImplementation(() => fakeFlik() as any);
+    await oppnaMittAvtal();
+    await klickaKnapp();
+    expect(STORAGE.signerade.map(x => x.path)).toEqual(["ett-annat-id.pdf"]);
+  });
+
+  it("ingen fil uppladdad (sökvägen saknas): knappen är inaktiv, det står 'Avtalet är inte uppladdat än', och inget anrop görs", async () => {
+    AVTAL.rad = { ...PROD_AVTAL, avtal_pdf_path: null };
+    const oppna = vi.spyOn(window, "open").mockImplementation(() => fakeFlik() as any);
+    const { text } = await oppnaMittAvtal();
+    expect(text()).toContain("Avtalet är inte uppladdat än");
+    expect(knapp().disabled).toBe(true);
+    await klickaKnapp();
+    expect(STORAGE.signerade).toEqual([]);
+    expect(oppna).not.toHaveBeenCalled();
+  });
+
+  it("kolumnen finns inte än (raden saknar avtal_pdf_path): samma sak — 'inte uppladdat än', ingen 404", async () => {
+    AVTAL.rad = PROD_AVTAL;   // ingen avtal_pdf_path-nyckel alls
+    const { text } = await oppnaMittAvtal();
+    expect(text()).toContain("Avtalet är inte uppladdat än");
+    expect(knapp().disabled).toBe(true);
+  });
+
+  it("sökvägen finns men filen saknas i bucketen: meddelandet står i sidan och den tomma fliken stängs", async () => {
+    AVTAL.rad = { ...PROD_AVTAL, avtal_pdf_path: "borta.pdf" };
+    STORAGE.signFel = { message: "Object not found", statusCode: "404" };
+    const flik = fakeFlik();
+    vi.spyOn(window, "open").mockImplementation(() => flik as any);
+    const { text } = await oppnaMittAvtal();
+    expect(text()).not.toContain("Avtalet är inte uppladdat än");
+    await klickaKnapp();
+    expect(text()).toContain("Avtalet är inte uppladdat än");
+    expect(flik.close).toHaveBeenCalled();
+    expect(flik.location.href).toBe("");
+  });
+
+  it("ett annat fel (nät, session) säger att man kan försöka igen — och påstår inte att filen saknas", async () => {
+    AVTAL.rad = { ...PROD_AVTAL, avtal_pdf_path: "f5b40c12.pdf" };
+    STORAGE.signFel = { message: "Failed to fetch" };
+    vi.spyOn(window, "open").mockImplementation(() => fakeFlik() as any);
+    const { text } = await oppnaMittAvtal();
+    await klickaKnapp();
+    expect(text()).toContain("Kunde inte öppna avtalet just nu. Försök igen om en stund.");
+    expect(text()).not.toContain("inte uppladdat");
+    expect(knapp().disabled).toBe(false);   // går att försöka igen
+  });
+
+  it("raden går inte att läsa: knappen är inaktiv men sidan påstår inte att avtalet 'inte är uppladdat' (den säger att avtalet inte kunde läsas)", async () => {
+    AVTAL.rad = null;
+    const { text } = await oppnaMittAvtal();
+    expect(knapp().disabled).toBe(true);
+    expect(text()).not.toContain("Avtalet är inte uppladdat än");
+    expect(text()).toContain("Avtalet kunde inte läsas");
   });
 });
