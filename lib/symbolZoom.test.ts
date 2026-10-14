@@ -61,8 +61,10 @@ describe('symbolTroskel — symbolerna syns när HELA trakten fyller ungefär ha
     }
   });
 
-  it('GOLVET: en jättetrakt klipper inte på en nivå där inget är läsbart ändå', () => {
-    expect(symbolTroskel({ traktM: 20000, lat: LAT, kortsidaPx: 390 })).toBe(SYMBOL_GOLV_ZOOM);
+  it('GOLVET är kartans eget minZoom (8): en jättetrakt som fyller skärmen får symboler (inget golv som döljer dem)', () => {
+    expect(SYMBOL_GOLV_ZOOM).toBe(8);
+    expect(symbolTroskel({ traktM: 20000, lat: LAT, kortsidaPx: 390 })).toBeGreaterThanOrEqual(SYMBOL_GOLV_ZOOM);
+    expect(symbolTroskel({ traktM: 8000, lat: LAT, kortsidaPx: 390 })).toBeLessThan(10.5);   // en 8 km-trakt fyller skärmen på ca z 10,5 — då ska symbolerna redan vara tillåtna
   });
 });
 

@@ -8,8 +8,9 @@
 //   (3) latituden (meter per pixel krymper med cos(lat)).
 //   MapLibre-zoom 0 = 512 px för hela jorden → meter/px = 40 075 017 / 512 / 2^zoom · cos(lat).
 //   För en typisk trakt (430 m) vid lat 56,4: telefon (390 px) → z 14,3; dator (800 px) → z 15,3. En 3 km-trakt → 11,5 / 12,5; en 100 m-trakt → klipps av taket.
-//   TAK: aldrig högre än 15,5 — objektets egen öppningsvy (fitBounds, högst zoom 16) ska ALLTID visa symbolerna, även för en liten trakt som aldrig
-//   fyller halva skärmen. GOLV: 11 (en trakt som är större än så fyller skärmen på en nivå där inga symboler hör hemma ändå).
+//   TAK: aldrig högre än 15,5 — objektets egen öppningsvy (svepet, högst zoom 17) ska ALLTID visa symbolerna, även för en liten trakt som aldrig
+//   fyller halva skärmen. GOLV: 8 = kartans eget minZoom (inget ligger lägre) — INTE högre: ett golv på 11 dolde symbolerna på en 8 km-trakt som fyllde skärmen
+//   (svepets slutzoom 10,5 låg under golvet; hittat av testet 'markeringarna ska synas när svepet är klart').
 //
 // KLIPPET är hårt (MapLibres minzoom per lager), inte en genomskinlig övergång: markers-layer styr sin icon-opacity ur briefinglägets och körvyns
 // uttag, och ett eget opacitetsuttryck ovanpå skulle krocka med dem. Lagrens ursprungliga zoomintervall sparas och återställs exakt.
@@ -17,7 +18,7 @@
 export const SYMBOL_TYPISK_TRAKT_M = 430;
 export const SYMBOL_HALVA_SKARMEN = 0.5;
 export const SYMBOL_TAK_ZOOM = 15.5;
-export const SYMBOL_GOLV_ZOOM = 11;
+export const SYMBOL_GOLV_ZOOM = 8;
 const METER_PER_PX_ZOOM0 = 40075016.686 / 512;
 
 /** Lagren som bär symboler och etiketter (och deras osynliga träffytor, så ett tryck inte öppnar ett kort för något man inte ser). */

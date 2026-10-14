@@ -118,3 +118,35 @@ describe('markeringarna göms medan listan är öppen, och symbolerna klipps på
     expect(hook).not.toMatch(/skapaLagerDoljare|tillampaSymbolZoom/);
   });
 });
+
+describe('valt objekt → kartan sveper till trakten (bara planeringsvyn)', () => {
+  it('svepet körs av useObjektFlyg med aktiv: objektListaVal — körvyn och /maskin får inget svep', () => {
+    expect(page).toContain("import { useObjektFlyg } from '../../lib/hooks/useObjektFlyg'");
+    const i = page.indexOf('useObjektFlyg({');
+    const anrop = page.slice(i, page.indexOf('});', i));
+    expect(anrop).toContain('aktiv: objektListaVal,');
+    expect(anrop).toContain('geometriHamtadFor: traktGeoHamtadFor,');
+    expect(anrop).toContain('kameraUpptagen: () => startKameraLasRef.current || korvyOppenRef.current,');
+  });
+
+  it('val i listan: ingen jump till objektet först (kartan står i översikten och sveper) — men direkt-öppning och maskinläge hoppar som förut', () => {
+    expect(page).toContain('svepFranListaRef.current = true;');
+    expect(page).toContain('if (!startKameraLasRef.current && !korvyOppenRef.current && !svepFranLista) {');
+    // flaggan sätts bara när ett ANNAT objekt valts (samma objekt → återgången, inget svep)
+    const i = page.indexOf('const valjObjektUrLista = (obj: any) => {');
+    const f = page.slice(i, i + 900);
+    expect(f.indexOf('if (valtObjekt?.id === obj.id) return;')).toBeLessThan(f.indexOf('svepFranListaRef.current = true;'));
+  });
+
+  it('geometri-effektens fitBounds över ALLA features finns kvar bara utanför planeringsvyn (där svepet tar trakten)', () => {
+    expect(page).toContain('!startKameraLasRef.current && !korvyOppenRef.current && !objektListaVal) {');
+    expect(page).not.toMatch(/Number\.isFinite\(minLng\) && !startKameraLasRef\.current && !korvyOppenRef\.current\) \{/);
+  });
+
+  it('flaggan förbrukas högst upp i centreringen (kan inte fastna efter ett objekt utan koordinat)', () => {
+    const i = page.indexOf('const centreraPaObjekt = (obj: any) => {');
+    const f = page.slice(i, i + 600);
+    expect(f.indexOf('svepFranListaRef.current = false;')).toBeGreaterThan(-1);
+    expect(f.indexOf('svepFranListaRef.current = false;')).toBeLessThan(f.indexOf('const cc = objektKartCenter(obj);'));
+  });
+});

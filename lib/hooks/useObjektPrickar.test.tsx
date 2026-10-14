@@ -112,6 +112,26 @@ describe('utzoomningens tak (kartans minZoom 8 räcker inte med arket över nedr
     act(() => { karta.sparadeEfter.moveend(); });
     expect(karta.minZoom).toBe(8);
   });
+  it('efter ett val medan kameran är UTZOOMAD (under det ordinarie taket): taket väntar tills kameran landat — annars knycker det kameran till 8 före svepet', async () => {
+    const karta = laggKarta();
+    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('a')]) });
+    karta.kamera.zoom = 7.4;                                         // översikten
+    act(() => { ut!.markeraVal(); });
+    await rendera({ map: karta, aktiv: false, prickar: null });
+    expect(karta.minZoom).toBe(MIN_ZOOM_OVERSIKT);                   // inte återställt än
+    expect(karta.setMinZoom).toHaveBeenCalledTimes(1);               // bara sänkningen vid öppningen
+    act(() => { karta.sparadeEfter.moveend(); });                    // svepet har landat
+    expect(karta.minZoom).toBe(8);
+  });
+  it('… och om ingen kamerarörelse kommer alls (objekt utan koordinat) återställs taket ändå efter en stund', async () => {
+    const karta = laggKarta();
+    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('a')]) });
+    karta.kamera.zoom = 7.4;
+    act(() => { ut!.markeraVal(); });
+    await rendera({ map: karta, aktiv: false, prickar: null });
+    act(() => { vi.advanceTimersByTime(4100); });
+    expect(karta.minZoom).toBe(8);
+  });
   it('efter ett val (ingen återgång) kommer taket tillbaka direkt', async () => {
     const karta = laggKarta();
     await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('a')]) });

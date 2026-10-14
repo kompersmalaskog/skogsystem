@@ -21,6 +21,7 @@ import { plusLage } from '../plusArk';
 const MAX_ZOOM_OVERSIKT = 13;               // en ensam prick zoomas inte in på knivskarpa 16
 /** Planeringskartan har minZoom 8 (skogsbruksskala). Med arket över nedre halvan ryms inte en region i den synliga delen på 8, så listan sänker taket medan den är öppen. */
 export const MIN_ZOOM_OVERSIKT = 5;
+const MIN_ZOOM_RESERV_MS = 4000;            // ingen kamerarörelse kom efter ett val (t.ex. objekt utan koordinat): taket återställs ändå
 
 interface Opt {
   map: any | null;
@@ -55,6 +56,18 @@ export function useObjektPrickar({ map, aktiv, prickar, aterstall }: Opt): { mar
       if (typeof nu === 'number' && nu > MIN_ZOOM_OVERSIKT) { forraMin = nu; map.setMinZoom(MIN_ZOOM_OVERSIKT); }
     } catch { forraMin = null; }
     const aterstallMin = () => { try { if (forraMin != null) map.setMinZoom(forraMin); } catch { /* kartan är borta */ } };
+    // Taket tillbaka UTAN ryck: ligger kameran under det ordinarie taket (utzoomad översikt) knycker setMinZoom den till taket i samma stund — och det är just då
+    // sidan är på väg att svepa kameran till ett valt objekt. Då väntar vi tills kameran landat (moveend), med en reservtimer ifall ingen rörelse kommer.
+    const aterstallMinMjukt = () => {
+      if (forraMin == null) return;
+      let klar = false;
+      const gor = () => { if (klar) return; klar = true; aterstallMin(); };
+      let under = false;
+      try { under = map.getZoom() < forraMin; } catch { /* */ }
+      if (!under || typeof map.once !== 'function') { gor(); return; }
+      map.once('moveend', gor);
+      setTimeout(gor, MIN_ZOOM_RESERV_MS);
+    };
 
     const behallare: HTMLElement | null = map.getContainer?.() ?? null;
     const canvasBeh: HTMLElement | null = map.getCanvasContainer?.() ?? null;
@@ -89,7 +102,7 @@ export function useObjektPrickar({ map, aktiv, prickar, aterstall }: Opt): { mar
           map.easeTo({ ...kamera, duration: 500 });
           // taket tillbaka först när kameran landat — annars knycker setMinZoom kameran till 8 mitt i återgången
           if (forraMin != null && typeof map.once === 'function') map.once('moveend', aterstallMin); else aterstallMin();
-        } else aterstallMin();
+        } else aterstallMinMjukt();
       } catch { /* kartan är redan borttagen (sidan lämnas) */ }
     };
   }, [map, aktiv, aterstall]);
