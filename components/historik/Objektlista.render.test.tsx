@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
- * RENDERINGSTEST för märkningen "utanför normalområdet" i objektlistan (steg 20). Fake-supabase med de fyra riktiga objekten som
- * vy_hist_objekt_index flaggar i prod 2026-10-14 (Hästhagen och tre maskinstandard-objekt) plus ett vanligt objekt i slutavverkning och ett i gallring.
+ * RENDERINGSTEST för märkningen "utanför normalområdet" i objektlistan (steg 20). Fake-supabase med Hästhagen-raden som den såg ut när
+ * vy_hist_objekt_index flaggade den (medelstam 0,075, index 57,3) plus ett vanligt objekt i slutavverkning och ett i gallring. I prod är inget objekt
+ * flaggat sedan steg 21 (Hästhagen och de tre andra ligger under special), så testet prövar mekanismen: skyddsnätet finns kvar för nästa objekt som hamnar utanför.
  * Indexet visas alltid; texten är grå och står efter ordet "index".
  */
 import React, { act } from "react";

@@ -300,21 +300,6 @@
   "m3_per_g15": 5.43
  },
  {
-  "forare": "Oskar Nilsson",
-  "atgard": "slutavverkning",
-  "maskin": "Rottne H8E Logmax",
-  "antal_maskiner": 1,
-  "ar_fran": 2025,
-  "ar_till": 2025,
-  "antal_objekt": 1,
-  "g15_h": 144.2,
-  "viktat_index": 57.3,
-  "tu": 0.914,
-  "antal_med_tu": 1,
-  "tu_rapporterad": null,
-  "m3_per_g15": 5.14
- },
- {
   "forare": "Stefan Karlsson",
   "atgard": "gallring",
   "maskin": "Komatsu 901XC",

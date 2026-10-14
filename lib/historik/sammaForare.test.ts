@@ -4,7 +4,7 @@ import {
   bastaIndex, bastaTu, delaMaskiner, GRANS_G15_H, harNogData, kolumnRubrik, maskinerForForare, olikaAr, sammaForareRader, TEXT_OLIKA_AR, tillForareMaskin, urvalForare, type ForareMaskinRad,
 } from "./sammaForare";
 
-// Fixturen är de 27 riktiga raderna i vy_hist_forare_maskin_jamfor i prod 2026-10-14, efter Svinhult-korrigeringen (hist_korrigering) och slutavverkningens anpassningsområde 0,10–1,5 (steg 20).
+// Fixturen är de 26 riktiga raderna i vy_hist_forare_maskin_jamfor i prod 2026-10-14, efter Svinhult-korrigeringen (hist_korrigering), slutavverkningens anpassningsområde 0,10–1,5 (steg 20) och flytten av Hästhagen, vindkraft, vägbreddning och väg till special (steg 21).
 const RADER = (fixtur as Record<string, unknown>[]).map(tillForareMaskin);
 const rad = (o: Partial<ForareMaskinRad> & { maskin: string }): ForareMaskinRad => ({
   forare: "Test Förare", atgard: "gallring", antal_objekt: 20, ar_fran: 2020, ar_till: 2022, g15_h: 500, viktat_index: 100, tu: 0.9, antal_med_tu: 20, tu_rapporterad: null, m3_per_g15: 5, ...o,
@@ -15,11 +15,14 @@ describe("urvalet: vilka förare och åtgärder går att jämföra", () => {
   it("med dagens data: Martin gallring, Oskar gallring och Stefan slutavverkning, inget annat", () => {
     expect(ut(urvalForare(RADER))).toEqual(["Martin Lindqvist: gallring", "Oskar Nilsson: gallring", "Stefan Karlsson: slutavverkning"]);
   });
-  it("kräver minst två maskiner med minst 200 G15-timmar: en förare med många maskiner men bara en över gränsen kommer inte med (Joacim, Martin och Oskar i slutavverkning)", () => {
+  it("kräver minst två maskiner med minst 200 G15-timmar: en förare med många maskiner men bara en över gränsen kommer inte med (Joacim och Martin i slutavverkning)", () => {
     const v = urvalForare(RADER);
     expect(v.find((x) => x.forare === "Joacim Ringberg")).toBeUndefined();
     expect(v.find((x) => x.forare === "Martin Lindqvist")?.atgarder).toEqual(["gallring"]);
     expect(v.find((x) => x.forare === "Oskar Nilsson")?.atgarder).toEqual(["gallring"]);
+  });
+  it("Oskar har ingen slutavverkning kvar: Hästhagen (solcellspark) ligger under special, inte som en slutavverkning på Logmax", () => {
+    expect(RADER.filter((r) => r.forare === "Oskar Nilsson" && r.atgard === "slutavverkning")).toEqual([]);
   });
   it("en förare med en enda maskin kommer inte med, hur många timmar den än har (Stefan i gallring: 3 396 h på en maskin)", () => {
     expect(RADER.find((r) => r.forare === "Stefan Karlsson" && r.atgard === "gallring")?.g15_h).toBeGreaterThan(3000);
