@@ -74,18 +74,22 @@ export function maskinerForForare(rader: ForareMaskinRad[], forare: string, atga
     .sort((a, b) => a.ar_fran - b.ar_fran || a.ar_till - b.ar_till || a.maskin.localeCompare(b.maskin, "sv"));
 }
 
+/** Förarens maskiner i åtgärden delade i de som visas (minst GRANS_G15_H timmar) och de som döljs. Ordningen (äldst först) bevaras i båda. */
+export function delaMaskiner(maskiner: ForareMaskinRad[]): { visas: ForareMaskinRad[]; dolda: ForareMaskinRad[] } {
+  return { visas: maskiner.filter(harNogData), dolda: maskiner.filter((r) => !harNogData(r)) };
+}
+
 /** Två år-spann överlappar om de delar minst ett år (2020–2022 och 2022–2023 delar 2022). */
 export const ararOverlappar = (a: ForareMaskinRad, b: ForareMaskinRad) => a.ar_fran <= b.ar_till && b.ar_fran <= a.ar_till;
 
 /**
- * Olika år: ingen av maskinerna med nog data överlappar någon annan i tid. Då syns en grå rad om att förarens erfarenhet kan förklara en del av skillnaden.
- * Överlappar åren helt eller delvis (för något par): ingen rad. Färre än två maskiner med data: ingen rad.
+ * Olika år: NÅGOT par av de visade maskinerna saknar gemensamma år. Då syns en grå rad om att förarens erfarenhet kan förklara en del av skillnaden.
+ * Har alla par minst ett gemensamt år (helt eller delvis överlapp): ingen rad. Färre än två visade maskiner: ingen rad.
  */
 export function olikaAr(kolumner: ForareMaskinRad[]): boolean {
   const med = kolumner.filter(harNogData);
-  if (med.length < 2) return false;
-  for (let i = 0; i < med.length; i++) for (let j = i + 1; j < med.length; j++) if (ararOverlappar(med[i], med[j])) return false;
-  return true;
+  for (let i = 0; i < med.length; i++) for (let j = i + 1; j < med.length; j++) if (!ararOverlappar(med[i], med[j])) return true;
+  return false;
 }
 
 export const TU_KALLA_PONSSE = "enligt Ponsse";
@@ -182,5 +186,5 @@ export function sammaForareRader(kolumner: ForareMaskinRad[]): JamforRad[] {
 /** Åren överst i kolumnen, till exempel "2017–2023" (ett enda år står som "2025"). */
 export const kolumnRubrik = (r: ForareMaskinRad) => arSpann(r.ar_fran, r.ar_till);
 
-export const TEXT_OLIKA_AR = "Olika år. Förarens erfarenhet kan förklara en del av skillnaden.";
+export const TEXT_OLIKA_AR = "Alla maskiner kördes inte samma år. Förarens erfarenhet kan förklara en del av skillnaden.";
 export const TEXT_SAMMA_FORARE = "Samma förare på olika maskiner. Skillnaden beror mer på maskinen, men år och objekt skiljer sig fortfarande.";

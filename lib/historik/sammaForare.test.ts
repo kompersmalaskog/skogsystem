@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fixtur from "./__fixtures__/forare_maskin_jamfor_2026-10-14.json";
 import {
-  bastaIndex, bastaTu, GRANS_G15_H, harNogData, kolumnRubrik, maskinerForForare, olikaAr, sammaForareRader, tillForareMaskin, urvalForare, type ForareMaskinRad,
+  bastaIndex, bastaTu, delaMaskiner, GRANS_G15_H, harNogData, kolumnRubrik, maskinerForForare, olikaAr, sammaForareRader, TEXT_OLIKA_AR, tillForareMaskin, urvalForare, type ForareMaskinRad,
 } from "./sammaForare";
 
 // Fixturen är de 28 riktiga raderna i vy_hist_forare_maskin_jamfor i prod 2026-10-14.
@@ -109,25 +109,55 @@ describe("raderna", () => {
   });
 });
 
+describe("de maskiner som visas och de som döljs", () => {
+  it("bara maskiner med minst 200 timmar visas; resten döljs, i samma ordning (äldst först)", () => {
+    const { visas, dolda } = delaMaskiner(maskinerForForare(RADER, "Martin Lindqvist", "gallring"));
+    expect(visas.map((r) => r.maskin)).toEqual(["Rottne H8B", "Rottne H8D"]);
+    expect(dolda.map((r) => r.maskin)).toEqual(["Komatsu 941", "Komatsu 901XC", "Rottne H8E Logmax"]);
+  });
+  it("gränsen: exakt 200 h visas, 199,9 döljs", () => {
+    const { visas, dolda } = delaMaskiner([rad({ maskin: "A", g15_h: 200 }), rad({ maskin: "B", g15_h: 199.9 })]);
+    expect(visas.map((r) => r.maskin)).toEqual(["A"]);
+    expect(dolda.map((r) => r.maskin)).toEqual(["B"]);
+  });
+  it("Oskar gallring och Stefan slutavverkning har inga dolda maskiner: ingen rad om dem", () => {
+    expect(delaMaskiner(maskinerForForare(RADER, "Oskar Nilsson", "gallring")).dolda).toEqual([]);
+    expect(delaMaskiner(maskinerForForare(RADER, "Stefan Karlsson", "slutavverkning")).dolda).toEqual([]);
+  });
+  it("varje jämförbar kombination har minst två visade maskiner (aldrig en tom eller ensam kolumn)", () => {
+    for (const v of urvalForare(RADER)) for (const a of v.atgarder) expect(delaMaskiner(maskinerForForare(RADER, v.forare, a)).visas.length, `${v.forare} ${a}`).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("olika år", () => {
   const ar = (maskin: string, fran: number, till: number, g15_h = 500) => rad({ maskin, ar_fran: fran, ar_till: till, g15_h });
-  it("ingen överlappning mellan maskinerna med data → olika år (grå rad)", () => {
+  it("NÅGOT par av de visade maskinerna saknar gemensamma år → raden visas", () => {
     expect(olikaAr([ar("A", 2014, 2019), ar("B", 2021, 2023)])).toBe(true);
     expect(olikaAr([ar("A", 2013, 2015), ar("B", 2017, 2019), ar("C", 2023, 2025)])).toBe(true);
+    // bara ett par saknar gemensamma år (A och C), B överlappar båda
+    expect(olikaAr([ar("A", 2013, 2017), ar("B", 2016, 2020), ar("C", 2019, 2022)])).toBe(true);
+    expect(olikaAr([ar("A", 2013, 2015), ar("B", 2017, 2019), ar("C", 2019, 2025)])).toBe(true); // A–B saknar gemensamma år
   });
-  it("överlappar åren helt eller delvis, även bara ett gemensamt år → ingen rad", () => {
+  it("alla par har minst ett gemensamt år (helt eller delvis, även bara ett år) → ingen rad", () => {
     expect(olikaAr([ar("A", 2017, 2023), ar("B", 2020, 2023)])).toBe(false); // delvis
     expect(olikaAr([ar("A", 2020, 2023), ar("B", 2021, 2022)])).toBe(false); // helt
-    expect(olikaAr([ar("A", 2019, 2021), ar("B", 2021, 2023)])).toBe(false); // delar ett år
-    expect(olikaAr([ar("A", 2013, 2015), ar("B", 2017, 2019), ar("C", 2019, 2025)])).toBe(false); // ett par överlappar
+    expect(olikaAr([ar("A", 2019, 2021), ar("B", 2021, 2023)])).toBe(false); // delar 2021
+    expect(olikaAr([ar("A", 2013, 2021), ar("B", 2019, 2023), ar("C", 2020, 2022)])).toBe(false); // alla tre överlappar alla
   });
-  it("bara maskiner med nog data räknas: en maskin med för lite data som överlappar påverkar inte", () => {
+  it("färre än två visade maskiner: ingen rad", () => {
+    expect(olikaAr([])).toBe(false);
+    expect(olikaAr([ar("A", 2014, 2019)])).toBe(false);
+  });
+  it("bara maskiner med nog data räknas: en dold maskin som saknar gemensamma år påverkar inte", () => {
+    expect(olikaAr([ar("A", 2014, 2019), ar("B", 2016, 2023), ar("C", 2024, 2026, 50)])).toBe(false);
     expect(olikaAr([ar("A", 2014, 2019), ar("B", 2021, 2023), ar("C", 2018, 2022, 50)])).toBe(true);
-    expect(olikaAr([ar("A", 2014, 2019), ar("B", 2021, 2023, 50)])).toBe(false); // bara en maskin med data
   });
-  it("de tre jämförbara kombinationerna i dag överlappar alla i tid: ingen grå rad", () => {
-    for (const [f, a] of [["Martin Lindqvist", "gallring"], ["Oskar Nilsson", "gallring"], ["Stefan Karlsson", "slutavverkning"]] as const) {
-      expect(olikaAr(maskinerForForare(RADER, f, a)), `${f} ${a}`).toBe(false);
-    }
+  it("dagens jämförbara kombinationer: Martin gallring (H8B 2020–2022, H8D 2022–2023) delar 2022 → ingen rad; Oskar gallring och Stefan slutavverkning har par utan gemensamma år → rad", () => {
+    expect(olikaAr(maskinerForForare(RADER, "Martin Lindqvist", "gallring"))).toBe(false);
+    expect(olikaAr(maskinerForForare(RADER, "Oskar Nilsson", "gallring"))).toBe(true); // H8B 2017–2023 och H8E 2026
+    expect(olikaAr(maskinerForForare(RADER, "Stefan Karlsson", "slutavverkning"))).toBe(true); // 901XC 2018–2021 och Giant 2023
+  });
+  it("texten", () => {
+    expect(TEXT_OLIKA_AR).toBe("Alla maskiner kördes inte samma år. Förarens erfarenhet kan förklara en del av skillnaden.");
   });
 });

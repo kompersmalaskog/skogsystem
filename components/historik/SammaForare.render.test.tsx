@@ -53,9 +53,10 @@ const knappar = () => Array.from(cont.querySelectorAll<HTMLButtonElement>("butto
 const knapp = (text: RegExp) => knappar().find((b) => text.test(vanlig(b.textContent)))!;
 async function klick(el: Element) { await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); await vantaa(); }
 const kolumnTexter = () => Array.from(cont.querySelectorAll("thead th[scope=col]")).filter((th) => th.textContent).map((th) => vanlig(th.textContent));
+// radens namn står på en egen rad (th) och siffrorna på raden under
 const rad = (etikett: string) => {
-  const th = Array.from(cont.querySelectorAll("tbody th[scope=row]")).find((t) => vanlig(t.textContent).startsWith(etikett))!;
-  return Array.from(th.parentElement!.querySelectorAll("td")).map((td) => vanlig(td.textContent));
+  const th = Array.from(cont.querySelectorAll("tbody th[scope=colgroup]")).find((t) => vanlig(t.textContent).startsWith(etikett))!;
+  return Array.from(th.parentElement!.nextElementSibling!.querySelectorAll("td")).map((td) => vanlig(td.textContent));
 };
 
 beforeEach(() => {
@@ -111,18 +112,52 @@ describe("välj förare", () => {
 });
 
 describe("tabellen", () => {
-  it("Martin gallring: fem kolumner, äldst till vänster, åren överst i varje kolumn", async () => {
+  it("Martin gallring: bara de två maskinerna med minst 200 h har kolumn, äldst till vänster, åren överst i varje kolumn", async () => {
     await monter("#l=forare&f=Martin%20Lindqvist&g=gallring");
-    expect(kolumnTexter()).toEqual([
-      "2017Komatsu 941", "2018–2021Komatsu 901XC", "2020–2022Rottne H8B", "2022–2023Rottne H8D", "2025Rottne H8E Logmax",
-    ]);
+    expect(kolumnTexter()).toEqual(["2020–2022Rottne H8B", "2022–2023Rottne H8D"]);
   });
-  it("under 200 timmar: 'För lite data' på index, TU och m³/G15, och bäst bara på H8D (112) bland de med data", async () => {
+  it("inga kolumner med 'För lite data', och bäst på index bara på H8D (113)", async () => {
     await monter("#l=forare&f=Martin%20Lindqvist&g=gallring");
-    expect(rad("Index")).toEqual(["För lite data", "För lite data", "98", "113bäst", "För lite data"]);
-    expect(rad("m³/G15")).toEqual(["För lite data", "För lite data", "6,0", "6,5", "För lite data"]);
-    expect(rad("G15 (h)")).toEqual(["7under 200 h", "132under 200 h", "1 468", "324", "78under 200 h"]);
-    expect(rad("Antal objekt")).toEqual(["1", "4", "49", "13", "1"]);
+    expect(sida()).not.toContain("För lite data");
+    expect(rad("Index")).toEqual(["98", "113bäst"]);
+    expect(rad("m³/G15")).toEqual(["6,0", "6,5"]);
+    expect(rad("G15 (h)")).toEqual(["1 468", "324"]);
+    expect(rad("Antal objekt")).toEqual(["49", "13"]);
+  });
+  it("ingen sidscroll: ingen radrubrikkolumn, ingen minsta bredd på tabellen och ingen sidscrollande omslagsruta runt den", async () => {
+    await monter("#l=forare&f=Stefan%20Karlsson&g=slutavverkning");
+    const tabell = cont.querySelector("table") as HTMLTableElement;
+    expect(tabell.style.minWidth).toBe("");
+    expect(tabell.style.tableLayout).toBe("fixed");
+    expect(tabell.style.width).toBe("100%");
+    expect(tabell.closest('[style*="overflow"]')).toBeNull();
+    expect(tabell.querySelectorAll("thead th")).toHaveLength(4); // bara maskinerna, ingen tom rubrikkolumn
+  });
+  it("under tabellen: '3 maskiner med under 200 h visas inte', hopfälld; ett tryck visar dem som en enkel lista (maskin, år, G15 h)", async () => {
+    await monter("#l=forare&f=Martin%20Lindqvist&g=gallring");
+    const knappen = knapp(/3 maskiner med under 200 h visas inte/);
+    expect(knappen.getAttribute("aria-expanded")).toBe("false");
+    expect(cont.querySelector('[role="list"]')).toBeNull();
+    await klick(knappen);
+    expect(knapp(/3 maskiner med under 200 h visas inte/).getAttribute("aria-expanded")).toBe("true");
+    const poster = Array.from(cont.querySelectorAll('[role="listitem"]')).map((e) => vanlig(e.textContent));
+    expect(poster).toEqual(["Komatsu 9412017 · 7 h", "Komatsu 901XC2018–2021 · 132 h", "Rottne H8E Logmax2025 · 78 h"]);
+    expect(kolumnTexter()).toHaveLength(2); // de dolda blir aldrig kolumner
+    await klick(knapp(/3 maskiner med under 200 h visas inte/));
+    expect(cont.querySelector('[role="list"]')).toBeNull();
+  });
+  it("listan stängs av sig själv när man byter förare och tillbaka", async () => {
+    await monter("#l=forare&f=Martin%20Lindqvist&g=gallring");
+    await klick(knapp(/maskiner med under 200 h visas inte/));
+    await klick(knapp(/^Oskar Nilsson/));
+    expect(sida()).not.toContain("visas inte"); // Oskar har inga dolda maskiner: ingen rad alls
+    await klick(knapp(/^Martin Lindqvist/));
+    expect(cont.querySelector('[role="list"]')).toBeNull();
+    expect(knapp(/maskiner med under 200 h visas inte/).getAttribute("aria-expanded")).toBe("false");
+  });
+  it("ingen rad om dolda maskiner när alla har minst 200 h (Stefan)", async () => {
+    await monter("#l=forare&f=Stefan%20Karlsson&g=slutavverkning");
+    expect(sida()).not.toContain("visas inte");
   });
   it("TU med källa i grått under värdet: Stefan har tre Ponsse-maskiner (bäst: Giant 2025) och en ur avbrott (ensam i sin källa, ingen bäst)", async () => {
     await monter("#l=forare&f=Stefan%20Karlsson&g=slutavverkning");
@@ -147,19 +182,31 @@ describe("de grå raderna", () => {
     await monter("#l=forare&f=Oskar%20Nilsson&g=gallring");
     expect(sida()).toContain("Samma förare på olika maskiner. Skillnaden beror mer på maskinen, men år och objekt skiljer sig fortfarande.");
   });
-  it("överlappar åren (alla tre jämförbara kombinationer i dag): ingen 'Olika år'-rad", async () => {
-    for (const h of ["#l=forare&f=Martin%20Lindqvist&g=gallring", "#l=forare&f=Oskar%20Nilsson&g=gallring", "#l=forare&f=Stefan%20Karlsson&g=slutavverkning"]) {
+  const OLIKA = "Alla maskiner kördes inte samma år. Förarens erfarenhet kan förklara en del av skillnaden.";
+  it("alla par överlappar (Martin gallring: H8B 2020–2022 och H8D 2022–2023 delar 2022): ingen 'Alla maskiner kördes inte samma år'-rad", async () => {
+    await monter("#l=forare&f=Martin%20Lindqvist&g=gallring");
+    expect(sida()).not.toContain("Alla maskiner kördes inte samma år.");
+  });
+  it("något par saknar gemensamma år (Oskar gallring: H8B 2017–2023 och H8E 2026; Stefan: 901XC 2018–2021 och Giant 2023): raden visas", async () => {
+    for (const h of ["#l=forare&f=Oskar%20Nilsson&g=gallring", "#l=forare&f=Stefan%20Karlsson&g=slutavverkning"]) {
       await monter(h);
-      expect(sida(), h).not.toContain("Olika år.");
+      expect(sida(), h).toContain(OLIKA);
       await act(async () => { root?.unmount(); }); cont.remove(); document.body.innerHTML = ""; root = null;
     }
   });
-  it("överlappar de inte: 'Olika år. Förarens erfarenhet kan förklara en del av skillnaden.'", async () => {
+  it("raden visas också när bara ett par av flera saknar gemensamma år", async () => {
+    const r = (maskin: string, fran: number, till: number) => ({ forare: "Test Förare", atgard: "gallring", maskin, antal_maskiner: 3, ar_fran: fran, ar_till: till, antal_objekt: 20, g15_h: 500, viktat_index: 100, tu: 0.9, antal_med_tu: 20, tu_rapporterad: null, m3_per_g15: 5 });
+    g.__tabeller.vy_hist_forare_maskin_jamfor = [r("A", 2013, 2017), r("B", 2016, 2020), r("C", 2019, 2022)];
+    await monter("#l=forare");
+    expect(sida()).toContain(OLIKA);
+  });
+  it("saknar alla gemensamma år: samma rad, med den nya texten", async () => {
     const r = (maskin: string, fran: number, till: number) => ({ forare: "Test Förare", atgard: "gallring", maskin, antal_maskiner: 2, ar_fran: fran, ar_till: till, antal_objekt: 20, g15_h: 500, viktat_index: 100, tu: 0.9, antal_med_tu: 20, tu_rapporterad: null, m3_per_g15: 5 });
     g.__tabeller.vy_hist_forare_maskin_jamfor = [r("Maskin sen", 2022, 2024), r("Maskin tidig", 2014, 2019)];
     await monter("#l=forare");
     expect(kolumnTexter()).toEqual(["2014–2019Maskin tidig", "2022–2024Maskin sen"]);
-    expect(sida()).toContain("Olika år. Förarens erfarenhet kan förklara en del av skillnaden.");
+    expect(sida()).toContain(OLIKA);
+    expect(sida()).not.toContain("Olika år.");
   });
 });
 
