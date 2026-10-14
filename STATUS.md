@@ -147,10 +147,11 @@ behörighetstexten visas bara vid 42501 eller tomt svar (RLS), och databasens eg
 
 **Steg 17 (2026-10-14), förklaringen av index:** en ⓘ-knapp (`components/historik/IndexInfo.tsx`, EN komponent) direkt efter ordet Index på startlistan, maskinsidan ("År för år · viktat index"), årslistan och i jämförelsen
 (förklaringsraden och rubriken "Viktat index år för år"). Tryck öppnar bladet "Vad är index?" i appens vanliga bottenblad (`components/Sheet.tsx`, nu med valfri `dragNedStanger`: drag nedåt i greppet stänger; övriga sheets oförändrade).
-Tabellen (medelstam 0,08/0,12/0,16 för gallring, 0,25/0,40/0,60 för slutavverkning) och exemplet (medelstam 0,12 resp. 0,40; "maskinen gjorde" = normalt × 1,1, alltså alltid index 110) RÄKNAS ur `vy_hist_normkurva` (variant `g15-viktad`)
+Tabellen (medelstam 0,08/0,12/0,16 för gallring, 0,25/0,40/0,60 för slutavverkning) och exemplet (medelstam 0,12 resp. 0,40; "maskinen gjorde" = normalt × 1,1, avrundat) RÄKNAS ur `vy_hist_normkurva` (variant `g15-viktad`)
 med samma uttryck som `vy_hist_objekt_index.forvantad_m3_per_g15`: `exp(a + b · ln(medelstam))` (`lib/historik/indexForklaring.ts`, hämtas när bladet öppnas). Inga normalvärden är hårdkodade; antalet objekt ("679 i gallring, 896 i slutavverkning")
-kommer ur vyns `n`. Bladet visar den åtgärd man står i, och båda i jämförelsen och när ingen åtgärd gäller. Kurvan är räknad på skördarobjekt med känd åtgärd (inte maskinstandard), därför står det "där åtgärden är känd" och inte "alla våra objekt".
-Skotare får inget index: skotarrapporterna har inga stammar (0 av 1 825 rader i `vy_hist_objekt_bas`), så ingen medelstam kan räknas.
+kommer ur vyns `n` och åren ur `vy_hist_maskin_ar` (åren med objekt med index, urval 'namn'; visas bara om summan av `antal_med_index` är exakt kurvans `n`, annars står bara antalet): "Räknat från 896 egna slutavverkningar 2012–2026." Bladet visar den åtgärd man står i, och båda i jämförelsen.
+Exemplet har bara hela tal och index räknas från de avrundade talen ("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 30 → index 111."). Skotare: EN mening, konstanten `SKOTARE_UTAN_INDEX` (`lib/historik/indexForklaring.ts`) i bladet, på startlistan och i
+jämförelsen: "Skotare får inget index. Det som styr en skotare är skotningsavståndet, och det finns inte i rapporterna." (`hist_*` har ingen avståndskolumn.) Bladets övriga sheets är oförändrade: `dragNedStanger` är av som standard.
 
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)

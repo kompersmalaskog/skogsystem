@@ -10,7 +10,8 @@ import { Sheet } from "@/components/Sheet";
 import { AVSTAND, FARG, IKON, TNUM, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { hamtaNormkurva } from "@/lib/historik/data";
 import { felSlag, felText, type HistorikFelSlag } from "@/lib/historik/fel";
-import { atgarderAtt, indexExempel, normaltTabell, underlagText, type IndexAtgard, type Kurvor } from "@/lib/historik/indexForklaring";
+import { atgarderAtt, indexExempel, normaltTabell, SKOTARE_UTAN_INDEX, underlagText, type IndexAtgard, type Kurvor } from "@/lib/historik/indexForklaring";
+import type { MaskinArRad } from "@/lib/historik/typer";
 
 /** Kurvan hämtas en gång per sidladdning; ett misslyckande cachas inte, så nästa öppning försöker igen. */
 let kurvorLofte: Promise<Kurvor> | null = null;
@@ -30,8 +31,9 @@ const UTRYMME = (TRAFFYTA.min - IKON.text) / 2;
 
 /**
  * @param atgard den åtgärd som gäller där man tryckte (gallring eller slutavverkning). Utelämnad = båda (jämförelsevyn, startlistan på Skada/Special).
+ * @param rader sidans rader ur vy_hist_maskin_ar: åren kurvan är räknad på hämtas ur dem (utan rader står bara antalet).
  */
-export default function IndexInfo({ atgard }: { atgard?: IndexAtgard | null }) {
+export default function IndexInfo({ atgard, rader }: { atgard?: IndexAtgard | null; rader?: MaskinArRad[] }) {
   const [oppen, setOppen] = useState(false);
   return (
     <>
@@ -48,12 +50,12 @@ export default function IndexInfo({ atgard }: { atgard?: IndexAtgard | null }) {
         <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text, lineHeight: 1 }}>info</span>
       </button>
       {/* Portal: sidans innehåll tonar in med en transform, och en transform gör `position: fixed` relativ till innehållet i stället för fönstret. */}
-      {oppen && typeof document !== "undefined" && createPortal(<IndexBlad atgard={atgard ?? null} onStang={() => setOppen(false)} />, document.body)}
+      {oppen && typeof document !== "undefined" && createPortal(<IndexBlad atgard={atgard ?? null} rader={rader} onStang={() => setOppen(false)} />, document.body)}
     </>
   );
 }
 
-function IndexBlad({ atgard, onStang }: { atgard: IndexAtgard | null; onStang: () => void }) {
+function IndexBlad({ atgard, rader, onStang }: { atgard: IndexAtgard | null; rader?: MaskinArRad[]; onStang: () => void }) {
   const [k, setK] = useState<Kurvor | null>(null);
   const [fel, setFel] = useState<HistorikFelSlag | null>(null);
   useEffect(() => {
@@ -77,10 +79,10 @@ function IndexBlad({ atgard, onStang }: { atgard: IndexAtgard | null; onStang: (
         <p style={stycke}>100 = normalt. 110 betyder 10 % mer än normalt. 90 betyder 10 % mindre.</p>
 
         <h3 style={rubrik}>Varför inte bara m³/G15?</h3>
-        <p style={stycke}>Grova träd ger alltid fler m³ per timme än klena. Index räknar bort trädstorleken. Då kan en gallring i klen skog jämföras rättvist med en slutavverkning i grov.</p>
+        <p style={stycke}>Grova träd ger alltid fler m³ per timme än klena. Index räknar bort trädstorleken, så två objekt med olika grova träd kan jämföras rättvist. Gallring och slutavverkning har var sin normal.</p>
 
         <h3 style={rubrik}>Vad är normalt?</h3>
-        <p style={stycke}>{k ? underlagText(k, atgarder) : "Räknat från våra egna objekt där åtgärden är känd."} Så här mycket gör en maskin normalt per G15-timme:</p>
+        <p style={stycke}>{k ? underlagText(k, atgarder, rader) : "Räknat från våra egna objekt."} Så här mycket gör en maskin normalt per G15-timme:</p>
         {!k && !fel && <p style={liten}>Hämtar normalvärdena …</p>}
         {fel && <p style={liten}>{felText(fel, "normalvärdena")}</p>}
         {k && medKurva.length === 0 && <p style={liten}>Normalvärdena finns inte för den här åtgärden.</p>}
@@ -110,7 +112,7 @@ function IndexBlad({ atgard, onStang }: { atgard: IndexAtgard | null; onStang: (
         <p style={stycke}>Index tar bara hänsyn till trädstorleken. Föraren, terrängen och hur ofta maskinen står still (se TU) påverkar också. Jämför därför alltid index och TU tillsammans.</p>
 
         <p style={{ ...liten, marginTop: AVSTAND.sektion }}>Index finns bara för gallring och slutavverkning. Vindfällor, skada och special har för olika förutsättningar för att jämföras.</p>
-        <p style={liten}>Skotare får inget index, eftersom medelstammen kommer från skördaren.</p>
+        <p style={liten}>{SKOTARE_UTAN_INDEX}</p>
       </div>
     </Sheet>
   );

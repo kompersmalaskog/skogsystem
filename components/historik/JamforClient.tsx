@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { AVSTAND, designCss, FARG, KNAPP, RAD, TNUM, TRAFFYTA, TYP, VY_ROT, RADIE } from "@/lib/design/tokens";
 import { hamtaMaskinAr } from "@/lib/historik/data";
 import { felSlag, felText, type HistorikFelSlag } from "@/lib/historik/fel";
+import { SKOTARE_UTAN_INDEX } from "@/lib/historik/indexForklaring";
 import IndexInfo from "./IndexInfo";
 import { ATGARD_ETIKETT, antagnaTotalt, jamforRader, jamforSerie, JAMFOR_MAX, JAMFOR_MIN, maskinerMedObjekt } from "@/lib/historik/berakna";
 import type { AtgardKod, MaskinArRad, MaskinTyp } from "@/lib/historik/typer";
@@ -124,7 +125,7 @@ function Jamfor({ rader, jv, gaTill }: { rader: MaskinArRad[]; jv: Jv; gaTill: (
           </div>
         )}
         <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.m}px 0 0` }}>
-          {typ === "skördare" ? <>Index<IndexInfo /> mot {ATGARD_ETIKETT[jv.atgard].toLowerCase()}kurvan. Bara maskiner med objekt i {ATGARD_ETIKETT[jv.atgard].toLowerCase()} kan väljas.</> : "Skotare jämförs över alla åtgärder tillsammans. Inget index: skotningsavstånd saknas."}
+          {typ === "skördare" ? <>Index<IndexInfo rader={rader} /> mot {ATGARD_ETIKETT[jv.atgard].toLowerCase()}kurvan. Bara maskiner med objekt i {ATGARD_ETIKETT[jv.atgard].toLowerCase()} kan väljas.</> : `Skotare jämförs över alla åtgärder tillsammans. ${SKOTARE_UTAN_INDEX}`}
         </p>
       </Sektion>
 
@@ -159,7 +160,7 @@ function Jamfor({ rader, jv, gaTill }: { rader: MaskinArRad[]; jv: Jv; gaTill: (
 
       {valda.length >= JAMFOR_MIN && (
         <>
-          <Sektion titel={index ? <>Viktat index<IndexInfo /> år för år</> : "m³/G15 år för år"}>
+          <Sektion titel={index ? <>Viktat index<IndexInfo rader={rader} /> år för år</> : "m³/G15 år för år"}>
             <Linjediagram serier={serier} referens={index ? 100 : undefined} typ={typ} etikett={index ? "Viktat index" : "m³/G15"} decimaler={index ? 0 : 1} />
           </Sektion>
 

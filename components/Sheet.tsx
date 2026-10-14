@@ -2,7 +2,10 @@
 
 import React, { useRef, useState } from 'react';
 import { T } from '@/lib/utbildning';
-import { AVSTAND, RORELSE } from '@/lib/design/tokens';
+import { AVSTAND, RADIE, RORELSE } from '@/lib/design/tokens';
+
+// Avståndet under rubrikraden är 18 px i ALLA sheets (ingen token är 18, så det byggs av två: 16 + 4/2); ändras det ändras varje sheet i appen.
+const RUBRIK_AVSTAND = AVSTAND.l + AVSTAND.xs / 2;
 
 // Hur långt ner man drar för att stänga, och hur långt man måste röra fingret innan det räknas som drag (så ett tryck på "Klar" förblir ett tryck).
 const DRAG_STANG = AVSTAND.xxl * 3;
@@ -86,8 +89,8 @@ export function Sheet({
         }}
       >
         <div {...grepp}>
-          <div style={{ width: 36, height: 5, borderRadius: 3, background: 'rgba(235,235,245,0.3)', margin: '0 auto 14px' }} />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <div style={{ width: 36, height: 5, borderRadius: RADIE.cirkel, background: 'rgba(235,235,245,0.3)', margin: '0 auto 14px' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: RUBRIK_AVSTAND }}>
             <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: T.t1 }}>{title}</h2>
             <button
               onClick={onClose}

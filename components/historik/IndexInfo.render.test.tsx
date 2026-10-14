@@ -33,11 +33,15 @@ const ar = (o: Record<string, unknown>) => ({
   maskin: "R64101", typ: "skördare", atgard: "gallring", ar: null, urval: "namn", antal_objekt: 20, antal_med_g15: 20, volym_m3fub: 12000, g15_h: 1500,
   m3_per_g15: 8, stammar_per_g15: 100, medelstam: 0.1, antal_med_index: 20, viktat_index: 105, ...o,
 });
-// vyn har en rad per urval: 'namn' (åtgärd ur namn) och 'alla' (med antagna)
+// vy_hist_maskin_ar: en rad per maskin, åtgärd och år (+ hela perioden, ar = null) och urval. Åren med index summerar till kurvans n,
+// som i prod: gallring 300 + 200 + 79 + 100 = 679 (2013–2026), slutavverkning 500 + 396 = 896 (2012–2026).
+const arRad = (maskin: string, atgard: string | null, aar: number | null, antal: number) => ar({ maskin, atgard, ar: aar, antal_med_index: antal, antal_objekt: antal });
 const MASKINER = [
-  ar({}), ar({ ar: 2023 }), ar({ ar: 2024 }),
-  ar({ atgard: null }),
-  ar({ maskin: "R64428" }), ar({ maskin: "R64428", ar: 2024, viktat_index: 98 }),
+  arRad("R64101", "gallring", 2013, 300), arRad("R64101", "gallring", 2024, 200), arRad("R64428", "gallring", 2024, 79), arRad("R64428", "gallring", 2026, 100),
+  arRad("R64101", "slutavverkning", 2012, 500), arRad("R64428", "slutavverkning", 2026, 396),
+  arRad("R64101", "gallring", null, 500), arRad("R64428", "gallring", null, 179),
+  arRad("R64101", "slutavverkning", null, 500), arRad("R64428", "slutavverkning", null, 396),
+  arRad("R64101", null, null, 0),
 ].flatMap((r) => [r, { ...r, urval: "alla" }]);
 
 let root: Root | null = null;
@@ -97,6 +101,7 @@ describe("startlistan", () => {
     expect(infoKnappar()).toHaveLength(1);
     await klick(infoKnappar()[0]);
     ordning(blad(), "Vad är index?", "Normalt m³/G15", "Exempel");
+    expect(blad()).toContain("Räknat från 679 egna gallringar 2013–2026. Så här mycket gör en maskin normalt per G15-timme:");
     expect(blad()).toContain("Gallring");
     expect(blad()).not.toContain("Slutavverkning");
   });
@@ -110,7 +115,6 @@ describe("startlistan", () => {
 
 describe("maskinsidan", () => {
   it("ⓘ efter 'viktat index' i rubriken År för år; slutavverkning för en maskin i slutavverkning", async () => {
-    g.__tabeller.vy_hist_maskin_ar = MASKINER.map((r) => ({ ...r, atgard: r.atgard === "gallring" ? "slutavverkning" : r.atgard }));
     await monter(<HistorikClient />, "#s=slutavverkning&m=R64101&a=slutavverkning");
     const rubrik = Array.from(cont.querySelectorAll("h2")).find((h) => /År för år/.test(h.textContent || ""))!;
     expect(rubrik.textContent).toMatch(/viktat index/);
@@ -118,8 +122,10 @@ describe("maskinsidan", () => {
     expect(knapp).not.toBeNull();
     await klick(knapp!);
     ordning(blad(), "Vad är index?", "Slutavverkning", "Medelstam", "Exempel", "Tänk på");
-    expect(blad()).not.toContain("Gallring");
-    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 29,7 → index 110.");
+    expect(blad()).toContain("Räknat från 896 egna slutavverkningar 2012–2026. Så här mycket");
+    expect(blad()).toContain("SlutavverkningMedelstam"); // tabellens åtgärdsrubrik
+    expect(blad()).not.toContain("GallringMedelstam");
+    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 30 → index 111.");
   });
 });
 
@@ -129,7 +135,7 @@ describe("årslistan", () => {
     expect(infoKnappar()).toHaveLength(1);
     expect(sida()).toMatch(/gallring · .*index/i);
     await klick(infoKnappar()[0]);
-    expect(blad()).toContain("Medelstam 0,12 m³. Normalt 9 m³/G15. Maskinen gjorde 9,9 → index 110.");
+    expect(blad()).toContain("Medelstam 0,12 m³. Normalt 9 m³/G15. Maskinen gjorde 10 → index 111.");
     expect(blad()).not.toContain("Slutavverkning");
   });
 });
@@ -141,8 +147,8 @@ describe("jämförelsen", () => {
     await klick(infoKnappar()[0]);
     expect(blad()).toContain("Gallring");
     expect(blad()).toContain("Slutavverkning");
-    expect(blad()).toContain("Medelstam 0,12 m³. Normalt 9 m³/G15. Maskinen gjorde 9,9 → index 110.");
-    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 29,7 → index 110.");
+    expect(blad()).toContain("Medelstam 0,12 m³. Normalt 9 m³/G15. Maskinen gjorde 10 → index 111.");
+    expect(blad()).toContain("Medelstam 0,40 m³. Normalt 27 m³/G15. Maskinen gjorde 30 → index 111.");
   });
 });
 
@@ -157,15 +163,15 @@ describe("bladets innehåll", () => {
       "Index visar hur mycket maskinen producerade jämfört med vad som är normalt för den trädstorleken.",
       "100 = normalt. 110 betyder 10 % mer än normalt. 90 betyder 10 % mindre.",
       "Varför inte bara m³/G15?",
-      "Grova träd ger alltid fler m³ per timme än klena. Index räknar bort trädstorleken. Då kan en gallring i klen skog jämföras rättvist med en slutavverkning i grov.",
+      "Grova träd ger alltid fler m³ per timme än klena. Index räknar bort trädstorleken, så två objekt med olika grova träd kan jämföras rättvist. Gallring och slutavverkning har var sin normal.",
       "Vad är normalt?",
-      "Räknat från våra egna objekt där åtgärden är känd: 679 i gallring och 896 i slutavverkning. Så här mycket gör en maskin normalt per G15-timme:",
+      "Räknat från 679 egna gallringar 2013–2026 och 896 egna slutavverkningar 2012–2026. Så här mycket gör en maskin normalt per G15-timme:",
       "Medelstam", "Normalt m³/G15", "0,08 m³", "0,12 m³", "0,16 m³", "0,25 m³", "0,40 m³", "0,60 m³",
       "Exempel",
       "Tänk på",
       "Index tar bara hänsyn till trädstorleken. Föraren, terrängen och hur ofta maskinen står still (se TU) påverkar också. Jämför därför alltid index och TU tillsammans.",
       "Index finns bara för gallring och slutavverkning. Vindfällor, skada och special har för olika förutsättningar för att jämföras.",
-      "Skotare får inget index, eftersom medelstammen kommer från skördaren.",
+      "Skotare får inget index. Det som styr en skotare är skotningsavståndet, och det finns inte i rapporterna.",
     );
     const rader = Array.from(document.body.querySelectorAll('[role="row"]')).map((r) => Array.from(r.querySelectorAll('[role="cell"]')).map((c) => vanlig(c.textContent)));
     expect(rader.filter((r) => r.length)).toEqual([
@@ -174,5 +180,34 @@ describe("bladets innehåll", () => {
     ]);
     // inga ord som förklaringen ska vara fri från
     expect(t).not.toMatch(/regression|logaritm|r²|formel/i);
+    // exemplet har inga decimaler, och den gamla medelstamsraden är borta
+    expect(t).not.toMatch(/gjorde \d+,\d/);
+    expect(t).not.toContain("medelstammen kommer från skördaren");
+  });
+});
+
+const SKOTARE = "Skotare får inget index. Det som styr en skotare är skotningsavståndet, och det finns inte i rapporterna.";
+
+describe("skotare: samma mening överallt", () => {
+  it("startlistan (skotarsektionen), jämförelsen för skotare och bladet säger exakt samma sak, och den gamla formuleringen finns inte kvar", async () => {
+    await monter(<HistorikClient />, "#s=gallring");
+    expect(sida()).toContain(`Alla åtgärder tillsammans. ${SKOTARE}`);
+    expect(sida()).not.toContain("skotningsavstånd saknas");
+    await klick(infoKnappar()[0]);
+    expect(blad()).toContain(SKOTARE);
+    await act(async () => { root?.unmount(); }); cont.remove(); document.body.innerHTML = ""; root = null;
+    await monter(<JamforClient />, "#t=skotare");
+    expect(sida()).toContain(`Skotare jämförs över alla åtgärder tillsammans. ${SKOTARE}`);
+    expect(sida()).not.toContain("skotningsavstånd saknas");
+  });
+});
+
+describe("åren i underlaget", () => {
+  it("åren ur vyn: stämmer inte summan med kurvans n står bara antalet, aldrig ett gissat år", async () => {
+    g.__tabeller.vy_hist_maskin_ar = MASKINER.filter((r) => !(r.maskin === "R64101" && r.atgard === "slutavverkning" && r.ar === 2012));
+    await monter(<HistorikClient />, "#s=slutavverkning");
+    await klick(infoKnappar()[0]);
+    expect(blad()).toContain("Räknat från 896 egna slutavverkningar. Så här mycket");
+    expect(blad()).not.toMatch(/slutavverkningar \d{4}/);
   });
 });

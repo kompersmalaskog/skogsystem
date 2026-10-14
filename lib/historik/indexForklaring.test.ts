@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { atgarderAtt, EXEMPEL_MEDELSTAM, indexExempel, normalt, normaltTabell, TABELL_MEDELSTAM, underlagText, type Kurva, type Kurvor } from "./indexForklaring";
+import { atgarderAtt, EXEMPEL_MEDELSTAM, indexExempel, normalt, normaltTabell, SKOTARE_UTAN_INDEX, TABELL_MEDELSTAM, underlagAr, underlagText, type Kurva, type Kurvor } from "./indexForklaring";
+import type { MaskinArRad } from "./typer";
 
 // Kurvorna är vy_hist_normkurva (variant 'g15-viktad') i prod 2026-10-14. Raderna nedan är riktiga rader ur vy_hist_objekt_index:
 // medelstam (avrundad till 6 decimaler) och det forvantad_m3_per_g15 som vyn räknade för just den raden.
@@ -56,19 +57,20 @@ describe("tabellen i bladet", () => {
 });
 
 describe("exemplet", () => {
-  it("slutavverkning: medelstam 0,40, normalt 27, gjorde 29,7, index 110", () => {
-    expect(indexExempel(KURVOR.slutavverkning, "slutavverkning")).toEqual({ medelstam: "0,40", normalt: "27", gjorde: "29,7", index: "110" });
+  it("slutavverkning: medelstam 0,40, normalt 27, gjorde 30, index 111", () => {
+    expect(indexExempel(KURVOR.slutavverkning, "slutavverkning")).toEqual({ medelstam: "0,40", normalt: "27", gjorde: "30", index: "111" });
   });
-  it("gallring: medelstam 0,12, normalt 9, gjorde 9,9, index 110", () => {
-    expect(indexExempel(KURVOR.gallring, "gallring")).toEqual({ medelstam: "0,12", normalt: "9", gjorde: "9,9", index: "110" });
+  it("gallring: medelstam 0,12, normalt 9, gjorde 10, index 111", () => {
+    expect(indexExempel(KURVOR.gallring, "gallring")).toEqual({ medelstam: "0,12", normalt: "9", gjorde: "10", index: "111" });
   });
-  it("visar ALLTID 110 och går att kontrollräkna med miniräknare, oavsett kurva", () => {
+  it("bara hela tal, och index räknas från de avrundade talen i texten (går att kontrollräkna med miniräknare), oavsett kurva", () => {
     for (let a = 1; a <= 6; a += 0.37) {
       for (const atgard of ["gallring", "slutavverkning"] as const) {
         const e = indexExempel({ a, b: 0.75, n: 10 }, atgard);
-        const n = Number(e.normalt.replace(/\s/g, "")), g = Number(e.gjorde.replace(",", "."));
-        expect(e.index).toBe("110");
-        expect(Math.round((g / n) * 100)).toBe(110);
+        for (const v of [e.normalt, e.gjorde, e.index]) expect(v).toMatch(/^\d+$/);
+        const n = Number(e.normalt), g = Number(e.gjorde);
+        expect(g).toBe(Math.round(n * 1.1));
+        expect(Number(e.index)).toBe(Math.round((g / n) * 100));
       }
     }
   });
@@ -78,15 +80,38 @@ describe("exemplet", () => {
 });
 
 describe("vilka åtgärder och vilket underlag", () => {
+  const rad = (atgard: string, ar: number | null, antal: number, o: Record<string, unknown> = {}) =>
+    ({ maskin: "R1", typ: "skördare", atgard, ar, urval: "namn", antal_med_index: antal, ...o }) as unknown as MaskinArRad;
+  // vy_hist_maskin_ar: en rad per maskin, åtgärd och år (+ rader för hela perioden, ar = null, som aldrig räknas med)
+  const RADER = [
+    rad("gallring", 2013, 300), rad("gallring", 2024, 379), rad("gallring", null, 679),
+    rad("slutavverkning", 2012, 500), rad("slutavverkning", 2026, 396), rad("slutavverkning", null, 896),
+    rad("slutavverkning", 2020, 50, { urval: "alla" }), // med antagna: hör inte till kurvan
+    rad("slutavverkning", 2001, 9, { typ: "skotare" }),
+  ];
   it("en åtgärd där man tryckte, annars båda", () => {
     expect(atgarderAtt("gallring")).toEqual(["gallring"]);
     expect(atgarderAtt("slutavverkning")).toEqual(["slutavverkning"]);
     expect(atgarderAtt(null)).toEqual(["gallring", "slutavverkning"]);
     expect(atgarderAtt(undefined)).toEqual(["gallring", "slutavverkning"]);
   });
-  it("underlaget säger antalet objekt ur vyn, inte ett hårdkodat", () => {
-    expect(underlagText(KURVOR, ["gallring"])).toBe("Räknat från 679 av våra egna objekt i gallring där åtgärden är känd.");
-    expect(underlagText(KURVOR, ["gallring", "slutavverkning"])).toBe("Räknat från våra egna objekt där åtgärden är känd: 679 i gallring och 896 i slutavverkning.");
-    expect(underlagText({}, ["gallring"])).toBe("Räknat från våra egna objekt där åtgärden är känd.");
+  it("antalet ur kurvans n och åren ur raderna: inget hårdkodat", () => {
+    expect(underlagText(KURVOR, ["slutavverkning"], RADER)).toBe("Räknat från 896 egna slutavverkningar 2012–2026.");
+    expect(underlagText(KURVOR, ["gallring"], RADER)).toBe("Räknat från 679 egna gallringar 2013–2024.");
+    expect(underlagText(KURVOR, ["gallring", "slutavverkning"], RADER)).toBe("Räknat från 679 egna gallringar 2013–2024 och 896 egna slutavverkningar 2012–2026.");
+    expect(underlagText({ gallring: { a: 1, b: 1, n: 5 } }, ["gallring"], [rad("gallring", 2019, 2), rad("gallring", 2021, 3)])).toBe("Räknat från 5 egna gallringar 2019–2021.");
+  });
+  it("stämmer inte åren med kurvans n (summan av antal_med_index ≠ n) visas inga år, bara antalet", () => {
+    expect(underlagAr(RADER, "gallring", 679)).toEqual({ fran: 2013, till: 2024 });
+    expect(underlagAr(RADER, "gallring", 680)).toBeNull();
+    expect(underlagText(KURVOR, ["slutavverkning"], [rad("slutavverkning", 2012, 500)])).toBe("Räknat från 896 egna slutavverkningar.");
+    expect(underlagText(KURVOR, ["slutavverkning"])).toBe("Räknat från 896 egna slutavverkningar.");
+  });
+  it("ett enda objekt böjs rätt, och utan kurva står en neutral rad", () => {
+    expect(underlagText({ gallring: { a: 1, b: 1, n: 1 } }, ["gallring"], [rad("gallring", 2020, 1)])).toBe("Räknat från 1 egen gallring 2020–2020.");
+    expect(underlagText({}, ["gallring"], RADER)).toBe("Räknat från våra egna objekt.");
+  });
+  it("skotare-raden är EN konstant", () => {
+    expect(SKOTARE_UTAN_INDEX).toBe("Skotare får inget index. Det som styr en skotare är skotningsavståndet, och det finns inte i rapporterna.");
   });
 });
