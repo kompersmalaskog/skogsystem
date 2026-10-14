@@ -4,8 +4,10 @@
 // (samma regel och samma rörelse som plus-arket: lib/plusArk.plusLage, lib/hooks/useSkarmLage, RORELSE.byte). Ingen egen sida: kartan ligger kvar
 // bakom (ingen mörk bakgrund), × / Esc / tryck på kartan stänger.
 //
-//   Sökfält överst · Pågår (grön prick) · Planerade · Oplanerade (grå prick) · "Avslutade (N)" som en rad längst ner som öppnar dem i samma ark.
-//   Grupperna utgår från objekt.status (lib/objektVal). Alla typer visas, även GROT och energiklippning.
+//   Sökfält överst · Här (bara när GPS:en står innanför ett objekts traktgräns) · Pågår (grön prick) · Planerade · Oplanerade (grå prick) ·
+//   "Avslutade (N)" som en rad längst ner som öppnar dem i samma ark.
+//   Grupperna utgår från objekt.status (lib/objektVal) med två undantag från den gamla väljaren: avslutat + skotning kvar ligger under Pågår
+//   med etiketten "Skotning kvar" (lib/skotningKvar), och objektet man står i ligger överst under Här. Alla typer visas, även GROT och energiklippning.
 //   Raden: namn (fet) och under den typ · källa · m³. Tryck på raden = öppna objektet. Knappen till höger (bil + avstånd) startar navigeringen.
 //
 // Utan valt objekt (första gången / objektet borttaget) är listan det enda som finns: `kanStangas=false` → ingen ×, inget stängs.
@@ -14,10 +16,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
-import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
 import { PANEL_BREDD_PX } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
-import { fagelKm, grupperaObjekt, kmText, radMeta, type ListObjekt } from '@/lib/objektVal';
+import { arSkotningKvar, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, type ListObjekt } from '@/lib/objektVal';
+import { objektTraffPunkt } from '@/lib/objektPlats';
+import { hamtaSkotningKvar } from '@/lib/skotningKvar';
 import { harKoordinat } from '@/lib/navigera';
 
 export type ListaObjekt = ListObjekt & Record<string, any>;
@@ -66,7 +70,10 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [objekt, setObjekt] = useState<ListaObjekt[]>([]);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState(false);
-  const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);          // för avstånd: GPS-fix, annars verksamhetens mitt
+  const [gpsPos, setGpsPos] = useState<{ lat: number; lng: number } | null>(null);       // bara en riktig, färsk fix — grunden för "Här"
+  const [skotKvar, setSkotKvar] = useState<Set<string> | null>(null);                    // null = okänt (ingen markering, ingen gissning)
+  const [geometri, setGeometri] = useState<Map<string, any> | null>(null);               // null = ej laddad → ingen "Här"
   const [vag, setVag] = useState<Record<string, number>>({});
   const oppnadTid = useRef(0);
   const stangRef = useRef(onStang);
@@ -119,16 +126,48 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     return () => { avbruten = true; };
   }, [oppen]);
 
-  // Positionen via GPS-källan (delad hub) — aldrig navigator.geolocation direkt (maskindatorn ger IP-position). Ingen fix → verksamhetens mitt.
+  // Skotning kvar (avslutat men virke på backen) och traktgränserna för "Här" — vid varje öppning, ihop med objekten.
+  // Fel eller tomt svar = okänt (null), aldrig "inga": objekt_geometri har RLS, så en utgången session ger tomma rader UTAN fel
+  // (CLAUDE.md, maskindator-start) — och utan gränser skulle varje objekt falla tillbaka på 300 m-regeln och ge falsk "Här".
   useEffect(() => {
-    if (!oppen || pos) return;
+    if (!oppen) return;
     let avbruten = false;
+    (async () => {
+      const kvar = await hamtaSkotningKvar(supabase);
+      if (!avbruten) setSkotKvar(kvar);
+      try {
+        const { data, error } = await supabase.from('objekt_geometri').select('objekt_id, geometri');
+        if (avbruten) return;
+        if (error || !data || data.length === 0) { setGeometri(null); return; }
+        const m = new Map<string, any>();
+        for (const g of data as any[]) m.set(g.objekt_id, g.geometri);
+        setGeometri(m);
+      } catch { if (!avbruten) setGeometri(null); }
+    })();
+    return () => { avbruten = true; };
+  }, [oppen]);
+
+  // Positionen via GPS-källan (delad hub) — aldrig navigator.geolocation direkt (maskindatorn ger IP-position).
+  // Avstånden får verksamhetens mitt när fix saknas; "Här" kräver en riktig fix från DEN HÄR öppningen (aldrig en gammal eller en reserv).
+  useEffect(() => {
+    if (!oppen) return;
+    let avbruten = false;
+    setGpsPos(null);
     hamtaEnGpsFix(10000).then((fix) => {
       if (avbruten) return;
-      setPos(fix && fix.giltig && fix.lat != null && fix.lng != null ? { lat: fix.lat, lng: fix.lng } : FALLBACK_POS);
+      if (fix && fix.giltig && fix.lat != null && fix.lng != null) {
+        const p = { lat: fix.lat, lng: fix.lng };
+        setGpsPos(p);
+        setPos(p);
+      } else {
+        setPos((tidigare) => tidigare ?? FALLBACK_POS);
+      }
     });
     return () => { avbruten = true; };
-  }, [oppen, pos]);
+  }, [oppen]);
+
+  // Aktivt = inte avslutat — utom avslutat med skotning kvar, som ligger under Pågår.
+  const arAktivt = (o: ListaObjekt) => effektivGrupp(o, skotKvar) !== 'avslutade';
 
   // Vägavstånd (OSRM) till de närmaste aktiva objekten, ett i taget. Fågelvägen visas med ~ tills vägavståndet kommit.
   useEffect(() => {
@@ -136,7 +175,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     let avbruten = false;
     const pk = posNyckel(pos);
     const kandidater = objekt
-      .filter((o) => harKoordinat(o) && !['avslutat', 'klar'].includes(String(o.status ?? '').toLowerCase()))
+      .filter((o) => harKoordinat(o) && arAktivt(o))
       .sort((a, b) => fagelKm(pos.lat, pos.lng, a.lat!, a.lng!) - fagelKm(pos.lat, pos.lng, b.lat!, b.lng!))
       .slice(0, ANTAL_VAGAVSTAND);
     const fran: Record<string, number> = {};
@@ -160,23 +199,30 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
       }
     })();
     return () => { avbruten = true; };
-  }, [oppen, pos, objekt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- arAktivt läser skotKvar som är med
+  }, [oppen, pos, objekt, skotKvar]);
 
   const avstandKm = (o: ListaObjekt): number | null =>
     vag[o.id] ?? (pos && harKoordinat(o) ? fagelKm(pos.lat, pos.lng, o.lat!, o.lng!) : null);
+  // HÄR: riktig fix + laddade traktgränser + träff (objektTraffPunkt, samma som förarlistans gamla grupp). Annars ingen Här.
+  const arHar = (o: ListaObjekt): boolean =>
+    !!gpsPos && !!geometri && objektTraffPunkt({ ...o, geometri: geometri.get(o.id) ?? null }, gpsPos.lat, gpsPos.lng);
   const grupper = useMemo(
-    () => grupperaObjekt(objekt, { sok, avstandKm }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- avstandKm läser vag/pos som är med
-    [objekt, sok, vag, pos],
+    () => grupperaObjekt(objekt, { sok, avstandKm, skotningKvar: skotKvar, arHar }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avstandKm/arHar läser vag/pos/gpsPos/geometri som är med
+    [objekt, sok, vag, pos, gpsPos, geometri, skotKvar],
   );
   const finnsNagot = objekt.length > 0;
-  const aktivaAntal = grupper.pagar.length + grupper.planerade.length + grupper.oplanerade.length;
+  const aktivaAntal = grupper.har.length + grupper.pagar.length + grupper.planerade.length + grupper.oplanerade.length;
 
   // Hooks är klara — nu får vi returnera tidigt. Stängd och utglidet = ingenting i DOM.
   if (!oppen && utglidet) return null;
 
   const glidInne = oppen && inne;
-  const rad = (o: ListaObjekt, prick: 'gron' | 'gra') => {
+  const prickFor = (o: ListaObjekt): 'gron' | 'gra' => (effektivGrupp(o, skotKvar) === 'pagar' ? 'gron' : 'gra');
+  const rad = (o: ListaObjekt) => {
+    const prick = prickFor(o);
+    const kvarEtikett = arSkotningKvar(o, skotKvar);
     const meta = radMeta(o);
     const km = avstandKm(o);
     const arVag = vag[o.id] != null;
@@ -190,7 +236,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         tabIndex={0}
         data-testid={`objekt-rad-${o.id}`}
         aria-current={aktuell ? 'true' : undefined}
-        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}`}
+        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${kvarEtikett ? ', skotning kvar' : ''}`}
         onClick={() => onValj(o)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValj(o); } }}
         className="press-row"
@@ -200,7 +246,17 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         <span aria-hidden="true" data-testid={`objekt-prick-${prick}`} style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: RADIE.cirkel, flexShrink: 0, background: prick === 'gron' ? FARG.gron : FARG.text3 }} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn ?? 'Namnlöst objekt'}</span>
-          {meta && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere', ...TNUM }}>{meta}</span>}   {/* radbryts hellre än klipper volymen */}
+          {(meta || kvarEtikett) && (
+            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere', ...TNUM }}>   {/* radbryts hellre än klipper volymen */}
+              {meta}
+              {kvarEtikett && (
+                <span data-testid={`objekt-skotning-kvar-${o.id}`}
+                  style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>
+                  Skotning kvar
+                </span>
+              )}
+            </span>
+          )}
         </span>
         {nav && kmTxt && (
           <button
@@ -263,12 +319,13 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         ) : visaAvslutade ? (
           grupper.avslutade.length === 0
             ? <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xxl}px ${AVSTAND.l}px` }}>{sok.trim() ? `Inget avslutat objekt matchar "${sok.trim()}".` : 'Inga avslutade objekt.'}</div>
-            : grupper.avslutade.map((o) => rad(o, 'gra'))
+            : grupper.avslutade.map((o) => rad(o))
         ) : (
           <>
-            {grupper.pagar.length > 0 && <>{gruppRubrik('pagar', 'Pågår')}{grupper.pagar.map((o) => rad(o, 'gron'))}</>}
-            {grupper.planerade.length > 0 && <>{gruppRubrik('planerade', 'Planerade')}{grupper.planerade.map((o) => rad(o, 'gra'))}</>}
-            {grupper.oplanerade.length > 0 && <>{gruppRubrik('oplanerade', 'Oplanerade')}{grupper.oplanerade.map((o) => rad(o, 'gra'))}</>}
+            {grupper.har.length > 0 && <>{gruppRubrik('har', 'Här')}{grupper.har.map((o) => rad(o))}</>}
+            {grupper.pagar.length > 0 && <>{gruppRubrik('pagar', 'Pågår')}{grupper.pagar.map((o) => rad(o))}</>}
+            {grupper.planerade.length > 0 && <>{gruppRubrik('planerade', 'Planerade')}{grupper.planerade.map((o) => rad(o))}</>}
+            {grupper.oplanerade.length > 0 && <>{gruppRubrik('oplanerade', 'Oplanerade')}{grupper.oplanerade.map((o) => rad(o))}</>}
             {aktivaAntal === 0 && (
               <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px ${AVSTAND.l}px` }}>
                 {sok.trim() ? `Inget objekt matchar "${sok.trim()}".` : 'Inga aktiva objekt. Avslutade finns längst ner.'}

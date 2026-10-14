@@ -1,9 +1,15 @@
 // Objektlistan i planeringsvyn (ark under 900 px, panel från 900 px) — gruppering, sökning och radtext. Rena funktioner, ingen DB.
 //
-// GRUPPERNA UTGÅR FRÅN objekt.status och inget annat. Den gamla väljaren (ObjektValjare) delade i flikar efter `ar && manad`
-// ("planerad månad") och undantog bara avslutade objekt när skotningen var klar (`skotKvarVo`): ett objekt med status 'avslutat'
-// men virke kvar på backen blev därför kvar under Planerade (admin) / Pågående (förare), och en gammal status som 'klar' räknades
-// aldrig som avslutad. Här finns ingen sådan väg: avslutat = status avslutat (eller den gamla 'klar') och hamnar ALDRIG i en aktiv grupp.
+// GRUPPERNA UTGÅR FRÅN objekt.status — med TVÅ undantag som båda hämtats tillbaka från den gamla väljaren:
+//  1. SKOTNING KVAR: ett objekt med status 'avslutat' där skotningen inte är klar (virke kvar på backen, lib/skotningKvar) visas under
+//     Pågår med etiketten "Skotning kvar". När skotningen är klar flyttar det till Avslutade. Det är det ENDA som får hamna i en aktiv
+//     grupp trots status 'avslutat'. (Felet som rättades i första versionen av listan: den gamla väljaren delade efter `ar && manad`
+//     och lät avslutade ligga kvar under Planerade — här gäller skotning-kvar-regeln uttryckligen och bara för Pågår.)
+//  2. HÄR: ligger enhetens GPS-position innanför ett objekts traktgräns visas det objektet överst under rubriken "Här", oavsett status —
+//     utom avslutade utan virke kvar. EN grupp; ett objekt står i exakt en grupp. Samma träfflogik som förarlistans gamla Här-grupp
+//     (objektTraffPunkt: innanför traktgränsen, eller inom 300 m från punkten när gräns saknas). Ingen position / ingen träff → ingen "Här".
+//
+// Gammal status 'klar' räknas som avslutad och har aldrig skotning kvar (den gamla väljaren behandlade bara 'avslutat' så).
 
 import { objektHuvudtyp } from './objektPlats';
 import { typLabel } from './objekt/typ';
@@ -18,6 +24,22 @@ export function statusGrupp(status: string | null | undefined): ObjektGrupp {
   if (s === 'planerad') return 'planerade';
   if (s === 'avslutat' || s === 'klar') return 'avslutade';
   return 'oplanerade';
+}
+
+/** Är objektet avslutat men skotningen inte klar? `skotningKvar` = lib/skotningKvar (nyckel vo_nummer). Bara status 'avslutat'. */
+export function arSkotningKvar(
+  o: { status?: string | null; vo_nummer?: string | null },
+  skotningKvar?: ReadonlySet<string> | null,
+): boolean {
+  return (o.status ?? '').trim().toLowerCase() === 'avslutat' && !!o.vo_nummer && !!skotningKvar?.has(o.vo_nummer);
+}
+
+/** Gruppen en rad hör till utan hänsyn till "Här": status, men avslutat + skotning kvar räknas som Pågår. */
+export function effektivGrupp(
+  o: { status?: string | null; vo_nummer?: string | null },
+  skotningKvar?: ReadonlySet<string> | null,
+): ObjektGrupp {
+  return arSkotningKvar(o, skotningKvar) ? 'pagar' : statusGrupp(o.status);
 }
 
 export interface ListObjekt {
@@ -71,26 +93,34 @@ export function sokTraff(o: ListObjekt, sok: string): boolean {
   return [o.namn, o.bolag, o.vo_nummer, typText(o)].some((f) => norm(f).includes(q));
 }
 
-export type ObjektGrupper<T> = Record<ObjektGrupp, T[]>;
+export type ObjektGrupper<T> = Record<ObjektGrupp, T[]> & { har: T[] };
 
 /**
- * Delar upp efter status. Inom en aktiv grupp: närmast först (avstandKm; objekt utan avstånd sist, sedan namn).
- * Avslutade: senast avslutat först. `sok` filtrerar alla grupper.
+ * Delar upp efter status (se huvudkommentaren: skotning kvar → Pågår, GPS i traktgränsen → Här). Inom en aktiv grupp (och Här):
+ * närmast först (avstandKm; objekt utan avstånd sist, sedan namn). Avslutade: senast avslutat först. `sok` filtrerar alla grupper.
+ * `arHar` anropas aldrig för avslutade objekt utan virke kvar — de kan inte hamna i Här.
  */
 export function grupperaObjekt<T extends ListObjekt>(
   objekt: readonly T[],
-  opt: { sok?: string; avstandKm?: (o: T) => number | null | undefined } = {},
+  opt: {
+    sok?: string;
+    avstandKm?: (o: T) => number | null | undefined;
+    skotningKvar?: ReadonlySet<string> | null;
+    arHar?: (o: T) => boolean;
+  } = {},
 ): ObjektGrupper<T> {
-  const ut: ObjektGrupper<T> = { pagar: [], planerade: [], oplanerade: [], avslutade: [] };
+  const ut: ObjektGrupper<T> = { har: [], pagar: [], planerade: [], oplanerade: [], avslutade: [] };
   for (const o of objekt) {
     if (!sokTraff(o, opt.sok ?? '')) continue;
-    ut[statusGrupp(o.status)].push(o);
+    const g = effektivGrupp(o, opt.skotningKvar);
+    if (g !== 'avslutade' && opt.arHar?.(o)) ut.har.push(o);
+    else ut[g].push(o);
   }
   const avst = (o: T) => {
     const d = opt.avstandKm?.(o);
     return typeof d === 'number' && Number.isFinite(d) ? d : Infinity;
   };
-  for (const g of ['pagar', 'planerade', 'oplanerade'] as const) {
+  for (const g of ['har', 'pagar', 'planerade', 'oplanerade'] as const) {
     ut[g].sort((a, b) => (avst(a) - avst(b)) || sv(a.namn ?? '', b.namn ?? ''));
   }
   ut.avslutade.sort((a, b) => (b.avslutad_timestamp ?? '').localeCompare(a.avslutad_timestamp ?? '') || sv(a.namn ?? '', b.namn ?? ''));

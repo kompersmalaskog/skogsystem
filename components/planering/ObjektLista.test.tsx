@@ -7,11 +7,29 @@ import { act } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const h = vi.hoisted(() => ({ rader: [] as any[], fel: false }));
-vi.mock('@/lib/supabase', () => ({
-  supabase: { from: () => ({ select: () => ({ order: () => Promise.resolve(h.fel ? { data: null, error: { message: 'nät' } } : { data: h.rader, error: null }) }) }) },
+// Fake supabase: `objekt` (rader/fel) plus de övriga tabellerna listan läser (skotning kvar + traktgränser). Utan data = tomma rader, inget fel.
+const h = vi.hoisted(() => ({
+  rader: [] as any[], fel: false,
+  tabeller: {} as Record<string, any[]>, tabellFel: {} as Record<string, boolean>,
+  gps: { giltig: true, lat: 56.4, lng: 14.7 } as any,
 }));
-vi.mock('@/lib/gpsKalla', () => ({ hamtaEnGpsFix: () => Promise.resolve({ giltig: true, lat: 56.4, lng: 14.7 }) }));
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: (tabell: string) => ({
+      select: () => {
+        const svar = () => {
+          if (tabell === 'objekt') return h.fel ? { data: null, error: { message: 'nät' } } : { data: h.rader, error: null };
+          return h.tabellFel[tabell] ? { data: null, error: { message: 'nät' } } : { data: h.tabeller[tabell] ?? [], error: null };
+        };
+        const p: any = Promise.resolve(svar());
+        p.order = () => Promise.resolve(svar());
+        p.is = () => Promise.resolve(svar());
+        return p;
+      },
+    }),
+  },
+}));
+vi.mock('@/lib/gpsKalla', () => ({ hamtaEnGpsFix: () => Promise.resolve(h.gps) }));
 
 import ObjektLista from './ObjektLista';
 import { sattBredd } from './PlusRad.testhjalp';
@@ -20,7 +38,7 @@ import { RORELSE } from '@/lib/design/tokens';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const RADER = [
-  { id: 'v', namn: 'Vällust RP M-R -25', status: 'avslutat', typ: 'slutavverkning', bolag: 'Södra', volym: 900, lat: 56.5, lng: 14.8, ar: 2025, manad: 11, avslutad_timestamp: '2026-09-01T10:00:00Z' },
+  { id: 'v', vo_nummer: 'VO-V', namn: 'Vällust RP M-R -25', status: 'avslutat', typ: 'slutavverkning', bolag: 'Södra', volym: 900, lat: 56.5, lng: 14.8, ar: 2025, manad: 11, avslutad_timestamp: '2026-09-01T10:00:00Z' },
   { id: 'e', namn: 'Ekeby', status: 'planerad', typ: 'slutavverkning', bolag: 'Södra', volym: 1200, lat: 56.45, lng: 14.75, ar: 2026, manad: 10 },
   { id: 'g', namn: 'GROT Hjorthult', status: 'planerad', typ: 'grot', bolag: 'Vida', volym: 80, lat: 56.9, lng: 15.1 },
   { id: 'p', namn: 'Gallring Sjö', status: 'pagaende', typ: 'gallring', bolag: 'Södra', volym: 300, lat: 56.41, lng: 14.71 },
@@ -55,7 +73,7 @@ async function visa(p: Props) {
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date'] });
-  h.rader = RADER; h.fel = false;
+  h.rader = RADER; h.fel = false; h.tabeller = {}; h.tabellFel = {}; h.gps = { giltig: true, lat: 56.4, lng: 14.7 };
   spion.valj = []; spion.nav = []; spion.stang = 0;
   sattBredd(1280);
   (globalThis as any).fetch = vi.fn(async (url: string) => {
@@ -114,6 +132,174 @@ describe('grupperna utgår från status', () => {
     await montera();
     const planerade = Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', '')).filter((i) => ['e', 'g'].includes(i));
     expect(planerade).toEqual(['e', 'g']);                                   // Ekeby 0,05° bort, GROT Hjorthult 0,5° bort
+  });
+});
+
+// Traktgräns (L_TRAKTDEL) som kvadrat runt en punkt — samma form som objekt_geometri.geometri.
+const kvadrat = (lat: number, lng: number, d: number) => ({
+  type: 'FeatureCollection',
+  features: [{ properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [[[lng - d, lat - d], [lng + d, lat - d], [lng + d, lat + d], [lng - d, lat + d], [lng - d, lat - d]]] } }],
+});
+const radIdn = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
+const rubriker = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent);
+
+// Vällust-formen: status avslutat, planerad månad satt. Skördat 900 m³, skotat 600 → 300 m³ kvar på backen.
+const vallustSkotning = (skotat: number, extra: Record<string, unknown> = {}) => {
+  h.tabeller = {
+    dim_objekt: [{ objekt_id: 'v', vo_nummer: 'VO-V', skotning_avslutad: null, egen_skotning: false, ...extra }],
+    vy_uppf_prod_per_objekt: [{ objekt_id: 'v', volym_m3sub: 900 }],
+    vy_uppf_lass_per_objekt: [{ objekt_id: 'v', volym_m3sub: skotat }],
+  };
+};
+
+describe('Skotning kvar — avslutat där skotningen inte är klar ligger under Pågår', () => {
+  it('Vällust-formen (avslutat, virke kvar): under Pågår med etiketten "Skotning kvar", inte under Planerade och inte bland Avslutade', async () => {
+    vallustSkotning(600);
+    await montera();
+    expect(rubriker()).toEqual(['Pågår', 'Planerade', 'Oplanerade']);
+    const pagar = radIdn().slice(0, 3);
+    expect(pagar).toContain('v');
+    expect(pagar.sort()).toEqual(['n', 'p', 'v']);
+    expect(q('objekt-skotning-kvar-v')!.textContent).toBe('Skotning kvar');
+    expect(q('objekt-rad-v')!.querySelector('[data-testid="objekt-prick-gron"]')).not.toBeNull();   // Pågår = grön prick
+    expect(q('objekt-lista-avslutade')!.textContent).toContain('(1)');                                  // bara "Äldre avslutat" är kvar
+    klicka(q('objekt-lista-avslutade'));
+    expect(q('objekt-rad-v')).toBeNull();
+    expect(q('objekt-rad-a2')).not.toBeNull();
+  });
+
+  it('etiketten sitter bara på det objektet — inte på de andra Pågår-raderna', async () => {
+    vallustSkotning(600);
+    await montera();
+    expect(behallare!.querySelectorAll('[data-testid^="objekt-skotning-kvar-"]')).toHaveLength(1);
+    expect(q('objekt-rad-p')!.textContent).not.toContain('Skotning kvar');
+  });
+
+  it('skotningen klar (≤ 5 m³ kvar) → Avslutade, ingen etikett', async () => {
+    vallustSkotning(897);
+    await montera();
+    expect(q('objekt-rad-v')).toBeNull();
+    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+    expect(q('objekt-lista-avslutade')!.textContent).toContain('(2)');
+    klicka(q('objekt-lista-avslutade'));
+    expect(q('objekt-rad-v')).not.toBeNull();
+  });
+
+  it('skotning_avslutad satt eller egen skotning → Avslutade, även med virke "kvar" i siffrorna', async () => {
+    vallustSkotning(100, { skotning_avslutad: '2026-09-20' });
+    await montera();
+    expect(q('objekt-rad-v')).toBeNull();
+    await act(async () => { rot?.unmount(); }); behallare?.remove();
+    vallustSkotning(100, { egen_skotning: true });
+    await montera();
+    expect(q('objekt-rad-v')).toBeNull();
+    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+  });
+
+  it('underlaget går inte att hämta → ingen gissning: avslutat förblir Avslutade', async () => {
+    vallustSkotning(600);
+    h.tabellFel.vy_uppf_lass_per_objekt = true;
+    await montera();
+    expect(q('objekt-rad-v')).toBeNull();
+    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+  });
+
+  it('en planerad/pågående rad får aldrig etiketten, hur mycket virke det än är kvar', async () => {
+    h.tabeller = {
+      dim_objekt: [{ objekt_id: 'p', vo_nummer: 'VO-P', skotning_avslutad: null, egen_skotning: false }],
+      vy_uppf_prod_per_objekt: [{ objekt_id: 'p', volym_m3sub: 900 }],
+      vy_uppf_lass_per_objekt: [],
+    };
+    h.rader = RADER.map((r) => (r.id === 'p' ? { ...r, vo_nummer: 'VO-P' } : r));
+    await montera();
+    expect(behallare!.querySelector('[data-testid^="objekt-skotning-kvar-"]')).toBeNull();
+  });
+});
+
+describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
+  it('GPS innanför Gallring Sjö → "Här" överst med bara det objektet; det står inte också under Pågår', async () => {
+    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }, { objekt_id: 'e', geometri: kvadrat(56.45, 14.75, 0.01) }] };
+    await montera();
+    expect(rubriker()).toEqual(['Här', 'Pågår', 'Planerade', 'Oplanerade']);
+    expect(radIdn()[0]).toBe('p');
+    expect(radIdn().filter((i) => i === 'p')).toHaveLength(1);              // exakt en grupp
+    const harRubrik = q('objekt-grupp-har')!;
+    const efterHar = harRubrik.nextElementSibling as HTMLElement;
+    expect(efterHar.getAttribute('data-testid')).toBe('objekt-rad-p');
+    expect((efterHar.nextElementSibling as HTMLElement).getAttribute('data-testid')).toBe('objekt-grupp-pagar');
+  });
+
+  it('oavsett status: ett PLANERAT objekt man står i hamnar också i Här', async () => {
+    h.tabeller = { objekt_geometri: [{ objekt_id: 'e', geometri: kvadrat(56.4, 14.7, 0.01) }] };
+    await montera();
+    expect(rubriker()[0]).toBe('Här');
+    expect(radIdn()[0]).toBe('e');
+    expect(q('objekt-rad-e')!.querySelector('[data-testid="objekt-prick-gra"]')).not.toBeNull();     // prick efter status, inte efter grupp
+  });
+
+  it('avslutat UTAN virke kvar → aldrig Här, även när GPS:en står i dess gräns', async () => {
+    h.tabeller = { objekt_geometri: [{ objekt_id: 'v', geometri: kvadrat(56.4, 14.7, 0.01) }] };
+    await montera();
+    expect(rubriker()).not.toContain('Här');
+    expect(q('objekt-rad-v')).toBeNull();
+  });
+
+  it('avslutat MED virke kvar och GPS i gränsen → Här, med etiketten Skotning kvar', async () => {
+    vallustSkotning(600);
+    h.tabeller.objekt_geometri = [{ objekt_id: 'v', geometri: kvadrat(56.4, 14.7, 0.01) }];
+    await montera();
+    expect(rubriker()[0]).toBe('Här');
+    expect(radIdn()[0]).toBe('v');
+    expect(q('objekt-skotning-kvar-v')).not.toBeNull();
+    expect(radIdn().filter((i) => i === 'v')).toHaveLength(1);
+  });
+
+  it('GPS utanför alla gränser → ingen "Här"', async () => {
+    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.9, 15.5, 0.01) }] };
+    await montera();
+    expect(rubriker()).toEqual(['Pågår', 'Planerade', 'Oplanerade']);
+  });
+
+  it('ingen GPS-fix → ingen "Här" — verksamhetens mitt (reserven för avstånden) räknas aldrig som en position', async () => {
+    h.gps = { giltig: false };
+    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.5) }] };   // reservpunkten (56,40; 14,70) ligger mitt i gränsen
+    await montera();
+    expect(rubriker()).not.toContain('Här');
+    expect(q('objekt-rad-p')).not.toBeNull();                                // objektet ligger kvar i sin vanliga grupp
+  });
+
+  it('traktgränserna kunde inte läsas (fel eller tomt svar) → ingen "Här" — aldrig en 300 m-gissning på alla objekt', async () => {
+    // lat/lng på Gallring Sjö ligger ~1 km från GPS:en, Ekeby inom 300 m om punktregeln fick gälla
+    h.rader = RADER.map((r) => (r.id === 'e' ? { ...r, lat: 56.4005, lng: 14.7005 } : r));
+    h.tabeller = {};                                                         // objekt_geometri tomt, utan fel (utgången session)
+    await montera();
+    expect(rubriker()).not.toContain('Här');
+    await act(async () => { rot?.unmount(); }); behallare?.remove();
+    h.tabellFel.objekt_geometri = true;
+    await montera();
+    expect(rubriker()).not.toContain('Här');
+  });
+
+  it('objekt utan traktgräns bland laddade gränser: inom 300 m från punkten gäller (som förarlistans Här)', async () => {
+    h.rader = RADER.map((r) => (r.id === 'e' ? { ...r, lat: 56.4005, lng: 14.7005 } : r));
+    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.9, 15.5, 0.01) }] };   // någon annans gräns finns → laddat
+    await montera();
+    expect(rubriker()[0]).toBe('Här');
+    expect(radIdn()[0]).toBe('e');
+  });
+
+  it('sökning filtrerar även Här', async () => {
+    h.tabeller = { objekt_geometri: [{ objekt_id: 'p', geometri: kvadrat(56.4, 14.7, 0.01) }] };
+    await montera();
+    expect(rubriker()[0]).toBe('Här');
+    await act(async () => {
+      const sok = q('objekt-lista-sok') as HTMLInputElement;
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      set.call(sok, 'Ekeby');
+      sok.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(rubriker()).not.toContain('Här');
+    expect(q('objekt-rad-e')).not.toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { anvandObjektLista, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
+import { anvandObjektLista, arSkotningKvar, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
 
 const o = (id: string, status: string | null, extra: Partial<ListObjekt> = {}): ListObjekt => ({ id, namn: id, status, ...extra });
 
@@ -34,7 +34,7 @@ describe('grupperaObjekt', () => {
     o('Gammal', 'klar'),
     o('Senast klar', 'avslutat', { avslutad_timestamp: '2026-10-05T10:00:00Z' }),
   ];
-  it('avslutade hamnar ALDRIG under Planerade (eller Pågår/Oplanerade), oavsett planerad månad eller kvarvarande skotning', () => {
+  it('avslutade hamnar ALDRIG under Planerade (eller Pågår/Oplanerade), oavsett planerad månad — undantaget skotning kvar, se nedan', () => {
     const g = grupperaObjekt(lista);
     expect(g.planerade.map((x) => x.id).sort()).toEqual(['Ekeby', 'GROT Hjorthult']);
     expect(g.pagar.map((x) => x.id).sort()).toEqual(['Energi Norra', 'Gallring Sjö']);
@@ -103,5 +103,65 @@ describe('anvandObjektLista — bara planeringsvyn, aldrig maskinläge, /maskin 
     expect(anvandObjektLista({ maskinlage: false, maskinSom: true, korvyActive: false })).toBe(false);    // /maskin?som=
     expect(anvandObjektLista({ maskinlage: false, maskinSom: false, korvyActive: true })).toBe(false);    // körvyn
     expect(anvandObjektLista({ maskinlage: true, maskinSom: true, korvyActive: true })).toBe(false);
+  });
+});
+
+describe('skotning kvar och Här i grupperaObjekt', () => {
+  const vallust = o('Vällust RP M-R -25', 'avslutat', { vo_nummer: 'VO-V', ar: 2026, manad: 9, avslutad_timestamp: '2026-09-01T10:00:00Z' } as any);
+  const klar = o('Klart', 'avslutat', { vo_nummer: 'VO-K' });
+  const gammal = o('Gammal', 'klar', { vo_nummer: 'VO-G' });
+  const ekeby = o('Ekeby', 'planerad', { vo_nummer: 'VO-E' });
+  const sjo = o('Sjö', 'pagaende', { vo_nummer: 'VO-S' });
+  const lista = [vallust, klar, gammal, ekeby, sjo];
+
+  it('avslutat + skotning kvar (Vällust-formen) → Pågår; skotningen klar → Avslutade', () => {
+    const med = grupperaObjekt(lista, { skotningKvar: new Set(['VO-V']) });
+    expect(med.pagar.map((x) => x.id).sort()).toEqual(['Sjö', 'Vällust RP M-R -25']);
+    expect(med.planerade.map((x) => x.id)).toEqual(['Ekeby']);
+    expect(med.avslutade.map((x) => x.id).sort()).toEqual(['Gammal', 'Klart']);
+    const utan = grupperaObjekt(lista, { skotningKvar: new Set() });
+    expect(utan.pagar.map((x) => x.id)).toEqual(['Sjö']);
+    expect(utan.avslutade.map((x) => x.id)).toContain('Vällust RP M-R -25');
+    expect(grupperaObjekt(lista).avslutade.map((x) => x.id)).toContain('Vällust RP M-R -25');   // okänt = ingen markering
+  });
+
+  it('bara status "avslutat" kan ha skotning kvar — den gamla "klar", planerade och pågående påverkas inte', () => {
+    const alla = new Set(['VO-V', 'VO-K', 'VO-G', 'VO-E', 'VO-S']);
+    expect(arSkotningKvar(gammal, alla)).toBe(false);
+    expect(arSkotningKvar(ekeby, alla)).toBe(false);
+    expect(arSkotningKvar(sjo, alla)).toBe(false);
+    expect(arSkotningKvar(vallust, alla)).toBe(true);
+    expect(arSkotningKvar({ status: 'avslutat', vo_nummer: null }, alla)).toBe(false);             // utan VO ingen nyckel
+    expect(effektivGrupp(vallust, alla)).toBe('pagar');
+    expect(effektivGrupp(gammal, alla)).toBe('avslutade');
+  });
+
+  it('Här: ett objekt i exakt en grupp, överst, oavsett status — men aldrig avslutat utan virke kvar', () => {
+    const g = grupperaObjekt(lista, { arHar: () => true, skotningKvar: new Set(['VO-V']) });
+    expect(g.har.map((x) => x.id).sort()).toEqual(['Ekeby', 'Sjö', 'Vällust RP M-R -25']);
+    expect(g.pagar).toEqual([]);
+    expect(g.planerade).toEqual([]);
+    expect(g.avslutade.map((x) => x.id).sort()).toEqual(['Gammal', 'Klart']);                              // arHar sa ja för alla, men avslutade släpps inte in
+    const total = g.har.length + g.pagar.length + g.planerade.length + g.oplanerade.length + g.avslutade.length;
+    expect(total).toBe(lista.length);
+  });
+
+  it('Här anropas aldrig för avslutade utan virke kvar', () => {
+    const fragade: string[] = [];
+    grupperaObjekt(lista, { arHar: (x) => { fragade.push(x.id); return false; } });
+    expect(fragade.sort()).toEqual(['Ekeby', 'Sjö']);
+  });
+
+  it('utan träff är Här tom, och sorteringen i Här är närmast först', () => {
+    expect(grupperaObjekt(lista, { arHar: () => false }).har).toEqual([]);
+    const avst: Record<string, number> = { Ekeby: 9, Sjö: 2 };
+    const g = grupperaObjekt(lista, { arHar: () => true, avstandKm: (x) => avst[x.id] });
+    expect(g.har.map((x) => x.id)).toEqual(['Sjö', 'Ekeby']);
+  });
+
+  it('sökning gäller även Här och skotning kvar', () => {
+    const g = grupperaObjekt(lista, { sok: 'vällust', arHar: (x) => x.id === 'Vällust RP M-R -25', skotningKvar: new Set(['VO-V']) });
+    expect(g.har.map((x) => x.id)).toEqual(['Vällust RP M-R -25']);
+    expect(g.pagar.length + g.planerade.length + g.avslutade.length).toBe(0);
   });
 });
