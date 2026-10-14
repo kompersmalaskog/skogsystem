@@ -25,6 +25,7 @@ import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivG
 import { objektTraffPunkt } from '@/lib/objektPlats';
 import { hamtaSkotningKvar } from '@/lib/skotningKvar';
 import { harKoordinat } from '@/lib/navigera';
+import { ARK_HOJD_PROCENT, byggPrickar, type KartPrickar } from '@/lib/objektKarta';
 
 export type ListaObjekt = ListObjekt & Record<string, any>;
 
@@ -38,6 +39,16 @@ export interface ObjektListaProps {
   /** km-knappen: samma navigering som objektinfons Vägbeskrivning */
   onNavigera: (o: ListaObjekt) => void;
   onStang: () => void;
+  /**
+   * Objekten som prickar på kartan bakom listan (lib/objektKarta). Anropas med null när listan är stängd, och med prickarna så fort objekten är
+   * lästa (efter skotning-kvar-frågan, så färgerna är rätta redan första gången). Utan den här propen (första gången utan karta) händer inget.
+   */
+  onPrickar?: (p: KartPrickar | null) => void;
+  /**
+   * Kartan bakom tar trycken (sidan lyssnar på kartan och stänger/väljer själv): ingen osynlig fångst över kartan, så den går att panorera och
+   * zooma medan listan är öppen, och arket är nedre halvan så kartan syns ovanför.
+   */
+  kartaTryck?: boolean;
 }
 
 const FORSTA_KLICK_SPARR_MS = 350;       // ett spöktryck från knappen som öppnade listan ska inte stänga den direkt
@@ -63,7 +74,7 @@ const Bil = () => (
   </svg>
 );
 
-export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavigera, onStang }: ObjektListaProps) {
+export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavigera, onStang, onPrickar, kartaTryck = false }: ObjektListaProps) {
   const lage = useSkarmLage(oppen);
   const [inne, setInne] = useState(false);
   const [utglidet, setUtglidet] = useState(!oppen);   // monterad stängd (sidan lämnar den monterad) → inget i DOM från början
@@ -76,6 +87,8 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);          // för avstånd: GPS-fix, annars verksamhetens mitt
   const [gpsPos, setGpsPos] = useState<{ lat: number; lng: number } | null>(null);       // bara en riktig, färsk fix — grunden för "Här"
   const [skotKvar, setSkotKvar] = useState<Set<string> | null>(null);                    // null = okänt (ingen markering, ingen gissning)
+  const [startad, setStartad] = useState(false);                                      // öppningens nollställning (Avslutade av, ny sökning) är gjord → prickarna får skickas
+  const [skotKvarKlar, setSkotKvarKlar] = useState(false);                               // frågan har besvarats (även med fel) minst en gång
   const [geometri, setGeometri] = useState<Map<string, any> | null>(null);               // null = ej laddad → ingen "Här"
   const [vag, setVag] = useState<Record<string, number>>({});
   const oppnadTid = useRef(0);
@@ -89,6 +102,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     setSok('');
     setVisaAvslutade(false);
     setValdTyp(null);
+    setStartad(true);
     setUtglidet(false);
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (minskad) { setInne(true); return; }
@@ -100,6 +114,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   // Utglidningen klar → ta bort ur DOM.
   useEffect(() => {
     if (oppen) return;
+    setStartad(false);
     setInne(false);
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const t = setTimeout(() => setUtglidet(true), minskad ? 0 : RORELSE.byte + 50);
@@ -138,7 +153,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     let avbruten = false;
     (async () => {
       const kvar = await hamtaSkotningKvar(supabase);
-      if (!avbruten) setSkotKvar(kvar);
+      if (!avbruten) { setSkotKvar(kvar); setSkotKvarKlar(true); }
       try {
         const { data, error } = await supabase.from('objekt_geometri').select('objekt_id, geometri');
         if (avbruten) return;
@@ -217,11 +232,43 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     [objekt, sok, vag, pos, gpsPos, geometri, skotKvar],
   );
   const sokar = sok.trim() !== '';
+  // Kartan följer inte sökfältet (prickarna hoppar inte för varje tecken): samma uppdelning utan sökfiltret, därför en egen.
+  const grupperUtanSok = useMemo(
+    () => grupperaObjekt(objekt, { sok: '', avstandKm, skotningKvar: skotKvar, arHar }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- som ovan
+    [objekt, vag, pos, gpsPos, geometri, skotKvar],
+  );
   const avslutadeTyperLista = avslutadeTyper(grupper.avslutade);
   const valdAvslutad = valdAvslutadTyp(grupper.avslutade, valdTyp);
   const avslutadeVald = avslutadeAvTyp(grupper.avslutade, valdAvslutad);
   const finnsNagot = objekt.length > 0;
   const aktivaAntal = grupper.har.length + grupper.pagar.length + grupper.planerade.length + grupper.oplanerade.length;
+
+  // Prickarna på kartan: aktiva objekt (Här/Pågår/Planerade), eller bara den valda typen när Avslutade-vyn är öppen. Skickas när objekten är lästa.
+  const onPrickarRef = useRef(onPrickar);
+  onPrickarRef.current = onPrickar;
+  const kartNyckel = visaAvslutade ? `avslutade:${valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp) ?? '-'}` : 'aktiva';
+  const kartPrickar = useMemo(
+    () => byggPrickar(grupperUtanSok, avslutadeAvTyp(grupperUtanSok.avslutade, valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp)), skotKvar, visaAvslutade),
+    [grupperUtanSok, skotKvar, valdTyp, visaAvslutade],
+  );
+  const prickarKlara = oppen && startad && !laddar && skotKvarKlar;
+  const sigRef = useRef('');                                   // senast skickade prickar — vägavstånden som trillar in ändrar inte prickarna, och då skickas inget
+  const objektRef = useRef(objekt);
+  objektRef.current = objekt;
+  const valjRef = useRef(onValj);
+  valjRef.current = onValj;
+  useEffect(() => {
+    const cb = onPrickarRef.current;
+    if (!cb) return;
+    if (!prickarKlara) { if (sigRef.current !== '') { sigRef.current = ''; cb(null); } return; }
+    const sig = `${kartNyckel}|${kartPrickar.map((p) => `${p.id}:${p.farg}:${p.har ? 1 : 0}:${p.lat}:${p.lng}:${p.namn}`).sort().join(',')}`;
+    if (sig === sigRef.current) return;
+    sigRef.current = sig;
+    cb({ prickar: kartPrickar, nyckel: kartNyckel, valj: (id) => { const o = objektRef.current.find((x) => x.id === id); if (o) valjRef.current(o); } });
+  }, [prickarKlara, kartPrickar, kartNyckel]);
+  // Stängd (eller avmonterad): kartan ska inte ha kvar prickar.
+  useEffect(() => () => { sigRef.current = ''; onPrickarRef.current?.(null); }, []);
 
   // Hooks är klara — nu får vi returnera tidigt. Stängd och utglidet = ingenting i DOM.
   if (!oppen && utglidet) return null;
@@ -383,14 +430,14 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         transform: glidInne ? 'translateX(0)' : `translateX(calc(100% + ${2 * AVSTAND.s}px))`,
       }
     : {
-        left: 0, right: 0, bottom: 0, height: '85%', maxHeight: '100%', paddingTop: AVSTAND.l, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, borderTop: `1px solid ${FARG.linje}`,
+        left: 0, right: 0, bottom: 0, height: kartaTryck ? ARK_HOJD_PROCENT : '85%', maxHeight: '100%', paddingTop: AVSTAND.l, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, borderTop: `1px solid ${FARG.linje}`,
         transform: glidInne ? 'translateY(0)' : 'translateY(100%)',
       };
   const minskadRorelse = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   return (
     <>
-      {oppen && kanStangas && (
+      {oppen && kanStangas && !kartaTryck && (
         <div data-testid="objekt-lista-bakgrund" onClick={() => { if (Date.now() - oppnadTid.current < FORSTA_KLICK_SPARR_MS) return; onStang(); }} style={{ position: 'fixed', inset: 0, zIndex: 640 }} />
       )}
       <div

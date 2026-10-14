@@ -9,6 +9,9 @@ import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import DokumentChips, { harDokument } from '@/components/DokumentChips'
 import ObjektValjare from './ObjektValjare'
 import ObjektLista from '../../components/planering/ObjektLista'
+import ObjektKartaTom from '../../components/planering/ObjektKartaTom'
+import { useObjektPrickar } from '../../lib/hooks/useObjektPrickar'
+import type { KartPrickar } from '../../lib/objektKarta'
 import { usePlaneringsObjekt, type HamtaObjektSvar } from '../../lib/hooks/usePlaneringsObjekt'
 import { rensaSenastePlanering } from '../../lib/senastePlanering'
 import { anvandObjektLista } from '../../lib/objektVal'
@@ -3181,6 +3184,7 @@ export default function PlannerPage() {
   const nyttObjektval = !maskinlage && !maskinSomParam;
   const planeringsObjektAktiv = enhetMaskinLast && nyttObjektval && !maskinFragaSynlig && !medarbetareLaddar;
   const [objektListaOppen, setObjektListaOppen] = useState(false);
+  const [listPrickar, setListPrickar] = useState<KartPrickar | null>(null);   // objekten som prickar på kartan medan listan är öppen (lib/objektKarta)
   const { startKlar: planeringsStartKlar } = usePlaneringsObjekt<any>({
     aktiv: planeringsObjektAktiv,
     anvandarId: planeringsObjektAktiv ? (currentMedarbetare?.id ?? 'okand') : null,   // inloggad men utan medarbetarrad → minnet gäller enheten
@@ -12983,7 +12987,21 @@ export default function PlannerPage() {
   const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
-    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode;
+    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !objektListaOppen;
+
+  // Objektlistan öppen: objekten som prickar på kartan, tryck på en prick = raden, tryck på tom karta stänger, stängd utan val = kartan tillbaka.
+  // Bara planeringsvyn (objektListaVal) — maskinläget, /maskin och körvyn öppnar aldrig listan och rörs inte. Pågår ett kartläge (rita, mät, placera
+  // symbol …) tar kartan trycken som förut: ingen prickkarta då, listan är det gamla arket med fångsten över kartan.
+  const kartLageIgang = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
+    || larmPlacering || risaMarkMode || !!selectedSymbol || !!figur || plusRadOppen;
+  const objektKartaTryck = objektListaVal && mapLibreReady && !kartLageIgang;
+  const { markeraVal: markeraListVal } = useObjektPrickar({
+    map: objektKartaTryck ? mapInstanceRef.current : null,
+    aktiv: objektKartaTryck && objektListaOppen,
+    prickar: objektKartaTryck && objektListaOppen ? listPrickar : null,
+    kanStangas: true,
+    onStang: () => setObjektListaOppen(false),
+  });
 
   // Pillens räknare: ALLA markeringar på objektet räknas, oavsett vem som satte dem; krav bara för certifierade objekt.
   const miljoAntal = useMemo(() => raknaMiljo(markers), [markers]);
@@ -13508,7 +13526,8 @@ export default function PlannerPage() {
   // Välj ett objekt ur listan (arket/panelen) → kartan öppnas på det. Kart-origot sätts av centrerings-effekten på valtObjekt.id.
   const valjObjektUrLista = (obj: any) => {
     setObjektListaOppen(false);
-    if (valtObjekt?.id === obj.id) return;
+    if (valtObjekt?.id === obj.id) return;   // samma objekt: stängs som förut, och kartan går tillbaka till vyn den hade (useObjektPrickar)
+    markeraListVal();                        // ett annat objekt: centreringen på det tar kameran — ingen återgång
     setValtObjekt(obj);
     setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
     setZoom(1);
@@ -13523,11 +13542,13 @@ export default function PlannerPage() {
       const visaListan = planeringsObjektAktiv ? planeringsStartKlar : (enhetMaskinLast && !medarbetareLaddar);
       return (
         <>
-          <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
-            {!visaListan && 'Hämtar objekt…'}
-          </div>
-          {visaListan && (
-            <ObjektLista oppen kanStangas={false} valtId={null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => {}} />
+          {visaListan ? (
+            // Kartan med alla objekt som prickar och listan ovanpå (lib/objektKarta) — aldrig en svart tom yta. Listan går inte att stänga här.
+            <ObjektKartaTom onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} />
+          ) : (
+            <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
+              Hämtar objekt…
+            </div>
           )}
           {maskinLager}
           {ingetObjektKortEl}
@@ -14798,7 +14819,7 @@ export default function PlannerPage() {
              och panelen blinkar bort) och räknas upp vid varje öppning så den alltid startar om rent. */}
       {/* OBJEKTLISTAN (ark under 900 px, panel från 900 px) — bara planeringsvyn; körvyn och maskinläget har sin egen väg. Monterad hela tiden så utglidningen hinner spelas. */}
       {objektListaVal && (
-        <ObjektLista oppen={objektListaOppen} kanStangas valtId={valtObjekt?.id ?? null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => setObjektListaOppen(false)} />
+        <ObjektLista oppen={objektListaOppen} kanStangas valtId={valtObjekt?.id ?? null} onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} onStang={() => setObjektListaOppen(false)} onPrickar={setListPrickar} kartaTryck={objektKartaTryck} />
       )}
       {plusRadVisning && (
         <PlusRad
