@@ -1,6 +1,9 @@
 /**
  * GET /api/lon/arsovertid: frånvaron läses (ledighet_ansokningar via lib/franvaro) och sänker basen i genomsnittsmodellen.
- * Kan den inte läsas räknas utan den OCH svaret säger det (franvaro_fel): talen är då för höga, aldrig "ingen frånvaro".
+ * Kan den inte läsas räknas utan den OCH svaret säger det (franvaro_fel): basen drogs inte, så övertiden blir för LÅG, aldrig "ingen frånvaro".
+ *
+ * PAGINERING: PostgREST svarar högst 1000 rader per anrop. Årets arbetsdag-rader läses sida för sida (lib/lonesystem/allaRader); en läsning
+ * utan paginering tappar tyst allt efter rad 1000 och ger för låg övertid. Prod hade 823 rader 2026-10-13, så felet slår till runt december.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -10,7 +13,9 @@ vi.mock("@/lib/lonesystem/server", () => {
   class Q {
     f: ((r: any) => boolean)[] = [];
     constructor(public t: string) {}
+    sida: [number, number] | null = null;
     select() { return this; } order() { return this; } limit() { return this; }
+    range(a: number, b: number) { this.sida = [a, b]; return this; }
     eq(k: string, v: any) { this.f.push(r => r[k] === v); return this; }
     gte(k: string, v: any) { this.f.push(r => r[k] != null && r[k] >= v); return this; }
     lte(k: string, v: any) { this.f.push(r => r[k] != null && r[k] <= v); return this; }
@@ -18,7 +23,10 @@ vi.mock("@/lib/lonesystem/server", () => {
     maybeSingle() { (this as any).enkel = true; return this; }
     then(res: any, rej: any) {
       if (g.__fel?.[this.t]) return Promise.resolve({ data: null, error: { message: g.__fel[this.t] } }).then(res, rej);
-      const rader = ((g.__db[this.t] || []) as any[]).filter(r => this.f.every(fn => fn(r)));
+      g.__anrop.push({ t: this.t, sida: this.sida });
+      let rader = ((g.__db[this.t] || []) as any[]).filter(r => this.f.every(fn => fn(r)));
+      // som PostgREST: `.range(a, b)` skär ut sidan, och utan range kommer högst 1000 rader
+      rader = this.sida ? rader.slice(this.sida[0], this.sida[1] + 1) : rader.slice(0, 1000);
       return Promise.resolve({ data: (this as any).enkel ? rader[0] ?? null : rader, error: null }).then(res, rej);
     }
   }
@@ -31,7 +39,7 @@ const anropa = () => GET({ nextUrl: new URL("https://app.example/api/lon/arsover
 const dag = (datum: string, h: number) => ({ medarbetare_id: "s", datum, arbetad_min: h * 60, dagtyp: "Produktion", start_tid: "06:00:00" });
 
 beforeEach(() => {
-  g.__fel = {};
+  g.__fel = {}; g.__anrop = [];
   g.__db = {
     medarbetare: [{ id: "s", namn: "Stefan Karlsson" }],
     // Vecka 6 (2–6/2): 5 × 9 tim = 45; vecka 7 (9–11/2 t.o.m. onsdag): 0
@@ -41,6 +49,48 @@ beforeEach(() => {
     ledighet_ansokningar: [],
   };
   vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 1, 11, 12, 0));
+});
+
+describe("årsövertid-routen läser ALLA rader (paginering)", () => {
+  /** De 100 första vardagarna från 4 maj 2026, 9 tim/dag för varje förare — enkelt och likartat, så en tappad rad syns direkt i timmarna. */
+  const vardagar = () => { const ut: string[] = []; for (const d = new Date(2026, 4, 4); d <= new Date(2026, 8, 30); d.setDate(d.getDate() + 1)) if (d.getDay() % 6) ut.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); return ut.slice(0, 100); };
+
+  it("12 förare × 100 dagar = 1200 rader (över 1000): ingen förare tappas och den sista har hela sin övertid", async () => {
+    const dagar = vardagar();
+    g.__db.medarbetare = Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, namn: `Förare ${i}` }));
+    g.__db.arbetsdag = g.__db.medarbetare.flatMap((m: any) => dagar.map(d => ({ medarbetare_id: m.id, datum: d, arbetad_min: 540, dagtyp: "Produktion", start_tid: "06:00:00" })));
+    g.__db.utjamningsperiod = [];
+    vi.setSystemTime(new Date(2026, 9, 1, 12, 0));
+    expect(g.__db.arbetsdag.length).toBe(1200);
+    const j = await (await anropa()).json();
+    expect(j.ok).toBe(true);
+    expect(j.medarbetare).toHaveLength(12);
+    const sista = j.medarbetare.find((m: any) => m.medarbetare_id === "m11");
+    const forsta = j.medarbetare.find((m: any) => m.medarbetare_id === "m0");
+    expect(sista.timmar).toBe(forsta.timmar);              // samma underlag → samma timmar; den sista förlorar inget
+    expect(sista.timmar).toBe(900);                         // 100 dagar × 9 tim
+    expect(sista.modeller.genomsnitt).toBe(forsta.modeller.genomsnitt);
+  });
+
+  it("läsningen sker i flera anrop med range, och extra_tid läses paginerat också", async () => {
+    const dagar = vardagar();
+    g.__db.medarbetare = Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, namn: `Förare ${i}` }));
+    g.__db.arbetsdag = g.__db.medarbetare.flatMap((m: any) => dagar.map(d => ({ medarbetare_id: m.id, datum: d, arbetad_min: 540, dagtyp: "Produktion", start_tid: "06:00:00" })));
+    g.__db.extra_tid = Array.from({ length: 1100 }, (_, i) => ({ medarbetare_id: "m11", datum: dagar[i % dagar.length], minuter: 1 }));
+    vi.setSystemTime(new Date(2026, 9, 1, 12, 0));
+    const j = await (await anropa()).json();
+    expect(g.__anrop.filter((a: any) => a.t === "arbetsdag").map((a: any) => a.sida)).toEqual([[0, 999], [1000, 1999]]);
+    expect(g.__anrop.filter((a: any) => a.t === "extra_tid").map((a: any) => a.sida)).toEqual([[0, 999], [1000, 1999]]);
+    // 1100 extra minuter ligger på m11 — de efter rad 1000 räknas också
+    expect(j.medarbetare.find((m: any) => m.medarbetare_id === "m11").timmar).toBe(900 + Math.round((1100 / 60) * 10) / 10);
+  });
+
+  it("ett läsfel på arbetsdag ger 500 med meddelande — aldrig 'ingen övertid'", async () => {
+    g.__fel = { arbetsdag: "timeout" };
+    const r = await anropa();
+    expect(r.status).toBe(500);
+    expect((await r.json()).meddelande).toContain("timeout");
+  });
 });
 
 describe("årsövertid-routen läser frånvaron", () => {

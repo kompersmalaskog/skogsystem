@@ -667,13 +667,21 @@ Fönstret börjar aldrig före förarens första registrerade tid och ett snitt 
 
 **Vilan (5, 6).** Gul under dygnsvilans varningsgräns (`gs_avtal.dygnsvila_varning_h`, 12) resp. veckovilans krav / 0,9 (36 → 40).
 Perioddagar (planering, restid, manuellt arbete) räknas med klockslag ur `extra_tid`. Veckovilan bedöms dag för dag — inte per
-sammanslagen "stretch" — så att ett gammalt brott inte döljer en vila som fortfarande är för kort. Efter prod-kontrollen 2026-10-13
+sammanslagen "stretch" — så att ett gammalt brott inte döljer en vila som fortfarande är för kort.
+
+**Samma vilaregler överallt (2026-10-14).** `analyseraVilobrott`/`veckovilaPerDag` i `lib/vilobrott.ts` har EN uppsättning regler för alla
+som läser den — kortet, Vilobrott-listan (Lön → Vilobrott), förarens appar (via `lib/vilobrott-storage`) och skripten
+`scripts/audit-vilobrott.ts`/`backfill-vilobrott.ts`. Flaggan `passOverMidnatt` finns inte längre. Efter prod-kontrollen 2026-10-13
 (`Oscar Ringberg` 14,5 tim och `Joacim` 13,3 tim var falsklarm) räknas **ändarna**:
-- tiden från fönstrets start fram till förarens *första* pass är vila (nyanställd: anställd 28 sep, inga pass före);
-- vilan från *sista* passet fram till nu är vila (öppen lucka = slutar nu), och dagarna bedöms t.o.m. förarens sista passdatum;
-- visas aldrig över 168 tim (fönstret på 7 dygn).
-Dygnsvilan räknar ett pass vars slut ligger före starten (22:00–02:00) som slutande nästa dygn (`analyseraVilobrott(…, { passOverMidnatt })`;
-Vilobrott-listan och förarens appar räknar fortfarande utan den — samma sak gäller dem, se Öppet).
+- tiden från fönstrets start fram till förarens *första* pass är vila (nyanställd, eller datafönstrets första dagar);
+- vilan från *sista* passet fram till `nu` är vila (öppen lucka = slutar nu). `nu` är det ögonblick underlaget är komplett t.o.m.
+  (Stockholms väggklocka, `sthlmVaggklocka`): utan det det riktiga nu, `null` = ingen avslutande vila. Ett pågående pass (start, ingen slut)
+  efter sista avslutade passet kapar det. Vid omanalys av ett fönster som slutar före i dag (`lib/vilobrott-storage`) gäller `nu` bara
+  t.o.m. slutet av fönstrets sista dag, så ett gammalt fönster inte får vila som ligger utanför det data som lästs;
+- visas aldrig över 168 tim (fönstret på 7 dygn);
+- ett pass vars slut ligger före starten (22:00–02:00) slutar NÄSTA dygn. Dygnsvilan räknas från det verkliga slutet och beskrivningen
+  anger slutdatumet; brottets `datum` är fortfarande passets startdatum, så lagrade rader och förarens svar hittar sitt brott.
+Hjälpfunktionerna för Stockholmstid (`lib/sthlmTid.ts`) delas av `analyseraVilobrott` och kortet.
 
 **Maskinflytt (flyttdag) i gräns 4–6 (Martin 2026-10-13) — bara i kortet, lönen läser den inte.** Maskinflyttens körtid ligger i
 `flyttdag`, inte i `arbetsdag`/`extra_tid` (2026-09-25: 400 min flytt, 0 min i underlaget) och är arbetstid. Kortet räknar den:
@@ -700,12 +708,14 @@ efter merge. Före migrationen kör kortet ändå (utan undantag) med en varning
 **Luckor kortet säger högt.**
 - *Restid ingår inte* när varken restid eller maskinflytt finns i underlaget. Hemresan efter maskinflytt och annan privat restid
   utanför `extra_tid` ingår inte.
-- Övertiden kan bli **för låg** när en tom vecka saknar registrerad frånvaro (basen räknas som 40, se filhuvudet i `arsovertid.ts`).
+- Övertiden kan bli **för låg** när en tom vecka saknar registrerad frånvaro (basen räknas som 40, se filhuvudet i `arsovertid.ts`). Lön-kortet säger det: "basen drogs inte för frånvaro, så talen är för låga" (inte "för höga"). Årsövertids-routen läser arbetsdag och extra_tid sida för sida (`lib/lonesystem/allaRader.ts`, PostgREST ger max 1000 rader).
 - Kan frånvaron, avtalsraden, utjämningsperioderna eller flyttdag inte läsas står en orange rad under kortet (aldrig "ingen gräns nådd").
 
 **Kontroll mot prod.** `scripts/arbetstid-kontroll.sql` (bara SELECT) räknar samma tal oberoende av koden, med samma regler (maskinflytt,
 vilans ändar, nattpass); fixturerna körda mot en lokal Postgres 16 är bundna till koden i `lib/arbetstidsgranser.sqlkontroll.test.ts`. Mutationskontroll av gränslogiken: `node scripts/mutationskontroll-arbetstid.mjs`
-(varje tröskel och jämförelse ändras en i taget, även i `lib/vilobrott.ts`; testerna ska bli röda).
+(varje tröskel och jämförelse ändras en i taget, även i `lib/vilobrott.ts`; testerna ska bli röda). Lönedelens fyra rättningar (paginering, vilans ändar, nattpass) har egen: `node scripts/mutationskontroll-lon.mjs`.
+
+**Före/efter-jämförelse av Vilobrott-listan.** `scripts/vilobrott-fore-efter.sql` (bara SELECT) exporterar underlaget ur prod som JSON; `npx tsx scripts/vilobrott-fore-efter.ts export.json` kör gamla (git, `--fore-ref`) och nya analysen över samma underlag och listar brott som försvinner, tillkommer eller ändras, med orsak, och vad som händer med lagrade rader i `vilobrott` (obesvarat utan stöd raderas vid nästa omräkning, besvarat står kvar). Utan fil körs en påhittad exempelexport.
 
 ---
 
@@ -724,12 +734,6 @@ Bekräftelser av avtalstexten ovan (ja/nej):
 4. Komp-tid räknas inte mot 250-taket (§ 5 mom 5 anm 3, § 8 mom 3).
 5. Arbetad röd dag ger lön + söndagstillägg, ingen helglön (§ 10 mom 2, § 8 mom 1).
 6. Bytesdag är skoftning med ersätter-datum (§ 5 mom 4).
-
-Funnet vid bygget av lagkontrollen (2026-10-13), inte åtgärdat utanför kortet:
-- `analyseraVilobrott` räknar dygnsvilan från passets sluttid SAMMA datum, så ett pass över midnatt får 24 tim för mycket vila. Det
-  gäller Vilobrott-listan (Lön → Vilobrott) och förarens appar. Kortet räknar rätt via `passOverMidnatt`.
-- I Vilobrott-listan ger veckovilan falska brott i datafönstrets första dagar (samma orsak som Oscar-fallet: tiden före första passet
-  räknas inte). Kortet bedömer bara de senaste 28 dagarna med vilan före första passet inräknad.
 
 Martins egna beslut som arbetsgivare:
 

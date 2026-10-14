@@ -7,7 +7,6 @@ import {
   type ArbetstidIndata,
 } from "./arbetstidsgranser";
 import { beraknaArsovertid, type Arsovertid, type Berakningsperiod } from "./lonesystem/arsovertid";
-import { veckovilaPerDag } from "./vilobrott";
 import fx from "./lonesystem/testdata/stefan2026.json";
 
 const TROSKLAR = { dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
@@ -539,15 +538,6 @@ describe("gräns 5 (veckovila, ATL 14 §) och gräns 6 (dygnsvila, ATL 13 §)", 
       const g = med(dagar, NU);
       expect(g.niva).toBe("lugn");
       expect(g.varde!).toBeGreaterThanOrEqual(36);
-    });
-
-    it("samma nyanställd UTAN den regeln hade gett falsklarmet (15 tim, röd) — fönstren 29 sep–2 okt har bara en vecka pass", () => {
-      // dokumenterar vad som rättades: veckovilaPerDag utan vilaForeForstaPass ger 15 tim
-      const dagar = [...normalvecka("2026-09-28"), ...normalvecka("2026-10-05"), pass("2026-10-12"), pass("2026-10-13")];
-      const utanRegel = veckovilaPerDag(dagar.map(d => ({ datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid })), 7).filter(d => d.datum >= "2026-09-29" && d.datum <= "2026-10-02");
-      expect(Math.min(...utanRegel.map(d => d.max_h))).toBe(15);
-      const medRegel = veckovilaPerDag(dagar.map(d => ({ datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid })), 7, { vilaForeForstaPass: true }).filter(d => d.datum >= "2026-09-29" && d.datum <= "2026-10-02");
-      expect(Math.min(...medRegel.map(d => d.max_h))).toBeGreaterThanOrEqual(36);
     });
 
     it("PÅGÅENDE VILA (Joacim): 8 dagar i rad t.o.m. 6 okt, sedan ledig — vilan efter sista passet fram till nu räknas (öppen lucka = slutar nu)", () => {

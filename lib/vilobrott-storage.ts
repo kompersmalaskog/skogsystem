@@ -3,6 +3,7 @@ import { analyseraVilobrott, arTroligtVilobrott, medPerioddagSpann, type Arbetsd
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { franGolv } from "@/lib/skarpStart";
 import { ymdLokal } from "@/lib/datumLokal";
+import { sthlmVaggklocka } from "@/lib/sthlmTid";
 
 /**
  * Storage-lagret för vilobrott-tabellen. Håller lib/vilobrott.ts fri från
@@ -163,7 +164,12 @@ export async function analyseraOchSpara(
   // Ett läsfel får inte tyst ge "ingen perioddag" — då analyseras (och
   // raderas!) brott på fel underlag. Kasta, anroparen loggar.
   if (perFel) throw new Error(`Kunde inte läsa perioderna (extra_tid): ${perFel.message}`);
-  const nyaBrott = analyseraVilobrott(medPerioddagSpann(dagar, (perioder || []) as any[]), trosklar);
+  // Underlaget är komplett t.o.m. `fonsterToDatum` (anroparen läser arbetsdagarna dit), eller t.o.m. NU om fönstret når fram till i dag.
+  // Vilan efter sista passet räknas bara så långt: vet man inget om dagarna efter fönstret får de inte räknas som vila (ett brott vid
+  // fönstrets slut skulle annars döljas och raderas).
+  const nuSthlm = sthlmVaggklocka(new Date());
+  const underlagTill = nuSthlm && fonsterToDatum >= ymdLokal(nuSthlm) ? nuSthlm : new Date(`${fonsterToDatum}T23:59:59`);
+  const nyaBrott = analyseraVilobrott(medPerioddagSpann(dagar, (perioder || []) as any[]), trosklar, underlagTill);
   // Begränsa till analysfönstret — brott utanför är inte vår jurisdiktion.
   const nyaIFonster = nyaBrott.filter(
     (b) => b.datum >= fonsterFromDatum && b.datum <= fonsterToDatum,

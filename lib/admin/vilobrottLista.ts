@@ -30,8 +30,10 @@ export function beraknaVilobrottLista(indata: {
   perioder: Dag[];
   svar: Svar[];
   trosklar: VilaTrosklar;
+  /** Ögonblicket (Stockholms väggklocka) underlaget är komplett t.o.m.; utan det det riktiga nu (listan läser fram till i dag). */
+  nu?: Date | null;
 }): VilobrottRad[] {
-  const { medarbetare, arbetsdagar, perioder, svar, trosklar } = indata;
+  const { medarbetare, arbetsdagar, perioder, svar, trosklar, nu } = indata;
   const namnMap = new Map(medarbetare.map(m => [m.id, m.namn || m.id.slice(0, 8)]));
   const dagPerMed = new Map<string, Dag[]>();
   for (const d of arbetsdagar) {
@@ -52,7 +54,7 @@ export function beraknaVilobrottLista(indata: {
 
   const ut: VilobrottRad[] = [];
   dagPerMed.forEach((dagar, medId) => {
-    const brott = analyseraVilobrott(medPerioddagSpann(dagar, perPerMed.get(medId) || []), trosklar);
+    const brott = analyseraVilobrott(medPerioddagSpann(dagar, perPerMed.get(medId) || []), trosklar, nu);
     for (const b of brott.filter(arTroligtVilobrott)) {
       const r = svarMap.get(nyckel(medId, b.datum, b.typ));
       ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null });

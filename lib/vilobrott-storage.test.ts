@@ -154,6 +154,70 @@ describe("raknaOmVilobrottEfterAndring (efter att ett pass eller en period ändr
   });
 });
 
+describe("omanalys och veckovilans ändar (Martin 2026-10-14): vilan efter sista passet räknas bara så långt underlaget är komplett", () => {
+  // 'Nu' i testen är 2026-10-05 12:00Z (14:00 i Stockholm). Ett pass per dag 06:00–16:00.
+  const dagarIRad = (fran: string, till: string) => { const ut: string[] = []; for (let d = new Date(fran + "T00:00:00Z"); d <= new Date(till + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1)) ut.push(d.toISOString().slice(0, 10)); return ut; };
+  const veckovilor = () => (g.__db.vilobrott as Rad[]).filter(r => r.typ === "veckovila").map(r => r.datum).sort();
+
+  it("fönster som slutar FÖRE i dag: vilan efter fönstrets slut är okänd — brottet vid fönstrets slut står kvar (inte dolt av 'vila fram till nu')", async () => {
+    // vardagar 24 aug–18 sep, sedan 11 dagar i rad 22 sep–2 okt. Databasen har passen hela vägen, men omanalysen av [27–29 sep] läser bara
+    // t.o.m. 29 sep. Fönstret 23–29 sep är det första utan 36 tim vila → brottet ligger på 29 sep. Med 'vila fram till nu' (5 okt) hade det försvunnit.
+    const vardagar = dagarIRad("2026-08-24", "2026-09-18").filter(d => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w !== 0 && w !== 6; });
+    g.__db.arbetsdag = [...vardagar, ...dagarIRad("2026-09-22", "2026-10-02")].map(d => pass(d));
+    await omanalyseraVilobrott(MED, "2026-09-27", "2026-09-29");
+    expect(veckovilor()).toEqual(["2026-09-29"]);
+  });
+
+  it("fönster som slutar före i dag men föraren varit ledig två dygn: vilan fram till fönstrets slut räknas (56 tim) → inget brott på 27 sep", async () => {
+    // vardagar 24 aug–16 sep, 8 dagar i rad 20–27 sep, sedan inga pass (databasen har inga fler). Omanalys [27–29 sep]: underlaget är komplett t.o.m.
+    // 29 sep 23:59, så vilan efter 27 sep 16:00 är 56 tim — mer än 36. Räknades den bara t.o.m. början av 29 sep (32 tim) låg det ett falskt brott kvar.
+    const vardagar = dagarIRad("2026-08-24", "2026-09-16").filter(d => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w !== 0 && w !== 6; });
+    g.__db.arbetsdag = [...vardagar, ...dagarIRad("2026-09-20", "2026-09-27")].map(d => pass(d));
+    await omanalyseraVilobrott(MED, "2026-09-27", "2026-09-29");
+    expect(veckovilor()).toEqual([]);
+  });
+
+  it("fönster som når fram till i dag: vilan från sista passet fram till nu räknas — Joacim-fallet: ett lagrat obesvarat brott utan stöd städas bort", async () => {
+    // 8 dagar i rad 22–29 sep, sedan ledig till i dag (5 okt 14:00): vilan efter 29 sep är 6 dygn.
+    g.__db.arbetsdag = dagarIRad("2026-09-22", "2026-09-29").map(d => pass(d));
+    g.__db.vilobrott = [brott({ typ: "veckovila", datum: "2026-09-29", vila_h: 14 })];
+    await stadaVilobrott(MED);
+    expect(kvar()).toEqual([]);
+    expect(skrivna("delete")).toHaveLength(1);
+  });
+
+  it("fönster som når fram till i dag räknar vilan fram till NU (14:00), inte till dagens slut: 33 tim efter ett pass som slutade 4 okt 05:00 är under 36 → brottet står kvar", async () => {
+    // vardagar 24 aug–25 sep, sedan 8 dagar i rad 27 sep–4 okt (4 okt bara 01:00–05:00). Fönstret 28 sep–4 okt saknar 36 tim vila. Nu är 5 okt 14:00
+    // (Stockholm): vilan efter passet är 33 tim. Räknades den till dagens SLUT (43 tim) hade brottet försvunnit.
+    const vardagar = dagarIRad("2026-08-24", "2026-09-25").filter(d => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w !== 0 && w !== 6; });
+    g.__db.arbetsdag = [...vardagar, ...dagarIRad("2026-09-27", "2026-10-03")].map(d => pass(d)).concat([pass("2026-10-04", "01:00:00", "05:00:00")]);
+    g.__db.vilobrott = [brott({ typ: "veckovila", datum: "2026-10-04", vila_h: 14 })];
+    await stadaVilobrott(MED);
+    expect(kvar()).toEqual(["veckovila|2026-10-04"]);
+  });
+
+  it("samma underlag men ett BESVARAT brott: det står kvar (revisionsspår), även om det inte längre stöds", async () => {
+    g.__db.arbetsdag = dagarIRad("2026-09-22", "2026-09-29").map(d => pass(d));
+    g.__db.vilobrott = [brott({ typ: "veckovila", datum: "2026-09-29", vila_h: 14, besvarat_av_forare: true, orsak: "annat" })];
+    await stadaVilobrott(MED);
+    expect(kvar()).toEqual(["veckovila|2026-09-29"]);
+  });
+
+  it("ny förare: tiden före första passet är vila — omanalysen skapar inget falskt veckovilabrott de första dagarna (Oscar-fallet)", async () => {
+    // första pass 28 sep (mån), mån–fre; 'nu' 5 okt
+    g.__db.arbetsdag = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02"].map(d => pass(d));
+    await omanalyseraVilobrott(MED, "2026-09-25", "2026-10-05");
+    expect(veckovilor()).toEqual([]);
+  });
+
+  it("omanalysen ger ett pass över midnatt rätt dygnsvila: nattpass 22:00–06:00 och nästa pass 14:00 → brott på 8 tim", async () => {
+    g.__db.arbetsdag = [pass("2026-09-28", "22:00:00", "06:00:00"), pass("2026-09-29", "14:00:00", "22:00:00")];
+    await omanalyseraVilobrott(MED, "2026-09-25", "2026-10-02");
+    const rad = (g.__db.vilobrott as Rad[]).find(r => r.typ === "dygnsvila");
+    expect(rad).toMatchObject({ datum: "2026-09-28", vila_h: 8 });
+  });
+});
+
 describe("visning: hamtaVilobrottForPeriod döljer 0 h-rader, hamtaVilobrottRaa visar allt", () => {
   it("0 h-raden syns inte för föraren men finns kvar för re-analysen", async () => {
     g.__db.vilobrott = [

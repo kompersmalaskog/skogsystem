@@ -5,6 +5,7 @@ import { beraknaArsovertid } from "@/lib/lonesystem/arsovertid";
 import { byggArbetstid, dataFranDatum, GRANSER, type ArbetstidDag, type ArbetstidExtra, type ArbetstidFlytt } from "@/lib/arbetstidsgranser";
 import { ymdLokal } from "@/lib/datumLokal";
 import { hamtaFranvaro } from "@/lib/franvaro";
+import { allaRader } from "@/lib/lonesystem/allaRader";
 import type { VilaTrosklar } from "@/lib/vilobrott";
 
 export const dynamic = "force-dynamic";
@@ -13,25 +14,12 @@ export const dynamic = "force-dynamic";
  * GET /api/lon/arbetstid
  * Lagkontroll för arbetstid (lib/arbetstidsgranser): sex gränser per förare, räknade t.o.m. i dag. admin.
  * Övertiden är samma beräkning som årsövertiden (beraknaArsovertid, avtalets genomsnittsmodell); snitt och vila ur samma
- * rader. Läsningen är PAGINERAD — PostgREST svarar högst 1000 rader per anrop, och 12 förare × ett halvår är mer än så.
+ * rader. Läsningen är PAGINERAD (lib/lonesystem/allaRader) — PostgREST svarar högst 1000 rader per anrop, och 12 förare × ett halvår är mer än så.
  * Maskinflyttens körtid (flyttdag.total_tid_min, mätt starttid → "Kör hem") räknas i gränserna 4–6 — bara här, lönen läser den inte.
  * Läsfel som påverkar talen blir `varningar` (aldrig "ingen gräns nådd"); fel på själva arbetstiden är ett 500.
  */
 
-const SIDA = 1000;
-
 const plusEnDag = (s: string, n: number) => { const [y, m, d] = s.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1, d + n)); return x.toISOString().slice(0, 10); };
-
-async function allaRader<T>(bygg: () => any): Promise<T[]> {
-  const ut: T[] = [];
-  for (let fran = 0; ; fran += SIDA) {
-    const r = await bygg().order("id", { ascending: true }).range(fran, fran + SIDA - 1);
-    if (r.error) throw r.error;
-    ut.push(...((r.data || []) as T[]));
-    if (!r.data || r.data.length < SIDA) break;
-  }
-  return ut;
-}
 
 /** Lagens värden — används bara när avtalsraden inte går att läsa, och då med en varning. */
 const LAGENS_VILA: VilaTrosklar = {

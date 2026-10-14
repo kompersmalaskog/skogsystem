@@ -67,10 +67,10 @@ export default function ArsovertidKort({ svar }: { svar: ArsovertidSvar }) {
         </p>
       )}
 
-      {/* Läsfel på frånvaron = talen är för höga (basen drogs inte). Aldrig "ingen frånvaro". */}
+      {/* Läsfel på frånvaron = talen är för LÅGA (basen drogs inte: en semestervecka räknas som 40 tim i basen, så övertiden blir lägre). Aldrig "ingen frånvaro". */}
       {svar.franvaro_fel && (
         <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.orange }}>
-          Kunde inte läsa frånvaron ({svar.franvaro_fel}) — basen drogs inte för frånvaro, så talen är för höga.
+          Kunde inte läsa frånvaron ({svar.franvaro_fel}) — basen drogs inte för frånvaro, så talen är för låga.
         </p>
       )}
 

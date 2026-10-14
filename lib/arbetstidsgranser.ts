@@ -29,6 +29,7 @@ import { arArbetsdag } from "./arbetsdagRegler";
 import { analyseraVilobrott, medPerioddagSpann, veckovilaPerDag, type VilaTrosklar } from "./vilobrott";
 import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, FRANVARO_STATUS_GALLER, type FranvaroRad } from "./franvaro";
 import type { Arsovertid } from "./lonesystem/arsovertid";
+import { sthlmDelar, sthlmVaggklocka } from "./sthlmTid";
 
 export const GRANSER = {
   allmanOvertidAr: 250,
@@ -119,24 +120,8 @@ const lokal = (s: string) => { const [y, m, d] = s.slice(0, 10).split("-").map(N
 const plusDagar = (s: string, n: number) => { const d = lokal(s); d.setDate(d.getDate() + n); return iso(d); };
 const r1 = (x: number) => Math.round(x * 10) / 10;
 
-// ─── Stockholmstid och flyttdag ──────────────────────────────
-// arbetsdag.start_tid/slut_tid är lokal klocktid (Stockholm). flyttdag.starttid är timestamptz (UTC). Tiderna måste därför
-// räknas om till Stockholmstid innan de jämförs — servern (Vercel) kör UTC, så datorns lokala tidszon duger inte.
-const STHLM = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-
-function sthlmDelar(d: Date): { datum: string; min: number; ar: number; man: number; dag: number; h: number; mi: number } | null {
-  if (Number.isNaN(d.getTime())) return null;
-  const p: Record<string, number> = {};
-  for (const x of STHLM.formatToParts(d)) if (x.type !== "literal") p[x.type] = Number(x.value);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return { datum: `${p.year}-${pad(p.month)}-${pad(p.day)}`, min: p.hour * 60 + p.minute, ar: p.year, man: p.month, dag: p.day, h: p.hour, mi: p.minute };
-}
-
-/** Stockholms väggklocka just nu, uttryckt i datorns lokala ram — samma ram som lib/vilobrott läser arbetsdagarnas klockslag i. */
-export function sthlmVaggklocka(d: Date): Date | undefined {
-  const p = sthlmDelar(d);
-  return p ? new Date(p.ar, p.man - 1, p.dag, p.h, p.mi) : undefined;
-}
+// ─── Maskinflytt (flyttdag) ──────────────────────────────────
+// flyttdag.starttid är timestamptz (UTC) och räknas om till Stockholmstid (lib/sthlmTid) innan den jämförs med arbetsdagens klockslag.
 
 /** Flyttdagar längre än så är skräp (samma skräpskydd som klienten: 16 tim). */
 export const FLYTT_MAX_MIN = 16 * 60;
@@ -388,7 +373,8 @@ function bedomVila(i: ArbetstidIndata): { vecka: VilaMatt; dygn: VilaMatt } {
   // Maskinflytten är arbetstid och förlänger dagens pass (eller blir dagens pass) — den ligger varken i arbetsdag eller extra_tid.
   const spann = medFlyttSpann(medPerioddagSpann(pass, perioder), flyttPass);
   const T = i.trosklar;
-  const nu = i.nu ? sthlmVaggklocka(i.nu) : undefined;
+  // Utan `nu` (tester, anropare som inte vet) räknas ingen avslutande vila; med `nu` (routen) räknas den fram till nu.
+  const nu = i.nu ? (sthlmVaggklocka(i.nu) ?? null) : null;
 
   // Veckovila: varje dags EGET värde (lib/vilobrott.veckovilaPerDag), inte stretchens första dag — ett gammalt brott får inte
   // dölja en vila som fortfarande är för kort. Ändarna räknas: tiden före förarens första pass är vila (nyanställd), och vilan från
@@ -396,7 +382,7 @@ function bedomVila(i: ArbetstidIndata): { vecka: VilaMatt; dygn: VilaMatt } {
   const vkrav = T.veckovila_krav_h;
   const vgul = r1(vkrav / GRANSER.gulAndel);
   let vMin: { h: number; datum: string } | null = null;
-  for (const d of veckovilaPerDag(spann, T.veckovila_fonster_dagar, { nu, vilaForeForstaPass: true })) {
+  for (const d of veckovilaPerDag(spann, T.veckovila_fonster_dagar, nu)) {
     if (d.datum < fran) continue;   // pass efter tomDatum är redan bortfiltrerade ovan; 0 tim betyder nu 'ingen vila alls' (ändarna räknas), inte 'okänt'
     if (!vMin || d.max_h < vMin.h) vMin = { h: d.max_h, datum: d.datum };
   }
@@ -406,7 +392,7 @@ function bedomVila(i: ArbetstidIndata): { vecka: VilaMatt; dygn: VilaMatt } {
   // Dygnsvila: lib/vilobrott.analyseraVilobrott tre gånger — med kravet (röd), med varningsgränsen (gul) och med en
   // orimligt hög gräns (alla par, för det lägsta värdet). Rod/gul avgörs av analysens egen jämförelse på OAVRUNDAD vila:
   // 10 h 58 min visas som "11" men är under kravet.
-  const dygnIFonster = (krav: number) => analyseraVilobrott(spann, { ...T, dygnsvila_krav_h: krav }, { passOverMidnatt: true })
+  const dygnIFonster = (krav: number) => analyseraVilobrott(spann, { ...T, dygnsvila_krav_h: krav }, nu)
     .filter(b => b.typ === "dygnsvila" && b.datum >= fran && b.vila_h > 0);
   const alla = dygnIFonster(1e6);
   const rod = dygnIFonster(T.dygnsvila_krav_h).length > 0;
