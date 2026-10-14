@@ -115,7 +115,9 @@ describe('grupperna utgår från status', () => {
     await montera();
     expect(q('objekt-rad-v')).toBeNull();
     klicka(q('objekt-lista-avslutade'));
-    expect(q('objekt-rad-v')).not.toBeNull();
+    expect(q('objekt-rad-v')).not.toBeNull();                                // Slutavverkning (förvald: lika många, fast ordning)
+    expect(q('objekt-rad-a2')).toBeNull();                                   // Gallring ligger under sin egen växlarknapp
+    klicka(q('avslutade-typ-gallring'));
     expect(q('objekt-rad-a2')).not.toBeNull();
     expect(q('objekt-rad-e')).toBeNull();                                    // aktiva syns inte i Avslutade-vyn
     expect(q('objekt-lista')!.textContent).toContain('Avslutade');
@@ -307,6 +309,144 @@ describe('Här — enhetens GPS innanför ett objekts traktgräns', () => {
     });
     expect(rubriker()).not.toContain('Här');
     expect(q('objekt-rad-e')).not.toBeNull();
+  });
+});
+
+// ---- Avslutade: växlare per typ, senast avslutade först, avslutsdatum på raden -------------------------------------------------------
+const AVS = (id: string, namn: string, typ: string | null, ts: string | null, extra: Record<string, unknown> = {}) =>
+  ({ id, namn, status: 'avslutat', typ, bolag: 'Södra', volym: 500, avslutad_timestamp: ts, ...extra });
+const AVSLUTADE_RADER = [
+  AVS('s1', 'Slut Ä', 'slutavverkning', '2026-08-01T10:00:00Z'),
+  AVS('s2', 'Slut B', 'slutavverkning', '2026-10-05T08:30:00Z'),
+  AVS('s3', 'Slut C', 'slutavverkning', '2026-09-15T12:00:00Z'),
+  AVS('s4', 'Slut D (utan datum)', 'slutavverkning', null),
+  AVS('g1', 'Gall A', 'gallring', '2026-10-01T10:00:00Z'),
+  AVS('g2', 'Gall B', 'gallring', '2026-07-01T10:00:00Z'),
+  AVS('t1', 'Grot A', 'grot', '2026-09-20T10:00:00Z'),
+  { id: 'p1', namn: 'Pågår-objekt', status: 'pagaende', typ: 'gallring', lat: 56.41, lng: 14.71 },
+  { id: 'pl', namn: 'Planerat-objekt', status: 'planerad', typ: 'slutavverkning', lat: 56.45, lng: 14.75 },
+];
+const oppnaAvslutade = async () => { await montera(); klicka(q('objekt-lista-avslutade')); };
+const avslutadeIdn = () => radIdn();
+const sokText = async (t: string) => {
+  await act(async () => {
+    const sok = q('objekt-lista-sok') as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(sok, t);
+    sok.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+};
+
+describe('Avslutade — växlare per typ', () => {
+  beforeEach(() => { h.rader = AVSLUTADE_RADER; });
+
+  it('överst en växlare med bara de typer som finns, flest först, antal på varje: "Slutavverkning 4 · Gallring 2 · GROT 1"', async () => {
+    await oppnaAvslutade();
+    const v = q('avslutade-typvaxlare')!;
+    expect(Array.from(v.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Slutavverkning4', 'Gallring2', 'GROT1']);
+    expect(q('avslutade-typ-energiklippning')).toBeNull();                   // typer som inte finns visas inte
+    expect(q('avslutade-typ-okand')).toBeNull();
+  });
+
+  it('förvald är typen med flest; bara dess objekt visas', async () => {
+    await oppnaAvslutade();
+    expect(q('avslutade-typ-slutavverkning')!.getAttribute('aria-checked')).toBe('true');
+    expect(q('avslutade-typ-gallring')!.getAttribute('aria-checked')).toBe('false');
+    expect(avslutadeIdn().sort()).toEqual(['s1', 's2', 's3', 's4']);
+  });
+
+  it('förvald följer antalet, inte en fast ordning: flest Gallring → Gallring förvald', async () => {
+    h.rader = [...AVSLUTADE_RADER, AVS('g3', 'Gall C', 'gallring', '2026-06-01T10:00:00Z'), AVS('g4', 'Gall D', 'gallring', '2026-05-01T10:00:00Z'), AVS('g5', 'Gall E', 'gallring', '2026-04-01T10:00:00Z')];
+    await oppnaAvslutade();
+    const v = q('avslutade-typvaxlare')!;
+    expect(Array.from(v.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Gallring5', 'Slutavverkning4', 'GROT1']);
+    expect(q('avslutade-typ-gallring')!.getAttribute('aria-checked')).toBe('true');
+    expect(avslutadeIdn()).toContain('g5');
+    expect(avslutadeIdn()).not.toContain('s1');
+  });
+
+  it('tryck på en annan typ byter listan — och bara listan (växlaren ligger kvar)', async () => {
+    await oppnaAvslutade();
+    klicka(q('avslutade-typ-grot'));
+    expect(avslutadeIdn()).toEqual(['t1']);
+    expect(q('avslutade-typ-grot')!.getAttribute('aria-checked')).toBe('true');
+    expect(q('avslutade-typ-slutavverkning')!.getAttribute('aria-checked')).toBe('false');
+    klicka(q('avslutade-typ-gallring'));
+    expect(avslutadeIdn().sort()).toEqual(['g1', 'g2']);
+  });
+
+  it('inom vald typ: senast avslutade först, objekt utan datum sist', async () => {
+    await oppnaAvslutade();
+    expect(avslutadeIdn()).toEqual(['s2', 's3', 's1', 's4']);                // 2026-10-05, 09-15, 08-01, utan datum
+    klicka(q('avslutade-typ-gallring'));
+    expect(avslutadeIdn()).toEqual(['g1', 'g2']);                            // 2026-10-01, 07-01
+  });
+
+  it('avslutsdatumet står på raden som i dagens "Avslutat 2026-10-05"; utan datum står ett streck, aldrig ett påhittat datum', async () => {
+    await oppnaAvslutade();
+    expect(q('objekt-rad-s2')!.textContent).toContain('Avslutat 2026-10-05');
+    expect(q('objekt-rad-s1')!.textContent).toContain('Avslutat 2026-08-01');
+    expect(q('objekt-rad-s4')!.textContent).toContain('Avslutat —');
+    expect(q('objekt-rad-s2')!.textContent).toContain('Södra');             // källa och m³ finns kvar
+    expect(q('objekt-rad-s2')!.textContent).toMatch(/500\s*m³/);               // volymText använder hårt mellanrum
+  });
+
+  it('Sök söker i alla typer: växlaren göms, träffar från flera typer visas, senast avslutat först, och typen står på raden', async () => {
+    await oppnaAvslutade();
+    await sokText('Södra');                                                  // alla sju avslutade har källan Södra
+    expect(q('avslutade-typvaxlare')).toBeNull();
+    expect(avslutadeIdn()).toEqual(['s2', 'g1', 't1', 's3', 's1', 'g2', 's4']);
+    expect(q('objekt-rad-g1')!.textContent).toContain('Gallring');
+    expect(q('objekt-rad-t1')!.textContent).toContain('Grot');
+    expect(q('objekt-rad-g1')!.textContent).toContain('Avslutat 2026-10-01');
+    await sokText('Gall B');
+    expect(avslutadeIdn()).toEqual(['g2']);                                  // en träff i en annan typ än den förvalda
+  });
+
+  it('töms sökningen kommer växlaren tillbaka med samma val', async () => {
+    await oppnaAvslutade();
+    klicka(q('avslutade-typ-gallring'));
+    await sokText('Slut');
+    expect(q('avslutade-typvaxlare')).toBeNull();
+    await sokText('');
+    expect(q('avslutade-typ-gallring')!.getAttribute('aria-checked')).toBe('true');
+    expect(avslutadeIdn().sort()).toEqual(['g1', 'g2']);
+  });
+
+  it('Energiklippning och okänd typ får egna segment när de finns — okänd typ gissas aldrig som Gallring', async () => {
+    h.rader = [...AVSLUTADE_RADER, AVS('e1', 'Energi A', 'energiklippning', '2026-09-01T10:00:00Z'), AVS('o1', 'Okänd A', null, '2026-09-02T10:00:00Z')];
+    await oppnaAvslutade();
+    const v = q('avslutade-typvaxlare')!;
+    expect(Array.from(v.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Slutavverkning4', 'Gallring2', 'GROT1', 'Energiklippning1', 'Okänd typ1']);
+    klicka(q('avslutade-typ-okand'));
+    expect(avslutadeIdn()).toEqual(['o1']);
+    klicka(q('avslutade-typ-energiklippning'));
+    expect(avslutadeIdn()).toEqual(['e1']);
+  });
+
+  it('Pågår och Planerade berörs inte, och "Avslutade (N)" räknar alla typer', async () => {
+    await montera();
+    expect(Array.from(behallare!.querySelectorAll('[data-testid^="objekt-grupp-"]')).map((e) => e.textContent)).toEqual(['Pågår', 'Planerade']);
+    expect(radIdn().sort()).toEqual(['p1', 'pl']);
+    expect(behallare!.querySelector('[role="radiogroup"]')).toBeNull();      // ingen växlare i huvudlistan
+    expect(q('objekt-lista-avslutade')!.textContent).toContain('(7)');
+    expect(q('objekt-rad-p1')!.textContent).not.toContain('Avslutat');
+  });
+
+  it('varje öppning börjar om: förvald typ igen', async () => {
+    await oppnaAvslutade();
+    klicka(q('avslutade-typ-grot'));
+    await visa({ oppen: false });
+    await avancera(RORELSE.byte + 100);
+    await visa({ oppen: true });
+    klicka(q('objekt-lista-avslutade'));
+    expect(q('avslutade-typ-slutavverkning')!.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('växlarknapparna är träffytor på minst 36 px höga (40 px med ramen) och går att nå med tangentbord', async () => {
+    await oppnaAvslutade();
+    const b = q('avslutade-typ-gallring') as HTMLButtonElement;
+    expect(b.tagName).toBe('BUTTON');
+    expect(parseInt(b.style.minHeight, 10)).toBeGreaterThanOrEqual(36);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { anvandObjektLista, arSkotningKvar, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
+import { anvandObjektLista, arSkotningKvar, avslutadMeta, avslutadTyp, avslutadeAvTyp, avslutadeTyper, avslutsDatum, valdAvslutadTyp, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
 
 const o = (id: string, status: string | null, extra: Partial<ListObjekt> = {}): ListObjekt => ({ id, namn: id, status, ...extra });
 
@@ -163,5 +163,48 @@ describe('skotning kvar och Här i grupperaObjekt', () => {
     const g = grupperaObjekt(lista, { sok: 'vällust', arHar: (x) => x.id === 'Vällust RP M-R -25', skotningKvar: new Set(['VO-V']) });
     expect(g.har.map((x) => x.id)).toEqual(['Vällust RP M-R -25']);
     expect(g.pagar.length + g.planerade.length + g.avslutade.length).toBe(0);
+  });
+});
+
+describe('Avslutade — typer, vald typ, sortering och datum', () => {
+  const a = (id: string, typ: string | null, ts: string | null, extra: Partial<ListObjekt> = {}) => o(id, 'avslutat', { typ, avslutad_timestamp: ts, ...extra });
+  const lista = [
+    a('s1', 'slutavverkning', '2026-08-01T10:00:00Z'), a('s2', 'slutavverkning', '2026-10-05T08:30:00Z'), a('s3', 'slutavverkning', null),
+    a('g1', 'gallring', '2026-10-01T10:00:00Z'), a('t1', 'grot', '2026-09-20T10:00:00Z'),
+  ];
+
+  it('avslutadTyp: huvudtypen som raden visar; GROT via avverkningsform; okänd typ gissas aldrig', () => {
+    expect(avslutadTyp(a('x', 'gallring', null))).toBe('gallring');
+    expect(avslutadTyp(a('x', 'slutavverkning', null, { avverkningsform: 'Biobränsle' }))).toBe('grot');
+    expect(avslutadTyp(a('x', 'energiklippning', null))).toBe('energiklippning');
+    expect(avslutadTyp(a('x', null, null))).toBe('okand');
+  });
+  it('avslutadeTyper: bara typer som finns, flest först, lika antal i fast ordning', () => {
+    expect(avslutadeTyper(lista).map((t) => `${t.etikett} ${t.antal}`)).toEqual(['Slutavverkning 3', 'Gallring 1', 'GROT 1']);
+    expect(avslutadeTyper([a('x', 'grot', null), a('y', 'gallring', null)]).map((t) => t.typ)).toEqual(['gallring', 'grot']);
+    expect(avslutadeTyper([])).toEqual([]);
+  });
+  it('valdAvslutadTyp: vald om den finns, annars den med flest; inga objekt → null', () => {
+    expect(valdAvslutadTyp(lista, null)).toBe('slutavverkning');
+    expect(valdAvslutadTyp(lista, 'grot')).toBe('grot');
+    expect(valdAvslutadTyp(lista, 'energiklippning')).toBe('slutavverkning');   // vald typ finns inte längre (t.ex. efter sökning)
+    expect(valdAvslutadTyp([], 'grot')).toBeNull();
+  });
+  it('sorteringen: senast avslutat först, utan datum sist — och avslutadeAvTyp behåller den', () => {
+    const g = grupperaObjekt(lista);
+    expect(g.avslutade.map((x) => x.id)).toEqual(['s2', 'g1', 't1', 's1', 's3']);
+    expect(avslutadeAvTyp(g.avslutade, 'slutavverkning').map((x) => x.id)).toEqual(['s2', 's1', 's3']);
+    expect(avslutadeAvTyp(g.avslutade, null)).toEqual([]);
+  });
+  it('avslutsDatum: de tio första tecknen (som dagens "Avslutat 2026-10-05"); saknat eller trasigt → null', () => {
+    expect(avslutsDatum({ avslutad_timestamp: '2026-10-05T08:30:00Z' })).toBe('2026-10-05');
+    expect(avslutsDatum({ avslutad_timestamp: null })).toBeNull();
+    expect(avslutsDatum({ avslutad_timestamp: 'igår' })).toBeNull();
+  });
+  it('avslutadMeta: "Avslutat <datum> · källa · m³"; med medTyp står typen före källan; utan datum ett streck', () => {
+    const x = a('x', 'gallring', '2026-10-05T08:30:00Z', { bolag: 'Södra', volym: 1200 });
+    expect(avslutadMeta(x, false).replace(/\s/g, ' ')).toBe('Avslutat 2026-10-05 · Södra · 1 200 m³');
+    expect(avslutadMeta(x, true).replace(/\s/g, ' ')).toBe('Avslutat 2026-10-05 · Gallring · Södra · 1 200 m³');
+    expect(avslutadMeta(a('y', 'gallring', null), false)).toBe('Avslutat —');
   });
 });

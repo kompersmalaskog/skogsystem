@@ -127,6 +127,64 @@ export function grupperaObjekt<T extends ListObjekt>(
   return ut;
 }
 
+// ---- Avslutade: växlare per typ ------------------------------------------------------------------------------------------------
+// Avslutade-vyn har överst en segmentväxlare med de typer som FINNS bland avslutade objekt ("Slutavverkning 38 · Gallring 18 · GROT 1"),
+// förvald är den med flest. Under den: objekten av vald typ, senast avslutade först, med avslutsdatum på raden. Sök söker i alla typer
+// (växlaren göms medan man söker; raden visar då typen). Pågår/Planerade berörs inte.
+
+export type AvslutadTyp = 'slutavverkning' | 'gallring' | 'grot' | 'energiklippning' | 'okand';
+
+/** Fast ordning — avgör bara lika antal. */
+const AVSLUTAD_TYP_ORDNING: readonly AvslutadTyp[] = ['slutavverkning', 'gallring', 'grot', 'energiklippning', 'okand'];
+
+export const AVSLUTAD_TYP_ETIKETT: Record<AvslutadTyp, string> = {
+  slutavverkning: 'Slutavverkning',
+  gallring: 'Gallring',
+  grot: 'GROT',
+  energiklippning: 'Energiklippning',
+  okand: 'Okänd typ',
+};
+
+/** Objektets typ för växlaren: samma huvudtyp som raden visar (objektHuvudtyp). Saknad/okänd typ = 'okand' — aldrig gissad som Gallring. */
+export function avslutadTyp(o: ListObjekt): AvslutadTyp {
+  return objektHuvudtyp(o) ?? 'okand';
+}
+
+/** Typerna som finns bland objekten, flest först (lika antal: fast ordning). Typer utan objekt finns inte. */
+export function avslutadeTyper(objekt: readonly ListObjekt[]): { typ: AvslutadTyp; etikett: string; antal: number }[] {
+  const antal = new Map<AvslutadTyp, number>();
+  for (const o of objekt) { const t = avslutadTyp(o); antal.set(t, (antal.get(t) ?? 0) + 1); }
+  return AVSLUTAD_TYP_ORDNING
+    .filter((t) => (antal.get(t) ?? 0) > 0)
+    .map((t) => ({ typ: t, etikett: AVSLUTAD_TYP_ETIKETT[t], antal: antal.get(t)! }))
+    .sort((a, b) => b.antal - a.antal);   // stabil sortering: lika antal behåller den fasta ordningen
+}
+
+/** Vald typ om den finns bland objekten, annars den med flest. null = inga objekt. */
+export function valdAvslutadTyp(objekt: readonly ListObjekt[], vald: AvslutadTyp | null | undefined): AvslutadTyp | null {
+  const typer = avslutadeTyper(objekt);
+  if (typer.length === 0) return null;
+  return vald && typer.some((t) => t.typ === vald) ? vald : typer[0].typ;
+}
+
+/** Objekten av en typ, i den ordning de redan har (grupperaObjekt sorterar avslutade senast avslutat först). */
+export function avslutadeAvTyp<T extends ListObjekt>(objekt: readonly T[], typ: AvslutadTyp | null): T[] {
+  return typ ? objekt.filter((o) => avslutadTyp(o) === typ) : [];
+}
+
+/** Avslutsdatum som dagens "Avslutat 2026-10-05": de tio första tecknen i avslutad_timestamp. Saknas det → null (aldrig ett påhittat datum). */
+export function avslutsDatum(o: Pick<ListObjekt, 'avslutad_timestamp'>): string | null {
+  const t = (o.avslutad_timestamp ?? '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : null;
+}
+
+/** Raden i Avslutade: "Avslutat 2026-10-05 · källa · m³" — med `medTyp` (vid sökning över alla typer) står typen före källan. */
+export function avslutadMeta(o: ListObjekt, medTyp: boolean): string {
+  const datum = avslutsDatum(o);
+  const rest = medTyp ? radMeta(o) : [(o.bolag ?? '').trim(), volymText(o.volym)].filter(Boolean).join(' · ');
+  return [`Avslutat ${datum ?? '—'}`, rest].filter(Boolean).join(' · ');
+}
+
 /** Fågelavstånd i km (haversine). */
 export function fagelKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371, rad = (d: number) => (d * Math.PI) / 180;

@@ -5,7 +5,9 @@
 // bakom (ingen mörk bakgrund), × / Esc / tryck på kartan stänger.
 //
 //   Sökfält överst · Här (bara när GPS:en står innanför ett objekts traktgräns) · Pågår (grön prick) · Planerade · Oplanerade (grå prick) ·
-//   "Avslutade (N)" som en rad längst ner som öppnar dem i samma ark.
+//   "Avslutade (N)" som en rad längst ner som öppnar dem i samma ark: överst en segmentväxlare med typerna som finns bland avslutade
+//   ("Slutavverkning 38 · Gallring 18 · GROT 1", flest förvald), under den objekten av vald typ, senast avslutade först, med "Avslutat 2026-10-05"
+//   på raden. Sök söker i alla typer (växlaren göms medan man söker).
 //   Grupperna utgår från objekt.status (lib/objektVal) med två undantag från den gamla väljaren: avslutat + skotning kvar ligger under Pågår
 //   med etiketten "Skotning kvar" (lib/skotningKvar), och objektet man står i ligger överst under Här. Alla typer visas, även GROT och energiklippning.
 //   Raden: namn (fet) och under den typ · källa · m³. Tryck på raden = öppna objektet. Knappen till höger (bil + avstånd) startar navigeringen.
@@ -19,7 +21,7 @@ import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
 import { PANEL_BREDD_PX } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
-import { arSkotningKvar, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, type ListObjekt } from '@/lib/objektVal';
+import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
 import { objektTraffPunkt } from '@/lib/objektPlats';
 import { hamtaSkotningKvar } from '@/lib/skotningKvar';
 import { harKoordinat } from '@/lib/navigera';
@@ -67,6 +69,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [utglidet, setUtglidet] = useState(!oppen);   // monterad stängd (sidan lämnar den monterad) → inget i DOM från början
   const [sok, setSok] = useState('');
   const [visaAvslutade, setVisaAvslutade] = useState(false);
+  const [valdTyp, setValdTyp] = useState<AvslutadTyp | null>(null);   // null = den med flest
   const [objekt, setObjekt] = useState<ListaObjekt[]>([]);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState(false);
@@ -85,6 +88,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     oppnadTid.current = Date.now();
     setSok('');
     setVisaAvslutade(false);
+    setValdTyp(null);
     setUtglidet(false);
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (minskad) { setInne(true); return; }
@@ -212,6 +216,10 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     // eslint-disable-next-line react-hooks/exhaustive-deps -- avstandKm/arHar läser vag/pos/gpsPos/geometri som är med
     [objekt, sok, vag, pos, gpsPos, geometri, skotKvar],
   );
+  const sokar = sok.trim() !== '';
+  const avslutadeTyperLista = avslutadeTyper(grupper.avslutade);
+  const valdAvslutad = valdAvslutadTyp(grupper.avslutade, valdTyp);
+  const avslutadeVald = avslutadeAvTyp(grupper.avslutade, valdAvslutad);
   const finnsNagot = objekt.length > 0;
   const aktivaAntal = grupper.har.length + grupper.pagar.length + grupper.planerade.length + grupper.oplanerade.length;
 
@@ -220,10 +228,10 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
 
   const glidInne = oppen && inne;
   const prickFor = (o: ListaObjekt): 'gron' | 'gra' => (effektivGrupp(o, skotKvar) === 'pagar' ? 'gron' : 'gra');
-  const rad = (o: ListaObjekt) => {
+  const rad = (o: ListaObjekt, avslutadVy?: 'utanTyp' | 'medTyp') => {
     const prick = prickFor(o);
     const kvarEtikett = arSkotningKvar(o, skotKvar);
-    const meta = radMeta(o);
+    const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : radMeta(o);
     const km = avstandKm(o);
     const arVag = vag[o.id] != null;
     const kmTxt = kmText(km, !arVag);
@@ -313,13 +321,30 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
           style={{ width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad, background: FARG.upphojt, color: FARG.text, fontFamily: 'inherit', ...TYP.text, outline: 'none' }}
         />
       </div>
+      {visaAvslutade && !sokar && avslutadeTyperLista.length > 0 && (
+        <div role="radiogroup" aria-label="Typ av avslutade objekt" data-testid="avslutade-typvaxlare"
+          style={{ flexShrink: 0, display: 'flex', gap: AVSTAND.xs, margin: `0 ${AVSTAND.l}px ${AVSTAND.s}px`, padding: AVSTAND.xs, borderRadius: RADIE.rad, background: FARG.upphojt, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {avslutadeTyperLista.map((t) => {
+            const vald = t.typ === valdAvslutad;
+            return (
+              <button key={t.typ} type="button" role="radio" aria-checked={vald} data-testid={`avslutade-typ-${t.typ}`} onClick={() => setValdTyp(t.typ)}
+                style={{ flex: '1 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.xs + AVSTAND.xs / 2, minHeight: TRAFFYTA.min - AVSTAND.s, padding: `0 ${AVSTAND.m}px`, border: 'none', borderRadius: RADIE.rad - AVSTAND.xs / 2,
+                  background: vald ? FARG.fyllning : 'transparent', color: vald ? FARG.text : FARG.text2, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', ...TYP.meta, fontWeight: vald ? VIKT.halvfet : VIKT.normal, touchAction: 'manipulation' }}>
+                {t.etikett}<span style={TNUM}>{t.antal}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div data-testid="objekt-lista-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', paddingBottom: medSafeBotten(AVSTAND.l) }}>
         {tomText ? (
           <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xxl}px ${AVSTAND.l}px` }}>{tomText}</div>
         ) : visaAvslutade ? (
           grupper.avslutade.length === 0
             ? <div style={{ ...TYP.meta, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xxl}px ${AVSTAND.l}px` }}>{sok.trim() ? `Inget avslutat objekt matchar "${sok.trim()}".` : 'Inga avslutade objekt.'}</div>
-            : grupper.avslutade.map((o) => rad(o))
+            : sokar
+              ? grupper.avslutade.map((o) => rad(o, 'medTyp'))                       // sök: alla typer, typen står på raden
+              : avslutadeVald.map((o) => rad(o, 'utanTyp'))
         ) : (
           <>
             {grupper.har.length > 0 && <>{gruppRubrik('har', 'Här')}{grupper.har.map((o) => rad(o))}</>}
