@@ -699,7 +699,7 @@ Hjälpfunktionerna för Stockholmstid (`lib/sthlmTid.ts`) delas av `analyseraVil
 
 **Företagsledare / delägare (Martin 2026-10-13).** Arbetstidslagen gäller inte den som leder företaget eller är delägare med bestämmande
 över sin egen arbetstid. `medarbetare.foretagsledare` (boolean, default false, migration `20261013170000_medarbetare_foretagsledare.sql`)
-sätts i Admin → Medarbetare (rutan "Företagsledare / delägare"). En sådan person räknas ändå, men visas aldrig som gul eller röd:
+sätts i Admin → Medarbetare (rutan "Företagsledare / delägare"). **Reglaget sparar direkt när det slås om** (egen skrivning av bara den kolumnen, verifierad med `.select()`; vid fel eller 0 rader går det tillbaka och felet står) — det ligger inte bakom "Spara ändringar": 2026-10-14 slogs det på men aldrig sparat, inget skrivanrop nådde databasen. En sådan person räknas ändå, men visas aldrig som gul eller röd:
 `varsta` är alltid "lugn" (`skulleVarit` bär vad det hade blivit), raden i kortet är grå med "Delägare – arbetstidslagen gäller inte", går
 inte att fälla ut, kommer sist, och räknas inte i menysiffran. Hen visas bara när hen annars hade varit gul eller röd (annars finns inget att
 förklara), och "Ingen närmar sig en gräns" står kvar om det bara är delägare som är gula/röda. Martin och Joacim bockas i av Martin själv
