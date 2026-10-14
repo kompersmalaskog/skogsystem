@@ -2,7 +2,9 @@
 
 2026-10-14 · Dag, Kvällsrapport, Redigera, Min tid, Mitt avtal, Inställningar · 390 / 820 / 1180 / 1440 px
 
-**Inget i appens kod är ändrat.** Allt nedan är mätt i den riktiga appen och läst ur koden.
+**Status 2026-10-14: byggt i samma PR efter Martins beslut — se avsnitt 8 (utfall, pixeljämförelse på 390 px, vad som återstår).** Avsnitt 1–7 är granskningen som den skrevs, före bygget; mätvärdena där är "idag" = före.
+
+(Granskningen i sig ändrade ingen kod. Allt i avsnitt 1–7 är mätt i den riktiga appen och läst ur koden.)
 
 ## Läs det här först
 
@@ -158,3 +160,74 @@ Test enligt tidigare överenskommelse: renderingstest för det ändrade, `tsc` p
 4. **Toppfältets hemknapp (36 px) och genomskinlighet (N2):** global komponent som påverkar alla vyer. Ska den med i den här sviten eller egen PR?
 
 Allt här är mätt mot en attrapp med påhittad data. Jag har inte sett någon riktig iPad.
+
+---
+
+## 8. Utfall: det som byggdes (beslut 2026-10-14)
+
+**Beslut:** (1) Kolumnen, ja: 640 / Kalender 1120 / ark 520, samma som ledighet. (2) Bottennavet i kolumnen. (3) EN PR (en PR per audit): Kolumnen + 100vh/56 px-felet + bottennavet + tryckytor ≥ 44 px + Redigeras rubrikrad + NICE-punkterna, med den här rapporten. (4) Toppfältet (hemknapp 36 px, genomskinlighet): **inte nu**, egen PR i en senare app-granskning.
+
+### Vad som ändrades
+
+| Fynd | Åtgärd | Var |
+|---|---|---|
+| K1 | Varje vys rot är kolumnen: `kolumnRot()` (smal 640 + marginaler; Kalender `bred` 1120). Lön-översikten 448 → 640, Lön-detaljer 640 (egen innerbredd borta, roten är kolumnen). Ark 500/520/560 → `KOLUMN.ark`. Svart bakgrund utanför kolumnen medan vyn är monterad (`KOLUMN_CSS`). | `lib/design/tokens.ts` (`kolumnRot`, `ROT_MIN_HOJD`, `KOLUMN_CSS`), `Arbetsrapport.tsx` |
+| V1 | Rotens `minHeight` är skärmen minus toppfältet (`ROT_MIN_HOJD`) i stället för `100vh`. | samma |
+| V2 | Bottennavet: bakgrunden i full bredd, flikarna i kolumnen (`max(16px, calc((100% - 640px) / 2))`). | `BottomNavBar` |
+| V3 | Tryckytor ≥ 44 px: Vilas segment (33 → 44), månadspilar (30 → 44×44), "Se alla nätter →", "Visa alla →", "Dölj detaljer" (×3); Saldons "Försök igen" (×2); "Hoppa över" (×2); objekt-/maskinväljarnas "Stäng" (×2) och objektväljarens sökfält (hela fältet, inte bara texten); Inställningars valrader (klassen `valj-rad`). Luften runt de förstorade länkraderna är krympt så korten inte växer. | `Arbetsrapport.tsx` |
+| V4 | Redigeras "Åkte hem sjuk, VAB eller föräldraledig?" och "Byt mot ledig dag" på egen rad, vänsterställda, 44 px (förut i löptext, 22 px, bröts och centrerades på 390). | Redigera, rubrikraden |
+| N1 | Decimalkomma: "38,4h (4,8 dagar)", "= 4,8 dagar", "Du valde ledig tid: 4,8 dagar", "Kort dygnsvila: 10,5h" (de tre sista fanns inte i granskningen; hittade jag när jag sökte alla ställen som skriver ett ettdecimalstal). | `svDecimal` |
+| N2 | **Inte nu** (beslut 4). | – |
+| N3 | Ingen åtgärd (avvägningen är tagen). | – |
+
+Några av tryckytorna i V3 (Saldons "Försök igen", "Hoppa över", "Stäng", sökfältet, Vilas månadspilar och "Visa alla →") står i lägen som inte syns i grundvyerna; de hittades genom att läsa koden för de sex vyerna och mäta i fler lägen (Vila 30 dagar/Månad/År/Se alla, Min tid År, Extra arbete, Traktamente, objektväljaren).
+
+### Telefonen: pixeljämförelse 390 px, före mot efter
+
+Samma data, samma klocka (11:00 / 18:00), samma Chromium. Före = koden precis före ändringen, efter = ändrad kod. Jämförelsen är per pixel; en pixel räknas som avvikande om någon kanal skiljer mer än 24. Bilderna: [före | efter per vy](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/jamfor390/dag.png?raw=true) (länkarna i tabellen).
+
+| Vy | Resultat | Förklaring |
+|---|---|---|
+| Dag | **identisk** (0 pixlar) | – |
+| Kvällsrapport | **identisk** | – |
+| Kvällsrapport, arket "Något fel?" | **identisk** | – |
+| Redigera | **skiljer (avsiktligt)**, 207 462 pixlar | "Åkte hem …" på egen rad, vänsterställd (förut två rader, centrerad); "Stämmer" och "Tillbaka" ryms nu på skärmen (förut låg "Tillbaka" under kanten). [jämförelse](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/jamfor390/redigera.png?raw=true), [diff](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/diff390/redigera-390.png?raw=true) |
+| Min tid, Översikt | toppen **identisk**; "botten"-bilden skiljer | sidan är 20 px kortare att scrolla (880 i stället för 900), så "längst ned" är ett annat scrollläge. Innehållet är oförändrat. |
+| Min tid, Saldon | **30 pixlar** (5×9 bildpunkter, ett decimaltecken) | "4.8" → "4,8" (decimalkomma). [diff](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/diff390/mintid-saldon-390.png?raw=true) |
+| Min tid, Vila | **skiljer (avsiktligt)**, 106 387 pixlar | segmenten 44 i stället för 33 px; raden "5 viloperioder … Se alla nätter →" ca 2 px högre; allt under flyttas ned ca 14 px. [jämförelse](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/jamfor390/mintid-vila.png?raw=true), [diff](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/diff390/mintid-vila-390.png?raw=true) |
+| Mitt avtal | **identisk** (även "botten") | – |
+| Inställningar | **identisk** (även "botten") | – |
+| Kalender (ingen av de sex, extra kontroll) | **identisk** (även "botten") | – |
+
+**Avvikelser, i klartext:** sex av nio lägen är pixel-identiska eller skiljer bara på avsedda ställen utan följdverkningar. Tre skiljer: Redigera och Vila (avsiktligt, tryckytor och rubrikrad), Saldon (ett tecken). Ingenting annat i någon vy på telefon rörde sig. Det jag **inte** kunde jämföra är Lön (se nedan) och de lägen som bara uppstår efter ett tryck (väljare och ark utöver "Något fel?").
+
+### Efter: mätvärden (Kvällsrapport; övriga vyer inom ±30 px)
+
+| | 390 | 820 | 1180 | 1440 |
+|---|---|---|---|---|
+| Textens spännvidd | 342 px | **624** | **624** | **624** |
+| Bredaste kortet | 358 | **640** | **640** | **640** |
+| Etikett → värde i en rad | 326 | **608** | **608** | **608** |
+| Sidan högre än skärmen (Dag, Kväll, Arket, Redigera, Vila) | **0** | **0** | **0** (Vila +3) | **0** |
+| Längsta löpande textrad i Mitt avtal (tecken per rad) | 45 | **67** | **67** | **67** |
+
+(Före: 1 376 px etikett→värde på 1440, 134 tecken per rad, +56 px på alla bredder.) Inget flödar över i sidled i något av de 36 lägena. Tryckytor under 44 px: **0** i Dag, Kväll, Arket, Redigera, Min tid Översikt/Saldon/Vila och Mitt avtal på alla fyra bredder, utom undantagen nedan.
+
+Bilder, efter (alla fyra bredder per vy): [Dag](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/dag.png?raw=true) · [Kväll](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/kvall.png?raw=true) · [Kvällsarket](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/kvall-ark.png?raw=true) · [Redigera](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/redigera.png?raw=true) · [Min tid Översikt](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/mintid-oversikt.png?raw=true) · [Saldon](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/mintid-saldon.png?raw=true) · [Vila](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/mintid-vila.png?raw=true) · [Mitt avtal](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/avtal.png?raw=true) · [Inställningar](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/blad/installningar.png?raw=true). Kalender (bred, 1120): [390](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/kalender/kalender-390.png?raw=true) · [820](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/kalender/kalender-820.png?raw=true) · [1180](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/kalender/kalender-1180.png?raw=true) · [1440](https://github.com/kompersmalaskog/skogsystem/blob/b21e69b0db53822b05725f8848889d15eca36f0b/docs/arbetsrapport-granskning/bilder-efter/kalender/kalender-1440.png?raw=true). Originalen per vy och bredd ligger i samma mapp (`bilder-efter/<vy>-<bredd>.png`, commit `b21e69b`).
+
+### Vad som återstår och inte är gjort
+
+- **Toppfältet** (hemknapp 36×36, genomskinlighet 0,92): egen PR (beslut 4).
+- **Min tid → Översikt → År:** de tolv månadskolumnerna är 26×166 px på 390 (tolv kolumner på 358 px; 44 px bred går inte utan sidscroll). Lämnas.
+- **Reglagen** i Inställningar (51×31) är iOS-standard och rörs inte.
+- **Kalenderns dagrutor** mäts som 43,7 px breda på 390 (358/7): avrundning av 44, oförändrat (pixel-identiskt).
+- **Lön** är inte visuellt kontrollerad efter ändringen (448 → 640): vyn kraschar med attrappens data före **och** efter ("Cannot read properties of undefined (reading 'reduce')": attrappens svar saknar fält som specifikationen kräver), så de identiska bilderna visar en felvy. Rotens bredd är bara bekräftad i renderingstestet (672 px). Kontrollera Lön i previewn.
+- **Inställningars valrader** (klassen `valj-rad`) och **sökfältet** är bevisade av källvakterna i testet; väljaren öppnades inte i min mätning, så 44 px är inte uppmätt i webbläsaren där.
+- **Sökfältet i objektväljaren** är nu helt på tokens: texten 17 px i stället för 15 (under 16 px zoomar iOS in vid fokus) och 2 px mer luft under fältet. Det ligger i ett ark och ingår inte i pixeljämförelsen.
+- Formulärarken (Period, Ändra tider) och Starta-flödet är fortfarande ogranskade.
+- Ingen riktig iPad är sedd.
+
+### Test
+
+`components/arbetsrapport/Arbetsrapport.kolumn.render.test.tsx` (17 tester: rötterna, Kalender bred, tryckytor, decimalkomma, källvakter för nav/ark/body) och `node scripts/mutationskontroll-arbetsrapport-kolumn.mjs` (**26 av 26 mutanter dödade**). Hela vitest: 3 866 gröna (tre filer kan inte laddas utan `.env.local`, som i alla PR:er). `tsc` (lokal binär): 469 fel = baslinjen 469, inga nya (en enda rad skiljer: ordningen i en unionstyp i en orelaterad fil). `design-lint --strikt`: inga nya literaler.
+
