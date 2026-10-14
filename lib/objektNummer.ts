@@ -18,6 +18,9 @@ export interface AltNummer {
 
 export interface AltNummerRad extends AltNummer {
   objekt_id: string;
+  id?: string;
+  /** Satt när importen BYTTE objekt.vo_nummer från nummer till byte_till (det gamla numret hade ingen maskindata). */
+  byte_till?: string | null;
 }
 
 const SIFFROR = /^\d+$/;
@@ -164,4 +167,78 @@ export function altNummerAttSkriva(jobb: OkopplatJobb, objektUuid: string): { ob
     kalla: 'manuell',
     filnamn: jobb.filnamn,
   };
+}
+
+// ---- Nummerbyten (importen bytte objekt.vo_nummer) och Ångra ----------------------------------------------------------
+
+export interface Nummerbyte {
+  aliasId: string;
+  objektId: string;
+  objektNamn: string | null;
+  /** objektets nummer före bytet (sparat som extra nummer) */
+  gammalt: string;
+  /** objektets nummer nu (filens nummer) */
+  nytt: string;
+}
+
+/** Byten importen gjort: extra nummer-rader med byte_till. Raden finns kvar tills Martin trycker Ångra. */
+export function nummerbyten(alias: readonly AltNummerRad[], objekt: readonly ObjektNamnRad[]): Nummerbyte[] {
+  const namn = new Map(objekt.map((o) => [o.id, o.namn] as const));
+  return alias
+    .filter((a) => !!a.byte_till && !!a.id)
+    .map((a) => ({ aliasId: a.id as string, objektId: a.objekt_id, objektNamn: namn.get(a.objekt_id) ?? null, gammalt: a.nummer, nytt: a.byte_till as string }));
+}
+
+/**
+ * ÅNGRA ett nummerbyte: sätt tillbaka objekt.vo_nummer (nytt → gammalt) och spara det NYA numret som vanligt extra nummer
+ * — annars skulle nästa fil med det numret bara byta igen. Filens data rörs inte (den ligger under det nya numret hela tiden).
+ * Idempotent och ordnat så att inget halvt tillstånd lämnas: extra numret skrivs först, vo_nummer ändras bara om det fortfarande
+ * är det nya (ingen annan hann ändra det), och går ändringen inte igenom tas det nya extra numret bort igen.
+ */
+export async function angraNummerbyte(supabase: SupabaseClient, b: Nummerbyte): Promise<{ ok: true } | { ok: false; fel: string }> {
+  const { data: obj, error: lasFel } = await supabase.from('objekt').select('id, vo_nummer').eq('id', b.objektId);
+  if (lasFel || !obj || obj.length !== 1) return { ok: false, fel: 'Kunde inte läsa objektet — inget återställdes.' };
+  const nu = String((obj[0] as { vo_nummer: string | null }).vo_nummer ?? '').trim();
+  if (nu !== b.nytt && nu !== b.gammalt) return { ok: false, fel: `Objektets nummer har ändrats sedan bytet (nu ${nu || 'tomt'}) — inget återställdes.` };
+
+  // 1. det nya numret sparas som vanligt extra nummer (om det inte redan finns på samma objekt)
+  const { data: finns, error: finnsFel } = await supabase.from('objekt_alt_nummer').select('objekt_id').eq('nummer', b.nytt).is('maskin_id', null);
+  if (finnsFel) return { ok: false, fel: 'Kunde inte kontrollera extra numret — inget återställdes.' };
+  let skrev = false;
+  if ((finns ?? []).length > 0) {
+    if ((finns as { objekt_id: string }[])[0].objekt_id !== b.objektId) return { ok: false, fel: `Numret ${b.nytt} är redan extra nummer på ett annat objekt — inget återställdes.` };
+  } else {
+    const { data: ins, error: insFel } = await supabase.from('objekt_alt_nummer').insert({ objekt_id: b.objektId, nummer: b.nytt, maskin_id: null, kalla: 'manuell' }).select('id');
+    if (insFel || !ins || ins.length === 0) return { ok: false, fel: 'Kunde inte spara extra numret — inget återställdes.' };
+    skrev = true;
+  }
+
+  // 2. objekt.vo_nummer tillbaka (bara om det fortfarande är det nya)
+  if (nu === b.nytt) {
+    const { data: upd, error: updFel } = await supabase.from('objekt').update({ vo_nummer: b.gammalt }).eq('id', b.objektId).eq('vo_nummer', b.nytt).select('id');
+    if (updFel || !upd || upd.length === 0) {
+      if (skrev) await supabase.from('objekt_alt_nummer').delete().eq('nummer', b.nytt).eq('objekt_id', b.objektId).is('maskin_id', null);
+      return { ok: false, fel: 'Kunde inte sätta tillbaka numret — inget återställdes.' };
+    }
+  }
+
+  // 3. bytesmarkeringen (det gamla numrets extra nummer-rad) bort — numret ÄR nu objektets nummer igen
+  const { data: bort, error: bortFel } = await supabase.from('objekt_alt_nummer').delete().eq('id', b.aliasId).select('id');
+  if (bortFel || !bort || bort.length === 0) return { ok: false, fel: 'Numret är återställt men bytesraden kvarstår — tryck Ångra igen.' };
+  return { ok: true };
+}
+
+// ---- Ignorerade jobb -------------------------------------------------------------------------------------------------
+
+/** Nyckeln i hpr_ignorerad: objekt_nyckel (stabil när importen ersätter snapshots), eller 'fil:<filnamn>' för fil utan nyckel. */
+export function ignoreradNyckel(j: Pick<OkopplatJobb, 'nyckel' | 'filnamn'>): string {
+  return j.nyckel ?? `fil:${j.filnamn}`;
+}
+
+/** Delar okopplade jobb i synliga och ignorerade. Ignorerade finns kvar (databasen rörs inte) och går att ta fram igen. */
+export function delaIgnorerade<T extends Pick<OkopplatJobb, 'nyckel' | 'filnamn'>>(jobb: readonly T[], ignorerade: ReadonlySet<string>): { synliga: T[]; ignorerade: T[] } {
+  const synliga: T[] = [];
+  const dolda: T[] = [];
+  for (const j of jobb) (ignorerade.has(ignoreradNyckel(j)) ? dolda : synliga).push(j);
+  return { synliga, ignorerade: dolda };
 }

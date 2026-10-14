@@ -8,33 +8,68 @@ import { resolve } from 'node:path';
 
 const M = 'PONS20SDJAA270231';
 const h = vi.hoisted(() => ({
-  hpr: [] as any[], objekt: [] as any[], alias: [] as any[],
+  hpr: [] as any[], objekt: [] as any[], alias: [] as any[], ign: [] as any[],
   fel: {} as Record<string, any>,            // tabell → felobjekt (läsning)
   insertFel: null as any, insertSynsEj: false, inserts: [] as any[],
+  ignFel: null as any, ignSynsEj: false, ignInserts: [] as any[],
+  updateFel: null as any, updates: [] as any[], deleteFel: null as any, byteKolumnSaknas: false, n: 0,
 }));
 
+// Liten minnesdatabas som beter sig som PostgREST nog för kortet: select/insert/update/delete med eq/is, unika nycklar.
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: (tabell: string) => {
-      const rader = () => (tabell === 'hpr_filer' ? h.hpr : tabell === 'objekt' ? h.objekt : tabell === 'objekt_alt_nummer' ? h.alias : []);
+      const rader = (): any[] => (tabell === 'hpr_filer' ? h.hpr : tabell === 'objekt' ? h.objekt : tabell === 'objekt_alt_nummer' ? h.alias : tabell === 'hpr_ignorerad' ? h.ign : []);
+      const bygg = (op: 'select' | 'update' | 'delete', kolumner = '', patch: any = null) => {
+        const filter: Array<(r: any) => boolean> = [];
+        const traffar = () => rader().filter((r) => filter.every((f) => f(r)));
+        const lasfel = () => {
+          if (h.fel[tabell]) return h.fel[tabell];
+          if (tabell === 'objekt_alt_nummer' && h.byteKolumnSaknas && kolumner.includes('byte_till')) return { code: '42703', message: 'column objekt_alt_nummer.byte_till does not exist' };
+          return null;
+        };
+        const klar = (): any => {
+          if (op === 'select') { const e = lasfel(); return e ? { data: null, error: e } : { data: traffar().map((r) => ({ ...r })), error: null }; }
+          if (op === 'update') {
+            if (h.updateFel) return { data: null, error: h.updateFel };
+            const t = traffar(); t.forEach((r) => { Object.assign(r, patch); h.updates.push({ tabell, patch, id: r.id }); });
+            return { data: t.map((r) => ({ id: r.id })), error: null };
+          }
+          if (h.deleteFel) return { data: null, error: h.deleteFel };
+          const t = traffar(); const idn = new Set(t); const kvar = rader().filter((r) => !idn.has(r)); rader().length = 0; rader().push(...kvar);
+          return { data: t.map((r) => ({ id: r.id, nyckel: r.nyckel })), error: null };
+        };
+        const b: any = {
+          eq: (k: string, v: any) => { filter.push((r) => r[k] === v); return b; },
+          is: (k: string, v: any) => { filter.push((r) => (r[k] ?? null) === v); return b; },
+          order: () => b,
+          range: (fran: number, till: number) => { const r = klar(); return Promise.resolve(r.error ? r : { data: r.data.slice(fran, till + 1), error: null }); },
+          select: () => Promise.resolve(klar()),
+          then: (ok: any, nej: any) => Promise.resolve(klar()).then(ok, nej),
+        };
+        return b;
+      };
       return {
-        select: () => {
-          const svar = () => (h.fel[tabell] ? { data: null, error: h.fel[tabell] } : { data: rader(), error: null });
-          const b: any = {
-            order: () => b,
-            range: (fran: number, till: number) => {
-              const r: any = svar();
-              return Promise.resolve(r.error ? r : { data: r.data.slice(fran, till + 1), error: null });
-            },
-          };
-          return b;
-        },
+        select: (kolumner: string) => bygg('select', kolumner),
+        update: (patch: any) => bygg('update', '', patch),
+        delete: () => bygg('delete'),
         insert: (rad: any) => ({
           select: () => {
-            h.inserts.push(rad);
-            if (h.insertFel) return Promise.resolve({ data: null, error: h.insertFel });
-            if (!h.insertSynsEj) h.alias.push({ ...rad });
-            return Promise.resolve({ data: [{ id: 'ny' }], error: null });
+            if (tabell === 'objekt_alt_nummer') {
+              h.inserts.push(rad);
+              if (h.insertFel) return Promise.resolve({ data: null, error: h.insertFel });
+              if (h.alias.some((a) => a.nummer === rad.nummer && (a.maskin_id ?? null) === (rad.maskin_id ?? null))) return Promise.resolve({ data: null, error: { code: '23505', message: 'duplicate key' } });
+              const ny = { id: `a${++h.n}`, ...rad };
+              if (!h.insertSynsEj) h.alias.push(ny);
+              return Promise.resolve({ data: [{ id: ny.id }], error: null });
+            }
+            if (tabell === 'hpr_ignorerad') {
+              h.ignInserts.push(rad);
+              if (h.ignFel) return Promise.resolve({ data: null, error: h.ignFel });
+              if (!h.ignSynsEj) h.ign.push({ ...rad });
+              return Promise.resolve({ data: [{ nyckel: rad.nyckel }], error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'okänd tabell' } });
           },
         }),
       };
@@ -79,7 +114,11 @@ async function montera() {
 }
 async function oppna() { await montera(); klicka(q('okoppl-rubrik')); }
 
-beforeEach(() => { h.hpr = FILER.map((f) => ({ ...f })); h.objekt = OBJEKT.map((o) => ({ ...o })); h.alias = []; h.fel = {}; h.insertFel = null; h.insertSynsEj = false; h.inserts = []; });
+beforeEach(() => {
+  h.hpr = FILER.map((f) => ({ ...f })); h.objekt = OBJEKT.map((o) => ({ ...o })); h.alias = []; h.ign = []; h.fel = {};
+  h.insertFel = null; h.insertSynsEj = false; h.inserts = []; h.ignFel = null; h.ignSynsEj = false; h.ignInserts = [];
+  h.updateFel = null; h.updates = []; h.deleteFel = null; h.byteKolumnSaknas = false; h.n = 0;
+});
 afterEach(async () => { await act(async () => { rot?.unmount(); }); beh?.remove(); rot = null; });
 
 describe('de fyra riktiga filerna', () => {
@@ -192,6 +231,181 @@ describe('Koppla till objekt', () => {
     await flush();
     expect(q('okoppl-meddelande')!.textContent).toContain('syntes inte vid omläsning');
     expect(radIdn()).toContain(`${M}:k132`);
+  });
+});
+
+// Läget efter att importen bytt objektets nummer (Bågskyttebanan: 11166440 → 11271849; gamla numret hade ingen maskindata)
+const efterByte = () => {
+  h.hpr = [{ ...FILER[0] }];
+  h.objekt = OBJEKT.map((o) => (o.id === 'u-bagskytt' ? { ...o, vo_nummer: '11271849' } : { ...o }));
+  h.alias = [{ id: 'a-byte', objekt_id: 'u-bagskytt', nummer: '11166440', maskin_id: null, kalla: 'namn', byte_till: '11271849' }];
+};
+const bagskytt = () => h.objekt.find((o) => o.id === 'u-bagskytt');
+
+describe('Bytte nummer — importen bytte objekt.vo_nummer', () => {
+  it('syns som en rad "Bytte nummer: <objekt> <gammalt> → <nytt>" med Ångra — och filen räknas som kopplad (inte i listan över okopplade)', async () => {
+    efterByte();
+    await montera();
+    expect(q('okoppl-rubrik')!.textContent).toContain('1 objekt bytte nummer');
+    expect(q('okoppl-rubrik')!.textContent).not.toContain('hör inte till något objekt');
+    klicka(q('okoppl-rubrik'));
+    expect(q('okoppl-byte-text')!.textContent).toBe('Bytte nummer: Bågskyttebanan RP J-Hus- 25 11166440 → 11271849');
+    expect(q('okoppl-angra-a-byte')).not.toBeNull();
+    expect(radIdn()).toEqual([]);
+  });
+
+  it('Ångra återställer: objekt.vo_nummer tillbaka till det gamla, bytesraden bort, nya numret sparat som vanligt extra nummer', async () => {
+    efterByte();
+    await oppna();
+    await act(async () => { q('okoppl-angra-a-byte')!.click(); });
+    await flush();
+    expect(bagskytt().vo_nummer).toBe('11166440');                                         // återställt
+    expect(h.alias.find((a) => a.id === 'a-byte')).toBeUndefined();                        // bytesraden borta
+    expect(h.alias).toHaveLength(1);
+    expect(h.alias[0]).toMatchObject({ objekt_id: 'u-bagskytt', nummer: '11271849', maskin_id: null, kalla: 'manuell' });   // så nästa fil inte byter igen
+    expect(h.alias[0].byte_till).toBeUndefined();
+    // filen (nr 11271849) är fortfarande kopplad — via det extra numret — så inget återstår att visa
+    expect(q('okoppl-kort')).toBeNull();
+  });
+
+  it('Ångra när numret ändrats sedan bytet: rör ingenting och säger det', async () => {
+    efterByte();
+    bagskytt().vo_nummer = '11999999';
+    await oppna();
+    await act(async () => { q('okoppl-angra-a-byte')!.click(); });
+    await flush();
+    expect(q('okoppl-meddelande')!.textContent).toContain('har ändrats sedan bytet');
+    expect(bagskytt().vo_nummer).toBe('11999999');
+    expect(h.alias.map((a) => a.id)).toEqual(['a-byte']);
+  });
+
+  it('Ångra när uppdateringen inte går igenom: extra numret som skrevs rullas tillbaka — inget halvt tillstånd', async () => {
+    efterByte();
+    h.updateFel = { code: '42501', message: 'permission denied' };
+    await oppna();
+    await act(async () => { q('okoppl-angra-a-byte')!.click(); });
+    await flush();
+    expect(q('okoppl-meddelande')!.textContent).toContain('inget återställdes');
+    expect(bagskytt().vo_nummer).toBe('11271849');
+    expect(h.alias.map((a) => a.id)).toEqual(['a-byte']);                                  // det nya extra numret är borttaget igen
+  });
+
+  it('bytesraden kunde inte tas bort → säger det, och ett andra Ångra slutför (idempotent)', async () => {
+    efterByte();
+    h.deleteFel = { code: 'X', message: 'nät' };
+    await oppna();
+    await act(async () => { q('okoppl-angra-a-byte')!.click(); });
+    await flush();
+    expect(q('okoppl-meddelande')!.textContent).toContain('tryck Ångra igen');
+    expect(bagskytt().vo_nummer).toBe('11166440');                                         // numret är redan återställt
+    h.deleteFel = null;
+    await act(async () => { q('okoppl-angra-a-byte')!.click(); });
+    await flush();
+    expect(h.alias.find((a) => a.id === 'a-byte')).toBeUndefined();
+    expect(h.alias.filter((a) => a.nummer === '11271849')).toHaveLength(1);                // inget dubbelt extra nummer
+    expect(bagskytt().vo_nummer).toBe('11166440');
+  });
+
+  it('byte och okopplade filer i samma kort: rubriken räknar båda', async () => {
+    efterByte();
+    h.hpr = [{ ...FILER[0] }, { ...FILER[2] }, { ...FILER[3] }];
+    await oppna();
+    expect(q('okoppl-rubrik')!.textContent).toContain('2 filer hör inte till något objekt · 1 bytte nummer');
+    expect(radIdn()).toHaveLength(2);
+    expect(q('okoppl-byte-text')).not.toBeNull();
+  });
+
+  it('andra migrationen ej körd (byte_till saknas): listan visas som förut, utan byten', async () => {
+    h.byteKolumnSaknas = true;
+    await oppna();
+    expect(radIdn()).toHaveLength(4);
+    expect(q('okoppl-byte-text')).toBeNull();
+  });
+});
+
+describe('Ignorera', () => {
+  it('Ignorera döljer jobbet — men filen finns kvar i databasen och markeringen sparas', async () => {
+    await oppna();
+    await act(async () => { q('okoppl-ignorera-PONS20SDJAA270231:k7')!.click(); });
+    await flush();
+    expect(h.ignInserts).toEqual([{ nyckel: `${M}:k7` }]);
+    expect(h.hpr).toHaveLength(4);                                                         // hpr_filer rörs aldrig
+    expect(radIdn()).toHaveLength(3);
+    expect(radIdn()).not.toContain(`${M}:k7`);
+    expect(q('okoppl-rubrik')!.textContent).toContain('3 filer hör inte till något objekt');
+  });
+
+  it('"Visa ignorerade (1)" tar fram dem igen, och "Visa igen" lägger tillbaka dem', async () => {
+    h.ign = [{ nyckel: `${M}:k7` }];
+    await oppna();
+    expect(radIdn()).toHaveLength(3);
+    expect(q('okoppl-visa-ignorerade')!.textContent).toBe('Visa ignorerade (1)');
+    klicka(q('okoppl-visa-ignorerade'));
+    expect(q('okoppl-visa-ignorerade')!.textContent).toBe('Dölj ignorerade (1)');
+    expect(radIdn()).toHaveLength(4);                                                      // synliga + den ignorerade
+    expect(q(`okoppl-rad-${M}:k7`)!.textContent).toContain('Flyttobjekt');
+    expect(q(`okoppl-ignorera-${M}:k7`)).toBeNull();                                       // ignorerad rad har Visa igen i stället
+    await act(async () => { q(`okoppl-visaigen-${M}:k7`)!.click(); });
+    await flush();
+    expect(h.ign).toEqual([]);
+    expect(q('okoppl-visa-ignorerade')).toBeNull();
+    expect(radIdn()).toHaveLength(4);
+    expect(q(`okoppl-ignorera-${M}:k7`)).not.toBeNull();
+  });
+
+  it('är allt ignorerat finns kortet kvar (så de går att ta fram), med rubriken "Inga filer utan objekt"', async () => {
+    h.ign = FILER.map((f) => ({ nyckel: f.objekt_nyckel }));
+    await montera();
+    expect(q('okoppl-rubrik')!.textContent).toContain('Inga filer utan objekt');
+    expect(q('okoppl-rubrik')!.textContent).toContain('4 ignorerade filer');
+    klicka(q('okoppl-rubrik'));
+    expect(radIdn()).toEqual([]);
+    klicka(q('okoppl-visa-ignorerade'));
+    expect(radIdn()).toHaveLength(4);
+  });
+
+  it('fil utan nyckel ignoreras på filnamnet (fil:<filnamn>)', async () => {
+    h.hpr = [{ filnamn: 'Gammal fil.hpr', objekt_nyckel: null, fil_datum: null, stammar_count: 5 }];
+    await oppna();
+    await act(async () => { q('okoppl-ignorera-Gammal fil.hpr')!.click(); });
+    await flush();
+    expect(h.ignInserts).toEqual([{ nyckel: 'fil:Gammal fil.hpr' }]);
+    expect(radIdn()).toEqual([]);
+  });
+
+  it('en ignorerad nyckel som senare kopplas (extra nummer) försvinner ur listan på riktigt', async () => {
+    h.ign = [{ nyckel: `${M}:11271849` }];
+    h.alias = [{ id: 'a1', objekt_id: 'u-bagskytt', nummer: '11271849', maskin_id: null }];
+    await montera();
+    expect(q('okoppl-kort')!.textContent).not.toContain('Bågskyttebanan');
+  });
+
+  it('sparfel: säger det och döljer ingenting', async () => {
+    h.ignFel = { code: '42501', message: 'permission denied' };
+    await oppna();
+    await act(async () => { q('okoppl-ignorera-PONS20SDJAA270231:k7')!.click(); });
+    await flush();
+    expect(q('okoppl-meddelande')!.textContent).toContain('Kunde inte ignorera — inget sparades');
+    expect(radIdn()).toHaveLength(4);
+  });
+
+  it('migrationen ej körd (hpr_ignorerad saknas): listan visas och Ignorera säger varför det inte går', async () => {
+    h.fel.hpr_ignorerad = { code: '42P01', message: 'relation "public.hpr_ignorerad" does not exist' };
+    h.ignFel = { code: '42P01', message: 'relation does not exist' };
+    await oppna();
+    expect(radIdn()).toHaveLength(4);
+    await act(async () => { q('okoppl-ignorera-PONS20SDJAA270231:k7')!.click(); });
+    await flush();
+    expect(q('okoppl-meddelande')!.textContent).toContain('migrationen är inte körd');
+  });
+
+  it('ignorera "syntes inte vid omläsning" → säger det i stället för att låtsas', async () => {
+    h.ignSynsEj = true;
+    await oppna();
+    await act(async () => { q('okoppl-ignorera-PONS20SDJAA270231:k7')!.click(); });
+    await flush();
+    expect(q('okoppl-meddelande')!.textContent).toContain('syntes inte vid omläsning');
+    expect(radIdn()).toHaveLength(4);
   });
 });
 

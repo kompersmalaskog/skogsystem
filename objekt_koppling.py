@@ -8,8 +8,13 @@ REGELN (i den här ordningen, första träff gäller):
   1. NUMMER:  filens nummer (kontraktsnr, annars 'k<ObjectKey>') == objekt.vo_nummer         → som förut, oförändrat.
   2. ALIAS:   numret finns som extra nummer på ett objekt (tabellen objekt_alt_nummer)       → det objektet.
   3. NAMN:    filens objektnamn mot objekt.namn — först EXAKT, sedan utan skillnad i mellanslag/versaler.
-              Exakt EN träff → koppla och spara numret som alias (så nästa fil med samma nummer går på 2).
-              Noll eller flera träffar → koppla INTE (hellre okopplad och synlig än fel kopplad).
+              Exakt EN träff → koppla. Noll eller flera träffar → koppla INTE (hellre okopplad och synlig än fel kopplad).
+              Vid träff finns två vägar, och numret sparas alltid så att nästa fil med samma nummer går på 2:
+              a) BYTE: objektets gamla vo_nummer saknar maskindata (detalj_stam, fakt_produktion, fakt_lass, fakt_tid) →
+                 objekt.vo_nummer byts till filens nummer och det GAMLA numret sparas som extra nummer (byte_till = nya numret,
+                 det som ger raden "Bytte nummer … Ångra" i /redigering). Då ligger objektet och datan under samma nummer.
+              b) EXTRA NUMMER: det gamla numret har data (eller kunde inte kontrolleras, eller bytet misslyckades) →
+                 filens nummer sparas som extra nummer. Datan under det gamla numret rörs aldrig.
   4. Annars: okopplad. Importen skriver filen som förut (nyckeln oförändrad) och loggar varför; filen syns i listan
               "Filer utan objekt" i /redigering (läst vid visning: nyckelns nummer finns varken som vo_nummer eller alias).
 
@@ -119,9 +124,14 @@ def koppla_hpr_objekt(
     objekt_rader: List[Dict],
     alias_rader: List[Dict],
     spara_alias: Callable[[str, str, Optional[str], str, str], bool],
+    har_data: Optional[Callable[[str], bool]] = None,
+    byt_nummer: Optional[Callable[[str, str, str, str], bool]] = None,
 ) -> Dict:
-    """Se modulens regel. Returnerar {'objekt_id': uuid|None, 'via': 'nummer'|'alias'|'namn'|None, 'orsak': str}.
-    spara_alias(objekt_id, nummer, maskin_id_eller_None, kalla, filnamn) → True om sparat (anropas BARA vid namnträff)."""
+    """Se modulens regel. Returnerar {'objekt_id': uuid|None, 'via': 'nummer'|'alias'|'namn'|'namn-byte'|None, 'orsak': str}.
+    spara_alias(objekt_id, nummer, maskin_id_eller_None, kalla, filnamn) → True om sparat (anropas BARA vid namnträff).
+    har_data(nummer) → True om numret har maskindata; KASTAR om det inte gick att avgöra (då byts inget).
+    byt_nummer(objekt_id, gammalt, nytt, filnamn) → True om objekt.vo_nummer byttes OCH det gamla numret sparades som extra nummer.
+    Utan har_data/byt_nummer sker inget byte (bara extra nummer)."""
     ident = nummer_ident(vo_nummer, obj_key)
     if not ident:
         return {'objekt_id': None, 'via': None, 'orsak': 'filen har varken kontraktsnummer eller ObjectKey'}
@@ -139,10 +149,32 @@ def koppla_hpr_objekt(
     traff, orsak = hitta_objekt_via_namn(namn, objekt_rader)
     if traff is None:
         return {'objekt_id': None, 'via': None, 'orsak': orsak}
+
+    # a) BYTE — bara kontraktsnummer mot kontraktsnummer (ett icke-numeriskt vo, t.ex. ett P-VO, byts aldrig här)
+    gammalt = (traff.get('vo_nummer') or '').strip()
+    varfor_inte = None
+    if ident.isdigit() and gammalt.isdigit() and gammalt != ident and har_data is not None and byt_nummer is not None:
+        try:
+            finns = har_data(gammalt)
+        except Exception as e:  # noqa: BLE001
+            finns, varfor_inte = None, f'kunde inte kontrollera om {gammalt} har maskindata ({e})'
+        if finns is False:
+            if byt_nummer(traff['id'], gammalt, ident, filnamn):
+                return {
+                    'objekt_id': traff['id'], 'via': 'namn-byte',
+                    'orsak': f'{orsak}; objekt.vo_nummer {gammalt} → {ident} (gamla numret har ingen maskindata), '
+                             f'{gammalt} sparat som extra nummer',
+                }
+            varfor_inte = f'bytet {gammalt} → {ident} kunde inte genomföras'
+        elif finns is True:
+            varfor_inte = f'gamla numret {gammalt} har maskindata'
+
+    # b) EXTRA NUMMER
     sparat = spara_alias(traff['id'], ident, alias_maskin, 'namn', filnamn)
     return {
         'objekt_id': traff['id'], 'via': 'namn',
-        'orsak': f'{orsak}; nummer {ident} {"sparat" if sparat else "kunde INTE sparas"} som extra nummer',
+        'orsak': f'{orsak}; nummer {ident} {"sparat" if sparat else "kunde INTE sparas"} som extra nummer'
+                 + (f' (inget byte: {varfor_inte})' if varfor_inte else ''),
     }
 
 
@@ -176,6 +208,41 @@ def skriv_alias(requests_mod, url: str, headers: dict, objekt_id: str, nummer: s
     return r.status_code in (200, 201, 204, 409)
 
 
+# Tabellerna där maskindata ligger nycklad på objekt_id = nummer. Har det gamla numret rader i NÅGON av dem byts det inte.
+MASKINDATA_TABELLER = ('detalj_stam', 'fakt_produktion', 'fakt_lass', 'fakt_tid')
+
+
+def har_maskindata(requests_mod, url: str, headers: dict, nummer: str) -> bool:
+    """True om numret har maskindata. KASTAR om någon tabell inte gick att läsa — okänt är aldrig "ingen data"."""
+    for tabell in MASKINDATA_TABELLER:
+        r = requests_mod.get(f"{url}/rest/v1/{tabell}", params={'select': 'objekt_id', 'objekt_id': f'eq.{nummer}', 'limit': '1'},
+                             headers=headers, timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(f"kunde inte läsa {tabell}: {r.status_code}")
+        if r.json():
+            return True
+    return False
+
+
+def byt_objekt_nummer(requests_mod, url: str, headers: dict, objekt_id: str, gammalt: str, nytt: str, filnamn: str) -> bool:
+    """Byt objekt.vo_nummer gammalt → nytt och spara gammalt som extra nummer (byte_till = nytt). Allt eller inget:
+    misslyckas aliasskrivningen (t.ex. migrationen med byte_till ej körd) sätts vo_nummer tillbaka. Raden byts bara om den
+    FORTFARANDE har det gamla numret (ingen annan hann ändra den)."""
+    rep = {**headers, 'Prefer': 'return=representation'}
+    r = requests_mod.patch(f"{url}/rest/v1/objekt?id=eq.{objekt_id}&vo_nummer=eq.{gammalt}", json={'vo_nummer': nytt},
+                           headers=rep, timeout=30)
+    if r.status_code != 200 or not (r.json() or []):
+        return False
+    a = requests_mod.post(f"{url}/rest/v1/objekt_alt_nummer",
+                          json={'objekt_id': objekt_id, 'nummer': gammalt, 'kalla': 'namn', 'filnamn': filnamn, 'byte_till': nytt},
+                          headers={**headers, 'Prefer': 'return=minimal'}, timeout=30)
+    if a.status_code in (200, 201, 204):
+        return True
+    requests_mod.patch(f"{url}/rest/v1/objekt?id=eq.{objekt_id}&vo_nummer=eq.{nytt}", json={'vo_nummer': gammalt},
+                       headers=rep, timeout=30)
+    return False
+
+
 def koppla_fil(requests_mod, url: str, headers: dict, logger, *, filnamn: str, maskin_id: str,
                objekt_defs: List[Dict]) -> Optional[str]:
     """Hela vägen för EN HPR-fil: läs objekt + alias, prova varje objekt i filen, logga beslutet, returnera
@@ -195,6 +262,8 @@ def koppla_fil(requests_mod, url: str, headers: dict, logger, *, filnamn: str, m
                 namn=od.get('object_name') or namn_ur_filnamn(filnamn),
                 filnamn=filnamn, objekt_rader=objekt_rader, alias_rader=alias_rader,
                 spara_alias=lambda oid, nr, mid, kalla, fn: skriv_alias(requests_mod, url, headers, oid, nr, mid, kalla, fn),
+                har_data=lambda nr: har_maskindata(requests_mod, url, headers, nr),
+                byt_nummer=lambda oid, gl, ny, fn: byt_objekt_nummer(requests_mod, url, headers, oid, gl, ny, fn),
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"  Okopplad: {filnamn} — koppling misslyckades ({e})")

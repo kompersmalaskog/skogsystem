@@ -65,11 +65,14 @@ class Svar:
 class FakeRequests:
     """Lagrar allt som skrivs. objekt/alias läses ur listorna; alias-POST läggs till i listan (som databasen)."""
 
-    def __init__(self, objekt, alias=None):
-        self.objekt = list(objekt)
+    def __init__(self, objekt, alias=None, maskindata=None, byte_kolumn_saknas=False):
+        self.objekt = [dict(o) for o in objekt]
         self.alias = list(alias or [])
+        self.maskindata = dict(maskindata or {})        # nummer → tabell där det finns maskindata (t.ex. {'11166477': 'fakt_tid'})
+        self.byte_kolumn_saknas = byte_kolumn_saknas    # migrationen med byte_till ej körd
         self.hpr_filer_rader = []
         self.alias_skrivna = []
+        self.objekt_patchar = []
         self.anrop = []
         self._n = 0
 
@@ -81,6 +84,10 @@ class FakeRequests:
             if '?select=id,vo_nummer' in url:     # huvudimportens uuid-karta (vo → id)
                 return Svar(200, [{'id': o['id'], 'vo_nummer': o['vo_nummer']} for o in self.objekt if o.get('vo_nummer')])
             return Svar(200, [dict(o) for o in self.objekt])
+        for tabell in ('detalj_stam', 'fakt_produktion', 'fakt_lass', 'fakt_tid'):
+            if f'/rest/v1/{tabell}' in url:
+                nr = str((params or {}).get('objekt_id', '')).replace('eq.', '')
+                return Svar(200, [{'objekt_id': nr}] if self.maskindata.get(nr) == tabell else [])
         if '/rest/v1/hpr_filer' in url:
             return Svar(200, [])
         return Svar(200, [])
@@ -88,6 +95,8 @@ class FakeRequests:
     def post(self, url, json=None, headers=None, timeout=None):
         self.anrop.append(('POST', url))
         if '/rest/v1/objekt_alt_nummer' in url:
+            if self.byte_kolumn_saknas and 'byte_till' in json:
+                return Svar(400, None)
             self.alias_skrivna.append(json)
             self.alias.append(json)
             return Svar(201, None)
@@ -103,6 +112,19 @@ class FakeRequests:
 
     def patch(self, url, json=None, headers=None, timeout=None):
         self.anrop.append(('PATCH', url))
+        if '/rest/v1/objekt?' in url:
+            # ?id=eq.<id>&vo_nummer=eq.<gammalt> — som databasen: bara raden som fortfarande har numret, och vo_nummer är unikt
+            villkor = dict(p.split('=', 1) for p in url.split('?', 1)[1].split('&'))
+            oid, gammalt = villkor['id'].replace('eq.', ''), villkor['vo_nummer'].replace('eq.', '')
+            nytt = json['vo_nummer']
+            if any(o.get('vo_nummer') == nytt for o in self.objekt):
+                return Svar(409, None)
+            for o in self.objekt:
+                if o['id'] == oid and o.get('vo_nummer') == gammalt:
+                    o['vo_nummer'] = nytt
+                    self.objekt_patchar.append((oid, gammalt, nytt))
+                    return Svar(200, [dict(o)])
+            return Svar(200, [])
         return Svar(200, [])
 
 
@@ -130,8 +152,8 @@ def hpr_data(filnamn, vo_nummer, object_key):
 class Harness:
     """Kör _save_hpr_tables mot attrappen och fångar loggen."""
 
-    def __init__(self, objekt=OBJEKT, alias=None):
-        self.fake = FakeRequests(objekt, alias)
+    def __init__(self, objekt=OBJEKT, alias=None, maskindata=None, byte_kolumn_saknas=False):
+        self.fake = FakeRequests(objekt, alias, maskindata, byte_kolumn_saknas)
         self.logg = LoggFangst()
         M.logger.addHandler(self.logg)
         self._orig = M.requests
@@ -203,25 +225,33 @@ class NamnMatchning(unittest.TestCase):
 class FyraExemplen(unittest.TestCase):
     """_save_hpr_tables med de fyra riktiga filerna."""
 
-    def test_bagskyttebanan_kopplas_via_namn_och_numret_sparas_som_alias(self):
+    def test_bagskyttebanan_kopplas_via_namn_och_BYTER_nummer_nar_gamla_numret_saknar_data(self):
         h = Harness()
         try:
             rad = h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
             self.assertEqual(rad['objekt_id'], 'u-bagskytt')
             self.assertEqual(rad['objekt_nyckel'], f'{MASKIN}:11271849')           # nyckeln ändras ALDRIG
-            self.assertEqual(h.fake.alias_skrivna, [{'objekt_id': 'u-bagskytt', 'nummer': '11271849',
-                                                     'kalla': 'namn', 'filnamn': F_BAGSKYTT}])
+            # objekt.vo_nummer är nu filens nummer ...
+            self.assertEqual(next(o for o in h.fake.objekt if o['id'] == 'u-bagskytt')['vo_nummer'], '11271849')
+            self.assertEqual(h.fake.objekt_patchar, [('u-bagskytt', '11166440', '11271849')])
+            # ... och det GAMLA numret är sparat som extra nummer, märkt med bytet
+            self.assertEqual(h.fake.alias_skrivna, [{'objekt_id': 'u-bagskytt', 'nummer': '11166440', 'kalla': 'namn',
+                                                     'filnamn': F_BAGSKYTT, 'byte_till': '11271849'}])
             self.assertEqual(h.varningar(), [])
+            self.assertTrue(any('11166440 → 11271849' in m for lvl, m in h.logg.rader))
         finally:
             h.stang()
 
-    def test_molleryd_kopplas_via_namn(self):
-        h = Harness()
+    def test_molleryd_gamla_numret_har_data_ger_extra_nummer_i_stallet(self):
+        h = Harness(maskindata={'11166477': 'fakt_tid'})
         try:
             rad = h.kor(hpr_data(F_MOLLERYD, '11271883', '2'))
             self.assertEqual(rad['objekt_id'], 'u-molleryd')
             self.assertEqual(rad['objekt_nyckel'], f'{MASKIN}:11271883')
-            self.assertEqual([a['nummer'] for a in h.fake.alias_skrivna], ['11271883'])
+            self.assertEqual(next(o for o in h.fake.objekt if o['id'] == 'u-molleryd')['vo_nummer'], '11166477')   # orört
+            self.assertEqual(h.fake.objekt_patchar, [])
+            self.assertEqual(h.fake.alias_skrivna, [{'objekt_id': 'u-molleryd', 'nummer': '11271883', 'kalla': 'namn', 'filnamn': F_MOLLERYD}])
+            self.assertTrue(any('har maskindata' in m for lvl, m in h.logg.rader))
         finally:
             h.stang()
 
@@ -251,13 +281,13 @@ class FyraExemplen(unittest.TestCase):
             h.stang()
 
     def test_alla_fyra_i_rad_exakt_tva_alias(self):
-        h = Harness()
+        h = Harness(maskindata={'11166477': 'fakt_produktion'})
         try:
             h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
             h.kor(hpr_data(F_MOLLERYD, '11271883', '2'))
             h.kor(hpr_data(F_VALLUST, '', '132'))
             h.kor(hpr_data(F_FLYTT, '', '7'))
-            self.assertEqual(sorted(a['nummer'] for a in h.fake.alias_skrivna), ['11271849', '11271883'])
+            self.assertEqual(sorted(a['nummer'] for a in h.fake.alias_skrivna), ['11166440', '11271883'])   # byte + extra nummer
             kopplade = [r['filnamn'] for r in h.fake.hpr_filer_rader if r.get('objekt_id')]
             self.assertEqual(sorted(kopplade), sorted([F_BAGSKYTT, F_MOLLERYD]))
         finally:
@@ -335,6 +365,126 @@ class TvetydigtKopplasInte(unittest.TestCase):
             self.assertNotIn('objekt_id', rad)
             self.assertEqual(h.fake.alias_skrivna, [])
             self.assertIn('Okopplad', h.varningar()[0])
+        finally:
+            h.stang()
+
+
+class NummerByte(unittest.TestCase):
+    """Namnträff: byt objekt.vo_nummer och spara det gamla som extra nummer — men bara om det gamla numret saknar maskindata."""
+
+    def vo(self, h, oid='u-bagskytt'):
+        return next(o for o in h.fake.objekt if o['id'] == oid)['vo_nummer']
+
+    def test_data_i_vilken_som_helst_av_de_fyra_tabellerna_stoppar_bytet(self):
+        for tabell in ('detalj_stam', 'fakt_produktion', 'fakt_lass', 'fakt_tid'):
+            with self.subTest(tabell=tabell):
+                h = Harness(maskindata={'11166440': tabell})
+                try:
+                    rad = h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
+                    self.assertEqual(rad['objekt_id'], 'u-bagskytt')                 # kopplad ändå
+                    self.assertEqual(self.vo(h), '11166440')                         # numret orört
+                    self.assertEqual([a['nummer'] for a in h.fake.alias_skrivna], ['11271849'])
+                    self.assertNotIn('byte_till', h.fake.alias_skrivna[0])
+                finally:
+                    h.stang()
+
+    def test_efter_bytet_nasta_fil_med_nya_numret_kopplas_pa_vo_nummer_och_gamla_numret_pa_aliaset(self):
+        h = Harness()
+        try:
+            h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
+            self.assertEqual(self.vo(h), '11271849')
+            antal_alias = len(h.fake.alias_skrivna)
+            rad2 = h.kor(hpr_data('Annat_X_20261014080000.hpr', '11271849', '1'))     # nya numret: ren vo_nummer-träff, som förut
+            self.assertEqual(rad2['objekt_id'], 'u-bagskytt')
+            rad3 = h.kor(hpr_data('Annat_X_20261015080000.hpr', '11166440', '1'))     # gamla numret: extra nummer, INGET nytt byte
+            self.assertEqual(rad3['objekt_id'], 'u-bagskytt')
+            self.assertEqual(len(h.fake.alias_skrivna), antal_alias)
+            self.assertEqual(len(h.fake.objekt_patchar), 1)
+        finally:
+            h.stang()
+
+    def test_kan_inte_kontrollera_maskindata_ger_inget_byte(self):
+        class OlasbarTabell(FakeRequests):
+            def get(self, url, params=None, headers=None, timeout=None):
+                if '/rest/v1/fakt_lass' in url:
+                    return Svar(500, None)
+                return super().get(url, params, headers, timeout)
+        h = Harness()
+        h.fake = OlasbarTabell(OBJEKT)
+        M.requests = h.fake
+        try:
+            rad = h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
+            self.assertEqual(rad['objekt_id'], 'u-bagskytt')
+            self.assertEqual(self.vo(h), '11166440')                                  # okänt är aldrig "ingen data"
+            self.assertEqual([a['nummer'] for a in h.fake.alias_skrivna], ['11271849'])
+            self.assertTrue(any('kunde inte kontrollera' in m for lvl, m in h.logg.rader))
+        finally:
+            h.stang()
+
+    def test_migrationen_med_byte_till_ej_kord_bytet_rullas_tillbaka_och_nya_numret_blir_extra_nummer(self):
+        h = Harness(byte_kolumn_saknas=True)
+        try:
+            rad = h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
+            self.assertEqual(rad['objekt_id'], 'u-bagskytt')
+            self.assertEqual(self.vo(h), '11166440')                                  # tillbakasatt — allt eller inget
+            self.assertEqual([(a['nummer'], 'byte_till' in a) for a in h.fake.alias_skrivna], [('11271849', False)])
+            self.assertEqual(h.fake.objekt_patchar[-2:], [('u-bagskytt', '11166440', '11271849'), ('u-bagskytt', '11271849', '11166440')])
+        finally:
+            h.stang()
+
+    def test_nya_numret_ar_redan_ett_annat_objekts_vo_nummer_ger_inget_byte(self):
+        # (unik objekt_vo_nummer_key) — numret används av ett annat objekt: databasen avvisar bytet
+        h = Harness(objekt=OBJEKT + [{'id': 'u-annat2', 'namn': 'Något annat', 'vo_nummer': '11271849'}])
+        try:
+            # numret ÄR då ett vo_nummer → regel 1 kopplar till det objektet, aldrig till namnet
+            rad = h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
+            self.assertEqual(rad['objekt_id'], 'u-annat2')
+            self.assertEqual(h.fake.objekt_patchar, [])
+        finally:
+            h.stang()
+
+    def test_objektet_hann_ändras_ingen_rad_uppdateras_ingen_koppling_forlorad(self):
+        class HannAndras(FakeRequests):
+            def patch(self, url, json=None, headers=None, timeout=None):
+                for o in self.objekt:
+                    o['vo_nummer'] = '11000000' if o['id'] == 'u-bagskytt' else o['vo_nummer']   # någon annan hann före
+                return super().patch(url, json, headers, timeout)
+        h = Harness()
+        h.fake = HannAndras(OBJEKT)
+        M.requests = h.fake
+        try:
+            rad = h.kor(hpr_data(F_BAGSKYTT, '11271849', '1'))
+            self.assertEqual(rad['objekt_id'], 'u-bagskytt')                           # kopplad via extra nummer ändå
+            self.assertEqual([a['nummer'] for a in h.fake.alias_skrivna], ['11271849'])
+        finally:
+            h.stang()
+
+    def test_icke_numeriskt_gammalt_vo_byts_aldrig(self):
+        h = Harness(objekt=OBJEKT + [{'id': 'u-p', 'namn': 'Privat jobb', 'vo_nummer': 'P-1012'}])
+        try:
+            rad = h.kor(hpr_data(f'Privat jobb_{MASKIN}_20261013120000.hpr', '11271900', '3'))
+            self.assertEqual(rad['objekt_id'], 'u-p')
+            self.assertEqual(self.vo(h, 'u-p'), 'P-1012')
+            self.assertEqual([a['nummer'] for a in h.fake.alias_skrivna], ['11271900'])
+        finally:
+            h.stang()
+
+    def test_k_nummer_byter_aldrig_vo_nummer(self):
+        h = Harness(objekt=OBJEKT + [{'id': 'u-gv', 'namn': 'Gallring Vällust', 'vo_nummer': '11300003'}])
+        try:
+            h.kor(hpr_data(F_VALLUST, '', '132'))
+            self.assertEqual(self.vo(h, 'u-gv'), '11300003')
+            self.assertEqual(h.fake.objekt_patchar, [])
+            self.assertEqual(h.fake.alias_skrivna[0]['nummer'], 'k132')
+        finally:
+            h.stang()
+
+    def test_samma_nummer_som_gamla_ger_ingen_byte(self):
+        # numret ÄR objektets vo_nummer → regel 1, ingen läsning av maskindata alls
+        h = Harness()
+        try:
+            h.kor(hpr_data(F_BAGSKYTT, '11166440', '1'))
+            self.assertFalse([a for a in h.fake.anrop if any(t in a[1] for t in ('detalj_stam', 'fakt_tid'))])
         finally:
             h.stang()
 

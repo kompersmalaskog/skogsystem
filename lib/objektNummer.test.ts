@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  altNummerAttSkriva, hamtaAltNummer, hogarObjektIds, namnLika, namnUrHprFilnamn, nyckelDelar, nyckelHorTillObjekt, okopplatJobb, stamObjektId, troligaObjekt,
+  altNummerAttSkriva, delaIgnorerade, hamtaAltNummer, ignoreradNyckel, nummerbyten, hogarObjektIds, namnLika, namnUrHprFilnamn, nyckelDelar, nyckelHorTillObjekt, okopplatJobb, stamObjektId, troligaObjekt,
   type AltNummerRad, type HprFilRad, type ObjektNamnRad,
 } from './objektNummer';
 
@@ -171,5 +171,39 @@ describe('källvakt: planeringsvyn läser objektets extra nummer', () => {
   it('"kvar att köra" väljer filen på vo ELLER extra nummer', () => {
     expect(page).toContain('.filter(f => nyckelHorTillObjekt(f.objekt_nyckel, vo, altNummer))');
     expect(page).not.toContain("split(':')[1] === vo");
+  });
+});
+
+describe('nummerbyten — importen bytte objekt.vo_nummer', () => {
+  it('bara rader med byte_till är byten; namnet ur objektet; vanliga extra nummer är det inte', () => {
+    const alias: AltNummerRad[] = [
+      { id: 'a1', objekt_id: 'u-bagskytt', nummer: '11166440', maskin_id: null, byte_till: '11271849' },
+      { id: 'a2', objekt_id: 'u-molleryd', nummer: '11271883', maskin_id: null },
+      { id: 'a3', objekt_id: 'u-vallust', nummer: 'k132', maskin_id: M, byte_till: null },
+    ];
+    expect(nummerbyten(alias, OBJEKT)).toEqual([{ aliasId: 'a1', objektId: 'u-bagskytt', objektNamn: 'Bågskyttebanan RP J-Hus- 25', gammalt: '11166440', nytt: '11271849' }]);
+  });
+  it('rad utan id kan inte ångras och visas inte', () => {
+    expect(nummerbyten([{ objekt_id: 'u', nummer: '1', maskin_id: null, byte_till: '2' }], OBJEKT)).toEqual([]);
+  });
+  it('ett bytt gamla nummer räknas som extra nummer: filer under det gamla numret är kopplade', () => {
+    const alias: AltNummerRad[] = [{ id: 'a1', objekt_id: 'u-bagskytt', nummer: '11166440', maskin_id: null, byte_till: '11271849' }];
+    const gammalFil: HprFilRad = { ...F_BAGSKYTT, objekt_nyckel: `${M}:11166440` };
+    expect(okopplatJobb([gammalFil, F_BAGSKYTT], [{ id: 'u-bagskytt', namn: 'B', vo_nummer: '11271849' }], alias)).toEqual([]);
+  });
+});
+
+describe('Ignorera — döljer, rör inget', () => {
+  it('nyckeln är objekt_nyckel, eller fil:<filnamn> utan nyckel', () => {
+    expect(ignoreradNyckel({ nyckel: `${M}:k7`, filnamn: 'x.hpr' })).toBe(`${M}:k7`);
+    expect(ignoreradNyckel({ nyckel: null, filnamn: 'Gammal fil.hpr' })).toBe('fil:Gammal fil.hpr');
+  });
+  it('delaIgnorerade: synliga och ignorerade, inget försvinner', () => {
+    const jobb = okopplatJobb(FILER, OBJEKT, []);
+    const d = delaIgnorerade(jobb, new Set([`${M}:k7`]));
+    expect(d.ignorerade.map((j) => j.namn)).toEqual(['Flyttobjekt']);
+    expect(d.synliga).toHaveLength(3);
+    expect(d.synliga.length + d.ignorerade.length).toBe(jobb.length);
+    expect(delaIgnorerade(jobb, new Set()).ignorerade).toEqual([]);
   });
 });
