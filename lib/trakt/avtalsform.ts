@@ -64,7 +64,8 @@ export function tolkaAvtalsform(text: string): AvtalsformSvar {
     };
   }
   if (raw === '') return { avtalsform: null, varning: 'Ursprung är tomt i traktdirektivet — avtalsform lämnades tom.' };
-  const form = URSPRUNG_TILL_AVTALSFORM[norm(raw)];
+  const nyckel = norm(raw);
+  const form = Object.prototype.hasOwnProperty.call(URSPRUNG_TILL_AVTALSFORM, nyckel) ? URSPRUNG_TILL_AVTALSFORM[nyckel] : undefined;
   if (form) return { avtalsform: form, varning: null };
   return { avtalsform: null, varning: `Ursprung "${raw}" känns inte igen (kända: Rotpost, Avverkningsuppdrag) — avtalsform lämnades tom.` };
 }
@@ -82,25 +83,51 @@ const ARBETSFORM_TILL_ATGARD: ReadonlyArray<readonly [string, string]> = [
   ['föryngringsavverkning', 'Föryngring'],
 ];
 
-/** Råtexten efter etiketten "Arbetsform" (högst ~40 tecken, bokstäver). null = etiketten finns inte. */
+const BOKSTAV = 'A-Za-zÅÄÖåäöÉéÜü';
+
+/**
+ * "Arbetsform" i TD:n är en KOLUMNRUBRIK, och värdet står sist på raden UNDER rubrikraden. Så här ser den ut efter unpdf (riktig fil,
+ * Skälviken VO 11161397) — observera att unpdf klistrar ihop rubriken med nästa ("ArbetsformLKF"):
+ *
+ *   Fastighetsbeteckning Cert ArbetsformLKF SKS-anmält:
+ *   JOHANNISHUS 1:2 FSC PEFC 108101 Föryngringsavverkning
+ *
+ * Texten direkt efter etiketten ("LKF SKS-anmält:") är nästa rubrik, inte värdet. Rubrikraden känns igen på att den har Arbetsform OCH en
+ * av sina syskonrubriker (Fastighetsbeteckning/Cert) — ett fritextstycke som nämner "arbetsform" räknas alltså inte.
+ *
+ * Returnerar raden under rubriken (råtext, för varningar), eller null om ingen rubrikrad hittas. Första rubrikraden som har en rad under gäller.
+ */
 export function parseArbetsform(text: string): string | null {
-  const m = text.match(/Arbetsform\s*:?\s*([A-Za-zÅÄÖåäö][A-Za-zÅÄÖåäö \-]{0,40})/i);
-  return m ? m[1].replace(/\s+/g, ' ').trim() : null;
+  const rader = text.split(/\r?\n/);
+  for (let i = 0; i < rader.length - 1; i++) {
+    if (!/Arbetsform/i.test(rader[i]) || !/Fastighetsbeteckning|\bCert\b/i.test(rader[i])) continue;
+    for (let j = i + 1; j < rader.length; j++) {            // hoppa över tomma rader
+      const rad = rader[j].replace(/\s+/g, ' ').trim();
+      if (rad) return rad;
+    }
+  }
+  return null;
 }
 
 export interface AtgardSvar {
   atgard: string | null;
-  /** Bara när Arbetsform FANNS men inte pekade entydigt på en åtgärd — då är det värt att veta vad den sade. */
+  /** Bara när Arbetsform-raden FANNS men inget känt åtgärdsord stod i den — då är det värt att veta vad raden sade. */
   varning: string | null;
 }
 
-export function tolkaAtgard(text: string): AtgardSvar {
-  const raw = parseArbetsform(text);
-  if (raw === null) return { atgard: null, varning: null };   // ingen Arbetsform i filen: tomt, ingen varning (det är normalt)
-  const n = norm(raw);
+/** Känt åtgärdsord i raden (längsta först, hela ord — "gallringsskog" och "ÖVERGALLRING" är inte "gallring"). */
+function hittaAtgardsord(rad: string): string | null {
+  const lag = rad.toLowerCase();
   for (const [ord, atgard] of ARBETSFORM_TILL_ATGARD) {
-    // Ordet ska stå först och avslutas vid ordgräns ("gallringsskog" är inte "gallring").
-    if (n === ord || n.startsWith(ord + ' ')) return { atgard, varning: null };
+    if (new RegExp(`(?<![${BOKSTAV}])${ord}(?![${BOKSTAV}])`, 'i').test(lag)) return atgard;
   }
-  return { atgard: null, varning: `Arbetsform "${raw}" pekar inte entydigt på en åtgärd — åtgärd lämnades tom.` };
+  return null;
+}
+
+export function tolkaAtgard(text: string): AtgardSvar {
+  const rad = parseArbetsform(text);
+  if (rad === null) return { atgard: null, varning: null };   // ingen Arbetsform-kolumn i filen: tomt, ingen varning (det är normalt)
+  const atgard = hittaAtgardsord(rad);
+  if (atgard) return { atgard, varning: null };
+  return { atgard: null, varning: `Arbetsform: inget känt åtgärdsord i raden "${rad.slice(0, 120)}" — åtgärd lämnades tom.` };
 }

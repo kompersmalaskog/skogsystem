@@ -13,6 +13,7 @@ import SkotareFordelning from './SkotareFordelning'
 import { arRisjobb, arGrotHuvudtyp } from '@/lib/objekt/typ'
 import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektRouter'
 import { AVTALSFORMER } from '@/lib/trakt/avtalsform'
+import { kravAvtalsform, saknarAvtalsformEllerAtgard } from '@/lib/redigering/avtalsformKrav'
 import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import { harStubbehandling } from '@/lib/egenkontroll'
@@ -556,7 +557,10 @@ function getWarnings(obj, volym?: { skordat: number; skotat: number }) {
   // Risjobb: typen ÄR risskotning — huvudtyp/åtgärd efterfrågas aldrig.
   if (!arRisjobb(obj)) {
     if (!obj.huvudtyp) w.push({ key: 'huvudtyp', text: 'Saknar huvudtyp', target: 'huvudtyp-section' })
-    if (obj.huvudtyp && !obj.atgard) w.push({ key: 'atgard', text: 'Saknar åtgärd', target: 'atgard-section' })
+    // Slutavverkning: det som SKA vara satt är avtalsformen (Au/Rp …) — åtgärd är valfri där. Gallring: åtgärd som förut.
+    // Före migrationen 20261015090000 finns ingen avtalsform-kolumn (obj har inte nyckeln): då gäller åtgärd som förut.
+    const saknar = saknarAvtalsformEllerAtgard(obj)
+    if (saknar) w.push(saknar)
   }
   if (looksLikeAutoDate(obj.object_name)) w.push({ key: 'autoname', text: 'Autogenererat namn', target: 'object_name-section' })
   if (!obj.skogsagare) w.push({ key: 'skogsagare', text: 'Saknar markägare', target: 'skogsagare-section' })
@@ -607,10 +611,12 @@ const KRAV_FALT = [
 // åtgärd undantas därför från kravet, i takt med getWarnings som hoppar över
 // samma två via arRisjobb. Att kräva åtgärd på grot tvingade fram felmärkningar.
 function kravFaltFor(obj: any) {
-  return arRisjobb(obj)
-    ? KRAV_FALT.filter(f => f.key !== 'huvudtyp' && f.key !== 'atgard')
-    : KRAV_FALT
+  if (arRisjobb(obj)) return KRAV_FALT.filter(f => f.key !== 'huvudtyp' && f.key !== 'atgard')
+  // Slutavverkning kräver avtalsform i stället för åtgärd (samma plats i listan).
+  if (kravAvtalsform(obj)) return KRAV_FALT.map(f => f.key === 'atgard' ? { key: 'avtalsform', label: 'Avtalsform', target: 'avtalsform-section' } : f)
+  return KRAV_FALT
 }
+
 
 // "12 maj" ur "YYYY-MM-DD" — fasta namn, ingen locale-överraskning
 const MANADER_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']

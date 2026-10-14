@@ -1,7 +1,9 @@
-// SYNTETISKA traktdirektiv-texter i den form unpdf ger (mergePages). De är byggda efter beskrivningen av Skälviken RP J-Hus -25 (VO 11161397)
-// och sidhuvudet som parsern redan läser ("Traktnr Kontraktsnr Ursprung Datum <värden>"). De är INTE utdrag ur en riktig fil — den
-// ligger i trakt-inbox, som den här miljön inte når. Rubrikraden och ordningen på kolumnvärdena är därför det som återstår att
-// bekräfta mot en riktig fil (varningen vid saknat Ursprung citerar råtexten just för det).
+// Traktdirektiv-texter i den form unpdf ger (mergePages), byggda efter Skälviken RP J-Hus -25 (VO 11161397). Två rader är hämtade ordagrant ur
+// den RIKTIGA filens utläsning (Martins test av #762) och får inte "förbättras":
+//   sidhuvudet   "883966 969670 (anges vid fakturering) Rotpost 2026-04-01"            (värdet Ursprung står före datumet)
+//   Arbetsform   "Fastighetsbeteckning Cert ArbetsformLKF SKS-anmält:"                  (rubrikrad; unpdf klistrar ihop Arbetsform och LKF)
+//                "JOHANNISHUS 1:2 FSC PEFC 108101 Föryngringsavverkning"                (värdet står sist på raden UNDER rubrikraden)
+// Resten av texten är syntetisk (markägare, volym m.m.).
 
 export function tdText(o: { ursprung?: string | null; arbetsform?: string | null; kontrakt?: string | null; namn?: string; vo?: string; extra?: string } = {}): string {
   const namn = o.namn ?? 'Skälviken RP J-Hus- 25';
@@ -14,7 +16,10 @@ export function tdText(o: { ursprung?: string | null; arbetsform?: string | null
     `Traktdirektiv - ${namn} Traktnr 887818`,
     o.ursprung === null ? huvudUtanUrsprungsrubrik : huvud,
     `Virkesorder ${vo}`,
-    o.arbetsform ? `Arbetsform ${o.arbetsform}` : '',
+    // arbetsform: undefined/null = filen har ingen Arbetsform-kolumn; en sträng (även '') = riktig rubrikrad + raden under med värdet sist.
+    ...(typeof o.arbetsform === 'string'
+      ? ['Fastighetsbeteckning Cert ArbetsformLKF SKS-anmält:', `JOHANNISHUS 1:2 FSC PEFC 108101 ${o.arbetsform}`.trim()]
+      : []),
     'Markägare VIDA ANNA TESTSSON anna@example.se Inköpare Test Person',
     'FSC PEFC',
     'Total 3,6 ha 950 m3fub',

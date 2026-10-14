@@ -44,7 +44,7 @@ describe('Ursprung -> avtalsform (läses ur TD-sidhuvudet, gissas aldrig)', () =
   });
 });
 
-describe('Arbetsform -> åtgärd (bara när den entydigt pekar på en)', () => {
+describe('Arbetsform -> åtgärd (kolumnrubrik; värdet står på raden UNDER, bara känt åtgärdsord)', () => {
   const cases: Array<[string, string | null]> = [
     ['Första gallring', 'Första gallring'],
     ['Andra gallring', 'Andra gallring'],
@@ -53,22 +53,50 @@ describe('Arbetsform -> åtgärd (bara när den entydigt pekar på en)', () => {
     ['Föryngringsavverkning', 'Föryngring'],
     ['föryngringsavverkning', 'Föryngring'],
     ['Slutavverkning', null],          // säger typ, inte åtgärd
-    ['Gallringsskog', null],           // ordgräns: inte "gallring"
+    ['Gallringsskog', null],           // hela ord: inte "gallring"
     ['Röjning', null],
+    ['', null],                        // rubrikraden finns, raden under saknar värde
   ];
-  it.each(cases)('"%s" -> %s', (arbetsform, forvantat) => {
+  it.each(cases)('raden under rubriken slutar på "%s" -> %s', (arbetsform, forvantat) => {
     expect(tolkaAtgard(tdText({ arbetsform })).atgard).toBe(forvantat);
   });
-  it('Arbetsform som inte går att tolka ger en varning med råtexten', () => {
-    expect(tolkaAtgard(tdText({ arbetsform: 'Röjning' })).varning).toContain('"Röjning"');
+
+  it('den riktiga radformen: rubrikrad "…ArbetsformLKF SKS-anmält:" + "JOHANNISHUS 1:2 FSC PEFC 108101 Föryngringsavverkning"', () => {
+    const text = [
+      'Fastighetsbeteckning Cert ArbetsformLKF SKS-anmält:',
+      'JOHANNISHUS 1:2 FSC PEFC 108101 Föryngringsavverkning',
+    ].join('\n');
+    expect(parseArbetsform(text)).toBe('JOHANNISHUS 1:2 FSC PEFC 108101 Föryngringsavverkning');
+    expect(tolkaAtgard(text)).toEqual({ atgard: 'Föryngring', varning: null });
   });
-  it('ingen Arbetsform i filen -> tomt och ingen varning (det är normalt)', () => {
+  it('texten direkt efter etiketten ("LKF SKS-anmält:") är nästa rubrik och tolkas aldrig som värde', () => {
+    const t = tolkaAtgard('Fastighetsbeteckning Cert ArbetsformLKF SKS-anmält:\nJOHANNISHUS 1:2 FSC PEFC 108101 Gallring');
+    expect(t.atgard).toBe('Gallring');
+    const utan = tolkaAtgard('Fastighetsbeteckning Cert ArbetsformLKF SKS-anmält:\nJOHANNISHUS 1:2 FSC PEFC 108101');
+    expect(utan.atgard).toBeNull();
+    expect(utan.varning).toContain('"JOHANNISHUS 1:2 FSC PEFC 108101"');
+    expect(utan.varning).not.toContain('SKS-anmält');
+  });
+  it('längsta åtgärdsordet gäller: "Första gallring" är inte "Gallring"', () => {
+    expect(tolkaAtgard('Cert Arbetsform\nFSC 1 Första gallring').atgard).toBe('Första gallring');
+    expect(tolkaAtgard('Cert Arbetsform\nFSC 1 Lövgallring').atgard).toBe('Lövgallring');
+  });
+  it('okänd rad -> tomt + varning med råtexten', () => {
+    const r = tolkaAtgard(tdText({ arbetsform: 'Röjning' }));
+    expect(r.atgard).toBeNull();
+    expect(r.varning).toContain('Röjning');
+  });
+  it('ingen Arbetsform-kolumn i filen -> tomt och ingen varning', () => {
     expect(tolkaAtgard(tdText({})).atgard).toBeNull();
     expect(tolkaAtgard(tdText({})).varning).toBeNull();
     expect(parseArbetsform(tdText({}))).toBeNull();
   });
-  it('värdet följt av nästa etikett på samma rad tolkas ändå', () => {
-    expect(tolkaAtgard('Arbetsform Första gallring Skötselområde Norr').atgard).toBe('Första gallring');
+  it('ett stycke som nämner "arbetsform" är ingen rubrikrad', () => {
+    expect(tolkaAtgard('Vald arbetsform ska anpassas efter marken.\nGallring enligt plan').atgard).toBeNull();
+  });
+  it('Ursprung och Arbetsform i samma text läses oberoende av varandra', () => {
+    const td = parseTraktdirektivText(tdText({ ursprung: 'Rotpost', arbetsform: 'Föryngringsavverkning' }));
+    expect(td).toMatchObject({ avtalsform: 'Rp', atgard: 'Föryngring' });
   });
 });
 
