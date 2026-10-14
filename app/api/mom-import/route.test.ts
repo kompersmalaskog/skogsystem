@@ -51,7 +51,15 @@ vi.mock("@supabase/supabase-js", () => {
         g.__skriv.push({ tabell: this.t, op: "delete", antal: traff.length });
         rader = traff.map(r => ({ ...r }));
       } else {
-        const nya = (Array.isArray(this.vals) ? this.vals : [this.vals]).map((v: any, i: number) => ({ id: `${this.t}-${tab.length + i}`, ...v }));
+        const nya = (Array.isArray(this.vals) ? this.vals : [this.vals]).map((v: any, i: number) => {
+          const rad: any = { id: `${this.t}-${tab.length + i}`, ...v };
+          // arbetsdag.arbetad_min är en GENERATED column i prod (slut − start − rast); fake-databasen räknar den på samma sätt
+          if (this.t === "arbetsdag" && v.start_tid && v.slut_tid) {
+            const min = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+            rad.arbetad_min = min(v.slut_tid) - min(v.start_tid) - (v.rast_min || 0);
+          }
+          return rad;
+        });
         tab.push(...nya);
         g.__skriv.push({ tabell: this.t, op: "insert", vals: nya.map((n: any) => ({ ...n })) });
         rader = nya;
@@ -174,5 +182,50 @@ describe("mom-import: bekräftade dagar ändras inte tyst — avvikelsen registr
     const rad = (g.__db.arbetsdag as any[]).find(r => r.id === "ad-martin");
     expect(rad).toMatchObject({ rast_min: 10, start_tid: "16:50:00", slut_tid: "20:50:00", bekraftad: true });
     expect(rad.synk_avvikelse).toMatchObject({ mom_rast_min: 0, bekraftad_rast_min: 10, mom_start: "16:50", mom_slut: "20:50" });
+  });
+});
+
+/**
+ * R64428 2026-10-12 (Oskar), prodvärden. Rottne-filerna är per OBJEKT: Sandåsen-filen (exporterad 2026-10-14) bär bara
+ * Sandåsens del av dagen (13:49–14:52). Importen skrev dess tider över passet 07:04–15:14, och arbetsdagen blev 45 min i
+ * stället för 471. Här: arbetsdagen följer fakt_skift troget (felet ligger uppströms, i importen — se
+ * scripts/test_skift_kuvert.py), så ett oskadat pass ger rätt dag och ett skadat ger den felaktiga.
+ */
+describe("mom-import: Oskars 2026-10-12 — 07:04–15:14, rast 19 min, 471 min fördelade på tre objekt", () => {
+  function oskar1012(skift: { inloggning: string; utloggning: string; langd: number }) {
+    g.__db.fakt_skift.push({
+      id: 1, datum: "2026-10-12", maskin_id: "R64428", operator_id: "R64428_8",
+      inloggning_tid: skift.inloggning, maskin_inloggning_tid: "2026-10-12T07:04:07.329814+00:00",
+      utloggning_tid: skift.utloggning, langd_sek: skift.langd, shift_key: "SYN_2026-10-12_R64428_8",
+    });
+    g.__db.fakt_tid.push(
+      { id: 1, datum: "2026-10-12", maskin_id: "R64428", operator_id: "R64428_8", objekt_id: "11105602", processing_sek: 16431, terrain_sek: 2032, other_work_sek: 0, rast_sek: 1139, engine_time_sek: 17640 },
+      { id: 2, datum: "2026-10-12", maskin_id: "R64428", operator_id: "R64428_8", objekt_id: "11183108", processing_sek: 4799, terrain_sek: 299, other_work_sek: 0, rast_sek: 0, engine_time_sek: 4860 },
+      { id: 3, datum: "2026-10-12", maskin_id: "R64428", operator_id: "R64428_8", objekt_id: "67824", processing_sek: 0, terrain_sek: 900, other_work_sek: 0, rast_sek: 0, engine_time_sek: 540 },
+    );
+    g.__db.dim_objekt.push(
+      { objekt_id: "11105602", object_name: "Toftåsa gallring 2026" },
+      { objekt_id: "11183108", object_name: "Sandåsen gallring 2025" },
+      { objekt_id: "67824", object_name: "Flytt 2026" },
+    );
+  }
+  const objektMin = () => Object.fromEntries((g.__db.arbetsdag_objekt as any[]).map(r => [r.objekt_id, r.arbetad_min]));
+
+  it("oskadat pass (som importen nu lämnar det): 07:04–15:14, rast 19, arbetad 471, fördelat 361 / 99 / 11", async () => {
+    oskar1012({ inloggning: "2026-10-12T07:04:20.4+00:00", utloggning: "2026-10-12T15:14:10.80883+00:00", langd: 29390 });
+    await post("2026-10-12");
+    const dag = dagFor(MED.oskar);
+    expect([dag.start_tid, dag.slut_tid, dag.rast_min, dag.arbetad_min]).toEqual(["07:04", "15:14", 19, 471]);
+    expect(objektMin()).toEqual({ "11105602": 361, "11183108": 99, "67824": 11 });
+    expect(Object.values(objektMin()).reduce((a: number, b: any) => a + b, 0)).toBe(471);
+  });
+
+  it("kontrast — passet som den gamla importen lämnade (13:49–14:52) ger den felaktiga dagen: ~45 min", async () => {
+    oskar1012({ inloggning: "2026-10-12T13:49:44.80883+00:00", utloggning: "2026-10-12T14:52:45.261796+00:00", langd: 3780 });
+    await post("2026-10-12");
+    const dag = dagFor(MED.oskar);
+    // 63 min − 19 = 44 här (routen avrundar rasten: Math.round(1139/60) = 19). Prod stod på 45: Python-vägen
+    // (_create_arbetsdag) trunkerar, int(1139/60) = 18. Två skrivare, olika avrundning — se PR-texten.
+    expect([dag.start_tid, dag.slut_tid, dag.arbetad_min]).toEqual(["13:49", "14:52", 44]);
   });
 });

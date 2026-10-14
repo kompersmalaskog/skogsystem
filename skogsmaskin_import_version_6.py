@@ -684,12 +684,22 @@ def normalize_maskin_id(maskin_id: str, tillverkare: str = '') -> str:
     
     return maskin_id
 
+def normalisera_sekundbrak(dt_str: str) -> str:
+    """Sekundbråket till exakt 6 siffror ("…44.80883" → "…44.808830"; fler än 6 klipps). Python före 3.11 tolkar bara 3
+    eller 6 i fromisoformat. Egen funktion så att den går att testa även på en Python som själv klarar alla längder."""
+    return re.sub(r'\.(\d+)', lambda m: '.' + m.group(1)[:6].ljust(6, '0'), dt_str, count=1)
+
+
 def parse_datetime(dt_str) -> Optional[datetime]:
     """Parsa datetime-sträng"""
     if not dt_str:
         return None
     try:
         dt_str = re.sub(r'[+-]\d{2}:\d{2}$', '', dt_str)
+        # PostgREST klipper bort avslutande nollor i sekundbråket ("13:49:44.808830" kommer tillbaka som ".80883"), och
+        # Python före 3.11 kräver exakt 3 eller 6 siffror i fromisoformat. Utan normaliseringen gav ~var tionde befintlig
+        # tidsstämpel None — och då hoppade skiftsammanslagningen över sin jämförelse och den nya filen skrev över.
+        dt_str = normalisera_sekundbrak(dt_str)
         return datetime.fromisoformat(dt_str)
     except:
         return None
@@ -834,6 +844,75 @@ def kapa_syntetiska_skift_i_db(maskin_id: str, datum) -> int:
         except Exception as e:
             logger.warning(f"  Skiftkapning: PATCH fakt_skift id={orig['id']} misslyckades ({e})")
     return n
+
+
+# ============================================================
+# SKIFT-KUVERT — ett befintligt pass kan bara UTÖKAS av en ny fil
+# ============================================================
+# R64428 2026-10-12 (Oskar): passet 07:04–15:14 blev 13:49–14:52 när Sandåsen-filen (exporterad 2026-10-14) importerades.
+# Den filen bär bara Sandåsens del av dagen. Sammanslagningen "inloggning = min, utloggning = max" finns sedan juli, men var
+# BEST EFFORT: kunde den befintliga raden inte läsas (timeout, 5xx, ett sekundbråk Python <3.11 inte tolkar) blev den tyst
+# ingen sammanslagning alls — och upserten skrev sedan filens egna tider rakt över. Arbetsdagen blev 45 min i stället för
+# 471, och ingenting i loggen sa något.
+#
+# Regeln nu: kan den befintliga raden inte LÄSAS skrivs raden INTE — ett mätt pass skrivs aldrig över på gissning. Felet
+# loggas och rapporteras till import_fel (syns i datahälsan); omimport av filen rättar det. Testas i
+# scripts/test_skift_kuvert.py. Databasens trigger (migration 20261014170000) är andra spärren.
+SKIFT_LAS_FORSOK = 3
+SKIFT_LAS_PAUS_SEK = 1.0
+
+
+def sla_ihop_skift_kuvert(rad: Dict, befintlig: Optional[Dict]) -> Dict:
+    """Pass kan bara utökas: tidigaste inloggning, senaste utloggning, tidigaste maskininloggning. `befintlig` är raden i
+    databasen med tidsfälten redan tolkade (datetime) eller None när passet inte finns än. Ren: `rad` ändras inte.
+    langd_sek = spännet (som importen alltid räknat det)."""
+    ny = dict(rad)
+    if befintlig:
+        b_in, b_ut = befintlig.get('inloggning_tid'), befintlig.get('utloggning_tid')
+        b_mask = befintlig.get('maskin_inloggning_tid')
+        if b_in and (not ny.get('inloggning_tid') or b_in < ny['inloggning_tid']):
+            ny['inloggning_tid'] = b_in
+        if b_ut and (not ny.get('utloggning_tid') or b_ut > ny['utloggning_tid']):
+            ny['utloggning_tid'] = b_ut
+        if b_mask and (not ny.get('maskin_inloggning_tid') or b_mask < ny['maskin_inloggning_tid']):
+            ny['maskin_inloggning_tid'] = b_mask
+    if ny.get('inloggning_tid') and ny.get('utloggning_tid'):
+        ny['langd_sek'] = int((ny['utloggning_tid'] - ny['inloggning_tid']).total_seconds())
+    return ny
+
+
+def hamta_befintligt_skift(rad: Dict):
+    """Läs passets befintliga rad (nyckel maskin, datum, shift_key). Returnerar ('ok', None) = passet finns inte,
+    ('ok', {tolkade tider}) = finns, ('fel', orsak) = kunde inte läsas eller tolkas. Försöker SKIFT_LAS_FORSOK gånger."""
+    orsak = 'okänt fel'
+    for forsok in range(SKIFT_LAS_FORSOK):
+        if forsok:
+            time.sleep(SKIFT_LAS_PAUS_SEK * forsok)
+        try:
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/fakt_skift",
+                params={'maskin_id': f"eq.{rad['maskin_id']}",
+                        'datum': f"eq.{rad['datum']}",
+                        'shift_key': f"eq.{rad['shift_key']}",
+                        'select': 'inloggning_tid,utloggning_tid,maskin_inloggning_tid'},
+                headers=SUPABASE_HEADERS, timeout=30)
+            if not resp.ok:
+                orsak = f"HTTP {resp.status_code}"
+                continue
+            rader = resp.json()
+        except Exception as e:
+            orsak = f"{type(e).__name__}: {e}"
+            continue
+        if not rader:
+            return 'ok', None
+        r = rader[0]
+        tolkad = {k: parse_datetime(r.get(k)) for k in ('inloggning_tid', 'utloggning_tid', 'maskin_inloggning_tid')}
+        # En tid som FINNS i databasen men inte går att tolka får aldrig tolkas som "saknas".
+        for k, v in tolkad.items():
+            if r.get(k) and v is None:
+                return 'fel', f"{k} '{r.get(k)}' kunde inte tolkas"
+        return 'ok', tolkad
+    return 'fel', orsak
 
 
 # ============================================================
@@ -4140,7 +4219,13 @@ def save_mom_to_supabase(data: Dict) -> bool:
         # är serialiserad (en fil i taget). Parallelliseras importen någon gång
         # måste kuvertet flyttas in i databasen: ON CONFLICT DO UPDATE med
         # LEAST(inloggning_tid)/GREATEST(utloggning_tid).
+        #
+        # 2026-10-14: kuvertet var "best effort" — kunde den befintliga raden inte läsas skrevs filens egna tider rakt över
+        # (R64428 2026-10-12: 07:04–15:14 blev 13:49–14:52). Nu skrivs ett pass ALDRIG utan att den befintliga raden
+        # setts: se sla_ihop_skift_kuvert / hamta_befintligt_skift.
         if data.get('skift'):
+            skift_att_skriva = []
+            hoppade = []
             for rad in data['skift']:
                 if not rad.get('datum') or not rad.get('shift_key'):
                     # Ska inte kunna hända (alla rader får shift_key i parsern)
@@ -4149,38 +4234,34 @@ def save_mom_to_supabase(data: Dict) -> bool:
                         f"  SKIFT UTAN NYCKEL hoppar kuvert-merge: "
                         f"{rad.get('maskin_id')} {rad.get('inloggning_tid')} "
                         f"(datum={rad.get('datum')}, shift_key={rad.get('shift_key')})")
+                    skift_att_skriva.append(rad)
                     continue
-                try:
-                    resp = requests.get(
-                        f"{SUPABASE_URL}/rest/v1/fakt_skift",
-                        params={'maskin_id': f"eq.{rad['maskin_id']}",
-                                'datum': f"eq.{rad['datum']}",
-                                'shift_key': f"eq.{rad['shift_key']}",
-                                'select': 'inloggning_tid,utloggning_tid'},
-                        headers=SUPABASE_HEADERS, timeout=30)
-                    bef = resp.json() if resp.ok else []
-                except Exception:
-                    bef = []  # kuvertet är best effort — upserten sker ändå
-                if bef:
-                    bef_in = parse_datetime(bef[0].get('inloggning_tid'))
-                    bef_ut = parse_datetime(bef[0].get('utloggning_tid'))
-                    if bef_in and rad.get('inloggning_tid') and bef_in < rad['inloggning_tid']:
-                        rad['inloggning_tid'] = bef_in
-                    if bef_ut and rad.get('utloggning_tid') and bef_ut > rad['utloggning_tid']:
-                        rad['utloggning_tid'] = bef_ut
-                if rad.get('inloggning_tid') and rad.get('utloggning_tid'):
-                    rad['langd_sek'] = int((rad['utloggning_tid'] - rad['inloggning_tid']).total_seconds())
-            if upsert_data('fakt_skift', data['skift'], ['maskin_id', 'datum', 'shift_key']) == 0:
+                status, bef = hamta_befintligt_skift(rad)
+                if status == 'fel':
+                    hoppade.append((rad, bef))
+                    continue
+                skift_att_skriva.append(sla_ihop_skift_kuvert(rad, bef))
+            if hoppade:
+                lista = '; '.join(
+                    f"{r.get('maskin_id')}/{r.get('datum')}/key={r.get('shift_key')} ({orsak})" for r, orsak in hoppade)
+                logger.error(
+                    f"  SKIFT EJ SKRIVET ({len(hoppade)} rader ur {hoppade[0][0].get('filnamn', 'okänd fil')}): {lista} — "
+                    f"det befintliga passet kunde inte läsas, så det lämnas orört. Omimportera filen.")
+                _rapportera_import_fel('fakt_skift', hoppade[0][0].get('filnamn'), len(hoppade),
+                                       'skift_kuvert_las', f"Befintligt pass kunde inte läsas, ej skrivet: {lista}")
+            if not skift_att_skriva:
+                pass  # inget att skriva — de rader som fanns kunde inte läsas (rapporterat ovan)
+            elif upsert_data('fakt_skift', skift_att_skriva, ['maskin_id', 'datum', 'shift_key']) == 0:
                 # Detta ÄR kritiskt — skiftrader bär lönedata (arbetsdagens
                 # start/slut). Wisent-regressionen 21/7 upptäcktes bara för
                 # att Martin råkade kolla sin dag: gamla constrainten
                 # fakt_skift_unik låg kvar och fällde hela batchen tyst.
                 forlorade = '; '.join(
                     f"{r.get('maskin_id')}/{r.get('datum')}/key={r.get('shift_key')}"
-                    for r in data['skift'])
-                skift_fil = data['skift'][0].get('filnamn', 'okänd fil')
+                    for r in skift_att_skriva)
+                skift_fil = skift_att_skriva[0].get('filnamn', 'okänd fil')
                 logger.error(
-                    f"  SKIFT-DATA FÖRLORAD ({len(data['skift'])} rader ur {skift_fil}): "
+                    f"  SKIFT-DATA FÖRLORAD ({len(skift_att_skriva)} rader ur {skift_fil}): "
                     f"{forlorade} — lönedata saknas tills filen omimporteras!")
             else:
                 # Syntetiska pass (Rottne) slutar när nästa förare loggar in — i DATABASEN, så att GREATEST-merge ovan
