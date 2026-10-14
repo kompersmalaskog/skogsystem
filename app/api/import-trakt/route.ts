@@ -11,6 +11,7 @@ import { mergeFalt, executorGodkand, forvantadExecutorOrgnr } from '@/lib/trakt/
 import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
+import { byggOmimportPatch, hittaBefintligtObjekt, type BefintligtObjekt } from '@/lib/trakt/befintligt';
 
 export const runtime = 'nodejs'; // JSZip + unpdf + fast-xml-parser behöver Node-runtime, inte edge
 // Stora trakter (fyra traktkartor + översikt = 40+ MB) tar tid: uppackning + base64 av ~46
@@ -388,18 +389,24 @@ export async function POST(request: NextRequest) {
       kalla: envz ? 'envz' : 'traktdirektiv',
     };
 
-    // === Omimport-med-merge: matcha på vo_nummer (enda unika constraint, objekt_vo_nummer_key).
-    // Ingen fallback på traktnr (ej unikt, tomt på hälften av raderna). Saknar envz vo_nummer
-    // eller finns ingen rad med det -> INSERT. vo_nummer kan vara icke-numeriskt ("P-1012") ->
-    // jämför som sträng. ===
-    let befintlig: { id: string; larmkoordinat_kalla: string | null } | null = null;
+    // === Omimport-med-merge: matcha på vo_nummer (enda unika constraint, objekt_vo_nummer_key), därefter på objektets
+    // extra nummer (objekt_alt_nummer: vanliga extra nummer och det gamla numret efter att importen bytt objektets vo_nummer).
+    // Träff på något av dem = uppdatera det befintliga objektet, aldrig en ny rad. Ingen fallback på traktnr (ej unikt, tomt på
+    // hälften av raderna). Saknar envz vo_nummer eller finns ingen träff -> INSERT. vo_nummer kan vara icke-numeriskt ("P-1012")
+    // -> jämför som sträng. Läsfel stoppar importen (kan köras om) i stället för att sluta i en dubblett. ===
+    let befintlig: BefintligtObjekt | null = null;
     if (falt.vo_nummer) {
-      const { data: rader } = await supabase
-        .from('objekt')
-        .select('id, larmkoordinat_kalla')
-        .eq('vo_nummer', String(falt.vo_nummer))
-        .limit(1);
-      befintlig = rader && rader[0] ? (rader[0] as any) : null;
+      const sok = await hittaBefintligtObjekt(supabase, String(falt.vo_nummer));
+      if (sok.typ === 'fel') {
+        await loggaImportFel(service, sokvag, 'OBJEKT_SOK', sok.fel);
+        return NextResponse.json({ error: sok.fel }, { status: 500 });
+      }
+      if (sok.typ === 'traff') {
+        befintlig = sok.objekt;
+        if (befintlig.via === 'extra_nummer') {
+          varningar.push(`VO ${falt.vo_nummer} är ett extra nummer på ett befintligt objekt (som nu har nummer ${befintlig.vo_nummer ?? '—'}) — det objektet uppdaterades i stället för att en ny rad skapades. Objektets nummer lämnades orört.`);
+        }
+      }
     }
 
     let saved: any = null;
@@ -422,14 +429,7 @@ export async function POST(request: NextRequest) {
         varningar.push('Larmkoordinat bevarad (satt på plats, kalla=egen) — envz hade ett värde som inte skrevs över.');
       }
 
-      const patch: Record<string, any> = {};
-      for (const [k, v] of Object.entries(data)) {
-        if (SKYDDADE.includes(k)) continue;                                  // aldrig vid omimport
-        if (k.startsWith('larmkoordinat_') && bevaraLarm) continue;          // 'egen' -> orört
-        if (v === null || v === undefined) continue;                         // nollar aldrig befintligt värde
-        if (typeof v === 'string' && v.trim() === '') continue;
-        patch[k] = v;
-      }
+      const patch = byggOmimportPatch(data, { skyddade: SKYDDADE, bevaraLarm, behallVoNummer: befintlig.via === 'extra_nummer' });
       patch.import_varningar = varningar.length > 0 ? varningar : null;       // varningar refreshas alltid
 
       const { data: upd, error: updErr } = await supabase
