@@ -4,7 +4,7 @@ import {
   bastaIndex, bastaTu, delaMaskiner, GRANS_G15_H, harNogData, kolumnRubrik, maskinerForForare, olikaAr, sammaForareRader, TEXT_OLIKA_AR, tillForareMaskin, urvalForare, type ForareMaskinRad,
 } from "./sammaForare";
 
-// Fixturen är de 28 riktiga raderna i vy_hist_forare_maskin_jamfor i prod 2026-10-14.
+// Fixturen är de 27 riktiga raderna i vy_hist_forare_maskin_jamfor i prod 2026-10-14, efter att Svinhult flyttats till gallring (hist_korrigering).
 const RADER = (fixtur as Record<string, unknown>[]).map(tillForareMaskin);
 const rad = (o: Partial<ForareMaskinRad> & { maskin: string }): ForareMaskinRad => ({
   forare: "Test Förare", atgard: "gallring", antal_objekt: 20, ar_fran: 2020, ar_till: 2022, g15_h: 500, viktat_index: 100, tu: 0.9, antal_med_tu: 20, tu_rapporterad: null, m3_per_g15: 5, ...o,
