@@ -13,64 +13,56 @@ import type { VilaTrosklar } from "@/lib/vilobrott";
  * bort det öppna avtalet.
  */
 
-// TODO: ersätt [key: string]: unknown med specifika fält när
-// fler konsumenter (löneberäkning, OB) kräver det
-export type GsAvtal = {
-  id: string;
+/**
+ * Kolumnerna i prod-tabellen gs_avtal (information_schema 2026-10-14). EN källa: typen nedan, vyn Mitt avtal och
+ * vakten `lib/gsAvtalKolumner.test.ts` utgår från den. Ett fält som inte står här finns inte — ett namn som bara
+ * liknar en kolumn (`atk_ledig_tim` för `atk_ledig_tid_h`, `skifttillagg_kr` för `skift_tillagg_kr`, `bortovaro_kr`
+ * för `bortovaro_12h_kr`, `timlon_kr` som aldrig funnits) ger `undefined`, och en `??`-reserv bakom det blev "avtalet"
+ * för föraren (Mitt avtal i Arbetsrapport, 2026-10-14). Lägg till kolumnen här när en migration lagt till den i prod.
+ */
+export const GS_AVTAL_KOLUMNER = [
+  "id", "namn", "giltigt_fran", "giltigt_till", "skapad",
+  // Ordinarie tid & övertid
+  "ordinarie_vecka_h", "overtid_vardag_pct", "overtid_helg_pct", "overtid_faktor", "max_overtid_ar_h", "overtid_vardag_kr", "overtid_helg_kr",
+  // OB & tillägg
+  "ob_kvall_kr", "ob_natt_kr", "ob_helg_kr", "ob_sondag_kr", "skift_tillagg_kr", "bortovaro_12h_kr",
+  // Färdmedel & färdtid & traktamente
+  // km_grans_per_dag är den kolumn appen läser (fri pendling km/dag). km_fri_pendling är en äldre kolumn med samma
+  // innebörd som finns kvar i prod; ingen kod i appen läser den.
+  "km_grans_per_dag", "km_fri_pendling", "km_ersattning_kr", "fardmedel_kr_per_mil", "fardtid_kr_per_mil",
+  "traktamente_hel_kr", "traktamente_halv_kr",
+  // ATK, pension, sjuklön, semester, helglön
+  "atk_procent", "atk_procent_nasta", "atk_ledig_tid_h", "pension_tillagg_pct", "sjuklon_pct",
+  "semester_dagar_ar", "semester_ersattning_pct", "helglon_dagar",
+  // Avtalets PDF: sökvägen i den privata bucketen `avtal` (lib/avtalPdf). Kolumnen kommer med migrationen
+  // 20261014160000_avtal_pdf_bucket.sql — före den finns den inte i prod, och ett avtal utan sökväg är "inte uppladdat än".
+  "avtal_pdf_path",
+  // Vila-trösklar (20260520-migrationen). NOT NULL i DB med defaults.
+  "dygnsvila_krav_h", "dygnsvila_varning_h", "veckovila_krav_h", "veckovila_fonster_dagar", "kompensation_deadline_dagar",
+] as const;
+
+export type GsAvtalKolumn = (typeof GS_AVTAL_KOLUMNER)[number];
+
+/**
+ * En rad ur gs_avtal. Bara riktiga kolumner (se GS_AVTAL_KOLUMNER): ingen index-signatur, så ett felstavat fältnamn är
+ * ett kompileringsfel i stället för `undefined` som någon senare ersätter med ett påhittat värde. Allt utom id är
+ * nullable i DB; numeric kommer som tal från PostgREST.
+ *
+ * Reseersättning = EN rad: fardtid_kr_per_mil per påbörjad mil per dag över km_grans_per_dag. Alla har firmabil.
+ * fardmedel_kr_per_mil finns i prod-tabellen men är OANVÄND av appen (COMMENT ON COLUMN satt i prod 2026-09-10, beslut
+ * löneansvariga). Beslutet måste tas om ifall firmabil någon gång inte gäller alla.
+ */
+export type GsAvtal = { id: string } & {
+  [K in Exclude<GsAvtalKolumn, "id" | "namn" | "giltigt_fran" | "giltigt_till" | "skapad" | "helglon_dagar" | "avtal_pdf_path">]?: number | null;
+} & {
   namn?: string | null;
   giltigt_fran?: string | null;
   giltigt_till?: string | null;
-
-  // Lön & övertid
-  timlon_kr?: number | null;
-  overtid_vardag_kr?: number | null;
-  // Kolumnen heter max_overtid_ar_h (timmar). Typen sa "max_overtid_ar" till
-  // 2026-09-13 — då läste alla ställen undefined och föll tillbaka på 250, och
-  // admin-fältet sparade till en kolumn som inte finns.
-  max_overtid_ar_h?: number | null;
-
-  // OB
-  ob_kvall_kr?: number | null;
-  ob_natt_kr?: number | null;
-  ob_lordag_kr?: number | null;
-  ob_sondag_kr?: number | null;
-
-  // Färdmedel & färdtid
-  // Reseersättning = EN rad: fardtid_kr_per_mil per påbörjad mil per dag över
-  // km_grans_per_dag. Alla har firmabil. Kolumnen gs_avtal.fardmedel_kr_per_mil
-  // finns i prod-tabellen men är OANVÄND av appen (COMMENT ON COLUMN satt i
-  // prod 2026-09-10, beslut löneansvariga). Beslutet måste tas om ifall firmabil
-  // någon gång inte gäller alla. Fältet finns medvetet inte i den här typen.
-  km_ersattning_kr?: number | null;
-  km_grans_per_dag?: number | null;
-  fardtid_kr?: number | null;
-  fardtid_kr_per_mil?: number | null;
-
-  // ATK
-  atk_procent?: number | null;
-  atk_period?: string | null;
-  atk_procent_nasta?: number | null;
-  atk_ledig_tim?: number | null;
-  atk_faktor?: number | null;
-
-  // Traktamente
-  traktamente_hel_kr?: number | null;
-  traktamente_halv_kr?: number | null;
-
-  // Övriga tillägg
-  skifttillagg_kr?: number | null;
-  bortovaro_kr?: number | null;
-
-  // Vila-trösklar (20260520-migrationen). NOT NULL i DB med defaults.
-  dygnsvila_krav_h?: number | null;
-  dygnsvila_varning_h?: number | null;
-  veckovila_krav_h?: number | null;
-  veckovila_fonster_dagar?: number | null;
-  kompensation_deadline_dagar?: number | null;
-
-  // Tillåt okända fält — så att kolumner som läggs till i DB utan att typen
-  // uppdateras inte tappas vid `select("*")`. Matchar mönstret i AvtalFlik.tsx.
-  [key: string]: unknown;
+  skapad?: string | null;
+  /** Avtalets dagar, kommaseparerade ("Nyårsdagen,Trettondagen,…"). */
+  helglon_dagar?: string | null;
+  /** Sökväg i bucketen `avtal` ("<avtalets id>.pdf"). null/saknas = inte uppladdat. */
+  avtal_pdf_path?: string | null;
 };
 
 function tillIsoDate(d: Date): string {
@@ -122,7 +114,7 @@ export function vilaTrosklarFromAvtal(avtal: GsAvtal): VilaTrosklar {
   };
   for (const [key, value] of Object.entries(t)) {
     if (!Number.isFinite(value)) {
-      throw new Error(`gs_avtal.${key} är ogiltig: ${String(avtal[key])}`);
+      throw new Error(`gs_avtal.${key} är ogiltig: ${String((avtal as Record<string, unknown>)[key])}`);
     }
   }
   return t;

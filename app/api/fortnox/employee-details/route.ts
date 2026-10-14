@@ -9,9 +9,11 @@ import { målMedarbetareId } from "@/lib/auth/server";
  *
  * Hämtar semester- och ATK-saldo från Fortnox för given medarbetare.
  * Semester: VacationDaysPaid + VacationDaysSaved - VacationDaysRegisteredPaid.
- * ATK: ATKValue (kr). Timmar = saldo / timlön (Fortnox HourlyPay,
- * fallback till gs_avtal.timlon_kr). Om timlön saknas returneras timmar=null.
- * gs_avtal-raden som väljs är den där giltigt_fran <= idag och
+ * ATK: ATKValue (kr). Timmar = saldo / timlön, och timlönen är Fortnox HourlyPay — ingen annan källa.
+ * Avtalet har ingen timlön (gs_avtal.timlon_kr finns inte i prod-tabellen; lönen är individuell), så förut kom
+ * reserven alltid ur ett `undefined`. Saknas timlönen i Fortnox returneras timmar=null och lon.timlon=null:
+ * ett saldo i kronor utan timlön blir aldrig en gissad tid.
+ * gs_avtal-raden som väljs (bara för att tala om VILKET avtal som gällde) är den där giltigt_fran <= idag och
  * (giltigt_till IS NULL OR giltigt_till >= idag).
  */
 export async function GET(req: NextRequest) {
@@ -42,7 +44,7 @@ export async function GET(req: NextRequest) {
 
     const avtal = avtalRes.data;
     console.log("[employee-details] gs_avtal vald:", avtal
-      ? { id: avtal.id, namn: avtal.namn, giltigt_fran: avtal.giltigt_fran, giltigt_till: avtal.giltigt_till, timlon_kr: avtal.timlon_kr }
+      ? { id: avtal.id, namn: avtal.namn, giltigt_fran: avtal.giltigt_fran, giltigt_till: avtal.giltigt_till }
       : null);
 
     const anstNr = mappRes.data?.anstallningsnummer;
@@ -82,9 +84,8 @@ export async function GET(req: NextRequest) {
 
     const saldoKr = numeriskt(emp.ATKValue);
     const timlonFortnox = numeriskt(emp.HourlyPay);
-    const timlonAvtal = numeriskt(avtal?.timlon_kr);
-    const timlon = timlonFortnox > 0 ? timlonFortnox : timlonAvtal;
-    const timmar = timlon > 0 ? Math.round((saldoKr / timlon) * 10) / 10 : null;
+    const timlon = timlonFortnox > 0 ? timlonFortnox : null;
+    const timmar = timlon ? Math.round((saldoKr / timlon) * 10) / 10 : null;
 
     return NextResponse.json({
       ok: true,

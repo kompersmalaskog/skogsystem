@@ -13,12 +13,14 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { byggArbetsObjektLista } from "@/lib/arbetsobjekt";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
+import { byggAvtalGrupper } from "@/lib/avtalVy";
+import { oppnaAvtalPdf as oppnaAvtalPdfFil, MEDD_EJ_UPPLADDAT } from "@/lib/avtalPdf";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
 import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, passMinuter } from "@/lib/arbetsdagRegler";
-import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, aktIcon, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
+import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, faktureringsEtikett, type AktivitetTyp } from "@/lib/aktiviteter";
 import { delaKorning, korningDelarText } from "@/lib/arbetsdagKorning";
 import { tidsFragor, VILA_ORSAKER, vilaSvarText, arDagensVilobrott, type VilaOrsak } from "@/lib/dagFragor";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
@@ -741,6 +743,16 @@ export default function Arbetsrapport() {
   // Supabase data
   const [medarbetare, setMedarbetare] = useState<any>(null);
   const [gsAvtal, setGsAvtal] = useState<any>(null);
+  // "Läs hela avtalet": pågår = länken hämtas; meddelande = det som står under knappen (saknad fil, fel).
+  const [avtalPdf, setAvtalPdf] = useState<{ upptagen: boolean; meddelande: string | null }>({ upptagen: false, meddelande: null });
+  const oppnaAvtalPdf = async () => {
+    if (avtalPdf.upptagen) return;
+    setAvtalPdf({ upptagen: true, meddelande: null });
+    const r = await oppnaAvtalPdfFil(supabase, gsAvtal?.avtal_pdf_path);
+    setAvtalPdf({ upptagen: false, meddelande: r.ok ? null : r.meddelande });
+  };
+  // Raden under knappen: raden kunde inte läsas → inget (notrutan längst ner säger det); ingen sökväg → "inte uppladdat än".
+  const avtalPdfRad = !gsAvtal ? null : !gsAvtal.avtal_pdf_path ? MEDD_EJ_UPPLADDAT : avtalPdf.meddelande;
   const [objektLista, setObjektLista] = useState<any[]>([]);
   const [historik, setHistorik] = useState<any[]>([]);
   // Förarens tidsspecifikation för vald månad — SAMMA beräkning som Fortnox-
@@ -863,13 +875,13 @@ export default function Arbetsrapport() {
   const [vilaÅrExpand, setVilaÅrExpand] = useState<number|null>(null);
   const [visaAllaDygnsvila, setVisaAllaDygnsvila] = useState(false);
   const [visaAllaVeckovila, setVisaAllaVeckovila] = useState(false);
-  const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'|'monster'|'lön'>('översikt');
+  const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'>('översikt');
   const [atkVal, setAtkVal] = useState<'ledig'|'kontant'|'pension'|null>(null);
   const [atkValSparat, setAtkValSparat] = useState<any>(null);
   const [fortnoxSaldo, setFortnoxSaldo] = useState<{
     semester:{betalda:number;obetalda:number;sparade:number;uttagna:number;kvar:number};
     atk:{saldo_kr:number;timmar:number|null};
-    lon:{timlon:number};
+    lon:{timlon:number|null};
   } | null>(null);
   // 'tom' = anropet lyckades men medarbetaren saknar lönesystem-koppling (404)
   // — inte samma sak som 'error' (nätverk/Fortnox nere/timeout).
@@ -3967,7 +3979,7 @@ export default function Arbetsrapport() {
         <header style={{ position:"sticky",top:HEADER_TOP,zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:`0 ${AVSTAND.sidmarginal}px`,paddingTop:AVSTAND.l }}>
           <h1 style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.titel,color:FARG.text }}>Min tid</h1>
           <div style={{ display:"flex",gap:0,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs,marginBottom:AVSTAND.m,overflowX:"auto" }}>
-            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster']] as const).map(([k,l])=>(
+            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila']] as const).map(([k,l])=>(
               <button key={k} onClick={()=>setMinTidFlik(k)} style={{ flex:1, minHeight:TRAFFYTA.min, padding:`0 ${AVSTAND.s}px`, borderRadius:RADIE.rad, border:"none", ...TYP.meta, fontWeight:minTidFlik===k?VIKT.halvfet:VIKT.normal, cursor:"pointer", fontFamily:"inherit", background:minTidFlik===k?FARG.fyllning:"transparent", color:minTidFlik===k?FARG.text:FARG.text2, whiteSpace:"nowrap" }}>{l}</button>
             ))}
           </div>
@@ -4189,6 +4201,16 @@ export default function Arbetsrapport() {
               </section>
             );
           })()}
+
+          {/* Mitt avtal: avtalet LÄSER man, det ändrar man inte — därför sist under Saldon och inte under Inställningar. */}
+          <section style={{ marginBottom:AVSTAND.xl }}>
+            <div style={KORT}>
+              <button onClick={()=>setSteg("avtal")} style={{ ...KNAPP.tertiar, display:"flex", alignItems:"center", justifyContent:"space-between", width:"100%", padding:0, color:FARG.text, ...TYP.listtitel }}>
+                <span>Mitt avtal</span>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>
+              </button>
+            </div>
+          </section>
 
           </>}
 
@@ -4591,100 +4613,6 @@ export default function Arbetsrapport() {
             </>);
           })()}
           </>}
-
-          {minTidFlik==='monster'&&(()=>{
-            // Senaste 30 dagarna av extra_tid
-            const nu30 = new Date();
-            const cutoff = new Date(nu30); cutoff.setDate(nu30.getDate()-30);
-            const cutoffStr = cutoff.toISOString().split('T')[0];
-            const senaste30 = extraTidData.filter(e => e.datum && e.datum >= cutoffStr);
-            // Dagar med data (unika datum för arbetsdagar)
-            const arbDagar30 = new Set(årsData.filter(d => d.datum && d.datum >= cutoffStr && d.start_tid).map(d => d.datum)).size || 1;
-            // Per typ
-            type Stat = { typ:string; antal:number; minTot:number; medel:number; deb:number; kall:Record<string,number> };
-            const perTyp = new Map<string, Stat>();
-            for(const e of senaste30) {
-              const t = e.aktivitet_typ || 'annat';
-              if(!perTyp.has(t)) perTyp.set(t, { typ:t, antal:0, minTot:0, medel:0, deb:0, kall:{morgon:0,kvall:0,under_dagen:0} });
-              const s = perTyp.get(t)!;
-              s.antal++;
-              s.minTot += e.minuter || 0;
-              if(e.debiterbar) s.deb++;
-              if(e.kalla) s.kall[e.kalla] = (s.kall[e.kalla]||0)+1;
-            }
-            perTyp.forEach(s => { s.medel = s.antal>0 ? Math.round(s.minTot/s.antal) : 0; });
-            const stats = Array.from(perTyp.values()).sort((a,b)=>b.minTot-a.minTot);
-            const totMin = senaste30.reduce((a,e)=>a+(e.minuter||0),0);
-            return (
-              <>
-                {/* Sammanfattning */}
-                <section style={{ marginBottom:AVSTAND.xl }}>
-                  <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Senaste 30 dagarna</h3>
-                  <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}` }}>
-                    <p style={{ margin:0,...TYP.rubrik,color:FARG.text,...TNUM }}>{Math.round(totMin/60*10)/10}h <span style={{ ...TYP.meta,color:FARG.text2 }}>extra tid totalt</span></p>
-                    <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{senaste30.length} aktiviteter över {arbDagar30} arbetsdagar</p>
-                  </div>
-                </section>
-                {/* Per typ */}
-                {stats.length === 0 ? (
-                  <Card><p style={{ margin:0,...TYP.meta,color:FARG.text2,textAlign:"center" }}>Ingen extra tid registrerad senaste 30 dagarna</p></Card>
-                ) : (
-                  <section>
-                    <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Per aktivitet</h3>
-                    {stats.map(s => {
-                      const pct = Math.round(s.antal/arbDagar30*100);
-                      const kallEntries: [string, number][] = Object.entries(s.kall) as [string, number][];
-                      const dominantKall = kallEntries.sort((a,b)=>b[1]-a[1])[0];
-                      const kallText = dominantKall && dominantKall[1]>0
-                        ? (dominantKall[0]==='morgon'?'oftast på morgonen':dominantKall[0]==='kvall'?'oftast på kvällen':'oftast under dagen')
-                        : '';
-                      return (
-                        <Card key={s.typ} style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px` }}>
-                          <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.m,marginBottom:AVSTAND.s }}>
-                            <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>{aktIcon(s.typ)}</span>
-                            <div style={{ flex:1 }}>
-                              <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{aktLabel(s.typ)}</p>
-                              <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{pct}% av dagarna · snitt {fmt(s.medel)}</p>
-                            </div>
-                            <span style={{ ...TYP.listtitel,color:FARG.text }}>{Math.round(s.minTot/60*10)/10}h</span>
-                          </div>
-                          {/* Bar */}
-                          <div style={{ height:4,background:FARG.linje,borderRadius:RADIE.rad,overflow:"hidden",marginBottom:AVSTAND.s }}>
-                            <div style={{ height:"100%",width:`${Math.min(100,pct)}%`,background:FARG.bla,borderRadius:RADIE.rad }}/>
-                          </div>
-                          <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>
-                            {s.antal} gånger{s.deb>0?` · ${s.deb} debiterbar${s.deb>1?'a':''}`:''}{kallText?` · ${kallText}`:''}
-                          </p>
-                        </Card>
-                      );
-                    })}
-                    {/* Stapeldiagram fördelning */}
-                    <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2,marginTop:AVSTAND.xl }}>Fördelning</h3>
-                    <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:AVSTAND.xl,border:`1px solid ${FARG.linje}` }}>
-                      <div style={{ display:"flex",height:24,borderRadius:RADIE.rad,overflow:"hidden" }}>
-                        {stats.map((s,i) => {
-                          const w = totMin>0 ? (s.minTot/totMin*100) : 0;
-                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.diagram1,FARG.diagram2];
-                          return <div key={s.typ} title={aktLabel(s.typ)} style={{ width:`${w}%`,background:färger[i%färger.length] }}/>;
-                        })}
-                      </div>
-                      <div style={{ display:"flex",flexWrap:"wrap",gap:AVSTAND.s,marginTop:AVSTAND.m }}>
-                        {stats.map((s,i) => {
-                          const färger = [FARG.bla,FARG.gron,FARG.orange,FARG.rod,FARG.diagram1,FARG.diagram2];
-                          return (
-                            <div key={s.typ} style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                              <div style={{ width:10,height:10,borderRadius:RADIE.rad,background:färger[i%färger.length] }}/>
-                              <span style={{ ...TYP.micro,color:FARG.text2 }}>{aktLabel(s.typ)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </section>
-                )}
-              </>
-            );
-          })()}
 
         </main>
         <BottomNavBar aktiv="mintid" onNav={s=>setSteg(s)} />
@@ -5433,14 +5361,6 @@ export default function Arbetsrapport() {
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green }}/>
         </Card>
 
-        <Card onClick={()=>setSteg("avtal")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:24 }}>
-          <div>
-            <p style={{ margin:0,...TYPE.bodyList }}>Mitt avtal</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'GS-avtalet'}</p>
-          </div>
-          <ChevronRight/>
-        </Card>
-
         {/* Påminnelser */}
         <div style={{ marginTop:32 }}><Label>Påminnelser</Label></div>
         {(() => {
@@ -5593,53 +5513,19 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg("inst")}/>
+          <BackBtn onClick={()=>{ setMinTidFlik("saldon"); setSteg("mintid"); }}/>
           <div>
             <h1 style={{ margin:0,...TYPE.h1 }}>Mitt avtal</h1>
-            <p style={{ margin:"4px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'Skogsavtalet 2025-2027'}</p>
+            {gsAvtal?.namn && <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:C.label }}>{gsAvtal.namn}</p>}
           </div>
         </div>
       </div>
       <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:SCROLL_BOTTOM }}>
-        {[
-          {rubrik:"Avtalsperiod",rader:[
-            ["Avtal",gsAvtal?.namn||"Skogsavtalet 2025-2027"],
-            ["Gäller","1 apr 2025 – 31 mar 2027"],
-          ]},
-          {rubrik:"Övertid",rader:[
-            ["Max övertid",`${gsAvtal?.max_overtid_ar_h??250} tim/år`],
-          ]},
-          // Kr-satser (övertid, OB, färdmedel, färdtid) borttagna — satser ägs av
-          // lönesystemet/Fortnox, inte appen. Färdmedelsersättningen (27,50 kr/mil)
-          // skickades dessutom aldrig i exporten = ett löfte systemet inte höll.
-          // Km-gränsen är en MÄNGD (km/dag) och står kvar.
-          {rubrik:"Färdmedel & färdtid",rader:[
-            ["Km-gräns",`${gsAvtal?.km_grans_per_dag??60} km/dag`],
-          ]},
-          {rubrik:"ATK",rader:[
-            ["Avsättning",`${gsAvtal?.atk_procent??3.62}% (uttagsår ${gsAvtal?.atk_period??'2025-2026'})`],
-            ["Nästa period",`${gsAvtal?.atk_procent_nasta??3.92}%`],
-            ["Ledig tid",`${gsAvtal?.atk_ledig_tim??65.2} tim/år`],
-            ["Pension-tillägg","+20%"],
-          ]},
-          // Traktamente-belopp (kr) borttagna — beloppen ägs av lönesystemet.
-          // Föraren markerar hel/halvdag i dagsvyn; kronorna räknas i Fortnox.
-          {rubrik:"Sjuklön",rader:[
-            ["Ersättning","80% av lön efter karens"],
-          ]},
-          {rubrik:"Semester",rader:[
-            ["Semesterdagar","25 dagar/år"],
-            ["Intjäningsår","1 april – 31 mars"],
-            ["Ersättning tidsbegränsad","13%"],
-          ]},
-          {rubrik:"Helglön (timavlönade)",rader:[
-            ["Dagar","Nyårsdagen, Trettondagen, Långfredagen, Annandag påsk, 1 maj, Kristi himmelf., Nationaldagen, Midsommarafton, Julafton, Juldagen, Annandag jul, Nyårsafton"],
-          ]},
-          {rubrik:"Övriga tillägg",rader:[
-            ["Skifttillägg",`${gsAvtal?.skifttillagg_kr??8.00} kr/tim`],
-            ["Bortovaro >12h",`${gsAvtal?.bortovaro_kr??8.03} kr/tim`],
-          ]},
-        ].map(({rubrik,rader})=>(
+        {/* Värdena byggs i lib/avtalVy ur riktiga gs_avtal-kolumner; saknas ett värde står "–", aldrig en reserv.
+            Kr-satser (övertid, OB, färdmedel, färdtid, traktamente) visas inte — satser ägs av lönesystemet/Fortnox,
+            inte appen. Färdmedelsersättningen (27,50 kr/mil) skickades dessutom aldrig i exporten = ett löfte systemet
+            inte höll. Km-gränsen är en MÄNGD (km/dag) och står kvar. Föraren markerar hel/halvdag i dagsvyn. */}
+        {byggAvtalGrupper(gsAvtal).map(({rubrik,rader})=>(
           <div key={rubrik} style={{ marginBottom:20 }}>
             <Label>{rubrik}</Label>
             <Card style={{ padding:"4px 20px" }}>
@@ -5652,11 +5538,16 @@ export default function Arbetsrapport() {
             </Card>
           </div>
         ))}
-        <button onClick={()=>window.open('/avtal/skogsavtalet-2025-2027.pdf','_blank')} style={{ width:"100%",height:48,background:"#2a2a2a",border:"none",borderRadius:12,color:"#fff",...TYPE.bodyList,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
-          Läs hela avtalet →
+        {/* Avtalets PDF ligger i den privata bucketen `avtal` och styrs av gs_avtal.avtal_pdf_path (lib/avtalPdf):
+            signerad länk (60 s), bara inloggade. Saknas filen står det så i stället för en 404-sida. */}
+        <button onClick={oppnaAvtalPdf} disabled={!gsAvtal?.avtal_pdf_path || avtalPdf.upptagen} style={{ ...KNAPP.sekundar, height:TRAFFYTA.primar, marginBottom:avtalPdfRad ? AVSTAND.s : AVSTAND.l, ...(!gsAvtal?.avtal_pdf_path ? INAKTIV : null) }}>
+          {avtalPdf.upptagen ? "Öppnar…" : "Läs hela avtalet →"}
         </button>
+        {avtalPdfRad && <p role="status" style={{ margin:`0 0 ${AVSTAND.l}px`,textAlign:"center",...TYPE.meta,color:C.label }}>{avtalPdfRad}</p>}
         <div style={{ background:"rgba(10,132,255,0.08)",borderRadius:12,padding:"14px 16px",marginBottom:24,border:"1px solid rgba(10,132,255,0.15)" }}>
-          <p style={{ margin:0,fontSize:13,color:C.blue,fontWeight:500 }}>Värdena hämtas från Supabase och uppdateras automatiskt om avtalet ändras.</p>
+          {gsAvtal
+            ? <p style={{ margin:0,...TYPE.meta,color:C.blue }}>Värdena hämtas från databasen och uppdateras automatiskt om avtalet ändras. Ett – betyder att värdet inte finns registrerat i avtalet.</p>
+            : <p style={{ margin:0,...TYPE.meta,color:C.blue }}>Avtalet kunde inte läsas just nu, därför står det – på alla rader. Starta om appen; står det kvar, säg till Martin.</p>}
         </div>
       </div>
     </div>
