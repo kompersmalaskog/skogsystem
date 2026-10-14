@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { byggLedighetNotis, fornamn, arLedighetNotis, type HamtaRad, type LedighetNotisRad } from "./notis";
+import { describe, it, expect, vi } from "vitest";
+import { byggLedighetNotis, fornamn, arLedighetNotis, flushUrval, LEDIGHET_MAX_ALDER_MS, type HamtaRad, type LedighetNotisRad } from "./notis";
 
 const RAD = (over: Partial<LedighetNotisRad> = {}): LedighetNotisRad => ({
   id: "a-1", status: "väntar", startdatum: "2026-11-03", slutdatum: "2026-11-07", namn: "Anna Svensson", ...over,
@@ -97,5 +97,47 @@ describe("hjälpare", () => {
     expect(arLedighetNotis("ledighet_beslut")).toBe(true);
     expect(arLedighetNotis("dagsslut")).toBe(false);
     expect(arLedighetNotis(undefined)).toBe(false);
+  });
+});
+
+describe("åldersregeln — en hög som väntat på release skickas aldrig på en gång", () => {
+  const NU = Date.parse("2026-10-20T12:00:00Z");
+  const koad = (msSedan: number) => ({ ...ANSOKAN, skapad_at: new Date(NU - msSedan).toISOString() });
+  const TIM = 60 * 60 * 1000;
+
+  it("gränsen är 24 timmar", () => {
+    expect(LEDIGHET_MAX_ALDER_MS).toBe(24 * TIM);
+  });
+
+  it("köad för mindre än 24 h sedan → skickas (ansökan är ju fortfarande sann)", async () => {
+    expect(await byggLedighetNotis(koad(23 * TIM + 59 * 60 * 1000), finns(RAD()), NU)).toMatchObject({ typ: "skicka" });
+    expect(await byggLedighetNotis(koad(24 * TIM), finns(RAD()), NU)).toMatchObject({ typ: "skicka" }); // exakt gränsen: inte äldre än
+  });
+
+  it("köad för mer än 24 h sedan → hoppas över med orsak, både ansökan och beslut", async () => {
+    const orsak = "Ej skickad — för gammal (köad för mer än 24 timmar sedan)";
+    expect(await byggLedighetNotis(koad(24 * TIM + 1), finns(RAD()), NU)).toEqual({ typ: "hoppa_over", orsak });
+    expect(await byggLedighetNotis({ ...BESLUT, skapad_at: new Date(NU - 9 * 24 * TIM).toISOString() }, finns(RAD({ status: "godkänd" })), NU)).toEqual({ typ: "hoppa_over", orsak });
+  });
+
+  it("åldern kollas FÖRE läsningen: en gammal rad läser inte ansökan och skjuts aldrig upp av ett läsfel", async () => {
+    const hamta = vi.fn<HamtaRad>(async () => ({ rad: null, fel: "connection reset" }));
+    const u = await byggLedighetNotis(koad(48 * TIM), hamta, NU);
+    expect(u).toMatchObject({ typ: "hoppa_over" });
+    expect(hamta).not.toHaveBeenCalled();
+  });
+
+  it("okänd eller ogiltig köad-tid räknas inte som gammal (texten är ändå färsk ur ansökan)", async () => {
+    expect(await byggLedighetNotis(ANSOKAN, finns(RAD()), NU)).toMatchObject({ typ: "skicka" });
+    expect(await byggLedighetNotis({ ...ANSOKAN, skapad_at: "inte ett datum" }, finns(RAD()), NU)).toMatchObject({ typ: "skicka" });
+    expect(await byggLedighetNotis({ ...ANSOKAN, skapad_at: null }, finns(RAD()), NU)).toMatchObject({ typ: "skicka" });
+  });
+});
+
+describe("flushUrval — förfallna rader ELLER ledighetsrader (som köas med skickas_at 'infinity')", () => {
+  it("exakt det PostgREST-uttryck flush skickar", () => {
+    expect(flushUrval("2026-10-20T12:00:00.000Z")).toBe(
+      "skickas_at.lte.2026-10-20T12:00:00.000Z,typ.in.(ledighet_ansokan,ledighet_beslut)",
+    );
   });
 });

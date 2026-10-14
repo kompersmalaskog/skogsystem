@@ -8,7 +8,7 @@ import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
 import { formateraVeckoNotis } from "@/app/helikopter/_lib/veckoNotis";
 import { idagStockholm } from "@/lib/grotvy/format";
 import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
-import { arLedighetNotis, byggLedighetNotis, type HamtaRad } from "@/lib/ledighet/notis";
+import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@/lib/ledighet/notis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -62,7 +62,9 @@ async function flush() {
   const { data: pendingRader, error } = await supabase
     .from("notis_kö")
     .select("*")
-    .lte("skickas_at", nu)
+    // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
+    // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
+    .or(flushUrval(nu))
     .is("skickad_at", null)
     .limit(200);
 

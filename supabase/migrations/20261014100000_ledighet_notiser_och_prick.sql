@@ -3,6 +3,12 @@
 -- Hakar på den BEFINTLIGA kanalen: rad i notis_kö -> /api/notis/flush (cron var 5:e minut) -> web-push.
 -- Texten byggs färskt vid utskick i flush-rutten; här köas bara VEM och VILKEN ansökan.
 --
+-- skickas_at = 'infinity' (MEDVETET): cronen kör på PRODUCTION-deployen, och den flush-koden känner inte till
+-- ledighetstyperna — en okänd typ skickas som en generisk push ("Notis" + rå JSON, länk /admin). Med 'infinity'
+-- väljer den gamla flushen aldrig raderna (dess urval är skickas_at <= nu). Den NYA flushen tar ledighetsrader
+-- oavsett skickas_at och hoppar över rader äldre än 24 h (lib/ledighet/notis.ts), så en hög som väntat på release
+-- aldrig skickas på en gång. Före release skickas de bara när någon öppnar /api/notis/flush på testappen som admin.
+--
 -- 1. ledighet_ansokan  till alla admin UTOM den som ansökte, när en ansökan skapas med status 'väntar'.
 -- 2. ledighet_beslut   till ägaren av ansökan, när status går 'väntar' -> 'godkänd' | 'nekad'.
 --    Inget annat köar något: inte 'registrerad' (sjuk/VAB), inte ändring av en väntande, inte borttag,
@@ -51,7 +57,7 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
       IF NEW.status = 'väntar' THEN
         INSERT INTO notis_kö (mottagare_id, typ, payload, skickas_at, dedup_nyckel)
-        SELECT m.id, 'ledighet_ansokan', jsonb_build_object('ansokan_id', NEW.id::text), now(), NEW.id::text
+        SELECT m.id, 'ledighet_ansokan', jsonb_build_object('ansokan_id', NEW.id::text), 'infinity'::timestamptz, NEW.id::text
         FROM medarbetare m
         WHERE m.roll = 'admin' AND m.id IS DISTINCT FROM NEW.medarbetare_id
         ON CONFLICT (typ, mottagare_id, dedup_nyckel) DO NOTHING;
@@ -60,7 +66,7 @@ BEGIN
       INSERT INTO notis_kö (mottagare_id, typ, payload, skickas_at, dedup_nyckel)
       VALUES (NEW.medarbetare_id, 'ledighet_beslut',
               jsonb_build_object('ansokan_id', NEW.id::text, 'status', NEW.status),
-              now(), NEW.id::text || '|' || NEW.status)
+              'infinity'::timestamptz, NEW.id::text || '|' || NEW.status)
       ON CONFLICT (typ, mottagare_id, dedup_nyckel) DO NOTHING;
     END IF;
   EXCEPTION WHEN OTHERS THEN

@@ -17,6 +17,18 @@ export function arLedighetNotis(typ: unknown): typ is typeof LEDIGHET_ANSOKAN | 
   return typ === LEDIGHET_ANSOKAN || typ === LEDIGHET_BESLUT;
 }
 
+/**
+ * Ledighetsraderna köas med skickas_at = 'infinity' (migrationen): den GAMLA flush-koden på production-deployen
+ * väljer dem då aldrig (hade den gjort det skulle den skicka en generisk "Notis" + rå JSON — okända typer faller
+ * på `byggMeddelande`s fallback). Den nya flushen tar dem oavsett skickas_at, och hoppar över allt som köats för
+ * mer än så här länge sedan, så en hög som väntat på release aldrig skickas på en gång.
+ */
+export const LEDIGHET_MAX_ALDER_MS = 24 * 60 * 60 * 1000;
+
+/** PostgREST `.or()`-uttrycket för flushens urval: förfallna rader ELLER ledighetsrader (som har skickas_at 'infinity'). */
+export const flushUrval = (nuIso: string) =>
+  `skickas_at.lte.${nuIso},typ.in.(${LEDIGHET_ANSOKAN},${LEDIGHET_BESLUT})`;
+
 export type LedighetNotisRad = {
   id: string;
   status: string;
@@ -42,11 +54,19 @@ export function fornamn(namn: string | null | undefined): string {
 }
 
 export async function byggLedighetNotis(
-  n: { typ: string; payload?: Record<string, unknown> | null },
+  n: { typ: string; payload?: Record<string, unknown> | null; skapad_at?: string | null },
   hamtaRad: HamtaRad,
+  nu: number = Date.now(),
 ): Promise<LedighetNotisUtfall> {
   const id = n.payload?.ansokan_id;
   if (typeof id !== 'string' || !id) return { typ: 'hoppa_over', orsak: 'Ej skickad — notisen saknar ansokan_id' };
+
+  // För gammal? Kollas FÖRE läsningen: en gammal rad ska aldrig skjutas upp av ett läsfel (och aldrig skickas).
+  // Okänd/ogiltig tid räknas inte som gammal — texten byggs ändå ur ansökan som den ser ut nu.
+  const koad = n.skapad_at ? Date.parse(n.skapad_at) : NaN;
+  if (Number.isFinite(koad) && nu - koad > LEDIGHET_MAX_ALDER_MS) {
+    return { typ: 'hoppa_over', orsak: 'Ej skickad — för gammal (köad för mer än 24 timmar sedan)' };
+  }
 
   const { rad, fel } = await hamtaRad(id);
   if (fel) return { typ: 'uppskjut' };

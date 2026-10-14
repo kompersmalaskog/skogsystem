@@ -47,6 +47,22 @@ vi.mock("@supabase/supabase-js", () => ({
         eq: (c: string, v: any) => { filter.push(r => r[c] === v); return api; },
         in: (c: string, vs: any[]) => { filter.push(r => vs.includes(r[c])); return api; },
         lte: (c: string, v: any) => { filter.push(r => r[c] <= v); return api; },
+        or: (uttryck: string) => {
+          const delar: string[] = []; let djup = 0, start = 0;
+          for (let i = 0; i < uttryck.length; i++) {
+            if (uttryck[i] === "(") djup++; else if (uttryck[i] === ")") djup--;
+            else if (uttryck[i] === "," && djup === 0) { delar.push(uttryck.slice(start, i)); start = i + 1; }
+          }
+          delar.push(uttryck.slice(start));
+          const villkor = delar.map(d => {
+            const [kol, op, ...rest] = d.split("."); const varde = rest.join(".");
+            if (op === "lte") return (r: Rad) => r[kol] <= varde;
+            if (op === "in") { const lista = varde.replace(/^\(|\)$/g, "").split(","); return (r: Rad) => lista.includes(r[kol]); }
+            throw new Error("fejken kan inte tolka or-delen: " + d);
+          });
+          filter.push(r => villkor.some(v => v(r)));
+          return api;
+        },
         is: (c: string, v: any) => { filter.push(r => (r[c] ?? null) === v); return api; },
         limit: () => api,
         maybeSingle: () => { enkel = true; return api; },
@@ -95,8 +111,11 @@ beforeEach(() => {
   };
 });
 
-const koa = (id: string, typ: string, mottagare: string, ansokan = "a1") =>
-  h.state.notis_kö.push({ id, typ, mottagare_id: mottagare, payload: { ansokan_id: ansokan }, skickas_at: nu(), skickad_at: null, fel_meddelande: null, datum: null });
+const MIN = 60 * 1000, TIM = 60 * MIN;
+const fore = (ms: number) => new Date(Date.now() - ms).toISOString();
+// Som triggern: ledighetsrader köas med skickas_at 'infinity' (den GAMLA flushen väljer dem då aldrig) och färsk skapad_at.
+const koa = (id: string, typ: string, mottagare: string, ansokan = "a1", skapad = fore(MIN)) =>
+  h.state.notis_kö.push({ id, typ, mottagare_id: mottagare, payload: { ansokan_id: ansokan }, skickas_at: "infinity", skapad_at: skapad, skickad_at: null, fel_meddelande: null, datum: null });
 
 describe("flush — ledighet_ansokan till godkännarna", () => {
   it("varje admin får '{Förnamn} har ansökt om ledighet {period}' på ALLA sina enheter, och öppnar godkänn-vyn", async () => {
@@ -205,5 +224,69 @@ describe("flush — kanalens befintliga skydd gäller även ledighet", () => {
     const res = await kor();
     expect(res).toMatchObject({ skickade: 0, fel: 1 });
     expect(koRad("k1").fel_meddelande).toBe("Mottagaren har inga push-prenumerationer");
+  });
+});
+
+describe("flush — urvalet: ledighetsrader med skickas_at 'infinity' tas, övriga typer som förut", () => {
+  it("en ledighetsrad med skickas_at 'infinity' skickas (det är så triggern köar den)", async () => {
+    koa("k1", "ledighet_ansokan", MARTIN);
+    expect(koRad("k1").skickas_at).toBe("infinity");
+    expect(await kor()).toMatchObject({ totalt: 1, skickade: 1 });
+  });
+
+  it("andra typer påverkas inte: förfallen rad skickas, rad som inte förfallit (framtid) eller 'infinity' skickas INTE", async () => {
+    const annan = (id: string, skickas: string) =>
+      h.state.notis_kö.push({ id, typ: "annan_typ", mottagare_id: MARTIN, payload: { x: 1 }, skickas_at: skickas, skapad_at: fore(MIN), skickad_at: null, fel_meddelande: null, datum: null });
+    annan("f1", fore(MIN));                                  // förfallen → skickas som förut (generisk fallback)
+    annan("f2", new Date(Date.now() + TIM).toISOString());   // framtid → ligger kvar
+    annan("f3", "infinity");                                 // 'infinity' på en annan typ → ligger kvar (bara ledighet tas oavsett tid)
+    const res = await kor();
+    expect(res).toMatchObject({ totalt: 1, skickade: 1 });
+    expect(koRad("f1").skickad_at).toBeTruthy();
+    expect(koRad("f2").skickad_at).toBeNull();
+    expect(koRad("f3").skickad_at).toBeNull();
+  });
+
+  it("redan skickade ledighetsrader tas inte igen", async () => {
+    koa("k1", "ledighet_ansokan", MARTIN);
+    h.state.notis_kö[0].skickad_at = fore(MIN);
+    expect(await kor()).toMatchObject({ totalt: 0, skickade: 0 });
+    expect(h.skickat).toHaveLength(0);
+  });
+});
+
+describe("flush — åldersregeln: en hög som väntat på release skickas aldrig på en gång", () => {
+  it("köad för mer än 24 h sedan → hoppas över med orsak, ingen push; färska rader i samma körning skickas", async () => {
+    h.state.ledighet_ansokningar.push({ id: "a2", status: "väntar", startdatum: "2026-12-01", slutdatum: "2026-12-01", medarbetare: { namn: "Bo Karlsson" } });
+    koa("gammal", "ledighet_ansokan", MARTIN, "a1", fore(25 * TIM));
+    koa("farsk", "ledighet_ansokan", MARTIN, "a2", fore(23 * TIM));
+    const res = await kor();
+    expect(res).toMatchObject({ totalt: 2, skickade: 1, skippade: 1 });
+    expect(koRad("gammal").fel_meddelande).toBe("Ej skickad — för gammal (köad för mer än 24 timmar sedan)");
+    expect(koRad("gammal").skickad_at).toBeTruthy(); // hanterad: tas inte om igen
+    // en push per enhet (Martin har två) — men bara den FÄRSKA ansökans text, aldrig den gamla (Annas)
+    expect(Array.from(new Set(h.skickat.map(s => s.payload.body)))).toEqual(["Bo har ansökt om ledighet 1 december"]);
+    expect(h.skickat).toHaveLength(2);
+  });
+
+  it("en hel hög (sju gamla beslut + ett färskt) → bara det färska skickas", async () => {
+    h.state.ledighet_ansokningar[0].status = "godkänd";
+    for (let i = 0; i < 7; i++) koa("g" + i, "ledighet_beslut", ANNA, "a1", fore((30 + i) * TIM));
+    koa("ny", "ledighet_beslut", ANNA, "a1", fore(5 * MIN));
+    const res = await kor();
+    expect(res).toMatchObject({ totalt: 8, skickade: 1, skippade: 7 });
+    expect(h.skickat).toHaveLength(1);
+    // andra körningen: inget kvar att skicka
+    h.skickat = [];
+    expect(await kor()).toMatchObject({ totalt: 0 });
+    expect(h.skickat).toHaveLength(0);
+  });
+
+  it("gammal rad + läsfel mot ansökan: raden hoppas över (skjuts inte upp i all evighet)", async () => {
+    h.lasfelLedighet = true;
+    koa("k1", "ledighet_ansokan", MARTIN, "a1", fore(26 * TIM));
+    const res = await kor();
+    expect(res).toMatchObject({ skippade: 1, uppskjutna: 0 });
+    expect(koRad("k1").skickad_at).toBeTruthy();
   });
 });
