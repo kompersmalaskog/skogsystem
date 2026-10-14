@@ -330,8 +330,10 @@ describe('samma komponent — ingen kopia', () => {
     const rad = lasFil('PlusRad.tsx');
     expect((rad.match(/<PlusArk\b/g) || []).length).toBe(1);
     expect(rad).toContain('lage={lage}');
-    expect(rad).toContain('plusLage(window.innerWidth)');
-    expect(rad).not.toContain("addEventListener('resize'");   // läget läses vid öppningen, inte via lyssnare
+    expect(rad).toContain('useSkarmLage(oppen)');
+    const hook = readFileSync(resolve(process.cwd(), 'lib/hooks/useSkarmLage.ts'), 'utf8');
+    expect(hook).toContain('plusLage(window.innerWidth)');
+    expect(hook).not.toContain("addEventListener('resize'");   // läget läses vid öppningen, inte via lyssnare
     const ark = lasFil('PlusArk.tsx');
     expect((ark.match(/export function PlusArk/g) || []).length).toBe(1);
     expect((ark.match(/data-testid="plus-alla-panel"/g) || []).length).toBe(2);   // ramen: en för panelen, en för arket — innehållet (rubrikRad/innehallRad) delas
