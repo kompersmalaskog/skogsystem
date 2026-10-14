@@ -57,4 +57,3 @@ export function faktureringsEtikett(typ: string|null|undefined, debiterbar: bool
 }
 
 export const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
-export const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';

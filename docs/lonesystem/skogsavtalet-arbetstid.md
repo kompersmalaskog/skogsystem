@@ -719,7 +719,7 @@ vilans ändar, nattpass); fixturerna körda mot en lokal Postgres 16 är bundna 
 
 ---
 
-## Avtalets PDF i appen (Mitt avtal → Läs hela avtalet)
+## Avtalets PDF i appen (Min tid → Saldon → Mitt avtal → Läs hela avtalet)
 
 Avtalet kommer från Grönas medlemssidor och ska bara nå inloggade. Därför ligger PDF:en i den PRIVATA Storage-bucketen `avtal`
 (aldrig i `public/`), och vilken fil som visas styr `gs_avtal.avtal_pdf_path` — nytt avtal = ny uppladdning, ingen kodändring.

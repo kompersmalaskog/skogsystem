@@ -14,6 +14,8 @@
  * andra tabeller svarar tomt.
  */
 import React, { act } from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { createRoot } from "react-dom/client";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -104,14 +106,26 @@ describe("Arbetsrapport renderas utan hook-fel", () => {
 
 
 // ── Mitt avtal (Inställningar → Mitt avtal): värdena ur gs_avtal-raden, eller – ──
+const stilla = async (n = 3) => { for (let i = 0; i < n; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); }); };
+const knappMed = (t: string, exakt = false) => Array.from(behallare!.querySelectorAll("button")).find(b => exakt ? (b.textContent || "").trim() === t : (b.textContent || "").includes(t));
+async function klickaKnappMed(t: string, exakt = false) {
+  const k = knappMed(t, exakt);
+  if (!k) throw new Error(`hittar ingen knapp: ${t} — sidan säger: ${(behallare!.textContent || "").slice(0, 300)}`);
+  await act(async () => { k.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await stilla();
+}
+/** Min tid (nedre navigeringen) → fliken Saldon. */
+async function oppnaSaldon() {
+  await klickaKnappMed("Min tid");
+  await klickaKnappMed("Saldon", true);
+}
 async function oppnaMittAvtal() {
   await montera("/arbetsrapport");
   const text = () => behallare!.textContent || "";
-  const nav = Array.from(behallare!.querySelectorAll("button")).find(b => (b.textContent || "").includes("Inställningar"))!;
-  await act(async () => { nav.click(); });
-  for (let i = 0; i < 3; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); });
-  const kort = Array.from(behallare!.querySelectorAll<HTMLElement>("div")).find(d => (d.textContent || "").trim().startsWith("Mitt avtal") && d.style.cursor === "pointer")!;
-  await act(async () => { kort.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  // Mitt avtal ligger sist under Min tid → Saldon (avtalet läser man, det ändrar man inte).
+  await oppnaSaldon();
+  const avtalKnapp = Array.from(behallare!.querySelectorAll("button")).find(b => (b.textContent || "").includes("Mitt avtal"))!;
+  await act(async () => { avtalKnapp.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   for (let i = 0; i < 3; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); });
   // Värdet på en rad: etiketten och värdet är syskon i en flex-rad.
   const varde = (etikett: string) => {
@@ -244,5 +258,83 @@ describe("Läs hela avtalet", () => {
     expect(knapp().disabled).toBe(true);
     expect(text()).not.toContain("Avtalet är inte uppladdat än");
     expect(text()).toContain("Avtalet kunde inte läsas");
+  });
+});
+
+
+// ── Min tid: tre flikar (Översikt, Saldon, Vila) och Mitt avtal sist under Saldon ──
+describe("Min tid och Inställningar", () => {
+  const flikar = () => Array.from(behallare!.querySelectorAll("header button")).map(b => (b.textContent || "").trim());
+
+  it("Min tid har tre flikar — Översikt, Saldon, Vila — och ingen Mönster", async () => {
+    await montera("/arbetsrapport");
+    await klickaKnappMed("Min tid");
+    expect(flikar()).toEqual(["Översikt", "Saldon", "Vila"]);
+    for (const f of ["Översikt", "Saldon", "Vila"]) {
+      await klickaKnappMed(f, true);
+      expect(behallare!.textContent).not.toMatch(/Mönster|Senaste 30 dagarna|Per aktivitet|Fördelning/);
+    }
+  });
+
+  it("Mitt avtal står som SISTA rad under Saldon (efter semester och ATK) och inte under Översikt eller Vila", async () => {
+    await montera("/arbetsrapport");
+    await klickaKnappMed("Min tid");
+    expect(knappMed("Mitt avtal")).toBeUndefined();                  // Översikt
+    await klickaKnappMed("Vila", true);
+    expect(knappMed("Mitt avtal")).toBeUndefined();
+    await klickaKnappMed("Saldon", true);
+    const avtal = knappMed("Mitt avtal")!;
+    expect(avtal).toBeTruthy();
+    expect(avtal.querySelector(".material-symbols-outlined")?.textContent).toBe("chevron_right");   // "Mitt avtal ›"
+    // sist: inget annat innehåll i fliken kommer efter raden
+    const main = behallare!.querySelector("main")!;
+    const sektioner = Array.from(main.querySelectorAll(":scope > section"));
+    expect(sektioner[sektioner.length - 1].contains(avtal)).toBe(true);
+    expect(main.textContent!.indexOf("Semester")).toBeLessThan(main.textContent!.indexOf("Mitt avtal"));
+    expect(main.textContent!.indexOf("ATK")).toBeLessThan(main.textContent!.indexOf("Mitt avtal"));
+  });
+
+  it("Mitt avtal öppnar avtalsvyn, och tillbaka går till Min tid → Saldon", async () => {
+    AVTAL.rad = PROD_AVTAL;
+    await montera("/arbetsrapport");
+    await oppnaSaldon();
+    await klickaKnappMed("Mitt avtal");
+    expect(behallare!.textContent).toContain("Avtalsperiod");
+    expect(behallare!.textContent).toContain("Skogsavtalet 2025-2027");
+    // Tillbaka-knappen (första knappen i avtalsvyns topp)
+    const tillbaka = behallare!.querySelector("button")!;
+    await act(async () => { tillbaka.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await stilla();
+    expect(flikar()).toEqual(["Översikt", "Saldon", "Vila"]);
+    expect(knappMed("Mitt avtal")).toBeTruthy();                      // Saldon är fliken man hamnar på
+    expect(behallare!.textContent).toContain("Semester");
+    expect(behallare!.textContent).not.toContain("Avtalsperiod");
+  });
+
+  it("Inställningar har inte längre Mitt avtal — bara det föraren ändrar", async () => {
+    await montera("/arbetsrapport");
+    await klickaKnappMed("Inställningar");
+    const t = behallare!.textContent || "";
+    expect(t).toContain("Hemadress");
+    expect(t).toContain("Påminnelser");
+    expect(t).not.toContain("Mitt avtal");
+  });
+});
+
+describe("Mönster-fliken är borta ur koden, inte bara ur menyn", () => {
+  const kalla = fs.readFileSync(path.resolve(__dirname, "Arbetsrapport.tsx"), "utf8");
+  it("flik-typen har bara de tre flikarna ('lön' var en rest: lönen är ett eget läge, steg 'lön', aldrig en Min tid-flik)", () => {
+    const m = /useState<([^>]*)>\('översikt'\)/.exec(kalla.slice(kalla.indexOf("const [minTidFlik")));
+    expect(m?.[1]).toBe("'översikt'|'saldon'|'vila'");
+  });
+  it("ingen 'monster'-gren, ingen 30-dagarsstatistik och inget som bara den använde (aktIcon)", () => {
+    expect(kalla).not.toMatch(/'monster'|"monster"/);
+    expect(kalla).not.toMatch(/Senaste 30 dagarna|senaste30|arbDagar30/);
+    expect(kalla).not.toMatch(/aktIcon/);
+  });
+  it("aktIcon finns inte kvar i lib/aktiviteter (den användes bara av Mönster)", async () => {
+    const akt = await import("@/lib/aktiviteter");
+    expect("aktIcon" in akt).toBe(false);
+    expect("aktLabel" in akt).toBe(true);   // det som andra vyer använder finns kvar
   });
 });
