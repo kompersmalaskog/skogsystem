@@ -89,3 +89,32 @@ describe('hooken och listan', () => {
     expect(lista).toContain("const draggbar = kartaTryck && lage === 'ark';");
   });
 });
+
+describe('markeringarna göms medan listan är öppen, och symbolerna klipps på zoom — bara i planeringsvyn', () => {
+  it('gömningen gäller bara när kartan tar trycken OCH listan är öppen (annars som förut); återställs vid stängning/val', () => {
+    const i = page.indexOf('const d = skapaLagerDoljare(map);');
+    const effekt = page.slice(page.lastIndexOf('useEffect(() => {', i), page.indexOf('}, [objektKartaTryck, objektListaOppen, mapLibreReady]);', i));
+    expect(effekt).toContain('!(objektKartaTryck && objektListaOppen)) return;');
+    expect(effekt).toContain("map.on('styledata', d.dolj);");
+    expect(page).toContain("return () => { try { map.off('styledata', d.dolj); } catch { /* kartan är borta */ } d.aterstall(); };");
+  });
+
+  it('symbolklippet: körvyn och /maskin (objektListaVal=false) får bara en återställning som inte rör något, och inga lyssnare', () => {
+    const i = page.indexOf("if (!objektListaVal) { tillampaSymbolZoom(map, null); return; }");
+    expect(i).toBeGreaterThan(-1);
+    const fore = page.slice(i - 200, i);
+    expect(fore).toContain('if (!map || !mapLibreReady) return;');
+    expect(page.slice(i, i + 500)).toContain("map.on('styledata', kor);");
+    expect(page).toContain('}, [objektListaVal, mapLibreReady, symbolTraktM]);');
+  });
+
+  it('klippet bygger på traktens riktiga gräns (traktGeo), inte på en gissning', () => {
+    expect(page).toContain('const symbolTraktM = useMemo(() => traktStorlekM(traktGeo as any), [traktGeo]);');
+  });
+
+  it('gömningen och klippet finns inte i ObjektKartaTom (där finns inga objektlager) eller i hooken', () => {
+    const tom = readFileSync(new URL('../components/planering/ObjektKartaTom.tsx', import.meta.url), 'utf8');
+    expect(tom).not.toMatch(/skapaLagerDoljare|tillampaSymbolZoom/);
+    expect(hook).not.toMatch(/skapaLagerDoljare|tillampaSymbolZoom/);
+  });
+});

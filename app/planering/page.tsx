@@ -12,6 +12,8 @@ import ObjektLista from '../../components/planering/ObjektLista'
 import ObjektKartaTom from '../../components/planering/ObjektKartaTom'
 import { useObjektPrickar } from '../../lib/hooks/useObjektPrickar'
 import type { KartPrickar } from '../../lib/objektKarta'
+import { skapaLagerDoljare } from '../../lib/objektKartaDolj'
+import { symbolTroskel, tillampaSymbolZoom, traktStorlekM } from '../../lib/symbolZoom'
 import { usePlaneringsObjekt, type HamtaObjektSvar } from '../../lib/hooks/usePlaneringsObjekt'
 import { rensaSenastePlanering } from '../../lib/senastePlanering'
 import { anvandObjektLista } from '../../lib/objektVal'
@@ -13001,6 +13003,36 @@ export default function PlannerPage() {
     prickar: objektKartaTryck && objektListaOppen ? listPrickar : null,
     aterstall: true,
   });
+
+  // Objektlistan öppen (och kartan tar trycken): det valda objektets markeringar — symboler, linjer, zoner, pilar, etiketter, traktgräns, högar, spår —
+  // göms så att BARA prickarna syns (lib/objektKartaDolj). De kommer tillbaka när listan stängs eller ett objekt väljs. Baskartan, prickarna och
+  // förarens egen position rörs inte.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !(objektKartaTryck && objektListaOppen)) return;
+    const d = skapaLagerDoljare(map);
+    d.dolj();
+    map.on('styledata', d.dolj);       // lager som skapas eller tänds medan listan är öppen göms också
+    return () => { try { map.off('styledata', d.dolj); } catch { /* kartan är borta */ } d.aterstall(); };
+  }, [objektKartaTryck, objektListaOppen, mapLibreReady]);
+
+  // Planeringsvyn (även utan lista): symboler och deras etiketter klipps bort på en zoomnivå där trakten är för liten för att läsas och kommer tillbaka vid
+  // inzoomning — tröskeln = zoomen där HELA trakten fyller ungefär halva skärmen (lib/symbolZoom). Körvyn och /maskin (objektListaVal=false) rörs inte.
+  const symbolTraktM = useMemo(() => traktStorlekM(traktGeo as any), [traktGeo]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    if (!objektListaVal) { tillampaSymbolZoom(map, null); return; }
+    const kor = () => {
+      const c = map.getContainer?.();
+      const kort = Math.min(c?.clientWidth || window.innerWidth, c?.clientHeight || window.innerHeight);
+      tillampaSymbolZoom(map, symbolTroskel({ traktM: symbolTraktM, lat: map.getCenter().lat, kortsidaPx: kort }));
+    };
+    kor();
+    map.on('styledata', kor);          // symbollagren skapas i omgångar (ikonerna laddas först)
+    map.on('resize', kor);
+    return () => { try { map.off('styledata', kor); map.off('resize', kor); } catch { /* kartan är borta */ } tillampaSymbolZoom(map, null); };
+  }, [objektListaVal, mapLibreReady, symbolTraktM]);
 
   // Pillens räknare: ALLA markeringar på objektet räknas, oavsett vem som satte dem; krav bara för certifierade objekt.
   const miljoAntal = useMemo(() => raknaMiljo(markers), [markers]);
