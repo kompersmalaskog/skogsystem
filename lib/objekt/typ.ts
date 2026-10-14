@@ -45,9 +45,9 @@ export function harledTyp(risskotning: boolean | null | undefined, huvudtyp: str
   return huvudtyp.toLowerCase().includes('gallr') ? 'gallring' : 'slutavverkning';
 }
 
-// Lång etikett (rubriker, detaljvy)
+// Lång etikett (rubriker, detaljvy). GROT skrivs med versaler (bara visningen — lagrade värden och nycklar är oförändrade).
 export function typLabel(t: ObjektTyp): string {
-  return t === 'grot' ? 'Grot'
+  return t === 'grot' ? 'GROT'
     : t === 'energiklippning' ? 'Energiklippning'
     : t === 'gallring' ? 'Gallring'
     : t === 'slutavverkning' ? 'Slutavverkning'
@@ -56,7 +56,7 @@ export function typLabel(t: ObjektTyp): string {
 
 // Kort etikett (taggar i listor)
 export function typKort(t: ObjektTyp): string {
-  return t === 'grot' ? 'Grot'
+  return t === 'grot' ? 'GROT'
     : t === 'energiklippning' ? 'Energi'
     : t === 'gallring' ? 'Gallring'
     : t === 'slutavverkning' ? 'Slutavv.'

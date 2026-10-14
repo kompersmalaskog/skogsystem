@@ -129,7 +129,7 @@ describe('grupperna utgår från status', () => {
   it('GROT och energiklippning syns bland de aktiva; inga typknappar eller flikar', async () => {
     await montera();
     expect(q('objekt-rad-g')!.textContent).toContain('GROT Hjorthult');
-    expect(q('objekt-rad-g')!.textContent).toContain('Grot');
+    expect(q('objekt-rad-g')!.textContent).toContain('GROT · Vida');            // typen skrivs GROT, versaler
     expect(q('objekt-rad-n')!.textContent).toContain('Energiklippning');
     const knappar = Array.from(behallare!.querySelectorAll('button')).map((b) => b.textContent);
     for (const typ of ['Alla', 'Slutavverkning', 'Gallring']) expect(knappar).not.toContain(typ);
@@ -396,7 +396,7 @@ describe('Avslutade — växlare per typ', () => {
     expect(q('avslutade-typvaxlare')).toBeNull();
     expect(avslutadeIdn()).toEqual(['s2', 'g1', 't1', 's3', 's1', 'g2', 's4']);
     expect(q('objekt-rad-g1')!.textContent).toContain('Gallring');
-    expect(q('objekt-rad-t1')!.textContent).toContain('Grot');
+    expect(q('objekt-rad-t1')!.textContent).toContain('GROT · Södra');
     expect(q('objekt-rad-g1')!.textContent).toContain('Avslutat 2026-10-01');
     await sokText('Gall B');
     expect(avslutadeIdn()).toEqual(['g2']);                                  // en träff i en annan typ än den förvalda

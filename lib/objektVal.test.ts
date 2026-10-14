@@ -72,7 +72,7 @@ describe('grupperaObjekt', () => {
 describe('raden: typ · källa · m³ och avståndet', () => {
   it('radMeta: det som finns, i ordningen typ · källa · m³', () => {
     expect(radMeta({ id: 'a', typ: 'slutavverkning', bolag: 'Södra', volym: 1200 })).toBe('Slutavverkning · Södra · 1 200 m³');
-    expect(radMeta({ id: 'a', typ: 'grot', volym: 80 })).toBe('Grot · 80 m³');
+    expect(radMeta({ id: 'a', typ: 'grot', volym: 80 })).toBe('GROT · 80 m³');
     expect(radMeta({ id: 'a', bolag: 'Vida' })).toBe('Vida');   // okänd typ och ingen volym → inget gissat
     expect(radMeta({ id: 'a' })).toBe('');
   });
