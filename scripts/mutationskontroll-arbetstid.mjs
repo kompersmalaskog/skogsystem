@@ -1,20 +1,15 @@
-// Mutationskontroll för lib/arbetstidsgranser.ts (lag och lön: testnivå full).
+// Mutationskontroll för lagkontrollen (lib/arbetstidsgranser.ts, även lib/vilobrott.ts och lib/sthlmTid.ts som den bygger på). Testnivå full.
 //
-// Ändrar EN sak i taget i gränslogiken — en tröskel, en jämförelse, en sorts frånvaro, ett datumavdrag — kör
-// lib/arbetstidsgranser.test.ts och kräver att testerna blir RÖDA. En mutant som överlever betyder att en gräns kan flyttas
-// utan att något test märker det. Originalfilen återställs alltid (även vid avbrott); scriptet avslutar med 1 om någon överlevde.
+// Ändrar EN sak i taget — en tröskel, en jämförelse, en sorts frånvaro, ett datumavdrag — kör lib/arbetstidsgranser.test.ts och kräver att
+// testerna blir RÖDA. Motorn: scripts/mutationsmotor.mjs (återställer filerna även vid avbrott).
 //
-// Filerna återställs alltid, även när skriptet avbryts av ett fel i mönstren (aterstall() före varje process.exit — en finally körs inte då).
 // Kör:  node scripts/mutationskontroll-arbetstid.mjs         (EN tung körning åt gången: kör inte tillsammans med tsc/build)
-import { readFileSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { kor } from "./mutationsmotor.mjs";
 
 const FIL = "lib/arbetstidsgranser.ts";
 const VILA = "lib/vilobrott.ts";
-const TEST = "lib/arbetstidsgranser.test.ts";
-const originalFil = { [FIL]: readFileSync(FIL, "utf8"), [VILA]: readFileSync(VILA, "utf8") };
+const STHLM = "lib/sthlmTid.ts";
 
-/** [namn, från, till, fil?] — `från` måste finnas EXAKT en gång i filen (annars är mutationen tvetydig och scriptet stannar). Standardfil: lib/arbetstidsgranser.ts. */
 const M = [
   // nivå
   ["röd först OVER gränsen (> → >=)", 'if (varde > grans) return "rod";', 'if (varde >= grans) return "rod";'],
@@ -96,15 +91,12 @@ const M = [
   ["vila: ledande vila (före första passet) räknas inte", "if (forstaStart > wsT) maxMs = forstaStart - wsT;", "if (false) maxMs = forstaStart - wsT;", VILA],
   ["vila: avslutande vila (efter sista passet, till nu) räknas inte", "if (nuT > cursor && nuT > wsT && cursor < weT && nuT - cursor > maxMs) maxMs = nuT - cursor;", "if (false) maxMs = nuT - cursor;", VILA],
   ["vila: avslutande vila räknas även när den inte överlappar fönstret", "if (nuT > cursor && nuT > wsT && cursor < weT && nuT - cursor > maxMs)", "if (nuT > cursor && nuT - cursor > maxMs)", VILA],
-  ["vila: ett enda pass ger ingen ledande/avslutande vila", "if (intervaller.length < 2 && !andar) return 0;", "if (intervaller.length < 2) return 0;", VILA],
   ["dygnsvila: pass över midnatt slutar samma dygn", "if (start1 && slut1.h * 60 + slut1.m <= start1.h * 60 + start1.m) d1 = new Date(d1.getTime() + 86400000);", "", VILA],
   ["dygnsvila: pass över midnatt, <= → <", "slut1.h * 60 + slut1.m <= start1.h * 60 + start1.m", "slut1.h * 60 + slut1.m < start1.h * 60 + start1.m", VILA],
   // kortets anrop av ändarna
-  ["veckovila: kortet sätter inte vilaForeForstaPass", "{ nu, vilaForeForstaPass: true }", "{ nu }"],
-  ["veckovila: kortet skickar inte nu", "{ nu, vilaForeForstaPass: true }", "{ vilaForeForstaPass: true }"],
-  ["dygnsvila: kortet sätter inte passOverMidnatt", "{ passOverMidnatt: true }", "{}"],
+  ["veckovila: kortet skickar inte nu", "veckovilaPerDag(spann, T.veckovila_fonster_dagar, nu)", "veckovilaPerDag(spann, T.veckovila_fonster_dagar, null)"],
   ["veckovila: visas över fönstret (168-taket borta)", "Math.min(vMin.h, T.veckovila_fonster_dagar * 24)", "vMin.h"],
-  ["nu: väggklocka i fel tidszon (UTC i stället för Stockholm)", 'timeZone: "Europe/Stockholm", year', 'timeZone: "UTC", year'],
+  ["nu: väggklocka i fel tidszon (UTC i stället för Stockholm)", 'timeZone: "Europe/Stockholm", year', 'timeZone: "UTC", year', STHLM],
   // maskinflytt
   ["flytt: skräpgräns 16 → 17 tim", "export const FLYTT_MAX_MIN = 16 * 60;", "export const FLYTT_MAX_MIN = 17 * 60;"],
   ["flytt: skräpgräns 16 → 15 tim", "export const FLYTT_MAX_MIN = 16 * 60;", "export const FLYTT_MAX_MIN = 15 * 60;"],
@@ -143,33 +135,4 @@ const M = [
   ["sortering: närmast gränsen sist", "|| narmast(b) - narmast(a)", "|| narmast(a) - narmast(b)"],
 ];
 
-const raknaForekomster = (s, d) => (d ? s.split(d).length - 1 : 0);
-const aterstall = () => { for (const [fil, innehall] of Object.entries(originalFil)) writeFileSync(fil, innehall); };
-const kor = () => spawnSync("npx", ["vitest", "run", TEST, "--reporter=dot"], { encoding: "utf8", env: { ...process.env, CI: "1" } });
-
-let overlevde = [];
-let dog = 0;
-try {
-  // Utgångsläget måste vara grönt, annars säger "rött" ingenting.
-  const grund = kor();
-  if (grund.status !== 0) { console.error("Testerna är röda innan mutationerna — rätta dem först.\n" + grund.stdout + grund.stderr); aterstall(); process.exit(2); }
-
-  for (const [namn, fran, till, fil = FIL] of M) {
-    const original = originalFil[fil];
-    const n = raknaForekomster(original, fran);
-    if (n !== 1) { console.error(`✗ "${namn}": mönstret finns ${n} gånger i ${fil} (ska vara exakt 1):\n   ${fran}`); aterstall(); process.exit(2); }
-    aterstall();
-    writeFileSync(fil, original.replace(fran, () => till));
-    const r = kor();
-    const dod = r.status !== 0;
-    if (dod) dog++; else overlevde.push(namn);
-    console.log(`${dod ? "död     " : "ÖVERLEVDE"}  ${namn}`);
-  }
-} finally {
-  aterstall();
-}
-const allt = M.length;
-console.log(`\n${dog} av ${allt} mutanter dödades${overlevde.length ? `, ${overlevde.length} överlevde:` : "."}`);
-for (const n of overlevde) console.log("  - " + n);
-aterstall();
-process.exit(overlevde.length ? 1 : 0);
+kor({ filer: [FIL, VILA, STHLM], tester: ["lib/arbetstidsgranser.test.ts"], standardFil: FIL, mutationer: M });

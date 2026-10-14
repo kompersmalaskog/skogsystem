@@ -299,7 +299,9 @@ describe("Översikt = att-göra-lista", () => {
       { medarbetare_id: "m1", datum: "2026-09-05", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: true },
       { medarbetare_id: "m2", datum: "2026-09-08", start_tid: null, slut_tid: null, bekraftad: false },
       { medarbetare_id: "m2", datum: "2026-10-06", start_tid: "06:00:00", slut_tid: "15:30:00", bekraftad: false },
-      // vilobrott: Anna slutar 20:30 och börjar 05:00
+      // vilobrott: Anna slutar 20:30 och börjar 05:00. Veckovilobrottet kräver veckor utan 36 tim vila: ett pass varje dag 6–27 sep
+      // (14 tim vila mellan dem), i en obruten kedja från 3–5 sep — ett glapp före kedjan skulle räknas som vila i fönstret (hela glappet räknas).
+      ...Array.from({ length: 22 }, (_, i) => ({ medarbetare_id: "m1", datum: `2026-09-${String(6 + i).padStart(2, "0")}`, start_tid: "05:00:00", slut_tid: "15:00:00", bekraftad: true })),
       { medarbetare_id: "m1", datum: "2026-09-28", start_tid: "05:00:00", slut_tid: "20:30:00", bekraftad: true },
       { medarbetare_id: "m1", datum: "2026-09-29", start_tid: "05:00:00", slut_tid: "15:30:00", bekraftad: true },
     ];
@@ -1791,7 +1793,10 @@ describe("Löneunderlag", () => {
 });
 
 describe("Vilobrott-fliken läser förarens svar", () => {
+  // Sex pass i rad (14 tim vila mellan dem) + natten med 8,5 tim vila: en vecka utan 36 tim (veckovila) och en natt under 11 tim (dygnsvila).
+  // Utan de sex först vore tiden före första passet vila och bara dygnsvilan bröts (de ändarna räknas som vila sedan 2026-10-14).
   const dagar = [
+    ...["22", "23", "24", "25", "26", "27"].map(dd => ({ medarbetare_id: "m1", datum: `2026-09-${dd}`, start_tid: "05:00:00", slut_tid: "15:00:00", arbetad_min: 600 })),
     { medarbetare_id: "m1", datum: "2026-09-28", start_tid: "05:00:00", slut_tid: "20:30:00", arbetad_min: 600 },
     { medarbetare_id: "m1", datum: "2026-09-29", start_tid: "05:00:00", slut_tid: "15:30:00", arbetad_min: 600 },
   ];
@@ -2591,12 +2596,14 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
     expect(kortText()).toContain("v28–41 (antagen): 593,8 tim mot bas 480 → 113,8");
   });
 
-  it("kan frånvaron inte läsas säger kortet det utan att fälla ut: talen är för höga, aldrig 'ingen frånvaro'", async () => {
+  it("kan frånvaron inte läsas säger kortet det utan att fälla ut: talen är för LÅGA (basen drogs inte), aldrig 'ingen frånvaro'", async () => {
     g.__arsovertid = svar(IDAG, { franvaro_fel: "relation does not exist" });
     await monter("flik=lon");
     expect(kortText()).toContain("Kunde inte läsa frånvaron");
     expect(kortText()).toContain("relation does not exist");
-    expect(kortText()).toContain("för höga");
+    // Fel riktning förut: utan frånvaro är basen för stor (40 tim även i en semestervecka), så övertiden blir för LÅG.
+    expect(kortText()).toContain("basen drogs inte för frånvaro, så talen är för låga.");
+    expect(kortText()).not.toContain("för höga");
   });
 
   it("frånvaron lästes: ingen varning", async () => {
