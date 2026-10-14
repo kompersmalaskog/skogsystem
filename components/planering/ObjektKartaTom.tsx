@@ -3,7 +3,7 @@
 // Planeringsvyn när INGET objekt är valt (första gången, eller objektet är borttaget): kartan med alla objekt som prickar (lib/objektKarta —
 // samma regler som när listan öppnas ovanpå ett objekt) och objektlistan ovanpå som vanligt (panel på bred skärm, ark på telefon). Aldrig en
 // svart tom yta. Listan går inte att stänga i det här läget (inget objekt att gå tillbaka till), men kartan syns och prickarna går att trycka på:
-// tryck = samma som raden i listan. Kartan går att panorera och zooma. Tryck på tom karta gör ingenting.
+// tryck = samma som raden i listan. Kartan går att använda fritt (panorera, nyp, dubbeltryck-zoom); tryck på tom karta gör ingenting.
 //
 // Egen liten karta (baskartan + prickarna) i stället för planeringsvyns 22 000-radiga: det finns inget objekt att rita lager för, och sidan
 // byter till den vanliga kartan i samma stund ett objekt valts.
@@ -20,7 +20,7 @@ const MapLibreMap = dynamic(() => import('@/components/MapLibreMap'), { ssr: fal
 export default function ObjektKartaTom({ onValj, onNavigera }: { onValj: (o: ListaObjekt) => void; onNavigera: (o: ListaObjekt) => void }) {
   const [karta, setKarta] = useState<any | null>(null);
   const [prickar, setPrickar] = useState<KartPrickar | null>(null);
-  useObjektPrickar({ map: karta, aktiv: true, prickar, kanStangas: false, onStang: () => {} });
+  useObjektPrickar({ map: karta, aktiv: true, prickar, aterstall: false });
   return (
     <>
       <div data-testid="planering-utan-objekt-karta" style={{ position: 'fixed', inset: 0, background: FARG.bg }}>

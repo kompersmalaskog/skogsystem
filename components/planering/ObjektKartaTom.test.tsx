@@ -140,6 +140,28 @@ describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
     expect(q('objekt-lista')!.getAttribute('data-oppen')).toBe('1');
   });
 
+  it('telefon, inget objekt valt: arket går att dra upp till nästan full höjd, men ned stänger det inte (inget att gå tillbaka till)', async () => {
+    sattBredd(390);
+    await montera();
+    const grepp = q('objekt-lista-grepp')!;
+    const peka = (typ: string, y: number) => act(() => { grepp.dispatchEvent(new MouseEvent(typ, { bubbles: true, cancelable: true, clientY: y })); });
+    await peka('pointerdown', 500); await peka('pointermove', 300); await peka('pointerup', 300);
+    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('hel');
+    await peka('pointerdown', 100); await peka('pointermove', 400); await peka('pointerup', 400);
+    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('halv');
+    await peka('pointerdown', 100); await peka('pointermove', 400); await peka('pointerup', 400);
+    expect(q('objekt-lista')!.getAttribute('data-oppen')).toBe('1');
+    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('halv');
+  });
+
+  it('kartan går att använda fritt (panorera, nyp, dubbeltryck): inget ligger som fångst över den, och dubbeltryck når kartan', async () => {
+    await montera();
+    let dbl = 0;
+    h.karta.canvasBeh.addEventListener('dblclick', () => { dbl++; });
+    act(() => { h.karta.canvas.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); });
+    expect(dbl).toBe(1);
+  });
+
   it('kartan går att panorera och zooma: inget ligger som fångst över den (listan är bara arket/panelen)', async () => {
     await montera();
     expect(document.querySelectorAll('[data-testid="objekt-lista-bakgrund"]')).toHaveLength(0);

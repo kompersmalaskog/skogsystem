@@ -533,7 +533,7 @@ describe('ark under 900 px, panel från 900 px — samma regel som plus-arket', 
   it('samma rörelse som plus-arket: RORELSE.byte med RORELSE.kurva (inget överskjut), och ingen mörk bakgrund över kartan', async () => {
     await montera();
     await avancera(50);
-    expect(q('objekt-lista')!.style.transition).toBe(`transform ${RORELSE.byte}ms ${RORELSE.kurva}`);
+    expect(q('objekt-lista')!.style.transition).toBe(`transform ${RORELSE.byte}ms ${RORELSE.kurva}, height ${RORELSE.sheet}ms ${RORELSE.kurva}`);   // höjden följer plus-arkets (halv ↔ hel)
     expect(RORELSE.kurva).toBe('cubic-bezier(0.2, 0, 0, 1)');
     const fangst = q('objekt-lista-bakgrund')!;
     expect(fangst.style.background).toBe('');
@@ -563,12 +563,13 @@ describe('stängning', () => {
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
     expect(spion.stang).toBe(1);
   });
-  it('tryck på kartan stänger — men inte i samma stund som listan öppnades (spöktryck)', async () => {
+  it('tryck på kartan stänger INTE listan (hur länge efter öppningen som helst) — den stängs med ×, Esc eller drag ned', async () => {
     await montera();
     klicka(q('objekt-lista-bakgrund'));
-    expect(spion.stang).toBe(0);
     await avancera(500);
     klicka(q('objekt-lista-bakgrund'));
+    expect(spion.stang).toBe(0);
+    klicka(q('objekt-lista-stang'));
     expect(spion.stang).toBe(1);
   });
   it('utan valt objekt är listan det enda som finns: ingen ×, ingen fångst, Esc stänger inget', async () => {

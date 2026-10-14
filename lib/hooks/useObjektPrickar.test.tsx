@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import { useObjektPrickar, FORSTA_TRYCK_SPARR_MS, MIN_ZOOM_OVERSIKT } from './useObjektPrickar';
+import { useObjektPrickar, MIN_ZOOM_OVERSIKT } from './useObjektPrickar';
 import { laggKarta } from './karta.testhjalp';
 import { PRICK_KALLA, PRICK_LAGER, type KartPrick, type KartPrickar } from '../objektKarta';
 
@@ -14,9 +14,9 @@ const prickar = (nyckel: string, lista: KartPrick[], valj = vi.fn()): KartPricka
 
 let rot: Root | null = null;
 let ut: { markeraVal: () => void } | null = null;
-type P = { map: any; aktiv: boolean; prickar: KartPrickar | null; kanStangas?: boolean; onStang?: () => void };
+type P = { map: any; aktiv: boolean; prickar: KartPrickar | null; aterstall?: boolean };
 function Prov(p: P) {
-  ut = useObjektPrickar({ map: p.map, aktiv: p.aktiv, prickar: p.prickar, kanStangas: p.kanStangas ?? true, onStang: p.onStang ?? (() => {}) });
+  ut = useObjektPrickar({ map: p.map, aktiv: p.aktiv, prickar: p.prickar, aterstall: p.aterstall ?? true });
   return null;
 }
 const rendera = async (p: P) => { await act(async () => { rot!.render(<Prov {...p} />); }); };
@@ -127,15 +127,14 @@ describe('utzoomningens tak (kartans minZoom 8 räcker inte med arket över nedr
 });
 
 describe('tryck på kartan', () => {
-  it('tryck på en prick = raden: valj(id) och trycket når inte kartans övriga lager', async () => {
+  it('tryck på en prick = raden: valj(id) och klicket når inte kartans övriga lager', async () => {
     const karta = laggKarta([{ id: 'pa', x: 100, y: 200, prio: 1 }]);
-    const valj = vi.fn(); const onStang = vi.fn(); const efter = vi.fn();
-    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('pa')], valj), onStang });
+    const valj = vi.fn(); const efter = vi.fn();
+    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('pa')], valj) });
     document.addEventListener('click', efter);          // allt ovanför kartan i trädet ska inte heller se klicket
     karta.canvasBeh.addEventListener('click', efter);   // kartans egna lyssnare (MapLibres lager) ska inte se det
     nerOchKlick(karta, [102, 203]);
     expect(valj).toHaveBeenCalledWith('pa');
-    expect(onStang).not.toHaveBeenCalled();
     expect(efter).not.toHaveBeenCalled();
     document.removeEventListener('click', efter);
   });
@@ -148,37 +147,50 @@ describe('tryck på kartan', () => {
     expect(valj).toHaveBeenCalledWith('nara');
   });
 
-  it('tryck på tom karta stänger listan — men inte direkt efter att den öppnades (spöktryck)', async () => {
+  it('tryck på tom karta gör ingenting — varken väljer eller stänger (hooken har inget sätt att stänga listan), även långt efter öppningen', async () => {
     const karta = laggKarta([]);
-    const onStang = vi.fn();
-    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('a')]), onStang });
+    const valj = vi.fn();
+    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('a')], valj) });
     nerOchKlick(karta, [50, 50]);
-    expect(onStang).not.toHaveBeenCalled();
-    act(() => { vi.advanceTimersByTime(FORSTA_TRYCK_SPARR_MS + 10); });
+    act(() => { vi.advanceTimersByTime(5000); });
     nerOchKlick(karta, [50, 50]);
-    expect(onStang).toHaveBeenCalledTimes(1);
+    expect(valj).not.toHaveBeenCalled();
   });
 
-  it('en panorering som råkar sluta i ett klick varken väljer eller stänger', async () => {
+  it('kartan går att använda fritt: dubbeltryck, nyp/drag (touch + pekare) och scrollhjul når kartans egna lyssnare orörda', async () => {
+    const karta = laggKarta([]);
+    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('a')]) });
+    const sett: string[] = [];
+    for (const typ of ['dblclick', 'touchstart', 'touchmove', 'touchend', 'pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mouseup', 'wheel']) {
+      karta.canvasBeh.addEventListener(typ, () => sett.push(typ));
+    }
+    act(() => {
+      for (const typ of ['touchstart', 'touchmove', 'touchend', 'pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mouseup', 'wheel', 'dblclick']) {
+        karta.canvas.dispatchEvent(new MouseEvent(typ, { bubbles: true, cancelable: true, clientX: 50, clientY: 50 }));
+      }
+    });
+    expect(sett.sort()).toEqual(['dblclick', 'mousedown', 'mouseup', 'pointerdown', 'pointermove', 'pointerup', 'touchend', 'touchmove', 'touchstart', 'wheel'].sort());
+  });
+
+  it('en panorering som råkar sluta i ett klick varken väljer eller gör något', async () => {
     const karta = laggKarta([{ id: 'pa', x: 150, y: 150 }]);
-    const valj = vi.fn(); const onStang = vi.fn();
-    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('pa')], valj), onStang });
-    act(() => { vi.advanceTimersByTime(FORSTA_TRYCK_SPARR_MS + 10); });
+    const valj = vi.fn();
+    await rendera({ map: karta, aktiv: true, prickar: prickar('aktiva', [prick('pa')], valj) });
     nerOchKlick(karta, [10, 10], [150, 150]);
     expect(valj).not.toHaveBeenCalled();
-    expect(onStang).not.toHaveBeenCalled();
   });
 
-  it('listan som inte går att stänga (inget objekt valt): prickarna går att trycka på, tom karta gör ingenting', async () => {
+  it('inget objekt valt (aterstall=false): prickarna går att trycka på, tom karta gör ingenting, och ingen kameraåtergång vid avmontering', async () => {
     const karta = laggKarta([{ id: 'pa', x: 100, y: 200 }]);
-    const valj = vi.fn(); const onStang = vi.fn();
-    await rendera({ map: karta, aktiv: true, kanStangas: false, prickar: prickar('aktiva', [prick('pa')], valj), onStang });
-    act(() => { vi.advanceTimersByTime(FORSTA_TRYCK_SPARR_MS + 10); });
+    const valj = vi.fn();
+    await rendera({ map: karta, aktiv: true, aterstall: false, prickar: prickar('aktiva', [prick('pa')], valj) });
     nerOchKlick(karta, [100, 200]);
     expect(valj).toHaveBeenCalledWith('pa');
     karta.queryRenderedFeatures.mockReturnValue([]);
     nerOchKlick(karta, [300, 300]);
-    expect(onStang).not.toHaveBeenCalled();
+    expect(valj).toHaveBeenCalledTimes(1);
+    await rendera({ map: karta, aktiv: false, aterstall: false, prickar: null });
+    expect(karta.easeTo).not.toHaveBeenCalled();
   });
 
   it('klick utanför kartans canvas (kartkontroller, HTML-markörer) rörs inte', async () => {

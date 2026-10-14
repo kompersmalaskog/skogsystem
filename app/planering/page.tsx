@@ -12989,7 +12989,7 @@ export default function PlannerPage() {
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
     && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !objektListaOppen;
 
-  // Objektlistan öppen: objekten som prickar på kartan, tryck på en prick = raden, tryck på tom karta stänger, stängd utan val = kartan tillbaka.
+  // Objektlistan öppen: objekten som prickar på kartan, tryck på en prick = raden, kartan i övrigt fri att använda (listan stängs med ×, Esc, drag ned), stängd utan val = kartan tillbaka.
   // Bara planeringsvyn (objektListaVal) — maskinläget, /maskin och körvyn öppnar aldrig listan och rörs inte. Pågår ett kartläge (rita, mät, placera
   // symbol …) tar kartan trycken som förut: ingen prickkarta då, listan är det gamla arket med fångsten över kartan.
   const kartLageIgang = isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode || omradeRitning || skotningDrawing || hornEditActive
@@ -12999,8 +12999,7 @@ export default function PlannerPage() {
     map: objektKartaTryck ? mapInstanceRef.current : null,
     aktiv: objektKartaTryck && objektListaOppen,
     prickar: objektKartaTryck && objektListaOppen ? listPrickar : null,
-    kanStangas: true,
-    onStang: () => setObjektListaOppen(false),
+    aterstall: true,
   });
 
   // Pillens räknare: ALLA markeringar på objektet räknas, oavsett vem som satte dem; krav bara för certifierade objekt.

@@ -6,9 +6,10 @@
 //  - aktiv=false rör ingenting (inga lager, inga lyssnare): maskinläget, /maskin och körvyn öppnar aldrig listan och är därför helt opåverkade.
 //  - Öppnas listan: kameran sparas, och när prickarna kommit zoomar kartan ut så att alla ryms i den SYNLIGA delen (arket/panelen räknas bort).
 //    Byter mängden prickar (Avslutade öppnas, typen byts) passas kameran om; samma mängd (färger/avstånd som trillar in) rör inte kameran.
-//  - Tryck på en prick = samma som raden i listan (`valj`). Tryck på tom karta stänger listan (`onStang`) om den går att stänga. Panorering och
-//    zoom går igenom: bara ett TRYCK (ingen förflyttning) tas, och trycket släpps aldrig vidare till kartans övriga lager (stopPropagation i
-//    infångningsfasen) — så inget annat på kartan reagerar på trycket medan listan är öppen.
+//  - Tryck på en prick = samma som raden i listan (`valj`). Ett tryck på tom karta gör INGET — listan stängs med ×, Esc eller genom att dra ned arket,
+//    aldrig av kartan — och kartan går att använda fritt: panorera, nyp, dubbeltryck-zoom och scrollhjul rörs inte (bara KLICKET fångas, aldrig
+//    pekar-/touch-/hjulhändelserna kartan själv lyssnar på). Klicket släpps inte vidare till kartans övriga lager (stopPropagation i infångningsfasen)
+//    — inget annat på kartan (högar, markeringar, ritverktyg) reagerar på ett tryck medan listan är öppen.
 //  - Stängs listan utan val går kartan tillbaka till kameran den hade; `markeraVal()` (anropas när ett objekt valts) stänger av återgången.
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -17,7 +18,6 @@ import {
 } from '../objektKarta';
 import { plusLage } from '../plusArk';
 
-export const FORSTA_TRYCK_SPARR_MS = 350;   // ett spöktryck från knappen som öppnade listan ska inte stänga den
 const MAX_ZOOM_OVERSIKT = 13;               // en ensam prick zoomas inte in på knivskarpa 16
 /** Planeringskartan har minZoom 8 (skogsbruksskala). Med arket över nedre halvan ryms inte en region i den synliga delen på 8, så listan sänker taket medan den är öppen. */
 export const MIN_ZOOM_OVERSIKT = 5;
@@ -26,18 +26,15 @@ interface Opt {
   map: any | null;
   aktiv: boolean;
   prickar: KartPrickar | null;
-  /** false = inget objekt är valt: tryck på tom karta stänger inget och ingen kameraåtergång */
-  kanStangas: boolean;
-  onStang: () => void;
+  /** false = inget objekt är valt (kartan utan objekt): ingen kameraåtergång vid stängning (listan stängs aldrig där) */
+  aterstall: boolean;
 }
 
-export function useObjektPrickar({ map, aktiv, prickar, kanStangas, onStang }: Opt): { markeraVal: () => void } {
+export function useObjektPrickar({ map, aktiv, prickar, aterstall }: Opt): { markeraVal: () => void } {
   const valtRef = useRef(false);
   const fitNyckelRef = useRef<string | null>(null);
   const prickarRef = useRef<KartPrickar | null>(prickar);
   prickarRef.current = prickar;
-  const stangRef = useRef(onStang);
-  stangRef.current = onStang;
   const markeraVal = useCallback(() => { valtRef.current = true; }, []);
 
   // Öppen: spara kameran, ta trycken. Stängd: lyssnarna bort, prickarna bort, kameran tillbaka om inget valdes.
@@ -45,7 +42,6 @@ export function useObjektPrickar({ map, aktiv, prickar, kanStangas, onStang }: O
     if (!map || !aktiv) return;
     valtRef.current = false;
     fitNyckelRef.current = null;
-    const oppnad = Date.now();
     let kamera: { center: [number, number]; zoom: number; bearing: number; pitch: number } | null = null;
     try {
       const c = map.getCenter();
@@ -79,9 +75,7 @@ export function useObjektPrickar({ map, aktiv, prickar, kanStangas, onStang }: O
           return { id: String(f.properties?.id), x: p.x, y: p.y, prio: f.properties?.prio };
         }), { x, y });
       }
-      if (id) { prickarRef.current?.valj(id); return; }
-      if (Date.now() - oppnad < FORSTA_TRYCK_SPARR_MS) return;
-      if (kanStangas) stangRef.current();
+      if (id) prickarRef.current?.valj(id);   // tom karta: ingenting
     };
     behallare?.addEventListener('pointerdown', nerFn, true);
     behallare?.addEventListener('click', klickFn, true);
@@ -91,14 +85,14 @@ export function useObjektPrickar({ map, aktiv, prickar, kanStangas, onStang }: O
       behallare?.removeEventListener('click', klickFn, true);
       try {
         (map.getSource(PRICK_KALLA) as any)?.setData(prickarGeoJson([]));
-        if (kanStangas && kamera && !valtRef.current) {
+        if (aterstall && kamera && !valtRef.current) {
           map.easeTo({ ...kamera, duration: 500 });
           // taket tillbaka först när kameran landat — annars knycker setMinZoom kameran till 8 mitt i återgången
           if (forraMin != null && typeof map.once === 'function') map.once('moveend', aterstallMin); else aterstallMin();
         } else aterstallMin();
       } catch { /* kartan är redan borttagen (sidan lämnas) */ }
     };
-  }, [map, aktiv, kanStangas]);
+  }, [map, aktiv, aterstall]);
 
   // Prickarna till kartan, och kameran till prickarna när mängden byter.
   useEffect(() => {

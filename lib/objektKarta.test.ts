@@ -17,7 +17,8 @@ const OBJEKT: ListObjekt[] = [
   O('vl', 'avslutat', { lat: 56.55, lng: 14.85, vo_nummer: 'VO-V' }),     // avslutat MED skotning kvar → Pågår
   O('av', 'avslutat', { lat: 56.20, lng: 14.50, avslutad_timestamp: '2026-09-01T00:00:00Z' }),
   O('ag', 'avslutat', { lat: 56.21, lng: 14.51, typ: 'gallring', avslutad_timestamp: '2026-08-01T00:00:00Z' }),
-  O('op', null, { lat: 56.10, lng: 14.40 }),                               // oplanerad: bara listan
+  O('op', null, { lat: 56.10, lng: 14.40 }),                               // oplanerad (saknad status): ihålig grå ring
+  O('ok', 'konstig', { lat: 56.11, lng: 14.41 }),                          // okänd status = också oplanerad
   O('xk', 'planerad', { lat: null, lng: null }),                           // ingen koordinat: bara listan
 ];
 const KVAR = new Set(['VO-V']);
@@ -42,15 +43,32 @@ describe('byggPrickar — aktiva objekt', () => {
     expect(p.pl.har).toBe(false);
   });
 
-  it('avslutade, oplanerade och objekt utan koordinat ritas inte', () => {
+  it('Oplanerade (saknad eller okänd status) ritas som ihålig grå ring', () => {
+    const p = per(aktiva());
+    expect(p.op.farg).toBe('ihalig');
+    expect(p.ok.farg).toBe('ihalig');
+    expect(p.op.har).toBe(false);
+  });
+
+  it('allt som syns i listan har en prick — utom avslutade (egen vy) och objekt utan koordinat', () => {
     const ids = aktiva().map((x) => x.id).sort();
-    expect(ids).toEqual(['har', 'pa', 'pl', 'sk', 'vl']);
+    expect(ids).toEqual(['har', 'ok', 'op', 'pa', 'pl', 'sk', 'vl']);
+    const g = gr();
+    const iListan = [...g.har, ...g.pagar, ...g.planerade, ...g.oplanerade].filter((o) => o.lat != null).map((o) => o.id).sort();
+    expect(ids).toEqual(iListan);
+  });
+
+  it('en Oplanerad man står på: ihålig ring + blå ring', () => {
+    const g = grupperaObjekt(OBJEKT, { skotningKvar: KVAR, arHar: (o) => o.id === 'op' });
+    const p = per(byggPrickar(g, [], KVAR, false));
+    expect(p.op).toMatchObject({ farg: 'ihalig', har: true });
   });
 
   it('namnens kollisionsordning: Här före Pågår före Planerade', () => {
     const p = per(aktiva());
     expect(p.har.prio).toBeLessThan(p.pa.prio);
     expect(p.pa.prio).toBeLessThan(p.pl.prio);
+    expect(p.pl.prio).toBeLessThan(p.op.prio);
   });
 
   it('inga objekt → inga prickar; saknat namn får ett läsbart', () => {
@@ -63,7 +81,7 @@ describe('byggPrickar — aktiva objekt', () => {
 describe('byggPrickar — Avslutade-vyn', () => {
   it('utanför Avslutade-vyn ritas avslutade aldrig, ens om de skickas med', () => {
     const g = gr();
-    expect(byggPrickar(g, g.avslutade, KVAR, false).map((x) => x.id).sort()).toEqual(['har', 'pa', 'pl', 'sk', 'vl']);
+    expect(byggPrickar(g, g.avslutade, KVAR, false).map((x) => x.id).sort()).toEqual(['har', 'ok', 'op', 'pa', 'pl', 'sk', 'vl']);
   });
   it('bara den valda typens avslutade syns (inget aktivt), grå och utan Här-ring', () => {
     const g = gr();
@@ -88,10 +106,12 @@ describe('prickarGeoJson och prickGrans', () => {
     expect(har.geometry.coordinates).toEqual([14.70, 56.40]);
     expect(har.properties).toMatchObject({ har: 1, farg: FARG.text3, prio: 0 });
     expect(fc.features.find((f) => f.properties.id === 'pa')!.properties).toMatchObject({ har: 0, farg: FARG.gron });
+    expect(fc.features.find((f) => f.properties.id === 'op')!.properties).toMatchObject({ ihalig: 1, farg: FARG.text3 });
+    expect(fc.features.find((f) => f.properties.id === 'pl')!.properties.ihalig).toBe(0);
     expect(prickarGeoJson([]).features).toEqual([]);
   });
   it('gränsen omsluter alla prickar; tom lista = null', () => {
-    expect(prickGrans(aktiva())).toEqual([[14.60, 56.30], [14.90, 56.60]]);
+    expect(prickGrans(aktiva())).toEqual([[14.40, 56.10], [14.90, 56.60]]);
     expect(prickGrans([])).toBeNull();
   });
 });
@@ -138,6 +158,11 @@ describe('lagren', () => {
     expect(PRICK_LAGER_SPEC.ring.filter).toEqual(['==', ['get', 'har'], 1]);
     expect(PRICK_LAGER_SPEC.ring.paint['circle-stroke-color']).toBe(FARG.bla);
     expect(PRICK_LAGER_SPEC.prick.paint['circle-color']).toEqual(['get', 'farg']);
+    // Oplanerad = ihålig: ingen fyllning, grå kant (en uttryckskoll på egenskapen ihalig, inte en egen färg)
+    const p = PRICK_LAGER_SPEC.prick.paint as any;
+    expect(p['circle-opacity']).toEqual(['case', ['==', ['get', 'ihalig'], 1], 0, 1]);
+    expect(p['circle-stroke-color']).toEqual(['case', ['==', ['get', 'ihalig'], 1], ['get', 'farg'], FARG.text]);
+    expect(p['circle-stroke-opacity']).toBe(1);
   });
   it('sakerstallPrickLager lägger källa + tre lager en gång (idempotent)', () => {
     const k: Record<string, any> = {}; const l: string[] = [];

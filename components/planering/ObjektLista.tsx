@@ -19,7 +19,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
-import { PANEL_BREDD_PX } from '@/lib/plusArk';
+import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
 import { objektTraffPunkt } from '@/lib/objektPlats';
@@ -51,7 +51,8 @@ export interface ObjektListaProps {
   kartaTryck?: boolean;
 }
 
-const FORSTA_KLICK_SPARR_MS = 350;       // ett spöktryck från knappen som öppnade listan ska inte stänga den direkt
+const GREPP_HOJD_PX = AVSTAND.xl + AVSTAND.xs;   // arkets grepp (samma mått som plus-arkets)
+const DRAG_START_PX = 8;                         // kortare än så är det ett tryck på greppet, inte ett drag
 const ANTAL_VAGAVSTAND = 30;             // så många närmaste objekt får vägavstånd (OSRM, ett i taget)
 const FALLBACK_POS = { lat: 56.40, lng: 14.70 };   // verksamhetens mitt när ingen GPS-fix finns (som den gamla väljaren)
 
@@ -91,14 +92,19 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [skotKvarKlar, setSkotKvarKlar] = useState(false);                               // frågan har besvarats (även med fel) minst en gång
   const [geometri, setGeometri] = useState<Map<string, any> | null>(null);               // null = ej laddad → ingen "Här"
   const [vag, setVag] = useState<Record<string, number>>({});
-  const oppnadTid = useRef(0);
+  // Telefon: arket öppnas på halv höjd, dras upp till nästan full och ner igen; ett halvt ark som dras ned stängs. Som plus-arket, utom stängningen.
+  const [detent, setDetent] = useState<Detent>('halv');
+  const [dragPx, setDragPx] = useState<number | null>(null);
+  const drag = useRef<{ y0: number; h0: number; flyttat: boolean } | null>(null);
+  const arkRef = useRef<HTMLDivElement>(null);
   const stangRef = useRef(onStang);
   stangRef.current = onStang;
 
   // Varje öppning börjar rent: tom sökning, aktiva objekt (inte Avslutade), rörelsen in från kanten.
   useEffect(() => {
     if (!oppen) return;
-    oppnadTid.current = Date.now();
+    setDetent('halv');
+    setDragPx(null);
     setSok('');
     setVisaAvslutade(false);
     setValdTyp(null);
@@ -247,10 +253,13 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   // Prickarna på kartan: aktiva objekt (Här/Pågår/Planerade), eller bara den valda typen när Avslutade-vyn är öppen. Skickas när objekten är lästa.
   const onPrickarRef = useRef(onPrickar);
   onPrickarRef.current = onPrickar;
-  const kartNyckel = visaAvslutade ? `avslutade:${valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp) ?? '-'}` : 'aktiva';
+  // Avslutade-vyn: prickarna är det listan visar — vald typ, eller alla typer när man söker (sök söker i alla typer).
+  const avslutadeIListan = sokar ? grupper.avslutade : avslutadeAvTyp(grupperUtanSok.avslutade, valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp));
+  const kartNyckel = visaAvslutade ? (sokar ? 'avslutade:sok' : `avslutade:${valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp) ?? '-'}`) : 'aktiva';
   const kartPrickar = useMemo(
-    () => byggPrickar(grupperUtanSok, avslutadeAvTyp(grupperUtanSok.avslutade, valdAvslutadTyp(grupperUtanSok.avslutade, valdTyp)), skotKvar, visaAvslutade),
-    [grupperUtanSok, skotKvar, valdTyp, visaAvslutade],
+    () => byggPrickar(grupperUtanSok, avslutadeIListan, skotKvar, visaAvslutade),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avslutadeIListan härleds ur grupper/grupperUtanSok/valdTyp/sokar som är med
+    [grupperUtanSok, grupper.avslutade, sokar, skotKvar, valdTyp, visaAvslutade],
   );
   const prickarKlara = oppen && startad && !laddar && skotKvarKlar;
   const sigRef = useRef('');                                   // senast skickade prickar — vägavstånden som trillar in ändrar inte prickarna, och då skickas inget
@@ -423,6 +432,30 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     </>
   );
 
+  const draggbar = kartaTryck && lage === 'ark';
+  const fonsterH = () => (typeof window !== 'undefined' ? window.innerHeight : 800);
+  const arkHojd = !kartaTryck ? '85%'
+    : dragPx != null ? `${dragPx}px`
+    : detent === 'hel' ? `calc(100% - env(safe-area-inset-top, 0px) - ${AVSTAND.s}px)`
+    : ARK_HOJD_PROCENT;
+  const gripDown = (e: React.PointerEvent) => {
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* */ }
+    drag.current = { y0: e.clientY, h0: arkRef.current?.getBoundingClientRect().height || fonsterH() / 2, flyttat: false };
+  };
+  const gripMove = (e: React.PointerEvent) => {
+    const d = drag.current; if (!d) return;
+    const dy = e.clientY - d.y0;
+    if (Math.abs(dy) > DRAG_START_PX) d.flyttat = true;
+    if (d.flyttat) setDragPx(dragHojd(d.h0, dy, fonsterH()));
+  };
+  const gripUp = (e: React.PointerEvent) => {
+    const d = drag.current; drag.current = null;
+    setDragPx(null);
+    if (!d) return;
+    if (!d.flyttat) { setDetent(detent === 'halv' ? 'hel' : 'halv'); return; }   // tryck på greppet växlar halv ↔ hel
+    const nasta = valjListdetent(detent, e.clientY - d.y0, kanStangas);
+    if (nasta === 'stang') onStang(); else setDetent(nasta);
+  };
   const ram: React.CSSProperties = lage === 'panel'
     ? {
         top: `calc(env(safe-area-inset-top, 0px) + ${AVSTAND.s}px)`, right: AVSTAND.s, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${AVSTAND.s}px)`,
@@ -430,15 +463,20 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         transform: glidInne ? 'translateX(0)' : `translateX(calc(100% + ${2 * AVSTAND.s}px))`,
       }
     : {
-        left: 0, right: 0, bottom: 0, height: kartaTryck ? ARK_HOJD_PROCENT : '85%', maxHeight: '100%', paddingTop: AVSTAND.l, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, borderTop: `1px solid ${FARG.linje}`,
+        left: 0, right: 0, bottom: 0, height: arkHojd, maxHeight: '100%', paddingTop: draggbar ? 0 : AVSTAND.l, borderRadius: `${RADIE.sheet}px ${RADIE.sheet}px 0 0`, borderTop: `1px solid ${FARG.linje}`,
         transform: glidInne ? 'translateY(0)' : 'translateY(100%)',
       };
   const minskadRorelse = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const overgang = minskadRorelse ? 'none'
+    : dragPx != null ? `transform ${RORELSE.byte}ms ${RORELSE.kurva}`
+    : `transform ${RORELSE.byte}ms ${RORELSE.kurva}, height ${RORELSE.sheet}ms ${RORELSE.kurva}`;
 
   return (
     <>
       {oppen && kanStangas && !kartaTryck && (
-        <div data-testid="objekt-lista-bakgrund" onClick={() => { if (Date.now() - oppnadTid.current < FORSTA_KLICK_SPARR_MS) return; onStang(); }} style={{ position: 'fixed', inset: 0, zIndex: 640 }} />
+        // Bara när kartan INTE tar trycken själv (ett kartläge pågår): en osynlig fångst så trycken inte når ritverktygen under listan. Den stänger inget —
+        // listan stängs med ×, Esc eller (telefon) genom att dra ned arket.
+        <div data-testid="objekt-lista-bakgrund" style={{ position: 'fixed', inset: 0, zIndex: 640 }} />
       )}
       <div
         role="dialog"
@@ -446,10 +484,19 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         data-testid="objekt-lista"
         data-lage={lage}
         data-oppen={oppen ? '1' : '0'}
+        data-detent={draggbar ? detent : undefined}
         aria-hidden={oppen ? undefined : true}
+        ref={arkRef}
         style={{ position: 'fixed', zIndex: 650, boxSizing: 'border-box', background: FARG.kort, color: FARG.text, fontFamily: 'inherit', display: 'flex', flexDirection: 'column', overscrollBehavior: 'contain',
-          pointerEvents: oppen ? 'auto' : 'none', transition: minskadRorelse ? 'none' : `transform ${RORELSE.byte}ms ${RORELSE.kurva}`, ...ram }}
+          pointerEvents: oppen ? 'auto' : 'none', transition: overgang, ...ram }}
       >
+        {draggbar && (
+          <button type="button" aria-label={detent === 'halv' ? 'Dra upp listan' : 'Dra ned listan'} data-testid="objekt-lista-grepp"
+            onPointerDown={gripDown} onPointerMove={gripMove} onPointerUp={gripUp} onPointerCancel={() => { drag.current = null; setDragPx(null); }}
+            style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: GREPP_HOJD_PX, padding: 0, border: 'none', background: 'transparent', cursor: 'grab', touchAction: 'none' }}>
+            <span style={{ width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xs, borderRadius: AVSTAND.xs, background: FARG.text3 }} />
+          </button>
+        )}
         {innehall}
       </div>
     </>

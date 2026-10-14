@@ -69,7 +69,23 @@ describe('hooken och listan', () => {
     expect(lista).toContain('const prickarKlara = oppen && startad && !laddar && skotKvarKlar;');
     expect(lista).toContain('cb(null)');
   });
-  it('tryckfångsten över kartan finns bara kvar när kartan inte tar trycken själv', () => {
+  it('tryckfångsten över kartan finns bara kvar när kartan inte tar trycken själv — och stänger aldrig listan', () => {
     expect(lista).toContain('{oppen && kanStangas && !kartaTryck && (');
+    const i = lista.indexOf('data-testid="objekt-lista-bakgrund"');
+    expect(lista.slice(i, lista.indexOf('/>', i))).not.toMatch(/onClick|onStang/);
+  });
+
+  it('ett tryck på kartan stänger inte listan: hooken har varken onStang eller kanStangas, och sidan skickar ingen stängning dit', () => {
+    expect(hook).not.toMatch(/onStang|kanStangas|stangRef/);
+    const i = page.indexOf('useObjektPrickar({');
+    const anrop = page.slice(i, page.indexOf('});', i));
+    expect(anrop).not.toMatch(/onStang|setObjektListaOppen/);
+  });
+
+  it('arket på telefon: halv ↔ hel via plus-arkets regler, och ett halvt ark som dras ned stänger (valjListdetent)', () => {
+    expect(lista).toContain("import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';");
+    expect(lista).toContain('const nasta = valjListdetent(detent, e.clientY - d.y0, kanStangas);');
+    expect(lista).toContain("if (nasta === 'stang') onStang(); else setDetent(nasta);");
+    expect(lista).toContain("const draggbar = kartaTryck && lage === 'ark';");
   });
 });

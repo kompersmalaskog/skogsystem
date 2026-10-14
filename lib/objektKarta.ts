@@ -1,9 +1,9 @@
 // Objekten som prickar på kartan medan objektlistan är öppen (planeringsvyn, telefon och dator). Rena funktioner, ingen karta, ingen DB:
 // vad som ritas, var kameran ska stå, vad ett tryck träffar. Sidan (app/planering/page.tsx) äger MapLibre; listan (ObjektLista) äger datat.
 //
-//   Prickar:  grön = Pågår (även "Skotning kvar"), grå = Planerade. Objektet man står på (Här) får en blå ring. Avslutade ritas BARA när
-//             Avslutade-vyn är öppen, och då bara den valda typen. Oplanerade (saknad/okänd status) ritas inte — de står bara i listan.
-//   Objekt utan koordinat finns bara i listan.
+//   Prickar:  grön = Pågår (även "Skotning kvar"), grå = Planerade, ihålig grå ring = Oplanerade (saknad/okänd status). Objektet man står på (Här)
+//             får en blå ring. Avslutade ritas BARA när Avslutade-vyn är öppen (det listan visar: vald typ, eller allt vid sökning).
+//             Allt som syns i listan har en prick — utom objekt utan koordinat, som bara finns i listan.
 //   Namn:     bredvid pricken, men bara där de inte krockar (MapLibres egen kollisionshantering; Här först, sedan Pågår, sedan Planerade).
 //   Kamera:   zoomar ut så att alla prickar ryms i DEN SYNLIGA delen av kartan — arket (telefon, nedre halvan) och panelen (bred skärm,
 //             höger) täcker resten, så de räknas bort som padding.
@@ -13,7 +13,8 @@ import { PANEL_BREDD_PX, plusLage, type PlusLage } from './plusArk';
 import { AVSTAND, FARG } from './design/tokens';
 import { effektivGrupp, type ListObjekt, type ObjektGrupper } from './objektVal';
 
-export type PrickFarg = 'gron' | 'gra';
+/** gron = Pågår, gra = Planerade (och avslutade i Avslutade-vyn), ihalig = Oplanerade (saknad/okänd status): en ihålig grå ring */
+export type PrickFarg = 'gron' | 'gra' | 'ihalig';
 
 export interface KartPrick {
   id: string;
@@ -47,11 +48,13 @@ export const PRICK_LAGER_ID: readonly string[] = [PRICK_LAGER.ring, PRICK_LAGER.
 /** Tryckradie (px) runt fingret när en prick söks — en prick är ~14 px, ett finger träffar inte exakt. */
 export const PRICK_TRYCK_RADIE_PX = 24;
 
-const FARG_PRICK: Record<PrickFarg, string> = { gron: FARG.gron, gra: FARG.text3 };
+const FARG_PRICK: Record<PrickFarg, string> = { gron: FARG.gron, gra: FARG.text3, ihalig: FARG.text3 };
 
-/** Prick-listan ur listans grupper. `avslutadeVald` = bara i Avslutade-vyn: de avslutade objekten av vald typ (annars tom). */
+const prickFarg = (g: ReturnType<typeof effektivGrupp>): PrickFarg => (g === 'pagar' ? 'gron' : g === 'oplanerade' ? 'ihalig' : 'gra');
+
+/** Prick-listan ur listans grupper. `avslutadeVald` = bara i Avslutade-vyn: de avslutade objekten listan visar (vald typ, eller alla typer vid sökning). */
 export function byggPrickar<T extends ListObjekt>(
-  grupper: Pick<ObjektGrupper<T>, 'har' | 'pagar' | 'planerade'>,
+  grupper: Pick<ObjektGrupper<T>, 'har' | 'pagar' | 'planerade' | 'oplanerade'>,
   avslutadeVald: readonly T[],
   skotningKvar: ReadonlySet<string> | null | undefined,
   visaAvslutade: boolean,
@@ -60,19 +63,20 @@ export function byggPrickar<T extends ListObjekt>(
   const lagg = (o: T, har: boolean, prio: number) => {
     if (!harKoordinat(o)) return;   // ingen koordinat = bara listan
     ut.push({ id: o.id, namn: (o.namn ?? '').trim() || 'Namnlöst objekt', lat: o.lat, lng: o.lng,
-      farg: effektivGrupp(o, skotningKvar) === 'pagar' ? 'gron' : 'gra', har, prio });
+      farg: prickFarg(effektivGrupp(o, skotningKvar)), har, prio });
   };
   if (visaAvslutade) {
     // Avslutade-vyn visar bara de avslutade av vald typ — grå (de är inte aktiva), aldrig Här-ring (Här gäller aktiva).
     for (const o of avslutadeVald) {
       if (!harKoordinat(o)) continue;
-      ut.push({ id: o.id, namn: (o.namn ?? '').trim() || 'Namnlöst objekt', lat: o.lat, lng: o.lng, farg: 'gra', har: false, prio: 3 });
+      ut.push({ id: o.id, namn: (o.namn ?? '').trim() || 'Namnlöst objekt', lat: o.lat, lng: o.lng, farg: 'gra', har: false, prio: 4 });
     }
     return ut;
   }
   for (const o of grupper.har) lagg(o, true, 0);
   for (const o of grupper.pagar) lagg(o, false, 1);
   for (const o of grupper.planerade) lagg(o, false, 2);
+  for (const o of grupper.oplanerade) lagg(o, false, 3);
   return ut;
 }
 
@@ -82,7 +86,7 @@ export function prickarGeoJson(prickar: readonly KartPrick[]) {
     type: 'FeatureCollection' as const,
     features: prickar.map((p) => ({
       type: 'Feature' as const,
-      properties: { id: p.id, namn: p.namn, farg: FARG_PRICK[p.farg], har: p.har ? 1 : 0, prio: p.prio },
+      properties: { id: p.id, namn: p.namn, farg: FARG_PRICK[p.farg], ihalig: p.farg === 'ihalig' ? 1 : 0, har: p.har ? 1 : 0, prio: p.prio },
       geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
     })),
   };
@@ -144,7 +148,14 @@ export const PRICK_LAGER_SPEC = {
   },
   prick: {
     id: PRICK_LAGER.prick, type: 'circle' as const, source: PRICK_KALLA,
-    paint: { 'circle-radius': 7, 'circle-color': ['get', 'farg'] as any, 'circle-stroke-color': FARG.text, 'circle-stroke-width': 2 },
+    // Ihålig (Oplanerade): ingen fyllning, grå kant, lite tjockare så den syns som en ring. Träffytan för tryck är fortfarande hela pricken.
+    paint: {
+      'circle-radius': 7, 'circle-color': ['get', 'farg'] as any,
+      'circle-opacity': ['case', ['==', ['get', 'ihalig'], 1], 0, 1] as any,
+      'circle-stroke-color': ['case', ['==', ['get', 'ihalig'], 1], ['get', 'farg'], FARG.text] as any,
+      'circle-stroke-width': ['case', ['==', ['get', 'ihalig'], 1], 3, 2] as any,
+      'circle-stroke-opacity': 1,
+    },
   },
   namn: {
     id: PRICK_LAGER.namn, type: 'symbol' as const, source: PRICK_KALLA,
