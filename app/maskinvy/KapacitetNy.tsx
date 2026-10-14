@@ -82,7 +82,7 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
   const egnaIds = Array.from(egna)
 
   const [dimObjekt, tidRader, manuellRader, prodRader] = await Promise.all([
-    // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261015090000 — medAvtalsformEllerUtan kör om utan kolumnen om den saknas.
+    // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261014125836 — medAvtalsformEllerUtan kör om utan kolumnen om den saknas.
     medAvtalsformEllerUtan((med) => hamtaAlla<DimObjektRad>(() => supabase.from('dim_objekt').select(`objekt_id, vo_nummer, object_name, huvudtyp, atgard,${med ? ' avtalsform,' : ''} risskotning, extern_skordning, ovrigt_info, skotning_avslutad, skotning_avslutad_auto`).order('objekt_id'))),
     hamtaAlla<{ objekt_id: string | null; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }>(
       () => supabase.rpc('maskindata_tid', { p_maskin_ids: allaMaskinIds, p_datum_start: null, p_datum_slut: null })),

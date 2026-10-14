@@ -6,7 +6,7 @@
 // '<maskin>:<nummer>', detalj_stam.objekt_id): det gör att redan importerad data och nya filer landar på samma rader.
 // Kopplingen ligger i aliaset, och de som läser per objekt tar med det: planeringsvyns produktionshögar och "kvar att köra".
 //
-// Före migrationen (20261014140000_objekt_alt_nummer.sql) finns ingen tabell → läsningen ger [] och allt beter sig som förut.
+// Före migrationen (20261014081433_objekt_alt_nummer.sql) finns ingen tabell → läsningen ger [] och allt beter sig som förut.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 

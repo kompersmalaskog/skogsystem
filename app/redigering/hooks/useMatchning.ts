@@ -107,7 +107,7 @@ export function useMatchning(): MatchningData {
       setStatus('laddar');
       try {
         const [dimRes, planRes, maskinRes, exkluderade, prodRows, lassRows, tidRows, manuellRes] = await Promise.all([
-          // avtalsform finns först efter migrationen 20261015090000 — medAvtalsformSvar kör om utan kolumnen om den saknas.
+          // avtalsform finns först efter migrationen 20261014125836 — medAvtalsformSvar kör om utan kolumnen om den saknas.
           medAvtalsformSvar((med) => supabase.from('dim_objekt').select(`objekt_id, object_name, vo_nummer, maskin_id, bolag, inkopare, huvudtyp, atgard,${med ? ' avtalsform,' : ''} start_date, exkludera`)),
           supabase.from('objekt').select('id, namn, vo_nummer, status, dim_objekt_id'),
           supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ'),

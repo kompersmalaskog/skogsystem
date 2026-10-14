@@ -857,7 +857,7 @@ def kapa_syntetiska_skift_i_db(maskin_id: str, datum) -> int:
 #
 # Regeln nu: kan den befintliga raden inte LÄSAS skrivs raden INTE — ett mätt pass skrivs aldrig över på gissning. Felet
 # loggas och rapporteras till import_fel (syns i datahälsan); omimport av filen rättar det. Testas i
-# scripts/test_skift_kuvert.py. Databasens trigger (migration 20261014170000) är andra spärren.
+# scripts/test_skift_kuvert.py. Databasens trigger (migration 20261014122108) är andra spärren.
 SKIFT_LAS_FORSOK = 3
 SKIFT_LAS_PAUS_SEK = 1.0
 

@@ -3,7 +3,7 @@
 // En hyttspår-rad är EN rad per (objekt, roll, datum) (unique i 20260904_hyttspar). Skyddsnätet för maskindatorn när ingen svarar på
 // "Inget objekt här — Starta jobb?" loggar spåret ändå med objekt_id = NULL. En unik nyckel dedupar aldrig NULL (NULL ≠ NULL i Postgres),
 // så en rad utan objekt hittas på MASKINEN i stället: (objekt_id IS NULL, maskin_id, roll, datum) — med en partiell unik index som
-// migrationen 20261009110000_starta_jobb_ursprung_hor_till lägger till. En rad utan objekt MÅSTE alltså ha maskin_id.
+// migrationen 20261014125025_starta_jobb_ursprung_hor_till lägger till. En rad utan objekt MÅSTE alltså ha maskin_id.
 //
 // Rena funktioner, inga DB-anrop (bara query-byggaren skickas in) → testbara (hyttsparNyckel.test.ts).
 

@@ -14,7 +14,7 @@ import { ROLLER, HempunktKort, KopplaOperatörModal, useAnstKontroll, AnstKontro
 
 const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
 
-/** Kolumnerna i personlistan. `foretagsledare` läggs till separat (migration 20261013170000) så listan går att läsa före den. */
+/** Kolumnerna i personlistan. `foretagsledare` läggs till separat (migration 20261013155407) så listan går att läsa före den. */
 const MED_KOLUMNER = "id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng, hem_bekraftad_tid";
 
 export default function MedarbetareFlik() {
@@ -32,7 +32,7 @@ export default function MedarbetareFlik() {
   const [fel, setFel] = useState<string | null>(null);
   const [kontroller, setKontroller] = useState<MedarbetarKontroller | null>(null);
   const [kontrollFel, setKontrollFel] = useState<string | null>(null);
-  // false tills migrationen 20261013170000 är körd: då finns ingen kolumn att visa eller skriva.
+  // false tills migrationen 20261013155407 är körd: då finns ingen kolumn att visa eller skriva.
   const [harForetagsledare, setHarForetagsledare] = useState(true);
 
   const ladda = async () => {
@@ -53,7 +53,7 @@ export default function MedarbetareFlik() {
         // Maskinnamn: EN källa, dim_maskin (lib/maskinNamn) — aldrig `maskiner`.
         supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER),
       ]);
-      // Kolumnen foretagsledare kommer med migrationen 20261013170000. Före den läses listan utan den (och rutan döljs).
+      // Kolumnen foretagsledare kommer med migrationen 20261013155407. Före den läses listan utan den (och rutan döljs).
       let medRes: { data: any[] | null; error: any } = medRes0 as any;
       let harForetagsledare = true;
       if (medRes0.error && /foretagsledare/i.test(String(medRes0.error.message || ""))) {
@@ -179,7 +179,7 @@ function DetaljVy({
   medarbetare: Medarbetare;
   operatorer: OperatorRad[];
   maskiner: Record<string, string>;
-  /** Kolumnen medarbetare.foretagsledare finns (migration 20261013170000 körd). */
+  /** Kolumnen medarbetare.foretagsledare finns (migration 20261013155407 körd). */
   harForetagsledare: boolean;
   /** Reglaget sparades (verifierat med .select()): uppdatera personen i listans minne. */
   onForetagsledareSparad: (id: string, varde: boolean) => void;

@@ -108,7 +108,7 @@ describe("avtalets PDF ligger aldrig i public/ och ingen hårdkodad fil öppnas"
     expect(fs.existsSync(path.join(rot, "public", "avtal"))).toBe(false);
   });
   it("bucketen är privat och bara PDF i migrationen, och skrivning kräver admin", () => {
-    const sql = las("supabase/migrations/20261014160000_avtal_pdf_bucket.sql");
+    const sql = las("supabase/migrations/20261014101036_avtal_pdf_bucket.sql");
     expect(sql).toMatch(/VALUES \('avtal', 'avtal', false, 20971520, ARRAY\['application\/pdf'\]\)/);
     expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS avtal_pdf_path text/);
     for (const p of ["avtal_skriv_admin", "avtal_uppdatera_admin", "avtal_radera_admin"]) {

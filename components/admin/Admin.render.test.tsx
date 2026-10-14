@@ -575,7 +575,7 @@ describe("Avtal → Avtalet som PDF (privat bucket avtal)", () => {
     await monter("flik=avtal");
     expect(text()).toContain("Avtalet som PDF");
     expect(text()).toContain("databasen saknar kolumnen avtal_pdf_path");
-    expect(text()).toContain("20261014160000_avtal_pdf_bucket.sql");
+    expect(text()).toContain("20261014101036_avtal_pdf_bucket.sql");
     expect(cont.querySelector('input[type="file"]')).toBeNull();
     expect(blad("Ladda upp PDF").length).toBe(0);
   });

@@ -1,7 +1,7 @@
 // Åtgärd -> traktyp för översiktslistans filter. Martins mappning: Au/Rp/Lrk = Slutavverkning, Gallring = Gallring; allt annat avgörs av
 // objektets typ-fält (typ läses ur filen vid import).
 //
-// Au/Rp/Lrk är AVTALSFORMER (objekt.avtalsform sedan 20261015090000), men äldre rader har dem kvar i åtgärden och gäller därför fortfarande här.
+// Au/Rp/Lrk är AVTALSFORMER (objekt.avtalsform sedan 20261014125836), men äldre rader har dem kvar i åtgärden och gäller därför fortfarande här.
 // Nya importer lämnar åtgärden tom eller sätter Första gallring/Gallring/Föryngring — alla landar rätt via typ-fältet.
 const SLUTAVV_ATGARDER = new Set(['au', 'rp', 'lrk']);
 

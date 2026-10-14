@@ -14,7 +14,7 @@
 --   rast_min        = 19    (fakt_tid.rast_sek 1139 = 18,98 min; routen /api/mom-import avrundar, Math.round)
 --   arbetad_min     = GENERATED (slut − start − rast) → 471, samma som summan i arbetsdag_objekt
 --
--- Fungerar både före och efter migration 20261014170000 (triggern släpper igenom utökning av ett pass).
+-- Fungerar både före och efter migration 20261014122108 (triggern släpper igenom utökning av ett pass).
 
 begin;
 
