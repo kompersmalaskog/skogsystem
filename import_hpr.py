@@ -20,6 +20,11 @@ except ImportError:
     print("Saknat bibliotek. Kör: py -m pip install requests")
     sys.exit(1)
 
+try:
+    import objekt_koppling   # HPR-fil → objekt när ordernumret inte matchar (delas med skogsmaskin_import_version_6.py)
+except ImportError:
+    objekt_koppling = None
+
 # ============================================================
 # KONFIGURATION
 # ============================================================
@@ -219,6 +224,7 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
         'filnamn': filnamn,
         'maskin_id': None,       # text maskin_id (t.ex. R64101)
         'vo_nummers': [],        # alla vo_nummer i filen
+        'objekt_defs': [],       # [{'vo_nummer','object_key','object_name'}] — för objekt_koppling
         'objekt_nyckel': None,   # stabil dedup-nyckel (maskin_id:vo|kObjectKey), första objektet
         'fil_datum': None,       # äldsta stam-tidpunkt
         'stammar': [],           # lista av stammar
@@ -247,6 +253,9 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
         obj_key_map[obj_key] = objekt_id
         if vo_nummer and vo_nummer.strip().isdigit():
             result['vo_nummers'].append(vo_nummer.strip())
+        result['objekt_defs'].append({'vo_nummer': remap_vo(vo_nummer), 'object_key': obj_key,
+                                      'object_name': (objekt_koppling.namn_ur_filnamn(filnamn, get_text(obj_def, 'ObjectName', ns))
+                                                      if objekt_koppling is not None else None)})
         if result['objekt_nyckel'] is None:   # första objektet bestämmer dedup-nyckeln
             result['objekt_nyckel'] = make_objekt_nyckel(maskin_id, vo_nummer, obj_key)
 
@@ -481,6 +490,14 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
         if vo in objekt_map:
             fil_row['objekt_id'] = objekt_map[vo]
             break
+    # Matchar numret inget objekt: extra nummer, sedan objektnamnet (exakt, sedan utan skillnad i mellanslag/versaler;
+    # exakt EN träff). Ändrar aldrig nyckeln filen skrivs under. Se objekt_koppling.py.
+    if 'objekt_id' not in fil_row and objekt_koppling is not None:
+        kopplad = objekt_koppling.koppla_fil(
+            requests, SUPABASE_URL, HEADERS, logger,
+            filnamn=filnamn, maskin_id=parsed.get('maskin_id') or '', objekt_defs=parsed.get('objekt_defs') or [])
+        if kopplad:
+            fil_row['objekt_id'] = kopplad
 
     # DEDUP: ersätt per objekt_nyckel ALLTID (även utan objekt_id) — stoppar snapshot-
     # ackumulering även för objekt som saknas i objekt-tabellen. Senaste/största ersätter.

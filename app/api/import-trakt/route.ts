@@ -11,6 +11,10 @@ import { mergeFalt, executorGodkand, forvantadExecutorOrgnr } from '@/lib/trakt/
 import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
+import { byggOmimportPatch, hittaBefintligtObjekt, type BefintligtObjekt } from '@/lib/trakt/befintligt';
+// loggaImportFel (flyttad hit ur routen: loggar i import_fel, läses av /datahalsa — se kommentaren där) + skrivning som tål att
+// objekt.import_varningar inte går att skriva.
+import { loggaImportFel, rapporteraEjSparadeVarningar, skrivObjektTolerantMotVarningskolumn } from '@/lib/trakt/importVarningar';
 
 export const runtime = 'nodejs'; // JSZip + unpdf + fast-xml-parser behöver Node-runtime, inte edge
 // Stora trakter (fyra traktkartor + översikt = 40+ MB) tar tid: uppackning + base64 av ~46
@@ -67,21 +71,6 @@ const SWEREF99TM = '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +unit
 function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
   const [lng, lat] = proj4(SWEREF99TM, 'WGS84', [e, n]);
   return { lat, lng };
-}
-
-// Loggar ett misslyckat trakt-importförsök i import_fel (läses av /datahalsa "Tappades något vid
-// import?"). Så att en 500:ad import syns i appen i stället för att lämna en föräldralös fil i
-// trakt-inbox som ingen tittar i (Wisent-läxan: tyst tapp upptäcks aldrig). En död funktion
-// (OOM/timeout) kan inte logga sig själv — då loggar klienten via /api/import-trakt/logga-fel.
-// Best-effort: en misslyckad loggning får ALDRIG maskera originalfelet.
-async function loggaImportFel(service: any, filnamn: string | null, felkod: string, feltext: string) {
-  try {
-    await service.from('import_fel').insert({
-      tabell: 'objekt', filnamn, felkod, feltext: (feltext ?? '').slice(0, 2000),
-    });
-  } catch (e) {
-    console.error('Kunde inte logga import_fel:', e);
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -388,21 +377,29 @@ export async function POST(request: NextRequest) {
       kalla: envz ? 'envz' : 'traktdirektiv',
     };
 
-    // === Omimport-med-merge: matcha på vo_nummer (enda unika constraint, objekt_vo_nummer_key).
-    // Ingen fallback på traktnr (ej unikt, tomt på hälften av raderna). Saknar envz vo_nummer
-    // eller finns ingen rad med det -> INSERT. vo_nummer kan vara icke-numeriskt ("P-1012") ->
-    // jämför som sträng. ===
-    let befintlig: { id: string; larmkoordinat_kalla: string | null } | null = null;
+    // === Omimport-med-merge: matcha på vo_nummer (enda unika constraint, objekt_vo_nummer_key), därefter på objektets
+    // extra nummer (objekt_alt_nummer: vanliga extra nummer och det gamla numret efter att importen bytt objektets vo_nummer).
+    // Träff på något av dem = uppdatera det befintliga objektet, aldrig en ny rad. Ingen fallback på traktnr (ej unikt, tomt på
+    // hälften av raderna). Saknar envz vo_nummer eller finns ingen träff -> INSERT. vo_nummer kan vara icke-numeriskt ("P-1012")
+    // -> jämför som sträng. Läsfel stoppar importen (kan köras om) i stället för att sluta i en dubblett. ===
+    let befintlig: BefintligtObjekt | null = null;
     if (falt.vo_nummer) {
-      const { data: rader } = await supabase
-        .from('objekt')
-        .select('id, larmkoordinat_kalla')
-        .eq('vo_nummer', String(falt.vo_nummer))
-        .limit(1);
-      befintlig = rader && rader[0] ? (rader[0] as any) : null;
+      const sok = await hittaBefintligtObjekt(supabase, String(falt.vo_nummer));
+      if (sok.typ === 'fel') {
+        await loggaImportFel(service, sokvag, 'OBJEKT_SOK', sok.fel);
+        return NextResponse.json({ error: sok.fel }, { status: 500 });
+      }
+      if (sok.typ === 'traff') {
+        befintlig = sok.objekt;
+        if (befintlig.via === 'extra_nummer') {
+          varningar.push(`VO ${falt.vo_nummer} är ett extra nummer på ett befintligt objekt (som nu har nummer ${befintlig.vo_nummer ?? '—'}) — det objektet uppdaterades i stället för att en ny rad skapades. Objektets nummer lämnades orört.`);
+        }
+      }
     }
 
     let saved: any = null;
+    // Satt när objektet skrevs UTAN import_varningar-kolumnen (se lib/trakt/importVarningar.ts) — varningarna ska då inte försvinna.
+    let skrivning: { kolumnFel?: string; ejSparade: string[] } | null = null;
 
     if (befintlig) {
       // === UPDATE (omimport) — bevara det användaren äger ===
@@ -422,23 +419,17 @@ export async function POST(request: NextRequest) {
         varningar.push('Larmkoordinat bevarad (satt på plats, kalla=egen) — envz hade ett värde som inte skrevs över.');
       }
 
-      const patch: Record<string, any> = {};
-      for (const [k, v] of Object.entries(data)) {
-        if (SKYDDADE.includes(k)) continue;                                  // aldrig vid omimport
-        if (k.startsWith('larmkoordinat_') && bevaraLarm) continue;          // 'egen' -> orört
-        if (v === null || v === undefined) continue;                         // nollar aldrig befintligt värde
-        if (typeof v === 'string' && v.trim() === '') continue;
-        patch[k] = v;
-      }
+      const patch = byggOmimportPatch(data, { skyddade: SKYDDADE, bevaraLarm, behallVoNummer: befintlig.via === 'extra_nummer' });
       patch.import_varningar = varningar.length > 0 ? varningar : null;       // varningar refreshas alltid
 
-      const { data: upd, error: updErr } = await supabase
-        .from('objekt').update(patch).eq('id', befintlig.id).select().single();
-      if (updErr) {
-        await loggaImportFel(service, sokvag, 'OBJEKT_UPDATE', updErr.message);
-        return NextResponse.json({ error: updErr.message }, { status: 500 });
+      const skrivUpd = await skrivObjektTolerantMotVarningskolumn<any>(patch, (p) =>
+        supabase.from('objekt').update(p).eq('id', befintlig!.id).select().single());
+      if (skrivUpd.error) {
+        await loggaImportFel(service, sokvag, 'OBJEKT_UPDATE', skrivUpd.error.message ?? 'okänt fel');
+        return NextResponse.json({ error: skrivUpd.error.message }, { status: 500 });
       }
-      saved = upd;
+      saved = skrivUpd.data;
+      if (!skrivUpd.varningarSparade) skrivning = skrivUpd;
 
       // Geometrin är importerad (inga manuella ändringar) -> ersätt helt: radera + skriv ny.
       await service.from('objekt_geometri').delete().eq('objekt_id', befintlig.id);
@@ -452,16 +443,18 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // === INSERT (nytt objekt) — hela data, inkl. lat/lng/anteckningar ===
-      const { data: ins, error } = await supabase.from('objekt').insert(data).select().single();
-      if (error) {
-        console.error('Supabase error:', error);
-        if (error.code === '23505') {
+      const skrivIns = await skrivObjektTolerantMotVarningskolumn<any>(data, (p) =>
+        supabase.from('objekt').insert(p).select().single());
+      if (skrivIns.error) {
+        console.error('Supabase error:', skrivIns.error);
+        if (skrivIns.error.code === '23505') {
           return NextResponse.json({ error: 'Objektet finns redan' }, { status: 409 });
         }
-        await loggaImportFel(service, sokvag, 'OBJEKT_INSERT', error.message);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        await loggaImportFel(service, sokvag, 'OBJEKT_INSERT', skrivIns.error.message ?? 'okänt fel');
+        return NextResponse.json({ error: skrivIns.error.message }, { status: 500 });
       }
-      saved = ins;
+      saved = skrivIns.data;
+      if (!skrivIns.varningarSparade) skrivning = skrivIns;
       if (geoFeatures.length > 0 && saved?.id) {
         const { error: geoErr } = await service.from('objekt_geometri').insert({
           objekt_id: saved.id,
@@ -485,7 +478,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, objekt: saved, uppdaterad: !!befintlig, varningar });
+    // Objektet är sparat men varningslistan kunde inte skrivas till kolumnen: den får inte försvinna. Den läggs i import_fel (syns i /datahalsa),
+    // och svaret säger det så att objektsidan inte skriver "Importerat!" som om allt gick bra. Hyttspårsraden ovan kom efter skrivningen och
+    // finns därför bara i svaret — den läggs till här så den också syns i import_fel.
+    let varningarSparade = true;
+    let varningarILogg = true;
+    if (skrivning) {
+      varningarSparade = false;
+      varningarILogg = await rapporteraEjSparadeVarningar(service, sokvag, saved?.namn ?? null, {
+        kolumnFel: skrivning.kolumnFel,
+        ejSparade: varningar,
+      });
+    }
+
+    return NextResponse.json({ success: true, objekt: saved, uppdaterad: !!befintlig, varningar, varningarSparade, varningarILogg });
 
   } catch (err: any) {
     console.error('Import error:', err);

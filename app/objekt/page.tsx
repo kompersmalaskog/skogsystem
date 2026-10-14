@@ -385,8 +385,17 @@ function ObjektPageInner() {
       // Importen persisterar redan server-side (/api/import-trakt) → hämta om från
       // DB så listan får den riktiga raden (rätt uuid), inte en optimistisk lokal-add.
       await fetchData();
-      setImportStatus('✓ Importerat!');
-      setTimeout(() => setImportStatus(''), 2000);
+      if (data.varningarSparade === false) {
+        // Objektet är sparat men varningslistan kunde inte skrivas till objektet (kolumnen import_varningar). Säg det — och var varningarna finns.
+        const n = Array.isArray(data.varningar) ? data.varningar.length : 0;
+        setImportStatus(data.varningarILogg === false
+          ? `⚠ Importerat, men ${n} ${n === 1 ? 'varning kunde' : 'varningar kunde'} inte sparas — de står bara i serverloggen (Vercel).`
+          : `⚠ Importerat, men ${n} ${n === 1 ? 'varning kunde' : 'varningar kunde'} inte sparas på objektet — de ligger i Datahälsa › Tappades något vid import?`);
+        setTimeout(() => setImportStatus(''), 12000);
+      } else {
+        setImportStatus('✓ Importerat!');
+        setTimeout(() => setImportStatus(''), 2000);
+      }
 
     } catch (error: any) {
       console.error('Import error:', error);

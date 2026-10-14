@@ -15,6 +15,7 @@ import { sparaFalt, resolveObjektRad, FALT_RUTT } from '@/lib/redigering/objektR
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
 import { harStubbehandling } from '@/lib/egenkontroll'
 import DokumentChips from '@/components/DokumentChips'
+import OkopplFilerKort from '@/components/redigering/OkopplFilerKort'
 import PdfLasare from '@/app/planering/PdfLasare'
 
 // Standardval som alltid ska finnas som chips (riktiga bolag) —
@@ -4049,6 +4050,9 @@ function ObjektRedigeringInner() {
           ))}
         </div>
       )}
+
+      {/* Filer vars ordernummer inte matchar något objekt (planeringsvyn visar dem inte) — med "Koppla till objekt" */}
+      <OkopplFilerKort maskiner={maskiner} />
 
       {/* Listfilter — samma kortlista, två urval */}
       <div style={styles.filterToggleBar as any}>
