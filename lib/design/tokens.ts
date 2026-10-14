@@ -143,6 +143,27 @@ export const KOLUMN = {
   telefonMax: 670,
 } as const;
 
+/**
+ * Kolumnen för en vy vars ROT själv bär bakgrunden och sidmarginalen (Arbetsrapport: varje steg har sin egen
+ * rot med `padding`/`main`-padding på 16). Roten får `maxWidth` = kolumn + de två sidmarginalerna, så innehållet
+ * blir exakt `KOLUMN[bredd]` brett över `telefonMax` och fönsterbredden minus marginalerna under — telefonen är
+ * oförändrad. Bakgrunden utanför kolumnen ritas av `KOLUMN_CSS` (svart body medan vyn är monterad).
+ * Vyer som har en full bredd rot med `VyKolumn` inuti (ledighet) använder komponenten i stället.
+ */
+export function kolumnRot(bredd: "smal" | "bred" = "smal"): CSSProperties {
+  return {
+    width: "100%",
+    maxWidth: KOLUMN[bredd] + 2 * AVSTAND.sidmarginal,
+    marginLeft: "auto",
+    marginRight: "auto",
+    boxSizing: "border-box",
+  };
+}
+
+/** Rotens minsta höjd: skärmen minus det som layouten redan reserverat för toppfältet (`paddingTop: LAYOUT.topbar`
+ *  i app/layout.tsx). Med `100vh` rakt av blev varje vy 56 px högre än skärmen och scrollade utan anledning. */
+export const ROT_MIN_HOJD = `calc(100vh - ${LAYOUT.topbar})`;
+
 /** Radie: rad och fält 10, knapp och kort 12, sheet 16. Cirklar 50 %. */
 export const RADIE = {
   rad: 10, knapp: 12, kort: 12, sheet: 16, cirkel: "50%",
@@ -367,3 +388,6 @@ export const VY_ROT: CSSProperties = {
   padding: `0 ${AVSTAND.sidmarginal}px`,
   boxSizing: "border-box",
 };
+
+/** Svart bakgrund utanför kolumnen medan en vy med `kolumnRot` är monterad (sidans body är inte svart). */
+export const KOLUMN_CSS = `body{background:${FARG.bg}}`;
