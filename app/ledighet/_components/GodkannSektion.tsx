@@ -14,12 +14,14 @@ import type { Ansokan } from './typer';
  * ett RLS-block visas som riktigt fel, aldrig som success.
  */
 export default function GodkannSektion({
-  vantande, onKlar, startOppen = false,
+  vantande, onKlar, startOppen = false, markeradDomId = null,
 }: {
   vantande: Ansokan[];
   onKlar: () => void;
   /** Push-notisen "X har ansökt om ledighet" öppnar vyn med listan uppfälld (?godkann=1). */
   startOppen?: boolean;
+  /** DOM-id på raden som notisen pekade på (`godkann-<id>`); markeras en stund. */
+  markeradDomId?: string | null;
 }) {
   const [oppen, setOppen] = useState(startOppen);
   const [hanterarId, setHanterarId] = useState<string | null>(null);
@@ -57,6 +59,8 @@ export default function GodkannSektion({
             <AnsokanRad
               key={a.id}
               a={a}
+              domId={`godkann-${a.id}`}
+              markerad={markeradDomId === `godkann-${a.id}`}
               visaNamn
               sista={i === vantande.length - 1}
               onHantera={hantera}

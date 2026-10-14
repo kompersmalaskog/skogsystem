@@ -125,7 +125,7 @@ describe("flush — ledighet_ansokan till godkännarna", () => {
     expect(res).toMatchObject({ totalt: 2, skickade: 2, skippade: 0, uppskjutna: 0, fel: 0 });
     expect(h.skickat.map(s => s.endpoint).sort()).toEqual(["joacim-telefon", "martin-dator", "martin-telefon"]);
     for (const s of h.skickat) {
-      expect(s.payload).toMatchObject({ title: "Ledighet", body: "Anna har ansökt om ledighet 3 – 7 november", url: "/ledighet?godkann=1" });
+      expect(s.payload).toMatchObject({ title: "Ledighet", body: "Anna har ansökt om ledighet 3 – 7 november", url: "/ledighet?godkann=a1" });
     }
     // ansökaren (Anna) fick ingen notis om sin egen ansökan
     expect(h.skickat.some(s => s.endpoint === "anna-telefon")).toBe(false);
@@ -152,7 +152,7 @@ describe("flush — ledighet_beslut till ägaren", () => {
     expect(res).toMatchObject({ skickade: 1 });
     expect(h.skickat).toHaveLength(1);
     expect(h.skickat[0].endpoint).toBe("anna-telefon");
-    expect(h.skickat[0].payload).toMatchObject({ title: "Ledighet", body: "Din ledighet 3 – 7 november är godkänd", url: "/ledighet" });
+    expect(h.skickat[0].payload).toMatchObject({ title: "Ledighet", body: "Din ledighet 3 – 7 november är godkänd", url: "/ledighet?besked=a1" });
   });
 
   it("nekad: '… är nekad'", async () => {

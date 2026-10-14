@@ -2,8 +2,8 @@
  * Ledighetens två pushnotiser — texten byggs FÄRSKT vid utskick (som dagsslut-notisen), ur ansökan som den ser ut
  * just då. Triggern (migration 20261014100000) köar bara VEM och VILKEN ansökan.
  *
- *  ledighet_ansokan  → godkännare (admin) utom den som ansökte: "{Förnamn} har ansökt om ledighet {period}"
- *  ledighet_beslut   → ägaren:                                  "Din ledighet {period} är godkänd | nekad"
+ *  ledighet_ansokan  → godkännare (admin) utom den som ansökte: "{Förnamn} har ansökt om ledighet {period}"  → /ledighet?godkann=<id>
+ *  ledighet_beslut   → ägaren:                                  "Din ledighet {period} är godkänd | nekad"  → /ledighet?besked=<id>
  *
  * Ren modul (ingen Supabase-import): raden hämtas av anroparen via `hamtaRad`, så skip-reglerna kan testas
  * utan nätverk. Ingen beslutskommentar — beslutet har ingen egen (fältet `kommentar` är den anställdes text).
@@ -82,7 +82,8 @@ export async function byggLedighetNotis(
       meddelande: {
         title: 'Ledighet',
         body: `${fornamn(rad.namn)} har ansökt om ledighet ${period}`,
-        url: '/ledighet?godkann=1',
+        // Id:t i länken gör att vyn landar PÅ ansökan (öppnar godkänn-listan och markerar raden), inte bara på sidan.
+        url: `/ledighet?godkann=${encodeURIComponent(rad.id)}`,
         tag: `ledighet-ansokan-${rad.id}`,
       },
     };
@@ -97,7 +98,8 @@ export async function byggLedighetNotis(
     meddelande: {
       title: 'Ledighet',
       body: `Din ledighet ${period} är ${rad.status}`,
-      url: '/ledighet',
+      // Id:t gör att vyn visar just det här beskedet överst, scrollar dit och markerar det en stund.
+      url: `/ledighet?besked=${encodeURIComponent(rad.id)}`,
       tag: `ledighet-beslut-${rad.id}`,
     },
   };

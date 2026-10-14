@@ -9,11 +9,11 @@ const ANSOKAN = { typ: "ledighet_ansokan", payload: { ansokan_id: "a-1" } };
 const BESLUT = { typ: "ledighet_beslut", payload: { ansokan_id: "a-1", status: "godkänd" } };
 
 describe("ledighet — notis till godkännare när en ansökan skapas", () => {
-  it("'{Förnamn} har ansökt om ledighet {period}', öppnar godkänn-vyn", async () => {
+  it("'{Förnamn} har ansökt om ledighet {period}', öppnar godkänn-listan MED ansökans id", async () => {
     const u = await byggLedighetNotis(ANSOKAN, finns(RAD()));
     expect(u).toEqual({
       typ: "skicka",
-      meddelande: { title: "Ledighet", body: "Anna har ansökt om ledighet 3 – 7 november", url: "/ledighet?godkann=1", tag: "ledighet-ansokan-a-1" },
+      meddelande: { title: "Ledighet", body: "Anna har ansökt om ledighet 3 – 7 november", url: "/ledighet?godkann=a-1", tag: "ledighet-ansokan-a-1" },
     });
   });
 
@@ -42,11 +42,11 @@ describe("ledighet — notis till godkännare när en ansökan skapas", () => {
 });
 
 describe("ledighet — notis till den anställde när godkännaren beslutar", () => {
-  it("godkänd: 'Din ledighet {period} är godkänd', öppnar ledighetsvyn", async () => {
+  it("godkänd: 'Din ledighet {period} är godkänd', öppnar ledighetsvyn PÅ just den ansökan (?besked=<id>)", async () => {
     const u = await byggLedighetNotis(BESLUT, finns(RAD({ status: "godkänd" })));
     expect(u).toEqual({
       typ: "skicka",
-      meddelande: { title: "Ledighet", body: "Din ledighet 3 – 7 november är godkänd", url: "/ledighet", tag: "ledighet-beslut-a-1" },
+      meddelande: { title: "Ledighet", body: "Din ledighet 3 – 7 november är godkänd", url: "/ledighet?besked=a-1", tag: "ledighet-beslut-a-1" },
     });
   });
 
@@ -139,5 +139,20 @@ describe("flushUrval — förfallna rader ELLER ledighetsrader (som köas med sk
     expect(flushUrval("2026-10-20T12:00:00.000Z")).toBe(
       "skickas_at.lte.2026-10-20T12:00:00.000Z,typ.in.(ledighet_ansokan,ledighet_beslut)",
     );
+  });
+});
+
+describe("länkens id — vyn ska landa PÅ ansökan", () => {
+  it("beslutsnotisen bär ansökans id (ur raden, inte ur payloaden som kan vara gammal)", async () => {
+    const u = await byggLedighetNotis({ ...BESLUT, payload: { ansokan_id: "a-1" } }, finns(RAD({ id: "ratt-id", status: "nekad" })));
+    expect(u).toMatchObject({ meddelande: { url: "/ledighet?besked=ratt-id" } });
+  });
+  it("ansökningsnotisen bär ansökans id (godkänn-listan öppnas och raden markeras)", async () => {
+    const u = await byggLedighetNotis(ANSOKAN, finns(RAD({ id: "ratt-id" })));
+    expect(u).toMatchObject({ meddelande: { url: "/ledighet?godkann=ratt-id" } });
+  });
+  it("id:t kodas i urlen (inget kan bryta ut ur frågesträngen)", async () => {
+    const u = await byggLedighetNotis(ANSOKAN, finns(RAD({ id: "a&besked=x#y" })));
+    expect(u).toMatchObject({ meddelande: { url: "/ledighet?godkann=a%26besked%3Dx%23y" } });
   });
 });

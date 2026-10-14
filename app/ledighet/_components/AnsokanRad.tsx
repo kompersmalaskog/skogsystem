@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AVSTAND, FARG, INAKTIV, KNAPP, TNUM, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
 import { TYPINFO } from './tema';
 import { arbetsdagar, fmtDatum, fmtPeriod } from './datum';
 import { rodVardagNamn } from '@/lib/franvaro';
@@ -37,7 +37,7 @@ function statusAv(a: Ansokan, tidigare: boolean): { ord: string; farg: string } 
  */
 export default function AnsokanRad({
   a, visaNamn = false, arEgen = false, tidigare = false, sista = false,
-  onRedigera, onTaBort, onHantera, hanterar = false,
+  onRedigera, onTaBort, onHantera, hanterar = false, domId, markerad = false,
 }: {
   a: Ansokan;
   visaNamn?: boolean;
@@ -48,6 +48,10 @@ export default function AnsokanRad({
   onTaBort?: (a: Ansokan) => void;
   onHantera?: (a: Ansokan, status: 'godkänd' | 'nekad') => void;
   hanterar?: boolean;
+  /** Ankare för scroll ur en push-notis (unikt per plats: samma ansökan kan stå i två listor). */
+  domId?: string;
+  /** Markerad en stund efter att en notis tagit dig hit; tonar ut när den blir false. */
+  markerad?: boolean;
 }) {
   const [bekrafta, setBekrafta] = useState<null | 'bort' | 'neka'>(null);
   const status = statusAv(a, tidigare);
@@ -66,7 +70,11 @@ export default function AnsokanRad({
   );
 
   return (
-    <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
+    <div id={domId} data-markerad={markerad ? 'true' : undefined}
+      style={{ position: 'relative', padding: `${AVSTAND.m}px 0`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
+      {/* Markeringen ligger ÖVANPÅ och rör inte layouten (inga marginaler som hoppar när den tonar ut). */}
+      <span aria-hidden style={{ position: 'absolute', top: 0, bottom: 0, left: -AVSTAND.s, right: -AVSTAND.s, borderRadius: RADIE.rad, pointerEvents: 'none',
+        background: markerad ? FARG.fyllning : 'transparent', transition: overgang('background-color') }} />
       {visaNamn && <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>{a.anvandare_id}</p>}
 
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: AVSTAND.s }}>

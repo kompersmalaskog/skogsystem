@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { raderaVerifierat } from '@/lib/supabase-save';
 import type { CurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
@@ -8,6 +8,7 @@ import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, TRAFFYTA, TYP } from '@/lib/design
 import { toISO } from './datum';
 import { useLedighetData } from './useLedighetData';
 import { useNyaBeslut } from './useNyaBeslut';
+import { INGEN_FOKUS, MARKERING_MS, lasFokus } from './fokus';
 import type { Ansokan } from './typer';
 import SaldoKort from './SaldoKort';
 import AnsokanRad from './AnsokanRad';
@@ -33,10 +34,8 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
   // Medan de läses, eller när läsningen felade, är listan tom (eller gammal) — då
   // skulle en överlappande ansökan godkännas utan varning.
   const kanAnsoka = !laddar && !lasfel;
-  // Push-notisen till en godkännare öppnar vyn med "att godkänna" uppfälld.
-  const [godkannOppen] = useState(
-    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('godkann') === '1',
-  );
+  // Länken ur en push-notis pekar på EN ansökan (?besked=<id> / ?godkann=<id>): vyn landar PÅ den (fokus.ts).
+  const [fokus] = useState(() => (typeof window === 'undefined' ? INGEN_FOKUS : lasFokus(window.location.search)));
   // Nya beslut jag inte sett: visas överst och kvitteras först när de lästs och visats.
   const nyaIds = useNyaBeslut(kanAnsoka);
 
@@ -44,33 +43,69 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
     () => ansokningar.filter(a => a.medarbetare_id === medarbetare.id),
     [ansokningar, medarbetare.id],
   );
-  // Ett nytt beslut står BARA under "Nytt besked" (inte också i Kommande/Historik) tills det setts.
-  const nyaBesked = useMemo(
-    () => mina.filter(a => nyaIds.includes(a.id)),
-    [mina, nyaIds],
+  // Toppgruppen: ansökan som notisen pekade på FÖRST (även om beslutet redan setts — då ligger det annars gömt i
+  // Kommande eller den hopfällda Historiken), sedan beslut jag inte sett. Står bara här, aldrig också längre ned.
+  const fokusRad = useMemo(
+    () => (fokus.besked ? mina.find(a => a.id === fokus.besked) : undefined),
+    [mina, fokus.besked],
   );
+  const toppRader = useMemo(() => {
+    const ordning = [fokusRad?.id, ...nyaIds].filter((x): x is string => !!x);
+    return Array.from(new Set(ordning)).map(id => mina.find(a => a.id === id)).filter((a): a is Ansokan => !!a);
+  }, [mina, nyaIds, fokusRad]);
+  const toppIds = useMemo(() => new Set(toppRader.map(a => a.id)), [toppRader]);
+  // "Nytt besked" bara om allt i gruppen faktiskt är nytt; ett redan sett besked som notisen pekar på heter "Besked".
+  const toppRubrik = toppRader.every(a => nyaIds.includes(a.id)) ? 'Nytt besked' : 'Besked';
   // Tre grupper efter TID, inte bara status: en beviljad ledighet flyttar
   // till Historik när den PASSERAT (slutdatum < idag), inte när den godkänns.
   const vantarPaBesked = useMemo(
-    () => mina.filter(a => a.status === 'väntar' && a.slutdatum >= idag && !nyaIds.includes(a.id))
+    () => mina.filter(a => a.status === 'väntar' && a.slutdatum >= idag && !toppIds.has(a.id))
       .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
-    [mina, idag, nyaIds],
+    [mina, idag, toppIds],
   );
   // 'registrerad' = anmäld i morgonkortet (sjuk/vab/föräldraledig) — gäller som godkänd
   const kommandeLedighet = useMemo(
-    () => mina.filter(a => (a.status === 'godkänd' || a.status === 'registrerad') && a.slutdatum >= idag && !nyaIds.includes(a.id))
+    () => mina.filter(a => (a.status === 'godkänd' || a.status === 'registrerad') && a.slutdatum >= idag && !toppIds.has(a.id))
       .sort((a, b) => a.startdatum.localeCompare(b.startdatum)),
-    [mina, idag, nyaIds],
+    [mina, idag, toppIds],
   );
   // Passerat (oavsett status) + avslag (beskedet är avklarat oavsett datum)
   const historik = useMemo(
-    () => mina.filter(a => (a.slutdatum < idag || a.status === 'nekad') && !nyaIds.includes(a.id)),
-    [mina, idag, nyaIds],
+    () => mina.filter(a => (a.slutdatum < idag || a.status === 'nekad') && !toppIds.has(a.id)),
+    [mina, idag, toppIds],
   );
   const vantandeAlla = useMemo(
     () => ansokningar.filter(a => a.status === 'väntar'),
     [ansokningar],
   );
+
+  // Mål för scroll + markering. Bara när ansökningarna är lästa utan fel och raden FINNS (ingen gissning).
+  const malDomId = !fokus.besked && !fokus.godkannId ? null
+    : fokus.besked ? (fokusRad ? `ansokan-${fokus.besked}` : null)
+    : (arGodkannare && vantandeAlla.some(a => a.id === fokus.godkannId) ? `godkann-${fokus.godkannId}` : null);
+  // Pekar länken på en ansökan som inte finns kvar / redan är hanterad: SÄG det i stället för att landa utan förklaring.
+  const notering = laddar || lasfel ? null
+    : fokus.besked && !fokusRad ? 'Den ansökan finns inte längre.'
+    : fokus.godkannId && arGodkannare && !malDomId ? 'Den ansökan är redan hanterad.'
+    : null;
+
+  const [markerad, setMarkerad] = useState<string | null>(null);
+  const harFokuserat = useRef(false);
+  useEffect(() => {
+    if (harFokuserat.current || laddar || lasfel || !malDomId) return;
+    const el = document.getElementById(malDomId);
+    if (!el) return; // raden är inte ritad ännu — nästa render försöker igen
+    harFokuserat.current = true; // EN gång per besök: en omläsning av listan ska inte dra tillbaka sidan
+    const stillRorelse = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView?.({ block: 'center', behavior: stillRorelse ? 'auto' : 'smooth' });
+    setMarkerad(malDomId);
+  }, [malDomId, laddar, lasfel, ansokningar]);
+  // Markeringen tonar ut efter en stund — den ligger aldrig kvar.
+  useEffect(() => {
+    if (!markerad) return;
+    const t = setTimeout(() => setMarkerad(null), MARKERING_MS);
+    return () => clearTimeout(t);
+  }, [markerad]);
 
   // Bekräftelsen ("Ta bort ansökan? Nej / Ja, ta bort") sker i raden (AnsokanRad) —
   // hit kommer vi först när föraren sagt ja.
@@ -88,14 +123,23 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
 
   const rader = (lista: Ansokan[], extra: { tidigare?: boolean; redigera?: boolean }) => lista.map((a, i) => (
     <AnsokanRad key={a.id} a={a} arEgen tidigare={extra.tidigare} sista={i === lista.length - 1}
+      domId={`ansokan-${a.id}`} markerad={markerad === `ansokan-${a.id}`}
       onRedigera={extra.redigera ? (x => { setRedigerar(x); setFormOppen(true); }) : undefined}
       onTaBort={a.status === 'väntar' ? taBort : undefined} />
   ));
 
   return (
     <div>
+      {notering && <p role="status" style={{ margin: 0, paddingBottom: AVSTAND.l, ...TYP.meta, color: FARG.text2 }}>{notering}</p>}
+
+      {/* Besked jag inte sett (och ansökan en notis pekade på) ÖVERST — inte under saldot och Ansök-knappen,
+          där det hamnar under vikningen på en telefon. Pricken på hemskärmen pekar hit. */}
+      {!laddar && !lasfel && toppRader.length > 0 && (
+        <Grupp rubrik={toppRubrik}>{rader(toppRader, {})}</Grupp>
+      )}
+
       {arGodkannare && !lasfel && (
-        <GodkannSektion vantande={vantandeAlla} onKlar={hamtaOm} startOppen={godkannOppen} />
+        <GodkannSektion vantande={vantandeAlla} onKlar={hamtaOm} startOppen={fokus.godkannOppen} markeradDomId={markerad} />
       )}
 
       <div style={{ marginBottom: AVSTAND.l }}>
@@ -119,11 +163,6 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
           <StatusText text="Läser dina ansökningar…" />
         ) : (
           <>
-            {/* 0. Nytt besked — beslut jag inte sett (godkänd/nekad). Pricken på hemskärmen pekar hit. */}
-            {nyaBesked.length > 0 && (
-              <Grupp rubrik="Nytt besked">{rader(nyaBesked, {})}</Grupp>
-            )}
-
             {/* 1. Väntar på besked — kan ändras/tas bort */}
             {vantarPaBesked.length > 0 && (
               <Grupp rubrik="Väntar på besked">{rader(vantarPaBesked, { redigera: true })}</Grupp>
@@ -148,7 +187,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
               </section>
             )}
 
-            {nyaBesked.length === 0 && vantarPaBesked.length === 0 && kommandeLedighet.length === 0 && historik.length === 0 && (
+            {toppRader.length === 0 && vantarPaBesked.length === 0 && kommandeLedighet.length === 0 && historik.length === 0 && (
               <StatusText text={'Inga ansökningar ännu. Tryck "Ansök om ledighet" för att skapa din första.'} />
             )}
           </>
