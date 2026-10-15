@@ -6,7 +6,7 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TYP, VY_ROT, desi
 import VyKolumn from '@/components/design/VyKolumn';
 import Rubrik from './_components/Rubrik';
 import NuFlik from './_components/NuFlik';
-import Overgang from './_components/Overgang';
+import FaktureringFlik from './_components/FaktureringFlik';
 import KorningarFlik from './_components/KorningarFlik';
 import RundaArk from './_components/RundaArk';
 import Ark from '@/components/design/Ark';
@@ -19,8 +19,8 @@ import { useEnRunda, useRundor } from './_components/useRundor';
 /**
  * Lastbilen — EN vy för det man tittar på (omtaget 2026-10, byggt som Arbetsrapporten: flikar är
  * frågor, varje flik öppnar på svaret, detaljen ligger ett ark bort):
- *   Körningar   – vad har bilen gjort och vad drog det?   (steg 2)
- *   Fakturering – vad kan faktureras? (bara admin)        (steg 3)
+ *   Körningar   – vad har bilen gjort och vad drog det?
+ *   Fakturering – vad kan faktureras? (bara admin)        (kvittot, steg 3)
  *   Nu          – kan jag köra, och var är den?
  * Förarflödet (Lassat, Lassat av, Framme) ligger kvar i /maskinflytt — det är en göra-yta och rörs inte.
  *
@@ -73,7 +73,7 @@ export default function LastbilVy() {
                   onOppna={r => setValdRunda({ id: r.id, start: r.start })} onValjManad={setPeriod} />
               )}
               {flik === 'fakturering' && (
-                <Overgang rubrik="Fakturering" text="Faktureringskvittot flyttar hit i ett senare steg. Tills dess finns det i Flyttloggen." />
+                <FaktureringFlik period={period} status={fakt.status} onForsokIgen={fakt.forsokIgen} />
               )}
             </div>
           </>
