@@ -64,7 +64,9 @@ import { KorvyObjektPill } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
-import { redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
+import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
+import { framhavBounds, framhavdFran, type FramhavdMarkering } from '../../lib/omTraktenFramhav'
+import { startaFramhavning } from '../../lib/omTraktenFramhavKarta'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
@@ -2522,7 +2524,7 @@ export default function PlannerPage() {
   const [traktOversiktOpen, setTraktOversiktOpen] = useState(false);
   // Objektinfon (ⓘ): senaste innehållet (ramen hinner glida ut efter en stängning) och markeringen "Visa ›" i Om trakten framhäver på kartan.
   const objektInfoSenasteRef = useRef<Omit<ObjektInfoProps, 'oppen'> | null>(null);
-  const [framhavdMarkering, setFramhavdMarkering] = useState<{ id: string; lat: number | null; lng: number | null } | null>(null);
+  const [framhavdMarkering, setFramhavdMarkering] = useState<FramhavdMarkering | null>(null);
   const framhavdLageRef = useRef<PlusLage>('ark');
   const [vidaDirektiv, setVidaDirektiv] = useState(''); // objekt.anteckningar (Vida/kontoret), read-only i översikten
   const [traktData, setTraktData] = useState<TraktData>({ ...INFO_STANDARD.traktData });   // volym/areal = gammalt demovärde (649 m³fub / 2 ha), ingen läser det
@@ -10219,31 +10221,10 @@ export default function PlannerPage() {
     } catch (e) { /* layer not ready */ }
   }, [visibleLayers.symbols, mapLibreReady]);
 
-  // Om trakten › Visa ›: markeringen framhävs med en ring på kartan. Telefon: arket stängs och ringen försvinner efter en stund. Bred skärm: panelen
-  // ligger kvar och ringen står kvar tills panelen stängs (eller en annan markering väljs).
-  useEffect(() => {
-    if (!framhavdMarkering || framhavdLageRef.current !== 'ark') return;
-    const t = setTimeout(() => setFramhavdMarkering(null), 6000);
-    return () => clearTimeout(t);
-  }, [framhavdMarkering]);
-  useEffect(() => { if (!traktOversiktOpen && framhavdLageRef.current === 'panel') setFramhavdMarkering(null); }, [traktOversiktOpen]);
   // Objektlistan och objektinfon ligger på samma plats (panelen från höger): öppnas listan stängs infon.
   useEffect(() => { if (objektListaOppen) setTraktOversiktOpen(false); }, [objektListaOppen]);
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const KALLA = 'omtrakten-framhav-kalla', RING = 'omtrakten-framhav-ring';
-    try {
-      const data: any = framhavdMarkering && framhavdMarkering.lat != null && framhavdMarkering.lng != null
-        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [framhavdMarkering.lng, framhavdMarkering.lat] } }] }
-        : { type: 'FeatureCollection', features: [] };
-      const src = map.getSource(KALLA) as any;
-      if (src) src.setData(data); else map.addSource(KALLA, { type: 'geojson', data });
-      if (!map.getLayer(RING)) {
-        map.addLayer({ id: RING, type: 'circle', source: KALLA, paint: { 'circle-radius': 26, 'circle-color': '#ffffff', 'circle-opacity': 0.16, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-pitch-alignment': 'map' } });
-      }
-    } catch { /* kartan inte redo */ }
-  }, [framhavdMarkering, mapLibreReady]);
+  // Framhävningen hör till ETT objekt: byter man objekt släpps den.
+  useEffect(() => { setFramhavdMarkering(null); }, [valtObjekt?.id]);
 
   // 2d) Briefing highlight: dim non-active, pulse active element
   const briefingPulseRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -10454,6 +10435,15 @@ export default function PlannerPage() {
       }
     };
   }, [briefingMode, briefingHighlightId, mapLibreReady, markers, checklistMapView]);
+
+  // Om trakten › Visa ›: markeringen framhävs — symbol = pulserande ring, linje = HELA linjen, yta = hela konturen — och övriga tonas ner. Släpps vid
+  // tryck på kartan eller nytt val (ingen timer). Ligger EFTER briefing-effekten: den återställer lagrens opacitet och skulle annars skriva över nedtoningen.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !framhavdMarkering || briefingMode || checklistMapView) return;
+    const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return startaFramhavning(map as any, framhavdMarkering, { onSlapp: () => setFramhavdMarkering(null), minskadRorelse: minskad });
+  }, [framhavdMarkering, mapLibreReady, briefingMode, checklistMapView, markers]);
 
   // 3) Synka TMA-vägar → MapLibre tma-roads-source + tma-warning-source
   useEffect(() => {
@@ -13790,9 +13780,7 @@ export default function PlannerPage() {
         const talKonflikt = !!(vidaTal && egnaTal && (vidaTal.lo !== egnaTal.lo || vidaTal.hi !== egnaTal.hi));
         const egnaTalStr = egnaTal ? (egnaTal.lo === egnaTal.hi ? `${egnaTal.lo}` : `${egnaTal.lo}–${egnaTal.hi}`) : '';
 
-        // Chip-ikon: symbol = färgad cirkel + glyf (renderIcon — identiskt med kartan; grå bg blir
-        // ljusare så den syns mot mörk panel). Linje = liten swatch (randig/streckad/färgad som ritad).
-        const chipBg = (t: string) => { const b = getIconBackground(t); return b === 'rgba(0,0,0,0.6)' ? 'rgba(255,255,255,0.12)' : b; };
+        // Linje-ikon: liten swatch (randig/streckad/färgad som ritad). Symbolens ikon byggs i ikonFor ur getIconDef (kartans egen färg).
         const linjeSwatch = (t: string) => {
           const lt: any = lineTypes.find(l => l.id === t);
           const col = lt?.color || '#fff', col2 = lt?.color2 || col;
@@ -13912,19 +13900,30 @@ export default function PlannerPage() {
         (markers as any[]).forEach((m, i) => {
           let slag: MarkeringsSlag | null = null; let typ = ''; let namn = ''; let pos: { lat: number; lon: number } | null = null;
           const mitt = (path: any[]) => { const pt = path[Math.floor(path.length / 2)]; return svgToLatLon(pt.x, pt.y); };
+          let geometri: { lat: number; lng: number }[] | undefined;
+          const heltSpar = (path: any[]) => path.map((pt: any) => { const ll = svgToLatLon(pt.x, pt.y); return { lat: ll.lat, lng: ll.lon }; });
           if (m.isMarker) { slag = 'symbol'; typ = m.type || 'default'; namn = markerTypes.find(t => t.id === m.type)?.name || typ; pos = svgToLatLon(m.x, m.y); }
-          else if (m.isLine && m.lineType && m.lineType !== 'boundary') { slag = 'linje'; typ = m.lineType; namn = lineTypes.find(l => l.id === typ)?.name || typ; if (Array.isArray(m.path) && m.path.length) pos = mitt(m.path); }
-          else if (m.isZone) { slag = 'zon'; typ = m.zoneType || 'zone'; namn = zoneTypes.find(z => z.id === m.zoneType)?.name || typ; if (Array.isArray(m.path) && m.path.length) pos = mitt(m.path); }
+          else if (m.isLine && m.lineType && m.lineType !== 'boundary') { slag = 'linje'; typ = m.lineType; namn = lineTypes.find(l => l.id === typ)?.name || typ; if (Array.isArray(m.path) && m.path.length) { pos = mitt(m.path); geometri = heltSpar(m.path); } }
+          else if (m.isZone) { slag = 'zon'; typ = m.zoneType || 'zone'; namn = zoneTypes.find(z => z.id === m.zoneType)?.name || typ; if (Array.isArray(m.path) && m.path.length) { pos = mitt(m.path); geometri = heltSpar(m.path); } }
           if (!slag) return;
           const tid = Number(m.id);
           kartMarkeringar.push({ id: String(m.id), slag, typ, namn, comment: String(m.comment ?? '').trim(), photoPath: m.photoPath ?? null, photoData: m.photoData ?? null, photoTs: m.photoTs ?? null,
-            lat: pos?.lat ?? null, lng: pos?.lon ?? null, skapad: Number.isFinite(tid) && tid > 1e11 ? tid : null, ordning: i });
+            lat: pos?.lat ?? null, lng: pos?.lon ?? null, geometri, skapad: Number.isFinite(tid) && tid > 1e11 ? tid : null, ordning: i });
         });
-        const ikonFor = (m: KartMarkering) => (m.slag === 'symbol'
-          ? <span style={{ width: AVSTAND.xl + AVSTAND.xs, height: AVSTAND.xl + AVSTAND.xs, borderRadius: RADIE.cirkel, background: chipBg(m.typ), display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(m.typ, 16, '#fff')}</span>
-          : <span style={{ width: AVSTAND.xl + AVSTAND.xs, height: AVSTAND.xl + AVSTAND.xs, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-              {m.slag === 'linje' ? linjeSwatch(m.typ) : <span style={{ width: AVSTAND.l + AVSTAND.xs, height: AVSTAND.m, borderRadius: AVSTAND.xs, background: (zoneTypes.find(z => z.id === m.typ) as any)?.color || FARG.text3, opacity: 0.85 }} />}
-            </span>);
+        // Listans ikon = kartans: symbolen i sin RIKTIGA färg och vita ring (getIconDef — samma källa som kartlagret och dockan), linjen i sin kartfärg
+        // (randig/streckad som ritad), ytan i sin zonfärg.
+        const ikonPx = AVSTAND.xl + AVSTAND.xs;
+        const ikonFor = (m: KartMarkering) => {
+          if (m.slag === 'symbol') {
+            const def = getIconDef(m.typ);
+            return <span style={{ width: ikonPx, height: ikonPx, boxSizing: 'border-box', borderRadius: RADIE.cirkel, background: def.bg, border: `${AVSTAND.xs / 2}px solid ${def.outline}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(m.typ, AVSTAND.l, FARG.text)}</span>;
+          }
+          return (
+            <span style={{ width: ikonPx, height: ikonPx, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              {m.slag === 'linje' ? linjeSwatch(m.typ) : <span style={{ width: AVSTAND.l + AVSTAND.xs, height: AVSTAND.m, borderRadius: AVSTAND.xs, background: (zoneTypes.find(z => z.id === m.typ) as any)?.color || FARG.text3 }} />}
+            </span>
+          );
+        };
 
         // ── Kortet ──
         const typTxt = valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : (valtObjekt.typ || ''));
@@ -14024,10 +14023,19 @@ export default function PlannerPage() {
             // Telefon: arket stängs och kartan flyger dit. Bred skärm: panelen ligger kvar och markeringen framhävs på kartan.
             onVisa: (m, lage) => {
               framhavdLageRef.current = lage;
-              setFramhavdMarkering({ id: m.id, lat: m.lat, lng: m.lng });
+              setFramhavdMarkering(framhavdFran(m));
               if (lage === 'ark') stang();
               const map = mapInstanceRef.current;
-              if (map && m.lat != null && m.lng != null) map.flyTo({ center: [m.lng, m.lat], zoom: Math.max(map.getZoom(), 17), duration: 700 });
+              if (!map) return;
+              // Bred skärm: panelen täcker höger sida — kameran siktar på den synliga delen. Telefon: arket är stängt, hela kartan syns.
+              const panelPx = lage === 'panel' ? PANEL_BREDD_PX + AVSTAND.s * 2 : 0;
+              const bounds = framhavBounds(framhavdFran(m));
+              if (bounds) {
+                // Linje/yta: kameran rymmer HELA figuren.
+                map.fitBounds(bounds, { padding: { top: AVSTAND.xxl * 3, bottom: AVSTAND.xxl * 3, left: AVSTAND.xxl * 2, right: AVSTAND.xxl * 2 + panelPx }, maxZoom: 18, duration: 800 });
+              } else if (m.lat != null && m.lng != null) {
+                map.flyTo({ center: [m.lng, m.lat], zoom: Math.max(map.getZoom(), 18), duration: 700, offset: [-panelPx / 2, 0] });
+              }
             },
             onFoto: (src) => setFullscreenPhoto(src),
             framhavdId: framhavdMarkering?.id ?? null,

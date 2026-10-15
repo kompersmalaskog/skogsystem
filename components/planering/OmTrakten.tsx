@@ -2,7 +2,8 @@
 
 // OM TRAKTEN (tavla 28, 30) — "A4:t". Allt som sagts om trakten på ett ställe, sökbart:
 //   Sökfält överst (text i kommentarer och symbolnamn) · Hela trakten (Vidas text och planerarens, med avsändare) ·
-//   På kartan (varje markering MED kommentar eller foto: symbol, namn, hela kommentaren, liten bild — tryck = stor —, avstånd om GPS finns, "Visa ›") ·
+//   Faror (röd rubrik) · På kartan · Vägar (varje markering MED kommentar eller foto: kommentaren som huvudtext, symbolens namn litet under, liten bild —
+//   tryck = stor —, avstånd BARA när man är på trakten, "Visa ›"; flera korta kommentarer av samma typ blir EN rad som fälls ut) ·
 //   utan kommentar bara antal per typ · Ytor.
 // "Visa ›" stänger arket på telefon och flyger kartan dit; på bred skärm ligger panelen kvar och markeringen framhävs på kartan (sidan avgör).
 // Ren presentation — sidan bygger listorna (lib/objektKort) och ritar kartsymbolerna (`ikon`).
@@ -11,8 +12,8 @@ import React, { useMemo, useState } from 'react';
 import MarkeringFoto from '@/app/planering/MarkeringFoto';
 import { AVSTAND, FARG, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import {
-  antalPerTyp, avstandText, filtreraMarkeringar, harFoto, harInnehall, matcharSok, sorteraMarkeringar,
-  type KartMarkering, type MarkeringMedAvstand, type TillForarenPost,
+  antalPerTyp, avstandText, byggMarkeringsGrupper, efektivPos, filtreraMarkeringar, harFoto, harInnehall, matcharSok, samladText,
+  type KartMarkering, type MarkeringMedAvstand, type MarkeringsRad, type TillForarenPost,
 } from '@/lib/objektKort';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
 
@@ -42,14 +43,18 @@ export interface OmTraktenProps {
 
 export default function OmTrakten(p: OmTraktenProps) {
   const [q, setQ] = useState('');
-  const sorterade = useMemo(() => sorteraMarkeringar(p.markeringar.filter(harInnehall), p.pos), [p.markeringar, p.pos]);
-  const traffar = useMemo(() => filtreraMarkeringar(sorterade, q), [sorterade, q]);
+  // Avstånd och "närmast först" gäller bara när man är på trakten (inom ca 1 km); annars skapad ordning och ingen avståndstext.
+  const pos = useMemo(() => efektivPos(p.pos, p.markeringar), [p.pos, p.markeringar]);
+  const traffar = useMemo(() => filtreraMarkeringar(p.markeringar.filter(harInnehall), q), [p.markeringar, q]);
+  const grupper = useMemo(() => byggMarkeringsGrupper(traffar, pos), [traffar, pos]);
+  const rader = (g: 'faror' | 'ovrigt' | 'vagar') => grupper.find((x) => x.grupp === g)?.rader ?? [];
   const utanKommentar = useMemo(() => antalPerTyp(p.markeringar), [p.markeringar]);
   const sokt = q.trim() !== '';
   const helaTraffar = p.hela.filter((h) => matcharSok(h.text, q) || matcharSok(h.avsandare, q));
   const restrTraffar = p.restriktioner.filter((r) => matcharSok(`${r.name ?? ''} ${r.type ?? ''} ${r.details ?? ''} ${r.warning ?? ''}`, q));
   const ytorTraffar = p.ytor.filter((y) => matcharSok(`${y.typLabel} ${y.text ?? ''}`, q));
   const inget = sokt && helaTraffar.length === 0 && restrTraffar.length === 0 && traffar.length === 0 && ytorTraffar.length === 0;
+  const radProps = { ikon: p.ikon, framhavdId: p.framhavdId, onVisa: p.onVisa, onFoto: p.onFoto };
 
   return (
     <>
@@ -86,8 +91,18 @@ export default function OmTrakten(p: OmTraktenProps) {
           </section>
         )}
 
+        {/* FAROR — röd rubrik; ordet "Faror" bär budskapet, färgen förstärker */}
+        {rader('faror').length > 0 && (
+          <section data-testid="om-faror">
+            <Rubrik farg={FARG.rod}>Faror</Rubrik>
+            <div data-testid="om-faror-rader" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+              {rader('faror').map((r) => <Rad key={r.nyckel} r={r} {...radProps} />)}
+            </div>
+          </section>
+        )}
+
         {/* PÅ KARTAN */}
-        {(!sokt || traffar.length > 0) && (p.markeringar.length > 0 || p.miljo.length > 0) && (
+        {(rader('ovrigt').length > 0 || (!sokt && (p.miljo.length > 0 || utanKommentar !== '' || (p.markeringar.length > 0 && traffar.length === 0)))) && (
           <section data-testid="om-pa-kartan">
             <Rubrik>På kartan</Rubrik>
             {!sokt && p.miljo.length > 0 && (
@@ -100,9 +115,9 @@ export default function OmTrakten(p: OmTraktenProps) {
                 ))}
               </div>
             )}
-            {traffar.length > 0 && (
+            {rader('ovrigt').length > 0 && (
               <div data-testid="om-markeringar" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-                {traffar.map((m) => <Markering key={m.id} m={m} ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onFoto={p.onFoto} />)}
+                {rader('ovrigt').map((r) => <Rad key={r.nyckel} r={r} {...radProps} />)}
               </div>
             )}
             {!sokt && traffar.length === 0 && p.markeringar.length > 0 && (
@@ -113,6 +128,16 @@ export default function OmTrakten(p: OmTraktenProps) {
                 <span style={{ ...TYP.meta }}>Utan kommentar </span>{utanKommentar}
               </div>
             )}
+          </section>
+        )}
+
+        {/* VÄGAR — sist */}
+        {rader('vagar').length > 0 && (
+          <section data-testid="om-vagar">
+            <Rubrik>Vägar</Rubrik>
+            <div data-testid="om-vagar-rader" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+              {rader('vagar').map((r) => <Rad key={r.nyckel} r={r} {...radProps} />)}
+            </div>
           </section>
         )}
 
@@ -145,31 +170,64 @@ export default function OmTrakten(p: OmTraktenProps) {
   );
 }
 
-function Markering({ m, ikon, framhavd, onVisa, onFoto }: { m: MarkeringMedAvstand; ikon: React.ReactNode; framhavd: boolean; onVisa: () => void; onFoto: (src: string) => void }) {
+interface RadProps { ikon: (m: KartMarkering) => React.ReactNode; framhavdId: string | null; onVisa: (m: KartMarkering) => void; onFoto: (src: string) => void }
+
+function Rad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
+  if (r.samlad) return <Samlad r={r} {...p} />;
+  const m = r.markeringar[0];
+  return <Markering m={m} ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onFoto={p.onFoto} />;
+}
+
+/** Flera korta kommentarer av samma typ som EN rad: "Vägar · Röd väg ×3 · Gul väg ×2". Tryck fäller ut en rad per markering, var och en med Visa ›. */
+function Samlad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
+  const [oppen, setOppen] = useState(false);
+  return (
+    <div data-testid="om-samlad" data-oppen={oppen ? '1' : '0'} style={{ borderRadius: RADIE.kort, background: FARG.upphojt, overflow: 'hidden' }}>
+      <button type="button" data-testid="om-samlad-knapp" aria-expanded={oppen} onClick={() => setOppen((v) => !v)} className="press-row"
+        style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+        <span style={{ flexShrink: 0, display: 'inline-flex' }}>{p.ikon(r.markeringar[0])}</span>
+        <span data-testid="om-samlad-text" style={{ flex: 1, minWidth: 0, ...TYP.listtitel, overflowWrap: 'anywhere' }}>{samladText(r)}</span>
+        <span style={{ display: 'inline-flex', transform: oppen ? 'rotate(90deg)' : 'none' }}><Pil /></span>
+      </button>
+      {oppen && (
+        <div data-testid="om-samlad-lista" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, padding: `0 ${AVSTAND.s}px ${AVSTAND.s}px` }}>
+          {r.markeringar.map((m) => <Markering key={m.id} m={m} inre ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onFoto={p.onFoto} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Kommentaren är huvudtexten (stor); symbolens namn står litet under. Utan kommentar (bara foto) är namnet huvudtexten. */
+function Markering({ m, ikon, framhavd, inre = false, onVisa, onFoto }: { m: MarkeringMedAvstand; ikon: React.ReactNode; framhavd: boolean; inre?: boolean; onVisa: () => void; onFoto: (src: string) => void }) {
   const foto = harFoto(m);
+  const komm = m.comment.trim();
   return (
     <div data-testid="om-markering" data-id={m.id} data-framhavd={framhavd ? '1' : '0'}
-      style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt, boxShadow: framhavd ? `inset 0 0 0 2px ${FARG.text}` : 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+      style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: inre ? FARG.fyllning : FARG.upphojt, boxShadow: framhavd ? `inset 0 0 0 2px ${FARG.text}` : 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m }}>
         <span style={{ flexShrink: 0, display: 'inline-flex' }}>{ikon}</span>
-        <span style={{ flex: 1, minWidth: 0, ...TYP.listtitel }}>{m.namn}</span>
-        {m.avstandM != null && <span data-testid="om-avstand" style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{avstandText(m.avstandM)}</span>}
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span data-testid="om-huvudtext" style={{ display: 'block', ...TYP.listtitel, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{komm || m.namn}</span>
+          {komm && <span data-testid="om-symbolnamn" style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{m.namn}</span>}
+        </span>
+        <span style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+          {m.avstandM != null && <span data-testid="om-avstand" style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{avstandText(m.avstandM)}</span>}
+          <button type="button" data-testid="om-visa" onClick={onVisa} style={{ ...visaKnapp }}>Visa ›</button>
+        </span>
       </div>
-      {m.comment.trim() && <div style={{ ...TYP.text, marginTop: AVSTAND.s, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.comment.trim()}</div>}
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, marginTop: AVSTAND.s }}>
-        {foto && (
-          <span data-testid="om-foto" style={{ flexShrink: 0, display: 'inline-flex' }}>
+      {foto && (
+        <div style={{ marginTop: AVSTAND.s }}>
+          <span data-testid="om-foto" style={{ display: 'inline-flex' }}>
             <MarkeringFoto photoPath={m.photoPath} photoData={m.photoData} photoTs={m.photoTs} alt={`Foto: ${m.namn}`} onOpen={onFoto}
               style={{ width: AVSTAND.xxl * 2, height: AVSTAND.xxl * 2, objectFit: 'cover', borderRadius: RADIE.rad, display: 'block' }} />
           </span>
-        )}
-        <span style={{ flex: 1 }} />
-        <button type="button" data-testid="om-visa" onClick={onVisa} style={{ ...visaKnapp }}>Visa ›</button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const visaKnapp: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation', ...TYP.text,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', minHeight: TRAFFYTA.min, padding: `0 0 0 ${AVSTAND.m}px`, border: 'none', background: 'none', color: FARG.bla, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation', ...TYP.text,
 };

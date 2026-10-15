@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, behoverLasAllt, sammanfattaMarkeringar, markeringsRad, antalPerTyp, namnMedAntal,
-  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, type KartMarkering, type MerIn,
+  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, efektivPos, markeringsGrupp, byggMarkeringsGrupper, samladText, arKortKommentar, type KartMarkering, type MerIn,
 } from './objektKort';
 
 const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
@@ -248,5 +248,86 @@ describe('positionen till kortet och Om trakten (PR 766: ⓘ kraschade på curre
     expect(page).not.toContain('setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any)');
     expect(page).toContain('gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition })');
     expect(page).toContain('pos: gpsNuPos,');
+  });
+});
+
+describe('Om trakten › På kartan: avstånd, grupper och sammanslagning (Skälviken)', () => {
+  const PUNKT = { lat: 56.4, lng: 14.7 };
+  const ms = [
+    M({ id: 'v1', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Gul väg', lat: 56.4003, lng: 14.7, skapad: 100 }),
+    M({ id: 'v2', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Röd väg ', lat: 56.4002, lng: 14.7, skapad: 110 }),
+    M({ id: 'v3', slag: 'linje', typ: 'mainRoad', namn: 'Basväg', comment: 'Röd väg', lat: 56.4004, lng: 14.7, skapad: 120 }),
+    M({ id: 'v4', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'röd väg', lat: 56.4005, lng: 14.7, skapad: 130 }),
+    M({ id: 'v5', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Gul väg', lat: 56.4006, lng: 14.7, skapad: 140 }),
+    M({ id: 'f1', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'En knäckt gran så Se upp här', lat: 56.4009, lng: 14.7, skapad: 150 }),
+    M({ id: 'f2', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'Ett jakttorn', lat: 56.401, lng: 14.7, skapad: 160 }),
+    M({ id: 'm1', slag: 'symbol', typ: 'manualfelling', namn: 'Manuell fällning', comment: 'Fällning hela denna kant pga brant', lat: 56.4001, lng: 14.7, skapad: 170 }),
+    M({ id: 'h1', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Ett Omr med bok, spara bokar och avv bara stämplade granar', lat: 56.4012, lng: 14.7, skapad: 180 }),
+    M({ id: 'tom', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: '', lat: 56.4, lng: 14.7, skapad: 190 }),
+  ];
+
+  it('avstånd bara på trakten: inom ca 1 km från närmaste markering; 39 km bort → inget (null)', () => {
+    expect(efektivPos(PUNKT, ms)).toEqual(PUNKT);
+    expect(efektivPos({ lat: 56.4 + 0.0085, lng: 14.7 }, ms)).not.toBeNull();   // ~950 m från närmaste
+    expect(efektivPos({ lat: 56.4 + 0.0125, lng: 14.7 + 0.1 }, [M({ id: 'x', lat: 56.4, lng: 14.7 })])).toBeNull();   // ~7 km
+    expect(efektivPos({ lat: 56.75, lng: 14.7 }, ms)).toBeNull();   // ~39 km
+    expect(efektivPos(null, ms)).toBeNull();
+    expect(efektivPos(PUNKT, [M({ id: 'y' })])).toBeNull();   // inga markeringar med position
+  });
+
+  it('faror = varning, el-ledning, vindfälle och "ej framkomlig"; vägar = väg-symboler och väglinjer; manuell fällning och hänsyn är övrigt', () => {
+    expect(markeringsGrupp({ slag: 'symbol', typ: 'warning' })).toBe('faror');
+    expect(markeringsGrupp({ slag: 'symbol', typ: 'powerline' })).toBe('faror');
+    expect(markeringsGrupp({ slag: 'symbol', typ: 'windfall' })).toBe('faror');
+    expect(markeringsGrupp({ slag: 'zon', typ: 'noentry' })).toBe('faror');
+    expect(markeringsGrupp({ slag: 'symbol', typ: 'manualfelling' })).toBe('ovrigt');
+    expect(markeringsGrupp({ slag: 'zon', typ: 'protected' })).toBe('ovrigt');
+    expect(markeringsGrupp({ slag: 'symbol', typ: 'road' })).toBe('vagar');
+    expect(markeringsGrupp({ slag: 'linje', typ: 'mainRoad' })).toBe('vagar');
+    expect(markeringsGrupp({ slag: 'linje', typ: 'sideRoadRed' })).toBe('vagar');
+    expect(markeringsGrupp({ slag: 'linje', typ: 'nature' })).toBe('ovrigt');
+  });
+
+  it('ordning: Faror först, sedan På kartan, Vägar sist — bara markeringar med kommentar eller foto', () => {
+    const g = byggMarkeringsGrupper(ms, null);
+    expect(g.map((x) => x.grupp)).toEqual(['faror', 'ovrigt', 'vagar']);
+    expect(g[0].rubrik).toBe('Faror');
+    expect(g.flatMap((x) => x.rader).flatMap((r) => r.markeringar).map((m) => m.id)).not.toContain('tom');
+  });
+
+  it('korta kommentarer av samma typ blir EN rad: "Vägar · Röd väg ×3 · Gul väg ×2" (ordning, stor/liten bokstav och slutmellanslag spelar ingen roll)', () => {
+    const vagar = byggMarkeringsGrupper(ms, null).find((x) => x.grupp === 'vagar')!;
+    expect(vagar.rader.length).toBe(1);
+    const r = vagar.rader[0];
+    expect(r.samlad).toBe(true);
+    expect(r.markeringar.length).toBe(5);
+    expect(samladText(r)).toBe('Vägar · Gul väg ×2 · Röd väg ×3');   // delarna i den ordning de först förekommer (Gul först i skapad ordning)
+  });
+
+  it('en ensam kort kommentar, en lång text och ett foto slås inte ihop', () => {
+    const g = byggMarkeringsGrupper([
+      M({ id: 'a', slag: 'symbol', typ: 'road', comment: 'Röd väg', skapad: 1 }),
+      M({ id: 'b', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött vid bäcken', skapad: 2 }),
+      M({ id: 'c', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött på andra sidan vägen, kör inte här', skapad: 3 }),
+      M({ id: 'd', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött vid bäcken', skapad: 4, photoPath: 'a.jpg' }),
+    ], null);
+    expect(g.flatMap((x) => x.rader).every((r) => !r.samlad)).toBe(true);
+    expect(arKortKommentar(M({ id: 'k', comment: 'Röd väg' }))).toBe(true);
+    expect(arKortKommentar(M({ id: 'l', comment: 'x'.repeat(40) }))).toBe(false);
+    expect(arKortKommentar(M({ id: 'm', comment: 'Röd väg', photoPath: 'a.jpg' }))).toBe(false);
+  });
+
+  it('två likadana korta kommentarer av en annan typ slås också ihop, med typens pluralnamn som rubrik', () => {
+    const g = byggMarkeringsGrupper([
+      M({ id: 'a', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött', skapad: 1 }),
+      M({ id: 'b', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'blött', skapad: 2 }),
+    ], null);
+    expect(samladText(g[0].rader[0])).toBe('Fuktiga partier · Blött ×2');
+  });
+
+  it('inom en grupp: närmast först när man är på trakten, annars i skapad ordning', () => {
+    const faror = (pos: { lat: number; lng: number } | null) => byggMarkeringsGrupper(ms, pos).find((x) => x.grupp === 'faror')!.rader.map((r) => r.markeringar[0].id);
+    expect(faror(null)).toEqual(['f1', 'f2']);
+    expect(faror({ lat: 56.401, lng: 14.7 })).toEqual(['f2', 'f1']);   // står vid jakttornet
   });
 });

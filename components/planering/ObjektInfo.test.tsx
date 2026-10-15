@@ -206,6 +206,65 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
   });
 });
 
+describe('Om trakten › På kartan — läsbarhet (Skälviken)', () => {
+  const oppnaOm = async (p: ObjektInfoProps) => { await montera(p); klicka(q('kort-pa-trakten')); };
+  const SK: KartMarkering[] = [
+    M({ id: 'v1', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Gul väg', lat: 56.4003, lng: 14.7, skapad: 100 }),
+    M({ id: 'v2', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Röd väg', lat: 56.4002, lng: 14.7, skapad: 110 }),
+    M({ id: 'v3', slag: 'linje', typ: 'mainRoad', namn: 'Basväg', comment: 'Röd väg', lat: 56.4004, lng: 14.7, skapad: 120 }),
+    M({ id: 'f1', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'En knäckt gran så Se upp här', lat: 56.4009, lng: 14.7, skapad: 150 }),
+    M({ id: 'f2', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'Ett jakttorn', lat: 56.401, lng: 14.7, skapad: 160 }),
+    M({ id: 'm1', slag: 'symbol', typ: 'manualfelling', namn: 'Manuell fällning', comment: 'Fällning pga brant', lat: 56.4001, lng: 14.7, skapad: 170 }),
+  ];
+
+  it('Faror först med röd rubrik, sedan På kartan, Vägar sist', async () => {
+    await oppnaOm(props({ markeringar: SK, pos: null }));
+    const sektioner = Array.from(behallare!.querySelectorAll('[data-testid="om-innehall"] > section')).map((x) => x.getAttribute('data-testid'));
+    expect(sektioner).toEqual(['om-hela', 'om-faror', 'om-pa-kartan', 'om-vagar']);   // Hela trakten först (Vidas och planerarens text), sedan kartan
+    const rubrik = q('om-faror')!.querySelector('div')!;
+    expect(rubrik.textContent).toBe('Faror');
+    expect(rubrik.style.color).toMatch(/255, ?69, ?58|#ff453a/i);   // FARG.rod
+    expect(qa('om-markering').filter((r) => q('om-faror')!.contains(r)).map((r) => r.getAttribute('data-id'))).toEqual(['f1', 'f2']);
+  });
+
+  it('kommentaren är huvudtexten, symbolens namn står litet under', async () => {
+    await oppnaOm(props({ markeringar: SK, pos: null }));
+    const rad = qa('om-markering').find((r) => r.getAttribute('data-id') === 'f2')!;
+    expect(rad.querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Ett jakttorn');
+    expect(rad.querySelector('[data-testid="om-symbolnamn"]')!.textContent).toBe('Varning');
+  });
+
+  it('en markering med bara foto: symbolens namn är huvudtexten, ingen rad under', async () => {
+    await oppnaOm(props({ markeringar: [M({ id: 'p', typ: 'landing', namn: 'Avlägg', comment: '', photoData: FOTO, skapad: 1 })], pos: null }));
+    const rad = q('om-markering')!;
+    expect(rad.querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Avlägg');
+    expect(rad.querySelector('[data-testid="om-symbolnamn"]')).toBeNull();
+  });
+
+  it('avstånd: inget när användaren är 39 km bort, avstånd när hen står på trakten', async () => {
+    await oppnaOm(props({ markeringar: SK, pos: { lat: 56.75, lng: 14.7 } }));
+    expect(qa('om-avstand').length).toBe(0);
+    await act(async () => { rot?.unmount(); }); behallare?.remove();
+    await oppnaOm(props({ markeringar: SK, pos: { lat: 56.401, lng: 14.7 } }));
+    expect(qa('om-avstand').length).toBeGreaterThan(0);
+  });
+
+  it('korta kommentarer av samma typ är EN rad ("Vägar · Gul väg · Röd väg ×2"); tryck fäller ut en rad per markering med Visa ›', async () => {
+    await oppnaOm(props({ markeringar: SK, pos: null }));
+    const samlad = qa('om-samlad');
+    expect(samlad.length).toBe(1);
+    expect(q('om-samlad-text')!.textContent).toBe('Vägar · Gul väg · Röd väg ×2');
+    expect(q('om-samlad-lista')).toBeNull();
+    klicka(q('om-samlad-knapp'));
+    const inre = Array.from(q('om-samlad-lista')!.querySelectorAll('[data-testid="om-markering"]'));
+    expect(inre.map((r) => r.getAttribute('data-id'))).toEqual(['v1', 'v2', 'v3']);
+    klicka(inre[2].querySelector('[data-testid="om-visa"]'));
+    expect(spion.visa).toEqual(['v3:ark']);
+    klicka(q('om-samlad-knapp'));
+    expect(q('om-samlad-lista')).toBeNull();
+  });
+});
+
 describe('position — sidans currentPosition är { lat, lon } (PR 766)', () => {
   // Så som sidan bygger positionen: { lat, lon } genom gpsNu → { lat, lng }. Förut matades komponenterna med färdigt { lat, lng } och kraschen i sidan syntes aldrig.
   const sidansPosition = (position: { lat: number; lon: number } | null) => gpsNu({ korvyAktiv: false, korvyPos: null, position });

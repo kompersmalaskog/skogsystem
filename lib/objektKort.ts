@@ -119,6 +119,8 @@ export interface KartMarkering {
   photoTs?: number | null;
   lat: number | null;
   lng: number | null;
+  /** hela linjen/ytan (lat/lng per punkt) — bara linjer och zoner; symbolen har bara lat/lng. "Visa ›" framhäver HELA figuren, inte en punkt. */
+  geometri?: { lat: number; lng: number }[];
   /** när den skapades (ms) om det går att läsa ur id:t, annars null */
   skapad: number | null;
   /** plats i markeringslistan = ordningen de lästes in (reserv när tidsstämpel saknas) */
@@ -217,6 +219,104 @@ export function sorteraMarkeringar(ms: readonly KartMarkering[], pos: { lat: num
     if (b.avstandM == null) return -1;
     return a.avstandM - b.avstandM || iSkapadOrdning(a, b);
   });
+}
+
+// ── Om trakten › På kartan: avstånd, grupper och sammanslagna rader ─────────────────────────────────────────────────
+
+/** Avstånd visas bara när man är på trakten: inom ca 1 km från närmaste markering. Annars är det en avståndstext på varje rad ("39,3 km") som inte hjälper någon. */
+export const NAR_TRAKTEN_M = 1000;
+export function efektivPos(pos: { lat: number; lng: number } | null, ms: readonly KartMarkering[], granM: number = NAR_TRAKTEN_M): { lat: number; lng: number } | null {
+  if (!pos) return null;
+  for (const m of ms) {
+    if (m.lat != null && m.lng != null && distM(pos, { lat: m.lat, lng: m.lng }) <= granM) return pos;
+  }
+  return null;
+}
+
+/** Faror först, sedan övrigt, vägar sist. */
+export type MarkeringsGrupp = 'faror' | 'ovrigt' | 'vagar';
+export const GRUPPER_I_ORDNING: MarkeringsGrupp[] = ['faror', 'ovrigt', 'vagar'];
+export const GRUPP_RUBRIK: Record<MarkeringsGrupp, string> = { faror: 'Faror', ovrigt: 'På kartan', vagar: 'Vägar' };
+// Det som kan göra illa: varning, el-ledning, vindfälle och "ej framkomlig". Manuell fällning och brant är information till den som fäller/kör, inte en fara att se upp för.
+const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall']);
+const FARA_ZONER = new Set(['noentry']);
+const VAG_SYMBOLER = new Set(['road', 'turningpoint', 'bridge', 'corduroy', 'trail']);
+const VAG_LINJER = new Set(['mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'trail']);
+export function markeringsGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): MarkeringsGrupp {
+  if (m.slag === 'symbol') return FARA_SYMBOLER.has(m.typ) ? 'faror' : VAG_SYMBOLER.has(m.typ) ? 'vagar' : 'ovrigt';
+  if (m.slag === 'zon') return FARA_ZONER.has(m.typ) ? 'faror' : 'ovrigt';
+  return VAG_LINJER.has(m.typ) ? 'vagar' : 'ovrigt';
+}
+
+/** En kort kommentar ("Röd väg") går att slå ihop med likadana; en lång text eller ett foto står för sig. */
+export const KORT_KOMMENTAR_TECKEN = 24;
+export const arKortKommentar = (m: Pick<KartMarkering, 'comment' | 'photoPath' | 'photoData'>): boolean => {
+  const c = m.comment.trim();
+  return c !== '' && c.length <= KORT_KOMMENTAR_TECKEN && !harFoto(m);
+};
+const normKommentar = (c: string) => c.trim().replace(/\s+/g, ' ').toLowerCase();
+const versal = (t: string) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
+/** "fuktig mark" → "Fuktiga partier": pluralformen med stor bokstav. Okänd typ: visningsnamnet. */
+export function pluralNamn(slag: MarkeringsSlag, typ: string, fallbackNamn: string): string {
+  const tabell = (slag === 'linje' ? LINJE_PLURAL : slag === 'symbol' ? PLURAL : {}) as Record<string, [string, string]>;
+  const par = tabell[typ];
+  return versal(par ? par[1] : String(fallbackNamn || typ));
+}
+
+export interface SamladDel { text: string; n: number }
+export interface MarkeringsRad {
+  nyckel: string;
+  /** en markering, eller flera korta kommentarer av samma typ som en rad ("Vägar · Röd väg ×3 · Gul väg ×2") */
+  samlad: boolean;
+  markeringar: MarkeringMedAvstand[];
+  /** den samlade radens rubrik ("Vägar") och delar (kommentar + antal) */
+  rubrik: string;
+  delar: SamladDel[];
+}
+export interface MarkeringsGruppRader { grupp: MarkeringsGrupp; rubrik: string; rader: MarkeringsRad[] }
+
+/** "Vägar · Röd väg ×3 · Gul väg ×2" — ×n bara när n > 1. */
+export function samladText(r: Pick<MarkeringsRad, 'rubrik' | 'delar'>): string {
+  return [r.rubrik, ...r.delar.map((d) => (d.n > 1 ? `${d.text} ×${d.n}` : d.text))].join(' · ');
+}
+
+/**
+ * Raderna i "På kartan", i tre grupper (Faror · På kartan · Vägar). Bara markeringar MED kommentar eller foto. Inom en grupp närmast först om man är på
+ * trakten (`pos` efter `efektivPos`), annars i den ordning de skapades. Två eller fler korta kommentarer av samma typ blir EN rad
+ * (alla vägar — symbol som linje — räknas som samma typ: "Vägar"); en ensam, en lång text och ett foto står för sig.
+ */
+export function byggMarkeringsGrupper(ms: readonly KartMarkering[], pos: { lat: number; lng: number } | null): MarkeringsGruppRader[] {
+  const sorterade = sorteraMarkeringar(ms.filter(harInnehall), pos);
+  const ut: MarkeringsGruppRader[] = [];
+  for (const g of GRUPPER_I_ORDNING) {
+    const iGrupp = sorterade.filter((m) => markeringsGrupp(m) === g);
+    if (iGrupp.length === 0) continue;
+    const nyckelAv = (m: MarkeringMedAvstand) => (g === 'vagar' ? 'vagar' : `${m.slag}:${m.typ}`);
+    const kort = new Map<string, MarkeringMedAvstand[]>();
+    for (const m of iGrupp) if (arKortKommentar(m)) kort.set(nyckelAv(m), [...(kort.get(nyckelAv(m)) ?? []), m]);
+    const samlas = new Set(Array.from(kort.entries()).filter(([, l]) => l.length >= 2).map(([k]) => k));
+    const rader: MarkeringsRad[] = [];
+    const redanSamlad = new Set<string>();
+    for (const m of iGrupp) {
+      const k = nyckelAv(m);
+      if (arKortKommentar(m) && samlas.has(k)) {
+        if (redanSamlad.has(k)) continue;
+        redanSamlad.add(k);
+        const medlemmar = kort.get(k)!;
+        const delar: SamladDel[] = [];
+        for (const x of medlemmar) {
+          const n = normKommentar(x.comment);
+          const finns = delar.find((d) => normKommentar(d.text) === n);
+          if (finns) finns.n += 1; else delar.push({ text: versal(x.comment.trim().replace(/\s+/g, ' ')), n: 1 });
+        }
+        rader.push({ nyckel: `samlad:${g}:${k}`, samlad: true, markeringar: medlemmar, rubrik: g === 'vagar' ? 'Vägar' : pluralNamn(m.slag, m.typ, m.namn), delar });
+      } else {
+        rader.push({ nyckel: `en:${m.id}`, samlad: false, markeringar: [m], rubrik: '', delar: [] });
+      }
+    }
+    ut.push({ grupp: g, rubrik: GRUPP_RUBRIK[g], rader });
+  }
+  return ut;
 }
 
 /** Sökfältet i Om trakten: träffar text i kommentaren och symbolens namn (ingen skillnad på versaler). Tom sökning släpper igenom allt. */
