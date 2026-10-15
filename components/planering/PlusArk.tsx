@@ -45,7 +45,7 @@ export interface PlusPostVy {
 
 export interface SymbolKategori { id: string; rubrik: string; poster: PlusPostVy[] }
 
-export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar';
+export type RitaIkonId = 'linje' | 'yta' | 'strackan' | 'matyta' | 'gps' | 'omrade' | 'pilar' | 'basvag';
 /** En stor ruta i Rita & mät. Vad ett tryck gör avgör sidan (samma flöden som förut). */
 export interface RitaKort { id: string; titel: string; ikon: RitaIkonId; onTryck: () => void }
 
@@ -107,6 +107,7 @@ function RitaIkon({ id }: { id: RitaIkonId }) {
       {id === 'gps' && <><circle cx="20" cy="20" r="5" {...linje} /><circle cx="20" cy="20" r="13" {...linje} /><path d="M20 3 V8 M20 32 V37 M3 20 H8 M32 20 H37" {...linje} /></>}
       {id === 'omrade' && <><path d="M6 10 L30 6 L35 30 L10 34 Z" {...linje} strokeDasharray="4 4" /><path d="M20 14 V26 M14 20 H26" {...linje} /></>}
       {id === 'pilar' && <path d="M7 33 L32 8 M32 8 H19 M32 8 V21" {...linje} />}
+      {id === 'basvag' && <><path d="M5 31 C 12 31, 14 15, 22 15 S 31 9, 36 9" {...linje} strokeWidth={5} /><circle cx="5" cy="31" r="3.5" fill={f} /></>}
     </svg>
   );
 }

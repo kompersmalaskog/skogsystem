@@ -77,7 +77,7 @@ describe('ett läge i taget', () => {
     expect(tryck).toContain('avslutaPagaendeLage();');
     expect(tryck).not.toContain('if (figur) avslutaFigur();');
     const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
-    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(3);   // Nytt område, Pilar, Spåra med GPS (Rita linje/yta och Mät går via trycktPlusPost)
+    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(4);   // Nytt område, Pilar, Spåra basväg, Spåra med GPS (Rita linje/yta och Mät går via trycktPlusPost)
   });
   it('raderna döljs medan plusdockan eller en meny är öppen — samma regel som placera', () => {
     for (const s of [
@@ -105,8 +105,8 @@ describe('mät: Klar visar talet, inget sparas', () => {
 describe('Rita linje: Stickväg ligger bland linjetyperna', () => {
   it('Stickväg (röd) sist i listan, sparas som lineType sideRoadRed — samma typ som Spara som › Stickväg gav', () => {
     const lista = mellan(page, 'const ritaLinjeTyper = [', '  const ritNamn');
-    expect(lista).toContain("...lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')),");
-    expect(lista).toContain("...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg' })),");
+    expect(lista).toContain("...medBasvagFarger(lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'))),");   // Basväg i röd/gul/blå, övriga som förut
+    expect(lista).toContain("...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg', key: t.id, farg: undefined as BasvagFarg | undefined })),");
     expect(page).toContain('{ritaLinjeTyper.map(type => (');
     expect(page).toContain("{ id: 'sideRoadRed', name: 'Stickväg Röd', color: LEGEND.fara, striped: false },");   // kartans och markeringarnas namn oförändrade
   });
