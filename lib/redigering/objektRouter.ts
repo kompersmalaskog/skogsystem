@@ -25,7 +25,7 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   // ── Dubblettfält — samma kolumnnamn i båda tabellerna (speglas) ──
   vo_nummer:        { dim: 'vo_nummer', objekt: 'vo_nummer' },
   atgard:           { dim: 'atgard', objekt: 'atgard' },
-  // Avtalsform (Au/Rp/LRK/VF/Bark) — eget fält sedan 20261015090000, skilt från åtgärd.
+  // Avtalsform (Au/Rp/LRK/VF/Bark) — eget fält sedan 20261014125836, skilt från åtgärd.
   avtalsform:       { dim: 'avtalsform', objekt: 'avtalsform' },
   bolag:            { dim: 'bolag', objekt: 'bolag' },
   avverkningsform:  { dim: 'avverkningsform', objekt: 'avverkningsform' },

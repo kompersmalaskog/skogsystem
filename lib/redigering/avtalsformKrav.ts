@@ -1,7 +1,7 @@
 // Vad Redigering kräver av ett objekt: slutavverkning ska ha AVTALSFORM (Au/Rp/LRK/VF/Bark), åtgärd är valfri där; gallring ska ha ÅTGÄRD som förut.
 // (Martins beslut på #762. Importen läser avtalsformen ur TD:ns Ursprung, så en slutavverkning utan den är något att titta på.)
 //
-// Före migrationen 20261015090000 finns ingen avtalsform-kolumn på dim_objekt (select('*') ger inte nyckeln) — då går den inte att fylla i
+// Före migrationen 20261014125836 finns ingen avtalsform-kolumn på dim_objekt (select('*') ger inte nyckeln) — då går den inte att fylla i
 // och kravet är åtgärd som förut, annars skulle varje slutavverkning varna för något som inte går att rätta.
 
 export interface KravObjekt {

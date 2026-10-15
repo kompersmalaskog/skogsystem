@@ -1,5 +1,5 @@
 // Läsare som behöver `avtalsform` (vindfälle = avtalsform VF/Bark) ska inte gå sönder om migrationen
-// 20261015090000_avtalsform_och_import_varden.sql ännu inte är körd: PostgREST svarar då med fel för HELA frågan.
+// 20261014125836_avtalsform_och_import_varden.sql ännu inte är körd: PostgREST svarar då med fel för HELA frågan.
 // Hjälparna kör frågan med kolumnen och, om just den saknas, en gång till utan — vyn får samma data som före migrationen.
 
 export function arAvtalsformKolumnFel(e: { code?: string | null; message?: string | null } | null | undefined): boolean {

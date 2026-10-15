@@ -343,7 +343,7 @@ export default function StartaJobbPage() {
     const { data: antal, error: dimErr } = await supabase.rpc('tilldela_vo_maskinobjekt', { p_dim_objekt_id: obj.objekt_id, p_vo: vo });
     if (dimErr) {
       const saknas = /could not find the function|does not exist/i.test(dimErr.message || '');
-      setFel('Inget sparades — VO-numret sattes inte på maskinobjektet: ' + dimErr.message + (saknas ? ' (Migrationen 20261009110000_starta_jobb_ursprung_hor_till har inte körts.)' : ''));
+      setFel('Inget sparades — VO-numret sattes inte på maskinobjektet: ' + dimErr.message + (saknas ? ' (Migrationen 20261014125025_starta_jobb_ursprung_hor_till har inte körts.)' : ''));
       setSaving(false);
       return;
     }

@@ -407,7 +407,7 @@ export async function POST(request: NextRequest) {
     let saved: any = null;
     // Satt när objektet skrevs UTAN import_varningar-kolumnen (se lib/trakt/importVarningar.ts) — varningarna ska då inte försvinna.
     let skrivning: { kolumnFel?: string; ejSparade: string[] } | null = null;
-    // Valfria kolumner som avvisades (avtalsform, import_varden: migrationen 20261015090000 ej körd) — objektet sparas ändå, men det loggas.
+    // Valfria kolumner som avvisades (avtalsform, import_varden: migrationen 20261014125836 ej körd) — objektet sparas ändå, men det loggas.
     let ejSkrivnaKolumner: string[] = [];
 
     if (befintlig) {

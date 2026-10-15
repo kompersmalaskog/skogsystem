@@ -558,7 +558,7 @@ function getWarnings(obj, volym?: { skordat: number; skotat: number }) {
   if (!arRisjobb(obj)) {
     if (!obj.huvudtyp) w.push({ key: 'huvudtyp', text: 'Saknar huvudtyp', target: 'huvudtyp-section' })
     // Slutavverkning: det som SKA vara satt är avtalsformen (Au/Rp …) — åtgärd är valfri där. Gallring: åtgärd som förut.
-    // Före migrationen 20261015090000 finns ingen avtalsform-kolumn (obj har inte nyckeln): då gäller åtgärd som förut.
+    // Före migrationen 20261014125836 finns ingen avtalsform-kolumn (obj har inte nyckeln): då gäller åtgärd som förut.
     const saknar = saknarAvtalsformEllerAtgard(obj)
     if (saknar) w.push(saknar)
   }
@@ -3061,7 +3061,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       const rad = await resolveObjektRad(ids, vo)
       if (avbruten) return
       if (!rad) { setObjektRad(null); setObjektRadLaddar(false); return }
-      // atgard + avtalsform: "trakt säger" under Åtgärd/Avtalsform. avtalsform finns först efter migrationen 20261015090000 —
+      // atgard + avtalsform: "trakt säger" under Åtgärd/Avtalsform. avtalsform finns först efter migrationen 20261014125836 —
       // medAvtalsformSvar kör om utan kolumnen om den saknas, så resten av objektraden (kartor, tilldelning …) alltid laddas.
       const { data } = await medAvtalsformSvar((med) => supabase.from('objekt')
         .select(`id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform, atgard${med ? ', avtalsform' : ''}`)

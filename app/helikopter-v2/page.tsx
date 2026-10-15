@@ -261,7 +261,7 @@ export default function HelikopterV2Page() {
       const svar = await Promise.all([
         hamtaAlla<any>(() => supabase.from('helikopter_vy').select('*'), 'objekt_id'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
-        // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261015090000 — medAvtalsformSvar kör om utan kolumnen om den saknas.
+        // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261014125836 — medAvtalsformSvar kör om utan kolumnen om den saknas.
         medAvtalsformSvar((med) => hamtaAlla<any>(() => supabase.from('dim_objekt').select(`objekt_id,object_name,maskin_id,vo_nummer,huvudtyp,atgard,${med ? 'avtalsform,' : ''}skordning_avslutad,skordning_avslutad_auto,skotning_avslutad,skotning_avslutad_auto`), 'objekt_id')),
         hamtaAlla<any>(() => supabase.from('objekt').select('id,namn,vo_nummer,typ,ar,manad,status,volym,manuell_prognos,skordare_maskin_id,skotare_maskin_id,skordare_utforare,skotare_utforare'), 'id'),
         supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'),

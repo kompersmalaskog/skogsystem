@@ -60,10 +60,10 @@ export async function GET(_req: NextRequest) {
     // Maskinflytten är ett tillägg till arbetstiden, inte grunden: går den inte att läsa visas kortet ändå, med en varning.
     if (flyttRes.fel) varningar.push(`Kunde inte läsa maskinflytten (flyttdag: ${flyttRes.fel}) — flyttdagarna ingår inte, och arbetstid och vila kan vara för låga.`);
     const flyttRader = flyttRes.rader;
-    // Kolumnen foretagsledare kommer med migrationen 20261013170000. Före den kör kortet ändå, utan delägarundantag, och säger det.
+    // Kolumnen foretagsledare kommer med migrationen 20261013155407. Före den kör kortet ändå, utan delägarundantag, och säger det.
     let medRes: { data: any[] | null; error: any } = medRes0 as any;
     if (medRes0.error && /foretagsledare/i.test(String(medRes0.error.message || ""))) {
-      varningar.push("Kolumnen medarbetare.foretagsledare finns inte än (migration 20261013170000_medarbetare_foretagsledare.sql är inte körd) — ingen person räknas som delägare, så delägare kan visas som gula eller röda.");
+      varningar.push("Kolumnen medarbetare.foretagsledare finns inte än (migration 20261013155407_medarbetare_foretagsledare.sql är inte körd) — ingen person räknas som delägare, så delägare kan visas som gula eller röda.");
       medRes = await supabase.from("medarbetare").select("id, namn").order("namn") as any;
     }
     if (medRes.error) throw medRes.error;

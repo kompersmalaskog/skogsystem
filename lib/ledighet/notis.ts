@@ -1,6 +1,6 @@
 /**
  * Ledighetens två pushnotiser — texten byggs FÄRSKT vid utskick (som dagsslut-notisen), ur ansökan som den ser ut
- * just då. Triggern (migration 20261014100000) köar bara VEM och VILKEN ansökan.
+ * just då. Triggern (migration 20261014072825) köar bara VEM och VILKEN ansökan.
  *
  *  ledighet_ansokan  → godkännare (admin) utom den som ansökte: "{Förnamn} har ansökt om ledighet {period}"  → /ledighet?godkann=<id>
  *  ledighet_beslut   → ägaren:                                  "Din ledighet {period} är godkänd | nekad"  → /ledighet?besked=<id>

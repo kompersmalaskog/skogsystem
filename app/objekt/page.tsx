@@ -170,7 +170,7 @@ function ObjektPageInner() {
     }
 
     setObjekt(data || []);
-    // select('*') ger bara kolumnen om migrationen 20261015090000 är körd — annars visas/skrivs avtalsform inte (ett update med okänd kolumn skulle fälla ALLA sparningar).
+    // select('*') ger bara kolumnen om migrationen 20261014125836 är körd — annars visas/skrivs avtalsform inte (ett update med okänd kolumn skulle fälla ALLA sparningar).
     setAvtalsformKolumn((data || []).some((o: any) => 'avtalsform' in o));
   };
 

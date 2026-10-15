@@ -182,7 +182,7 @@ describe("GET /api/lon/arbetstid", () => {
     expect(j.ok).toBe(true);
     expect(j.forare).toHaveLength(1);
     expect(j.forare[0].foretagsledare).toBe(false);
-    expect(j.varningar.join(" ")).toContain("20261013170000_medarbetare_foretagsledare.sql");
+    expect(j.varningar.join(" ")).toContain("20261013155407_medarbetare_foretagsledare.sql");
   });
 
   it("förare utan någon registrerad tid tas inte med", async () => {
