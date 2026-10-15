@@ -167,8 +167,9 @@ export function pulsFas(nowMs: number, periodMs = 1400, minskadRorelse = false):
  *  "‹ Om trakten" (öppnar listan igen, kameran lämnas), nytt = en annan markering vald (kameran styrs av det nya valet). */
 export type SlappOrsak = 'rad' | 'karta' | 'stang' | 'tillbaka' | 'nytt';
 
-/** Rad, kartryck och stängd panel zoomar ut till hela trakten ("Tryck på tom yta → samma sak" — Martin 2026-10-15); "‹ Om trakten" och ett nytt val flyttar inte kameran. */
-export const slappAtgard = (orsak: SlappOrsak): { zoomaUt: boolean } => ({ zoomaUt: orsak === 'rad' || orsak === 'karta' || orsak === 'stang' });
+/** Rad ("Visa hela", telefonens ×) och stängd panel zoomar ut till hela trakten. Ett tryck på tom yta släpper BARA framhävningen — kameran står kvar, som i Apple Kartor
+ *  (Martin 2026-10-15). "‹ Om trakten" och ett nytt val flyttar inte heller kameran. */
+export const slappAtgard = (orsak: SlappOrsak): { zoomaUt: boolean } => ({ zoomaUt: orsak === 'rad' || orsak === 'stang' });
 
 /** Ett tryck på kartan (och inte en panorering/nyp): rörelsen under fingret < gränsen, kort tid, ett enda finger. */
 export const TRYCK_MAX_FLYTT_PX = 10;

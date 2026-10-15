@@ -148,10 +148,10 @@ describe('Visa › — radbrytning och avkortning av etiketten (1–2 rader, …
 });
 
 describe('Visa › — att lämna framhävningen', () => {
-  it('rad, tryck på kartan och stängd panel zoomar ut till hela trakten; "‹ Om trakten" och nytt val lämnar kameran', () => {
+  it('rad ("Visa hela", telefonens ×) och stängd panel zoomar ut till hela trakten; tryck på tom yta, "‹ Om trakten" och nytt val lämnar kameran där den står', () => {
     expect(slappAtgard('rad').zoomaUt).toBe(true);
-    expect(slappAtgard('karta').zoomaUt).toBe(true);
     expect(slappAtgard('stang').zoomaUt).toBe(true);
+    expect(slappAtgard('karta').zoomaUt).toBe(false);
     expect(slappAtgard('tillbaka').zoomaUt).toBe(false);
     expect(slappAtgard('nytt').zoomaUt).toBe(false);
   });
@@ -205,6 +205,7 @@ describe('sidans koppling (page.tsx kan inte monteras — källvakt)', () => {
     expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} />');
     expect(page).toContain('testid="framhav-list"');
     expect(page).toContain("slappFramhavningRef.current('tillbaka'); setInfoStartVy('om'); setTraktOversiktOpen(true);");
+    expect(page).toContain("AVBRYT_KNAPP(() => slappFramhavningRef.current('rad'), 'framhav-slapp')");   // × på telefonens rad = som Visa hela (zoomar ut)
     // bara telefonen (arket stängdes av Visa) och bara när inget annat nertill-läge pågår
     expect(page).toContain("framhavdLageRef.current === 'ark' && !traktOversiktOpen");
   });
