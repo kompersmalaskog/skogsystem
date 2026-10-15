@@ -21,8 +21,11 @@ describe('fotot sparas lokalt först — aldrig uppladdning vid fotograferingen,
     expect(page).not.toContain('Fotot kunde inte sparas: ');
   });
   it('tas markeringen bort tas det väntande fotot bort (alla borttag går via deleteMarkerFromDb)', () => {
-    const del = page.slice(page.indexOf('const deleteMarkerFromDb = useCallback'), page.indexOf('const updateMarkerDataInDb'));
-    expect(del).toContain('tomFotoForMarkering(String(valtObjekt.id), String(markerId))');
+    const hook = las('./hooks/useMarkeringarSynk.ts');
+    const del = hook.slice(hook.indexOf('const deleteMarker = useCallback'), hook.indexOf('// ── Ladda när objektet byts'));
+    expect(del).toContain('tomFotoForMarkering(oid, mid)');
+    expect(del).toContain('FOTO_STAD_MS');   // …men först när Ångra-raden gått ut
+    expect(page).toContain('deleteMarker: deleteMarkerFromDb');   // sidans alla borttag går genom hookens deleteMarker
   });
   it('fotot kom upp → photoPath sätts i minnet; kortet och redigeringen visar det lokala fotot', () => {
     expect(page).toContain('window.addEventListener(FOTO_UPPE_EVENT, h)');
