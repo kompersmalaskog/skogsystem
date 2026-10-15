@@ -7,7 +7,7 @@ import facitSep from './__fixtures__/manadsfacit_2026-09.json'
 import historikOkt from './__fixtures__/historik_2026-10-15.json'
 import {
   facitModell, formateraManadNotis, historikModell, inomMarginal, klartDatum, klartText, lasHistorik, lasManadsfacit, manadNotisLank,
-  procent, radDampad, skotatFranTidigare, stapelSkala, tidigareText, type FacitSpar,
+  procent, procentTon, radDampad, skotatFranTidigare, skotatTon, stapelSkala, tidigareText, type FacitSpar,
 } from './manadsfacit'
 
 const n = (x: number) => x.toLocaleString('sv-SE')
@@ -115,6 +115,44 @@ describe('klartText', () => {
     const s = spar({ klart_datum: null, skotat_fran_tidigare: 0, tidigare_manader: [] })
     expect(klartText(s, 'avslutad')).toBe('Inte klart')
     expect(klartText(s, 'pagaende')).toBe('Inte klart än')
+  })
+})
+
+describe('färger (som Läge och Veckor)', () => {
+  it('stora talet: grön från 100 %, orange under 95 %, text däremellan', () => {
+    expect(procentTon(109)).toBe('gron')
+    expect(procentTon(100)).toBe('gron')
+    expect(procentTon(99)).toBe('neutral')
+    expect(procentTon(95)).toBe('neutral')
+    expect(procentTon(94)).toBe('orange')
+    expect(procentTon(4)).toBe('orange')
+  })
+  it('skotat-mätaren: grön när skotat nått beställt, annars orange', () => {
+    expect(skotatTon(5000, 5000)).toBe('gron')
+    expect(skotatTon(5142, 5000)).toBe('gron')
+    expect(skotatTon(4999, 5000)).toBe('orange')
+  })
+  it('september 2026: allt grönt — och modellen bär tonerna', () => {
+    const m = facitModell(lasManadsfacit(facitSep))!
+    expect(m.procentTon).toBe('gron')
+    expect(m.spar.map(s => s.skotatTon)).toEqual(['gron', 'gron'])
+  })
+  it('en månad under beställt: orange tal och orange mätare', () => {
+    const f = lasManadsfacit(facitSep)
+    const sp = f.spar.slutavverkning!
+    const under = facitModell({ ...f, spar: { ...f.spar, slutavverkning: { ...sp, skotat: 2000, procent: 40 } }, totalt: { ...f.totalt!, skotat: 3390, procent: 57 } })!
+    expect(under.procentTon).toBe('orange')
+    expect(under.spar[0].skotatTon).toBe('orange')
+    expect(under.spar[1].skotatTon).toBe('gron')
+  })
+  it('veckans plan är summan av spårens plan (Veckor-färgen räknas mot den); utan plan null', () => {
+    const m = facitModell(lasManadsfacit(facitSep))!
+    expect(m.veckor[0].plan).toBe(909 + 182)
+    expect(m.veckor[1].plan).toBe(1136 + 227)
+    const f = lasManadsfacit(facitSep)
+    const utanPlan = (s: FacitSpar): FacitSpar => ({ ...s, veckor: s.veckor.map(v => ({ ...v, plan: null })) })
+    const x = facitModell({ ...f, spar: { slutavverkning: utanPlan(f.spar.slutavverkning!), gallring: utanPlan(f.spar.gallring!) } })!
+    expect(x.veckor.every(v => v.plan === null)).toBe(true)
   })
 })
 

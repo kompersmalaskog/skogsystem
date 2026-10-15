@@ -4,7 +4,8 @@
 import { FARG, TYP } from '@/lib/design/tokens'
 import { MANAD_NAMN } from './format'
 import { IKON_SKORDAT, IKON_SKOTAT, IKON_VIEW } from './manadsfacitIkoner'
-import type { FacitModell, FacitSparVy } from './manadsfacit'
+import type { FacitModell, FacitSparVy, FacitTon } from './manadsfacit'
+import { veckaFarg } from './veckaFarg'
 import { delaFil, type DelaResultat } from './veckolageDela'
 
 export async function delaManadsfacit(m: FacitModell, slag: 'pdf' | 'bild'): Promise<DelaResultat> {
@@ -157,6 +158,8 @@ export async function skapaManadsfacitPdf(m: FacitModell, datum: string = new Da
 
 // ── PNG (månadssidan, mörk, 390 px × 2) ──────────────────────────────────────
 const BILD = { bredd: 390, marg: 16, skala: 2 }
+/** PNG-bilden följer skärmen: samma färger som sidan (PDF:en är svartvit och använder inte dessa). */
+const TON: Record<FacitTon, string> = { gron: FARG.gron, orange: FARG.orange, neutral: FARG.text }
 /** Typstegens storlekar ur tokens (TYP.x.fontSize är CSS-typad, inte number). */
 const px = (t: { fontSize?: unknown }): number => Number(t.fontSize)
 const S = { tal: px(TYP.tal), rubrik: px(TYP.rubrik), text: px(TYP.text), listtitel: px(TYP.listtitel), meta: px(TYP.meta) }
@@ -213,7 +216,7 @@ export function ritaBild(ctx: CanvasRenderingContext2D, m: FacitModell, rita: bo
   y += S.meta + 24
 
   // Svaret.
-  text(m.procentText, M, S.tal, 700, FARG.text)
+  text(m.procentText, M, S.tal, 700, TON[m.procentTon])
   y += S.tal + 8
   text(m.levereratText, M, S.text, 400, FARG.text2)
   y += S.text + 24
@@ -235,14 +238,14 @@ export function ritaBild(ctx: CanvasRenderingContext2D, m: FacitModell, rita: bo
     y += S.listtitel + 16
     const rader: [string, string, string, string | undefined, number, string][] = [
       [IKON_SKORDAT, 'Skördat', s.skordatText, undefined, s.skordatAndel, FARG.text2],
-      [IKON_SKOTAT, 'Skotat', s.skotatText, s.skotatProcentText, s.skotatAndel, FARG.text],
+      [IKON_SKOTAT, 'Skotat', s.skotatText, s.skotatProcentText, s.skotatAndel, TON[s.skotatTon]],
     ]
     for (const [bana, etikett, tal, pct, andel, farg] of rader) {
       ikon(bana, x0, y - 1, 22, FARG.text2)
       text(etikett, x0 + 22 + 8, S.text, 400, FARG.text)
       if (pct) {
         y += S.text - S.meta - 1 // procenten står på samma baslinje som talet
-        text(pct, x1, S.meta, 400, FARG.text2, 'right')
+        text(pct, x1, S.meta, 400, farg, 'right')
         y -= S.text - S.meta - 1
         text(tal, x1 - mat(` ${pct}`, S.meta, 400), S.text, 400, FARG.text, 'right')
       } else {
@@ -277,8 +280,8 @@ export function ritaBild(ctx: CanvasRenderingContext2D, m: FacitModell, rita: bo
         const hh = Math.max(varde > 0 ? 1.5 : 0, (varde / max) * STAPEL_H)
         if (hh > 0) rekt(x, botten - hh, 16, hh, 4, farg)
       }
-      stapel(v.skordat, mitt - 18, FARG.text2)
-      stapel(v.skotat, mitt + 2, FARG.text)
+      stapel(v.skordat, mitt - 18, veckaFarg(v.skordat, v.plan))
+      stapel(v.skotat, mitt + 2, veckaFarg(v.skotat, v.plan))
       y = botten + 6
       text(v.etikett, mitt, S.meta, 400, FARG.text2, 'center')
     })

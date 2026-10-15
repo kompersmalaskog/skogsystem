@@ -86,6 +86,32 @@ describe('ManadsfacitVy', () => {
     expect(cont.querySelector('button[aria-label="Dela månadsfacit"]')).toBeTruthy()
   })
 
+  it('färgerna följer appen: stora talet och skotat-mätaren gröna ≥ beställt, skördat grått, veckostaplar som i Veckor', async () => {
+    q.params = 'ar=2026&manad=9'
+    q.hamtaManadsfacit.mockResolvedValue({ data: lasManadsfacit(facitSep), error: null })
+    await monter(<ManadsfacitVy />)
+    const GRON = 'rgb(48, 209, 88)', ORANGE = 'rgb(255, 159, 10)', GRA = 'rgb(142, 142, 147)'
+    const stort = Array.from(cont.querySelectorAll('div')).find(d => d.textContent === '109 %') as HTMLElement
+    expect(stort.style.color).toBe(GRON)
+    // Mätare: skördat grå, skotat grön (båda spåren når beställt i september).
+    const matare = Array.from(cont.querySelectorAll('section')).slice(1, 3).map(sec => Array.from(sec.querySelectorAll<HTMLElement>('div')).filter(d => d.style.height === '6px'))
+    for (const [skordat, skotat] of matare) {
+      expect((skordat.firstElementChild as HTMLElement).style.background).toBe(GRA)
+      expect((skotat.firstElementChild as HTMLElement).style.background).toBe(GRON)
+    }
+    // Procenten efter skotat-talet i mätarens färg.
+    const pct = Array.from(cont.querySelectorAll('span')).filter(sp => /^ ?\d+ %$/.test(sp.textContent ?? ''))
+    expect(pct.map(sp => (sp as HTMLElement).style.color)).toEqual([GRON, GRON])
+    // Veckostaplarna: Veckor-diagrammets färg — v36 skördat 1 392 ≥ plan 1 091 (grön), skotat 565 < 1 091 (orange).
+    const veckorSektion = cont.querySelectorAll('section')[3]
+    const staplar = Array.from(veckorSektion.querySelectorAll<HTMLElement>('div')).filter(d => d.style.position === 'absolute')
+    expect(staplar[0].style.background).toBe(GRON)
+    expect(staplar[1].style.background).toBe(ORANGE)
+    // Förklaringen är Veckor-diagrammets (ikon + namn).
+    expect(veckorSektion.textContent).toContain('Skördat')
+    expect(veckorSektion.textContent).toContain('Skotat')
+  })
+
   it('utan parametrar visas föregående månad', async () => {
     q.hamtaManadsfacit.mockResolvedValue({ data: lasManadsfacit(facitSep), error: null })
     await monter(<ManadsfacitVy />)

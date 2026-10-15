@@ -112,6 +112,18 @@ export function skotatFranTidigare(lass: { volym: number; skordning_avslutad: st
   return lass.reduce((s, l) => (l.skordning_avslutad != null && l.skordning_avslutad.slice(0, 10) < manadStart ? s + l.volym : s), 0)
 }
 
+export type FacitTon = 'gron' | 'orange' | 'neutral'
+
+/** Månadens stora tal: grön vid 100 % eller mer, orange under 95 %, vanlig text däremellan (95–99 %: nära, men inte framme). */
+export function procentTon(p: number): FacitTon {
+  return p >= 100 ? 'gron' : p < 95 ? 'orange' : 'neutral'
+}
+
+/** Skotat-mätaren och dess procent: grön när skotat nått beställt (räknat på de avrundade talen, som sidan visar), annars orange. */
+export function skotatTon(skotat: number, bestallt: number): 'gron' | 'orange' {
+  return skotat >= bestallt ? 'gron' : 'orange'
+}
+
 /** Procent <95 är dämpad rad i historiken; 95 och över i full text. */
 export function radDampad(p: number): boolean {
   return p < 95
@@ -158,12 +170,15 @@ export type FacitSparVy = {
   skordatText: string
   skotatText: string
   skotatProcentText: string
+  /** Skotat-mätarens och procentens färg: grön när skotat ≥ beställt, annars orange. */
+  skotatTon: 'gron' | 'orange'
   /** 0–1, kapad. */
   skordatAndel: number
   skotatAndel: number
   klartText: string
 }
-export type FacitVeckaVy = { etikett: string; skordat: number; skotat: number }
+/** plan = summan av spårens veckoplan (null när ingen av dem har någon) — färgen på staplarna räknas mot den, som i Veckor. */
+export type FacitVeckaVy = { etikett: string; skordat: number; skotat: number; plan: number | null }
 export type FacitModell = {
   ar: number
   manad: number
@@ -171,6 +186,7 @@ export type FacitModell = {
   rubrik: string
   status: FacitStatus
   procentText: string
+  procentTon: FacitTon
   levereratText: string
   bolagText: string
   spar: FacitSparVy[]
@@ -197,6 +213,7 @@ export function facitModell(f: Manadsfacit): FacitModell | null {
       skordatText: fmt(s.skordat),
       skotatText: fmt(s.skotat),
       skotatProcentText: pct(s.procent),
+      skotatTon: skotatTon(s.skotat, s.bestallt),
       skordatAndel: andel(s.skordat, s.bestallt),
       skotatAndel: andel(s.skotat, s.bestallt),
       klartText: klartText(s, f.status),
@@ -208,13 +225,14 @@ export function facitModell(f: Manadsfacit): FacitModell | null {
   for (const typ of FACIT_ORDNING) {
     for (const v of f.spar[typ]?.veckor ?? []) {
       const nyckel = `${v.iso_ar}-${v.isovecka}`
-      const rad = perVecka.get(nyckel) ?? { etikett: `v${v.isovecka}`, skordat: 0, skotat: 0, sort: v.iso_ar * 100 + v.isovecka }
+      const rad = perVecka.get(nyckel) ?? { etikett: `v${v.isovecka}`, skordat: 0, skotat: 0, plan: null, sort: v.iso_ar * 100 + v.isovecka }
       rad.skordat += v.skordat
       rad.skotat += v.skotat
+      if (v.plan != null) rad.plan = (rad.plan ?? 0) + v.plan
       perVecka.set(nyckel, rad)
     }
   }
-  const veckor = Array.from(perVecka.values()).sort((a, b) => a.sort - b.sort).map(({ etikett, skordat, skotat }) => ({ etikett, skordat, skotat }))
+  const veckor = Array.from(perVecka.values()).sort((a, b) => a.sort - b.sort).map(({ etikett, skordat, skotat, plan }) => ({ etikett, skordat, skotat, plan }))
 
   const manadNamn = MANAD_NAMN[f.manad - 1] ?? ''
   const alla = Array.from(new Set(FACIT_ORDNING.flatMap(typ => f.spar[typ]?.bolag ?? [])))
@@ -225,6 +243,7 @@ export function facitModell(f: Manadsfacit): FacitModell | null {
     rubrik: manadRubrik(f.ar, f.manad),
     status: f.status,
     procentText: pct(t.procent),
+    procentTon: procentTon(t.procent),
     levereratText: `Levererat ${fmt(t.skotat)} av ${fmt(t.bestallt)} m³fub`,
     bolagText: bolagLista(alla),
     spar,
