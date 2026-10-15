@@ -348,3 +348,24 @@ describe('arkets form', () => {
     expect(ark.match(/onSparaDocka\(/g)).toHaveLength(1);
   });
 });
+
+describe('Larmkoordinat i ⓘ-kortet öppnar larmeditorn; Trakt-panelen finns kvar (den har redigering som inte finns på något annat ställe)', () => {
+  it('kortets rad (satt eller ej) öppnar Trakt › Larm direkt: samma editor som förut, ingen ny', () => {
+    expect(page).toContain("onRedigera: efter(() => { setTraktTab('larm'); setTraktOpen(true); }),");
+    const kort = las('../components/planering/ObjektKort.tsx');
+    expect(kort).toContain('onClick={larm.onRedigera}');                // ej satt: hela raden
+    expect(kort).toContain('data-testid="kort-larm-redigera" onClick={larm.onRedigera}');   // satt: raden
+    expect(kort).toContain('data-testid="kort-larm-visa" onClick={larm.onVisa}');           // satt: kartknappen (raden flyger inte längre dit)
+    expect(kort).not.toContain('Mer › Trakt › Larm');                   // ingen hänvisning i stället för en knapp
+  });
+  it('flytten av larmpunkten på kartan återvänder till Trakt-panelen (fliken Larm ligger kvar), och GPS-knappen/koordinatfälten/bekräfta finns i Larm-fliken', () => {
+    expect(page).toContain("if (larmPlaceringFromRef.current === 'trakt') setTraktOpen(true);");
+    expect(page).toContain("larmPlaceringFromRef.current = 'trakt'; setTraktOpen(false); setLarmPlacering(true);");
+    for (const s of ['Mötesplats verifierad på plats', 'Lat (56.5712)', 'Lng (14.7433)', 'Beskriv tillfartsväg och mötesplats']) expect(page, s).toContain(s);
+  });
+  it('Trakt ligger kvar under Mer › Övrigt — Fakta/Prognos redigerar fält som saknar annan redigeringsyta (se CLAUDE.md)', () => {
+    expect(las('../lib/objektKort.ts')).toContain("{ id: 'trakt', etikett: 'Trakt', under: 'Fakta, prognos, larm'");
+    expect(page).toContain("trakt: efter(() => { setTraktOpen(true); }),");
+    expect(page).toContain("{[{ id: 'fakta', label: 'Fakta' }, { id: 'prognos', label: 'Prognos' }, { id: 'larm', label: 'Larm' }].map(tab => (");
+  });
+});

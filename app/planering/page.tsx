@@ -13952,6 +13952,7 @@ export default function PlannerPage() {
               satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '',
               kalla: infoLarmKalla === 'td' ? 'från traktdirektivet' : infoLarmKalla === 'egen' ? 'satt vid rekning' : infoLarmKalla === 'envz' ? 'från traktfil (envz)' : 'källa ej angiven',
               bekraftad: !!infoLarmBekraftad, beskrivning: larmBeskr, onVisa: larmFlyTill,
+              onRedigera: efter(() => { setTraktTab('larm'); setTraktOpen(true); }),   // larmeditorn direkt: Trakt › Larm
             },
           },
           om: {

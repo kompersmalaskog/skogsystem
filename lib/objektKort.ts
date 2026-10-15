@@ -404,7 +404,7 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
   const planerarenBlock = c.arAdmin || c.roll === 'planerare';
   if (planerarenBlock) grupper.push({ id: 'planeraren', titel: 'Planeraren', rader: [] });
 
-  // ÖVRIGT — Checklista, Vägdata, Trakt (fakta, prognos, larm — redigeringen bor bara där). I körvy och maskinläge (där startsidan inte nås) även
+  // ÖVRIGT — Checklista, Vägdata, Trakt (fakta, prognos, larm — redigeringen bor bara där; larmen redigeras även direkt från kortets rad Larmkoordinat, se CLAUDE.md för vad mer som bara finns i Trakt). I körvy och maskinläge (där startsidan inte nås) även
   // Lager, Inställningar, GPS-källa och Förslag. Annars bor Inställningar och Förslag på startsidan.
   const ovrigt: MerRad[] = [
     { id: 'checklista', etikett: 'Checklista', ikon: 'check_circle', onTryck: c.go.checklista },

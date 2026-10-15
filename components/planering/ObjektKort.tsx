@@ -20,7 +20,10 @@ export interface KortLarm {
   kalla: string;
   bekraftad: boolean;
   beskrivning: string;
+  /** Visa punkten på kartan (kartan flyger dit) */
   onVisa: () => void;
+  /** Öppna larmeditorn direkt (Trakt › Larm: använd min GPS-position, flytta på kartan, bekräfta på plats) */
+  onRedigera: () => void;
 }
 
 export interface ObjektKortProps {
@@ -142,31 +145,44 @@ export default function ObjektKort(p: ObjektKortProps) {
   );
 }
 
-/** Larmkoordinaten är säkerhet: alltid synlig. Satt = tryck flyger kartan dit; ej satt = ärlig varning (farligare att dölja än att visa). */
+/** Larmkoordinaten är säkerhet: alltid synlig. Raden ÖPPNAR LARMEDITORN direkt (sätt/flytta/bekräfta) — satt eller inte. Satt: en egen knapp "Visa på kartan" flyger kartan dit. Ej satt = ärlig varning (farligare att dölja än att visa). */
 function LarmKort({ larm }: { larm: KortLarm }) {
   if (!larm.satt) {
     return (
-      <div data-testid="kort-larm" data-satt="0" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, ...TYP.listtitel, color: FARG.orange }}>
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad }}>warning</span>Larmkoordinat ej satt
-        </div>
-        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Ingen mötesplats för räddningstjänsten är angiven. Sätt den under Mer › Trakt › Larm.</div>
-        {larm.beskrivning && <div style={{ ...TYP.text, marginTop: AVSTAND.s, whiteSpace: 'pre-wrap' }}>{larm.beskrivning}</div>}
-      </div>
+      <button type="button" data-testid="kort-larm" data-satt="0" onClick={larm.onRedigera} className="press-row" aria-label="Sätt larmkoordinaten"
+        style={{ width: '100%', display: 'block', padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: 'transparent', border: 'none', borderTop: `1px solid ${FARG.linje}`, color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, ...TYP.listtitel, color: FARG.orange }}>
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad }}>warning</span>Larmkoordinat ej satt
+            </span>
+            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Ingen mötesplats för räddningstjänsten är angiven. Tryck här för att sätta den.</span>
+          </span>
+          <Pil />
+        </span>
+        {larm.beskrivning && <span style={{ display: 'block', marginTop: AVSTAND.s, ...TYP.text, whiteSpace: 'pre-wrap' }}>{larm.beskrivning}</span>}
+      </button>
     );
   }
   return (
-    <button type="button" data-testid="kort-larm" data-satt="1" onClick={larm.onVisa} className="press-row" aria-label="Visa larmkoordinaten på kartan"
-      style={{ width: '100%', display: 'block', padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: 'transparent', border: 'none', borderTop: `1px solid ${FARG.linje}`, color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Larmkoordinat</span>
-          <span style={{ display: 'block', ...TYP.listtitel, ...TNUM, overflowWrap: 'anywhere' }}>{larm.koordinat}</span>
-          <span style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Bekräftad på plats' : 'Ej bekräftad på plats'} · {larm.kalla}</span>
+    <div data-testid="kort-larm" data-satt="1" style={{ borderTop: `1px solid ${FARG.linje}`, display: 'flex', alignItems: 'stretch' }}>
+      <button type="button" data-testid="kort-larm-redigera" onClick={larm.onRedigera} className="press-row" aria-label="Redigera larmkoordinaten"
+        style={{ flex: 1, minWidth: 0, display: 'block', padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: 'transparent', border: 'none', color: FARG.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Larmkoordinat</span>
+            <span style={{ display: 'block', ...TYP.listtitel, ...TNUM, overflowWrap: 'anywhere' }}>{larm.koordinat}</span>
+            <span style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Bekräftad på plats' : 'Ej bekräftad på plats'} · {larm.kalla}</span>
+          </span>
+          <Pil />
         </span>
-        <Pil />
-      </span>
-      {larm.beskrivning && <span style={{ display: 'block', marginTop: AVSTAND.s, ...TYP.text, whiteSpace: 'pre-wrap' }}>{larm.beskrivning}</span>}
-    </button>
+        {larm.beskrivning && <span style={{ display: 'block', marginTop: AVSTAND.s, ...TYP.text, whiteSpace: 'pre-wrap' }}>{larm.beskrivning}</span>}
+      </button>
+      <button type="button" data-testid="kort-larm-visa" onClick={larm.onVisa} className="press-row" aria-label="Visa larmkoordinaten på kartan"
+        style={{ flexShrink: 0, minWidth: TRAFFYTA.primar, padding: `0 ${AVSTAND.m}px`, background: 'transparent', border: 'none', borderLeft: `1px solid ${FARG.linje}`, color: FARG.text2, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.xs }}>
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad }}>location_on</span>
+        <span style={{ ...TYP.meta }}>Karta</span>
+      </button>
+    </div>
   );
 }
