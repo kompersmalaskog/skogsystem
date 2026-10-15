@@ -12,7 +12,7 @@ export type FakturerbartStatus =
   | { lage: 'klar'; summa: FakturerbartSumma; rader: UnderlagRad[] }
   | { lage: 'fel' };
 
-const FALT = 'id, flytt_id, km, status, fakturerad_tid, kund, datum, maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, struken_tid, struken_anledning, godkand_tid, godkand_av, km_original, kund_original, redigerad_tid, redigerad_av';
+export const UNDERLAG_FALT = 'id, flytt_id, km, status, fakturerad_tid, kund, datum, maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, struken_tid, struken_anledning, godkand_tid, godkand_av, km_original, kund_original, redigerad_tid, redigerad_av';
 
 /**
  * Fakturerbart för en period, ur fakturaunderlag_flytt (ekonomidata: bara admin läser, RLS).
@@ -45,7 +45,7 @@ export function useFakturerbart(period: Period, aktiv: boolean) {
     (async () => {
       const r = await medAbortRetry(() => hamtaAlla<UnderlagRad>(
         () => supabase.from('fakturaunderlag_flytt')
-          .select(FALT)
+          .select(UNDERLAG_FALT)
           .gte('datum', fran)
           .lt('datum', till) as any,
         'id',

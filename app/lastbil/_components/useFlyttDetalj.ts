@@ -1,13 +1,30 @@
 'use client';
 
-// Flytten bakom en fakturarad, för sheeten "Flytten": det människan angav (id:n — vyn visar namn), det mätta
-// (flytt_km) och spåret (maskin_flytt_rattning, de senaste raderna). Läses bara av admin (ekonomi + spår).
-// Ett läsfel är ett fel med Försök igen — sheeten öppnas aldrig på gissade värden.
+// Flytten bakom en rad, för sheeten "Flytten" — samma läsning oavsett om sheeten öppnas från Körningar eller
+// Fakturering: det människan angav (id:n — vyn visar namn), det mätta (flytt_km), flyttens läge (pågår? avbruten?),
+// underlaget i fakturaunderlag_flytt om det finns, och spåret (maskin_flytt_rattning, de senaste raderna).
+// Läses bara av admin (ekonomi + spår). Ett läsfel är ett fel med Försök igen — sheeten öppnas aldrig på gissade värden,
+// och "inget underlag" betyder bara att frågan lyckades och inte gav någon rad.
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry } from '@/lib/supabaseRetry';
-import type { Rattning } from './useBenStatus';
+import type { UnderlagRad } from './fakturerbart';
+import { UNDERLAG_FALT } from './useFakturerbart';
+
+/** En rad ur spåret: varje rättning och strykning, med originalet som `fore` på äldsta raden. */
+export interface Rattning {
+  id: string;
+  flytt_id: string;
+  tid: string;
+  av: string;
+  anledning: string;
+  slag: 'rattning' | 'stryk';
+  fore: Record<string, any>;
+  efter: Record<string, any>;
+  underlag_atgard: string;
+  position_atgard: string;
+}
 
 export interface FlyttDetalj {
   id: string;
@@ -22,40 +39,55 @@ export interface FlyttDetalj {
   flytt_km: number | null;
   fakturerbar: boolean;
   avbruten: boolean;
+  /** NULL = flytten pågår (inte avslutad än). */
+  sluttid: string | null;
+  fran_lat: number | null;
+  fran_lng: number | null;
   till_lat: number | null;
   till_lng: number | null;
 }
 
 export type DetaljLage =
   | { lage: 'laddar' | 'fel' }
-  | { lage: 'klar'; flytt: FlyttDetalj | null; historik: Rattning[] };
+  | { lage: 'klar'; flytt: FlyttDetalj | null; underlag: UnderlagRad | null; historik: Rattning[] };
 
-const FALT = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, till_lat, till_lng';
+const FALT = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, sluttid, fran_lat, fran_lng, till_lat, till_lng';
 export const HISTORIK_ANTAL = 5;
 
-export function useFlyttDetalj(flyttId: string | null | undefined) {
+/** Flera underlag på samma flytt (ett struket och ett nytt): det som öppnades, annars det aktiva, annars det första. */
+function valjUnderlag(rader: UnderlagRad[], onskat: string | null | undefined): UnderlagRad | null {
+  return rader.find(r => r.id === onskat) ?? rader.find(r => r.status === 'aktiv') ?? rader[0] ?? null;
+}
+
+export function useFlyttDetalj(flyttId: string | null | undefined, underlagId?: string | null) {
   const [lage, setLage] = useState<DetaljLage>({ lage: 'laddar' });
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
-    if (!flyttId) { setLage({ lage: 'klar', flytt: null, historik: [] }); return; }
+    if (!flyttId) { setLage({ lage: 'klar', flytt: null, underlag: null, historik: [] }); return; }
     let avbruten = false;
     setLage(l => (l.lage === 'klar' ? l : { lage: 'laddar' }));
     (async () => {
       try {
-        const [fl, sp] = await Promise.all([
+        const [fl, un, sp] = await Promise.all([
           medAbortRetry(() => supabase.from('maskin_flytt').select(FALT).eq('id', flyttId) as any),
+          medAbortRetry(() => supabase.from('fakturaunderlag_flytt').select(UNDERLAG_FALT).eq('flytt_id', flyttId) as any),
           medAbortRetry(() => supabase.from('maskin_flytt_rattning')
             .select('id, flytt_id, tid, av, anledning, slag, fore, efter, underlag_atgard, position_atgard')
             .eq('flytt_id', flyttId).order('tid', { ascending: false }).limit(HISTORIK_ANTAL) as any),
         ]);
-        if (fl.error || sp.error) throw fl.error ?? sp.error;
+        if (fl.error || un.error || sp.error) throw fl.error ?? un.error ?? sp.error;
         if (avbruten) return;
         const rad = (fl.data ?? [])[0];
         const num = (v: unknown) => (v == null ? null : Number(v));
+        const underlag = valjUnderlag(((un.data ?? []) as any[]).map(u => ({ ...u, km: num(u.km), km_original: num(u.km_original) })) as UnderlagRad[], underlagId);
         setLage({
           lage: 'klar',
-          flytt: rad ? { ...rad, flytt_km: num(rad.flytt_km), till_lat: num(rad.till_lat), till_lng: num(rad.till_lng), fakturerbar: !!rad.fakturerbar, avbruten: !!rad.avbruten } : null,
+          flytt: rad ? {
+            ...rad, flytt_km: num(rad.flytt_km), fran_lat: num(rad.fran_lat), fran_lng: num(rad.fran_lng), till_lat: num(rad.till_lat), till_lng: num(rad.till_lng),
+            fakturerbar: !!rad.fakturerbar, avbruten: !!rad.avbruten, sluttid: rad.sluttid ?? null,
+          } : null,
+          underlag,
           historik: (sp.data ?? []) as Rattning[],
         });
       } catch (e) {
@@ -64,7 +96,7 @@ export function useFlyttDetalj(flyttId: string | null | undefined) {
       }
     })();
     return () => { avbruten = true; };
-  }, [flyttId, nonce]);
+  }, [flyttId, underlagId, nonce]);
 
   const laddaOm = useCallback(() => setNonce(n => n + 1), []);
   return { lage, laddaOm };

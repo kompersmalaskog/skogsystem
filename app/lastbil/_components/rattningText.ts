@@ -4,7 +4,7 @@
 
 import { FLYTT_TYP_ORD } from '@/lib/flytt/fakturerbar';
 import { fmtDatum } from './nu';
-import type { Rattning } from './useBenStatus';
+import type { Rattning } from './useFlyttDetalj';
 import type { PlatsData } from './usePlatsData';
 
 type Falt = Record<string, any> | null | undefined;

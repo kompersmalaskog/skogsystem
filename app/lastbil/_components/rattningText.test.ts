@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { beskrivRattning, skillnader } from './rattningText';
 import type { PlatsData } from './usePlatsData';
-import type { Rattning } from './useBenStatus';
+import type { Rattning } from './useFlyttDetalj';
 
 const DATA: PlatsData = {
   maskiner: [{ maskin_id: 'G', namn: 'Giant' }, { maskin_id: 'E', namn: 'Elefant 26' }],

@@ -75,15 +75,11 @@ function KvittoRad({ r, st, n, sista, sparar, onGodkann, onOppna }: {
   return (
     <div data-underlag={r.id} data-status={st}
       style={{ ...RAD, alignItems: 'flex-start', borderBottom: sista ? 'none' : RAD.borderBottom, opacity: struken ? 0.6 : 1 }}>
-      {/* Raden öppnar sheeten "Flytten" (rätta eller läsa); en struken rad är bara kvitto. */}
-      {!struken ? (
-        <button type="button" onClick={() => onOppna(r)} aria-label={`Visa flytten ${maskinNamn(r, n)}`}
-          style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
-          <Uppgifter r={r} n={n} st={st} />
-        </button>
-      ) : (
-        <div style={{ flex: 1, minWidth: 0 }}><Uppgifter r={r} n={n} st={st} /></div>
-      )}
+      {/* Raden öppnar sheeten "Flytten": rätta, eller bara läsa när flytten är låst (godkänd, fakturerad, struken). */}
+      <button type="button" onClick={() => onOppna(r)} aria-label={`Visa flytten ${maskinNamn(r, n)}`}
+        style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
+        <Uppgifter r={r} n={n} st={st} />
+      </button>
       <div style={{ textAlign: 'right', ...TNUM, minWidth: TRAFFYTA.min, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: AVSTAND.xs }}>
         <div style={{ ...TYP.listtitel, color: struken ? FARG.text2 : FARG.text, textDecoration: struken ? 'line-through' : 'none' }}>{kmText(r)}</div>
         {r.km == null && !kmText2 && <div style={{ ...TYP.meta, color: FARG.text2 }}>km saknas i datan</div>}
@@ -196,7 +192,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
       ))}
 
       {oppnad && (
-        <FlyttSheet key={oppnad.id} rad={oppnad} namn={namn} onStang={() => setOppnad(null)}
+        <FlyttSheet key={oppnad.id} flyttId={oppnad.flytt_id} underlagId={oppnad.id} namn={namn} onStang={() => setOppnad(null)}
           onKlar={text => { setOppnad(null); setKvitto({ id: oppnad.id, text, }); }}
           onDelvis={melding => { setOppnad(null); setFel(melding); }}
           onAndrad={onAndrad} />
