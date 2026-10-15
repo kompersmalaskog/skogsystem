@@ -48,6 +48,18 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 
 ---
 
+## OB — ENDAST beordrad brandrisk-morgon. Bygg ALDRIG annan OB
+
+Beslut Martin 2026-10-15: vi kör **enkelskift på alla maskiner**, så en tidig start är förarens eget val. **OB betalas bara vid beordrad brandrisk, vardagsmorgon** (`arbetsdag.brandrisk_beordrad = true`, `lib/ob.ts`). **Kväll, lördag, söndag och helgdag byggs INTE — varken nu eller senare.** Skogsavtalet (§ 5 mom 5, § 8 mom 1, bilaga 4) ger OB för all beordrad obekväm tid, men verkligheten är mindre än avtalstexten: räknar man OB rått ur klockslagen (Stefan aug 2026: 20,4 tim) betalas ändå bara de beordrade brandriskmorgnarna (10,30 tim). Ett förslag om "OB kväll/helg" är en avvikelse från beslutet — fråga Martin, bygg inte.
+
+En brandriskmorgon ger **två lönerader per förare och månad**, båda med **tom kod som standard** (Martin kopplar under Lön → Lönearter):
+- **Brandrisk – OB** (`brandrisk_ob`) = beordrade timmar från start till 06:30.
+- **Brandrisk – nattillägg** (`brandrisk_nattillagg`) = de av dem som ligger 00:00–05:00, **utöver** OB (§ 8 mom 1, anmärkningen).
+
+**Ingen avrundning:** minuterna är heltal hela vägen och blir timmar med två decimaler först i slutsumman (`minTillTimmar`), aldrig per dag. Facit: Stefan aug 2026 = 618 min OB = **10,30 tim** och 348 min nattillägg = **5,80 tim** (morgnarna 12–14 aug, start 03:05/03:00/03:07). Lönehanterarens handinlagda "147 OB Natt 10,20" var 6 min avrundat nedåt, och datumet 31 aug är bara dagen månadssumman skrevs på.
+
+---
+
 ## Maskiner med data
 | maskin_id | Modell | Typ | Användning |
 |-----------|--------|-----|------------|

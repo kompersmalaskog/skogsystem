@@ -2,15 +2,24 @@ import { describe, it, expect } from "vitest";
 import { LONEARTER, loneartskoder, loneartkopplingar, loneartInfo, loneartEnhetText, fmtMangd } from "./loneart";
 
 describe("lönearterna är EN lista", () => {
-  it("åtta lönearter i exportens ordning, och varje har etikett, enhet och förklaring", () => {
+  it("tio lönearter i exportens ordning, och varje har etikett, enhet och förklaring", () => {
     expect(LONEARTER.map(l => l.key)).toEqual([
       "timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon",
+      "brandrisk_ob", "brandrisk_nattillagg",
     ]);
     for (const l of LONEARTER) {
       expect(l.label.length).toBeGreaterThan(2);
       expect(["tim", "veckor", "mil"]).toContain(l.enhet);
       expect(l.forklaring.length).toBeGreaterThan(10);
     }
+  });
+
+  it("OB finns bara som två brandrisk-lönearter — ingen kväll-, lördags- eller söndags-OB i katalogen (beslut 2026-10-15)", () => {
+    const ob = LONEARTER.filter(l => /ob|natt/i.test(l.key + l.label)).map(l => l.key);
+    expect(ob).toEqual(["brandrisk_ob", "brandrisk_nattillagg"]);
+    expect(loneartInfo("brandrisk_ob")?.label).toBe("Brandrisk – OB");
+    expect(loneartInfo("brandrisk_nattillagg")?.label).toBe("Brandrisk – nattillägg");
+    expect(loneartInfo("brandrisk_ob")?.valfri).toBe(false);          // tom kod blockerar en skarp sändning, som övriga lönearter
   });
 
   it("bara premielönen är valfri: saknad kod hoppar över raden i stället för att stoppa exporten", () => {

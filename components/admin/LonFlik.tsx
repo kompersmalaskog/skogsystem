@@ -7,6 +7,7 @@ import { Kort, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { fmtMangd } from "@/lib/lonesystem/loneart";
+import { minTillTimmar } from "@/lib/ob";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
@@ -375,7 +376,7 @@ function FortnoxExportSektion({
       <Card style={{ marginTop: AVSTAND.m }}>
         <p style={{ ...secHead, marginTop: 0, color: FARG.orange }}>Att ta med löneansvarig</p>
         {([
-          ["Fråga", "Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
+          ["Gör", "Koppla koderna för Brandrisk – OB och Brandrisk – nattillägg", "under Lön → Lönearter. Timmarna räknas (lib/ob) och skickas som två lönerader; tom kod = raden skickas inte och en skarp sändning stoppas."],
           ["Fråga", "Löneart för sjuklön, VAB och föräldraledig", "dagarna ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
           ["Fråga", "Levereras sjukfrånvaro i timmar per dag?", "§12 mom 3 räknar karens i timmar (20 % av veckoarbetstiden = 8 tim vid 40) och sjuklön per timme som skulle ha arbetats. En halv sjukdag är 3 tim, inte en dag. Räknar Fortnox karensavdraget och de 80 procenten själv när appen skickar timmarna?"],
           ["Bekräfta", "Ordinarie tid är ett genomsnitt", "§5 mom 2: 40 tim/vecka i genomsnitt över en beräkningsperiod om högst 16 veckor. Ingen av appens tre gamla modeller är avtalets."],
@@ -524,8 +525,9 @@ function FortnoxExportSektion({
                       </p>
                     )}
                     {ob.timmar > 0 && (
-                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }}>
-                        Brandrisk-OB: <strong>{ob.timmar} tim</strong> ({ob.dagar} dag{ob.dagar === 1 ? "" : "ar"}) — <em>löneart ej fastställd</em>, läggs inte som lönerad.
+                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }} data-brandrisk-admin>
+                        Brandrisk: <strong>{minTillTimmar(m.brandrisk?.ob_min ?? Math.round(ob.timmar * 60)).replace(".", ",")} tim OB</strong>
+                        {(m.brandrisk?.natt_min ?? 0) > 0 && <>, <strong>{minTillTimmar(m.brandrisk.natt_min).replace(".", ",")} tim nattillägg</strong></>} ({ob.dagar} beordrade morgnar) — två lönerader, se listan ovan.
                       </p>
                     )}
                     {/* Deldagar: arbete PLUS frånvaro samma dag. Timmarna härledda mot
@@ -547,7 +549,7 @@ function FortnoxExportSektion({
                             ? <> — men den lediga dagen har registrerat arbete: bytet togs inte ut, den röda dagen är en vanlig arbetad röd dag. Granska.</>
                             : !b.ersatterArbetad
                               ? <> — men ingen arbetstid finns registrerad den röda dagen: inarbetningen saknas. Granska; byt typ om dagen ska räknas som annan ledighet.</>
-                              : <> (arbetad). Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid + söndagstillägg om beordrat (löneart OB öppen). Helglönen flyttas inte.</>}
+                              : <> (arbetad). Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid + söndagstillägg om beordrat enligt avtalet — men appen räknar ingen OB på helg (enkelskift, bara brandrisk). Helglönen flyttas inte.</>}
                         </p>
                       );
                     })}

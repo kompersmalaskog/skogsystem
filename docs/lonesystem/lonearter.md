@@ -25,11 +25,25 @@ bara databasen. Inte multi-tenant än: en koppling (`lonesystem_koppling`, `syst
 | `valtlappar` | Vältlappar | veckor | nej | Veckor med minst en arbetsdag. |
 | `korersattning` | Reseersättning | mil | nej | Körning med företagets bil: påbörjade mil över gränsen per dag (`gs_avtal.km_grans_per_dag`). Inte egen bil. |
 | `helglon` | Helglön | tim | nej | 8 tim per röd vardag föraren inte arbetat (avtalet §10). Beräkningen fanns redan (`lib/lonesystem/helglon.ts`). |
+| `brandrisk_ob` | Brandrisk – OB | tim | nej | Beordrad tidig start vid brandrisk, vardagsmorgon: timmarna från start till 06:30 (§ 8 mom 1). **Tom kod som standard.** |
+| `brandrisk_nattillagg` | Brandrisk – nattillägg | tim | nej | De av OB-timmarna som ligger 00:00–05:00, **utöver** OB (§ 8 mom 1, anmärkningen). **Tom kod som standard.** |
 
 ### Dagens koppling i prod (data, 2026-10-15; ändras under Lön → Lönearter)
 
 `timlon` = 11, `premielon_skordare` = 1355, `premielon_skotare` = 1354, `overtid_skordare` = 1435, `overtid_skotare` = 1436, `valtlappar` = 136,
 `korersattning` = 821. `helglon` har **ingen** rad (Ej kopplad).
+
+## OB: bara brandrisk (beslut Martin 2026-10-15)
+
+Enkelskift på alla maskiner → en tidig start är förarens eget val. **OB betalas bara vid beordrad brandrisk, vardagsmorgon**; kväll, lördag,
+söndag och helgdag byggs inte, varken nu eller senare (står i CLAUDE.md så ingen bygger det). Räkningen ligger i `lib/ob.ts` (`brandriskSumma`) och
+läser `arbetsdag.start_tid` + `arbetsdag.brandrisk_beordrad`; `beräknaExport` lägger de två raderna när timmarna är > 0. Exakta minuter, två decimaler först
+i slutsumman. Facit Stefan Karlsson augusti 2026: **618 min = 10,30 tim OB** och **348 min = 5,80 tim nattillägg** (12–14 aug, start 03:05/03:00/03:07).
+Lönehanterarens handinlagda 10,20 var avrundat nedåt per dag.
+
+Avtalet (bucket-PDF:en `f5b40c12-….pdf` är Arbetsgivarnytt april 2025, bara ändrade paragrafer + bilagor): § 5 mom 5 definierar obekväm tid; § 8 mom 1 /
+bilaga 4 har fyra OB-slag (mån–fre 00–06:30 och 17–24, lördag, söndag, nattarbete vid brandrisk 00–05). Att OB kräver *beordrat* arbete, att OB utgår
+dessutom vid övertid och att brandrisk-OB utges utöver ordinarie OB står i 2023–2026-boken (`skogsavtalet-arbetstid.md`), inte i bucket-PDF:en.
 
 ## Tom kod
 
