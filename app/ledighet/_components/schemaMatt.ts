@@ -4,7 +4,7 @@ import { AVSTAND, KOLUMN } from '@/lib/design/tokens';
 export const NAMN_W = 110;          // fast namnkolumn — scrollar inte horisontellt
 export const DAG_MIN_W = 34;        // minsta dagkolumn (telefon: exakt så, med scroll i sidled)
 export const FONSTER_TELEFON = 21;  // ~3 veckor, som förut
-export const HUVUD_H = 48;          // veckodag + datum
+export const HUVUD_H = 64;          // IDAG-flik (16) + veckodag + datum (24); flikens plats finns på alla dagar så raderna inte hoppar mellan veckor
 export const PERSON_H = 44;         // en person — minst en träffyta hög
 export const MASKIN_H = 48;         // en maskin — stoppblocket är en knapp och fyller hela raden i höjd
 export const AVDELARE_H = 32;
