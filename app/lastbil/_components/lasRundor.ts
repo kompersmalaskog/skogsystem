@@ -8,19 +8,13 @@ import { supabase } from '@/lib/supabase';
 import { medAbortRetry } from '@/lib/supabaseRetry';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 import { byggRundor, type Ben, type Runda, type RundaRad } from './rundor';
+import { chunka, lasMaskinNamn, lasPlatsNamn, unika } from './lasNamn';
 
 export type RundorSvar = { ok: true; rundor: Runda[] } | { ok: false };
 
 const RUNDA_FALT = 'id, forare, starttid, sluttid, status, auto_avslutad_av, tillkorning_km, hem_km, hemresa_matt, total_km, matare_km, bransle_l';
 const BEN_FALT = 'id, flyttdag_id, maskin_id, extern_maskin, fran_objekt_id, till_objekt_id, fran_plats_id, till_plats_id, flytt_km, mellankorning_km, tid_flytt_min, fakturerbar, flytt_typ, kund, sluttid, avbruten';
 const CHUNK = 40;   // uuid:er i en in()-lista: håller adressen kort
-
-const chunka = <T,>(a: readonly T[], n: number): T[][] => {
-  const ut: T[][] = [];
-  for (let i = 0; i < a.length; i += n) ut.push(a.slice(i, i + n));
-  return ut;
-};
-const unika = (a: (string | null | undefined)[]): string[] => Array.from(new Set(a.filter((x): x is string => !!x)));
 
 /** Läser alla rundor som STARTAT i [fran, till) (UTC-ögonblick). */
 export async function lasRundor(fran: string, till: string): Promise<RundorSvar> {
@@ -39,22 +33,9 @@ export async function lasRundor(fran: string, till: string): Promise<RundorSvar>
     }
     const avslutade = benRader.filter(b => !b.avbruten && b.sluttid != null);
 
-    // Namn: maskiner (alla, få), objekt och platser (bara de som används).
-    const maskinNamn = new Map<string, string>();
-    const m = await medAbortRetry(() => supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell') as any);
-    if (m.error) throw m.error;
-    for (const x of m.data ?? []) maskinNamn.set(x.maskin_id, x.visningsnamn || x.modell || x.maskin_id);
-    const namnFran = async (tabell: 'objekt' | 'flyttplats', idn: string[]) => {
-      const kart = new Map<string, string>();
-      for (const grupp of chunka(idn, CHUNK)) {
-        const r = await medAbortRetry(() => supabase.from(tabell).select('id, namn').in('id', grupp) as any);
-        if (r.error) throw r.error;
-        for (const x of r.data ?? []) kart.set(x.id, x.namn);
-      }
-      return kart;
-    };
-    const objekt = await namnFran('objekt', unika(avslutade.flatMap(b => [b.fran_objekt_id, b.till_objekt_id])));
-    const platser = await namnFran('flyttplats', unika(avslutade.flatMap(b => [b.fran_plats_id, b.till_plats_id])));
+    const maskinNamn = await lasMaskinNamn();
+    const objekt = await lasPlatsNamn('objekt', unika(avslutade.flatMap(b => [b.fran_objekt_id, b.till_objekt_id])));
+    const platser = await lasPlatsNamn('flyttplats', unika(avslutade.flatMap(b => [b.fran_plats_id, b.till_plats_id])));
     const plats = (o: string | null, p: string | null) => (o && objekt.get(o)) || (p && platser.get(p)) || null;
 
     const benPerRunda = new Map<string, Ben[]>();

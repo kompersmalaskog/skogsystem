@@ -1,5 +1,5 @@
-// Fakturerbart-summan: en källa för remsan (Lastbilen, alla flikar) och, från steg 3, kvittot i
-// Fakturering-fliken. Summan är SUMMAN AV DET SOM VISAS: varje flytt avrundas först (hela km),
+// Fakturerbart-summan: en källa för remsan (Lastbilen, alla flikar) och kvittot i Fakturering-fliken
+// (steg 3; raderna kommer ur samma läsning, så remsan och listan aldrig kan läsa olika underlag). Summan är SUMMAN AV DET SOM VISAS: varje flytt avrundas först (hela km),
 // sedan summeras — aldrig råvärden som avrundas en gång (skillen, "Avläsbarhet först").
 //
 // En struken flytt (status 'struken') är inte fakturerbar och ingår aldrig i talet. Flyttloggens
@@ -32,4 +32,30 @@ export function summeraFakturerbart(rader: readonly FaktureratRad[]): Fakturerba
     else km += Math.round(r.km);
   }
   return { km, antal, hos: antal - fakturerad, fakturerad, struken, utanKm };
+}
+
+/** En kvittorad: en per fakturerbar flytt, auto-skapad av databastriggern. Kvittot speglar bara status. */
+export interface UnderlagRad extends FaktureratRad {
+  id: string;
+  kund: string | null;
+  datum: string | null;            // date: 'YYYY-MM-DD'
+  maskin: string | null;           // coalesce(extern_maskin, maskin_id)
+  fran_objekt_id: string | null;
+  fran_plats_id: string | null;
+  till_objekt_id: string | null;
+  till_plats_id: string | null;
+  struken_tid: string | null;
+  struken_anledning: string | null;
+}
+
+export type UnderlagStatus = 'hos' | 'fakturerad' | 'struken';
+
+export const underlagStatus = (r: FaktureratRad): UnderlagStatus =>
+  r.status === 'struken' ? 'struken' : r.fakturerad_tid ? 'fakturerad' : 'hos';
+
+/** Det som väntar på faktureringen först, sedan fakturerade, sist strukna; nyast först inom varje. */
+export function sorteraUnderlag<T extends UnderlagRad>(rader: readonly T[]): T[] {
+  const rank: Record<UnderlagStatus, number> = { hos: 0, fakturerad: 1, struken: 2 };
+  return [...rader].sort((a, b) =>
+    rank[underlagStatus(a)] - rank[underlagStatus(b)] || (b.datum ?? '').localeCompare(a.datum ?? ''));
 }

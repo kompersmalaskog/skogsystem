@@ -15,16 +15,25 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-type Rad = { id: string; km: number | null; status: string; fakturerad_tid: string | null; datum: string };
+// Riktiga rader ur fakturaunderlag_flytt (prod 2026-10-15): åtta flyttar, alla aktiva och ännu inte fakturerade.
+type Rad = {
+  id: string; km: number | null; status: string; fakturerad_tid: string | null; datum: string; kund: string | null; maskin: string | null;
+  fran_objekt_id: string | null; fran_plats_id: string | null; till_objekt_id: string | null; till_plats_id: string | null;
+  struken_tid: string | null; struken_anledning: string | null;
+};
+const U = (id: string, datum: string, km: number | null, maskin: string, fran: string | null, till: string | null, o: Partial<Rad> = {}): Rad => ({
+  id, km, status: "aktiv", fakturerad_tid: null, datum, kund: null, maskin, fran_objekt_id: fran, fran_plats_id: null, till_objekt_id: till, till_plats_id: null,
+  struken_tid: null, struken_anledning: null, ...o,
+});
 const UNDERLAG: Rad[] = [
-  { id: "1", km: 34, status: "aktiv", fakturerad_tid: null, datum: "2026-08-25" },
-  { id: "2", km: 40, status: "aktiv", fakturerad_tid: null, datum: "2026-08-28" },
-  { id: "3", km: 31, status: "aktiv", fakturerad_tid: null, datum: "2026-08-31" },
-  { id: "4", km: 47, status: "aktiv", fakturerad_tid: null, datum: "2026-09-01" },
-  { id: "5", km: 49, status: "aktiv", fakturerad_tid: null, datum: "2026-09-01" },
-  { id: "6", km: 44, status: "aktiv", fakturerad_tid: null, datum: "2026-09-25" },
-  { id: "7", km: 36, status: "aktiv", fakturerad_tid: null, datum: "2026-10-05" },
-  { id: "8", km: 53, status: "aktiv", fakturerad_tid: null, datum: "2026-10-06" },
+  U("u1", "2026-08-25", 34, "PONS20SDJAA270231", "o-ulfsnas", "o-dockemala"),
+  U("u2", "2026-08-28", 40, "A130743", null, "o-tjuvon"),
+  U("u3", "2026-08-31", 31, "JD810E", null, "o-dockemala"),
+  U("u4", "2026-09-01", 49, "A130743", null, "o-stankelsmala"),
+  U("u5", "2026-09-01", 47, "PONS20SDJAA270231", "o-stankelsmala", "o-akelius"),
+  U("u6", "2026-09-25", 44, "A030353", "o-kampamala", "o-brokamala"),
+  U("u7", "2026-10-05", 36, "A130743", "o-halaback", "o-ostra"),
+  U("u8", "2026-10-06", 53, "PONS20SDJAA270231", "o-vallust", "o-bagskytte"),
 ];
 
 // Riktiga rader ur flyttdag (prod 2026-10-15, EFTER rättningen av dubbelrundorna).
@@ -63,18 +72,22 @@ const MASKIN_FLYTT = [
 ];
 const DIM_MASKIN = [
   { maskin_id: "PONS20SDJAA270231", visningsnamn: "Giant", modell: "Scorpion" }, { maskin_id: "A130743", visningsnamn: "Elefant 26", modell: "x" },
-  { maskin_id: "A030353", visningsnamn: "Wisent", modell: "y" },
+  { maskin_id: "A030353", visningsnamn: "Wisent", modell: "y" }, { maskin_id: "JD810E", visningsnamn: "810E", modell: "z" },
 ];
 const OBJEKT = [
   { id: "o-vallust", namn: "Vällust RP M-R -25" }, { id: "o-bagskytte", namn: "Bågskyttebanan RP J-Hus- 25" }, { id: "o-halaback", namn: "Hålabäck au 2025" },
   { id: "o-ostra", namn: "Östra-Hoka 1:7 A-C -25" }, { id: "o-jatsbygd", namn: "Jätsbygd au 2026" }, { id: "o-raveboda", namn: "Räveboda AU 2026" },
   { id: "o-brokamala", namn: "Brokamåla 1:5 V" }, { id: "o-tjuvon", namn: "Tjuvön AU 2026" },
+  { id: "o-ulfsnas", namn: "Ulfsnäs AU 2026" }, { id: "o-dockemala", namn: "Dockemåla AU 2026" }, { id: "o-stankelsmala", namn: "Stänkelsmåla 2025" },
+  { id: "o-akelius", namn: "400763 Akelius Tåget SA" }, { id: "o-kampamala", namn: "Kämpamåla AU 2026" },
 ];
 
 const mock = vi.hoisted(() => ({
   medarbetare: null as any,
   loading: false,
   underlagFel: false,
+  namnFel: false,
+  extraUnderlag: [] as any[],
   rundorFel: false,
   extraRundor: [] as any[],
   patchRundor: {} as Record<string, Record<string, unknown>>,
@@ -89,7 +102,7 @@ vi.mock("@/lib/CurrentMedarbetareContext", () => ({
 
 vi.mock("@/lib/supabase", () => {
   const tabeller = (): Record<string, any[]> => ({
-    fakturaunderlag_flytt: UNDERLAG,
+    fakturaunderlag_flytt: [...UNDERLAG, ...mock.extraUnderlag],
     flyttdag: [...FLYTTDAG, ...mock.extraRundor].map(r => ({ ...r, ...(mock.patchRundor[r.id] ?? {}) })),
     maskin_flytt: MASKIN_FLYTT, dim_maskin: DIM_MASKIN, objekt: OBJEKT, flyttplats: [],
   });
@@ -105,6 +118,7 @@ vi.mock("@/lib/supabase", () => {
     private kor(fran = 0, till = Infinity) {
       mock.anrop.push(this.tabell);
       if (this.tabell === "fakturaunderlag_flytt" && mock.underlagFel) return { data: null, error: { message: "boom" } };
+      if (this.tabell === "dim_maskin" && mock.namnFel) return { data: null, error: { message: "boom" } };
       if (["flyttdag", "maskin_flytt"].includes(this.tabell) && mock.rundorFel) return { data: null, error: { message: "boom" } };
       return { data: tabeller()[this.tabell].filter(r => this.filt.every(f => f(r))).slice(fran, till === Infinity ? undefined : till + 1), error: null };
     }
@@ -143,7 +157,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 9, 14, 12, 0));
   konsol = vi.spyOn(console, "error").mockImplementation(() => {});
-  mock.medarbetare = ADMIN; mock.loading = false; mock.underlagFel = false; mock.anrop = [];
+  mock.medarbetare = ADMIN; mock.loading = false; mock.underlagFel = false; mock.namnFel = false; mock.extraUnderlag = []; mock.anrop = [];
   mock.api = { status: 200, body: LAGE };
   mock.rundorFel = false; mock.extraRundor = []; mock.patchRundor = {};
   mock.spar = { status: 200, body: { ok: true, spar: [{ lat: 56.4, lng: 14.7 }, { lat: 56.5, lng: 14.8 }], segment: [], nagonOmatchad: false, matchningPa: false } };
@@ -299,12 +313,116 @@ describe("adressen", () => {
   });
 });
 
-describe("Fakturering byggs i steg 3: tills dess en länk, inga påhittade siffror", () => {
-  it("säger var kvittot finns tills vidare och länkar dit", async () => {
-    await montera();
-    await klicka(knapp(/Fakturering/, document.querySelector('[role="tablist"]')!));
-    expect(text()).toContain("Faktureringskvittot flyttar hit");
-    expect(document.querySelector('a[href="/maskinflytt/sammanstallning"]')).not.toBeNull();
+const rubrikTexter = () => Array.from(document.querySelectorAll("section[aria-label] > div")).map(d => d.textContent ?? "").filter(t => /·\s\d+$/.test(t));
+const underlagRad = (id: string) => document.querySelector(`[data-underlag="${id}"]`) as HTMLElement | null;
+async function oppnaFakturering(per = "2026-10") {
+  window.history.replaceState(null, "", `/lastbil?flik=fakturering&per=${per}`);
+  await montera();
+}
+
+describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
+  it("oktober: en grupp 'Hos faktureringen', nyast först, med maskin, sträcka och datum", async () => {
+    await oppnaFakturering();
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Fakturering");
+    expect(rubrikTexter()).toEqual(["Hos faktureringen · 2"]);
+    const rader = Array.from(document.querySelectorAll("[data-underlag]")).map(r => (r as HTMLElement).dataset.underlag);
+    expect(rader).toEqual(["u8", "u7"]);
+    expect(underlagRad("u8")!.textContent).toContain("Giant");
+    expect(underlagRad("u8")!.textContent).toContain("Vällust RP M-R -25 → Bågskyttebanan RP J-Hus- 25");
+    expect(underlagRad("u8")!.textContent).toContain("tis 6 okt");
+    expect(underlagRad("u8")!.textContent).toContain("53 km");
+    expect(underlagRad("u7")!.textContent).toContain("Elefant 26");
+    expect(underlagRad("u7")!.textContent).toContain("Hålabäck au 2025 → Östra-Hoka 1:7 A-C -25");
+  });
+
+  it("summan i remsan är summan av raderna som visas (36 + 53 = 89) — och kvittot har inget eget stort tal", async () => {
+    await oppnaFakturering();
+    const radKm = Array.from(document.querySelectorAll("[data-underlag]")).map(r => Number(/(\d+) km/.exec(r.textContent ?? "")![1]));
+    expect(radKm.reduce((a, b) => a + b, 0)).toBe(89);
+    expect(remsa()!.textContent).toContain("89 km");
+    expect(document.querySelectorAll("[data-remsa]").length).toBe(1);
+    expect(text()).toContain("Går iväg automatiskt när en flytt avslutas fakturerbar");
+  });
+
+  it("en flytt utan startobjekt säger 'okänd plats' (verkliga raden 28 aug), aldrig tomt", async () => {
+    await oppnaFakturering("2026-08");
+    expect(underlagRad("u2")!.textContent).toContain("okänd plats → Tjuvön AU 2026");
+    expect(rubrikTexter()).toEqual(["Hos faktureringen · 3"]);
+  });
+
+  it("fakturerade och strukna får egna grupper efter 'hos'; en struken flytt räknas inte i summan", async () => {
+    mock.extraUnderlag = [
+      U("uf", "2026-10-02", 40, "A130743", "o-ostra", "o-vallust", { fakturerad_tid: "2026-10-09T08:00:00Z" }),
+      U("us", "2026-10-03", 60, "PONS20SDJAA270231", "o-vallust", "o-ostra", { status: "struken", struken_tid: "2026-10-08T10:00:00Z", struken_anledning: "dubblett" }),
+    ];
+    await oppnaFakturering();
+    expect(rubrikTexter()).toEqual(["Hos faktureringen · 2", "Fakturerade · 1", "Strukna · 1"]);
+    expect(Array.from(document.querySelectorAll("[data-underlag]")).map(r => (r as HTMLElement).dataset.underlag)).toEqual(["u8", "u7", "uf", "us"]);
+    expect(underlagRad("uf")!.textContent).toContain("Fakturerad fre 9 okt");
+    expect(underlagRad("us")!.textContent).toContain("Struken tor 8 okt · dubblett");
+    expect((underlagRad("us")!.querySelector('[style*="line-through"]'))).not.toBeNull();
+    // remsan: 36 + 53 + 40 = 129 (struken 60 räknas aldrig)
+    expect(remsa()!.textContent).toContain("129 km");
+    expect(remsa()!.textContent).toContain("1 strukna");
+  });
+
+  it("en flytt utan km säger 'km saknas i datan' — aldrig 0 km", async () => {
+    mock.extraUnderlag = [U("uk", "2026-10-04", null, "A130743", "o-ostra", "o-vallust")];
+    await oppnaFakturering();
+    expect(underlagRad("uk")!.textContent).toContain("km saknas i datan");
+    expect(underlagRad("uk")!.textContent).not.toMatch(/\b0 km/);
+    expect(remsa()!.textContent).toContain("(1 utan km)");
+  });
+
+  it("år: alla åtta flyttar, grupperade, och remsan står kvar (334 km)", async () => {
+    await oppnaFakturering("2026");
+    expect(rubrikTexter()).toEqual(["Hos faktureringen · 8"]);
+    expect(document.querySelectorAll("[data-underlag]").length).toBe(8);
+    expect(remsa()!.textContent).toContain("334 km");
+  });
+
+  it("en månad utan fakturerbara flyttar säger varför och att läsningen lyckades (juli)", async () => {
+    await oppnaFakturering("2026-07");
+    expect(document.querySelectorAll("[data-underlag]").length).toBe(0);
+    expect(text()).toContain("Inga fakturerbara flyttar i juli.");
+    expect(text()).toContain("Underlaget lästes utan fel.");
+    expect(text()).toContain("minst 3 mil");
+  });
+
+  it("läsfel: fliken säger det och 'Försök igen' läser om (aldrig en tom lista)", async () => {
+    mock.underlagFel = true;
+    await oppnaFakturering();
+    expect(text()).toContain("Kunde inte läsa fakturaunderlaget just nu.");
+    expect(document.querySelectorAll("[data-underlag]").length).toBe(0);
+    expect(text()).not.toContain("Inga fakturerbara flyttar");
+    mock.underlagFel = false;
+    const flikInnehall = knapp(/Försök igen/, document.querySelector('[role="alert"]')!.parentElement!);
+    await klicka(flikInnehall);
+    expect(document.querySelectorAll("[data-underlag]").length).toBe(2);
+  });
+
+  it("namnen går inte att läsa: hela fliken säger det i stället för 'okänd plats' på varje rad", async () => {
+    mock.namnFel = true;
+    await oppnaFakturering();
+    expect(text()).toContain("Kunde inte läsa maskin- och platsnamnen just nu.");
+    expect(document.querySelectorAll("[data-underlag]").length).toBe(0);
+    expect(text()).not.toContain("okänd plats");
+    mock.namnFel = false;
+    await klicka(knapp(/Försök igen/, document.querySelector('[role="alert"]')!.parentElement!));
+    expect(document.querySelectorAll("[data-underlag]").length).toBe(2);
+  });
+
+  it("förare kommer aldrig hit och frågan skickas aldrig (kvittot är ekonomidata)", async () => {
+    mock.medarbetare = FORARE;
+    await oppnaFakturering();
+    expect(document.querySelectorAll("[data-underlag]").length).toBe(0);
+    expect(mock.anrop).not.toContain("fakturaunderlag_flytt");
+  });
+
+  it("ingen länk till Flyttloggen längre, och ingen hook-krasch", async () => {
+    await oppnaFakturering();
+    expect(document.querySelector('a[href="/maskinflytt/sammanstallning"]')).toBeNull();
+    expect(hookFel()).toEqual([]);
   });
 });
 
