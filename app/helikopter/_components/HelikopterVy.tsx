@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import PageContainer from '@/components/PageContainer'
+import { SheetLageContext } from '@/components/Sheet'
+import { LAYOUT } from '@/lib/design/tokens'
 import { T } from '@/lib/utbildning'
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
@@ -21,10 +23,14 @@ import {
 import { TYPER, globalaArbetsdagar, manadStatus, maskinNamn, raknaSpar, valjBas, type SparLage } from '../_lib/berakningar'
 import type { Typ } from '../_lib/queries'
 import { MANAD_NAMN, dagarText, manadRubrik, relativTid } from '../_lib/format'
+import { KORT_MAX_PX, KOLUMN_GAP, PANEL_PX, SIDMARGINAL, antalKolumner, hogerFlik, kolumnerBredd, lageForBredd, panelPlats } from '../_lib/layout'
+import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
+import { TEXT_MUTED } from './Lista'
 import LageFlik from './LageFlik'
 import PlaneringFlik from './PlaneringFlik'
 import UppfoljningFlik from './UppfoljningFlik'
+import { PanelContext, type PanelPost } from './PanelVal'
 
 export type Flik = 'lage' | 'planering' | 'uppfoljning'
 const FLIKAR: { id: Flik; namn: string }[] = [
@@ -36,6 +42,9 @@ const FLIKAR: { id: Flik; namn: string }[] = [
 function lasFlik(v: string | null): Flik {
   return v === 'planering' || v === 'uppfoljning' ? v : 'lage'
 }
+
+/** iPad: högerkolumnens två val. Läge ligger alltid i vänsterkolumnen. */
+const HOGER_FLIKAR = FLIKAR.filter(f => f.id !== 'lage')
 
 const rundKnapp: React.CSSProperties = {
   width: 44, height: 44, borderRadius: 22, background: 'transparent', border: `1px solid ${T.sep}`,
@@ -55,6 +64,21 @@ export default function HelikopterVy() {
   const manad = Number.isFinite(manadParam) && manadParam >= 1 && manadParam <= 12 ? manadParam : nuManad
   const flik = lasFlik(sp.get('flik'))
   const arNu = ar === nuAr && manad === nuManad
+
+  // Layoutläge: telefon (en kolumn, tre flikar) · iPad (Läge + Planering|Uppföljning) · stor (tre kolumner).
+  // `flik` i adressen styr bara telefon (vilken flik) och iPad (högerkolumnen; `lage` = Planering). På stor skärm ignoreras den.
+  const fonsterBredd = useFonsterBredd()
+  const lage = lageForBredd(fonsterBredd)
+  const n = antalKolumner(lage)
+  const hoger = hogerFlik(flik)
+  const synlig = (f: Flik): boolean => (lage === 'telefon' ? flik === f : lage === 'ipad' ? f === 'lage' || f === hoger : true)
+  const uppfSynlig = synlig('uppfoljning')
+
+  // Öppen sheet/panel — EN åt gången i hela vyn, även när flera flikar syns samtidigt.
+  const [panel, setPanel] = useState<PanelPost>(null)
+  useEffect(() => { setPanel(null) }, [flik, ar, manad, lage])
+  const panelStyrning = useMemo(() => ({ panel, satt: setPanel }), [panel])
+  const panelBredvid = lage !== 'telefon' && panel != null && panelPlats(fonsterBredd, n)
 
   const satt = useCallback((n: { flik?: Flik; ar?: number; manad?: number }) => {
     const q = new URLSearchParams()
@@ -138,7 +162,7 @@ export default function HelikopterVy() {
   // Bolag — lazy när Uppföljning öppnas, cachat per månad.
   const bolagNyckel = `${ar}-${manad}`
   useEffect(() => {
-    if (flik !== 'uppfoljning') return
+    if (!uppfSynlig) return
     if (bolag?.nyckel === bolagNyckel) return
     let avbruten = false
     setBolagFel(null)
@@ -148,11 +172,11 @@ export default function HelikopterVy() {
       else setBolag({ nyckel: bolagNyckel, rader: r.data })
     })
     return () => { avbruten = true }
-  }, [flik, ar, manad, idag, bolag, bolagNyckel, version])
+  }, [uppfSynlig, ar, manad, idag, bolag, bolagNyckel, version])
 
   // Maskinsektionen på Uppföljning — lazy när fliken öppnas, cachat per månad.
   useEffect(() => {
-    if (flik !== 'uppfoljning') return
+    if (!uppfSynlig) return
     if (maskinerManad?.nyckel === bolagNyckel) return
     let avbruten = false
     setMaskinerFel(null)
@@ -162,7 +186,7 @@ export default function HelikopterVy() {
       else setMaskinerManad({ nyckel: bolagNyckel, rader: r.data })
     })
     return () => { avbruten = true }
-  }, [flik, ar, manad, idag, maskinerManad, bolagNyckel, version])
+  }, [uppfSynlig, ar, manad, idag, maskinerManad, bolagNyckel, version])
 
   const status = manadStatus(ar, manad, idag)
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
@@ -195,90 +219,191 @@ export default function HelikopterVy() {
   const fel = fastFel ?? manadFel
   const laddar = laddarManad || (!fast && !fastFel)
 
-  return (
-    <div style={{ background: T.bg, minHeight: '100vh', paddingBottom: 110, color: T.t1, fontFamily: T.ff, WebkitFontSmoothing: 'antialiased' }}>
-      <PageContainer width="smal">
-        <header style={{ padding: '18px 0 4px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr 44px', alignItems: 'center' }}>
-            <button type="button" aria-label="Föregående månad" onClick={() => bytManad(-1)} style={rundKnapp}><ChevronLeft size={22} /></button>
-            <div style={{ textAlign: 'center' }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, lineHeight: 1.15 }}>{manadRubrik(ar, manad)}</h1>
-              <div style={{ fontSize: 13, color: T.t2, marginTop: 3, minHeight: 16 }}>{underradText}</div>
-            </div>
-            <button type="button" aria-label="Nästa månad" onClick={() => bytManad(1)} style={rundKnapp}><ChevronRight size={22} /></button>
-          </div>
-          {!arNu && (
-            <div style={{ textAlign: 'center', marginTop: 6 }}>
-              <button type="button" onClick={() => satt({ ar: nuAr, manad: nuManad })} style={{ minHeight: 44, padding: '0 16px', background: 'transparent', border: 'none', color: T.blue, fontSize: 15, fontWeight: 600, fontFamily: T.ff, cursor: 'pointer' }}>Idag</button>
-            </div>
-          )}
-        </header>
+  // Samma tre kort på alla bredder — bara hur många som syns samtidigt skiljer.
+  const innehall = (f: Flik) => {
+    if (!fast || !manadsdata || !dagar) return null
+    if (f === 'lage') {
+      return (
+        <LageFlik
+          spar={spar}
+          status={status}
+          dagar={dagar}
+          ar={ar}
+          manad={manad}
+          idag={idag}
+          maskiner={fast.maskiner}
+          bestallningar={manadsdata.bestallningar}
+          utanTyp={manadsdata.utanTyp}
+          antalPlanerade={antalPlanerade}
+          dinMaskin={dinMaskinNamn ? { maskinNamn: maskinNamn(dinMaskinNamn), lage: maskinLage, fel: maskinLageFel, onRetry: () => setVersion(v => v + 1) } : null}
+          manuella={manuella}
+          senasteLass={senasteLass}
+          arbetsdagar={manadsdata.arbetsdagar}
+        />
+      )
+    }
+    if (f === 'planering') {
+      return <PlaneringFlik manadsdata={manadsdata} fast={fast} spar={spar} status={status} dagar={dagar} idag={idag} ar={ar} manad={manad} />
+    }
+    return (
+      <UppfoljningFlik
+        spar={spar}
+        status={status}
+        dagar={dagar}
+        bolag={bolag?.nyckel === bolagNyckel ? bolag.rader : null}
+        bolagFel={bolagFel}
+        onRetryBolag={() => { setBolag(null); setVersion(v => v + 1) }}
+        maskiner={maskinerManad?.nyckel === bolagNyckel ? maskinerManad.rader : null}
+        maskinerFel={maskinerFel}
+        onRetryMaskiner={() => { setMaskinerManad(null); setVersion(v => v + 1) }}
+        antalPlanerade={antalPlanerade}
+        ar={ar}
+        manad={manad}
+        manuella={manuella}
+        arAdmin={medarbetare?.roll === 'admin'}
+      />
+    )
+  }
+  const klart = !fel && !laddar && fast != null && manadsdata != null && dagar != null
+  const tillstand = fel
+    ? <Fel onRetry={() => setVersion(v => v + 1)} />
+    : <Laddar vad={MANAD_NAMN[manad - 1]} />
 
-        {/* Flikar — sticky under toppbaren så man kan byta utan att scrolla upp. */}
-        <nav style={{ position: 'sticky', top: 'calc(56px + env(safe-area-inset-top))', zIndex: 20, background: T.bg, padding: '10px 0 14px' }}>
-          <div role="tablist" style={{ display: 'flex', background: T.group, borderRadius: 10, padding: 3, gap: 3 }}>
-            {FLIKAR.map(f => (
+  const flikrad = (lista: { id: Flik; namn: string }[], sticky: boolean) => {
+    const stickyStil: React.CSSProperties = sticky ? { position: 'sticky', top: LAYOUT.topbar, zIndex: 20, background: T.bg, padding: '10px 0 14px' } : { paddingBottom: 14 }
+    return (
+      <nav style={stickyStil}>
+        <div role="tablist" style={{ display: 'flex', background: T.group, borderRadius: 10, padding: 3, gap: 3 }}>
+          {lista.map(f => {
+            const vald = lage === 'ipad' ? hoger === f.id : flik === f.id
+            return (
               <button
                 key={f.id}
                 type="button"
                 role="tab"
-                aria-selected={flik === f.id}
+                aria-selected={vald}
                 onClick={() => satt({ flik: f.id })}
                 style={{
                   flex: 1, minHeight: 44, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: T.ff,
                   fontSize: 15, fontWeight: 600,
-                  background: flik === f.id ? 'rgba(255,255,255,0.12)' : 'transparent',
-                  color: flik === f.id ? T.t1 : T.t2,
+                  background: vald ? 'rgba(255,255,255,0.12)' : 'transparent',
+                  color: vald ? T.t1 : T.t2,
                 }}
               >
                 {f.namn}
               </button>
-            ))}
-          </div>
-        </nav>
+            )
+          })}
+        </div>
+      </nav>
+    )
+  }
 
-        {fel ? (
-          <Fel onRetry={() => setVersion(v => v + 1)} />
-        ) : laddar || !fast || !manadsdata || !dagar ? (
-          <Laddar vad={MANAD_NAMN[manad - 1]} />
-        ) : flik === 'lage' ? (
-          <LageFlik
-            spar={spar}
-            status={status}
-            dagar={dagar}
-            ar={ar}
-            manad={manad}
-            idag={idag}
-            maskiner={fast.maskiner}
-            bestallningar={manadsdata.bestallningar}
-            utanTyp={manadsdata.utanTyp}
-            antalPlanerade={antalPlanerade}
-            dinMaskin={dinMaskinNamn ? { maskinNamn: maskinNamn(dinMaskinNamn), lage: maskinLage, fel: maskinLageFel, onRetry: () => setVersion(v => v + 1) } : null}
-            manuella={manuella}
-            senasteLass={senasteLass}
-            arbetsdagar={manadsdata.arbetsdagar}
-          />
-        ) : flik === 'planering' ? (
-          <PlaneringFlik manadsdata={manadsdata} fast={fast} spar={spar} status={status} dagar={dagar} idag={idag} ar={ar} manad={manad} />
-        ) : (
-          <UppfoljningFlik
-            spar={spar}
-            status={status}
-            dagar={dagar}
-            bolag={bolag?.nyckel === bolagNyckel ? bolag.rader : null}
-            bolagFel={bolagFel}
-            onRetryBolag={() => { setBolag(null); setVersion(v => v + 1) }}
-            maskiner={maskinerManad?.nyckel === bolagNyckel ? maskinerManad.rader : null}
-            maskinerFel={maskinerFel}
-            onRetryMaskiner={() => { setMaskinerManad(null); setVersion(v => v + 1) }}
-            antalPlanerade={antalPlanerade}
-            ar={ar}
-            manad={manad}
-            manuella={manuella}
-            arAdmin={medarbetare?.roll === 'admin'}
-          />
-        )}
-      </PageContainer>
-    </div>
+  const idagKnapp = (
+    <button type="button" onClick={() => satt({ ar: nuAr, manad: nuManad })} style={{ minHeight: 44, padding: '0 16px', background: 'transparent', border: 'none', color: T.blue, fontSize: 15, fontWeight: 600, fontFamily: T.ff, cursor: 'pointer' }}>Idag</button>
+  )
+
+  // Kolumngruppens ram: högst n kort à KORT_MAX_PX, centrerad, 16 px sidmarginal. Rubrikraden och kolumnerna delar den, så de linjerar.
+  const ram: React.CSSProperties = { width: '100%', maxWidth: kolumnerBredd(n) + 2 * SIDMARGINAL, marginInline: 'auto', paddingInline: SIDMARGINAL, boxSizing: 'border-box' }
+
+  const rot: React.CSSProperties = { background: T.bg, minHeight: '100vh', paddingBottom: 110, color: T.t1, fontFamily: T.ff, WebkitFontSmoothing: 'antialiased' }
+
+  // ── Telefon: som förut — en kolumn, tre flikar, sheets underifrån ──
+  if (lage === 'telefon') {
+    return (
+      <PanelContext.Provider value={panelStyrning}>
+        <SheetLageContext.Provider value="ark">
+          <div style={rot}>
+            {/* Som förut, men ett kort blir aldrig bredare än KORT_MAX_PX (påverkar bara fönster bredare än ~450 px). */}
+            <PageContainer width="smal" style={{ maxWidth: KORT_MAX_PX + 2 * SIDMARGINAL }}>
+              <header style={{ padding: '18px 0 4px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr 44px', alignItems: 'center' }}>
+                  <button type="button" aria-label="Föregående månad" onClick={() => bytManad(-1)} style={rundKnapp}><ChevronLeft size={22} /></button>
+                  <div style={{ textAlign: 'center' }}>
+                    <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, lineHeight: 1.15 }}>{manadRubrik(ar, manad)}</h1>
+                    <div style={{ fontSize: 13, color: T.t2, marginTop: 3, minHeight: 16 }}>{underradText}</div>
+                  </div>
+                  <button type="button" aria-label="Nästa månad" onClick={() => bytManad(1)} style={rundKnapp}><ChevronRight size={22} /></button>
+                </div>
+                {!arNu && <div style={{ textAlign: 'center', marginTop: 6 }}>{idagKnapp}</div>}
+              </header>
+
+              {/* Flikar — sticky under toppbaren så man kan byta utan att scrolla upp. */}
+              {flikrad(FLIKAR, true)}
+
+              {!klart ? tillstand : innehall(flik)}
+            </PageContainer>
+          </div>
+        </SheetLageContext.Provider>
+      </PanelContext.Provider>
+    )
+  }
+
+  // ── iPad och stor skärm ──
+  // Panelen läggs bredvid kolumnerna när det finns plats (kolumngruppen skjuts åt vänster, korten behåller sin bredd), annars över högerkolumnen.
+  const stor = lage === 'stor'
+  return (
+    <PanelContext.Provider value={panelStyrning}>
+      <SheetLageContext.Provider value="panel">
+        <div style={{ ...rot, paddingRight: panelBredvid ? PANEL_PX + KOLUMN_GAP : 0 }}>
+          {/* Månadsrubriken är sticky på alla bredder över telefon och spänner över kolumnerna. */}
+          <header style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 20, background: T.bg }}>
+            <div style={ram}>
+              {stor ? (
+                // Stor: pilar och Idag EN gång, centrerat. Månad och undertext sitter i varje korts rubrikrad.
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: KOLUMN_GAP / 2, padding: '10px 0' }}>
+                  <button type="button" aria-label="Föregående månad" onClick={() => bytManad(-1)} style={rundKnapp}><ChevronLeft size={22} /></button>
+                  <div style={{ minWidth: 64, textAlign: 'center' }}>{!arNu && idagKnapp}</div>
+                  <button type="button" aria-label="Nästa månad" onClick={() => bytManad(1)} style={rundKnapp}><ChevronRight size={22} /></button>
+                </div>
+              ) : (
+                <div style={{ padding: '18px 0 4px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr 44px', alignItems: 'center' }}>
+                    <button type="button" aria-label="Föregående månad" onClick={() => bytManad(-1)} style={rundKnapp}><ChevronLeft size={22} /></button>
+                    <div style={{ textAlign: 'center' }}>
+                      <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, lineHeight: 1.15 }}>{manadRubrik(ar, manad)}</h1>
+                      <div style={{ fontSize: 13, color: T.t2, marginTop: 3, minHeight: 16 }}>{underradText}</div>
+                    </div>
+                    <button type="button" aria-label="Nästa månad" onClick={() => bytManad(1)} style={rundKnapp}><ChevronRight size={22} /></button>
+                  </div>
+                  {!arNu && <div style={{ textAlign: 'center', marginTop: 6 }}>{idagKnapp}</div>}
+                  <div style={{ height: 10 }} />
+                </div>
+              )}
+            </div>
+          </header>
+
+          <div style={ram}>
+            {!klart ? (
+              <div style={{ maxWidth: KORT_MAX_PX, marginInline: 'auto' }}>{tillstand}</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${n}, minmax(0, ${KORT_MAX_PX}px))`, columnGap: KOLUMN_GAP, justifyContent: 'center', alignItems: 'start' }}>
+                {stor ? (
+                  FLIKAR.map(f => (
+                    <div key={f.id} style={{ minWidth: 0 }}>
+                      <div style={{ padding: '0 4px 10px' }}>
+                        <div style={{ fontSize: 15, fontWeight: 500, color: T.t1 }}>{f.namn}</div>
+                        <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 2 }}>
+                          {manadRubrik(ar, manad)}{f.id === 'lage' && underradText ? ` · ${underradText}` : ''}
+                        </div>
+                      </div>
+                      {innehall(f.id)}
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div style={{ minWidth: 0 }}>{innehall('lage')}</div>
+                    <div style={{ minWidth: 0 }}>
+                      {flikrad(HOGER_FLIKAR, false)}
+                      {innehall(hoger)}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </SheetLageContext.Provider>
+    </PanelContext.Provider>
   )
 }

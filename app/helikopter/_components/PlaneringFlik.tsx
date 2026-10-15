@@ -2,7 +2,6 @@
 
 // Flik 2 — Planering, i liststil: svarsrad (värsta avvikelsen + åtgärd), SKÖRDARE,
 // SKOTARE (en rad per aktiv maskin: timmar kvar mot kapacitet kvar), två listrader.
-import { useState } from 'react'
 import {
   belaggning, otilldelade, planeratPerTyp, planeringSvar, stoppForMaskin, maskinNamn, TYPER,
   type ManadStatus, type PlaneratResultat, type SparLage,
@@ -13,6 +12,7 @@ import { ListLank, ListRad, Lista, Sektion, Svarsrad } from './Lista'
 import { Tomt } from './Tillstand'
 import EjTilldeladeSheet from './EjTilldeladeSheet'
 import MotBestallningSheet from './MotBestallningSheet'
+import { usePanelVal } from './PanelVal'
 
 type Props = {
   manadsdata: Manadsdata
@@ -26,7 +26,7 @@ type Props = {
 }
 
 export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, idag, ar, manad }: Props) {
-  const [sheet, setSheet] = useState<'ej' | 'best' | null>(null)
+  const [sheet, setSheet] = usePanelVal<'ej' | 'best'>('planering')
   if (status === 'avslutad') {
     return <Tomt rubrik="Månaden är avslutad" text="Planering gäller innevarande och kommande månader. Utfallet finns under Uppföljning." />
   }

@@ -3,7 +3,6 @@
 // Flik 1 — Läge, i liststil: svarsrad överst, MOT BESTÄLLNING (per spår: rubrikrad +
 // mätarrad Skördat + mätarrad Skotat + förklaringsrad), DIN MASKIN, två listrader som
 // öppnar sheets. Inga stora tal, färg bara på en stapel som ligger under plan idag.
-import { useState } from 'react'
 import { Trees, Truck } from 'lucide-react'
 import { kapacitetsMaskiner, lageSvar, motBestallningRad, registreringsVarning, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, dagarText, fmt, kortNamn } from '../_lib/format'
@@ -13,6 +12,7 @@ import { knapp } from './Tillstand'
 import MaskinerSheet from './MaskinerSheet'
 import UtanTypSheet from './UtanTypSheet'
 import { T } from '@/lib/utbildning'
+import { usePanelVal } from './PanelVal'
 
 type Props = {
   spar: SparLage[]
@@ -35,7 +35,7 @@ type Props = {
 }
 
 export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin, manuella, senasteLass, arbetsdagar }: Props) {
-  const [sheet, setSheet] = useState<'maskiner' | 'utan' | null>(null)
+  const [sheet, setSheet] = usePanelVal<'maskiner' | 'utan'>('lage')
   const manadNamn = MANAD_NAMN[manad - 1]
   const svar = lageSvar(spar, antalPlanerade, status, dagar, manadNamn)
   // Manuell datakälla utan registrerade lass de två senaste arbetsdagarna → orange rad under svaret.

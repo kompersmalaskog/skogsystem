@@ -8,11 +8,14 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, TreePine, Truck } from 'lucide-react'
 import PageContainer from '@/components/PageContainer'
+import { AVSTAND } from '@/lib/design/tokens'
 import { T } from '@/lib/utbildning'
 import { ymdLokal } from '@/lib/datumLokal'
 import { TYPER, TYP_NAMN } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik } from '../_lib/format'
 import { hamtaManuellaMaskiner, hamtaVeckor, type Typ, type VeckaRad } from '../_lib/queries'
+import { SPAR_MAX_PX, VECKOR_TVA_SPAR_MIN_PX } from '../_lib/layout'
+import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar, Tomt } from './Tillstand'
 import { TEXT_MUTED } from './Lista'
 import { KortLank, STORT_TAL_STIL } from './SparKort'
@@ -21,6 +24,8 @@ import OrsakSheet from './OrsakSheet'
 
 type Roll = 'skordare' | 'skotare'
 type PerTyp = Record<Typ, VeckaRad[]>
+const INGEN_VECKA: Record<Typ, number | null> = { gallring: null, slutavverkning: null }
+const INGEN_ROLL: Record<Typ, Roll | null> = { gallring: null, slutavverkning: null }
 
 /** Senaste låsta veckan, annars första. */
 function forvaldVecka(veckor: VeckaRad[]): number | null {
@@ -43,13 +48,16 @@ export default function VeckorVy() {
   const ar = Number.isFinite(arParam) ? arParam : Number(idag.slice(0, 4))
   const manad = Number.isFinite(manadParam) && manadParam >= 1 && manadParam <= 12 ? manadParam : Number(idag.slice(5, 7))
   const tillbaka = `/helikopter?flik=uppfoljning&ar=${ar}&manad=${manad}`
+  // Från 900 px visas båda spåren sida vid sida (ingen växel); under det ett spår i taget som förut.
+  const tvaSpar = useFonsterBredd() >= VECKOR_TVA_SPAR_MIN_PX
 
   const [data, setData] = useState<PerTyp | null>(null)
   const [fel, setFel] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
-  const [vald, setVald] = useState<number | null>(null)
-  const [roll, setRoll] = useState<Roll | null>(null)
-  const [orsakOppen, setOrsakOppen] = useState(false)
+  // Vald vecka och roll bor per spår, så båda spåren kan visas samtidigt.
+  const [vald, setVald] = useState<Record<Typ, number | null>>(INGEN_VECKA)
+  const [roll, setRoll] = useState<Record<Typ, Roll | null>>(INGEN_ROLL)
+  const [orsakFor, setOrsakFor] = useState<Typ | null>(null)
   // Maskiner med manuell datakälla — "manuell" efter volymen i veckoraden.
   const [manuella, setManuella] = useState<Set<string>>(() => new Set())
   useEffect(() => { let avbruten = false; hamtaManuellaMaskiner().then(m => { if (!avbruten) setManuella(m) }); return () => { avbruten = true } }, [])
@@ -68,103 +76,153 @@ export default function VeckorVy() {
     return () => { avbruten = true }
   }, [ar, manad, idag, version])
 
-  const veckor = data ? data[typ] : null
-
-  // Vald vecka: behålls vid spårbyte om den finns, annars senaste låsta.
+  // Vald vecka: behålls om den finns, annars senaste låsta. Gäller varje spår för sig.
   useEffect(() => {
-    if (!veckor) return
-    setVald(prev => (prev != null && veckor.some(v => v.isovecka === prev) ? prev : forvaldVecka(veckor)))
-    setRoll(null)
-  }, [veckor])
+    if (!data) return
+    setVald(prev => {
+      const nytt = { ...INGEN_VECKA }
+      for (const t of TYPER) nytt[t] = prev[t] != null && data[t].some(v => v.isovecka === prev[t]) ? prev[t] : forvaldVecka(data[t])
+      return nytt
+    })
+    setRoll(INGEN_ROLL)
+  }, [data])
 
   const sattTyp = (t: Typ) => {
     if (t === typ) return
+    // Spårbyte: vald vecka följer med om den finns i det andra spåret, annars senaste låsta.
+    if (data) {
+      setVald(prev => ({ ...prev, [t]: prev[typ] != null && data[t].some(v => v.isovecka === prev[typ]) ? prev[typ] : forvaldVecka(data[t]) }))
+      setRoll(prev => ({ ...prev, [t]: null }))
+    }
     const q = new URLSearchParams(sp.toString())
     q.set('typ', t)
     router.replace(`/helikopter/veckor?${q.toString()}`, { scroll: false })
   }
 
-  const vecka = useMemo(() => veckor?.find(v => v.isovecka === vald) ?? null, [veckor, vald])
-  const best = veckor ? harBestallning(veckor) : false
+  const orsakVecka = orsakFor && data ? data[orsakFor].find(v => v.isovecka === vald[orsakFor]) ?? null : null
+
+  const sparBlock = (t: Typ) => (
+    <SparBlock
+      veckor={data![t]}
+      vald={vald[t]}
+      roll={roll[t]}
+      onVald={v => { setVald(prev => ({ ...prev, [t]: v })); setRoll(prev => ({ ...prev, [t]: null })) }}
+      onRoll={(v, r) => { setVald(prev => ({ ...prev, [t]: v })); setRoll(prev => ({ ...prev, [t]: vald[t] === v && prev[t] === r ? null : r })) }}
+      onTillbakaRoll={() => setRoll(prev => ({ ...prev, [t]: null }))}
+      manuella={manuella}
+      onAndraOrsak={() => setOrsakFor(t)}
+    />
+  )
+
+  const innehall = fel ? (
+    <Fel onRetry={() => setVersion(v => v + 1)} />
+  ) : !data ? (
+    <Laddar vad={`veckorna i ${MANAD_NAMN[manad - 1]}`} />
+  ) : tvaSpar ? (
+    // Två spår sida vid sida: varsitt diagram och detaljblock, högst SPAR_MAX_PX per spår, centrerat.
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(2, minmax(0, ${SPAR_MAX_PX}px))`, columnGap: AVSTAND.l, justifyContent: 'center', alignItems: 'start' }}>
+      {TYPER.map(t => (
+        <div key={t} style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 500, color: T.t1, padding: `0 ${AVSTAND.xs}px ${AVSTAND.s + AVSTAND.xs / 2}px` }}>{TYP_NAMN[t]}</div>
+          {sparBlock(t)}
+        </div>
+      ))}
+    </div>
+  ) : (
+    sparBlock(typ)
+  )
+
+  const sidhuvud = (
+    <header style={{ display: 'grid', gridTemplateColumns: '44px 1fr 44px', alignItems: 'center', padding: '14px 0 12px' }}>
+      <Link href={tillbaka} aria-label="Tillbaka till Uppföljning" style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.blue }}>
+        <ChevronLeft size={26} />
+      </Link>
+      <div style={{ textAlign: 'center' }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Veckor</h1>
+        <div style={{ fontSize: 13, color: T.t2, marginTop: 2 }}>{manadRubrik(ar, manad)}</div>
+      </div>
+      <span />
+    </header>
+  )
 
   return (
     <div style={{ background: T.bg, minHeight: '100vh', paddingBottom: 110, color: T.t1, fontFamily: T.ff, WebkitFontSmoothing: 'antialiased' }}>
-      <PageContainer width="smal">
-        <header style={{ display: 'grid', gridTemplateColumns: '44px 1fr 44px', alignItems: 'center', padding: '14px 0 12px' }}>
-          <Link href={tillbaka} aria-label="Tillbaka till Uppföljning" style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.blue }}>
-            <ChevronLeft size={26} />
-          </Link>
-          <div style={{ textAlign: 'center' }}>
-            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Veckor</h1>
-            <div style={{ fontSize: 13, color: T.t2, marginTop: 2 }}>{manadRubrik(ar, manad)}</div>
+      {/* Bredare än 900 px: ramen rymmer två spår à högst SPAR_MAX_PX. Under det samma kolumn som förut. */}
+      <PageContainer width={tvaSpar ? 'full' : 'smal'} style={tvaSpar ? { maxWidth: 2 * SPAR_MAX_PX + AVSTAND.l + 2 * AVSTAND.sidmarginal, marginInline: 'auto', paddingInline: AVSTAND.sidmarginal, boxSizing: 'border-box' } : undefined}>
+        {sidhuvud}
+
+        {/* Spårväxel — samma stil som flikraden på /helikopter. Vald = typ i URL:en. Försvinner när båda spåren syns. */}
+        {!tvaSpar && (
+          <div role="tablist" aria-label="Spår" style={{ display: 'flex', background: T.group, borderRadius: 10, padding: 3, gap: 3, marginBottom: 14 }}>
+            {TYPER.map(t => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={typ === t}
+                onClick={() => sattTyp(t)}
+                style={{
+                  flex: 1, minHeight: 44, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: T.ff,
+                  fontSize: 15, fontWeight: 600,
+                  background: typ === t ? 'rgba(255,255,255,0.12)' : 'transparent',
+                  color: typ === t ? T.t1 : T.t2,
+                }}
+              >
+                {TYP_NAMN[t]}
+              </button>
+            ))}
           </div>
-          <span />
-        </header>
-
-        {/* Spårväxel — samma stil som flikraden på /helikopter. Vald = typ i URL:en. */}
-        <div role="tablist" aria-label="Spår" style={{ display: 'flex', background: T.group, borderRadius: 10, padding: 3, gap: 3, marginBottom: 14 }}>
-          {TYPER.map(t => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={typ === t}
-              onClick={() => sattTyp(t)}
-              style={{
-                flex: 1, minHeight: 44, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: T.ff,
-                fontSize: 15, fontWeight: 600,
-                background: typ === t ? 'rgba(255,255,255,0.12)' : 'transparent',
-                color: typ === t ? T.t1 : T.t2,
-              }}
-            >
-              {TYP_NAMN[t]}
-            </button>
-          ))}
-        </div>
-
-        {fel ? (
-          <Fel onRetry={() => setVersion(v => v + 1)} />
-        ) : !veckor ? (
-          <Laddar vad={`veckorna i ${MANAD_NAMN[manad - 1]}`} />
-        ) : veckor.length === 0 ? (
-          <Tomt rubrik="Inga arbetsdagar i månaden" />
-        ) : (
-          <>
-            <section style={{ background: T.group, borderRadius: 12, padding: '14px 12px 10px', marginBottom: 14 }}>
-              <VeckoDiagram
-                veckor={veckor}
-                vald={vald}
-                onValjVecka={v => { setVald(v); setRoll(null) }}
-                onValjStapel={(v, r) => { setVald(v); setRoll(prev => (vald === v && prev === r ? null : r)) }}
-              />
-            </section>
-
-            {vecka && (
-              <section style={{ background: T.group, borderRadius: 12, padding: '16px 16px 8px', marginBottom: 14 }}>
-                {roll ? (
-                  <PerMaskin vecka={vecka} roll={roll} onTillbaka={() => setRoll(null)} manuella={manuella} />
-                ) : (
-                  <VeckoDetalj vecka={vecka} harBest={best} onAndraOrsak={() => setOrsakOppen(true)} />
-                )}
-              </section>
-            )}
-          </>
         )}
+
+        {innehall}
       </PageContainer>
 
-      {vecka && (
+      {orsakFor && orsakVecka && (
         <OrsakSheet
-          open={orsakOppen}
-          onClose={() => setOrsakOppen(false)}
+          open={orsakFor != null}
+          onClose={() => setOrsakFor(null)}
           ar={ar}
           manad={manad}
-          typ={typ}
-          isovecka={vecka.isovecka}
-          orsak={vecka.orsak}
-          onSparad={() => { setOrsakOppen(false); setVersion(v => v + 1) }}
+          typ={orsakFor}
+          isovecka={orsakVecka.isovecka}
+          orsak={orsakVecka.orsak}
+          onSparad={() => { setOrsakFor(null); setVersion(v => v + 1) }}
         />
       )}
     </div>
+  )
+}
+
+/** Ett spår: diagram (kolumn per vecka) och detaljblock för vald vecka. Samma block i båda lägena. */
+function SparBlock({ veckor, vald, roll, onVald, onRoll, onTillbakaRoll, manuella, onAndraOrsak }: {
+  veckor: VeckaRad[]
+  vald: number | null
+  roll: Roll | null
+  onVald: (isovecka: number) => void
+  onRoll: (isovecka: number, roll: Roll) => void
+  onTillbakaRoll: () => void
+  manuella: Set<string>
+  onAndraOrsak: () => void
+}) {
+  const vecka = veckor.find(v => v.isovecka === vald) ?? null
+  const best = harBestallning(veckor)
+  if (veckor.length === 0) return <Tomt rubrik="Inga arbetsdagar i månaden" />
+  return (
+    <>
+      <section style={{ background: T.group, borderRadius: 12, padding: '14px 12px 10px', marginBottom: 14 }}>
+        <VeckoDiagram veckor={veckor} vald={vald} onValjVecka={onVald} onValjStapel={onRoll} />
+      </section>
+
+      {vecka && (
+        <section style={{ background: T.group, borderRadius: 12, padding: '16px 16px 8px', marginBottom: 14 }}>
+          {roll ? (
+            <PerMaskin vecka={vecka} roll={roll} onTillbaka={onTillbakaRoll} manuella={manuella} />
+          ) : (
+            <VeckoDetalj vecka={vecka} harBest={best} onAndraOrsak={onAndraOrsak} />
+          )}
+        </section>
+      )}
+    </>
   )
 }
 
