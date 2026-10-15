@@ -1,0 +1,32 @@
+# Migrationskontroll på varje PR som lägger till (eller döper om) en migration: finns den i prod med samma version och namn?
+#
+# VARNING, inte hinder: jobbet blir aldrig rött för att en migration saknas i prod. En ny migration är "saknad" tills den körts
+# med apply_migration och filen döpts om till versionen prod stämplade (CLAUDE.md → Migrationer) — varningen är påminnelsen.
+# Läsningen går via public.jamfor_migrationer med ANON-nyckeln (samma publika nyckel som ligger i webbläsaren); ingen servicenyckel
+# och inga hemligheter. Kräver två repository-VARIABLER (Settings → Secrets and variables → Actions → Variables):
+#   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+# Saknas de (eller PR:en kommer från en fork) varnar jobbet att det inte kunde kontrollera, och går ändå igenom.
+name: migrationskontroll
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/migrationskontroll.mjs"
+
+jobs:
+  migrationskontroll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Finns PR:ens nya migrationer i prod?
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: node scripts/migrationskontroll.mjs --pr origin/${{ github.base_ref }}
