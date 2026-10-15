@@ -38,6 +38,8 @@ export interface OmTraktenProps {
   ytor: OmYta[];
   ikon: (m: KartMarkering) => React.ReactNode;
   onVisa: (m: KartMarkering) => void;
+  /** samma rad en gång till: lämna framhävningen och zooma ut till hela trakten ("Visa hela") */
+  onSlapp: () => void;
   onFoto: (src: string) => void;
   framhavdId: string | null;
 }
@@ -55,7 +57,7 @@ export default function OmTrakten(p: OmTraktenProps) {
   const restrTraffar = p.restriktioner.filter((r) => matcharSok(`${r.name ?? ''} ${r.type ?? ''} ${r.details ?? ''} ${r.warning ?? ''}`, q));
   const ytorTraffar = p.ytor.filter((y) => matcharSok(`${y.typLabel} ${y.text ?? ''}`, q));
   const inget = sokt && helaTraffar.length === 0 && restrTraffar.length === 0 && traffar.length === 0 && ytorTraffar.length === 0;
-  const radProps = { ikon: p.ikon, framhavdId: p.framhavdId, onVisa: p.onVisa, onFoto: p.onFoto };
+  const radProps = { ikon: p.ikon, framhavdId: p.framhavdId, onVisa: p.onVisa, onSlapp: p.onSlapp, onFoto: p.onFoto };
 
   return (
     <>
@@ -171,12 +173,12 @@ export default function OmTrakten(p: OmTraktenProps) {
   );
 }
 
-interface RadProps { ikon: (m: KartMarkering) => React.ReactNode; framhavdId: string | null; onVisa: (m: KartMarkering) => void; onFoto: (src: string) => void }
+interface RadProps { ikon: (m: KartMarkering) => React.ReactNode; framhavdId: string | null; onVisa: (m: KartMarkering) => void; onSlapp: () => void; onFoto: (src: string) => void }
 
 function Rad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
   if (r.samlad) return <Samlad r={r} {...p} />;
   const m = r.markeringar[0];
-  return <Markering m={m} ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onFoto={p.onFoto} />;
+  return <Markering m={m} ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onSlapp={p.onSlapp} onFoto={p.onFoto} />;
 }
 
 /** Flera korta kommentarer av samma typ som EN rad: "Vägar · Röd väg ×3 · Gul väg ×2". Tryck fäller ut en rad per markering, var och en med Visa ›. */
@@ -192,7 +194,7 @@ function Samlad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
       </button>
       {oppen && (
         <div data-testid="om-samlad-lista" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, padding: `0 ${AVSTAND.s}px ${AVSTAND.s}px` }}>
-          {r.markeringar.map((m) => <Markering key={m.id} m={m} inre ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onFoto={p.onFoto} />)}
+          {r.markeringar.map((m) => <Markering key={m.id} m={m} inre ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onSlapp={p.onSlapp} onFoto={p.onFoto} />)}
         </div>
       )}
     </div>
@@ -200,7 +202,7 @@ function Samlad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
 }
 
 /** Kommentaren är huvudtexten (stor); symbolens namn står litet under. Utan kommentar (bara foto) är namnet huvudtexten. */
-function Markering({ m, ikon, framhavd, inre = false, onVisa, onFoto }: { m: MarkeringMedAvstand; ikon: React.ReactNode; framhavd: boolean; inre?: boolean; onVisa: () => void; onFoto: (src: string) => void }) {
+function Markering({ m, ikon, framhavd, inre = false, onVisa, onSlapp, onFoto }: { m: MarkeringMedAvstand; ikon: React.ReactNode; framhavd: boolean; inre?: boolean; onVisa: () => void; onSlapp: () => void; onFoto: (src: string) => void }) {
   const foto = harFoto(m);
   const komm = m.comment.trim();
   // Basväg: huvudtexten är "Basväg röd · 640 m" (färg och längd); en ev. kommentar står under.
@@ -218,7 +220,8 @@ function Markering({ m, ikon, framhavd, inre = false, onVisa, onFoto }: { m: Mar
         </span>
         <span style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
           {m.avstandM != null && <span data-testid="om-avstand" style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{avstandText(m.avstandM)}</span>}
-          <button type="button" data-testid="om-visa" onClick={onVisa} style={{ ...visaKnapp }}>Visa ›</button>
+          {/* Vald rad: knappen byter till "Visa hela" och släpper framhävningen (zoomar ut till trakten) — samma tryck som valde den lämnar den. */}
+          <button type="button" data-testid="om-visa" data-framhavd={framhavd ? '1' : '0'} onClick={framhavd ? onSlapp : onVisa} style={{ ...visaKnapp }}>{framhavd ? 'Visa hela' : 'Visa ›'}</button>
         </span>
       </div>
       {foto && (

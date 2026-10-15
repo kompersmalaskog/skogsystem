@@ -27,7 +27,12 @@ describe('EN rad längst ner per läge', () => {
   });
   it('raderna är samma komponent (KorvyNertillList) — en stil, en höjd, ett läge på skärmen', () => {
     const rader = mellan(page, '{/* PLACERA SYMBOL: raden stängd', '{/* PRICK (körvy)');
-    expect(antal(rader, '<KorvyNertillList')).toBe(5);
+    // fem lägen + sjätte: telefonens "‹ Om trakten" medan en markering från Om trakten är framhävd (framhav-list) — villkoret nedan stänger den när ett annat läge pågår
+    expect(antal(rader, '<KorvyNertillList')).toBe(6);
+  });
+  it('framhävningens rad (Om trakten › Visa ›, telefon) visas aldrig samtidigt med ett annat nertill-läge eller med öppen objektinfo', () => {
+    expect(page).toMatch(/const framhavListSynlig = !!framhavdMarkering && framhavdLageRef\.current === 'ark' && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig;/);
+    expect(page).toMatch(/\{framhavListSynlig && framhavdMarkering && \(\s*<KorvyNertillList\s+testid="framhav-list"/);
   });
   it('knapparna: ↩ ✓ × för rita, område och mät; bara × för placera och pil', () => {
     const rita = mellan(page, 'testid="rita-list"', 'testid="omrade-list"');

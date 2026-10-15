@@ -5,12 +5,14 @@
 // Allt annat (vad en knapp GÖR, vad kartan gör) avgör sidan via callbacks.
 
 import React, { useEffect, useState } from 'react';
+import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import InfoRam, { type InfoVy } from './InfoRam';
 import ObjektKort, { type ObjektKortProps } from './ObjektKort';
 import OmTrakten, { type OmTraktenProps } from './OmTrakten';
 import MerMeny, { type MerMenyProps } from './MerMeny';
 import type { KartMarkering, KortKnappId } from '@/lib/objektKort';
 import type { PlusLage } from '@/lib/plusArk';
+import type { SlappOrsak } from '@/lib/omTraktenFramhav';
 
 export interface ObjektInfoProps {
   oppen: boolean;
@@ -20,26 +22,34 @@ export interface ObjektInfoProps {
   onKnapp: (id: Exclude<KortKnappId, 'mer'>) => void;
   kort: Omit<ObjektKortProps, 'namn' | 'onStang' | 'onKnapp' | 'onLasAllt' | 'onPaTrakten'>;
   /** onVisa får även ramens läge: telefon stänger arket och flyger dit, bred skärm lämnar panelen */
-  om: Omit<OmTraktenProps, 'objektNamn' | 'onTillbaka' | 'onStang' | 'onVisa'> & { onVisa: (m: KartMarkering, lage: PlusLage) => void };
+  om: Omit<OmTraktenProps, 'objektNamn' | 'onTillbaka' | 'onStang' | 'onVisa' | 'onSlapp'> & { onVisa: (m: KartMarkering, lage: PlusLage) => void; onSlapp: (orsak: SlappOrsak) => void };
+  /** vilken vy som visas när ramen öppnas ('om' = telefonens "‹ Om trakten" tillbaka till listan); standard kortet */
+  startVy?: InfoVy;
   mer: Omit<MerMenyProps, 'objektNamn' | 'onTillbaka' | 'onStang'>;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, onKnapp, kort, om, mer }: ObjektInfoProps) {
-  const [vy, setVy] = useState<InfoVy>('kort');
-  // Varje öppning börjar på kortet.
-  useEffect(() => { if (oppen) setVy('kort'); }, [oppen]);
+export default function ObjektInfo({ oppen, onStang, objektNamn, onKnapp, kort, om, mer, startVy = 'kort' }: ObjektInfoProps) {
+  const [vy, setVy] = useState<InfoVy>(startVy);
+  const ramLage = useSkarmLage(oppen);
+  // Varje öppning börjar på kortet (eller på Om trakten när sidan ber om det).
+  useEffect(() => { if (oppen) setVy(startVy); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oppen]);
+  // Bred skärm: panelen ligger kvar medan en markering är framhävd. Stängs Om trakten (×, Esc eller ‹ tillbaka) lämnas framhävningen. På telefon stänger
+  // "Visa ›" arket SJÄLV — det är inte en stängning att reagera på, så där släpps den först av kartan, raden eller "‹ Om trakten".
+  const stangOm = () => { if (vy === 'om' && ramLage === 'panel') om.onSlapp('stang'); };
+  const stangRam = () => { stangOm(); onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : 'Mer'} onStang={onStang}>
+    <InfoRam oppen={oppen} vy={vy} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : 'Mer'} onStang={stangRam}>
       {({ lage }) => (
         vy === 'kort' ? (
-          <ObjektKort {...kort} namn={objektNamn} onStang={onStang}
+          <ObjektKort {...kort} namn={objektNamn} onStang={stangRam}
             onKnapp={(id) => { if (id === 'mer') setVy('mer'); else onKnapp(id); }}
             onLasAllt={() => setVy('om')} onPaTrakten={() => setVy('om')} />
         ) : vy === 'om' ? (
-          <OmTrakten {...om} onVisa={(m) => om.onVisa(m, lage)} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={onStang} />
+          <OmTrakten {...om} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} objektNamn={objektNamn} onTillbaka={() => { stangOm(); setVy('kort'); }} onStang={stangRam} />
         ) : (
-          <MerMeny {...mer} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={onStang} />
+          <MerMeny {...mer} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         )
       )}
     </InfoRam>

@@ -47,8 +47,8 @@ const MARKERINGAR: KartMarkering[] = [
 ];
 const LANG_TEXT = 'Skogsägaren önskar att ca 15 tallar per ha sparas som fröträd. Hänsynsytor vid bäcken ska lämnas orörda. Markberedning planeras till våren.';
 
-const spion = { knapp: [] as string[], stang: 0, visa: [] as string[], foto: [] as string[], mer: [] as string[], brand: 0, larm: 0 };
-function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar?: KartMarkering[]; pos?: { lat: number; lng: number } | null; maskinSlag?: 'skordare' | 'skotare' | null } = {}): ObjektInfoProps {
+const spion = { knapp: [] as string[], stang: 0, visa: [] as string[], foto: [] as string[], mer: [] as string[], brand: 0, larm: 0, slapp: [] as string[] };
+function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar?: KartMarkering[]; pos?: { lat: number; lng: number } | null; maskinSlag?: 'skordare' | 'skotare' | null; framhavdId?: string | null; startVy?: 'kort' | 'om' } = {}): ObjektInfoProps {
   const roll = o.roll ?? 'planerare';
   const go: any = new Proxy({}, { get: (_t, k) => (k === 'gpsKalla' ? null : () => { spion.mer.push(String(k)); }) });
   const mer = byggMerGrupper({ roll, arAdmin: roll === 'planerare', korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: roll === 'forare', status: 'pagaende', tillTrakt: true, vagdata: { varde: '3 vägar', misslyckad: false, kanKora: true }, go });
@@ -69,9 +69,10 @@ function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar
       hela: tillForaren({ vida: LANG_TEXT, anteckningar: 'Ring Stefan.' }), planttext: null, restriktioner: [],
       markeringar: o.markeringar ?? MARKERINGAR, pos: o.pos === undefined ? { lat: 56.4, lng: 14.7 } : o.pos,
       miljo: [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 5, krav: 15, uppfyllt: false }],
-      ytor: [], ikon: () => <span />, onVisa: (m, lage) => { spion.visa.push(`${m.id}:${lage}`); }, onFoto: (s) => { spion.foto.push(s); }, framhavdId: null,
+      ytor: [], ikon: () => <span />, onVisa: (m, lage) => { spion.visa.push(`${m.id}:${lage}`); }, onSlapp: (orsak) => { spion.slapp.push(orsak); }, onFoto: (s) => { spion.foto.push(s); }, framhavdId: o.framhavdId ?? null,
     },
     mer: { grupper: mer.grupper, avsluta: mer.avslutaObjekt ? () => { spion.mer.push('avsluta'); } : null, planerare: roll === 'planerare' ? { visaSom: null, tilldelning: null } : null },
+    startVy: o.startVy,
   };
 }
 
@@ -82,7 +83,7 @@ async function montera(p: ObjektInfoProps) {
   await act(async () => { rot!.render(<ObjektInfo {...p} />); });
   await flush();
 }
-beforeEach(() => { spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; smhi.fel = false; sattBredd(390); });
+beforeEach(() => { spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; spion.slapp = []; smhi.fel = false; sattBredd(390); });
 afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.remove(); rot = null; });
 
 describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
@@ -343,6 +344,50 @@ describe('Om trakten', () => {
     await oppnaOm();
     klicka(qa('om-visa')[1]);
     expect(spion.visa).toEqual(['lang:panel']);
+  });
+
+  it('vald rad: knappen heter "Visa hela" (inte "Visa ›") och ett tryck släpper framhävningen; övriga rader säger fortfarande Visa ›', async () => {
+    await oppnaOm(props({ framhavdId: 'nara' }));
+    const knappar = qa('om-visa');
+    expect(knappar.map((k) => k.textContent)).toEqual(['Visa hela', 'Visa ›']);   // rad 1 = 'nara' (närmast), rad 2 = 'lang'
+    expect(knappar[0].getAttribute('data-framhavd')).toBe('1');
+    klicka(knappar[0]);
+    expect(spion.slapp).toEqual(['rad']);
+    expect(spion.visa).toEqual([]);          // släpper — väljer inte om
+    klicka(knappar[1]);
+    expect(spion.visa).toEqual(['lang:ark']);   // en annan rad väljer den som vanligt
+  });
+
+  it('utan vald rad står "Visa ›" överallt', async () => {
+    await oppnaOm();
+    expect(qa('om-visa').map((k) => k.textContent)).toEqual(['Visa ›', 'Visa ›']);
+  });
+
+  it('bred skärm: stängs Om trakten (× eller ‹ objektnamn) lämnas framhävningen; på kortet och på telefon gör stängningen ingenting åt den', async () => {
+    sattBredd(1280);
+    await oppnaOm(props({ framhavdId: 'nara' }));
+    klicka(q('info-stang'));
+    expect(spion.slapp).toEqual(['stang']);
+    expect(spion.stang).toBe(1);
+    klicka(q('info-tillbaka'));
+    expect(spion.slapp).toEqual(['stang', 'stang']);
+    expect(q('kort-till-foraren')).not.toBeNull();        // och vi är tillbaka på kortet
+    spion.slapp = [];
+    klicka(q('info-stang'));                               // stängs från KORTET: inget att släppa
+    expect(spion.slapp).toEqual([]);
+  });
+
+  it('telefon: att arket stängs av Visa › (onStang) släpper INTE framhävningen — då vore den borta innan man sett den', async () => {
+    await oppnaOm(props({ framhavdId: 'nara' }));
+    klicka(q('info-stang'));
+    expect(spion.slapp).toEqual([]);
+    expect(spion.stang).toBe(1);
+  });
+
+  it('startVy="om": objektinfon öppnas direkt på Om trakten (telefonens "‹ Om trakten")', async () => {
+    await montera(props({ startVy: 'om' }));
+    expect(q('om-innehall')).not.toBeNull();
+    expect(q('kort-till-foraren')).toBeNull();
   });
 
   it('sökfältet filtrerar på kommentar och symbolnamn, och säger när inget matchar', async () => {

@@ -37,7 +37,7 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('{plusRadVisning && (\n        <PlusRad');
     expect(page).toContain('oppen={plusRadOppen}');
     expect(page).toContain('onSparaDocka={sparaDockaPlatser}');
-    expect(page).toContain('<ObjektInfo oppen={infoOppen} {...op} />');   // Fler vals innehåll bor i objektinfons Mer
+    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} />');   // Fler vals innehåll bor i objektinfons Mer
     // den gamla plusmenyn (bottom sheet) och den gamla helskärms-Lager-menyn är borta — inga döda ingångar kvar
     expect(page).not.toContain('PLUS-MENY (bottom sheet)');
     expect(page).not.toContain('plusMenuOpen');
