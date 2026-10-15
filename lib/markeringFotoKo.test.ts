@@ -24,6 +24,7 @@ describe('fotot sparas lokalt först — aldrig uppladdning vid fotograferingen,
     const hook = las('./hooks/useMarkeringarSynk.ts');
     const del = hook.slice(hook.indexOf('const deleteMarker = useCallback'), hook.indexOf('// ── Ladda när objektet byts'));
     expect(del).toContain('tomFotoForMarkering(oid, mid)');
+    expect(del).toContain('FOTO_STAD_MS');   // …men först när Ångra-raden gått ut
     expect(page).toContain('deleteMarker: deleteMarkerFromDb');   // sidans alla borttag går genom hookens deleteMarker
   });
   it('fotot kom upp → photoPath sätts i minnet; kortet och redigeringen visar det lokala fotot', () => {

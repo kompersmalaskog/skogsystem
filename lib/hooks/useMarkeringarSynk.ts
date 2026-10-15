@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { hamtaMarkeringarSammanfogade, korMarkeringSynk, laggMarkeringDelete, laggMarkeringUpsert, lasLokaltForst } from '../markeringSynkKo';
 import { tomFotoForMarkering } from '../markeringFotoKo';
 import type { ServerRad } from '../markeringSynk';
+import { BORTTAGEN_MS } from '../borttagenKvitto';
 
 type Ref<T> = { current: T };
 
@@ -48,6 +49,12 @@ export interface MarkeringarSynkIn<M extends { id: string | number }> {
 
 const RETRY_MAX = 15;
 
+/** Ett väntande foto städas FÖRST när Ångra-raden gått ut (BORTTAGEN_MS + marginal för att Ångra-trycket ska hinna bli en lokal sparning). Ångra ger
+ *  tillbaka markeringen MED fotot. Modulnivå: städningen ska ske även om sidan hunnit lämnas. */
+export const FOTO_STAD_MS = BORTTAGEN_MS + 2000;
+const fotoStad = new Map<string, ReturnType<typeof setTimeout>>();
+const avbrytFotoStad = (nyckel: string) => { const t = fotoStad.get(nyckel); if (t) { clearTimeout(t); fotoStad.delete(nyckel); } };
+
 export function useMarkeringarSynk<M extends { id: string | number }>(i: MarkeringarSynkIn<M>) {
   const inRef = useRef(i);
   inRef.current = i;
@@ -65,6 +72,7 @@ export function useMarkeringarSynk<M extends { id: string | number }>(i: Markeri
   const lagraLokalt = useCallback(async (objektId: string, marker: M): Promise<void> => {
     const { refs, typAv } = inRef.current;
     const id = String(marker.id);
+    avbrytFotoStad(`${objektId}/${id}`);   // markeringen finns (igen): fotot som väntar hör till den
     const json = JSON.stringify(marker);
     lokaltPagar.current.add(id);
     try {
@@ -105,8 +113,16 @@ export function useMarkeringarSynk<M extends { id: string | number }>(i: Markeri
     if (!objektId) return;
     const oid = String(objektId);
     const mid = String(markerId);
-    // Ett foto som väntar på uppladdning hör till markeringen: tas den bort ska fotot bort också (Storage-filen städas av nattcronet).
-    tomFotoForMarkering(oid, mid).catch(() => {});
+    // Ett foto som väntar på uppladdning hör till markeringen: tas den bort ska fotot bort också (Storage-filen städas av nattcronet) — men FÖRST när
+    // Ångra-raden gått ut, och inte om markeringen då är tillbaka i minnet (Ångra ger tillbaka markeringen med sitt väntande foto).
+    const fotoNyckel = `${oid}/${mid}`;
+    avbrytFotoStad(fotoNyckel);
+    fotoStad.set(fotoNyckel, setTimeout(() => {
+      fotoStad.delete(fotoNyckel);
+      const nu = flushData.current;
+      if (nu.objektId != null && String(nu.objektId) === oid && nu.markers.some((m) => String(m.id) === mid)) return;   // tillbaka (Ångra)
+      tomFotoForMarkering(oid, mid).catch(() => {});
+    }, FOTO_STAD_MS));
     // En lokal sparning som är på väg ska vara klar FÖRE graven läggs — annars kan den skriva över den.
     const pagar = sparPagarPerId.current.get(mid);
     if (pagar) { try { await pagar; } catch { /* loggas redan */ } }

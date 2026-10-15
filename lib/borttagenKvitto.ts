@@ -18,3 +18,9 @@ export function aterstallMarkering<T extends { id: unknown }>(markers: readonly 
   if (markers.some((m) => String(m.id) === String(borttagen.id))) return [...markers];
   return [...markers, borttagen];
 }
+
+/** Fotot kom upp (ligger i Storage) medan markeringen väntar på Ångra: den borttagna markeringen får photoPath/photoTs, så Ångra ger tillbaka den med fotot. */
+export function medUppladdatFoto<T extends { id: unknown }>(borttagen: T, foto: { markerId: string; sokvag: string; skapad: number }): T {
+  if (String(borttagen.id) !== foto.markerId) return borttagen;
+  return { ...borttagen, photoPath: foto.sokvag, photoTs: foto.skapad, photoData: undefined };
+}

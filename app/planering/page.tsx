@@ -62,7 +62,7 @@ import { jamkaMarkhojd, MARKHOJD_KONTROLL_MS } from '../../lib/kartaMarkhojd'
 import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { KorvyObjektPill } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
-import { aterstallMarkering, borttagenText, BORTTAGEN_MS } from '../../lib/borttagenKvitto'
+import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -11887,6 +11887,8 @@ export default function PlannerPage() {
     const h = (ev: Event) => {
       const d = (ev as CustomEvent<FotoUppeDetail>).detail;
       if (!d || markersObjektIdRef.current !== d.objektId) return;
+      // Fotot kom upp medan markeringen väntar på Ångra: Ångra ska ge tillbaka den MED fotot (photoPath), annars tappas filen
+      setBorttagenKvitto((b) => (b ? { ...b, marker: medUppladdatFoto(b.marker, d) } : b));
       setMarkers((prev) => {
         const behover = (m: any) => String(m.id) === d.markerId && (m.photoPath !== d.sokvag || m.photoTs !== d.skapad || m.photoData);
         return prev.some(behover) ? prev.map((m: any) => (behover(m) ? { ...m, photoPath: d.sokvag, photoTs: d.skapad, photoData: undefined } : m)) : prev;
