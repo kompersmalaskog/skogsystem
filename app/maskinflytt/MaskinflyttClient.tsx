@@ -1767,12 +1767,12 @@ export default function MaskinflyttClient() {
                 )}
 
                 {/* Sammanställningen — huvudvägen är startsidans ruta, detta är genvägen */}
-                <Link href="/maskinflytt/sammanstallning" style={{
+                <Link href="/lastbil?flik=korningar" style={{
                   display: 'flex', alignItems: 'center', gap: 8, marginTop: 20,
                   color: C.t3, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
                 }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 20 }}>list_alt</span>
-                  Flyttlogg och sammanställning
+                  Körningar och sammanställning
                   <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: 'auto' }}>chevron_right</span>
                 </Link>
               </>

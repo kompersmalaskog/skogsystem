@@ -102,6 +102,11 @@ describe('rundor som inte räknas, och aldrig som 0', () => {
     expect(r[0]).toMatchObject({ avbruten: true, giltig: false, ogiltigTid: false, pagar: false, km: null, liter: null, tom: false });
     expect(summera(r)).toMatchObject({ antal: 0, ovrig: 0, km: 0, ogiltiga: 0 });
   });
+  it('CSV: en avbruten runda märks som avbruten (annars ser den ut som en vanlig övrig körning)', () => {
+    const r = byggRundor([rad('b7243278', '2026-07-31T12:59:05.835Z', '2026-07-31T14:57:53.314Z', { forare: 'Martin Lindqvist', status: 'avbruten', auto_avslutad_av: null, tillkorning_km: 32 })], new Map());
+    const csv = rundorTillCsv(r);
+    expect(csv[1][13]).toBe('Avbruten, räknas inte');
+  });
   it('l/mil för en runda kräver både mätare och diesel', () => {
     const r = byggRundor([rad('x', '2026-10-01T05:00:00Z', '2026-10-01T06:00:00Z', { matare_km: 100, bransle_l: 45 }), rad('y', '2026-10-02T05:00:00Z', '2026-10-02T06:00:00Z', { matare_km: 100 })], new Map());
     expect(rundaLPerMil(r.find(x => x.id === 'x')!)).toBe(4.5);
