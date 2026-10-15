@@ -22,7 +22,7 @@ export function arVarningskolumnFel(e: DbFel | null | undefined): boolean {
  * Kolumner importen skriver men som kan saknas i en databas där migrationen ännu inte körts. Saknas en av dem ska objektet ändå sparas
  * (importen får inte falla för en kolumn) — men aldrig tyst: se `ejSkrivnaKolumner` och `rapporteraEjSkrivnaKolumner`.
  *   import_varningar            20260805_6_objekt_dokument_varningar.sql
- *   avtalsform, import_varden   20261015090000_avtalsform_och_import_varden.sql
+ *   avtalsform, import_varden   20261014125836_avtalsform_och_import_varden.sql
  */
 export const VALFRIA_KOLUMNER = ['import_varningar', 'avtalsform', 'import_varden'] as const;
 
@@ -123,6 +123,6 @@ export async function rapporteraEjSkrivnaKolumner(service: any, filnamn: string 
   const nyaKolumner = kolumner.filter((k) => k !== 'import_varningar');
   if (nyaKolumner.length === 0) return true;
   const text = `Objektet ${objektNamn ?? ''} sparades, men kolumnerna ${nyaKolumner.join(', ')} saknas i databasen och skrevs inte. `
-    + 'Kör migrationen 20261015090000_avtalsform_och_import_varden.sql och importera om.';
+    + 'Kör migrationen 20261014125836_avtalsform_och_import_varden.sql och importera om.';
   return loggaImportFel(service, filnamn, 'KOLUMN_SAKNAS', text);
 }

@@ -28,7 +28,7 @@ type Avtal = {
   traktamente_halv_kr?: number | null;
   skift_tillagg_kr?: number | null;
   bortovaro_12h_kr?: number | null;
-  /** Sökväg i bucketen `avtal` (migration 20261014160000). Finns inte som nyckel före migrationen. */
+  /** Sökväg i bucketen `avtal` (migration 20261014101036). Finns inte som nyckel före migrationen. */
   avtal_pdf_path?: string | null;
   [k: string]: any;
 };
@@ -263,7 +263,7 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
       <Sektion>Avtalet som PDF</Sektion>
       <Kort>
         {!("avtal_pdf_path" in aktuellt) ? (
-          <Stod>PDF:en kan inte laddas upp än: databasen saknar kolumnen avtal_pdf_path. Planeringschatten kör migrationen 20261014160000_avtal_pdf_bucket.sql.</Stod>
+          <Stod>PDF:en kan inte laddas upp än: databasen saknar kolumnen avtal_pdf_path. Planeringschatten kör migrationen 20261014101036_avtal_pdf_bucket.sql.</Stod>
         ) : (
           <>
             <div style={{ ...TYP.listtitel, color: aktuellt.avtal_pdf_path ? FARG.text : FARG.text2 }}>

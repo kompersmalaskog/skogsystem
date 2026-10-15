@@ -35,7 +35,7 @@ export const GS_AVTAL_KOLUMNER = [
   "atk_procent", "atk_procent_nasta", "atk_ledig_tid_h", "pension_tillagg_pct", "sjuklon_pct",
   "semester_dagar_ar", "semester_ersattning_pct", "helglon_dagar",
   // Avtalets PDF: sökvägen i den privata bucketen `avtal` (lib/avtalPdf). Kolumnen kommer med migrationen
-  // 20261014160000_avtal_pdf_bucket.sql — före den finns den inte i prod, och ett avtal utan sökväg är "inte uppladdat än".
+  // 20261014101036_avtal_pdf_bucket.sql — före den finns den inte i prod, och ett avtal utan sökväg är "inte uppladdat än".
   "avtal_pdf_path",
   // Vila-trösklar (20260520-migrationen). NOT NULL i DB med defaults.
   "dygnsvila_krav_h", "dygnsvila_varning_h", "veckovila_krav_h", "veckovila_fonster_dagar", "kompensation_deadline_dagar",

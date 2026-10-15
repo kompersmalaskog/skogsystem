@@ -188,7 +188,7 @@ describe('omimport skriver inte över det Martin rättat', () => {
   });
 });
 
-describe('migrationen 20261015090000 ej körd (kolumnerna avtalsform/import_varden finns inte)', () => {
+describe('migrationen 20261014125836 ej körd (kolumnerna avtalsform/import_varden finns inte)', () => {
   it('objektet sparas ändå, och det syns i import_fel att avtalsformen inte kunde skrivas', async () => {
     h.db = minnesDb(['avtalsform', 'import_varden']);
     const r = await importera(tdText({ ursprung: 'Rotpost' }));
@@ -197,6 +197,6 @@ describe('migrationen 20261015090000 ej körd (kolumnerna avtalsform/import_vard
     expect(h.db.tabeller.objekt[0].avtalsform).toBeUndefined();
     expect(r.body.ejSkrivnaKolumner).toEqual(expect.arrayContaining(['avtalsform', 'import_varden']));
     const fel = h.db.tabeller.import_fel.find((f: any) => f.felkod === 'KOLUMN_SAKNAS');
-    expect(fel?.feltext).toContain('20261015090000_avtalsform_och_import_varden.sql');
+    expect(fel?.feltext).toContain('20261014125836_avtalsform_och_import_varden.sql');
   });
 });

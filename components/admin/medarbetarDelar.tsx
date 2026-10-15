@@ -33,7 +33,7 @@ export type Medarbetare = {
   hem_geokod_lng: number | null;
   // När admin tryckte Stämmer på kartan (migration 20261009). Geokodad punkt utan stämpel = obekräftad.
   hem_bekraftad_tid?: string | null;
-  // Delägare / företagsledare: arbetstidslagen gäller inte (migration 20261013170000). Saknas tills migrationen är körd.
+  // Delägare / företagsledare: arbetstidslagen gäller inte (migration 20261013155407). Saknas tills migrationen är körd.
   foretagsledare?: boolean | null;
 };
 
