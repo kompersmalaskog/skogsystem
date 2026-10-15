@@ -57,4 +57,7 @@ describe('hogerFlik', () => {
     expect(hogerFlik('planering')).toBe('planering')
     expect(hogerFlik('uppfoljning')).toBe('uppfoljning')
   })
+  it('Historik kan väljas i högerkolumnen', () => {
+    expect(hogerFlik('historik')).toBe('historik')
+  })
 })

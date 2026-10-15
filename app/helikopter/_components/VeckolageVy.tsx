@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/PageContainer'
 import { Sheet } from '@/components/Sheet'
-import { AVSTAND, FARG, IKON, INAKTIV, RAD, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
+import { AVSTAND, FARG, IKON, INAKTIV, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
 import { ymdLokal } from '@/lib/datumLokal'
 import { hamtaVeckolage } from '../_lib/queries'
 import { veckolageModell, type VeckolageData } from '../_lib/veckolage'
@@ -18,6 +18,7 @@ import { Fel, Laddar } from './Tillstand'
 import VeckolageInnehall from './VeckolageInnehall'
 import { HK_CSS } from './Lista'
 import { Ikon } from './Ikon'
+import DelaRad from './DelaRad'
 
 type Slag = 'pdf' | 'bild'
 
@@ -112,24 +113,5 @@ export default function VeckolageVy() {
         </Sheet>
       )}
     </div>
-  )
-}
-
-function DelaRad({ text, under, onClick, upptagen, inaktiv }: { text: string; under: string; onClick: () => void; upptagen: boolean; inaktiv: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={inaktiv}
-      aria-busy={upptagen}
-      className="hk-rad"
-      style={{ border: 'none', ...RAD, justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: inaktiv ? 'default' : 'pointer', ...(inaktiv && !upptagen ? INAKTIV : null) }}
-    >
-      <span>
-        <span style={{ display: 'block', ...TYP.listtitel }}>{upptagen ? `${text}…` : text}</span>
-        <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{under}</span>
-      </span>
-      <Ikon namn="share" />
-    </button>
   )
 }

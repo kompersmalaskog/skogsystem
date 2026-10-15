@@ -11,7 +11,9 @@ import type { Arbetsdagar, BolagRad, MaskinManad, Typ } from '../_lib/queries'
 import { SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
 import { Kort, ListRad, Sektion } from './Lista'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
+import { Sheet } from '@/components/Sheet'
 import BolagSheet from './BolagSheet'
+import HistorikInnehall from './HistorikInnehall'
 import { usePanelVal } from './PanelVal'
 import { skickaVeckoNotis } from '../_lib/queries'
 
@@ -32,10 +34,12 @@ type Props = {
   arAdmin: boolean
   /** Maskiner med manuell datakälla — "manuell" i text-muted efter volymen. */
   manuella: Set<string>
+  /** Stor skärm har tre kolumner och ingen Historik-flik: raden "Tidigare månader ›" nederst öppnar den som panel. */
+  visaHistorikRad?: boolean
 }
 
-export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin, manuella }: Props) {
-  const [oppen, setOppen] = usePanelVal<Typ>('uppfoljning')
+export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin, manuella, visaHistorikRad }: Props) {
+  const [oppen, setOppen] = usePanelVal<Typ | 'historik'>('uppfoljning')
   return (
     <>
       {spar.map(s => (
@@ -43,7 +47,17 @@ export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, 
       ))}
       <MaskinSektion maskiner={maskiner} fel={maskinerFel} onRetry={onRetryMaskiner} manadNamn={MANAD_NAMN[manad - 1]} manuella={manuella} />
       {arAdmin && <VeckoNotisSektion />}
-      {oppen && (
+      {visaHistorikRad && (
+        <RadGrupp>
+          <RadLank text="Tidigare månader" onClick={() => setOppen('historik')} />
+        </RadGrupp>
+      )}
+      {oppen === 'historik' && (
+        <Sheet open onClose={() => setOppen(null)} title="Historik">
+          <HistorikInnehall yta={FARG.upphojt} />
+        </Sheet>
+      )}
+      {oppen && oppen !== 'historik' && (
         <BolagSheet
           open
           onClose={() => setOppen(null)}

@@ -54,4 +54,14 @@ describe("RadGrupp", () => {
     await monter(<div><RadLank text="Ensam" onClick={() => {}} sista /></div>);
     expect((cont.firstElementChild!.firstElementChild as HTMLElement).style.padding).toBe("12px 0px");
   });
+  it("värde till höger (hoger): står före chevronen, text2 när dampad, text annars", async () => {
+    await monter(<RadGrupp><RadLank text="September 2026" hoger={{ text: "109 %" }} href="/a" /><RadLank text="Augusti 2026" hoger={{ text: "86 %", dampad: true }} href="/b" /></RadGrupp>);
+    const [a, b] = rader();
+    const varde = (rad: HTMLElement) => rad.children[1] as HTMLElement;
+    expect(varde(a).textContent).toBe("109 %");
+    expect(varde(a).style.color).toBe("rgb(255, 255, 255)");
+    expect(varde(b).style.color).toBe("rgb(142, 142, 147)");
+    expect(varde(a).style.marginLeft).toBe("auto");
+    expect(a.lastElementChild!.textContent).toBe("chevron_right");
+  });
 });
