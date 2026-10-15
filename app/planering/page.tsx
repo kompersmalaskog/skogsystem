@@ -74,7 +74,7 @@ import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAre
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
-import { arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, type BasvagFarg } from '../../lib/basvag'
+import { arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
@@ -2791,7 +2791,7 @@ export default function PlannerPage() {
   const [drawFarg, setDrawFarg] = useState<BasvagFarg | null>(null);   // basväg (mainRoad): vald färg för linjen som ritas
   // Basväg i Rita linje / Spåra med GPS: raden fäller ut färgvalet (senast valda förvald) och en knapp. Vilken lista som är utfälld; färgen läses från enheten när den fälls ut.
   const [basvagSteg, setBasvagSteg] = useState<'rita' | 'spara' | null>(null);
-  const [basvagVal, setBasvagVal] = useState<BasvagFarg>('red');
+  const [basvagVal, setBasvagVal] = useState<BasvagVal>('blagul');
   const [currentPath, setCurrentPath] = useState<Point[]>([]); // SVG coords (behålls för kompatibilitet)
   const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
   const [ritaHistoria, setRitaHistoria] = useState<[number, number][][]>([]);   // ↩ i Rita: koordinaterna FÖRE varje handling (ett tryck = en punkt, ett frihandsdrag = hela draget)
@@ -12637,7 +12637,7 @@ export default function PlannerPage() {
       g.push({
         id: 'linjetyper', rubrik: 'Linjetyper',
         rader: lineTypes.filter((l) => !l.id.includes('sideRoad') && !l.id.includes('backRoad'))
-          .map((l) => vaxel(l.id, l.name, l.id === 'mainRoad' ? 'röd · gul · blå' : undefined, visibleLines[l.id] !== false, l.id === 'mainRoad' ? basvagYta() : linjeYta(l.color, l.striped ? l.color2 : undefined), () => setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false })))),
+          .map((l) => vaxel(l.id, l.name, l.id === 'mainRoad' ? 'blå/gul · röd · gul · blå' : undefined, visibleLines[l.id] !== false, l.id === 'mainRoad' ? basvagYta() : linjeYta(l.color, l.striped ? l.color2 : undefined), () => setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false })))),
       });
     }
     g.push({ id: 'varning', rader: [{ id: 'varningsinstallningar', namn: 'Varningsinställningar', typ: 'knapp', onTryck: () => { stangPlus(); setWarningMenuOpen(true); } }] });
@@ -12757,17 +12757,17 @@ export default function PlannerPage() {
   useEffect(() => { if (!menuOpen) setBasvagSteg(null); }, [menuOpen]);   // stängd meny: färgvalet fälls ihop till nästa gång
   const oppnaBasvagSteg = (steg: 'rita' | 'spara') => {
     if (basvagSteg === steg) { setBasvagSteg(null); return; }
-    setBasvagVal(lasSenasteBasvagFarg());   // senast valda färg är förvald
+    setBasvagVal(lasSenasteBasvagFarg());   // senast valda är förvalt (Blå/gul första gången)
     setBasvagSteg(steg);
   };
   const startaBasvagRita = () => {
     sparaSenasteBasvagFarg(basvagVal);
-    setDrawType('mainRoad'); setDrawFarg(basvagVal); setIsDrawMode(true);
+    setDrawType('mainRoad'); setDrawFarg(valTillFarg(basvagVal)); setIsDrawMode(true);   // Blå/gul = ingen färg (som förut)
     setMenuOpen(false); setMenuHeight(0); setSubMenu(null); setActiveCategory(null); setBasvagSteg(null);
   };
   const startaBasvagSpara = () => {
     sparaSenasteBasvagFarg(basvagVal);
-    startGpsTracking('mainRoad', basvagVal);
+    startGpsTracking('mainRoad', valTillFarg(basvagVal));
     setSubMenu(null); setActiveCategory(null); setBasvagSteg(null);
   };
   const ritNamn = isZoneMode
@@ -15928,10 +15928,11 @@ export default function PlannerPage() {
                 );
               })()}
 
-              {/* Basväg: färg (röd/gul/blå) — heldragen i färgen på kartan. En basväg utan färg ritas som förut (blå med gula streck). */}
+              {/* Basväg: utseende — Blå/gul (dagens: blå med gula streck, lagras som ingen färg), röd, gul eller blå (heldragna). En basväg utan färg visas som Blå/gul. */}
               {marker.isLine && marker.lineType === 'mainRoad' && (
                 <div style={{ marginBottom: AVSTAND.l }}>
-                  <BasvagFargVal centrerad valt={marker.farg} onVal={(f) => setMarkers((prev: any[]) => prev.map((m: any) => (m.id === marker.id ? { ...m, farg: f } : m)))} />
+                  <BasvagFargVal valt={fargTillVal(marker.farg)}
+                    onVal={(v) => setMarkers((prev: any[]) => prev.map((m: any) => (m.id === marker.id ? medBasvagVal(m, v) : m)))} />
                 </div>
               )}
 

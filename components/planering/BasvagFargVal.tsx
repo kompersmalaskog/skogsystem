@@ -1,23 +1,24 @@
 'use client';
 
-// Basvägens färg: röd, gul eller blå. EN komponent för markeringsmenyn (ändra färg på en befintlig basväg) och för Rita linje / Spåra med GPS
-// (välj färg innan man börjar) — samma knappar, samma ord. Färgen står som text bredvid fältet (färg är aldrig ensam bärare).
+// Basvägens utseende: Blå/gul (dagens — blå med gula streck), röd, gul eller blå. EN komponent för markeringsmenyn (ändra en befintlig basväg) och
+// för Rita linje / Spåra med GPS (välj innan man börjar) — samma knappar, samma ord, Blå/gul först. Valet står som text bredvid rutan (färg är
+// aldrig ensam bärare). Fyra knappar i 2 × 2: de ryms på en telefon utan att radbrytas mitt i.
 
 import React from 'react';
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { BASVAG_FARGER, type BasvagFarg } from '@/lib/basvag';
+import { BASVAG_VAL, basvagValYta, type BasvagVal } from '@/lib/basvag';
 
-export function BasvagFargVal({ valt, onVal, centrerad = false }: { valt: BasvagFarg | null | undefined; onVal: (f: BasvagFarg) => void; centrerad?: boolean }) {
+export function BasvagFargVal({ valt, onVal }: { valt: BasvagVal; onVal: (v: BasvagVal) => void }) {
   return (
-    <div data-testid="basvag-farg-val" role="group" aria-label="Basvägens färg" style={{ display: 'flex', justifyContent: centrerad ? 'center' : 'flex-start', gap: AVSTAND.s, flexWrap: 'wrap' }}>
-      {BASVAG_FARGER.map((f) => {
-        const vald = valt === f.id;
+    <div data-testid="basvag-farg-val" role="group" aria-label="Basvägens utseende" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: AVSTAND.s }}>
+      {BASVAG_VAL.map((v) => {
+        const vald = valt === v.id;
         return (
-          <button key={f.id} type="button" data-testid={`basvag-farg-${f.id}`} aria-pressed={vald} onClick={() => onVal(f.id)}
-            style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, borderRadius: RADIE.rad, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          <button key={v.id} type="button" data-testid={`basvag-farg-${v.id}`} aria-pressed={vald} onClick={() => onVal(v.id)}
+            style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.s, borderRadius: RADIE.rad, border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
               background: FARG.fyllning, color: FARG.text, ...TYP.text, fontWeight: vald ? 700 : 400, boxShadow: vald ? `inset 0 0 0 ${AVSTAND.xs / 2}px ${FARG.text}` : 'none' }}>
-            <span aria-hidden="true" style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: AVSTAND.xs, background: f.hex }} />
-            {f.namn}
+            <span aria-hidden="true" style={{ width: AVSTAND.xl, height: AVSTAND.s, borderRadius: AVSTAND.xs, background: basvagValYta(v.id), flexShrink: 0 }} />
+            {v.namn}
           </button>
         );
       })}
@@ -25,8 +26,8 @@ export function BasvagFargVal({ valt, onVal, centrerad = false }: { valt: Basvag
   );
 }
 
-/** Utfälld under raden "Basväg" i Rita linje och Spåra med GPS: färgval (senast valda förvald) och EN handling. */
-export function BasvagStart({ valt, onVal, onStarta, text, testid }: { valt: BasvagFarg; onVal: (f: BasvagFarg) => void; onStarta: () => void; text: string; testid: string }) {
+/** Utfälld under raden "Basväg" i Rita linje och Spåra med GPS: valet (senast valda förvald, Blå/gul första gången) och EN handling. */
+export function BasvagStart({ valt, onVal, onStarta, text, testid }: { valt: BasvagVal; onVal: (v: BasvagVal) => void; onStarta: () => void; text: string; testid: string }) {
   return (
     <div data-testid={testid} style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       <BasvagFargVal valt={valt} onVal={onVal} />

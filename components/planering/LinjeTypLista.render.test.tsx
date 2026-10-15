@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act, useState } from 'react';
 import { LinjeTypLista, type LinjeTyp } from './LinjeTypLista';
-import { BASVAG_SENASTE_FARG_NYCKEL, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, type BasvagFarg } from '@/lib/basvag';
+import { BASVAG_SENASTE_FARG_NYCKEL, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, valTillFarg, type BasvagVal } from '@/lib/basvag';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,10 +26,10 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => { rot?.unmount(); }); el?.remove(); rot = null; delete (globalThis as any).localStorage; });
 
-function visa(handlers: { start: (f: BasvagFarg) => void; val: (id: string) => void }, steg = 'rita') {
+function visa(handlers: { start: (f: BasvagVal) => void; val: (id: string) => void }, steg = 'rita') {
   function Sida() {
     const [oppen, setOppen] = useState(false);
-    const [val, setVal] = useState<BasvagFarg>('red');
+    const [val, setVal] = useState<BasvagVal>('blagul');
     return (
       <LinjeTypLista steg={steg} typer={TYPER} basvagOppen={oppen} basvagVal={val} onBasvagVal={setVal}
         onTryckBasvag={() => { if (oppen) { setOppen(false); return; } setVal(lasSenasteBasvagFarg()); setOppen(true); }}
@@ -52,13 +52,13 @@ describe('Rita linje / Spåra med GPS: EN Basväg-rad', () => {
     expect(q('[data-testid="basvag-farg-val"]')).toBeNull();   // färgvalet syns först när man trycker på Basväg
   });
 
-  it('tryck på Basväg → färgvalet fälls ut med röd förvald första gången; vald färg kommer ihåg till nästa gång', async () => {
+  it('tryck på Basväg → FYRA val, Blå/gul först och förvald första gången; det som väljs kommer ihåg till nästa gång', async () => {
     const start = vi.fn();
     await visa({ start, val: vi.fn() });
     await klicka('[data-testid="linje-rad-mainRoad"]');
     expect(q('[data-testid="basvag-farg-val"]')).not.toBeNull();
     expect(Array.from(el!.querySelectorAll('[data-testid^="basvag-farg-"][aria-pressed]')).map((b) => [b.textContent, b.getAttribute('aria-pressed')]))
-      .toEqual([['röd', 'true'], ['gul', 'false'], ['blå', 'false']]);
+      .toEqual([['Blå/gul', 'true'], ['Röd', 'false'], ['Gul', 'false'], ['Blå', 'false']]);
     await klicka('[data-testid="basvag-farg-blue"]');
     await klicka('[data-testid="basvag-steg-rita-starta"]');
     expect(start).toHaveBeenCalledWith('blue');
@@ -66,7 +66,21 @@ describe('Rita linje / Spåra med GPS: EN Basväg-rad', () => {
     // nästa gång: blå är förvald
     await klicka('[data-testid="linje-rad-mainRoad"]');
     expect(q('[data-testid="basvag-farg-blue"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect(q('[data-testid="basvag-farg-red"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(q('[data-testid="basvag-farg-blagul"]')!.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('Blå/gul går att välja och komma ihåg: startar utan färg (lagras som ingen `farg`, dagens utseende) och är förvald nästa gång', async () => {
+    const start = vi.fn();
+    await visa({ start, val: vi.fn() });
+    await klicka('[data-testid="linje-rad-mainRoad"]');
+    await klicka('[data-testid="basvag-farg-red"]');
+    await klicka('[data-testid="basvag-farg-blagul"]');
+    await klicka('[data-testid="basvag-steg-rita-starta"]');
+    expect(start).toHaveBeenCalledWith('blagul');
+    expect(valTillFarg(start.mock.calls[0][0])).toBeNull();      // det sidan lagrar/ritar med: ingen färg
+    expect(lager.get(BASVAG_SENASTE_FARG_NYCKEL)).toBe('blagul');
+    await klicka('[data-testid="linje-rad-mainRoad"]');
+    expect(q('[data-testid="basvag-farg-blagul"]')!.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('ett nytt tryck på Basväg fäller ihop färgvalet; en annan linjetyp startar direkt utan färgval', async () => {

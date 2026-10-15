@@ -5,7 +5,7 @@
 
 import React, { Fragment } from 'react';
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { basvagYta, type BasvagFarg } from '@/lib/basvag';
+import { basvagYta, type BasvagVal } from '@/lib/basvag';
 import { BasvagStart } from './BasvagFargVal';
 
 export interface LinjeTyp { id: string; name: string; color: string; color2?: string; striped?: boolean; dashed?: boolean }
@@ -15,8 +15,8 @@ export function LinjeTypLista({ typer, steg, basvagOppen, basvagVal, onBasvagVal
   /** 'rita' | 'spara' — bara för testid:n */
   steg: string;
   basvagOppen: boolean;
-  basvagVal: BasvagFarg;
-  onBasvagVal: (f: BasvagFarg) => void;
+  basvagVal: BasvagVal;
+  onBasvagVal: (v: BasvagVal) => void;
   onTryckBasvag: () => void;
   onStartaBasvag: () => void;
   startText: string;
