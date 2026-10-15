@@ -451,8 +451,8 @@ function ObjektPageInner() {
       areal: form.areal ? parseFloat(form.areal) : null, grot: form.grot,
       // Svårighet: datainsamling för kommande prognosmodell — används inte i beräkningar än.
       svarighet: form.svarighet,
-      // status utelämnas medvetet → DB-default 'planerad' vid insert, oförändrad vid
-      // update. Status styrs av planeringsvyn, inte detta formulär (objekt_status_check).
+      // status utelämnas medvetet → DB-default vid insert ('oplanerad' efter migration 20261015190000, förut 'planerad'), oförändrad vid
+      // update. Status styrs av planeringsvyn (Klar för maskin), inte detta formulär (objekt_status_check).
       lat, lng,
       sortiment: form.sortiment, anteckningar: form.anteckningar || null, forardirektiv: form.forardirektiv || null,
       // maskiner + ordning skrivs INTE härifrån — de ägs av planeringsvyn (strikt separation).

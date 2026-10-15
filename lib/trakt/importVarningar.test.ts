@@ -178,7 +178,7 @@ describe('källvakt: routen och objektsidan', () => {
 
   it('både INSERT och UPDATE av objektet går via den toleranta skrivningen — ingen direkt skrivning med import_varningar kvar', () => {
     expect(route).toMatch(/skrivObjektTolerantMotVarningskolumn<any>\(patch,/);
-    expect(route).toMatch(/skrivObjektTolerantMotVarningskolumn<any>\(data,/);
+    expect(route).toMatch(/skrivObjektTolerantMotVarningskolumn<any>\(\{ \.\.\.data, status: 'oplanerad' \},/);   // nytt objekt: oplanerad, fortfarande via den toleranta skrivningen
     expect(route).not.toMatch(/from\('objekt'\)\s*\.update\(patch\)/);
     expect(route).not.toMatch(/from\('objekt'\)\.insert\(data\)/);
   });

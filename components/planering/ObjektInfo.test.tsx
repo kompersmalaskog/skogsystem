@@ -74,7 +74,7 @@ function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar
       miljo: [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 5, krav: 15, uppfyllt: false }],
       ytor: [], ikon: () => <span />, onVisa: (m, lage) => { spion.visa.push(`${m.id}:${lage}`); }, onSlapp: (orsak) => { spion.slapp.push(orsak); }, onFoto: (s) => { spion.foto.push(s); }, framhavdId: o.framhavdId ?? null,
     },
-    mer: { grupper: mer.grupper, avsluta: mer.avslutaObjekt ? () => { spion.mer.push('avsluta'); } : null, planerare: roll === 'planerare' ? { visaSom: null, tilldelning: null } : null },
+    mer: { grupper: mer.grupper, avsluta: mer.avslutaObjekt ? () => { spion.mer.push('avsluta'); } : null, planerare: roll === 'planerare' ? { visaSom: null } : null },
     startVy: o.startVy,
   };
 }
@@ -435,7 +435,7 @@ describe('Om trakten', () => {
 describe('Mer', () => {
   it('planerare: grupperna Körvy · Föraren · Planeraren · Övrigt, Avsluta objekt (rött) längst ner när objektet är pågående', async () => {
     const p = props();
-    p.mer.planerare = { visaSom: { aktivId: null, alternativ: [{ id: null, label: 'Planerare' }], onValj: () => {} }, tilldelning: null };
+    p.mer.planerare = { visaSom: { aktivId: null, alternativ: [{ id: null, label: 'Planerare' }], onValj: () => {} } };
     await montera(p);
     klicka(q('kort-knapp-mer'));
     expect(['korvy', 'foraren', 'planeraren', 'ovrigt', 'avsluta'].map((g) => !!q(`mer-grupp-${g}`))).toEqual([true, true, true, true, true]);

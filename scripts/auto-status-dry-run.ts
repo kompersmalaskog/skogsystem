@@ -59,7 +59,7 @@ async function distinctObjektId(table: string): Promise<Set<string>> {
 
   console.log("=== IMPORT: planerade objekt med produktion → skulle flippas planerad→pagaende vid nästa prod-fil ===");
   let n = 0;
-  for (const o of objekt.filter((o) => o.status === "planerad")) {
+  for (const o of objekt.filter((o) => o.status === "planerad" || o.status === "oplanerad")) {
     const d = dimFor(o); if (!harProd(d?.objekt_id)) continue;
     n++;
     console.log(`  • ${o.namn} (vo=${o.vo_nummer ?? "—"} dim=${d?.objekt_id}) — i kö: ${köText(o)}`);

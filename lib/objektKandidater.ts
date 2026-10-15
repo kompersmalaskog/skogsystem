@@ -1,4 +1,4 @@
-// KANDIDATOBJEKT FÖR MASKINDATORNS POSITIONSVAL: planerade/pågående objekt + deras traktgräns (objekt_geometri).
+// KANDIDATOBJEKT FÖR MASKINDATORNS POSITIONSVAL: oplanerade/planerade/pågående objekt + deras traktgräns (objekt_geometri).
 //
 // Fältfel (Oskar, Rottne, R64428, 2026-10-07): appen startade på senast valda objekt (Älmehult) men maskinen stod i Trestensdal och loggade 377 punkter
 // på fel objekt i 4 timmar. Datan var rätt (båda traktgränserna fanns, ingen överlappning) — det som saknades var att laddningen av kandidaterna
@@ -11,7 +11,8 @@
 // per försök) tills det går, och laddar om med jämna mellanrum så att tilldelningar/status inte blir gamla.
 
 export const KANDIDAT_KOLUMNER = 'id,namn,typ,grot,status,areal,lat,lng,volym,volym_planerad,volym_skordad,volym_skotad,skotare_maskin_id,skordare_maskin_id,pagaende_startad_timestamp';
-export const KANDIDAT_STATUS: readonly string[] = ['planerad', 'pagaende'];
+// 'oplanerad' ingår: en maskin som står i en trakt ingen hunnit klarplanera ska ändå matchas (förarna spärras aldrig av planeringen).
+export const KANDIDAT_STATUS: readonly string[] = ['oplanerad', 'planerad', 'pagaende'];
 /** Ett försök som inte svarat så här länge räknas som misslyckat (hängande anrop). */
 export const KANDIDAT_TIDSGRANS_MS = 20_000;
 /** Väntan före omförsök efter ett misslyckande; sista värdet gäller för alla följande försök. */

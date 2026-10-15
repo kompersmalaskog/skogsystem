@@ -22,7 +22,7 @@ import { anvandObjektLista } from '../../lib/objektVal'
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
-import { objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll } from '../../lib/objektKort'
+import { arBasvag as arBasvagMark, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll } from '../../lib/objektKort'
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
@@ -34,7 +34,13 @@ import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
 import { HYTTSPAR_CASING_COLOR, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH, ROLLFARG_SKOTARE, ROLLFARG_SKORDARE, sparStil } from '../../lib/sparStil'
 import { serverNu } from '../../lib/serverKlocka'
-import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, type InfoRad } from '../../lib/objektInfoSpar'
+import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
+import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
+import {
+  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, vidaBasvagFinns, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
+  type HarDuId, type HarDuSvarVarde, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer,
+} from '../../lib/klarTrakt'
+import type { KlarPatch } from '../../components/planering/KlarMedTrakten'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
@@ -75,7 +81,7 @@ import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, 
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatResultat } from '../../lib/telefonGps'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
-import { arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
+import { basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
@@ -576,7 +582,6 @@ export default function PlannerPage() {
   const [pdfDok, setPdfDok] = useState<{ url: string; titel: string } | null>(null);
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
   const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null; roll: string | null }>>([]);
-  const [sendingKlar, setSendingKlar] = useState(false);
 
   // STEG 3/4: rollbaserad filtrering + "Starta körning"-pill + admin-växling
   const { medarbetare: currentMedarbetare, loading: medarbetareLaddar } = useCurrentMedarbetare();
@@ -2336,7 +2341,7 @@ export default function PlannerPage() {
   
   // Trakt-panel (Fakta | Prognos)
   const [traktOpen, setTraktOpen] = useState(false);
-  const [traktTab, setTraktTab] = useState<'fakta' | 'prognos' | 'larm'>('fakta');
+  const [traktTab, setTraktTab] = useState<'larm'>('larm');   // Trakt-panelen har bara Larm kvar (resten bor i Klar med trakten?)
   // Traktöversikten (fälls ner från objektnamnet) — Stefans snabbkoll, i planering + körvy.
   const [traktOversiktOpen, setTraktOversiktOpen] = useState(false);
   // Objektinfon (ⓘ): senaste innehållet (ramen hinner glida ut efter en stängning) och markeringen "Visa ›" i Om trakten framhäver på kartan.
@@ -2344,14 +2349,12 @@ export default function PlannerPage() {
   const [framhavdMarkering, setFramhavdMarkering] = useState<FramhavdMarkering | null>(null);
   const framhavdLageRef = useRef<PlusLage>('ark');
   // Telefonens "‹ Om trakten": objektinfon öppnas direkt på Om trakten i stället för på kortet (nollas när den stängs).
-  const [infoStartVy, setInfoStartVy] = useState<'kort' | 'om'>('kort');
+  const [infoStartVy, setInfoStartVy] = useState<'kort' | 'om' | 'klar'>('kort');
   // Lämnar framhävningen. Anropas från kartan (tryck på tom yta), raden ("Visa hela"), stängd panel och "‹ Om trakten" — alltid via refen så att en lyssnare
   // som hängt kvar från en tidigare rendering ändå når den senaste versionen. Zoomar ut till hela trakten för de orsaker som `slappAtgard` anger.
   const slappFramhavningRef = useRef<(orsak: SlappOrsak) => void>(() => {});
   const [vidaDirektiv, setVidaDirektiv] = useState(''); // objekt.anteckningar (Vida/kontoret), read-only i översikten
   const [traktData, setTraktData] = useState<TraktData>({ ...INFO_STANDARD.traktData });   // volym/areal = gammalt demovärde (649 m³fub / 2 ha), ingen läser det
-  const [editingField, setEditingField] = useState<string | null>(null); // 'volym', 'areal', 'skordare', 'skotare'
-  const [editValue, setEditValue] = useState('');
   const [prognosSettings, setPrognosSettings] = useState<PrognosSettings>({ ...INFO_STANDARD.prognosSettings });   // terpipirangSvar = % svår terräng, barighetDalig = % dålig bärighet
   const [manuellPrognos, setManuellPrognos] = useState<ManuellPrognos>({ ...INFO_STANDARD.manuellPrognos });   // planerarens uppskattning
   // Tidsförslag (Prognos-fliken): historik = avslutade objekts PLANERADE timmar per kategori. Hämtas EN
@@ -2372,13 +2375,12 @@ export default function PlannerPage() {
   // maskindator-starten tyst på maskiner som aldrig kommer (svart skärm).
   const [dimMaskinerStatus, setDimMaskinerStatus] = useState<RegisterStatus>('laddar');
   const [dimMaskinerOmN, setDimMaskinerOmN] = useState(0);
-  const [maskinSheet, setMaskinSheet] = useState<'skordare' | 'skotare' | null>(null);
   const [infoBarighet, setInfoBarighet] = useState<string | null>(null);
   const [infoTerrang, setInfoTerrang] = useState<string | null>(null);
   const [infoSkordareMaskinId, setInfoSkordareMaskinId] = useState<string | null>(null);
   const [infoSkordareUtforare, setInfoSkordareUtforare] = useState<string | null>(null); // 'egen' | 'extern' | null
   const [infoSkordareUtforareNamn, setInfoSkordareUtforareNamn] = useState('');
-  const [infoSkordareBand, setInfoSkordareBand] = useState(false);
+  const [infoSkordareBand, setInfoSkordareBand] = useState<boolean | null>(null);
   // null = ingen uppgift. Ett par ar en UPPGIFT, inte ett utgangslage -
   // se sparningen langre ner for varfor defaulten var ett datafel.
   const [infoSkordareBandPar, setInfoSkordareBandPar] = useState<string | null>(null);
@@ -2387,7 +2389,7 @@ export default function PlannerPage() {
   const [infoSkotareMaskinId, setInfoSkotareMaskinId] = useState<string | null>(null);
   const [infoSkotareUtforare, setInfoSkotareUtforare] = useState<string | null>(null); // 'egen' | 'extern' | null
   const [infoSkotareUtforareNamn, setInfoSkotareUtforareNamn] = useState('');
-  const [infoSkotareBand, setInfoSkotareBand] = useState(false);
+  const [infoSkotareBand, setInfoSkotareBand] = useState<boolean | null>(null);
   const [infoSkotareBandPar, setInfoSkotareBandPar] = useState<string | null>(null);
   const [infoSkotareLastreder, setInfoSkotareLastreder] = useState(false);
   const [infoSkotareRisDirekt, setInfoSkotareRisDirekt] = useState(false);
@@ -2666,66 +2668,6 @@ export default function PlannerPage() {
       .filter(m => maskinKlararTyp(m.klarar_typ, objTyp))
       .sort((a, b) => maskinModell(a).localeCompare(maskinModell(b), 'sv'));
   };
-  // Välj maskin -> nollar utförare (invariant: maskin_id XOR utförare)
-  const valjMaskin = (roll: 'skordare' | 'skotare', maskinId: string) => {
-    if (roll === 'skordare') { setInfoSkordareMaskinId(maskinId); setInfoSkordareUtforare(null); setInfoSkordareUtforareNamn(''); }
-    else { setInfoSkotareMaskinId(maskinId); setInfoSkotareUtforare(null); setInfoSkotareUtforareNamn(''); }
-    setMaskinSheet(null);
-  };
-  // Välj utförar-läge (egen/extern/null) -> nollar maskin_id
-  const valjUtforare = (roll: 'skordare' | 'skotare', mode: 'egen' | 'extern' | null) => {
-    if (roll === 'skordare') { setInfoSkordareUtforare(mode); setInfoSkordareMaskinId(null); if (mode !== 'extern') setInfoSkordareUtforareNamn(''); }
-    else { setInfoSkotareUtforare(mode); setInfoSkotareMaskinId(null); if (mode !== 'extern') setInfoSkotareUtforareNamn(''); }
-    setMaskinSheet(null);
-  };
-  // Rad (tryckyta) + varning + extern-namnfält för en roll
-  const renderMaskinVal = (roll: 'skordare' | 'skotare') => {
-    const maskinId = roll === 'skordare' ? infoSkordareMaskinId : infoSkotareMaskinId;
-    const utforare = roll === 'skordare' ? infoSkordareUtforare : infoSkotareUtforare;
-    const namn = roll === 'skordare' ? infoSkordareUtforareNamn : infoSkotareUtforareNamn;
-    const setNamn = roll === 'skordare' ? setInfoSkordareUtforareNamn : setInfoSkotareUtforareNamn;
-    const vald = maskinId ? dimMaskiner.find(m => m.maskin_id === maskinId) : undefined;
-    const idag = new Date().toISOString().slice(0, 10);
-    let display = 'Välj…';
-    if (maskinId) {
-      display = maskinModell(vald) || maskinId;
-      if (vald && !maskinAktiv(vald, idag)) display += ' (såld)';
-      else if (vald?.extramaskin) display += ' (extra)';
-    } else if (utforare === 'egen') display = roll === 'skordare' ? 'Egen avverkning' : 'Egen skotning';
-    else if (utforare === 'extern') display = namn ? `Extern · ${namn}` : 'Extern';
-    const objTyp = valtObjekt?.typ as string | undefined;
-    const inkompatibel = vald && vald.klarar_typ && objTyp && !maskinKlararTyp(vald.klarar_typ, objTyp);
-    const varnText = inkompatibel
-      ? `${maskinModell(vald)} kan inte ${objTyp === 'gallring' ? 'gallra' : objTyp === 'slutavverkning' ? 'slutavverka' : objTyp}`
-      : null;
-    return (
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
-        <div onClick={() => setMaskinSheet(roll)} style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 16px', borderRadius: '10px', cursor: 'pointer',
-          background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-        }}>
-          <span style={{ fontSize: '13px', color: (maskinId || utforare) ? '#fff' : '#8e8e93' }}>{display}</span>
-          <span style={{ fontSize: '18px', color: '#48484a', lineHeight: 1 }}>›</span>
-        </div>
-        {utforare === 'extern' && (
-          <input value={namn} onChange={e => setNamn(e.target.value)} placeholder="Namn på extern utförare"
-            style={{ width: '100%', marginTop: '8px', padding: '12px 16px', borderRadius: '10px',
-              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-              color: '#fff', fontSize: '13px', outline: 'none' }} />
-        )}
-        {varnText && (
-          <div style={{ marginTop: '8px', padding: '10px 14px', borderRadius: '10px',
-            background: 'rgba(255,69,58,0.1)', border: '1px solid rgba(255,69,58,0.3)',
-            color: '#ff453a', fontSize: '13px', fontWeight: 500 }}>
-            ⚠️ {varnText}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   useEffect(() => {
     if (!infoLoaded) return;
     if (infoSaveTimeoutRef.current) clearTimeout(infoSaveTimeoutRef.current);
@@ -2993,6 +2935,7 @@ export default function PlannerPage() {
   const [testlage, setTestlage] = useState<{ maskinId: string; etikett: string } | null>(null);
   const testlageAktivRef = useRef(false);
   useEffect(() => { testlageAktivRef.current = !!testlage; }, [testlage]);
+
 
   // Maskinläge = ENHETEN är en maskindator (serial-GPS) ELLER admin visar som maskin. Styr vyn
   // (förarlista + maskindator-flöde) oavsett inloggad roll; rollen styr bara rättigheter. Se [[visaForarlista]].
@@ -3590,46 +3533,8 @@ export default function PlannerPage() {
     });
   }, [maskinlage, enhetMaskinId, valtObjekt, dimMaskiner, oppnaKorvyPa, visaMaskindatorKort]);
 
-  // STEG 1: tilldelning av skördare/skotare och "Klar — skicka till förare"
-  const handleAssignSkordare = useCallback(async (userId: string | null) => {
-    if (!valtObjekt?.id) return;
-
-    // STEG 2: auto-tilldela partner-skotare om skördare har en partner OCH
-    // skotare inte redan är manuellt satt (manuell override vinner alltid).
-    const skotarePatch: { assigned_skotare_user_id?: string } = {};
-    if (userId && !valtObjekt.assigned_skotare_user_id) {
-      const skordare = medarbetareLista.find(m => m.id === userId);
-      if (skordare?.partner_user_id) {
-        skotarePatch.assigned_skotare_user_id = skordare.partner_user_id;
-      }
-    }
-
-    const update = { assigned_skordare_user_id: userId, ...skotarePatch };
-    setValtObjekt({ ...valtObjekt, ...update });
-    await supabase.from('objekt').update(update).eq('id', valtObjekt.id);
-  }, [valtObjekt, medarbetareLista]);
-
-  const handleAssignSkotare = useCallback(async (userId: string | null) => {
-    if (!valtObjekt?.id) return;
-    setValtObjekt({ ...valtObjekt, assigned_skotare_user_id: userId });
-    await supabase.from('objekt').update({ assigned_skotare_user_id: userId }).eq('id', valtObjekt.id);
-  }, [valtObjekt]);
-
-  const handleSendKlar = useCallback(async () => {
-    if (!valtObjekt?.id || !valtObjekt.assigned_skordare_user_id || sendingKlar) return;
-    setSendingKlar(true);
-    const nowIso = new Date().toISOString();
-    const { error } = await supabase.from('objekt').update({
-      status: 'planerad',
-      klar_skickad_timestamp: nowIso,
-    }).eq('id', valtObjekt.id);
-    setSendingKlar(false);
-    if (!error) {
-      setValtObjekt({ ...valtObjekt, status: 'planerad', klar_skickad_timestamp: nowIso });
-      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
-      setTraktOversiktOpen(false);   // "Klar — skicka till förare" bor i objektinfon (flyttad dit från Fler val)
-    }
-  }, [valtObjekt, sendingKlar]);
+  // (Tilldelning av förare och "Klar — skicka till förare" är borta ur Mer › Planeraren: Klar med trakten? väljer MASKIN och "Klar för maskin" gör trakten
+  // klar att köra. De gamla fälten assigned_*_user_id ligger kvar i databasen orörda; förarens auto-val av tilldelat objekt läser dem fortfarande.)
 
   // STEG 3 (förenklad): förarens "Starta körning"-logik. Anropas från två
   // ställen — kart-pillen (när objekt redan är valt) och listans Starta-cirkel
@@ -3830,6 +3735,49 @@ export default function PlannerPage() {
 
   // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
   const [korvyActive, setKorvyActive] = useState(false);
+
+  // === KLAR MED TRAKTEN? — planerarens färdigplanering (lib/klarTrakt, lib/klarFalt, components/planering/KlarMedTrakten) ===
+  // Appen räknar vad som är kvar ur det som redan finns (avlägg på kartan, bärighet, maskinval, prognos …) + svaren på "Har du …" (nya kolumner,
+  // lib/hooks/useKlarFalt). Visas bara för planerare medan trakten planeras. Klar för maskin spärrar aldrig.
+  const klarHook = useKlarFalt(supabase, valtObjekt?.id ?? null, !!testlage);
+  const klarFalt = klarHook.falt;
+  const [klarStartMedVed, setKlarStartMedVed] = useState(false);
+  const [klarSparar, setKlarSparar] = useState(false);
+  const [klarFel, setKlarFel] = useState<string | null>(null);
+  const klarPlanerare = !(isForare || (maskinlage && !isAdminRiktig));
+  const klarTal = (v: string | null | undefined) => parseSvNum(v ?? '');
+  const klarSkordare: UtforareVal = { maskinId: infoSkordareMaskinId, utforare: infoSkordareUtforare, externNamn: infoSkordareUtforareNamn };
+  const klarSkotare: UtforareVal = { maskinId: infoSkotareMaskinId, utforare: infoSkotareUtforare, externNamn: infoSkotareUtforareNamn };
+  const klarAvlaggAntal = (markers as any[]).filter((m) => m.isMarker && m.type === 'landing').length;
+  const klarPrognosIn: PrognosIndata = {
+    skordareTimmar: klarTal(manuellPrognos?.skordare), skotareTimmar: klarTal(manuellPrognos?.skotare),
+    volym: klarTal(infoVolym), medelstam: klarTal(klarFalt.medelstam), areal: klarTal(infoAreal),
+    bandSkordare: infoSkordareBand, bandSkotare: infoSkotareBand, breddat: infoSkotareLastreder, skotningsavstand: infoSkotningsavstand,
+    barighet: infoBarighet, terrang: infoTerrang, basvagKravs: infoBasvagKravs, basvagTimmar: klarTal(infoBasvagTimmar),
+    skordare: klarSkordare, skotare: klarSkotare,
+  };
+  // Basvägen räknas som ritad så fort en basväg finns på kartan (texten byggs i kortet där kartans geometri finns); här räcker antalet.
+  const klarBasvagTexterTop = (markers as any[]).filter((m) => m.isLine && m.lineType === 'mainRoad').map(() => 'ritad');
+  const klarIn: KlarIndata = {
+    avlaggAntal: klarAvlaggAntal, basvagTexter: klarBasvagTexterTop, basvagForvantad: vidaBasvagFinns(traktGeo?.features), basvagKravs: infoBasvagKravs, barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
+    skordare: klarSkordare, skotare: klarSkotare, prognos: klarPrognosIn, prognosGodkandUnderlag: klarFalt.prognosGodkand.underlag, harDu: klarFalt.harDu,
+  };
+  const klarStatus = berakna(klarIn);
+  // Den gamla fritexten vid "ska ha ved" (markagare_ved_text) följer med som Övrigt tills någon skriver nytt — ingenting försvinner när Trakt-fliken tas bort.
+  const vedVisning: VedDetaljer = { ...klarFalt.ved, ovrigt: klarFalt.ved.ovrigt || infoMarkagareVedText };
+  // Siffran visas/skrivs först när ALLT den vilar på är läst för DET HÄR objektet (annars är "13 kvar" bara ett tomt formulär).
+  const klarDataKlart = infoLoaded && markersLoaded && klarHook.lage === 'ok' && markersObjektIdRef.current === (valtObjekt?.id ? String(valtObjekt.id) : undefined);
+  const klarGaller = klarPlanerare && !!valtObjekt && arUnderPlanering(valtObjekt.status) && !korvyActive && !(maskinlage || !!maskinSomParam);
+  const klarChip = klarGaller && klarDataKlart && (valtObjekt?.status === 'oplanerad' || klarStatus.antalKvar > 0) ? kvarChip(klarStatus.antalKvar) : null;
+  // Antalet sparas som en ögonblicksbild på objektet så objektlistorna kan visa "N kvar" utan att läsa markeringar för varje objekt.
+  useEffect(() => {
+    if (!klarGaller || !klarDataKlart || testlage) return;
+    if (klarFalt.klarKvarAntal === klarStatus.antalKvar) return;
+    const t = setTimeout(() => { void klarHook.spara({ klarKvarAntal: klarStatus.antalKvar }, true); }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [klarGaller, klarDataKlart, klarStatus.antalKvar, klarFalt.klarKvarAntal, testlage]);
+  useEffect(() => { if (!traktOversiktOpen) setKlarStartMedVed(false); }, [traktOversiktOpen]);
   // Nya objektlistan (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
   const objektListaVal = anvandObjektLista({ maskinlage, maskinSom: !!maskinSomParam, korvyActive });
   // Körvyn äger kameran: centrerings-jump och geometrins fitBounds ska vara tysta när den är öppen. Ref skrivs i render
@@ -7641,6 +7589,15 @@ export default function PlannerPage() {
         </svg>
       ),
       // AVVERKNING
+      'firewood': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <ellipse cx="7" cy="17" rx="3" ry="2.4" />
+          <ellipse cx="14" cy="17" rx="3" ry="2.4" />
+          <ellipse cx="10.5" cy="11" rx="3" ry="2.4" />
+          <ellipse cx="18" cy="11" rx="2.6" ry="2.2" />
+          <line x1="3" y1="21" x2="21" y2="21" />
+        </svg>
+      ),
       'highstump': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 22 L9 8 Q9 5 12 5 Q15 5 15 8 L15 22" />
@@ -7976,7 +7933,8 @@ export default function PlannerPage() {
   ];
 
   // Platt lista för bakåtkompatibilitet
-  const markerTypes = symbolCategories.flatMap(cat => cat.symbols);
+  // Ved-symbolen hör inte till någon palett: den sätts bara från Klar med trakten? › Ved. Den behöver ändå ett namn och en ikon överallt där markeringar listas.
+  const markerTypes = [...symbolCategories.flatMap(cat => cat.symbols), { id: 'firewood', name: 'Ved' }];
 
   const lineTypes = [
     { id: 'boundary', name: 'Traktgräns', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
@@ -12480,12 +12438,21 @@ export default function PlannerPage() {
     setMarkers((prev: any[]) => [...prev, m]);
     korvyEgnaMarkorRef.current.add(String(id));
     if (typ === 'landing') startaAvlaggVagkontroll(id, lat, lon);
+    if (typ === 'firewood') {
+      // Ved-symbolen satt på kartan: platsen sparas i vedet (föraren ser symbolen), och Klar med trakten? öppnas igen på vedvyn.
+      void klarHook.spara({ ved: { ...klarFalt.ved, plats: 'karta', lat, lng: lon, markeringId: String(id) } });
+      setInfoMarkagareVed(true);
+      setKlarStartMedVed(true);
+      setInfoStartVy('klar');
+      setTraktOversiktOpen(true);
+    }
     if (!korvyActive && m.antal !== undefined) setAntalPrompt({ markerId: String(id), type: typ });
     if (navigator.vibrate) navigator.vibrate(30);
-    setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
+    // Ved-symbolen är ingen verktygssymbol: den ska aldrig hamna bland "senast använda" eller i plusdockan.
+    if (typ !== 'firewood') setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
     setSelectedSymbol(null);
-    noteraPlus({ typ: 'symbol', id: typ });
-    if (korvyActive) visaKvitto(osakerM ? `${kvittoRubrik(symbolNamn(typ))} · osäker ±${osakerM} m` : kvittoRubrik(symbolNamn(typ)), 'ok', id);
+    if (typ !== 'firewood') noteraPlus({ typ: 'symbol', id: typ });
+    if (korvyActive || (klarGaller && typ !== 'firewood')) visaKvitto(osakerM ? `${kvittoRubrik(symbolNamn(typ))} · osäker ±${osakerM} m` : kvittoRubrik(symbolNamn(typ)), 'ok', id);
   };
   placeraSymbolRef.current = placeraSymbol;
   // Vid maskinen: maskinens position — aldrig en gammal eller saknad (efter åldersvakten betyder gpsFixFarsk=false att den inte längre är maskinens)
@@ -13638,6 +13605,15 @@ export default function PlannerPage() {
             {valtObjekt ? (
               <>
                 <span>{valtObjekt.namn}</span>
+                {klarChip && (
+                  /* "N kvar" (orange) / "Klar" (grön) under planeringen. Ett tryck öppnar Klar med trakten? direkt — kortet öppnas alltid vid tryck. */
+                  <span role="button" tabIndex={0} data-testid="objekt-pill-klar" data-ton={klarChip.ton} aria-label={`Klar med trakten? ${klarChip.text}`}
+                    onClick={(e) => { e.stopPropagation(); setObjektListaOppen(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setObjektListaOppen(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }}
+                    style={{ marginLeft: AVSTAND.s, fontWeight: '600', color: klarChip.ton === 'orange' ? FARG.orange : FARG.gron }}>
+                    · {klarChip.text}
+                  </span>
+                )}
                 {(valtObjekt.areal || valtObjekt.typ) && (
                   <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.65)' }}>
                     {valtObjekt.areal ? ` · ${valtObjekt.areal} ha` : ''}
@@ -13875,7 +13851,22 @@ export default function PlannerPage() {
         const typTxt = valtObjekt.typ === 'slutavverkning' ? 'Slutavverkning' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : (valtObjekt.typ || ''));
         const kortRoll: KortRoll = (isForare || (maskinlage && !isAdminRiktig)) ? 'forare' : 'planerare';
         const maskinSlag = (enhetRoll ?? minRoll) as 'skordare' | 'skotare' | null;
-        const forareTexter = tillForaren({ forardirektiv: valtObjekt.forardirektiv, vida, anteckningar: egna });
+        // TILL FÖRAREN = bara Vidas direktiv (läsning). Planerarens egna texter (förardirektiv och det gamla fältet Anteckningar) är inte längre något man skriver:
+        // finns sådan text kvar står den som en grå rad "Gamla anteckningar" — i planerarens kort och i förarens sammanfattning. Inget raderas.
+        const forareTexter = tillForaren({ vida });
+        const gamlaTexter = [valtObjekt.forardirektiv, egna].map((t) => String(t ?? '').trim()).filter(Boolean).join('\n\n');
+        const forarPlanering = kortRoll === 'forare' ? {
+          oplanerad: valtObjekt.status === 'oplanerad',
+          gamla: gamlaTexter,
+          rader: forarSammanfattning({
+            avlaggAntal: klarAvlaggAntal, basvagTexter: kartMarkeringar.filter(arBasvagMark).map((m) => basvagText(m.farg, m.langdM)), basvagKravs: infoBasvagKravs,
+            barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
+            bandSkordare: infoSkordareBand, bandSkotare: infoSkotareBand, bandParSkordare: infoSkordareBandPar, bandParSkotare: infoSkotareBandPar,
+            breddat: infoSkotareLastreder, konfiguration: infoSkotareMaskinId === 'A110148' ? infoSkotareKonfig : null, risDirekt: infoSkotareRisDirekt, extraVagn: infoSkotareExtraVagn,
+            trailerIn: infoTrailerIn, trailerKommentar: infoTransportKommentar, manuellFallning: infoSkordareManFall, manuellFallningText: infoSkordareManFallText,
+            ved: infoMarkagareVed, vedDetaljer: vedVisning, vedText: vedSammanfattning(vedVisning), harDu: klarFalt.harDu,
+          }),
+        } : null;
         const arealHaKort = tolkaAreal(infoAreal) ?? tolkaAreal(valtObjekt.areal);
         const avverkatText = !korvyActive ? null
           : arealHaKort == null ? 'areal saknas'
@@ -13914,6 +13905,101 @@ export default function PlannerPage() {
             forslag: efter(() => { window.location.href = '/forbattringsforslag'; }),
           },
         });
+        // ── Klar med trakten? ── (bara planerare, bara medan trakten planeras)
+        const klarBasvagTexter = kartMarkeringar.filter(arBasvagMark).map((m) => basvagText(m.farg, m.langdM));
+        const klarStatusKort = berakna({ ...klarIn, basvagTexter: klarBasvagTexter });
+        const klarVarningar = harDuVarningar({
+          markeringar: kartMarkeringar.map((m) => ({ slag: m.slag, typ: m.typ, namn: m.namn })),
+          restriktioner: restr ?? [],
+          hansynsytor: (traktGeo?.features || []).filter((f: any) => klassaTraktFeature(f?.properties || {}).kategori === 'hansyn').length,
+        });
+        const namnForId = (id: string | null) => { const n = id ? medarbetareLista.find((m) => m.id === id)?.namn : null; return n ? n.split(' ')[0] : null; };
+        const klarForutsattningar = [
+          infoSkordareBand ? 'band skördare' : null, infoSkotareBand ? 'band skotare' : null, infoSkotareLastreder ? 'breddat lastrede' : null,
+          infoSkotningsavstand ? `${infoSkotningsavstand === 'langt' ? 'långt' : infoSkotningsavstand} skotningsavstånd` : null,
+          infoBarighet ? `${infoBarighet === 'dalig' ? 'dålig' : infoBarighet} bärighet` : null, infoTerrang ? `${infoTerrang} terräng` : null,
+          infoBasvagKravs ? `basvägsanläggning${infoBasvagTimmar ? ` ${infoBasvagTimmar} tim` : ''}` : null,
+        ].filter(Boolean) as string[];
+        const maskinAlt = (roll: 'skordare' | 'skotare') => {
+          const lista: { id: string; namn: string; varning?: string }[] = maskinerForRoll(roll).map((m) => ({ id: m.maskin_id, namn: maskinModell(m) || m.maskin_id }));
+          // Redan vald maskin som inte längre passar (såld, eller klarar inte trakttypen) visas ändå, med skälet — den får aldrig försvinna tyst ur valet.
+          const vald = roll === 'skordare' ? infoSkordareMaskinId : infoSkotareMaskinId;
+          if (vald && !lista.some((m) => m.id === vald)) {
+            const m = dimMaskiner.find((d) => d.maskin_id === vald);
+            const typ = valtObjekt.typ as string | undefined;
+            const idag = new Date().toISOString().slice(0, 10);
+            lista.push({ id: vald, namn: m ? (maskinModell(m) || vald) : vald, varning: m && !maskinAktiv(m, idag) ? 'såld' : m && typ && !maskinKlararTyp(m.klarar_typ, typ) ? `klarar inte ${typ === 'gallring' ? 'gallring' : typ === 'slutavverkning' ? 'slutavverkning' : typ}` : 'okänd maskin' });
+          }
+          return lista;
+        };
+        const klarPatch = (a: KlarPatch) => {
+          if (a.barighet !== undefined) setInfoBarighet(a.barighet);
+          if (a.terrang !== undefined) setInfoTerrang(a.terrang);
+          if (a.skotningsavstand !== undefined) setInfoSkotningsavstand(a.skotningsavstand);
+          if (a.skordare) { setInfoSkordareMaskinId(a.skordare.maskinId); setInfoSkordareUtforare(a.skordare.utforare); setInfoSkordareUtforareNamn(a.skordare.externNamn); }
+          if (a.skotare) { setInfoSkotareMaskinId(a.skotare.maskinId); setInfoSkotareUtforare(a.skotare.utforare); setInfoSkotareUtforareNamn(a.skotare.externNamn); }
+          if (a.skordareTimmar !== undefined) setManuellPrognos((prev) => ({ ...prev, skordare: a.skordareTimmar! }));
+          if (a.skotareTimmar !== undefined) setManuellPrognos((prev) => ({ ...prev, skotare: a.skotareTimmar! }));
+          if (a.volym !== undefined) setInfoVolym(a.volym);
+          if (a.areal !== undefined) setInfoAreal(a.areal);
+          if (a.medelstam !== undefined) klarHook.sparaSenare({ medelstam: a.medelstam });
+          if (a.basvagKravs !== undefined) setInfoBasvagKravs(a.basvagKravs);
+          if (a.basvagTimmar !== undefined) setInfoBasvagTimmar(a.basvagTimmar);
+          if (a.bandSkordare !== undefined) setInfoSkordareBand(a.bandSkordare);
+          if (a.bandParSkordare !== undefined) setInfoSkordareBandPar(a.bandParSkordare);
+          if (a.bandSkotare !== undefined) setInfoSkotareBand(a.bandSkotare);
+          if (a.bandParSkotare !== undefined) setInfoSkotareBandPar(a.bandParSkotare);
+          if (a.breddat !== undefined) setInfoSkotareLastreder(a.breddat);
+          if (a.konfiguration !== undefined) setInfoSkotareKonfig(a.konfiguration);
+          if (a.risDirekt !== undefined) setInfoSkotareRisDirekt(a.risDirekt);
+          if (a.extraVagn !== undefined) setInfoSkotareExtraVagn(a.extraVagn);
+          if (a.trailerIn !== undefined) setInfoTrailerIn(a.trailerIn);
+          if (a.trailerKommentar !== undefined) setInfoTransportKommentar(a.trailerKommentar);
+          if (a.manuellFallning !== undefined) setInfoSkordareManFall(a.manuellFallning);
+          if (a.manuellFallningText !== undefined) setInfoSkordareManFallText(a.manuellFallningText);
+          if (a.ved !== undefined) setInfoMarkagareVed(a.ved);
+        };
+        const klarHarDu = (id: HarDuId, varde: HarDuSvarVarde) => {
+          void klarHook.spara({ harDu: sattHarDu(klarFalt.harDu, id, varde, currentMedarbetare?.id ?? null, new Date().toISOString()) });
+        };
+        const klarStammer = () => {
+          if (!(klarStatusKort.prognos.lage === 'ogodkand' && klarStatusKort.prognos.saknas.length === 0)) return;
+          void klarHook.spara({ prognosGodkand: { av: currentMedarbetare?.id ?? null, at: new Date().toISOString(), underlag: prognosUnderlag(klarPrognosIn) } });
+        };
+        const klarAnvandForslag = () => {
+          if (!tidsforslag) return;
+          setManuellPrognos((prev) => ({
+            ...prev,
+            ...(tidsforslag.skordareTimmar != null ? { skordare: String(tidsforslag.skordareTimmar) } : {}),
+            ...(tidsforslag.skotareTimmar != null ? { skotare: String(tidsforslag.skotareTotalt ?? tidsforslag.skotareTimmar) } : {}),
+          }));
+        };
+        const klarVed = (v: VedDetaljer) => {
+          // Byter man från kartan tillbaka till "vid avlägget" ska ved-symbolen försvinna från kartan — föraren får inte se en gammal plats.
+          if (v.plats === 'avlagg' && klarFalt.ved.markeringId) {
+            const gammal = klarFalt.ved.markeringId;
+            setMarkers((prev: any[]) => prev.filter((m) => String(m.id) !== gammal));
+            deleteMarkerFromDb(gammal);
+            klarHook.sparaSenare({ ved: { ...v, markeringId: null, lat: null, lng: null } }, 400);
+            return;
+          }
+          klarHook.sparaSenare({ ved: v }, 500);
+        };
+        const klarForMaskin = async () => {
+          if (!valtObjekt?.id || klarSparar) return;
+          setKlarSparar(true); setKlarFel(null);
+          const nowIso = new Date().toISOString();
+          if (testlageAktivRef.current) {   // TESTLÄGE: simulera, skriv inget
+            setValtObjekt({ ...valtObjekt, status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso });
+            setKlarSparar(false); return;
+          }
+          const res = await uppdateraVerifierat(supabase, 'objekt', { status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso }, { id: valtObjekt.id }, 'status,klar_skickad_timestamp');
+          setKlarSparar(false);
+          if (!res.ok) { setKlarFel('Kunde inte skicka till maskin — försök igen.'); return; }
+          setValtObjekt({ ...valtObjekt, status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso });
+          if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+          stang();
+        };
         objektInfoSenasteRef.current = {
           objektNamn: valtObjekt.namn,
           objektId: String(valtObjekt.id),
@@ -13929,11 +14015,13 @@ export default function PlannerPage() {
             knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag }),
             faror: faroLinjer,
             tillForaren: forareTexter,
+            planering: forarPlanering,
             brickor: faktaBrickor({ areal: infoAreal || valtObjekt.areal, volym: volymTxt, grot: valtObjekt.grot ?? null }),
             extraBrickor: extraBrickor({ barighet: infoBarighet, terrang: infoTerrang, basvag: paTrakten.basvagKm, avverkat: avverkatText }),
             paTrakten: sammanf.antal > 0 ? markeringsRad(sammanf) : null,
             brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
             onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
+            klarRad: klarGaller ? { chip: klarChip } : null,
             dokument: harDok ? {
               antal: dokAntal,
               chips: (
@@ -13997,14 +14085,46 @@ export default function PlannerPage() {
                 alternativ: [{ id: null as string | null, label: 'Planerare' }, ...medarbetareLista.filter((m) => m.roll === 'forare').map((m) => ({ id: m.id as string | null, label: `Visa som ${m.namn}` }))],
                 onValj: (id) => { if (navigator.vibrate) navigator.vibrate(8); handleVaxlaVy(id); stang(); },
               } : null,
-              tilldelning: !isForare && valtObjekt.status !== 'avslutat' ? {
-                skordare: valtObjekt.assigned_skordare_user_id ?? '', skotare: valtObjekt.assigned_skotare_user_id ?? '',
-                forare: medarbetareLista.map((m) => ({ id: m.id, namn: m.namn })),
-                onSkordare: handleAssignSkordare, onSkotare: handleAssignSkotare,
-                klarSkickad: !!valtObjekt.klar_skickad_timestamp, kanSkicka: !!valtObjekt.assigned_skordare_user_id, skickar: !!sendingKlar, onSkicka: handleSendKlar,
-              } : null,
             },
           },
+          klar: klarGaller ? {
+            status: klarStatusKort,
+            objektStatus: valtObjekt.status ?? '',
+            klarSkickadAt: valtObjekt.klar_skickad_timestamp ?? null,
+            basvag: { texter: klarBasvagTexter, kravs: infoBasvagKravs, timmar: infoBasvagTimmar },
+            barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
+            skordare: klarSkordare, skotare: klarSkotare,
+            maskiner: { skordare: maskinAlt('skordare'), skotare: maskinAlt('skotare') },
+            prognos: {
+              skordareTimmar: manuellPrognos?.skordare ?? '', skotareTimmar: manuellPrognos?.skotare ?? '', volym: infoVolym, areal: infoAreal, medelstam: klarFalt.medelstam,
+              forslag: tidsforslag ? { skordare: tidsforslag.skordareTimmar, skotare: tidsforslag.skotareTotalt ?? tidsforslag.skotareTimmar, forklaring: tidsforslag.forklaring } : null,
+              forutsattningar: klarForutsattningar,
+              godkandAv: klarFalt.prognosGodkand.av, godkandAt: klarFalt.prognosGodkand.at,
+            },
+            harDu: klarFalt.harDu, varningar: klarVarningar, avNamn: namnForId,
+            ovrigt: {
+              ved: infoMarkagareVed, vedText: vedSammanfattning(vedVisning),
+              bandSkordare: infoSkordareBand, bandParSkordare: infoSkordareBandPar, bandSkotare: infoSkotareBand, bandParSkotare: infoSkotareBandPar,
+              breddat: infoSkotareLastreder, konfiguration: infoSkotareKonfig, visaKonfiguration: infoSkotareMaskinId === 'A110148', risDirekt: infoSkotareRisDirekt, extraVagn: infoSkotareExtraVagn,
+              trailerIn: infoTrailerIn, trailerKommentar: infoTransportKommentar, manuellFallning: infoSkordareManFall, manuellFallningText: infoSkordareManFallText,
+            },
+            ved: vedVisning,
+            gamlaAnteckningar: gamlaTexter,
+            datalage: klarHook.lage === 'ok' ? 'ok' : klarHook.lage === 'migrering-saknas' ? 'migrering-saknas' : 'lasfel',
+            sparFel: klarFel ?? klarHook.sparFel,
+            klarSparar,
+            startMedVed: klarStartMedVed,
+            onAndra: klarPatch,
+            onHarDu: klarHarDu,
+            onPlaceraAvlagg: () => { stang(); setSelectedSymbol('landing'); },
+            onRitaBasvag: () => { stang(); setDrawType('mainRoad'); setDrawFarg(valTillFarg(lasSenasteBasvagFarg())); setIsDrawMode(true); },
+            onStammer: klarStammer,
+            onAnvandForslag: klarAnvandForslag,
+            onVed: klarVed,
+            onSattVedPaKartan: () => { setKlarStartMedVed(true); stang(); setSelectedSymbol('firewood'); },
+            onKlarForMaskin: klarForMaskin,
+            onFortsatter: stang,
+          } : null,
         };
         }
         const op = objektInfoSenasteRef.current;
@@ -14314,7 +14434,7 @@ export default function PlannerPage() {
       {/* STEG 3 (förenklad): "Starta körning"-pill för förare med planerat objekt.
           Döljs när annat läge är aktivt (ritar/mäter/körvy/briefing/skotning) — då
           krockar inte pillen med mode-bannern på samma top-position. */}
-      {isForare && valtObjekt?.status === 'planerad'
+      {isForare && (valtObjekt?.status === 'planerad' || valtObjekt?.status === 'oplanerad')
         && !isDrawMode && !isZoneMode && !isArrowMode
         && !isMeasuring && !skotningDrawing
         && !korvyActive && !briefingMode && (
@@ -14566,10 +14686,10 @@ export default function PlannerPage() {
           ]}
         />
       )}
-      {korvyActive && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
-        <KorvyKvitto text={korvyKvitto.text} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
+      {(korvyActive || klarGaller) && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
+        <KorvyKvitto text={kvittoMedKvar(korvyKvitto.text, klarStatus.antalKvar, klarGaller && klarDataKlart && korvyKvitto.ton === 'ok')} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
       )}
-      {borttagenKvitto && !(korvyActive && korvyKvitto) && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
+      {borttagenKvitto && !((korvyActive || klarGaller) && korvyKvitto) && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
         <KorvyKvitto text={borttagenKvitto.text} ton="ok" onAngra={angraBorttagen} smal={smalSkarm} />
       )}
 
@@ -19747,770 +19867,8 @@ export default function PlannerPage() {
             </div>
           )}
 
-          {/* Segment-kontroll: Fakta | Prognos */}
-          <div style={{ padding: '16px 24px 0' }}>
-            <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '10px', padding: '3px' }}>
-              {[{ id: 'fakta', label: 'Fakta' }, { id: 'prognos', label: 'Prognos' }, { id: 'larm', label: 'Larm' }].map(tab => (
-                <div key={tab.id} onClick={() => setTraktTab(tab.id as 'fakta' | 'prognos' | 'larm')}
-                  style={{
-                    flex: 1, textAlign: 'center', padding: '9px 0', borderRadius: '8px', fontSize: '14px', cursor: 'pointer',
-                    background: traktTab === tab.id ? '#fff' : 'transparent',
-                    color: traktTab === tab.id ? '#000' : '#8e8e93',
-                    fontWeight: traktTab === tab.id ? '600' : '400',
-                    transition: 'all 0.2s ease',
-                  }}>
-                  {tab.label}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* FAKTA-flik */}
-          {traktTab === 'fakta' && (
-              <div style={{ padding: '12px' }}>
-
-                {/* MARKFÖRHÅLLANDEN (Bärighet + Terräng) FLYTTAT till Prognos-fliken (påverkar tiden).
-                    Samma state (infoBarighet/infoTerrang) + samma debouncade sparning; traktöversikts-
-                    popovern läser oförändrat samma state. Inget annat i Fakta-fliken använder fälten. */}
-
-                {/* HINDER & HÄNSYN */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Hinder & hänsyn</div>
-                  {(() => {
-                    const hinderSymboler = markers.filter(m => m.isMarker !== false && !m.isZone && !m.isLine && !m.isArrow && ['powerline', 'ditch', 'bridge', 'corduroy', 'wet', 'steep', 'warning', 'culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'trail'].includes(m.type || ''));
-                    const hinderZoner = markers.filter(m => m.isZone);
-                    const alla = [...hinderSymboler, ...hinderZoner];
-                    if (alla.length === 0) {
-                      return <div style={{ fontSize: '13px', opacity: 0.3, padding: '8px 0' }}>Inga hinder ritade på kartan</div>;
-                    }
-                    return alla.map(m => {
-                      const namn = m.isZone
-                        ? (zoneTypes.find(z => z.id === m.zoneType)?.name || m.zoneType || 'Zon')
-                        : (markerTypes.find(t => t.id === m.type)?.name || m.type || 'Markering');
-                      const farg = m.isZone
-                        ? (zoneTypes.find(z => z.id === m.zoneType)?.color || '#666')
-                        : '#888';
-                      return (
-                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: farg, flexShrink: 0 }} />
-                          <span style={{ fontSize: '13px', color: '#fff' }}>{namn}</span>
-                          {m.comment && <span style={{ fontSize: '13px', opacity: 0.4, marginLeft: 'auto' }}>{m.comment}</span>}
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-
-                {/* SKÖRDARE */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skördare</div>
-
-                  {/* Maskin — från dim_maskin (Harvester, aktiva, klarar objektets typ) */}
-                  {renderMaskinVal('skordare')}
-
-                  {/* Band toggle */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareBand ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
-                    <div onClick={() => {
-                      const pa = !infoSkordareBand;
-                      // Valjaren nedan visas forst nar bandet ar pa. Slar nagon
-                      // pa det ar 1 par ett VAL som gors framfor ogonen, inte en
-                      // tyst default vid laddning - skillnaden ar hela poangen.
-                      if (pa && infoSkordareBandPar == null) setInfoSkordareBandPar('1');
-                      setInfoSkordareBand(pa);
-                    }} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkordareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoSkordareBand && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
-                          <div key={opt.id} onClick={() => setInfoSkordareBandPar(opt.id)}
-                            style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                              background: infoSkordareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                              color: infoSkordareBandPar === opt.id ? '#fff' : '#8e8e93',
-                              fontWeight: infoSkordareBandPar === opt.id ? '600' : '400',
-                              transition: 'all 0.2s ease',
-                            }}>{opt.label}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Manuell fällning toggle */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareManFall ? '12px' : '0' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Manuell fällning</span>
-                    <div onClick={() => setInfoSkordareManFall(!infoSkordareManFall)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkordareManFall ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareManFall ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoSkordareManFall && (
-                    <textarea
-                      value={infoSkordareManFallText}
-                      onChange={e => setInfoSkordareManFallText(e.target.value)}
-                      placeholder="Beskriv..."
-                      style={{
-                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px', marginTop: '4px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                        fontFamily: 'inherit',
-                      }}
-                    />
-                  )}
-                </div>
-
-                {/* SKOTARE */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skotare</div>
-
-                  {/* Maskin — från dim_maskin (Forwarder, aktiva, klarar objektets typ) */}
-                  {renderMaskinVal('skotare')}
-
-                  {/* Konfiguration – bara Elephant King (maskin_id, inte modellnamn) */}
-                  {infoSkotareMaskinId === 'A110148' && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Konfiguration</div>
-                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[{ id: 'bred', label: 'Bred' }, { id: 'smal', label: 'Smal' }].map(opt => (
-                          <div key={opt.id} onClick={() => setInfoSkotareKonfig(opt.id)}
-                            style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                              background: infoSkotareKonfig === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                              color: infoSkotareKonfig === opt.id ? '#fff' : '#8e8e93',
-                              fontWeight: infoSkotareKonfig === opt.id ? '600' : '400',
-                              transition: 'all 0.2s ease',
-                            }}>{opt.label}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Band toggle */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkotareBand ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
-                    <div onClick={() => {
-                      const pa = !infoSkotareBand;
-                      if (pa && infoSkotareBandPar == null) setInfoSkotareBandPar('1');
-                      setInfoSkotareBand(pa);
-                    }} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoSkotareBand && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
-                          <div key={opt.id} onClick={() => setInfoSkotareBandPar(opt.id)}
-                            style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                              background: infoSkotareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
-                              color: infoSkotareBandPar === opt.id ? '#fff' : '#8e8e93',
-                              fontWeight: infoSkotareBandPar === opt.id ? '600' : '400',
-                              transition: 'all 0.2s ease',
-                            }}>{opt.label}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Extra vagn */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Extra vagn</span>
-                    <div onClick={() => setInfoSkotareExtraVagn(!infoSkotareExtraVagn)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareExtraVagn ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareExtraVagn ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-
-                  {/* Lastreder breddat */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Lastreder breddat</span>
-                    <div onClick={() => setInfoSkotareLastreder(!infoSkotareLastreder)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareLastreder ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareLastreder ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-
-                  {/* Ris skotas direkt */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Ris skotas direkt</span>
-                    <div onClick={() => setInfoSkotareRisDirekt(!infoSkotareRisDirekt)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareRisDirekt ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareRisDirekt ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* TRANSPORT */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Transport</div>
-
-                  {/* Trailer kan köra in */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: !infoTrailerIn ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Trailer kan köra in</span>
-                    <div onClick={() => setInfoTrailerIn(!infoTrailerIn)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoTrailerIn ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoTrailerIn ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {!infoTrailerIn && (
-                    <div style={{
-                      padding: '10px 14px', borderRadius: '10px', marginBottom: '16px',
-                      background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)',
-                      color: '#eab308', fontSize: '13px', fontWeight: '500',
-                    }}>
-                      Lassa av vid väg
-                    </div>
-                  )}
-
-                  {/* Kommentar */}
-                  <div>
-                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
-                    <textarea
-                      value={infoTransportKommentar}
-                      onChange={e => setInfoTransportKommentar(e.target.value)}
-                      placeholder="Kommentar om transport..."
-                      style={{
-                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                        fontFamily: 'inherit',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* MARKÄGARE */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markägare</div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoMarkagareVed ? '12px' : '0' }}>
-                    <span style={{ fontSize: '13px', color: '#fff' }}>Ska ha ved</span>
-                    <div onClick={() => setInfoMarkagareVed(!infoMarkagareVed)} style={{
-                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoMarkagareVed ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
-                    }}>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoMarkagareVed ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                    </div>
-                  </div>
-                  {infoMarkagareVed && (
-                    <textarea
-                      value={infoMarkagareVedText}
-                      onChange={e => setInfoMarkagareVedText(e.target.value)}
-                      placeholder="Detaljer om ved..."
-                      style={{
-                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                        fontFamily: 'inherit',
-                      }}
-                    />
-                  )}
-                </div>
-
-                {/* DOKUMENT (plats B) — traktdirektiv + stämplingslängd, syns bara om url finns */}
-                {(valtObjekt?.traktdirektiv_url || valtObjekt?.stamplingslangd_url) && (() => {
-                  const docFarg = valtObjekt?.typ === 'slutavverkning' ? '#eab308' : '#22c55e';
-                  const dokKnapp = (url: string, etikett: string) => (
-                    <a href="#" target="_blank" rel="noopener noreferrer"
-                      onClick={async (e) => {
-                        e.preventDefault();
-                        // Privat bucket — signera vid klick (TTL 1h), rendera i in-app-läsvyn
-                        const s = await signeraKartfil(url);
-                        if (s) setPdfDok({ url: s, titel: etikett });
-                      }}
-                      style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
-                        fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>
-                      {etikett}
-                    </a>
-                  );
-                  return (
-                    <div style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
-                      <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Dokument</div>
-                      <div style={{ display: 'flex', gap: '10px' }}>
-                        {valtObjekt?.traktdirektiv_url && dokKnapp(valtObjekt.traktdirektiv_url, 'Traktdirektiv')}
-                        {valtObjekt?.stamplingslangd_url && dokKnapp(valtObjekt.stamplingslangd_url, 'Stämplingslängd')}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* ANTECKNINGAR */}
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
-                }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Anteckningar</div>
-                  <textarea
-                    value={infoAnteckningar}
-                    onChange={e => setInfoAnteckningar(e.target.value)}
-                    placeholder="Fritext..."
-                    style={{
-                      width: '100%', minHeight: '100px', padding: '12px', borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                      color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
-                      fontFamily: 'inherit',
-                    }}
-                  />
-                </div>
-
-              </div>
-          )}
-
-          {traktTab === 'prognos' && (
-          <div style={{ padding: '24px' }}>
-            {/* MARKFÖRHÅLLANDEN (flyttat hit från Fakta — påverkar tiden). Tre-vals-knappar, samma
-                state/sparning som förr. */}
-            <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', marginBottom: '16px' }}>
-              <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px' }}>Markförhållanden</div>
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
-                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
-                    <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
-                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                        background: infoBarighet === opt.id ? '#0a84ff' : 'transparent',
-                        color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
-                        fontWeight: infoBarighet === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
-                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
-                    <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
-                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                        background: infoTerrang === opt.id ? '#0a84ff' : 'transparent',
-                        color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
-                        fontWeight: infoTerrang === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            {/* DEL 3: Skotningsavstånd (påverkar tid-förslaget) + basvägsarbete (engångstid). Breddat
-                lastrede återanvänder Fakta-fältet — visas här bara som info om att det kortar tiden. */}
-            <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', marginBottom: '16px' }}>
-              <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '16px' }}>Skotning</div>
-              <div style={{ marginBottom: '4px' }}>
-                <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Skotningsavstånd</div>
-                <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  {[{ id: 'kort', label: 'Kort' }, { id: 'medel', label: 'Medel' }, { id: 'langt', label: 'Långt' }].map(opt => (
-                    <div key={opt.id} onClick={() => setInfoSkotningsavstand(infoSkotningsavstand === opt.id ? null : opt.id)}
-                      style={{ flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
-                        background: infoSkotningsavstand === opt.id ? '#0a84ff' : 'transparent',
-                        color: infoSkotningsavstand === opt.id ? '#fff' : '#8e8e93',
-                        fontWeight: infoSkotningsavstand === opt.id ? '600' : '400', transition: 'all 0.2s ease' }}>{opt.label}</div>
-                  ))}
-                </div>
-              </div>
-              {/* Breddat lastrede — läses från Fakta-fältet, kortar skotartiden. Read-only info här. */}
-              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: '13px', color: '#fff' }}>Breddat lastrede</div>
-                  <div style={{ fontSize: '11px', color: '#636366', marginTop: '2px' }}>
-                    {infoSkotareLastreder ? 'Kortar skotartiden' : 'Redigeras i Fakta-fliken'}
-                  </div>
-                </div>
-                <span style={{ fontSize: '13px', fontWeight: '600', color: infoSkotareLastreder ? '#30d158' : '#8e8e93' }}>
-                  {infoSkotareLastreder ? 'Ja' : 'Nej'}
-                </span>
-              </div>
-              {/* Basvägsarbete — ENGÅNGSTID, läggs på skotarens förslag separat (aldrig i ha/timme). */}
-              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '13px', color: '#fff' }}>Kräver basvägsanläggning</span>
-                  <div onClick={() => setInfoBasvagKravs(!infoBasvagKravs)} style={{
-                    width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                    background: infoBasvagKravs ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoBasvagKravs ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
-                  </div>
-                </div>
-                {infoBasvagKravs && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '14px' }}>
-                    <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Engångstid basväg</span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '8px 12px' }}>
-                      <input value={infoBasvagTimmar} onChange={e => setInfoBasvagTimmar(e.target.value)}
-                        inputMode="decimal" placeholder="0"
-                        style={{ width: '52px', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: '16px', fontWeight: '600', textAlign: 'right' }} />
-                      <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* Tid-sektion */}
-            <div style={{
-              background: 'rgba(255,255,255,0.06)',
-              borderRadius: '16px',
-              padding: '20px',
-              marginBottom: '16px',
-            }}>
-              <div style={{ 
-                fontSize: '13px', 
-                color: '#8e8e93', 
-                marginBottom: '20px',
-              }}>
-                <span style={{ color: '#8e8e93' }}>Uppskattad tid</span> <span style={{ fontSize: '11px', color: '#8e8e93', background: 'rgba(255,255,255,0.08)', borderRadius: '6px', padding: '2px 6px' }}>manuell</span>
-              </div>
-              
-              {/* Skördare */}
-              <div 
-                onClick={() => { setEditingField('skordare'); setEditValue(manuellPrognos.skordare || ''); }}
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between',
-                  marginBottom: '16px',
-                  paddingBottom: '16px',
-                  borderBottom: '1px solid rgba(255,255,255,0.08)',
-                  cursor: 'pointer',
-                }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '20px' }}>🌲</span>
-                  <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.8)' }}>Skördare</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'baseline', 
-                  gap: '6px',
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '8px',
-                  padding: '10px 14px',
-                }}>
-                  <span style={{ fontSize: '17px', fontWeight: '600', color: manuellPrognos.skordare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
-                    {manuellPrognos.skordare || '–'}
-                  </span>
-                  <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
-                </div>
-                  <span style={{ fontSize: '20px', color: '#48484a', lineHeight: 1 }}>›</span>
-                </div>
-              </div>
-              
-              {/* Skotare */}
-              <div 
-                onClick={() => { setEditingField('skotare'); setEditValue(manuellPrognos.skotare || ''); }}
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between',
-                  cursor: 'pointer',
-                }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '20px' }}>🚛</span>
-                  <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.8)' }}>Skotare</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'baseline', 
-                  gap: '6px',
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '8px',
-                  padding: '10px 14px',
-                }}>
-                  <span style={{ fontSize: '17px', fontWeight: '600', color: manuellPrognos.skotare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
-                    {manuellPrognos.skotare || '–'}
-                  </span>
-                  <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
-                </div>
-                  <span style={{ fontSize: '20px', color: '#48484a', lineHeight: 1 }}>›</span>
-                </div>
-              </div>
-
-              {/* DEL 2: Föreslagen tid ur historik + medelstam. ALDRIG tvingande — Jocke skriver alltid
-                  över genom att trycka på raden ovan. Tomt-läge om underlaget är för tunt. */}
-              {tidsforslag ? (
-                <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ fontSize: '11px', color: '#8e8e93', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Förslag</div>
-                  {tidsforslag.skordareTimmar != null && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: tidsforslag.skotareTimmar != null ? '10px' : '0' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '17px' }}>🌲</span>
-                        <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Skördare</span>
-                        <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skordareTimmar} h</span>
-                      </div>
-                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skordare: String(tidsforslag.skordareTimmar ?? '') }))}
-                        style={{ fontSize: '13px', color: '#0a84ff', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.12)' }}>Använd</div>
-                    </div>
-                  )}
-                  {tidsforslag.skotareTimmar != null && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '17px' }}>🚛</span>
-                        <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>Skotare</span>
-                        {tidsforslag.basvagTimmar > 0 ? (
-                          <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>
-                            {tidsforslag.skotareTimmar} h
-                            <span style={{ fontSize: '12px', color: '#8e8e93', fontWeight: '400' }}> + {tidsforslag.basvagTimmar} h basväg</span>
-                            {' = '}{tidsforslag.skotareTotalt} h
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: '15px', color: '#30d158', fontWeight: '600' }}>{tidsforslag.skotareTimmar} h</span>
-                        )}
-                      </div>
-                      <div onClick={() => setManuellPrognos(prev => ({ ...prev, skotare: String(tidsforslag.skotareTotalt ?? tidsforslag.skotareTimmar ?? '') }))}
-                        style={{ fontSize: '13px', color: '#0a84ff', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.12)' }}>Använd</div>
-                    </div>
-                  )}
-                  <div style={{ fontSize: '11px', color: '#636366', marginTop: '12px', lineHeight: 1.4 }}>{tidsforslag.forklaring}</div>
-                </div>
-              ) : (
-                <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: '12px', color: '#8e8e93', lineHeight: 1.4 }}>
-                  Inget förslag än — för få liknande avslutade objekt att räkna på.
-                </div>
-              )}
-            </div>
-            {/* Traktdata */}
-            <div style={{
-              background: 'rgba(255,255,255,0.06)',
-              borderRadius: '16px',
-              padding: '20px',
-              marginBottom: '16px',
-            }}>
-              <div style={{ 
-                fontSize: '13px', 
-                color: '#8e8e93', 
-                marginBottom: '20px',
-              }}>
-                Traktdata
-              </div>
-              
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div 
-                  onClick={() => { setEditingField('volym'); setEditValue(String(infoVolym) || ''); }}
-                  style={{ flex: 1, textAlign: 'center', cursor: 'pointer' }}
-                >
-                  <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '6px' }}>Volym</div>
-                  <div style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '8px',
-                    padding: '12px 8px',
-                  }}>
-                    <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>
-                      {infoVolym || '–'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>m³fub</div>
-                </div>
-                
-                <div 
-                  onClick={() => { setEditingField('areal'); setEditValue(String(infoAreal) || ''); }}
-                  style={{ flex: 1, textAlign: 'center', cursor: 'pointer' }}
-                >
-                  <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '6px' }}>Areal</div>
-                  <div style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '8px',
-                    padding: '12px 8px',
-                  }}>
-                    <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>
-                      {infoAreal || '–'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>ha</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          )}
-
-          {/* Maskin-väljar-sheet (dim_maskin) */}
-          {maskinSheet && (() => {
-            const roll = maskinSheet;
-            const maskinId = roll === 'skordare' ? infoSkordareMaskinId : infoSkotareMaskinId;
-            const utforare = roll === 'skordare' ? infoSkordareUtforare : infoSkotareUtforare;
-            const lista = maskinerForRoll(roll);
-            const vald = maskinId ? dimMaskiner.find(m => m.maskin_id === maskinId) : undefined;
-            const valdEjValbar = !!vald && !lista.some(m => m.maskin_id === vald.maskin_id);
-            const idag = new Date().toISOString().slice(0, 10);
-            const Rad = (nyckel: string, label: string, arVald: boolean, onClick: (() => void) | undefined, muted: boolean) => (
-              <div key={nyckel} onClick={onClick} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '14px 16px', cursor: onClick ? 'pointer' : 'default',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-              }}>
-                <span style={{ fontSize: '15px', color: muted ? '#8e8e93' : '#fff' }}>{label}</span>
-                {arVald && <span style={{ color: '#0a84ff', fontSize: '17px' }}>✓</span>}
-              </div>
-            );
-            return (
-              <div onClick={() => setMaskinSheet(null)} style={{
-                position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 400,
-                display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-              }}>
-                <div onClick={e => e.stopPropagation()} style={{
-                  background: '#1c1c1e', borderTopLeftRadius: '16px', borderTopRightRadius: '16px',
-                  maxHeight: '75%', overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom)',
-                }}>
-                  <div style={{ padding: '16px', fontSize: '13px', color: '#8e8e93', textAlign: 'center' }}>
-                    {roll === 'skordare' ? 'Skördare' : 'Skotare'}
-                  </div>
-                  {valdEjValbar && vald && Rad('nuvarande',
-                    `Nuvarande: ${maskinModell(vald)}${!maskinAktiv(vald, idag) ? ' (såld)' : ''} — ej valbar`,
-                    true, undefined, true)}
-                  {lista.map(m => Rad(m.maskin_id,
-                    `${maskinModell(m)}${m.extramaskin ? ' (extra)' : ''}${!m.klarar_typ ? ' (klarar-typ ej satt)' : ''}`,
-                    maskinId === m.maskin_id, () => valjMaskin(roll, m.maskin_id), false))}
-                  {lista.length === 0 && (
-                    <div style={{ padding: '14px 16px', fontSize: '13px', color: '#8e8e93' }}>
-                      Inga maskiner matchar rollen{valtObjekt?.typ ? ` + ${valtObjekt.typ}` : ''}.
-                    </div>
-                  )}
-                  {Rad('egen', roll === 'skordare' ? 'Egen avverkning' : 'Egen skotning', utforare === 'egen', () => valjUtforare(roll, 'egen'), false)}
-                  {Rad('extern', 'Extern', utforare === 'extern', () => valjUtforare(roll, 'extern'), false)}
-                  {(maskinId || utforare) && Rad('rensa', 'Rensa (ej bestämt)', false, () => valjUtforare(roll, null), true)}
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Edit Modal */}
-          {editingField && (
-            <div 
-              style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(0,0,0,0.95)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10,
-              }}
-              onClick={() => setEditingField(null)}
-            >
-              <div 
-                style={{ textAlign: 'center', padding: '40px' }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div style={{ 
-                  fontSize: '13px', 
-                  color: '#8e8e93', 
-                  marginBottom: '20px',
-                }}>
-                  {editingField === 'skordare' && 'Skördare (timmar)'}
-                  {editingField === 'skotare' && 'Skotare (timmar)'}
-                  {editingField === 'volym' && 'Volym (m³fub)'}
-                  {editingField === 'areal' && 'Areal (ha)'}
-                </div>
-                
-                <input
-                  type={(editingField === 'areal' || editingField === 'volym') ? 'text' : 'number'}
-                  inputMode={(editingField === 'areal' || editingField === 'volym') ? 'decimal' : 'numeric'}
-                  step={editingField === 'areal' ? '0.1' : '1'}
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  autoFocus
-                  style={{
-                    width: '200px',
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '2px solid rgba(255,255,255,0.2)',
-                    borderRadius: '12px',
-                    padding: '20px',
-                    color: '#fff',
-                    fontSize: '48px',
-                    fontWeight: '700',
-                    textAlign: 'center',
-                    outline: 'none',
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      if (editingField === 'skordare') {
-                        setManuellPrognos(prev => ({ ...prev, skordare: editValue }));
-                      } else if (editingField === 'skotare') {
-                        setManuellPrognos(prev => ({ ...prev, skotare: editValue }));
-                      } else if (editingField === 'volym') {
-                        setInfoVolym(editValue);
-                      } else if (editingField === 'areal') {
-                        setInfoAreal(editValue);
-                      }
-                      setEditingField(null);
-                    }
-                  }}
-                />
-                
-                <div style={{ marginTop: '30px', display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                  <button
-                    onClick={() => setEditingField(null)}
-                    style={{
-                      padding: '14px 28px',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      background: 'transparent',
-                      color: '#8e8e93',
-                      fontSize: '15px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Avbryt
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (editingField === 'skordare') {
-                        setManuellPrognos(prev => ({ ...prev, skordare: editValue }));
-                      } else if (editingField === 'skotare') {
-                        setManuellPrognos(prev => ({ ...prev, skotare: editValue }));
-                      } else if (editingField === 'volym') {
-                        setInfoVolym(editValue);
-                      } else if (editingField === 'areal') {
-                        setInfoAreal(editValue);
-                      }
-                      setEditingField(null);
-                    }}
-                    style={{
-                      padding: '14px 28px',
-                      borderRadius: '10px',
-                      border: 'none',
-                      background: 'rgba(255,255,255,0.9)',
-                      color: '#000',
-                      fontSize: '15px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    OK
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
+          {/* Trakt-panelen har bara Larm kvar: allt annat (maskin, bärighet, terräng, skotningsavstånd, band, ved, trailer, prognos, volym, areal …) bor i
+              Klar med trakten? (ⓘ › Klar med trakten?). Larmeditorn flyttas senare till kortet. */}
           {/* LARM-flik */}
           {traktTab === 'larm' && (
               <div style={{ padding: '12px' }}>

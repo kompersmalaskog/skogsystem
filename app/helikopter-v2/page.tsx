@@ -467,7 +467,7 @@ export default function HelikopterV2Page() {
   const harBestallning = slutBest + gallBest > 0
   const harProduktion = manadData.length > 0 || oversikt.length > 0 || ovrigtData.length > 0
   const plAntal = useMemo(
-    () => objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende')).length,
+    () => objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'oplanerad' || o.status === 'planerad' || o.status === 'pagaende')).length,
     [objektAlla, ar, manad]
   )
   const guideSteg = [
@@ -514,7 +514,7 @@ export default function HelikopterV2Page() {
     const idag = ymdLokal(new Date())
     // Inkl. 'avslutat' — avslutade objekt var del av månadens plan och ska synas som klara (RAD 1 + lista),
     // inte sållas bort tyst. RAD 2 (kvar) exkluderar dem via klar-flaggan nedan.
-    const monthObjekt = objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende' || o.status === 'avslutat'))
+    const monthObjekt = objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'oplanerad' || o.status === 'planerad' || o.status === 'pagaende' || o.status === 'avslutat'))
     const aktiv = (m: DimMaskin) => !m.aktiv_till || m.aktiv_till >= idag
     const kapMaskiner = dimMaskiner.filter(m => (m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder') && aktiv(m) && !m.extramaskin)
     const extraMaskiner = dimMaskiner.filter(m => m.extramaskin && aktiv(m))

@@ -82,8 +82,7 @@ export async function POST(req: NextRequest) {
         // alltså "klar att köra" — en trakt som skapas här hade då dykt upp
         // i förarkön som nästa jobb. Trakten är slutavräknad (den ligger i
         // listan just därför), så 'avslutat' är det sanna värdet.
-        // 'oplanerad' hade varit frestande men bryter objekt_status_check,
-        // som bara tillåter planerad/pagaende/skotning/avslutat.
+        // 'oplanerad' (tillåten sedan migration 20261015190000) vore fel här: trakten är redan avräknad, inget att planera.
         status: 'avslutat',
         // Den lades aldrig upp i planeringen — den skapas för att bära ett
         // nummer, och det ska synas i planeringsvyn.

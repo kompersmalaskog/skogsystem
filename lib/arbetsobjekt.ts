@@ -31,7 +31,8 @@ const normTyp = (t: string | null | undefined): ObjektTyp | null => {
   const s = (t || "").trim().toLowerCase();
   return s === "gallring" || s === "slutavverkning" || s === "grot" ? s : null;
 };
-const AKTIVA_STATUS = ["planerad", "pagaende", "skordning", "skotning"];
+// "oplanerad" ingår: planering och andra arbeten läggs ofta på en trakt INNAN den är klar för maskin.
+const AKTIVA_STATUS = ["oplanerad", "planerad", "pagaende", "skordning", "skotning"];
 export const arAktivStatus = (s: string | null | undefined) => !!s && AKTIVA_STATUS.includes(s);
 
 type DimRad = {
@@ -77,7 +78,7 @@ export function byggArbetsObjektLista(dim: DimRad[] | null | undefined, objekt: 
     if (o.vo_nummer != null) dimNycklar.add(String(o.vo_nummer));
   }
   const utanDim: ArbetsObjekt[] = objektRader
-    .filter(r => r.vo_nummer != null && (r.status === "planerad" || r.status === "pagaende")
+    .filter(r => r.vo_nummer != null && (r.status === "oplanerad" || r.status === "planerad" || r.status === "pagaende")
       && !dimNycklar.has(String(r.vo_nummer)) && !(r.dim_objekt_id && dimNycklar.has(String(r.dim_objekt_id))))
     .map(r => ({
       id: String(r.vo_nummer), namn: formatObjektNamn((r.namn || "").trim() || String(r.vo_nummer)), ägare: r.markagare || "",
