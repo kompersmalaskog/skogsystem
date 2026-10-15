@@ -18,6 +18,12 @@
 //    punkten efter ankomst precis som vid auto-stängning (mätare/bränsle rätt).
 //  • Dubbelskydd: auto-öppnar bara om INGEN öppen runda finns för bilen
 //    (matchar även manuella vin-null-rundor).
+//  • Kedjeregel: rundor på samma bil får aldrig överlappa i tid. En ny auto-runda
+//    börjar aldrig före förra rundans sluttid (se "KEDJEREGELN" nedan). Dubbelskyddet
+//    ovan ser bara ÖPPNA rundor och räckte inte: en runda stängd medan bilen var ute
+//    följdes av en ny från samma avfärd (20 aug, 28 aug, 1 sep 2026).
+//  • Sluttid ≥ starttid: säkerhetsnätet mäter från rundans start, aldrig från en
+//    ankomst som ligger före den (514d88e1, 12 aug 2026).
 //  • Kraschar aldrig: allt i try/catch, fel rapporteras men fäller inte cron:en.
 
 import { haversine } from '@/utils/geo'
@@ -81,16 +87,51 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
       let avfardIdx = -1
       for (let i = punkter.length - 1; i >= 0; i--) { if (iRadie(punkter[i])) { avfardIdx = i; break } }
       const osaker = avfardIdx === -1               // loggen började mitt i en utekörning
-      const start = osaker ? punkter[0] : punkter[avfardIdx]
+      const avfard = osaker ? punkter[0] : punkter[avfardIdx]
+
+      // KEDJEREGELN. Dubbelskyddet ovan ser bara ÖPPNA rundor; det räckte inte
+      // (dubbelrundorna 20 aug, 28 aug och 1 sep 2026). Förarens "Framme på LBC"
+      // kan stänga rundan medan bilen fortfarande är ute (600 m, 14 km och 40 km
+      // från basen i de tre fallen). Nästa cykel ser "ingen öppen runda, bilen
+      // ute" och öppnade en NY runda vid utekörningens avfärd — samma starttid och
+      // startodometer som den stängda — så de första milen och litrarna räknades
+      // två gånger. Rundor på samma bil bildar en kedja: en ny runda får aldrig
+      // börja före den föregående slutade. Fortsättningen startar exakt vid
+      // förra rundans sluttid, med odometern från senaste loggpunkten vid/före
+      // den, så milen läggs ihop utan glapp eller dubbelräkning.
+      const { data: stangda, error: stangdaFel } = await db.from('flyttdag')
+        .select('sluttid').not('sluttid', 'is', null).or(`vin.eq.${vin},vin.is.null`)
+        .gt('sluttid', avfard.tidpunkt).order('sluttid', { ascending: false }).limit(1)
+      // Hellre ingen runda än en dubblett: kan vi inte läsa de stängda rundorna
+      // öppnar vi ingen (nästa cykel försöker igen, avfärdspunkten finns kvar).
+      if (stangdaFel) return { atgard: 'fel', detalj: `öppna: läste inte stängda rundor: ${stangdaFel.message}` }
+      const tackt: string | null = stangda?.[0]?.sluttid ?? null
+
+      let start: Punkt = avfard
+      let starttid = avfard.tidpunkt
+      if (tackt) {
+        const tackMs = Date.parse(tackt)
+        let fore: Punkt | undefined
+        for (const p of punkter) { if (Date.parse(p.tidpunkt) <= tackMs) fore = p }
+        const efter = punkter.find(p => Date.parse(p.tidpunkt) > tackMs)
+        if (fore) { start = fore; starttid = tackt }
+        else if (efter) { start = efter; starttid = efter.tidpunkt }
+        // Bilen har inte rört sig sedan förra rundan slutade (t.ex. "Framme"
+        // tryckt på en parkeringsplats utanför radien): ingen körning att räkna.
+        if (!(senaste.odometer_m > start.odometer_m)) {
+          return { atgard: 'inget', detalj: 'ute men stilla sedan förra rundan slutade' }
+        }
+      }
+
       const { data, error } = await db.from('flyttdag').insert({
         vin, auto_skapad: true, start_kalla: 'auto', status: 'pagaende',
-        starttid: start.tidpunkt,
+        starttid,
         start_lat: start.lat, start_lng: start.lng,
         start_odometer_m: start.odometer_m, start_odometer_tid: start.tidpunkt,
-        odometer_stale: osaker,                     // osäker start → visas med "~"
+        odometer_stale: osaker && !tackt,           // osäker start → visas med "~"
       }).select('id')
       if (error) return { atgard: 'fel', detalj: `öppna: ${error.message}` }
-      return { atgard: 'oppnade', rundaId: data?.[0]?.id, detalj: { osaker, start_odometer_m: start.odometer_m } }
+      return { atgard: 'oppnade', rundaId: data?.[0]?.id, detalj: { osaker, fortsattning: !!tackt, start_odometer_m: start.odometer_m } }
     }
 
     // ── Öppen runda finns ──
@@ -111,14 +152,26 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
     let ankomstIdx = punkter.length - 1
     for (let i = punkter.length - 1; i >= 0; i--) { if (iRadie(punkter[i])) ankomstIdx = i; else break }
     const ankomst = punkter[ankomstIdx]
-    const minSedanAnkomst = (Date.now() - Date.parse(ankomst.tidpunkt)) / 60000
+
+    // En runda kan inte ta slut innan den började (rotorsak till 514d88e1, 12 aug
+    // 2026: rundan startades på basen 18:33 men fick sluttid 11 aug 10:43). En
+    // parkerad bil sänder EN fryst punkt, så den "senaste ankomsten" i loggen kan
+    // ligga dagar före rundans start. Då har bilen inte rört sig sedan rundan
+    // började: tröskeln mäts från rundans start och sluttiden blir aldrig äldre
+    // än den. Ankomstpunktens odometer gäller fortfarande (bilen står där).
+    const startMs = Date.parse(oppen.starttid)
+    const ankomstMs = Date.parse(ankomst.tidpunkt)
+    const ankomstEfterStart = ankomstMs >= startMs
+    const slutTid = ankomstEfterStart ? ankomst.tidpunkt : oppen.starttid
+    const minSedanAnkomst = (Date.now() - Math.max(ankomstMs, startMs)) / 60000
     if (minSedanAnkomst < stangMin) {
       return { atgard: rorEjSvar, detalj: `hemma ${Math.round(minSedanAnkomst)}/${stangMin} min${manuell ? ' (säkerhetsnät)' : ''}` }
     }
 
     // ── STÄNG (auto-tröskel ELLER säkerhetsnät): slut = ankomstpunkten (inkl. hemresan i odometern) ──
     const startOdo: number | null = oppen.start_odometer_m
-    const matareKm = startOdo != null ? Math.round(((ankomst.odometer_m - startOdo) / 1000) * 10) / 10 : null
+    let matareKm: number | null = startOdo != null ? Math.round(((ankomst.odometer_m - startOdo) / 1000) * 10) / 10 : null
+    if (matareKm != null && matareKm < 0) matareKm = null               // trasig data → hellre tomt
 
     // Bränsle: startpunktens bransle_ml via start_odometer_tid
     let bransleL: number | null = null
@@ -128,6 +181,7 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
         ?? (await db.from('lastbil_logg').select('bransle_ml').eq('vin', vin).eq('tidpunkt', oppen.start_odometer_tid).maybeSingle()).data?.bransle_ml
       if (startBransle != null) bransleL = Math.round(((ankomst.bransle_ml - startBransle) / 1000) * 10) / 10
     }
+    if (bransleL != null && bransleL < 0) bransleL = null               // mätarbrus på en stillastående bil är ingen förbrukning
 
     // Flytt i rundan? → avslutad, annars övrig körning (räknas aldrig i flyttstatistik)
     const { count } = await db.from('maskin_flytt')
@@ -143,7 +197,7 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
     if (oppen.hemresa_start_odometer_m != null) {
       hemKm = Math.round(((ankomst.odometer_m - oppen.hemresa_start_odometer_m) / 1000) * 10) / 10
       if (oppen.hemresa_start_tid) tidHemMin = Math.round((Date.parse(ankomst.tidpunkt) - Date.parse(oppen.hemresa_start_tid)) / 60000)
-    } else if (ankomstIdx > 0) {
+    } else if (ankomstEfterStart && ankomstIdx > 0) {
       const avfardHem = punkter[ankomstIdx - 1]
       hemKm = Math.round(((ankomst.odometer_m - avfardHem.odometer_m) / 1000) * 10) / 10
       tidHemMin = Math.round((Date.parse(ankomst.tidpunkt) - Date.parse(avfardHem.tidpunkt)) / 60000)
@@ -151,9 +205,9 @@ export async function koraRundlogik(db: Db): Promise<RundRapport> {
     if (hemKm != null && hemKm < 0) hemKm = null                       // trasig data → hellre tomt
     if (tidHemMin != null && (tidHemMin < 0 || tidHemMin > 960)) tidHemMin = null
 
-    const raMin = Math.round((Date.parse(ankomst.tidpunkt) - Date.parse(oppen.starttid)) / 60000)
+    const raMin = Math.round((Date.parse(slutTid) - startMs) / 60000)
     const { error } = await db.from('flyttdag').update({
-      sluttid: ankomst.tidpunkt,
+      sluttid: slutTid,
       slut_lat: bas.lat, slut_lng: bas.lng,
       slut_odometer_m: ankomst.odometer_m, slut_odometer_tid: ankomst.tidpunkt,
       matare_km: matareKm, bransle_l: bransleL,
