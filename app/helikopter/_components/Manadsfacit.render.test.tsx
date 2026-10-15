@@ -10,8 +10,9 @@ import facitSep from '../_lib/__fixtures__/manadsfacit_2026-09.json'
 import historikOkt from '../_lib/__fixtures__/historik_2026-10-15.json'
 import { lasHistorik, lasManadsfacit } from '../_lib/manadsfacit'
 
-const q = vi.hoisted(() => ({ hamtaHistorik: vi.fn(), hamtaManadsfacit: vi.fn(), params: '' }))
+const q = vi.hoisted(() => ({ hamtaHistorik: vi.fn(), hamtaManadsfacit: vi.fn(), skapaPdf: vi.fn(), params: '' }))
 vi.mock('../_lib/queries', () => ({ hamtaHistorik: q.hamtaHistorik, hamtaManadsfacit: q.hamtaManadsfacit }))
+vi.mock('../_lib/manadsfacitDela', () => ({ skapaManadsfacitPdf: q.skapaPdf, delaManadsfacit: vi.fn() }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params) }))
 
 import HistorikInnehall from './HistorikInnehall'
@@ -26,7 +27,7 @@ async function monter(el: React.ReactElement) {
   await act(async () => { root!.render(el) })
   await act(async () => { await Promise.resolve() })
 }
-beforeEach(() => { q.hamtaHistorik.mockReset(); q.hamtaManadsfacit.mockReset(); q.params = '' })
+beforeEach(() => { q.hamtaHistorik.mockReset(); q.hamtaManadsfacit.mockReset(); q.skapaPdf.mockReset(); q.params = '' })
 afterEach(async () => { await act(async () => { root?.unmount() }); cont?.remove(); root = null })
 const text = () => cont.textContent ?? ''
 const knapp = (t: string) => Array.from(cont.querySelectorAll('button')).find(b => b.textContent === t) as HTMLButtonElement | undefined
@@ -150,5 +151,22 @@ describe('ManadsfacitVy', () => {
     const alla = Array.from(document.body.querySelectorAll('button')).map(b => b.textContent ?? '')
     expect(alla.some(t => t.includes('Dela som PDF'))).toBe(true)
     expect(alla.some(t => t.includes('Dela som bild'))).toBe(true)
+  })
+
+  it('"Dela som PDF" öppnar förhandsvisningen (PDF skapas då) i stället för att dela direkt', async () => {
+    q.params = 'ar=2026&manad=9'
+    q.hamtaManadsfacit.mockResolvedValue({ data: lasManadsfacit(facitSep), error: null })
+    q.skapaPdf.mockReturnValue(new Promise(() => {})) // aldrig klar: vi vill se laddar-läget
+    await monter(<ManadsfacitVy />)
+    await act(async () => { (cont.querySelector('button[aria-label="Dela månadsfacit"]') as HTMLButtonElement).click() })
+    expect(q.skapaPdf).not.toHaveBeenCalled() // arket öppet, ingenting skapat än
+    const pdfRad = Array.from(document.body.querySelectorAll('button')).find(b => (b.textContent ?? '').includes('Dela som PDF')) as HTMLButtonElement
+    await act(async () => { pdfRad.click() })
+    await act(async () => { await Promise.resolve() })
+    expect(document.body.querySelector('[role=dialog][aria-label="Förhandsvisning av PDF"]')).toBeTruthy()
+    expect(document.body.textContent).toContain('Skapar PDF…')
+    expect(q.skapaPdf).toHaveBeenCalledTimes(1)
+    // Delaarket är stängt.
+    expect(Array.from(document.body.querySelectorAll('button')).some(b => (b.textContent ?? '').includes('Dela som bild'))).toBe(false)
   })
 })

@@ -16,10 +16,9 @@ import type { DelaResultat } from '../_lib/veckolageDela'
 import { Fel, Laddar, Tomt } from './Tillstand'
 import ManadsfacitInnehall from './ManadsfacitInnehall'
 import DelaRad from './DelaRad'
+import PdfForhandsvisning from './PdfForhandsvisning'
 import { HK_CSS } from './Lista'
 import { Ikon } from './Ikon'
-
-type Slag = 'pdf' | 'bild'
 
 /** Föregående månad relativt idag ("2026-10-15" → 2026, 9). */
 function forraManaden(idag: string): { ar: number; manad: number } {
@@ -42,7 +41,8 @@ export default function ManadsfacitVy() {
   const [fel, setFel] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
   const [delaOppen, setDelaOppen] = useState(false)
-  const [jobb, setJobb] = useState<Slag | null>(null)
+  const [jobb, setJobb] = useState(false)
+  const [pdfOppen, setPdfOppen] = useState(false)
   const [delaText, setDelaText] = useState<{ text: string; fel: boolean } | null>(null)
 
   useEffect(() => {
@@ -59,23 +59,25 @@ export default function ManadsfacitVy() {
   const modell = useMemo(() => (facit ? facitModell(facit) : null), [facit])
   const undertext = !facit ? (fel ? '' : 'Laddar…') : !modell ? '' : facit.status === 'pagaende' ? 'mot beställning · månaden pågår' : 'mot beställning'
 
-  async function dela(slag: Slag) {
+  // Bilden delas direkt (man ser skärmen redan). PDF:en förhandsvisas först (PdfForhandsvisning).
+  async function delaBild() {
     if (!modell || jobb) return
-    setJobb(slag)
-    setDelaText({ text: slag === 'pdf' ? 'Skapar PDF…' : 'Skapar bild…', fel: false })
+    setJobb(true)
+    setDelaText({ text: 'Skapar bild…', fel: false })
     try {
       const { delaManadsfacit } = await import('../_lib/manadsfacitDela')
-      const r: DelaResultat = await delaManadsfacit(modell, slag)
+      const r: DelaResultat = await delaManadsfacit(modell, 'bild')
       if (r === 'avbruten') setDelaText(null)
-      else setDelaText({ text: r === 'delad' ? 'Delad' : `Nedladdad som ${modell.filnamn}.${slag === 'pdf' ? 'pdf' : 'png'}`, fel: false })
+      else setDelaText({ text: r === 'delad' ? 'Delad' : `Nedladdad som ${modell.filnamn}.png`, fel: false })
       if (r === 'delad') setDelaOppen(false)
     } catch (e) {
       console.error('[manadsfacit] dela misslyckades', e)
       setDelaText({ text: 'Kunde inte skapa filen – försök igen', fel: true })
     } finally {
-      setJobb(null)
+      setJobb(false)
     }
   }
+  const oppnaPdf = () => { setDelaOppen(false); setPdfOppen(true) }
 
   return (
     <div style={{ ...VY_ROT, padding: 0, minHeight: ROT_MIN_HOJD, paddingBottom: AVSTAND.xxl }}>
@@ -114,13 +116,21 @@ export default function ManadsfacitVy() {
       {modell && (
         <Sheet open={delaOppen} onClose={() => setDelaOppen(false)} title="Dela">
           <div className="hk-grupp">
-            <DelaRad text="Dela som PDF" under="A4, ljus bakgrund" onClick={() => dela('pdf')} upptagen={jobb === 'pdf'} inaktiv={jobb != null} />
-            <DelaRad text="Dela som bild" under="PNG av sidan" onClick={() => dela('bild')} upptagen={jobb === 'bild'} inaktiv={jobb != null} />
+            <DelaRad text="Dela som PDF" under="A4, ljus bakgrund" onClick={oppnaPdf} upptagen={false} inaktiv={jobb} />
+            <DelaRad text="Dela som bild" under="PNG av sidan" onClick={delaBild} upptagen={jobb} inaktiv={jobb} />
           </div>
           {delaText && (
             <div role="status" style={{ ...TYP.meta, color: delaText.fel ? FARG.orange : FARG.text2, padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px` }}>{delaText.text}</div>
           )}
         </Sheet>
+      )}
+      {modell && pdfOppen && (
+        <PdfForhandsvisning
+          skapa={async () => (await import('../_lib/manadsfacitDela')).skapaManadsfacitPdf(modell)}
+          filnamn={modell.filnamn}
+          titel={`Månadsfacit ${modell.manadNamn} ${modell.ar}`}
+          onStang={() => setPdfOppen(false)}
+        />
       )}
     </div>
   )
