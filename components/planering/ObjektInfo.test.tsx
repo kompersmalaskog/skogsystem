@@ -249,19 +249,32 @@ describe('Om trakten › På kartan — läsbarhet (Skälviken)', () => {
     expect(qa('om-avstand').length).toBeGreaterThan(0);
   });
 
-  it('korta kommentarer av samma typ är EN rad ("Vägar · Gul väg · Röd väg ×2"); tryck fäller ut en rad per markering med Visa ›', async () => {
+  it('korta kommentarer av samma typ är EN rad ("Vägar · Gul väg · Röd väg"); tryck fäller ut en rad per markering med Visa ›; basvägen har egen rad', async () => {
     await oppnaOm(props({ markeringar: SK, pos: null }));
     const samlad = qa('om-samlad');
     expect(samlad.length).toBe(1);
-    expect(q('om-samlad-text')!.textContent).toBe('Vägar · Gul väg · Röd väg ×2');
+    expect(q('om-samlad-text')!.textContent).toBe('Vägar · Gul väg · Röd väg');
     expect(q('om-samlad-lista')).toBeNull();
     klicka(q('om-samlad-knapp'));
     const inre = Array.from(q('om-samlad-lista')!.querySelectorAll('[data-testid="om-markering"]'));
-    expect(inre.map((r) => r.getAttribute('data-id'))).toEqual(['v1', 'v2', 'v3']);
-    klicka(inre[2].querySelector('[data-testid="om-visa"]'));
-    expect(spion.visa).toEqual(['v3:ark']);
+    expect(inre.map((r) => r.getAttribute('data-id'))).toEqual(['v1', 'v2']);
+    klicka(inre[1].querySelector('[data-testid="om-visa"]'));
+    expect(spion.visa).toEqual(['v2:ark']);
     klicka(q('om-samlad-knapp'));
     expect(q('om-samlad-lista')).toBeNull();
+  });
+
+  it('basvägar listas under Vägar som "Basväg röd · 640 m" (även utan kommentar); en äldre basväg utan färg: "Basväg · 1,25 km"; kommentaren står under', async () => {
+    const bv = (o: Partial<KartMarkering> & { id: string }) => M({ slag: 'linje', typ: 'mainRoad', namn: 'Basväg', lat: 56.4, lng: 14.7, ...o });
+    await oppnaOm(props({ pos: null, markeringar: [
+      bv({ id: 'b1', farg: 'red', langdM: 640, skapad: 1 }),
+      bv({ id: 'b2', langdM: 1250, comment: 'Kör inte vid regn', skapad: 2 }),
+      bv({ id: 'b3', farg: 'blue', langdM: 90, skapad: 3 }),
+    ] }));
+    const rader = qa('om-markering').filter((r) => q('om-vagar')!.contains(r));
+    expect(rader.map((r) => r.querySelector('[data-testid="om-huvudtext"]')!.textContent)).toEqual(['Basväg röd · 640 m', 'Basväg · 1,25 km', 'Basväg blå · 90 m']);
+    expect(rader[1].querySelector('[data-testid="om-symbolnamn"]')!.textContent).toBe('Kör inte vid regn');
+    expect(rader[0].querySelector('[data-testid="om-symbolnamn"]')).toBeNull();
   });
 });
 

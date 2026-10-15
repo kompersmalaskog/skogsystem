@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, behoverLasAllt, sammanfattaMarkeringar, markeringsRad, antalPerTyp, namnMedAntal,
-  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, efektivPos, markeringsGrupp, byggMarkeringsGrupper, samladText, arKortKommentar, type KartMarkering, type MerIn,
+  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, efektivPos, markeringsGrupp, byggMarkeringsGrupper, samladText, arKortKommentar, arBasvag, visasIListan, type KartMarkering, type MerIn,
 } from './objektKort';
 
 const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
@@ -295,13 +295,15 @@ describe('Om trakten › På kartan: avstånd, grupper och sammanslagning (Skäl
     expect(g.flatMap((x) => x.rader).flatMap((r) => r.markeringar).map((m) => m.id)).not.toContain('tom');
   });
 
-  it('korta kommentarer av samma typ blir EN rad: "Vägar · Röd väg ×3 · Gul väg ×2" (ordning, stor/liten bokstav och slutmellanslag spelar ingen roll)', () => {
+  it('korta kommentarer av samma typ blir EN rad: "Vägar · Gul väg ×2 · Röd väg ×2" (stor/liten bokstav och slutmellanslag spelar ingen roll); basvägen har egen rad', () => {
     const vagar = byggMarkeringsGrupper(ms, null).find((x) => x.grupp === 'vagar')!;
-    expect(vagar.rader.length).toBe(1);
+    expect(vagar.rader.length).toBe(2);
     const r = vagar.rader[0];
     expect(r.samlad).toBe(true);
-    expect(r.markeringar.length).toBe(5);
-    expect(samladText(r)).toBe('Vägar · Gul väg ×2 · Röd väg ×3');   // delarna i den ordning de först förekommer (Gul först i skapad ordning)
+    expect(r.markeringar.map((m) => m.id)).toEqual(['v1', 'v2', 'v4', 'v5']);
+    expect(samladText(r)).toBe('Vägar · Gul väg ×2 · Röd väg ×2');   // delarna i den ordning de först förekommer (Gul först i skapad ordning)
+    expect(vagar.rader[1].samlad).toBe(false);
+    expect(vagar.rader[1].markeringar[0].id).toBe('v3');   // basvägen (linjen) slås aldrig ihop med väg-symbolerna
   });
 
   it('en ensam kort kommentar, en lång text och ett foto slås inte ihop', () => {
@@ -329,5 +331,26 @@ describe('Om trakten › På kartan: avstånd, grupper och sammanslagning (Skäl
     const faror = (pos: { lat: number; lng: number } | null) => byggMarkeringsGrupper(ms, pos).find((x) => x.grupp === 'faror')!.rader.map((r) => r.markeringar[0].id);
     expect(faror(null)).toEqual(['f1', 'f2']);
     expect(faror({ lat: 56.401, lng: 14.7 })).toEqual(['f2', 'f1']);   // står vid jakttornet
+  });
+});
+
+describe('basväg i Om trakten (färg och längd)', () => {
+  const bv = (o: Partial<KartMarkering> & { id: string }) => M({ slag: 'linje', typ: 'mainRoad', namn: 'Basväg', ...o });
+  it('en basväg listas alltid — även utan kommentar — men räknas inte som "med text" och inte som "utan kommentar"', () => {
+    const ms2 = [bv({ id: 'b1', farg: 'red', langdM: 640 }), M({ id: 'h', slag: 'symbol', typ: 'highstump' })];
+    expect(arBasvag(ms2[0])).toBe(true);
+    expect(visasIListan(ms2[0])).toBe(true);
+    expect(visasIListan(ms2[1])).toBe(false);
+    expect(sammanfattaMarkeringar(ms2).medText).toBe(0);
+    expect(antalPerTyp(ms2)).toBe('1 högstubbe');   // basvägen listas på egen rad, den är inte "utan kommentar"
+    const g = byggMarkeringsGrupper(ms2, null);
+    expect(g.map((x) => x.grupp)).toEqual(['vagar']);
+    expect(g[0].rader.map((r) => r.markeringar[0].id)).toEqual(['b1']);
+  });
+  it('två basvägar slås INTE ihop, inte ens med lika korta kommentarer', () => {
+    const g = byggMarkeringsGrupper([bv({ id: 'a', comment: 'Röd väg', skapad: 1 }), bv({ id: 'b', comment: 'Röd väg', skapad: 2 })], null);
+    expect(g[0].rader.length).toBe(2);
+    expect(g[0].rader.every((r) => !r.samlad)).toBe(true);
+    expect(arKortKommentar(bv({ id: 'c', comment: 'Röd väg' }))).toBe(false);
   });
 });

@@ -119,6 +119,9 @@ export interface KartMarkering {
   photoTs?: number | null;
   lat: number | null;
   lng: number | null;
+  /** basväg (mainRoad): vald färg (röd/gul/blå) och längd i meter — "Basväg röd · 640 m" i Om trakten */
+  farg?: string | null;
+  langdM?: number | null;
   /** hela linjen/ytan (lat/lng per punkt) — bara linjer och zoner; symbolen har bara lat/lng. "Visa ›" framhäver HELA figuren, inte en punkt. */
   geometri?: { lat: number; lng: number }[];
   /** när den skapades (ms) om det går att läsa ur id:t, annars null */
@@ -131,6 +134,10 @@ export const harText = (m: Pick<KartMarkering, 'comment'>): boolean => !!m.comme
 export const harFoto = (m: Pick<KartMarkering, 'photoPath' | 'photoData'>): boolean => !!(m.photoPath || m.photoData);
 /** Med kommentar eller foto — de som får en rad i "På kartan". */
 export const harInnehall = (m: KartMarkering): boolean => harText(m) || harFoto(m);
+/** En basväg listas alltid i Om trakten (under Vägar, med färg och längd), också utan kommentar. Den räknas ändå inte som "med text". */
+export const arBasvag = (m: Pick<KartMarkering, 'slag' | 'typ'>): boolean => m.slag === 'linje' && m.typ === 'mainRoad';
+/** Det som får en rad i "På kartan": markeringar med kommentar eller foto, och basvägarna. */
+export const visasIListan = (m: KartMarkering): boolean => harInnehall(m) || arBasvag(m);
 
 export interface MarkeringsSammanfattning { antal: number; medText: number }
 /** Raden i kortet: "N markeringar · M med text". "Med text" = med kommentar eller foto (det Om trakten listar). */
@@ -169,7 +176,7 @@ export function namnMedAntal(slag: MarkeringsSlag, typ: string, fallbackNamn: st
 export function antalPerTyp(ms: readonly KartMarkering[]): string {
   const grupper = new Map<string, { slag: MarkeringsSlag; typ: string; namn: string; n: number }>();
   for (const m of ms) {
-    if (harInnehall(m)) continue;
+    if (harInnehall(m) || arBasvag(m)) continue;   // basvägarna listas på egna rader
     const k = `${m.slag}:${m.typ}`;
     const g = grupper.get(k);
     if (g) g.n += 1; else grupper.set(k, { slag: m.slag, typ: m.typ, namn: m.namn, n: 1 });
@@ -250,7 +257,8 @@ export function markeringsGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): Markeri
 
 /** En kort kommentar ("Röd väg") går att slå ihop med likadana; en lång text eller ett foto står för sig. */
 export const KORT_KOMMENTAR_TECKEN = 24;
-export const arKortKommentar = (m: Pick<KartMarkering, 'comment' | 'photoPath' | 'photoData'>): boolean => {
+export const arKortKommentar = (m: Pick<KartMarkering, 'comment' | 'photoPath' | 'photoData' | 'slag' | 'typ'>): boolean => {
+  if (arBasvag(m)) return false;   // en basväg har egen rad med färg och längd
   const c = m.comment.trim();
   return c !== '' && c.length <= KORT_KOMMENTAR_TECKEN && !harFoto(m);
 };
@@ -286,7 +294,7 @@ export function samladText(r: Pick<MarkeringsRad, 'rubrik' | 'delar'>): string {
  * (alla vägar — symbol som linje — räknas som samma typ: "Vägar"); en ensam, en lång text och ett foto står för sig.
  */
 export function byggMarkeringsGrupper(ms: readonly KartMarkering[], pos: { lat: number; lng: number } | null): MarkeringsGruppRader[] {
-  const sorterade = sorteraMarkeringar(ms.filter(harInnehall), pos);
+  const sorterade = sorteraMarkeringar(ms.filter(visasIListan), pos);
   const ut: MarkeringsGruppRader[] = [];
   for (const g of GRUPPER_I_ORDNING) {
     const iGrupp = sorterade.filter((m) => markeringsGrupp(m) === g);

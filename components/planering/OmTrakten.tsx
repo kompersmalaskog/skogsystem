@@ -12,9 +12,10 @@ import React, { useMemo, useState } from 'react';
 import MarkeringFoto from '@/app/planering/MarkeringFoto';
 import { AVSTAND, FARG, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import {
-  antalPerTyp, avstandText, byggMarkeringsGrupper, efektivPos, filtreraMarkeringar, harFoto, harInnehall, matcharSok, samladText,
+  antalPerTyp, arBasvag, avstandText, byggMarkeringsGrupper, efektivPos, filtreraMarkeringar, harFoto, matcharSok, samladText, visasIListan,
   type KartMarkering, type MarkeringMedAvstand, type MarkeringsRad, type TillForarenPost,
 } from '@/lib/objektKort';
+import { basvagText } from '@/lib/basvag';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
 
 export interface OmYta { nr: number; typLabel: string; text: string | null; harLjud: boolean; harFoto: boolean; onOppna: () => void }
@@ -45,7 +46,7 @@ export default function OmTrakten(p: OmTraktenProps) {
   const [q, setQ] = useState('');
   // Avstånd och "närmast först" gäller bara när man är på trakten (inom ca 1 km); annars skapad ordning och ingen avståndstext.
   const pos = useMemo(() => efektivPos(p.pos, p.markeringar), [p.pos, p.markeringar]);
-  const traffar = useMemo(() => filtreraMarkeringar(p.markeringar.filter(harInnehall), q), [p.markeringar, q]);
+  const traffar = useMemo(() => filtreraMarkeringar(p.markeringar.filter(visasIListan), q), [p.markeringar, q]);
   const grupper = useMemo(() => byggMarkeringsGrupper(traffar, pos), [traffar, pos]);
   const rader = (g: 'faror' | 'ovrigt' | 'vagar') => grupper.find((x) => x.grupp === g)?.rader ?? [];
   const utanKommentar = useMemo(() => antalPerTyp(p.markeringar), [p.markeringar]);
@@ -202,14 +203,18 @@ function Samlad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
 function Markering({ m, ikon, framhavd, inre = false, onVisa, onFoto }: { m: MarkeringMedAvstand; ikon: React.ReactNode; framhavd: boolean; inre?: boolean; onVisa: () => void; onFoto: (src: string) => void }) {
   const foto = harFoto(m);
   const komm = m.comment.trim();
+  // Basväg: huvudtexten är "Basväg röd · 640 m" (färg och längd); en ev. kommentar står under.
+  const basvag = arBasvag(m);
+  const huvud = basvag ? basvagText(m.farg, m.langdM) : (komm || m.namn);
+  const under = basvag ? komm : (komm ? m.namn : '');
   return (
     <div data-testid="om-markering" data-id={m.id} data-framhavd={framhavd ? '1' : '0'}
       style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: inre ? FARG.fyllning : FARG.upphojt, boxShadow: framhavd ? `inset 0 0 0 2px ${FARG.text}` : 'none' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m }}>
         <span style={{ flexShrink: 0, display: 'inline-flex' }}>{ikon}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span data-testid="om-huvudtext" style={{ display: 'block', ...TYP.listtitel, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{komm || m.namn}</span>
-          {komm && <span data-testid="om-symbolnamn" style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>{m.namn}</span>}
+          <span data-testid="om-huvudtext" style={{ display: 'block', ...TYP.listtitel, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{huvud}</span>
+          {under && <span data-testid="om-symbolnamn" style={{ display: 'block', ...TYP.meta, color: FARG.text2, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{under}</span>}
         </span>
         <span style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
           {m.avstandM != null && <span data-testid="om-avstand" style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{avstandText(m.avstandM)}</span>}

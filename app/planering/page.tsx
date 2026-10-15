@@ -67,6 +67,7 @@ import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKateg
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, type FramhavdMarkering } from '../../lib/omTraktenFramhav'
 import { startaFramhavning } from '../../lib/omTraktenFramhavKarta'
+import { arBasvagFarg, basvagFargHex, basvagLangdM } from '../../lib/basvag'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
@@ -13908,7 +13909,7 @@ export default function PlannerPage() {
           if (!slag) return;
           const tid = Number(m.id);
           kartMarkeringar.push({ id: String(m.id), slag, typ, namn, comment: String(m.comment ?? '').trim(), photoPath: m.photoPath ?? null, photoData: m.photoData ?? null, photoTs: m.photoTs ?? null,
-            lat: pos?.lat ?? null, lng: pos?.lon ?? null, geometri, skapad: Number.isFinite(tid) && tid > 1e11 ? tid : null, ordning: i });
+            lat: pos?.lat ?? null, lng: pos?.lon ?? null, geometri, ...(slag === 'linje' && typ === 'mainRoad' ? { farg: arBasvagFarg(m.farg) ? m.farg : null, langdM: geometri ? basvagLangdM(geometri) : null } : {}), skapad: Number.isFinite(tid) && tid > 1e11 ? tid : null, ordning: i });
         });
         // Listans ikon = kartans: symbolen i sin RIKTIGA färg och vita ring (getIconDef — samma källa som kartlagret och dockan), linjen i sin kartfärg
         // (randig/streckad som ritad), ytan i sin zonfärg.
@@ -13920,7 +13921,7 @@ export default function PlannerPage() {
           }
           return (
             <span style={{ width: ikonPx, height: ikonPx, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-              {m.slag === 'linje' ? linjeSwatch(m.typ) : <span style={{ width: AVSTAND.l + AVSTAND.xs, height: AVSTAND.m, borderRadius: AVSTAND.xs, background: (zoneTypes.find(z => z.id === m.typ) as any)?.color || FARG.text3 }} />}
+              {m.slag === 'linje' ? (m.typ === 'mainRoad' && arBasvagFarg(m.farg) ? <span style={{ width: AVSTAND.l + AVSTAND.xs, height: AVSTAND.xs, borderRadius: AVSTAND.xs / 2, background: basvagFargHex(m.farg), flexShrink: 0 }} /> : linjeSwatch(m.typ)) : <span style={{ width: AVSTAND.l + AVSTAND.xs, height: AVSTAND.m, borderRadius: AVSTAND.xs, background: (zoneTypes.find(z => z.id === m.typ) as any)?.color || FARG.text3 }} />}
             </span>
           );
         };
