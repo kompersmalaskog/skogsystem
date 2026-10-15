@@ -3,6 +3,7 @@ import './globals.css'
 import TopBar from '../components/TopBar'
 import PushRegister from '../components/PushRegister'
 import PushNavigering from '../components/PushNavigering'
+import FotoKoStartare from '../components/FotoKoStartare'
 import VersionChecker from '../components/VersionChecker'
 import AppStartVakt from '../components/AppStartVakt'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
@@ -56,6 +57,7 @@ export default function RootLayout({
         <AppStartVakt />
         <PushRegister />
         <PushNavigering />
+        <FotoKoStartare />
         <CurrentMedarbetareProvider>
           {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}
           <div style={{ paddingTop: LAYOUT.topbar }}>

@@ -96,8 +96,10 @@ import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, getIconDef, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
 import { ZONE_COLORS } from '@/lib/zone-colors'
 import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
-import { harFoto, byggFotoSokvag, komprimeraMarkeringFoto, laddaUppMarkeringFoto } from '@/lib/markeringFoto'
-import MarkeringFoto from './MarkeringFoto'
+import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
+import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
+import { fotoNyckel } from '@/lib/fotoKo'
+import MarkeringFoto, { FotoVantarIkon } from './MarkeringFoto'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -1122,6 +1124,8 @@ export default function PlannerPage() {
   // Ta bort en markering från Supabase
   const deleteMarkerFromDb = useCallback(async (markerId: string | number) => {
     if (!valtObjekt?.id) return;
+    // Ett foto som väntar på uppladdning hör till markeringen: tas den bort ska fotot bort också (Storage-filen städas av nattcronet).
+    tomFotoForMarkering(String(valtObjekt.id), String(markerId)).catch(() => {});
     const pagar = markerSparPagarRef.current.get(String(markerId));
     if (pagar) { try { await pagar; } catch { /* sparfelet loggas redan */ } }
     const { error } = await supabase
@@ -11969,9 +11973,8 @@ export default function PlannerPage() {
   }, [draggingMarker, rotatingArrow]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hantera foto från kamera
-  // Foton går till Storage (komprimerat: max 1600 px, JPEG 0.7) — aldrig som base64 in i data.
-  // Misslyckas uppladdningen sparas INGET inbäddat foto (det vore tillbaka till 9 MB-raderna);
-  // föraren får ett besked och kan ta om bilden.
+  // Ett taget foto sparas LOKALT och beständigt direkt (lib/markeringFotoKo) och visas på markeringen genast; kön laddar upp det i bakgrunden när
+  // nätet finns, och sätter photoPath när det är uppe (lyssnaren nedan). Aldrig "ta om bilden" för att nätet saknas — och aldrig base64 in i data.
   const handlePhotoCapture = async (e) => {
     const file = e.target.files?.[0];
     const markerId = pendingPhotoMarkerId;
@@ -11981,26 +11984,46 @@ export default function PlannerPage() {
     if (!file || !markerId || !objektId) return;
     try {
       const blob = await komprimeraMarkeringFoto(file);
-      const path = await laddaUppMarkeringFoto(byggFotoSokvag(objektId, markerId), blob);
-      // Objektet kan ha bytts under uppladdningen → rör inte en annan trakts markörer.
+      await laggFotoIKo(String(objektId), String(markerId), blob);
+      // Objektet kan ha bytts under komprimeringen → rör inte en annan trakts meny.
       if (markersObjektIdRef.current !== objektId) return;
-      saveToHistory([...markers]);
-      // photoData bort: raden skrivs om utan det gamla inbäddade fotot (synken skickar hela data).
-      setMarkers(prev => prev.map(m =>
-        m.id === markerId
-          ? { ...m, photoPath: path, photoTs: Date.now(), photoData: undefined }
-          : m
-      ));
-      // Öppna menyn igen för samma markör
+      // Öppna menyn igen för samma markör: fotot syns (lokalt) direkt.
       setMarkerMenuOpen(markerId);
     } catch (err: any) {
-      console.error('Foto-uppladdning fel:', err);
-      visaBesked('Fotot kunde inte sparas: ' + (err?.message || 'okänt fel') + '. Ta om bilden.');
+      console.error('Foto-sparning fel:', err);
+      visaBesked('Fotot kunde inte sparas på enheten: ' + (err?.message || 'okänt fel') + '. Ta om bilden.');
     } finally {
       setPendingPhotoMarkerId(null);
     }
   };
-  
+
+  // Foton som väntar på uppladdning på den här enheten (nycklar `objekt/markering`) — styr väntar-ikonen och visar fotot lokalt.
+  const [fotoVantar, setFotoVantar] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let avbruten = false;
+    const las = () => { vantandeFotoNycklar().then((n) => { if (!avbruten) setFotoVantar((prev) => (prev.size === n.size && Array.from(n).every((k) => prev.has(k)) ? prev : n)); }).catch(() => {}); };
+    las();
+    const av = prenumereraFotoKo(las);
+    return () => { avbruten = true; av(); };
+  }, []);
+  const lokalFotoFor = (m: { id: string | number }) => {
+    const oid = valtObjekt?.id;
+    return oid && fotoVantar.has(fotoNyckel(oid, m.id)) ? { objektId: String(oid), markerId: String(m.id) } : null;
+  };
+  // Fotot kom upp: sätt photoPath i minnet (synken skriver raden). Är markeringen i ett annat objekt eller inte inläst patchar kön raden direkt.
+  useEffect(() => {
+    const h = (ev: Event) => {
+      const d = (ev as CustomEvent<FotoUppeDetail>).detail;
+      if (!d || markersObjektIdRef.current !== d.objektId) return;
+      setMarkers((prev) => {
+        const behover = (m: any) => String(m.id) === d.markerId && (m.photoPath !== d.sokvag || m.photoTs !== d.skapad || m.photoData);
+        return prev.some(behover) ? prev.map((m: any) => (behover(m) ? { ...m, photoPath: d.sokvag, photoTs: d.skapad, photoData: undefined } : m)) : prev;
+      });
+    };
+    window.addEventListener(FOTO_UPPE_EVENT, h);
+    return () => window.removeEventListener(FOTO_UPPE_EVENT, h);
+  }, []);
+
   // Klick på linjer/zoner (kan inte dras)
   const handleMarkerClick = (e, marker) => {
     e.stopPropagation();
@@ -14323,7 +14346,7 @@ export default function PlannerPage() {
                           <button key={m.id} type="button" className="btn-press" onClick={() => flyTill(m)}
                             style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', width: '100%', background: '#161618', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
                             {m.photoData && !m.photoPath && <img src={m.photoData} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
-                            {m.photoPath && <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>📷</span>}
+                            {(m.photoPath || lokalFotoFor(m)) && <span aria-hidden="true" style={{ position: 'relative', width: AVSTAND.xxl + AVSTAND.s, height: AVSTAND.xxl + AVSTAND.s, borderRadius: RADIE.rad, background: FARG.fyllning, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: IKON.text, flexShrink: 0 }}>📷{lokalFotoFor(m) && <FotoVantarIkon style={{ top: -AVSTAND.xs, right: -AVSTAND.xs }} />}</span>}
                             <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: '#fff', lineHeight: 1.4 }}>{(m.comment || '').trim()}</span>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 6 L15 12 L9 18" /></svg>
                           </button>
@@ -14674,8 +14697,8 @@ export default function PlannerPage() {
                 {/* STORT KORT (inom radien): bild/ikon + namn + kommentar + stor Sett */}
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 12, opacity: big ? 1 : 0, transition: `opacity 0.3s ease ${big ? '0.12s' : '0s'}`, pointerEvents: big ? 'auto' : 'none' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    {harFoto(p) ? (
-                      <MarkeringFoto photoPath={p.photoPath} photoData={p.photoData} aktiv={big} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+                    {(harFoto(p) || lokalFotoFor(p)) ? (
+                      <MarkeringFoto lokal={lokalFotoFor(p)} photoPath={p.photoPath} photoData={p.photoData} aktiv={big} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
                     ) : (
                       <span style={{ width: 64, height: 64, borderRadius: 10, background: p.color, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
                         <span className="material-symbols-outlined" style={{ fontSize: '38px', color: '#fff' }}>warning</span>
@@ -16377,13 +16400,14 @@ export default function PlannerPage() {
               )}
 
               {/* Foto - klickbart för fullskärm */}
-              {harFoto(marker) && (
+              {(harFoto(marker) || lokalFotoFor(marker)) && (
                 <div style={{
                   marginBottom: '16px',
                   borderRadius: '16px',
                   overflow: 'hidden',
                 }}>
                   <MarkeringFoto
+                    lokal={lokalFotoFor(marker)}
                     photoPath={marker.photoPath}
                     photoData={marker.photoData}
                     photoTs={marker.photoTs}
@@ -18682,8 +18706,9 @@ export default function PlannerPage() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Foto - klickbart för fullskärm */}
-            {harFoto(editingMarker) && (
+            {(harFoto(editingMarker) || lokalFotoFor(editingMarker)) && (
               <MarkeringFoto
+                lokal={lokalFotoFor(editingMarker)}
                 photoPath={editingMarker.photoPath}
                 photoData={editingMarker.photoData}
                 photoTs={editingMarker.photoTs}
