@@ -367,7 +367,7 @@ select * from (values
 ) as t(typ, km, forvantat)
 where fakturerbar_for(typ, km) is distinct from forvantat;
 
--- 2. Låset och funktionerna finns. Förväntat: trg_maskin_flytt_las = true, tre funktioner.
+-- 2. Låset och funktionerna finns. Förväntat: las_finns = true, funktioner = 4.
 select (select count(*) = 1 from pg_trigger where tgname = 'trg_maskin_flytt_las' and not tgisinternal) as las_finns,
        (select count(*) from pg_proc where proname in ('ratta_flytt','stryk_flytt','fakturerbar_for','flytt_ar_last')) as funktioner;
 
