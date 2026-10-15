@@ -73,6 +73,7 @@ import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRI
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
+import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatResultat } from '../../lib/telefonGps'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
 import { arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
@@ -97,7 +98,7 @@ import { filtreraHyttsparRad, hyttsparInsertRad, kanLoggaHyttspar, type Hyttspar
 import { skapaJobb, narmasteVirkesobjekt, ytaKontextIds, avstandText as startaJobbAvstandText } from '../../lib/startaJobb'
 import { lasBesked } from '../../lib/startaJobbOverlamning'
 import IngetObjektKort, { type IngetObjektVal } from '../../components/planering/IngetObjektKort'
-import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, sattBaudValOchStartaOm, formateraFordrojning, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix } from '../../lib/gpsKalla'
+import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, sattBaudValOchStartaOm, formateraFordrojning, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix, senasteTelefonFixar } from '../../lib/gpsKalla'
 import { BAUDRATER, hamtaBaudVal, hamtaHittadBaud, effektivBaud, type BaudVal } from '../../lib/gpsBaud'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
@@ -2408,6 +2409,7 @@ export default function PlannerPage() {
   const [infoLarmKalla, setInfoLarmKalla] = useState<'td' | 'egen' | null>(null);
   const [infoLarmBekraftad, setInfoLarmBekraftad] = useState(false);
   const [larmPlacering, setLarmPlacering] = useState(false); // "Peka på karta"-läge (larmkoordinat)
+  const [larmSoker, setLarmSoker] = useState(false); // "Använd min GPS-position": samlar fixar (telefon)
   const larmPlaceringFromRef = useRef<'trakt' | 'karta'>('trakt'); // varifrån flytten startades
   const [larmPopupOpen, setLarmPopupOpen] = useState(false); // popup vid tryck på märket
   // Tryck på en trakt-feature (traktdel/hänsyn/avlägg/nyckelbiotop/lämning) → gemensamt kort.
@@ -9209,6 +9211,11 @@ export default function PlannerPage() {
         map.addSource('gps-position', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         console.log('[GPS-prick] gps-position source skapad');
       }
+      // Osäkerhetscirkel (telefonens GPS): radie = telefonens egen noggrannhet i VERKLIGA meter. Grov position (> 20 m) = orange, tydligare cirkel och
+      // orange prick — den visas inte som exakt. Maskindatorns serial-GPS har ingen uppmätt noggrannhet (hdop × 5 är en uppskattning) → ingen cirkel där.
+      if (!map.getSource('gps-osakerhet')) map.addSource('gps-osakerhet', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      if (!map.getLayer('gps-osakerhet-fyll')) map.addLayer({ id: 'gps-osakerhet-fyll', type: 'fill', source: 'gps-osakerhet', paint: { 'fill-color': FARG.bla, 'fill-opacity': 0.1 } });
+      if (!map.getLayer('gps-osakerhet-linje')) map.addLayer({ id: 'gps-osakerhet-linje', type: 'line', source: 'gps-osakerhet', paint: { 'line-color': FARG.bla, 'line-width': 1.5, 'line-opacity': 0.5 } });
       // Skapa de 3 layers om saknas
       if (!map.getLayer('gps-halo')) {
         map.addLayer({
@@ -9263,6 +9270,22 @@ export default function PlannerPage() {
       if (src) {
         src.setData({ type: 'FeatureCollection', features });
       }
+      // Osäkerhetscirkeln: bara telefonens GPS med uppmätt noggrannhet; grov = orange och tydligare
+      try {
+        const visaCirkel = draw && gpsKallaTyp === 'geolocation' && gpsAccuracy != null && Number.isFinite(gpsAccuracy) && gpsAccuracy > 0;
+        const grov = visaCirkel && gpsAccuracy! > TELEFON_GPS.BRA_M;
+        (map.getSource('gps-osakerhet') as any)?.setData(visaCirkel
+          ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: cirkelPolygon(draw!.lat, draw!.lon, Math.min(gpsAccuracy!, 5000)) }] }
+          : { type: 'FeatureCollection', features: [] });
+        const farg = grov ? FARG.orange : FARG.bla;
+        map.setPaintProperty('gps-osakerhet-fyll', 'fill-color', farg);
+        map.setPaintProperty('gps-osakerhet-fyll', 'fill-opacity', gpsFixFarsk ? (grov ? 0.2 : 0.1) : 0.05);
+        map.setPaintProperty('gps-osakerhet-linje', 'line-color', farg);
+        map.setPaintProperty('gps-osakerhet-linje', 'line-opacity', gpsFixFarsk ? (grov ? 0.9 : 0.5) : 0.2);
+        map.setPaintProperty('gps-osakerhet-linje', 'line-width', grov ? 2.5 : 1.5);
+        map.setPaintProperty('gps-dot', 'circle-color', grov ? FARG.orange : FARG.bla);
+        map.moveLayer('gps-osakerhet-fyll'); map.moveLayer('gps-osakerhet-linje');
+      } catch {}
       // ALLTID lyft överst (vid varje GPS-tick) — andra effects kan ha lagt layers ovanpå
       try { map.moveLayer('gps-halo'); } catch {}
       try { map.moveLayer('gps-ring'); } catch {}
@@ -9279,7 +9302,7 @@ export default function PlannerPage() {
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
     }
-  }, [currentPosition, mapLibreReady, gpsFixFarsk]);
+  }, [currentPosition, mapLibreReady, gpsFixFarsk, gpsAccuracy, gpsKallaTyp]);
 
   // === KÖRVY 3D-IMMERSION: setup engångsadditioner av sources/layers ===
   // Skapas vid mapLibreReady. Default visibility: 'none'. Toggleras av separat effekt.
@@ -12448,7 +12471,7 @@ export default function PlannerPage() {
   // ── PLACERING: EN väg för räknarna i pillen, "Vid maskinen", långtryck på kartan och tryck på kartan ──
   // Markören hamnar EXAKT där trycket träffade (inget förskjutet över fingret) och går att dra efteråt. Körvyn: kvitto med Ångra,
   // antal 1. Planeringen: som förut (antal-frågan för evighetsträd/naturhörna/högstubbe).
-  const placeraSymbol = (typ: string, lat: number, lon: number) => {
+  const placeraSymbol = (typ: string, lat: number, lon: number, osakerM?: number) => {
     const { x, y } = latLonToSvg(lat, lon);
     const id = Date.now();
     const m: any = nyMarkering(typ, id, x, y);
@@ -12462,14 +12485,24 @@ export default function PlannerPage() {
     setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
     setSelectedSymbol(null);
     noteraPlus({ typ: 'symbol', id: typ });
-    if (korvyActive) visaKvitto(kvittoRubrik(symbolNamn(typ)), 'ok', id);
+    if (korvyActive) visaKvitto(osakerM ? `${kvittoRubrik(symbolNamn(typ))} · osäker ±${osakerM} m` : kvittoRubrik(symbolNamn(typ)), 'ok', id);
   };
   placeraSymbolRef.current = placeraSymbol;
   // Vid maskinen: maskinens position — aldrig en gammal eller saknad (efter åldersvakten betyder gpsFixFarsk=false att den inte längre är maskinens)
-  const placeraVidMaskinen = (typ: string) => {
+  // Telefonens GPS: medelvärde av några sekunders BRA fixar (≤ 20 m) i stället för EN fix, med "Söker position…" om det inte går direkt. Maskindatorns
+  // serial-GPS är oförändrad (en position, direkt).
+  const samlaTelefonPosition = (): Promise<SamlatResultat | null> => samlaPosition({
+    prenumerera: (cb) => { const h = startaGpsKalla(cb); return () => h.stop(); },
+    forhand: senasteTelefonFixar().filter((f) => f.lat != null && f.lng != null).map((f) => ({ lat: f.lat as number, lng: f.lng as number, noggrannhetM: f.noggrannhetM ?? TELEFON_GPS.OKAND_ACC_M, tid: f.tid })),
+    onSoker: () => visaKvitto('Söker position…', 'ok'),
+  });
+  const placeraVidMaskinen = async (typ: string) => {
     const kan = kanPlaceraPaPosition(korvyEffectivePos, gpsFixFarsk);
     if (!kan.ok) { visaKvitto(placeringsFelText(kan.skal), 'fel'); return; }
-    placeraSymbol(typ, kan.pos.lat, kan.pos.lon);
+    if (gpsKallaTyp !== 'geolocation') { placeraSymbol(typ, kan.pos.lat, kan.pos.lon); return; }
+    const r = await samlaTelefonPosition();
+    if (!r) { placeraSymbol(typ, kan.pos.lat, kan.pos.lon); return; }   // inget nytt hann komma: senaste positionen, som förut
+    placeraSymbol(typ, r.lat, r.lng, r.bra ? undefined : r.noggrannhetM);
   };
   // ÅNGRA: tar bort markeringen ur listan OCH ur databasen (borttagningen väntar in en pågående spar → kan inte återuppstå).
   const angraKvitto = () => {
@@ -15305,7 +15338,7 @@ export default function PlannerPage() {
           zIndex: 150,
           transition: 'all 0.3s ease',
         }}>
-          GPS: {Math.round(gpsAccuracy)}m
+          {gpsKallaTyp === 'geolocation' ? `GPS ${osakerhetsText(gpsAccuracy)}` : `GPS: ${Math.round(gpsAccuracy)}m`}
         </div>
       )}
 
@@ -20505,6 +20538,19 @@ export default function PlannerPage() {
                     );
                   })()}
                   <button onClick={() => {
+                    // Telefonen: medelvärde av några sekunders bra fixar. Maskindatorn (serial): en fix som förut.
+                    if (gpsKallaTyp === 'geolocation') {
+                      if (larmSoker) return;
+                      setLarmSoker(true);
+                      samlaTelefonPosition().then((r) => {
+                        setLarmSoker(false);
+                        if (!r) return;
+                        setInfoLarmLat(r.lat.toFixed(6));
+                        setInfoLarmLng(r.lng.toFixed(6));
+                        setInfoLarmKalla('egen');
+                      });
+                      return;
+                    }
                     // Via GPS-KÄLLAN (delad hub) — aldrig navigator.geolocation direkt.
                     hamtaEnGpsFix(12000).then((fix) => {
                       if (!fix || !fix.giltig || fix.lat == null || fix.lng == null) return;
@@ -20513,7 +20559,7 @@ export default function PlannerPage() {
                       setInfoLarmKalla('egen');
                     });
                   }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
-                    Använd min GPS-position
+                    {larmSoker ? 'Söker position…' : 'Använd min GPS-position'}
                   </button>
                   <button onClick={() => { larmPlaceringFromRef.current = 'trakt'; setTraktOpen(false); setLarmPlacering(true); }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '14px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: '8px' }}>
                     Peka på karta

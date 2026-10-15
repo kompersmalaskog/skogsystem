@@ -11,6 +11,7 @@
 import { SERIAL_FLAGG, harWebSerial, serialGpsVald, glomSerialGps, antalBeviljadeSerialPortar } from './gpsSerialFlagga';
 import { BAUD_PROVORDNING, effektivBaud, hamtaBaudVal, sattBaudVal, sattHittadBaud, type BaudVal } from './gpsBaud';
 import { OKORRIGERAD, klockaKorr, startaKlockSynk, type KlockaKorr } from './serverKlocka';
+import { filtreraFix, nyttFilter, type FilterState } from './telefonGps';
 
 export interface GpsFix {
   lat: number | null;
@@ -296,6 +297,11 @@ export interface GpsKallaHandle { stop(): void; typ: GpsKallaTyp; }
 // ALDRIG utanför denna fil (annars ger Windows IP-position som klobbar serial-pricken).
 const abonnenter = new Set<(fix: GpsFix) => void>();
 let senasteFix: GpsFix | null = null;
+// Telefonens senaste FILTRERADE fixar (geolocation), för medelvärdet vid placering (lib/telefonGps.samlaPosition). Töms när hubben stängs.
+const GEO_SENASTE_MAX = 12;
+const geoSenaste: GpsFix[] = [];
+/** Telefonens senaste filtrerade fixar, äldst först. Tom för serial/fast läge. */
+export function senasteTelefonFixar(): GpsFix[] { return geoSenaste.slice(); }
 // stoppaOchVanta (bara serial): stänger läsningen och väntar tills porten verkligen stängts — behövs när baudraten byts och
 // porten ska öppnas på nytt direkt (annars hinner den gamla läsaren fortfarande hålla den öppen).
 let underliggande: { stop(): void; stoppaOchVanta?(): Promise<void> } | null = null;
@@ -417,13 +423,28 @@ function startaUnderliggande(highAccuracy: boolean): { stop(): void; stoppaOchVa
   }
   // --- Geolocation (fallback, dagens beteende) ---
   if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return { stop() { /* */ } };
-  const emit = (pos: GeolocationPosition) => notifiera({
-    lat: pos.coords.latitude, lng: pos.coords.longitude,
-    kurs: pos.coords.heading != null && !Number.isNaN(pos.coords.heading) ? pos.coords.heading : null,
-    fart: pos.coords.speed != null && !Number.isNaN(pos.coords.speed) ? pos.coords.speed * 3.6 : null,
-    satelliter: null, hdop: null, noggrannhetM: pos.coords.accuracy ?? null,
-    giltig: true, tid: Date.now(),
-  });
+  // TELEFONENS GPS filtreras (lib/telefonGps): dålig noggrannhet och orimliga hopp ignoreras (pricken står kvar), resten utjämnas med noggrannheten
+  // som vikt. Gäller bara den här grenen — serial-källan ovan går aldrig genom filtret. En ignorerad fix når inga abonnenter.
+  let geoFilter: FilterState | null = nyttFilter();
+  const emit = (pos: GeolocationPosition) => {
+    const fart = pos.coords.speed != null && !Number.isNaN(pos.coords.speed) ? pos.coords.speed : null;   // m/s
+    const r = filtreraFix(geoFilter, {
+      lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy != null && !Number.isNaN(pos.coords.accuracy) ? pos.coords.accuracy : null,
+      fart, tid: Number.isFinite(pos.timestamp) && pos.timestamp > 0 ? pos.timestamp : Date.now(),
+    });
+    geoFilter = r.state;
+    if (!r.fix) return;
+    const fix: GpsFix = {
+      lat: r.fix.lat, lng: r.fix.lng,
+      kurs: pos.coords.heading != null && !Number.isNaN(pos.coords.heading) ? pos.coords.heading : null,
+      fart: fart != null ? fart * 3.6 : null,
+      satelliter: null, hdop: null, noggrannhetM: r.fix.noggrannhetM,
+      giltig: true, tid: Date.now(),
+    };
+    geoSenaste.push(fix);
+    if (geoSenaste.length > GEO_SENASTE_MAX) geoSenaste.shift();
+    notifiera(fix);
+  };
   try { navigator.geolocation.getCurrentPosition(emit, () => { /* watchen tar över */ }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }); } catch { /* */ }
   let watchId: number | null = null;
   try { watchId = navigator.geolocation.watchPosition(emit, (err) => console.warn('[GPS geolocation]', err.code, err.message), { enableHighAccuracy: highAccuracy, maximumAge: 0, timeout: 15000 }); } catch { /* */ }
@@ -444,7 +465,7 @@ export function startaGpsKalla(onFix: (fix: GpsFix) => void, opts?: { highAccura
     stop() {
       abonnenter.delete(onFix);
       if (abonnenter.size === 0 && underliggande) {
-        underliggande.stop(); underliggande = null; hubTyp = 'ingen'; senasteFix = null;
+        underliggande.stop(); underliggande = null; hubTyp = 'ingen'; senasteFix = null; geoSenaste.length = 0;
         if (stoppaKlockSynk) { stoppaKlockSynk(); stoppaKlockSynk = null; }
       }
     },

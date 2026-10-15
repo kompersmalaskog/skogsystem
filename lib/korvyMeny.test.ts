@@ -81,7 +81,8 @@ describe('placering: en väg, exakt där trycket träffade, dragbart efteråt', 
   });
   it('planeringen frågar antal som förut; körvyn ger kvitto med Ångra', () => {
     expect(page).toContain('if (!korvyActive && m.antal !== undefined) setAntalPrompt({ markerId: String(id), type: typ });');
-    expect(page).toContain('if (korvyActive) visaKvitto(kvittoRubrik(symbolNamn(typ)), \'ok\', id);');
+    // kvittot är "Högstubbe satt" — med "· osäker ±N m" när telefonens position var grov (lib/telefonGps)
+    expect(page).toContain("if (korvyActive) visaKvitto(osakerM ? `${kvittoRubrik(symbolNamn(typ))} · osäker ±${osakerM} m` : kvittoRubrik(symbolNamn(typ)), 'ok', id);");
   });
   it('håll fingret på kartan öppnar raden — bara när inget annat läge pågår, aldrig på en symbol', () => {
     expect(page).toContain('setLangtryckPunkt({ lat: ll.lat, lng: ll.lng });');
