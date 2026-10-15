@@ -24,7 +24,8 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
     expect(page).toContain('avverkadAreaM2(segment, { ringar })');
     expect(page).toContain('status: kravStatus(miljoAntal.hogstubbar, miljoKravVal.hogstubbar, andelAvverkat)');
     expect(page).toContain('miljoKrav(infoAreal || valtObjekt?.areal, valtObjekt?.cert)');
-    expect(page).toContain('data-testid="objektinfo-avverkat"');
+    expect(page).toContain('extraBrickor({ barighet: infoBarighet, terrang: infoTerrang, basvag: paTrakten.basvagKm, avverkat: avverkatText })');
+    expect(page).toContain("!avverkat.harSpar ? 'inget skördarspår loggat än'");
   });
 });
 
@@ -36,7 +37,7 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(page).toContain('{plusRadVisning && (\n        <PlusRad');
     expect(page).toContain('oppen={plusRadOppen}');
     expect(page).toContain('onSparaDocka={sparaDockaPlatser}');
-    expect(page).toContain('{renderFlerVal(stang)}');
+    expect(page).toContain('<ObjektInfo oppen={infoOppen} startVy={infoStartVy} {...op} />');   // Fler vals innehåll bor i objektinfons Mer
     // den gamla plusmenyn (bottom sheet) och den gamla helskärms-Lager-menyn är borta — inga döda ingångar kvar
     expect(page).not.toContain('PLUS-MENY (bottom sheet)');
     expect(page).not.toContain('plusMenuOpen');
@@ -47,10 +48,13 @@ describe('plusraden: EN delad komponent för körvyn och planeringen', () => {
     expect(arket).not.toContain('Fler val');
     expect(arket).not.toContain('Dockan</');   // "‹ Dockan"-knappen är borta
   });
-  it('Inställningar har flyttat till objektinfon i körvy men finns kvar i planeringens gamla meny', () => {
-    expect(page).toContain("...(korvyActive ? [] : [{ label: 'Inställningar'");
-    expect(page).toContain('data-testid="objektinfo-verktyg"');
+  it('Inställningar och GPS-källa ligger i objektinfons Mer i körvy och på maskindatorn; i vanlig planering bor Inställningar på startsidan', () => {
+    expect(page).toContain('installningar: efter(() => oppnaInst(false)),');
+    expect(page).toContain('gpsKalla: webSerialStott ? efter(() => oppnaInst(true)) : null,');
     expect(page).toContain('id="gps-kalla-kort"');
+    const mer = las('../lib/objektKort.ts');
+    expect(mer).toContain('if (c.korvyAktiv || c.maskinlage) {');
+    expect(las('../app/HomeClient.tsx')).toContain("href: '/planering?installningar=1'");
   });
   it('fasta och användning sparas per maskin (ej i testläge)', () => {
     expect(page).toContain('const s = hamtaPlusRad(enhetMaskinId);');
@@ -169,11 +173,13 @@ describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
     expect(page).toContain("gron: true, testid: 'figur-klar'");
     expect(las('../components/planering/KorvyNertillList.tsx')).toContain('k.gron ? FARG.gron');
   });
-  it('räknarna i planeringens objektinfo (den gamla rutan nere till vänster är borta)', () => {
+  it('räknarna i planeringens objektinfo: EN gång, "5 av 15" under På kartan i Om trakten (den gamla rutan nere till vänster och dubbletten är borta)', () => {
     expect(page).not.toContain('MILJÖHÄNSYN-RÄKNARE');
     expect(page).not.toContain('miljoRaknareExpanderad');
-    expect(page).toContain('data-testid="objektinfo-miljo"');
-    expect(page).toMatch(/\{!korvyActive && \(\s*<div data-testid="objektinfo-miljo"/);
+    expect(page).not.toContain('data-testid="objektinfo-miljo"');
+    expect(page).toContain("{ id: 'hogstubbar', namn: 'Högstubbar', antal: hogstubbarVy.antal, krav: hogstubbarVy.krav, uppfyllt: hogstubbarVy.status === 'uppfyllt' },");
+    expect(las('../components/planering/OmTrakten.tsx')).toContain('data-testid="om-miljo"');
+    expect(las('../components/planering/ObjektKort.tsx')).not.toMatch(/högstubb/i);   // kortet visar dem inte (ingen dubblett)
   });
   it('Klar låser mätningen och visar talet — ingenting sparas (Spara som finns inte längre)', () => {
     expect(page).toContain("const lasMatning = () => { if (figur && measureGeoRef.current.length >= (figur.yta ? 3 : 2)) setMeasureLocked({ yta: figur.yta }); };");

@@ -51,6 +51,13 @@ export const LEGEND = {
   vit: '#fff',
 } as const;
 
+/**
+ * Basvägens färg (röd/gul/blå) ur egenskapen `farg` — heldragen i färgen. Utan färg (allt som ritades före färgvalet): blå med gula streck, som förut.
+ * Samma uttryck som planeringsvyn använder (lib/basvag återexporterar dem).
+ */
+export const BASVAG_FARG_UTTRYCK: any[] = ['match', ['get', 'farg'], 'red', LEGEND.fara, 'yellow', LEGEND.gul, 'blue', LEGEND.vatten, LEGEND.vatten];
+export const BASVAG_UTAN_FARG: any[] = ['!', ['has', 'farg']];
+
 // ---------------------------------------------------------------------------
 // Zoomkurvor. EN interpolate per uttryck, aldrig nastlad i aritmetik - MapLibre
 // avvisar annars lagret ("zoom expression may only be used as input to a

@@ -6,11 +6,11 @@ import { readFileSync } from 'node:fs';
 const page = readFileSync(new URL('../app/planering/page.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 describe('nya objektlistan gäller bara planeringsvyn — inte maskinläge, /maskin eller körvy', () => {
-  it('ETT villkor (anvandObjektLista) styr alla ställen: tidig retur, pill, objektinfo-knapp, Byt objekt, Vägbeskrivning, själva listan', () => {
+  it('ETT villkor (anvandObjektLista) styr alla ställen: tidig retur, pill, objektinfo-knapp, Kör hit, själva listan', () => {
     expect(page).toContain('const objektListaVal = anvandObjektLista({ maskinlage, maskinSom: !!maskinSomParam, korvyActive });');
     expect((page.match(/objektListaVal/g) || []).length).toBeGreaterThanOrEqual(10);
     expect(page).toContain('    if (objektListaVal) {\n      const visaListan');
-    expect(page).toContain('{objektListaVal && harKoordinat(valtObjekt) && (');
+    expect(page).toContain('knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt),');   // Kör hit (förut Vägbeskrivning): bara planeringsvyn
     expect(page).toContain('{objektListaVal && (\n        <ObjektLista');
   });
 
@@ -31,13 +31,13 @@ describe('nya objektlistan gäller bara planeringsvyn — inte maskinläge, /mas
     expect(page).toContain('const tillObjektlistan = useCallback(() => {');
   });
 
-  it('körvyns pill och dess objektinfo-ingång är orörda; körvyn får varken byt-pill, info-knapp eller Vägbeskrivning', () => {
+  it('körvyns pill och dess objektinfo-ingång är orörda; körvyn får varken byt-pill, info-knapp eller Kör hit', () => {
     expect(page).toContain('{korvyActive && valtObjekt ? (\n            <KorvyObjektPill');
     expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
     expect(page).toContain("!(korvyActive && screenSize.width < 640) && <span style={{ width: '44px', flexShrink: 0 }} aria-hidden=\"true\" />");
-    // pillens byt-läge och Byt objekt faller tillbaka till gamla vägen utan listvillkoret
+    // pillens byt-läge faller tillbaka till gamla vägen utan listvillkoret; Byt objekt finns inte längre som menyval (namnet och ⌂ gör det)
     expect(page).toContain('onClick={() => { if (objektListaVal) setObjektListaOppen(true); else setTraktOversiktOpen(o => !o); }}');
-    expect(page).toContain('action: () => { if (objektListaVal) setObjektListaOppen(true); else setValtObjekt(null); }');
+    expect(page).not.toContain("label: 'Byt objekt'");
   });
 
   it('förarens auto-val av tilldelat objekt väntar in adressen/minnet men finns kvar som reserv', () => {
@@ -47,7 +47,7 @@ describe('nya objektlistan gäller bara planeringsvyn — inte maskinläge, /mas
 
   it('km-knappen och Vägbeskrivning använder SAMMA navigering (lib/navigera)', () => {
     expect(page).toContain("import { startaNavigering, harKoordinat } from '../../lib/navigera'");
-    expect((page.match(/startaNavigering\(/g) || []).length).toBe(3);   // tidig retur-listan, huvudvyns lista, Vägbeskrivning
+    expect((page.match(/startaNavigering\(/g) || []).length).toBe(3);   // tidig retur-listan, huvudvyns lista, Kör hit på kortet
   });
 
   it('avslutar man ett objekt glöms det som planeringens startobjekt', () => {

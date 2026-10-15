@@ -52,4 +52,11 @@ describe('kön mot Supabase', () => {
     expect(ko).toContain('window.setInterval(tick, 60_000)');
     expect(ko).toContain("nav.locks.request('markering-foto-ko'");
   });
+  it('Om trakten (ⓘ-kortet) visar väntande foton: sidan märker markeringen och ger objekt-id, listan skickar `lokal` till bilden', () => {
+    const page = las('../app/planering/page.tsx');
+    expect(page).toContain('fotoVantar: lokalFotoFor(m) != null');
+    expect(page).toContain('objektId: String(valtObjekt.id),');
+    expect(las('../components/planering/OmTrakten.tsx')).toContain('lokal={m.fotoVantar && objektId ? { objektId, markerId: m.id } : null}');
+    expect(las('../lib/objektKort.ts')).toContain("!!(m.photoPath || m.photoData || m.fotoVantar)");
+  });
 });
