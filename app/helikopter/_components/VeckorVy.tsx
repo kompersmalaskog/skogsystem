@@ -6,10 +6,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ChevronLeft, TreePine, Truck } from 'lucide-react'
 import PageContainer from '@/components/PageContainer'
-import { AVSTAND } from '@/lib/design/tokens'
-import { T } from '@/lib/utbildning'
+import Flikkontroll from '@/components/design/Flikkontroll'
+import { AVSTAND, FARG, IKON, KORT, RAD, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
 import { ymdLokal } from '@/lib/datumLokal'
 import { TYPER, TYP_NAMN } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik } from '../_lib/format'
@@ -17,8 +16,8 @@ import { hamtaManuellaMaskiner, hamtaVeckor, type Typ, type VeckaRad } from '../
 import { SPAR_MAX_PX, VECKOR_TVA_SPAR_MIN_PX } from '../_lib/layout'
 import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar, Tomt } from './Tillstand'
-import { TEXT_MUTED } from './Lista'
-import { KortLank, STORT_TAL_STIL } from './SparKort'
+import { HK_CSS, RadGrupp, RadLank } from './Lista'
+import { Ikon } from './Ikon'
 import VeckoDiagram, { veckaFarg } from './VeckoDiagram'
 import OrsakSheet from './OrsakSheet'
 
@@ -123,7 +122,7 @@ export default function VeckorVy() {
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(2, minmax(0, ${SPAR_MAX_PX}px))`, columnGap: AVSTAND.l, justifyContent: 'center', alignItems: 'start' }}>
       {TYPER.map(t => (
         <div key={t} style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 500, color: T.t1, padding: `0 ${AVSTAND.xs}px ${AVSTAND.s + AVSTAND.xs / 2}px` }}>{TYP_NAMN[t]}</div>
+          <div style={{ ...TYP.listtitel, color: FARG.text, padding: `0 ${AVSTAND.xs}px ${AVSTAND.s}px` }}>{TYP_NAMN[t]}</div>
           {sparBlock(t)}
         </div>
       ))}
@@ -133,44 +132,29 @@ export default function VeckorVy() {
   )
 
   const sidhuvud = (
-    <header style={{ display: 'grid', gridTemplateColumns: '44px 1fr 44px', alignItems: 'center', padding: '14px 0 12px' }}>
-      <Link href={tillbaka} aria-label="Tillbaka till Uppföljning" style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.blue }}>
-        <ChevronLeft size={26} />
+    <header style={{ display: 'grid', gridTemplateColumns: `${TRAFFYTA.min}px 1fr ${TRAFFYTA.min}px`, alignItems: 'center', padding: `${AVSTAND.l}px 0 ${AVSTAND.m}px` }}>
+      <Link href={tillbaka} aria-label="Tillbaka till Uppföljning" style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+        <Ikon namn="chevron_left" storlek={IKON.rad} farg={FARG.bla} />
       </Link>
       <div style={{ textAlign: 'center' }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Veckor</h1>
-        <div style={{ fontSize: 13, color: T.t2, marginTop: 2 }}>{manadRubrik(ar, manad)}</div>
+        <h1 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>Veckor</h1>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{manadRubrik(ar, manad)}</div>
       </div>
       <span />
     </header>
   )
 
   return (
-    <div style={{ background: T.bg, minHeight: '100vh', paddingBottom: 110, color: T.t1, fontFamily: T.ff, WebkitFontSmoothing: 'antialiased' }}>
+    <div style={{ ...VY_ROT, padding: 0, minHeight: ROT_MIN_HOJD, paddingBottom: AVSTAND.xxl }}>
+      <style>{HK_CSS}</style>
       {/* Bredare än 900 px: ramen rymmer två spår à högst SPAR_MAX_PX. Under det samma kolumn som förut. */}
       <PageContainer width={tvaSpar ? 'full' : 'smal'} style={tvaSpar ? { maxWidth: 2 * SPAR_MAX_PX + AVSTAND.l + 2 * AVSTAND.sidmarginal, marginInline: 'auto', paddingInline: AVSTAND.sidmarginal, boxSizing: 'border-box' } : undefined}>
         {sidhuvud}
 
-        {/* Spårväxel — samma stil som flikraden på /helikopter. Vald = typ i URL:en. Försvinner när båda spåren syns. */}
+        {/* Spårväxel — samma Flikkontroll som Min tid. Vald = typ i URL:en. Försvinner när båda spåren syns. */}
         {!tvaSpar && (
-          <div role="tablist" aria-label="Spår" style={{ display: 'flex', background: T.group, borderRadius: 10, padding: 3, gap: 3, marginBottom: 14 }}>
-            {TYPER.map(t => (
-              <button
-                key={t}
-                type="button"
-                role="tab"
-                aria-selected={typ === t}
-                onClick={() => sattTyp(t)}
-                style={{
-                  flex: 1, minHeight: 44, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: T.ff,
-                  fontSize: 15, fontWeight: 600,
-                  background: typ === t ? 'rgba(255,255,255,0.12)' : 'transparent',
-                  color: typ === t ? T.t1 : T.t2,
-                }}
-              >
-                {TYP_NAMN[t]}
-              </button>
-            ))}
+          <div style={{ marginBottom: AVSTAND.l }}>
+            <Flikkontroll flikar={TYPER.map(t => [t, TYP_NAMN[t]] as const)} aktiv={typ} onVal={sattTyp} />
           </div>
         )}
 
@@ -209,12 +193,12 @@ function SparBlock({ veckor, vald, roll, onVald, onRoll, onTillbakaRoll, manuell
   if (veckor.length === 0) return <Tomt rubrik="Inga arbetsdagar i månaden" />
   return (
     <>
-      <section style={{ background: T.group, borderRadius: 12, padding: '14px 12px 10px', marginBottom: 14 }}>
+      <section style={{ ...KORT, marginBottom: AVSTAND.s }}>
         <VeckoDiagram veckor={veckor} vald={vald} onValjVecka={onVald} onValjStapel={onRoll} />
       </section>
 
       {vecka && (
-        <section style={{ background: T.group, borderRadius: 12, padding: '16px 16px 8px', marginBottom: 14 }}>
+        <section style={{ ...KORT, paddingBottom: 0, marginBottom: AVSTAND.xl }}>
           {roll ? (
             <PerMaskin vecka={vecka} roll={roll} onTillbaka={onTillbakaRoll} manuella={manuella} />
           ) : (
@@ -241,27 +225,27 @@ function veckoRubrik(v: VeckaRad, harBest: boolean): string {
 function VeckoDetalj({ vecka, harBest, onAndraOrsak }: { vecka: VeckaRad; harBest: boolean; onAndraOrsak: () => void }) {
   return (
     <>
-      <div style={{ fontSize: 15, fontWeight: 600, color: T.t1 }}>
+      <div style={{ ...TYP.listtitel, color: FARG.text }}>
         Vecka {vecka.isovecka}
-        <span style={{ color: T.t2, fontWeight: 400 }}>{veckoRubrik(vecka, harBest)}</span>
+        <span style={{ ...TYP.text, color: FARG.text2 }}>{veckoRubrik(vecka, harBest)}</span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-        <Spalt ikon={<TreePine size={15} color={T.t2} aria-hidden="true" />} label="Skördat" varde={vecka.skordat} vecka={vecka} harBest={harBest} />
-        <Spalt ikon={<Truck size={15} color={T.t2} aria-hidden="true" />} label="Skotat" varde={vecka.skotat} vecka={vecka} harBest={harBest} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.m, marginTop: AVSTAND.m }}>
+        <Spalt ikon="forest" label="Skördat" varde={vecka.skordat} vecka={vecka} harBest={harBest} />
+        <Spalt ikon="local_shipping" label="Skotat" varde={vecka.skotat} vecka={vecka} harBest={harBest} />
       </div>
-      <div style={{ fontSize: 14, color: T.t2, marginTop: 14, lineHeight: 1.4 }}>
-        {vecka.orsak ? vecka.orsak : <span style={{ color: 'rgba(235,235,245,0.4)' }}>Ingen orsak angiven</span>}
+      <div style={{ ...TYP.text, color: vecka.orsak ? FARG.text2 : FARG.text3, marginTop: AVSTAND.m, paddingBottom: AVSTAND.m }}>
+        {vecka.orsak ? vecka.orsak : 'Ingen orsak angiven'}
       </div>
-      <div style={{ marginTop: 8 }}>
-        <KortLank text="Ändra orsak" onClick={onAndraOrsak} />
+      <div className="hk-grupp" style={{ borderTop: `1px solid ${FARG.linje}` }}>
+        <RadLank text="Ändra orsak" onClick={onAndraOrsak} />
       </div>
     </>
   )
 }
 
-function Spalt({ ikon, label, varde, vecka, harBest }: { ikon: React.ReactNode; label: string; varde: number; vecka: VeckaRad; harBest: boolean }) {
+function Spalt({ ikon, label, varde, vecka, harBest }: { ikon: string; label: string; varde: number; vecka: VeckaRad; harBest: boolean }) {
   const plan = harBest ? vecka.plan : null
-  const farg = vecka.status === 'kommande' ? T.t2 : veckaFarg(varde, plan)
+  const farg = vecka.status === 'kommande' ? FARG.text2 : veckaFarg(varde, plan)
   let diff: string
   if (plan == null) diff = harBest ? '' : 'Ingen beställning'
   else if (vecka.status === 'kommande') diff = `plan ${fmt(plan)}`
@@ -274,9 +258,9 @@ function Spalt({ ikon, label, varde, vecka, harBest }: { ikon: React.ReactNode; 
   }
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: T.t2 }}>{ikon}{label}</div>
-      <div style={{ ...STORT_TAL_STIL, fontSize: 28, color: farg, marginTop: 4 }}>{vecka.status === 'kommande' ? '–' : fmt(varde)}</div>
-      <div style={{ fontSize: 13, color: T.t2, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{diff}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, color: FARG.text2 }}><Ikon namn={ikon} storlek={IKON.text} />{label}</div>
+      <div style={{ ...TYP.tal, color: farg, marginTop: AVSTAND.xs }}>{vecka.status === 'kommande' ? '–' : fmt(varde)}</div>
+      <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>{diff}</div>
     </div>
   )
 }
@@ -285,23 +269,23 @@ function PerMaskin({ vecka, roll, onTillbaka, manuella }: { vecka: VeckaRad; rol
   const rader = vecka.maskiner.filter(m => m.roll === roll).sort((a, b) => b.volym - a.volym)
   return (
     <>
-      <div style={{ fontSize: 15, fontWeight: 600, color: T.t1 }}>
+      <div style={{ ...TYP.listtitel, color: FARG.text, paddingBottom: AVSTAND.s }}>
         Vecka {vecka.isovecka} · {roll === 'skordare' ? 'Skördat' : 'Skotat'} per maskin
       </div>
       {rader.length === 0 ? (
-        <div style={{ fontSize: 14, color: T.t2, marginTop: 10 }}>Ingen {roll === 'skordare' ? 'skördning' : 'skotning'} registrerad den veckan.</div>
+        <div style={{ ...TYP.text, color: FARG.text2, paddingBottom: AVSTAND.m }}>Ingen {roll === 'skordare' ? 'skördning' : 'skotning'} registrerad den veckan.</div>
       ) : (
-        <div style={{ marginTop: 6 }}>
+        <div className="hk-grupp">
           {rader.map(m => (
-            <div key={m.maskin_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, fontSize: 15, borderTop: `1px solid ${T.sep}`, fontVariantNumeric: 'tabular-nums' }}>
-              <span style={{ color: T.t1 }}>{m.namn}</span>
-              <span style={{ color: T.t2 }}>{fmt(m.volym)}{manuella.has(m.maskin_id) && <span style={{ color: TEXT_MUTED }}> · manuell</span>}</span>
+            <div key={m.maskin_id} className="hk-rad" style={{ ...RAD, justifyContent: 'space-between', ...TYP.text, ...TNUM }}>
+              <span style={{ color: FARG.text }}>{m.namn}</span>
+              <span style={{ color: FARG.text2 }}>{fmt(m.volym)}{manuella.has(m.maskin_id) && <span style={{ color: FARG.text3 }}> · manuell</span>}</span>
             </div>
           ))}
         </div>
       )}
-      <div style={{ marginTop: 8 }}>
-        <KortLank text="Visa veckan" onClick={onTillbaka} />
+      <div className="hk-grupp" style={{ borderTop: `1px solid ${FARG.linje}` }}>
+        <RadLank text="Visa veckan" onClick={onTillbaka} />
       </div>
     </>
   )

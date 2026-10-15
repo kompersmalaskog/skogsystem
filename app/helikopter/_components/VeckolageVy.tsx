@@ -7,17 +7,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { ChevronLeft, Share2 } from 'lucide-react'
 import PageContainer from '@/components/PageContainer'
 import { Sheet } from '@/components/Sheet'
-import { T } from '@/lib/utbildning'
+import { AVSTAND, FARG, IKON, INAKTIV, RAD, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
 import { ymdLokal } from '@/lib/datumLokal'
 import { hamtaVeckolage } from '../_lib/queries'
 import { veckolageModell, type VeckolageData } from '../_lib/veckolage'
 import type { DelaResultat } from '../_lib/veckolageDela'
 import { Fel, Laddar } from './Tillstand'
-import VeckolageInnehall, { VL } from './VeckolageInnehall'
-import { KANT } from './Lista'
+import VeckolageInnehall from './VeckolageInnehall'
+import { HK_CSS } from './Lista'
+import { Ikon } from './Ikon'
 
 type Slag = 'pdf' | 'bild'
 
@@ -67,15 +67,16 @@ export default function VeckolageVy() {
   }
 
   return (
-    <div style={{ background: T.bg, minHeight: '100vh', paddingBottom: 96, color: T.t1, fontFamily: T.ff, WebkitFontSmoothing: 'antialiased' }}>
+    <div style={{ ...VY_ROT, padding: 0, minHeight: ROT_MIN_HOJD, paddingBottom: AVSTAND.xxl }}>
+      <style>{HK_CSS}</style>
       <PageContainer width="smal">
-        <header style={{ display: 'grid', gridTemplateColumns: '44px 1fr 44px', alignItems: 'center', padding: '10px 0 8px' }}>
-          <Link href={tillbaka} aria-label="Tillbaka till Uppföljning" style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.blue }}>
-            <ChevronLeft size={26} />
+        <header style={{ display: 'grid', gridTemplateColumns: `${TRAFFYTA.min}px 1fr ${TRAFFYTA.min}px`, alignItems: 'center', padding: `${AVSTAND.s}px 0` }}>
+          <Link href={tillbaka} aria-label="Tillbaka till Uppföljning" style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+            <Ikon namn="chevron_left" storlek={IKON.rad} farg={FARG.bla} />
           </Link>
           <div style={{ textAlign: 'center', minWidth: 0 }}>
-            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Veckoläge</h1>
-            <div style={{ fontSize: 13, color: T.t2, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <h1 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>Veckoläge</h1>
+            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {modell ? modell.datumRad : fel ? '' : 'Laddar…'}
             </div>
           </div>
@@ -84,9 +85,9 @@ export default function VeckolageVy() {
             aria-label="Dela veckoläget"
             onClick={() => { setDelaText(null); setDelaOppen(true) }}
             disabled={!modell}
-            style={{ width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', color: T.blue, cursor: modell ? 'pointer' : 'default', opacity: modell ? 1 : 0.4, padding: 0 }}
+            style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0, ...(modell ? null : INAKTIV) }}
           >
-            <Share2 size={22} />
+            <Ikon namn="share" storlek={IKON.rad} farg={FARG.text} />
           </button>
         </header>
 
@@ -101,10 +102,12 @@ export default function VeckolageVy() {
 
       {modell && (
         <Sheet open={delaOppen} onClose={() => setDelaOppen(false)} title="Dela">
-          <DelaRad text="Dela som PDF" under="A4, ljus bakgrund" onClick={() => dela('pdf')} upptagen={jobb === 'pdf'} inaktiv={jobb != null} />
-          <DelaRad text="Dela som bild" under="PNG av sidan" onClick={() => dela('bild')} upptagen={jobb === 'bild'} inaktiv={jobb != null} />
+          <div className="hk-grupp">
+            <DelaRad text="Dela som PDF" under="A4, ljus bakgrund" onClick={() => dela('pdf')} upptagen={jobb === 'pdf'} inaktiv={jobb != null} />
+            <DelaRad text="Dela som bild" under="PNG av sidan" onClick={() => dela('bild')} upptagen={jobb === 'bild'} inaktiv={jobb != null} />
+          </div>
           {delaText && (
-            <div role="status" style={{ fontSize: 14, color: delaText.fel ? VL.varning : T.t2, padding: '12px 0 4px' }}>{delaText.text}</div>
+            <div role="status" style={{ ...TYP.meta, color: delaText.fel ? FARG.orange : FARG.text2, padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px` }}>{delaText.text}</div>
           )}
         </Sheet>
       )}
@@ -119,13 +122,14 @@ function DelaRad({ text, under, onClick, upptagen, inaktiv }: { text: string; un
       onClick={onClick}
       disabled={inaktiv}
       aria-busy={upptagen}
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', minHeight: 56, padding: '8px 0', background: 'none', border: 'none', borderTop: KANT, color: T.t1, fontFamily: T.ff, textAlign: 'left', cursor: inaktiv ? 'default' : 'pointer', opacity: inaktiv && !upptagen ? 0.4 : 1 }}
+      className="hk-rad"
+      style={{ ...RAD, justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', background: 'none', border: 'none', borderBottom: RAD.borderBottom, color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: inaktiv ? 'default' : 'pointer', ...(inaktiv && !upptagen ? INAKTIV : null) }}
     >
       <span>
-        <span style={{ display: 'block', fontSize: 17, fontWeight: 600 }}>{upptagen ? `${text}…` : text}</span>
-        <span style={{ display: 'block', fontSize: 13, color: T.t2, marginTop: 2 }}>{under}</span>
+        <span style={{ display: 'block', ...TYP.listtitel }}>{upptagen ? `${text}…` : text}</span>
+        <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{under}</span>
       </span>
-      <Share2 size={18} color={T.blue} aria-hidden="true" />
+      <Ikon namn="share" />
     </button>
   )
 }
