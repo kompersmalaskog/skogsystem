@@ -57,3 +57,44 @@ describe('period', () => {
     expect(periodKort({ typ: 'ar', ar: 2026 }, NU)).toBe('2026');
   });
 });
+
+describe('svensk dag som UTC-ögonblick', () => {
+  it('sommartid (+2): midnatt 1 oktober är 22:00 UTC 30 september', async () => {
+    const { sthlmDagStart } = await import('./period');
+    expect(sthlmDagStart('2026-10-01')).toBe('2026-09-30T22:00:00.000Z');
+  });
+  it('vintertid (+1): midnatt 1 november är 23:00 UTC 31 oktober', async () => {
+    const { sthlmDagStart } = await import('./period');
+    expect(sthlmDagStart('2026-11-01')).toBe('2026-10-31T23:00:00.000Z');
+  });
+  it('tidsomställningen 25 oktober 2026 (03:00 → 02:00): 25 okt börjar +2, 26 okt +1', async () => {
+    const { sthlmDagStart } = await import('./period');
+    expect(sthlmDagStart('2026-10-25')).toBe('2026-10-24T22:00:00.000Z');
+    expect(sthlmDagStart('2026-10-26')).toBe('2026-10-25T23:00:00.000Z');
+  });
+  it('oktober är 31 dygn och 1 timme lång (25 timmar den 25:e)', async () => {
+    const { periodTidsintervall } = await import('./period');
+    const { fran, till } = periodTidsintervall({ typ: 'man', ar: 2026, man: 10 });
+    expect((Date.parse(till) - Date.parse(fran)) / 3600000).toBe(31 * 24 + 1);
+  });
+  it('en runda 00:30 svensk tid den 1 oktober ligger i oktober, inte september', async () => {
+    const { periodTidsintervall } = await import('./period');
+    const { fran } = periodTidsintervall({ typ: 'man', ar: 2026, man: 10 });
+    expect(Date.parse('2026-09-30T22:30:00Z')).toBeGreaterThanOrEqual(Date.parse(fran));
+  });
+});
+
+describe('årsvyns månader', () => {
+  it('2026 till och med oktober, juli först i datan, nyast först', async () => {
+    const { manaderIAr } = await import('./period');
+    expect(manaderIAr(2026, NU).map(m => m.man)).toEqual([10, 9, 8, 7]);
+  });
+  it('ett helt år mellan januari och december', async () => {
+    const { manaderIAr } = await import('./period');
+    expect(manaderIAr(2027, new Date(2028, 0, 5)).map(m => m.man)).toEqual([12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+  });
+  it('månaden en runda hör till följer svensk tid', async () => {
+    const { manadForStart } = await import('./period');
+    expect(manadForStart('2026-09-30T22:30:00Z')).toEqual({ ar: 2026, man: 10 });
+  });
+});

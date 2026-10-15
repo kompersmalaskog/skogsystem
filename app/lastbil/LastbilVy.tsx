@@ -2,15 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
-import { AVSTAND, FARG, FONT, KOLUMN_CSS, ROT_MIN_HOJD, VY_ROT, designCss } from '@/lib/design/tokens';
+import { AVSTAND, FARG, FONT, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import VyKolumn from '@/components/design/VyKolumn';
 import Rubrik from './_components/Rubrik';
 import NuFlik from './_components/NuFlik';
 import Overgang from './_components/Overgang';
+import KorningarFlik from './_components/KorningarFlik';
+import RundaArk from './_components/RundaArk';
+import Ark from '@/components/design/Ark';
 import { periodNu, type Period } from './_components/period';
 import { lasUrl, skrivUrl, type Flik } from './_components/url';
 import { useFakturerbart } from './_components/useFakturerbart';
 import { useLastbilNu } from './_components/useLastbilNu';
+import { useEnRunda, useRundor } from './_components/useRundor';
 
 /**
  * Lastbilen — EN vy för det man tittar på (omtaget 2026-10, byggt som Arbetsrapporten: flikar är
@@ -34,8 +38,16 @@ export default function LastbilVy() {
   // Admin öppnar på Körningar (månadskollen), förare på Nu. Fakturering finns bara för admin.
   const flik: Flik = !valdFlik ? (arAdmin ? 'korningar' : 'nu') : valdFlik === 'fakturering' && !arAdmin ? 'nu' : valdFlik;
 
+  const [valdRunda, setValdRunda] = useState<{ id: string; start: string } | null>(null);
+
   const nu = useLastbilNu(!loading && flik === 'nu');
   const fakt = useFakturerbart(period, arAdmin);
+  const rundor = useRundor(period, !loading && flik === 'korningar');
+  // Arket för en runda: finns den i den inlästa listan används den, annars (tryck på "Senaste körning" på Nu)
+  // läses just den rundan med sina grannar i tiden.
+  const iListan = valdRunda && rundor.lage.lage === 'klar' ? rundor.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null;
+  const enRunda = useEnRunda(valdRunda, !!iListan);
+  const arkRunda = iListan ?? (valdRunda && enRunda.lage.lage === 'klar' ? enRunda.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null);
 
   useEffect(() => {
     if (loading) return;
@@ -55,9 +67,10 @@ export default function LastbilVy() {
             <Rubrik flik={flik} onFlik={valjFlik} arAdmin={arAdmin} period={period} onPeriod={setPeriod}
               remsa={fakt.status} onRemsaForsokIgen={fakt.forsokIgen} />
             <div style={{ paddingTop: AVSTAND.s }}>
-              {flik === 'nu' && <NuFlik lage={nu.lage} onForsokIgen={nu.forsokIgen} />}
+              {flik === 'nu' && <NuFlik lage={nu.lage} onForsokIgen={nu.forsokIgen} onOppnaRunda={setValdRunda} />}
               {flik === 'korningar' && (
-                <Overgang rubrik="Körningar" text="Körningarna per månad flyttar hit i nästa steg. Tills dess finns de i Flyttloggen." />
+                <KorningarFlik period={period} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
+                  onOppna={r => setValdRunda({ id: r.id, start: r.start })} onValjManad={setPeriod} />
               )}
               {flik === 'fakturering' && (
                 <Overgang rubrik="Fakturering" text="Faktureringskvittot flyttar hit i ett senare steg. Tills dess finns det i Flyttloggen." />
@@ -66,6 +79,22 @@ export default function LastbilVy() {
           </>
         )}
       </VyKolumn>
+
+      {valdRunda && arkRunda && <RundaArk runda={arkRunda} onStang={() => setValdRunda(null)} />}
+      {valdRunda && !arkRunda && (
+        <Ark rubrik="Körning" onStang={() => setValdRunda(null)}>
+          {enRunda.lage.lage === 'fel' || (enRunda.lage.lage === 'klar') ? (
+            <div style={{ textAlign: 'center', padding: `${AVSTAND.l}px 0` }}>
+              <p role="alert" style={{ ...TYP.text, color: FARG.rod, margin: `0 0 ${AVSTAND.m}px` }}>
+                {enRunda.lage.lage === 'klar' ? 'Rundan hittades inte.' : 'Kunde inte läsa rundan just nu.'}
+              </p>
+              <button type="button" onClick={enRunda.forsokIgen} style={KNAPP.sekundar}>Försök igen</button>
+            </div>
+          ) : (
+            <p role="status" style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.l}px 0`, margin: 0 }}>Läser rundan …</p>
+          )}
+        </Ark>
+      )}
     </div>
   );
 }
