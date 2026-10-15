@@ -356,6 +356,10 @@ Utjämning finns bara för hyttspår (`lib/sparJamning.ts`). Ritade markeringar 
 - **Pekarhändelser:** touch sätter `senasteTouchRef`; `onMouseDownRita`/`onMouseUpRita` ignoreras `EMULERAD_MUS_MS` efteråt. Ett tryck inom 4 px och 0,8 s från förra godtagna är samma tryck (`arDubbeltryck`).
 - **Ritningen** är rak mellan punkterna med `line-join: miter` på zon-/linje-/ritlagren. Gammal data som redan sparats utjämnad kan inte rättas i efterhand (hörnen är borta ur datan); data med dubblerade hörn är redan rak och ritas som den är.
 
+## Bredd — Kolumnen (beslut 2026-10-13, Arbetsrapport 2026-10-14)
+
+Innehållet i en vy bor i EN centrerad kolumn med maxbredd, aldrig kant till kant på iPad och dator: `KOLUMN.smal` 640 (listor, kort, formulär), `KOLUMN.bred` 1120 (rutnät, tidslinjer, Kalender), ark `KOLUMN.ark` 520 (nedtill förankrade, centrerade). **Under 670 px händer ingenting** — telefonen är orörd. Mått och hjälpare bor i `lib/design/tokens.ts`: en vy med full bredd rot och kolumnen inuti använder `components/design/VyKolumn.tsx` (ledighet); en vy där ROTEN bär bakgrund och sidmarginal (Arbetsrapport: varje steg har sin egen rot) spreder `kolumnRot(bredd)` på roten, sätter `minHeight: ROT_MIN_HOJD` (skärmen minus toppfältet — aldrig `100vh` rakt av, det gav 56 px för hög sida på alla bredder) och lägger `KOLUMN_CSS` i vyns `<style>` (svart body bredvid kolumnen). Bottennavet har bakgrunden i full bredd men flikarna i kolumnen. Bredd per vy är inte en gissning: granskningen `docs/arbetsrapport-granskning/GRANSKNING.md` (mätvärden, bilder, pixeljämförelse på 390 px). Vakter: `components/arbetsrapport/Arbetsrapport.kolumn.render.test.tsx`, mutationskontroll `node scripts/mutationskontroll-arbetsrapport-kolumn.mjs`. Ej klart: toppfältets hemknapp (36 px) och genomskinlighet, Lön och formulärarken är inte visuellt granskade efter ändringen.
+
 ## Verifiering — fallgropar som ger falskt godkant
 
 ### tsc i en ny worktree ljuger

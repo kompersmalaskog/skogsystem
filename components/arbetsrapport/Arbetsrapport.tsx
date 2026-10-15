@@ -34,7 +34,7 @@ import PdfLasare from "@/app/planering/PdfLasare";
 // importerar härifrån och skriver inga egna literaler. Övriga flikar (Min tid,
 // Lön, Kalender, Redigera) använder ännu den lokala TYPE-skalan nedan och
 // rättas när de rörs.
-import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss, LAYOUT, medSafeBotten } from "@/lib/design/tokens";
+import { TYP, VIKT, IKON, FONT, AVSTAND, RADIE, FARG, KNAPP, KORT, RAD, INAKTIV, TRAFFYTA, RORELSE, designCss, LAYOUT, medSafeBotten, KOLUMN, kolumnRot, ROT_MIN_HOJD, KOLUMN_CSS } from "@/lib/design/tokens";
 import Tillstand from "@/components/design/Tillstand";
 import { useRaknaUppVarde } from "@/lib/design/raknaUpp";
 
@@ -100,6 +100,8 @@ const css = `
   body { margin: 0; }
   *::-webkit-scrollbar { display: none; }
   * { scrollbar-width: none; -ms-overflow-style: none; }
+  ${KOLUMN_CSS}
+  .valj-rad { min-height: ${TRAFFYTA.min}px; }
 `;
 
 const C = {
@@ -132,9 +134,11 @@ const TYPE = {
 // aldrig ett tal här, och aldrig fixed + uppmätt paddingTop: #540 bytte Min tids
 // uppmätta 126 mot AVSTAND.xxl och 92 px innehåll hamnade under flikraden.
 const HEADER_TOP = LAYOUT.topbar;
+// Ett tal med decimalkomma (svenska): JavaScript skriver 4.8, föraren ska se 4,8.
+const svDecimal = (n: number) => String(n).replace(".", ",");
 // Sidmarginal ur tokens (16) — förr 20 här och 16 i Dag/Kalender, så innehållet
 // hoppade 4 px i sidled vid varje vybyte.
-const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" as const, width:"100%" };
+const shell: CSSProperties  = { minHeight:ROT_MIN_HOJD,...kolumnRot(), background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:`0 ${AVSTAND.sidmarginal}px`, boxSizing:"border-box" as const, width:"100%" };
 const darkShell: CSSProperties = { ...shell };
 const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
 const mid: CSSProperties    = { flex:1, display:"flex", flexDirection:"column" as const, justifyContent:"center", alignItems:"center", textAlign:"center" as const };
@@ -251,7 +255,7 @@ const secHead: CSSProperties = { margin:"0 0 10px",...TYPE.micro,color:"#8e8e93"
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
-    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
+    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:`${AVSTAND.m}px max(${AVSTAND.l}px, calc((100% - ${KOLUMN.smal}px) / 2)) ${medSafeBotten(AVSTAND.xl)}`,background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
@@ -500,10 +504,10 @@ const ObjektValjarLista = ({ objekt, valtId, onVälj, tillåtInget = false }: {
   return (
     <div style={{ padding:"12px 16px 24px" }}>
       {/* Sök */}
-      <div style={{ display:"flex",alignItems:"center",gap:8,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 12px",marginBottom:14 }}>
+      <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,background:FARG.kort,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,padding:`0 ${AVSTAND.m}px`,marginBottom:AVSTAND.l }}>
         <span className="material-symbols-outlined" style={{ fontSize:18,color:"#8e8e93" }}>search</span>
         <input value={sök} onChange={e => setSök(e.target.value)} placeholder="Sök objekt…"
-          style={{ flex:1,background:"none",border:"none",outline:"none",color:"#fff",fontSize:15,fontFamily:"inherit",padding:0 }}/>
+          style={{ flex:1,minHeight:TRAFFYTA.min,background:"none",border:"none",outline:"none",color:FARG.text,...TYP.text,fontFamily:"inherit",padding:0 }}/>
       </div>
 
       {tillåtInget && !q && (
@@ -1580,7 +1584,7 @@ export default function Arbetsrapport() {
       const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
       const vilaTim = (new Date().getTime() - slutDt.getTime()) / 3600000;
       if (vilaTim >= trosklar.dygnsvila_krav_h && vilaTim < trosklar.dygnsvila_varning_h) {
-        vilaVarningar.push({typ:'orange',text:`Kort dygnsvila: ${Math.round(vilaTim*10)/10}h sedan igår`});
+        vilaVarningar.push({typ:'orange',text:`Kort dygnsvila: ${svDecimal(Math.round(vilaTim*10)/10)}h sedan igår`});
       }
     }
   }
@@ -1947,7 +1951,7 @@ export default function Arbetsrapport() {
     const max = new Date(mitt); max.setDate(max.getDate() + BYTE_MAX_DAGAR);
     return (
       <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-        <div className="sheet-upp" style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
+        <div className="sheet-upp" style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
           <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
             <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
           </div>
@@ -2005,7 +2009,7 @@ export default function Arbetsrapport() {
     const s = deldagSheet;
     return (
       <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-        <div className="sheet-upp" style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
+        <div className="sheet-upp" style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
           <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
             <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
           </div>
@@ -2035,7 +2039,7 @@ export default function Arbetsrapport() {
   // Ordet bär budskapet, inte färgen: rasten står som tal, valen är tydliga.
   const rastFragaUI = rastFraga && (
     <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1600, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-      <div className="sheet-upp" style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
+      <div className="sheet-upp" style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))` }}>
         <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
           <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
         </div>
@@ -2265,7 +2269,7 @@ export default function Arbetsrapport() {
     const ark = (barn: ReactNode) => (
       <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
         <div onClick={e=>e.stopPropagation()} className="sheet-upp"
-          style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+          style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
           <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
             <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
           </div>
@@ -2364,7 +2368,7 @@ export default function Arbetsrapport() {
     const stäng = () => setObjektSvarDatum(null);
     return (
       <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-        <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:520, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
+        <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:KOLUMN.ark, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
           <div style={{ padding:`${AVSTAND.l}px`, borderBottom:`1px solid ${FARG.linje}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             <h3 style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Välj objekt</h3>
             <button onClick={stäng} style={KNAPP.lank}>Stäng</button>
@@ -2393,8 +2397,8 @@ export default function Arbetsrapport() {
 
   // Inloggad men ingen medarbetare kopplad — säg vad som är fel och vad man gör.
   if(!medarbetare && medSaknas) return (
-    <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, display:"flex", flexDirection:"column", justifyContent:"center", padding:`0 ${AVSTAND.sidmarginal}px` }}>
-      <style>{designCss}</style>
+    <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot(), background:FARG.bg, color:FARG.text, fontFamily:FONT, display:"flex", flexDirection:"column", justifyContent:"center", padding:`0 ${AVSTAND.sidmarginal}px` }}>
+      <style>{designCss}{KOLUMN_CSS}</style>
       <h1 style={{ margin:0, ...TYP.titel, color:FARG.text }}>Kontot är inte kopplat</h1>
       <p style={{ margin:`${AVSTAND.m}px 0 0`, ...TYP.text, color:FARG.text2 }}>
         Du är inloggad som <span style={{ color:FARG.text }}>{medSaknas}</span>, men kontot är inte kopplat till någon medarbetare. Utan koppling kan appen inte visa din arbetsrapport.
@@ -3471,7 +3475,7 @@ export default function Arbetsrapport() {
     );
 
     return (
-    <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
+    <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot(), background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
       <style>{css}{designCss}</style>{timerBanner}
 
       {/* Ingen egen rubrikrad: den satt på top:0 BAKOM appens toppfält (PR 518) —
@@ -3621,7 +3625,7 @@ export default function Arbetsrapport() {
         {/* Objektväljare — sheet */}
         {visaObjektVäljare&&(
           <div className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-            <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:520, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
+            <div className="sheet-upp" style={{ background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, width:"100%", maxWidth:KOLUMN.ark, maxHeight:"70vh", display:"flex", flexDirection:"column" }}>
               <div style={{ padding:`${AVSTAND.l}px`, borderBottom:`1px solid ${FARG.linje}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <h3 style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Välj objekt</h3>
                 <button onClick={()=>setVisaObjektVäljare(false)} style={KNAPP.lank}>Stäng</button>
@@ -3674,7 +3678,7 @@ export default function Arbetsrapport() {
         return (
           <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div onClick={e=>e.stopPropagation()} className="sheet-upp"
-              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+              style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
               <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
                 <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
               </div>
@@ -3699,7 +3703,7 @@ export default function Arbetsrapport() {
         return (
           <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div onClick={e=>e.stopPropagation()} className="sheet-upp"
-              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
+              style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"92vh", overflowY:"auto" }}>
               <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
                 <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
               </div>
@@ -3778,7 +3782,7 @@ export default function Arbetsrapport() {
         return (
           <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
             <div onClick={e=>e.stopPropagation()} className="sheet-upp"
-              style={{ width:"100%", maxWidth:520, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"85vh", overflowY:"auto" }}>
+              style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px calc(${AVSTAND.xl}px + env(safe-area-inset-bottom))`, maxHeight:"85vh", overflowY:"auto" }}>
               <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
                 <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
               </div>
@@ -3972,7 +3976,7 @@ export default function Arbetsrapport() {
     // Övertidsvarningarna som låg här sa samma sak som Övertid-kortet nedan.
 
     return (
-      <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",paddingBottom:AVSTAND.xxl }}>
+      <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot(),background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",paddingBottom:AVSTAND.xxl }}>
         <style>{css}</style>{timerBanner}
         {/* STICKY i flödet: rubriken reserverar sin egen höjd, så inget innehåll
             kan hamna under flikraden (PR 540 hade fixed + ett avstånd som mått). */}
@@ -4046,7 +4050,7 @@ export default function Arbetsrapport() {
                   ):fel?(<>
                     <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Kunde inte hämta saldo</p>
                     <button onClick={()=>setFortnoxSaldoStatus('idle')}
-                      style={{ marginTop:AVSTAND.m,padding:`${AVSTAND.m}px ${AVSTAND.l}px`,background:FARG.linje,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                      style={{ marginTop:AVSTAND.m,minHeight:TRAFFYTA.min,padding:`0 ${AVSTAND.l}px`,background:FARG.linje,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
                       Försök igen
                     </button>
                   </>):tom?(
@@ -4111,7 +4115,7 @@ export default function Arbetsrapport() {
                   ):fel?(<>
                     <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Kunde inte hämta saldo</p>
                     <button onClick={()=>setFortnoxSaldoStatus('idle')}
-                      style={{ marginTop:AVSTAND.m,padding:`${AVSTAND.m}px ${AVSTAND.l}px`,background:FARG.linje,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
+                      style={{ marginTop:AVSTAND.m,minHeight:TRAFFYTA.min,padding:`0 ${AVSTAND.l}px`,background:FARG.linje,border:`1px solid ${FARG.linje}`,borderRadius:RADIE.rad,color:FARG.text,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>
                       Försök igen
                     </button>
                   </>):tom?(
@@ -4123,7 +4127,7 @@ export default function Arbetsrapport() {
                     {atkTimmar!=null&&(
                       <div style={{ display:"flex",justifyContent:"space-between" }}>
                         <span style={{ ...TYP.meta,color:FARG.text2 }}>Motsvarar</span>
-                        <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text }}>{atkTimmar}h ({atkDagar} dagar)</span>
+                        <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text }}>{svDecimal(atkTimmar)}h ({svDecimal(atkDagar!)} dagar)</span>
                       </div>
                     )}
                   </>)}
@@ -4161,7 +4165,7 @@ export default function Arbetsrapport() {
                     <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
                       <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.gron }}>check</span>
                       <span style={{ ...TYP.meta,color:FARG.text }}>
-                        {atkValSparat.val==='ledig'?`Du valde ledig tid${atkDagar!=null?`: ${atkDagar} dagar`:''}`:atkValSparat.val==='kontant'?`Utbetalas juni ${årNu2}: ≈ ${atkKr.toLocaleString('sv-SE')} kr`:`Avsatt till pension: ≈ ${atkKr.toLocaleString('sv-SE')} kr`}
+                        {atkValSparat.val==='ledig'?`Du valde ledig tid${atkDagar!=null?`: ${svDecimal(atkDagar)} dagar`:''}`:atkValSparat.val==='kontant'?`Utbetalas juni ${årNu2}: ≈ ${atkKr.toLocaleString('sv-SE')} kr`:`Avsatt till pension: ≈ ${atkKr.toLocaleString('sv-SE')} kr`}
                       </span>
                     </div>
                   </div>
@@ -4173,7 +4177,7 @@ export default function Arbetsrapport() {
                     <p style={{ margin:`0 0 ${AVSTAND.l}px`,...TYP.listtitel,color:FARG.text }}>Gör ditt ATK-val {årNu2}</p>
                     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:AVSTAND.s,marginBottom:AVSTAND.l }}>
                       {([
-                        {k:'ledig' as const,label:'Ledig tid',sub:atkDagar!=null?`= ${atkDagar} dagar`:''},
+                        {k:'ledig' as const,label:'Ledig tid',sub:atkDagar!=null?`= ${svDecimal(atkDagar)} dagar`:''},
                         {k:'kontant' as const,label:'Pengar',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'före skatt'},
                         {k:'pension' as const,label:'Pension',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'till pension'},
                       ]).map(o=>(
@@ -4482,14 +4486,14 @@ export default function Arbetsrapport() {
               <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Dygnsvila</h3>
               <div style={{ display:"flex",gap:0,marginBottom:AVSTAND.l,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs }}>
                 {([['7d','7 dagar'],['30d','30 dagar'],['månad','Månad'],['år','År']] as const).map(([k,l])=>(
-                  <button key={k} onClick={()=>{setVilaPeriod(k);setVisaAllaDygnsvila(false);}} style={{ flex:1,padding:`${AVSTAND.s}px 0`,borderRadius:RADIE.rad,border:"none",...TYP.meta,fontWeight:VIKT.halvfet,cursor:"pointer",fontFamily:"inherit",background:vilaPeriod===k?FARG.fyllning:"transparent",color:vilaPeriod===k?FARG.text:FARG.text2 }}>{l}</button>
+                  <button key={k} onClick={()=>{setVilaPeriod(k);setVisaAllaDygnsvila(false);}} style={{ flex:1,minHeight:TRAFFYTA.min,padding:0,borderRadius:RADIE.rad,border:"none",...TYP.meta,fontWeight:VIKT.halvfet,cursor:"pointer",fontFamily:"inherit",background:vilaPeriod===k?FARG.fyllning:"transparent",color:vilaPeriod===k?FARG.text:FARG.text2 }}>{l}</button>
                 ))}
               </div>
               {vilaPeriod==='månad'&&(
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:AVSTAND.l,marginBottom:AVSTAND.l }}>
-                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:AVSTAND.xs }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span></button>
+                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:0,width:TRAFFYTA.min,height:TRAFFYTA.min,display:"flex",alignItems:"center",justifyContent:"center" }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span></button>
                   <span style={{ ...TYP.listtitel,color:FARG.text,minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
-                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:AVSTAND.xs }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_right</span></button>
+                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:0,width:TRAFFYTA.min,height:TRAFFYTA.min,display:"flex",alignItems:"center",justifyContent:"center" }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_right</span></button>
                 </div>
               )}
 
@@ -4497,16 +4501,16 @@ export default function Arbetsrapport() {
               {!visaAllaDygnsvila&&vilaPeriod!=='år'?(
                 <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
                   {!harProblem?(
-                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.xs}px 0` }}>
                       {/* Siffrorna bor i sammanfattnings-korten ovanför — här bara vägen till detaljerna */}
                       <span style={{ ...TYP.meta,color:FARG.text2,...TNUM }}>{filtVila.length} {filtVila.length===1?'viloperiod':'viloperioder'} {periodLabel}</span>
-                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla nätter →</button>
+                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Se alla nätter →</button>
                     </div>
                   ):(
                     <>
                       {brott.map((r,i)=><VilaKort key={i} r={r} />)}
-                      <div style={{ padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,borderTop:`1px solid ${FARG.linje}` }}>
-                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Se alla {filtVila.length} nätter →</button>
+                      <div style={{ padding:0,borderTop:`1px solid ${FARG.linje}` }}>
+                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Se alla {filtVila.length} nätter →</button>
                       </div>
                     </>
                   )}
@@ -4539,7 +4543,7 @@ export default function Arbetsrapport() {
                 <div>
                   {filtVila.length===0?<div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}><p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data för perioden</p></div>:
                   filtVila.map((r,i)=><VilaKort key={i} r={r} />)}
-                  <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ width:"100%",marginTop:AVSTAND.xs,background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:`${AVSTAND.s}px 0` }}>Dölj detaljer</button>
+                  <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ width:"100%",marginTop:AVSTAND.xs,background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",minHeight:TRAFFYTA.min,padding:0 }}>Dölj detaljer</button>
                 </div>
               )}
             </section>
@@ -4561,7 +4565,7 @@ export default function Arbetsrapport() {
                       {/* Rött bara för obesvarade; är alla besvarade är raden grå. */}
                       <span style={{ ...TYP.meta,color:vvObesvarade>0?FARG.text:FARG.text2 }}>{!vvHarProblem?`Inga brott ${periodLabel}`:vvObesvarade>0?`${dbVeck.length} brott mot veckovila`:`${dbVeck.length} ${dbVeck.length===1?'brott':'brott'} mot veckovila · ${dbVeck.length===1?'besvarat':'alla besvarade'}`}</span>
                     </div>
-                    {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
+                    {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Visa alla →</button>}
                   </div>
                 </div>
               ):(
@@ -4596,8 +4600,8 @@ export default function Arbetsrapport() {
                       </div>
                     );
                   })}
-                  <div style={{ padding:`${AVSTAND.m}px 0 ${AVSTAND.l}px`,borderTop:`1px solid ${FARG.linje}` }}>
-                    <button onClick={()=>setVisaAllaVeckovila(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Dölj detaljer</button>
+                  <div style={{ padding:0,borderTop:`1px solid ${FARG.linje}` }}>
+                    <button onClick={()=>setVisaAllaVeckovila(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Dölj detaljer</button>
                   </div>
                 </div>
               )}
@@ -4827,7 +4831,7 @@ export default function Arbetsrapport() {
       const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
       const månNamn = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
       return (
-        <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased" }}>
+        <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot(),background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased" }}>
           <style>{css}</style>{timerBanner}
           {/* Sticky i flödet — se Min tid. */}
           <header style={{ position:"sticky",top:HEADER_TOP,zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:`0 ${AVSTAND.l}px`,minHeight:64 }}>
@@ -4846,7 +4850,7 @@ export default function Arbetsrapport() {
             </div>
           </header>
 
-          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:640,margin:"0 auto" }}>
+          <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
 
             {/* Brandrisk-retroraden bor numera i Sammanställningens "Saknas"-block. */}
 
@@ -5012,7 +5016,7 @@ export default function Arbetsrapport() {
 
     // ─── ÖVERSIKT-VY ───
     return (
-      <div style={{ minHeight:"100vh",background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
+      <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot(),background:FARG.bg,color:FARG.text,fontFamily:FONT,WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
         {/* designCss: Dag för dag-radens detaljer tonar in (.tona-in). */}
         <style>{css}{designCss}</style>{timerBanner}
 
@@ -5032,7 +5036,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px`,maxWidth:448,margin:"0 auto",width:"100%",boxSizing:"border-box" }}>
+        <main style={{ padding:`${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xxl}px` }}>
 
           {/* TIDSSPECIFIKATION — exakt det som går till lönen, ur SAMMA beräkning som
               Fortnox-exporten (/api/lon/min-manad). MÄNGDER, aldrig kronor: föraren
@@ -5441,7 +5445,7 @@ export default function Arbetsrapport() {
               {opts.map((o: any) => {
                 const valt = o.v === selected;
                 return (
-                  <button key={o.l} onClick={()=>onPick(o.v)}
+                  <button key={o.l} className="valj-rad" onClick={()=>onPick(o.v)}
                     style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 4px",color:valt?"#0a84ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                     {o.l}
                   </button>
@@ -5815,11 +5819,14 @@ export default function Arbetsrapport() {
                 const byte = franvaroByten.rod[rd.datum];
                 const bytbar = !byte && bytbaraRodaDagar([rd], franvaroByten.rod, idagKey).length > 0;
                 return (
-                  <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
-                    Röd dag ({rodNamn}) — arbetad{byte ? `, byts mot ledig ${byte.ledig.slice(8)}/${Number(byte.ledig.slice(5, 7))}${byte.status === "väntar" ? " (väntar på godkännande)" : ""}` : ''}. Ingen helglön.
-                    {/* Erbjudandet även här — dagen är oftast redan bekräftad när man tänker på bytet */}
-                    {bytbar && <> <button onClick={()=>fragaOmByte(rd.datum)} style={{ ...KNAPP.lank, display:"inline-flex", padding:0, minHeight:0, height:"auto" }}>Byt mot ledig dag</button></>}
-                  </p>
+                  <>
+                    <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
+                      Röd dag ({rodNamn}) — arbetad{byte ? `, byts mot ledig ${byte.ledig.slice(8)}/${Number(byte.ledig.slice(5, 7))}${byte.status === "väntar" ? " (väntar på godkännande)" : ""}` : ''}. Ingen helglön.
+                    </p>
+                    {/* Erbjudandet även här — dagen är oftast redan bekräftad när man tänker på bytet.
+                        Egen rad, vänsterställd, 44 px: i löptexten blev träffytan 22 px och bröts mitt i meningen. */}
+                    {bytbar && <button onClick={()=>fragaOmByte(rd.datum)} style={{ ...KNAPP.lank, ...TYP.meta, display:"flex", justifyContent:"flex-start", textAlign:"left", padding:0 }}>Byt mot ledig dag</button>}
+                  </>
                 );
               })()}
               {/* DELDAG i Redigera — reserven för dagen efter ("glömde trycka Åker hem").
@@ -5835,9 +5842,7 @@ export default function Arbetsrapport() {
                 );
                 if (!rd.start_tid || franvaroDagar[rd.datum] || foreSkarpStart(rd.datum)) return null;
                 return (
-                  <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
-                    <button onClick={()=>setDeldagSheet({ datum: rd.datum, typ: null, tid: fmtKlockslag(rd.slut_tid) || "12:00", fel: null, sparar: false })} style={{ ...KNAPP.lank, display:"inline-flex", padding:0, minHeight:0, height:"auto" }}>Åkte hem sjuk, VAB eller föräldraledig?</button>
-                  </p>
+                  <button onClick={()=>setDeldagSheet({ datum: rd.datum, typ: null, tid: fmtKlockslag(rd.slut_tid) || "12:00", fel: null, sparar: false })} style={{ ...KNAPP.lank, ...TYP.meta, display:"flex", justifyContent:"flex-start", textAlign:"left", padding:0 }}>Åkte hem sjuk, VAB eller föräldraledig?</button>
                 );
               })()}
             </div>
@@ -6043,7 +6048,7 @@ export default function Arbetsrapport() {
                   <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.text,color:FARG.text }}>{fmt(delta)} var inte maskintid.</p>
                 )}
                 <button onClick={uppdateraTider} style={{ ...KNAPP.tertiar, display:"flex", width:"100%",marginBottom:AVSTAND.s }}>Det var fel — använd maskinens tider</button>
-                <button onClick={hoppaÖver} style={{ width:"100%",padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
+                <button onClick={hoppaÖver} style={{ width:"100%",minHeight:TRAFFYTA.min,padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
               </Card>
             );
           })()}
@@ -6103,7 +6108,7 @@ export default function Arbetsrapport() {
                     );
                   })}
                 </div>
-                <button onClick={hoppaÖver} style={{ width:"100%",padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
+                <button onClick={hoppaÖver} style={{ width:"100%",minHeight:TRAFFYTA.min,padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
               </Card>
             );
           })()}
@@ -6488,10 +6493,10 @@ export default function Arbetsrapport() {
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:FARG.bg,borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`,width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+            <div style={{ background:FARG.bg,borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`,width:"100%",maxWidth:KOLUMN.ark,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,borderBottom:`1px solid ${FARG.linje}`,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <h3 style={{ margin:0,...TYP.rubrik }}>Välj objekt</h3>
-                <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+                <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit",minHeight:TRAFFYTA.min,padding:`0 ${AVSTAND.s}px` }}>Stäng</button>
               </div>
               <div style={{ flex:1,overflowY:"auto" }}>
                 <ObjektValjarLista
@@ -6507,10 +6512,10 @@ export default function Arbetsrapport() {
         {/* Maskinväljare */}
         {visaRedMaskinVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:FARG.kort,borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`,width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+            <div style={{ background:FARG.kort,borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`,width:"100%",maxWidth:KOLUMN.ark,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,borderBottom:`1px solid ${FARG.linje}`,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <h3 style={{ margin:0,...TYP.rubrik }}>Välj maskin</h3>
-                <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+                <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit",minHeight:TRAFFYTA.min,padding:`0 ${AVSTAND.s}px` }}>Stäng</button>
               </div>
               <div style={{ flex:1,overflowY:"auto",padding:`${AVSTAND.s}px 0` }}>
                 {Object.entries(maskinNamnMap).map(([mid,namn])=>(
@@ -6551,7 +6556,7 @@ export default function Arbetsrapport() {
           return (
             <div onClick={stäng} className="tona-opacity" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
               <div onClick={e=>e.stopPropagation()} className="sheet-upp"
-                style={{ width:"100%", maxWidth:560, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.xl}px`, maxHeight:"85vh", overflowY:"auto" }}>
+                style={{ width:"100%", maxWidth:KOLUMN.ark, background:FARG.kort, borderRadius:`${RADIE.sheet}px ${RADIE.sheet}px 0 0`, padding:`${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.xl}px`, maxHeight:"85vh", overflowY:"auto" }}>
                 <div style={{ display:"flex", justifyContent:"center", padding:`${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
                   <div style={{ width:40, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
                 </div>
@@ -6761,7 +6766,7 @@ export default function Arbetsrapport() {
     const prick = (farg: string) => <span style={{ width:PRICK, height:PRICK, borderRadius:RADIE.cirkel, background:farg, display:"inline-block", flexShrink:0 }} />;
 
     return (
-      <div style={{ minHeight:"100vh", background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
+      <div style={{ minHeight:ROT_MIN_HOJD,...kolumnRot("bred"), background:FARG.bg, color:FARG.text, fontFamily:FONT, WebkitFontSmoothing:"antialiased", display:"flex", flexDirection:"column" }}>
         <style>{css}</style>{timerBanner}
 
         {/* Header — månad + pilar (44 px, blå = navigerar). Rubriken var blå
