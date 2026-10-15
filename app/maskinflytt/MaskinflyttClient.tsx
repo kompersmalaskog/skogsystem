@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { haversine } from '@/utils/geo'
 import { vaderIkon } from './vader'
+import { kontrolleraFramme } from './framme'
+import FrammeVarning from './FrammeVarning'
 import {
   hamtaSenastePlatser, tillampaSparrar, relativTid, rimligGpsPunkt,
   type PlatsForslag,
@@ -356,6 +358,7 @@ export default function MaskinflyttClient() {
   const [forraB, setForraB] = useState<{ lat: number; lng: number } | null>(null) // senaste flyttens slutpunkt
   const [dagNotis, setDagNotis] = useState<string | null>(null)
   const [hemKmKvar, setHemKmKvar] = useState<number | null>(null)   // ~km kvar hem vid "Kör hem"
+  const [frammeVarning, setFrammeVarning] = useState<{ km: number } | null>(null)   // "Framme" tryckt långt från basen: frågar först
 
   // Flyttens tillstånd
   const [maskin, setMaskin] = useState<Maskin | null>(null)
@@ -1156,6 +1159,17 @@ export default function MaskinflyttClient() {
     nastaFlytt()   // tillbaka till listan → "På väg hem"-banner med "Framme på LBC"
   }
 
+  // ── Knappen "Framme på LBC": kontrollerar först var bilen står (framme.ts). Långt från basen →
+  //    frågan (FrammeVarning); annars, och när läget inte går att avgöra, stängs rundan som förut. ──
+  async function tryckFramme() {
+    if (!dagRef.current || sparar) return
+    setSparar(true); setSparFel(null)
+    const bedomning = await kontrolleraFramme(lastbilVin)
+    setSparar(false)
+    if (bedomning.lage === 'langt') { setFrammeVarning({ km: bedomning.km }); return }
+    await framme()
+  }
+
   // ── "Framme på LBC" — stänger dagen med MÄTT hemresa (odometer-diff + tid) ──
   async function framme() {
     const d = dagRef.current
@@ -1595,14 +1609,22 @@ export default function MaskinflyttClient() {
                       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
                         🏠 På väg hem{hemKmKvar != null ? <span style={{ color: C.t3, fontWeight: 400 }}> · ~{hemKmKvar} km kvar</span> : null}
                       </div>
-                      <div style={{ fontSize: 13, color: C.t3, marginBottom: 10 }}>
-                        Tryck när du är framme på basen — då mäts hemresan (km och tid). Glömmer du, stängs dagen automatiskt när bilen står stilla hemma.
-                      </div>
-                      <button onClick={framme} disabled={sparar} style={{
-                        width: '100%', background: C.blue, color: '#fff', border: 'none',
-                        borderRadius: 10, padding: '13px 0', fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: ff,
-                        opacity: sparar ? 0.5 : 1,
-                      }}>{sparar ? 'Avslutar …' : 'Framme på LBC'}</button>
+                      {frammeVarning ? (
+                        <FrammeVarning km={frammeVarning.km} sparar={sparar}
+                          onKorVidare={() => setFrammeVarning(null)}
+                          onAvslutaAnda={() => { setFrammeVarning(null); void framme() }} />
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 13, color: C.t3, marginBottom: 10 }}>
+                            Tryck när du är framme på basen — då mäts hemresan (km och tid). Glömmer du, stängs dagen automatiskt när bilen står stilla hemma.
+                          </div>
+                          <button onClick={tryckFramme} disabled={sparar} style={{
+                            width: '100%', background: C.blue, color: '#fff', border: 'none',
+                            borderRadius: 10, padding: '13px 0', fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: ff,
+                            opacity: sparar ? 0.5 : 1,
+                          }}>{sparar ? 'Avslutar …' : 'Framme på LBC'}</button>
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1767,12 +1789,12 @@ export default function MaskinflyttClient() {
                 )}
 
                 {/* Sammanställningen — huvudvägen är startsidans ruta, detta är genvägen */}
-                <Link href="/maskinflytt/sammanstallning" style={{
+                <Link href="/lastbil?flik=korningar" style={{
                   display: 'flex', alignItems: 'center', gap: 8, marginTop: 20,
                   color: C.t3, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
                 }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 20 }}>list_alt</span>
-                  Flyttlogg och sammanställning
+                  Körningar och sammanställning
                   <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: 'auto' }}>chevron_right</span>
                 </Link>
               </>

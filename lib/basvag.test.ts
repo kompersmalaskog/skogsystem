@@ -87,7 +87,7 @@ describe('sidans koppling (page.tsx kan inte monteras i test — källvakt)', ()
     expect(page).toContain("gpsFargRef.current = lineType === 'mainRoad' ? (farg ?? null) : null;");   // andra typer nollställer färgen
     // färgen sätts bara där linjetypen är mainRoad — varje ställe som skriver `farg: …` i en ny linje har villkoret framför sig
     const satter = Array.from(page.matchAll(/\.\.\.\(([^)]*?)\? \{ farg: [^}]*\} : \{\}\)/g)).map((m) => m[1]);
-    expect(satter.length).toBe(5);   // 2 ritade, 2 GPS-spårade och featuren som kartan får (egenskapen farg)
+    expect(satter.length).toBe(6);   // 2 ritade, 2 GPS-spårade, featuren som kartan får (egenskapen farg) och Om traktens lista (#766: "Basväg röd · 640 m")
     for (const v of satter) expect(v).toContain("=== 'mainRoad'");
   });
 

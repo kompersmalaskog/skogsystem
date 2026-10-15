@@ -2,16 +2,14 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Besked, Primar, Sekundar, Bekrafta, Laddar, Etikett } from "./ui";
+import { Sektion, Stod, Kort, Lista, Besked, Primar, Sekundar, Bekrafta, Laddar } from "./ui";
 import { SYSTEM_LABELS, IMPLEMENTERADE } from "@/lib/lonesystem";
 import type { SystemTyp, Koppling } from "@/lib/lonesystem/types";
-import { sparaAnstallningsnummer, IGEN_RAD as IGEN_RAD_DELAD } from "@/lib/admin/anstallningsnummer";
-import { LONEARTER } from "@/lib/lonesystem/loneart";
+import { sparaAnstallningsnummer } from "@/lib/admin/anstallningsnummer";
 
 const ALLA_SYSTEM: SystemTyp[] = ["fortnox", "visma", "hogia", "kontek", "crona", "agda", "csv"];
 
 type Medarbetare = { id: string; namn: string | null };
-type Artikelmappning = { id?: string; intern_typ: string; extern_kod: string; beskrivning: string | null };
 
 export default function LonesystemUnderflik() {
   const [valdSystem, setValdSystem] = useState<SystemTyp>("fortnox");
@@ -34,7 +32,6 @@ export default function LonesystemUnderflik() {
   // Mappningar
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [anstallningar, setAnstallningar] = useState<Record<string, string>>({});
-  const [artiklar, setArtiklar] = useState<Record<string, Artikelmappning>>({});
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -70,15 +67,6 @@ export default function LonesystemUnderflik() {
       }
       setKoppling(k);
       setMedarbetare(medRes.data || []);
-
-      // Löneartskoderna hör till kopplingen: det är de som exporten läser (lib/lonesystem/loneart).
-      const artMap: Record<string, Artikelmappning> = {};
-      if (k) {
-        const artRes = await supabase.from("lonesystem_artikelmappning").select("id, intern_typ, extern_kod, beskrivning").eq("lonesystem_id", k.id);
-        if (artRes.error) throw artRes.error;
-        for (const a of (artRes.data || [])) artMap[a.intern_typ] = a as Artikelmappning;
-      }
-      setArtiklar(artMap);
 
       if (k) {
         const ansRes = await supabase.from("medarbetare_lonesystem")
@@ -130,30 +118,7 @@ export default function LonesystemUnderflik() {
     await ladda(valdSystem);
   };
 
-  const IGEN_RAD = IGEN_RAD_DELAD;
-
-  // Skrivningarna ger tillbaka FEL som text (raden visar det) — aldrig tyst. `.select()` visar vilka rader
-  // som faktiskt skrevs; 0 rader utan fel = RLS stoppade den. Kolumnen `uppdaterad` finns inte i prod.
-  const sparaArtikel = async (intern_typ: string, extern_kod: string, beskrivning: string): Promise<string | null> => {
-    const befintlig = artiklar[intern_typ];
-    if (befintlig?.id) {
-      const { data, error } = await supabase.from("lonesystem_artikelmappning")
-        .update({ extern_kod: extern_kod.trim(), beskrivning })
-        .eq("id", befintlig.id).select("id");
-      if (error) return error.message;
-      if (!data?.length) return IGEN_RAD;
-    } else if (extern_kod.trim()) {
-      // Raden hör till Fortnox-kopplingen — utan lonesystem_id hittar exporten den aldrig.
-      if (!koppling) return "Anslut systemet först — löneartskoderna hör till kopplingen.";
-      const { data, error } = await supabase.from("lonesystem_artikelmappning")
-        .insert({ lonesystem_id: koppling.id, intern_typ, extern_kod: extern_kod.trim(), beskrivning }).select("id");
-      if (error) return error.message;
-      if (!data?.length) return IGEN_RAD;
-    }
-    await ladda(valdSystem);
-    return null;
-  };
-
+  // Skrivningen ger tillbaka FEL som text (raden visar det) — aldrig tyst. Löneartskoderna bor under Lön → Lönearter.
   const sparaAnstallning = async (medarbetare_id: string, anstallningsnummer: string): Promise<string | null> => {
     if (!koppling) return "Anslut systemet först — anställningsnumret hör till kopplingen.";
     const fel = await sparaAnstallningsnummer(medarbetare_id, koppling.id, anstallningsnummer);
@@ -224,20 +189,9 @@ export default function LonesystemUnderflik() {
       {testResultat && <Besked slag={testResultat.ok ? "ok" : "fel"}>{testResultat.meddelande}</Besked>}
       {fel && <Besked>{fel}</Besked>}
 
-      {/* Mappa löneartskoder */}
-      <Sektion topp={AVSTAND.xxl}>Löneartskoder</Sektion>
-      <Lista>
-        {LONEARTER.map((t, i) => (
-          <ArtikelRad
-            key={t.key}
-            label={t.label}
-            enhet={t.enhet}
-            befintlig={artiklar[t.key]}
-            onSpara={(kod, besk) => sparaArtikel(t.key, kod, besk)}
-            sista={i === LONEARTER.length - 1}
-          />
-        ))}
-      </Lista>
+      {valdSystem === "fortnox" && (
+        <Stod attr={{ "data-lonearter-hanvisning": "" }}>Vilken löneart i Fortnox varje rad skickas som väljer du under Lön → Lönearter.</Stod>
+      )}
 
       {/* Mappa anställningsnummer */}
       <Sektion topp={AVSTAND.xxl}>Anställningsnummer</Sektion>
@@ -281,47 +235,6 @@ const radFalt = {
 function SparaKnapp({ aktiv, upptagen, onClick }: { aktiv: boolean; upptagen: boolean; onClick: () => void }) {
   return (
     <Sekundar smal onClick={onClick} disabled={!aktiv || upptagen} style={{ flexShrink: 0 }}>{upptagen ? "…" : "Spara"}</Sekundar>
-  );
-}
-
-function ArtikelRad({
-  label, enhet, befintlig, onSpara, sista,
-}: {
-  label: string;
-  /** tim / veckor / mil: vad koden multipliceras med i Fortnox. */
-  enhet: string;
-  befintlig?: Artikelmappning;
-  onSpara: (extern_kod: string, beskrivning: string) => Promise<string | null>;
-  sista: boolean;
-}) {
-  const [kod, setKod] = useState(befintlig?.extern_kod || "");
-  const [besk, setBesk] = useState(befintlig?.beskrivning || "");
-  const [fel, setFel] = useState<string | null>(null);
-  const [sparar, setSparar] = useState(false);
-
-  useEffect(() => {
-    setKod(befintlig?.extern_kod || "");
-    setBesk(befintlig?.beskrivning || "");
-  }, [befintlig?.extern_kod, befintlig?.beskrivning]);
-
-  const ändrat = kod !== (befintlig?.extern_kod || "") || besk !== (befintlig?.beskrivning || "");
-  const spara = async () => {
-    setSparar(true); setFel(null);
-    setFel(await onSpara(kod, besk));
-    setSparar(false);
-  };
-
-  return (
-    <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: AVSTAND.s }}>
-        <span style={{ ...TYP.text, color: FARG.text, flex: "1 1 160px" }}>{label}<span style={{ ...TYP.meta, color: FARG.text3, marginLeft: AVSTAND.s }}>{enhet}</span></span>
-        {!befintlig?.extern_kod && <Etikett farg={FARG.orange}>Saknar kod</Etikett>}
-        <input aria-label={`${label}, extern kod`} value={kod} onChange={e => setKod(e.target.value)} placeholder="Kod" style={{ ...radFalt, flex: "0 0 96px" }} />
-        <input aria-label={`${label}, beskrivning`} value={besk} onChange={e => setBesk(e.target.value)} placeholder="Beskrivning" style={{ ...radFalt, flex: "1 1 160px" }} />
-        <SparaKnapp aktiv={ändrat} upptagen={sparar} onClick={spara} />
-      </div>
-      {fel && <Stod farg={FARG.rod}>{fel}</Stod>}
-    </div>
   );
 }
 

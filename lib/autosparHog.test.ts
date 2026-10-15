@@ -321,6 +321,9 @@ describe('planeringsvyns avlägg/brand/TMA-autospar använder baslinje + ändrad
   });
   it('varningen vid läsfel finns (data-testid) och markörladdningen nollar markersLoaded vid varje objektbyte', () => {
     expect(src).toContain('data-testid="autospar-fel"');
-    expect(src).toMatch(/setMarkersLoaded\(false\);[^\n]*\n\s*if \(!valtObjekt\?\.id\) return;/);
+    // markörladdningen bor i hooken (lib/hooks/useMarkeringarSynk): den nollar markersLoaded vid varje objektbyte, innan något annat
+    const hook = readFileSync(new URL('./hooks/useMarkeringarSynk.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    expect(hook).toMatch(/setMarkersLoaded\(false\);[^\n]*\n\s*const objektId = i\.objektId;\n\s*if \(!objektId\) return;/);
+    expect(src).toContain('markers, markersLoaded, setMarkers, setMarkersLoaded');
   });
 });

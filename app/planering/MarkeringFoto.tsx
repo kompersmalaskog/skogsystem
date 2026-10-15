@@ -4,12 +4,17 @@
 // aldrig för listor/kartor. Faller tillbaka på inbäddat photoData för markeringar som inte
 // migrerats ännu. photoPath vinner alltid om båda finns.
 //
+//   lokal: fotot ligger på den här enheten och väntar på uppladdning (lib/markeringFotoKo) — visas direkt, med en liten
+//          "väntar på uppladdning"-ikon, och vinner över photoPath (ett omtag ska synas genast).
+//
 //   lazy=true: ett foto i Storage visas som en "Visa foto"-knapp och hämtas först vid tryck
 //              (för rader i listor). photoData-foton visas direkt, som förut.
 //   aktiv=false: hämtar ingenting än (t.ex. proximitetskort utanför radien).
 
 import { useEffect, useState, type CSSProperties } from 'react';
+import { AVSTAND, FARG, IKON, RADIE } from '@/lib/design/tokens';
 import { signeraMarkeringFoto } from '@/lib/markeringFoto';
+import { lokaltMarkeringFoto, prenumereraFotoKo } from '@/lib/markeringFotoKo';
 
 interface Props {
   photoPath?: string | null;
@@ -22,9 +27,43 @@ interface Props {
   aktiv?: boolean;
   /** Klick på bilden; får den färdiga URL:en (för fullskärm). */
   onOpen?: (src: string) => void;
+  /** Ett foto som väntar på uppladdning på den här enheten (objekt + markering) — visas lokalt. */
+  lokal?: { objektId: string; markerId: string } | null;
 }
 
-export default function MarkeringFoto({ photoPath, photoData, photoTs, style, alt = 'Foto', lazy = false, aktiv = true, onOpen }: Props) {
+/** Liten, diskret ikon: fotot är taget men inte uppe än. Inget popup-besked. */
+export function FotoVantarIkon({ style }: { style?: CSSProperties }) {
+  return (
+    <span data-testid="foto-vantar" role="img" aria-label="Väntar på uppladdning" title="Väntar på uppladdning"
+      style={{ position: 'absolute', top: AVSTAND.s - AVSTAND.xs / 2, right: AVSTAND.s - AVSTAND.xs / 2, width: IKON.rad + AVSTAND.xs, height: IKON.rad + AVSTAND.xs, borderRadius: RADIE.cirkel, background: FARG.bg, opacity: 0.8, color: FARG.text, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', ...style }}>
+      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.text }}>cloud_upload</span>
+    </span>
+  );
+}
+
+/** Läser det lokala fotot (om det finns) som en objekt-URL; följer kön (uppe → borta, omtag → nytt). */
+function useLokalSrc(lokal: { objektId: string; markerId: string } | null | undefined): string | null {
+  const [src, setSrc] = useState<string | null>(null);
+  const objektId = lokal?.objektId; const markerId = lokal?.markerId;
+  useEffect(() => {
+    if (!objektId || !markerId) { setSrc(null); return; }
+    let avbruten = false; let url: string | null = null;
+    const las = async () => {
+      const blob = await lokaltMarkeringFoto(objektId, markerId).catch(() => null);
+      if (avbruten) return;
+      if (url) URL.revokeObjectURL(url);
+      url = blob ? URL.createObjectURL(blob) : null;
+      setSrc(url);
+    };
+    void las();
+    const av = prenumereraFotoKo(() => { void las(); });
+    return () => { avbruten = true; av(); if (url) URL.revokeObjectURL(url); };
+  }, [objektId, markerId]);
+  return src;
+}
+
+export default function MarkeringFoto({ photoPath, photoData, photoTs, style, alt = 'Foto', lazy = false, aktiv = true, onOpen, lokal }: Props) {
+  const lokalSrc = useLokalSrc(lokal);
   const [src, setSrc] = useState<string | null>(null);
   const [status, setStatus] = useState<'vilar' | 'laddar' | 'fel'>('vilar');
   const [begart, setBegart] = useState(!lazy);
@@ -41,6 +80,17 @@ export default function MarkeringFoto({ photoPath, photoData, photoTs, style, al
     });
     return () => { avbruten = true; };
   }, [photoPath, photoTs, aktiv, begart, forsok]);
+
+  // Ett foto som väntar på uppladdning: visas direkt från enheten, med väntar-ikonen.
+  if (lokalSrc) {
+    const fullBredd = style?.width === '100%';
+    return (
+      <span style={{ position: 'relative', display: fullBredd ? 'block' : 'inline-block', lineHeight: 0 }}>
+        <img src={lokalSrc} alt={alt} onClick={onOpen ? () => onOpen(lokalSrc) : undefined} style={{ cursor: onOpen ? 'pointer' : undefined, ...style }} />
+        <FotoVantarIkon />
+      </span>
+    );
+  }
 
   // Gammalt format: inbäddat foto, ingen Storage-sökväg.
   if (!photoPath) {

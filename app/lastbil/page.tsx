@@ -1,7 +1,7 @@
 import dynamic from 'next/dynamic'
 
-const LastbilClient = dynamic(() => import('./LastbilClient'), { ssr: false })
+const LastbilVy = dynamic(() => import('./LastbilVy'), { ssr: false })
 
 export default function LastbilPage() {
-  return <LastbilClient />
+  return <LastbilVy />
 }

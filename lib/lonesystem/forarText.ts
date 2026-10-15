@@ -14,6 +14,7 @@
 import { FRANVARO_TYP_RUBRIK, arFranvaroTyp } from "@/lib/franvaro";
 import { ARBETSDAG_MIN_MINUTER, RAST_FRAGA_MIN, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { arTidigVardag } from "@/lib/ob";
+import { loneartInfo } from "./loneart";
 
 const MANAD = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
 
@@ -112,6 +113,8 @@ export type TittaPost = {
 const ERSATTA = [
   /^Kortpass /, /^Deldag /, /^Frånvaro /, /^Helglön /, /^Bytesdag/,
   /ej bekräftade/, /saknar typ/, /^Anställningsnummer saknas/, /^Ingen premielön/,
+  // Löneart utan kod: adminens text (den pekar på Lön → Lönearter). Föraren får en egen post nedan, eller ingen (frivillig premie).
+  /^Löneart saknas/, /skickas inte: ingen kod är kopplad/,
   // Extra tid på dagar utan maskinpass: en granskningsnotis om övertidsbasen.
   // Perioddagar (Joacim) har alltid det — för föraren är det ingen avvikelse.
   /extra tid ligger på dagar utan maskinpass/,
@@ -159,8 +162,17 @@ export function attTittaPa(spec: any): TittaPost[] {
       text: EJ_BESTAMD,
     });
   }
+  // Helglönen går till lönen när lönearten har en kod; annars som förut. Äldre svar utan `lonerader` räknas som utan kod.
+  const lonerader = (spec?.lonerader || []) as { loneart: string; status: string }[];
+  const helglonGar = lonerader.some(l => l.loneart === "helglon" && l.status === "skickas");
   for (const h of ((spec?.helglon?.dagar || []) as { datum: string; namn: string; arbetad: boolean }[]).filter(h => !h.arbetad)) {
-    ut.push({ nyckel: `hl${h.datum}`, datum: h.datum, rubrik: datumLang(h.datum), hoger: h.namn, text: `Helglön, 8 tim. ${EJ_BESTAMD}` });
+    ut.push({ nyckel: `hl${h.datum}`, datum: h.datum, rubrik: datumLang(h.datum), hoger: h.namn, text: `Helglön, 8 tim. ${helglonGar ? "Går till lönen." : EJ_BESTAMD}` });
+  }
+  // Övriga lönearter som har ett antal men saknar kod: raden går inte till lönen. Helglönen har sina dagsposter ovan.
+  // Frivilliga (premien) är ingen sak för föraren.
+  for (const l of lonerader.filter(l => l.status === "saknar_kod" && l.loneart !== "helglon")) {
+    const info = loneartInfo(l.loneart);
+    ut.push({ nyckel: `lk-${l.loneart}`, datum: "", rubrik: info?.label ?? "Lönerad", hoger: "inte inställd", text: "Går inte till lönen än — lönearten är inte inställd. Säg till Martin." });
   }
   for (const b of (spec?.byten || []) as { ledig: string; ersatter: string; ersatterNamn: string; ersatterArbetad: boolean; ledigArbetad: boolean }[]) {
     const rod = `${b.ersatterNamn} (${datumLang(b.ersatter)})`;

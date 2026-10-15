@@ -87,3 +87,50 @@ describe("dagAvvikelser — det normala är tyst", () => {
     expect(dagAvvikelser({ datum: "2026-09-10", start_tid: "07:00", slut_tid: "16:00", arbetad_min: 480, bekraftad: true, maskin_id: "JD810E", objekt: ["Betet"] }, { rodaDagar: roda, kontroll: true })).toEqual([]);
   });
 });
+
+describe("Lönearter utan kod — förarens ord, aldrig adminens text", () => {
+  const admin = [
+    "Löneart saknas för Vältlappar (3 veckor): koppla en kod under Lön → Lönearter. Raden skickas inte.",
+    "Premielön skördare (24 tim) skickas inte: ingen kod är kopplad (frivillig). Koppla en kod under Lön → Lönearter om den ska med.",
+  ];
+  const rad = (loneart: string, status: string, mangd = "3.00") => ({ loneart, status, mangd, kod: status === "skickas" ? "136" : null, beskrivning: "" });
+
+  it("adminens varning om saknad kod visas aldrig ordagrant för föraren", () => {
+    expect(okandaVarningar(admin)).toEqual([]);
+    expect(attTittaPa({ varningar: admin }).map(p => p.text)).toEqual([]);
+  });
+
+  it("en löneart utan kod ger en post i förarens ord: den går inte till lönen än, och säg till Martin", () => {
+    const poster = attTittaPa({ varningar: admin, lonerader: [rad("valtlappar", "saknar_kod")] });
+    expect(poster).toHaveLength(1);
+    expect(poster[0].rubrik).toBe("Vältlappar");
+    expect(poster[0].text).toMatch(/Går inte till lönen än/);
+    expect(poster[0].text).toMatch(/Säg till Martin/);
+    expect(`${poster[0].rubrik} ${poster[0].hoger} ${poster[0].text}`).not.toMatch(/Lönearter|kod|mappning/i);
+  });
+
+  it("frivillig premie utan kod: föraren behöver inte veta, ingen post", () => {
+    expect(attTittaPa({ varningar: admin, lonerader: [rad("premielon_skordare", "valfri_utan_kod", "24.00")] })).toEqual([]);
+  });
+
+  it("löneart som skickas ger ingen post", () => {
+    expect(attTittaPa({ varningar: [], lonerader: [rad("valtlappar", "skickas")] })).toEqual([]);
+  });
+
+  const helglon = { dagar: [{ datum: "2026-12-24", namn: "Julafton", arbetad: false }], timmar: 8 };
+  it("helglön MED kod går till lönen — raden säger inte längre att lönearten är obestämd", () => {
+    const p = attTittaPa({ varningar: [], helglon, lonerader: [rad("helglon", "skickas", "8.00")] });
+    expect(p).toHaveLength(1);
+    expect(p[0].text).toBe("Helglön, 8 tim. Går till lönen.");
+    expect(p[0].text).not.toMatch(/inte bestämd/);
+  });
+  it("helglön UTAN kod: som förut — går inte till lönen än, och posten kommer bara en gång (inte också som saknad löneart)", () => {
+    const p = attTittaPa({ varningar: [], helglon, lonerader: [rad("helglon", "saknar_kod", "8.00")] });
+    expect(p).toHaveLength(1);
+    expect(p[0].text).toBe("Helglön, 8 tim. Går inte till lönen än — lönearten är inte bestämd.");
+  });
+  it("äldre svar utan lonerader: helglön som förut", () => {
+    const p = attTittaPa({ varningar: [], helglon });
+    expect(p[0].text).toMatch(/inte bestämd/);
+  });
+});

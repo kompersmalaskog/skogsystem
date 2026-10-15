@@ -45,11 +45,12 @@ const adminApps = [
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
   { href: '/kontroller', label: 'Kontroller', icon: 'fact_check' },
   { href: '/maskinflytt', label: 'Maskinflytt', icon: 'delivery_truck_speed' },
-  { href: '/maskinflytt/sammanstallning', label: 'Flyttlogg', icon: 'list_alt' },
   { href: '/lastbil', label: 'Lastbilen', icon: 'pin_drop' },
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
   { href: '/personal', label: 'Personal', icon: 'badge' },
   { href: '/om', label: 'Om appen', icon: 'info' },
+  // Planeringens inställningar (kompass, tillstånd, karta, GPS-källa) — flyttade hit från objektinfons meny. Länken öppnar inställningsarket i /planering.
+  { href: '/planering?installningar=1', label: 'Inställningar', icon: 'settings' },
 ]
 
 const markagarrapportEntry = { href: '/admin/markagarrapport', label: 'Markägarrapport', icon: 'summarize' }

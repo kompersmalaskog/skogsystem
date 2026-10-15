@@ -3,7 +3,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { serverSupabase } from "@/lib/lonesystem/server";
 import { beraknaLoneunderlag, type LoneunderlagBerikad } from "@/lib/lonesystem/loneunderlag";
 import { målMedarbetareId } from "@/lib/auth/server";
-import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
+import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import { attTittaPa, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
 import { loneperiodFranArbetsmanad } from "../route";
 
@@ -113,15 +113,15 @@ async function ritaPdf(arbetsmanad: string, m: LoneunderlagBerikad | null): Prom
   const kolMangd = W - MR;
   for (const r of m.rader) {
     behov(16);
-    text(`${loneartLabel(r.SalaryCode)}`, ML, 10);
+    text(`${loneartInfo(r.loneart)?.label ?? `Löneart ${r.SalaryCode}`}`, ML, 10);
     text(`(${r.SalaryCode})`, ML + 150, 9, font, grå);
-    if (loneartEnhet(r.SalaryCode) === "tim") {
+    if (loneartInfo(r.loneart)?.enhet === "tim") {
       // "128 tim 10 min (128,17)" — tim och min att läsa, decimalen att stämma av mot Fortnox.
       const huvud = timMin(Number(r.Number));
       högerText(huvud, kolMangd, 10, bold);
       högerText(`(${fmtMangd(r.Number)})`, kolMangd - bredd(huvud, 10, bold) - 6, 9, font, grå);
     } else {
-      högerText(`${fmtMangd(r.Number)} ${loneartEnhet(r.SalaryCode)}`, kolMangd, 10, bold);
+      högerText(`${fmtMangd(r.Number)} ${loneartEnhetText(r.loneart)}`, kolMangd, 10, bold);
     }
     rad(16);
   }
