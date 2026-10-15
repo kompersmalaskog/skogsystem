@@ -62,6 +62,7 @@ import { jamkaMarkhojd, MARKHOJD_KONTROLL_MS } from '../../lib/kartaMarkhojd'
 import { CentreraKnapp } from '../../components/planering/CentreraKnapp'
 import { KorvyObjektPill } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
+import { aterstallMarkering, borttagenText, BORTTAGEN_MS } from '../../lib/borttagenKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
@@ -4337,6 +4338,8 @@ export default function PlannerPage() {
   const [langtryckPunkt, setLangtryckPunkt] = useState<{ lat: number; lng: number } | null>(null);   // håll fingret på kartan → vald symbol hamnar här
   const [korvyKvitto, setKorvyKvitto] = useState<{ text: string; ton: 'ok' | 'fel'; markerId?: number } | null>(null);
   const korvyKvittoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [borttagenKvitto, setBorttagenKvitto] = useState<{ text: string; marker: any } | null>(null);   // "Symbol borttagen · Ångra" (5 s, ingen dialog)
+  const borttagenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [figur, setFigur] = useState<{ yta: boolean } | null>(null);   // Mät sträcka/yta + Rita linje/yta i körvyn (samma verktyg)
   const [prickValt, setPrickValt] = useState<{ id: string; typ: string } | null>(null);   // tryckt prick → "vad det är + Ta bort"
   // Avverkat (skördarens hyttspår, 10 m buffert, klippt mot traktgränsen) — pillens "efter" och objektinfons "Avverkat X av Y ha"
@@ -4420,6 +4423,12 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive]);
   useEffect(() => () => { if (korvyKvittoTimerRef.current) clearTimeout(korvyKvittoTimerRef.current); }, []);
+  useEffect(() => () => { if (borttagenTimerRef.current) clearTimeout(borttagenTimerRef.current); }, []);
+  // Byts trakt medan raden står kvar får Ångra aldrig lägga markeringen på en annan trakt
+  useEffect(() => {
+    if (borttagenTimerRef.current) { clearTimeout(borttagenTimerRef.current); borttagenTimerRef.current = null; }
+    setBorttagenKvitto(null);
+  }, [valtObjekt?.id]);
   useEffect(() => { korvyFigurAktivRef.current = figur != null; }, [figur]);
 
   // Avverkat: räkna om från skördarens spår (DB för alla dagar + egna live-punkter när den här maskinen ÄR skördaren)
@@ -11619,7 +11628,9 @@ export default function PlannerPage() {
     deleteMarkerFromDb(id);
     // Eget område / traktgräns (boundary) → städa dess yt-data (anteckning + media + storage-filer),
     // nyckel 'omrade:<marker_id>'. Andra markörtyper har ingen yt-nyckel-kopplad data.
+    // Ångra-raden gäller alla utom traktgränsen: dess yt-data raderas på riktigt här och kan inte ges tillbaka.
     if (marker && marker.isLine && marker.lineType === 'boundary') raderaYtaData('omrade:' + id);
+    else visaBorttagen(marker);
   };
 
   // Drag & drop för symboler
@@ -12373,6 +12384,22 @@ export default function PlannerPage() {
   };
   latLonTillSvgRef.current = latLonToSvg;   // drag-effekten (ovan) läser alltid aktuell kartorigo/skala
   const symbolNamn = (typ: string): string => markerTypes.find((m) => m.id === typ)?.name || typ;
+  // Borttagen markering: försvinner direkt, raden nertill ger tillbaka den i 5 s. Raderingen är redan lagd i synkkön (en grav); Ångra lägger markeringen
+  // tillbaka i minnet och synken räknar den som NY (graven ersätts). Ett nytt borttag byter ut raden — bara den senaste kan ångras.
+  const visaBorttagen = (marker: any) => {
+    if (!marker) return;
+    if (borttagenTimerRef.current) clearTimeout(borttagenTimerRef.current);
+    setBorttagenKvitto({ text: borttagenText(marker), marker });
+    borttagenTimerRef.current = setTimeout(() => { setBorttagenKvitto(null); borttagenTimerRef.current = null; }, BORTTAGEN_MS);
+  };
+  const angraBorttagen = () => {
+    const b = borttagenKvitto;
+    if (borttagenTimerRef.current) { clearTimeout(borttagenTimerRef.current); borttagenTimerRef.current = null; }
+    setBorttagenKvitto(null);
+    if (!b) return;
+    setMarkers((prev: any[]) => aterstallMarkering(prev, b.marker));
+    if (navigator.vibrate) navigator.vibrate(15);
+  };
 
   // Vägkontroll för ett nysatt avlägg — samma anrop och samma resultatbehandling som planeringens egen utsättning av avlägg
   const startaAvlaggVagkontroll = (markerId: number, lat: number, lon: number) => {
@@ -14478,6 +14505,9 @@ export default function PlannerPage() {
       )}
       {korvyActive && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
         <KorvyKvitto text={korvyKvitto.text} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
+      )}
+      {borttagenKvitto && !(korvyActive && korvyKvitto) && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
+        <KorvyKvitto text={borttagenKvitto.text} ton="ok" onAngra={angraBorttagen} smal={smalSkarm} />
       )}
 
 
@@ -18885,6 +18915,7 @@ export default function PlannerPage() {
 
                   <button
                     onClick={() => {
+                      visaBorttagen(selectedOversiktVag);
                       deleteMarkerFromDb(selectedOversiktVag.id);
                       setMarkers(prev => prev.filter(m => m.id !== selectedOversiktVag.id));
                       setSelectedOversiktVag(null);
@@ -18998,6 +19029,7 @@ export default function PlannerPage() {
 
                   <button
                     onClick={() => {
+                      visaBorttagen(selectedOversiktItem);
                       deleteMarkerFromDb(selectedOversiktItem.id);
                       setMarkers(prev => prev.filter(m => m.id !== selectedOversiktItem.id));
                       setSelectedOversiktItem(null);

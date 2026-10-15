@@ -71,3 +71,21 @@ describe('kön körs oberoende av planeringsvyn och synliggörs diskret', () => 
     expect(ko).toContain("localStorage.setItem(LOGG_NYCKEL");
   });
 });
+
+describe('Ångra-raden "Symbol borttagen · Ångra" (5 s, ingen dialog)', () => {
+  it('markeringsmenyns Ta bort visar raden (traktgränsen undantagen: dess yt-data raderas på riktigt)', () => {
+    const del = page.slice(page.indexOf('const deleteMarker = (id) =>'), page.indexOf('// Drag & drop för symboler'));
+    expect(del).toContain('else visaBorttagen(marker)');
+    expect(del).toContain("marker.lineType === 'boundary') raderaYtaData(");
+    expect(del).not.toMatch(/confirm\(/);   // ingen bekräftelsedialog
+  });
+  it('Ångra lägger markeringen tillbaka i minnet (synken räknar den som ny) och raden försvinner vid trakt-byte', () => {
+    expect(page).toContain('setMarkers((prev: any[]) => aterstallMarkering(prev, b.marker))');
+    expect(page).toMatch(/\}, \[valtObjekt\?\.id\]\);/);
+    expect(page).toContain('onAngra={angraBorttagen}');
+  });
+  it('raderingen går fortfarande via kön: fotofilen i Storage rörs inte (Ångra ger tillbaka markeringen med sitt foto)', () => {
+    expect(hook).toContain('Ångra måste kunna ge tillbaka markeringen med sitt foto');
+  });
+});
+
