@@ -17,6 +17,7 @@ import {
   symbolLager, zonFyllLager, zonKantLager, zoomKurva,
 } from './kartstil';
 import { markerIconDefs } from './marker-icons';
+import { arBasvagFarg } from './basvag';
 import { ZONE_COLORS } from './zone-colors';
 import { avstandM, provytaStatus, type ProvytaStatus } from './provytor';
 import { provytaBildNamn } from './provytaIkon';
@@ -164,6 +165,8 @@ export function kontrollFeatures(
   const props: Record<string, unknown> = {
     id: p.id, kind: klass.kind, typ: klass.typ, status: p.status ?? 'obesvarad',
   };
+  const farg = (g as { farg?: unknown }).farg;
+  if (klass.kind === 'linje' && klass.typ === 'mainRoad' && arBasvagFarg(farg)) props.farg = farg;   // basvägens färg (röd/gul/blå)
 
   if (klass.kind === 'symbol') {
     props.ikon = klass.kand ? klass.typ : 'default';
@@ -230,7 +233,7 @@ export function kontextFeature(data: unknown, origo: Origo): Feature | null {
     }
     return {
       type: 'Feature',
-      properties: { kind: 'linje', typ: typeof data.lineType === 'string' ? data.lineType : '' },
+      properties: { kind: 'linje', typ: typeof data.lineType === 'string' ? data.lineType : '', ...(data.lineType === 'mainRoad' && arBasvagFarg(data.farg) ? { farg: data.farg } : {}) },
       geometry: { type: 'LineString', coordinates: koord },
     };
   }

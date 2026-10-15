@@ -119,9 +119,11 @@ describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon (Om trak
 describe('Rita & mät: ÅTTA rutor — alla ritverktyg (och Snitsla stickvägar), inga dubbletter, och ingen annanstans', () => {
   const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
   const tryck = mellan(page, 'const trycktPlusPost = ', 'const placeraListSynlig');
-  it('åtta rutor i den här ordningen: Rita linje, Rita yta, Nytt område (alla), Pilar, Mät sträcka, Mät yta, Spåra med GPS, Snitsla stickvägar (förut Gallring i objektinfons meny)', () => {
+  it('åtta rutor i den här ordningen: Rita linje, Rita yta, Nytt område (alla), Pilar, Mät sträcka, Mät yta, Spåra med GPS, Snitsla stickvägar (förut Gallring i objektinfons meny) — EN Spåra med GPS, ingen egen "Spåra basväg"', () => {
     const ids = Array.from(rita.matchAll(/\{ id: '([a-z]+)', titel:/g)).map((m) => m[1]);
     expect(ids).toEqual(['linje', 'yta', 'omrade', 'pilar', 'strackan', 'matyta', 'gps', 'stickvagar']);
+    expect(rita).not.toContain('Spåra basväg');
+    expect(page).not.toContain("subMenu === 'gps-basvag'");
     expect(rita).toContain("setActiveCategory('gallring'); setMenuOpen(true);");   // samma Gallring-ark som förut
     expect(rita).not.toContain('isAdminRiktig');   // Nytt område för alla: ersätter Spara som › Yta, som alla (även förare) hade
     expect(rita).toContain("{ id: 'omrade', titel: 'Nytt område', ikon: 'omrade', onTryck:");
@@ -169,11 +171,13 @@ describe('Rita & mät: ÅTTA rutor — alla ritverktyg (och Snitsla stickvägar)
     const rit = mellan(page, '{/* Linjer - Rita */}', '{/* === ZONER === */}');
     const gps = mellan(page, '{/* Linjer - GPS */}', '{/* Linjer - Rita */}');
     const filter = "lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (";
-    // Rita linje: samma lista som förut + Stickväg (röd) sist (ritaLinjeTyper, se enRad.vakter.test.ts); GPS-listan är oförändrad
-    expect(rit).toContain('{ritaLinjeTyper.map(type => (');
-    expect(page).toContain("const ritaLinjeTyper = [\n    ...lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')),");
-    expect(gps).toContain(filter);
+    // Rita linje OCH Spåra med GPS visar SAMMA lista (ritaLinjeTyper, se enRad.vakter.test.ts): Basväg som EN rad först, övriga linjetyper som förut
+    expect(rit).toContain('typer={ritaLinjeTyper}');
+    expect(gps).toContain('typer={ritaLinjeTyper}');
+    expect(page).toContain("const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'));");
+    expect(filter).toContain("lineTypes.filter(t => t.id !== 'boundary'");
     expect(rit).toContain('setDrawType(type.id);');
+    expect(rit).toContain('setDrawFarg(null);');   // övriga linjetyper har ingen färg; Basväg startar via startaBasvagRita
     expect(rit).toContain('setIsDrawMode(true);');
     expect(gps).toContain('startGpsTracking(type.id);');
     const zon = mellan(page, '{/* === ZONER === */}', '{/* === PILAR === */}');

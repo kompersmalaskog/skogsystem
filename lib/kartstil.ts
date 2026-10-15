@@ -215,7 +215,7 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
     lager.push({
       id: `${prefix}-lin-${lt.id}`, type: 'line', source: kalla, filter,
       paint: {
-        'line-color': lt.color,
+        'line-color': lt.id === 'mainRoad' ? BASVAG_FARG_UTTRYCK : lt.color,
         'line-width': zoomKurva(bredd, bf),
         ...(lt.dashed ? { 'line-dasharray': [...STRECK_DASHED] } : {}),
         ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [...STRECK_VANLIG] } : {}),
@@ -225,7 +225,8 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
     });
     if (lt.striped && lt.color2) {
       lager.push({
-        id: `${prefix}-lin-${lt.id}-streck`, type: 'line', source: kalla, filter,
+        // Basväg MED färg är heldragen i färgen: de gula strecken ritas bara på basväg utan färg.
+        id: `${prefix}-lin-${lt.id}-streck`, type: 'line', source: kalla, filter: lt.id === 'mainRoad' ? och(filter, BASVAG_UTAN_FARG) : filter,
         paint: { 'line-color': lt.color2, 'line-width': zoomKurva(bredd, bf), 'line-dasharray': [...STRECK_RANDAD], ...op },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       });

@@ -39,13 +39,45 @@ export function basvagText(farg: unknown, langdM: number | null | undefined): st
   return langdM != null && Number.isFinite(langdM) ? `${namn} · ${formatLength(langdM)}` : namn;
 }
 
-/** Teckenförklaringens ruta för Basväg: tre heldragna fält i röd, gul och blå (färgerna man kan välja). */
-export const basvagYta = (): string =>
-  `linear-gradient(90deg, ${BASVAG_FARGER[0].hex} 0 33.3%, ${BASVAG_FARGER[1].hex} 33.3% 66.6%, ${BASVAG_FARGER[2].hex} 66.6% 100%)`;
+/** VALET man gör för en basväg: Blå/gul (dagens utseende — blå med gula streck, lagras som INGEN `farg`, exakt som alla basvägar före färgvalet) eller röd, gul, blå (heldragna). Blå/gul står först. */
+export type BasvagVal = BasvagFarg | 'blagul';
+export const BASVAG_BLAGUL: BasvagVal = 'blagul';
+export const arBasvagVal = (v: unknown): v is BasvagVal => v === 'blagul' || arBasvagFarg(v);
+/** Valen i ordning: Blå/gul, röd, gul, blå. `farg` = det som lagras på linjen (null = ingenting, som före färgvalet). */
+export const BASVAG_VAL: ReadonlyArray<{ id: BasvagVal; namn: 'Blå/gul' | 'Röd' | 'Gul' | 'Blå'; farg: BasvagFarg | null }> = [
+  { id: 'blagul', namn: 'Blå/gul', farg: null },
+  ...BASVAG_FARGER.map((f) => ({ id: f.id, namn: (f.namn === 'röd' ? 'Röd' : f.namn === 'gul' ? 'Gul' : 'Blå') as 'Röd' | 'Gul' | 'Blå', farg: f.id })),
+];
+/** Valet → det som lagras (Blå/gul = ingen färg). */
+export const valTillFarg = (v: BasvagVal): BasvagFarg | null => (v === 'blagul' ? null : v);
+/** Det som lagras → valet (ingen/okänd färg = Blå/gul: så ritas den också). */
+export const fargTillVal = (farg: unknown): BasvagVal => (arBasvagFarg(farg) ? farg : 'blagul');
 
-/** Linjetyper med basvägen uppdelad i sina tre färger (röd, gul, blå) — för listorna Rita linje och Spåra med GPS. En post per val; `farg` bara på basvägarna. */
-export function medBasvagFarger<T extends { id: string; name: string; color: string; striped?: boolean; color2?: string }>(typer: readonly T[]): Array<T & { key: string; farg?: BasvagFarg }> {
-  return typer.flatMap((t) => (t.id === 'mainRoad'
-    ? BASVAG_FARGER.map((f) => ({ ...t, key: `mainRoad-${f.id}`, farg: f.id, name: `Basväg ${f.namn}`, color: f.hex, striped: false, color2: undefined }))
-    : [{ ...t, key: t.id }]));
+/** Markeringsmenyn: en basväg får ett nytt val. Röd/gul/blå sätter `farg`; Blå/gul TAR BORT fältet — exakt som en basväg före färgvalet (så den ritas och lagras identiskt). Rör inget annat. */
+export function medBasvagVal<T extends object>(m: T, val: BasvagVal): T {
+  const farg = valTillFarg(val);
+  if (farg) return { ...m, farg };
+  const { farg: _bort, ...utan } = m as T & { farg?: unknown };
+  return utan as unknown as T;
+}
+
+/** Dagens utseende som en liten ruta: blå med gula streck (samma blå och gula som kartlagret). */
+const BLAGUL_STRECK = `repeating-linear-gradient(90deg, ${LEGEND.vatten} 0 6px, ${LEGEND.gul} 6px 12px)`;
+/** Rutan för ETT val (färgvalets knapp): Blå/gul = blå med gula streck, övriga heldragna. */
+export const basvagValYta = (v: BasvagVal): string => (v === 'blagul' ? BLAGUL_STRECK : basvagFargHex(v));
+
+/** Teckenförklaringens ruta för Basväg: de fyra valen — Blå/gul (dagens utseende), röd, gul, blå. */
+export const basvagYta = (): string =>
+  `${BLAGUL_STRECK} 0 0 / 25% 100% no-repeat, linear-gradient(90deg, transparent 0 25%, ${BASVAG_FARGER[0].hex} 25% 50%, ${BASVAG_FARGER[1].hex} 50% 75%, ${BASVAG_FARGER[2].hex} 75% 100%)`;
+
+/** Senast valda basvägsval (per enhet): förvalt nästa gång man ritar eller spårar en basväg. Blå/gul första gången (dagens utseende). Kastar aldrig (privat läge, blockerad lagring). */
+export const BASVAG_SENASTE_FARG_NYCKEL = 'basvag_senaste_farg_v1';
+export function lasSenasteBasvagFarg(): BasvagVal {
+  try {
+    const v = typeof localStorage === 'undefined' ? null : localStorage.getItem(BASVAG_SENASTE_FARG_NYCKEL);
+    return arBasvagVal(v) ? v : 'blagul';
+  } catch { return 'blagul'; }
+}
+export function sparaSenasteBasvagFarg(val: BasvagVal): void {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(BASVAG_SENASTE_FARG_NYCKEL, val); } catch { /* ingen lagring: nästa gång blir det Blå/gul igen */ }
 }
