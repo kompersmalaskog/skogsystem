@@ -106,6 +106,7 @@ export default function SchemaVy({
   if (laddar) return <StatusText text="Läser schemat…" />;
 
   const gridBredd = antal * dagBredd;
+  const idagIdx = dagar.indexOf(idagIso); // -1 = idag syns inte i veckorna som visas → ingen flik, ingen ram
   const navKnapp: React.CSSProperties = { ...KNAPP.tertiar, width: TRAFFYTA.min, justifyContent: 'center', color: FARG.text };
 
   const stickyCell = (h: number, bg: string = FARG.kort): React.CSSProperties => ({
@@ -179,7 +180,7 @@ export default function SchemaVy({
       {/* Tidslinjen — på telefon scroll i sidled bakom fast namnkolumn, på bred skärm ryms den */}
       <div style={{ position: 'relative' }}>
       <div ref={ramRef} onScroll={uppdateraSkroll} data-schema-ram style={{ ...KORT, padding: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        <div style={{ width: NAMN_W + gridBredd }}>
+        <div style={{ position: 'relative', width: NAMN_W + gridBredd }}>
 
           {/* Rubrikrad: veckodag + dagnummer (månadsbyte visar månad) */}
           <div style={{ display: 'flex' }}>
@@ -191,16 +192,24 @@ export default function SchemaVy({
                 const arIdag = iso === idagIso;
                 const forstaIManad = d.getDate() === 1;
                 return (
-                  <div key={iso} data-dag={iso} style={{
+                  <div key={iso} data-dag={iso} aria-current={arIdag ? 'date' : undefined} style={{
                     width: dagBredd, height: HUVUD_H, boxSizing: 'border-box', flexShrink: 0,
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: AVSTAND.xs,
                     borderRight: `1px solid ${FARG.tonad}`, borderBottom: `1px solid ${FARG.linje}`,
                     background: dagBakgrund(iso),
                   }}>
+                    {/* IDAG: ordet bär (färgen är aldrig ensam), vit fylld flik. Får vara bredare än kolumnen (34 px) — grannarna har tomt här. */}
+                    {arIdag && (
+                      <span data-schema-idag-flik style={{ ...TYP.micro, position: 'relative', zIndex: 3, flexShrink: 0, height: AVSTAND.l, marginBottom: AVSTAND.xs, padding: `0 ${AVSTAND.xs}px`, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', borderRadius: RADIE.rad, background: FARG.text, color: FARG.bg }}>
+                        Idag
+                      </span>
+                    )}
                     <span style={{ ...TYP.micro, color: helgdag ? FARG.rod : arIdag ? FARG.text : FARG.text2 }}>
                       {forstaIManad ? MANADSNAMN[d.getMonth()].substring(0, 3) : VECKOBOKSTAV[d.getDay()]}
                     </span>
-                    <span style={{ ...TYP.meta, ...TNUM, fontWeight: arIdag ? VIKT.halvfet : VIKT.normal, color: arIdag ? FARG.text : helgdag ? FARG.rod : FARG.text }}>
+                    {/* Datumsiffran har en fast ruta (24 px) på ALLA dagar så veckodagsbokstäverna står på samma linje; idag är rutan INVERTERAD (vit, svart siffra). */}
+                    <span data-dag-tal style={{ ...TYP.meta, ...TNUM, width: AVSTAND.xl, height: AVSTAND.xl, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: RADIE.cirkel,
+                      background: arIdag ? FARG.text : 'transparent', fontWeight: arIdag ? VIKT.fet : VIKT.normal, color: arIdag ? FARG.bg : helgdag ? FARG.rod : FARG.text }}>
                       {d.getDate()}
                     </span>
                   </div>
@@ -278,6 +287,13 @@ export default function SchemaVy({
               </div>
             );
           })}
+
+          {/* Dagens KOLUMN: en lodrät vit inramning hela vägen ner genom alla person- och maskinrader (ovanpå ett ljusare band
+              i cellerna), från under IDAG-fliken. Så "nu" syns oavsett vilken rad man tittar på. Fångar inga tryck (stoppblocken ligger under). */}
+          {idagIdx >= 0 && (
+            <div aria-hidden data-schema-idag style={{ position: 'absolute', top: AVSTAND.l + AVSTAND.xs, bottom: 0, left: NAMN_W + idagIdx * dagBredd, width: dagBredd, boxSizing: 'border-box', zIndex: 1, pointerEvents: 'none',
+              borderLeft: `2px solid ${FARG.text}`, borderRight: `2px solid ${FARG.text}` }} />
+          )}
         </div>
       </div>
         {/* Högerkanten tonar ut när fler dagar väntar åt höger; försvinner när man svept till slutet. Rör inte tryck (pointer-events). */}
