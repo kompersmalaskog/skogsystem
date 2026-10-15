@@ -50,6 +50,8 @@ const adminApps = [
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
   { href: '/personal', label: 'Personal', icon: 'badge' },
   { href: '/om', label: 'Om appen', icon: 'info' },
+  // Planeringens inställningar (kompass, tillstånd, karta, GPS-källa) — flyttade hit från objektinfons meny. Länken öppnar inställningsarket i /planering.
+  { href: '/planering?installningar=1', label: 'Inställningar', icon: 'settings' },
 ]
 
 const markagarrapportEntry = { href: '/admin/markagarrapport', label: 'Markägarrapport', icon: 'summarize' }

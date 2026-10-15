@@ -77,7 +77,7 @@ describe('ett läge i taget', () => {
     expect(tryck).toContain('avslutaPagaendeLage();');
     expect(tryck).not.toContain('if (figur) avslutaFigur();');
     const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
-    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(3);   // Nytt område, Pilar, Spåra med GPS (Rita linje/yta och Mät går via trycktPlusPost)
+    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(4);   // Nytt område, Pilar, Spåra med GPS, Snitsla stickvägar (Rita linje/yta och Mät går via trycktPlusPost)
   });
   it('raderna döljs medan plusdockan eller en meny är öppen — samma regel som placera', () => {
     for (const s of [
