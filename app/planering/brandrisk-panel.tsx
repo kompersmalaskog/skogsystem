@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { fetchSmhiFwi, type SmhiBrandriskData } from "../../lib/smhi-brandrisk";
 
 // === MCF Color System ===
-const MCF_COLORS: Record<number, string> = {
+export const MCF_COLORS: Record<number, string> = {
   0: "#8E8E93", 1: "#007AFF", 2: "#34C759",
   3: "#FFD60A", 4: "#FF9F0A", 5: "#FF453A", 6: "#AF52DE",
 };
