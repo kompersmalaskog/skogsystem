@@ -42,7 +42,7 @@ describe.each(PERIODER)("$namn", ({ period }) => {
   it("Fortnox-raderna (löneart, kod, antal, datum) är oförändrade för varje förare, och alla rader skickas", async () => {
     const nytt = await beraknaLoneunderlag(sepKlient(), { period });
     expect(nytt.totalt_rader).toBe(facit[period].totalt_rader);
-    for (const [i, r] of nytt.resultat.entries()) {
+    nytt.resultat.forEach((r, i) => {
       const gammal = facit[period].resultat[i];
       expect(r.namn).toBe(gammal.namn);
       expect(r.rader).toEqual(gammal.rader);
@@ -50,7 +50,7 @@ describe.each(PERIODER)("$namn", ({ period }) => {
       // förhandsvisningens rader är exakt de som skickas: ingen röd, ingen frivillig utan kod
       expect(r.lonerader.map((l: any) => l.status)).toEqual(r.lonerader.map(() => "skickas"));
       expect(r.lonerader.map((l: any) => [l.loneart, l.kod, l.mangd])).toEqual(r.rader.map((x: any) => [x.loneart, x.SalaryCode, x.Number]));
-    }
+    });
   });
 });
 
@@ -75,9 +75,9 @@ describe("kontroll av jämförelsen själv: den SER en ändring", () => {
   it("utan premiens koder försvinner bara premieraderna — och inget stoppar (frivillig)", async () => {
     const utanPremie = PROD_MAPPNING.filter(m => !m.intern_typ.startsWith("premielon"));
     const nytt = await beraknaLoneunderlag(sepKlient(utanPremie), { period: "2026-10" });
-    for (const [i, r] of nytt.resultat.entries()) {
+    nytt.resultat.forEach((r, i) => {
       expect(r.rader).toEqual(facit["2026-10"].resultat[i].rader.filter((x: any) => !x.loneart.startsWith("premielon")));
       expect(r.saknade_loneartskoder).toEqual([]);
-    }
+    });
   });
 });
