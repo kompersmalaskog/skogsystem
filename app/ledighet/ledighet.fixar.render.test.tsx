@@ -41,6 +41,7 @@ import type { CurrentMedarbetare } from "@/lib/CurrentMedarbetareContext";
 import MigVy from "./_components/MigVy";
 import SchemaVy from "./_components/SchemaVy";
 import { toISO } from "./_components/datum";
+import { DAG_MIN_W, NAMN_W } from "./_components/schemaMatt";
 
 const FORARE: CurrentMedarbetare = { id: "m-1", namn: "Test Förare", roll: "forare", maskin_id: null, partner_user_id: null };
 const ADMIN: CurrentMedarbetare = { ...FORARE, id: "m-admin", namn: "Test Admin", roll: "admin" };
@@ -77,7 +78,7 @@ async function montera(el: React.ReactElement, tabeller: Record<string, Svar>, u
 }
 const text = () => document.body.textContent ?? "";
 const antal = (s: string, d = text()) => d.split(s).length - 1;
-const knapp = (re: RegExp, inom: ParentNode = document) => Array.from(inom.querySelectorAll("button")).find(b => re.test(b.textContent ?? ""));
+const knapp = (re: RegExp, inom: ParentNode = document) => Array.from(inom.querySelectorAll("button")).find(b => re.test(b.textContent ?? "") || re.test(b.getAttribute("aria-label") ?? ""));
 const tryck = async (b: Element | undefined) => { expect(b).toBeTruthy(); await act(async () => { (b as HTMLElement).click(); }); await flush(); };
 const KALLA = (f: string) => readFileSync(resolve(__dirname, f), "utf8");
 
@@ -244,19 +245,97 @@ describe("#4 — Ansök-arket: en rad per typknapp; dagens datum inte blått", (
     expect(ruta.outerHTML).not.toContain("#0a84ff");
   });
 
-  it("Schema: dagens kolumnrubrik är vit och halvfet (bandet i bakgrunden bär resten) — inte blå", async () => {
-    const idag = toISO(new Date());
-    await montera(<SchemaVy />, { medarbetare_namn: { data: [{ id: "m-1", fornamn: "Stefan" }] }, ledighet_ansokningar: { data: [] }, dim_maskin: { data: [] }, stopp: { data: [] }, stopp_maskin: { data: [] } });
-    const rubrik = document.querySelector(`[data-dag="${idag}"]`) as HTMLElement;
-    const [veckodag, tal] = Array.from(rubrik.querySelectorAll("span")) as HTMLElement[];
-    expect(tal.style.fontWeight).toBe("600");
-    expect(rubrik.outerHTML).not.toContain("rgb(10, 132, 255)");
-    expect(tal.style.color === "rgb(255, 255, 255)" || tal.style.color === "rgb(255, 69, 58)").toBe(true); // vit (eller röd om idag är helg/rödag — helgmarkeringen går före)
-    void veckodag;
-  });
-
   it("källvakt: varken kalendern eller schemat refererar FARG.bla (blått är bara 'navigerar eller avbryter')", () => {
     expect(KALLA("_components/ValjKalender.tsx")).not.toContain("FARG.bla");
+    expect(KALLA("_components/SchemaVy.tsx")).not.toContain("FARG.bla");
+  });
+});
+
+describe("Schema — dagens datum är TYDLIGT: IDAG-flik, inverterad siffra, lodrät ram genom alla rader (neutral vit, aldrig blå)", () => {
+  const idag = toISO(new Date());
+  const SCHEMA = {
+    medarbetare_namn: { data: [{ id: "m-1", fornamn: "Stefan" }, { id: "m-2", fornamn: "Oskar" }] },
+    ledighet_ansokningar: { data: [{ medarbetare_id: "m-2", typ: "semester", startdatum: idag, slutdatum: idag }] },
+    dim_maskin: { data: [{ maskin_id: "R64428", visningsnamn: "Rottne 428", modell: "H8E", maskin_typ: "Harvester", aktiv_till: null }] },
+    stopp: { data: [{ id: "s1", fran_datum: idag, till_datum: idag, orsak: "semesterstopp", kommentar: null }] },
+    stopp_maskin: { data: [{ stopp_id: "s1", maskin_id: "R64428" }] },
+  };
+  const flikar = () => Array.from(document.querySelectorAll("[data-schema-idag-flik]")) as HTMLElement[];
+  const ram = () => document.querySelector("[data-schema-idag]") as HTMLElement | null;
+
+  it("EN flik med ordet 'Idag' (versaler via typsnittsteget), bara i dagens kolumn, vit fyllning med svart text", async () => {
+    await montera(<SchemaVy />, SCHEMA);
+    const f = flikar();
+    expect(f.length).toBe(1);
+    expect(f[0].textContent).toBe("Idag");
+    expect(f[0].style.textTransform).toBe("uppercase"); // micro-steget: visas som IDAG
+    expect(f[0].style.background).toBe("rgb(255, 255, 255)");
+    expect(f[0].style.color).toBe("rgb(0, 0, 0)");
+    expect(f[0].closest("[data-dag]")!.getAttribute("data-dag")).toBe(idag);
+    expect(document.querySelectorAll('[data-dag][aria-current="date"]').length).toBe(1);
+  });
+
+  it("dagens datumsiffra är INVERTERAD (vit ruta, svart siffra, fet) — övriga dagar har genomskinlig ruta; alla rutor lika stora så bokstäverna linjerar", async () => {
+    await montera(<SchemaVy />, SCHEMA);
+    const tal = Array.from(document.querySelectorAll("[data-dag-tal]")) as HTMLElement[];
+    const idagTal = (document.querySelector(`[data-dag="${idag}"] [data-dag-tal]`) as HTMLElement);
+    expect(idagTal.style.background).toBe("rgb(255, 255, 255)");
+    expect(idagTal.style.color).toBe("rgb(0, 0, 0)");
+    expect(idagTal.style.fontWeight).toBe("700");
+    const andra = tal.filter(t => t !== idagTal);
+    expect(andra.length).toBeGreaterThan(10);
+    for (const t of andra) expect(t.style.background).toBe("transparent");
+    expect(new Set(tal.map(t => `${t.style.width}x${t.style.height}`)).size).toBe(1); // samma ruta överallt
+  });
+
+  it("ramen: en lodrät vit inramning på exakt dagens kolumn, från under fliken till botten, genom ALLA rader — och den fångar inga tryck", async () => {
+    await montera(<SchemaVy />, SCHEMA);
+    const r = ram()!;
+    expect(r).not.toBeNull();
+    // telefon-läge i jsdom (ingen layout): 21 dagar à DAG_MIN_W, idag på plats 2 (start = idag − 2)
+    expect(r.style.left).toBe(`${NAMN_W + 2 * DAG_MIN_W}px`);
+    expect(r.style.width).toBe(`${DAG_MIN_W}px`);
+    expect(r.style.bottom).toBe("0px");
+    expect(r.style.borderLeft).toBe("2px solid rgb(255, 255, 255)");
+    expect(r.style.borderRight).toBe("2px solid rgb(255, 255, 255)");
+    expect(r.style.pointerEvents).toBe("none");
+    expect(r.getAttribute("aria-hidden")).toBe("true");
+    // ramen ligger i samma bredd-/radbehållare som ALLA rader (rubrik, personer, maskiner) — alltså spänner den över dem alla
+    const behallare = r.parentElement!;
+    expect(behallare.style.position).toBe("relative");
+    expect(behallare.querySelector("[data-dag]")).not.toBeNull();       // rubrikraden
+    expect(behallare.textContent).toContain("Stefan");                    // personrader
+    expect(behallare.textContent).toContain("Rottne 428");                // maskinrader
+  });
+
+  it("ramen börjar UNDER fliken (flikens höjd + 4 px), så fliken sitter på ramen", async () => {
+    await montera(<SchemaVy />, SCHEMA);
+    expect(ram()!.style.top).toBe("20px");
+  });
+
+  it("idag syns inte i de veckor man bläddrat till → ingen flik, ingen ram, ingen aria-current; tillbaka till idag → de är tillbaka", async () => {
+    await montera(<SchemaVy />, SCHEMA);
+    await tryck(knapp(/Nästa vecka/));
+    expect(flikar().length).toBe(0);
+    expect(ram()).toBeNull();
+    expect(document.querySelectorAll('[aria-current="date"]').length).toBe(0);
+    await tryck(knapp(/^Idag$/));
+    expect(flikar().length).toBe(1);
+    expect(ram()).not.toBeNull();
+  });
+
+  it("rubrikraden är lika hög på alla veckor (flikens plats finns alltid) — inget hoppar när man bläddrar", async () => {
+    await montera(<SchemaVy />, SCHEMA);
+    const hojd = () => Array.from(document.querySelectorAll("[data-dag]")).map(e => (e as HTMLElement).style.height);
+    const fore = hojd();
+    await tryck(knapp(/Nästa vecka/));
+    expect(new Set([...fore, ...hojd()]).size).toBe(1);
+  });
+
+  it("neutral vit — inget blått någonstans i dagens markering; källvakt för både fliken och ramen", async () => {
+    await montera(<SchemaVy />, SCHEMA);
+    const bit = [ram()!.outerHTML, flikar()[0].outerHTML, (document.querySelector(`[data-dag="${idag}"]`) as HTMLElement).outerHTML].join("");
+    expect(bit).not.toContain("rgb(10, 132, 255)");
     expect(KALLA("_components/SchemaVy.tsx")).not.toContain("FARG.bla");
   });
 });
