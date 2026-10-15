@@ -3,11 +3,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, RAD, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import GodkandKvitto from './GodkandKvitto';
-import StrykArk from './StrykArk';
+import FlyttArk from './FlyttArk';
 import { fmtDatum } from './nu';
 import { periodKort, type Period } from './period';
-import { sorteraUnderlag, underlagStatus, type UnderlagRad, type UnderlagStatus } from './fakturerbart';
-import { angraGodkannande, godkannFlytt, strykFlytt } from './godkann';
+import { kanRedigeras, kmAndringsText, kundAndringsText, sorteraUnderlag, underlagStatus, type UnderlagRad, type UnderlagStatus } from './fakturerbart';
+import { andraFlytt, angraGodkannande, godkannFlytt, strykFlytt } from './godkann';
 import type { FakturerbartStatus } from './useFakturerbart';
 import { useUnderlagNamn, type Namnkartor } from './useUnderlagNamn';
 
@@ -51,6 +51,7 @@ const kmText = (r: UnderlagRad) => (r.km != null ? `${Math.round(r.km).toLocaleS
 
 function Uppgifter({ r, n, st }: { r: UnderlagRad; n: Namnkartor; st: UnderlagStatus }) {
   const stamp = stampel(r, st);
+  const kundText = kundAndringsText(r);
   return (
     <>
       <div style={{ ...TYP.listtitel, color: FARG.text }}>{maskinNamn(r, n)}</div>
@@ -58,6 +59,7 @@ function Uppgifter({ r, n, st }: { r: UnderlagRad; n: Namnkartor; st: UnderlagSt
       <div style={{ ...TYP.meta, color: FARG.text2 }}>
         {r.datum ? fmtDatum(r.datum) : 'datum saknas i datan'}{r.kund ? ` · Kund: ${r.kund}` : ''}
       </div>
+      {kundText && <div style={{ ...TYP.meta, color: FARG.orange }}>Kund {kundText}</div>}
       {stamp && <div style={{ ...TYP.meta, color: stamp.farg }}>{stamp.text}</div>}
     </>
   );
@@ -69,11 +71,12 @@ function KvittoRad({ r, st, n, sista, sparar, onGodkann, onOppna }: {
 }) {
   const struken = st === 'struken';
   const attGodkanna = st === 'att_godkanna';
+  const kmText2 = kmAndringsText(r);
   return (
     <div data-underlag={r.id} data-status={st}
       style={{ ...RAD, alignItems: 'flex-start', borderBottom: sista ? 'none' : RAD.borderBottom, opacity: struken ? 0.6 : 1 }}>
-      {/* Raden att godkänna är tryckbar (öppnar Stryk-arket); övriga rader är bara kvitto. */}
-      {attGodkanna ? (
+      {/* Raden är tryckbar så länge flytten går att rätta (att godkänna, hos faktureringen); övriga är bara kvitto. */}
+      {kanRedigeras(r) ? (
         <button type="button" onClick={() => onOppna(r)} aria-label={`Visa flytten ${maskinNamn(r, n)}`}
           style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
           <Uppgifter r={r} n={n} st={st} />
@@ -83,7 +86,8 @@ function KvittoRad({ r, st, n, sista, sparar, onGodkann, onOppna }: {
       )}
       <div style={{ textAlign: 'right', ...TNUM, minWidth: TRAFFYTA.min, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: AVSTAND.xs }}>
         <div style={{ ...TYP.listtitel, color: struken ? FARG.text2 : FARG.text, textDecoration: struken ? 'line-through' : 'none' }}>{kmText(r)}</div>
-        {r.km == null && <div style={{ ...TYP.meta, color: FARG.text2 }}>km saknas i datan</div>}
+        {r.km == null && !kmText2 && <div style={{ ...TYP.meta, color: FARG.text2 }}>km saknas i datan</div>}
+        {kmText2 && <div style={{ ...TYP.meta, color: FARG.orange }}>{kmText2}</div>}
         {attGodkanna && (
           <button type="button" onClick={() => onGodkann(r)} disabled={sparar}
             style={{ ...KNAPP.sekundar, width: 'auto', padding: `0 ${AVSTAND.l}px`, ...(sparar ? INAKTIV : {}) }}>
@@ -104,8 +108,12 @@ function KvittoRad({ r, st, n, sista, sparar, onGodkann, onOppna }: {
  *   Fakturerade, Strukna
  *
  * Summan står INTE här: den ligger stilla i remsan (pengatalet) och räknar bara godkända flyttar.
- * Raderna kommer ur samma läsning som remsan (`useFakturerbart`). Km och kund redigeras inte här —
- * kvittot speglar flytten som föraren registrerade; stämmer den inte, stryk den med anledning.
+ * Raderna kommer ur samma läsning som remsan (`useFakturerbart`).
+ *
+ * Tryck på en rad som går att rätta (Att godkänna, Hos faktureringen) → FlyttArk: km och kund kan
+ * ändras, valfritt — Godkänn-trycket på raden är oförändrat. Ett rättat värde märks "ändrad från 47"
+ * (originalet bevaras av databasen) så det aldrig ser ut som en mätning. Stryk finns i arket för en
+ * flytt som ännu inte godkänts.
  */
 export default function FaktureringFlik({ period, status, namn, onForsokIgen, onAndrad }: {
   period: Period; status: FakturerbartStatus;
@@ -120,8 +128,8 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
   const [sparar, setSparar] = useState<string | null>(null);
   const [fel, setFel] = useState<string | null>(null);
   const [kvitto, setKvitto] = useState<{ id: string; text: string } | null>(null);
-  const [stryker, setStryker] = useState<UnderlagRad | null>(null);
-  const [strykFel, setStrykFel] = useState<string | null>(null);
+  const [oppnad, setOppnad] = useState<UnderlagRad | null>(null);
+  const [arkFel, setArkFel] = useState<string | null>(null);
 
   const grupper = useMemo(() => {
     const sorterat = sorteraUnderlag(rader ?? []);
@@ -154,15 +162,29 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
   }
 
   async function stryk(r: UnderlagRad, anledning: string) {
-    setSparar(r.id); setStrykFel(null);
+    setSparar(r.id); setArkFel(null);
     const svar = await strykFlytt(r.id, namn, anledning);
     setSparar(null);
     if (!svar.ok) {
-      setStrykFel(svar.fel);
+      setArkFel(svar.fel);
       if (svar.utdaterad) onAndrad();
       return;
     }
-    setStryker(null);
+    setOppnad(null);
+    onAndrad();
+  }
+
+  /** Rätta km/kund. Godkännandet rörs inte; originalet och "redigerad" sköts av databasen. */
+  async function spara(r: UnderlagRad, falt: { km?: number; kund?: string | null }) {
+    setSparar(r.id); setArkFel(null);
+    const svar = await andraFlytt(r.id, falt, namn);
+    setSparar(null);
+    if (!svar.ok) {
+      setArkFel(svar.fel);
+      if (svar.utdaterad) onAndrad();
+      return;
+    }
+    setOppnad(null);
     onAndrad();
   }
 
@@ -176,7 +198,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
     <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
         <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text }}>bolt</span>
-        En flytt som avslutas fakturerbar hamnar under Att godkänna. Godkänn den — då går den till faktureringen.
+        En flytt som avslutas fakturerbar hamnar under Att godkänna. Stämmer den: Godkänn. Stämmer inte km eller kund: tryck på raden och rätta.
       </p>
 
       {fel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{fel}</p>}
@@ -195,17 +217,17 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
             {g.rader.map((r, i) => (
               <KvittoRad key={r.id} r={r} st={g.id} n={n} sista={i === g.rader.length - 1}
                 sparar={sparar === r.id} onGodkann={rad => godkann(rad, n)}
-                onOppna={rad => { setStrykFel(null); setStryker(rad); }} />
+                onOppna={rad => { setArkFel(null); setOppnad(rad); }} />
             ))}
           </div>
         </section>
       ))}
 
-      {stryker && (
-        <StrykArk rad={stryker} maskin={maskinNamn(stryker, n)} stracka={strackaText(stryker, n)}
-          datum={stryker.datum ? fmtDatum(stryker.datum) : 'datum saknas i datan'}
-          sparar={sparar === stryker.id} fel={strykFel}
-          onStryk={a => stryk(stryker, a)} onStang={() => setStryker(null)} />
+      {oppnad && (
+        <FlyttArk key={oppnad.id} rad={oppnad} maskin={maskinNamn(oppnad, n)} stracka={strackaText(oppnad, n)}
+          datum={oppnad.datum ? fmtDatum(oppnad.datum) : 'datum saknas i datan'}
+          sparar={sparar === oppnad.id} fel={arkFel} kanStryka={underlagStatus(oppnad) === 'att_godkanna'}
+          onSpara={falt => spara(oppnad, falt)} onStryk={a => stryk(oppnad, a)} onStang={() => setOppnad(null)} />
       )}
       {kvitto && <GodkandKvitto key={kvitto.id} text={kvitto.text} onAngra={angra} onKlar={stangKvitto} />}
     </div>

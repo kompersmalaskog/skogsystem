@@ -36,3 +36,24 @@ describe('faktureringen läser bara godkända flyttar', () => {
     expect(kalla).toContain('godkand_tid');
   });
 });
+
+describe('rätta km/kund (migration 20261015160000): originalet skyddas i DATABASEN, inte i appen', () => {
+  const sql = () => las('supabase', 'migrations', '20261015160000_fakturaunderlag_flytt_redigering.sql');
+
+  it('triggern snapshotar båda originalen vid första ändringen och sätter tillbaka dem vid varje annan UPDATE', () => {
+    const s = sql();
+    expect(s).toContain('create or replace trigger trg_fakturaunderlag_flytt_redigering');
+    expect(s).toMatch(/before update on fakturaunderlag_flytt/);
+    expect(s).toMatch(/if old\.redigerad_tid is null then\s+[^]*new\.km_original\s+:= old\.km;\s+new\.kund_original := old\.kund;/);
+    expect(s).toMatch(/new\.km_original\s+:= old\.km_original;/);
+    expect(s).toContain("'Flytten är % och kan inte ändras'");     // fakturerad/struken vägras
+    expect(s).toContain('redigerad_konsistens');
+  });
+
+  it('appen skriver aldrig originalen eller redigerad_tid (bara redigerad_av)', () => {
+    const k = las('app', 'lastbil', '_components', 'godkann.ts');
+    const kod = k.split('\n').filter(r => !r.trim().startsWith('*') && !r.trim().startsWith('//')).join('\n');
+    expect(kod).not.toMatch(/varden\.(km_original|kund_original|redigerad_tid)/);
+    expect(kod).toContain('redigerad_av: av');
+  });
+});

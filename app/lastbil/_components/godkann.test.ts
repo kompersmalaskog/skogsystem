@@ -23,7 +23,7 @@ vi.mock('@/lib/supabase', () => {
   return { supabase: { from: (t: string) => new Q(t) } };
 });
 
-import { angraGodkannande, godkannFlytt, strykFlytt } from './godkann';
+import { andraFlytt, angraGodkannande, godkannFlytt, strykFlytt } from './godkann';
 
 const NU = new Date('2026-10-15T10:00:00Z');
 const upd = () => db.anrop.find(a => a.metod === 'update')!.arg[0] as Record<string, unknown>;
@@ -76,5 +76,43 @@ describe('strykFlytt', () => {
   it('noll rader är ett fel', async () => {
     db.svar = { data: [], error: null };
     expect(await strykFlytt('r1', 'M', 'dubblett', NU)).toMatchObject({ ok: false, utdaterad: true });
+  });
+});
+
+describe('andraFlytt (rätta km/kund före fakturering)', () => {
+  it('skickar BARA de fält som ändrats + vem, och rör bara en aktiv, ofakturerad rad — godkännandet lämnas ifred', async () => {
+    expect(await andraFlytt('r1', { km: 46.5 }, 'Martin Lindqvist')).toEqual({ ok: true });
+    expect(upd()).toEqual({ km: 46.5, redigerad_av: 'Martin Lindqvist' });
+    expect(filter()).toEqual(expect.arrayContaining(['eq:id,r1', 'eq:status,aktiv', 'is:fakturerad_tid,']));
+    expect(filter().some(f => f.includes('godkand_tid'))).toBe(false);   // ändringen är ett skäl att få rätta, inte att godkänna om
+    expect(db.anrop.at(-1)).toMatchObject({ metod: 'select', arg: ['id'] });
+  });
+
+  it('klienten skriver ALDRIG originalen eller redigerad_tid — det är databasens uppgift', async () => {
+    await andraFlytt('r1', { km: 40, kund: 'Vida' }, 'Martin');
+    const nycklar = Object.keys(upd());
+    expect(nycklar.sort()).toEqual(['km', 'kund', 'redigerad_av']);
+    expect(nycklar.some(k => k.endsWith('_original') || k === 'redigerad_tid')).toBe(false);
+  });
+
+  it('kund trimmas och tomt blir NULL (saknas), inte en tom sträng', async () => {
+    await andraFlytt('r1', { kund: '  Vida Skog ' }, 'M');
+    expect(upd().kund).toBe('Vida Skog');
+    db.anrop = [];
+    await andraFlytt('r1', { kund: '   ' }, 'M');
+    expect(upd().kund).toBeNull();
+  });
+
+  it('ogiltigt km (noll, negativt, NaN) och inget ändrat skickas aldrig', async () => {
+    for (const km of [0, -3, NaN]) expect(await andraFlytt('r1', { km }, 'M')).toMatchObject({ ok: false });
+    expect(await andraFlytt('r1', {}, 'M')).toMatchObject({ ok: false, fel: 'Inget är ändrat.' });
+    expect(db.anrop).toEqual([]);
+  });
+
+  it('noll rader tillbaka = utdaterad (fel), databasens egna svar (fakturerad/struken) visas som de är', async () => {
+    db.svar = { data: [], error: null };
+    expect(await andraFlytt('r1', { km: 40 }, 'M')).toMatchObject({ ok: false, utdaterad: true });
+    db.svar = { data: null, error: { message: 'Flytten är fakturerad och kan inte ändras' } };
+    expect(await andraFlytt('r1', { km: 40 }, 'M')).toEqual({ ok: false, fel: 'Flytten är fakturerad och kan inte ändras' });
   });
 });

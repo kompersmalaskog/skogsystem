@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { arGodkand, sorteraUnderlag, summeraFakturerbart, underlagStatus, type FaktureratRad, type UnderlagRad } from './fakturerbart';
+import { arGodkand, kanRedigeras, kmAndrad, kmAndringsText, kundAndringsText, sorteraUnderlag, summeraFakturerbart, underlagStatus, type FaktureratRad, type UnderlagRad } from './fakturerbart';
 
 // De åtta riktiga raderna i fakturaunderlag_flytt (prod 2026-10-15, efter backfill-godkännandet):
 // alla status 'aktiv', ingen fakturerad, alla godkända med skapad_tid.
@@ -78,7 +78,7 @@ describe('godkännandet (migration 20261015150000)', () => {
   it('sorteringen: att godkänna överst (ÄLDSTA först), sedan hos, fakturerade, strukna (nyast först)', () => {
     const u = (id: string, datum: string, o: Partial<FaktureratRad> = {}): UnderlagRad => ({
       ...rad(10, o), id, kund: null, datum, maskin: 'M', fran_objekt_id: null, fran_plats_id: null, till_objekt_id: null, till_plats_id: null,
-      struken_tid: null, struken_anledning: null, godkand_av: null,
+      struken_tid: null, struken_anledning: null, godkand_av: null, km_original: null, kund_original: null, redigerad_tid: null, redigerad_av: null,
     });
     const sorterat = sorteraUnderlag([
       u('hos-ny', '2026-10-06'), u('stryk', '2026-10-07', { status: 'struken' }), u('vantar-ny', '2026-10-05', { godkand_tid: null }),
@@ -88,3 +88,37 @@ describe('godkännandet (migration 20261015150000)', () => {
   });
 });
 
+
+describe('redigerade värden: märkningen följer av att värdet skiljer sig från originalet', () => {
+  const r = (o: Record<string, unknown>) => ({ km: 42, km_original: 47, kund: null, kund_original: null, redigerad_tid: '2026-10-15T10:00:00Z', ...o }) as any;
+
+  it('aldrig redigerad (redigerad_tid NULL) märks aldrig — även om originalet är NULL', () => {
+    expect(kmAndringsText(r({ redigerad_tid: null, km_original: null }))).toBeNull();
+    expect(kundAndringsText(r({ redigerad_tid: null, kund: 'Vida', kund_original: null }))).toBeNull();
+  });
+
+  it('km: ändrad från, ifylld (saknades), borttagen — och ingenting när värdet är tillbaka vid originalet', () => {
+    expect(kmAndringsText(r({}))).toBe('ändrad från 47');
+    expect(kmAndringsText(r({ km_original: 46.6, km: 47.2 }))).toBe('ändrad från 46,6');
+    expect(kmAndringsText(r({ km_original: null }))).toBe('ifylld, saknades i datan');
+    expect(kmAndringsText(r({ km: null }))).toBe('borttagen, var 47');
+    expect(kmAndringsText(r({ km: 47 }))).toBeNull();
+    expect(kmAndrad(r({ km: 47 }))).toBe(false);
+  });
+
+  it('kund: tillagd när den saknades, ändrad från, borttagen; blanksteg och tomt är samma sak som saknas', () => {
+    expect(kundAndringsText(r({ kund: 'Vida', kund_original: null }))).toBe('tillagd, saknades i datan');
+    expect(kundAndringsText(r({ kund: 'Vida', kund_original: 'Skog AB' }))).toBe('ändrad från Skog AB');
+    expect(kundAndringsText(r({ kund: null, kund_original: 'Skog AB' }))).toBe('borttagen, var Skog AB');
+    expect(kundAndringsText(r({ kund: ' Vida ', kund_original: 'Vida' }))).toBeNull();
+    expect(kundAndringsText(r({ kund: '', kund_original: null }))).toBeNull();
+  });
+
+  it('kanRedigeras: före fakturering och inte struken', () => {
+    const f = (o: Record<string, unknown>) => ({ km: 1, status: 'aktiv', fakturerad_tid: null, godkand_tid: null, ...o }) as any;
+    expect(kanRedigeras(f({}))).toBe(true);
+    expect(kanRedigeras(f({ godkand_tid: 'x' }))).toBe(true);
+    expect(kanRedigeras(f({ godkand_tid: 'x', fakturerad_tid: 'y' }))).toBe(false);
+    expect(kanRedigeras(f({ status: 'struken' }))).toBe(false);
+  });
+});

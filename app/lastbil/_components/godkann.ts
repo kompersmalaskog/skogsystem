@@ -48,3 +48,25 @@ export function strykFlytt(id: string, av: string, anledning: string, nu: Date =
     .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null)
     .select('id') as any);
 }
+
+/**
+ * Rätta km och/eller kund före fakturering (Fakturering › Att godkänna och Hos faktureringen).
+ *
+ * Skickar bara de fält som faktiskt ändrats. Originalet och "redigerad" sköts av databasen
+ * (trigger i migration 20261015160000): klienten skriver aldrig `km_original`/`kund_original`, och
+ * en fakturerad eller struken rad vägrar ändring. `redigerad_av` kräver triggern.
+ * Rörs inte godkännandet — den som rättar är den som godkänner.
+ */
+export function andraFlytt(id: string, falt: { km?: number; kund?: string | null }, av: string): Promise<Skrivsvar> {
+  const varden: Record<string, unknown> = { redigerad_av: av };
+  if (falt.km !== undefined) {
+    if (!Number.isFinite(falt.km) || falt.km <= 0) return Promise.resolve({ ok: false, fel: 'Skriv km som ett tal större än noll.' });
+    varden.km = falt.km;
+  }
+  if (falt.kund !== undefined) varden.kund = falt.kund && falt.kund.trim() ? falt.kund.trim() : null;
+  if (Object.keys(varden).length === 1) return Promise.resolve({ ok: false, fel: 'Inget är ändrat.' });
+  return skriv(() => supabase.from('fakturaunderlag_flytt')
+    .update(varden)
+    .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null)
+    .select('id') as any);
+}
