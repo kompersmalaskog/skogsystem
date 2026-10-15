@@ -26,6 +26,7 @@ const TYP_RAD: Record<string, string> = {
   annat: 'Aldrig fakturerbar',
 };
 const MAX_TRAFFAR = 30;
+export const KOORD_VARNING = 'Sträckan räknades från den gamla trakten — kontrollera km.';
 
 const maskinNamn = (data: PlatsData | null, id: string | null, extern: string | null): string =>
   extern?.trim() ? extern.trim() : id ? (data?.maskiner.find(m => m.maskin_id === id)?.namn ?? 'Okänd maskin') : 'Välj maskin';
@@ -178,6 +179,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const flytt: FlyttDetalj | null = detalj.lage.lage === 'klar' ? detalj.lage.flytt : null;
   const u = detalj.lage.lage === 'klar' ? detalj.lage.underlag : null;
   const historik = detalj.lage.lage === 'klar' ? detalj.lage.historik : [];
+  const forare = detalj.lage.lage === 'klar' ? detalj.lage.forare : null;
 
   const [vy, setVy] = useState<Vy>('huvud');
   const [form, setForm] = useState<{ maskinId: string | null; extern: string; fran: Plats; till: Plats; typ: string; kund: string; km: string } | null>(null);
@@ -221,6 +223,15 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
 
   const nuPlats = (p: Plats) => platsNamn(data, p);
   const matt = flytt.flytt_km;
+  // Rubriken säger VILKEN flytt det är — maskin, dag, förare — så två flyttar med samma maskin aldrig går att förväxla.
+  // Maskinnamnet är alltid dim_maskin.visningsnamn (aldrig maskin_id); det är flyttens maskin som den registrerades, inte den som rättas till.
+  const titel = [
+    flytt.maskin_id || flytt.extern_maskin ? maskinNamn(data, flytt.maskin_id, flytt.extern_maskin) : 'Maskin saknas',
+    fmtDatum(flytt.starttid ?? flytt.sluttid),
+    forare ? forare.split(/\s+/)[0] : 'förare saknas',
+  ].join(' · ');
+  const rutt = `${nuPlats({ objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id })} → ${nuPlats({ objekt: flytt.till_objekt_id, plats: flytt.till_plats_id })}`;
+  const ruttRad = <div data-rutt style={{ ...TYP.meta, color: FARG.text2, marginTop: -AVSTAND.s }}>{rutt}</div>;
 
   // ── Låst: allt läsbart, inga chevrons, inga redigeringsknappar, en grå rad som säger varför ──
   const lasText: string | null = flytt.avbruten ? 'Struken — flytten hände aldrig och går inte att ändra'
@@ -240,7 +251,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
       onStang();
     };
     return (
-      <Ark rubrik="Flytten" onStang={onStang}
+      <Ark rubrik={titel} onStang={onStang}
         fot={kanLamnaTillbaka ? (
           <>
             {fel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{fel}</p>}
@@ -249,7 +260,8 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
             </button>
           </>
         ) : undefined}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+        <div data-flytt-vy="last" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+          {ruttRad}
           <Grupp rubrik="Flytten">
             <ValRad etikett="Maskin" varde={maskinNamn(data, form.maskinId, form.extern)} />
             <ValRad etikett="Från" varde={nuPlats(form.fran)} />
@@ -308,6 +320,10 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
     { typ: f.typ, maskinId: f.extern.trim() ? null : f.maskinId, externMaskin: f.extern.trim() || null },
     maskinNamn(data, f.maskinId, null),
   );
+  // Koordinaterna (och km) kom från den valda trakten: byts Från eller Till ligger de kvar från fel ställe. Bara info, blockerar inte.
+  const franAndrad = f.fran.objekt !== flytt.fran_objekt_id || f.fran.plats !== flytt.fran_plats_id;
+  const tillAndrad = f.till.objekt !== flytt.till_objekt_id || f.till.plats !== flytt.till_plats_id;
+  if (flytt.koord_kalla === 'objekt' && (franAndrad || tillAndrad)) besked.push(KOORD_VARNING);
   const stryks = besked.some(r => r.startsWith('Blir inte fakturerbar'));
   if (stryks && harFakturaAndring) besked.push('Ändringar under Faktura sparas inte — underlaget stryks');
 
@@ -350,7 +366,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   }
 
   const grans = kmAndrat ? gransText(u!.km, nyKm) : null;
-  const rubriker: Record<Vy, string> = { huvud: 'Flytten', maskin: 'Maskin', fran: 'Från', till: 'Till', typ: 'Typ', stryk: 'Stryk flytten' };
+  const rubriker: Record<Vy, string> = { huvud: titel, maskin: 'Maskin', fran: 'Från', till: 'Till', typ: 'Typ', stryk: 'Stryk flytten' };
   const tillNamn = nuPlats({ objekt: flytt.till_objekt_id, plats: flytt.till_plats_id });
   const harPosition = !!flytt.maskin_id && flytt.till_lat != null && flytt.till_lng != null;
   // Utan underlag finns ingen Kund-rad under FAKTURA: ett kunduppdrag får sin kund i FLYTTEN i stället (kravet är databasens).
@@ -385,10 +401,10 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
     );
   } else if (vy === 'stryk') {
     innehall = (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+      <div data-flytt-vy="stryk" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
         <div>
-          <div style={{ ...TYP.listtitel, color: FARG.text }}>{maskinNamn(data, flytt.maskin_id, flytt.extern_maskin)}</div>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>{nuPlats({ objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id })} → {tillNamn}</div>
+          <div style={{ ...TYP.listtitel, color: FARG.text }}>{titel}</div>
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>{rutt}</div>
         </div>
         <ul data-stryk-konsekvens style={{ ...TYP.text, color: FARG.text, margin: 0, paddingLeft: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <li>Flytten markeras som struken</li>
@@ -413,7 +429,8 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
     );
   } else {
     innehall = (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+      <div data-flytt-vy="huvud" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+        {ruttRad}
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <Grupp rubrik="Flytten">
             <ValRad etikett="Maskin" varde={maskinNamn(data, f.maskinId, f.extern)} onTryck={() => setVy('maskin')}

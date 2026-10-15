@@ -68,7 +68,7 @@ const FLYTTDAG = [
 const BEN = (id: string, runda: string, maskin: string, fran: string | null, till: string, km: number, min: number, fakt: boolean, o: Record<string, unknown> = {}) => ({
   id, flyttdag_id: runda, maskin_id: maskin, extern_maskin: null, fran_objekt_id: fran, till_objekt_id: till, fran_plats_id: null, till_plats_id: null,
   flytt_km: km, mellankorning_km: null, tid_flytt_min: min, fakturerbar: fakt, flytt_typ: "produktion", kund: null, sluttid: "x", avbruten: false,
-  fran_lat: null, fran_lng: null, till_lat: null, till_lng: null, redigerad_tid: null, redigerad_av: null, ...o,
+  fran_lat: null, fran_lng: null, till_lat: null, till_lng: null, redigerad_tid: null, redigerad_av: null, starttid: null, koord_kalla: null, ...o,
 });
 const MASKIN_FLYTT = [
   BEN("b1", "3e823d15", "PONS20SDJAA270231", "o-vallust", "o-bagskytte", 53, 75, true, { till_lat: 56.41, till_lng: 14.61, fran_lat: 56.40, fran_lng: 14.60 }),
@@ -885,7 +885,7 @@ const besked = () => dlg()!.querySelector("[data-forhandsbesked]")?.textContent 
 const oppnaS = async (id: string, maskin: string) => { await klicka(knapp(new RegExp(`Visa flytten ${maskin}`), underlagRad(id)!)); };
 const valj = async (etikett: string, alternativ: RegExp) => { await klicka(valRad(etikett)!); await klicka(knapp(alternativ, dlg()!)); };
 /** Flytten bakom og1 (en ogodkänd, fakturerbar produktionsflytt Östra-Hoka → Vällust, 62 km, mätt 62). */
-const BG1 = () => BEN("bg1", "3bfa4d19", "A130743", "o-ostra", "o-vallust", 62, 120, true, { till_lat: 56.40, till_lng: 14.60 });
+const BG1 = () => BEN("bg1", "3bfa4d19", "A130743", "o-ostra", "o-vallust", 62, 120, true, { till_lat: 56.40, till_lng: 14.60, starttid: "2026-10-05T04:30:00Z", koord_kalla: "objekt" });
 const medBg1 = () => { mock.flyttar.push(BG1()); mock.extraUnderlag = [OG_OKT()]; mock.rpcHandler = rpcSomDb; };
 
 describe("Flytten (sheet): öppna, läsa och rätta", () => {
@@ -894,7 +894,7 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
   it("öppnar med flytten ifylld som iOS-rader med chevron; Faktura visar 'mätt'; Spara är grå", async () => {
     await oppnaFakturering();
     await oppnaS("og1", "Elefant 26");
-    expect(dlg()!.getAttribute("aria-label")).toBe("Flytten");
+    expect(dlg()!.querySelector('[data-flytt-vy="huvud"]')).not.toBeNull();
     expect(valRad("Maskin")!.textContent).toContain("Elefant 26");
     expect(valRad("Från")!.textContent).toContain("Östra-Hoka 1:7 A-C -25");
     expect(valRad("Till")!.textContent).toContain("Vällust RP M-R -25");
@@ -1018,7 +1018,7 @@ describe("Flytten (sheet): FLYTTEN går via ratta_flytt, med bara de nycklar som
     expect(val).toEqual(expect.arrayContaining(["Giant", "Elefant 26", "Wisent", "810E"]));
     expect(val[val.length - 1]).toContain("Annan maskin");
     await klicka(knapp(/Giant/, dlg()!));
-    expect(dlg()!.getAttribute("aria-label")).toBe("Flytten");
+    expect(dlg()!.querySelector('[data-flytt-vy="huvud"]')).not.toBeNull();
     expect(valRad("Maskin")!.textContent).toContain("Giant");
     expect(dlg()!.textContent).toContain("Ändras från Elefant 26");
     expect(besked()).toBe("Positionen följer med till Giant");
@@ -1056,7 +1056,7 @@ describe("Flytten (sheet): FLYTTEN går via ratta_flytt, med bara de nycklar som
     await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
     expect(valRad("Till")!.textContent).toContain("Tjuvön AU 2026");
     expect(dlg()!.textContent).toContain("Ändras från Vällust RP M-R -25");
-    expect(besked()).toBeNull();                                     // samma typ, samma maskin: inget att varna för
+    expect(besked()).toBe("Sträckan räknades från den gamla trakten — kontrollera km.");   // koord_kalla = 'objekt': km kom från trakten
     await skrivText(anledningS(), "valde fel trakt");
     await klicka(sparaS());
     expect(mock.rpc[0].args.p_andringar).toEqual({ till_objekt_id: "o-tjuvon", till_plats_id: null });
@@ -1117,7 +1117,7 @@ describe("Flytten (sheet): FLYTTEN går via ratta_flytt, med bara de nycklar som
     await klicka(sparaS());
     expect(dlg()!.textContent).toContain("Flytten är godkänd för fakturering — lämna tillbaka den till Att godkänna först");
     expect(mock.skrivningar).toEqual([]);
-    expect(dlg()!.getAttribute("aria-label")).toBe("Flytten");
+    expect(dlg()!.querySelector('[data-flytt-vy="huvud"]')).not.toBeNull();
     expect(valRad("Maskin")!.textContent).toContain("Giant");        // inget gick förlorat
     expect(document.querySelector("[data-kvitto]")).toBeNull();
   });
@@ -1207,7 +1207,7 @@ describe("Flytten (sheet): stryka", () => {
     await oppnaS("og1", "Elefant 26");
     await klicka(knapp(/^Stryk flytten …$/, dlg()!));
     await klicka(knapp(/^Avbryt$/, dlg()!));
-    expect(dlg()!.getAttribute("aria-label")).toBe("Flytten");
+    expect(dlg()!.querySelector('[data-flytt-vy="huvud"]')).not.toBeNull();
     expect(mock.rpc).toEqual([]);
   });
 });
@@ -1330,7 +1330,7 @@ function rpcSomDb(namn: string, args: any) {
   return { data: { fakturerbar_fore: fore.fakturerbar, fakturerbar_efter: f.fakturerbar, underlag, position: "ingen" }, error: null };
 }
 /** Flyttar i oktoberrundan 3e823d15 som INTE är fakturerbara och därför saknar underlag (service, 53 resp. 20 km). */
-const BN1 = () => BEN("bn1", "3e823d15", "A130743", "o-halaback", "o-ostra", 53, 40, false, { flytt_typ: "service", fran_lat: 56.40, fran_lng: 14.60 });
+const BN1 = () => BEN("bn1", "3e823d15", "A130743", "o-halaback", "o-ostra", 53, 40, false, { flytt_typ: "service", fran_lat: 56.40, fran_lng: 14.60, starttid: "2026-10-06T14:00:00Z", koord_kalla: "gps" });
 const BN2 = () => BEN("bn2", "3e823d15", "A030353", "o-brokamala", "o-tjuvon", 20, 25, false, { flytt_typ: "service" });
 const arkEl = () => document.querySelector('[role="dialog"]') as HTMLElement;
 const kvittoRunda = () => document.querySelector("[data-ratta-kvitto]") as HTMLElement | null;
@@ -1358,7 +1358,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
   it("admin: en flyttrad öppnar Flytten, också en som inte är fakturerbar — FAKTURA finns inte utan underlag", async () => {
     mock.flyttar.push(BN1());
     await oppnaFranRunda("Elefant 26");
-    expect(dlg()!.getAttribute("aria-label")).toBe("Flytten");
+    expect(dlg()!.querySelector('[data-flytt-vy="huvud"]')).not.toBeNull();
     expect(valRad("Maskin")!.textContent).toContain("Elefant 26");
     expect(valRad("Från")!.textContent).toContain("Hålabäck au 2025");
     expect(valRad("Till")!.textContent).toContain("Östra-Hoka 1:7 A-C -25");
@@ -1394,7 +1394,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(mock.rpc).toEqual([{ namn: "ratta_flytt", args: { p_flytt: "bn1", p_andringar: { flytt_typ: "produktion" }, p_anledning: "det var en produktionsflytt, inte service", p_av: "Test Admin" } }]);
     expect(mock.skrivningar).toEqual([]);                                         // inget underlag fanns att skriva mot
     // tillbaka i rundans ark: kvittot säger vad databasen gjorde, och flyttens markering är uppdaterad
-    expect(arkEl().getAttribute("aria-label")).not.toBe("Flytten");
+    expect(arkEl().querySelector('[data-flytt-vy]')).toBeNull();
     expect(kvittoRunda()!.textContent).toContain("Flytten är rättad.");
     expect(kvittoRunda()!.textContent).toContain("Den är nu fakturerbar och ligger under Att godkänna.");
     expect(arkEl().textContent).toContain("Rättad av Test Admin");
@@ -1488,14 +1488,14 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     await klicka(sparaS());
     expect(dlg()!.textContent).toContain("Flytten är godkänd för fakturering — lämna tillbaka den till Att godkänna först");
     expect(kvittoRunda()).toBeNull();
-    expect(dlg()!.getAttribute("aria-label")).toBe("Flytten");
+    expect(dlg()!.querySelector('[data-flytt-vy="huvud"]')).not.toBeNull();
   });
 
   it("Avbryt i sheeten går tillbaka till rundans ark, inte ut ur Körningar", async () => {
     mock.flyttar.push(BN1());
     await oppnaFranRunda("Elefant 26");
     await klicka(knapp(/^Avbryt$/, dlg()!));
-    expect(dlg()!.getAttribute("aria-label")).not.toBe("Flytten");
+    expect(dlg()!.querySelector('[data-flytt-vy]')).toBeNull();
     expect(knapp(/Visa flytten Elefant 26/, arkEl())).toBeDefined();
     expect(mock.rpc).toEqual([]);
   });
@@ -1509,6 +1509,94 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     mock.rattningar = [];
     await klicka(knapp(/Försök igen/, dlg()!));
     expect(valRad("Maskin")).not.toBeNull();
+  });
+});
+
+describe("Flytten (sheet): rubriken säger vilken flytt det är, och trakt-bytet varnar om km", () => {
+  beforeEach(() => { medBg1(); });
+  const KOORD = "Sträckan räknades från den gamla trakten — kontrollera km.";
+
+  it("rubriken: <maskinnamn> · <veckodag dag mån> · <förare>, och under den rutten Från → Till", async () => {
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    expect(dlg()!.querySelector("h2")!.textContent).toBe("Elefant 26 · mån 5 okt · Martin");
+    expect(dlg()!.querySelector("[data-rutt]")!.textContent).toBe("Östra-Hoka 1:7 A-C -25 → Vällust RP M-R -25");
+    expect(dlg()!.textContent).not.toContain("A130743");                  // aldrig maskin_id
+  });
+
+  it("samma rubrik när sheeten öppnas från Körningar, och den skiljer två flyttar med samma maskin åt", async () => {
+    mock.flyttar.push(BN1());                                            // Elefant 26 igen, men tis 6 okt (runda 3e823d15, Martin)
+    await oppnaFranRunda("Elefant 26");
+    expect(dlg()!.querySelector("h2")!.textContent).toBe("Elefant 26 · tis 6 okt · Martin");
+    await klicka(knapp(/^Avbryt$/, dlg()!));
+    await klicka(knapp(/^Avbryt$/, dlg()!));                             // ut ur rundan
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    expect(dlg()!.querySelector("h2")!.textContent).toBe("Elefant 26 · mån 5 okt · Martin");
+  });
+
+  it("rubriken i stryk-vyn och i den låsta vyn bär samma namn, dag och förare", async () => {
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    await klicka(knapp(/^Stryk flytten …$/, dlg()!));
+    expect(dlg()!.querySelector('[data-flytt-vy="stryk"]')!.textContent).toContain("Elefant 26 · mån 5 okt · Martin");
+    await klicka(knapp(/^Avbryt$/, dlg()!));
+    await klicka(knapp(/^Avbryt$/, dlg()!));
+    await oppnaS("u8", "Giant");                                         // godkänd (låst)
+    expect(dlg()!.querySelector("h2")!.textContent).toMatch(/^Giant · .* · Martin$/);
+  });
+
+  it("maskinnamnet är dim_maskin.visningsnamn; saknas maskinen står det 'Okänd maskin', aldrig ett id — och en runda utan förare säger det", async () => {
+    mock.flyttar.find(f => f.id === "bg1")!.maskin_id = "ZZ-OKAND-123";
+    mock.flyttar.find(f => f.id === "bg1")!.flyttdag_id = "b9c1d038";    // rundan har ingen förare registrerad
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    expect(dlg()!.querySelector("h2")!.textContent).toBe("Okänd maskin · mån 5 okt · förare saknas");
+    expect(dlg()!.textContent).not.toContain("ZZ-OKAND-123");
+  });
+
+  it("en maskin i dim_maskin utan visningsnamn och modell får inte visa sitt id i rubriken heller", async () => {
+    DIM_MASKIN.push({ maskin_id: "ZZ-TOM-456", visningsnamn: null as any, modell: null as any });
+    try {
+      mock.flyttar.find(f => f.id === "bg1")!.maskin_id = "ZZ-TOM-456";
+      await oppnaFakturering();
+      await oppnaS("og1", "Elefant 26");
+      expect(dlg()!.querySelector("h2")!.textContent).toBe("Okänd maskin · mån 5 okt · Martin");
+      expect(dlg()!.textContent).not.toContain("ZZ-TOM-456");
+    } finally { DIM_MASKIN.pop(); }
+  });
+
+  it("byts Från eller Till och koordinaterna kom från trakten (koord_kalla = 'objekt'): info ovanför Spara, blockerar inte", async () => {
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    expect(besked() ?? "").not.toContain(KOORD);                          // inget bytt än
+    await klicka(valRad("Från")!);
+    await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, "tjuv");
+    await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
+    expect(besked()).toContain(KOORD);
+    await skrivText(anledningS(), "fel trakt");
+    expect(sparaS().disabled).toBe(false);                                // en upplysning, inte en spärr
+    await klicka(sparaS());
+    expect(mock.rpc[0].args.p_andringar).toEqual({ fran_objekt_id: "o-tjuvon", fran_plats_id: null });
+  });
+
+  it("varningen kommer också när bara Till byts, men inte vid maskinbyte, och inte om koordinaterna kom från annat än trakten", async () => {
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    await valj("Maskin", /Giant/);
+    expect(besked() ?? "").not.toContain(KOORD);
+    await klicka(valRad("Till")!);
+    await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, "tjuv");
+    await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
+    expect(besked()).toContain(KOORD);
+    await klicka(knapp(/^Avbryt$/, dlg()!));
+    // koord_kalla = 'gps' (mätt position): ingen varning
+    mock.flyttar.find(f => f.id === "bg1")!.koord_kalla = "gps";
+    await oppnaS("og1", "Elefant 26");
+    await klicka(valRad("Till")!);
+    await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, "tjuv");
+    await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
+    expect(besked() ?? "").not.toContain(KOORD);
   });
 });
 

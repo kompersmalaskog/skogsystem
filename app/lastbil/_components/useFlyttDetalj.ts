@@ -45,13 +45,18 @@ export interface FlyttDetalj {
   fran_lng: number | null;
   till_lat: number | null;
   till_lng: number | null;
+  /** När flytten startade — rubrikens datum. */
+  starttid: string | null;
+  flyttdag_id: string | null;
+  /** Var koordinaterna kom ifrån ('objekt' = från den valda trakten, 'gps', 'karta', 'flyttplats' …). */
+  koord_kalla: string | null;
 }
 
 export type DetaljLage =
   | { lage: 'laddar' | 'fel' }
-  | { lage: 'klar'; flytt: FlyttDetalj | null; underlag: UnderlagRad | null; historik: Rattning[] };
+  | { lage: 'klar'; flytt: FlyttDetalj | null; underlag: UnderlagRad | null; historik: Rattning[]; forare: string | null };
 
-const FALT = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, sluttid, fran_lat, fran_lng, till_lat, till_lng';
+const FALT = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, sluttid, fran_lat, fran_lng, till_lat, till_lng, starttid, flyttdag_id, koord_kalla';
 export const HISTORIK_ANTAL = 5;
 
 /** Flera underlag på samma flytt (ett struket och ett nytt): det som öppnades, annars det aktiva, annars det första. */
@@ -64,7 +69,7 @@ export function useFlyttDetalj(flyttId: string | null | undefined, underlagId?: 
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
-    if (!flyttId) { setLage({ lage: 'klar', flytt: null, underlag: null, historik: [] }); return; }
+    if (!flyttId) { setLage({ lage: 'klar', flytt: null, underlag: null, historik: [], forare: null }); return; }
     let avbruten = false;
     setLage(l => (l.lage === 'klar' ? l : { lage: 'laddar' }));
     (async () => {
@@ -79,6 +84,14 @@ export function useFlyttDetalj(flyttId: string | null | undefined, underlagId?: 
         if (fl.error || un.error || sp.error) throw fl.error ?? un.error ?? sp.error;
         if (avbruten) return;
         const rad = (fl.data ?? [])[0];
+        // Föraren står i rubriken: den som körde rundan flytten ingick i (flyttdag.forare). Ett läsfel är ett fel, inte "förare saknas".
+        let forare: string | null = null;
+        if (rad?.flyttdag_id) {
+          const dag = await medAbortRetry(() => supabase.from('flyttdag').select('id, forare').eq('id', rad.flyttdag_id) as any);
+          if (dag.error) throw dag.error;
+          forare = ((dag.data ?? [])[0]?.forare ?? '').trim() || null;
+        }
+        if (avbruten) return;
         const num = (v: unknown) => (v == null ? null : Number(v));
         const underlag = valjUnderlag(((un.data ?? []) as any[]).map(u => ({ ...u, km: num(u.km), km_original: num(u.km_original) })) as UnderlagRad[], underlagId);
         setLage({
@@ -86,9 +99,11 @@ export function useFlyttDetalj(flyttId: string | null | undefined, underlagId?: 
           flytt: rad ? {
             ...rad, flytt_km: num(rad.flytt_km), fran_lat: num(rad.fran_lat), fran_lng: num(rad.fran_lng), till_lat: num(rad.till_lat), till_lng: num(rad.till_lng),
             fakturerbar: !!rad.fakturerbar, avbruten: !!rad.avbruten, sluttid: rad.sluttid ?? null,
+            starttid: rad.starttid ?? null, flyttdag_id: rad.flyttdag_id ?? null, koord_kalla: rad.koord_kalla ?? null,
           } : null,
           underlag,
           historik: (sp.data ?? []) as Rattning[],
+          forare,
         });
       } catch (e) {
         console.error('[lastbil] flytten: läsfel', e);
