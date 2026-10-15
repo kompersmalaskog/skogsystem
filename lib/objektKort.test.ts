@@ -148,7 +148,7 @@ describe('Mer', () => {
   const fn = () => vi.fn();
   const go = (): MerIn['go'] => ({
     skordarKorvy: fn(), skotarKorvy: fn(), avslutaKorvy: fn(), vaxlaBaskarta: fn(), gps: fn(), data: fn(), andrasSpar: fn(),
-    skotning: fn(), markeraUtkort: fn(), genomgang: fn(), checklista: fn(), vagdata: fn(), trakt: fn(), lager: fn(), installningar: fn(), gpsKalla: fn(), forslag: fn(),
+    skotning: fn(), markeraUtkort: fn(), genomgang: fn(), vagdata: fn(), trakt: fn(), lager: fn(), installningar: fn(), gpsKalla: fn(), forslag: fn(),
   });
   const bas = (o: Partial<MerIn> = {}): MerIn => ({ roll: 'planerare', arAdmin: true, korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: false, status: 'planerad', tillTrakt: true, vagdata: { varde: '3 vägar', misslyckad: false, kanKora: true }, go: go(), ...o });
   const id = (r: ReturnType<typeof byggMerGrupper>, g: string) => r.grupper.find((x) => x.id === g)?.rader.map((x) => x.id) ?? null;
@@ -159,7 +159,7 @@ describe('Mer', () => {
     expect(m.grupper.map((g) => g.id)).toEqual(['korvy', 'foraren', 'planeraren', 'ovrigt']);
     expect(id(m, 'korvy')).toEqual(['skordarkorvy', 'skotarkorvy']);
     expect(id(m, 'foraren')).toEqual(['skotning', 'markera-utkort', 'genomgang']);
-    expect(id(m, 'ovrigt')).toEqual(['checklista', 'vagdata', 'trakt']);
+    expect(id(m, 'ovrigt')).toEqual(['vagdata', 'trakt']);
     const alla = m.grupper.flatMap((g) => g.rader.map((x) => x.etikett.toLowerCase())).join('|');
     for (const bort of ['byt objekt', 'brandrisk', 'gallring', 'inställningar', 'förslag']) expect(alla).not.toContain(bort);
   });
@@ -180,7 +180,7 @@ describe('Mer', () => {
       korvy: { basKartaText: 'Baskarta: Karta → Topokarta', gpsText: 'GPS: ok', gpsProblem: false, dataText: 'Kartdata: nu', andrasSparText: 'Uppdatera skotarens spår' } }));
     expect(id(m, 'korvy')).toEqual(['baskarta', 'gps', 'kartdata', 'andras-spar', 'avsluta-korvy']);
     expect(m.grupper.find((g) => g.id === 'korvy')!.rader.at(-1)!.farlig).toBe(true);
-    expect(id(m, 'ovrigt')).toEqual(['checklista', 'vagdata', 'trakt', 'lager', 'installningar', 'gps-kalla', 'forslag']);
+    expect(id(m, 'ovrigt')).toEqual(['vagdata', 'trakt', 'lager', 'installningar', 'gps-kalla', 'forslag']);
   });
   it('maskindator (hem leder till objektlistan): Inställningar och Förslag får inte försvinna — startsidan nås inte', () => {
     const m = byggMerGrupper(bas({ roll: 'forare', arAdmin: false, maskinlage: true, skotningFinnsSomKnapp: true }));

@@ -233,11 +233,16 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
       "skotning: efter(() => { setActiveCategory('skotning'); setMenuOpen(true); }),",
       'markeraUtkort: efter(startaMarkeraUtkort),',
       "trakt: efter(() => { setTraktOpen(true); }),",
-      "checklista: efter(() => { setChecklistOpen(true); }),",
       "vagdata: efter(() => { korOmVagdata(); }),",
       "genomgang: efter(() => { setBriefingMode(true); setActiveCategory(null); }),",
       "installningar: efter(() => oppnaInst(false)),",
     ]) expect(page, rad).toContain(rad);
+  });
+  it('Checklista (Vidas egenkontroll, checklist_items) är borta ur Mer › Övrigt — datan och genomgångens egen väg dit rörs inte', () => {
+    expect(mer).not.toContain("id: 'checklista'");
+    expect(page).not.toContain('checklista: efter(');
+    expect(page).toContain('setChecklistOpen(false)');   // modalen finns kvar för Genomgång & kvittering
+    expect(las('../lib/objektInfoSpar.ts')).toContain('checklist_items');   // kolumnen sparas som förut
   });
   it('Briefing + Kvittera markeringar blev ETT val (Genomgång & kvittering); genomgången slutar redan i kvitteringen', () => {
     expect(mer).toContain("etikett: 'Genomgång & kvittering'");

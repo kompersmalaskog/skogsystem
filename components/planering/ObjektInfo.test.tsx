@@ -448,8 +448,8 @@ describe('Mer', () => {
     await montera(props());
     klicka(q('kort-knapp-mer'));
     klicka(q('mer-genomgang'));
-    klicka(q('mer-checklista'));
-    expect(spion.mer).toEqual(['genomgang', 'checklista']);
+    klicka(q('mer-vagdata'));
+    expect(spion.mer).toEqual(['genomgang', 'vagdata']);
     klicka(q('info-tillbaka'));
     expect(q('objekt-info')!.getAttribute('data-vy')).toBe('kort');
   });

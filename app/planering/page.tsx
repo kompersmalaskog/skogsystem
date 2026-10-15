@@ -13896,7 +13896,6 @@ export default function PlannerPage() {
             skotning: efter(() => { setActiveCategory('skotning'); setMenuOpen(true); }),
             markeraUtkort: efter(startaMarkeraUtkort),
             genomgang: efter(() => { setBriefingMode(true); setActiveCategory(null); }),
-            checklista: efter(() => { setChecklistOpen(true); }),
             vagdata: efter(() => { korOmVagdata(); }),
             trakt: efter(() => { setTraktOpen(true); }),
             lager: efter(() => oppnaPlusArk('lager')),

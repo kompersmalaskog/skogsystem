@@ -360,7 +360,7 @@ export interface MerIn {
   go: {
     skordarKorvy: () => void; skotarKorvy: () => void; avslutaKorvy: () => void; vaxlaBaskarta: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
     skotning: () => void; markeraUtkort: () => void; genomgang: () => void;
-    checklista: () => void; vagdata: () => void; trakt: () => void;
+    vagdata: () => void; trakt: () => void;
     lager: () => void; installningar: () => void; gpsKalla: (() => void) | null; forslag: () => void;
   };
 }
@@ -404,12 +404,11 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
   const planerarenBlock = c.arAdmin || c.roll === 'planerare';
   if (planerarenBlock) grupper.push({ id: 'planeraren', titel: 'Planeraren', rader: [] });
 
-  // ÖVRIGT — Checklista, Vägdata, Trakt (fakta, prognos, larm — redigeringen bor bara där). I körvy och maskinläge (där startsidan inte nås) även
+  // ÖVRIGT — Vägdata, Trakt (bara Larm kvar). Vidas egenkontroll-checklista (checklist_items) är borttagen härifrån 2026-10-15 — datan och /egenkontroll rörs inte. I körvy och maskinläge (där startsidan inte nås) även
   // Lager, Inställningar, GPS-källa och Förslag. Annars bor Inställningar och Förslag på startsidan.
   const ovrigt: MerRad[] = [
-    { id: 'checklista', etikett: 'Checklista', ikon: 'check_circle', onTryck: c.go.checklista },
     ...(c.vagdata ? [{ id: 'vagdata', etikett: 'Vägdata', under: c.vagdata.varde, ikon: c.vagdata.misslyckad ? 'error' : 'route', onTryck: c.vagdata.kanKora ? c.go.vagdata : () => {}, farlig: c.vagdata.misslyckad }] : []),
-    ...(c.tillTrakt ? [{ id: 'trakt', etikett: 'Trakt', under: 'Fakta, prognos, larm', ikon: 'info', onTryck: c.go.trakt }] : []),
+    ...(c.tillTrakt ? [{ id: 'trakt', etikett: 'Trakt', under: 'Larm', ikon: 'info', onTryck: c.go.trakt }] : []),
   ];
   if (c.korvyAktiv) {
     ovrigt.push({ id: 'lager', etikett: 'Lager', under: 'Visa och dölj kartlager', ikon: 'layers', onTryck: c.go.lager });
