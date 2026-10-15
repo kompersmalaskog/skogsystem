@@ -2538,11 +2538,14 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     await monter("flik=lon&underflik=underlag&period=2026-09");
     expect(text()).toContain("Löneperiod september 2026 — arbetstid augusti 2026");
     expect(g.__fetchAnrop.filter((a: any[]) => a[0].includes("salary-export")).map((a: any[]) => JSON.parse(a[2]).period)).toEqual(["2026-09"]);
-    await act(async () => { root.unmount(); }); cont.remove();
-    g.__fetchAnrop = []; g.__salary = SALARY;
-    await monter("flik=lon&underflik=underlag&period=skräp");
-    expect(text()).toContain("Löneperiod oktober 2026 — arbetstid september 2026");
-    expect(g.__fetchAnrop.filter((a: any[]) => a[0].includes("salary-export")).map((a: any[]) => JSON.parse(a[2]).period)).toEqual(["2026-10"]);
+    // Ogiltiga perioder faller tillbaka på nu: text, månad 00 (ser ut som en period och skulle nå servern), en siffra, och framtiden.
+    for (const ogiltig of ["skräp", "2026-00", "2026-13", "2026-9", "2099-01"]) {
+      await act(async () => { root.unmount(); }); cont.remove();
+      g.__fetchAnrop = []; g.__salary = SALARY;
+      await monter(`flik=lon&underflik=underlag&period=${ogiltig}`);
+      expect(text(), ogiltig).toContain("Löneperiod oktober 2026 — arbetstid september 2026");
+      expect(g.__fetchAnrop.filter((a: any[]) => a[0].includes("salary-export")).map((a: any[]) => JSON.parse(a[2]).period), ogiltig).toEqual(["2026-10"]);
+    }
   });
 });
 

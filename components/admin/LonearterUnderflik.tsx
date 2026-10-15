@@ -33,7 +33,6 @@ const grupper = (): { rubrik: string; arter: Art[] }[] => {
 };
 
 export default function LonearterUnderflik() {
-  const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
   const [koppling, setKoppling] = useState<{ id: string } | null>(null);
   /** intern_typ → rad. `null` tills läsningen lyckats: ett läsfel får aldrig se ut som "allt är ej kopplat". */
@@ -41,7 +40,7 @@ export default function LonearterUnderflik() {
   const [vald, setVald] = useState<LoneartKey | null>(null);
 
   const ladda = useCallback(async () => {
-    setLaddar(true); setFel(null);
+    setFel(null);
     try {
       const k = await supabase.from("lonesystem_koppling").select("id").eq("system_typ", "fortnox").maybeSingle();
       if (k.error) throw k.error;
@@ -56,8 +55,6 @@ export default function LonearterUnderflik() {
     } catch (e: any) {
       setRader(null);
       setFel(e?.message || String(e));
-    } finally {
-      setLaddar(false);
     }
   }, []);
   useEffect(() => { ladda(); }, [ladda]);
@@ -90,8 +87,8 @@ export default function LonearterUnderflik() {
 
   const saknas = useMemo(() => (rader ? LONEARTER.filter(a => !a.valfri && !rader[a.key]) : []), [rader]);
 
-  if (laddar && !rader) return <Laddar>Läser lönearterna…</Laddar>;
-  if (fel || !rader) return <Fel onForsok={ladda}>Kunde inte läsa lönearterna: {fel}</Fel>;
+  // `rader` är null tills en läsning lyckats: antingen läses det fortfarande, eller så felade det. Aldrig en lista som säger "Ej kopplad" på gissning.
+  if (!rader) return fel ? <Fel onForsok={ladda}>Kunde inte läsa lönearterna: {fel}</Fel> : <Laddar>Läser lönearterna…</Laddar>;
 
   return (
     <>

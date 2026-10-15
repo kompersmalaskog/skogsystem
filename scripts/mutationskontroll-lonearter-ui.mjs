@@ -2,6 +2,8 @@
 // RÖD i Admin.render.test.tsx när EN sak ändras tillbaka. Motorn: scripts/mutationsmotor.mjs (testkommando via `kommando`).
 //
 // Kör:  node scripts/mutationskontroll-lonearter-ui.mjs   (EN tung körning åt gången: inte tillsammans med tsc/build/dev-server)
+//       En körning tar ~90 s per mutant; dela upp med MUT_FRAN=5 MUT_TILL=9 (ett urval ur listan) om tidsgränsen är kort.
+//       Avbryts den mitt i kan en mutant ligga kvar i källan: kontrollera att varje mönster finns exakt en gång innan du committar.
 import { kor } from "./mutationsmotor.mjs";
 
 const SIDA = "components/admin/LonearterUnderflik.tsx";
@@ -38,6 +40,6 @@ kor({
   filer: [SIDA, RAD, FLIK],
   tester: [],
   standardFil: SIDA,
-  mutationer: M,
+  mutationer: M.slice(Number(process.env.MUT_FRAN ?? 0), Number(process.env.MUT_TILL ?? M.length)),
   kommando: ["npx", "vitest", "run", "components/admin/Admin.render.test.tsx", "-t", "Lönearter: vad i appen|Löneunderlag: förhandsvisning rad för rad", "--reporter=dot"],
 });
