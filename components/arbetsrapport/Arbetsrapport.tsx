@@ -27,7 +27,7 @@ import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
-import { loneartLabel, loneartEnhet, fmtMangd } from "@/lib/lonesystem/lonearter";
+import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
@@ -5108,14 +5108,14 @@ export default function Arbetsrapport() {
                     </p>
                   </div>
                   {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => {
-                    const ärTim = loneartEnhet(r.SalaryCode) === 'tim';
+                    const ärTim = loneartInfo(r.loneart)?.enhet === 'tim';
                     return (
                     <div key={r.SalaryCode + i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:`${AVSTAND.m}px 0`, borderBottom:`1px solid ${FARG.linje}`, gap:AVSTAND.m }}>
                       <span style={{ ...TYP.text, color:FARG.text }}>
-                        {loneartLabel(r.SalaryCode)} <span style={{ ...TYP.micro, color:FARG.text3 }}>{r.SalaryCode}</span>
+                        {loneartInfo(r.loneart)?.label ?? `Löneart ${r.SalaryCode}`} <span style={{ ...TYP.micro, color:FARG.text3 }}>{r.SalaryCode}</span>
                         {/* Reseersättning: körda km OCH km över gränsen — "1 084 km" och
                             "1 mil" ser annars ut som ett fel. Ersättningen räknas per dag. */}
-                        {String(r.SalaryCode) === '821' && <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>{kmDel.totalKm.toLocaleString('sv-SE')} km körda, varav {kmDel.overKm.toLocaleString('sv-SE')} km över {spec.km_grans} km/dag</span>}
+                        {r.loneart === 'korersattning' && <span style={{ display:"block", ...TYP.meta, ...TNUM, color:FARG.text2 }}>{kmDel.totalKm.toLocaleString('sv-SE')} km körda, varav {kmDel.overKm.toLocaleString('sv-SE')} km över {spec.km_grans} km/dag</span>}
                       </span>
                       {ärTim ? (
                         /* Tim och min först; Fortnox-decimalen under, dämpad — för avstämning. */
@@ -5124,7 +5124,7 @@ export default function Arbetsrapport() {
                           <span style={{ ...TYP.meta, ...TNUM, color:FARG.text3, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)}</span>
                         </span>
                       ) : (
-                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhet(r.SalaryCode)}</span></span>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text, whiteSpace:"nowrap" }}>{fmtMangd(r.Number)} <span style={{ ...TYP.meta, color:FARG.text2 }}>{loneartEnhetText(r.loneart)}</span></span>
                       )}
                     </div>
                     );

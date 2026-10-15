@@ -11,7 +11,7 @@
 // per medarbetare filtreras ALDRIG i klienten utan här (medarbetareIds).
 // ─────────────────────────────────────────────────────────────
 import { beräknaExport, arbetsperiodFrånLöneperiod, type ExportSammanfattning } from "@/lib/lonesystem/loneberakning";
-import { hamtaLoneartskoder } from "@/lib/lonesystem/loneart";
+import { hamtaLoneartkopplingar, kopplingarTillKoder, type Loneartkopplingar } from "@/lib/lonesystem/loneart";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { maskinSlag } from "@/lib/maskinNamn";
 import { synkAvvikelser as beraknaSynkAvvikelser } from "@/lib/synkAvvikelse";
@@ -113,6 +113,8 @@ export type Loneunderlag = {
   totalt_rader: number;
   synkAvvikelser: SynkRad[];
   oenighet: { datum: string; svar: { medarbetare_id: string; start_tid: string | null; brandrisk_beordrad: boolean; namn: string }[] }[];
+  /** Kod + namn i Fortnox per löneart (ur lonesystem_artikelmappning) — förhandsvisningen visar koden med sitt namn. */
+  kopplingar: Loneartkopplingar;
 };
 
 /**
@@ -135,7 +137,8 @@ export async function beraknaLoneunderlag(
 
   // Ladda data
   // Löneartskoderna ur lonesystem_artikelmappning — exportens ENDA källa till koder. Ett läsfel stoppar underlaget.
-  const loneartskoder = await hamtaLoneartskoder(supabase);
+  const kopplingar = await hamtaLoneartkopplingar(supabase);
+  const loneartskoder = kopplingarTillKoder(kopplingar);
 
   const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes, utjRes, viloRes] = await Promise.all([
     supabase.from("medarbetare").select("id, namn, maskin_id").order("namn"),
@@ -528,5 +531,6 @@ export async function beraknaLoneunderlag(
     totalt_rader: resultat.reduce((s, r) => s + r.rader.length, 0),
     synkAvvikelser,
     oenighet,
+    kopplingar,
   };
 }

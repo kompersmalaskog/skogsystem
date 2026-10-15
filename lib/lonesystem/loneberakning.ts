@@ -9,12 +9,11 @@
  * Skickar ANTAL (timmar, veckor, mil) + löneartkod.
  * Fortnox multiplicerar med sats per anställd.
  *
- * Löneartkoder:
- *   Gemensamma: 11 timlön, 136 vältlappar, 821 färdtidsersättning
- *   Skördare:   1355 premielön, 1435 övertid betald 4
- *   Skotare:    1354 premielön 1, 1436 övertid betald 5
+ * Löneartskoder: finns INTE här. De läses ur lonesystem_artikelmappning (lib/lonesystem/loneart) och skickas in som `koder`.
+ * Lönearterna är timlön, premielön (skördare/skotare), övertid (skördare/skotare), vältlappar, reseersättning och helglön.
+ * Tom kod = ingen rad (varning + röd rad i förhandsvisningen); premielönen är frivillig och stoppar inget.
  *
- * Premielön (1354/1355) är FÖRETAGETS EGEN konstruktion — den står inte i
+ * Premielön är FÖRETAGETS EGEN konstruktion — den står inte i
  * Skogsavtalet. Regeln (premie på alla timlönetimmar, fördelad efter
  * månadens maskintyp) är Martins arbetsgivarbeslut 2026-09-29:
  * docs/lonesystem/premielon.md. Leta inte efter en paragraf.
@@ -92,6 +91,22 @@ export type ByteRad = {
 
 type MaskinTypMap = Record<string, "skordare" | "skotare">;
 
+/**
+ * Varje löneart som HAR ett antal, i exportens ordning — också de som inte skickas. Förhandsvisningen visar den här listan rad för
+ * rad, så en rad utan kod syns (röd) i stället för att bara saknas.
+ *   skickas         raden går till Fortnox (finns i `rader`)
+ *   saknar_kod      lönearten saknar kod: raden skickas inte och BLOCKERAR en skarp sändning tills koden är ifylld
+ *   valfri_utan_kod frivillig löneart (premien) utan kod: raden hoppas över med en varning, blockerar inget
+ */
+export type LoneRad = {
+  loneart: LoneartKey;
+  /** Antalet raden skulle bära, "24.00". Fortnox multiplicerar med sats. */
+  mangd: string;
+  kod: string | null;
+  beskrivning: string;
+  status: "skickas" | "saknar_kod" | "valfri_utan_kod";
+};
+
 export type FortnoxRad = {
   EmployeeId: string;
   /** Vilken löneart raden är (lib/lonesystem/loneart). Intern: skickas inte till Fortnox. */
@@ -108,7 +123,9 @@ export type ExportSammanfattning = {
   anstallningsnummer: string;
   rader: FortnoxRad[];
   varningar: string[];
-  /** Lönearter som hade en mängd men saknar kod i mappningen: ingen rad skickades. */
+  /** Alla lönearter med antal och deras status, i ordning (skickas / saknar kod / frivillig utan kod). */
+  lonerader: LoneRad[];
+  /** Lönearter som hade en mängd men saknar kod i mappningen: ingen rad skickades. Frivilliga (premien) räknas inte hit. */
   saknade_loneartskoder: LoneartKey[];
   arbetsdagar: number;
   ordinarie_h: number;
@@ -134,9 +151,9 @@ export type ExportSammanfattning = {
   // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
   kortpass: { datum: string; minuter: number; km_totalt: number }[];
   // Helglön §10 (lib/lonesystem/helglon): röda VARDAGAR i arbetsmånaden ur
-  // avtalets lista. `timmar` = 8 × de dagar föraren INTE arbetat. Läggs ALDRIG
-  // som lönerad — löneart ej fastställd, och två avtalsfrågor är öppna (närvaro
-  // före/efter? helglön + OB vid arbete på röd dag?). Granskningsrad.
+  // avtalets lista. `timmar` = 8 × de dagar föraren INTE arbetat. Blir en lönerad
+  // (löneart 'helglon') när lönearten har en kod; närvarokravet (§10 mom 4) är inte
+  // byggt än och OB vid arbete på röd dag är en öppen avtalsfråga.
   helglon: { dagar: HelglonDag[]; timmar: number };
   // Bytesdagar (inarbetad, §5 mom 4) som rör arbetsmånaden — den lediga dagen
   // ELLER den röda dagen ligger i månaden. Upplysning, ingen lönerad.
@@ -187,17 +204,29 @@ export function beräknaExport(
   const varningar: string[] = [];
   const rader: FortnoxRad[] = [];
   const saknadeKoder: LoneartKey[] = [];
+  const lonerader: LoneRad[] = [];
 
-  /** Lägg en Fortnox-rad med mappningens kod. Saknas den: ingen rad, mängden syns som varning. */
+  /**
+   * Lägg en Fortnox-rad med mappningens kod. Saknas den (eller är tom): ingen rad, mängden syns som varning och som rad i
+   * `lonerader`. En vanlig löneart utan kod räknas som saknad kod (blockerar en skarp sändning); en frivillig (premien) hoppas
+   * över med en varning och stoppar inget.
+   */
   const laggRad = (loneart: LoneartKey, mangd: string, beskrivning: string) => {
-    const kod = koder[loneart];
+    const info = loneartInfo(loneart)!;
+    const kod = (koder[loneart] || "").trim();
     if (!kod) {
-      const info = loneartInfo(loneart)!;
+      if (info.valfri) {
+        lonerader.push({ loneart, mangd, kod: null, beskrivning, status: "valfri_utan_kod" });
+        varningar.push(`${info.label} (${Number(mangd)} ${info.enhet}) skickas inte: ingen kod är kopplad (frivillig). Koppla en kod under Lön → Lönearter om den ska med.`);
+        return;
+      }
       if (!saknadeKoder.includes(loneart)) saknadeKoder.push(loneart);
-      varningar.push(`Löneart saknas för ${info.label} (${Number(mangd)} ${info.enhet}): fyll i koden under Lön → Lönesystem. Raden skickas inte.`);
+      lonerader.push({ loneart, mangd, kod: null, beskrivning, status: "saknar_kod" });
+      varningar.push(`Löneart saknas för ${info.label} (${Number(mangd)} ${info.enhet}): koppla en kod under Lön → Lönearter. Raden skickas inte.`);
       return;
     }
     rader.push({ EmployeeId: eid, loneart, SalaryCode: kod, Number: mangd, Date: loneperiodStart, beskrivning });
+    lonerader.push({ loneart, mangd, kod, beskrivning, status: "skickas" });
   };
 
   if (!anstallningsnummer) {
@@ -283,7 +312,7 @@ export function beräknaExport(
   const timlonH = Math.round(Math.min(totalH, ordinarie + kortpassH) * 100) / 100;
   const kortpassHRund = Math.round(kortpassH * 100) / 100;
 
-  // ── PREMIELÖN (1354/1355) — ER EGEN KONSTRUKTION, INTE KOLLEKTIVAVTALET ──
+  // ── PREMIELÖN — ER EGEN KONSTRUKTION, INTE KOLLEKTIVAVTALET ──
   // Premien finns inte i Skogsavtalet (docs/lonesystem/premielon.md). Regeln
   // är Martins beslut som arbetsgivare, 2026-09-29: premie på ALLA arbetade
   // timmar — maskin, planering, service, möten, flyttar, manuellt arbete.
@@ -315,12 +344,12 @@ export function beräknaExport(
     }
   }
 
-  // ── 1. TIMLÖN (kod 11) ──
+  // ── 1. TIMLÖN ──
   if (timlonH > 0) {
     laggRad("timlon", timlonH.toFixed(2), `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})`);
   }
 
-  // ── 2. PREMIELÖN (kod 1354/1355) — på alla timlönetimmar, fördelat efter månadens maskintyp ──
+  // ── 2. PREMIELÖN — på alla timlönetimmar, fördelat efter månadens maskintyp ──
   const premieGrund = typadH > 0 ? `${skordareH}h skördare / ${skotareH}h skotare i maskin` : `ingen maskintid, typ ur medarbetarraden (${radMaskinTyp})`;
   if (premieSkordare > 0) {
     laggRad("premielon_skordare", premieSkordare.toFixed(2), `Premielön skördare: ${premieSkordare}h av ${premieBas}h timlön (${premieGrund})`);
@@ -329,14 +358,14 @@ export function beräknaExport(
     laggRad("premielon_skotare", premieSkotare.toFixed(2), `Premielön skotare: ${premieSkotare}h av ${premieBas}h timlön (${premieGrund})`);
   }
 
-  // ── 3. ÖVERTID (kod 1435/1436) — en rad per månad ──
+  // ── 3. ÖVERTID — en rad per månad ──
   if (overtidH > 0) {
     // Dominant maskintyp för hela perioden
     const overtidArt: LoneartKey = skordareH >= skotareH ? "overtid_skordare" : "overtid_skotare";
     laggRad(overtidArt, overtidH.toFixed(2), `Övertid: ${overtidH}h (${totalH}h totalt${extraHRund > 0 ? `, varav ${extraHRund}h extra tid` : ''} - ${ordinarie}h ordinarie)`);
   }
 
-  // ── 4. VÄLTLAPPAR (kod 136): antal veckor med minst 1 arbetsdag ──
+  // ── 4. VÄLTLAPPAR: antal veckor med minst 1 arbetsdag ──
   const veckor = new Set<number>();
   for (const d of produktionsDagar) veckor.add(isoVecka(new Date(d.datum)));
   const vältVeckor = veckor.size;
@@ -344,7 +373,7 @@ export function beräknaExport(
     laggRad("valtlappar", vältVeckor.toFixed(0), `Vältlappar: ${vältVeckor} veckor`);
   }
 
-  // ── 5. KÖRERSÄTTNING (kod 821): påbörjade mil över gränsen ──
+  // ── 5. RESEERSÄTTNING: påbörjade mil över gränsen ──
   // Delad lib (lib/kmErsattning) — SAMMA mängd som kalendern + per-dag-vyn.
   // Appen skickar bara ANTAL mil; Fortnox äger kr/mil-satsen. (Tidigare *2 tog
   // bort — km_totalt är redan tur+retur, så det dubblade fel. Gränsen kommer nu
@@ -456,7 +485,7 @@ export function beräknaExport(
   // inte arbetat. Arbetade röda dagar listas men räknas INTE: §10 mom 2 ger
   // helglön bara för timmar som bortföll, och arbetade timmar bortföll inte —
   // de lönas som vanlig tid + söndagstillägg (§8 mom 1). Närvarokravet (§10
-  // mom 4) är inte byggt. Ingen lönerad förrän lönearten är fastställd.
+  // mom 4) är inte byggt. Blir en lönerad (löneart 'helglon') när lönearten har en kod i mappningen.
   const arbetadeInklExtra = new Set<string>(arbetadeDatum);
   for (const e of extraTid) if (e?.datum && (e.minuter || 0) > 0) arbetadeInklExtra.add(e.datum);
   // Bytesdag: en arbetad röd dag som byts mot en ledig dag — märks så att
@@ -468,7 +497,11 @@ export function beräknaExport(
   const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar };
   if (helglonDagarLista.length > 0) {
     const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.arbetad ? ' (arbetad)' : ''}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig})` : ''}`).join(', ');
-    varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}) — löneart ej fastställd; läggs INTE som lönerad. Arbetad röd dag ger ingen helglön (§10 mom 2), timmarna lönas + söndagstillägg (§8 mom 1). Närvarokravet (§10 mom 4) kontrolleras inte än.`);
+    varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}). Arbetad röd dag ger ingen helglön (§10 mom 2), timmarna lönas + söndagstillägg (§8 mom 1). Närvarokravet (§10 mom 4) kontrolleras inte än.`);
+  }
+  if (helglonTimmar > 0) {
+    const antalDagar = helglonDagarLista.filter(h => !h.arbetad).length;
+    laggRad("helglon", helglonTimmar.toFixed(2), `Helglön §10: ${helglonTimmar}h (${antalDagar} röda vardagar utan arbete)`);
   }
 
   return {
@@ -477,6 +510,7 @@ export function beräknaExport(
     anstallningsnummer,
     rader,
     varningar,
+    lonerader,
     saknade_loneartskoder: saknadeKoder,
     arbetsdagar: antalArbetsdagar,
     ordinarie_h: ordinarie,

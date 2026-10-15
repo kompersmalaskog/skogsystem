@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { beraknaLoneunderlag } from "@/lib/lonesystem/loneunderlag";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
-import { loneartInfo } from "@/lib/lonesystem/loneart";
+import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
 
 /**
  * POST /api/fortnox/salary-export
@@ -13,6 +13,11 @@ import { loneartInfo } from "@/lib/lonesystem/loneart";
  *
  * dry_run=true: returnerar beräkningar utan att skicka till Fortnox.
  * dry_run=false (default): skickar salary transactions till Fortnox.
+ *
+ * En löneart som HAR ett antal men saknar kod i mappningen stoppar den skarpa sändningen (409, `blockerande`) innan en enda rad
+ * gått iväg. Admin kan UTTRYCKLIGEN välja att skicka utan de raderna: `skicka_utan_saknade: true` (bara det booleska true räknas).
+ * Då skickas allt utom dem och svaret säger vilka som uteblev (`utelamnade`) — de läggs inte på senare av sig själva.
+ * Premielönen är frivillig och blockerar aldrig (lib/lonesystem/loneart).
  *
  * Beräkningen bor i lib/lonesystem/loneunderlag.ts (delad med förarens
  * tidsspecifikation). Routen är ett skal: auth → beräkna → returnera/skicka.
@@ -27,6 +32,7 @@ export async function POST(req: NextRequest) {
     const period: string = body.period;
     const filterIds: string[] | undefined = body.medarbetare_ids;
     const dryRun: boolean = body.dry_run ?? false;
+    const skickaUtanSaknade: boolean = body.skicka_utan_saknade === true;
 
     if (!period || !/^\d{4}-\d{2}$/.test(period)) {
       return NextResponse.json({ ok: false, meddelande: "period krävs (YYYY-MM)." }, { status: 400 });
@@ -50,15 +56,25 @@ export async function POST(req: NextRequest) {
         totalt_rader: u.totalt_rader,
         synkAvvikelser,
         oenighet: u.oenighet,
+        // Samma lista som sändningen stoppas av: förhandsvisningen visar de röda raderna ur den.
+        blockerande: blockerandeLonearter(resultat),
+        kopplingar: u.kopplingar,
       });
     }
 
-    // En löneart utan kod i mappningen får aldrig bli en tyst saknad rad i en skarp sändning: stoppa före första raden.
-    const saknas = Array.from(new Set(resultat.filter(r => r.status !== "skickat").flatMap(r => r.saknade_loneartskoder || [])));
-    if (saknas.length > 0) {
-      const namn = saknas.map(k => loneartInfo(k)?.label || k).join(", ");
-      return NextResponse.json({ ok: false, meddelande: `Löneartskod saknas för ${namn}. Fyll i koden under Lön → Lönesystem innan något skickas. Inget är skickat.` }, { status: 409 });
+    // En löneart utan kod i mappningen får aldrig bli en tyst saknad rad i en skarp sändning: stoppa före första raden —
+    // om inte admin uttryckligen valt att skicka utan dem.
+    const blockerande = blockerandeLonearter(resultat);
+    if (blockerande.length > 0 && !skickaUtanSaknade) {
+      const namn = blockerande.map(b => b.label).join(", ");
+      return NextResponse.json({
+        ok: false,
+        kod: "LONEART_SAKNAS",
+        blockerande,
+        meddelande: `Löneartskod saknas för ${namn}. Koppla koden under Lön → Lönearter, eller välj att skicka utan de raderna. Inget är skickat.`,
+      }, { status: 409 });
     }
+    const utelamnade = blockerande.flatMap(b => b.forare.map(f => ({ namn: f.namn, loneart: b.loneart, label: b.label, mangd: f.mangd, enhet: b.enhet })));
 
     // Skicka till Fortnox
     const client = await getFortnoxClient();
@@ -122,6 +138,7 @@ export async function POST(req: NextRequest) {
         status: redanSkickad.has(r.medarbetare_id) ? "skickat" : (r.anstallningsnummer ? "skickat" : "fel"),
       })),
       synkAvvikelser,
+      utelamnade,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, meddelande: e.message || String(e) }, { status: 500 });
