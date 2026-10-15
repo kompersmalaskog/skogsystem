@@ -19,13 +19,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 type Rad = {
   id: string; km: number | null; status: string; fakturerad_tid: string | null; datum: string; kund: string | null; maskin: string | null;
   fran_objekt_id: string | null; fran_plats_id: string | null; till_objekt_id: string | null; till_plats_id: string | null;
-  struken_tid: string | null; struken_anledning: string | null;
+  struken_tid: string | null; struken_anledning: string | null; godkand_tid: string | null; godkand_av: string | null;
 };
+// Raderna som fanns när godkännandet infördes är backfill-godkända med skapad_tid (migration 20261015150000).
+const BACKFILL = { godkand_tid: "2026-09-17T13:27:49Z", godkand_av: "backfill 2026-10-15" };
 const U = (id: string, datum: string, km: number | null, maskin: string, fran: string | null, till: string | null, o: Partial<Rad> = {}): Rad => ({
   id, km, status: "aktiv", fakturerad_tid: null, datum, kund: null, maskin, fran_objekt_id: fran, fran_plats_id: null, till_objekt_id: till, till_plats_id: null,
-  struken_tid: null, struken_anledning: null, ...o,
+  struken_tid: null, struken_anledning: null, ...BACKFILL, ...o,
 });
-const UNDERLAG: Rad[] = [
+// OGODKÄND flytt (en NY rad från triggern): godkand_tid/av NULL.
+const OGODKAND = { godkand_tid: null, godkand_av: null };
+const nyaUnderlag = (): Rad[] => [
   U("u1", "2026-08-25", 34, "PONS20SDJAA270231", "o-ulfsnas", "o-dockemala"),
   U("u2", "2026-08-28", 40, "A130743", null, "o-tjuvon"),
   U("u3", "2026-08-31", 31, "JD810E", null, "o-dockemala"),
@@ -88,6 +92,11 @@ const mock = vi.hoisted(() => ({
   underlagFel: false,
   namnFel: false,
   extraUnderlag: [] as any[],
+  underlag: [] as any[],
+  skrivningar: [] as { tabell: string; varden: any }[],
+  skrivNoll: false,
+  skrivFel: false,
+  vantarFel: false,
   rundorFel: false,
   extraRundor: [] as any[],
   patchRundor: {} as Record<string, Record<string, unknown>>,
@@ -102,21 +111,38 @@ vi.mock("@/lib/CurrentMedarbetareContext", () => ({
 
 vi.mock("@/lib/supabase", () => {
   const tabeller = (): Record<string, any[]> => ({
-    fakturaunderlag_flytt: [...UNDERLAG, ...mock.extraUnderlag],
+    fakturaunderlag_flytt: [...mock.underlag, ...mock.extraUnderlag],
     flyttdag: [...FLYTTDAG, ...mock.extraRundor].map(r => ({ ...r, ...(mock.patchRundor[r.id] ?? {}) })),
     maskin_flytt: MASKIN_FLYTT, dim_maskin: DIM_MASKIN, objekt: OBJEKT, flyttplats: [],
   });
   const tid = (v: unknown) => Date.parse(String(v));
   class Q {
     private filt: ((r: any) => boolean)[] = [];
+    private uppd: Record<string, unknown> | null = null;
+    private filtreraId: string[] = [];
     constructor(private tabell: string) {}
     select() { return this; }
+    update(v: Record<string, unknown>) { this.uppd = v; return this; }
+    eq(k: string, v: unknown) { this.filt.push(r => r[k] === v); return this; }
+    is(k: string, v: unknown) { this.filt.push(r => (v === null ? r[k] == null : r[k] === v)); return this; }
+    not(k: string, _o: string, v: unknown) { this.filt.push(r => (v === null ? r[k] != null : r[k] !== v)); return this; }
     gte(k: string, v: string) { this.filt.push(r => tid(r[k]) >= tid(v)); return this; }
     lt(k: string, v: string) { this.filt.push(r => tid(r[k]) < tid(v)); return this; }
     in(k: string, lista: string[]) { this.filt.push(r => lista.includes(r[k])); return this; }
     order() { return this; }
+    private skriv() {
+      mock.anrop.push(this.tabell + ":skriv");
+      mock.skrivningar.push({ tabell: this.tabell, varden: this.uppd });
+      if (mock.skrivFel) return { data: null, error: { message: "boom" } };
+      if (mock.skrivNoll) return { data: [], error: null };
+      const traffade = tabeller()[this.tabell].filter(r => this.filt.every(f => f(r)));
+      for (const r of traffade) Object.assign(r, this.uppd);      // raderna delas med nästa läsning
+      return { data: traffade.map(r => ({ id: r.id })), error: null };
+    }
     private kor(fran = 0, till = Infinity) {
+      if (this.uppd) return this.skriv();
       mock.anrop.push(this.tabell);
+      if (this.tabell === "fakturaunderlag_flytt" && mock.vantarFel && this.filt.length >= 3) return { data: null, error: { message: "boom" } };
       if (this.tabell === "fakturaunderlag_flytt" && mock.underlagFel) return { data: null, error: { message: "boom" } };
       if (this.tabell === "dim_maskin" && mock.namnFel) return { data: null, error: { message: "boom" } };
       if (["flyttdag", "maskin_flytt"].includes(this.tabell) && mock.rundorFel) return { data: null, error: { message: "boom" } };
@@ -158,6 +184,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 14, 12, 0));
   konsol = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.medarbetare = ADMIN; mock.loading = false; mock.underlagFel = false; mock.namnFel = false; mock.extraUnderlag = []; mock.anrop = [];
+  mock.underlag = nyaUnderlag(); mock.skrivningar = []; mock.skrivNoll = false; mock.skrivFel = false; mock.vantarFel = false;
   mock.api = { status: 200, body: LAGE };
   mock.rundorFel = false; mock.extraRundor = []; mock.patchRundor = {};
   mock.spar = { status: 200, body: { ok: true, spar: [{ lat: 56.4, lng: 14.7 }, { lat: 56.5, lng: 14.8 }], segment: [], nagonOmatchad: false, matchningPa: false } };
@@ -314,6 +341,8 @@ describe("adressen", () => {
 });
 
 const rubrikTexter = () => Array.from(document.querySelectorAll("section[aria-label] > div")).map(d => d.textContent ?? "").filter(t => /·\s\d+$/.test(t));
+/** Felrutan i Fakturering-fliken (inte påminnelsens eget fel): rutan med Försök igen runt texten. */
+const felIFliken = (re: RegExp) => (Array.from(document.querySelectorAll('[role="alert"]')).find(a => re.test(a.textContent ?? "")) as HTMLElement).parentElement!;
 const underlagRad = (id: string) => document.querySelector(`[data-underlag="${id}"]`) as HTMLElement | null;
 async function oppnaFakturering(per = "2026-10") {
   window.history.replaceState(null, "", `/lastbil?flik=fakturering&per=${per}`);
@@ -341,7 +370,7 @@ describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
     expect(radKm.reduce((a, b) => a + b, 0)).toBe(89);
     expect(remsa()!.textContent).toContain("89 km");
     expect(document.querySelectorAll("[data-remsa]").length).toBe(1);
-    expect(text()).toContain("Går iväg automatiskt när en flytt avslutas fakturerbar");
+    expect(text()).toContain("En flytt som avslutas fakturerbar hamnar under Att godkänna");
   });
 
   it("en flytt utan startobjekt säger 'okänd plats' (verkliga raden 28 aug), aldrig tomt", async () => {
@@ -396,7 +425,7 @@ describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
     expect(document.querySelectorAll("[data-underlag]").length).toBe(0);
     expect(text()).not.toContain("Inga fakturerbara flyttar");
     mock.underlagFel = false;
-    const flikInnehall = knapp(/Försök igen/, document.querySelector('[role="alert"]')!.parentElement!);
+    const flikInnehall = knapp(/Försök igen/, felIFliken(/fakturaunderlaget/));
     await klicka(flikInnehall);
     expect(document.querySelectorAll("[data-underlag]").length).toBe(2);
   });
@@ -408,7 +437,7 @@ describe("Fakturering: kvittot, flyttat hit från Flyttloggen (steg 3)", () => {
     expect(document.querySelectorAll("[data-underlag]").length).toBe(0);
     expect(text()).not.toContain("okänd plats");
     mock.namnFel = false;
-    await klicka(knapp(/Försök igen/, document.querySelector('[role="alert"]')!.parentElement!));
+    await klicka(knapp(/Försök igen/, felIFliken(/maskin- och platsnamnen/)));
     expect(document.querySelectorAll("[data-underlag]").length).toBe(2);
   });
 
@@ -643,6 +672,170 @@ describe("Körningar: året, läsfel och CSV", () => {
       expect(delar[0]).toContain("2026-10-12;11:30;19:33;Övrig körning");
       expect(delar[0]).toContain("2026-10-06;15:52;19:55;Flytt;Giant;Vällust RP M-R -25;Bågskyttebanan RP J-Hus- 25;Martin Lindqvist;163.2;165.2;67.3;4.1;53");
     } finally { klick.mockRestore(); (globalThis as any).Blob = OrigBlob; }
+  });
+});
+
+// ── Godkänna flyttar: Arbetsrapportens bekräfta-modell ─────────────────────────────────────────────
+const OG_OKT = () => U("og1", "2026-10-08", 62, "A130743", "o-ostra", "o-vallust", OGODKAND);   // en NY flytt i oktober
+const OG_SEP = () => U("og2", "2026-09-29", 41, "JD810E", "o-tjuvon", "o-dockemala", OGODKAND);  // och en som väntat sedan september
+async function skrivText(el: HTMLTextAreaElement, v: string) {
+  const sat = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+  await act(async () => { sat.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); });
+}
+const rubriker = () => Array.from(document.querySelectorAll("section[aria-label] > div")).map(d => d.textContent ?? "").filter(t => /·\s\d+$/.test(t));
+const vantarRad = () => document.querySelector("[data-vantar]") as HTMLElement | null;
+const godkannKnapp = (id: string) => knapp(/^Godkänn$/, underlagRad(id)!);
+
+describe("Godkänna flyttar: en ny flytt väntar tills admin trycker Godkänn", () => {
+  it("ogodkända ligger överst som 'Att godkänna' och ingår INTE i pengatalet", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    await oppnaFakturering();
+    expect(rubriker()).toEqual(["Att godkänna · 1", "Hos faktureringen · 2"]);
+    const rad = underlagRad("og1")!;
+    expect(rad.dataset.status).toBe("att_godkanna");
+    expect(rad.textContent).toContain("Elefant 26");
+    expect(rad.textContent).toContain("Östra-Hoka 1:7 A-C -25 → Vällust RP M-R -25");
+    expect(rad.textContent).toContain("62 km");
+    expect(godkannKnapp("og1")).toBeDefined();
+    // pengatalet: bara de två godkända oktoberflyttarna (36 + 53); den väntande flytten räknas inte
+    expect(remsa()!.textContent).toContain("89 km");
+    expect(remsa()!.textContent).toContain("2 flyttar");
+    expect(remsa()!.textContent).not.toContain("151 km");
+  });
+
+  it("ETT tryck godkänner: raden flyttar ner till 'Hos faktureringen' och pengatalet följer med — utan att blinka till 'Läser'", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    await oppnaFakturering();
+    const sett: string[] = [];
+    const ob = new MutationObserver(() => { const r = remsa(); if (r) sett.push(r.textContent ?? ""); });
+    ob.observe(remsa()!, { childList: true, subtree: true, characterData: true });
+    await klicka(godkannKnapp("og1")!);
+    ob.disconnect();
+    expect(mock.skrivningar).toHaveLength(1);
+    expect(mock.skrivningar[0].varden).toMatchObject({ godkand_av: "Test Admin" });
+    expect(typeof mock.skrivningar[0].varden.godkand_tid).toBe("string");
+    expect(rubriker()).toEqual(["Hos faktureringen · 3"]);
+    expect(underlagRad("og1")!.dataset.status).toBe("hos");
+    expect(remsa()!.textContent).toContain("151 km");          // 36 + 53 + 62
+    expect(remsa()!.textContent).toContain("3 flyttar");
+    expect(sett.some(t => /Läser/.test(t) || /^[^0-9]*–/.test(t.replace(/Fakturerbart · \w+/, "")))).toBe(false);   // pengatalet blinkade aldrig
+    expect(document.querySelector("[data-kvitto]")!.textContent).toContain("Godkänd · Elefant 26");
+  });
+
+  it("Ångra i kvittot lägger flytten tillbaka under 'Att godkänna'", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    await oppnaFakturering();
+    await klicka(godkannKnapp("og1")!);
+    await klicka(knapp(/^Ångra$/, document.querySelector("[data-kvitto]") as HTMLElement));
+    expect(mock.skrivningar[1].varden).toEqual({ godkand_tid: null, godkand_av: null });
+    expect(rubriker()).toEqual(["Att godkänna · 1", "Hos faktureringen · 2"]);
+    expect(remsa()!.textContent).toContain("89 km");
+    expect(document.querySelector("[data-kvitto]")).toBeNull();
+  });
+
+  it("Stämmer något inte: tryck på raden → Stryk med anledning (obligatorisk), och flytten hamnar under Strukna", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    await oppnaFakturering();
+    await klicka(knapp(/Visa flytten Elefant 26/, underlagRad("og1")!));
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain("Stryk flytten");
+    const stryk = knapp(/^Stryk flytten$/, dialog)!;
+    expect((stryk as HTMLButtonElement).disabled).toBe(true);   // ingen anledning → spärrat
+    await skrivText(dialog.querySelector("textarea")!, "  dubblett av flytten 6 okt  ");
+    expect((knapp(/^Stryk flytten$/, dialog) as HTMLButtonElement).disabled).toBe(false);
+    await klicka(knapp(/^Stryk flytten$/, dialog)!);
+    expect(mock.skrivningar).toHaveLength(1);
+    expect(mock.skrivningar[0].varden).toMatchObject({ status: "struken", struken_av: "Test Admin", struken_anledning: "dubblett av flytten 6 okt" });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(rubriker()).toEqual(["Hos faktureringen · 2", "Strukna · 1"]);
+    expect(underlagRad("og1")!.textContent).toContain("dubblett av flytten 6 okt");
+    expect(remsa()!.textContent).toContain("89 km");                  // en struken flytt räknas aldrig
+    expect(vantarRad()).toBeNull();                                  // ...och väntar inte längre
+  });
+
+  it("en skrivning som inte nådde raden (noll rader) är ett FEL: ingen kvittens, raden ligger kvar", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    mock.skrivNoll = true;
+    await oppnaFakturering();
+    await klicka(godkannKnapp("og1")!);
+    expect(text()).toContain("Kunde inte godkänna flytten");
+    expect(document.querySelector("[data-kvitto]")).toBeNull();
+    expect(underlagRad("og1")!.dataset.status).toBe("att_godkanna");
+  });
+
+  it("ett skrivfel säger det och lämnar raden som den var", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    mock.skrivFel = true;
+    await oppnaFakturering();
+    await klicka(godkannKnapp("og1")!);
+    expect(text()).toContain("Kunde inte godkänna flytten: boom");
+    expect(underlagRad("og1")!.dataset.status).toBe("att_godkanna");
+  });
+});
+
+describe("Påminnelsen: 'N flyttar väntar på godkännande'", () => {
+  it("syns bara när något väntar (aldrig '0 väntar')", async () => {
+    await montera();
+    expect(vantarRad()).toBeNull();
+  });
+
+  it("räknar över ALLA perioder och står på Körningar och Nu — inte i den fasta rubriken", async () => {
+    mock.extraUnderlag = [OG_OKT(), OG_SEP()];
+    await montera();                                      // Körningar, oktober
+    expect(vantarRad()!.textContent).toContain("2 flyttar väntar på godkännande");
+    expect(vantarRad()!.closest("[data-remsa]")).toBeNull();
+    await klicka(knapp(/^Nu$/, document.querySelector('[role="tablist"]')!));
+    expect(vantarRad()!.textContent).toContain("2 flyttar väntar på godkännande");
+  });
+
+  it("trycket leder rakt till 'Att godkänna' — i ÄLDSTA månaden som väntar (september)", async () => {
+    mock.extraUnderlag = [OG_OKT(), OG_SEP()];
+    await montera();
+    await klicka(vantarRad()!);
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Fakturering");
+    expect(remsa()!.textContent).toContain("september");
+    expect(rubriker()[0]).toBe("Att godkänna · 1");
+    expect(underlagRad("og2")).not.toBeNull();
+    expect(window.location.search).toBe("?flik=fakturering&per=2026-09");
+  });
+
+  it("på Fakturering visas den bara för det som väntar i en ANNAN period (listan visar resten själv)", async () => {
+    mock.extraUnderlag = [OG_OKT(), OG_SEP()];
+    await oppnaFakturering();                              // oktober: og1 syns i listan, og2 ligger i september
+    expect(vantarRad()!.textContent).toContain("1 flytt väntar på godkännande i en annan period");
+    await klicka(vantarRad()!);                            // → september
+    expect(remsa()!.textContent).toContain("september");
+    expect(vantarRad()!.textContent).toContain("1 flytt väntar på godkännande i en annan period");   // nu ligger og1 utanför
+  });
+
+  it("när allt är godkänt försvinner raden (läses om tyst)", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    await oppnaFakturering();
+    expect(vantarRad()).toBeNull();                        // allt väntande ligger i den visade perioden: listan räcker
+    await klicka(knapp(/^Körningar$/, document.querySelector('[role="tablist"]')!));
+    expect(vantarRad()!.textContent).toContain("1 flytt väntar på godkännande");
+    await klicka(vantarRad()!);
+    await klicka(godkannKnapp("og1")!);
+    await klicka(knapp(/^Körningar$/, document.querySelector('[role="tablist"]')!));
+    expect(vantarRad()).toBeNull();
+  });
+
+  it("läsfel är ett fel med Försök igen — aldrig 'inget väntar'", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    mock.vantarFel = true;
+    await montera();
+    expect(vantarRad()!.textContent).toContain("Kunde inte läsa vad som väntar på godkännande");
+    mock.vantarFel = false;
+    await klicka(knapp(/Försök igen/, vantarRad()!));
+    expect(vantarRad()!.textContent).toContain("1 flytt väntar på godkännande");
+  });
+
+  it("förare ser ingen påminnelse och skickar aldrig frågan (ekonomidata)", async () => {
+    mock.extraUnderlag = [OG_OKT()];
+    mock.medarbetare = FORARE;
+    await montera();
+    expect(vantarRad()).toBeNull();
+    expect(mock.anrop.filter(a => a.startsWith("fakturaunderlag_flytt"))).toEqual([]);
   });
 });
 
