@@ -74,7 +74,9 @@ import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAre
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
-import { arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, medBasvagFarger, type BasvagFarg } from '../../lib/basvag'
+import { arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, type BasvagFarg } from '../../lib/basvag'
+import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
+import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
 import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON, TRAFFYTA } from '../../lib/design/tokens'
@@ -2787,6 +2789,9 @@ export default function PlannerPage() {
   const [isDrawMode, setIsDrawMode] = useState(false);
   const [drawType, setDrawType] = useState<string | null>(null);
   const [drawFarg, setDrawFarg] = useState<BasvagFarg | null>(null);   // basväg (mainRoad): vald färg för linjen som ritas
+  // Basväg i Rita linje / Spåra med GPS: raden fäller ut färgvalet (senast valda förvald) och en knapp. Vilken lista som är utfälld; färgen läses från enheten när den fälls ut.
+  const [basvagSteg, setBasvagSteg] = useState<'rita' | 'spara' | null>(null);
+  const [basvagVal, setBasvagVal] = useState<BasvagFarg>('red');
   const [currentPath, setCurrentPath] = useState<Point[]>([]); // SVG coords (behålls för kompatibilitet)
   const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
   const [ritaHistoria, setRitaHistoria] = useState<[number, number][][]>([]);   // ↩ i Rita: koordinaterna FÖRE varje handling (ett tryck = en punkt, ett frihandsdrag = hela draget)
@@ -12571,7 +12576,6 @@ export default function PlannerPage() {
       { id: 'pilar', titel: 'Pilar', ikon: 'pilar', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('arrows'); setMenuOpen(true); } },
       { id: 'strackan', titel: MAT_NAMN.strackan, ikon: 'strackan', onTryck: () => trycktPlusPost('matning:strackan') },
       { id: 'matyta', titel: MAT_NAMN.yta, ikon: 'matyta', onTryck: () => trycktPlusPost('matning:yta') },
-      { id: 'basvag', titel: 'Spåra basväg', ikon: 'basvag', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-basvag'); setMenuOpen(true); } },
       { id: 'gps', titel: 'Spåra med GPS', ikon: 'gps', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-lines'); setMenuOpen(true); } },
       // Gallring (snitsla stickvägar) har flyttat hit från objektinfons meny — den är ett ritverktyg. Öppnar samma Gallring-ark som förut.
       { id: 'stickvagar', titel: 'Snitsla stickvägar', ikon: 'stickvag', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('gallring'); setMenuOpen(true); } },
@@ -12748,12 +12752,24 @@ export default function PlannerPage() {
   // Telefonen: "Visa ›" stängde arket — raden nertill säger vad som är framhävt och tar tillbaka listan ("‹ Om trakten"). Bred skärm: panelen ligger kvar, ingen rad.
   const framhavListSynlig = !!framhavdMarkering && framhavdLageRef.current === 'ark' && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig;
   const punktText = (n: number) => (n === 0 ? 'tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`);
-  const ritaLinjeTyper = [
-    // Basväg i sina tre färger (röd, gul, blå) — heldragen i färgen; övriga linjetyper som förut.
-    ...medBasvagFarger(lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'))),
-    // Stickväg (röd): samma typ som "Spara som › Stickväg" gav — lineType sideRoadRed, som en vanlig linje
-    ...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg', key: t.id, farg: undefined as BasvagFarg | undefined })),
-  ];
+  // Basväg är EN rad (färgen väljs när man trycker på den); övriga linjetyper som förut. Stickvägar ritas inte här — de görs i Snitsla stickvägar.
+  const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'));
+  useEffect(() => { if (!menuOpen) setBasvagSteg(null); }, [menuOpen]);   // stängd meny: färgvalet fälls ihop till nästa gång
+  const oppnaBasvagSteg = (steg: 'rita' | 'spara') => {
+    if (basvagSteg === steg) { setBasvagSteg(null); return; }
+    setBasvagVal(lasSenasteBasvagFarg());   // senast valda färg är förvald
+    setBasvagSteg(steg);
+  };
+  const startaBasvagRita = () => {
+    sparaSenasteBasvagFarg(basvagVal);
+    setDrawType('mainRoad'); setDrawFarg(basvagVal); setIsDrawMode(true);
+    setMenuOpen(false); setMenuHeight(0); setSubMenu(null); setActiveCategory(null); setBasvagSteg(null);
+  };
+  const startaBasvagSpara = () => {
+    sparaSenasteBasvagFarg(basvagVal);
+    startGpsTracking('mainRoad', basvagVal);
+    setSubMenu(null); setActiveCategory(null); setBasvagSteg(null);
+  };
   const ritNamn = isZoneMode
     ? `${zoneTypes.find((t) => t.id === zoneType)?.name ?? 'Yta'}${zoneType === 'gallring' && gallringTradslag ? ` · ${GALLRING_TRADSLAG.find((t) => t.id === gallringTradslag)?.name ?? ''}` : ''}`
     : drawType === 'mainRoad' ? basvagNamn(drawFarg) : (ritaLinjeTyper.find((t) => t.id === drawType) ?? lineTypes.find((t) => t.id === drawType))?.name ?? 'Linje';
@@ -15914,19 +15930,8 @@ export default function PlannerPage() {
 
               {/* Basväg: färg (röd/gul/blå) — heldragen i färgen på kartan. En basväg utan färg ritas som förut (blå med gula streck). */}
               {marker.isLine && marker.lineType === 'mainRoad' && (
-                <div data-testid="basvag-farg-val" role="group" aria-label="Basvägens färg" style={{ display: 'flex', justifyContent: 'center', gap: AVSTAND.s, marginBottom: AVSTAND.l }}>
-                  {BASVAG_FARGER.map((f) => {
-                    const vald = marker.farg === f.id;
-                    return (
-                      <button key={f.id} type="button" data-testid={`basvag-farg-${f.id}`} aria-pressed={vald}
-                        onClick={() => setMarkers((prev: any[]) => prev.map((m: any) => (m.id === marker.id ? { ...m, farg: f.id } : m)))}
-                        style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, borderRadius: RADIE.rad, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                          background: FARG.fyllning, color: FARG.text, ...TYP.text, fontWeight: vald ? 700 : 400, boxShadow: vald ? `inset 0 0 0 ${AVSTAND.xs / 2}px ${FARG.text}` : 'none' }}>
-                        <span aria-hidden="true" style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: AVSTAND.xs, background: f.hex }} />
-                        {f.namn}
-                      </button>
-                    );
-                  })}
+                <div style={{ marginBottom: AVSTAND.l }}>
+                  <BasvagFargVal centrerad valt={marker.farg} onVal={(f) => setMarkers((prev: any[]) => prev.map((m: any) => (m.id === marker.id ? { ...m, farg: f } : m)))} />
                 </div>
               )}
 
@@ -17099,7 +17104,6 @@ export default function PlannerPage() {
             }}>
               {subMenu ? (
                  subMenu === 'gps-lines' ? 'Spåra med GPS' :
-                 subMenu === 'gps-basvag' ? 'Spåra basväg' :
                  subMenu === 'draw-lines' ? 'Rita manuellt' :
                  subMenu
                ) :
@@ -17230,138 +17234,20 @@ export default function PlannerPage() {
 
             {/* Linjer - GPS */}
             {activeCategory === 'lines' && subMenu === 'gps-lines' && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '16px',
-                }}>
-                  {medBasvagFarger(lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'))).map(type => (
-                    <div
-                      key={type.key}
-                      onClick={() => {
-                        startGpsTracking(type.id, type.farg);
-                        setSubMenu(null);
-                        setActiveCategory(null);
-                      }}
-                      style={{
-                        padding: '14px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '16px',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ 
-                        width: '48px', 
-                        height: '6px', 
-                        borderRadius: '3px',
-                        overflow: 'hidden',
-                      }}>
-                        {type.dashed ? (
-                          <svg width="48" height="6">
-                            <line x1="0" y1="3" x2="48" y2="3" 
-                              stroke={type.color} 
-                              strokeWidth="4" 
-                              strokeDasharray="8,6" 
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        ) : (
-                          <div style={{
-                            width: '100%',
-                            height: '100%',
-                            background: type.striped 
-                              ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
-                              : type.color,
-                          }} />
-                        )}
-                      </div>
-                      <span style={{ fontSize: '13px', opacity: 0.8 }}>{type.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Basväg - spåra med GPS (alla trakttyper): välj färg → gå → Klar (✓) */}
-            {activeCategory === 'lines' && subMenu === 'gps-basvag' && (
-              <div data-testid="spara-basvag-meny" style={{ padding: AVSTAND.m }}>
-                <div style={{ background: FARG.bg, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, padding: AVSTAND.l }}>
-                  <div style={{ ...TYP.meta, color: FARG.text2, padding: `0 ${AVSTAND.l}px ${AVSTAND.s}px` }}>Välj basvägens färg och gå vägen. Tryck ✓ när du är framme.</div>
-                  {BASVAG_FARGER.map((f) => (
-                    <div key={f.id} data-testid={`spara-basvag-${f.id}`} role="button" tabIndex={0}
-                      onClick={() => { startGpsTracking('mainRoad', f.id); setSubMenu(null); setActiveCategory(null); }}
-                      style={{ minHeight: TRAFFYTA.primar, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.l, borderRadius: RADIE.rad, cursor: 'pointer' }}>
-                      <span aria-hidden="true" style={{ width: AVSTAND.xxl * 2, height: AVSTAND.s, borderRadius: AVSTAND.xs, background: f.hex }} />
-                      <span style={{ ...TYP.listtitel, color: FARG.text }}>Basväg {f.namn}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <LinjeTypLista steg="spara" typer={ritaLinjeTyper} basvagOppen={basvagSteg === 'spara'} basvagVal={basvagVal} onBasvagVal={setBasvagVal}
+                onTryckBasvag={() => oppnaBasvagSteg('spara')} onStartaBasvag={startaBasvagSpara} startText="Börja spåra"
+                onVal={(type) => { startGpsTracking(type.id); setSubMenu(null); setActiveCategory(null); }} />
             )}
 
             {/* Linjer - Rita */}
             {activeCategory === 'lines' && subMenu === 'draw-lines' && (
-              <div style={{ padding: '12px' }}>
-                <div style={{
-                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '16px',
-                  padding: '16px',
-                }}>
-                  {ritaLinjeTyper.map(type => (
-                    <div
-                      key={type.key}
-                      onClick={() => {
-                        console.log('[Rita] Aktiverar ritläge:', type.id, type.name);
-                        setDrawType(type.id);
-                        setDrawFarg(type.farg ?? null);
-                        setIsDrawMode(true);
-                        setMenuOpen(false);
-                        setMenuHeight(0);
-                        setSubMenu(null);
-                        setActiveCategory(null);
-                      }}
-                      style={{
-                        padding: '14px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '16px',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ 
-                        width: '48px', 
-                        height: '6px', 
-                        borderRadius: '3px',
-                        overflow: 'hidden',
-                      }}>
-                        {type.dashed ? (
-                          <svg width="48" height="6">
-                            <line x1="0" y1="3" x2="48" y2="3" 
-                              stroke={type.color} 
-                              strokeWidth="4" 
-                              strokeDasharray="8,6" 
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        ) : (
-                          <div style={{
-                            width: '100%',
-                            height: '100%',
-                            background: type.striped 
-                              ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
-                              : type.color,
-                          }} />
-                        )}
-                      </div>
-                      <span style={{ fontSize: '13px', opacity: 0.8 }}>{type.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <LinjeTypLista steg="rita" typer={ritaLinjeTyper} basvagOppen={basvagSteg === 'rita'} basvagVal={basvagVal} onBasvagVal={setBasvagVal}
+                onTryckBasvag={() => oppnaBasvagSteg('rita')} onStartaBasvag={startaBasvagRita} startText="Börja rita"
+                onVal={(type) => {
+                  console.log('[Rita] Aktiverar ritläge:', type.id, type.name);
+                  setDrawType(type.id); setDrawFarg(null); setIsDrawMode(true);
+                  setMenuOpen(false); setMenuHeight(0); setSubMenu(null); setActiveCategory(null);
+                }} />
             )}
 
             {/* === ZONER === */}

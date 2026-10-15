@@ -82,7 +82,7 @@ describe('ett läge i taget', () => {
     expect(tryck).toContain('avslutaPagaendeLage();');
     expect(tryck).not.toContain('if (figur) avslutaFigur();');
     const rita = mellan(page, 'const byggRita = ', '// Spårens förhandsfärg');
-    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(5);   // Nytt område, Pilar, Spåra basväg, Spåra med GPS, Snitsla stickvägar (Rita linje/yta och Mät går via trycktPlusPost)
+    expect(antal(rita, 'avslutaPagaendeLage();')).toBe(4);   // Nytt område, Pilar, Spåra med GPS, Snitsla stickvägar (Rita linje/yta och Mät går via trycktPlusPost)
   });
   it('raderna döljs medan plusdockan eller en meny är öppen — samma regel som placera', () => {
     for (const s of [
@@ -107,13 +107,20 @@ describe('mät: Klar visar talet, inget sparas', () => {
   });
 });
 
-describe('Rita linje: Stickväg ligger bland linjetyperna', () => {
-  it('Stickväg (röd) sist i listan, sparas som lineType sideRoadRed — samma typ som Spara som › Stickväg gav', () => {
-    const lista = mellan(page, 'const ritaLinjeTyper = [', '  const ritNamn');
-    expect(lista).toContain("...medBasvagFarger(lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'))),");   // Basväg i röd/gul/blå, övriga som förut
-    expect(lista).toContain("...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg', key: t.id, farg: undefined as BasvagFarg | undefined })),");
-    expect(page).toContain('{ritaLinjeTyper.map(type => (');
-    expect(page).toContain("{ id: 'sideRoadRed', name: 'Stickväg Röd', color: LEGEND.fara, striped: false },");   // kartans och markeringarnas namn oförändrade
+describe('Rita linje: Basväg är EN rad, stickvägar ritas inte här (de görs i Snitsla stickvägar)', () => {
+  it('listan = linjetyperna utan traktgräns, stickväg och backväg: Basväg först (EN rad), sedan övriga; ingen "Stickväg" bland dem', () => {
+    const lista = mellan(page, 'const ritaLinjeTyper = ', '  const oppnaBasvagSteg');
+    expect(lista).toContain("lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'));");
+    expect(lista).not.toContain('Stickväg');
+    expect(lista).not.toContain('medBasvagFarger');
+    expect(page.split('typer={ritaLinjeTyper}').length - 1).toBe(2);   // Rita linje och Spåra med GPS visar samma lista
+    // kartans och markeringarnas namn oförändrade: befintliga stickvägar ritas och visas som förut
+    expect(page).toContain("{ id: 'sideRoadRed', name: 'Stickväg Röd', color: LEGEND.fara, striped: false },");
+  });
+  it('Snitsla stickvägar (gallringsverktyget) är orört: samma Gallring-ark, samma spårstart utan färgargument', () => {
+    expect(page).toContain("setActiveCategory('gallring'); setMenuOpen(true);");
+    expect(page).toContain('startGpsTracking(lineId);');
+    expect(page).toContain("startGpsTracking(colorMap[colorId] || 'sideRoadRed');");
   });
 });
 

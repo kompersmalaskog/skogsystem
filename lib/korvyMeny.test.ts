@@ -190,10 +190,11 @@ describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
     expect(existsSync(new URL('./sparSom.ts', import.meta.url))).toBe(false);
     expect(existsSync(new URL('../components/planering/KorvySparaSom.tsx', import.meta.url))).toBe(false);
   });
-  it('alla typer som Spara som kunde spara går att rita: zonerna i Rita yta, Trail/Stickväg i Rita linje, Yta = Nytt område (traktgräns med nummer)', () => {
+  it('alla typer som Spara som kunde spara går att rita: zonerna i Rita yta, Stig/Led i Rita linje, Stickväg i Snitsla stickvägar (gallringsverktyget; inte längre i Rita linje), Yta = Nytt område (traktgräns med nummer)', () => {
     for (const [id, namn] of [['wet', 'Blött'], ['protected', 'Hänsyn'], ['steep', 'Brant']]) expect(page).toContain(`{ id: '${id}', name: '${namn}',`);   // zoner (Blött, Naturvård = Hänsyn, Brant)
     expect(page).toContain("{ id: 'trail', name: 'Stig/Led',");
-    expect(page).toContain("...lineTypes.filter(t => t.id === 'sideRoadRed').map(t => ({ ...t, name: 'Stickväg', key: t.id, farg: undefined as BasvagFarg | undefined })),");
+    expect(page).toContain("{ id: 'sideRoadRed', name: 'Stickväg Röd', color: LEGEND.fara, striped: false },");   // typen finns kvar (befintliga stickvägar, gallringsverktyget) men står inte i Rita linje
+    expect(page).not.toContain("name: 'Stickväg', key: t.id");
     expect(page).toContain("{ id: Date.now(), isLine: true, lineType: 'boundary', nummer, path }");   // Nytt område
   });
   it('etiketten i figuren följer punkterna — en BILD per text i ett symbollager (inte textlager eller HTML-markör)', () => {

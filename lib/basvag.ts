@@ -43,9 +43,14 @@ export function basvagText(farg: unknown, langdM: number | null | undefined): st
 export const basvagYta = (): string =>
   `linear-gradient(90deg, ${BASVAG_FARGER[0].hex} 0 33.3%, ${BASVAG_FARGER[1].hex} 33.3% 66.6%, ${BASVAG_FARGER[2].hex} 66.6% 100%)`;
 
-/** Linjetyper med basvägen uppdelad i sina tre färger (röd, gul, blå) — för listorna Rita linje och Spåra med GPS. En post per val; `farg` bara på basvägarna. */
-export function medBasvagFarger<T extends { id: string; name: string; color: string; striped?: boolean; color2?: string }>(typer: readonly T[]): Array<T & { key: string; farg?: BasvagFarg }> {
-  return typer.flatMap((t) => (t.id === 'mainRoad'
-    ? BASVAG_FARGER.map((f) => ({ ...t, key: `mainRoad-${f.id}`, farg: f.id, name: `Basväg ${f.namn}`, color: f.hex, striped: false, color2: undefined }))
-    : [{ ...t, key: t.id }]));
+/** Senast valda basvägsfärg (per enhet): förvald nästa gång man ritar eller spårar en basväg. Röd första gången ("kör här" är vanligast). Kastar aldrig (privat läge, blockerad lagring). */
+export const BASVAG_SENASTE_FARG_NYCKEL = 'basvag_senaste_farg_v1';
+export function lasSenasteBasvagFarg(): BasvagFarg {
+  try {
+    const v = typeof localStorage === 'undefined' ? null : localStorage.getItem(BASVAG_SENASTE_FARG_NYCKEL);
+    return arBasvagFarg(v) ? v : 'red';
+  } catch { return 'red'; }
+}
+export function sparaSenasteBasvagFarg(farg: BasvagFarg): void {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(BASVAG_SENASTE_FARG_NYCKEL, farg); } catch { /* ingen lagring: nästa gång blir det röd igen */ }
 }

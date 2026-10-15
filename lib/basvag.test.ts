@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, arBasvagFarg, basvagYta, medBasvagFarger, basvagFargHex, basvagLangdM, basvagNamn, basvagText } from './basvag';
+import { BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, arBasvagFarg, basvagYta, basvagFargHex, basvagLangdM, basvagNamn, basvagText } from './basvag';
 import { LEGEND } from './kartstil';
 
 describe('basvägens färg', () => {
@@ -36,13 +36,19 @@ describe('basvägens färg', () => {
 });
 
 describe('listor och teckenförklaring', () => {
-  it('Basväg delas i tre val (röd, gul, blå, heldragna); övriga linjetyper oförändrade och i samma ordning', () => {
-    const ut = medBasvagFarger([{ id: 'boundary', name: 'Traktgräns', color: '#f00' }, { id: 'mainRoad', name: 'Basväg', color: '#00f', striped: true, color2: '#ff0' }, { id: 'nature', name: 'Naturvård', color: '#0f0' }]);
-    expect(ut.map((t) => t.key)).toEqual(['boundary', 'mainRoad-red', 'mainRoad-yellow', 'mainRoad-blue', 'nature']);
-    expect(ut.filter((t) => t.id === 'mainRoad').map((t) => [t.name, t.farg, t.color, t.striped, t.color2])).toEqual([
-      ['Basväg röd', 'red', LEGEND.fara, false, undefined], ['Basväg gul', 'yellow', LEGEND.gul, false, undefined], ['Basväg blå', 'blue', LEGEND.vatten, false, undefined]]);
-    expect(ut.find((t) => t.id === 'boundary')).toMatchObject({ key: 'boundary', name: 'Traktgräns' });
-    expect((ut.find((t) => t.id === 'boundary') as any).farg).toBeUndefined();
+  it('senast valda färg: röd första gången, sedan den som valdes; en trasig lagring ger röd och kastar aldrig', async () => {
+    const m = await import('./basvag');
+    const lager = new Map<string, string>();
+    (globalThis as any).localStorage = { getItem: (k: string) => lager.get(k) ?? null, setItem: (k: string, v: string) => { lager.set(k, v); } };
+    expect(m.lasSenasteBasvagFarg()).toBe('red');
+    m.sparaSenasteBasvagFarg('blue');
+    expect(m.lasSenasteBasvagFarg()).toBe('blue');
+    lager.set(m.BASVAG_SENASTE_FARG_NYCKEL, 'lila');          // okänt värde
+    expect(m.lasSenasteBasvagFarg()).toBe('red');
+    (globalThis as any).localStorage = { getItem: () => { throw new Error('blockerad'); }, setItem: () => { throw new Error('blockerad'); } };
+    expect(m.lasSenasteBasvagFarg()).toBe('red');
+    expect(() => m.sparaSenasteBasvagFarg('yellow')).not.toThrow();
+    delete (globalThis as any).localStorage;
   });
   it('teckenförklaringens ruta har de tre färgerna', () => {
     const y = basvagYta();
@@ -67,18 +73,31 @@ describe('sidans koppling (page.tsx kan inte monteras i test — källvakt)', ()
     expect(page).toContain("...(gpsLineType === 'mainRoad' && gpsFargRef.current ? { farg: gpsFargRef.current } : {})");
     expect(page).toContain("...(currentLineType === 'mainRoad' && gpsFargRef.current ? { farg: gpsFargRef.current } : {})");
     expect(page).toContain("gpsFargRef.current = lineType === 'mainRoad' ? (farg ?? null) : null;");
-    expect(page).toContain('setDrawFarg(type.farg ?? null);');
   });
 
-  it('"Spåra basväg" finns som ruta i + och öppnar färgvalet; ett tryck på en färg startar spårningen — samma spårning som förut (startGpsTracking)', () => {
-    expect(page).toContain("{ id: 'basvag', titel: 'Spåra basväg', ikon: 'basvag', onTryck: () => { stangPlus(); avslutaPagaendeLage(); setActiveCategory('lines'); setSubMenu('gps-basvag'); setMenuOpen(true); } }");
-    expect(page).toContain("subMenu === 'gps-basvag'");
-    expect(page).toContain("startGpsTracking('mainRoad', f.id)");
-    // för ALLA trakttyper: ingen roll-/typspärr runt rutan eller menyn
-    const rita = page.slice(page.indexOf('const byggRita = '), page.indexOf('// Spårens förhandsfärg'));
-    expect(rita).not.toContain('isAdminRiktig');
-    expect(rita).not.toContain('isForare');
-    expect(page.slice(page.indexOf("subMenu === 'gps-basvag' && ("), page.indexOf('{/* Linjer - Rita */}'))).not.toMatch(/typ === 'gallring'|typ === 'slutavverkning'/);
+  it('Basväg är EN rad i Rita linje och i Spåra med GPS (ingen egen ruta "Spåra basväg", ingen undermeny): raden fäller ut färgvalet med senast valda förvald; samma spårning som förut (startGpsTracking), för alla trakttyper', () => {
+    expect(page).not.toContain("subMenu === 'gps-basvag'");
+    expect(page).not.toContain("setSubMenu('gps-basvag')");
+    expect(page).not.toContain('Spåra basväg');
+    for (const [steg, start] of [['spara', 'startaBasvagSpara'], ['rita', 'startaBasvagRita']]) {
+      expect(page).toContain(`<LinjeTypLista steg="${steg}" typer={ritaLinjeTyper} basvagOppen={basvagSteg === '${steg}'} basvagVal={basvagVal} onBasvagVal={setBasvagVal}`);
+      expect(page).toContain(`onTryckBasvag={() => oppnaBasvagSteg('${steg}')} onStartaBasvag={${start}}`);
+    }
+    expect(page).toContain("setBasvagVal(lasSenasteBasvagFarg());   // senast valda färg är förvald");
+    expect(page).toContain("startGpsTracking('mainRoad', basvagVal);");
+    expect(page).toContain("setDrawType('mainRoad'); setDrawFarg(basvagVal); setIsDrawMode(true);");
+    expect(page.split('sparaSenasteBasvagFarg(basvagVal);').length - 1).toBe(2);   // båda vägarna kommer ihåg färgen
+    // för ALLA trakttyper: ingen roll-/typspärr runt raden
+    const lista = page.slice(page.indexOf('{/* Linjer - GPS */}'), page.indexOf('{/* === ZONER === */}')) + las('../components/planering/LinjeTypLista.tsx');
+    expect(lista).not.toMatch(/isAdminRiktig|isForare|typ === 'gallring'|typ === 'slutavverkning'/);
+  });
+
+  it('färgvalet är SAMMA komponent överallt (markeringsmenyn på en befintlig basväg och steget i Rita linje / Spåra med GPS)', () => {
+    const k = las('../components/planering/BasvagFargVal.tsx');
+    expect(k).toContain('data-testid="basvag-farg-val"');
+    expect(k).toContain('BASVAG_FARGER.map');
+    expect(page).toContain('<BasvagFargVal centrerad valt={marker.farg} onVal=');
+    expect(k).toContain('<BasvagFargVal valt={valt} onVal={onVal} />');
   });
 
   it('GALLRINGSVERKTYGET ÄR RÖRT: snitslingen startar sin spårning med bara linjetypen (inget färgfält), och stickväg/backväg tar aldrig `farg`', () => {
@@ -93,7 +112,6 @@ describe('sidans koppling (page.tsx kan inte monteras i test — källvakt)', ()
 
   it('Lager (teckenförklaringen) visar basvägens tre färger; markeringsmenyn har färgval; färgen ritas även i förhandsvisningarna', () => {
     expect(page).toContain("l.id === 'mainRoad' ? basvagYta() :");
-    expect(page).toContain('data-testid="basvag-farg-val"');
     expect(page).toContain("gpsLineType === 'mainRoad' && gpsFargRef.current ? basvagFargHex(gpsFargRef.current)");
     expect(page).toContain("drawType === 'mainRoad' && drawFarg ? basvagFargHex(drawFarg)");
   });
