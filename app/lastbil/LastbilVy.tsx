@@ -51,10 +51,14 @@ export default function LastbilVy() {
   const { laddaOmTyst: vantarTyst } = vantar;
   const efterAndring = useCallback(() => { faktTyst(); vantarTyst(); }, [faktTyst, vantarTyst]);
   const rundor = useRundor(period, !loading && flik === 'korningar');
+  const { laddaOmTyst: rundorTyst } = rundor;
   // Arket för en runda: finns den i den inlästa listan används den, annars (tryck på "Senaste körning" på Nu)
   // läses just den rundan med sina grannar i tiden.
   const iListan = valdRunda && rundor.lage.lage === 'klar' ? rundor.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null;
   const enRunda = useEnRunda(valdRunda, !!iListan);
+  const { laddaOmTyst: enRundaTyst } = enRunda;
+  // Efter en rättning/strykning av en flytt: rundan, remsan (underlag kan ha skapats/strukits) och påminnelsen läses om tyst.
+  const efterRattning = useCallback(() => { rundorTyst(); enRundaTyst(); faktTyst(); vantarTyst(); }, [rundorTyst, enRundaTyst, faktTyst, vantarTyst]);
   const arkRunda = iListan ?? (valdRunda && enRunda.lage.lage === 'klar' ? enRunda.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null);
 
   useEffect(() => {
@@ -101,7 +105,9 @@ export default function LastbilVy() {
         )}
       </VyKolumn>
 
-      {valdRunda && arkRunda && <RundaArk runda={arkRunda} onStang={() => setValdRunda(null)} />}
+      {valdRunda && arkRunda && (
+        <RundaArk runda={arkRunda} onStang={() => setValdRunda(null)} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} onAndrad={efterRattning} />
+      )}
       {valdRunda && !arkRunda && (
         <Ark rubrik="Körning" onStang={() => setValdRunda(null)}>
           {enRunda.lage.lage === 'fel' || (enRunda.lage.lage === 'klar') ? (

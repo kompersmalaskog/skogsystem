@@ -174,6 +174,20 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
     onAndrad();
   }
 
+  /** Lämna tillbaka en godkänd (ännu ofakturerad) flytt till Att godkänna. */
+  async function lamnaTillbaka(r: UnderlagRad) {
+    setSparar(r.id); setArkFel(null);
+    const svar = await angraGodkannande(r.id);
+    setSparar(null);
+    if (!svar.ok) {
+      setArkFel(svar.fel);
+      if (svar.utdaterad) onAndrad();
+      return;
+    }
+    setOppnad(null);
+    onAndrad();
+  }
+
   /** Rätta km/kund. Godkännandet rörs inte; originalet och "redigerad" sköts av databasen. */
   async function spara(r: UnderlagRad, falt: { km?: number; kund?: string | null }) {
     setSparar(r.id); setArkFel(null);
@@ -227,6 +241,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
         <FlyttArk key={oppnad.id} rad={oppnad} maskin={maskinNamn(oppnad, n)} stracka={strackaText(oppnad, n)}
           datum={oppnad.datum ? fmtDatum(oppnad.datum) : 'datum saknas i datan'}
           sparar={sparar === oppnad.id} fel={arkFel} kanStryka={underlagStatus(oppnad) === 'att_godkanna'}
+          kanLamnaTillbaka={underlagStatus(oppnad) === 'hos'} onLamnaTillbaka={() => lamnaTillbaka(oppnad)}
           onSpara={falt => spara(oppnad, falt)} onStryk={a => stryk(oppnad, a)} onStang={() => setOppnad(null)} />
       )}
       {kvitto && <GodkandKvitto key={kvitto.id} text={kvitto.text} onAngra={angra} onKlar={stangKvitto} />}

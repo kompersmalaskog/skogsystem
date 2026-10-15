@@ -33,8 +33,10 @@ export function gransText(fore: number | null, nu: number | null): string | null
  * ändrats (dirty-state hör hemma på knappen). Stryk finns bara för en flytt som ännu inte godkänts, och
  * leder vidare till Stryk-arket där anledningen är obligatorisk.
  */
-export default function FlyttArk({ rad, maskin, stracka, datum, sparar, fel, kanStryka, onSpara, onStryk, onStang }: {
+export default function FlyttArk({ rad, maskin, stracka, datum, sparar, fel, kanStryka, kanLamnaTillbaka = false, onLamnaTillbaka, onSpara, onStryk, onStang }: {
   rad: UnderlagRad; maskin: string; stracka: string; datum: string; sparar: boolean; fel: string | null; kanStryka: boolean;
+  /** Flytten är godkänd men inte fakturerad: den kan lämnas tillbaka till Att godkänna (en felgodkänd flytt ska inte kräva SQL). */
+  kanLamnaTillbaka?: boolean; onLamnaTillbaka?: () => void;
   onSpara: (falt: { km?: number; kund?: string | null }) => void;
   onStryk: (anledning: string) => void; onStang: () => void;
 }) {
@@ -76,6 +78,9 @@ export default function FlyttArk({ rad, maskin, stracka, datum, sparar, fel, kan
           {kanStryka && (
             <button type="button" onClick={() => setStryker(true)} disabled={sparar} style={KNAPP.destruktiv}>Stryk flytten …</button>
           )}
+          {kanLamnaTillbaka && onLamnaTillbaka && (
+            <button type="button" onClick={onLamnaTillbaka} disabled={sparar} style={KNAPP.tertiar}>Lämna tillbaka till Att godkänna</button>
+          )}
         </>
       )}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
@@ -100,6 +105,11 @@ export default function FlyttArk({ rad, maskin, stracka, datum, sparar, fel, kan
           {kundFore && <span style={{ ...TYP.meta, color: FARG.orange }}>Original: {rad.kund_original?.trim() || 'saknades'}</span>}
         </label>
 
+        {kanLamnaTillbaka && (
+          <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>
+            Flytten är godkänd. Lämna tillbaka den till Att godkänna om den godkändes av misstag eller behöver rättas. Den räknas då inte i fakturerbart förrän du godkänner den igen.
+          </p>
+        )}
         {rad.redigerad_tid && (
           <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>
             Senast ändrad av {rad.redigerad_av ?? 'okänd'} {fmtDatum(rad.redigerad_tid)}. Originalet ligger kvar och visas bredvid det ändrade värdet.

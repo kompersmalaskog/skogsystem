@@ -1,0 +1,13 @@
+[
+  { "typ": "produktion",  "km": null, "forvantat": false },
+  { "typ": "produktion",  "km": 0,    "forvantat": false },
+  { "typ": "produktion",  "km": 29.9, "forvantat": false },
+  { "typ": "produktion",  "km": 30,   "forvantat": true  },
+  { "typ": "produktion",  "km": 53,   "forvantat": true  },
+  { "typ": "service",     "km": 100,  "forvantat": false },
+  { "typ": "annat",       "km": 100,  "forvantat": false },
+  { "typ": "kunduppdrag", "km": null, "forvantat": true  },
+  { "typ": "kunduppdrag", "km": 0,    "forvantat": true  },
+  { "typ": "kunduppdrag", "km": 20,   "forvantat": true  },
+  { "typ": "okand",       "km": 100,  "forvantat": false }
+]
