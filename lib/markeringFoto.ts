@@ -16,32 +16,44 @@ import { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag } from './markeringFotoS
 export { MARKERING_FOTO_BUCKET, harFoto, byggFotoSokvag };
 
 
-/** Längsta sida efter omskalning. */
-const MAX_SIDA = 1600;
-const KVALITET = 0.7;
+/** Mål för filstorleken: ett foto över dålig täckning ska hinna upp (förut ~600 KB i snitt, upp till 1,2 MB). */
+export const MAL_BYTES = 200 * 1024;
+/**
+ * Steg från bäst till knappast acceptabelt (längsta sida i px, JPEG-kvalitet). Första som ryms under MAL_BYTES vinner; ryms inget tas det sista.
+ * Text på en skylt ska fortfarande gå att läsa: 960 px och kvalitet 0,5 är botten, aldrig under.
+ */
+export const KOMPRIMERINGSSTEG: ReadonlyArray<{ sida: number; kvalitet: number }> = [
+  { sida: 1280, kvalitet: 0.72 }, { sida: 1280, kvalitet: 0.62 }, { sida: 1280, kvalitet: 0.52 }, { sida: 1100, kvalitet: 0.5 }, { sida: 960, kvalitet: 0.5 },
+];
 
-/** Skalar ner (max 1600 px längsta sida) och komprimerar till JPEG 0.7. */
+/** Skalar ner (max 1280 px längsta sida) och komprimerar till JPEG, stegvis tills filen är under ~200 KB. */
 export async function komprimeraMarkeringFoto(fil: File): Promise<Blob> {
   const bild = await laddaBild(fil);
   const { width, height } = bild;
-  const skala = Math.min(1, MAX_SIDA / Math.max(width, height));
+  try {
+    let blob: Blob | null = null;
+    for (const steg of KOMPRIMERINGSSTEG) {
+      blob = await ritaTillJpeg(bild, width, height, steg.sida, steg.kvalitet);
+      if (blob.size <= MAL_BYTES) return blob;
+    }
+    return blob as Blob;
+  } finally {
+    if ('close' in bild && typeof bild.close === 'function') bild.close();
+  }
+}
+
+async function ritaTillJpeg(bild: ImageBitmap | HTMLImageElement, width: number, height: number, maxSida: number, kvalitet: number): Promise<Blob> {
+  const skala = Math.min(1, maxSida / Math.max(width, height));
   const b = Math.max(1, Math.round(width * skala));
   const h = Math.max(1, Math.round(height * skala));
-
   const canvas = document.createElement('canvas');
   canvas.width = b;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Kunde inte behandla bilden i den här webbläsaren.');
   ctx.drawImage(bild as CanvasImageSource, 0, 0, b, h);
-  if ('close' in bild && typeof bild.close === 'function') bild.close();
-
   return new Promise<Blob>((klar, fel) => {
-    canvas.toBlob(
-      (blob) => (blob ? klar(blob) : fel(new Error('Kunde inte skapa bildfilen.'))),
-      'image/jpeg',
-      KVALITET,
-    );
+    canvas.toBlob((blob) => (blob ? klar(blob) : fel(new Error('Kunde inte skapa bildfilen.'))), 'image/jpeg', kvalitet);
   });
 }
 

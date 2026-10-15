@@ -117,6 +117,8 @@ export interface KartMarkering {
   photoPath?: string | null;
   photoData?: string | null;
   photoTs?: number | null;
+  /** ett foto är taget men väntar på uppladdning på den här enheten (lib/markeringFotoKo) — räknas som foto: raden listas och bilden visas lokalt */
+  fotoVantar?: boolean;
   lat: number | null;
   lng: number | null;
   /** basväg (mainRoad): vald färg (röd/gul/blå) och längd i meter — "Basväg röd · 640 m" i Om trakten */
@@ -131,7 +133,7 @@ export interface KartMarkering {
 }
 
 export const harText = (m: Pick<KartMarkering, 'comment'>): boolean => !!m.comment.trim();
-export const harFoto = (m: Pick<KartMarkering, 'photoPath' | 'photoData'>): boolean => !!(m.photoPath || m.photoData);
+export const harFoto = (m: Pick<KartMarkering, 'photoPath' | 'photoData' | 'fotoVantar'>): boolean => !!(m.photoPath || m.photoData || m.fotoVantar);
 /** Med kommentar eller foto — de som får en rad i "På kartan". */
 export const harInnehall = (m: KartMarkering): boolean => harText(m) || harFoto(m);
 /** En basväg listas alltid i Om trakten (under Vägar, med färg och längd), också utan kommentar. Den räknas ändå inte som "med text". */
@@ -257,7 +259,7 @@ export function markeringsGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): Markeri
 
 /** En kort kommentar ("Röd väg") går att slå ihop med likadana; en lång text eller ett foto står för sig. */
 export const KORT_KOMMENTAR_TECKEN = 24;
-export const arKortKommentar = (m: Pick<KartMarkering, 'comment' | 'photoPath' | 'photoData' | 'slag' | 'typ'>): boolean => {
+export const arKortKommentar = (m: Pick<KartMarkering, 'comment' | 'photoPath' | 'photoData' | 'fotoVantar' | 'slag' | 'typ'>): boolean => {
   if (arBasvag(m)) return false;   // en basväg har egen rad med färg och längd
   const c = m.comment.trim();
   return c !== '' && c.length <= KORT_KOMMENTAR_TECKEN && !harFoto(m);

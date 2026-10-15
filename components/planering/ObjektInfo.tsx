@@ -18,17 +18,19 @@ export interface ObjektInfoProps {
   oppen: boolean;
   onStang: () => void;
   objektNamn: string;
+  /** objektets id — Om trakten använder det för att hitta foton som väntar på uppladdning */
+  objektId: string | null;
   /** en knapp på kortet utom Mer (Mer öppnar Mer-vyn här) */
   onKnapp: (id: Exclude<KortKnappId, 'mer'>) => void;
   kort: Omit<ObjektKortProps, 'namn' | 'onStang' | 'onKnapp' | 'onLasAllt' | 'onPaTrakten'>;
   /** onVisa får även ramens läge: telefon stänger arket och flyger dit, bred skärm lämnar panelen */
-  om: Omit<OmTraktenProps, 'objektNamn' | 'onTillbaka' | 'onStang' | 'onVisa' | 'onSlapp'> & { onVisa: (m: KartMarkering, lage: PlusLage) => void; onSlapp: (orsak: SlappOrsak) => void };
+  om: Omit<OmTraktenProps, 'objektNamn' | 'objektId' | 'onTillbaka' | 'onStang' | 'onVisa' | 'onSlapp'> & { onVisa: (m: KartMarkering, lage: PlusLage) => void; onSlapp: (orsak: SlappOrsak) => void };
   /** vilken vy som visas när ramen öppnas ('om' = telefonens "‹ Om trakten" tillbaka till listan); standard kortet */
   startVy?: InfoVy;
   mer: Omit<MerMenyProps, 'objektNamn' | 'onTillbaka' | 'onStang'>;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, onKnapp, kort, om, mer, startVy = 'kort' }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, startVy = 'kort' }: ObjektInfoProps) {
   const [vy, setVy] = useState<InfoVy>(startVy);
   const ramLage = useSkarmLage(oppen);
   // Varje öppning börjar på kortet (eller på Om trakten när sidan ber om det).
@@ -47,7 +49,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, onKnapp, kort, 
             onKnapp={(id) => { if (id === 'mer') setVy('mer'); else onKnapp(id); }}
             onLasAllt={() => setVy('om')} onPaTrakten={() => setVy('om')} />
         ) : vy === 'om' ? (
-          <OmTrakten {...om} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} objektNamn={objektNamn} onTillbaka={() => { stangOm(); setVy('kort'); }} onStang={stangRam} />
+          <OmTrakten {...om} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} objektNamn={objektNamn} objektId={objektId} onTillbaka={() => { stangOm(); setVy('kort'); }} onStang={stangRam} />
         ) : (
           <MerMeny {...mer} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         )

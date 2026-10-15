@@ -24,6 +24,8 @@ export interface OmMiljoRad { id: string; namn: string; antal: number; krav: num
 
 export interface OmTraktenProps {
   objektNamn: string;
+  /** objektet vars markeringar listas — nyckel till de lokala fotona som väntar på uppladdning */
+  objektId: string | null;
   onTillbaka: () => void;
   onStang: () => void;
   /** Vidas text och planerarens text, hela, med avsändare */
@@ -57,7 +59,7 @@ export default function OmTrakten(p: OmTraktenProps) {
   const restrTraffar = p.restriktioner.filter((r) => matcharSok(`${r.name ?? ''} ${r.type ?? ''} ${r.details ?? ''} ${r.warning ?? ''}`, q));
   const ytorTraffar = p.ytor.filter((y) => matcharSok(`${y.typLabel} ${y.text ?? ''}`, q));
   const inget = sokt && helaTraffar.length === 0 && restrTraffar.length === 0 && traffar.length === 0 && ytorTraffar.length === 0;
-  const radProps = { ikon: p.ikon, framhavdId: p.framhavdId, onVisa: p.onVisa, onSlapp: p.onSlapp, onFoto: p.onFoto };
+  const radProps = { objektId: p.objektId, ikon: p.ikon, framhavdId: p.framhavdId, onVisa: p.onVisa, onSlapp: p.onSlapp, onFoto: p.onFoto };
 
   return (
     <>
@@ -173,12 +175,12 @@ export default function OmTrakten(p: OmTraktenProps) {
   );
 }
 
-interface RadProps { ikon: (m: KartMarkering) => React.ReactNode; framhavdId: string | null; onVisa: (m: KartMarkering) => void; onSlapp: () => void; onFoto: (src: string) => void }
+interface RadProps { objektId: string | null; ikon: (m: KartMarkering) => React.ReactNode; framhavdId: string | null; onVisa: (m: KartMarkering) => void; onSlapp: () => void; onFoto: (src: string) => void }
 
 function Rad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
   if (r.samlad) return <Samlad r={r} {...p} />;
   const m = r.markeringar[0];
-  return <Markering m={m} ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onSlapp={p.onSlapp} onFoto={p.onFoto} />;
+  return <Markering m={m} objektId={p.objektId} ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onSlapp={p.onSlapp} onFoto={p.onFoto} />;
 }
 
 /** Flera korta kommentarer av samma typ som EN rad: "Vägar · Röd väg ×3 · Gul väg ×2". Tryck fäller ut en rad per markering, var och en med Visa ›. */
@@ -194,7 +196,7 @@ function Samlad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
       </button>
       {oppen && (
         <div data-testid="om-samlad-lista" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, padding: `0 ${AVSTAND.s}px ${AVSTAND.s}px` }}>
-          {r.markeringar.map((m) => <Markering key={m.id} m={m} inre ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onSlapp={p.onSlapp} onFoto={p.onFoto} />)}
+          {r.markeringar.map((m) => <Markering key={m.id} m={m} objektId={p.objektId} inre ikon={p.ikon(m)} framhavd={p.framhavdId === m.id} onVisa={() => p.onVisa(m)} onSlapp={p.onSlapp} onFoto={p.onFoto} />)}
         </div>
       )}
     </div>
@@ -202,7 +204,7 @@ function Samlad({ r, ...p }: { r: MarkeringsRad } & RadProps) {
 }
 
 /** Kommentaren är huvudtexten (stor); symbolens namn står litet under. Utan kommentar (bara foto) är namnet huvudtexten. */
-function Markering({ m, ikon, framhavd, inre = false, onVisa, onSlapp, onFoto }: { m: MarkeringMedAvstand; ikon: React.ReactNode; framhavd: boolean; inre?: boolean; onVisa: () => void; onSlapp: () => void; onFoto: (src: string) => void }) {
+function Markering({ m, objektId, ikon, framhavd, inre = false, onVisa, onSlapp, onFoto }: { m: MarkeringMedAvstand; objektId: string | null; ikon: React.ReactNode; framhavd: boolean; inre?: boolean; onVisa: () => void; onSlapp: () => void; onFoto: (src: string) => void }) {
   const foto = harFoto(m);
   const komm = m.comment.trim();
   // Basväg: huvudtexten är "Basväg röd · 640 m" (färg och längd); en ev. kommentar står under.
@@ -227,7 +229,7 @@ function Markering({ m, ikon, framhavd, inre = false, onVisa, onSlapp, onFoto }:
       {foto && (
         <div style={{ marginTop: AVSTAND.s }}>
           <span data-testid="om-foto" style={{ display: 'inline-flex' }}>
-            <MarkeringFoto photoPath={m.photoPath} photoData={m.photoData} photoTs={m.photoTs} alt={`Foto: ${m.namn}`} onOpen={onFoto}
+            <MarkeringFoto lokal={m.fotoVantar && objektId ? { objektId, markerId: m.id } : null} photoPath={m.photoPath} photoData={m.photoData} photoTs={m.photoTs} alt={`Foto: ${m.namn}`} onOpen={onFoto}
               style={{ width: AVSTAND.xxl * 2, height: AVSTAND.xxl * 2, objectFit: 'cover', borderRadius: RADIE.rad, display: 'block' }} />
           </span>
         </div>

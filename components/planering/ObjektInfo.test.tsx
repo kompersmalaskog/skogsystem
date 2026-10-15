@@ -6,6 +6,9 @@ import { act } from 'react';
 
 vi.mock('@/lib/supabase', () => ({ supabase: { from: () => ({}), storage: { from: () => ({}) } } }));
 const smhi = vi.hoisted(() => ({ fel: false }));
+// Fotokön (IndexedDB finns inte i jsdom): det lokala fotot som väntar på uppladdning.
+const kon = vi.hoisted(() => ({ blob: null as Blob | null }));
+vi.mock('@/lib/markeringFotoKo', () => ({ lokaltMarkeringFoto: vi.fn(async () => kon.blob), prenumereraFotoKo: () => () => {} }));
 vi.mock('@/lib/smhi-brandrisk', () => {
   const idag = new Date();
   const daily = Array.from({ length: 6 }, (_, i) => {
@@ -53,7 +56,7 @@ function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar
   const go: any = new Proxy({}, { get: (_t, k) => (k === 'gpsKalla' ? null : () => { spion.mer.push(String(k)); }) });
   const mer = byggMerGrupper({ roll, arAdmin: roll === 'planerare', korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: roll === 'forare', status: 'pagaende', tillTrakt: true, vagdata: { varde: '3 vägar', misslyckad: false, kanKora: true }, go });
   return {
-    oppen: true, onStang: () => { spion.stang += 1; }, objektNamn: 'Skälviken RP J-Hus- 25',
+    oppen: true, onStang: () => { spion.stang += 1; }, objektNamn: 'Skälviken RP J-Hus- 25', objektId: 'objekt-1',
     onKnapp: (id) => { spion.knapp.push(id); },
     kort: {
       rad: objektRad({ typ: 'Slutavverkning', avtalsform: 'Rp', cert: 'FSC PEFC' }),
@@ -83,7 +86,7 @@ async function montera(p: ObjektInfoProps) {
   await act(async () => { rot!.render(<ObjektInfo {...p} />); });
   await flush();
 }
-beforeEach(() => { spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; spion.slapp = []; smhi.fel = false; sattBredd(390); });
+beforeEach(() => { kon.blob = null; (URL as any).createObjectURL = vi.fn(() => 'blob:lokalt-foto'); (URL as any).revokeObjectURL = vi.fn(); spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; spion.slapp = []; smhi.fel = false; sattBredd(390); });
 afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.remove(); rot = null; });
 
 describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
@@ -344,6 +347,19 @@ describe('Om trakten', () => {
     await oppnaOm();
     klicka(qa('om-visa')[1]);
     expect(spion.visa).toEqual(['lang:panel']);
+  });
+
+  it('foto som väntar på uppladdning: raden listas utan kommentar, bilden visas från enheten med väntar-ikonen (och en rad utan väntande foto har ingen ikon)', async () => {
+    kon.blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
+    const vantar = M({ id: 'fv', typ: 'warning', namn: 'Varning', comment: '', fotoVantar: true, lat: 56.4002, lng: 14.7, skapad: 300 });
+    await oppnaOm(props({ markeringar: [vantar, ...MARKERINGAR] }));
+    await flush();
+    const rad = qa('om-markering').find((r) => r.getAttribute('data-id') === 'fv')!;
+    expect(rad, 'markeringen med bara ett väntande foto listas').toBeTruthy();
+    expect(rad.querySelector('img')!.getAttribute('src')).toBe('blob:lokalt-foto');
+    expect(rad.querySelector('[data-testid="foto-vantar"]')!.getAttribute('aria-label')).toBe('Väntar på uppladdning');
+    const med = qa('om-markering').find((r) => r.getAttribute('data-id') === 'nara')!;
+    expect(med.querySelector('[data-testid="foto-vantar"]')).toBeNull();   // vanligt foto (redan uppe/inbäddat): ingen ikon
   });
 
   it('vald rad: knappen heter "Visa hela" (inte "Visa ›") och ett tryck släpper framhävningen; övriga rader säger fortfarande Visa ›', async () => {
