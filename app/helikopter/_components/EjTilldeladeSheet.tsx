@@ -6,14 +6,15 @@ import { AVSTAND, FARG, TYP } from '@/lib/design/tokens'
 import { TYP_NAMN } from '../_lib/berakningar'
 import { fmt, kortNamn } from '../_lib/format'
 import type { PlaneringObjekt, Typ } from '../_lib/queries'
-import { ListRad, RadGrupp, RadLank } from './Lista'
+import { ListRad } from './Lista'
+import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
 
 export default function EjTilldeladeSheet({ open, onClose, objekt, ar, manad }: { open: boolean; onClose: () => void; objekt: PlaneringObjekt[]; ar: number; manad: number }) {
   return (
     <Sheet open={open} onClose={onClose} title="Ej tilldelade">
-      <RadGrupp>
+      <div className="hk-grupp">
         {objekt.length === 0 ? (
-          <div className="hk-rad" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0`, borderBottom: `1px solid ${FARG.linje}` }}>Alla månadens objekt har skördare och skotare.</div>
+          <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Alla månadens objekt har skördare och skotare.</div>
         ) : (
           objekt.map(o => {
             const saknar: string[] = []
@@ -31,8 +32,12 @@ export default function EjTilldeladeSheet({ open, onClose, objekt, ar, manad }: 
             )
           })
         )}
-        <RadLank text="Öppna objektlistan" href={`/objekt?ar=${ar}&manad=${manad}`} />
-      </RadGrupp>
+      </div>
+      <div style={{ marginTop: AVSTAND.l }}>
+        <RadGrupp bakgrund={FARG.upphojt} marginBottom={0}>
+          <RadLank text="Öppna objektlistan" href={`/objekt?ar=${ar}&manad=${manad}`} />
+        </RadGrupp>
+      </div>
     </Sheet>
   )
 }

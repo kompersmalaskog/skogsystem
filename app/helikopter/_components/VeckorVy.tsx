@@ -16,7 +16,8 @@ import { hamtaManuellaMaskiner, hamtaVeckor, type Typ, type VeckaRad } from '../
 import { SPAR_MAX_PX, VECKOR_TVA_SPAR_MIN_PX } from '../_lib/layout'
 import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar, Tomt } from './Tillstand'
-import { HK_CSS, RadGrupp, RadLank } from './Lista'
+import { HK_CSS } from './Lista'
+import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
 import { Ikon } from './Ikon'
 import VeckoDiagram, { veckaFarg } from './VeckoDiagram'
 import OrsakSheet from './OrsakSheet'
@@ -193,18 +194,19 @@ function SparBlock({ veckor, vald, roll, onVald, onRoll, onTillbakaRoll, manuell
   if (veckor.length === 0) return <Tomt rubrik="Inga arbetsdagar i månaden" />
   return (
     <>
-      <section style={{ ...KORT, marginBottom: AVSTAND.s }}>
+      <section style={{ ...KORT, marginBottom: AVSTAND.rad }}>
         <VeckoDiagram veckor={veckor} vald={vald} onValjVecka={onVald} onValjStapel={onRoll} />
       </section>
 
       {vecka && (
-        <section style={{ ...KORT, paddingBottom: 0, marginBottom: AVSTAND.xl }}>
-          {roll ? (
-            <PerMaskin vecka={vecka} roll={roll} onTillbaka={onTillbakaRoll} manuella={manuella} />
-          ) : (
-            <VeckoDetalj vecka={vecka} harBest={best} onAndraOrsak={onAndraOrsak} />
-          )}
-        </section>
+        <>
+          <section style={{ ...KORT, marginBottom: AVSTAND.rad }}>
+            {roll ? <PerMaskin vecka={vecka} roll={roll} manuella={manuella} /> : <VeckoDetalj vecka={vecka} harBest={best} />}
+          </section>
+          <RadGrupp>
+            {roll ? <RadLank text="Visa veckan" onClick={onTillbakaRoll} /> : <RadLank text="Ändra orsak" onClick={onAndraOrsak} />}
+          </RadGrupp>
+        </>
       )}
     </>
   )
@@ -222,7 +224,7 @@ function veckoRubrik(v: VeckaRad, harBest: boolean): string {
   return `${dagar} · plan ${fmt(v.plan)}`
 }
 
-function VeckoDetalj({ vecka, harBest, onAndraOrsak }: { vecka: VeckaRad; harBest: boolean; onAndraOrsak: () => void }) {
+function VeckoDetalj({ vecka, harBest }: { vecka: VeckaRad; harBest: boolean }) {
   return (
     <>
       <div style={{ ...TYP.listtitel, color: FARG.text }}>
@@ -233,11 +235,8 @@ function VeckoDetalj({ vecka, harBest, onAndraOrsak }: { vecka: VeckaRad; harBes
         <Spalt ikon="forest" label="Skördat" varde={vecka.skordat} vecka={vecka} harBest={harBest} />
         <Spalt ikon="local_shipping" label="Skotat" varde={vecka.skotat} vecka={vecka} harBest={harBest} />
       </div>
-      <div style={{ ...TYP.text, color: vecka.orsak ? FARG.text2 : FARG.text3, marginTop: AVSTAND.m, paddingBottom: AVSTAND.m }}>
+      <div style={{ ...TYP.text, color: vecka.orsak ? FARG.text2 : FARG.text3, marginTop: AVSTAND.m }}>
         {vecka.orsak ? vecka.orsak : 'Ingen orsak angiven'}
-      </div>
-      <div className="hk-grupp" style={{ borderTop: `1px solid ${FARG.linje}` }}>
-        <RadLank text="Ändra orsak" onClick={onAndraOrsak} />
       </div>
     </>
   )
@@ -265,7 +264,7 @@ function Spalt({ ikon, label, varde, vecka, harBest }: { ikon: string; label: st
   )
 }
 
-function PerMaskin({ vecka, roll, onTillbaka, manuella }: { vecka: VeckaRad; roll: Roll; onTillbaka: () => void; manuella: Set<string> }) {
+function PerMaskin({ vecka, roll, manuella }: { vecka: VeckaRad; roll: Roll; manuella: Set<string> }) {
   const rader = vecka.maskiner.filter(m => m.roll === roll).sort((a, b) => b.volym - a.volym)
   return (
     <>
@@ -273,7 +272,7 @@ function PerMaskin({ vecka, roll, onTillbaka, manuella }: { vecka: VeckaRad; rol
         Vecka {vecka.isovecka} · {roll === 'skordare' ? 'Skördat' : 'Skotat'} per maskin
       </div>
       {rader.length === 0 ? (
-        <div style={{ ...TYP.text, color: FARG.text2, paddingBottom: AVSTAND.m }}>Ingen {roll === 'skordare' ? 'skördning' : 'skotning'} registrerad den veckan.</div>
+        <div style={{ ...TYP.text, color: FARG.text2 }}>Ingen {roll === 'skordare' ? 'skördning' : 'skotning'} registrerad den veckan.</div>
       ) : (
         <div className="hk-grupp">
           {rader.map(m => (
@@ -284,9 +283,6 @@ function PerMaskin({ vecka, roll, onTillbaka, manuella }: { vecka: VeckaRad; rol
           ))}
         </div>
       )}
-      <div className="hk-grupp" style={{ borderTop: `1px solid ${FARG.linje}` }}>
-        <RadLank text="Visa veckan" onClick={onTillbaka} />
-      </div>
     </>
   )
 }

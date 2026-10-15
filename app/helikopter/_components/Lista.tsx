@@ -1,9 +1,8 @@
 'use client'
 
 // Byggstenarna för /helikopter, ur tokens: svarsraden på svart, sektionsetikett (TYP.micro) över ett KORT,
-// rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck, listrader (RAD) med chevron.
+// rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck. Länkrader: components/ui/RadGrupp.
 // Typ: tal TYP.tal, rubrik TYP.rubrik, radnamn TYP.listtitel, brödtext TYP.text, förklaring TYP.meta, etikett TYP.micro.
-import Link from 'next/link'
 import { AVSTAND, FARG, IKON, KORT, RAD, RADIE, TNUM, TYP, VIKT } from '@/lib/design/tokens'
 import type { Svar } from '../_lib/berakningar'
 import { Ikon } from './Ikon'
@@ -31,24 +30,22 @@ export function Svarsrad({ svar }: { svar: Svar }) {
   )
 }
 
-/** Etikett (TYP.micro) över ett KORT. `kort={false}` = raderna ligger direkt på ytan (i ett sheet/en panel, som redan är ett kort). */
-export function Sektion({ rubrik, kort = true, children }: { rubrik: string; kort?: boolean; children: React.ReactNode }) {
+/**
+ * Etikett (TYP.micro) över ett KORT. `kort={false}` = raderna ligger direkt på ytan (i ett sheet/en panel, som redan är ett kort).
+ * `foljdAvLankar` = en länkgrupp (RadGrupp) ligger direkt under: AVSTAND.rad i stället för AVSTAND.xl.
+ */
+export function Sektion({ rubrik, kort = true, foljdAvLankar, children }: { rubrik: string; kort?: boolean; foljdAvLankar?: boolean; children: React.ReactNode }) {
   return (
-    <section aria-label={rubrik} style={{ marginBottom: AVSTAND.xl }}>
+    <section aria-label={rubrik} style={{ marginBottom: foljdAvLankar ? AVSTAND.rad : AVSTAND.xl }}>
       <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 0 ${AVSTAND.xs}px` }}>{rubrik}</div>
       <div className="hk-grupp" style={kort ? { ...KORT, paddingTop: 0, paddingBottom: 0 } : undefined}>{children}</div>
     </section>
   )
 }
 
-/** Listrader (RAD med chevron) utanför korten, i en grupp. */
-export function RadGrupp({ children }: { children: React.ReactNode }) {
-  return <div className="hk-grupp" style={{ marginBottom: AVSTAND.xl }}>{children}</div>
-}
-
-/** Ett KORT (utan sektionsetikett) — Uppföljning har ett per spår. */
+/** Ett KORT (utan sektionsetikett) — Uppföljning har ett per spår, med länkgruppen AVSTAND.rad under. */
 export function Kort({ children }: { children: React.ReactNode }) {
-  return <section style={{ ...KORT, marginBottom: AVSTAND.s }}>{children}</section>
+  return <section style={{ ...KORT, marginBottom: AVSTAND.rad }}>{children}</section>
 }
 
 /** Mätare: 6 px, bakgrund FARG.fyllning, fyllning FARG.text2 (neutral) eller en statusfärg, planstreck FARG.text 2 px. `andel` och `planAndel` 0–1. */
@@ -119,20 +116,4 @@ export function MatarRad({ ikon, label, varde, av, andel, planAndel, orange }: {
       {andel !== undefined && <Matare andel={andel} planAndel={planAndel} farg={orange ? FARG.orange : FARG.text2} />}
     </div>
   )
-}
-
-/** Listrad (RAD, 44 px) med chevron. Smakprovet står efter en punkt i text2. Orange = något avviker (texten säger vad). */
-export function RadLank({ text, smakprov, href, onClick, orange }: { text: string; smakprov?: string; href?: string; onClick?: () => void; orange?: boolean }) {
-  const stil: React.CSSProperties = {
-    ...RAD, justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', background: 'transparent', border: 'none',
-    borderBottom: RAD.borderBottom, textAlign: 'left', ...TYP.text, color: orange ? FARG.orange : FARG.text, fontFamily: 'inherit', cursor: 'pointer', textDecoration: 'none',
-  }
-  const inre = (
-    <>
-      <span style={ELLIPS}>{text}{smakprov && <span style={{ color: FARG.text2 }}> · {smakprov}</span>}</span>
-      <Ikon namn="chevron_right" />
-    </>
-  )
-  if (href) return <Link className="hk-rad" href={href} style={stil}>{inre}</Link>
-  return <button className="hk-rad" type="button" onClick={onClick} style={stil}>{inre}</button>
 }

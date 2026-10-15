@@ -6,7 +6,8 @@
 import { kapacitetsMaskiner, lageSvar, motBestallningRad, registreringsVarning, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, dagarText, fmt, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, BestallningRad, Maskin, MaskinLage, Typ, UtanTypRad } from '../_lib/queries'
-import { ListRad, MatarRad, RAD_KOLUMN, RadGrupp, RadLank, Sektion, Svarsrad } from './Lista'
+import { ListRad, MatarRad, RAD_KOLUMN, Sektion, Svarsrad } from './Lista'
+import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
 import MaskinerSheet from './MaskinerSheet'
 import UtanTypSheet from './UtanTypSheet'
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens'
@@ -45,7 +46,7 @@ export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskine
   return (
     <>
       <Svarsrad svar={svar} />
-      <Sektion rubrik="Mot beställning">
+      <Sektion rubrik="Mot beställning" foljdAvLankar={!dinMaskin}>
         {spar.map(s => {
           const rad = motBestallningRad(s, antalPlanerade[s.typ], status, manadNamn)
           const harBest = s.bestallt > 0
@@ -87,7 +88,7 @@ export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskine
       </Sektion>
 
       {dinMaskin && (
-        <Sektion rubrik="Din maskin">
+        <Sektion rubrik="Din maskin" foljdAvLankar>
           <DinMaskinRad {...dinMaskin} />
         </Sektion>
       )}

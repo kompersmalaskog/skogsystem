@@ -123,7 +123,7 @@ function DelaRad({ text, under, onClick, upptagen, inaktiv }: { text: string; un
       disabled={inaktiv}
       aria-busy={upptagen}
       className="hk-rad"
-      style={{ ...RAD, justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', background: 'none', border: 'none', borderBottom: RAD.borderBottom, color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: inaktiv ? 'default' : 'pointer', ...(inaktiv && !upptagen ? INAKTIV : null) }}
+      style={{ border: 'none', ...RAD, justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', background: 'none', color: FARG.text, fontFamily: 'inherit', textAlign: 'left', cursor: inaktiv ? 'default' : 'pointer', ...(inaktiv && !upptagen ? INAKTIV : null) }}
     >
       <span>
         <span style={{ display: 'block', ...TYP.listtitel }}>{upptagen ? `${text}…` : text}</span>
