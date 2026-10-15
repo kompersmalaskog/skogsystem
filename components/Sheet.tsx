@@ -1,8 +1,15 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { T } from '@/lib/utbildning';
-import { AVSTAND, RADIE, RORELSE } from '@/lib/design/tokens';
+import { AVSTAND, RADIE, RORELSE, medSafeBotten, underTopbar } from '@/lib/design/tokens';
+import { PANEL_BREDD_PX } from '@/lib/plusArk';
+
+// Sheeten kan ligga i två ramar: `ark` (underifrån, som alltid) eller `panel` (från höger, 380 px, på bredare skärmar).
+// Vyn som vill ha panelen lägger en provider runt sig; utan provider är allt som förut. Innehållet är detsamma — bara containern byts.
+export type SheetLage = 'ark' | 'panel';
+export const SheetLageContext = createContext<SheetLage>('ark');
 
 // Avståndet under rubrikraden är 18 px i ALLA sheets (ingen token är 18, så det byggs av två: 16 + 4/2); ändras det ändras varje sheet i appen.
 const RUBRIK_AVSTAND = AVSTAND.l + AVSTAND.xs / 2;
@@ -29,7 +36,9 @@ export function Sheet({
   const [dy, setDy] = useState(0);
   const [drar, setDrar] = useState(false);
   const start = useRef<{ y: number; fast: boolean } | null>(null);
+  const lage = useContext(SheetLageContext);
   if (!open) return null;
+  if (lage === 'panel') return <SheetPanel title={title} onClose={onClose}>{children}</SheetPanel>;
 
   const grepp = dragNedStanger
     ? {
@@ -104,6 +113,51 @@ export function Sheet({
         {children}
       </div>
     </div>
+  );
+}
+
+// Panelen: fast till höger under toppfältet, helt hög, stängknapp uppe till höger, Escape stänger. Inget mörkt lager över sidan —
+// vyn avgör om kolumnerna skjuts åt sidan (det finns plats) eller om panelen läggs över dem.
+function SheetPanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const vidTangent = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', vidTangent);
+    return () => window.removeEventListener('keydown', vidTangent);
+  }, [onClose]);
+
+  return (
+    <aside
+      role="dialog"
+      aria-label={title}
+      style={{
+        position: 'fixed',
+        top: underTopbar(),
+        right: 0,
+        bottom: 0,
+        zIndex: 6000,
+        width: PANEL_BREDD_PX,
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        background: '#1C1C1E',
+        borderLeft: '1px solid rgba(255,255,255,0.08)',
+        padding: `${AVSTAND.l}px 20px ${medSafeBotten(28)}`,
+        overflowY: 'auto',
+        fontFamily: T.ff,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: RUBRIK_AVSTAND }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: T.t1 }}>{title}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Stäng"
+          style={{ width: 44, height: 44, marginRight: -AVSTAND.s, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', color: T.blue, cursor: 'pointer', padding: 0 }}
+        >
+          <X size={22} aria-hidden="true" />
+        </button>
+      </div>
+      {children}
+    </aside>
   );
 }
 

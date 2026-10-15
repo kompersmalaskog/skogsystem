@@ -12,6 +12,7 @@ import { Kort, KortLank, SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton }
 import { ListRad, Lista, Sektion, TEXT_MUTED } from './Lista'
 import { knapp } from './Tillstand'
 import BolagSheet from './BolagSheet'
+import { usePanelVal } from './PanelVal'
 import { skickaVeckoNotis } from '../_lib/queries'
 
 type Props = {
@@ -34,7 +35,7 @@ type Props = {
 }
 
 export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin, manuella }: Props) {
-  const [oppen, setOppen] = useState<Typ | null>(null)
+  const [oppen, setOppen] = usePanelVal<Typ>('uppfoljning')
   return (
     <>
       {spar.map(s => (
