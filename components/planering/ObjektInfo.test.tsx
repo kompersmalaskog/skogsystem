@@ -17,7 +17,7 @@ vi.mock('@/lib/smhi-brandrisk', () => {
 
 import ObjektInfo, { type ObjektInfoProps } from './ObjektInfo';
 import { sattBredd } from './PlusRad.testhjalp';
-import { byggMerGrupper, kortKnappar, faktaBrickor, tillForaren, objektRad, type KartMarkering } from '@/lib/objektKort';
+import { byggMerGrupper, kortKnappar, faktaBrickor, tillForaren, objektRad, gpsNu, type KartMarkering } from '@/lib/objektKort';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -126,6 +126,7 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
   it('förare: Körvy · Skotning · Utkört · Mer — varje knapp ropar rätt handling; Mer öppnar Mer här inne', async () => {
     await montera(props({ roll: 'forare' }));
     expect(Array.from(q('kort-knappar')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Körvy', 'Skotning', 'Utkört', 'Mer']);
+    expect(q('kort-knappar')!.style.gridTemplateColumns).toContain('repeat(4,');   // alla fyra på EN rad
     klicka(q('kort-knapp-korvy')); klicka(q('kort-knapp-skotning')); klicka(q('kort-knapp-utkort'));
     expect(spion.knapp).toEqual(['korvy', 'skotning', 'utkort']);
     klicka(q('kort-knapp-mer'));
@@ -202,6 +203,29 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
     klicka(q('info-stang'));
     expect(spion.stang).toBe(2);
+  });
+});
+
+describe('position — sidans currentPosition är { lat, lon } (PR 766)', () => {
+  // Så som sidan bygger positionen: { lat, lon } genom gpsNu → { lat, lng }. Förut matades komponenterna med färdigt { lat, lng } och kraschen i sidan syntes aldrig.
+  const sidansPosition = (position: { lat: number; lon: number } | null) => gpsNu({ korvyAktiv: false, korvyPos: null, position });
+
+  it('utan position: kortet OCH Om trakten renderas, utan avstånd', async () => {
+    await montera(props({ pos: sidansPosition(null) }));
+    expect(q('kort-knappar')).not.toBeNull();
+    klicka(q('kort-pa-trakten'));
+    expect(qa('om-markering').length).toBe(2);
+    expect(qa('om-avstand').length).toBe(0);
+  });
+
+  it('MED position i { lat, lon }-form: kortet OCH Om trakten renderas, och avstånd visas (närmast först)', async () => {
+    await montera(props({ pos: sidansPosition({ lat: 56.4, lon: 14.7 }) }));
+    expect(q('kort-knappar')).not.toBeNull();
+    klicka(q('kort-pa-trakten'));
+    const rader = qa('om-markering');
+    expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['nara', 'lang']);
+    expect(rader[0].querySelector('[data-testid="om-avstand"]')!.textContent).toBe('10 m');
+    expect(rader[1].querySelector('[data-testid="om-avstand"]')!.textContent).toMatch(/km$/);
   });
 });
 

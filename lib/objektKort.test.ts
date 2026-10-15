@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, behoverLasAllt, sammanfattaMarkeringar, markeringsRad, antalPerTyp, namnMedAntal,
-  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, type KartMarkering, type MerIn,
+  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, type KartMarkering, type MerIn,
 } from './objektKort';
 
 const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
@@ -219,5 +221,32 @@ describe('brandrisk: fem dagar', () => {
   it('tom data → inga dagar (ingen gissad risk)', () => {
     expect(femDagar([], '2026-10-01')).toEqual([]);
     expect(femDagar(null, '2026-10-01')).toEqual([]);
+  });
+});
+
+describe('positionen till kortet och Om trakten (PR 766: ⓘ kraschade på currentPosition.coords)', () => {
+  // Sidans currentPosition är { lat, lon } — den har INGEN .coords. Komponenterna får { lat, lng }.
+  it('{ lat, lon } → { lat, lng }', () => {
+    expect(gpsNu({ korvyAktiv: false, korvyPos: null, position: { lat: 56.4, lon: 14.7 } })).toEqual({ lat: 56.4, lng: 14.7 });
+  });
+  it('ingen position → null (aldrig en krasch, aldrig en gissad plats)', () => {
+    expect(gpsNu({ korvyAktiv: false, korvyPos: null, position: null })).toBeNull();
+    expect(gpsNu({ korvyAktiv: true, korvyPos: null, position: null })).toBeNull();
+  });
+  it('körvyns position går först, men bara när körvyn är igång', () => {
+    const k = { lat: 56.5, lon: 14.8 }, p = { lat: 56.4, lon: 14.7 };
+    expect(gpsNu({ korvyAktiv: true, korvyPos: k, position: p })).toEqual({ lat: 56.5, lng: 14.8 });
+    expect(gpsNu({ korvyAktiv: false, korvyPos: k, position: p })).toEqual({ lat: 56.4, lng: 14.7 });
+  });
+  it('ett ogiltigt tal (NaN) ger ingen position', () => {
+    expect(gpsNu({ korvyAktiv: false, korvyPos: null, position: { lat: NaN, lon: 14.7 } })).toBeNull();
+  });
+  it('sidan läser aldrig .coords ur currentPosition och går via gpsNu (typen är { lat, lon }, inte GeolocationPosition)', () => {
+    const page = readFileSync(resolve(__dirname, '../app/planering/page.tsx'), 'utf8');
+    expect(page).not.toMatch(/currentPosition\.coords/);
+    expect(page).toContain('useState<{ lat: number; lon: number } | null>(null);   // {lat, lon}');
+    expect(page).not.toContain('setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any)');
+    expect(page).toContain('gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition })');
+    expect(page).toContain('pos: gpsNuPos,');
   });
 });

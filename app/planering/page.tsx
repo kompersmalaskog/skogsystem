@@ -22,7 +22,7 @@ import { anvandObjektLista } from '../../lib/objektVal'
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
-import { objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, type KartMarkering, type MarkeringsSlag, type KortRoll } from '../../lib/objektKort'
+import { objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll } from '../../lib/objektKort'
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
@@ -3099,7 +3099,7 @@ export default function PlannerPage() {
     gpsPausedRef.current = gpsPaused;
   }, [gpsPaused]);
   
-  const [currentPosition, setCurrentPosition] = useState<GeolocationPosition | null>(null);
+  const [currentPosition, setCurrentPosition] = useState<{ lat: number; lon: number } | null>(null);   // {lat, lon} — INTE GeolocationPosition (ingen .coords)
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
   const [gpsPosition, setGpsPosition] = useState<{lat: number, lng: number} | null>(null); // GPS lat/lng
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // GPS accuracy i meter
@@ -3420,7 +3420,7 @@ export default function PlannerPage() {
     const sisteGiltig = { t: 0 };
     const handle: GpsKallaHandle = startaGpsKalla((fix) => {
       if (fix.giltig && fix.lat != null && fix.lng != null) {
-        setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any);
+        setCurrentPosition({ lat: fix.lat, lon: fix.lng });
         setGpsPosition({ lat: fix.lat, lng: fix.lng });
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         // GPS-KURSEN (NMEA VTG/RMC) matar körvyns rotation när kompassen saknas (maskindator).
@@ -3456,7 +3456,7 @@ export default function PlannerPage() {
     setGpsStatus({ kind: 'searching', at: Date.now() });
     hamtaEnGpsFix(20000).then((fix) => {
       if (fix && fix.giltig && fix.lat != null && fix.lng != null) {
-        setCurrentPosition({ lat: fix.lat, lon: fix.lng } as any);
+        setCurrentPosition({ lat: fix.lat, lon: fix.lng });
         setGpsPosition({ lat: fix.lat, lng: fix.lng });
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         setGpsFixAt(Date.now());
@@ -13937,8 +13937,7 @@ export default function PlannerPage() {
           : !avverkat ? 'beräknas …'
           : !avverkat.harSpar ? 'inget skördarspår loggat än'
           : `${avverkat.ha.toFixed(2).replace('.', ',')} av ${arealHaKort.toFixed(2).replace('.', ',')} ha`;
-        const gpsNu = korvyActive && korvyEffectivePos ? { lat: korvyEffectivePos.lat, lng: korvyEffectivePos.lon }
-          : currentPosition ? { lat: currentPosition.coords.latitude, lng: currentPosition.coords.longitude } : null;
+        const gpsNuPos = gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition });
         const efter = (f: () => void) => () => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8); f(); stang(); };
         const sammanf = sammanfattaMarkeringar(kartMarkeringar);
         const merIn = byggMerGrupper({
@@ -14014,7 +14013,7 @@ export default function PlannerPage() {
             planttext: [planttext, talKonflikt ? `Egen anteckning anger ${egnaTalStr}/ha — Vidas direktiv gäller` : null].filter(Boolean).join(' · ') || null,
             restriktioner: restr ?? [],
             markeringar: kartMarkeringar,
-            pos: gpsNu,
+            pos: gpsNuPos,
             miljo: [
               { id: 'hogstubbar', namn: 'Högstubbar', antal: hogstubbarVy.antal, krav: hogstubbarVy.krav, uppfyllt: hogstubbarVy.status === 'uppfyllt' },
               { id: 'evighetstrad', namn: 'Evighetsträd', antal: evighetstradVy.antal, krav: evighetstradVy.krav, uppfyllt: evighetstradVy.status === 'uppfyllt' },

@@ -186,6 +186,17 @@ export function distM(a: { lat: number; lng: number }, b: { lat: number; lng: nu
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/**
+ * Positionen kortet och Om trakten räknar avstånd från. Sidans `currentPosition` är `{ lat, lon }` (INTE en GeolocationPosition — ingen `.coords`);
+ * körvyns effektiva position har samma form och går först. Ren funktion så att just den här omvandlingen går att testa: sidan går inte att montera
+ * i test, och en läsning av `.coords` kraschade ⓘ (PR 766) trots gröna komponenttester som matade in `{ lat, lng }` direkt.
+ */
+export function gpsNu(o: { korvyAktiv: boolean; korvyPos: { lat: number; lon: number } | null; position: { lat: number; lon: number } | null }): { lat: number; lng: number } | null {
+  const k = o.korvyAktiv ? o.korvyPos : null;
+  const p = k ?? o.position;
+  return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? { lat: p.lat, lng: p.lon } : null;
+}
+
 /** "85 m" under 1 km, "1,3 km" över. */
 export function avstandText(m: number): string {
   if (!Number.isFinite(m)) return '';

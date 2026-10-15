@@ -68,7 +68,9 @@ function BegransadText({ text, onLasAllt }: { text: string; onLasAllt: () => voi
 export default function ObjektKort(p: ObjektKortProps) {
   const [dokOppen, setDokOppen] = useState(false);
   const n = p.knappar.length;
-  const kolumner = n <= 3 ? n : 2;   // fyra knappar → 2 × 2 så de är stora nog för handskar
+  // Alla knappar på EN rad. Fyra (förare) kräver tätare: 4 px mellanrum och ingen sidopadding ger 79 px per knapp på en 360 px bred telefon — "Skotning" är 73 px.
+  const kolumner = Math.max(1, n);
+  const tat = n >= 4;
   const alla = [...p.brickor, ...p.extraBrickor];
 
   return (
@@ -84,10 +86,10 @@ export default function ObjektKort(p: ObjektKortProps) {
         )}
 
         {/* KNAPPRAD efter roll — högst EN primär: den första */}
-        <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, kolumner)}, 1fr)`, gap: AVSTAND.s, marginBottom: AVSTAND.l }}>
+        <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${kolumner}, minmax(0, 1fr))`, gap: tat ? AVSTAND.xs : AVSTAND.s, marginBottom: AVSTAND.l }}>
           {p.knappar.map((k, i) => (
             <button key={k.id} type="button" data-testid={`kort-knapp-${k.id}`} onClick={() => p.onKnapp(k.id)} className="press-scale"
-              style={{ ...(i === 0 && k.id !== 'mer' ? KNAPP.primar : KNAPP.sekundar), minHeight: TRAFFYTA.primar, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+              style={{ ...(i === 0 && k.id !== 'mer' ? KNAPP.primar : KNAPP.sekundar), minHeight: TRAFFYTA.primar, ...(tat ? { padding: 0, whiteSpace: 'nowrap', overflow: 'hidden' } : null), cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
               {k.etikett}
             </button>
           ))}
