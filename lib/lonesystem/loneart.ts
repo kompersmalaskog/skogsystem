@@ -39,10 +39,7 @@ export const LONEARTER = [
   // Kväll, lördag och söndag byggs inte (CLAUDE.md, beslut Martin 2026-10-15). Tom kod tills koden kopplas under Lön → Lönearter.
   { key: "brandrisk_ob",         label: "Brandrisk – OB",         enhet: "tim",    enhetText: "tim",           valfri: false,
     grupp: "Tillägg",
-    forklaring: "Beordrad tidig start vid brandrisk, vardagsmorgon: timmarna från start till 06:30 (avtalet §8 mom 1)." },
-  { key: "brandrisk_nattillagg", label: "Brandrisk – nattillägg", enhet: "tim",    enhetText: "tim",           valfri: false,
-    grupp: "Tillägg",
-    forklaring: "De brandriskutlösta timmarna som ligger 00:00–05:00. Utöver OB (avtalet §8 mom 1, anmärkningen)." },
+    forklaring: "Alla beordrade timmar vid brandrisk, vardagsmorgon: från start till 06:30. En rad, företagets praxis (över avtalets minimum, §8 mom 1)." },
 ] as const;
 
 export type LoneartKey = (typeof LONEARTER)[number]["key"];

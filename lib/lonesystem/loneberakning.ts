@@ -11,7 +11,7 @@
  *
  * Löneartskoder: finns INTE här. De läses ur lonesystem_artikelmappning (lib/lonesystem/loneart) och skickas in som `koder`.
  * Lönearterna är timlön, premielön (skördare/skotare), övertid (skördare/skotare), vältlappar, reseersättning, helglön och
- * brandrisk-OB (OB + nattillägg, bara beordrad brandriskmorgon — lib/ob).
+ * brandrisk-OB (EN rad, bara beordrad brandriskmorgon — lib/ob).
  * Tom kod = ingen rad (varning + röd rad i förhandsvisningen); premielönen är frivillig och stoppar inget.
  *
  * Premielön är FÖRETAGETS EGEN konstruktion — den står inte i
@@ -160,7 +160,7 @@ export type ExportSammanfattning = {
   // (löneart 'helglon') när lönearten har en kod; närvarokravet (§10 mom 4) är inte
   // byggt än. OB vid arbete på röd dag räknas inte: appen har bara brandrisk-OB (enkelskift, CLAUDE.md).
   helglon: { dagar: HelglonDag[]; timmar: number };
-  // Brandrisk-OB (lib/ob): beordrade vardagsmorgnar → OB (start–06:30) och nattillägg (de av dem som ligger 00:00–05:00). Minuter är
+  // Brandrisk-OB (lib/ob): beordrade vardagsmorgnar → OB (start–06:30), en rad. Minuter är
   // exakta; Fortnox-raderna bär timmar med två decimaler. Den ENDA OB appen räknar — enkelskift: tidig start är annars eget val.
   brandrisk: BrandriskSumma;
   // Bytesdagar (inarbetad, §5 mom 4) som rör arbetsmånaden — den lediga dagen
@@ -513,14 +513,11 @@ export function beräknaExport(
   }
 
   // ── BRANDRISK-OB (lib/ob, Skogsavtalet § 8 mom 1) ──
-  // Två rader per förare och månad, båda med tom kod tills admin kopplar dem: OB = beordrade timmar start → 06:30, nattillägg = de av
-  // dem som ligger 00:00–05:00 (utöver OB). Exakta timmar, två decimaler, ingen avrundning per dag. Ingen annan OB räknas.
+  // EN rad per förare och månad med tom kod tills admin kopplar den (Fortnox 147): alla beordrade timmar start → 06:30 — företagets praxis,
+  // över avtalets minimum, ingen uppdelning i nattillägg. Exakta timmar, två decimaler, ingen avrundning per dag. Ingen annan OB räknas.
   const brandrisk = brandriskSumma(dagar.map(d => ({ datum: d.datum, start_tid: d.start_tid ?? null, brandrisk_beordrad: d.brandrisk_beordrad ?? null })));
   if (brandrisk.ob_min > 0) {
     laggRad("brandrisk_ob", minTillTimmar(brandrisk.ob_min), `Brandrisk – OB: ${minTillTimmar(brandrisk.ob_min)}h (${brandrisk.dagar.length} beordrade morgnar, start–06:30)`);
-  }
-  if (brandrisk.natt_min > 0) {
-    laggRad("brandrisk_nattillagg", minTillTimmar(brandrisk.natt_min), `Brandrisk – nattillägg: ${minTillTimmar(brandrisk.natt_min)}h (de av timmarna som ligger 00:00–05:00)`);
   }
 
   return {

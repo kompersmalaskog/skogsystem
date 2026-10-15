@@ -7,9 +7,9 @@
 //
 // Bara VARDAGSMORGON: OB-timmar = start_tid → 06:30. Ingen helg, ingen kväll efter
 // 17:00, inga kronor (Fortnox äger satsen ob_kvall_kr) — och det byggs ALDRIG (beslut
-// Martin 2026-10-15, CLAUDE.md "OB"). Nattillägg = de av OB-timmarna som ligger 00:00–05:00.
+// Martin 2026-10-15, CLAUDE.md "OB"). EN rad på alla beordrade timmar, ingen uppdelning i nattillägg.
 // OB-timmarna LAGRAS aldrig — härleds här ur (start_tid, brandrisk_beordrad) så
-// förarkort, admin och exporten (två lönerader, tom kod som standard) räknar lika.
+// förarkort, admin och exporten (en löneart, tom kod som standard) räknar lika.
 // Ren funktion, ingen I/O.
 // ─────────────────────────────────────────────────────────────
 
@@ -38,38 +38,26 @@ export function obMinuter(dag: ObDag): number {
   return Math.max(0, OB_MORGON_SLUT_MIN - s);
 }
 
-const NATT_SLUT_MIN = 5 * 60; // 05:00 — nattarbete vid brandrisk gäller 00:00–05:00 (Skogsavtalet § 8 mom 1, bilaga 4)
+export type BrandriskDag = { datum: string; start_tid: string; ob_min: number };
+export type BrandriskSumma = { ob_min: number; dagar: BrandriskDag[] };
 
 /**
- * Nattillägg: de av de beordrade OB-minuterna som ligger 00:00–05:00 (start_tid → 05:00). Utgår UTÖVER OB (§ 8 mom 1, anmärkning:
- * "Ersättning för nattarbete vid brandrisk … utges utöver ordinarie ob-tillägg"), så en brandriskmorgon som börjar före 05:00
- * ger båda. Samma villkor som obMinuter (vardag + brandrisk_beordrad=true), så nattillägget aldrig överstiger OB.
- */
-export function nattillaggMinuter(dag: ObDag): number {
-  if (obMinuter(dag) <= 0) return 0;
-  return Math.max(0, NATT_SLUT_MIN - tMin(dag.start_tid));
-}
-
-export type BrandriskDag = { datum: string; start_tid: string; ob_min: number; natt_min: number };
-export type BrandriskSumma = { ob_min: number; natt_min: number; dagar: BrandriskDag[] };
-
-/**
- * Månadens beordrade brandriskmorgnar → OB- och nattillägg-minuter (heltal, avrundas aldrig) och dagarna bakom dem. Det här är ENDA
- * OB som appen räknar och skickar: enkelskift på alla maskiner betyder att en tidig start är förarens eget val, så OB gäller bara när
- * starten var beordrad (brandrisk). Kväll, lördag och söndag räknas aldrig (CLAUDE.md, beslut Martin 2026-10-15).
+ * Månadens beordrade brandriskmorgnar → OB-minuter (heltal, avrundas aldrig) och dagarna bakom dem. Det här är ENDA OB som appen räknar
+ * och skickar: enkelskift på alla maskiner betyder att en tidig start är förarens eget val, så OB gäller bara när starten var beordrad
+ * (brandrisk). EN rad på alla beordrade timmar, start → 06:30 (företagets praxis, över avtalets minimum) — ingen uppdelning i nattillägg.
+ * Kväll, lördag och söndag räknas aldrig (CLAUDE.md, beslut Martin 2026-10-15).
  */
 export function brandriskSumma(rader: ObDag[]): BrandriskSumma {
   const dagar: BrandriskDag[] = [];
-  let ob = 0, natt = 0;
+  let ob = 0;
   for (const r of rader || []) {
     const o = obMinuter(r);
     if (o <= 0) continue;
-    const n = nattillaggMinuter(r);
-    ob += o; natt += n;
-    dagar.push({ datum: r.datum, start_tid: String(r.start_tid || "").slice(0, 5), ob_min: o, natt_min: n });
+    ob += o;
+    dagar.push({ datum: r.datum, start_tid: String(r.start_tid || "").slice(0, 5), ob_min: o });
   }
   dagar.sort((a, b) => a.datum.localeCompare(b.datum));
-  return { ob_min: ob, natt_min: natt, dagar };
+  return { ob_min: ob, dagar };
 }
 
 /** Minuter → timmar med två decimaler som text ("10.30"), för Fortnox-raden. Avrundas först här, aldrig per dag. */

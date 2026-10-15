@@ -376,7 +376,7 @@ function FortnoxExportSektion({
       <Card style={{ marginTop: AVSTAND.m }}>
         <p style={{ ...secHead, marginTop: 0, color: FARG.orange }}>Att ta med löneansvarig</p>
         {([
-          ["Gör", "Koppla koderna för Brandrisk – OB och Brandrisk – nattillägg", "under Lön → Lönearter. Timmarna räknas (lib/ob) och skickas som två lönerader; tom kod = raden skickas inte och en skarp sändning stoppas."],
+          ["Gör", "Koppla koden för Brandrisk – OB (Fortnox 147)", "under Lön → Lönearter. Timmarna räknas (lib/ob) och skickas som EN rad; tom kod = raden skickas inte och en skarp sändning stoppas."],
           ["Fråga", "Löneart för sjuklön, VAB och föräldraledig", "dagarna ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
           ["Fråga", "Levereras sjukfrånvaro i timmar per dag?", "§12 mom 3 räknar karens i timmar (20 % av veckoarbetstiden = 8 tim vid 40) och sjuklön per timme som skulle ha arbetats. En halv sjukdag är 3 tim, inte en dag. Räknar Fortnox karensavdraget och de 80 procenten själv när appen skickar timmarna?"],
           ["Bekräfta", "Ordinarie tid är ett genomsnitt", "§5 mom 2: 40 tim/vecka i genomsnitt över en beräkningsperiod om högst 16 veckor. Ingen av appens tre gamla modeller är avtalets."],
@@ -526,8 +526,7 @@ function FortnoxExportSektion({
                     )}
                     {ob.timmar > 0 && (
                       <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }} data-brandrisk-admin>
-                        Brandrisk: <strong>{minTillTimmar(m.brandrisk?.ob_min ?? Math.round(ob.timmar * 60)).replace(".", ",")} tim OB</strong>
-                        {(m.brandrisk?.natt_min ?? 0) > 0 && <>, <strong>{minTillTimmar(m.brandrisk.natt_min).replace(".", ",")} tim nattillägg</strong></>} ({ob.dagar} beordrade morgnar) — två lönerader, se listan ovan.
+                        Brandrisk: <strong>{minTillTimmar(m.brandrisk?.ob_min ?? Math.round(ob.timmar * 60)).replace(".", ",")} tim OB</strong> ({ob.dagar} beordrade morgnar) — en lönerad, se listan ovan.
                       </p>
                     )}
                     {/* Deldagar: arbete PLUS frånvaro samma dag. Timmarna härledda mot

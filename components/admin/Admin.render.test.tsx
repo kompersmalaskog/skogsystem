@@ -2238,18 +2238,17 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
   it("en egen flik under Lön, och listan är lönearterna i exportens ordning under två rubriker", async () => {
     await monter("flik=lon&underflik=lonearter");
     expect(blad("Lönearter").length).toBeGreaterThan(0);
-    expect(raderna()).toEqual(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon", "brandrisk_ob", "brandrisk_nattillagg"]);
+    expect(raderna()).toEqual(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon", "brandrisk_ob"]);
     expect(text()).toContain("Timlön och övertid");
     expect(text()).toContain("Tillägg");
   });
 
-  it("brandrisk-OB: två nya lönearter, tom kod som standard ('Ej kopplad'), och ingen annan OB i listan", async () => {
+  it("brandrisk-OB: EN ny löneart, tom kod som standard ('Ej kopplad'), och ingen annan OB eller nattillägg i listan", async () => {
     await monter("flik=lon&underflik=lonearter");
     expect(rad("brandrisk_ob").textContent).toContain("Brandrisk – OB");
     expect(rad("brandrisk_ob").textContent).toContain("Ej kopplad");
-    expect(rad("brandrisk_nattillagg").textContent).toContain("Brandrisk – nattillägg");
-    expect(rad("brandrisk_nattillagg").textContent).toContain("Ej kopplad");
-    expect(raderna().filter(k => /ob|natt/i.test(k || ""))).toEqual(["brandrisk_ob", "brandrisk_nattillagg"]);   // kväll/lördag/söndag finns inte
+    expect(raderna().filter(k => /ob|natt/i.test(k || ""))).toEqual(["brandrisk_ob"]);   // kväll/lördag/söndag och nattillägg finns inte
+    expect(text()).not.toContain("nattillägg");
   });
 
   it("varje rad visar kod OCH namnet i Fortnox, och en löneart utan rad står som 'Ej kopplad'", async () => {
@@ -2282,7 +2281,7 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
     g.__db.lonesystem_artikelmappning = g.__db.lonesystem_artikelmappning.filter((r: any) => !r.intern_typ.startsWith("premielon"));
     await monter("flik=lon&underflik=lonearter");
     const banner = cont.querySelector("[data-lonearter-saknas]")!;
-    expect(banner.textContent).toMatch(/3 lönearter saknar kod: Helglön, Brandrisk – OB, Brandrisk – nattillägg/);   // OB-raderna har tom kod som standard
+    expect(banner.textContent).toMatch(/2 lönearter saknar kod: Helglön, Brandrisk – OB/);   // OB-raden har tom kod som standard
     expect(banner.textContent).not.toContain("Premielön");
     expect(rad("premielon_skordare").textContent).toContain("Ej kopplad");
     expect(rad("premielon_skordare").textContent).toContain("Frivillig");
@@ -2291,7 +2290,6 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
   it("allt kopplat: ingen varning överst", async () => {
     g.__db.lonesystem_artikelmappning.push({ id: "x8", lonesystem_id: "ls1", intern_typ: "helglon", extern_kod: "1461", beskrivning: "Helglön, timmar", skapad: "2026-10-15" });
     g.__db.lonesystem_artikelmappning.push({ id: "x9", lonesystem_id: "ls1", intern_typ: "brandrisk_ob", extern_kod: "147", beskrivning: "OB", skapad: "2026-10-15" });
-    g.__db.lonesystem_artikelmappning.push({ id: "x10", lonesystem_id: "ls1", intern_typ: "brandrisk_nattillagg", extern_kod: "1470", beskrivning: "Natt", skapad: "2026-10-15" });
     await monter("flik=lon&underflik=lonearter");
     expect(cont.querySelector("[data-lonearter-saknas]")).toBeNull();
   });
@@ -2321,7 +2319,7 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
     expect(arket()).toBeNull();
     expect(rad("helglon").textContent).toContain("1461");
     expect(rad("helglon").textContent).toContain("Helglön, timmar");
-    expect(cont.querySelector("[data-lonearter-saknas]")!.textContent).toMatch(/2 lönearter saknar kod: Brandrisk – OB, Brandrisk – nattillägg/);   // helglön är kopplad, OB-raderna väntar
+    expect(cont.querySelector("[data-lonearter-saknas]")!.textContent).toMatch(/1 löneart saknar kod: Brandrisk – OB/);   // helglön är kopplad, OB-raden väntar
   });
 
   it("ändra en befintlig kod: samma rad uppdateras (ingen dubblett)", async () => {
@@ -2451,29 +2449,27 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     expect(blad("Koppla koder").length).toBeGreaterThan(0);
   });
 
-  it("brandrisk-OB utan kod: två röda rader med exakta timmar (10,30 och 5,80), och adminraden säger att de går till lönen som två rader", async () => {
+  it("brandrisk-OB utan kod: EN röd rad med exakta timmar (10,30), och adminraden säger att den går till lönen som en rad", async () => {
     g.__salary = {
       ...SALARY, blockerande: [
         { loneart: "brandrisk_ob", label: "Brandrisk – OB", enhet: "tim", forare: [{ namn: "Anna Berg", mangd: "10.30" }] },
-        { loneart: "brandrisk_nattillagg", label: "Brandrisk – nattillägg", enhet: "tim", forare: [{ namn: "Anna Berg", mangd: "5.80" }] },
       ],
       medarbetare: [{ ...SALARY.medarbetare[0],
         rader: [{ loneart: "timlon", SalaryCode: "11", Number: "168.00" }],
-        ob: { timmar: 10.3, dagar: 3, obesvarade: 0 }, brandrisk: { ob_min: 618, natt_min: 348, dagar: [] },
+        ob: { timmar: 10.3, dagar: 3, obesvarade: 0 }, brandrisk: { ob_min: 618, dagar: [] },
         varningar: ["Löneart saknas för Brandrisk – OB (10.3 tim): koppla en kod under Lön → Lönearter. Raden skickas inte."],
-        lonerader: [lr("timlon", "168.00", "skickas", "11"), lr("brandrisk_ob", "10.30", "saknar_kod"), lr("brandrisk_nattillagg", "5.80", "saknar_kod")] }],
+        lonerader: [lr("timlon", "168.00", "skickas", "11"), lr("brandrisk_ob", "10.30", "saknar_kod")] }],
     };
     await monter("flik=lon");
     expect(radEl("brandrisk_ob").getAttribute("data-status")).toBe("saknar_kod");
     expect(radEl("brandrisk_ob").textContent).toContain("Brandrisk – OB");
     expect(radEl("brandrisk_ob").textContent).toMatch(/10,3\s*tim/);
-    expect(radEl("brandrisk_nattillagg").getAttribute("data-status")).toBe("saknar_kod");
-    expect(radEl("brandrisk_nattillagg").textContent).toMatch(/5,8\s*tim/);
-    expect(cont.querySelector("[data-saknas-banner]")!.textContent).toMatch(/2 rader/);
+    expect(cont.querySelector("[data-saknas-banner]")!.textContent).toMatch(/1 rad/);
     const not = cont.querySelector("[data-brandrisk-admin]")!.textContent!;
     expect(not).toContain("10,30 tim OB");
-    expect(not).toContain("5,80 tim nattillägg");
     expect(not).toContain("3 beordrade morgnar");
+    expect(not).toContain("en lönerad");
+    expect(not).not.toContain("nattillägg");
     expect(not).not.toContain("läggs inte som lönerad");
   });
 
