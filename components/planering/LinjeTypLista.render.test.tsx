@@ -5,17 +5,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act, useState } from 'react';
 import { LinjeTypLista, type LinjeTyp } from './LinjeTypLista';
+import { LEGEND } from '@/lib/kartstil';
 import { BASVAG_SENASTE_FARG_NYCKEL, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, valTillFarg, type BasvagVal } from '@/lib/basvag';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 // samma urval som sidens ritaLinjeTyper: lineTypes utan traktgräns, stickväg och backväg (i sidans ordning)
 const TYPER: LinjeTyp[] = [
-  { id: 'mainRoad', name: 'Basväg', color: '#0a84ff', color2: '#fbbf24', striped: true },
-  { id: 'nature', name: 'Naturvård', color: '#30d158', color2: '#ff453a', striped: true },
-  { id: 'ditch', name: 'Dike', color: '#38bdf8', color2: '#fff', striped: true },
-  { id: 'trail', name: 'Stig/Led', color: '#fff', dashed: true },
-  { id: 'stonewall', name: 'Stenmur', color: '#8a8884', dashed: true },
+  { id: 'mainRoad', name: 'Basväg', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
+  { id: 'nature', name: 'Naturvård', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
+  { id: 'ditch', name: 'Dike', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+  { id: 'trail', name: 'Stig/Led', color: LEGEND.vit, dashed: true },
+  { id: 'stonewall', name: 'Stenmur', color: LEGEND.vit, dashed: true },
 ];
 
 let rot: Root | null = null; let el: HTMLElement | null = null;

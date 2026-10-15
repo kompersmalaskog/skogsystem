@@ -54,11 +54,11 @@ export const valTillFarg = (v: BasvagVal): BasvagFarg | null => (v === 'blagul' 
 export const fargTillVal = (farg: unknown): BasvagVal => (arBasvagFarg(farg) ? farg : 'blagul');
 
 /** Markeringsmenyn: en basväg får ett nytt val. Röd/gul/blå sätter `farg`; Blå/gul TAR BORT fältet — exakt som en basväg före färgvalet (så den ritas och lagras identiskt). Rör inget annat. */
-export function medBasvagVal<T extends { farg?: unknown }>(m: T, val: BasvagVal): T {
+export function medBasvagVal<T extends object>(m: T, val: BasvagVal): T {
   const farg = valTillFarg(val);
   if (farg) return { ...m, farg };
-  const { farg: _bort, ...utan } = m;
-  return utan as T;
+  const { farg: _bort, ...utan } = m as T & { farg?: unknown };
+  return utan as unknown as T;
 }
 
 /** Dagens utseende som en liten ruta: blå med gula streck (samma blå och gula som kartlagret). */
