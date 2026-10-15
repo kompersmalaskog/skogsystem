@@ -646,6 +646,15 @@ describe("Körningar: året, läsfel och CSV", () => {
   });
 });
 
+describe("Körningar: länken till Flyttplatser (bodde i Flyttloggen)", () => {
+  it("finns på Körningar, månad och år, och går till /maskinflytt/platser", async () => {
+    await montera();
+    expect(document.querySelector('a[href="/maskinflytt/platser"]')!.textContent).toContain("Flyttplatser");
+    await klicka(knapp(/^År$/));
+    expect(document.querySelector('a[href="/maskinflytt/platser"]')).not.toBeNull();
+  });
+});
+
 describe("Nu", () => {
   const nuFlik = async () => { mock.medarbetare = FORARE; await montera(); };
 

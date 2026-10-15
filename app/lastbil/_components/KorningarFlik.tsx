@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { AVSTAND, FARG, IKON, KNAPP, KORT, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import RundaRad from './RundaRad';
@@ -38,7 +39,22 @@ export default function KorningarFlik({ period, lage, onForsokIgen, onOppna, onV
   period: Period; lage: RundorLage; onForsokIgen: () => void; onOppna: (r: Runda) => void; onValjManad: (p: Period) => void;
 }) {
   // Filtret hör till perioden: byter man period börjar man om (ett kvarglömt filter vore ett falskt tomläge).
-  return <Inre key={periodTillText(period)} period={period} lage={lage} onForsokIgen={onForsokIgen} onOppna={onOppna} onValjManad={onValjManad} />;
+  return (
+    <>
+      <Inre key={periodTillText(period)} period={period} lage={lage} onForsokIgen={onForsokIgen} onOppna={onOppna} onValjManad={onValjManad} />
+      <FlyttplatserLank />
+    </>
+  );
+}
+
+/** Flyttplatserna (snabbvalen i förarflödet) hanteras på egen sida — länken bodde i Flyttloggen och bor nu här. */
+function FlyttplatserLank() {
+  return (
+    <Link href="/maskinflytt/platser" style={{ ...KNAPP.tertiar, textDecoration: 'none', display: 'flex', justifyContent: 'center', marginTop: AVSTAND.m }}>
+      <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text }}>add_location_alt</span>
+      Flyttplatser — hantera
+    </Link>
+  );
 }
 
 function Inre({ period, lage, onForsokIgen, onOppna, onValjManad }: {

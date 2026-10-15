@@ -200,7 +200,7 @@ export function rundorTillCsv(rundor: readonly Runda[]): (string | number)[][] {
   const rubrik = ['Datum', 'Start', 'Slut', 'Typ', 'Maskiner', 'Från', 'Till', 'Förare', 'Mätare km', 'Rutt km', 'Diesel l', 'l/mil', 'Fakturerbart km', 'Märkning'];
   const rader = rundor.map(r => {
     const markning = [
-      r.pagar ? 'Pågår' : '', r.ogiltigTid ? 'Sluttid före start' : '', r.overlappar ? 'Överlappar annan runda' : '',
+      r.pagar ? 'Pågår' : '', r.avbruten ? 'Avbruten, räknas inte' : '', r.ogiltigTid ? 'Sluttid före start' : '', r.overlappar ? 'Överlappar annan runda' : '',
       r.tom ? 'Tom runda' : '',
     ].filter(Boolean).join('; ');
     return [
