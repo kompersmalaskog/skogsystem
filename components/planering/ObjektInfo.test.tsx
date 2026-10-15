@@ -50,7 +50,7 @@ const MARKERINGAR: KartMarkering[] = [
 ];
 const LANG_TEXT = 'Skogsägaren önskar att ca 15 tallar per ha sparas som fröträd. Hänsynsytor vid bäcken ska lämnas orörda. Markberedning planeras till våren.';
 
-const spion = { knapp: [] as string[], stang: 0, visa: [] as string[], foto: [] as string[], mer: [] as string[], brand: 0, larm: 0, slapp: [] as string[] };
+const spion = { knapp: [] as string[], stang: 0, visa: [] as string[], foto: [] as string[], mer: [] as string[], brand: 0, larm: 0, larmEdit: 0, slapp: [] as string[] };
 function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar?: KartMarkering[]; pos?: { lat: number; lng: number } | null; maskinSlag?: 'skordare' | 'skotare' | null; framhavdId?: string | null; startVy?: 'kort' | 'om' } = {}): ObjektInfoProps {
   const roll = o.roll ?? 'planerare';
   const go: any = new Proxy({}, { get: (_t, k) => (k === 'gpsKalla' ? null : () => { spion.mer.push(String(k)); }) });
@@ -66,7 +66,7 @@ function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar
       brickor: faktaBrickor({ areal: 3.6, volym: 950, grot: true }), extraBrickor: [],
       paTrakten: '4 markeringar · 2 med text', brand: { lat: 56.4, lng: 14.7 }, onBrand: () => { spion.brand += 1; },
       dokument: { antal: 3, chips: <span data-testid="dok-chips">chips</span> },
-      larm: { satt: true, koordinat: '56.40012, 14.70123', kalla: 'från traktfil (envz)', bekraftad: false, beskrivning: '', onVisa: () => { spion.larm += 1; } },
+      larm: { satt: true, koordinat: '56.40012, 14.70123', kalla: 'från traktfil (envz)', bekraftad: false, beskrivning: '', onVisa: () => { spion.larm += 1; }, onRedigera: () => { spion.larmEdit += 1; } },
     },
     om: {
       hela: tillForaren({ vida: LANG_TEXT, anteckningar: 'Ring Stefan.' }), planttext: null, restriktioner: [],
@@ -86,7 +86,7 @@ async function montera(p: ObjektInfoProps) {
   await act(async () => { rot!.render(<ObjektInfo {...p} />); });
   await flush();
 }
-beforeEach(() => { kon.blob = null; (URL as any).createObjectURL = vi.fn(() => 'blob:lokalt-foto'); (URL as any).revokeObjectURL = vi.fn(); spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; spion.slapp = []; smhi.fel = false; sattBredd(390); });
+beforeEach(() => { kon.blob = null; (URL as any).createObjectURL = vi.fn(() => 'blob:lokalt-foto'); (URL as any).revokeObjectURL = vi.fn(); spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; spion.larmEdit = 0; spion.slapp = []; smhi.fel = false; sattBredd(390); });
 afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.remove(); rot = null; });
 
 describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
@@ -193,13 +193,36 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(spion.brand).toBe(1);
   });
 
-  it('Dokument fälls ut till chips; Larmkoordinat (satt) flyger kartan dit', async () => {
+  it('Dokument fälls ut till chips', async () => {
     await montera(props());
     expect(q('kort-dokument-lista')).toBeNull();
     klicka(q('kort-dokument'));
     expect(q('kort-dokument-lista')!.querySelector('[data-testid="dok-chips"]')).not.toBeNull();
-    klicka(q('kort-larm'));
+  });
+
+  it('Larmkoordinat (satt): raden ÖPPNAR LARMEDITORN direkt; "Karta" flyger kartan dit — två skilda knappar', async () => {
+    await montera(props());
+    klicka(q('kort-larm-redigera'));
+    expect(spion.larmEdit).toBe(1);
+    expect(spion.larm).toBe(0);            // raden flyger inte längre dit
+    klicka(q('kort-larm-visa'));
     expect(spion.larm).toBe(1);
+    expect(spion.larmEdit).toBe(1);        // och kartknappen öppnar inte editorn
+    expect(q('kort-larm-redigera')!.textContent).toContain('56.40012, 14.70123');
+    expect(q('kort-larm')!.getAttribute('data-satt')).toBe('1');
+  });
+
+  it('Larmkoordinat (ej satt): varningen är en knapp som öppnar larmeditorn — inte längre en hänvisning till Mer › Trakt › Larm', async () => {
+    const p = props(); p.kort.larm = { ...p.kort.larm, satt: false, koordinat: '' };
+    await montera(p);
+    const rad = q('kort-larm')!;
+    expect(rad.getAttribute('data-satt')).toBe('0');
+    expect(rad.tagName).toBe('BUTTON');
+    expect(rad.textContent).toContain('Larmkoordinat ej satt');
+    expect(rad.textContent).not.toContain('Mer › Trakt');
+    klicka(rad);
+    expect(spion.larmEdit).toBe(1);
+    expect(q('kort-larm-visa')).toBeNull();   // ingen punkt att visa
   });
 
   it('Esc och × stänger', async () => {
