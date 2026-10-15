@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Tillstand from '@/components/design/Tillstand';
 import Ark from '@/components/design/Ark';
 import LastbilKarta from '@/components/LastbilKarta';
-import { AVSTAND, FARG, KNAPP, KORT, RAD, TNUM, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, KNAPP, KORT, RAD, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { fmtAlder, fmtDatum, harledHero, lampRad, matareText, rundaTitel, senasteKorning, tankRad, type Hero, type LastbilData } from './nu';
 import type { NuLage } from './useLastbilNu';
 
@@ -21,7 +21,7 @@ function Status({ text, rollAlert }: { text: string; rollAlert?: boolean }) {
  * läget (hero), ETT kort med tank, varningar och mätare, och ETT kort med senaste körning.
  * Kartan och allt annat ligger bakom ett tryck — aldrig som yta man landar på.
  */
-export default function NuFlik({ lage, onForsokIgen }: { lage: NuLage; onForsokIgen: () => void }) {
+export default function NuFlik({ lage, onForsokIgen, onOppnaRunda }: { lage: NuLage; onForsokIgen: () => void; onOppnaRunda: (r: { id: string; start: string }) => void }) {
   const [platsArk, setPlatsArk] = useState(false);
 
   if (lage.lage === 'laddar') return <Status text="Läser lastbilsdata …" />;
@@ -108,13 +108,15 @@ export default function NuFlik({ lage, onForsokIgen }: { lage: NuLage; onForsokI
       <section style={KORT} aria-label="Senaste körning">
         <div style={{ ...TYP.micro, color: FARG.text2 }}>Senaste körning</div>
         {senaste ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.inuti, marginTop: AVSTAND.xs }}>
+          <button type="button" onClick={() => onOppnaRunda({ id: senaste.id, start: senaste.starttid as string })}
+            style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.inuti, width: '100%', minHeight: TRAFFYTA.min, marginTop: AVSTAND.xs, padding: 0, background: 'none', border: 'none', textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
             <div style={{ flex: 1, minWidth: 0, ...TYP.listtitel, color: FARG.text }}>{fmtDatum(senaste.starttid)} · {rundaTitel(senaste)}</div>
             <div style={{ textAlign: 'right', ...TNUM }}>
               <div style={{ ...TYP.listtitel, color: FARG.text }}>{senaste.matare_km != null ? `${Math.round(senaste.matare_km)} km` : '–'}</div>
               <div style={{ ...TYP.meta, color: FARG.text2 }}>{senaste.bransle_l != null && senaste.bransle_l > 0 ? `${Math.round(senaste.bransle_l)} l` : 'diesel saknas'}</div>
             </div>
-          </div>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text, color: FARG.text3 }}>chevron_right</span>
+          </button>
         ) : (
           <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>Inga avslutade körningar i datan än.</p>
         )}

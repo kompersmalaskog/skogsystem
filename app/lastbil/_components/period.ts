@@ -1,3 +1,5 @@
+import { sthlmDelar } from '@/lib/sthlmTid';
+
 // Perioden i Lastbilen: MÅNAD (förvald) eller ÅR — inget annat (Martin 2026-10-14: vecka,
 // kvartal och datumval dör). En period skrivs i adressen som "2026-10" (månad) eller "2026" (år),
 // så en länk från Hem eller en notis kan peka på rätt månad.
@@ -90,4 +92,45 @@ export function periodKort(p: Period, nu: Date = new Date()): string {
   if (p.typ === 'ar') return String(p.ar);
   const namn = MANADER[p.man - 1].toLowerCase();
   return p.ar === nu.getFullYear() ? namn : `${namn} ${p.ar}`;
+}
+
+/**
+ * Första ögonblicket (UTC, ISO) för en kalenderdag i STOCKHOLMSTID. En runda hör till den dag den
+ * STARTADE på svensk tid — en runda 00:30 den 1 oktober ligger i oktober, även om den börjar den
+ * 30 september 22:30 UTC. Enhetens zon är aldrig facit (servern kör UTC, en telefon kan stå i en annan).
+ */
+export function sthlmDagStart(ymdText: string): string {
+  const [y, m, d] = ymdText.split('-').map(Number);
+  // Sverige ligger på +1 (vinter) eller +2 (sommar): midnatt lokal tid är 22:00 eller 23:00 UTC dagen före.
+  for (const offsetTim of [2, 1]) {
+    const t = new Date(Date.UTC(y, m - 1, d, 0 - offsetTim, 0, 0));
+    const delar = sthlmDelar(t);
+    if (delar && delar.datum === ymdText && delar.h === 0 && delar.mi === 0) return t.toISOString();
+  }
+  throw new Error(`sthlmDagStart: ogiltigt datum ${ymdText}`);
+}
+
+/** [fran, till) som UTC-ögonblick för att filtrera en timestamptz-kolumn på periodens svenska dagar. */
+export function periodTidsintervall(p: Period): { fran: string; till: string } {
+  const { fran, till } = periodIntervall(p);
+  return { fran: sthlmDagStart(fran), till: sthlmDagStart(till) };
+}
+
+/**
+ * Månaderna som ett år visar i årsvyn, nyast först: från första månaden med data (juli 2026) eller januari,
+ * till innevarande månad (innevarande år) eller december. En månad utan rundor ska synas med det —
+ * en lucka i listan vore ett falskt tomläge.
+ */
+export function manaderIAr(ar: number, nu: Date = new Date()): Manad[] {
+  const forsta = ar === FORSTA_MANAD.ar ? FORSTA_MANAD.man : 1;
+  const sista = ar === nu.getFullYear() ? nu.getMonth() + 1 : 12;
+  const ut: Manad[] = [];
+  for (let m = sista; m >= forsta; m--) ut.push({ typ: 'man', ar, man: m });
+  return ut;
+}
+
+/** Månaden (1–12) en runda hör till: den svenska dag den STARTADE på. */
+export function manadForStart(startIso: string): { ar: number; man: number } | null {
+  const d = sthlmDelar(new Date(startIso));
+  return d ? { ar: d.ar, man: d.man } : null;
 }
