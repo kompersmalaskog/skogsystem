@@ -2,11 +2,10 @@
 
 // Bolagsrader för ett spår: lovat / skördat / skotat / prognos — och CSV på exakt samma tal.
 import { Sheet } from '@/components/Sheet'
-import { T } from '@/lib/utbildning'
+import { AVSTAND, FARG, KNAPP, RAD, TNUM, TYP } from '@/lib/design/tokens'
 import { TYP_NAMN, prognosPerBolag } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt } from '../_lib/format'
 import type { BolagRad, Typ } from '../_lib/queries'
-import { knapp } from './Tillstand'
 
 type Props = {
   open: boolean
@@ -64,30 +63,34 @@ export default function BolagSheet({ open, onClose, typ, rader, laddar, fel, onR
     URL.revokeObjectURL(url)
   }
 
+  const kolumner = '1.4fr 1fr 1fr 1fr 1fr'
+  const tal = { ...TYP.text, ...TNUM, textAlign: 'right' } as const
   return (
     <Sheet open={open} onClose={onClose} title={`${TYP_NAMN[typ]} · ${MANAD_NAMN[manad - 1]}`}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1fr', gap: 8, fontSize: 11, color: T.t2, textTransform: 'uppercase', letterSpacing: 0.2, padding: '0 0 8px', fontFamily: T.ff }}>
+      <div style={{ display: 'grid', gridTemplateColumns: kolumner, gap: AVSTAND.s, ...TYP.micro, color: FARG.text2, paddingBottom: AVSTAND.s }}>
         <span>Bolag</span><span style={{ textAlign: 'right' }}>Lovat</span><span style={{ textAlign: 'right' }}>Skördat</span><span style={{ textAlign: 'right' }}>Skotat</span><span style={{ textAlign: 'right' }}>Prognos</span>
       </div>
       {fel ? (
-        <div style={{ textAlign: 'center', padding: '12px 0' }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: T.t1, marginBottom: 12, fontFamily: T.ff }}>Kunde inte läsa bolag – försök igen</div>
-          {onRetry && <button type="button" onClick={onRetry} style={knapp}>Försök igen</button>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, textAlign: 'center', padding: `${AVSTAND.m}px 0` }}>
+          <div style={{ ...TYP.listtitel, color: FARG.text }}>Kunde inte läsa bolag – försök igen</div>
+          {onRetry && <button type="button" onClick={onRetry} style={KNAPP.sekundar}>Försök igen</button>}
         </div>
       ) : laddar ? (
-        <div style={{ fontSize: 15, color: T.t2, padding: '12px 0', fontFamily: T.ff }}>Laddar bolag…</div>
-      ) : lista.length === 0 && <div style={{ fontSize: 15, color: T.t2, padding: '12px 0', fontFamily: T.ff }}>Inga bolag med produktion eller beställning den här månaden.</div>}
-      {lista.map(r => (
-        <div key={r.bolag} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1fr', gap: 8, minHeight: 44, alignItems: 'center', borderTop: `1px solid ${T.sep}`, fontSize: 15, fontFamily: T.ff, fontVariantNumeric: 'tabular-nums' }}>
-          <span style={{ color: T.t1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.bolag}</span>
-          <span style={{ textAlign: 'right', color: T.t2 }}>{r.lovat > 0 ? fmt(r.lovat) : '–'}</span>
-          <span style={{ textAlign: 'right', color: T.t2 }}>{fmt(r.skordat)}</span>
-          <span style={{ textAlign: 'right', color: T.t1 }}>{fmt(r.skotat)}</span>
-          <span style={{ textAlign: 'right', color: T.t2 }}>{harPrognos ? fmt(r.prognos) : '–'}</span>
-        </div>
-      ))}
-      <div style={{ fontSize: 12, color: T.t2, marginTop: 10, fontFamily: T.ff }}>m³fub. Prognos = bolagets skotat + bolagets takt × arbetsdagar kvar.</div>
-      <button type="button" onClick={exportera} style={{ ...knapp, width: '100%', marginTop: 16 }}>Ladda ner CSV</button>
+        <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Laddar bolag…</div>
+      ) : lista.length === 0 && <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga bolag med produktion eller beställning den här månaden.</div>}
+      <div className="hk-grupp">
+        {lista.map(r => (
+          <div key={r.bolag} className="hk-rad" style={{ ...RAD, display: 'grid', gridTemplateColumns: kolumner, gap: AVSTAND.s }}>
+            <span style={{ ...TYP.listtitel, color: FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.bolag}</span>
+            <span style={{ ...tal, color: FARG.text2 }}>{r.lovat > 0 ? fmt(r.lovat) : '–'}</span>
+            <span style={{ ...tal, color: FARG.text2 }}>{fmt(r.skordat)}</span>
+            <span style={{ ...tal, color: FARG.text }}>{fmt(r.skotat)}</span>
+            <span style={{ ...tal, color: FARG.text2 }}>{harPrognos ? fmt(r.prognos) : '–'}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.m }}>m³fub. Prognos = bolagets skotat + bolagets takt × arbetsdagar kvar.</div>
+      <button type="button" onClick={exportera} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>Ladda ner CSV</button>
     </Sheet>
   )
 }

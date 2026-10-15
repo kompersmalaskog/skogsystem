@@ -3,12 +3,11 @@
 // "Skördare och skotare": per spår skördat/skotat, skördaren N dagar före skotaren (bara fakta); takt per maskin.
 import { useEffect, useState } from 'react'
 import { Sheet } from '@/components/Sheet'
-import { T } from '@/lib/utbildning'
+import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens'
 import { TYP_NAMN, maskinNamn, maskinRoll, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { dagarText, fmt, kortNamn } from '../_lib/format'
 import { hamtaMaskinTakter, type Maskin, type MaskinLage } from '../_lib/queries'
-import { ListRad, Sektion, TEXT_MUTED } from './Lista'
-import { knapp } from './Tillstand'
+import { ListRad, Sektion } from './Lista'
 
 type Props = { open: boolean; onClose: () => void; spar: SparLage[]; status: ManadStatus; maskiner: Maskin[]; idag: string }
 
@@ -40,21 +39,21 @@ export default function MaskinerSheet({ open, onClose, spar, status, maskiner, i
             ? 'Skotaren håller jämna steg'
             : `Skördaren ${dagarText(fore)} före skotaren`
         return (
-          <Sektion key={s.typ} rubrik={TYP_NAMN[s.typ]}>
+          <Sektion key={s.typ} rubrik={TYP_NAMN[s.typ]} kort={false}>
             <ListRad namn="Skördat" tal={fmt(s.skordat)} under={s.taktSkordat != null ? `${fmt(s.taktSkordat)}/dag` : undefined} />
             <ListRad namn="Skotat" tal={fmt(s.skotat)} under={s.taktSkotat != null ? `${fmt(s.taktSkotat)}/dag` : undefined} />
             {rad && <ListRad namn="Oskotat" tal={fmt(Math.max(s.oskotat, 0))} under={rad} />}
           </Sektion>
         )
       })}
-      <Sektion rubrik="Takt per maskin">
+      <Sektion rubrik="Takt per maskin" kort={false}>
         {fel ? (
-          <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: T.t1, marginBottom: 12, fontFamily: T.ff }}>Kunde inte läsa maskinerna – försök igen</div>
-            <button type="button" onClick={() => setVersion(v => v + 1)} style={knapp}>Försök igen</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, textAlign: 'center', padding: `${AVSTAND.m}px 0` }}>
+            <div style={{ ...TYP.listtitel, color: FARG.text }}>Kunde inte läsa maskinerna – försök igen</div>
+            <button type="button" onClick={() => setVersion(v => v + 1)} style={KNAPP.sekundar}>Försök igen</button>
           </div>
         ) : takter == null ? (
-          <div style={{ fontSize: 15, color: T.t2, padding: '12px 0', fontFamily: T.ff }}>Laddar maskiner…</div>
+          <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Laddar maskiner…</div>
         ) : (
           (['skordare', 'skotare'] as const).map(roll =>
             maskiner.filter(m => maskinRoll(m) === roll).map(m => {
@@ -73,7 +72,7 @@ export default function MaskinerSheet({ open, onClose, spar, status, maskiner, i
           )
         )}
       </Sektion>
-      <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 12, fontFamily: T.ff }}>m³fub · takt = senaste fem arbetsdagarna</div>
+      <div style={{ ...TYP.meta, color: FARG.text3 }}>m³fub · takt = senaste fem arbetsdagarna</div>
     </Sheet>
   )
 }

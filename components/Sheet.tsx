@@ -1,9 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
 import { T } from '@/lib/utbildning';
-import { AVSTAND, RADIE, RORELSE, medSafeBotten, underTopbar } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, RADIE, RORELSE, TRAFFYTA, TYP, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import { PANEL_BREDD_PX } from '@/lib/plusArk';
 
 // Sheeten kan ligga i två ramar: `ark` (underifrån, som alltid) eller `panel` (från höger, 380 px, på bredare skärmar).
@@ -117,7 +116,7 @@ export function Sheet({
 }
 
 // Panelen: fast till höger under toppfältet, helt hög, stängknapp uppe till höger, Escape stänger. Inget mörkt lager över sidan —
-// vyn avgör om kolumnerna skjuts åt sidan (det finns plats) eller om panelen läggs över dem.
+// vyn avgör om kolumnerna skjuts åt sidan (det finns plats) eller om panelen läggs över dem. Ritas ur tokens (som resten av appen).
 function SheetPanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
     const vidTangent = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -138,22 +137,23 @@ function SheetPanel({ title, onClose, children }: { title: string; onClose: () =
         width: PANEL_BREDD_PX,
         maxWidth: '100%',
         boxSizing: 'border-box',
-        background: '#1C1C1E',
-        borderLeft: '1px solid rgba(255,255,255,0.08)',
-        padding: `${AVSTAND.l}px 20px ${medSafeBotten(28)}`,
+        background: FARG.kort,
+        borderLeft: `1px solid ${FARG.linje}`,
+        padding: `${AVSTAND.l}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}`,
         overflowY: 'auto',
-        fontFamily: T.ff,
+        fontFamily: 'inherit',
+        color: FARG.text,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: RUBRIK_AVSTAND }}>
-        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: T.t1 }}>{title}</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: AVSTAND.l }}>
+        <h2 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>{title}</h2>
         <button
           type="button"
           onClick={onClose}
           aria-label="Stäng"
-          style={{ width: 44, height: 44, marginRight: -AVSTAND.s, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', color: T.blue, cursor: 'pointer', padding: 0 }}
+          style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, marginRight: -AVSTAND.s, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
-          <X size={22} aria-hidden="true" />
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.bla, lineHeight: 1 }}>close</span>
         </button>
       </div>
       {children}

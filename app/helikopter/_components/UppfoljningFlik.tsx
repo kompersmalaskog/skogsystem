@@ -4,13 +4,13 @@
 //   1 rubrik · 2 stort tal · 3 en mening · 4 stapel (skotat mot beställt) · 5 Veckor › / Per bolag ›
 // Inga objekt i månaden → "Inga objekt" (grått), ingen stapel, "Planera objekt ›".
 import { useState } from 'react'
-import { T } from '@/lib/utbildning'
+import { AVSTAND, FARG, KNAPP, TNUM, TYP, INAKTIV } from '@/lib/design/tokens'
 import { PROGNOS_FRAN_ARBETSDAG, prognosPerBolag, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, BolagRad, MaskinManad, Typ } from '../_lib/queries'
-import { Kort, KortLank, SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
-import { ListRad, Lista, Sektion, TEXT_MUTED } from './Lista'
-import { knapp } from './Tillstand'
+import { SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
+import { Kort, ListRad, Sektion } from './Lista'
+import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
 import BolagSheet from './BolagSheet'
 import { usePanelVal } from './PanelVal'
 import { skickaVeckoNotis } from '../_lib/queries'
@@ -95,7 +95,7 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
   } else if (!s.harPrognos || s.prognosSkotat == null) {
     stort = { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, ton: 'dampad', liten: true }
     mening = `Skotat ${fmt(s.skotat)} · prognos från arbetsdag ${PROGNOS_FRAN_ARBETSDAG}`
-    stapel = { farg: 'rgba(255,255,255,0.6)', plan: s.plan }
+    stapel = { farg: FARG.text2, plan: s.plan }
   } else {
     const diff = s.prognosSkotat - s.bestallt
     if (diff >= 0) {
@@ -119,22 +119,24 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
   }
 
   return (
-    <Kort>
-      <SparRubrik typ={s.typ} bestallt={s.bestallt} bolag={s.bolag} />
-      <StortTal text={stort.text} ton={stort.ton} liten={stort.liten} />
-      <div style={{ fontSize: 15, color: T.t1, fontFamily: T.ff, fontVariantNumeric: 'tabular-nums', marginTop: -4 }}>{mening}</div>
-      {stapel && <StapelEnkel bestallt={s.bestallt} skotat={s.skotat} plan={stapel.plan} farg={stapel.farg} />}
-      <div style={{ marginTop: 12 }}>
+    <>
+      <Kort>
+        <SparRubrik typ={s.typ} bestallt={s.bestallt} bolag={s.bolag} />
+        <StortTal text={stort.text} ton={stort.ton} liten={stort.liten} />
+        <div style={{ ...TYP.text, ...TNUM, color: FARG.text }}>{mening}</div>
+        {stapel && <StapelEnkel bestallt={s.bestallt} skotat={s.skotat} plan={stapel.plan} farg={stapel.farg} />}
+      </Kort>
+      <RadGrupp>
         {ingenPlan ? (
-          <KortLank text="Planera objekt" href={planeraHref} />
+          <RadLank text="Planera objekt" href={planeraHref} />
         ) : (
           <>
-            <KortLank text="Veckor" href={veckorHref} />
-            <KortLank text="Per bolag" onClick={onOppnaBolag} />
+            <RadLank text="Veckor" href={veckorHref} />
+            <RadLank text="Per bolag" onClick={onOppnaBolag} />
           </>
         )}
-      </div>
-    </Kort>
+      </RadGrupp>
+    </>
   )
 }
 
@@ -143,24 +145,19 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella }: { maskin
   const rubrik = manadNamn.toUpperCase()
   if (fel) {
     return (
-      <Lista>
-        <Sektion rubrik={`Maskiner · ${rubrik}`}>
-          <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: T.t1, marginBottom: 12 }}>Kunde inte läsa maskinerna – försök igen</div>
-            <button type="button" onClick={onRetry} style={knapp}>Försök igen</button>
-          </div>
-        </Sektion>
-      </Lista>
+      <Sektion rubrik={`Maskiner · ${rubrik}`}>
+        <RadLank orange text="Kunde inte läsa maskinerna" smakprov="försök igen" onClick={onRetry} />
+      </Sektion>
     )
   }
   return (
-    <Lista>
+    <>
       {(['skordare', 'skotare'] as const).map(roll => (
         <Sektion key={roll} rubrik={`${roll === 'skordare' ? 'Skördare' : 'Skotare'} · ${rubrik}`}>
           {maskiner == null ? (
-            <div style={{ fontSize: 14, color: T.t2, padding: '10px 0 12px' }}>Laddar maskiner…</div>
+            <div className="hk-rad" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Laddar maskiner…</div>
           ) : maskiner.filter(m => m.roll === roll).length === 0 ? (
-            <div style={{ fontSize: 14, color: T.t2, padding: '10px 0 12px' }}>Inga aktiva maskiner</div>
+            <div className="hk-rad" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga aktiva maskiner</div>
           ) : (
             maskiner.filter(m => m.roll === roll).map(m => {
               const har = m.volym_manad > 0
@@ -174,7 +171,7 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella }: { maskin
                 <ListRad
                   key={m.maskin_id}
                   namn={m.namn}
-                  tal={har ? <>{fmt(m.volym_manad)}<span style={{ color: T.t2 }}> m³fub</span>{manuella.has(m.maskin_id) && <span style={{ color: TEXT_MUTED }}> · manuell</span>}</> : '–'}
+                  tal={har ? <>{fmt(m.volym_manad)}<span style={{ ...TYP.meta, color: FARG.text2 }}> m³fub</span>{manuella.has(m.maskin_id) && <span style={{ ...TYP.meta, color: FARG.text3 }}> · manuell</span>}</> : '–'}
                   talTon={har ? 'normal' : 'muted'}
                   under={har ? delar.join(' · ') : `Ingen produktion i ${manadNamn}`}
                   underMuted={!har}
@@ -184,14 +181,14 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella }: { maskin
           )}
         </Sektion>
       ))}
-    </Lista>
+    </>
   )
 }
 
 /**
  * ONSDAGSNOTIS (admin): manuell utlösare för veckoläget som pushas onsdagar 12:00
  * (helikopter_notis_vecka + notis_kö). Knappen köar och tömmer kön direkt; texten
- * är samma som den automatiska. Tillståndet står under knappen — aldrig alert().
+ * är samma som den automatiska. Tillståndet står under knappen, aldrig i en dialogruta.
  */
 function VeckoNotisSektion() {
   const [lage, setLage] = useState<{ status: 'vila' | 'skickar' | 'klar' | 'fel'; text: string | null }>({ status: 'vila', text: null })
@@ -205,28 +202,24 @@ function VeckoNotisSektion() {
     setLage({ status: 'klar', text: r.data.skickadNu ? `Skickad till ${vem}` : `Köad till ${vem} – går inom 5 minuter` })
   }
   return (
-    <Lista>
-      <Sektion rubrik="Onsdagsnotis">
-        <div style={{ fontSize: 14, color: T.t2, fontFamily: T.ff, padding: '8px 0 12px' }}>
-          Veckoläget pushas onsdagar 12:00. Samma text kan skickas nu.
-        </div>
+    <Sektion rubrik="Onsdagsnotis">
+      <div className="hk-rad" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+        <span>Veckoläget pushas onsdagar 12:00. Samma text kan skickas nu.</span>
         <button
           type="button"
           onClick={skicka}
           disabled={skickar}
           aria-busy={skickar}
-          style={{ ...knapp, width: '100%', opacity: skickar ? 0.4 : 1, cursor: skickar ? 'default' : 'pointer' }}
+          style={{ ...KNAPP.sekundar, ...(skickar ? INAKTIV : null) }}
         >
           {skickar ? 'Skickar…' : 'Skicka veckoläge nu'}
         </button>
         {lage.text && (
-          <div role="status" style={{ fontSize: 14, color: lage.status === 'fel' ? T.orange : T.t2, fontFamily: T.ff, fontVariantNumeric: 'tabular-nums', padding: '10px 0 4px' }}>
+          <span role="status" style={{ ...TYP.meta, ...TNUM, color: lage.status === 'fel' ? FARG.orange : FARG.text2 }}>
             {lage.text}
-          </div>
+          </span>
         )}
-      </Sektion>
-    </Lista>
+      </div>
+    </Sektion>
   )
 }
-
-export { prognosPerBolag }

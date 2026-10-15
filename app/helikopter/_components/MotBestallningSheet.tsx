@@ -2,11 +2,11 @@
 
 // "Mot beställning": per spår beställt, planerat (ca, bolagskorrigerat), saknas — och objekten.
 import { Sheet } from '@/components/Sheet'
-import { T } from '@/lib/utbildning'
+import { FARG, TYP } from '@/lib/design/tokens'
 import { MIN_HISTORIK_OBJEKT, TYPER, TYP_NAMN, type PlaneratResultat, type SparLage } from '../_lib/berakningar'
 import { fmt, kortNamn } from '../_lib/format'
 import type { Avvikelse, PlaneringObjekt, Typ } from '../_lib/queries'
-import { ListRad, Sektion, TEXT_MUTED } from './Lista'
+import { ListRad, Sektion } from './Lista'
 
 type Props = {
   open: boolean
@@ -26,7 +26,7 @@ export default function MotBestallningSheet({ open, onClose, plan, spar, objekt,
         const iTyp = objekt.filter(o => o.typ === typ)
         const just = p.justeringProcent
         return (
-          <Sektion key={typ} rubrik={TYP_NAMN[typ]}>
+          <Sektion key={typ} rubrik={TYP_NAMN[typ]} kort={false}>
             <ListRad namn="Beställt" tal={bestallt > 0 ? fmt(bestallt) : '–'} talTon={bestallt > 0 ? 'normal' : 'muted'} />
             <ListRad
               namn="Planerat"
@@ -54,7 +54,7 @@ export default function MotBestallningSheet({ open, onClose, plan, spar, objekt,
           </Sektion>
         )
       })}
-      <div style={{ fontSize: 12, color: TEXT_MUTED, marginTop: 12, fontFamily: T.ff }}>m³fub · planerat = objektens volym × bolagets verkliga/planerade kvot ({avvikelse.map(a => `${a.bolag} ${a.typ === 'gallring' ? 'gall' : 'slut'} ${a.medel_kvot.toFixed(2)}`).join(', ') || 'ingen historik'})</div>
+      <div style={{ ...TYP.meta, color: FARG.text3 }}>m³fub · planerat = objektens volym × bolagets verkliga/planerade kvot ({avvikelse.map(a => `${a.bolag} ${a.typ === 'gallring' ? 'gall' : 'slut'} ${a.medel_kvot.toFixed(2)}`).join(', ') || 'ingen historik'})</div>
     </Sheet>
   )
 }

@@ -8,7 +8,8 @@ import {
 } from '../_lib/berakningar'
 import { STOPP_ORSAK, fmt, fmtPeriod, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, FastData, Manadsdata, Typ } from '../_lib/queries'
-import { ListLank, ListRad, Lista, Sektion, Svarsrad } from './Lista'
+import { ListRad, Sektion, Svarsrad } from './Lista'
+import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
 import { Tomt } from './Tillstand'
 import EjTilldeladeSheet from './EjTilldeladeSheet'
 import MotBestallningSheet from './MotBestallningSheet'
@@ -45,39 +46,37 @@ export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, i
   return (
     <>
       <Svarsrad svar={svar} />
-      <Lista>
-        {(['skordare', 'skotare'] as const).map(roll => (
-          <Sektion key={roll} rubrik={roll === 'skordare' ? 'Skördare' : 'Skotare'}>
-            {bel.filter(b => b.roll === roll).map(b => {
-              const over = b.luftH < 0
-              const stopp = stoppForMaskin(manadsdata.stopp, b.maskin.maskin_id)
-              const tom = b.objekt.length === 0
-              const under = stopp.length > 0
-                ? stopp.map(s => `${STOPP_ORSAK[s.orsak] ?? s.orsak} ${fmtPeriod(s.fran_datum, s.till_datum)}`).join(' · ')
-                : tom
-                  ? `${fmt(b.kapacitetH)} h lediga`
-                  : b.objekt.map(o => kortNamn(o.namn)).join(', ')
-              return (
-                <ListRad
-                  key={b.maskin.maskin_id}
-                  namn={maskinNamn(b.maskin)}
-                  tal={tom ? 'Inga objekt' : `${fmt(b.belagtH)} h`}
-                  talTon={tom ? 'muted' : over ? 'orange' : 'normal'}
-                  av={tom ? undefined : `${fmt(b.kapacitetH)} h`}
-                  andel={tom ? 0 : b.kapacitetH > 0 ? Math.min(b.belagtH / b.kapacitetH, 1) : (b.belagtH > 0 ? 1 : 0)}
-                  orange={over}
-                  under={under}
-                  underMuted={tom && stopp.length === 0}
-                />
-              )
-            })}
-          </Sektion>
-        ))}
-        <div style={{ marginTop: 6 }}>
-          <ListLank text="Ej tilldelade" smakprov={`${ejTilldelade.length} ${ejTilldelade.length === 1 ? 'objekt' : 'objekt'}`} onClick={() => setSheet('ej')} />
-          <ListLank text="Mot beställning" smakprov={bestSmak} onClick={() => setSheet('best')} />
-        </div>
-      </Lista>
+      {(['skordare', 'skotare'] as const).map(roll => (
+        <Sektion key={roll} rubrik={roll === 'skordare' ? 'Skördare' : 'Skotare'} foljdAvLankar={roll === 'skotare'}>
+          {bel.filter(b => b.roll === roll).map(b => {
+            const over = b.luftH < 0
+            const stopp = stoppForMaskin(manadsdata.stopp, b.maskin.maskin_id)
+            const tom = b.objekt.length === 0
+            const under = stopp.length > 0
+              ? stopp.map(s => `${STOPP_ORSAK[s.orsak] ?? s.orsak} ${fmtPeriod(s.fran_datum, s.till_datum)}`).join(' · ')
+              : tom
+                ? `${fmt(b.kapacitetH)} h lediga`
+                : b.objekt.map(o => kortNamn(o.namn)).join(', ')
+            return (
+              <ListRad
+                key={b.maskin.maskin_id}
+                namn={maskinNamn(b.maskin)}
+                tal={tom ? 'Inga objekt' : `${fmt(b.belagtH)} h`}
+                talTon={tom ? 'muted' : over ? 'orange' : 'normal'}
+                av={tom ? undefined : `${fmt(b.kapacitetH)} h`}
+                andel={tom ? 0 : b.kapacitetH > 0 ? Math.min(b.belagtH / b.kapacitetH, 1) : (b.belagtH > 0 ? 1 : 0)}
+                orange={over}
+                under={under}
+                underMuted={tom && stopp.length === 0}
+              />
+            )
+          })}
+        </Sektion>
+      ))}
+      <RadGrupp>
+        <RadLank text="Ej tilldelade" smakprov={`${ejTilldelade.length} ${ejTilldelade.length === 1 ? 'objekt' : 'objekt'}`} onClick={() => setSheet('ej')} />
+        <RadLank text="Mot beställning" smakprov={bestSmak} onClick={() => setSheet('best')} />
+      </RadGrupp>
 
       <EjTilldeladeSheet open={sheet === 'ej'} onClose={() => setSheet(null)} objekt={ejTilldelade} ar={ar} manad={manad} />
       <MotBestallningSheet open={sheet === 'best'} onClose={() => setSheet(null)} plan={plan} spar={spar} objekt={manadsdata.planering} avvikelse={fast.avvikelse} />
