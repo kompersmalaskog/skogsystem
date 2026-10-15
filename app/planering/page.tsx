@@ -104,6 +104,9 @@ import { draAvUttagFranHogar, draAvSparatSortiment } from '@/lib/skotat'
 import { harFoto, komprimeraMarkeringFoto } from '@/lib/markeringFoto'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
 import { fotoNyckel } from '@/lib/fotoKo'
+import { prenumereraMarkeringSynk, antalVantandeMarkeringar } from '@/lib/markeringSynkKo'
+import { useMarkeringarSynk } from '@/lib/hooks/useMarkeringarSynk'
+import type { ServerRad } from '@/lib/markeringSynk'
 import MarkeringFoto from './MarkeringFoto'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
@@ -687,6 +690,15 @@ export default function PlannerPage() {
   // är förra traktens — då gäller markersObjektIdRef ≠ valtObjekt.id och alla tre write-vägar
   // (create-effekt/synk/flush) bailar → förra traktens markörer skrivs ALDRIG till fel objekt.
   const markersObjektIdRef = useRef<string | undefined>(undefined);
+  // Markeringar som väntar på att nå servern (lib/markeringSynk): lokalt sparade, skickas av kön. Visas som "N väntar".
+  const [synkVantar, setSynkVantar] = useState(0);
+  useEffect(() => {
+    let avbruten = false;
+    const las = () => { antalVantandeMarkeringar().then((n) => { if (!avbruten) setSynkVantar(n); }).catch(() => {}); };
+    las();
+    const av = prenumereraMarkeringSynk(las);
+    return () => { avbruten = true; av(); };
+  }, []);
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const selectedSymbolRef = useRef<string | null>(null);   // spegel för dörrvakten i kart-klickhanterarna (stale closure)
@@ -719,57 +731,34 @@ export default function PlannerPage() {
 
   // Mellanlösning (ej full realtid): manuell/fokus-refetch + färskhets-stämpel. markersUppdateradAt
   // = tiden för senaste LYCKADE hämtning från DB → visas som "Uppdaterad HH:MM" så föraren aldrig
-  // tror att gammalt är färskt. senasteRefetchRef throttlar auto-refetch.
+  // tror att gammalt är färskt. (Throttlingen av auto-refetch bor i useMarkeringarSynk.)
   const [markersUppdateradAt, setMarkersUppdateradAt] = useState<number | null>(null);
   const [markersUppdaterar, setMarkersUppdaterar] = useState(false);
-  const senasteRefetchRef = useRef(0);
-  // Refetch får ALDRIG radera egna osparade edits eller avbryta en pågående ritning. sparPagarRef =
-  // sync-upserten pågår just nu; upptagenRef = handen ritar/placerar (uppdateras av effekt nedan);
-  // syncTimeoutRef (befintlig) = osparad sync i 1s-debouncen. Är något av dem sant → skjut upp.
+  // Refetch får ALDRIG radera egna osparade edits (de ligger lokalt och sammanfogas — lib/markeringSynk) eller avbryta en pågående ritning.
+  // sparPagarRef = en merge skriver just nu; upptagenRef = handen ritar/placerar (uppdateras av effekt nedan). Är något av dem sant → skjut upp.
   const sparPagarRef = useRef(false);
   const upptagenRef = useRef(false);
   const ritlageRef = useRef(false);                          // Rita linje/Rita yta pågår (typ vald): ett tryck är en PUNKT — inget Vida-ytkort ska öppnas
-  const refetchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const refetchForsokRef = useRef(0);
 
-  // Ladda markeringar från Supabase när objekt väljs
-  useEffect(() => {
-    setMarkersLoaded(false);   // vid VARJE objektbyte (inte bara "inget objekt"): effekter som hänger på markersLoaded (avlägg-laddaren) kör om för det NYA objektet
-    if (!valtObjekt?.id) return;
-    const loadMarkers = async () => {
-      const { data, error } = await supabase
-        .from('planering_markeringar')
-        .select('marker_id, data')
-        .eq('objekt_id', valtObjekt.id);
-      if (error) {
-        console.error('Kunde inte ladda markeringar:', error);
-        // Load misslyckades → rensa in-memory (undvik stale från förra trakten) och märk
-        // arrayen som DETTA objekt. Då kan föraren rita nytt som sparas HIT — DB-raderna är
-        // orörda (upsert mergar) → inget tappas, och föraren fastnar aldrig i "kan inte spara".
-        persistedMarkerIdsRef.current = new Set();
-        persistedSnapshotRef.current = new Map();
-        mergeCheckedIdsRef.current = new Set();
-        markersObjektIdRef.current = valtObjekt.id;
-        setMarkers([]);
-      } else {
-        // ALLTID REPLACE med DB-sanningen — även [] för en tom trakt. Annars ligger förra
-        // traktens markörer kvar i minnet och synken/flushen kan skriva dem till FEL objekt.
-        const laddade = (data || []).map(row => row.data as Marker);
-        // Seeda "redan sparad"-vakten så laddade markörer inte triggar en onödig om-save i
-        // den omedelbara spar-effekten nedan (tom trakt → tom Set → inget att spara/skriva).
-        persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
-        persistedSnapshotRef.current = new Map(laddade.map(m => [String(m.id), JSON.stringify(m)]));
-        // Laddade basvägar ska aldrig utlösa merge-fråga → märk alla som redan prövade.
-        mergeCheckedIdsRef.current = new Set(laddade.map(m => String(m.id)));
-        // Markera att `markers` nu tillhör detta objekt → låser upp write-vägarna för det.
-        markersObjektIdRef.current = valtObjekt.id;
-        setMarkers(laddade);
-        setMarkersUppdateradAt(Date.now());
-      }
-      setMarkersLoaded(true);
-    };
-    loadMarkers();
-  }, [valtObjekt?.id]);
+  // Markeringar: lokalt först, kö mot servern, hämtning som sammanfogas med det som väntar (lib/hooks/useMarkeringarSynk — laddning, hämta om, spara, radera,
+  // lokal sparning vid ändringar och flush). `saveMarkerToDb`/`deleteMarkerFromDb`/`refetchMarkers` behåller sina gamla namn för alla anropsställen.
+  const { saveMarker: saveMarkerToDb, deleteMarker: deleteMarkerFromDb, refetch: refetchMarkers } = useMarkeringarSynk<Marker>({
+    objektId: valtObjekt?.id ? String(valtObjekt.id) : undefined,
+    markers, markersLoaded, setMarkers, setMarkersLoaded, typAv: getMarkerTyp,
+    hamtaServer: async (objektId) => {
+      const { data, error } = await supabase.from('planering_markeringar').select('marker_id, data').eq('objekt_id', objektId);
+      if (error) { console.error('Kunde inte hämta markeringar:', error); return null; }
+      return (data || []) as ServerRad[];
+    },
+    refs: { persistedIds: persistedMarkerIdsRef, persistedSnapshot: persistedSnapshotRef, mergeChecked: mergeCheckedIdsRef, objekt: markersObjektIdRef, sparPagar: sparPagarRef, upptagen: upptagenRef },
+    setUppdaterar: setMarkersUppdaterar,
+    onHamtad: ({ markers: laddade, farsk, efterRefetch }) => {
+      if (farsk) setMarkersUppdateradAt(Date.now());   // en sparad bild utan nät är inte "uppdaterad nu"
+      // Avlägg-baslinjen följer med: annars ser avlägg-sparningen skillnaden mot det tidigare inflätade avlägg-innehållet som "ändrat".
+      const oid = valtObjekt?.id;
+      if (efterRefetch && oid && avlaggBasRef.current && avlaggBasRef.current.id === oid) avlaggBaslinjeFran(laddade.filter(m => m.isMarker && m.type === 'landing'), avlaggBasRef.current.bas);
+    },
+  });
 
   // PR B: ladda per-yta-anteckningar för objektet (tabell objekt_yta_anteckning). Fel/saknad tabell
   // (innan migrationen körts) eller RLS → tomt: kortet visar då bara Vida/SKS/RAÄ:s egen text.
@@ -1029,64 +1018,6 @@ export default function PlannerPage() {
   // NER (efter isMeasuring-deklarationen) — dess deps (isDrawMode…measureAreaMode) deklareras först
   // ~rad 2030, så effekten måste placeras EFTER dem annars TDZ-krasch ("Cannot access before init").
 
-  const refetchMarkers = useCallback(async (force: boolean) => {
-    const objektId = valtObjekt?.id;
-    if (!objektId) return;
-    if (!force && Date.now() - senasteRefetchRef.current < 5000) return; // throttla auto-refetch
-
-    // SKJUT UPP om något är OSPARAT (sync i debouncen eller upsert pågår) ELLER om handen RITAR/
-    // placerar just nu. Annars kan egna osparade edits raderas eller en pågående ritning avbrytas.
-    // Vänta ut det (retry var 0,9 s), men inte i evighet.
-    const upptagen = syncTimeoutRef.current != null || sparPagarRef.current || upptagenRef.current;
-    if (upptagen) {
-      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
-      if (refetchForsokRef.current < 15) {           // ~13 s max väntan, sen ge upp tyst
-        refetchForsokRef.current++;
-        setMarkersUppdaterar(true);                  // "…" medan vi väntar (manuellt tryck)
-        refetchTimerRef.current = setTimeout(() => refetchMarkers(force), 900);
-      } else {
-        refetchForsokRef.current = 0;
-        setMarkersUppdaterar(false);                 // fortfarande upptagen → behåll nuvarande data
-      }
-      return;
-    }
-
-    refetchForsokRef.current = 0;
-    senasteRefetchRef.current = Date.now();
-    setMarkersUppdaterar(true);
-    try {
-      const { data, error } = await supabase
-        .from('planering_markeringar')
-        .select('marker_id, data')
-        .eq('objekt_id', objektId);
-      if (error) { console.error('Refetch markörer fel:', error); return; }   // behåll nuvarande, ingen ny stämpel
-      if (markersObjektIdRef.current !== objektId) return;                     // objekt bytt under hämtning
-      // IN-FLIGHT-SKYDD: upptagen-gaten kollades FÖRE await. Under hämtningen kan något ha börjat —
-      // ett kort öppnats, en symbol placerats, en kommentar sparats (pending sync). Skriv då ALDRIG
-      // stale DB-sanning över det; försök igen strax (samma backoff som pre-await-deferren). Utan detta
-      // kan en redan påbörjad refetch stänga ett kort/tappa en kommentar som hann hända medan den läste.
-      const fortfarandeUpptagen = syncTimeoutRef.current != null || sparPagarRef.current || upptagenRef.current;
-      if (fortfarandeUpptagen) {
-        if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
-        if (refetchForsokRef.current < 15) { refetchForsokRef.current++; refetchTimerRef.current = setTimeout(() => refetchMarkers(force), 900); }
-        else { refetchForsokRef.current = 0; }
-        return;
-      }
-      // Inget osparat kvar (ej upptagen) → DB-sanningen innehåller egna edits + andras. Ersätt tryggt.
-      const laddade = (data || []).map((row: any) => row.data as Marker);
-      persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
-      persistedSnapshotRef.current = new Map(laddade.map(m => [String(m.id), JSON.stringify(m)]));
-      // Efter refetch är DB-sanningen laddad → alla vägar "redan prövade", ingen merge-fråga på laddat.
-      mergeCheckedIdsRef.current = new Set(laddade.map(m => String(m.id)));
-      setMarkers(laddade);
-      setMarkersUppdateradAt(Date.now());
-      // Avlägg-baslinjen följer med: annars ser avlägg-sparningen skillnaden mot det tidigare inflätade avlägg-innehållet som "ändrat".
-      if (avlaggBasRef.current && avlaggBasRef.current.id === objektId) avlaggBaslinjeFran(laddade.filter(m => m.isMarker && m.type === 'landing'), avlaggBasRef.current.bas);
-    } finally {
-      setMarkersUppdaterar(false);
-    }
-  }, [valtObjekt?.id]);
-
   // Auto-refetch när appen kommer TILLBAKA i fokus (throttlad). Ingen öppen uppkoppling — bara en
   // query när föraren tar upp telefonen igen. Flush-vid-hidden (nedan) sparar egna edits före byte.
   useEffect(() => {
@@ -1103,46 +1034,6 @@ export default function PlannerPage() {
     return () => clearInterval(iv);
   }, [valtObjekt?.id]);
 
-  // Pågående sparningar per marker_id. Ångra på en nyss satt markering (körvyns kvitto) kan komma medan upserten fortfarande är på
-  // väg; då ska DELETE:n köra EFTER den — annars kan raden skrivas tillbaka och markeringen återuppstår. Gäller alla borttagningar.
-  const markerSparPagarRef = useRef<Map<string, Promise<void>>>(new Map());
-
-  // Spara en markering till Supabase
-  const saveMarkerToDb = useCallback(async (marker: Marker) => {
-    if (!valtObjekt?.id) return;
-    const id = String(marker.id);
-    const sparning = (async () => {
-      const { error } = await supabase
-        .from('planering_markeringar')
-        .upsert({
-          objekt_id: valtObjekt.id,
-          marker_id: id,
-          typ: getMarkerTyp(marker),
-          data: marker,
-        }, { onConflict: 'objekt_id,marker_id' });
-      if (error) console.error('Spara markering fel:', error);
-    })();
-    markerSparPagarRef.current.set(id, sparning);
-    try { await sparning; } finally { if (markerSparPagarRef.current.get(id) === sparning) markerSparPagarRef.current.delete(id); }
-  }, [valtObjekt?.id]);
-
-  // Ta bort en markering från Supabase
-  const deleteMarkerFromDb = useCallback(async (markerId: string | number) => {
-    if (!valtObjekt?.id) return;
-    // Ett foto som väntar på uppladdning hör till markeringen: tas den bort ska fotot bort också (Storage-filen städas av nattcronet).
-    tomFotoForMarkering(String(valtObjekt.id), String(markerId)).catch(() => {});
-    const pagar = markerSparPagarRef.current.get(String(markerId));
-    if (pagar) { try { await pagar; } catch { /* sparfelet loggas redan */ } }
-    const { error } = await supabase
-      .from('planering_markeringar')
-      .delete()
-      .eq('objekt_id', valtObjekt.id)
-      .eq('marker_id', String(markerId));
-    // Fotofilen i Storage RÖRS INTE här: Ångra måste kunna ge tillbaka markeringen med sitt foto.
-    // Föräldralösa filer städas av nattcronet /api/cron/stada-markering-foton (äldre än 7 dagar).
-    if (error) console.error('Ta bort markering fel:', error);
-  }, [valtObjekt?.id]);
-
   // Numrera om: UPDATE-only av en befintlig rads data (ALDRIG upsert). En UPDATE på ett borttaget
   // marker_id träffar 0 rader → kan omöjligt återuppliva en raderad väg. Stänger kapplöpningen
   // (renumber som råkar läsa en stale rad kan ändå inte inserta tillbaka den).
@@ -1155,91 +1046,6 @@ export default function PlannerPage() {
       .eq('marker_id', String(marker.id));
     if (error) console.error('Numrera om (update) fel:', error);
   }, [valtObjekt?.id]);
-
-  // Synka markers till Supabase vid ändringar (debounced)
-  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  useEffect(() => {
-    if (!valtObjekt?.id || !markersLoaded || markersObjektIdRef.current !== valtObjekt.id) return;
-    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(async () => {
-      syncTimeoutRef.current = null;   // debouncen har fyrat → inte längre "pending"
-      sparPagarRef.current = true;     // men upserten pågår → refetch väntar tills DB har edits
-      try {
-        // DIRTY-ONLY (A): skriv BARA markörer vars JSON skiljer sig från senast persisterade — aldrig
-        // hela minnet blint. En markör som raderats externt och bara ligger orörd i minnet är INTE dirty
-        // → skrivs aldrig → kan inte återuppstå.
-        // ACCEPTERAT KANTFALL (edit vs delete): redigeras en markör lokalt SAMTIDIGT som den raderas i en
-        // annan session är den "dirty" här och återuppstår via denna upsert. Det är en äkta konflikt där
-        // båda utfall är försvarbara — vi väljer att LOKAL EDIT VINNER. Detta är avsiktligt, inte en miss.
-        const dirty = markers.filter(m => persistedSnapshotRef.current.get(String(m.id)) !== JSON.stringify(m));
-        const rows = dirty.map(m => ({
-          objekt_id: valtObjekt.id,
-          marker_id: String(m.id),
-          typ: getMarkerTyp(m),
-          data: m,
-        }));
-        if (rows.length > 0) {
-          const { error } = await supabase
-            .from('planering_markeringar')
-            .upsert(rows, { onConflict: 'objekt_id,marker_id' });
-          if (error) console.error('Sync markers fel:', error);
-          else dirty.forEach(m => persistedSnapshotRef.current.set(String(m.id), JSON.stringify(m)));
-        }
-      } finally {
-        sparPagarRef.current = false;
-      }
-    }, 1000);
-    return () => { if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current); };
-  }, [markers, valtObjekt?.id, markersLoaded]);
-
-  // === DATAFÖRLUST-SKYDD 1: OMEDELBAR save av varje NY markör ===
-  // Den debouncade synken ovan sparar först efter 1s stillhet. Klickar föraren en extern
-  // länk / bakgrundar / laddar om innan dess går osparade markörer förlorade. Denna vakt
-  // sparar varje NY markör direkt via saveMarkerToDb (idempotent upsert, samma
-  // onConflict:'objekt_id,marker_id' → krockar aldrig med synken). Seedad från load →
-  // laddade markörer om-sparas ej. Redigeringar av befintliga markörer fångas av synken +
-  // flushen nedan.
-  useEffect(() => {
-    if (!valtObjekt?.id || !markersLoaded || markersObjektIdRef.current !== valtObjekt.id) return;
-    for (const m of markers) {
-      const id = String(m.id);
-      if (!persistedMarkerIdsRef.current.has(id)) {
-        persistedMarkerIdsRef.current.add(id);
-        persistedSnapshotRef.current.set(id, JSON.stringify(m)); // seed dirty-snapshot → synken re-skriver inte den nya
-        saveMarkerToDb(m);
-      }
-    }
-  }, [markers, valtObjekt?.id, markersLoaded, saveMarkerToDb]);
-
-  // === DATAFÖRLUST-SKYDD 2: FLUSH vid pagehide / visibilitychange ===
-  // Fångar pending REDIGERINGAR (foton/anteckningar/flyttar) som ligger i 1s-debouncen när
-  // appen bakgrundas, byter flik, låses eller laddas om — precis det som förlorade fältdata
-  // vid länk-klicket. visibilitychange→hidden fyrar innan unload → upserten hinner oftast
-  // klart medan appen lever i bakgrunden. Läser senaste markers via ref (stabil lyssnare,
-  // registreras en gång).
-  const flushDataRef = useRef<{ markers: Marker[]; objektId?: string; loaded: boolean }>({ markers, objektId: valtObjekt?.id, loaded: markersLoaded });
-  flushDataRef.current = { markers, objektId: valtObjekt?.id, loaded: markersLoaded };
-  useEffect(() => {
-    const flush = () => {
-      if (document.visibilityState !== 'hidden') return;
-      const { markers: ms, objektId, loaded } = flushDataRef.current;
-      if (!objektId || !loaded || ms.length === 0 || markersObjektIdRef.current !== objektId) return;
-      // DIRTY-ONLY (A), samma som synken: flusha bara lokalt ändrade/nya markörer, aldrig hela minnet
-      // → en externt raderad, orörd markör återinsätts inte vid bakgrundning. (Edit-vs-delete: edit vinner.)
-      const dirty = ms.filter(m => persistedSnapshotRef.current.get(String(m.id)) !== JSON.stringify(m));
-      if (dirty.length === 0) return;
-      const rows = dirty.map(m => ({ objekt_id: objektId, marker_id: String(m.id), typ: getMarkerTyp(m), data: m }));
-      supabase.from('planering_markeringar')
-        .upsert(rows, { onConflict: 'objekt_id,marker_id' })
-        .then(({ error }) => { if (error) console.error('[Flush] markörer fel:', error); });
-    };
-    document.addEventListener('visibilitychange', flush);
-    window.addEventListener('pagehide', flush);
-    return () => {
-      document.removeEventListener('visibilitychange', flush);
-      window.removeEventListener('pagehide', flush);
-    };
-  }, []);
 
   // === B: realtime DELETE på planering_markeringar → propagera raderingen till öppna sessioner ===
   // Stänger fönstret där en radering i annan flik/enhet/DB annars aldrig når en öppen session.
@@ -8784,7 +8590,7 @@ export default function PlannerPage() {
     const dataAlder = markersUppdateradAt != null ? (Date.now() - markersUppdateradAt) / 60000 : null;
     const dataGammal = dataAlder != null && dataAlder >= 10;
     const dataTid = markersUppdateradAt != null ? new Date(markersUppdateradAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) : null;
-    const dataText = markersUppdaterar ? 'Kartdata hämtar…' : (dataTid ? `Kartdata ${dataTid}${dataGammal ? ` · ${Math.floor(dataAlder ?? 0)} min` : ''}` : 'Kartdata ej hämtad');
+    const dataText = (markersUppdaterar ? 'Kartdata hämtar…' : (dataTid ? `Kartdata ${dataTid}${dataGammal ? ` · ${Math.floor(dataAlder ?? 0)} min` : ''}` : 'Kartdata ej hämtad')) + (synkVantar > 0 ? ` · ${synkVantar} väntar` : '');
     const harProblem = felKod != null;   // RÖTT: äkta GPS-fel (nekad/otillgänglig) — kräver åtgärd
     const harVarning = !harProblem && (gpsGammal || dataGammal || !korvyEffectivePos || gpsFordrojdMs != null); // GULT: gammal fix/kartdata eller ännu ingen fix (söker)
     return { gpsText, felKod, soker, gpsGammal, dataText, dataGammal, harProblem, harVarning };
@@ -14310,6 +14116,8 @@ export default function PlannerPage() {
             <span style={{ fontSize: 12, color: gammal ? '#FF9F0A' : 'rgba(255,255,255,0.75)', fontWeight: 500, whiteSpace: 'nowrap' }}>
               {tid ? `Uppdaterad ${tid}${gammal ? ` · ${Math.floor(alderMin ?? 0)} min` : ''}` : 'Ej hämtad än'}
             </span>
+            {/* Diskret: markeringar som sparats på enheten och väntar på att nå servern. Inget popup — försvinner när kön är tom. */}
+            {synkVantar > 0 && <span data-testid="synk-vantar" style={{ ...TYP.meta, color: FARG.orange, whiteSpace: 'nowrap' }}>{synkVantar} väntar</span>}
             <button type="button" onClick={() => refetchMarkers(true)} disabled={markersUppdaterar} aria-label="Uppdatera markeringar"
               style={{ padding: '4px 11px', borderRadius: 9, border: 'none', background: 'rgba(255,255,255,0.14)', color: '#fff',
                 fontSize: 11.5, fontWeight: 600, cursor: markersUppdaterar ? 'default' : 'pointer', opacity: markersUppdaterar ? 0.5 : 1, fontFamily: 'inherit' }}>

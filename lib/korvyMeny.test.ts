@@ -95,8 +95,10 @@ describe('placering: en väg, exakt där trycket träffade, dragbart efteråt', 
   });
   it('Ångra tar bort markeringen ur listan OCH databasen, och databasradering väntar in en pågående spar', () => {
     expect(page).toContain('setMarkers((prev: any[]) => angraMarkering(prev, id));\n    deleteMarkerFromDb(id);');
-    expect(page).toContain("const pagar = markerSparPagarRef.current.get(String(markerId));\n    if (pagar) { try { await pagar; }");
-    expect(page).toContain('markerSparPagarRef.current.set(id, sparning);');
+    // väntar-in-en-pågående-spar-logiken bor i hooken (lib/hooks/useMarkeringarSynk): graven läggs först när den lokala sparningen är klar
+    const hook = las('../lib/hooks/useMarkeringarSynk.ts');
+    expect(hook).toContain("const pagar = sparPagarPerId.current.get(mid);\n    if (pagar) { try { await pagar; }");
+    expect(hook).toContain('sparPagarPerId.current.set(id, sparning);');
   });
   it('markeringar satta via flödet går att dra (båda vyerna), men andra symboler panorerar som förut', () => {
     expect(page).toContain("map.on('mousedown', 'markers-hit', onDown);");
