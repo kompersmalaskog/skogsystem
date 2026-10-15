@@ -3,11 +3,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, RAD, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import GodkandKvitto from './GodkandKvitto';
-import FlyttArk from './FlyttArk';
+import FlyttSheet from './FlyttSheet';
 import { fmtDatum } from './nu';
 import { periodKort, type Period } from './period';
-import { kanRedigeras, kmAndringsText, kundAndringsText, sorteraUnderlag, underlagStatus, type UnderlagRad, type UnderlagStatus } from './fakturerbart';
-import { andraFlytt, angraGodkannande, godkannFlytt, strykFlytt } from './godkann';
+import { kmAndringsText, kundAndringsText, sorteraUnderlag, underlagStatus, type UnderlagRad, type UnderlagStatus } from './fakturerbart';
+import { angraGodkannande, godkannFlytt } from './godkann';
 import type { FakturerbartStatus } from './useFakturerbart';
 import { useUnderlagNamn, type Namnkartor } from './useUnderlagNamn';
 
@@ -75,8 +75,8 @@ function KvittoRad({ r, st, n, sista, sparar, onGodkann, onOppna }: {
   return (
     <div data-underlag={r.id} data-status={st}
       style={{ ...RAD, alignItems: 'flex-start', borderBottom: sista ? 'none' : RAD.borderBottom, opacity: struken ? 0.6 : 1 }}>
-      {/* Raden är tryckbar så länge flytten går att rätta (att godkänna, hos faktureringen); övriga är bara kvitto. */}
-      {kanRedigeras(r) ? (
+      {/* Raden öppnar sheeten "Flytten" (rätta eller läsa); en struken rad är bara kvitto. */}
+      {!struken ? (
         <button type="button" onClick={() => onOppna(r)} aria-label={`Visa flytten ${maskinNamn(r, n)}`}
           style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
           <Uppgifter r={r} n={n} st={st} />
@@ -110,10 +110,10 @@ function KvittoRad({ r, st, n, sista, sparar, onGodkann, onOppna }: {
  * Summan står INTE här: den ligger stilla i remsan (pengatalet) och räknar bara godkända flyttar.
  * Raderna kommer ur samma läsning som remsan (`useFakturerbart`).
  *
- * Tryck på en rad som går att rätta (Att godkänna, Hos faktureringen) → FlyttArk: km och kund kan
- * ändras, valfritt — Godkänn-trycket på raden är oförändrat. Ett rättat värde märks "ändrad från 47"
- * (originalet bevaras av databasen) så det aldrig ser ut som en mätning. Stryk finns i arket för en
- * flytt som ännu inte godkänts.
+ * Tryck på en rad → sheeten "Flytten" (`FlyttSheet`): maskin, från, till och typ rättas via databasfunktionen
+ * `ratta_flytt`, sträcka och kund mot underlaget, flytten stryks via `stryk_flytt` — alltid med en anledning.
+ * Godkänn-trycket på raden är oförändrat. Ett rättat värde märks "ändrad från 47" (originalet bevaras av
+ * databasen) så det aldrig ser ut som en mätning. En godkänd eller fakturerad flytt är låst i sheeten.
  */
 export default function FaktureringFlik({ period, status, namn, onForsokIgen, onAndrad }: {
   period: Period; status: FakturerbartStatus;
@@ -127,9 +127,8 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
   const namnLage = useUnderlagNamn(rader, status.lage === 'klar');
   const [sparar, setSparar] = useState<string | null>(null);
   const [fel, setFel] = useState<string | null>(null);
-  const [kvitto, setKvitto] = useState<{ id: string; text: string } | null>(null);
+  const [kvitto, setKvitto] = useState<{ id: string; text: string; angra?: boolean } | null>(null);
   const [oppnad, setOppnad] = useState<UnderlagRad | null>(null);
-  const [arkFel, setArkFel] = useState<string | null>(null);
 
   const grupper = useMemo(() => {
     const sorterat = sorteraUnderlag(rader ?? []);
@@ -148,7 +147,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
       if (svar.utdaterad) onAndrad();
       return;
     }
-    setKvitto({ id: r.id, text: `Godkänd · ${maskinNamn(r, n)}` });
+    setKvitto({ id: r.id, text: `Godkänd · ${maskinNamn(r, n)}`, angra: true });
     onAndrad();
   }
 
@@ -158,47 +157,6 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
     setKvitto(null); setFel(null);
     const svar = await angraGodkannande(id);
     if (!svar.ok) setFel(`Kunde inte ångra godkännandet: ${svar.fel}`);
-    onAndrad();
-  }
-
-  async function stryk(r: UnderlagRad, anledning: string) {
-    setSparar(r.id); setArkFel(null);
-    const svar = await strykFlytt(r.id, namn, anledning);
-    setSparar(null);
-    if (!svar.ok) {
-      setArkFel(svar.fel);
-      if (svar.utdaterad) onAndrad();
-      return;
-    }
-    setOppnad(null);
-    onAndrad();
-  }
-
-  /** Lämna tillbaka en godkänd (ännu ofakturerad) flytt till Att godkänna. */
-  async function lamnaTillbaka(r: UnderlagRad) {
-    setSparar(r.id); setArkFel(null);
-    const svar = await angraGodkannande(r.id);
-    setSparar(null);
-    if (!svar.ok) {
-      setArkFel(svar.fel);
-      if (svar.utdaterad) onAndrad();
-      return;
-    }
-    setOppnad(null);
-    onAndrad();
-  }
-
-  /** Rätta km/kund. Godkännandet rörs inte; originalet och "redigerad" sköts av databasen. */
-  async function spara(r: UnderlagRad, falt: { km?: number; kund?: string | null }) {
-    setSparar(r.id); setArkFel(null);
-    const svar = await andraFlytt(r.id, falt, namn);
-    setSparar(null);
-    if (!svar.ok) {
-      setArkFel(svar.fel);
-      if (svar.utdaterad) onAndrad();
-      return;
-    }
-    setOppnad(null);
     onAndrad();
   }
 
@@ -212,7 +170,7 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
     <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
         <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text }}>bolt</span>
-        En flytt som avslutas fakturerbar hamnar under Att godkänna. Stämmer den: Godkänn. Stämmer inte km eller kund: tryck på raden och rätta.
+        En flytt som avslutas fakturerbar hamnar under Att godkänna. Stämmer den: Godkänn. Stämmer något inte: tryck på raden och rätta eller stryk.
       </p>
 
       {fel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{fel}</p>}
@@ -231,20 +189,19 @@ export default function FaktureringFlik({ period, status, namn, onForsokIgen, on
             {g.rader.map((r, i) => (
               <KvittoRad key={r.id} r={r} st={g.id} n={n} sista={i === g.rader.length - 1}
                 sparar={sparar === r.id} onGodkann={rad => godkann(rad, n)}
-                onOppna={rad => { setArkFel(null); setOppnad(rad); }} />
+                onOppna={rad => setOppnad(rad)} />
             ))}
           </div>
         </section>
       ))}
 
       {oppnad && (
-        <FlyttArk key={oppnad.id} rad={oppnad} maskin={maskinNamn(oppnad, n)} stracka={strackaText(oppnad, n)}
-          datum={oppnad.datum ? fmtDatum(oppnad.datum) : 'datum saknas i datan'}
-          sparar={sparar === oppnad.id} fel={arkFel} kanStryka={underlagStatus(oppnad) === 'att_godkanna'}
-          kanLamnaTillbaka={underlagStatus(oppnad) === 'hos'} onLamnaTillbaka={() => lamnaTillbaka(oppnad)}
-          onSpara={falt => spara(oppnad, falt)} onStryk={a => stryk(oppnad, a)} onStang={() => setOppnad(null)} />
+        <FlyttSheet key={oppnad.id} rad={oppnad} namn={namn} onStang={() => setOppnad(null)}
+          onKlar={text => { setOppnad(null); setKvitto({ id: oppnad.id, text, }); }}
+          onDelvis={melding => { setOppnad(null); setFel(melding); }}
+          onAndrad={onAndrad} />
       )}
-      {kvitto && <GodkandKvitto key={kvitto.id} text={kvitto.text} onAngra={angra} onKlar={stangKvitto} />}
+      {kvitto && <GodkandKvitto key={`${kvitto.id}:${kvitto.text}`} text={kvitto.text} onAngra={kvitto.angra ? angra : undefined} onKlar={stangKvitto} />}
     </div>
   );
 }

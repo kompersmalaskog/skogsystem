@@ -13,7 +13,7 @@ const sql = () => las('supabase', 'migrations', '20261015170000_ratta_flytt.sql'
 const kod = (s: string) => s.split('\n').filter(r => !r.trim().startsWith('//') && !r.trim().startsWith('*') && !r.trim().startsWith('/*')).join('\n');
 
 describe('appen rättar och stryker BARA via databasfunktionerna', () => {
-  for (const fil of ['ratta.ts', 'RattaFlyttVy.tsx', 'useBenStatus.ts', 'PlatsVal.tsx', 'usePlatsData.ts']) {
+  for (const fil of ['ratta.ts', 'RattaFlyttVy.tsx', 'useBenStatus.ts', 'PlatsVal.tsx', 'usePlatsData.ts', 'FlyttSheet.tsx', 'useFlyttDetalj.ts', 'rattningText.ts']) {
     it(`${fil} skriver aldrig maskin_flytt, maskin_position eller spåret direkt`, () => {
       const k = kod(las('app', 'lastbil', '_components', fil));
       expect(k).not.toMatch(/from\(['"]maskin_flytt['"]\)\s*\.(update|insert|delete|upsert)/);
@@ -27,6 +27,16 @@ describe('appen rättar och stryker BARA via databasfunktionerna', () => {
     expect(k).toContain("anropa('ratta_flytt'");
     expect(k).toContain("anropa('stryk_flytt'");
     expect(k).toContain('supabase.rpc(funktion, args)');
+  });
+
+  it('sheeten "Flytten" rättar via ratta_flytt och stryker via stryk_flytt — aldrig bara underlaget (den gamla halv-strykningen)', () => {
+    const k = kod(las('app', 'lastbil', '_components', 'FlyttSheet.tsx'));
+    expect(k).toContain('rattaFlytt(');
+    expect(k).toContain('strykEnFlytt(');
+    expect(k).not.toMatch(/strykFlytt/);
+    expect(k).not.toMatch(/status:\s*'struken'/);
+    const g = kod(las('app', 'lastbil', '_components', 'godkann.ts'));
+    expect(g).not.toMatch(/struken_anledning/);                 // underlaget stryks av databasfunktionen, inte av appen
   });
 
   it('underlaget och spåret läses bara när admin (aktiv-grinden) — förare skickar aldrig frågan', () => {

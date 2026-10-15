@@ -1,4 +1,4 @@
-// Skrivningarna i Fakturering › Att godkänna: Godkänn, Ångra godkännandet och Stryk. EN väg in för
+// Skrivningarna i Fakturering › Att godkänna: Godkänn, Ångra godkännandet och Rätta km/kund. EN väg in för
 // alla tre så en skrivning aldrig kan se lyckad ut när den inte nådde raden.
 //
 // En skrivning som stoppas av RLS ger inget fel i supabase-js — den ger NOLL rader. Därför begärs
@@ -39,16 +39,6 @@ export function angraGodkannande(id: string): Promise<Skrivsvar> {
     .select('id') as any);
 }
 
-/** Stryk med anledning (obligatorisk). Stryka = MÄRKA, aldrig radera. En fakturerad flytt stryks inte. */
-export function strykFlytt(id: string, av: string, anledning: string, nu: Date = new Date()): Promise<Skrivsvar> {
-  const text = anledning.trim();
-  if (!text) return Promise.resolve({ ok: false, fel: 'Skriv varför flytten stryks.' });
-  return skriv(() => supabase.from('fakturaunderlag_flytt')
-    .update({ status: 'struken', struken_tid: nu.toISOString(), struken_av: av, struken_anledning: text })
-    .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null)
-    .select('id') as any);
-}
-
 /**
  * Rätta km och/eller kund före fakturering (Fakturering › Att godkänna och Hos faktureringen).
  *
@@ -70,3 +60,6 @@ export function andraFlytt(id: string, falt: { km?: number; kund?: string | null
     .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null)
     .select('id') as any);
 }
+
+// Att stryka en flytt går inte här: det gör databasfunktionen stryk_flytt (ratta.ts), som stryker flytten, underlaget och
+// positionen i EN transaktion och loggar det. Att bara stryka underlaget lämnade flytten kvar utan spår.
