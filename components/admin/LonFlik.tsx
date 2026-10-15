@@ -6,10 +6,13 @@ import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA } from "@/lib/design/tokens"
 import { Kort, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
-import { loneartInfo } from "@/lib/lonesystem/loneart";
+import { fmtMangd } from "@/lib/lonesystem/loneart";
+import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
+import LonearterUnderflik from "./LonearterUnderflik";
+import { LoneradLista, SaknasKort, SkickaDialog, lonerader as loneraderAv } from "./LoneraderForhandsvisning";
 import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
 // Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
@@ -25,12 +28,13 @@ const secHead: CSSProperties = { ...TYP.micro, color: FARG.text2, margin: `${AVS
 const btnPrimary: CSSProperties = KNAPP.primar;
 const btnSecondary: CSSProperties = KNAPP.sekundar;
 
-type Underflik = "underlag" | "dagar" | "system" | "atk" | "vila";
+type Underflik = "underlag" | "dagar" | "lonearter" | "system" | "atk" | "vila";
 type CurrentUser = { id: string; namn?: string | null; roll: string };
 
 const UNDERFLIKAR: { key: Underflik; label: string }[] = [
   { key: "underlag", label: "Löneunderlag" },
   { key: "dagar",    label: "Dagar" },
+  { key: "lonearter", label: "Lönearter" },
   { key: "system",   label: "Lönesystem" },
   { key: "atk",      label: "ATK-val" },
   { key: "vila",     label: "Vilobrott" },
@@ -45,6 +49,7 @@ export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
       <UnderflikTabs aktiv={aktiv} onValj={sattUnderflik} />
       {aktiv === "underlag" && <Loneunderlag />}
       {aktiv === "dagar"    && <DagarUnderflik />}
+      {aktiv === "lonearter" && <LonearterUnderflik />}
       {aktiv === "system"   && <LonesystemUnderflik />}
       {aktiv === "atk"      && <AtkUnderflik currentUser={currentUser} />}
       {aktiv === "vila"     && <VilobrottUnderflik />}
@@ -91,8 +96,16 @@ function periodOffset(period: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** En period som står i adressen (?period=2026-09) gäller om den är en riktig månad som inte ligger i framtiden. */
+function periodUrAdress(p: string | undefined): string {
+  return p && /^\d{4}-(0[1-9]|1[0-2])$/.test(p) && p <= periodNu() ? p : periodNu();
+}
+
 function Loneunderlag() {
-  const [period, setPeriod] = useState(periodNu());
+  const { nav, sattParam, gaTill } = useAdminNav();
+  const [period, setPeriod] = useState(() => periodUrAdress(nav.params.period));
+  /** Månadsbyte skrivs till adressen: en omladdning och en länk hamnar på samma månad. */
+  const valjPeriod = (p: string) => { setPeriod(p); sattParam("period", p); };
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [tidigarelagdAlla, setTidigarelagdAlla] = useState<any[]>([]);
   const [tlFel, setTlFel] = useState<string | null>(null);
@@ -175,13 +188,13 @@ function Loneunderlag() {
     <>
       {/* Månadsväljare */}
       <Card style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
-        <button onClick={() => setPeriod(periodOffset(period, -1))} aria-label="Föregående månad" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text }}>
+        <button onClick={() => valjPeriod(periodOffset(period, -1))} aria-label="Föregående månad" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text }}>
           <Ikon namn="chevron_left" farg={FARG.text} />
         </button>
         <span style={{ ...TYP.listtitel, color: FARG.text, textTransform: "capitalize" }}>
           {månadsLabel(period)}
         </span>
-        <button onClick={() => setPeriod(periodOffset(period, 1))} disabled={period >= periodNu()} aria-label="Nästa månad"
+        <button onClick={() => valjPeriod(periodOffset(period, 1))} disabled={period >= periodNu()} aria-label="Nästa månad"
           style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text, opacity: period >= periodNu() ? 0.4 : 1, cursor: period >= periodNu() ? "default" : "pointer" }}>
           <Ikon namn="chevron_right" farg={FARG.text} />
         </button>
@@ -229,75 +242,46 @@ function Loneunderlag() {
           } finally { setFortnoxLaddar(false); }
         }}
         onSkicka={() => setVisaBekräftelse(true)}
+        onKoppla={() => gaTill({ flik: "lon", underflik: "lonearter" })}
         exportResultat={exportResultat}
       />
 
-          {/* Bekräftelsedialog */}
-          {visaBekräftelse && fortnoxData?.medarbetare && (
-            <div onClick={() => setVisaBekräftelse(false)} style={{
-              position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-              background: "rgba(0,0,0,0.7)", zIndex: 100,
-              display: "flex", alignItems: "center", justifyContent: "center", padding: AVSTAND.xl,
-            }}>
-              <div onClick={e => e.stopPropagation()} style={{
-                background: FARG.kort, borderRadius: RADIE.sheet, padding: AVSTAND.xl,
-                width: "100%", maxWidth: 440, maxHeight: "80vh", overflow: "auto",
-              }}>
-                <p style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.listtitel, fontWeight: 700, color: FARG.text, textAlign: "center" }}>
-                  Skicka till Fortnox?
-                </p>
-                <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }}>
-                  Löneperiod {månadsLabel(period)} (arbetstid {fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—"}).
-                  {" "}{fortnoxData.medarbetare.length} medarbetare, {fortnoxData.totalt_rader} lönerader.
-                </p>
-                {fortnoxData.medarbetare.filter((m: any) => m.varningar?.length > 0).length > 0 && (
-                  <div style={{ marginBottom: AVSTAND.m, padding: AVSTAND.m, background: FARG.upphojt, borderRadius: RADIE.rad, ...TYP.meta, color: FARG.orange }}>
-                    ⚠ Det finns varningar — granska innan du skickar.
-                  </div>
-                )}
-                {fortnoxData.medarbetare.map((m: any, i: number) => (
-                  <div key={i} style={{ padding: `${AVSTAND.s}px 0`, borderBottom: `1px solid ${FARG.linje}`, ...TYP.meta }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: FARG.text }}>{m.namn}</span>
-                      <span style={{ color: m.status === "skickat" ? FARG.gron : FARG.text }}>{m.rader.length} rader</span>
-                    </div>
-                    {m.status === "skickat" && <span style={{ ...TYP.meta, color: FARG.gron }}>Redan skickat</span>}
-                    {!m.anstallningsnummer && <span style={{ ...TYP.meta, color: FARG.rod }}>Saknar anst.nr</span>}
-                  </div>
-                ))}
-                <div style={{ display: "flex", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
-                  <button onClick={() => setVisaBekräftelse(false)} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
-                  <button
-                    onClick={async () => {
-                      setSkickar(true);
-                      try {
-                        const res = await fetch("/api/fortnox/salary-export", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ period }),
-                        });
-                        setExportResultat(await res.json());
-                      } catch (e: any) {
-                        setExportResultat({ ok: false, meddelande: e.message });
-                      } finally {
-                        setSkickar(false);
-                        setVisaBekräftelse(false);
-                        // Refresh förhandsgranskning
-                        const res2 = await fetch("/api/fortnox/salary-export", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ period, dry_run: true }),
-                        });
-                        setFortnoxData(await res2.json());
-                      }
-                    }}
-                    disabled={skickar}
-                    style={{ ...btnPrimary, flex: 1, opacity: skickar ? 0.5 : 1 }}
-                  >{skickar ? "Skickar…" : "Skicka till Fortnox"}</button>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Bekräftelsedialog: med röda rader finns ingen "Skicka till Fortnox" här (components/admin/LoneraderForhandsvisning). */}
+      {visaBekräftelse && fortnoxData?.medarbetare && (
+        <SkickaDialog
+          periodText={månadsLabel(period)}
+          arbetstidText={fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—"}
+          data={fortnoxData}
+          blockerande={fortnoxData.blockerande ?? blockerandeLonearter(fortnoxData.medarbetare)}
+          skickar={skickar}
+          onStang={() => setVisaBekräftelse(false)}
+          onKoppla={() => { setVisaBekräftelse(false); gaTill({ flik: "lon", underflik: "lonearter" }); }}
+          onSkicka={async (skickaUtanSaknade) => {
+            setSkickar(true);
+            try {
+              const res = await fetch("/api/fortnox/salary-export", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                // Flaggan följer bara med när admin uttryckligen valt det (andra steget i dialogen).
+                body: JSON.stringify(skickaUtanSaknade ? { period, skicka_utan_saknade: true } : { period }),
+              });
+              setExportResultat(await res.json());
+            } catch (e: any) {
+              setExportResultat({ ok: false, meddelande: e.message });
+            } finally {
+              setSkickar(false);
+              setVisaBekräftelse(false);
+              // Refresh förhandsgranskning
+              const res2 = await fetch("/api/fortnox/salary-export", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ period, dry_run: true }),
+              });
+              setFortnoxData(await res2.json());
+            }
+          }}
+        />
+      )}
     </>
   );
 }
@@ -305,13 +289,14 @@ function Loneunderlag() {
 /* ─── FORTNOX EXPORT SEKTION ─── */
 
 function FortnoxExportSektion({
-  period, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, exportResultat,
+  period, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, onKoppla, exportResultat,
 }: {
   period: string;
   fortnoxData: any;
   fortnoxLaddar: boolean;
   onFörhandsgranska: () => void;
   onSkicka: () => void;
+  onKoppla: () => void;
   exportResultat: any;
 }) {
   if (!fortnoxData) {
@@ -338,6 +323,9 @@ function FortnoxExportSektion({
   }
 
   const medarbetare = fortnoxData.medarbetare || [];
+  const kopplingar = fortnoxData.kopplingar || {};
+  // Samma lista som sändningen stoppas av (serverns svar); äldre svar utan den räknas om ur raderna.
+  const blockerande = fortnoxData.blockerande ?? blockerandeLonearter(medarbetare);
   const arbetsperiodLabel = fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—";
 
   return (
@@ -350,6 +338,11 @@ function FortnoxExportSektion({
               ? `✓ ${exportResultat.skickade} lönerader skickade till Fortnox.`
               : `Fel: ${exportResultat.meddelande || `${exportResultat.fel} fel uppstod.`}`}
           </p>
+          {exportResultat.utelamnade?.length > 0 && (
+            <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.orange }}>
+              Skickades inte: {exportResultat.utelamnade.map((u: any) => `${u.label} ${fmtMangd(u.mangd)} ${u.enhet} (${u.namn})`).join(", ")}.
+            </p>
+          )}
           {exportResultat.felMeddelanden?.length > 0 && (
             <ul style={{ margin: `${AVSTAND.s}px 0 0`, paddingLeft: AVSTAND.l, ...TYP.meta, color: FARG.rod }}>
               {exportResultat.felMeddelanden.map((f: string, i: number) => <li key={i}>{f}</li>)}
@@ -368,14 +361,17 @@ function FortnoxExportSektion({
         </p>
       </Card>
 
+      <SaknasKort blockerande={blockerande} onKoppla={onKoppla} />
+
       {/* Att ta med löneansvarig — tre slag. Reseersättningens två frågor
           besvarades 2026-09-12 (koden gjorde rätt). Avtalsboken lästes
           2026-09-17 (docs/lonesystem/skogsavtalet-arbetstid.md) och svarade på
           fyra av de tidigare frågorna — de står nu som BEKRÄFTELSER av avtals-
           text, inte som öppna frågor. Kvar som rena frågor: två lönearter. Två
           saker är Martins egna beslut som arbetsgivare, inte löneansvarigas.
-          Tills lönearterna är svarade läggs OB, sjuk och helglön INTE som
-          lönerader — de står under "påverkar riktigheten". */}
+          Tills lönearterna är svarade läggs OB och sjuk INTE som lönerader —
+          de står under "påverkar riktigheten". Helglön är en egen lönerad så
+          snart lönearten har en kod under Lön → Lönearter. */}
       <Card style={{ marginTop: AVSTAND.m }}>
         <p style={{ ...secHead, marginTop: 0, color: FARG.orange }}>Att ta med löneansvarig</p>
         {([
@@ -411,7 +407,7 @@ function FortnoxExportSektion({
           const kortpass = m.kortpass || [];
           const orimliga = m.orimliga || [];
           const utanRast = m.utan_rast || { dagar: 0, timmar: 0, datum: [] };
-          const helglon = m.helglon || { dagar: [], timmar: 0 };
+          const helglon = m.helglon || { dagar: [], timmar: 0 }; // går med som egen lönerad när lönearten har kod (visas ovan)
           const byten: any[] = m.byten || []; // bytesdagar (inarbetad, §5 mom 4) som rör månaden
           const deldagar: any[] = m.deldagar || []; // sjuk/VAB från ett klockslag — arbete plus frånvaro (§12 mom 3 räknar timmar)
           // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
@@ -420,7 +416,7 @@ function FortnoxExportSektion({
           const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
           const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
             (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
-            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || helglon.dagar.length > 0 || byten.length > 0 || deldagar.length > 0;
+            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || byten.length > 0 || deldagar.length > 0;
           const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
           return (
             <div key={mi} style={{
@@ -435,19 +431,13 @@ function FortnoxExportSektion({
                 <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.rod }}>⚠ Anställningsnummer saknas — går inte att skicka</p>
               )}
 
-              {/* SEKTION 1 — Går till Fortnox */}
-              <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.gron }}>Går till Fortnox</p>
-              {rader.length > 0 ? (
-                <div>
-                  {rader.map((r: any, ri: number) => (
-                    <div key={ri} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", ...TYP.meta, padding: `${AVSTAND.xs}px 0`, gap: AVSTAND.s }}>
-                      <span style={{ color: FARG.text }}>{loneartInfo(r.loneart)?.label || r.SalaryCode} <span style={{ color: FARG.text2, ...TYP.meta }}>({r.SalaryCode})</span></span>
-                      <span style={{ color: FARG.text, fontWeight: 600, whiteSpace: "nowrap" }}>{r.Number} <span style={{ ...TYP.meta, color: FARG.text2 }}>{loneartInfo(r.loneart)?.enhet || ""}</span></span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ margin: `0 0 0`, ...TYP.meta, color: FARG.text2 }}>Inga lönerader denna period.</p>
+              {/* SEKTION 1 — Lönerader: varje löneart som har ett antal, med kod + namn i Fortnox, eller varför den inte skickas */}
+              <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.gron }}>Lönerader till Fortnox</p>
+              <LoneradLista rader={loneraderAv(m)} kopplingar={kopplingar} />
+              {helglon.dagar.length > 0 && (
+                <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
+                  Röda vardagar i månaden: {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")}.
+                </p>
               )}
 
               {/* SEKTION 2 — Påverkar riktigheten men går inte med */}
@@ -538,14 +528,6 @@ function FortnoxExportSektion({
                         Brandrisk-OB: <strong>{ob.timmar} tim</strong> ({ob.dagar} dag{ob.dagar === 1 ? "" : "ar"}) — <em>löneart ej fastställd</em>, läggs inte som lönerad.
                       </p>
                     )}
-                    {/* Helglön §10 (lib/lonesystem/helglon): röda vardagar i arbetsmånaden ur
-                        avtalets tolv namn, 8 tim per dag utan arbete. Samma väg som OB och
-                        sjuk tills lönearten och de två avtalsfrågorna är på plats. */}
-                    {helglon.dagar.length > 0 && (
-                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }}>
-                        Helglön §10: <strong>{helglon.timmar} tim</strong> — {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")} — <em>löneart ej fastställd</em>, läggs inte som lönerad.
-                      </p>
-                    )}
                     {/* Deldagar: arbete PLUS frånvaro samma dag. Timmarna härledda mot
                         schematimmar/dag (antagande tills schema beslutats). Löneart öppen. */}
                     {deldagar.map((dd: any, di: number) => (
@@ -599,7 +581,7 @@ function FortnoxExportSektion({
           onClick={onSkicka}
           disabled={medarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer)}
           style={{
-            ...btnPrimary,
+            ...(blockerande.length > 0 ? btnSecondary : btnPrimary),
             flex: 1,
             opacity: medarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer) ? 0.4 : 1,
           }}
