@@ -2246,9 +2246,9 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
   it("varje rad visar kod OCH namnet i Fortnox, och en löneart utan rad står som 'Ej kopplad'", async () => {
     await monter("flik=lon&underflik=lonearter");
     expect(rad("timlon").textContent).toContain("11");
-    expect(rad("timlon").textContent).toContain("Timlön");
+    expect(rad("timlon").textContent).toContain("I Fortnox: Timlön");     // namnet står som Fortnox-namn, inte som en dubblett av appens rubrik
     expect(rad("korersattning").textContent).toContain("821");
-    expect(rad("korersattning").textContent).toContain("Körersättning skattefri");
+    expect(rad("korersattning").textContent).toContain("I Fortnox: Körersättning skattefri");
     expect(rad("helglon").textContent).toContain("Ej kopplad");
     expect(rad("helglon").textContent).not.toContain("1461");
   });
@@ -2405,6 +2405,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     ...SALARY, blockerande: [{ loneart: "helglon", label: "Helglön", enhet: "tim", forare: [{ namn: "Anna Berg", mangd: "24.00" }] }],
     medarbetare: [{ ...SALARY.medarbetare[0],
       rader: [{ loneart: "timlon", SalaryCode: "11", Number: "168.00" }],
+      varningar: ["Löneart saknas för Helglön (24 tim): koppla en kod under Lön → Lönearter. Raden skickas inte."],
       lonerader: [lr("timlon", "168.00", "skickas", "11"), lr("helglon", "24.00", "saknar_kod")] }],
   });
 
@@ -2429,6 +2430,9 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     expect(r.textContent).toMatch(/24\s*tim/);
     expect(r.textContent).toContain("Saknar löneart");
     expect(r.textContent).toContain("skickas inte");
+    // Motorns varning om samma sak står inte en andra gång under "Påverkar riktigheten": raden är redan förklaringen.
+    expect(text()).not.toContain("Löneart saknas för Helglön");
+    expect(text()).not.toContain("Påverkar riktigheten");
     const banner = cont.querySelector("[data-saknas-banner]")!;
     expect(banner.textContent).toContain("Kan inte skickas än");
     expect(banner.textContent).toContain("Helglön");
@@ -2465,7 +2469,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     expect(dialog()!.textContent).toContain("följer inte med");
     expect(dialog()!.textContent).toContain("Anna Berg");
     expect(posta()).toEqual([]);                       // fortfarande inget skickat
-    await klickaDialog("Ja, skicka utan dessa rader");
+    await klickaDialog("Skicka utan raderna");
     expect(posta()).toHaveLength(1);
     expect(JSON.parse(posta()[0][2])).toMatchObject({ period: "2026-10", skicka_utan_saknade: true });
   });
@@ -2486,7 +2490,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     await monter("flik=lon");
     await klick("Skicka till Fortnox");
     await klickaDialog("Skicka utan dessa rader");
-    await klickaDialog("Ja, skicka utan dessa rader");
+    await klickaDialog("Skicka utan raderna");
     expect(text()).toContain("1 lönerader skickade");
     expect(text()).toContain("Skickades inte: Helglön 24 tim (Anna Berg)");
   });
@@ -2501,12 +2505,15 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
   });
 
   it("frivillig premie utan kod: orange 'Hoppas över', ingen spärr", async () => {
-    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], lonerader: [lr("timlon", "168.00", "skickas", "11"), lr("premielon_skordare", "168.00", "valfri_utan_kod")] }] };
+    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0],
+      varningar: ["Premielön skördare (168 tim) skickas inte: ingen kod är kopplad (frivillig). Koppla en kod under Lön → Lönearter om den ska med."],
+      lonerader: [lr("timlon", "168.00", "skickas", "11"), lr("premielon_skordare", "168.00", "valfri_utan_kod")] }] };
     await monter("flik=lon");
     const r = radEl("premielon_skordare");
     expect(r.getAttribute("data-status")).toBe("valfri_utan_kod");
     expect(r.textContent).toContain("Hoppas över");
     expect(r.textContent).toContain("Frivillig");
+    expect(text()).not.toContain("Premielön skördare (168 tim) skickas inte");   // raden säger det redan
     expect(cont.querySelector("[data-saknas-banner]")).toBeNull();
     await klick("Skicka till Fortnox");
     expect(knappIDialog("Skicka till Fortnox")).toBeDefined();

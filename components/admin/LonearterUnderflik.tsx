@@ -121,7 +121,7 @@ export default function LonearterUnderflik() {
                     rubrik={<>{a.label}{a.valfri && <span style={{ marginLeft: AVSTAND.s }}><Etikett>Frivillig</Etikett></span>}</>}
                     detalj={m
                       ? ((m.beskrivning || "").trim()
-                        ? m.beskrivning
+                        ? `I Fortnox: ${m.beskrivning!.trim()}`
                         : <span style={{ color: FARG.orange }}>Namnet i Fortnox saknas</span>)
                       : a.forklaring}
                     hoger={m

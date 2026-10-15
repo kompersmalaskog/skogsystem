@@ -125,7 +125,7 @@ export function SkickaDialog({ periodText, arbetstidText, data, blockerande, ski
         {spard && steg === "bekrafta" && (
           <Bekrafta
             text={<>De här raderna följer inte med: {utan.join(", ")}. De läggs inte på av sig själva efteråt, och en förare som är skickad skickas inte om. Lägg dem i Fortnox för hand.</>}
-            ja={skickar ? "Skickar…" : "Ja, skicka utan dessa rader"} nej="Tillbaka" upptagen={skickar}
+            ja={skickar ? "Skickar…" : "Skicka utan raderna"} nej="Tillbaka" upptagen={skickar}
             onJa={() => onSkicka(true)} onNej={() => setSteg("val")} />
         )}
       </div>

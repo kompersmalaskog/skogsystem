@@ -34,6 +34,8 @@ const M = [
   ["period ur adressen tar vilken text som helst", "/^\\d{4}-(0[1-9]|1[0-2])$/.test(p)", "/^.+$/.test(p)", FLIK],
   ["resultatet säger inte vad som uteblev", "exportResultat.utelamnade?.length > 0 && (", "false && (", FLIK],
   ["fliken Lönearter visas inte", '{aktiv === "lonearter" && <LonearterUnderflik />}', '{false && <LonearterUnderflik />}', FLIK],
+  ["samma varning står två gånger (rad + 'Påverkar riktigheten')", "|^Helglön|^Löneart saknas|skickas inte: ingen kod är kopplad/i.test(v)", "|^Helglön/i.test(v)", FLIK],
+  ["Fortnox-namnet visas utan 'I Fortnox:' (ser ut som en dubblett)", "`I Fortnox: ${m.beskrivning!.trim()}`", "m.beskrivning", SIDA],
 ];
 
 kor({
