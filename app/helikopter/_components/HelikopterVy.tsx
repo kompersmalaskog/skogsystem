@@ -26,7 +26,7 @@ import { KORT_MAX_PX, KOLUMN_GAP, PANEL_PX, SIDMARGINAL, antalKolumner, hogerFli
 import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 import LageFlik from './LageFlik'
 import PlaneringFlik from './PlaneringFlik'
 import UppfoljningFlik from './UppfoljningFlik'

@@ -3,9 +3,10 @@
 import React, { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { raderaVerifierat, upsertVerifierat } from '@/lib/supabase-save';
-import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
 import Ark from '@/components/design/Ark';
-import { FelText, Ikon, KORT_TEXTKNAPP } from './delar';
+import { FelText, KORT_TEXTKNAPP } from './delar';
+import Ikon from '@/components/design/Ikon';
 import { arbetsdagar, fmtPeriod, kalenderdagar } from './datum';
 import ValjKalender from './ValjKalender';
 import type { SchemaMaskin } from './useSchemaData';
@@ -130,7 +131,7 @@ export default function StoppFormular({
       {etikett('Maskiner')}
       <button type="button" onClick={() => { setAlla(!alla); setValda(new Set()); }} aria-pressed={alla}
         style={{ ...chip(alla), width: '100%', justifyContent: 'flex-start' }}>
-        {alla && <Ikon namn="check" />}Alla maskiner{alla ? ` — ${maskiner.length} st` : ''}
+        {alla && <Ikon namn="check" storlek={IKON.text} farg="inherit" />}Alla maskiner{alla ? ` — ${maskiner.length} st` : ''}
       </button>
       {grupper.map(g => (
         <div key={g.rubrik} style={{ marginTop: AVSTAND.m }}>
@@ -140,7 +141,7 @@ export default function StoppFormular({
               const vald = !alla && valda.has(m.maskin_id);
               return (
                 <button key={m.maskin_id} type="button" onClick={() => toggla(m.maskin_id)} aria-pressed={vald} style={chip(vald)}>
-                  {vald && <Ikon namn="check" />}{m.namn}
+                  {vald && <Ikon namn="check" storlek={IKON.text} farg="inherit" />}{m.namn}
                 </button>
               );
             })}
@@ -155,7 +156,7 @@ export default function StoppFormular({
           const aktiv = orsak === o.varde;
           return (
             <button key={o.varde} type="button" onClick={() => setOrsak(o.varde)} aria-pressed={aktiv} style={{ ...chip(aktiv), flex: 1 }}>
-              {aktiv && <Ikon namn="check" />}{o.label}
+              {aktiv && <Ikon namn="check" storlek={IKON.text} farg="inherit" />}{o.label}
             </button>
           );
         })}

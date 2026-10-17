@@ -2,9 +2,10 @@
 
 import React, { useState } from 'react';
 import Ark from '@/components/design/Ark';
-import { AVSTAND, FARG, KNAPP, TNUM, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, KNAPP, TNUM, TYP } from '@/lib/design/tokens';
 import { fmtPeriod } from './datum';
-import { FelText, Ikon, KORT_TEXTKNAPP } from './delar';
+import { FelText, KORT_TEXTKNAPP } from './delar';
+import Ikon from '@/components/design/Ikon';
 import type { SchemaMaskin, SchemaStopp } from './useSchemaData';
 
 const ORSAK_ORD: Record<string, string> = {
@@ -56,7 +57,7 @@ export default function StoppDetalj({
             </div>
           ) : (
             <button onClick={() => setBekrafta(true)} style={{ ...KNAPP.destruktiv, width: '100%', justifyContent: 'center' }}>
-              <Ikon namn="delete" />Ta bort stopp
+              <Ikon namn="delete" storlek={IKON.text} farg="inherit" />Ta bort stopp
             </button>
           )}
         </>

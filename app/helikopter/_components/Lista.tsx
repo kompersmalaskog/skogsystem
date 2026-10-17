@@ -1,11 +1,9 @@
 'use client'
 
-// Byggstenarna för /helikopter, ur tokens: svarsraden på svart, sektionsetikett (TYP.micro) över ett KORT,
-// rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck. Länkrader: components/ui/RadGrupp.
+// Byggstenarna för /helikopter, ur tokens: rader (RAD) med linje mellan men inte efter den sista, mätare (6 px) med planstreck. Länkrader: components/ui/RadGrupp. Svarsrad, Sektion och Ikon: components/design.
 // Typ: tal TYP.tal, rubrik TYP.rubrik, radnamn TYP.listtitel, brödtext TYP.text, förklaring TYP.meta, etikett TYP.micro.
-import { AVSTAND, FARG, IKON, KORT, RAD, RADIE, TNUM, TYP, VIKT } from '@/lib/design/tokens'
-import type { Svar } from '../_lib/berakningar'
-import { Ikon } from './Ikon'
+import { AVSTAND, FARG, KORT, RAD, RADIE, TNUM, TYP, VIKT } from '@/lib/design/tokens'
+import Ikon from '@/components/design/Ikon'
 
 /** Linjen under en rad ritas inte under den sista i en grupp. Läggs en gång i varje vys rot (`<style>{HK_CSS}</style>`). */
 export const HK_CSS = '.hk-grupp > .hk-rad:last-child{border-bottom:none !important}'
@@ -14,34 +12,6 @@ const ELLIPS = { minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOver
 
 /** En rad med flera rader text (namn + tal, mätare, förklaring) — RAD i en kolumn. */
 export const RAD_KOLUMN = { ...RAD, flexDirection: 'column', alignItems: 'stretch', gap: AVSTAND.inuti } as const
-
-/** Svarsraden: vyns rubrik, på svart bakgrund — inget kort. Ikon bara vid avvikelse; ok = grått. */
-export function Svarsrad({ svar }: { svar: Svar }) {
-  const indrag = svar.avvikelse ? IKON.rad + AVSTAND.inuti : 0 // ikonen + glappet, så andra raden linjerar med rubriken
-  return (
-    <section style={{ margin: `${AVSTAND.s}px 0 ${AVSTAND.xl}px` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.inuti }}>
-        {svar.avvikelse && <Ikon namn="warning" farg={FARG.orange} />}
-        <h2 style={{ margin: 0, ...TYP.rubrik, color: svar.avvikelse ? FARG.text : FARG.text2 }}>{svar.rubrik}</h2>
-      </div>
-      {svar.rad && <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs, paddingLeft: indrag }}>{svar.rad}</div>}
-      {svar.varning && <div style={{ ...TYP.text, color: FARG.orange, marginTop: AVSTAND.xs, paddingLeft: indrag }}>{svar.varning}</div>}
-    </section>
-  )
-}
-
-/**
- * Etikett (TYP.micro) över ett KORT. `kort={false}` = raderna ligger direkt på ytan (i ett sheet/en panel, som redan är ett kort).
- * `foljdAvLankar` = en länkgrupp (RadGrupp) ligger direkt under: AVSTAND.rad i stället för AVSTAND.xl.
- */
-export function Sektion({ rubrik, kort = true, foljdAvLankar, children }: { rubrik: string; kort?: boolean; foljdAvLankar?: boolean; children: React.ReactNode }) {
-  return (
-    <section aria-label={rubrik} style={{ marginBottom: foljdAvLankar ? AVSTAND.rad : AVSTAND.xl }}>
-      <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 0 ${AVSTAND.xs}px` }}>{rubrik}</div>
-      <div className="hk-grupp" style={kort ? { ...KORT, paddingTop: 0, paddingBottom: 0 } : undefined}>{children}</div>
-    </section>
-  )
-}
 
 /** Ett KORT (utan sektionsetikett) — Uppföljning har ett per spår, med länkgruppen AVSTAND.rad under. */
 export function Kort({ children }: { children: React.ReactNode }) {

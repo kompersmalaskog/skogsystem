@@ -4,10 +4,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { upsertVerifierat, uppdateraVerifierat } from '@/lib/supabase-save';
 import { rodaVardagarForByte, rodVardagNamn, bytesdagFel } from '@/lib/franvaro';
-import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
 import Ark from '@/components/design/Ark';
 import { TYPINFO, TYPKORT, ANSOKBARA_TYPER, type LedighetTyp } from './tema';
-import { FelText, Ikon, KORT_TEXTKNAPP } from './delar';
+import { FelText, KORT_TEXTKNAPP } from './delar';
+import Ikon from '@/components/design/Ikon';
 import { arbetsdagar, arHelg, fmtDatum, fmtPeriod, toISO } from './datum';
 import type { Ansokan } from './typer';
 import ValjKalender from './ValjKalender';
@@ -174,7 +175,7 @@ export default function AnsokFormular({
           const aktiv = typ === v;
           return (
             <button key={v} onClick={() => valjTyp(v)} aria-pressed={aktiv} style={{ ...val(aktiv), padding: `0 ${AVSTAND.s}px`, whiteSpace: 'nowrap' }}>
-              {aktiv && <Ikon namn="check" />}{TYPKORT[v] ?? TYPINFO[v].label}
+              {aktiv && <Ikon namn="check" storlek={IKON.text} farg="inherit" />}{TYPKORT[v] ?? TYPINFO[v].label}
             </button>
           );
         })}
@@ -232,7 +233,7 @@ export default function AnsokFormular({
                 return (
                   <button key={r.datum} type="button" onClick={() => setErsatter(r.datum)} aria-pressed={aktiv}
                     style={{ ...val(aktiv), flex: 'none', width: '100%', justifyContent: 'space-between', ...TYP.text, fontWeight: aktiv ? VIKT.halvfet : VIKT.normal }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>{aktiv && <Ikon namn="check" />}{r.namn}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>{aktiv && <Ikon namn="check" storlek={IKON.text} farg="inherit" />}{r.namn}</span>
                     <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>{fmtDatum(r.datum)} {r.datum.slice(0, 4)}</span>
                   </button>
                 );

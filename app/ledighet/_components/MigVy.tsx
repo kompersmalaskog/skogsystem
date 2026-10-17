@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { raderaVerifierat } from '@/lib/supabase-save';
 import type { CurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
-import { AVSTAND, FARG, INAKTIV, KNAPP, KORT, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { toISO } from './datum';
 import { useLedighetData } from './useLedighetData';
 import { useNyaBeslut } from './useNyaBeslut';
@@ -17,7 +17,9 @@ import SaldoKort from './SaldoKort';
 import AnsokanRad from './AnsokanRad';
 import AnsokFormular from './AnsokFormular';
 import GodkannSektion from './GodkannSektion';
-import { FelText, Grupp, Ikon, LasFel, StatusText } from './delar';
+import { FelText, LasFel, StatusText } from './delar';
+import Ikon from '@/components/design/Ikon';
+import Sektion from '@/components/design/Sektion';
 
 /**
  * "Mig" — inloggad person är alltid "jag" (scopat på medarbetare.id från
@@ -164,7 +166,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
 
   // Godkänd ledighet är låst — sägs EN gång per grupp som innehåller en (inte på varje rad).
   const lastNot = (lista: Ansokan[]) => (lista.some(a => a.status === 'godkänd')
-    ? <><Ikon namn="lock" />Godkänd ledighet är låst — ändringar går via admin</>
+    ? <><Ikon namn="lock" storlek={IKON.text} farg="inherit" />Godkänd ledighet är låst — ändringar går via admin</>
     : undefined);
 
   const rader = (lista: Ansokan[], extra: { tidigare?: boolean; redigera?: boolean }) => lista.map((a, i) => (
@@ -185,7 +187,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
       {/* Besked jag inte sett (och ansökan en notis pekade på) ÖVERST — inte under saldot och Ansök-knappen,
           där det hamnar under vikningen på en telefon. Pricken på hemskärmen pekar hit. */}
       {!laddar && !lasfel && toppRader.length > 0 && (
-        <Grupp rubrik={toppRubrik} not={lastNot(toppRader)}>{rader(toppRader, {})}</Grupp>
+        <Sektion inset rubrik={toppRubrik} not={lastNot(toppRader)}>{rader(toppRader, {})}</Sektion>
       )}
 
       {arGodkannare && !lasfel && (
@@ -200,7 +202,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
           ansökningarna är lästa — krock och dubbelbokning jämförs mot dem. */}
       <button disabled={!kanAnsoka} onClick={() => { setFel(null); setRedigerar(null); setFormOppen(true); }}
         style={{ ...KNAPP.primar, ...(kanAnsoka ? {} : INAKTIV) }}>
-        <Ikon namn="add" storlek={22} />Ansök om ledighet
+        <Ikon namn="add" farg="inherit" />Ansök om ledighet
       </button>
 
       {/* Fel vid en åtgärd i listan (Ta bort) står direkt ovanför listan, kvar tills man gjort något nytt */}
@@ -215,12 +217,12 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
           <>
             {/* 1. Väntar på besked — kan ändras/tas bort */}
             {vantarPaBesked.length > 0 && (
-              <Grupp rubrik="Väntar på besked">{rader(vantarPaBesked, { redigera: true })}</Grupp>
+              <Sektion inset rubrik="Väntar på besked">{rader(vantarPaBesked, { redigera: true })}</Sektion>
             )}
 
             {/* 2. Kommande ledighet — beviljad, ej passerad; låst men synlig */}
             {kommandeLedighet.length > 0 && (
-              <Grupp rubrik="Kommande ledighet" not={lastNot(kommandeLedighet)}>{rader(kommandeLedighet, {})}</Grupp>
+              <Sektion inset rubrik="Kommande ledighet" not={lastNot(kommandeLedighet)}>{rader(kommandeLedighet, {})}</Sektion>
             )}
 
             {/* 3. Historik — passerat (och avslag); hopfälld så den inte tar plats */}
@@ -229,7 +231,7 @@ export default function MigVy({ medarbetare }: { medarbetare: CurrentMedarbetare
                 <button onClick={() => setHistorikOppen(!historikOppen)} aria-expanded={historikOppen}
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.xs}px`, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.micro, color: FARG.text2 }}>
                   <span>Historik ({historik.length})</span>
-                  <Ikon namn="chevron_right" storlek={22} farg={FARG.text3} vrid={historikOppen} />
+                  <Ikon namn="chevron_right" farg={FARG.text3} vrid={historikOppen} />
                 </button>
                 {historikOppen && (
                   <div className="tona-in" style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>{rader(historik, { tidigare: true })}</div>

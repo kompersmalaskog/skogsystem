@@ -6,7 +6,7 @@
 // Inga andra element: ingen orsak, inget per bolag, inga staplar.
 import { AVSTAND, FARG, IKON, KORT, RADIE, TNUM, TYP } from '@/lib/design/tokens'
 import type { SparVy, Ton, Veckolage } from '../_lib/veckolage'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 
 export const TON_FARG_VL: Record<Ton, string> = { gron: FARG.gron, orange: FARG.orange, neutral: FARG.text, dampad: FARG.text3 }
 

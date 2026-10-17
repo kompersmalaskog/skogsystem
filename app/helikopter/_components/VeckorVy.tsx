@@ -18,7 +18,7 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar, Tomt } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 import VeckoDiagram, { veckaFarg } from './VeckoDiagram'
 import OrsakSheet from './OrsakSheet'
 

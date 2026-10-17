@@ -88,13 +88,33 @@ räknar nya literaler i varje PR och varnar.
 |---|---|---|
 | `TYP.tal` | 32 / 700, tabular | Skärmens huvudsiffra. Ett per vy. |
 | `TYP.titel` | 30 / 700 | Vyns rubrik eller tillstånd ("Väntar på maskin") |
-| `TYP.rubrik` | 20 / 700 | Sektionsrubrik |
+| `TYP.rubrik` | 20 / 700 | Svarsrad på svart bakgrund, ett arks rubrik. Aldrig en sektions rubrik — den är en etikett (`TYP.micro`) ovanför kortet |
 | `TYP.text` / `TYP.listtitel` | 17 / 400 resp. 600 | Brödtext, listradens namn |
 | `TYP.meta` | 13 / 400 | Sekundär rad under en titel |
-| `TYP.micro` | 11 / 600 versaler | Grupprubrik i lista |
+| `TYP.micro` | 11 / 600 versaler | Etikett över ett kort (sektionens rubrik) |
 
 Vikter: 400, 600, 700. Ingen 500. Typsnitt: `FONT` på vyns rot, `inherit`
 under. Siffror alltid `TNUM`.
+
+### Rubrikplats
+
+**En sektion rubriceras med en etikett (`TYP.micro`) OVANFÖR kortet, aldrig en rubrik inuti kortet.** Kortet bär raderna (utan egen
+topp-/bottenpadding — raderna har den); etiketten står på svart bakgrund. Det gör att alla vyer läses likadant: ögat hittar
+rubrikerna i en kolumn till vänster och kortens innehåll i kortet. En rubrik (`TYP.rubrik`) hör hemma på en svarsrad på svart
+bakgrund eller överst i ett ark — inte som första barn i ett `KORT`. Komponenten är `components/design/Sektion`.
+
+### Byggstenar — `components/design`
+
+Samma komponent finns EN gång; en vy importerar den och skriver ingen egen. Vakt: `components/design/byggstenar.vakt.test.ts`
+(en ny `function Sektion|Grupp|Ikon` utanför `components/design` fäller testet).
+
+| Komponent | Gör |
+|---|---|
+| `Sektion` | Etikett (`TYP.micro`, text2) över ett KORT utan topp-/bottenpadding; `not` = en förklaring under kortet, `kort={false}` = raderna direkt på ytan, `foljdAvLankar` = länkgrupp direkt under, `inset` = iOS-inset (etiketten indragen) |
+| `Ikon` | Material Symbols. `storlek` ur `IKON` (rad 22 · text 18), `farg` ur `FARG` (text2) eller `"inherit"` (följer texten), `vrid`, `fylld` |
+| `Svarsrad` | Vyns svar på svart: rubrik (`TYP.rubrik`; text2 när allt stämmer, text + orange varningsikon vid avvikelse), valfri rad under, valfri orange varningsrad |
+| `Tillstand` | Tonar över mellan två tillstånd (`nyckel`) — inte laddar/fel/tomt-raderna, de är vyns egna |
+| `Ark`, `Flikkontroll`, `VyKolumn` | Ark nerifrån/från höger, segmentväxel, den centrerade kolumnen |
 
 ### Avstånd och form
 

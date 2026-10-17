@@ -6,7 +6,8 @@ import { FARG, TYP } from '@/lib/design/tokens'
 import { MIN_HISTORIK_OBJEKT, TYPER, TYP_NAMN, type PlaneratResultat, type SparLage } from '../_lib/berakningar'
 import { fmt, kortNamn } from '../_lib/format'
 import type { Avvikelse, PlaneringObjekt, Typ } from '../_lib/queries'
-import { ListRad, Sektion } from './Lista'
+import { ListRad } from './Lista'
+import Sektion from '@/components/design/Sektion'
 
 type Props = {
   open: boolean
@@ -26,7 +27,7 @@ export default function MotBestallningSheet({ open, onClose, plan, spar, objekt,
         const iTyp = objekt.filter(o => o.typ === typ)
         const just = p.justeringProcent
         return (
-          <Sektion key={typ} rubrik={TYP_NAMN[typ]} kort={false}>
+          <Sektion className="hk-grupp" key={typ} rubrik={TYP_NAMN[typ]} kort={false}>
             <ListRad namn="Beställt" tal={bestallt > 0 ? fmt(bestallt) : '–'} talTon={bestallt > 0 ? 'normal' : 'muted'} />
             <ListRad
               namn="Planerat"

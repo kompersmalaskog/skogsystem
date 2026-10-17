@@ -6,7 +6,7 @@
 // Tryck på kolumn = välj vecka. Tryck på stapel = per maskin för den rollen.
 import { AVSTAND, FARG, IKON, RADIE, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens'
 import type { VeckaRad } from '../_lib/queries'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 
 type Roll = 'skordare' | 'skotare'
 const HOJD = 150
