@@ -7,7 +7,7 @@
 import React, { useState } from "react";
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TYP } from "@/lib/design/tokens";
 import { Kort } from "./ui";
-import { arsovertidRader, timmarText, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
+import { arsovertidRader, timmarText, unikaUtjamningar, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
 
 const FARG_PER_NIVA: Record<Niva, string> = { noll: FARG.text3, lugn: FARG.text2, varning: FARG.orange, over: FARG.rod };
 
@@ -28,7 +28,7 @@ export default function ArsovertidKort({ svar }: { svar: ArsovertidSvar }) {
   }
 
   const rader = arsovertidRader(svar);
-  const utjamning = svar.utjamning || [];
+  const utjamning = unikaUtjamningar(svar.utjamning);
   const perioderPerForare = (svar.medarbetare || []).filter(m => Array.isArray(m.perioder) && m.perioder.length > 0);
 
   return (

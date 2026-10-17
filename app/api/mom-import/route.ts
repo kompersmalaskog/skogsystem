@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { kapaSyntetiskaSkift } from '@/lib/skiftKapning';
+import { rastMinFranSek } from '@/lib/rastMin';
 
 // SERVICE-ROLLEN, inte anon: routen är server-side och läser/skriver RLS-låsta
 // tabeller (operator_medarbetare, fakt_skift, arbetsdag). Med anon-nyckeln såg
@@ -276,7 +277,7 @@ export async function POST(req: NextRequest) {
       if (!agg) continue; // ingen MOM-data för dagen — inget att jämföra
       const momStart = hhmm(agg.earliestStart);
       const momSlut = hhmm(agg.latestEnd);
-      const momRast = Math.round((rastMap[key] || 0) / 60);
+      const momRast = rastMinFranSek(rastMap[key]);
       const dStart = Math.abs((tidMin(momStart) ?? 0) - (tidMin(skyddad.start_tid) ?? 0));
       const dSlut = Math.abs((tidMin(momSlut) ?? 0) - (tidMin(skyddad.slut_tid) ?? 0));
       const dRast = Math.abs(momRast - (skyddad.rast_min || 0));
@@ -372,7 +373,7 @@ export async function POST(req: NextRequest) {
       .map(agg => {
       const rastKey = `${agg.medarbetare_id}_${agg.datum}`;
       const rastSek = rastMap[rastKey] || 0;
-      const rastMin = Math.round(rastSek / 60);
+      const rastMin = rastMinFranSek(rastSek);
       return {
         medarbetare_id: agg.medarbetare_id,
         datum: agg.datum,
@@ -574,7 +575,7 @@ export async function POST(req: NextRequest) {
       const fallbackRows = Object.entries(tidAgg)
         .filter(([key]) => !finnsRedanSet.has(key) && !skyddade.has(key))
         .map(([, agg]) => {
-          const rastMin = Math.round(agg.rastSek / 60);
+          const rastMin = rastMinFranSek(agg.rastSek);
           // OBS: arbetad_min är en GENERATED column (slut−start−rast) och får
           // inte sättas i insert — den gamla koden gjorde det, vilket fick
           // VARJE fallback-insert att faila (tyst, loggades bara). Utan
