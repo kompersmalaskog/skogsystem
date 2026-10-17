@@ -6,11 +6,10 @@ import { describe, it, expect, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { createClient } from "@supabase/supabase-js";
+import { laddaProdEnv } from "../testProdEnv";
 
-for (const l of fs.readFileSync(path.resolve(__dirname, "../../.env.local"), "utf8").split("\n")) {
-  const i = l.indexOf("="); if (i > 0 && !l.startsWith("#")) process.env[l.slice(0, i).trim()] ??= l.slice(i + 1).trim();
-}
-const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+const HAR_PROD_ENV = laddaProdEnv(path.resolve(__dirname, "../../.env.local")); // saknas i CI → hela filen hoppas över
+const sb = HAR_PROD_ENV ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!) : (null as never);
 // Ingen top-level await (tsconfig-target): Stefans id slås upp lazily i mocken.
 let STEFAN = "";
 const stefanId = async () => STEFAN || (STEFAN = (await sb.from("medarbetare").select("id").ilike("namn", "Stefan%").maybeSingle()).data!.id as string);
@@ -24,7 +23,7 @@ vi.mock("@/lib/auth/server", () => ({
   },
 }));
 
-describe("POST /api/lon/min-manad (Stefan, augusti 2026)", () => {
+describe.skipIf(!HAR_PROD_ENV)("POST /api/lon/min-manad (Stefan, augusti 2026)", () => {
   it("returnerar hans rader, dagar och saknas-data — och 403 för annans id", async () => {
     const { POST } = await import("../../app/api/lon/min-manad/route");
     const res = await POST({ json: async () => ({ arbetsmanad: "2026-08" }) } as any);
@@ -45,7 +44,7 @@ describe("POST /api/lon/min-manad (Stefan, augusti 2026)", () => {
   }, 60_000);
 });
 
-describe("GET /api/lon/min-manad/pdf", () => {
+describe.skipIf(!HAR_PROD_ENV)("GET /api/lon/min-manad/pdf", () => {
   it("ger en riktig PDF vars text bär namn, lönerader och dag-för-dag", async () => {
     const { GET } = await import("../../app/api/lon/min-manad/pdf/route");
     const res = await GET({ nextUrl: new URL("http://x/api/lon/min-manad/pdf?arbetsmanad=2026-08") } as any);

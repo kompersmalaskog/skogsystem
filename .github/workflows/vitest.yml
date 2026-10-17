@@ -1,0 +1,28 @@
+# Vitest på varje PR: en röd test ska aldrig nå main obemärkt. (CI körde förut bara design-lint och migrationskontroll —
+# byggstenar.vakt.test.ts låg röd på main i ett dygn efter #790 utan att någon såg det.)
+#
+# Jobbet blir RÖTT när en test faller. Tre filer talar med prod via .env.local (lib/notis.flush.test.ts,
+# lib/lonesystem/minmanad.innehall.test.ts, lib/lonesystem/loneunderlag.bytediff.test.ts) — .env.local finns aldrig här, så de
+# HOPPAS ÖVER (lib/testProdEnv.ts) och syns som "skipped". Inga hemligheter krävs; lägg aldrig prod-nycklar i det här jobbet.
+name: vitest
+
+on:
+  pull_request:
+
+concurrency:
+  group: vitest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Kör hela vitest
+        run: npx vitest run
