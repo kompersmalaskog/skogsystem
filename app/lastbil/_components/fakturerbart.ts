@@ -2,7 +2,7 @@
 // (steg 3; raderna kommer ur samma läsning, så remsan och listan aldrig kan läsa olika underlag). Summan är SUMMAN AV DET SOM VISAS: varje flytt avrundas först (hela km),
 // sedan summeras — aldrig råvärden som avrundas en gång (skillen, "Avläsbarhet först").
 //
-// GODKÄNNANDET (migration 20261015150000): en flytt är ogodkänd tills admin trycker Godkänn, som en
+// GODKÄNNANDET (migration 20261015151948): en flytt är ogodkänd tills admin trycker Godkänn, som en
 // arbetsdag är obekräftad tills föraren trycker Stämmer. En ogodkänd flytt har inte gått till
 // faktureringen än och ingår därför inte i pengatalet — den räknas som "väntar", och påminnelsen i
 // Lastbilen (vantar.ts) leder till listan "Att godkänna".
@@ -64,7 +64,7 @@ export interface UnderlagRad extends FaktureratRad {
   struken_tid: string | null;
   struken_anledning: string | null;
   godkand_av: string | null;
-  // Redigering före fakturering (migration 20261015160000): originalet bevaras av databasen.
+  // Redigering före fakturering (migration 20261015155630): originalet bevaras av databasen.
   km_original: number | null;      // värdet FÖRE första ändringen (NULL = saknades) — gäller bara om redigerad_tid är satt
   kund_original: string | null;
   redigerad_tid: string | null;    // NULL = km och kund är orörda

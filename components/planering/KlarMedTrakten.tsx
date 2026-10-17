@@ -33,6 +33,20 @@ export interface KlarPatch {
   trailerIn?: boolean; trailerKommentar?: string; manuellFallning?: boolean; manuellFallningText?: string; ved?: boolean;
 }
 
+/** En maskins del av prognosen: G15-timmar (fältets värde — det skrivna, annars förslaget) och det som hör till det. */
+export interface MaskinPrognos {
+  /** fältets värde i G15-tim. Tomt = varken skrivet eller något förslag. */
+  tim: string;
+  /** förslaget ur uppmätt utfall: talet och metaraden om källan + det uppmätta felet. null = inget förslag. */
+  forslag: { g15: number; kalla: string } | null;
+  /** varför förslag saknas (visas orange) — null när det finns ett förslag */
+  saknas: string | null;
+  /** fältet avviker från förslaget */
+  andrad: boolean;
+  /** m³fub per G15-timme = volym / fältets tim. Uträknad, aldrig ett eget fält. null = något saknas. */
+  prestation: number | null;
+}
+
 export interface KlarMedTraktenProps {
   namn: string;
   status: KlarStatus;
@@ -45,9 +59,8 @@ export interface KlarMedTraktenProps {
   skordare: UtforareVal; skotare: UtforareVal;
   maskiner: { skordare: MaskinAlternativ[]; skotare: MaskinAlternativ[] };
   prognos: {
-    skordareTimmar: string; skotareTimmar: string; volym: string; areal: string; medelstam: string;
-    /** förslag ur den befintliga prognoslogiken (lib/prognos-forslag) — null = underlaget för tunt, ärligt tomt */
-    forslag: { skordare: number | null; skotare: number | null; forklaring: string } | null;
+    volym: string; areal: string; medelstam: string;
+    skordare: MaskinPrognos; skotare: MaskinPrognos;
     /** förutsättningarna i klartext: "Band skotare", "Breddat lastrede", "Medel skotningsavstånd" … */
     forutsattningar: string[];
     godkandAv: string | null; godkandAt: string | null;
@@ -79,7 +92,6 @@ export interface KlarMedTraktenProps {
   onPlaceraAvlagg: () => void;
   onRitaBasvag: () => void;
   onStammer: () => void;
-  onAnvandForslag: () => void;
   onVed: (v: VedDetaljer) => void;
   onSattVedPaKartan: () => void;
   onKlarForMaskin: () => void;
@@ -189,6 +201,25 @@ function OvrigRad({ id, etikett, varde, standard = false, onVal, ord, under, chi
   );
 }
 
+/** m³fub per G15-timme som heltal ("38") — en decimal under 10 ("4,6"), som gallringens låga tal kräver. */
+export function fmtPrestation(v: number): string {
+  return (v < 10 ? v.toFixed(1) : String(Math.round(v))).replace('.', ',');
+}
+
+/** En maskins G15-timmar i den öppna prognosraden: fältet, uppmätt prestation, källan till förslaget — eller orange varför förslag saknas. */
+function MaskinTid({ roll, etikett, mp, onTim }: { roll: 'skordare' | 'skotare'; etikett: string; mp: MaskinPrognos; onTim: (v: string) => void }) {
+  return (
+    <div data-testid={`klar-${roll}-tid`} style={{ marginTop: AVSTAND.s }}>
+      <Etikett>{etikett}, G15-tim</Etikett>
+      <Falt testid={roll === 'skordare' ? 'klar-skordartimmar' : 'klar-skotartimmar'} label={`${etikett}, G15-timmar`} numeriskt value={mp.tim} onChange={onTim} />
+      {mp.prestation != null && <div data-testid={`klar-${roll}-prestation`} style={{ ...TYP.meta, ...TNUM, color: FARG.text2, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0` }}>{fmtPrestation(mp.prestation)} m³fub/G15</div>}
+      {mp.forslag && <div data-testid={`klar-${roll}-kalla`} style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0`, overflowWrap: 'anywhere' }}>{mp.forslag.kalla}</div>}
+      {mp.andrad && mp.forslag && <div data-testid={`klar-${roll}-andrad`} style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0` }}>Ändrad av dig · förslag {mp.forslag.g15}</div>}
+      {!mp.forslag && mp.saknas && <div data-testid={`klar-${roll}-forslag-saknas`} style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0`, overflowWrap: 'anywhere' }}>{mp.saknas}</div>}
+    </div>
+  );
+}
+
 export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const [oppen, setOppen] = useState<PostId | null>(null);
   const [vy, setVy] = useState<'kort' | 'ved'>(p.startMedVed ? 'ved' : 'kort');
@@ -206,9 +237,12 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const pg = p.prognos;
   const prognosPost = post('prognos');
   const harAllt = status.prognos.lage === 'ogodkand' && status.prognos.saknas.length === 0;
+  // Hopfälld rad: en rad per maskin med G15-tim och prestation, "Skördare 52 G15-tim · 38 m³fub/G15". Bara egna maskiner med en tim — aldrig ett tomt streck.
+  const maskinRad = (etikett: string, mp: MaskinPrognos, egen: boolean) => (egen && mp.tim.trim() ? `${etikett} ${mp.tim.trim()} G15-tim${mp.prestation != null ? ` · ${fmtPrestation(mp.prestation)} m³fub/G15` : ''}` : null);
+  const prognosRader = [maskinRad('Skördare', pg.skordare, utforareLage(p.skordare) === 'egen'), maskinRad('Skotare', pg.skotare, utforareLage(p.skotare) === 'egen')].filter((x): x is string => !!x);
   const prognosUnder = status.prognos.lage === 'extern'
     ? 'Extern utförare på båda — inget att prognostisera'
-    : [pg.skordareTimmar ? `Skördare ${pg.skordareTimmar} tim` : null, pg.skotareTimmar ? `Skotare ${pg.skotareTimmar} tim` : null].filter(Boolean).join(' · ') || undefined;
+    : prognosRader.length > 0 ? <>{prognosRader.map((r, i) => <span key={i} data-testid={`klar-prognos-rad-${i}`} style={{ display: 'block', ...TNUM }}>{r}</span>)}</> : undefined;
   const prognosUppmaning = status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 ? `Saknar ${status.prognos.saknas[0]}` : 'Granska';
 
   return (
@@ -253,7 +287,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
               </div>
               {p.basvag.kravs && (
                 <>
-                  <Etikett>Engångstid för anläggningen (timmar, läggs på skotarens prognos)</Etikett>
+                  <Etikett>Engångstid för anläggningen (G15-tim, läggs på skotarens prognos)</Etikett>
                   <Falt testid="klar-basvag-timmar" label="Timmar för basvägsanläggning" numeriskt placeholder="t.ex. 6" value={p.basvag.timmar} onChange={(v) => p.onAndra({ basvagTimmar: v })} />
                 </>
               )}
@@ -277,27 +311,24 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
             <UtforareRad roll="skotare" onKlart={() => stangRad('skotare')} v={p.skotare} maskiner={p.maskiner.skotare} onVal={(u) => p.onAndra({ skotare: u })} />
           </PostRad>
 
+          <PostRad post={post('medelstam')} uppmaning="Skriv" oppen={oppen === 'medelstam'} onToggle={() => vaxla('medelstam')}
+            under={post('medelstam').kvar ? 'Saknas i traktdirektivet — förslaget räknar då snitt över alla trakter' : undefined}>
+            <div data-testid="klar-medelstam-redigera">
+              <Etikett>Medelstam, m³fub per stam</Etikett>
+              <Falt testid="klar-medelstam" label="Medelstam" numeriskt placeholder="t.ex. 0,72" value={pg.medelstam} onChange={(v) => p.onAndra({ medelstam: v })} />
+            </div>
+          </PostRad>
+
           <PostRad post={prognosPost} uppmaning={prognosUppmaning} oppen={oppen === 'prognos'} onToggle={() => vaxla('prognos')} under={prognosUnder}>
             <div data-testid="klar-prognos-redigera">
               {status.prognos.lage !== 'extern' && (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: AVSTAND.s }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.s }}>
                     <div><Etikett>Volym, m³fub</Etikett><Falt testid="klar-volym" label="Volym" numeriskt value={pg.volym} onChange={(v) => p.onAndra({ volym: v })} /></div>
                     <div><Etikett>Areal, ha</Etikett><Falt testid="klar-areal" label="Areal" numeriskt value={pg.areal} onChange={(v) => p.onAndra({ areal: v })} /></div>
-                    <div><Etikett>Medelstam</Etikett><Falt testid="klar-medelstam" label="Medelstam" numeriskt value={pg.medelstam} onChange={(v) => p.onAndra({ medelstam: v })} /></div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.s }}>
-                    {utforareLage(p.skordare) === 'egen' && <div><Etikett>Skördare (tim)</Etikett><Falt testid="klar-skordartimmar" label="Skördartimmar" numeriskt value={pg.skordareTimmar} onChange={(v) => p.onAndra({ skordareTimmar: v })} /></div>}
-                    {utforareLage(p.skotare) === 'egen' && <div><Etikett>Skotare (tim)</Etikett><Falt testid="klar-skotartimmar" label="Skotartimmar" numeriskt value={pg.skotareTimmar} onChange={(v) => p.onAndra({ skotareTimmar: v })} /></div>}
-                  </div>
-                  {pg.forslag && (pg.forslag.skordare != null || pg.forslag.skotare != null) && (
-                    <div data-testid="klar-prognos-forslag" style={{ marginTop: AVSTAND.s, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.rad, background: FARG.fyllning }}>
-                      <div style={{ ...TYP.meta, color: FARG.text2 }}>Förslag ur liknande trakter</div>
-                      <div style={{ ...TYP.listtitel, ...TNUM }}>{[pg.forslag.skordare != null ? `Skördare ${pg.forslag.skordare} tim` : null, pg.forslag.skotare != null ? `Skotare ${pg.forslag.skotare} tim` : null].filter(Boolean).join(' · ')}</div>
-                      <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>{pg.forslag.forklaring}</div>
-                      <button type="button" data-testid="klar-prognos-anvand" onClick={p.onAnvandForslag} className="press-scale" style={{ ...KNAPP.sekundar, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>Använd förslaget</button>
-                    </div>
-                  )}
+                  {utforareLage(p.skordare) === 'egen' && <MaskinTid roll="skordare" etikett="Skördare" mp={pg.skordare} onTim={(v) => p.onAndra({ skordareTimmar: v })} />}
+                  {utforareLage(p.skotare) === 'egen' && <MaskinTid roll="skotare" etikett="Skotare" mp={pg.skotare} onTim={(v) => p.onAndra({ skotareTimmar: v })} />}
                   {pg.forutsattningar.length > 0 && (
                     <div data-testid="klar-prognos-forutsattningar" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Utgår från: {pg.forutsattningar.join(' · ')}</div>
                   )}

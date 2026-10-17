@@ -11,8 +11,9 @@ import { dagarText, fmt, fmtDag, kortNamn, saknarData, sedanText } from './forma
 // ── Trösklar: EN fil — trosklar.ts. Återexporteras här för anroparna. ──────
 import {
   MIN_HISTORIK_OBJEKT, OSKOTAT_I_TAKT_M3_PER_DAG, PA_PLAN_GRANS_DAGAR, PROGNOS_FRAN_ARBETSDAG,
-  SAKNAS_GRANS_UTAN_HISTORIK, TIMMAR_PER_DAG,
+  SAKNAS_GRANS_UTAN_HISTORIK,
 } from './trosklar'
+import { G15_TOM, g15PerDagFor, snittPerDag, type G15Tabell } from '@/lib/helikopterG15'
 export * from './trosklar'
 
 export const TYPER: Typ[] = ['gallring', 'slutavverkning']
@@ -288,6 +289,10 @@ export type MaskinBelaggning = {
   maskin: Maskin
   roll: Roll
   kapacitetH: number
+  /** Uppmätt G15-tim per arbetsdag (12 mån); 8 när maskinen inte är mätt. */
+  perDagH: number
+  /** Ingen mätning (JD810E, för få dagar, eller RPC:n gick inte att läsa) — perDagH är då reserven 8. */
+  ejMatt: boolean
   belagtH: number
   luftH: number
   objekt: BelagtObjekt[]
@@ -310,7 +315,8 @@ export function klararTyp(m: Maskin, typ: string): boolean {
 }
 
 /**
- * Timmar per maskin ur manuell_prognos mot kapacitet = maskinens arbetsdagar × 8 h.
+ * Timmar per maskin ur manuell_prognos mot kapacitet = maskinens arbetsdagar × UPPMÄTT G15 per arbetsdag
+ * (lib/helikopterG15; 8 h för en maskin utan mätning). Flyttid dras inte av separat — den ligger redan i talet.
  * `dagarPerMaskin` är rader ur helikopter_ny_arbetsdagar; för innevarande månad
  * används dagar KVAR och redan klara objekt räknas bort, för kommande månad hela
  * månaden. Objekt med utförare egen/extern ligger inte på våra maskiner.
@@ -321,12 +327,14 @@ export function belaggning(
   dagarPerMaskin: Arbetsdagar[],
   idag: string,
   pagaendeManad: boolean,
+  g15: G15Tabell = G15_TOM,
 ): MaskinBelaggning[] {
   return kapacitetsMaskiner(maskiner, idag).map(m => {
     const roll = maskinRoll(m) as Roll
     const dagar = dagarPerMaskin.find(d => d.maskin_id === m.maskin_id) ?? globalaArbetsdagar(dagarPerMaskin)
     const antalDagar = dagar ? (pagaendeManad ? dagar.kvar : dagar.totalt) : 0
-    const kapacitetH = antalDagar * TIMMAR_PER_DAG
+    const { perDag: perDagH, ejMatt } = g15PerDagFor(m.maskin_id, g15)
+    const kapacitetH = antalDagar * perDagH
     const rader: BelagtObjekt[] = []
     for (const o of objekt) {
       const utforare = roll === 'skordare' ? o.skordare_utforare : o.skotare_utforare
@@ -338,7 +346,7 @@ export function belaggning(
       rader.push({ objektId: o.objekt_id, namn: o.namn || o.vo_nummer || 'Objekt', typ: o.typ, roll, timmar: roll === 'skordare' ? o.prognos_skordare_h : o.prognos_skotare_h, klar })
     }
     const belagtH = rader.reduce((s, r) => s + (r.timmar ?? 0), 0)
-    return { maskin: m, roll, kapacitetH, belagtH, luftH: kapacitetH - belagtH, objekt: rader, saknarPrognos: rader.filter(r => r.timmar == null).length }
+    return { maskin: m, roll, kapacitetH, perDagH, ejMatt, belagtH, luftH: kapacitetH - belagtH, objekt: rader, saknarPrognos: rader.filter(r => r.timmar == null).length }
   })
 }
 
@@ -403,7 +411,8 @@ export function atgardForTyp(
       }
     }
     const kortH = -tim.luft
-    const dagar = Math.max(1, Math.ceil(kortH / TIMMAR_PER_DAG))
+    // Extra skift = en dag av de maskiner som bär typen — deras G15 per dag, inte 8 h.
+    const dagar = Math.max(1, Math.ceil(kortH / snittPerDag(tim.maskiner.map(b => b.perDagH))))
     if (dagar <= Math.max(kvarDagar, 0)) {
       return { slag: 'overtid', text: `${fmt(kortH)} h kort – ${dagar} ${dagar === 1 ? 'dag' : 'dagar'} övertid` }
     }
@@ -524,7 +533,7 @@ export function atgardForMaskin(b: MaskinBelaggning, alla: MaskinBelaggning[], k
     if (mal) return `${kortNamn(o.namn)} kan flyttas till ${maskinNamn(mal.maskin)}`
   }
   const kortH = -b.luftH
-  const dagar = Math.max(1, Math.ceil(kortH / TIMMAR_PER_DAG))
+  const dagar = Math.max(1, Math.ceil(kortH / b.perDagH))
   if (dagar <= Math.max(kvarDagar, 0)) return `${dagarText(dagar)} övertid`
   return 'Prata med bolaget'
 }

@@ -1,6 +1,6 @@
 // Källvakter för "Klar med trakten?": sidan (app/planering/page.tsx) går inte att montera i vitest, så kopplingarna som kortet vilar på låses här.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const las = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const page = las('../app/planering/page.tsx');
@@ -43,6 +43,23 @@ describe('kortet och sidan', () => {
     expect(kort).toContain("<span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{etikett}</span>");
     expect(kort).not.toMatch(/color: avviker \? FARG\.text : FARG\.text2 \}\}>\{etikett/);
     expect(kort).toContain('data-testid="klar-ved-lage"');
+  });
+  it('G15-förslag: ur UPPMÄTT utfall (RPC prognos_utfall), förifyllt, sparat först vid Stämmer; inga "Använd förslaget"/förslagsruta och inga planerade timmar som underlag', () => {
+    expect(page).toContain("supabase.rpc('prognos_utfall')");
+    expect(page).toContain('beraknaG15Forslag(');
+    expect(page).not.toContain('klarAnvandForslag');
+    expect(page).not.toContain('onAnvandForslag');
+    expect(page).not.toContain('beraknaTidsforslag');
+    expect(page).not.toContain('prognosHistorik');
+    expect(kort).not.toContain('klar-prognos-anvand');
+    expect(kort).not.toContain('Använd förslaget');
+    expect(kort).not.toContain('klar-prognos-forslag');
+    // förvalet blir skrivet svar vid Stämmer: bara när fältet är tomt, bara för egna maskiner
+    expect(page).toContain("(manuellPrognos?.[roll] ?? '').toString().trim() === '' && tim != null");
+    expect(page).toContain("setManuellPrognos((prev) => ({ ...prev, ...skriv }))");
+    // ett utfall som inte gick att läsa säger det (aldrig en tom lista som ser ut som "inga trakter")
+    expect(page).toContain('Utfallet bakom förslaget gick inte att läsa');
+    expect(existsSync(new URL('./prognos-forslag.ts', import.meta.url))).toBe(false);   // den gamla modellen (planerade timmar) är borta
   });
   it('Klar för maskin: planerad + klar_skickad_timestamp i ett anrop, verifierat; knappen spärras aldrig av "kvar"', () => {
     expect(page).toContain("{ status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso }, { id: valtObjekt.id }, 'status,klar_skickad_timestamp'");
@@ -89,7 +106,7 @@ describe('städningen', () => {
   it('Trakt-panelen har bara Larm kvar — allt annat har fått plats i kortet', () => {
     for (const borta of ['{/* FAKTA-flik */}', "traktTab === 'fakta'", "traktTab === 'prognos'", 'renderMaskinVal', 'valjUtforare', 'setMaskinSheet', 'Maskin-väljar-sheet']) expect(page, borta).not.toContain(borta);
     expect(page).toContain("traktTab === 'larm' &&");
-    for (const id of ['klar-rad-', 'klar-basvag-timmar', 'klar-trailer-kommentar', 'klar-manuell-text', 'klar-ved-rad', 'klar-areal', 'klar-volym', 'klar-prognos-anvand', 'id="konfiguration"', 'id="band-skordare"', 'id="band-skotare"', 'id="breddat"', 'id="ris"', 'id="vagn"']) expect(kort, id).toContain(id);
+    for (const id of ['klar-rad-', 'klar-basvag-timmar', 'klar-trailer-kommentar', 'klar-manuell-text', 'klar-ved-rad', 'klar-areal', 'klar-volym', 'klar-medelstam', 'klar-skordartimmar', 'klar-skotartimmar', 'id="konfiguration"', 'id="band-skordare"', 'id="band-skotare"', 'id="breddat"', 'id="ris"', 'id="vagn"']) expect(kort, id).toContain(id);
   });
   it('/planner har ingen checklista längre (den sparades aldrig); frågorna bor i Har du … på Planering', () => {
     const planner = las('../app/planner/page.tsx');
