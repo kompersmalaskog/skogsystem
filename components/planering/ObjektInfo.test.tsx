@@ -483,11 +483,15 @@ describe('Om trakten — typvyn, objekten och vägen tillbaka', () => {
   it('"‹ Lista" på riktigt: ramen är redan monterad och STÄNGD, slås om till öppen med start → Om trakten börjar i typvyn direkt (inte i listan)', async () => {
     // Felet syntes först på en skärmbild: ramen monterar sitt innehåll i samma rendering som `oppen` slår om, så vyn måste vara rätt redan då — inte efter en effekt.
     const start = { typ: 'linje:mainRoad', scrollLista: 0, scrollTyp: 0, q: '' };
-    const stangd = props({ markeringar: SK, startVy: 'kort' }); stangd.oppen = false;
+    // Som i sidan: Om trakten har varit öppen (vyn står kvar som 'om'), ramen stängs och öppnas igen — då monteras Om trakten i SAMMA rendering som `oppen` slår om.
     behallare = document.createElement('div'); document.body.appendChild(behallare);
     rot = createRoot(behallare);
-    await act(async () => { rot!.render(<ObjektInfo {...stangd} />); });
+    await act(async () => { rot!.render(<ObjektInfo {...props({ markeringar: SK, startVy: 'om' })} />); });
     await flush();
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('lista');
+    const stangd = props({ markeringar: SK, startVy: 'kort' }); stangd.oppen = false;
+    await act(async () => { rot!.render(<ObjektInfo {...stangd} />); });
+    await new Promise((r) => setTimeout(r, 400)); await flush();
     expect(q('objekt-info')).toBeNull();
     const oppnad = props({ markeringar: SK, startVy: 'om', start });
     await act(async () => { rot!.render(<ObjektInfo {...oppnad} />); });
