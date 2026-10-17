@@ -36,10 +36,19 @@ describe('byggSerie - ordningen ar inte slumpad och inte vald', () => {
     expect(serie.some((x) => x.del === 'plan')).toBe(false);
   });
 
-  it('en NY slutavverkning ger 12 kort (11 + stubbehandling), en gallring 11 (10 + stubbehandling)', () => {
+  it('serien ar utforandepunkterna PLUS stubbehandlingen NAR rundan har den: 11 + 1 = 12 kort, 10 + 1 = 11', () => {
+    // Stubbehandlingen kommer inte av objekttypen eller sasongen utan av dim_objekt.stubbbehandling
+    // (lib/egenkontrollStubbehandling.test.ts) - har provas bara att serien raknar med den punkt rundan faktiskt har.
     expect(byggSerie(nyRunda())).toHaveLength(12);
     const gallring = [...Array(10)].map((_, i) => p(`u${i}`, i + 1, 'utforande')).concat(p('s', 11, 'matning'));
     expect(byggSerie(gallring)).toHaveLength(11);
+  });
+
+  it('en runda UTAN stubbehandling har bara utforandekorten: 11 resp. 10', () => {
+    const utanStubbe = (n: number) => [...Array(n)].map((_, i) => p(`u${i}`, i + 1, 'utforande'));
+    expect(byggSerie(utanStubbe(11))).toHaveLength(11);
+    expect(byggSerie(utanStubbe(10))).toHaveLength(10);
+    expect(byggSerie(utanStubbe(11)).some((x) => x.del === 'matning')).toBe(false);
   });
 
   it('en GAMMAL runda med nio utforande visas som nio kort - precis som en ny med tolv', () => {

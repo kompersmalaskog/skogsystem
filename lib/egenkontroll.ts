@@ -476,7 +476,7 @@ export async function generateEgenkontroll(
   // supabase-js inte harleda radtypen och allt nedan blir GenericStringError.
   const { data: objektRad, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, typ, areal, vo_nummer, kartbild_bounds, avslutad_timestamp, faktisk_slut, lat, lng, dim_objekt_id, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
+    .select('id, namn, typ, areal, vo_nummer, kartbild_bounds, lat, lng, dim_objekt_id, skordare_band, skordare_band_par, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_extra_vagn, barighet, terrang, skordare_maskin, skotare_maskin')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -499,6 +499,11 @@ export async function generateEgenkontroll(
   if (befintlig) {
     return { egenkontroll: befintlig, nyskapad: false, antalPunkter: 0, antalPlanpunkter: 0, antalUtforandepunkter: 0, antalMatningspunkter: 0, antalProvytor: 0 };
   }
+
+  // --- 2b. Stubbehandling? -----------------------------------------------
+  // LAS FORE RUNDAN SKAPAS: ett lasfel avbryter har, innan nagot skrivits - aldrig
+  // en tyst "ingen punkt" som ser ut som ett beslut. Se stubbehandlingKravs.
+  const medStubbe = await stubbehandlingKravs(klient, objekt);
 
   // --- 3. Skapa rundan ---------------------------------------------------
   const { data: skapad, error: skapaFel } = await klient
@@ -533,9 +538,8 @@ export async function generateEgenkontroll(
   let antal: { plan: number; utforande: number; matning: number; provytor: number };
   try {
     antal = await skapaPunkter(
-      klient, skapad.id, objektId, objektTyp,
+      klient, skapad.id, objektId, objektTyp, medStubbe,
       objekt as {
-        avslutad_timestamp?: string | null; faktisk_slut?: string | null;
         areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null;
       },
     );
@@ -738,42 +742,62 @@ export function byggUtforanderader(objektTyp: ObjektTyp) {
 /** Godkand tackningsgrad pa stubbehandling. Skrivs ut i vyn - inget att minnas. */
 export const KRAVNIVA_STUBBEHANDLING = 85;
 
-/** Behandlingssasong: maj till och med september. */
-const STUBBE_MANAD_FRAN = 5;
-const STUBBE_MANAD_TILL = 9;
-
 /**
- * Ska objektet fa stubbehandlingspunkten?
+ * Ska objektet fa stubbehandlingspunkten? JA om och bara om dim_objekt.stubbbehandling = true.
  *
- * SASONGSVILLKORET AR BYGGT. Stubbehandling mot rotrota kravs under
- * behandlingssasong; avslutas trakten utanfor maj-september skapas punkten
- * inte alls.
+ * FALTET AR KALLAN, SASONGEN AR INTE. Det forra villkoret - avslutsdatum i maj-september - lade punkten pa
+ * slutavverkningar (7 av 9 i prod), dar vi inte stubbehandlar, och missade stubbehandlade gallringar vars
+ * skordning avslutades utanfor sasongen (Toftasa, Hossjomala: oktober och april). Faltet kommer fran
+ * bokningen. Ingen sasong, ingen reserv, ingen gissning.
  *
- * TRADSLAGSVILLKORET AR AVSIKTLIGT UTELAMNAT - INTE GLOMT. Kravet galler gran
- * och tall, men tradslag ligger i hpr_stammar och nas via dim_objekt_id, som ar
- * NULL pa SAMTLIGA objekt i egenkontroll-listan (verifierat 2026-08-21, 12 av
- * 12). Ett villkor som inte gar att utvardera far inte byggas som om det gick -
- * da hade punkten tyst uteblivit pa alla objekt. Lagg till det HAR nar
- * dim_objekt_id ar ifylld.
+ * UPPSLAGET, i ordning (samma som lib/redigering/objektRouter.ts):
+ *   1. objekt.dim_objekt_id -> dim_objekt.objekt_id. EN rad: dess varde gar. Fler an en: oklart -> ingen punkt.
+ *   2. Saknas id:t, eller pekar det pa en rad som inte finns: objekt.vo_nummer -> dim_objekt.vo_nummer, och bara
+ *      vid EXAKT EN traff. Noll eller tva traffar ger ingen punkt (Jatsbygd har tva dim_objekt-rader pa samma
+ *      vo-nummer).
+ *   3. Faltet ar annat an true (false, null) -> ingen punkt.
+ *
+ * DETTA AR ETT PLASTER. Grundfelet ar att objekt.dim_objekt_id saknas pa 15 av 16 pagaende rundor, vilket aven
+ * blockerar vadret och gran/tall-villkoret. Den riktiga fixen ar att fylla dim_objekt_id (egen uppgift, se
+ * STATUS.md); da kan vo_nummer-steget tas bort. Utan steg 2 hade bara 1 av de 13 stubbehandlade objekten fatt
+ * sin punkt.
+ *
+ * TRADSLAGSVILLKORET (gran och tall) AR FORTFARANDE AVSIKTLIGT UTELAMNAT: tradslag ligger i hpr_stammar och nas
+ * via dim_objekt_id, som saknas. Lagg till det nar dim_objekt_id ar ifylld.
+ *
+ * Ett LASFEL kastar: det far aldrig bli en tyst "ingen punkt". Anropas fore att rundan skapas.
  */
-export function harStubbehandling(objekt: {
-  avslutad_timestamp?: string | null;
-  faktisk_slut?: string | null;
-}): boolean {
-  const iso = objekt.avslutad_timestamp ?? objekt.faktisk_slut;
-  if (!iso) return false;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return false;
-  const manad = d.getMonth() + 1;
-  return manad >= STUBBE_MANAD_FRAN && manad <= STUBBE_MANAD_TILL;
+export async function stubbehandlingKravs(
+  klient: SupabaseClient,
+  objekt: { dim_objekt_id?: unknown; vo_nummer?: unknown },
+): Promise<boolean> {
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const las = async (kolumn: 'objekt_id' | 'vo_nummer', varde: string) => {
+    const { data, error } = await klient
+      .from('dim_objekt')
+      .select('objekt_id, stubbbehandling')
+      .eq(kolumn, varde);
+    if (error) throw new Error(`Kunde inte läsa stubbehandling ur dim_objekt: ${error.message}`);
+    return (data ?? []) as unknown as { objekt_id: string; stubbbehandling: boolean | null }[];
+  };
+
+  const dimId = text(objekt.dim_objekt_id);
+  if (dimId) {
+    const rader = await las('objekt_id', dimId);
+    if (rader.length === 1) return rader[0].stubbbehandling === true;
+    if (rader.length > 1) return false;
+    // 0 rader: id:t pekar pa ingenting - prova vo-numret.
+  }
+
+  const vo = text(objekt.vo_nummer);
+  if (!vo) return false;
+  const rader = await las('vo_nummer', vo);
+  return rader.length === 1 && rader[0].stubbbehandling === true;
 }
 
 /** Matningspunkterna. I dag bara stubbehandling; provytor kommer senare. */
-function byggMatningsrader(objekt: {
-  avslutad_timestamp?: string | null;
-  faktisk_slut?: string | null;
-}) {
-  if (!harStubbehandling(objekt)) return [];
+function byggMatningsrader(medStubbe: boolean) {
+  if (!medStubbe) return [];
   return [{
     del: 'matning',
     kalla: 'fast',
@@ -801,14 +825,14 @@ async function skapaPunkter(
   egenkontrollId: string,
   objektId: string,
   objektTyp: ObjektTyp,
+  medStubbe: boolean,
   objekt: {
-    avslutad_timestamp?: string | null; faktisk_slut?: string | null;
     areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null;
   },
 ): Promise<{ plan: number; utforande: number; matning: number; provytor: number }> {
   const planrader = await byggPlanrader(klient, objektId);
   const utforanderader = byggUtforanderader(objektTyp);
-  const matningsrader = byggMatningsrader(objekt);
+  const matningsrader = byggMatningsrader(medStubbe);
 
   const rader = [...planrader, ...utforanderader, ...matningsrader].map((r, i) => ({
     ...r,

@@ -16,7 +16,6 @@ import { AVTALSFORMER } from '@/lib/trakt/avtalsform'
 import { kravAvtalsform, saknarAvtalsformEllerAtgard } from '@/lib/redigering/avtalsformKrav'
 import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { avslutaObjekt } from '@/lib/avslutaObjekt'
-import { harStubbehandling } from '@/lib/egenkontroll'
 import DokumentChips from '@/components/DokumentChips'
 import OkopplFilerKort from '@/components/redigering/OkopplFilerKort'
 import PdfLasare from '@/app/planering/PdfLasare'
@@ -2897,15 +2896,6 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
                   if (e.key === 'grot_anpassad') direktSpara({ grot_anpassad: v }); else direktSparaMaskin({ [e.key]: v }, 'harvester')
                 }} />
             ))}
-            {/* Stubbehandling går INTE att läsa ur filerna (Rottne skriver inte
-                StumpTreatment i HPR, verifierat 2026-09-12). Säsongsregeln i
-                lib/egenkontroll (avslutad maj–september) visas som DÄMPAT
-                FÖRSLAG — den skriver aldrig fältet, Martin trycker själv. */}
-            {visaSkordare && obj.stubbbehandling !== true && harStubbehandling({ faktisk_slut: obj.skordning_avslutad || null }) && (
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, padding: '2px 0 6px' }}>
-                Säsong: skördningen avslutades {fmtKortDatum(obj.skordning_avslutad)} (maj–september) — stubbehandling bör vara ja.
-              </div>
-            )}
             <EgenskapSwitch label="Egen skotning (markägaren skotar)" active={obj.egen_skotning === true}
               onClick={() => { const v = !obj.egen_skotning; set({ ...obj, egen_skotning: v }); direktSparaMaskin({ egen_skotning: v }, 'forwarder') }} orange={false} />
             {visaSkotare && EGENSKAPER_SKOTARE.map(e => (
