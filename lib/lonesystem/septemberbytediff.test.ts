@@ -27,9 +27,13 @@ const arBrandrisk = (key: string) => key.startsWith("brandrisk");
 /**
  * En rad i svaret utan de tillägg som inte fanns förut — resten ska vara oförändrat. Tilläggen är brandrisk-OB (2026-10-15): fältet
  * `brandrisk`, lönearten i `saknade_loneartskoder` (tom kod som standard) och dess varningsrad — och helglön/företagsledare (2026-10-17):
- * `foretagsledare` och `helglon.anstallningsdatumSaknas`. Inget annat tas bort.
+ * `foretagsledare` och `helglon.anstallningsdatumSaknas` — och hemskickad (2026-10-17): fälten `hemskickad` och `hemskickad_h`, som MÅSTE vara
+ * tomma för de här månaderna (ingen hemskickad rad finns i underlaget; testet nedan kräver det). Inget annat tas bort.
  */
-function utanTilläggRad({ lonerader, brandrisk, foretagsledare, ...r }: any) {
+function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ...r }: any) {
+  // Hemskickad ändrar ingenting för en månad utan hemskickad rad: tom lista, noll timmar (annars är det inte ett tillägg utan en ändring).
+  expect(hemskickad).toEqual([]);
+  expect(hemskickad_h).toBe(0);
   const { anstallningsdatumSaknas, ...helglon } = r.helglon || {};
   return {
     ...r,
