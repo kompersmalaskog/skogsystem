@@ -202,7 +202,7 @@ export function prognosLage(p: PrognosIndata, godkandUnderlag: string | null): P
   if (sk === 'extern' && st === 'extern') return { lage: 'extern' };
   const saknas: string[] = [];
   if (p.volym == null || p.volym <= 0) saknas.push('volym');
-  if (p.medelstam == null || p.medelstam <= 0) saknas.push('medelstam');
+  // Medelstam hindrar INTE Stämmer: saknas den räknar förslaget snitt över alla trakter av typen (kortet säger det under tabellen). Medelstam är en egen post.
   if (sk === 'saknas') saknas.push('skördare');
   if (st === 'saknas') saknas.push('skotare');
   if (sk === 'egen' && (p.skordareTimmar == null || p.skordareTimmar <= 0)) saknas.push('skördartimmar');
@@ -279,8 +279,6 @@ export interface Post {
   /** texten raden visar; null = inget värde (orange rad med uppmaning) */
   varde: string | null;
   kvar: boolean;
-  /** kort ord i "Kvar: skotare · prognos · 3 frågor" */
-  kvarOrd: string;
 }
 
 export interface KlarIndata {
@@ -305,11 +303,11 @@ export interface KlarStatus {
   prognos: PrognosLage;
   /** obesvarade "Har du…"-frågor, i frågornas ordning */
   frågorKvar: HarDuId[];
-  /** poster som är kvar + obesvarade frågor */
+  /** hur många av bärighet, terräng och skotningsavstånd som saknas (0–3): Förutsättningar är ETT område i kortet */
+  forutsattningarKvar: number;
+  /** antal OMRÅDEN som är kvar (inte antal fält): avlägg, basväg, Förutsättningar (bärighet + terräng + skotningsavstånd = ett), skördare, skotare, medelstam, prognos, Har du … (alla sex frågorna = ett) */
   antalKvar: number;
   klar: boolean;
-  /** "skotare · prognos · 3 frågor" (högst tre poster vid namn, annars "8 saker · 6 frågor") — tomt när allt är klart */
-  kvarText: string;
 }
 
 const BARIGHET: Record<string, string> = { bra: 'Bra', medel: 'Medel', dalig: 'Dålig' };
@@ -319,8 +317,8 @@ export const BARIGHET_VAL = [{ id: 'bra', namn: 'Bra' }, { id: 'medel', namn: 'M
 export const TERRANG_VAL = [{ id: 'flackt', namn: 'Flack' }, { id: 'kuperat', namn: 'Kuperad' }, { id: 'brant', namn: 'Brant' }] as const;
 export const SKOTNINGSAVSTAND_VAL = [{ id: 'kort', namn: 'Kort' }, { id: 'medel', namn: 'Medel' }, { id: 'langt', namn: 'Långt' }] as const;
 
-/** Högst så många poster i del 1 listas vid namn i "Kvar: …"; fler räknas bara. */
-export const KVAR_LISTAS_MAX = 3;
+/** De tre posterna som kortet visar som ETT område, Förutsättningar. */
+export const FORUTSATTNING_IDS: readonly PostId[] = ['barighet', 'terrang', 'skotningsavstand'];
 
 export function berakna(i: KlarIndata): KlarStatus {
   const sk = utforareLage(i.skordare);
@@ -328,28 +326,24 @@ export function berakna(i: KlarIndata): KlarStatus {
   const prognos = prognosLage(i.prognos, i.prognosGodkandUnderlag);
 
   const poster: Post[] = [
-    { id: 'avlagg', etikett: 'Avlägg', varde: i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 avlägg på kartan' : `${i.avlaggAntal} avlägg på kartan`) : null, kvar: i.avlaggAntal === 0, kvarOrd: 'avlägg' },
+    { id: 'avlagg', etikett: 'Avlägg', varde: i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 avlägg på kartan' : `${i.avlaggAntal} avlägg på kartan`) : null, kvar: i.avlaggAntal === 0 },
     // Basväg: kvar bara om Vida har en och ingen är ritad. Ingen väntad basväg + ingen ritad = "Ingen" = klart.
-    { id: 'basvag', etikett: 'Basväg', varde: i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : i.basvagForvantad ? null : 'Ingen', kvar: i.basvagTexter.length === 0 && i.basvagForvantad, kvarOrd: 'basväg' },
-    { id: 'barighet', etikett: 'Bärighet', varde: i.barighet ? (BARIGHET[i.barighet] ?? i.barighet) : null, kvar: !i.barighet, kvarOrd: 'bärighet' },
-    { id: 'terrang', etikett: 'Terräng', varde: i.terrang ? (TERRANG[i.terrang] ?? i.terrang) : null, kvar: !i.terrang, kvarOrd: 'terräng' },
-    { id: 'skotningsavstand', etikett: 'Skotningsavstånd', varde: i.skotningsavstand ? (SKOTAVST[i.skotningsavstand] ?? i.skotningsavstand) : null, kvar: !i.skotningsavstand, kvarOrd: 'skotningsavstånd' },
-    { id: 'skordare', etikett: 'Skördare', varde: sk === 'egen' ? 'Egen' : sk === 'extern' ? `Extern · ${i.skordare.externNamn.trim()}` : null, kvar: sk === 'saknas', kvarOrd: 'skördare' },
-    { id: 'skotare', etikett: 'Skotare', varde: st === 'egen' ? 'Egen' : st === 'extern' ? `Extern · ${i.skotare.externNamn.trim()}` : null, kvar: st === 'saknas', kvarOrd: 'skotare' },
+    { id: 'basvag', etikett: 'Basväg', varde: i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : i.basvagForvantad ? null : 'Ingen', kvar: i.basvagTexter.length === 0 && i.basvagForvantad },
+    { id: 'barighet', etikett: 'Bärighet', varde: i.barighet ? (BARIGHET[i.barighet] ?? i.barighet) : null, kvar: !i.barighet },
+    { id: 'terrang', etikett: 'Terräng', varde: i.terrang ? (TERRANG[i.terrang] ?? i.terrang) : null, kvar: !i.terrang },
+    { id: 'skotningsavstand', etikett: 'Skotningsavstånd', varde: i.skotningsavstand ? (SKOTAVST[i.skotningsavstand] ?? i.skotningsavstand) : null, kvar: !i.skotningsavstand },
+    { id: 'skordare', etikett: 'Skördare', varde: sk === 'egen' ? 'Egen' : sk === 'extern' ? `Extern · ${i.skordare.externNamn.trim()}` : null, kvar: sk === 'saknas' },
+    { id: 'skotare', etikett: 'Skotare', varde: st === 'egen' ? 'Egen' : st === 'extern' ? `Extern · ${i.skotare.externNamn.trim()}` : null, kvar: st === 'saknas' },
     // Medelstam styr G15-förslaget för skördaren. Saknas den (ingen TD-träff, inget skrivet) är raden kvar — förslaget faller då tillbaka på snitt över alla trakter.
-    { id: 'medelstam', etikett: 'Medelstam', varde: i.prognos.medelstam != null && i.prognos.medelstam > 0 ? `${String(i.prognos.medelstam).replace('.', ',')} m³fub` : null, kvar: !(i.prognos.medelstam != null && i.prognos.medelstam > 0), kvarOrd: 'medelstam' },
-    { id: 'prognos', etikett: 'Prognos', varde: prognos.lage === 'extern' ? 'Extern – ingen prognos' : prognos.lage === 'godkand' ? 'Stämmer' : null, kvar: prognos.lage === 'ogodkand', kvarOrd: 'prognos' },
+    { id: 'medelstam', etikett: 'Medelstam', varde: i.prognos.medelstam != null && i.prognos.medelstam > 0 ? `${String(i.prognos.medelstam).replace('.', ',')} m³fub` : null, kvar: !(i.prognos.medelstam != null && i.prognos.medelstam > 0) },
+    { id: 'prognos', etikett: 'Prognos', varde: prognos.lage === 'extern' ? 'Extern – ingen prognos' : prognos.lage === 'godkand' ? 'Stämmer' : null, kvar: prognos.lage === 'ogodkand' },
   ];
 
   const frågorKvar = HAR_DU_FRAGOR.filter((f) => !i.harDu[f.id]).map((f) => f.id);
-  const kvarPoster = poster.filter((p) => p.kvar);
-  const antalKvar = kvarPoster.length + frågorKvar.length;
-  // Få saker listas vid namn ("skotare · prognos · 3 frågor"); många räknas ("8 saker · 6 frågor") — en lång rad är bara brus.
-  const delar = [
-    ...(kvarPoster.length > KVAR_LISTAS_MAX ? [`${kvarPoster.length} saker`] : kvarPoster.map((p) => p.kvarOrd)),
-    ...(frågorKvar.length > 0 ? [frågorKvar.length === 1 ? '1 fråga' : `${frågorKvar.length} frågor`] : []),
-  ];
-  return { poster, prognos, frågorKvar, antalKvar, klar: antalKvar === 0, kvarText: delar.join(' · ') };
+  const forutsattningarKvar = poster.filter((x) => FORUTSATTNING_IDS.includes(x.id) && x.kvar).length;
+  // Antalet räknas per OMRÅDE: de tre förutsättningarna är ett, och de sex frågorna är ett. Samma tal står i rubriken, i namnfältets chip och i objektlistan.
+  const omraden = poster.filter((x) => x.kvar && !FORUTSATTNING_IDS.includes(x.id)).length + (forutsattningarKvar > 0 ? 1 : 0) + (frågorKvar.length > 0 ? 1 : 0);
+  return { poster, prognos, frågorKvar, forutsattningarKvar, antalKvar: omraden, klar: omraden === 0 };
 }
 
 // ── Chippen i namnfältet och i listorna ──────────────────────────────────────────────────────────────────────────────

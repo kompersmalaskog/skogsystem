@@ -28,7 +28,7 @@ import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
-import { beraknaG15Forslag, forslagKalla, prestation, type UtfallRad } from '../../lib/g15Forslag'
+import { beraknaG15Forslag, forslagKalla, prestation, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
@@ -13822,7 +13822,7 @@ export default function PlannerPage() {
           const utfallText = prognosUtfall.lage === 'fel' ? 'Utfallet bakom förslaget gick inte att läsa — skriv G15-tim själv' : prognosUtfall.lage === 'laddar' ? 'Räknar förslag …' : res.ok ? null : `${res.text} — skriv G15-tim själv`;
           return {
             tim,
-            forslag: res.ok ? { g15: res.forslag.g15, kalla: forslagKalla(res.forslag) } : null,
+            forslag: res.ok ? { g15: res.forslag.g15, kalla: forslagKalla(res.forslag), snittOver: snittTypOrd(res.forslag) ?? undefined } : null,
             saknas: res.ok ? null : utfallText,
             andrad: forslagTim != null && timTal != null && timTal !== forslagTim,
             prestation: prestation(klarTal(infoVolym), timTal),

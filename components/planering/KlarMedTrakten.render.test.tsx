@@ -30,7 +30,7 @@ const skriv = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => act(() 
 const blur = (el: Element | null) => { expect(el, 'elementet finns').not.toBeNull(); act(() => { (el as HTMLElement).blur(); }); };
 const text = (id: string) => q(id)?.textContent ?? '';
 /** Gruppen "Det som redan stämmer" fälls ut (en i taget). */
-const oppnaGrupp = (id: 'appen' | 'harDu' | 'ovrigt') => { if (q(`klar-grupp-${id}`)!.getAttribute('data-oppen') !== '1') klicka(q(`klar-grupp-${id}-rad`)); };
+const oppnaGrupp = (id: 'appen' | 'ovrigt') => { if (q(`klar-grupp-${id}`)!.getAttribute('data-oppen') !== '1') klicka(q(`klar-grupp-${id}-rad`)); };
 /** Färg som webbläsaren skriver den (hex → rgb), för jämförelse med style.color. */
 const farg = (hex: string) => { const e = document.createElement('div'); e.style.color = hex; return e.style.color; };
 const utanMellanrum = (t: string) => t.replace(/\s/g, ' ');
@@ -97,11 +97,12 @@ const montera_om = (start: KlarFixtur) => { act(() => { rot!.unmount(); }); beha
 
 
 describe('rubrik: traktens namn och läget i ord', () => {
-  it('ny trakt: namnet som rubrik (inte en fråga), "13 saker kvar" i orange, ingen areal i rubriken', () => {
+  it('ny trakt: namnet som rubrik, antalet kvar PER OMRÅDE i orange ("6 saker kvar"), ingen areal i rubriken', () => {
     montera({});
     expect(text('info-titel') || behallare!.textContent).toContain('Skälviken');
     expect(behallare!.textContent).not.toContain('Klar med Skälviken?');
-    expect(text('klar-status')).toBe('13 saker kvar');
+    // avlägg · förutsättningar (3 val = ETT område) · skördare · skotare · prognos · Har du … (6 frågor = ETT område)
+    expect(text('klar-status')).toBe('6 saker kvar');
     expect(q('klar-status')!.style.color).toBe(farg(FARG.orange));
     expect(finns('klar-areal-rubrik')).toBe(false);
     expect(text('klar-cell-areal')).toContain('3,6');
@@ -115,23 +116,29 @@ describe('rubrik: traktens namn och läget i ord', () => {
     expect(text('klar-status')).toBe('Allt klart ✓');
     expect(q('klar-status')!.style.color).toBe(farg(FARG.gron));
   });
-  it('efter Klar för maskin: "Klar för maskin ✓" i grönt, och en kvarvarande uppgift nämns i orange bredvid', () => {
+  it('efter Klar för maskin: "Klar för maskin ✓" i grönt, och det som tillkommit nämns i orange bredvid (per område)', () => {
     montera({ ...KLAR, objektStatus: 'planerad' });
     expect(text('klar-status')).toBe('Klar för maskin ✓');
     expect(q('klar-status')!.style.color).toBe(farg(FARG.gron));
     expect(text('klar-skickad')).toContain('Klar för maskin');
     act(() => { rot!.unmount(); }); behallare!.remove();
     montera({ ...KLAR, objektStatus: 'planerad', harDu: {} });
-    expect(behallare!.textContent).toContain('Klar för maskin ✓ · 6 kvar');
+    expect(behallare!.textContent).toContain('Klar för maskin ✓ · 1 kvar');   // sex obesvarade frågor = ETT område
   });
   it('arealen saknas → rubriken säger ändå inget om areal, och prognoskortet visar "areal saknas" (ingen gissad siffra)', () => {
     montera({ areal: null });
     expect(finns('klar-areal-rubrik')).toBe(false);
     expect(text('klar-cell-areal')).toContain('areal saknas');
   });
+  it('antalet kvar står BARA i rubriken — ingen rad under Klar för maskin, ingen siffra i "Behöver dig"-rubriken', () => {
+    montera({});
+    expect(finns('klar-kvar-text')).toBe(false);
+    expect(behallare!.textContent).not.toMatch(/Kvar: \d/);
+    expect(text('klar-behover')).toMatch(/^Behöver dig[^·\d]/);
+  });
 });
 
-describe('fast ordning: Behöver dig · prognoskortet · det som redan stämmer', () => {
+describe('fast ordning: Behöver dig · prognoskortet · det som är klart', () => {
   it('uppifrån och ned i den ordningen', () => {
     montera({});
     const fore = (a: string, b: string) => !!(q(a)!.compareDocumentPosition(q(b)!) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -147,39 +154,55 @@ describe('fast ordning: Behöver dig · prognoskortet · det som redan stämmer'
     montera({ ...KLAR, avlaggAntal: 0 });
     expect(finns('klar-behover')).toBe(true);
   });
-  it('"Behöver dig" innehåller BARA orange poster och obesvarade frågor — det som stämmer står inte där', () => {
+  it('rubriken "Det som redan stämmer" finns inte längre — under prognosen står bara det som är klart', () => {
+    montera({ ...KLAR, harDu: {} });
+    expect(behallare!.textContent).not.toContain('Det som redan stämmer');
+    expect(finns('klar-grupp-appen')).toBe(true);
+  });
+  it('"Behöver dig" innehåller BARA det som är kvar: ett klart område står inte där, och en enda obesvarad fråga står direkt i listan', () => {
     montera({ ...KLAR, avlaggAntal: 0, harDu: { ...ALLA_SVAR(), avlagg_hugga: undefined } as any });
     const poster = Array.from(q('klar-behover')!.querySelectorAll('[data-testid^="klar-post-"]')).map((e) => [e.getAttribute('data-testid'), e.getAttribute('data-kvar')]);
     expect(poster).toEqual([['klar-post-avlagg', '1']]);
     const fragor = Array.from(q('klar-behover')!.querySelectorAll('[data-testid^="klar-fraga-"][data-besvarad]')).map((e) => [e.getAttribute('data-testid'), e.getAttribute('data-besvarad')]);
     expect(fragor).toEqual([['klar-fraga-avlagg_hugga', '0']]);
-    expect(text('klar-behover')).toContain('Behöver dig · 2');
+    expect(finns('klar-rad-hardu')).toBe(false);          // ingen vyrad när bara en fråga är kvar
   });
 });
 
-describe('Skälviken: en ny trakt — vad är kvar', () => {
-  it('basväg "Ingen" räknas inte; alla sex frågor ställs i Behöver dig; resten av posterna är orange', () => {
+describe('Mölleryd: en ny trakt — vad är kvar', () => {
+  it('Behöver dig = korta rader med orange värde: Avlägg › Placera på kartan · Förutsättningar › 3 att välja · Har du … › 0 av 6', () => {
     montera({});
-    expect(q('klar-post-basvag')).toBeNull();             // inte kvar → bor i "Appen har fyllt i" (hopfälld)
+    const rader = Array.from(q('klar-del1')!.children).map((e) => e.getAttribute('data-testid'));
+    expect(rader).toEqual(['klar-post-avlagg', 'klar-post-forutsattningar', 'klar-post-skordare', 'klar-post-skotare', 'klar-post-prognos', 'klar-post-hardu']);
+    expect(text('klar-rad-avlagg')).toContain('Placera på kartan');
+    expect(text('klar-rad-forutsattningar-varde')).toBe('3 att välja');
+    expect(text('klar-rad-hardu-varde')).toBe('0 av 6');
+    for (const id of ['avlagg', 'forutsattningar', 'skordare', 'skotare', 'prognos', 'hardu']) expect(q('klar-behover')!.querySelector(`[data-testid="klar-post-${id}"]`)!.getAttribute('data-kvar'), id).toBe('1');
+    // frågorna ställs INTE i listan (de har en egen vy) och bärighet/terräng/avstånd är inte tre rader
+    expect(finns('klar-fraga-gransar')).toBe(false);
+    for (const id of ['barighet', 'terrang', 'skotningsavstand']) expect(finns(`klar-post-${id}`)).toBe(false);
+  });
+  it('basväg "Ingen" och medelstam ur TD räknas som klara och bor i "Appen har fyllt i"', () => {
+    montera({});
+    expect(q('klar-post-basvag')).toBeNull();
+    expect(q('klar-post-medelstam')).toBeNull();
+    expect(text('klar-grupp-appen-sammanfattning')).toBe('2 uppgifter');   // basväg · medelstam (avlägg, förutsättningar, maskiner och prognos är kvar)
     oppnaGrupp('appen');
     expect(q('klar-post-basvag')!.getAttribute('data-kvar')).toBe('0');
     expect(text('klar-rad-basvag')).toContain('Ingen');
-    for (const id of ['avlagg', 'barighet', 'terrang', 'skotningsavstand', 'skordare', 'skotare', 'prognos']) expect(q(`klar-behover`)!.querySelector(`[data-testid="klar-post-${id}"]`)!.getAttribute('data-kvar'), id).toBe('1');
-    for (const id of ['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga']) expect(q(`klar-fraga-${id}`)!.getAttribute('data-besvarad')).toBe('0');
-    expect(text('klar-kvar-text')).toBe('Kvar: 7 saker · 6 frågor');   // sju poster räknas, listas inte
+    expect(text('klar-rad-medelstam')).toContain('0,72');
     expect(text('klar-innehall')).not.toContain('Ingen basväg');
   });
-
   it('orange rader säger också ett ord (färg är aldrig ensam bärare)', () => {
     montera({});
     expect(text('klar-rad-avlagg')).toContain('Placera på kartan');
-    expect(text('klar-rad-barighet')).toContain('Välj');
+    expect(text('klar-rad-forutsattningar')).toContain('att välja');
+    expect(text('klar-rad-skordare')).toContain('Välj');
     expect(text('klar-rad-prognos')).toMatch(/Saknar skördare/);
   });
-
-  it('medelstam ur TD (0,72 för Skälviken) och volymen står i prognoskortet och går att trycka på', () => {
+  it('medelstam ur TD (0,72) och volymen står i prognoskortet och går att trycka på; ingen rad i Behöver dig', () => {
     montera({});
-    expect(q('klar-post-medelstam')).toBeNull();                      // inte kvar → ingen rad i Behöver dig
+    expect(q('klar-post-medelstam')).toBeNull();
     expect(text('klar-cell-medelstam')).toBe('0,72');
     expect(utanMellanrum(text('klar-cell-volym'))).toContain('1 800');
     klicka(q('klar-cell-medelstam'));
@@ -189,7 +212,135 @@ describe('Skälviken: en ny trakt — vad är kvar', () => {
   });
 });
 
-describe('Behöver dig: raderna, frågorna och vägen därifrån', () => {
+describe('Förutsättningar: bärighet, terräng och skotningsavstånd som ETT område', () => {
+  it('tryck fäller ut tre segmentknappar på plats; etiketten är orange så länge inget är valt', () => {
+    montera({});
+    expect(finns('klar-seg-barighet')).toBe(false);
+    klicka(q('klar-rad-forutsattningar'));
+    for (const id of ['barighet', 'terrang', 'skotningsavstand']) {
+      expect(q(`klar-seg-${id}`)!.getAttribute('data-vald'), id).toBe('0');
+      expect(q(`klar-seg-${id}-etikett`)!.style.color, id).toBe(farg(FARG.orange));
+    }
+    expect(Array.from(q('klar-seg-barighet')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Bra', 'Medel', 'Dålig']);
+    expect(Array.from(q('klar-seg-terrang')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Flack', 'Kuperad', 'Brant']);
+    expect(Array.from(q('klar-seg-skotningsavstand')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Kort', 'Medel', 'Långt']);
+  });
+  it('raden räknar ned (3 att välja → 2 kvar → 1 kvar), valda etiketter slutar vara orange, och när alla tre är valda fälls raden ihop och området lämnar Behöver dig', () => {
+    montera({});
+    klicka(q('klar-rad-forutsattningar'));
+    klicka(q('klar-barighet-bra'));
+    expect(text('klar-rad-forutsattningar-varde')).toBe('2 kvar');
+    expect(q('klar-seg-barighet-etikett')!.style.color).not.toBe(farg(FARG.orange));
+    expect(q('klar-seg-barighet')!.getAttribute('data-vald')).toBe('1');
+    klicka(q('klar-terrang-kuperat'));
+    expect(text('klar-rad-forutsattningar-varde')).toBe('1 kvar');
+    expect(text('klar-status')).toBe('6 saker kvar');           // området är ETT tills det är klart
+    klicka(q('klar-skotningsavstand-kort'));
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-forutsattningar"]')).toBeNull();
+    expect(finns('klar-seg-barighet')).toBe(false);              // hopfälld
+    expect(text('klar-status')).toBe('5 saker kvar');
+    expect(spion.patchar.map((a) => Object.keys(a).join())).toEqual(['barighet', 'terrang', 'skotningsavstand']);
+    oppnaGrupp('appen');
+    expect(text('klar-rad-forutsattningar-varde')).toBe('Bra · Kuperad · Kort');
+  });
+  it('samma val igen tar tillbaka svaret; ett klart område som öppnas i "Appen har fyllt i" går att ändra på plats', () => {
+    montera({ barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel' });
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-forutsattningar"]')).toBeNull();
+    oppnaGrupp('appen');
+    klicka(q('klar-rad-forutsattningar'));
+    klicka(q('klar-barighet-bra'));
+    expect(spion.patchar.at(-1)).toEqual({ barighet: null });
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-forutsattningar"]')).not.toBeNull();   // 1 kvar → tillbaka i Behöver dig
+    expect(text('klar-rad-forutsattningar-varde')).toBe('1 kvar');
+  });
+});
+
+describe('Har du …: en egen vy, en fråga i taget', () => {
+  const NAMN = ['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga'];
+  it('raden öppnar vyn: "‹ traktnamn", framstegsstreck med sex delar, stor fråga, två knappar à 60 pt, Föregående och Hoppa över', () => {
+    montera({});
+    klicka(q('klar-rad-hardu'));
+    expect(finns('klar-fragor-vy')).toBe(true);
+    expect(finns('klar-prognoskort')).toBe(false);                     // vyn ersätter kortet
+    expect(text('klar-fragor-tillbaka')).toContain('Skälviken');
+    expect(q('klar-fragor-framsteg')!.children.length).toBe(6);
+    expect(text('klar-fragor-rakneverk')).toBe('1 av 6');
+    expect(text('klar-fragor-fraga').length).toBeGreaterThan(5);
+    for (const id of ['klar-fraga-gransar-ja', 'klar-fraga-gransar-nej']) expect(q(id)!.style.minHeight).toBe('60px');
+    expect(finns('klar-fragor-foregaende')).toBe(true);
+    expect(finns('klar-fragor-hoppa')).toBe(true);
+    expect((q('klar-fragor-foregaende') as HTMLButtonElement).disabled).toBe(true);   // första frågan
+  });
+  it('ett svar går direkt till nästa fråga; efter den sista är vyn stängd och kortet tillbaka; allt besvarat = klart', () => {
+    montera({});
+    klicka(q('klar-rad-hardu'));
+    NAMN.forEach((id, i) => {
+      expect(text('klar-fragor-rakneverk')).toBe(`${i + 1} av 6`);
+      klicka(q(`klar-fraga-${id}-ja`));
+    });
+    expect(finns('klar-fragor-vy')).toBe(false);
+    expect(finns('klar-prognoskort')).toBe(true);
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-hardu"]')).toBeNull();
+    expect(text('klar-rad-hardu-varde')).toBe('6 av 6');              // under det som är klart
+  });
+  it('Hoppa över och Föregående flyttar utan att svara; ett överhoppat svar räknas inte; "‹ traktnamn" går tillbaka till kortet', () => {
+    montera({});
+    klicka(q('klar-rad-hardu'));
+    klicka(q('klar-fragor-hoppa'));
+    expect(text('klar-fragor-rakneverk')).toBe('2 av 6');
+    klicka(q('klar-fragor-foregaende'));
+    expect(text('klar-fragor-rakneverk')).toBe('1 av 6');
+    klicka(q('klar-fragor-tillbaka'));
+    expect(finns('klar-fragor-vy')).toBe(false);
+    expect(text('klar-rad-hardu-varde')).toBe('0 av 6');
+  });
+  it('vyn börjar på första obesvarade frågan; knapparna heter som frågan; varningen följer frågan', () => {
+    montera({ harDu: sattHarDu({}, 'gransar', 'ja', 'm1', 'T'), restriktioner: [{ type: 'fornlamning', name: 'Stensättning' }] });
+    klicka(q('klar-rad-hardu'));
+    expect(text('klar-fragor-rakneverk')).toBe('2 av 6');
+    expect(text('klar-fraga-naturvarden-nej')).toBe('Inga hittade');
+    klicka(q('klar-fragor-hoppa'));
+    expect(text('klar-varning-kulturlamningar')).toContain('Registrerad fornlämning: Stensättning');
+    klicka(q('klar-fragor-hoppa'));
+    expect(text('klar-fraga-ledningar-nej')).toBe('Inga finns');
+    expect(finns('klar-varning-kulturlamningar')).toBe(false);
+  });
+  it('"Behövs inte" · "Inga hittade" · "Inga finns" · "Nej": svaren heter som frågan', () => {
+    montera({});
+    klicka(q('klar-rad-hardu'));
+    const nej: Record<string, string> = { gransar: 'Behövs inte', naturvarden: 'Inga hittade', kulturlamningar: 'Inga hittade', ledningar: 'Inga finns', snitslat: 'Nej', avlagg_hugga: 'Nej' };
+    NAMN.forEach((id) => {
+      expect(text(`klar-fraga-${id}-nej`), id).toBeTruthy();
+      if (nej[id] && ['gransar', 'naturvarden', 'ledningar', 'avlagg_hugga'].includes(id)) expect(text(`klar-fraga-${id}-nej`), id).toBe(nej[id]);
+      klicka(q('klar-fragor-hoppa'));
+    });
+  });
+  it('en el-ledning på kartan varnar under el-frågan', () => {
+    montera({ markeringar: [{ slag: 'symbol', typ: 'powerline' }], harDu: ['gransar', 'naturvarden', 'kulturlamningar'].reduce((s, id) => sattHarDu(s, id as HarDuId, 'ja', 'm1', 'T'), {}) });
+    klicka(q('klar-rad-hardu'));
+    expect(text('klar-varning-ledningar')).toContain('1 el-ledning markerad på kartan');
+  });
+  it('en besvarad fråga visar vem och när och är förvald; man kan gå tillbaka till den och svara om', () => {
+    montera({ harDu: sattHarDu({}, 'gransar', 'ja', 'm1', '2026-10-15T10:00:00.000Z') });
+    klicka(q('klar-rad-hardu'));
+    klicka(q('klar-fragor-foregaende'));
+    expect(text('klar-fragor-rakneverk')).toBe('1 av 6');
+    expect(text('klar-fragor-vem')).toContain('Martin');
+    expect(q('klar-fraga-gransar-ja')!.getAttribute('aria-pressed')).toBe('true');
+    klicka(q('klar-fraga-gransar-nej'));
+    expect(text('klar-fragor-rakneverk')).toBe('2 av 6');
+  });
+  it('är bara EN fråga kvar står den direkt i listan (ingen vyrad); svaret flyttar den till det som är klart', () => {
+    montera({ ...KLAR, avlaggAntal: 0, harDu: { ...ALLA_SVAR(), avlagg_hugga: undefined } as any });
+    expect(finns('klar-rad-hardu')).toBe(false);
+    expect(q('klar-fraga-avlagg_hugga')!.getAttribute('data-besvarad')).toBe('0');
+    klicka(q('klar-fraga-avlagg_hugga-nej'));
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-fraga-avlagg_hugga"]')).toBeNull();
+    expect(text('klar-rad-hardu-varde')).toBe('6 av 6');
+  });
+});
+
+describe('Behöver dig: avlägg och prognos', () => {
   it('avlägg: ett tryck ber sidan placera ett (raden säger "Placera på kartan")', () => {
     montera({});
     klicka(q('klar-rad-avlagg'));
@@ -203,41 +354,6 @@ describe('Behöver dig: raderna, frågorna och vägen därifrån', () => {
     expect(rulla).toHaveBeenCalledTimes(1);
     expect(finns('klar-stammer')).toBe(true);
     delete (Element.prototype as any).scrollIntoView;
-  });
-  it('en besvarad fråga försvinner ur listan och hamnar under Har du … (N av 6); samma svar igen tar tillbaka den', () => {
-    montera({});
-    klicka(q('klar-fraga-gransar-ja'));
-    expect(q('klar-behover')!.querySelector('[data-testid="klar-fraga-gransar"]')).toBeNull();
-    expect(text('klar-grupp-harDu-sammanfattning')).toBe('1 av 6');
-    oppnaGrupp('harDu');
-    expect(q('klar-fraga-gransar')!.getAttribute('data-besvarad')).toBe('1');
-    expect(text('klar-fraga-gransar-vem')).toContain('Martin');
-    klicka(q('klar-fraga-gransar-ja'));                      // tar tillbaka svaret
-    expect(text('klar-grupp-harDu-sammanfattning')).toBe('0 av 6');
-    expect(q('klar-behover')!.querySelector('[data-testid="klar-fraga-gransar"]')!.getAttribute('data-besvarad')).toBe('0');
-  });
-  it('svaren heter som frågan: "Ja" / "Behövs inte" · "Inga hittade" · "Inga finns" · "Nej"', () => {
-    montera({});
-    expect(text('klar-fraga-gransar-nej')).toBe('Behövs inte');
-    expect(text('klar-fraga-naturvarden-nej')).toBe('Inga hittade');
-    expect(text('klar-fraga-ledningar-nej')).toBe('Inga finns');
-    expect(text('klar-fraga-avlagg_hugga-nej')).toBe('Nej');
-    klicka(q('klar-fraga-naturvarden-nej'));
-    oppnaGrupp('harDu');
-    expect(q('klar-fraga-naturvarden-nej')!.getAttribute('aria-pressed')).toBe('true');
-  });
-  it('fornlämning i lagret → orange varning under kulturfrågan (både medan den är obesvarad och efter svar); frågan ställs även utan varning', () => {
-    montera({ restriktioner: [{ type: 'fornlamning', name: 'Stensättning' }] });
-    expect(text('klar-varning-kulturlamningar')).toContain('Registrerad fornlämning: Stensättning');
-    expect(finns('klar-varning-ledningar')).toBe(false);
-    expect(finns('klar-fraga-ledningar')).toBe(true);
-    klicka(q('klar-fraga-kulturlamningar-ja'));
-    oppnaGrupp('harDu');
-    expect(text('klar-varning-kulturlamningar')).toContain('Registrerad fornlämning: Stensättning');
-  });
-  it('en el-ledning på kartan varnar under el-frågan', () => {
-    montera({ markeringar: [{ slag: 'symbol', typ: 'powerline' }] });
-    expect(text('klar-varning-ledningar')).toContain('1 el-ledning markerad på kartan');
   });
 });
 
@@ -298,7 +414,7 @@ describe('prognoskortet: volym, tabell, källa, Stämmer — siffror redigeras p
     montera({ ...fyllt, volym: null });
     expect(text('klar-skordare-prestation')).toBe('–');
     expect(text('klar-cell-volym')).toBe('Skriv volym');
-    expect(q('klar-cell-volym')!.style.color).toBe(farg(FARG.orange));
+    expect(q('klar-cell-volym')!.style.color).not.toBe(farg(FARG.orange));   // orange bor bara i rubriken och i Behöver dig
   });
   it('intervall + underlag syns FÖRST när man trycker på siffran (en rad, bara den maskinen); i vila står inget grått under tabellen', () => {
     montera(fyllt);
@@ -332,12 +448,12 @@ describe('prognoskortet: volym, tabell, källa, Stämmer — siffror redigeras p
     expect(finns('klar-prognos-forslag')).toBe(false);
     expect(behallare!.textContent).not.toContain('Använd förslaget');
   });
-  it('inget förslag (för få jämförbara): cellen står orange och tom ("Skriv"), orange förklaring, prognos-raden kvar — ingen gissning', () => {
+  it('inget förslag (för få jämförbara): cellen står tom ("Skriv") och dämpad, förklaringen under, prognos-raden kvar i Behöver dig — ingen gissning', () => {
     montera({ skordare: EGEN('PONS20SDJAA270231'), skotare: EGEN('A110148'), utanForslag: true });
     expect(q('klar-post-prognos')!.getAttribute('data-kvar')).toBe('1');
     expect(text('klar-rad-prognos')).toMatch(/Saknar skördartimmar/);
     expect(text('klar-cell-skordartimmar')).toBe('Skriv');
-    expect(q('klar-cell-skordartimmar')!.style.color).toBe(farg(FARG.orange));
+    expect(q('klar-cell-skordartimmar')!.style.color).not.toBe(farg(FARG.orange));
     expect(text('klar-skordare-forslag-saknas')).toMatch(/Färre än 3 jämförbara trakter/);
     expect(finns('klar-skordare-kalla')).toBe(false);
     klicka(q('klar-cell-skordartimmar'));
@@ -401,14 +517,38 @@ describe('prognoskortet: volym, tabell, källa, Stämmer — siffror redigeras p
 });
 
 describe('medelstam saknas', () => {
-  it('raden i Behöver dig är orange ("Skriv") med förklaringen att förslaget då tar snitt över alla; kortet visar "saknas" i orange', () => {
+  it('raden "Medelstam › Skriv" står i Behöver dig (orange värde) med förklaringen; i prognoskortet står "saknas" dämpat', () => {
     montera({ medelstam: null });
-    expect(q('klar-post-medelstam')!.getAttribute('data-kvar')).toBe('1');
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-medelstam"]')!.getAttribute('data-kvar')).toBe('1');
     expect(text('klar-rad-medelstam')).toContain('Skriv');
     expect(text('klar-post-medelstam')).toContain('snitt över alla trakter');
     expect(text('klar-cell-medelstam')).toBe('saknas');
-    expect(q('klar-cell-medelstam')!.style.color).toBe(farg(FARG.orange));
-    expect(text('klar-kvar-text')).toContain('8 saker');          // sju poster + medelstam, räknas inte listas
+    expect(q('klar-cell-medelstam')!.style.color).not.toBe(farg(FARG.orange));
+    expect(finns('klar-kvar-text')).toBe(false);
+  });
+  it('med medelstam ur traktdirektivet finns ingen rad i Behöver dig — den bor i "Appen har fyllt i"', () => {
+    montera({});
+    expect(finns('klar-post-medelstam')).toBe(false);
+    oppnaGrupp('appen');
+    expect(q('klar-post-medelstam')!.getAttribute('data-kvar')).toBe('0');
+  });
+  it('BUGGEN: prognosen går att godkänna utan medelstam (snitt) — Stämmer är aktiv, kortet säger vad talen vilar på, och prognosen räknas inte som kvar för att medelstam saknas', () => {
+    montera({ medelstam: null, skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 });
+    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
+    expect(text('klar-prognos-snitt')).toBe('Snitt över alla slutavverkningar – blir säkrare med medelstam');
+    expect(finns('klar-post-prognos')).toBe(true);        // prognosen är ogodkänd tills någon trycker — men INTE för att medelstam saknas
+    expect(text('klar-rad-prognos')).toContain('Granska');
+    expect(text('klar-rad-prognos')).not.toMatch(/Saknar/);
+    klicka(q('klar-stammer'));
+    expect(spion.stammer).toBe(1);
+    expect(text('klar-stammer')).toContain('Stämmer ✓');
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-prognos"]')).toBeNull();
+    // medelstam kvar som egen uppgift (den räknas, prognosen inte)
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-medelstam"]')!.getAttribute('data-kvar')).toBe('1');
+  });
+  it('snitt-raden syns inte när medelstam finns, och inte när prognosen är extern', () => {
+    montera({ skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 });
+    expect(finns('klar-prognos-snitt')).toBe(false);
   });
   it('att skriva den i raden tar bort "kvar" men raden stannar tills planeraren stänger den (ett skrivfält stänger inte av sig självt)', () => {
     montera({ medelstam: null });
@@ -428,11 +568,10 @@ describe('medelstam saknas', () => {
 describe('Fyll i Behöver dig → Klar för maskin', () => {
   it('trycken rättar kortet: bärighet/terräng/avstånd, maskiner, tider, Stämmer, svar → grön knapp → planerad', () => {
     montera({});
-    klicka(q('klar-rad-barighet')); klicka(q('klar-barighet-bra'));
-    klicka(q('klar-rad-terrang')); klicka(q('klar-terrang-flackt'));
-    klicka(q('klar-rad-skotningsavstand')); klicka(q('klar-skotningsavstand-medel'));
+    klicka(q('klar-rad-forutsattningar'));
+    klicka(q('klar-barighet-bra')); klicka(q('klar-terrang-flackt')); klicka(q('klar-skotningsavstand-medel'));
     oppnaGrupp('appen');
-    expect(text('klar-rad-barighet')).toContain('Bra');
+    expect(text('klar-rad-forutsattningar-varde')).toBe('Bra · Flack · Medel');
     klicka(q('klar-rad-skordare')); klicka(q('klar-skordare-egen')); klicka(q('klar-skordare-maskin-R64101'));
     klicka(q('klar-rad-skotare')); klicka(q('klar-skotare-egen')); klicka(q('klar-skotare-maskin-A110148'));
     expect(text('klar-rad-skordare')).toContain('Rottne H8E');
@@ -446,7 +585,7 @@ describe('Fyll i Behöver dig → Klar för maskin', () => {
     expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
     klicka(q('klar-stammer')); expect(spion.stammer).toBe(1);
     expect(text('klar-stammer')).toContain('Stämmer ✓');
-    // fortfarande kvar: avlägg (kartan) + 6 frågor → knappen är grå men TRYCKBAR
+    // fortfarande kvar: avlägg (kartan) + Har du … → knappen är grå men TRYCKBAR
     expect(q('klar-for-maskin')!.getAttribute('data-klar')).toBe('0');
     expect(q('klar-for-maskin')!.hasAttribute('disabled')).toBe(false);
   });
@@ -463,16 +602,18 @@ describe('Fyll i Behöver dig → Klar för maskin', () => {
     expect(text('klar-status')).toBe('Klar för maskin ✓');
   });
 
-  it('SPÄRRAR ALDRIG: med mycket kvar går trycket ändå igenom och kvar-raden visas bredvid', () => {
+  it('SPÄRRAR ALDRIG: med mycket kvar går trycket ändå igenom', () => {
     montera({});
     klicka(q('klar-for-maskin'));
     expect(spion.klarForMaskin).toBe(1);
   });
 
-  it('en redan planerad trakt med något kvar visar det ("N kvar sedan sist") — ingen ny knapp', () => {
+  it('en redan planerad trakt med något kvar visar det i rubriken ("Klar för maskin ✓ · 1 kvar") — ingen ny knapp, ingen rad under', () => {
     montera({ objektStatus: 'planerad', avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36, godkand: true, harDu: {} });
     expect(finns('klar-for-maskin')).toBe(false);
-    expect(text('klar-skickad')).toContain('6 kvar sedan sist');
+    expect(text('klar-status')).toBe('Klar för maskin ✓');
+    expect(behallare!.textContent).toContain('Klar för maskin ✓ · 1 kvar');
+    expect(text('klar-skickad')).not.toContain('kvar');
   });
 });
 
@@ -518,7 +659,7 @@ describe('Skälviken: Vida har en basväg → ritar man den sjunker siffran', ()
     expect(q('klar-post-basvag')!.getAttribute('data-kvar')).toBe('1');
     expect(text('klar-rad-basvag')).toContain('Rita');
     expect(text('klar-rad-basvag')).toContain('Vida har en basväg i underlaget');
-    expect(text('klar-kvar-text')).toBe('Kvar: basväg');
+    expect(text('klar-status')).toBe('1 sak kvar');
     act(() => { rot!.unmount(); }); behallare!.remove();
     montera({ ...nästanKlar, basvagForvantad: true, basvagTexter: ['Blå/gul · 480 m'] });
     expect(finns('klar-behover')).toBe(false);
@@ -533,64 +674,65 @@ describe('Skälviken: Vida har en basväg → ritar man den sjunker siffran', ()
   });
 });
 
-describe('det som redan stämmer — tre hopfällda rader', () => {
-  it('raderna säger vad de rymmer: "N uppgifter", "N av 6", "Inga avvikelser"', () => {
+describe('det som är klart — bara det som faktiskt är klart', () => {
+  it('raderna säger vad de rymmer: "N uppgifter", "6 av 6", "Inga avvikelser"', () => {
     montera(KLAR);
-    expect(text('klar-grupp-appen-sammanfattning')).toBe('7 uppgifter');
-    expect(text('klar-grupp-harDu-sammanfattning')).toBe('6 av 6');
+    expect(text('klar-grupp-appen-sammanfattning')).toBe('6 uppgifter');   // avlägg · basväg · förutsättningar · skördare · skotare · medelstam
+    expect(text('klar-rad-hardu-varde')).toBe('6 av 6');
     expect(text('klar-grupp-ovrigt-sammanfattning')).toBe('Inga avvikelser');
     expect(text('klar-grupp-appen')).toContain('Appen har fyllt i');
-    expect(text('klar-grupp-harDu')).toContain('Har du …');
+    expect(text('klar-post-hardu')).toContain('Har du …');
     expect(text('klar-grupp-ovrigt')).toContain('Markägare & övrigt');
   });
-  it('"Appen har fyllt i" räknar bara det som INTE är kvar (de sju uppgifterna — medelstam och prognos bor i prognoskortet)', () => {
+  it('"Appen har fyllt i" räknar bara det som INTE är kvar', () => {
     montera({});
-    expect(text('klar-grupp-appen-sammanfattning')).toBe('1 uppgift');       // bara basvägen ("Ingen")
+    expect(text('klar-grupp-appen-sammanfattning')).toBe('2 uppgifter');       // basväg ("Ingen") och medelstam ur TD
     montera_om({ ...KLAR, avlaggAntal: 0 });
-    expect(text('klar-grupp-appen-sammanfattning')).toBe('6 uppgifter');
+    expect(text('klar-grupp-appen-sammanfattning')).toBe('5 uppgifter');
   });
-  it('alla tre är stängda från början; ett tryck fäller ut på plats (ingen ny vy) och ett till fäller ihop; en i taget', () => {
+  it('Har du … står under det klara först när alla sex är besvarade; innan dess är den en rad i Behöver dig', () => {
+    montera({});
+    expect(q('klar-del2')!.querySelector('[data-testid="klar-post-hardu"]')).toBeNull();
+    expect(q('klar-del1')!.querySelector('[data-testid="klar-post-hardu"]')).not.toBeNull();
+    montera_om(KLAR);
+    expect(q('klar-del1')).toBeNull();
+    expect(q('klar-del2')!.querySelector('[data-testid="klar-post-hardu"]')!.getAttribute('data-kvar')).toBe('0');
+    klicka(q('klar-rad-hardu'));                                              // öppnar frågorna igen så ett svar går att ändra
+    expect(finns('klar-fragor-vy')).toBe(true);
+    expect(text('klar-fragor-rakneverk')).toBe('1 av 6');
+  });
+  it('de hopfällda raderna är stängda från början; ett tryck fäller ut på plats (ingen ny vy) och ett till fäller ihop; en i taget', () => {
     montera(KLAR);
-    for (const g of ['appen', 'harDu', 'ovrigt']) expect(q(`klar-grupp-${g}`)!.getAttribute('data-oppen')).toBe('0');
+    for (const g of ['appen', 'ovrigt']) expect(q(`klar-grupp-${g}`)!.getAttribute('data-oppen')).toBe('0');
     expect(finns('klar-grupp-appen-innehall')).toBe(false);
     klicka(q('klar-grupp-appen-rad'));
     expect(q('klar-grupp-appen-rad')!.getAttribute('aria-expanded')).toBe('true');
     expect(finns('klar-grupp-appen-innehall')).toBe(true);
     expect(finns('klar-prognoskort')).toBe(true);                // fortfarande samma vy
-    klicka(q('klar-grupp-harDu-rad'));
+    klicka(q('klar-grupp-ovrigt-rad'));
     expect(q('klar-grupp-appen')!.getAttribute('data-oppen')).toBe('0');   // en i taget
-    expect(q('klar-grupp-harDu')!.getAttribute('data-oppen')).toBe('1');
-    klicka(q('klar-grupp-harDu-rad'));
-    expect(q('klar-grupp-harDu')!.getAttribute('data-oppen')).toBe('0');
+    expect(q('klar-grupp-ovrigt')!.getAttribute('data-oppen')).toBe('1');
+    klicka(q('klar-grupp-ovrigt-rad'));
+    expect(q('klar-grupp-ovrigt')!.getAttribute('data-oppen')).toBe('0');
   });
   it('utfälld "Appen har fyllt i" visar uppgifterna med sina värden och går att rätta på plats', () => {
     montera(KLAR);
     oppnaGrupp('appen');
-    for (const id of ['avlagg', 'basvag', 'barighet', 'terrang', 'skotningsavstand', 'skordare', 'skotare']) expect(finns(`klar-post-${id}`), id).toBe(true);
-    expect(finns('klar-post-medelstam')).toBe(false);
-    expect(finns('klar-post-prognos')).toBe(false);
-    expect(text('klar-rad-barighet')).toContain('Bra');
-    klicka(q('klar-rad-barighet'));
+    for (const id of ['avlagg', 'basvag', 'forutsattningar', 'skordare', 'skotare', 'medelstam']) expect(finns(`klar-post-${id}`), id).toBe(true);
+    expect(finns('klar-post-prognos')).toBe(false);              // prognosen bor i prognoskortet
+    expect(text('klar-rad-forutsattningar-varde')).toBe('Bra · Flack · Medel');
+    klicka(q('klar-rad-forutsattningar'));
     klicka(q('klar-barighet-medel'));
     expect(spion.patchar.at(-1)).toEqual({ barighet: 'medel' });
   });
   it('en uppgift som tas tillbaka flyttar upp till Behöver dig', () => {
     montera(KLAR);
     oppnaGrupp('appen');
-    klicka(q('klar-rad-barighet'));
+    klicka(q('klar-rad-forutsattningar'));
     klicka(q('klar-barighet-bra'));                      // samma val igen = tar tillbaka svaret
-    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-barighet"]')!.getAttribute('data-kvar')).toBe('1');
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-forutsattningar"]')!.getAttribute('data-kvar')).toBe('1');
+    expect(text('klar-rad-forutsattningar-varde')).toBe('1 kvar');
     expect(text('klar-status')).toBe('1 sak kvar');
-  });
-  it('Har du … utfälld: de besvarade, med vem och när; med inga besvarade står det var frågorna finns', () => {
-    montera({ ...KLAR, harDu: {} });
-    oppnaGrupp('harDu');
-    expect(text('klar-grupp-harDu-innehall')).toContain('Inga frågor är besvarade än');
-    act(() => { rot!.unmount(); }); behallare!.remove();
-    montera(KLAR);
-    oppnaGrupp('harDu');
-    expect(behallare!.querySelectorAll('[data-testid^="klar-fraga-"][data-besvarad="1"]').length).toBe(6);
-    expect(text('klar-fraga-gransar-vem')).toContain('Martin');
   });
 });
 
@@ -788,21 +930,21 @@ describe('ingången från ⓘ-kortet', () => {
 
 describe('raden stängs när ett val är gjort — nästa rad syns direkt', () => {
   const oppen = (id: string) => q(`klar-rad-${id}`)!.getAttribute('aria-expanded') === 'true';
-  it('bärighet, terräng och skotningsavstånd: ett val stänger raden och posten flyttar ur Behöver dig; att ta tillbaka valet gör inte det', () => {
+  it('Förutsättningar: ett val stänger inte raden förrän alla tre är valda — då fälls den ihop och området flyttar ur Behöver dig; att ta tillbaka ett val öppnar den inte', () => {
     montera({});
-    for (const [rad, val] of [['barighet', 'bra'], ['terrang', 'flackt'], ['skotningsavstand', 'medel']] as const) {
-      klicka(q(`klar-rad-${rad}`));
-      expect(oppen(rad)).toBe(true);
-      klicka(q(`klar-${rad}-${val}`));
-      expect(finns(`klar-${rad}-${val}`), `${rad} stängd efter val`).toBe(false);
-      expect(q('klar-behover')!.querySelector(`[data-testid="klar-post-${rad}"]`), `${rad} borta ur Behöver dig`).toBeNull();
-    }
+    klicka(q('klar-rad-forutsattningar'));
+    expect(oppen('forutsattningar')).toBe(true);
+    klicka(q('klar-barighet-bra')); klicka(q('klar-terrang-flackt'));
+    expect(oppen('forutsattningar')).toBe(true);
+    klicka(q('klar-skotningsavstand-medel'));
+    expect(q('klar-behover')!.querySelector('[data-testid="klar-post-forutsattningar"]')).toBeNull();
+    expect(finns('klar-seg-barighet')).toBe(false);
     oppnaGrupp('appen');
-    expect(oppen('barighet')).toBe(false);
-    klicka(q('klar-rad-barighet'));
+    expect(oppen('forutsattningar')).toBe(false);
+    klicka(q('klar-rad-forutsattningar'));
     klicka(q('klar-barighet-bra'));          // samma val igen = tar tillbaka svaret
     expect(spion.patchar.at(-1)).toEqual({ barighet: null });
-    expect(oppen('barighet')).toBe(true);    // inget val står kvar → raden förblir öppen (nu i Behöver dig)
+    expect(oppen('forutsattningar')).toBe(true);    // raden förblir öppen (nu i Behöver dig)
   });
   it('skördare: Egen utan maskin stannar öppen, en vald maskin stänger; Extern stannar öppen tills planeraren själv stänger, och skrivandet stänger aldrig', () => {
     montera({});
@@ -831,13 +973,13 @@ describe('raden stängs när ett val är gjort — nästa rad syns direkt', () =
     klicka(q('klar-skordare-egen'));
     expect(oppen('skordare')).toBe(false);
   });
-  it('en rad i taget: att öppna terräng stänger bärighet', () => {
+  it('en rad i taget: att öppna skördare stänger Förutsättningar', () => {
     montera({});
-    klicka(q('klar-rad-barighet'));
-    expect(oppen('barighet')).toBe(true);
-    klicka(q('klar-rad-terrang'));
-    expect(oppen('terrang')).toBe(true);
-    expect(oppen('barighet')).toBe(false);
+    klicka(q('klar-rad-forutsattningar'));
+    expect(oppen('forutsattningar')).toBe(true);
+    klicka(q('klar-rad-skordare'));
+    expect(oppen('skordare')).toBe(true);
+    expect(oppen('forutsattningar')).toBe(false);
   });
 });
 
@@ -901,18 +1043,45 @@ describe('iOS på svart: träffytor och språk', () => {
   it('varje knapp och rad i kortet är minst 44 pt hög (maskinen skakar och fingret träffar snett)', () => {
     for (const start of [{} as KlarFixtur, KLAR, { ...KLAR, avlaggAntal: 0, harDu: {} } as KlarFixtur]) {
       montera(start);
-      for (const g of ['appen', 'harDu', 'ovrigt'] as const) { klicka(q(`klar-grupp-${g}-rad`)); for (const k of Array.from(behallare!.querySelectorAll('button'))) {
+      for (const g of ['appen', 'ovrigt'] as const) { klicka(q(`klar-grupp-${g}-rad`)); for (const k of Array.from(behallare!.querySelectorAll('button'))) {
         const h = parseFloat((k as HTMLElement).style.minHeight || (k as HTMLElement).style.height || '0');
         expect(h, `${k.getAttribute('data-testid')} (${g})`).toBeGreaterThanOrEqual(44);
       } }
       act(() => { rot!.unmount(); }); behallare!.remove();
     }
   });
+  it('segmentknapparna (Förutsättningar) och Har du-vyn: minst 44 pt, svarsknapparna 60 pt', () => {
+    montera({});
+    klicka(q('klar-rad-forutsattningar'));
+    const knappar = Array.from(q('klar-forutsattningar-redigera')!.querySelectorAll('button'));
+    expect(knappar.length).toBe(9);
+    for (const k of knappar) expect(parseFloat(k.style.minHeight), k.getAttribute('data-testid')!).toBeGreaterThanOrEqual(44);
+    klicka(q('klar-rad-forutsattningar'));
+    klicka(q('klar-rad-hardu'));
+    for (const id of ['klar-fragor-tillbaka', 'klar-fragor-foregaende', 'klar-fragor-hoppa']) expect(parseFloat(q(id)!.style.minHeight || '44'), id).toBeGreaterThanOrEqual(44);
+  });
+  it('orange står BARA på antalet i rubriken och på värdena i Behöver dig-raderna (och etiketten för ett ovalt val) — aldrig i prognoskortet eller det klara', () => {
+    montera({ medelstam: null, utanForslag: true, skordare: EGEN('R64101'), skotare: EGEN('A110148') });
+    const orange = farg(FARG.orange);
+    const harOrange = (rot: Element | null) => Array.from(rot?.querySelectorAll<HTMLElement>('*') ?? []).filter((e) => e.style.color === orange);
+    expect(harOrange(q('klar-prognoskort'))).toEqual([]);
+    expect(harOrange(q('klar-del2'))).toEqual([]);
+    expect(harOrange(q('klar-for-maskin'))).toEqual([]);
+    expect(harOrange(q('klar-status')).length + (q('klar-status')!.style.color === orange ? 1 : 0)).toBeGreaterThan(0);
+    klicka(q('klar-rad-forutsattningar'));
+    const iBehover = harOrange(q('klar-del1')).map((e) => e.getAttribute('data-testid'));
+    expect(iBehover).toContain('klar-rad-forutsattningar-varde');
+    expect(iBehover).toContain('klar-seg-barighet-etikett');
+  });
   it('färg är aldrig ensam informationsbärare: varje orange text har ett ord bredvid sig', () => {
     montera({});
     const orange = farg(FARG.orange);
-    const orangeTexter = Array.from(behallare!.querySelectorAll<HTMLElement>('*')).filter((e) => e.style.color === orange && e.children.length === 0).map((e) => e.textContent!.trim());
-    expect(orangeTexter.length).toBeGreaterThan(5);
-    for (const t of orangeTexter) expect(t, 'orange text utan ord').toMatch(/[A-Za-zÅÄÖåäö]{3,}/);
+    const orangeLeaves = Array.from(behallare!.querySelectorAll<HTMLElement>('*')).filter((e) => e.style.color === orange && e.children.length === 0);
+    expect(orangeLeaves.length).toBeGreaterThan(4);
+    // ordet kan stå bredvid (radens etikett: "Har du … · 0 av 6") — då räknas det som ord
+    for (const e of orangeLeaves) {
+      const granne = (e.closest('button') ?? e.parentElement)!.textContent!.replace(e.textContent!, '');
+      expect(`${e.textContent} ${granne}`, 'orange text utan ord').toMatch(/[A-Za-zÅÄÖåäö]{3,}/);
+    }
   });
 });

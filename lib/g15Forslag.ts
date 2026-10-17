@@ -195,6 +195,11 @@ export function forslagKalla(f: RollForslag): string {
   return `${intervall} · ur ${f.antal} ${typOrd} (snitt)`;
 }
 
+/** "slutavverkningar" / "gallringar" när förslaget räknats som snitt över ALLA trakter av typen för att medelstam saknas; annars null. */
+export function snittTypOrd(f: RollForslag): string | null {
+  return f.metod === 'snitt-medelstam-saknas' ? (f.typ === 'gallring' ? 'gallringar' : 'slutavverkningar') : null;
+}
+
 /** Prestation m³fub per G15-timme — uträknad, aldrig ett eget fält. null när något saknas. */
 export function prestation(volym: number | null, g15Tim: number | null): number | null {
   if (!arPos(volym) || !arPos(g15Tim)) return null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaG15Forslag, forslagKalla, fmtMs, percentil, prestation, type RollForslag, type UtfallRad } from './g15Forslag';
+import { beraknaG15Forslag, forslagKalla, fmtMs, percentil, prestation, snittTypOrd, type RollForslag, type UtfallRad } from './g15Forslag';
 import { UTFALL_2026_10_17 } from './__fixtures__/utfall_2026-10-17';
 
 const ok = <T extends { ok: boolean }>(r: T) => { expect(r.ok).toBe(true); return (r as any).forslag as RollForslag; };
@@ -56,6 +56,14 @@ describe('medelstam saknas → snitt över alla, och det sägs', () => {
     expect(s.metod).toBe('snitt-medelstam-saknas');
     expect(s.g15).toBeGreaterThanOrEqual(45); expect(s.g15).toBeLessThanOrEqual(49);
     expect(forslagKalla(s)).toMatch(/^Medelstam saknas – snitt över alla trakter · ur 27 slutavverkningar · troligen \d+–\d+$/);
+  });
+  it('snittTypOrd säger över vad snittet är räknat — kortet skriver "Snitt över alla slutavverkningar" under tabellen; med medelstam finns inget ord', () => {
+    expect(snittTypOrd(ok(f.skordare))).toBe('slutavverkningar');
+    expect(snittTypOrd(ok(f.skotare))).toBeNull();            // skotaren är snitt per typ ändå — medelstam hjälper den inte
+    const g = beraknaG15Forslag({ typ: 'gallring', volym: 900, medelstam: null }, UTFALL_2026_10_17);
+    expect(snittTypOrd(ok(g.skordare))).toBe('gallringar');
+    const med = beraknaG15Forslag({ typ: 'slutavverkning', volym: 1734, medelstam: 0.8 }, UTFALL_2026_10_17);
+    expect(snittTypOrd(ok(med.skordare))).toBeNull();
   });
 });
 

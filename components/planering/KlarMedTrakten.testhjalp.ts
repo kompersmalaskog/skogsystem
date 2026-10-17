@@ -37,7 +37,7 @@ export interface KlarFixtur {
 }
 
 /** En maskins prognosdel: fältet visar det skrivna värdet, annars förslaget — som sidan gör. */
-function maskinPrognos(tim: number | null, volym: number | null, forslag: { g15: number; kalla: string } | null, saknasText: string): MaskinPrognos {
+function maskinPrognos(tim: number | null, volym: number | null, forslag: { g15: number; kalla: string; snittOver?: string } | null, saknasText: string): MaskinPrognos {
   return { tim: tim != null ? String(tim) : '', forslag, saknas: forslag ? null : saknasText, andrad: forslag != null && tim != null && tim !== forslag.g15, prestation: prestation(volym, tim) };
 }
 
@@ -66,7 +66,10 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     maskiner: { skordare: [{ id: 'R64101', namn: 'Rottne H8E' }, { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' }], skotare: [{ id: 'A110148', namn: 'Ponsse Elephant King AF' }, { id: 'A030353', namn: 'Ponsse Wisent 2015' }] },
     prognos: {
       volym: prognos.volym != null ? String(prognos.volym) : '', areal: prognos.areal != null ? String(prognos.areal).replace('.', ',') : '', medelstam: prognos.medelstam != null ? String(prognos.medelstam).replace('.', ',') : '',
-      skordare: maskinPrognos(prognos.skordareTimmar, prognos.volym, f.utanForslag ? null : { g15: 41, kalla: 'troligen 38–45 · ur 7 trakter med medelstam 0,64–1,0' }, 'Färre än 3 jämförbara trakter (medelstam 0,58–0,9) — inget förslag — skriv G15-tim själv'),
+      // Saknas medelstam räknar sidan snitt över alla trakter av typen (lib/g15Forslag: metod 'snitt-medelstam-saknas') — då bär förslaget `snittOver`.
+      skordare: maskinPrognos(prognos.skordareTimmar, prognos.volym, f.utanForslag ? null : (prognos.medelstam == null
+        ? { g15: 41, kalla: 'Medelstam saknas – snitt över alla trakter · ur 22 slutavverkningar · troligen 38–45', snittOver: 'slutavverkningar' }
+        : { g15: 41, kalla: 'troligen 38–45 · ur 7 trakter med medelstam 0,64–1,0' }), 'Färre än 3 jämförbara trakter (medelstam 0,58–0,9) — inget förslag — skriv G15-tim själv'),
       skotare: maskinPrognos(prognos.skotareTimmar, prognos.volym, f.utanForslag ? null : { g15: 36, kalla: 'troligen 30–44 · ur 22 slutavverkningar (snitt)' }, 'Färre än 3 trakter av typen att räkna på — inget förslag — skriv G15-tim själv'),
       godkandAv: f.godkand ? 'm1' : null, godkandAt: f.godkand ? '2026-10-17T09:00:00.000Z' : null,
     },

@@ -34,8 +34,9 @@ describe('kortet och sidan', () => {
     expect(page).toContain('if (!infoSkordareMaskinId && klarSkordare.maskinId) { setInfoSkordareMaskinId(klarSkordare.maskinId); setInfoSkordareUtforare(null); }');
     expect(page).toContain('if (!infoSkotareMaskinId && klarSkotare.maskinId) { setInfoSkotareMaskinId(klarSkotare.maskinId); setInfoSkotareUtforare(null); }');
   });
-  it('kortet: ett val stänger raden (bärighet, terräng, avstånd, skördare, skotare); skrivfält stänger aldrig av sig självt', () => {
-    for (const rad of ['barighet', 'terrang', 'skotningsavstand', 'skordare', 'skotare']) expect(kort, rad).toContain(`onKlart={() => stangRad('${rad}')}`);
+  it('kortet: ett val stänger raden (skördare, skotare; Förutsättningar när alla tre är valda); skrivfält stänger aldrig av sig självt', () => {
+    for (const rad of ['skordare', 'skotare']) expect(kort, rad).toContain(`onKlart={() => stangRad('${rad}')}`);
+    expect(kort).toContain("if (efter.barighet && efter.terrang && efter.skotningsavstand) stangRad('forutsattningar');");
     // ett skrivfält stänger aldrig sin rad medan man skriver (onChange) — bara Enter/blur avslutar, och de fäller ihop bara fältet, inte raden bredvid
     expect(kort).not.toMatch(/<Falt[^>]*onChange=\{[^}]*stangRad/);
   });
@@ -95,7 +96,7 @@ describe('omdesignen (förslag 2): presentation, ingen ny logik', () => {
     expect(kort).toContain('<Huvud titel={p.namn}');
     expect(kort).not.toContain('titel={`Klar med ${p.namn}?`}');
   });
-  it('fast ordning i källan: Behöver dig → prognoskortet → Det som redan stämmer → Klar för maskin', () => {
+  it('fast ordning i källan: Behöver dig → prognoskortet → det som är klart → Klar för maskin', () => {
     const i = (t: string) => kort.indexOf(t);
     expect(i('data-testid="klar-behover"')).toBeGreaterThan(0);
     expect(i('data-testid="klar-behover"')).toBeLessThan(i('data-testid="klar-prognoskort"'));
@@ -115,9 +116,33 @@ describe('omdesignen (förslag 2): presentation, ingen ny logik', () => {
     expect(kort).toContain("data-testid={`klar-${roll}-prestation`}");
     expect(kort).not.toContain('klar-cell-prestation');
   });
-  it('de tre grupperna är hopfällda från början (ingen är öppen utan att man tryckt) och öppnas av ett tryck på plats — ingen ny vy', () => {
-    expect(kort).toContain("useState<'appen' | 'harDu' | 'ovrigt' | null>(p.startMedVed ? 'ovrigt' : null)");
+  it('de hopfällda raderna är stängda från början (ingen är öppen utan att man tryckt) och öppnas av ett tryck på plats — ingen ny vy', () => {
+    expect(kort).toContain("useState<'appen' | 'ovrigt' | null>(p.startMedVed ? 'ovrigt' : null)");
     expect(kort).not.toContain('onNyVy');
+  });
+  it('v2 efter test på Mölleryd: antalet kvar bara i rubriken, ingen rubrik "Det som redan stämmer", ingen Kvar-rad under knappen', () => {
+    expect(kort).not.toContain('klar-kvar-text');
+    expect(kort).not.toContain('kvarText');
+    expect(kort).not.toContain('Det som redan stämmer');
+    expect(kort).not.toMatch(/<Rubrik>Behöver dig[^<]*\{/);          // ingen siffra i Behöver dig-rubriken
+    expect(kort).not.toContain('klar-grupp-harDu');                    // Har du … är en vy, inte en utfällbar grupp
+  });
+  it('Förutsättningar är ETT område (segmentknappar på plats) och Har du … en egen vy, en fråga i taget', () => {
+    expect(kort).toContain('function ForutsRad(');
+    expect(kort).toContain('function FragorVy(');
+    expect(kort).toContain('data-testid="klar-fragor-vy"');
+    expect(kort).toContain("setVy('fragor')");
+    // posterna bärighet/terräng/avstånd får inte ha egna rader i Behöver dig
+    expect(kort).not.toMatch(/BEHOVER_ORDNING[^\n]*'barighet'/);
+    expect(kort).toContain("const BEHOVER_ORDNING: Array<PostId | 'forutsattningar'> = ['avlagg', 'basvag', 'forutsattningar', 'skordare', 'skotare', 'medelstam', 'prognos'];");
+  });
+  it('orange bara på rubrikens antal och på värden i Behöver dig: prognoskortet och det klara har ingen orange text utom ogiltigt-noten', () => {
+    const prognos = kort.slice(kort.indexOf('data-testid="klar-prognoskort"'), kort.indexOf('{/* ── 3. DET SOM ÄR KLART'));
+    const orangeRader = prognos.split('\n').filter((r) => r.includes('FARG.orange'));
+    expect(orangeRader.length).toBe(1);
+    expect(orangeRader[0]).toContain('klar-stammer-ogiltigt');
+    const klart = kort.slice(kort.indexOf('{/* ── 3. DET SOM ÄR KLART'), kort.indexOf('{/* ── KLAR FÖR MASKIN'));
+    expect(klart).not.toContain('FARG.orange');
   });
   it('kortet räknar ingenting nytt: status, förslag och tider kommer ur lib/klarTrakt, lib/g15Forslag och sidan', () => {
     expect(kort).not.toMatch(/from '@\/lib\/g15Forslag'/);
