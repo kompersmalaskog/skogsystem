@@ -3,7 +3,7 @@
 // ändras tillbaka. Motorn: scripts/mutationsmotor.mjs.
 //
 // Kör:  node scripts/mutationskontroll-admin-granskning.mjs   (EN tung körning åt gången: inte tillsammans med tsc/build/dev-server)
-//       Dela upp med MUT_FRAN=0 MUT_TILL=15 om tidsgränsen är kort.
+//       Dela upp med MUT_FRAN=0 MUT_TILL=15 om tidsgränsen är kort, eller välj efter namn: MUT_NAMN='utbetal|lön|nära|delägare|Dagar visar|Min månad|löneperioden'.
 import { kor } from "./mutationsmotor.mjs";
 
 const MAN = "lib/lonesystem/lonemanad.ts";
@@ -31,13 +31,13 @@ const kommando = ["bash", "-c", [
 ].join(" && ")];
 
 const M = [
-  // ── Arbetsmånaden är namnet, utbetalningen i liten text ──
-  ["utbetalningen räknas från arbetsmånaden i stället för månaden efter", "const [å, m] = loneperiodForArbetsManad(arbetsManad).split(\"-\").map(Number);", "const [å, m] = arbetsManad.split(\"-\").map(Number);", MAN],
-  ["lönen betalas inte den 25:e", "export const LONEDAG = 25;", "export const LONEDAG = 26;", MAN],
-  ["Löneunderlaget visar löneperioden som namn", "textTransform: \"capitalize\" }}>{arbetsManadText(arbetsManad)}</div>", "textTransform: \"capitalize\" }}>{arbetsManadText(period)}</div>", LON],
-  ["bekräftelsen visar löneperioden som månad", "manadText={arbetsManadText(arbetsManad)}", "manadText={arbetsManadText(period)}", LON],
-  ["Dagar visar utbetalningen för kvartal och år", "{period === \"M\" && <div data-utbetalning=\"\"", "{period !== \"M\" && <div data-utbetalning=\"\"", DAG],
-  ["Min månad säger inte när lönen betalas", "color:FARG.text2 }}>{utbetalningText(lönePeriod)}</div>\n            </div>", "color:FARG.text2 }}>{\"\"}</div>\n            </div>", ARB],
+  // ── Arbetsmånaden är namnet, månaden lönen kommer står bredvid ──
+  ["utbetalningen räknas från arbetsmånaden i stället för månaden efter", "const m = Number(loneperiodForArbetsManad(arbetsManad).split(\"-\")[1]);", "const m = Number(arbetsManad.split(\"-\")[1]);", MAN],
+  ["lönen får ett datum igen (vi betalar inte en fast dag)", "return `lön i ${MANADER[m - 1]}`;", "return `lön betalas 25 ${MANADER[m - 1]}`;", MAN],
+  ["Löneunderlaget visar löneperioden som namn", "textAlign: \"center\" }}><ManadRubrik arbetsManad={arbetsManad} /></div>", "textAlign: \"center\" }}><ManadRubrik arbetsManad={period} /></div>", LON],
+  ["bekräftelsen visar löneperioden som månad", "arbetsManad={arbetsManad}\n          data={fortnoxData}", "arbetsManad={period}\n          data={fortnoxData}", LON],
+  ["Dagar visar utbetalningen för kvartal och år", "{period === \"M\" ? <ManadRubrik", "{period !== \"M\" ? <ManadRubrik", DAG],
+  ["Min månad säger inte vilken månad lönen kommer", "<ManadRubrik arbetsManad={lönePeriod} /></h1>", "<ManadRubrik arbetsManad={lönePeriod} lon={false} /></h1>", ARB],
 
   // ── Löneunderlag: svaret först ──
   ["svaret säger aldrig 'Klart att skicka'", "antal === 0 ? \"Klart att skicka\"", "antal === -1 ? \"Klart att skicka\"", LON],
@@ -61,8 +61,8 @@ const M = [
 
   // ── Översikt: en knapp, ett ord ──
   ["lönerutan heter Granska igen", "knapp: \"Öppna\", mal: { typ: \"flik\", flik: \"lon\", underflik: \"underlag\" },", "knapp: \"Granska\", mal: { typ: \"flik\", flik: \"lon\", underflik: \"underlag\" },", AG],
-  ["'nära gränsen' visas utan att något är över", "const over = forare.some(f => f.varsta === \"rod\");", "const over = forare.some(f => f.varsta !== \"lugn\");", AG],
-  ["delägare visas i Arbetstid", ".filter(f => !f.foretagsledare);\n    const over", ";\n    const over", AG],
+  ["'nära gränsen' visas bara tillsammans med en röd (varna före gränsen, inte efter)", "arbetstid = forare;", "arbetstid = forare.some(f => f.varsta === \"rod\") ? forare : [];", AG],
+  ["delägare visas i Arbetstid", ".filter(f => !f.foretagsledare);\n    arbetstid = forare;", ";\n    arbetstid = forare;", AG],
   ["'Allt stämmer' fälls inte ihop", "{stammerOppen && att.stammer.map(", "{att.stammer.map(", OV],
   ["'Allt annat stämmer' heter alltid 'Allt stämmer'", "att.saker.length > 0 || att.arbetstid.length > 0 ? \"Allt annat stämmer\" : \"Allt stämmer\"", "\"Allt stämmer\"", OV],
 
@@ -92,5 +92,5 @@ kor({
   tester: [],
   kommando,
   standardFil: LON,
-  mutationer: M.slice(Number(process.env.MUT_FRAN ?? 0), Number(process.env.MUT_TILL ?? M.length)),
+  mutationer: M.slice(Number(process.env.MUT_FRAN ?? 0), Number(process.env.MUT_TILL ?? M.length)).filter(m => !process.env.MUT_NAMN || new RegExp(process.env.MUT_NAMN, "i").test(m[0])),
 });

@@ -1947,10 +1947,11 @@ describe("Löneunderlag", () => {
   });
   it("Fortnox-granskningen är innehållet, och visas även när månaden saknar arbetsdagar", async () => {
     await monter("flik=lon");
-    // Svaret först (är det klart att skicka?), månaden är arbetsmånaden med utbetalningen i liten text.
+    // Svaret först (är det klart att skicka?), månaden är arbetsmånaden och bredvid står vilken månad lönen kommer.
     expect(cont.querySelector("[data-svar]")!.textContent).toMatch(/Klart att skicka|att kolla/);
-    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toBe("september 2026");
-    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 oktober");
+    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toMatch(/^September( 2026)?$/);
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön i oktober");
+    expect(cont.querySelector("[data-arbetsmanad]")!.parentElement!.textContent).toMatch(/^September( 2026)? · lön i oktober$/);
     expect(text()).not.toContain("Löneperiod");
     expect(blad("Skicka till Fortnox").length).toBeGreaterThan(0);
   });
@@ -1976,12 +1977,12 @@ describe("Löneunderlag", () => {
     expect(window.location.search).toContain("avv=1");
   });
 
-  it("bekräftelsen säger arbetsmånaden och när lönen betalas — aldrig 'Löneperiod'", async () => {
+  it("bekräftelsen säger arbetsmånaden och vilken månad lönen kommer (inget datum) — aldrig 'Löneperiod'", async () => {
     await monter("flik=lon");
     await klick("Skicka till Fortnox");
     const t = document.body.querySelector<HTMLElement>("[data-skicka-dialog]")!.textContent!;
-    expect(t).toContain("september 2026");
-    expect(t).toContain("lön betalas 25 oktober");
+    expect(t).toMatch(/September( 2026)? · lön i oktober/);
+    expect(t).not.toMatch(/betalas|25 oktober/);
     expect(t).not.toContain("Löneperiod");
     expect(t).not.toContain("arbetstid");
   });
@@ -2867,17 +2868,17 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
   it("valfri månad går att öppna direkt via adressen (period=…), och en ogiltig period faller tillbaka på nu", async () => {
     g.__salary = { ...SALARY, arbetsperiod: "2026-08" };
     await monter("flik=lon&underflik=underlag&period=2026-09");
-    // Adressen talar löneperiod (2026-09); det som syns är arbetsmånaden med utbetalningen i liten text.
-    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toBe("augusti 2026");
-    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 september");
+    // Adressen talar löneperiod (2026-09); det som syns är arbetsmånaden med månaden lönen kommer bredvid.
+    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toMatch(/^Augusti( 2026)?$/);
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön i september");
     expect(g.__fetchAnrop.filter((a: any[]) => a[0].includes("salary-export")).map((a: any[]) => JSON.parse(a[2]).period)).toEqual(["2026-09"]);
     // Ogiltiga perioder faller tillbaka på nu: text, månad 00 (ser ut som en period och skulle nå servern), en siffra, och framtiden.
     for (const ogiltig of ["skräp", "2026-00", "2026-13", "2026-9", "2099-01"]) {
       await act(async () => { root.unmount(); }); cont.remove();
       g.__fetchAnrop = []; g.__salary = SALARY;
       await monter(`flik=lon&underflik=underlag&period=${ogiltig}`);
-      expect(cont.querySelector("[data-arbetsmanad]")!.textContent, ogiltig).toBe("september 2026");
-      expect(cont.querySelector("[data-utbetalning]")!.textContent, ogiltig).toBe("lön betalas 25 oktober");
+      expect(cont.querySelector("[data-arbetsmanad]")!.textContent, ogiltig).toMatch(/^September( 2026)?$/);
+      expect(cont.querySelector("[data-utbetalning]")!.textContent, ogiltig).toBe("lön i oktober");
       expect(g.__fetchAnrop.filter((a: any[]) => a[0].includes("salary-export")).map((a: any[]) => JSON.parse(a[2]).period), ogiltig).toEqual(["2026-10"]);
     }
   });
@@ -3417,7 +3418,7 @@ describe("Översikten: kortet Arbetstid", () => {
     await monter("flik=oversikt");
     expect(kort()).toBeNull();
     await oppnaStammer();
-    expect(text()).toContain("Ingen över en gräns för arbetstid");
+    expect(text()).toContain("Ingen nära eller över en gräns för arbetstid");
   });
 
   it("en förare över taket: namn, ordet 'Över gränsen' och EN mening med talet i", async () => {
@@ -3428,16 +3429,20 @@ describe("Översikten: kortet Arbetstid", () => {
     expect(t).toContain("Stefan Karlsson");
     expect(t).toContain("Över gränsen");
     expect(t).toContain("262 av 250 tim övertid i år — taket är passerat");
-    expect(text()).not.toContain("Ingen över en gräns för arbetstid");
+    expect(text()).not.toContain("Ingen nära eller över en gräns för arbetstid");
   });
 
-  it("gul vid 90 % är en varning utan åtgärd: ensam syns den inte alls", async () => {
+  it("gul vid 90 % visas ENSAM (varna före gränsen): en rad med ordet 'Nära gränsen' och talet, sektionen inte orange", async () => {
     g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 230)]);
     await monter("flik=oversikt");
-    expect(kort()).toBeNull();
+    expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["gul"]);
+    expect(kortText()).toContain("Stefan Karlsson");
+    expect(kortText()).toContain("Nära gränsen");
+    expect(kortText()).toContain("230 av 250 tim övertid i år — närmar sig taket");
+    expect(text()).not.toContain("Ingen nära eller över en gräns för arbetstid");
   });
 
-  it("gul vid 90 % visas tillsammans med en röd: ordet är 'Nära gränsen' (färgen bär inte ensam)", async () => {
+  it("gul vid 90 % bredvid en röd: ordet är 'Nära gränsen' (färgen bär inte ensam)", async () => {
     g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 230), forareMed("r", "Röd Person", 262)]);
     await monter("flik=oversikt");
     const gul = forareRader().find(r => r.getAttribute("data-niva") === "gul")!;
@@ -3568,7 +3573,7 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
     expect(text()).not.toContain("Martin Lindqvist");
     expect(text()).not.toContain("Delägare – arbetstidslagen gäller inte");
     await oppnaStammer();
-    expect(text()).toContain("Ingen över en gräns för arbetstid"); // delägare är inte ett problem
+    expect(text()).toContain("Ingen nära eller över en gräns för arbetstid"); // delägare är inte ett problem
   });
 
   it("en delägare som inte skulle ha varit gul/röd visas inte heller", async () => {
@@ -3576,7 +3581,7 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
     await monter("flik=oversikt");
     expect(cont.querySelector("[data-arbetstid-kort]")).toBeNull();
     await oppnaStammer();
-    expect(text()).toContain("Ingen över en gräns för arbetstid");
+    expect(text()).toContain("Ingen nära eller över en gräns för arbetstid");
   });
 
   it("en vanlig röd förare syns, delägaren bredvid syns inte, och sektionen är orange för den vanliga", async () => {
@@ -3584,7 +3589,7 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
     await monter("flik=oversikt");
     expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["rod"]);
     expect(text()).not.toContain("Martin Lindqvist");
-    expect(text()).not.toContain("Ingen över en gräns för arbetstid");
+    expect(text()).not.toContain("Ingen nära eller över en gräns för arbetstid");
   });
 
   it("delägaren räknas INTE i menysiffran: en röd delägare ger ingen siffra, en röd vanlig förare ger 1", async () => {
@@ -3746,14 +3751,14 @@ describe("Lön → Dagar: svaret först", () => {
     expect(rubrik()).toBe("Visa alla 2");
   });
 
-  it("månaden har arbetsmånaden som namn och utbetalningen i liten text (september → lön betalas 25 oktober)", async () => {
+  it("månaden har arbetsmånaden som namn och månaden lönen kommer bredvid (september → 'September · lön i oktober')", async () => {
     await oppna();
-    expect(text()).toContain("September 2026");
-    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 oktober");
+    expect(cont.querySelector("[data-arbetsmanad]")!.parentElement!.textContent).toMatch(/^September( 2026)? · lön i oktober$/);
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön i oktober");
     // ... och Löneunderlag säger samma sak om samma månad: arbetsmånaden september är löneperiod oktober.
     await klick("Löneunderlag");
-    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toBe("september 2026");
-    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 oktober");
+    expect(cont.querySelector("[data-arbetsmanad]")!.parentElement!.textContent).toMatch(/^September( 2026)? · lön i oktober$/);
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön i oktober");
   });
 
   it("kvartal och år har ingen utbetalningsrad (det är en månads lön)", async () => {

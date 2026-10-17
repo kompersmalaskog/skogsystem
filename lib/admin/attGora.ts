@@ -209,13 +209,12 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
   let arbetstidVarningar: string[] = [];
   if (i.arbetstid.fel) felRad("arbetstid", "arbetstiden", i.arbetstid.fel);
   else if (i.arbetstid.data) {
-    // Delägare (arbetstidslagen gäller inte) visas aldrig. Kortet visas bara när någon är ÖVER en gräns: "nära gränsen" är en
-    // varning utan åtgärd, och en grå rad om att något inte gäller är inget att läsa (granskningen 2026-10-17).
+    // Delägare (arbetstidslagen gäller inte) visas aldrig: en grå rad om att något inte gäller är inget att läsa. Kortet visar den som
+    // är ÖVER en gräns och den som är NÄRA en (gul från 90 %) — principen är att varna före gränsen, inte efter (Martin 2026-10-17).
     const forare = sorteraAttGora(i.arbetstid.data.forare).filter(f => !f.foretagsledare);
-    const over = forare.some(f => f.varsta === "rod");
-    arbetstid = over ? forare : [];
+    arbetstid = forare;
     arbetstidVarningar = i.arbetstid.data.varningar;
-    if (!over) stammer.push({ id: "arbetstid", rubrik: "Ingen över en gräns för arbetstid" });
+    if (forare.length === 0) stammer.push({ id: "arbetstid", rubrik: "Ingen nära eller över en gräns för arbetstid" });
   }
 
   // ── Maskiner som inte skickat fil på länge (Datahälsa) ──

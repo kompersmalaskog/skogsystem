@@ -13,7 +13,7 @@
  * första renderingen har medarbetare = null, sedan läses en förare in. Alla
  * andra tabeller svarar tomt.
  */
-import { utbetalningText } from "@/lib/lonesystem/lonemanad";
+import { manadRubrik, utbetalningText } from "@/lib/lonesystem/lonemanad";
 import React, { act } from "react";
 import fs from "node:fs";
 import path from "node:path";
@@ -387,7 +387,7 @@ describe("Min månad: brandrisk-OB", () => {
 });
 
 
-describe("Min månad: arbetsmånaden är namnet, utbetalningen står i liten text", () => {
+describe("Min månad: arbetsmånaden är namnet, månaden lönen kommer står bredvid", () => {
   const lr = (loneart: string, mangd: string, status: string) => ({ loneart, mangd, status, kod: status === "skickas" ? "11" : null, beskrivning: "" });
   const spec = {
     ok: true,
@@ -399,7 +399,7 @@ describe("Min månad: arbetsmånaden är namnet, utbetalningen står i liten tex
       ob: { timmar: 0, dagar: 0, obesvarade: 0 }, brandrisk: { ob_min: 0, dagar: [] }, status: "utkast",
     },
   };
-  it("rubriken är månaden man tittar på; under den står när lönen betalas (månaden efter, den 25:e)", async () => {
+  it("rubriken är månaden man tittar på; bredvid står vilken månad lönen kommer (månaden efter, inget datum)", async () => {
     vi.stubGlobal("fetch", vi.fn(async (u: any) => ({ ok: true, status: 200, json: async () => (String(u).includes("/api/lon/min-manad") ? spec : {}), text: async () => "" })));
     await montera("/arbetsrapport");
     await klickaKnappMed("Min tid");
@@ -411,9 +411,11 @@ describe("Min månad: arbetsmånaden är namnet, utbetalningen står i liten tex
     const manad = `${nu.getFullYear()}-${String(nu.getMonth() + 1).padStart(2, "0")}`;
     const utbetalning = behallare!.querySelector("[data-utbetalning]")!;
     expect(utbetalning.textContent).toBe(utbetalningText(manad));
-    expect(utbetalning.textContent).toMatch(/^lön betalas 25 (januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)$/);
+    expect(utbetalning.textContent).toMatch(/^lön i (januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)$/);
     // rubriken är arbetsmånaden: den man tittar på, aldrig löneperioden
     const rubrik = behallare!.querySelector("h1")!;
+    expect(rubrik.textContent).toBe(manadRubrik(manad));
     expect((rubrik.textContent || "").toLowerCase()).toContain(nu.toLocaleString("sv-SE", { month: "long" }));
+    expect(rubrik.textContent).not.toMatch(/betalas|\b25\b/);
   });
 });

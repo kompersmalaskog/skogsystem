@@ -4,6 +4,7 @@
 // Det som visas kommer ur dry_run-svaret — samma kodväg som den skarpa sändningen, så förhandsvisningen kan inte säga något annat.
 import React, { useState } from "react";
 import { AVSTAND, FARG, TNUM, TYP } from "@/lib/design/tokens";
+import ManadRubrik from "@/components/design/ManadRubrik";
 import { fmtMangd, loneartInfo, type Loneartkopplingar } from "@/lib/lonesystem/loneart";
 import { antalBlockerande, type BlockerandeLoneart } from "@/lib/lonesystem/loneartSaknas";
 import { Bekrafta, Kort, Lank, Lista, Primar, Rad, Sheet, Stod, Tertiar } from "./ui";
@@ -71,11 +72,9 @@ export function SaknasKort({ blockerande, onKoppla }: { blockerande: Blockerande
  * UTTRYCKLIGEN skicka utan raderna (ett andra steg som listar vad som uteblir och säger att de ALDRIG skickas senare — lönehanteraren
  * lägger in dem för hand). Först då går begäran iväg, med skicka_utan_saknade.
  */
-export function SkickaDialog({ manadText, utbetalningText, data, blockerande, skickar, onKoppla, onSkicka, onStang }: {
-  /** Arbetsmånaden, huvudnamnet: "augusti 2026". */
-  manadText: string;
-  /** "lön betalas 25 september" — liten text, aldrig rubrik. */
-  utbetalningText: string;
+export function SkickaDialog({ arbetsManad, data, blockerande, skickar, onKoppla, onSkicka, onStang }: {
+  /** Arbetsmånaden ("2026-08"), huvudnamnet: dialogen säger "Augusti · lön i september". */
+  arbetsManad: string;
   data: any;
   blockerande: BlockerandeLoneart[];
   skickar: boolean;
@@ -97,8 +96,8 @@ export function SkickaDialog({ manadText, utbetalningText, data, blockerande, sk
       {/* Steg 2 handlar bara om det som uteblir: förarlistan vore bara scroll före varningen. */}
       {steg === "val" && (
         <>
-          <Stod style={{ marginTop: 0, textTransform: "capitalize" }}>{manadText}</Stod>
-          <Stod style={{ marginTop: 0 }}>{utbetalningText} · {antalLon} förare · {data.totalt_rader} lönerader</Stod>
+          <Stod farg={FARG.text} style={{ marginTop: 0, ...TYP.listtitel }}><ManadRubrik arbetsManad={arbetsManad} /></Stod>
+          <Stod style={{ marginTop: 0 }}>{antalLon} förare · {data.totalt_rader} lönerader</Stod>
           {harVarningar && <Stod farg={FARG.orange}>Det finns saker att kolla — granska innan du skickar.</Stod>}
 
           <Lista style={{ marginTop: AVSTAND.m }}>

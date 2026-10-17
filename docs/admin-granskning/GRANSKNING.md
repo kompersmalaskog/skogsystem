@@ -225,7 +225,7 @@ Tid: **30 min**.
 
 ## Utfall: byggt i samma PR
 
-Beslut (Martin 2026-10-17): **arbetsmånaden är alltid huvudnamnet ("Augusti"), utbetalningen står i liten text under ("lön betalas 25 september")** — samma i Löneunderlag, Dagar, Min månad och exportdialogen (`lib/lonesystem/lonemanad.ts`, EN källa). Adressen (`?period=`) och API:erna talar fortfarande löneperiod; bara det som SYNS har bytt ord. Och: rastvarningen "dagar över 6 tim utan rast" är borta och ersatt av en neutral info-rad i dagens detalj (Dagar): *"Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)"*.
+Beslut (Martin 2026-10-17): **arbetsmånaden är alltid huvudnamnet ("Augusti"), månaden lönen kommer står bredvid i dämpad text ("Augusti · lön i september", aldrig ett datum — lönen betalas inte en fast dag, augusti 2026 betalades den 18 september)** — samma i Löneunderlag, Dagar, Min månad och exportdialogen (`lib/lonesystem/lonemanad.ts`, EN källa). Adressen (`?period=`) och API:erna talar fortfarande löneperiod; bara det som SYNS har bytt ord. Och: rastvarningen "dagar över 6 tim utan rast" är borta och ersatt av en neutral info-rad i dagens detalj (Dagar): *"Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)"*.
 
 ### Ord per vy: före → efter (390 px, samma antal på 1440)
 
@@ -276,8 +276,8 @@ Måttet är detsamma som före (synlig text i `<main>`, ±10 ord). "Visa alla 11
 
 **Medvetet inte gjort (SENARE, som i rapporten):** ett kort per förare med detaljvy (#1b), omgruppering av Lön-flikarna, kvittera frågor.
 
-**Två beslut som ändrar något Martin tidigare bestämt — säg till om de ska tillbaka:**
-1. Den **grå delägarraden** i Översiktens Arbetstid (2026-10-13) är borta: en rad om att något *inte* gäller var brus. Företagsledare syns inte alls där; det står fortfarande "Företagsledare – lön utanför appen" i Löneunderlaget.
-2. **"Nära gränsen"** (gul) visas bara tillsammans med en röd. Ensam gul är en varning utan åtgärd.
+**Två tidigare beslut ändrades i bygget — rättat efter Martins besked 2026-10-17:**
+1. Den **grå delägarraden** i Översiktens Arbetstid (2026-10-13) är borta: en rad om att något *inte* gäller var brus. Företagsledare syns inte alls där; det står fortfarande "Företagsledare – lön utanför appen" i Löneunderlaget. (Behålls borta.)
+2. **"Nära gränsen"** (gul, från 90 %) visas ENSAM igen: principen är att varna före gränsen, inte efter. En rad per förare (namn, ordet "Nära gränsen" och EN mening med talet i); "Ingen nära eller över en gräns för arbetstid" står under Allt stämmer först när ingen är gul eller röd. (Rättat — den första versionen visade gul bara tillsammans med en röd.)
 
-**Öppna punkter:** utbetalningsdagen är fast den 25:e — ingen justering för helg eller röd dag (appen vet inte vilken dag banken kör; 25 oktober 2026 är en söndag). Säg vilken regel som gäller om den ska justeras.
+**Utbetalningen:** först byggd som "lön betalas 25 september" (fast den 25:e). Rättat: inget datum — "Augusti · lön i september" (`manadRubrik`, komponenten `components/design/ManadRubrik.tsx`). Året står med bara när månaden inte är i innevarande år.

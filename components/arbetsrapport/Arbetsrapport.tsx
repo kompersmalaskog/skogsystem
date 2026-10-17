@@ -29,7 +29,7 @@ import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klas
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { brandriskUtanRad } from "@/lib/lonesystem/brandriskRader";
 import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
-import { utbetalningText } from "@/lib/lonesystem/lonemanad";
+import ManadRubrik from "@/components/design/ManadRubrik";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
 import PdfLasare from "@/app/planering/PdfLasare";
 // Designvärden — EN källa (lib/design/tokens.ts). Dagsvyn är piloten: den
@@ -4848,8 +4848,7 @@ export default function Arbetsrapport() {
                 <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span>
               </button>
               <div style={{ textAlign:"center" }}>
-                <div style={{ ...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{lönMånadsLabel}</div>
-                <div data-utbetalning="" style={{ ...TYP.meta,color:FARG.text2 }}>{utbetalningText(lönePeriod)}</div>
+                <div style={{ ...TYP.listtitel,color:FARG.text }}><ManadRubrik arbetsManad={lönePeriod} /></div>
               </div>
               <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:AVSTAND.xs,opacity:kanLönFram?1:0.3 }}>
                 <span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_right</span>
@@ -5037,9 +5036,8 @@ export default function Arbetsrapport() {
               <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_left</span>
             </button>
             <div style={{ minWidth:120, textAlign:"center" }}>
-              <h1 style={{ margin:0, ...TYP.listtitel, color:FARG.text, textTransform:"capitalize" }}>{lönMånadsLabel}</h1>
-              {/* Arbetsmånaden är namnet; när lönen betalas står i liten text (lib/lonesystem/lonemanad). */}
-              <div data-utbetalning="" style={{ ...TYP.meta, color:FARG.text2 }}>{utbetalningText(lönePeriod)}</div>
+              {/* Arbetsmånaden är namnet, vilken månad lönen kommer står bredvid (lib/lonesystem/lonemanad). */}
+              <h1 style={{ margin:0, ...TYP.listtitel, color:FARG.text }}><ManadRubrik arbetsManad={lönePeriod} /></h1>
             </div>
             <button onClick={stegLönFram} disabled={!kanLönFram} style={{ ...KNAPP.lank, width:TRAFFYTA.min, justifyContent:"center", ...(kanLönFram ? {} : INAKTIV) }}>
               <span className="material-symbols-outlined" style={{ fontSize:IKON.rad }}>chevron_right</span>

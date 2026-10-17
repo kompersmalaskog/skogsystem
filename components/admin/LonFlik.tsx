@@ -9,7 +9,8 @@ import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { fmtMangd } from "@/lib/lonesystem/loneart";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
 import { kodRadAttGora, oppnaFragor } from "@/lib/lonesystem/attTaMed";
-import { arbetsManadText, utbetalningText } from "@/lib/lonesystem/lonemanad";
+import { arbetsManadText } from "@/lib/lonesystem/lonemanad";
+import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, type ForarKort, type Mal } from "@/lib/admin/loneunderlagVy";
 import Svarsrad from "@/components/design/Svarsrad";
 import OppnaFragorArk from "./OppnaFragor";
@@ -200,15 +201,12 @@ function Loneunderlag() {
 
   return (
     <>
-      {/* Månadsväljare: arbetsmånaden är namnet, utbetalningen står under i liten text. */}
+      {/* Månadsväljare: arbetsmånaden är namnet, vilken månad lönen kommer står bredvid ("Augusti · lön i september"). */}
       <Card style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
         <button onClick={() => valjPeriod(periodOffset(period, -1))} aria-label="Föregående månad" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text }}>
           <Ikon namn="chevron_left" farg={FARG.text} />
         </button>
-        <div style={{ textAlign: "center" }}>
-          <div data-arbetsmanad="" style={{ ...TYP.listtitel, color: FARG.text, textTransform: "capitalize" }}>{arbetsManadText(arbetsManad)}</div>
-          <div data-utbetalning="" style={{ ...TYP.meta, color: FARG.text2 }}>{utbetalningText(arbetsManad)}</div>
-        </div>
+        <div style={{ ...TYP.listtitel, color: FARG.text, textAlign: "center" }}><ManadRubrik arbetsManad={arbetsManad} /></div>
         <button onClick={() => valjPeriod(periodOffset(period, 1))} disabled={period >= periodNu()} aria-label="Nästa månad"
           style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text, opacity: period >= periodNu() ? 0.4 : 1, cursor: period >= periodNu() ? "default" : "pointer" }}>
           <Ikon namn="chevron_right" farg={FARG.text} />
@@ -264,8 +262,7 @@ function Loneunderlag() {
           {/* Bekräftelsedialog: med röda rader finns ingen "Skicka till Fortnox" här (components/admin/LoneraderForhandsvisning). */}
       {visaBekräftelse && fortnoxData?.medarbetare && (
         <SkickaDialog
-          manadText={arbetsManadText(arbetsManad)}
-          utbetalningText={utbetalningText(arbetsManad)}
+          arbetsManad={arbetsManad}
           data={fortnoxData}
           blockerande={fortnoxData.blockerande ?? blockerandeLonearter(fortnoxData.medarbetare)}
           skickar={skickar}

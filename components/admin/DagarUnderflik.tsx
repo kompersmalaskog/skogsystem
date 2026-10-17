@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { dagAvvikelser, minText, datumLang } from "@/lib/lonesystem/forarText";
 import { rastSaknas } from "@/lib/arbetsdagRegler";
-import { utbetalningText } from "@/lib/lonesystem/lonemanad";
+import ManadRubrik from "@/components/design/ManadRubrik";
 import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designCss } from "@/lib/design/tokens";
 import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useAdminNav } from "./nav";
@@ -233,9 +233,10 @@ export default function DagarUnderflik() {
             <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_left</span>
           </button>
           <div style={{ textAlign: "center" }}>
-            <div style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, textTransform: "capitalize" }}>{periodLabel}</div>
-            {/* Arbetsmånaden är namnet; när lönen betalas står i liten text (bara för en månad). */}
-            {period === "M" && <div data-utbetalning="" style={{ ...TYP.meta, color: FARG.text2 }}>{utbetalningText(range.start.slice(0, 7))}</div>}
+            {/* Arbetsmånaden är namnet, vilken månad lönen kommer står bredvid (bara för en månad). */}
+            <div style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, textTransform: period === "M" ? "none" : "capitalize" }}>
+              {period === "M" ? <ManadRubrik arbetsManad={range.start.slice(0, 7)} /> : periodLabel}
+            </div>
           </div>
           <button onClick={() => !arNu && setOffset(o => o + 1)} disabled={arNu} aria-label="Nästa period" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, opacity: arNu ? 0.4 : 1 }}>
             <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_right</span>
