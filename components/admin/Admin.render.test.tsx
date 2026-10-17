@@ -2346,6 +2346,64 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
     expect(skrivningar().map((w: any) => w.op)).toEqual(["update"]);
   });
 
+  describe("Namnet i Fortnox fylls i av koden (och går att ändra)", () => {
+    it("ny kod 1462: namnet fylls i, arket säger att det skedde automatiskt, och det sparas", async () => {
+      await monter("flik=lon&underflik=lonearter");
+      await oppna("helglon_skotare");
+      expect(faltNamn().value).toBe("");
+      await skriv(faltKod(), "1462");
+      expect(faltNamn().value).toBe("Helglön, timmar 2");
+      expect(arket()!.textContent).toContain("Fylldes i automatiskt");
+      await tryckSpara();
+      expect(mappning("helglon_skotare")).toEqual([expect.objectContaining({ extern_kod: "1462", beskrivning: "Helglön, timmar 2" })]);
+      expect(rad("helglon_skotare").textContent).toContain("Helglön, timmar 2");
+    });
+
+    it("hela de tio kända koderna ger sitt namn", async () => {
+      await monter("flik=lon&underflik=lonearter");
+      await oppna("helglon_skordare");
+      for (const [kod, namn] of [["11", "Timlön"], ["136", "Vältlappar mm"], ["147", "OB tillägg natt"], ["821", "Körersättning skattefri"], ["1354", "Premielön skotare"],
+        ["1355", "Premielön skördare"], ["1435", "Övertid skördare"], ["1436", "Övertid skotare"], ["1461", "Helglön, timmar"], ["1462", "Helglön, timmar 2"]]) {
+        await skriv(faltKod(), kod);
+        expect(faltNamn().value, kod).toBe(namn);
+      }
+    });
+
+    it("ett namn du skrivit själv skrivs aldrig över när koden ändras", async () => {
+      await monter("flik=lon&underflik=lonearter");
+      await oppna("helglon_skordare");
+      await skriv(faltKod(), "1461");
+      await skriv(faltNamn(), "Helglön (egen text)");
+      await skriv(faltKod(), "1462");
+      expect(faltNamn().value).toBe("Helglön (egen text)");
+      await tryckSpara();
+      expect(mappning("helglon_skordare")[0].beskrivning).toBe("Helglön (egen text)");
+    });
+
+    it("okänd kod: namnet gissas inte — ett tomt fält förblir tomt, och ett automatiskt ifyllt namn tas bort igen", async () => {
+      await monter("flik=lon&underflik=lonearter");
+      await oppna("helglon_skordare");
+      await skriv(faltKod(), "999");
+      expect(faltNamn().value).toBe("");
+      await skriv(faltKod(), "1461");
+      expect(faltNamn().value).toBe("Helglön, timmar");
+      await skriv(faltKod(), "999");
+      expect(faltNamn().value).toBe("");
+      expect(arket()!.textContent).not.toContain("Fylldes i automatiskt");
+    });
+
+    it("befintlig rad: ett annat känt namn byter namn med koden, men ett okänt nummer lämnar det sparade namnet", async () => {
+      await monter("flik=lon&underflik=lonearter");
+      await oppna("overtid_skordare");
+      expect(faltNamn().value).toBe("Övertid skördare");           // sparat namn, rörs inte av att arket öppnas
+      expect(arket()!.textContent).not.toContain("Fylldes i automatiskt");
+      await skriv(faltKod(), "1450");
+      expect(faltNamn().value).toBe("Övertid skördare");           // okänd kod: det sparade stannar
+      await skriv(faltKod(), "1436");
+      expect(faltNamn().value).toBe("Övertid skotare");
+    });
+  });
+
   it("tom kod = koppla bort: raden tas bort, listan säger 'Ej kopplad', och arket sa det före", async () => {
     await monter("flik=lon&underflik=lonearter");
     await oppna("valtlappar");
@@ -2549,6 +2607,72 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     expect(not).not.toContain("läggs inte som lönerad");
   });
 
+  describe("Att ta med löneansvarig: bara det som fortfarande är öppet", () => {
+    const kopplad = (utom: string[] = []) => Object.fromEntries(
+      ["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob"]
+        .filter(k => !utom.includes(k)).map(k => [k, { kod: "1", namn: "x" }]));
+    const kortet = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-att-ta-med]"));
+    const gor = () => kortet().find(e => e.getAttribute("data-att-ta-med") === "Gör");
+
+    it("allt kopplat (Brandrisk – OB är 147): inget kodråd alls — de öppna frågorna står kvar", async () => {
+      g.__salary = { ...SALARY, kopplingar: kopplad() };
+      await monter("flik=lon");
+      expect(gor()).toBeUndefined();
+      expect(text()).not.toContain("Koppla koden");
+      expect(text()).not.toContain("Koppla koderna");
+      expect(kortet().map(e => e.textContent).join(" ")).toContain("Levereras sjukfrånvaro i timmar per dag?");
+    });
+
+    it("bara Brandrisk – OB saknar kod: rådet nämner just den", async () => {
+      g.__salary = { ...SALARY, kopplingar: kopplad(["brandrisk_ob"]) };
+      await monter("flik=lon");
+      expect(gor()!.textContent).toContain("Koppla koden för Brandrisk – OB");
+      expect(gor()!.textContent).toContain("Lön → Lönearter");
+    });
+
+    it("flera saknas: en rad som räknar upp dem, och en som redan stoppar sändningen (röd rad överst) står inte två gånger", async () => {
+      g.__salary = {
+        ...SALARY, kopplingar: kopplad(["helglon_skordare", "helglon_skotare", "brandrisk_ob"]),
+        blockerande: [{ loneart: "helglon_skordare", label: "Helglön skördare", enhet: "tim", forare: [{ namn: "Anna Berg", mangd: "24.00" }] }],
+      };
+      await monter("flik=lon");
+      expect(kortet().filter(e => e.getAttribute("data-att-ta-med") === "Gör")).toHaveLength(1);
+      expect(gor()!.textContent).toContain("Koppla koderna för Helglön skotare och Brandrisk – OB");
+      expect(gor()!.textContent).not.toContain("Helglön skördare");
+    });
+
+    it("det beslutade och byggda (röd vardag = 8 tim helglön) står inte som en fråga, och inga tekniska ord", async () => {
+      g.__salary = { ...SALARY, kopplingar: kopplad() };
+      await monter("flik=lon");
+      const t = kortet().map(e => e.textContent).join(" ");
+      expect(t).not.toContain("Röd vardag ger alltid");
+      expect(t).not.toMatch(/lib\/|dry_run/);
+    });
+  });
+
+  describe("Utjämningsperiod: EN rad per period", () => {
+    const per = { startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "Gävle/Hedemora-Sandviken 22 apr-29 jun 2026" };
+    const fem = [null, "a", "b", "c", "d"].map(m => ({ ...per, medarbetare_id: m }));
+
+    it("granskningen: förarens period (alla + egen rad, samma datum) står en gång, med antal dagar", async () => {
+      g.__salary = { ...SALARY, kopplingar: {}, medarbetare: [{ ...SALARY.medarbetare[0], obekraftade: 1, utjamning: [per, per] }] };   // raden hör till 'Påverkar riktigheten', som visas när något där finns
+      await monter("flik=lon");
+      const rader = Array.from(cont.querySelectorAll<HTMLElement>("[data-utjamning-period]"));
+      expect(rader).toHaveLength(1);
+      expect(rader[0].textContent).toContain("Utjämningsperiod v17–27 (Gävle/Hedemora-Sandviken), 77 dagar");
+      expect(rader[0].textContent).not.toContain("markeringen bevisar inte det");   // frågan står under 'Att ta med löneansvarig'
+    });
+
+    it("årsövertiden: fem rader i tabellen (prod) blir en grå rad", async () => {
+      g.__arsovertid = { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: fem };
+      await monter("flik=lon");
+      const kort = cont.querySelector<HTMLElement>("[data-arsovertid-kort]")!;
+      const n = (kort.textContent!.match(/Utjämningsperiod v17–27/g) || []).length;
+      expect(n).toBe(1);
+      expect(kort.textContent).toContain("77 dagar — räknas som genomsnitt");
+    });
+  });
+
   it("Koppla koder tar admin till Lönearter", async () => {
     g.__salary = utanHelglonskod();
     await monter("flik=lon");
@@ -2574,9 +2698,19 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     g.__salary = utanHelglonskod();
     await monter("flik=lon");
     await klick("Skicka till Fortnox");
+    expect(dialog()!.textContent).toContain("1 rader");           // steg 1: förarna och antal rader
     await klickaDialog("Skicka utan dessa rader");
-    expect(dialog()!.textContent).toContain("följer inte med");
-    expect(dialog()!.textContent).toContain("Anna Berg");
+    // Steg 2 handlar bara om det som uteblir: förarlistan (som ändå krävde scroll före varningen) är borta.
+    expect(dialog()!.textContent).not.toContain("1 rader");
+    expect(dialog()!.textContent).not.toContain("Löneperiod");
+    // Klartext, utan tekniska ord: raderna skickas ALDRIG senare och någon måste lägga in dem för hand.
+    const t = dialog()!.textContent!;
+    expect(t).toContain("Raderna skickas aldrig senare");
+    expect(t).toContain("Lönehanteraren måste lägga in dem för hand i Fortnox");
+    expect(t).toContain("varken nästa gång du skickar eller av sig själva");
+    expect(t).toContain("Helglön skördare 24 tim (Anna Berg)");   // exakt vad som uteblir, en rad per förare och löneart
+    expect(t).not.toContain("följer inte med");
+    expect(t).not.toMatch(/skicka_utan|SalaryCode|status/i);
     expect(posta()).toEqual([]);                       // fortfarande inget skickat
     await klickaDialog("Skicka utan raderna");
     expect(posta()).toHaveLength(1);
@@ -3090,11 +3224,11 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
     expect(nollTal.style.color).not.toBe(rgb("#ff9f0a"));
   });
 
-  it("utjämningsperioden är en grå rad: 'Utjämningsperiod v17–27 (…) räknas som genomsnitt'", async () => {
+  it("utjämningsperioden är en grå rad: 'Utjämningsperiod v17–27 (…), 77 dagar — räknas som genomsnitt'", async () => {
     g.__arsovertid = svar(IDAG);
     await monter("flik=lon");
     const r = Array.from(cont.querySelectorAll<HTMLElement>("p")).find(e => (e.textContent || "").startsWith("Utjämningsperiod"))!;
-    expect(r.textContent).toBe("Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken) räknas som genomsnitt");
+    expect(r.textContent).toBe("Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken), 77 dagar — räknas som genomsnitt");
     expect(r.style.color).toBe(rgb("#8e8e93"));
   });
 

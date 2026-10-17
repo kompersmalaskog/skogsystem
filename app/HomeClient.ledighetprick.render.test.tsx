@@ -2,6 +2,8 @@
 /**
  * Hemskärmens prick på Ledighet: "kräver din handling", aldrig "0", aldrig en gissad siffra.
  * Montera HELA hemskärmen (HomeClient) med fejkad Supabase; RPC:n ledighet_prick styr märket.
+ * Föraren har nya startsidan (2026-10-17): märket sitter på Ledighet-rutan i Dina vyer (förarens förinställda),
+ * samma tal står i Behöver dig, och den ihopfällda gruppen Personal och tid bär summan.
  */
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -15,7 +17,9 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     auth: { getUser: async () => ({ data: { user: { email: "test@exempel.se" } } }) },
-    from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: { roll: "forare" } }) }) }) }),
+    from: (tabell: string) => tabell === "startsida_favoriter"
+      ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }
+      : { select: () => ({ eq: () => ({ single: async () => ({ data: { roll: "forare" } }) }) }) },
     rpc: async (namn: string) => { if (namn === "ledighet_prick") { h.anrop++; return h.prick(); } return { data: null, error: null }; },
   },
 }));
@@ -45,7 +49,9 @@ async function visa() {
   await act(async () => { rot!.render(<HomeClient />); });
   await flush();
 }
-const ledighetLank = () => document.querySelector('a[href="/ledighet"]') as HTMLAnchorElement;
+const sektion = (namn: string) => document.querySelector(`section[aria-label="${namn}"]`);
+// Ledighet-rutan bland favoriterna (Behöver dig har också en länk dit, men utan märke — talet står i texten).
+const ledighetLank = () => sektion("Dina vyer")!.querySelector('a[href="/ledighet"]') as HTMLAnchorElement;
 const markenPaLedighet = () => ledighetLank().querySelectorAll('[role="status"]');
 const prick = (att: number, nya: number, ids: string[] = [], till: string | null = null) =>
   () => ({ data: { att_godkanna: att, nya_beslut: nya, nya_beslut_ids: ids, nya_beslut_till: till }, error: null });
@@ -58,6 +64,7 @@ describe("Hemskärmen — prick på Ledighet", () => {
     expect(m).toHaveLength(1);
     expect(m[0].textContent).toBe("3");
     expect(m[0].getAttribute("aria-label")).toBe("3 att göra i ledighet");
+    expect(sektion("Behöver dig")!.textContent).toContain("3 att göra i ledighet");
   });
 
   it("anställd med ett nytt beslut: 1", async () => {
@@ -71,6 +78,7 @@ describe("Hemskärmen — prick på Ledighet", () => {
     await visa();
     expect(markenPaLedighet()).toHaveLength(0);
     expect(ledighetLank().textContent).not.toMatch(/\d/); // ikonens ligaturtext + etiketten, ingen siffra
+    expect(sektion("Behöver dig")).toBeNull();
   });
 
   it("RPC-fel (t.ex. migrationen inte körd) → inget märke, inte '0'", async () => {
@@ -89,14 +97,17 @@ describe("Hemskärmen — prick på Ledighet", () => {
     h.prick = () => { throw new Error("nät"); };
     await visa();
     expect(markenPaLedighet()).toHaveLength(0);
-    expect(document.body.textContent).toContain("Datahälsa");
+    expect(sektion("Dina vyer")).not.toBeNull();
   });
 
-  it("märket sitter bara på Ledighet — inte på någon annan ikon", async () => {
+  it("märket sitter bara på Ledighet — och som summa på gruppen den står i — inte på någon annan ikon", async () => {
     h.prick = prick(1, 0);
     await visa();
-    expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
-    expect(ledighetLank().contains(document.querySelector('[role="status"]'))).toBe(true);
+    const alla = Array.from(document.querySelectorAll('[role="status"]'));
+    const personal = Array.from(document.querySelectorAll("button[aria-expanded]")).find(b => b.textContent?.includes("Personal och tid"))!;
+    expect(alla).toHaveLength(2);
+    expect(alla.filter(m => ledighetLank().contains(m))).toHaveLength(1);
+    expect(alla.filter(m => personal.contains(m))).toHaveLength(1);
   });
 
   it("kommer man tillbaka till appen (t.ex. från en push) läses märket om — det blir inte kvar gammalt", async () => {

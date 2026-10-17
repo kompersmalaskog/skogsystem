@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, KNAPP, TYP } from "@/lib/design/tokens";
 import { LONEARTER, type LoneartKey } from "@/lib/lonesystem/loneart";
 import { IGEN_RAD } from "@/lib/admin/anstallningsnummer";
+import { fortnoxNamnForKod } from "@/lib/lonesystem/fortnoxNamn";
 import { Sektion, Stod, Lista, Rad, Sheet, Falt, Besked, Fel, Laddar, Etikett } from "./ui";
 
 type Mappningsrad = { id: string; intern_typ: string; extern_kod: string; beskrivning: string | null };
@@ -160,6 +161,10 @@ function LoneartArk({ art, befintlig, andraKoder, onSpara, onStang }: {
 }) {
   const [kod, setKod] = useState(befintlig?.extern_kod || "");
   const [namn, setNamn] = useState(befintlig?.beskrivning || "");
+  /** Namnet fylldes i av koden (inte skrivet av någon). Då byts det mot nästa kods namn, och tas bort om koden blir okänd. */
+  const [autoNamn, setAutoNamn] = useState(false);
+  /** Du har skrivit i namnfältet: då rör koden det aldrig mer. */
+  const [namnEgen, setNamnEgen] = useState(false);
   const [sparFel, setSparFel] = useState<string | null>(null);
   const [upptagen, setUpptagen] = useState(false);
 
@@ -169,6 +174,15 @@ function LoneartArk({ art, befintlig, andraKoder, onSpara, onStang }: {
   const kanSpara = andrat && !ogiltig && !upptagen;
   const dublett = kodRen && !ogiltig ? andraKoder.find(a => a.kod === kodRen) : undefined;
   const kopplarBort = !!befintlig && kodRen === "";
+
+  /** Koden ändras: en känd kod fyller i namnet (om du inte skrivit det själv). Okänd kod gissar aldrig. */
+  const andraKod = (v: string) => {
+    setKod(v); setSparFel(null);
+    if (namnEgen) return;
+    const forslag = fortnoxNamnForKod(v);
+    if (forslag) { setNamn(forslag); setAutoNamn(true); }
+    else if (autoNamn) { setNamn(""); setAutoNamn(false); }
+  };
 
   const tryckSpara = async () => {
     setUpptagen(true); setSparFel(null);
@@ -190,10 +204,10 @@ function LoneartArk({ art, befintlig, andraKoder, onSpara, onStang }: {
         {art.forklaring}{" "}Antal skickas i {art.enhetText}.{art.valfri ? " Utan kod hoppas raden över." : ""}
       </Stod>
 
-      <Falt label="Kod i Fortnox" value={kod} onChange={v => { setKod(v); setSparFel(null); }} placeholder="Till exempel 11" maxLength={12}
+      <Falt label="Kod i Fortnox" value={kod} onChange={andraKod} placeholder="Till exempel 11" maxLength={12}
         hint={befintlig ? "Lämna tomt för att koppla bort." : undefined} />
-      <Falt label="Namn i Fortnox" value={namn} onChange={v => { setNamn(v); setSparFel(null); }} placeholder="Skriv av namnet som det står i Fortnox"
-        hint="Så vet alla vad koden betyder." maxLength={80} />
+      <Falt label="Namn i Fortnox" value={namn} onChange={v => { setNamn(v); setNamnEgen(true); setAutoNamn(false); setSparFel(null); }} placeholder="Skriv av namnet som det står i Fortnox"
+        hint={autoNamn ? `Fylldes i automatiskt för kod ${kodRen}. Du kan ändra det.` : "Så vet alla vad koden betyder."} maxLength={80} />
 
       {ogiltig && <Stod farg={FARG.rod}>Koden får bara innehålla siffror och bokstäver.</Stod>}
       {dublett && <Stod farg={FARG.orange}>Samma kod används redan av {dublett.label}. Det går att spara, men kontrollera att det är rätt.</Stod>}

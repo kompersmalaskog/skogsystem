@@ -2,12 +2,10 @@
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useDatahalsa } from './datahalsa/useDatahalsa'
-import { hamtaVantande } from '@/lib/egenkontroll'
-import { hamtaLedighetPrick, type LedighetPrick } from '@/lib/ledighet/prick'
 import Startsida from '@/components/startsida/Startsida'
-import { lasFavoriter, sparaFavoriter } from '@/lib/startsidaFavoriter'
+import { useStartsidaData, type StartsidaData } from '@/components/startsida/useStartsidaData'
+import type { Roll } from '@/lib/vyer'
 
 function getDatum() {
   const now = new Date()
@@ -114,27 +112,15 @@ function Raknarmarke({ antal, label }: { antal: number; label: string }) {
   )
 }
 
-// ── Nya startsidan (steg 1: bara admin) ─────────────────────────────────
+// ── Nya startsidan (admin och förare) ───────────────────────────────────
 // Egen komponent så att datahälsans hook bara körs när den nya sidan visas.
-function NyStartsida({ egenkontroll, ledighet }: { egenkontroll: number | null; ledighet: number | null }) {
+function NyStartsida({ roll, data }: { roll: Roll; data: StartsidaData }) {
   const { besked } = useDatahalsa()
-  // undefined = läses; null = inga egna (eller läsfel) → rollens förinställda.
-  const [favoriter, setFavoriter] = useState<string[] | null | undefined>(undefined)
-  useEffect(() => {
-    let vid = true
-    lasFavoriter(supabase).then(r => { if (vid) setFavoriter(r.status === 'egna' ? r.ids : null) })
-    return () => { vid = false }
-  }, [])
-  const spara = async (ids: string[]) => {
-    const landat = await sparaFavoriter(supabase, ids)
-    if (landat) setFavoriter(landat)
-    return landat != null
-  }
-  return <Startsida roll="admin" marken={{ egenkontroll, ledighet }} datahalsa={besked} favoritIds={favoriter} onSparaFavoriter={spara} />
+  return (
+    <Startsida roll={roll} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null }}
+      datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna} />
+  )
 }
-
-// Hur länge vi väntar på rollen innan den gamla sidan visas ändå (läsfel får aldrig ge en tom skärm).
-const ROLL_MAX_VANTAN_MS = 1500
 
 function AppIcon({ href, label, icon, variant, badge, badgeLabel }: { href: string; label: string; icon: string; variant: 'production' | 'admin'; badge?: number; badgeLabel?: string }) {
   const bgColor = variant === 'production' ? '#30d158' : '#0a84ff'
@@ -169,41 +155,12 @@ function AppIcon({ href, label, icon, variant, badge, badgeLabel }: { href: stri
 
 export default function HomeClient() {
   const [datum, setDatum] = useState('')
-  const [roll, setRoll] = useState<string | null>(null)
-  // Rollen avgör vilken startsida som visas (admin får den nya). Tills den är känd visas bara bakgrunden,
+  useEffect(() => { setDatum(getDatum()) }, [])
+  // Roll, märken och favoriter: samma källa som maskinlådan (useStartsidaData). Märket visas först när siffran
+  // är känd (null = inget märke). Rollen avgör vilken startsida som visas; tills den är känd visas bara bakgrunden,
   // så ingen ser den gamla sidan blinka förbi. Läsfel eller långsamt svar → den gamla sidan, som förut.
-  const [rollKlar, setRollKlar] = useState(false)
-  // null = vet inte än (laddar, eller kunde inte läsas). Märket visas först
-  // när siffran är känd — ett märke som gissar är värre än inget märke.
-  const [vantandeEgenkontroll, setVantandeEgenkontroll] = useState<number | null>(null)
-  // Ledighet: väntande att godkänna (admin) + egna nya beslut. null = okänt (läsfel/laddar) ⇒ inget märke.
-  const [ledighetPrick, setLedighetPrick] = useState<LedighetPrick | null>(null)
-
-  // Märket ska stämma när man kommer tillbaka till appen (t.ex. från en push), inte bara vid första laddningen.
-  useEffect(() => {
-    let vid = true
-    const hamta = () => { hamtaLedighetPrick(supabase).then(p => { if (vid) setLedighetPrick(p) }) }
-    hamta()
-    const synlig = () => { if (document.visibilityState === 'visible') hamta() }
-    document.addEventListener('visibilitychange', synlig)
-    return () => { vid = false; document.removeEventListener('visibilitychange', synlig) }
-  }, [])
-
-  useEffect(() => {
-    setDatum(getDatum())
-    const klar = setTimeout(() => setRollKlar(true), ROLL_MAX_VANTAN_MS)
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user?.email) { setRollKlar(true); return }
-      supabase.from('medarbetare').select('roll').eq('epost', user.email).single()
-        .then(({ data }) => { if (data?.roll) setRoll(data.roll); setRollKlar(true) }, () => setRollKlar(true))
-    }, () => setRollKlar(true))
-    // SAMMA funktion som listvyn använder ⇒ siffran på ikonen och talet överst
-    // i listan kan aldrig säga olika saker.
-    hamtaVantande()
-      .then(({ antalVantande }) => setVantandeEgenkontroll(antalVantande))
-      .catch(() => setVantandeEgenkontroll(null))
-    return () => clearTimeout(klar)
-  }, [])
+  const data = useStartsidaData()
+  const { roll, rollKlar, vantandeEgenkontroll, ledighetPrick } = data
 
   // Märket per ruta — samma oavsett vilken lista rutan står i. (Förut satt egenkontrollens märke bara på
   // Produktion-listan, men Egenkontroll står under Administration, så märket syntes aldrig.)
@@ -213,7 +170,7 @@ export default function HomeClient() {
     : {}
 
   if (!rollKlar) return <div style={{ position: 'fixed', inset: 0, background: '#000' }} />
-  if (roll === 'admin') return <NyStartsida egenkontroll={vantandeEgenkontroll} ledighet={ledighetPrick?.antal ?? null} />
+  if (roll === 'admin' || roll === 'forare') return <NyStartsida roll={roll} data={data} />
 
   const synligaAdminApps = (roll === 'admin')
     ? [...adminApps, markagarrapportEntry, ekonomiAppEntry, adminAppEntry]

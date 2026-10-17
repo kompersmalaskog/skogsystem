@@ -1,0 +1,20 @@
+{
+  "regel": "Rastminuter ur sekunder: närmaste hela minut, halv minut uppåt. EN regel i appen (lib/rastMin.ts) och i importen (skogsmaskin_import_version_6.py rast_min_fran_sek). Samma tabell läses av båda testerna.",
+  "rader": [
+    { "sek": 0, "min": 0 },
+    { "sek": 29, "min": 0 },
+    { "sek": 30, "min": 1 },
+    { "sek": 59, "min": 1 },
+    { "sek": 60, "min": 1 },
+    { "sek": 89, "min": 1 },
+    { "sek": 90, "min": 2 },
+    { "sek": 1109, "min": 18 },
+    { "sek": 1110, "min": 19 },
+    { "sek": 1139, "min": 19 },
+    { "sek": 1140, "min": 19 },
+    { "sek": 1169, "min": 19 },
+    { "sek": 1170, "min": 20 },
+    { "sek": 3599, "min": 60 },
+    { "sek": 3600, "min": 60 }
+  ]
+}
