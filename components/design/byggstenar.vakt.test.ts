@@ -37,7 +37,7 @@ for (const d of SOKT) {
     const rel = relative(ROT, f).replace(/\\/g, '/')
     if (rel.startsWith('components/design/')) continue
     const src = readFileSync(f, 'utf8')
-    for (const m of src.matchAll(NAMN)) traffar.push(`${rel}:${m[1]}`)
+    for (const m of Array.from(src.matchAll(NAMN))) traffar.push(`${rel}:${m[1]}`)
   }
 }
 
