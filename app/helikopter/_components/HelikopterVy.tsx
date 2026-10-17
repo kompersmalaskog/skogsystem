@@ -241,6 +241,7 @@ export default function HelikopterVy() {
           senasteLass={senasteLass}
           arbetsdagar={manadsdata.arbetsdagar}
           maskinStopp={manadsdata.maskinStopp}
+          rapportdagar={manadsdata.rapportdagar}
         />
       )
     }

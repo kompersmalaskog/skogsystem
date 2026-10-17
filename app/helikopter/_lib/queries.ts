@@ -266,6 +266,8 @@ export type Manadsdata = {
   takter: MaskinTakt[] | null
   /** Stopp per maskin (helikopter_ny_stopp). null = kunde inte läsas: inga stopptexter och ingen varning, Planering visar bara registrerade stopp. */
   maskinStopp: MaskinStopp[] | null
+  /** Maskinens rapportdagar (helikopter_ny_rapportdagar): arbetsdagar t.o.m. idag utom planerade stopp, orapporterade med. Larmet "inga lass registrerade" räknar på dem. null = kunde inte läsas: larmet räknar på maskinens arbetsdagar som förut. */
+  rapportdagar: Record<string, string[]> | null
 }
 
 /** Månadsberoende: spår, arbetsdagar, månadens objekt. Hämtas om vid månadsbyte. */
@@ -273,7 +275,7 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
   const forsta = `${ar}-${String(manad).padStart(2, '0')}-01`
   const sista = new Date(ar, manad, 0)
   const sistaIso = `${sista.getFullYear()}-${String(sista.getMonth() + 1).padStart(2, '0')}-${String(sista.getDate()).padStart(2, '0')}`
-  const [spar, dagar, plan, stopp, stoppMaskin, best, utan, takt, maskinStopp] = await Promise.all([
+  const [spar, dagar, plan, stopp, stoppMaskin, best, utan, takt, maskinStopp, rapport] = await Promise.all([
     rpc<any[]>('helikopter_ny_spar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_arbetsdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_planering', { p_ar: ar, p_manad: manad }),
@@ -283,12 +285,14 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
     rpc<any[]>('helikopter_ny_utan_typ', { p_ar: ar, p_manad: manad }),
     rpc<any[]>('helikopter_ny_takt', { p_ar: ar, p_manad: manad, p_idag: idag }),
     rpc<any[]>('helikopter_ny_stopp', { p_ar: ar, p_manad: manad, p_idag: idag }),
+    rpc<any[]>('helikopter_ny_rapportdagar', { p_ar: ar, p_manad: manad, p_idag: idag }),
   ])
   // utan typ-RPC:n är ett komplement: fel där fäller inte hela fliken utan syns på sin egen rad.
   if (utan.error != null) console.error('[helikopter] helikopter_ny_utan_typ', utan.error)
   // takt/stopp per maskin är lika komplement: går de inte att läsa faller prognosen tillbaka på spårets takt och stopptexterna uteblir.
   if (takt.error != null) console.error('[helikopter] helikopter_ny_takt', takt.error)
   if (maskinStopp.error != null) console.error('[helikopter] helikopter_ny_stopp', maskinStopp.error)
+  if (rapport.error != null) console.error('[helikopter] helikopter_ny_rapportdagar', rapport.error)
   const fel = spar.error ?? dagar.error ?? plan.error ?? (stopp.error ? felText(stopp.error) : null) ?? (stoppMaskin.error ? felText(stoppMaskin.error) : null) ?? (best.error ? felText(best.error) : null)
   if (fel) { if (stopp.error || stoppMaskin.error || best.error) console.error('[helikopter] stopp/bestallningar', stopp.error ?? stoppMaskin.error ?? best.error); return { data: null, error: fel } }
   const maskinerPerStopp = new Map<string, string[]>()
@@ -304,6 +308,7 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
         .map((b: any): BestallningRad => ({ typ: b.typ, bolag: String(b.bolag ?? '').trim(), volym: tal(b.volym) })),
       takter: takt.error != null ? null : (takt.data ?? []).map(normTakt),
       maskinStopp: maskinStopp.error != null ? null : (maskinStopp.data ?? []).map(normStopp),
+      rapportdagar: rapport.error != null ? null : Object.fromEntries((rapport.data ?? []).map((r: any) => [String(r.maskin_id), Array.isArray(r.rapportdagar) ? r.rapportdagar.map(String) : []])),
       utanTyp: utan.error != null ? null : (utan.data ?? []).map((u: any): UtanTypRad => ({
         objekt_id: String(u.objekt_id), namn: u.namn ?? null, vo_nummer: u.vo_nummer ?? null, huvudtyp: u.huvudtyp ?? null, bolag: u.bolag ?? null,
         skordat: tal(u.skordat), skotat: tal(u.skotat), volym: tal(u.volym), senast_datum: u.senast_datum ?? null, objekt_uuid: u.objekt_uuid ?? null,

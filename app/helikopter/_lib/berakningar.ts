@@ -551,13 +551,17 @@ export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, 
  * registrerade lass någon av de två senaste arbetsdagarna (maskinens egna, t.o.m. i dag —
  * samma regel som "inga lass sedan" i notisen): "John Deere 810E · inga lass registrerade
  * sedan tisdag". Flera maskiner skiljs med " · ". null = inget att varna för.
+ *
+ * Dagarna är maskinens RAPPORTDAGAR (helikopter_ny_rapportdagar: arbetsdagar t.o.m. idag utom planerade stopp, orapporterade med).
+ * Arbetsdagarna duger inte här: en manuell maskin utan lass är 'orapporterat' och ingår inte i dem, så larmet skulle tystna
+ * av sig självt. Saknas rapportdagarna (äldre payload / RPC:n ej körd) räknas de ur maskinens egna arbetsdagar som förut.
  */
-export function registreringsVarning(manuella: Maskin[], senasteLass: Record<string, string | null>, arbetsdagar: Arbetsdagar[], idag: string, manadNamn: string): string | null {
+export function registreringsVarning(manuella: Maskin[], senasteLass: Record<string, string | null>, arbetsdagar: Arbetsdagar[], idag: string, manadNamn: string, rapportdagar?: Record<string, string[]> | null): string | null {
   const rader: string[] = []
   for (const m of manuella) {
     if (m.aktiv_till && m.aktiv_till < idag) continue
     const egna = arbetsdagar.find(a => a.maskin_id === m.maskin_id) ?? globalaArbetsdagar(arbetsdagar)
-    const dagar = egna ? [...egna.gangna_datum, ...egna.kvar_datum].filter(d => d <= idag) : []
+    const dagar = rapportdagar?.[m.maskin_id]?.filter(d => d <= idag) ?? (egna ? [...egna.gangna_datum, ...egna.kvar_datum].filter(d => d <= idag) : [])
     const senast = senasteLass[m.maskin_id] ?? null
     if (!saknarData({ senast_datum: senast, dagar_tom_idag: dagar }, dagar)) continue
     rader.push(`${maskinNamn(m)} · inga lass registrerade ${sedanText(senast, idag, manadNamn)}`)

@@ -35,16 +35,18 @@ type Props = {
   arbetsdagar: Arbetsdagar[]
   /** Stopp per maskin, härledda ur ledighet + filer (helikopter_ny_stopp). null = kunde inte läsas: inga stopptexter och ingen oförklarat-varning. */
   maskinStopp: MaskinStopp[] | null
+  /** Maskinens rapportdagar (orapporterade med) — "inga lass registrerade" räknar på dem. null = som förut på arbetsdagarna. */
+  rapportdagar: Record<string, string[]> | null
 }
 
-export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin, manuella, senasteLass, arbetsdagar, maskinStopp }: Props) {
+export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin, manuella, senasteLass, arbetsdagar, maskinStopp, rapportdagar }: Props) {
   const [sheet, setSheet] = usePanelVal<'maskiner' | 'utan'>('lage')
   const manadNamn = MANAD_NAMN[manad - 1]
   const svar = lageSvar(spar, antalPlanerade, status, dagar, manadNamn)
   // EN orange varningsrad under svaret: oförklarat stopp (maskinen körde inte, ingen förare ledig) och/eller manuell datakälla utan registrerade lass.
   // Planerat stopp — ledig förare utan fil — hamnar aldrig här.
   const registrering = status === 'pagaende' && senasteLass
-    ? registreringsVarning(maskiner.filter(m => manuella.has(m.maskin_id)), senasteLass, arbetsdagar, idag, manadNamn)
+    ? registreringsVarning(maskiner.filter(m => manuella.has(m.maskin_id)), senasteLass, arbetsdagar, idag, manadNamn, rapportdagar)
     : null
   svar.varning = [oforklaratVarning(maskinStopp, manuella, status), registrering].filter(Boolean).join(' · ') || null
   const utanSumma = (utanTyp ?? []).reduce((s, r) => s + r.volym, 0)

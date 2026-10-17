@@ -3,13 +3,13 @@
 // Fixtur: oktober 2026 ur prod (helikopter_ny_spar/_takt/_stopp för 2026-10-17): Stefan semester 14–16 okt (Giant stod), Daniel 26–30 okt (Elefant 26).
 import { describe, it, expect } from 'vitest'
 import {
-  klartDatumMaskiner, lageSvar, landarRoller, motBestallningRad, oforklaratVarning, orsakText, planeringStoppText, raknaSpar, sparStoppText,
+  klartDatumMaskiner, lageSvar, landarRoller, motBestallningRad, oforklaratVarning, orsakText, planeringStoppText, raknaSpar, registreringsVarning, sparStoppText,
   stoppNotisText, stoppSynligt, tillkommerRoll,
 } from './berakningar'
 import { fmtVeckodagar } from './format'
 import { formateraVeckoNotis, type VeckoNotisData } from './veckoNotis'
 import { formateraManadNotis } from './manadsfacit'
-import type { Arbetsdagar, MaskinStopp, MaskinTakt, SparRad, Typ } from './queries'
+import type { Arbetsdagar, Maskin, MaskinStopp, MaskinTakt, SparRad, Typ } from './queries'
 
 const n = (x: number) => x.toLocaleString('sv-SE')
 
@@ -187,9 +187,30 @@ describe('varningsraden — bara OFÖRKLARAT stopp', () => {
     const b = stopp({ maskin_id: 'A030353', namn: 'Wisent', roll: 'skotare', oforklarade_datum: ['2026-10-16'] })
     expect(oforklaratVarning([a, b], manuella, 'pagaende')).toBe('Giant körde inte ons–tors, Wisent körde inte fre · ingen ledighet registrerad')
   })
-  it('manuell datakälla (810E) lämnas åt "inga lass registrerade" — där är ingen fil inte ett stopp', () => {
-    const e810 = stopp({ maskin_id: 'JD810E', namn: '810E', roll: 'skotare', oforklarade_datum: ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'] })
+  it('manuell datakälla (810E): ingen fil är "orapporterat", inte oförklarat — inget "körde inte", varken i datan eller i texten', () => {
+    // helikopter_ny_stopp ger 810E tom oforklarade_datum (12–16 okt är 'orapporterat'); oktStopp bär samma sak
+    const e810 = oktStopp.find(s => s.maskin_id === 'JD810E') as MaskinStopp
+    expect(e810.oforklarade_datum).toEqual([])
     expect(oforklaratVarning([e810], manuella, 'pagaende')).toBeNull()
+    // äldre payload (före orapporterat) kunde ge 810E oförklarade dagar: spärren i oforklaratVarning håller kvar "ett larm, inte två"
+    const gammal = stopp({ maskin_id: 'JD810E', namn: '810E', roll: 'skotare', oforklarade_datum: ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'] })
+    expect(oforklaratVarning([gammal], manuella, 'pagaende')).toBeNull()
+  })
+  it('810E utan lass: ENDA larmet är "inga lass registrerade sedan …" — och det slår även när orapporterade dagar inte är arbetsdagar', () => {
+    const jd: Maskin = { maskin_id: 'JD810E', modell: '810E', visningsnamn: '810E', maskin_typ: 'Forwarder', klarar_typ: null, extramaskin: false, aktiv_till: null, datakalla: 'manuell' }
+    // 810E:s egna arbetsdagar efter orapporterat: bara de två dagarna med lass (5 och 7 okt) + kvar — de orapporterade dagarna ingår inte
+    const egna: Arbetsdagar = { ...okt, maskin_id: 'JD810E', gangna_datum: ['2026-10-05', '2026-10-07'], gangna: 2 }
+    const rapportdagar = { JD810E: okt.gangna_datum } // alla arbetsdagar t.o.m. idag, orapporterade med
+    const senasteLass = { JD810E: '2026-10-07' }
+    // utan rapportdagar skulle larmet tystna (senaste lass 7 okt ≥ näst sista egna dag 5 okt)
+    expect(registreringsVarning([jd], senasteLass, [okt, egna], '2026-10-17', 'oktober')).toBeNull()
+    // med rapportdagar slår det
+    const varning = registreringsVarning([jd], senasteLass, [okt, egna], '2026-10-17', 'oktober', rapportdagar)
+    expect(varning).toMatch(/^810E · inga lass registrerade sedan /)
+    // Läge visar då bara den raden — inget "körde inte" någonstans
+    const lage = [oforklaratVarning(oktStopp, manuella, 'pagaende'), varning].filter(Boolean).join(' · ')
+    expect(lage).toBe(varning)
+    expect(lage).not.toMatch(/körde inte/)
   })
   it('bara pågående månad, och aldrig utan läsbara stopp', () => {
     const giant = stopp({ maskin_id: GIANT, namn: 'Giant', oforklarade_datum: ['2026-10-14'] })
