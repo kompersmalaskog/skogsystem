@@ -18,7 +18,6 @@ import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 export interface KortLarm {
   satt: boolean;
   koordinat: string;
-  kalla: string;
   bekraftad: boolean;
   beskrivning: string;
   onVisa: () => void;
@@ -90,6 +89,9 @@ export default function ObjektKort(p: ObjektKortProps) {
             <span style={{ ...TYP.listtitel, color: FARG.rod, overflowWrap: 'anywhere' }}>Faror: {p.faror.join(', ')}</span>
           </div>
         )}
+
+        {/* BRANDRISK — bara när någon av de fem dagarna är 3 eller högre; direkt under Faror */}
+        {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} luftUnder={AVSTAND.m} />}
 
         {/* KLAR MED TRAKTEN? — planerarens ingång till färdigplaneringen; "N kvar" i orange, "Klar" i grönt (ord och färg tillsammans) */}
         {p.klarRad && p.onKlar && (
@@ -167,7 +169,6 @@ export default function ObjektKort(p: ObjektKortProps) {
           {p.paTrakten && (
             <RadKnapp forstaRad testid="kort-pa-trakten" etikett={<><span style={{ color: FARG.text2 }}>På trakten </span>{p.paTrakten}</>} onTryck={p.onPaTrakten} />
           )}
-          {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} />}
           {p.dokument && (
             <>
               <RadKnapp testid="kort-dokument" ikon="description" etikett={`Dokument (${p.dokument.antal})`} onTryck={() => setDokOppen((v) => !v)}
@@ -202,7 +203,7 @@ function LarmKort({ larm }: { larm: KortLarm }) {
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>Larmkoordinat</span>
           <span style={{ display: 'block', ...TYP.listtitel, ...TNUM, overflowWrap: 'anywhere' }}>{larm.koordinat}</span>
-          <span style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Bekräftad på plats' : 'Ej bekräftad på plats'} · {larm.kalla}</span>
+          <span data-testid="kort-larm-status" style={{ display: 'block', ...TYP.meta, color: larm.bekraftad ? FARG.gron : FARG.orange }}>{larm.bekraftad ? 'Larmplats kontrollerad' : 'Larmplats inte kontrollerad'}</span>
         </span>
         <Pil />
       </span>

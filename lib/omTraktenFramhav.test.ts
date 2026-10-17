@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  DIMMA_FYLL_OPACITET, DIMMA_OPACITET, FRAMHAV_FARG, IKON_STOPP, SYMBOL_FORSTORING, arKartTryck, dimmaMal, etikettPunkt, forstoradIkonStorlek, framhavBounds, framhavGeoJson,
+  DIMMA_FYLL_OPACITET, DIMMA_OPACITET, FRAMHAV_FARG, IKON_STOPP, SYMBOL_FORSTORING, arKartTryck, dimmaMal, etikettPunkt, forstoradIkonStorlek, framhavBounds, framhavGeoJson, framhavLista, likaNagon,
   framhavdFran, lika, pulsFas, ringRadieStopp, slappAtgard,
 } from './omTraktenFramhav';
 import { bryt } from './omTraktenEtikettBild';
@@ -77,7 +77,8 @@ describe('Visa › — vad som tonas ner', () => {
   it('både filtret på den förstorade symbolen och nedtoningen använder `lika` — aldrig en strikt jämförelse mot id', () => {
     const karta = readFileSync(resolve(__dirname, './omTraktenFramhavKarta.ts'), 'utf8');
     expect(karta).not.toMatch(/\['==', \['get', 'id'\]/);
-    expect(karta.match(/lika\(f\.id\)/g)!.length).toBe(2);
+    expect(karta).not.toContain('lika(f.id)');
+    expect(karta.match(/likaNagon\(ids\)/g)!.length).toBe(2);   // en id ger exakt `lika` (se nedan), flera ger `in`
   });
   it('IDJÄMFÖRELSEN: kartans id är ett TAL (Date.now()), listans en TEXT — uttrycket jämför som text, annars tonas även den valda ner (felet i förhandsvisningen)', () => {
     expect(lika('1710000000123')).toEqual(['==', ['to-string', ['get', 'id']], '1710000000123']);
@@ -85,6 +86,46 @@ describe('Visa › — vad som tonas ner', () => {
     expect(String(1710000000123)).toBe('1710000000123');
     // och det gamla uttrycket (strikt, utan to-string) hade varit falskt: tal !== text
     expect((1710000000123 as unknown) === ('1710000000123' as unknown)).toBe(false);
+  });
+});
+
+describe('Typraden — flera framhävs samtidigt', () => {
+  const sym = (id: string, lat: number, lng: number) => ({ id, slag: 'symbol' as const, lat, lng, etikett: id });
+  const lin = (id: string) => ({ id, slag: 'linje' as const, lat: null, lng: null, geometri: [{ lat: 56.4, lng: 14.7 }, { lat: 56.401, lng: 14.702 }], etikett: id });
+  it('framhavLista: en eller flera (aldrig null-poster); en ensam lista ger exakt samma geometri som en enda markering', () => {
+    expect(framhavLista(null)).toEqual([]);
+    expect(framhavLista(sym('a', 1, 1))).toHaveLength(1);
+    expect(framhavLista([sym('a', 1, 1), sym('b', 2, 2)])).toHaveLength(2);
+    expect(framhavGeoJson([lin('x')])).toEqual(framhavGeoJson(lin('x')));
+  });
+  it('geometrin är alla objekten: punkter, linjer och ytor i EN samling', () => {
+    const g = framhavGeoJson([sym('a', 56.4, 14.7), lin('x'), sym('b', 56.5, 14.8)]);
+    expect(g.features.map((f: any) => f.geometry.type)).toEqual(['Point', 'LineString', 'Point']);
+  });
+  it('kameran rymmer ALLA — punkter och linjens hörn; en enda symbol har ingen ram', () => {
+    expect(framhavBounds([sym('a', 56.4, 14.7), sym('b', 56.5, 14.9), lin('x')])).toEqual([[14.7, 56.4], [14.9, 56.5]]);
+    expect(framhavBounds([sym('a', 56.4, 14.7)])).toBeNull();
+  });
+  it('uttrycket: flera id → `in` mot en lista TEXT (kartans id är ett tal), en id → exakt `lika`; sant för tal-id i MapLibres egen motor', () => {
+    expect(likaNagon(['1'])).toEqual(lika('1'));
+    const uttryck = likaNagon(['1760000000001', '1760000000002']);
+    const utvardera = (id: unknown) => {
+      const r: any = createExpression(uttryck, { type: 'boolean' } as any);
+      expect(r.result, JSON.stringify(r.value)).toBe('success');
+      return r.value.evaluate({ zoom: 17 }, { type: 'Point', properties: { id }, id: undefined } as any);
+    };
+    expect(utvardera(1760000000001)).toBe(true);
+    expect(utvardera(1760000000002)).toBe(true);
+    expect(utvardera(1760000000003)).toBe(false);
+  });
+  it('kartlagret: flera markeringar får ingen etikett (de skulle ligga huller om buller); ett objekt får sin som förut', () => {
+    const karta = readFileSync(resolve(__dirname, './omTraktenFramhavKarta.ts'), 'utf8');
+    expect(karta).toContain('const ep = flera ? null : etikettPunkt(f);');
+  });
+  it('listens text: "Basväg röd · 329 m", kommentaren efter symbolens namn, bara namnet utan kommentar', () => {
+    expect(framhavdFran({ id: '1', slag: 'linje', typ: 'mainRoad', namn: 'Basväg', comment: '', farg: 'red', langdM: 329, lat: null, lng: null }).lista).toBe('Basväg röd · 329 m');
+    expect(framhavdFran({ id: '2', slag: 'symbol', typ: 'culturemonument', namn: 'Kulturminne', comment: 'Stenrös  vid vägen', lat: 1, lng: 1 }).lista).toBe('Kulturminne · Stenrös vid vägen');
+    expect(framhavdFran({ id: '3', slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: 1, lng: 1 }).lista).toBe('Högstubbe');
   });
 });
 
@@ -176,12 +217,13 @@ describe('sidans koppling (page.tsx kan inte monteras — källvakt)', () => {
   const page = readFileSync(resolve(__dirname, '../app/planering/page.tsx'), 'utf8');
   it('framhävningen släpps vid tryck på kartan eller nytt val — ingen timer — och ligger EFTER briefing-effekten (som annars skriver över nedtoningen)', () => {
     expect(page).not.toMatch(/setTimeout\(\(\) => setFramhavdMarkering\(null\), \d+\)/);
-    expect(page).toContain('startaFramhavning(map as any, framhavdMarkering,');
+    expect(page).toContain('startaFramhavning(map as any, framhavning,');
+    expect(page).toContain('const framhavning = framhavdMarkering ?? (framhavdTyp && framhavdTyp.length > 0 ? framhavdTyp : null);');   // ett enskilt objekt går före typens
     const briefing = page.indexOf('}, [briefingMode, briefingHighlightId, mapLibreReady, markers, checklistMapView]);');
     const framhav = page.indexOf('// Om trakten › Visa ›: markeringen framhävs');
     expect(briefing).toBeGreaterThan(0);
     expect(framhav).toBeGreaterThan(briefing);
-    expect(page).toContain('useEffect(() => { setFramhavdMarkering(null); }, [valtObjekt?.id]);');
+    expect(page).toContain('useEffect(() => { setFramhavdMarkering(null); setFramhavdTyp(null); omNavRef.current = null; }, [valtObjekt?.id]);');
   });
   it('tryck på kartan släpper via DOM-lyssnaren (kartans canvas, infångning) i en EGEN effekt som bara hänger på valet — inte på `markers`, inte på MapLibres click', () => {
     const effekt = page.slice(page.indexOf('const framhavdId = framhavdMarkering?.id ?? null;'));

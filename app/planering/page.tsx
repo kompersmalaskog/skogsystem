@@ -11,7 +11,7 @@ import ObjektValjare from './ObjektValjare'
 import ObjektLista from '../../components/planering/ObjektLista'
 import ObjektKartaTom from '../../components/planering/ObjektKartaTom'
 import { useObjektPrickar } from '../../lib/hooks/useObjektPrickar'
-import type { KartPrickar } from '../../lib/objektKarta'
+import { ARK_HOJD_ANDEL, type KartPrickar } from '../../lib/objektKarta'
 import { skapaLagerDoljare } from '../../lib/objektKartaDolj'
 import { symbolTroskel, tillampaSymbolZoom, traktStorlekM } from '../../lib/symbolZoom'
 import { flygTillObjekt, objektStartKamera, traktGrans } from '../../lib/objektFlyg'
@@ -74,6 +74,7 @@ import { NedfaldList } from '../../components/planering/NedfaldList'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
+import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
@@ -2328,6 +2329,10 @@ export default function PlannerPage() {
   // Objektinfon (ⓘ): senaste innehållet (ramen hinner glida ut efter en stängning) och markeringen "Visa ›" i Om trakten framhäver på kartan.
   const objektInfoSenasteRef = useRef<Omit<ObjektInfoProps, 'oppen'> | null>(null);
   const [framhavdMarkering, setFramhavdMarkering] = useState<FramhavdMarkering | null>(null);
+  // Om trakten › typvyn: ALLA av typen är markerade på kartan medan typvyn är öppen. Ett enskilt objekt (framhavdMarkering) går före.
+  const [framhavdTyp, setFramhavdTyp] = useState<FramhavdMarkering[] | null>(null);
+  // Var man stod i Om trakten när ett objekt stängde arket (typvy, rullning) — "‹ Lista" ger tillbaka det. Nollas vid ×, Esc, objektbyte och när ingenting längre är markerat.
+  const omNavRef = useRef<OmNav | null>(null);
   const framhavdLageRef = useRef<PlusLage>('ark');
   // Telefonens "‹ Om trakten": objektinfon öppnas direkt på Om trakten i stället för på kortet (nollas när den stängs).
   const [infoStartVy, setInfoStartVy] = useState<'kort' | 'om' | 'klar'>('kort');
@@ -9977,7 +9982,9 @@ export default function PlannerPage() {
   // Objektlistan och objektinfon ligger på samma plats (panelen från höger): öppnas listan stängs infon.
   useEffect(() => { if (objektListaOppen) setTraktOversiktOpen(false); }, [objektListaOppen]);
   // Framhävningen hör till ETT objekt: byter man objekt släpps den.
-  useEffect(() => { setFramhavdMarkering(null); }, [valtObjekt?.id]);
+  useEffect(() => { setFramhavdMarkering(null); setFramhavdTyp(null); omNavRef.current = null; }, [valtObjekt?.id]);
+  // Arket stängt och inget objekt framhävt (tryck på kartan, ×, annan åtgärd) → typmarkeringen och minnet av var man stod släpps. Ett objekt som just stängt arket håller dem kvar.
+  useEffect(() => { if (!traktOversiktOpen && !framhavdMarkering) { setFramhavdTyp(null); omNavRef.current = null; } }, [traktOversiktOpen, framhavdMarkering]);
 
   // 2d) Briefing highlight: dim non-active, pulse active element
   const briefingPulseRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -10194,10 +10201,11 @@ export default function PlannerPage() {
   // Det man SER byggs om när kartans lager ändras (`markers`); att ett tryck på kartan släpper den sitter i en egen effekt här under, som bara hänger på valet.
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !framhavdMarkering || briefingMode || checklistMapView) return;
+    const framhavning = framhavdMarkering ?? (framhavdTyp && framhavdTyp.length > 0 ? framhavdTyp : null);
+    if (!map || !mapLibreReady || !framhavning || briefingMode || checklistMapView) return;
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    return startaFramhavning(map as any, framhavdMarkering, { minskadRorelse: minskad });
-  }, [framhavdMarkering, mapLibreReady, briefingMode, checklistMapView, markers]);
+    return startaFramhavning(map as any, framhavning, { minskadRorelse: minskad });
+  }, [framhavdMarkering, framhavdTyp, mapLibreReady, briefingMode, checklistMapView, markers]);
 
   // Släpper framhävningen: nollar valet och zoomar (för rad, kartryck och stängd panel) ut till hela trakten — samma svep som när ett objekt väljs.
   slappFramhavningRef.current = (orsak) => {
@@ -13780,7 +13788,7 @@ export default function PlannerPage() {
           if (!slag) return;
           const tid = Number(m.id);
           kartMarkeringar.push({ id: String(m.id), slag, typ, namn, comment: String(m.comment ?? '').trim(), photoPath: m.photoPath ?? null, photoData: m.photoData ?? null, photoTs: m.photoTs ?? null, fotoVantar: lokalFotoFor(m) != null,
-            lat: pos?.lat ?? null, lng: pos?.lon ?? null, geometri, ...(slag === 'linje' && typ === 'mainRoad' ? { farg: arBasvagFarg(m.farg) ? m.farg : null, langdM: geometri ? basvagLangdM(geometri) : null } : {}), skapad: Number.isFinite(tid) && tid > 1e11 ? tid : null, ordning: i });
+            lat: pos?.lat ?? null, lng: pos?.lon ?? null, geometri, antal: slag === 'symbol' && typeof m.antal === 'number' ? m.antal : null, ...(slag === 'linje' && typ === 'mainRoad' ? { farg: arBasvagFarg(m.farg) ? m.farg : null, langdM: geometri ? basvagLangdM(geometri) : null } : {}), skapad: Number.isFinite(tid) && tid > 1e11 ? tid : null, ordning: i });
         });
         // Listans ikon = kartans: symbolen i sin RIKTIGA färg och vita ring (getIconDef — samma källa som kartlagret och dockan), linjen i sin kartfärg
         // (randig/streckad som ritad), ytan i sin zonfärg.
@@ -13979,7 +13987,7 @@ export default function PlannerPage() {
             tillForaren: forareTexter,
             planering: forarPlanering,
             brickor: faktaBrickor({ areal: infoAreal || valtObjekt.areal, volym: volymTxt, grot: valtObjekt.grot ?? null }),
-            extraBrickor: extraBrickor({ barighet: infoBarighet, terrang: infoTerrang, basvag: paTrakten.basvagKm, avverkat: avverkatText }),
+            extraBrickor: extraBrickor({ barighet: infoBarighet, terrang: infoTerrang, basvag: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM)) ?? paTrakten.basvagKm, avverkat: avverkatText }),
             paTrakten: sammanf.antal > 0 ? markeringsRad(sammanf) : null,
             brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
             onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
@@ -14000,7 +14008,6 @@ export default function PlannerPage() {
             } : null,
             larm: {
               satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '',
-              kalla: infoLarmKalla === 'td' ? 'från traktdirektivet' : infoLarmKalla === 'egen' ? 'satt vid rekning' : infoLarmKalla === 'envz' ? 'från traktfil (envz)' : 'källa ej angiven',
               bekraftad: !!infoLarmBekraftad, beskrivning: larmBeskr, onVisa: larmFlyTill,
             },
           },
@@ -14037,6 +14044,24 @@ export default function PlannerPage() {
             onSlapp: (orsak) => slappFramhavningRef.current(orsak),
             onFoto: (src) => setFullscreenPhoto(src),
             framhavdId: framhavdMarkering?.id ?? null,
+            brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
+            onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
+            // "‹ Lista": Om trakten öppnas i samma typvy och på samma plats i listan som när objektet valdes.
+            start: infoStartVy === 'om' ? omNavRef.current ?? undefined : undefined,
+            onNav: (n) => { omNavRef.current = n; },
+            // Typvyn öppen: alla av typen markeras och kameran rymmer dem — ovanför arket (telefon: halva höjden) eller vänster om panelen (bred skärm). null = typvyn stängd.
+            onTyp: (ms, lage) => {
+              if (!ms || ms.length === 0) { setFramhavdTyp(null); return; }
+              const alla = ms.map((m) => framhavdFran(m));
+              setFramhavdTyp(alla);
+              const map = mapInstanceRef.current;
+              if (!map) return;
+              const arkPx = lage === 'ark' && typeof window !== 'undefined' ? Math.round(window.innerHeight * ARK_HOJD_ANDEL) : 0;
+              const panelPx = lage === 'panel' ? PANEL_BREDD_PX + AVSTAND.s * 2 : 0;
+              const bounds = framhavBounds(alla);
+              if (bounds) map.fitBounds(bounds, { padding: { top: AVSTAND.xxl * 3, bottom: AVSTAND.xxl * 2 + arkPx, left: AVSTAND.xxl * 2, right: AVSTAND.xxl * 2 + panelPx }, maxZoom: 18, duration: 800 });
+              else if (ms[0].lat != null && ms[0].lng != null) map.flyTo({ center: [ms[0].lng, ms[0].lat], zoom: Math.max(map.getZoom(), 18), duration: 700, offset: [-panelPx / 2, -arkPx / 2] });
+            },
           },
           mer: {
             grupper: merIn.grupper,
@@ -14656,8 +14681,8 @@ export default function PlannerPage() {
         <NedfaldList
           testid="framhav-list"
           smal={smalSkarm}
-          text={framhavdMarkering.etikett || 'Vald markering'}
-          tillbaka={{ etikett: 'Om trakten', onClick: () => { slappFramhavningRef.current('tillbaka'); setInfoStartVy('om'); setTraktOversiktOpen(true); }, testid: 'framhav-tillbaka' }}
+          text={framhavdMarkering.lista || framhavdMarkering.etikett || 'Vald markering'}
+          tillbaka={{ etikett: 'Lista', onClick: () => { slappFramhavningRef.current('tillbaka'); setInfoStartVy('om'); setTraktOversiktOpen(true); }, testid: 'framhav-tillbaka' }}
           extra={[AVBRYT_KNAPP(() => slappFramhavningRef.current('rad'), 'framhav-slapp')]}
         />
       )}

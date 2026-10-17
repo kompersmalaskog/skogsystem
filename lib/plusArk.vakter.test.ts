@@ -91,7 +91,7 @@ describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon (Om trak
     expect(page).toContain("ytor.push({ nr, typ: 'omrade', typLabel: 'Eget område'");
     expect(page).toContain('ytor.sort((a, b) => a.nr - b.nr);');
     expect(page).toContain('ytor: ytor.map((y) => ({ nr: y.nr, typLabel: y.typLabel');   // listan matas till Om trakten
-    expect(las('../components/planering/OmTrakten.tsx')).toContain('data-testid="om-ytor"');
+    expect(las('../components/planering/OmTrakten.tsx')).toContain('data-testid="om-yta"');   // ytorna är en typrad ("Hänsynsytor · 2 st") och listas i typvyn
     expect(page).not.toContain('byggYtor');
     const ark = las('../components/planering/PlusArk.tsx');
     expect(ark).not.toMatch(/ytor|Ytor/);

@@ -20,6 +20,8 @@ export interface InfoRamProps {
   oppen: boolean;
   vy: InfoVy;
   ariaLabel: string;
+  /** Om trakten › typvyn: arket på halv höjd så att kartan med de markerade objekten syns ovanför (annars full höjd som övriga vyer) */
+  halv?: boolean;
   onStang: () => void;
   children: (ctx: { lage: PlusLage; detent: Detent }) => React.ReactNode;
 }
@@ -29,11 +31,11 @@ const DRAG_START_PX = 8;
 
 const minskadRorelse = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export default function InfoRam({ oppen, vy, ariaLabel, onStang, children }: InfoRamProps) {
+export default function InfoRam({ oppen, vy, ariaLabel, halv = false, onStang, children }: InfoRamProps) {
   const lage = useSkarmLage(oppen);
   const [inne, setInne] = useState(false);
   const [utglidet, setUtglidet] = useState(!oppen);   // monterad stängd (sidan lämnar den monterad) → inget i DOM
-  const [detent, setDetent] = useState<Detent>(vy === 'kort' ? 'halv' : 'hel');
+  const [detent, setDetent] = useState<Detent>(vy === 'kort' || halv ? 'halv' : 'hel');
   const [dragPx, setDragPx] = useState<number | null>(null);
   const drag = useRef<{ y0: number; h0: number; flyttat: boolean } | null>(null);
   const arkRef = useRef<HTMLDivElement>(null);
@@ -43,7 +45,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, onStang, children }: Inf
   // Varje öppning börjar rent: rörelsen in från kanten, kortet på halv höjd.
   useEffect(() => {
     if (!oppen) return;
-    setDetent(vy === 'kort' ? 'halv' : 'hel');
+    setDetent(vy === 'kort' || halv ? 'halv' : 'hel');
     setDragPx(null);
     setUtglidet(false);
     if (minskadRorelse()) { setInne(true); return; }
@@ -54,7 +56,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, onStang, children }: Inf
   }, [oppen]);
 
   // Byter vy (kort → Om trakten → Mer): egna ark på full höjd, tillbaka till kortet på halv.
-  useEffect(() => { if (oppen) { setDetent(vy === 'kort' ? 'halv' : 'hel'); setDragPx(null); } }, [vy, oppen]);
+  useEffect(() => { if (oppen) { setDetent(vy === 'kort' || halv ? 'halv' : 'hel'); setDragPx(null); } }, [vy, oppen, halv]);
 
   // Utglidningen klar → ta bort ur DOM.
   useEffect(() => {

@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, behoverLasAllt, sammanfattaMarkeringar, markeringsRad, antalPerTyp, namnMedAntal,
-  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, efektivPos, markeringsGrupp, byggMarkeringsGrupper, samladText, arKortKommentar, arBasvag, visasIListan, type KartMarkering, type MerIn,
+  objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, behoverLasAllt, sammanfattaMarkeringar, markeringsRad,
+  sorteraMarkeringar, filtreraMarkeringar, avstandText, distM, byggMerGrupper, femDagar, gpsNu, efektivPos, markeringsGrupp, arBasvag, type KartMarkering, type MerIn,
 } from './objektKort';
 
 const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
@@ -103,13 +103,6 @@ describe('På trakten: antal och text', () => {
   it('utan text: bara antalet, och singular vid 1', () => {
     expect(markeringsRad({ antal: 1, medText: 0 })).toBe('1 markering');
     expect(markeringsRad({ antal: 4, medText: 0 })).toBe('4 markeringar');
-  });
-  it('utan kommentar: antal per typ — "2 högstubbar · 1 avlägg", flest först', () => {
-    expect(antalPerTyp(lista)).toBe('2 högstubbar · 1 avlägg');
-  });
-  it('okänd typ använder visningsnamnet; linjer har egna namn', () => {
-    expect(namnMedAntal('symbol', 'okand', 'Konstig', 3)).toBe('3 konstig');
-    expect(namnMedAntal('linje', 'sideRoadRed', 'x', 2)).toBe('2 röda stickvägar');
   });
 });
 
@@ -286,72 +279,6 @@ describe('Om trakten › På kartan: avstånd, grupper och sammanslagning (Skäl
     expect(markeringsGrupp({ slag: 'linje', typ: 'mainRoad' })).toBe('vagar');
     expect(markeringsGrupp({ slag: 'linje', typ: 'sideRoadRed' })).toBe('vagar');
     expect(markeringsGrupp({ slag: 'linje', typ: 'nature' })).toBe('ovrigt');
-  });
-
-  it('ordning: Faror först, sedan På kartan, Vägar sist — bara markeringar med kommentar eller foto', () => {
-    const g = byggMarkeringsGrupper(ms, null);
-    expect(g.map((x) => x.grupp)).toEqual(['faror', 'ovrigt', 'vagar']);
-    expect(g[0].rubrik).toBe('Faror');
-    expect(g.flatMap((x) => x.rader).flatMap((r) => r.markeringar).map((m) => m.id)).not.toContain('tom');
-  });
-
-  it('korta kommentarer av samma typ blir EN rad: "Vägar · Gul väg ×2 · Röd väg ×2" (stor/liten bokstav och slutmellanslag spelar ingen roll); basvägen har egen rad', () => {
-    const vagar = byggMarkeringsGrupper(ms, null).find((x) => x.grupp === 'vagar')!;
-    expect(vagar.rader.length).toBe(2);
-    const r = vagar.rader[0];
-    expect(r.samlad).toBe(true);
-    expect(r.markeringar.map((m) => m.id)).toEqual(['v1', 'v2', 'v4', 'v5']);
-    expect(samladText(r)).toBe('Vägar · Gul väg ×2 · Röd väg ×2');   // delarna i den ordning de först förekommer (Gul först i skapad ordning)
-    expect(vagar.rader[1].samlad).toBe(false);
-    expect(vagar.rader[1].markeringar[0].id).toBe('v3');   // basvägen (linjen) slås aldrig ihop med väg-symbolerna
-  });
-
-  it('en ensam kort kommentar, en lång text och ett foto slås inte ihop', () => {
-    const g = byggMarkeringsGrupper([
-      M({ id: 'a', slag: 'symbol', typ: 'road', comment: 'Röd väg', skapad: 1 }),
-      M({ id: 'b', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött vid bäcken', skapad: 2 }),
-      M({ id: 'c', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött på andra sidan vägen, kör inte här', skapad: 3 }),
-      M({ id: 'd', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött vid bäcken', skapad: 4, photoPath: 'a.jpg' }),
-    ], null);
-    expect(g.flatMap((x) => x.rader).every((r) => !r.samlad)).toBe(true);
-    expect(arKortKommentar(M({ id: 'k', comment: 'Röd väg' }))).toBe(true);
-    expect(arKortKommentar(M({ id: 'l', comment: 'x'.repeat(40) }))).toBe(false);
-    expect(arKortKommentar(M({ id: 'm', comment: 'Röd väg', photoPath: 'a.jpg' }))).toBe(false);
-  });
-
-  it('två likadana korta kommentarer av en annan typ slås också ihop, med typens pluralnamn som rubrik', () => {
-    const g = byggMarkeringsGrupper([
-      M({ id: 'a', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'Blött', skapad: 1 }),
-      M({ id: 'b', slag: 'symbol', typ: 'wet', namn: 'Fuktig mark', comment: 'blött', skapad: 2 }),
-    ], null);
-    expect(samladText(g[0].rader[0])).toBe('Fuktiga partier · Blött ×2');
-  });
-
-  it('inom en grupp: närmast först när man är på trakten, annars i skapad ordning', () => {
-    const faror = (pos: { lat: number; lng: number } | null) => byggMarkeringsGrupper(ms, pos).find((x) => x.grupp === 'faror')!.rader.map((r) => r.markeringar[0].id);
-    expect(faror(null)).toEqual(['f1', 'f2']);
-    expect(faror({ lat: 56.401, lng: 14.7 })).toEqual(['f2', 'f1']);   // står vid jakttornet
-  });
-});
-
-describe('basväg i Om trakten (färg och längd)', () => {
-  const bv = (o: Partial<KartMarkering> & { id: string }) => M({ slag: 'linje', typ: 'mainRoad', namn: 'Basväg', ...o });
-  it('en basväg listas alltid — även utan kommentar — men räknas inte som "med text" och inte som "utan kommentar"', () => {
-    const ms2 = [bv({ id: 'b1', farg: 'red', langdM: 640 }), M({ id: 'h', slag: 'symbol', typ: 'highstump' })];
-    expect(arBasvag(ms2[0])).toBe(true);
-    expect(visasIListan(ms2[0])).toBe(true);
-    expect(visasIListan(ms2[1])).toBe(false);
-    expect(sammanfattaMarkeringar(ms2).medText).toBe(0);
-    expect(antalPerTyp(ms2)).toBe('1 högstubbe');   // basvägen listas på egen rad, den är inte "utan kommentar"
-    const g = byggMarkeringsGrupper(ms2, null);
-    expect(g.map((x) => x.grupp)).toEqual(['vagar']);
-    expect(g[0].rader.map((r) => r.markeringar[0].id)).toEqual(['b1']);
-  });
-  it('två basvägar slås INTE ihop, inte ens med lika korta kommentarer', () => {
-    const g = byggMarkeringsGrupper([bv({ id: 'a', comment: 'Röd väg', skapad: 1 }), bv({ id: 'b', comment: 'Röd väg', skapad: 2 })], null);
-    expect(g[0].rader.length).toBe(2);
-    expect(g[0].rader.every((r) => !r.samlad)).toBe(true);
-    expect(arKortKommentar(bv({ id: 'c', comment: 'Röd väg' }))).toBe(false);
   });
 });
 

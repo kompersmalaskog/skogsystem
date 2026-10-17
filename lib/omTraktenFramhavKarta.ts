@@ -9,7 +9,7 @@
 
 import {
   DIMMA_FYLL_OPACITET, FRAMHAV_ETIKETT_KALLA, FRAMHAV_FARG, FRAMHAV_KALLA, FRAMHAV_KANT, FRAMHAV_LAGER, RING_BREDD_PX, RING_KANT_PX,
-  arKartTryck, dimmaMal, etikettPunkt, forstoradIkonStorlek, framhavGeoJson, lika, pulsFas, ringRadieStopp, type FramhavdMarkering,
+  arKartTryck, dimmaMal, etikettPunkt, forstoradIkonStorlek, framhavGeoJson, framhavLista, likaNagon, pulsFas, ringRadieStopp, type Framhavning,
 } from './omTraktenFramhav';
 import { ritaFramhavEtikett, framhavEtikettBildId } from './omTraktenEtikettBild';
 import { ETIKETT_PIXELRATIO } from './figurEtikettBild';
@@ -38,19 +38,25 @@ const BILD_MS = 33;   // ~30 bilder/s
  * Startar framhävningen och ger tillbaka en funktion som städar: återställer varje lager till exakt det värde det hade och tar bort sina egna
  * lager, källor och bilder.
  */
-export function startaFramhavning(map: FramhavKarta, f: FramhavdMarkering, o: { minskadRorelse?: boolean } = {}): () => void {
+export function startaFramhavning(map: FramhavKarta, framhavning: Framhavning, o: { minskadRorelse?: boolean } = {}): () => void {
+  // En markering (tryck på ett objekt) eller flera (typraden: alla av typen). Flera: ring/glöd/nedtoning för var och en, men ingen etikett (de skulle ligga huller om buller).
+  const fs = framhavLista(framhavning);
+  const f = fs[0];
+  const flera = fs.length > 1;
+  const ids = fs.map((x) => x.id);
+  if (!f) return () => {};
   const sparade: { id: string; prop: string; orig: any }[] = [];
   const egnaLager: string[] = [];
   const egnaKallor: string[] = [];
   const egnaBilder: string[] = [];
   let raf = 0; let sist = 0;
   const minskad = !!o.minskadRorelse;
-  const symbol = f.slag === 'symbol';
+  const symbol = fs.some((x) => x.slag === 'symbol');
   try {
     const lager: { id: string; type?: string }[] = (map.getStyle()?.layers ?? []).map((l: any) => ({ id: l.id, type: l.type }));
     // Linjens och ytans glöd läggs UNDER markeringarnas egna lager, så den aldrig döljer linjen den framhäver; symbolens ring och etiketten ligger överst.
     const forstaEgna = lager.find((l) => l.id.startsWith('line-') || l.id.startsWith('zone-') || l.id.startsWith('markers-') || l.id.startsWith('arrows-'))?.id;
-    const data: any = framhavGeoJson(f);
+    const data: any = framhavGeoJson(fs);
     const kalla = map.getSource(FRAMHAV_KALLA);
     if (kalla) kalla.setData(data); else { map.addSource(FRAMHAV_KALLA, { type: 'geojson', data }); egnaKallor.push(FRAMHAV_KALLA); }
     const lagg = (spec: any, fore?: string) => { if (!map.getLayer(spec.id)) { map.addLayer(spec, fore); egnaLager.push(spec.id); } };
@@ -70,7 +76,7 @@ export function startaFramhavning(map: FramhavKarta, f: FramhavdMarkering, o: { 
       // Symbolen själv, 1,5× större, ovanpå de andra (samma bild som kartans, ur samma källa, filtrerad på id).
       if (map.getLayer('markers-layer') && map.getSource('markers-source')) {
         lagg({
-          id: FRAMHAV_LAGER.symbol, type: 'symbol', source: 'markers-source', filter: ['all', ['!=', ['get', 'prick'], true], lika(f.id)],
+          id: FRAMHAV_LAGER.symbol, type: 'symbol', source: 'markers-source', filter: ['all', ['!=', ['get', 'prick'], true], likaNagon(ids)],
           layout: {
             'icon-image': ['concat', 'marker-', ['get', 'type']], 'icon-size': forstoradIkonStorlek(), 'icon-allow-overlap': true, 'icon-ignore-placement': true,
             'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport', 'icon-anchor': 'center', 'symbol-z-order': 'source',
@@ -80,7 +86,7 @@ export function startaFramhavning(map: FramhavKarta, f: FramhavdMarkering, o: { 
       }
     }
     // Etikett med kommentaren intill: symbol → ovanför ringen; linje/yta → ovanför mittpunkten.
-    const ep = etikettPunkt(f);
+    const ep = flera ? null : etikettPunkt(f);
     const bild = ep && f.etikett ? ritaFramhavEtikett(f.etikett) : null;
     if (ep && bild) {
       const bildId = framhavEtikettBildId(f.etikett);
@@ -106,7 +112,7 @@ export function startaFramhavning(map: FramhavKarta, f: FramhavdMarkering, o: { 
       try {
         const orig = map.getPaintProperty(mal.id, mal.prop);
         sparade.push({ id: mal.id, prop: mal.prop, orig });
-        map.setPaintProperty(mal.id, mal.prop, ['case', lika(f.id), orig ?? 1, mal.dim]);
+        map.setPaintProperty(mal.id, mal.prop, ['case', likaNagon(ids), orig ?? 1, mal.dim]);
       } catch { /* uttrycket gick inte att linda in (t.ex. zoom-interpolering) — lagret lämnas som det är */ }
     }
   } catch { /* kartan inte redo */ }

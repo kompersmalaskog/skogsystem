@@ -8,6 +8,7 @@
 import { FARG } from './design/tokens';
 import { arBasvag, type KartMarkering } from './objektKort';
 import { basvagText } from './basvag';
+import { listText } from './omTrakten';
 
 export interface FramhavdMarkering {
   /** alltid TEXT — kartans features bär markeringens id som det är (ofta ett tal, Date.now()), se `lika` */
@@ -18,6 +19,8 @@ export interface FramhavdMarkering {
   geometri?: { lat: number; lng: number }[];
   /** texten på kartetiketten: kommentaren, annars symbolens namn (basväg: "Basväg röd · 640 m") */
   etikett: string;
+  /** texten i listen nertill (telefon): "Basväg röd · 329 m", "Kulturminne · Stenrös" — typ först, kommentaren efter */
+  lista?: string;
 }
 
 export const FRAMHAV_KALLA = 'omtrakten-framhav-kalla';
@@ -63,17 +66,29 @@ export const ringRadieStopp = (extra = 0): any[] =>
 /** Samma id på kartan och i listan. Kartans features bär `id` som det skapades (symboler: ett TAL, Date.now()), listan har det som TEXT — en strikt
  *  jämförelse `['==', ['get','id'], '1710…']` är falsk för ALLA, så den valda tonades ner med resten ("båda ser lika bleka ut"). Därför `to-string`. */
 export const lika = (id: string): any[] => ['==', ['to-string', ['get', 'id']], String(id)];
+/** Någon av flera (typraden markerar ALLA av typen): samma jämförelse som `lika`, men mot en lista. En enda id ger exakt `lika`. */
+export const likaNagon = (ids: readonly string[]): any[] => (ids.length === 1 ? lika(ids[0]) : ['in', ['to-string', ['get', 'id']], ['literal', ids.map(String)]]);
 
 export function framhavdFran(m: Pick<KartMarkering, 'id' | 'slag' | 'typ' | 'namn' | 'comment' | 'farg' | 'langdM' | 'lat' | 'lng' | 'geometri'>): FramhavdMarkering {
   const komm = String(m.comment ?? '').trim();
   const etikett = komm || (arBasvag(m) ? basvagText(m.farg, m.langdM) : String(m.namn ?? '').trim());
-  return { id: String(m.id), slag: m.slag, lat: m.lat, lng: m.lng, geometri: m.geometri, etikett };
+  return { id: String(m.id), slag: m.slag, lat: m.lat, lng: m.lng, geometri: m.geometri, etikett, lista: listText(m) };
 }
+
+/** Det som framhävs: en markering (tryck på ett objekt) eller flera (tryck på en typrad: alla av typen). */
+export type Framhavning = FramhavdMarkering | readonly FramhavdMarkering[];
+export const framhavLista = (f: Framhavning | null | undefined): FramhavdMarkering[] => (!f ? [] : Array.isArray(f) ? [...(f as readonly FramhavdMarkering[])] : [f as FramhavdMarkering]);
 
 const giltig = (p: { lat: number; lng: number }) => Number.isFinite(p.lat) && Number.isFinite(p.lng);
 
 /** Geometrin som ritas: linje → LineString av ALLA punkter, yta → sluten Polygon, annars (eller utan geometri) en Point. */
-export function framhavGeoJson(f: FramhavdMarkering | null): { type: 'FeatureCollection'; features: any[] } {
+export function framhavGeoJson(f: Framhavning | null): { type: 'FeatureCollection'; features: any[] } {
+  const lista = framhavLista(f);
+  if (lista.length !== 1) return { type: 'FeatureCollection', features: lista.flatMap((x) => framhavGeoJson(x).features) };
+  return framhavGeoJsonEn(lista[0]);
+}
+
+function framhavGeoJsonEn(f: FramhavdMarkering | null): { type: 'FeatureCollection'; features: any[] } {
   const tom = { type: 'FeatureCollection' as const, features: [] as any[] };
   if (!f) return tom;
   const pts = (f.geometri ?? []).filter(giltig);
@@ -93,9 +108,21 @@ export function framhavGeoJson(f: FramhavdMarkering | null): { type: 'FeatureCol
 }
 
 /** Ramen kameran ska rymma (bara linje/yta med minst två punkter) — annars null och kameran flyger till punkten. */
-export function framhavBounds(f: FramhavdMarkering | null): [[number, number], [number, number]] | null {
-  if (!f || f.slag === 'symbol') return null;
-  const pts = (f.geometri ?? []).filter(giltig);
+export function framhavBounds(f: Framhavning | null): [[number, number], [number, number]] | null {
+  const lista = framhavLista(f);
+  if (lista.length > 1) {
+    // Typraden: kameran rymmer ALLA — symbolernas punkter och linjernas/ytornas hörn.
+    const pts: { lat: number; lng: number }[] = [];
+    for (const x of lista) {
+      if (x.slag !== 'symbol' && x.geometri?.length) pts.push(...x.geometri.filter(giltig));
+      else if (x.lat != null && x.lng != null && giltig({ lat: x.lat, lng: x.lng })) pts.push({ lat: x.lat, lng: x.lng });
+    }
+    if (pts.length === 0) return null;
+    return [[Math.min(...pts.map((p) => p.lng)), Math.min(...pts.map((p) => p.lat))], [Math.max(...pts.map((p) => p.lng)), Math.max(...pts.map((p) => p.lat))]];
+  }
+  const f1 = lista[0] ?? null;
+  if (!f1 || f1.slag === 'symbol') return null;
+  const pts = (f1.geometri ?? []).filter(giltig);
   if (pts.length < 2) return null;
   let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
   for (const p of pts) { w = Math.min(w, p.lng); e = Math.max(e, p.lng); s = Math.min(s, p.lat); n = Math.max(n, p.lat); }
