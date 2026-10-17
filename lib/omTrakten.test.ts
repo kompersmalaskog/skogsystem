@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { antalFaror, brandRadText, byggOmGrupper, dagText, listText, mittAvPunkter, omGrupp, omNamn, punkterUrGeometri, typRadText, type MiljoIn } from './omTrakten';
+import { antalFaror, brandRadText, byggOmGrupper, dagText, listText, mittAvPunkter, omGrupp, omNamn, omSammanfattning, punkterUrGeometri, typRadText, type MiljoIn } from './omTrakten';
 import type { KartMarkering } from './objektKort';
 
 const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
@@ -148,6 +148,22 @@ describe('ritad hänsynszon heter Hänsynsyta', () => {
   });
 });
 
+describe('kortets "På trakten" räknar samma objekt som listan', () => {
+  const ms = [
+    M({ id: 'a', comment: 'text' }), M({ id: 'b' }), M({ id: 'c', photoPath: 'x.jpg' }),
+    M({ id: 'v1', slag: 'zon', typ: 'protected', namn: 'Hänsynsyta', comment: 'Sänka', kalla: 'vida' }), M({ id: 'v2', typ: 'landing', namn: 'Avlägg', kalla: 'vida' }),
+  ];
+  it('markeringar (Vidas + våra) och övriga ytor — och "med text" räknar kommentar, foto och yt-anteckning', () => {
+    expect(omSammanfattning(ms, [{ harText: true }, { harText: false }])).toEqual({ antal: 7, medText: 4 });
+    expect(omSammanfattning([], [])).toEqual({ antal: 0, medText: 0 });
+  });
+  it('talet = antalet objekt man kan nå i Om trakten: alla markeringar i grupperna + de övriga ytornas rader', () => {
+    const grupper = byggOmGrupper(ms, null, null, ['Traktdel', 'Eget område']);
+    const iListan = grupper.flatMap((g) => g.rader).reduce((s, r) => s + r.antal, 0);
+    expect(iListan).toBe(omSammanfattning(ms, [{ harText: false }, { harText: false }]).antal);
+  });
+});
+
 describe('listen nertill', () => {
   it('basväg: "Basväg röd · 329 m"; annars namn · kommentar; utan kommentar bara namnet', () => {
     expect(listText(bv({ id: '1', farg: 'red', langdM: 329 }))).toBe('Basväg röd · 329 m');
@@ -191,10 +207,13 @@ describe('vakt: sidan matar Vidas hänsynsytor och avlägg som markeringar (samm
     expect(page).toContain("slag: 'zon' as const, typ: 'protected', namn: 'Hänsynsyta'");
     expect(page).toContain("slag: 'symbol' as const, typ: 'landing', namn: 'Avlägg'");
     expect(page).toContain("kalla: 'vida' as const");
-    expect(page).toContain('markeringar: [...kartMarkeringar, ...vidaHansynMark, ...vidaAvlaggMark],');
     expect(page).toContain('vidaOppna: (id) => vidaOppnaPerId.get(id),');
-    // kortets "N markeringar" och alla andra läsare av kartMarkeringar räknar INTE Vidas objekt
-    expect(page).toContain('const sammanf = sammanfattaMarkeringar(kartMarkeringar);');
+    // kortets "N markeringar" och Om trakten läser SAMMA lista (Vidas + våra + övriga ytor)
+    expect(page).toContain('const omMarkeringar = [...kartMarkeringar, ...vidaHansynMark, ...vidaAvlaggMark];');
+    expect(page).toContain('const sammanf = omSammanfattning(omMarkeringar, ovrigaYtor.map(');
+    expect(page).toContain('markeringar: omMarkeringar,');
+    expect(page).toContain('ytor: ovrigaYtor.map((y) => ({ nr: y.nr,');
+    expect(page).not.toContain('sammanfattaMarkeringar(kartMarkeringar)');
   });
 });
 

@@ -90,7 +90,7 @@ describe('Ytor och Spårning: inga flikar — Ytor ligger i objektinfon (Om trak
     expect(page).toContain("ytor.push({ nr, typ: 'traktdel', typLabel: 'Traktdel'");
     expect(page).toContain("ytor.push({ nr, typ: 'omrade', typLabel: 'Eget område'");
     expect(page).toContain('ytor.sort((a, b) => a.nr - b.nr);');
-    expect(page).toContain('ytor: ytor.filter((y) => y.typ !== \'hansyn\').map((y) => ({ nr: y.nr, typLabel: y.typLabel');   // traktdelar och egna områden matas som ytor; Vidas hänsynsytor är markeringar (samma rad som våra)
+    expect(page).toContain('ytor: ovrigaYtor.map((y) => ({ nr: y.nr, typLabel: y.typLabel');   // traktdelar och egna områden matas som ytor; Vidas hänsynsytor är markeringar (samma rad som våra)
     expect(las('../components/planering/OmTrakten.tsx')).toContain('data-testid="om-yta"');   // ytorna är en typrad ("Hänsynsytor · 2 st") och listas i typvyn
     expect(page).not.toContain('byggYtor');
     const ark = las('../components/planering/PlusArk.tsx');

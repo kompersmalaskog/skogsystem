@@ -76,7 +76,7 @@ import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from 
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
 import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
-import { mittAvPunkter, punkterUrGeometri } from '../../lib/omTrakten'
+import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/omTrakten'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
@@ -13842,7 +13842,10 @@ export default function PlannerPage() {
           : `${avverkat.ha.toFixed(2).replace('.', ',')} av ${arealHaKort.toFixed(2).replace('.', ',')} ha`;
         const gpsNuPos = gpsNu({ korvyAktiv: korvyActive, korvyPos: korvyEffectivePos, position: currentPosition });
         const efter = (f: () => void) => () => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8); f(); stang(); };
-        const sammanf = sammanfattaMarkeringar(kartMarkeringar);
+        // Kortets "På trakten N markeringar" räknar SAMMA objekt som Om trakten-listan: våra + Vidas hänsynsytor/avlägg + traktdelar/egna områden.
+        const omMarkeringar = [...kartMarkeringar, ...vidaHansynMark, ...vidaAvlaggMark];
+        const ovrigaYtor = ytor.filter((y) => y.typ !== 'hansyn');
+        const sammanf = omSammanfattning(omMarkeringar, ovrigaYtor.map((y) => ({ harText: !!(y.vidaText || foersta(anteckningar[y.nyckel]?.text)) })));
         const merIn = byggMerGrupper({
           roll: kortRoll, arAdmin: isAdminRiktig, korvyAktiv: korvyActive, maskinlage: maskinlage || !!maskinSomParam,
           skotningFinnsSomKnapp: kortRoll === 'forare' && maskinSlag !== 'skordare', status: valtObjekt.status ?? null, tillTrakt: true,
@@ -14024,14 +14027,14 @@ export default function PlannerPage() {
             hela: forareTexter,
             planttext: [planttext, talKonflikt ? `Egen anteckning anger ${egnaTalStr}/ha — Vidas direktiv gäller` : null].filter(Boolean).join(' · ') || null,
             restriktioner: restr ?? [],
-            markeringar: [...kartMarkeringar, ...vidaHansynMark, ...vidaAvlaggMark],
+            markeringar: omMarkeringar,
             vidaOppna: (id) => vidaOppnaPerId.get(id),
             pos: gpsNuPos,
             miljo: [
               { id: 'hogstubbar', namn: 'Högstubbar', antal: hogstubbarVy.antal, krav: hogstubbarVy.krav, uppfyllt: hogstubbarVy.status === 'uppfyllt' },
               { id: 'evighetstrad', namn: 'Evighetsträd', antal: evighetstradVy.antal, krav: evighetstradVy.krav, uppfyllt: evighetstradVy.status === 'uppfyllt' },
             ],
-            ytor: ytor.filter((y) => y.typ !== 'hansyn').map((y) => ({ nr: y.nr, typLabel: y.typLabel, text: y.vidaText || foersta(anteckningar[y.nyckel]?.text) || null,
+            ytor: ovrigaYtor.map((y) => ({ nr: y.nr, typLabel: y.typLabel, text: y.vidaText || foersta(anteckningar[y.nyckel]?.text) || null,
               harLjud: (ytaMedia[y.nyckel] || []).some(mm => mm.typ === 'audio'), harFoto: (ytaMedia[y.nyckel] || []).some(mm => mm.typ === 'foto'), onOppna: y.open })),
             ikon: ikonFor,
             // Telefon: arket stängs och kartan flyger dit. Bred skärm: panelen ligger kvar och markeringen framhävs på kartan.

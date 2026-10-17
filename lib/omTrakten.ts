@@ -147,6 +147,14 @@ export function byggOmGrupper(ms: readonly KartMarkering[], pos: { lat: number; 
   })).filter((g) => g.rader.length > 0);
 }
 
+/**
+ * Kortets rad "På trakten N markeringar · M med text": SAMMA objekt som Om trakten listar — markeringarna (Vidas och våra) plus ytorna som inte är markeringar
+ * (traktdelar, egna områden). Ett tal på kortet som inte går att hitta i listan vore ett fel. "Med text" = kommentar, foto eller (ytor) en anteckning.
+ */
+export function omSammanfattning(ms: readonly KartMarkering[], ovrigaYtor: readonly { harText: boolean }[]): { antal: number; medText: number } {
+  return { antal: ms.length + ovrigaYtor.length, medText: ms.filter((m) => !!m.comment.trim() || !!(m.photoPath || m.photoData || m.fotoVantar)).length + ovrigaYtor.filter((y) => y.harText).length };
+}
+
 /** Antalet faror (rubrikens tal): markeringar i gruppen Faror. */
 export const antalFaror = (g: readonly OmGruppRader[]): number => g.find((x) => x.grupp === 'faror')?.rader.reduce((s, r) => s + r.antal, 0) ?? 0;
 
