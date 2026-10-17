@@ -209,8 +209,17 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(effekt).toContain("'avlagg-granska-ring'");
     expect(effekt).toContain('map.fitBounds(');
     expect(effekt).toContain("['trakt-punkt-circle', 'trakt-punkt-label']");
+    // etiketten (Vidas nummer) ligger utanför ringen så länge den står, och sätts tillbaka efteråt
+    expect(effekt).toContain("map.setLayoutProperty('trakt-punkt-label', 'text-offset', [0, 3.8])");
+    expect(effekt).toContain("map.setLayoutProperty('trakt-punkt-label', 'text-offset', foreOffset)");
+    // marginal upptill så översta avlägget inte hamnar under namnfältet
+    expect(effekt).toMatch(/padding: \{ top: 7 \* AVSTAND\.xxl,/);
+    // kartan går tillbaka till vyn den hade när listen stängs med Ja eller tillbaka — men inte vid Lägg till eget (placeringen sker vid avläggen)
+    expect(page).toContain('klarKameraForeRef.current = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }');
+    expect(page).toContain('const oppnaKortet = (vy: KlarVy | null) => { klarAterstallKamera(); klarVyRef.current = vy;');
+    expect(page).toContain("onClick: () => { klarKameraForeRef.current = null; klarVyRef.current = klarEfterRef.current;");
     // "Lägg till eget" hoppar över steget efteråt (annars öppnas frågan igen); tillbaka går till kortet
-    expect(page).toContain("onClick: () => { klarVyRef.current = klarEfterRef.current; setKlarGranskaAvlagg(false); setKlarAterAvlagg(true); setSelectedSymbol('landing'); } }");
+    expect(page).toContain("klarVyRef.current = klarEfterRef.current; setKlarGranskaAvlagg(false); setKlarAterAvlagg(true); setSelectedSymbol('landing'); } }");
     expect(kort).toContain('if (steg === \'avlagg\' && (p.vidaAvlagg ?? []).length > 0 && p.onGranskaAvlagg) return <AvlaggGranska');
   });
   it('SE: ingen maskinrad under Förutsättningar, och SE-raden för avlägg heter alltid "Avlägg · …"', () => {

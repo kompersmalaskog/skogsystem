@@ -3707,6 +3707,13 @@ export default function PlannerPage() {
   // `klarEfterRef` = vyn kortet öppnas i när frågan är besvarad (nästa steg, eller dit man kom ifrån).
   const [klarGranskaAvlagg, setKlarGranskaAvlagg] = useState(false);
   const klarEfterRef = useRef<KlarVy | null>(null);
+  // Kartvyn före frågan om Vidas avlägg: "Ja" och tillbaka släpper listen och kartan går tillbaka dit den var ("Lägg till eget" stannar kvar vid avläggen för placeringen).
+  const klarKameraForeRef = useRef<{ center: any; zoom: number; bearing: number; pitch: number } | null>(null);
+  const klarAterstallKamera = () => {
+    const k = klarKameraForeRef.current; klarKameraForeRef.current = null;
+    const map = mapInstanceRef.current;
+    if (k && map) { try { map.easeTo({ center: k.center, zoom: k.zoom, bearing: k.bearing, pitch: k.pitch, duration: 600 }); } catch { /* kartan är borta */ } }
+  };
   const [klarSparar, setKlarSparar] = useState(false);
   const [klarFel, setKlarFel] = useState<string | null>(null);
   const klarPlanerare = !(isForare || (maskinlage && !isAdminRiktig));
@@ -3787,6 +3794,10 @@ export default function PlannerPage() {
   useEffect(() => { if (!traktOversiktOpen) setKlarStartMedVed(false); }, [traktOversiktOpen]);
   // Kortets minne (vy + steg) lever bara medan arket är öppet eller kartan väntar på ett avlägg — en vanlig stängning börjar nästa öppning från början.
   useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag && !klarGranskaAvlagg) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg, klarAterBasvag, klarGranskaAvlagg]);
+  useEffect(() => {   // sparar kartvyn INNAN zoomen nedan (effekter körs i ordning)
+    const map = mapInstanceRef.current;
+    if (klarGranskaAvlagg && map) { try { klarKameraForeRef.current = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() }; } catch { /* kartan hann inte */ } }
+  }, [klarGranskaAvlagg]);
   // Vidas avlägg på kartan medan frågan står: kartan zoomar in på dem (så att de syns ovanför listen) och en blå ring med vit kant ligger runt varje. Vidas lager (symbol + nummer) tvingas synliga så länge.
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -3795,20 +3806,24 @@ export default function PlannerPage() {
     if (pts.length === 0) return;
     const fc = { type: 'FeatureCollection', features: pts.map((a) => ({ type: 'Feature', properties: { nr: a.nummer }, geometry: { type: 'Point', coordinates: [a.lng, a.lat] } })) };
     const foreVis: Record<string, any> = {};
+    let foreOffset: any = null;
     try {
+      // Etiketten (Vidas nummer) ska synas UTANFÖR ringen: längre ned så länge ringarna står (ringens ytterkant ≈ 31 px, etiketten börjar 3,8 em × 11 px ≈ 42 px under symbolens mitt).
+      if (map.getLayer('trakt-punkt-label')) { foreOffset = map.getLayoutProperty('trakt-punkt-label', 'text-offset'); map.setLayoutProperty('trakt-punkt-label', 'text-offset', [0, 3.8]); }
       for (const id of ['trakt-punkt-circle', 'trakt-punkt-label']) if (map.getLayer(id)) { foreVis[id] = map.getLayoutProperty(id, 'visibility'); map.setLayoutProperty(id, 'visibility', 'visible'); }
       if (!map.getSource('avlagg-granska-source')) map.addSource('avlagg-granska-source', { type: 'geojson', data: fc as any });
       else (map.getSource('avlagg-granska-source') as any).setData(fc);
       if (!map.getLayer('avlagg-granska-vit')) map.addLayer({ id: 'avlagg-granska-vit', type: 'circle', source: 'avlagg-granska-source', paint: { 'circle-radius': 27, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 8, 'circle-stroke-color': '#ffffff', 'circle-pitch-alignment': 'viewport' } });
       if (!map.getLayer('avlagg-granska-ring')) map.addLayer({ id: 'avlagg-granska-ring', type: 'circle', source: 'avlagg-granska-source', paint: { 'circle-radius': 27, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 4, 'circle-stroke-color': FARG.bla, 'circle-pitch-alignment': 'viewport' } });
       const lng = pts.map((a) => a.lng as number); const lat = pts.map((a) => a.lat as number);
-      map.fitBounds([[Math.min(...lng), Math.min(...lat)], [Math.max(...lng), Math.max(...lat)]], { padding: { top: 4 * AVSTAND.xxl, bottom: 280, left: 70, right: 70 }, maxZoom: 18, duration: 800 });
+      map.fitBounds([[Math.min(...lng), Math.min(...lat)], [Math.max(...lng), Math.max(...lat)]], { padding: { top: 7 * AVSTAND.xxl, bottom: 280, left: 70, right: 70 }, maxZoom: 18, duration: 800 });
     } catch { /* kartan hann inte — listen frågar ändå */ }
     return () => {
       try {
         for (const id of ['avlagg-granska-ring', 'avlagg-granska-vit']) if (map.getLayer(id)) map.removeLayer(id);
         if (map.getSource('avlagg-granska-source')) map.removeSource('avlagg-granska-source');
         for (const [id, v] of Object.entries(foreVis)) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v ?? 'visible');
+        if (foreOffset && map.getLayer('trakt-punkt-label')) map.setLayoutProperty('trakt-punkt-label', 'text-offset', foreOffset);
       } catch { /* kartan är borta */ }
     };
   }, [klarGranskaAvlagg, mapLibreReady, klarVidaPunkter]);
@@ -14571,7 +14586,7 @@ export default function PlannerPage() {
       {/* AVLÄGGEN FRÅN VIDA (Klar med trakten? › Avlägg): arket har krympt hit, kartan visar avläggen med deras nummer som etiketter. EN fråga, två svar; tillbaka = till kortet. */}
       {klarGranskaAvlagg && !traktOversiktOpen && !selectedSymbol && (() => {
         const fraga = vidaAvlaggFraga(klarVidaAvlagg.length);
-        const oppnaKortet = (vy: KlarVy | null) => { klarVyRef.current = vy; setKlarGranskaAvlagg(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); };
+        const oppnaKortet = (vy: KlarVy | null) => { klarAterstallKamera(); klarVyRef.current = vy; setKlarGranskaAvlagg(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); };
         return (
           <NedfaldList
             testid="avlagg-granska-list"
@@ -14584,7 +14599,7 @@ export default function PlannerPage() {
                 if (!klarVidaBekraftat) { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg, av: currentMedarbetare?.id ?? null, at: new Date().toISOString() } }); if (klarGaller) visaKvitto(`Avlägg ✓ · ${avlaggText(klarVidaAvlagg.length, klarAvlaggAntal)}`, 'ok'); }
                 oppnaKortet(klarEfterRef.current);
               } },
-              { etikett: 'Lägg till eget', testid: 'avlagg-granska-eget', onClick: () => { klarVyRef.current = klarEfterRef.current; setKlarGranskaAvlagg(false); setKlarAterAvlagg(true); setSelectedSymbol('landing'); } },
+              { etikett: 'Lägg till eget', testid: 'avlagg-granska-eget', onClick: () => { klarKameraForeRef.current = null; klarVyRef.current = klarEfterRef.current; setKlarGranskaAvlagg(false); setKlarAterAvlagg(true); setSelectedSymbol('landing'); } },
             ]}
           />
         );
