@@ -37,7 +37,7 @@ import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
 import {
-  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, vidaBasvagFinns, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
+  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, vidaBasvagFinns, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
   type HarDuId, type HarDuSvarVarde, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer,
 } from '../../lib/klarTrakt'
 import type { KlarPatch } from '../../components/planering/KlarMedTrakten'
@@ -3746,8 +3746,32 @@ export default function PlannerPage() {
   const [klarFel, setKlarFel] = useState<string | null>(null);
   const klarPlanerare = !(isForare || (maskinlage && !isAdminRiktig));
   const klarTal = (v: string | null | undefined) => parseSvNum(v ?? '');
-  const klarSkordare: UtforareVal = { maskinId: infoSkordareMaskinId, utforare: infoSkordareUtforare, externNamn: infoSkordareUtforareNamn };
-  const klarSkotare: UtforareVal = { maskinId: infoSkotareMaskinId, utforare: infoSkotareUtforare, externNamn: infoSkotareUtforareNamn };
+  // Förval: vi kör själva i de flesta fall → raden är ifylld med EGEN maskin ur planeringen (maskinkön) utan att någon trycker (lib/klarTrakt standardMaskin).
+  // Det sparade svaret går alltid före; Extern skrivs aldrig över. Ingen maskin går att hitta → raden är kvar (orange). Förvalet skrivs till objektet först
+  // när planeraren trycker Klar för maskin (klarForMaskin) — att bara titta på kortet ändrar ingenting i databasen.
+  const [klarKo, setKlarKo] = useState<{ objektId: string; maskiner: string[] | null } | null>(null);
+  useEffect(() => {
+    const id = valtObjekt?.id;
+    if (!id || !klarPlanerare) { setKlarKo(null); return; }
+    let avbruten = false;
+    (async () => {
+      let maskiner: string[] | null = null;
+      try {
+        const { data, error } = await supabase.from('maskin_ko').select('maskin_id').eq('objekt_id', id);
+        if (!error && Array.isArray(data)) maskiner = data.map((r: any) => String(r.maskin_id));
+      } catch { /* kön ej läst → inget förval ur kön, se standardMaskin */ }
+      if (!avbruten) setKlarKo({ objektId: String(id), maskiner });
+    })();
+    return () => { avbruten = true; };
+  }, [valtObjekt?.id, klarPlanerare]);
+  const klarKoDetta = klarKo && klarKo.objektId === String(valtObjekt?.id ?? '') ? klarKo : null;
+  const klarForvalKlart = infoLoaded && !!klarKoDetta;
+  const klarSkordare: UtforareVal = medStandardMaskin(
+    { maskinId: infoSkordareMaskinId, utforare: infoSkordareUtforare, externNamn: infoSkordareUtforareNamn },
+    klarForvalKlart ? standardMaskin(klarKoDetta!.maskiner, maskinerForRoll('skordare').map((m) => m.maskin_id)) : null);
+  const klarSkotare: UtforareVal = medStandardMaskin(
+    { maskinId: infoSkotareMaskinId, utforare: infoSkotareUtforare, externNamn: infoSkotareUtforareNamn },
+    klarForvalKlart ? standardMaskin(klarKoDetta!.maskiner, maskinerForRoll('skotare').map((m) => m.maskin_id)) : null);
   const klarAvlaggAntal = (markers as any[]).filter((m) => m.isMarker && m.type === 'landing').length;
   const klarPrognosIn: PrognosIndata = {
     skordareTimmar: klarTal(manuellPrognos?.skordare), skotareTimmar: klarTal(manuellPrognos?.skotare),
@@ -13987,6 +14011,9 @@ export default function PlannerPage() {
         const klarForMaskin = async () => {
           if (!valtObjekt?.id || klarSparar) return;
           setKlarSparar(true); setKlarFel(null);
+          // Förvalet blir sparat svar nu: trakten går till föraren med de maskiner kortet visade (autosparet av objektinfon skriver dem).
+          if (!infoSkordareMaskinId && klarSkordare.maskinId) { setInfoSkordareMaskinId(klarSkordare.maskinId); setInfoSkordareUtforare(null); }
+          if (!infoSkotareMaskinId && klarSkotare.maskinId) { setInfoSkotareMaskinId(klarSkotare.maskinId); setInfoSkotareUtforare(null); }
           const nowIso = new Date().toISOString();
           if (testlageAktivRef.current) {   // TESTLÄGE: simulera, skriv inget
             setValtObjekt({ ...valtObjekt, status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso });

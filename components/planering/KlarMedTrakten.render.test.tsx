@@ -385,3 +385,108 @@ describe('ingången från ⓘ-kortet', () => {
     expect(q('kort-planering')!.querySelector('button,input,textarea')).toBeNull();
   });
 });
+
+describe('raden stängs när ett val är gjort — nästa rad syns direkt', () => {
+  const oppen = (id: string) => q(`klar-rad-${id}`)!.getAttribute('aria-expanded') === 'true';
+  it('bärighet, terräng och skotningsavstånd: ett val stänger raden; att ta tillbaka valet gör det inte', () => {
+    montera({});
+    for (const [rad, val] of [['barighet', 'bra'], ['terrang', 'flackt'], ['skotningsavstand', 'medel']] as const) {
+      klicka(q(`klar-rad-${rad}`));
+      expect(oppen(rad)).toBe(true);
+      klicka(q(`klar-${rad}-${val}`));
+      expect(oppen(rad), `${rad} stängd efter val`).toBe(false);
+      expect(finns(`klar-${rad}-${val}`)).toBe(false);
+    }
+    klicka(q('klar-rad-barighet'));
+    klicka(q('klar-barighet-bra'));          // samma val igen = tar tillbaka svaret
+    expect(spion.patchar.at(-1)).toEqual({ barighet: null });
+    expect(oppen('barighet')).toBe(true);    // inget val står kvar → raden förblir öppen
+  });
+  it('skördare: Egen utan maskin stannar öppen, en vald maskin stänger; Extern stannar öppen tills namnet är ifyllt och stängs aldrig av skrivandet', () => {
+    montera({});
+    klicka(q('klar-rad-skordare'));
+    klicka(q('klar-skordare-egen'));
+    expect(oppen('skordare')).toBe(true);
+    klicka(q('klar-skordare-maskin-R64101'));
+    expect(oppen('skordare')).toBe(false);
+    expect(text('klar-rad-skordare')).toContain('Rottne H8E');
+
+    klicka(q('klar-rad-skotare'));
+    klicka(q('klar-skotare-extern'));
+    expect(oppen('skotare')).toBe(true);
+    skriv(q('klar-skotare-extern-namn') as HTMLInputElement, 'Max Skotning');
+    expect(oppen('skotare')).toBe(true);     // ett skrivfält stänger inte av sig självt
+    klicka(q('klar-rad-skotare'));           // planeraren stänger själv
+    expect(oppen('skotare')).toBe(false);
+    expect(text('klar-rad-skotare')).toContain('Extern · Max Skotning');
+  });
+  it('Egen när en maskin redan är förvald (eller sparad) räknas som ett val och stänger', () => {
+    montera({ skordare: EGEN('PONS20SDJAA270231') });
+    klicka(q('klar-rad-skordare'));
+    klicka(q('klar-skordare-egen'));
+    expect(oppen('skordare')).toBe(false);
+  });
+  it('bara den rad som valet hör till stängs — en annan öppen rad störs inte', () => {
+    montera({});
+    klicka(q('klar-rad-prognos'));
+    expect(oppen('prognos')).toBe(true);
+    klicka(q('klar-rad-barighet'));          // öppnar bärighet, prognos stängs (en rad i taget)
+    klicka(q('klar-barighet-bra'));
+    expect(oppen('barighet')).toBe(false);
+    expect(oppen('prognos')).toBe(false);
+  });
+});
+
+describe('förval: egen maskin — raden är ifylld, Egen/Extern syns först när man öppnar den', () => {
+  it('förvald skördare och skotare: inte kvar, maskinens namn på raden, inga Egen/Extern-knappar i viloläget', () => {
+    montera({ skordare: EGEN('PONS20SDJAA270231'), skotare: EGEN('A110148') });
+    expect(q('klar-post-skordare')!.getAttribute('data-kvar')).toBe('0');
+    expect(q('klar-post-skotare')!.getAttribute('data-kvar')).toBe('0');
+    expect(text('klar-rad-skordare')).toContain('Ponsse Scorpion Giant 8W');
+    expect(text('klar-rad-skordare')).not.toContain('Välj');
+    expect(finns('klar-skordare-egen')).toBe(false);
+    expect(finns('klar-skordare-extern')).toBe(false);
+    klicka(q('klar-rad-skordare'));
+    expect(finns('klar-skordare-egen')).toBe(true);
+    expect(finns('klar-skordare-extern')).toBe(true);
+    expect(q('klar-skordare-egen')!.getAttribute('aria-pressed')).toBe('true');
+  });
+  it('ingen egen maskin går att hitta → raden är orange och kvar ("Välj")', () => {
+    montera({ skordare: INGEN, skotare: EGEN('A110148') });
+    expect(q('klar-post-skordare')!.getAttribute('data-kvar')).toBe('1');
+    expect(text('klar-rad-skordare')).toContain('Välj');
+    expect(q('klar-post-skotare')!.getAttribute('data-kvar')).toBe('0');
+  });
+});
+
+describe('del 3: etiketten är alltid vit — bara knappen till höger visar läget', () => {
+  const FARG_TEXT = (() => { const e = document.createElement('div'); e.style.color = '#ffffff'; return e.style.color; })();
+  const etikettFarg = (id: string) => (q(`klar-ovrigt-${id}`)!.querySelector('span') as HTMLElement).style.color;
+  it('alla rader i del 3 har vit etikett, både på standard och när de avviker', () => {
+    montera({ visaKonfiguration: true });
+    const rader = ['band-skordare', 'band-skotare', 'breddat', 'konfiguration', 'ris', 'vagn', 'trailer', 'manuell'];
+    for (const id of rader) expect(etikettFarg(id), `${id} (standard)`).toBe(FARG_TEXT);
+    for (const id of ['band-skotare', 'breddat', 'manuell']) klicka(q(`klar-ovrigt-${id}-vaxla`));
+    for (const id of rader) expect(etikettFarg(id), `${id} (avviker)`).toBe(FARG_TEXT);
+    // läget bor i knappen: grå fyllning = standard, vit = avviker
+    expect(q('klar-ovrigt-ris')!.getAttribute('data-avviker')).toBe('0');
+    expect(q('klar-ovrigt-band-skotare')!.getAttribute('data-avviker')).toBe('1');
+  });
+  it('vedraden: etiketten vit i båda lägena; "Nej" grå fyllning, "Ja" vit fyllning; resten av raden är tryckbar', () => {
+    montera({});
+    const knapp = () => q('klar-ved-rad')!;
+    expect(knapp().style.color).toBe(FARG_TEXT);
+    expect(q('klar-ved-lage')!.getAttribute('data-avviker')).toBe('0');
+    // samma fyllning som övriga raders läge-knapp i samma läge: Nej = grå (som en ej påslagen knapp), Ja = vit
+    const fyllning = (id: string) => q(id)!.style.background;
+    expect(fyllning('klar-ved-lage')).toBe(fyllning('klar-ovrigt-ris-vaxla'));
+    klicka(knapp());                         // slår på ved och öppnar vedarket
+    act(() => { (q('ved-klar') as HTMLElement).click(); });
+    expect(knapp().style.color).toBe(FARG_TEXT);
+    expect(q('klar-ved-lage')!.getAttribute('data-avviker')).toBe('1');
+    expect(text('klar-ved-lage')).toBe('Ja');
+    expect(fyllning('klar-ved-lage')).not.toBe(fyllning('klar-ovrigt-band-skotare-vaxla'));   // Ja = vit, en ej påslagen knapp = grå
+    klicka(q('klar-ovrigt-band-skotare-vaxla'));   // en annan rad som avviker (Ja) har samma vita fyllning
+    expect(fyllning('klar-ved-lage')).toBe(fyllning('klar-ovrigt-band-skotare-vaxla'));
+  });
+});

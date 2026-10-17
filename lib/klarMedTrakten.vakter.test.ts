@@ -24,6 +24,26 @@ describe('kortet och sidan', () => {
     // körvyns pill (KorvyObjektPill) rörs inte — chippen sitter bara i planeringens egen pill
     expect(las('../components/planering/KorvyObjektPill.tsx')).not.toContain('objekt-pill-klar');
   });
+  it('förval: skördare/skotare är EGEN maskin ur planeringen (maskinkön) — sparat svar går före, Extern skrivs aldrig över, kön läses på objektet', () => {
+    expect(page).toContain("supabase.from('maskin_ko').select('maskin_id').eq('objekt_id', id)");
+    expect(page).toContain("standardMaskin(klarKoDetta!.maskiner, maskinerForRoll('skordare').map((m) => m.maskin_id))");
+    expect(page).toContain("standardMaskin(klarKoDetta!.maskiner, maskinerForRoll('skotare').map((m) => m.maskin_id))");
+    expect(page).toContain('const klarSkordare: UtforareVal = medStandardMaskin(');
+    expect(page).toContain('const klarSkotare: UtforareVal = medStandardMaskin(');
+    // förvalet visas bara; det blir sparat svar först när planeraren trycker Klar för maskin
+    expect(page).toContain('if (!infoSkordareMaskinId && klarSkordare.maskinId) { setInfoSkordareMaskinId(klarSkordare.maskinId); setInfoSkordareUtforare(null); }');
+    expect(page).toContain('if (!infoSkotareMaskinId && klarSkotare.maskinId) { setInfoSkotareMaskinId(klarSkotare.maskinId); setInfoSkotareUtforare(null); }');
+  });
+  it('kortet: ett val stänger raden (bärighet, terräng, avstånd, skördare, skotare); skrivfält stänger aldrig av sig självt', () => {
+    for (const rad of ['barighet', 'terrang', 'skotningsavstand', 'skordare', 'skotare']) expect(kort, rad).toContain(`onKlart={() => stangRad('${rad}')}`);
+    expect(kort).not.toMatch(/<Falt[^>]*onKlart/);
+    expect(kort).not.toMatch(/<Falt[^>]*stangRad/);
+  });
+  it('del 3: etiketten är alltid FARG.text — läget visas bara av knappen till höger (grå fyllning = standard, vit = avviker)', () => {
+    expect(kort).toContain("<span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{etikett}</span>");
+    expect(kort).not.toMatch(/color: avviker \? FARG\.text : FARG\.text2 \}\}>\{etikett/);
+    expect(kort).toContain('data-testid="klar-ved-lage"');
+  });
   it('Klar för maskin: planerad + klar_skickad_timestamp i ett anrop, verifierat; knappen spärras aldrig av "kvar"', () => {
     expect(page).toContain("{ status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso }, { id: valtObjekt.id }, 'status,klar_skickad_timestamp'");
     expect(kort).toContain('disabled={p.klarSparar}');

@@ -131,22 +131,22 @@ function medMaskinnamn(post: Post, u: UtforareVal, lista: MaskinAlternativ[]): P
 }
 
 /** Tre val i rad (bärighet, terräng, skotningsavstånd). Samma val igen tar tillbaka svaret. */
-function TreVal({ id, val, vald, onVal }: { id: string; val: ReadonlyArray<{ id: string; namn: string }>; vald: string | null; onVal: (v: string | null) => void }) {
+function TreVal({ id, val, vald, onVal, onKlart }: { id: string; val: ReadonlyArray<{ id: string; namn: string }>; vald: string | null; onVal: (v: string | null) => void; onKlart: () => void }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: AVSTAND.s }}>
-      {val.map((v) => <Val key={v.id} testid={`klar-${id}-${v.id}`} vald={vald === v.id} onTryck={() => onVal(vald === v.id ? null : v.id)}>{v.namn}</Val>)}
+      {val.map((v) => <Val key={v.id} testid={`klar-${id}-${v.id}`} vald={vald === v.id} onTryck={() => { onVal(vald === v.id ? null : v.id); if (vald !== v.id) onKlart(); }}>{v.namn}</Val>)}
     </div>
   );
 }
 
 /** Egen maskin (lista) eller extern (namn) för en roll. */
-function UtforareRad({ roll, v, maskiner, onVal }: { roll: 'skordare' | 'skotare'; v: UtforareVal; maskiner: MaskinAlternativ[]; onVal: (u: UtforareVal) => void }) {
+function UtforareRad({ roll, v, maskiner, onVal, onKlart }: { roll: 'skordare' | 'skotare'; v: UtforareVal; maskiner: MaskinAlternativ[]; onVal: (u: UtforareVal) => void; onKlart: () => void }) {
   const extern = v.utforare === 'extern';
   const egen = !extern && (v.maskinId != null || v.utforare === 'egen');
   return (
     <div data-testid={`klar-${roll}-val`}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
-        <Val testid={`klar-${roll}-egen`} vald={egen} onTryck={() => onVal({ maskinId: v.maskinId, utforare: 'egen', externNamn: '' })}>Egen</Val>
+        <Val testid={`klar-${roll}-egen`} vald={egen} onTryck={() => { onVal({ maskinId: v.maskinId, utforare: 'egen', externNamn: '' }); if (v.maskinId) onKlart(); }}>Egen</Val>
         <Val testid={`klar-${roll}-extern`} vald={extern} onTryck={() => onVal({ maskinId: null, utforare: 'extern', externNamn: v.externNamn })}>Extern</Val>
       </div>
       {extern ? (
@@ -154,7 +154,7 @@ function UtforareRad({ roll, v, maskiner, onVal }: { roll: 'skordare' | 'skotare
       ) : egen ? (
         <div data-testid={`klar-${roll}-maskiner`} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           {maskiner.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2 }}>Inga maskiner av rätt typ är registrerade.</div>}
-          {maskiner.map((m) => <Val key={m.id} testid={`klar-${roll}-maskin-${m.id}`} vald={v.maskinId === m.id} onTryck={() => onVal({ maskinId: m.id, utforare: null, externNamn: '' })} ton={m.varning ? 'orange' : undefined}>{m.namn}{m.varning ? ` · ${m.varning}` : ''}</Val>)}
+          {maskiner.map((m) => <Val key={m.id} testid={`klar-${roll}-maskin-${m.id}`} vald={v.maskinId === m.id} onTryck={() => { onVal({ maskinId: m.id, utforare: null, externNamn: '' }); onKlart(); }} ton={m.varning ? 'orange' : undefined}>{m.namn}{m.varning ? ` · ${m.varning}` : ''}</Val>)}
         </div>
       ) : (
         <div style={{ ...TYP.meta, color: FARG.text2, marginLeft: AVSTAND.xs }}>Välj egen maskin eller extern utförare.</div>
@@ -164,7 +164,8 @@ function UtforareRad({ roll, v, maskiner, onVal }: { roll: 'skordare' | 'skotare
 }
 
 /**
- * En rad i del 3: ETT tryck växlar. Bara det som AVVIKER från standarden lyser (vit); standardvärdet är grått — del 3 är vanligen "Nej" och ska inte skrika.
+ * En rad i del 3: ETT tryck växlar. Etiketten är ALLTID vit vanlig text (grå text läses som avstängd rad) — bara knappen till höger visar läget:
+ * grå fyllning = standard, vit fyllning = avviker. Del 3 är vanligen "Nej" och ska inte skrika.
  * `varde` = det valet står på nu, `standard` = vad som gäller när ingen rört det. `ord` ger knappens text för ja/nej (Bred/Smal, Ja/Nej).
  */
 function OvrigRad({ id, etikett, varde, standard = false, onVal, ord, under, children }: {
@@ -175,7 +176,7 @@ function OvrigRad({ id, etikett, varde, standard = false, onVal, ord, under, chi
   return (
     <div data-testid={`klar-ovrigt-${id}`} data-avviker={avviker ? '1' : '0'} style={{ padding: `${AVSTAND.xs}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar + AVSTAND.s }}>
-        <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: avviker ? FARG.text : FARG.text2 }}>{etikett}</span>
+        <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{etikett}</span>
         <button type="button" data-testid={`klar-ovrigt-${id}-vaxla`} data-varde={varde ? 'ja' : 'nej'} aria-pressed={varde} aria-label={`${etikett}: ${varde ? ja : nej}. Tryck för att ändra`} onClick={() => onVal(!varde)} className="press-scale"
           style={{ minWidth: TRAFFYTA.primar + AVSTAND.l, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, border: 'none', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation',
             background: avviker ? FARG.text : FARG.fyllning, color: avviker ? FARG.bg : FARG.text2, ...TYP.listtitel }}>
@@ -192,6 +193,8 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const [oppen, setOppen] = useState<PostId | null>(null);
   const [vy, setVy] = useState<'kort' | 'ved'>(p.startMedVed ? 'ved' : 'kort');
   const vaxla = (id: PostId) => setOppen((o) => (o === id ? null : id));
+  /** Ett val är gjort → raden stängs så nästa syns direkt. Bara den rad som är öppen stängs. */
+  const stangRad = (id: PostId) => setOppen((o) => (o === id ? null : o));
   const post = (id: PostId) => p.status.poster.find((x) => x.id === id)!;
   const { status } = p;
   const planerad = p.objektStatus === 'planerad';
@@ -258,20 +261,20 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
           </PostRad>
 
           <PostRad post={post('barighet')} uppmaning="Välj" oppen={oppen === 'barighet'} onToggle={() => vaxla('barighet')}>
-            <TreVal id="barighet" val={BARIGHET_VAL} vald={p.barighet} onVal={(v) => p.onAndra({ barighet: v })} />
+            <TreVal id="barighet" onKlart={() => stangRad('barighet')} val={BARIGHET_VAL} vald={p.barighet} onVal={(v) => p.onAndra({ barighet: v })} />
           </PostRad>
           <PostRad post={post('terrang')} uppmaning="Välj" oppen={oppen === 'terrang'} onToggle={() => vaxla('terrang')}>
-            <TreVal id="terrang" val={TERRANG_VAL} vald={p.terrang} onVal={(v) => p.onAndra({ terrang: v })} />
+            <TreVal id="terrang" onKlart={() => stangRad('terrang')} val={TERRANG_VAL} vald={p.terrang} onVal={(v) => p.onAndra({ terrang: v })} />
           </PostRad>
           <PostRad post={post('skotningsavstand')} uppmaning="Välj" oppen={oppen === 'skotningsavstand'} onToggle={() => vaxla('skotningsavstand')}>
-            <TreVal id="skotningsavstand" val={SKOTNINGSAVSTAND_VAL} vald={p.skotningsavstand} onVal={(v) => p.onAndra({ skotningsavstand: v })} />
+            <TreVal id="skotningsavstand" onKlart={() => stangRad('skotningsavstand')} val={SKOTNINGSAVSTAND_VAL} vald={p.skotningsavstand} onVal={(v) => p.onAndra({ skotningsavstand: v })} />
           </PostRad>
 
           <PostRad post={medMaskinnamn(post('skordare'), p.skordare, p.maskiner.skordare)} uppmaning="Välj" oppen={oppen === 'skordare'} onToggle={() => vaxla('skordare')}>
-            <UtforareRad roll="skordare" v={p.skordare} maskiner={p.maskiner.skordare} onVal={(u) => p.onAndra({ skordare: u })} />
+            <UtforareRad roll="skordare" onKlart={() => stangRad('skordare')} v={p.skordare} maskiner={p.maskiner.skordare} onVal={(u) => p.onAndra({ skordare: u })} />
           </PostRad>
           <PostRad post={medMaskinnamn(post('skotare'), p.skotare, p.maskiner.skotare)} uppmaning="Välj" oppen={oppen === 'skotare'} onToggle={() => vaxla('skotare')}>
-            <UtforareRad roll="skotare" v={p.skotare} maskiner={p.maskiner.skotare} onVal={(u) => p.onAndra({ skotare: u })} />
+            <UtforareRad roll="skotare" onKlart={() => stangRad('skotare')} v={p.skotare} maskiner={p.maskiner.skotare} onVal={(u) => p.onAndra({ skotare: u })} />
           </PostRad>
 
           <PostRad post={prognosPost} uppmaning={prognosUppmaning} oppen={oppen === 'prognos'} onToggle={() => vaxla('prognos')} under={prognosUnder}>
@@ -346,12 +349,17 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
         <Gruppkort testid="klar-del3">
           <div data-testid="klar-ovrigt-ved" style={{ borderTop: 'none' }}>
             <button type="button" data-testid="klar-ved-rad" onClick={() => { if (!p.ovrigt.ved) p.onAndra({ ved: true }); setVy('ved'); }} className="press-row"
-              style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: p.ovrigt.ved ? FARG.text : FARG.text2, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+              style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block' }}>Ved till markägaren</span>
                 {p.ovrigt.ved && <span data-testid="klar-ved-text" style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{p.ovrigt.vedText}</span>}
               </span>
-              <span style={{ ...TYP.text, color: FARG.text2 }}>{p.ovrigt.ved ? 'Ja' : 'Nej'}</span>
+              {/* samma läge-knapp som övriga rader: grå = Nej (standard), vit = Ja (avviker) */}
+              <span data-testid="klar-ved-lage" data-avviker={p.ovrigt.ved ? '1' : '0'}
+                style={{ boxSizing: 'border-box', minWidth: TRAFFYTA.primar + AVSTAND.l, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  background: p.ovrigt.ved ? FARG.text : FARG.fyllning, color: p.ovrigt.ved ? FARG.bg : FARG.text2, ...TYP.listtitel }}>
+                {p.ovrigt.ved ? 'Ja' : 'Nej'}
+              </span>
               <Pil />
             </button>
           </div>

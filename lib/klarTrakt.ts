@@ -127,6 +127,33 @@ export function utforareLage(u: UtforareVal): UtforareLage {
   return 'saknas';
 }
 
+/**
+ * Förvalet för skördare/skotare: vi kör själva i de flesta fall, så raden ska vara ifylld med EGEN maskin utan att någon trycker.
+ * Källan är planeringen — maskinkön (`maskin_ko`: vilken maskins kö trakten ligger i). Hittas ingen där gäller den enda valbara
+ * maskinen för rollen om det bara finns en. Annars (flera möjliga och ingen som planerats, eller kön gick inte att läsa) finns inget
+ * ärligt förval: null, och raden är kvar (orange). Appen gissar aldrig mellan två maskiner.
+ *   koMaskiner  = maskin-id:n vars kö innehåller trakten; null = kön gick inte att läsa
+ *   valbara     = maskinerna som passar rollen (rätt typ, aktiva, klarar trakttypen)
+ */
+export function standardMaskin(koMaskiner: string[] | null, valbara: string[]): string | null {
+  if (koMaskiner) {
+    const iKo = Array.from(new Set(koMaskiner.filter((id) => valbara.includes(id))));
+    if (iKo.length === 1) return iKo[0];
+    if (iKo.length > 1) return null;   // trakten ligger i två maskiners köer — planeringen säger inte vilken
+  }
+  // Kön ej läst eller trakten saknas där: bara EN valbar maskin är ett ärligt förval.
+  return valbara.length === 1 ? valbara[0] : null;
+}
+
+/**
+ * Det som gäller för raden: det SPARADE svaret om någon tagit ställning (en maskin, eller Extern), annars förvalet. Extern utan namn är
+ * ett val som ska fyllas i — det skrivs aldrig över av förvalet.
+ */
+export function medStandardMaskin(sparat: UtforareVal, standard: string | null): UtforareVal {
+  if (sparat.maskinId || sparat.utforare === 'extern' || !standard) return sparat;
+  return { maskinId: standard, utforare: null, externNamn: '' };
+}
+
 // ── Prognos ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface PrognosIndata {

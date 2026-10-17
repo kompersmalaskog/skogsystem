@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, HAR_DU_FRAGOR, kvarChip, kvittoMedKvar, lasHarDu, lasVed,
-  oplaneradRadText, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
+  medStandardMaskin, oplaneradRadText, standardMaskin, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
   type HarDuSvar, type KlarIndata, type PrognosIndata, type UtforareVal,
 } from './klarTrakt';
 
@@ -248,5 +248,44 @@ describe('förarens sammanfattning', () => {
     const r = forarSammanfattning({ ...bas, trailerIn: false, trailerKommentar: 'Låg bro', manuellFallning: true, manuellFallningText: 'Vid ledningen' });
     expect(r.find((x) => x.id === 'trailer')?.text).toBe('Kan inte köra in · Låg bro');
     expect(r.find((x) => x.id === 'manuell')?.text).toBe('Vid ledningen');
+  });
+});
+
+describe('förval: egen maskin ur planeringen', () => {
+  const GIANT = 'PONS20SDJAA270231', R64428 = 'R64428';
+  it('trakten ligger i EN maskins kö → den maskinen (skördare Giant, skotare Elefant 26 för Skälviken)', () => {
+    expect(standardMaskin(['A130743', GIANT], [GIANT, R64428])).toBe(GIANT);
+    expect(standardMaskin(['A130743', GIANT], ['A030353', 'A130743', 'JD810E'])).toBe('A130743');
+  });
+  it('köer för andra roller räknas inte; ingen kö-träff + flera valbara → inget förval (appen gissar inte)', () => {
+    expect(standardMaskin(['A130743'], [GIANT, R64428])).toBeNull();
+    expect(standardMaskin([], [GIANT, R64428])).toBeNull();
+  });
+  it('ligger trakten i två köer för samma roll säger planeringen inte vilken → inget förval', () => {
+    expect(standardMaskin([GIANT, R64428], [GIANT, R64428])).toBeNull();
+  });
+  it('bara EN valbar maskin → den, med eller utan läsbar kö (kön behövs inte för att välja mellan en)', () => {
+    expect(standardMaskin([], [R64428])).toBe(R64428);
+    expect(standardMaskin(null, [R64428])).toBe(R64428);
+  });
+  it('kön ej läst + flera valbara → inget förval; inga valbara alls → inget förval', () => {
+    expect(standardMaskin(null, [GIANT, R64428])).toBeNull();
+    expect(standardMaskin([GIANT], [])).toBeNull();
+  });
+  it('sparat svar går före förvalet; Extern (även utan namn) skrivs aldrig över; tomt får förvalet', () => {
+    expect(medStandardMaskin(EGEN('R64428'), GIANT)).toEqual(EGEN('R64428'));
+    expect(medStandardMaskin(EXTERN('Skog AB'), GIANT)).toEqual(EXTERN('Skog AB'));
+    expect(medStandardMaskin({ maskinId: null, utforare: 'extern', externNamn: '' }, GIANT).maskinId).toBeNull();
+    expect(medStandardMaskin(INGEN, GIANT)).toEqual(EGEN(GIANT));
+    expect(medStandardMaskin({ maskinId: null, utforare: 'egen', externNamn: '' }, GIANT)).toEqual(EGEN(GIANT));
+    expect(medStandardMaskin(INGEN, null)).toEqual(INGEN);
+  });
+  it('med förval är skördare och skotare inte kvar; utan förval är de det', () => {
+    const med = berakna(indata({ skordare: medStandardMaskin(INGEN, GIANT), skotare: medStandardMaskin(INGEN, 'A130743') }));
+    expect(med.poster.find((x) => x.id === 'skordare')!.kvar).toBe(false);
+    expect(med.poster.find((x) => x.id === 'skotare')!.kvar).toBe(false);
+    const utan = berakna(indata({ skordare: medStandardMaskin(INGEN, null), skotare: medStandardMaskin(INGEN, null) }));
+    expect(utan.poster.find((x) => x.id === 'skordare')!.kvar).toBe(true);
+    expect(utan.poster.find((x) => x.id === 'skotare')!.kvar).toBe(true);
   });
 });
