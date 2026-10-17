@@ -2,14 +2,13 @@
 
 // /helikopter/manadsplan?ar=&manad= — månadsplanen på en A4-sida. Byggd som månadsfacit (ManadsfacitVy): bakåt (Planering) · "November 2026" +
 // "Plan · 17 oktober · Kompersmåla Skog" · dela. Dela: "Dela som PDF" (förhandsvisas) / "Dela som bild" (_lib/manadsplanDela.ts). Utan parametrar: innevarande månad.
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/PageContainer'
 import { Sheet } from '@/components/Sheet'
 import { AVSTAND, FARG, IKON, INAKTIV, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
 import { ymdLokal } from '@/lib/datumLokal'
-import { arBestallningKopierad } from '../_lib/bestKopierad'
 import { arHelgEllerRod } from '../_lib/klarRutnat'
 import { planModell } from '../_lib/manadsplan'
 import { useKlar } from '../_lib/useKlar'
@@ -35,11 +34,8 @@ export default function ManadsplanVy() {
   const [jobb, setJobb] = useState(false)
   const [pdfOppen, setPdfOppen] = useState(false)
   const [delaText, setDelaText] = useState<{ text: string; fel: boolean } | null>(null)
-  // "Vida: beställning bekräftad?" står bara om beställningen lades in med "Samma som" på den här enheten.
-  const [kopierad, setKopierad] = useState(false)
-  useEffect(() => { setKopierad(arBestallningKopierad(ar, manad)) }, [ar, manad])
 
-  const modell = useMemo(() => (data ? planModell(data, { idag, kopierad }) : null), [data, idag, kopierad])
+  const modell = useMemo(() => (data ? planModell(data, { idag }) : null), [data, idag])
 
   async function delaBild() {
     if (!modell || jobb) return

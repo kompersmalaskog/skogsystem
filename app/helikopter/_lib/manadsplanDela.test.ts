@@ -5,7 +5,7 @@ import { arHelgEllerRod } from './klarRutnat'
 import { planModell } from './manadsplan'
 import { ritaPlan, skapaManadsplanPdf } from './manadsplanDela'
 
-const modell = () => planModell(lasKlar(structuredClone(fixtur)), { idag: '2026-10-17', kopierad: true })
+const modell = () => planModell(lasKlar(structuredClone(fixtur)), { idag: '2026-10-17' })
 
 describe('månadsplanen som PDF/bild', () => {
   it('ritas med allt innehåll och ryms på en A4 (oktober, flest rader)', () => {
@@ -17,7 +17,7 @@ describe('månadsplanen som PDF/bild', () => {
     }, modell(), arHelgEllerRod)
     expect(y).toBeLessThan(841.89 - 48)
     const alla = texter.join('\n')
-    for (const bit of ['Oktober 2026', 'Plan · 17 oktober · Kompersmåla Skog', 'MOT BESTÄLLNING', 'MASKINER', 'ATT GÖRA', 'Giant', '29 okt', '12 nov', 'saknar prognos', 'Vida: beställning bekräftad?']) {
+    for (const bit of ['Oktober 2026', 'Plan · 17 oktober · Kompersmåla Skog', 'MOT BESTÄLLNING', 'MASKINER', 'ATT GÖRA', 'Giant', '29 okt', '12 nov', 'saknar prognos']) {
       expect(alla, bit).toContain(bit)
     }
   })

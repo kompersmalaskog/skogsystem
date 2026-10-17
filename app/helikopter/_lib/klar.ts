@@ -1,4 +1,4 @@
-// "Räcker månaden?" som DATUM — payloaden ur helikopter_ny_klar (migration 20261017150000) och räkningen ovanpå den.
+// "Räcker månaden?" som DATUM — payloaden ur helikopter_ny_klar (migration 20261017142154) och räkningen ovanpå den.
 //
 // SQL:en räknar fram klar-datum för DAGENS tilldelning. Appen räknar om SAMMA sak i TS för det SQL:en inte kan svara på i förväg:
 // "byt maskin" (vad blir klar-datumet OM trakten får en annan maskin?) och flytt-förslaget. Därför bär payloaden allt som behövs för

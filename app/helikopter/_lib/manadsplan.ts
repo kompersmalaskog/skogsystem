@@ -53,7 +53,7 @@ export function datumLang(iso: string): string {
   return `${d} ${MANAD_NAMN[m - 1] ?? ''}`
 }
 
-export function planModell(d: KlarData, opt: { idag: string; kopierad: boolean }): PlanModell {
+export function planModell(d: KlarData, opt: { idag: string }): PlanModell {
   const planer = raknaAlla(d)
   const svar = klarSvar(d, null)
   const manadNamn = MANAD_NAMN[d.manad - 1] ?? ''
@@ -92,7 +92,6 @@ export function planModell(d: KlarData, opt: { idag: string; kopierad: boolean }
   if (utan.length === 1) attGora.push(`${kortNamn(utan[0].namn)} saknar prognos`)
   else if (utan.length > 1) attGora.push(`${utan.length} trakter saknar prognos: ${utan.map(t => kortNamn(t.namn)).join(', ')}`)
   for (const s of spar) if (s.saknasText) attGora.push(`${s.namn}: ${s.saknasText}`)
-  if (opt.kopierad) attGora.push('Vida: beställning bekräftad?')
 
   return {
     ar: d.ar,

@@ -7,7 +7,7 @@ import { fmt } from './format'
 const prod = () => lasKlar(structuredClone(fixtur))
 
 describe('planModell (oktober, ur prod-fixturen)', () => {
-  const m = planModell(prod(), { idag: '2026-10-17', kopierad: false })
+  const m = planModell(prod(), { idag: '2026-10-17' })
 
   it('rubrik, undertitel och filnamn', () => {
     expect(m.rubrik).toBe('Oktober 2026')
@@ -40,13 +40,12 @@ describe('planModell (oktober, ur prod-fixturen)', () => {
     expect(m.dagar[m.dagar.length - 1]).toBe('2026-11-12')
   })
 
-  it('att göra: dagar som saknas (ingen flytt räcker — Wisent skulle också bli sen), trakter utan prognos, volym utan trakt; "Vida bekräftad" bara efter "Samma som"', () => {
+  it('att göra: dagar som saknas (ingen flytt räcker — Wisent skulle också bli sen), trakter utan prognos, volym utan trakt', () => {
     expect(m.attGora).toContain('Elefanten: 9 dagar saknas')
     expect(m.attGora.some(r => r.startsWith('Flytta '))).toBe(false)
     expect(m.attGora.find(r => r.startsWith('5 trakter saknar prognos: '))).toContain('Mölleryd RP J-Hus')
     expect(m.attGora.some(r => r.startsWith('Slutavverkning: ') && r.endsWith('saknar trakt'))).toBe(true)
-    expect(m.attGora).not.toContain('Vida: beställning bekräftad?')
-    expect(planModell(prod(), { idag: '2026-10-17', kopierad: true }).attGora.at(-1)).toBe('Vida: beställning bekräftad?')
+    expect(m.attGora.some(r => r.startsWith('Vida'))).toBe(false)
   })
 
   it('sidfoten', () => {

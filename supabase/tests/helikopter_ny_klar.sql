@@ -1,4 +1,4 @@
--- SQL-test: helikopter_ny_klar (migrationen 20261017150000_helikopter_ny_klar.sql — kör den FÖRST; efter att prod stämplat versionen heter filen <version>_helikopter_ny_klar.sql).
+-- SQL-test: helikopter_ny_klar (migrationen 20261017142154_helikopter_ny_klar.sql — kör den FÖRST).
 --
 -- Körs i EN transaktion som alltid rullas tillbaka: allt som skapas (trakter, beställning, lass, tid, ledighet) försvinner.
 -- Köra: klistra in hela filen i Supabase-SQL-editorn (eller via MCP execute_sql). Resultatet kommer som ett fel på sista raden:
