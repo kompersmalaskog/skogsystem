@@ -193,7 +193,7 @@ export default function HelikopterVy() {
     if (!manadsdata || !dagar) return []
     return TYPER.map(t => {
       const rad = valjBas(manadsdata.spar, t)
-      return rad ? raknaSpar(rad, dagar) : null
+      return rad ? raknaSpar(rad, dagar, manadsdata.takter) : null
     }).filter((x): x is SparLage => x != null)
   }, [manadsdata, dagar])
 
@@ -240,6 +240,7 @@ export default function HelikopterVy() {
           manuella={manuella}
           senasteLass={senasteLass}
           arbetsdagar={manadsdata.arbetsdagar}
+          maskinStopp={manadsdata.maskinStopp}
         />
       )
     }

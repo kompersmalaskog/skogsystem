@@ -160,10 +160,11 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
 /**
  * En roll i spårkortet: etikett (ikon + "Skördat landar"), prognosen stor med "av beställt", stapel (hittills mot beställt, planstreck idag),
  * och under den: hittills vänster, höger "når beställt 26 okt" eller "behöver 34/dag · kör 56". Tal och stapel i samma färg: grön när rollen
- * landar på beställt, orange när den landar under.
+ * landar på beställt, orange när den landar under, dämpad när den landar mer än 5 % över.
  */
 function RollRad({ r, planAndel }: { r: RollLandar; planAndel: number | null }) {
-  const farg = r.under ? FARG.orange : FARG.gron
+  // Över beställt (> 5 %) är varken grönt eller orange: inget att göra, inget fel — dämpat.
+  const farg = r.under ? FARG.orange : r.over ? FARG.text2 : FARG.gron
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, color: FARG.text2 }}>

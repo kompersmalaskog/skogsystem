@@ -5,7 +5,8 @@
 // Reglerna (procent, klart_datum, skotat_fran_tidigare) finns i SQL; här finns samma regler som rena funktioner så att de går att
 // pröva mot fixturer och mot SQL:ens svar. Avrundning: delarna avrundas först, summan är summan av de avrundade delarna, procent räknas
 // på de avrundade talen — det som står på sidan går att kontrollräkna med miniräknare.
-import { TYP_NAMN } from './berakningar'
+import { TYP_NAMN, stoppNotisText } from './berakningar'
+import { normStopp } from './maskinData'
 import { MANAD_NAMN, fmt, fmtDag, manadRubrik } from './format'
 import type { Typ } from './queries'
 
@@ -302,7 +303,10 @@ export function formateraManadNotis(payload: unknown): string {
   const t = p?.totalt
   if (!namn) return 'Månadsfacit'
   if (!t || t.procent == null) return `Månadsfacit ${namn}: ingen beställning`
-  return `Månadsfacit ${namn}: ${Math.round(Number(t.procent))} %`
+  const rubrik = `Månadsfacit ${namn}: ${Math.round(Number(t.procent))} %`
+  // Stopp som orsak i klartext (helikopter_notis_manad lägger helikopter_ny_stopp för månaden i payloaden): "Giant stod 3 dagar (Stefan ledig)".
+  const stopp = stoppNotisText(Array.isArray(p?.stopp) ? p.stopp.map(normStopp) : null)
+  return stopp ? `${rubrik}\n${stopp}` : rubrik
 }
 
 export function manadNotisLank(payload: unknown): string {
