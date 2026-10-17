@@ -2740,9 +2740,9 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
                 planeringsvyns hårdkodade placeholder 649 (page.tsx) på 44 av 47 objekt. */}
             <PlanNum label="Volym planerad" value={objektRad.volym} suffix="m³fub"
               onCommit={(v: any) => direktSpara({ volym: v })} />
-            <PlanText label="Prognos skördare" placeholder="tim" value={objektRad.manuell_prognos?.skordare ?? ''}
+            <PlanText label="Prognos skördare" placeholder="G15-tim" value={objektRad.manuell_prognos?.skordare ?? ''}
               onCommit={(v: any) => direktSpara({ manuell_prognos: { ...(objektRad.manuell_prognos || {}), skordare: v ?? '' } })} />
-            <PlanText label="Prognos skotare" placeholder="tim" value={objektRad.manuell_prognos?.skotare ?? ''}
+            <PlanText label="Prognos skotare" placeholder="G15-tim" value={objektRad.manuell_prognos?.skotare ?? ''}
               onCommit={(v: any) => direktSpara({ manuell_prognos: { ...(objektRad.manuell_prognos || {}), skotare: v ?? '' } })} />
             <PlanDate label="Planerad start" value={objektRad.planerad_start} onCommit={(v: any) => direktSpara({ planerad_start: v })} />
             <PlanDate label="Planerad slut" value={objektRad.planerad_slut} onCommit={(v: any) => direktSpara({ planerad_slut: v })} />

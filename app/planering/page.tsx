@@ -28,7 +28,7 @@ import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
-import { beraknaTidsforslag, type HistorikObjekt, type Tidsforslag } from '../../lib/prognos-forslag'
+import { beraknaG15Forslag, forslagKalla, prestation, type UtfallRad } from '../../lib/g15Forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
@@ -37,10 +37,10 @@ import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
 import {
-  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, vidaBasvagFinns, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
+  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
   type HarDuId, type HarDuSvarVarde, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer,
 } from '../../lib/klarTrakt'
-import type { KlarPatch } from '../../components/planering/KlarMedTrakten'
+import type { KlarPatch, MaskinPrognos } from '../../components/planering/KlarMedTrakten'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
@@ -2357,9 +2357,9 @@ export default function PlannerPage() {
   const [traktData, setTraktData] = useState<TraktData>({ ...INFO_STANDARD.traktData });   // volym/areal = gammalt demovärde (649 m³fub / 2 ha), ingen läser det
   const [prognosSettings, setPrognosSettings] = useState<PrognosSettings>({ ...INFO_STANDARD.prognosSettings });   // terpipirangSvar = % svår terräng, barighetDalig = % dålig bärighet
   const [manuellPrognos, setManuellPrognos] = useState<ManuellPrognos>({ ...INFO_STANDARD.manuellPrognos });   // planerarens uppskattning
-  // Tidsförslag (Prognos-fliken): historik = avslutade objekts PLANERADE timmar per kategori. Hämtas EN
-  // gång; förslaget räknas i lib/prognos-forslag och Jocke kan alltid skriva över (aldrig tvingande).
-  const [prognosHistorik, setPrognosHistorik] = useState<HistorikObjekt[]>([]);
+  // G15-förslaget (Klar med trakten?): underlaget är UPPMÄTT utfall per avslutat objekt (RPC prognos_utfall: skördad volym, stammar, G15 för skördare/skotare).
+  // Hämtas EN gång; förslaget räknas i lib/g15Forslag och planeraren kan alltid skriva över. 'fel' = RPC:n saknas/svarade fel → förslaget är tomt och det SÄGS.
+  const [prognosUtfall, setPrognosUtfall] = useState<{ lage: 'laddar' | 'ok' | 'fel'; rader: UtfallRad[] }>({ lage: 'laddar', rader: [] });
   
   // Beräkna terräng/bärighet från zoner automatiskt
   // beraknaForhallanden borttagen — Förhållanden-sektionen (sliders) slopad i Trakt-hopslagningen
@@ -2446,25 +2446,6 @@ export default function PlannerPage() {
   const [infoSkotareExtraVagn, setInfoSkotareExtraVagn] = useState(false);
   const [infoAreal, setInfoAreal] = useState(''); // en sanning: objekt.areal
   const [infoVolym, setInfoVolym] = useState(''); // en sanning: objekt.volym
-  // Tidsförslag (Prognos-fliken). Areal från Traktdata-fältet (annars objekt.areal), kategori = typ,
-  // medelstam-proxy = trakt_data.beraknad.medeldiameter. null = för tunt underlag → ärligt tomt-läge.
-  const tidsforslag: Tidsforslag | null = useMemo(() => {
-    const arealTxt = Number(String(infoAreal ?? '').replace(',', '.').trim());
-    const areal = Number.isFinite(arealTxt) && arealTxt > 0 ? arealTxt : (typeof valtObjekt?.areal === 'number' ? valtObjekt.areal : null);
-    const bvTim = Number(String(infoBasvagTimmar ?? '').replace(',', '.').trim());
-    return beraknaTidsforslag(
-      {
-        areal,
-        kategori: (valtObjekt?.typ as string) ?? null,
-        medeldiameterCm: (traktData?.beraknad?.medeldiameter as number) ?? null,
-        skotningsavstand: infoSkotningsavstand,
-        lastrederBreddat: infoSkotareLastreder,
-        basvagTimmar: infoBasvagKravs && Number.isFinite(bvTim) ? bvTim : null,
-      },
-      prognosHistorik,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [infoAreal, valtObjekt?.areal, valtObjekt?.typ, traktData, prognosHistorik, infoSkotningsavstand, infoSkotareLastreder, infoBasvagKravs, infoBasvagTimmar]);
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
   const [infoLoaded, setInfoLoaded] = useState(false);
   const [infoLaddFel, setInfoLaddFel] = useState(false);   // objektets rad kunde inte läsas → formuläret sparar inget, och det SYNS
@@ -2576,34 +2557,24 @@ export default function PlannerPage() {
     return () => { avbruten = true; };
   }, [dimMaskinerOmN]);
 
-  // Ladda tidsförslags-historik EN gång: avslutade objekts planerade timmar + medeldiameter per kategori.
-  // (Ingen faktisk-tid-koppling finns per objekt — se lib/prognos-forslag för ärlighets-noten.)
+  // Ladda utfallet bakom G15-förslaget EN gång: avslutade objekts uppmätta skördad volym, stammar och G15 per roll (migration 20261017120000_prognos_utfall.sql).
+  // Ett fel (funktionen saknas, RLS, nätet) är 'fel' — aldrig en tom lista som ser ut som "inga trakter".
   useEffect(() => {
+    let avbruten = false;
     (async () => {
-      const { data, error } = await supabase
-        .from('objekt')
-        .select('areal, typ, manuell_prognos, trakt_data, basvag_timmar')
-        .eq('status', 'avslutat');
-      if (error) { console.error('[Prognos-förslag] historik-hämtning:', error.message); return; }
-      const parseTim = (v: unknown): number | null => { const n = Number(String(v ?? '').replace(',', '.').trim()); return Number.isFinite(n) && n > 0 ? n : null; };
-      setPrognosHistorik((data || []).map((r: any): HistorikObjekt => {
-        // KRITISKT: dra bort basväg-engångstiden från den planerade skotartiden INNAN den blir
-        // ha/timme-underlag — annars snedvrids snittet uppåt för alla framtida förslag. (Basväg
-        // attribueras till skotaren.) Blir basen <= 0 → null, objektet räknas då inte in på skotar-snittet.
-        const skotarePlanerad = parseTim(r.manuell_prognos?.skotare);
-        const basvag = Number(r.basvag_timmar);
-        const skotareBas = skotarePlanerad != null
-          ? (Number.isFinite(basvag) && basvag > 0 ? skotarePlanerad - basvag : skotarePlanerad)
-          : null;
-        return {
-          areal: typeof r.areal === 'number' ? r.areal : Number(r.areal) || null,
-          kategori: r.typ ?? null,
-          skordareTimmar: parseTim(r.manuell_prognos?.skordare),
-          skotareTimmar: skotareBas != null && skotareBas > 0 ? skotareBas : null,
-          medeldiameterCm: r.trakt_data?.beraknad?.medeldiameter ?? null,
-        };
-      }));
+      try {
+        const { data, error } = await supabase.rpc('prognos_utfall');
+        if (avbruten) return;
+        if (error || !Array.isArray(data)) { console.error('[G15-förslag] utfall:', error?.message ?? 'oväntat svar'); setPrognosUtfall({ lage: 'fel', rader: [] }); return; }
+        const tal = (v: unknown): number | null => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) ? n : null; };
+        setPrognosUtfall({ lage: 'ok', rader: data.map((r: any): UtfallRad => ({
+          typ: r.typ ?? null, volymObjekt: tal(r.volym_objekt), skordadM3: tal(r.skordad_m3), stammar: tal(r.stammar), skordareG15: tal(r.skordare_g15), skotareG15: tal(r.skotare_g15),
+        })) });
+      } catch (e: any) {
+        if (!avbruten) { console.error('[G15-förslag] utfall kastade:', e?.message ?? e); setPrognosUtfall({ lage: 'fel', rader: [] }); }
+      }
     })();
+    return () => { avbruten = true; };
   }, []);
 
   // Spara info till Supabase (debounced) — BARA kolumner som ändrats sedan laddning/senaste lyckade sparning (lib/objektInfoSpar).
@@ -3773,8 +3744,20 @@ export default function PlannerPage() {
     { maskinId: infoSkotareMaskinId, utforare: infoSkotareUtforare, externNamn: infoSkotareUtforareNamn },
     klarForvalKlart ? standardMaskin(klarKoDetta!.maskiner, maskinerForRoll('skotare').map((m) => m.maskin_id)) : null);
   const klarAvlaggAntal = (markers as any[]).filter((m) => m.isMarker && m.type === 'landing').length;
+  // G15-FÖRSLAG ur uppmätt utfall (lib/g15Forslag): skördare mot trakter med liknande medelstam, skotare som snitt per typ. Fälten är förifyllda med förslaget — det SKRIVNA
+  // värdet (manuell_prognos) går alltid före, och förslaget sparas på objektet först vid Stämmer (klarStammer), så att titta på kortet ändrar inget i databasen.
+  const g15Forslag = useMemo(() => beraknaG15Forslag(
+    { typ: (valtObjekt?.typ as string) ?? null, volym: klarTal(infoVolym), medelstam: klarTal(klarFalt.medelstam), basvagTimmar: infoBasvagKravs ? klarTal(infoBasvagTimmar) : null },
+    prognosUtfall.rader,
+  ), [valtObjekt?.typ, infoVolym, klarFalt.medelstam, infoBasvagKravs, infoBasvagTimmar, prognosUtfall.rader]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const g15Tim = (roll: 'skordare' | 'skotare'): number | null => {
+    const skrivet = (manuellPrognos?.[roll] ?? '').toString().trim();
+    if (skrivet !== '') return klarTal(skrivet);
+    const r = g15Forslag[roll];
+    return r.ok ? r.forslag.g15 : null;
+  };
   const klarPrognosIn: PrognosIndata = {
-    skordareTimmar: klarTal(manuellPrognos?.skordare), skotareTimmar: klarTal(manuellPrognos?.skotare),
+    skordareTimmar: g15Tim('skordare'), skotareTimmar: g15Tim('skotare'),
     volym: klarTal(infoVolym), medelstam: klarTal(klarFalt.medelstam), areal: klarTal(infoAreal),
     bandSkordare: infoSkordareBand, bandSkotare: infoSkotareBand, breddat: infoSkotareLastreder, skotningsavstand: infoSkotningsavstand,
     barighet: infoBarighet, terrang: infoTerrang, basvagKravs: infoBasvagKravs, basvagTimmar: klarTal(infoBasvagTimmar),
@@ -3792,7 +3775,9 @@ export default function PlannerPage() {
   // Siffran visas/skrivs först när ALLT den vilar på är läst för DET HÄR objektet (annars är "13 kvar" bara ett tomt formulär).
   const klarDataKlart = infoLoaded && markersLoaded && klarHook.lage === 'ok' && markersObjektIdRef.current === (valtObjekt?.id ? String(valtObjekt.id) : undefined);
   const klarGaller = klarPlanerare && !!valtObjekt && arUnderPlanering(valtObjekt.status) && !korvyActive && !(maskinlage || !!maskinSomParam);
-  const klarChip = klarGaller && klarDataKlart && (valtObjekt?.status === 'oplanerad' || klarStatus.antalKvar > 0) ? kvarChip(klarStatus.antalKvar) : null;
+  // Grönt "Klar" först när trakten ÄR skickad (planerad + klar_skickad_timestamp). Allt ifyllt men inte skickat = "Redo att skicka" (vit).
+  const klarSkickad = valtObjekt?.status === 'planerad' && !!valtObjekt?.klar_skickad_timestamp;
+  const klarChip = klarGaller && klarDataKlart && (valtObjekt?.status === 'oplanerad' || klarStatus.antalKvar > 0 || klarSkickad) ? kvarChip(klarStatus.antalKvar, klarSkickad) : null;
   // Antalet sparas som en ögonblicksbild på objektet så objektlistorna kan visa "N kvar" utan att läsa markeringar för varje objekt.
   useEffect(() => {
     if (!klarGaller || !klarDataKlart || testlage) return;
@@ -13630,11 +13615,11 @@ export default function PlannerPage() {
               <>
                 <span>{valtObjekt.namn}</span>
                 {klarChip && (
-                  /* "N kvar" (orange) / "Klar" (grön) under planeringen. Ett tryck öppnar Klar med trakten? direkt — kortet öppnas alltid vid tryck. */
+                  /* "N kvar" (orange) / "Redo att skicka" (vit) / "Klar" (grön, först när trakten skickats) under planeringen. Ett tryck öppnar Klar med trakten? direkt — kortet öppnas alltid vid tryck. */
                   <span role="button" tabIndex={0} data-testid="objekt-pill-klar" data-ton={klarChip.ton} aria-label={`Klar med trakten? ${klarChip.text}`}
                     onClick={(e) => { e.stopPropagation(); setObjektListaOppen(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); }}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setObjektListaOppen(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }}
-                    style={{ marginLeft: AVSTAND.s, fontWeight: '600', color: klarChip.ton === 'orange' ? FARG.orange : FARG.gron }}>
+                    style={{ marginLeft: AVSTAND.s, fontWeight: '600', color: klarChip.ton === 'orange' ? FARG.orange : klarChip.ton === 'gron' ? FARG.gron : FARG.text }}>
                     · {klarChip.text}
                   </span>
                 )}
@@ -13955,6 +13940,22 @@ export default function PlannerPage() {
           }
           return lista;
         };
+        // En maskins del av prognosen till kortet: fältets värde (skrivet, annars förslaget), källan, om det är ändrat, och prestationen m³fub/G15 (volym ÷ tim — uträknad).
+        const maskinPrognos = (roll: 'skordare' | 'skotare'): MaskinPrognos => {
+          const skrivet = (manuellPrognos?.[roll] ?? '').toString().trim();
+          const res = g15Forslag[roll];
+          const forslagTim = res.ok ? res.forslag.g15 : null;
+          const tim = skrivet !== '' ? skrivet : (forslagTim != null ? String(forslagTim) : '');
+          const timTal = klarTal(tim);
+          const utfallText = prognosUtfall.lage === 'fel' ? 'Utfallet bakom förslaget gick inte att läsa — skriv G15-tim själv' : prognosUtfall.lage === 'laddar' ? 'Räknar förslag …' : res.ok ? null : `${res.text} — skriv G15-tim själv`;
+          return {
+            tim,
+            forslag: res.ok ? { g15: res.forslag.g15, kalla: forslagKalla(res.forslag) } : null,
+            saknas: res.ok ? null : utfallText,
+            andrad: forslagTim != null && timTal != null && timTal !== forslagTim,
+            prestation: prestation(klarTal(infoVolym), timTal),
+          };
+        };
         const klarPatch = (a: KlarPatch) => {
           if (a.barighet !== undefined) setInfoBarighet(a.barighet);
           if (a.terrang !== undefined) setInfoTerrang(a.terrang);
@@ -13987,15 +13988,14 @@ export default function PlannerPage() {
         };
         const klarStammer = () => {
           if (!(klarStatusKort.prognos.lage === 'ogodkand' && klarStatusKort.prognos.saknas.length === 0)) return;
+          // Förslaget är bara förifyllt; vid Stämmer blir G15-timmarna planerarens svar och skrivs till objektet (manuell_prognos). Ett skrivet värde rörs inte. Bara egna maskiner har timmar.
+          const tillSkrivning = (roll: 'skordare' | 'skotare', egen: boolean) => {
+            const tim = g15Tim(roll);
+            return egen && (manuellPrognos?.[roll] ?? '').toString().trim() === '' && tim != null ? { [roll]: String(tim) } : {};
+          };
+          const skriv = { ...tillSkrivning('skordare', utforareLage(klarSkordare) === 'egen'), ...tillSkrivning('skotare', utforareLage(klarSkotare) === 'egen') };
+          if (Object.keys(skriv).length > 0) setManuellPrognos((prev) => ({ ...prev, ...skriv }));
           void klarHook.spara({ prognosGodkand: { av: currentMedarbetare?.id ?? null, at: new Date().toISOString(), underlag: prognosUnderlag(klarPrognosIn) } });
-        };
-        const klarAnvandForslag = () => {
-          if (!tidsforslag) return;
-          setManuellPrognos((prev) => ({
-            ...prev,
-            ...(tidsforslag.skordareTimmar != null ? { skordare: String(tidsforslag.skordareTimmar) } : {}),
-            ...(tidsforslag.skotareTimmar != null ? { skotare: String(tidsforslag.skotareTotalt ?? tidsforslag.skotareTimmar) } : {}),
-          }));
         };
         const klarVed = (v: VedDetaljer) => {
           // Byter man från kartan tillbaka till "vid avlägget" ska ved-symbolen försvinna från kartan — föraren får inte se en gammal plats.
@@ -14122,8 +14122,8 @@ export default function PlannerPage() {
             skordare: klarSkordare, skotare: klarSkotare,
             maskiner: { skordare: maskinAlt('skordare'), skotare: maskinAlt('skotare') },
             prognos: {
-              skordareTimmar: manuellPrognos?.skordare ?? '', skotareTimmar: manuellPrognos?.skotare ?? '', volym: infoVolym, areal: infoAreal, medelstam: klarFalt.medelstam,
-              forslag: tidsforslag ? { skordare: tidsforslag.skordareTimmar, skotare: tidsforslag.skotareTotalt ?? tidsforslag.skotareTimmar, forklaring: tidsforslag.forklaring } : null,
+              volym: infoVolym, areal: infoAreal, medelstam: klarFalt.medelstam,
+              skordare: maskinPrognos('skordare'), skotare: maskinPrognos('skotare'),
               forutsattningar: klarForutsattningar,
               godkandAv: klarFalt.prognosGodkand.av, godkandAt: klarFalt.prognosGodkand.at,
             },
@@ -14145,7 +14145,6 @@ export default function PlannerPage() {
             onPlaceraAvlagg: () => { stang(); setSelectedSymbol('landing'); },
             onRitaBasvag: () => { stang(); setDrawType('mainRoad'); setDrawFarg(valTillFarg(lasSenasteBasvagFarg())); setIsDrawMode(true); },
             onStammer: klarStammer,
-            onAnvandForslag: klarAnvandForslag,
             onVed: klarVed,
             onSattVedPaKartan: () => { setKlarStartMedVed(true); stang(); setSelectedSymbol('firewood'); },
             onKlarForMaskin: klarForMaskin,

@@ -205,14 +205,18 @@ describe('ved', () => {
 describe('chip, listrad och kvitto', () => {
   it('"N kvar" orange, "Klar" grön, okänt = inget', () => {
     expect(kvarChip(3)).toEqual({ text: '3 kvar', ton: 'orange' });
-    expect(kvarChip(0)).toEqual({ text: 'Klar', ton: 'gron' });
+    expect(kvarChip(3, true)).toEqual({ text: '3 kvar', ton: 'orange' });
+    expect(kvarChip(0)).toEqual({ text: 'Redo att skicka', ton: 'neutral' });          // allt ifyllt men inte skickat: inte grönt
+    expect(kvarChip(0, false)).toEqual({ text: 'Redo att skicka', ton: 'neutral' });
+    expect(kvarChip(0, true)).toEqual({ text: 'Klar', ton: 'gron' });                  // grönt "Klar" först när klar_skickad_timestamp finns
     expect(kvarChip(null)).toBeNull();
     expect(kvarChip(undefined)).toBeNull();
   });
   it('listraden för en oplanerad trakt: tal bara när kortet beräknat det, annars ärligt', () => {
     expect(oplaneradRadText(4)).toBe('4 kvar');
     expect(oplaneradRadText(null)).toBe('Inte klarplanerad');
-    expect(oplaneradRadText(0)).toBe('Inte klarplanerad');
+    expect(oplaneradRadText(0)).toBe('Redo att skicka');                                // 0 kvar: redo, inte "inte klarplanerad"
+    expect(oplaneradRadText(undefined)).toBe('Inte klarplanerad');
   });
   it('kvittot får " · N kvar" bara under planeringen och när något är kvar', () => {
     expect(kvittoMedKvar('Avlägg satt', 4, true)).toBe('Avlägg satt · 4 kvar');
@@ -287,5 +291,20 @@ describe('förval: egen maskin ur planeringen', () => {
     const utan = berakna(indata({ skordare: medStandardMaskin(INGEN, null), skotare: medStandardMaskin(INGEN, null) }));
     expect(utan.poster.find((x) => x.id === 'skordare')!.kvar).toBe(true);
     expect(utan.poster.find((x) => x.id === 'skotare')!.kvar).toBe(true);
+  });
+});
+
+describe('medelstam som egen post', () => {
+  it('saknas den (null/0) är posten kvar; finns den är den klar med värdet i decimalkomma', () => {
+    const utan = berakna(indata({ prognos: prognos({ medelstam: null }) }));
+    expect(utan.poster.find((x) => x.id === 'medelstam')).toMatchObject({ kvar: true, varde: null, kvarOrd: 'medelstam' });
+    expect(berakna(indata({ prognos: prognos({ medelstam: 0 }) })).poster.find((x) => x.id === 'medelstam')!.kvar).toBe(true);
+    const med = berakna(indata({ prognos: prognos({ medelstam: 0.72 }) }));
+    expect(med.poster.find((x) => x.id === 'medelstam')).toMatchObject({ kvar: false, varde: '0,72 m³fub' });
+  });
+  it('en trakt som är klar i övrigt men saknar medelstam har en sak kvar (och Klar för maskin spärras ändå aldrig)', () => {
+    const s = berakna(indata({ prognos: prognos({ medelstam: null }), prognosGodkandUnderlag: null }));
+    expect(s.poster.filter((x) => x.kvar).map((x) => x.id)).toEqual(expect.arrayContaining(['medelstam']));
+    expect(s.klar).toBe(false);
   });
 });

@@ -125,6 +125,30 @@ describe('import av Skälviken (VO 11161397)', () => {
   });
 });
 
+describe('medelstam ur traktdirektivet', () => {
+  it('ett entydigt värde i TD:n sätts på ett nytt objekt; utan värde blir fältet tomt (ingen gissning)', async () => {
+    await importera(tdText({ ursprung: 'Rotpost', extra: 'Medelstam 0,72' }));
+    expect(Number(h.db.tabeller.objekt[0].medelstam)).toBe(0.72);
+    h.db = minnesDb();
+    await importera(tdText({ ursprung: 'Rotpost' }));
+    expect(h.db.tabeller.objekt[0].medelstam).toBeNull();
+  });
+  it('omimport skriver ALDRIG över en medelstam någon satt (0,8 för hand mot 0,72 i TD:n)', async () => {
+    await importera(tdText({ ursprung: 'Rotpost' }));          // importen satte ingen
+    h.db.tabeller.objekt[0].medelstam = 0.8;                     // planeraren skriver
+    const r = await importera(tdText({ ursprung: 'Rotpost', extra: 'Medelstam 0,72' }));
+    expect(r.body.uppdaterad).toBe(true);
+    expect(Number(h.db.tabeller.objekt[0].medelstam)).toBe(0.8);
+    expect(r.body.varningar.join(' ')).toContain('ligga kvar i medelstam');
+  });
+  it('omimport fyller ett TOMT fält', async () => {
+    await importera(tdText({ ursprung: 'Rotpost' }));
+    expect(h.db.tabeller.objekt[0].medelstam).toBeNull();
+    await importera(tdText({ ursprung: 'Rotpost', extra: 'Medelstam 0,72' }));
+    expect(Number(h.db.tabeller.objekt[0].medelstam)).toBe(0.72);
+  });
+});
+
 describe('fil utan "Ursprung"', () => {
   it('tom avtalsform och en varning — aldrig Au', async () => {
     const r = await importera(tdText({ ursprung: null }));
