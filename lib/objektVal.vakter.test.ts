@@ -26,8 +26,9 @@ describe('nya objektlistan gäller bara planeringsvyn — inte maskinläge, /mas
     expect(page).toContain('onStartObjekt={visaForarlista(isForare, maskinlage) ? handleStartKorningForObjekt : undefined}');
     expect(page).toContain('oppnaKorvyPa(obj, enhetRoll);');
     expect(page).toContain("window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');");
-    // tillbaka till objektlistan i maskinläge = oförändrat
-    expect(page).toContain('data-testid="hem-objektlista"');
+    // tillbaka till objektlistan i maskinläge: hem öppnar maskinlådan, vars Byt objekt kör tillObjektlistan
+    expect(page).toContain('data-testid="hem-maskinmeny"');
+    expect(page).toContain('onBytObjekt={tillObjektlistan}');
     expect(page).toContain('const tillObjektlistan = useCallback(() => {');
   });
 

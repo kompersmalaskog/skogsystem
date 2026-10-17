@@ -39,10 +39,13 @@ describe('rollen kommer ur maskinregistret — aldrig en tyst reserv', () => {
   });
 });
 
-describe('hem-knappen i maskinläge går till objektlistan, aldrig till appens meny', () => {
-  it('maskinläge → knapp som kör tillObjektlistan; annars länken till "/"', () => {
-    expect(page).toMatch(/maskinlage \? \(\s*<button[^>]*data-testid="hem-objektlista"[^>]*onClick=\{tillObjektlistan\}/);
+describe('hem-knappen i maskinläge öppnar maskinlådan; Byt objekt i lådan går till objektlistan', () => {
+  it('maskinläge → knapp som öppnar lådan (ingen navigering); annars länken till "/"', () => {
+    expect(page).toMatch(/maskinlage \? \(\s*<button[^>]*data-testid="hem-maskinmeny"[^>]*onClick=\{\(\) => setMaskinMenyOppen\(true\)\}/);
     expect(page).toMatch(/<Link href="\/" aria-label="Hem"/);
+  });
+  it('lådan visas bara i maskinläge och dess Byt objekt kör tillObjektlistan', () => {
+    expect(page).toMatch(/\{maskinlage && maskinMenyOppen && \(\s*<MaskinMeny[\s\S]*?onBytObjekt=\{tillObjektlistan\}/);
   });
   it('tillObjektlistan stänger körvyn och nollar roll + objekt (som "Annat objekt")', () => {
     const m = /const tillObjektlistan = useCallback\(\(\) => \{([\s\S]*?)\}, \[\]\);/.exec(page);

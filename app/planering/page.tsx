@@ -119,6 +119,7 @@ import { prenumereraMarkeringSynk, antalVantandeMarkeringar } from '@/lib/marker
 import { useMarkeringarSynk } from '@/lib/hooks/useMarkeringarSynk'
 import type { ServerRad } from '@/lib/markeringSynk'
 import MarkeringFoto from './MarkeringFoto'
+import MaskinMeny from '@/components/startsida/MaskinMeny'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -3598,7 +3599,10 @@ export default function PlannerPage() {
     try { sessionStorage.removeItem(FRAGA_HOPPAD_NYCKEL); } catch { /* */ }
     window.location.assign('/planering?valjmaskin=1');
   }, []);
-  // Hem-knappen i maskinläge: tillbaka till objektlistan (förarlistan), aldrig till appens meny/översikt.
+  // Hem-knappen i maskinläge öppnar maskinlådan (components/startsida/MaskinMeny.tsx) OVANPÅ kartan — appens meny
+  // på maskindatorn, med "Byt objekt" överst. Kartan lämnas aldrig; startsidan nås inte från maskindatorn.
+  const [maskinMenyOppen, setMaskinMenyOppen] = useState(false);
+  // "Byt objekt" i lådan: tillbaka till objektlistan (förarlistan).
   // Samma stängning som "Annat objekt" på bekräftelsekortet: körvyn av, ingen vald roll, inget valt objekt.
   const tillObjektlistan = useCallback(() => {
     setMaskindatorKort(null);
@@ -13382,6 +13386,17 @@ export default function PlannerPage() {
       {/* Maskinläge-lagret (banner, täck-logga, felskärm, startsekvens) — definieras före early-return */}
       {maskinLager}
 
+      {/* Maskinlådan: hem-knappen i maskinläge. Länkar till /planering stänger bara lådan (Inställningar öppnar arket). */}
+      {maskinlage && maskinMenyOppen && (
+        <MaskinMeny
+          maskinNamn={startMaskinNamn}
+          objektNamn={valtObjekt?.namn ?? null}
+          onBytObjekt={tillObjektlistan}
+          onStang={() => setMaskinMenyOppen(false)}
+          onSammaSida={(href) => { if (href.includes('installningar=1')) { setActiveCategory('settings'); setMenuOpen(true); } }}
+        />
+      )}
+
       {/* === MINIMAL HEADER === */}
       {!briefingMode && (
         <div style={{
@@ -13397,8 +13412,9 @@ export default function PlannerPage() {
           zIndex: 100,
           pointerEvents: 'none',
         }}>
-          {/* Hem-knapp. I MASKINLÄGE går den till objektlistan (förarlistan), aldrig till appens meny/översikt — en förare som
-              trycker hem på maskindatorn vill byta objekt, inte hamna i en meny hen inte hittar tillbaka från. Annars: appens meny. */}
+          {/* Hem-knapp. I MASKINLÄGE öppnar den maskinlådan ovanpå kartan (Byt objekt överst, sedan samma vyer som startsidan;
+              "Till kartan" stänger) — föraren lämnar aldrig kartan och hamnar aldrig i en meny hen inte hittar tillbaka från.
+              Annars: appens startsida. */}
           {(() => {
             const hemStil: React.CSSProperties = {
               pointerEvents: 'auto',
@@ -13424,7 +13440,7 @@ export default function PlannerPage() {
               </svg>
             );
             return maskinlage ? (
-              <button type="button" aria-label="Hem — till objektlistan" data-testid="hem-objektlista" className="press-scale" onClick={tillObjektlistan} style={hemStil}>
+              <button type="button" aria-label="Meny" aria-haspopup="dialog" data-testid="hem-maskinmeny" className="press-scale" onClick={() => setMaskinMenyOppen(true)} style={hemStil}>
                 {hemIkon}
               </button>
             ) : (

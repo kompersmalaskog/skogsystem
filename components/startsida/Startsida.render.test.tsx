@@ -2,7 +2,7 @@
 /**
  * Nya startsidan: montera den riktiga komponenten (jsdom) och kontrollera det som får användaren att lita på den —
  * att ingen vy försvinner, att Behöver dig bara visar det som väntar, att märken aldrig säger "0", sökningen och
- * kontomenyn. Plus HomeClient: admin får den nya sidan, förare den gamla.
+ * kontomenyn. Plus HomeClient: admin och förare får den nya sidan; okänd roll den gamla.
  */
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -150,19 +150,31 @@ describe('HomeClient väljer sida efter roll', () => {
     expect(sektion('Behöver dig')!.textContent).toContain('2 objekt väntar på egenkontroll')
   })
 
-  it('förare → gamla startsidan, oförändrad — och egenkontrollens märke syns nu (buggen)', async () => {
+  it('förare → nya startsidan med förarens förinställda vyer, utan admin-vyer', async () => {
     h.roll = 'forare'; h.ek = 4
     await montera(<HomeClient />)
+    expect(lankar(sektion('Dina vyer')!)).toEqual(['/planera', '/planering', '/ledighet', '/maskinflytt', '/kalibrering', '/maskin-service', '/uppfoljning', '/utbildning'])
+    expect(lankar()).not.toContain('/admin')
+    expect(lankar()).not.toContain('/ekonomi')
+    // Datahälsan är admins; föraren ser den aldrig i Behöver dig. Egenkontrollen syns.
+    expect(sektion('Behöver dig')!.textContent).toContain('4 objekt väntar på egenkontroll')
+    expect(sektion('Behöver dig')!.textContent).not.toContain('Datahälsa')
+  })
+
+  it('rollen går inte att läsa → gamla startsidan, aldrig en tom skärm — och egenkontrollens märke syns där', async () => {
+    h.roll = null; h.ek = 4
+    await montera(<HomeClient />)
     expect(sektion('Dina vyer')).toBeNull()
+    expect(document.body.textContent).toContain('Produktion')
     expect(document.body.textContent).toContain('Administration')
     const m = document.querySelector('a[href="/egenkontroll"] [role="status"]')
     expect(m?.textContent).toBe('4')
   })
 
-  it('rollen går inte att läsa → gamla startsidan, aldrig en tom skärm', async () => {
-    h.roll = null
+  it('okänd rolltext (varken admin eller förare) → gamla startsidan', async () => {
+    h.roll = 'nagot-annat'
     await montera(<HomeClient />)
-    expect(document.body.textContent).toContain('Produktion')
+    expect(sektion('Dina vyer')).toBeNull()
   })
 })
 
