@@ -213,6 +213,11 @@ describe('planering: timmar och åtgärd', () => {
       const bel = belaggning([], maskiner, dagar, '2026-09-07', true)
       expect(bel.every(b => b.ejMatt && b.perDagH === 8)).toBe(true)
     })
+    it('sålda maskiner (aktiv_till passerad) syns aldrig, även om RPC:n returnerar dem (A110148 5,67 · R64101 1,90 i prod)', () => {
+      const medSalda = { lage: 'ok' as const, perMaskin: { ...g15.perMaskin, SOLD: 5.67 } }
+      const bel = belaggning([], maskiner, dagar, '2026-09-07', true, medSalda)
+      expect(bel.map(b => b.maskin.maskin_id)).not.toContain('SOLD')
+    })
     it('övertid räknas i maskinens egna G15-dagar, inte 8 h: 20 h kort på 6,36/dag = 4 dagar (8 h gav 3)', () => {
       const objekt = [o('w', 'gallring', null, 'WIS', null, 18 * 6.36 + 20)]
       const bel = belaggning(objekt, maskiner, dagar, '2026-09-07', true, g15)

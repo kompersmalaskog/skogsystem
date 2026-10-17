@@ -1,7 +1,7 @@
 // KAPACITET I G15 — gemensam för /helikopter och /helikopter-v2 (förut 8 h × arbetsdagar i båda).
 //
 // Prognosfälten (objekt.manuell_prognos) är G15-timmar, så kapaciteten är UPPMÄTT G15 per arbetsdag per maskin ur fakt_tid (RPC helikopter_ny_g15_per_arbetsdag,
-// migration 20261017130000): de senaste 12 månaderna, nämnare = maskinens arbetsdagar (helikopterns egen definition, minus registrerade maskinstopp, från maskinens första
+// migration 20261017095851): de senaste 12 månaderna, nämnare = maskinens arbetsdagar (helikopterns egen definition, minus registrerade maskinstopp, från maskinens första
 // G15-dag), täljare = all uppmätt G15 de dagarna. Det är G15 per ARBETSDAG, inte per körd dag — flyttdagar, service och glapp ligger redan i talet, så flyttid dras
 // INTE av separat (dubbelräkning). En maskin utan mätning (810E, manuell) eller med för få dagar räknas som "ej mätt" på 8 h, och det SÄGS.
 

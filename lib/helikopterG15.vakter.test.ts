@@ -20,6 +20,11 @@ describe('helikopterns kapacitet är G15 per arbetsdag, inte 8 h', () => {
     expect(v).toMatch(/kortH \/ r\.perDag/);
     expect(v).toMatch(/helikopter_ny_g15_per_arbetsdag/);
   });
+  it('v2: bara aktiva, icke-extra maskiner når kapaciteten (sålda som RPC:n returnerar syns aldrig)', () => {
+    const v = las('app/helikopter-v2/page.tsx');
+    expect(v).toMatch(/const aktiv = \(m: DimMaskin\) => !m\.aktiv_till \|\| m\.aktiv_till >= idag/);
+    expect(v).toMatch(/kapMaskiner = dimMaskiner\.filter\([^\n]*aktiv\(m\)[^\n]*!m\.extramaskin/);
+  });
   it('flyttid dras inte av separat (G15 per arbetsdag innehåller flyttdagarna redan)', () => {
     for (const p of ['app/helikopter/_lib/berakningar.ts', 'app/helikopter-v2/page.tsx', 'lib/helikopterG15.ts']) {
       expect(las(p), p).not.toMatch(/maskin_flytt|flyttavdrag|flyttH\b/);

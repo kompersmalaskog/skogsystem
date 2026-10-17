@@ -1,5 +1,5 @@
 -- G15 PER ARBETSDAG PER MASKIN för helikopterns kapacitet (/helikopter och /helikopter-v2).
--- SKRIVEN, INTE KÖRD. Körs av chat-Claude efter Martins ja. Idempotent (create or replace). Läser bara — ändrar ingen data.
+-- Körd i prod 2026-10-17 (version 20261017095851) och verifierad: Wisent 6,36 · Giant 7,09 · H8E -26 7,36 · Elefant 26 7,59. Idempotent (create or replace). Läser bara — ändrar ingen data.
 --
 -- Varför: prognosfälten är G15-timmar (Klar med trakten?), så kapaciteten måste vara uppmätt G15 per arbetsdag — inte "8 h dagtid". Uppmätt G15 per arbetsdag ligger på
 -- 6,4–7,6 h/dag (12 mån), inte 8: 8 h överskattade kapaciteten med 5–20 % (Wisent 6,4).
