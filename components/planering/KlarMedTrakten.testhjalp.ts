@@ -2,7 +2,8 @@
 // och skärmbildsriggen visar exakt det sidan skulle visa — inte en handgjord kopia av räkningen.
 
 import { berakna, harDuVarningar, prognosUnderlag, VED_TOM, vedSammanfattning, type HarDuSvar, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer } from '@/lib/klarTrakt';
-import type { KlarMedTraktenProps } from './KlarMedTrakten';
+import { prestation } from '@/lib/g15Forslag';
+import type { KlarMedTraktenProps, MaskinPrognos } from './KlarMedTrakten';
 
 export const EGEN = (id: string): UtforareVal => ({ maskinId: id, utforare: null, externNamn: '' });
 export const EXTERN = (namn: string): UtforareVal => ({ maskinId: null, utforare: 'extern', externNamn: namn });
@@ -28,6 +29,13 @@ export interface KlarFixtur {
   datalage?: 'ok' | 'migrering-saknas' | 'lasfel';
   bandSkotare?: boolean | null;
   visaKonfiguration?: boolean;
+  /** inget G15-förslag finns (för få jämförbara trakter) — fälten står tomma och raden är orange */
+  utanForslag?: boolean;
+}
+
+/** En maskins prognosdel: fältet visar det skrivna värdet, annars förslaget — som sidan gör. */
+function maskinPrognos(tim: number | null, volym: number | null, forslag: { g15: number; kalla: string } | null, saknasText: string): MaskinPrognos {
+  return { tim: tim != null ? String(tim) : '', forslag, saknas: forslag ? null : saknasText, andrad: forslag != null && tim != null && tim !== forslag.g15, prestation: prestation(volym, tim) };
 }
 
 /** Skälviken-liknande: ny trakt, bara det Vida levererade (volym, areal, medelstam ur TD). */
@@ -54,9 +62,9 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     skordare, skotare,
     maskiner: { skordare: [{ id: 'R64101', namn: 'Rottne H8E' }, { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' }], skotare: [{ id: 'A110148', namn: 'Ponsse Elephant King AF' }, { id: 'A030353', namn: 'Ponsse Wisent 2015' }] },
     prognos: {
-      skordareTimmar: prognos.skordareTimmar != null ? String(prognos.skordareTimmar) : '', skotareTimmar: prognos.skotareTimmar != null ? String(prognos.skotareTimmar) : '',
       volym: prognos.volym != null ? String(prognos.volym) : '', areal: prognos.areal != null ? String(prognos.areal).replace('.', ',') : '', medelstam: prognos.medelstam != null ? String(prognos.medelstam).replace('.', ',') : '',
-      forslag: { skordare: 41, skotare: 36, forklaring: 'Medel av 4 liknande trakter, justerat för medelstam.' },
+      skordare: maskinPrognos(prognos.skordareTimmar, prognos.volym, f.utanForslag ? null : { g15: 41, kalla: 'Ur 7 trakter med medelstam 0,64–1,0 · troligen 38–45' }, 'Färre än 3 jämförbara trakter (medelstam 0,58–0,9) — inget förslag — skriv G15-tim själv'),
+      skotare: maskinPrognos(prognos.skotareTimmar, prognos.volym, f.utanForslag ? null : { g15: 36, kalla: 'Ur 22 slutavverkningar (snitt) · troligen 30–44' }, 'Färre än 3 trakter av typen att räkna på — inget förslag — skriv G15-tim själv'),
       forutsattningar: [], godkandAv: f.godkand ? 'm1' : null, godkandAt: f.godkand ? '2026-10-15T09:00:00.000Z' : null,
     },
     harDu: ind.harDu,
@@ -71,7 +79,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     ved,
     gamlaAnteckningar: f.gamlaAnteckningar ?? '',
     datalage: f.datalage ?? 'ok', sparFel: null, klarSparar: false,
-    onAndra: () => {}, onHarDu: () => {}, onPlaceraAvlagg: () => {}, onRitaBasvag: () => {}, onStammer: () => {}, onAnvandForslag: () => {},
+    onAndra: () => {}, onHarDu: () => {}, onPlaceraAvlagg: () => {}, onRitaBasvag: () => {}, onStammer: () => {},
     onVed: () => {}, onSattVedPaKartan: () => {}, onKlarForMaskin: () => {}, onFortsatter: () => {}, onStang: () => {},
     ...extra,
   };

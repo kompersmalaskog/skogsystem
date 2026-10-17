@@ -1,7 +1,7 @@
 // Alla trösklar och konstanter för /helikopter — EN fil. Inga magiska tal i komponenter.
 // Ändra här, aldrig i en komponent. SQL-sidan har egna kopior där det står.
 
-/** Planeringsgolv: 8 h dagtid per arbetsdag. Övertid och extramaskin är buffert och räknas aldrig in. */
+/** Reserv när en maskin inte är mätt (JD810E): 8 h dagtid per arbetsdag. Mätta maskiner räknas på uppmätt G15 per arbetsdag (lib/helikopterG15). Övertid och extramaskin är buffert och räknas aldrig in. */
 export const TIMMAR_PER_DAG = 8
 
 /**

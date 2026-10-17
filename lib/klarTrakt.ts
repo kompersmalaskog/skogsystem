@@ -271,7 +271,7 @@ export function vidaBasvagFinns(features: ReadonlyArray<{ properties?: Record<st
   return (features ?? []).some((f) => f?.properties?._typ === 'linje' && /basväg/i.test(String(f.properties.FLBESKR ?? '')));
 }
 
-export type PostId = 'avlagg' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'prognos';
+export type PostId = 'avlagg' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'medelstam' | 'prognos';
 
 export interface Post {
   id: PostId;
@@ -336,6 +336,8 @@ export function berakna(i: KlarIndata): KlarStatus {
     { id: 'skotningsavstand', etikett: 'Skotningsavstånd', varde: i.skotningsavstand ? (SKOTAVST[i.skotningsavstand] ?? i.skotningsavstand) : null, kvar: !i.skotningsavstand, kvarOrd: 'skotningsavstånd' },
     { id: 'skordare', etikett: 'Skördare', varde: sk === 'egen' ? 'Egen' : sk === 'extern' ? `Extern · ${i.skordare.externNamn.trim()}` : null, kvar: sk === 'saknas', kvarOrd: 'skördare' },
     { id: 'skotare', etikett: 'Skotare', varde: st === 'egen' ? 'Egen' : st === 'extern' ? `Extern · ${i.skotare.externNamn.trim()}` : null, kvar: st === 'saknas', kvarOrd: 'skotare' },
+    // Medelstam styr G15-förslaget för skördaren. Saknas den (ingen TD-träff, inget skrivet) är raden kvar — förslaget faller då tillbaka på snitt över alla trakter.
+    { id: 'medelstam', etikett: 'Medelstam', varde: i.prognos.medelstam != null && i.prognos.medelstam > 0 ? `${String(i.prognos.medelstam).replace('.', ',')} m³fub` : null, kvar: !(i.prognos.medelstam != null && i.prognos.medelstam > 0), kvarOrd: 'medelstam' },
     { id: 'prognos', etikett: 'Prognos', varde: prognos.lage === 'extern' ? 'Extern – ingen prognos' : prognos.lage === 'godkand' ? 'Stämmer' : null, kvar: prognos.lage === 'ogodkand', kvarOrd: 'prognos' },
   ];
 
@@ -352,17 +354,25 @@ export function berakna(i: KlarIndata): KlarStatus {
 
 // ── Chippen i namnfältet och i listorna ──────────────────────────────────────────────────────────────────────────────
 
-export interface KvarChip { text: string; ton: 'orange' | 'gron' }
+export interface KvarChip { text: string; ton: 'orange' | 'gron' | 'neutral' }
 
-/** "3 kvar" (orange) eller "Klar" (grön) — ord och färg tillsammans. null = inget att visa. */
-export function kvarChip(antalKvar: number | null | undefined): KvarChip | null {
+/**
+ * "3 kvar" (orange), "Redo att skicka" (neutral — allt är ifyllt men trakten har inte gått till maskin) eller "Klar" (grön — bara när trakten ÄR skickad,
+ * dvs. klar_skickad_timestamp finns). Ord och färg tillsammans. null = inget att visa.
+ */
+export function kvarChip(antalKvar: number | null | undefined, skickad = false): KvarChip | null {
   if (antalKvar == null || !Number.isFinite(antalKvar)) return null;
-  return antalKvar > 0 ? { text: `${antalKvar} kvar`, ton: 'orange' } : { text: 'Klar', ton: 'gron' };
+  if (antalKvar > 0) return { text: `${antalKvar} kvar`, ton: 'orange' };
+  return skickad ? { text: 'Klar', ton: 'gron' } : { text: 'Redo att skicka', ton: 'neutral' };
 }
 
-/** Radens text i objektlistorna för en oplanerad trakt: "N kvar" när kortet beräknat det, annars ärligt "Inte klarplanerad" (aldrig en gissad siffra). */
+/**
+ * Radens text i objektlistorna för en oplanerad trakt: "N kvar" när kortet beräknat det, "Redo att skicka" när allt är ifyllt (0 kvar) men trakten inte skickats,
+ * annars ärligt "Inte klarplanerad" (ingen siffra beräknad — aldrig en gissad).
+ */
 export function oplaneradRadText(antalKvar: number | null | undefined): string {
-  return typeof antalKvar === 'number' && Number.isFinite(antalKvar) && antalKvar > 0 ? `${antalKvar} kvar` : 'Inte klarplanerad';
+  if (typeof antalKvar !== 'number' || !Number.isFinite(antalKvar)) return 'Inte klarplanerad';
+  return antalKvar > 0 ? `${antalKvar} kvar` : 'Redo att skicka';
 }
 
 /** Kvittot efter att något ritats/placerats får " · N kvar" under planeringen (och ingenting annars). */

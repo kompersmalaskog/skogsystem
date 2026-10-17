@@ -1,5 +1,6 @@
 import proj4 from 'proj4';
 import { tolkaAtgard, tolkaAvtalsform } from './avtalsform';
+import { tolkaMedelstam } from './medelstam';
 
 // TD-parsern (Vidas traktdirektiv-PDF -> fält). Flyttad HIT ur app/api/import-trakt/route.ts
 // så det finns EN parser — route.ts importerar denna, ingen kopia kvar. Regexarna är oförändrade
@@ -58,6 +59,8 @@ export interface TdFalt {
   avtalsform: string | null;
   /** Åtgärd ur "Arbetsform" när den entydigt pekar på en (Första gallring, Gallring, Föryngring …). null = tomt. */
   atgard: string | null;
+  /** Medelstam (m³fub/stam) när TD-texten bär exakt ett värde efter ordet "Medelstam" (lib/trakt/medelstam.ts). null = ingen träff/ej avgörbar — aldrig en gissning. */
+  medelstam: number | null;
   /** Varför avtalsform/åtgärd blev tomma, med råtexten ur filen. Går till objektets import_varningar. */
   tolkningsvarningar: string[];
 }
@@ -176,12 +179,13 @@ export function parseTraktdirektivText(text: string, traktnrFromFilename = ''): 
   // Avtalsform + åtgärd: LÄSES ur filen (se lib/trakt/avtalsform.ts). Tidigare hårdkodades åtgärden ur typen ("Au" för alla slutavverkningar).
   const avtal = tolkaAvtalsform(text);
   const atg = tolkaAtgard(text);
-  const tolkningsvarningar = [avtal.varning, atg.varning].filter((v): v is string => !!v);
+  const ms = tolkaMedelstam(text);
+  const tolkningsvarningar = [avtal.varning, atg.varning, ms.varning].filter((v): v is string => !!v);
 
   return {
     namn, traktnr, vo_nummer, markagare, markagare_epost, markagare_tel,
     inkopare, inkopare_tel, cert, typ, volym, areal, lat, lng, larmkoordinat,
     grot, anteckningar, sortiment, kontraktsnummer,
-    avtalsform: avtal.avtalsform, atgard: atg.atgard, tolkningsvarningar,
+    avtalsform: avtal.avtalsform, atgard: atg.atgard, medelstam: ms.medelstam, tolkningsvarningar,
   };
 }
