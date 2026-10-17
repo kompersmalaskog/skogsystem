@@ -1,0 +1,57 @@
+[
+  {
+    "typ": "produktion",
+    "km": null,
+    "forvantat": "sträckan saknas"
+  },
+  {
+    "typ": "produktion",
+    "km": 0,
+    "forvantat": "under 30 km"
+  },
+  {
+    "typ": "produktion",
+    "km": 15,
+    "forvantat": "under 30 km"
+  },
+  {
+    "typ": "produktion",
+    "km": 29.9,
+    "forvantat": "under 30 km"
+  },
+  {
+    "typ": "produktion",
+    "km": 30,
+    "forvantat": "30 km eller mer"
+  },
+  {
+    "typ": "produktion",
+    "km": 53,
+    "forvantat": "30 km eller mer"
+  },
+  {
+    "typ": "kunduppdrag",
+    "km": null,
+    "forvantat": "kunduppdrag"
+  },
+  {
+    "typ": "kunduppdrag",
+    "km": 20,
+    "forvantat": "kunduppdrag"
+  },
+  {
+    "typ": "service",
+    "km": 100,
+    "forvantat": "service faktureras inte"
+  },
+  {
+    "typ": "annat",
+    "km": 100,
+    "forvantat": "annat faktureras inte"
+  },
+  {
+    "typ": "okand",
+    "km": 100,
+    "forvantat": "typen faktureras inte"
+  }
+]

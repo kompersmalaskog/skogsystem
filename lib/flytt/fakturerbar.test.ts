@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import tabell from './__fixtures__/fakturerbar_tabell.json';
+import skalTabell from './__fixtures__/fakturerbar_skal_tabell.json';
 import { automatisktSkal, beraknaFakturerbar, fakturerbarEffektiv } from './fakturerbar';
 
 const migrationer = join(__dirname, '..', '..', 'supabase', 'migrations');
 const gammal = readFileSync(join(migrationer, '20261015170000_ratta_flytt.sql'), 'utf8');
 const manuell = readFileSync(join(migrationer, '20261017100000_fakturerbar_manuell.sql'), 'utf8');
+const strukenText = readFileSync(join(migrationer, '20261017130000_fakturerbar_manuell_struken_text.sql'), 'utf8');
 const platt = (s: string) => s.replace(/\s+/g, ' ');
 const tal = (km: number | null) => (km === null ? 'null::numeric' : `${km}::numeric`);
 const tv = (m: boolean | null) => (m === null ? 'null::boolean' : String(m));
@@ -91,5 +93,25 @@ describe('vakt: alla som AVGÖR fakturerbar använder fakturerbarEffektiv', () =
   it('förarflödet (Lämnat) och rättningen räknar med fakturerbarEffektiv', () => {
     expect(readFileSync(join(ROT, 'app/maskinflytt/MaskinflyttClient.tsx'), 'utf8')).toMatch(/fakturerbarEffektiv\(flyttTyp, flyttKm, null\)/);
     expect(readFileSync(join(ROT, 'app/lastbil/_components/ratta.ts'), 'utf8')).toMatch(/fakturerbarEffektiv\(typ, km, manuell\)/);
+  });
+});
+
+describe('skälen: EN testtabell för TS (automatisktSkal) och SQL (fakturerbar_skal)', () => {
+  it.each(skalTabell.map(r => [r.typ, r.km, r.forvantat] as const))('%s, %s km → "%s"', (typ, km, forvantat) => {
+    expect(automatisktSkal(typ, km)).toBe(forvantat);
+  });
+  it('migrationens kvitto kör EXAKT samma tabell mot fakturerbar_skal()', () => {
+    const sql = platt(strukenText);
+    for (const r of skalTabell) expect(sql, JSON.stringify(r)).toContain(`('${r.typ}', ${tal(r.km)}, '${r.forvantat}')`);
+    expect((sql.match(/\('[a-z]+', [0-9.]+::numeric, '|\('[a-z]+', null::numeric, '/g) ?? []).length).toBe(skalTabell.length);
+  });
+  it('struken_anledning: ett borttaget manuellt ja nämner regelns skäl; allt annat i ratta_flytt är som i förra migrationen', () => {
+    const sql = platt(strukenText);
+    expect(sql).toContain("when n_manuell is null and f.fakturerbar_manuell is true then 'Manuell fakturering borttagen — följer regeln igen (' || fakturerbar_skal(n_typ, f.flytt_km) || '): '");
+    expect(sql).toContain("when n_manuell is false and f.fakturerbar_manuell is distinct from false then 'Flytten valdes bort från fakturering: '");
+    // Funktionskroppen i övrigt: samma som 20261017100000 när textblocket tas bort.
+    const kropp = (t: string) => platt(t.slice(t.indexOf('create or replace function ratta_flytt'), t.indexOf('revoke all on function ratta_flytt')))
+      .replace(/struken_anledning = case.*?\|\| btrim\(p_anledning\)/, 'struken_anledning = X');
+    expect(kropp(strukenText)).toBe(kropp(manuell));
   });
 });
