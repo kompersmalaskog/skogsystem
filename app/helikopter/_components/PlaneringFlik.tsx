@@ -3,7 +3,7 @@
 // Flik 2 — Planering, i liststil: svarsrad (värsta avvikelsen + åtgärd), SKÖRDARE,
 // SKOTARE (en rad per aktiv maskin: timmar kvar mot kapacitet kvar), två listrader.
 import {
-  belaggning, otilldelade, planeratPerTyp, planeringSvar, stoppForMaskin, maskinNamn, TYPER,
+  belaggning, otilldelade, planeratPerTyp, planeringSvar, planeringStoppText, stoppForMaskin, maskinNamn, TYPER,
   type ManadStatus, type PlaneratResultat, type SparLage,
 } from '../_lib/berakningar'
 import { g15KapacitetNot } from '@/lib/helikopterG15'
@@ -54,10 +54,13 @@ export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, i
         <Sektion className="hk-grupp" key={roll} rubrik={roll === 'skordare' ? 'Skördare' : 'Skotare'} foljdAvLankar={roll === 'skotare'}>
           {bel.filter(b => b.roll === roll).map(b => {
             const over = b.luftH < 0
-            const stopp = stoppForMaskin(manadsdata.stopp, b.maskin.maskin_id)
+            // Stopp härlett ur ledighet + filer (helikopter_ny_stopp) — registrerade stopp ingår. Kunde det inte läsas: bara registrerade, som förut.
+            const harled = planeringStoppText(manadsdata.maskinStopp?.find(m => m.maskin_id === b.maskin.maskin_id))
+            const stopp = manadsdata.maskinStopp != null ? [] : stoppForMaskin(manadsdata.stopp, b.maskin.maskin_id)
             const tom = b.objekt.length === 0
-            const under = stopp.length > 0
-              ? stopp.map(s => `${STOPP_ORSAK[s.orsak] ?? s.orsak} ${fmtPeriod(s.fran_datum, s.till_datum)}`).join(' · ')
+            const stoppText = harled ?? (stopp.length > 0 ? stopp.map(s => `${STOPP_ORSAK[s.orsak] ?? s.orsak} ${fmtPeriod(s.fran_datum, s.till_datum)}`).join(' · ') : null)
+            const under = stoppText
+              ? stoppText
               : tom
                 ? `${fmt(b.kapacitetH)} h lediga`
                 : b.objekt.map(o => kortNamn(o.namn)).join(', ')
@@ -71,7 +74,7 @@ export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, i
                 andel={tom ? 0 : b.kapacitetH > 0 ? Math.min(b.belagtH / b.kapacitetH, 1) : (b.belagtH > 0 ? 1 : 0)}
                 orange={over}
                 under={under}
-                underMuted={tom && stopp.length === 0}
+                underMuted={tom && !stoppText}
               />
             )
           })}

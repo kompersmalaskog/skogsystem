@@ -11,11 +11,12 @@
 //   Skördat landar 2 400 · skotat landar 2 000 av 5 000      (prognos mot beställt per roll; före arbetsdag 4: hittills)
 //   Veckan hittills: plan 682, skördat 697, skotat 374        (plan = veckoplan × gångna/arbetsdagar i veckan)
 //   Kör 184/dag · behöver 287                                 (skotarens takt och behov; var det landar står på rad 2)
+//   Giant stod 3 dagar (Stefan ledig) · Elefant 26 står 26–30 okt (Daniel ledig)   (bara när en av spårets maskiner har ett stopp)
 //   Skotaren är flaskhals: Elephant King 114/dag på Stänkelsmåla · Wisent 63/dag på Rössmåla   (bara när en roll landar under beställt)
 // Spår utan objekt: rad 2 = "Inga objekt planerade", inget mer. Aktiv maskin utan data de
 // senaste två arbetsdagarna: egen rad "Wisent · inga lass sedan måndag". Två spår = två
 // block med tom rad emellan. Ingen inledning, ingen avslutning, inga råd.
-import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, landarRoller, raknaSpar, valjBas, type SparLage } from './berakningar'
+import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, landarRoller, raknaSpar, stoppNotisText, valjBas, type SparLage } from './berakningar'
 import { MANAD_NAMN, fmt, kortNamn } from './format'
 import type { Typ } from './queries'
 import { ORDNING, TOM_DAGAR, bolagText, ca, flaskRoll, saknarData, sedanText, utanDataRad, type VeckolageData, type VeckolageMaskin } from './veckolage'
@@ -51,6 +52,11 @@ function sparRader(s: SparLage, d: VeckoNotisData): string[] {
     rader.push(`Kör ${fmt(s.taktSkotat)}/dag${behov}`)
   }
 
+  // Rad 4b: stopp som orsak i klartext (planerat stopp = ledig förare utan fil): "Giant stod 3 dagar (Stefan ledig) · Elefant 26 står 26–30 okt (Daniel ledig)".
+  // Bara maskinerna som kört i spåret, ingen rankning.
+  const stopp = stoppNotisText(d.stopp, s.maskinIds)
+  if (stopp) rader.push(stopp)
+
   // Rad 5: bara när någon roll landar under beställt, bara rollen som ligger sämst till (flaskRoll i veckolage.ts).
   const flask = flaskRoll(s)
   if (flask) {
@@ -71,7 +77,7 @@ export function formateraVeckoNotis(d: VeckoNotisData): string {
   for (const typ of ORDNING) {
     const bas = valjBas(d.spar, typ)
     if (!bas || bas.bestallt <= 0) continue
-    block.push({ typ, rader: sparRader(raknaSpar(bas, dagar), d) })
+    block.push({ typ, rader: sparRader(raknaSpar(bas, dagar, d.takt), d) })
   }
   if (block.length === 0) return `Ingen beställning inlagd i ${manadNamn}`
 
