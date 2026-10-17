@@ -28,9 +28,8 @@ export function omGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): OmGrupp {
   return HANSYN_ZONER.has(m.typ) ? 'hansyn' : 'ovrigt';
 }
 
-/** Ytorna (Vidas hänsynsytor, traktdelar, egna områden) är inte markeringar men får rader på samma sätt. */
+/** Ytorna som inte är markeringar (Vidas traktdelar, våra egna områden) får rader på samma sätt. Hänsynsytor är markeringar (kalla 'vida' eller egen) och blir EN rad. */
 const YTA_PLURAL: Record<string, { namn: string; grupp: OmGrupp }> = {
-  'Hänsynsyta': { namn: 'Hänsynsytor', grupp: 'hansyn' },
   'Traktdel': { namn: 'Traktdelar', grupp: 'ovrigt' },
   'Eget område': { namn: 'Egna områden', grupp: 'ovrigt' },
 };
@@ -65,6 +64,23 @@ const KORT_VAG_KOMMENTAR = 24;
 
 /** Namnet i Om trakten. Ritade hänsynsytor heter zonens eget namn "Hänsyn" på kartan — här "Hänsynsyta", så att raden inte heter som gruppen HÄNSYN. */
 export const omNamn = (m: Pick<KartMarkering, 'slag' | 'typ' | 'namn'>): string => (m.slag === 'zon' && m.typ === 'protected' ? 'Hänsynsyta' : String(m.namn ?? ''));
+
+/** Typer som finns både från Vida och från oss: EN rad per typ, och källan står först när objektet öppnas (listen nertill / ytkortet). */
+const BLANDAD_KALLA = new Set(['zon:protected', 'symbol:landing']);
+
+/** Första ringen/linjen ur en GeoJSON-geometri som lat/lng (Polygon, MultiPolygon, LineString); null när den saknas. */
+export function punkterUrGeometri(g: unknown): { lat: number; lng: number }[] | null {
+  const geo = g as { type?: string; coordinates?: unknown } | null | undefined;
+  if (!geo || !Array.isArray(geo.coordinates)) return null;
+  const c = geo.coordinates as unknown[];
+  const ring: unknown = geo.type === 'Polygon' ? c[0] : geo.type === 'MultiPolygon' ? (c[0] as unknown[] | undefined)?.[0] : geo.type === 'LineString' ? c : null;
+  if (!Array.isArray(ring)) return null;
+  const ut = (ring as unknown[]).flatMap((p) => (Array.isArray(p) && typeof p[0] === 'number' && typeof p[1] === 'number' && Number.isFinite(p[0]) && Number.isFinite(p[1]) ? [{ lat: p[1] as number, lng: p[0] as number }] : []));
+  return ut.length > 0 ? ut : null;
+}
+
+/** Mitten av punkterna (medelvärdet) — var en yta pekas ut på kartan. */
+export const mittAvPunkter = (pts: readonly { lat: number; lng: number }[]): { lat: number; lng: number } => ({ lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length });
 const versal = (t: string) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 const norm = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -103,6 +119,7 @@ export function byggOmGrupper(ms: readonly KartMarkering[], pos: { lat: number; 
   }
   for (const r of Array.from(rader.values())) {
     r.antal = r.markeringar.length;
+    if (r.nyckel === 'zon:protected') r.namn = r.antal === 1 ? 'Hänsynsyta' : 'Hänsynsytor';   // Vidas och våra hänsynsytor är EN rad
     const mi = r.nyckel.startsWith('miljo:') ? (miljo ?? []).find((x) => `miljo:${x.id}` === r.nyckel) : undefined;
     if (r.nyckel.startsWith('miljo:')) {
       const satta = mi ? mi.antal : r.markeringar.reduce((s, m) => s + (m.antal != null && m.antal > 0 ? m.antal : 1), 0);
@@ -138,10 +155,12 @@ export const objektTitel = (m: KartMarkering): string => (arBasvag(m) ? basvagTe
 
 // ── Texten i listen nertill när ETT objekt visas ──────────────────────────────────────────────────────────────────
 /** "Basväg röd · 329 m" / "Högstubbe" / "Kulturminne · Stenrös vid vägen" — det som står i NedfaldList. */
-export function listText(m: Pick<KartMarkering, 'comment' | 'namn' | 'typ' | 'slag' | 'farg' | 'langdM'>): string {
+export function listText(m: Pick<KartMarkering, 'comment' | 'namn' | 'typ' | 'slag' | 'farg' | 'langdM' | 'kalla'>): string {
   if (arBasvag(m)) return basvagText(m.farg, m.langdM);
   const k = String(m.comment ?? '').trim().replace(/\s+/g, ' ');
-  return k ? `${omNamn(m)} · ${k}` : omNamn(m);
+  // Källan syns först här: för typer som finns från både Vida och oss står "från Vida" respektive "egen".
+  const kalla = BLANDAD_KALLA.has(`${m.slag}:${m.typ}`) ? (m.kalla === 'vida' ? 'från Vida' : 'egen') : '';
+  return [omNamn(m), kalla, k].filter(Boolean).join(' · ');
 }
 
 // ── Brandrisk: bara när någon dag är 3 eller högre ──────────────────────────────────────────────────────────────

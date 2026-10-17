@@ -76,6 +76,7 @@ import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from 
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
 import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
+import { mittAvPunkter, punkterUrGeometri } from '../../lib/omTrakten'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
 import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
@@ -13724,7 +13725,7 @@ export default function PlannerPage() {
         // nummerordning. Nummer/typ/nyckel ur SAMMA numrering (numreraObjekt) som kartan. Radtext =
         // Vidas text först, annars Kompersmålas anteckning; tryck → samma ytkort som på kartan. ===
         const foersta = (s: any) => { const t = String(s ?? '').trim(); return t ? t.split(/\r?\n/)[0].trim() : ''; };
-        const ytor: { nr: number; typ: string; typLabel: string; nyckel: string; vidaText: string | null; open: () => void }[] = [];
+        const ytor: { nr: number; typ: string; typLabel: string; nyckel: string; vidaText: string | null; open: () => void; ring?: { lat: number; lng: number }[] | null }[] = [];
         for (const f of (traktGeo?.features || [])) {
           const p = f?.properties || {};
           if (klassaTraktFeature(p).kategori !== 'hansyn') continue;
@@ -13733,7 +13734,7 @@ export default function PlannerPage() {
           if (!Number.isFinite(nr)) continue;
           const nyckel = ytaNyckel(p) || `hansyn:${lopnrRaw}`;
           const vidaText = foersta(p.FLBESKR) || foersta(p.ATGARD) || null;
-          ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta', nyckel, vidaText, open: () => {
+          ytor.push({ nr, typ: 'hansyn', typLabel: 'Hänsynsyta', nyckel, vidaText, ring: punkterUrGeometri(f.geometry), open: () => {
             setTraktOversiktOpen(false);
             const rader: { etikett?: string; text: string }[] = [];
             if (String(p.FLBESKR || '').trim()) rader.push({ text: String(p.FLBESKR).trim() });
@@ -13763,6 +13764,14 @@ export default function PlannerPage() {
           }
         }
         ytor.sort((a, b) => a.nr - b.nr);
+        // Vidas hänsynsytor och avlägg är objekt av SAMMA typ som våra egna: de listas i Om trakten på samma rad som våra ("Hänsynsytor · 3 st"), källan syns först när man öppnar dem.
+        const vidaHansynMark: KartMarkering[] = ytor.filter((y) => y.typ === 'hansyn').map((y, i) => {
+          const mitt = y.ring ? mittAvPunkter(y.ring) : null;
+          return { id: `vida-yta:${y.nyckel}`, slag: 'zon' as const, typ: 'protected', namn: 'Hänsynsyta', comment: y.vidaText ?? '', lat: mitt?.lat ?? null, lng: mitt?.lng ?? null, geometri: y.ring ?? undefined, kalla: 'vida' as const, skapad: null, ordning: 100000 + i };
+        });
+        const vidaAvlaggMark: KartMarkering[] = klarVidaPunkter.filter((a) => a.lat != null && a.lng != null).map((a, i) => (
+          { id: `vida-avlagg:${a.nummer}`, slag: 'symbol' as const, typ: 'landing', namn: 'Avlägg', comment: '', lat: a.lat, lng: a.lng, kalla: 'vida' as const, skapad: null, ordning: 100500 + i }));
+        const vidaOppnaPerId = new Map<string, () => void>(ytor.filter((y) => y.typ === 'hansyn').map((y) => [`vida-yta:${y.nyckel}`, y.open] as [string, () => void]));
 
         // Dokument-antal (samma chips som DokumentChips renderar) → "Dokument (N)".
         const dokBlad = (Array.isArray(valtObjekt.traktkartor) && valtObjekt.traktkartor.length > 0) ? valtObjekt.traktkartor.length : (valtObjekt.traktkarta_url ? 1 : 0);
@@ -14015,13 +14024,14 @@ export default function PlannerPage() {
             hela: forareTexter,
             planttext: [planttext, talKonflikt ? `Egen anteckning anger ${egnaTalStr}/ha — Vidas direktiv gäller` : null].filter(Boolean).join(' · ') || null,
             restriktioner: restr ?? [],
-            markeringar: kartMarkeringar,
+            markeringar: [...kartMarkeringar, ...vidaHansynMark, ...vidaAvlaggMark],
+            vidaOppna: (id) => vidaOppnaPerId.get(id),
             pos: gpsNuPos,
             miljo: [
               { id: 'hogstubbar', namn: 'Högstubbar', antal: hogstubbarVy.antal, krav: hogstubbarVy.krav, uppfyllt: hogstubbarVy.status === 'uppfyllt' },
               { id: 'evighetstrad', namn: 'Evighetsträd', antal: evighetstradVy.antal, krav: evighetstradVy.krav, uppfyllt: evighetstradVy.status === 'uppfyllt' },
             ],
-            ytor: ytor.map((y) => ({ nr: y.nr, typLabel: y.typLabel, text: y.vidaText || foersta(anteckningar[y.nyckel]?.text) || null,
+            ytor: ytor.filter((y) => y.typ !== 'hansyn').map((y) => ({ nr: y.nr, typLabel: y.typLabel, text: y.vidaText || foersta(anteckningar[y.nyckel]?.text) || null,
               harLjud: (ytaMedia[y.nyckel] || []).some(mm => mm.typ === 'audio'), harFoto: (ytaMedia[y.nyckel] || []).some(mm => mm.typ === 'foto'), onOppna: y.open })),
             ikon: ikonFor,
             // Telefon: arket stängs och kartan flyger dit. Bred skärm: panelen ligger kvar och markeringen framhävs på kartan.

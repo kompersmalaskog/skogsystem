@@ -53,6 +53,8 @@ export interface OmTraktenProps {
   onSlapp: () => void;
   onFoto: (src: string) => void;
   framhavdId: string | null;
+  /** Vidas hänsynsytor öppnas som förut i ytkortet (där källan "Vida" står): id → vad som händer. Övriga objekt framhävs på kartan. */
+  vidaOppna?: (id: string) => (() => void) | undefined;
   /** återställ var man stod (efter "‹ Lista") */
   start?: OmNav;
   /** sidan sparar var man stod just innan arket stängs av ett objekt */
@@ -101,7 +103,11 @@ export default function OmTrakten(p: OmTraktenProps) {
   const sparaScroll = () => { const el = scrollRef.current; if (!el) return; if (typ) scrollTyp.current = el.scrollTop; else scrollLista.current = el.scrollTop; };
   useLayoutEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = typ ? scrollTyp.current : scrollLista.current; }, [typ]);
   const tillLista = () => { sparaScroll(); setTyp(null); };
-  const visaObjekt = (m: KartMarkering) => { sparaScroll(); p.onNav({ typ, scrollLista: scrollLista.current, scrollTyp: scrollTyp.current, q }); p.onVisa(m); };
+  const visaObjekt = (m: KartMarkering) => {
+    const vida = m.kalla === 'vida' ? p.vidaOppna?.(m.id) : undefined;
+    if (vida) { vida(); return; }   // Vidas yta: ytkortet (som förut)
+    sparaScroll(); p.onNav({ typ, scrollLista: scrollLista.current, scrollTyp: scrollTyp.current, q }); p.onVisa(m);
+  };
   // En typ med bara ETT objekt öppnar objektet direkt — ingen typvy med en enda rad ("‹ Lista" tar då tillbaka till listan). Ytor: ytan öppnas som förut.
   const oppnaTyp = (r: TypRad) => {
     if (r.ytaTyp && r.antal === 1) { ytorTraffar.find((y) => y.typLabel === r.ytaTyp)?.onOppna(); return; }

@@ -69,7 +69,7 @@ export const lika = (id: string): any[] => ['==', ['to-string', ['get', 'id']], 
 /** Någon av flera (typraden markerar ALLA av typen): samma jämförelse som `lika`, men mot en lista. En enda id ger exakt `lika`. */
 export const likaNagon = (ids: readonly string[]): any[] => (ids.length === 1 ? lika(ids[0]) : ['in', ['to-string', ['get', 'id']], ['literal', ids.map(String)]]);
 
-export function framhavdFran(m: Pick<KartMarkering, 'id' | 'slag' | 'typ' | 'namn' | 'comment' | 'farg' | 'langdM' | 'lat' | 'lng' | 'geometri'>): FramhavdMarkering {
+export function framhavdFran(m: Pick<KartMarkering, 'id' | 'slag' | 'typ' | 'namn' | 'comment' | 'farg' | 'langdM' | 'lat' | 'lng' | 'geometri'> & { kalla?: 'vida' }): FramhavdMarkering {
   const komm = String(m.comment ?? '').trim();
   const etikett = komm || (arBasvag(m) ? basvagText(m.farg, m.langdM) : omNamn(m).trim());
   return { id: String(m.id), slag: m.slag, lat: m.lat, lng: m.lng, geometri: m.geometri, etikett, lista: listText(m) };

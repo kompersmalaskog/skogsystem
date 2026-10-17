@@ -129,6 +129,8 @@ export interface KartMarkering {
   /** basväg (mainRoad): vald färg (röd/gul/blå) och längd i meter — "Basväg röd · 640 m" i Om trakten */
   farg?: string | null;
   langdM?: number | null;
+  /** Vidas egna objekt (hänsynsytor, avlägg ur traktgeometrin) har kalla 'vida'; allt annat är satt av oss. Källan syns bara när objektet öppnas — raderna är en per typ oavsett källa. */
+  kalla?: 'vida';
   /** symbolens antal (högstubbar/evighetsträd sätts med `antal` per symbol) — saknas = 1 */
   antal?: number | null;
   /** hela linjen/ytan (lat/lng per punkt) — bara linjer och zoner; symbolen har bara lat/lng. "Visa ›" framhäver HELA figuren, inte en punkt. */

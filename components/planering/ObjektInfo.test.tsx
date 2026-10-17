@@ -72,6 +72,7 @@ function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar
       markeringar: o.markeringar ?? MARKERINGAR, pos: o.pos === undefined ? { lat: 56.4, lng: 14.7 } : o.pos,
       miljo: [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 5, krav: 15, uppfyllt: false }],
       ytor: [], brand: { lat: 56.4, lng: 14.7 }, onBrand: () => { spion.brand += 1; }, start: o.start, onNav: (n) => { spion.nav.push(n); }, onTyp: (m, lage) => { spion.typ.push(m ? `${m.map((x) => x.id).join(',')}:${lage}` : 'null'); },
+      vidaOppna: undefined,
       ikon: () => <span />, onVisa: (m, lage) => { spion.visa.push(`${m.id}:${lage}`); }, onSlapp: (orsak) => { spion.slapp.push(orsak); }, onFoto: (s) => { spion.foto.push(s); }, framhavdId: o.framhavdId ?? null,
     },
     mer: { grupper: mer.grupper, avsluta: mer.avslutaObjekt ? () => { spion.mer.push('avsluta'); } : null, planerare: roll === 'planerare' ? { visaSom: null } : null },
@@ -348,23 +349,33 @@ describe('Om trakten — grupper och EN rad per typ', () => {
     expect(radText('miljo-hogstubbar')).toBe('Högstubbar · 0 av 11 markerade');
   });
 
-  it('Hänsynsytor (Vidas) är en typrad "Hänsynsytor · 2 st"; typvyn listar ytorna och trycket öppnar ytan som förut; med EN yta öppnas den direkt', async () => {
-    const p = sk();
-    const oppnade: number[] = [];
-    p.om.ytor = [1, 2].map((nr) => ({ nr, typLabel: 'Hänsynsyta', text: `Sänka ${nr}`, harLjud: false, harFoto: false, onOppna: () => { oppnade.push(nr); } }));
+  it('Vidas och våra hänsynsytor är EN rad: "Hänsynsytor · 3 st"; källan syns först när ytan öppnas (Vidas i ytkortet, vår på kartan)', async () => {
+    const vida = (nr: number) => M({ id: `vida-yta:${nr}`, slag: 'zon', typ: 'protected', namn: 'Hänsynsyta', comment: `Sänka ${nr}`, kalla: 'vida', lat: 56.401 + nr / 1e4, lng: 14.7, geometri: [{ lat: 56.4, lng: 14.7 }, { lat: 56.4, lng: 14.701 }, { lat: 56.401, lng: 14.701 }] });
+    const egen = M({ id: 'z-egen', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Bok sparas', lat: 56.4011, lng: 14.7, skapad: 220 });
+    const p = sk({ markeringar: [...SK, vida(1), vida(2), egen] });
+    const oppnade: string[] = [];
+    p.om.vidaOppna = (id) => (id.startsWith('vida-yta:') ? () => { oppnade.push(id); } : undefined);
     await oppnaOm(p);
-    expect(radText('yta-h-nsynsyta')).toBe('Hänsynsytor · 2 st');
-    klicka(q('om-typ-yta-h-nsynsyta'));
-    klicka(qa('om-yta')[1]);
-    expect(oppnade).toEqual([2]);
-    await act(async () => { rot!.unmount(); }); behallare!.remove();
-    const en = sk(); const ett: number[] = [];
-    en.om.ytor = [{ nr: 1, typLabel: 'Hänsynsyta', text: 'Sänka', harLjud: false, harFoto: false, onOppna: () => { ett.push(1); } }];
-    await oppnaOm(en);
-    expect(radText('yta-h-nsynsyta')).toBe('Hänsynsytor · 1 st');
-    klicka(q('om-typ-yta-h-nsynsyta'));
-    expect(ett).toEqual([1]);                                       // ytan öppnas direkt
-    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('lista');   // ingen typvy med en enda rad
+    expect(qa('om-typ-zon-protected').length).toBe(1);
+    expect(radText('zon-protected')).toBe('Hänsynsytor · 3 st');
+    expect(q('om-grupp-hansyn')!.textContent).not.toMatch(/Hänsyn ·|Vida|egen/i);   // raden säger inget om källan
+    klicka(q('om-typ-zon-protected'));
+    expect(q('info-titel')!.textContent).toBe('Hänsynsytor · 3 st');
+    const rader = qa('om-objekt');
+    expect(rader.length).toBe(3);
+    expect(rader.map((r) => r.textContent).join('|')).not.toMatch(/Vida|egen/i);       // inte heller typvyn
+    klicka(rader.find((r) => r.getAttribute('data-id') === 'vida-yta:2')!.querySelector('[data-testid="om-objekt-knapp"]'));
+    expect(oppnade).toEqual(['vida-yta:2']);       // Vidas yta öppnas i ytkortet
+    expect(spion.visa).toEqual([]);
+    klicka(rader.find((r) => r.getAttribute('data-id') === 'z-egen')!.querySelector('[data-testid="om-objekt-knapp"]'));
+    expect(spion.visa).toEqual(['z-egen:ark']);   // vår yta framhävs på kartan
+  });
+
+  it('Vidas avlägg och våra är EN rad: "Avlägg · 3 st"', async () => {
+    const vidaAvl = (n: string) => M({ id: `vida-avlagg:${n}`, typ: 'landing', namn: 'Avlägg', kalla: 'vida', lat: 56.402, lng: 14.7 });
+    await oppnaOm(sk({ markeringar: [...SK, vidaAvl('01-1'), vidaAvl('01-2'), M({ id: 'egen-avl', typ: 'landing', namn: 'Avlägg', lat: 56.4021, lng: 14.7, skapad: 230 })] }));
+    expect(qa('om-typ-symbol-landing').length).toBe(1);
+    expect(radText('symbol-landing')).toBe('Avlägg · 3 st');
   });
 
   it('ritad hänsynszon heter "Hänsynsyta" i listan — inte "Hänsyn", som gruppen', async () => {

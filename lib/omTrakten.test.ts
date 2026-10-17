@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { antalFaror, brandRadText, byggOmGrupper, dagText, listText, omGrupp, omNamn, typRadText, type MiljoIn } from './omTrakten';
+import { antalFaror, brandRadText, byggOmGrupper, dagText, listText, mittAvPunkter, omGrupp, omNamn, punkterUrGeometri, typRadText, type MiljoIn } from './omTrakten';
 import type { KartMarkering } from './objektKort';
 
 const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
@@ -90,11 +90,11 @@ describe('EN rad per typ', () => {
     expect(g.rader.map((r) => r.namn)).toEqual(['Högstubbar', 'Kulturminne']);
   });
 
-  it('ytorna får rader på samma sätt: "Hänsynsytor · 2 st" under Hänsyn, traktdelar och egna områden under Övrigt', () => {
-    const g = byggOmGrupper([], null, null, ['Hänsynsyta', 'Hänsynsyta', 'Traktdel', 'Eget område']);
-    expect(g.find((x) => x.grupp === 'hansyn')!.rader.map(typRadText)).toEqual(['Hänsynsytor · 2 st']);
-    expect(g.find((x) => x.grupp === 'ovrigt')!.rader.map(typRadText).sort()).toEqual(['Egna områden · 1 st', 'Traktdelar · 1 st']);
-    expect(g[0].rader[0].ytaTyp).toBe('Hänsynsyta');
+  it('ytorna som inte är markeringar får rader på samma sätt: "Traktdelar · 1 st" och "Egna områden · 1 st" under Övrigt', () => {
+    const g = byggOmGrupper([], null, null, ['Traktdel', 'Eget område']);
+    expect(g.map((x) => x.grupp)).toEqual(['ovrigt']);
+    expect(g[0].rader.map(typRadText).sort()).toEqual(['Egna områden · 1 st', 'Traktdelar · 1 st']);
+    expect(g[0].rader.every((r) => r.ytaTyp != null)).toBe(true);
   });
 
   it('inom en rad: närmast först när man är på trakten, annars i skapad ordning', () => {
@@ -108,12 +108,41 @@ describe('EN rad per typ', () => {
   });
 });
 
+describe('samma sak från Vida och från oss = EN rad', () => {
+  const zon = (id: string, kalla?: 'vida') => M({ id, slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: id, ...(kalla ? { kalla } : {}) });
+  it('hänsynsytor: två från Vida och en egen blir "Hänsynsytor · 3 st" — i EN rad, i gruppen Hänsyn; en enda heter "Hänsynsyta · 1 st"', () => {
+    const g = byggOmGrupper([zon('a', 'vida'), zon('b', 'vida'), zon('c')], null, null).find((x) => x.grupp === 'hansyn')!;
+    expect(g.rader.map(typRadText)).toEqual(['Hänsynsytor · 3 st']);
+    expect(g.rader[0].markeringar.map((m) => m.kalla ?? 'egen').sort()).toEqual(['egen', 'vida', 'vida']);
+    expect(byggOmGrupper([zon('a', 'vida')], null, null)[0].rader.map(typRadText)).toEqual(['Hänsynsyta · 1 st']);
+  });
+  it('avlägg: Vidas och våra är EN rad', () => {
+    const avl = (id: string, kalla?: 'vida') => M({ id, typ: 'landing', namn: 'Avlägg', ...(kalla ? { kalla } : {}) });
+    const r = byggOmGrupper([avl('v1', 'vida'), avl('v2', 'vida'), avl('e1')], null, null).flatMap((x) => x.rader);
+    expect(r.map(typRadText)).toEqual(['Avlägg · 3 st']);
+  });
+  it('källan står först i listen nertill: "Hänsynsyta · från Vida · Sänka" / "Avlägg · egen" — och inte för typer som inte finns från båda', () => {
+    expect(listText(zon('Sänka', 'vida'))).toBe('Hänsynsyta · från Vida · Sänka');
+    expect(listText(M({ id: 'e', typ: 'landing', namn: 'Avlägg' }))).toBe('Avlägg · egen');
+    expect(listText(M({ id: 'v', typ: 'landing', namn: 'Avlägg', kalla: 'vida' }))).toBe('Avlägg · från Vida');
+    expect(listText(M({ id: 'h' }))).toBe('Högstubbe');
+  });
+  it('punkterUrGeometri: Polygon, MultiPolygon och LineString som lat/lng (lng,lat i GeoJSON); annat → null', () => {
+    expect(punkterUrGeometri({ type: 'Polygon', coordinates: [[[14.7, 56.4], [14.8, 56.4], [14.8, 56.5]]] })).toEqual([{ lat: 56.4, lng: 14.7 }, { lat: 56.4, lng: 14.8 }, { lat: 56.5, lng: 14.8 }]);
+    expect(punkterUrGeometri({ type: 'MultiPolygon', coordinates: [[[[1, 2], [3, 4], [5, 6]]]] })![0]).toEqual({ lat: 2, lng: 1 });
+    expect(punkterUrGeometri({ type: 'LineString', coordinates: [[1, 2], [3, 4]] })).toHaveLength(2);
+    expect(punkterUrGeometri({ type: 'Point', coordinates: [1, 2] })).toBeNull();
+    expect(punkterUrGeometri(null)).toBeNull();
+    expect(mittAvPunkter([{ lat: 0, lng: 0 }, { lat: 2, lng: 4 }])).toEqual({ lat: 1, lng: 2 });
+  });
+});
+
 describe('ritad hänsynszon heter Hänsynsyta', () => {
   it('raden, objektets titel och listens text — aldrig "Hänsyn" (som gruppen)', () => {
     const z = M({ id: 'z', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Bok' });
     const g = byggOmGrupper([z], null, null).find((x) => x.grupp === 'hansyn')!;
     expect(g.rader.map(typRadText)).toEqual(['Hänsynsyta · 1 st']);
-    expect(listText(z)).toBe('Hänsynsyta · Bok');
+    expect(listText(z)).toBe('Hänsynsyta · egen · Bok');   // källan står först i listen (typen finns även från Vida)
     expect(omNamn(z)).toBe('Hänsynsyta');
     expect(omNamn(M({ id: 'w', slag: 'zon', typ: 'wet', namn: 'Blött' }))).toBe('Blött');
   });
@@ -153,6 +182,19 @@ describe('brandrisk: bara när någon dag är 3 eller högre', () => {
   });
   it('flera dagar: den högsta, och den första av lika höga', () => {
     expect(brandRadText([d('2026-10-14', 3), d('2026-10-15', 4), d('2026-10-16', 4), d('2026-10-17', 3)], IDAG)!.text).toBe('Brandrisk 4 i morgon');
+  });
+});
+
+describe('vakt: sidan matar Vidas hänsynsytor och avlägg som markeringar (samma rad som våra)', () => {
+  const page = readFileSync(resolve(__dirname, '../app/planering/page.tsx'), 'utf8');
+  it('kalla: vida, samma typ och slag som våra egna; Vidas yta öppnas i ytkortet via vidaOppna', () => {
+    expect(page).toContain("slag: 'zon' as const, typ: 'protected', namn: 'Hänsynsyta'");
+    expect(page).toContain("slag: 'symbol' as const, typ: 'landing', namn: 'Avlägg'");
+    expect(page).toContain("kalla: 'vida' as const");
+    expect(page).toContain('markeringar: [...kartMarkeringar, ...vidaHansynMark, ...vidaAvlaggMark],');
+    expect(page).toContain('vidaOppna: (id) => vidaOppnaPerId.get(id),');
+    // kortets "N markeringar" och alla andra läsare av kartMarkeringar räknar INTE Vidas objekt
+    expect(page).toContain('const sammanf = sammanfattaMarkeringar(kartMarkeringar);');
   });
 });
 
