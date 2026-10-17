@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { medAbortRetry } from '@/lib/supabaseRetry';
 import { hamtaAlla } from '@/lib/supabaseAlla';
@@ -12,7 +12,7 @@ export type FakturerbartStatus =
   | { lage: 'klar'; summa: FakturerbartSumma; rader: UnderlagRad[] }
   | { lage: 'fel' };
 
-const FALT = 'id, km, status, fakturerad_tid, kund, datum, maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, struken_tid, struken_anledning';
+const FALT = 'id, km, status, fakturerad_tid, kund, datum, maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, struken_tid, struken_anledning, godkand_tid, godkand_av, km_original, kund_original, redigerad_tid, redigerad_av';
 
 /**
  * Fakturerbart för en period, ur fakturaunderlag_flytt (ekonomidata: bara admin läser, RLS).
@@ -25,12 +25,22 @@ const FALT = 'id, km, status, fakturerad_tid, kund, datum, maskin, fran_objekt_i
 export function useFakturerbart(period: Period, aktiv: boolean) {
   const [status, setStatus] = useState<FakturerbartStatus>({ lage: 'laddar' });
   const [omforsok, setOmforsok] = useState(0);
+  const [tystOm, setTystOm] = useState(0);
   const nyckel = periodTillText(period);
+  // Förra omläsningen visade "Läser …"; en TYST omläsning (efter Godkänn/Stryk) behåller det som
+  // visas tills det nya svaret kommit — pengatalet i remsan får inte blinka till "–" av ett tryck.
+  const senasteTyst = useRef(0);
+  const senasteNyckel = useRef(nyckel);
 
   useEffect(() => {
     if (!aktiv) return;
     let avbruten = false;
-    setStatus({ lage: 'laddar' });
+    // Tyst bara när ENBART omläsningen utlöste effekten — byts perioden samtidigt visas "Läser …",
+    // annars stod förra periodens tal under nya periodens rubrik.
+    const tyst = tystOm !== senasteTyst.current && nyckel === senasteNyckel.current;
+    senasteTyst.current = tystOm;
+    senasteNyckel.current = nyckel;
+    if (!tyst) setStatus({ lage: 'laddar' });
     const { fran, till } = periodIntervall(period);
     (async () => {
       const r = await medAbortRetry(() => hamtaAlla<UnderlagRad>(
@@ -43,7 +53,9 @@ export function useFakturerbart(period: Period, aktiv: boolean) {
       if (avbruten) return;
       if (r.error) {
         console.error('[lastbil] fakturerbart: läsfel', r.error);
-        setStatus({ lage: 'fel' });
+        // Ett fel i en tyst omläsning lämnar det som visas (det är ändå sant som det var): ett
+        // Godkänn som gick igenom ska inte göra pengatalet till ett fel. Nästa omläsning rättar.
+        if (!tyst) setStatus({ lage: 'fel' });
         return;
       }
       setStatus({ lage: 'klar', summa: summeraFakturerbart(r.data), rader: r.data });
@@ -51,8 +63,9 @@ export function useFakturerbart(period: Period, aktiv: boolean) {
     return () => { avbruten = true; };
     // period är helt bestämd av `nyckel`
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nyckel, aktiv, omforsok]);
+  }, [nyckel, aktiv, omforsok, tystOm]);
 
   const forsokIgen = useCallback(() => setOmforsok(n => n + 1), []);
-  return { status, forsokIgen };
+  const laddaOmTyst = useCallback(() => setTystOm(n => n + 1), []);
+  return { status, forsokIgen, laddaOmTyst };
 }

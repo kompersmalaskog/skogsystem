@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { beraknaFakturerbar } from '@/lib/flytt/fakturerbar'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { haversine } from '@/utils/geo'
 import { vaderIkon } from './vader'
@@ -51,14 +52,8 @@ const FLYTT_TYP_LABEL: Record<FlyttTyp, string> = {
   produktion: 'Produktion', service: 'Service', kunduppdrag: 'Kunduppdrag', annat: 'Annat',
 }
 
-/** ENDA stället fakturerbar-regeln finns (DB-constraints vaktar värdena):
- *  produktion = km-gränsen, service = aldrig (egen kostnad),
- *  kunduppdrag = alltid (vi kör åt någon annan), annat = aldrig automatiskt. */
-function beraknaFakturerbar(typ: FlyttTyp, flyttKm: number): boolean {
-  if (typ === 'produktion') return flyttKm >= 30
-  if (typ === 'kunduppdrag') return true
-  return false
-}
+// Fakturerbar-regeln bor i lib/flytt/fakturerbar.ts (och i databasen: fakturerbar_for, som räknar om den vid
+// varje rättning). Två implementationer, ett gemensamt test — se filen.
 
 interface Maskin {
   maskin_id: string

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bytTyp, kanGaBakat, kanGaFramat, periodEtikett, periodFranText, periodIntervall, periodKort, periodNu, periodTillText, stegaPeriod } from './period';
+import { bytTyp, kanGaBakat, kanGaFramat, periodEtikett, periodFranText, periodIntervall, periodKort, periodNu, periodTillText, stegaPeriod, manadForDatum, periodInnehaller } from './period';
 
 const NU = new Date(2026, 9, 14);   // 14 okt 2026
 
@@ -98,3 +98,27 @@ describe('årsvyns månader', () => {
     expect(manadForStart('2026-09-30T22:30:00Z')).toEqual({ ar: 2026, man: 10 });
   });
 });
+
+describe('datum ur en date-kolumn (ingen tidszon)', () => {
+  it('periodInnehaller: månad och år', () => {
+    const okt = { typ: 'man', ar: 2026, man: 10 } as const;
+    expect(periodInnehaller(okt, '2026-10-01')).toBe(true);
+    expect(periodInnehaller(okt, '2026-10-31')).toBe(true);
+    expect(periodInnehaller(okt, '2026-09-30')).toBe(false);
+    expect(periodInnehaller(okt, '2025-10-06')).toBe(false);
+    expect(periodInnehaller({ typ: 'ar', ar: 2026 }, '2026-01-01')).toBe(true);
+    expect(periodInnehaller({ typ: 'ar', ar: 2026 }, '2027-01-01')).toBe(false);
+  });
+
+  it('saknat eller trasigt datum ligger aldrig i en period', () => {
+    expect(periodInnehaller({ typ: 'ar', ar: 2026 }, null)).toBe(false);
+    expect(periodInnehaller({ typ: 'ar', ar: 2026 }, 'igår')).toBe(false);
+    expect(manadForDatum(null)).toBeNull();
+    expect(manadForDatum('2026-13-01')).toBeNull();
+  });
+
+  it('manadForDatum läser månaden direkt ur texten', () => {
+    expect(manadForDatum('2026-10-06')).toEqual({ typ: 'man', ar: 2026, man: 10 });
+  });
+});
+

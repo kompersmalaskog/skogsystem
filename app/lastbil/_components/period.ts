@@ -134,3 +134,18 @@ export function manadForStart(startIso: string): { ar: number; man: number } | n
   const d = sthlmDelar(new Date(startIso));
   return d ? { ar: d.ar, man: d.man } : null;
 }
+
+/** Ligger ett kalenderdatum ('YYYY-MM-DD', en date-kolumn — ingen tidszon) inom perioden? */
+export function periodInnehaller(p: Period, ymdText: string | null | undefined): boolean {
+  const m = /^(\d{4})-(\d{2})-\d{2}/.exec(ymdText ?? '');
+  if (!m) return false;
+  return Number(m[1]) === p.ar && (p.typ === 'ar' || Number(m[2]) === p.man);
+}
+
+/** Månaden ett kalenderdatum ('YYYY-MM-DD') hör till, eller null om datumet saknas/är trasigt. */
+export function manadForDatum(ymdText: string | null | undefined): Manad | null {
+  const m = /^(\d{4})-(\d{2})-\d{2}/.exec(ymdText ?? '');
+  if (!m) return null;
+  const man = Number(m[2]);
+  return man >= 1 && man <= 12 ? { typ: 'man', ar: Number(m[1]), man } : null;
+}

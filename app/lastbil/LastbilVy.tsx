@@ -7,13 +7,16 @@ import VyKolumn from '@/components/design/VyKolumn';
 import Rubrik from './_components/Rubrik';
 import NuFlik from './_components/NuFlik';
 import FaktureringFlik from './_components/FaktureringFlik';
+import VantarRad from './_components/VantarRad';
 import KorningarFlik from './_components/KorningarFlik';
 import RundaArk from './_components/RundaArk';
 import Ark from '@/components/design/Ark';
 import { periodNu, type Period } from './_components/period';
+import { pamminnelse, type Pamminnelse } from './_components/vantar';
 import { lasUrl, skrivUrl, type Flik } from './_components/url';
 import { useFakturerbart } from './_components/useFakturerbart';
 import { useLastbilNu } from './_components/useLastbilNu';
+import { useVantar } from './_components/useVantar';
 import { useEnRunda, useRundor } from './_components/useRundor';
 
 /**
@@ -42,11 +45,20 @@ export default function LastbilVy() {
 
   const nu = useLastbilNu(!loading && flik === 'nu');
   const fakt = useFakturerbart(period, arAdmin);
+  const vantar = useVantar(arAdmin);
+  // Efter Godkänn/Stryk/Ångra: läs om remsan, listan och påminnelsen TYST (inget blinkar till "Läser …").
+  const { laddaOmTyst: faktTyst } = fakt;
+  const { laddaOmTyst: vantarTyst } = vantar;
+  const efterAndring = useCallback(() => { faktTyst(); vantarTyst(); }, [faktTyst, vantarTyst]);
   const rundor = useRundor(period, !loading && flik === 'korningar');
+  const { laddaOmTyst: rundorTyst } = rundor;
   // Arket för en runda: finns den i den inlästa listan används den, annars (tryck på "Senaste körning" på Nu)
   // läses just den rundan med sina grannar i tiden.
   const iListan = valdRunda && rundor.lage.lage === 'klar' ? rundor.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null;
   const enRunda = useEnRunda(valdRunda, !!iListan);
+  const { laddaOmTyst: enRundaTyst } = enRunda;
+  // Efter en rättning/strykning av en flytt: rundan, remsan (underlag kan ha skapats/strukits) och påminnelsen läses om tyst.
+  const efterRattning = useCallback(() => { rundorTyst(); enRundaTyst(); faktTyst(); vantarTyst(); }, [rundorTyst, enRundaTyst, faktTyst, vantarTyst]);
   const arkRunda = iListan ?? (valdRunda && enRunda.lage.lage === 'klar' ? enRunda.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null);
 
   useEffect(() => {
@@ -55,6 +67,13 @@ export default function LastbilVy() {
   }, [loading, flik, period]);
 
   const valjFlik = useCallback((f: Flik) => setValdFlik(f), []);
+
+  // Påminnelsen: på Fakturering räknas bara det som väntar UTANFÖR perioden listan redan visar.
+  const paminn = vantar.lage.lage === 'klar' ? pamminnelse(vantar.lage.rader, flik === 'fakturering' ? period : null) : null;
+  const oppnaVantande = useCallback((p: Pamminnelse) => {
+    if (p.mal) setPeriod(p.mal);
+    setValdFlik('fakturering');
+  }, []);
 
   return (
     <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD, fontFamily: FONT, WebkitFontSmoothing: 'antialiased', paddingBottom: AVSTAND.xxl }}>
@@ -67,20 +86,28 @@ export default function LastbilVy() {
             <Rubrik flik={flik} onFlik={valjFlik} arAdmin={arAdmin} period={period} onPeriod={setPeriod}
               remsa={fakt.status} onRemsaForsokIgen={fakt.forsokIgen} />
             <div style={{ paddingTop: AVSTAND.s }}>
+              {arAdmin && (
+                <div style={{ paddingBottom: AVSTAND.m }}>
+                  <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
+                </div>
+              )}
               {flik === 'nu' && <NuFlik lage={nu.lage} onForsokIgen={nu.forsokIgen} onOppnaRunda={setValdRunda} />}
               {flik === 'korningar' && (
                 <KorningarFlik period={period} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
                   onOppna={r => setValdRunda({ id: r.id, start: r.start })} onValjManad={setPeriod} />
               )}
               {flik === 'fakturering' && (
-                <FaktureringFlik period={period} status={fakt.status} onForsokIgen={fakt.forsokIgen} />
+                <FaktureringFlik period={period} status={fakt.status} namn={medarbetare?.namn || 'admin'}
+                  onForsokIgen={fakt.forsokIgen} onAndrad={efterAndring} />
               )}
             </div>
           </>
         )}
       </VyKolumn>
 
-      {valdRunda && arkRunda && <RundaArk runda={arkRunda} onStang={() => setValdRunda(null)} />}
+      {valdRunda && arkRunda && (
+        <RundaArk runda={arkRunda} onStang={() => setValdRunda(null)} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} onAndrad={efterRattning} />
+      )}
       {valdRunda && !arkRunda && (
         <Ark rubrik="Körning" onStang={() => setValdRunda(null)}>
           {enRunda.lage.lage === 'fel' || (enRunda.lage.lage === 'klar') ? (
