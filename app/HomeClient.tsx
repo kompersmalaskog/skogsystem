@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useDatahalsa } from './datahalsa/useDatahalsa'
 import { hamtaVantande } from '@/lib/egenkontroll'
 import { hamtaLedighetPrick, type LedighetPrick } from '@/lib/ledighet/prick'
+import Startsida from '@/components/startsida/Startsida'
 
 function getDatum() {
   const now = new Date()
@@ -112,6 +113,16 @@ function Raknarmarke({ antal, label }: { antal: number; label: string }) {
   )
 }
 
+// ── Nya startsidan (steg 1: bara admin) ─────────────────────────────────
+// Egen komponent så att datahälsans hook bara körs när den nya sidan visas.
+function NyStartsida({ egenkontroll, ledighet }: { egenkontroll: number | null; ledighet: number | null }) {
+  const { besked } = useDatahalsa()
+  return <Startsida roll="admin" marken={{ egenkontroll, ledighet }} datahalsa={besked} />
+}
+
+// Hur länge vi väntar på rollen innan den gamla sidan visas ändå (läsfel får aldrig ge en tom skärm).
+const ROLL_MAX_VANTAN_MS = 1500
+
 function AppIcon({ href, label, icon, variant, badge, badgeLabel }: { href: string; label: string; icon: string; variant: 'production' | 'admin'; badge?: number; badgeLabel?: string }) {
   const bgColor = variant === 'production' ? '#30d158' : '#0a84ff'
 
@@ -146,6 +157,9 @@ function AppIcon({ href, label, icon, variant, badge, badgeLabel }: { href: stri
 export default function HomeClient() {
   const [datum, setDatum] = useState('')
   const [roll, setRoll] = useState<string | null>(null)
+  // Rollen avgör vilken startsida som visas (admin får den nya). Tills den är känd visas bara bakgrunden,
+  // så ingen ser den gamla sidan blinka förbi. Läsfel eller långsamt svar → den gamla sidan, som förut.
+  const [rollKlar, setRollKlar] = useState(false)
   // null = vet inte än (laddar, eller kunde inte läsas). Märket visas först
   // när siffran är känd — ett märke som gissar är värre än inget märke.
   const [vantandeEgenkontroll, setVantandeEgenkontroll] = useState<number | null>(null)
@@ -164,17 +178,29 @@ export default function HomeClient() {
 
   useEffect(() => {
     setDatum(getDatum())
+    const klar = setTimeout(() => setRollKlar(true), ROLL_MAX_VANTAN_MS)
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user?.email) return
+      if (!user?.email) { setRollKlar(true); return }
       supabase.from('medarbetare').select('roll').eq('epost', user.email).single()
-        .then(({ data }) => { if (data?.roll) setRoll(data.roll) })
-    })
+        .then(({ data }) => { if (data?.roll) setRoll(data.roll); setRollKlar(true) }, () => setRollKlar(true))
+    }, () => setRollKlar(true))
     // SAMMA funktion som listvyn använder ⇒ siffran på ikonen och talet överst
     // i listan kan aldrig säga olika saker.
     hamtaVantande()
       .then(({ antalVantande }) => setVantandeEgenkontroll(antalVantande))
       .catch(() => setVantandeEgenkontroll(null))
+    return () => clearTimeout(klar)
   }, [])
+
+  // Märket per ruta — samma oavsett vilken lista rutan står i. (Förut satt egenkontrollens märke bara på
+  // Produktion-listan, men Egenkontroll står under Administration, så märket syntes aldrig.)
+  const marke = (href: string): { badge?: number; badgeLabel?: string } =>
+    href === '/egenkontroll' ? { badge: vantandeEgenkontroll ?? undefined, badgeLabel: 'objekt väntar på egenkontroll' }
+    : href === '/ledighet' ? { badge: ledighetPrick?.antal, badgeLabel: 'att göra i ledighet' }
+    : {}
+
+  if (!rollKlar) return <div style={{ position: 'fixed', inset: 0, background: '#000' }} />
+  if (roll === 'admin') return <NyStartsida egenkontroll={vantandeEgenkontroll} ledighet={ledighetPrick?.antal ?? null} />
 
   const synligaAdminApps = (roll === 'admin')
     ? [...adminApps, markagarrapportEntry, ekonomiAppEntry, adminAppEntry]
@@ -227,8 +253,7 @@ export default function HomeClient() {
                 key={app.href}
                 {...app}
                 variant="production"
-                badge={app.href === '/egenkontroll' ? vantandeEgenkontroll ?? undefined : undefined}
-                badgeLabel="objekt väntar på egenkontroll"
+                {...marke(app.href)}
               />
             ))}
           </div>
@@ -249,8 +274,7 @@ export default function HomeClient() {
                 key={app.href}
                 {...app}
                 variant="admin"
-                badge={app.href === '/ledighet' ? ledighetPrick?.antal : undefined}
-                badgeLabel="att göra i ledighet"
+                {...marke(app.href)}
               />
             ))}
           </div>
