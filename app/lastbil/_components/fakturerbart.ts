@@ -2,7 +2,7 @@
 // (steg 3; raderna kommer ur samma läsning, så remsan och listan aldrig kan läsa olika underlag). Summan är SUMMAN AV DET SOM VISAS: varje flytt avrundas först (hela km),
 // sedan summeras — aldrig råvärden som avrundas en gång (skillen, "Avläsbarhet först").
 //
-// GODKÄNNANDET (migration 20261015150000): en flytt är ogodkänd tills admin trycker Godkänn, som en
+// GODKÄNNANDET (migration 20261015151948): en flytt är ogodkänd tills admin trycker Godkänn, som en
 // arbetsdag är obekräftad tills föraren trycker Stämmer. En ogodkänd flytt har inte gått till
 // faktureringen än och ingår därför inte i pengatalet — den räknas som "väntar", och påminnelsen i
 // Lastbilen (vantar.ts) leder till listan "Att godkänna".
@@ -52,6 +52,8 @@ export function summeraFakturerbart(rader: readonly FaktureratRad[]): Fakturerba
 /** En kvittorad: en per fakturerbar flytt, auto-skapad av databastriggern. Kvittot speglar bara status. */
 export interface UnderlagRad extends FaktureratRad {
   id: string;
+  /** Flytten raden hör till (maskin_flytt.id) — det som sheeten "Flytten" rättar och stryker. */
+  flytt_id: string | null;
   kund: string | null;
   datum: string | null;            // date: 'YYYY-MM-DD'
   maskin: string | null;           // coalesce(extern_maskin, maskin_id)
@@ -62,7 +64,7 @@ export interface UnderlagRad extends FaktureratRad {
   struken_tid: string | null;
   struken_anledning: string | null;
   godkand_av: string | null;
-  // Redigering före fakturering (migration 20261015160000): originalet bevaras av databasen.
+  // Redigering före fakturering (migration 20261015155630): originalet bevaras av databasen.
   km_original: number | null;      // värdet FÖRE första ändringen (NULL = saknades) — gäller bara om redigerad_tid är satt
   kund_original: string | null;
   redigerad_tid: string | null;    // NULL = km och kund är orörda
@@ -126,3 +128,18 @@ export function kundAndringsText(r: Pick<UnderlagRad, 'kund' | 'kund_original' |
 
 /** Går raden att rätta? Före fakturering, så länge den inte är struken (databasen vägrar annars). */
 export const kanRedigeras = (r: FaktureratRad): boolean => r.status === 'aktiv' && !r.fakturerad_tid;
+
+/** Under kund-raden i sheeten: "Tillagd av Martin tor 15 okt" · "Ändrad från Vida" · null när den inte rörts. */
+export function kundNotis(r: Pick<UnderlagRad, 'kund' | 'kund_original' | 'redigerad_tid' | 'redigerad_av'>, datum: (iso: string) => string): string | null {
+  if (!kundAndrad(r)) return null;
+  const orig = kundNorm(r.kund_original);
+  if (orig == null) return `Tillagd av ${r.redigerad_av ?? 'okänd'}${r.redigerad_tid ? ' ' + datum(r.redigerad_tid) : ''}`;
+  if (kundNorm(r.kund) == null) return `Borttagen — var ${orig}`;
+  return `Ändrad från ${orig}`;
+}
+
+/** Sträckan i fakturan bredvid det mätta: "53 km · mätt 53" · "48 km · mätt 53". Saknas värdet står det. */
+export function strackaNotis(km: number | null, matt: number | null): string {
+  const fakt = km != null ? `${fmtKm(km)} km` : 'km saknas i datan';
+  return matt != null ? `${fakt} · mätt ${fmtKm(matt)}` : fakt;
+}

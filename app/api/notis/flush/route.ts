@@ -301,7 +301,7 @@ export async function byggMeddelande(n: any): Promise<{ title: string; body: str
   }
 
   if (n.typ === "helikopter_manad") {
-    // Månadsfacit första arbetsdagen (helikopter_notis_manad, migration 20261016090100). payload = helikopter_manadsfacit för föregående månad.
+    // Månadsfacit första arbetsdagen (helikopter_notis_manad, migration 20261015175856). payload = helikopter_manadsfacit för föregående månad.
     const p = n.payload || {};
     return {
       title: "Helikopter",

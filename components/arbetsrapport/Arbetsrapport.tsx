@@ -27,6 +27,7 @@ import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
+import { brandriskUtanRad } from "@/lib/lonesystem/brandriskRader";
 import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
 import PdfLasare from "@/app/planering/PdfLasare";
@@ -5137,12 +5138,18 @@ export default function Arbetsrapport() {
                   {!spec.foretagsledare && spec.rader.length === 0 && (
                     <p style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2 }}>Inga lönerader den här månaden.</p>
                   )}
-                  {!spec.foretagsledare && (
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,gap:AVSTAND.m }}>
-                    <span style={{ ...TYP.text,color:FARG.text }}>Brandrisk-OB <span style={{ ...TYP.micro,color:FARG.text3 }}>löneart ej fastställd</span></span>
-                    <span style={{ ...TYP.listtitel, ...TNUM, color:spec.ob.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{timMin(spec.ob.timmar)}</span>
-                  </div>
-                  )}
+                  {!spec.foretagsledare && (<>
+                  {/* Brandrisk-OB (lib/ob; ej för företagsledare — lönen ligger utanför appen): står bland raderna ovan när lönearten har en kod. Annars här, med timmarna, så de syns. */}
+                  {brandriskUtanRad(spec).map(b => (
+                    <div key={b.loneart} data-brandrisk-post={b.loneart} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,gap:AVSTAND.m }}>
+                      <span style={{ ...TYP.text,color:FARG.text }}>{b.label}{b.timmar > 0 && <> <span style={{ ...TYP.micro,color:FARG.text3 }}>inte inställd</span></>}</span>
+                      <span style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", flexShrink:0 }}>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:b.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{timMin(b.timmar)}</span>
+                        {b.timmar > 0 && <span style={{ ...TYP.meta, ...TNUM, color:FARG.text3, whiteSpace:"nowrap" }}>{fmtMangd(b.timmar.toFixed(2))}</span>}
+                      </span>
+                    </div>
+                  ))}
+                  </>)}
                 </section>
 
                 {/* De två vanligaste handlingarna DIREKT under talet — förr låg de under

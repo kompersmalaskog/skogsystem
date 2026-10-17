@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   planIdag, behovPerDag, dagarEfter, prognosSkotat, klartDatum, oskotatStatus, skordareDagarFore,
-  harPrognos, planeratPerTyp, belaggning, timmarForTyp, atgardForTyp, raknaSpar, manadStatus, valjBas,
+  harPrognos, planeratPerTyp, belaggning, timmarForTyp, atgardForTyp, atgardForMaskin, raknaSpar, manadStatus, valjBas,
   OSKOTAT_I_TAKT_M3_PER_DAG,
 } from './berakningar'
 import type { Arbetsdagar, Avvikelse, Maskin, PlaneringObjekt, SparRad } from './queries'
@@ -196,6 +196,36 @@ describe('planering: timmar och åtgärd', () => {
     const plan = { planerat: 0, korrigerat: 0, antalObjekt: 0, justeringProcent: null, utanVolym: 0, utanBolag: 0, gap: 1000, grans: 100, saknas: 1000 }
     expect(atgardForTyp('gallring', plan, tim, bel, 18, '/objekt', fmt)?.slag).toBe('planera')
     expect(atgardForTyp('gallring', { ...plan, saknas: 0 }, tim, bel, 18, '/objekt', fmt)).toBeNull()
+  })
+
+  describe('kapacitet i uppmätt G15 per arbetsdag', () => {
+    const g15 = { lage: 'ok' as const, perMaskin: { SCORP: 7.09, WIS: 6.36 } }   // R64428 saknas = ej mätt
+    it('kapacitet = dagar × maskinens G15/arbetsdag; maskin utan mätning får 8 och märks ejMatt', () => {
+      const bel = belaggning([], maskiner, dagar, '2026-09-07', true, g15)
+      const b = (id: string) => bel.find(x => x.maskin.maskin_id === id)!
+      expect(b('WIS').kapacitetH).toBeCloseTo(18 * 6.36, 6)
+      expect(b('WIS').ejMatt).toBe(false)
+      expect(b('R64428').kapacitetH).toBe(18 * 8)
+      expect(b('R64428').ejMatt).toBe(true)
+      expect(b('R64428').perDagH).toBe(8)
+    })
+    it('RPC:n gick inte att läsa (G15_TOM, standard) → 8 h för alla och ejMatt — kapaciteten försvinner aldrig', () => {
+      const bel = belaggning([], maskiner, dagar, '2026-09-07', true)
+      expect(bel.every(b => b.ejMatt && b.perDagH === 8)).toBe(true)
+    })
+    it('sålda maskiner (aktiv_till passerad) syns aldrig, även om RPC:n returnerar dem (A110148 5,67 · R64101 1,90 i prod)', () => {
+      const medSalda = { lage: 'ok' as const, perMaskin: { ...g15.perMaskin, SOLD: 5.67 } }
+      const bel = belaggning([], maskiner, dagar, '2026-09-07', true, medSalda)
+      expect(bel.map(b => b.maskin.maskin_id)).not.toContain('SOLD')
+    })
+    it('övertid räknas i maskinens egna G15-dagar, inte 8 h: 20 h kort på 6,36/dag = 4 dagar (8 h gav 3)', () => {
+      const objekt = [o('w', 'gallring', null, 'WIS', null, 18 * 6.36 + 20)]
+      const bel = belaggning(objekt, maskiner, dagar, '2026-09-07', true, g15)
+      const tim = timmarForTyp(bel, 'gallring')
+      const tomPlan = { planerat: 0, korrigerat: 0, antalObjekt: 0, justeringProcent: null, utanVolym: 0, utanBolag: 0, gap: 0, grans: 0, saknas: 0 }
+      expect(atgardForTyp('gallring', tomPlan, tim, bel, 18, '/objekt', fmt)?.text).toMatch(/4 dagar övertid/)
+      expect(atgardForMaskin(bel.find(b => b.maskin.maskin_id === 'WIS')!, bel, 18)).toMatch(/4 dagar övertid/)
+    })
   })
 })
 

@@ -5,6 +5,7 @@ import { beraknaLoneunderlag, type LoneunderlagBerikad } from "@/lib/lonesystem/
 import { målMedarbetareId } from "@/lib/auth/server";
 import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import { attTittaPa, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
+import { brandriskUtanRad } from "@/lib/lonesystem/brandriskRader";
 import { loneperiodFranArbetsmanad } from "../route";
 
 /**
@@ -128,10 +129,11 @@ async function ritaPdf(arbetsmanad: string, m: LoneunderlagBerikad | null): Prom
   }
   if (m.foretagsledare) { text("Företagsledare – lön utanför appen.", ML, 10, font, grå); rad(16); }
   else if (m.rader.length === 0) { text("Inga lönerader denna månad.", ML, 10, font, grå); rad(16); }
-  if (!m.foretagsledare && m.ob.timmar > 0) {
+  // Brandrisk-OB: står bland raderna ovan när lönearten har en kod; annars här med timmarna (och "inte inställd"). Inte för företagsledare.
+  for (const b of (m.foretagsledare ? [] : brandriskUtanRad(m)).filter(b => b.timmar > 0)) {
     behov(16);
-    text("Brandrisk-OB", ML, 10); text("löneart ej fastställd", ML + 150, 9, font, grå);
-    högerText(timMin(m.ob.timmar), kolMangd, 10, bold);
+    text(b.label, ML, 10); text("inte inställd", ML + 150, 9, font, grå);
+    högerText(timMin(b.timmar), kolMangd, 10, bold);
     rad(16);
   }
   if (m.extra_h > 0) {

@@ -26,12 +26,27 @@ bara databasen. Inte multi-tenant än: en koppling (`lonesystem_koppling`, `syst
 | `korersattning` | Reseersättning | mil | nej | Körning med företagets bil: påbörjade mil över gränsen per dag (`gs_avtal.km_grans_per_dag`). Inte egen bil. |
 | `helglon_skordare` | Helglön skördare | tim | nej | 8 tim per röd vardag, för förare som mest kör skördare (månadens dominerande maskintyp, som övertiden; annars typen på medarbetarraden). Se "Helglön" nedan. |
 | `helglon_skotare` | Helglön skotare | tim | nej | Samma, för skotare. |
+| `brandrisk_ob` | Brandrisk – OB | tim | nej | Alla beordrade timmar vid brandrisk, vardagsmorgon: start → 06:30. EN rad (företagets praxis, över avtalets minimum); Martin kopplar den till Fortnox 147. **Tom kod som standard.** |
 
 ### Dagens koppling i prod (data, 2026-10-15; ändras under Lön → Lönearter)
 
 `timlon` = 11, `premielon_skordare` = 1355, `premielon_skotare` = 1354, `overtid_skordare` = 1435, `overtid_skotare` = 1436, `valtlappar` = 136,
 `korersattning` = 821. `helglon_skordare` och `helglon_skotare` har **ingen** rad (Ej kopplad). Fortnox har dem som 1461 "Helglön, timmar"
 (skördare) och 1462 "Helglön, timmar 2" (skotare); koden fylls i under Lön → Lönearter när Martin bestämt. Den gamla nyckeln `helglon` finns inte längre.
+
+## OB: bara brandrisk, EN rad (beslut Martin 2026-10-15)
+
+Enkelskift på alla maskiner → en tidig start är förarens eget val. **OB betalas bara vid beordrad brandrisk, vardagsmorgon**; kväll, lördag,
+söndag och helgdag byggs inte, varken nu eller senare (står i CLAUDE.md så ingen bygger det). **Brandrisk-OB betalas som en rad på alla beordrade timmar
+(företagets praxis, över avtalets minimum) — dela inte upp i nattillägg.** Räkningen ligger i `lib/ob.ts` (`brandriskSumma`) och läser
+`arbetsdag.start_tid` + `arbetsdag.brandrisk_beordrad`; `beräknaExport` lägger raden `brandrisk_ob` när timmarna är > 0. Exakta minuter, två decimaler först i
+slutsumman. Facit augusti 2026: Stefan **10,30** tim (618 min, 12–14 aug start 03:05/03:00/03:07), Oskar 14,42, Max 7,08, Daniel 1,27, Martin 7,00.
+Lönehanterarens handinlagda 147 (Stefan 10,20, Oskar 14,00, Max 7,00, Daniel 1,50) var avrundat för hand, åt båda hållen.
+
+Avtalet (bucket-PDF:en `f5b40c12-….pdf` är Arbetsgivarnytt april 2025, bara ändrade paragrafer + bilagor): § 5 mom 5 definierar obekväm tid; § 8 mom 1 /
+bilaga 4 har fyra OB-slag (mån–fre 00–06:30 och 17–24, lördag, söndag, nattarbete vid brandrisk 00–05). Att OB kräver *beordrat* arbete, att OB utgår
+dessutom vid övertid och att brandrisk-OB utges utöver ordinarie OB står i 2023–2026-boken (`skogsavtalet-arbetstid.md`), inte i bucket-PDF:en. Avtalets
+nattillägg 00:00–05:00 betalas inte som egen rad hos oss (EN rad, praxis).
 
 ## Tom kod
 
@@ -114,5 +129,5 @@ och blockerar ingen sändning. Min månad och PDF:en säger samma sak i stället
 - Mutationskontroll: `node scripts/mutationskontroll-lonearter.mjs` (beräkning, export, förarens text), `node scripts/mutationskontroll-helglon.mjs`
   (närvarokrav, kvalifikationstid, maskintyp, företagsledare) och `node scripts/mutationskontroll-lonearter-ui.mjs` (Lönearter-sidan och
   förhandsvisningen). EN tung körning åt gången.
-- Migration: `supabase/migrations/20261015120000_lonearter_mappning_som_i_prod.sql` beskriver prods schema för `lonesystem_artikelmappning`
+- Migration: `supabase/migrations/20261015094150_lonearter_mappning_som_i_prod.sql` beskriver prods schema för `lonesystem_artikelmappning`
   (`lonesystem_id`, `skapad`, unikt `(lonesystem_id, intern_typ)`). Alla satser är no-op i prod; inget data ändras.

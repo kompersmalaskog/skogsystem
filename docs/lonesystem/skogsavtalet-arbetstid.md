@@ -751,7 +751,8 @@ Avtalet kommer från Grönas medlemssidor och ska bara nå inloggade. Därför l
 
 Rena frågor till löneansvarig:
 
-1. Löneart för brandrisk-OB (och övrig OB när den räknas).
+1. ~~Löneart för brandrisk-OB~~ — byggd 2026-10-15 som EN löneart (`brandrisk_ob`, alla beordrade timmar start → 06:30; ingen uppdelning i nattillägg), tom kod
+   tills Martin kopplar den (Fortnox 147). Annan OB (kväll, lördag, söndag, helgdag) byggs inte: enkelskift, beslut Martin 2026-10-15 (CLAUDE.md).
 2. Löneart för sjuklön, VAB och föräldraledig.
 3. Levereras sjukfrånvaro i timmar per dag, och räknar Fortnox karensavdraget
    (20 % av veckoarbetstiden) och de 80 procenten själv? (§ 12 mom 3)

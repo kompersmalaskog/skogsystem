@@ -7,6 +7,7 @@ import { TreePine, Trees } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ymdLokal } from '@/lib/datumLokal'
 import { hamtaAlla } from '@/lib/supabaseAlla'
+import { G15_TOM, g15KapacitetNot, g15PerDagFor, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/helikopterG15'
 import { medAvtalsformSvar } from '@/lib/avtalsformKolumn'
 import { arbetsdagarIManad, ledigaVardagarIManad } from '@/app/ledighet/_components/datum'
 
@@ -97,9 +98,9 @@ const card: React.CSSProperties = {
 const MANAD = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
   'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 
-// Golv vi planerar på: 8 h dagtid per arbetsdag. Övertid och extramaskin (810E) är
-// deras BUFFERT — räknas ALDRIG in i kapaciteten.
-const TIMMAR_PER_DAG = 8
+// Kapaciteten är UPPMÄTT G15 per arbetsdag per maskin (lib/helikopterG15, RPC helikopter_ny_g15_per_arbetsdag, 12 mån) — prognosfälten är G15-tim.
+// En maskin utan mätning (810E) räknas på 8 h och märks "ej mätt". Övertid och extramaskin är BUFFERT — räknas ALDRIG in.
+// Flyttid dras INTE av separat: flyttdagar, service och glapp ligger redan i G15 per arbetsdag.
 
 // Röda dagar, aftnar och arbetsdagar: EN källa för hela appen —
 // app/ledighet/_components/datum.ts (arbetsdagarIManad, ledigaVardagarIManad).
@@ -331,6 +332,17 @@ export default function HelikopterV2Page() {
     load().finally(() => setLoading(false))
   }, [load])
 
+  // G15 per arbetsdag per maskin. Går läsningen fel gäller 8 h och fotnoten säger det (aldrig tyst).
+  const [g15, setG15] = useState<G15Tabell>(G15_TOM)
+  useEffect(() => {
+    let avbruten = false
+    Promise.resolve(supabase.rpc('helikopter_ny_g15_per_arbetsdag', {})).then(({ data, error }) => {
+      if (avbruten) return
+      setG15(error ? G15_TOM : g15Tabell(data as G15DagRad[] | null))
+    }, () => { if (!avbruten) setG15(G15_TOM) })
+    return () => { avbruten = true }
+  }, [])
+
   const manadAvslutad = useMemo(() => {
     const now = new Date()
     return ar < now.getFullYear() || (ar === now.getFullYear() && manad < now.getMonth() + 1)
@@ -509,7 +521,7 @@ export default function HelikopterV2Page() {
     return { Slutavverkning: bygg('Slutavverkning'), Gallring: bygg('Gallring') }
   }, [oversikt, ovrigtData])
 
-  // === KAPACITET (framåt): hinner maskinerna med månadens objekt — RÄKNAD kapacitet (dagar × 8) ===
+  // === KAPACITET (framåt): hinner maskinerna med månadens objekt — RÄKNAD kapacitet (dagar × uppmätt G15 per arbetsdag) ===
   const kapacitet = useMemo(() => {
     const idag = ymdLokal(new Date())
     // Inkl. 'avslutat' — avslutade objekt var del av månadens plan och ska synas som klara (RAD 1 + lista),
@@ -518,11 +530,10 @@ export default function HelikopterV2Page() {
     const aktiv = (m: DimMaskin) => !m.aktiv_till || m.aktiv_till >= idag
     const kapMaskiner = dimMaskiner.filter(m => (m.maskin_typ === 'Harvester' || m.maskin_typ === 'Forwarder') && aktiv(m) && !m.extramaskin)
     const extraMaskiner = dimMaskiner.filter(m => m.extramaskin && aktiv(m))
-    // Arbetsdagar — HELA månadens vardagar (ej "från idag"), golv 8 h/dag
+    // Arbetsdagar — HELA månadens vardagar (ej "från idag"), × maskinens G15 per arbetsdag
     const availableDays = arbetsdagarIManad(ar, manad)
     const tillgangligaDagar = availableDays.length
     const rodaBorttagna = ledigaVardagarIManad(ar, manad) // röda vardagar + arbetsfria aftnar — visas i headern
-    const totalKapacitet = tillgangligaDagar * TIMMAR_PER_DAG
     // Stoppdagar per maskin = availableDays som täcks av maskinens maskinstopp
     const stoppByMaskin: Record<string, { dagar: number; orsaker: string[] }> = {}
     for (const m of kapMaskiner) stoppByMaskin[m.maskin_id] = { dagar: 0, orsaker: [] }
@@ -573,16 +584,17 @@ export default function HelikopterV2Page() {
     const kvarDagarLista = availableDays.filter(d => d > idag) // arbetsdagar KVAR från idag (röda redan borta)
     const dagarKvar = kvarDagarLista.length
     const rader = kapMaskiner.map(m => {
+      const { perDag } = g15PerDagFor(m.maskin_id, g15)
       const a = agg[m.maskin_id]
       const stopp = stoppByMaskin[m.maskin_id]
       // RAD 1 — hela månaden efter stopp + röda dagar
-      const manadKapacitet = Math.max(0, tillgangligaDagar - stopp.dagar) * TIMMAR_PER_DAG
+      const manadKapacitet = Math.max(0, tillgangligaDagar - stopp.dagar) * perDag
       const planLuft = manadKapacitet - a.planTimmar // + = luft, − = över planen
       // RAD 2 — kvar mot dagar kvar från idag (efter maskinens ÅTERSTÅENDE stopp)
       const kvarStoppDagar = kvarDagarLista.filter(d => maskinstoppData.some(st => st.maskin_id === m.maskin_id && d >= st.fran_datum && d <= st.till_datum)).length
-      const kvarKapacitet = Math.max(0, dagarKvar - kvarStoppDagar) * TIMMAR_PER_DAG
+      const kvarKapacitet = Math.max(0, dagarKvar - kvarStoppDagar) * perDag
       const kvarLuft = kvarKapacitet - a.kvarTimmar // + = luft, − = kort
-      return { maskin: m, planTimmar: a.planTimmar, kvarTimmar: a.kvarTimmar, planAntal: a.planAntal, kvarAntal: a.kvarAntal, hal: a.hal, objekt: a.objekt, manadKapacitet, kvarKapacitet, planLuft, kvarLuft, stoppDagar: stopp.dagar, stoppOrsaker: stopp.orsaker }
+      return { maskin: m, planTimmar: a.planTimmar, kvarTimmar: a.kvarTimmar, planAntal: a.planAntal, kvarAntal: a.kvarAntal, hal: a.hal, objekt: a.objekt, perDag, manadKapacitet, kvarKapacitet, planLuft, kvarLuft, stoppDagar: stopp.dagar, stoppOrsaker: stopp.orsaker }
     })
     const skordare = rader.filter(r => r.maskin.maskin_typ === 'Harvester').sort((x, y) => x.kvarLuft - y.kvarLuft)
     const skotare = rader.filter(r => r.maskin.maskin_typ === 'Forwarder').sort((x, y) => x.kvarLuft - y.kvarLuft)
@@ -594,14 +606,14 @@ export default function HelikopterV2Page() {
     }
     const atgarder = rader.filter(r => r.kvarLuft < 0).map(r => {
       const kortH = Math.round(-r.kvarLuft)
-      const extraSkift = Math.max(1, Math.ceil(kortH / TIMMAR_PER_DAG))
+      const extraSkift = Math.max(1, Math.ceil(kortH / r.perDag)) // ett skift = en dag av maskinens egen G15
       const typer = Array.from(new Set(r.objekt.filter(o => !o.klar).map(o => o.typ).filter((t): t is string => !!t)))
       const roll = r.maskin.maskin_typ
       const kandidat = rader.find(k => k.maskin.maskin_typ === roll && k.maskin.maskin_id !== r.maskin.maskin_id && k.kvarLuft > 0 && typer.some(t => klararTyp(k.maskin, t)))
       return { maskin: r.maskin, kortH, extraSkift, kandidat: kandidat ? kandidat.maskin : null, kandidatLuft: kandidat ? Math.round(kandidat.kvarLuft) : 0 }
     })
-    return { skordare, skotare, extraMaskiner, offMaskin, tillgangligaDagar, dagarKvar, totalKapacitet, rodaBorttagna, ingaStopp: antalStoppIManad === 0, atgarder }
-  }, [objektAlla, dimMaskiner, maskinstoppData, avslutByVo, ar, manad])
+    return { skordare, skotare, extraMaskiner, offMaskin, tillgangligaDagar, dagarKvar, rodaBorttagna, ingaStopp: antalStoppIManad === 0, atgarder }
+  }, [objektAlla, dimMaskiner, maskinstoppData, avslutByVo, ar, manad, g15])
 
   // === UTFALL: avslutade objekt, prognos vs faktiskt utfall per maskintyp (läser vy_objekt_utfall) ===
   const utfallLista = useMemo(() => {
@@ -1028,7 +1040,7 @@ export default function HelikopterV2Page() {
               ))}
               {/* Fotnot — buffert-principen */}
               <div style={{ borderTop: `1px solid ${divider}`, padding: '12px 0 16px', fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
-                Räknat på 8 h dagtid. Övertid och extramaskin är er buffert — inte inräknade.
+                {g15KapacitetNot(g15, [...kapacitet.skordare, ...kapacitet.skotare].map(r => ({ maskin_id: r.maskin.maskin_id, namn: maskinModell(r.maskin) }))) ?? 'Kapacitet = 8 h per arbetsdag'}. Övertid och extramaskin är er buffert — inte inräknade.
               </div>
             </div>
           )}

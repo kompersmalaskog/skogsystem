@@ -1,4 +1,4 @@
-// Skrivningarna i Fakturering › Att godkänna: Godkänn, Ångra godkännandet och Stryk. EN väg in för
+// Skrivningarna i Fakturering › Att godkänna: Godkänn, Ångra godkännandet och Rätta km/kund. EN väg in för
 // alla tre så en skrivning aldrig kan se lyckad ut när den inte nådde raden.
 //
 // En skrivning som stoppas av RLS ger inget fel i supabase-js — den ger NOLL rader. Därför begärs
@@ -39,21 +39,11 @@ export function angraGodkannande(id: string): Promise<Skrivsvar> {
     .select('id') as any);
 }
 
-/** Stryk med anledning (obligatorisk). Stryka = MÄRKA, aldrig radera. En fakturerad flytt stryks inte. */
-export function strykFlytt(id: string, av: string, anledning: string, nu: Date = new Date()): Promise<Skrivsvar> {
-  const text = anledning.trim();
-  if (!text) return Promise.resolve({ ok: false, fel: 'Skriv varför flytten stryks.' });
-  return skriv(() => supabase.from('fakturaunderlag_flytt')
-    .update({ status: 'struken', struken_tid: nu.toISOString(), struken_av: av, struken_anledning: text })
-    .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null)
-    .select('id') as any);
-}
-
 /**
  * Rätta km och/eller kund före fakturering (Fakturering › Att godkänna och Hos faktureringen).
  *
  * Skickar bara de fält som faktiskt ändrats. Originalet och "redigerad" sköts av databasen
- * (trigger i migration 20261015160000): klienten skriver aldrig `km_original`/`kund_original`, och
+ * (trigger i migration 20261015155630): klienten skriver aldrig `km_original`/`kund_original`, och
  * en fakturerad eller struken rad vägrar ändring. `redigerad_av` kräver triggern.
  * Rörs inte godkännandet — den som rättar är den som godkänner.
  */
@@ -70,3 +60,6 @@ export function andraFlytt(id: string, falt: { km?: number; kund?: string | null
     .eq('id', id).eq('status', 'aktiv').is('fakturerad_tid', null)
     .select('id') as any);
 }
+
+// Att stryka en flytt går inte här: det gör databasfunktionen stryk_flytt (ratta.ts), som stryker flytten, underlaget och
+// positionen i EN transaktion och loggar det. Att bara stryka underlaget lämnade flytten kvar utan spår.

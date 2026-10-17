@@ -45,7 +45,7 @@ export interface ObjektKortProps {
   /** "Klar med trakten?" — raden överst på planerarens kort medan trakten planeras. */
   /** FÖRARENS sammanfattning av planeringen: det planeraren fyllt i, utan Klar-knapp och utan redigering. null/saknas = visas inte (planerare ser kortet "Klar med trakten?" i stället). */
   planering?: { rader: SammanfattningRad[]; oplanerad: boolean; gamla: string } | null;
-  klarRad?: { chip: { text: string; ton: 'orange' | 'gron' } | null } | null;
+  klarRad?: { chip: { text: string; ton: 'orange' | 'gron' | 'neutral' } | null } | null;
   onKlar?: () => void;
 }
 
@@ -96,7 +96,7 @@ export default function ObjektKort(p: ObjektKortProps) {
           <div style={{ marginBottom: AVSTAND.m }}>
             <Gruppkort testid="kort-klar">
               <RadKnapp forstaRad testid="kort-klar-rad" etikett="Klar med trakten?" onTryck={p.onKlar}
-                hoger={p.klarRad.chip ? <span data-testid="kort-klar-chip" data-ton={p.klarRad.chip.ton} style={{ ...TYP.listtitel, color: p.klarRad.chip.ton === 'orange' ? FARG.orange : FARG.gron }}>{p.klarRad.chip.text}</span> : undefined} />
+                hoger={p.klarRad.chip ? <span data-testid="kort-klar-chip" data-ton={p.klarRad.chip.ton} style={{ ...TYP.listtitel, color: p.klarRad.chip.ton === 'orange' ? FARG.orange : p.klarRad.chip.ton === 'gron' ? FARG.gron : FARG.text }}>{p.klarRad.chip.text}</span> : undefined} />
             </Gruppkort>
           </div>
         )}
