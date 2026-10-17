@@ -176,6 +176,32 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(lista).toContain('<NedfaldList');
     expect(lista).toContain('testid="placera-list"');
   });
+  it('Rita basväg ur kortet: samma list som avlägg ("‹ Klar med trakten?"), och kortet öppnas igen i samma steg när ritningen är klar eller avbruten', () => {
+    expect(page).toContain("onRitaBasvag: () => { setKlarAterBasvag(true); stang(); setDrawType('mainRoad');");
+    expect(page).toContain("useEffect(() => { if (klarAterBasvag && !isDrawMode) { setKlarAterBasvag(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }, [klarAterBasvag, isDrawMode]);");
+    // kortets vy minns över ritningen, precis som över avläggsplaceringen
+    expect(page).toContain('if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag) klarVyRef.current = null;');
+    const lista = page.slice(page.indexOf('{ritListSynlig && (klarAterBasvag'), page.indexOf('{ritListSynlig && (klarAterBasvag') + 700);
+    expect(lista).toContain("tillbaka={{ etikett: 'Klar med trakten?', onClick: cancelDrawing, testid: 'rita-tillbaka' }}");
+  });
+  it('Vidas avlägg: ritas med VÅR avläggssymbol (marker-landing) och Vidas nummer som etikett; den gula fyrkanten är borta; räknas som avlägg i kortet', () => {
+    const lager = page.slice(page.indexOf("map.addLayer({ id: 'trakt-punkt-circle'"), page.indexOf("map.addLayer({ id: 'trakt-punkt-circle'") + 700);
+    expect(lager).toContain("'icon-image': 'marker-landing'");
+    expect(lager).not.toContain('avlagg-icon');
+    expect(page).not.toContain("map.addImage('avlagg-icon'");
+    expect(page).toContain("['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']");    // etiketten är fortfarande Vidas nummer
+    expect(page).toContain("vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, basvagTexter: klarBasvagTexterTop,");
+    expect(page).toContain('onBekraftaVidaAvlagg: () => { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg,');
+    // bekräftelsen sparas i har_du_svar och skriver aldrig bort de sex svaren (hooken ger nuvarande fält till kolumnbyggaren)
+    expect(las('./hooks/useKlarFalt.ts')).toContain('klarFaltTillKolumner(patch, fore)');
+  });
+  it('den knapp som gör stegets sak är primär: Nästa är grå så länge Avlägg/Basväg inte är gjort', () => {
+    expect(kort).toContain("variant={aktionKvar ? 'sekundar' : 'primar'}");
+    expect(steg).toContain("variant={post.kvar ? 'primar' : 'sekundar'} onTryck={p.onRitaBasvag}");
+    expect(steg).toContain("variant={post.kvar ? 'primar' : 'sekundar'} onTryck={p.onPlaceraAvlagg}");
+    expect(allt).not.toContain('Tryck på kartan där avlägget ska ligga.');
+    expect(allt).not.toContain('Inget avlägg placerat än');
+  });
   it('en oplanerad trakt med något kvar: ⓘ öppnar "Klar med trakten?" direkt', () => {
     expect(page).toContain("if (!traktOversiktOpen && klarGaller && klarDataKlart && valtObjekt?.status === 'oplanerad' && klarStatus.antalKvar > 0) setInfoStartVy('klar');");
   });

@@ -273,6 +273,50 @@ export function vidaBasvagFinns(features: ReadonlyArray<{ properties?: Record<st
   return (features ?? []).some((f) => f?.properties?._typ === 'linje' && /basväg/i.test(String(f.properties.FLBESKR ?? '')));
 }
 
+// ── Vidas avlägg ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// Vidas avlägg kommer ur objekt_geometri.geometri (GeoJSON): punkter i lagret L_TILLAGGSPUNKTER (`_typ: 'punkt'`), numret i EXTRA_LABE (reserv LOPNR),
+// beskrivningen i FLBESKR. Samma lager bär larmpunkten (FLBESKR "Larmkoordinat") — den är inget avlägg.
+
+type GeoFeatureLik = { properties?: Record<string, unknown> | null; geometry?: { type?: string; coordinates?: unknown } | null } | null | undefined;
+
+export interface VidaAvlagg { nummer: string; lat: number | null; lng: number | null }
+
+/** Vidas avlägg i traktgeometrin, i nummerordning ("01-2" före "01-10"). Tom lista = Vida har inga. */
+export function vidaAvlaggUr(features: ReadonlyArray<GeoFeatureLik> | null | undefined): VidaAvlagg[] {
+  const ut: VidaAvlagg[] = [];
+  for (const f of features ?? []) {
+    const p = f?.properties;
+    if (!p || p._typ !== 'punkt') continue;
+    if (/larm/i.test(String(p.FLBESKR ?? ''))) continue;
+    const c = f?.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates) ? (f.geometry.coordinates as unknown[]) : null;
+    const lng = c && typeof c[0] === 'number' ? c[0] : null;
+    const lat = c && typeof c[1] === 'number' ? c[1] : null;
+    const nr = String(p.EXTRA_LABE ?? '').trim() || String(p.LOPNR ?? '').trim();
+    ut.push({ nummer: nr, lat, lng });
+  }
+  ut.sort((a, b) => a.nummer.localeCompare(b.nummer, 'sv', { numeric: true }));
+  return ut.map((a, k) => (a.nummer ? a : { ...a, nummer: `Avlägg ${k + 1}` }));
+}
+
+/** Planerarens "Stämmer" för Vidas avlägg: vilka nummer som bekräftades, av vem och när. Bor i objekt.har_du_svar under nyckeln `vida_avlagg` (ingen ny kolumn). */
+export interface VidaAvlaggBekraftelse { nummer: string[]; av: string | null; at: string }
+
+export function lasVidaAvlagg(raw: unknown): VidaAvlaggBekraftelse | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const v = (raw as Record<string, unknown>).vida_avlagg;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.nummer) || typeof o.at !== 'string') return null;
+  return { nummer: o.nummer.map(String), av: typeof o.av === 'string' ? o.av : null, at: o.at };
+}
+
+/** Bekräftelsen gäller bara exakt de avlägg som visades: levererar Vida nya eller färre avlägg måste planeraren titta igen. */
+export function vidaAvlaggBekraftat(nummer: readonly string[], bek: VidaAvlaggBekraftelse | null): boolean {
+  if (!bek || nummer.length === 0) return false;
+  const a = [...nummer].sort(); const b = [...bek.nummer].sort();
+  return a.length === b.length && a.every((x, k) => x === b[k]);
+}
+
 export type PostId = 'avlagg' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'medelstam' | 'prognos';
 
 export interface Post {
@@ -285,6 +329,10 @@ export interface Post {
 
 export interface KlarIndata {
   avlaggAntal: number;
+  /** Vidas avlägg (nummer) ur traktgeometrin — saknas/tom = Vida har inga */
+  vidaAvlagg?: string[];
+  /** planeraren har tryckt Stämmer på exakt de här avläggen */
+  vidaAvlaggBekraftat?: boolean;
   /** basvägslinjerna ("Röd 640 m") i den ordning de ritats — redan formaterade av anroparen */
   basvagTexter: string[];
   /** Vidas underlag (traktgeometrin) har en basväg — då är den kvar tills den ritats i appen. false = ingen basväg väntas: "Ingen" är klart. */
@@ -326,13 +374,22 @@ export const FORUTSATTNING_IDS: readonly PostId[] = ['barighet', 'terrang', 'sko
 /** Skördare och skotare = ett område, Maskiner. */
 export const MASKIN_IDS: readonly PostId[] = ['skordare', 'skotare'];
 
+/** Avlägg: finns Vidas avlägg räknas de när planeraren bekräftat dem (eller själv placerat ett eget); annars räcker ett eget på kartan. */
+function avlaggPost(i: KlarIndata): Post {
+  const vida = i.vidaAvlagg ?? [];
+  const eget = i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 eget' : `${i.avlaggAntal} egna`) : null;
+  if (vida.length === 0) return { id: 'avlagg', etikett: 'Avlägg', varde: i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 avlägg på kartan' : `${i.avlaggAntal} avlägg på kartan`) : null, kvar: i.avlaggAntal === 0 };
+  const klart = !!i.vidaAvlaggBekraftat || i.avlaggAntal > 0;
+  return { id: 'avlagg', etikett: 'Avlägg', varde: klart ? [`Vida ${vida.join(', ')}`, eget].filter(Boolean).join(' · ') : null, kvar: !klart };
+}
+
 export function berakna(i: KlarIndata): KlarStatus {
   const sk = utforareLage(i.skordare);
   const st = utforareLage(i.skotare);
   const prognos = prognosLage(i.prognos, i.prognosGodkandUnderlag);
 
   const poster: Post[] = [
-    { id: 'avlagg', etikett: 'Avlägg', varde: i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 avlägg på kartan' : `${i.avlaggAntal} avlägg på kartan`) : null, kvar: i.avlaggAntal === 0 },
+    avlaggPost(i),
     // Basväg: kvar bara om Vida har en och ingen är ritad. Ingen väntad basväg + ingen ritad = "Ingen" = klart.
     { id: 'basvag', etikett: 'Basväg', varde: i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : i.basvagForvantad ? null : 'Ingen', kvar: i.basvagTexter.length === 0 && i.basvagForvantad },
     { id: 'barighet', etikett: 'Bärighet', varde: i.barighet ? (BARIGHET[i.barighet] ?? i.barighet) : null, kvar: !i.barighet },
@@ -388,6 +445,7 @@ export interface SammanfattningRad { id: string; etikett: string; text: string }
 
 export interface SammanfattningIndata {
   avlaggAntal: number;
+  vidaAvlagg?: string[];
   basvagTexter: string[];
   basvagKravs: boolean | null;
   barighet: string | null;
@@ -415,7 +473,9 @@ export interface SammanfattningIndata {
 export function forarSammanfattning(i: SammanfattningIndata): SammanfattningRad[] {
   const ut: SammanfattningRad[] = [];
   const rad = (id: string, etikett: string, text: string | null | undefined) => { if (text) ut.push({ id, etikett, text }); };
-  rad('avlagg', 'Avlägg', i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 på kartan' : `${i.avlaggAntal} på kartan`) : null);
+  const vidaText = (i.vidaAvlagg ?? []).length > 0 ? `Vida ${i.vidaAvlagg!.join(', ')}` : null;
+  const egetText = i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 på kartan' : `${i.avlaggAntal} på kartan`) : null;
+  rad('avlagg', 'Avlägg', vidaText && egetText ? `${vidaText} · ${i.avlaggAntal === 1 ? '1 eget' : `${i.avlaggAntal} egna`}` : (vidaText ?? egetText));
   rad('basvag', 'Basväg', i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : null);
   if (i.basvagKravs) rad('basvagsanlaggning', 'Basvägsanläggning', 'Krävs');
   rad('barighet', 'Bärighet', i.barighet ? BARIGHET[i.barighet] ?? i.barighet : null);

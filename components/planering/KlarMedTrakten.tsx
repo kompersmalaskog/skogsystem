@@ -101,6 +101,13 @@ export interface KlarMedTraktenProps {
   startVy?: KlarVy;
   /** kortets vy ändras — sidan minns den till en återöppning */
   onVyAndrad?: (vy: KlarVy) => void;
+  /** Vidas avlägg (nummer) ur traktgeometrin — tom/saknas = Vida har inga */
+  vidaAvlagg?: string[];
+  /** planeraren har tryckt Stämmer på exakt de här avläggen */
+  vidaAvlaggBekraftat?: boolean;
+  /** antal egna avlägg på kartan */
+  avlaggEgna?: number;
+  onBekraftaVidaAvlagg?: () => void;
   onAndra: (patch: KlarPatch) => void;
   onHarDu: (id: HarDuId, varde: HarDuSvarVarde) => void;
   onPlaceraAvlagg: () => void;
@@ -124,7 +131,6 @@ export type KlarVy = Vy;
 const OVRIGT_ETT: Vy = { v: 'steg', flode: { typ: 'ett', steg: 'ovrigt', till: 'kort' } };
 
 const UNDER: Partial<Record<StegId, string>> = {
-  avlagg: 'Tryck på kartan där avlägget ska ligga.',
   forutsattningar: 'Hur ser trakten ut för maskinerna?',
   maskiner: 'Vem kör?',
   prognos: 'Timmar per maskin — tryck på en siffra för att ändra den.',
@@ -182,7 +188,9 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
         {body}
       </StegRam>
     );
-    const nastaKnapp = <StorKnapp testid="klar-steg-nasta" onTryck={nasta}>{nastaText}</StorKnapp>;
+    // Den knapp som gör stegets sak är primär tills den är gjord: i Avlägg och Basväg ligger den i stegets innehåll, och Nästa är då sekundär.
+    const aktionKvar = (steg === 'avlagg' || steg === 'basvag') && (status.poster.find((x) => x.id === steg)?.kvar ?? false);
+    const nastaKnapp = <StorKnapp testid="klar-steg-nasta" variant={aktionKvar ? 'sekundar' : 'primar'} onTryck={nasta}>{nastaText}</StorKnapp>;
 
     switch (steg) {
       case 'avlagg': return ram(STEG_NAMN.avlagg, <AvlaggBody p={p} kartaYta={p.kartaYta} />, nastaKnapp);
@@ -222,7 +230,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   // värdet i Behöver dig-raderna: orange uppmaning (färg + ord)
   const uppmaning = (s: StegId): string => {
     switch (s) {
-      case 'avlagg': return 'Placera på kartan';
+      case 'avlagg': return (p.vidaAvlagg ?? []).length > 0 ? 'Bekräfta' : 'Placera på kartan';
       case 'basvag': return 'Rita';
       case 'forutsattningar': return status.forutsattningarKvar === 3 ? '3 att välja' : `${status.forutsattningarKvar} kvar`;
       case 'maskiner': return 'Välj';

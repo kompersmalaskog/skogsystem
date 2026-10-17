@@ -37,7 +37,7 @@ import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
 import {
-  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
+  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, vidaAvlaggUr, vidaAvlaggBekraftat, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
   type HarDuId, type HarDuSvarVarde, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer,
 } from '../../lib/klarTrakt'
 import type { KlarPatch, KlarVy, MaskinPrognos } from '../../components/planering/KlarMedTrakten'
@@ -1744,37 +1744,15 @@ export default function PlannerPage() {
     // och ett svart streck på gråskalig bakgrund i solljus är oläsbart — och det är den enda
     // linjen som kan döda någon. Alltid röd streckad. Ändra inte till _farg.
     map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
-    // Kör & fara — punkter, ENDAST avlägg (gula, blå-nära "arbete"-ton). Larmkoordinaten ritas
-    // av det befintliga larm-pin-lagret (rött, överst) — vi ritar INTE en dubblett här, därför
-    // filtrerar vi bort larm (['!', ['in','larm',FLB]]). Etikett = EXTRA_LABE (avläggsnr).
-    // UNDANTAG: avlägg använder INTE _farg. VIDA:s TColor för TYP 35 är beige (rgb(212,208,200))
-    // som knappt syns mot kartan — behåll appens gula. Ändra inte till _farg.
-    //
-    // Avlägget (dit virket ska) ligger ofta nästan ovanpå larmkoordinaten (dit ambulansen ska) —
-    // i VIDA:s data bara ~3 m isär. De MÅSTE gå att skilja i stress. Därför:
-    //  - EGEN FORM: gul FYRKANT (larmet är en rund pin) — skiljs åt även färgblind/i solljus.
-    //  - STÖRRE än larmpinnen så en gul ring sticker ut runt om när de sammanfaller.
-    //  - Z-ordning: larm-pin moveLayer:as överst separat; avlägget ritas under men syns i kanten.
-    // Ikonen byggs här (bredvid lagret) så bilden garanterat finns när lagret refererar den.
-    if (!map.hasImage('avlagg-icon')) {
-      const S = 72;
-      const cnv = document.createElement('canvas');
-      cnv.width = S; cnv.height = S;
-      const c = cnv.getContext('2d');
-      if (c) {
-        const sida = S * 0.60, x = (S - sida) / 2;
-        c.fillStyle = '#1a1a1a';                 // mörk kant (kontur mot all bakgrund)
-        c.fillRect(x - 5, x - 5, sida + 10, sida + 10);
-        c.fillStyle = '#eab308';                 // samma gula som förr (avlägg)
-        c.fillRect(x, x, sida, sida);
-        const img = canvasToMapLibreImage(cnv);
-        if (img && !map.hasImage('avlagg-icon')) map.addImage('avlagg-icon', img);
-      }
-    }
-    map.addLayer({ id: 'trakt-punkt-circle', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'icon-image': 'avlagg-icon', 'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 14, 0.9, 17, 1.15], 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' } });
+    // Kör & fara — punkter, ENDAST avlägg. Vidas avlägg ritas med VÅR avläggssymbol (samma bild som ett eget avlägg, `marker-landing`) och behåller Vidas nummer som etikett
+    // (EXTRA_LABE); att de kommer från Vida syns bara i kortet vid tryck, aldrig på kartan. Larmkoordinaten ritas av det befintliga larm-pin-lagret (rött, överst) —
+    // vi ritar INTE en dubblett här, därför filtrerar vi bort larm (['!', ['in','larm',FLB]]). Avlägget ligger ofta ~3 m från larmet: avläggssymbolen är en mörk
+    // cirkel med vit kant, larmet en röd pin — olika form och färg. larm-pin moveLayer:as överst separat. Bilden `marker-landing` laddas med markeringsikonerna; ett lager
+    // som refererar en bild som inte finns ännu ritar inget tills den kommit.
+    map.addLayer({ id: 'trakt-punkt-circle', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'icon-image': 'marker-landing', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75], 'icon-anchor': 'center', 'icon-allow-overlap': true, 'icon-ignore-placement': true, visibility: 'none' } });
     // Etikett UNDER avläggsmarkören (larmets "Larm" ligger OVANFÖR sin pin). Höjdseparation gör
     // att "01-1" och "Larm" aldrig krockar när avlägg och larm sammanfaller — de växer åt var sitt håll.
-    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 2.0], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
+    map.addLayer({ id: 'trakt-punkt-label', type: 'symbol', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'punkt'], ['!', ['in', 'larm', FLB]]], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'EXTRA_LABE'], ['get', 'FLBESKR'], '']], 'text-size': 11, 'text-font': ['Open Sans Bold'], 'text-offset': [0, 2.4], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-optional': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.7)', 'text-halo-width': 1.2 } });
 
     // === Nyckelbiotoper (SV_SKS_NYCKELBIOTOP_101, Skogsstyrelsen) — svag grön fyllning + STRECKAD kontur ===
     // Streckningen skiljer dem från traktdelens heldragna gröna kontur. Tappbara → gemensamt kort.
@@ -3723,6 +3701,8 @@ export default function PlannerPage() {
   // Avlägg ur "Klar med trakten?": arket stängs, kartan visas hel med EN list nertill ("‹ Klar med trakten?"), och efter placeringen öppnas kortet igen i samma steg.
   const [klarAterAvlagg, setKlarAterAvlagg] = useState(false);
   const klarVyRef = useRef<KlarVy | null>(null);
+  // Rita basväg ur Klar med trakten?: ritningen pågår med listen "‹ Klar med trakten?"; när den tagits klar (eller avbrutits) öppnas kortet i samma steg igen.
+  const [klarAterBasvag, setKlarAterBasvag] = useState(false);
   const [klarSparar, setKlarSparar] = useState(false);
   const [klarFel, setKlarFel] = useState<string | null>(null);
   const klarPlanerare = !(isForare || (maskinlage && !isAdminRiktig));
@@ -3754,6 +3734,9 @@ export default function PlannerPage() {
     { maskinId: infoSkotareMaskinId, utforare: infoSkotareUtforare, externNamn: infoSkotareUtforareNamn },
     klarForvalKlart ? standardMaskin(klarKoDetta!.maskiner, maskinerForRoll('skotare').map((m) => m.maskin_id)) : null);
   const klarAvlaggAntal = (markers as any[]).filter((m) => m.isMarker && m.type === 'landing').length;
+  // Vidas avlägg (objekt_geometri, lagret L_TILLAGGSPUNKTER, numret i EXTRA_LABE) räknas som avlägg i kortet: kvar tills planeraren tryckt Stämmer på exakt dem.
+  const klarVidaAvlagg = useMemo(() => vidaAvlaggUr(traktGeo?.features).map((a) => a.nummer), [traktGeo]);
+  const klarVidaBekraftat = vidaAvlaggBekraftat(klarVidaAvlagg, klarFalt.vidaAvlagg);
   // G15-FÖRSLAG ur uppmätt utfall (lib/g15Forslag): skördare mot trakter med liknande medelstam, skotare som snitt per typ. Fälten är förifyllda med förslaget — det SKRIVNA
   // värdet (manuell_prognos) går alltid före, och förslaget sparas på objektet först vid Stämmer (klarStammer), så att titta på kortet ändrar inget i databasen.
   const g15Forslag = useMemo(() => beraknaG15Forslag(
@@ -3776,7 +3759,7 @@ export default function PlannerPage() {
   // Basvägen räknas som ritad så fort en basväg finns på kartan (texten byggs i kortet där kartans geometri finns); här räcker antalet.
   const klarBasvagTexterTop = (markers as any[]).filter((m) => m.isLine && m.lineType === 'mainRoad').map(() => 'ritad');
   const klarIn: KlarIndata = {
-    avlaggAntal: klarAvlaggAntal, basvagTexter: klarBasvagTexterTop, basvagForvantad: vidaBasvagFinns(traktGeo?.features), basvagKravs: infoBasvagKravs, barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
+    avlaggAntal: klarAvlaggAntal, vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, basvagTexter: klarBasvagTexterTop, basvagForvantad: vidaBasvagFinns(traktGeo?.features), basvagKravs: infoBasvagKravs, barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
     skordare: klarSkordare, skotare: klarSkotare, prognos: klarPrognosIn, prognosGodkandUnderlag: klarFalt.prognosGodkand.underlag, harDu: klarFalt.harDu,
   };
   const klarStatus = berakna(klarIn);
@@ -3798,7 +3781,8 @@ export default function PlannerPage() {
   }, [klarGaller, klarDataKlart, klarStatus.antalKvar, klarFalt.klarKvarAntal, testlage]);
   useEffect(() => { if (!traktOversiktOpen) setKlarStartMedVed(false); }, [traktOversiktOpen]);
   // Kortets minne (vy + steg) lever bara medan arket är öppet eller kartan väntar på ett avlägg — en vanlig stängning börjar nästa öppning från början.
-  useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg]);
+  useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg, klarAterBasvag]);
+  useEffect(() => { if (klarAterBasvag && !isDrawMode) { setKlarAterBasvag(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }, [klarAterBasvag, isDrawMode]);
   // Avläggsläget avbröts på annat sätt (plusdockan, ett annat verktyg): då ska ett senare avlägg inte öppna kortet.
   useEffect(() => { if (klarAterAvlagg && selectedSymbol == null && !traktOversiktOpen) setKlarAterAvlagg(false); }, [klarAterAvlagg, selectedSymbol, traktOversiktOpen]);
   // Nya objektlistan OVANPÅ ett valt objekt (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
@@ -13780,7 +13764,7 @@ export default function PlannerPage() {
           oplanerad: valtObjekt.status === 'oplanerad',
           gamla: gamlaTexter,
           rader: forarSammanfattning({
-            avlaggAntal: klarAvlaggAntal, basvagTexter: kartMarkeringar.filter(arBasvagMark).map((m) => basvagText(m.farg, m.langdM)), basvagKravs: infoBasvagKravs,
+            avlaggAntal: klarAvlaggAntal, vidaAvlagg: klarVidaAvlagg, basvagTexter: kartMarkeringar.filter(arBasvagMark).map((m) => basvagText(m.farg, m.langdM)), basvagKravs: infoBasvagKravs,
             barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
             bandSkordare: infoSkordareBand, bandSkotare: infoSkotareBand, bandParSkordare: infoSkordareBandPar, bandParSkotare: infoSkotareBandPar,
             breddat: infoSkotareLastreder, konfiguration: infoSkotareMaskinId === 'A110148' ? infoSkotareKonfig : null, risDirekt: infoSkotareRisDirekt, extraVagn: infoSkotareExtraVagn,
@@ -14027,6 +14011,8 @@ export default function PlannerPage() {
             faktaRad: [typTxt, valtObjekt.typ === 'slutavverkning' ? (valtObjekt.avtalsform || '') : (valtObjekt.atgard || ''), svTal(infoAreal || valtObjekt.areal, 2) ? `${svTal(infoAreal || valtObjekt.areal, 2)} ha` : '', volymTxt ? `${svTal(volymTxt, 0)} m³fub` : ''].filter(Boolean).join(' · '),
             startVy: klarVyRef.current ?? undefined,
             onVyAndrad: (v) => { klarVyRef.current = v; },
+            vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, avlaggEgna: klarAvlaggAntal,
+            onBekraftaVidaAvlagg: () => { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg, av: currentMedarbetare?.id ?? null, at: new Date().toISOString() } }); },
             basvag: { texter: klarBasvagTexter, kravs: infoBasvagKravs, timmar: infoBasvagTimmar, sammanfattning: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM)) },
             barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
             skordare: klarSkordare, skotare: klarSkotare,
@@ -14052,7 +14038,7 @@ export default function PlannerPage() {
             onAndra: klarPatch,
             onHarDu: klarHarDu,
             onPlaceraAvlagg: () => { setKlarAterAvlagg(true); stang(); setSelectedSymbol('landing'); },
-            onRitaBasvag: () => { stang(); setDrawType('mainRoad'); setDrawFarg(valTillFarg(lasSenasteBasvagFarg())); setIsDrawMode(true); },
+            onRitaBasvag: () => { setKlarAterBasvag(true); stang(); setDrawType('mainRoad'); setDrawFarg(valTillFarg(lasSenasteBasvagFarg())); setIsDrawMode(true); },
             onStammer: klarStammer,
             onVed: klarVed,
             onSattVedPaKartan: () => { setKlarStartMedVed(true); stang(); setSelectedSymbol('firewood'); },
@@ -14561,7 +14547,19 @@ export default function PlannerPage() {
         />
       )}
       {/* RITA LINJE/YTA: EN rad längst ner — typen och hur långt man kommit ("Basväg · 120 m", "Ej framkomlig · 4 punkter") — och ↩ ✓ × */}
-      {ritListSynlig && (
+      {ritListSynlig && (klarAterBasvag ? (
+        /* Basväg ur Klar med trakten?: samma list som avlägg — "‹ Klar med trakten?" först (avbryter ritningen och öppnar kortet i samma steg), sedan ↩ ✓; ✓ öppnar kortet igen */
+        <NedfaldList
+          testid="rita-list"
+          smal={smalSkarm}
+          text={`${ritNamn} · ${ritFramsteg}`}
+          tillbaka={{ etikett: 'Klar med trakten?', onClick: cancelDrawing, testid: 'rita-tillbaka' }}
+          extra={[
+            { etikett: '↩', aria: 'Ångra', onClick: undoLastSegment, av: ritaHistoria.length === 0, testid: 'rita-angra' },
+            { etikett: '✓', aria: 'Klar', onClick: isZoneMode ? finishZone : finishLine, av: nRit < (isZoneMode ? 3 : 2), gron: true, testid: 'rita-klar' },
+          ]}
+        />
+      ) : (
         <KorvyNertillList
           testid="rita-list"
           smal={smalSkarm}
@@ -14572,7 +14570,7 @@ export default function PlannerPage() {
             AVBRYT_KNAPP(cancelDrawing, 'rita-avbryt'),
           ]}
         />
-      )}
+      ))}
       {/* NYTT OMRÅDE: samma rad — antal hörn, ↩ ✓ × (✓ från tre hörn; tryck nära första hörnet sluter också) */}
       {omradeListSynlig && (
         <KorvyNertillList

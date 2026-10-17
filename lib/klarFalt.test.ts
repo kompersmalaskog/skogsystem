@@ -48,3 +48,20 @@ describe('migrationen saknas', () => {
     expect(arKolumnSaknasFel(null)).toBe(false);
   });
 });
+
+describe('Stämmer på Vidas avlägg bor i har_du_svar utan att skriva bort svaren', () => {
+  const bek = { nummer: ['01-1', '01-2'], av: 'm1', at: '2026-10-17T10:00:00.000Z' };
+  const svar = { gransar: { svar: 'ja' as const, av: 'm1', at: 'T' } };
+  it('läses ur har_du_svar.vida_avlagg, och de sex svaren läses som förut', () => {
+    const f = radTillKlarFalt({ har_du_svar: { ...svar, vida_avlagg: bek } });
+    expect(f.vidaAvlagg).toEqual(bek);
+    expect(f.harDu).toEqual(svar);
+    expect(radTillKlarFalt({ har_du_svar: svar }).vidaAvlagg).toBeNull();
+  });
+  it('en bekräftelse skriver båda; ett svar skriver bekräftelsen med; tomt blir NULL', () => {
+    expect(klarFaltTillKolumner({ vidaAvlagg: bek }, { harDu: svar, vidaAvlagg: null })).toEqual({ har_du_svar: { ...svar, vida_avlagg: bek } });
+    expect(klarFaltTillKolumner({ harDu: svar }, { harDu: {}, vidaAvlagg: bek })).toEqual({ har_du_svar: { ...svar, vida_avlagg: bek } });
+    expect(klarFaltTillKolumner({ vidaAvlagg: bek }, { harDu: {}, vidaAvlagg: null })).toEqual({ har_du_svar: { vida_avlagg: bek } });
+    expect(klarFaltTillKolumner({ harDu: {} }, { harDu: svar, vidaAvlagg: null })).toEqual({ har_du_svar: null });
+  });
+});

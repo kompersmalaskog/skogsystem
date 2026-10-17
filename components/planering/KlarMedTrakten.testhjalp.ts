@@ -13,6 +13,10 @@ export interface KlarFixtur {
   namn?: string;
   objektStatus?: string;
   avlaggAntal?: number;
+  /** Vidas avlägg (nummer) ur traktgeometrin */
+  vidaAvlagg?: string[];
+  /** planeraren har tryckt Stämmer på dem */
+  vidaBekraftat?: boolean;
   basvagTexter?: string[];
   /** "5 st · 599 m" — sidan räknar fram den ur de ritade basvägarna; utan den står texterna */
   basvagSammanfattning?: string | null;
@@ -51,7 +55,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     basvagKravs: false, basvagTimmar: null, skordare, skotare,
   };
   const ind: KlarIndata = {
-    avlaggAntal: f.avlaggAntal ?? 0, basvagTexter: f.basvagTexter ?? [], basvagForvantad: f.basvagForvantad ?? false, basvagKravs: false, barighet: f.barighet ?? null, terrang: f.terrang ?? null, skotningsavstand: f.skotningsavstand ?? null,
+    avlaggAntal: f.avlaggAntal ?? 0, vidaAvlagg: f.vidaAvlagg ?? [], vidaAvlaggBekraftat: f.vidaBekraftat ?? false, basvagTexter: f.basvagTexter ?? [], basvagForvantad: f.basvagForvantad ?? false, basvagKravs: false, barighet: f.barighet ?? null, terrang: f.terrang ?? null, skotningsavstand: f.skotningsavstand ?? null,
     skordare, skotare, prognos, prognosGodkandUnderlag: f.godkand ? prognosUnderlag(prognos) : null, harDu: f.harDu ?? {},
   };
   const ved = f.ved ?? { ...VED_TOM };
@@ -61,6 +65,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     objektStatus: f.objektStatus ?? 'oplanerad',
     faktaRad: `Slutavverkning · Rp · ${prognos.areal != null ? String(prognos.areal).replace('.', ',') : '–'} ha · ${prognos.volym != null ? prognos.volym.toLocaleString('sv-SE') : '–'} m³fub`,
     klarSkickadAt: f.klarSkickadAt ?? null,
+    vidaAvlagg: f.vidaAvlagg ?? [], vidaAvlaggBekraftat: f.vidaBekraftat ?? false, avlaggEgna: f.avlaggAntal ?? 0,
     basvag: { texter: ind.basvagTexter, kravs: false, timmar: '', sammanfattning: f.basvagSammanfattning ?? null },
     barighet: ind.barighet, terrang: ind.terrang, skotningsavstand: ind.skotningsavstand,
     skordare, skotare,
@@ -86,7 +91,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     ved,
     gamlaAnteckningar: f.gamlaAnteckningar ?? '',
     datalage: f.datalage ?? 'ok', sparFel: null, klarSparar: false,
-    onAndra: () => {}, onHarDu: () => {}, onPlaceraAvlagg: () => {}, onRitaBasvag: () => {}, onStammer: () => {},
+    onBekraftaVidaAvlagg: () => {}, onAndra: () => {}, onHarDu: () => {}, onPlaceraAvlagg: () => {}, onRitaBasvag: () => {}, onStammer: () => {},
     onVed: () => {}, onSattVedPaKartan: () => {}, onKlarForMaskin: () => {}, onFortsatter: () => {}, onStang: () => {},
     ...extra,
   };

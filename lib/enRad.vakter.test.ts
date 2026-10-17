@@ -16,7 +16,9 @@ const antal = (s: string, del: string) => s.split(del).length - 1;
 
 describe('EN rad längst ner per läge', () => {
   it('fem lägen, fem rader — varje rad finns på exakt ett ställe i sidan', () => {
-    for (const id of ['pil-list', 'rita-list', 'omrade-list', 'figur-list']) expect(antal(page, `testid="${id}"`), id).toBe(1);
+    for (const id of ['pil-list', 'omrade-list', 'figur-list']) expect(antal(page, `testid="${id}"`), id).toBe(1);
+    // rita-list har två utseenden i SAMMA villkor: basväg ur Klar med trakten? (NedfaldList med "‹ Klar med trakten?") eller vanlig ritning — aldrig båda
+    expect(antal(page, 'testid="rita-list"')).toBe(2);
     // placera-list har två utseenden i SAMMA villkor: avlägg ur Klar med trakten? (NedfaldList med "‹ Klar med trakten?") eller vanlig placering — aldrig båda
     expect(antal(page, 'testid="placera-list"')).toBe(2);
   });
@@ -24,7 +26,8 @@ describe('EN rad längst ner per läge', () => {
     expect(page).toMatch(/\{placeraListSynlig && selectedSymbol && \(klarAterAvlagg && selectedSymbol === 'landing' \? \(\s*\/\*[^*]*\*\/\s*<NedfaldList\s+testid="placera-list"/);
     expect(page).toMatch(/\) : \(\s*<KorvyNertillList\s+testid="placera-list"/);
     expect(page).toMatch(/\{pilListSynlig && \(\s*<KorvyNertillList\s+testid="pil-list"/);
-    expect(page).toMatch(/\{ritListSynlig && \(\s*<KorvyNertillList\s+testid="rita-list"/);
+    expect(page).toMatch(/\{ritListSynlig && \(klarAterBasvag \? \(\s*\/\*[^*]*\*\/\s*<NedfaldList\s+testid="rita-list"/);
+    expect(page).toMatch(/\) : \(\s*<KorvyNertillList\s+testid="rita-list"/);
     expect(page).toMatch(/\{omradeListSynlig && \(\s*<KorvyNertillList\s+testid="omrade-list"/);
     expect(page).toMatch(/\{figur && \(\(\) => \{[\s\S]{0,200}<KorvyNertillList\s+testid="figur-list"/);
   });
@@ -33,7 +36,7 @@ describe('EN rad längst ner per läge', () => {
     // fem lägen + sjätte: telefonens "‹ Om trakten" medan en markering från Om trakten är framhävd (framhav-list) — villkoret nedan stänger den när ett annat läge pågår.
     // Två av raderna (framhav-list, och placera-list för avlägg ur Klar med trakten?) är NedfaldList = KorvyNertillList med en "‹ tillbaka"-knapp först: samma stil, samma höjd.
     expect(antal(rader, '<KorvyNertillList')).toBe(5);
-    expect(antal(rader, '<NedfaldList')).toBe(2);
+    expect(antal(rader, '<NedfaldList')).toBe(3);
     expect(las('../components/planering/NedfaldList.tsx')).toContain('<KorvyNertillList');
   });
   it('framhävningens rad (Om trakten › Visa ›, telefon) visas aldrig samtidigt med ett annat nertill-läge eller med öppen objektinfo', () => {

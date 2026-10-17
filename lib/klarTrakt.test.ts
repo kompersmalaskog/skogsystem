@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, HAR_DU_FRAGOR, kvarChip, kvittoMedKvar, lasHarDu, lasVed,
-  medStandardMaskin, oplaneradRadText, standardMaskin, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
+  medStandardMaskin, oplaneradRadText, standardMaskin, vidaAvlaggBekraftat, vidaAvlaggUr, lasVidaAvlagg, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
   type HarDuSvar, type KlarIndata, type PrognosIndata, type UtforareVal,
 } from './klarTrakt';
 
@@ -319,5 +319,49 @@ describe('medelstam som egen post', () => {
     const s = berakna(indata({ prognos: prognos({ medelstam: null }), prognosGodkandUnderlag: null }));
     expect(s.poster.filter((x) => x.kvar).map((x) => x.id)).toEqual(expect.arrayContaining(['medelstam']));
     expect(s.klar).toBe(false);
+  });
+});
+
+describe('Vidas avlägg (objekt_geometri, L_TILLAGGSPUNKTER)', () => {
+  const punkt = (nr: string, o: Record<string, unknown> = {}) => ({ properties: { _typ: 'punkt', _lager: 'L_TILLAGGSPUNKTER', EXTRA_LABE: nr, FLBESKR: 'Avlägg', ...o }, geometry: { type: 'Point', coordinates: [14.7, 56.4] } });
+  const larm = { properties: { _typ: 'punkt', _lager: 'L_TILLAGGSPUNKTER', FLBESKR: 'Larmkoordinat' }, geometry: { type: 'Point', coordinates: [14.7, 56.4] } };
+
+  it('vidaAvlaggUr: punkterna utom larmet, i nummerordning (01-2 före 01-10), med koordinater', () => {
+    const ut = vidaAvlaggUr([punkt('01-10'), larm, punkt('01-2'), punkt('01-1')]);
+    expect(ut.map((a) => a.nummer)).toEqual(['01-1', '01-2', '01-10']);
+    expect(ut[0]).toMatchObject({ lat: 56.4, lng: 14.7 });
+  });
+  it('numret saknas i EXTRA_LABE → LOPNR; saknas båda → "Avlägg N"; andra geometrier än punkter räknas inte', () => {
+    expect(vidaAvlaggUr([{ properties: { _typ: 'punkt', LOPNR: '7', FLBESKR: 'Avlägg' }, geometry: null }]).map((a) => a.nummer)).toEqual(['7']);
+    expect(vidaAvlaggUr([punkt('')]).map((a) => a.nummer)).toEqual(['Avlägg 1']);
+    expect(vidaAvlaggUr([{ properties: { _typ: 'linje', FLBESKR: 'Basväg' } }, { properties: { _typ: 'hänsynsyta' } }, null, undefined])).toEqual([]);
+    expect(vidaAvlaggUr(null)).toEqual([]);
+  });
+  it('lasVidaAvlagg läser bara en hel bekräftelse; resten är obekräftat (aldrig ett kast)', () => {
+    expect(lasVidaAvlagg({ vida_avlagg: { nummer: ['01-1'], av: 'm1', at: NU } })).toEqual({ nummer: ['01-1'], av: 'm1', at: NU });
+    for (const rent of [null, undefined, 'x', [], {}, { vida_avlagg: 'ja' }, { vida_avlagg: { nummer: 'x', at: NU } }, { vida_avlagg: { nummer: ['a'] } }]) expect(lasVidaAvlagg(rent), JSON.stringify(rent)).toBeNull();
+  });
+  it('bekräftelsen gäller bara exakt de avlägg som visades — nya eller färre kräver ny bekräftelse', () => {
+    const bek = { nummer: ['01-2', '01-1'], av: 'm1', at: NU };
+    expect(vidaAvlaggBekraftat(['01-1', '01-2'], bek)).toBe(true);
+    expect(vidaAvlaggBekraftat(['01-1', '01-2', '01-3'], bek)).toBe(false);
+    expect(vidaAvlaggBekraftat(['01-1'], bek)).toBe(false);
+    expect(vidaAvlaggBekraftat([], bek)).toBe(false);
+    expect(vidaAvlaggBekraftat(['01-1'], null)).toBe(false);
+  });
+  it('berakna: Vida-avlägg är kvar tills de bekräftats (eller planeraren själv placerat ett); inga Vida-avlägg = som förut', () => {
+    const avl = (o: Partial<KlarIndata>) => berakna(indata({ avlaggAntal: 0, ...o })).poster.find((p) => p.id === 'avlagg')!;
+    expect(avl({}).kvar).toBe(true);
+    expect(avl({ vidaAvlagg: ['01-1', '01-2'] })).toMatchObject({ kvar: true, varde: null });
+    expect(avl({ vidaAvlagg: ['01-1', '01-2'], vidaAvlaggBekraftat: true })).toMatchObject({ kvar: false, varde: 'Vida 01-1, 01-2' });
+    expect(avl({ vidaAvlagg: ['01-1'], avlaggAntal: 2 })).toMatchObject({ kvar: false, varde: 'Vida 01-1 · 2 egna' });
+    expect(berakna(indata({ avlaggAntal: 0, vidaAvlagg: ['01-1'] })).antalKvar).toBe(1);
+    expect(berakna(indata({ avlaggAntal: 0, vidaAvlagg: ['01-1'], vidaAvlaggBekraftat: true })).antalKvar).toBe(0);
+  });
+  it('förarens sammanfattning nämner Vidas avlägg', () => {
+    const rad = (o: Record<string, unknown>) => forarSammanfattning({ avlaggAntal: 0, basvagTexter: [], basvagKravs: null, barighet: null, terrang: null, skotningsavstand: null, bandSkordare: null, bandSkotare: null, bandParSkordare: null, bandParSkotare: null, breddat: false, konfiguration: null, risDirekt: false, extraVagn: false, trailerIn: true, trailerKommentar: '', manuellFallning: false, manuellFallningText: '', ved: false, vedDetaljer: VED_TOM, vedText: '', harDu: {}, ...o } as any).find((r) => r.id === 'avlagg')?.text;
+    expect(rad({ vidaAvlagg: ['01-1', '01-2'] })).toBe('Vida 01-1, 01-2');
+    expect(rad({ vidaAvlagg: ['01-1'], avlaggAntal: 1 })).toBe('Vida 01-1 · 1 eget');
+    expect(rad({ avlaggAntal: 2 })).toBe('2 på kartan');
   });
 });

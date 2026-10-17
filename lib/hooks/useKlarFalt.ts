@@ -64,7 +64,7 @@ export function useKlarFalt(supabase: any, objektId: string | null, testlage: bo
     faltRef.current = { ...fore, ...patch };
     setFalt((cur) => ({ ...cur, ...patch }));
     if (testlage) return true;
-    const kolumner = klarFaltTillKolumner(patch);
+    const kolumner = klarFaltTillKolumner(patch, fore);
     const res = await uppdateraVerifierat(supabase, 'objekt', kolumner, { id }, Object.keys(kolumner).join(','));
     if (idRef.current !== id) return res.ok;   // objektet byttes under tiden — släng bara utfallet
     if (!res.ok) {

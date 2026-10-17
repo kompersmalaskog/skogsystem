@@ -111,7 +111,7 @@ export default function KlarSe({ p, onOppna, utanPadding = false }: { p: KlarMed
           </span>
         </TryckRad>
         <TryckRad testid="klar-se-avlagg" onTryck={() => onOppna('avlagg')}>
-          <span style={{ color: avl.kvar ? FARG.orange : FARG.text }}>{avl.kvar ? 'Avlägg saknas' : avl.varde}</span>
+          <span style={{ color: avl.kvar ? FARG.orange : FARG.text }}>{avl.kvar ? ((p.vidaAvlagg ?? []).length > 0 ? 'Vidas avlägg ej bekräftade' : 'Avlägg saknas') : avl.varde}</span>
         </TryckRad>
         <TryckRad testid="klar-se-basvag" onTryck={() => onOppna('basvag')}>
           {bas.kvar ? <span style={{ color: FARG.orange }}>Basväg saknas</span> : p.basvag.texter.length > 0 ? `Basväg ${p.basvag.sammanfattning ?? bas.varde}` : 'Ingen basväg'}

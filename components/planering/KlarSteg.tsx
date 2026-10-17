@@ -209,13 +209,33 @@ const Varningsruta = ({ id, text }: { id: string; text: string }) => (
 
 // ── Innehållet i de enkla stegen ─────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Avlägg. Knappen som gör stegets sak är PRIMÄR (vit) tills den är gjord — då blir Nästa primär och den här sekundär; aldrig två vita samtidigt.
+ * Utan Vida-avlägg: "Placera på kartan" → "Avlägg placerat ✓". Med Vidas avlägg: "Vidas avlägg: 01-1, 01-2" + Stämmer (primär) och Flytta / Lägg till (sekundära);
+ * Flytta och Lägg till placerar båda ett eget avlägg (Vidas punkt i underlaget rörs aldrig).
+ */
 export function AvlaggBody({ p, kartaYta }: { p: KlarMedTraktenProps; kartaYta?: React.ReactNode }) {
   const post = p.status.poster.find((x) => x.id === 'avlagg')!;
+  const vida = p.vidaAvlagg ?? [];
+  if (vida.length === 0) {
+    return (
+      <>
+        {kartaYta}
+        {!post.kvar && <div data-testid="klar-avlagg-status" style={{ ...TYP.text, color: FARG.text }}>Avlägg placerat ✓</div>}
+        <StorKnapp testid="klar-avlagg-placera" variant={post.kvar ? 'primar' : 'sekundar'} onTryck={p.onPlaceraAvlagg}>{post.kvar ? 'Placera på kartan' : 'Placera ett till'}</StorKnapp>
+      </>
+    );
+  }
+  const bekraftat = p.vidaAvlaggBekraftat === true;
   return (
     <>
       {kartaYta}
-      <div data-testid="klar-avlagg-status" style={{ ...TYP.text, color: post.kvar ? FARG.text2 : FARG.text }}>{post.varde ?? 'Inget avlägg placerat än'}</div>
-      <StorKnapp testid="klar-avlagg-placera" variant="sekundar" onTryck={p.onPlaceraAvlagg}>{post.kvar ? 'Placera på kartan' : 'Placera ett till'}</StorKnapp>
+      <div data-testid="klar-avlagg-vida" style={{ ...TYP.text, color: FARG.text }}>Vidas avlägg: {vida.join(', ')}{p.avlaggEgna ? ` · ${p.avlaggEgna === 1 ? '1 eget' : `${p.avlaggEgna} egna`}` : ''}</div>
+      {post.kvar
+        ? <StorKnapp testid="klar-avlagg-stammer" onTryck={() => p.onBekraftaVidaAvlagg?.()}>Stämmer</StorKnapp>
+        : <div data-testid="klar-avlagg-status" style={{ ...TYP.text, color: FARG.text }}>{bekraftat ? 'Vidas avlägg bekräftade ✓' : 'Avlägg placerat ✓'}</div>}
+      <StorKnapp testid="klar-avlagg-flytta" variant="sekundar" onTryck={p.onPlaceraAvlagg}>Flytta</StorKnapp>
+      <StorKnapp testid="klar-avlagg-placera" variant="sekundar" onTryck={p.onPlaceraAvlagg}>Lägg till</StorKnapp>
     </>
   );
 }
@@ -227,7 +247,7 @@ export function BasvagBody({ p }: { p: KlarMedTraktenProps }) {
       <div style={{ ...TYP.text, color: post.kvar ? FARG.text2 : FARG.text }}>
         {post.kvar ? 'Vida har en basväg i underlaget — den är inte ritad än.' : p.basvag.texter.length > 0 ? (p.basvag.sammanfattning ?? post.varde) : 'Ingen basväg på den här trakten.'}
       </div>
-      <StorKnapp testid="klar-basvag-rita" variant="sekundar" onTryck={p.onRitaBasvag}>{p.basvag.texter.length > 0 ? 'Rita en basväg till' : 'Rita basväg'}</StorKnapp>
+      <StorKnapp testid="klar-basvag-rita" variant={post.kvar ? 'primar' : 'sekundar'} onTryck={p.onRitaBasvag}>{p.basvag.texter.length > 0 ? 'Rita en basväg till' : 'Rita basväg'}</StorKnapp>
       <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min }}>
         <span style={{ flex: 1, ...TYP.text }}>Kräver basvägsanläggning</span>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.xs, width: 128 }}>
