@@ -59,7 +59,7 @@ export function Lista({ children, style }: { children: ReactNode; style?: CSSPro
  * En rad i en lista: rubrik + dämpad detaljrad till vänster, valfritt innehåll till höger.
  * Hela raden är en knapp när `onClick` finns (44 px träffyta). Sista raden saknar linje.
  */
-export function Rad({ rubrik, detalj, hoger, onClick, chevron, sista, rubrikFarg = FARG.text, dampad, children }: {
+export function Rad({ rubrik, detalj, hoger, onClick, chevron, sista, rubrikFarg = FARG.text, dampad, attr, children }: {
   rubrik: ReactNode;
   detalj?: ReactNode;
   hoger?: ReactNode;
@@ -69,6 +69,8 @@ export function Rad({ rubrik, detalj, hoger, onClick, chevron, sista, rubrikFarg
   rubrikFarg?: string;
   /** Grått för det som stämmer. */
   dampad?: boolean;
+  /** data-attribut (testfästen). */
+  attr?: Record<string, string>;
   children?: ReactNode;
 }) {
   const inre = (
@@ -82,7 +84,7 @@ export function Rad({ rubrik, detalj, hoger, onClick, chevron, sista, rubrikFarg
     </div>
   );
   return (
-    <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : LINJE }}>
+    <div {...attr} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : LINJE }}>
       {onClick ? (
         <button type="button" onClick={onClick} style={{ display: "block", width: "100%", padding: 0, background: "none", border: "none", color: "inherit", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
           {inre}

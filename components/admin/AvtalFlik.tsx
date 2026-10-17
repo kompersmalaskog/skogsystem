@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TYP, TNUM } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Rad, Primar, Sekundar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Lank, Sekundar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
 import { ymdLokal } from "@/lib/datumLokal";
 import { AVTAL_BUCKET, avtalPdfPath, kontrolleraAvtalPdf, oppnaAvtalPdf } from "@/lib/avtalPdf";
 import UtjamningsSektion from "./UtjamningsSektion";
@@ -71,7 +71,7 @@ const GRUPPER: FältGrupp[] = [
     ],
   },
   {
-    rubrik: "Färdmedel & färdtid",
+    rubrik: "Resor",
     fält: [
       { key: "km_ersattning_kr", label: "Färdmedelsersättning", suffix: "kr/mil", step: "0.01" },
       { key: "km_grans_per_dag", label: "Km-gräns",             suffix: "km/dag", step: "1" },
@@ -239,13 +239,13 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
 
   return (
     <>
-      {/* Aktuellt avtal */}
-      <Kort>
-        <div style={{ ...TYP.micro, color: FARG.text2 }}>Aktuellt avtal</div>
-        <div style={{ ...TYP.rubrik, color: FARG.text, marginTop: AVSTAND.xs }}>{aktuellt.namn || "Namnlöst avtal"}</div>
-        <Stod>{datum(aktuellt.giltigt_fran)} – {datum(aktuellt.giltigt_till)}</Stod>
-      </Kort>
-
+      {/* Spara ligger i sidhuvudet (grå tills något är ändrat): inte mitt på sidan med Utjämningsperioder under. */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
+        <Sektion topp={0}>Avtal</Sektion>
+        <Lank onClick={spara} disabled={!ändrat || sparar} style={{ marginBottom: AVSTAND.m }}>{sparar ? "Sparar…" : "Spara"}</Lank>
+      </div>
+      {sparFel && <Besked>{sparFel}</Besked>}
+      {sparOk && <Besked slag="ok">Sparat ✓</Besked>}
       {/* Påminnelse om utgång */}
       {(varningUtgång || utgåttRedan) && (
         <Kort style={{ marginTop: AVSTAND.m, display: "flex", alignItems: "flex-start", gap: AVSTAND.m }}>
@@ -294,7 +294,7 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
         if (synliga.length === 0) return null;
         return (
           <div key={g.rubrik}>
-            <Sektion>{g.rubrik}</Sektion>
+            <Sektion topp={g.rubrik === "Avtal" ? 0 : undefined}>{g.rubrik === "Avtal" ? "Namn och giltighet" : g.rubrik}</Sektion>
             <Lista>
               {synliga.map((f, i) => (
                 <AvtalFält
@@ -310,29 +310,22 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
         );
       })}
 
-      {/* Spara */}
-      {sparFel && <Besked>{sparFel}</Besked>}
-      {sparOk && <Besked slag="ok">Sparat ✓</Besked>}
-      <Primar onClick={spara} disabled={!ändrat || sparar} style={{ marginTop: AVSTAND.xl }}>
-        {sparar ? "Sparar…" : "Spara ändringar"}
-      </Primar>
-
       {/* Utjämningsperioder (§5 mom 2): före, hör till avtalets arbetstidsregel */}
       <UtjamningsSektion namnInloggad={currentUser.namn || "admin"} />
 
-      {/* Historik */}
-      <Sektion>Tidigare avtal ({historik.length})</Sektion>
-      {historik.length === 0 ? (
-        <Kort><Tomt>Inga tidigare avtalsversioner. Den som gällde före det nuvarande står här när ett nytt läggs in.</Tomt></Kort>
-      ) : (
-        <Lista>
-          {historik.map((h, i) => (
-            <Rad key={h.id || i} sista={i === historik.length - 1}
-              rubrik={h.namn || "Namnlöst"}
-              hoger={`${datum(h.giltigt_fran, true)} – ${datum(h.giltigt_till, true)}`}
-              detalj={[h.overtid_vardag_kr != null && `Övertid ${h.overtid_vardag_kr} kr/tim`, h.traktamente_hel_kr != null && `Traktamente ${h.traktamente_hel_kr} kr`].filter(Boolean).join(" · ") || undefined} />
-          ))}
-        </Lista>
+      {/* Historik: bara när det finns något att visa (en tom grupp med en förklaring var bara text). */}
+      {historik.length > 0 && (
+        <>
+          <Sektion>Tidigare avtal ({historik.length})</Sektion>
+          <Lista>
+            {historik.map((h, i) => (
+              <Rad key={h.id || i} sista={i === historik.length - 1}
+                rubrik={h.namn || "Namnlöst"}
+                hoger={`${datum(h.giltigt_fran, true)} – ${datum(h.giltigt_till, true)}`}
+                detalj={[h.overtid_vardag_kr != null && `Övertid ${h.overtid_vardag_kr} kr/tim`, h.traktamente_hel_kr != null && `Traktamente ${h.traktamente_hel_kr} kr`].filter(Boolean).join(" · ") || undefined} />
+            ))}
+          </Lista>
+        </>
       )}
     </>
   );
@@ -369,7 +362,7 @@ function AvtalFält({
           style={{
             minHeight: 44, boxSizing: "border-box", background: FARG.upphojt, border: "none", borderRadius: RADIE.rad,
             padding: `0 ${AVSTAND.m}px`, color: FARG.text, fontFamily: "inherit", outline: "none",
-            width: isDate ? 160 : fält.type === "text" ? 200 : 120,
+            width: isDate ? 160 : fält.type === "text" ? 280 : 120,
             textAlign: isNumber ? "right" : "left", ...TYP.text, ...(isNumber ? TNUM : null),
           }}
         />

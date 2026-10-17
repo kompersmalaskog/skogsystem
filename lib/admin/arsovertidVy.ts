@@ -27,6 +27,9 @@ export type ArsovertidSvar = {
   franvaro_fel?: string | null
 }
 
+/** Kortet visar bara förare som kommit halvvägs till taket. Sju rader "0 av 250 tim" svarade inte på frågan "vem närmar sig taket?". */
+export const VISA_FRAN_ANDEL = 0.5
+
 export type Niva = "noll" | "lugn" | "varning" | "over"
 
 export type ArsovertidRad = {
@@ -66,6 +69,16 @@ export function arsovertidRader(svar: ArsovertidSvar | null | undefined): Arsove
       }
     })
     .sort((a, b) => b.timmar - a.timmar || a.namn.localeCompare(b.namn, "sv"))
+}
+
+/** De rader som ska synas: halvvägs till taket eller mer. */
+export function narmarTaket(rader: ArsovertidRad[]): ArsovertidRad[] {
+  return rader.filter(r => r.andel >= VISA_FRAN_ANDEL)
+}
+
+/** Överlappar en markerad period arbetsmånaden (YYYY-MM)? En utjämning i april–juli säger ingenting om december. */
+export function overlapparManad(u: { startdatum: string; slutdatum: string }, manad: string): boolean {
+  return u.startdatum.slice(0, 10) <= `${manad}-31` && u.slutdatum.slice(0, 10) >= `${manad}-01`
 }
 
 const dagUtanTid = (s: string) => {

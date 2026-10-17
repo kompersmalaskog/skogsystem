@@ -10,6 +10,7 @@ const ATT = "lib/lonesystem/attTaMed.ts";
 const VY = "lib/admin/arsovertidVy.ts";
 const KORT = "components/admin/ArsovertidKort.tsx";
 const LON = "components/admin/LonFlik.tsx";
+const LVY = "lib/admin/loneunderlagVy.ts";
 const ARK = "components/admin/LonearterUnderflik.tsx";
 const NAMN = "lib/lonesystem/fortnoxNamn.ts";
 const DLG = "components/admin/LoneraderForhandsvisning.tsx";
@@ -19,7 +20,7 @@ const RUT = "app/api/mom-import/route.ts";
 // Admin.render är stor: bara de beskrivningar som rör städningen körs (-t är ett regex över hela testnamnet).
 const ADMIN_T = "Att ta med löneansvarig|Utjämningsperiod: EN rad|Namnet i Fortnox fylls i|Skicka utan|SPÄRRAD|Tillbaka ur det andra|Lönearter: vad i appen";
 const kommando = ["bash", "-c", [
-  "npx vitest run lib/lonesystem/attTaMed.test.ts lib/lonesystem/fortnoxNamn.test.ts lib/admin/arsovertidVy.test.ts lib/rastMin.test.ts --reporter=dot",
+  "npx vitest run lib/lonesystem/attTaMed.test.ts lib/lonesystem/fortnoxNamn.test.ts lib/admin/arsovertidVy.test.ts lib/admin/loneunderlagVy.test.ts lib/rastMin.test.ts --reporter=dot",
   `npx vitest run components/admin/Admin.render.test.tsx -t '${ADMIN_T}' --reporter=dot`,
 ].join(" && ")];
 
@@ -30,14 +31,14 @@ const M = [
   ["det som redan stoppar sändningen står en andra gång", " && !(blockerande || []).some(b => b.loneart === a.key)", "", ATT],
   ["alltid 'koden' (aldrig flera)", 'saknas.length === 1 ? "koden" : "koderna"', '"koden"', ATT],
   ["uppräkningen saknar 'och'", '`${namn.slice(0, -1).join(", ")} och ${namn[namn.length - 1]}`', 'namn.join(", ")', ATT],
-  ["kortet bygger inte kodrådet ur kopplingarna", "[kodRadAttGora(kopplingar, blockerande), ...oppnaFragor]", "[...oppnaFragor]", LON],
+  ["kortet bygger inte kodrådet ur kopplingarna", "const kodRad = kodRadAttGora(kopplingar, blockerande);", "const kodRad = null;", LON],
   ["helglönsbeslutet är en öppen fråga igen", '  { slag: "Bekräfta", rubrik: "Bytesdag är skoftning"', '  { slag: "Martins beslut", rubrik: "Röd vardag ger alltid 8 tim helglön", text: "klart." },\n  { slag: "Bekräfta", rubrik: "Bytesdag är skoftning"', ATT],
 
   // ── Utjämningsperiod: EN rad ──
   ["samma period per förare räknas som olika perioder", "const k = `${u.startdatum.slice(0, 10)}|${u.slutdatum.slice(0, 10)}`", "const k = `${u.startdatum.slice(0, 10)}|${u.slutdatum.slice(0, 10)}|${u.medarbetare_id}`", VY],
   ["antal dagar räknar fel (en för lite)", "/ 86400000) + 1", "/ 86400000)", VY],
   ["årsövertidskortet visar alla rader", "unikaUtjamningar(svar.utjamning)", "(svar.utjamning || [])", KORT],
-  ["granskningen visar alla rader per förare", "unikaUtjamningar(m.utjamning).map(", "(m.utjamning || []).map(", LON],
+  ["granskningen visar alla rader per förare", "unikaUtjamningar(m.utjamning).forEach(", "(m.utjamning || []).forEach(", LVY],
   ["raden visar ingen plats", '? ` (${plats})` : ""', '? "" : ""', VY],
 
   // ── Fortnox-namnet fylls i av koden ──
@@ -62,7 +63,7 @@ const M = [
 ];
 
 kor({
-  filer: [ATT, VY, KORT, LON, ARK, NAMN, DLG, RAST, RUT],
+  filer: [ATT, VY, KORT, LON, LVY, ARK, NAMN, DLG, RAST, RUT],
   tester: [],
   kommando,
   standardFil: ATT,

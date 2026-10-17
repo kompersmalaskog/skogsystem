@@ -88,7 +88,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
       saker.push({
         id: "lon", rubrik: `Lönen för ${manadNamn(l.arbetsManad)} är klar att granska`,
         detalj: l.antalSkickade > 0 ? `${l.antalSkickade} av ${l.antalMedDagar} förare är skickade till Fortnox` : `${l.antalMedDagar} förare väntar på att skickas till Fortnox`,
-        knapp: "Granska", mal: { typ: "flik", flik: "lon", underflik: "underlag" },
+        knapp: "Öppna", mal: { typ: "flik", flik: "lon", underflik: "underlag" },
       });
     } else stammer.push({ id: "lon", rubrik: `Lönen för ${manadNamn(l.arbetsManad)} är skickad till Fortnox` });
   }
@@ -110,7 +110,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
       saker.push({
         id: "dagar", rubrik: `${dagar(rader.length)} väntar på bekräftelse`,
         detalj: Array.from(perPerson.entries()).map(([id, ds]: [string, string[]]) => `${namn.get(id) || id.slice(0, 8)}: ${ds.map(datumKort).join(", ")}`).join(" · "),
-        knapp: "Se dagarna",
+        knapp: "Öppna",
         mal: { typ: "flik", flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String(-manadensOffset), avv: "1" } },
       });
     } else stammer.push({ id: "dagar", rubrik: "Alla dagar är bekräftade" });
@@ -129,7 +129,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
           id: `vila-${id}`,
           rubrik: `${lista[0].namn}: ${lista.length} ${lista.length === 1 ? "obesvarat vilobrott" : "obesvarade vilobrott"}`,
           detalj: sorterat.map(b => `${datumKort(b.datum)} ${b.typ === "dygnsvila" ? "dygnsvila" : "veckovila"} ${vilaTimmarText(b.vila_h)}`).join(" · "),
-          knapp: "Visa", mal: { typ: "flik", flik: "lon", underflik: "vila" },
+          knapp: "Öppna", mal: { typ: "flik", flik: "lon", underflik: "vila" },
         });
       });
     } else stammer.push({ id: "vila", rubrik: "Inga obesvarade vilobrott" });
@@ -155,7 +155,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
       saker.push({
         id: `hempunkt-${h.id}`, rubrik: `Hempunkten är inte bekräftad – ${h.namn}`,
         detalj: "Km räknas från en punkt ingen har sett på kartan",
-        knapp: "Visa kartan", mal: { typ: "flik", flik: "medarbetare", params: { person: h.id } },
+        knapp: "Öppna", mal: { typ: "flik", flik: "medarbetare", params: { person: h.id } },
       });
     }
   }
@@ -173,7 +173,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
         id: `operator-${o.operator_id}`,
         rubrik: `Operatören "${o.operator_namn}" matchar ${o.medarbetare.namn}`,
         detalj: `${dagar(o.datum.length)} utan koppling, tiden når inte lönen`,
-        knapp: "Koppla", mal: { typ: "flik", flik: "medarbetare" },
+        knapp: "Öppna", mal: { typ: "flik", flik: "medarbetare" },
       });
     }
     if (i.kontroller.data.okandaOperatorer.length === 0) stammer.push({ id: "operatorer", rubrik: "Alla operatörer är kopplade" });
@@ -186,7 +186,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
     for (const m of nya) {
       saker.push({
         id: `maskin-${m.maskin_id}`, rubrik: `Ny maskin i importen: ${m.visningsnamn || m.modell || m.maskin_id}`,
-        detalj: m.maskin_id, knapp: "Bekräfta", mal: { typ: "flik", flik: "maskiner", params: { maskin: m.maskin_id } },
+        detalj: m.maskin_id, knapp: "Öppna", mal: { typ: "flik", flik: "maskiner", params: { maskin: m.maskin_id } },
       });
     }
   }
@@ -198,7 +198,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
     if (k) {
       saker.push({
         id: "avtal", rubrik: k === "utgatt" ? "Avtalet har gått ut" : "Avtalet går ut inom en månad",
-        detalj: `Gäller till ${datumLangt(i.avtal.data.giltigt_till!)}`, knapp: "Öppna avtalet", mal: { typ: "flik", flik: "avtal" },
+        detalj: `Gäller till ${datumLangt(i.avtal.data.giltigt_till!)}`, knapp: "Öppna", mal: { typ: "flik", flik: "avtal" },
       });
     } else stammer.push({ id: "avtal", rubrik: i.avtal.data.giltigt_till ? `Avtalet gäller till ${datumLangt(i.avtal.data.giltigt_till)}` : "Avtalet har inget slutdatum" });
   }
@@ -209,12 +209,12 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
   let arbetstidVarningar: string[] = [];
   if (i.arbetstid.fel) felRad("arbetstid", "arbetstiden", i.arbetstid.fel);
   else if (i.arbetstid.data) {
-    arbetstid = sorteraAttGora(i.arbetstid.data.forare);
+    // Delägare (arbetstidslagen gäller inte) visas aldrig: en grå rad om att något inte gäller är inget att läsa. Kortet visar den som
+    // är ÖVER en gräns och den som är NÄRA en (gul från 90 %) — principen är att varna före gränsen, inte efter (Martin 2026-10-17).
+    const forare = sorteraAttGora(i.arbetstid.data.forare).filter(f => !f.foretagsledare);
+    arbetstid = forare;
     arbetstidVarningar = i.arbetstid.data.varningar;
-    // Delägare (arbetstidslagen gäller inte) visas grått i kortet men betyder aldrig att någon närmar sig en gräns.
-    if (arbetstid.every(f => f.foretagsledare)) {
-      stammer.push({ id: "arbetstid", rubrik: "Ingen närmar sig en gräns för arbetstid", detalj: "Övertid, 48-timmarssnitt, dygns- och veckovila" });
-    }
+    if (forare.length === 0) stammer.push({ id: "arbetstid", rubrik: "Ingen nära eller över en gräns för arbetstid" });
   }
 
   // ── Maskiner som inte skickat fil på länge (Datahälsa) ──
@@ -225,7 +225,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
     for (const r of tysta) {
       saker.push({
         id: `tyst-${r.maskinId}`, rubrik: `${r.namn} har inte skickat fil på ${dygn(r.dagarSedan!)}`,
-        detalj: r.senasteData ? `Senaste data ${datumLangt(r.senasteData)}` : undefined, knapp: "Öppna Datahälsa", mal: { typ: "sida", href: "/datahalsa" },
+        detalj: r.senasteData ? `Senaste data ${datumLangt(r.senasteData)}` : undefined, knapp: "Öppna", mal: { typ: "sida", href: "/datahalsa" },
       });
     }
     if (tysta.length === 0) stammer.push({ id: "maskinfiler", rubrik: `Alla maskiner har skickat fil inom ${dygn(LEV_GUL_DYGN)}` });

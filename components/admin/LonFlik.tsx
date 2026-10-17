@@ -3,15 +3,17 @@ import React, { useState, useEffect, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA } from "@/lib/design/tokens";
-import { Kort, Ikon } from "./ui";
+import { Kort, Ikon, Lista, Rad, Lank } from "./ui";
 import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { fmtMangd } from "@/lib/lonesystem/loneart";
-import { minTillTimmar } from "@/lib/ob";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
-import { helglonSkalText } from "@/lib/lonesystem/helglon";
-import { kodRadAttGora, oppnaFragor, type RadAttTaMed } from "@/lib/lonesystem/attTaMed";
-import { unikaUtjamningar, utjamningsRad } from "@/lib/admin/arsovertidVy";
+import { kodRadAttGora, oppnaFragor } from "@/lib/lonesystem/attTaMed";
+import { arbetsManadText } from "@/lib/lonesystem/lonemanad";
+import ManadRubrik from "@/components/design/ManadRubrik";
+import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, type ForarKort, type Mal } from "@/lib/admin/loneunderlagVy";
+import Svarsrad from "@/components/design/Svarsrad";
+import OppnaFragorArk from "./OppnaFragor";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
@@ -84,11 +86,6 @@ function UnderflikTabs({ aktiv, onValj }: { aktiv: Underflik; onValj: (k: Underf
 
 type Medarbetare = { id: string; namn: string | null };
 
-function månadsLabel(period: string): string {
-  const [å, m] = period.split("-").map(Number);
-  return new Date(å, m - 1, 1).toLocaleDateString("sv-SE", { month: "long", year: "numeric" });
-}
-
 function periodNu(): string {
   const nu = new Date();
   return `${nu.getFullYear()}-${String(nu.getMonth() + 1).padStart(2, "0")}`;
@@ -121,7 +118,8 @@ function Loneunderlag() {
   // Årets övertid per förare (avtalets modell, lib/lonesystem/arsovertid) — vyn: ArsovertidKort.
   const [arsovertid, setArsovertid] = useState<any>(null);
 
-  // Löneperiod = arbetsmånad + 1 (samma regel som Fortnox-granskningen och /api/lon/min-manad).
+  // Löneperiod = arbetsmånad + 1 (samma regel som Fortnox-granskningen och /api/lon/min-manad). Adressen och API:erna talar
+  // löneperiod; det som SYNS är arbetsmånaden ("Augusti") med utbetalningen i liten text (lib/lonesystem/lonemanad).
   // Allt som visas under en löneperiod gäller ARBETSMÅNADEN, så "maskinstart senare" läser den, inte löneperiodens egen månad.
   const arbetsManad = periodOffset(period, -1);
 
@@ -188,48 +186,37 @@ function Loneunderlag() {
   const tlMon = tidigarelagdMonster(tidigarelagdAlla);
   const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
 
+  /** Vart en rad leder. "Se dagen" öppnar Dagar på samma arbetsmånad, bara avvikelserna. */
+  const gaMal = (mal: Mal) => {
+    if (mal.typ === "dagar") {
+      const nu = new Date();
+      const [å, m] = arbetsManad.split("-").map(Number);
+      gaTill({ flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String((å - nu.getFullYear()) * 12 + (m - 1 - nu.getMonth())), avv: "1" } });
+    }
+    else if (mal.typ === "maskin") gaTill({ flik: "maskiner", params: { maskin: mal.id } });
+    else if (mal.typ === "person") gaTill({ flik: "medarbetare", params: { person: mal.id } });
+    else if (mal.typ === "personer") gaTill({ flik: "medarbetare" });
+    else gaTill({ flik: "lon", underflik: "lonearter" });
+  };
+
   return (
     <>
-      {/* Månadsväljare */}
+      {/* Månadsväljare: arbetsmånaden är namnet, vilken månad lönen kommer står bredvid ("Augusti · lön i september"). */}
       <Card style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
         <button onClick={() => valjPeriod(periodOffset(period, -1))} aria-label="Föregående månad" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text }}>
           <Ikon namn="chevron_left" farg={FARG.text} />
         </button>
-        <span style={{ ...TYP.listtitel, color: FARG.text, textTransform: "capitalize" }}>
-          {månadsLabel(period)}
-        </span>
+        <div style={{ ...TYP.listtitel, color: FARG.text, textAlign: "center" }}><ManadRubrik arbetsManad={arbetsManad} /></div>
         <button onClick={() => valjPeriod(periodOffset(period, 1))} disabled={period >= periodNu()} aria-label="Nästa månad"
           style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, color: FARG.text, opacity: period >= periodNu() ? 0.4 : 1, cursor: period >= periodNu() ? "default" : "pointer" }}>
           <Ikon namn="chevron_right" farg={FARG.text} />
         </button>
       </Card>
 
-      {/* ÅRSÖVERTID: en fråga — hur nära taket är varje förare? Avtalets modell (§5 mom 2); förklaringen ligger bakom
-          "Så räknas det" (components/admin/ArsovertidKort). */}
-      {arsovertid && <ArsovertidKort svar={arsovertid} />}
-
-      {tlFel && (
-        <Card style={{ border: `1px solid ${FARG.rod}` }}>
-          <p style={{ margin: 0, color: FARG.rod, ...TYP.meta }}>Kunde inte läsa maskinstart-kortet: {tlFel}</p>
-        </Card>
-      )}
-      {!tlFel && tlMon.length > 0 && (
-        <Card>
-          <p style={{ ...secHead, marginTop: 0 }}>Maskinstart senare än angiven · {månadsLabel(arbetsManad)}</p>
-          <p style={{ margin: '0 0 8px', ...TYP.meta, color: FARG.text2 }}>Dagar där föraren angav en start mer än 30 min före maskinens login. Mönster, inte enskilda dagar — angiven tid styr fortsatt lönen.</p>
-          {tlMon.map((m, i) => (
-            <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, color: FARG.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-              <span>{tlNamn.get(m.medarbetare_id) || m.medarbetare_id}</span>
-              <span style={{ color: m.dagar >= 10 ? FARG.orange : FARG.text2, fontWeight: m.dagar >= 10 ? 600 : 400 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)}</span>
-            </div>
-          ))}
-        </Card>
-      )}
-
-      {/* Fortnox-granskningen */}
-      <p style={{ ...secHead, marginTop: AVSTAND.xl }}>Fortnox-export</p>
+      {/* Fortnox-granskningen: svaret först (är det klart att skicka?), sedan det som ska kollas, sedan förarna. */}
       <FortnoxExportSektion
         period={period}
+        arbetsManad={arbetsManad}
         fortnoxData={fortnoxData}
         fortnoxLaddar={fortnoxLaddar}
         onFörhandsgranska={async () => {
@@ -246,15 +233,36 @@ function Loneunderlag() {
           } finally { setFortnoxLaddar(false); }
         }}
         onSkicka={() => setVisaBekräftelse(true)}
-        onKoppla={() => gaTill({ flik: "lon", underflik: "lonearter" })}
+        onMal={gaMal}
         exportResultat={exportResultat}
       />
+
+      {/* ÅRSÖVERTID: en fråga — hur nära taket är varje förare? Avtalets modell (§5 mom 2); förklaringen ligger bakom
+          "Så räknas det" (components/admin/ArsovertidKort). */}
+      {arsovertid && <div style={{ marginTop: AVSTAND.m }}><ArsovertidKort svar={arsovertid} manad={arbetsManad} /></div>}
+
+      {tlFel && (
+        <Card style={{ border: `1px solid ${FARG.rod}` }}>
+          <p style={{ margin: 0, color: FARG.rod, ...TYP.meta }}>Kunde inte läsa maskinstart-kortet: {tlFel}</p>
+        </Card>
+      )}
+      {!tlFel && tlMon.length > 0 && (
+        <Card>
+          <p style={{ ...secHead, marginTop: 0 }}>Maskinstart senare än angiven · {arbetsManadText(arbetsManad)}</p>
+          <p style={{ margin: '0 0 8px', ...TYP.meta, color: FARG.text2 }}>Föraren angav en start mer än 30 min före maskinens login. Angiven tid styr lönen.</p>
+          {tlMon.map((m, i) => (
+            <div key={m.medarbetare_id} style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, color: FARG.text, padding: '9px 0', borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+              <span>{tlNamn.get(m.medarbetare_id) || m.medarbetare_id}</span>
+              <span style={{ color: m.dagar >= 10 ? FARG.orange : FARG.text2, fontWeight: m.dagar >= 10 ? 600 : 400 }}>{m.dagar} dag{m.dagar === 1 ? '' : 'ar'} · {fmtH(m.summaMin)}</span>
+            </div>
+          ))}
+        </Card>
+      )}
 
           {/* Bekräftelsedialog: med röda rader finns ingen "Skicka till Fortnox" här (components/admin/LoneraderForhandsvisning). */}
       {visaBekräftelse && fortnoxData?.medarbetare && (
         <SkickaDialog
-          periodText={månadsLabel(period)}
-          arbetstidText={fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—"}
+          arbetsManad={arbetsManad}
           data={fortnoxData}
           blockerande={fortnoxData.blockerande ?? blockerandeLonearter(fortnoxData.medarbetare)}
           skickar={skickar}
@@ -293,23 +301,23 @@ function Loneunderlag() {
 /* ─── FORTNOX EXPORT SEKTION ─── */
 
 function FortnoxExportSektion({
-  period, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, onKoppla, exportResultat,
+  period, arbetsManad, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, onMal, exportResultat,
 }: {
   period: string;
+  arbetsManad: string;
   fortnoxData: any;
   fortnoxLaddar: boolean;
   onFörhandsgranska: () => void;
   onSkicka: () => void;
-  onKoppla: () => void;
+  onMal: (mal: Mal) => void;
   exportResultat: any;
 }) {
+  const [visaFragor, setVisaFragor] = useState(false);
   if (!fortnoxData) {
     return (
       <Card>
         <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2 }}>
-          {fortnoxLaddar
-            ? `Läser löneunderlag för ${månadsLabel(period)}…`
-            : `Löneperiod ${månadsLabel(period)} = arbetstid föregående månad.`}
+          {fortnoxLaddar ? `Läser löneunderlag för ${arbetsManadText(arbetsManad)}…` : "Löneunderlaget är inte läst."}
         </p>
         {!fortnoxLaddar && (
           <button onClick={onFörhandsgranska} style={btnSecondary}>Läs löneunderlag</button>
@@ -329,11 +337,15 @@ function FortnoxExportSektion({
   const medarbetare = fortnoxData.medarbetare || [];
   // Företagsledare (medarbetare.foretagsledare) har inga lönerader: lönen ligger utanför appen. De står kvar i listan, med den noten.
   const lonMedarbetare = medarbetare.filter((m: any) => !m.foretagsledare);
-  const antalLedare = medarbetare.length - lonMedarbetare.length;
   const kopplingar = fortnoxData.kopplingar || {};
   // Samma lista som sändningen stoppas av (serverns svar); äldre svar utan den räknas om ur raderna.
   const blockerande = fortnoxData.blockerande ?? blockerandeLonearter(medarbetare);
-  const arbetsperiodLabel = fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—";
+  const kort = medarbetare.map((m: any) => byggForarKort(m, fortnoxData.oenighet || []));
+  const saknarDatum = saknarAnstallningsdatum(medarbetare);
+  const kodRad = kodRadAttGora(kopplingar, blockerande);
+  const antal = antalAttKolla(kort, saknarDatum.length, !!kodRad);
+  const allaSkickade = lonMedarbetare.length > 0 && lonMedarbetare.every((m: any) => m.status === "skickat");
+  const kanInteSkicka = lonMedarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer);
 
   return (
     <>
@@ -358,237 +370,92 @@ function FortnoxExportSektion({
         </Card>
       )}
 
-      {/* Periodinfo */}
-      <Card>
-        <p style={{ margin: 0, ...TYP.text, color: FARG.text }}>
-          Löneperiod <strong>{månadsLabel(period)}</strong> — arbetstid <strong>{arbetsperiodLabel}</strong>
-        </p>
-        <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
-          {lonMedarbetare.length} medarbetare · {fortnoxData.totalt_rader} lönerader{antalLedare > 0 ? ` · ${antalLedare} företagsledare utan lön i appen` : ""}. Mängder (timmar, veckor, mil) — aldrig kronor. Fortnox äger satserna.
-        </p>
-      </Card>
-
-      <SaknasKort blockerande={blockerande} onKoppla={onKoppla} />
-
-      {/* Att ta med löneansvarig: bara det som fortfarande är öppet (lib/lonesystem/attTaMed). Kodrådet byggs ur vad som är
-          kopplat just nu och nämner inte det som redan stoppar sändningen i kortet ovan. */}
-      <Card style={{ marginTop: AVSTAND.m }}>
-        <p style={{ ...secHead, marginTop: 0, color: FARG.orange }}>Att ta med löneansvarig</p>
-        {[kodRadAttGora(kopplingar, blockerande), ...oppnaFragor].filter((r): r is RadAttTaMed => !!r).map(({ slag, rubrik, text }, i, arr) => (
-          <div key={rubrik} data-att-ta-med={slag} style={{ display: "flex", gap: AVSTAND.s, padding: `${AVSTAND.xs}px 0`, borderBottom: i === arr.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
-            <span style={{ color: FARG.orange }}>▸</span>
-            <p style={{ margin: 0, ...TYP.meta, color: FARG.text }}><span style={{ color: FARG.text2, ...TYP.meta, textTransform: "uppercase", letterSpacing: 0.4, marginRight: AVSTAND.xs }}>{slag}</span><strong>{rubrik}</strong> — <span style={{ color: FARG.text2 }}>{text}</span></p>
-          </div>
-        ))}
-      </Card>
-
-      {/* Granskningsvy — per medarbetare: vad som GÅR till Fortnox (löneart, mängd,
-          enhet) och vad som PÅVERKAR RIKTIGHETEN men inte går med. Allt ur dry_run-
-          svaret = exakt samma kodväg som exporten. */}
-      <Card style={{ padding: 0 }}>
-        {medarbetare.map((m: any, mi: number) => {
-          const rader = m.rader || [];
-          const synk = m.synk || [];
-          const ledK = m.ledighetskollision || [];
-          const maskinLuckor = m.maskin_utan_typ || [];
-          const ob = m.ob || { timmar: 0, dagar: 0, obesvarade: 0 };
-          const rastLanga = m.rast_langa || [];
-          const kortpass = m.kortpass || [];
-          const orimliga = m.orimliga || [];
-          const utanRast = m.utan_rast || { dagar: 0, timmar: 0, datum: [] };
-          const helglon = m.helglon || { dagar: [], timmar: 0 }; // går med som egen lönerad när lönearten har kod (visas ovan)
-          const ledare = m.foretagsledare === true; // lönen ligger utanför appen: inga lönerader
-          const byten: any[] = m.byten || []; // bytesdagar (inarbetad, §5 mom 4) som rör månaden
-          const deldagar: any[] = m.deldagar || []; // sjuk/VAB från ett klockslag — arbete plus frånvaro (§12 mom 3 räknar timmar)
-          // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
-          // ur textvarningarna så samma sak inte står två gånger.
-          const ovrigaVarn = (m.varningar || []).filter((v: string) => !/saknar typ|^Kortpass|^Helglön|^Löneart saknas|skickas inte: ingen kod är kopplad/i.test(v));
-          const oen = (fortnoxData.oenighet || []).filter((o: any) => o.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id));
-          const harRiktighet = maskinLuckor.length > 0 || synk.length > 0 || ledK.length > 0 ||
-            (m.obekraftade || 0) > 0 || ob.timmar > 0 || ob.obesvarade > 0 || oen.length > 0 || ovrigaVarn.length > 0 ||
-            rastLanga.length > 0 || kortpass.length > 0 || orimliga.length > 0 || utanRast.dagar > 0 || byten.length > 0 || deldagar.length > 0;
-          const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.round(min % 60); return mm ? `${h} tim ${mm} min` : `${h} tim`; };
-          return (
-            <div key={mi} style={{
-              padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
-              borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${FARG.linje}`,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: AVSTAND.s }}>
-                <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
-                {!ledare && <StatusBadge status={m.status} />}
-              </div>
-              {!ledare && !m.anstallningsnummer && (
-                <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.rod }}>⚠ Anställningsnummer saknas — går inte att skicka</p>
-              )}
-
-              {/* SEKTION 1 — Lönerader: varje löneart som har ett antal, med kod + namn i Fortnox, eller varför den inte skickas.
-                  Företagsledare har inga: lönen ligger utanför appen. */}
-              {ledare ? (
-                <p data-foretagsledare="" style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Företagsledare – lön utanför appen</p>
-              ) : (
-                <>
-                  <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.gron }}>Lönerader till Fortnox</p>
-                  <LoneradLista rader={loneraderAv(m)} kopplingar={kopplingar} />
-                  {helglon.dagar.length > 0 && (
-                    <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
-                      Röda vardagar i månaden: {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.ger === false ? ` — ingen helglön: ${helglonSkalText(h.skal)}` : h.arbetad ? " (arbetad — helglön ändå, praxis)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")}.
-                    </p>
-                  )}
-                </>
-              )}
-
-              {/* SEKTION 2 — Påverkar riktigheten men går inte med */}
-              {harRiktighet && (
-                <>
-                  <p style={{ margin: `${AVSTAND.m}px 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.orange }}>Påverkar riktigheten — går inte med</p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: AVSTAND.xs }}>
-                    {maskinLuckor.map((mid: string) => (
-                      <p key={mid} style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>
-                        Maskin <strong>{mid}</strong> saknar typ i maskinregistret → premielön beräknas inte. Lägg in maskinen (skördare/skotare) för att få med premien.
-                      </p>
-                    ))}
-                    {/* Lång rast = troligen stillestånd bokfört som "Meal break" i terminalen.
-                        Maskinens egna avbrott samma dag är stödet — ett "Övrigt" med samma
-                        start som rasten är mönstret (lib/arbetsdagRegler). Fel rast = fel
-                        betald tid, rakt in i övertiden. */}
-                    {/* Orimliga pass — en FRÅGA, inte ett påstående om fel: en 16-timmarsdag
-                        kan vara äkta (Dalarna). Negativ tid = rasten längre än passet;
-                        kläms aldrig till noll, ska synas tills någon rättar. */}
-                    {/* Ingen rast på långa pass — EN summeringsrad, inte en per dag: på
-                        Ponsse-skotarna loggas rasten aldrig i filen och förarna kör i regel
-                        hela dagar utan rast, så noll är korrekt där. Information till
-                        arbetsgivaren, ingen fråga till föraren (lib/arbetsdagRegler). */}
-                    {utanRast.dagar > 0 && (
-                      <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
-                        <strong style={{ color: FARG.text }}>{utanRast.dagar} dag{utanRast.dagar === 1 ? "" : "ar"} över 6 tim utan rast</strong> ({utanRast.timmar.toLocaleString("sv-SE")} tim) — noll rast räknas som hel arbetstid, i övertid och vilotid. Skotarna loggar ingen rast i filen och körs i regel utan.
-                        <span title={utanRast.datum.join(", ")}> {utanRast.datum.slice(0, 6).map((d: string) => d.slice(5)).join(", ")}{utanRast.datum.length > 6 ? " …" : ""}</span>
-                      </p>
-                    )}
-                    {orimliga.map((o: any) => {
-                      const tim = (Math.round(Math.abs(o.arbetad_min) / 6) / 10).toLocaleString("sv-SE");
-                      const kl = `${String(o.start_tid || "").slice(0, 5)}–${String(o.slut_tid || "").slice(0, 5)}, rast ${o.rast_min} min`;
-                      return (
-                        <p key={`orim-${o.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
-                          {o.datum}: {o.slag === "lang"
-                            ? <><strong>passet är {tim} tim</strong> ({kl}) — stämmer det? Längre än någon äkta dag hittills; en felskriven sluttid ger samma bild.</>
-                            : <><strong>rasten är längre än passet</strong> ({kl}, {o.arbetad_min} min) — stämmer det? Tiden räknas som negativ tills den rättas.</>}
-                          <span style={{ color: FARG.text2 }}> Rättas i förarens Redigera.</span>
-                        </p>
-                      );
-                    })}
-                    {rastLanga.map((r: any) => {
-                      const ovrigt = (r.avbrott || []).filter((a: any) => /övrigt|default/i.test(`${a.typ} ${a.kategori || ""}`));
-                      const andra = (r.avbrott || []).filter((a: any) => !ovrigt.includes(a));
-                      const beskriv = (a: any) => `${a.typ}${a.kategori && !/default/i.test(a.kategori) ? ` (${a.kategori})` : ""} ${a.minuter} min${a.klockslag ? ` kl ${a.klockslag}` : ""}`;
-                      return (
-                        <p key={`rast-${r.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
-                          {r.datum}: <strong>rast {r.rast_min} min</strong> — mer än en lunch. {ovrigt.length > 0
-                            ? <>Maskinen loggade samtidigt {ovrigt.map(beskriv).join(", ")} — stillestånd bokfört som rast? </>
-                            : <>Inget parallellt avbrott loggat. </>}
-                          {andra.length > 0 && <span style={{ color: FARG.text2 }}>Övriga avbrott den dagen: {andra.map(beskriv).join(", ")}. </span>}
-                          <span style={{ color: FARG.text2 }}>Skogsavtalet §5 mom 6: schemalagd rast är högst 75 min per skift. Rätt rast = rätt betald tid; rättas i förarens Redigera.</span>
-                        </p>
-                      );
-                    })}
-                    {/* Kortpass: under arbetsdagströskeln — betald tid men ingen arbetsdag.
-                        Oftast en inloggning på någon annans maskin. */}
-                    {kortpass.map((k: any) => (
-                      <p key={`kort-${k.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
-                        {k.datum}: kortpass <strong>{k.minuter} min</strong>{k.km_totalt > 0 ? ` · ${k.km_totalt} km` : ""} — räknas som tid men inte som arbetsdag (ingen ×8 i övertidsbasen, ingen vältlappsvecka, ingen reseersättning). Felinloggning? Ta bort dagen.
-                      </p>
-                    ))}
-                    {synk.map((s: any, si: number) => (
-                      <p key={`syn-${si}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
-                        {s.datum}: <strong>{s.diff_min} min</strong> oförklarad tidsavvikelse — du sa {s.bekraftat}, maskinen {s.maskinen}.
-                      </p>
-                    ))}
-                    {ledK.map((k: any, ki: number) => (
-                      <p key={`led-${ki}`} style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
-                        {k.datum}: godkänd ledighet ({k.typ}) OCH {fmtMin(k.arbetad_min)} registrerat arbete.
-                      </p>
-                    ))}
-                    {/* Utjämningsperiod (§5 mom 2) som överlappar månaden: upplysning, inte en lönerad. EN rad per period
-                        (tabellen har en rad för alla och en per förare med samma datum). Att utjämningen ska vara överenskommen
-                        står under "Att ta med löneansvarig". */}
-                    {unikaUtjamningar(m.utjamning).map((u, ui) => (
-                      <p key={`utj-${ui}`} data-utjamning-period="" style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
-                        {utjamningsRad(u)}. Månadens övertid räknas inte som vanligt här — se årsövertiden överst.
-                      </p>
-                    ))}
-                    {(m.obekraftade || 0) > 0 && (
-                      <p style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>
-                        <strong>{m.obekraftade}</strong> obekräftad{m.obekraftade === 1 ? "" : "e"} arbetsdag{m.obekraftade === 1 ? "" : "ar"} — tiden är med i underlaget men ingen har granskat den.
-                      </p>
-                    )}
-                    {ob.timmar > 0 && (
-                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }} data-brandrisk-admin>
-                        Brandrisk: <strong>{minTillTimmar(m.brandrisk?.ob_min ?? Math.round(ob.timmar * 60)).replace(".", ",")} tim OB</strong> ({ob.dagar} beordrade morgnar) — en lönerad, se listan ovan.
-                      </p>
-                    )}
-                    {/* Deldagar: arbete PLUS frånvaro samma dag. Timmarna härledda mot
-                        schematimmar/dag (antagande tills schema beslutats). Löneart öppen. */}
-                    {deldagar.map((dd: any, di: number) => (
-                      <p key={`deldag-${di}`} style={{ margin: 0, ...TYP.meta, color: FARG.bla }}>
-                        Deldag {dd.datum.slice(5)}: <strong>{dd.typ} {dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`}</strong> — {Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro, arbetade {(Math.round(dd.arbetad_min / 6) / 10).toLocaleString("sv-SE")} tim. Räknat mot {dd.schema_timmar} tim/dag — <em>antagande tills schema beslutats</em> (§12 mom 3 anm 2). Dagen är arbetsdag. <em>Löneart ej fastställd</em>, läggs inte som lönerad.
-                      </p>
-                    ))}
-                    {/* Bytesdagar (skoftning §5 mom 4): upplysning, aldrig lönerad, aldrig avdrag.
-                        Orange när något inte stämmer (arbete på den lediga dagen, eller ingen
-                        arbetstid på den röda), annars dämpad. */}
-                    {byten.map((b: any, bi: number) => {
-                      const fel = b.ledigArbetad || !b.ersatterArbetad;
-                      return (
-                        <p key={`byte-${bi}`} style={{ margin: 0, ...TYP.meta, color: fel ? FARG.orange : FARG.text2 }}>
-                          Bytesdag: <strong style={{ color: FARG.text }}>{b.ledig.slice(5)}</strong> inarbetad ledighet ersätter {b.ersatterNamn} {b.ersatter.slice(5)}
-                          {b.ledigArbetad
-                            ? <> — men den lediga dagen har registrerat arbete: bytet togs inte ut, den röda dagen är en vanlig arbetad röd dag. Granska.</>
-                            : !b.ersatterArbetad
-                              ? <> — men ingen arbetstid finns registrerad den röda dagen: inarbetningen saknas. Granska; byt typ om dagen ska räknas som annan ledighet.</>
-                              : <> (arbetad). Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid + söndagstillägg om beordrat enligt avtalet — men appen räknar ingen OB på helg (enkelskift, bara brandrisk). Helglönen flyttas inte.</>}
-                        </p>
-                      );
-                    })}
-                    {ob.obesvarade > 0 && (
-                      <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
-                        {ob.obesvarade} obesvarad{ob.obesvarade === 1 ? "" : "e"} tidig start väntar på förarens brandrisk-svar.
-                      </p>
-                    )}
-                    {oen.map((o: any) => (
-                      <p key={`oen-${o.datum}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
-                        {o.datum}: förare svarar olika på brandriskfrågan — {o.svar.map((s: any) => `${s.namn} ${s.brandrisk_beordrad ? "ja" : "nej"}`).join(", ")}.
-                      </p>
-                    ))}
-                    {ovrigaVarn.map((v: string, vi: number) => (
-                      <p key={`v-${vi}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>{v}</p>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </Card>
-
-      {/* Knappar */}
-      <div style={{ marginTop: AVSTAND.l, display: "flex", gap: AVSTAND.s }}>
+      {/* SVARET: är det klart att skicka? Med röda rader är svaret kortet "Kan inte skickas än" (en primärknapp: Koppla koder). */}
+      <SaknasKort blockerande={blockerande} onKoppla={() => onMal({ typ: "lonearter" })} />
+      {blockerande.length === 0 && (
+        <div data-svar="">
+          <Svarsrad
+            rubrik={allaSkickade ? "Skickat till Fortnox" : antal === 0 ? "Klart att skicka" : `${antal} ${antal === 1 ? "sak" : "saker"} att kolla`}
+            avvikelse={!allaSkickade && antal > 0}
+            rad={`${lonMedarbetare.length} ${lonMedarbetare.length === 1 ? "förare" : "förare"} · ${fortnoxData.totalt_rader} lönerader`} />
+        </div>
+      )}
+      <div style={{ display: "flex", gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
         <button onClick={onFörhandsgranska} disabled={fortnoxLaddar} style={{ ...btnSecondary, flex: 1, opacity: fortnoxLaddar ? 0.5 : 1 }}>
           {fortnoxLaddar ? "Beräknar…" : "Uppdatera"}
         </button>
         <button
           onClick={onSkicka}
-          disabled={lonMedarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer)}
-          style={{
-            ...(blockerande.length > 0 ? btnSecondary : btnPrimary),
-            flex: 1,
-            opacity: lonMedarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer) ? 0.4 : 1,
-          }}
+          disabled={kanInteSkicka}
+          style={{ ...(blockerande.length > 0 ? btnSecondary : btnPrimary), flex: 1, opacity: kanInteSkicka ? 0.4 : 1 }}
         >Skicka till Fortnox</button>
       </div>
+
+      {/* Det som gäller alla förare på en gång: EN rad var, med knappen bredvid. De långa avtalsfrågorna ligger bakom en rad. */}
+      <Lista style={{ marginBottom: AVSTAND.m }}>
+        {kodRad && <Rad attr={{ "data-att-ta-med": "gor" }} rubrik={kodRad.rubrik} hoger={<Lank smal onClick={() => onMal({ typ: "lonearter" })}>Koppla</Lank>} />}
+        {saknarDatum.length > 0 && (
+          <Rad attr={{ "data-att-ta-med": "anstallningsdatum" }}
+            rubrik={`Anställningsdatum saknas: ${saknarDatum.map(f => f.namn.split(" ")[0]).join(", ")}`}
+            hoger={<Lank smal onClick={() => onMal(saknarDatum.length === 1 ? { typ: "person", id: saknarDatum[0].id } : { typ: "personer" })}>Fyll i</Lank>} />
+        )}
+        <Rad rubrik={`${oppnaFragor.length} öppna frågor`} chevron onClick={() => setVisaFragor(true)} sista />
+      </Lista>
+      {visaFragor && <OppnaFragorArk fragor={oppnaFragor} onStang={() => setVisaFragor(false)} />}
+
+      {/* Per förare: vad som går till Fortnox, och det som ska kollas. (Ett kort per förare med detaljvy är en senare, större ändring.) */}
+      <Card style={{ padding: 0 }}>
+        {medarbetare.map((m: any, mi: number) => {
+          const k: ForarKort = kort[mi];
+          return (
+            <div key={mi} data-forare={m.medarbetare_id} style={{
+              padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
+              borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${FARG.linje}`,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: AVSTAND.s }}>
+                <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
+                {!k.ledare && <StatusBadge status={m.status} />}
+              </div>
+              {k.saknarAnstNr && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
+                  <span style={{ ...TYP.meta, color: FARG.rod }}>Anställningsnummer saknas — går inte att skicka</span>
+                  <Lank smal onClick={() => onMal({ typ: "person", id: m.medarbetare_id })}>Fyll i</Lank>
+                </div>
+              )}
+
+              {/* Lönerader: varje löneart som har ett antal. Företagsledare har inga: lönen ligger utanför appen. */}
+              {k.ledare ? (
+                <p data-foretagsledare="" style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Företagsledare – lön utanför appen</p>
+              ) : (
+                <>
+                  <LoneradLista rader={loneraderAv(m)} />
+                  {k.helglon.map(t => <p key={t} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{t}</p>)}
+                </>
+              )}
+
+              {k.kolla.length > 0 && (
+                <>
+                  <p style={{ margin: `${AVSTAND.m}px 0 ${AVSTAND.xs}px`, ...TYP.micro, color: FARG.orange }}>Att kolla</p>
+                  {k.kolla.map(r => (
+                    <div key={r.id} data-kolla={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.s, minHeight: TRAFFYTA.min }}>
+                      <span style={{ ...TYP.meta, color: FARG.orange }}>{r.text}</span>
+                      {r.mal && <Lank smal onClick={() => onMal(r.mal!)} style={{ flexShrink: 0 }}>{r.knapp}</Lank>}
+                    </div>
+                  ))}
+                </>
+              )}
+              {k.info.map(r => <p key={r.id} {...(r.id.startsWith("utj-") ? { "data-utjamning-period": "" } : {})} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{r.text}</p>)}
+            </div>
+          );
+        })}
+      </Card>
     </>
   );
 }
 
+/** Skickat och fel är något att veta; UTKAST är normalläget och visas inte (det stod som ett märke på varje förare). */
 function StatusBadge({ status }: { status: string }) {
+  if (!status || status === "utkast") return null;
   const cfg: Record<string, { bg: string; fg: string; text: string }> = {
     utkast:  { bg: FARG.fyllning, fg: FARG.text2, text: "UTKAST" },
     skickat: { bg: FARG.fyllning, fg: FARG.gron, text: "SKICKAT" },

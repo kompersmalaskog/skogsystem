@@ -9,6 +9,7 @@ import { kor } from "./mutationsmotor.mjs";
 const SIDA = "components/admin/LonearterUnderflik.tsx";
 const RAD = "components/admin/LoneraderForhandsvisning.tsx";
 const FLIK = "components/admin/LonFlik.tsx";
+const LVY = "lib/admin/loneunderlagVy.ts";
 
 const M = [
   // ── Lönearter-sidan ──
@@ -27,32 +28,30 @@ const M = [
   ["första trycket på 'Skicka utan dessa rader' skickar direkt (inget andra steg)", '<Tertiar smal onClick={() => setSteg("bekrafta")}>', "<Tertiar smal onClick={() => onSkicka(true)}>", RAD],
   ["röd rad visas inte", '{r.status === "saknar_kod" && (', "{false && (", RAD],
   ["frivillig rad visas inte", '{r.status === "valfri_utan_kod" && (', "{false && (", RAD],
-  ["Fortnox-namnet visas inte bredvid koden", "{r.kod}{k?.namn ? ` · ${k.namn}` : \"\"}", "{r.kod}", RAD],
   ["spärrkortet visas även utan röda rader", "if (blockerande.length === 0) return null;", "if (false) return null;", RAD],
   ["Koppla koder gör ingenting", "<Primar onClick={onKoppla} style={{ marginTop: AVSTAND.m }}>", "<Primar onClick={() => {}} style={{ marginTop: AVSTAND.m }}>", RAD],
   ["begäran bär flaggan alltid", "skickaUtanSaknade ? { period, skicka_utan_saknade: true } : { period }", "{ period, skicka_utan_saknade: true }", FLIK],
   ["period ur adressen tar vilken text som helst", "/^\\d{4}-(0[1-9]|1[0-2])$/.test(p)", "/^.+$/.test(p)", FLIK],
   ["resultatet säger inte vad som uteblev", "exportResultat.utelamnade?.length > 0 && (", "false && (", FLIK],
   ["fliken Lönearter visas inte", '{aktiv === "lonearter" && <LonearterUnderflik />}', '{false && <LonearterUnderflik />}', FLIK],
-  ["samma varning står två gånger (rad + 'Påverkar riktigheten')", "|^Helglön|^Löneart saknas|skickas inte: ingen kod är kopplad/i.test(v)", "|^Helglön/i.test(v)", FLIK],
-  ["Fortnox-namnet visas utan 'I Fortnox:' (ser ut som en dubblett)", "`I Fortnox: ${m.beskrivning!.trim()}`", "m.beskrivning", SIDA],
+  ["samma varning står två gånger (rad + 'Att kolla')", "|^Helglön|^Löneart saknas|skickas inte: ingen kod är kopplad|", "|^Helglön|", LVY],
+  ["Fortnox-namnet visas utan 'I Fortnox:' (ser ut som en dubblett)", "? undefined : `I Fortnox: ${namn}`;", "? undefined : namn;", SIDA],
 
   // ── företagsledare och helglönens orsaker (2026-10-17) ──
-  ["företagsledare får lönerad-block i listan", "{ledare ? (", "{false ? (", FLIK],
-  ["företagsledare får status", "{!ledare && <StatusBadge status={m.status} />}", "<StatusBadge status={m.status} />", FLIK],
-  ["företagsledare ska ha anställningsnummer", "{!ledare && !m.anstallningsnummer && (", "{!m.anstallningsnummer && (", FLIK],
+  ["företagsledare får lönerad-block i listan", "{k.ledare ? (", "{false ? (", FLIK],
+  ["företagsledare ska ha anställningsnummer", "saknarAnstNr: !ledare && !m.anstallningsnummer", "saknarAnstNr: !m.anstallningsnummer", LVY],
   ["företagsledare räknas som medarbetare i periodraden", "const lonMedarbetare = medarbetare.filter((m: any) => !m.foretagsledare);", "const lonMedarbetare = medarbetare;", FLIK],
-  ["skicka-knappen styrs av företagsledare", "disabled={lonMedarbetare.every(", "disabled={medarbetare.every(", FLIK],
-  ["orsaken till uteblivd helglön visas inte", "h.ger === false ?", "false ?", FLIK],
+  ["skicka-knappen styrs av företagsledare", "const kanInteSkicka = lonMedarbetare.every(", "const kanInteSkicka = medarbetare.every(", FLIK],
+  ["orsaken till uteblivd helglön visas inte", "if (h.ger === false) kort.helglon.push(", "if (false) kort.helglon.push(", LVY],
   ["bekräftelsen listar företagsledare som vanliga förare", "{medarbetare.map((m, i) => m.foretagsledare ? (", "{medarbetare.map((m, i) => false ? (", RAD],
   ["bekräftelsen räknar företagsledare", "const antalLon = medarbetare.filter(m => !m.foretagsledare).length;", "const antalLon = medarbetare.length;", RAD],
   ["bekräftelsen varnar för företagsledarens varningar", "medarbetare.filter(m => !m.foretagsledare).some(m => m.varningar?.length > 0)", "medarbetare.some(m => m.varningar?.length > 0)", RAD],
 ];
 
 kor({
-  filer: [SIDA, RAD, FLIK],
+  filer: [SIDA, RAD, FLIK, LVY],
   tester: [],
   standardFil: SIDA,
   mutationer: M.slice(Number(process.env.MUT_FRAN ?? 0), Number(process.env.MUT_TILL ?? M.length)),
-  kommando: ["npx", "vitest", "run", "components/admin/Admin.render.test.tsx", "-t", "Lönearter: vad i appen|Löneunderlag: förhandsvisning rad för rad", "--reporter=dot"],
+  kommando: ["npx", "vitest", "run", "components/admin/Admin.render.test.tsx", "-t", "Lönearter: vad i appen|Löneunderlag: förhandsvisning rad för rad|Granskningen: Lön → Lönearter", "--reporter=dot"],
 });

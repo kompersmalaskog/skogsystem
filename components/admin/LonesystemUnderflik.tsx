@@ -2,16 +2,19 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Besked, Primar, Sekundar, Bekrafta, Laddar } from "./ui";
+import { Sektion, Stod, Lista, Rad, Besked, Primar, Sekundar, Destruktiv, Lank, Bekrafta, Laddar } from "./ui";
 import { SYSTEM_LABELS, IMPLEMENTERADE } from "@/lib/lonesystem";
 import type { SystemTyp, Koppling } from "@/lib/lonesystem/types";
-import { sparaAnstallningsnummer } from "@/lib/admin/anstallningsnummer";
+import { useAdminNav } from "./nav";
+import { relativTid, relativDatum, tokenGarUtSnart } from "@/lib/lonesystem/tokenStatus";
 
-const ALLA_SYSTEM: SystemTyp[] = ["fortnox", "visma", "hogia", "kontek", "crona", "agda", "csv"];
+/** Bara de som finns på riktigt. Fem knappar märkta "Stub" som inte gjorde något är borta. */
+const ALLA_SYSTEM: SystemTyp[] = ["fortnox", "csv"].filter(s => IMPLEMENTERADE.includes(s as SystemTyp)) as SystemTyp[];
 
-type Medarbetare = { id: string; namn: string | null };
+type Medarbetare = { id: string; namn: string | null; foretagsledare?: boolean | null };
 
 export default function LonesystemUnderflik() {
+  const { gaTill } = useAdminNav();
   const [valdSystem, setValdSystem] = useState<SystemTyp>("fortnox");
   const [koppling, setKoppling] = useState<Koppling | null>(null);
   const [laddar, setLaddar] = useState(true);
@@ -52,11 +55,16 @@ export default function LonesystemUnderflik() {
     setTestResultat(null);
     try {
       // Fortnox-status hämtas via server-route (tokens är krypterade i DB)
-      const [statusRes, kopplingRes, medRes] = await Promise.all([
+      const [statusRes, kopplingRes, medRes0] = await Promise.all([
         system === "fortnox" ? fetch("/api/fortnox/status").then(r => r.json()) : Promise.resolve(null),
         supabase.from("lonesystem_koppling").select("id, system_typ, aktiv, senast_synkad, skapad, token_utgar").eq("system_typ", system).maybeSingle(),
-        supabase.from("medarbetare").select("id, namn").order("namn"),
+        // Företagsledare får inga lönerader och behöver inget anställningsnummer. Kolumnen kommer med migrationen 20261013155407.
+        supabase.from("medarbetare").select("id, namn, foretagsledare").order("namn"),
       ]);
+      let medRes: { data: any[] | null; error: any } = medRes0 as any;
+      if (medRes0.error && /foretagsledare/i.test(String(medRes0.error.message || ""))) {
+        medRes = await supabase.from("medarbetare").select("id, namn").order("namn") as any;
+      }
 
       const k = kopplingRes.data as Koppling | null;
       // Merge status-API:ns connected-flag med DB-raden
@@ -118,17 +126,9 @@ export default function LonesystemUnderflik() {
     await ladda(valdSystem);
   };
 
-  // Skrivningen ger tillbaka FEL som text (raden visar det) — aldrig tyst. Löneartskoderna bor under Lön → Lönearter.
-  const sparaAnstallning = async (medarbetare_id: string, anstallningsnummer: string): Promise<string | null> => {
-    if (!koppling) return "Anslut systemet först — anställningsnumret hör till kopplingen.";
-    const fel = await sparaAnstallningsnummer(medarbetare_id, koppling.id, anstallningsnummer);
-    if (fel) return fel;
-    setAnstallningar(prev => ({ ...prev, [medarbetare_id]: anstallningsnummer.trim() }));
-    return null;
-  };
-
-  const stödjs = IMPLEMENTERADE.includes(valdSystem);
   const ansluten = !!koppling?.aktiv;
+  const tokenSnart = tokenGarUtSnart(koppling?.token_utgar);
+  const saknarNr = medarbetare.filter(m => m.foretagsledare !== true && !(anstallningar[m.id] || "").trim());
   const status = ansluten ? "Anslutet" : koppling ? "Uppgifter sparade, ej ansluten" : "Inte anslutet";
 
   return (
@@ -150,122 +150,71 @@ export default function LonesystemUnderflik() {
             <button key={s} type="button" onClick={() => setValdSystem(s)} aria-pressed={vald}
               style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, border: "none", cursor: "pointer", fontFamily: "inherit", background: vald ? FARG.fyllning : FARG.kort, color: vald ? FARG.text : FARG.text2, ...TYP.listtitel }}>
               {SYSTEM_LABELS[s]}
-              {!IMPLEMENTERADE.includes(s) && <span style={{ ...TYP.micro, color: FARG.text3, marginLeft: AVSTAND.s }}>Stub</span>}
             </button>
           );
         })}
       </div>
 
-      {/* Status */}
+      {/* Status: anslutet eller inte, och när det senast synkades. Token-datumet står bara när det går ut snart, med Förnya bredvid. */}
       <Sektion>Status</Sektion>
       {laddar ? (
         <Laddar />
       ) : (
         <Lista>
-          <StatusRad label="Anslutning" varde={status} farg={ansluten ? FARG.gron : koppling ? FARG.orange : FARG.text2} sista={!koppling?.token_utgar && !koppling?.senast_synkad} />
-          {koppling?.token_utgar && <StatusRad label="Token utgår" varde={new Date(koppling.token_utgar).toLocaleString("sv-SE")} sista={!koppling?.senast_synkad} />}
-          {koppling?.senast_synkad && <StatusRad label="Senast synkad" varde={new Date(koppling.senast_synkad).toLocaleString("sv-SE")} sista />}
+          <StatusRad label="Anslutning" varde={status} farg={ansluten ? FARG.gron : koppling ? FARG.orange : FARG.text2} sista={!tokenSnart && !koppling?.senast_synkad} />
+          {tokenSnart && (
+            <StatusRad label={tokenSnart.utgangen ? "Token har gått ut" : "Token går ut"} varde={relativDatum(koppling!.token_utgar!)} farg={FARG.orange}
+              hoger={<Lank smal onClick={koppla}>Förnya</Lank>} sista={!koppling?.senast_synkad} />
+          )}
+          {koppling?.senast_synkad && <StatusRad label="Senast synkad" varde={relativTid(koppling.senast_synkad)} sista />}
         </Lista>
       )}
-      {!laddar && !stödjs && (
-        <Stod farg={FARG.orange}>{SYSTEM_LABELS[valdSystem]} är ännu inte implementerat. Det går att fylla i uppgifter här, men anslutning och utskick är stubbar.</Stod>
-      )}
-      {valdSystem === "fortnox" && (
-        <Stod>Inloggningsuppgifterna (FORTNOX_CLIENT_ID, FORTNOX_CLIENT_SECRET) ligger i miljövariabler. Tokens krypteras med AES-256-GCM innan de sparas i databasen.</Stod>
-      )}
 
-      {/* Anslut-knappar */}
+      {/* Knappar */}
       <div style={{ marginTop: AVSTAND.l, display: "flex", flexDirection: "column", gap: AVSTAND.m }}>
         {valdSystem === "fortnox" && !ansluten && <Primar onClick={koppla}>Anslut till Fortnox</Primar>}
-        {ansluten && !bekraftaFranKoppling && <Sekundar onClick={() => setBekraftaFranKoppling(true)}>Koppla ifrån</Sekundar>}
-        {ansluten && bekraftaFranKoppling && (
-          <Bekrafta text="Koppla ifrån Fortnox? Tokens raderas och exporten slutar fungera tills du ansluter igen."
-            ja="Ja, koppla ifrån" onJa={koppla_ifrån} onNej={() => setBekraftaFranKoppling(false)} />
-        )}
-        {franKopplingFel && <Stod farg={FARG.rod}>{franKopplingFel}</Stod>}
         <Sekundar onClick={testaAnslutning} disabled={testar || !koppling}>{testar ? "Testar…" : "Testa anslutning"}</Sekundar>
       </div>
 
       {testResultat && <Besked slag={testResultat.ok ? "ok" : "fel"}>{testResultat.meddelande}</Besked>}
       {fel && <Besked>{fel}</Besked>}
 
-      {valdSystem === "fortnox" && (
-        <Stod attr={{ "data-lonearter-hanvisning": "" }}>Vilken löneart i Fortnox varje rad skickas som väljer du under Lön → Lönearter.</Stod>
+      {/* Anställningsnumret ändras på personen (Medarbetare). Här bara: vilka som saknar det, med knappen dit. */}
+      {koppling && saknarNr.length > 0 && (
+        <>
+          <Sektion topp={AVSTAND.xxl}>Anställningsnummer</Sektion>
+          <Lista>
+            <Rad attr={{ "data-saknar-anstnr": "" }} rubrik={`${saknarNr.length} saknar anställningsnummer`}
+              detalj={saknarNr.map(m => (m.namn || "Namnlös").split(" ")[0]).join(", ")}
+              hoger={<Lank smal onClick={() => gaTill(saknarNr.length === 1 ? { flik: "medarbetare", params: { person: saknarNr[0].id } } : { flik: "medarbetare" })}>Fyll i</Lank>} sista />
+          </Lista>
+        </>
       )}
 
-      {/* Mappa anställningsnummer */}
-      <Sektion topp={AVSTAND.xxl}>Anställningsnummer</Sektion>
-      {medarbetare.length === 0 ? (
-        <Kort><Stod style={{ marginTop: 0 }}>Inga medarbetare.</Stod></Kort>
-      ) : (
-        <Lista>
-          {medarbetare.map((m, i) => (
-            <AnstallningRad
-              key={m.id}
-              namn={m.namn || "Namnlös"}
-              befintligt={anstallningar[m.id] || ""}
-              disabled={!koppling}
-              onSpara={(nr) => sparaAnstallning(m.id, nr)}
-              sista={i === medarbetare.length - 1}
-            />
-          ))}
-        </Lista>
-      )}
-      {!koppling && (
-        <Stod>Anslut {SYSTEM_LABELS[valdSystem]} först för att kunna fylla i anställningsnummer.</Stod>
+      {/* Koppla ifrån: sist och röd — det stoppar exporten. */}
+      {ansluten && (
+        <div style={{ marginTop: AVSTAND.xxl }}>
+          {!bekraftaFranKoppling ? (
+            <div style={{ display: "flex", justifyContent: "center" }}><Destruktiv smal onClick={() => setBekraftaFranKoppling(true)}>Koppla ifrån</Destruktiv></div>
+          ) : (
+            <Bekrafta text="Koppla ifrån Fortnox? Tokens raderas och exporten slutar fungera tills du ansluter igen."
+              ja="Ja, koppla ifrån" onJa={koppla_ifrån} onNej={() => setBekraftaFranKoppling(false)} />
+          )}
+          {franKopplingFel && <Stod farg={FARG.rod}>{franKopplingFel}</Stod>}
+        </div>
       )}
     </>
   );
 }
 
-function StatusRad({ label, varde, farg, sista }: { label: string; varde: string; farg?: string; sista?: boolean }) {
+function StatusRad({ label, varde, farg, sista, hoger }: { label: string; varde: string; farg?: string; sista?: boolean; hoger?: React.ReactNode }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
       <span style={{ ...TYP.meta, color: FARG.text2 }}>{label}</span>
-      <span style={{ ...TYP.listtitel, color: farg || FARG.text }}>{varde}</span>
-    </div>
-  );
-}
-
-const radFalt = {
-  minHeight: TRAFFYTA.min, boxSizing: "border-box" as const, background: FARG.upphojt, border: "none", borderRadius: RADIE.rad,
-  padding: `0 ${AVSTAND.m}px`, color: FARG.text, fontFamily: "inherit", outline: "none", minWidth: 0, ...TYP.text,
-};
-
-function SparaKnapp({ aktiv, upptagen, onClick }: { aktiv: boolean; upptagen: boolean; onClick: () => void }) {
-  return (
-    <Sekundar smal onClick={onClick} disabled={!aktiv || upptagen} style={{ flexShrink: 0 }}>{upptagen ? "…" : "Spara"}</Sekundar>
-  );
-}
-
-function AnstallningRad({
-  namn, befintligt, disabled, onSpara, sista,
-}: {
-  namn: string;
-  befintligt: string;
-  disabled: boolean;
-  onSpara: (nr: string) => Promise<string | null>;
-  sista: boolean;
-}) {
-  const [nr, setNr] = useState(befintligt);
-  const [fel, setFel] = useState<string | null>(null);
-  const [sparar, setSparar] = useState(false);
-  useEffect(() => { setNr(befintligt); }, [befintligt]);
-  const ändrat = nr.trim() !== befintligt;
-  const spara = async () => {
-    setSparar(true); setFel(null);
-    setFel(await onSpara(nr));
-    setSparar(false);
-  };
-  return (
-    <div style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: AVSTAND.s }}>
-        <span style={{ ...TYP.text, color: FARG.text, flex: "1 1 160px" }}>{namn}</span>
-        <input aria-label={`${namn}, anställningsnummer`} value={nr} onChange={e => setNr(e.target.value)} placeholder="Anst.nr" disabled={disabled}
-          style={{ ...radFalt, flex: "0 1 160px", opacity: disabled ? 0.4 : 1 }} />
-        <SparaKnapp aktiv={ändrat && !disabled} upptagen={sparar} onClick={spara} />
-      </div>
-      {fel && <Stod farg={FARG.rod}>{fel}</Stod>}
+      <span style={{ display: "flex", alignItems: "center", gap: AVSTAND.s }}>
+        <span style={{ ...TYP.listtitel, color: farg || FARG.text }}>{varde}</span>
+        {hoger}
+      </span>
     </div>
   );
 }

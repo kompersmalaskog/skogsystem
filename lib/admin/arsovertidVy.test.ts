@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { arsovertidRader, arsovertidNiva, timmarText, utjamningsRad, unikaUtjamningar, VARNING_UNDER_TAK_H, type ArsovertidSvar } from "./arsovertidVy";
+import { arsovertidRader, arsovertidNiva, timmarText, utjamningsRad, unikaUtjamningar, narmarTaket, overlapparManad, VISA_FRAN_ANDEL, VARNING_UNDER_TAK_H, type ArsovertidSvar } from "./arsovertidVy";
 
 // Svaret från /api/lon/arsovertid så som det ser ut i prod 2026-10-09 (skrivskyddad torrkörning av beraknaArsovertid mot
 // prod-data): alla fyra modellernas tal per förare. Vyn visar BARA avtalets modell (genomsnitt): samma tal som kolumnen
@@ -121,5 +121,36 @@ describe("unikaUtjamningar: EN rad per period, inte en per förare", () => {
   it("tom lista och saknad lista ger inga rader", () => {
     expect(unikaUtjamningar([])).toEqual([]);
     expect(unikaUtjamningar(undefined)).toEqual([]);
+  });
+});
+
+describe("narmarTaket: bara de som kommit halvvägs", () => {
+  it("prod idag: Stefan 74,5 av 250 (30 %) är inte halvvägs — ingen rad syns, 'ingen närmar sig taket'", () => {
+    expect(narmarTaket(arsovertidRader(PROD_IDAG))).toEqual([]);
+  });
+  it("exakt halvvägs räknas med; strax under gör det inte", () => {
+    const svar = (t: number): ArsovertidSvar => ({ ok: true, tak: 250, medarbetare: [{ medarbetare_id: "a", namn: "A", timmar: 0, modeller: { genomsnitt: t, vardagar: 0, dagar: 0, vecka: 0 } }] });
+    expect(VISA_FRAN_ANDEL).toBe(0.5);
+    expect(narmarTaket(arsovertidRader(svar(125))).map(r => r.id)).toEqual(["a"]);
+    expect(narmarTaket(arsovertidRader(svar(124.9))).map(r => r.id)).toEqual([]);
+  });
+  it("de som närmar sig taket och de som passerat behålls, störst först", () => {
+    const svar: ArsovertidSvar = { ok: true, tak: 250, medarbetare: [
+      { medarbetare_id: "a", namn: "A", timmar: 0, modeller: { genomsnitt: 130, vardagar: 0, dagar: 0, vecka: 0 } },
+      { medarbetare_id: "b", namn: "B", timmar: 0, modeller: { genomsnitt: 260, vardagar: 0, dagar: 0, vecka: 0 } },
+      { medarbetare_id: "c", namn: "C", timmar: 0, modeller: { genomsnitt: 0, vardagar: 0, dagar: 0, vecka: 0 } },
+    ] };
+    expect(narmarTaket(arsovertidRader(svar)).map(r => r.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("overlapparManad: utjämningsraden visas bara när perioden berör månaden", () => {
+  const gavle = { startdatum: "2026-04-20", slutdatum: "2026-07-05" };
+  it("april–juli berör maj men inte januari eller augusti", () => {
+    expect(overlapparManad(gavle, "2026-05")).toBe(true);
+    expect(overlapparManad(gavle, "2026-04")).toBe(true);
+    expect(overlapparManad(gavle, "2026-07")).toBe(true);
+    expect(overlapparManad(gavle, "2025-12")).toBe(false);
+    expect(overlapparManad(gavle, "2026-08")).toBe(false);
   });
 });

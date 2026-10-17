@@ -7,14 +7,14 @@
 import React, { useState } from "react";
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TYP } from "@/lib/design/tokens";
 import { Kort } from "./ui";
-import { arsovertidRader, timmarText, unikaUtjamningar, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
+import { arsovertidRader, narmarTaket, overlapparManad, timmarText, unikaUtjamningar, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
 
 const FARG_PER_NIVA: Record<Niva, string> = { noll: FARG.text3, lugn: FARG.text2, varning: FARG.orange, over: FARG.rod };
 
 const periodText = (p: any) =>
   `v${p.fran}–${p.till}${p.markerad ? " (markerad)" : " (antagen)"}: ${timmarText(Number(p.timmar))} tim mot bas ${timmarText(Number(p.bas ?? 40 * Number(p.veckor)))} → ${timmarText(Number(p.overtid))}`;
 
-export default function ArsovertidKort({ svar }: { svar: ArsovertidSvar }) {
+export default function ArsovertidKort({ svar, manad }: { svar: ArsovertidSvar; /** Arbetsmånaden som visas (YYYY-MM): utjämningsraden visas bara när perioden berör den. */ manad?: string }) {
   const [oppen, setOppen] = useState(false);
   const rubrik = <p style={{ ...TYP.micro, color: FARG.text2, margin: `0 0 ${AVSTAND.m}px` }}>Årsövertid {svar.ar ?? new Date().getFullYear()}</p>;
 
@@ -27,8 +27,10 @@ export default function ArsovertidKort({ svar }: { svar: ArsovertidSvar }) {
     );
   }
 
-  const rader = arsovertidRader(svar);
-  const utjamning = unikaUtjamningar(svar.utjamning);
+  const alla = arsovertidRader(svar);
+  const rader = narmarTaket(alla);
+  const hogst = alla.length > 0 ? alla[0] : null; // sorterad på timmar, störst först
+  const utjamning = unikaUtjamningar(svar.utjamning).filter(u => !manad || overlapparManad(u, manad));
   const perioderPerForare = (svar.medarbetare || []).filter(m => Array.isArray(m.perioder) && m.perioder.length > 0);
 
   return (
@@ -36,8 +38,11 @@ export default function ArsovertidKort({ svar }: { svar: ArsovertidSvar }) {
       <div data-arsovertid-kort>
       {rubrik}
 
-      {rader.length === 0 && (
+      {alla.length === 0 && (
         <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Ingen förare har registrerad arbetstid i år än.</p>
+      )}
+      {alla.length > 0 && rader.length === 0 && hogst && (
+        <p data-arsovertid-ingen style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>{hogst.timmar > 0 ? `Ingen närmar sig taket · högst ${timmarText(hogst.timmar)} av ${hogst.tak} tim` : "Ingen närmar sig taket · ingen övertid än"}</p>
       )}
       {rader.map((r, i) => (
         <div key={r.id} data-arsovertid-rad data-niva={r.niva}
