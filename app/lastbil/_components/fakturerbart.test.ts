@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { arGodkand, kanRedigeras, kmAndrad, kmAndringsText, kundAndringsText, sorteraUnderlag, summeraFakturerbart, underlagStatus, type FaktureratRad, type UnderlagRad } from './fakturerbart';
+import { arGodkand, kanRedigeras, kmAndrad, kmAndringsText, kundAndringsText, sorteraUnderlag, strackaNotis, summeraFakturerbart, underlagStatus, type FaktureratRad, type UnderlagRad } from './fakturerbart';
 
 // De åtta riktiga raderna i fakturaunderlag_flytt (prod 2026-10-15, efter backfill-godkännandet):
 // alla status 'aktiv', ingen fakturerad, alla godkända med skapad_tid.
@@ -120,5 +120,20 @@ describe('redigerade värden: märkningen följer av att värdet skiljer sig fr�
     expect(kanRedigeras(f({ godkand_tid: 'x' }))).toBe(true);
     expect(kanRedigeras(f({ godkand_tid: 'x', fakturerad_tid: 'y' }))).toBe(false);
     expect(kanRedigeras(f({ status: 'struken' }))).toBe(false);
+  });
+});
+
+describe('strackaNotis — det mätta står bara när det skiljer sig från det fakturerade', () => {
+  it('samma tal: bara fakturerat ("53 km"), inte "· mätt 53"', () => {
+    expect(strackaNotis(53, 53)).toBe('53 km');
+    expect(strackaNotis(46.6, 46.6)).toBe('46,6 km');
+  });
+  it('rättat km: fakturerat och mätt', () => {
+    expect(strackaNotis(48, 53)).toBe('48 km · mätt 53');
+  });
+  it('saknas ett av dem är det en skillnad och det står; saknas båda står bara att km saknas', () => {
+    expect(strackaNotis(44, null)).toBe('44 km · mätt saknas i datan');
+    expect(strackaNotis(null, 53)).toBe('km saknas i datan · mätt 53');
+    expect(strackaNotis(null, null)).toBe('km saknas i datan');
   });
 });

@@ -138,8 +138,18 @@ export function kundNotis(r: Pick<UnderlagRad, 'kund' | 'kund_original' | 'redig
   return `Ändrad från ${orig}`;
 }
 
-/** Sträckan i fakturan bredvid det mätta: "53 km · mätt 53" · "48 km · mätt 53". Saknas värdet står det. */
+/**
+ * Sträckan som faktureras: "53 km". Det mätta tas bara med när det SKILJER sig ("48 km · mätt 53") — står samma tal två
+ * gånger är det brus. Saknas ett av talen är det en skillnad, och det står ("km saknas i datan · mätt 53").
+ */
 export function strackaNotis(km: number | null, matt: number | null): string {
   const fakt = km != null ? `${fmtKm(km)} km` : 'km saknas i datan';
-  return matt != null ? `${fakt} · mätt ${fmtKm(matt)}` : fakt;
+  return mattSkiljer(km, matt) ? `${fakt} · ${mattText(matt)}` : fakt;
 }
+
+/** Skiljer den fakturerade sträckan från den mätta? Saknas bara det ena är det en skillnad; saknas båda är det inte. */
+export const mattSkiljer = (km: number | null, matt: number | null): boolean =>
+  km == null || matt == null ? km !== matt : Math.abs(km - matt) > 1e-9;
+
+/** "mätt 53" — eller att mätningen saknas. */
+export const mattText = (matt: number | null): string => (matt != null ? `mätt ${fmtKm(matt)}` : 'mätt saknas i datan');

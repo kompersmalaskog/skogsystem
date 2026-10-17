@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { beraknaFakturerbar } from '@/lib/flytt/fakturerbar'
+import { fakturerbarEffektiv } from '@/lib/flytt/fakturerbar'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { haversine } from '@/utils/geo'
 import { vaderIkon } from './vader'
@@ -52,8 +52,9 @@ const FLYTT_TYP_LABEL: Record<FlyttTyp, string> = {
   produktion: 'Produktion', service: 'Service', kunduppdrag: 'Kunduppdrag', annat: 'Annat',
 }
 
-// Fakturerbar-regeln bor i lib/flytt/fakturerbar.ts (och i databasen: fakturerbar_for, som räknar om den vid
-// varje rättning). Två implementationer, ett gemensamt test — se filen.
+// Fakturerbar-regeln bor i lib/flytt/fakturerbar.ts (och i databasen: fakturerbar_effektiv, som räknar om den vid
+// varje rättning). Två implementationer, ett gemensamt test — se filen. Det manuella valet
+// (maskin_flytt.fakturerbar_manuell) sätter bara admin i Lastbilen; förarflödet följer alltid regeln (null).
 
 interface Maskin {
   maskin_id: string
@@ -1005,8 +1006,8 @@ export default function MaskinflyttClient() {
     ])
     const flyttKm = flytt.km
     // fakturerbar: EN regel, per typ (produktion=km-gräns, service=aldrig,
-    // kunduppdrag=alltid, annat=aldrig). Tomkörning/tillkörning aldrig.
-    const fakturerbar = beraknaFakturerbar(flyttTyp, flyttKm)
+    // kunduppdrag=alltid, annat=aldrig). Tomkörning/tillkörning aldrig. Ett nytt flytt har inget manuellt val än (null).
+    const fakturerbar = fakturerbarEffektiv(flyttTyp, flyttKm, null)
     const nu = new Date().toISOString()
 
     const minMellan = (fran: string | null, till: string) =>

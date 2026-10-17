@@ -4,17 +4,17 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Ark from '@/components/design/Ark';
 import Sektion from '@/components/design/Sektion';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, RAD, RADIE, TNUM, TYP } from '@/lib/design/tokens';
-import { FLYTT_TYPER, FLYTT_TYP_ORD } from '@/lib/flytt/fakturerbar';
+import { automatisktSkal, beraknaFakturerbar, fakturerbarEffektiv, FLYTT_TYPER, FLYTT_TYP_ORD } from '@/lib/flytt/fakturerbar';
 import { forhandsbesked } from '@/lib/flytt/forhandsbesked';
 import { fmtDatum } from './nu';
-import { fmtKm, kundNotis, strackaNotis } from './fakturerbart';
+import { fmtKm, kundNotis, mattSkiljer, mattText, strackaNotis } from './fakturerbart';
 import { angraGodkannande, andraFlytt } from './godkann';
 import { gransText, tolkaKm } from './kmRegler';
 import { andradeFalt, kravKund, kvittoText, rattaFlytt, strykEnFlytt, type Falt } from './ratta';
 import { beskrivRattning } from './rattningText';
 import { useFlyttDetalj, type FlyttDetalj } from './useFlyttDetalj';
 import type { Rattning } from './useFlyttDetalj';
-import { platsVarning } from './platsVarning';
+import { platsAvstand, traktMeddelande } from './platsVarning';
 import { usePlatsData, type PlatsData, type PlatsKandidat } from './usePlatsData';
 
 type Vy = 'huvud' | 'maskin' | 'fran' | 'till' | 'typ' | 'stryk';
@@ -27,7 +27,9 @@ const TYP_RAD: Record<string, string> = {
   annat: 'Aldrig fakturerbar',
 };
 const MAX_TRAFFAR = 30;
-export const KOORD_VARNING = 'Sträckan räknades från den gamla trakten — kontrollera km.';
+const AUTO_RAD = (typ: string, km: number | null) => `Automatiskt: ${beraknaFakturerbar(typ, km) ? 'ja' : 'nej'} — ${automatisktSkal(typ, km)}`;
+/** Kund utan värde är "Ingen" — frånvaro är ett svar, inte ett datafel. */
+const kundVarde = (k: string | null | undefined): string => (k ?? '').trim() || 'Ingen';
 
 const maskinNamn = (data: PlatsData | null, id: string | null, extern: string | null): string =>
   extern?.trim() ? extern.trim() : id ? (data?.maskiner.find(m => m.maskin_id === id)?.namn ?? 'Okänd maskin') : 'Välj maskin';
@@ -61,8 +63,22 @@ function ValRad({ etikett, varde, notis, notisFarg = FARG.text2, varning, sista,
         <div style={{ ...RAD, borderBottom: 'none' }}>{rad}</div>
       )}
       {notis && <div style={{ ...TYP.meta, color: notisFarg, paddingBottom: AVSTAND.s }}>{notis}</div>}
-      {varning && <div role="note" style={{ ...TYP.meta, color: FARG.orange, paddingBottom: AVSTAND.s }}>{varning}</div>}
+      {varning && <div role="note" data-varning style={{ ...TYP.meta, color: FARG.orange, paddingBottom: AVSTAND.s }}>{varning}</div>}
     </div>
+  );
+}
+
+/** Reglaget "Fakturera": en rad som är hela knappen (träffyta minst 44). Samma mönster som "Faktureras" i Planera. */
+function FakturaBrytare({ pa, onByt }: { pa: boolean; onByt: () => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={pa} aria-label="Fakturera" onClick={onByt}
+      style={{ ...RAD, borderBottom: 'none', width: '100%', background: 'none', border: 'none', textAlign: 'left', font: 'inherit', cursor: 'pointer', color: FARG.text }}>
+      <span style={{ ...TYP.text, color: FARG.text }}>Fakturera</span>
+      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+        <span style={{ ...TYP.meta, color: pa ? FARG.text : FARG.text2 }}>{pa ? 'Ja' : 'Nej'}</span>
+        <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.rad, color: pa ? FARG.gron : FARG.text3 }}>{pa ? 'toggle_on' : 'toggle_off'}</span>
+      </span>
+    </button>
   );
 }
 
@@ -174,7 +190,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const forare = detalj.lage.lage === 'klar' ? detalj.lage.forare : null;
 
   const [vy, setVy] = useState<Vy>('huvud');
-  const [form, setForm] = useState<{ maskinId: string | null; extern: string; fran: Plats; till: Plats; typ: string; kund: string; km: string } | null>(null);
+  const [form, setForm] = useState<{ maskinId: string | null; extern: string; fran: Plats; till: Plats; typ: string; kund: string; km: string; manuell: boolean | null } | null>(null);
   const [anledning, setAnledning] = useState('');
   const [stryktAnledning, setStryktAnledning] = useState('');
   const [sparar, setSparar] = useState(false);
@@ -187,6 +203,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
       maskinId: flytt.maskin_id, extern: flytt.extern_maskin ?? '',
       fran: { objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id }, till: { objekt: flytt.till_objekt_id, plats: flytt.till_plats_id },
       typ: flytt.flytt_typ, kund: (u ? u.kund : flytt.kund) ?? '', km: u?.km == null ? '' : String(u.km).replace('.', ','),
+      manuell: flytt.fakturerbar_manuell,
     });
   }, [flytt, u, form]);
 
@@ -232,6 +249,15 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
     : u?.godkand_tid ? 'Godkänd — lämna tillbaka till Att godkänna för att ändra'
     : null;
   if (lasText) {
+    // FAKTURA visas alltid — "Nej" och "Avgörs när flytten avslutas" är svar, inte frånvaro. Sträcka och kund bara när flytten faktureras.
+    const lasAuto = beraknaFakturerbar(flytt.flytt_typ, matt);
+    const lasFakturera = flytt.sluttid == null ? { varde: 'Avgörs när flytten avslutas', notis: null as string | null }
+      : flytt.avbruten ? { varde: 'Nej', notis: 'Flytten är struken' }
+      : { varde: flytt.fakturerbar ? 'Ja' : 'Nej',
+          notis: flytt.fakturerbar_manuell != null && flytt.fakturerbar_manuell !== lasAuto
+            ? `Valt manuellt — automatiskt hade det varit ${lasAuto ? 'ja' : 'nej'} (${automatisktSkal(flytt.flytt_typ, matt)})`
+            : AUTO_RAD(flytt.flytt_typ, matt) };
+    const lasVisaFaltenUnder = !!u && !flytt.avbruten && flytt.sluttid != null && flytt.fakturerbar;
     const kanLamnaTillbaka = !flytt.avbruten && flytt.sluttid != null && !!u?.godkand_tid && !u.fakturerad_tid;
     const lamnaTillbaka = async () => {
       if (sparar || !u) return;
@@ -260,12 +286,15 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
             <ValRad etikett="Till" varde={nuPlats(form.till)} />
             <ValRad etikett="Typ" varde={FLYTT_TYP_ORD[form.typ as keyof typeof FLYTT_TYP_ORD] ?? form.typ} sista />
           </Sektion>
-          {u && (
-            <Sektion rubrik="Faktura" inset>
-              <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} />
-              <ValRad etikett="Kund" varde={u.kund ?? 'saknas i datan'} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
-            </Sektion>
-          )}
+          <Sektion rubrik="Faktura" inset>
+            <ValRad etikett="Fakturera" varde={lasFakturera.varde} notis={lasFakturera.notis} sista={!lasVisaFaltenUnder} />
+            {lasVisaFaltenUnder && u && (
+              <>
+                <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} />
+                <ValRad etikett="Kund" varde={kundVarde(u.kund)} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
+              </>
+            )}
+          </Sektion>
           <p role="status" data-last style={{ ...TYP.text, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
             <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.rad }}>lock</span>
             {lasText}
@@ -284,21 +313,26 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const fakturaRedigerbar = !!u && u.status === 'aktiv';
   const fore: Falt = {
     maskin_id: flytt.maskin_id, extern_maskin: flytt.extern_maskin, fran_objekt_id: flytt.fran_objekt_id, fran_plats_id: flytt.fran_plats_id,
-    till_objekt_id: flytt.till_objekt_id, till_plats_id: flytt.till_plats_id, flytt_typ: flytt.flytt_typ, kund: flytt.kund,
+    till_objekt_id: flytt.till_objekt_id, till_plats_id: flytt.till_plats_id, flytt_typ: flytt.flytt_typ, kund: flytt.kund, fakturerbar_manuell: flytt.fakturerbar_manuell,
   };
   const kundNy = f.kund.trim() || null;
   // Kund hör till flytten bara när typen är Kunduppdrag (databasens CHECK kräver den då); annars är kunden en uppgift på fakturan.
   const nu: Falt = {
     maskin_id: f.extern.trim() ? null : f.maskinId, extern_maskin: f.extern.trim() || null,
     fran_objekt_id: f.fran.objekt, fran_plats_id: f.fran.plats, till_objekt_id: f.till.objekt, till_plats_id: f.till.plats,
-    flytt_typ: f.typ, kund: f.typ === 'kunduppdrag' ? kundNy : flytt.kund,
+    flytt_typ: f.typ, kund: f.typ === 'kunduppdrag' ? kundNy : flytt.kund, fakturerbar_manuell: f.manuell,
   };
   const flyttAndringar = andradeFalt(fore, nu);
   const kundMedFlytt = 'kund' in flyttAndringar;
+  // Fakturera: det manuella valet går före regeln (null = följ den). Sträcka och kund finns bara att rätta medan flytten faktureras.
+  const autoNu = beraknaFakturerbar(f.typ, matt);
+  const faktureraNu = fakturerbarEffektiv(f.typ, matt, f.manuell);
+  const manuellAvviker = f.manuell !== null && f.manuell !== autoNu;
+  const visaFaktureringsfalt = fakturaRedigerbar && faktureraNu;
   const nyKm = tolkaKm(f.km);
-  const kmOk = !fakturaRedigerbar || (f.km.trim() === '' ? u!.km == null : nyKm != null);
-  const kmAndrat = fakturaRedigerbar && nyKm != null && (u!.km == null || Math.abs(nyKm - u!.km) > 1e-9);
-  const kundAndratFaktura = fakturaRedigerbar && !kundMedFlytt && kundNy !== ((u!.kund ?? '').trim() || null);
+  const kmOk = !visaFaktureringsfalt || (f.km.trim() === '' ? u!.km == null : nyKm != null);
+  const kmAndrat = visaFaktureringsfalt && nyKm != null && (u!.km == null || Math.abs(nyKm - u!.km) > 1e-9);
+  const kundAndratFaktura = visaFaktureringsfalt && !kundMedFlytt && kundNy !== ((u!.kund ?? '').trim() || null);
   const harFlyttAndring = Object.keys(flyttAndringar).length > 0;
   const harFakturaAndring = kmAndrat || kundAndratFaktura;
   const kundOk = kravKund(f.typ, kundNy);
@@ -309,15 +343,23 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   // Åt båda hållen: Produktion → Service stryker underlaget, Service → Produktion ≥ 30 km skapar ett.
   const besked = forhandsbesked(
     { typ: flytt.flytt_typ, km: matt, fakturerbar: flytt.fakturerbar, maskinId: flytt.maskin_id, externMaskin: flytt.extern_maskin },
-    { typ: f.typ, maskinId: f.extern.trim() ? null : f.maskinId, externMaskin: f.extern.trim() || null },
+    { typ: f.typ, manuell: f.manuell, maskinId: f.extern.trim() ? null : f.maskinId, externMaskin: f.extern.trim() || null },
     maskinNamn(data, f.maskinId, null),
   );
-  // Koordinaterna (och km) kom från den valda trakten: byts Från eller Till ligger de kvar från fel ställe. Bara info, blockerar inte.
-  const franAndrad = f.fran.objekt !== flytt.fran_objekt_id || f.fran.plats !== flytt.fran_plats_id;
-  const tillAndrad = f.till.objekt !== flytt.till_objekt_id || f.till.plats !== flytt.till_plats_id;
-  if (flytt.koord_kalla === 'objekt' && (franAndrad || tillAndrad)) besked.push(KOORD_VARNING);
-  const stryks = besked.some(r => r.startsWith('Blir inte fakturerbar'));
-  if (stryks && harFakturaAndring) besked.push('Ändringar under Faktura sparas inte — underlaget stryks');
+  // Allt om en ändrad trakt är EN text under raden som ändrats (Till, annars Från) — aldrig utspritt, aldrig nere vid Spara:
+  // stället ligger långt från där bilen var, och/eller sträckan räknades från den gamla trakten (koordinaterna och km kom
+  // från den valda trakten). Bara info, blockerar inte.
+  const foreFran: Plats = { objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id };
+  const foreTill: Plats = { objekt: flytt.till_objekt_id, plats: flytt.till_plats_id };
+  const franAndrad = f.fran.objekt !== foreFran.objekt || f.fran.plats !== foreFran.plats;
+  const tillAndrad = f.till.objekt !== foreTill.objekt || f.till.plats !== foreTill.plats;
+  const franAvst = platsAvstand(f.fran, foreFran, { lat: flytt.fran_lat, lng: flytt.fran_lng }, data);
+  const tillAvst = platsAvstand(f.till, foreTill, { lat: flytt.till_lat, lng: flytt.till_lng }, data);
+  const gamlaTrakter = [franAndrad && foreFran.objekt ? nuPlats(foreFran) : null, tillAndrad && foreTill.objekt ? nuPlats(foreTill) : null].filter((x): x is string => !!x);
+  const traktText = traktMeddelande({
+    avstand: [franAvst && { ...franAvst, ord: 'där maskinen hämtades' }, tillAvst && { ...tillAvst, ord: 'där maskinen lämnades' }].filter((x): x is NonNullable<typeof x> => !!x),
+    koord: flytt.koord_kalla === 'objekt' && gamlaTrakter.length > 0 ? { matt, gamla: gamlaTrakter } : null,
+  });
 
   async function spara() {
     if (!klar) return;
@@ -362,15 +404,13 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
   const tillNamn = nuPlats({ objekt: flytt.till_objekt_id, plats: flytt.till_plats_id });
   const harPosition = !!flytt.maskin_id && flytt.till_lat != null && flytt.till_lng != null;
   // Utan underlag finns ingen Kund-rad under FAKTURA: ett kunduppdrag får sin kund i FLYTTEN i stället (kravet är databasens).
-  const kundIFlytten = !fakturaRedigerbar && f.typ === 'kunduppdrag';
-  const franVarning = platsVarning(f.fran, { objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id }, { lat: flytt.fran_lat, lng: flytt.fran_lng }, 'där maskinen hämtades', data);
-  const tillVarning = platsVarning(f.till, { objekt: flytt.till_objekt_id, plats: flytt.till_plats_id }, { lat: flytt.till_lat, lng: flytt.till_lng }, 'där bilen lämnade maskinen', data);
+  const kundIFlytten = !visaFaktureringsfalt && f.typ === 'kunduppdrag';
 
   const kundRad = (
     <div>
       <label style={{ ...RAD, borderBottom: 'none' }}>
         <span style={{ ...TYP.text, color: FARG.text }}>Kund</span>
-        <input value={f.kund} onChange={e => set({ kund: e.target.value })} aria-label="Kund" placeholder="saknas i datan"
+        <input value={f.kund} onChange={e => set({ kund: e.target.value })} aria-label="Kund" placeholder="Ingen"
           style={{ ...TYP.text, color: FARG.text, background: 'none', border: 'none', marginLeft: 'auto', textAlign: 'right', fontFamily: 'inherit', minWidth: 0, flex: 1, minHeight: 36 }} />
       </label>
       {u && kundNotis(u, fmtDatum) && <div style={{ ...TYP.meta, color: FARG.orange, paddingBottom: AVSTAND.s }}>{kundNotis(u, fmtDatum)}</div>}
@@ -431,44 +471,59 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
         ) : undefined}>
             <ValRad etikett="Maskin" varde={maskinNamn(data, f.maskinId, f.extern)} onTryck={() => setVy('maskin')}
               notis={nu.maskin_id !== fore.maskin_id || nu.extern_maskin !== fore.extern_maskin ? `Ändras från ${maskinNamn(data, flytt.maskin_id, flytt.extern_maskin)}` : null} notisFarg={FARG.orange} />
-            <ValRad etikett="Från" varde={nuPlats(f.fran)} onTryck={() => setVy('fran')} varning={franVarning}
+            <ValRad etikett="Från" varde={nuPlats(f.fran)} onTryck={() => setVy('fran')} varning={tillAndrad ? null : traktText}
               notis={f.fran.objekt !== flytt.fran_objekt_id || f.fran.plats !== flytt.fran_plats_id ? `Ändras från ${nuPlats({ objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id })}` : null} notisFarg={FARG.orange} />
-            <ValRad etikett="Till" varde={nuPlats(f.till)} onTryck={() => setVy('till')} varning={tillVarning}
+            <ValRad etikett="Till" varde={nuPlats(f.till)} onTryck={() => setVy('till')} varning={tillAndrad ? traktText : null}
               notis={f.till.objekt !== flytt.till_objekt_id || f.till.plats !== flytt.till_plats_id ? `Ändras från ${nuPlats({ objekt: flytt.till_objekt_id, plats: flytt.till_plats_id })}` : null} notisFarg={FARG.orange} />
             <ValRad etikett="Typ" varde={FLYTT_TYP_ORD[f.typ as keyof typeof FLYTT_TYP_ORD] ?? f.typ} onTryck={() => setVy('typ')} sista={!kundIFlytten}
               notis={f.typ !== flytt.flytt_typ ? `Ändras från ${FLYTT_TYP_ORD[flytt.flytt_typ as keyof typeof FLYTT_TYP_ORD] ?? flytt.flytt_typ}` : null} notisFarg={FARG.orange} />
             {kundIFlytten && kundRad}
         </Sektion>
 
-        {u && (
-          <Sektion rubrik="Faktura" inset>
-            {fakturaRedigerbar ? (
-              <>
-                <div style={{ borderBottom: `1px solid ${FARG.linje}` }}>
-                  <label style={{ ...RAD, borderBottom: 'none' }}>
-                    <span style={{ ...TYP.text, color: FARG.text }}>Sträcka</span>
-                    <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.text, ...TNUM, color: FARG.text2 }}>
-                      <input value={f.km} onChange={e => set({ km: e.target.value })} inputMode="decimal" aria-label="Sträcka i km"
-                        style={{ ...TYP.text, ...TNUM, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, width: 72, textAlign: 'right', fontFamily: 'inherit', minHeight: 36, boxSizing: 'border-box' }} />
-                      <span data-matt>km{matt != null ? ` · mätt ${fmtKm(matt)}` : ' · mätt saknas i datan'}</span>
-                    </span>
-                  </label>
-                  {f.km.trim() !== '' && nyKm == null && <div role="alert" style={{ ...TYP.meta, color: FARG.rod, paddingBottom: AVSTAND.s }}>Skriv km som ett tal större än noll.</div>}
-                  {grans && <div role="note" style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>{grans}</div>}
+        <Sektion rubrik="Faktura" inset>
+          {flytt.manuell_finns ? (
+            <div style={{ borderBottom: visaFaktureringsfalt || (u && !fakturaRedigerbar) ? `1px solid ${FARG.linje}` : 'none' }}>
+              <FakturaBrytare pa={faktureraNu} onByt={() => { const onskat = !faktureraNu; set({ manuell: onskat === autoNu ? null : onskat }); }} />
+              <div data-automatiskt style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>{AUTO_RAD(f.typ, matt)}</div>
+              {manuellAvviker && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: AVSTAND.xs }}>
+                  <span data-manuellt style={{ ...TYP.meta, color: FARG.orange }}>Valt manuellt</span>
+                  <button type="button" onClick={() => set({ manuell: null })} style={KNAPP.lank}>Återgå till automatiskt</button>
                 </div>
-                {kundRad}
-              </>
-            ) : (
-              <>
-                <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} />
-                <ValRad etikett="Kund" varde={u.kund ?? 'saknas i datan'} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
-                <div style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>
-                  Underlaget är struket i faktureringen{u.struken_anledning ? `: ${u.struken_anledning}` : ''}.
-                </div>
-              </>
-            )}
-          </Sektion>
-        )}
+              )}
+            </div>
+          ) : (
+            <ValRad etikett="Fakturera" varde={flytt.fakturerbar ? 'Ja' : 'Nej'} sista={!visaFaktureringsfalt}
+              notis={`${AUTO_RAD(f.typ, matt)}. Manuellt val kräver en databasuppdatering (migration 20261017100000) som inte är körd än.`} />
+          )}
+          {visaFaktureringsfalt && (
+            <>
+              <div style={{ borderBottom: `1px solid ${FARG.linje}` }}>
+                <label style={{ ...RAD, borderBottom: 'none' }}>
+                  <span style={{ ...TYP.text, color: FARG.text }}>Sträcka</span>
+                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.text, ...TNUM, color: FARG.text2 }}>
+                    <input value={f.km} onChange={e => set({ km: e.target.value })} inputMode="decimal" aria-label="Sträcka i km"
+                      style={{ ...TYP.text, ...TNUM, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, width: 72, textAlign: 'right', fontFamily: 'inherit', minHeight: 36, boxSizing: 'border-box' }} />
+                    {/* Det mätta står bara när det skiljer sig från det som faktureras — samma tal två gånger är brus. */}
+                    <span data-matt>km{mattSkiljer(nyKm ?? u!.km, matt) ? ` · ${mattText(matt)}` : ''}</span>
+                  </span>
+                </label>
+                {f.km.trim() !== '' && nyKm == null && <div role="alert" style={{ ...TYP.meta, color: FARG.rod, paddingBottom: AVSTAND.s }}>Skriv km som ett tal större än noll.</div>}
+                {grans && <div role="note" style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>{grans}</div>}
+              </div>
+              {kundRad}
+            </>
+          )}
+          {u && !fakturaRedigerbar && (
+            <>
+              <ValRad etikett="Sträcka" varde={strackaNotis(u.km, matt)} />
+              <ValRad etikett="Kund" varde={kundVarde(u.kund)} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
+              <div style={{ ...TYP.meta, color: FARG.text2, paddingBottom: AVSTAND.s }}>
+                Underlaget är struket i faktureringen{u.struken_anledning ? `: ${u.struken_anledning}` : ''}.
+              </div>
+            </>
+          )}
+        </Sektion>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, marginBottom: historik.length > 0 ? AVSTAND.xl : 0 }}>
           <span style={{ ...TYP.micro, color: FARG.text2, marginLeft: AVSTAND.xs }}>Varför?</span>

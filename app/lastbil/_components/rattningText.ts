@@ -11,6 +11,9 @@ type Falt = Record<string, any> | null | undefined;
 
 const typOrd = (t: unknown) => (typeof t === 'string' ? (FLYTT_TYP_ORD as Record<string, string>)[t] ?? t : '–');
 
+/** Det manuella valet i ord: true/false/null (följ regeln). */
+const manuellOrd = (v: unknown) => (v === true ? 'manuellt ja' : v === false ? 'manuellt nej' : 'automatiskt');
+
 function maskinNamn(j: Falt, data: PlatsData | null): string {
   if (!j) return '–';
   if (j.extern_maskin) return String(j.extern_maskin);
@@ -35,6 +38,7 @@ export function skillnader(fore: Falt, efter: Falt, data: PlatsData | null): str
   if (fore.till_objekt_id !== efter.till_objekt_id || fore.till_plats_id !== efter.till_plats_id) ut.push(`till ${platsNamn(fore, 'till', data)} → ${platsNamn(efter, 'till', data)}`);
   if (fore.flytt_typ !== efter.flytt_typ) ut.push(`typ ${typOrd(fore.flytt_typ)} → ${typOrd(efter.flytt_typ)}`);
   if (k(fore.kund) !== k(efter.kund)) ut.push(`kund ${k(fore.kund) ?? '–'} → ${k(efter.kund) ?? '–'}`);
+  if ((fore.fakturerbar_manuell ?? null) !== (efter.fakturerbar_manuell ?? null)) ut.push(`fakturering ${manuellOrd(fore.fakturerbar_manuell)} → ${manuellOrd(efter.fakturerbar_manuell)}`);
   return ut;
 }
 

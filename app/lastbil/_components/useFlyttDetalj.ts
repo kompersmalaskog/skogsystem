@@ -50,14 +50,23 @@ export interface FlyttDetalj {
   flyttdag_id: string | null;
   /** Var koordinaterna kom ifrån ('objekt' = från den valda trakten, 'gps', 'karta', 'flyttplats' …). */
   koord_kalla: string | null;
+  /** Manuellt val av fakturering: true = fakturera ändå, false = fakturera inte, null = följ regeln. */
+  fakturerbar_manuell: boolean | null;
+  /** false = kolumnen finns inte i databasen än (migration 20261017100000 ej körd): inget manuellt val att visa. */
+  manuell_finns: boolean;
 }
 
 export type DetaljLage =
   | { lage: 'laddar' | 'fel' }
   | { lage: 'klar'; flytt: FlyttDetalj | null; underlag: UnderlagRad | null; historik: Rattning[]; forare: string | null };
 
-const FALT = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, sluttid, fran_lat, fran_lng, till_lat, till_lng, starttid, flyttdag_id, koord_kalla';
+const FALT_UTAN_MANUELL = 'id, maskin_id, extern_maskin, fran_objekt_id, fran_plats_id, till_objekt_id, till_plats_id, flytt_typ, kund, flytt_km, fakturerbar, avbruten, sluttid, fran_lat, fran_lng, till_lat, till_lng, starttid, flyttdag_id, koord_kalla';
+const FALT = `${FALT_UTAN_MANUELL}, fakturerbar_manuell`;
 export const HISTORIK_ANTAL = 5;
+
+/** Kolumnen fakturerbar_manuell saknas i databasen (migrationen ej körd): Postgres 42703 / PostgREST 'column … does not exist'. */
+const kolumnSaknas = (e: { code?: string; message?: string } | null | undefined): boolean =>
+  !!e && (e.code === '42703' || /fakturerbar_manuell/.test(e.message ?? ''));
 
 /** Flera underlag på samma flytt (ett struket och ett nytt): det som öppnades, annars det aktiva, annars det första. */
 function valjUnderlag(rader: UnderlagRad[], onskat: string | null | undefined): UnderlagRad | null {
@@ -74,8 +83,15 @@ export function useFlyttDetalj(flyttId: string | null | undefined, underlagId?: 
     setLage(l => (l.lage === 'klar' ? l : { lage: 'laddar' }));
     (async () => {
       try {
+        let manuellFinns = true;
         const [fl, un, sp] = await Promise.all([
-          medAbortRetry(() => supabase.from('maskin_flytt').select(FALT).eq('id', flyttId) as any),
+          (async () => {
+            const r = await medAbortRetry(() => supabase.from('maskin_flytt').select(FALT).eq('id', flyttId) as any);
+            if (!kolumnSaknas(r.error)) return r;
+            // Migrationen är inte körd: sheeten öppnas ändå, utan manuellt val (och säger det), i stället för att inte öppnas alls.
+            manuellFinns = false;
+            return medAbortRetry(() => supabase.from('maskin_flytt').select(FALT_UTAN_MANUELL).eq('id', flyttId) as any);
+          })(),
           medAbortRetry(() => supabase.from('fakturaunderlag_flytt').select(UNDERLAG_FALT).eq('flytt_id', flyttId) as any),
           medAbortRetry(() => supabase.from('maskin_flytt_rattning')
             .select('id, flytt_id, tid, av, anledning, slag, fore, efter, underlag_atgard, position_atgard')
@@ -100,6 +116,7 @@ export function useFlyttDetalj(flyttId: string | null | undefined, underlagId?: 
             ...rad, flytt_km: num(rad.flytt_km), fran_lat: num(rad.fran_lat), fran_lng: num(rad.fran_lng), till_lat: num(rad.till_lat), till_lng: num(rad.till_lng),
             fakturerbar: !!rad.fakturerbar, avbruten: !!rad.avbruten, sluttid: rad.sluttid ?? null,
             starttid: rad.starttid ?? null, flyttdag_id: rad.flyttdag_id ?? null, koord_kalla: rad.koord_kalla ?? null,
+            fakturerbar_manuell: typeof rad.fakturerbar_manuell === 'boolean' ? rad.fakturerbar_manuell : null, manuell_finns: manuellFinns,
           } : null,
           underlag,
           historik: (sp.data ?? []) as Rattning[],

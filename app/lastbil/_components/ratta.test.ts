@@ -4,7 +4,7 @@ import { tolkaKm, gransText } from './kmRegler';
 
 const FORE: Falt = {
   maskin_id: 'M1', extern_maskin: null, fran_objekt_id: 'o1', fran_plats_id: null,
-  till_objekt_id: 'o2', till_plats_id: null, flytt_typ: 'produktion', kund: null,
+  till_objekt_id: 'o2', till_plats_id: null, flytt_typ: 'produktion', kund: null, fakturerbar_manuell: null,
 };
 
 describe('andradeFalt — diffen till p_andringar innehåller bara det som ändrats', () => {
@@ -24,6 +24,12 @@ describe('andradeFalt — diffen till p_andringar innehåller bara det som ändr
     expect(andradeFalt(FORE, { ...FORE, kund: '  Vida  ' })).toEqual({ kund: 'Vida' });
     expect(andradeFalt({ ...FORE, kund: 'Vida' }, { ...FORE, kund: ' ' })).toEqual({ kund: null });
     expect(andradeFalt({ ...FORE, kund: null }, { ...FORE, kund: '  ' })).toEqual({});
+  });
+  it('manuellt val: true/false/null skickas som det är, bara när det ändrats', () => {
+    expect(andradeFalt(FORE, { ...FORE, fakturerbar_manuell: true })).toEqual({ fakturerbar_manuell: true });
+    expect(andradeFalt(FORE, { ...FORE, fakturerbar_manuell: false })).toEqual({ fakturerbar_manuell: false });
+    expect(andradeFalt({ ...FORE, fakturerbar_manuell: true }, { ...FORE, fakturerbar_manuell: null })).toEqual({ fakturerbar_manuell: null });
+    expect(andradeFalt({ ...FORE, fakturerbar_manuell: true }, { ...FORE, fakturerbar_manuell: true })).toEqual({});
   });
   it('flera ändringar ger bara de ändrade nycklarna (aldrig tider, km eller koordinater)', () => {
     const diff = andradeFalt(FORE, { ...FORE, maskin_id: 'M2', flytt_typ: 'service' });
