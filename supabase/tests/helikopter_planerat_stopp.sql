@@ -1,5 +1,5 @@
 -- SQL-test: planerat stopp härlett ur ledighet + filer (migrationerna 20261017095008_helikopter_planerat_stopp.sql och
--- 20261017100635_helikopter_registrerad_ledighet_orapporterat.sql och 20261017140000_helikopter_manuell_takt_over_perioden.sql —
+-- 20261017100635_helikopter_registrerad_ledighet_orapporterat.sql och 20261017103321_helikopter_manuell_takt_over_perioden.sql —
 -- alla tre ska vara körda).
 --
 -- Körs i EN transaktion som alltid rullas tillbaka: allt som skapas (syntetiska filer, ledighet, ett registrerat stopp) försvinner.
