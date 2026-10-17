@@ -62,7 +62,7 @@ const avancera = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 const q = (id: string) => behallare!.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 const klicka = (el: Element | null) => { expect(el).not.toBeNull(); act(() => { (el as HTMLElement).click(); }); };
 
-type Props = { oppen?: boolean; kanStangas?: boolean; valtId?: string | null };
+type Props = { oppen?: boolean; kanStangas?: boolean; valtId?: string | null; maskin?: { maskinId: string | null; klararTyp: string | null } };
 const spion = { valj: [] as string[], nav: [] as string[], stang: 0 };
 async function montera(p: Props = {}) {
   behallare = document.createElement('div');
@@ -73,7 +73,7 @@ async function montera(p: Props = {}) {
 async function visa(p: Props) {
   await act(async () => {
     rot!.render(<ObjektLista oppen={p.oppen ?? true} kanStangas={p.kanStangas ?? true} valtId={p.valtId ?? null}
-      onValj={(o) => spion.valj.push(o.id)} onNavigera={(o) => spion.nav.push(o.id)} onStang={() => { spion.stang += 1; }} />);
+      onValj={(o) => spion.valj.push(o.id)} onNavigera={(o) => spion.nav.push(o.id)} onStang={() => { spion.stang += 1; }} maskin={p.maskin} />);
   });
   await flush();
 }
@@ -613,5 +613,28 @@ describe('källvakt: designtokens, inga literaler', () => {
     expect(kalla).toContain("from '@/lib/design/tokens'");
     expect(kalla.match(/#[0-9a-fA-F]{3,8}\b/g)).toBeNull();
     expect(kalla.match(/fontSize:\s*\d/g)).toBeNull();
+  });
+});
+
+describe('maskinläge: maskinens egna objekt först, med etiketten "Den här maskinen"', () => {
+  beforeEach(() => {
+    h.rader = [
+      { id: 'nara', namn: 'Nära slutavverkning', status: 'planerad', typ: 'slutavverkning', lat: 56.401, lng: 14.701 },
+      { id: 'gall', namn: 'Gallring mitt', status: 'planerad', typ: 'gallring', lat: 56.45, lng: 14.75 },
+      { id: 'egen', namn: 'Tilldelad långt bort', status: 'planerad', typ: 'gallring', lat: 56.9, lng: 15.2, skordare_maskin_id: 'R64101' },
+    ];
+  });
+  const ordning = () => Array.from(behallare!.querySelectorAll('[data-testid^="objekt-rad-"]')).map((e) => e.getAttribute('data-testid')!.replace('objekt-rad-', ''));
+  it('tilldelad först, sedan det maskinen klarar, sist övriga — oavsett avstånd', async () => {
+    await montera({ kanStangas: false, maskin: { maskinId: 'R64101', klararTyp: 'gallring' } });
+    expect(ordning()).toEqual(['egen', 'gall', 'nara']);
+    expect(q('objekt-egen-maskin-egen')?.textContent).toBe('Den här maskinen');
+    expect(q('objekt-egen-maskin-gall')).toBeNull();
+    expect(q('objekt-rad-egen')!.getAttribute('aria-label')).toContain('den här maskinen');
+  });
+  it('utan maskin (planeringsvyn): bara avståndet, ingen etikett — som förut', async () => {
+    await montera({ kanStangas: false });
+    expect(ordning()).toEqual(['nara', 'gall', 'egen']);
+    expect(q('objekt-egen-maskin-egen')).toBeNull();
   });
 });

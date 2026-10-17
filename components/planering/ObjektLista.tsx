@@ -22,8 +22,8 @@ import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten
 import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { oplaneradRadText } from '@/lib/klarTrakt';
-import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
-import { objektTraffPunkt } from '@/lib/objektPlats';
+import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, maskinRang, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
+import { arTilldelad, objektTraffPunkt, type KlararTyp } from '@/lib/objektPlats';
 import { hamtaSkotningKvar } from '@/lib/skotningKvar';
 import { harKoordinat } from '@/lib/navigera';
 import { ARK_HOJD_PROCENT, byggPrickar, type KartPrickar } from '@/lib/objektKarta';
@@ -50,6 +50,11 @@ export interface ObjektListaProps {
    * zooma medan listan är öppen, och arket är nedre halvan så kartan syns ovanför.
    */
   kartaTryck?: boolean;
+  /**
+   * Maskinläge (maskindatorn): inom varje grupp står objekt tilldelade DEN HÄR maskinen först (med etiketten "Den här maskinen"), sedan
+   * objekt maskinen klarar, sedan övriga — avståndet avgör inom samma rang (lib/objektVal.maskinRang, samma ordning som gamla förarlistan).
+   */
+  maskin?: { maskinId: string | null; klararTyp: KlararTyp };
 }
 
 const GREPP_HOJD_PX = AVSTAND.xl + AVSTAND.xs;   // arkets grepp (samma mått som plus-arkets)
@@ -76,7 +81,7 @@ const Bil = () => (
   </svg>
 );
 
-export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavigera, onStang, onPrickar, kartaTryck = false }: ObjektListaProps) {
+export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavigera, onStang, onPrickar, kartaTryck = false, maskin }: ObjektListaProps) {
   const lage = useSkarmLage(oppen);
   const [inne, setInne] = useState(false);
   const [utglidet, setUtglidet] = useState(!oppen);   // monterad stängd (sidan lämnar den monterad) → inget i DOM från början
@@ -233,17 +238,20 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   // HÄR: riktig fix + laddade traktgränser + träff (objektTraffPunkt, samma som förarlistans gamla grupp). Annars ingen Här.
   const arHar = (o: ListaObjekt): boolean =>
     !!gpsPos && !!geometri && objektTraffPunkt({ ...o, geometri: geometri.get(o.id) ?? null }, gpsPos.lat, gpsPos.lng);
+  const maskinId = maskin?.maskinId ?? null;
+  const klararTyp = maskin?.klararTyp ?? null;
+  const rang = maskin ? (o: ListaObjekt) => maskinRang(o, maskinId, klararTyp) : undefined;
   const grupper = useMemo(
-    () => grupperaObjekt(objekt, { sok, avstandKm, skotningKvar: skotKvar, arHar }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- avstandKm/arHar läser vag/pos/gpsPos/geometri som är med
-    [objekt, sok, vag, pos, gpsPos, geometri, skotKvar],
+    () => grupperaObjekt(objekt, { sok, avstandKm, skotningKvar: skotKvar, arHar, rang }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avstandKm/arHar/rang läser vag/pos/gpsPos/geometri/maskin som är med
+    [objekt, sok, vag, pos, gpsPos, geometri, skotKvar, maskinId, klararTyp],
   );
   const sokar = sok.trim() !== '';
   // Kartan följer inte sökfältet (prickarna hoppar inte för varje tecken): samma uppdelning utan sökfiltret, därför en egen.
   const grupperUtanSok = useMemo(
-    () => grupperaObjekt(objekt, { sok: '', avstandKm, skotningKvar: skotKvar, arHar }),
+    () => grupperaObjekt(objekt, { sok: '', avstandKm, skotningKvar: skotKvar, arHar, rang }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- som ovan
-    [objekt, vag, pos, gpsPos, geometri, skotKvar],
+    [objekt, vag, pos, gpsPos, geometri, skotKvar, maskinId, klararTyp],
   );
   const avslutadeTyperLista = avslutadeTyper(grupper.avslutade);
   const valdAvslutad = valdAvslutadTyp(grupper.avslutade, valdTyp);
@@ -290,6 +298,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     const kvarEtikett = arSkotningKvar(o, skotKvar);
     // Oplanerad = ingen har tryckt Klar för maskin: orange "N kvar" (eller ärligt "Inte klarplanerad" när kortet aldrig öppnats). Syns, spärrar aldrig.
     const planEtikett = (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;
+    const egen = !!maskin && !avslutadVy && arTilldelad(o, maskinId);   // maskinläge: tilldelat den här maskinen
     const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : radMeta(o);
     const km = avstandKm(o);
     const arVag = vag[o.id] != null;
@@ -303,7 +312,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         tabIndex={0}
         data-testid={`objekt-rad-${o.id}`}
         aria-current={aktuell ? 'true' : undefined}
-        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${kvarEtikett ? ', skotning kvar' : ''}${planEtikett ? `, ${planEtikett}` : ''}`}
+        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${egen ? ', den här maskinen' : ''}${kvarEtikett ? ', skotning kvar' : ''}${planEtikett ? `, ${planEtikett}` : ''}`}
         onClick={() => onValj(o)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValj(o); } }}
         className="press-row"
@@ -313,9 +322,15 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         <span aria-hidden="true" data-testid={`objekt-prick-${prick}`} style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: RADIE.cirkel, flexShrink: 0, background: prick === 'gron' ? FARG.gron : FARG.text3 }} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn ?? 'Namnlöst objekt'}</span>
-          {(meta || kvarEtikett || planEtikett) && (
+          {(meta || kvarEtikett || planEtikett || egen) && (
             <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere', ...TNUM }}>   {/* radbryts hellre än klipper volymen */}
               {meta}
+              {egen && (
+                <span data-testid={`objekt-egen-maskin-${o.id}`}
+                  style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.text, fontWeight: VIKT.halvfet }}>
+                  Den här maskinen
+                </span>
+              )}
               {kvarEtikett && (
                 <span data-testid={`objekt-skotning-kvar-${o.id}`}
                   style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>

@@ -11,7 +11,7 @@
 //
 // Gammal status 'klar' räknas som avslutad och har aldrig skotning kvar (den gamla väljaren behandlade bara 'avslutat' så).
 
-import { objektHuvudtyp } from './objektPlats';
+import { arTilldelad, maskinKlararObjekt, objektHuvudtyp, type KlararTyp } from './objektPlats';
 import { typLabel } from './objekt/typ';
 
 export type ObjektGrupp = 'pagar' | 'planerade' | 'oplanerade' | 'avslutade';
@@ -110,6 +110,8 @@ export function grupperaObjekt<T extends ListObjekt>(
     avstandKm?: (o: T) => number | null | undefined;
     skotningKvar?: ReadonlySet<string> | null;
     arHar?: (o: T) => boolean;
+    /** Maskinläge: sorteringsnyckel som går FÖRE avståndet inom varje aktiv grupp (lägre först) — se maskinRang. */
+    rang?: (o: T) => number;
   } = {},
 ): ObjektGrupper<T> {
   const ut: ObjektGrupper<T> = { har: [], pagar: [], planerade: [], oplanerade: [], avslutade: [] };
@@ -124,7 +126,7 @@ export function grupperaObjekt<T extends ListObjekt>(
     return typeof d === 'number' && Number.isFinite(d) ? d : Infinity;
   };
   for (const g of ['har', 'pagar', 'planerade', 'oplanerade'] as const) {
-    ut[g].sort((a, b) => (avst(a) - avst(b)) || sv(a.namn ?? '', b.namn ?? ''));
+    ut[g].sort((a, b) => ((opt.rang?.(a) ?? 0) - (opt.rang?.(b) ?? 0)) || (avst(a) - avst(b)) || sv(a.namn ?? '', b.namn ?? ''));
   }
   ut.avslutade.sort((a, b) => (b.avslutad_timestamp ?? '').localeCompare(a.avslutad_timestamp ?? '') || sv(a.namn ?? '', b.namn ?? ''));
   return ut;
@@ -188,6 +190,20 @@ export function avslutadMeta(o: ListObjekt, medTyp: boolean): string {
   return [`Avslutat ${datum ?? '—'}`, rest].filter(Boolean).join(' · ');
 }
 
+/**
+ * Maskinläge: samma ordning som maskinens gamla förarlista (lib/objektlista inomGruppSort) inom varje grupp —
+ * tilldelat DEN HÄR maskinen först (0), sedan objekt maskinen klarar (1), sist övriga (2). Avståndet avgör inom samma rang.
+ * Inget döljs: en maskin kan alltid välja vilket objekt som helst (rollen spärras först när objektet öppnas).
+ */
+export function maskinRang(
+  o: ListObjekt & { skordare_maskin_id?: string | null; skotare_maskin_id?: string | null },
+  maskinId: string | null | undefined,
+  klararTyp: KlararTyp,
+): number {
+  if (arTilldelad(o, maskinId)) return 0;
+  return maskinKlararObjekt(klararTyp, o) ? 1 : 2;
+}
+
 /** Fågelavstånd i km (haversine). */
 export function fagelKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371, rad = (d: number) => (d * Math.PI) / 180;
@@ -197,10 +213,19 @@ export function fagelKm(aLat: number, aLng: number, bLat: number, bLng: number):
 }
 
 /**
- * Använder vyn den NYA objektlistan (ark/panel över kartan) — eller den gamla vägen (ObjektValjare-sidan / förarlistan)?
- * Bara planeringsvyn på telefon och dator. Maskinläget (maskindator, "öppna som maskin") och /maskin behåller sin förarlista, och körvyn
- * (även den som en förare öppnar i planeringsvyn) rörs inte: de ska bete sig exakt som före listan.
+ * Använder vyn den NYA objektlistan (ark/panel över kartan) — eller den gamla vägen (ObjektValjare-sidan)?
+ * Planeringsvyn på telefon och dator, med ett valt objekt bakom (listan öppnas ovanpå kartan). Maskinläget och körvyn rör inte den vägen:
+ * där byter man objekt via objektlistan UTAN valt objekt (anvandObjektListaUtanObjekt).
  */
 export function anvandObjektLista(a: { maskinlage: boolean; maskinSom: boolean; korvyActive: boolean }): boolean {
   return !a.maskinlage && !a.maskinSom && !a.korvyActive;
+}
+
+/**
+ * Inget objekt valt: visas kartan med objektlistan (ObjektKartaTom) — i planeringsvyn OCH i maskinläge (maskindator, "öppna som maskin";
+ * Martin 2026-10-17: "samma i maskinen"). I maskinläge öppnar ett val körvyn som förut (sidan avgör), listan sorterar maskinens egna först.
+ * Annars (körvy utanför maskinläge, /maskin innan maskinläget hunnit starta) den gamla ObjektValjare-sidan.
+ */
+export function anvandObjektListaUtanObjekt(a: { maskinlage: boolean; maskinSom: boolean; korvyActive: boolean }): boolean {
+  return a.maskinlage || anvandObjektLista(a);
 }

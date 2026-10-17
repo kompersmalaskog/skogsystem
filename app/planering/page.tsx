@@ -18,7 +18,7 @@ import { flygTillObjekt, objektStartKamera, traktGrans } from '../../lib/objektF
 import { useObjektFlyg } from '../../lib/hooks/useObjektFlyg'
 import { usePlaneringsObjekt, type HamtaObjektSvar } from '../../lib/hooks/usePlaneringsObjekt'
 import { rensaSenastePlanering } from '../../lib/senastePlanering'
-import { anvandObjektLista } from '../../lib/objektVal'
+import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objektVal'
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
@@ -2942,7 +2942,8 @@ export default function PlannerPage() {
   const maskinFragaSynlig = enhetMaskinLast && !enhetMaskinId && !testlage && !maskinSomParam
     && ((serialGpsAktiv && !maskinFragaHoppad) || valjMaskinBegard);
   // === Objektval i planeringsvyn (telefon/dator): listan är ett ark/panel över kartan, och vyn minns senaste objektet ===
-  // Gäller INTE maskinläget, /maskin och körvyn — de behåller sin egen väg (förarlistan / ObjektValjare) exakt som förut.
+  // Adressen/minnet gäller INTE maskinläget och /maskin (maskinen har sitt eget minne och sin start). Utan valt objekt visar maskinläget samma
+  // karta med listan som planeringsvyn (anvandObjektListaUtanObjekt), men ett val öppnar körvyn (valjObjektIMaskin).
   // Hooken väntar tills enheten vet att den inte är en maskindator (enhetMaskinLast) och att inloggningen är läst.
   const nyttObjektval = !maskinlage && !maskinSomParam;
   const planeringsObjektAktiv = enhetMaskinLast && nyttObjektval && !maskinFragaSynlig && !medarbetareLaddar;
@@ -3792,7 +3793,8 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [klarGaller, klarDataKlart, klarStatus.antalKvar, klarFalt.klarKvarAntal, testlage]);
   useEffect(() => { if (!traktOversiktOpen) setKlarStartMedVed(false); }, [traktOversiktOpen]);
-  // Nya objektlistan (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
+  // Nya objektlistan OVANPÅ ett valt objekt (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
+  // Utan valt objekt gäller den även maskinläget (anvandObjektListaUtanObjekt, tidiga returen nedan).
   const objektListaVal = anvandObjektLista({ maskinlage, maskinSom: !!maskinSomParam, korvyActive });
   // Körvyn äger kameran: centrerings-jump och geometrins fitBounds ska vara tysta när den är öppen. Ref skrivs i render
   // (idempotent) så effekter i samma commit ser rätt värde.
@@ -13254,18 +13256,39 @@ export default function PlannerPage() {
     setZoom(1);
   };
 
+  // Maskinläge (maskindator / "öppna som maskin"): tryck på ett objekt öppnar det i KÖRVYN, som på maskindatorn — inte i planeringskartan.
+  // Rollen följer den bundna maskinens typ ur MASKINREGISTRET; är den okänd öppnas ingenting på gissning (en skördare får inte skotarens
+  // körvy och hyttspår). Samma handling oavsett vilken lista föraren valde i (ObjektKartaTom eller den gamla ObjektValjare).
+  const valjObjektIMaskin = (obj: any) => {
+    if (!enhetRoll) {
+      visaBesked(dimMaskinerStatus === 'laddar'
+        ? 'Maskinregistret hämtas — försök igen om en stund.'
+        : 'Maskinens roll saknas i maskinregistret, så körvyn kan inte öppnas.');
+      return;
+    }
+    oppnaKorvyPa(obj, enhetRoll);
+    // Föraren valde själv → det här är startobjektet tills hen väljer ett annat (aldrig i "öppna som maskin").
+    if (!testlage) sattSenasteObjekt(enhetMaskinId, obj.id);
+    // Kart-origot (mapCenter/mapZoom + kamera) sätts av centrerings-effekten på valtObjekt.id.
+    setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
+    setZoom(1);
+  };
+
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
-    // Planeringsvyn (telefon/dator, inte körvy): listan ÄR det enda som finns — första gången, eller när objektet är borttaget/avslutat.
-    // Ingen karta finns utan objekt, så listan ligger på ett mörkt underlag; den kan inte stängas (inget bakom). Under inläsningen av
+    // Planeringsvyn (telefon/dator, inte körvy) OCH maskinläget: kartan med alla objekt som prickar och listan ovanpå — första gången, när objektet
+    // är borttaget/avslutat, eller när föraren tryckt Byt objekt i maskinlådan. Listan kan inte stängas (inget objekt bakom). Under inläsningen av
     // adressens/minnets objekt visas inget alls (aldrig en lista som blinkar förbi).
-    if (objektListaVal) {
+    if (anvandObjektListaUtanObjekt({ maskinlage, maskinSom: !!maskinSomParam, korvyActive })) {
       const visaListan = planeringsObjektAktiv ? planeringsStartKlar : (enhetMaskinLast && !medarbetareLaddar);
+      const listMaskin = maskinlage
+        ? { maskinId: enhetMaskinId, klararTyp: dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.klarar_typ ?? null }
+        : undefined;
       return (
         <>
           {visaListan ? (
             // Kartan med alla objekt som prickar och listan ovanpå (lib/objektKarta) — aldrig en svart tom yta. Listan går inte att stänga här.
-            <ObjektKartaTom onValj={valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} />
+            <ObjektKartaTom onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
           ) : (
             <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
               Hämtar objekt…
@@ -13284,28 +13307,9 @@ export default function PlannerPage() {
         enhetMaskinId={enhetMaskinId}
         onStartObjekt={visaForarlista(isForare, maskinlage) ? handleStartKorningForObjekt : undefined}
         onSelectObjekt={(obj) => {
-          console.log('=== VALT OBJEKT ===');
-          console.log('namn:', obj.namn);
-          console.log('kartbild_url:', obj.kartbild_url);
-          console.log('kartbild_bounds:', obj.kartbild_bounds);
-          console.log('kartbild_bounds type:', typeof obj.kartbild_bounds);
-          console.log('lat:', obj.lat, 'lng:', obj.lng);
-          if (maskinlage) {
-            // Maskinläge (maskindator / "öppna som maskin"): tryck på en rad öppnar objektet i KÖRVYN, som på
-            // maskindatorn — inte i planeringskartan. Rollen följer den bundna maskinens typ ur MASKINREGISTRET; är den
-            // okänd öppnas ingenting på gissning (en skördare får inte skotarens körvy och hyttspår).
-            if (!enhetRoll) {
-              visaBesked(dimMaskinerStatus === 'laddar'
-                ? 'Maskinregistret hämtas — försök igen om en stund.'
-                : 'Maskinens roll saknas i maskinregistret, så körvyn kan inte öppnas.');
-              return;
-            }
-            oppnaKorvyPa(obj, enhetRoll);
-            // Föraren valde själv → det här är startobjektet tills hen väljer ett annat (aldrig i "öppna som maskin").
-            if (!testlage) sattSenasteObjekt(enhetMaskinId, obj.id);
-          } else {
-            setValtObjekt(obj);
-          }
+          // Hit kommer bara det som inte är maskinläge (maskinläget har kartan med listan ovan) — men skulle det ändå vara det: samma handling.
+          if (maskinlage) { valjObjektIMaskin(obj); return; }
+          setValtObjekt(obj);
           // Kart-origot (mapCenter/mapZoom + kamera) sätts av centrerings-effekten på valtObjekt.id
           // — EN väg för ALLA sätt att välja objekt (ObjektVäljaren, auto-val, starta körning).
           setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
