@@ -36,13 +36,6 @@ interface Warning {
   marker: Marker;
 }
 
-interface ChecklistItem {
-  id: string;
-  text: string;
-  answer: boolean | null;
-  fixed: boolean;
-}
-
 interface TraktData {
   volym: number;
   areal: number;
@@ -148,21 +141,6 @@ export default function PlannerPage() {
       blottProcent: blottProcent,
     };
   };
-  
-  // Checklista
-  const [checklistOpen, setChecklistOpen] = useState(false);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([
-    // Fasta frågor
-    { id: 'avlagg_huggas', text: 'Behöver avlägget huggas?', answer: null, fixed: true },
-    { id: 'band', text: 'Behövs band?', answer: null, fixed: true },
-    { id: 'breddat', text: 'Kan skotaren köra breddat?', answer: null, fixed: true },
-    { id: 'basväg_snislad', text: 'Basväg snislad?', answer: null, fixed: true },
-    { id: 'gränser', text: 'Gränser markerade?', answer: null, fixed: true },
-    { id: 'naturvärden', text: 'Naturvärden utmärkta?', answer: null, fixed: true },
-    { id: 'kulturlämningar', text: 'Kulturlämningar kontrollerade?', answer: null, fixed: true },
-    { id: 'elledningar', text: 'El-ledningar markerade?', answer: null, fixed: true },
-  ]);
-  const [newChecklistItem, setNewChecklistItem] = useState('');
   
   // Foto
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -636,12 +614,6 @@ export default function PlannerPage() {
           <circle cx="16" cy="6" r="2.5" />
         </svg>
       ),
-      'menu-checklist': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="4" y="4" width="16" height="16" rx="2" />
-          <path d="M7 12 L10 15 L17 8" />
-        </svg>
-      ),
       'menu-prognos': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 18 L9 13 L13 15 L20 6" />
@@ -792,7 +764,6 @@ export default function PlannerPage() {
     { id: 'arrows', name: 'Pilar', desc: 'Visa riktningar', icon: 'menu-arrows' },
     { id: 'measure', name: 'Mätning', desc: 'Mät avstånd på kartan', icon: 'menu-measure' },
     { id: 'gallring', name: 'Gallring', desc: 'Snitsla stickvägar', icon: 'menu-gallring' },
-    { id: 'checklist', name: 'Checklista', desc: 'Kontrollera punkter', icon: 'menu-checklist' },
     { id: 'prognos', name: 'Prognos', desc: 'Produktivitetsberäkning', icon: 'menu-prognos' },
     { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
   ];
@@ -4641,11 +4612,7 @@ export default function PlannerPage() {
                   <div
                     key={cat.id}
                     onClick={() => {
-                      if (cat.id === 'checklist') {
-                        setChecklistOpen(true);
-                        setMenuOpen(false);
-                        setMenuHeight(0);
-                      } else if (cat.id === 'prognos') {
+                      if (cat.id === 'prognos') {
                         setPrognosOpen(true);
                         setMenuOpen(false);
                         setMenuHeight(0);
@@ -6954,253 +6921,6 @@ export default function PlannerPage() {
           >
             ✓ KVITTERA
           </button>
-        </div>
-      )}
-
-      {/* === CHECKLISTA === */}
-      {checklistOpen && (
-        <div 
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0,0,0,0.9)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 300,
-          }}
-          onClick={() => setChecklistOpen(false)}
-        >
-          <div 
-            style={{
-              background: '#000',
-              borderRadius: '28px',
-              padding: '28px',
-              width: '90%',
-              maxWidth: '400px',
-              maxHeight: '80vh',
-              overflow: 'auto',
-              boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
-              border: '1px solid rgba(255,255,255,0.15)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center',
-              marginBottom: '24px',
-            }}>
-              <div style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>
-                Checklista
-              </div>
-              <div style={{ 
-                fontSize: '14px', 
-                color: checklistItems.every(i => i.answer !== null) ? '#22c55e' : '#fbbf24',
-                fontWeight: '500',
-              }}>
-                {checklistItems.filter(i => i.answer !== null).length} / {checklistItems.length}
-              </div>
-            </div>
-            
-            {/* Progress bar */}
-            <div style={{
-              height: '4px',
-              background: 'rgba(255,255,255,0.1)',
-              borderRadius: '2px',
-              marginBottom: '24px',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                height: '100%',
-                width: `${(checklistItems.filter(i => i.answer !== null).length / checklistItems.length) * 100}%`,
-                background: checklistItems.every(i => i.answer !== null) ? '#22c55e' : '#fbbf24',
-                transition: 'width 0.3s ease',
-              }} />
-            </div>
-            
-            {/* Frågor */}
-            {checklistItems.map((item, index) => (
-              <div 
-                key={item.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '16px',
-                  marginBottom: '8px',
-                  borderRadius: '12px',
-                  background: item.answer !== null ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)',
-                  border: item.answer === null ? '1px solid rgba(251,191,36,0.3)' : '1px solid transparent',
-                }}
-              >
-                <div style={{ flex: 1, fontSize: '15px', color: '#fff' }}>
-                  {item.text}
-                </div>
-                
-                {/* Ja/Nej knappar */}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={() => setChecklistItems(prev => prev.map(i => 
-                      i.id === item.id ? { ...i, answer: true } : i
-                    ))}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      background: item.answer === true ? '#22c55e' : 'rgba(255,255,255,0.1)',
-                      color: item.answer === true ? '#fff' : 'rgba(255,255,255,0.5)',
-                      fontSize: '13px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Ja
-                  </button>
-                  <button
-                    onClick={() => setChecklistItems(prev => prev.map(i => 
-                      i.id === item.id ? { ...i, answer: false } : i
-                    ))}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      background: item.answer === false ? '#ef4444' : 'rgba(255,255,255,0.1)',
-                      color: item.answer === false ? '#fff' : 'rgba(255,255,255,0.5)',
-                      fontSize: '13px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Nej
-                  </button>
-                </div>
-                
-                {/* Ta bort egen fråga */}
-                {!item.fixed && (
-                  <button
-                    onClick={() => setChecklistItems(prev => prev.filter(i => i.id !== item.id))}
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'rgba(255,255,255,0.3)',
-                      fontSize: '18px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            ))}
-            
-            {/* Lägg till egen fråga */}
-            <div style={{
-              display: 'flex',
-              gap: '8px',
-              marginTop: '16px',
-              paddingTop: '16px',
-              borderTop: '1px solid rgba(255,255,255,0.1)',
-            }}>
-              <input
-                type="text"
-                value={newChecklistItem}
-                onChange={(e) => setNewChecklistItem(e.target.value)}
-                placeholder="Lägg till egen fråga..."
-                style={{
-                  flex: 1,
-                  padding: '12px 16px',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: '#fff',
-                  fontSize: '14px',
-                  outline: 'none',
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newChecklistItem.trim()) {
-                    setChecklistItems(prev => [...prev, {
-                      id: `custom_${Date.now()}`,
-                      text: newChecklistItem.trim(),
-                      answer: null,
-                      fixed: false,
-                    }]);
-                    setNewChecklistItem('');
-                  }
-                }}
-              />
-              <button
-                onClick={() => {
-                  if (newChecklistItem.trim()) {
-                    setChecklistItems(prev => [...prev, {
-                      id: `custom_${Date.now()}`,
-                      text: newChecklistItem.trim(),
-                      answer: null,
-                      fixed: false,
-                    }]);
-                    setNewChecklistItem('');
-                  }
-                }}
-                style={{
-                  padding: '12px 20px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: newChecklistItem.trim() ? colors.blue : 'rgba(255,255,255,0.1)',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: newChecklistItem.trim() ? 'pointer' : 'default',
-                  opacity: newChecklistItem.trim() ? 1 : 0.5,
-                }}
-              >
-                +
-              </button>
-            </div>
-            
-            {/* Stäng-knapp */}
-            <button
-              onClick={() => setChecklistOpen(false)}
-              style={{
-                width: '100%',
-                padding: '16px',
-                marginTop: '24px',
-                borderRadius: '12px',
-                border: 'none',
-                background: checklistItems.every(i => i.answer !== null) ? '#22c55e' : 'rgba(255,255,255,0.1)',
-                color: '#fff',
-                fontSize: '16px',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-            >
-              {checklistItems.every(i => i.answer !== null) ? '✓ Klar' : 'Stäng'}
-            </button>
-            
-            {/* Reset-knapp */}
-            <button
-              onClick={() => setChecklistItems(prev => prev.map(i => ({ ...i, answer: null })))}
-              style={{
-                width: '100%',
-                padding: '12px',
-                marginTop: '8px',
-                borderRadius: '12px',
-                border: '1px solid rgba(255,255,255,0.1)',
-                background: 'transparent',
-                color: 'rgba(255,255,255,0.4)',
-                fontSize: '13px',
-                cursor: 'pointer',
-              }}
-            >
-              Återställ alla svar
-            </button>
-          </div>
         </div>
       )}
 

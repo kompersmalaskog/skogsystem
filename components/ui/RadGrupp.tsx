@@ -1,7 +1,7 @@
 'use client';
 import { Children, Fragment, cloneElement, createContext, isValidElement, useContext, type ReactElement, type ReactNode } from 'react';
 import Link from 'next/link';
-import { AVSTAND, FARG, IKON, KORT, RAD, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, KORT, RAD, TNUM, TYP } from '@/lib/design/tokens';
 
 /**
  * Radgrupp i iOS-mönstret: länkrader (tryck = gå vidare) i ETT kort — `FARG.kort`, `RADIE.kort`, ingen ram och ingen sidopadding
@@ -33,9 +33,9 @@ export function RadGrupp({ children, bakgrund = FARG.kort, marginBottom = AVSTAN
 
 /**
  * En länkrad. Hela raden är en knapp (`onClick`) eller länk (`href`), minst 44 px. Smakprovet står efter en punkt i `FARG.text2`.
- * `orange` = något avviker (texten säger vad). Utanför en `RadGrupp` (t.ex. i ett kort som redan har sidopadding) bär raden ingen egen sidopadding.
+ * `hoger` = ett värde till höger, före chevronen (`FARG.text` eller `text2` om raden ska vara dämpad). `orange` = något avviker (texten säger vad). Utanför en `RadGrupp` (t.ex. i ett kort som redan har sidopadding) bär raden ingen egen sidopadding.
  */
-export function RadLank({ text, smakprov, href, onClick, orange, sista }: { text: string; smakprov?: string; href?: string; onClick?: () => void; orange?: boolean; sista?: boolean }) {
+export function RadLank({ text, smakprov, hoger, href, onClick, orange, sista }: { text: string; smakprov?: string; hoger?: { text: string; dampad?: boolean }; href?: string; onClick?: () => void; orange?: boolean; sista?: boolean }) {
   const igrupp = useContext(GruppContext);
   // `border: 'none'` FÖRE `...RAD`: React sätter stilnycklarna i ordning, och ett `border` efter `borderBottom` nollar linjen.
   const stil: React.CSSProperties = {
@@ -59,6 +59,7 @@ export function RadLank({ text, smakprov, href, onClick, orange, sista }: { text
       <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {text}{smakprov && <span style={{ color: FARG.text2 }}> · {smakprov}</span>}
       </span>
+      {hoger && <span style={{ ...TNUM, marginLeft: 'auto', color: hoger.dampad ? FARG.text2 : FARG.text, flexShrink: 0 }}>{hoger.text}</span>}
       <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.text3, lineHeight: 1, flexShrink: 0 }}>chevron_right</span>
     </>
   );

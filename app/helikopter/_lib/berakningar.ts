@@ -6,7 +6,7 @@
 // volym_m3sub = m³fub. Ingen omräkning sker här.
 
 import type { Arbetsdagar, Avvikelse, BolagRad, Maskin, PlaneringObjekt, SparRad, StoppRad, Typ } from './queries'
-import { dagarText, fmt, kortNamn, saknarData, sedanText } from './format'
+import { dagarText, fmt, fmtDag, kortNamn, saknarData, sedanText } from './format'
 
 // ── Trösklar: EN fil — trosklar.ts. Återexporteras här för anroparna. ──────
 import {
@@ -113,6 +113,8 @@ export type SparLage = {
   plan: number
   lage: Lage | null
   behovPerDag: number | null
+  /** (beställt − skördat) / arbetsdagar kvar. null när inga dagar kvar. */
+  behovPerDagSkordat: number | null
   prognosSkordat: number | null
   prognosSkotat: number | null
   klartDatumSkotat: string | null
@@ -144,6 +146,7 @@ export function raknaSpar(rad: SparRad, dagar: Arbetsdagar): SparLage {
     plan,
     lage: prognos && rad.bestallt > 0 ? dagarEfter(plan, rad.skotat, rad.takt_skotat) : null,
     behovPerDag: rad.bestallt > 0 ? behovPerDag(rad.bestallt, rad.skotat, dagar.kvar) : null,
+    behovPerDagSkordat: rad.bestallt > 0 ? behovPerDag(rad.bestallt, rad.skordat, dagar.kvar) : null,
     prognosSkordat: pSkordat,
     prognosSkotat: pSkotat,
     klartDatumSkotat: prognos && rad.bestallt > 0 && pSkotat != null && pSkotat >= rad.bestallt
@@ -154,6 +157,75 @@ export function raknaSpar(rad: SparRad, dagar: Arbetsdagar): SparLage {
     oskotatForandring: rad.oskotat_forandring_per_dag,
     skordareDagarFore: prognos ? skordareDagarFore(oskotat, rad.takt_skotat) : null,
   }
+}
+
+// ── Landar vi på beställningen? Prognos per roll ───────────────────────────
+// Svarsraden (Läge), Uppföljningens spårkort, Veckoläget och onsdagsnotisen svarar alla på EN fråga: landar vi på beställningen — både
+// skördat och skotat? Prognosen per roll är hittills + takt (senaste 5 arbetsdagarna) × arbetsdagar kvar. Skördat kapas aldrig; skotat kapas
+// vid skördat-prognos + ingående oskotat (se prognosSkotat). "Under" jämförs på de AVRUNDADE talen, så en rad aldrig säger "landar under"
+// bredvid "1 000 av 1 000". Dagar efter plan (dagarEfter) styr inte längre svarsraden.
+export type RollNyckel = 'skordat' | 'skotat'
+
+export type RollLandar = {
+  roll: RollNyckel
+  /** "Skördat" / "Skotat". */
+  namn: string
+  ikon: 'forest' | 'local_shipping'
+  hittills: number
+  takt: number | null
+  /** Prognos vid månadens slut. */
+  landar: number
+  bestallt: number
+  /** (beställt − hittills) / arbetsdagar kvar; null när inga dagar kvar. */
+  behov: number | null
+  /** Landar under beställt (avrundade tal). */
+  under: boolean
+  /** Redan framme: hittills ≥ beställt. */
+  framme: boolean
+  /** Första arbetsdag då hittills + takt × n ≥ beställt (ISO). null = når inte, eller redan framme. */
+  naDatum: string | null
+}
+
+/** Skördat och skotat för ett spår. null utan beställning eller prognos (före arbetsdag 4). */
+export function landarRoller(s: SparLage): [RollLandar, RollLandar] | null {
+  if (s.bestallt <= 0 || !s.harPrognos || s.prognosSkordat == null || s.prognosSkotat == null) return null
+  const rulle = (roll: RollNyckel): RollLandar => {
+    const skordat = roll === 'skordat'
+    const hittills = skordat ? s.skordat : s.skotat
+    const landar = (skordat ? s.prognosSkordat : s.prognosSkotat) as number
+    const framme = Math.round(hittills) >= s.bestallt
+    return {
+      roll,
+      namn: skordat ? 'Skördat' : 'Skotat',
+      ikon: skordat ? 'forest' : 'local_shipping',
+      hittills,
+      takt: skordat ? s.taktSkordat : s.taktSkotat,
+      landar,
+      bestallt: s.bestallt,
+      behov: skordat ? s.behovPerDagSkordat : s.behovPerDag,
+      under: Math.round(landar) < s.bestallt,
+      framme,
+      naDatum: framme ? null : skordat ? s.klartDatumSkordat : s.klartDatumSkotat,
+    }
+  }
+  return [rulle('skordat'), rulle('skotat')]
+}
+
+/** Hur långt under beställt rollen landar, som andel av beställt (0 = precis på). Större = sämre. */
+function underAndel(r: RollLandar): number {
+  return Math.max(0, (r.bestallt - r.landar) / r.bestallt)
+}
+
+/** "behöver 29/dag, kör 0" — eller att inga arbetsdagar finns kvar. */
+function behovText(r: RollLandar, avskiljare: string): string {
+  return r.behov == null ? 'inga arbetsdagar kvar' : `behöver ${fmt(r.behov)}/dag${avskiljare}kör ${fmt(r.takt ?? 0)}`
+}
+
+/** Under raden i Uppföljningens spårkort, höger: "når beställt 26 okt" / "behöver 34/dag · kör 56". */
+export function rollHogerText(r: RollLandar): string {
+  if (r.framme) return 'beställt nått'
+  if (!r.under) return r.naDatum ? `når beställt ${fmtDag(r.naDatum)}` : 'når beställt'
+  return behovText(r, ' · ')
 }
 
 // ── Planering: volym ─────────────────────────────────────────────────────────
@@ -367,23 +439,7 @@ export function manadStatus(ar: number, manad: number, idag: string): ManadStatu
 // ── Svarsrader: det viktigaste överst, max en avvikelse ─────────────────────
 export type Svar = { rubrik: string; rad: string | null; avvikelse: boolean; /** Orange tredje rad: registrering som saknas (manuell datakälla). */ varning?: string | null }
 
-/**
- * Flödet skördare→skotare i månaden, ur gap = månadens skördat − skotat på spåret.
- * gap > 0 och minskar: "Skotaren tar igen · N m³fub efter skördaren"
- * gap > 0 annars:      "Skotaren är flaskhals · N m³fub efter skördaren i <månad>"
- * gap < 0:             "Skotar ut föregående månad · N m³fub före skördaren"
- */
-export function flodesText(s: SparLage, manadNamn: string): string | null {
-  const gap = s.oskotat
-  if (gap > 0) {
-    if (s.oskotatStatus === 'minskar') return `Skotaren tar igen · ${fmt(gap)} m³fub efter skördaren`
-    return `Skotaren är flaskhals · ${fmt(gap)} m³fub efter skördaren i ${manadNamn}`
-  }
-  if (gap < 0) return `Skotar ut föregående månad · ${fmt(-gap)} m³fub före skördaren`
-  return null
-}
-
-/** Läge: sämsta spåret. Efter > flaskhals > saknar objekt > väntar på prognos > på plan. */
+/** Läge: landar vi på beställningen — både skördat och skotat? Under (sämst först) > saknar objekt > väntar på prognos > landar. */
 export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, status: ManadStatus, dagar: Arbetsdagar | null, manadNamn: string): Svar {
   const medBest = spar.filter(s => s.bestallt > 0)
   if (status === 'kommande') return { rubrik: 'Inte startad', rad: null, avvikelse: false }
@@ -398,33 +454,32 @@ export function lageSvar(spar: SparLage[], antalPlanerade: Record<Typ, number>, 
     return { rubrik: `${TYP_NAMN[s.typ]} ${fmt(s.skotat - s.bestallt)} m³fub mot beställt`, rad: `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`, avvikelse: true }
   }
   const aktiva = medBest.filter(s => antalPlanerade[s.typ] > 0)
-  const efter = aktiva.filter(s => s.lage?.status === 'efter').sort((a, b) => (b.lage?.dagar ?? 0) - (a.lage?.dagar ?? 0))
-  if (efter.length > 0) {
-    const s = efter[0]
-    // Mer än en dags skotning mellan skördare och skotare (åt något håll) → flödestexten, annars takten.
-    const flode = Math.abs(s.oskotat) > (s.taktSkotat ?? 0) ? flodesText(s, manadNamn) : null
-    return {
-      rubrik: `${TYP_NAMN[s.typ]} ${dagarText(s.lage?.dagar ?? 0)} efter`,
-      rad: flode ?? `Kör ${fmt(s.taktSkotat ?? 0)}/dag · behöver ${fmt(s.behovPerDag ?? 0)}`,
-      avvikelse: true,
-    }
-  }
-  const flask = aktiva.filter(s => s.harPrognos && s.oskotatStatus === 'vaxer' && s.oskotat > (s.taktSkotat ?? 0)).sort((a, b) => b.oskotat - a.oskotat)
-  if (flask.length > 0) {
-    const s = flask[0]
-    return { rubrik: `${TYP_NAMN[s.typ]}: skotaren är flaskhals`, rad: `${fmt(s.oskotat)} m³fub efter skördaren i ${manadNamn} · växer ${fmt(s.oskotatForandring ?? 0)}/dag`, avvikelse: true }
+  // Prognos mot beställt, per spår och roll. Sämst först (störst andel som saknas); en rad om spåret/rollen som ligger sämst.
+  const under = aktiva
+    .map(s => ({ s, roller: landarRoller(s) }))
+    .filter((x): x is { s: SparLage; roller: [RollLandar, RollLandar] } => x.roller != null && x.roller.some(r => r.under))
+    .sort((a, b) => Math.max(...b.roller.map(underAndel)) - Math.max(...a.roller.map(underAndel)))
+  if (under.length > 0) {
+    const namn = TYPER.filter(t => under.some(u => u.s.typ === t)).map((t, i) => (i === 0 ? TYP_NAMN[t] : TYP_NAMN[t].toLowerCase()))
+    const { s: varsta, roller } = under[0]
+    const roller_under = roller.filter(r => r.under)
+    const rad = roller_under.length === 2
+      ? `Skördat ${fmt(roller[0].landar)} · skotat ${fmt(roller[1].landar)} av ${fmt(varsta.bestallt)}`
+      : `${roller_under[0].namn} ${fmt(roller_under[0].landar)} av ${fmt(varsta.bestallt)} · ${behovText(roller_under[0], ', ')}`
+    return { rubrik: `${namn.join(' och ')} landar under beställt`, rad, avvikelse: true }
   }
   const utanObjekt = medBest.filter(s => antalPlanerade[s.typ] === 0)
   if (utanObjekt.length > 0) {
     const s = utanObjekt[0]
     const andra = aktiva.find(a => a.typ !== s.typ)
-    const rad = andra ? (andra.harPrognos ? `${TYP_NAMN[andra.typ]} på plan` : `${TYP_NAMN[andra.typ]}: prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`) : null
+    const rad = andra ? (andra.harPrognos ? `${TYP_NAMN[andra.typ]} landar på beställningen` : `${TYP_NAMN[andra.typ]}: prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`) : null
     return { rubrik: `${TYP_NAMN[s.typ]}: inga objekt planerade`, rad, avvikelse: false }
   }
   if (aktiva.some(s => !s.harPrognos)) {
     return { rubrik: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, rad: dagar ? `arbetsdag ${dagar.gangna + 1} av ${dagar.totalt}` : null, avvikelse: false }
   }
-  return { rubrik: aktiva.length > 1 ? 'På plan · båda spåren' : `På plan · ${TYP_NAMN[aktiva[0].typ].toLowerCase()}`, rad: null, avvikelse: false }
+  const spartext = [...aktiva].sort((a, b) => TYPER.indexOf(b.typ) - TYPER.indexOf(a.typ)).map((s, i) => (i === 0 ? TYP_NAMN[s.typ] : TYP_NAMN[s.typ].toLowerCase())).join(' och ')
+  return { rubrik: 'Landar på beställningen', rad: `${spartext} · skördat och skotat`, avvikelse: false }
 }
 
 /**
@@ -446,7 +501,7 @@ export function registreringsVarning(manuella: Maskin[], senasteLass: Record<str
   return rader.length > 0 ? rader.join(' · ') : null
 }
 
-/** Underraden i MOT BESTÄLLNING: "Kör 94/dag · behöver 252 · oskotat växer 247/dag". */
+/** Underraden i MOT BESTÄLLNING: "Kör 94/dag · behöver 252 · oskotat växer 247/dag · landar 3 300". */
 export function motBestallningRad(s: SparLage, antalPlanerade: number, status: ManadStatus, manadNamn: string): { text: string; muted: boolean } {
   if (s.bestallt <= 0) return { text: 'Ingen beställning inlagd', muted: true }
   if (status !== 'avslutad' && antalPlanerade === 0) {
@@ -457,7 +512,8 @@ export function motBestallningRad(s: SparLage, antalPlanerade: number, status: M
   if (!s.harPrognos) return { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, muted: true }
   const oskotat = s.oskotatStatus === 'vaxer' ? `oskotat växer ${fmt(s.oskotatForandring ?? 0)}/dag`
     : s.oskotatStatus === 'minskar' ? `oskotat minskar ${fmt(-(s.oskotatForandring ?? 0))}/dag` : 'oskotat i takt'
-  return { text: `Kör ${fmt(s.taktSkotat ?? 0)}/dag · behöver ${fmt(s.behovPerDag ?? 0)} · ${oskotat}`, muted: false }
+  const landar = s.prognosSkotat != null ? ` · landar ${fmt(s.prognosSkotat)}` : ''
+  return { text: `Kör ${fmt(s.taktSkotat ?? 0)}/dag · behöver ${fmt(s.behovPerDag ?? 0)} · ${oskotat}${landar}`, muted: false }
 }
 
 /** Åtgärd för en kort maskin: minsta objekt → maskin med luft som klarar typen; annars övertid i dagar; annars bolaget. */

@@ -4921,8 +4921,8 @@ def auto_status_pagaende(data: Dict) -> None:
                     # automatiskt tillbaka; det är en människas beslut.
                     logger.warning(f"Produktion på avslutat objekt: {namn} (ur {filnamn}) — status oförändrad")
                     continue
-                if rad.get('status') != 'planerad':
-                    continue  # bara planerad→pagaende; aldrig pågående
+                if rad.get('status') not in ('planerad', 'oplanerad'):
+                    continue  # bara (o)planerad→pagaende; aldrig pågående
                 logger.info(f"Auto-status {tagg}skulle satt {namn} planerad→pagaende ur {filnamn}"
                             if AUTO_STATUS_LAGE != 'skriv'
                             else f"Auto-status satte {namn} planerad→pagaende ur {filnamn}")

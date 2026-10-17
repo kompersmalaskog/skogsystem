@@ -21,6 +21,7 @@ import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
 import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
+import { oplaneradRadText } from '@/lib/klarTrakt';
 import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
 import { objektTraffPunkt } from '@/lib/objektPlats';
 import { hamtaSkotningKvar } from '@/lib/skotningKvar';
@@ -287,6 +288,8 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const rad = (o: ListaObjekt, avslutadVy?: 'utanTyp' | 'medTyp') => {
     const prick = prickFor(o);
     const kvarEtikett = arSkotningKvar(o, skotKvar);
+    // Oplanerad = ingen har tryckt Klar för maskin: orange "N kvar" (eller ärligt "Inte klarplanerad" när kortet aldrig öppnats). Syns, spärrar aldrig.
+    const planEtikett = (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;
     const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : radMeta(o);
     const km = avstandKm(o);
     const arVag = vag[o.id] != null;
@@ -300,7 +303,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         tabIndex={0}
         data-testid={`objekt-rad-${o.id}`}
         aria-current={aktuell ? 'true' : undefined}
-        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${kvarEtikett ? ', skotning kvar' : ''}`}
+        aria-label={`${o.namn ?? 'Objekt'}${meta ? `, ${meta}` : ''}${kvarEtikett ? ', skotning kvar' : ''}${planEtikett ? `, ${planEtikett}` : ''}`}
         onClick={() => onValj(o)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValj(o); } }}
         className="press-row"
@@ -310,13 +313,19 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
         <span aria-hidden="true" data-testid={`objekt-prick-${prick}`} style={{ width: AVSTAND.s + 2, height: AVSTAND.s + 2, borderRadius: RADIE.cirkel, flexShrink: 0, background: prick === 'gron' ? FARG.gron : FARG.text3 }} />
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, color: FARG.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn ?? 'Namnlöst objekt'}</span>
-          {(meta || kvarEtikett) && (
+          {(meta || kvarEtikett || planEtikett) && (
             <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere', ...TNUM }}>   {/* radbryts hellre än klipper volymen */}
               {meta}
               {kvarEtikett && (
                 <span data-testid={`objekt-skotning-kvar-${o.id}`}
                   style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>
                   Skotning kvar
+                </span>
+              )}
+              {planEtikett && (
+                <span data-testid={`objekt-oplanerad-${o.id}`}
+                  style={{ display: 'inline-block', marginLeft: meta ? AVSTAND.s : 0, padding: `0 ${AVSTAND.s}px`, borderRadius: RADIE.rad, background: FARG.fyllning, color: FARG.orange, fontWeight: VIKT.halvfet }}>
+                  {planEtikett}
                 </span>
               )}
             </span>

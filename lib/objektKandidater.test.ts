@@ -39,8 +39,8 @@ describe('byggKandidater: bara ett svar utan fel och med geometri räknas som la
   });
 });
 
-describe('hamtaKandidatSvar: samma frågor som förut (status planerad/pagaende, objekt_geometri)', () => {
-  it('läser planerad+pagaende och hela objekt_geometri, och lägger felen i svaret', async () => {
+describe('hamtaKandidatSvar: samma frågor som förut (status oplanerad/planerad/pagaende, objekt_geometri)', () => {
+  it('läser oplanerad+planerad+pagaende och hela objekt_geometri, och lägger felen i svaret', async () => {
     const anrop: string[] = [];
     const sb = {
       from: (t: string) => ({
@@ -53,9 +53,9 @@ describe('hamtaKandidatSvar: samma frågor som förut (status planerad/pagaende,
     };
     const s = await hamtaKandidatSvar(sb);
     expect(anrop).toContain(`objekt:${KANDIDAT_KOLUMNER}`);
-    expect(anrop).toContain('in:status:planerad,pagaende');
+    expect(anrop).toContain('in:status:oplanerad,planerad,pagaende');
     expect(anrop).toContain('objekt_geometri:objekt_id,geometri');
-    expect(KANDIDAT_STATUS).toEqual(['planerad', 'pagaende']);
+    expect(KANDIDAT_STATUS).toEqual(['oplanerad', 'planerad', 'pagaende']);   // en maskin i en ännu oklarmarkerad trakt matchas ändå — planeringen spärrar aldrig förarna
     expect(s.geometri.error).toEqual({ message: 'x' });
   });
 });

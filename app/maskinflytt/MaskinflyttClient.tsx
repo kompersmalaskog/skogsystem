@@ -2350,7 +2350,7 @@ function PlatsValjare({ sok, setSok, objekt, objektFel, omLaddaOm, platser, onVa
   onValjPlats: (pl: Flyttplats) => void
   onNyPlats: () => void
 }) {
-  const arAktiv = (s?: string | null) => s === 'pagaende' || s === 'planerad'
+  const arAktiv = (s?: string | null) => s === 'pagaende' || s === 'planerad' || s === 'oplanerad'
   const rader = useMemo(() => {
     const t = sok.trim().toLowerCase()
     // Avslutade trakter göms i default-läget men går ATT HITTA via sök — ibland
@@ -2405,7 +2405,7 @@ function PlatsValjare({ sok, setSok, objekt, objektFel, omLaddaOm, platser, onVa
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600 }}>{r.o.namn}</div>
               <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>
-                {r.o.vo_nummer || '—'} · {r.avslutad ? 'Avslutad' : r.o.status === 'pagaende' ? 'Pågående' : 'Planerad'}
+                {r.o.vo_nummer || '—'} · {r.avslutad ? 'Avslutad' : r.o.status === 'pagaende' ? 'Pågående' : r.o.status === 'oplanerad' ? 'Oplanerad' : 'Planerad'}
               </div>
             </div>
             <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.t3 }}>chevron_right</span>

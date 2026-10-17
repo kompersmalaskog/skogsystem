@@ -379,7 +379,7 @@ export async function POST(request: NextRequest) {
       ar,
       manad,
       ordning: 1,
-      // status utelämnas → DB-default 'planerad' vid INSERT. Vid omimport (UPDATE) skrivs
+      // status sätts uttryckligen till 'oplanerad' vid INSERT (se nedan). Vid omimport (UPDATE) skrivs
       // varken status, lat/lng, anteckningar eller planeringsfälten över — se SKYDDADE nedan.
       kalla: envz ? 'envz' : 'traktdirektiv',
     };
@@ -467,8 +467,18 @@ export async function POST(request: NextRequest) {
       // === INSERT (nytt objekt) — hela data, inkl. lat/lng/anteckningar ===
       // Minnet av vad importen satte (byggOmimportPatch läser det vid nästa leverans).
       data.import_varden = importVardenForNyttObjekt(data);
-      const skrivIns = await skrivObjektTolerantMotVarningskolumn<any>(data, (p) =>
-        supabase.from('objekt').insert(p).select().single());
+      // Ett NYTT objekt är OPLANERAT tills planeraren tryckt "Klar för maskin" (planerad + klar_skickad_timestamp). Kolumnens default var 'planerad' = "klar att
+      // köra", så en ny trakt dök upp i förarkön utan att någon granskat den. Status sätts uttryckligen vid INSERT (aldrig vid omimport — den ägs av människan).
+      // Före migrationen 20261017072819 avvisar CHECK-constrainten värdet: då skrivs objektet som förut (databasens default) i stället för att importen fäller.
+      const skrivIns = await skrivObjektTolerantMotVarningskolumn<any>({ ...data, status: 'oplanerad' }, async (p) => {
+        const r = await supabase.from('objekt').insert(p).select().single();
+        if (r.error?.code === '23514' && /status/i.test(r.error.message ?? '')) {
+          console.warn('[import-trakt] objekt_status_check tillåter inte oplanerad (migration 20261017072819 ej körd) — skriver med databasens default');
+          const { status: _utanStatus, ...utan } = p as any;
+          return supabase.from('objekt').insert(utan).select().single();
+        }
+        return r;
+      });
       if (skrivIns.error) {
         console.error('Supabase error:', skrivIns.error);
         if (skrivIns.error.code === '23505') {

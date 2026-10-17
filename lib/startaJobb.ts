@@ -135,7 +135,8 @@ export function byggObjektRad(i: JobbIndata, vo: string, nu: string): Record<str
     rad.status = 'pagaende';
     rad.pagaende_startad_timestamp = nu;
   } else {
-    // Planerat jobb utan maskin: samma default som tidigare ('planerad' = klart att köra) sätts uttryckligen, aldrig av kolumnens default.
+    // Planerat jobb utan maskin: 'planerad' (= klart att köra) sätts uttryckligen, aldrig av kolumnens default (som efter migration 20261017072819 är 'oplanerad').
+    // Jobbet skapas av FÖRAREN själv i Starta jobb — ingen planerare ska klarmarkera det, så det startar som klart att köra.
     rad.status = 'planerad';
   }
   return rad;

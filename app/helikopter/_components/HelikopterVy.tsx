@@ -30,20 +30,24 @@ import Ikon from '@/components/design/Ikon'
 import LageFlik from './LageFlik'
 import PlaneringFlik from './PlaneringFlik'
 import UppfoljningFlik from './UppfoljningFlik'
+import HistorikInnehall from './HistorikInnehall'
 import { PanelContext, type PanelPost } from './PanelVal'
 
-export type Flik = 'lage' | 'planering' | 'uppfoljning'
+export type Flik = 'lage' | 'planering' | 'uppfoljning' | 'historik'
+/** Telefon: fyra flikar. Stor skärm: tre kolumner (Historik nås som panel ur Uppföljning). */
 const FLIKAR: { id: Flik; namn: string }[] = [
   { id: 'lage', namn: 'Läge' },
   { id: 'planering', namn: 'Planering' },
   { id: 'uppfoljning', namn: 'Uppföljning' },
+  { id: 'historik', namn: 'Historik' },
 ]
+const KOLUMNER = FLIKAR.filter(f => f.id !== 'historik')
 
 function lasFlik(v: string | null): Flik {
-  return v === 'planering' || v === 'uppfoljning' ? v : 'lage'
+  return v === 'planering' || v === 'uppfoljning' || v === 'historik' ? v : 'lage'
 }
 
-/** iPad: högerkolumnens två val. Läge ligger alltid i vänsterkolumnen. */
+/** iPad: högerkolumnens tre val. Läge ligger alltid i vänsterkolumnen. */
 const HOGER_FLIKAR = FLIKAR.filter(f => f.id !== 'lage')
 
 export default function HelikopterVy() {
@@ -216,6 +220,8 @@ export default function HelikopterVy() {
 
   // Samma tre kort på alla bredder — bara hur många som syns samtidigt skiljer.
   const innehall = (f: Flik) => {
+    // Historiken hänger inte på månadens data: den hämtar själv och visas även om månaden inte gått att läsa.
+    if (f === 'historik') return <HistorikInnehall />
     if (!fast || !manadsdata || !dagar) return null
     if (f === 'lage') {
       return (
@@ -256,6 +262,7 @@ export default function HelikopterVy() {
         manad={manad}
         manuella={manuella}
         arAdmin={medarbetare?.roll === 'admin'}
+        visaHistorikRad={lage === 'stor'}
       />
     )
   }
@@ -299,6 +306,14 @@ export default function HelikopterVy() {
     </div>
   )
 
+  // Historikens rubrik (telefon): vyn gäller alla månader, så ingen pil och ingen "Idag".
+  const historikHuvud = (
+    <div style={{ padding: `${AVSTAND.l}px 0 ${AVSTAND.xs}px`, textAlign: 'center' }}>
+      <h1 style={{ margin: 0, ...TYP.titel, color: FARG.text }}>Historik</h1>
+      <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Avslutade månader mot beställning</div>
+    </div>
+  )
+
   // Kolumngruppens ram: högst n kort à KORT_MAX_PX, centrerad, 16 px sidmarginal. Rubrikraden och kolumnerna delar den, så de linjerar.
   const ram: React.CSSProperties = { width: '100%', maxWidth: kolumnerBredd(n) + 2 * SIDMARGINAL, marginInline: 'auto', paddingInline: SIDMARGINAL, boxSizing: 'border-box' }
 
@@ -313,12 +328,13 @@ export default function HelikopterVy() {
             <style>{HK_CSS}</style>
             {/* Ett kort blir aldrig bredare än KORT_MAX_PX (påverkar bara fönster bredare än ~450 px). */}
             <PageContainer width="smal" style={{ maxWidth: KORT_MAX_PX + 2 * SIDMARGINAL }}>
-              <header>{manadsHuvud}</header>
+              {/* Historiken gäller alla månader: ingen månadsrubrik med pilar som inte gör något. */}
+              <header>{flik === 'historik' ? historikHuvud : manadsHuvud}</header>
 
               {/* Flikar — sticky under toppbaren så man kan byta utan att scrolla upp. */}
               {flikrad(FLIKAR, true)}
 
-              {!klart ? tillstand : innehall(flik)}
+              {flik === 'historik' ? innehall('historik') : !klart ? tillstand : innehall(flik)}
             </PageContainer>
           </div>
         </SheetLageContext.Provider>
@@ -359,7 +375,7 @@ export default function HelikopterVy() {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${n}, minmax(0, ${KORT_MAX_PX}px))`, columnGap: KOLUMN_GAP, justifyContent: 'center', alignItems: 'start' }}>
                 {stor ? (
-                  FLIKAR.map(f => (
+                  KOLUMNER.map(f => (
                     <div key={f.id} style={{ minWidth: 0 }}>
                       <div style={{ padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px` }}>
                         <div style={{ ...TYP.listtitel, color: FARG.text }}>{f.namn}</div>

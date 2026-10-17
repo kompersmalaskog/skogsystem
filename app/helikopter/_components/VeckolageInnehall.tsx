@@ -2,7 +2,7 @@
 
 // Veckoläget — innehållet, rent av data (ingen hämtning, inget sidhuvud): sidan ritar det,
 // och samma modell ritas av PDF:en och bilden (_lib/veckolageDela.ts, ljus egen rendering — rörs inte).
-// Ett KORT per spår: rubrik (meta) · stort tal (TYP.tal) · en mening (text) · två rutor Skördat/Skotat · flaskhals · veckan-rad (meta).
+// Ett KORT per spår: rubrik (meta) · stort tal (TYP.tal: skotat landar i procent av beställt) · en mening (text) · två rutor Skördat landar/Skotat landar · flaskhals · veckan-rad (meta).
 // Inga andra element: ingen orsak, inget per bolag, inga staplar.
 import { AVSTAND, FARG, IKON, KORT, RADIE, TNUM, TYP } from '@/lib/design/tokens'
 import type { SparVy, Ton, Veckolage } from '../_lib/veckolage'
@@ -34,8 +34,8 @@ function Spar({ s }: { s: SparVy }) {
       </div>
       <div style={{ ...TYP.text, ...TNUM, color: FARG.text, marginTop: AVSTAND.xs }}>{s.mening}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.s, marginTop: AVSTAND.m }}>
-        <Ruta ikon="forest" label="Skördat" v={s.skordat} />
-        <Ruta ikon="local_shipping" label="Skotat" v={s.skotat} />
+        <Ruta ikon="forest" label={s.skordat.etikett} v={s.skordat} />
+        <Ruta ikon="local_shipping" label={s.skotat.etikett} v={s.skotat} />
       </div>
       {s.flaskhals && (
         <div role="note" style={{ marginTop: AVSTAND.m }}>

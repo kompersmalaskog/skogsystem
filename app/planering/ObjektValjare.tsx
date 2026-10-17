@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { grupperaForareObjekt, type ForareObjekt } from '@/lib/objektlista';
+import { oplaneradRadText } from '@/lib/klarTrakt';
 import { objektHuvudtyp, arTilldelad } from '@/lib/objektPlats';
 import { typLabel } from '@/lib/objekt/typ';
 
@@ -351,6 +352,9 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           <div style={{ fontSize: '13px' }}>
             <span style={{ color: 'rgba(255,255,255,0.85)' }}>{typTxt}</span>
             {obj.bolag && <span style={{ color: '#8e8e93' }}> · {obj.bolag}</span>}
+            {String(obj.status || '').toLowerCase() === 'oplanerad' && (
+              <span data-testid={`forare-oplanerad-${obj.id}`} style={{ color: '#ff9f0a', fontWeight: 600 }}> · {oplaneradRadText(obj.klar_kvar_antal)}</span>
+            )}
           </div>
           {/* Chips: egna tilldelade + maskin/förare som är där (pågående) */}
           {(egen || (pagar && maskiner.length > 0)) && (
@@ -666,7 +670,13 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                   {grupper.planerade.map((o) => renderForareRad(o))}
                 </>
               )}
-              {grupper && grupper.har.length === 0 && grupper.pagaende.length === 0 && grupper.planerade.length === 0 && (
+              {grupper && grupper.oplanerade.length > 0 && (
+                <>
+                  {gruppRubrik('Oplanerade', grupper.oplanerade.length)}
+                  {grupper.oplanerade.map((o) => renderForareRad(o))}
+                </>
+              )}
+              {grupper && grupper.har.length === 0 && grupper.pagaende.length === 0 && grupper.planerade.length === 0 && grupper.oplanerade.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '48px 20px', color: '#8e8e93', fontSize: '13px' }}>Inga aktiva objekt</div>
               )}
               {/* AVSLUTADE: hopfälld rad med antal → egen vy */}

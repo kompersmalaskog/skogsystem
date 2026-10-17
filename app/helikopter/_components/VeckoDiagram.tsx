@@ -6,6 +6,7 @@
 // Tryck på kolumn = välj vecka. Tryck på stapel = per maskin för den rollen.
 import { AVSTAND, FARG, IKON, RADIE, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens'
 import type { VeckaRad } from '../_lib/queries'
+import { veckaFarg } from '../_lib/veckaFarg'
 import Ikon from '@/components/design/Ikon'
 
 type Roll = 'skordare' | 'skotare'
@@ -13,9 +14,16 @@ const HOJD = 150
 const STAPEL_BREDD = 16
 const MELLAN = 4
 
-export function veckaFarg(varde: number, plan: number | null): string {
-  if (plan == null || plan <= 0) return FARG.text2
-  return varde >= plan ? FARG.gron : FARG.orange
+export { veckaFarg }
+
+/** Förklaringen över diagrammet: ikon + namn, text2. Delas med Månadsfacit. */
+export function VeckoLegend() {
+  return (
+    <div style={{ display: 'flex', gap: AVSTAND.l, ...TYP.meta, color: FARG.text2, padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px` }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}><Ikon namn="forest" storlek={IKON.text} /> Skördat</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}><Ikon namn="local_shipping" storlek={IKON.text} /> Skotat</span>
+    </div>
+  )
 }
 
 export default function VeckoDiagram({ veckor, vald, onValjVecka, onValjStapel }: {
@@ -31,10 +39,7 @@ export default function VeckoDiagram({ veckor, vald, onValjVecka, onValjStapel }
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: AVSTAND.l, ...TYP.meta, color: FARG.text2, padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px` }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}><Ikon namn="forest" storlek={IKON.text} /> Skördat</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}><Ikon namn="local_shipping" storlek={IKON.text} /> Skotat</span>
-      </div>
+      <VeckoLegend />
       <div style={{ display: 'flex', gap: AVSTAND.xs, alignItems: 'flex-end' }}>
         {veckor.map(v => {
           const arVald = v.isovecka === vald

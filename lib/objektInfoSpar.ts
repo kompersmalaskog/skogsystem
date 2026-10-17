@@ -28,14 +28,15 @@ export interface InfoVarden {
   skordareMaskinId: string | null;
   skordareUtforare: string | null;
   skordareUtforareNamn: string;
-  skordareBand: boolean;
+  /** null = ingen har tagit ställning (förut false för båda — se migration 20261017072819) */
+  skordareBand: boolean | null;
   skordareBandPar: string | null;
   skordareManFall: boolean;
   skordareManFallText: string;
   skotareMaskinId: string | null;
   skotareUtforare: string | null;
   skotareUtforareNamn: string;
-  skotareBand: boolean;
+  skotareBand: boolean | null;
   skotareBandPar: string | null;
   skotareLastreder: boolean;
   skotareRisDirekt: boolean;
@@ -104,14 +105,14 @@ export function infoVardenFranRad(r: any): InfoVarden {
     skordareMaskinId: r.skordare_maskin_id || null,
     skordareUtforare: r.skordare_utforare || null,
     skordareUtforareNamn: r.skordare_utforare_namn || '',
-    skordareBand: r.skordare_band || false,
+    skordareBand: r.skordare_band == null ? null : !!r.skordare_band,
     skordareBandPar: r.skordare_band_par ?? null,
     skordareManFall: r.skordare_manuell_fallning || false,
     skordareManFallText: r.skordare_manuell_fallning_text || '',
     skotareMaskinId: r.skotare_maskin_id || null,
     skotareUtforare: r.skotare_utforare || null,
     skotareUtforareNamn: r.skotare_utforare_namn || '',
-    skotareBand: r.skotare_band || false,
+    skotareBand: r.skotare_band == null ? null : !!r.skotare_band,
     skotareBandPar: r.skotare_band_par ?? null,
     skotareLastreder: r.skotare_lastreder_breddat || false,
     skotareRisDirekt: r.skotare_ris_direkt || false,

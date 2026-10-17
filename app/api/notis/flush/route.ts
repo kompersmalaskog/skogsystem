@@ -6,6 +6,7 @@ import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { skaFragaBrandrisk } from "@/lib/ob";
 import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
 import { formateraVeckoNotis } from "@/app/helikopter/_lib/veckoNotis";
+import { formateraManadNotis, manadNotisLank } from "@/app/helikopter/_lib/manadsfacit";
 import { idagStockholm } from "@/lib/grotvy/format";
 import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
 import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@/lib/ledighet/notis";
@@ -296,6 +297,17 @@ export async function byggMeddelande(n: any): Promise<{ title: string; body: str
       body: formateraVeckoNotis(p),
       url: p.idag ? `/helikopter/veckolage?datum=${encodeURIComponent(String(p.idag))}` : "/helikopter/veckolage",
       tag: `helikopter-vecka-${n.mottagare_id}-${n.datum || n.id || ""}`,
+    };
+  }
+
+  if (n.typ === "helikopter_manad") {
+    // Månadsfacit första arbetsdagen (helikopter_notis_manad, migration 20261016090100). payload = helikopter_manadsfacit för föregående månad.
+    const p = n.payload || {};
+    return {
+      title: "Helikopter",
+      body: formateraManadNotis(p),
+      url: manadNotisLank(p),
+      tag: `helikopter-manad-${n.mottagare_id}-${n.datum || n.id || ""}`,
     };
   }
 

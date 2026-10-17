@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { hamtaAlla } from '@/lib/supabaseAlla'
 import type { VeckolageData } from './veckolage'
+import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
 
 export type Typ = 'slutavverkning' | 'gallring'
 
@@ -392,4 +393,28 @@ export async function hamtaMaskinLage(maskinId: string, idag: string): Promise<S
   if (r.error) return { data: null, error: r.error }
   const rad = (r.data ?? [])[0]
   return { data: rad ? normMaskinLage(rad) : null, error: null }
+}
+
+/** Månadsfacit för en avslutad (eller pågående) månad — /helikopter/manad. Ett svar som inte är ett facit är ett fel, aldrig 0 %. */
+export async function hamtaManadsfacit(ar: number, manad: number): Promise<Svar<Manadsfacit>> {
+  const r = await rpc<unknown>('helikopter_manadsfacit', { p_ar: ar, p_manad: manad })
+  if (r.error) return { data: null, error: r.error }
+  try {
+    return { data: lasManadsfacit(r.data), error: null }
+  } catch (e) {
+    console.error('[helikopter] helikopter_manadsfacit gav ogiltigt svar', e)
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Månader med beställning, nyast först, utan den pågående månaden — historikfliken. */
+export async function hamtaHistorik(): Promise<Svar<Historik>> {
+  const r = await rpc<unknown>('helikopter_historik', { p_manader: 12 })
+  if (r.error) return { data: null, error: r.error }
+  try {
+    return { data: lasHistorik(r.data), error: null }
+  } catch (e) {
+    console.error('[helikopter] helikopter_historik gav ogiltigt svar', e)
+    return { data: null, error: felText(e) }
+  }
 }

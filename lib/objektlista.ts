@@ -27,6 +27,8 @@ export interface ForareGrupper {
   har: ForareObjekt[];
   pagaende: ForareObjekt[];
   planerade: ForareObjekt[];
+  /** Ingen har tryckt "Klar för maskin" än. Syns LÄNGRE NER med orange "N kvar" — de spärras aldrig, föraren kan välja dem. */
+  oplanerade: ForareObjekt[];
   avslutade: ForareObjekt[];
 }
 
@@ -74,8 +76,9 @@ function arPagaende(status: string | null | undefined): boolean {
 
 /** Dela upp förarens objekt i HÄR / PÅGÅENDE / PLANERADE / AVSLUTADE och sortera inom grupp.
  *  Varje objekt hamnar i EXAKT en grupp, prioritet HÄR > PÅGÅENDE > PLANERADE > AVSLUTADE.
- *  Avslutade går alltid till AVSLUTADE (även om man står inne i dem). Objekt med en status
- *  utanför planerad/pågående/avslutad visas inte (spec B: förare ser just de tre). */
+ *  Avslutade går alltid till AVSLUTADE (även om man står inne i dem). OPLANERADE (nya trakter som planeraren inte klarmarkerat) visas sist bland de aktiva —
+ *  efter Planerade, aldrig före en klar trakt — så föraren ser dem och kan välja dem, men nästa jobb är alltid ett planerat. Objekt med en status
+ *  utanför oplanerad/planerad/pågående/avslutad visas inte. */
 export function grupperaForareObjekt(args: {
   objekt: ForareObjekt[];
   pos?: { lat: number; lng: number } | null;
@@ -83,7 +86,7 @@ export function grupperaForareObjekt(args: {
   klararTyp?: KlararTyp;
 }): ForareGrupper {
   const { objekt, pos, maskinId, klararTyp } = args;
-  const har: ForareObjekt[] = [], pagaende: ForareObjekt[] = [], planerade: ForareObjekt[] = [], avslutade: ForareObjekt[] = [];
+  const har: ForareObjekt[] = [], pagaende: ForareObjekt[] = [], planerade: ForareObjekt[] = [], oplanerade: ForareObjekt[] = [], avslutade: ForareObjekt[] = [];
   for (const o of objekt || []) {
     const st = (o.status || '').toLowerCase();
     if (st === 'avslutat' || st === 'klar') { avslutade.push(o); continue; }
@@ -91,12 +94,13 @@ export function grupperaForareObjekt(args: {
     if (pos && objektTraffPunkt(o, pos.lat, pos.lng)) { har.push(o); continue; }
     if (arPagaende(st) || o.aktivSenaste7 === true) { pagaende.push(o); continue; }
     if (st === 'planerad') { planerade.push(o); continue; }
+    if (st === 'oplanerad') { oplanerade.push(o); continue; }
     // annan/okänd status → visas inte i förarlistan
   }
   const cmp = inomGruppSort(pos, maskinId, klararTyp);
-  har.sort(cmp); pagaende.sort(cmp); planerade.sort(cmp);
+  har.sort(cmp); pagaende.sort(cmp); planerade.sort(cmp); oplanerade.sort(cmp);
   avslutade.sort(sorteraAvslutade);
-  return { har, pagaende, planerade, avslutade };
+  return { har, pagaende, planerade, oplanerade, avslutade };
 }
 
 /** AVSLUTADE: senast avslutat överst (avslutad_timestamp fallande); saknar timestamp → sist. */
