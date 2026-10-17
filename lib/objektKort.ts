@@ -129,6 +129,10 @@ export interface KartMarkering {
   /** basväg (mainRoad): vald färg (röd/gul/blå) och längd i meter — "Basväg röd · 640 m" i Om trakten */
   farg?: string | null;
   langdM?: number | null;
+  /** Vidas egna objekt (hänsynsytor, avlägg ur traktgeometrin) har kalla 'vida'; allt annat är satt av oss. Källan syns bara när objektet öppnas — raderna är en per typ oavsett källa. */
+  kalla?: 'vida';
+  /** symbolens antal (högstubbar/evighetsträd sätts med `antal` per symbol) — saknas = 1 */
+  antal?: number | null;
   /** hela linjen/ytan (lat/lng per punkt) — bara linjer och zoner; symbolen har bara lat/lng. "Visa ›" framhäver HELA figuren, inte en punkt. */
   geometri?: { lat: number; lng: number }[];
   /** när den skapades (ms) om det går att läsa ur id:t, annars null */
@@ -139,13 +143,10 @@ export interface KartMarkering {
 
 export const harText = (m: Pick<KartMarkering, 'comment'>): boolean => !!m.comment.trim();
 export const harFoto = (m: Pick<KartMarkering, 'photoPath' | 'photoData' | 'fotoVantar'>): boolean => !!(m.photoPath || m.photoData || m.fotoVantar);
-/** Med kommentar eller foto — de som får en rad i "På kartan". */
+/** Med kommentar eller foto ("med text" i kortets rad På trakten). */
 export const harInnehall = (m: KartMarkering): boolean => harText(m) || harFoto(m);
-/** En basväg listas alltid i Om trakten (under Vägar, med färg och längd), också utan kommentar. Den räknas ändå inte som "med text". */
+/** Basvägen (mainRoad): egen rad överst under Vägar i Om trakten, med färg och längd. */
 export const arBasvag = (m: Pick<KartMarkering, 'slag' | 'typ'>): boolean => m.slag === 'linje' && m.typ === 'mainRoad';
-/** Det som får en rad i "På kartan": markeringar med kommentar eller foto, och basvägarna. */
-export const visasIListan = (m: KartMarkering): boolean => harInnehall(m) || arBasvag(m);
-
 export interface MarkeringsSammanfattning { antal: number; medText: number }
 /** Raden i kortet: "N markeringar · M med text". "Med text" = med kommentar eller foto (det Om trakten listar). */
 export function sammanfattaMarkeringar(ms: readonly KartMarkering[]): MarkeringsSammanfattning {
@@ -154,44 +155,6 @@ export function sammanfattaMarkeringar(ms: readonly KartMarkering[]): Markerings
 export function markeringsRad(s: MarkeringsSammanfattning): string {
   const ord = s.antal === 1 ? 'markering' : 'markeringar';
   return s.medText > 0 ? `${s.antal} ${ord} · ${s.medText} med text` : `${s.antal} ${ord}`;
-}
-
-const PLURAL: Record<string, [string, string]> = {
-  eternitytree: ['evighetsträd', 'evighetsträd'], naturecorner: ['naturhörna', 'naturhörnor'],
-  culturemonument: ['kulturminne', 'kulturminnen'], culturestump: ['kulturstubbe', 'kulturstubbar'],
-  highstump: ['högstubbe', 'högstubbar'], landing: ['avlägg', 'avlägg'], brashpile: ['rishög', 'rishögar'],
-  windfall: ['vindfälle', 'vindfällen'], manualfelling: ['manuell fällning', 'manuella fällningar'],
-  powerline: ['kraftledning', 'kraftledningar'], road: ['väg', 'vägar'], turningpoint: ['vändplats', 'vändplatser'],
-  ditch: ['dike', 'diken'], bridge: ['bro', 'broar'], corduroy: ['kavling', 'kavlingar'],
-  wet: ['fuktig mark', 'fuktiga partier'], steep: ['brant', 'branter'], trail: ['stig', 'stigar'], warning: ['varning', 'varningar'],
-};
-const LINJE_PLURAL: Record<string, [string, string]> = {
-  mainRoad: ['basväg', 'basvägar'], ditch: ['dike', 'diken'], trail: ['stig', 'stigar'], nature: ['naturvårdslinje', 'naturvårdslinjer'],
-  sideRoadRed: ['röd stickväg', 'röda stickvägar'], sideRoadYellow: ['gul stickväg', 'gula stickvägar'], sideRoadBlue: ['blå stickväg', 'blå stickvägar'],
-  backRoadRed: ['röd backväg', 'röda backvägar'], backRoadYellow: ['gul backväg', 'gula backvägar'], backRoadBlue: ['blå backväg', 'blå backvägar'],
-};
-
-/** Namn med räkneord i rätt form ("1 högstubbe", "5 högstubbar"). Okänd typ: visningsnamnet i gemener. */
-export function namnMedAntal(slag: MarkeringsSlag, typ: string, fallbackNamn: string, n: number): string {
-  const tabell = slag === 'linje' ? LINJE_PLURAL : slag === 'symbol' ? PLURAL : {};
-  const par = (tabell as Record<string, [string, string]>)[typ];
-  const ord = par ? par[n === 1 ? 0 : 1] : String(fallbackNamn || typ).toLowerCase();
-  return `${n} ${ord}`;
-}
-
-/** Markeringarna UTAN kommentar eller foto som antal per typ: "5 högstubbar · 2 avlägg". Flest först. Tom lista → tom sträng. */
-export function antalPerTyp(ms: readonly KartMarkering[]): string {
-  const grupper = new Map<string, { slag: MarkeringsSlag; typ: string; namn: string; n: number }>();
-  for (const m of ms) {
-    if (harInnehall(m) || arBasvag(m)) continue;   // basvägarna listas på egna rader
-    const k = `${m.slag}:${m.typ}`;
-    const g = grupper.get(k);
-    if (g) g.n += 1; else grupper.set(k, { slag: m.slag, typ: m.typ, namn: m.namn, n: 1 });
-  }
-  return Array.from(grupper.values())
-    .sort((a, b) => b.n - a.n)
-    .map((g) => namnMedAntal(g.slag, g.typ, g.namn, g.n))
-    .join(' · ');
 }
 
 // Avstånd i luftlinje (m) mellan två punkter.
@@ -247,10 +210,8 @@ export function efektivPos(pos: { lat: number; lng: number } | null, ms: readonl
   return null;
 }
 
-/** Faror först, sedan övrigt, vägar sist. */
+/** Faror, vägar, övrigt — grunden för Om trakten (lib/omTrakten lägger hänsyn och "Från Vida" ovanpå). */
 export type MarkeringsGrupp = 'faror' | 'ovrigt' | 'vagar';
-export const GRUPPER_I_ORDNING: MarkeringsGrupp[] = ['faror', 'ovrigt', 'vagar'];
-export const GRUPP_RUBRIK: Record<MarkeringsGrupp, string> = { faror: 'Faror', ovrigt: 'På kartan', vagar: 'Vägar' };
 // Det som kan göra illa: varning, el-ledning, vindfälle och "ej framkomlig". Manuell fällning och brant är information till den som fäller/kör, inte en fara att se upp för.
 const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall']);
 const FARA_ZONER = new Set(['noentry']);
@@ -260,78 +221,6 @@ export function markeringsGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): Markeri
   if (m.slag === 'symbol') return FARA_SYMBOLER.has(m.typ) ? 'faror' : VAG_SYMBOLER.has(m.typ) ? 'vagar' : 'ovrigt';
   if (m.slag === 'zon') return FARA_ZONER.has(m.typ) ? 'faror' : 'ovrigt';
   return VAG_LINJER.has(m.typ) ? 'vagar' : 'ovrigt';
-}
-
-/** En kort kommentar ("Röd väg") går att slå ihop med likadana; en lång text eller ett foto står för sig. */
-export const KORT_KOMMENTAR_TECKEN = 24;
-export const arKortKommentar = (m: Pick<KartMarkering, 'comment' | 'photoPath' | 'photoData' | 'fotoVantar' | 'slag' | 'typ'>): boolean => {
-  if (arBasvag(m)) return false;   // en basväg har egen rad med färg och längd
-  const c = m.comment.trim();
-  return c !== '' && c.length <= KORT_KOMMENTAR_TECKEN && !harFoto(m);
-};
-const normKommentar = (c: string) => c.trim().replace(/\s+/g, ' ').toLowerCase();
-const versal = (t: string) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
-/** "fuktig mark" → "Fuktiga partier": pluralformen med stor bokstav. Okänd typ: visningsnamnet. */
-export function pluralNamn(slag: MarkeringsSlag, typ: string, fallbackNamn: string): string {
-  const tabell = (slag === 'linje' ? LINJE_PLURAL : slag === 'symbol' ? PLURAL : {}) as Record<string, [string, string]>;
-  const par = tabell[typ];
-  return versal(par ? par[1] : String(fallbackNamn || typ));
-}
-
-export interface SamladDel { text: string; n: number }
-export interface MarkeringsRad {
-  nyckel: string;
-  /** en markering, eller flera korta kommentarer av samma typ som en rad ("Vägar · Röd väg ×3 · Gul väg ×2") */
-  samlad: boolean;
-  markeringar: MarkeringMedAvstand[];
-  /** den samlade radens rubrik ("Vägar") och delar (kommentar + antal) */
-  rubrik: string;
-  delar: SamladDel[];
-}
-export interface MarkeringsGruppRader { grupp: MarkeringsGrupp; rubrik: string; rader: MarkeringsRad[] }
-
-/** "Vägar · Röd väg ×3 · Gul väg ×2" — ×n bara när n > 1. */
-export function samladText(r: Pick<MarkeringsRad, 'rubrik' | 'delar'>): string {
-  return [r.rubrik, ...r.delar.map((d) => (d.n > 1 ? `${d.text} ×${d.n}` : d.text))].join(' · ');
-}
-
-/**
- * Raderna i "På kartan", i tre grupper (Faror · På kartan · Vägar). Bara markeringar MED kommentar eller foto. Inom en grupp närmast först om man är på
- * trakten (`pos` efter `efektivPos`), annars i den ordning de skapades. Två eller fler korta kommentarer av samma typ blir EN rad
- * (alla vägar — symbol som linje — räknas som samma typ: "Vägar"); en ensam, en lång text och ett foto står för sig.
- */
-export function byggMarkeringsGrupper(ms: readonly KartMarkering[], pos: { lat: number; lng: number } | null): MarkeringsGruppRader[] {
-  const sorterade = sorteraMarkeringar(ms.filter(visasIListan), pos);
-  const ut: MarkeringsGruppRader[] = [];
-  for (const g of GRUPPER_I_ORDNING) {
-    const iGrupp = sorterade.filter((m) => markeringsGrupp(m) === g);
-    if (iGrupp.length === 0) continue;
-    const nyckelAv = (m: MarkeringMedAvstand) => (g === 'vagar' ? 'vagar' : `${m.slag}:${m.typ}`);
-    const kort = new Map<string, MarkeringMedAvstand[]>();
-    for (const m of iGrupp) if (arKortKommentar(m)) kort.set(nyckelAv(m), [...(kort.get(nyckelAv(m)) ?? []), m]);
-    const samlas = new Set(Array.from(kort.entries()).filter(([, l]) => l.length >= 2).map(([k]) => k));
-    const rader: MarkeringsRad[] = [];
-    const redanSamlad = new Set<string>();
-    for (const m of iGrupp) {
-      const k = nyckelAv(m);
-      if (arKortKommentar(m) && samlas.has(k)) {
-        if (redanSamlad.has(k)) continue;
-        redanSamlad.add(k);
-        const medlemmar = kort.get(k)!;
-        const delar: SamladDel[] = [];
-        for (const x of medlemmar) {
-          const n = normKommentar(x.comment);
-          const finns = delar.find((d) => normKommentar(d.text) === n);
-          if (finns) finns.n += 1; else delar.push({ text: versal(x.comment.trim().replace(/\s+/g, ' ')), n: 1 });
-        }
-        rader.push({ nyckel: `samlad:${g}:${k}`, samlad: true, markeringar: medlemmar, rubrik: g === 'vagar' ? 'Vägar' : pluralNamn(m.slag, m.typ, m.namn), delar });
-      } else {
-        rader.push({ nyckel: `en:${m.id}`, samlad: false, markeringar: [m], rubrik: '', delar: [] });
-      }
-    }
-    ut.push({ grupp: g, rubrik: GRUPP_RUBRIK[g], rader });
-  }
-  return ut;
 }
 
 /** Sökfältet i Om trakten: träffar text i kommentaren och symbolens namn (ingen skillnad på versaler). Tom sökning släpper igenom allt. */
@@ -430,13 +319,13 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
 
 // ── Brandrisk: fem dagar som små färgstreck ─────────────────────────────────────────────────────────────────────────
 
-export interface BrandDag { dag: string; klass: number }
+export interface BrandDag { dag: string; datum: string; klass: number }
 /** De fem första dagarna (idag först). Klassen 1–6 är SMHI:s MCF-klass — samma som veckolistan i brandriskpanelen. */
 export function femDagar(daily: ReadonlyArray<{ date: string; dayName: string; fwiIndex: number }> | null | undefined, idagIso: string): BrandDag[] {
   if (!daily?.length) return [];
   const i = daily.findIndex((d) => d.date === idagIso);
   const fran = i > 0 ? [...daily.slice(i), ...daily.slice(0, i)] : [...daily];
-  return fran.slice(0, 5).map((d) => ({ dag: d.dayName, klass: d.fwiIndex }));
+  return fran.slice(0, 5).map((d) => ({ dag: d.dayName, datum: d.date, klass: d.fwiIndex }));
 }
 
 /** Kortets färgbaserade klass bärs alltid av en siffra och ett ord bredvid (färg är aldrig ensam bärare). */

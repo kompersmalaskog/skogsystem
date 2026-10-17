@@ -24,7 +24,7 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
     expect(page).toContain('avverkadAreaM2(segment, { ringar })');
     expect(page).toContain('status: kravStatus(miljoAntal.hogstubbar, miljoKravVal.hogstubbar, andelAvverkat)');
     expect(page).toContain('miljoKrav(infoAreal || valtObjekt?.areal, valtObjekt?.cert)');
-    expect(page).toContain('extraBrickor({ barighet: infoBarighet, terrang: infoTerrang, basvag: paTrakten.basvagKm, avverkat: avverkatText })');
+    expect(page).toContain('extraBrickor({ barighet: infoBarighet, terrang: infoTerrang, basvag: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM)) ?? paTrakten.basvagKm, avverkat: avverkatText })');
     expect(page).toContain("!avverkat.harSpar ? 'inget skördarspår loggat än'");
   });
 });
@@ -182,7 +182,7 @@ describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
     expect(page).not.toContain('miljoRaknareExpanderad');
     expect(page).not.toContain('data-testid="objektinfo-miljo"');
     expect(page).toContain("{ id: 'hogstubbar', namn: 'Högstubbar', antal: hogstubbarVy.antal, krav: hogstubbarVy.krav, uppfyllt: hogstubbarVy.status === 'uppfyllt' },");
-    expect(las('../components/planering/OmTrakten.tsx')).toContain('data-testid="om-miljo"');
+    expect(las('../components/planering/OmTrakten.tsx')).toContain('p.miljo.map((m) =>');   // raderna "Högstubbar · 3 av 11 markerade" (typraderna i Om trakten, lib/omTrakten)
     expect(las('../components/planering/ObjektKort.tsx')).not.toMatch(/högstubb/i);   // kortet visar dem inte (ingen dubblett)
   });
   it('Klar låser mätningen och visar talet — ingenting sparas (Spara som finns inte längre)', () => {

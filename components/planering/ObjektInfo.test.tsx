@@ -5,17 +5,16 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 
 vi.mock('@/lib/supabase', () => ({ supabase: { from: () => ({}), storage: { from: () => ({}) } } }));
-const smhi = vi.hoisted(() => ({ fel: false }));
+const smhi = vi.hoisted(() => ({ fel: false, klasser: [2, 3, 4, 5, 3, 1] as number[] }));
 // Fotokön (IndexedDB finns inte i jsdom): det lokala fotot som väntar på uppladdning.
 const kon = vi.hoisted(() => ({ blob: null as Blob | null }));
 vi.mock('@/lib/markeringFotoKo', () => ({ lokaltMarkeringFoto: vi.fn(async () => kon.blob), prenumereraFotoKo: () => () => {} }));
 vi.mock('@/lib/smhi-brandrisk', () => {
-  const idag = new Date();
-  const daily = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(idag.getTime() + i * 86400e3);
-    return { date: d.toISOString().split('T')[0], dayName: ['Idag', 'Mån', 'Tis', 'Ons', 'Tor', 'Fre'][i], fwiIndex: [2, 3, 4, 5, 3, 1][i], fwi: 10, peakHour: 14, temp: 10, wind: '', windLevel: '', humidity: '', humLevel: '', rain: false, hourlyIdx: [] };
+  const dagar = () => Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(Date.now() + i * 86400e3);
+    return { date: d.toISOString().split('T')[0], dayName: ['Idag', 'Mån', 'Tis', 'Ons', 'Tor', 'Fre'][i], fwiIndex: smhi.klasser[i], fwi: 10, peakHour: 14, temp: 10, wind: '', windLevel: '', humidity: '', humLevel: '', rain: false, hourlyIdx: [] };
   });
-  return { fetchSmhiFwi: vi.fn(async () => { if (smhi.fel) throw new Error('SMHI nere'); return { daily }; }) };
+  return { fetchSmhiFwi: vi.fn(async () => { if (smhi.fel) throw new Error('SMHI nere'); return { daily: dagar() }; }) };
 });
 
 import ObjektInfo, { type ObjektInfoProps } from './ObjektInfo';
@@ -50,8 +49,8 @@ const MARKERINGAR: KartMarkering[] = [
 ];
 const LANG_TEXT = 'Skogsägaren önskar att ca 15 tallar per ha sparas som fröträd. Hänsynsytor vid bäcken ska lämnas orörda. Markberedning planeras till våren.';
 
-const spion = { knapp: [] as string[], stang: 0, visa: [] as string[], foto: [] as string[], mer: [] as string[], brand: 0, larm: 0, slapp: [] as string[] };
-function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar?: KartMarkering[]; pos?: { lat: number; lng: number } | null; maskinSlag?: 'skordare' | 'skotare' | null; framhavdId?: string | null; startVy?: 'kort' | 'om' } = {}): ObjektInfoProps {
+const spion = { knapp: [] as string[], stang: 0, visa: [] as string[], foto: [] as string[], mer: [] as string[], brand: 0, larm: 0, slapp: [] as string[], typ: [] as string[], nav: [] as any[] };
+function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar?: KartMarkering[]; pos?: { lat: number; lng: number } | null; maskinSlag?: 'skordare' | 'skotare' | null; framhavdId?: string | null; startVy?: 'kort' | 'om'; start?: any } = {}): ObjektInfoProps {
   const roll = o.roll ?? 'planerare';
   const go: any = new Proxy({}, { get: (_t, k) => (k === 'gpsKalla' ? null : () => { spion.mer.push(String(k)); }) });
   const mer = byggMerGrupper({ roll, arAdmin: roll === 'planerare', korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: roll === 'forare', status: 'pagaende', tillTrakt: true, vagdata: { varde: '3 vägar', misslyckad: false, kanKora: true }, go });
@@ -66,13 +65,15 @@ function props(o: { roll?: 'planerare' | 'forare'; faror?: string[]; markeringar
       brickor: faktaBrickor({ areal: 3.6, volym: 950, grot: true }), extraBrickor: [],
       paTrakten: '4 markeringar · 2 med text', brand: { lat: 56.4, lng: 14.7 }, onBrand: () => { spion.brand += 1; },
       dokument: { antal: 3, chips: <span data-testid="dok-chips">chips</span> },
-      larm: { satt: true, koordinat: '56.40012, 14.70123', kalla: 'från traktfil (envz)', bekraftad: false, beskrivning: '', onVisa: () => { spion.larm += 1; } },
+      larm: { satt: true, koordinat: '56.40012, 14.70123', bekraftad: false, beskrivning: '', onVisa: () => { spion.larm += 1; } },
     },
     om: {
       hela: tillForaren({ vida: LANG_TEXT, anteckningar: 'Ring Stefan.' }), planttext: null, restriktioner: [],
       markeringar: o.markeringar ?? MARKERINGAR, pos: o.pos === undefined ? { lat: 56.4, lng: 14.7 } : o.pos,
       miljo: [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 5, krav: 15, uppfyllt: false }],
-      ytor: [], ikon: () => <span />, onVisa: (m, lage) => { spion.visa.push(`${m.id}:${lage}`); }, onSlapp: (orsak) => { spion.slapp.push(orsak); }, onFoto: (s) => { spion.foto.push(s); }, framhavdId: o.framhavdId ?? null,
+      ytor: [], brand: { lat: 56.4, lng: 14.7 }, onBrand: () => { spion.brand += 1; }, start: o.start, onNav: (n) => { spion.nav.push(n); }, onTyp: (m, lage) => { spion.typ.push(m ? `${m.map((x) => x.id).join(',')}:${lage}` : 'null'); },
+      vidaOppna: undefined,
+      ikon: () => <span />, onVisa: (m, lage) => { spion.visa.push(`${m.id}:${lage}`); }, onSlapp: (orsak) => { spion.slapp.push(orsak); }, onFoto: (s) => { spion.foto.push(s); }, framhavdId: o.framhavdId ?? null,
     },
     mer: { grupper: mer.grupper, avsluta: mer.avslutaObjekt ? () => { spion.mer.push('avsluta'); } : null, planerare: roll === 'planerare' ? { visaSom: null } : null },
     startVy: o.startVy,
@@ -86,7 +87,7 @@ async function montera(p: ObjektInfoProps) {
   await act(async () => { rot!.render(<ObjektInfo {...p} />); });
   await flush();
 }
-beforeEach(() => { kon.blob = null; (URL as any).createObjectURL = vi.fn(() => 'blob:lokalt-foto'); (URL as any).revokeObjectURL = vi.fn(); spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; spion.slapp = []; smhi.fel = false; sattBredd(390); });
+beforeEach(() => { kon.blob = null; (URL as any).createObjectURL = vi.fn(() => 'blob:lokalt-foto'); (URL as any).revokeObjectURL = vi.fn(); spion.knapp = []; spion.stang = 0; spion.visa = []; spion.foto = []; spion.mer = []; spion.brand = 0; spion.larm = 0; spion.slapp = []; spion.typ = []; spion.nav = []; smhi.fel = false; sattBredd(390); });
 afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.remove(); rot = null; });
 
 describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
@@ -170,16 +171,43 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(q('objekt-info')!.getAttribute('data-vy')).toBe('om');
   });
 
-  it('Brandrisk: fem dagar som färgstreck med dag och klass som text, tryck öppnar brandriskpanelen', async () => {
-    await montera(props());
-    const dagar = qa('info-brandrisk-dag');
-    expect(dagar.length).toBe(5);
-    expect(dagar.map((d) => d.textContent)).toEqual(['Idag 2', 'Mån 3', 'Tis 4', 'Ons 5', 'Tor 3']);
-    expect(dagar.map((d) => d.getAttribute('data-klass'))).toEqual(['2', '3', '4', '5', '3']);
-    expect(dagar[3].getAttribute('aria-label')).toBe('Ons: Mycket stor (klass 5)');
-    expect(q('info-brandrisk')!.textContent).toContain('Idag: liten');
-    klicka(q('info-brandrisk'));
+  it('Brandrisk visas bara när någon dag är 3 eller högre: EN rad "Brandrisk 5 på <dag>", röd, direkt under Faror; tryck öppnar brandriskpanelen', async () => {
+    await montera(props({ faror: ['Elledning'] }));
+    const rad = q('info-brandrisk')!;
+    expect(rad.textContent).toMatch(/^Brandrisk 5 på [a-zåäö]+dag$/);
+    expect(rad.getAttribute('data-ton')).toBe('rod');
+    expect(qa('info-brandrisk-dag').length).toBe(0);   // inga fem färgstreck längre
+    expect(q('kort-faror')!.compareDocumentPosition(q('info-brandrisk-kort')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(q('kort-uppdrag')!.contains(rad)).toBe(false);
+    klicka(rad);
     expect(spion.brand).toBe(1);
+  });
+
+  it('Brandrisk: 3 = vanlig text, 4 = orange, 5E = "Brandrisk 5E på <dag> – inga band"', async () => {
+    const med = async (klasser: number[], lat: number) => {
+      smhi.klasser = klasser;
+      const p = props(); p.kort.brand = { lat, lng: 16.1 };
+      await montera(p);
+      const rad = q('info-brandrisk');
+      const r = rad ? { ton: rad.getAttribute('data-ton'), text: rad.textContent! } : null;
+      await act(async () => { rot!.unmount(); }); behallare!.remove();
+      return r;
+    };
+    expect((await med([1, 3, 2, 1, 1, 1], 57.11))!.ton).toBe('neutral');
+    expect((await med([1, 1, 4, 1, 1, 1], 57.12))!.ton).toBe('orange');
+    const extrem = (await med([1, 1, 1, 6, 1, 1], 57.13))!;
+    expect(extrem.ton).toBe('rod');
+    expect(extrem.text).toMatch(/^Brandrisk 5E på [a-zåäö]+dag – inga band$/);
+    smhi.klasser = [2, 3, 4, 5, 3, 1];
+  });
+
+  it('Brandrisk 1–2 hela veckan: ingen rad alls', async () => {
+    smhi.klasser = [1, 2, 2, 1, 1, 1];
+    const p = props(); p.kort.brand = { lat: 57.2, lng: 16.1 };
+    await montera(p);
+    expect(q('info-brandrisk')).toBeNull();
+    expect(q('info-brandrisk-kort')).toBeNull();
+    smhi.klasser = [2, 3, 4, 5, 3, 1];
   });
 
   it('Brandrisk som inte går att hämta säger det — ingen gissad risk, raden går fortfarande att trycka på', async () => {
@@ -187,8 +215,16 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     const p = props();
     p.kort.brand = { lat: 58.12, lng: 16.3 };   // annan plats än de andra testerna (brandraden cachar per plats i 30 minuter)
     await montera(p);
-    expect(qa('info-brandrisk-dag').length).toBe(0);
-    expect(q('info-brandrisk')!.textContent).toContain('Kunde inte hämtas');
+    expect(q('info-brandrisk')!.textContent).toContain('kunde inte hämtas');
+    klicka(q('info-brandrisk'));
+    expect(spion.brand).toBe(1);
+  });
+
+  it('Om trakten visar samma brandriskrad, direkt under Faror', async () => {
+    await montera(props({ markeringar: SK }));
+    klicka(q('kort-pa-trakten'));
+    expect(q('info-brandrisk')!.textContent).toMatch(/^Brandrisk 5 på /);
+    expect(q('om-faror')!.compareDocumentPosition(q('info-brandrisk-kort')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     klicka(q('info-brandrisk'));
     expect(spion.brand).toBe(1);
   });
@@ -202,6 +238,16 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
     expect(spion.larm).toBe(1);
   });
 
+  it('Larmkoordinat: "Larmplats inte kontrollerad" — ingen teknisk text om källan; kontrollerad säger det', async () => {
+    await montera(props());
+    expect(q('kort-larm-status')!.textContent).toBe('Larmplats inte kontrollerad');
+    expect(q('kort-larm')!.textContent).not.toMatch(/envz|traktfil|Ej bekräftad/);
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    const p = props(); p.kort.larm.bekraftad = true;
+    await montera(p);
+    expect(q('kort-larm-status')!.textContent).toBe('Larmplats kontrollerad');
+  });
+
   it('Esc och × stänger', async () => {
     await montera(props());
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
@@ -210,218 +256,144 @@ describe('kortet (ⓘ) — ark på telefon, panel på bred skärm', () => {
   });
 });
 
-describe('Om trakten › På kartan — läsbarhet (Skälviken)', () => {
-  const oppnaOm = async (p: ObjektInfoProps) => { await montera(p); klicka(q('kort-pa-trakten')); };
-  const SK: KartMarkering[] = [
-    M({ id: 'v1', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Gul väg', lat: 56.4003, lng: 14.7, skapad: 100 }),
-    M({ id: 'v2', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Röd väg', lat: 56.4002, lng: 14.7, skapad: 110 }),
-    M({ id: 'v3', slag: 'linje', typ: 'mainRoad', namn: 'Basväg', comment: 'Röd väg', lat: 56.4004, lng: 14.7, skapad: 120 }),
-    M({ id: 'f1', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'En knäckt gran så Se upp här', lat: 56.4009, lng: 14.7, skapad: 150 }),
-    M({ id: 'f2', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'Ett jakttorn', lat: 56.401, lng: 14.7, skapad: 160 }),
-    M({ id: 'm1', slag: 'symbol', typ: 'manualfelling', namn: 'Manuell fällning', comment: 'Fällning pga brant', lat: 56.4001, lng: 14.7, skapad: 170 }),
-  ];
+// ── Om trakten (omtag 2026-10-17): grupper, EN rad per typ, typvy, objekt, tillbaka ─────────────────────────────────────────────────────
+const SK: KartMarkering[] = [
+  M({ id: 'v1', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Gul väg', lat: 56.4003, lng: 14.7, skapad: 100 }),
+  M({ id: 'v1b', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Gul väg', lat: 56.4003, lng: 14.7001, skapad: 101 }),
+  M({ id: 'v2', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Röd väg', lat: 56.4002, lng: 14.7, skapad: 110 }),
+  M({ id: 'v2b', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Röd väg', lat: 56.4002, lng: 14.7001, skapad: 111 }),
+  M({ id: 'v2c', slag: 'symbol', typ: 'road', namn: 'Väg', comment: 'Röd väg', lat: 56.4002, lng: 14.7002, skapad: 112 }),
+  M({ id: 'b2', slag: 'linje', typ: 'mainRoad', namn: 'Basväg', farg: null, langdM: 260, lat: 56.4004, lng: 14.7, skapad: 121 }),
+  M({ id: 'b1', slag: 'linje', typ: 'mainRoad', namn: 'Basväg', farg: 'red', langdM: 640, comment: 'Röd väg in från norr', lat: 56.4004, lng: 14.7, skapad: 120 }),
+  M({ id: 'f1', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'En knäckt gran så Se upp här', lat: 56.4009, lng: 14.7, skapad: 150 }),
+  M({ id: 'f2', slag: 'symbol', typ: 'warning', namn: 'Varning', comment: 'Ett jakttorn', lat: 56.401, lng: 14.7, skapad: 160 }),
+  M({ id: 'm1', slag: 'symbol', typ: 'manualfelling', namn: 'Manuell fällning', comment: 'Fällning pga brant', lat: 56.4001, lng: 14.7, skapad: 170 }),
+  M({ id: 'm2', slag: 'symbol', typ: 'manualfelling', namn: 'Manuell fällning', lat: 56.4001, lng: 14.7001, skapad: 171 }),
+  M({ id: 'h1', slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', antal: 1, lat: 56.4005, lng: 14.7, skapad: 180 }),
+  M({ id: 'h2', slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', antal: 2, lat: 56.4005, lng: 14.7001, skapad: 181 }),
+  M({ id: 'h3', slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', antal: 1, lat: 56.4005, lng: 14.7002, skapad: 182 }),
+  M({ id: 'e1', slag: 'symbol', typ: 'eternitytree', namn: 'Evighetsträd', lat: 56.4006, lng: 14.7, skapad: 190 }),
+  M({ id: 'k1', slag: 'symbol', typ: 'culturemonument', namn: 'Kulturminne', comment: 'Stenrös vid vägen', photoData: FOTO, lat: 56.4007, lng: 14.7, skapad: 200 }),
+  M({ id: 's1', slag: 'linje', typ: 'stonewall', namn: 'Stenmur', lat: 56.4008, lng: 14.7, skapad: 210 }),
+];
+const MILJO_EJ_KRAV = [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 4, krav: null, uppfyllt: false }, { id: 'evighetstrad', namn: 'Evighetsträd', antal: 1, krav: null, uppfyllt: false }];
+const oppnaOm = async (p = props()) => { await montera(p); klicka(q('kort-pa-trakten')); };
+const radText = (nyckel: string) => q(`om-typ-${nyckel}`)!.textContent!.replace(/\u00a0/g, ' ');   // punkten hålls ihop med namnet av ett hårt mellanslag
 
-  it('Faror först med röd rubrik, sedan På kartan, Vägar sist', async () => {
-    await oppnaOm(props({ markeringar: SK, pos: null }));
-    const sektioner = Array.from(behallare!.querySelectorAll('[data-testid="om-innehall"] > section')).map((x) => x.getAttribute('data-testid'));
-    expect(sektioner).toEqual(['om-hela', 'om-faror', 'om-pa-kartan', 'om-vagar']);   // Hela trakten först (Vidas och planerarens text), sedan kartan
-    const rubrik = q('om-faror')!.querySelector('div')!;
-    expect(rubrik.textContent).toBe('Faror');
-    expect(rubrik.style.color).toMatch(/255, ?69, ?58|#ff453a/i);   // FARG.rod
-    expect(qa('om-markering').filter((r) => q('om-faror')!.contains(r)).map((r) => r.getAttribute('data-id'))).toEqual(['f1', 'f2']);
+describe('Om trakten — grupper och EN rad per typ', () => {
+  const sk = (o: Parameters<typeof props>[0] = {}) => { const p = props({ markeringar: SK, ...o }); p.om.miljo = MILJO_EJ_KRAV; return p; };
+
+  it('grupperna kommer i ordningen Faror · Från Vida · Hänsyn · Vägar · Övrigt', async () => {
+    await oppnaOm(sk());
+    const ordning = ['om-faror', 'om-hela', 'om-grupp-hansyn', 'om-grupp-vagar', 'om-grupp-ovrigt'].map((id) => q(id));
+    ordning.forEach((el, i) => expect(el, `grupp ${i} finns`).not.toBeNull());
+    for (let i = 1; i < ordning.length; i++) expect(ordning[i - 1]!.compareDocumentPosition(ordning[i]!) & Node.DOCUMENT_POSITION_FOLLOWING, `grupp ${i} efter ${i - 1}`).toBeTruthy();
   });
 
-  it('kommentaren är huvudtexten, symbolens namn står litet under', async () => {
-    await oppnaOm(props({ markeringar: SK, pos: null }));
-    const rad = qa('om-markering').find((r) => r.getAttribute('data-id') === 'f2')!;
-    expect(rad.querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Ett jakttorn');
-    expect(rad.querySelector('[data-testid="om-symbolnamn"]')!.textContent).toBe('Varning');
+  it('Faror: röd rubrik med antal, alltid utfälld — varje fara är en rad med sin kommentar', async () => {
+    await oppnaOm(sk());
+    expect(q('om-faror')!.textContent).toContain('Faror · 2');
+    const rader = qa('om-objekt').filter((r) => q('om-faror')!.contains(r));
+    expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['f1', 'f2']);
+    expect(rader[0].textContent).toContain('En knäckt gran så Se upp här');
   });
 
-  it('en markering med bara foto: symbolens namn är huvudtexten, ingen rad under', async () => {
-    await oppnaOm(props({ markeringar: [M({ id: 'p', typ: 'landing', namn: 'Avlägg', comment: '', photoData: FOTO, skapad: 1 })], pos: null }));
-    const rad = q('om-markering')!;
-    expect(rad.querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Avlägg');
-    expect(rad.querySelector('[data-testid="om-symbolnamn"]')).toBeNull();
+  it('en rad per typ med antal och summa: Basväg · 2 st · 900 m, Röd väg · 3 st, Gul väg · 2 st, Manuell fällning · 2 st, Stenmur · 1 st, Kulturminne · 1 st', async () => {
+    await oppnaOm(sk());
+    expect(radText('linje-mainroad')).toBe('Basväg · 2 st · 900 m');
+    expect(radText('symbol-road-r-d-v-g')).toBe('Röd väg · 3 st');
+    expect(radText('symbol-road-gul-v-g')).toBe('Gul väg · 2 st');
+    expect(radText('symbol-manualfelling')).toBe('Manuell fällning · 2 st');
+    expect(radText('linje-stonewall')).toBe('Stenmur · 1 st');
+    expect(radText('symbol-culturemonument')).toBe('Kulturminne · 1 st');
   });
 
-  it('avstånd: inget när användaren är 39 km bort, avstånd när hen står på trakten', async () => {
-    await oppnaOm(props({ markeringar: SK, pos: { lat: 56.75, lng: 14.7 } }));
-    expect(qa('om-avstand').length).toBe(0);
-    await act(async () => { rot?.unmount(); }); behallare?.remove();
-    await oppnaOm(props({ markeringar: SK, pos: { lat: 56.401, lng: 14.7 } }));
-    expect(qa('om-avstand').length).toBeGreaterThan(0);
+  it('basvägen står först under Vägar; kultur och stenmur hör ihop med högstubbar och evighetsträd under Hänsyn', async () => {
+    await oppnaOm(sk());
+    const vagar = Array.from(q('om-grupp-vagar')!.querySelectorAll('[data-testid^="om-typ-"]:not([data-testid="om-typ-text"])')).map((e) => e.getAttribute('data-testid'));
+    expect(vagar[0]).toBe('om-typ-linje-mainroad');
+    const hansyn = q('om-grupp-hansyn')!.textContent!;
+    for (const ord of ['Högstubbar', 'Evighetsträd', 'Kulturminne', 'Stenmur']) expect(hansyn).toContain(ord);
+    expect(q('om-grupp-ovrigt')!.textContent).toContain('Manuell fällning');
   });
 
-  it('korta kommentarer av samma typ är EN rad ("Vägar · Gul väg · Röd väg"); tryck fäller ut en rad per markering med Visa ›; basvägen har egen rad', async () => {
-    await oppnaOm(props({ markeringar: SK, pos: null }));
-    const samlad = qa('om-samlad');
-    expect(samlad.length).toBe(1);
-    expect(q('om-samlad-text')!.textContent).toBe('Vägar · Gul väg · Röd väg');
-    expect(q('om-samlad-lista')).toBeNull();
-    klicka(q('om-samlad-knapp'));
-    const inre = Array.from(q('om-samlad-lista')!.querySelectorAll('[data-testid="om-markering"]'));
-    expect(inre.map((r) => r.getAttribute('data-id'))).toEqual(['v1', 'v2']);
-    klicka(inre[1].querySelector('[data-testid="om-visa"]'));
-    expect(spion.visa).toEqual(['v2:ark']);
-    klicka(q('om-samlad-knapp'));
-    expect(q('om-samlad-lista')).toBeNull();
+  it('inget av det gamla: ingen sammanfattningsrad, ingen "Utan kommentar", inget "Visa" på raderna', async () => {
+    await oppnaOm(sk());
+    const allt = q('om-innehall')!.textContent!;
+    expect(allt).not.toMatch(/Utan kommentar/);
+    expect(allt).not.toMatch(/Vägar · Gul väg/);
+    expect(allt).not.toMatch(/Visa/);
+    expect(q('om-samlad')).toBeNull();
+    expect(q('om-miljo')).toBeNull();
   });
 
-  it('basvägar listas under Vägar som "Basväg röd · 640 m" (även utan kommentar); en äldre basväg utan färg: "Basväg · 1,25 km"; kommentaren står under', async () => {
-    const bv = (o: Partial<KartMarkering> & { id: string }) => M({ slag: 'linje', typ: 'mainRoad', namn: 'Basväg', lat: 56.4, lng: 14.7, ...o });
-    await oppnaOm(props({ pos: null, markeringar: [
-      bv({ id: 'b1', farg: 'red', langdM: 640, skapad: 1 }),
-      bv({ id: 'b2', langdM: 1250, comment: 'Kör inte vid regn', skapad: 2 }),
-      bv({ id: 'b3', farg: 'blue', langdM: 90, skapad: 3 }),
-    ] }));
-    const rader = qa('om-markering').filter((r) => q('om-vagar')!.contains(r));
-    expect(rader.map((r) => r.querySelector('[data-testid="om-huvudtext"]')!.textContent)).toEqual(['Basväg röd · 640 m', 'Basväg · 1,25 km', 'Basväg blå · 90 m']);
-    expect(rader[1].querySelector('[data-testid="om-symbolnamn"]')!.textContent).toBe('Kör inte vid regn');
-    expect(rader[0].querySelector('[data-testid="om-symbolnamn"]')).toBeNull();
-  });
-});
-
-describe('position — sidans currentPosition är { lat, lon } (PR 766)', () => {
-  // Så som sidan bygger positionen: { lat, lon } genom gpsNu → { lat, lng }. Förut matades komponenterna med färdigt { lat, lng } och kraschen i sidan syntes aldrig.
-  const sidansPosition = (position: { lat: number; lon: number } | null) => gpsNu({ korvyAktiv: false, korvyPos: null, position });
-
-  it('utan position: kortet OCH Om trakten renderas, utan avstånd', async () => {
-    await montera(props({ pos: sidansPosition(null) }));
-    expect(q('kort-knappar')).not.toBeNull();
-    klicka(q('kort-pa-trakten'));
-    expect(qa('om-markering').length).toBe(2);
-    expect(qa('om-avstand').length).toBe(0);
+  it('Högstubbar/Evighetsträd på certifierat objekt: kravet utskrivet ("3 av 11 markerade"), uppfyllt "11 av 11 markerade ✓" i grönt', async () => {
+    const p = sk();
+    p.om.miljo = [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 3, krav: 11, uppfyllt: false }, { id: 'evighetstrad', namn: 'Evighetsträd', antal: 37, krav: 37, uppfyllt: true }];
+    await oppnaOm(p);
+    expect(radText('miljo-hogstubbar')).toBe('Högstubbar · 3 av 11 markerade');
+    expect(q('om-typ-miljo-hogstubbar')!.getAttribute('data-uppfyllt')).toBe('0');
+    expect(radText('miljo-evighetstrad')).toBe('Evighetsträd · 37 av 37 markerade ✓');
+    expect(q('om-typ-miljo-evighetstrad')!.getAttribute('data-uppfyllt')).toBe('1');
   });
 
-  it('MED position i { lat, lon }-form: kortet OCH Om trakten renderas, och avstånd visas (närmast först)', async () => {
-    await montera(props({ pos: sidansPosition({ lat: 56.4, lon: 14.7 }) }));
-    expect(q('kort-knappar')).not.toBeNull();
-    klicka(q('kort-pa-trakten'));
-    const rader = qa('om-markering');
-    expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['nara', 'lang']);
-    expect(rader[0].querySelector('[data-testid="om-avstand"]')!.textContent).toBe('10 m');
-    expect(rader[1].querySelector('[data-testid="om-avstand"]')!.textContent).toMatch(/km$/);
-  });
-});
-
-describe('Om trakten', () => {
-  const oppnaOm = async (p = props()) => { await montera(p); klicka(q('kort-pa-trakten')); };
-
-  it('bara markeringar MED kommentar eller foto får en rad; närmast först när GPS finns, med avstånd', async () => {
-    await oppnaOm();
-    const rader = qa('om-markering');
-    expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['nara', 'lang']);
-    expect(rader[0].querySelector('[data-testid="om-avstand"]')!.textContent).toBe('10 m');
-    expect(rader[0].textContent).toContain('Plats för tre bilar');   // hela kommentaren
+  it('ej certifierat: bara antalet satta ("Högstubbar · 4 st")', async () => {
+    await oppnaOm(sk());
+    expect(radText('miljo-hogstubbar')).toBe('Högstubbar · 4 st');
   });
 
-  it('utan GPS: i den ordning de skapades, och inga avstånd', async () => {
-    await oppnaOm(props({ pos: null }));
-    expect(qa('om-markering').map((r) => r.getAttribute('data-id'))).toEqual(['lang', 'nara']);
-    expect(qa('om-avstand').length).toBe(0);
+  it('certifierat men inget satt än: raden finns ändå ("Högstubbar · 0 av 11 markerade")', async () => {
+    const p = props({ markeringar: [] });
+    p.om.miljo = [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 0, krav: 11, uppfyllt: false }, { id: 'evighetstrad', namn: 'Evighetsträd', antal: 0, krav: 37, uppfyllt: false }];
+    await oppnaOm(p);
+    expect(radText('miljo-hogstubbar')).toBe('Högstubbar · 0 av 11 markerade');
   });
 
-  it('utan kommentar: bara antal per typ, och "5 av 15" EN gång', async () => {
-    await oppnaOm();
-    expect(q('om-utan-kommentar')!.textContent).toBe('Utan kommentar 2 högstubbar');
-    expect(q('om-miljo-hogstubbar')!.textContent).toBe('Högstubbar 5 av 15');
-    expect(behallare!.textContent!.match(/5 av 15/g)!.length).toBe(1);
+  it('Vidas och våra hänsynsytor är EN rad: "Hänsynsytor · 3 st"; källan syns först när ytan öppnas (Vidas i ytkortet, vår på kartan)', async () => {
+    const vida = (nr: number) => M({ id: `vida-yta:${nr}`, slag: 'zon', typ: 'protected', namn: 'Hänsynsyta', comment: `Sänka ${nr}`, kalla: 'vida', lat: 56.401 + nr / 1e4, lng: 14.7, geometri: [{ lat: 56.4, lng: 14.7 }, { lat: 56.4, lng: 14.701 }, { lat: 56.401, lng: 14.701 }] });
+    const egen = M({ id: 'z-egen', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Bok sparas', lat: 56.4011, lng: 14.7, skapad: 220 });
+    const p = sk({ markeringar: [...SK, vida(1), vida(2), egen] });
+    const oppnade: string[] = [];
+    p.om.vidaOppna = (id) => (id.startsWith('vida-yta:') ? () => { oppnade.push(id); } : undefined);
+    await oppnaOm(p);
+    expect(qa('om-typ-zon-protected').length).toBe(1);
+    expect(radText('zon-protected')).toBe('Hänsynsytor · 3 st');
+    expect(q('om-grupp-hansyn')!.textContent).not.toMatch(/Hänsyn ·|Vida|egen/i);   // raden säger inget om källan
+    klicka(q('om-typ-zon-protected'));
+    expect(q('info-titel')!.textContent).toBe('Hänsynsytor · 3 st');
+    const rader = qa('om-objekt');
+    expect(rader.length).toBe(3);
+    expect(rader.map((r) => r.textContent).join('|')).not.toMatch(/Vida|egen/i);       // inte heller typvyn
+    klicka(rader.find((r) => r.getAttribute('data-id') === 'vida-yta:2')!.querySelector('[data-testid="om-objekt-knapp"]'));
+    expect(oppnade).toEqual(['vida-yta:2']);       // Vidas yta öppnas i ytkortet
+    expect(spion.visa).toEqual([]);
+    klicka(rader.find((r) => r.getAttribute('data-id') === 'z-egen')!.querySelector('[data-testid="om-objekt-knapp"]'));
+    expect(spion.visa).toEqual(['z-egen:ark']);   // vår yta framhävs på kartan
   });
 
-  it('foto: liten bild; tryck = stor bild', async () => {
-    await oppnaOm();
-    const bild = q('om-foto')!.querySelector('img');
-    expect(bild).not.toBeNull();
-    klicka(bild);
-    expect(spion.foto).toEqual([FOTO]);
-    expect(qa('om-foto').length).toBe(1);   // bara markeringen med foto
+  it('Vidas avlägg och våra är EN rad: "Avlägg · 3 st"', async () => {
+    const vidaAvl = (n: string) => M({ id: `vida-avlagg:${n}`, typ: 'landing', namn: 'Avlägg', kalla: 'vida', lat: 56.402, lng: 14.7 });
+    await oppnaOm(sk({ markeringar: [...SK, vidaAvl('01-1'), vidaAvl('01-2'), M({ id: 'egen-avl', typ: 'landing', namn: 'Avlägg', lat: 56.4021, lng: 14.7, skapad: 230 })] }));
+    expect(qa('om-typ-symbol-landing').length).toBe(1);
+    expect(radText('symbol-landing')).toBe('Avlägg · 3 st');
   });
 
-  it('Visa › ger markeringen och ramens läge (telefon: ark, bred skärm: panel)', async () => {
-    await oppnaOm();
-    klicka(qa('om-visa')[0]);
-    expect(spion.visa).toEqual(['nara:ark']);
-    await act(async () => { rot!.unmount(); }); behallare!.remove(); spion.visa = [];
-    sattBredd(1280);
-    await oppnaOm();
-    klicka(qa('om-visa')[1]);
-    expect(spion.visa).toEqual(['lang:panel']);
+  it('ritad hänsynszon heter "Hänsynsyta" i listan — inte "Hänsyn", som gruppen', async () => {
+    await oppnaOm(sk({ markeringar: [...SK, M({ id: 'z1', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Bok sparas', lat: 56.4011, lng: 14.7, skapad: 220 })] }));
+    expect(radText('zon-protected')).toBe('Hänsynsyta · 1 st');
+    expect(q('om-grupp-hansyn')!.textContent).not.toMatch(/Hänsyn ·/);
   });
 
-  it('foto som väntar på uppladdning: raden listas utan kommentar, bilden visas från enheten med väntar-ikonen (och en rad utan väntande foto har ingen ikon)', async () => {
-    kon.blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
-    const vantar = M({ id: 'fv', typ: 'warning', namn: 'Varning', comment: '', fotoVantar: true, lat: 56.4002, lng: 14.7, skapad: 300 });
-    await oppnaOm(props({ markeringar: [vantar, ...MARKERINGAR] }));
-    await flush();
-    const rad = qa('om-markering').find((r) => r.getAttribute('data-id') === 'fv')!;
-    expect(rad, 'markeringen med bara ett väntande foto listas').toBeTruthy();
-    expect(rad.querySelector('img')!.getAttribute('src')).toBe('blob:lokalt-foto');
-    expect(rad.querySelector('[data-testid="foto-vantar"]')!.getAttribute('aria-label')).toBe('Väntar på uppladdning');
-    const med = qa('om-markering').find((r) => r.getAttribute('data-id') === 'nara')!;
-    expect(med.querySelector('[data-testid="foto-vantar"]')).toBeNull();   // vanligt foto (redan uppe/inbäddat): ingen ikon
-  });
-
-  it('vald rad: knappen heter "Visa hela" (inte "Visa ›") och ett tryck släpper framhävningen; övriga rader säger fortfarande Visa ›', async () => {
-    await oppnaOm(props({ framhavdId: 'nara' }));
-    const knappar = qa('om-visa');
-    expect(knappar.map((k) => k.textContent)).toEqual(['Visa hela', 'Visa ›']);   // rad 1 = 'nara' (närmast), rad 2 = 'lang'
-    expect(knappar[0].getAttribute('data-framhavd')).toBe('1');
-    klicka(knappar[0]);
-    expect(spion.slapp).toEqual(['rad']);
-    expect(spion.visa).toEqual([]);          // släpper — väljer inte om
-    klicka(knappar[1]);
-    expect(spion.visa).toEqual(['lang:ark']);   // en annan rad väljer den som vanligt
-  });
-
-  it('utan vald rad står "Visa ›" överallt', async () => {
-    await oppnaOm();
-    expect(qa('om-visa').map((k) => k.textContent)).toEqual(['Visa ›', 'Visa ›']);
-  });
-
-  it('bred skärm: stängs Om trakten (× eller ‹ objektnamn) lämnas framhävningen; på kortet och på telefon gör stängningen ingenting åt den', async () => {
-    sattBredd(1280);
-    await oppnaOm(props({ framhavdId: 'nara' }));
-    klicka(q('info-stang'));
-    expect(spion.slapp).toEqual(['stang']);
-    expect(spion.stang).toBe(1);
-    klicka(q('info-tillbaka'));
-    expect(spion.slapp).toEqual(['stang', 'stang']);
-    expect(q('kort-till-foraren')).not.toBeNull();        // och vi är tillbaka på kortet
-    spion.slapp = [];
-    klicka(q('info-stang'));                               // stängs från KORTET: inget att släppa
-    expect(spion.slapp).toEqual([]);
-  });
-
-  it('telefon: att arket stängs av Visa › (onStang) släpper INTE framhävningen — då vore den borta innan man sett den', async () => {
-    await oppnaOm(props({ framhavdId: 'nara' }));
-    klicka(q('info-stang'));
-    expect(spion.slapp).toEqual([]);
-    expect(spion.stang).toBe(1);
-  });
-
-  it('startVy="om": objektinfon öppnas direkt på Om trakten (telefonens "‹ Om trakten")', async () => {
-    await montera(props({ startVy: 'om' }));
-    expect(q('om-innehall')).not.toBeNull();
-    expect(q('kort-till-foraren')).toBeNull();
-  });
-
-  it('sökfältet filtrerar på kommentar och symbolnamn, och säger när inget matchar', async () => {
-    await oppnaOm();
-    skriv(q('om-sok') as HTMLInputElement, 'bäcken');
-    expect(qa('om-markering').map((r) => r.getAttribute('data-id'))).toEqual(['lang']);
-    skriv(q('om-sok') as HTMLInputElement, 'AVLÄGG');
-    expect(qa('om-markering').map((r) => r.getAttribute('data-id'))).toEqual(['nara']);
+  it('sökning filtrerar raderna och räknar bara träffarna (inget krav)', async () => {
+    const p = sk();
+    p.om.miljo = [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 4, krav: 11, uppfyllt: false }, { id: 'evighetstrad', namn: 'Evighetsträd', antal: 1, krav: 37, uppfyllt: false }];
+    await oppnaOm(p);
+    skriv(q('om-sok') as HTMLInputElement, 'stenrös');
+    expect(radText('symbol-culturemonument')).toBe('Kulturminne · 1 st');
+    expect(q('om-typ-linje-mainroad')).toBeNull();
+    expect(q('om-typ-miljo-hogstubbar')).toBeNull();   // kravet gäller hela trakten — inte en träfflista
     skriv(q('om-sok') as HTMLInputElement, 'finns inte');
-    expect(qa('om-markering').length).toBe(0);
     expect(q('om-inget')!.textContent).toContain('finns inte');
-  });
-
-  it('‹ objektnamn tar tillbaka till kortet', async () => {
-    await oppnaOm();
-    expect(q('info-tillbaka')!.textContent).toContain('Skälviken RP J-Hus- 25');
-    klicka(q('info-tillbaka'));
-    expect(q('objekt-info')!.getAttribute('data-vy')).toBe('kort');
   });
 
   it('en trakt utan text: förklarar varför det är tomt', async () => {
@@ -429,6 +401,186 @@ describe('Om trakten', () => {
     p.om.hela = []; p.om.miljo = [];
     await oppnaOm(p);
     expect(q('om-tomt')!.textContent).toContain('Inget är skrivet om trakten än');
+  });
+});
+
+describe('Om trakten — typvyn, objekten och vägen tillbaka', () => {
+  const sk = (o: Parameters<typeof props>[0] = {}) => { const p = props({ markeringar: SK, ...o }); p.om.miljo = MILJO_EJ_KRAV; return p; };
+
+  it('tryck på en typrad: typvyn öppnas, alla av typen markeras på kartan, arket går till halv höjd', async () => {
+    await oppnaOm(sk());
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('hel');
+    klicka(q('om-typ-linje-mainroad'));
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('typ');
+    expect(q('info-titel')!.textContent).toBe('Basväg · 2 st · 900 m');
+    expect(spion.typ.at(-1)).toBe('b1,b2:ark');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
+  });
+
+  it('typvyn listar objekten — vägar längst först — med "Basväg röd · 640 m", kommentaren på en rad under och fotot som liten bild', async () => {
+    await oppnaOm(sk());
+    klicka(q('om-typ-linje-mainroad'));
+    const rader = qa('om-objekt');
+    expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['b1', 'b2']);
+    expect(rader[0].querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Basväg röd · 640 m');
+    expect(rader[0].querySelector('[data-testid="om-kommentar"]')!.textContent).toBe('Röd väg in från norr');
+    expect(rader[1].querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Basväg · 260 m');
+    expect(rader[1].querySelector('[data-testid="om-kommentar"]')).toBeNull();
+    // Kulturminnet med kommentar OCH foto: samma radformat, fotot en liten bild till höger (typvyn finns bara för två eller fler — lägg till ett).
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await oppnaOm(sk({ markeringar: [...SK, M({ id: 'k2', typ: 'culturemonument', namn: 'Kulturminne', lat: 56.4007, lng: 14.7002, skapad: 201 })] }));
+    klicka(q('om-typ-symbol-culturemonument'));
+    const k = qa('om-objekt').find((r) => r.getAttribute('data-id') === 'k1')!;
+    expect(k.querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Kulturminne');
+    expect(k.querySelector('[data-testid="om-kommentar"]')!.textContent).toBe('Stenrös vid vägen');
+    expect(k.querySelector('[data-testid="om-foto"]')).not.toBeNull();
+  });
+
+  it('‹ Om trakten i typvyn tar tillbaka till listan och släpper typmarkeringen', async () => {
+    await oppnaOm(sk());
+    klicka(q('om-typ-linje-mainroad'));
+    expect(q('info-tillbaka')!.textContent).toContain('Om trakten');
+    klicka(q('info-tillbaka'));
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('lista');
+    expect(spion.typ.at(-1)).toBe('null');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('hel');
+  });
+
+  it('tryck på ett objekt: sidan får objektet och ramens läge, plus var man stod (typvyn) — och trycket på samma objekt släpper', async () => {
+    await oppnaOm(sk());
+    klicka(q('om-typ-linje-mainroad'));
+    klicka(qa('om-objekt-knapp')[1]);
+    expect(spion.visa).toEqual(['b2:ark']);
+    expect(spion.nav.at(-1)).toMatchObject({ typ: 'linje:mainRoad', q: '' });
+    await act(async () => { rot!.unmount(); }); behallare!.remove(); spion.slapp = [];
+    await oppnaOm(sk({ framhavdId: 'b2' }));
+    klicka(q('om-typ-linje-mainroad'));
+    expect(qa('om-objekt').find((r) => r.getAttribute('data-id') === 'b2')!.getAttribute('data-framhavd')).toBe('1');
+    klicka(qa('om-objekt-knapp')[1]);
+    expect(spion.slapp).toEqual(['rad']);
+  });
+
+  it('en typrad med bara ETT objekt öppnar objektet direkt — ingen typvy, och "‹ Lista" tar tillbaka till listan', async () => {
+    await oppnaOm(sk());
+    expect(radText('linje-stonewall')).toBe('Stenmur · 1 st');
+    klicka(q('om-typ-linje-stonewall'));
+    expect(spion.visa).toEqual(['s1:ark']);
+    expect(spion.nav.at(-1)).toMatchObject({ typ: null });          // listan är där man var
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('lista');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('hel');   // arket blev aldrig halvt
+    expect(spion.typ.at(-1)).not.toMatch(/s1/);
+  });
+
+  it('två eller fler öppnar fortfarande typvyn (Röd väg · 3 st)', async () => {
+    await oppnaOm(sk());
+    klicka(q('om-typ-symbol-road-r-d-v-g'));
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('typ');
+    expect(spion.visa).toEqual([]);
+  });
+
+  it('en typ med noll objekt (certifierat, inget satt) öppnar typvyn med "Inget satt än"', async () => {
+    const p = props({ markeringar: [] });
+    p.om.miljo = [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 0, krav: 11, uppfyllt: false }, { id: 'evighetstrad', namn: 'Evighetsträd', antal: 0, krav: 37, uppfyllt: false }];
+    await oppnaOm(p);
+    klicka(q('om-typ-miljo-hogstubbar'));
+    expect(q('om-typ-tom')!.textContent).toBe('Inget satt än.');
+  });
+
+  it('en fara i listan går direkt till objektet (ingen typvy)', async () => {
+    await oppnaOm(sk());
+    klicka(qa('om-objekt-knapp')[0]);
+    expect(spion.visa).toEqual(['f1:ark']);
+    expect(spion.nav.at(-1)).toMatchObject({ typ: null });
+  });
+
+  it('"‹ Lista": Om trakten öppnas i samma typvy med typen markerad, och rullningen ges tillbaka', async () => {
+    const start = { typ: 'linje:mainRoad', scrollLista: 120, scrollTyp: 40, q: '' };
+    await montera(props({ markeringar: SK, startVy: 'om', start }));
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('typ');
+    expect(q('info-titel')!.textContent).toBe('Basväg · 2 st · 900 m');
+    expect(spion.typ.at(-1)).toBe('b1,b2:ark');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
+    expect((q('om-innehall') as HTMLElement).scrollTop).toBe(40);
+    // tillbaka till listan: rullningen där man lämnade den
+    klicka(q('info-tillbaka'));
+    expect((q('om-innehall') as HTMLElement).scrollTop).toBe(120);
+  });
+
+  it('× (och Esc) i Om trakten släpper typmarkeringen och glömmer var man stod; ‹ objektnamn gör likadant', async () => {
+    await oppnaOm(sk());
+    klicka(q('om-typ-linje-mainroad'));
+    klicka(q('info-stang'));
+    expect(spion.typ.at(-1)).toBe('null');
+    expect(spion.nav.at(-1)).toBeNull();
+    expect(spion.stang).toBe(1);
+  });
+
+  it('bred skärm: panelen ligger kvar och typvyn öppnas där (ingen halv höjd)', async () => {
+    sattBredd(1280);
+    await oppnaOm(sk());
+    klicka(q('om-typ-linje-mainroad'));
+    expect(q('objekt-info')!.getAttribute('data-lage')).toBe('panel');
+    expect(spion.typ.at(-1)).toBe('b1,b2:panel');
+    klicka(qa('om-objekt-knapp')[0]);
+    expect(spion.visa).toEqual(['b1:panel']);
+  });
+
+  it('‹ objektnamn tar tillbaka till kortet', async () => {
+    await oppnaOm(sk());
+    expect(q('info-tillbaka')!.textContent).toContain('Skälviken RP J-Hus- 25');
+    klicka(q('info-tillbaka'));
+    expect(q('objekt-info')!.getAttribute('data-vy')).toBe('kort');
+  });
+
+  it('"‹ Lista" på riktigt: ramen är redan monterad och STÄNGD, slås om till öppen med start → Om trakten börjar i typvyn direkt (inte i listan)', async () => {
+    // Felet syntes först på en skärmbild: ramen monterar sitt innehåll i samma rendering som `oppen` slår om, så vyn måste vara rätt redan då — inte efter en effekt.
+    const start = { typ: 'linje:mainRoad', scrollLista: 0, scrollTyp: 0, q: '' };
+    // Som i sidan: Om trakten har varit öppen (vyn står kvar som 'om'), ramen stängs och öppnas igen — då monteras Om trakten i SAMMA rendering som `oppen` slår om.
+    behallare = document.createElement('div'); document.body.appendChild(behallare);
+    rot = createRoot(behallare);
+    await act(async () => { rot!.render(<ObjektInfo {...props({ markeringar: SK, startVy: 'om' })} />); });
+    await flush();
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('lista');
+    const stangd = props({ markeringar: SK, startVy: 'kort' }); stangd.oppen = false;
+    await act(async () => { rot!.render(<ObjektInfo {...stangd} />); });
+    await new Promise((r) => setTimeout(r, 400)); await flush();
+    expect(q('objekt-info')).toBeNull();
+    const oppnad = props({ markeringar: SK, startVy: 'om', start });
+    await act(async () => { rot!.render(<ObjektInfo {...oppnad} />); });
+    await flush();
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('typ');
+    expect(q('info-titel')!.textContent).toBe('Basväg · 2 st · 900 m');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
+    expect(spion.typ.at(-1)).toBe('b1,b2:ark');
+  });
+
+  it('startVy="om": objektinfon öppnas direkt på Om trakten (telefonens "‹ Lista")', async () => {
+    await montera(props({ startVy: 'om' }));
+    expect(q('om-innehall')).not.toBeNull();
+    expect(q('kort-till-foraren')).toBeNull();
+  });
+});
+
+describe('position — sidans currentPosition är { lat, lon } (PR 766)', () => {
+  // Så som sidan bygger positionen: { lat, lon } genom gpsNu → { lat, lng }. Förut matades komponenterna med färdigt { lat, lng } och kraschen i sidan syntes aldrig.
+  const sidansPosition = (position: { lat: number; lon: number } | null) => gpsNu({ korvyAktiv: false, korvyPos: null, position });
+  const sk = (pos: { lat: number; lng: number } | null) => { const p = props({ markeringar: SK, pos }); p.om.miljo = MILJO_EJ_KRAV; return p; };
+
+  it('utan position: kortet OCH Om trakten renderas, utan avstånd', async () => {
+    await montera(sk(sidansPosition(null)));
+    expect(q('kort-knappar')).not.toBeNull();
+    klicka(q('kort-pa-trakten'));
+    expect(qa('om-objekt').length).toBe(2);
+    expect(qa('om-avstand').length).toBe(0);
+  });
+
+  it('MED position i { lat, lon }-form: kortet OCH Om trakten renderas, och avstånd visas (närmast först)', async () => {
+    await montera(sk(sidansPosition({ lat: 56.4009, lon: 14.7 })));
+    expect(q('kort-knappar')).not.toBeNull();
+    klicka(q('kort-pa-trakten'));
+    const rader = qa('om-objekt');
+    expect(rader.map((r) => r.getAttribute('data-id'))).toEqual(['f1', 'f2']);
+    expect(rader[0].querySelector('[data-testid="om-avstand"]')!.textContent).toBe('5 m');
   });
 });
 
