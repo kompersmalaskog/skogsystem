@@ -175,8 +175,9 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   /** Sparar egna favoriter; utan den finns ingen Ändra-knapp. Svarar true när sparningen landat. */
   onSparaFavoriter?: (ids: string[]) => Promise<boolean>
   /** Inbäddad (maskinlådan): ersätter sidans rubrik (datum + "Kompersmåla Skog") och sidan ligger inte längre
-   *  fast över hela skärmen utan fyller sin behållare. Sökfältet och Mer-knappen finns kvar. */
-  huvud?: ReactNode
+   *  fast över hela skärmen utan fyller sin behållare. `overst` står på raden med Mer-knappen, `under` i full
+   *  bredd under den. Sökfältet och Mer-knappen finns kvar. */
+  huvud?: { overst: ReactNode; under?: ReactNode }
   /** Bred layout styrd av behållaren i stället för fönstret (lådan är smalare än skärmen). */
   bred?: boolean
 }) {
@@ -227,7 +228,7 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
       }}>
 
         <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: AVSTAND.l, marginBottom: AVSTAND.l }}>
-          {inbaddad ? <div style={{ minWidth: 0, flex: 1 }}>{huvud}</div> : (
+          {huvud ? <div style={{ minWidth: 0, flex: 1, display: 'flex', alignItems: 'center', minHeight: TRAFFYTA.min }}>{huvud.overst}</div> : (
             <div style={{ minWidth: 0 }}>
               <div style={{ ...TYP.meta, color: FARG.text2 }}>{datumText()}</div>
               <h1 style={{ ...TYP.titel, margin: `${AVSTAND.xs}px 0 0` }}>Kompersmåla Skog</h1>
@@ -238,6 +239,7 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
             <Ikon namn="person" farg={FARG.text} />
           </button>
         </header>
+        {huvud?.under}
 
         <label style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, height: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, background: FARG.kort, borderRadius: RADIE.rad, marginBottom: AVSTAND.xl }}>
           <Ikon namn="search" storlek={IKON.text} />

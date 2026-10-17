@@ -94,13 +94,15 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
 
   const bytObjekt = () => { onStang(); onBytObjekt() }
 
-  const huvud = (
-    <div>
-      <button type="button" onClick={stang} style={{ ...KNAPP.lank, marginLeft: -AVSTAND.xs, padding: `0 ${AVSTAND.xs}px` }}>
-        <Ikon namn="chevron_left" storlek={IKON.text} farg={FARG.bla} />
-        Till kartan
-      </button>
-      <h1 style={{ ...TYP.titel, margin: `${AVSTAND.s}px 0 ${AVSTAND.l}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+  const overst = (
+    <button type="button" onClick={stang} style={{ ...KNAPP.lank, marginLeft: -AVSTAND.xs, padding: `0 ${AVSTAND.xs}px` }}>
+      <Ikon namn="chevron_left" storlek={IKON.text} farg={FARG.bla} />
+      Till kartan
+    </button>
+  )
+  const under = (
+    <div style={{ marginBottom: AVSTAND.l }}>
+      <h1 style={{ ...TYP.titel, margin: `0 0 ${AVSTAND.l}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {maskinNamn || 'Maskinen'}
       </h1>
       <button type="button" onClick={bytObjekt} aria-label={objektNamn ? `Byt objekt. Nu: ${objektNamn}` : 'Välj objekt'}
@@ -137,7 +139,7 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
         style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: bredd, background: FARG.bg,
           paddingTop: 'env(safe-area-inset-top)', boxSizing: 'border-box',
           ...(panel ? { borderRight: `1px solid ${FARG.linje}` } : {}) }}>
-        <Startsida roll={roll} huvud={huvud} bred={panel}
+        <Startsida roll={roll} huvud={{ overst, under }} bred={panel}
           marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null }}
           datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna} />
       </div>
