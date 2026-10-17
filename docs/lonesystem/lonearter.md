@@ -80,5 +80,5 @@ Traktamente byggs inte.
   **byte för byte** med utskriften från den gamla koden (`testdata/sep2026.gammal.json`, fryst) med dagens sju koder.
 - Mutationskontroll: `node scripts/mutationskontroll-lonearter.mjs` (beräkning, export, förarens text) och `node scripts/mutationskontroll-lonearter-ui.mjs`
   (Lönearter-sidan och förhandsvisningen). EN tung körning åt gången.
-- Migration: `supabase/migrations/20261015120000_lonearter_mappning_som_i_prod.sql` beskriver prods schema för `lonesystem_artikelmappning`
+- Migration: `supabase/migrations/20261015094150_lonearter_mappning_som_i_prod.sql` beskriver prods schema för `lonesystem_artikelmappning`
   (`lonesystem_id`, `skapad`, unikt `(lonesystem_id, intern_typ)`). Alla satser är no-op i prod; inget data ändras.
