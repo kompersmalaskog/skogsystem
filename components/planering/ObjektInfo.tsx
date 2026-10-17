@@ -4,7 +4,7 @@
 // på kortet vid varje öppning. "Läs allt ›" och raden På trakten öppnar Om trakten; Mer-knappen öppnar Mer; ‹ tar tillbaka till kortet.
 // Allt annat (vad en knapp GÖR, vad kartan gör) avgör sidan via callbacks.
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import InfoRam, { type InfoVy } from './InfoRam';
 import ObjektKort, { type ObjektKortProps } from './ObjektKort';
@@ -44,9 +44,13 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const [aterstall, setAterstall] = useState<OmNav | undefined>(om.start);
   // Typvyn öppen → arket på halv höjd (kartan med de markerade objekten syns ovanför).
   const [typOppen, setTypOppen] = useState(!!om.start?.typ);
-  // Varje öppning börjar på kortet (eller på Om trakten när sidan ber om det).
-  useEffect(() => { if (oppen) { setVy(startVy); setAterstall(startVy === 'om' ? om.start : undefined); setTypOppen(startVy === 'om' && !!om.start?.typ); } // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [oppen]);
+  // Varje öppning börjar på kortet (eller på Om trakten när sidan ber om det) — och Om trakten med det den hade när ett objekt stängde arket. Görs UNDER renderingen
+  // (inte i en effekt): ramen monterar sitt innehåll i samma rendering som `oppen` slår om, så en effekt kommer för sent och Om trakten startade från listan.
+  const [forraOppen, setForraOppen] = useState(oppen);
+  if (oppen !== forraOppen) {
+    setForraOppen(oppen);
+    if (oppen) { setVy(startVy); setAterstall(startVy === 'om' ? om.start : undefined); setTypOppen(startVy === 'om' && !!om.start?.typ); }
+  }
   // Bred skärm: panelen ligger kvar medan en markering är framhävd. Stängs Om trakten (×, Esc eller ‹ tillbaka) lämnas framhävningen. På telefon stänger
   // "Visa ›" arket SJÄLV — det är inte en stängning att reagera på, så där släpps den först av kartan, raden eller "‹ Om trakten".
   const stangOm = () => { if (vy === 'om' && ramLage === 'panel') om.onSlapp('stang'); };

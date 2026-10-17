@@ -214,15 +214,16 @@ const YtaIkon = () => <span aria-hidden="true" style={{ width: AVSTAND.xl + AVST
 /** En typrad: ikon, "Basväg" + resten dämpad ("· 3 st · 905 m"), pil. Högstubbar/evighetsträd med kravet: uppfyllt blir grönt med bock. */
 function TypRadKnapp({ r, forsta, ikon, onTryck }: { r: TypRad; forsta: boolean; ikon: React.ReactNode; onTryck: () => void }) {
   const text = typRadText(r);
-  const rest = text.slice(r.namn.length);
+  const rest = text.slice(r.namn.length);   // " · 3 st · 905 m" (tom om raden bara är namnet)
   const uppfyllt = !!r.miljo && r.miljo.krav != null && r.miljo.uppfyllt;
   return (
     <button type="button" data-testid={`om-typ-${nyckelSlug(r.nyckel)}`} data-grupp={r.grupp as OmGrupp} data-uppfyllt={uppfyllt ? '1' : '0'} onClick={onTryck} className="press-row"
       style={{ ...radStil, borderTop: forsta ? 'none' : `1px solid ${FARG.linje}` }}>
       <span style={{ flexShrink: 0, display: 'inline-flex' }}>{ikon}</span>
-      <span data-testid="om-typ-text" style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
-        <span style={{ ...TYP.listtitel }}>{r.namn}</span>
-        <span style={{ color: uppfyllt ? FARG.gron : FARG.text2, ...TNUM }}>{rest}{uppfyllt ? ' ✓' : ''}</span>
+      <span data-testid="om-typ-text" style={{ flex: 1, minWidth: 0 }}>
+        {/* Är raden för lång bryts den före siffrorna, aldrig mitt i dem eller före punkten: "Evighetsträd ·" / "0 av 73 markerade ✓". */}
+        <span style={{ whiteSpace: 'nowrap' }}><span style={{ ...TYP.listtitel }}>{r.namn}</span><span style={{ color: FARG.text2 }}>{'\u00a0·'}</span></span>
+        {rest && <>{' '}<span style={{ whiteSpace: 'nowrap', color: uppfyllt ? FARG.gron : FARG.text2, ...TNUM }}>{rest.slice(3)}{uppfyllt ? ' ✓' : ''}</span></>}
       </span>
       <Pil />
     </button>
@@ -241,7 +242,7 @@ function ObjektRad({ m, forsta, objektId, ikon, framhavdId, onVisa, onSlapp, onF
   return (
     <div data-testid="om-objekt" data-id={m.id} data-framhavd={framhavd ? '1' : '0'} style={{ display: 'flex', alignItems: 'stretch', borderTop: forsta ? 'none' : `1px solid ${FARG.linje}`, boxShadow: framhavd ? `inset 0 0 0 2px ${FARG.text}` : 'none' }}>
       <button type="button" data-testid="om-objekt-knapp" onClick={() => (framhavd ? onSlapp() : onVisa(m))} className="press-row"
-        style={{ ...radStil, flex: 1, minWidth: 0, width: 'auto', alignItems: 'flex-start', paddingTop: AVSTAND.m, paddingBottom: AVSTAND.m }}>
+        style={{ ...radStil, flex: 1, minWidth: 0, width: 'auto', paddingTop: AVSTAND.m, paddingBottom: AVSTAND.m }}>
         <span style={{ flexShrink: 0, display: 'inline-flex' }}>{ikon(m)}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span data-testid="om-huvudtext" style={{ display: 'block', ...TYP.listtitel, overflowWrap: 'anywhere' }}>{objektTitel(m)}</span>

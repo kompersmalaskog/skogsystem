@@ -277,7 +277,7 @@ const SK: KartMarkering[] = [
 ];
 const MILJO_EJ_KRAV = [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 4, krav: null, uppfyllt: false }, { id: 'evighetstrad', namn: 'Evighetsträd', antal: 1, krav: null, uppfyllt: false }];
 const oppnaOm = async (p = props()) => { await montera(p); klicka(q('kort-pa-trakten')); };
-const radText = (nyckel: string) => q(`om-typ-${nyckel}`)!.textContent;
+const radText = (nyckel: string) => q(`om-typ-${nyckel}`)!.textContent!.replace(/\u00a0/g, ' ');   // punkten hålls ihop med namnet av ett hårt mellanslag
 
 describe('Om trakten — grupper och EN rad per typ', () => {
   const sk = (o: Parameters<typeof props>[0] = {}) => { const p = props({ markeringar: SK, ...o }); p.om.miljo = MILJO_EJ_KRAV; return p; };
@@ -478,6 +478,24 @@ describe('Om trakten — typvyn, objekten och vägen tillbaka', () => {
     expect(q('info-tillbaka')!.textContent).toContain('Skälviken RP J-Hus- 25');
     klicka(q('info-tillbaka'));
     expect(q('objekt-info')!.getAttribute('data-vy')).toBe('kort');
+  });
+
+  it('"‹ Lista" på riktigt: ramen är redan monterad och STÄNGD, slås om till öppen med start → Om trakten börjar i typvyn direkt (inte i listan)', async () => {
+    // Felet syntes först på en skärmbild: ramen monterar sitt innehåll i samma rendering som `oppen` slår om, så vyn måste vara rätt redan då — inte efter en effekt.
+    const start = { typ: 'linje:mainRoad', scrollLista: 0, scrollTyp: 0, q: '' };
+    const stangd = props({ markeringar: SK, startVy: 'kort' }); stangd.oppen = false;
+    behallare = document.createElement('div'); document.body.appendChild(behallare);
+    rot = createRoot(behallare);
+    await act(async () => { rot!.render(<ObjektInfo {...stangd} />); });
+    await flush();
+    expect(q('objekt-info')).toBeNull();
+    const oppnad = props({ markeringar: SK, startVy: 'om', start });
+    await act(async () => { rot!.render(<ObjektInfo {...oppnad} />); });
+    await flush();
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('typ');
+    expect(q('info-titel')!.textContent).toBe('Basväg · 2 st · 900 m');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('halv');
+    expect(spion.typ.at(-1)).toBe('b1,b2:ark');
   });
 
   it('startVy="om": objektinfon öppnas direkt på Om trakten (telefonens "‹ Lista")', async () => {
