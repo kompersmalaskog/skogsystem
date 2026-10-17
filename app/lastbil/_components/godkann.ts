@@ -43,7 +43,7 @@ export function angraGodkannande(id: string): Promise<Skrivsvar> {
  * Rätta km och/eller kund före fakturering (Fakturering › Att godkänna och Hos faktureringen).
  *
  * Skickar bara de fält som faktiskt ändrats. Originalet och "redigerad" sköts av databasen
- * (trigger i migration 20261015160000): klienten skriver aldrig `km_original`/`kund_original`, och
+ * (trigger i migration 20261015155630): klienten skriver aldrig `km_original`/`kund_original`, och
  * en fakturerad eller struken rad vägrar ändring. `redigerad_av` kräver triggern.
  * Rörs inte godkännandet — den som rättar är den som godkänner.
  */

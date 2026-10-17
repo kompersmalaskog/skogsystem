@@ -47,7 +47,7 @@ describe('summeraFakturerbart', () => {
   });
 });
 
-describe('godkännandet (migration 20261015150000)', () => {
+describe('godkännandet (migration 20261015151948)', () => {
   it('en OGODKÄND flytt ingår inte i pengatalet — den väntar', () => {
     const r = summeraFakturerbart([...REAL, rad(60, { godkand_tid: null })]);
     expect(r).toMatchObject({ km: 334, antal: 8, hos: 8, vantar: 1 });

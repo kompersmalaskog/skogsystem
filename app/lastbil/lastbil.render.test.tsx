@@ -23,7 +23,7 @@ type Rad = {
   km_original: number | null; kund_original: string | null; redigerad_tid: string | null; redigerad_av: string | null;
   flytt_id?: string;
 };
-// Raderna som fanns när godkännandet infördes är backfill-godkända med skapad_tid (migration 20261015150000).
+// Raderna som fanns när godkännandet infördes är backfill-godkända med skapad_tid (migration 20261015151948).
 const BACKFILL = { godkand_tid: "2026-09-17T13:27:49Z", godkand_av: "backfill 2026-10-15" };
 const U = (id: string, datum: string, km: number | null, maskin: string, fran: string | null, till: string | null, o: Partial<Rad> = {}): Rad => ({
   id, km, status: "aktiv", fakturerad_tid: null, datum, kund: null, maskin, fran_objekt_id: fran, fran_plats_id: null, till_objekt_id: till, till_plats_id: null,
@@ -145,7 +145,7 @@ vi.mock("@/lib/supabase", () => {
       if (mock.skrivNoll) return { data: [], error: null };
       const traffade = tabeller()[this.tabell].filter(r => this.filt.every(f => f(r)));
       for (const r of traffade) {
-        // Databasens trigger (migration 20261015160000, provad i riktig Postgres): första ändringen av km/kund
+        // Databasens trigger (migration 20261015155630, provad i riktig Postgres): första ändringen av km/kund
         // snapshotar originalen, klienten kan inte skriva dem, och redigerad_tid sätts av databasen.
         const v: Record<string, unknown> = { ...this.uppd };
         delete v.km_original; delete v.kund_original; delete v.redigerad_tid;
