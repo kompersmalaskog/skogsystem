@@ -1,22 +1,27 @@
 'use client'
 
-// Flik 2 — Planering, i liststil: svarsrad (värsta avvikelsen + åtgärd), SKÖRDARE,
-// SKOTARE (en rad per aktiv maskin: timmar kvar mot kapacitet kvar), två listrader.
+// Flik 2 — Planering: "räcker månaden?" som DATUM. Svarsrad (en prioriterad mening), MOT BESTÄLLNING (en mätare per typ),
+// KLAR / JOBB TILL (klar-datum per maskin — tryck på en maskin för dess trakter, tryck på en trakt för att byta maskin). Rutnätet med
+// trakterna som block finns bara på Månadsplan-A4:n. Prognosen per trakt sätts i planeringsverktyget; här görs den bara till datum (helikopter_ny_klar).
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens'
+import { TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { MANAD_NAMN, fmt, fmtDag, kortNamn } from '../_lib/format'
 import {
-  belaggning, otilldelade, planeratPerTyp, planeringSvar, planeringStoppText, stoppForMaskin, maskinNamn, TYPER,
-  type ManadStatus, type PlaneratResultat, type SparLage,
-} from '../_lib/berakningar'
-import { g15KapacitetNot } from '@/lib/helikopterG15'
-import { AVSTAND, FARG, TYP } from '@/lib/design/tokens'
-import { STOPP_ORSAK, fmt, fmtPeriod, kortNamn } from '../_lib/format'
-import type { Arbetsdagar, FastData, Manadsdata, Typ } from '../_lib/queries'
+  ROLL_NAMN, klarSvar, maskinHoger, maskinUnderrad, otilldelade, raknaAlla,
+  type ForraBestallning, type KlarRoll, type MaskinPlan,
+} from '../_lib/klar'
+import { hamtaForraBestallning, kopieraForraBestallning, tilldelaMaskin, type Arbetsdagar, type FastData, type Manadsdata } from '../_lib/queries'
+import { useKlar } from '../_lib/useKlar'
 import { ListRad } from './Lista'
+import KlarRad from './KlarRad'
+import MaskinKlarSheet, { type KlarArkRad } from './MaskinKlarSheet'
+import ByttMaskinSheet from './ByttMaskinSheet'
 import Sektion from '@/components/design/Sektion'
 import Svarsrad from '@/components/design/Svarsrad'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
-import { Tomt } from './Tillstand'
-import EjTilldeladeSheet from './EjTilldeladeSheet'
-import MotBestallningSheet from './MotBestallningSheet'
+import { Fel, Laddar, Tomt } from './Tillstand'
 import { usePanelVal } from './PanelVal'
 
 type Props = {
@@ -30,66 +35,153 @@ type Props = {
   manad: number
 }
 
-export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, idag, ar, manad }: Props) {
-  const [sheet, setSheet] = usePanelVal<'ej' | 'best'>('planering')
-  if (status === 'avslutad') {
+// Panelvärden: `maskin|<maskin_id>`, `utan` (trakterna utan maskin) eller `byt|<objekt_id>|<roll>|<varifrån: maskin_id, `utan` eller tomt>`.
+const delaVal = (v: string | null) => (v ? v.split('|') : [])
+
+/** Raderna i en maskins ark: trakten och dess från–till (”?” när datum inte går att räkna). */
+function maskinArkRader(p: MaskinPlan | undefined): KlarArkRad[] {
+  return (p?.rader ?? []).map(r => ({
+    id: `${r.trakt.objekt_id}|${r.trakt.roll}`,
+    text: kortNamn(r.trakt.namn),
+    hoger: r.fran && r.till ? (r.fran === r.till ? fmtDag(r.fran) : `${fmtDag(r.fran)} – ${fmtDag(r.till)}`) : '?',
+    dampad: !(r.fran && r.till),
+  }))
+}
+
+export default function PlaneringFlik({ status, idag, ar, manad }: Props) {
+  const avslutad = status === 'avslutad'
+  const { data, fel, laddar, ladda } = useKlar(ar, manad, idag, !avslutad)
+  const [val, setVal] = usePanelVal<string>('planering')
+
+  // Förra månadens beställning hämtas bara när den här månaden saknar en (knappen "Samma som oktober · 5 000 · 1 000").
+  const [forra, setForra] = useState<ForraBestallning | null | undefined>(undefined)
+  const saknarBest = data != null && !data.har_bestallning
+  useEffect(() => {
+    if (!saknarBest) { setForra(undefined); return }
+    let avbruten = false
+    void hamtaForraBestallning(ar, manad, m => MANAD_NAMN[m - 1] ?? '').then(r => { if (!avbruten) setForra(r.error ? null : r.data) })
+    return () => { avbruten = true }
+  }, [saknarBest, ar, manad])
+
+  const [kopierar, setKopierar] = useState(false)
+  const [kopieraFel, setKopieraFel] = useState<string | null>(null)
+  const kopiera = useCallback(async () => {
+    setKopierar(true)
+    setKopieraFel(null)
+    const r = await kopieraForraBestallning(ar, manad)
+    setKopierar(false)
+    if (r.error) { setKopieraFel(r.error); return }
+    await ladda()
+  }, [ar, manad, ladda])
+
+  const planer = useMemo(() => (data ? raknaAlla(data) : null), [data])
+  const utanMaskin = useMemo(() => (data ? otilldelade(data) : []), [data])
+
+  if (avslutad) {
     return <Tomt rubrik="Månaden är avslutad" text="Planering gäller innevarande och kommande månader. Utfallet finns under Uppföljning." />
   }
-  const pagaende = status === 'pagaende'
-  const bel = belaggning(manadsdata.planering, fast.maskiner, manadsdata.arbetsdagar, idag, pagaende, fast.g15)
-  const kvarDagar = pagaende ? dagar.kvar : dagar.totalt
-  const plan: Record<Typ, PlaneratResultat> = {
-    gallring: planeratPerTyp(manadsdata.planering, 'gallring', spar.find(s => s.typ === 'gallring')?.bestallt ?? 0, fast.avvikelse),
-    slutavverkning: planeratPerTyp(manadsdata.planering, 'slutavverkning', spar.find(s => s.typ === 'slutavverkning')?.bestallt ?? 0, fast.avvikelse),
+  if (fel) return <Fel onRetry={() => void ladda()} />
+  if (laddar || !data || !planer) return <Laddar vad="planeringen" />
+
+  const svar = klarSvar(data, forra === undefined ? null : forra)
+  const [vad, a1, a2, a3] = delaVal(val)
+  const oppnaTrakt = (objektId: string, roll: KlarRoll, fran = '') => setVal(`byt|${objektId}|${roll}|${fran}`)
+
+  const valjMaskin = async (objektId: string, roll: KlarRoll, maskinId: string, origin: string): Promise<string | null> => {
+    const r = await tilldelaMaskin(objektId, roll, maskinId)
+    if (r.error) return r.error
+    await ladda()
+    setVal(origin === 'utan' ? 'utan' : null)
+    return null
   }
-  const svar = planeringSvar(bel, plan, kvarDagar)
-  const ejTilldelade = Array.from(new Set(TYPER.flatMap(t => otilldelade(manadsdata.planering, t).map(o => o.objekt_id))))
-    .map(id => manadsdata.planering.find(o => o.objekt_id === id)!)
-  const bestSmak = TYPER.map(t => `${t === 'slutavverkning' ? 'slut' : 'gall'} ${fmt(plan[t].korrigerat)} av ${fmt(spar.find(s => s.typ === t)?.bestallt ?? 0)}`).join(' · ')
+
+  // Utan uppmätt G15 (för få dagar, eller mätningen gick inte att läsa) räknar SQL med 8 h/dag — det ska stå, inte se uppmätt ut.
+  const ejMatta = data.maskiner.filter(m => m.ej_matt && !m.manuell)
+  const kapacitetsNot = `Dagar räknas på uppmätt G15 per arbetsdag, 12 mån.${ejMatta.length > 0 ? ` ${ejMatta.map(m => m.namn).join(', ')}: ej mätt, räknas på 8 h/dag.` : ''}`
+  const rubrikKlar = status === 'pagaende' ? 'Klar' : `Jobb till ${MANAD_NAMN[manad - 1] ?? ''}`
 
   return (
     <>
-      <Svarsrad {...svar} />
-      {(['skordare', 'skotare'] as const).map(roll => (
-        <Sektion className="hk-grupp" key={roll} rubrik={roll === 'skordare' ? 'Skördare' : 'Skotare'} foljdAvLankar={roll === 'skotare'}>
-          {bel.filter(b => b.roll === roll).map(b => {
-            const over = b.luftH < 0
-            // Stopp härlett ur ledighet + filer (helikopter_ny_stopp) — registrerade stopp ingår. Kunde det inte läsas: bara registrerade, som förut.
-            const harled = planeringStoppText(manadsdata.maskinStopp?.find(m => m.maskin_id === b.maskin.maskin_id))
-            const stopp = manadsdata.maskinStopp != null ? [] : stoppForMaskin(manadsdata.stopp, b.maskin.maskin_id)
-            const tom = b.objekt.length === 0
-            const stoppText = harled ?? (stopp.length > 0 ? stopp.map(s => `${STOPP_ORSAK[s.orsak] ?? s.orsak} ${fmtPeriod(s.fran_datum, s.till_datum)}`).join(' · ') : null)
-            const under = stoppText
-              ? stoppText
-              : tom
-                ? `${fmt(b.kapacitetH)} h lediga`
-                : b.objekt.map(o => kortNamn(o.namn)).join(', ')
-            return (
-              <ListRad
-                key={b.maskin.maskin_id}
-                namn={maskinNamn(b.maskin)}
-                tal={tom ? 'Inga objekt' : `${fmt(b.belagtH)} h`}
-                talTon={tom ? 'muted' : over ? 'orange' : 'normal'}
-                av={tom ? undefined : `${fmt(b.kapacitetH)} h`}
-                andel={tom ? 0 : b.kapacitetH > 0 ? Math.min(b.belagtH / b.kapacitetH, 1) : (b.belagtH > 0 ? 1 : 0)}
-                orange={over}
-                under={under}
-                underMuted={tom && !stoppText}
-              />
-            )
-          })}
-        </Sektion>
-      ))}
-      <div data-testid="kapacitet-not" style={{ ...TYP.meta, color: fast.g15.lage === 'fel' ? FARG.orange : FARG.text3, margin: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
-        {g15KapacitetNot(fast.g15, bel.map(b => ({ maskin_id: b.maskin.maskin_id, namn: maskinNamn(b.maskin) })))}
-      </div>
+      <Svarsrad rubrik={svar.rubrik} rad={svar.rad} avvikelse={svar.avvikelse} />
+      {svar.atgard && (forra !== undefined || svar.atgard.slag === 'lagg_in') && (
+        <div style={{ marginBottom: AVSTAND.xl }}>
+          {svar.atgard.slag === 'kopiera' ? (
+            <button type="button" disabled={kopierar} onClick={() => void kopiera()} style={KNAPP.primar}>{kopierar ? 'Lägger in…' : svar.atgard.text}</button>
+          ) : (
+            <Link href={`/bestallningar?ar=${ar}&manad=${manad}`} style={{ ...KNAPP.primar, textDecoration: 'none' }}>{svar.atgard.text}</Link>
+          )}
+          {kopieraFel && <div role="alert" style={{ ...TYP.text, color: FARG.orange, marginTop: AVSTAND.s }}>Kunde inte lägga in beställningen: {kopieraFel}</div>}
+        </div>
+      )}
+
+      <Sektion className="hk-grupp" rubrik="Mot beställning">
+        {data.spar.map(s => {
+          const harBest = s.bestallt > 0
+          return (
+            <ListRad
+              key={s.typ}
+              namn={TYP_NAMN[s.typ]}
+              tal={fmt(s.trakt_volym)}
+              av={harBest ? fmt(s.bestallt) : undefined}
+              andel={harBest ? Math.min(s.trakt_volym / s.bestallt, 1) : undefined}
+              orange={harBest && s.trakt_volym < s.bestallt}
+            />
+          )
+        })}
+      </Sektion>
+
+      <Sektion className="hk-grupp" rubrik={rubrikKlar} not={<span style={{ color: FARG.text3 }}>{kapacitetsNot}</span>}>
+        {data.maskiner.map(m => {
+          const p = planer[m.maskin_id]
+          const h = maskinHoger(p)
+          return <KlarRad key={m.maskin_id} namn={m.namn} under={maskinUnderrad(p)} hoger={h.text} hogerTon={h.ton} onClick={() => setVal(`maskin|${m.maskin_id}`)} />
+        })}
+        {/* Trakter utan maskin: EN rad sist ("9 trakter utan maskin ›" öppnar dem i ett ark); en enda trakt står som egen rad. */}
+        {utanMaskin.length === 1 && (
+          <KlarRad
+            namn={kortNamn(utanMaskin[0].namn)}
+            under={`${ROLL_NAMN[utanMaskin[0].roll]} · ${utanMaskin[0].maskin_id == null ? 'ingen maskin' : 'maskinen ingår inte i planen'}`}
+            underTon="orange"
+            hoger="–"
+            hogerTon="muted"
+            onClick={() => oppnaTrakt(utanMaskin[0].objekt_id, utanMaskin[0].roll)}
+          />
+        )}
+        {utanMaskin.length > 1 && (
+          <KlarRad namn={`${utanMaskin.length} trakter utan maskin ›`} namnTon="orange" hoger="" onClick={() => setVal('utan')} />
+        )}
+      </Sektion>
+
       <RadGrupp>
-        <RadLank text="Ej tilldelade" smakprov={`${ejTilldelade.length} ${ejTilldelade.length === 1 ? 'objekt' : 'objekt'}`} onClick={() => setSheet('ej')} />
-        <RadLank text="Mot beställning" smakprov={bestSmak} onClick={() => setSheet('best')} />
+        <RadLank text="Månadsplan" href={`/helikopter/manadsplan?ar=${ar}&manad=${manad}`} />
       </RadGrupp>
 
-      <EjTilldeladeSheet open={sheet === 'ej'} onClose={() => setSheet(null)} objekt={ejTilldelade} ar={ar} manad={manad} />
-      <MotBestallningSheet open={sheet === 'best'} onClose={() => setSheet(null)} plan={plan} spar={spar} objekt={manadsdata.planering} avvikelse={fast.avvikelse} />
+      <MaskinKlarSheet
+        open={vad === 'maskin'}
+        onClose={() => setVal(null)}
+        titel={vad === 'maskin' ? (planer[a1]?.maskin.namn ?? 'Maskin') : ''}
+        rader={vad === 'maskin' ? maskinArkRader(planer[a1]) : []}
+        tomText="Inga trakter på maskinen."
+        onRad={id => { const [objektId, roll] = id.split('|'); oppnaTrakt(objektId, roll as KlarRoll, a1) }}
+      />
+      <MaskinKlarSheet
+        open={vad === 'utan'}
+        onClose={() => setVal(null)}
+        titel="Utan maskin"
+        rader={utanMaskin.map((t): KlarArkRad => ({ id: `${t.objekt_id}|${t.roll}`, text: kortNamn(t.namn), hoger: ROLL_NAMN[t.roll], dampad: true }))}
+        tomText="Alla trakter har maskin."
+        onRad={id => { const [objektId, roll] = id.split('|'); oppnaTrakt(objektId, roll as KlarRoll, 'utan') }}
+      />
+      {vad === 'byt' && (
+        <ByttMaskinSheet
+          open
+          onClose={() => (a3 === 'utan' ? setVal('utan') : a3 ? setVal(`maskin|${a3}`) : setVal(null))}
+          data={data}
+          objektId={a1}
+          roll={a2 as KlarRoll}
+          onValj={maskinId => valjMaskin(a1, a2 as KlarRoll, maskinId, a3)}
+        />
+      )}
     </>
   )
 }
