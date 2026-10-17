@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { AVSTAND, FARG, TYP, TNUM } from "@/lib/design/tokens";
 import { laddaVilobrottLista, type VilobrottRad } from "@/lib/admin/vilobrottLista";
-import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Fel, Laddar, Etikett } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Tertiar, Fel, Laddar, Etikett } from "./ui";
 import { byggPdfHtml } from "@/lib/admin/vilobrottPdf";
 
 // Vilobrott: brotten räknas om ur arbetsdag + extra_tid (de senaste tre månaderna) och förarens svar läggs på
@@ -13,6 +13,7 @@ export default function VilobrottUnderflik() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
   const [omgang, setOmgang] = useState(0);
+  const [visaMetod, setVisaMetod] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,9 +55,11 @@ export default function VilobrottUnderflik() {
 
   return (
     <>
-      <Stod style={{ marginTop: 0 }}>
-        Analyserar arbetsdagar de senaste 3 månaderna mot arbetstidslagens krav: dygnsvila minst 11 h sammanhängande, veckovila minst 36 h sammanhängande.
-      </Stod>
+      {/* Svaret (brotten) först; hur det räknas ligger bakom en länk. */}
+      <Tertiar smal onClick={() => setVisaMetod(v => !v)} style={{ padding: 0 }}>Så räknas det</Tertiar>
+      {visaMetod && (
+        <Stod>De senaste 3 månaderna mot arbetstidslagen: dygnsvila minst 11 h, veckovila minst 36 h i följd.</Stod>
+      )}
 
       {laddar ? (
         <div style={{ marginTop: AVSTAND.l }}><Laddar /></div>

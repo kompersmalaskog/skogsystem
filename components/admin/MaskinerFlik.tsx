@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
+import { AVSTAND, FARG, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { maskinSomUrl } from "@/lib/maskinSom";
 import { ymdLokal } from "@/lib/datumLokal";
-import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Reglage, Primar, Sekundar, Tillbaka, Destruktiv, Besked, Fel, Laddar, Tomt, Bekrafta } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Primar, Sekundar, Tillbaka, Destruktiv, Besked, Fel, Laddar, Tomt, Bekrafta } from "./ui";
 import { useAdminNav } from "./nav";
 
 /* dim_maskin — admin äger visningsnamn/tillverkare/maskin_typ/sander_filer/
@@ -31,6 +31,21 @@ type Maskin = {
 };
 
 type FilInfo = { forstaFil: string | null; antalFiler: number };
+
+/** EN fråga i stället för två brytare som svarade på samma sak: hur kommer maskinens data? */
+type Datakalla = "filer" | "manuellt" | "ingen";
+const DATAKALLOR: { value: Datakalla; label: string }[] = [
+  { value: "filer", label: "Maskinfiler" },
+  { value: "manuellt", label: "Manuellt, lass i arbetsrapporten" },
+  { value: "ingen", label: "Ingen data" },
+];
+const DATAKALLA_HINT: Record<Datakalla, string | undefined> = {
+  filer: undefined,
+  manuellt: "Föraren registrerar lass i arbetsrapporten. Maskinfiler avvisas.",
+  ingen: "Ingen data förväntas från maskinen.",
+};
+/** Manuell källa går före: sander_filer följer med (false); filer = sänder + auto; ingen = sänder inte + auto. */
+const datakallaAv = (sanderFiler: boolean, manuell: boolean): Datakalla => (manuell ? "manuellt" : sanderFiler ? "filer" : "ingen");
 
 const TYP_VAL: { value: string; label: string }[] = [
   { value: "Harvester", label: "Skördare" },
@@ -227,15 +242,8 @@ function MaskinRad({
 }) {
   const saldDatum = m.aktiv_till ? new Date(m.aktiv_till).toLocaleDateString("sv-SE") : null;
   const delar = [typLabel(m.maskin_typ), m.modell, saldDatum && `ur drift ${saldDatum}`, !m.sander_filer && "sänder ej filer"].filter(Boolean).join(" · ");
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, borderBottom: sist ? "none" : `1px solid ${FARG.linje}` }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <Rad onClick={() => onValj(m.maskin_id)} sista rubrik={maskinNamn(m)} detalj={delar} dampad={grattonad} chevron />
-      </div>
-      {/* Maskiner som är ur drift är inte väljbara → ingen knapp där. */}
-      {!grattonad && <OppnaSomMaskin maskinId={m.maskin_id} />}
-    </div>
-  );
+  // En rad = en sak: tryck öppnar maskinen. "Öppna som maskin" ligger i maskinens egen vy.
+  return <Rad onClick={() => onValj(m.maskin_id)} sista={sist} rubrik={maskinNamn(m)} detalj={delar} dampad={grattonad} chevron />;
 }
 
 /** "Öppna som maskin": öppnar /maskin?som=<maskin_id> i NY flik (appen i maskinläge som den maskinen, utan
@@ -243,7 +251,7 @@ function MaskinRad({
 function OppnaSomMaskin({ maskinId }: { maskinId: string }) {
   return (
     <a href={maskinSomUrl(maskinId)} target="_blank" rel="noopener noreferrer"
-      style={{ display: "inline-flex", alignItems: "center", minHeight: 44, padding: `0 ${AVSTAND.m}px`, color: FARG.bla, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0, ...TYP.meta }}>
+      style={{ display: "inline-flex", alignItems: "center", minHeight: TRAFFYTA.min, color: FARG.bla, textDecoration: "none", whiteSpace: "nowrap", ...TYP.text }}>
       Öppna som maskin
     </a>
   );
@@ -263,6 +271,11 @@ function DetaljVy({
   const [maskinTyp, setMaskinTyp] = useState(maskin.maskin_typ || "");
   const [sanderFiler, setSanderFiler] = useState(maskin.sander_filer);
   const [manuellKalla, setManuellKalla] = useState(maskin.datakalla === "manuell");
+  const datakalla = datakallaAv(sanderFiler, manuellKalla);
+  const valjDatakalla = (v: string) => {
+    setManuellKalla(v === "manuellt");
+    setSanderFiler(v === "filer");
+  };
   const [aktivFran, setAktivFran] = useState(maskin.aktiv_fran || "");
   const [aktivTill, setAktivTill] = useState(maskin.aktiv_till || "");
   const [sparar, setSparar] = useState(false);
@@ -347,15 +360,16 @@ function DetaljVy({
       {obekraftad && (
         <Kort style={{ marginBottom: AVSTAND.l }}>
           <p style={{ margin: 0, ...TYP.listtitel, color: FARG.orange }}>Ny maskin upptäckt i importen</p>
-          <Stod>Serienumret kommer ur maskinfilen och är rätt. Fyll i visningsnamn och aktiv från, bekräfta sedan. Därefter skyddas dina uppgifter från att skrivas över vid nästa fil.</Stod>
+          <Stod>Fyll i visningsnamn och aktiv från, bekräfta sedan.</Stod>
         </Kort>
       )}
 
       {/* Serienummer — låst */}
       <Sektion topp={AVSTAND.s}>Identitet</Sektion>
       <Kort>
-        <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>Serienummer (nyckel mot filerna, kan inte ändras)</div>
+        <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>Serienummer</div>
         <div style={{ ...TYP.text, color: FARG.text, wordBreak: "break-all" }}>{maskin.maskin_id}</div>
+        <Stod>Kan inte ändras.</Stod>
         {maskin.modell && <Stod style={{ marginTop: AVSTAND.m }}>Modell (ur fil): <span style={{ color: FARG.text }}>{maskin.modell}</span></Stod>}
       </Kort>
 
@@ -370,18 +384,24 @@ function DetaljVy({
           ...(maskinTyp && !TYP_VAL.some(o => o.value === maskinTyp)
             ? [{ value: maskinTyp, label: `${maskinTyp} (ur fil)` }] : []),
         ]} />
-        <Reglage label="Sänder filer" value={sanderFiler} onChange={setSanderFiler}
-          hint="Av för maskiner som aldrig skickar maskinfiler (t.ex. JD810E). Då förväntas ingen data." />
-        <Reglage label="Manuell datakälla" value={manuellKalla} onChange={setManuellKalla}
-          hint="På för maskiner utan maskinfiler (JD810E): föraren registrerar lass i arbetsrapporten och importen avvisar FPR-filer för maskinen. En maskin har en källa." />
+        <Val label="Hur kommer datan?" value={datakalla} onChange={valjDatakalla} options={DATAKALLOR}
+          hint={DATAKALLA_HINT[datakalla]} />
       </Kort>
+
+      {/* Appen i maskinläge som den här maskinen, utan skrivningar (ny flik). */}
+      {!maskin.aktiv_till && !obekraftad && (
+        <>
+          <Sektion>Maskinläge</Sektion>
+          <Kort><OppnaSomMaskin maskinId={maskin.maskin_id} /></Kort>
+        </>
+      )}
 
       {/* Driftperiod */}
       <Sektion>Driftperiod</Sektion>
       <Kort>
         <Falt label="Aktiv från" value={aktivFran} onChange={setAktivFran} type="date" min={DATUM_MIN} max={DATUM_MAX} />
         <Falt label="Aktiv till" value={aktivTill} onChange={setAktivTill} type="date" min={DATUM_MIN} max={DATUM_MAX}
-          hint="Sätts när maskinen säljs eller tas ur drift. Historiken bevaras, maskinen faller bara ur bevakning." />
+          hint="Sätts när maskinen säljs. Historiken finns kvar." />
       </Kort>
 
       {sparFel && <Besked>{sparFel}</Besked>}

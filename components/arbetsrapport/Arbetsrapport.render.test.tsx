@@ -13,6 +13,7 @@
  * första renderingen har medarbetare = null, sedan läses en förare in. Alla
  * andra tabeller svarar tomt.
  */
+import { utbetalningText } from "@/lib/lonesystem/lonemanad";
 import React, { act } from "react";
 import fs from "node:fs";
 import path from "node:path";
@@ -382,5 +383,37 @@ describe("Min månad: brandrisk-OB", () => {
     expect(t).toContain("Brandrisk – OB");
     expect(t).toContain("10 tim 18 min");
     expect(t.split("Brandrisk – OB").length - 1).toBe(1);
+  });
+});
+
+
+describe("Min månad: arbetsmånaden är namnet, utbetalningen står i liten text", () => {
+  const lr = (loneart: string, mangd: string, status: string) => ({ loneart, mangd, status, kod: status === "skickas" ? "11" : null, beskrivning: "" });
+  const spec = {
+    ok: true,
+    medarbetare: {
+      medarbetare_id: "m-1", namn: "Test Förare", anstallningsnummer: "7", rader: [], varningar: [], lonerader: [lr("timlon", "160.00", "skickas")], saknade_loneartskoder: [],
+      arbetsdagar: 20, ordinarie_h: 160, extra_h: 0, timlon_h: 160, premielon_skordare_h: 0, premielon_skotare_h: 0, overtid_h: 0, valtlappar_veckor: 4, kor_mil: 0, obekraftade: 0,
+      franvaro: [], deldagar: [], kortpass: [], helglon: { dagar: [], timmar: 0 }, byten: [], dagar: [], km_grans: 60, synk: [], ledighetskollision: [], maskin_utan_typ: [], rast_langa: [], orimliga: [],
+      utan_rast: { dagar: 0, timmar: 0, datum: [] }, utjamning: [], vilobrott: [],
+      ob: { timmar: 0, dagar: 0, obesvarade: 0 }, brandrisk: { ob_min: 0, dagar: [] }, status: "utkast",
+    },
+  };
+  it("rubriken är månaden man tittar på; under den står när lönen betalas (månaden efter, den 25:e)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (u: any) => ({ ok: true, status: 200, json: async () => (String(u).includes("/api/lon/min-manad") ? spec : {}), text: async () => "" })));
+    await montera("/arbetsrapport");
+    await klickaKnappMed("Min tid");
+    const rad = Array.from(behallare!.querySelectorAll("button")).find(b => /(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)/i.test(b.textContent || "") && /tim|lönespecen/.test(b.textContent || ""));
+    if (!rad) throw new Error("hittar ingen månadsrad i Min tid: " + (behallare!.textContent || "").slice(0, 300));
+    await act(async () => { rad.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await stilla(6);
+    const nu = new Date();
+    const manad = `${nu.getFullYear()}-${String(nu.getMonth() + 1).padStart(2, "0")}`;
+    const utbetalning = behallare!.querySelector("[data-utbetalning]")!;
+    expect(utbetalning.textContent).toBe(utbetalningText(manad));
+    expect(utbetalning.textContent).toMatch(/^lön betalas 25 (januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)$/);
+    // rubriken är arbetsmånaden: den man tittar på, aldrig löneperioden
+    const rubrik = behallare!.querySelector("h1")!;
+    expect((rubrik.textContent || "").toLowerCase()).toContain(nu.toLocaleString("sv-SE", { month: "long" }));
   });
 });

@@ -21,6 +21,13 @@ const navKnapp = { ...KNAPP.lank, width: "auto", display: "inline-flex", alignIt
 /** Spara när inget är ändrat (eller koden är ogiltig): grå text, inte blå som dämpats. Blå betyder "går att trycka". */
 const navInaktiv = { color: FARG.text3, cursor: "default" } as const;
 
+/** Namnet i Fortnox står bara när det säger något nytt: samma ord som löneartens egen rubrik upprepades på alla tio raderna. */
+function fortnoxNamnRad(label: string, beskrivning: string | null | undefined): React.ReactNode {
+  const namn = (beskrivning || "").trim().replace(/:\s*$/, "");
+  if (!namn) return <span style={{ color: FARG.orange }}>Namnet i Fortnox saknas</span>;
+  return namn.toLowerCase() === label.toLowerCase() ? undefined : `I Fortnox: ${namn}`;
+}
+
 /** Siffror och bokstäver (Fortnox-koder är oftast siffror). Ingen blanksteg, inga tecken som tyder på ett skrivfel. */
 const GILTIG_KOD = /^[A-Za-z0-9_-]{1,12}$/;
 
@@ -93,9 +100,7 @@ export default function LonearterUnderflik() {
 
   return (
     <>
-      <Stod style={{ marginTop: 0 }}>
-        Här väljer du vilken löneart i Fortnox varje rad i appen skickas som. Appen skickar bara antal (timmar, veckor, mil). Fortnox räknar kronorna.
-      </Stod>
+      <Stod style={{ marginTop: 0 }}>Vilken löneart i Fortnox varje rad skickas som. Bara antal skickas — Fortnox räknar kronorna.</Stod>
 
       {!koppling && (
         <Stod farg={FARG.orange} attr={{ "data-lonearter-ingen-koppling": "" }}>
@@ -106,7 +111,6 @@ export default function LonearterUnderflik() {
       {saknas.length > 0 && (
         <Stod farg={FARG.orange} attr={{ "data-lonearter-saknas": "" }}>
           {saknas.length} {saknas.length === 1 ? "löneart saknar" : "lönearter saknar"} kod: {saknas.map(a => a.label).join(", ")}.
-          {" "}Finns ett antal på den i en månad stoppas exporten tills koden är ifylld, eller du väljer att skicka utan raden.
         </Stod>
       )}
 
@@ -121,9 +125,7 @@ export default function LonearterUnderflik() {
                   <Rad
                     rubrik={<>{a.label}{a.valfri && <span style={{ marginLeft: AVSTAND.s }}><Etikett>Frivillig</Etikett></span>}</>}
                     detalj={m
-                      ? ((m.beskrivning || "").trim()
-                        ? `I Fortnox: ${m.beskrivning!.trim()}`
-                        : <span style={{ color: FARG.orange }}>Namnet i Fortnox saknas</span>)
+                      ? fortnoxNamnRad(a.label, m.beskrivning)
                       : a.forklaring}
                     hoger={m
                       ? <span style={{ ...TYP.listtitel, color: FARG.text }}>{m.extern_kod}</span>

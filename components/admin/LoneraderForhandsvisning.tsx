@@ -18,28 +18,25 @@ export function lonerader(m: any): VisadLonerad[] {
 
 const mangdText = (r: VisadLonerad) => `${fmtMangd(r.mangd)} ${loneartInfo(r.loneart)?.enhet ?? ""}`.trim();
 
-export function LoneradLista({ rader, kopplingar }: { rader: VisadLonerad[]; kopplingar: Loneartkopplingar }) {
+export function LoneradLista({ rader }: { rader: VisadLonerad[]; kopplingar?: Loneartkopplingar }) {
   if (rader.length === 0) return <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga lönerader denna period.</p>;
   return (
     <div>
       {rader.map(r => {
         const info = loneartInfo(r.loneart);
-        const k = (kopplingar as any)?.[r.loneart] as { kod: string; namn: string } | undefined;
         return (
           <div key={r.loneart} data-lonerad={r.loneart} data-status={r.status} style={{ padding: `${AVSTAND.xs}px 0` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: AVSTAND.s }}>
               <span style={{ ...TYP.meta, color: FARG.text }}>{info?.label ?? r.loneart}</span>
               <span style={{ ...TYP.meta, ...TNUM, color: FARG.text, fontWeight: TYP.listtitel.fontWeight, whiteSpace: "nowrap" }}>{mangdText(r)}</span>
             </div>
-            <div style={{ ...TYP.meta, color: FARG.text2 }}>
-              {r.status === "skickas" && <>Fortnox {r.kod}{k?.namn ? ` · ${k.namn}` : ""}</>}
-              {r.status === "saknar_kod" && (
-                <><span style={{ color: FARG.rod, fontWeight: TYP.listtitel.fontWeight }}>Saknar löneart</span> — raden skickas inte. Koppla en kod under Lönearter.</>
-              )}
-              {r.status === "valfri_utan_kod" && (
-                <><span style={{ color: FARG.orange, fontWeight: TYP.listtitel.fontWeight }}>Hoppas över</span> — Frivillig löneart, ingen kod kopplad.</>
-              )}
-            </div>
+            {/* Koden och namnet i Fortnox står i Lönearter, inte på varje rad: en rad som skickas är bara namn och antal. */}
+            {r.status === "saknar_kod" && (
+              <div style={{ ...TYP.meta, color: FARG.text2 }}><span style={{ color: FARG.rod, fontWeight: TYP.listtitel.fontWeight }}>Saknar löneart</span> — skickas inte</div>
+            )}
+            {r.status === "valfri_utan_kod" && (
+              <div style={{ ...TYP.meta, color: FARG.text2 }}><span style={{ color: FARG.orange, fontWeight: TYP.listtitel.fontWeight }}>Hoppas över</span> — frivillig, ingen kod</div>
+            )}
           </div>
         );
       })}
@@ -74,9 +71,11 @@ export function SaknasKort({ blockerande, onKoppla }: { blockerande: Blockerande
  * UTTRYCKLIGEN skicka utan raderna (ett andra steg som listar vad som uteblir och säger att de ALDRIG skickas senare — lönehanteraren
  * lägger in dem för hand). Först då går begäran iväg, med skicka_utan_saknade.
  */
-export function SkickaDialog({ periodText, arbetstidText, data, blockerande, skickar, onKoppla, onSkicka, onStang }: {
-  periodText: string;
-  arbetstidText: string;
+export function SkickaDialog({ manadText, utbetalningText, data, blockerande, skickar, onKoppla, onSkicka, onStang }: {
+  /** Arbetsmånaden, huvudnamnet: "augusti 2026". */
+  manadText: string;
+  /** "lön betalas 25 september" — liten text, aldrig rubrik. */
+  utbetalningText: string;
   data: any;
   blockerande: BlockerandeLoneart[];
   skickar: boolean;
@@ -98,10 +97,9 @@ export function SkickaDialog({ periodText, arbetstidText, data, blockerande, ski
       {/* Steg 2 handlar bara om det som uteblir: förarlistan vore bara scroll före varningen. */}
       {steg === "val" && (
         <>
-          <Stod style={{ marginTop: 0 }}>
-            Löneperiod {periodText} (arbetstid {arbetstidText}). {antalLon} medarbetare, {data.totalt_rader} lönerader.
-          </Stod>
-          {harVarningar && <Stod farg={FARG.orange}>⚠ Det finns varningar — granska innan du skickar.</Stod>}
+          <Stod style={{ marginTop: 0, textTransform: "capitalize" }}>{manadText}</Stod>
+          <Stod style={{ marginTop: 0 }}>{utbetalningText} · {antalLon} förare · {data.totalt_rader} lönerader</Stod>
+          {harVarningar && <Stod farg={FARG.orange}>Det finns saker att kolla — granska innan du skickar.</Stod>}
 
           <Lista style={{ marginTop: AVSTAND.m }}>
             {medarbetare.map((m, i) => m.foretagsledare ? (

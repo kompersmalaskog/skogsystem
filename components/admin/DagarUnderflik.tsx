@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { dagAvvikelser, minText, datumLang } from "@/lib/lonesystem/forarText";
+import { rastSaknas } from "@/lib/arbetsdagRegler";
+import { utbetalningText } from "@/lib/lonesystem/lonemanad";
 import { TYP, IKON, AVSTAND, FARG, KNAPP, KORT, TRAFFYTA, TNUM, RORELSE, designCss } from "@/lib/design/tokens";
 import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useAdminNav } from "./nav";
@@ -28,6 +30,12 @@ import { useAdminNav } from "./nav";
  * = "ingen maskintid rapporteras", aldrig 0 %. Täljaren är G15, inte branschens
  * G0 — docs/lonesystem/lonekvot.md.
  */
+
+/** Neutral information i dagens detalj när ett långt pass saknar rast: ingen varning, bara hur tiden räknas. */
+export const RAST_SAKNAS_INFO = "Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)";
+
+/** Larmordet i förarens/avtalets ord; i kontrollvyn säger vi trakt, inte objekt. */
+const avvOrd = (a: string) => (a === "utan objekt" ? "ingen trakt" : a === "utan maskin" ? "ingen maskin" : a);
 
 const pct = (taljareMin: number, namnareMin: number) => namnareMin > 0 ? Math.round((taljareMin / namnareMin) * 100) : null;
 
@@ -96,7 +104,8 @@ export default function DagarUnderflik() {
   const [data, setData] = useState<{ medarbetare: Medarbetare[] } | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
-  const [baraAvv, setBaraAvv] = useState(nav.params.avv === "1");
+  // Förvalt: bara avvikelserna (svaret först). "Visa alla" är ett val man gör; ?avv=0 öppnar med alla.
+  const [baraAvv, setBaraAvv] = useState(nav.params.avv !== "0");
   const [oppen, setOppen] = useState<string | null>(null);
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [forsok, setForsok] = useState(0);
@@ -223,7 +232,11 @@ export default function DagarUnderflik() {
           <button onClick={() => setOffset(o => o - 1)} aria-label="Föregående period" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0 }}>
             <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_left</span>
           </button>
-          <span style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, textTransform: "capitalize" }}>{periodLabel}</span>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ ...TYP.listtitel, ...TNUM, color: FARG.text, textTransform: "capitalize" }}>{periodLabel}</div>
+            {/* Arbetsmånaden är namnet; när lönen betalas står i liten text (bara för en månad). */}
+            {period === "M" && <div data-utbetalning="" style={{ ...TYP.meta, color: FARG.text2 }}>{utbetalningText(range.start.slice(0, 7))}</div>}
+          </div>
           <button onClick={() => !arNu && setOffset(o => o + 1)} disabled={arNu} aria-label="Nästa period" style={{ ...KNAPP.tertiar, width: TRAFFYTA.min, padding: 0, opacity: arNu ? 0.4 : 1 }}>
             <span className="material-symbols-outlined" style={{ fontSize: IKON.rad }}>chevron_right</span>
           </button>
@@ -250,16 +263,19 @@ export default function DagarUnderflik() {
 
       {data && !laddar && (
         <>
-          {/* Summering + filtret. "Bara avvikelser" är AV som standard: helheten
-              först, sedan zooma in. */}
+          {/* Svaret först: hur många dagar som avviker. "Bara avvikelser" är förvalt; alla dagar ligger bakom "Visa alla". */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginBottom: AVSTAND.l }}>
-            <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>
-              {antalForare} förare · {rader.length} {rader.length === 1 ? "rad" : "rader"} · <span style={{ color: medAvv.length ? FARG.orange : FARG.text2 }}>{medAvv.length} med avvikelse</span>
+            <span style={{ ...TYP.meta, ...TNUM, color: medAvv.length ? FARG.orange : FARG.text2 }}>
+              {baraAvv
+                ? `${medAvv.length} ${medAvv.length === 1 ? "dag" : "dagar"} med avvikelse`
+                : `${antalForare} förare · ${rader.length} ${rader.length === 1 ? "rad" : "rader"} · ${medAvv.length} med avvikelse`}
             </span>
-            <button onClick={() => setBaraAvv(b => !b)} aria-pressed={baraAvv}
-              style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, whiteSpace: "nowrap", padding: `0 ${AVSTAND.l}px`, background: baraAvv ? FARG.text : KNAPP.sekundar.background, color: baraAvv ? FARG.bg : FARG.text }}>
-              Bara avvikelser
-            </button>
+            {!baraAvv && (
+              <button onClick={() => setBaraAvv(true)} aria-pressed={false}
+                style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, whiteSpace: "nowrap", padding: `0 ${AVSTAND.l}px` }}>
+                Bara avvikelser
+              </button>
+            )}
           </div>
 
           {rader.length === 0 && (
@@ -279,8 +295,10 @@ export default function DagarUnderflik() {
                 const detaljer = [
                   r.d.maskin_id ? `Maskin ${maskinNamn[r.d.maskin_id] || r.d.maskin_id}` : (r.d.perioddag ? "Perioddag, ingen maskin" : "Ingen maskin"),
                   r.d.start_tid || r.d.slut_tid
-                    ? `${(r.d.start_tid || "").slice(0, 5) || "–"}–${(r.d.slut_tid || "").slice(0, 5) || "–"}${r.d.rast_min ? ` · rast ${minText(r.d.rast_min)}` : " · ingen rast"}`
+                    ? `${(r.d.start_tid || "").slice(0, 5) || "–"}–${(r.d.slut_tid || "").slice(0, 5) || "–"}${r.d.rast_min ? ` · rast ${minText(r.d.rast_min)}` : ""}`
                     : "Inga klockslag, tiden ligger i perioder",
+                  // Rast noll på ett långt pass är ingen varning (skotarna loggar ingen rast): bara information om hur tiden räknas.
+                  rastSaknas(r.d.arbetad_min, r.d.rast_min) ? RAST_SAKNAS_INFO : null,
                   r.d.extra_min > 0 ? `Betald ${minText(r.d.arbetad_min)} vid maskinen + extra tid ${minText(r.d.extra_min)}` : null,
                   // Lönekvot per dag: maskinens G15 under förarens inloggning mot betald tid.
                   r.d.maskintid?.kalla === "fil" && r.min > 0
@@ -290,7 +308,7 @@ export default function DagarUnderflik() {
                             ? `Ingen maskintid på förarens inloggning — maskinen gick ${minText(r.d.maskintid.maskinens_min)} under annan inloggning`
                             : "Ingen maskintid den dagen"))
                     : r.d.maskintid?.kalla === "ingen_fil" ? "Maskinen rapporterar ingen maskintid (skickar inga filer)" : null,
-                  objekt ? `Objekt: ${objekt}` : "Inget objekt",
+                  objekt ? `Trakt: ${objekt}` : "Ingen trakt",
                   r.d.km_totalt ? `${Math.round(r.d.km_totalt)} km${r.d.ersattningsmil ? ` · ${r.d.ersattningsmil} mil reseersättning` : ""}` : null,
                   r.d.ob_min > 0 ? `OB ${minText(r.d.ob_min)}` : null,
                   r.d.traktamente ? "Traktamente" : null,
@@ -306,16 +324,18 @@ export default function DagarUnderflik() {
                     <div style={{ borderBottom: `1px solid ${FARG.linje}` }}>
                       <button type="button" onClick={() => setOppen(ärOppen ? null : r.nyckel)} aria-expanded={ärOppen}
                         style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: 0, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
-                        <span style={{ ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{r.namn.split(" ")[0]}</span>
-                        <span style={{ flex: 1, minWidth: 0, ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {r.avv.length ? r.avv.join(" · ") : (objekt || "—")}
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{r.namn.split(" ")[0]}</span>
+                          <span style={{ display: "block", ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {r.avv.length ? r.avv.map(avvOrd).join(" · ") : (objekt || "—")}
+                          </span>
                         </span>
                         <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(r.min)}</span>
                         <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3, transform: ärOppen ? "rotate(90deg)" : "none", transition: `transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
                       </button>
                       {ärOppen && (
                         <div className="tona-in" style={{ paddingBottom: AVSTAND.m }}>
-                          {r.avv.length > 0 && <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>{r.avv.join(" · ")}</p>}
+                          {r.avv.length > 0 && <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>{r.avv.map(avvOrd).join(" · ")}</p>}
                           {detaljer.map((t, j) => <p key={j} style={{ margin: j ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, ...TNUM, color: FARG.text2 }}>{t}</p>)}
                           <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>Rättas av {r.namn.split(" ")[0]} i Redigera.</p>
                         </div>
@@ -330,10 +350,18 @@ export default function DagarUnderflik() {
 
           {/* SUMMERINGEN längst ner, som förarens Dag för dag. Per förare först
               ("vem jobbade mest" utan att räkna), månaden sist som huvudtal. */}
-          {visade.length > 0 && (
+          {/* Alla dagar-läget avslutas med summeringen; avvikelselistan är svaret och har ingen summering under sig. */}
+          {baraAvv && rader.length > visade.length && (
+            <button onClick={() => setBaraAvv(false)} data-visa-alla=""
+              style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>
+              Visa alla {rader.length}
+            </button>
+          )}
+
+          {!baraAvv && visade.length > 0 && (
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0, marginTop: AVSTAND.l }}>
               <p style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
-                {baraAvv ? "Summering av avvikelserna" : `Summering ${periodLabel}`}{pagar ? " · pågår" : ""}
+                {`Summering ${periodLabel}`}{pagar ? " · pågår" : ""}
               </p>
               {summa.lista.map(s => (
                 <div key={s.namn} style={{ borderBottom: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px 0` }}>
@@ -345,10 +373,10 @@ export default function DagarUnderflik() {
                   {/* Lönekvot per förare — bara över dagar med filmaskin, antalet dagar bredvid. */}
                   <p style={{ margin: 0, ...TYP.meta, ...TNUM, color: FARG.text3 }}>
                     {s.kvotDagar >= KVOT_MIN_DAGAR
-                      ? `Lönekvot ${pct(s.kvotMaskin, s.kvotBetald)} % · maskintid ${minText(s.kvotMaskin)} av ${minText(s.kvotBetald)} betald på ${s.kvotDagar} dagar${s.utanMaskintid ? ` · ${s.utanMaskintid} utan maskintid` : ""}`
+                      ? `Lönekvot ${pct(s.kvotMaskin, s.kvotBetald)} % · ${minText(s.kvotMaskin)} maskintid av ${minText(s.kvotBetald)} · ${s.kvotDagar} dagar${s.utanMaskintid ? ` · ${s.utanMaskintid} utan maskintid` : ""}`
                       : s.kvotDagar > 0
-                        ? `För få dagar för en lönekvot — ${s.kvotDagar} ${s.kvotDagar === 1 ? "dag" : "dagar"} med maskin som skickar filer (minst ${KVOT_MIN_DAGAR})`
-                        : "Ingen lönekvot — ingen dag med maskin som skickar filer"}
+                        ? `Lönekvot kräver minst ${KVOT_MIN_DAGAR} dagar med maskinfiler (${s.kvotDagar} hittills)`
+                        : "Ingen lönekvot — inga dagar med maskinfiler"}
                   </p>
                 </div>
               ))}
@@ -360,20 +388,21 @@ export default function DagarUnderflik() {
                   Visas bara över dagar där båda källorna finns, med antalet dagar. */}
               <p style={{ margin: 0, padding: `${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
                 {summa.kvotDagar >= KVOT_MIN_DAGAR
-                  ? `Lönekvot ${pct(summa.kvotMaskin, summa.kvotBetald)} % — maskintid ${minText(summa.kvotMaskin)} av ${minText(summa.kvotBetald)} betald, på de ${summa.kvotDagar} dagar där maskinen skickar filer${pagar ? ` · ${periodLabel} pågår, ${arbetsdagar.hittills} av ${arbetsdagar.totalt} arbetsdagar` : ""}`
+                  ? `Lönekvot ${pct(summa.kvotMaskin, summa.kvotBetald)} % · ${minText(summa.kvotMaskin)} maskintid av ${minText(summa.kvotBetald)} · ${summa.kvotDagar} dagar med maskinfiler`
                   : summa.kvotDagar > 0
-                    ? `För få dagar för en lönekvot — ${summa.kvotDagar} ${summa.kvotDagar === 1 ? "dag" : "dagar"} med maskin som skickar filer (minst ${KVOT_MIN_DAGAR})`
-                    : "Lönekvot kan inte räknas — ingen dag med maskin som skickar filer"}
+                    ? `Lönekvot kräver minst ${KVOT_MIN_DAGAR} dagar med maskinfiler (${summa.kvotDagar} hittills)`
+                    : "Ingen lönekvot — inga dagar med maskinfiler"}
               </p>
               {summa.obekr > 0 && (
                 <p style={{ margin: 0, paddingBottom: AVSTAND.m, ...TYP.meta, color: FARG.orange }}>{summa.obekr} {summa.obekr === 1 ? "dag är inte bekräftad" : "dagar är inte bekräftade"}</p>
               )}
             </div>
           )}
-          <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
-            Samma beräkning som löneunderlaget. Larmen är appens befintliga regler: rast över 60 min, pass över 16 tim, kortpass under 60 min, tidsavvikelse mot maskinen, vilobrott, dag utan maskin eller objekt, ej bekräftad.
-            Lönekvot = maskinens G15 under förarens inloggning delat med betald tid, bara på dagar där maskinen skickar filer. Mäter verksamheten, inte föraren — flytt, service och väntan ligger utanför förarens kontroll.
-          </p>
+          {!baraAvv && summa.kvotDagar > 0 && (
+            <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>
+              Lönekvot = maskinens G15 under förarens inloggning delat med betald tid. Mäter verksamheten, inte föraren.
+            </p>
+          )}
         </>
       )}
     </div>

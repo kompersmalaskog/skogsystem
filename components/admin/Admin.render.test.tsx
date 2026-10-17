@@ -139,7 +139,7 @@ function seed(extra: Record<string, any[]> = {}) {
   g.__storage = { upp: [], signerade: [], uppFel: null, signFel: null };
   g.__skriv = []; g.__eq = []; g.__ingaRader = false; g.__avvisaKolumner = {}; g.__dbFel = null; g.__saknasLasKolumner = {};
   g.__leverans = { laddar: false, fel: null, data: [{ maskinId: "R64101", namn: "Rottne H8E", aktivTill: null, sanderFiler: true, bekraftad: true, senasteData: "2026-10-06", dagarSedan: 1 }] };
-  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null; g.__arbetstid = null;
+  g.__fetchAnrop = []; g.__kontroller = null; g.__geokod = null; g.__geokodAnrop = []; g.__kontroll = null; g.__kontrollAnrop = []; g.__hempunkt = null; g.__hempunktAnrop = []; g.__arsovertid = null; g.__arbetstid = null; g.__fortnoxStatus = null;
   g.fetch = vi.fn(async (url: string, init?: any) => {
     const u = String(url); g.__fetchAnrop.push([u, init?.method || "GET", init?.body]);
     if (u.includes("/api/fortnox/kontrollera-anstallningsnummer")) {
@@ -167,7 +167,7 @@ function seed(extra: Record<string, any[]> = {}) {
     const body = u.includes("/api/lon/arbetstid") ? (g.__arbetstid ?? { ok: true, ar: 2026, tomDatum: "2026-10-13", forare: [], varningar: [] })
       : u.includes("/api/lon/arsovertid") ? (g.__arsovertid ?? { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: [] })
       : u.includes("/api/fortnox/salary-export") ? (g.__salarySkicka && JSON.parse(init?.body || "{}").dry_run !== true ? g.__salarySkicka : (g.__salary || SALARY))
-      : u.includes("/api/fortnox/status") ? { connected: true, token_utgar: null, senast_synkad: null }
+      : u.includes("/api/fortnox/status") ? (g.__fortnoxStatus ?? { connected: true, token_utgar: null, senast_synkad: null })
       : u.includes("/api/medarbetare/kontroller") ? (g.__kontroller || { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [] })
       : {};
     return { ok: true, status: 200, json: async () => body } as any;
@@ -225,6 +225,8 @@ async function lugn() {
   }
 }
 async function monter(sp: string, el?: React.ReactElement) {
+  // En ny montering ersätter den förra: en kvarglömd container gjorde att texts-sökningar (blad/klick) träffade gammalt innehåll.
+  if (cont?.isConnected) { await act(async () => { root.unmount(); }); cont.remove(); }
   g.__sp = new URLSearchParams(sp);
   g.IS_REACT_ACT_ENVIRONMENT = true;
   cont = document.createElement("div"); document.body.appendChild(cont);
@@ -248,6 +250,14 @@ async function skriv(input: HTMLInputElement, v: string) {
   });
 }
 const radMed = (t: string) => blad(t)[0].parentElement as HTMLElement;
+/** Översiktens rader har alla samma knapp ("Öppna"): tryck på knappen i raden med den här rubriken. */
+async function klickRad(rubrik: string) {
+  const el = blad(rubrik)[0];
+  if (!el) throw new Error("hittar ingen rad: " + rubrik + " — sidan säger: " + text().slice(0, 400));
+  const knapp = el.parentElement!.parentElement!.querySelector("button")!;
+  await act(async () => { knapp.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await lugn();
+}
 
 vi.setConfig({ testTimeout: 30000 }); // jsdom + många fetchar på en långsam dator
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 9, 7, 12, 0)); seed(); installeraKarta(); });
@@ -259,7 +269,7 @@ describe("Skal och navigering", () => {
     for (const f of ["Översikt", "Medarbetare", "Maskiner", "Lön", "Avtal"]) expect(blad(f).length, f).toBeGreaterThan(0);
     expect(blad("Inst.").length).toBe(0);
     expect(text()).not.toContain("kommer i nästa steg");
-    expect(text()).toContain("Stämmer");
+    expect(text()).toMatch(/Allt (annat )?stämmer/);
   });
   it("flik och underflik skrivs i adressen, och en omladdning (ny montering på samma adress) stannar där man var", async () => {
     await monter("flik=oversikt");
@@ -270,7 +280,7 @@ describe("Skal och navigering", () => {
     // "omladdning": montera om med adressens parametrar
     await act(async () => { root.unmount(); }); cont.remove();
     await monter(window.location.search.replace(/^\?/, ""));
-    expect(text()).toContain("Analyserar arbetsdagar de senaste 3 månaderna");
+    expect(text()).toContain("Så räknas det"); // Vilobrott: länken som visar hur det räknas
   });
   it("det som är öppet står i adressen: ?flik=maskiner&maskin=… öppnar maskinen direkt", async () => {
     await monter("flik=maskiner&maskin=R64101");
@@ -293,11 +303,13 @@ describe("Översikt = att-göra-lista", () => {
     g.__db.fortnox_export_logg = [{ medarbetare_id: "m1", status: "skickat", period: "2026-10" }];
   };
 
-  it("inget väntar: bara Stämmer-listan, inget 'kräver dig' och ingen siffra i menyn", async () => {
+  it("inget väntar: EN rad 'Allt stämmer' (fälls ut till listan), inget 'kräver dig' och ingen siffra i menyn", async () => {
     allaStammer();
     await monter("flik=oversikt");
     expect(text()).not.toContain("kräver dig");
-    expect(text()).toContain("Stämmer");
+    expect(text()).toContain("Allt stämmer");
+    expect(text()).not.toContain("Alla dagar är bekräftade"); // hopfälld: en rad, inte sju
+    await klick("Allt stämmer");
     for (const rad of ["Lönen för september är skickad till Fortnox", "Alla dagar är bekräftade", "Inga obesvarade vilobrott", "Alla har maskin, hempunkt och inloggning", "Alla operatörer är kopplade", "Avtalet gäller till 31 mars 2027", "Alla maskiner har skickat fil inom 10 dygn"]) {
       expect(text(), rad).toContain(rad);
     }
@@ -345,27 +357,30 @@ describe("Översikt = att-göra-lista", () => {
     expect(cont.querySelector("aside")!.textContent).toMatch(/Översikt\s*8/);
     // det som INTE stämmer står inte som "stämmer"
     for (const rad of ["Alla dagar är bekräftade", "Inga obesvarade vilobrott", "Alla operatörer är kopplade", "Alla maskiner har skickat fil"]) expect(t).not.toContain(rad);
+    expect(t).toContain("Allt annat stämmer"); // något kräver dig: resten är "annat"
   });
 
-  it("knapparna leder dit det fixas: Granska → Löneunderlag, Se dagarna → Dagar filtrerat, Öppna → personen, Bekräfta → maskinen", async () => {
+  it("knapparna leder dit det fixas: EN knapp (Öppna) per rad — lönen → Löneunderlag, dagarna → Dagar filtrerat, personen → personen, maskinen → maskinen", async () => {
     mangaSaker();
     await monter("flik=oversikt");
-    await klick("Granska");
+    // Alla knappar heter Öppna: raden säger vad det gäller, och knappen sitter alltid bredvid texten.
+    expect(blad("Granska").length + blad("Se dagarna").length + blad("Bekräfta").length + blad("Visa").length).toBe(0);
+    await klickRad("Lönen för september är klar att granska");
     expect(window.location.search).toContain("flik=lon");
     expect(window.location.search).toContain("underflik=underlag");
-    expect(text()).toContain("Lönerader till Fortnox");
+    expect(text()).toMatch(/Klart att skicka|att kolla/);
     await klick("Översikt");
-    await klick("Se dagarna");
+    await klickRad("3 dagar väntar på bekräftelse");
     expect(window.location.search).toContain("underflik=dagar");
     expect(window.location.search).toContain("avv=1");
     expect(window.location.search).toContain("dagoff=-1");
-    expect(blad("Bara avvikelser")[0].closest("button")!.getAttribute("aria-pressed")).toBe("true");
+    expect(text()).toMatch(/dagar? med avvikelse/); // förvalt: bara avvikelserna
     await klick("Översikt");
-    await klick("Öppna");
+    await klickRad("Erik Lind");
     expect(window.location.search).toContain("person=m2");
     expect(text()).toContain("Personuppgifter");
     await klick("Översikt");
-    await klick("Bekräfta");
+    await klickRad("Ny maskin i importen: H8E");
     expect(window.location.search).toContain("maskin=R64999");
     expect(text()).toContain("Ny maskin upptäckt i importen");
   });
@@ -406,6 +421,7 @@ describe("Översikt = att-göra-lista", () => {
     ] };
     await monter("flik=oversikt");
     expect(text()).not.toContain("har inte skickat fil");
+    await klick("Allt stämmer");
     expect(text()).toContain("Alla maskiner har skickat fil");
   });
 });
@@ -413,8 +429,9 @@ describe("Översikt = att-göra-lista", () => {
 describe("Medarbetare", () => {
   it("rollen visas som ord: Förare och Admin, aldrig databasvärdet", async () => {
     await monter("flik=medarbetare");
-    expect(blad("Förare").length).toBe(1);
-    expect(blad("Admin").length).toBeGreaterThan(0);
+    // Grupper som i iOS Inställningar: rollen är rubriken, inte ett märke på varje rad.
+    expect(blad("Förare (1)").length).toBe(1);
+    expect(blad("Admin (1)").length).toBe(1);
     expect(text()).not.toMatch(/forare/i.source === "forare" ? /\bforare\b/ : /x/);
   });
 
@@ -433,7 +450,7 @@ describe("Medarbetare", () => {
     await monter("flik=medarbetare");
     await klick("Anna Berg");
     expect(text()).not.toContain("steg 6");
-    expect(text()).toContain("Anställningsnummer (Fortnox)"); // numret finns nu på personen
+    expect(text()).toContain("Anställningsnummer"); // numret finns nu på personen
   });
 
   it("ta bort: om RLS stoppar raderingen (0 rader) står det, och personen finns kvar — inget tyst 'borttagen'", async () => {
@@ -453,7 +470,8 @@ describe("Medarbetare", () => {
     await klick("Ta bort medarbetare");
     await klick("Ja, ta bort");
     expect(g.__db.medarbetare.find((m: any) => m.id === "m1")).toBeFalsy();
-    expect(text()).toContain("Medarbetare (1)");
+    expect(text()).toContain("Admin (1)");
+    expect(text()).not.toContain("Förare (");
   });
 });
 
@@ -494,7 +512,7 @@ describe("Avtal", () => {
   async function andraOvertid() {
     await monter("flik=avtal");
     await skriv(falt("Övertidsersättning vardag"), "55.5");
-    await klick("Spara ändringar");
+    await klick("Spara");
   }
   it("sparar → 'Sparat ✓' först när raden verkligen skrivits", async () => {
     await andraOvertid();
@@ -534,7 +552,7 @@ describe("Avtal", () => {
     await skriv(falt("Bortovaro >12h"), "8.5");
     await skriv(falt("Ledig tid"), "66");
     await skriv(falt("Helg"), "70");
-    await klick("Spara ändringar");
+    await klick("Spara");
     expect(text()).toContain("Sparat ✓");
     expect(g.__db.gs_avtal[0]).toMatchObject({ fardtid_kr_per_mil: 11, skift_tillagg_kr: 9, bortovaro_12h_kr: 8.5, atk_ledig_tid_h: 66, ob_helg_kr: 70 });
   });
@@ -612,7 +630,7 @@ describe("Avtal → Avtalet som PDF (privat bucket avtal)", () => {
     await valjFil(pdfFil());
     expect(falt("Övertidsersättning vardag").value).toBe("61.5");
     expect(g.__db.gs_avtal[0].overtid_vardag_kr).not.toBe(61.5);
-    const spara = blad("Spara ändringar").map(e => e.closest("button")!).find(Boolean)!;
+    const spara = blad("Spara").map(e => e.closest("button")!).find(Boolean)!;
     expect(spara.disabled).toBe(false);
     // ...och en PDF-uppladdning skriver aldrig formulärets fält
     expect(Object.keys(g.__skriv.find((x: any) => x.tabell === "gs_avtal" && x.op === "update").vals)).toEqual(["avtal_pdf_path"]);
@@ -1878,35 +1896,30 @@ describe("ATK-godkännande", () => {
 });
 
 describe("Lönesystem", () => {
-  it("anställningsnummer: ändra befintligt skriver utan kolumnen 'uppdaterad' (finns inte i prod) och raden är ändrad", async () => {
-    g.__avvisaKolumner = { medarbetare_lonesystem: ["uppdaterad"], lonesystem_artikelmappning: ["uppdaterad"] };
+  // Anställningsnumret ändras på PERSONEN (testerna "Anställningsnummer på personen"). Lönesystem visar bara vilka som saknar det.
+  it("anställningsnummer: Lönesystem redigerar inte numret — en rad 'N saknar anställningsnummer' med Fyll i som öppnar personen", async () => {
     await monter("flik=lon&underflik=system");
-    const rad = radMed("Anna Berg");
-    await skriv(rad.querySelector("input")!, "2002");
-    await act(async () => { rad.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-    await lugn();
-    expect(g.__db.medarbetare_lonesystem.find((r: any) => r.medarbetare_id === "m1").anstallningsnummer).toBe("2002");
-    expect(text()).not.toContain("schema cache");
+    expect(cont.querySelectorAll("input").length).toBe(0); // inga fält, inga Spara-knappar
+    expect(text()).toContain("1 saknar anställningsnummer");
+    expect(text()).toContain("Erik"); // Erik saknar nummer, Anna har 1001
+    expect(text()).not.toContain("Anna Berg");
+    await klick("Fyll i");
+    expect(window.location.search).toContain("flik=medarbetare");
+    expect(window.location.search).toContain("person=m2");
   });
-  it("anställningsnummer: ny person får en rad (insert)", async () => {
-    g.__avvisaKolumner = { medarbetare_lonesystem: ["uppdaterad"] };
+  it("anställningsnummer: flera saknas → Fyll i öppnar personlistan", async () => {
+    g.__db.medarbetare_lonesystem = [];
     await monter("flik=lon&underflik=system");
-    const rad = radMed("Erik Lind");
-    await skriv(rad.querySelector("input")!, "3003");
-    await act(async () => { rad.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-    await lugn();
-    const ny = g.__db.medarbetare_lonesystem.find((r: any) => r.medarbetare_id === "m2");
-    expect(ny.anstallningsnummer).toBe("3003");
-    expect(ny.lonesystem_id).toBe("ls1");
+    expect(text()).toContain("2 saknar anställningsnummer");
+    await klick("Fyll i");
+    expect(window.location.search).toContain("flik=medarbetare");
+    expect(window.location.search).not.toContain("person=");
   });
-  it("anställningsnummer: 0 rader träffades → felet står på raden", async () => {
+  it("anställningsnummer: en företagsledare behöver inget nummer och räknas inte", async () => {
+    g.__db.medarbetare[1].foretagsledare = true;
     await monter("flik=lon&underflik=system");
-    const rad = radMed("Anna Berg");
-    await skriv(rad.querySelector("input")!, "2002");
-    g.__ingaRader = true;
-    await act(async () => { rad.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-    await lugn();
-    expect(text()).toContain("Ändringen sparades inte");
+    expect(text()).not.toContain("saknar anställningsnummer");
+    expect(blad("Fyll i").length).toBe(0);
   });
   it("koppla ifrån: egen bekräftelse i sidan, ingen window.confirm, inget anrop förrän man svarar ja", async () => {
     const conf = vi.spyOn(window, "confirm").mockImplementation(() => { throw new Error("window.confirm anropades"); });
@@ -1934,10 +1947,45 @@ describe("Löneunderlag", () => {
   });
   it("Fortnox-granskningen är innehållet, och visas även när månaden saknar arbetsdagar", async () => {
     await monter("flik=lon");
-    expect(text()).toContain("Lönerader till Fortnox");
-    expect(text()).toContain("arbetstid september 2026");
+    // Svaret först (är det klart att skicka?), månaden är arbetsmånaden med utbetalningen i liten text.
+    expect(cont.querySelector("[data-svar]")!.textContent).toMatch(/Klart att skicka|att kolla/);
+    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toBe("september 2026");
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 oktober");
+    expect(text()).not.toContain("Löneperiod");
     expect(blad("Skicka till Fortnox").length).toBeGreaterThan(0);
   });
+  it("allt kopplat och inget att kolla: svaret är 'Klart att skicka' — och en sak att kolla gör det till '1 sak att kolla'", async () => {
+    const kopplad = Object.fromEntries(["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob"].map(k => [k, { kod: "1", namn: "x" }]));
+    g.__salary = { ...SALARY, kopplingar: kopplad };
+    await monter("flik=lon");
+    expect(cont.querySelector("[data-svar]")!.textContent).toContain("Klart att skicka");
+    expect(cont.querySelector("[data-svar]")!.textContent).toContain("1 förare · 2 lönerader");
+    await act(async () => { root.unmount(); }); cont.remove();
+    g.__salary = { ...SALARY, kopplingar: kopplad, medarbetare: [{ ...SALARY.medarbetare[0], obekraftade: 2 }] };
+    await monter("flik=lon");
+    expect(cont.querySelector("[data-svar]")!.textContent).toContain("1 sak att kolla");
+  });
+
+  it("'Se dagen' öppnar Dagar på SAMMA arbetsmånad med bara avvikelserna (arbetsmånad september = en månad bakåt från oktober)", async () => {
+    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], rast_langa: [{ datum: "2026-09-11", rast_min: 114, avbrott: [] }] }] };
+    await monter("flik=lon");
+    expect(text()).toContain("11 sep: rast 114 min");
+    await klick("Se dagen");
+    expect(window.location.search).toContain("underflik=dagar");
+    expect(window.location.search).toContain("dagoff=-1");
+    expect(window.location.search).toContain("avv=1");
+  });
+
+  it("bekräftelsen säger arbetsmånaden och när lönen betalas — aldrig 'Löneperiod'", async () => {
+    await monter("flik=lon");
+    await klick("Skicka till Fortnox");
+    const t = document.body.querySelector<HTMLElement>("[data-skicka-dialog]")!.textContent!;
+    expect(t).toContain("september 2026");
+    expect(t).toContain("lön betalas 25 oktober");
+    expect(t).not.toContain("Löneperiod");
+    expect(t).not.toContain("arbetstid");
+  });
+
   it("'Maskinstart senare än angiven' gäller ARBETSMÅNADEN (september) — samma som granskningen under löneperiod oktober", async () => {
     g.__db.arbetsdag = [tl("2026-09-03"), tl("2026-09-04"), tl("2026-09-07"), tl("2026-10-02", "m2")];
     await monter("flik=lon");
@@ -2188,16 +2236,16 @@ describe("Anställningsnummer på personen", () => {
   it("syns och går att ändra i personens löneuppgifter, med samma skrivning som Lönesystem", async () => {
     g.__avvisaKolumner = { medarbetare_lonesystem: ["uppdaterad"] };
     await monter("flik=medarbetare&person=m1");
-    expect(falt("Anställningsnummer (Fortnox)").value).toBe("1001");
-    await skriv(falt("Anställningsnummer (Fortnox)"), "2002");
-    await klick("Spara ändringar");
+    expect(falt("Anställningsnummer").value).toBe("1001");
+    await skriv(falt("Anställningsnummer"), "2002");
+    await klick("Spara");
     expect(g.__db.medarbetare_lonesystem.find((r: any) => r.medarbetare_id === "m1").anstallningsnummer).toBe("2002");
   });
   it("misslyckas skrivningen står felet kvar på personen — man lämnar inte formuläret", async () => {
     await monter("flik=medarbetare&person=m1");
-    await skriv(falt("Anställningsnummer (Fortnox)"), "2002");
+    await skriv(falt("Anställningsnummer"), "2002");
     g.__ingaRader = true;
-    await klick("Spara ändringar");
+    await klick("Spara");
     expect(text()).toContain("Ändringen sparades inte");
     expect(text()).toContain("Personuppgifter");
   });
@@ -2265,7 +2313,7 @@ describe("Lönearter: vad i appen skickas som vilken löneart i Fortnox", () => 
   it("varje rad visar kod OCH namnet i Fortnox, och en löneart utan rad står som 'Ej kopplad'", async () => {
     await monter("flik=lon&underflik=lonearter");
     expect(rad("timlon").textContent).toContain("11");
-    expect(rad("timlon").textContent).toContain("I Fortnox: Timlön");     // namnet står som Fortnox-namn, inte som en dubblett av appens rubrik
+    expect(rad("timlon").textContent).not.toContain("I Fortnox");          // samma namn som rubriken: står inte en gång till
     expect(rad("korersattning").textContent).toContain("821");
     expect(rad("korersattning").textContent).toContain("I Fortnox: Körersättning skattefri");
     expect(rad("helglon_skordare").textContent).toContain("Ej kopplad");
@@ -2505,19 +2553,19 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     const block = rad.parentElement!;
     expect(block.textContent).toContain("Martin Lindqvist");
     expect(block.querySelector("[data-lonerad]")).toBeNull();
-    expect(block.textContent).not.toContain("Lönerader till Fortnox");
     expect(block.textContent).not.toContain("Anställningsnummer saknas");
     expect(block.textContent).not.toContain("UTKAST");
-    // förarens egna rader finns kvar, med status
-    expect(radEl("timlon").textContent).toContain("Timlön");
-    expect(radEl("timlon").parentElement!.parentElement!.textContent).toContain("UTKAST");
+    // förarens egna rader finns kvar. UTKAST är normalläget och visas inte (SKICKAT och FEL visas).
+    const anna = cont.querySelector<HTMLElement>('[data-forare="m1"]')!;
+    expect(anna.textContent).toContain("Timlön");
+    expect(anna.textContent).not.toContain("UTKAST");
   });
 
   it("FÖRETAGSLEDARE: räknas inte som medarbetare i periodraden, och skickas-knappen styrs av dem som får lön", async () => {
     g.__salary = { ...SALARY, medarbetare: [{ ...ledare(), anstallningsnummer: "9" }] };   // med anställningsnummer och utkast: knappen får ändå inte lockas av en ledare
     await monter("flik=lon");
-    expect(text()).toContain("0 medarbetare");
-    expect(text()).toContain("1 företagsledare utan lön i appen");
+    expect(text()).toContain("0 förare");
+    expect(cont.querySelector("[data-foretagsledare]")!.textContent).toBe("Företagsledare – lön utanför appen");
     const skicka = blad("Skicka till Fortnox")[0].closest("button") as HTMLButtonElement;
     expect(skicka.disabled).toBe(true);    // bara en ledare: inget att skicka
   });
@@ -2532,7 +2580,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     g.__salary = { ...medLedare(), medarbetare: [...SALARY.medarbetare, { ...ledare(), varningar: ["3 av 8 dagar är ej bekräftade."] }] };
     await monter("flik=lon");
     await klick("Skicka till Fortnox");
-    expect(dialog()!.textContent).toContain("1 medarbetare");
+    expect(dialog()!.textContent).toContain("1 förare");
     expect(dialog()!.textContent).toContain("Martin Lindqvist");
     expect(dialog()!.textContent).toContain("Företagsledare – lön utanför appen");
     expect(dialog()!.textContent).not.toContain("Saknar anst.nr");
@@ -2549,17 +2597,23 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
         { datum: "2025-12-31", namn: "Nyårsafton", arbetad: true, ger: true, skal: "betalas_arbetad" },
       ] } }] };
     await monter("flik=lon");
-    expect(text()).toContain("Röda vardagar i månaden: 12-24 Julafton, 12-25 Juldagen — ingen helglön: sjuk, 12-26 Annandag jul — ingen helglön: tjänstledig dagen före/efter, 12-31 Nyårsafton (arbetad — helglön ändå, praxis).");
+    // Bara undantagen står som rader (dagen som betalar syns i lönearaden), ett datumformat, ett ord per skäl.
+    const t = text();
+    expect(t).toContain("25 dec Juldagen: ingen helglön — sjuk");
+    expect(t).toContain("26 dec Annandag jul: ingen helglön — tjänstledig dagen före/efter");
+    expect(t).toContain("31 dec Nyårsafton: arbetad, helglön ändå");
+    expect(t).not.toContain("Julafton");
+    expect(t).not.toContain("Röda vardagar i månaden");
   });
 
-  it("varje rad visar vad, löneart (kod + namn), antal och enhet", async () => {
+  it("varje rad visar vad, antal och enhet — koden och namnet i Fortnox står i Lönearter, inte på varje rad", async () => {
     await monter("flik=lon");
     expect(radEl("timlon").textContent).toContain("Timlön");
-    expect(radEl("timlon").textContent).toContain("11");
     expect(radEl("timlon").textContent).toMatch(/168\s*tim/);
-    expect(radEl("korersattning").textContent).toContain("821");
-    expect(radEl("korersattning").textContent).toContain("Körersättning skattefri");
+    expect(radEl("timlon").textContent).not.toMatch(/Fortnox|\b11\b/);
+    expect(radEl("korersattning").textContent).toContain("Reseersättning");
     expect(radEl("korersattning").textContent).toMatch(/14\s*mil/);
+    expect(radEl("korersattning").textContent).not.toMatch(/Fortnox|821|Körersättning skattefri/);
     expect(radEl("timlon").getAttribute("data-status")).toBe("skickas");
     expect(cont.querySelector("[data-saknas-banner]")).toBeNull();
   });
@@ -2599,35 +2653,40 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     expect(radEl("brandrisk_ob").textContent).toContain("Brandrisk – OB");
     expect(radEl("brandrisk_ob").textContent).toMatch(/10,3\s*tim/);
     expect(cont.querySelector("[data-saknas-banner]")!.textContent).toMatch(/1 rad/);
-    const not = cont.querySelector("[data-brandrisk-admin]")!.textContent!;
-    expect(not).toContain("10,30 tim OB");
-    expect(not).toContain("3 beordrade morgnar");
-    expect(not).toContain("en lönerad");
-    expect(not).not.toContain("nattillägg");
-    expect(not).not.toContain("läggs inte som lönerad");
+    // Raden som upprepade lönearaden ("Brandrisk: 10,30 tim OB … en lönerad, se listan ovan") är borta: lönearaden har timmarna.
+    expect(cont.querySelector("[data-brandrisk-admin]")).toBeNull();
+    expect(text()).not.toMatch(/se listan ovan|beordrade morgnar|nattillägg|läggs inte som lönerad/);
   });
 
   describe("Att ta med löneansvarig: bara det som fortfarande är öppet", () => {
     const kopplad = (utom: string[] = []) => Object.fromEntries(
       ["timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare", "brandrisk_ob"]
         .filter(k => !utom.includes(k)).map(k => [k, { kod: "1", namn: "x" }]));
-    const kortet = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-att-ta-med]"));
-    const gor = () => kortet().find(e => e.getAttribute("data-att-ta-med") === "Gör");
+    const rader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-att-ta-med]"));
+    const gor = () => rader().find(e => e.getAttribute("data-att-ta-med") === "gor");
+    const ark = () => document.body.querySelector<HTMLElement>("[data-oppna-fragor]");
 
-    it("allt kopplat (Brandrisk – OB är 147): inget kodråd alls — de öppna frågorna står kvar", async () => {
+    it("allt kopplat (Brandrisk – OB är 147): inget kodråd — de öppna frågorna är EN rad, och de långa avtalsfrågorna står inte på ytan", async () => {
       g.__salary = { ...SALARY, kopplingar: kopplad() };
       await monter("flik=lon");
       expect(gor()).toBeUndefined();
       expect(text()).not.toContain("Koppla koden");
       expect(text()).not.toContain("Koppla koderna");
-      expect(kortet().map(e => e.textContent).join(" ")).toContain("Levereras sjukfrånvaro i timmar per dag?");
+      expect(text()).toContain("8 öppna frågor");
+      expect(text()).not.toContain("Levereras sjukfrånvaro i timmar per dag?");
+      expect(ark()).toBeNull();
+      await klick("8 öppna frågor");
+      expect(ark()!.textContent).toContain("Levereras sjukfrånvaro i timmar per dag?");
+      expect(ark()!.textContent).toContain("Var komp-saldot bor");
+      expect(ark()!.querySelectorAll("[data-ark-innehall] > div > div").length).toBe(8);
     });
 
-    it("bara Brandrisk – OB saknar kod: rådet nämner just den", async () => {
+    it("bara Brandrisk – OB saknar kod: en rad som nämner just den, med knappen Koppla bredvid", async () => {
       g.__salary = { ...SALARY, kopplingar: kopplad(["brandrisk_ob"]) };
       await monter("flik=lon");
       expect(gor()!.textContent).toContain("Koppla koden för Brandrisk – OB");
-      expect(gor()!.textContent).toContain("Lön → Lönearter");
+      await act(async () => { gor()!.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(window.location.search).toContain("underflik=lonearter");
     });
 
     it("flera saknas: en rad som räknar upp dem, och en som redan stoppar sändningen (röd rad överst) står inte två gånger", async () => {
@@ -2636,7 +2695,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
         blockerande: [{ loneart: "helglon_skordare", label: "Helglön skördare", enhet: "tim", forare: [{ namn: "Anna Berg", mangd: "24.00" }] }],
       };
       await monter("flik=lon");
-      expect(kortet().filter(e => e.getAttribute("data-att-ta-med") === "Gör")).toHaveLength(1);
+      expect(rader().filter(e => e.getAttribute("data-att-ta-med") === "gor")).toHaveLength(1);
       expect(gor()!.textContent).toContain("Koppla koderna för Helglön skotare och Brandrisk – OB");
       expect(gor()!.textContent).not.toContain("Helglön skördare");
     });
@@ -2644,9 +2703,25 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     it("det beslutade och byggda (röd vardag = 8 tim helglön) står inte som en fråga, och inga tekniska ord", async () => {
       g.__salary = { ...SALARY, kopplingar: kopplad() };
       await monter("flik=lon");
-      const t = kortet().map(e => e.textContent).join(" ");
+      await klick("8 öppna frågor");
+      const t = ark()!.textContent!;
       expect(t).not.toContain("Röd vardag ger alltid");
       expect(t).not.toMatch(/lib\/|dry_run/);
+    });
+
+    it("anställningsdatum som saknas är EN rad med Fyll i — inte en varning per förare", async () => {
+      const varn = "Anställningsdatum saknas: kvalifikationstiden för helglön (tre månader, §10 mom 3) är inte kontrollerad. Helglönen betalas. Fyll i anställningsdatum under Medarbetare.";
+      g.__salary = { ...SALARY, kopplingar: kopplad(), medarbetare: [
+        { ...SALARY.medarbetare[0], varningar: [varn] },
+        { ...SALARY.medarbetare[0], medarbetare_id: "m5", namn: "Oskar Lindgren", varningar: [varn] },
+      ] };
+      await monter("flik=lon");
+      const rad = rader().find(e => e.getAttribute("data-att-ta-med") === "anstallningsdatum")!;
+      expect(rad.textContent).toContain("Anställningsdatum saknas: Anna, Oskar");
+      expect((text().match(/Anställningsdatum saknas/g) || []).length).toBe(1);
+      expect(text()).not.toMatch(/kvalifikationstiden|§10 mom 3/);
+      await act(async () => { rad.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(window.location.search).toContain("flik=medarbetare");
     });
   });
 
@@ -2655,7 +2730,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     const fem = [null, "a", "b", "c", "d"].map(m => ({ ...per, medarbetare_id: m }));
 
     it("granskningen: förarens period (alla + egen rad, samma datum) står en gång, med antal dagar", async () => {
-      g.__salary = { ...SALARY, kopplingar: {}, medarbetare: [{ ...SALARY.medarbetare[0], obekraftade: 1, utjamning: [per, per] }] };   // raden hör till 'Påverkar riktigheten', som visas när något där finns
+      g.__salary = { ...SALARY, kopplingar: {}, medarbetare: [{ ...SALARY.medarbetare[0], obekraftade: 1, utjamning: [per, per] }] };
       await monter("flik=lon");
       const rader = Array.from(cont.querySelectorAll<HTMLElement>("[data-utjamning-period]"));
       expect(rader).toHaveLength(1);
@@ -2663,13 +2738,19 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
       expect(rader[0].textContent).not.toContain("markeringen bevisar inte det");   // frågan står under 'Att ta med löneansvarig'
     });
 
-    it("årsövertiden: fem rader i tabellen (prod) blir en grå rad", async () => {
+    it("årsövertiden: fem rader i tabellen (prod) blir en grå rad — bara när månaden berör perioden", async () => {
       g.__arsovertid = { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: fem };
-      await monter("flik=lon");
+      await monter("flik=lon&underflik=underlag&period=2026-06"); // löneperiod juni = arbetsmånad maj: v17–27 berör den
       const kort = cont.querySelector<HTMLElement>("[data-arsovertid-kort]")!;
       const n = (kort.textContent!.match(/Utjämningsperiod v17–27/g) || []).length;
       expect(n).toBe(1);
       expect(kort.textContent).toContain("77 dagar — räknas som genomsnitt");
+    });
+
+    it("årsövertiden: en period som inte berör månaden står inte där (v17–27 säger ingenting om september)", async () => {
+      g.__arsovertid = { ok: true, ar: 2026, tak: 250, tomDatum: "2026-09-30", modeller: [], medarbetare: [], utjamning: fem };
+      await monter("flik=lon"); // arbetsmånad september
+      expect(cont.querySelector("[data-arsovertid-kort]")!.textContent).not.toContain("Utjämningsperiod");
     });
   });
 
@@ -2755,7 +2836,7 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     const r = radEl("premielon_skordare");
     expect(r.getAttribute("data-status")).toBe("valfri_utan_kod");
     expect(r.textContent).toContain("Hoppas över");
-    expect(r.textContent).toContain("Frivillig");
+    expect(r.textContent).toContain("frivillig");
     expect(text()).not.toContain("Premielön skördare (168 tim) skickas inte");   // raden säger det redan
     expect(cont.querySelector("[data-saknas-banner]")).toBeNull();
     await klick("Skicka till Fortnox");
@@ -2768,9 +2849,9 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
       lonerader: [lr("timlon", "168.00", "skickas", "11"), lr("helglon_skordare", "8.00", "skickas", "1461")], rader: [{ loneart: "timlon", SalaryCode: "11", Number: "168.00" }, { loneart: "helglon_skordare", SalaryCode: "1461", Number: "8.00" }] }],
       kopplingar: { helglon_skordare: { kod: "1461", namn: "Helglön, timmar" } } };
     await monter("flik=lon");
-    expect(radEl("helglon_skordare").textContent).toContain("1461");
-    expect(radEl("helglon_skordare").textContent).toContain("Helglön, timmar");
-    expect(text()).toContain("Röda vardagar i månaden: 12-24 Julafton, 12-25 Juldagen (arbetad — helglön ändå, praxis)");
+    expect(radEl("helglon_skordare").textContent).toMatch(/8\s*tim/);
+    expect(text()).toContain("25 dec Juldagen: arbetad, helglön ändå");
+    expect(text()).not.toContain("Julafton"); // dagen som bara betalar syns i lönearaden
     expect(text()).not.toMatch(/Helglön §10[^.]*löneart ej fastställd/);
     expect(text()).not.toContain("Påverkar riktigheten");   // inget annat att granska i den här fixturen
   });
@@ -2786,14 +2867,17 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
   it("valfri månad går att öppna direkt via adressen (period=…), och en ogiltig period faller tillbaka på nu", async () => {
     g.__salary = { ...SALARY, arbetsperiod: "2026-08" };
     await monter("flik=lon&underflik=underlag&period=2026-09");
-    expect(text()).toContain("Löneperiod september 2026 — arbetstid augusti 2026");
+    // Adressen talar löneperiod (2026-09); det som syns är arbetsmånaden med utbetalningen i liten text.
+    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toBe("augusti 2026");
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 september");
     expect(g.__fetchAnrop.filter((a: any[]) => a[0].includes("salary-export")).map((a: any[]) => JSON.parse(a[2]).period)).toEqual(["2026-09"]);
     // Ogiltiga perioder faller tillbaka på nu: text, månad 00 (ser ut som en period och skulle nå servern), en siffra, och framtiden.
     for (const ogiltig of ["skräp", "2026-00", "2026-13", "2026-9", "2099-01"]) {
       await act(async () => { root.unmount(); }); cont.remove();
       g.__fetchAnrop = []; g.__salary = SALARY;
       await monter(`flik=lon&underflik=underlag&period=${ogiltig}`);
-      expect(text(), ogiltig).toContain("Löneperiod oktober 2026 — arbetstid september 2026");
+      expect(cont.querySelector("[data-arbetsmanad]")!.textContent, ogiltig).toBe("september 2026");
+      expect(cont.querySelector("[data-utbetalning]")!.textContent, ogiltig).toBe("lön betalas 25 oktober");
       expect(g.__fetchAnrop.filter((a: any[]) => a[0].includes("salary-export")).map((a: any[]) => JSON.parse(a[2]).period), ogiltig).toEqual(["2026-10"]);
     }
   });
@@ -2867,18 +2951,18 @@ describe("Anställningsnummer utan Fortnox: sparas ändå, kontrolleras när ans
     g.__db.lonesystem_koppling = [];
     g.__db.medarbetare_lonesystem = [];
     await monter("flik=medarbetare&person=m1");
-    expect(falt("Anställningsnummer (Fortnox)").disabled).toBe(false);
-    await skriv(falt("Anställningsnummer (Fortnox)"), "2002");
-    await klick("Spara ändringar");
+    expect(falt("Anställningsnummer").disabled).toBe(false);
+    await skriv(falt("Anställningsnummer"), "2002");
+    await klick("Spara");
     expect(medNr("m1")[0]).toMatchObject({ anstallningsnummer: "2002", lonesystem_id: null });
   });
 
   it("ett nummer som sparats utan koppling knyts till kopplingen när det sparas igen — samma rad, ingen dubblett", async () => {
     g.__db.medarbetare_lonesystem = [{ id: "u1", medarbetare_id: "m1", lonesystem_id: null, anstallningsnummer: "1001", skapad: "2026-10-01" }];
     await monter("flik=medarbetare&person=m1");
-    expect(falt("Anställningsnummer (Fortnox)").value).toBe("1001");
-    await skriv(falt("Anställningsnummer (Fortnox)"), "1002");
-    await klick("Spara ändringar");
+    expect(falt("Anställningsnummer").value).toBe("1001");
+    await skriv(falt("Anställningsnummer"), "1002");
+    await klick("Spara");
     expect(medNr("m1")).toHaveLength(1);
     expect(medNr("m1")[0]).toMatchObject({ id: "u1", anstallningsnummer: "1002", lonesystem_id: "ls1" });
   });
@@ -3020,7 +3104,7 @@ describe("Hempunkten på karta: en punkt, en etikett, två knappar", () => {
     g.__kontroller = { ok: true, okandaOperatorer: [], forareUtanMaskin: [], saknarHempunkt: [], obekraftadHempunkt: [{ id: "m1", namn: "Anna Berg" }] };
     await monter("flik=oversikt");
     expect(text()).toContain("Hempunkten är inte bekräftad – Anna Berg");
-    await klick("Visa kartan");
+    await klickRad("Hempunkten är inte bekräftad – Anna Berg");
     expect(window.location.search).toContain("flik=medarbetare");
     expect(window.location.search).toContain("person=m1");
     expect(g.__karta.kartor.length).toBe(1);
@@ -3135,7 +3219,7 @@ describe("Hempunktskartan: raden under kartan, pekaren och adressfältet", () =>
     await monter("flik=medarbetare&person=m1");
     expect(Array.from(cont.querySelectorAll("label")).filter(l => (l.textContent || "").trim() === "Hemadress")).toHaveLength(1);
     expect(falt("Hemadress").placeholder).toBe("Kompersmåla 3, 362 96 Ryd");
-    expect(text()).toContain("Gata och nummer, postnummer och ort.");
+    expect(text()).not.toContain("Gata och nummer, postnummer och ort."); // en hjälptext som upprepar etiketten är borta på personen
   });
 
   it("Hemadress: samma fält, exempel och hjälptext i Ny medarbetare steg 2", async () => {
@@ -3182,51 +3266,66 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
   /** Bara årsövertidskortets text (sidan har andra kort som nämner §5 mom 2 och utjämningsperioder). */
   const kortText = () => (cont.querySelector("[data-arsovertid-kort]")?.textContent || "").replace(/\s+/g, " ");
 
-  it("en rad per förare: namn till vänster, '74,5 av 250 tim' till höger — samma tal som kolumnen Genomsnitt, Stefan först", async () => {
+  /** Halvvägs till taket eller mer (>= 125 av 250 tim): de enda som får en rad. */
+  const NARA: [string, string, number][] = [["s", "Stefan Karlsson", 140.5], ["o", "Oskar Nilsson", 130], ["m", "Martin Lindqvist", 0], ["d", "Daniel Johansson", 74.5]];
+
+  it("bara de som kommit halvvägs till taket får en rad: namn till vänster, '140,5 av 250 tim' till höger, störst först — noll och lågt syns inte", async () => {
+    g.__arsovertid = svar(NARA);
+    await monter("flik=lon");
+    expect(rader().map(radText)).toEqual(["Stefan Karlsson 140,5 av 250 tim", "Oskar Nilsson 130 av 250 tim"]);
+    expect(kortText()).not.toContain("Martin");
+    expect(kortText()).not.toContain("Daniel");
+  });
+
+  it("ingen övertid alls: 'Ingen närmar sig taket · ingen övertid än' (inte 'högst 0 av 250')", async () => {
+    g.__arsovertid = svar([["a", "A", 0], ["b", "B", 0]]);
+    await monter("flik=lon");
+    expect(cont.querySelector("[data-arsovertid-ingen]")!.textContent).toBe("Ingen närmar sig taket · ingen övertid än");
+  });
+
+  it("ingen halvvägs (prod idag: Stefan 74,5): inga rader, en mening — 'Ingen närmar sig taket · högst 74,5 av 250 tim'", async () => {
     g.__arsovertid = svar(IDAG);
     await monter("flik=lon");
-    expect(rader().map(radText)).toEqual(["Stefan Karlsson 74,5 av 250 tim", "Daniel Johansson 0 av 250 tim", "Martin Lindqvist 0 av 250 tim", "Oskar Nilsson 0 av 250 tim"]);
+    expect(rader().length).toBe(0);
+    expect(cont.querySelector("[data-arsovertid-ingen]")!.textContent).toBe("Ingen närmar sig taket · högst 74,5 av 250 tim");
   });
 
   it("bara avtalets modell: de tre andra kolumnerna och deras tal finns inte i vyn", async () => {
-    g.__arsovertid = svar(IDAG);
+    g.__arsovertid = svar([["a", "A", 140.5], ["b", "B", 130], ["c", "C", 200], ["d", "D", 126]]);
     await monter("flik=lon");
     for (const t of SAKER) expect(kortText()).not.toContain(t);
     for (const tal of ["205,5", "303,5", "344,3"]) expect(kortText()).not.toContain(tal);
     expect(cont.querySelectorAll("[data-arsovertid-rad]").length).toBe(4);
   });
 
-  it("tunn stapel under raden: 74,5 av 250 = 29,8 % av längden, med tal för skärmläsare", async () => {
-    g.__arsovertid = svar(IDAG);
+  it("tunn stapel under raden: 140,5 av 250 = 56,2 % av längden, med tal för skärmläsare", async () => {
+    g.__arsovertid = svar([["s", "Stefan Karlsson", 140.5], ["o", "Oskar Nilsson", 125]]);
     await monter("flik=lon");
     const st = stapel(rader()[0]);
-    expect(st.getAttribute("aria-valuenow")).toBe("74.5");
+    expect(st.getAttribute("aria-valuenow")).toBe("140.5");
     expect(st.getAttribute("aria-valuemax")).toBe("250");
-    expect(fyllning(rader()[0]).style.width).toBe("29.8%");
-    expect(fyllning(rader()[1]).style.width).toBe("0%");
+    expect(fyllning(rader()[0]).style.width).toBe("56.2%");
+    expect(fyllning(rader()[1]).style.width).toBe("50%");
   });
 
-  it("grå normalt, orange över 200, röd över 250, noll dämpad — stapel och tal i samma färg, och talet står alltid i text", async () => {
-    g.__arsovertid = svar([["a", "A Lugn", 74.5], ["b", "B Gräns", 200], ["c", "C Varning", 200.5], ["d", "D Tak", 250], ["e", "E Över", 250.5], ["f", "F Noll", 0]]);
+  it("grå normalt, orange över 200, röd över 250 — stapel och tal i samma färg, och talet står alltid i text; noll och lågt visas inte", async () => {
+    g.__arsovertid = svar([["a", "A Lugn", 130], ["b", "B Gräns", 200], ["c", "C Varning", 200.5], ["d", "D Tak", 250], ["e", "E Över", 250.5], ["f", "F Noll", 0], ["g", "G Låg", 74.5]]);
     await monter("flik=lon");
     const per = Object.fromEntries(rader().map(e => [radText(e).split(" ")[0] + (radText(e).split(" ")[1] || ""), e]));
     const niva = (k: string) => per[k].getAttribute("data-niva");
-    expect([niva("ALugn"), niva("BGräns"), niva("CVarning"), niva("DTak"), niva("EÖver"), niva("FNoll")]).toEqual(["lugn", "lugn", "varning", "varning", "over", "noll"]);
+    expect([niva("ALugn"), niva("BGräns"), niva("CVarning"), niva("DTak"), niva("EÖver")]).toEqual(["lugn", "lugn", "varning", "varning", "over"]);
+    expect(Object.keys(per)).not.toContain("FNoll");
+    expect(Object.keys(per)).not.toContain("GLåg");
     expect(fyllning(per["CVarning"]).style.background).toBe(rgb("#ff9f0a"));
     expect(fyllning(per["EÖver"]).style.background).toBe(rgb("#ff453a"));
     expect(fyllning(per["ALugn"]).style.background).not.toBe(rgb("#ff9f0a"));
     expect(fyllning(per["ALugn"]).style.background).not.toBe(rgb("#ff453a"));
     expect(radText(per["EÖver"])).toContain("250,5 av 250 tim");
-    // noll är dämpad: grå text, ingen färg
-    const nollTal = per["FNoll"].querySelector<HTMLElement>("[data-arsovertid-tal]")!;
-    const lugnTal = per["ALugn"].querySelector<HTMLElement>("[data-arsovertid-tal]")!;
-    expect(nollTal.style.color).not.toBe(lugnTal.style.color);
-    expect(nollTal.style.color).not.toBe(rgb("#ff9f0a"));
   });
 
   it("utjämningsperioden är en grå rad: 'Utjämningsperiod v17–27 (…), 77 dagar — räknas som genomsnitt'", async () => {
     g.__arsovertid = svar(IDAG);
-    await monter("flik=lon");
+    await monter("flik=lon&underflik=underlag&period=2026-06"); // arbetsmånad maj: perioden berör den
     const r = Array.from(cont.querySelectorAll<HTMLElement>("p")).find(e => (e.textContent || "").startsWith("Utjämningsperiod"))!;
     expect(r.textContent).toBe("Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken), 77 dagar — räknas som genomsnitt");
     expect(r.style.color).toBe(rgb("#8e8e93"));
@@ -3311,11 +3410,14 @@ describe("Översikten: kortet Arbetstid", () => {
   const forareRader = () => Array.from(cont.querySelectorAll<HTMLElement>("[data-arbetstid-forare]"));
   const knappen = (rad: HTMLElement) => rad.querySelector<HTMLButtonElement>("button")!;
 
-  it("ingen förare nära en gräns: inget kort, en rad under Stämmer", async () => {
+  const oppnaStammer = async () => { await act(async () => { cont.querySelector<HTMLElement>("[data-stammer]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
+
+  it("ingen förare över en gräns: inget kort, en rad under 'Allt stämmer'", async () => {
     g.__arbetstid = svar([forareMed("a", "Anna Berg", 10)]);
     await monter("flik=oversikt");
     expect(kort()).toBeNull();
-    expect(text()).toContain("Ingen närmar sig en gräns för arbetstid");
+    await oppnaStammer();
+    expect(text()).toContain("Ingen över en gräns för arbetstid");
   });
 
   it("en förare över taket: namn, ordet 'Över gränsen' och EN mening med talet i", async () => {
@@ -3326,15 +3428,21 @@ describe("Översikten: kortet Arbetstid", () => {
     expect(t).toContain("Stefan Karlsson");
     expect(t).toContain("Över gränsen");
     expect(t).toContain("262 av 250 tim övertid i år — taket är passerat");
-    expect(text()).not.toContain("Ingen närmar sig en gräns för arbetstid");
+    expect(text()).not.toContain("Ingen över en gräns för arbetstid");
   });
 
-  it("gul vid 90 %: ordet är 'Nära gränsen' (färgen bär inte ensam)", async () => {
+  it("gul vid 90 % är en varning utan åtgärd: ensam syns den inte alls", async () => {
     g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 230)]);
     await monter("flik=oversikt");
-    expect(forareRader()[0].getAttribute("data-niva")).toBe("gul");
-    expect(kortText()).toContain("Nära gränsen");
-    expect(kortText()).toContain("230 av 250 tim övertid i år — närmar sig taket");
+    expect(kort()).toBeNull();
+  });
+
+  it("gul vid 90 % visas tillsammans med en röd: ordet är 'Nära gränsen' (färgen bär inte ensam)", async () => {
+    g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 230), forareMed("r", "Röd Person", 262)]);
+    await monter("flik=oversikt");
+    const gul = forareRader().find(r => r.getAttribute("data-niva") === "gul")!;
+    expect(gul.textContent).toContain("Nära gränsen");
+    expect(gul.textContent).toContain("230 av 250 tim övertid i år — närmar sig taket");
   });
 
   it("röda före gula", async () => {
@@ -3449,45 +3557,34 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
   /** Menyns siffra: orange cirkel vid Översikt i sidomenyn/bottenraden. */
   const menysiffror = () => Array.from(document.querySelectorAll<HTMLElement>("nav *")).filter(e => e.children.length === 0 && /^\d+$/.test((e.textContent || "").trim()) && getComputedStyle(e).background.includes("255, 159, 10")).map(e => (e.textContent || "").trim());
 
-  it("delägaren visas GRÅTT med 'Delägare – arbetstidslagen gäller inte': ingen nivå, inget ord om gräns, går inte att fälla ut", async () => {
+  const oppnaStammer = async () => { await act(async () => { cont.querySelector<HTMLElement>("[data-stammer]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
+
+  // Granskningen 2026-10-17: en grå rad om att något inte gäller var brus (aldrig något att göra). Delägare visas inte i Arbetstid alls.
+  it("delägaren visas inte i Arbetstid: ingen grå rad, ingen nivå, inget kort", async () => {
     g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true)]);
     await monter("flik=oversikt");
-    const rad = forareRader()[0];
-    expect(rad.getAttribute("data-niva")).toBe("delagare");
-    expect(rad.textContent).toContain("Martin Lindqvist");
-    expect(rad.textContent).toContain("Delägare – arbetstidslagen gäller inte");
-    expect(rad.textContent).not.toMatch(/Över gränsen|Nära gränsen|Under kravet|passerat/);
-    expect(rad.querySelector("button")).toBeNull();
+    expect(forareRader()).toHaveLength(0);
+    expect(cont.querySelector("[data-arbetstid-kort]")).toBeNull();
+    expect(text()).not.toContain("Martin Lindqvist");
+    expect(text()).not.toContain("Delägare – arbetstidslagen gäller inte");
+    await oppnaStammer();
+    expect(text()).toContain("Ingen över en gräns för arbetstid"); // delägare är inte ett problem
   });
 
-  it("raden är grå: namnet i FARG.text2, förklaringen i FARG.text3 — aldrig orange eller röd", async () => {
-    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true)]);
-    await monter("flik=oversikt");
-    const spans = Array.from(forareRader()[0].querySelectorAll<HTMLElement>("span"));
-    const farger = spans.map(e => getComputedStyle(e).color);
-    expect(farger[0]).toBe(rgb(FARG.text2));
-    expect(farger[1]).toBe(rgb(FARG.text3));
-  });
-
-  it("en delägare som inte skulle ha varit gul/röd visas inte alls (inget att förklara)", async () => {
+  it("en delägare som inte skulle ha varit gul/röd visas inte heller", async () => {
     g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 10, true)]);
     await monter("flik=oversikt");
     expect(cont.querySelector("[data-arbetstid-kort]")).toBeNull();
-    expect(text()).toContain("Ingen närmar sig en gräns för arbetstid");
+    await oppnaStammer();
+    expect(text()).toContain("Ingen över en gräns för arbetstid");
   });
 
-  it("bara delägare är gula/röda: 'Ingen närmar sig en gräns' står kvar — de är inte ett problem", async () => {
-    g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true), forareMed("j", "Joacim", 230, true)]);
-    await monter("flik=oversikt");
-    expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["delagare", "delagare"]);
-    expect(text()).toContain("Ingen närmar sig en gräns för arbetstid");
-  });
-
-  it("en vanlig röd förare kommer före delägaren, och sektionen är orange bara för den vanliga", async () => {
+  it("en vanlig röd förare syns, delägaren bredvid syns inte, och sektionen är orange för den vanliga", async () => {
     g.__arbetstid = svar([forareMed("m", "Martin Lindqvist", 300, true), forareMed("s", "Stefan Karlsson", 262)]);
     await monter("flik=oversikt");
-    expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["rod", "delagare"]);
-    expect(text()).not.toContain("Ingen närmar sig en gräns för arbetstid");
+    expect(forareRader().map(r => r.getAttribute("data-niva"))).toEqual(["rod"]);
+    expect(text()).not.toContain("Martin Lindqvist");
+    expect(text()).not.toContain("Ingen över en gräns för arbetstid");
   });
 
   it("delägaren räknas INTE i menysiffran: en röd delägare ger ingen siffra, en röd vanlig förare ger 1", async () => {
@@ -3501,14 +3598,14 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
   });
 
   const medUpdates = () => g.__skriv.filter((x: any) => x.tabell === "medarbetare" && x.op === "update");
-  const sparaKnapp = () => blad("Spara ändringar").map(e => e.closest("button")!).find(Boolean)!;
+  const sparaKnapp = () => blad("Spara").map(e => e.closest("button")!).find(Boolean)!;
 
   it("Admin → Medarbetare: rutan 'Företagsledare / delägare' finns, är av som standard och SPARAR DIREKT när den slås på — utan 'Spara ändringar'", async () => {
     await monter("flik=medarbetare&person=m1");
     const r = reglage()!;
     expect(r).toBeTruthy();
     expect(r.getAttribute("aria-checked")).toBe("false");
-    expect(text()).toContain("Arbetstidslagen gäller inte företagsledare");
+    expect(text()).toContain("Sparas direkt. Ingen lön i appen.");
     expect(medUpdates()).toHaveLength(0);
     await act(async () => { r.click(); });
     expect(reglage()!.getAttribute("aria-checked")).toBe("true");
@@ -3533,7 +3630,7 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
   it("de andra fälten sparas som förut och skriver ALDRIG foretagsledare; reglaget skriver BARA foretagsledare", async () => {
     await monter("flik=medarbetare&person=m1");
     await skriv(falt("Namn"), "Anna Bergström");
-    await klick("Spara ändringar");
+    await klick("Spara");
     expect(medUpdates()).toHaveLength(1);
     expect(medUpdates()[0].vals.namn).toBe("Anna Bergström");
     expect("foretagsledare" in medUpdates()[0].vals).toBe(false);
@@ -3588,7 +3685,7 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
     expect(text()).not.toContain("Kunde inte ladda medarbetare");
     expect(reglage()).toBeUndefined();
     await skriv(falt("Namn"), "Anna B");
-    await klick("Spara ändringar");
+    await klick("Spara");
     expect("foretagsledare" in g.__skriv.find((x: any) => x.tabell === "medarbetare" && x.op === "update").vals).toBe(false);
   });
 
@@ -3597,5 +3694,307 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
     await monter("flik=medarbetare");
     expect(text()).toContain("Kunde inte ladda medarbetare");
     expect(text()).toContain("permission denied");
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// DAGAR (Lön → Dagar): svaret först. Förvalt är bara avvikelserna; alla dagar ligger bakom "Visa alla".
+// Granskningen 2026-10-17: 111 platta rader, svaret ("9 med avvikelse") var en liten rad överst.
+// ─────────────────────────────────────────────────────────────────────────────────────
+describe("Lön → Dagar: svaret först", () => {
+  const dag = (datum: string, over: Record<string, any> = {}) => ({
+    id: `d-${datum}`, datum, start_tid: "06:00:00", slut_tid: "15:30:00", rast_min: 30, arbetad_min: 540, extra_min: 0, objekt: ["Älmehult gallring 2026"], perioddag: false,
+    maskin_id: "R64101", km_totalt: 0, ersattningsmil: 0, traktamente: false, bekraftad: true, ob_min: 0, ...over,
+  });
+  const forare = (dagar: any[], namn = "Anna Berg") => ({ medarbetare_id: "m1", namn, status: "utkast", anstallningsnummer: "1001", dagar, synk: [], deldagar: [], ledighetskollision: [], vilobrott: [], rader: [], lonerader: [], varningar: [] });
+  /** Tis 1 sep (vanlig), lör 5 sep (helg = avvikelse), mån 7 sep med rast 114 min (avvikelse), ons 9 sep utan objekt (avvikelse). */
+  const SEPT = [dag("2026-09-01"), dag("2026-09-05"), dag("2026-09-07", { rast_min: 114 }), dag("2026-09-09", { objekt: [] })];
+  const oppna = async (sp = "flik=lon&underflik=dagar", dagar: any[] = SEPT) => { g.__salary = { ...SALARY, medarbetare: [forare(dagar)] }; await monter(sp); };
+  const rubrik = () => (cont.querySelector("[data-visa-alla]")?.textContent || "");
+
+  it("förvalt: bara avvikelserna, med antalet överst och 'Visa alla N' längst ned — den vanliga dagen syns inte", async () => {
+    await oppna();
+    expect(text()).toContain("3 dagar med avvikelse");
+    expect(rubrik()).toBe("Visa alla 4");
+    expect(blad("Bara avvikelser").length).toBe(0); // förvalt = inget val att göra
+    expect(text()).not.toContain("tis 1 september");
+    expect(text()).toContain("lör 5 september");
+    expect(text()).not.toContain("Summering"); // listan är svaret och har ingen summering under sig
+  });
+
+  it("'Visa alla' öppnar alla dagar, med summeringen, och 'Bara avvikelser' tar tillbaka filtret", async () => {
+    await oppna();
+    await klick("Visa alla 4");
+    expect(text()).toContain("1 förare · 4 rader · 3 med avvikelse");
+    expect(text()).toContain("tis 1 september");
+    expect(text()).toContain("Summering September 2026");
+    await klick("Bara avvikelser");
+    expect(text()).toContain("3 dagar med avvikelse");
+    expect(text()).not.toContain("tis 1 september");
+  });
+
+  it("?avv=0 öppnar med alla dagar (länken 'Se alla')", async () => {
+    await oppna("flik=lon&underflik=dagar&avv=0");
+    expect(text()).toContain("1 förare · 4 rader · 3 med avvikelse");
+  });
+
+  it("inga avvikelser: det står, och alla dagar går att öppna", async () => {
+    await oppna("flik=lon&underflik=dagar", [dag("2026-09-01"), dag("2026-09-02")]);
+    expect(text()).toContain("0 dagar med avvikelse");
+    expect(text()).toContain("Inga avvikelser i September 2026");
+    expect(rubrik()).toBe("Visa alla 2");
+  });
+
+  it("månaden har arbetsmånaden som namn och utbetalningen i liten text (september → lön betalas 25 oktober)", async () => {
+    await oppna();
+    expect(text()).toContain("September 2026");
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 oktober");
+    // ... och Löneunderlag säger samma sak om samma månad: arbetsmånaden september är löneperiod oktober.
+    await klick("Löneunderlag");
+    expect(cont.querySelector("[data-arbetsmanad]")!.textContent).toBe("september 2026");
+    expect(cont.querySelector("[data-utbetalning]")!.textContent).toBe("lön betalas 25 oktober");
+  });
+
+  it("kvartal och år har ingen utbetalningsrad (det är en månads lön)", async () => {
+    await oppna();
+    await klick("Kvartal");
+    expect(cont.querySelector("[data-utbetalning]")).toBeNull();
+  });
+
+  it("tekniska ord byts mot förarens: 'ingen trakt', aldrig 'utan objekt'", async () => {
+    await oppna();
+    expect(text()).toContain("ingen trakt");
+    expect(text()).not.toContain("utan objekt");
+  });
+
+  it("rast noll på ett långt pass är ingen varning: bara en neutral rad i dagens detalj", async () => {
+    await oppna("flik=lon&underflik=dagar&avv=0", [dag("2026-09-01", { rast_min: 0, arbetad_min: 480 }), dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
+    const INFO = "Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)";
+    expect(text()).not.toContain(INFO);                       // hopfälld: inget syns
+    expect(text()).not.toMatch(/utan rast|ingen rast/i);        // och ingen varning, varken på raden eller i listan
+    expect(text()).toContain("1 förare · 3 rader · 0 med avvikelse"); // en dag utan rast är inte en avvikelse
+    await klick("8 tim"); // dag 1 (480 min)
+    expect(text()).toContain(INFO);
+    expect((text().match(/Inget stopp över 15 min/g) || []).length).toBe(1);
+    expect(text()).not.toContain("ingen rast");
+  });
+
+  it("rast noll på ett kort pass (under sex timmar) eller med rast: ingen rad om stopp", async () => {
+    await oppna("flik=lon&underflik=dagar&avv=0", [dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
+    await klick("9 tim");
+    await klick("5 tim");
+    expect(text()).not.toContain("Inget stopp över 15 min");
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// GRANSKNINGEN 2026-10-17: färre ord, samma mönster i alla flikar (en rad = en sak, inga tekniska ord, inga dubbletter).
+// ─────────────────────────────────────────────────────────────────────────────────────
+describe("Granskningen: Medarbetare", () => {
+  const forareRad = () => radMed("Anna Berg").parentElement as HTMLElement;
+  it("en förare utan koppling till maskinfilerna får EN orange rad om det — en admin aldrig, och ingen '0 operatörer' på varje rad", async () => {
+    await monter("flik=medarbetare");
+    expect(text()).not.toMatch(/\d operatör/);
+    expect(text()).toContain("ingen koppling till maskinfilerna");
+    expect((text().match(/ingen koppling till maskinfilerna/g) || []).length).toBe(1); // Anna (förare), inte Erik (admin)
+    expect(text()).toContain("Rottne H8E · ingen koppling");
+  });
+  it("kopplad förare: raden har bara maskinen", async () => {
+    g.__db.dim_operator = [{ operator_id: "OP1", operator_namn: "Anna", operator_key: "k", maskin_id: "R64101" }];
+    g.__db.operator_medarbetare = [{ operator_id: "OP1", medarbetare_id: "m1" }];
+    await monter("flik=medarbetare");
+    expect(text()).not.toContain("ingen koppling till maskinfilerna");
+    void forareRad;
+  });
+  it("Spara ligger i sidhuvudet (grå tills något är ändrat), före alla fält — och det finns ingen 'Spara ändringar' längst ned", async () => {
+    await monter("flik=medarbetare&person=m1");
+    const spara = blad("Spara")[0].closest("button") as HTMLButtonElement;
+    expect(blad("Spara").length).toBe(1);
+    expect(spara.disabled).toBe(true);
+    expect(blad("Spara ändringar").length).toBe(0);
+    // sidhuvudet: före första fältet i dokumentordning
+    expect(spara.compareDocumentPosition(falt("Namn")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await skriv(falt("Namn"), "Anna Bergström");
+    expect((blad("Spara")[0].closest("button") as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("hjälptexter som bara upprepar etiketten är borta, och företagsledare är en rad", async () => {
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).not.toContain("Inloggning kopplad.");
+    expect(text()).not.toContain("Gata och nummer");
+    expect(text()).not.toContain("Arbetstidslagen gäller inte");
+    expect(text()).not.toContain("En operatör är namnet i maskinfilerna");
+    expect(text()).toContain("Sparas direkt. Ingen lön i appen.");
+    expect(text()).toContain("Tiden når inte lönen utan koppling till maskinfilerna. Tryck + Koppla.");
+  });
+  it("ingen inloggning kopplad: en kort orange rad som säger vad som händer", async () => {
+    g.__db.medarbetare.find((m: any) => m.id === "m1").user_id = null;
+    await monter("flik=medarbetare&person=m1");
+    expect(text()).toContain("Ingen inloggning kopplad — den kopplas när ett konto med samma e-post finns.");
+  });
+});
+
+describe("Granskningen: Maskiner", () => {
+  const valj = async (select: HTMLSelectElement, v: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, v);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  };
+  const datakalla = () => Array.from(cont.querySelectorAll("select")).find(sel => Array.from(sel.options).some(o => o.textContent === "Maskinfiler")) as HTMLSelectElement;
+  it("listan: en rad per maskin utan egen knapp — 'Öppna som maskin' bor i maskinens vy", async () => {
+    await monter("flik=maskiner");
+    expect(text()).not.toContain("Öppna som maskin");
+    await klick("Rottne H8E");
+    const lank = Array.from(cont.querySelectorAll("a")).find(a => a.textContent === "Öppna som maskin")!;
+    expect(lank.getAttribute("href")).toBe("/maskin?som=R64101");
+    expect(lank.getAttribute("target")).toBe("_blank");
+  });
+  it("EN fråga i stället för två brytare: 'Hur kommer datan?' — Maskinfiler, Manuellt eller Ingen data", async () => {
+    await monter("flik=maskiner&maskin=R64101");
+    expect(text()).not.toContain("Sänder filer");
+    expect(text()).not.toContain("Manuell datakälla");
+    expect(text()).not.toContain("FPR");
+    expect(Array.from(datakalla().options).map(o => o.textContent)).toEqual(["Maskinfiler", "Manuellt, lass i arbetsrapporten", "Ingen data"]);
+    expect(datakalla().value).toBe("filer");
+  });
+  it("Manuellt sparar datakälla manuell och sänder-inte-filer; Ingen data sparar auto och sänder-inte; Maskinfiler tillbaka", async () => {
+    await monter("flik=maskiner&maskin=R64101");
+    await valj(datakalla(), "manuellt");
+    expect(text()).toContain("Föraren registrerar lass i arbetsrapporten. Maskinfiler avvisas.");
+    await klick("Spara ändringar");
+    let skr = g.__skriv.filter((x: any) => x.tabell === "dim_maskin" && x.op === "update").pop().vals;
+    expect(skr).toMatchObject({ sander_filer: false, datakalla: "manuell" });
+    await monter("flik=maskiner&maskin=R64101");
+    expect(datakalla().value).toBe("manuellt");
+    await valj(datakalla(), "ingen");
+    await klick("Spara ändringar");
+    skr = g.__skriv.filter((x: any) => x.tabell === "dim_maskin" && x.op === "update").pop().vals;
+    expect(skr).toMatchObject({ sander_filer: false, datakalla: "auto" });
+    await monter("flik=maskiner&maskin=R64101");
+    expect(datakalla().value).toBe("ingen");
+    await valj(datakalla(), "filer");
+    await klick("Spara ändringar");
+    skr = g.__skriv.filter((x: any) => x.tabell === "dim_maskin" && x.op === "update").pop().vals;
+    expect(skr).toMatchObject({ sander_filer: true, datakalla: "auto" });
+  });
+  it("ny maskin: två korta meningar, ingen text om vad som skyddas eller skrivs över", async () => {
+    g.__db.dim_maskin.push({ maskin_id: "R64999", visningsnamn: null, modell: "H8E", maskin_typ: "Harvester", sander_filer: true, datakalla: null, aktiv_fran: null, aktiv_till: null, bekraftad: false });
+    await monter("flik=maskiner&maskin=R64999");
+    expect(text()).toContain("Ny maskin upptäckt i importen");
+    expect(text()).toContain("Fyll i visningsnamn och aktiv från, bekräfta sedan.");
+    expect(text()).not.toContain("skyddas");
+    expect(text()).not.toContain("nyckel mot filerna");
+    expect(text()).not.toContain("Öppna som maskin"); // en obekräftad maskin är inget att öppna som
+  });
+});
+
+describe("Granskningen: Lön → Lönesystem", () => {
+  it("bara system som finns: inga 'Stub'-knappar, och ingen utvecklartext om miljövariabler och kryptering", async () => {
+    await monter("flik=lon&underflik=system");
+    expect(text()).not.toMatch(/Stub|Visma|Hogia|Kontek|Crona|Agda/);
+    expect(text()).not.toMatch(/FORTNOX_CLIENT|AES|miljövariabler|krypteras/);
+    expect(blad("Fortnox").length).toBeGreaterThan(0);
+    expect(blad("CSV-export").length).toBeGreaterThan(0);
+    expect(text()).not.toContain("väljer du under Lön → Lönearter");
+  });
+  it("token som går ut om månader visas inte; senast synkad står som 'igår 21:10', aldrig som en tidsstämpel", async () => {
+    g.__fortnoxStatus = { connected: true, token_utgar: "2026-12-01T01:00:00", senast_synkad: "2026-10-06T21:10:00" };
+    await monter("flik=lon&underflik=system");
+    expect(text()).not.toContain("Token");
+    expect(text()).toContain("Senast synkad");
+    expect(text()).toContain("igår 21:10");
+    expect(text()).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+  it("token som går ut om några dagar: en orange rad med Förnya bredvid", async () => {
+    g.__fortnoxStatus = { connected: true, token_utgar: "2026-10-10T10:00:00", senast_synkad: null };
+    await monter("flik=lon&underflik=system");
+    expect(text()).toContain("Token går ut10 okt");
+    expect(blad("Förnya").length).toBe(1);
+  });
+  it("redan utgången token säger det", async () => {
+    g.__fortnoxStatus = { connected: true, token_utgar: "2026-10-01T10:00:00", senast_synkad: null };
+    await monter("flik=lon&underflik=system");
+    expect(text()).toContain("Token har gått ut");
+  });
+  it("'Koppla ifrån' ligger sist och är röd text — inte först med samma tyngd som Testa anslutning", async () => {
+    await monter("flik=lon&underflik=system");
+    const testa = blad("Testa anslutning")[0];
+    const ifran = blad("Koppla ifrån")[0];
+    expect(testa.compareDocumentPosition(ifran) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(getComputedStyle(ifran.closest("button")!).color).toBe("rgb(255, 69, 58)");
+  });
+});
+
+describe("Granskningen: Lön → Lönearter", () => {
+  const rad = (key: string) => cont.querySelector<HTMLElement>(`[data-loneart="${key}"]`)!;
+  it("en mening överst, och ingen rad upprepar sitt eget namn som 'I Fortnox: …'", async () => {
+    g.__db.lonesystem_artikelmappning.push({ id: "x9", lonesystem_id: "ls1", intern_typ: "helglon_skotare", extern_kod: "1462", beskrivning: "Helglön skotare:", skapad: "2026-10-01" });
+    g.__db.lonesystem_artikelmappning.push({ id: "x10", lonesystem_id: "ls1", intern_typ: "helglon_skordare", extern_kod: "1461", beskrivning: "Helglön, timmar", skapad: "2026-10-01" });
+    await monter("flik=lon&underflik=lonearter");
+    expect(text()).toContain("Vilken löneart i Fortnox varje rad skickas som. Bara antal skickas — Fortnox räknar kronorna.");
+    expect(text()).not.toContain("Här väljer du");
+    expect(rad("timlon").textContent).not.toContain("I Fortnox");                  // samma namn som rubriken
+    expect(rad("helglon_skotare").textContent).not.toContain("I Fortnox");         // kolonet i Fortnox-namnet ("Helglön skotare:") gör det inte till ett annat namn
+    expect(rad("helglon_skotare").textContent).not.toMatch(/:/);
+    expect(rad("helglon_skordare").textContent).toContain("I Fortnox: Helglön, timmar"); // ett annat namn står kvar
+    expect(rad("helglon_skordare").textContent).toContain("1461");
+  });
+  it("lönearter som saknar kod: en rad med namnen, utan förklaring av hur exporten stoppar (den står i bekräftelsen)", async () => {
+    await monter("flik=lon&underflik=lonearter");
+    const t = cont.querySelector("[data-lonearter-saknas]")!.textContent!;
+    expect(t).toMatch(/lönearter saknar kod: Helglön skördare, Helglön skotare, Brandrisk – OB\./);
+    expect(t).not.toContain("stoppas exporten");
+  });
+});
+
+describe("Granskningen: ATK-val och Vilobrott", () => {
+  it("ATK: 'Saknar val (2)' är rubriken — raderna är bara namn, inget 'Ej valt' upprepat", async () => {
+    await monter("flik=lon&underflik=atk");
+    expect(text()).toContain("Saknar val (2)");
+    expect(text()).not.toContain("Ej valt");
+    expect(text()).toContain("Förarna väljer pengar, ledig tid eller pension.");
+  });
+  it("Vilobrott: metodtexten ligger bakom 'Så räknas det', inte före svaret", async () => {
+    await monter("flik=lon&underflik=vila");
+    expect(text()).not.toContain("Analyserar");
+    expect(text()).not.toContain("dygnsvila minst 11 h");
+    await klick("Så räknas det");
+    expect(text()).toContain("dygnsvila minst 11 h, veckovila minst 36 h i följd");
+  });
+});
+
+describe("Granskningen: Avtal", () => {
+  it("rubrikkortet som upprepade namn och datum är borta; Spara ligger i sidhuvudet; gruppen heter Resor", async () => {
+    await monter("flik=avtal");
+    expect(text()).not.toContain("Aktuellt avtal");
+    expect(text()).not.toContain("Färdmedel & färdtid");
+    expect(text()).toContain("Resor");
+    expect(blad("Spara").length).toBe(1);
+    expect(blad("Spara ändringar").length).toBe(0);
+    const spara = blad("Spara")[0].closest("button") as HTMLButtonElement;
+    expect(spara.disabled).toBe(true);
+    expect(spara.compareDocumentPosition(falt("Övertidsersättning vardag")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // ...och före Utjämningsperioder, så det inte ser ut att höra till dem
+    expect(spara.compareDocumentPosition(blad("Utjämningsperioder")[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await skriv(falt("Övertidsersättning vardag"), "55.5");
+    expect((blad("Spara")[0].closest("button") as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("namnfältet är brett nog för avtalsnamnet (det klipptes: 'Skogsavtalet 2025–20')", async () => {
+    await monter("flik=avtal");
+    expect(falt("Namn").style.width).toBe("280px");
+    expect(falt("Namn").value).toBe("Skogsavtalet 2025-2027");
+  });
+  it("Tidigare avtal visas inte när det inte finns några — en tom grupp med en förklaring var bara text", async () => {
+    await monter("flik=avtal");
+    expect(text()).not.toContain("Tidigare avtal");
+    expect(text()).not.toContain("Inga tidigare avtalsversioner");
+  });
+  it("finns det ett tidigare avtal visas det", async () => {
+    g.__db.gs_avtal.push({ ...AVTAL, id: "a0", namn: "Skogsavtalet 2022-2025", giltigt_fran: "2022-04-01", giltigt_till: "2025-03-31" });
+    await monter("flik=avtal");
+    expect(text()).toContain("Tidigare avtal (1)");
+    expect(text()).toContain("Skogsavtalet 2022-2025");
   });
 });

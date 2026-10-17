@@ -107,7 +107,7 @@ describe("byggAttGora: hempunkt som ingen bekräftat", () => {
     const r = byggAttGora(i, "2026-10-07");
     const s = r.saker.find(x => x.id === "hempunkt-m1")!;
     expect(s.rubrik).toBe("Hempunkten är inte bekräftad – Nils Ek");
-    expect(s.knapp).toBe("Visa kartan");
+    expect(s.knapp).toBe("Öppna"); // en knapp, ett ord: raden säger vad det gäller
     expect(s.mal).toEqual({ typ: "flik", flik: "medarbetare", params: { person: "m1" } });
   });
   it("när alla är bekräftade finns ingen sådan rad", () => {
@@ -125,7 +125,14 @@ describe("byggAttGora: arbetstid — lagens sex gränser (lib/arbetstidsgranser)
     const r = byggAttGora(i, "2026-10-13");
     expect(r.saker).toEqual([]);
     expect(r.arbetstid).toEqual([]);
-    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen närmar sig en gräns för arbetstid" });
+    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen över en gräns för arbetstid" });
+  });
+
+  it("bara gula: 'nära gränsen' är en varning utan åtgärd — kortet visas inte, och inget är över en gräns", () => {
+    const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Lugn", "lugn")], varningar: [] });
+    const r = byggAttGora(i, "2026-10-13");
+    expect(r.arbetstid).toEqual([]);
+    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen över en gräns för arbetstid" });
   });
 
   it("gula och röda förare kommer med, röda först — och då finns ingen 'stämmer'-rad", () => {
@@ -135,17 +142,17 @@ describe("byggAttGora: arbetstid — lagens sex gränser (lib/arbetstidsgranser)
     expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
   });
 
-  it("bara delägare är gula/röda: de visas (grå) men 'Ingen närmar sig en gräns' står kvar under Stämmer", () => {
+  it("bara delägare är gula/röda: de visas inte alls (arbetstidslagen gäller inte) och 'Ingen över en gräns' står under Stämmer", () => {
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Joacim", "gul", true), forare("Anna", "lugn")], varningar: [] });
     const r = byggAttGora(i, "2026-10-13");
-    expect(r.arbetstid.map(f => f.namn)).toEqual(["Joacim", "Martin"]);
-    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen närmar sig en gräns för arbetstid" });
+    expect(r.arbetstid).toEqual([]);
+    expect(r.stammer.find(x => x.id === "arbetstid")).toMatchObject({ rubrik: "Ingen över en gräns för arbetstid" });
   });
 
-  it("delägare efter en vanlig röd förare: ingen 'stämmer'-rad, den röda först", () => {
+  it("delägare bredvid en vanlig röd förare: bara den röda visas, och ingen 'stämmer'-rad", () => {
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Stefan", "rod")], varningar: [] });
     const r = byggAttGora(i, "2026-10-13");
-    expect(r.arbetstid.map(f => f.namn)).toEqual(["Stefan", "Martin"]);
+    expect(r.arbetstid.map(f => f.namn)).toEqual(["Stefan"]);
     expect(r.stammer.find(x => x.id === "arbetstid")).toBeUndefined();
   });
 

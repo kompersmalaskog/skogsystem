@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Reglage, Primar, Sekundar, Tillbaka, Destruktiv, Lank, Besked, Fel, Laddar, Tomt, Bekrafta, Etikett } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Reglage, Sekundar, Tillbaka, Destruktiv, Lank, Besked, Fel, Laddar, Tomt, Bekrafta } from "./ui";
 import { useAdminNav } from "./nav";
 import MedarbetareKontroller from "./MedarbetareKontroller";
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
@@ -12,7 +12,9 @@ import { introKlara, introSaknas, ochLista } from "@/lib/admin/introduktion";
 import NyMedarbetare from "./NyMedarbetare";
 import { ROLLER, HempunktKort, KopplaOperatörModal, useAnstKontroll, AnstKontrollText, type Medarbetare, type OperatorRad } from "./medarbetarDelar";
 
-const ROLL_ORD: Record<string, string> = { admin: "Admin", forare: "Förare" };
+/** Listan är grupperad på roll: Förare först, sedan Admin. */
+const GRUPP_ORDNING = ["forare", "admin"] as const;
+const GRUPP_RUBRIK: Record<(typeof GRUPP_ORDNING)[number], string> = { forare: "Förare", admin: "Admin" };
 
 /** Kolumnerna i personlistan. `foretagsledare` läggs till separat (migration 20261013155407) så listan går att läsa före den. */
 const MED_KOLUMNER = "id, namn, epost, hemadress, roll, maskin_id, timlon_kr, manadslon_kr, anstallningsdatum, user_id, hem_lat, hem_lng, hem_koord_kalla, hem_geokod_status, hem_geokod_etikett, hem_geokod_precision, hem_geokod_lat, hem_geokod_lng, hem_bekraftad_tid";
@@ -145,27 +147,46 @@ function ListaVy({
 }) {
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
-        <Sektion topp={0}>Medarbetare ({medarbetare.length})</Sektion>
-        <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Ny</Lank>
-      </div>
-
       {medarbetare.length === 0 ? (
-        <Kort><Tomt>Inga medarbetare. Lägg till den första med + Ny.</Tomt></Kort>
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
+            <Sektion topp={0}>Medarbetare</Sektion>
+            <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Ny</Lank>
+          </div>
+          <Kort><Tomt>Inga medarbetare. Lägg till den första med + Ny.</Tomt></Kort>
+        </>
       ) : (
-        <Lista>
-          {medarbetare.map((m, i) => {
-            const ops = operatorerPerMed[m.id] || [];
-            const maskinNamn = new Set<string>();
-            for (const o of ops) if (o.maskin_id) maskinNamn.add(maskiner[o.maskin_id] || o.maskin_id);
-            if (m.maskin_id) maskinNamn.add(maskiner[m.maskin_id] || m.maskin_id);
-            return (
-              <Rad key={m.id} onClick={() => onValj(m.id)} chevron sista={i === medarbetare.length - 1}
-                rubrik={<span style={{ display: "inline-flex", alignItems: "center", gap: AVSTAND.s }}>{m.namn || "Namnlös"}<Etikett>{ROLL_ORD[m.roll] || m.roll}</Etikett></span>}
-                detalj={<>{ops.length} operatör{ops.length === 1 ? "" : "er"}{maskinNamn.size > 0 && <> · {Array.from(maskinNamn).join(", ")}</>}</>} />
-            );
-          })}
-        </Lista>
+        // Grupper som i iOS Inställningar: rollen är rubriken, inte ett märke på varje rad.
+        GRUPP_ORDNING.map((roll, gi) => {
+          const grupp = medarbetare.filter(m => (roll === "admin" ? m.roll === "admin" : m.roll !== "admin"));
+          if (grupp.length === 0) return null;
+          return (
+            <React.Fragment key={roll}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
+                <Sektion topp={gi === 0 ? 0 : AVSTAND.sektion}>{GRUPP_RUBRIK[roll]} ({grupp.length})</Sektion>
+                {gi === 0 && <Lank onClick={onNy} style={{ marginBottom: AVSTAND.m }}>+ Ny</Lank>}
+              </div>
+              <Lista>
+                {grupp.map((m, i) => {
+                  const ops = operatorerPerMed[m.id] || [];
+                  const maskinNamn = new Set<string>();
+                  for (const o of ops) if (o.maskin_id) maskinNamn.add(maskiner[o.maskin_id] || o.maskin_id);
+                  if (m.maskin_id) maskinNamn.add(maskiner[m.maskin_id] || m.maskin_id);
+                  // En förare utan koppling till maskinfilerna får ingen tid till lönen: det är det enda som står på raden utöver maskinen.
+                  const utanKoppling = m.roll === "forare" && ops.length === 0;
+                  return (
+                    <Rad key={m.id} onClick={() => onValj(m.id)} chevron sista={i === grupp.length - 1}
+                      rubrik={m.namn || "Namnlös"}
+                      detalj={(maskinNamn.size > 0 || utanKoppling) ? <>
+                        {Array.from(maskinNamn).join(", ")}
+                        {utanKoppling && <span style={{ color: FARG.orange }}>{maskinNamn.size > 0 ? " · " : ""}ingen koppling till maskinfilerna</span>}
+                      </> : undefined} />
+                  );
+                })}
+              </Lista>
+            </React.Fragment>
+          );
+        })
       )}
     </>
   );
@@ -320,7 +341,12 @@ function DetaljVy({
 
   return (
     <>
-      <Tillbaka onClick={onTillbaka}>Medarbetare</Tillbaka>
+      {/* Sidhuvudet: tillbaka till vänster, Spara till höger (grå tills något är ändrat) — inte 1 700 px längre ned. */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: AVSTAND.m }}>
+        <Tillbaka onClick={onTillbaka}>Medarbetare</Tillbaka>
+        <Lank onClick={spara} disabled={!ändrat || sparar}>{sparar ? "Sparar…" : "Spara"}</Lank>
+      </div>
+      {sparFel && <Besked>{sparFel}</Besked>}
 
       {/* Introduktionen: en förare som saknar maskin, hempunkt eller nummer hittar tillbaka till flödet härifrån. */}
       {anstLaddad && medarbetare.roll === "forare" && (() => {
@@ -341,9 +367,9 @@ function DetaljVy({
         <Falt label="Namn" value={namn} onChange={setNamn} placeholder="För- och efternamn" />
         <Falt label="E-post" value={epost} onChange={setEpost} placeholder="namn@exempel.se" type="email"
           hint={medarbetare.user_id
-            ? "Inloggning kopplad."
-            : <span style={{ color: FARG.orange }}>Ingen inloggning kopplad. Den kopplas automatiskt när ett konto med samma e-post finns. Utan koppling kommer personen inte in i appen.</span>} />
-        <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Kompersmåla 3, 362 96 Ryd" hint="Gata och nummer, postnummer och ort." />
+            ? undefined
+            : <span style={{ color: FARG.orange }}>Ingen inloggning kopplad — den kopplas när ett konto med samma e-post finns.</span>} />
+        <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Kompersmåla 3, 362 96 Ryd" />
         <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
         <Val label="Maskin" value={maskinId} onChange={setMaskinId} options={[
           { value: "", label: "Ingen maskin" },
@@ -351,9 +377,7 @@ function DetaljVy({
         ]} />
         {harForetagsledare && (
           <Reglage label="Företagsledare / delägare" value={foretagsledare} onChange={v => { if (!foretagsledareSparar) valjForetagsledare(v); }}
-            hint={foretagsledareSparar
-              ? "Sparar…"
-              : "Sparas direkt. Arbetstidslagen gäller inte företagsledare. Personen visas då grått i Arbetstid på Översikten, utan gul eller röd, och räknas inte som något som kräver dig."} />
+            hint={foretagsledareSparar ? "Sparar…" : "Sparas direkt. Ingen lön i appen."} />
         )}
       </Kort>
 
@@ -367,12 +391,12 @@ function DetaljVy({
         <Falt label="Timlön (kr)" value={timlon} onChange={setTimlon} placeholder="—" type="number" />
         <Falt label="Månadslön (kr)" value={manadslon} onChange={setManadslon} placeholder="—" type="number" />
         <Falt label="Anställningsdatum" value={anstallningsdatum} onChange={setAnstallningsdatum} type="date" />
-        <Falt label="Anställningsnummer (Fortnox)" value={anst} onChange={setAnst} placeholder="—" disabled={!anstLaddad}
+        <Falt label="Anställningsnummer" value={anst} onChange={setAnst} placeholder="—" disabled={!anstLaddad}
           hint={anstOriginal
             ? <AnstKontrollText kontroll={anstKontroll.kontroll} laddar={anstKontroll.laddar} nr={anstOriginal} />
             : anstLaddad && !anstKoppling
-              ? "Fortnox är inte kopplat ännu. Numret sparas och kontrolleras mot Fortnox när anslutningen finns."
-              : "Det nummer Fortnox känner personen under. Utan det kan lönen inte skickas."} />
+              ? "Fortnox är inte kopplat ännu — numret kontrolleras när det är det."
+              : "Utan nummer kan lönen inte skickas."} />
       </Kort>
 
       {/* Kopplade operatörer */}
@@ -381,7 +405,7 @@ function DetaljVy({
         <Lank onClick={() => setVisaKopplaModal(true)} style={{ marginTop: AVSTAND.sektion, marginBottom: AVSTAND.m }}>+ Koppla</Lank>
       </div>
       {operatorer.length === 0 ? (
-        <Kort><Tomt>Inga operatörer kopplade. En operatör är namnet i maskinfilerna. Utan koppling når tiden inte lönen.</Tomt></Kort>
+        <Kort><Tomt>Tiden når inte lönen utan koppling till maskinfilerna. Tryck + Koppla.</Tomt></Kort>
       ) : (
         <Lista>
           {operatorer.map((o, i) => (
@@ -393,12 +417,8 @@ function DetaljVy({
         </Lista>
       )}
 
-      {sparFel && <Besked>{sparFel}</Besked>}
-
-      {/* Knappar */}
+      {/* Ta bort: det enda som ligger längst ned. */}
       <div style={{ marginTop: AVSTAND.xl, display: "flex", flexDirection: "column", gap: AVSTAND.m }}>
-        <Primar onClick={spara} disabled={!ändrat || sparar}>{sparar ? "Sparar…" : "Spara ändringar"}</Primar>
-
         {!taBortLäge ? (
           <Destruktiv onClick={() => setTaBortLäge(true)} style={{ alignSelf: "center" }}>Ta bort medarbetare</Destruktiv>
         ) : (

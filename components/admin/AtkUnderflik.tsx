@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TYP } from "@/lib/design/tokens";
-import { Sektion, Kort, Lista, Rad, Sekundar, Primar, Besked, Fel, Laddar, Tomt, Etikett, Ikon } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Primar, Besked, Fel, Laddar, Tomt, Etikett, Ikon } from "./ui";
 
 type CurrentUser = { id: string; namn?: string | null; roll: string };
 
@@ -114,9 +114,10 @@ export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser
               <Sektion>Saknar val ({utanVal.length})</Sektion>
               <Lista>
                 {utanVal.map((m, i) => (
-                  <Rad key={m.id} rubrik={m.namn || m.id.slice(0, 8)} hoger={<Etikett farg={FARG.orange}>Ej valt</Etikett>} sista={i === utanVal.length - 1} />
+                  <Rad key={m.id} rubrik={m.namn || m.id.slice(0, 8)} sista={i === utanVal.length - 1} />
                 ))}
               </Lista>
+              <Stod>Förarna väljer pengar, ledig tid eller pension.</Stod>
             </>
           )}
 
