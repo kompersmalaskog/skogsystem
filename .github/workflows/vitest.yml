@@ -4,6 +4,11 @@
 # Jobbet blir RÖTT när en test faller. Tre filer talar med prod via .env.local (lib/notis.flush.test.ts,
 # lib/lonesystem/minmanad.innehall.test.ts, lib/lonesystem/loneunderlag.bytediff.test.ts) — .env.local finns aldrig här, så de
 # HOPPAS ÖVER (lib/testProdEnv.ts) och syns som "skipped". Inga hemligheter krävs; lägg aldrig prod-nycklar i det här jobbet.
+#
+# Två saker CI:n visade vid första körningen (de syntes inte lokalt, där Supabase-variablerna är satta):
+#  - ~20 filer importerar lib/supabase.ts och routen /api/notis/flush, som skapar en Supabase-klient när modulen laddas och
+#    kastar utan URL/nyckel. Jobbet sätter därför PLATSHÅLLARE (ingen riktig adress, ingen nätverkstrafik, inga hemligheter).
+#  - lib/admin/vilobrottForeEfter.cli.test.ts kör `git show <sha>` mot en äldre commit: kräver full historik (fetch-depth: 0).
 name: vitest
 
 on:
@@ -19,10 +24,16 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: Kör hela vitest
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-platshallare
+          SUPABASE_SERVICE_ROLE_KEY: ci-platshallare
         run: npx vitest run
