@@ -71,7 +71,8 @@ export function SaknasKort({ blockerande, onKoppla }: { blockerande: Blockerande
 
 /**
  * Bekräftelsen före en skarp sändning. Finns det röda rader finns ingen "Skicka till Fortnox" här: valen är att koppla koderna eller
- * UTTRYCKLIGEN skicka utan raderna (ett andra steg som listar vad som uteblir). Först då går begäran iväg, med skicka_utan_saknade.
+ * UTTRYCKLIGEN skicka utan raderna (ett andra steg som listar vad som uteblir och säger att de ALDRIG skickas senare — lönehanteraren
+ * lägger in dem för hand). Först då går begäran iväg, med skicka_utan_saknade.
  */
 export function SkickaDialog({ periodText, arbetstidText, data, blockerande, skickar, onKoppla, onSkicka, onStang }: {
   periodText: string;
@@ -94,22 +95,27 @@ export function SkickaDialog({ periodText, arbetstidText, data, blockerande, ski
   return (
     <Sheet titel="Skicka till Fortnox?" vyNyckel={steg} onStang={onStang} attr={{ "data-skicka-dialog": "" }}
       vanster={<Lank smal onClick={onStang}>Avbryt</Lank>}>
-      <Stod style={{ marginTop: 0 }}>
-        Löneperiod {periodText} (arbetstid {arbetstidText}). {antalLon} medarbetare, {data.totalt_rader} lönerader.
-      </Stod>
-      {harVarningar && <Stod farg={FARG.orange}>⚠ Det finns varningar — granska innan du skickar.</Stod>}
+      {/* Steg 2 handlar bara om det som uteblir: förarlistan vore bara scroll före varningen. */}
+      {steg === "val" && (
+        <>
+          <Stod style={{ marginTop: 0 }}>
+            Löneperiod {periodText} (arbetstid {arbetstidText}). {antalLon} medarbetare, {data.totalt_rader} lönerader.
+          </Stod>
+          {harVarningar && <Stod farg={FARG.orange}>⚠ Det finns varningar — granska innan du skickar.</Stod>}
 
-      <Lista style={{ marginTop: AVSTAND.m }}>
-        {medarbetare.map((m, i) => m.foretagsledare ? (
-          <Rad key={i} rubrik={m.namn} detalj="Företagsledare – lön utanför appen" sista={i === medarbetare.length - 1} />
-        ) : (
-          <Rad key={i} rubrik={m.namn} hoger={`${m.rader.length} rader`}
-            detalj={m.status === "skickat" ? <span style={{ color: FARG.gron }}>Redan skickat</span> : !m.anstallningsnummer ? <span style={{ color: FARG.rod }}>Saknar anst.nr</span> : undefined}
-            sista={i === medarbetare.length - 1} />
-        ))}
-      </Lista>
+          <Lista style={{ marginTop: AVSTAND.m }}>
+            {medarbetare.map((m, i) => m.foretagsledare ? (
+              <Rad key={i} rubrik={m.namn} detalj="Företagsledare – lön utanför appen" sista={i === medarbetare.length - 1} />
+            ) : (
+              <Rad key={i} rubrik={m.namn} hoger={`${m.rader.length} rader`}
+                detalj={m.status === "skickat" ? <span style={{ color: FARG.gron }}>Redan skickat</span> : !m.anstallningsnummer ? <span style={{ color: FARG.rod }}>Saknar anst.nr</span> : undefined}
+                sista={i === medarbetare.length - 1} />
+            ))}
+          </Lista>
+        </>
+      )}
 
-      <div style={{ marginTop: AVSTAND.l }}>
+      <div style={{ marginTop: steg === "val" ? AVSTAND.l : 0 }}>
         {!spard && (
           <Primar onClick={() => onSkicka(false)} disabled={skickar}>{skickar ? "Skickar…" : "Skicka till Fortnox"}</Primar>
         )}
@@ -128,7 +134,13 @@ export function SkickaDialog({ periodText, arbetstidText, data, blockerande, ski
 
         {spard && steg === "bekrafta" && (
           <Bekrafta
-            text={<>De här raderna följer inte med: {utan.join(", ")}. De läggs inte på av sig själva efteråt, och en förare som är skickad skickas inte om. Lägg dem i Fortnox för hand.</>}
+            text={<>
+              <strong>Raderna skickas aldrig senare.</strong><br />
+              Det här går inte till Fortnox:
+              {utan.map(u => <React.Fragment key={u}><br />• {u}</React.Fragment>)}
+              <br />
+              Lönehanteraren måste lägga in dem för hand i Fortnox. De läggs inte på senare, varken nästa gång du skickar eller av sig själva — förarna räknas som skickade.
+            </>}
             ja={skickar ? "Skickar…" : "Skicka utan raderna"} nej="Tillbaka" upptagen={skickar}
             onJa={() => onSkicka(true)} onNej={() => setSteg("val")} />
         )}

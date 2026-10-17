@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { arsovertidRader, arsovertidNiva, timmarText, utjamningsRad, VARNING_UNDER_TAK_H, type ArsovertidSvar } from "./arsovertidVy";
+import { arsovertidRader, arsovertidNiva, timmarText, utjamningsRad, unikaUtjamningar, VARNING_UNDER_TAK_H, type ArsovertidSvar } from "./arsovertidVy";
 
 // Svaret från /api/lon/arsovertid så som det ser ut i prod 2026-10-09 (skrivskyddad torrkörning av beraknaArsovertid mot
 // prod-data): alla fyra modellernas tal per förare. Vyn visar BARA avtalets modell (genomsnitt): samma tal som kolumnen
@@ -84,17 +84,42 @@ describe("timmarText: svensk decimalkomma, en decimal, inga 'x,0'", () => {
 
 describe("utjamningsRad: en grå rad per markerad period", () => {
   it("v17–27 ur 2026-04-20 → 2026-07-05, med platsen ur anteckningen", () => {
-    expect(utjamningsRad(PROD_IDAG.utjamning![0])).toBe("Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken) räknas som genomsnitt");
+    expect(utjamningsRad(PROD_IDAG.utjamning![0])).toBe("Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken), 77 dagar — räknas som genomsnitt");
   });
   it("anteckning utan plats → ingen parentes", () => {
-    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "" })).toBe("Utjämningsperiod v17–27 räknas som genomsnitt");
-    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "22 apr-29 jun, sex objekt" })).toBe("Utjämningsperiod v17–27 räknas som genomsnitt");
-    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: null })).toBe("Utjämningsperiod v17–27 räknas som genomsnitt");
+    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "" })).toBe("Utjämningsperiod v17–27, 77 dagar — räknas som genomsnitt");
+    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "22 apr-29 jun, sex objekt" })).toBe("Utjämningsperiod v17–27, 77 dagar — räknas som genomsnitt");
+    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: null })).toBe("Utjämningsperiod v17–27, 77 dagar — räknas som genomsnitt");
   });
   it("samma vecka i start och slut: en vecka", () => {
-    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-04-24", anteckning: "Gävle" })).toBe("Utjämningsperiod v17 (Gävle) räknas som genomsnitt");
+    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-04-24", anteckning: "Gävle" })).toBe("Utjämningsperiod v17 (Gävle), 5 dagar — räknas som genomsnitt");
   });
   it("en lång anteckning kapas före första siffra eller parentes", () => {
-    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "Gävle (sex objekt) 22 apr" })).toBe("Utjämningsperiod v17–27 (Gävle) räknas som genomsnitt");
+    expect(utjamningsRad({ startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "Gävle (sex objekt) 22 apr" })).toBe("Utjämningsperiod v17–27 (Gävle), 77 dagar — räknas som genomsnitt");
+  });
+});
+
+describe("unikaUtjamningar: EN rad per period, inte en per förare", () => {
+  // Prod 2026-10-17: perioden v17–27 ligger i tabellen som fem rader (en för alla + en per förare) med samma datum.
+  const per = { startdatum: "2026-04-20", slutdatum: "2026-07-05", anteckning: "Gävle/Hedemora-Sandviken 22 apr-29 jun 2026" };
+  const fem = [null, "a", "b", "c", "d"].map(m => ({ ...per, medarbetare_id: m }));
+
+  it("fem rader med samma period blir en", () => {
+    const u = unikaUtjamningar(fem);
+    expect(u).toHaveLength(1);
+    expect(utjamningsRad(u[0])).toBe("Utjämningsperiod v17–27 (Gävle/Hedemora-Sandviken), 77 dagar — räknas som genomsnitt");
+  });
+  it("olika perioder blir kvar som egna rader, i datumordning", () => {
+    const u = unikaUtjamningar([{ startdatum: "2026-09-07", slutdatum: "2026-09-20", anteckning: "Höst" }, ...fem]);
+    expect(u.map(x => x.startdatum)).toEqual(["2026-04-20", "2026-09-07"]);
+  });
+  it("platsen tas från första raden som har en anteckning", () => {
+    const u = unikaUtjamningar([{ ...per, anteckning: "" }, per]);
+    expect(u).toHaveLength(1);
+    expect(utjamningsRad(u[0])).toContain("(Gävle/Hedemora-Sandviken)");
+  });
+  it("tom lista och saknad lista ger inga rader", () => {
+    expect(unikaUtjamningar([])).toEqual([]);
+    expect(unikaUtjamningar(undefined)).toEqual([]);
   });
 });
