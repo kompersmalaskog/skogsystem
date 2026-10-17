@@ -10,7 +10,8 @@
  * Fortnox multiplicerar med sats per anställd.
  *
  * Löneartskoder: finns INTE här. De läses ur lonesystem_artikelmappning (lib/lonesystem/loneart) och skickas in som `koder`.
- * Lönearterna är timlön, premielön (skördare/skotare), övertid (skördare/skotare), vältlappar, reseersättning och helglön.
+ * Lönearterna är timlön, premielön (skördare/skotare), övertid (skördare/skotare), vältlappar, reseersättning, helglön (skördare/skotare) och
+ * brandrisk-OB (EN rad, bara beordrad brandriskmorgon — lib/ob).
  * Tom kod = ingen rad (varning + röd rad i förhandsvisningen); premielönen är frivillig och stoppar inget.
  *
  * Premielön är FÖRETAGETS EGEN konstruktion — den står inte i
@@ -34,7 +35,8 @@ import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
 import { loneartInfo, type LoneartKey, type Loneartskoder } from "./loneart";
 import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
-import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
+import { helglonIManad, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
+import { brandriskSumma, minTillTimmar, type BrandriskSumma } from "../ob";
 
 type ArbetsdagInput = {
   datum: string;        // YYYY-MM-DD
@@ -43,6 +45,9 @@ type ArbetsdagInput = {
   km_totalt: number | null;
   bekraftad: boolean | null;
   dagtyp: string | null;
+  /** Brandrisk-OB (lib/ob): dagens start och om starten var beordrad. Saknas fälten räknas ingen OB. */
+  start_tid?: string | null;
+  brandrisk_beordrad?: boolean | null;
 };
 
 // Extra tid = arbete när maskindatorn var av (arbetad_min ser den inte).
@@ -92,6 +97,19 @@ export type ByteRad = {
 type MaskinTypMap = Record<string, "skordare" | "skotare">;
 
 /**
+ * Det som avgör om och hur en förare får lönerader utöver dagarna själva (lib/lonesystem/loneunderlag fyller i det per medarbetare).
+ *  franvaroRunt     frånvaro några dagar runt arbetsmånaden: närvarokravet för helglön tittar på dagarna före/efter en röd dag, även
+ *                   över månadsskiftet. Saknas den används `ledigheter` (äldre anrop).
+ *  anstallningsdatum  kvalifikationstiden (§10 mom 3). Saknas den kontrolleras inget och beräkningen varnar.
+ *  foretagsledare   företagsledare får INGA lönerader alls (lönen ligger utanför appen), men kontrollvyerna får sin information.
+ */
+export type LonKontext = {
+  franvaroRunt?: LedighetInput[];
+  anstallningsdatum?: string | null;
+  foretagsledare?: boolean;
+};
+
+/**
  * Varje löneart som HAR ett antal, i exportens ordning — också de som inte skickas. Förhandsvisningen visar den här listan rad för
  * rad, så en rad utan kod syns (röd) i stället för att bara saknas.
  *   skickas         raden går till Fortnox (finns i `rader`)
@@ -127,6 +145,8 @@ export type ExportSammanfattning = {
   lonerader: LoneRad[];
   /** Lönearter som hade en mängd men saknar kod i mappningen: ingen rad skickades. Frivilliga (premien) räknas inte hit. */
   saknade_loneartskoder: LoneartKey[];
+  /** Företagsledare (medarbetare.foretagsledare): inga lönerader alls, lönen ligger utanför appen. */
+  foretagsledare: boolean;
   arbetsdagar: number;
   ordinarie_h: number;
   extra_h: number;      // varav extra tid (utanför maskinen) — ingår i timlön/övertid
@@ -150,11 +170,15 @@ export type ExportSammanfattning = {
   // Dagar under arbetsdagströskeln (lib/arbetsdagRegler): betald tid som inte är
   // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
   kortpass: { datum: string; minuter: number; km_totalt: number }[];
-  // Helglön §10 (lib/lonesystem/helglon): röda VARDAGAR i arbetsmånaden ur
-  // avtalets lista. `timmar` = 8 × de dagar föraren INTE arbetat. Blir en lönerad
-  // (löneart 'helglon') när lönearten har en kod; närvarokravet (§10 mom 4) är inte
-  // byggt än och OB vid arbete på röd dag är en öppen avtalsfråga.
-  helglon: { dagar: HelglonDag[]; timmar: number };
+  // Helglön §10 (lib/lonesystem/helglon): röda VARDAGAR i arbetsmånaden ur avtalets
+  // lista, var och en bedömd (`ger` + `skal`). `timmar` = 8 × de dagar som ger helglön
+  // (praxis: också arbetade röda dagar). Blir en lönerad per maskintyp (helglon_skordare /
+  // helglon_skotare) när lönearten har en kod. `anstallningsdatumSaknas`: kvalifikationstiden
+  // (mom 3) kunde inte kontrolleras — helglönen betalas, beräkningen varnar.
+  helglon: { dagar: HelglonDag[]; timmar: number; anstallningsdatumSaknas: boolean };
+  // Brandrisk-OB (lib/ob): beordrade vardagsmorgnar → OB (start–06:30), en rad. Minuter är
+  // exakta; Fortnox-raderna bär timmar med två decimaler. Den ENDA OB appen räknar — enkelskift: tidig start är annars eget val.
+  brandrisk: BrandriskSumma;
   // Bytesdagar (inarbetad, §5 mom 4) som rör arbetsmånaden — den lediga dagen
   // ELLER den röda dagen ligger i månaden. Upplysning, ingen lönerad.
   byten: ByteRad[];
@@ -199,7 +223,9 @@ export function beräknaExport(
   // Löneartskoderna ur lonesystem_artikelmappning (lib/lonesystem/loneart). Inga egna koder här: en bortglömd
   // parameter ger inga rader och en varning per löneart, aldrig en gissad kod.
   koder: Loneartskoder = {},
+  lon: LonKontext = {},
 ): ExportSammanfattning {
+  const foretagsledare = lon.foretagsledare === true;
   const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
   const rader: FortnoxRad[] = [];
@@ -212,6 +238,7 @@ export function beräknaExport(
    * över med en varning och stoppar inget.
    */
   const laggRad = (loneart: LoneartKey, mangd: string, beskrivning: string) => {
+    if (foretagsledare) return; // lönen ligger utanför appen: ingen rad, ingen saknad kod, ingen varning
     const info = loneartInfo(loneart)!;
     const kod = (koder[loneart] || "").trim();
     if (!kod) {
@@ -229,7 +256,7 @@ export function beräknaExport(
     lonerader.push({ loneart, mangd, kod, beskrivning, status: "skickas" });
   };
 
-  if (!anstallningsnummer) {
+  if (!anstallningsnummer && !foretagsledare) {
     varningar.push("Anställningsnummer saknas — kan inte skicka till Fortnox.");
   }
 
@@ -332,7 +359,7 @@ export function beräknaExport(
   const typadH = skordareH + skotareH;
   const premieBas = timlonH;
   let premieSkordare = 0, premieSkotare = 0;
-  if (premieBas > 0) {
+  if (premieBas > 0 && !foretagsledare) {
     const andelSkordare = typadH > 0 ? skordareH / typadH
       : radMaskinTyp === "skordare" ? 1 : radMaskinTyp === "skotare" ? 0 : null;
     if (andelSkordare === null) {
@@ -481,27 +508,47 @@ export function beräknaExport(
   }
 
   // ── HELGLÖN §10 (lib/lonesystem/helglon) ──
-  // Röda vardagar i arbetsmånaden ur avtalets tolv namn. 8 tim per dag föraren
-  // inte arbetat. Arbetade röda dagar listas men räknas INTE: §10 mom 2 ger
-  // helglön bara för timmar som bortföll, och arbetade timmar bortföll inte —
-  // de lönas som vanlig tid + söndagstillägg (§8 mom 1). Närvarokravet (§10
-  // mom 4) är inte byggt. Blir en lönerad (löneart 'helglon') när lönearten har en kod i mappningen.
+  // Varje röd vardag i arbetsmånaden ur avtalets tolv namn ger 8 tim — företagets praxis (Martin 2026-10-17), över avtalets
+  // minimum: "bortfallna timmar" (§10 mom 2) tillämpas inte, så en ARBETAD röd dag ger helglön OCH vanlig lön för de arbetade
+  // timmarna (inget söndagstillägg). Närvarokravet (mom 4) och kvalifikationstiden (mom 3) avgör vilka dagar som INTE ger helglön;
+  // varje dag bär sin orsak (`skal`). Lönearten väljs efter månadens maskintyp (som övertiden). Blir en lönerad när lönearten har en kod.
   const arbetadeInklExtra = new Set<string>(arbetadeDatum);
   for (const e of extraTid) if (e?.datum && (e.minuter || 0) > 0) arbetadeInklExtra.add(e.datum);
-  // Bytesdag: en arbetad röd dag som byts mot en ledig dag — märks så att
-  // granskningen ser att den INTE ska ha helglön OCH att ledigheten finns.
+  // Bytesdag: en arbetad röd dag som byts mot en ledig dag — märks så att granskningen ser att ledigheten finns.
   const bytesLedigPerRod = new Map(byten.map(b => [b.ersatter, b.ledig]));
-  const helglonDagarLista = helglonIManad(helglonNamn, arbperiod, arbetadeInklExtra)
+  const anstDatum = (lon.anstallningsdatum || "").trim() || null;
+  const franvaroRunt: FranvaroPost[] = (lon.franvaroRunt ?? ledigheter).map(l => ({ ...l, typ: String(l.typ || "").toLowerCase() }));
+  const helglonDagarLista: HelglonDag[] = foretagsledare ? [] : helglonIManad(helglonNamn, arbperiod, { arbetadeDatum: arbetadeInklExtra, franvaro: franvaroRunt, anstallningsdatum: anstDatum })
     .map(h => bytesLedigPerRod.has(h.datum) ? { ...h, bytesLedig: bytesLedigPerRod.get(h.datum) } : h);
-  const helglonTimmar = helglonDagarLista.filter(h => !h.arbetad).length * HELGLON_TIMMAR;
-  const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar };
+  const helglonGerDagar = helglonDagarLista.filter(h => h.ger);
+  const helglonTimmar = helglonGerDagar.length * HELGLON_TIMMAR;
+  const anstallningsdatumSaknas = helglonDagarLista.length > 0 && !anstDatum;
+  const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar, anstallningsdatumSaknas };
   if (helglonDagarLista.length > 0) {
-    const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.arbetad ? ' (arbetad)' : ''}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig})` : ''}`).join(', ');
-    varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}). Arbetad röd dag ger ingen helglön (§10 mom 2), timmarna lönas + söndagstillägg (§8 mom 1). Närvarokravet (§10 mom 4) kontrolleras inte än.`);
+    const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.ger ? (h.arbetad ? ` (${helglonSkalText(h.skal)})` : '') : ` (ingen helglön: ${helglonSkalText(h.skal)})`}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig})` : ''}`).join(', ');
+    varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}). Praxis: varje röd vardag ger 8 tim, även om du arbetar den (arbetade timmar lönas dessutom, inget söndagstillägg §8 mom 1). Närvarokravet (§10 mom 4) och kvalifikationstiden (mom 3) är kontrollerade.`);
+  }
+  if (anstallningsdatumSaknas) {
+    varningar.push("Anställningsdatum saknas: kvalifikationstiden för helglön (tre månader, §10 mom 3) är inte kontrollerad. Helglönen betalas. Fyll i anställningsdatum under Medarbetare.");
   }
   if (helglonTimmar > 0) {
-    const antalDagar = helglonDagarLista.filter(h => !h.arbetad).length;
-    laggRad("helglon", helglonTimmar.toFixed(2), `Helglön §10: ${helglonTimmar}h (${antalDagar} röda vardagar utan arbete)`);
+    const helglonArt: LoneartKey | null = typadH > 0
+      ? (skordareH >= skotareH ? "helglon_skordare" : "helglon_skotare")
+      : radMaskinTyp === "skordare" ? "helglon_skordare" : radMaskinTyp === "skotare" ? "helglon_skotare" : null;
+    if (helglonArt) {
+      const arbetade = helglonGerDagar.filter(h => h.arbetad).length;
+      laggRad(helglonArt, helglonTimmar.toFixed(2), `Helglön §10: ${helglonTimmar}h (${helglonGerDagar.length} röda vardagar${arbetade > 0 ? `, varav ${arbetade} arbetade` : ''})`);
+    } else {
+      varningar.push(`Ingen helglön skickas: ${helglonTimmar} tim kan inte räknas — ingen maskintid i månaden och ingen maskin på medarbetarraden, så maskintypen (skördare/skotare) går inte att avgöra. Sätt förarens maskin i admin.`);
+    }
+  }
+
+  // ── BRANDRISK-OB (lib/ob, Skogsavtalet § 8 mom 1) ──
+  // EN rad per förare och månad med tom kod tills admin kopplar den (Fortnox 147): alla beordrade timmar start → 06:30 — företagets praxis,
+  // över avtalets minimum, ingen uppdelning i nattillägg. Exakta timmar, två decimaler, ingen avrundning per dag. Ingen annan OB räknas.
+  const brandrisk = brandriskSumma(dagar.map(d => ({ datum: d.datum, start_tid: d.start_tid ?? null, brandrisk_beordrad: d.brandrisk_beordrad ?? null })));
+  if (brandrisk.ob_min > 0) {
+    laggRad("brandrisk_ob", minTillTimmar(brandrisk.ob_min), `Brandrisk – OB: ${minTillTimmar(brandrisk.ob_min)}h (${brandrisk.dagar.length} beordrade morgnar, start–06:30)`);
   }
 
   return {
@@ -512,19 +559,22 @@ export function beräknaExport(
     varningar,
     lonerader,
     saknade_loneartskoder: saknadeKoder,
+    foretagsledare,
     arbetsdagar: antalArbetsdagar,
     ordinarie_h: ordinarie,
     extra_h: extraHRund,
-    timlon_h: timlonH,
+    // Företagsledare: lönen ligger utanför appen, så inga löntal (timlön, premie, övertid, vältlappar, mil) visas för dem.
+    timlon_h: foretagsledare ? 0 : timlonH,
     premielon_skordare_h: premieSkordare,
     premielon_skotare_h: premieSkotare,
-    overtid_h: overtidH,
-    valtlappar_veckor: vältVeckor,
-    kor_mil: totalMil,
+    overtid_h: foretagsledare ? 0 : overtidH,
+    valtlappar_veckor: foretagsledare ? 0 : vältVeckor,
+    kor_mil: foretagsledare ? 0 : totalMil,
     obekraftade,
     franvaro,
     kortpass,
     helglon,
+    brandrisk,
     byten,
     deldagar,
   };

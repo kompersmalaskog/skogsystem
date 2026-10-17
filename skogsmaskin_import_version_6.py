@@ -862,6 +862,23 @@ SKIFT_LAS_FORSOK = 3
 SKIFT_LAS_PAUS_SEK = 1.0
 
 
+def rast_min_fran_sek(sek) -> int:
+    """Rastminuter ur sekunder: närmaste hela minut, halv minut uppåt (1139 s = 18,98 min -> 19).
+
+    EN regel med appen (lib/rastMin.ts); båda testas mot lib/__fixtures__/rast_avrundning.json (scripts/test_rast_min.py).
+    Förut trunkerade importen (1139 s blev 18) medan /api/mom-import avrundade (19) - samma dag kunde få olika
+    rast beroende på vem som skrev raden. Pythons round() duger inte: den avrundar 18,5 till 18 (jämna tal).
+    Saknat eller ogiltigt värde är 0.
+    """
+    try:
+        s = float(sek)
+    except (TypeError, ValueError):
+        return 0
+    if not (s > 0) or s == float('inf'):
+        return 0
+    return int((s + 30) // 60)
+
+
 def sla_ihop_skift_kuvert(rad: Dict, befintlig: Optional[Dict]) -> Dict:
     """Pass kan bara utökas: tidigaste inloggning, senaste utloggning, tidigaste maskininloggning. `befintlig` är raden i
     databasen med tidsfälten redan tolkade (datetime) eller None när passet inte finns än. Ren: `rad` ändras inte.
@@ -4140,7 +4157,7 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
             # hela dagar utan rast (Martin 2026-09-15), så noll är korrekt.
             # Skördarna (Scorpion, Rottne) loggar rasten. Utred inte om igen.
             rast_sek = sum(rast_lookup.get((o, datum_str), 0) for o in ops_per_forare[medarb_id])
-            rast_min = int(rast_sek / 60)
+            rast_min = rast_min_fran_sek(rast_sek)
             objekt_id = objekt_lookup.get((agg['op_id'], datum_str))
 
             arbetsdag_rows.append({

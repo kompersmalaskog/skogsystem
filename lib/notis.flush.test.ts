@@ -5,10 +5,9 @@ import { describe, it, expect, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { createClient } from "@supabase/supabase-js";
+import { laddaProdEnv } from "./testProdEnv";
 
-for (const l of fs.readFileSync(path.resolve(__dirname, "../.env.local"), "utf8").split("\n")) {
-  const i = l.indexOf("="); if (i > 0 && !l.startsWith("#")) process.env[l.slice(0, i).trim()] ??= l.slice(i + 1).trim();
-}
+const HAR_PROD_ENV = laddaProdEnv(path.resolve(__dirname, "../.env.local")); // saknas i CI → byggMeddelande-blocket (prod-DB) hoppas över
 vi.mock("@/lib/auth/server", () => ({ kravRoll: async () => ({ ok: false, res: new Response("", { status: 401 }) }), ADMIN_ROLLER: ["admin"] }));
 
 describe("skippOrsak — växlarna avgör", async () => {
@@ -27,7 +26,7 @@ describe("skippOrsak — växlarna avgör", async () => {
   });
 });
 
-describe("byggMeddelande — låsskärmstext", async () => {
+describe.skipIf(!HAR_PROD_ENV)("byggMeddelande — låsskärmstext", async () => {
   const { byggMeddelande } = await import("../app/api/notis/flush/route");
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   it("dagsslut med obesvarad brandrisk (Stefan 2026-08-13 03:00) → '… · brandrisk? · Stämmer?'", async () => {

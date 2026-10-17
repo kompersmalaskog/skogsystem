@@ -22,8 +22,9 @@ const okt: Arbetsdagar = {
 const gallOkt = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 665.1485, skotat: 714, takt_skordat: 55.9, takt_skotat: 0, oskotat_forandring_per_dag: 55.9, ingaende_oskotat: 0 }), okt)
 const slutOkt = raknaSpar(rad('slutavverkning', { bestallt: 5000, skordat: 2498.7337, skotat: 3235.5, takt_skordat: 160.4, takt_skotat: 374.6, oskotat_forandring_per_dag: -214.2, ingaende_oskotat: 0 }), okt)
 const bada = { gallring: 3, slutavverkning: 3 }
-// Spår som landar på beställningen: skördat 900 + 20 × 10 = 1 100, skotat 800 + 30 × 10 = 1 100 (kapas vid skördat 1 100).
-const gallOk = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 900, skotat: 800, takt_skordat: 20, takt_skotat: 30, ingaende_oskotat: 0 }), okt)
+// Spår som landar på beställningen: skördat 900 + 12 × 10 = 1 020, skotat 800 + 22 × 10 = 1 020 (kapas vid skördat 1 020) — 2 % över, inom ±5 %.
+// (Med 20 och 30 per dag landar det 10 % över: det är "landar över beställt", se stopp.test.ts.)
+const gallOk = raknaSpar(rad('gallring', { bestallt: 1000, skordat: 900, skotat: 800, takt_skordat: 12, takt_skotat: 22, ingaende_oskotat: 0 }), okt)
 const slutOk = raknaSpar(rad('slutavverkning', { bestallt: 5000, skordat: 4500, skotat: 4000, takt_skordat: 100, takt_skotat: 120, ingaende_oskotat: 0 }), okt)
 
 describe('Läge svarsrad — styrs av prognos mot beställt, per roll och spår', () => {

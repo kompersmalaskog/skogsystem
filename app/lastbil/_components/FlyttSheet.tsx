@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Ark from '@/components/design/Ark';
+import Sektion from '@/components/design/Sektion';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, RAD, RADIE, TNUM, TYP } from '@/lib/design/tokens';
 import { automatisktSkal, beraknaFakturerbar, fakturerbarEffektiv, FLYTT_TYPER, FLYTT_TYP_ORD } from '@/lib/flytt/fakturerbar';
 import { forhandsbesked } from '@/lib/flytt/forhandsbesked';
@@ -38,15 +39,6 @@ const platsNamn = (data: PlatsData | null, p: Plats): string => {
 };
 
 // ── iOS-rader ────────────────────────────────────────────────────────────────────────────────────
-
-function Grupp({ rubrik, children }: { rubrik: string; children: ReactNode }) {
-  return (
-    <section aria-label={rubrik}>
-      <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 0 ${AVSTAND.xs}px ${AVSTAND.s}px` }}>{rubrik}</div>
-      <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>{children}</div>
-    </section>
-  );
-}
 
 /** En rad med etikett till vänster och värde till höger. Med `onTryck` har den en chevron; utan är den bara text (låst). */
 function ValRad({ etikett, varde, notis, notisFarg = FARG.text2, varning, sista, onTryck }: {
@@ -155,8 +147,8 @@ function Historik({ rader, data }: { rader: readonly Rattning[]; data: PlatsData
   if (rader.length === 0) return null;
   return (
     <section aria-label="Historik" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-      <div style={{ ...TYP.micro, color: FARG.text2, marginLeft: AVSTAND.s }}>Historik</div>
-      {rader.map(r => <p key={r.id} style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 0 ${AVSTAND.s}px` }}>{beskrivRattning(r, data)}</p>)}
+      <div style={{ ...TYP.micro, color: FARG.text2, marginLeft: AVSTAND.xs }}>Historik</div>
+      {rader.map(r => <p key={r.id} style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 0 ${AVSTAND.xs}px` }}>{beskrivRattning(r, data)}</p>)}
     </section>
   );
 }
@@ -248,7 +240,7 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
     forare ? forare.split(/\s+/)[0] : 'förare saknas',
   ].join(' · ');
   const rutt = `${nuPlats({ objekt: flytt.fran_objekt_id, plats: flytt.fran_plats_id })} → ${nuPlats({ objekt: flytt.till_objekt_id, plats: flytt.till_plats_id })}`;
-  const ruttRad = <div data-rutt style={{ ...TYP.meta, color: FARG.text2, marginTop: -AVSTAND.s }}>{rutt}</div>;
+  const ruttRad = <div data-rutt style={{ ...TYP.meta, color: FARG.text2, margin: `-${AVSTAND.s}px 0 ${AVSTAND.l}px` }}>{rutt}</div>;
 
   // ── Låst: allt läsbart, inga chevrons, inga redigeringsknappar, en grå rad som säger varför ──
   const lasText: string | null = flytt.avbruten ? 'Struken — flytten hände aldrig och går inte att ändra'
@@ -286,15 +278,15 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
             </button>
           </>
         ) : undefined}>
-        <div data-flytt-vy="last" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+        <div data-flytt-vy="last">
           {ruttRad}
-          <Grupp rubrik="Flytten">
+          <Sektion rubrik="Flytten" inset>
             <ValRad etikett="Maskin" varde={maskinNamn(data, form.maskinId, form.extern)} />
             <ValRad etikett="Från" varde={nuPlats(form.fran)} />
             <ValRad etikett="Till" varde={nuPlats(form.till)} />
             <ValRad etikett="Typ" varde={FLYTT_TYP_ORD[form.typ as keyof typeof FLYTT_TYP_ORD] ?? form.typ} sista />
-          </Grupp>
-          <Grupp rubrik="Faktura">
+          </Sektion>
+          <Sektion rubrik="Faktura" inset>
             <ValRad etikett="Fakturera" varde={lasFakturera.varde} notis={lasFakturera.notis} sista={!lasVisaFaltenUnder} />
             {lasVisaFaltenUnder && u && (
               <>
@@ -302,12 +294,12 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
                 <ValRad etikett="Kund" varde={kundVarde(u.kund)} notis={kundNotis(u, fmtDatum)} notisFarg={FARG.orange} sista />
               </>
             )}
-          </Grupp>
-          <p role="status" data-last style={{ ...TYP.text, color: FARG.text2, margin: 0, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+          </Sektion>
+          <p role="status" data-last style={{ ...TYP.text, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
             <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.rad }}>lock</span>
             {lasText}
           </p>
-          {fel && !kanLamnaTillbaka && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{fel}</p>}
+          {fel && !kanLamnaTillbaka && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: `0 0 ${AVSTAND.l}px` }}>{fel}</p>}
           <Historik rader={historik} data={data} />
         </div>
       </Ark>
@@ -469,10 +461,14 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
     );
   } else {
     innehall = (
-      <div data-flytt-vy="huvud" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+      <div data-flytt-vy="huvud">
         {ruttRad}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-          <Grupp rubrik="Flytten">
+        {/* Utan ett redigerbart underlag visas mätningen här: den avgör om flytten är fakturerbar (≥ 30 km) och går aldrig att rätta. */}
+        <Sektion rubrik="Flytten" inset not={!fakturaRedigerbar ? (
+          <span data-matt-flytt>
+            {matt != null ? `Mätt sträcka ${fmtKm(matt)} km — går inte att rätta. Är mätningen fel, stryk flytten.` : 'Mätt sträcka saknas i datan.'}
+          </span>
+        ) : undefined}>
             <ValRad etikett="Maskin" varde={maskinNamn(data, f.maskinId, f.extern)} onTryck={() => setVy('maskin')}
               notis={nu.maskin_id !== fore.maskin_id || nu.extern_maskin !== fore.extern_maskin ? `Ändras från ${maskinNamn(data, flytt.maskin_id, flytt.extern_maskin)}` : null} notisFarg={FARG.orange} />
             <ValRad etikett="Från" varde={nuPlats(f.fran)} onTryck={() => setVy('fran')} varning={tillAndrad ? null : traktText}
@@ -482,16 +478,9 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
             <ValRad etikett="Typ" varde={FLYTT_TYP_ORD[f.typ as keyof typeof FLYTT_TYP_ORD] ?? f.typ} onTryck={() => setVy('typ')} sista={!kundIFlytten}
               notis={f.typ !== flytt.flytt_typ ? `Ändras från ${FLYTT_TYP_ORD[flytt.flytt_typ as keyof typeof FLYTT_TYP_ORD] ?? flytt.flytt_typ}` : null} notisFarg={FARG.orange} />
             {kundIFlytten && kundRad}
-          </Grupp>
-          {/* Utan ett redigerbart underlag visas mätningen här: den avgör om flytten är fakturerbar (≥ 30 km) och går aldrig att rätta. */}
-          {!fakturaRedigerbar && (
-            <p data-matt-flytt style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 0 ${AVSTAND.s}px` }}>
-              {matt != null ? `Mätt sträcka ${fmtKm(matt)} km — går inte att rätta. Är mätningen fel, stryk flytten.` : 'Mätt sträcka saknas i datan.'}
-            </p>
-          )}
-        </div>
+        </Sektion>
 
-        <Grupp rubrik="Faktura">
+        <Sektion rubrik="Faktura" inset>
           {flytt.manuell_finns ? (
             <div style={{ borderBottom: visaFaktureringsfalt || (u && !fakturaRedigerbar) ? `1px solid ${FARG.linje}` : 'none' }}>
               <FakturaBrytare pa={faktureraNu} onByt={() => { const onskat = !faktureraNu; set({ manuell: onskat === autoNu ? null : onskat }); }} />
@@ -534,10 +523,10 @@ export default function FlyttSheet({ flyttId, underlagId = null, namn, onStang, 
               </div>
             </>
           )}
-        </Grupp>
+        </Sektion>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-          <span style={{ ...TYP.micro, color: FARG.text2, marginLeft: AVSTAND.s }}>Varför?</span>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, marginBottom: historik.length > 0 ? AVSTAND.xl : 0 }}>
+          <span style={{ ...TYP.micro, color: FARG.text2, marginLeft: AVSTAND.xs }}>Varför?</span>
           <textarea aria-label="Anledning" value={anledning} onChange={e => setAnledning(e.target.value)} rows={2} placeholder="t.ex. valde fel trakt i stunden" style={{ ...faltStil, resize: 'none' }} />
         </label>
 

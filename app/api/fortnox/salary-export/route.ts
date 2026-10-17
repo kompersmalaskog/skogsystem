@@ -18,6 +18,7 @@ import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
  * gått iväg. Admin kan UTTRYCKLIGEN välja att skicka utan de raderna: `skicka_utan_saknade: true` (bara det booleska true räknas).
  * Då skickas allt utom dem och svaret säger vilka som uteblev (`utelamnade`) — de läggs inte på senare av sig själva.
  * Premielönen är frivillig och blockerar aldrig (lib/lonesystem/loneart).
+ * Företagsledare (medarbetare.foretagsledare) har inga lönerader och skickas aldrig: lönen ligger utanför appen.
  *
  * Beräkningen bor i lib/lonesystem/loneunderlag.ts (delad med förarens
  * tidsspecifikation). Routen är ett skal: auth → beräkna → returnera/skicka.
@@ -85,6 +86,8 @@ export async function POST(req: NextRequest) {
 
     for (const r of resultat) {
       if (r.status === "skickat") continue;
+      // Företagsledare: lönen ligger utanför appen. Inget skickas, ingen logg, inget fel om anställningsnummer.
+      if (r.foretagsledare) continue;
       if (!r.anstallningsnummer) {
         felMeddelanden.push(`${r.namn}: anställningsnummer saknas.`);
         fel++;
@@ -132,7 +135,7 @@ export async function POST(req: NextRequest) {
       skickade,
       fel,
       felMeddelanden,
-      medarbetare: resultat.map(r => ({
+      medarbetare: resultat.filter(r => !r.foretagsledare).map(r => ({
         namn: r.namn,
         rader: r.rader.length,
         status: redanSkickad.has(r.medarbetare_id) ? "skickat" : (r.anstallningsnummer ? "skickat" : "fel"),

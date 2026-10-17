@@ -190,7 +190,7 @@ describe('sidan: tomläget är kopplat dit det ska', () => {
   it('tomläget visar kartan (ObjektKartaTom) när listan ska visas — bara den svarta "Hämtar objekt…"-ytan medan minnet/adressen läses', () => {
     const i = sida.indexOf('// Visa objektväljaren om inget objekt är valt');
     const block = sida.slice(i, i + 2600);
-    expect(block).toMatch(/visaListan \? \(\s*(\/\/[^\n]*\n\s*)*<ObjektKartaTom onValj=\{valjObjektUrLista\}/);
+    expect(block).toMatch(/visaListan \? \(\s*(\/\/[^\n]*\n\s*)*<ObjektKartaTom onValj=\{maskinlage \? valjObjektIMaskin : valjObjektUrLista\}/);
     expect(block).toMatch(/Hämtar objekt…/);
     expect(block).not.toMatch(/<ObjektLista oppen kanStangas=\{false\}/);   // den bara-listan-på-svart-vägen är borta
   });

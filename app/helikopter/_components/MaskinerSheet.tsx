@@ -4,15 +4,15 @@
 import { useEffect, useState } from 'react'
 import { Sheet } from '@/components/Sheet'
 import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens'
-import { TYP_NAMN, maskinNamn, maskinRoll, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { TYP_NAMN, maskinNamn, maskinRoll, stoppSynligt, stoppUtanNamn, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { dagarText, fmt, kortNamn } from '../_lib/format'
-import { hamtaMaskinTakter, type Maskin, type MaskinLage } from '../_lib/queries'
+import { hamtaMaskinTakter, type Maskin, type MaskinLage, type MaskinStopp } from '../_lib/queries'
 import { ListRad } from './Lista'
 import Sektion from '@/components/design/Sektion'
 
-type Props = { open: boolean; onClose: () => void; spar: SparLage[]; status: ManadStatus; maskiner: Maskin[]; idag: string }
+type Props = { open: boolean; onClose: () => void; spar: SparLage[]; status: ManadStatus; maskiner: Maskin[]; idag: string; stopp: MaskinStopp[] | null }
 
-export default function MaskinerSheet({ open, onClose, spar, status, maskiner, idag }: Props) {
+export default function MaskinerSheet({ open, onClose, spar, status, maskiner, idag, stopp }: Props) {
   const [takter, setTakter] = useState<Record<string, MaskinLage | null> | null>(null)
   const [fel, setFel] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
@@ -59,21 +59,25 @@ export default function MaskinerSheet({ open, onClose, spar, status, maskiner, i
           (['skordare', 'skotare'] as const).map(roll =>
             maskiner.filter(m => maskinRoll(m) === roll).map(m => {
               const l = takter[m.maskin_id]
+              // Står maskinen (eller har stått i takt-fönstret) är det stoppet som förklarar takten — det först, "Senast …" efter.
+              const st = stopp?.find(x => x.maskin_id === m.maskin_id)
+              const stoppText = st && stoppSynligt(st) ? stoppUtanNamn(st) : null
+              const senast = l ? `Senast ${kortNamn(l.namn)}` : 'Ingen produktion registrerad'
               return (
                 <ListRad
                   key={m.maskin_id}
                   namn={maskinNamn(m)}
                   tal={l?.takt_per_dag != null ? `${fmt(l.takt_per_dag)}/dag` : '–'}
                   talTon={l?.takt_per_dag != null ? 'normal' : 'muted'}
-                  under={l ? `Senast ${kortNamn(l.namn)}` : 'Ingen produktion registrerad'}
-                  underMuted={!l}
+                  under={stoppText ? `${stoppText.charAt(0).toUpperCase()}${stoppText.slice(1)} · ${senast}` : senast}
+                  underMuted={!l && !stoppText}
                 />
               )
             }),
           )
         )}
       </Sektion>
-      <div style={{ ...TYP.meta, color: FARG.text3 }}>m³fub · takt = senaste fem arbetsdagarna</div>
+      <div style={{ ...TYP.meta, color: FARG.text3 }}>m³fub · Takt = snitt på dagar maskinen körde. Ledig förare utan fil räknas inte som arbetsdag.</div>
     </Sheet>
   )
 }

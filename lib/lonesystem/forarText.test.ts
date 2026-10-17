@@ -117,20 +117,71 @@ describe("Lönearter utan kod — förarens ord, aldrig adminens text", () => {
     expect(attTittaPa({ varningar: [], lonerader: [rad("valtlappar", "skickas")] })).toEqual([]);
   });
 
-  const helglon = { dagar: [{ datum: "2026-12-24", namn: "Julafton", arbetad: false }], timmar: 8 };
+  const dagH = (datum: string, namn: string, o: { arbetad?: boolean; ger?: boolean; skal?: string } = {}) => ({ datum, namn, arbetad: o.arbetad ?? false, ger: o.ger ?? true, skal: o.skal ?? "betalas" });
+  const helglon = { dagar: [dagH("2026-12-24", "Julafton")], timmar: 8 };
   it("helglön MED kod går till lönen — raden säger inte längre att lönearten är obestämd", () => {
-    const p = attTittaPa({ varningar: [], helglon, lonerader: [rad("helglon", "skickas", "8.00")] });
+    const p = attTittaPa({ varningar: [], helglon, lonerader: [rad("helglon_skordare", "skickas", "8.00")] });
     expect(p).toHaveLength(1);
     expect(p[0].text).toBe("Helglön, 8 tim. Går till lönen.");
     expect(p[0].text).not.toMatch(/inte bestämd/);
   });
+  it("helglön med kod på skotarlönearten går också till lönen", () => {
+    expect(attTittaPa({ varningar: [], helglon, lonerader: [rad("helglon_skotare", "skickas", "8.00")] })[0].text).toBe("Helglön, 8 tim. Går till lönen.");
+  });
   it("helglön UTAN kod: som förut — går inte till lönen än, och posten kommer bara en gång (inte också som saknad löneart)", () => {
-    const p = attTittaPa({ varningar: [], helglon, lonerader: [rad("helglon", "saknar_kod", "8.00")] });
+    const p = attTittaPa({ varningar: [], helglon, lonerader: [rad("helglon_skordare", "saknar_kod", "8.00")] });
     expect(p).toHaveLength(1);
     expect(p[0].text).toBe("Helglön, 8 tim. Går inte till lönen än — lönearten är inte bestämd.");
   });
   it("äldre svar utan lonerader: helglön som förut", () => {
     const p = attTittaPa({ varningar: [], helglon });
     expect(p[0].text).toMatch(/inte bestämd/);
+  });
+
+  describe("Min månad: varför en röd dag gav eller inte gav helglön", () => {
+    const med = (d: ReturnType<typeof dagH>) => attTittaPa({ varningar: [], helglon: { dagar: [d], timmar: d.ger ? 8 : 0 }, lonerader: [rad("helglon_skordare", "skickas", "8.00")] });
+    it("arbetad röd dag: du får helglön OCH lön för timmarna", () => {
+      const p = med(dagH("2026-01-06", "Trettondedag jul", { arbetad: true, skal: "betalas_arbetad" }));
+      expect(p).toHaveLength(1);
+      expect(p[0]).toMatchObject({ rubrik: "6 januari", hoger: "Trettondedag jul" });
+      expect(p[0].text).toBe("Du arbetade den dagen. Helglön, 8 tim, kommer ovanpå lönen för timmarna du arbetade. Går till lönen.");
+    });
+    it.each([
+      ["sjuk", /Du var sjuk den dagen/],
+      ["vab", /VAB/],
+      ["foraldraledig", /Du var föräldraledig den dagen/],
+      ["tjanstledig", /Du var tjänstledig den dagen/],
+      ["tjanstledig_omger", /tjänstledig dagen före eller dagen efter/],
+      ["kvalifikationstid", /först efter tre månaders anställning/],
+    ])("%s: dagen står med sin orsak, och ingen 'Går till lönen'", (skal, re) => {
+      const p = med(dagH("2025-12-24", "Julafton", { ger: false, skal }));
+      expect(p).toHaveLength(1);
+      expect(p[0].text).toMatch(re);
+      expect(p[0].text).not.toMatch(/Går till lönen/);
+      expect(p[0].text).toMatch(/ingen helglön|Ingen helglön|ger ingen helglön|betalas ingen helglön|först efter/);
+    });
+    it("förarens ord innehåller inga paragrafer eller tekniska ord", () => {
+      for (const skal of ["sjuk", "vab", "foraldraledig", "tjanstledig", "tjanstledig_omger", "kvalifikationstid"]) {
+        expect(med(dagH("2025-12-24", "Julafton", { ger: false, skal }))[0].text).not.toMatch(/§|mom |skal|intern|mappning/i);
+      }
+    });
+    it("varje röd vardag får EN post, sorterade på datum (24, 25, 26, 31 dec)", () => {
+      const dagar = [dagH("2025-12-24", "Julafton"), dagH("2025-12-25", "Juldagen", { arbetad: true, skal: "betalas_arbetad" }), dagH("2025-12-26", "Annandag jul", { ger: false, skal: "sjuk" }), dagH("2025-12-31", "Nyårsafton")];
+      const p = attTittaPa({ varningar: [], helglon: { dagar, timmar: 24 }, lonerader: [rad("helglon_skotare", "skickas", "24.00")] });
+      expect(p.map(x => x.datum)).toEqual(["2025-12-24", "2025-12-25", "2025-12-26", "2025-12-31"]);
+    });
+    it("ingen maskintyp: egen post 'Säg till Martin', och motorns varning visas inte ordagrant", () => {
+      const v = "Ingen helglön skickas: 24 tim kan inte räknas — ingen maskintid i månaden och ingen maskin på medarbetarraden, så maskintypen (skördare/skotare) går inte att avgöra. Sätt förarens maskin i admin.";
+      const p = attTittaPa({ varningar: [v], lonerader: [] });
+      expect(p).toHaveLength(1);
+      expect(p[0]).toMatchObject({ rubrik: "Helglön", hoger: "saknas" });
+      expect(p[0].text).toMatch(/Säg till Martin/);
+      expect(okandaVarningar([v])).toEqual([]);
+    });
+    it("'Anställningsdatum saknas' är adminens sak: ingen post och ingen ordagrann varning till föraren", () => {
+      const v = "Anställningsdatum saknas: kvalifikationstiden för helglön (tre månader, §10 mom 3) är inte kontrollerad. Helglönen betalas. Fyll i anställningsdatum under Medarbetare.";
+      expect(attTittaPa({ varningar: [v], lonerader: [] })).toEqual([]);
+      expect(okandaVarningar([v])).toEqual([]);
+    });
   });
 });

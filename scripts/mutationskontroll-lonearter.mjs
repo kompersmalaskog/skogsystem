@@ -48,9 +48,9 @@ const M = [
   ["spärren räknar redan skickade förare", 'if (m.status === "skickat") continue;', "", SAK],
 
   // ── helglön med/utan kod ──
-  ["helglön skickas aldrig", "if (helglonTimmar > 0) {\n    const antalDagar", "if (false) {\n    const antalDagar", BER],
-  ["helglön skickas även när det inte finns någon", "if (helglonTimmar > 0) {\n    const antalDagar", "if (helglonTimmar >= 0) {\n    const antalDagar", BER],
-  ["helglön fel antal", "laggRad(\"helglon\", helglonTimmar.toFixed(2),", "laggRad(\"helglon\", (helglonTimmar * 2).toFixed(2),", BER],
+  ["helglön skickas aldrig", "if (helglonTimmar > 0) {\n    const helglonArt", "if (false) {\n    const helglonArt", BER],
+  ["helglön skickas även när det inte finns någon", "if (helglonTimmar > 0) {\n    const helglonArt", "if (helglonTimmar >= 0) {\n    const helglonArt", BER],
+  ["helglön fel antal", "laggRad(helglonArt, helglonTimmar.toFixed(2),", "laggRad(helglonArt, (helglonTimmar * 2).toFixed(2),", BER],
 
   // ── exportroutens stopp och det uttryckliga valet ──
   ["spärren är borta helt", "if (blockerande.length > 0 && !skickaUtanSaknade) {", "if (false) {", RUT],
@@ -61,9 +61,9 @@ const M = [
   ["svaret säger inte vilka rader som uteblev", "const utelamnade = blockerande.flatMap(b =>", "const utelamnade = ([] as any[]).flatMap((b: any) =>", RUT],
 
   // ── förarens text ──
-  ["helglön 'går till lönen' även utan kod", 'const helglonGar = lonerader.some(l => l.loneart === "helglon" && l.status === "skickas");', "const helglonGar = true;", FOR],
+  ["helglön 'går till lönen' även utan kod", 'const helglonGar = lonerader.some(l => l.loneart.startsWith("helglon") && l.status === "skickas");', "const helglonGar = true;", FOR],
   ["adminens text läcker till föraren", "/^Löneart saknas/, ", "", FOR],
-  ["helglön får en extra post som saknad löneart", ' && l.loneart !== "helglon")) {', ")) {", FOR],
+  ["helglön får en extra post som saknad löneart", ' && !l.loneart.startsWith("helglon"))) {', ")) {", FOR],
   ["frivillig premie syns för föraren", 'lonerader.filter(l => l.status === "saknar_kod"', 'lonerader.filter(l => l.status !== "skickas"', FOR],
 ];
 

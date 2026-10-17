@@ -3,9 +3,9 @@
 // Flik 1 — Läge, i liststil: svarsrad överst, MOT BESTÄLLNING (per spår: rubrikrad +
 // mätarrad Skördat + mätarrad Skotat + förklaringsrad), DIN MASKIN, två listrader som
 // öppnar sheets. Inga stora tal, färg bara på en stapel som ligger under plan idag.
-import { kapacitetsMaskiner, lageSvar, motBestallningRad, registreringsVarning, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { kapacitetsMaskiner, lageSvar, motBestallningRad, oforklaratVarning, registreringsVarning, sparStoppText, TYP_NAMN, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, dagarText, fmt, kortNamn } from '../_lib/format'
-import type { Arbetsdagar, BestallningRad, Maskin, MaskinLage, Typ, UtanTypRad } from '../_lib/queries'
+import type { Arbetsdagar, BestallningRad, Maskin, MaskinLage, MaskinStopp, Typ, UtanTypRad } from '../_lib/queries'
 import { ListRad, MatarRad, RAD_KOLUMN } from './Lista'
 import Sektion from '@/components/design/Sektion'
 import Svarsrad from '@/components/design/Svarsrad'
@@ -33,16 +33,22 @@ type Props = {
   senasteLass: Record<string, string | null> | null
   /** Alla arbetsdagsrader (global + per maskin) — varningen räknar på maskinens egna dagar. */
   arbetsdagar: Arbetsdagar[]
+  /** Stopp per maskin, härledda ur ledighet + filer (helikopter_ny_stopp). null = kunde inte läsas: inga stopptexter och ingen oförklarat-varning. */
+  maskinStopp: MaskinStopp[] | null
+  /** Maskinens rapportdagar (orapporterade med) — "inga lass registrerade" räknar på dem. null = som förut på arbetsdagarna. */
+  rapportdagar: Record<string, string[]> | null
 }
 
-export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin, manuella, senasteLass, arbetsdagar }: Props) {
+export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskiner, bestallningar, utanTyp, antalPlanerade, dinMaskin, manuella, senasteLass, arbetsdagar, maskinStopp, rapportdagar }: Props) {
   const [sheet, setSheet] = usePanelVal<'maskiner' | 'utan'>('lage')
   const manadNamn = MANAD_NAMN[manad - 1]
   const svar = lageSvar(spar, antalPlanerade, status, dagar, manadNamn)
-  // Manuell datakälla utan registrerade lass de två senaste arbetsdagarna → orange rad under svaret.
-  if (status === 'pagaende' && senasteLass) {
-    svar.varning = registreringsVarning(maskiner.filter(m => manuella.has(m.maskin_id)), senasteLass, arbetsdagar, idag, manadNamn)
-  }
+  // EN orange varningsrad under svaret: oförklarat stopp (maskinen körde inte, ingen förare ledig) och/eller manuell datakälla utan registrerade lass.
+  // Planerat stopp — ledig förare utan fil — hamnar aldrig här.
+  const registrering = status === 'pagaende' && senasteLass
+    ? registreringsVarning(maskiner.filter(m => manuella.has(m.maskin_id)), senasteLass, arbetsdagar, idag, manadNamn, rapportdagar)
+    : null
+  svar.varning = [oforklaratVarning(maskinStopp, manuella, status), registrering].filter(Boolean).join(' · ') || null
   const utanSumma = (utanTyp ?? []).reduce((s, r) => s + r.volym, 0)
 
   return (
@@ -50,7 +56,7 @@ export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskine
       <Svarsrad {...svar} />
       <Sektion className="hk-grupp" rubrik="Mot beställning" foljdAvLankar={!dinMaskin}>
         {spar.map(s => {
-          const rad = motBestallningRad(s, antalPlanerade[s.typ], status, manadNamn)
+          const rad = motBestallningRad(s, antalPlanerade[s.typ], status, manadNamn, sparStoppText(s, maskinStopp))
           const harBest = s.bestallt > 0
           const ingenPlan = status !== 'avslutad' && antalPlanerade[s.typ] === 0
           // Mätare bara när det finns både beställning och objekt att mäta mot.
@@ -106,7 +112,7 @@ export default function LageFlik({ spar, status, dagar, ar, manad, idag, maskine
       </RadGrupp>
 
       <UtanTypSheet open={sheet === 'utan'} onClose={() => setSheet(null)} rader={utanTyp ?? []} manadNamn={manadNamn} />
-      <MaskinerSheet open={sheet === 'maskiner'} onClose={() => setSheet(null)} spar={spar} status={status} maskiner={kapacitetsMaskiner(maskiner, idag)} idag={idag} />
+      <MaskinerSheet open={sheet === 'maskiner'} onClose={() => setSheet(null)} spar={spar} status={status} maskiner={kapacitetsMaskiner(maskiner, idag)} idag={idag} stopp={maskinStopp} />
     </>
   )
 }
