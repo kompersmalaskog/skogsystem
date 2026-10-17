@@ -74,7 +74,7 @@ const M = [
   ["Öppna som maskin visas för en obekräftad maskin", "{!maskin.aktiv_till && !obekraftad && (", "{true && (", MK],
 
   // ── Lönesystem, Lönearter, Vilobrott, Avtal ──
-  ["Stub-system visas igen", "[\"fortnox\", \"csv\"].filter(", "[\"fortnox\", \"csv\", \"visma\"].filter(() => true).filter(", LS],
+  ["Stub-system visas igen", "[\"fortnox\", \"csv\"].filter(s => IMPLEMENTERADE.includes(s as SystemTyp)) as SystemTyp[]", "[\"fortnox\", \"visma\", \"hogia\", \"kontek\", \"crona\", \"agda\", \"csv\"] as SystemTyp[]", LS],
   ["token som går ut om månader visas", "export const TOKEN_VARNING_DAGAR = 14;", "export const TOKEN_VARNING_DAGAR = 4000;", TOK],
   ["igår skrivs som idag", "if (skillnad === 1) return `igår ${kl}`;", "if (skillnad === 1) return `idag ${kl}`;", TOK],
   ["företagsledare räknas som saknar anställningsnummer", "m.foretagsledare !== true && !(anstallningar[m.id] || \"\").trim()", "!(anstallningar[m.id] || \"\").trim()", LS],
