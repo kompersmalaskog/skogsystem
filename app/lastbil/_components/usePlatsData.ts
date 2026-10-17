@@ -9,7 +9,11 @@ import { medAbortRetry } from '@/lib/supabaseRetry';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 
 export interface MaskinVal { maskin_id: string; namn: string }
-export interface PlatsKandidat { slag: 'objekt' | 'plats'; id: string; namn: string; lat: number | null; lng: number | null; sub: string }
+export interface PlatsKandidat {
+  slag: 'objekt' | 'plats'; id: string; namn: string; lat: number | null; lng: number | null; sub: string;
+  /** Bara trakter: bolaget ('Vida', 'Privat' …) och markägaren — underlaget för kundförslaget i Flytten-sheeten. */
+  bolag?: string | null; markagare?: string | null;
+}
 export interface PlatsData { maskiner: MaskinVal[]; platser: PlatsKandidat[] }
 
 export type PlatsDataLage = { lage: 'laddar' | 'fel' } | { lage: 'klar'; data: PlatsData };
@@ -26,7 +30,7 @@ export function usePlatsData(aktiv: boolean) {
       try {
         const [m, o, p] = await Promise.all([
           medAbortRetry(() => supabase.from('dim_maskin').select('maskin_id, visningsnamn, modell, maskin_typ').order('maskin_typ').order('maskin_id') as any),
-          medAbortRetry(() => hamtaAlla<any>(() => supabase.from('objekt').select('id, namn, lat, lng, status') as any, 'id')),
+          medAbortRetry(() => hamtaAlla<any>(() => supabase.from('objekt').select('id, namn, lat, lng, status, bolag, markagare') as any, 'id')),
           medAbortRetry(() => supabase.from('flyttplats').select('id, namn, typ, lat, lng, aktiv').eq('aktiv', true).order('namn') as any),
         ]);
         if (m.error) throw m.error;
@@ -36,7 +40,7 @@ export function usePlatsData(aktiv: boolean) {
         const maskiner = (m.data ?? []).map((x: any) => ({ maskin_id: x.maskin_id, namn: x.visningsnamn || x.modell || 'Okänd maskin' }));
         const platser: PlatsKandidat[] = [
           ...(p.data ?? []).map((x: any) => ({ slag: 'plats' as const, id: x.id, namn: x.namn, lat: x.lat ?? null, lng: x.lng ?? null, sub: x.typ ?? 'plats' })),
-          ...(o.data ?? []).filter((x: any) => x.namn).map((x: any) => ({ slag: 'objekt' as const, id: x.id, namn: x.namn, lat: x.lat ?? null, lng: x.lng ?? null, sub: x.status ?? 'trakt' })),
+          ...(o.data ?? []).filter((x: any) => x.namn).map((x: any) => ({ slag: 'objekt' as const, id: x.id, namn: x.namn, lat: x.lat ?? null, lng: x.lng ?? null, sub: x.status ?? 'trakt', bolag: x.bolag ?? null, markagare: x.markagare ?? null })),
         ];
         setLage({ lage: 'klar', data: { maskiner, platser } });
       } catch (e) {
