@@ -17,7 +17,7 @@ import Startsida from '@/components/startsida/Startsida'
 import Ikon from '@/components/design/Ikon'
 import { useStartsidaData } from '@/components/startsida/useStartsidaData'
 import { useDatahalsa } from '@/app/datahalsa/useDatahalsa'
-import { AVSTAND, FARG, FONT, IKON, KNAPP, KORT, RORELSE, TRAFFYTA, TYP } from '@/lib/design/tokens'
+import { AVSTAND, FARG, FONT, IKON, KNAPP, KORT, RORELSE, TRAFFYTA, TYP, overgang } from '@/lib/design/tokens'
 import type { Roll } from '@/lib/vyer'
 
 /** Från den här skärmbredden är lådan en panel från vänster med kartan synlig bredvid; under den fyller den skärmen. */
@@ -121,20 +121,18 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
 
   return (
     <div data-maskinlada role="dialog" aria-modal="true" aria-label="Meny" style={{ position: 'fixed', inset: 0, zIndex: 1500, fontFamily: FONT }}>
+      {/* Sidled finns inte i designsystemets rörelser (de går uppåt); därför en egen glidning, samma tid och kurva.
+          Minska rörelse: bara toning (designCss tonaOpacity, som Startsida renderar). */}
       <style>{`
-        @keyframes ladaIn  { from { transform: translateX(-100%); } to { transform: translateX(0); } }
-        @keyframes ladaUt  { from { transform: translateX(0); } to { transform: translateX(-100%); } }
-        @keyframes ladaTona { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes ladaTonaUt { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes ladaIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        @keyframes ladaUt { from { transform: translateX(0); } to { transform: translateX(-100%); } }
         .lada-panel { animation: ladaIn ${RORELSE.byte}ms ${RORELSE.kurva} both; }
         .lada-panel.ut { animation-name: ladaUt; }
-        .lada-skugga { animation: ladaTona ${RORELSE.byte}ms ${RORELSE.kurva} both; }
-        .lada-skugga.ut { animation-name: ladaTonaUt; }
-        @media (prefers-reduced-motion: reduce) { .lada-panel, .lada-panel.ut { animation-name: ladaTona; } }
+        @media (prefers-reduced-motion: reduce) { .lada-panel, .lada-panel.ut { animation-name: tonaOpacity; } }
       `}</style>
       {/* Kartan bakom: tryck där = Till kartan. */}
-      <div className={`lada-skugga${stanger ? ' ut' : ''}`} onClick={stang} aria-hidden="true"
-        style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} />
+      <div className="lada-skugga tona-opacity" onClick={stang} aria-hidden="true"
+        style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', opacity: stanger ? 0 : 1, transition: overgang('opacity') }} />
       <div className={`lada-panel${stanger ? ' ut' : ''}`} onClickCapture={fangaLank}
         style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: bredd, background: FARG.bg,
           paddingTop: 'env(safe-area-inset-top)', boxSizing: 'border-box',
