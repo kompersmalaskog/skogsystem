@@ -4652,9 +4652,11 @@ export default function Arbetsrapport() {
     const arbetsdagar = spec ? Number(spec.arbetsdagar) : månadsHistorik.length;
     const specLaddar = minManad.arbetsmanad !== lönePeriod || minManad.laddar;
     const specFel = minManad.arbetsmanad === lönePeriod ? minManad.fel : null;
-    const jobbadH = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 10) / 10 : 0;
+    // Företagsledare: lönen ligger utanför appen, så timlön/övertid är 0 i specen — arbetstiden räknas då ur dagarna.
+    const ledareTidMin = spec?.foretagsledare ? Math.round((spec.dagar as any[]).reduce((a: number, d: any) => a + (d.arbetad_min || 0) + (d.extra_min || 0), 0)) : 0;
+    const jobbadH = spec ? (spec.foretagsledare ? Math.round(ledareTidMin / 6) / 10 : Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 10) / 10) : 0;
     // Samma tal i minuter — specen skriver tid i tim och min, aldrig decimaler.
-    const jobbadMin = spec ? Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 60) : 0;
+    const jobbadMin = spec ? (spec.foretagsledare ? ledareTidMin : Math.round((Number(spec.timlon_h) + Number(spec.overtid_h)) * 60)) : 0;
     const kmDel = kmUppdelning(spec?.dagar || [], Number(spec?.km_grans ?? 60));
     const extraTidH = spec ? Number(spec.extra_h) : 0;
     const totalKm = spec ? (spec.dagar as any[]).reduce((a: number, d: any) => a + (d.km_totalt || 0), 0) : 0;
