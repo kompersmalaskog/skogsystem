@@ -7,13 +7,14 @@
 //    (Maskinvy/Maskinvy 2, Helikopter/Helikopter v2, Planera/Planering). Vakt: lib/vyer.test.ts
 //    jämför mot gamla app/HomeClient.tsx.
 //  - `bara: 'admin'` = samma spärr som gamla startsidan hade (Markägarrapport, Ekonomi, Admin). Inget annat
-//    döljs för förare i det här steget.
-//  - Gruppen `ovrigt` (Inställningar, Feedback, Om appen, Datahälsa, Admin) visas i kontomenyn, inte bland
+//    döljs för förare i det här steget. De tre står samlade i gruppen Admin (Martin 2026-10-17: "admin och
+//    ekonomi är bara för admin-ansvariga") — en förare ser aldrig gruppen.
+//  - Gruppen `ovrigt` (Inställningar, Feedback, Om appen, Datahälsa) visas i kontomenyn, inte bland
 //    arbetsvyerna — men går att söka fram.
 
 export type Roll = 'admin' | 'forare'
 
-export type GruppId = 'produktion' | 'maskiner' | 'objekt' | 'personal' | 'ekonomi' | 'ovrigt'
+export type GruppId = 'produktion' | 'maskiner' | 'objekt' | 'personal' | 'ekonomi' | 'admin' | 'ovrigt'
 
 /** Vilken räknare som sitter på vyn (källan läses av startsidan, aldrig gissad). */
 export type MarkeKalla = 'egenkontroll' | 'ledighet'
@@ -39,6 +40,7 @@ export const GRUPPER: { id: GruppId; namn: string }[] = [
   { id: 'objekt', namn: 'Objekt' },
   { id: 'personal', namn: 'Personal och tid' },
   { id: 'ekonomi', namn: 'Ekonomi' },
+  { id: 'admin', namn: 'Admin' },
   { id: 'ovrigt', namn: 'Övrigt' },
 ]
 
@@ -68,7 +70,6 @@ export const VYER: Vy[] = [
   { id: 'objektdetaljer', namn: 'Objektdetaljer', href: '/redigering', ikon: 'edit', grupp: 'objekt', sokord: ['redigering'] },
   { id: 'starta-jobb', namn: 'Starta jobb', href: '/starta-jobb', ikon: 'power_settings_new', grupp: 'objekt' },
   { id: 'egenkontroll', namn: 'Egenkontroll', href: '/egenkontroll', ikon: 'fact_check', grupp: 'objekt', marke: 'egenkontroll' },
-  { id: 'markagarrapport', namn: 'Markägarrapport', href: '/admin/markagarrapport', ikon: 'summarize', grupp: 'objekt', bara: 'admin' },
 
   // Personal och tid
   { id: 'planera', namn: 'Planera', href: '/planera', ikon: 'edit_calendar', grupp: 'personal', sokord: ['tid', 'min tid', 'stämpla'] },
@@ -79,14 +80,17 @@ export const VYER: Vy[] = [
 
   // Ekonomi
   { id: 'avtal', namn: 'Avtal', href: '/avtal', ikon: 'receipt_long', grupp: 'ekonomi', sokord: ['abonnemang'] },
-  { id: 'ekonomi', namn: 'Ekonomi', href: '/ekonomi', ikon: 'payments', grupp: 'ekonomi', bara: 'admin', sokord: ['faktura', 'resultat'] },
+
+  // Admin — bara för admin
+  { id: 'ekonomi', namn: 'Ekonomi', href: '/ekonomi', ikon: 'payments', grupp: 'admin', bara: 'admin', sokord: ['faktura', 'resultat'] },
+  { id: 'markagarrapport', namn: 'Markägarrapport', href: '/admin/markagarrapport', ikon: 'summarize', grupp: 'admin', bara: 'admin' },
+  { id: 'admin', namn: 'Admin', href: '/admin', ikon: 'shield', grupp: 'admin', bara: 'admin', sokord: ['lön', 'medarbetare'] },
 
   // Övrigt — kontomenyn
   { id: 'installningar', namn: 'Inställningar', href: '/planering?installningar=1', ikon: 'settings', grupp: 'ovrigt', sokord: ['gps', 'kompass'] },
   { id: 'datahalsa', namn: 'Datahälsa', href: '/datahalsa', ikon: 'monitor_heart', grupp: 'ovrigt', sokord: ['import', 'filer'] },
   { id: 'feedback', namn: 'Feedback', href: '/forbattringsforslag', ikon: 'feedback', grupp: 'ovrigt', sokord: ['förslag'] },
   { id: 'om', namn: 'Om appen', href: '/om', ikon: 'info', grupp: 'ovrigt', sokord: ['version'] },
-  { id: 'admin', namn: 'Admin', href: '/admin', ikon: 'shield', grupp: 'ovrigt', bara: 'admin' },
 ]
 
 /** Förinställda favoriter per roll (tills var och en kan ändra sina — nästa PR). Max 8. */

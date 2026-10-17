@@ -5,15 +5,15 @@
 // Startsidan växer aldrig: Behöver dig och favoriterna har fast storlek, "Alla vyer" är grupperad och
 // ihopfälld på telefon, och sökningen hittar resten. Vyerna kommer ur lib/vyer.ts.
 //
-// Steg 1 (den här): bara admin ser den (HomeClient väljer). Inget tas bort. Favoriterna är förinställda
-// per roll; att ändra dem kommer i nästa steg.
+// Bara admin ser den än (HomeClient väljer). Inget tas bort. Favoriterna är rollens förinställda tills man
+// väljer själv under "Ändra" — de sparas per användare (lib/startsidaFavoriter.ts) och följer med mellan enheter.
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Ikon from '@/components/design/Ikon'
 import Ark from '@/components/design/Ark'
-import { AVSTAND, FARG, FONT, IKON, KOLUMN, KORT, RADIE, TRAFFYTA, TYP, designCss, overgang } from '@/lib/design/tokens'
-import { favoriterFor, grupperFor, ovrigtFor, sokVyer, type MarkeKalla, type Roll, type Vy } from '@/lib/vyer'
+import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TRAFFYTA, TYP, designCss, overgang } from '@/lib/design/tokens'
+import { MAX_FAVORITER, STANDARD_FAVORITER, favoriterFor, grupperFor, ovrigtFor, sokVyer, type MarkeKalla, type Roll, type Vy } from '@/lib/vyer'
 
 /** Räknare per källa. null = okänt (laddar eller läsfel) → inget märke, aldrig "0". */
 export type Marken = Partial<Record<MarkeKalla, number | null>>
@@ -88,13 +88,103 @@ function Etikett({ children }: { children: string }) {
 
 type Uppgift = { id: string; text: string; href: string; farg: string }
 
-export default function Startsida({ roll, marken, datahalsa }: { roll: Roll; marken: Marken; datahalsa?: DatahalsaBesked }) {
+const ikonKnapp: CSSProperties = {
+  width: TRAFFYTA.min, height: TRAFFYTA.min, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+}
+
+/** Arket "Dina vyer": ta bort (−), lägg till (+), flytta upp, återställ. Spara är grå tills något ändrats. */
+function AndraFavoriter({ roll, valda, onSpara, onStang }: { roll: Roll; valda: string[]; onSpara: (ids: string[]) => Promise<boolean>; onStang: () => void }) {
+  const [ids, setIds] = useState<string[]>(valda)
+  const [sparar, setSparar] = useState(false)
+  const [fel, setFel] = useState(false)
+  const andrat = ids.length !== valda.length || ids.some((id, i) => id !== valda[i])
+  const fullt = ids.length >= MAX_FAVORITER
+  const nuvarande = favoriterFor(roll, ids)
+  const grupper = grupperFor(roll).map(g => ({ ...g, vyer: g.vyer.filter(v => !ids.includes(v.id)) })).filter(g => g.vyer.length > 0)
+  const standard = STANDARD_FAVORITER[roll]
+  const arStandard = ids.length === standard.length && ids.every((id, i) => id === standard[i])
+
+  const spara = async () => {
+    setSparar(true); setFel(false)
+    const ok = await onSpara(ids)
+    setSparar(false)
+    if (ok) onStang(); else setFel(true)
+  }
+  const flyttaUpp = (i: number) => setIds(prev => { const n = [...prev]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n })
+
+  return (
+    <Ark rubrik="Dina vyer" onStang={onStang} fot={<>
+      {fel && <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>Kunde inte spara. Kontrollera nätet och tryck Spara igen.</p>}
+      <button type="button" onClick={spara} disabled={!andrat || sparar} style={{ ...KNAPP.primar, ...(!andrat || sparar ? INAKTIV : {}) }}>
+        {sparar ? 'Sparar …' : 'Spara'}
+      </button>
+    </>}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', margin: `${AVSTAND.s}px ${AVSTAND.xs}px ${AVSTAND.s}px` }}>
+        <span style={{ ...TYP.micro, color: FARG.text2 }}>På startsidan</span>
+        <span style={{ ...TYP.meta, color: FARG.text2 }}>{ids.length} av {MAX_FAVORITER}</span>
+      </div>
+      <div aria-label="På startsidan">
+        {nuvarande.length === 0 && <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 ${AVSTAND.xs}px ${AVSTAND.m}px` }}>Inga vyer valda. Lägg till med + nedan.</p>}
+        {nuvarande.map((v, i) => (
+          <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, borderBottom: `1px solid ${FARG.linje}` }}>
+            <button type="button" onClick={() => setIds(prev => prev.filter(x => x !== v.id))} aria-label={`Ta bort ${v.namn}`} style={ikonKnapp}>
+              <Ikon namn="do_not_disturb_on" farg={FARG.rod} fylld />
+            </button>
+            <span style={{ ...TYP.text, flex: 1, minWidth: 0 }}>{v.namn}</span>
+            {i > 0 && (
+              <button type="button" onClick={() => flyttaUpp(i)} aria-label={`Flytta upp ${v.namn}`} style={ikonKnapp}>
+                <Ikon namn="arrow_upward" farg={FARG.text2} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {grupper.map(g => (
+        <div key={g.id} aria-label={`Lägg till: ${g.namn}`}>
+          <div style={{ ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.xl}px ${AVSTAND.xs}px ${AVSTAND.s}px` }}>{g.namn}</div>
+          {g.vyer.map(v => (
+            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, borderBottom: `1px solid ${FARG.linje}` }}>
+              <button type="button" onClick={() => setIds(prev => prev.length >= MAX_FAVORITER ? prev : [...prev, v.id])} disabled={fullt}
+                aria-label={`Lägg till ${v.namn}`} style={{ ...ikonKnapp, ...(fullt ? INAKTIV : {}) }}>
+                <Ikon namn="add_circle" farg={FARG.gron} fylld />
+              </button>
+              <span style={{ ...TYP.text, flex: 1, minWidth: 0, color: fullt ? FARG.text2 : FARG.text }}>{v.namn}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+      {fullt && <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.m}px ${AVSTAND.xs}px 0` }}>Startsidan har plats för {MAX_FAVORITER}. Ta bort en för att lägga till en annan.</p>}
+
+      {!arStandard && (
+        <button type="button" onClick={() => setIds(standard)} style={{ ...KNAPP.tertiar, marginTop: AVSTAND.l }}>
+          Återställ till förinställda
+        </button>
+      )}
+    </Ark>
+  )
+}
+
+export default function Startsida({ roll, marken, datahalsa, favoritIds, onSparaFavoriter }: {
+  roll: Roll
+  marken: Marken
+  datahalsa?: DatahalsaBesked
+  /** Egna favoriter (id ur lib/vyer.ts). `null` = inga egna → rollens förinställda. `undefined` med onSparaFavoriter = läses fortfarande. */
+  favoritIds?: string[] | null
+  /** Sparar egna favoriter; utan den finns ingen Ändra-knapp. Svarar true när sparningen landat. */
+  onSparaFavoriter?: (ids: string[]) => Promise<boolean>
+}) {
   const bred = useBred()
   const [fraga, setFraga] = useState('')
   const [oppna, setOppna] = useState<Set<string>>(new Set())
   const [konto, setKonto] = useState(false)
+  const [andra, setAndra] = useState(false)
 
-  const favoriter = useMemo(() => favoriterFor(roll), [roll])
+  // Läses fortfarande bara när sidan HAR egna favoriter att läsa (onSparaFavoriter finns) och svaret inte kommit.
+  const laddarFavoriter = onSparaFavoriter !== undefined && favoritIds === undefined
+  const valdaIds = favoritIds ?? STANDARD_FAVORITER[roll]
+  const favoriter = useMemo(() => favoriterFor(roll, valdaIds), [roll, valdaIds])
   const grupper = useMemo(() => grupperFor(roll), [roll])
   const ovrigt = useMemo(() => ovrigtFor(roll), [roll])
   const traffar = useMemo(() => sokVyer(roll, fraga), [roll, fraga])
@@ -181,9 +271,17 @@ export default function Startsida({ roll, marken, datahalsa }: { roll: Roll; mar
             )}
 
             <section aria-label="Dina vyer" style={{ marginBottom: AVSTAND.xl }}>
-              <Etikett>Dina vyer</Etikett>
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bred ? 8 : 4}, minmax(0, 1fr))`, gap: `${AVSTAND.l}px ${AVSTAND.s}px` }}>
-                {favoriter.map(v => {
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: -AVSTAND.m }}>
+                <Etikett>Dina vyer</Etikett>
+                {onSparaFavoriter && !laddarFavoriter && (
+                  <button type="button" onClick={() => setAndra(true)} style={{ ...KNAPP.lank, ...TYP.text, padding: `0 ${AVSTAND.xs}px` }}>Ändra</button>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bred ? 8 : 4}, minmax(0, 1fr))`, gap: `${AVSTAND.l}px ${AVSTAND.s}px`, minHeight: 88 }}>
+                {!laddarFavoriter && favoriter.length === 0 && (
+                  <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, gridColumn: '1 / -1' }}>Inga vyer valda. Tryck Ändra för att lägga till.</p>
+                )}
+                {!laddarFavoriter && favoriter.map(v => {
                   const n = antalFor(v, marken)
                   return (
                     <Link key={v.id} href={v.href} className="start-ruta" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.s, textDecoration: 'none', color: FARG.text, minWidth: 0 }}>
@@ -240,6 +338,10 @@ export default function Startsida({ roll, marken, datahalsa }: { roll: Roll; mar
           </>
         )}
       </div>
+
+      {andra && onSparaFavoriter && (
+        <AndraFavoriter roll={roll} valda={favoriter.map(v => v.id)} onSpara={onSparaFavoriter} onStang={() => setAndra(false)} />
+      )}
 
       {konto && (
         <Ark rubrik="Mer" onStang={() => setKonto(false)}>

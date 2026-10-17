@@ -7,6 +7,7 @@ import { useDatahalsa } from './datahalsa/useDatahalsa'
 import { hamtaVantande } from '@/lib/egenkontroll'
 import { hamtaLedighetPrick, type LedighetPrick } from '@/lib/ledighet/prick'
 import Startsida from '@/components/startsida/Startsida'
+import { lasFavoriter, sparaFavoriter } from '@/lib/startsidaFavoriter'
 
 function getDatum() {
   const now = new Date()
@@ -117,7 +118,19 @@ function Raknarmarke({ antal, label }: { antal: number; label: string }) {
 // Egen komponent så att datahälsans hook bara körs när den nya sidan visas.
 function NyStartsida({ egenkontroll, ledighet }: { egenkontroll: number | null; ledighet: number | null }) {
   const { besked } = useDatahalsa()
-  return <Startsida roll="admin" marken={{ egenkontroll, ledighet }} datahalsa={besked} />
+  // undefined = läses; null = inga egna (eller läsfel) → rollens förinställda.
+  const [favoriter, setFavoriter] = useState<string[] | null | undefined>(undefined)
+  useEffect(() => {
+    let vid = true
+    lasFavoriter(supabase).then(r => { if (vid) setFavoriter(r.status === 'egna' ? r.ids : null) })
+    return () => { vid = false }
+  }, [])
+  const spara = async (ids: string[]) => {
+    const landat = await sparaFavoriter(supabase, ids)
+    if (landat) setFavoriter(landat)
+    return landat != null
+  }
+  return <Startsida roll="admin" marken={{ egenkontroll, ledighet }} datahalsa={besked} favoritIds={favoriter} onSparaFavoriter={spara} />
 }
 
 // Hur länge vi väntar på rollen innan den gamla sidan visas ändå (läsfel får aldrig ge en tom skärm).

@@ -8,12 +8,14 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const h = vi.hoisted(() => ({ roll: 'admin' as string | null, ek: 0, ledighet: 0 }))
+const h = vi.hoisted(() => ({ roll: 'admin' as string | null, ek: 0, ledighet: 0, favoriter: null as string[] | null }))
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    auth: { getUser: async () => ({ data: { user: { email: 't@exempel.se' } } }) },
-    from: () => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: h.roll ? { roll: h.roll } : null }) }) }) }),
+    auth: { getUser: async () => ({ data: { user: { id: 'u1', email: 't@exempel.se' } } }) },
+    from: (tabell: string) => tabell === 'startsida_favoriter'
+      ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: h.favoriter ? { vyer: h.favoriter } : null, error: null }) }) }) }
+      : { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: h.roll ? { roll: h.roll } : null }) }) }) },
     rpc: async (namn: string) => namn === 'ledighet_prick'
       ? { data: { att_godkanna: h.ledighet, nya_beslut: 0, nya_beslut_ids: [], nya_beslut_till: null }, error: null }
       : { data: null, error: null },
@@ -32,7 +34,7 @@ let el: HTMLDivElement | null = null
 
 beforeEach(() => {
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
-  h.roll = 'admin'; h.ek = 0; h.ledighet = 0
+  h.roll = 'admin'; h.ek = 0; h.ledighet = 0; h.favoriter = null
   el = document.createElement('div'); document.body.appendChild(el)
 })
 afterEach(() => { act(() => { rot?.unmount() }); el?.remove(); rot = null; el = null })
@@ -109,16 +111,25 @@ describe('Startsida (admin)', () => {
     expect(sektion('Dina vyer')).not.toBeNull()
   })
 
-  it('kontomenyn: Inställningar, Datahälsa, Feedback, Om appen och Admin — inte bland arbetsvyerna', async () => {
+  it('kontomenyn: Inställningar, Datahälsa, Feedback, Om appen — inte bland arbetsvyerna, och inte Admin', async () => {
     await montera(<Startsida roll="admin" marken={{}} />)
     expect(lankar(sektion('Alla vyer')!)).not.toContain('/om')
     await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
-    expect(lankar(document.querySelector('[role="dialog"]')!)).toEqual(['/planering?installningar=1', '/datahalsa', '/forbattringsforslag', '/om', '/admin'])
+    expect(lankar(document.querySelector('[role="dialog"]')!)).toEqual(['/planering?installningar=1', '/datahalsa', '/forbattringsforslag', '/om'])
+  })
+
+  it('gruppen Admin samlar Ekonomi, Markägarrapport och Admin', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    await act(async () => { knapp('Admin').click() })
+    const ekonomi = sektion('Alla vyer')!.querySelector('a[href="/ekonomi"]')!
+    expect(ekonomi).not.toBeNull()
+    const grupp = ekonomi.parentElement!
+    expect(Array.from(grupp.querySelectorAll('a')).map(a => a.getAttribute('href'))).toEqual(['/ekonomi', '/admin/markagarrapport', '/admin'])
   })
 })
 
 describe('Startsida (förare) — samma sida, utan admin-vyer', () => {
-  it('ingen admin-vy och ingen datahälsa-rad', async () => {
+  it('ingen admin-vy, ingen Admin-grupp och ingen datahälsa-rad', async () => {
     await montera(<Startsida roll="forare" marken={{}} datahalsa={{ niva: 'rod', rubrik: 'x' }} />)
     for (const b of Array.from(document.querySelectorAll('button[aria-expanded]'))) await act(async () => { (b as HTMLButtonElement).click() })
     await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
@@ -127,6 +138,7 @@ describe('Startsida (förare) — samma sida, utan admin-vyer', () => {
     expect(alla).not.toContain('/admin')
     expect(alla).not.toContain('/admin/markagarrapport')
     expect(sektion('Behöver dig')).toBeNull()
+    expect(Array.from(document.querySelectorAll('button[aria-expanded]')).map(b => b.textContent)).not.toContainEqual(expect.stringContaining('Admin'))
   })
 })
 
@@ -151,5 +163,80 @@ describe('HomeClient väljer sida efter roll', () => {
     h.roll = null
     await montera(<HomeClient />)
     expect(document.body.textContent).toContain('Produktion')
+  })
+})
+
+describe('Egna favoriter', () => {
+  const dinaVyer = () => lankar(sektion('Dina vyer')!)
+  const andra = async () => { await act(async () => { knapp('Ändra').click() }) }
+  const ark = () => document.querySelector('[role="dialog"]')!
+  const iArk = (etikett: string) => ark().querySelector(`button[aria-label="${etikett}"]`) as HTMLButtonElement
+  const spara = () => Array.from(ark().querySelectorAll('button')).find(b => b.textContent === 'Spara') as HTMLButtonElement
+
+  it('medan favoriterna läses: inga rutor och ingen Ändra-knapp (ingen blinkning av fel uppsättning)', async () => {
+    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} />)
+    expect(dinaVyer()).toHaveLength(0)
+    expect(knapp('Ändra')).toBeUndefined()
+  })
+
+  it('egna favoriter visas i sparad ordning', async () => {
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['ledighet', 'ekonomi']} onSparaFavoriter={async () => true} />)
+    expect(dinaVyer()).toEqual(['/ledighet', '/ekonomi'])
+  })
+
+  it('ta bort, lägg till, flytta upp → Spara skickar exakt den listan och arket stängs', async () => {
+    const sparat: string[][] = []
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['oversikt', 'uppfoljning']} onSparaFavoriter={async ids => { sparat.push(ids); return true }} />)
+    await andra()
+    expect(spara().disabled).toBe(true) // inget ändrat än
+    await act(async () => { iArk('Ta bort Översikt').click() })
+    await act(async () => { iArk('Lägg till Ledighet').click() })
+    await act(async () => { iArk('Flytta upp Ledighet').click() })
+    expect(spara().disabled).toBe(false)
+    await act(async () => { spara().click() })
+    await flush()
+    expect(sparat).toEqual([['ledighet', 'uppfoljning']])
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('sparningen misslyckas → arket står kvar och säger vad man ska göra', async () => {
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['oversikt']} onSparaFavoriter={async () => false} />)
+    await andra()
+    await act(async () => { iArk('Ta bort Översikt').click() })
+    await act(async () => { spara().click() })
+    await flush()
+    expect(ark().querySelector('[role="alert"]')!.textContent).toContain('tryck Spara igen')
+  })
+
+  it('åtta valda → plus är avstängt och det står varför', async () => {
+    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} favoritIds={null} />)
+    await andra()
+    expect(iArk('Lägg till Ledighet').disabled).toBe(true)
+    expect(ark().textContent).toContain('plats för 8')
+  })
+
+  it('förare kan inte lägga till en admin-vy', async () => {
+    await montera(<Startsida roll="forare" marken={{}} favoritIds={['ledighet']} onSparaFavoriter={async () => true} />)
+    await andra()
+    expect(iArk('Lägg till Ekonomi')).toBeNull()
+    expect(iArk('Lägg till Admin')).toBeNull()
+    expect(iArk('Lägg till Planera')).not.toBeNull()
+  })
+
+  it('Återställ ger rollens förinställda', async () => {
+    const sparat: string[][] = []
+    await montera(<Startsida roll="admin" marken={{}} favoritIds={['ledighet']} onSparaFavoriter={async ids => { sparat.push(ids); return true }} />)
+    await andra()
+    await act(async () => { Array.from(ark().querySelectorAll('button')).find(b => b.textContent?.includes('Återställ'))!.click() })
+    await act(async () => { spara().click() })
+    await flush()
+    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'bestallningar', 'ekonomi'])
+  })
+
+  it('HomeClient: sparade favoriter läses in för admin', async () => {
+    h.roll = 'admin'; h.favoriter = ['kalibrering', 'ledighet']
+    await montera(<HomeClient />)
+    expect(dinaVyer()).toEqual(['/kalibrering', '/ledighet'])
+    expect(knapp('Ändra')).toBeDefined()
   })
 })
