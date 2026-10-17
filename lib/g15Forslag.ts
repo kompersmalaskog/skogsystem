@@ -1,7 +1,7 @@
 // G15-FÖRSLAG för prognosen i "Klar med trakten?" — räknat ur UPPMÄTT utfall, inte ur tidigare planerade timmar.
 //
 // Underlaget är avslutade trakter av samma typ (slutavverkning/gallring) där både skördad volym och G15 finns i skördar-/maskindatan (`prognos_utfall()`,
-// migration 20261017120000). Ur varje trakt räknas prestationen m³fub per G15-timme. G15 = (processing + terräng + övrigt arbete) / 3600, summerad av databasfunktionen.
+// migration 20261017095842). Ur varje trakt räknas prestationen m³fub per G15-timme. G15 = (processing + terräng + övrigt arbete) / 3600, summerad av databasfunktionen.
 //
 // SKÖRDARE räknas mot trakter med LIKNANDE MEDELSTAM (±25 %, minst 3): medelstam förklarar ca två tredjedelar av variationen i prestation (uppmätt: r² 0,65 slutavverkning,
 // 0,72 gallring). Saknas trakter med liknande medelstam finns inget förslag (tomt, orange) — appen gissar inte. Saknas medelstam på DEN HÄR trakten används snitt över alla

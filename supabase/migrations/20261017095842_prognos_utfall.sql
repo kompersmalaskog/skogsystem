@@ -1,5 +1,5 @@
 -- UTFALL PER AVSLUTAT OBJEKT för G15-förslaget i "Klar med trakten?" (lib/g15Forslag.ts).
--- SKRIVEN, INTE KÖRD. Körs av chat-Claude efter Martins ja. Idempotent (create or replace). Rör ingen data; läser bara.
+-- Körd i prod 2026-10-17 (version 20261017095842) och verifierad: 33 av 30 slutavverkning, 17 av 14 gallring. Idempotent (create or replace). Rör ingen data; läser bara.
 --
 -- En rad per avslutat objekt som har skördardata: skördad volym (m³sub = m³fub) och antal stammar (så medelstam = volym / stammar), G15-timmar för skördare
 -- resp. skotare (G15 = (processing + terräng + övrigt arbete) / 3600, samma definition som lib/g15.ts), plus objektets egen volym (för fullständighetskontrollen).

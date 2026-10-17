@@ -2557,7 +2557,7 @@ export default function PlannerPage() {
     return () => { avbruten = true; };
   }, [dimMaskinerOmN]);
 
-  // Ladda utfallet bakom G15-förslaget EN gång: avslutade objekts uppmätta skördad volym, stammar och G15 per roll (migration 20261017120000_prognos_utfall.sql).
+  // Ladda utfallet bakom G15-förslaget EN gång: avslutade objekts uppmätta skördad volym, stammar och G15 per roll (migration 20261017095842_prognos_utfall.sql).
   // Ett fel (funktionen saknas, RLS, nätet) är 'fel' — aldrig en tom lista som ser ut som "inga trakter".
   useEffect(() => {
     let avbruten = false;
