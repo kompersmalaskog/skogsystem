@@ -1,5 +1,6 @@
 -- SQL-test: planerat stopp härlett ur ledighet + filer (migrationerna 20261017095008_helikopter_planerat_stopp.sql och
--- 20261017130000_helikopter_registrerad_ledighet_orapporterat.sql — båda ska vara körda).
+-- 20261017100635_helikopter_registrerad_ledighet_orapporterat.sql och 20261017140000_helikopter_manuell_takt_over_perioden.sql —
+-- alla tre ska vara körda).
 --
 -- Körs i EN transaktion som alltid rullas tillbaka: allt som skapas (syntetiska filer, ledighet, ett registrerat stopp) försvinner.
 -- Köra: klistra in hela filen i Supabase SQL-editorn (eller via MCP execute_sql) EFTER att migrationen körts. Resultatet kommer som
@@ -34,7 +35,7 @@ INSERT INTO fakt_lass (datum, maskin_id, objekt_id, lass_nummer, volym_m3sub)
 SELECT d::date, 'A130743', '11083733', 1, 60
 FROM unnest(ARRAY['2024-03-01','2024-03-04','2024-03-05','2024-03-06','2024-03-07','2024-03-08','2024-03-11','2024-03-12','2024-03-13','2024-03-14','2024-03-15','2024-03-18','2024-03-19']::date[]) d;
 INSERT INTO fakt_lass (datum, maskin_id, objekt_id, lass_nummer, volym_m3sub, filnamn)
-SELECT d::date, 'JD810E', '11083733', 1, 40, 'manuell'
+SELECT d::date, 'JD810E', '11083733', 1, 280.5, 'manuell'
 FROM unnest(ARRAY['2024-03-05','2024-03-06']::date[]) d;
 
 INSERT INTO ledighet_ansokningar (anvandare_id, typ, startdatum, slutdatum, status, medarbetare_id)
@@ -150,17 +151,27 @@ SELECT v.namn, (SELECT ROW(t.takt, t.takt_dagar, t.kvar)::text FROM helikopter_n
 FROM (VALUES
   ('Giant: fönstret 7, 8, 14, 15, 19 mars = 4 filer × 100 + oförklarat 15 mars (0) → 80/dag, 7 dagar kvar', 'PONS20SDJAA270231', '(80.0000,5,7)'),
   ('Wisent: fönstret 13–19 mars, filen 13 mars räknas fast Max var ledig → 50/dag',                        'A030353',           '(50.0000,5,7)'),
-  ('810E: orapporterade dagar utanför fönstret — takten är de 2 rapporterade dagarna: 80 / 2 = 40/dag, 7 dagar kvar', 'JD810E', '(40.0000,2,7)'),
+  ('810E (manuell): takt = månadens volym / rapportdagar före idag = 561 / 12 = 46,75 — INTE 280,5 (561 / de 2 dagar med lass); 7 dagar kvar', 'JD810E', '(46.7500,12,7)'),
   ('R64428: deldagen 14 mars räknas som 0 → 4 × 30 / 5 = 24/dag, 5 dagar kvar (registrerat stopp)',        'R64428',            '(24.0000,5,5)'),
   ('Elefant 26: 60/dag, bara 5 dagar kvar (ledig 26–27 mars)',                                            'A130743',           '(60.0000,5,5)')
 ) AS v(namn, maskin, forvantat);
 
 -- helikopter_ny_spar: takten är summan av maskinernas takt (skördare 80 + 24, skotare 50 + 0 + 60)
 INSERT INTO kontroll
-SELECT 'spår: takt_skordat 104, takt_skotat 150 (Wisent 50 + 810E 40 + Elefant 60), oskotat −46/dag, takt_dagar 5',
+SELECT 'spår: takt_skordat 104, takt_skotat 156,8 (Wisent 50 + 810E 46,75 + Elefant 60), takt_dagar 5',
        (SELECT ROW(s.takt_skordat, s.takt_skotat, s.oskotat_forandring_per_dag, s.takt_dagar)::text
           FROM helikopter_ny_spar(2024, 3, '2024-03-20') s WHERE s.typ = 'slutavverkning' AND s.bas = 'totalt')
-       = '(104.0,150.0,-46.0,5)';
+       = '(104.0,156.8,-52.8,5)';
+
+-- helikopter_ny_maskin (maskinlistan, veckoläget, notisen): manuell maskin = samma regel som helikopter_ny_takt; auto-maskiner oförändrade (5-dagarsfönstret)
+INSERT INTO kontroll
+SELECT 'helikopter_ny_maskin: 810E (manuell) 561 / 12 rapportdagar = 46,8/dag över 12 dagar; Giant (auto) fortfarande 5-dagarsfönstret',
+       (SELECT ROW(l.takt_per_dag, l.takt_dagar)::text FROM helikopter_ny_maskin('JD810E', '2024-03-20') l) = '(46.8,12)'
+       AND (SELECT l.takt_dagar FROM helikopter_ny_maskin('PONS20SDJAA270231', '2024-03-20') l) = 5;
+INSERT INTO kontroll
+SELECT 'manuell maskin utan rapportdagar än (1 mars, idag = första arbetsdagen) → ingen takt, inte 0',
+       (SELECT t.takt IS NULL AND t.takt_dagar = 0 FROM helikopter_ny_takt(2024, 3, '2024-03-01') t
+         WHERE t.maskin_id = 'JD810E' AND t.typ = 'slutavverkning' AND t.bas = 'totalt');
 
 -- Härledda stopp lagras aldrig: bara vårt eget registrerade stopp finns i stopp
 INSERT INTO kontroll
