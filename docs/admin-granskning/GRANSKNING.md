@@ -236,17 +236,18 @@ Beslut (Martin 2026-10-17): **arbetsmånaden är alltid huvudnamnet ("Augusti"),
 | Medarbetare › person | 130 | 92 | 75 |
 | Maskiner (lista) | 79 | 61 | 45 |
 | Maskiner › ny maskin | 117 | 59 | 60 |
-| Lön › Löneunderlag (aug) | 953 | 173 | 250 |
-| Lön › Löneunderlag (jan) | 617 | 147 | 200 |
+| Lön › Löneunderlag (aug) | 953 | 171 | 250 |
+| Lön › Löneunderlag (jan) | 617 | 145 | 200 |
 | Lön › Dagar (förvalt: avvikelser) | 1 315 | 128 | 200 |
+| Lön › Dagar (efter "Visa alla 111") | 1 315 | 1 250 | — |
 | Lön › Lönearter | 111 | 75 | 60 |
 | Lön › Lönesystem | 86 | 29 | 40 |
 | Lön › ATK-val | 46 | 37 | 25 |
 | Lön › Vilobrott | 66 | 50 | 40 |
 | Avtal | 106 | 78 | 80 |
-| **Summa** | **3 795** | **1 036** | **~1 200** |
+| **Summa** (Dagar räknad i sitt förvalda läge) | **3 795** | **1 032** | **~1 200** |
 
-Måttet är detsamma som före (synlig text i `<main>`, ±10 ord). Tre vyer ligger över sitt mål (Medarbetare-listan, Lönearter, ATK-val): de är redan korta, och det som återstår är namn och rubriker, inte förklaringar.
+Måttet är detsamma som före (synlig text i `<main>`, ±10 ord). "Visa alla 111" är fortfarande 111 rader (1 250 ord): det är data, inte text, och det är inte längre det man möter först. Tre vyer ligger över sitt mål (Medarbetare-listan, Lönearter, ATK-val): de är redan korta, och det som återstår är namn och rubriker, inte förklaringar.
 
 ### Vad som byggdes, per fynd
 
