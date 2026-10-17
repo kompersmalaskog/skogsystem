@@ -13,14 +13,14 @@
 // KONTEXTLAGRET (grans, diken, pilar) ar ALDRIG en kandidat. Det ar orientering,
 // inte innehall i dokumentet, och ska inte ga att trycka pa.
 
-export type TraffKind = 'symbol' | 'provyta' | 'linje' | 'zon';
+export type TraffKind = 'symbol' | 'provyta' | 'observation' | 'linje' | 'zon';
 export type Kandidat = { id: string; kind: TraffKind; dPx: number };
 
 /** Halva traffytan. 22 px = 44 pt-kvadrat kring fingret: handske i skog. */
 export const TRAFF_RADIE_PX = 22;
 
-/** Lagre = vinner. Provytan ar en symbol pa kartan och rankas som en. */
-const RANG: Record<TraffKind, number> = { symbol: 0, provyta: 0, linje: 1, zon: 2 };
+/** Lagre = vinner. Provytan och observationen ar symboler pa kartan och rankas som en. */
+const RANG: Record<TraffKind, number> = { symbol: 0, provyta: 0, observation: 0, linje: 1, zon: 2 };
 
 export function traffRang(kind: TraffKind): number {
   return RANG[kind];
@@ -48,12 +48,12 @@ export function valjTraff(kandidater: Kandidat[]): Kandidat | null {
 /**
  * Sorten pa en renderad feature. Kontrollpunkterna bar `kind`; basvagsnumret
  * (egen feature i ek-nummer) har bara `nr` och hor till sin vag; provytan har
- * `nummer`. Allt annat ar ingen kandidat.
+ * `nummer`; observationen bar kind='observation' och sitt id. Allt annat ar ingen kandidat.
  */
 export function traffKindFranEgenskaper(props: Record<string, unknown> | null | undefined): TraffKind | null {
   if (!props) return null;
   const kind = props.kind;
-  if (kind === 'symbol' || kind === 'linje' || kind === 'zon') return kind;
+  if (kind === 'symbol' || kind === 'linje' || kind === 'zon' || kind === 'observation') return kind;
   if (typeof props.nr === 'number') return 'linje';
   if (typeof props.nummer === 'number') return 'provyta';
   return null;
