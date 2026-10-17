@@ -519,3 +519,9 @@ När förare/admin trycker "Avsluta objekt" sätts `status='avslutat'` + `avslut
 - Inga objekt har planerad eller skotad volym satt
 
 Bygg när FPR-import flödar skarpt OCH HPR-objekt-kopplingen är tillräckligt komplett för att tröskeln blir tillförlitlig.
+
+### Backlogg: finns `/planner` kvar för någon? (Martin 2026-10-17, bygg inte nu)
+`/planner` (`app/planner/page.tsx`, ~7 570 rader) är en äldre, helt egen kopia av planeringsvyn — egen `menuCategories` med åtta `menu-*`-ikoner, eget körläge (`drivingMode`), egen checklista. Den rensades inte när `/planering` rensades (meny-rensningen i #789 rörde bara `/planering`; sökningen som utgick från att `/planner` var död träffade fel sida). Startpunkt: ingen kod utanför sidan själv länkar till `/planner` (sökt 2026-10-17 i `app`, `components`, `lib`, `public`) — men det bevisar inte att ingen når den (bokmärke, PWA-genväg, gammal länk).
+- **Undersök:** nås `/planner` av någon användare? Mät först (åtkomstlogg/Vercel-analytics för sökvägen över ett par veckor, fråga förarna/Joacim) — gissa inte.
+- **Är den död:** ta bort hela sidan i en EGEN PR, inte som del av en annan rensning. Rensa samtidigt det som bara den använder, och uppdatera raden i Vyer-tabellen.
+- **Lever den:** skriv in HUR och VARFÖR det finns två planeringsvyer (vem använder `/planner`, vad kan den som `/planering` inte) här i CLAUDE.md — i dag står bara "Förenklat planeringsverktyg med canvas-markeringar".
