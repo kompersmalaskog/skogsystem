@@ -6,6 +6,8 @@ import {
   belaggning, otilldelade, planeratPerTyp, planeringSvar, stoppForMaskin, maskinNamn, TYPER,
   type ManadStatus, type PlaneratResultat, type SparLage,
 } from '../_lib/berakningar'
+import { g15KapacitetNot } from '@/lib/helikopterG15'
+import { AVSTAND, FARG, TYP } from '@/lib/design/tokens'
 import { STOPP_ORSAK, fmt, fmtPeriod, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, FastData, Manadsdata, Typ } from '../_lib/queries'
 import { ListRad } from './Lista'
@@ -34,7 +36,7 @@ export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, i
     return <Tomt rubrik="Månaden är avslutad" text="Planering gäller innevarande och kommande månader. Utfallet finns under Uppföljning." />
   }
   const pagaende = status === 'pagaende'
-  const bel = belaggning(manadsdata.planering, fast.maskiner, manadsdata.arbetsdagar, idag, pagaende)
+  const bel = belaggning(manadsdata.planering, fast.maskiner, manadsdata.arbetsdagar, idag, pagaende, fast.g15)
   const kvarDagar = pagaende ? dagar.kvar : dagar.totalt
   const plan: Record<Typ, PlaneratResultat> = {
     gallring: planeratPerTyp(manadsdata.planering, 'gallring', spar.find(s => s.typ === 'gallring')?.bestallt ?? 0, fast.avvikelse),
@@ -75,6 +77,9 @@ export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, i
           })}
         </Sektion>
       ))}
+      <div data-testid="kapacitet-not" style={{ ...TYP.meta, color: fast.g15.lage === 'fel' ? FARG.orange : FARG.text3, margin: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+        {g15KapacitetNot(fast.g15, bel.map(b => ({ maskin_id: b.maskin.maskin_id, namn: maskinNamn(b.maskin) })))}
+      </div>
       <RadGrupp>
         <RadLank text="Ej tilldelade" smakprov={`${ejTilldelade.length} ${ejTilldelade.length === 1 ? 'objekt' : 'objekt'}`} onClick={() => setSheet('ej')} />
         <RadLank text="Mot beställning" smakprov={bestSmak} onClick={() => setSheet('best')} />

@@ -6,6 +6,7 @@
 import { supabase } from '@/lib/supabase'
 import { medAbortRetry } from '@/lib/supabaseRetry'
 import { hamtaAlla } from '@/lib/supabaseAlla'
+import { G15_TOM, g15Tabell, type G15DagRad, type G15Tabell } from '@/lib/helikopterG15'
 import type { VeckolageData } from './veckolage'
 import { lasHistorik, lasManadsfacit, type Historik, type Manadsfacit } from './manadsfacit'
 
@@ -256,20 +257,23 @@ export async function hamtaManadsdata(ar: number, manad: number, idag: string): 
   }
 }
 
-export type FastData = { maskiner: Maskin[]; senasteData: string | null; avvikelse: Avvikelse[] }
+export type FastData = { maskiner: Maskin[]; senasteData: string | null; avvikelse: Avvikelse[]; g15: G15Tabell }
 
 /** Månadsoberoende: maskiner, senaste importtid, bolagens historiska avvikelse. Hämtas en gång. */
 export async function hamtaFast(): Promise<Svar<FastData>> {
   try {
-    const [maskiner, senaste, avvikelse] = await Promise.all([
+    const [maskiner, senaste, avvikelse, g15] = await Promise.all([
       hamtaAlla<Maskin>(() => supabase.from('dim_maskin').select('maskin_id,visningsnamn,modell,maskin_typ,klarar_typ,extramaskin,aktiv_till'), 'maskin_id'),
       rpc<string | null>('helikopter_ny_senaste_data', {}),
       hamtaAlla<any>(() => supabase.from('helikopter_ny_bolag_avvikelse').select('bolag,typ,antal,medel_kvot,std_kvot'), ['bolag', 'typ']),
+      rpc<G15DagRad[]>('helikopter_ny_g15_per_arbetsdag', {}),
     ])
     if (maskiner.error) { console.error('[helikopter] dim_maskin', maskiner.error); return { data: null, error: felText(maskiner.error) } }
     if (senaste.error) return { data: null, error: senaste.error }
     if (avvikelse.error) { console.error('[helikopter] bolag_avvikelse', avvikelse.error); return { data: null, error: felText(avvikelse.error) } }
-    return { data: { maskiner: maskiner.data, senasteData: senaste.data ?? null, avvikelse: avvikelse.data.map(normAvvikelse) }, error: null }
+    return { data: { maskiner: maskiner.data, senasteData: senaste.data ?? null, avvikelse: avvikelse.data.map(normAvvikelse),
+      // Kapaciteten i G15 hindrar aldrig sidan: går RPC:n inte att läsa gäller 8 h och vyn SÄGER det (g15KapacitetNot).
+      g15: g15.error != null ? G15_TOM : g15Tabell(g15.data) }, error: null }
   } catch (e) {
     return { data: null, error: felText(e) }
   }
