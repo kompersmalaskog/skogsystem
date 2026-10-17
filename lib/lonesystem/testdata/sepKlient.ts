@@ -16,10 +16,13 @@ export const PROD_MAPPNING: { intern_typ: string; extern_kod: string; beskrivnin
   { intern_typ: "korersattning", extern_kod: "821", beskrivning: "Körersättning skattefri" },
 ];
 
-export function sepTabeller(mappning = PROD_MAPPNING): Record<string, Rad[]> {
+/** Förare 2 och Förare 3 i fixturen är Joacim (29 min i augusti, Ponsse) och Martin (3 444 min i augusti, ingen radmaskin) — företagsledarna. */
+export const FIXTUR_FORETAGSLEDARE = ["m2", "m3"];
+
+export function sepTabeller(mappning = PROD_MAPPNING, ledare: string[] = []): Record<string, Rad[]> {
   const f: any = fixtur;
   return {
-    medarbetare: f.medarbetare.map(([id, namn, maskin_id]: any[]) => ({ id, namn, maskin_id })),
+    medarbetare: f.medarbetare.map(([id, namn, maskin_id]: any[]) => ({ id, namn, maskin_id, ...(ledare.includes(id) ? { foretagsledare: true } : {}) })),
     arbetsdag: f.arbetsdag.map((r: any[], i: number) => ({
       id: `d${i + 1}`, medarbetare_id: r[0], datum: r[1], arbetad_min: r[2], maskin_id: r[3], km_totalt: r[4], bekraftad: r[5], dagtyp: r[6],
       synk_avvikelse: null, start_tid: r[7], brandrisk_beordrad: r[11], slut_tid: r[8], rast_min: r[9], traktamente: r[10], objekt_id: null,
@@ -60,8 +63,8 @@ class Fraga {
   }
 }
 
-export function sepKlient(mappning = PROD_MAPPNING) {
-  const tabeller = sepTabeller(mappning);
+export function sepKlient(mappning = PROD_MAPPNING, ledare: string[] = []) {
+  const tabeller = sepTabeller(mappning, ledare);
   return {
     from(t: string) {
       if (!(t in tabeller)) throw new Error(`sepKlient: tabellen ${t} finns inte i testdatan`);

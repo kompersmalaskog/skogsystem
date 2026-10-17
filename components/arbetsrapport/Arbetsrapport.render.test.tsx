@@ -338,3 +338,49 @@ describe("Mönster-fliken är borta ur koden, inte bara ur menyn", () => {
     expect("aktLabel" in akt).toBe(true);   // det som andra vyer använder finns kvar
   });
 });
+
+// ── Brandrisk-OB i Min månad (lib/ob, beslut 2026-10-15): EN post, ingen annan OB, inget nattillägg ──
+describe("Min månad: brandrisk-OB", () => {
+  const lr = (loneart: string, mangd: string, status: string) => ({ loneart, mangd, status, kod: status === "skickas" ? "147" : null, beskrivning: "" });
+  const specMed = (lonerader: any[], rader: any[]) => ({
+    ok: true,
+    medarbetare: {
+      medarbetare_id: "m-1", namn: "Test Förare", anstallningsnummer: "7", rader, varningar: [], lonerader, saknade_loneartskoder: [],
+      arbetsdagar: 20, ordinarie_h: 160, extra_h: 0, timlon_h: 160, premielon_skordare_h: 0, premielon_skotare_h: 0, overtid_h: 0, valtlappar_veckor: 4, kor_mil: 0, obekraftade: 0,
+      franvaro: [], deldagar: [], kortpass: [], helglon: { dagar: [], timmar: 0 }, byten: [], dagar: [], km_grans: 60, synk: [], ledighetskollision: [], maskin_utan_typ: [], rast_langa: [], orimliga: [],
+      utan_rast: { dagar: 0, timmar: 0, datum: [] }, utjamning: [], vilobrott: [],
+      ob: { timmar: 10.3, dagar: 3, obesvarade: 0 }, brandrisk: { ob_min: 618, dagar: [] }, status: "utkast",
+    },
+  });
+  async function oppnaLonespec(spec: any) {
+    vi.stubGlobal("fetch", vi.fn(async (u: any) => ({ ok: true, status: 200, json: async () => (String(u).includes("/api/lon/min-manad") ? spec : {}), text: async () => "" })));
+    await montera("/arbetsrapport");
+    await klickaKnappMed("Min tid");
+    const rad = Array.from(behallare!.querySelectorAll("button")).find(b => /(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)/i.test(b.textContent || "") && /tim|lönespecen/.test(b.textContent || ""));
+    if (!rad) throw new Error("hittar ingen månadsrad i Min tid: " + (behallare!.textContent || "").slice(0, 300));
+    await act(async () => { rad.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await stilla(6);
+  }
+  const post = (k: string) => behallare!.querySelector<HTMLElement>(`[data-brandrisk-post="${k}"]`);
+
+  it("utan kod: EN post, 'Brandrisk – OB' 10 tim 18 min (10,3), 'inte inställd' — och inget nattillägg", async () => {
+    await oppnaLonespec(specMed([lr("brandrisk_ob", "10.30", "saknar_kod")], []));
+    expect(hookFel()).toEqual([]);
+    expect(post("brandrisk_ob")!.textContent).toContain("Brandrisk – OB");
+    expect(post("brandrisk_ob")!.textContent).toContain("inte inställd");
+    expect(post("brandrisk_ob")!.textContent).toContain("10 tim 18 min");
+    expect(post("brandrisk_ob")!.textContent).toContain("10,3");
+    expect(behallare!.querySelectorAll("[data-brandrisk-post]")).toHaveLength(1);
+    expect(behallare!.textContent).not.toContain("nattillägg");
+    expect(behallare!.textContent).not.toContain("löneart ej fastställd");
+  });
+
+  it("med kod står raden bland lönerna (med decimalen bredvid) och posten försvinner — inget visas två gånger", async () => {
+    await oppnaLonespec(specMed([lr("brandrisk_ob", "10.30", "skickas")], [{ loneart: "brandrisk_ob", SalaryCode: "147", Number: "10.30" }]));
+    expect(post("brandrisk_ob")).toBeNull();
+    const t = behallare!.textContent || "";
+    expect(t).toContain("Brandrisk – OB");
+    expect(t).toContain("10 tim 18 min");
+    expect(t.split("Brandrisk – OB").length - 1).toBe(1);
+  });
+});

@@ -52,11 +52,11 @@ describe('veckolageModell', () => {
 
   it('skotat landar under: orange procent, "Skotat landar under beställt", rutor med prognosen, flaskhalsruta för skotarna', () => {
     const [s] = veckolageModell(bas).spar
-    // Skördat landar 2 675 + 277,4 × 11 = 5 727 (grön). Skotat landar 1 265 + 183,9 × 11 = 3 287 (orange) = 66 % av 5 000.
+    // Skördat landar 2 675 + 277,4 × 11 = 5 727 (14 % över: dämpad, inte grön). Skotat landar 1 265 + 183,9 × 11 = 3 287 (orange) = 66 % av 5 000.
     expect(s.rubrik).toEqual({ typNamn: 'Slutavverkning', volym: `${n(5000)} m³fub`, bolag: ' till Vida' })
     expect(s.stort).toEqual({ text: '66 %', ton: 'orange', liten: false })
     expect(s.mening).toBe('Skotat landar under beställt')
-    expect(s.skordat).toEqual({ etikett: 'Skördat landar', tal: n(5727), under: `av ${n(5000)}`, ton: 'gron' })
+    expect(s.skordat).toEqual({ etikett: 'Skördat landar', tal: n(5727), under: `av ${n(5000)}`, ton: 'dampad' })
     expect(s.skotat).toEqual({ etikett: 'Skotat landar', tal: n(3287), under: `av ${n(5000)}`, ton: 'orange' })
     // behöver (5 000 − 1 265) / 11 = 340, kör 184 → saknar 156.
     expect(s.flaskhals?.rubrik).toBe('Skotarna saknar 156 m³fub/dag')
@@ -66,22 +66,33 @@ describe('veckolageModell', () => {
   })
 
   it('skotat landar på beställt men skördat under: stort tal grönt, skördat-rutan orange, skördaren i flaskhalsrutan', () => {
-    const [, g] = veckolageModell(bas).spar
-    // gallring: skotat landar 486,5 + 53,3 × 11 = 1 073 (≥ 1 000) = 107 %. Skördat landar 239 + 27,3 × 11 = 539 (< 1 000).
-    expect(g.stort).toEqual({ text: '107 %', ton: 'gron', liten: false })
+    const d: VeckolageData = { ...bas, spar: [bas.spar[0], { ...bas.spar[1], takt_skotat: 48 }] }
+    const [, g] = veckolageModell(d).spar
+    // gallring: skotat landar 486,5 + 48 × 11 = 1 015 (≥ 1 000, 1,5 % över) = 101 %. Skördat landar 239 + 27,3 × 11 = 539 (< 1 000).
+    expect(g.stort).toEqual({ text: '101 %', ton: 'gron', liten: false })
     expect(g.mening).toBe('Skördat landar under beställt')
-    expect(g.skotat).toEqual({ etikett: 'Skotat landar', tal: n(1073), under: `av ${n(1000)}`, ton: 'gron' })
+    expect(g.skotat).toEqual({ etikett: 'Skotat landar', tal: n(1015), under: `av ${n(1000)}`, ton: 'gron' })
     expect(g.skordat).toEqual({ etikett: 'Skördat landar', tal: '539', under: `av ${n(1000)}`, ton: 'orange' })
     expect(g.flaskhals?.rubrik).toBe('Skördarna saknar 42 m³fub/dag')
     expect(g.veckan).toBe('Veckan hittills: plan 136 · skördat 88 · skotat 171')
   })
 
   it('båda roller når beställt: grönt, ingen flaskhalsruta — även om skotat ligger efter plan idag', () => {
+    const d: VeckolageData = { ...bas, spar: [spar('slutavverkning', { skordat: 4600, skotat: 1800, takt_skordat: 60, takt_skotat: 300, ingaende_oskotat: 2000 })] }
+    const [s] = veckolageModell(d).spar
+    // Skotat landar 1 800 + 300 × 11 = 5 100 (≥ 5 000, 2 % över); skördat 4 600 + 660 = 5 260. Plan idag 2 500 → skotat ligger "efter plan", men det styr inte längre.
+    expect(s.stort).toEqual({ text: '102 %', ton: 'gron', liten: false })
+    expect(s.mening).toBe('Skördat och skotat landar på beställningen')
+    expect(s.flaskhals).toBeNull()
+  })
+
+  it('landar mer än 5 % över beställt: dämpat, inte grönt — meningen säger hur mycket, ingen flaskhalsruta', () => {
     const d: VeckolageData = { ...bas, spar: [spar('slutavverkning', { skordat: 4600, skotat: 1800, takt_skordat: 100, takt_skotat: 320, ingaende_oskotat: 2000 })] }
     const [s] = veckolageModell(d).spar
-    // Skotat landar 1 800 + 320 × 11 = 5 320 (≥ 5 000); skördat 4 600 + 1 100 = 5 700. Plan idag 2 500 → skotat ligger "efter plan", men det styr inte längre.
-    expect(s.stort).toEqual({ text: '106 %', ton: 'gron', liten: false })
-    expect(s.mening).toBe('Skördat och skotat landar på beställningen')
+    // Skotat landar 1 800 + 320 × 11 = 5 320 (6 % över), skördat 5 700.
+    expect(s.stort).toEqual({ text: '106 %', ton: 'dampad', liten: false })
+    expect(s.mening).toBe(`Skotat landar ${n(320)} över beställt`)
+    expect(s.skotat.ton).toBe('dampad')
     expect(s.flaskhals).toBeNull()
   })
 

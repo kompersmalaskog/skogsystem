@@ -50,14 +50,14 @@ describe("förhandsvisning (dry_run)", () => {
     satt([forare("Anna", "7", PROD_KODER, DEC)]);
     const j = await (await anropa({ period: "2027-01", dry_run: true })).json();
     expect(j.ok).toBe(true);
-    expect(j.blockerande).toEqual([expect.objectContaining({ loneart: "helglon", label: "Helglön", forare: [{ namn: "Anna", mangd: "24.00" }] })]);
+    expect(j.blockerande).toEqual([expect.objectContaining({ loneart: "helglon_skordare", label: "Helglön skördare", forare: [{ namn: "Anna", mangd: "24.00" }] })]);
     expect(j.kopplingar).toEqual(kopplingar);
     expect(g.__klientSkapad).toBe(0);
     expect(g.__skickat).toEqual([]);
     expect(g.__logg).toEqual([]);
   });
   it("ingen blockerande lista när allt har kod", async () => {
-    satt([forare("Anna", "7", { ...PROD_KODER, helglon: "1461" }, DEC)]);
+    satt([forare("Anna", "7", { ...PROD_KODER, helglon_skordare: "1461" }, DEC)]);
     const j = await (await anropa({ period: "2027-01", dry_run: true })).json();
     expect(j.blockerande).toEqual([]);
   });
@@ -66,13 +66,13 @@ describe("förhandsvisning (dry_run)", () => {
 describe("skarp sändning", () => {
   it("bara admin: andra får 403 och inget skickas", async () => {
     g.__nekad = true;
-    satt([forare("Anna", "7", { ...PROD_KODER, helglon: "1461" }, DEC)]);
+    satt([forare("Anna", "7", { ...PROD_KODER, helglon_skordare: "1461" }, DEC)]);
     expect((await anropa({ period: "2027-01" })).status).toBe(403);
     expect(g.__skickat).toEqual([]);
   });
 
   it("allt har kod: alla rader skickas, med rätt kod, antal och datum (Amount 0 — Fortnox äger satserna)", async () => {
-    satt([forare("Anna", "7", { ...PROD_KODER, helglon: "1461" }, DEC)]);
+    satt([forare("Anna", "7", { ...PROD_KODER, helglon_skordare: "1461" }, DEC)]);
     const j = await (await anropa({ period: "2027-01" })).json();
     expect(j.ok).toBe(true);
     expect(g.__skickat.map((t: any) => [t.SalaryCode, t.Number, t.Amount, t.Date])).toEqual([
@@ -88,8 +88,8 @@ describe("skarp sändning", () => {
     const j = await r.json();
     expect(j.ok).toBe(false);
     expect(j.kod).toBe("LONEART_SAKNAS");
-    expect(j.blockerande).toEqual([expect.objectContaining({ loneart: "helglon", forare: [{ namn: "Anna", mangd: "24.00" }, { namn: "Bo", mangd: "24.00" }] })]);
-    expect(j.meddelande).toMatch(/Helglön/);
+    expect(j.blockerande).toEqual([expect.objectContaining({ loneart: "helglon_skordare", forare: [{ namn: "Anna", mangd: "24.00" }, { namn: "Bo", mangd: "24.00" }] })]);
+    expect(j.meddelande).toMatch(/Helglön skördare/);
     expect(j.meddelande).toMatch(/Inget är skickat/);
     expect(g.__klientSkapad).toBe(0);
     expect(g.__skickat).toEqual([]);
@@ -112,7 +112,7 @@ describe("skarp sändning", () => {
     const j = await r.json();
     expect(j.ok).toBe(true);
     expect(g.__skickat.map((t: any) => t.SalaryCode)).toEqual(["11", "1355", "136"]);
-    expect(j.utelamnade).toEqual([{ namn: "Anna", loneart: "helglon", label: "Helglön", mangd: "24.00", enhet: "tim" }]);
+    expect(j.utelamnade).toEqual([{ namn: "Anna", loneart: "helglon_skordare", label: "Helglön skördare", mangd: "24.00", enhet: "tim" }]);
     expect(j.skickade).toBe(3);
     // loggen bär bara det som faktiskt skickades
     expect(g.__logg).toHaveLength(1);
@@ -121,28 +121,28 @@ describe("skarp sändning", () => {
 
   it("premielönen är frivillig: saknas dess kod skickas allt annat utan att något stoppar", async () => {
     const { premielon_skordare, premielon_skotare, ...utanPremie } = PROD_KODER;
-    satt([forare("Anna", "7", { ...utanPremie, helglon: "1461" }, DEC)]);
+    satt([forare("Anna", "7", { ...utanPremie, helglon_skordare: "1461" }, DEC)]);
     const r = await anropa({ period: "2027-01" });
     expect(r.status).toBe(200);
     expect(g.__skickat.map((t: any) => t.SalaryCode)).toEqual(["11", "136", "1461"]);
   });
 
   it("en redan skickad förare med saknad kod blockerar inte (hens rader skickas inte om)", async () => {
-    satt([forare("Anna", "7", PROD_KODER, DEC, "skickat"), forare("Bo", "8", { ...PROD_KODER, helglon: "1461" }, DEC)]);
+    satt([forare("Anna", "7", PROD_KODER, DEC, "skickat"), forare("Bo", "8", { ...PROD_KODER, helglon_skordare: "1461" }, DEC)]);
     const r = await anropa({ period: "2027-01" });
     expect(r.status).toBe(200);
     expect(g.__skickat.every((t: any) => t.EmployeeId === "8")).toBe(true);
   });
 
   it("val utan något som saknas ändrar ingenting: samma rader, inga utelämnade", async () => {
-    satt([forare("Anna", "7", { ...PROD_KODER, helglon: "1461" }, DEC)]);
+    satt([forare("Anna", "7", { ...PROD_KODER, helglon_skordare: "1461" }, DEC)]);
     const j = await (await anropa({ period: "2027-01", skicka_utan_saknade: true })).json();
     expect(g.__skickat.map((t: any) => t.SalaryCode)).toEqual(["11", "1355", "136", "1461"]);
     expect(j.utelamnade).toEqual([]);
   });
 
   it("anställningsnummer saknas: den föraren hoppas över med ett fel, precis som förut", async () => {
-    satt([forare("Anna", "", { ...PROD_KODER, helglon: "1461" }, DEC)]);
+    satt([forare("Anna", "", { ...PROD_KODER, helglon_skordare: "1461" }, DEC)]);
     const j = await (await anropa({ period: "2027-01" })).json();
     expect(j.ok).toBe(false);
     expect(j.felMeddelanden).toEqual(["Anna: anställningsnummer saknas."]);
@@ -152,5 +152,40 @@ describe("skarp sändning", () => {
   it("felaktig period ger 400", async () => {
     satt([]);
     expect((await anropa({ period: "oktober" })).status).toBe(400);
+  });
+});
+
+// Företagsledare (medarbetare.foretagsledare): lönen ligger utanför appen. Inget skickas, inget loggas, inget fel, inget som blockerar.
+describe("företagsledare", () => {
+  const ledare = (namn: string, nr: string) => ({
+    ...beräknaExport(`id-${namn}`, namn, nr, DEC, { R64428: "skordare" }, "2027-01", [], [], 60, null, new Set(), null, null, PROD_KODER, { foretagsledare: true }),
+    status: "utkast",
+  });
+
+  it("skarp sändning: skickas aldrig, loggas inte och ger inget fel trots saknat anställningsnummer — och står inte bland de skickade", async () => {
+    satt([forare("Anna", "7", { ...PROD_KODER, helglon_skordare: "1461" }, DEC), ledare("Martin", "")]);
+    const j = await (await anropa({ period: "2027-01" })).json();
+    expect(j.ok).toBe(true);
+    expect(j.fel).toBe(0);
+    expect(j.felMeddelanden).toEqual([]);
+    expect(g.__logg.map((l: any) => l.v.medarbetare_id)).toEqual(["id-Anna"]);
+    expect(g.__skickat.every((t: any) => t.EmployeeId === "7")).toBe(true);
+    expect(j.medarbetare.map((m: any) => m.namn)).toEqual(["Anna"]);
+  });
+
+  it("förhandsvisning: ledaren finns kvar med flaggan men utan rader, och bidrar inte till de blockerande raderna", async () => {
+    satt([ledare("Martin", "9")]);
+    const j = await (await anropa({ period: "2027-01", dry_run: true })).json();
+    expect(j.medarbetare[0]).toMatchObject({ namn: "Martin", foretagsledare: true, rader: [], lonerader: [] });
+    expect(j.blockerande).toEqual([]);
+  });
+
+  it("en sändning där bara ledare har data skickar ingenting alls", async () => {
+    satt([ledare("Martin", "9")]);
+    const j = await (await anropa({ period: "2027-01" })).json();
+    expect(j.ok).toBe(true);
+    expect(j.skickade).toBe(0);
+    expect(g.__skickat).toEqual([]);
+    expect(g.__logg).toEqual([]);
   });
 });

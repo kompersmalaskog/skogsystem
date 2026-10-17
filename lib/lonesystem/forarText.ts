@@ -113,6 +113,8 @@ export type TittaPost = {
 const ERSATTA = [
   /^Kortpass /, /^Deldag /, /^Frånvaro /, /^Helglön /, /^Bytesdag/,
   /ej bekräftade/, /saknar typ/, /^Anställningsnummer saknas/, /^Ingen premielön/,
+  // Helglön: "Ingen helglön skickas" får en egen post nedan; "Anställningsdatum saknas" är adminens sak (kvalifikationstiden), inte förarens.
+  /^Ingen helglön skickas/, /^Anställningsdatum saknas/,
   // Löneart utan kod: adminens text (den pekar på Lön → Lönearter). Föraren får en egen post nedan, eller ingen (frivillig premie).
   /^Löneart saknas/, /skickas inte: ingen kod är kopplad/,
   // Extra tid på dagar utan maskinpass: en granskningsnotis om övertidsbasen.
@@ -162,15 +164,19 @@ export function attTittaPa(spec: any): TittaPost[] {
       text: EJ_BESTAMD,
     });
   }
-  // Helglönen går till lönen när lönearten har en kod; annars som förut. Äldre svar utan `lonerader` räknas som utan kod.
+  // Helglönen: EN post per röd vardag, med orsaken — varför dagen gav eller inte gav helglön (Min månad). Går till lönen när lönearten
+  // (helglon_skordare / helglon_skotare) har en kod; annars som förut. Äldre svar utan `lonerader` räknas som utan kod.
   const lonerader = (spec?.lonerader || []) as { loneart: string; status: string }[];
-  const helglonGar = lonerader.some(l => l.loneart === "helglon" && l.status === "skickas");
-  for (const h of ((spec?.helglon?.dagar || []) as { datum: string; namn: string; arbetad: boolean }[]).filter(h => !h.arbetad)) {
-    ut.push({ nyckel: `hl${h.datum}`, datum: h.datum, rubrik: datumLang(h.datum), hoger: h.namn, text: `Helglön, 8 tim. ${helglonGar ? "Går till lönen." : EJ_BESTAMD}` });
+  const helglonGar = lonerader.some(l => l.loneart.startsWith("helglon") && l.status === "skickas");
+  for (const h of ((spec?.helglon?.dagar || []) as { datum: string; namn: string; arbetad: boolean; ger?: boolean; skal?: string }[])) {
+    ut.push({ nyckel: `hl${h.datum}`, datum: h.datum, rubrik: datumLang(h.datum), hoger: h.namn, text: helglonText(h, helglonGar) });
+  }
+  if (varn.some(v => /^Ingen helglön skickas/.test(v))) {
+    ut.push({ nyckel: "hlmaskin", datum: "", rubrik: "Helglön", hoger: "saknas", text: "Du har ingen maskintid den här månaden och ingen maskin på din rad i registret, så helglönen kan inte läggas till. Säg till Martin." });
   }
   // Övriga lönearter som har ett antal men saknar kod: raden går inte till lönen. Helglönen har sina dagsposter ovan.
   // Frivilliga (premien) är ingen sak för föraren.
-  for (const l of lonerader.filter(l => l.status === "saknar_kod" && l.loneart !== "helglon")) {
+  for (const l of lonerader.filter(l => l.status === "saknar_kod" && !l.loneart.startsWith("helglon"))) {
     const info = loneartInfo(l.loneart);
     ut.push({ nyckel: `lk-${l.loneart}`, datum: "", rubrik: info?.label ?? "Lönerad", hoger: "inte inställd", text: "Går inte till lönen än — lönearten är inte inställd. Säg till Martin." });
   }
@@ -198,6 +204,25 @@ export function attTittaPa(spec: any): TittaPost[] {
   okandaVarningar(varn).forEach((v, i) => ut.push({ nyckel: `ov${i}`, datum: "", rubrik: "Övrigt", text: v }));
 
   return ut.sort((a, b) => a.datum.localeCompare(b.datum));
+}
+
+/** Förarens ord för en röd vardag: gav den helglön, och om inte — varför (lib/lonesystem/helglon, §10 mom 3 och 4). */
+export function helglonText(h: { arbetad: boolean; ger?: boolean; skal?: string }, gar: boolean): string {
+  if (h.ger === false) {
+    switch (h.skal) {
+      case "sjuk": return "Du var sjuk den dagen, och en sjukdag ger ingen helglön (sjuklönen betalas enligt avtalet).";
+      case "vab": return "Du var hemma med sjukt barn (VAB) den dagen. Det ger ingen helglön.";
+      case "foraldraledig": return "Du var föräldraledig den dagen. Det ger ingen helglön.";
+      case "tjanstledig": return "Du var tjänstledig den dagen. Det ger ingen helglön.";
+      case "tjanstledig_omger": return "Du var tjänstledig dagen före eller dagen efter. Då betalas ingen helglön.";
+      case "kvalifikationstid": return "Helglön betalas först efter tre månaders anställning.";
+      default: return "Ingen helglön den här dagen.";
+    }
+  }
+  const slut = gar ? "Går till lönen." : EJ_BESTAMD;
+  return h.arbetad
+    ? `Du arbetade den dagen. Helglön, 8 tim, kommer ovanpå lönen för timmarna du arbetade. ${slut}`
+    : `Helglön, 8 tim. ${slut}`;
 }
 
 function deldagRubrik(typ: string): string {

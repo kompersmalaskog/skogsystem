@@ -5,7 +5,7 @@
 import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, landarRoller, raknaSpar, valjBas, type SparLage } from './berakningar'
 import { MANAD_NAMN, dagarText, fmt, fmtDag, kortNamn, saknarData, sedanText, veckodag } from './format'
 export { saknarData, sedanText, veckodag }
-import type { Arbetsdagar, MaskinManad, SparRad, Typ, VeckaRad } from './queries'
+import type { Arbetsdagar, MaskinManad, MaskinStopp, MaskinTakt, SparRad, Typ, VeckaRad } from './queries'
 
 // ── Payloaden ur SQL ────────────────────────────────────────────────────────
 export type VeckolageMaskin = MaskinManad & {
@@ -27,6 +27,10 @@ export type VeckolageData = {
   /** Arbetsdagar i innevarande ISO-vecka t.o.m. i dag. */
   vecka_gangna: number
   spar: SparRad[]
+  /** Takt och dagar kvar per maskin (helikopter_ny_takt) — prognosen är hittills + Σ takt × maskinens egna dagar kvar. Saknas i äldre köade payloads: då räknas som förut. */
+  takt?: MaskinTakt[]
+  /** Stopp per maskin, härledda ur ledighet + filer (helikopter_ny_stopp) — orsaken i notisen. Saknas i äldre payloads. */
+  stopp?: MaskinStopp[]
   /** Pågående vecka per spår (helikopter_ny_veckor, status 'pagar'). */
   veckor: Partial<Record<Typ, VeckaRad | null>>
   /** Antal objekt i månaden per spår (helikopter_ny_planering). */
@@ -64,7 +68,7 @@ export type SparVy = {
   typ: Typ
   /** Rubrik: "Slutavverkning · 5 000 m³fub till Vida" — volymen fet. Utan beställning: volym null, bolag " · ingen beställning". */
   rubrik: { typNamn: string; volym: string | null; bolag: string }
-  /** Stort tal: skotat landar i procent av beställt ("71 %", grön när spåret landar på beställt, annars orange) / "Inga objekt" (dämpad). liten = text i stället för tal. */
+  /** Stort tal: skotat landar i procent av beställt ("71 %", grön när spåret landar på beställt, dämpad mer än 5 % över, annars orange) / "Inga objekt" (dämpad). liten = text i stället för tal. */
   stort: { text: string; ton: Ton; liten: boolean }
   /** "Skördat och skotat landar på beställningen" / "Skotat landar under beställt" / "Skotat 487 · skotar ut föregående månad · skördaren har inget planerat". */
   mening: string
@@ -104,7 +108,7 @@ function stortTal(s: SparLage, ingenBest: boolean, ingaObjekt: boolean): SparVy[
   const roller = landarRoller(s)
   if (!roller) return { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, ton: 'dampad', liten: true }
   const skotat = roller[1]
-  return { text: `${landarProcent(skotat.landar, skotat.bestallt, skotat.under)} %`, ton: skotat.under ? 'orange' : 'gron', liten: false }
+  return { text: `${landarProcent(skotat.landar, skotat.bestallt, skotat.under)} %`, ton: skotat.under ? 'orange' : skotat.over ? 'dampad' : 'gron', liten: false }
 }
 
 function mening(s: SparLage, ingenBest: boolean, ingaObjekt: boolean): string {
@@ -113,7 +117,7 @@ function mening(s: SparLage, ingenBest: boolean, ingaObjekt: boolean): string {
   const roller = landarRoller(s)
   if (!roller) return `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`
   const under = roller.filter(r => r.under)
-  if (under.length === 0) return 'Skördat och skotat landar på beställningen'
+  if (under.length === 0) return roller[1].over ? `Skotat landar ${fmt(roller[1].overMangd)} över beställt` : 'Skördat och skotat landar på beställningen'
   return `${under.length === 2 ? 'Skördat och skotat' : under[0].namn} landar under beställt`
 }
 
@@ -163,7 +167,7 @@ function sparVy(s: SparLage, d: VeckolageData, dagar: Arbetsdagar, manadNamn: st
   const ruta = (hittills: number, namn: 'Skördat' | 'Skotat', i: 0 | 1): SparVy['skordat'] => {
     if (!roller) return { etikett: namn, tal: fmt(hittills), under: av, ton: 'neutral' }
     const r = roller[i]
-    return { etikett: `${namn} landar`, tal: fmt(r.landar), under: av, ton: r.under ? 'orange' : 'gron' }
+    return { etikett: `${namn} landar`, tal: fmt(r.landar), under: av, ton: r.under ? 'orange' : r.over ? 'dampad' : 'gron' }
   }
   const v = d.veckor[s.typ]
   const veckoPlan = v && v.plan != null && v.arbetsdagar > 0 && !ingenBest ? `plan ${fmt(v.plan * (d.vecka_gangna / v.arbetsdagar))} · ` : ''
@@ -188,7 +192,7 @@ export function veckolageModell(d: VeckolageData): Veckolage {
     const bas = valjBas(d.spar, typ)
     if (!bas) continue
     if (bas.bestallt <= 0 && bas.skordat + bas.skotat <= 0) continue
-    spar.push(sparVy(raknaSpar(bas, dagar), d, dagar, manadNamn))
+    spar.push(sparVy(raknaSpar(bas, dagar, d.takt), d, dagar, manadNamn))
   }
   const vd = veckodag(d.idag)
   return {

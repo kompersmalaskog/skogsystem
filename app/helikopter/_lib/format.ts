@@ -87,3 +87,21 @@ export function saknarData(m: { senast_datum: string | null; dagar_tom_idag: str
   const forstaAvDeTva = dagar[dagar.length - 2]
   return !m.senast_datum || m.senast_datum < forstaAvDeTva
 }
+
+const VECKODAG_KORT: Record<string, string> = { måndag: 'mån', tisdag: 'tis', onsdag: 'ons', torsdag: 'tors', fredag: 'fre', lördag: 'lör', söndag: 'sön' }
+
+/**
+ * Arbetsdagar som veckodagar: ["2026-10-14","2026-10-15","2026-10-16"] → "ons–fre", en dag → "ons". Sammanhängande dagar (fredag → måndag räknas
+ * som sammanhängande) blir ett led, led skiljs med ", ": "mån–tis, fre". Förutsätter stigande datum.
+ */
+export function fmtVeckodagar(datum: string[]): string {
+  const led: string[][] = []
+  for (const d of datum) {
+    const sista = led[led.length - 1]
+    const forra = sista?.[sista.length - 1]
+    const gap = forra ? Math.round((Date.parse(d) - Date.parse(forra)) / 86400000) : 0
+    if (sista && (gap === 1 || (gap === 3 && veckodag(forra) === 'fredag'))) sista.push(d)
+    else led.push([d])
+  }
+  return led.map(l => (l.length === 1 ? VECKODAG_KORT[veckodag(l[0])] : `${VECKODAG_KORT[veckodag(l[0])]}–${VECKODAG_KORT[veckodag(l[l.length - 1])]}`)).join(', ')
+}

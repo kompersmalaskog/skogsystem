@@ -7,7 +7,9 @@ import { Kort, Ikon } from "./ui";
 import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { fmtMangd } from "@/lib/lonesystem/loneart";
+import { minTillTimmar } from "@/lib/ob";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
+import { helglonSkalText } from "@/lib/lonesystem/helglon";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
@@ -323,6 +325,9 @@ function FortnoxExportSektion({
   }
 
   const medarbetare = fortnoxData.medarbetare || [];
+  // Företagsledare (medarbetare.foretagsledare) har inga lönerader: lönen ligger utanför appen. De står kvar i listan, med den noten.
+  const lonMedarbetare = medarbetare.filter((m: any) => !m.foretagsledare);
+  const antalLedare = medarbetare.length - lonMedarbetare.length;
   const kopplingar = fortnoxData.kopplingar || {};
   // Samma lista som sändningen stoppas av (serverns svar); äldre svar utan den räknas om ur raderna.
   const blockerande = fortnoxData.blockerande ?? blockerandeLonearter(medarbetare);
@@ -357,7 +362,7 @@ function FortnoxExportSektion({
           Löneperiod <strong>{månadsLabel(period)}</strong> — arbetstid <strong>{arbetsperiodLabel}</strong>
         </p>
         <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
-          {medarbetare.length} medarbetare · {fortnoxData.totalt_rader} lönerader. Mängder (timmar, veckor, mil) — aldrig kronor. Fortnox äger satserna.
+          {lonMedarbetare.length} medarbetare · {fortnoxData.totalt_rader} lönerader{antalLedare > 0 ? ` · ${antalLedare} företagsledare utan lön i appen` : ""}. Mängder (timmar, veckor, mil) — aldrig kronor. Fortnox äger satserna.
         </p>
       </Card>
 
@@ -375,13 +380,13 @@ function FortnoxExportSektion({
       <Card style={{ marginTop: AVSTAND.m }}>
         <p style={{ ...secHead, marginTop: 0, color: FARG.orange }}>Att ta med löneansvarig</p>
         {([
-          ["Fråga", "Löneart för brandrisk-OB", "timmarna räknas (lib/ob) men skickas inte förrän koden är fastställd."],
+          ["Gör", "Koppla koden för Brandrisk – OB (Fortnox 147)", "under Lön → Lönearter. Timmarna räknas (lib/ob) och skickas som EN rad; tom kod = raden skickas inte och en skarp sändning stoppas."],
           ["Fråga", "Löneart för sjuklön, VAB och föräldraledig", "dagarna ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
           ["Fråga", "Levereras sjukfrånvaro i timmar per dag?", "§12 mom 3 räknar karens i timmar (20 % av veckoarbetstiden = 8 tim vid 40) och sjuklön per timme som skulle ha arbetats. En halv sjukdag är 3 tim, inte en dag. Räknar Fortnox karensavdraget och de 80 procenten själv när appen skickar timmarna?"],
           ["Bekräfta", "Ordinarie tid är ett genomsnitt", "§5 mom 2: 40 tim/vecka i genomsnitt över en beräkningsperiod om högst 16 veckor. Ingen av appens tre gamla modeller är avtalets."],
           ["Bekräfta", "Komp räknas inte mot 250-taket", "§8 mom 3: övertid kan efter överenskommelse tas ut som ledighet, 1,4 tim per övertidstimme. §5 mom 5 anm 3: sådan tid är inte övertid enligt arbetstidslagen."],
           ["Bekräfta", "Gävle var utjämnad ordinarie tid", "§5 mom 2: 72–80 tim varannan vecka med tom vecka emellan och lön enligt schema är genomsnittsberäkning av ordinarie tid — inte kompensationsledighet. Perioden (v17–27 2026) är markerad i systemet; att utjämningen var överenskommen är inte bevisat av det."],
-          ["Bekräfta", "Arbetad röd dag ger ingen helglön", "§10 mom 2: helglön är grundlön för timmar som bortfaller. Den som jobbar får lön för timmarna + söndagstillägg (§8 mom 1) — inte helglön dessutom. Närvarokravet står i §10 mom 4."],
+          ["Martins beslut", "Röd vardag ger alltid 8 tim helglön", "Företagets praxis, över avtalets minimum (§10 mom 2, \"bortfallna timmar\" tillämpas inte): också den som arbetar dagen får helglön, och de arbetade timmarna lönas dessutom, utan söndagstillägg. Närvarokravet (mom 4: sjuk, VAB, föräldraledig eller tjänstledig på dagen, tjänstledig dagen före/efter) och kvalifikationstiden (mom 3: tre månader) är byggda. Inte byggt: olovlig frånvaro, återanställning inom fyra månader, ledighet över fyra veckor med tillfälligt arbete, fackliga kurser över en vecka."],
           ["Bekräfta", "Bytesdag är skoftning", "§5 mom 4: ledig vardag mot inarbetning avtalas samtidigt, lön enligt ordinarie schema om totalen är lika. Ingen helglön flyttas."],
           ["Martins beslut", "Beräkningsperiod och schema", "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen. Samma beslut avgör deldagens \"timmar som skulle ha arbetats\" (§12 mom 3 anm 2) — tills dess antar granskningen 8 tim/dag."],
           ["Martins beslut", "Var komp-saldot bor", "i Fortnox (appen rapporterar bara intjänat/uttaget) eller i appen (appen räknar saldot). Appen räknar aldrig kronor — men ett saldo i timmar är en mängd."],
@@ -408,6 +413,7 @@ function FortnoxExportSektion({
           const orimliga = m.orimliga || [];
           const utanRast = m.utan_rast || { dagar: 0, timmar: 0, datum: [] };
           const helglon = m.helglon || { dagar: [], timmar: 0 }; // går med som egen lönerad när lönearten har kod (visas ovan)
+          const ledare = m.foretagsledare === true; // lönen ligger utanför appen: inga lönerader
           const byten: any[] = m.byten || []; // bytesdagar (inarbetad, §5 mom 4) som rör månaden
           const deldagar: any[] = m.deldagar || []; // sjuk/VAB från ett klockslag — arbete plus frånvaro (§12 mom 3 räknar timmar)
           // "saknar typ" och kortpass visas som strukturerade rader — filtrera bort
@@ -425,19 +431,26 @@ function FortnoxExportSektion({
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: AVSTAND.s }}>
                 <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
-                <StatusBadge status={m.status} />
+                {!ledare && <StatusBadge status={m.status} />}
               </div>
-              {!m.anstallningsnummer && (
+              {!ledare && !m.anstallningsnummer && (
                 <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.meta, color: FARG.rod }}>⚠ Anställningsnummer saknas — går inte att skicka</p>
               )}
 
-              {/* SEKTION 1 — Lönerader: varje löneart som har ett antal, med kod + namn i Fortnox, eller varför den inte skickas */}
-              <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.gron }}>Lönerader till Fortnox</p>
-              <LoneradLista rader={loneraderAv(m)} kopplingar={kopplingar} />
-              {helglon.dagar.length > 0 && (
-                <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
-                  Röda vardagar i månaden: {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.arbetad ? " (arbetad — ingen helglön, §10 mom 2: inga timmar bortföll; timmarna lönas + söndagstillägg §8 mom 1)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")}.
-                </p>
+              {/* SEKTION 1 — Lönerader: varje löneart som har ett antal, med kod + namn i Fortnox, eller varför den inte skickas.
+                  Företagsledare har inga: lönen ligger utanför appen. */}
+              {ledare ? (
+                <p data-foretagsledare="" style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Företagsledare – lön utanför appen</p>
+              ) : (
+                <>
+                  <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: FARG.gron }}>Lönerader till Fortnox</p>
+                  <LoneradLista rader={loneraderAv(m)} kopplingar={kopplingar} />
+                  {helglon.dagar.length > 0 && (
+                    <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
+                      Röda vardagar i månaden: {helglon.dagar.map((h: any) => `${h.datum.slice(5)} ${h.namn}${h.ger === false ? ` — ingen helglön: ${helglonSkalText(h.skal)}` : h.arbetad ? " (arbetad — helglön ändå, praxis)" : ""}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig.slice(5)}, inarbetad)` : ""}`).join(", ")}.
+                    </p>
+                  )}
+                </>
               )}
 
               {/* SEKTION 2 — Påverkar riktigheten men går inte med */}
@@ -524,8 +537,8 @@ function FortnoxExportSektion({
                       </p>
                     )}
                     {ob.timmar > 0 && (
-                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }}>
-                        Brandrisk-OB: <strong>{ob.timmar} tim</strong> ({ob.dagar} dag{ob.dagar === 1 ? "" : "ar"}) — <em>löneart ej fastställd</em>, läggs inte som lönerad.
+                      <p style={{ margin: 0, ...TYP.meta, color: FARG.bla }} data-brandrisk-admin>
+                        Brandrisk: <strong>{minTillTimmar(m.brandrisk?.ob_min ?? Math.round(ob.timmar * 60)).replace(".", ",")} tim OB</strong> ({ob.dagar} beordrade morgnar) — en lönerad, se listan ovan.
                       </p>
                     )}
                     {/* Deldagar: arbete PLUS frånvaro samma dag. Timmarna härledda mot
@@ -547,7 +560,7 @@ function FortnoxExportSektion({
                             ? <> — men den lediga dagen har registrerat arbete: bytet togs inte ut, den röda dagen är en vanlig arbetad röd dag. Granska.</>
                             : !b.ersatterArbetad
                               ? <> — men ingen arbetstid finns registrerad den röda dagen: inarbetningen saknas. Granska; byt typ om dagen ska räknas som annan ledighet.</>
-                              : <> (arbetad). Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid + söndagstillägg om beordrat (löneart OB öppen). Helglönen flyttas inte.</>}
+                              : <> (arbetad). Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid + söndagstillägg om beordrat enligt avtalet — men appen räknar ingen OB på helg (enkelskift, bara brandrisk). Helglönen flyttas inte.</>}
                         </p>
                       );
                     })}
@@ -579,11 +592,11 @@ function FortnoxExportSektion({
         </button>
         <button
           onClick={onSkicka}
-          disabled={medarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer)}
+          disabled={lonMedarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer)}
           style={{
             ...(blockerande.length > 0 ? btnSecondary : btnPrimary),
             flex: 1,
-            opacity: medarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer) ? 0.4 : 1,
+            opacity: lonMedarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer) ? 0.4 : 1,
           }}
         >Skicka till Fortnox</button>
       </div>

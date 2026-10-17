@@ -10,11 +10,11 @@ const med = (namn: string, status: string, lonerader: LoneRad[]) => ({ namn, sta
 describe("blockerandeLonearter", () => {
   it("samlar förarna per löneart, i katalogens ordning, med mängden", () => {
     const r = blockerandeLonearter([
-      med("Anna", "utkast", [rad("timlon", "skickas"), rad("helglon", "saknar_kod", "24.00")]),
-      med("Bo", "utkast", [rad("valtlappar", "saknar_kod", "3.00"), rad("helglon", "saknar_kod", "16.00")]),
+      med("Anna", "utkast", [rad("timlon", "skickas"), rad("helglon_skordare", "saknar_kod", "24.00")]),
+      med("Bo", "utkast", [rad("valtlappar", "saknar_kod", "3.00"), rad("helglon_skordare", "saknar_kod", "16.00")]),
     ]);
-    expect(r.map(x => x.loneart)).toEqual(["valtlappar", "helglon"]);
-    expect(r[1]).toMatchObject({ loneart: "helglon", label: "Helglön", enhet: "tim", forare: [{ namn: "Anna", mangd: "24.00" }, { namn: "Bo", mangd: "16.00" }] });
+    expect(r.map(x => x.loneart)).toEqual(["valtlappar", "helglon_skordare"]);
+    expect(r[1]).toMatchObject({ loneart: "helglon_skordare", label: "Helglön skördare", enhet: "tim", forare: [{ namn: "Anna", mangd: "24.00" }, { namn: "Bo", mangd: "16.00" }] });
     expect(antalBlockerande(r)).toBe(3);
   });
 
@@ -23,7 +23,7 @@ describe("blockerandeLonearter", () => {
   });
 
   it("en förare som redan är skickad räknas inte (hens rader skickas inte om)", () => {
-    expect(blockerandeLonearter([med("Anna", "skickat", [rad("helglon", "saknar_kod")])])).toEqual([]);
+    expect(blockerandeLonearter([med("Anna", "skickat", [rad("helglon_skordare", "saknar_kod")])])).toEqual([]);
   });
 
   it("tål medarbetare utan lonerader (äldre svar)", () => {
