@@ -18,15 +18,38 @@ import { sepKlient, PROD_MAPPNING } from "./testdata/sepKlient";
 const FACIT = readFileSync(join(__dirname, "testdata", "sep2026.gammal.json"), "utf8");
 const facit = JSON.parse(FACIT) as Record<string, any>;
 
-/** Det nya svaret utan de tillägg som inte fanns förut — resten ska vara oförändrat. */
+const arBrandrisk = (key: string) => key.startsWith("brandrisk");
+
+/**
+ * Det nya svaret utan de tillägg som inte fanns förut — resten ska vara oförändrat. Tilläggen är brandrisk-OB (2026-10-15): fältet
+ * `brandrisk`, lönearten i `saknade_loneartskoder` (tom kod som standard) och dess varningsrad. Inget annat tas bort.
+ */
 function utanTillagg(u: any) {
   const { kopplingar, ...rest } = u;
-  return {
-    ...rest,
-    resultat: u.resultat.map(({ lonerader, ...r }: any) => r),
-    berikad: u.berikad.map(({ lonerader, ...r }: any) => r),
-  };
+  const rad = ({ lonerader, brandrisk, ...r }: any) => ({
+    ...r,
+    saknade_loneartskoder: r.saknade_loneartskoder.filter((k: string) => !arBrandrisk(k)),
+    varningar: r.varningar.filter((v: string) => !/^Löneart saknas för Brandrisk – /.test(v)),
+  });
+  return { ...rest, resultat: u.resultat.map(rad), berikad: u.berikad.map(rad) };
 }
+
+// OB räknat OBEROENDE av koden (ren fixtur-läsning): beordrade (brandrisk_beordrad = true) vardagsmorgnar i arbetsmånaden, start → 06:30,
+// EN summa (ingen uppdelning i nattillägg). Samma tal som lib/ob ska ge — beräknat här med egna aritmetiken så testet inte bevisar sig självt.
+const FIXTUR: any = JSON.parse(readFileSync(join(__dirname, "testdata", "sep2026.json"), "utf8"));
+function forvantadOb(medarbetareId: string, arbetsmanad: string) {
+  let ob = 0;
+  for (const r of FIXTUR.arbetsdag as any[][]) {
+    if (r[0] !== medarbetareId || !String(r[1]).startsWith(arbetsmanad) || r[11] !== true || !r[7]) continue;
+    const veckodag = new Date(`${r[1]}T12:00:00Z`).getUTCDay();
+    if (veckodag < 1 || veckodag > 5) continue;
+    const [h, m] = String(r[7]).split(":").map(Number);
+    const start = h * 60 + m;
+    ob += Math.max(0, 390 - start);
+  }
+  return { ob };
+}
+const MED_BRANDRISKKODER = [...PROD_MAPPNING, { intern_typ: "brandrisk_ob", extern_kod: "9001", beskrivning: "Brandrisk – OB" }];
 
 const PERIODER = [
   { period: "2026-10", namn: "arbetstid SEPTEMBER 2026 (löneperiod oktober)" },
@@ -46,10 +69,69 @@ describe.each(PERIODER)("$namn", ({ period }) => {
       const gammal = facit[period].resultat[i];
       expect(r.namn).toBe(gammal.namn);
       expect(r.rader).toEqual(gammal.rader);
+      // brandrisk-OB har tom kod som standard: den syns som en saknad kod, aldrig som en rad — allt annat är som förut
+      expect(r.saknade_loneartskoder.filter((k: string) => !arBrandrisk(k))).toEqual([]);
+      const ovriga = r.lonerader.filter((l: any) => !arBrandrisk(l.loneart));
+      // förhandsvisningens övriga rader är exakt de som skickas: ingen röd, ingen frivillig utan kod
+      expect(ovriga.map((l: any) => l.status)).toEqual(ovriga.map(() => "skickas"));
+      expect(ovriga.map((l: any) => [l.loneart, l.kod, l.mangd])).toEqual(r.rader.map((x: any) => [x.loneart, x.SalaryCode, x.Number]));
+      expect(r.lonerader.filter((l: any) => arBrandrisk(l.loneart)).every((l: any) => l.status === "saknar_kod" && l.kod === null)).toBe(true);
+    });
+  });
+});
+
+describe("brandrisk-OB läggs BARA till (beslut 2026-10-15): EN ny rad per förare med beordrade morgnar, resten oförändrat", () => {
+  it.each(PERIODER)("$namn: med koder är raderna = de gamla + exakt OB-raden med oberoende räknade timmar", async ({ period }) => {
+    const nytt = await beraknaLoneunderlag(sepKlient(MED_BRANDRISKKODER), { period });
+    const arbetsmanad = period === "2026-10" ? "2026-09" : "2026-08";
+    let antalMedOb = 0;
+    nytt.resultat.forEach((r, i) => {
+      const gammal = facit[period].resultat[i];
+      const { ob } = forvantadOb(r.medarbetare_id, arbetsmanad);
+      expect(r.rader.filter((x: any) => !arBrandrisk(x.loneart))).toEqual(gammal.rader);         // alla befintliga rader byte för byte
+      const nya = r.rader.filter((x: any) => arBrandrisk(x.loneart)).map((x: any) => [x.loneart, x.SalaryCode, x.Number]);
+      const forvantat: any[] = [];
+      if (ob > 0) forvantat.push(["brandrisk_ob", "9001", (ob / 60).toFixed(2)]);
+      expect(nya).toEqual(forvantat);
+      if (forvantat.length) antalMedOb++;
       expect(r.saknade_loneartskoder).toEqual([]);
-      // förhandsvisningens rader är exakt de som skickas: ingen röd, ingen frivillig utan kod
-      expect(r.lonerader.map((l: any) => l.status)).toEqual(r.lonerader.map(() => "skickas"));
-      expect(r.lonerader.map((l: any) => [l.loneart, l.kod, l.mangd])).toEqual(r.rader.map((x: any) => [x.loneart, x.SalaryCode, x.Number]));
+    });
+    // augusti har beordrade brandriskmorgnar hos flera förare; september har inga — då är OB-raderna noll och exporten oförändrad
+    if (period === "2026-09") expect(antalMedOb).toBeGreaterThanOrEqual(4);
+    else expect(antalMedOb).toBe(0);
+  });
+
+  it("Stefan i augusti: 10,30 tim Brandrisk – OB, EN rad (de tre morgnarna 12–14 aug)", async () => {
+    const nytt = await beraknaLoneunderlag(sepKlient(MED_BRANDRISKKODER), { period: "2026-09" });
+    const medOb = nytt.resultat.filter(r => r.brandrisk.ob_min === 618);
+    expect(medOb).toHaveLength(1);
+    const stefan = medOb[0];
+    expect(stefan.brandrisk.dagar.map(d => d.datum)).toEqual(["2026-08-12", "2026-08-13", "2026-08-14"]);
+    expect(stefan.rader.filter((x: any) => arBrandrisk(x.loneart)).map((x: any) => [x.loneart, x.Number])).toEqual([["brandrisk_ob", "10.30"]]);
+  });
+
+  it("facit augusti: Stefan 10,30, Oskar 14,42, Max 7,08, Daniel 1,27, Martin 7,00 tim — och inga fler (Joacim och Oscar har inga beordrade morgnar)", async () => {
+    const nytt = await beraknaLoneunderlag(sepKlient(MED_BRANDRISKKODER), { period: "2026-09" });
+    const timmar = nytt.resultat.map(r => r.rader.find((x: any) => x.loneart === "brandrisk_ob")?.Number).filter(Boolean).sort();
+    expect(timmar).toEqual(["1.27", "10.30", "14.42", "7.00", "7.08"].sort());
+  });
+
+  it("ingen löneart för nattillägg finns: en rad per förare, aldrig två", async () => {
+    const nytt = await beraknaLoneunderlag(sepKlient(MED_BRANDRISKKODER), { period: "2026-09" });
+    for (const r of nytt.resultat) {
+      expect(r.rader.filter((x: any) => arBrandrisk(x.loneart)).length).toBeLessThanOrEqual(1);
+      expect(r.lonerader.some((l: any) => /natt/.test(l.loneart))).toBe(false);
+    }
+  });
+
+  it("utan koder: ingen rad skickas för OB, de syns som saknade koder med samma timmar, och allt annat är som förut", async () => {
+    const nytt = await beraknaLoneunderlag(sepKlient(), { period: "2026-09" });
+    nytt.resultat.forEach((r, i) => {
+      expect(r.rader).toEqual(facit["2026-09"].resultat[i].rader);
+      const { ob } = forvantadOb(r.medarbetare_id, "2026-08");
+      expect(r.lonerader.filter((l: any) => arBrandrisk(l.loneart)).map((l: any) => [l.loneart, l.mangd, l.status])).toEqual(
+        ob > 0 ? [["brandrisk_ob", (ob / 60).toFixed(2), "saknar_kod"]] : [],
+      );
     });
   });
 });
@@ -77,7 +159,7 @@ describe("kontroll av jämförelsen själv: den SER en ändring", () => {
     const nytt = await beraknaLoneunderlag(sepKlient(utanPremie), { period: "2026-10" });
     nytt.resultat.forEach((r, i) => {
       expect(r.rader).toEqual(facit["2026-10"].resultat[i].rader.filter((x: any) => !x.loneart.startsWith("premielon")));
-      expect(r.saknade_loneartskoder).toEqual([]);
+      expect(r.saknade_loneartskoder.filter((k: string) => !arBrandrisk(k))).toEqual([]);
     });
   });
 });

@@ -10,7 +10,8 @@
  * Fortnox multiplicerar med sats per anställd.
  *
  * Löneartskoder: finns INTE här. De läses ur lonesystem_artikelmappning (lib/lonesystem/loneart) och skickas in som `koder`.
- * Lönearterna är timlön, premielön (skördare/skotare), övertid (skördare/skotare), vältlappar, reseersättning och helglön.
+ * Lönearterna är timlön, premielön (skördare/skotare), övertid (skördare/skotare), vältlappar, reseersättning, helglön och
+ * brandrisk-OB (EN rad, bara beordrad brandriskmorgon — lib/ob).
  * Tom kod = ingen rad (varning + röd rad i förhandsvisningen); premielönen är frivillig och stoppar inget.
  *
  * Premielön är FÖRETAGETS EGEN konstruktion — den står inte i
@@ -35,6 +36,7 @@ import { loneartInfo, type LoneartKey, type Loneartskoder } from "./loneart";
 import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, HELGLON_TIMMAR, type HelglonDag } from "./helglon";
+import { brandriskSumma, minTillTimmar, type BrandriskSumma } from "../ob";
 
 type ArbetsdagInput = {
   datum: string;        // YYYY-MM-DD
@@ -43,6 +45,9 @@ type ArbetsdagInput = {
   km_totalt: number | null;
   bekraftad: boolean | null;
   dagtyp: string | null;
+  /** Brandrisk-OB (lib/ob): dagens start och om starten var beordrad. Saknas fälten räknas ingen OB. */
+  start_tid?: string | null;
+  brandrisk_beordrad?: boolean | null;
 };
 
 // Extra tid = arbete när maskindatorn var av (arbetad_min ser den inte).
@@ -153,8 +158,11 @@ export type ExportSammanfattning = {
   // Helglön §10 (lib/lonesystem/helglon): röda VARDAGAR i arbetsmånaden ur
   // avtalets lista. `timmar` = 8 × de dagar föraren INTE arbetat. Blir en lönerad
   // (löneart 'helglon') när lönearten har en kod; närvarokravet (§10 mom 4) är inte
-  // byggt än och OB vid arbete på röd dag är en öppen avtalsfråga.
+  // byggt än. OB vid arbete på röd dag räknas inte: appen har bara brandrisk-OB (enkelskift, CLAUDE.md).
   helglon: { dagar: HelglonDag[]; timmar: number };
+  // Brandrisk-OB (lib/ob): beordrade vardagsmorgnar → OB (start–06:30), en rad. Minuter är
+  // exakta; Fortnox-raderna bär timmar med två decimaler. Den ENDA OB appen räknar — enkelskift: tidig start är annars eget val.
+  brandrisk: BrandriskSumma;
   // Bytesdagar (inarbetad, §5 mom 4) som rör arbetsmånaden — den lediga dagen
   // ELLER den röda dagen ligger i månaden. Upplysning, ingen lönerad.
   byten: ByteRad[];
@@ -504,6 +512,14 @@ export function beräknaExport(
     laggRad("helglon", helglonTimmar.toFixed(2), `Helglön §10: ${helglonTimmar}h (${antalDagar} röda vardagar utan arbete)`);
   }
 
+  // ── BRANDRISK-OB (lib/ob, Skogsavtalet § 8 mom 1) ──
+  // EN rad per förare och månad med tom kod tills admin kopplar den (Fortnox 147): alla beordrade timmar start → 06:30 — företagets praxis,
+  // över avtalets minimum, ingen uppdelning i nattillägg. Exakta timmar, två decimaler, ingen avrundning per dag. Ingen annan OB räknas.
+  const brandrisk = brandriskSumma(dagar.map(d => ({ datum: d.datum, start_tid: d.start_tid ?? null, brandrisk_beordrad: d.brandrisk_beordrad ?? null })));
+  if (brandrisk.ob_min > 0) {
+    laggRad("brandrisk_ob", minTillTimmar(brandrisk.ob_min), `Brandrisk – OB: ${minTillTimmar(brandrisk.ob_min)}h (${brandrisk.dagar.length} beordrade morgnar, start–06:30)`);
+  }
+
   return {
     medarbetare_id: medarbetareId,
     namn,
@@ -525,6 +541,7 @@ export function beräknaExport(
     franvaro,
     kortpass,
     helglon,
+    brandrisk,
     byten,
     deldagar,
   };

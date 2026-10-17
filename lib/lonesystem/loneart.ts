@@ -35,6 +35,11 @@ export const LONEARTER = [
   { key: "helglon",            label: "Helglön",            enhet: "tim",    enhetText: "tim",           valfri: false,
     grupp: "Tillägg",
     forklaring: "8 timmar för varje röd vardag du inte arbetat (avtalet §10)." },
+  // OB: ENDAST brandrisk (beordrad tidig start, vardagsmorgon). Enkelskift på alla maskiner → en tidig start är annars förarens eget val.
+  // Kväll, lördag och söndag byggs inte (CLAUDE.md, beslut Martin 2026-10-15). Tom kod tills koden kopplas under Lön → Lönearter.
+  { key: "brandrisk_ob",         label: "Brandrisk – OB",         enhet: "tim",    enhetText: "tim",           valfri: false,
+    grupp: "Tillägg",
+    forklaring: "Alla beordrade timmar vid brandrisk, vardagsmorgon: från start till 06:30. En rad, företagets praxis (över avtalets minimum, §8 mom 1)." },
 ] as const;
 
 export type LoneartKey = (typeof LONEARTER)[number]["key"];

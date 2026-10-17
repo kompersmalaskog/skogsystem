@@ -48,6 +48,18 @@ Perioddagen (Joacims planering, restid, manuellt arbete — PR #592, 2026-09-26)
 
 ---
 
+## OB — ENDAST beordrad brandrisk-morgon. Bygg ALDRIG annan OB
+
+Beslut Martin 2026-10-15: vi kör **enkelskift på alla maskiner**, så en tidig start är förarens eget val. **OB betalas bara vid beordrad brandrisk, vardagsmorgon** (`arbetsdag.brandrisk_beordrad = true`, `lib/ob.ts`). **Kväll, lördag, söndag och helgdag byggs INTE — varken nu eller senare.** Skogsavtalet (§ 5 mom 5, § 8 mom 1, bilaga 4) ger OB för all beordrad obekväm tid, men verkligheten är mindre än avtalstexten: räknar man OB rått ur klockslagen (Stefan aug 2026: 20,4 tim) betalas ändå bara de beordrade brandriskmorgnarna (10,30 tim). Ett förslag om "OB kväll/helg" är en avvikelse från beslutet — fråga Martin, bygg inte.
+
+**Brandrisk-OB betalas som en rad på alla beordrade timmar (företagets praxis, över avtalets minimum). Dela inte upp i nattillägg.** Avtalet har ett nattillägg 00:00–05:00 utöver OB (§ 8 mom 1, anmärkningen), men vi betalar och bygger EN rad — en uppdelning i "nattillägg" är en avvikelse från beslutet (Martin 2026-10-15, ändrat från två rader till en samma dag).
+
+Raden heter **Brandrisk – OB** (`brandrisk_ob`) = beordrade timmar från start till 06:30, med **tom kod som standard** (Martin kopplar den till Fortnox 147 "OB tillägg natt" under Lön → Lönearter).
+
+**Ingen avrundning:** minuterna är heltal hela vägen och blir timmar med två decimaler först i slutsumman (`minTillTimmar`), aldrig per dag. Facit augusti 2026: Stefan **10,30** tim (618 min; morgnarna 12–14 aug, start 03:05/03:00/03:07), Oskar **14,42**, Max **7,08**, Daniel **1,27**, Martin **7,00**. Lönehanterarens handinlagda 147 för augusti (Stefan 10,20, Oskar 14,00, Max 7,00, Daniel 1,50) var avrundat för hand och avvek åt båda hållen — appens tal är de exakta.
+
+---
+
 ## Maskiner med data
 | maskin_id | Modell | Typ | Användning |
 |-----------|--------|-----|------------|
