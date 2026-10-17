@@ -222,6 +222,8 @@ export async function POST(request: NextRequest) {
       kontraktsnummer: td.kontraktsnummer,
       // Avtalsform (Ursprung) och åtgärd (Arbetsform) finns bara i TD-texten; envz-uttaget bär dem inte.
       avtalsform: td.avtalsform, atgard: td.atgard,
+      // Medelstam (m³fub/stam) bara när TD-texten bär ett entydigt värde. Fyller ett TOMT fält; en omimport skriver aldrig över ett värde någon satt (byggOmimportPatch).
+      medelstam: td.medelstam,
     };
     const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
 
@@ -351,6 +353,7 @@ export async function POST(request: NextRequest) {
       // ('Au' för alla slutavverkningar, 'Gallring' för resten): Skälviken (rotpost) blev Au, första gallring blev Gallring.
       atgard: falt.atgard || null,
       avtalsform: falt.avtalsform || null,
+      medelstam: falt.medelstam ?? null,
       volym: falt.volym,
       areal: falt.areal ?? null,
       avverkningsform: falt.avverkningsform || null,

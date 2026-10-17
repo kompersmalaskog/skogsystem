@@ -100,10 +100,13 @@ describe('Skälviken: en ny trakt — vad är kvar', () => {
     expect(text('klar-rad-prognos')).toMatch(/Saknar skördare/);
   });
 
-  it('medelstam ur TD syns i prognosen (0,72 för Skälviken)', () => {
+  it('medelstam ur TD står på sin egen rad (0,72 för Skälviken) och volymen i prognosen', () => {
     montera({});
-    klicka(q('klar-rad-prognos'));
+    expect(text('klar-rad-medelstam')).toContain('0,72');
+    expect(q('klar-post-medelstam')!.getAttribute('data-kvar')).toBe('0');
+    klicka(q('klar-rad-medelstam'));
     expect((q('klar-medelstam') as HTMLInputElement).value).toBe('0,72');
+    klicka(q('klar-rad-prognos'));
     expect((q('klar-volym') as HTMLInputElement).value).toBe('1800');
   });
 });
@@ -361,6 +364,19 @@ describe('ingången från ⓘ-kortet', () => {
     behallare = document.createElement('div'); document.body.appendChild(behallare);
     rot = createRoot(behallare); act(() => { rot!.render(<ObjektInfo {...p} />); });
   }
+  it('"Redo att skicka" (vit) när allt är ifyllt men trakten inte skickats; grönt "Klar" först när den är skickad', () => {
+    const p = infoProps(klarProps({}));
+    p.kort.klarRad = { chip: { text: 'Redo att skicka', ton: 'neutral' } };
+    monteraInfo(p);
+    expect(q('kort-klar-chip')!.getAttribute('data-ton')).toBe('neutral');
+    expect(text('kort-klar-chip')).toBe('Redo att skicka');
+    expect((q('kort-klar-chip') as HTMLElement).style.color).not.toBe('');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    const q2 = infoProps(klarProps({}));
+    q2.kort.klarRad = { chip: { text: 'Klar', ton: 'gron' } };
+    monteraInfo(q2);
+    expect(q('kort-klar-chip')!.getAttribute('data-ton')).toBe('gron');
+  });
   it('planeraren ser raden "Klar med trakten? · 13 kvar" överst på kortet och den öppnar kortet i samma ark', () => {
     monteraInfo(infoProps(klarProps({})));
     expect(text('kort-klar-rad')).toContain('Klar med trakten?');
@@ -488,5 +504,83 @@ describe('del 3: etiketten är alltid vit — bara knappen till höger visar lä
     expect(fyllning('klar-ved-lage')).not.toBe(fyllning('klar-ovrigt-band-skotare-vaxla'));   // Ja = vit, en ej påslagen knapp = grå
     klicka(q('klar-ovrigt-band-skotare-vaxla'));   // en annan rad som avviker (Ja) har samma vita fyllning
     expect(fyllning('klar-ved-lage')).toBe(fyllning('klar-ovrigt-band-skotare-vaxla'));
+  });
+});
+
+describe('G15-förslaget: förifyllt, med källa, prestation och orange tomläge', () => {
+  const fyllt: KlarFixtur = { skordare: EGEN('PONS20SDJAA270231'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 };
+  it('ingen "Använd förslaget"-knapp och ingen förslagsruta — fälten är redan ifyllda med förslaget', () => {
+    montera(fyllt);
+    klicka(q('klar-rad-prognos'));
+    expect(finns('klar-prognos-anvand')).toBe(false);
+    expect(finns('klar-prognos-forslag')).toBe(false);
+    expect(behallare!.textContent).not.toContain('Använd förslaget');
+    expect((q('klar-skordartimmar') as HTMLInputElement).value).toBe('41');
+    expect((q('klar-skotartimmar') as HTMLInputElement).value).toBe('36');
+  });
+  it('metarad om källan under fältet: antal trakter, medelstam och uppmätt spann (troligen …)', () => {
+    montera(fyllt);
+    klicka(q('klar-rad-prognos'));
+    expect(text('klar-skordare-kalla')).toBe('Ur 7 trakter med medelstam 0,64–1,0 · troligen 38–45');
+    expect(text('klar-skotare-kalla')).toBe('Ur 22 slutavverkningar (snitt) · troligen 30–44');
+    expect(finns('klar-skordare-andrad')).toBe(false);
+  });
+  it('ändrar man siffran visas "Ändrad av dig · förslag 41", och källan står kvar', () => {
+    montera(fyllt);
+    klicka(q('klar-rad-prognos'));
+    skriv(q('klar-skordartimmar') as HTMLInputElement, '55');
+    expect(text('klar-skordare-andrad')).toBe('Ändrad av dig · förslag 41');
+    expect(finns('klar-skordare-kalla')).toBe(true);
+    expect(finns('klar-skotare-andrad')).toBe(false);          // skotaren orörd
+    skriv(q('klar-skordartimmar') as HTMLInputElement, '41');
+    expect(finns('klar-skordare-andrad')).toBe(false);          // tillbaka på förslaget → ingen "ändrad"
+  });
+  it('prestation per maskin (volym ÷ G15-tim), både hopfällt och öppet, och den följer en ändrad siffra', () => {
+    montera({ ...fyllt, volym: 1800 });
+    expect(text('klar-prognos-rad-0')).toBe('Skördare 41 G15-tim · 44 m³fub/G15');
+    expect(text('klar-prognos-rad-1')).toBe('Skotare 36 G15-tim · 50 m³fub/G15');
+    klicka(q('klar-rad-prognos'));
+    expect(text('klar-skordare-prestation')).toBe('44 m³fub/G15');
+    skriv(q('klar-skordartimmar') as HTMLInputElement, '60');
+    expect(text('klar-skordare-prestation')).toBe('30 m³fub/G15');
+  });
+  it('prestationen skrivs inte när något saknas (ingen volym → bara timmarna)', () => {
+    montera({ ...fyllt, volym: null });
+    expect(text('klar-prognos-rad-0')).toBe('Skördare 41 G15-tim');
+    klicka(q('klar-rad-prognos'));
+    expect(finns('klar-skordare-prestation')).toBe(false);
+  });
+  it('inget förslag (för få jämförbara): fältet tomt, orange förklaring, raden orange och kvar — ingen gissning', () => {
+    montera({ skordare: EGEN('PONS20SDJAA270231'), skotare: EGEN('A110148'), utanForslag: true });
+    expect(q('klar-post-prognos')!.getAttribute('data-kvar')).toBe('1');
+    expect(text('klar-rad-prognos')).toMatch(/Saknar skördartimmar/);
+    klicka(q('klar-rad-prognos'));
+    expect((q('klar-skordartimmar') as HTMLInputElement).value).toBe('');
+    expect(text('klar-skordare-forslag-saknas')).toMatch(/Färre än 3 jämförbara trakter/);
+    expect(finns('klar-skordare-kalla')).toBe(false);
+    expect(finns('klar-prognos-rad-0')).toBe(false);
+  });
+  it('extern skördare: inga G15-fält för den (bara egna maskiner har timmar)', () => {
+    montera({ skordare: EXTERN('Skog AB'), skotare: EGEN('A110148'), skotareTimmar: 36 });
+    klicka(q('klar-rad-prognos'));
+    expect(finns('klar-skordartimmar')).toBe(false);
+    expect(finns('klar-skotartimmar')).toBe(true);
+  });
+});
+
+describe('medelstam som egen rad i del 1', () => {
+  it('saknas den (ingen TD-träff, inget skrivet) är raden orange och kvar, med förklaringen att förslaget då tar snitt över alla', () => {
+    montera({ medelstam: null });
+    expect(q('klar-post-medelstam')!.getAttribute('data-kvar')).toBe('1');
+    expect(text('klar-rad-medelstam')).toContain('Skriv');
+    expect(text('klar-post-medelstam')).toContain('snitt över alla trakter');
+    expect(text('klar-kvar-text')).toContain('8 saker');          // sju poster + medelstam, räknas inte listas
+  });
+  it('att skriva den tar bort "kvar" och raden stängs inte av sig själv (skrivfält)', () => {
+    montera({ medelstam: null });
+    klicka(q('klar-rad-medelstam'));
+    skriv(q('klar-medelstam') as HTMLInputElement, '0,8');
+    expect(spion.patchar.at(-1)).toEqual({ medelstam: '0,8' });
+    expect(q('klar-rad-medelstam')!.getAttribute('aria-expanded')).toBe('true');
   });
 });
