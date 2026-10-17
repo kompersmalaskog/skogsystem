@@ -103,13 +103,18 @@ export function rattaKvitto(res: RattaResultat, slag: 'rattning' | 'stryk'): str
   }
   switch (res.position) {
     case 'flyttad': rader.push('Maskinens position flyttades till rätt maskin.'); break;
-    case 'raderad': rader.push('Positionen som skrevs när flytten avslutades är raderad.'); break;
-    case 'osaker': rader.push(slag === 'stryk'
-      ? 'Flera positionsrader matchade, så ingen raderades — kontrollera maskinens position.'
-      : 'Flera positionsrader matchade, så ingen flyttades — kontrollera maskinens position.'); break;
-    case 'hittades_inte': rader.push('Ingen positionsrad hittades — kontrollera maskinens position.'); break;
-    case 'ej_hanterad': rader.push('Positionen rättas inte vid byte till annan maskin — kontrollera maskinens position.'); break;
+    case 'raderad': rader.push('Positionen som skrevs när flytten avslutades är borttagen.'); break;
+    // Ärligt: osäker matchning eller ingen rad = databasen lämnade positionen orörd, och föraren ska titta på kartan.
+    case 'osaker':
+    case 'hittades_inte':
+      rader.push(slag === 'stryk'
+        ? 'Positionen kunde inte tas bort automatiskt — kolla kartan.'
+        : 'Positionen kunde inte flyttas automatiskt — kolla kartan.'); break;
+    case 'ej_hanterad': rader.push('Positionen rättas inte vid byte till annan maskin — kolla kartan.'); break;
     default: break;
   }
   return rader;
 }
+
+/** Kvittot som EN mening för toasten: raderna ur svaret, åtskilda med " · ". */
+export const kvittoText = (res: RattaResultat, slag: 'rattning' | 'stryk'): string => rattaKvitto(res, slag).join(' · ');
