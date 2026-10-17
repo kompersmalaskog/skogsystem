@@ -6,7 +6,7 @@
 // Funktionerna kastar på läsfel/lås/regelbrott med ett svenskt felmeddelande som visas som det är.
 
 import { supabase } from '@/lib/supabase';
-import { beraknaFakturerbar } from '@/lib/flytt/fakturerbar';
+import { fakturerbarEffektiv } from '@/lib/flytt/fakturerbar';
 
 export type UnderlagAtgard = 'ingen' | 'skapat' | 'uppdaterat' | 'struket' | 'aterstallt';
 export type PositionAtgard = 'ingen' | 'flyttad' | 'raderad' | 'osaker' | 'hittades_inte' | 'ej_hanterad';
@@ -30,6 +30,8 @@ export interface Andringar {
   till_plats_id?: string | null;
   flytt_typ?: string;
   kund?: string | null;
+  /** true = fakturera ändå, false = fakturera inte, null = följ regeln. */
+  fakturerbar_manuell?: boolean | null;
 }
 
 const FUNKTION_SAKNAS = 'Rättningen är inte installerad i databasen än (migration 20261015170000). Be den som kör migrationerna om den.';
@@ -61,7 +63,7 @@ export function strykEnFlytt(id: string, anledning: string, av: string): Promise
   return anropa('stryk_flytt', { p_flytt: id, p_anledning: anledning.trim(), p_av: av });
 }
 
-/** De åtta fälten som går att rätta, så som formuläret håller dem. */
+/** De nio fälten som går att rätta, så som formuläret håller dem. */
 export interface Falt {
   maskin_id: string | null;
   extern_maskin: string | null;
@@ -71,6 +73,7 @@ export interface Falt {
   till_plats_id: string | null;
   flytt_typ: string;
   kund: string | null;
+  fakturerbar_manuell: boolean | null;
 }
 
 /** Bara det som skiljer sig från flytten skickas (varje par — maskin, från, till — följs åt som databasen väntar). */
@@ -82,14 +85,15 @@ export function andradeFalt(fore: Falt, nu: Falt): Andringar {
   if (nu.till_objekt_id !== fore.till_objekt_id || nu.till_plats_id !== fore.till_plats_id) { ut.till_objekt_id = nu.till_objekt_id; ut.till_plats_id = nu.till_plats_id; }
   if (nu.flytt_typ !== fore.flytt_typ) ut.flytt_typ = nu.flytt_typ;
   if (k(nu.kund) !== k(fore.kund)) ut.kund = k(nu.kund);
+  if (nu.fakturerbar_manuell !== fore.fakturerbar_manuell) ut.fakturerbar_manuell = nu.fakturerbar_manuell;
   return ut;
 }
 
 /** Kunduppdrag kräver kund (CHECK i databasen) — sägs innan man sparar, inte efter ett fel. */
 export const kravKund = (typ: string, kund: string | null): boolean => typ !== 'kunduppdrag' || !!(kund ?? '').trim();
 
-/** Fakturerbar efter rättningen — samma regel som databasen (lib/flytt/fakturerbar.ts). */
-export const fakturerbarEfter = (typ: string, km: number | null): boolean => beraknaFakturerbar(typ, km);
+/** Fakturerbar efter rättningen — samma regel som databasen (lib/flytt/fakturerbar.ts), manuellt val före regeln. */
+export const fakturerbarEfter = (typ: string, km: number | null, manuell: boolean | null = null): boolean => fakturerbarEffektiv(typ, km, manuell);
 
 /** Meningarna som står i kvittot efter en lyckad rättning (vad som faktiskt hände, ur databasens svar). */
 export function rattaKvitto(res: RattaResultat, slag: 'rattning' | 'stryk'): string[] {

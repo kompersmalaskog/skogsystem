@@ -100,6 +100,7 @@ const mock = vi.hoisted(() => ({
   skrivNoll: false,
   skrivFel: false,
   vantarFel: false,
+  manuellKolumnSaknas: false,
   rundorFel: false,
   extraRundor: [] as any[],
   patchRundor: {} as Record<string, Record<string, unknown>>,
@@ -128,7 +129,8 @@ vi.mock("@/lib/supabase", () => {
     private uppd: Record<string, unknown> | null = null;
     private filtreraId: string[] = [];
     constructor(private tabell: string) {}
-    select() { return this; }
+    private kolumner = "";
+    select(k?: string) { this.kolumner = k ?? ""; return this; }
     update(v: Record<string, unknown>) { this.uppd = v; return this; }
     eq(k: string, v: unknown) { this.filt.push(r => r[k] === v); return this; }
     is(k: string, v: unknown) { this.filt.push(r => (v === null ? r[k] == null : r[k] === v)); return this; }
@@ -167,6 +169,8 @@ vi.mock("@/lib/supabase", () => {
       if (this.tabell === "fakturaunderlag_flytt" && mock.underlagFel) return { data: null, error: { message: "boom" } };
       if (this.tabell === "dim_maskin" && mock.namnFel) return { data: null, error: { message: "boom" } };
       if (["flyttdag", "maskin_flytt"].includes(this.tabell) && mock.rundorFel) return { data: null, error: { message: "boom" } };
+      // Migration 20261017100000 ej körd: en fråga som nämner kolumnen faller som i PostgREST.
+      if (this.tabell === "maskin_flytt" && mock.manuellKolumnSaknas && this.kolumner.includes("fakturerbar_manuell")) return { data: null, error: { code: "42703", message: "column maskin_flytt.fakturerbar_manuell does not exist" } };
       return { data: tabeller()[this.tabell].filter(r => this.filt.every(f => f(r))).slice(fran, till === Infinity ? undefined : till + 1), error: null };
     }
     range(fran: number, till: number) { return Promise.resolve(this.kor(fran, till)); }
@@ -208,7 +212,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 14, 12, 0));
   konsol = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.medarbetare = ADMIN; mock.loading = false; mock.underlagFel = false; mock.namnFel = false; mock.extraUnderlag = []; mock.anrop = [];
-  mock.underlag = nyaUnderlag(); mock.skrivningar = []; mock.skrivNoll = false; mock.skrivFel = false; mock.vantarFel = false;
+  mock.underlag = nyaUnderlag(); mock.skrivningar = []; mock.skrivNoll = false; mock.skrivFel = false; mock.vantarFel = false; mock.manuellKolumnSaknas = false;
   mock.api = { status: 200, body: LAGE };
   mock.rundorFel = false; mock.extraRundor = []; mock.patchRundor = {};
   mock.flyttar = MASKIN_FLYTT.map(b => ({ ...b })); mock.rattningar = []; mock.rpc = []; mock.rpcHandler = null;
@@ -891,7 +895,7 @@ const medBg1 = () => { mock.flyttar.push(BG1()); mock.extraUnderlag = [OG_OKT()]
 describe("Flytten (sheet): öppna, läsa och rätta", () => {
   beforeEach(medBg1);
 
-  it("öppnar med flytten ifylld som iOS-rader med chevron; Faktura visar 'mätt'; Spara är grå", async () => {
+  it("öppnar med flytten ifylld som iOS-rader med chevron; 'mätt' står bara när det skiljer; Spara är grå", async () => {
     await oppnaFakturering();
     await oppnaS("og1", "Elefant 26");
     expect(dlg()!.querySelector('[data-flytt-vy="huvud"]')).not.toBeNull();
@@ -901,8 +905,9 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
     expect(valRad("Typ")!.textContent).toContain("Produktion");
     expect(valRad("Maskin")!.textContent).toContain("chevron_right");
     expect(kmS().value).toBe("62");
-    expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km · mätt 62");
+    expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km");     // fakturerad km = mätt km: samma tal två gånger är brus
     expect(kundS().value).toBe("");
+    expect(kundS().placeholder).toBe("Ingen");
     expect(sparaS().disabled).toBe(true);
     expect(knapp(/^Stryk flytten …$/, dlg()!)).toBeDefined();
     expect(besked()).toBeNull();                                  // inget ändrat = inget förhandsbesked
@@ -966,7 +971,7 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
 
   it("30-gränsen: ett rättat km som byter artikel säger det INNAN man sparar", async () => {
     mock.extraUnderlag = [];
-    mock.flyttar.push(BEN("bg3", "3bfa4d19", "A130743", "o-ostra", "o-vallust", 28, 60, false));
+    mock.flyttar.push(BEN("bg3", "3bfa4d19", "A130743", "o-ostra", "o-vallust", 28, 60, true, { fakturerbar_manuell: true }));   // 28 km: fakturerbar bara för att admin valt det
     mock.extraUnderlag = [U("og3", "2026-10-09", 28, "A130743", "o-ostra", "o-vallust", { ...OGODKAND, flytt_id: "bg3" })];
     await oppnaFakturering();
     await oppnaS("og3", "Elefant 26");
@@ -993,13 +998,16 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
   });
 
   it("km som saknades kan fyllas i, och märks 'ifylld, saknades i datan' — aldrig som en mätning", async () => {
-    mock.flyttar.push(BEN("bg4", "3bfa4d19", "A130743", "o-ostra", "o-vallust", null as any, 60, true));
+    mock.flyttar.push(BEN("bg4", "3bfa4d19", "A130743", "o-ostra", "o-vallust", null as any, 60, true, { fakturerbar_manuell: true }));   // utan mätt km är det bara admins val som gör den fakturerbar
     mock.extraUnderlag = [U("og4", "2026-10-09", null, "A130743", "o-ostra", "o-vallust", { ...OGODKAND, flytt_id: "bg4" })];
     await oppnaFakturering();
     expect(underlagRad("og4")!.textContent).toContain("km saknas i datan");
     await oppnaS("og4", "Elefant 26");
     expect(kmS().value).toBe("");
-    expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km · mätt saknas i datan");
+    expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km");    // inget fakturerat km och ingen mätning: ingen skillnad att visa
+    await skrivIn(kmS(), "44");
+    expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km · mätt saknas i datan");   // nu skiljer det: fakturerat men aldrig mätt
+    await skrivIn(kmS(), "");
     await skrivIn(kmS(), "44"); await skrivText(anledningS(), "mätt av föraren"); await klicka(sparaS());
     expect(underlagRad("og4")!.textContent).toContain("44 km");
     expect(underlagRad("og4")!.textContent).toContain("ifylld, saknades i datan");
@@ -1056,7 +1064,10 @@ describe("Flytten (sheet): FLYTTEN går via ratta_flytt, med bara de nycklar som
     await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
     expect(valRad("Till")!.textContent).toContain("Tjuvön AU 2026");
     expect(dlg()!.textContent).toContain("Ändras från Vällust RP M-R -25");
-    expect(besked()).toBe("Sträckan räknades från den gamla trakten — kontrollera km.");   // koord_kalla = 'objekt': km kom från trakten
+    // koord_kalla = 'objekt': km kom från trakten. Allt om trakten är EN text under Till-raden — inget nere vid Spara.
+    expect(valRad("Till")!.parentElement!.querySelector("[data-varning]")!.textContent)
+      .toMatch(/^Tjuvön AU 2026 ligger \d+ km från där maskinen lämnades, och sträckan 62 km räknades från Vällust RP M-R -25\. Stämmer valet\?$/);
+    expect(besked()).toBeNull();
     await skrivText(anledningS(), "valde fel trakt");
     await klicka(sparaS());
     expect(mock.rpc[0].args.p_andringar).toEqual({ till_objekt_id: "o-tjuvon", till_plats_id: null });
@@ -1304,7 +1315,7 @@ describe("Körningar: länken till Flyttplatser (bodde i Flyttloggen)", () => {
 // ── Rätta och stryka en flytt (rundans ark, bara admin) ───────────────────────────────────────────
 // Databasfunktionerna (ratta_flytt, stryk_flytt, låset) är provade i riktig Postgres; här mockas rpc och
 // vaktas vad appen SKICKAR, vad den SÄGER innan man sparar, och hur den låser.
-import { beraknaFakturerbar } from "@/lib/flytt/fakturerbar";
+import { fakturerbarEffektiv } from "@/lib/flytt/fakturerbar";
 
 /** Som databasfunktionen, så långt testet behöver: tillämpar rättningen på de delade raderna och svarar som den. */
 function rpcSomDb(namn: string, args: any) {
@@ -1319,18 +1330,20 @@ function rpcSomDb(namn: string, args: any) {
     return { data: { underlag: u ? "struket" : "ingen", position: "raderad" }, error: null };
   }
   Object.assign(f, args.p_andringar);
-  f.fakturerbar = beraknaFakturerbar(f.flytt_typ, f.flytt_km);
+  f.fakturerbar = fakturerbarEffektiv(f.flytt_typ, f.flytt_km, f.fakturerbar_manuell ?? null);   // som databasens fakturerbar_effektiv
   f.redigerad_tid = "2026-10-15T16:00:00Z"; f.redigerad_av = args.p_av;
   let underlag = "ingen";
   if (u && fore.fakturerbar && !f.fakturerbar) { Object.assign(u, { status: "struken", struken_tid: "2026-10-15T16:00:00Z" }); underlag = "struket"; }
   else if (!u && f.fakturerbar) underlag = "skapat";
   else if (u) underlag = "uppdaterat";
   mock.rattningar.push({ id: "r" + mock.rattningar.length, flytt_id: f.id, tid: "2026-10-15T16:00:00Z", av: args.p_av, anledning: args.p_anledning, slag: "rattning",
-    fore: { maskin_id: fore.maskin_id, extern_maskin: null, fran_objekt_id: fore.fran_objekt_id, fran_plats_id: null, till_objekt_id: fore.till_objekt_id, till_plats_id: null, flytt_typ: fore.flytt_typ, kund: fore.kund }, efter: {}, underlag_atgard: underlag, position_atgard: "ingen" });
+    fore: { maskin_id: fore.maskin_id, extern_maskin: null, fran_objekt_id: fore.fran_objekt_id, fran_plats_id: null, till_objekt_id: fore.till_objekt_id, till_plats_id: null, flytt_typ: fore.flytt_typ, kund: fore.kund, fakturerbar_manuell: fore.fakturerbar_manuell ?? null }, efter: { fakturerbar_manuell: f.fakturerbar_manuell ?? null }, underlag_atgard: underlag, position_atgard: "ingen" });
   return { data: { fakturerbar_fore: fore.fakturerbar, fakturerbar_efter: f.fakturerbar, underlag, position: "ingen" }, error: null };
 }
 /** Flyttar i oktoberrundan 3e823d15 som INTE är fakturerbara och därför saknar underlag (service, 53 resp. 20 km). */
 const BN1 = () => BEN("bn1", "3e823d15", "A130743", "o-halaback", "o-ostra", 53, 40, false, { flytt_typ: "service", fran_lat: 56.40, fran_lng: 14.60, starttid: "2026-10-06T14:00:00Z", koord_kalla: "gps" });
+/** En kort produktionsflytt: 15 km, under gränsen, ingen automatisk fakturering och inget underlag. */
+const BN3 = () => BEN("bn3", "3e823d15", "A130743", "o-halaback", "o-ostra", 15, 25, false, { starttid: "2026-10-06T14:00:00Z", koord_kalla: "gps" });
 const BN2 = () => BEN("bn2", "3e823d15", "A030353", "o-brokamala", "o-tjuvon", 20, 25, false, { flytt_typ: "service" });
 const arkEl = () => document.querySelector('[role="dialog"]') as HTMLElement;
 const kvittoRunda = () => document.querySelector("[data-ratta-kvitto]") as HTMLElement | null;
@@ -1363,7 +1376,11 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(valRad("Från")!.textContent).toContain("Hålabäck au 2025");
     expect(valRad("Till")!.textContent).toContain("Östra-Hoka 1:7 A-C -25");
     expect(valRad("Typ")!.textContent).toContain("Service");
-    expect(dlg()!.querySelector('section[aria-label="Faktura"]')).toBeNull();
+    // FAKTURA visas ALLTID — "Nej" är ett svar. Sträcka och kund finns inte (flytten faktureras inte).
+    const faktura = dlg()!.querySelector('section[aria-label="Faktura"]')!;
+    expect(faktura.textContent).toContain("FaktureraNej");
+    expect(faktura.textContent).toContain("Automatiskt: nej — service faktureras inte");
+    expect(faktura.querySelector('button[role="switch"]')!.getAttribute("aria-checked")).toBe("false");
     expect(kmS()).toBeNull();
     expect(dlg()!.querySelector("[data-matt-flytt]")!.textContent).toContain("Mätt sträcka 53 km — går inte att rätta");
     expect(sparaS().disabled).toBe(true);
@@ -1377,7 +1394,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     await klicka(knapp(/Visa flytten Elefant 26/, arkEl()));
     expect(dlg()!.querySelector('section[aria-label="Faktura"]')).not.toBeNull();
     expect(kmS().value).toBe("36");
-    expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km · mätt 36");
+    expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km");
     await valj("Typ", /Service/);
     expect(besked()).toBe("Blir inte fakturerbar — underlaget stryks");    // åt det hållet också
   });
@@ -1514,7 +1531,8 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
 
 describe("Flytten (sheet): rubriken säger vilken flytt det är, och trakt-bytet varnar om km", () => {
   beforeEach(() => { medBg1(); });
-  const KOORD = "Sträckan räknades från den gamla trakten — kontrollera km.";
+  /** Trakt-texten under en rad (Från/Till): EN mening, eller null. */
+  const traktText = (rad: string) => valRad(rad)!.parentElement!.querySelector("[data-varning]")?.textContent ?? null;
 
   it("rubriken: <maskinnamn> · <veckodag dag mån> · <förare>, och under den rutten Från → Till", async () => {
     await oppnaFakturering();
@@ -1569,11 +1587,14 @@ describe("Flytten (sheet): rubriken säger vilken flytt det är, och trakt-bytet
   it("byts Från eller Till och koordinaterna kom från trakten (koord_kalla = 'objekt'): info ovanför Spara, blockerar inte", async () => {
     await oppnaFakturering();
     await oppnaS("og1", "Elefant 26");
-    expect(besked() ?? "").not.toContain(KOORD);                          // inget bytt än
+    expect(dlg()!.querySelector("[data-varning]")).toBeNull();            // inget bytt än
     await klicka(valRad("Från")!);
     await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, "tjuv");
     await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
-    expect(besked()).toContain(KOORD);
+    // bara Från bytt: texten står under Från (Till är orörd), och inte nere vid Spara. Ingen punkt för Från att mäta mot → bara sträckan.
+    expect(traktText("Från")).toBe("Sträckan 62 km räknades från Östra-Hoka 1:7 A-C -25. Stämmer valet?");
+    expect(traktText("Till")).toBeNull();
+    expect(besked() ?? "").not.toContain("räknades");
     await skrivText(anledningS(), "fel trakt");
     expect(sparaS().disabled).toBe(false);                                // en upplysning, inte en spärr
     await klicka(sparaS());
@@ -1584,11 +1605,11 @@ describe("Flytten (sheet): rubriken säger vilken flytt det är, och trakt-bytet
     await oppnaFakturering();
     await oppnaS("og1", "Elefant 26");
     await valj("Maskin", /Giant/);
-    expect(besked() ?? "").not.toContain(KOORD);
+    expect(dlg()!.querySelector("[data-varning]")).toBeNull();
     await klicka(valRad("Till")!);
     await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, "tjuv");
     await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
-    expect(besked()).toContain(KOORD);
+    expect(traktText("Till")).toContain("räknades från Vällust RP M-R -25");
     await klicka(knapp(/^Avbryt$/, dlg()!));
     // koord_kalla = 'gps' (mätt position): ingen varning
     mock.flyttar.find(f => f.id === "bg1")!.koord_kalla = "gps";
@@ -1596,7 +1617,130 @@ describe("Flytten (sheet): rubriken säger vilken flytt det är, och trakt-bytet
     await klicka(valRad("Till")!);
     await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, "tjuv");
     await klicka(knapp(/Tjuvön AU 2026/, dlg()!));
-    expect(besked() ?? "").not.toContain(KOORD);
+    expect(traktText("Till")).toMatch(/^Tjuvön AU 2026 ligger \d+ km från där maskinen lämnades\. Stämmer valet\?$/);   // avståndet står kvar, sträckan nämns inte
+    expect(traktText("Till")).not.toContain("räknades");
+  });
+});
+
+describe("Flytten (sheet): manuellt val av fakturering", () => {
+  beforeEach(() => { mock.rpcHandler = rpcSomDb; });
+  const brytare = () => dlg()!.querySelector('button[role="switch"][aria-label="Fakturera"]') as HTMLButtonElement;
+  const faktura = () => dlg()!.querySelector('section[aria-label="Faktura"]') as HTMLElement;
+  const aterga = () => knapp(/^Återgå till automatiskt$/, dlg()!);
+
+  it("15 km produktion, före: Fakturera är av, 'Automatiskt: nej — under 30 km', ingen sträcka/kund, ingen 'Valt manuellt'", async () => {
+    mock.flyttar.push(BN3());
+    await oppnaFranRunda("Elefant 26");
+    expect(brytare().getAttribute("aria-checked")).toBe("false");
+    expect(faktura().textContent).toContain("FaktureraNej");
+    expect(faktura().querySelector("[data-automatiskt]")!.textContent).toBe("Automatiskt: nej — under 30 km");
+    expect(faktura().textContent).not.toContain("Valt manuellt");
+    expect(aterga()).toBeUndefined();
+    expect(kmS()).toBeNull(); expect(kundS()).toBeNull();
+    expect(besked()).toBeNull(); expect(sparaS().disabled).toBe(true);
+  });
+
+  it("15 km produktion, efter brytaren: Valt manuellt + Återgå, förhandsbesked 'hamnar under Att godkänna', och ratta_flytt får BARA fakturerbar_manuell", async () => {
+    mock.flyttar.push(BN3());
+    await oppnaFranRunda("Elefant 26");
+    await klicka(brytare());
+    expect(brytare().getAttribute("aria-checked")).toBe("true");
+    expect(faktura().textContent).toContain("FaktureraJa");
+    expect(faktura().querySelector("[data-automatiskt]")!.textContent).toBe("Automatiskt: nej — under 30 km");   // regeln står kvar bredvid valet
+    expect(faktura().querySelector("[data-manuellt]")!.textContent).toBe("Valt manuellt");
+    expect(aterga()).toBeDefined();
+    expect(besked()).toBe("Blir fakturerbar — hamnar under Att godkänna");
+    expect(sparaS().disabled).toBe(true);                                   // anledning krävs
+    await skrivText(anledningS(), "  kunden ska betala, trots korta sträckan  ");
+    expect(sparaS().disabled).toBe(false);
+    await klicka(sparaS());
+    expect(mock.rpc).toEqual([{ namn: "ratta_flytt", args: { p_flytt: "bn3", p_andringar: { fakturerbar_manuell: true }, p_anledning: "kunden ska betala, trots korta sträckan", p_av: "Test Admin" } }]);
+    expect(mock.skrivningar).toEqual([]);
+    expect(kvittoRunda()!.textContent).toContain("Den är nu fakturerbar och ligger under Att godkänna.");
+    // Valet minns: öppnas flytten igen står det som manuellt val, och historiken säger det.
+    await klicka(knapp(/Visa flytten Elefant 26/, arkEl()));
+    expect(brytare().getAttribute("aria-checked")).toBe("true");
+    expect(faktura().querySelector("[data-manuellt]")).not.toBeNull();
+    expect(dlg()!.textContent).toContain("fakturering automatiskt → manuellt ja");
+  });
+
+  it("Återgå till automatiskt sätter tillbaka regeln: valet, beskedet och ändringen försvinner", async () => {
+    mock.flyttar.push(BN3());
+    await oppnaFranRunda("Elefant 26");
+    await klicka(brytare());
+    await skrivText(anledningS(), "test");
+    await klicka(aterga()!);
+    expect(brytare().getAttribute("aria-checked")).toBe("false");
+    expect(faktura().textContent).not.toContain("Valt manuellt");
+    expect(besked()).toBeNull();
+    expect(sparaS().disabled).toBe(true);                                   // inget ändrat längre
+  });
+
+  it("att trycka brytaren till det regeln redan säger är inget manuellt val (null, inte false)", async () => {
+    mock.flyttar.push(BN3());
+    await oppnaFranRunda("Elefant 26");
+    await klicka(brytare()); await klicka(brytare());
+    expect(faktura().textContent).not.toContain("Valt manuellt");
+    await skrivText(anledningS(), "test");
+    expect(sparaS().disabled).toBe(true);
+  });
+
+  it("lång flytt (53 km) av: 'Blir inte fakturerbar — underlaget stryks', fakturerbar_manuell: false, och sträcka/kund försvinner", async () => {
+    mock.flyttar.push(BG1()); mock.extraUnderlag = [OG_OKT()];
+    await oppnaFakturering();
+    await oppnaS("og1", "Elefant 26");
+    expect(brytare().getAttribute("aria-checked")).toBe("true");
+    expect(faktura().querySelector("[data-automatiskt]")!.textContent).toBe("Automatiskt: ja — 30 km eller mer");
+    expect(kmS()).not.toBeNull();
+    await klicka(brytare());
+    expect(faktura().querySelector("[data-manuellt]")).not.toBeNull();
+    expect(besked()).toBe("Blir inte fakturerbar — underlaget stryks");
+    expect(kmS()).toBeNull(); expect(kundS()).toBeNull();                    // sträcka och kund visas bara när flytten faktureras
+    await skrivText(anledningS(), "kunden betalar inte flytten");
+    await klicka(sparaS());
+    expect(mock.rpc[0].args.p_andringar).toEqual({ fakturerbar_manuell: false });
+    expect(mock.skrivningar).toEqual([]);                                    // inget FAKTURA-steg: underlaget stryks av databasen
+  });
+
+  it("service av automatik, på manuellt: kunduppdrag/service-skälet står, och beskedet följer valet", async () => {
+    mock.flyttar.push(BN1());                                                // service 53 km
+    await oppnaFranRunda("Elefant 26");
+    expect(faktura().querySelector("[data-automatiskt]")!.textContent).toBe("Automatiskt: nej — service faktureras inte");
+    await klicka(brytare());
+    expect(besked()).toBe("Blir fakturerbar — hamnar under Att godkänna");
+    await valj("Typ", /Produktion/);                                          // 53 km produktion = automatiskt ja → valet är ihopfallet med regeln men står kvar
+    expect(besked()).toBe("Blir fakturerbar — hamnar under Att godkänna");
+  });
+
+  it("migrationen ej körd: sheeten öppnas ändå, utan brytare, och säger varför", async () => {
+    mock.manuellKolumnSaknas = true;
+    mock.flyttar.push(BN3());
+    await oppnaFranRunda("Elefant 26");
+    expect(brytare()).toBeNull();
+    expect(faktura().textContent).toContain("migration 20261017100000");
+    expect(valRad("Maskin")!.textContent).toContain("Elefant 26");
+  });
+
+  it("låst flytt (godkänd): FAKTURA visas ändå — Fakturera Ja, regeln eller 'Valt manuellt', och sträcka/kund; utan brytare", async () => {
+    await montera();
+    await klicka(document.querySelector('[data-runda="3bfa4d19"]') as HTMLElement);
+    await klicka(knapp(/Visa flytten Elefant 26/, arkEl()));                  // b2: 36 km, godkänt underlag u7
+    const g = dlg()!.querySelector('section[aria-label="Faktura"]')!;
+    expect(g.textContent).toContain("FaktureraJa");
+    expect(g.textContent).toContain("Automatiskt: ja — 30 km eller mer");
+    expect(g.querySelector('button[role="switch"]')).toBeNull();
+    expect(g.textContent).toContain("Sträcka36 km");                         // fakturerat = mätt: "mätt" står inte två gånger
+    expect(g.textContent).not.toContain("mätt");
+    expect(g.textContent).toContain("KundIngen");                            // kund utan värde är "Ingen", inte ett datafel
+  });
+
+  it("låst flytt vald manuellt: raden säger vad regeln hade sagt", async () => {
+    mock.flyttar.push(BN3());
+    const f = mock.flyttar.find(x => x.id === "bn3")!; Object.assign(f, { fakturerbar: true, fakturerbar_manuell: true });
+    mock.extraUnderlag = [U("ubn3", "2026-10-06", 15, "A130743", "o-halaback", "o-ostra", { ...OGODKAND, flytt_id: "bn3", godkand_tid: "2026-10-07T08:00:00Z", godkand_av: "Martin" })];
+    await oppnaFranRunda("Elefant 26");
+    expect(dlg()!.querySelector("[data-last]")).not.toBeNull();
+    expect(dlg()!.textContent).toContain("Valt manuellt — automatiskt hade det varit nej (under 30 km)");
   });
 });
 

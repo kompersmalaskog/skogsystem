@@ -1,8 +1,8 @@
 // Förhandsbeskedet i sheeten "Flytten": vad en rättning kommer att göra, i klartext, INNAN man trycker Spara.
-// Räknas i klienten med SAMMA regel som databasens fakturerbar_for (lib/flytt/fakturerbar.ts + den gemensamma
+// Räknas i klienten med SAMMA regel som databasens fakturerbar_effektiv (lib/flytt/fakturerbar.ts + den gemensamma
 // testtabellen), så beskedet och det som sedan händer aldrig kan skilja sig åt.
 
-import { beraknaFakturerbar } from './fakturerbar';
+import { fakturerbarEffektiv } from './fakturerbar';
 
 export interface ForeFlytt {
   typ: string;
@@ -16,6 +16,8 @@ export interface ForeFlytt {
 
 export interface NyFlytt {
   typ: string;
+  /** Det manuella valet efter rättningen: true/false går före regeln, null följer den. */
+  manuell: boolean | null;
   maskinId: string | null;
   externMaskin: string | null;
 }
@@ -23,7 +25,7 @@ export interface NyFlytt {
 /** Radens rader, i den ordning de ska stå. Tom lista = inget att säga. */
 export function forhandsbesked(fore: ForeFlytt, ny: NyFlytt, nyMaskinNamn: string | null): string[] {
   const rader: string[] = [];
-  const nyFakt = beraknaFakturerbar(ny.typ, fore.km);
+  const nyFakt = fakturerbarEffektiv(ny.typ, fore.km, ny.manuell);
   if (fore.fakturerbar && !nyFakt) rader.push('Blir inte fakturerbar — underlaget stryks');
   if (!fore.fakturerbar && nyFakt) rader.push('Blir fakturerbar — hamnar under Att godkänna');
 

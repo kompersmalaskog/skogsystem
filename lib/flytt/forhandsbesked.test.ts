@@ -3,15 +3,30 @@ import tabell from './__fixtures__/fakturerbar_tabell.json';
 import { forhandsbesked, type ForeFlytt } from './forhandsbesked';
 
 const fore = (o: Partial<ForeFlytt> = {}): ForeFlytt => ({ typ: 'produktion', km: 53, fakturerbar: true, maskinId: 'GIANT', externMaskin: null, ...o });
-const ny = (o: Record<string, unknown> = {}) => ({ typ: 'produktion', maskinId: 'GIANT', externMaskin: null, ...o }) as any;
+const ny = (o: Record<string, unknown> = {}) => ({ typ: 'produktion', manuell: null, maskinId: 'GIANT', externMaskin: null, ...o }) as any;
 
 describe('förhandsbeskedet följer samma regel som fakturerbar_for (den gemensamma testtabellen)', () => {
-  it.each(tabell.map(r => [r.typ, r.km, r.forvantat] as const))('%s, %s km → %s', (typ, km, forvantat) => {
+  it.each(tabell.map(r => [r.typ, r.km, r.manuell, r.forvantat] as const))('%s, %s km, manuellt %s → %s', (typ, km, manuell, forvantat) => {
     // Från motsatt läge till det tabellen säger: beskedet ska då säga att flytten byter läge — och bara då.
-    const rader = forhandsbesked(fore({ km, fakturerbar: !forvantat }), ny({ typ }), null);
+    const rader = forhandsbesked(fore({ km, fakturerbar: !forvantat }), ny({ typ, manuell }), null);
     expect(rader).toEqual([forvantat ? 'Blir fakturerbar — hamnar under Att godkänna' : 'Blir inte fakturerbar — underlaget stryks']);
     // Från samma läge som tabellen säger: inget besked om fakturering.
-    expect(forhandsbesked(fore({ km, fakturerbar: forvantat }), ny({ typ }), null)).toEqual([]);
+    expect(forhandsbesked(fore({ km, fakturerbar: forvantat }), ny({ typ, manuell }), null)).toEqual([]);
+  });
+});
+
+describe('förhandsbesked — manuellt val', () => {
+  it('15 km produktion, ej fakturerbar: att slå på Fakturera ger "hamnar under Att godkänna"', () => {
+    expect(forhandsbesked(fore({ km: 15, fakturerbar: false }), ny({ manuell: true }), null)).toEqual(['Blir fakturerbar — hamnar under Att godkänna']);
+  });
+  it('53 km produktion, fakturerbar: att slå av Fakturera ger "underlaget stryks"', () => {
+    expect(forhandsbesked(fore(), ny({ manuell: false }), null)).toEqual(['Blir inte fakturerbar — underlaget stryks']);
+  });
+  it('ett val som inte ändrar läget säger ingenting (53 km, "ja" = som regeln)', () => {
+    expect(forhandsbesked(fore(), ny({ manuell: true }), null)).toEqual([]);
+  });
+  it('manuellt ja på service går före typen — och byter man typ till produktion under 30 km behåller valet läget', () => {
+    expect(forhandsbesked(fore({ typ: 'service', km: 15, fakturerbar: true }), ny({ typ: 'produktion', manuell: true }), null)).toEqual([]);
   });
 });
 
