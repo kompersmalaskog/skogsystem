@@ -8,7 +8,7 @@ import { benEtikett, fmtMinuter, rundaAnmarkningar, rundaRubrik, rundaTidRad, ty
 import { fmtKlocka } from './nu';
 import { useRundaSpar } from './useRundaSpar';
 import { useState } from 'react';
-import RattaFlyttVy from './RattaFlyttVy';
+import FlyttSheet from './FlyttSheet';
 import { useBenStatus } from './useBenStatus';
 import { KNAPP } from '@/lib/design/tokens';
 
@@ -67,18 +67,20 @@ export default function RundaArk({ runda, onStang, arAdmin = false, namn = 'admi
   const spar = useRundaSpar(runda.tom ? null : runda.id);
   const benStatus = useBenStatus(runda.ben.map(b => b.id), arAdmin && runda.ben.length > 0);
   const [redigerar, setRedigerar] = useState<string | null>(null);
-  const [kvitto, setKvitto] = useState<string[] | null>(null);
+  const [kvitto, setKvitto] = useState<string | null>(null);
+  const [kvittoFel, setKvittoFel] = useState<string | null>(null);
   const lpm = fmtLPerMil(rundaLPerMil(runda));
   const anmarkningar = rundaAnmarkningar(runda);
   const sistaPunkt = spar.lage === 'klar' && spar.punkter.length ? spar.punkter[spar.punkter.length - 1] : null;
 
   const statusKarta = benStatus.lage.lage === 'klar' ? benStatus.lage.status : null;
-  const redigeraBen = redigerar ? runda.ben.find(b => b.id === redigerar) ?? null : null;
-  if (redigeraBen) {
+  // Sheeten "Flytten" ersätter rundans ark medan den är öppen (ingen modal ovanpå); Avbryt går tillbaka hit.
+  if (redigerar) {
     return (
-      <RattaFlyttVy ben={redigeraBen} status={statusKarta?.get(redigeraBen.id)} namn={namn}
-        onTillbaka={() => setRedigerar(null)}
-        onKlar={rader => { setKvitto(rader); setRedigerar(null); }}
+      <FlyttSheet key={redigerar} flyttId={redigerar} namn={namn}
+        onStang={() => setRedigerar(null)}
+        onKlar={text => { setKvitto(text); setKvittoFel(null); setRedigerar(null); }}
+        onDelvis={fel => { setKvittoFel(fel); setKvitto(null); setRedigerar(null); }}
         onAndrad={() => { benStatus.laddaOm(); onAndrad?.(); }} />
     );
   }
@@ -91,13 +93,19 @@ export default function RundaArk({ runda, onStang, arAdmin = false, namn = 'admi
 
       {kvitto && (
         <div role="status" data-ratta-kvitto style={{ background: FARG.fyllning, borderRadius: RADIE.knapp, padding: AVSTAND.m, marginBottom: AVSTAND.s }}>
-          {kvitto.map(r => <p key={r} style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{r}</p>)}
+          <p style={{ ...TYP.text, color: FARG.text, margin: 0 }}>{kvitto}</p>
           <button type="button" onClick={() => setKvitto(null)} style={KNAPP.lank}>OK</button>
+        </div>
+      )}
+      {kvittoFel && (
+        <div style={{ marginBottom: AVSTAND.s }}>
+          <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{kvittoFel}</p>
+          <button type="button" onClick={() => setKvittoFel(null)} style={KNAPP.lank}>OK</button>
         </div>
       )}
       {arAdmin && benStatus.lage.lage === 'fel' && (
         <div style={{ marginBottom: AVSTAND.s }}>
-          <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>Kunde inte läsa flyttarnas läge — att rätta en flytt är inte tillgängligt just nu.</p>
+          <p role="alert" style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>Kunde inte läsa vilka flyttar som är rättade eller låsta. Du kan ändå öppna en flytt.</p>
           <button type="button" onClick={benStatus.laddaOm} style={KNAPP.lank}>Försök igen</button>
         </div>
       )}
@@ -107,15 +115,15 @@ export default function RundaArk({ runda, onStang, arAdmin = false, namn = 'admi
         {runda.ben.map(b => {
           const e = benEtikett(b);
           const st = statusKarta?.get(b.id);
-          const las = st?.underlag?.fakturerad ? 'Låst · fakturerad' : st?.underlag?.godkand ? 'Låst · godkänd för fakturering' : null;
+          const las = st?.fakturerad ? 'Låst · fakturerad' : st?.godkand ? 'Låst · godkänd för fakturering' : null;
           const markning = st?.redigerad ? `Rättad${st.redigeradAv ? ` av ${st.redigeradAv}` : ''}${las ? ` · ${las.toLocaleLowerCase('sv')}` : ''}` : las;
           return (
             <Rad key={b.id} rubrik={b.maskin}
               under={`${b.fran ?? 'Okänd plats'} → ${b.till ?? 'okänd plats'}${b.tomKm ? ` · tomkörning ${b.tomKm} km` : ''}`}
               hoger={km(b.km)} hogerUnder={`${b.min != null ? fmtMinuter(b.min) + ' · ' : ''}${e.text}`}
               markning={markning} markningFarg={st?.redigerad ? FARG.orange : FARG.text2}
-              onTryck={arAdmin && statusKarta && b.raw ? () => { setKvitto(null); setRedigerar(b.id); } : undefined}
-              etikett={`Rätta flytten ${b.maskin}`} />
+              onTryck={arAdmin ? () => { setKvitto(null); setKvittoFel(null); setRedigerar(b.id); } : undefined}
+              etikett={`Visa flytten ${b.maskin}`} />
           );
         })}
         {!runda.flytt && !runda.tom && runda.giltig && <Rad rubrik="Körd" farg={FARG.text2} hoger={km(runda.km)} />}
@@ -123,7 +131,7 @@ export default function RundaArk({ runda, onStang, arAdmin = false, namn = 'admi
           <Rad rubrik={`Hem${runda.hemMatt === false ? ' (beräknad)' : ''}`} farg={FARG.text2} hoger={km(runda.hemKm)} sista />
         )}
       </div>
-      {arAdmin && statusKarta && runda.ben.some(b => b.raw) && (
+      {arAdmin && runda.ben.length > 0 && (
         <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>Tryck på en flytt för att rätta eller stryka den.</p>
       )}
 

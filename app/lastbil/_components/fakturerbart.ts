@@ -52,6 +52,8 @@ export function summeraFakturerbart(rader: readonly FaktureratRad[]): Fakturerba
 /** En kvittorad: en per fakturerbar flytt, auto-skapad av databastriggern. Kvittot speglar bara status. */
 export interface UnderlagRad extends FaktureratRad {
   id: string;
+  /** Flytten raden hör till (maskin_flytt.id) — det som sheeten "Flytten" rättar och stryker. */
+  flytt_id: string | null;
   kund: string | null;
   datum: string | null;            // date: 'YYYY-MM-DD'
   maskin: string | null;           // coalesce(extern_maskin, maskin_id)
@@ -126,3 +128,18 @@ export function kundAndringsText(r: Pick<UnderlagRad, 'kund' | 'kund_original' |
 
 /** Går raden att rätta? Före fakturering, så länge den inte är struken (databasen vägrar annars). */
 export const kanRedigeras = (r: FaktureratRad): boolean => r.status === 'aktiv' && !r.fakturerad_tid;
+
+/** Under kund-raden i sheeten: "Tillagd av Martin tor 15 okt" · "Ändrad från Vida" · null när den inte rörts. */
+export function kundNotis(r: Pick<UnderlagRad, 'kund' | 'kund_original' | 'redigerad_tid' | 'redigerad_av'>, datum: (iso: string) => string): string | null {
+  if (!kundAndrad(r)) return null;
+  const orig = kundNorm(r.kund_original);
+  if (orig == null) return `Tillagd av ${r.redigerad_av ?? 'okänd'}${r.redigerad_tid ? ' ' + datum(r.redigerad_tid) : ''}`;
+  if (kundNorm(r.kund) == null) return `Borttagen — var ${orig}`;
+  return `Ändrad från ${orig}`;
+}
+
+/** Sträckan i fakturan bredvid det mätta: "53 km · mätt 53" · "48 km · mätt 53". Saknas värdet står det. */
+export function strackaNotis(km: number | null, matt: number | null): string {
+  const fakt = km != null ? `${fmtKm(km)} km` : 'km saknas i datan';
+  return matt != null ? `${fakt} · mätt ${fmtKm(matt)}` : fakt;
+}

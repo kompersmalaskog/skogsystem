@@ -33,7 +33,7 @@ export function usePlatsData(aktiv: boolean) {
         if (o.error) throw o.error;
         if (p.error) throw p.error;
         if (avbruten) return;
-        const maskiner = (m.data ?? []).map((x: any) => ({ maskin_id: x.maskin_id, namn: x.visningsnamn || x.modell || x.maskin_id }));
+        const maskiner = (m.data ?? []).map((x: any) => ({ maskin_id: x.maskin_id, namn: x.visningsnamn || x.modell || 'Okänd maskin' }));
         const platser: PlatsKandidat[] = [
           ...(p.data ?? []).map((x: any) => ({ slag: 'plats' as const, id: x.id, namn: x.namn, lat: x.lat ?? null, lng: x.lng ?? null, sub: x.typ ?? 'plats' })),
           ...(o.data ?? []).filter((x: any) => x.namn).map((x: any) => ({ slag: 'objekt' as const, id: x.id, namn: x.namn, lat: x.lat ?? null, lng: x.lng ?? null, sub: x.status ?? 'trakt' })),
