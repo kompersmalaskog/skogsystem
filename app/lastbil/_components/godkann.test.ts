@@ -23,7 +23,7 @@ vi.mock('@/lib/supabase', () => {
   return { supabase: { from: (t: string) => new Q(t) } };
 });
 
-import { andraFlytt, angraGodkannande, godkannFlytt, strykFlytt } from './godkann';
+import { andraFlytt, angraGodkannande, godkannFlytt } from './godkann';
 
 const NU = new Date('2026-10-15T10:00:00Z');
 const upd = () => db.anrop.find(a => a.metod === 'update')!.arg[0] as Record<string, unknown>;
@@ -58,24 +58,6 @@ describe('angraGodkannande', () => {
     expect(await angraGodkannande('r1')).toEqual({ ok: true });
     expect(upd()).toEqual({ godkand_tid: null, godkand_av: null });
     expect(filter()).toEqual(expect.arrayContaining(['eq:id,r1', 'eq:status,aktiv', 'is:fakturerad_tid,', 'not:godkand_tid,is,']));
-  });
-});
-
-describe('strykFlytt', () => {
-  it('stryker med anledning (trimmad), vem och när — och aldrig en fakturerad flytt', async () => {
-    expect(await strykFlytt('r1', 'Martin Lindqvist', '  dubblett  ', NU)).toEqual({ ok: true });
-    expect(upd()).toEqual({ status: 'struken', struken_tid: '2026-10-15T10:00:00.000Z', struken_av: 'Martin Lindqvist', struken_anledning: 'dubblett' });
-    expect(filter()).toEqual(expect.arrayContaining(['eq:status,aktiv', 'is:fakturerad_tid,']));
-  });
-
-  it('utan anledning skrivs ingenting', async () => {
-    expect(await strykFlytt('r1', 'M', '   ', NU)).toEqual({ ok: false, fel: 'Skriv varför flytten stryks.' });
-    expect(db.anrop).toEqual([]);
-  });
-
-  it('noll rader är ett fel', async () => {
-    db.svar = { data: [], error: null };
-    expect(await strykFlytt('r1', 'M', 'dubblett', NU)).toMatchObject({ ok: false, utdaterad: true });
   });
 });
 

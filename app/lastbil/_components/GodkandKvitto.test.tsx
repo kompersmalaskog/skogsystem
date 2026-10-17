@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import GodkandKvitto, { KVITTO_MS } from './GodkandKvitto';
+import GodkandKvitto, { KVITTO_MS, KVITTO_VARNING_MS } from './GodkandKvitto';
 
 let rot: ReturnType<typeof createRoot> | null = null;
 let behallare: HTMLDivElement | null = null;
@@ -34,6 +34,22 @@ describe('GodkandKvitto', () => {
     act(() => { vi.advanceTimersByTime(KVITTO_MS - 1); });
     expect(onKlar).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(2); });
+    expect(onKlar).toHaveBeenCalledTimes(1);
+  });
+
+  it('utan onAngra är det ett vanligt kvitto: ingen Ångra-knapp (en rättning är loggad)', () => {
+    rot = createRoot(behallare!);
+    act(() => { rot!.render(<GodkandKvitto text="Flytten är rättad." onKlar={vi.fn()} />); });
+    expect(Array.from(document.querySelectorAll('button')).some(b => b.textContent === 'Ångra')).toBe(false);
+  });
+
+  it('en uppmaning ("kolla kartan") står längre än en bekräftelse', () => {
+    const onKlar = vi.fn();
+    rot = createRoot(behallare!);
+    act(() => { rot!.render(<GodkandKvitto text="Flytten är rättad. · Positionen kunde inte flyttas automatiskt — kolla kartan." onKlar={onKlar} />); });
+    act(() => { vi.advanceTimersByTime(KVITTO_MS + 1000); });
+    expect(onKlar).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(KVITTO_VARNING_MS); });
     expect(onKlar).toHaveBeenCalledTimes(1);
   });
 });
