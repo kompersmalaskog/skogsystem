@@ -59,6 +59,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     namn: f.namn ?? 'Skälviken',
     status: berakna(ind),
     objektStatus: f.objektStatus ?? 'oplanerad',
+    faktaRad: `Slutavverkning · Rp · ${prognos.areal != null ? String(prognos.areal).replace('.', ',') : '–'} ha · ${prognos.volym != null ? prognos.volym.toLocaleString('sv-SE') : '–'} m³fub`,
     klarSkickadAt: f.klarSkickadAt ?? null,
     basvag: { texter: ind.basvagTexter, kravs: false, timmar: '', sammanfattning: f.basvagSammanfattning ?? null },
     barighet: ind.barighet, terrang: ind.terrang, skotningsavstand: ind.skotningsavstand,
