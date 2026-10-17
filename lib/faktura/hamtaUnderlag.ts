@@ -252,7 +252,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
         + 'fran_objekt_id, till_objekt_id, faktura_objekt_id')
       .or(`faktura_objekt_id.in.(${lista}),`
         + `and(faktura_objekt_id.is.null,till_objekt_id.in.(${lista}))`)
-      // KONTRAKTET (migration 20261015150000): faktureringen läser bara GODKÄNDA flyttar.
+      // KONTRAKTET (migration 20261015151948): faktureringen läser bara GODKÄNDA flyttar.
       // En flytt godkänns med ett tryck i Lastbilen › Fakturering › Att godkänna; tills dess
       // finns den inte här. faktura_oversikt() gör detsamma, så listan och underlaget är överens.
       .eq('status', 'aktiv').is('fakturerad_tid', null).not('godkand_tid', 'is', null).order('datum');
