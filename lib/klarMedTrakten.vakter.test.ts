@@ -199,6 +199,7 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(kort).toContain("variant={aktionKvar ? 'sekundar' : 'primar'}");
     expect(steg).toContain("variant={post.kvar ? 'primar' : 'sekundar'} onTryck={p.onRitaBasvag}");
     expect(steg).toContain("variant={post.kvar ? 'primar' : 'sekundar'} onTryck={p.onPlaceraAvlagg}");
+    expect(allt).not.toContain('klar-avlagg-flytta');   // Flytta gjorde samma sak som Lägg till eget avlägg — två knappar för samma sak skapar tvekan
     expect(allt).not.toContain('Tryck på kartan där avlägget ska ligga.');
     expect(allt).not.toContain('Inget avlägg placerat än');
   });

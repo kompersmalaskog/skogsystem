@@ -363,16 +363,18 @@ describe('den knapp som gör stegets sak är primär — aldrig två vita knappa
 
 describe('Vidas avlägg räknas som avlägg', () => {
   const VIDA = { vidaAvlagg: ['01-1', '01-2'] };
-  it('Behöver dig: raden säger "Bekräfta"; steget visar "Vidas avlägg: 01-1, 01-2", Stämmer (vit) och Flytta / Lägg till (grå) — ingen kartfråga', () => {
+  it('Behöver dig: raden säger "Bekräfta"; steget visar "Vidas avlägg: 01-1, 01-2", Stämmer (vit) och Lägg till eget avlägg (grå) — ingen Flytta, ingen kartfråga', () => {
     montera({ ...VIDA });
     expect(text('klar-rad-avlagg-varde')).toBe('Bekräfta');
     klicka(q('klar-rad-avlagg'));
     expect(text('klar-avlagg-vida')).toBe('Vidas avlägg: 01-1, 01-2');
     expect(text('klar-avlagg-stammer')).toBe('Stämmer');
     expect(q('klar-avlagg-stammer')!.style.background).toBe(farg(FARG.text));
-    expect(text('klar-avlagg-flytta')).toBe('Flytta');
-    expect(text('klar-avlagg-placera')).toBe('Lägg till');
-    expect(q('klar-avlagg-flytta')!.style.background).not.toBe(farg(FARG.text));
+    expect(text('klar-avlagg-placera')).toBe('Lägg till eget avlägg');
+    expect(q('klar-avlagg-placera')!.style.background).not.toBe(farg(FARG.text));
+    expect(finns('klar-avlagg-flytta')).toBe(false);
+    expect(behallare!.textContent).not.toContain('Flytta');
+    expect(Array.from(q('klar-steg')!.querySelectorAll('button')).filter((b) => b.getAttribute('data-testid')?.startsWith('klar-avlagg-')).length).toBe(2);   // Stämmer + Lägg till — inget annat
     expect(q('klar-steg-nasta')!.style.background).not.toBe(farg(FARG.text));
     expect(behallare!.textContent).not.toContain('Placera på kartan');
   });
@@ -388,12 +390,12 @@ describe('Vidas avlägg räknas som avlägg', () => {
     expect(kvarRader()).not.toContain('avlagg');
     expect(text('klar-status')).toBe('4 saker kvar');
   });
-  it('Flytta och Lägg till ber sidan placera ett eget avlägg (samma list nertill som för vanliga avlägg)', () => {
+  it('Lägg till eget avlägg ber sidan placera ett (samma list nertill som för vanliga avlägg); Stämmer är kvar som primär', () => {
     montera({ ...VIDA });
     klicka(q('klar-rad-avlagg'));
-    klicka(q('klar-avlagg-flytta'));
     klicka(q('klar-avlagg-placera'));
-    expect(spion.placeraAvlagg).toBe(2);
+    expect(spion.placeraAvlagg).toBe(1);
+    expect(finns('klar-avlagg-stammer')).toBe(true);
   });
   it('ett eget avlägg räknas också som hanterat; sammanställningen visar Vidas nummer och de egna', () => {
     montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 1 });

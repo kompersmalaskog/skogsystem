@@ -211,8 +211,8 @@ const Varningsruta = ({ id, text }: { id: string; text: string }) => (
 
 /**
  * Avlägg. Knappen som gör stegets sak är PRIMÄR (vit) tills den är gjord — då blir Nästa primär och den här sekundär; aldrig två vita samtidigt.
- * Utan Vida-avlägg: "Placera på kartan" → "Avlägg placerat ✓". Med Vidas avlägg: "Vidas avlägg: 01-1, 01-2" + Stämmer (primär) och Flytta / Lägg till (sekundära);
- * Flytta och Lägg till placerar båda ett eget avlägg (Vidas punkt i underlaget rörs aldrig).
+ * Utan Vida-avlägg: "Placera på kartan" → "Avlägg placerat ✓". Med Vidas avlägg: "Vidas avlägg: 01-1, 01-2" + Stämmer (primär) och "Lägg till eget avlägg" (sekundär);
+ * det egna avlägget placeras som vanligt (Vidas punkt i underlaget rörs aldrig). Ingen "Flytta": den gjorde samma sak och skapade bara tvekan.
  */
 export function AvlaggBody({ p, kartaYta }: { p: KlarMedTraktenProps; kartaYta?: React.ReactNode }) {
   const post = p.status.poster.find((x) => x.id === 'avlagg')!;
@@ -234,8 +234,7 @@ export function AvlaggBody({ p, kartaYta }: { p: KlarMedTraktenProps; kartaYta?:
       {post.kvar
         ? <StorKnapp testid="klar-avlagg-stammer" onTryck={() => p.onBekraftaVidaAvlagg?.()}>Stämmer</StorKnapp>
         : <div data-testid="klar-avlagg-status" style={{ ...TYP.text, color: FARG.text }}>{bekraftat ? 'Vidas avlägg bekräftade ✓' : 'Avlägg placerat ✓'}</div>}
-      <StorKnapp testid="klar-avlagg-flytta" variant="sekundar" onTryck={p.onPlaceraAvlagg}>Flytta</StorKnapp>
-      <StorKnapp testid="klar-avlagg-placera" variant="sekundar" onTryck={p.onPlaceraAvlagg}>Lägg till</StorKnapp>
+      <StorKnapp testid="klar-avlagg-placera" variant="sekundar" onTryck={p.onPlaceraAvlagg}>Lägg till eget avlägg</StorKnapp>
     </>
   );
 }
