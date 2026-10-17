@@ -68,7 +68,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
       volym: prognos.volym != null ? String(prognos.volym) : '', areal: prognos.areal != null ? String(prognos.areal).replace('.', ',') : '', medelstam: prognos.medelstam != null ? String(prognos.medelstam).replace('.', ',') : '',
       skordare: maskinPrognos(prognos.skordareTimmar, prognos.volym, f.utanForslag ? null : { g15: 41, kalla: 'troligen 38–45 · ur 7 trakter med medelstam 0,64–1,0' }, 'Färre än 3 jämförbara trakter (medelstam 0,58–0,9) — inget förslag — skriv G15-tim själv'),
       skotare: maskinPrognos(prognos.skotareTimmar, prognos.volym, f.utanForslag ? null : { g15: 36, kalla: 'troligen 30–44 · ur 22 slutavverkningar (snitt)' }, 'Färre än 3 trakter av typen att räkna på — inget förslag — skriv G15-tim själv'),
-      forutsattningar: [], godkandAv: f.godkand ? 'm1' : null, godkandAt: f.godkand ? '2026-10-17T09:00:00.000Z' : null,
+      godkandAv: f.godkand ? 'm1' : null, godkandAt: f.godkand ? '2026-10-17T09:00:00.000Z' : null,
     },
     harDu: ind.harDu,
     varningar: harDuVarningar({ markeringar: f.markeringar ?? [], restriktioner: f.restriktioner ?? [], hansynsytor: 0 }),

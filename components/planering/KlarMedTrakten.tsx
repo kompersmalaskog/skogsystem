@@ -63,8 +63,6 @@ export interface KlarMedTraktenProps {
   prognos: {
     volym: string; areal: string; medelstam: string;
     skordare: MaskinPrognos; skotare: MaskinPrognos;
-    /** förutsättningarna i klartext: "Band skotare", "Breddat lastrede", "Medel skotningsavstånd" … */
-    forutsattningar: string[];
     godkandAv: string | null; godkandAt: string | null;
   };
   harDu: HarDuSvar;
@@ -310,6 +308,8 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const skotareEgen = utforareLage(p.skotare) === 'egen';
   const harAllt = status.prognos.lage === 'ogodkand' && status.prognos.saknas.length === 0;
   const godkand = status.prognos.lage === 'godkand';
+  // Godkänd förut men underlaget är ändrat sedan (fingeravtrycket stämmer inte) och allt finns att godkänna igen.
+  const godkandOgiltigt = status.prognos.lage === 'ogodkand' && harAllt && p.prognos.godkandAt != null;
   const prognosUppmaning = status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 ? `Saknar ${status.prognos.saknas[0]}` : 'Granska';
   const aktiv = (c: CellId) => cell === c;
   const oppnaCell = (c: CellId) => () => setCell(c);
@@ -414,27 +414,28 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
         <div style={{ ...TYP.text, color: FARG.text, alignSelf: 'center' }}>{etikett}</div>
         {egen ? (
           <>
-            <TalCell id={roll === 'skordare' ? 'skordartimmar' : 'skotartimmar'} aktiv={aktiv(roll)} onAktiv={oppnaCell(roll)} onKlart={klarCell(roll)} varde={mp.tim} onChange={(t) => p.onAndra(roll === 'skordare' ? { skordareTimmar: t } : { skotareTimmar: t })} label={`${etikett}, G15-timmar`} tom="Skriv">{mp.tim.trim()}</TalCell>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0 }}>
+              <TalCell id={roll === 'skordare' ? 'skordartimmar' : 'skotartimmar'} aktiv={aktiv(roll)} onAktiv={oppnaCell(roll)} onKlart={klarCell(roll)} varde={mp.tim} onChange={(t) => p.onAndra(roll === 'skordare' ? { skordareTimmar: t } : { skotareTimmar: t })} label={`${etikett}, G15-timmar`} tom="Skriv">{mp.tim.trim()}</TalCell>
+              {mp.andrad && mp.forslag && <span data-testid={`klar-${roll}-andrad`} style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>förslag {mp.forslag.g15}</span>}
+            </div>
             <div data-testid={`klar-${roll}-prestation`} style={{ ...TYP.listtitel, ...TNUM, color: mp.prestation != null ? FARG.text : FARG.text3, textAlign: 'right', alignSelf: 'center', paddingRight: AVSTAND.m }}>{mp.prestation != null ? fmtPrestation(mp.prestation) : '–'}</div>
           </>
         ) : (
           <div style={{ gridColumn: '2 / 4', ...TYP.meta, color: FARG.text2, textAlign: 'right', alignSelf: 'center', paddingRight: AVSTAND.m }}>{lage === 'extern' ? `Extern · ${v.externNamn.trim()}` : 'Välj maskin ovan'}</div>
         )}
+        {/* Intervall + underlag ("troligen 39–46 · ur 7 trakter …") visas först när man trycker på siffran: de behövs när man ska ändra den, inte när man bara läser. */}
+        {egen && aktiv(roll) && mp.forslag && (
+          <div data-testid={`klar-${roll}-kalla`} style={{ gridColumn: '1 / -1', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{etikett} · {mp.forslag.kalla}</div>
+        )}
       </div>
     );
   };
-  const kallRad = (roll: 'skordare' | 'skotare', etikett: string, egen: boolean, mp: MaskinPrognos) => {
-    if (!egen) return null;
-    if (mp.forslag) return (
-      <div key={roll} style={{ overflowWrap: 'anywhere' }}>
-        <span data-testid={`klar-${roll}-kalla`}>{etikett} · {mp.forslag.kalla}</span>
-        {mp.andrad && <span data-testid={`klar-${roll}-andrad`}> · Ändrad av dig · förslag {mp.forslag.g15}</span>}
-      </div>
-    );
-    if (mp.saknas) return <div key={roll} data-testid={`klar-${roll}-forslag-saknas`} style={{ color: FARG.orange, overflowWrap: 'anywhere' }}>{etikett} · {mp.saknas}</div>;
-    return null;
-  };
-  const kallRader = [kallRad('skordare', 'Skördare', skordareEgen, pg.skordare), kallRad('skotare', 'Skotare', skotareEgen, pg.skotare)].filter(Boolean);
+  // Inget förslag att visa (för få jämförbara trakter): står kvar hela tiden — cellen är tom och orange, och här står varför.
+  const saknasRad = (roll: 'skordare' | 'skotare', etikett: string, egen: boolean, mp: MaskinPrognos) =>
+    egen && !mp.forslag && mp.saknas
+      ? <div key={roll} data-testid={`klar-${roll}-forslag-saknas`} style={{ color: FARG.orange, overflowWrap: 'anywhere' }}>{etikett} · {mp.saknas}</div>
+      : null;
+  const saknasRader = [saknasRad('skordare', 'Skördare', skordareEgen, pg.skordare), saknasRad('skotare', 'Skotare', skotareEgen, pg.skotare)].filter(Boolean);
 
   return (
     <>
@@ -503,10 +504,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
                 {maskinRad('skotare', 'Skotare', skotareEgen, p.skotare, pg.skotare)}
               </div>
 
-              {kallRader.length > 0 && <div data-testid="klar-prognos-kallor" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.m, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>{kallRader}</div>}
-              {pg.forutsattningar.length > 0 && (
-                <div data-testid="klar-prognos-forutsattningar" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Utgår från: {pg.forutsattningar.join(' · ')}</div>
-              )}
+              {saknasRader.length > 0 && <div data-testid="klar-prognos-kallor" style={{ ...TYP.meta, marginTop: AVSTAND.m, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>{saknasRader}</div>}
               {status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 && (
                 <div data-testid="klar-prognos-saknas" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s }}>Saknar: {status.prognos.saknas.join(', ')}</div>
               )}
@@ -515,7 +513,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
                 style={{ ...(godkand ? KNAPP.sekundar : KNAPP.primar), ...(godkand ? { color: FARG.gron } : harAllt ? null : { opacity: 0.4 }), marginTop: AVSTAND.m, cursor: harAllt || godkand ? 'pointer' : 'default', fontFamily: 'inherit', touchAction: 'manipulation' }}>
                 {godkand ? `Stämmer ✓${p.prognos.godkandAv ? ` · ${p.avNamn(p.prognos.godkandAv) ?? ''}` : ''}${p.prognos.godkandAt ? ` ${dagManad(p.prognos.godkandAt)}` : ''}` : 'Stämmer'}
               </button>
-              {godkand && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Godkännandet gäller för just det här underlaget. Ändras volym, medelstam, förutsättningar eller maskin måste du trycka Stämmer igen.</div>}
+              {godkandOgiltigt && <div data-testid="klar-stammer-ogiltigt" role="note" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.xs }}>Underlaget har ändrats – tryck Stämmer igen</div>}
             </>
           )}
         </section>

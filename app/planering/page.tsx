@@ -13800,12 +13800,6 @@ export default function PlannerPage() {
           hansynsytor: (traktGeo?.features || []).filter((f: any) => klassaTraktFeature(f?.properties || {}).kategori === 'hansyn').length,
         });
         const namnForId = (id: string | null) => { const n = id ? medarbetareLista.find((m) => m.id === id)?.namn : null; return n ? n.split(' ')[0] : null; };
-        const klarForutsattningar = [
-          infoSkordareBand ? 'band skördare' : null, infoSkotareBand ? 'band skotare' : null, infoSkotareLastreder ? 'breddat lastrede' : null,
-          infoSkotningsavstand ? `${infoSkotningsavstand === 'langt' ? 'långt' : infoSkotningsavstand} skotningsavstånd` : null,
-          infoBarighet ? `${infoBarighet === 'dalig' ? 'dålig' : infoBarighet} bärighet` : null, infoTerrang ? `${infoTerrang} terräng` : null,
-          infoBasvagKravs ? `basvägsanläggning${infoBasvagTimmar ? ` ${infoBasvagTimmar} tim` : ''}` : null,
-        ].filter(Boolean) as string[];
         const maskinAlt = (roll: 'skordare' | 'skotare') => {
           const lista: { id: string; namn: string; varning?: string }[] = maskinerForRoll(roll).map((m) => ({ id: m.maskin_id, namn: maskinModell(m) || m.maskin_id }));
           // Redan vald maskin som inte längre passar (såld, eller klarar inte trakttypen) visas ändå, med skälet — den får aldrig försvinna tyst ur valet.
@@ -14002,7 +13996,6 @@ export default function PlannerPage() {
             prognos: {
               volym: infoVolym, areal: infoAreal, medelstam: klarFalt.medelstam,
               skordare: maskinPrognos('skordare'), skotare: maskinPrognos('skotare'),
-              forutsattningar: klarForutsattningar,
               godkandAv: klarFalt.prognosGodkand.av, godkandAt: klarFalt.prognosGodkand.at,
             },
             harDu: klarFalt.harDu, varningar: klarVarningar, avNamn: namnForId,

@@ -27,6 +27,7 @@ const skriv = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => act(() 
   Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v);
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
+const blur = (el: Element | null) => { expect(el, 'elementet finns').not.toBeNull(); act(() => { (el as HTMLElement).blur(); }); };
 const text = (id: string) => q(id)?.textContent ?? '';
 /** Gruppen "Det som redan stämmer" fälls ut (en i taget). */
 const oppnaGrupp = (id: 'appen' | 'harDu' | 'ovrigt') => { if (q(`klar-grupp-${id}`)!.getAttribute('data-oppen') !== '1') klicka(q(`klar-grupp-${id}-rad`)); };
@@ -299,17 +300,31 @@ describe('prognoskortet: volym, tabell, källa, Stämmer — siffror redigeras p
     expect(text('klar-cell-volym')).toBe('Skriv volym');
     expect(q('klar-cell-volym')!.style.color).toBe(farg(FARG.orange));
   });
-  it('källraden: intervallet först, sedan underlaget — en rad per maskin; "Ändrad av dig · förslag 41" när siffran avviker', () => {
+  it('intervall + underlag syns FÖRST när man trycker på siffran (en rad, bara den maskinen); i vila står inget grått under tabellen', () => {
     montera(fyllt);
+    expect(finns('klar-skordare-kalla')).toBe(false);
+    expect(finns('klar-skotare-kalla')).toBe(false);
+    klicka(q('klar-cell-skordartimmar'));
     expect(text('klar-skordare-kalla')).toBe('Skördare · troligen 38–45 · ur 7 trakter med medelstam 0,64–1,0');
+    expect(finns('klar-skotare-kalla')).toBe(false);
+    klicka(q('klar-cell-skotartimmar'));                        // ett fält åt gången: skördarens källa försvinner, skotarens kommer
     expect(text('klar-skotare-kalla')).toBe('Skotare · troligen 30–44 · ur 22 slutavverkningar (snitt)');
+    expect(finns('klar-skordare-kalla')).toBe(false);
+    skriv(q('klar-skotartimmar') as HTMLInputElement, '37'); blur(q('klar-skotartimmar') as HTMLInputElement);
+    expect(finns('klar-skotare-kalla')).toBe(false);            // klar med redigeringen → tillbaka till ett lugnt kort
+  });
+  it('"förslag 41" står direkt under siffran, bara när den är ändrad — ingen "Ändrad av dig"-rad längre', () => {
+    montera(fyllt);
     expect(finns('klar-skordare-andrad')).toBe(false);
     klicka(q('klar-cell-skordartimmar')); skriv(q('klar-skordartimmar') as HTMLInputElement, '55');
-    expect(text('klar-skordare-andrad')).toContain('Ändrad av dig · förslag 41');
-    expect(finns('klar-skordare-kalla')).toBe(true);
-    expect(finns('klar-skotare-andrad')).toBe(false);          // skotaren orörd
-    skriv(q('klar-skordartimmar') as HTMLInputElement, '41');
-    expect(finns('klar-skordare-andrad')).toBe(false);          // tillbaka på förslaget → ingen "ändrad"
+    blur(q('klar-skordartimmar') as HTMLInputElement);
+    expect(text('klar-skordare-andrad')).toBe('förslag 41');
+    expect(behallare!.textContent).not.toContain('Ändrad av dig');
+    expect(q('klar-skordare-andrad')!.parentElement!.contains(q('klar-cell-skordartimmar'))).toBe(true);   // samma kolumn, under cellen
+    expect(finns('klar-skotare-andrad')).toBe(false);           // skotaren orörd
+    klicka(q('klar-cell-skordartimmar')); skriv(q('klar-skordartimmar') as HTMLInputElement, '41');
+    blur(q('klar-skordartimmar') as HTMLInputElement);
+    expect(finns('klar-skordare-andrad')).toBe(false);          // tillbaka på förslaget → ingen "förslag"
   });
   it('ingen "Använd förslaget"-knapp och ingen förslagsruta — fälten är redan ifyllda med förslaget', () => {
     montera(fyllt);
@@ -362,9 +377,26 @@ describe('prognoskortet: volym, tabell, källa, Stämmer — siffror redigeras p
     oppnaGrupp('appen');
     expect(text('klar-rad-skotare')).toContain('Extern · Max Skotning');
   });
-  it('förutsättningarna ("Utgår från …") står kvar under tabellen', () => {
-    montera(fyllt, { prognos: { ...klarProps(fyllt).prognos, forutsattningar: ['Band skotare', 'Breddat lastrede'] } });
-    expect(text('klar-prognos-forutsattningar')).toBe('Utgår från: Band skotare · Breddat lastrede');
+  it('ingen "Utgår från …"-rad i prognoskortet — förutsättningarna står redan i "Appen har fyllt i"', () => {
+    montera({ ...fyllt, bandSkotare: true });
+    expect(finns('klar-prognos-forutsattningar')).toBe(false);
+    expect(behallare!.textContent).not.toContain('Utgår från');
+  });
+  it('Stämmer-texten: ingen förklaring medan godkännandet gäller; "Underlaget har ändrats – tryck Stämmer igen" (orange) bara när det blivit ogiltigt', () => {
+    montera({ ...fyllt, godkand: true });
+    expect(text('klar-stammer')).toContain('Stämmer ✓');
+    expect(finns('klar-stammer-ogiltigt')).toBe(false);
+    expect(behallare!.textContent).not.toContain('Godkännandet gäller');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    // godkänd förut (vem/när finns kvar) men underlaget har ändrats → läget är ogodkänt och allt finns att godkänna igen
+    montera({ ...fyllt, godkand: false }, { prognos: { ...klarProps({ ...fyllt, godkand: false }).prognos, godkandAv: 'm1', godkandAt: '2026-10-17T09:00:00.000Z' } });
+    expect(text('klar-stammer')).toBe('Stämmer');
+    expect(text('klar-stammer-ogiltigt')).toBe('Underlaget har ändrats – tryck Stämmer igen');
+    expect(q('klar-stammer-ogiltigt')!.style.color).toBe(farg(FARG.orange));
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    // aldrig godkänd → ingen sådan text
+    montera({ ...fyllt, godkand: false });
+    expect(finns('klar-stammer-ogiltigt')).toBe(false);
   });
 });
 
