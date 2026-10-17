@@ -5096,7 +5096,7 @@ export default function Arbetsrapport() {
                 {/* Går till lönen */}
                 <section style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,marginBottom:AVSTAND.l }}>
                   <div style={{ textAlign:"center",padding:`${AVSTAND.l}px 0 ${AVSTAND.l}px`,borderBottom:`1px solid ${FARG.linje}` }}>
-                    <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>Går till lönen</p>
+                    <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{spec.foretagsledare ? "Arbetstid" : "Går till lönen"}</p>
                     {/* All tid i timmar och minuter (Martin 2026-09-29) — decimaler bara
                         bredvid lönearterna, där talet går till Fortnox. */}
                     <p style={{ margin:0,...TYP.tal,color:FARG.text,...TNUM }}>
@@ -5107,7 +5107,7 @@ export default function Arbetsrapport() {
                       {spec.arbetsdagar} arbetsdagar{extraTidH > 0 ? ` · varav extra tid ${timMin(extraTidH)}` : ''}
                     </p>
                   </div>
-                  {(spec.rader as any[]).map((r: any, i: number, arr: any[]) => {
+                  {(spec.foretagsledare ? [] : spec.rader as any[]).map((r: any, i: number, arr: any[]) => {
                     const ärTim = loneartInfo(r.loneart)?.enhet === 'tim';
                     return (
                     <div key={r.SalaryCode + i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:`${AVSTAND.m}px 0`, borderBottom:`1px solid ${FARG.linje}`, gap:AVSTAND.m }}>
@@ -5129,13 +5129,18 @@ export default function Arbetsrapport() {
                     </div>
                     );
                   })}
-                  {spec.rader.length === 0 && (
+                  {spec.foretagsledare && (
+                    <p data-foretagsledare="" style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2 }}>Företagsledare – lön utanför appen.</p>
+                  )}
+                  {!spec.foretagsledare && spec.rader.length === 0 && (
                     <p style={{ margin:0,padding:`${AVSTAND.l}px 0`,...TYP.meta,color:FARG.text2 }}>Inga lönerader den här månaden.</p>
                   )}
+                  {!spec.foretagsledare && (
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,gap:AVSTAND.m }}>
                     <span style={{ ...TYP.text,color:FARG.text }}>Brandrisk-OB <span style={{ ...TYP.micro,color:FARG.text3 }}>löneart ej fastställd</span></span>
                     <span style={{ ...TYP.listtitel, ...TNUM, color:spec.ob.timmar > 0 ? FARG.orange : FARG.text2, whiteSpace:"nowrap" }}>{timMin(spec.ob.timmar)}</span>
                   </div>
+                  )}
                 </section>
 
                 {/* De två vanligaste handlingarna DIREKT under talet — förr låg de under
@@ -5811,7 +5816,7 @@ export default function Arbetsrapport() {
                 <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.orange }}>{vantandeDagar().length} dagar kvar</p>
               )}
               {/* Arbetad röd dag: säg det, och om den byts mot en ledig dag (§5 mom 4).
-                  Ingen helglön i båda fallen — timmarna bortföll inte. */}
+                  Helglön betalas ändå (företagets praxis) — varför en dag gav eller inte gav helglön står i Min månad. */}
               {(() => {
                 const rd: any = redDag; // useState(null) — samma "any" som resten av Redigera
                 const rodNamn = rd?.datum ? getRödaDagar(Number(String(rd.datum).slice(0, 4)))[rd.datum] : null;
@@ -5821,7 +5826,7 @@ export default function Arbetsrapport() {
                 return (
                   <>
                     <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
-                      Röd dag ({rodNamn}) — arbetad{byte ? `, byts mot ledig ${byte.ledig.slice(8)}/${Number(byte.ledig.slice(5, 7))}${byte.status === "väntar" ? " (väntar på godkännande)" : ""}` : ''}. Ingen helglön.
+                      Röd dag ({rodNamn}) — arbetad{byte ? `, byts mot ledig ${byte.ledig.slice(8)}/${Number(byte.ledig.slice(5, 7))}${byte.status === "väntar" ? " (väntar på godkännande)" : ""}` : ''}. Helglönen tillkommer (se Min månad).
                     </p>
                     {/* Erbjudandet även här — dagen är oftast redan bekräftad när man tänker på bytet.
                         Egen rad, vänsterställd, 44 px: i löptexten blev träffytan 22 px och bröts mitt i meningen. */}
