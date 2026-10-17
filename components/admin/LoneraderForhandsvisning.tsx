@@ -85,7 +85,9 @@ export function SkickaDialog({ periodText, arbetstidText, data, blockerande, ski
 }) {
   const [steg, setSteg] = useState<"val" | "bekrafta">("val");
   const medarbetare: any[] = data.medarbetare || [];
-  const harVarningar = medarbetare.some(m => m.varningar?.length > 0);
+  // Företagsledare har inga lönerader (lönen ligger utanför appen): de räknas inte bland de som skickas, men står kvar med noten.
+  const antalLon = medarbetare.filter(m => !m.foretagsledare).length;
+  const harVarningar = medarbetare.filter(m => !m.foretagsledare).some(m => m.varningar?.length > 0);
   const spard = blockerande.length > 0;
   const utan = blockerande.flatMap(b => b.forare.map(f => `${b.label} ${fmtMangd(f.mangd)} ${b.enhet} (${f.namn})`));
 
@@ -93,12 +95,14 @@ export function SkickaDialog({ periodText, arbetstidText, data, blockerande, ski
     <Sheet titel="Skicka till Fortnox?" vyNyckel={steg} onStang={onStang} attr={{ "data-skicka-dialog": "" }}
       vanster={<Lank smal onClick={onStang}>Avbryt</Lank>}>
       <Stod style={{ marginTop: 0 }}>
-        Löneperiod {periodText} (arbetstid {arbetstidText}). {medarbetare.length} medarbetare, {data.totalt_rader} lönerader.
+        Löneperiod {periodText} (arbetstid {arbetstidText}). {antalLon} medarbetare, {data.totalt_rader} lönerader.
       </Stod>
       {harVarningar && <Stod farg={FARG.orange}>⚠ Det finns varningar — granska innan du skickar.</Stod>}
 
       <Lista style={{ marginTop: AVSTAND.m }}>
-        {medarbetare.map((m, i) => (
+        {medarbetare.map((m, i) => m.foretagsledare ? (
+          <Rad key={i} rubrik={m.namn} detalj="Företagsledare – lön utanför appen" sista={i === medarbetare.length - 1} />
+        ) : (
           <Rad key={i} rubrik={m.namn} hoger={`${m.rader.length} rader`}
             detalj={m.status === "skickat" ? <span style={{ color: FARG.gron }}>Redan skickat</span> : !m.anstallningsnummer ? <span style={{ color: FARG.rod }}>Saknar anst.nr</span> : undefined}
             sista={i === medarbetare.length - 1} />

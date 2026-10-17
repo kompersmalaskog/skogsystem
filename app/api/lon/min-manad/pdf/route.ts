@@ -110,9 +110,10 @@ async function ritaPdf(arbetsmanad: string, m: LoneunderlagBerikad | null): Prom
   }
 
   // ── Går till lönen ──
-  rubrik("Går till lönen");
+  // Företagsledare (medarbetare.foretagsledare): lönen ligger utanför appen, så inga lönerader och ingen rubrik som säger att något går till lönen.
+  rubrik(m.foretagsledare ? "Arbetstid" : "Går till lönen");
   const kolMangd = W - MR;
-  for (const r of m.rader) {
+  for (const r of (m.foretagsledare ? [] : m.rader)) {
     behov(16);
     text(`${loneartInfo(r.loneart)?.label ?? `Löneart ${r.SalaryCode}`}`, ML, 10);
     text(`(${r.SalaryCode})`, ML + 150, 9, font, grå);
@@ -126,9 +127,10 @@ async function ritaPdf(arbetsmanad: string, m: LoneunderlagBerikad | null): Prom
     }
     rad(16);
   }
-  if (m.rader.length === 0) { text("Inga lönerader denna månad.", ML, 10, font, grå); rad(16); }
-  // Brandrisk-OB: står bland raderna ovan när lönearten har en kod; annars här med timmarna (och "inte inställd").
-  for (const b of brandriskUtanRad(m).filter(b => b.timmar > 0)) {
+  if (m.foretagsledare) { text("Företagsledare – lön utanför appen.", ML, 10, font, grå); rad(16); }
+  else if (m.rader.length === 0) { text("Inga lönerader denna månad.", ML, 10, font, grå); rad(16); }
+  // Brandrisk-OB: står bland raderna ovan när lönearten har en kod; annars här med timmarna (och "inte inställd"). Inte för företagsledare.
+  for (const b of (m.foretagsledare ? [] : brandriskUtanRad(m)).filter(b => b.timmar > 0)) {
     behov(16);
     text(b.label, ML, 10); text("inte inställd", ML + 150, 9, font, grå);
     högerText(timMin(b.timmar), kolMangd, 10, bold);

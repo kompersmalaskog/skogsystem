@@ -411,8 +411,9 @@ och röd dag (migration `20260921100000`).
 
 Lönen: onsdagens timmar är ordinarie tid (en vanlig arbetsdag i exporten)
 plus söndagstillägg om beordrat (§ 8 mom 1, löneart OB öppen); fredagen
-är ledighet utan avdrag (appen skickar aldrig avdrag); **ingen helglön
-flyttas** — onsdagen är arbetad, timmarna bortföll inte (§ 10 mom 2).
+är ledighet utan avdrag (appen skickar aldrig avdrag); **helglönen
+flyttas inte** — den röda dagen ger helglön som alla röda vardagar, arbetad eller
+inte (företagets praxis 2026-10-17).
 Annars betalas 48 timmar för en 40-timmarsvecka. Granskningen visar bytet
 i båda månaderna om det går över ett månadsskifte, och flaggar när den
 lediga dagen ändå arbetades (bytet togs inte ut) eller när den röda dagen
@@ -564,19 +565,30 @@ ordinarie tid utlagd ojämnt.
 >   i arbete i samband med helg.
 > - Fackliga kurser och konferenser som är längre än en vecka.
 
-**Konsekvens för appen** (`lib/lonesystem/helglon.ts`, `loneberakning.ts`):
+**Konsekvens för appen** (`lib/lonesystem/helglon.ts`, `loneberakning.ts`; ändrad 2026-10-17 efter Fortnox-facit dec 2025 / jan 2026):
 
 - De tolv namnen är facit i `gs_avtal.helglon_dagar`; datumen räknas i kod
   (`lib/roda-dagar`, verifierad 2025–2028).
-- 8 tim per röd vardag där föraren **inte** arbetat.
-- **Arbetad röd dag ger ingen helglön** — inga timmar bortföll. Timmarna
-  lönas som vanlig tid + söndagstillägg (§ 8 mom 1). Aldrig båda.
-- Närvarokravet (mom 4: sjuklönedag 1–14, olovlig frånvaro dagen före/efter,
-  tjänstledighet som omger dagen, > 30 dagar ej intjänad ledighet) är **inte**
-  byggt — kräver frånvaromodellen som källa. Semester, ATK och komp är
-  intjänad ledighet och bryter inte helglön.
-- Kvalifikationstid tre månader (mom 3) kontrolleras inte (anställningsdatum
-  saknas i modellen).
+- **Företagets praxis, över avtalets minimum: varje röd vardag ger 8 tim.**
+  Mom 2 "bortfallna timmar" tillämpas inte. Arbetad röd dag: vanlig lön +
+  helglön, inget söndagstillägg. (Förr: "arbetad röd dag ger ingen helglön".
+  Fortnox betalade ändå Oskar 16 tim i jan 2026 fast han arbetade trettondagen,
+  och Martin bekräftade att det är praxis.)
+- Närvarokravet (mom 4) är byggt så här: sjuk, VAB, föräldraledig eller
+  tjänstledig PÅ dagen bryter; tjänstledighet på närmaste vardag (inte röd dag)
+  före eller efter bryter. Semester, ATK, komp, permission och sjuk/VAB/
+  föräldraledig dagen före/efter bryter inte (facit: Daniel, Max). Olovlig
+  frånvaro, återanställning inom fyra månader, ledighet över fyra veckor med
+  tillfälligt arbete och fackliga kurser är inte byggda (underlag saknas).
+  Trettiodagarsregeln ger ingen egen effekt (se `docs/lonesystem/lonearter.md`).
+- Kvalifikationstid tre månader (mom 3) kontrolleras mot
+  `medarbetare.anstallningsdatum`. Saknas datumet betalas helglönen och
+  beräkningen varnar.
+- **§10 är inte omläst mot 2025–2027-avtalet.** Texten ovan är 2023–2026-boken.
+  PDF:en i bucketen `avtal` är Arbetsgivarnytt april 2025 (bara ändrade
+  paragrafer); den tidigare läsningens ändringslista (§5, §6 mom 2, §8) nämner
+  inte §10, så §10 antas oförändrad (Martin 2026-10-17). PDF:en är inte
+  omläst i det här passet.
 
 ---
 
@@ -749,7 +761,7 @@ Bekräftelser av avtalstexten ovan (ja/nej):
 
 3. Ordinarie tid är 40 tim/vecka i genomsnitt över ≤ 16 veckor (§ 5 mom 2).
 4. Komp-tid räknas inte mot 250-taket (§ 5 mom 5 anm 3, § 8 mom 3).
-5. Arbetad röd dag ger lön + söndagstillägg, ingen helglön (§ 10 mom 2, § 8 mom 1).
+5. Arbetad röd dag ger vanlig lön OCH helglön, inget söndagstillägg (företagets praxis över § 10 mom 2, bekräftat av Martin 2026-10-17).
 6. Bytesdag är skoftning med ersätter-datum (§ 5 mom 4).
 
 Martins egna beslut som arbetsgivare:

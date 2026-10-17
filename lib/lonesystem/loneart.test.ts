@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { LONEARTER, loneartskoder, loneartkopplingar, loneartInfo, loneartEnhetText, fmtMangd } from "./loneart";
 
 describe("lönearterna är EN lista", () => {
-  it("nio lönearter i exportens ordning, och varje har etikett, enhet och förklaring", () => {
+  it("tio lönearter i exportens ordning, och varje har etikett, enhet och förklaring", () => {
     expect(LONEARTER.map(l => l.key)).toEqual([
-      "timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon",
+      "timlon", "premielon_skordare", "premielon_skotare", "overtid_skordare", "overtid_skotare", "valtlappar", "korersattning", "helglon_skordare", "helglon_skotare",
       "brandrisk_ob",
     ]);
     for (const l of LONEARTER) {
@@ -38,7 +38,8 @@ describe("lönearterna är EN lista", () => {
       { intern_typ: "overtid_skordare", extern_kod: null },
       { intern_typ: "okand_typ", extern_kod: "999" },
       { intern_typ: "korersattning", extern_kod: "821" },
-      { intern_typ: "helglon", extern_kod: "   " },
+      { intern_typ: "helglon_skordare", extern_kod: "   " },
+      { intern_typ: "helglon", extern_kod: "1461" }, // den gamla nyckeln finns inte längre: används aldrig
     ]);
     expect(k).toEqual({ timlon: "11", korersattning: "821" });
   });
@@ -55,7 +56,9 @@ describe("lönearterna är EN lista", () => {
 
   it("loneartInfo hittar etikett och enhet, och ger null för det som inte finns", () => {
     expect(loneartInfo("valtlappar")).toMatchObject({ label: "Vältlappar", enhet: "veckor" });
-    expect(loneartInfo("helglon")).toMatchObject({ label: "Helglön", enhet: "tim" });
+    expect(loneartInfo("helglon_skordare")).toMatchObject({ label: "Helglön skördare", enhet: "tim" });
+    expect(loneartInfo("helglon_skotare")).toMatchObject({ label: "Helglön skotare", enhet: "tim" });
+    expect(loneartInfo("helglon")).toBeNull();
     expect(loneartInfo("finns_inte")).toBeNull();
   });
 

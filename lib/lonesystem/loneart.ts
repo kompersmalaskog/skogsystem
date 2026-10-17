@@ -32,9 +32,12 @@ export const LONEARTER = [
   { key: "korersattning",      label: "Reseersättning",     enhet: "mil",    enhetText: "påbörjade mil", valfri: false,
     grupp: "Tillägg",
     forklaring: "Körning med företagets bil, påbörjade mil över gränsen per dag." },
-  { key: "helglon",            label: "Helglön",            enhet: "tim",    enhetText: "tim",           valfri: false,
+  { key: "helglon_skordare",   label: "Helglön skördare",   enhet: "tim",    enhetText: "tim",           valfri: false,
     grupp: "Tillägg",
-    forklaring: "8 timmar för varje röd vardag du inte arbetat (avtalet §10)." },
+    forklaring: "8 timmar för varje röd vardag, för förare som mest kör skördare. Gäller även när du arbetar dagen." },
+  { key: "helglon_skotare",    label: "Helglön skotare",    enhet: "tim",    enhetText: "tim",           valfri: false,
+    grupp: "Tillägg",
+    forklaring: "8 timmar för varje röd vardag, för förare som mest kör skotare. Gäller även när du arbetar dagen." },
   // OB: ENDAST brandrisk (beordrad tidig start, vardagsmorgon). Enkelskift på alla maskiner → en tidig start är annars förarens eget val.
   // Kväll, lördag och söndag byggs inte (CLAUDE.md, beslut Martin 2026-10-15). Tom kod tills koden kopplas under Lön → Lönearter.
   { key: "brandrisk_ob",         label: "Brandrisk – OB",         enhet: "tim",    enhetText: "tim",           valfri: false,

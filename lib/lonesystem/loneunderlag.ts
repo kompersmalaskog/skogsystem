@@ -23,6 +23,14 @@ import { RAST_FRAGA_MIN, passOrimlighet, rastSaknas, RAST_SAKNAS_FRAN_MINUTER, t
 
 export type LoneunderlagRad = ExportSammanfattning & { status: string };
 
+/** Så många dagar före/efter arbetsmånaden frånvaron läses för helglönens närvarokrav (längsta glappet mellan två vardagar är påsk/jul, 5 dagar). */
+const FRANVARO_MARGINAL_DAGAR = 10;
+const plusDagar = (iso: string, n: number) => {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 /** En rad i förarens tidrapport — samma arbetsdag-rad beräkningen redan läser,
  *  plus rast/objekt/extra tid. Mängder; km är rådata, ersattningsmil det som
  *  blir ersättning (samma lib/kmErsattning som exporten). */
@@ -140,8 +148,10 @@ export async function beraknaLoneunderlag(
   const kopplingar = await hamtaLoneartkopplingar(supabase);
   const loneartskoder = kopplingarTillKoder(kopplingar);
 
-  const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, avtalRes, utjRes, viloRes] = await Promise.all([
-    supabase.from("medarbetare").select("id, namn, maskin_id").order("namn"),
+  const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, ledRuntRes, avtalRes, utjRes, viloRes] = await Promise.all([
+    // foretagsledare (inga lönerader alls) och anstallningsdatum (kvalifikationstid för helglön) styr vad en förare får: läses
+    // här, aldrig ur klienten. Ett läsfel stoppar underlaget (en tyst "false" skulle ge företagsledarna lönerader).
+    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
     // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
     supabase.from("arbetsdag")
@@ -165,6 +175,9 @@ export async function beraknaLoneunderlag(
     // godkänd ledighet + registrerad sjuk/vab/föräldraledig ur morgonkortet.
     // loneberakning tillämpar "arbete vinner" + begränsar till arbetsmånaden.
     hamtaFranvaro(supabase, { fran: arbStart, till: arbSlut }),
+    // Samma frånvaro ±10 dagar runt månaden: helglönens närvarokrav tittar på närmaste vardag före/efter en röd dag, och 1 jan
+    // hör till januari medan dagen före (30 dec) hör till december. Används BARA för helglönen — allt annat läser ledRes.
+    hamtaFranvaro(supabase, { fran: plusDagar(arbStart, -FRANVARO_MARGINAL_DAGAR), till: plusDagar(arbSlut, FRANVARO_MARGINAL_DAGAR) }),
     // Fri pendling km/dag — samma fält som appen (km_grans_per_dag), aldrig
     // hårdkodad 60. Fortnox äger kr/mil-satsen, vi skickar bara mil-antalet.
     supabase.from("gs_avtal").select("km_grans_per_dag, helglon_dagar, ordinarie_vecka_h")
@@ -188,6 +201,7 @@ export async function beraknaLoneunderlag(
   if (arbRes.error) throw arbRes.error;
   // Frånvaro är lönegrund — ett läsfel får inte bli "ingen frånvaro".
   if (ledRes.fel) throw new Error(`Kunde inte läsa frånvaro: ${ledRes.fel}`);
+  if (ledRuntRes.fel) throw new Error(`Kunde inte läsa frånvaron runt månaden: ${ledRuntRes.fel}`);
   const utjamningAlla: { startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string }[] =
     utjRes?.error ? [] : (utjRes?.data || []);
 
@@ -274,6 +288,13 @@ export async function beraknaLoneunderlag(
     ledPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum, ersatter_datum: l.ersatter_datum ?? null, fran_tid: l.fran_tid ?? null, till_tid: l.till_tid ?? null });
   }
 
+  const ledRuntPerMed = new Map<string, { typ: string; startdatum: string; slutdatum: string; fran_tid?: string | null; till_tid?: string | null }[]>();
+  for (const l of ledRuntRes.rader) {
+    if (!l.medarbetare_id) continue;
+    if (!ledRuntPerMed.has(l.medarbetare_id)) ledRuntPerMed.set(l.medarbetare_id, []);
+    ledRuntPerMed.get(l.medarbetare_id)!.push({ typ: l.typ, startdatum: l.startdatum, slutdatum: l.slutdatum, fran_tid: l.fran_tid ?? null, till_tid: l.till_tid ?? null });
+  }
+
   // Bytesdagar (inarbetad) vars RÖDA dag ligger utanför arbetsperioden: hämta
   // om den dagen arbetades, så granskningen kan säga "inarbetningen saknas"
   // även över ett månadsskifte. Liten fråga, bara de datumen.
@@ -299,7 +320,7 @@ export async function beraknaLoneunderlag(
   const kmGrans = avtalRes.data?.km_grans_per_dag ?? 60;
 
   // Beräkna per medarbetare
-  const medarbetare = (medRes.data || []) as { id: string; namn: string; maskin_id?: string | null }[];
+  const medarbetare = (medRes.data || []) as { id: string; namn: string; maskin_id?: string | null; foretagsledare?: boolean | null; anstallningsdatum?: string | null }[];
   const resultat: LoneunderlagRad[] = [];
   // Granskningsdata som INTE går till Fortnox men syns i granskningsvyn:
   // OB-timmar (löneart ej fastställd) + maskiner som saknar typ (tyst borttagen
@@ -321,7 +342,11 @@ export async function beraknaLoneunderlag(
     const anstNr = anstMap[med.id] || "";
     // Premiens fördelning en månad utan maskintid: typen på förarens rad-maskin.
     const radMaskinTyp = med.maskin_id ? (maskinTypMap[med.maskin_id] ?? null) : null;
-    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null, radMaskinTyp, loneartskoder); // period = löneperiod
+    const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period, extra, ledigheter, kmGrans, avtalRes.data?.helglon_dagar ?? null, arbetadeUtanforPerMed.get(med.id) || new Set(), avtalRes.data?.ordinarie_vecka_h ?? null, radMaskinTyp, loneartskoder, {
+      franvaroRunt: ledRuntPerMed.get(med.id) || [],
+      anstallningsdatum: med.anstallningsdatum ?? null,
+      foretagsledare: med.foretagsledare === true,
+    }); // period = löneperiod
 
     let status = "utkast";
     if (redanSkickad.has(med.id)) status = "skickat";

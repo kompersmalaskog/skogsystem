@@ -130,12 +130,13 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
   olika personer kan byta samma dag.
 - Kalendern: den lediga dagen visar ordet *Inarbetad*; Redigera säger vilken
   röd dag den ersätter. Den röda dagen visas som arbetad (prick) och Redigera
-  säger "Röd dag (namn) — arbetad, byts mot ledig …. Ingen helglön."
+  säger "Röd dag (namn) — arbetad, byts mot ledig …. Helglönen tillkommer (se Min månad)."
 - Lönen: den röda dagens timmar är ordinarie tid (vanlig arbetsdag i
   exporten) + söndagstillägg om beordrat (löneart OB öppen); den lediga dagen
   är ledighet utan avdrag och listas INTE under "Frånvaro (löneart ej
   fastställd)" utan som egen upplysningsrad; helglönen flyttas inte (den röda
-  dagen är arbetad → ingen helglön, som förut). `byten` i
+  dagen ger helglön som alla röda vardagar, arbetad eller inte — praxis
+  2026-10-17). `byten` i
   `ExportSammanfattning`.
 - Över månadsskifte: bytet syns i båda månadernas granskning. Den röda
   dagens arbetstid hämtas även utanför arbetsperioden.
