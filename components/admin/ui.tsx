@@ -5,8 +5,9 @@
 import React, { useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, IKON, RORELSE, LAYOUT,
+  TYP, TNUM, AVSTAND, RADIE, FARG, FONT, KNAPP, INAKTIV, KORT, TRAFFYTA, RORELSE, LAYOUT,
 } from "@/lib/design/tokens";
+import Ikon from "@/components/design/Ikon";
 
 /** Innehållskolumnens maxbredd på dator (Martin sitter vid skärm). Ett layoutmått, inte ett avstånd. */
 export const MAXBREDD_ADMIN = 720;
@@ -92,14 +93,8 @@ export function Rad({ rubrik, detalj, hoger, onClick, chevron, sista, rubrikFarg
   );
 }
 
-/** Material Symbols-ikon (laddas av appen i layouten). */
-export function Ikon({ namn, farg = FARG.text2, storlek = IKON.rad, fylld }: { namn: string; farg?: string; storlek?: number; fylld?: boolean }) {
-  return (
-    <span className="material-symbols-outlined" aria-hidden style={{ fontSize: storlek, color: farg, lineHeight: 1, flexShrink: 0, fontVariationSettings: fylld ? "'FILL' 1" : "'FILL' 0" }}>
-      {namn}
-    </span>
-  );
-}
+/** Material Symbols-ikon: EN komponent i components/design (admin importerar den härifrån som förut). */
+export { Ikon };
 
 // ── Knappar ─────────────────────────────────────────────────────────────
 

@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { uppdateraVerifierat } from '@/lib/supabase-save';
 import { AVSTAND, FARG, KORT, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import AnsokanRad from './AnsokanRad';
-import { FelText, Ikon } from './delar';
+import { FelText } from './delar';
+import Ikon from '@/components/design/Ikon';
 import type { Ansokan } from './typer';
 
 /**
@@ -50,7 +51,7 @@ export default function GodkannSektion({
           <span aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: FARG.orange }} />
           {vantande.length} att godkänna
         </span>
-        <Ikon namn="chevron_right" storlek={22} farg={FARG.text3} vrid={oppen} />
+        <Ikon namn="chevron_right" farg={FARG.text3} vrid={oppen} />
       </button>
 
       {oppen && (

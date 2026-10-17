@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
 import { MANADSNAMN, arHelg, arRodDag, toISO } from './datum';
-import { Ikon } from './delar';
+import Ikon from '@/components/design/Ikon';
 
 const VECKODAGAR = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
 /** Cirkelns diameter (layoutmått). Träffytan är HELA cellen, minst `TRAFFYTA.min` hög. */
@@ -77,8 +77,8 @@ export default function ValjKalender({
           {MANADSNAMN[manad]} <span style={{ fontWeight: VIKT.normal, color: FARG.text2 }}>{ar}</span>
         </span>
         <div style={{ display: 'flex', gap: AVSTAND.xs }}>
-          <button type="button" aria-label="Föregående månad" onClick={() => bytManad(-1)} style={pil}><Ikon namn="chevron_left" storlek={22} /></button>
-          <button type="button" aria-label="Nästa månad" onClick={() => bytManad(1)} style={pil}><Ikon namn="chevron_right" storlek={22} /></button>
+          <button type="button" aria-label="Föregående månad" onClick={() => bytManad(-1)} style={pil}><Ikon namn="chevron_left" farg="inherit" /></button>
+          <button type="button" aria-label="Nästa månad" onClick={() => bytManad(1)} style={pil}><Ikon namn="chevron_right" farg="inherit" /></button>
         </div>
       </div>
 

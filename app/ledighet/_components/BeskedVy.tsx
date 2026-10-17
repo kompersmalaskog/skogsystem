@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { AVSTAND, FARG, IKON, KNAPP, KOLUMN, RADIE, TNUM, TYP, medSafeBotten, underTopbar } from '@/lib/design/tokens';
-import { Ikon } from './delar';
+import Ikon from '@/components/design/Ikon';
 import { beskedText, utanBrott, type BeskedBeslut } from './besked';
 
 /**

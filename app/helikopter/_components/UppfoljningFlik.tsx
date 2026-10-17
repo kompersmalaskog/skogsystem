@@ -10,8 +10,9 @@ import { PROGNOS_FRAN_ARBETSDAG, landarRoller, rollHogerText, type ManadStatus, 
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, BolagRad, MaskinManad, Typ } from '../_lib/queries'
 import { SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
-import { Kort, ListRad, Matare, Sektion } from './Lista'
-import { Ikon } from './Ikon'
+import { Kort, ListRad, Matare } from './Lista'
+import Sektion from '@/components/design/Sektion'
+import Ikon from '@/components/design/Ikon'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
 import { Sheet } from '@/components/Sheet'
 import BolagSheet from './BolagSheet'
@@ -186,7 +187,7 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella }: { maskin
   const rubrik = manadNamn.toUpperCase()
   if (fel) {
     return (
-      <Sektion rubrik={`Maskiner · ${rubrik}`}>
+      <Sektion className="hk-grupp" rubrik={`Maskiner · ${rubrik}`}>
         <RadLank orange text="Kunde inte läsa maskinerna" smakprov="försök igen" onClick={onRetry} />
       </Sektion>
     )
@@ -194,7 +195,7 @@ function MaskinSektion({ maskiner, fel, onRetry, manadNamn, manuella }: { maskin
   return (
     <>
       {(['skordare', 'skotare'] as const).map(roll => (
-        <Sektion key={roll} rubrik={`${roll === 'skordare' ? 'Skördare' : 'Skotare'} · ${rubrik}`}>
+        <Sektion className="hk-grupp" key={roll} rubrik={`${roll === 'skordare' ? 'Skördare' : 'Skotare'} · ${rubrik}`}>
           {maskiner == null ? (
             <div className="hk-rad" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Laddar maskiner…</div>
           ) : maskiner.filter(m => m.roll === roll).length === 0 ? (
@@ -243,7 +244,7 @@ function VeckoNotisSektion() {
     setLage({ status: 'klar', text: r.data.skickadNu ? `Skickad till ${vem}` : `Köad till ${vem} – går inom 5 minuter` })
   }
   return (
-    <Sektion rubrik="Onsdagsnotis">
+    <Sektion className="hk-grupp" rubrik="Onsdagsnotis">
       <div className="hk-rad" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
         <span>Veckoläget pushas onsdagar 12:00. Samma text kan skickas nu.</span>
         <button

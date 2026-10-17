@@ -18,7 +18,7 @@ import ManadsfacitInnehall from './ManadsfacitInnehall'
 import DelaRad from './DelaRad'
 import PdfForhandsvisning from './PdfForhandsvisning'
 import { HK_CSS } from './Lista'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 
 /** Föregående månad relativt idag ("2026-10-15" → 2026, 9). */
 function forraManaden(idag: string): { ar: number; manad: number } {

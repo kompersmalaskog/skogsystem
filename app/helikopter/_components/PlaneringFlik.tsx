@@ -8,7 +8,9 @@ import {
 } from '../_lib/berakningar'
 import { STOPP_ORSAK, fmt, fmtPeriod, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, FastData, Manadsdata, Typ } from '../_lib/queries'
-import { ListRad, Sektion, Svarsrad } from './Lista'
+import { ListRad } from './Lista'
+import Sektion from '@/components/design/Sektion'
+import Svarsrad from '@/components/design/Svarsrad'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
 import { Tomt } from './Tillstand'
 import EjTilldeladeSheet from './EjTilldeladeSheet'
@@ -45,9 +47,9 @@ export default function PlaneringFlik({ manadsdata, fast, spar, status, dagar, i
 
   return (
     <>
-      <Svarsrad svar={svar} />
+      <Svarsrad {...svar} />
       {(['skordare', 'skotare'] as const).map(roll => (
-        <Sektion key={roll} rubrik={roll === 'skordare' ? 'Skördare' : 'Skotare'} foljdAvLankar={roll === 'skotare'}>
+        <Sektion className="hk-grupp" key={roll} rubrik={roll === 'skordare' ? 'Skördare' : 'Skotare'} foljdAvLankar={roll === 'skotare'}>
           {bel.filter(b => b.roll === roll).map(b => {
             const over = b.luftH < 0
             const stopp = stoppForMaskin(manadsdata.stopp, b.maskin.maskin_id)

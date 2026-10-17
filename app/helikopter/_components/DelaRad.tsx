@@ -2,7 +2,7 @@
 
 // En rad i delaarket ("Dela som PDF" / "Dela som bild"): titel, förklaring, delaikon. Delas av veckoläget och månadsfacit.
 import { AVSTAND, FARG, INAKTIV, RAD, TYP } from '@/lib/design/tokens'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 
 export default function DelaRad({ text, under, onClick, upptagen, inaktiv }: { text: string; under: string; onClick: () => void; upptagen: boolean; inaktiv: boolean }) {
   return (

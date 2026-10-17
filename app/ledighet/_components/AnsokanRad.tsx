@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AVSTAND, FARG, INAKTIV, KNAPP, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
 import { TYPINFO } from './tema';
 import { arbetsdagar, fmtDatum, fmtPeriod } from './datum';
 import { rodVardagNamn } from '@/lib/franvaro';
 import type { Ansokan } from './typer';
-import { Ikon, KORT_TEXTKNAPP, Status } from './delar';
+import { KORT_TEXTKNAPP, Status } from './delar';
+import Ikon from '@/components/design/Ikon';
 
 /** "2 arbetsdagar · Semester" resp. "8 timmar · ATK" (ATK räknas i timmar). */
 function fmtLangdTyp(a: Ansokan): string {
@@ -109,13 +110,13 @@ export default function AnsokanRad({
             {onRedigera && <button onClick={() => onRedigera(a)} style={knappText}>Ändra</button>}
             {onTaBort && (
               <button onClick={() => setBekrafta('bort')} style={KNAPP.destruktiv}>
-                <Ikon namn="delete" />Ta bort
+                <Ikon namn="delete" storlek={IKON.text} farg="inherit" />Ta bort
               </button>
             )}
           </div>
         ))}
 
-      {/* Godkänd (kommande) är låst — det säger GRUPPEN en gång (MigVy, `not` på Grupp), inte varje rad. */}
+      {/* Godkänd (kommande) är låst — det säger GRUPPEN en gång (MigVy, `not` på Sektion), inte varje rad. */}
 
       {/* Godkännar-läge (väntande i godkänn-listan): Godkänn är sekundär, Neka destruktiv + bekräftelse */}
       {onHantera && a.status === 'väntar' && (bekrafta === 'neka'

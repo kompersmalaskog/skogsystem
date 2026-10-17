@@ -5,7 +5,7 @@
 import { AVSTAND, FARG, KORT, RADIE, TNUM, TYP } from '@/lib/design/tokens'
 import type { FacitModell, FacitSparVy, FacitVeckaVy } from '../_lib/manadsfacit'
 import { veckaFarg } from '../_lib/veckaFarg'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 import { Matare } from './Lista'
 import { TON_FARG } from './SparKort'
 import { VeckoLegend } from './VeckoDiagram'

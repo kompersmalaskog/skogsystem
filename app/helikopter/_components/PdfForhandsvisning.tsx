@@ -11,7 +11,7 @@ import type * as PdfjsTypes from 'pdfjs-dist'
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TRAFFYTA, TYP, designCss, underTopbar } from '@/lib/design/tokens'
 import Tillstand from '@/components/design/Tillstand'
 import { delaFil } from '../_lib/veckolageDela'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 
 type Status = 'skapar' | 'klar' | 'kan_inte_visa' | 'fel'
 

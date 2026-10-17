@@ -17,7 +17,7 @@ import type { DelaResultat } from '../_lib/veckolageDela'
 import { Fel, Laddar } from './Tillstand'
 import VeckolageInnehall from './VeckolageInnehall'
 import { HK_CSS } from './Lista'
-import { Ikon } from './Ikon'
+import Ikon from '@/components/design/Ikon'
 import DelaRad from './DelaRad'
 import PdfForhandsvisning from './PdfForhandsvisning'
 

@@ -7,7 +7,8 @@ import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens'
 import { TYP_NAMN, maskinNamn, maskinRoll, type ManadStatus, type SparLage } from '../_lib/berakningar'
 import { dagarText, fmt, kortNamn } from '../_lib/format'
 import { hamtaMaskinTakter, type Maskin, type MaskinLage } from '../_lib/queries'
-import { ListRad, Sektion } from './Lista'
+import { ListRad } from './Lista'
+import Sektion from '@/components/design/Sektion'
 
 type Props = { open: boolean; onClose: () => void; spar: SparLage[]; status: ManadStatus; maskiner: Maskin[]; idag: string }
 
@@ -39,14 +40,14 @@ export default function MaskinerSheet({ open, onClose, spar, status, maskiner, i
             ? 'Skotaren håller jämna steg'
             : `Skördaren ${dagarText(fore)} före skotaren`
         return (
-          <Sektion key={s.typ} rubrik={TYP_NAMN[s.typ]} kort={false}>
+          <Sektion className="hk-grupp" key={s.typ} rubrik={TYP_NAMN[s.typ]} kort={false}>
             <ListRad namn="Skördat" tal={fmt(s.skordat)} under={s.taktSkordat != null ? `${fmt(s.taktSkordat)}/dag` : undefined} />
             <ListRad namn="Skotat" tal={fmt(s.skotat)} under={s.taktSkotat != null ? `${fmt(s.taktSkotat)}/dag` : undefined} />
             {rad && <ListRad namn="Oskotat" tal={fmt(Math.max(s.oskotat, 0))} under={rad} />}
           </Sektion>
         )
       })}
-      <Sektion rubrik="Takt per maskin" kort={false}>
+      <Sektion className="hk-grupp" rubrik="Takt per maskin" kort={false}>
         {fel ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, textAlign: 'center', padding: `${AVSTAND.m}px 0` }}>
             <div style={{ ...TYP.listtitel, color: FARG.text }}>Kunde inte läsa maskinerna – försök igen</div>

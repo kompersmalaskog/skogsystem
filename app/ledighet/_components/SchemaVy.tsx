@@ -9,7 +9,8 @@ import { useSchemaData, type SchemaStopp } from './useSchemaData';
 import { AVDELARE_H, HUVUD_H, MASKIN_H, NAMN_W, PERSON_H, merAttSeAtHoger, schemaDagar } from './schemaMatt';
 import StoppFormular from './StoppFormular';
 import StoppDetalj from './StoppDetalj';
-import { Ikon, KORT_TEXTKNAPP, LasFel, StatusText } from './delar';
+import { KORT_TEXTKNAPP, LasFel, StatusText } from './delar';
+import Ikon from '@/components/design/Ikon';
 
 const VECKOBOKSTAV = ['S', 'M', 'T', 'O', 'T', 'F', 'L']; // getDay()-index
 
@@ -152,16 +153,16 @@ export default function SchemaVy({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
         <span style={{ ...TYP.listtitel, ...TNUM, color: FARG.text }}>{periodText}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
-          <button type="button" aria-label="Tidigare vecka" onClick={() => setOffset(o => o - 7)} style={navKnapp}><Ikon namn="chevron_left" storlek={22} /></button>
+          <button type="button" aria-label="Tidigare vecka" onClick={() => setOffset(o => o - 7)} style={navKnapp}><Ikon namn="chevron_left" farg="inherit" /></button>
           {offset !== 0 && <button type="button" onClick={() => setOffset(0)} style={{ ...KNAPP.lank, ...KORT_TEXTKNAPP, padding: `0 ${AVSTAND.s}px` }}>Idag</button>}
-          <button type="button" aria-label="Nästa vecka" onClick={() => setOffset(o => o + 7)} style={navKnapp}><Ikon namn="chevron_right" storlek={22} /></button>
+          <button type="button" aria-label="Nästa vecka" onClick={() => setOffset(o => o + 7)} style={navKnapp}><Ikon namn="chevron_right" farg="inherit" /></button>
         </div>
       </div>
 
       {/* Lägg till stopp — bara godkännare (RLS spärrar ändå skrivningen) */}
       {arGodkannare && (
         <button type="button" onClick={() => setStoppFormOppen(true)} style={{ ...KNAPP.sekundar, marginBottom: AVSTAND.m }}>
-          <Ikon namn="add" storlek={22} />Lägg till stopp
+          <Ikon namn="add" farg="inherit" />Lägg till stopp
         </button>
       )}
 
