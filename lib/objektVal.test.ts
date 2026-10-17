@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { anvandObjektLista, arSkotningKvar, avslutadMeta, avslutadTyp, avslutadeAvTyp, avslutadeTyper, avslutsDatum, valdAvslutadTyp, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
+import { anvandObjektLista, anvandObjektListaUtanObjekt, maskinRang, arSkotningKvar, avslutadMeta, avslutadTyp, avslutadeAvTyp, avslutadeTyper, avslutsDatum, valdAvslutadTyp, effektivGrupp, fagelKm, grupperaObjekt, kmText, radMeta, sokTraff, statusGrupp, volymText, type ListObjekt } from './objektVal';
 
 const o = (id: string, status: string | null, extra: Partial<ListObjekt> = {}): ListObjekt => ({ id, namn: id, status, ...extra });
 
@@ -103,6 +103,36 @@ describe('anvandObjektLista — bara planeringsvyn, aldrig maskinläge, /maskin 
     expect(anvandObjektLista({ maskinlage: false, maskinSom: true, korvyActive: false })).toBe(false);    // /maskin?som=
     expect(anvandObjektLista({ maskinlage: false, maskinSom: false, korvyActive: true })).toBe(false);    // körvyn
     expect(anvandObjektLista({ maskinlage: true, maskinSom: true, korvyActive: true })).toBe(false);
+  });
+});
+
+describe('anvandObjektListaUtanObjekt — inget objekt valt: kartan med listan i planeringsvyn OCH i maskinläge', () => {
+  it('sanningstabellen', () => {
+    expect(anvandObjektListaUtanObjekt({ maskinlage: false, maskinSom: false, korvyActive: false })).toBe(true);   // planeringsvyn
+    expect(anvandObjektListaUtanObjekt({ maskinlage: true, maskinSom: false, korvyActive: false })).toBe(true);    // maskindatorn
+    expect(anvandObjektListaUtanObjekt({ maskinlage: true, maskinSom: true, korvyActive: false })).toBe(true);     // /maskin i maskinläge
+    expect(anvandObjektListaUtanObjekt({ maskinlage: false, maskinSom: true, korvyActive: false })).toBe(false);   // /maskin innan maskinläget startat
+    expect(anvandObjektListaUtanObjekt({ maskinlage: false, maskinSom: false, korvyActive: true })).toBe(false);   // körvy utanför maskinläge
+  });
+});
+
+describe('maskinRang — maskinens egna först, sedan det maskinen klarar (samma som gamla förarlistan)', () => {
+  const egen = { ...o('egen', 'planerad', { typ: 'gallring' }), skordare_maskin_id: 'R64101' };
+  const klarar = o('klarar', 'planerad', { typ: 'gallring' });
+  const annan = o('annan', 'planerad', { typ: 'slutavverkning' });
+  it('tilldelad = 0, klarar typen = 1, övriga = 2; okänd klarar-typ = klarar allt', () => {
+    expect(maskinRang(egen, 'R64101', 'gallring')).toBe(0);
+    expect(maskinRang(klarar, 'R64101', 'gallring')).toBe(1);
+    expect(maskinRang(annan, 'R64101', 'gallring')).toBe(2);
+    expect(maskinRang(annan, 'R64101', null)).toBe(1);
+    expect(maskinRang(egen, null, 'gallring')).toBe(1);   // ingen maskin = inget är "egen"
+  });
+  it('går före avståndet i grupperaObjekt, men döljer inget', () => {
+    const km: Record<string, number> = { egen: 30, klarar: 10, annan: 1 };
+    const g = grupperaObjekt([annan, klarar, egen], { avstandKm: (x) => km[x.id], rang: (x) => maskinRang(x as any, 'R64101', 'gallring') });
+    expect(g.planerade.map((x) => x.id)).toEqual(['egen', 'klarar', 'annan']);
+    const utan = grupperaObjekt([annan, klarar, egen], { avstandKm: (x) => km[x.id] });
+    expect(utan.planerade.map((x) => x.id)).toEqual(['annan', 'klarar', 'egen']);   // planeringsvyn: bara avståndet, som förut
   });
 });
 
