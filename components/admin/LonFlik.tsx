@@ -10,6 +10,8 @@ import { fmtMangd } from "@/lib/lonesystem/loneart";
 import { minTillTimmar } from "@/lib/ob";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
 import { helglonSkalText } from "@/lib/lonesystem/helglon";
+import { kodRadAttGora, oppnaFragor, type RadAttTaMed } from "@/lib/lonesystem/attTaMed";
+import { unikaUtjamningar, utjamningsRad } from "@/lib/admin/arsovertidVy";
 // Tidsavvikelser, ledighetskollision, OB och oenighet bor nu i granskningsvyn
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
@@ -368,30 +370,12 @@ function FortnoxExportSektion({
 
       <SaknasKort blockerande={blockerande} onKoppla={onKoppla} />
 
-      {/* Att ta med löneansvarig — tre slag. Reseersättningens två frågor
-          besvarades 2026-09-12 (koden gjorde rätt). Avtalsboken lästes
-          2026-09-17 (docs/lonesystem/skogsavtalet-arbetstid.md) och svarade på
-          fyra av de tidigare frågorna — de står nu som BEKRÄFTELSER av avtals-
-          text, inte som öppna frågor. Kvar som rena frågor: två lönearter. Två
-          saker är Martins egna beslut som arbetsgivare, inte löneansvarigas.
-          Tills lönearterna är svarade läggs OB och sjuk INTE som lönerader —
-          de står under "påverkar riktigheten". Helglön är en egen lönerad så
-          snart lönearten har en kod under Lön → Lönearter. */}
+      {/* Att ta med löneansvarig: bara det som fortfarande är öppet (lib/lonesystem/attTaMed). Kodrådet byggs ur vad som är
+          kopplat just nu och nämner inte det som redan stoppar sändningen i kortet ovan. */}
       <Card style={{ marginTop: AVSTAND.m }}>
         <p style={{ ...secHead, marginTop: 0, color: FARG.orange }}>Att ta med löneansvarig</p>
-        {([
-          ["Gör", "Koppla koden för Brandrisk – OB (Fortnox 147)", "under Lön → Lönearter. Timmarna räknas (lib/ob) och skickas som EN rad; tom kod = raden skickas inte och en skarp sändning stoppas."],
-          ["Fråga", "Löneart för sjuklön, VAB och föräldraledig", "dagarna ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte."],
-          ["Fråga", "Levereras sjukfrånvaro i timmar per dag?", "§12 mom 3 räknar karens i timmar (20 % av veckoarbetstiden = 8 tim vid 40) och sjuklön per timme som skulle ha arbetats. En halv sjukdag är 3 tim, inte en dag. Räknar Fortnox karensavdraget och de 80 procenten själv när appen skickar timmarna?"],
-          ["Bekräfta", "Ordinarie tid är ett genomsnitt", "§5 mom 2: 40 tim/vecka i genomsnitt över en beräkningsperiod om högst 16 veckor. Ingen av appens tre gamla modeller är avtalets."],
-          ["Bekräfta", "Komp räknas inte mot 250-taket", "§8 mom 3: övertid kan efter överenskommelse tas ut som ledighet, 1,4 tim per övertidstimme. §5 mom 5 anm 3: sådan tid är inte övertid enligt arbetstidslagen."],
-          ["Bekräfta", "Gävle var utjämnad ordinarie tid", "§5 mom 2: 72–80 tim varannan vecka med tom vecka emellan och lön enligt schema är genomsnittsberäkning av ordinarie tid — inte kompensationsledighet. Perioden (v17–27 2026) är markerad i systemet; att utjämningen var överenskommen är inte bevisat av det."],
-          ["Martins beslut", "Röd vardag ger alltid 8 tim helglön", "Företagets praxis, över avtalets minimum (§10 mom 2, \"bortfallna timmar\" tillämpas inte): också den som arbetar dagen får helglön, och de arbetade timmarna lönas dessutom, utan söndagstillägg. Närvarokravet (mom 4: sjuk, VAB, föräldraledig eller tjänstledig på dagen, tjänstledig dagen före/efter) och kvalifikationstiden (mom 3: tre månader) är byggda. Inte byggt: olovlig frånvaro, återanställning inom fyra månader, ledighet över fyra veckor med tillfälligt arbete, fackliga kurser över en vecka."],
-          ["Bekräfta", "Bytesdag är skoftning", "§5 mom 4: ledig vardag mot inarbetning avtalas samtidigt, lön enligt ordinarie schema om totalen är lika. Ingen helglön flyttas."],
-          ["Martins beslut", "Beräkningsperiod och schema", "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen. Samma beslut avgör deldagens \"timmar som skulle ha arbetats\" (§12 mom 3 anm 2) — tills dess antar granskningen 8 tim/dag."],
-          ["Martins beslut", "Var komp-saldot bor", "i Fortnox (appen rapporterar bara intjänat/uttaget) eller i appen (appen räknar saldot). Appen räknar aldrig kronor — men ett saldo i timmar är en mängd."],
-        ] as [string, string, string][]).map(([slag, rubrik, text], i, arr) => (
-          <div key={rubrik} style={{ display: "flex", gap: AVSTAND.s, padding: `${AVSTAND.xs}px 0`, borderBottom: i === arr.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
+        {[kodRadAttGora(kopplingar, blockerande), ...oppnaFragor].filter((r): r is RadAttTaMed => !!r).map(({ slag, rubrik, text }, i, arr) => (
+          <div key={rubrik} data-att-ta-med={slag} style={{ display: "flex", gap: AVSTAND.s, padding: `${AVSTAND.xs}px 0`, borderBottom: i === arr.length - 1 ? "none" : `1px solid ${FARG.linje}` }}>
             <span style={{ color: FARG.orange }}>▸</span>
             <p style={{ margin: 0, ...TYP.meta, color: FARG.text }}><span style={{ color: FARG.text2, ...TYP.meta, textTransform: "uppercase", letterSpacing: 0.4, marginRight: AVSTAND.xs }}>{slag}</span><strong>{rubrik}</strong> — <span style={{ color: FARG.text2 }}>{text}</span></p>
           </div>
@@ -523,12 +507,12 @@ function FortnoxExportSektion({
                         {k.datum}: godkänd ledighet ({k.typ}) OCH {fmtMin(k.arbetad_min)} registrerat arbete.
                       </p>
                     ))}
-                    {/* Utjämningsperiod (§5 mom 2) som överlappar månaden: upplysning, inte
-                        en lönerad. Månadens övertid mot arbetade dagar × 8 är inte avtalets
-                        modell i perioden — genomsnittet står i årsövertiden överst. */}
-                    {(m.utjamning || []).map((u: any, ui: number) => (
-                      <p key={`utj-${ui}`} style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
-                        Utjämningsperiod <strong style={{ color: FARG.text }}>{u.startdatum} – {u.slutdatum}</strong>: {u.anteckning} Månadens övertidsrad (arbetade dagar × 8) är inte avtalets modell här — se årsövertiden. Avtalet förutsätter att utjämningen är överenskommen; markeringen bevisar inte det.
+                    {/* Utjämningsperiod (§5 mom 2) som överlappar månaden: upplysning, inte en lönerad. EN rad per period
+                        (tabellen har en rad för alla och en per förare med samma datum). Att utjämningen ska vara överenskommen
+                        står under "Att ta med löneansvarig". */}
+                    {unikaUtjamningar(m.utjamning).map((u, ui) => (
+                      <p key={`utj-${ui}`} data-utjamning-period="" style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>
+                        {utjamningsRad(u)}. Månadens övertid räknas inte som vanligt här — se årsövertiden överst.
                       </p>
                     ))}
                     {(m.obekraftade || 0) > 0 && (

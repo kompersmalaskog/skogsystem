@@ -131,3 +131,11 @@ och blockerar ingen sändning. Min månad och PDF:en säger samma sak i stället
   förhandsvisningen). EN tung körning åt gången.
 - Migration: `supabase/migrations/20261015094150_lonearter_mappning_som_i_prod.sql` beskriver prods schema för `lonesystem_artikelmappning`
   (`lonesystem_id`, `skapad`, unikt `(lonesystem_id, intern_typ)`). Alla satser är no-op i prod; inget data ändras.
+
+## Lön-fliken, städning (2026-10-17)
+
+- **"Att ta med löneansvarig"** (`lib/lonesystem/attTaMed.ts`): kodrådet ("Koppla koden för …") byggs ur vad som är kopplat just nu — det nämner bara lönearter som saknar kod, aldrig frivilliga (premien) och aldrig en som redan står som röd rad i "Kan inte skickas än". Allt kopplat = ingen rad. Resten är frågor och beslut som appen inte kan se är besvarade; det beslutade och byggda (helglönsregeln) står inte där, det står i CLAUDE.md.
+- **Utjämningsperiod:** tabellen `utjamningsperiod` har en rad för alla och en per förare med samma datum (prod: v17–27 som fem rader). Vyerna visar EN rad per period med antal dagar (`unikaUtjamningar`, `utjamningsRad`).
+- **Namnet i Fortnox** fylls i av koden (`fortnoxNamn.ts`, tio koder). Ett namn du skrivit själv skrivs aldrig över; en okänd kod gissar inget.
+- **"Skicka utan dessa rader"** säger i klartext att raderna aldrig skickas senare och att lönehanteraren måste lägga in dem för hand.
+- **Rast:** en avrundningsregel (se CLAUDE.md, Beräkningar).

@@ -185,7 +185,7 @@ def main():
         slut_tid = agg['end'].strftime('%H:%M') if agg['end'] else None
         maskin = max(agg['maskin_sek'], key=agg['maskin_sek'].get) if agg['maskin_sek'] else None
         rast_sek = rast_lookup.get((agg['op_id'], datum_str), 0)
-        rast_min = int(rast_sek / 60)
+        rast_min = int((rast_sek + 30) // 60)  # närmaste minut, halv uppåt - samma regel som appen (lib/rastMin.ts)
         objekt_id = objekt_lookup.get((agg['op_id'], datum_str))
         arbetsdag_rows.append({
             'medarbetare_id': medarb_id,

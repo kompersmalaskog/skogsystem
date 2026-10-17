@@ -73,12 +73,33 @@ const dagUtanTid = (s: string) => {
   return new Date(y, m - 1, d)
 }
 
-/** "Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken) räknas som genomsnitt" — en grå rad per markerad period. */
-export function utjamningsRad(u: { startdatum: string; slutdatum: string; anteckning?: string | null }): string {
+type Utjamning = { startdatum: string; slutdatum: string; anteckning?: string | null; medarbetare_id?: string | null }
+
+const dagarIPeriod = (u: Utjamning) =>
+  Math.round((dagUtanTid(u.slutdatum).getTime() - dagUtanTid(u.startdatum).getTime()) / 86400000) + 1
+
+/**
+ * EN rad per period. Tabellen utjamningsperiod har en rad för alla OCH en per förare med samma datum (prod 2026-10-17: v17–27
+ * som fem rader), så en lista som ritas rakt av säger samma sak fem gånger. Samma start och slut är samma period; platsen
+ * tas från första raden som har en anteckning. Sorterad på startdatum.
+ */
+export function unikaUtjamningar<T extends Utjamning>(lista: T[] | null | undefined): T[] {
+  const per = new Map<string, T>()
+  for (const u of lista || []) {
+    const k = `${u.startdatum.slice(0, 10)}|${u.slutdatum.slice(0, 10)}`
+    const finns = per.get(k)
+    if (!finns) per.set(k, u)
+    else if (!String(finns.anteckning || "").trim() && String(u.anteckning || "").trim()) per.set(k, u)
+  }
+  return Array.from(per.values()).sort((a, b) => a.startdatum.localeCompare(b.startdatum))
+}
+
+/** "Utjämningsperiod v17–27 (Gavle/Hedemora-Sandviken), 77 dagar — räknas som genomsnitt" — en grå rad per markerad period. */
+export function utjamningsRad(u: Utjamning): string {
   const fran = isoVecka(dagUtanTid(u.startdatum)).vecka
   const till = isoVecka(dagUtanTid(u.slutdatum)).vecka
   const veckor = fran === till ? `v${fran}` : `v${fran}–${till}`
   // Platsen = anteckningens början, före första siffra eller parentes ("Gavle/Hedemora-Sandviken 22 apr …").
   const plats = String(u.anteckning || "").split(/[0-9(]/)[0].trim().slice(0, 40).trim()
-  return `Utjämningsperiod ${veckor}${plats ? ` (${plats})` : ""} räknas som genomsnitt`
+  return `Utjämningsperiod ${veckor}${plats ? ` (${plats})` : ""}, ${dagarIPeriod(u)} dagar — räknas som genomsnitt`
 }
