@@ -12,7 +12,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/PageContainer'
 import Flikkontroll from '@/components/design/Flikkontroll'
 import { SheetLageContext } from '@/components/Sheet'
-import { AVSTAND, FARG, KNAPP, LAYOUT, ROT_MIN_HOJD, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
+import { AVSTAND, FARG, KNAPP, LAYOUT, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
@@ -282,16 +282,20 @@ export default function HelikopterVy() {
     </nav>
   )
 
-  // Månadspilarna är blå (navigerar), utan ram. Idag likaså (KNAPP.lank).
+  // Månadspilarna är blå (navigerar), utan ram. Mellan pilarna står alltid månaden man tittar på; Idag är en egen liten länk
+  // (KNAPP.tertiar) som bara finns när vald månad inte är innevarande — samma mönster som ledighetens kalender.
   const pil = (steg: -1 | 1) => (
     <button type="button" aria-label={steg < 0 ? 'Föregående månad' : 'Nästa månad'} onClick={() => bytManad(steg)}
       style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
       <Ikon namn={steg < 0 ? 'chevron_left' : 'chevron_right'} farg={FARG.bla} />
     </button>
   )
-  const idagKnapp = <button type="button" onClick={() => satt({ ar: nuAr, manad: nuManad })} style={KNAPP.lank}>Idag</button>
+  const idagKnapp = (
+    <button type="button" onClick={() => satt({ ar: nuAr, manad: nuManad })} style={{ ...KNAPP.tertiar, minWidth: TRAFFYTA.min, justifyContent: 'center', padding: `0 ${AVSTAND.s}px` }}>Idag</button>
+  )
 
-  // Månadsrubriken (telefon och iPad): månaden stor, underraden under, pilarna på sidorna, Idag under när det inte är innevarande månad.
+  // Månadsrubriken (telefon och iPad): månaden stor mellan pilarna, underraden under, Idag under när det inte är innevarande månad
+  // (till höger om pilarna får den inte plats på en telefon: rubriken fyller raden).
   const manadsHuvud = (
     <div style={{ padding: `${AVSTAND.l}px 0 ${AVSTAND.xs}px` }}>
       <div style={{ display: 'grid', gridTemplateColumns: `${TRAFFYTA.min}px 1fr ${TRAFFYTA.min}px`, alignItems: 'center' }}>
@@ -354,11 +358,15 @@ export default function HelikopterVy() {
           <header style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 20, background: FARG.bg }}>
             <div style={ram}>
               {stor ? (
-                // Stor: pilar och Idag EN gång, centrerat. Månad och undertext sitter i varje korts rubrikrad.
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s, padding: `${AVSTAND.s}px 0` }}>
-                  {pil(-1)}
-                  <div style={{ minWidth: AVSTAND.xxl * 2, textAlign: 'center' }}>{!arNu && idagKnapp}</div>
-                  {pil(1)}
+                // Stor: pilar och månad EN gång, centrerat. Månadens bredd är fast (längsta namnet ryms), så pilarna står still när man bläddrar.
+                // Idag hänger till höger om pilarna och flyttar inget: gruppen ligger på samma plats med och utan den.
+                <div style={{ display: 'flex', justifyContent: 'center', padding: `${AVSTAND.s}px 0` }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+                    {pil(-1)}
+                    <div style={{ width: AVSTAND.xxl * 5, textAlign: 'center', ...TYP.listtitel, ...TNUM, color: FARG.text }}>{manadRubrik(ar, manad)}</div>
+                    {pil(1)}
+                    {!arNu && <div style={{ position: 'absolute', left: '100%', top: 0, bottom: 0, display: 'flex', alignItems: 'center', marginLeft: AVSTAND.s }}>{idagKnapp}</div>}
+                  </div>
                 </div>
               ) : (
                 <>
