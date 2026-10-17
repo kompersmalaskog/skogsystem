@@ -2,7 +2,7 @@
 
 // "KLAR MED TRAKTEN" (tavla 34, omdesign förslag 2): planerarens färdigplanering. Appen har fyllt i det den kan; planeraren tittar, rättar och svarar på det appen inte kan veta.
 //
-// Rubriken är traktens namn; under står läget i ord ("Allt klart ✓" / "N saker kvar" / "Klar för maskin ✓") och arealen. Fast ordning uppifrån:
+// Rubriken är traktens namn; under står läget i ord ("Allt klart ✓" / "N saker kvar" / "Klar för maskin ✓"); arealen står bara i prognoskortet. Fast ordning uppifrån:
 //   1. BEHÖVER DIG      syns BARA när något är kvar: orange poster + obesvarade Har du-frågor (besvaras direkt; försvinner ur listan när de är besvarade)
 //   2. PROGNOSKORT      volym stort + medelstam · tabell skördare/skotare × G15-tim och m³fub/G15 · källrad · Stämmer. Ett tryck på en siffra redigerar den PÅ PLATS
 //   3. DET SOM STÄMMER  tre hopfällda rader med pil: Appen har fyllt i · Har du … · Markägare & övrigt (tryck = fäll ut på plats, ingen ny vy)
@@ -393,15 +393,13 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
     }
   };
 
-  // Rubrikens rad under namnet: läget i ord (färg + ord) och arealen
-  const areal = tal(pg.areal) != null && (tal(pg.areal) ?? 0) > 0 ? `${pg.areal.trim()} ha` : null;
+  // Rubrikens rad under namnet: läget i ord (färg + ord). Arealen står bara i prognoskortet, där den kan rättas.
   const lageText = planerad ? 'Klar för maskin ✓' : status.klar ? 'Allt klart ✓' : `${status.antalKvar} ${status.antalKvar === 1 ? 'sak' : 'saker'} kvar`;
   const lageFarg = planerad || status.klar ? FARG.gron : FARG.orange;
   const undertitel = (
     <>
       <span data-testid="klar-status" style={{ color: lageFarg, ...TYP.listtitel }}>{lageText}</span>
       {planerad && status.antalKvar > 0 && <span style={{ color: FARG.orange }}> · {status.antalKvar} kvar</span>}
-      {areal && <span data-testid="klar-areal-rubrik"> · {areal}</span>}
     </>
   );
 

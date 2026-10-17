@@ -95,14 +95,15 @@ const KLAR: KlarFixtur = {
 const montera_om = (start: KlarFixtur) => { act(() => { rot!.unmount(); }); behallare!.remove(); montera(start); };
 
 
-describe('rubrik: traktens namn, läget i ord och arealen', () => {
-  it('ny trakt: namnet som rubrik (inte en fråga), "13 saker kvar" i orange och arealen', () => {
+describe('rubrik: traktens namn och läget i ord', () => {
+  it('ny trakt: namnet som rubrik (inte en fråga), "13 saker kvar" i orange, ingen areal i rubriken', () => {
     montera({});
     expect(text('info-titel') || behallare!.textContent).toContain('Skälviken');
     expect(behallare!.textContent).not.toContain('Klar med Skälviken?');
     expect(text('klar-status')).toBe('13 saker kvar');
     expect(q('klar-status')!.style.color).toBe(farg(FARG.orange));
-    expect(text('klar-areal-rubrik')).toContain('3,6 ha');
+    expect(finns('klar-areal-rubrik')).toBe(false);
+    expect(text('klar-cell-areal')).toContain('3,6');
   });
   it('en sak kvar säger "1 sak kvar" (inte "1 saker")', () => {
     montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36, godkand: true, harDu: ALLA_SVAR(), basvagForvantad: true });
@@ -122,9 +123,10 @@ describe('rubrik: traktens namn, läget i ord och arealen', () => {
     montera({ ...KLAR, objektStatus: 'planerad', harDu: {} });
     expect(behallare!.textContent).toContain('Klar för maskin ✓ · 6 kvar');
   });
-  it('arealen saknas → ingen "· ha" i rubriken (ingen gissad siffra)', () => {
+  it('arealen saknas → rubriken säger ändå inget om areal, och prognoskortet visar "areal saknas" (ingen gissad siffra)', () => {
     montera({ areal: null });
     expect(finns('klar-areal-rubrik')).toBe(false);
+    expect(text('klar-cell-areal')).toContain('areal saknas');
   });
 });
 
