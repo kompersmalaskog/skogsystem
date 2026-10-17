@@ -28,7 +28,7 @@ import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
-import { beraknaG15Forslag, forslagKalla, prestation, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
+import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
 import { hyttsparRitadeLinjer } from '../../lib/sparJamning'
 import { slutaRitning, arEmuleradMus, arDubbeltryck, type TryckPunkt } from '../../lib/ritaPunkter'
@@ -13846,6 +13846,7 @@ export default function PlannerPage() {
             saknas: res.ok ? null : utfallText,
             andrad: forslagTim != null && timTal != null && timTal !== forslagTim,
             prestation: prestation(klarTal(infoVolym), timTal),
+            varning: res.ok ? prestationVarning(klarTal(infoVolym), timTal, res.forslag.intervall) : null,
           };
         };
         const klarPatch = (a: KlarPatch) => {

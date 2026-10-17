@@ -52,8 +52,8 @@ function Harness({ start, extra }: { start: KlarFixtur; extra?: Partial<KlarMedT
         ...(a.skotningsavstand !== undefined ? { skotningsavstand: a.skotningsavstand } : {}),
         ...(a.skordare ? { skordare: a.skordare } : {}),
         ...(a.skotare ? { skotare: a.skotare } : {}),
-        ...(a.skordareTimmar !== undefined ? { skordareTimmar: Number(a.skordareTimmar.replace(',', '.')) || null } : {}),
-        ...(a.skotareTimmar !== undefined ? { skotareTimmar: Number(a.skotareTimmar.replace(',', '.')) || null } : {}),
+        ...(a.skordareTimmar !== undefined ? { skordareTimmar: Number(a.skordareTimmar.replace(',', '.')) || null, godkand: false } : {}),
+        ...(a.skotareTimmar !== undefined ? { skotareTimmar: Number(a.skotareTimmar.replace(',', '.')) || null, godkand: false } : {}),
         ...(a.bandSkotare !== undefined ? { bandSkotare: a.bandSkotare } : {}),
         ...(a.ved !== undefined ? { markagareVed: a.ved } : {}),
       }));
@@ -209,6 +209,76 @@ describe('Mölleryd: en ny trakt — vad är kvar', () => {
     expect((q('klar-medelstam') as HTMLInputElement).value).toBe('0,72');
     klicka(q('klar-cell-volym'));
     expect((q('klar-volym') as HTMLInputElement).value).toBe('1800');
+  });
+});
+
+describe('prognosen utanför liknande trakter: prestationen orange + en rad, Stämmer går alltid', () => {
+  const egna: KlarFixtur = { skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 };
+  const orange = () => farg(FARG.orange);
+  const skriva = (id: string, v: string) => { klicka(q(`klar-cell-${id}`)); skriv(q(`klar-${id}`) as HTMLInputElement, v); blur(q(`klar-${id}`)); };
+  it('inom intervallet (förslaget, och gränserna 38 och 45) ger ingen varning', () => {
+    montera(egna);
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+    skriva('skordartimmar', '38'); expect(finns('klar-skordare-varning')).toBe(false);
+    skriva('skordartimmar', '45'); expect(finns('klar-skordare-varning')).toBe(false);
+  });
+  it('fler timmar än intervallet: prestationen orange och "Lågt – liknande trakter 40–47 m³fub/G15" under raden; Stämmer är aktiv', () => {
+    montera(egna);
+    skriva('skordartimmar', '60');
+    expect(q('klar-skordare-prestation')!.style.color).toBe(orange());
+    expect(text('klar-skordare-varning')).toBe('Lågt – liknande trakter 40–47 m³fub/G15');
+    expect(q('klar-skordare-varning')!.style.color).toBe(orange());
+    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
+    expect(finns('klar-skotare-varning')).toBe(false);                  // bara den rad som ligger utanför
+    expect(q('klar-skotare-prestation')!.style.color).not.toBe(orange());
+  });
+  it('färre timmar än intervallet: "Högt – liknande trakter …"', () => {
+    montera(egna);
+    skriva('skordartimmar', '30');
+    expect(text('klar-skordare-varning')).toBe('Högt – liknande trakter 40–47 m³fub/G15');
+  });
+  it('varningen står under sin egen maskin (skotare: 30–44 tim → 41–60 m³fub/G15)', () => {
+    montera(egna);
+    skriva('skotartimmar', '60');
+    expect(text('klar-skotare-varning')).toBe('Lågt – liknande trakter 41–60 m³fub/G15');
+    expect(q('klar-skotare-tid')!.contains(q('klar-skotare-varning'))).toBe(true);
+    expect(finns('klar-skordare-varning')).toBe(false);
+  });
+  it('syns tills siffran är inom intervallet igen', () => {
+    montera(egna);
+    skriva('skordartimmar', '60');
+    expect(finns('klar-skordare-varning')).toBe(true);
+    skriva('skordartimmar', '44');
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+  });
+  it('tills någon tryckt Stämmer efter varningen — och kommer tillbaka om siffran ändras igen', () => {
+    montera(egna);
+    skriva('skordartimmar', '60');
+    expect(finns('klar-skordare-varning')).toBe(true);
+    klicka(q('klar-stammer'));
+    expect(spion.stammer).toBe(1);
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+    skriva('skordartimmar', '70');                                      // underlaget ändrat → godkännandet gäller inte längre
+    expect(text('klar-skordare-varning')).toContain('Lågt – liknande trakter');
+  });
+  it('ingen varning när förslag saknas (inget intervall att jämföra mot), hur extremt talet än är', () => {
+    montera({ ...egna, utanForslag: true, skordareTimmar: 200, skotareTimmar: 5 });
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(finns('klar-skotare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+  });
+  it('ingen varning för extern utförare (inga timmar att bedöma)', () => {
+    montera({ ...egna, skordare: EXTERN('Max Skog') });
+    expect(finns('klar-skordare-varning')).toBe(false);
+  });
+  it('varningen räknas inte som "kvar" och ändrar inte rubriken', () => {
+    montera({ ...KLAR, godkand: false });
+    const fore = text('klar-status');
+    skriva('skordartimmar', '70');
+    expect(text('klar-status')).toBe(fore);
   });
 });
 

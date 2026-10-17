@@ -145,15 +145,19 @@ describe('omdesignen (förslag 2): presentation, ingen ny logik', () => {
     expect(kort).toContain("const BEHOVER_ORDNING: Array<PostId | 'forutsattningar'> = ['avlagg', 'basvag', 'forutsattningar', 'skordare', 'skotare', 'medelstam', 'prognos'];");
   });
   it('orange bara på rubrikens antal och på värden i Behöver dig: prognoskortet och det klara har ingen orange text utom ogiltigt-noten', () => {
-    const prognos = kort.slice(kort.indexOf('data-testid="klar-prognoskort"'), kort.indexOf('{/* ── 3. DET SOM ÄR KLART'));
+    const maskinRad = kort.slice(kort.indexOf('const maskinRad ='), kort.indexOf('// Inget förslag att visa'));
+    const prognoskort = kort.slice(kort.indexOf('data-testid="klar-prognoskort"'), kort.indexOf('{/* ── 3. DET SOM ÄR KLART'));
+    const prognos = maskinRad + prognoskort;
+    // undantag: "Underlaget har ändrats" och prognosen utanför liknande trakter (prestationen + raden under, bara när `varn` finns)
     const orangeRader = prognos.split('\n').filter((r) => r.includes('FARG.orange'));
-    expect(orangeRader.length).toBe(1);
-    expect(orangeRader[0]).toContain('klar-stammer-ogiltigt');
+    expect(orangeRader.length).toBe(3);
+    expect(orangeRader.filter((r) => r.includes('klar-stammer-ogiltigt')).length).toBe(1);
+    expect(orangeRader.filter((r) => r.includes('varn ? FARG.orange') || r.includes('klar-${roll}-varning')).length).toBe(2);
     const klart = kort.slice(kort.indexOf('{/* ── 3. DET SOM ÄR KLART'), kort.indexOf('{/* ── KLAR FÖR MASKIN'));
     expect(klart).not.toContain('FARG.orange');
   });
   it('kortet räknar ingenting nytt: status, förslag och tider kommer ur lib/klarTrakt, lib/g15Forslag och sidan', () => {
-    expect(kort).not.toMatch(/from '@\/lib\/g15Forslag'/);
+    expect(kort).not.toMatch(/^import (?!type).*from '@\/lib\/g15Forslag'/m);   // bara typen (PrestationVarning) — gränsen räknas av sidan
     expect(kort).not.toMatch(/berakna\(|beraknaG15Forslag|prognosLage\(/);
   });
 });

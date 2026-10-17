@@ -20,6 +20,7 @@ import {
   type HarDuFraga, type HarDuId, type HarDuSvar, type HarDuSvarVarde, type KlarStatus, type Post, type PostId, type UtforareVal, type Varning, type VedDetaljer,
 } from '@/lib/klarTrakt';
 import { svTal } from '@/lib/objektKort';
+import type { PrestationVarning } from '@/lib/g15Forslag';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
 import { Etikett, Falt, Val } from './klarDelar';
 import KlarVed from './KlarVed';
@@ -49,6 +50,8 @@ export interface MaskinPrognos {
   andrad: boolean;
   /** m³fub per G15-timme = volym / fältets tim. Uträknad, aldrig ett eget fält. null = något saknas. */
   prestation: number | null;
+  /** siffran ligger utanför förslagets intervall (lib/g15Forslag `prestationVarning`) — null = inom intervallet eller inget förslag/intervall att jämföra med */
+  varning: PrestationVarning | null;
 }
 
 export interface KlarMedTraktenProps {
@@ -549,6 +552,8 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const extern = status.prognos.lage === 'extern';
   const maskinRad = (roll: 'skordare' | 'skotare', etikett: string, egen: boolean, v: UtforareVal, mp: MaskinPrognos) => {
     const lage = utforareLage(v);
+    // Utanför liknande trakter: prestationen orange + en rad under. Syns tills siffran är inom intervallet eller någon tryckt Stämmer (godkänt underlag); Stämmer går alltid att trycka.
+    const varn = egen && !godkand ? mp.varning : null;
     return (
       <div key={roll} data-testid={`klar-${roll}-tid`} style={{ display: 'contents' }}>
         <div style={{ ...TYP.text, color: FARG.text, alignSelf: 'center' }}>{etikett}</div>
@@ -558,10 +563,15 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
               <TalCell id={roll === 'skordare' ? 'skordartimmar' : 'skotartimmar'} aktiv={aktiv(roll)} onAktiv={oppnaCell(roll)} onKlart={klarCell(roll)} varde={mp.tim} onChange={(t) => p.onAndra(roll === 'skordare' ? { skordareTimmar: t } : { skotareTimmar: t })} label={`${etikett}, G15-timmar`} tom="Skriv">{svTal(mp.tim, 1)}</TalCell>
               {mp.andrad && mp.forslag && <span data-testid={`klar-${roll}-andrad`} style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>förslag {mp.forslag.g15}</span>}
             </div>
-            <div data-testid={`klar-${roll}-prestation`} style={{ ...TYP.listtitel, ...TNUM, color: mp.prestation != null ? FARG.text : FARG.text3, textAlign: 'right', alignSelf: 'center', paddingRight: AVSTAND.m }}>{mp.prestation != null ? fmtPrestation(mp.prestation) : '–'}</div>
+            <div data-testid={`klar-${roll}-prestation`} style={{ ...TYP.listtitel, ...TNUM, color: varn ? FARG.orange : mp.prestation != null ? FARG.text : FARG.text3, textAlign: 'right', alignSelf: 'center', paddingRight: AVSTAND.m }}>{mp.prestation != null ? fmtPrestation(mp.prestation) : '–'}</div>
           </>
         ) : (
           <div style={{ gridColumn: '2 / 4', ...TYP.meta, color: FARG.text2, textAlign: 'right', alignSelf: 'center', paddingRight: AVSTAND.m }}>{lage === 'extern' ? `Extern · ${v.externNamn.trim()}` : 'Välj maskin ovan'}</div>
+        )}
+        {varn && (
+          <div data-testid={`klar-${roll}-varning`} role="note" style={{ gridColumn: '1 / -1', ...TYP.meta, color: FARG.orange, overflowWrap: 'anywhere' }}>
+            {varn.riktning === 'lagt' ? 'Lågt' : 'Högt'} – liknande trakter {fmtPrestation(varn.lag)}–{fmtPrestation(varn.hog)} m³fub/G15
+          </div>
         )}
         {/* Intervall + underlag ("troligen 39–46 · ur 7 trakter …") visas först när man trycker på siffran: de behövs när man ska ändra den, inte när man bara läser. */}
         {egen && aktiv(roll) && mp.forslag && (

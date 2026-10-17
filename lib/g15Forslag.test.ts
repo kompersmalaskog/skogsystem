@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaG15Forslag, forslagKalla, fmtMs, percentil, prestation, snittTypOrd, type RollForslag, type UtfallRad } from './g15Forslag';
+import { beraknaG15Forslag, forslagKalla, fmtMs, percentil, prestation, prestationVarning, snittTypOrd, type RollForslag, type UtfallRad } from './g15Forslag';
 import { UTFALL_2026_10_17 } from './__fixtures__/utfall_2026-10-17';
 
 const ok = <T extends { ok: boolean }>(r: T) => { expect(r.ok).toBe(true); return (r as any).forslag as RollForslag; };
@@ -131,5 +131,28 @@ describe('texter', () => {
   it('prestation: volym ÷ G15-tim, null när något saknas eller är noll', () => {
     expect(prestation(1734, 42)).toBeCloseTo(41.29, 2);
     expect(prestation(null, 42)).toBeNull(); expect(prestation(1734, 0)).toBeNull(); expect(prestation(1734, null)).toBeNull();
+  });
+});
+
+describe('prestationVarning — siffran utanför liknande trakter', () => {
+  const iv = { lag: 38, hog: 45 };
+  it('inom intervallet (gränserna räknas som inom) → ingen varning', () => {
+    for (const t of [38, 41, 45]) expect(prestationVarning(1800, t, iv)).toBeNull();
+  });
+  it('fler timmar → lågt, och spannet är volym / intervallets timmar', () => {
+    const v = prestationVarning(1800, 60, iv)!;
+    expect(v.riktning).toBe('lagt');
+    expect(v.lag).toBeCloseTo(40, 5); expect(v.hog).toBeCloseTo(1800 / 38, 5);
+  });
+  it('färre timmar → högt', () => {
+    expect(prestationVarning(1800, 30, iv)!.riktning).toBe('hogt');
+  });
+  it('ingen varning utan förslag/intervall, utan volym eller utan tim att räkna på', () => {
+    expect(prestationVarning(1800, 60, null)).toBeNull();
+    expect(prestationVarning(1800, 60, undefined)).toBeNull();
+    expect(prestationVarning(null, 60, iv)).toBeNull();
+    expect(prestationVarning(1800, null, iv)).toBeNull();
+    expect(prestationVarning(1800, 0, iv)).toBeNull();
+    expect(prestationVarning(1800, 60, { lag: 0, hog: 0 })).toBeNull();
   });
 });
