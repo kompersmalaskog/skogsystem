@@ -46,6 +46,11 @@ export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAkt
 export interface Bricka { id: string; varde: string; etikett?: string }
 
 const sv = (n: number, dec: number) => n.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: dec });
+/** Ett tal i svenskt format ("2,75"), också när det kommer som text med punkt ("2.75"). Text som inte är ett tal lämnas som den är. */
+export function svTal(v: unknown, dec = 2): string {
+  const n = tal(v);
+  return n != null ? sv(n, dec) : String(v ?? '').trim();
+}
 const tal = (v: unknown): number | null => {
   if (v == null || v === '') return null;
   const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));

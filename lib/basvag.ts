@@ -39,6 +39,17 @@ export function basvagText(farg: unknown, langdM: number | null | undefined): st
   return langdM != null && Number.isFinite(langdM) ? `${namn} · ${formatLength(langdM)}` : namn;
 }
 
+/**
+ * "5 st · 599 m" — antal och sammanlagd längd av de ritade basvägarna: EN rad i Klar med trakten? i stället för en rad per väg.
+ * Saknas längden på någon av dem skrivs bara antalet — en summa av några vore en för låg siffra som ser ut som en mätning.
+ */
+export function basvagSammanfattning(langderM: ReadonlyArray<number | null | undefined>): string | null {
+  if (langderM.length === 0) return null;
+  const antal = `${langderM.length} st`;
+  const kanda = langderM.filter((l): l is number => l != null && Number.isFinite(l));
+  return kanda.length === langderM.length ? `${antal} · ${formatLength(kanda.reduce((s, l) => s + l, 0))}` : antal;
+}
+
 /** VALET man gör för en basväg: Blå/gul (dagens utseende — blå med gula streck, lagras som INGEN `farg`, exakt som alla basvägar före färgvalet) eller röd, gul, blå (heldragna). Blå/gul står först. */
 export type BasvagVal = BasvagFarg | 'blagul';
 export const BASVAG_BLAGUL: BasvagVal = 'blagul';

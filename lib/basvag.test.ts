@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, arBasvagFarg, basvagYta, basvagFargHex, basvagLangdM, basvagNamn, basvagText } from './basvag';
+import { BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, arBasvagFarg, basvagYta, basvagFargHex, basvagLangdM, basvagNamn, basvagSammanfattning, basvagText } from './basvag';
 import { LEGEND } from './kartstil';
 
 describe('basvägens färg', () => {
@@ -161,5 +161,23 @@ describe('sidans koppling (page.tsx kan inte monteras i test — källvakt)', ()
     expect(k).toContain("'line-color': lt.id === 'mainRoad' ? BASVAG_FARG_UTTRYCK : lt.color");
     expect(k).toContain("filter: lt.id === 'mainRoad' ? och(filter, BASVAG_UTAN_FARG) : filter");
     expect(las('./egenkontrollkarta.ts')).toContain('arBasvagFarg(');
+  });
+});
+
+describe('Klar med trakten?: EN rad för basvägarna', () => {
+  it('antal och sammanlagd längd: "5 st · 599 m", "1 st · 640 m", över en km i km', () => {
+    expect(basvagSammanfattning([100, 100, 120, 140, 139])).toBe('5 st · 599 m');
+    expect(basvagSammanfattning([640])).toBe('1 st · 640 m');
+    expect(basvagSammanfattning([600, 650])).toMatch(/^2 st · 1[,.]2\d? km$/);
+  });
+  it('inga basvägar → null; saknas längden på någon står bara antalet (en summa av några vore en för låg siffra som ser ut som en mätning)', () => {
+    expect(basvagSammanfattning([])).toBeNull();
+    expect(basvagSammanfattning([100, null, 120])).toBe('3 st');
+    expect(basvagSammanfattning([undefined])).toBe('1 st');
+    expect(basvagSammanfattning([NaN, 50])).toBe('2 st');
+  });
+  it('sidan skickar sammanfattningen ur de ritade basvägarnas längd', () => {
+    const page = readFileSync(resolve(__dirname, '../app/planering/page.tsx'), 'utf8');
+    expect(page).toContain('sammanfattning: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM))');
   });
 });

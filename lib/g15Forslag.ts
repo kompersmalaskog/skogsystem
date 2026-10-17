@@ -190,9 +190,32 @@ export function fmtMs(v: number): string {
 export function forslagKalla(f: RollForslag): string {
   const intervall = f.intervall ? `troligen ${f.intervall.lag}–${f.intervall.hog}` : 'spridning ej bedömd (för få trakter)';
   const typOrd = f.typ === 'gallring' ? 'gallringar' : 'slutavverkningar';
-  if (f.metod === 'medelstam' && f.medelstamSpann) return `Ur ${f.antal} trakter med medelstam ${fmtMs(f.medelstamSpann.lag)}–${fmtMs(f.medelstamSpann.hog)} · ${intervall}`;
+  if (f.metod === 'medelstam' && f.medelstamSpann) return `${intervall} · ur ${f.antal} trakter med medelstam ${fmtMs(f.medelstamSpann.lag)}–${fmtMs(f.medelstamSpann.hog)}`;
   if (f.metod === 'snitt-medelstam-saknas') return `Medelstam saknas – snitt över alla trakter · ur ${f.antal} ${typOrd} · ${intervall}`;
-  return `Ur ${f.antal} ${typOrd} (snitt) · ${intervall}`;
+  return `${intervall} · ur ${f.antal} ${typOrd} (snitt)`;
+}
+
+/** "slutavverkningar" / "gallringar" när förslaget räknats som snitt över ALLA trakter av typen för att medelstam saknas; annars null. */
+export function snittTypOrd(f: RollForslag): string | null {
+  return f.metod === 'snitt-medelstam-saknas' ? (f.typ === 'gallring' ? 'gallringar' : 'slutavverkningar') : null;
+}
+
+export interface PrestationVarning {
+  /** 'lagt' = fler timmar än förslagets intervall (låg prestation), 'hogt' = färre timmar (hög prestation) */
+  riktning: 'lagt' | 'hogt';
+  /** liknande trakter, omräknat till m³fub per G15-tim (volym / intervallets timmar) */
+  lag: number;
+  hog: number;
+}
+
+/**
+ * Ligger prognosens G15-tim UTANFÖR förslagets intervall? Då är prestationen (volym / tim) ovanlig mot liknande trakter och planeraren ska se det — men får ändå godkänna.
+ * Ingen varning utan förslag, utan bedömt intervall eller utan volym/tim att räkna på. Gränserna själva räknas som inom intervallet.
+ */
+export function prestationVarning(volym: number | null, tim: number | null, intervall: { lag: number; hog: number } | null | undefined): PrestationVarning | null {
+  if (!arPos(volym) || !arPos(tim) || !intervall || !(intervall.lag > 0) || !(intervall.hog > 0)) return null;
+  if (tim >= intervall.lag && tim <= intervall.hog) return null;
+  return { riktning: tim > intervall.hog ? 'lagt' : 'hogt', lag: volym / intervall.hog, hog: volym / intervall.lag };
 }
 
 /** Prestation m³fub per G15-timme — uträknad, aldrig ett eget fält. null när något saknas. */

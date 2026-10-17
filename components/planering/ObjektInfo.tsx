@@ -48,7 +48,7 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
     <InfoRam oppen={oppen} vy={vy} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : 'Mer'} onStang={stangRam}>
       {({ lage }) => (
         vy === 'klar' && klar ? (
-          <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} />
+          <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
         ) : vy === 'kort' || (vy === 'klar' && !klar) ? (
           <ObjektKort {...kort} namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
             onKnapp={(id) => { if (id === 'mer') setVy('mer'); else onKnapp(id); }}

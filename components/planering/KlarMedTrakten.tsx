@@ -1,24 +1,27 @@
 'use client';
 
-// "KLAR MED TRAKTEN?" (tavla 34): planerarens färdigplanering. Appen har fyllt i det den kan; planeraren tittar, rättar och svarar på det appen inte kan veta.
+// "KLAR MED TRAKTEN?" — planerarens färdigplanering. Två lägen, samma rader beter sig likadant:
 //
-//   1. APPEN HAR FYLLT I   avlägg · basväg · bärighet · terräng · skotningsavstånd · skördare · skotare · prognos      (orange = kvar)
-//   2. HAR DU …            sex frågor, alltid ställda                                                                   (obesvarad = kvar)
-//   3. MARKÄGARE & ÖVRIGT  ved · band · breddat · konfiguration … (vanligen "Nej", grått, räknas aldrig)
-//   Längst ner: Klar för maskin (grå + "Kvar: …" / grön) och Fortsätter en annan dag.
+//   GÖRA (något är kvar):   "N saker kvar" + stor knapp "Gå igenom". Knappen tar planeraren genom det som är kvar, ETT STEG I TAGET (`StegRam` i KlarSteg: "‹ traktnamn",
+//                           framstegsstreck, rubrik, innehåll, stora knappar, Föregående / Hoppa över). Listan "Behöver dig" ligger kvar under för den som vill hoppa direkt —
+//                           varje rad öppnar SAMMA steg, bara det steget. Inga rader fälls ut på plats, inga skrivfält i listan.
+//   SE (allt klart, och efter Klar för maskin): en sida som ett ifyllt A4 (KlarSe). Ett tryck på en sektion öppnar samma steg för att ändra; efteråt är man tillbaka.
 //
-// Ett tryck på en rad öppnar redigeringen på plats — ingen ny sida, ingen modal. KLAR FÖR MASKIN SPÄRRAR ALDRIG: den visar vad som är kvar, men går att trycka.
+// Stegen (= områdena som kan vara kvar, `status.antalKvar` räknar dem): Avlägg · Basväg · Förutsättningar · Maskiner · Medelstam · Har du … · Prognos · sist Sammanfattning
+// + Klar för maskin. Ett steg som redan är klart hoppas över. KLAR FÖR MASKIN SPÄRRAR ALDRIG.
 // Ren presentation: sidan räknar (lib/klarTrakt) och sparar; kortet ritar och säger vad som trycktes.
 
-import React, { useState } from 'react';
-import { AVSTAND, FARG, IKON, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
-import {
-  BARIGHET_VAL, HAR_DU_FRAGOR, SKOTNINGSAVSTAND_VAL, TERRANG_VAL, utforareLage,
-  type HarDuId, type HarDuSvar, type HarDuSvarVarde, type KlarStatus, type Post, type PostId, type UtforareVal, type Varning, type VedDetaljer,
-} from '@/lib/klarTrakt';
+import React, { useEffect, useState } from 'react';
+import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
+import { HAR_DU_FRAGOR, type HarDuId, type HarDuSvar, type HarDuSvarVarde, type KlarStatus, type UtforareVal, type Varning, type VedDetaljer } from '@/lib/klarTrakt';
+import { STEG_NAMN, genomgangSteg, kvarSteg, type StegId } from '@/lib/klarSteg';
+import type { PrestationVarning } from '@/lib/g15Forslag';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
-import { Etikett, Falt, Val } from './klarDelar';
+import KlarSe from './KlarSe';
 import KlarVed from './KlarVed';
+import { AvlaggBody, BasvagBody, ForutsBody, HarDuSteg, MaskinerBody, MedelstamBody, OvrigtBody, PrognosBody, StegRam, StorKnapp } from './KlarSteg';
+
+export { fmtPrestation } from '@/lib/klarFormat';
 
 /** varning = skälet till att maskinen inte borde stå här (såld, klarar inte trakttypen) — den visas, göms aldrig */
 export interface MaskinAlternativ { id: string; namn: string; varning?: string }
@@ -38,31 +41,34 @@ export interface MaskinPrognos {
   /** fältets värde i G15-tim. Tomt = varken skrivet eller något förslag. */
   tim: string;
   /** förslaget ur uppmätt utfall: talet och metaraden om källan + det uppmätta felet. null = inget förslag. */
-  forslag: { g15: number; kalla: string } | null;
-  /** varför förslag saknas (visas orange) — null när det finns ett förslag */
+  forslag: { g15: number; kalla: string; /** "slutavverkningar" / "gallringar" när förslaget är snitt över alla trakter av typen för att medelstam saknas */ snittOver?: string } | null;
+  /** varför förslag saknas — null när det finns ett förslag */
   saknas: string | null;
   /** fältet avviker från förslaget */
   andrad: boolean;
   /** m³fub per G15-timme = volym / fältets tim. Uträknad, aldrig ett eget fält. null = något saknas. */
   prestation: number | null;
+  /** siffran ligger utanför förslagets intervall (lib/g15Forslag `prestationVarning`) — null = inom intervallet eller inget förslag/intervall att jämföra med */
+  varning: PrestationVarning | null;
 }
 
 export interface KlarMedTraktenProps {
   namn: string;
   status: KlarStatus;
-  /** objektets status: 'oplanerad' | 'planerad' … — styr knappen längst ner */
+  /** objektets status: 'oplanerad' | 'planerad' … — styr knappen längst ner och vilket läge som visas */
   objektStatus: string;
   /** klar_skickad_timestamp (ISO) — när trakten gjordes klar för maskin */
   klarSkickadAt: string | null;
-  basvag: { texter: string[]; kravs: boolean | null; timmar: string };
+  /** "Slutavverkning · Rp · 3,6 ha · 1 800 m³fub" — raden under rubriken i SE-läget (åtgärd · areal · volym); saknas den visas den inte */
+  faktaRad?: string;
+  /** sammanfattning = "5 st · 599 m" (en rad, inte en rad per väg); null = inga ritade eller längd saknas på någon (då står bara texterna) */
+  basvag: { texter: string[]; kravs: boolean | null; timmar: string; sammanfattning?: string | null };
   barighet: string | null; terrang: string | null; skotningsavstand: string | null;
   skordare: UtforareVal; skotare: UtforareVal;
   maskiner: { skordare: MaskinAlternativ[]; skotare: MaskinAlternativ[] };
   prognos: {
     volym: string; areal: string; medelstam: string;
     skordare: MaskinPrognos; skotare: MaskinPrognos;
-    /** förutsättningarna i klartext: "Band skotare", "Breddat lastrede", "Medel skotningsavstånd" … */
-    forutsattningar: string[];
     godkandAv: string | null; godkandAt: string | null;
   };
   harDu: HarDuSvar;
@@ -87,6 +93,26 @@ export interface KlarMedTraktenProps {
   klarSparar: boolean;
   /** när ved-vyn är öppen vid öppning (efter att ved-symbolen satts på kartan) */
   startMedVed?: boolean;
+  /** i avläggssteget: något som visar kartan (sidan har kartan bakom arket; riggen en yta) */
+  kartaYta?: React.ReactNode;
+  /** öppnar informationskortet (ⓘ) — planeraren ska kunna nå det från GÖRA-läget */
+  onInfo?: () => void;
+  /** återöppning (efter att arket krympt till en list medan man placerat ett avlägg): kortet fortsätter i samma vy och samma steg */
+  startVy?: KlarVy;
+  /** kortets vy ändras — sidan minns den till en återöppning */
+  onVyAndrad?: (vy: KlarVy) => void;
+  /** Vidas avlägg (nummer) ur traktgeometrin — tom/saknas = Vida har inga */
+  vidaAvlagg?: string[];
+  /** planeraren har tryckt Stämmer på exakt de här avläggen */
+  vidaAvlaggBekraftat?: boolean;
+  /** antal egna avlägg på kartan */
+  avlaggEgna?: number;
+  onBekraftaVidaAvlagg?: () => void;
+  /**
+   * Avläggssteget med Vidas avlägg visas på KARTAN, inte i arket: sidan stänger arket, zoomar in på avläggen och visar en list nertill ("Vida har lagt 2 avlägg. Ligger de rätt?").
+   * `efter` = vyn kortet ska öppnas i när listen är besvarad (nästa steg, eller dit man kom ifrån). Saknas funktionen (riggen, tester) visas samma fråga i steget.
+   */
+  onGranskaAvlagg?: (efter: KlarVy) => void;
   onAndra: (patch: KlarPatch) => void;
   onHarDu: (id: HarDuId, varde: HarDuSvarVarde) => void;
   onPlaceraAvlagg: () => void;
@@ -99,162 +125,144 @@ export interface KlarMedTraktenProps {
   onStang: () => void;
 }
 
-const datum = (iso: string | null) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+/** Vilken vy som visas. `kort` = GÖRA eller SE efter vad som är kvar; `se` = sammanställningen även om något är kvar. */
+type Flode =
+  | { typ: 'alla'; start: StegId[]; steg: StegId }
+  | { typ: 'ett'; steg: StegId; fraga?: HarDuId; till: 'kort' | 'se' };
+type Vy = { v: 'kort' } | { v: 'se' } | { v: 'steg'; flode: Flode } | { v: 'ved'; efter: Vy };
+/** vyn kortet visar — sidan får den via `onVyAndrad` och ger tillbaka den som `startVy` */
+export type KlarVy = Vy;
+
+const OVRIGT_ETT: Vy = { v: 'steg', flode: { typ: 'ett', steg: 'ovrigt', till: 'kort' } };
+
+const UNDER: Partial<Record<StegId, string>> = {
+  forutsattningar: 'Hur ser trakten ut för maskinerna?',
+  maskiner: 'Vem kör?',
+  prognos: 'Timmar per maskin — tryck på en siffra för att ändra den.',
+  sammanfattning: 'Kontrollera och skicka till föraren.',
 };
 
-/** Radens högersida: orange uppmaning när något är kvar (färg + ord), annars värdet i dämpad text. */
-function RadHoger({ post, uppmaning }: { post: Post; uppmaning: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs, flexShrink: 0, maxWidth: '55%', textAlign: 'right' }}>
-      {post.kvar
-        ? <span style={{ ...TYP.listtitel, color: FARG.orange }}>{uppmaning}</span>
-        : <span style={{ ...TYP.text, color: post.id === 'prognos' && post.varde === 'Stämmer' ? FARG.gron : FARG.text2, overflowWrap: 'anywhere' }}>{post.varde}</span>}
-      <Pil />
-    </span>
-  );
-}
-
-/** En rad i del 1. Trycket fäller ut redigeringen under raden (högst en i taget). */
-function PostRad({ post, uppmaning, oppen, onToggle, children, forst = false, under }: {
-  post: Post; uppmaning: string; oppen: boolean; onToggle: () => void; children?: React.ReactNode; forst?: boolean; under?: React.ReactNode;
-}) {
-  return (
-    <div data-testid={`klar-post-${post.id}`} data-kvar={post.kvar ? '1' : '0'} style={{ borderTop: forst ? 'none' : `1px solid ${FARG.linje}` }}>
-      <button type="button" data-testid={`klar-rad-${post.id}`} aria-expanded={children ? oppen : undefined} onClick={onToggle} className="press-row"
-        style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: 'block' }}>{post.etikett}</span>
-          {under && <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{under}</span>}
-        </span>
-        <RadHoger post={post} uppmaning={uppmaning} />
-      </button>
-      {oppen && children && <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>{children}</div>}
-    </div>
-  );
-}
-
-/** Raden säger VILKEN maskin det är (inte bara "Egen"). Okänd maskin-id → "Egen". */
-function medMaskinnamn(post: Post, u: UtforareVal, lista: MaskinAlternativ[]): Post {
-  if (utforareLage(u) !== 'egen') return post;
-  return { ...post, varde: lista.find((m) => m.id === u.maskinId)?.namn ?? 'Egen' };
-}
-
-/** Tre val i rad (bärighet, terräng, skotningsavstånd). Samma val igen tar tillbaka svaret. */
-function TreVal({ id, val, vald, onVal, onKlart }: { id: string; val: ReadonlyArray<{ id: string; namn: string }>; vald: string | null; onVal: (v: string | null) => void; onKlart: () => void }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: AVSTAND.s }}>
-      {val.map((v) => <Val key={v.id} testid={`klar-${id}-${v.id}`} vald={vald === v.id} onTryck={() => { onVal(vald === v.id ? null : v.id); if (vald !== v.id) onKlart(); }}>{v.namn}</Val>)}
-    </div>
-  );
-}
-
-/** Egen maskin (lista) eller extern (namn) för en roll. */
-function UtforareRad({ roll, v, maskiner, onVal, onKlart }: { roll: 'skordare' | 'skotare'; v: UtforareVal; maskiner: MaskinAlternativ[]; onVal: (u: UtforareVal) => void; onKlart: () => void }) {
-  const extern = v.utforare === 'extern';
-  const egen = !extern && (v.maskinId != null || v.utforare === 'egen');
-  return (
-    <div data-testid={`klar-${roll}-val`}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
-        <Val testid={`klar-${roll}-egen`} vald={egen} onTryck={() => { onVal({ maskinId: v.maskinId, utforare: 'egen', externNamn: '' }); if (v.maskinId) onKlart(); }}>Egen</Val>
-        <Val testid={`klar-${roll}-extern`} vald={extern} onTryck={() => onVal({ maskinId: null, utforare: 'extern', externNamn: v.externNamn })}>Extern</Val>
-      </div>
-      {extern ? (
-        <Falt testid={`klar-${roll}-extern-namn`} label={`Namn på extern ${roll === 'skordare' ? 'skördare' : 'skotare'}`} placeholder="Namn på utföraren" value={v.externNamn} onChange={(n) => onVal({ maskinId: null, utforare: 'extern', externNamn: n })} />
-      ) : egen ? (
-        <div data-testid={`klar-${roll}-maskiner`} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-          {maskiner.length === 0 && <div style={{ ...TYP.meta, color: FARG.text2 }}>Inga maskiner av rätt typ är registrerade.</div>}
-          {maskiner.map((m) => <Val key={m.id} testid={`klar-${roll}-maskin-${m.id}`} vald={v.maskinId === m.id} onTryck={() => { onVal({ maskinId: m.id, utforare: null, externNamn: '' }); onKlart(); }} ton={m.varning ? 'orange' : undefined}>{m.namn}{m.varning ? ` · ${m.varning}` : ''}</Val>)}
-        </div>
-      ) : (
-        <div style={{ ...TYP.meta, color: FARG.text2, marginLeft: AVSTAND.xs }}>Välj egen maskin eller extern utförare.</div>
-      )}
-    </div>
-  );
-}
-
-/**
- * En rad i del 3: ETT tryck växlar. Etiketten är ALLTID vit vanlig text (grå text läses som avstängd rad) — bara knappen till höger visar läget:
- * grå fyllning = standard, vit fyllning = avviker. Del 3 är vanligen "Nej" och ska inte skrika.
- * `varde` = det valet står på nu, `standard` = vad som gäller när ingen rört det. `ord` ger knappens text för ja/nej (Bred/Smal, Ja/Nej).
- */
-function OvrigRad({ id, etikett, varde, standard = false, onVal, ord, under, children }: {
-  id: string; etikett: string; varde: boolean; standard?: boolean; onVal: (v: boolean) => void; ord?: [string, string]; under?: string; children?: React.ReactNode;
-}) {
-  const avviker = varde !== standard;
-  const [ja, nej] = ord ?? ['Ja', 'Nej'];
-  return (
-    <div data-testid={`klar-ovrigt-${id}`} data-avviker={avviker ? '1' : '0'} style={{ padding: `${AVSTAND.xs}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar + AVSTAND.s }}>
-        <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{etikett}</span>
-        <button type="button" data-testid={`klar-ovrigt-${id}-vaxla`} data-varde={varde ? 'ja' : 'nej'} aria-pressed={varde} aria-label={`${etikett}: ${varde ? ja : nej}. Tryck för att ändra`} onClick={() => onVal(!varde)} className="press-scale"
-          style={{ minWidth: TRAFFYTA.primar + AVSTAND.l, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, border: 'none', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation',
-            background: avviker ? FARG.text : FARG.fyllning, color: avviker ? FARG.bg : FARG.text2, ...TYP.listtitel }}>
-          {varde ? ja : nej}
-        </button>
-      </div>
-      {under && <div style={{ ...TYP.meta, color: FARG.text2, margin: `0 ${AVSTAND.xs}px ${AVSTAND.s}px` }}>{under}</div>}
-      {varde && children}
-    </div>
-  );
-}
-
-/** m³fub per G15-timme som heltal ("38") — en decimal under 10 ("4,6"), som gallringens låga tal kräver. */
-export function fmtPrestation(v: number): string {
-  return (v < 10 ? v.toFixed(1) : String(Math.round(v))).replace('.', ',');
-}
-
-/** En maskins G15-timmar i den öppna prognosraden: fältet, uppmätt prestation, källan till förslaget — eller orange varför förslag saknas. */
-function MaskinTid({ roll, etikett, mp, onTim }: { roll: 'skordare' | 'skotare'; etikett: string; mp: MaskinPrognos; onTim: (v: string) => void }) {
-  return (
-    <div data-testid={`klar-${roll}-tid`} style={{ marginTop: AVSTAND.s }}>
-      <Etikett>{etikett}, G15-tim</Etikett>
-      <Falt testid={roll === 'skordare' ? 'klar-skordartimmar' : 'klar-skotartimmar'} label={`${etikett}, G15-timmar`} numeriskt value={mp.tim} onChange={onTim} />
-      {mp.prestation != null && <div data-testid={`klar-${roll}-prestation`} style={{ ...TYP.meta, ...TNUM, color: FARG.text2, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0` }}>{fmtPrestation(mp.prestation)} m³fub/G15</div>}
-      {mp.forslag && <div data-testid={`klar-${roll}-kalla`} style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0`, overflowWrap: 'anywhere' }}>{mp.forslag.kalla}</div>}
-      {mp.andrad && mp.forslag && <div data-testid={`klar-${roll}-andrad`} style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0` }}>Ändrad av dig · förslag {mp.forslag.g15}</div>}
-      {!mp.forslag && mp.saknas && <div data-testid={`klar-${roll}-forslag-saknas`} style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0`, overflowWrap: 'anywhere' }}>{mp.saknas}</div>}
-    </div>
-  );
+/** Säger åt sidan att visa avläggen på kartan (en gång när steget öppnas); ritar ingenting — arket stängs av sidan. */
+function AvlaggGranska({ efter, onGranska }: { efter: Vy; onGranska: (efter: Vy) => void }) {
+  useEffect(() => { onGranska(efter); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <div data-testid="klar-avlagg-granska" />;
 }
 
 export default function KlarMedTrakten(p: KlarMedTraktenProps) {
-  const [oppen, setOppen] = useState<PostId | null>(null);
-  const [vy, setVy] = useState<'kort' | 'ved'>(p.startMedVed ? 'ved' : 'kort');
-  const vaxla = (id: PostId) => setOppen((o) => (o === id ? null : id));
-  /** Ett val är gjort → raden stängs så nästa syns direkt. Bara den rad som är öppen stängs. */
-  const stangRad = (id: PostId) => setOppen((o) => (o === id ? null : o));
-  const post = (id: PostId) => p.status.poster.find((x) => x.id === id)!;
+  const [vy, setVy] = useState<Vy>(p.startMedVed ? { v: 'ved', efter: OVRIGT_ETT } : (p.startVy ?? { v: 'kort' }));
+  useEffect(() => { p.onVyAndrad?.(vy); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vy]);
   const { status } = p;
   const planerad = p.objektStatus === 'planerad';
+  const kvar = kvarSteg(status);
+  const prognosKvar = kvar.includes('prognos');
+  const harAllt = status.prognos.lage === 'ogodkand' && status.prognos.saknas.length === 0;
+  const godkand = status.prognos.lage === 'godkand';
+  const extern = status.prognos.lage === 'extern';
 
-  if (vy === 'ved') {
-    return <KlarVed namn={p.namn} ved={p.ved} onAndra={p.onVed} onSattPaKartan={p.onSattVedPaKartan} onTillbaka={() => setVy('kort')} onIngenVed={() => { p.onAndra({ ved: false }); setVy('kort'); }} onStang={p.onStang} />;
+  const tillKort = () => setVy({ v: 'kort' });
+
+  if (vy.v === 'ved') {
+    const efter = vy.efter;
+    return <KlarVed namn={p.namn} ved={p.ved} onAndra={p.onVed} onSattPaKartan={p.onSattVedPaKartan} onTillbaka={() => setVy(efter)} onIngenVed={() => { p.onAndra({ ved: false }); setVy(efter); }} onStang={p.onStang} />;
   }
 
-  const pg = p.prognos;
-  const prognosPost = post('prognos');
-  const harAllt = status.prognos.lage === 'ogodkand' && status.prognos.saknas.length === 0;
-  // Hopfälld rad: en rad per maskin med G15-tim och prestation, "Skördare 52 G15-tim · 38 m³fub/G15". Bara egna maskiner med en tim — aldrig ett tomt streck.
-  const maskinRad = (etikett: string, mp: MaskinPrognos, egen: boolean) => (egen && mp.tim.trim() ? `${etikett} ${mp.tim.trim()} G15-tim${mp.prestation != null ? ` · ${fmtPrestation(mp.prestation)} m³fub/G15` : ''}` : null);
-  const prognosRader = [maskinRad('Skördare', pg.skordare, utforareLage(p.skordare) === 'egen'), maskinRad('Skotare', pg.skotare, utforareLage(p.skotare) === 'egen')].filter((x): x is string => !!x);
-  const prognosUnder = status.prognos.lage === 'extern'
-    ? 'Extern utförare på båda — inget att prognostisera'
-    : prognosRader.length > 0 ? <>{prognosRader.map((r, i) => <span key={i} data-testid={`klar-prognos-rad-${i}`} style={{ display: 'block', ...TNUM }}>{r}</span>)}</> : undefined;
-  const prognosUppmaning = status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 ? `Saknar ${status.prognos.saknas[0]}` : 'Granska';
+  // ── STEG ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+  if (vy.v === 'steg') {
+    const flode = vy.flode;
+    const steg = flode.steg;
+    const alla = flode.typ === 'alla';
+    const ordning = flode.typ === 'alla' ? genomgangSteg(flode.start, prognosKvar) : [steg];
+    const idx = Math.max(0, ordning.indexOf(steg));
+    // Strecket räknar bara stegen som är kvar ("4 saker kvar" = 1 av 4); Sammanfattningen är slutskärmen och har inget streck.
+    const numrerade = ordning.filter((s) => s !== 'sammanfattning');
+    const delar = alla && steg !== 'sammanfattning' && numrerade.length > 1 ? { antal: numrerade.length, nu: idx } : null;
+    /** klart med steget: nästa steg i genomgången, annars tillbaka dit man kom ifrån */
+    const nastaVy = (): Vy => (flode.typ === 'alla' && idx < ordning.length - 1
+      ? { v: 'steg', flode: { ...flode, steg: ordning[idx + 1] } }
+      : flode.typ === 'ett' && flode.till === 'se' ? { v: 'se' } : { v: 'kort' });
+    const nasta = () => setVy(nastaVy());
+    const foregaende = () => { if (flode.typ === 'alla' && idx > 0) setVy({ v: 'steg', flode: { ...flode, steg: ordning[idx - 1] } }); };
+    const tillbaka = () => setVy(flode.typ === 'ett' && flode.till === 'se' ? { v: 'se' } : { v: 'kort' });
+    const nastaText = alla ? 'Nästa' : 'Klar';
+
+    if (steg === 'harDu') {
+      return (
+        <HarDuSteg namn={p.namn} harDu={p.harDu} varningar={p.varningar} avNamn={p.avNamn} onHarDu={p.onHarDu} fraga={flode.typ === 'ett' ? flode.fraga : undefined}
+          ytterDelar={delar} onTillbaka={tillbaka} onForegaende={alla && idx > 0 ? foregaende : null} onNasta={nasta} />
+      );
+    }
+
+    // Vidas avlägg visas på kartan: arket ger plats (sidan sköter listen), kortet öppnas igen i `efter`.
+    if (steg === 'avlagg' && (p.vidaAvlagg ?? []).length > 0 && p.onGranskaAvlagg) return <AvlaggGranska efter={nastaVy()} onGranska={p.onGranskaAvlagg} />;
+
+    const ram = (rubrik: string, body: React.ReactNode, primar: React.ReactNode) => (
+      <StegRam namn={p.namn} onTillbaka={tillbaka} delar={delar} rubrik={rubrik} under={UNDER[steg]} knappar={primar}
+        foregaende={alla ? { onTryck: foregaende, disabled: idx === 0 } : null} hoppa={alla && steg !== 'sammanfattning' ? { onTryck: nasta } : null}>
+        {body}
+      </StegRam>
+    );
+    // Den knapp som gör stegets sak är primär tills den är gjord: i Avlägg och Basväg ligger den i stegets innehåll, och Nästa är då sekundär.
+    const aktionKvar = (steg === 'avlagg' || steg === 'basvag') && (status.poster.find((x) => x.id === steg)?.kvar ?? false);
+    const nastaKnapp = <StorKnapp testid="klar-steg-nasta" variant={aktionKvar ? 'sekundar' : 'primar'} onTryck={nasta}>{nastaText}</StorKnapp>;
+
+    switch (steg) {
+      case 'avlagg': return ram(STEG_NAMN.avlagg, <AvlaggBody p={p} kartaYta={p.kartaYta} />, nastaKnapp);
+      case 'basvag': return ram(STEG_NAMN.basvag, <BasvagBody p={p} />, nastaKnapp);
+      case 'forutsattningar': return ram(STEG_NAMN.forutsattningar, <ForutsBody p={p} />, nastaKnapp);
+      case 'maskiner': return ram(STEG_NAMN.maskiner, <MaskinerBody p={p} />, nastaKnapp);
+      case 'medelstam': return ram(STEG_NAMN.medelstam, <MedelstamBody p={p} />, nastaKnapp);
+      case 'ovrigt': return ram(STEG_NAMN.ovrigt, <OvrigtBody p={p} onVed={() => { if (!p.ovrigt.ved) p.onAndra({ ved: true }); setVy({ v: 'ved', efter: vy }); }} />, nastaKnapp);
+      case 'prognos':
+        return ram(STEG_NAMN.prognos, <PrognosBody p={p} onByt={flode.typ === 'ett' ? () => setVy({ v: 'steg', flode: { typ: 'ett', steg: 'maskiner', till: flode.till } }) : undefined} />, godkand || extern
+          ? nastaKnapp
+          : <StorKnapp testid="klar-stammer" disabled={!harAllt} onTryck={() => { p.onStammer(); nasta(); }}>Stämmer</StorKnapp>);
+      case 'sammanfattning':
+        return ram(STEG_NAMN.sammanfattning, <KlarSe p={p} utanPadding onOppna={(s, f) => setVy({ v: 'steg', flode: { typ: 'ett', steg: s, fraga: f, till: 'kort' } })} />,
+          planerad
+            ? <StorKnapp testid="klar-steg-nasta" onTryck={tillKort}>Klar</StorKnapp>
+            : <StorKnapp testid="klar-for-maskin" variant="gron" disabled={p.klarSparar} onTryck={() => { p.onKlarForMaskin(); tillKort(); }}>{p.klarSparar ? 'Skickar …' : 'Klar för maskin'}</StorKnapp>);
+      default: return null;
+    }
+  }
+
+  // ── KORTET: GÖRA eller SE ─────────────────────────────────────────────────────────────────────────────────────────────
+  const visaSe = vy.v === 'se' || planerad || status.klar;
+  const oppnaSteg = (s: StegId, fraga?: HarDuId) => setVy({ v: 'steg', flode: { typ: 'ett', steg: s, fraga, till: vy.v === 'se' ? 'se' : 'kort' } });
+  const goraIgenom = () => setVy({ v: 'steg', flode: { typ: 'alla', start: kvar, steg: kvar[0] ?? 'sammanfattning' } });
+
+  const lageText = planerad ? 'Klar för maskin ✓' : status.klar ? 'Redo att skicka' : `${status.antalKvar} ${status.antalKvar === 1 ? 'sak' : 'saker'} kvar`;
+  const lageFarg = planerad ? FARG.gron : status.klar ? FARG.text : FARG.orange;
+  const undertitel = (
+    <>
+      <span data-testid="klar-status" style={{ color: lageFarg, ...TYP.listtitel }}>{lageText}</span>
+      {planerad && status.antalKvar > 0 && <span style={{ color: FARG.orange }}> · {status.antalKvar} kvar</span>}
+      {visaSe && p.faktaRad && <div data-testid="klar-fakta" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, fontWeight: 400 }}>{p.faktaRad}</div>}
+    </>
+  );
+
+  // värdet i Behöver dig-raderna: orange uppmaning (färg + ord)
+  const uppmaning = (s: StegId): string => {
+    switch (s) {
+      case 'avlagg': return (p.vidaAvlagg ?? []).length > 0 ? 'Bekräfta' : 'Placera på kartan';
+      case 'basvag': return 'Rita';
+      case 'forutsattningar': return status.forutsattningarKvar === 3 ? '3 att välja' : `${status.forutsattningarKvar} kvar`;
+      case 'maskiner': return 'Välj';
+      case 'medelstam': return 'Skriv';
+      case 'harDu': return `${HAR_DU_FRAGOR.length - status.frågorKvar.length} av ${HAR_DU_FRAGOR.length}`;
+      case 'prognos': return status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 ? `Saknar ${status.prognos.saknas[0]}` : 'Granska';
+      default: return '';
+    }
+  };
 
   return (
     <>
-      <Huvud
-        titel={`Klar med ${p.namn}?`}
-        undertitel={planerad ? `Klar för maskin${p.klarSkickadAt ? ` sedan ${datum(p.klarSkickadAt)}` : ''}` : (status.klar ? 'Allt är ifyllt' : `${status.antalKvar} ${status.antalKvar === 1 ? 'sak' : 'saker'} kvar`)}
-        onStang={p.onStang} />
-      <div data-testid="klar-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+      <Huvud titel={p.namn} undertitel={undertitel} onStang={p.onStang} />
+      <div data-testid="klar-innehall" style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: AVSTAND.xxl }}>
         {p.datalage !== 'ok' && (
-          <div data-testid="klar-datalage" role="note" style={{ display: 'flex', gap: AVSTAND.m, marginBottom: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.rad, color: FARG.orange, flexShrink: 0 }}>warning</span>
+          <div data-testid="klar-datalage" role="note" style={{ display: 'flex', gap: AVSTAND.m, margin: `${AVSTAND.m}px ${AVSTAND.l}px 0`, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt }}>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22, color: FARG.orange, flexShrink: 0 }}>warning</span>
             <span style={{ ...TYP.text, color: FARG.orange }}>
               {p.datalage === 'migrering-saknas'
                 ? 'Databasen saknar de nya fälten (migrationen är inte körd). Svaren du ger här sparas inte.'
@@ -263,196 +271,75 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
           </div>
         )}
         {p.sparFel && (
-          <div data-testid="klar-sparfel" role="alert" style={{ marginBottom: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt, ...TYP.text, color: FARG.orange }}>{p.sparFel}</div>
+          <div data-testid="klar-sparfel" role="alert" style={{ margin: `${AVSTAND.m}px ${AVSTAND.l}px 0`, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderRadius: RADIE.kort, background: FARG.upphojt, ...TYP.text, color: FARG.orange }}>{p.sparFel}</div>
         )}
 
-        {/* ── 1. APPEN HAR FYLLT I ───────────────────────────────────────────────────────────────────────────── */}
-        <Rubrik>Appen har fyllt i</Rubrik>
-        <Gruppkort testid="klar-del1">
-          <PostRad forst post={post('avlagg')} uppmaning="Placera" oppen={false} onToggle={p.onPlaceraAvlagg} />
-
-          <PostRad post={post('basvag')} uppmaning="Rita" oppen={oppen === 'basvag'} onToggle={() => vaxla('basvag')}
-            under={post('basvag').kvar ? 'Vida har en basväg i underlaget — den är inte ritad än' : p.basvag.kravs ? `Kräver basvägsanläggning${p.basvag.timmar ? ` · ${p.basvag.timmar} tim` : ''}` : undefined}>
-            <div data-testid="klar-basvag-redigera">
-              <button type="button" data-testid="klar-basvag-rita" onClick={p.onRitaBasvag} className="press-scale" style={{ ...KNAPP.sekundar, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-                {p.basvag.texter.length > 0 ? 'Rita en basväg till' : 'Rita basväg'}
-              </button>
-              <div style={{ height: AVSTAND.s }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min }}>
-                <span style={{ flex: 1, ...TYP.text }}>Kräver basvägsanläggning</span>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.xs, width: 128 }}>
-                  <Val testid="klar-basvagskrav-ja" vald={p.basvag.kravs === true} onTryck={() => p.onAndra({ basvagKravs: true })}>Ja</Val>
-                  <Val testid="klar-basvagskrav-nej" vald={p.basvag.kravs !== true} onTryck={() => p.onAndra({ basvagKravs: false })}>Nej</Val>
-                </div>
+        {visaSe ? (
+          <>
+            {/* Efter Klar för maskin kan något ha tillkommit, och från GÖRA kan man ha öppnat sammanställningen: knappen leder in i genomgången */}
+            {status.antalKvar > 0 && (
+              <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px 0` }}>
+                <StorKnapp testid="klar-ga-igenom" onTryck={goraIgenom}>Gå igenom</StorKnapp>
               </div>
-              {p.basvag.kravs && (
-                <>
-                  <Etikett>Engångstid för anläggningen (G15-tim, läggs på skotarens prognos)</Etikett>
-                  <Falt testid="klar-basvag-timmar" label="Timmar för basvägsanläggning" numeriskt placeholder="t.ex. 6" value={p.basvag.timmar} onChange={(v) => p.onAndra({ basvagTimmar: v })} />
-                </>
-              )}
-            </div>
-          </PostRad>
+            )}
+            <KlarSe p={p} onOppna={oppnaSteg} />
+            {vy.v === 'se' && (
+              <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+                <button type="button" data-testid="klar-se-tillbaka" onClick={tillKort} className="press-dim" style={{ ...KNAPP.lank, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>‹ Till det som är kvar</button>
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
+            <StorKnapp testid="klar-ga-igenom" onTryck={goraIgenom}>Gå igenom</StorKnapp>
 
-          <PostRad post={post('barighet')} uppmaning="Välj" oppen={oppen === 'barighet'} onToggle={() => vaxla('barighet')}>
-            <TreVal id="barighet" onKlart={() => stangRad('barighet')} val={BARIGHET_VAL} vald={p.barighet} onVal={(v) => p.onAndra({ barighet: v })} />
-          </PostRad>
-          <PostRad post={post('terrang')} uppmaning="Välj" oppen={oppen === 'terrang'} onToggle={() => vaxla('terrang')}>
-            <TreVal id="terrang" onKlart={() => stangRad('terrang')} val={TERRANG_VAL} vald={p.terrang} onVal={(v) => p.onAndra({ terrang: v })} />
-          </PostRad>
-          <PostRad post={post('skotningsavstand')} uppmaning="Välj" oppen={oppen === 'skotningsavstand'} onToggle={() => vaxla('skotningsavstand')}>
-            <TreVal id="skotningsavstand" onKlart={() => stangRad('skotningsavstand')} val={SKOTNINGSAVSTAND_VAL} vald={p.skotningsavstand} onVal={(v) => p.onAndra({ skotningsavstand: v })} />
-          </PostRad>
-
-          <PostRad post={medMaskinnamn(post('skordare'), p.skordare, p.maskiner.skordare)} uppmaning="Välj" oppen={oppen === 'skordare'} onToggle={() => vaxla('skordare')}>
-            <UtforareRad roll="skordare" onKlart={() => stangRad('skordare')} v={p.skordare} maskiner={p.maskiner.skordare} onVal={(u) => p.onAndra({ skordare: u })} />
-          </PostRad>
-          <PostRad post={medMaskinnamn(post('skotare'), p.skotare, p.maskiner.skotare)} uppmaning="Välj" oppen={oppen === 'skotare'} onToggle={() => vaxla('skotare')}>
-            <UtforareRad roll="skotare" onKlart={() => stangRad('skotare')} v={p.skotare} maskiner={p.maskiner.skotare} onVal={(u) => p.onAndra({ skotare: u })} />
-          </PostRad>
-
-          <PostRad post={post('medelstam')} uppmaning="Skriv" oppen={oppen === 'medelstam'} onToggle={() => vaxla('medelstam')}
-            under={post('medelstam').kvar ? 'Saknas i traktdirektivet — förslaget räknar då snitt över alla trakter' : undefined}>
-            <div data-testid="klar-medelstam-redigera">
-              <Etikett>Medelstam, m³fub per stam</Etikett>
-              <Falt testid="klar-medelstam" label="Medelstam" numeriskt placeholder="t.ex. 0,72" value={pg.medelstam} onChange={(v) => p.onAndra({ medelstam: v })} />
-            </div>
-          </PostRad>
-
-          <PostRad post={prognosPost} uppmaning={prognosUppmaning} oppen={oppen === 'prognos'} onToggle={() => vaxla('prognos')} under={prognosUnder}>
-            <div data-testid="klar-prognos-redigera">
-              {status.prognos.lage !== 'extern' && (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.s }}>
-                    <div><Etikett>Volym, m³fub</Etikett><Falt testid="klar-volym" label="Volym" numeriskt value={pg.volym} onChange={(v) => p.onAndra({ volym: v })} /></div>
-                    <div><Etikett>Areal, ha</Etikett><Falt testid="klar-areal" label="Areal" numeriskt value={pg.areal} onChange={(v) => p.onAndra({ areal: v })} /></div>
-                  </div>
-                  {utforareLage(p.skordare) === 'egen' && <MaskinTid roll="skordare" etikett="Skördare" mp={pg.skordare} onTim={(v) => p.onAndra({ skordareTimmar: v })} />}
-                  {utforareLage(p.skotare) === 'egen' && <MaskinTid roll="skotare" etikett="Skotare" mp={pg.skotare} onTim={(v) => p.onAndra({ skotareTimmar: v })} />}
-                  {pg.forutsattningar.length > 0 && (
-                    <div data-testid="klar-prognos-forutsattningar" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Utgår från: {pg.forutsattningar.join(' · ')}</div>
-                  )}
-                  {status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 && (
-                    <div data-testid="klar-prognos-saknas" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s }}>Saknar: {status.prognos.saknas.join(', ')}</div>
-                  )}
-                  <div style={{ height: AVSTAND.s }} />
-                  <button type="button" data-testid="klar-stammer" onClick={p.onStammer} disabled={!harAllt && status.prognos.lage !== 'godkand'} className="press-scale"
-                    style={{ ...KNAPP.primar, ...(harAllt ? null : { opacity: 0.4 }), cursor: harAllt ? 'pointer' : 'default', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-                    {status.prognos.lage === 'godkand' ? `Stämmer ✓${p.prognos.godkandAv ? ` · ${p.avNamn(p.prognos.godkandAv) ?? ''}` : ''}${p.prognos.godkandAt ? ` ${datum(p.prognos.godkandAt)}` : ''}` : 'Stämmer'}
-                  </button>
-                  <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Godkännandet gäller för just det här underlaget. Ändras volym, medelstam, förutsättningar eller maskin måste du trycka Stämmer igen.</div>
-                </>
-              )}
-            </div>
-          </PostRad>
-        </Gruppkort>
-
-        {/* ── 2. HAR DU … ──────────────────────────────────────────────────────────────────────────────────────── */}
-        <div style={{ height: AVSTAND.sektion }} />
-        <Rubrik>Har du …</Rubrik>
-        <Gruppkort testid="klar-del2">
-          {HAR_DU_FRAGOR.map((f, i) => {
-            const svar = p.harDu[f.id];
-            const varn = p.varningar.filter((v) => v.fraga === f.id);
-            const vem = svar ? [p.avNamn(svar.av), datum(svar.at)].filter(Boolean).join(' · ') : '';
-            return (
-              <div key={f.id} data-testid={`klar-fraga-${f.id}`} data-besvarad={svar ? '1' : '0'} style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                <div style={{ ...TYP.text, marginBottom: AVSTAND.s }}>{f.fraga}</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.s }}>
-                  <Val testid={`klar-fraga-${f.id}-ja`} vald={svar?.svar === 'ja'} onTryck={() => p.onHarDu(f.id, 'ja')}>{f.ja}</Val>
-                  <Val testid={`klar-fraga-${f.id}-nej`} vald={svar?.svar === f.nejVarde} onTryck={() => p.onHarDu(f.id, f.nejVarde)}>{f.nej}</Val>
-                </div>
-                {vem && <div data-testid={`klar-fraga-${f.id}-vem`} style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px ${AVSTAND.xs}px 0` }}>Svarat {vem}</div>}
-                {varn.map((v, k) => (
-                  <div key={k} data-testid={`klar-varning-${f.id}`} role="note" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginTop: AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.m}px`, borderRadius: RADIE.rad, background: FARG.fyllning }}>
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: IKON.text, color: FARG.orange, flexShrink: 0 }}>warning</span>
-                    <span style={{ ...TYP.meta, color: FARG.orange, overflowWrap: 'anywhere' }}>{v.text}</span>
+            <section data-testid="klar-behover" style={{ marginTop: AVSTAND.sektion }}>
+              <Rubrik>Behöver dig</Rubrik>
+              <Gruppkort testid="klar-del1">
+                {kvar.map((s, k) => (
+                  <div key={s} data-testid={`klar-post-${s}`} data-kvar="1" style={{ borderTop: k === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+                    <button type="button" data-testid={`klar-rad-${s}`} onClick={() => oppnaSteg(s)} className="press-row"
+                      style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>{STEG_NAMN[s]}</span>
+                      <span data-testid={`klar-rad-${s}-varde`} style={{ ...TYP.listtitel, color: FARG.orange, textAlign: 'right' }}>{uppmaning(s)}</span>
+                      <Pil />
+                    </button>
                   </div>
                 ))}
-              </div>
-            );
-          })}
-        </Gruppkort>
+              </Gruppkort>
+            </section>
 
-        {/* ── 3. MARKÄGARE & ÖVRIGT (räknas aldrig) ────────────────────────────────────────────────────────────── */}
-        <div style={{ height: AVSTAND.sektion }} />
-        <Rubrik>Markägare & övrigt</Rubrik>
-        <Gruppkort testid="klar-del3">
-          <div data-testid="klar-ovrigt-ved" style={{ borderTop: 'none' }}>
-            <button type="button" data-testid="klar-ved-rad" onClick={() => { if (!p.ovrigt.ved) p.onAndra({ ved: true }); setVy('ved'); }} className="press-row"
-              style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block' }}>Ved till markägaren</span>
-                {p.ovrigt.ved && <span data-testid="klar-ved-text" style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{p.ovrigt.vedText}</span>}
-              </span>
-              {/* samma läge-knapp som övriga rader: grå = Nej (standard), vit = Ja (avviker) */}
-              <span data-testid="klar-ved-lage" data-avviker={p.ovrigt.ved ? '1' : '0'}
-                style={{ boxSizing: 'border-box', minWidth: TRAFFYTA.primar + AVSTAND.l, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  background: p.ovrigt.ved ? FARG.text : FARG.fyllning, color: p.ovrigt.ved ? FARG.bg : FARG.text2, ...TYP.listtitel }}>
-                {p.ovrigt.ved ? 'Ja' : 'Nej'}
-              </span>
-              <Pil />
-            </button>
+            <div style={{ marginTop: AVSTAND.sektion }}>
+              <Gruppkort testid="klar-del2">
+                <button type="button" data-testid="klar-se-oppna" onClick={() => setVy({ v: 'se' })} className="press-row"
+                  style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>Visa hela trakten</span>
+                  <Pil />
+                </button>
+                {p.onInfo && (
+                  <button type="button" data-testid="klar-info" onClick={p.onInfo} className="press-row"
+                    style={{ width: '100%', minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.m, background: 'transparent', border: 'none', borderTop: `1px solid ${FARG.linje}`, color: FARG.text, ...TYP.text, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>Om trakten</span>
+                    <Pil />
+                  </button>
+                )}
+              </Gruppkort>
+            </div>
           </div>
-          <OvrigRad id="band-skordare" etikett="Band skördare" varde={p.ovrigt.bandSkordare === true} onVal={(v) => p.onAndra({ bandSkordare: v })}>
-            <ParVal id="skordare" vald={p.ovrigt.bandParSkordare} onVal={(v) => p.onAndra({ bandParSkordare: v })} />
-          </OvrigRad>
-          <OvrigRad id="band-skotare" etikett="Band skotare" varde={p.ovrigt.bandSkotare === true} onVal={(v) => p.onAndra({ bandSkotare: v })}>
-            <ParVal id="skotare" vald={p.ovrigt.bandParSkotare} onVal={(v) => p.onAndra({ bandParSkotare: v })} />
-          </OvrigRad>
-          <OvrigRad id="breddat" etikett="Breddat lastrede" varde={p.ovrigt.breddat} onVal={(v) => p.onAndra({ breddat: v })} />
-          {p.ovrigt.visaKonfiguration && (
-            <OvrigRad id="konfiguration" etikett="Konfiguration" varde={p.ovrigt.konfiguration === 'smal'} ord={['Smal', 'Bred']} onVal={(v) => p.onAndra({ konfiguration: v ? 'smal' : 'bred' })} />
-          )}
-          <OvrigRad id="ris" etikett="Ris skotas direkt" varde={p.ovrigt.risDirekt} onVal={(v) => p.onAndra({ risDirekt: v })} under={p.ovrigt.risDirekt ? undefined : 'Nej = riset ligger först'} />
-          <OvrigRad id="vagn" etikett="Extra vagn" varde={p.ovrigt.extraVagn} onVal={(v) => p.onAndra({ extraVagn: v })} />
-          <OvrigRad id="trailer" etikett="Trailer kan köra in" varde={p.ovrigt.trailerIn} standard onVal={(v) => p.onAndra({ trailerIn: v })}>{null}</OvrigRad>
-          {!p.ovrigt.trailerIn && (
-            <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>
-              <Falt testid="klar-trailer-kommentar" label="Kommentar om trailern" placeholder="Varför inte? T.ex. låg bro" value={p.ovrigt.trailerKommentar} onChange={(v) => p.onAndra({ trailerKommentar: v })} />
-            </div>
-          )}
-          <OvrigRad id="manuell" etikett="Manuell fällning" varde={p.ovrigt.manuellFallning} onVal={(v) => p.onAndra({ manuellFallning: v })}>
-            <div style={{ paddingBottom: AVSTAND.s }}>
-              <Falt testid="klar-manuell-text" label="Var och varför" placeholder="Var och varför" value={p.ovrigt.manuellFallningText} onChange={(v) => p.onAndra({ manuellFallningText: v })} />
-            </div>
-          </OvrigRad>
-          {p.gamlaAnteckningar.trim() && (
-            <div data-testid="klar-gamla-anteckningar" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>
-              <div style={{ ...TYP.meta, color: FARG.text3 }}>Gamla anteckningar</div>
-              <div style={{ ...TYP.text, color: FARG.text2, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{p.gamlaAnteckningar.trim()}</div>
-            </div>
-          )}
-        </Gruppkort>
+        )}
       </div>
 
-      {/* ── KLAR FÖR MASKIN ───────────────────────────────────────────────────────────────────────────────────────── */}
+      {/* ── KLAR FÖR MASKIN — spärrar aldrig ─────────────────────────────────────────────────────────────────────────── */}
       <div style={{ flexShrink: 0, padding: `${AVSTAND.m}px ${AVSTAND.l}px ${medSafeBotten(AVSTAND.l)}`, borderTop: `1px solid ${FARG.linje}` }}>
-        {planerad ? (
-          <div data-testid="klar-skickad" style={{ ...TYP.listtitel, color: FARG.gron, textAlign: 'center', minHeight: TRAFFYTA.min, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            Klar för maskin ✓{status.antalKvar > 0 ? <span style={{ color: FARG.orange }}>&nbsp;· {status.antalKvar} kvar sedan sist</span> : null}
-          </div>
-        ) : (
-          <>
-            <button type="button" data-testid="klar-for-maskin" data-klar={status.klar ? '1' : '0'} onClick={p.onKlarForMaskin} disabled={p.klarSparar} className="press-scale"
-              style={{ ...KNAPP.primar, background: status.klar ? FARG.gron : FARG.fyllning, color: status.klar ? FARG.bg : FARG.text, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', ...(p.klarSparar ? { opacity: 0.4 } : null) }}>
-              {p.klarSparar ? 'Skickar …' : 'Klar för maskin'}
-            </button>
-            {!status.klar && <div data-testid="klar-kvar-text" style={{ ...TYP.meta, color: FARG.orange, textAlign: 'center', margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0`, overflowWrap: 'anywhere' }}>Kvar: {status.kvarText}</div>}
-          </>
+        {planerad ? null : (
+          <button type="button" data-testid="klar-for-maskin" data-klar={status.klar ? '1' : '0'} onClick={p.onKlarForMaskin} disabled={p.klarSparar} className="press-scale"
+            style={{ ...KNAPP.primar, background: status.klar ? FARG.gron : FARG.fyllning, color: status.klar ? FARG.bg : FARG.text, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation', ...(p.klarSparar ? { opacity: 0.4 } : null) }}>
+            {p.klarSparar ? 'Skickar …' : 'Klar för maskin'}
+          </button>
         )}
         <button type="button" data-testid="klar-fortsatter" onClick={p.onFortsatter} className="press-dim"
           style={{ ...KNAPP.tertiar, width: '100%', justifyContent: 'center', marginTop: AVSTAND.xs, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>Fortsätter en annan dag</button>
       </div>
     </>
-  );
-}
-
-/** 1 par / 2 par under en band-rad som är på. */
-function ParVal({ id, vald, onVal }: { id: string; vald: string | null; onVal: (v: string | null) => void }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.xs, paddingBottom: AVSTAND.s }}>
-      {[{ id: '1', namn: '1 par' }, { id: '2', namn: '2 par' }].map((o) => <Val key={o.id} testid={`klar-par-${id}-${o.id}`} vald={vald === o.id} onTryck={() => onVal(vald === o.id ? null : o.id)}>{o.namn}</Val>)}
-    </div>
   );
 }

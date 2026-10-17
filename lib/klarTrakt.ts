@@ -28,6 +28,8 @@ export type HarDuId = 'gransar' | 'naturvarden' | 'kulturlamningar' | 'ledningar
 export type HarDuSvarVarde = 'ja' | 'behovs_inte' | 'inga' | 'nej';
 
 export interface HarDuFraga {
+  /** kort namn i sammanställningen ("Naturvärden") */
+  kort: string;
   id: HarDuId;
   fraga: string;
   /** knappens ord för ja och för det andra svaret (alltid två val — "inget svar" är obesvarat) */
@@ -38,12 +40,12 @@ export interface HarDuFraga {
 
 /** De sex frågorna, i den ordning kortet visar dem. Ordlydelsen är planerarens (tavla 34). */
 export const HAR_DU_FRAGOR: readonly HarDuFraga[] = [
-  { id: 'gransar', fraga: 'Markerat gränserna?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
-  { id: 'naturvarden', fraga: 'Märkt naturvärden?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
-  { id: 'kulturlamningar', fraga: 'Kontrollerat kulturlämningar?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
-  { id: 'ledningar', fraga: 'Markerat el-ledningar?', ja: 'Ja', nej: 'Inga finns', nejVarde: 'inga' },
-  { id: 'snitslat', fraga: 'Snitslat basvägen?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
-  { id: 'avlagg_hugga', fraga: 'Ska avlägget huggas?', ja: 'Ja', nej: 'Nej', nejVarde: 'nej' },
+  { id: 'gransar', kort: 'Gränser', fraga: 'Markerat gränserna?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
+  { id: 'naturvarden', kort: 'Naturvärden', fraga: 'Märkt naturvärden?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
+  { id: 'kulturlamningar', kort: 'Kulturlämningar', fraga: 'Kontrollerat kulturlämningar?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
+  { id: 'ledningar', kort: 'El-ledningar', fraga: 'Markerat el-ledningar?', ja: 'Ja', nej: 'Inga finns', nejVarde: 'inga' },
+  { id: 'snitslat', kort: 'Snitslad basväg', fraga: 'Snitslat basvägen?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
+  { id: 'avlagg_hugga', kort: 'Avlägget huggs', fraga: 'Ska avlägget huggas?', ja: 'Ja', nej: 'Nej', nejVarde: 'nej' },
 ];
 
 export interface HarDuPost { svar: HarDuSvarVarde; av: string | null; at: string }
@@ -202,7 +204,7 @@ export function prognosLage(p: PrognosIndata, godkandUnderlag: string | null): P
   if (sk === 'extern' && st === 'extern') return { lage: 'extern' };
   const saknas: string[] = [];
   if (p.volym == null || p.volym <= 0) saknas.push('volym');
-  if (p.medelstam == null || p.medelstam <= 0) saknas.push('medelstam');
+  // Medelstam hindrar INTE Stämmer: saknas den räknar förslaget snitt över alla trakter av typen (kortet säger det under tabellen). Medelstam är en egen post.
   if (sk === 'saknas') saknas.push('skördare');
   if (st === 'saknas') saknas.push('skotare');
   if (sk === 'egen' && (p.skordareTimmar == null || p.skordareTimmar <= 0)) saknas.push('skördartimmar');
@@ -271,6 +273,50 @@ export function vidaBasvagFinns(features: ReadonlyArray<{ properties?: Record<st
   return (features ?? []).some((f) => f?.properties?._typ === 'linje' && /basväg/i.test(String(f.properties.FLBESKR ?? '')));
 }
 
+// ── Vidas avlägg ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// Vidas avlägg kommer ur objekt_geometri.geometri (GeoJSON): punkter i lagret L_TILLAGGSPUNKTER (`_typ: 'punkt'`), numret i EXTRA_LABE (reserv LOPNR),
+// beskrivningen i FLBESKR. Samma lager bär larmpunkten (FLBESKR "Larmkoordinat") — den är inget avlägg.
+
+type GeoFeatureLik = { properties?: Record<string, unknown> | null; geometry?: { type?: string; coordinates?: unknown } | null } | null | undefined;
+
+export interface VidaAvlagg { nummer: string; lat: number | null; lng: number | null }
+
+/** Vidas avlägg i traktgeometrin, i nummerordning ("01-2" före "01-10"). Tom lista = Vida har inga. */
+export function vidaAvlaggUr(features: ReadonlyArray<GeoFeatureLik> | null | undefined): VidaAvlagg[] {
+  const ut: VidaAvlagg[] = [];
+  for (const f of features ?? []) {
+    const p = f?.properties;
+    if (!p || p._typ !== 'punkt') continue;
+    if (/larm/i.test(String(p.FLBESKR ?? ''))) continue;
+    const c = f?.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates) ? (f.geometry.coordinates as unknown[]) : null;
+    const lng = c && typeof c[0] === 'number' ? c[0] : null;
+    const lat = c && typeof c[1] === 'number' ? c[1] : null;
+    const nr = String(p.EXTRA_LABE ?? '').trim() || String(p.LOPNR ?? '').trim();
+    ut.push({ nummer: nr, lat, lng });
+  }
+  ut.sort((a, b) => a.nummer.localeCompare(b.nummer, 'sv', { numeric: true }));
+  return ut.map((a, k) => (a.nummer ? a : { ...a, nummer: `Avlägg ${k + 1}` }));
+}
+
+/** Planerarens "Stämmer" för Vidas avlägg: vilka nummer som bekräftades, av vem och när. Bor i objekt.har_du_svar under nyckeln `vida_avlagg` (ingen ny kolumn). */
+export interface VidaAvlaggBekraftelse { nummer: string[]; av: string | null; at: string }
+
+export function lasVidaAvlagg(raw: unknown): VidaAvlaggBekraftelse | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const v = (raw as Record<string, unknown>).vida_avlagg;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.nummer) || typeof o.at !== 'string') return null;
+  return { nummer: o.nummer.map(String), av: typeof o.av === 'string' ? o.av : null, at: o.at };
+}
+
+/** Bekräftelsen gäller bara exakt de avlägg som visades: levererar Vida nya eller färre avlägg måste planeraren titta igen. */
+export function vidaAvlaggBekraftat(nummer: readonly string[], bek: VidaAvlaggBekraftelse | null): boolean {
+  if (!bek || nummer.length === 0) return false;
+  const a = [...nummer].sort(); const b = [...bek.nummer].sort();
+  return a.length === b.length && a.every((x, k) => x === b[k]);
+}
+
 export type PostId = 'avlagg' | 'basvag' | 'barighet' | 'terrang' | 'skotningsavstand' | 'skordare' | 'skotare' | 'medelstam' | 'prognos';
 
 export interface Post {
@@ -279,12 +325,14 @@ export interface Post {
   /** texten raden visar; null = inget värde (orange rad med uppmaning) */
   varde: string | null;
   kvar: boolean;
-  /** kort ord i "Kvar: skotare · prognos · 3 frågor" */
-  kvarOrd: string;
 }
 
 export interface KlarIndata {
   avlaggAntal: number;
+  /** Vidas avlägg (nummer) ur traktgeometrin — saknas/tom = Vida har inga */
+  vidaAvlagg?: string[];
+  /** planeraren har tryckt Stämmer på exakt de här avläggen */
+  vidaAvlaggBekraftat?: boolean;
   /** basvägslinjerna ("Röd 640 m") i den ordning de ritats — redan formaterade av anroparen */
   basvagTexter: string[];
   /** Vidas underlag (traktgeometrin) har en basväg — då är den kvar tills den ritats i appen. false = ingen basväg väntas: "Ingen" är klart. */
@@ -305,11 +353,13 @@ export interface KlarStatus {
   prognos: PrognosLage;
   /** obesvarade "Har du…"-frågor, i frågornas ordning */
   frågorKvar: HarDuId[];
-  /** poster som är kvar + obesvarade frågor */
+  /** hur många av bärighet, terräng och skotningsavstånd som saknas (0–3): Förutsättningar är ETT område i kortet */
+  forutsattningarKvar: number;
+  /** hur många av skördare och skotare som saknas (0–2): Maskiner är ETT område */
+  maskinerKvar: number;
+  /** antal OMRÅDEN som är kvar (inte antal fält) = antal steg i "Gå igenom": avlägg, basväg, Förutsättningar (bärighet + terräng + skotningsavstånd = ett), Maskiner (skördare + skotare = ett), medelstam, Har du … (alla sex frågorna = ett), prognos */
   antalKvar: number;
   klar: boolean;
-  /** "skotare · prognos · 3 frågor" (högst tre poster vid namn, annars "8 saker · 6 frågor") — tomt när allt är klart */
-  kvarText: string;
 }
 
 const BARIGHET: Record<string, string> = { bra: 'Bra', medel: 'Medel', dalig: 'Dålig' };
@@ -319,8 +369,32 @@ export const BARIGHET_VAL = [{ id: 'bra', namn: 'Bra' }, { id: 'medel', namn: 'M
 export const TERRANG_VAL = [{ id: 'flackt', namn: 'Flack' }, { id: 'kuperat', namn: 'Kuperad' }, { id: 'brant', namn: 'Brant' }] as const;
 export const SKOTNINGSAVSTAND_VAL = [{ id: 'kort', namn: 'Kort' }, { id: 'medel', namn: 'Medel' }, { id: 'langt', namn: 'Långt' }] as const;
 
-/** Högst så många poster i del 1 listas vid namn i "Kvar: …"; fler räknas bara. */
-export const KVAR_LISTAS_MAX = 3;
+/** De tre posterna som kortet visar som ETT område, Förutsättningar. */
+export const FORUTSATTNING_IDS: readonly PostId[] = ['barighet', 'terrang', 'skotningsavstand'];
+/** Skördare och skotare = ett område, Maskiner. */
+export const MASKIN_IDS: readonly PostId[] = ['skordare', 'skotare'];
+
+/** Avläggen i ord, utan nummer (numren står bara som etiketter på kartan): "2 från Vida", "2 från Vida + 1 eget", "eget", "3 egna". Tomt när inga finns. */
+export function avlaggText(vida: number, eget: number): string {
+  const egna = eget === 1 ? '1 eget' : `${eget} egna`;
+  if (vida > 0) return eget > 0 ? `${vida} från Vida + ${egna}` : `${vida} från Vida`;
+  return eget > 0 ? (eget === 1 ? 'eget' : egna) : '';
+}
+
+/** Frågan om Vidas avlägg, på kartan och i steget: ordlydelsen är planerarens, utan nummer. */
+export function vidaAvlaggFraga(n: number): { text: string; ja: string } {
+  return n === 1
+    ? { text: 'Vida har lagt 1 avlägg. Ligger det rätt?', ja: 'Ja, det ligger rätt' }
+    : { text: `Vida har lagt ${n} avlägg. Ligger de rätt?`, ja: 'Ja, de ligger rätt' };
+}
+
+/** Avlägg: finns Vidas avlägg räknas de när planeraren bekräftat dem (eller själv placerat ett eget); annars räcker ett eget på kartan. */
+function avlaggPost(i: KlarIndata): Post {
+  const vida = i.vidaAvlagg ?? [];
+  if (vida.length === 0) return { id: 'avlagg', etikett: 'Avlägg', varde: i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 avlägg på kartan' : `${i.avlaggAntal} avlägg på kartan`) : null, kvar: i.avlaggAntal === 0 };
+  const klart = !!i.vidaAvlaggBekraftat || i.avlaggAntal > 0;
+  return { id: 'avlagg', etikett: 'Avlägg', varde: klart ? avlaggText(vida.length, i.avlaggAntal) : null, kvar: !klart };
+}
 
 export function berakna(i: KlarIndata): KlarStatus {
   const sk = utforareLage(i.skordare);
@@ -328,28 +402,25 @@ export function berakna(i: KlarIndata): KlarStatus {
   const prognos = prognosLage(i.prognos, i.prognosGodkandUnderlag);
 
   const poster: Post[] = [
-    { id: 'avlagg', etikett: 'Avlägg', varde: i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 avlägg på kartan' : `${i.avlaggAntal} avlägg på kartan`) : null, kvar: i.avlaggAntal === 0, kvarOrd: 'avlägg' },
+    avlaggPost(i),
     // Basväg: kvar bara om Vida har en och ingen är ritad. Ingen väntad basväg + ingen ritad = "Ingen" = klart.
-    { id: 'basvag', etikett: 'Basväg', varde: i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : i.basvagForvantad ? null : 'Ingen', kvar: i.basvagTexter.length === 0 && i.basvagForvantad, kvarOrd: 'basväg' },
-    { id: 'barighet', etikett: 'Bärighet', varde: i.barighet ? (BARIGHET[i.barighet] ?? i.barighet) : null, kvar: !i.barighet, kvarOrd: 'bärighet' },
-    { id: 'terrang', etikett: 'Terräng', varde: i.terrang ? (TERRANG[i.terrang] ?? i.terrang) : null, kvar: !i.terrang, kvarOrd: 'terräng' },
-    { id: 'skotningsavstand', etikett: 'Skotningsavstånd', varde: i.skotningsavstand ? (SKOTAVST[i.skotningsavstand] ?? i.skotningsavstand) : null, kvar: !i.skotningsavstand, kvarOrd: 'skotningsavstånd' },
-    { id: 'skordare', etikett: 'Skördare', varde: sk === 'egen' ? 'Egen' : sk === 'extern' ? `Extern · ${i.skordare.externNamn.trim()}` : null, kvar: sk === 'saknas', kvarOrd: 'skördare' },
-    { id: 'skotare', etikett: 'Skotare', varde: st === 'egen' ? 'Egen' : st === 'extern' ? `Extern · ${i.skotare.externNamn.trim()}` : null, kvar: st === 'saknas', kvarOrd: 'skotare' },
+    { id: 'basvag', etikett: 'Basväg', varde: i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : i.basvagForvantad ? null : 'Ingen', kvar: i.basvagTexter.length === 0 && i.basvagForvantad },
+    { id: 'barighet', etikett: 'Bärighet', varde: i.barighet ? (BARIGHET[i.barighet] ?? i.barighet) : null, kvar: !i.barighet },
+    { id: 'terrang', etikett: 'Terräng', varde: i.terrang ? (TERRANG[i.terrang] ?? i.terrang) : null, kvar: !i.terrang },
+    { id: 'skotningsavstand', etikett: 'Skotningsavstånd', varde: i.skotningsavstand ? (SKOTAVST[i.skotningsavstand] ?? i.skotningsavstand) : null, kvar: !i.skotningsavstand },
+    { id: 'skordare', etikett: 'Skördare', varde: sk === 'egen' ? 'Egen' : sk === 'extern' ? `Extern · ${i.skordare.externNamn.trim()}` : null, kvar: sk === 'saknas' },
+    { id: 'skotare', etikett: 'Skotare', varde: st === 'egen' ? 'Egen' : st === 'extern' ? `Extern · ${i.skotare.externNamn.trim()}` : null, kvar: st === 'saknas' },
     // Medelstam styr G15-förslaget för skördaren. Saknas den (ingen TD-träff, inget skrivet) är raden kvar — förslaget faller då tillbaka på snitt över alla trakter.
-    { id: 'medelstam', etikett: 'Medelstam', varde: i.prognos.medelstam != null && i.prognos.medelstam > 0 ? `${String(i.prognos.medelstam).replace('.', ',')} m³fub` : null, kvar: !(i.prognos.medelstam != null && i.prognos.medelstam > 0), kvarOrd: 'medelstam' },
-    { id: 'prognos', etikett: 'Prognos', varde: prognos.lage === 'extern' ? 'Extern – ingen prognos' : prognos.lage === 'godkand' ? 'Stämmer' : null, kvar: prognos.lage === 'ogodkand', kvarOrd: 'prognos' },
+    { id: 'medelstam', etikett: 'Medelstam', varde: i.prognos.medelstam != null && i.prognos.medelstam > 0 ? `${String(i.prognos.medelstam).replace('.', ',')} m³fub` : null, kvar: !(i.prognos.medelstam != null && i.prognos.medelstam > 0) },
+    { id: 'prognos', etikett: 'Prognos', varde: prognos.lage === 'extern' ? 'Extern – ingen prognos' : prognos.lage === 'godkand' ? 'Stämmer' : null, kvar: prognos.lage === 'ogodkand' },
   ];
 
   const frågorKvar = HAR_DU_FRAGOR.filter((f) => !i.harDu[f.id]).map((f) => f.id);
-  const kvarPoster = poster.filter((p) => p.kvar);
-  const antalKvar = kvarPoster.length + frågorKvar.length;
-  // Få saker listas vid namn ("skotare · prognos · 3 frågor"); många räknas ("8 saker · 6 frågor") — en lång rad är bara brus.
-  const delar = [
-    ...(kvarPoster.length > KVAR_LISTAS_MAX ? [`${kvarPoster.length} saker`] : kvarPoster.map((p) => p.kvarOrd)),
-    ...(frågorKvar.length > 0 ? [frågorKvar.length === 1 ? '1 fråga' : `${frågorKvar.length} frågor`] : []),
-  ];
-  return { poster, prognos, frågorKvar, antalKvar, klar: antalKvar === 0, kvarText: delar.join(' · ') };
+  const forutsattningarKvar = poster.filter((x) => FORUTSATTNING_IDS.includes(x.id) && x.kvar).length;
+  const maskinerKvar = poster.filter((x) => MASKIN_IDS.includes(x.id) && x.kvar).length;
+  // Antalet räknas per OMRÅDE (= ett steg i "Gå igenom"): de tre förutsättningarna är ett, skördare + skotare är ett, och de sex frågorna är ett. Samma tal står i rubriken, i namnfältets chip och i objektlistan.
+  const omraden = poster.filter((x) => x.kvar && !FORUTSATTNING_IDS.includes(x.id) && !MASKIN_IDS.includes(x.id)).length + (forutsattningarKvar > 0 ? 1 : 0) + (maskinerKvar > 0 ? 1 : 0) + (frågorKvar.length > 0 ? 1 : 0);
+  return { poster, prognos, frågorKvar, forutsattningarKvar, maskinerKvar, antalKvar: omraden, klar: omraden === 0 };
 }
 
 // ── Chippen i namnfältet och i listorna ──────────────────────────────────────────────────────────────────────────────
@@ -387,6 +458,7 @@ export interface SammanfattningRad { id: string; etikett: string; text: string }
 
 export interface SammanfattningIndata {
   avlaggAntal: number;
+  vidaAvlagg?: string[];
   basvagTexter: string[];
   basvagKravs: boolean | null;
   barighet: string | null;
@@ -414,7 +486,8 @@ export interface SammanfattningIndata {
 export function forarSammanfattning(i: SammanfattningIndata): SammanfattningRad[] {
   const ut: SammanfattningRad[] = [];
   const rad = (id: string, etikett: string, text: string | null | undefined) => { if (text) ut.push({ id, etikett, text }); };
-  rad('avlagg', 'Avlägg', i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 på kartan' : `${i.avlaggAntal} på kartan`) : null);
+  const vidaN = (i.vidaAvlagg ?? []).length;
+  rad('avlagg', 'Avlägg', vidaN > 0 ? avlaggText(vidaN, i.avlaggAntal) : i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 på kartan' : `${i.avlaggAntal} på kartan`) : null);
   rad('basvag', 'Basväg', i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : null);
   if (i.basvagKravs) rad('basvagsanlaggning', 'Basvägsanläggning', 'Krävs');
   rad('barighet', 'Bärighet', i.barighet ? BARIGHET[i.barighet] ?? i.barighet : null);

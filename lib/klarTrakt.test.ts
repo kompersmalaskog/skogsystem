@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, HAR_DU_FRAGOR, kvarChip, kvittoMedKvar, lasHarDu, lasVed,
-  medStandardMaskin, oplaneradRadText, standardMaskin, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
+  medStandardMaskin, oplaneradRadText, standardMaskin, avlaggText, vidaAvlaggBekraftat, vidaAvlaggUr, lasVidaAvlagg, vidaBasvagFinns, prognosLage, prognosUnderlag, sattHarDu, utforareLage, vedSammanfattning, vedTillKolumn, VED_TOM,
   type HarDuSvar, type KlarIndata, type PrognosIndata, type UtforareVal,
 } from './klarTrakt';
 
@@ -22,43 +22,49 @@ const indata = (o: Partial<KlarIndata> = {}): KlarIndata => ({
 });
 
 describe('berakna — vad är kvar', () => {
-  it('allt ifyllt och godkänt = klar, 0 kvar, ingen kvartext', () => {
+  it('allt ifyllt och godkänt = klar, 0 kvar', () => {
     const s = berakna(indata());
     expect(s.antalKvar).toBe(0);
     expect(s.klar).toBe(true);
-    expect(s.kvarText).toBe('');
+    expect(s.forutsattningarKvar).toBe(0);
   });
 
-  it('en ny trakt: allt orange utom basväg; sex obesvarade frågor', () => {
+  it('en ny trakt: antalet räknas per OMRÅDE — Förutsättningar är ett, Har du … är ett', () => {
     const s = berakna(indata({
       avlaggAntal: 0, basvagTexter: [], basvagForvantad: false, barighet: null, terrang: null, skotningsavstand: null, skordare: INGEN, skotare: INGEN, harDu: {},
       prognos: prognos({ skordare: INGEN, skotare: INGEN }), prognosGodkandUnderlag: null,
     }));
-    // avlägg, bärighet, terräng, skotningsavstånd, skördare, skotare, prognos = 7, + 6 frågor
-    expect(s.antalKvar).toBe(13);
+    // avlägg, Förutsättningar (3 fält), Maskiner (skördare + skotare), prognos, Har du … (6 frågor) = 5 områden — samma som stegen i "Gå igenom"
+    expect(s.antalKvar).toBe(5);
+    expect(s.maskinerKvar).toBe(2);
+    expect(s.forutsattningarKvar).toBe(3);
     expect(s.poster.find((p) => p.id === 'basvag')?.kvar).toBe(false);   // ingen basväg väntad → "Ingen"
     expect(s.frågorKvar).toHaveLength(6);
   });
 
-  it('tre poster listas vid namn, fler än tre räknas bara ("4 saker · 6 frågor")', () => {
-    const tre = berakna(indata({ avlaggAntal: 0, barighet: null, terrang: null, harDu: {} }));
-    expect(tre.kvarText).toBe('avlägg · bärighet · terräng · 6 frågor');
-    const fyra = berakna(indata({ avlaggAntal: 0, barighet: null, terrang: null, skotningsavstand: null, harDu: {} }));
-    expect(fyra.kvarText).toBe('4 saker · 6 frågor');
-    expect(fyra.antalKvar).toBe(10);
+  it('Förutsättningar räknas ned ("3 att välja" → "1 kvar") men är ETT område tills alla tre är valda', () => {
+    const tre = berakna(indata({ barighet: null, terrang: null, skotningsavstand: null }));
+    expect([tre.forutsattningarKvar, tre.antalKvar]).toEqual([3, 1]);
+    const ett = berakna(indata({ barighet: 'bra', terrang: 'flackt', skotningsavstand: null }));
+    expect([ett.forutsattningarKvar, ett.antalKvar]).toEqual([1, 1]);
+    const noll = berakna(indata());
+    expect([noll.forutsattningarKvar, noll.antalKvar]).toEqual([0, 0]);
   });
-  it('exemplet ur tavlan: "skotare · prognos · 3 frågor"', () => {
+  it('alla sex frågorna är ETT område: en obesvarad eller sex ger samma bidrag till antalet', () => {
+    const harDu1 = alla(); delete harDu1.gransar;
+    expect(berakna(indata({ harDu: harDu1 })).antalKvar).toBe(1);
+    expect(berakna(indata({ harDu: {} })).antalKvar).toBe(1);
+  });
+  it('exemplet från Mölleryd: avlägg + Förutsättningar + Har du … = 3 områden (medelstam kom ur TD, prognosen godkänd)', () => {
+    const s = berakna(indata({ avlaggAntal: 0, barighet: null, terrang: null, skotningsavstand: null, harDu: {} }));
+    expect(s.antalKvar).toBe(3);
+  });
+  it('ett område som är kvar för flera fält räknas en gång: skotare + prognos + 3 frågor = 3 områden', () => {
     let harDu = alla();
     harDu = { ...harDu }; delete harDu.snitslat; delete harDu.ledningar; delete harDu.gransar;
     const p = prognos({ skotare: INGEN });
     const s = berakna(indata({ skotare: INGEN, prognos: p, prognosGodkandUnderlag: null, harDu }));
-    expect(s.kvarText).toBe('skotare · prognos · 3 frågor');
-    expect(s.antalKvar).toBe(5);
-  });
-
-  it('en fråga kvar säger "1 fråga"', () => {
-    const harDu = alla(); delete harDu.gransar;
-    expect(berakna(indata({ harDu })).kvarText).toBe('1 fråga');
+    expect(s.antalKvar).toBe(3);   // skotare, prognos, Har du …
   });
 
   it('TRAKT UTAN BASVÄG: "Ingen" räknas som klart — appen gissar aldrig att en basväg saknas', () => {
@@ -72,7 +78,6 @@ describe('berakna — vad är kvar', () => {
     const fore = berakna(indata({ basvagTexter: [], basvagForvantad: true }));
     expect(fore.poster.find((p) => p.id === 'basvag')).toMatchObject({ kvar: true, varde: null });
     expect(fore.antalKvar).toBe(1);
-    expect(fore.kvarText).toBe('basväg');
     const efter = berakna(indata({ basvagTexter: ['Blå/gul · 480 m'], basvagForvantad: true }));
     expect(efter.antalKvar).toBe(0);
     expect(efter.antalKvar).toBe(fore.antalKvar - 1);
@@ -136,9 +141,17 @@ describe('prognos — "Stämmer" gäller bara för det underlag som godkändes',
     expect(lage.lage).toBe('ogodkand');
   });
 
-  it('aldrig godkänd = ogodkänd; saknad medelstam hindrar och sägs', () => {
+  it('aldrig godkänd = ogodkänd; saknad medelstam hindrar INTE (förslaget räknar snitt över alla trakter) — saknad volym eller timmar gör det', () => {
     expect(prognosLage(p, null)).toEqual({ lage: 'ogodkand', saknas: [] });
-    expect(prognosLage(prognos({ medelstam: null }), null)).toEqual({ lage: 'ogodkand', saknas: ['medelstam'] });
+    expect(prognosLage(prognos({ medelstam: null }), null)).toEqual({ lage: 'ogodkand', saknas: [] });
+    expect(prognosLage(prognos({ medelstam: null, volym: null }), null)).toEqual({ lage: 'ogodkand', saknas: ['volym'] });
+    expect(prognosLage(prognos({ medelstam: null, skordareTimmar: null }), null)).toEqual({ lage: 'ogodkand', saknas: ['skördartimmar'] });
+  });
+  it('utan medelstam går prognosen att godkänna, och godkännandet gäller (fingeravtrycket tål null)', () => {
+    const utan = prognos({ medelstam: null });
+    expect(prognosLage(utan, prognosUnderlag(utan))).toEqual({ lage: 'godkand' });
+    // skriver man medelstam efteråt stämmer det inte längre
+    expect(prognosLage(prognos({ medelstam: 0.7 }), prognosUnderlag(utan)).lage).toBe('ogodkand');
   });
 
   it('tider i extern utförare spelar ingen roll för underlaget bortom namnet', () => {
@@ -297,7 +310,7 @@ describe('förval: egen maskin ur planeringen', () => {
 describe('medelstam som egen post', () => {
   it('saknas den (null/0) är posten kvar; finns den är den klar med värdet i decimalkomma', () => {
     const utan = berakna(indata({ prognos: prognos({ medelstam: null }) }));
-    expect(utan.poster.find((x) => x.id === 'medelstam')).toMatchObject({ kvar: true, varde: null, kvarOrd: 'medelstam' });
+    expect(utan.poster.find((x) => x.id === 'medelstam')).toMatchObject({ kvar: true, varde: null });
     expect(berakna(indata({ prognos: prognos({ medelstam: 0 }) })).poster.find((x) => x.id === 'medelstam')!.kvar).toBe(true);
     const med = berakna(indata({ prognos: prognos({ medelstam: 0.72 }) }));
     expect(med.poster.find((x) => x.id === 'medelstam')).toMatchObject({ kvar: false, varde: '0,72 m³fub' });
@@ -306,5 +319,57 @@ describe('medelstam som egen post', () => {
     const s = berakna(indata({ prognos: prognos({ medelstam: null }), prognosGodkandUnderlag: null }));
     expect(s.poster.filter((x) => x.kvar).map((x) => x.id)).toEqual(expect.arrayContaining(['medelstam']));
     expect(s.klar).toBe(false);
+  });
+});
+
+describe('Vidas avlägg (objekt_geometri, L_TILLAGGSPUNKTER)', () => {
+  const punkt = (nr: string, o: Record<string, unknown> = {}) => ({ properties: { _typ: 'punkt', _lager: 'L_TILLAGGSPUNKTER', EXTRA_LABE: nr, FLBESKR: 'Avlägg', ...o }, geometry: { type: 'Point', coordinates: [14.7, 56.4] } });
+  const larm = { properties: { _typ: 'punkt', _lager: 'L_TILLAGGSPUNKTER', FLBESKR: 'Larmkoordinat' }, geometry: { type: 'Point', coordinates: [14.7, 56.4] } };
+
+  it('vidaAvlaggUr: punkterna utom larmet, i nummerordning (01-2 före 01-10), med koordinater', () => {
+    const ut = vidaAvlaggUr([punkt('01-10'), larm, punkt('01-2'), punkt('01-1')]);
+    expect(ut.map((a) => a.nummer)).toEqual(['01-1', '01-2', '01-10']);
+    expect(ut[0]).toMatchObject({ lat: 56.4, lng: 14.7 });
+  });
+  it('numret saknas i EXTRA_LABE → LOPNR; saknas båda → "Avlägg N"; andra geometrier än punkter räknas inte', () => {
+    expect(vidaAvlaggUr([{ properties: { _typ: 'punkt', LOPNR: '7', FLBESKR: 'Avlägg' }, geometry: null }]).map((a) => a.nummer)).toEqual(['7']);
+    expect(vidaAvlaggUr([punkt('')]).map((a) => a.nummer)).toEqual(['Avlägg 1']);
+    expect(vidaAvlaggUr([{ properties: { _typ: 'linje', FLBESKR: 'Basväg' } }, { properties: { _typ: 'hänsynsyta' } }, null, undefined])).toEqual([]);
+    expect(vidaAvlaggUr(null)).toEqual([]);
+  });
+  it('lasVidaAvlagg läser bara en hel bekräftelse; resten är obekräftat (aldrig ett kast)', () => {
+    expect(lasVidaAvlagg({ vida_avlagg: { nummer: ['01-1'], av: 'm1', at: NU } })).toEqual({ nummer: ['01-1'], av: 'm1', at: NU });
+    for (const rent of [null, undefined, 'x', [], {}, { vida_avlagg: 'ja' }, { vida_avlagg: { nummer: 'x', at: NU } }, { vida_avlagg: { nummer: ['a'] } }]) expect(lasVidaAvlagg(rent), JSON.stringify(rent)).toBeNull();
+  });
+  it('bekräftelsen gäller bara exakt de avlägg som visades — nya eller färre kräver ny bekräftelse', () => {
+    const bek = { nummer: ['01-2', '01-1'], av: 'm1', at: NU };
+    expect(vidaAvlaggBekraftat(['01-1', '01-2'], bek)).toBe(true);
+    expect(vidaAvlaggBekraftat(['01-1', '01-2', '01-3'], bek)).toBe(false);
+    expect(vidaAvlaggBekraftat(['01-1'], bek)).toBe(false);
+    expect(vidaAvlaggBekraftat([], bek)).toBe(false);
+    expect(vidaAvlaggBekraftat(['01-1'], null)).toBe(false);
+  });
+  it('berakna: Vida-avlägg är kvar tills de bekräftats (eller planeraren själv placerat ett); inga Vida-avlägg = som förut', () => {
+    const avl = (o: Partial<KlarIndata>) => berakna(indata({ avlaggAntal: 0, ...o })).poster.find((p) => p.id === 'avlagg')!;
+    expect(avl({}).kvar).toBe(true);
+    expect(avl({ vidaAvlagg: ['01-1', '01-2'] })).toMatchObject({ kvar: true, varde: null });
+    expect(avl({ vidaAvlagg: ['01-1', '01-2'], vidaAvlaggBekraftat: true })).toMatchObject({ kvar: false, varde: '2 från Vida' });
+    expect(avl({ vidaAvlagg: ['01-1'], avlaggAntal: 2 })).toMatchObject({ kvar: false, varde: '1 från Vida + 2 egna' });
+    expect(berakna(indata({ avlaggAntal: 0, vidaAvlagg: ['01-1'] })).antalKvar).toBe(1);
+    expect(berakna(indata({ avlaggAntal: 0, vidaAvlagg: ['01-1'], vidaAvlaggBekraftat: true })).antalKvar).toBe(0);
+  });
+  it('avlaggText: antal i ord, aldrig nummer', () => {
+    expect(avlaggText(2, 0)).toBe('2 från Vida');
+    expect(avlaggText(2, 1)).toBe('2 från Vida + 1 eget');
+    expect(avlaggText(1, 3)).toBe('1 från Vida + 3 egna');
+    expect(avlaggText(0, 1)).toBe('eget');
+    expect(avlaggText(0, 2)).toBe('2 egna');
+    expect(avlaggText(0, 0)).toBe('');
+  });
+  it('förarens sammanfattning nämner Vidas avlägg', () => {
+    const rad = (o: Record<string, unknown>) => forarSammanfattning({ avlaggAntal: 0, basvagTexter: [], basvagKravs: null, barighet: null, terrang: null, skotningsavstand: null, bandSkordare: null, bandSkotare: null, bandParSkordare: null, bandParSkotare: null, breddat: false, konfiguration: null, risDirekt: false, extraVagn: false, trailerIn: true, trailerKommentar: '', manuellFallning: false, manuellFallningText: '', ved: false, vedDetaljer: VED_TOM, vedText: '', harDu: {}, ...o } as any).find((r) => r.id === 'avlagg')?.text;
+    expect(rad({ vidaAvlagg: ['01-1', '01-2'] })).toBe('2 från Vida');
+    expect(rad({ vidaAvlagg: ['01-1'], avlaggAntal: 1 })).toBe('1 från Vida + 1 eget');
+    expect(rad({ avlaggAntal: 2 })).toBe('2 på kartan');
   });
 });

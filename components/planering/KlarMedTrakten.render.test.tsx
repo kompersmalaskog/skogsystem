@@ -10,9 +10,11 @@ vi.mock('@/lib/supabase', () => ({ supabase: { from: () => ({}), storage: { from
 import KlarMedTrakten, { type KlarMedTraktenProps, type KlarPatch } from './KlarMedTrakten';
 import ObjektInfo from './ObjektInfo';
 import { EGEN, EXTERN, INGEN, klarProps, type KlarFixtur } from './KlarMedTrakten.testhjalp';
-import { sattHarDu, VED_TOM, type HarDuId, type HarDuSvarVarde, type VedDetaljer } from '@/lib/klarTrakt';
+import { HAR_DU_FRAGOR, sattHarDu, VED_TOM, type HarDuId, type HarDuSvarVarde, type VedDetaljer } from '@/lib/klarTrakt';
+import { kvarSteg } from '@/lib/klarSteg';
 import { byggMerGrupper, kortKnappar, faktaBrickor, objektRad, type KartMarkering } from '@/lib/objektKort';
 import { sattBredd } from './PlusRad.testhjalp';
+import { FARG } from '@/lib/design/tokens';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,9 +28,13 @@ const skriv = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => act(() 
   Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v);
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
+const blur = (el: Element | null) => { expect(el, 'elementet finns').not.toBeNull(); act(() => { (el as HTMLElement).blur(); }); };
 const text = (id: string) => q(id)?.textContent ?? '';
+/** Färg som webbläsaren skriver den (hex → rgb), för jämförelse med style.color. */
+const farg = (hex: string) => { const e = document.createElement('div'); e.style.color = hex; return e.style.color; };
+const utanMellanrum = (t: string) => t.replace(/\s/g, ' ');
 
-const spion = { klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] as KlarPatch[] };
+const spion = { granska: [] as any[], bekrafta: 0, klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] as KlarPatch[] };
 
 /** Sidans roll: fixturen är "databasen"; trycken uppdaterar den och kortet räknas om ur den. */
 function Harness({ start, extra }: { start: KlarFixtur; extra?: Partial<KlarMedTraktenProps> }) {
@@ -45,8 +51,8 @@ function Harness({ start, extra }: { start: KlarFixtur; extra?: Partial<KlarMedT
         ...(a.skotningsavstand !== undefined ? { skotningsavstand: a.skotningsavstand } : {}),
         ...(a.skordare ? { skordare: a.skordare } : {}),
         ...(a.skotare ? { skotare: a.skotare } : {}),
-        ...(a.skordareTimmar !== undefined ? { skordareTimmar: Number(a.skordareTimmar.replace(',', '.')) || null } : {}),
-        ...(a.skotareTimmar !== undefined ? { skotareTimmar: Number(a.skotareTimmar.replace(',', '.')) || null } : {}),
+        ...(a.skordareTimmar !== undefined ? { skordareTimmar: Number(a.skordareTimmar.replace(',', '.')) || null, godkand: false } : {}),
+        ...(a.skotareTimmar !== undefined ? { skotareTimmar: Number(a.skotareTimmar.replace(',', '.')) || null, godkand: false } : {}),
         ...(a.bandSkotare !== undefined ? { bandSkotare: a.bandSkotare } : {}),
         ...(a.ved !== undefined ? { markagareVed: a.ved } : {}),
       }));
@@ -58,6 +64,7 @@ function Harness({ start, extra }: { start: KlarFixtur; extra?: Partial<KlarMedT
     onKlarForMaskin: () => { spion.klarForMaskin += 1; setF((cur) => ({ ...cur, objektStatus: 'planerad' })); },
     onFortsatter: () => { spion.fortsatter += 1; },
     onPlaceraAvlagg: () => { spion.placeraAvlagg += 1; },
+    onBekraftaVidaAvlagg: () => { spion.bekrafta += 1; setF((cur) => ({ ...cur, vidaBekraftat: true })); },
     onRitaBasvag: () => { spion.ritaBasvag += 1; },
     onSattVedPaKartan: () => { spion.sattVed += 1; },
     onStang: () => { spion.stang += 1; },
@@ -75,251 +82,711 @@ function montera(start: KlarFixtur, extra?: Partial<KlarMedTraktenProps>) {
   act(() => { rot!.render(<Harness start={start} extra={extra} />); });
 }
 
-beforeEach(() => { Object.assign(spion, { klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] }); sattBredd(390); });
+beforeEach(() => { Object.assign(spion, { granska: [], bekrafta: 0, klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] }); sattBredd(390); });
 afterEach(() => { act(() => { rot?.unmount(); }); behallare?.remove(); rot = null; behallare = null; });
 
 const ALLA_SVAR = (): KlarFixtur['harDu'] => { let s = {}; for (const id of ['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga'] as const) s = sattHarDu(s, id, 'ja', 'm1', 'T'); return s; };
 
-describe('Skälviken: en ny trakt — vad är kvar', () => {
-  it('rubriken säger hur mycket som är kvar; basväg "Ingen" är grå och räknas inte; alla sex frågor ställs', () => {
-    montera({});
-    expect(text('klar-innehall')).toContain('Appen har fyllt i');
-    expect(q('klar-post-basvag')!.getAttribute('data-kvar')).toBe('0');
-    expect(text('klar-rad-basvag')).toContain('Ingen');
-    expect(['avlagg', 'barighet', 'terrang', 'skotningsavstand', 'skordare', 'skotare', 'prognos'].every((id) => q(`klar-post-${id}`)!.getAttribute('data-kvar') === '1')).toBe(true);
-    for (const id of ['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga']) expect(q(`klar-fraga-${id}`)!.getAttribute('data-besvarad')).toBe('0');
-    // 7 poster + 6 frågor
-    expect(text('klar-kvar-text')).toBe('Kvar: 7 saker · 6 frågor');   // sju poster räknas, listas inte
-    expect(text('klar-innehall')).not.toContain('Ingen basväg');
-  });
+/** Allt ifyllt, prognosen godkänd, alla sex frågor besvarade: "Allt klart". */
+const KLAR: KlarFixtur = {
+  avlaggAntal: 1, basvagTexter: ['Röd · 640 m'], barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel',
+  skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36, godkand: true, harDu: ALLA_SVAR(),
+};
+/** Monterar om med nytt underlag (för test som jämför två lägen). */
+const montera_om = (start: KlarFixtur) => { act(() => { rot!.unmount(); }); behallare!.remove(); montera(start); };
 
-  it('orange rader säger också ett ord (färg är aldrig ensam bärare)', () => {
-    montera({});
-    expect(text('klar-rad-avlagg')).toContain('Placera');
-    expect(text('klar-rad-barighet')).toContain('Välj');
-    expect(text('klar-rad-prognos')).toMatch(/Saknar skördare/);
-  });
 
-  it('medelstam ur TD står på sin egen rad (0,72 för Skälviken) och volymen i prognosen', () => {
+
+// ── hjälpare för de två lägena ────────────────────────────────────────────────────────────────────────────────────────
+const orange = () => farg(FARG.orange);
+const rubrik = () => text('klar-steg-rubrik');
+const hoppa = () => klicka(q('klar-steg-hoppa'));
+/** Hoppa över på Har du … går en FRÅGA framåt; steget är klart efter den sjätte */
+const hoppaHarDu = () => { for (let k = 0; k < HAR_DU_FRAGOR.length; k += 1) hoppa(); };
+const gaIgenom = () => klicka(q('klar-ga-igenom'));
+/** radens id i Behöver dig, i ordning */
+const kvarRader = () => Array.from(q('klar-behover')!.querySelectorAll('[data-kvar="1"]')).map((e) => e.getAttribute('data-testid')!.replace('klar-post-', ''));
+const skriva = (id: string, v: string) => { klicka(q(`klar-cell-${id}`)); skriv(q(`klar-${id}`) as HTMLInputElement, v); blur(q(`klar-${id}`)); };
+/** SE → sektionen Markägare & övrigt */
+const tillOvrigt = () => klicka(q('klar-se-ovrigt-rad'));
+/** pt-värde ur en stil som "60px" */
+const px = (v: string | undefined) => parseInt(v ?? '0', 10);
+const EGNA: KlarFixtur = { skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 };
+/** Allt ifyllt utom att prognosen inte är godkänd: prognosen är det enda som är kvar. */
+const BARA_PROGNOS: KlarFixtur = { ...KLAR, godkand: false };
+
+describe('GÖRA: start (något är kvar)', () => {
+  it('rubriken är traktens namn; under den "N saker kvar" i orange — antalet är områden, samma som stegen', () => {
     montera({});
-    expect(text('klar-rad-medelstam')).toContain('0,72');
-    expect(q('klar-post-medelstam')!.getAttribute('data-kvar')).toBe('0');
-    klicka(q('klar-rad-medelstam'));
-    expect((q('klar-medelstam') as HTMLInputElement).value).toBe('0,72');
-    klicka(q('klar-rad-prognos'));
-    expect((q('klar-volym') as HTMLInputElement).value).toBe('1800');
+    expect(text('klar-status')).toBe(`${kvarSteg(klarProps({}).status).length} saker kvar`);
+    expect(text('klar-status')).toBe('5 saker kvar');
+    expect(q('klar-status')!.style.color).toBe(orange());
+    expect(behallare!.textContent).toContain('Skälviken');
+    expect(finns('klar-fakta')).toBe(false);                             // åtgärd · areal · volym hör till sammanställningen, inte till uppgiftslistan
+  });
+  it('en stor knapp "Gå igenom" överst; Behöver dig-listan ligger under och har ett steg per område i stegens ordning', () => {
+    montera({});
+    expect(text('klar-ga-igenom')).toBe('Gå igenom');
+    expect(px(q('klar-ga-igenom')!.style.minHeight)).toBeGreaterThanOrEqual(60);
+    expect(kvarRader()).toEqual(['avlagg', 'forutsattningar', 'maskiner', 'harDu', 'prognos']);
+    expect(text('klar-rad-avlagg-varde')).toBe('Placera på kartan');
+    expect(text('klar-rad-forutsattningar-varde')).toBe('3 att välja');
+    expect(text('klar-rad-maskiner-varde')).toBe('Välj');
+    expect(text('klar-rad-harDu-varde')).toBe('0 av 6');
+    expect(text('klar-rad-prognos-varde')).toMatch(/^Saknar /);
+  });
+  it('varje rad beter sig likadant: inga fält, inga utfällningar i listan — bara en pil som öppnar sitt steg', () => {
+    montera({});
+    expect(q('klar-behover')!.querySelectorAll('input,textarea').length).toBe(0);
+    for (const s of kvarRader()) {
+      const rad = q(`klar-rad-${s}`)!;
+      expect(rad.tagName, s).toBe('BUTTON');
+      expect(px(rad.style.minHeight), s).toBeGreaterThanOrEqual(44);
+      expect(rad.getAttribute('aria-expanded'), s).toBeNull();
+    }
+  });
+  it('"Visa hela trakten ›" öppnar sammanställningen (ingen egen lista, inget "Allt som är ifyllt"); "Om trakten ›" finns kvar och ber sidan öppna ⓘ', () => {
+    let info = 0;
+    montera({}, { onInfo: () => { info += 1; } });
+    expect(text('klar-se-oppna')).toBe('Visa hela trakten');
+    expect(behallare!.textContent).not.toContain('Allt som är ifyllt');
+    expect(text('klar-info')).toBe('Om trakten');
+    klicka(q('klar-info'));
+    expect(info).toBe(1);
+    klicka(q('klar-se-oppna'));
+    expect(finns('klar-se')).toBe(true);
+    expect(finns('klar-behover')).toBe(false);
+  });
+  it('utan onInfo (förarens vy, körvy) finns ingen "Om trakten"-rad', () => {
+    montera({});
+    expect(finns('klar-info')).toBe(false);
+  });
+  it('orange står bara på antalet i rubriken och på värdet i Behöver dig-raderna', () => {
+    montera({});
+    const orangea = Array.from(behallare!.querySelectorAll<HTMLElement>('*')).filter((e) => e.style.color === orange());
+    expect(orangea.length).toBeGreaterThan(0);
+    for (const e of orangea) {
+      const ok = e.getAttribute('data-testid') === 'klar-status' || e.closest('[data-testid^="klar-rad-"][data-testid$="-varde"]') != null;
+      expect(ok, e.outerHTML.slice(0, 120)).toBe(true);
+    }
+  });
+  it('Klar för maskin spärrar aldrig: den går att trycka med saker kvar, och Fortsätter en annan dag stänger', () => {
+    montera({});
+    expect(q('klar-for-maskin')!.getAttribute('data-klar')).toBe('0');
+    expect(q('klar-for-maskin')!.hasAttribute('disabled')).toBe(false);
+    klicka(q('klar-for-maskin'));
+    expect(spion.klarForMaskin).toBe(1);
+    klicka(q('klar-fortsatter'));
+    expect(spion.fortsatter).toBe(1);
+  });
+  it('inget innehåll ligger under Klar för maskin: knappraden är en egen rad under det som scrollar, och listan har luft i botten', () => {
+    montera({});
+    expect(q('klar-innehall')!.contains(q('klar-for-maskin'))).toBe(false);
+    expect(px(q('klar-innehall')!.style.paddingBottom)).toBeGreaterThanOrEqual(32);
   });
 });
 
-describe('Fyll i del 1 och 2 → Klar för maskin', () => {
-  it('trycken rättar kortet: bärighet/terräng/avstånd, maskiner, prognos "Stämmer", sex svar → grön knapp → planerad', () => {
+describe('GÖRA: "Gå igenom" — ett steg i taget', () => {
+  it('första steget: "‹ traktnamn", "1 av 5", framstegsstreck med fem delar, rubrik, stor knapp, Föregående (grå) och Hoppa över', () => {
     montera({});
-    klicka(q('klar-rad-barighet')); klicka(q('klar-barighet-bra'));
-    klicka(q('klar-rad-terrang')); klicka(q('klar-terrang-flackt'));
-    klicka(q('klar-rad-skotningsavstand')); klicka(q('klar-skotningsavstand-medel'));
-    expect(text('klar-rad-barighet')).toContain('Bra');
-    klicka(q('klar-rad-skordare')); klicka(q('klar-skordare-egen')); klicka(q('klar-skordare-maskin-R64101'));
-    klicka(q('klar-rad-skotare')); klicka(q('klar-skotare-egen')); klicka(q('klar-skotare-maskin-A110148'));
-    expect(text('klar-rad-skordare')).toContain('Rottne H8E');
-    // avlägg: kartan (anroparen) lägger markeringen; här ger vi trycket
-    klicka(q('klar-rad-avlagg'));
-    expect(spion.placeraAvlagg).toBe(1);
-    // prognos: timmar saknas → "Stämmer" går inte; förslag fyller i, sedan Stämmer
-    klicka(q('klar-rad-prognos'));
-    expect(text('klar-prognos-saknas')).toContain('skördartimmar');
-    klicka(q('klar-stammer')); expect(spion.stammer).toBe(0);
-    skriv(q('klar-skordartimmar') as HTMLInputElement, '41'); skriv(q('klar-skotartimmar') as HTMLInputElement, '36');
-    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
-    klicka(q('klar-stammer')); expect(spion.stammer).toBe(1);
-    expect(text('klar-rad-prognos')).toContain('Stämmer');
-    // fortfarande kvar: avlägg (kartan) + 6 frågor → knappen är grå men TRYCKBAR
-    expect(q('klar-for-maskin')!.getAttribute('data-klar')).toBe('0');
-    expect(q('klar-for-maskin')!.hasAttribute('disabled')).toBe(false);
+    gaIgenom();
+    expect(rubrik()).toBe('Avlägg');
+    expect(text('klar-steg-tillbaka')).toBe('Skälviken');
+    expect(text('klar-steg-rakneverk')).toBe('1 av 5');
+    expect(q('klar-steg-framsteg')!.children.length).toBe(5);
+    expect(q('klar-steg-framsteg')!.children[0].getAttribute('data-delsteg')).toBe('nu');
+    expect(text('klar-steg-nasta')).toBe('Nästa');
+    expect(px(q('klar-steg-nasta')!.style.minHeight)).toBeGreaterThanOrEqual(60);
+    expect(q('klar-steg-foregaende')!.hasAttribute('disabled')).toBe(true);
+    expect(finns('klar-steg-hoppa')).toBe(true);
   });
-
-  it('allt klart → grön knapp utan "Kvar"; trycket gör trakten planerad ("Klar för maskin ✓") och knappen försvinner', () => {
-    montera({
-      avlaggAntal: 1, basvagTexter: ['Röd · 640 m'], barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel',
-      skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36, godkand: true, harDu: ALLA_SVAR(),
-    });
-    expect(q('klar-for-maskin')!.getAttribute('data-klar')).toBe('1');
-    expect(finns('klar-kvar-text')).toBe(false);
+  it('strecket räknar bara stegen som är kvar: "4 saker kvar" = 1 av 4 — och sammanfattningen är slutskärmen, inte ett numrerat steg', () => {
+    montera({ avlaggAntal: 1 });
+    expect(text('klar-status')).toBe('4 saker kvar');
+    gaIgenom();
+    expect(rubrik()).toBe('Förutsättningar');                               // klara steg hoppas över
+    expect(text('klar-steg-rakneverk')).toBe('1 av 4');
+    expect(q('klar-steg-framsteg')!.children.length).toBe(4);
+    hoppa(); hoppa();                                                       // Maskiner · Har du …
+    expect(rubrik()).toBe(HAR_DU_FRAGOR[0].fraga);
+    expect(text('klar-steg-rakneverk')).toBe('3 av 4');                     // strecket räknar steg, inte frågor
+    hoppaHarDu();
+    expect(rubrik()).toBe('Prognos');
+    expect(text('klar-steg-rakneverk')).toBe('4 av 4');
+    hoppa();
+    expect(rubrik()).toBe('Sammanfattning');
+    expect(finns('klar-steg-framsteg')).toBe(false);
+    expect(finns('klar-steg-rakneverk')).toBe(false);
+    expect(finns('klar-steg-hoppa')).toBe(false);                           // ingenting att hoppa över på slutskärmen
+  });
+  it('stegen kommer i ordning: Avlägg · Förutsättningar · Maskiner · Har du … · Prognos · Sammanfattning; Föregående går tillbaka', () => {
+    montera({});
+    gaIgenom();
+    const sett: string[] = [rubrik()];
+    for (let k = 0; k < 3; k += 1) { hoppa(); sett.push(rubrik()); }
+    expect(sett).toEqual(['Avlägg', 'Förutsättningar', 'Maskiner', HAR_DU_FRAGOR[0].fraga]);
+    hoppaHarDu(); sett.push(rubrik());
+    expect(sett.at(-1)).toBe('Prognos');
+    hoppa();
+    expect(rubrik()).toBe('Sammanfattning');
+    klicka(q('klar-steg-foregaende'));
+    expect(rubrik()).toBe('Prognos');
+    expect(text('klar-steg-rakneverk')).toBe('5 av 5');
+  });
+  it('‹ traktnamn tar tillbaka till uppgiftslistan', () => {
+    montera({});
+    gaIgenom();
+    klicka(q('klar-steg-tillbaka'));
+    expect(finns('klar-behover')).toBe(true);
+    expect(finns('klar-steg')).toBe(false);
+  });
+  it('Avlägg: kartan visas, "Placera på kartan" ber sidan krympa arket till en list; Nästa går vidare', () => {
+    montera({}, { kartaYta: <div data-testid="karta-yta">karta</div> });
+    gaIgenom();
+    expect(finns('karta-yta')).toBe(true);
+    expect(finns('klar-avlagg-status')).toBe(false);                        // ingen text om att inget är placerat — knappen räcker
+    expect(behallare!.textContent).not.toContain('Tryck på kartan där avlägget ska ligga');
+    klicka(q('klar-avlagg-placera'));
+    expect(spion.placeraAvlagg).toBe(1);
+    klicka(q('klar-steg-nasta'));
+    expect(rubrik()).toBe('Förutsättningar');
+  });
+  it('Förutsättningar: tre segmentknappar; ett val sparas direkt och etiketten slutar vara orange', () => {
+    montera({ avlaggAntal: 1 });
+    gaIgenom();
+    for (const id of ['barighet', 'terrang', 'skotningsavstand']) {
+      expect(q(`klar-seg-${id}`)!.getAttribute('data-vald'), id).toBe('0');
+      expect(q(`klar-seg-${id}-etikett`)!.style.color, id).toBe(orange());
+    }
+    expect(Array.from(q('klar-seg-barighet')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Bra', 'Medel', 'Dålig']);
+    expect(Array.from(q('klar-seg-terrang')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Flack', 'Kuperad', 'Brant']);
+    expect(Array.from(q('klar-seg-skotningsavstand')!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Kort', 'Medel', 'Långt']);
+    klicka(q('klar-barighet-bra'));
+    expect(spion.patchar.at(-1)).toEqual({ barighet: 'bra' });
+    expect(q('klar-seg-barighet-etikett')!.style.color).not.toBe(orange());
+    klicka(q('klar-barighet-bra'));                                         // samma val igen tar tillbaka svaret
+    expect(spion.patchar.at(-1)).toEqual({ barighet: null });
+  });
+  it('Maskiner: egen maskin eller extern; valet sparas direkt, extern kräver ett namn', () => {
+    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel' });
+    gaIgenom();
+    expect(rubrik()).toBe('Maskiner');
+    klicka(q('klar-skordare-egen'));
+    klicka(q('klar-skordare-maskin-R64101'));
+    expect(spion.patchar.at(-1)).toEqual({ skordare: EGEN('R64101') });
+    klicka(q('klar-skotare-extern'));
+    expect(finns('klar-skotare-extern-namn')).toBe(true);
+  });
+  it('Har du …: en fråga i taget, två stora knappar; ett svar går direkt till nästa fråga och efter den sista till nästa steg', () => {
+    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 });
+    gaIgenom();
+    expect(rubrik()).toBe(HAR_DU_FRAGOR[0].fraga);
+    expect(px(q('klar-fraga-gransar-ja')!.style.minHeight)).toBeGreaterThanOrEqual(60);
+    expect(px(q('klar-fraga-gransar-nej')!.style.minHeight)).toBeGreaterThanOrEqual(60);
+    for (let k = 0; k < HAR_DU_FRAGOR.length; k += 1) {
+      expect(rubrik(), `fråga ${k + 1}`).toBe(HAR_DU_FRAGOR[k].fraga);
+      klicka(q(`klar-fraga-${HAR_DU_FRAGOR[k].id}-ja`));
+    }
+    expect(rubrik()).toBe('Prognos');                                       // prognosen är kvar (inte godkänd) och kommer efter frågorna
+  });
+  it('Prognos: Stämmer är grå tills allt som behövs finns; trycket sparar godkännandet och leder till sammanfattningen', () => {
+    montera({ ...KLAR, godkand: false, skordareTimmar: null });
+    gaIgenom();
+    expect(rubrik()).toBe('Prognos');
+    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(true);
+    skriva('skordartimmar', '41');
+    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
+    klicka(q('klar-stammer'));
+    expect(spion.stammer).toBe(1);
+    expect(rubrik()).toBe('Sammanfattning');
+  });
+  it('Sammanfattning: hela trakten på en sida och den gröna knappen Klar för maskin; efter trycket är kortet i läget "Klar för maskin ✓"', () => {
+    montera(BARA_PROGNOS);
+    gaIgenom();
+    klicka(q('klar-stammer'));
+    expect(finns('klar-se')).toBe(true);
     expect(text('klar-for-maskin')).toBe('Klar för maskin');
     klicka(q('klar-for-maskin'));
     expect(spion.klarForMaskin).toBe(1);
+    expect(text('klar-status')).toBe('Klar för maskin ✓');
     expect(finns('klar-for-maskin')).toBe(false);
-    expect(text('klar-skickad')).toContain('Klar för maskin');
   });
-
-  it('SPÄRRAR ALDRIG: med mycket kvar går trycket ändå igenom och kvar-raden visas bredvid', () => {
-    montera({});
-    klicka(q('klar-for-maskin'));
-    expect(spion.klarForMaskin).toBe(1);
-  });
-
-  it('en redan planerad trakt med något kvar visar det ("N kvar sedan sist") — ingen ny knapp', () => {
-    montera({ objektStatus: 'planerad', avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36, godkand: true, harDu: {} });
-    expect(finns('klar-for-maskin')).toBe(false);
-    expect(text('klar-skickad')).toContain('6 kvar sedan sist');
+  it('inget ligger under Klar för maskin i sammanfattningen: knappen är en egen rad under det som scrollar, och sista raden har luft', () => {
+    montera(BARA_PROGNOS);
+    gaIgenom();
+    klicka(q('klar-stammer'));
+    const scroll = q('klar-steg-rubrik')!.parentElement!.parentElement as HTMLElement;
+    expect(scroll.contains(q('klar-for-maskin'))).toBe(false);
+    expect(px(scroll.style.paddingBottom)).toBeGreaterThanOrEqual(32);
+    expect(scroll.contains(q('klar-se-ovrigt-rad'))).toBe(true);           // sista sektionen ligger i det som scrollar, ovanför knappen
   });
 });
 
-describe('extern utförare och trakt utan basväg', () => {
-  it('extern skotare + extern skördare → "Extern – ingen prognos", aldrig kvar', () => {
-    montera({ skordare: EXTERN('Skog AB'), skotare: EXTERN('Max Skotning') });
-    expect(q('klar-post-prognos')!.getAttribute('data-kvar')).toBe('0');
-    expect(text('klar-rad-prognos')).toContain('Extern – ingen prognos');
-    expect(text('klar-rad-skotare')).toContain('Extern · Max Skotning');
-    klicka(q('klar-rad-prognos'));
-    expect(finns('klar-stammer')).toBe(false);
-  });
-  it('egen skördare + extern skotare: prognosen gäller den egna maskinen (bara skördartimmar efterfrågas)', () => {
-    montera({ skordare: EGEN('R64101'), skotare: EXTERN('Max') });
-    klicka(q('klar-rad-prognos'));
-    expect(finns('klar-skordartimmar')).toBe(true);
-    expect(finns('klar-skotartimmar')).toBe(false);
-  });
-  it('extern kräver ett namn: "Extern" utan namn är fortfarande kvar', () => {
-    montera({ skotare: { maskinId: null, utforare: 'extern', externNamn: '' } });
-    expect(q('klar-post-skotare')!.getAttribute('data-kvar')).toBe('1');
-  });
-  it('trakt UTAN basväg: "Ingen" och räknas som klar; med basväg listas färg och längd', () => {
-    montera({ basvagTexter: [] });
-    expect(q('klar-post-basvag')!.getAttribute('data-kvar')).toBe('0');
+describe('den knapp som gör stegets sak är primär — aldrig två vita knappar samtidigt', () => {
+  const vit = (id: string) => q(id)!.style.background === farg(FARG.text);
+  it('Avlägg: "Placera på kartan" är vit och Nästa grå tills avlägget är placerat; sedan tvärtom, och "Avlägg placerat ✓" står där', () => {
+    montera({});
+    klicka(q('klar-rad-avlagg'));
+    expect(text('klar-avlagg-placera')).toBe('Placera på kartan');
+    expect(vit('klar-avlagg-placera')).toBe(true);
+    expect(vit('klar-steg-nasta')).toBe(false);
     act(() => { rot!.unmount(); }); behallare!.remove();
-    montera({ basvagTexter: ['Röd · 640 m', 'Gul · 120 m'] });
-    expect(text('klar-rad-basvag')).toContain('Röd · 640 m');
+    montera({ avlaggAntal: 1 });
+    klicka(q('klar-se-oppna'));
+    klicka(q('klar-se-avlagg'));
+    expect(text('klar-avlagg-status')).toBe('Avlägg placerat ✓');
+    expect(text('klar-avlagg-placera')).toBe('Placera ett till');
+    expect(vit('klar-avlagg-placera')).toBe(false);
+    expect(vit('klar-steg-nasta')).toBe(true);
+  });
+  it('Basväg: "Rita basväg" är vit så länge Vidas basväg inte är ritad, Nästa grå; ritad → tvärtom', () => {
+    montera({ basvagForvantad: true });
     klicka(q('klar-rad-basvag'));
-    expect(text('klar-basvag-rita')).toBe('Rita en basväg till');
+    expect(vit('klar-basvag-rita')).toBe(true);
+    expect(vit('klar-steg-nasta')).toBe(false);
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ basvagForvantad: true, basvagTexter: ['Röd · 640 m'] });
+    klicka(q('klar-se-oppna'));
+    klicka(q('klar-se-basvag'));
+    expect(vit('klar-basvag-rita')).toBe(false);
+    expect(vit('klar-steg-nasta')).toBe(true);
+  });
+  it('övriga steg har en enda vit knapp: Nästa/Klar (valen är segmentknappar) och Stämmer i Prognos', () => {
+    montera({ avlaggAntal: 1 });
+    gaIgenom();
+    expect(rubrik()).toBe('Förutsättningar');
+    expect(vit('klar-steg-nasta')).toBe(true);
+    hoppa();
+    expect(vit('klar-steg-nasta')).toBe(true);                             // Maskiner
+  });
+});
+
+describe('Vidas avlägg räknas som avlägg', () => {
+  const VIDA = { vidaAvlagg: ['01-1', '01-2'] };
+  const vit = (id: string) => q(id)!.style.background === farg(FARG.text);
+  it('Behöver dig säger "Bekräfta"; steget (reservvägen utan sida) frågar "Vida har lagt 2 avlägg. Ligger de rätt?" utan nummer, med "Ja, de ligger rätt" (vit) och "Lägg till eget" (grå)', () => {
+    montera({ ...VIDA });
+    expect(text('klar-rad-avlagg-varde')).toBe('Bekräfta');
+    klicka(q('klar-rad-avlagg'));
+    expect(text('klar-avlagg-fraga')).toBe('Vida har lagt 2 avlägg. Ligger de rätt?');
+    expect(text('klar-avlagg-stammer')).toBe('Ja, de ligger rätt');
+    expect(vit('klar-avlagg-stammer')).toBe(true);
+    expect(text('klar-avlagg-placera')).toBe('Lägg till eget');
+    expect(vit('klar-avlagg-placera')).toBe(false);
+    expect(vit('klar-steg-nasta')).toBe(false);
+    expect(behallare!.textContent).not.toMatch(/01-1|01-2/);                // numren står bara som etiketter på kartan
+    expect(behallare!.textContent).not.toContain('Flytta');
+    expect(behallare!.textContent).not.toContain('Placera på kartan');
+  });
+  it('ett avlägg: "Vida har lagt 1 avlägg. Ligger det rätt?" och "Ja, det ligger rätt"', () => {
+    montera({ vidaAvlagg: ['01-1'] });
+    klicka(q('klar-rad-avlagg'));
+    expect(text('klar-avlagg-fraga')).toBe('Vida har lagt 1 avlägg. Ligger det rätt?');
+    expect(text('klar-avlagg-stammer')).toBe('Ja, det ligger rätt');
+  });
+  it('Ja = bekräftat = klart: "Avlägg ✓ · 2 från Vida" (inte "bekräftade"), Nästa blir vit, området lämnar Behöver dig', () => {
+    montera({ ...VIDA });
+    klicka(q('klar-rad-avlagg'));
+    klicka(q('klar-avlagg-stammer'));
+    expect(spion.bekrafta).toBe(1);
+    expect(text('klar-avlagg-status')).toBe('Avlägg ✓ · 2 från Vida');
+    expect(behallare!.textContent).not.toContain('bekräftade');
+    expect(finns('klar-avlagg-stammer')).toBe(false);
+    expect(vit('klar-steg-nasta')).toBe(true);
+    klicka(q('klar-steg-nasta'));
+    expect(kvarRader()).not.toContain('avlagg');
+    expect(text('klar-status')).toBe('4 saker kvar');
+  });
+  it('Lägg till eget ber sidan placera ett (samma list nertill som för vanliga avlägg); frågan står kvar', () => {
+    montera({ ...VIDA });
+    klicka(q('klar-rad-avlagg'));
+    klicka(q('klar-avlagg-placera'));
+    expect(spion.placeraAvlagg).toBe(1);
+    expect(finns('klar-avlagg-stammer')).toBe(true);
+  });
+  it('med en sida som visar avläggen på kartan: steget ritar ingenting i arket och sidan får veta vart kortet ska när frågan är besvarad (Gå igenom → nästa steg)', () => {
+    montera({ ...VIDA }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    gaIgenom();
+    expect(finns('klar-avlagg-granska')).toBe(true);
+    expect(finns('klar-steg-rubrik')).toBe(false);
+    expect(spion.granska.length).toBe(1);
+    expect(spion.granska[0]).toMatchObject({ v: 'steg', flode: { typ: 'alla', steg: 'forutsattningar' } });
+  });
+  it('en rad i Behöver dig: efter frågan öppnas kortet i listan igen; ur sammanställningen: tillbaka dit (kortet visar sammanställningen när inget är kvar)', () => {
+    montera({ ...VIDA }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    klicka(q('klar-rad-avlagg'));
+    expect(spion.granska).toEqual([{ v: 'kort' }]);
+    act(() => { rot!.unmount(); }); behallare!.remove(); spion.granska = [];
+    montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 0 }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    klicka(q('klar-se-avlagg'));                                            // tryck på raden = visa dem på kartan
+    expect(spion.granska).toEqual([{ v: 'kort' }]);                       // kortet visar sammanställningen när inget är kvar — samma sida
+  });
+  it('utan Vida-avlägg visas aldrig kartläget — steget är det vanliga (Placera på kartan)', () => {
+    montera({}, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    klicka(q('klar-rad-avlagg'));
+    expect(spion.granska.length).toBe(0);
+    expect(text('klar-avlagg-placera')).toBe('Placera på kartan');
+  });
+  it('SE-raden heter alltid "Avlägg · …": "2 från Vida", "eget", "2 från Vida + 1 eget"; kvar: "2 från Vida – bekräfta" / "saknas"', () => {
+    montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 0 });
+    expect(text('klar-se-avlagg')).toBe('Avlägg · 2 från Vida');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 1 });
+    expect(text('klar-se-avlagg')).toBe('Avlägg · 2 från Vida + 1 eget');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR });                                                   // bara ett eget
+    expect(text('klar-se-avlagg')).toBe('Avlägg · eget');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR, ...VIDA, avlaggAntal: 0 });
+    klicka(q('klar-se-oppna'));
+    expect(text('klar-se-avlagg')).toBe('Avlägg · 2 från Vida – bekräfta');
+    expect(Array.from(q('klar-se-avlagg')!.querySelectorAll('span')).some((e) => e.style.color === farg(FARG.orange))).toBe(true);
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR, avlaggAntal: 0 });
+    klicka(q('klar-se-oppna'));
+    expect(text('klar-se-avlagg')).toBe('Avlägg · saknas');
+  });
+  it('inga Vida-avlägg: som förut (Placera på kartan)', () => {
+    montera({});
+    expect(text('klar-rad-avlagg-varde')).toBe('Placera på kartan');
+  });
+});
+
+describe('maskinerna står bara under Prognos', () => {
+  it('SE har ingen maskinrad under Förutsättningar (ingen "Giant · Elefant 26")', () => {
+    montera(KLAR);
+    expect(finns('klar-se-maskiner')).toBe(false);
+    expect(q('klar-se-forutsattningar')!.textContent).not.toContain('Rottne H8E · Ponsse Elephant King AF');
+    expect(text('klar-se-prognos-skordare')).toContain('Rottne H8E');         // maskinen står under Prognos
+  });
+  it('byte av maskin går via Prognos-steget ("Byt maskin") när det öppnats ur sammanställningen; inte i Gå igenom', () => {
+    montera({ ...BARA_PROGNOS });
+    klicka(q('klar-se-oppna'));
+    klicka(q('klar-se-prognos-skordare'));
+    expect(finns('klar-byt-maskin')).toBe(true);
+    klicka(q('klar-byt-maskin'));
+    expect(rubrik()).toBe('Maskiner');
+    klicka(q('klar-skordare-maskin-PONS20SDJAA270231'));
+    expect(spion.patchar.at(-1)).toEqual({ skordare: EGEN('PONS20SDJAA270231') });
+    klicka(q('klar-steg-nasta'));
+    expect(finns('klar-se')).toBe(true);                                    // tillbaka i sammanställningen
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...BARA_PROGNOS });
+    gaIgenom();
+    expect(rubrik()).toBe('Prognos');
+    expect(finns('klar-byt-maskin')).toBe(false);
+  });
+});
+
+describe('GÖRA: en rad i Behöver dig öppnar SAMMA steg — bara det steget', () => {
+  it('Förutsättningar: ingen genomgång (inget streck, inget Föregående/Hoppa över), knappen heter Klar; klart → tillbaka och raden är borta', () => {
+    montera({});
+    klicka(q('klar-rad-forutsattningar'));
+    expect(rubrik()).toBe('Förutsättningar');
+    expect(finns('klar-steg-framsteg')).toBe(false);
+    expect(finns('klar-steg-rakneverk')).toBe(false);
+    expect(finns('klar-steg-foregaende')).toBe(false);
+    expect(finns('klar-steg-hoppa')).toBe(false);
+    expect(text('klar-steg-nasta')).toBe('Klar');
+    klicka(q('klar-barighet-bra')); klicka(q('klar-terrang-kuperat')); klicka(q('klar-skotningsavstand-kort'));
+    klicka(q('klar-steg-nasta'));
+    expect(finns('klar-behover')).toBe(true);
+    expect(kvarRader()).not.toContain('forutsattningar');
+    expect(text('klar-status')).toBe('4 saker kvar');
+  });
+  it('Har du … från listan: de sex frågorna är delarna i strecket', () => {
+    montera({});
+    klicka(q('klar-rad-harDu'));
+    expect(q('klar-steg-framsteg')!.children.length).toBe(HAR_DU_FRAGOR.length);
+    klicka(q(`klar-fraga-${HAR_DU_FRAGOR[0].id}-nej`));
+    expect(rubrik()).toBe(HAR_DU_FRAGOR[1].fraga);
+  });
+  it('Maskiner: valet för bägge rollerna är ETT område som lämnar listan först när båda är valda', () => {
+    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel' });
+    expect(kvarRader()).toContain('maskiner');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101') });
+    expect(kvarRader()).toContain('maskiner');                              // bara ena rollen vald → fortfarande kvar
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148') });
+    expect(kvarRader()).not.toContain('maskiner');
+  });
+  it('Medelstam saknas: egen rad "Skriv" som öppnar ett steg med ett skrivfält', () => {
+    montera({ medelstam: null });
+    expect(text('klar-rad-medelstam-varde')).toBe('Skriv');
+    klicka(q('klar-rad-medelstam'));
+    expect(finns('klar-medelstam-falt')).toBe(true);
+    skriv(q('klar-medelstam-falt') as HTMLInputElement, '0,64');
+    expect(spion.patchar.at(-1)).toEqual({ medelstam: '0,64' });
+  });
+  it('basväg som Vida har men som inte är ritad: egen rad "Rita"; stegets knapp ber sidan rita', () => {
+    montera({ basvagForvantad: true });
+    expect(kvarRader()).toContain('basvag');
+    expect(text('klar-rad-basvag-varde')).toBe('Rita');
+    klicka(q('klar-rad-basvag'));
     klicka(q('klar-basvag-rita'));
     expect(spion.ritaBasvag).toBe(1);
   });
 });
 
-describe('Skälviken: Vida har en basväg → ritar man den sjunker siffran', () => {
-  const nästanKlar: KlarFixtur = { avlaggAntal: 1, barighet: 'bra', terrang: 'flackt', skotningsavstand: 'medel', skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36, godkand: true, harDu: ALLA_SVAR() };
-  it('en väntad men ej ritad basväg är kvar (orange "Rita" + förklaring); ritad = klart', () => {
-    montera({ ...nästanKlar, basvagForvantad: true });
-    expect(q('klar-post-basvag')!.getAttribute('data-kvar')).toBe('1');
-    expect(text('klar-rad-basvag')).toContain('Rita');
-    expect(text('klar-rad-basvag')).toContain('Vida har en basväg i underlaget');
-    expect(text('klar-kvar-text')).toBe('Kvar: basväg');
-    act(() => { rot!.unmount(); }); behallare!.remove();
-    montera({ ...nästanKlar, basvagForvantad: true, basvagTexter: ['Blå/gul · 480 m'] });
-    expect(q('klar-post-basvag')!.getAttribute('data-kvar')).toBe('0');
-    expect(finns('klar-kvar-text')).toBe(false);
+describe('SE: en sida som ett ifyllt A4', () => {
+  it('"Visa hela trakten" → sektionerna Prognos · Förutsättningar · Har du … · Markägare & övrigt; "‹ Till det som är kvar" tillbaka', () => {
+    montera({});
+    klicka(q('klar-se-oppna'));
+    for (const id of ['prognos', 'forutsattningar', 'hardu', 'ovrigt']) expect(finns(`klar-se-${id}`), id).toBe(true);
+    expect(finns('klar-ga-igenom')).toBe(true);                             // något är kvar → "Gå igenom" överst
+    klicka(q('klar-se-tillbaka'));
+    expect(finns('klar-behover')).toBe(true);
+  });
+  it('allt klart: rubriken "Redo att skicka", åtgärd · areal · volym under, ingen "Gå igenom", Klar för maskin är grön', () => {
+    montera(KLAR);
+    expect(text('klar-status')).toBe('Redo att skicka');
+    expect(text('klar-fakta')).toBe(`Slutavverkning · Rp · 3,6 ha · ${(1800).toLocaleString('sv-SE')} m³fub`);
+    expect(finns('klar-ga-igenom')).toBe(false);
+    expect(finns('klar-behover')).toBe(false);
     expect(q('klar-for-maskin')!.getAttribute('data-klar')).toBe('1');
   });
-  it('ingen basväg väntad (trakt utan basväg) → "Ingen" och klart', () => {
-    montera({ ...nästanKlar, basvagForvantad: false });
-    expect(text('klar-rad-basvag')).toContain('Ingen');
-    expect(finns('klar-kvar-text')).toBe(false);
+  it('Prognos: "Stämmer ✓ Martin 17/10" och en rad per maskin med namn, G15-tim och m³fub/G15', () => {
+    montera(KLAR);
+    expect(text('klar-se-prognos-hoger')).toBe('Stämmer ✓ Martin 17/10');
+    expect(text('klar-se-prognos-skordare')).toContain('Rottne H8E');
+    expect(utanMellanrum(text('klar-se-prognos-skordare'))).toContain('Skördare · 41 G15-tim · 44 m³fub/G15');
+    expect(utanMellanrum(text('klar-se-prognos-skotare'))).toContain('Skotare · 36 G15-tim · 50 m³fub/G15');
+  });
+  it('Förutsättningar: bärighet, terräng och avstånd i tre kolumner, avlägg och basväg (maskinerna står under Prognos)', () => {
+    montera({ ...KLAR, basvagSammanfattning: '5 st · 599 m' });
+    const rad = text('klar-se-forutsattningar-rad');
+    expect(rad).toContain('Bra');
+    expect(rad).toContain('Flack');
+    expect(rad).toContain('Medel');
+    expect(text('klar-se-avlagg')).toBe('Avlägg · eget');
+    expect(text('klar-se-basvag')).toContain('5 st · 599 m');
+  });
+  it('Har du …: sex svar i två kolumner med ✓; obesvarad står som "Obesvarad" i orange', () => {
+    montera(KLAR);
+    for (const f of HAR_DU_FRAGOR) {
+      expect(q(`klar-se-fraga-${f.id}`)!.getAttribute('data-besvarad'), f.id).toBe('1');
+      expect(text(`klar-se-fraga-${f.id}`), f.id).toContain('✓');
+    }
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR, harDu: sattHarDu({}, 'gransar', 'ja', 'm1', 'T') });
+    klicka(q('klar-se-oppna'));
+    expect(text('klar-se-fraga-naturvarden')).toContain('Obesvarad');
+    expect(text('klar-se-hardu-hoger')).toMatch(/^1 av 6/);
+  });
+  it('ett tryck på en sektion öppnar samma steg för att ändra — och efteråt är man tillbaka i sammanställningen', () => {
+    montera(KLAR);
+    klicka(q('klar-se-forutsattningar-rad'));
+    expect(rubrik()).toBe('Förutsättningar');
+    expect(text('klar-steg-nasta')).toBe('Klar');
+    klicka(q('klar-barighet-medel'));
+    expect(spion.patchar.at(-1)).toEqual({ barighet: 'medel' });
+    klicka(q('klar-steg-nasta'));
+    expect(finns('klar-se')).toBe(true);
+    expect(text('klar-se-forutsattningar-rad')).toContain('Medel');
+  });
+  it('‹ traktnamn i ett steg som öppnats ur sammanställningen leder tillbaka dit, inte till uppgiftslistan', () => {
+    montera({});
+    klicka(q('klar-se-oppna'));
+    klicka(q('klar-se-forutsattningar-rad'));
+    klicka(q('klar-steg-tillbaka'));
+    expect(finns('klar-se')).toBe(true);
+  });
+  it('en besvarad fråga öppnar BARA den frågan (ingen bläddring genom de andra), och svaret leder tillbaka', () => {
+    montera(KLAR);
+    klicka(q('klar-se-fraga-ledningar'));
+    expect(rubrik()).toBe(HAR_DU_FRAGOR.find((f) => f.id === 'ledningar')!.fraga);
+    expect(finns('klar-steg-framsteg')).toBe(false);
+    expect(finns('klar-steg-hoppa')).toBe(false);
+    klicka(q('klar-fraga-ledningar-nej'));
+    expect(finns('klar-se')).toBe(true);
+    expect(q('klar-se-fraga-ledningar')!.textContent).toContain(HAR_DU_FRAGOR.find((f) => f.id === 'ledningar')!.nej);
+  });
+  it('Markägare & övrigt: "Inga avvikelser" tills något avviker; sektionen öppnar steget med växlarna', () => {
+    montera(KLAR);
+    expect(text('klar-se-ovrigt-hoger')).toBe('Inga avvikelser');
+    tillOvrigt();
+    expect(rubrik()).toBe('Markägare & övrigt');
+    klicka(q('klar-ovrigt-breddat-vaxla'));
+    expect(spion.patchar.at(-1)).toEqual({ breddat: true });
+  });
+  it('Klar för maskin kan tryckas ur sammanställningen även när något är kvar (spärrar aldrig)', () => {
+    montera({});
+    klicka(q('klar-se-oppna'));
+    klicka(q('klar-for-maskin'));
+    expect(spion.klarForMaskin).toBe(1);
   });
 });
 
-describe('Har du … — svar och varningar', () => {
-  it('ett svar sparas med vem och när; samma svar igen tar tillbaka det', () => {
-    montera({});
-    klicka(q('klar-fraga-gransar-ja'));
-    expect(q('klar-fraga-gransar')!.getAttribute('data-besvarad')).toBe('1');
-    expect(text('klar-fraga-gransar-vem')).toContain('Martin');
-    klicka(q('klar-fraga-gransar-ja'));
-    expect(q('klar-fraga-gransar')!.getAttribute('data-besvarad')).toBe('0');
-    klicka(q('klar-fraga-naturvarden-nej'));
-    expect(q('klar-fraga-naturvarden-nej')!.getAttribute('aria-pressed')).toBe('true');
-    expect(text('klar-fraga-naturvarden-nej')).toBe('Inga hittade');
+describe('planerad trakt', () => {
+  it('klar för maskin och inget kvar: "Klar för maskin ✓" i grönt, sammanställningen, ingen knapp', () => {
+    montera({ ...KLAR, objektStatus: 'planerad' });
+    expect(text('klar-status')).toBe('Klar för maskin ✓');
+    expect(q('klar-status')!.style.color).toBe(farg(FARG.gron));
+    expect(finns('klar-se')).toBe(true);
+    expect(finns('klar-for-maskin')).toBe(false);
+    expect(finns('klar-ga-igenom')).toBe(false);
   });
-  it('fornlämning i lagret → orange varning under kulturfrågan, frågan ställs även utan varning', () => {
-    montera({ restriktioner: [{ type: 'fornlamning', name: 'Stensättning' }] });
-    expect(text('klar-varning-kulturlamningar')).toContain('Registrerad fornlämning: Stensättning');
-    expect(finns('klar-varning-ledningar')).toBe(false);
-    expect(finns('klar-fraga-ledningar')).toBe(true);
-  });
-  it('en el-ledning på kartan varnar under el-frågan', () => {
-    montera({ markeringar: [{ slag: 'symbol', typ: 'powerline' }] });
-    expect(text('klar-varning-ledningar')).toContain('1 el-ledning markerad på kartan');
+  it('något nytt kvar efter att trakten skickats: sammanställningen + "Gå igenom" överst + "· 1 kvar" i rubriken', () => {
+    montera({ ...KLAR, objektStatus: 'planerad', harDu: sattHarDu(ALLA_SVAR() ?? {}, 'gransar', 'ja', 'm1', 'T') });   // samma svar igen tar tillbaka det → en fråga obesvarad
+    expect(text('klar-status')).toContain('Klar för maskin ✓');
+    expect(q('klar-status')!.parentElement!.textContent).toContain('· 1 kvar');
+    expect(finns('klar-se')).toBe(true);
+    expect(finns('klar-behover')).toBe(false);
+    expect(finns('klar-ga-igenom')).toBe(true);
+    gaIgenom();
+    expect(rubrik()).toBe(HAR_DU_FRAGOR[0].fraga);                          // bara Har du … är kvar → genomgången är den steget
   });
 });
 
-describe('del 3 — markägare & övrigt (räknas aldrig)', () => {
-  it('standard "Nej", grått; att slå på band eller ved ändrar inte "kvar"', () => {
-    montera({});
-    const fore = text('klar-kvar-text');
-    klicka(q('klar-ovrigt-band-skotare-vaxla'));
-    expect(spion.patchar.at(-1)).toEqual({ bandSkotare: true });
-    expect(text('klar-kvar-text')).toBe(fore);
-    expect(finns('klar-par-skotare-1')).toBe(true);
+describe('prognosen utanför liknande trakter: prestationen orange + en rad, Stämmer går alltid', () => {
+  const tillPrognos = (f: KlarFixtur) => { montera({ ...BARA_PROGNOS, ...f }); klicka(q('klar-rad-prognos')); };
+  it('inom intervallet (förslaget, och gränserna 38 och 45) ger ingen varning', () => {
+    tillPrognos({});
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+    skriva('skordartimmar', '38'); expect(finns('klar-skordare-varning')).toBe(false);
+    skriva('skordartimmar', '45'); expect(finns('klar-skordare-varning')).toBe(false);
   });
-  it('del 3 är grå: bara det som AVVIKER från standarden lyser; ett tryck växlar; trailer är på som standard', () => {
-    montera({});
-    expect(q('klar-ovrigt-band-skotare')!.getAttribute('data-avviker')).toBe('0');
-    expect(q('klar-ovrigt-trailer')!.getAttribute('data-avviker')).toBe('0');   // "Ja" är standard för trailern → inte lyst
-    expect(text('klar-ovrigt-trailer-vaxla')).toBe('Ja');
-    klicka(q('klar-ovrigt-band-skotare-vaxla'));
-    expect(q('klar-ovrigt-band-skotare')!.getAttribute('data-avviker')).toBe('1');
-    expect(text('klar-ovrigt-band-skotare-vaxla')).toBe('Ja');
-    klicka(q('klar-ovrigt-trailer-vaxla'));
-    expect(spion.patchar.at(-1)).toEqual({ trailerIn: false });
+  it('fler timmar än intervallet: prestationen orange och "Lågt – liknande trakter 40–47 m³fub/G15" under raden; Stämmer är aktiv', () => {
+    tillPrognos({});
+    skriva('skordartimmar', '60');
+    expect(q('klar-skordare-prestation')!.style.color).toBe(orange());
+    expect(text('klar-skordare-varning')).toBe('Lågt – liknande trakter 40–47 m³fub/G15');
+    expect(q('klar-skordare-varning')!.style.color).toBe(orange());
+    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
+    expect(finns('klar-skotare-varning')).toBe(false);                      // bara den rad som ligger utanför
+    expect(q('klar-skotare-prestation')!.style.color).not.toBe(orange());
   });
-  it('raden för en vald maskin säger VILKEN maskin det är', () => {
-    montera({ skotare: EGEN('A110148'), skordare: EGEN('R64101') });
-    expect(text('klar-rad-skotare')).toContain('Ponsse Elephant King AF');
-    expect(text('klar-rad-skordare')).toContain('Rottne H8E');
+  it('färre timmar än intervallet: "Högt – liknande trakter …"', () => {
+    tillPrognos({});
+    skriva('skordartimmar', '30');
+    expect(text('klar-skordare-varning')).toBe('Högt – liknande trakter 40–47 m³fub/G15');
   });
-  it('konfiguration visas bara för Elephant King', () => {
-    montera({ visaKonfiguration: false });
+  it('varningen står under sin egen maskin (skotare: 30–44 tim → 41–60 m³fub/G15)', () => {
+    tillPrognos({});
+    skriva('skotartimmar', '60');
+    expect(text('klar-skotare-varning')).toBe('Lågt – liknande trakter 41–60 m³fub/G15');
+    expect(q('klar-skotare-tid')!.contains(q('klar-skotare-varning'))).toBe(true);
+    expect(finns('klar-skordare-varning')).toBe(false);
+  });
+  it('syns tills siffran är inom intervallet igen', () => {
+    tillPrognos({});
+    skriva('skordartimmar', '60');
+    expect(finns('klar-skordare-varning')).toBe(true);
+    skriva('skordartimmar', '44');
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+  });
+  it('tills någon tryckt Stämmer efter varningen — och kommer tillbaka om siffran ändras igen', () => {
+    tillPrognos({});
+    skriva('skordartimmar', '60');
+    expect(finns('klar-skordare-varning')).toBe(true);
+    klicka(q('klar-stammer'));
+    expect(spion.stammer).toBe(1);
+    klicka(q('klar-se-prognos-skordare'));                                  // tillbaka in i prognosen ur sammanställningen
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+    skriva('skordartimmar', '70');                                          // underlaget ändrat → godkännandet gäller inte längre
+    expect(text('klar-skordare-varning')).toContain('Lågt – liknande trakter');
+  });
+  it('ingen varning när förslag saknas (inget intervall att jämföra mot), hur extremt talet än är', () => {
+    tillPrognos({ utanForslag: true, skordareTimmar: 200, skotareTimmar: 5 });
+    expect(finns('klar-skordare-varning')).toBe(false);
+    expect(finns('klar-skotare-varning')).toBe(false);
+    expect(q('klar-skordare-prestation')!.style.color).not.toBe(orange());
+  });
+  it('ingen varning för extern utförare (inga timmar att bedöma)', () => {
+    tillPrognos({ skordare: EXTERN('Max Skog') });
+    expect(finns('klar-skordare-varning')).toBe(false);
+  });
+  it('varningen räknas inte som "kvar" och ändrar inte rubriken', () => {
+    montera(BARA_PROGNOS);
+    const fore = text('klar-status');
+    klicka(q('klar-rad-prognos'));
+    skriva('skordartimmar', '70');
+    klicka(q('klar-steg-tillbaka'));
+    expect(text('klar-status')).toBe(fore);
+  });
+});
+
+describe('prognosen: medelstam saknas ≠ kan inte godkännas', () => {
+  it('Stämmer är aktiv med snitt över alla trakter, och under tabellen står vad förslaget bygger på', () => {
+    montera({ ...BARA_PROGNOS, medelstam: null });
+    expect(kvarRader()).toEqual(['medelstam', 'prognos']);
+    klicka(q('klar-rad-prognos'));
+    expect(q('klar-stammer')!.hasAttribute('disabled')).toBe(false);
+    expect(text('klar-prognos-snitt')).toBe('Snitt över alla slutavverkningar – blir säkrare med medelstam');
+  });
+  it('extern på båda: "Extern utförare på båda — inget att prognostisera", aldrig kvar', () => {
+    montera({ ...KLAR, skordare: EXTERN('A'), skotare: EXTERN('B'), godkand: false });
+    expect(finns('klar-behover')).toBe(false);                              // inget kvar → sammanställningen
+    expect(text('klar-se-prognos-hoger')).toBe('Extern utförare');
+    expect(text('klar-se-prognos')).toContain('Extern utförare på båda — inget att prognostisera');
+  });
+});
+
+describe('svenskt talformat: decimalkomma överallt i kortet', () => {
+  it('areal "2.75" (text med punkt, som sidan håller den) visas som "2,75 ha" i prognosen och som "2,75" i fältet', () => {
+    montera({ ...BARA_PROGNOS, areal: 2.75 });
+    klicka(q('klar-rad-prognos'));
+    expect(text('klar-cell-areal')).toBe('2,75 ha');
+    klicka(q('klar-cell-areal'));
+    expect((q('klar-areal') as HTMLInputElement).value).toBe('2,75');
+  });
+  it('G15-timmar med decimal visas med komma; volym med tusentalsmellanrum', () => {
+    montera({ ...BARA_PROGNOS, skordareTimmar: 41.5, volym: 1734.5 });
+    klicka(q('klar-rad-prognos'));
+    expect(text('klar-cell-skordartimmar')).toBe('41,5');
+    expect(utanMellanrum(text('klar-cell-volym'))).toContain('1 734,5');
+    klicka(q('klar-cell-skordartimmar'));
+    expect((q('klar-skordartimmar') as HTMLInputElement).value).toBe('41,5');
+  });
+  it('inga punkter som decimaltecken i något synligt tal: uppgiftslistan, prognosen eller sammanställningen', () => {
+    const f: KlarFixtur = { ...BARA_PROGNOS, areal: 2.75, medelstam: 0.72, skordareTimmar: 41.5, skotareTimmar: 36.25, volym: 1734.5 };
+    montera(f);
+    expect(behallare!.textContent).not.toMatch(/\d\.\d/);
+    klicka(q('klar-rad-prognos'));
+    expect(behallare!.textContent).not.toMatch(/\d\.\d/);
+    klicka(q('klar-steg-tillbaka'));
+    klicka(q('klar-se-oppna'));
+    expect(behallare!.textContent).not.toMatch(/\d\.\d/);
+  });
+});
+
+describe('Markägare & övrigt (steget nås från sammanställningen)', () => {
+  it('raderna växlar med ETT tryck; etiketten är alltid vit, bara knappen visar läget', () => {
+    montera(KLAR);
+    tillOvrigt();
+    const rad = q('klar-ovrigt-breddat')!;
+    expect(rad.getAttribute('data-avviker')).toBe('0');
+    klicka(q('klar-ovrigt-breddat-vaxla'));
+    expect(spion.patchar.at(-1)).toEqual({ breddat: true });
+  });
+  it('konfiguration (bred/smal) visas bara för Elephant King', () => {
+    montera({ ...KLAR, visaKonfiguration: false });
+    tillOvrigt();
     expect(finns('klar-ovrigt-konfiguration')).toBe(false);
     act(() => { rot!.unmount(); }); behallare!.remove();
-    montera({ visaKonfiguration: true });
+    montera({ ...KLAR, visaKonfiguration: true });
+    tillOvrigt();
     expect(finns('klar-ovrigt-konfiguration')).toBe(true);
-    expect(text('klar-ovrigt-konfiguration-vaxla')).toBe('Bred');   // standard, grått
   });
-  it('gamla anteckningar: en grå rad, inget raderat, ingen redigering', () => {
-    montera({ gamlaAnteckningar: 'Ring Stefan innan start.' });
-    expect(text('klar-gamla-anteckningar')).toContain('Gamla anteckningar');
-    expect(text('klar-gamla-anteckningar')).toContain('Ring Stefan innan start.');
-    expect(q('klar-gamla-anteckningar')!.querySelector('textarea,input')).toBeNull();
-    act(() => { rot!.unmount(); }); behallare!.remove();
-    montera({});
-    expect(finns('klar-gamla-anteckningar')).toBe(false);
+  it('gamla anteckningar står som en grå rad — inget raderat', () => {
+    montera({ ...KLAR, gamlaAnteckningar: 'Ring Stefan.' });
+    tillOvrigt();
+    expect(text('klar-gamla-anteckningar')).toContain('Ring Stefan.');
   });
 });
 
-describe('ved', () => {
-  it('raden öppnar vedvyn; val ger en sammanfattning; ‹ tillbaka visar den i kortet', () => {
+describe('alla tryckytor', () => {
+  it('uppgiftslistan: ≥ 44 pt (rader) och 60 pt (Gå igenom); stegen: 60 pt på de stora knapparna', () => {
     montera({});
-    klicka(q('klar-ved-rad'));
-    expect(finns('ved-innehall')).toBe(true);
-    expect(text('ved-sammanfattning')).toBe('Ved: vid avlägget');   // förvalt: vid avlägget
-    klicka(q('ved-langd-3m')); klicka(q('ved-sortiment-bjork')); klicka(q('ved-sortiment-lov'));
-    skriv(q('ved-ovrigt') as HTMLTextAreaElement, 'vid ladan');
-    expect(text('ved-sammanfattning')).toBe('Ved: 3 m · Björk, Allt löv · vid avlägget · vid ladan');
-    klicka(q('ved-klar'));
-    expect(finns('ved-innehall')).toBe(false);
-    expect(text('klar-ved-text')).toBe('Ved: 3 m · Björk, Allt löv · vid avlägget · vid ladan');
-    expect(text('klar-ovrigt-ved')).toContain('Ja');
-  });
-  it('"Sätt på kartan" ber sidan att gå in i placeringsläget; utan symbol sägs det', () => {
-    montera({});
-    klicka(q('klar-ved-rad'));
-    klicka(q('ved-plats-karta'));
-    expect(spion.sattVed).toBe(1);
-    expect(text('ved-karta-status')).toContain('Ingen symbol satt än');
-  });
-  it('med symbol på kartan sägs det att föraren ser den', () => {
-    montera({ ved: { ...VED_TOM, plats: 'karta', lat: 56.4, lng: 14.7, markeringId: 'abc' }, markagareVed: true });
-    klicka(q('klar-ved-rad'));
-    expect(text('ved-karta-status')).toContain('föraren ser den');
-  });
-  it('"Annan" längd öppnar ett fritt fält; "Ingen ved" slår av och går tillbaka', () => {
-    montera({ markagareVed: true });
-    klicka(q('klar-ved-rad'));
-    klicka(q('ved-langd-annan'));
-    skriv(q('ved-langd-annan-falt') as HTMLInputElement, '2,5 m');
-    expect(text('ved-sammanfattning')).toContain('2,5 m');
-    klicka(q('ved-ingen'));
-    expect(finns('ved-innehall')).toBe(false);
-    expect(text('klar-ovrigt-ved')).toContain('Nej');
+    const knappar = Array.from(behallare!.querySelectorAll<HTMLElement>('button'));
+    for (const b of knappar) expect(px(b.style.minHeight) || 44, b.textContent ?? '').toBeGreaterThanOrEqual(44);
+    gaIgenom();
+    expect(px(q('klar-avlagg-placera')!.style.minHeight)).toBeGreaterThanOrEqual(60);
+    expect(px(q('klar-steg-tillbaka')!.style.minHeight)).toBeGreaterThanOrEqual(44);
   });
 });
 
@@ -384,7 +851,7 @@ describe('ingången från ⓘ-kortet', () => {
     expect(text('kort-klar-chip')).toBe('13 kvar');
     klicka(q('kort-klar-rad'));
     expect(finns('klar-innehall')).toBe(true);
-    expect(text('info-titel')).toBe('Klar med Skälviken?');
+    expect(text('info-titel')).toBe('Skälviken');
   });
   it('föraren (eller en avslutad trakt) har ingen rad', () => {
     monteraInfo(infoProps(null, 'forare'));
@@ -402,185 +869,50 @@ describe('ingången från ⓘ-kortet', () => {
   });
 });
 
-describe('raden stängs när ett val är gjort — nästa rad syns direkt', () => {
-  const oppen = (id: string) => q(`klar-rad-${id}`)!.getAttribute('aria-expanded') === 'true';
-  it('bärighet, terräng och skotningsavstånd: ett val stänger raden; att ta tillbaka valet gör det inte', () => {
-    montera({});
-    for (const [rad, val] of [['barighet', 'bra'], ['terrang', 'flackt'], ['skotningsavstand', 'medel']] as const) {
-      klicka(q(`klar-rad-${rad}`));
-      expect(oppen(rad)).toBe(true);
-      klicka(q(`klar-${rad}-${val}`));
-      expect(oppen(rad), `${rad} stängd efter val`).toBe(false);
-      expect(finns(`klar-${rad}-${val}`)).toBe(false);
-    }
-    klicka(q('klar-rad-barighet'));
-    klicka(q('klar-barighet-bra'));          // samma val igen = tar tillbaka svaret
-    expect(spion.patchar.at(-1)).toEqual({ barighet: null });
-    expect(oppen('barighet')).toBe(true);    // inget val står kvar → raden förblir öppen
-  });
-  it('skördare: Egen utan maskin stannar öppen, en vald maskin stänger; Extern stannar öppen tills namnet är ifyllt och stängs aldrig av skrivandet', () => {
-    montera({});
-    klicka(q('klar-rad-skordare'));
-    klicka(q('klar-skordare-egen'));
-    expect(oppen('skordare')).toBe(true);
-    klicka(q('klar-skordare-maskin-R64101'));
-    expect(oppen('skordare')).toBe(false);
-    expect(text('klar-rad-skordare')).toContain('Rottne H8E');
 
-    klicka(q('klar-rad-skotare'));
-    klicka(q('klar-skotare-extern'));
-    expect(oppen('skotare')).toBe(true);
-    skriv(q('klar-skotare-extern-namn') as HTMLInputElement, 'Max Skotning');
-    expect(oppen('skotare')).toBe(true);     // ett skrivfält stänger inte av sig självt
-    klicka(q('klar-rad-skotare'));           // planeraren stänger själv
-    expect(oppen('skotare')).toBe(false);
-    expect(text('klar-rad-skotare')).toContain('Extern · Max Skotning');
+
+describe('ved', () => {
+  it('raden öppnar vedvyn; val ger en sammanfattning; ‹ tillbaka visar den i kortet', () => {
+    montera(KLAR);
+    tillOvrigt();
+    klicka(q('klar-ved-rad'));
+    expect(finns('ved-innehall')).toBe(true);
+    expect(text('ved-sammanfattning')).toBe('Ved: vid avlägget');   // förvalt: vid avlägget
+    klicka(q('ved-langd-3m')); klicka(q('ved-sortiment-bjork')); klicka(q('ved-sortiment-lov'));
+    skriv(q('ved-ovrigt') as HTMLTextAreaElement, 'vid ladan');
+    expect(text('ved-sammanfattning')).toBe('Ved: 3 m · Björk, Allt löv · vid avlägget · vid ladan');
+    klicka(q('ved-klar'));
+    expect(finns('ved-innehall')).toBe(false);
+    expect(finns('klar-del3')).toBe(true);                           // tillbaka i steget Markägare & övrigt
+    expect(text('klar-ved-text')).toBe('Ved: 3 m · Björk, Allt löv · vid avlägget · vid ladan');
+    expect(text('klar-ovrigt-ved')).toContain('Ja');
+    klicka(q('klar-steg-nasta'));                                    // Klar → tillbaka till sammanställningen, där avvikelsen står
+    expect(text('klar-se-ovrigt-rad')).toContain('3 m · Björk, Allt löv');
   });
-  it('Egen när en maskin redan är förvald (eller sparad) räknas som ett val och stänger', () => {
-    montera({ skordare: EGEN('PONS20SDJAA270231') });
-    klicka(q('klar-rad-skordare'));
-    klicka(q('klar-skordare-egen'));
-    expect(oppen('skordare')).toBe(false);
+  it('"Sätt på kartan" ber sidan att gå in i placeringsläget; utan symbol sägs det', () => {
+    montera(KLAR);
+    tillOvrigt();
+    klicka(q('klar-ved-rad'));
+    klicka(q('ved-plats-karta'));
+    expect(spion.sattVed).toBe(1);
+    expect(text('ved-karta-status')).toContain('Ingen symbol satt än');
   });
-  it('bara den rad som valet hör till stängs — en annan öppen rad störs inte', () => {
-    montera({});
-    klicka(q('klar-rad-prognos'));
-    expect(oppen('prognos')).toBe(true);
-    klicka(q('klar-rad-barighet'));          // öppnar bärighet, prognos stängs (en rad i taget)
-    klicka(q('klar-barighet-bra'));
-    expect(oppen('barighet')).toBe(false);
-    expect(oppen('prognos')).toBe(false);
+  it('med symbol på kartan sägs det att föraren ser den', () => {
+    montera({ ...KLAR, ved: { ...VED_TOM, plats: 'karta', lat: 56.4, lng: 14.7, markeringId: 'abc' }, markagareVed: true });
+    tillOvrigt();
+    klicka(q('klar-ved-rad'));
+    expect(text('ved-karta-status')).toContain('föraren ser den');
+  });
+  it('"Annan" längd öppnar ett fritt fält; "Ingen ved" slår av och går tillbaka', () => {
+    montera({ ...KLAR, markagareVed: true });
+    tillOvrigt();
+    klicka(q('klar-ved-rad'));
+    klicka(q('ved-langd-annan'));
+    skriv(q('ved-langd-annan-falt') as HTMLInputElement, '2,5 m');
+    expect(text('ved-sammanfattning')).toContain('2,5 m');
+    klicka(q('ved-ingen'));
+    expect(finns('ved-innehall')).toBe(false);
+    expect(text('klar-ovrigt-ved')).toContain('Nej');
   });
 });
 
-describe('förval: egen maskin — raden är ifylld, Egen/Extern syns först när man öppnar den', () => {
-  it('förvald skördare och skotare: inte kvar, maskinens namn på raden, inga Egen/Extern-knappar i viloläget', () => {
-    montera({ skordare: EGEN('PONS20SDJAA270231'), skotare: EGEN('A110148') });
-    expect(q('klar-post-skordare')!.getAttribute('data-kvar')).toBe('0');
-    expect(q('klar-post-skotare')!.getAttribute('data-kvar')).toBe('0');
-    expect(text('klar-rad-skordare')).toContain('Ponsse Scorpion Giant 8W');
-    expect(text('klar-rad-skordare')).not.toContain('Välj');
-    expect(finns('klar-skordare-egen')).toBe(false);
-    expect(finns('klar-skordare-extern')).toBe(false);
-    klicka(q('klar-rad-skordare'));
-    expect(finns('klar-skordare-egen')).toBe(true);
-    expect(finns('klar-skordare-extern')).toBe(true);
-    expect(q('klar-skordare-egen')!.getAttribute('aria-pressed')).toBe('true');
-  });
-  it('ingen egen maskin går att hitta → raden är orange och kvar ("Välj")', () => {
-    montera({ skordare: INGEN, skotare: EGEN('A110148') });
-    expect(q('klar-post-skordare')!.getAttribute('data-kvar')).toBe('1');
-    expect(text('klar-rad-skordare')).toContain('Välj');
-    expect(q('klar-post-skotare')!.getAttribute('data-kvar')).toBe('0');
-  });
-});
-
-describe('del 3: etiketten är alltid vit — bara knappen till höger visar läget', () => {
-  const FARG_TEXT = (() => { const e = document.createElement('div'); e.style.color = '#ffffff'; return e.style.color; })();
-  const etikettFarg = (id: string) => (q(`klar-ovrigt-${id}`)!.querySelector('span') as HTMLElement).style.color;
-  it('alla rader i del 3 har vit etikett, både på standard och när de avviker', () => {
-    montera({ visaKonfiguration: true });
-    const rader = ['band-skordare', 'band-skotare', 'breddat', 'konfiguration', 'ris', 'vagn', 'trailer', 'manuell'];
-    for (const id of rader) expect(etikettFarg(id), `${id} (standard)`).toBe(FARG_TEXT);
-    for (const id of ['band-skotare', 'breddat', 'manuell']) klicka(q(`klar-ovrigt-${id}-vaxla`));
-    for (const id of rader) expect(etikettFarg(id), `${id} (avviker)`).toBe(FARG_TEXT);
-    // läget bor i knappen: grå fyllning = standard, vit = avviker
-    expect(q('klar-ovrigt-ris')!.getAttribute('data-avviker')).toBe('0');
-    expect(q('klar-ovrigt-band-skotare')!.getAttribute('data-avviker')).toBe('1');
-  });
-  it('vedraden: etiketten vit i båda lägena; "Nej" grå fyllning, "Ja" vit fyllning; resten av raden är tryckbar', () => {
-    montera({});
-    const knapp = () => q('klar-ved-rad')!;
-    expect(knapp().style.color).toBe(FARG_TEXT);
-    expect(q('klar-ved-lage')!.getAttribute('data-avviker')).toBe('0');
-    // samma fyllning som övriga raders läge-knapp i samma läge: Nej = grå (som en ej påslagen knapp), Ja = vit
-    const fyllning = (id: string) => q(id)!.style.background;
-    expect(fyllning('klar-ved-lage')).toBe(fyllning('klar-ovrigt-ris-vaxla'));
-    klicka(knapp());                         // slår på ved och öppnar vedarket
-    act(() => { (q('ved-klar') as HTMLElement).click(); });
-    expect(knapp().style.color).toBe(FARG_TEXT);
-    expect(q('klar-ved-lage')!.getAttribute('data-avviker')).toBe('1');
-    expect(text('klar-ved-lage')).toBe('Ja');
-    expect(fyllning('klar-ved-lage')).not.toBe(fyllning('klar-ovrigt-band-skotare-vaxla'));   // Ja = vit, en ej påslagen knapp = grå
-    klicka(q('klar-ovrigt-band-skotare-vaxla'));   // en annan rad som avviker (Ja) har samma vita fyllning
-    expect(fyllning('klar-ved-lage')).toBe(fyllning('klar-ovrigt-band-skotare-vaxla'));
-  });
-});
-
-describe('G15-förslaget: förifyllt, med källa, prestation och orange tomläge', () => {
-  const fyllt: KlarFixtur = { skordare: EGEN('PONS20SDJAA270231'), skotare: EGEN('A110148'), skordareTimmar: 41, skotareTimmar: 36 };
-  it('ingen "Använd förslaget"-knapp och ingen förslagsruta — fälten är redan ifyllda med förslaget', () => {
-    montera(fyllt);
-    klicka(q('klar-rad-prognos'));
-    expect(finns('klar-prognos-anvand')).toBe(false);
-    expect(finns('klar-prognos-forslag')).toBe(false);
-    expect(behallare!.textContent).not.toContain('Använd förslaget');
-    expect((q('klar-skordartimmar') as HTMLInputElement).value).toBe('41');
-    expect((q('klar-skotartimmar') as HTMLInputElement).value).toBe('36');
-  });
-  it('metarad om källan under fältet: antal trakter, medelstam och uppmätt spann (troligen …)', () => {
-    montera(fyllt);
-    klicka(q('klar-rad-prognos'));
-    expect(text('klar-skordare-kalla')).toBe('Ur 7 trakter med medelstam 0,64–1,0 · troligen 38–45');
-    expect(text('klar-skotare-kalla')).toBe('Ur 22 slutavverkningar (snitt) · troligen 30–44');
-    expect(finns('klar-skordare-andrad')).toBe(false);
-  });
-  it('ändrar man siffran visas "Ändrad av dig · förslag 41", och källan står kvar', () => {
-    montera(fyllt);
-    klicka(q('klar-rad-prognos'));
-    skriv(q('klar-skordartimmar') as HTMLInputElement, '55');
-    expect(text('klar-skordare-andrad')).toBe('Ändrad av dig · förslag 41');
-    expect(finns('klar-skordare-kalla')).toBe(true);
-    expect(finns('klar-skotare-andrad')).toBe(false);          // skotaren orörd
-    skriv(q('klar-skordartimmar') as HTMLInputElement, '41');
-    expect(finns('klar-skordare-andrad')).toBe(false);          // tillbaka på förslaget → ingen "ändrad"
-  });
-  it('prestation per maskin (volym ÷ G15-tim), både hopfällt och öppet, och den följer en ändrad siffra', () => {
-    montera({ ...fyllt, volym: 1800 });
-    expect(text('klar-prognos-rad-0')).toBe('Skördare 41 G15-tim · 44 m³fub/G15');
-    expect(text('klar-prognos-rad-1')).toBe('Skotare 36 G15-tim · 50 m³fub/G15');
-    klicka(q('klar-rad-prognos'));
-    expect(text('klar-skordare-prestation')).toBe('44 m³fub/G15');
-    skriv(q('klar-skordartimmar') as HTMLInputElement, '60');
-    expect(text('klar-skordare-prestation')).toBe('30 m³fub/G15');
-  });
-  it('prestationen skrivs inte när något saknas (ingen volym → bara timmarna)', () => {
-    montera({ ...fyllt, volym: null });
-    expect(text('klar-prognos-rad-0')).toBe('Skördare 41 G15-tim');
-    klicka(q('klar-rad-prognos'));
-    expect(finns('klar-skordare-prestation')).toBe(false);
-  });
-  it('inget förslag (för få jämförbara): fältet tomt, orange förklaring, raden orange och kvar — ingen gissning', () => {
-    montera({ skordare: EGEN('PONS20SDJAA270231'), skotare: EGEN('A110148'), utanForslag: true });
-    expect(q('klar-post-prognos')!.getAttribute('data-kvar')).toBe('1');
-    expect(text('klar-rad-prognos')).toMatch(/Saknar skördartimmar/);
-    klicka(q('klar-rad-prognos'));
-    expect((q('klar-skordartimmar') as HTMLInputElement).value).toBe('');
-    expect(text('klar-skordare-forslag-saknas')).toMatch(/Färre än 3 jämförbara trakter/);
-    expect(finns('klar-skordare-kalla')).toBe(false);
-    expect(finns('klar-prognos-rad-0')).toBe(false);
-  });
-  it('extern skördare: inga G15-fält för den (bara egna maskiner har timmar)', () => {
-    montera({ skordare: EXTERN('Skog AB'), skotare: EGEN('A110148'), skotareTimmar: 36 });
-    klicka(q('klar-rad-prognos'));
-    expect(finns('klar-skordartimmar')).toBe(false);
-    expect(finns('klar-skotartimmar')).toBe(true);
-  });
-});
-
-describe('medelstam som egen rad i del 1', () => {
-  it('saknas den (ingen TD-träff, inget skrivet) är raden orange och kvar, med förklaringen att förslaget då tar snitt över alla', () => {
-    montera({ medelstam: null });
-    expect(q('klar-post-medelstam')!.getAttribute('data-kvar')).toBe('1');
-    expect(text('klar-rad-medelstam')).toContain('Skriv');
-    expect(text('klar-post-medelstam')).toContain('snitt över alla trakter');
-    expect(text('klar-kvar-text')).toContain('8 saker');          // sju poster + medelstam, räknas inte listas
-  });
-  it('att skriva den tar bort "kvar" och raden stängs inte av sig själv (skrivfält)', () => {
-    montera({ medelstam: null });
-    klicka(q('klar-rad-medelstam'));
-    skriv(q('klar-medelstam') as HTMLInputElement, '0,8');
-    expect(spion.patchar.at(-1)).toEqual({ medelstam: '0,8' });
-    expect(q('klar-rad-medelstam')!.getAttribute('aria-expanded')).toBe('true');
-  });
-});
