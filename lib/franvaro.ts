@@ -32,6 +32,7 @@ export const FRANVARO_TYPER = [
   "inarbetad",     // skoftning §5 mom 4 — kräver ersatter_datum; ingen helglön flyttas
   "tjanstledig",   // ej intjänad; omger den en helgdag → ingen helglön (§10 mom 4)
   "permission",    // kort ledighet med lön
+  "hemskickad",    // skickad hem mitt på dagen (maskinen gick sönder, väder) — del av dag, BETALAS: dagen fylls upp till 8 tim som timlön
 ] as const;
 export type FranvaroTyp = (typeof FRANVARO_TYPER)[number];
 
@@ -46,7 +47,7 @@ export const FRANVARO_STATUS_GALLER: readonly FranvaroStatus[] = ["godkänd", "r
 export type FranvaroKalla = "ansokan" | "morgonkort" | "admin" | "backfill";
 
 /** Typer som anmäls (kan vara 'registrerad'), inte ansöks. = RLS-spärren för egen insert. */
-export const FRANVARO_ANMALS: readonly FranvaroTyp[] = ["sjuk", "vab", "foraldraledig"];
+export const FRANVARO_ANMALS: readonly FranvaroTyp[] = ["sjuk", "vab", "foraldraledig", "hemskickad"];
 
 /** Intjänad ledighet — bryter inte helglön även efter 30 dagar (§10 mom 4). */
 export const FRANVARO_INTJANAD: readonly FranvaroTyp[] = ["semester", "atk", "komp"];
@@ -62,6 +63,7 @@ export const FRANVARO_TYP_RUBRIK: Record<FranvaroTyp, string> = {
   inarbetad: "Inarbetad dag",
   tjanstledig: "Tjänstledig",
   permission: "Permission",
+  hemskickad: "Hemskickad",
 };
 
 /** Kort ord per typ — kalenderns celler och luck-texter, där utrymmet är litet. */
@@ -75,6 +77,7 @@ export const FRANVARO_ORD: Record<FranvaroTyp, string> = {
   inarbetad: "Inarbetad",
   tjanstledig: "Tjänstl.",
   permission: "Permission",
+  hemskickad: "Hemskickad",
 };
 
 export function arFranvaroTyp(typ: string | null | undefined): typ is FranvaroTyp {
@@ -101,8 +104,21 @@ export const FRANVARO_VAL: readonly FranvaroVal[] = [
   { id: "foraldraledig", label: "Föräldraledig", ikon: "family_restroom",  meddelande: "Föräldraledighet registrerad" },
 ] as const;
 
+/**
+ * Hemskickad (Martin 2026-10-17): maskinen gick sönder eller vädret stoppade jobbet och föraren åkte hem mitt på dagen. Valet finns
+ * BARA i "Åkte hem" (Dag-vyn och Redigera) — aldrig på morgonkortet, där en hel dag hemskickad inte betyder något. Raden är en deldag
+ * (klockslaget föraren åkte hem); dagen fylls upp till 8 tim och betalas som timlön (`hemskickadMinuter`, lönemotorn).
+ */
+export const HEMSKICKAD_VAL: FranvaroVal = { id: "hemskickad", label: "Maskinen gick sönder / väder", ikon: "build", meddelande: "Hemskickad — dagen betalas upp till 8 tim" };
+
+/** Valen i "Åkte hem": frånvarotyperna och hemskickad. Morgonkortet har bara FRANVARO_VAL. */
+export const DELDAG_VAL: readonly FranvaroVal[] = [...FRANVARO_VAL, HEMSKICKAD_VAL] as const;
+
 /** Underraden på frånvarokortet: man ska se vad som finns under utan att trycka. */
 export const FRANVARO_UNDERRAD = FRANVARO_VAL.map((v) => v.label === "Sjukfrånvaro" ? "Sjuk" : v.label).join(", ");
+
+/** Samma för "Åker hem" (deldag): frånvarotyperna och hemskickad. */
+export const DELDAG_UNDERRAD = [...FRANVARO_VAL.map((v) => v.label === "Sjukfrånvaro" ? "Sjuk" : v.label), "Hemskickad"].join(", ");
 
 // ── Läsa ─────────────────────────────────────────────────────
 
@@ -135,7 +151,7 @@ const FRANVARO_KOLUMNER = "id, medarbetare_id, typ, startdatum, slutdatum, statu
 // eftermiddagen är frånvaro. Timmarna HÄRLEDS (deldagTimmar), lagras aldrig.
 
 /** Typer som får vara del av dag (= CHECK ledighet_deldag_regler). Semester är hela dagar, inarbetad alltid hel. */
-export const FRANVARO_DELDAG_TYPER: readonly FranvaroTyp[] = ["sjuk", "vab", "foraldraledig", "atk", "komp", "permission", "tjanstledig"];
+export const FRANVARO_DELDAG_TYPER: readonly FranvaroTyp[] = ["sjuk", "vab", "foraldraledig", "atk", "komp", "permission", "tjanstledig", "hemskickad"];
 
 export function arDeldag(r: { fran_tid?: string | null; till_tid?: string | null }): boolean {
   return !!(r.fran_tid || r.till_tid);
@@ -173,6 +189,26 @@ export function deldagarPerDatum(rader: FranvaroRad[], fran: string, till: strin
 export function deldagTimmar(schemaTimmarPerDag: number, arbetadMin: number | null | undefined): number {
   const h = schemaTimmarPerDag - (arbetadMin || 0) / 60;
   return Math.round(Math.max(0, Math.min(schemaTimmarPerDag, h)) * 10) / 10;
+}
+
+// ── Hemskickad ───────────────────────────────────────────────
+// Dagen fylls upp till 8 tim: arbetad tid + hemskickad tid = 8. Hemskickad tid betalas som timlön (och därmed premie), räknas som arbetad
+// tid mot månadens ordinarie och ger aldrig övertid. Minuter är heltal hela vägen — timmar med två decimaler först i slutsumman.
+// Målet är 8 tim (en ordinarie dag, som `ordinarie = arbetsdagar × 8` i lönemotorn), inte schematimmarna: samma tal på båda sidor.
+
+/** En ordinarie dag i minuter (8 tim). */
+export const HEM_DAG_MIN = 480;
+
+/** Hemskickad tid en dag = 8 tim − arbetad tid (maskin + extra tid), aldrig negativt, aldrig över 8 tim. */
+export function hemskickadMinuter(arbetadMin: number | null | undefined): number {
+  const m = Math.max(0, Math.round(Number(arbetadMin) || 0));
+  return Math.max(0, HEM_DAG_MIN - m);
+}
+
+/** Minuter som "2:00" — förarens sätt att läsa en tid ("Hemskickad 2:00 – betalas"). */
+export function fmtTimMin(min: number | null | undefined): string {
+  const m = Math.max(0, Math.round(Number(min) || 0));
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
 }
 
 /** Schematimmar per dag ur avtalets ordinarie veckoarbetstid (40 → 8). */
@@ -388,6 +424,8 @@ export async function registreraFranvaro(
   if (!FRANVARO_ANMALS.includes(p.typ)) return { ok: false, fel: `${p.typ} ansöks i Ledighet, anmäls inte här.` };
   const deldag = !!(p.franTid || p.tillTid);
   if (deldag && !FRANVARO_DELDAG_TYPER.includes(p.typ)) return { ok: false, fel: `${FRANVARO_TYP_RUBRIK[p.typ]} kan inte vara del av dag.` };
+  // Hemskickad är alltid en del av dagen: klockslaget föraren åkte hem, ingen sluttid (resten av dagen betalas upp till 8 tim).
+  if (p.typ === "hemskickad" && (!p.franTid || p.tillTid)) return { ok: false, fel: "Hemskickad gäller resten av dagen — ange klockslaget du åkte hem." };
   if (p.franTid && p.tillTid && p.franTid >= p.tillTid) return { ok: false, fel: "Från-tiden måste vara före till-tiden." };
   const { data, error } = await supabase
     .from("ledighet_ansokningar")

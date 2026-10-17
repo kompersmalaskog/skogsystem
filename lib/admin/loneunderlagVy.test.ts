@@ -76,3 +76,23 @@ describe("Löneunderlaget per förare: en sak per rad, samma sak aldrig två gå
     expect(antalAttKolla([a, b], 0, false)).toBe(2 + 1);
   });
 });
+
+describe("Hemskickad: Admin ser antalet timmar per förare och månad, och det är betald tid (ingen att-kolla)", () => {
+  it("en info-rad med timmar, dagar och vilka dagar — ingen kolla-rad, ingen 'frånvaro'", () => {
+    const k = byggForarKort(forare({ hemskickad: [{ datum: "2026-08-11", minuter: 120 }, { datum: "2026-08-19", minuter: 113 }], hemskickad_h: 3.88 }));
+    expect(k.info.find(r => r.id === "hemskickad")!.text).toBe("Hemskickad 3,88 tim · 2 dagar (11 aug, 19 aug) – betalas som timlön");
+    expect(k.kolla).toHaveLength(0);
+    expect(alltText(k)).not.toMatch(/frånvaro|Deldag/i);
+  });
+  it("en dag: 'dag', inte 'dagar'", () => {
+    const k = byggForarKort(forare({ hemskickad: [{ datum: "2026-08-11", minuter: 120 }], hemskickad_h: 2 }));
+    expect(k.info.find(r => r.id === "hemskickad")!.text).toBe("Hemskickad 2 tim · 1 dag (11 aug) – betalas som timlön");
+  });
+  it("ingen hemskickad: ingen rad (en tom grupp visas inte)", () => {
+    expect(byggForarKort(forare({ hemskickad: [], hemskickad_h: 0 })).info.some(r => r.id === "hemskickad")).toBe(false);
+    expect(byggForarKort(forare()).info.some(r => r.id === "hemskickad")).toBe(false);
+  });
+  it("företagsledare får ingen rad", () => {
+    expect(byggForarKort(forare({ foretagsledare: true, hemskickad: [{ datum: "2026-08-11", minuter: 120 }], hemskickad_h: 2 })).info).toEqual([]);
+  });
+});

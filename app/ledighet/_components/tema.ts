@@ -29,4 +29,5 @@ export const TYPINFO: Record<LedighetTyp, { label: string }> = {
   inarbetad:     { label: FRANVARO_TYP_RUBRIK.inarbetad },
   tjanstledig:   { label: FRANVARO_TYP_RUBRIK.tjanstledig },
   permission:    { label: FRANVARO_TYP_RUBRIK.permission },
+  hemskickad:    { label: FRANVARO_TYP_RUBRIK.hemskickad },
 };

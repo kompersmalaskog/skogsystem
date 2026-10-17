@@ -33,7 +33,7 @@
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
 import { loneartInfo, type LoneartKey, type Loneartskoder } from "./loneart";
-import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag } from "../franvaro";
+import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag, hemskickadMinuter } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { helglonIManad, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
 import { brandriskSumma, minTillTimmar, type BrandriskSumma } from "../ob";
@@ -81,6 +81,19 @@ export type DeldagRad = {
   arbetad_min: number;
   timmar: number;          // schematimmar/dag − arbetade (lib/franvaro.deldagTimmar)
   schema_timmar: number;   // antagandet timmarna räknats mot
+};
+
+/**
+ * Hemskickad (typ 'hemskickad', del av dag): dagen fylls upp till 8 tim. Raden bär klockslaget föraren åkte hem; minuterna HÄRLEDS ur
+ * den arbetade tiden den dagen (maskin + extra tid) och lagras aldrig. Betalas som timlön, ingår i premien, räknas som arbetad tid mot
+ * månadens ordinarie och ger aldrig övertid. En hemskickad dag är en hel 8-timmarsdag utanför utjämningen mot andra dagar.
+ */
+export type HemskickadRad = {
+  datum: string;
+  fran_tid: string | null;
+  arbetad_min: number;     // maskin + extra tid den dagen
+  minuter: number;         // 8 tim − arbetad (lib/franvaro.hemskickadMinuter) — heltal
+  timmar: number;          // minuter / 60, två decimaler
 };
 
 // Bytesdag (skoftning §5 mom 4) i granskningen. Aldrig en lönerad, aldrig
@@ -167,6 +180,10 @@ export type ExportSammanfattning = {
   // schema beslutats (§12 mom 3 anm 2). Aldrig lönerad — löneart öppen, och
   // frågan "levereras sjukfrånvaro i timmar?" ligger hos löneansvarig.
   deldagar: DeldagRad[];
+  // Hemskickade dagar (typ 'hemskickad', del av dag): INGEN frånvaro — dagen fylls upp till 8 tim och betalas som timlön (och premie), räknas mot
+  // ordinarie, aldrig övertid. `hemskickad_h` = summan i timmar (två decimaler), det Admin ser per förare och månad.
+  hemskickad: HemskickadRad[];
+  hemskickad_h: number;
   // Dagar under arbetsdagströskeln (lib/arbetsdagRegler): betald tid som inte är
   // en arbetsdag. Visas i granskningen — oftast inloggningar på annans maskin.
   kortpass: { datum: string; minuter: number; km_totalt: number }[];
@@ -283,6 +300,31 @@ export function beräknaExport(
   const antalArbetsdagar = produktionsDagar.length;
   const ordinarie = antalArbetsdagar * 8; // timmar
 
+  // ── HEMSKICKAD — dagen fylls upp till 8 tim, betalas som timlön ──
+  // Raden (ledighet typ 'hemskickad', klockslag) säger bara att föraren åkte hem; minuterna härleds ur arbetad tid den dagen. Hemskickad tid på en
+  // ARBETSDAG ligger i totalH (räknas mot ordinarie: dagen är en hel 8-timmarsdag, den jämnas inte ut mot andra dagar). På en dag som inte är
+  // arbetsdag (under 60 min eller ingen tid alls) betalas den som timlön men ger ingen ×8, vältlapp eller reseersättning — som kortpass.
+  const arbperiod = arbetsperiodFrånLöneperiod(loneperiod); // YYYY-MM
+  const arbMinPerDatum = new Map<string, number>();
+  for (const d of dagar) arbMinPerDatum.set(d.datum, (arbMinPerDatum.get(d.datum) || 0) + (d.arbetad_min || 0));
+  const arbetsdagDatum = new Set(produktionsDagar.map(d => d.datum));
+  const hemskickad: HemskickadRad[] = [];
+  const hemSedda = new Set<string>();
+  let hemArbetsdagMin = 0, hemOvrigMin = 0;
+  for (const l of ledigheter) {
+    if (String(l.typ || "").toLowerCase() !== "hemskickad" || !arDeldag(l) || !l.startdatum) continue;
+    if (!l.startdatum.startsWith(arbperiod) || hemSedda.has(l.startdatum)) continue;  // utanför månaden / samma dag två gånger = en gång
+    hemSedda.add(l.startdatum);
+    const arbetadMin = (arbMinPerDatum.get(l.startdatum) || 0) + (extraMinPerDatum.get(l.startdatum) || 0);
+    const minuter = hemskickadMinuter(arbetadMin);
+    if (minuter <= 0) continue;                                                      // redan 8 tim arbetade: inget att fylla upp
+    hemskickad.push({ datum: l.startdatum, fran_tid: l.fran_tid ? String(l.fran_tid).slice(0, 5) : null, arbetad_min: arbetadMin, minuter, timmar: Math.round(minuter / 60 * 100) / 100 });
+    if (arbetsdagDatum.has(l.startdatum)) hemArbetsdagMin += minuter; else hemOvrigMin += minuter;
+  }
+  hemskickad.sort((a, b) => a.datum.localeCompare(b.datum));
+  const hemMinTotalt = hemArbetsdagMin + hemOvrigMin;
+  const hemskickadH = Math.round(hemMinTotalt / 60 * 100) / 100;
+
   // Räkna obekräftade
   let obekraftade = 0;
 
@@ -312,6 +354,9 @@ export function beräknaExport(
   // ordinarie var 0 eftersom dagen inte är arbetsdag.
   const kortpassH = kortpass.reduce((a, k) => a + (dagarMedTid.find(d => d.datum === k.datum)?.arbetad_min || 0), 0) / 60;
   totalH += kortpassH;
+  // Hemskickad tid: arbetad tid i betydelsen "betald som timlön". På en dag utan ×8 är den betald tid precis som kortpass (aldrig övertid).
+  const hemOvrigH = hemOvrigMin / 60;
+  totalH += hemArbetsdagMin / 60 + hemOvrigH;
 
   totalH = Math.round(totalH * 100) / 100;
   skordareH = Math.round(skordareH * 100) / 100;
@@ -333,10 +378,10 @@ export function beräknaExport(
   }
 
   // Övertid = totalt - ordinarie (kortpassens timmar är ordinarie, aldrig övertid)
-  const overtidH = Math.round(Math.max(0, totalH - ordinarie - kortpassH) * 100) / 100;
+  const overtidH = Math.round(Math.max(0, totalH - ordinarie - kortpassH - hemOvrigH) * 100) / 100;
 
   // Timlön = ordinarie (inte totalt!) — räknas på HELA arbetstiden inkl extra
-  const timlonH = Math.round(Math.min(totalH, ordinarie + kortpassH) * 100) / 100;
+  const timlonH = Math.round(Math.min(totalH, ordinarie + kortpassH + hemOvrigH) * 100) / 100;
   const kortpassHRund = Math.round(kortpassH * 100) / 100;
 
   // ── PREMIELÖN — ER EGEN KONSTRUKTION, INTE KOLLEKTIVAVTALET ──
@@ -373,7 +418,7 @@ export function beräknaExport(
 
   // ── 1. TIMLÖN ──
   if (timlonH > 0) {
-    laggRad("timlon", timlonH.toFixed(2), `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})`);
+    laggRad("timlon", timlonH.toFixed(2), `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})${hemskickadH > 0 ? ` varav ${hemskickadH}h hemskickad` : ''}`);
   }
 
   // ── 2. PREMIELÖN — på alla timlönetimmar, fördelat efter månadens maskintyp ──
@@ -425,7 +470,6 @@ export function beräknaExport(
   // månad, och tillämpa "arbete vinner": en dag med arbetspass (arbetad_min > 0)
   // räknas som arbete, inte frånvaro. Läggs ALDRIG som lönerad (löneart okänd) —
   // ytas som franvaro + varning för manuell hantering.
-  const arbperiod = arbetsperiodFrånLöneperiod(loneperiod); // YYYY-MM
   const arbetadeDatum = new Set(dagar.filter(d => (d.arbetad_min || 0) > 0).map(d => d.datum));
   const franvaroPerTyp = new Map<string, string[]>();
   // ── BYTESDAGAR (inarbetad, §5 mom 4) — inte frånvaro att sätta löneart på ──
@@ -463,6 +507,7 @@ export function beräknaExport(
   const deldagar: DeldagRad[] = [];
   for (const l of ledigheter) {
     if (!arDeldag(l) || l.typ === 'inarbetad' || !l.startdatum) continue;
+    if (String(l.typ || '').toLowerCase() === 'hemskickad') continue;   // betald tid, ingen frånvaro: egen lista ovan (`hemskickad`)
     if (!l.startdatum.startsWith(arbperiod)) continue;
     const arbetadMin = arbetadMinPerDatum.get(l.startdatum) || 0;
     deldagar.push({
@@ -481,6 +526,7 @@ export function beräknaExport(
   // ── HELDAGSRADER — "arbete vinner" ──
   for (const l of ledigheter) {
     if (l.typ === 'inarbetad') continue; // bytesdagar ovan — aldrig "frånvaro att sätta löneart på"
+    if (String(l.typ || '').toLowerCase() === 'hemskickad') continue; // betald tid (egen lista `hemskickad`), aldrig frånvaro — även om en rad skulle sakna klockslag
     if (arDeldag(l)) continue;           // deldagar ovan
     if (!l.startdatum || !l.slutdatum) continue;
     const start = new Date(l.startdatum + "T00:00:00");
@@ -577,5 +623,7 @@ export function beräknaExport(
     brandrisk,
     byten,
     deldagar,
+    hemskickad,
+    hemskickad_h: hemskickadH,
   };
 }
