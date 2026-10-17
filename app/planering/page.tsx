@@ -40,7 +40,7 @@ import {
   arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
   type HarDuId, type HarDuSvarVarde, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer,
 } from '../../lib/klarTrakt'
-import type { KlarPatch, MaskinPrognos } from '../../components/planering/KlarMedTrakten'
+import type { KlarPatch, KlarVy, MaskinPrognos } from '../../components/planering/KlarMedTrakten'
 import { hamtaServerVersion, arNyVersion, laddaOmMedCacheBust, skaAutoUppdatera } from '../../lib/autoUppdatering'
 import { skaEmittaHeading } from '../../lib/kompass'
 import { klassaTraktFeature, byggTraktKort, valjMinstaYta, ytaNyckel, traktdelDelytor, ringCentroid, numreraObjekt, traktArealHa, type TraktKategori, type TraktKort } from '../../lib/traktGeometri'
@@ -70,6 +70,7 @@ import { KorvyObjektPill } from '../../components/planering/KorvyObjektPill'
 import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
+import { NedfaldList } from '../../components/planering/NedfaldList'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
@@ -3719,6 +3720,9 @@ export default function PlannerPage() {
   const klarHook = useKlarFalt(supabase, valtObjekt?.id ?? null, !!testlage);
   const klarFalt = klarHook.falt;
   const [klarStartMedVed, setKlarStartMedVed] = useState(false);
+  // Avlägg ur "Klar med trakten?": arket stängs, kartan visas hel med EN list nertill ("‹ Klar med trakten?"), och efter placeringen öppnas kortet igen i samma steg.
+  const [klarAterAvlagg, setKlarAterAvlagg] = useState(false);
+  const klarVyRef = useRef<KlarVy | null>(null);
   const [klarSparar, setKlarSparar] = useState(false);
   const [klarFel, setKlarFel] = useState<string | null>(null);
   const klarPlanerare = !(isForare || (maskinlage && !isAdminRiktig));
@@ -3793,6 +3797,10 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [klarGaller, klarDataKlart, klarStatus.antalKvar, klarFalt.klarKvarAntal, testlage]);
   useEffect(() => { if (!traktOversiktOpen) setKlarStartMedVed(false); }, [traktOversiktOpen]);
+  // Kortets minne (vy + steg) lever bara medan arket är öppet eller kartan väntar på ett avlägg — en vanlig stängning börjar nästa öppning från början.
+  useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg]);
+  // Avläggsläget avbröts på annat sätt (plusdockan, ett annat verktyg): då ska ett senare avlägg inte öppna kortet.
+  useEffect(() => { if (klarAterAvlagg && selectedSymbol == null && !traktOversiktOpen) setKlarAterAvlagg(false); }, [klarAterAvlagg, selectedSymbol, traktOversiktOpen]);
   // Nya objektlistan OVANPÅ ett valt objekt (ark/panel) bara i planeringsvyn — aldrig maskinläge, /maskin eller körvy (lib/objektVal.anvandObjektLista).
   // Utan valt objekt gäller den även maskinläget (anvandObjektListaUtanObjekt, tidiga returen nedan).
   const objektListaVal = anvandObjektLista({ maskinlage, maskinSom: !!maskinSomParam, korvyActive });
@@ -12344,6 +12352,7 @@ export default function PlannerPage() {
     // Ved-symbolen är ingen verktygssymbol: den ska aldrig hamna bland "senast använda" eller i plusdockan.
     if (typ !== 'firewood') setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
     setSelectedSymbol(null);
+    if (typ === 'landing' && klarAterAvlagg) { setKlarAterAvlagg(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); }
     if (typ !== 'firewood') noteraPlus({ typ: 'symbol', id: typ });
     if (korvyActive || (klarGaller && typ !== 'firewood')) visaKvitto(osakerM ? `${kvittoRubrik(symbolNamn(typ))} · osäker ±${osakerM} m` : kvittoRubrik(symbolNamn(typ)), 'ok', id);
   };
@@ -13539,7 +13548,12 @@ export default function PlannerPage() {
           {objektListaVal ? (
             /* Objektinfon (traktöversikten) hade pillen som enda ingång — nu bär pillen "byt objekt", så infon får en egen knapp på platshållarens plats. */
             <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale"
-              onClick={() => { setObjektListaOppen(false); setTraktOversiktOpen(o => !o); }}
+              onClick={() => {
+                setObjektListaOppen(false);
+                // Oplanerad trakt med något kvar: ⓘ öppnar direkt "Klar med trakten?" (GÖRA) — informationskortet nås därifrån via "Om trakten".
+                if (!traktOversiktOpen && klarGaller && klarDataKlart && valtObjekt?.status === 'oplanerad' && klarStatus.antalKvar > 0) setInfoStartVy('klar');
+                setTraktOversiktOpen(o => !o);
+              }}
               style={{ pointerEvents: 'auto', width: '44px', height: '44px', borderRadius: '22px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0, cursor: 'pointer' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11 V16.5" /><circle cx="12" cy="7.8" r="0.6" fill="#fff" /></svg>
@@ -14010,6 +14024,9 @@ export default function PlannerPage() {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
             klarSkickadAt: valtObjekt.klar_skickad_timestamp ?? null,
+            faktaRad: [typTxt, valtObjekt.typ === 'slutavverkning' ? (valtObjekt.avtalsform || '') : (valtObjekt.atgard || ''), svTal(infoAreal || valtObjekt.areal, 2) ? `${svTal(infoAreal || valtObjekt.areal, 2)} ha` : '', volymTxt ? `${svTal(volymTxt, 0)} m³fub` : ''].filter(Boolean).join(' · '),
+            startVy: klarVyRef.current ?? undefined,
+            onVyAndrad: (v) => { klarVyRef.current = v; },
             basvag: { texter: klarBasvagTexter, kravs: infoBasvagKravs, timmar: infoBasvagTimmar, sammanfattning: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM)) },
             barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
             skordare: klarSkordare, skotare: klarSkotare,
@@ -14034,7 +14051,7 @@ export default function PlannerPage() {
             startMedVed: klarStartMedVed,
             onAndra: klarPatch,
             onHarDu: klarHarDu,
-            onPlaceraAvlagg: () => { stang(); setSelectedSymbol('landing'); },
+            onPlaceraAvlagg: () => { setKlarAterAvlagg(true); stang(); setSelectedSymbol('landing'); },
             onRitaBasvag: () => { stang(); setDrawType('mainRoad'); setDrawFarg(valTillFarg(lasSenasteBasvagFarg())); setIsDrawMode(true); },
             onStammer: klarStammer,
             onVed: klarVed,
@@ -14515,7 +14532,15 @@ export default function PlannerPage() {
         />
       )}
       {/* PLACERA SYMBOL: raden stängd, smal list nertill — tryck på kartan, eller "Vid maskinen" (körvy). Inget hårkors. */}
-      {placeraListSynlig && selectedSymbol && (
+      {placeraListSynlig && selectedSymbol && (klarAterAvlagg && selectedSymbol === 'landing' ? (
+        /* Avlägg ur Klar med trakten?: arket har krympt till den här listen; "‹ Klar med trakten?" öppnar kortet igen i samma steg */
+        <NedfaldList
+          testid="placera-list"
+          smal={smalSkarm}
+          text="Tryck där avlägget ska ligga"
+          tillbaka={{ etikett: 'Klar med trakten?', onClick: () => { setKlarAterAvlagg(false); setSelectedSymbol(null); setInfoStartVy('klar'); setTraktOversiktOpen(true); }, testid: 'placera-tillbaka' }}
+        />
+      ) : (
         <KorvyNertillList
           testid="placera-list"
           smal={smalSkarm}
@@ -14525,7 +14550,7 @@ export default function PlannerPage() {
             AVBRYT_KNAPP(() => setSelectedSymbol(null), 'placera-avbryt'),
           ]}
         />
-      )}
+      ))}
       {/* PIL: samma rad som placera symbol */}
       {pilListSynlig && (
         <KorvyNertillList
@@ -14563,14 +14588,12 @@ export default function PlannerPage() {
       )}
       {/* FRAMHÄVD MARKERING (Om trakten › Visa ›, telefon): EN rad längst ner — vad som är valt, "‹ Om trakten" (öppnar listan igen och släpper framhävningen), × (släpp + hela trakten) */}
       {framhavListSynlig && framhavdMarkering && (
-        <KorvyNertillList
+        <NedfaldList
           testid="framhav-list"
           smal={smalSkarm}
           text={framhavdMarkering.etikett || 'Vald markering'}
-          knappar={[
-            { etikett: '‹ Om trakten', onClick: () => { slappFramhavningRef.current('tillbaka'); setInfoStartVy('om'); setTraktOversiktOpen(true); }, testid: 'framhav-tillbaka' },
-            AVBRYT_KNAPP(() => slappFramhavningRef.current('rad'), 'framhav-slapp'),
-          ]}
+          tillbaka={{ etikett: 'Om trakten', onClick: () => { slappFramhavningRef.current('tillbaka'); setInfoStartVy('om'); setTraktOversiktOpen(true); }, testid: 'framhav-tillbaka' }}
+          extra={[AVBRYT_KNAPP(() => slappFramhavningRef.current('rad'), 'framhav-slapp')]}
         />
       )}
       {/* MÄT (körvy OCH planering): EN rad längst ner — "Mät yta · 1,4 ha", ↩ ✓ ×. Klar låser och visar talet; inget sparas. */}

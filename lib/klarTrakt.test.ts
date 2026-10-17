@@ -34,8 +34,9 @@ describe('berakna — vad är kvar', () => {
       avlaggAntal: 0, basvagTexter: [], basvagForvantad: false, barighet: null, terrang: null, skotningsavstand: null, skordare: INGEN, skotare: INGEN, harDu: {},
       prognos: prognos({ skordare: INGEN, skotare: INGEN }), prognosGodkandUnderlag: null,
     }));
-    // avlägg, Förutsättningar (3 fält), skördare, skotare, prognos, Har du … (6 frågor) = 6 områden
-    expect(s.antalKvar).toBe(6);
+    // avlägg, Förutsättningar (3 fält), Maskiner (skördare + skotare), prognos, Har du … (6 frågor) = 5 områden — samma som stegen i "Gå igenom"
+    expect(s.antalKvar).toBe(5);
+    expect(s.maskinerKvar).toBe(2);
     expect(s.forutsattningarKvar).toBe(3);
     expect(s.poster.find((p) => p.id === 'basvag')?.kvar).toBe(false);   // ingen basväg väntad → "Ingen"
     expect(s.frågorKvar).toHaveLength(6);

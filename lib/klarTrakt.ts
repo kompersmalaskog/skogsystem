@@ -28,6 +28,8 @@ export type HarDuId = 'gransar' | 'naturvarden' | 'kulturlamningar' | 'ledningar
 export type HarDuSvarVarde = 'ja' | 'behovs_inte' | 'inga' | 'nej';
 
 export interface HarDuFraga {
+  /** kort namn i sammanställningen ("Naturvärden") */
+  kort: string;
   id: HarDuId;
   fraga: string;
   /** knappens ord för ja och för det andra svaret (alltid två val — "inget svar" är obesvarat) */
@@ -38,12 +40,12 @@ export interface HarDuFraga {
 
 /** De sex frågorna, i den ordning kortet visar dem. Ordlydelsen är planerarens (tavla 34). */
 export const HAR_DU_FRAGOR: readonly HarDuFraga[] = [
-  { id: 'gransar', fraga: 'Markerat gränserna?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
-  { id: 'naturvarden', fraga: 'Märkt naturvärden?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
-  { id: 'kulturlamningar', fraga: 'Kontrollerat kulturlämningar?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
-  { id: 'ledningar', fraga: 'Markerat el-ledningar?', ja: 'Ja', nej: 'Inga finns', nejVarde: 'inga' },
-  { id: 'snitslat', fraga: 'Snitslat basvägen?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
-  { id: 'avlagg_hugga', fraga: 'Ska avlägget huggas?', ja: 'Ja', nej: 'Nej', nejVarde: 'nej' },
+  { id: 'gransar', kort: 'Gränser', fraga: 'Markerat gränserna?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
+  { id: 'naturvarden', kort: 'Naturvärden', fraga: 'Märkt naturvärden?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
+  { id: 'kulturlamningar', kort: 'Kulturlämningar', fraga: 'Kontrollerat kulturlämningar?', ja: 'Ja', nej: 'Inga hittade', nejVarde: 'inga' },
+  { id: 'ledningar', kort: 'El-ledningar', fraga: 'Markerat el-ledningar?', ja: 'Ja', nej: 'Inga finns', nejVarde: 'inga' },
+  { id: 'snitslat', kort: 'Snitslad basväg', fraga: 'Snitslat basvägen?', ja: 'Ja', nej: 'Behövs inte', nejVarde: 'behovs_inte' },
+  { id: 'avlagg_hugga', kort: 'Avlägget huggs', fraga: 'Ska avlägget huggas?', ja: 'Ja', nej: 'Nej', nejVarde: 'nej' },
 ];
 
 export interface HarDuPost { svar: HarDuSvarVarde; av: string | null; at: string }
@@ -305,7 +307,9 @@ export interface KlarStatus {
   frågorKvar: HarDuId[];
   /** hur många av bärighet, terräng och skotningsavstånd som saknas (0–3): Förutsättningar är ETT område i kortet */
   forutsattningarKvar: number;
-  /** antal OMRÅDEN som är kvar (inte antal fält): avlägg, basväg, Förutsättningar (bärighet + terräng + skotningsavstånd = ett), skördare, skotare, medelstam, prognos, Har du … (alla sex frågorna = ett) */
+  /** hur många av skördare och skotare som saknas (0–2): Maskiner är ETT område */
+  maskinerKvar: number;
+  /** antal OMRÅDEN som är kvar (inte antal fält) = antal steg i "Gå igenom": avlägg, basväg, Förutsättningar (bärighet + terräng + skotningsavstånd = ett), Maskiner (skördare + skotare = ett), medelstam, Har du … (alla sex frågorna = ett), prognos */
   antalKvar: number;
   klar: boolean;
 }
@@ -319,6 +323,8 @@ export const SKOTNINGSAVSTAND_VAL = [{ id: 'kort', namn: 'Kort' }, { id: 'medel'
 
 /** De tre posterna som kortet visar som ETT område, Förutsättningar. */
 export const FORUTSATTNING_IDS: readonly PostId[] = ['barighet', 'terrang', 'skotningsavstand'];
+/** Skördare och skotare = ett område, Maskiner. */
+export const MASKIN_IDS: readonly PostId[] = ['skordare', 'skotare'];
 
 export function berakna(i: KlarIndata): KlarStatus {
   const sk = utforareLage(i.skordare);
@@ -341,9 +347,10 @@ export function berakna(i: KlarIndata): KlarStatus {
 
   const frågorKvar = HAR_DU_FRAGOR.filter((f) => !i.harDu[f.id]).map((f) => f.id);
   const forutsattningarKvar = poster.filter((x) => FORUTSATTNING_IDS.includes(x.id) && x.kvar).length;
-  // Antalet räknas per OMRÅDE: de tre förutsättningarna är ett, och de sex frågorna är ett. Samma tal står i rubriken, i namnfältets chip och i objektlistan.
-  const omraden = poster.filter((x) => x.kvar && !FORUTSATTNING_IDS.includes(x.id)).length + (forutsattningarKvar > 0 ? 1 : 0) + (frågorKvar.length > 0 ? 1 : 0);
-  return { poster, prognos, frågorKvar, forutsattningarKvar, antalKvar: omraden, klar: omraden === 0 };
+  const maskinerKvar = poster.filter((x) => MASKIN_IDS.includes(x.id) && x.kvar).length;
+  // Antalet räknas per OMRÅDE (= ett steg i "Gå igenom"): de tre förutsättningarna är ett, skördare + skotare är ett, och de sex frågorna är ett. Samma tal står i rubriken, i namnfältets chip och i objektlistan.
+  const omraden = poster.filter((x) => x.kvar && !FORUTSATTNING_IDS.includes(x.id) && !MASKIN_IDS.includes(x.id)).length + (forutsattningarKvar > 0 ? 1 : 0) + (maskinerKvar > 0 ? 1 : 0) + (frågorKvar.length > 0 ? 1 : 0);
+  return { poster, prognos, frågorKvar, forutsattningarKvar, maskinerKvar, antalKvar: omraden, klar: omraden === 0 };
 }
 
 // ── Chippen i namnfältet och i listorna ──────────────────────────────────────────────────────────────────────────────
