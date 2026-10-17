@@ -374,13 +374,26 @@ export const FORUTSATTNING_IDS: readonly PostId[] = ['barighet', 'terrang', 'sko
 /** Skördare och skotare = ett område, Maskiner. */
 export const MASKIN_IDS: readonly PostId[] = ['skordare', 'skotare'];
 
+/** Avläggen i ord, utan nummer (numren står bara som etiketter på kartan): "2 från Vida", "2 från Vida + 1 eget", "eget", "3 egna". Tomt när inga finns. */
+export function avlaggText(vida: number, eget: number): string {
+  const egna = eget === 1 ? '1 eget' : `${eget} egna`;
+  if (vida > 0) return eget > 0 ? `${vida} från Vida + ${egna}` : `${vida} från Vida`;
+  return eget > 0 ? (eget === 1 ? 'eget' : egna) : '';
+}
+
+/** Frågan om Vidas avlägg, på kartan och i steget: ordlydelsen är planerarens, utan nummer. */
+export function vidaAvlaggFraga(n: number): { text: string; ja: string } {
+  return n === 1
+    ? { text: 'Vida har lagt 1 avlägg. Ligger det rätt?', ja: 'Ja, det ligger rätt' }
+    : { text: `Vida har lagt ${n} avlägg. Ligger de rätt?`, ja: 'Ja, de ligger rätt' };
+}
+
 /** Avlägg: finns Vidas avlägg räknas de när planeraren bekräftat dem (eller själv placerat ett eget); annars räcker ett eget på kartan. */
 function avlaggPost(i: KlarIndata): Post {
   const vida = i.vidaAvlagg ?? [];
-  const eget = i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 eget' : `${i.avlaggAntal} egna`) : null;
   if (vida.length === 0) return { id: 'avlagg', etikett: 'Avlägg', varde: i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 avlägg på kartan' : `${i.avlaggAntal} avlägg på kartan`) : null, kvar: i.avlaggAntal === 0 };
   const klart = !!i.vidaAvlaggBekraftat || i.avlaggAntal > 0;
-  return { id: 'avlagg', etikett: 'Avlägg', varde: klart ? [`Vida ${vida.join(', ')}`, eget].filter(Boolean).join(' · ') : null, kvar: !klart };
+  return { id: 'avlagg', etikett: 'Avlägg', varde: klart ? avlaggText(vida.length, i.avlaggAntal) : null, kvar: !klart };
 }
 
 export function berakna(i: KlarIndata): KlarStatus {
@@ -473,9 +486,8 @@ export interface SammanfattningIndata {
 export function forarSammanfattning(i: SammanfattningIndata): SammanfattningRad[] {
   const ut: SammanfattningRad[] = [];
   const rad = (id: string, etikett: string, text: string | null | undefined) => { if (text) ut.push({ id, etikett, text }); };
-  const vidaText = (i.vidaAvlagg ?? []).length > 0 ? `Vida ${i.vidaAvlagg!.join(', ')}` : null;
-  const egetText = i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 på kartan' : `${i.avlaggAntal} på kartan`) : null;
-  rad('avlagg', 'Avlägg', vidaText && egetText ? `${vidaText} · ${i.avlaggAntal === 1 ? '1 eget' : `${i.avlaggAntal} egna`}` : (vidaText ?? egetText));
+  const vidaN = (i.vidaAvlagg ?? []).length;
+  rad('avlagg', 'Avlägg', vidaN > 0 ? avlaggText(vidaN, i.avlaggAntal) : i.avlaggAntal > 0 ? (i.avlaggAntal === 1 ? '1 på kartan' : `${i.avlaggAntal} på kartan`) : null);
   rad('basvag', 'Basväg', i.basvagTexter.length > 0 ? i.basvagTexter.join(' · ') : null);
   if (i.basvagKravs) rad('basvagsanlaggning', 'Basvägsanläggning', 'Krävs');
   rad('barighet', 'Bärighet', i.barighet ? BARIGHET[i.barighet] ?? i.barighet : null);

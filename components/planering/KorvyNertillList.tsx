@@ -27,14 +27,56 @@ export interface NertillKnapp {
   aria?: string;
 }
 
-export function KorvyNertillList({ text, knappar, testid, smal, z = 600 }: {
+export function KorvyNertillList({ text, knappar, testid, smal, z = 600, stapla = false }: {
   text: React.ReactNode;
   knappar: NertillKnapp[];
   testid: string;
   /** telefon: listen ligger ovanför plus-knappen och tar hela bredden */
   smal: boolean;
   z?: number;
+  /**
+   * En fråga med två svar får inte plats på EN rad på en telefon: texten överst, svarsknapparna (alla utom den första) bredvid varandra under den och den första
+   * knappen (vägen tillbaka) som en smal rad längst ner. Raden är då högre än 72 px.
+   */
+  stapla?: boolean;
 }) {
+  if (stapla) {
+    const [tillbaka, ...svar] = knappar;
+    return (
+      <div
+        data-testid={testid}
+        style={{
+          position: 'fixed', left: AVSTAND.s, right: smal ? AVSTAND.s : PLUS_ZON_PX, zIndex: z, display: 'flex', justifyContent: 'center', pointerEvents: 'none',
+          bottom: smal ? `calc(${PLUS_OVER_PX}px + env(safe-area-inset-bottom, 0px))` : medSafeBotten(AVSTAND.l + AVSTAND.xs),
+        }}
+      >
+        <div
+          role="status"
+          style={{
+            pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, width: '100%', maxWidth: 560, boxSizing: 'border-box',
+            padding: AVSTAND.s, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
+          }}
+        >
+          <div style={{ padding: `${AVSTAND.xs}px ${AVSTAND.s}px 0`, ...TYP.listtitel }}>{text}</div>
+          <div style={{ display: 'flex', gap: AVSTAND.s }}>
+            {svar.map((k, i) => (
+              <button key={k.testid} type="button" data-testid={k.testid} aria-label={k.aria} disabled={k.av} onClick={k.onClick} className="press-dim"
+                style={{ flex: i === 0 ? '1.4 1 0' : '1 1 0', minWidth: 0, height: KNAPP_HOJD_PX, padding: `0 ${AVSTAND.s}px`, border: 'none', borderRadius: RADIE.knapp, fontFamily: 'inherit', ...TYP.listtitel,
+                  cursor: k.av ? 'default' : 'pointer', opacity: k.av ? 0.4 : 1, background: k.gron ? FARG.gron : k.primar ? FARG.text : FARG.fyllning, color: k.gron || k.primar ? FARG.bg : FARG.text }}>
+                {k.etikett}
+              </button>
+            ))}
+          </div>
+          {tillbaka && (
+            <button type="button" data-testid={tillbaka.testid} aria-label={tillbaka.aria} onClick={tillbaka.onClick} className="press-dim"
+              style={{ height: 44, border: 'none', background: 'transparent', color: FARG.bla, fontFamily: 'inherit', ...TYP.text, cursor: 'pointer' }}>
+              {tillbaka.etikett}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       data-testid={testid}

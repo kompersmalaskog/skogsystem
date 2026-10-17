@@ -108,6 +108,11 @@ export interface KlarMedTraktenProps {
   /** antal egna avlägg på kartan */
   avlaggEgna?: number;
   onBekraftaVidaAvlagg?: () => void;
+  /**
+   * Avläggssteget med Vidas avlägg visas på KARTAN, inte i arket: sidan stänger arket, zoomar in på avläggen och visar en list nertill ("Vida har lagt 2 avlägg. Ligger de rätt?").
+   * `efter` = vyn kortet ska öppnas i när listen är besvarad (nästa steg, eller dit man kom ifrån). Saknas funktionen (riggen, tester) visas samma fråga i steget.
+   */
+  onGranskaAvlagg?: (efter: KlarVy) => void;
   onAndra: (patch: KlarPatch) => void;
   onHarDu: (id: HarDuId, varde: HarDuSvarVarde) => void;
   onPlaceraAvlagg: () => void;
@@ -136,6 +141,13 @@ const UNDER: Partial<Record<StegId, string>> = {
   prognos: 'Timmar per maskin — tryck på en siffra för att ändra den.',
   sammanfattning: 'Kontrollera och skicka till föraren.',
 };
+
+/** Säger åt sidan att visa avläggen på kartan (en gång när steget öppnas); ritar ingenting — arket stängs av sidan. */
+function AvlaggGranska({ efter, onGranska }: { efter: Vy; onGranska: (efter: Vy) => void }) {
+  useEffect(() => { onGranska(efter); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <div data-testid="klar-avlagg-granska" />;
+}
 
 export default function KlarMedTrakten(p: KlarMedTraktenProps) {
   const [vy, setVy] = useState<Vy>(p.startMedVed ? { v: 'ved', efter: OVRIGT_ETT } : (p.startVy ?? { v: 'kort' }));
@@ -167,10 +179,10 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
     const numrerade = ordning.filter((s) => s !== 'sammanfattning');
     const delar = alla && steg !== 'sammanfattning' && numrerade.length > 1 ? { antal: numrerade.length, nu: idx } : null;
     /** klart med steget: nästa steg i genomgången, annars tillbaka dit man kom ifrån */
-    const nasta = () => {
-      if (flode.typ === 'alla' && idx < ordning.length - 1) setVy({ v: 'steg', flode: { ...flode, steg: ordning[idx + 1] } });
-      else setVy(flode.typ === 'ett' && flode.till === 'se' ? { v: 'se' } : { v: 'kort' });
-    };
+    const nastaVy = (): Vy => (flode.typ === 'alla' && idx < ordning.length - 1
+      ? { v: 'steg', flode: { ...flode, steg: ordning[idx + 1] } }
+      : flode.typ === 'ett' && flode.till === 'se' ? { v: 'se' } : { v: 'kort' });
+    const nasta = () => setVy(nastaVy());
     const foregaende = () => { if (flode.typ === 'alla' && idx > 0) setVy({ v: 'steg', flode: { ...flode, steg: ordning[idx - 1] } }); };
     const tillbaka = () => setVy(flode.typ === 'ett' && flode.till === 'se' ? { v: 'se' } : { v: 'kort' });
     const nastaText = alla ? 'Nästa' : 'Klar';
@@ -181,6 +193,9 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
           ytterDelar={delar} onTillbaka={tillbaka} onForegaende={alla && idx > 0 ? foregaende : null} onNasta={nasta} />
       );
     }
+
+    // Vidas avlägg visas på kartan: arket ger plats (sidan sköter listen), kortet öppnas igen i `efter`.
+    if (steg === 'avlagg' && (p.vidaAvlagg ?? []).length > 0 && p.onGranskaAvlagg) return <AvlaggGranska efter={nastaVy()} onGranska={p.onGranskaAvlagg} />;
 
     const ram = (rubrik: string, body: React.ReactNode, primar: React.ReactNode) => (
       <StegRam namn={p.namn} onTillbaka={tillbaka} delar={delar} rubrik={rubrik} under={UNDER[steg]} knappar={primar}
@@ -200,7 +215,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
       case 'medelstam': return ram(STEG_NAMN.medelstam, <MedelstamBody p={p} />, nastaKnapp);
       case 'ovrigt': return ram(STEG_NAMN.ovrigt, <OvrigtBody p={p} onVed={() => { if (!p.ovrigt.ved) p.onAndra({ ved: true }); setVy({ v: 'ved', efter: vy }); }} />, nastaKnapp);
       case 'prognos':
-        return ram(STEG_NAMN.prognos, <PrognosBody p={p} />, godkand || extern
+        return ram(STEG_NAMN.prognos, <PrognosBody p={p} onByt={flode.typ === 'ett' ? () => setVy({ v: 'steg', flode: { typ: 'ett', steg: 'maskiner', till: flode.till } }) : undefined} />, godkand || extern
           ? nastaKnapp
           : <StorKnapp testid="klar-stammer" disabled={!harAllt} onTryck={() => { p.onStammer(); nasta(); }}>Stämmer</StorKnapp>);
       case 'sammanfattning':

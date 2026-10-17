@@ -10,7 +10,7 @@ import { KorvyNertillList, type NertillKnapp } from './KorvyNertillList';
 /** "‹ Lista"-knappen: första knappen i listen, alltid med vänsterpil. */
 export const tillbakaKnapp = (etikett: string, onClick: () => void, testid: string): NertillKnapp => ({ etikett: etikett.startsWith('‹') ? etikett : `‹ ${etikett}`, onClick, testid });
 
-export function NedfaldList({ testid, text, tillbaka, extra = [], smal }: {
+export function NedfaldList({ testid, text, tillbaka, extra = [], smal, stapla = false }: {
   testid: string;
   /** vad som visas eller ska göras */
   text: React.ReactNode;
@@ -19,6 +19,8 @@ export function NedfaldList({ testid, text, tillbaka, extra = [], smal }: {
   /** fler knappar efter tillbaka (t.ex. × som släpper valet) */
   extra?: NertillKnapp[];
   smal: boolean;
+  /** en fråga med svarsknappar (se KorvyNertillList): texten överst, svaren under, tillbaka som smal rad längst ner */
+  stapla?: boolean;
 }) {
-  return <KorvyNertillList testid={testid} smal={smal} text={text} knappar={[tillbakaKnapp(tillbaka.etikett, tillbaka.onClick, tillbaka.testid), ...extra]} />;
+  return <KorvyNertillList testid={testid} smal={smal} stapla={stapla} text={text} knappar={[tillbakaKnapp(tillbaka.etikett, tillbaka.onClick, tillbaka.testid), ...extra]} />;
 }

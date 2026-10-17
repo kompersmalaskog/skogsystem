@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { AVSTAND, FARG, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { HAR_DU_FRAGOR, BARIGHET_VAL, SKOTNINGSAVSTAND_VAL, TERRANG_VAL, utforareLage, type HarDuId } from '@/lib/klarTrakt';
+import { HAR_DU_FRAGOR, BARIGHET_VAL, avlaggText, SKOTNINGSAVSTAND_VAL, TERRANG_VAL, utforareLage, type HarDuId } from '@/lib/klarTrakt';
 import type { StegId } from '@/lib/klarSteg';
 import { dagManad, datum, fmtPrestation } from '@/lib/klarFormat';
 import { svTal } from '@/lib/objektKort';
@@ -29,6 +29,12 @@ export function avvikelseTexter(o: Ovrigt): string[] {
   if (!o.trailerIn) ut.push(`Trailern kan inte köra in${o.trailerKommentar.trim() ? ` · ${o.trailerKommentar.trim()}` : ''}`);
   if (o.manuellFallning) ut.push(`Manuell fällning${o.manuellFallningText.trim() ? ` · ${o.manuellFallningText.trim()}` : ''}`);
   return ut;
+}
+
+/** SE-radens text: "Avlägg · 2 från Vida" / "Avlägg · eget" / "Avlägg · 2 från Vida + 1 eget"; kvar: "Avlägg · saknas" / "Avlägg · 2 från Vida – bekräfta". */
+export function avlaggRadText(kvar: boolean, vida: number, eget: number): string {
+  if (kvar) return vida > 0 ? `Avlägg · ${avlaggText(vida, 0)} – bekräfta` : 'Avlägg · saknas';
+  return `Avlägg · ${avlaggText(vida, eget)}`;
 }
 
 const namnPa = (val: ReadonlyArray<{ id: string; namn: string }>, v: string | null) => val.find((x) => x.id === v)?.namn ?? v ?? '–';
@@ -110,14 +116,12 @@ export default function KlarSe({ p, onOppna, utanPadding = false }: { p: KlarMed
             ))}
           </span>
         </TryckRad>
+        {/* "Avlägg" står alltid med; tryck visar dem på kartan. Numren (01-1) står bara som etiketter på kartan. */}
         <TryckRad testid="klar-se-avlagg" onTryck={() => onOppna('avlagg')}>
-          <span style={{ color: avl.kvar ? FARG.orange : FARG.text }}>{avl.kvar ? ((p.vidaAvlagg ?? []).length > 0 ? 'Vidas avlägg ej bekräftade' : 'Avlägg saknas') : avl.varde}</span>
+          <span style={{ color: avl.kvar ? FARG.orange : FARG.text }}>{avlaggRadText(avl.kvar, (p.vidaAvlagg ?? []).length, p.avlaggEgna ?? 0)}</span>
         </TryckRad>
         <TryckRad testid="klar-se-basvag" onTryck={() => onOppna('basvag')}>
           {bas.kvar ? <span style={{ color: FARG.orange }}>Basväg saknas</span> : p.basvag.texter.length > 0 ? `Basväg ${p.basvag.sammanfattning ?? bas.varde}` : 'Ingen basväg'}
-        </TryckRad>
-        <TryckRad testid="klar-se-maskiner" onTryck={() => onOppna('maskiner')}>
-          {`${maskinNamnFor(p.skordare, p.maskiner.skordare)} · ${maskinNamnFor(p.skotare, p.maskiner.skotare)}`}
         </TryckRad>
       </SeBlock>
 

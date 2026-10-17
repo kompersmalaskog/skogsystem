@@ -37,7 +37,7 @@ import { serverNu } from '../../lib/serverKlocka'
 import { INFO_STANDARD, infoVardenFranRad, infoRadFranVarden, andradeKolumner, parseSvNum, type InfoRad } from '../../lib/objektInfoSpar'
 import { useKlarFalt } from '../../lib/hooks/useKlarFalt'
 import {
-  arUnderPlanering, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, vidaAvlaggUr, vidaAvlaggBekraftat, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
+  arUnderPlanering, avlaggText, vidaAvlaggFraga, berakna, forarSammanfattning, harDuVarningar, medStandardMaskin, standardMaskin, utforareLage, vidaBasvagFinns, vidaAvlaggUr, vidaAvlaggBekraftat, kvarChip, kvittoMedKvar, prognosUnderlag, sattHarDu, STATUS_PLANERAD, vedSammanfattning,
   type HarDuId, type HarDuSvarVarde, type KlarIndata, type PrognosIndata, type UtforareVal, type VedDetaljer,
 } from '../../lib/klarTrakt'
 import type { KlarPatch, KlarVy, MaskinPrognos } from '../../components/planering/KlarMedTrakten'
@@ -3703,6 +3703,10 @@ export default function PlannerPage() {
   const klarVyRef = useRef<KlarVy | null>(null);
   // Rita basväg ur Klar med trakten?: ritningen pågår med listen "‹ Klar med trakten?"; när den tagits klar (eller avbrutits) öppnas kortet i samma steg igen.
   const [klarAterBasvag, setKlarAterBasvag] = useState(false);
+  // Avläggssteget med Vidas avlägg visas på kartan: arket stängs, kartan zoomar in på avläggen och framhäver dem, och en list nertill frågar "Vida har lagt 2 avlägg. Ligger de rätt?".
+  // `klarEfterRef` = vyn kortet öppnas i när frågan är besvarad (nästa steg, eller dit man kom ifrån).
+  const [klarGranskaAvlagg, setKlarGranskaAvlagg] = useState(false);
+  const klarEfterRef = useRef<KlarVy | null>(null);
   const [klarSparar, setKlarSparar] = useState(false);
   const [klarFel, setKlarFel] = useState<string | null>(null);
   const klarPlanerare = !(isForare || (maskinlage && !isAdminRiktig));
@@ -3735,7 +3739,8 @@ export default function PlannerPage() {
     klarForvalKlart ? standardMaskin(klarKoDetta!.maskiner, maskinerForRoll('skotare').map((m) => m.maskin_id)) : null);
   const klarAvlaggAntal = (markers as any[]).filter((m) => m.isMarker && m.type === 'landing').length;
   // Vidas avlägg (objekt_geometri, lagret L_TILLAGGSPUNKTER, numret i EXTRA_LABE) räknas som avlägg i kortet: kvar tills planeraren tryckt Stämmer på exakt dem.
-  const klarVidaAvlagg = useMemo(() => vidaAvlaggUr(traktGeo?.features).map((a) => a.nummer), [traktGeo]);
+  const klarVidaPunkter = useMemo(() => vidaAvlaggUr(traktGeo?.features), [traktGeo]);
+  const klarVidaAvlagg = useMemo(() => klarVidaPunkter.map((a) => a.nummer), [klarVidaPunkter]);
   const klarVidaBekraftat = vidaAvlaggBekraftat(klarVidaAvlagg, klarFalt.vidaAvlagg);
   // G15-FÖRSLAG ur uppmätt utfall (lib/g15Forslag): skördare mot trakter med liknande medelstam, skotare som snitt per typ. Fälten är förifyllda med förslaget — det SKRIVNA
   // värdet (manuell_prognos) går alltid före, och förslaget sparas på objektet först vid Stämmer (klarStammer), så att titta på kortet ändrar inget i databasen.
@@ -3781,7 +3786,32 @@ export default function PlannerPage() {
   }, [klarGaller, klarDataKlart, klarStatus.antalKvar, klarFalt.klarKvarAntal, testlage]);
   useEffect(() => { if (!traktOversiktOpen) setKlarStartMedVed(false); }, [traktOversiktOpen]);
   // Kortets minne (vy + steg) lever bara medan arket är öppet eller kartan väntar på ett avlägg — en vanlig stängning börjar nästa öppning från början.
-  useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg, klarAterBasvag]);
+  useEffect(() => { if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag && !klarGranskaAvlagg) klarVyRef.current = null; }, [traktOversiktOpen, klarAterAvlagg, klarAterBasvag, klarGranskaAvlagg]);
+  // Vidas avlägg på kartan medan frågan står: kartan zoomar in på dem (så att de syns ovanför listen) och en blå ring med vit kant ligger runt varje. Vidas lager (symbol + nummer) tvingas synliga så länge.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!klarGranskaAvlagg || !map || !mapLibreReady) return;
+    const pts = klarVidaPunkter.filter((a) => a.lat != null && a.lng != null);
+    if (pts.length === 0) return;
+    const fc = { type: 'FeatureCollection', features: pts.map((a) => ({ type: 'Feature', properties: { nr: a.nummer }, geometry: { type: 'Point', coordinates: [a.lng, a.lat] } })) };
+    const foreVis: Record<string, any> = {};
+    try {
+      for (const id of ['trakt-punkt-circle', 'trakt-punkt-label']) if (map.getLayer(id)) { foreVis[id] = map.getLayoutProperty(id, 'visibility'); map.setLayoutProperty(id, 'visibility', 'visible'); }
+      if (!map.getSource('avlagg-granska-source')) map.addSource('avlagg-granska-source', { type: 'geojson', data: fc as any });
+      else (map.getSource('avlagg-granska-source') as any).setData(fc);
+      if (!map.getLayer('avlagg-granska-vit')) map.addLayer({ id: 'avlagg-granska-vit', type: 'circle', source: 'avlagg-granska-source', paint: { 'circle-radius': 27, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 8, 'circle-stroke-color': '#ffffff', 'circle-pitch-alignment': 'viewport' } });
+      if (!map.getLayer('avlagg-granska-ring')) map.addLayer({ id: 'avlagg-granska-ring', type: 'circle', source: 'avlagg-granska-source', paint: { 'circle-radius': 27, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 4, 'circle-stroke-color': FARG.bla, 'circle-pitch-alignment': 'viewport' } });
+      const lng = pts.map((a) => a.lng as number); const lat = pts.map((a) => a.lat as number);
+      map.fitBounds([[Math.min(...lng), Math.min(...lat)], [Math.max(...lng), Math.max(...lat)]], { padding: { top: 4 * AVSTAND.xxl, bottom: 280, left: 70, right: 70 }, maxZoom: 18, duration: 800 });
+    } catch { /* kartan hann inte — listen frågar ändå */ }
+    return () => {
+      try {
+        for (const id of ['avlagg-granska-ring', 'avlagg-granska-vit']) if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource('avlagg-granska-source')) map.removeSource('avlagg-granska-source');
+        for (const [id, v] of Object.entries(foreVis)) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v ?? 'visible');
+      } catch { /* kartan är borta */ }
+    };
+  }, [klarGranskaAvlagg, mapLibreReady, klarVidaPunkter]);
   useEffect(() => { if (klarAterBasvag && !isDrawMode) { setKlarAterBasvag(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }, [klarAterBasvag, isDrawMode]);
   // Avläggsläget avbröts på annat sätt (plusdockan, ett annat verktyg): då ska ett senare avlägg inte öppna kortet.
   useEffect(() => { if (klarAterAvlagg && selectedSymbol == null && !traktOversiktOpen) setKlarAterAvlagg(false); }, [klarAterAvlagg, selectedSymbol, traktOversiktOpen]);
@@ -14013,6 +14043,7 @@ export default function PlannerPage() {
             onVyAndrad: (v) => { klarVyRef.current = v; },
             vidaAvlagg: klarVidaAvlagg, vidaAvlaggBekraftat: klarVidaBekraftat, avlaggEgna: klarAvlaggAntal,
             onBekraftaVidaAvlagg: () => { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg, av: currentMedarbetare?.id ?? null, at: new Date().toISOString() } }); },
+            onGranskaAvlagg: (efter: KlarVy) => { klarEfterRef.current = efter; setKlarGranskaAvlagg(true); stang(); },
             basvag: { texter: klarBasvagTexter, kravs: infoBasvagKravs, timmar: infoBasvagTimmar, sammanfattning: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM)) },
             barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
             skordare: klarSkordare, skotare: klarSkotare,
@@ -14524,7 +14555,7 @@ export default function PlannerPage() {
           testid="placera-list"
           smal={smalSkarm}
           text="Tryck där avlägget ska ligga"
-          tillbaka={{ etikett: 'Klar med trakten?', onClick: () => { setKlarAterAvlagg(false); setSelectedSymbol(null); setInfoStartVy('klar'); setTraktOversiktOpen(true); }, testid: 'placera-tillbaka' }}
+          tillbaka={{ etikett: 'Klar med trakten?', onClick: () => { setKlarAterAvlagg(false); setSelectedSymbol(null); if (klarVidaAvlagg.length > 0) klarVyRef.current = { v: 'kort' }; setInfoStartVy('klar'); setTraktOversiktOpen(true); }, testid: 'placera-tillbaka' }}
         />
       ) : (
         <KorvyNertillList
@@ -14537,6 +14568,27 @@ export default function PlannerPage() {
           ]}
         />
       ))}
+      {/* AVLÄGGEN FRÅN VIDA (Klar med trakten? › Avlägg): arket har krympt hit, kartan visar avläggen med deras nummer som etiketter. EN fråga, två svar; tillbaka = till kortet. */}
+      {klarGranskaAvlagg && !traktOversiktOpen && !selectedSymbol && (() => {
+        const fraga = vidaAvlaggFraga(klarVidaAvlagg.length);
+        const oppnaKortet = (vy: KlarVy | null) => { klarVyRef.current = vy; setKlarGranskaAvlagg(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); };
+        return (
+          <NedfaldList
+            testid="avlagg-granska-list"
+            smal={smalSkarm}
+            stapla
+            text={klarVidaBekraftat ? `Avlägg ✓ · ${avlaggText(klarVidaAvlagg.length, klarAvlaggAntal)}` : fraga.text}
+            tillbaka={{ etikett: '‹ Klar med trakten?', onClick: () => oppnaKortet({ v: 'kort' }), testid: 'avlagg-granska-tillbaka' }}
+            extra={[
+              { etikett: klarVidaBekraftat ? 'Klart' : fraga.ja, primar: true, testid: 'avlagg-granska-ja', onClick: () => {
+                if (!klarVidaBekraftat) { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg, av: currentMedarbetare?.id ?? null, at: new Date().toISOString() } }); if (klarGaller) visaKvitto(`Avlägg ✓ · ${avlaggText(klarVidaAvlagg.length, klarAvlaggAntal)}`, 'ok'); }
+                oppnaKortet(klarEfterRef.current);
+              } },
+              { etikett: 'Lägg till eget', testid: 'avlagg-granska-eget', onClick: () => { klarVyRef.current = klarEfterRef.current; setKlarGranskaAvlagg(false); setKlarAterAvlagg(true); setSelectedSymbol('landing'); } },
+            ]}
+          />
+        );
+      })()}
       {/* PIL: samma rad som placera symbol */}
       {pilListSynlig && (
         <KorvyNertillList

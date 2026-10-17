@@ -34,7 +34,7 @@ const text = (id: string) => q(id)?.textContent ?? '';
 const farg = (hex: string) => { const e = document.createElement('div'); e.style.color = hex; return e.style.color; };
 const utanMellanrum = (t: string) => t.replace(/\s/g, ' ');
 
-const spion = { bekrafta: 0, klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] as KlarPatch[] };
+const spion = { granska: [] as any[], bekrafta: 0, klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] as KlarPatch[] };
 
 /** Sidans roll: fixturen är "databasen"; trycken uppdaterar den och kortet räknas om ur den. */
 function Harness({ start, extra }: { start: KlarFixtur; extra?: Partial<KlarMedTraktenProps> }) {
@@ -82,7 +82,7 @@ function montera(start: KlarFixtur, extra?: Partial<KlarMedTraktenProps>) {
   act(() => { rot!.render(<Harness start={start} extra={extra} />); });
 }
 
-beforeEach(() => { Object.assign(spion, { bekrafta: 0, klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] }); sattBredd(390); });
+beforeEach(() => { Object.assign(spion, { granska: [], bekrafta: 0, klarForMaskin: 0, fortsatter: 0, placeraAvlagg: 0, ritaBasvag: 0, sattVed: 0, stammer: 0, stang: 0, patchar: [] }); sattBredd(390); });
 afterEach(() => { act(() => { rot?.unmount(); }); behallare?.remove(); rot = null; behallare = null; });
 
 const ALLA_SVAR = (): KlarFixtur['harDu'] => { let s = {}; for (const id of ['gransar', 'naturvarden', 'kulturlamningar', 'ledningar', 'snitslat', 'avlagg_hugga'] as const) s = sattHarDu(s, id, 'ja', 'm1', 'T'); return s; };
@@ -363,53 +363,118 @@ describe('den knapp som gör stegets sak är primär — aldrig två vita knappa
 
 describe('Vidas avlägg räknas som avlägg', () => {
   const VIDA = { vidaAvlagg: ['01-1', '01-2'] };
-  it('Behöver dig: raden säger "Bekräfta"; steget visar "Vidas avlägg: 01-1, 01-2", Stämmer (vit) och Lägg till eget avlägg (grå) — ingen Flytta, ingen kartfråga', () => {
+  const vit = (id: string) => q(id)!.style.background === farg(FARG.text);
+  it('Behöver dig säger "Bekräfta"; steget (reservvägen utan sida) frågar "Vida har lagt 2 avlägg. Ligger de rätt?" utan nummer, med "Ja, de ligger rätt" (vit) och "Lägg till eget" (grå)', () => {
     montera({ ...VIDA });
     expect(text('klar-rad-avlagg-varde')).toBe('Bekräfta');
     klicka(q('klar-rad-avlagg'));
-    expect(text('klar-avlagg-vida')).toBe('Vidas avlägg: 01-1, 01-2');
-    expect(text('klar-avlagg-stammer')).toBe('Stämmer');
-    expect(q('klar-avlagg-stammer')!.style.background).toBe(farg(FARG.text));
-    expect(text('klar-avlagg-placera')).toBe('Lägg till eget avlägg');
-    expect(q('klar-avlagg-placera')!.style.background).not.toBe(farg(FARG.text));
-    expect(finns('klar-avlagg-flytta')).toBe(false);
+    expect(text('klar-avlagg-fraga')).toBe('Vida har lagt 2 avlägg. Ligger de rätt?');
+    expect(text('klar-avlagg-stammer')).toBe('Ja, de ligger rätt');
+    expect(vit('klar-avlagg-stammer')).toBe(true);
+    expect(text('klar-avlagg-placera')).toBe('Lägg till eget');
+    expect(vit('klar-avlagg-placera')).toBe(false);
+    expect(vit('klar-steg-nasta')).toBe(false);
+    expect(behallare!.textContent).not.toMatch(/01-1|01-2/);                // numren står bara som etiketter på kartan
     expect(behallare!.textContent).not.toContain('Flytta');
-    expect(Array.from(q('klar-steg')!.querySelectorAll('button')).filter((b) => b.getAttribute('data-testid')?.startsWith('klar-avlagg-')).length).toBe(2);   // Stämmer + Lägg till — inget annat
-    expect(q('klar-steg-nasta')!.style.background).not.toBe(farg(FARG.text));
     expect(behallare!.textContent).not.toContain('Placera på kartan');
   });
-  it('Stämmer = bekräftat = klart: "Vidas avlägg bekräftade ✓", Nästa blir vit, området lämnar Behöver dig', () => {
+  it('ett avlägg: "Vida har lagt 1 avlägg. Ligger det rätt?" och "Ja, det ligger rätt"', () => {
+    montera({ vidaAvlagg: ['01-1'] });
+    klicka(q('klar-rad-avlagg'));
+    expect(text('klar-avlagg-fraga')).toBe('Vida har lagt 1 avlägg. Ligger det rätt?');
+    expect(text('klar-avlagg-stammer')).toBe('Ja, det ligger rätt');
+  });
+  it('Ja = bekräftat = klart: "Avlägg ✓ · 2 från Vida" (inte "bekräftade"), Nästa blir vit, området lämnar Behöver dig', () => {
     montera({ ...VIDA });
     klicka(q('klar-rad-avlagg'));
     klicka(q('klar-avlagg-stammer'));
     expect(spion.bekrafta).toBe(1);
-    expect(text('klar-avlagg-status')).toBe('Vidas avlägg bekräftade ✓');
+    expect(text('klar-avlagg-status')).toBe('Avlägg ✓ · 2 från Vida');
+    expect(behallare!.textContent).not.toContain('bekräftade');
     expect(finns('klar-avlagg-stammer')).toBe(false);
-    expect(q('klar-steg-nasta')!.style.background).toBe(farg(FARG.text));
+    expect(vit('klar-steg-nasta')).toBe(true);
     klicka(q('klar-steg-nasta'));
     expect(kvarRader()).not.toContain('avlagg');
     expect(text('klar-status')).toBe('4 saker kvar');
   });
-  it('Lägg till eget avlägg ber sidan placera ett (samma list nertill som för vanliga avlägg); Stämmer är kvar som primär', () => {
+  it('Lägg till eget ber sidan placera ett (samma list nertill som för vanliga avlägg); frågan står kvar', () => {
     montera({ ...VIDA });
     klicka(q('klar-rad-avlagg'));
     klicka(q('klar-avlagg-placera'));
     expect(spion.placeraAvlagg).toBe(1);
     expect(finns('klar-avlagg-stammer')).toBe(true);
   });
-  it('ett eget avlägg räknas också som hanterat; sammanställningen visar Vidas nummer och de egna', () => {
-    montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 1 });
-    expect(text('klar-se-avlagg')).toBe('Vida 01-1, 01-2 · 1 eget');
+  it('med en sida som visar avläggen på kartan: steget ritar ingenting i arket och sidan får veta vart kortet ska när frågan är besvarad (Gå igenom → nästa steg)', () => {
+    montera({ ...VIDA }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    gaIgenom();
+    expect(finns('klar-avlagg-granska')).toBe(true);
+    expect(finns('klar-steg-rubrik')).toBe(false);
+    expect(spion.granska.length).toBe(1);
+    expect(spion.granska[0]).toMatchObject({ v: 'steg', flode: { typ: 'alla', steg: 'forutsattningar' } });
   });
-  it('obekräftade Vida-avlägg är kvar i sammanställningen och säger det i klartext', () => {
+  it('en rad i Behöver dig: efter frågan öppnas kortet i listan igen; ur sammanställningen: tillbaka dit (kortet visar sammanställningen när inget är kvar)', () => {
+    montera({ ...VIDA }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    klicka(q('klar-rad-avlagg'));
+    expect(spion.granska).toEqual([{ v: 'kort' }]);
+    act(() => { rot!.unmount(); }); behallare!.remove(); spion.granska = [];
+    montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 0 }, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    klicka(q('klar-se-avlagg'));                                            // tryck på raden = visa dem på kartan
+    expect(spion.granska).toEqual([{ v: 'kort' }]);                       // kortet visar sammanställningen när inget är kvar — samma sida
+  });
+  it('utan Vida-avlägg visas aldrig kartläget — steget är det vanliga (Placera på kartan)', () => {
+    montera({}, { onGranskaAvlagg: (e) => spion.granska.push(e) });
+    klicka(q('klar-rad-avlagg'));
+    expect(spion.granska.length).toBe(0);
+    expect(text('klar-avlagg-placera')).toBe('Placera på kartan');
+  });
+  it('SE-raden heter alltid "Avlägg · …": "2 från Vida", "eget", "2 från Vida + 1 eget"; kvar: "2 från Vida – bekräfta" / "saknas"', () => {
+    montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 0 });
+    expect(text('klar-se-avlagg')).toBe('Avlägg · 2 från Vida');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR, ...VIDA, vidaBekraftat: true, avlaggAntal: 1 });
+    expect(text('klar-se-avlagg')).toBe('Avlägg · 2 från Vida + 1 eget');
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR });                                                   // bara ett eget
+    expect(text('klar-se-avlagg')).toBe('Avlägg · eget');
+    act(() => { rot!.unmount(); }); behallare!.remove();
     montera({ ...KLAR, ...VIDA, avlaggAntal: 0 });
-    expect(text('klar-status')).toBe('1 sak kvar');
     klicka(q('klar-se-oppna'));
-    expect(text('klar-se-avlagg')).toBe('Vidas avlägg ej bekräftade');
+    expect(text('klar-se-avlagg')).toBe('Avlägg · 2 från Vida – bekräfta');
+    expect(Array.from(q('klar-se-avlagg')!.querySelectorAll('span')).some((e) => e.style.color === farg(FARG.orange))).toBe(true);
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...KLAR, avlaggAntal: 0 });
+    klicka(q('klar-se-oppna'));
+    expect(text('klar-se-avlagg')).toBe('Avlägg · saknas');
   });
   it('inga Vida-avlägg: som förut (Placera på kartan)', () => {
     montera({});
     expect(text('klar-rad-avlagg-varde')).toBe('Placera på kartan');
+  });
+});
+
+describe('maskinerna står bara under Prognos', () => {
+  it('SE har ingen maskinrad under Förutsättningar (ingen "Giant · Elefant 26")', () => {
+    montera(KLAR);
+    expect(finns('klar-se-maskiner')).toBe(false);
+    expect(q('klar-se-forutsattningar')!.textContent).not.toContain('Rottne H8E · Ponsse Elephant King AF');
+    expect(text('klar-se-prognos-skordare')).toContain('Rottne H8E');         // maskinen står under Prognos
+  });
+  it('byte av maskin går via Prognos-steget ("Byt maskin") när det öppnats ur sammanställningen; inte i Gå igenom', () => {
+    montera({ ...BARA_PROGNOS });
+    klicka(q('klar-se-oppna'));
+    klicka(q('klar-se-prognos-skordare'));
+    expect(finns('klar-byt-maskin')).toBe(true);
+    klicka(q('klar-byt-maskin'));
+    expect(rubrik()).toBe('Maskiner');
+    klicka(q('klar-skordare-maskin-PONS20SDJAA270231'));
+    expect(spion.patchar.at(-1)).toEqual({ skordare: EGEN('PONS20SDJAA270231') });
+    klicka(q('klar-steg-nasta'));
+    expect(finns('klar-se')).toBe(true);                                    // tillbaka i sammanställningen
+    act(() => { rot!.unmount(); }); behallare!.remove();
+    montera({ ...BARA_PROGNOS });
+    gaIgenom();
+    expect(rubrik()).toBe('Prognos');
+    expect(finns('klar-byt-maskin')).toBe(false);
   });
 });
 
@@ -488,15 +553,14 @@ describe('SE: en sida som ett ifyllt A4', () => {
     expect(utanMellanrum(text('klar-se-prognos-skordare'))).toContain('Skördare · 41 G15-tim · 44 m³fub/G15');
     expect(utanMellanrum(text('klar-se-prognos-skotare'))).toContain('Skotare · 36 G15-tim · 50 m³fub/G15');
   });
-  it('Förutsättningar: bärighet, terräng och avstånd i tre kolumner, avlägg, basväg och maskiner', () => {
+  it('Förutsättningar: bärighet, terräng och avstånd i tre kolumner, avlägg och basväg (maskinerna står under Prognos)', () => {
     montera({ ...KLAR, basvagSammanfattning: '5 st · 599 m' });
     const rad = text('klar-se-forutsattningar-rad');
     expect(rad).toContain('Bra');
     expect(rad).toContain('Flack');
     expect(rad).toContain('Medel');
-    expect(text('klar-se-avlagg')).toContain('1');
+    expect(text('klar-se-avlagg')).toBe('Avlägg · eget');
     expect(text('klar-se-basvag')).toContain('5 st · 599 m');
-    expect(text('klar-se-maskiner')).toBe('Rottne H8E · Ponsse Elephant King AF');
   });
   it('Har du …: sex svar i två kolumner med ✓; obesvarad står som "Obesvarad" i orange', () => {
     montera(KLAR);

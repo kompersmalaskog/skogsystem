@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TNUM, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
 import {
-  BARIGHET_VAL, HAR_DU_FRAGOR, SKOTNINGSAVSTAND_VAL, TERRANG_VAL, utforareLage,
+  BARIGHET_VAL, HAR_DU_FRAGOR, SKOTNINGSAVSTAND_VAL, TERRANG_VAL, avlaggText, utforareLage, vidaAvlaggFraga,
   type HarDuFraga, type HarDuId, type HarDuSvar, type HarDuSvarVarde, type KlarStatus, type UtforareVal, type Varning,
 } from '@/lib/klarTrakt';
 import { datum, fmtPrestation, komma, sv, tal } from '@/lib/klarFormat';
@@ -211,8 +211,9 @@ const Varningsruta = ({ id, text }: { id: string; text: string }) => (
 
 /**
  * Avlägg. Knappen som gör stegets sak är PRIMÄR (vit) tills den är gjord — då blir Nästa primär och den här sekundär; aldrig två vita samtidigt.
- * Utan Vida-avlägg: "Placera på kartan" → "Avlägg placerat ✓". Med Vidas avlägg: "Vidas avlägg: 01-1, 01-2" + Stämmer (primär) och "Lägg till eget avlägg" (sekundär);
- * det egna avlägget placeras som vanligt (Vidas punkt i underlaget rörs aldrig). Ingen "Flytta": den gjorde samma sak och skapade bara tvekan.
+ * Utan Vida-avlägg: "Placera på kartan" → "Avlägg placerat ✓". Med Vidas avlägg visar sidan frågan på KARTAN (`onGranskaAvlagg`); här i steget (reservväg) står samma fråga:
+ * "Vida har lagt 2 avlägg. Ligger de rätt?" med "Ja, de ligger rätt" (primär) och "Lägg till eget" (sekundär) → "Avlägg ✓ · 2 från Vida". Numren (01-1, 01-2) står bara som etiketter på kartan.
+ * Det egna avlägget placeras som vanligt (Vidas punkt i underlaget rörs aldrig). Ingen "Flytta": den gjorde samma sak och skapade bara tvekan.
  */
 export function AvlaggBody({ p, kartaYta }: { p: KlarMedTraktenProps; kartaYta?: React.ReactNode }) {
   const post = p.status.poster.find((x) => x.id === 'avlagg')!;
@@ -226,15 +227,16 @@ export function AvlaggBody({ p, kartaYta }: { p: KlarMedTraktenProps; kartaYta?:
       </>
     );
   }
-  const bekraftat = p.vidaAvlaggBekraftat === true;
+  // Samma fråga som listen på kartan (sidan visar den där; här är reservvägen utan sida). Numren står bara som etiketter på kartan.
+  const fraga = vidaAvlaggFraga(vida.length);
   return (
     <>
       {kartaYta}
-      <div data-testid="klar-avlagg-vida" style={{ ...TYP.text, color: FARG.text }}>Vidas avlägg: {vida.join(', ')}{p.avlaggEgna ? ` · ${p.avlaggEgna === 1 ? '1 eget' : `${p.avlaggEgna} egna`}` : ''}</div>
       {post.kvar
-        ? <StorKnapp testid="klar-avlagg-stammer" onTryck={() => p.onBekraftaVidaAvlagg?.()}>Stämmer</StorKnapp>
-        : <div data-testid="klar-avlagg-status" style={{ ...TYP.text, color: FARG.text }}>{bekraftat ? 'Vidas avlägg bekräftade ✓' : 'Avlägg placerat ✓'}</div>}
-      <StorKnapp testid="klar-avlagg-placera" variant="sekundar" onTryck={p.onPlaceraAvlagg}>Lägg till eget avlägg</StorKnapp>
+        ? <div data-testid="klar-avlagg-fraga" style={{ ...TYP.text, color: FARG.text }}>{fraga.text}</div>
+        : <div data-testid="klar-avlagg-status" style={{ ...TYP.text, color: FARG.text }}>Avlägg ✓ · {avlaggText(vida.length, p.avlaggEgna ?? 0)}</div>}
+      {post.kvar && <StorKnapp testid="klar-avlagg-stammer" onTryck={() => p.onBekraftaVidaAvlagg?.()}>{fraga.ja}</StorKnapp>}
+      <StorKnapp testid="klar-avlagg-placera" variant="sekundar" onTryck={p.onPlaceraAvlagg}>Lägg till eget</StorKnapp>
     </>
   );
 }
@@ -303,7 +305,7 @@ export function MedelstamBody({ p }: { p: KlarMedTraktenProps }) {
 
 type CellId = 'volym' | 'medelstam' | 'areal' | 'skordare' | 'skotare';
 
-export function PrognosBody({ p }: { p: KlarMedTraktenProps }) {
+export function PrognosBody({ p, onByt }: { p: KlarMedTraktenProps; /** öppnar Maskiner-steget (bara när prognosen öppnats ur sammanställningen/listan) */ onByt?: () => void }) {
   const [cell, setCell] = useState<CellId | null>(null);
   const pg = p.prognos;
   const status: KlarStatus = p.status;
@@ -397,6 +399,10 @@ export function PrognosBody({ p }: { p: KlarMedTraktenProps }) {
       {maskinKort('skordare', 'Skördare', skordareEgen, p.skordare, p.maskiner.skordare, pg.skordare)}
       {maskinKort('skotare', 'Skotare', skotareEgen, p.skotare, p.maskiner.skotare, pg.skotare)}
 
+      {onByt && (
+        <button type="button" data-testid="klar-byt-maskin" onClick={onByt} className="press-dim"
+          style={{ ...KNAPP.tertiar, alignSelf: 'flex-start', cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>Byt maskin</button>
+      )}
       {snittOver && <div data-testid="klar-prognos-snitt" style={{ ...TYP.meta, color: FARG.text2 }}>Snitt över alla {snittOver} – blir säkrare med medelstam</div>}
       {status.prognos.lage === 'ogodkand' && status.prognos.saknas.length > 0 && (
         <div data-testid="klar-prognos-saknas" style={{ ...TYP.meta, color: FARG.text2 }}>Saknar: {status.prognos.saknas.join(', ')}</div>

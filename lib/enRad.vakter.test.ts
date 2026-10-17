@@ -36,7 +36,7 @@ describe('EN rad längst ner per läge', () => {
     // fem lägen + sjätte: telefonens "‹ Om trakten" medan en markering från Om trakten är framhävd (framhav-list) — villkoret nedan stänger den när ett annat läge pågår.
     // Två av raderna (framhav-list, och placera-list för avlägg ur Klar med trakten?) är NedfaldList = KorvyNertillList med en "‹ tillbaka"-knapp först: samma stil, samma höjd.
     expect(antal(rader, '<KorvyNertillList')).toBe(5);
-    expect(antal(rader, '<NedfaldList')).toBe(3);
+    expect(antal(rader, '<NedfaldList')).toBe(4);   // placera (avlägg), rita (basväg), framhav, och frågan om Vidas avlägg (avlagg-granska-list, stapla)
     expect(las('../components/planering/NedfaldList.tsx')).toContain('<KorvyNertillList');
   });
   it('framhävningens rad (Om trakten › Visa ›, telefon) visas aldrig samtidigt med ett annat nertill-läge eller med öppen objektinfo', () => {

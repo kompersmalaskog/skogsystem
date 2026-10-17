@@ -180,7 +180,7 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(page).toContain("onRitaBasvag: () => { setKlarAterBasvag(true); stang(); setDrawType('mainRoad');");
     expect(page).toContain("useEffect(() => { if (klarAterBasvag && !isDrawMode) { setKlarAterBasvag(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }, [klarAterBasvag, isDrawMode]);");
     // kortets vy minns över ritningen, precis som över avläggsplaceringen
-    expect(page).toContain('if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag) klarVyRef.current = null;');
+    expect(page).toContain('if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag && !klarGranskaAvlagg) klarVyRef.current = null;');
     const lista = page.slice(page.indexOf('{ritListSynlig && (klarAterBasvag'), page.indexOf('{ritListSynlig && (klarAterBasvag') + 700);
     expect(lista).toContain("tillbaka={{ etikett: 'Klar med trakten?', onClick: cancelDrawing, testid: 'rita-tillbaka' }}");
   });
@@ -194,6 +194,29 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(page).toContain('onBekraftaVidaAvlagg: () => { void klarHook.spara({ vidaAvlagg: { nummer: klarVidaAvlagg,');
     // bekräftelsen sparas i har_du_svar och skriver aldrig bort de sex svaren (hooken ger nuvarande fält till kolumnbyggaren)
     expect(las('./hooks/useKlarFalt.ts')).toContain('klarFaltTillKolumner(patch, fore)');
+  });
+  it('Vidas avlägg på kartan: arket krymper till en list med frågan, kartan zoomar in och framhäver dem, numren är bara etiketter', () => {
+    expect(page).toContain('onGranskaAvlagg: (efter: KlarVy) => { klarEfterRef.current = efter; setKlarGranskaAvlagg(true); stang(); },');
+    const lista = page.slice(page.indexOf('testid="avlagg-granska-list"'), page.indexOf('testid="avlagg-granska-list"') + 1800);
+    expect(lista).toContain('stapla');
+    expect(lista).toContain('fraga.text');
+    expect(lista).toContain("testid: 'avlagg-granska-ja'");
+    expect(lista).toContain("etikett: 'Lägg till eget'");
+    expect(lista).toContain("etikett: '‹ Klar med trakten?'");
+    expect(lista).not.toMatch(/klarVidaAvlagg\.join|nummer\}/);        // numren står inte i texten
+    // kartan: zoom på avläggen + ring runt varje; Vidas symbol och nummer tvingas synliga så länge
+    const effekt = page.slice(page.indexOf("map.addSource('avlagg-granska-source'") - 400, page.indexOf("map.addSource('avlagg-granska-source'") + 2200);
+    expect(effekt).toContain("'avlagg-granska-ring'");
+    expect(effekt).toContain('map.fitBounds(');
+    expect(effekt).toContain("['trakt-punkt-circle', 'trakt-punkt-label']");
+    // "Lägg till eget" hoppar över steget efteråt (annars öppnas frågan igen); tillbaka går till kortet
+    expect(page).toContain("onClick: () => { klarVyRef.current = klarEfterRef.current; setKlarGranskaAvlagg(false); setKlarAterAvlagg(true); setSelectedSymbol('landing'); } }");
+    expect(kort).toContain('if (steg === \'avlagg\' && (p.vidaAvlagg ?? []).length > 0 && p.onGranskaAvlagg) return <AvlaggGranska');
+  });
+  it('SE: ingen maskinrad under Förutsättningar, och SE-raden för avlägg heter alltid "Avlägg · …"', () => {
+    expect(se).not.toContain('klar-se-maskiner');
+    expect(se).toContain('export function avlaggRadText(');
+    expect(steg).toContain('klar-byt-maskin');
   });
   it('den knapp som gör stegets sak är primär: Nästa är grå så länge Avlägg/Basväg inte är gjort', () => {
     expect(kort).toContain("variant={aktionKvar ? 'sekundar' : 'primar'}");
