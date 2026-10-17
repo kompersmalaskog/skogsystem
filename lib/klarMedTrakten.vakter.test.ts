@@ -36,8 +36,8 @@ describe('kortet och sidan', () => {
   });
   it('kortet: ett val stänger raden (bärighet, terräng, avstånd, skördare, skotare); skrivfält stänger aldrig av sig självt', () => {
     for (const rad of ['barighet', 'terrang', 'skotningsavstand', 'skordare', 'skotare']) expect(kort, rad).toContain(`onKlart={() => stangRad('${rad}')}`);
-    expect(kort).not.toMatch(/<Falt[^>]*onKlart/);
-    expect(kort).not.toMatch(/<Falt[^>]*stangRad/);
+    // ett skrivfält stänger aldrig sin rad medan man skriver (onChange) — bara Enter/blur avslutar, och de fäller ihop bara fältet, inte raden bredvid
+    expect(kort).not.toMatch(/<Falt[^>]*onChange=\{[^}]*stangRad/);
   });
   it('del 3: etiketten är alltid FARG.text — läget visas bara av knappen till höger (grå fyllning = standard, vit = avviker)', () => {
     expect(kort).toContain("<span style={{ flex: 1, minWidth: 0, ...TYP.text, color: FARG.text }}>{etikett}</span>");
@@ -90,6 +90,41 @@ describe('kortet och sidan', () => {
   });
 });
 
+describe('omdesignen (förslag 2): presentation, ingen ny logik', () => {
+  it('rubriken är traktens namn, inte en fråga', () => {
+    expect(kort).toContain('<Huvud titel={p.namn}');
+    expect(kort).not.toContain('titel={`Klar med ${p.namn}?`}');
+  });
+  it('fast ordning i källan: Behöver dig → prognoskortet → Det som redan stämmer → Klar för maskin', () => {
+    const i = (t: string) => kort.indexOf(t);
+    expect(i('data-testid="klar-behover"')).toBeGreaterThan(0);
+    expect(i('data-testid="klar-behover"')).toBeLessThan(i('data-testid="klar-prognoskort"'));
+    expect(i('data-testid="klar-prognoskort"')).toBeLessThan(i('testid="klar-del2"'));
+    expect(i('testid="klar-del2"')).toBeLessThan(i('data-testid="klar-for-maskin"'));
+  });
+  it('Behöver dig renderas bara när något är kvar', () => {
+    expect(kort).toContain('{antalBehover > 0 && (');
+  });
+  it('prognosen: bara ett fält åt gången och aldrig en sammanfattning bredvid fälten (den gamla hopfällda prognosraden är borta)', () => {
+    expect(kort).toContain("const [cell, setCell] = useState<CellId | null>(null);");
+    expect(kort).not.toContain('klar-prognos-redigera');
+    expect(kort).not.toContain('klar-prognos-rad-');
+    expect(kort).not.toContain('prognosUnder');
+  });
+  it('prestationen (m³fub/G15) är uträknad och aldrig en tryckbar cell', () => {
+    expect(kort).toContain("data-testid={`klar-${roll}-prestation`}");
+    expect(kort).not.toContain('klar-cell-prestation');
+  });
+  it('de tre grupperna är hopfällda från början (ingen är öppen utan att man tryckt) och öppnas av ett tryck på plats — ingen ny vy', () => {
+    expect(kort).toContain("useState<'appen' | 'harDu' | 'ovrigt' | null>(p.startMedVed ? 'ovrigt' : null)");
+    expect(kort).not.toContain('onNyVy');
+  });
+  it('kortet räknar ingenting nytt: status, förslag och tider kommer ur lib/klarTrakt, lib/g15Forslag och sidan', () => {
+    expect(kort).not.toMatch(/from '@\/lib\/g15Forslag'/);
+    expect(kort).not.toMatch(/berakna\(|beraknaG15Forslag|prognosLage\(/);
+  });
+});
+
 describe('städningen', () => {
   it('Anteckningar-fältet är borta ur Trakt-panelen; texten raderas inte (grå rad "Gamla anteckningar")', () => {
     expect(page).not.toContain('placeholder="Fritext..."');
@@ -106,7 +141,7 @@ describe('städningen', () => {
   it('Trakt-panelen har bara Larm kvar — allt annat har fått plats i kortet', () => {
     for (const borta of ['{/* FAKTA-flik */}', "traktTab === 'fakta'", "traktTab === 'prognos'", 'renderMaskinVal', 'valjUtforare', 'setMaskinSheet', 'Maskin-väljar-sheet']) expect(page, borta).not.toContain(borta);
     expect(page).toContain("traktTab === 'larm' &&");
-    for (const id of ['klar-rad-', 'klar-basvag-timmar', 'klar-trailer-kommentar', 'klar-manuell-text', 'klar-ved-rad', 'klar-areal', 'klar-volym', 'klar-medelstam', 'klar-skordartimmar', 'klar-skotartimmar', 'id="konfiguration"', 'id="band-skordare"', 'id="band-skotare"', 'id="breddat"', 'id="ris"', 'id="vagn"']) expect(kort, id).toContain(id);
+    for (const id of ['klar-rad-', 'klar-basvag-timmar', 'klar-trailer-kommentar', 'klar-manuell-text', 'klar-ved-rad', 'klar-areal', 'klar-volym', 'klar-medelstam', 'skordartimmar', 'skotartimmar', 'id="konfiguration"', 'id="band-skordare"', 'id="band-skotare"', 'id="breddat"', 'id="ris"', 'id="vagn"']) expect(kort, id).toContain(id);
   });
   it('/planner har ingen checklista längre (den sparades aldrig); frågorna bor i Har du … på Planering', () => {
     const planner = las('../app/planner/page.tsx');

@@ -81,7 +81,7 @@ import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, 
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
 import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatResultat } from '../../lib/telefonGps'
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
-import { basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
+import { basvagSammanfattning, basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
@@ -13995,7 +13995,7 @@ export default function PlannerPage() {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
             klarSkickadAt: valtObjekt.klar_skickad_timestamp ?? null,
-            basvag: { texter: klarBasvagTexter, kravs: infoBasvagKravs, timmar: infoBasvagTimmar },
+            basvag: { texter: klarBasvagTexter, kravs: infoBasvagKravs, timmar: infoBasvagTimmar, sammanfattning: basvagSammanfattning(kartMarkeringar.filter(arBasvagMark).map((m) => m.langdM)) },
             barighet: infoBarighet, terrang: infoTerrang, skotningsavstand: infoSkotningsavstand,
             skordare: klarSkordare, skotare: klarSkotare,
             maskiner: { skordare: maskinAlt('skordare'), skotare: maskinAlt('skotare') },

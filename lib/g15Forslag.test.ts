@@ -116,9 +116,9 @@ describe('texter', () => {
   it('fmtMs: decimalkomma, högst två decimaler, avslutande nolla bort', () => {
     expect(fmtMs(0.64)).toBe('0,64'); expect(fmtMs(1)).toBe('1,0'); expect(fmtMs(0.7)).toBe('0,7');
   });
-  it('metarad med medelstam: "Ur 7 trakter med medelstam 0,64–1,0 · troligen 39–46"', () => {
+  it('metarad med medelstam: "troligen 39–46 · ur 7 trakter med medelstam 0,64–1,0" (intervallet först)', () => {
     const s = ok(beraknaG15Forslag({ typ: 'slutavverkning', volym: 1734, medelstam: 0.8 }, UTFALL_2026_10_17).skordare);
-    expect(forslagKalla(s)).toMatch(/^Ur 7 trakter med medelstam 0,6\d–[01],\d+ · troligen \d+–\d+$/);
+    expect(forslagKalla(s)).toMatch(/^troligen \d+–\d+ · ur 7 trakter med medelstam 0,6\d–[01],\d+$/);
   });
   it('prestation: volym ÷ G15-tim, null när något saknas eller är noll', () => {
     expect(prestation(1734, 42)).toBeCloseTo(41.29, 2);

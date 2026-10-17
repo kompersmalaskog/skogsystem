@@ -16,7 +16,7 @@ export const Pil = ({ vanster = false, farg }: { vanster?: boolean; farg?: strin
 );
 
 /** Sidhuvudet. Kortet: namnet + ×. Om trakten och Mer: "‹ objektnamn" (tillbaka till kortet, blå eftersom det navigerar) + titel + ×. */
-export function Huvud({ titel, undertitel, tillbaka, onTillbaka, onStang }: { titel: string; undertitel?: string; tillbaka?: string; onTillbaka?: () => void; onStang: () => void }) {
+export function Huvud({ titel, undertitel, tillbaka, onTillbaka, onStang }: { titel: string; undertitel?: React.ReactNode; tillbaka?: string; onTillbaka?: () => void; onStang: () => void }) {
   return (
     <div style={{ flexShrink: 0, padding: `0 ${AVSTAND.l}px ${AVSTAND.s}px` }}>
       {tillbaka && onTillbaka && (

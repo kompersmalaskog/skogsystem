@@ -190,9 +190,9 @@ export function fmtMs(v: number): string {
 export function forslagKalla(f: RollForslag): string {
   const intervall = f.intervall ? `troligen ${f.intervall.lag}–${f.intervall.hog}` : 'spridning ej bedömd (för få trakter)';
   const typOrd = f.typ === 'gallring' ? 'gallringar' : 'slutavverkningar';
-  if (f.metod === 'medelstam' && f.medelstamSpann) return `Ur ${f.antal} trakter med medelstam ${fmtMs(f.medelstamSpann.lag)}–${fmtMs(f.medelstamSpann.hog)} · ${intervall}`;
+  if (f.metod === 'medelstam' && f.medelstamSpann) return `${intervall} · ur ${f.antal} trakter med medelstam ${fmtMs(f.medelstamSpann.lag)}–${fmtMs(f.medelstamSpann.hog)}`;
   if (f.metod === 'snitt-medelstam-saknas') return `Medelstam saknas – snitt över alla trakter · ur ${f.antal} ${typOrd} · ${intervall}`;
-  return `Ur ${f.antal} ${typOrd} (snitt) · ${intervall}`;
+  return `${intervall} · ur ${f.antal} ${typOrd} (snitt)`;
 }
 
 /** Prestation m³fub per G15-timme — uträknad, aldrig ett eget fält. null när något saknas. */
