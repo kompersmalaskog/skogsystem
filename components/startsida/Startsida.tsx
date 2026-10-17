@@ -9,7 +9,7 @@
 // väljer själv under "Ändra" — de sparas per användare (lib/startsidaFavoriter.ts) och följer med mellan enheter.
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import Ikon from '@/components/design/Ikon'
 import Ark from '@/components/design/Ark'
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TRAFFYTA, TYP, designCss, overgang } from '@/lib/design/tokens'
@@ -166,7 +166,7 @@ function AndraFavoriter({ roll, valda, onSpara, onStang }: { roll: Roll; valda: 
   )
 }
 
-export default function Startsida({ roll, marken, datahalsa, favoritIds, onSparaFavoriter }: {
+export default function Startsida({ roll, marken, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran }: {
   roll: Roll
   marken: Marken
   datahalsa?: DatahalsaBesked
@@ -174,8 +174,15 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   favoritIds?: string[] | null
   /** Sparar egna favoriter; utan den finns ingen Ändra-knapp. Svarar true när sparningen landat. */
   onSparaFavoriter?: (ids: string[]) => Promise<boolean>
+  /** Inbäddad (maskinlådan): ersätter sidans rubrik (datum + "Kompersmåla Skog") och sidan ligger inte längre
+   *  fast över hela skärmen utan fyller sin behållare. Sökfältet och Mer-knappen finns kvar. */
+  huvud?: ReactNode
+  /** Bred layout styrd av behållaren i stället för fönstret (lådan är smalare än skärmen). */
+  bred?: boolean
 }) {
-  const bred = useBred()
+  const bredFonster = useBred()
+  const bred = bredUtifran ?? bredFonster
+  const inbaddad = huvud !== undefined
   const [fraga, setFraga] = useState('')
   const [oppna, setOppna] = useState<Set<string>>(new Set())
   const [konto, setKonto] = useState(false)
@@ -208,20 +215,24 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch',
+      ...(inbaddad ? { height: '100%' } : { position: 'fixed', inset: 0 }), overflow: 'auto', WebkitOverflowScrolling: 'touch',
       background: FARG.bg, color: FARG.text, fontFamily: FONT, WebkitFontSmoothing: 'antialiased',
     }}>
       <style>{designCss}</style>
       <div style={{
         maxWidth: (bred ? KOLUMN.bred : KOLUMN.smal) + 2 * AVSTAND.sidmarginal, margin: '0 auto', boxSizing: 'border-box',
-        padding: `calc(${AVSTAND.xxl}px + env(safe-area-inset-top)) ${AVSTAND.sidmarginal}px calc(${AVSTAND.xxl * 3}px + env(safe-area-inset-bottom))`,
+        padding: inbaddad
+          ? `${AVSTAND.l}px ${AVSTAND.sidmarginal}px calc(${AVSTAND.xxl}px + env(safe-area-inset-bottom))`
+          : `calc(${AVSTAND.xxl}px + env(safe-area-inset-top)) ${AVSTAND.sidmarginal}px calc(${AVSTAND.xxl * 3}px + env(safe-area-inset-bottom))`,
       }}>
 
         <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: AVSTAND.l, marginBottom: AVSTAND.l }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ ...TYP.meta, color: FARG.text2 }}>{datumText()}</div>
-            <h1 style={{ ...TYP.titel, margin: `${AVSTAND.xs}px 0 0` }}>Kompersmåla Skog</h1>
-          </div>
+          {inbaddad ? <div style={{ minWidth: 0, flex: 1 }}>{huvud}</div> : (
+            <div style={{ minWidth: 0 }}>
+              <div style={{ ...TYP.meta, color: FARG.text2 }}>{datumText()}</div>
+              <h1 style={{ ...TYP.titel, margin: `${AVSTAND.xs}px 0 0` }}>Kompersmåla Skog</h1>
+            </div>
+          )}
           <button type="button" onClick={() => setKonto(true)} aria-label="Mer: inställningar, datahälsa, feedback, om appen"
             style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.cirkel, border: 'none', background: FARG.upphojt, color: FARG.text, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
             <Ikon namn="person" farg={FARG.text} />
