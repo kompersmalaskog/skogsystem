@@ -61,8 +61,10 @@ describe('öppna utan att röra något → ingen skillnad (ingen skrivning)', ()
     const iDb = TOM_RAD;
     const uppfunna = Object.keys(gammalPayload).filter((k) => !djupLika(gammalPayload[k], iDb[k] ?? null));
     expect(Object.keys(gammalPayload)).toHaveLength(INFO_KOLUMNER.length);
-    expect(uppfunna).toEqual(expect.arrayContaining(['skordare_band', 'skotare_konfiguration', 'transport_trailer_in', 'trakt_data', 'checklist_items']));
-    expect(uppfunna.length).toBeGreaterThanOrEqual(10);
+    expect(uppfunna).toEqual(expect.arrayContaining(['skotare_konfiguration', 'transport_trailer_in', 'trakt_data', 'checklist_items']));
+    expect(uppfunna.length).toBeGreaterThanOrEqual(9);
+    // Band är tre-läges: NULL (obesvarat) hittas inte längre på — det blir false först när en människa tagit ställning.
+    expect(uppfunna).not.toContain('skordare_band');
     expect(andradeKolumner(baslinje(TOM_RAD), gammalPayload)).toEqual({});
   });
 

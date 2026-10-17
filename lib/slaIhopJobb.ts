@@ -170,7 +170,7 @@ export async function slaIhopJobb(db: Db, args: { franId: string; tillId: string
   // 2c. Objektets egna fält på Vida-objektet.
   const patch: Record<string, unknown> = {};
   for (const f of TILLDELNINGSFALT) if (finns(fran[f]) && !finns(till[f])) { patch[f] = fran[f]; r.tilldelning.push(f); }
-  if (fran.status === 'pagaende' && till.status === 'planerad') {
+  if (fran.status === 'pagaende' && (till.status === 'planerad' || till.status === 'oplanerad')) {
     patch.status = 'pagaende';
     patch.pagaende_startad_timestamp = fran.pagaende_startad_timestamp ?? nu.toISOString();
     r.statusPagaende = true;

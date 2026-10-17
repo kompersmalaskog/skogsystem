@@ -10,6 +10,7 @@ import InfoRam, { type InfoVy } from './InfoRam';
 import ObjektKort, { type ObjektKortProps } from './ObjektKort';
 import OmTrakten, { type OmTraktenProps } from './OmTrakten';
 import MerMeny, { type MerMenyProps } from './MerMeny';
+import KlarMedTrakten, { type KlarMedTraktenProps } from './KlarMedTrakten';
 import type { KartMarkering, KortKnappId } from '@/lib/objektKort';
 import type { PlusLage } from '@/lib/plusArk';
 import type { SlappOrsak } from '@/lib/omTraktenFramhav';
@@ -28,9 +29,11 @@ export interface ObjektInfoProps {
   /** vilken vy som visas när ramen öppnas ('om' = telefonens "‹ Om trakten" tillbaka till listan); standard kortet */
   startVy?: InfoVy;
   mer: Omit<MerMenyProps, 'objektNamn' | 'onTillbaka' | 'onStang'>;
+  /** "Klar med trakten?" (bara planerare, bara medan trakten planeras). null = ingen rad på kortet och ingen vy. */
+  klar?: Omit<KlarMedTraktenProps, 'namn' | 'onStang'> | null;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, startVy = 'kort' }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, startVy = 'kort' }: ObjektInfoProps) {
   const [vy, setVy] = useState<InfoVy>(startVy);
   const ramLage = useSkarmLage(oppen);
   // Varje öppning börjar på kortet (eller på Om trakten när sidan ber om det).
@@ -42,10 +45,12 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const stangRam = () => { stangOm(); onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : 'Mer'} onStang={stangRam}>
+    <InfoRam oppen={oppen} vy={vy} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : 'Mer'} onStang={stangRam}>
       {({ lage }) => (
-        vy === 'kort' ? (
-          <ObjektKort {...kort} namn={objektNamn} onStang={stangRam}
+        vy === 'klar' && klar ? (
+          <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} />
+        ) : vy === 'kort' || (vy === 'klar' && !klar) ? (
+          <ObjektKort {...kort} namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
             onKnapp={(id) => { if (id === 'mer') setVy('mer'); else onKnapp(id); }}
             onLasAllt={() => setVy('om')} onPaTrakten={() => setVy('om')} />
         ) : vy === 'om' ? (

@@ -131,6 +131,10 @@ function dotDesc(o: OversiktObjekt, iKo: boolean, grot: false | 'vantar' | 'oppe
       ? { form: 'fill', color: GRAY_DOT, opacity: 0.95, size: 16, utzoom: true, namnbar: true, halo: true }  // tilldelad (maskin el. kö) = grå, syns även utzoomat
       : { form: 'ring', color: GRAY_DOT, opacity: 1, size: 18, utzoom: true, namnbar: true, halo: true };  // väntar = ihålig ring
   }
+  if (o.status === 'oplanerad') {
+    // Ingen har klarplanerat den än — syns på kartan (aldrig borta), men som blek ring: inte "klar att köra".
+    return { form: 'ring', color: GRAY_DOT, opacity: 0.5, size: 16, utzoom: false, namnbar: true, halo: false };
+  }
   if (STATUS_AVSLUTADE.includes(o.status)) {
     if (grot === 'oppen') return GROT_PRICK;
     if (grot) return { form: 'fill', color: GRAY_DOT, opacity: 0.42, size: 13, utzoom: false, namnbar: false, halo: false }; // GROT väntar: samma bleka prick, bleknar inte bort
@@ -971,7 +975,7 @@ export default function OversiktV2Page() {
   // Maskiner utan position: ALLA aktiva, inte bara de som har en kö — en skotare som aldrig skickar filer (810E) ska gå att öppna och
   // lägga i kö för även när kön är tom. Listan görs först när positionerna är lästa, annars blinkar hela flottan som "ingen position".
   const utanPosition = useMemo(() => (platserKlar ? maskiner.filter((m) => maskinAktiv(m as MaskinRad, todayISO) && !positions.get(m.maskin_id)?.koordinat) : []), [platserKlar, maskiner, positions, todayISO]);
-  const utanKoord = useMemo(() => objekt.filter((o) => (o.status === 'planerad' || STATUS_AKTIV.includes(o.status)) && (o.lat == null || o.lng == null)).length, [objekt]);
+  const utanKoord = useMemo(() => objekt.filter((o) => (o.status === 'oplanerad' || o.status === 'planerad' || STATUS_AKTIV.includes(o.status)) && (o.lat == null || o.lng == null)).length, [objekt]);
   const valt = selMaskin ? forslag.get(selMaskin) ?? null : null;
   const objektValt = selObjekt ? objekt.find((o) => o.id === selObjekt) ?? null : null;
   // Faror och hänsyn för det som visas i arken: det som inte lästs vid start (avslutade objekt som öppnas eller ligger i en kö), det som felade

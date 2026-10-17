@@ -233,11 +233,16 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
       "skotning: efter(() => { setActiveCategory('skotning'); setMenuOpen(true); }),",
       'markeraUtkort: efter(startaMarkeraUtkort),',
       "trakt: efter(() => { setTraktOpen(true); }),",
-      "checklista: efter(() => { setChecklistOpen(true); }),",
       "vagdata: efter(() => { korOmVagdata(); }),",
       "genomgang: efter(() => { setBriefingMode(true); setActiveCategory(null); }),",
       "installningar: efter(() => oppnaInst(false)),",
     ]) expect(page, rad).toContain(rad);
+  });
+  it('Checklista (Vidas egenkontroll, checklist_items) är borta ur Mer › Övrigt — datan och genomgångens egen väg dit rörs inte', () => {
+    expect(mer).not.toContain("id: 'checklista'");
+    expect(page).not.toContain('checklista: efter(');
+    expect(page).toContain('setChecklistOpen(false)');   // modalen finns kvar för Genomgång & kvittering
+    expect(las('../lib/objektInfoSpar.ts')).toContain('checklist_items');   // kolumnen sparas som förut
   });
   it('Briefing + Kvittera markeringar blev ETT val (Genomgång & kvittering); genomgången slutar redan i kvitteringen', () => {
     expect(mer).toContain("etikett: 'Genomgång & kvittering'");
@@ -253,9 +258,13 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
     expect(las('../app/HomeClient.tsx')).toContain("href: '/planering?installningar=1'");
     expect(page).toContain("u.searchParams.get('installningar') !== '1'");
   });
-  it('VY-växlaren (admin), tilldelning och "Klar — skicka till förare" finns kvar i Mer › Planeraren, med samma handlers', () => {
-    for (const s of ['visaSom: isAdminRiktig ? {', 'handleVaxlaVy(id)', "!isForare && valtObjekt.status !== 'avslutat'", 'onSkordare: handleAssignSkordare', 'onSkotare: handleAssignSkotare', 'onSkicka: handleSendKlar']) expect(page, s).toContain(s);
-    for (const s of ["'Klar — skicka till förare'", 'Skickad till förare']) expect(merVy, s).toContain(s);
+  it('Mer › Planeraren har bara VY-växlaren (admin); Tilldelning och "Klar — skicka till förare" är borta — Klar för maskin bor i Klar med trakten?', () => {
+    for (const s of ['visaSom: isAdminRiktig ? {', 'handleVaxlaVy(id)']) expect(page, s).toContain(s);
+    for (const s of ['handleAssignSkordare', 'handleAssignSkotare', 'handleSendKlar', 'onSkicka:']) expect(page, s).not.toContain(s);
+    for (const s of ["'Klar — skicka till förare'", 'Skickad till förare', 'mer-tilldelning']) expect(merVy, s).not.toContain(s);
+    // Klar för maskin: samma status + tidsstämpel som den gamla knappen, och spärrar aldrig
+    expect(page).toContain("{ status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso }");
+    expect(las('../components/planering/KlarMedTrakten.tsx')).toContain("data-testid=\"klar-for-maskin\"");
   });
   it('ett val i Mer stänger objektinfon (som Fler val gjorde)', () => {
     expect(page).toContain('const efter = (f: () => void) => () => { if (typeof navigator !== \'undefined\' && navigator.vibrate) navigator.vibrate(8); f(); stang(); };');

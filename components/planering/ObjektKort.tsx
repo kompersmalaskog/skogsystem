@@ -10,6 +10,7 @@
 
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import type { SammanfattningRad } from '@/lib/klarTrakt';
 import { behoverLasAllt, KORT_RADER, type Bricka, type KortKnapp, type KortKnappId, type TillForarenPost } from '@/lib/objektKort';
 import BrandriskRad from './BrandriskRad';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
@@ -41,6 +42,11 @@ export interface ObjektKortProps {
   onBrand: () => void;
   dokument: { antal: number; chips: React.ReactNode } | null;
   larm: KortLarm;
+  /** "Klar med trakten?" — raden överst på planerarens kort medan trakten planeras. */
+  /** FÖRARENS sammanfattning av planeringen: det planeraren fyllt i, utan Klar-knapp och utan redigering. null/saknas = visas inte (planerare ser kortet "Klar med trakten?" i stället). */
+  planering?: { rader: SammanfattningRad[]; oplanerad: boolean; gamla: string } | null;
+  klarRad?: { chip: { text: string; ton: 'orange' | 'gron' } | null } | null;
+  onKlar?: () => void;
 }
 
 /** En text begränsad till tre rader; "Läs allt ›" när den inte ryms (mätt i webbläsaren, annars den rena tumregeln). */
@@ -85,6 +91,16 @@ export default function ObjektKort(p: ObjektKortProps) {
           </div>
         )}
 
+        {/* KLAR MED TRAKTEN? — planerarens ingång till färdigplaneringen; "N kvar" i orange, "Klar" i grönt (ord och färg tillsammans) */}
+        {p.klarRad && p.onKlar && (
+          <div style={{ marginBottom: AVSTAND.m }}>
+            <Gruppkort testid="kort-klar">
+              <RadKnapp forstaRad testid="kort-klar-rad" etikett="Klar med trakten?" onTryck={p.onKlar}
+                hoger={p.klarRad.chip ? <span data-testid="kort-klar-chip" data-ton={p.klarRad.chip.ton} style={{ ...TYP.listtitel, color: p.klarRad.chip.ton === 'orange' ? FARG.orange : FARG.gron }}>{p.klarRad.chip.text}</span> : undefined} />
+            </Gruppkort>
+          </div>
+        )}
+
         {/* KNAPPRAD efter roll — högst EN primär: den första */}
         <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${kolumner}, minmax(0, 1fr))`, gap: tat ? AVSTAND.xs : AVSTAND.s, marginBottom: AVSTAND.l }}>
           {p.knappar.map((k, i) => (
@@ -107,6 +123,30 @@ export default function ObjektKort(p: ObjektKortProps) {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* PLANERING — det planeraren fyllt i. Bara läsning: ingen Klar-knapp, inget att ändra. Vidas direktiv står ovanför. */}
+        {p.planering && (p.planering.rader.length > 0 || p.planering.oplanerad || p.planering.gamla.trim()) && (
+          <div data-testid="kort-planering" style={{ marginBottom: AVSTAND.l }}>
+            <Rubrik>Planering</Rubrik>
+            <Gruppkort>
+              {p.planering.oplanerad && (
+                <div data-testid="kort-planering-oplanerad" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, ...TYP.listtitel, color: FARG.orange }}>Inte klarplanerad än — uppgifterna kan saknas eller ändras</div>
+              )}
+              {p.planering.rader.map((r, i) => (
+                <div key={r.id} data-testid={`kort-planering-${r.id}`} style={{ display: 'flex', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: i === 0 && !p.planering!.oplanerad ? 'none' : `1px solid ${FARG.linje}` }}>
+                  <span style={{ ...TYP.text, color: FARG.text2, flexShrink: 0, width: '42%' }}>{r.etikett}</span>
+                  <span style={{ ...TYP.text, color: FARG.text, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{r.text}</span>
+                </div>
+              ))}
+              {p.planering.gamla.trim() && (
+                <div data-testid="kort-planering-gamla" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: p.planering.rader.length > 0 || p.planering.oplanerad ? `1px solid ${FARG.linje}` : 'none' }}>
+                  <div style={{ ...TYP.meta, color: FARG.text3 }}>Gamla anteckningar</div>
+                  <div style={{ ...TYP.text, color: FARG.text2, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{p.planering.gamla.trim()}</div>
+                </div>
+              )}
+            </Gruppkort>
           </div>
         )}
 

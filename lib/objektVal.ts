@@ -16,14 +16,15 @@ import { typLabel } from './objekt/typ';
 
 export type ObjektGrupp = 'pagar' | 'planerade' | 'oplanerade' | 'avslutade';
 
-/** objekt.status → grupp. CHECK-värdena är planerad / pagaende / skotning / avslutat; äldre värden (skordning, klar) kan finnas i gammal data.
- *  skotning och skordning = arbete pågår → Pågår. Saknad/okänd status = Oplanerade (aldrig tyst Planerade: planerad betyder "klar att köra"). */
+/** objekt.status → grupp. CHECK-värdena är oplanerad / planerad / pagaende / skotning / avslutat; äldre värden (skordning, klar) kan finnas i gammal data.
+ *  skotning och skordning = arbete pågår → Pågår. 'oplanerad' (nytt objekt, ingen har tryckt "Klar för maskin") och saknad/okänd status = Oplanerade
+ *  (aldrig tyst Planerade: planerad betyder "klar att köra"). */
 export function statusGrupp(status: string | null | undefined): ObjektGrupp {
   const s = (status ?? '').trim().toLowerCase();
   if (s === 'pagaende' || s === 'skotning' || s === 'skordning') return 'pagar';
   if (s === 'planerad') return 'planerade';
   if (s === 'avslutat' || s === 'klar') return 'avslutade';
-  return 'oplanerade';
+  return 'oplanerade'; // 'oplanerad' och allt okänt
 }
 
 /** Är objektet avslutat men skotningen inte klar? `skotningKvar` = lib/skotningKvar (nyckel vo_nummer). Bara status 'avslutat'. */
@@ -55,6 +56,8 @@ export interface ListObjekt {
   lat?: number | null;
   lng?: number | null;
   avslutad_timestamp?: string | null;
+  /** ögonblicksbild av "N kvar" ur Klar med trakten? (objekt.klar_kvar_antal) — null = kortet har inte öppnats */
+  klar_kvar_antal?: number | null;
 }
 
 const sv = (a: string, b: string) => a.localeCompare(b, 'sv');
