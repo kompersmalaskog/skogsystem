@@ -104,6 +104,7 @@ import { filtreraHyttsparRad, hyttsparInsertRad, kanLoggaHyttspar, type Hyttspar
 import { skapaJobb, narmasteVirkesobjekt, ytaKontextIds, avstandText as startaJobbAvstandText } from '../../lib/startaJobb'
 import { lasBesked } from '../../lib/startaJobbOverlamning'
 import IngetObjektKort, { type IngetObjektVal } from '../../components/planering/IngetObjektKort'
+import MenyRubrik from '../../components/planering/MenyRubrik'
 import { startaGpsKalla, hamtaEnGpsFix, senasteGiltigaGpsFix, sattFastGpsPosition, valjSerialPort, sattBaudValOchStartaOm, formateraFordrojning, harWebSerial, serialGpsVald, glomSerialGps, FIX_MAX_ALDER_MS, type GpsKallaHandle, type GpsFix, senasteTelefonFixar } from '../../lib/gpsKalla'
 import { BAUDRATER, hamtaBaudVal, hamtaHittadBaud, effektivBaud, type BaudVal } from '../../lib/gpsBaud'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -8046,22 +8047,6 @@ export default function PlannerPage() {
     { id: 'bla', name: 'Blå', color: '#3b82f6' },
   ];
 
-  // Meny-kategorier för fullskärmsmenyn
-  const menuCategories = [
-    { id: 'lines', name: 'Linjer', desc: 'Rita linjer och gränser', icon: 'menu-lines' },
-    { id: 'zones', name: 'Zoner', desc: 'Markera områden', icon: 'menu-zones' },
-    { id: 'arrows', name: 'Pilar', desc: 'Visa riktningar', icon: 'menu-arrows' },
-    { id: 'gallring', name: 'Gallring', desc: 'Snitsla stickvägar', icon: 'menu-gallring' },
-    { id: 'checklist', name: 'Checklista', desc: 'Kontrollera punkter', icon: 'menu-checklist' },
-    { id: 'prognos', name: 'Prognos', desc: 'Produktivitetsberäkning', icon: 'menu-prognos' },
-    { id: 'info', name: 'Info', desc: 'Objektinformation', icon: 'menu-info' },
-    { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
-    { id: 'brandrisk', name: 'Brandrisk', desc: 'FWI, samråd, utrustning', icon: 'menu-brandrisk' },
-    { id: 'briefing', name: 'Briefing', desc: 'Guidad traktgenomgång', icon: 'menu-briefing' },
-    { id: 'briefing-checklist', name: 'Kvittering', desc: 'Kvittera markeringar', icon: 'menu-briefing-checklist' },
-    { id: 'skotning', name: 'Skotning', desc: 'Utskotad volym', icon: 'menu-skotning' },
-  ];
-
   // === GPS ===
   // Konvertera lat/lon till SVG-koordinater (relativt till mapCenter)
   const latLonToSvg = (lat: number, lon: number) => {
@@ -12314,13 +12299,6 @@ export default function PlannerPage() {
     document.addEventListener('mouseup', handleEnd);
     document.addEventListener('touchmove', handleMove);
     document.addEventListener('touchend', handleEnd);
-  };
-
-  const openMenu = () => {
-    // Öppna till 70% av skärmhöjden så allt innehåll syns
-    const height = Math.min(window.innerHeight * 0.7, 500);
-    setMenuHeight(height);
-    setMenuOpen(true);
   };
 
   // === RENDER HELPERS ===
@@ -17274,22 +17252,7 @@ export default function PlannerPage() {
             )}
 
             {/* Titel */}
-            <div style={{
-              fontSize: '17px',
-              fontWeight: '600',
-              flex: 1,
-              textAlign: 'center',
-              color: '#fff',
-              letterSpacing: '-0.2px',
-            }}>
-              {subMenu ? (
-                 subMenu === 'gps-lines' ? 'Spåra med GPS' :
-                 subMenu === 'draw-lines' ? 'Rita manuellt' :
-                 subMenu
-               ) :
-               activeCategory ? menuCategories.find(c => c.id === activeCategory)?.name :
-               'Meny'}
-            </div>
+            <MenyRubrik subMenu={subMenu} activeCategory={activeCategory} />
 
             {/* X-knapp (alltid synlig, stänger hela sheet) */}
             <button
