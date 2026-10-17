@@ -15,24 +15,6 @@
 
 import { sthlmDelar } from '@/lib/sthlmTid';
 
-/** Det människan angav på flytten, som det ligger i maskin_flytt — det som Rätta flytt utgår från (id:n, inte namn). */
-export interface BenRaw {
-  maskin_id: string | null;
-  extern_maskin: string | null;
-  fran_objekt_id: string | null;
-  fran_plats_id: string | null;
-  till_objekt_id: string | null;
-  till_plats_id: string | null;
-  flytt_typ: string | null;
-  kund: string | null;
-  flytt_km: number | null;      // MÄTT/rutt: går aldrig att rätta, bara läsas (fakturerbar-regeln)
-  fakturerbar: boolean;
-  fran_lat: number | null;     // där maskinen hämtades (mätt/vald punkt)
-  fran_lng: number | null;
-  till_lat: number | null;     // där bilen lämnade den
-  till_lng: number | null;
-}
-
 export interface Ben {
   id: string;
   maskin: string;
@@ -44,8 +26,6 @@ export interface Ben {
   fakturerbar: boolean;
   typ: string | null;
   kund: string | null;
-  /** Det människan angav, med id:n — underlaget för Rätta flytt (admin). Läses ur samma fråga som resten av benet. */
-  raw?: BenRaw;
 }
 
 /** En rad som den ligger i flyttdag, utan härledning. */

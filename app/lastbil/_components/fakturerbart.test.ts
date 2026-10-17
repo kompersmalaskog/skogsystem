@@ -77,7 +77,7 @@ describe('godkännandet (migration 20261015150000)', () => {
 
   it('sorteringen: att godkänna överst (ÄLDSTA först), sedan hos, fakturerade, strukna (nyast först)', () => {
     const u = (id: string, datum: string, o: Partial<FaktureratRad> = {}): UnderlagRad => ({
-      ...rad(10, o), id, kund: null, datum, maskin: 'M', fran_objekt_id: null, fran_plats_id: null, till_objekt_id: null, till_plats_id: null,
+      ...rad(10, o), id, flytt_id: null, kund: null, datum, maskin: 'M', fran_objekt_id: null, fran_plats_id: null, till_objekt_id: null, till_plats_id: null,
       struken_tid: null, struken_anledning: null, godkand_av: null, km_original: null, kund_original: null, redigerad_tid: null, redigerad_av: null,
     });
     const sorterat = sorteraUnderlag([

@@ -13,7 +13,7 @@ import { chunka, lasMaskinNamn, lasPlatsNamn, unika } from './lasNamn';
 export type RundorSvar = { ok: true; rundor: Runda[] } | { ok: false };
 
 const RUNDA_FALT = 'id, forare, starttid, sluttid, status, auto_avslutad_av, tillkorning_km, hem_km, hemresa_matt, total_km, matare_km, bransle_l';
-const BEN_FALT = 'id, flyttdag_id, maskin_id, extern_maskin, fran_objekt_id, till_objekt_id, fran_plats_id, till_plats_id, flytt_km, mellankorning_km, tid_flytt_min, fakturerbar, flytt_typ, kund, sluttid, avbruten, fran_lat, fran_lng, till_lat, till_lng';
+const BEN_FALT = 'id, flyttdag_id, maskin_id, extern_maskin, fran_objekt_id, till_objekt_id, fran_plats_id, till_plats_id, flytt_km, mellankorning_km, tid_flytt_min, fakturerbar, flytt_typ, kund, sluttid, avbruten';
 const CHUNK = 40;   // uuid:er i en in()-lista: håller adressen kort
 
 /** Läser alla rundor som STARTAT i [fran, till) (UTC-ögonblick). */
@@ -53,15 +53,6 @@ export async function lasRundor(fran: string, till: string): Promise<RundorSvar>
         fakturerbar: !!b.fakturerbar,
         typ: b.flytt_typ ?? null,
         kund: b.kund ?? null,
-        raw: {
-          maskin_id: b.maskin_id ?? null, extern_maskin: b.extern_maskin ?? null,
-          fran_objekt_id: b.fran_objekt_id ?? null, fran_plats_id: b.fran_plats_id ?? null,
-          till_objekt_id: b.till_objekt_id ?? null, till_plats_id: b.till_plats_id ?? null,
-          flytt_typ: b.flytt_typ ?? null, kund: b.kund ?? null,
-          flytt_km: b.flytt_km != null ? Number(b.flytt_km) : null, fakturerbar: !!b.fakturerbar,
-          fran_lat: b.fran_lat != null ? Number(b.fran_lat) : null, fran_lng: b.fran_lng != null ? Number(b.fran_lng) : null,
-          till_lat: b.till_lat != null ? Number(b.till_lat) : null, till_lng: b.till_lng != null ? Number(b.till_lng) : null,
-        },
       });
       benPerRunda.set(b.flyttdag_id, lista);
     }

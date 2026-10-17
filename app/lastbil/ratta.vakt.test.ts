@@ -2,7 +2,7 @@
 // Postgres (kedjefallen, låset, slaIhopJobb-undantaget); här vaktas att appen och migrationen förblir
 // överens med det som provades.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FLYTTA_TABELLER } from '../../lib/slaIhopJobb';
 
@@ -13,7 +13,7 @@ const sql = () => las('supabase', 'migrations', '20261015170000_ratta_flytt.sql'
 const kod = (s: string) => s.split('\n').filter(r => !r.trim().startsWith('//') && !r.trim().startsWith('*') && !r.trim().startsWith('/*')).join('\n');
 
 describe('appen rättar och stryker BARA via databasfunktionerna', () => {
-  for (const fil of ['ratta.ts', 'RattaFlyttVy.tsx', 'useBenStatus.ts', 'PlatsVal.tsx', 'usePlatsData.ts']) {
+  for (const fil of ['ratta.ts', 'useBenStatus.ts', 'usePlatsData.ts', 'FlyttSheet.tsx', 'useFlyttDetalj.ts', 'rattningText.ts', 'RundaArk.tsx']) {
     it(`${fil} skriver aldrig maskin_flytt, maskin_position eller spåret direkt`, () => {
       const k = kod(las('app', 'lastbil', '_components', fil));
       expect(k).not.toMatch(/from\(['"]maskin_flytt['"]\)\s*\.(update|insert|delete|upsert)/);
@@ -27,6 +27,29 @@ describe('appen rättar och stryker BARA via databasfunktionerna', () => {
     expect(k).toContain("anropa('ratta_flytt'");
     expect(k).toContain("anropa('stryk_flytt'");
     expect(k).toContain('supabase.rpc(funktion, args)');
+  });
+
+  it('Flytten-sheeten är den ENDA rättningsvyn: Körningar och Fakturering öppnar samma komponent, och den gamla är borta', () => {
+    const dir = join(ROT, 'app', 'lastbil', '_components');
+    expect(existsSync(join(dir, 'RattaFlyttVy.tsx'))).toBe(false);
+    expect(existsSync(join(dir, 'PlatsVal.tsx'))).toBe(false);
+    expect(existsSync(join(dir, 'FlyttArk.tsx'))).toBe(false);
+    expect(existsSync(join(dir, 'StrykArk.tsx'))).toBe(false);
+    expect(kod(las('app', 'lastbil', '_components', 'RundaArk.tsx'))).toContain('<FlyttSheet');
+    expect(kod(las('app', 'lastbil', '_components', 'FaktureringFlik.tsx'))).toContain('<FlyttSheet');
+    for (const f of readdirSync(dir).filter(n => /\.tsx?$/.test(n) && !n.includes('.test.'))) {
+      expect(las('app', 'lastbil', '_components', f), f).not.toMatch(/RattaFlyttVy|FlyttArk|StrykArk|underlagKonsekvens/);
+    }
+  });
+
+  it('sheeten "Flytten" rättar via ratta_flytt och stryker via stryk_flytt — aldrig bara underlaget (den gamla halv-strykningen)', () => {
+    const k = kod(las('app', 'lastbil', '_components', 'FlyttSheet.tsx'));
+    expect(k).toContain('rattaFlytt(');
+    expect(k).toContain('strykEnFlytt(');
+    expect(k).not.toMatch(/strykFlytt/);
+    expect(k).not.toMatch(/status:\s*'struken'/);
+    const g = kod(las('app', 'lastbil', '_components', 'godkann.ts'));
+    expect(g).not.toMatch(/struken_anledning/);                 // underlaget stryks av databasfunktionen, inte av appen
   });
 
   it('underlaget och spåret läses bara när admin (aktiv-grinden) — förare skickar aldrig frågan', () => {
