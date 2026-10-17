@@ -28,6 +28,7 @@ import {
 } from '@/lib/egenkontroll';
 import ProvyteSammanstallning from '@/app/egenkontroll/ProvyteSammanstallning';
 import Forutsattningar from '@/app/egenkontroll/Forutsattningar';
+import ObservationLista from '@/app/egenkontroll/ObservationLista';
 import { signeraFoto } from '@/lib/egenkontrollfoto';
 
 const GUL = '#FFD60A';
@@ -180,6 +181,8 @@ function gruppera(punkter: EgenkontrollPunkt[]): { rubrik: string; punkter: Egen
 export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
   const [runda, setRunda] = useState<Egenkontroll | null>(null);
   const [punkter, setPunkter] = useState<EgenkontrollPunkt[]>([]);
+  // Det besiktaren sag ute - atskilt fran planpunkterna och aldrig med i antalen nedan.
+  const [observationer, setObservationer] = useState<EgenkontrollPunkt[]>([]);
   const [laddat, setLaddat] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
   const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
@@ -193,6 +196,7 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
         if (avbruten) return;
         setRunda(vy.egenkontroll);
         setPunkter(vy.punkter);
+        setObservationer(vy.observationer);
 
         // Bilderna signeras med TTL, aldrig publik lank. Kan en bild inte
         // signeras utelamnas den - ett arligt tomt tillstand slar en trasig
@@ -309,6 +313,17 @@ export default function ObjektEgenkontroll({ objektId }: { objektId: string }) {
           ))}
         </div>
       ))}
+
+      {/* OBSERVATIONERNA: det besiktaren sag ute, med foto, position och kommentar - atskilt fran planpunkterna
+          ovan och inte med i deras antal. Skrivskyddat, som resten av dokumentet. */}
+      {observationer.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.t2, marginBottom: 8 }}>
+            Observationer · {observationer.length}
+          </div>
+          <ObservationLista observationer={observationer} fotoPerPunkt={fotoPerPunkt} />
+        </div>
+      )}
     </div>
   );
 }

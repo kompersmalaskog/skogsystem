@@ -21,6 +21,8 @@ import { arBasvagFarg } from './basvag';
 import { ZONE_COLORS } from './zone-colors';
 import { avstandM, provytaStatus, type ProvytaStatus } from './provytor';
 import { provytaBildNamn } from './provytaIkon';
+import { observationBildNamn } from './observationIkon';
+import { arObservationTon, arObservationTyp, giltigPosition } from './egenkontrollObservation';
 
 export type Kind = 'symbol' | 'linje' | 'zon' | 'pil';
 
@@ -438,4 +440,70 @@ export function provytaLager(): any[] {
       },
     },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Observationerna
+// ---------------------------------------------------------------------------
+
+export const OBSERVATION_KALLA = 'ek-observationer';
+/** Lagrets id ar kontrakt mot tryckhanteraren i RundKarta och lagermenyn - byt det aldrig utan att soka efter det. */
+export const OBSERVATION_LAGER_ID = 'ek-observation';
+
+/** Tands och slacks som en grupp med "Observationer" i lagermenyn. */
+export function observationLagerIdn(): string[] {
+  return [OBSERVATION_LAGER_ID];
+}
+
+type ObsPlats = {
+  id: string;
+  status: string | null;
+  avvikelse_typ: string | null;
+  lat: number | null;
+  lng: number | null;
+};
+
+/**
+ * Observationerna som features, ritade DAR DE GJORDES (deras egna WGS84-position - ingen konvertering,
+ * inget origo, ingen kartbild som maste finnas). Tonen ar en egenskap och styr ikonen; typen foljer med
+ * for den som vill se den. En observation vars ton inte ar en av de tre, eller som saknar en riktig
+ * position, ritas inte - hellre ingen ikon an en pa fel plats (CHECK:en hindrar bada, men en gammal
+ * eller handskriven rad ska aldrig fa falla kartan).
+ */
+export function observationFeatures(obs: ObsPlats[]): Feature[] {
+  return obs
+    .filter((o) => arObservationTon(o.status) && giltigPosition(o.lat, o.lng))
+    .map((o) => ({
+      type: 'Feature' as const,
+      properties: {
+        id: o.id,
+        kind: 'observation',
+        ton: o.status as string,
+        typ: arObservationTyp(o.avvikelse_typ) ? o.avvikelse_typ : 'annat',
+      },
+      geometry: { type: 'Point', coordinates: [o.lng as number, o.lat as number] },
+    }));
+}
+
+/**
+ * Observationernas lager: EN symbol per ton, ur en bild per ton (lib/observationIkon.ts). Formen skiljer
+ * tonerna at - cirkel, triangel, romb - sa farg aldrig ar ensam bärare.
+ * allow-overlap: en observation ritas alltid och traffas alltid, aven bredvid en kontrollpunkt.
+ */
+export function observationLager(): any[] {
+  return [
+    {
+      id: OBSERVATION_LAGER_ID, type: 'symbol', source: OBSERVATION_KALLA,
+      layout: {
+        'icon-image': ['concat', 'observation-', ['get', 'ton']],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+    },
+  ];
+}
+
+/** Bildnamnen lagret refererar - for testet som kontrollerar att varje ton har en bild. */
+export function observationBildNamnAlla(): string[] {
+  return (['bra', 'battre', 'avvikelse'] as const).map(observationBildNamn);
 }
