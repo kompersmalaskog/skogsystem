@@ -42,4 +42,8 @@ describe('källvakt: page.tsx', () => {
     expect(page).not.toMatch(/\bopenMenu\(/);
     expect(page).toContain('<MenyRubrik subMenu={subMenu} activeCategory={activeCategory} />');
   });
+  it('menu-*-ikonerna (14 stycken, bara nådda via den gamla listan) är borta ur ikonkartan och ingen kod pekar på dem', () => {
+    expect(page).not.toMatch(/['"`]menu-[a-z-]+['"`]/);
+    expect(page).not.toContain('MENY-IKONER');
+  });
 });
