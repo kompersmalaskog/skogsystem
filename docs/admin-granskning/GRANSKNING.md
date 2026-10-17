@@ -1,6 +1,8 @@
 # Granskning av Admin-vyn — för mycket text
 
-Bara granskning. Ingen kod ändrad, inget byggt. Alla bilder i `bilder/` (390 och 1440 px, samma namn med `-390`/`-1440`).
+> **Status 2026-10-17: byggt.** Allt utom det som är märkt SENARE är gjort i samma PR — se [Utfall](#utfall-byggt-i-samma-pr) längst ned. Texten nedan är granskningen som den stod innan bygget (bilderna i `bilder/` är *före*).
+
+Granskning (före bygget). Alla bilder i `bilder/` (390 och 1440 px, samma namn med `-390`/`-1440`).
 
 **Kort svar:** Admin är bra där den följer samma mönster (Översikt, Maskiner, Avtal: rubrik i versaler → kort → en rad per sak). Den är dålig i **Lön → Löneunderlag** och **Lön → Dagar**, som tillsammans är 2 268 av de 3 800 orden jag räknade över alla vyer. Det är där hjärnan tar slut. Resten är småsaker som tillsammans gör att appen låter som en utvecklare, inte som en app: tekniska ord, upprepade märken, hjälptexter som upprepar etiketten.
 
@@ -217,3 +219,64 @@ Tid: **30 min**.
 ## Att verifiera mot prod (1 SELECT)
 
 `operator_medarbetare` per medarbetare — avgör om "0 operatörer" i #11 är riggen eller en riktig bugg.
+
+
+---
+
+## Utfall: byggt i samma PR
+
+Beslut (Martin 2026-10-17): **arbetsmånaden är alltid huvudnamnet ("Augusti"), utbetalningen står i liten text under ("lön betalas 25 september")** — samma i Löneunderlag, Dagar, Min månad och exportdialogen (`lib/lonesystem/lonemanad.ts`, EN källa). Adressen (`?period=`) och API:erna talar fortfarande löneperiod; bara det som SYNS har bytt ord. Och: rastvarningen "dagar över 6 tim utan rast" är borta och ersatt av en neutral info-rad i dagens detalj (Dagar): *"Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)"*.
+
+### Ord per vy: före → efter (390 px, samma antal på 1440)
+
+| Vy | Före | Efter | Mål |
+|---|---:|---:|---:|
+| Översikt | 95 | 51 | 60 |
+| Medarbetare (lista) | 74 | 56 | 45 |
+| Medarbetare › person | 130 | 92 | 75 |
+| Maskiner (lista) | 79 | 61 | 45 |
+| Maskiner › ny maskin | 117 | 59 | 60 |
+| Lön › Löneunderlag (aug) | 953 | 173 | 250 |
+| Lön › Löneunderlag (jan) | 617 | 147 | 200 |
+| Lön › Dagar (förvalt: avvikelser) | 1 315 | 128 | 200 |
+| Lön › Lönearter | 111 | 75 | 60 |
+| Lön › Lönesystem | 86 | 29 | 40 |
+| Lön › ATK-val | 46 | 37 | 25 |
+| Lön › Vilobrott | 66 | 50 | 40 |
+| Avtal | 106 | 78 | 80 |
+| **Summa** | **3 795** | **1 036** | **~1 200** |
+
+Måttet är detsamma som före (synlig text i `<main>`, ±10 ord). Tre vyer ligger över sitt mål (Medarbetare-listan, Lönearter, ATK-val): de är redan korta, och det som återstår är namn och rubriker, inte förklaringar.
+
+### Vad som byggdes, per fynd
+
+| # | Fynd | Utfall |
+|---|---|---|
+| 1a | Svarsrad i Löneunderlag | **Gjort.** "Klart att skicka" / "N saker att kolla" överst, Uppdatera + Skicka direkt under. Skicka är oförändrat aktiv (bara saknade koder blockerar, som förut) — varningarna är information, inte spärrar |
+| 2 | "Att ta med löneansvarig" | **Gjort.** EN rad "8 öppna frågor ›" som öppnar ett ark. Kodrådet ("Koppla koderna för …") är kvar på ytan med knappen Koppla, eftersom det går att göra något åt |
+| 3 | Samma månadsord | **Gjort**, se beslutet ovan. Min månad och exportdialogen med |
+| 4 | Dagar | **Gjort.** Förvalt bara avvikelserna ("9 dagar med avvikelse"), "Visa alla 111" längst ned; `?avv=0` öppnar med alla |
+| 5 | Förarkorten | **Gjort.** Brandriskraden, "dagar utan rast", UTKAST och rast-paragrafen är borta; företagsledare får inga varningar; varje "att kolla"-rad har en knapp till dagen |
+| 6 | Anställningsdatum | **Gjort.** EN rad i Löneunderlag ("Anställningsdatum saknas: Johan, Oskar · Fyll i"), helglönen som korta rader (bara undantagen). *Inte* flyttat till Översikt: varningen finns bara när månaden har röda dagar, och Översikten har inte datumet i sin läsning — det är en egen ändring |
+| 7 | Anställningsnummer på två ställen | **Gjort.** Redigeras bara på personen; Lönesystem visar "N saknar anställningsnummer · Fyll i" (företagsledare räknas inte) |
+| 8 | Lönesystem | **Gjort.** Miljövariabel-/krypteringstexten, Stub-knapparna och tidsstämplarna borta; token visas bara när den går ut inom 14 dagar (med Förnya); "Koppla ifrån" sist som röd text |
+| 9 | Lönearter | **Gjort.** Namnet i Fortnox står bara när det skiljer sig från rubriken; kolonet bort |
+| 10 | Översikt | **Gjort.** EN knapp-ord (Öppna) och alltid bredvid texten; "Allt annat stämmer" som en rad; Arbetstid-kortet visas bara när någon är *över* en gräns |
+| 11 | Medarbetare-listan | **Gjort.** Grupper Förare/Admin; raden = namn + maskin, en orange rad när en förare saknar koppling till maskinfilerna |
+| 12 | Personsidan | **Gjort.** Hjälptexter som upprepar etiketten borta; Spara i sidhuvudet |
+| 13–14 | Maskiner | **Gjort.** "Öppna som maskin" flyttad till maskinens vy; två brytare blev EN fråga ("Hur kommer datan?" Maskinfiler / Manuellt / Ingen data) |
+| 15 | Avtal | **Gjort.** Rubrikkortet borta, Spara i sidhuvudet, gruppen "Resor", namnfältet 280 px, tomma "Tidigare avtal" dolt |
+| 16 | ATK-val | **Gjort** (utom "Påminn alla": det finns inget sätt att påminna i appen) |
+| 17 | Årsövertid | **Gjort.** Bara förare halvvägs till taket (≥ 125 av 250 tim) får en rad; utjämningsraden bara när månaden berörs |
+| 18 | Textfel | **Gjort.** "tjanstledig", "dag(ar)", tre datumformat → "Tjänstledig", ett format ("11 aug") |
+| 19 | Vilobrott | **Gjort.** Metodtexten bakom "Så räknas det" |
+| 20 | Dagar-rader | **Gjort.** Larmordet under namnet (tiden står för sig till höger), "ingen trakt" i stället för "utan objekt" |
+| 21 | UTKAST | **Gjort** (märket visas bara för SKICKAT och FEL) |
+
+**Medvetet inte gjort (SENARE, som i rapporten):** ett kort per förare med detaljvy (#1b), omgruppering av Lön-flikarna, kvittera frågor.
+
+**Två beslut som ändrar något Martin tidigare bestämt — säg till om de ska tillbaka:**
+1. Den **grå delägarraden** i Översiktens Arbetstid (2026-10-13) är borta: en rad om att något *inte* gäller var brus. Företagsledare syns inte alls där; det står fortfarande "Företagsledare – lön utanför appen" i Löneunderlaget.
+2. **"Nära gränsen"** (gul) visas bara tillsammans med en röd. Ensam gul är en varning utan åtgärd.
+
+**Öppna punkter:** utbetalningsdagen är fast den 25:e — ingen justering för helg eller röd dag (appen vet inte vilken dag banken kör; 25 oktober 2026 är en söndag). Säg vilken regel som gäller om den ska justeras.
