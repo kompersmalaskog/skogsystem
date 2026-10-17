@@ -1,4 +1,4 @@
-// Månadsfacit och historik — payloaden ur helikopter_manadsfacit / helikopter_historik (migration 20261016090000) och den rena
+// Månadsfacit och historik — payloaden ur helikopter_manadsfacit / helikopter_historik (migration 20261015175837) och den rena
 // vymodellen som sidan /helikopter/manad, historikfliken, PDF:en, bilden och månadsnotisen bygger på. Inga imports av React eller
 // Supabase; testad i manadsfacit.test.ts.
 //
