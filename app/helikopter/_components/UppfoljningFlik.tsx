@@ -1,17 +1,21 @@
 'use client'
 
-// Flik 3 — Uppföljning. Exakt fem rader per spår (stort tal: "Skotat klart 25 sep" grönt bara när både skotat och skördat når beställt):
-//   1 rubrik · 2 stort tal · 3 en mening · 4 stapel (skotat mot beställt) · 5 Veckor › / Per bolag ›
-// Inga objekt i månaden → "Inga objekt" (grått), ingen stapel, "Planera objekt ›".
+// Flik 3 — Uppföljning. Ett KORT per spår som svarar på EN fråga: landar vi på beställningen — både skördat och skotat?
+//   rubrik · rad "Skördat landar" (tal + av beställt, stapel hittills mot beställt, när det når / vad som behövs) · samma för "Skotat landar" · Veckor › / Per bolag ›
+// Prognos per roll = hittills + takt (senaste 5 arbetsdagarna) × arbetsdagar kvar (landarRoller i berakningar.ts). Grönt tal när rollen landar på beställt, orange annars.
+// Inga objekt i månaden → "Inga objekt" (grått), "Skotat 714 · inget planerat", ingen stapel, "Planera objekt ›".
 import { useState } from 'react'
-import { AVSTAND, FARG, KNAPP, TNUM, TYP, INAKTIV } from '@/lib/design/tokens'
-import { PROGNOS_FRAN_ARBETSDAG, prognosPerBolag, type ManadStatus, type SparLage } from '../_lib/berakningar'
+import { AVSTAND, FARG, IKON, KNAPP, TNUM, TYP, INAKTIV } from '@/lib/design/tokens'
+import { PROGNOS_FRAN_ARBETSDAG, landarRoller, rollHogerText, type ManadStatus, type RollLandar, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from '../_lib/format'
 import type { Arbetsdagar, BolagRad, MaskinManad, Typ } from '../_lib/queries'
 import { SparRubrik, StapelEnkel, StortTal, TON_FARG, type Ton } from './SparKort'
-import { Kort, ListRad, Sektion } from './Lista'
+import { Kort, ListRad, Matare, Sektion } from './Lista'
+import { Ikon } from './Ikon'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
+import { Sheet } from '@/components/Sheet'
 import BolagSheet from './BolagSheet'
+import HistorikInnehall from './HistorikInnehall'
 import { usePanelVal } from './PanelVal'
 import { skickaVeckoNotis } from '../_lib/queries'
 
@@ -32,10 +36,12 @@ type Props = {
   arAdmin: boolean
   /** Maskiner med manuell datakälla — "manuell" i text-muted efter volymen. */
   manuella: Set<string>
+  /** Stor skärm har tre kolumner och ingen Historik-flik: raden "Tidigare månader ›" nederst öppnar den som panel. */
+  visaHistorikRad?: boolean
 }
 
-export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin, manuella }: Props) {
-  const [oppen, setOppen] = usePanelVal<Typ>('uppfoljning')
+export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, onRetryBolag, maskiner, maskinerFel, onRetryMaskiner, antalPlanerade, ar, manad, arAdmin, manuella, visaHistorikRad }: Props) {
+  const [oppen, setOppen] = usePanelVal<Typ | 'historik'>('uppfoljning')
   return (
     <>
       {spar.map(s => (
@@ -43,7 +49,17 @@ export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, 
       ))}
       <MaskinSektion maskiner={maskiner} fel={maskinerFel} onRetry={onRetryMaskiner} manadNamn={MANAD_NAMN[manad - 1]} manuella={manuella} />
       {arAdmin && <VeckoNotisSektion />}
-      {oppen && (
+      {visaHistorikRad && (
+        <RadGrupp>
+          <RadLank text="Tidigare månader" onClick={() => setOppen('historik')} />
+        </RadGrupp>
+      )}
+      {oppen === 'historik' && (
+        <Sheet open onClose={() => setOppen(null)} title="Historik">
+          <HistorikInnehall yta={FARG.upphojt} />
+        </Sheet>
+      )}
+      {oppen && oppen !== 'historik' && (
         <BolagSheet
           open
           onClose={() => setOppen(null)}
@@ -65,22 +81,50 @@ export default function UppfoljningFlik({ spar, status, dagar, bolag, bolagFel, 
 function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }: {
   s: SparLage; status: ManadStatus; antalPlanerade: number; ar: number; manad: number; onOppnaBolag: () => void
 }) {
-  const manadNamn = MANAD_NAMN[manad - 1]
   const ingenPlan = status !== 'avslutad' && antalPlanerade === 0
   const ingenBest = s.bestallt <= 0
   const veckorHref = `/helikopter/veckor?typ=${s.typ}&ar=${ar}&manad=${manad}`
   const planeraHref = `/helikopter?flik=planering&ar=${ar}&manad=${manad}`
 
+  const lankar = (
+    <RadGrupp>
+      {ingenPlan ? (
+        <RadLank text="Planera objekt" href={planeraHref} />
+      ) : (
+        <>
+          <RadLank text="Veckor" href={veckorHref} />
+          <RadLank text="Per bolag" onClick={onOppnaBolag} />
+        </>
+      )}
+    </RadGrupp>
+  )
+
+  // Pågående månad med beställning, objekt och prognos: två rader, "Skördat landar" och "Skotat landar".
+  const roller = status === 'pagaende' && !ingenBest && !ingenPlan ? landarRoller(s) : null
+  if (roller) {
+    const planAndel = s.plan > 0 ? s.plan / s.bestallt : null
+    return (
+      <>
+        <Kort>
+          <SparRubrik typ={s.typ} bestallt={s.bestallt} bolag={s.bolag} />
+          <div style={{ marginTop: AVSTAND.m }}>
+            <RollRad r={roller[0]} planAndel={planAndel} />
+            <div aria-hidden="true" style={{ borderTop: `0.5px solid ${FARG.linje}`, margin: `${AVSTAND.l}px 0` }} />
+            <RollRad r={roller[1]} planAndel={planAndel} />
+          </div>
+        </Kort>
+        {lankar}
+      </>
+    )
+  }
+
   let stort: { text: string; ton: Ton; liten?: boolean }
   let mening: string
   let stapel: { farg: string; plan: number | null } | null = null
 
-  // Skotaren når beställt (skotar ut föregående månad) fast inget är planerat: visa det, dämpat — inte "Inga objekt".
-  const skotatKlart = status === 'pagaende' && !ingenBest && s.harPrognos && s.prognosSkotat != null && s.prognosSkotat >= s.bestallt
-
-  if (ingenPlan && !skotatKlart) {
+  if (ingenPlan) {
     stort = { text: 'Inga objekt', ton: 'dampad' }
-    mening = `Skotat ${fmt(s.skotat)} · inget planerat i ${manadNamn}`
+    mening = `Skotat ${fmt(s.skotat)} · inget planerat`
   } else if (ingenBest) {
     stort = { text: fmt(s.skotat), ton: 'neutral' }
     mening = `Skotat ${fmt(s.skotat)} · ingen beställning`
@@ -92,30 +136,11 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
   } else if (status === 'kommande') {
     stort = { text: 'Inte startad', ton: 'dampad', liten: true }
     mening = `Plan ${fmt(s.bestallt)} m³fub`
-  } else if (!s.harPrognos || s.prognosSkotat == null) {
+  } else {
+    // Pågående, men ingen prognos än (före arbetsdag 4).
     stort = { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, ton: 'dampad', liten: true }
     mening = `Skotat ${fmt(s.skotat)} · prognos från arbetsdag ${PROGNOS_FRAN_ARBETSDAG}`
     stapel = { farg: FARG.text2, plan: s.plan }
-  } else {
-    const diff = s.prognosSkotat - s.bestallt
-    if (diff >= 0) {
-      // Skotat klart. Grönt bara när även skördaren når beställt — annars dämpat: det är
-      // inte grönt när skördaren saknar objekt. Raden under = skördarens läge.
-      const skordarenKlar = s.prognosSkordat != null && s.prognosSkordat >= s.bestallt
-      stort = { text: s.klartDatumSkotat ? `Skotat klart ${fmtDag(s.klartDatumSkotat)}` : 'Skotat klart i tid', ton: skordarenKlar ? 'gron' : 'dampad' }
-      mening = `Skördaren ${fmt(s.skordat)} av ${fmt(s.bestallt)}${antalPlanerade === 0 ? ' · inget planerat' : ''}`
-    } else {
-      stort = { text: fmt(diff), ton: 'orange' }
-      // Relationen skördare/skotare: mer än en dags skotning oskotat i månaden = skotaren är flaskhals.
-      const flaskhals = s.oskotat > (s.taktSkotat ?? 0)
-      const landar = `Landar ${fmt(s.prognosSkotat)}`
-      mening = flaskhals
-        ? `${landar} · skotaren är flaskhals`
-        : s.klartDatumSkordat
-          ? `${landar} · skördaren klar ${fmtDag(s.klartDatumSkordat)}`
-          : `${landar} · i takt`
-    }
-    stapel = { farg: TON_FARG[stort.ton], plan: s.plan }
   }
 
   return (
@@ -126,17 +151,33 @@ function UppfoljningKort({ s, status, antalPlanerade, ar, manad, onOppnaBolag }:
         <div style={{ ...TYP.text, ...TNUM, color: FARG.text }}>{mening}</div>
         {stapel && <StapelEnkel bestallt={s.bestallt} skotat={s.skotat} plan={stapel.plan} farg={stapel.farg} />}
       </Kort>
-      <RadGrupp>
-        {ingenPlan ? (
-          <RadLank text="Planera objekt" href={planeraHref} />
-        ) : (
-          <>
-            <RadLank text="Veckor" href={veckorHref} />
-            <RadLank text="Per bolag" onClick={onOppnaBolag} />
-          </>
-        )}
-      </RadGrupp>
+      {lankar}
     </>
+  )
+}
+
+/**
+ * En roll i spårkortet: etikett (ikon + "Skördat landar"), prognosen stor med "av beställt", stapel (hittills mot beställt, planstreck idag),
+ * och under den: hittills vänster, höger "når beställt 26 okt" eller "behöver 34/dag · kör 56". Tal och stapel i samma färg: grön när rollen
+ * landar på beställt, orange när den landar under.
+ */
+function RollRad({ r, planAndel }: { r: RollLandar; planAndel: number | null }) {
+  const farg = r.under ? FARG.orange : FARG.gron
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, color: FARG.text2 }}>
+        <Ikon namn={r.ikon} storlek={IKON.text} />{r.namn} landar
+      </div>
+      <div style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>
+        <span style={{ ...TYP.tal, ...TNUM, color: farg }}>{fmt(r.landar)}</span>
+        <span style={{ ...TYP.text, ...TNUM, color: FARG.text2 }}> av {fmt(r.bestallt)}</span>
+      </div>
+      <Matare andel={r.hittills / r.bestallt} planAndel={planAndel} farg={farg} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, marginTop: AVSTAND.s, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
+        <span>{r.namn.toLowerCase()} {fmt(r.hittills)} idag</span>
+        <span style={{ textAlign: 'right' }}>{rollHogerText(r)}</span>
+      </div>
+    </div>
   )
 }
 

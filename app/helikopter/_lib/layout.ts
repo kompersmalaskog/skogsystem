@@ -61,6 +61,6 @@ export function panelPlats(fonsterBredd: number, n: number): boolean {
 }
 
 /** Högerkolumnens val på iPad. `flik=lage` (och ingen flik alls) betyder Planering. */
-export function hogerFlik(flik: 'lage' | 'planering' | 'uppfoljning'): 'planering' | 'uppfoljning' {
-  return flik === 'uppfoljning' ? 'uppfoljning' : 'planering'
+export function hogerFlik(flik: 'lage' | 'planering' | 'uppfoljning' | 'historik'): 'planering' | 'uppfoljning' | 'historik' {
+  return flik === 'uppfoljning' || flik === 'historik' ? flik : 'planering'
 }

@@ -8,17 +8,17 @@
 //
 // Format per spår med beställning (fem rader, inget mer):
 //   Vecka 37 · Slutavverkning · 5 000 till Vida
-//   Skördat 2 675 · skotat 1 265 · 4 dagar efter plan        (på plan: "· på plan")
+//   Skördat landar 2 400 · skotat landar 2 000 av 5 000      (prognos mot beställt per roll; före arbetsdag 4: hittills)
 //   Veckan hittills: plan 682, skördat 697, skotat 374        (plan = veckoplan × gångna/arbetsdagar i veckan)
-//   Kör 184/dag · behöver 287 · landar ca 2 400               (skotat: takt, behov, prognos)
-//   Skotaren är flaskhals: Elephant King 114/dag på Stänkelsmåla · Wisent 63/dag på Rössmåla   (bara efter plan)
+//   Kör 184/dag · behöver 287                                 (skotarens takt och behov; var det landar står på rad 2)
+//   Skotaren är flaskhals: Elephant King 114/dag på Stänkelsmåla · Wisent 63/dag på Rössmåla   (bara när en roll landar under beställt)
 // Spår utan objekt: rad 2 = "Inga objekt planerade", inget mer. Aktiv maskin utan data de
 // senaste två arbetsdagarna: egen rad "Wisent · inga lass sedan måndag". Två spår = två
 // block med tom rad emellan. Ingen inledning, ingen avslutning, inga råd.
-import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, raknaSpar, valjBas, type SparLage } from './berakningar'
-import { MANAD_NAMN, dagarText, fmt, kortNamn } from './format'
+import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, landarRoller, raknaSpar, valjBas, type SparLage } from './berakningar'
+import { MANAD_NAMN, fmt, kortNamn } from './format'
 import type { Typ } from './queries'
-import { ORDNING, TOM_DAGAR, bolagText, ca, saknarData, sedanText, utanDataRad, type VeckolageData, type VeckolageMaskin } from './veckolage'
+import { ORDNING, TOM_DAGAR, bolagText, ca, flaskRoll, saknarData, sedanText, utanDataRad, type VeckolageData, type VeckolageMaskin } from './veckolage'
 
 // Payload-typen och hjälpfunktionerna delas med sidan /helikopter/veckolage (veckolage.ts).
 export type VeckoNotisData = VeckolageData
@@ -32,13 +32,11 @@ function sparRader(s: SparLage, d: VeckoNotisData): string[] {
     return rader
   }
 
-  // Rad 2: månadens skördat/skotat och läget mot plan (skotat mot plan idag, som Läge).
-  const lage = s.lage
-  const lageText = lage == null
-    ? `prognos från arbetsdag ${PROGNOS_FRAN_ARBETSDAG}`
-    : lage.status === 'pa_plan' ? 'på plan'
-    : `${dagarText(lage.dagar)} ${lage.status === 'efter' ? 'efter' : 'före'} plan`
-  rader.push(`Skördat ${fmt(s.skordat)} · skotat ${fmt(s.skotat)} · ${lageText}`)
+  // Rad 2: var spåret landar, per roll (prognos = hittills + takt × dagar kvar) — "av 1 000" en gång. Före arbetsdag 4 finns ingen prognos: hittills.
+  const roller = landarRoller(s)
+  rader.push(roller
+    ? `Skördat landar ${fmt(roller[0].landar)} · skotat landar ${fmt(roller[1].landar)} av ${fmt(s.bestallt)}`
+    : `Skördat ${fmt(s.skordat)} · skotat ${fmt(s.skotat)} · prognos från arbetsdag ${PROGNOS_FRAN_ARBETSDAG}`)
 
   // Rad 3: veckan hittills. Plan = veckoplan × (arbetsdagar gångna i veckan / arbetsdagar i veckan).
   const v = d.veckor[s.typ]
@@ -47,17 +45,17 @@ function sparRader(s: SparLage, d: VeckoNotisData): string[] {
     rader.push(`Veckan hittills: ${plan}skördat ${fmt(v.skordat)}, skotat ${fmt(v.skotat)}`)
   }
 
-  // Rad 4: takt, behov och prognos för skotat — finns bara när prognosen finns (från arbetsdag 4).
+  // Rad 4: skotarens takt och behov — finns bara när prognosen finns (från arbetsdag 4). Var det landar står redan på rad 2.
   if (s.harPrognos && s.taktSkotat != null && s.prognosSkotat != null) {
     const behov = s.behovPerDag != null ? ` · behöver ${fmt(s.behovPerDag)}` : ''
-    rader.push(`Kör ${fmt(s.taktSkotat)}/dag${behov} · landar ca ${ca(s.prognosSkotat)}`)
+    rader.push(`Kör ${fmt(s.taktSkotat)}/dag${behov}`)
   }
 
-  // Rad 5: bara efter plan, bara rollen som ligger efter. Mer än en dags skotning oskotat
-  // = skotaren är flaskhals (samma regel som Uppföljning), annars skördaren.
-  if (lage?.status === 'efter') {
-    const skotaren = s.oskotat > (s.taktSkotat ?? 0)
-    const roll = skotaren ? 'skotare' : 'skordare'
+  // Rad 5: bara när någon roll landar under beställt, bara rollen som ligger sämst till (flaskRoll i veckolage.ts).
+  const flask = flaskRoll(s)
+  if (flask) {
+    const skotaren = flask === 'skotare'
+    const roll = flask
     const lista = d.maskiner
       .filter(m => m.roll === roll && m.takt_per_dag != null)
       .map(m => `${m.namn} ${fmt(m.takt_per_dag as number)}/dag${m.objekt_namn ? ` på ${kortNamn(m.objekt_namn)}` : ''}`)
