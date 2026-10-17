@@ -298,7 +298,7 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
     const kvarEtikett = arSkotningKvar(o, skotKvar);
     // Oplanerad = ingen har tryckt Klar för maskin: orange "N kvar" (eller ärligt "Inte klarplanerad" när kortet aldrig öppnats). Syns, spärrar aldrig.
     const planEtikett = (o.status ?? '').trim().toLowerCase() === 'oplanerad' ? oplaneradRadText(o.klar_kvar_antal) : null;
-    const egen = !!maskin && !avslutadVy && arTilldelad(o, maskinId);   // maskinläge: tilldelat den här maskinen
+    const egen = !!maskin && !avslutadVy && arTilldelad({ skordare_maskin_id: o.skordare_maskin_id, skotare_maskin_id: o.skotare_maskin_id }, maskinId);   // maskinläge: tilldelat den här maskinen
     const meta = avslutadVy ? avslutadMeta(o, avslutadVy === 'medTyp') : radMeta(o);
     const km = avstandKm(o);
     const arVag = vag[o.id] != null;

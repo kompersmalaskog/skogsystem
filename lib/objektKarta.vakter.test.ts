@@ -51,10 +51,11 @@ describe('prickarna gäller bara planeringsvyn (objektListaVal) — inte maskinl
     expect(f.indexOf('setValtObjekt(obj);')).toBeGreaterThan(markera);
   });
 
-  it('tomläget (inget objekt valt) renderar kartan med prickar i stället för den svarta ytan — och bara i planeringsvyn (objektListaVal-grenen)', () => {
+  it('tomläget (inget objekt valt) renderar kartan med prickar i stället för den svarta ytan — i planeringsvyn och maskinläget (anvandObjektListaUtanObjekt-grenen)', () => {
     expect((page.match(/<ObjektKartaTom /g) || []).length).toBe(1);
     const i = page.indexOf('<ObjektKartaTom ');
-    expect(page.lastIndexOf('if (objektListaVal) {', i)).toBeGreaterThan(page.lastIndexOf('// Visa objektväljaren om inget objekt är valt'));
+    expect(page.lastIndexOf('if (anvandObjektListaUtanObjekt({ maskinlage, maskinSom: !!maskinSomParam, korvyActive })) {', i))
+      .toBeGreaterThan(page.lastIndexOf('// Visa objektväljaren om inget objekt är valt'));
   });
 });
 
