@@ -28,7 +28,7 @@ export interface InfoVarden {
   skordareMaskinId: string | null;
   skordareUtforare: string | null;
   skordareUtforareNamn: string;
-  /** null = ingen har tagit ställning (förut false för båda — se migration 20261015190000) */
+  /** null = ingen har tagit ställning (förut false för båda — se migration 20261017072819) */
   skordareBand: boolean | null;
   skordareBandPar: string | null;
   skordareManFall: boolean;

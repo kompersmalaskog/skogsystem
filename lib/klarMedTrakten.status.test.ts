@@ -103,8 +103,8 @@ describe('källvakter: alla ställen som läser status är med', () => {
   });
 });
 
-describe('migrationen 20261015190000 (skriven, inte körd)', () => {
-  const sql = las('../supabase/migrations/20261015190000_klar_med_trakten.sql');
+describe('migrationen 20261017072819 (körd i prod 2026-10-17)', () => {
+  const sql = las('../supabase/migrations/20261017072819_klar_med_trakten.sql');
   it('CHECK får oplanerad, default blir oplanerad', () => {
     expect(sql).toContain("check (status = any (array['oplanerad'::text, 'planerad'::text, 'pagaende'::text, 'skotning'::text, 'avslutat'::text]))");
     expect(sql).toContain("alter column status set default 'oplanerad'");

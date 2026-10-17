@@ -1,4 +1,4 @@
-// De nya fälten för "Klar med trakten?" som kolumner på objekt (migration 20261015190000_klar_med_trakten.sql) — rad ↔ formulärvärden.
+// De nya fälten för "Klar med trakten?" som kolumner på objekt (migration 20261017072819_klar_med_trakten.sql) — rad ↔ formulärvärden.
 // De bor SEPARAT från Objektinfo-autosparet (lib/objektInfoSpar): de sparas direkt vid ett tryck (ett svar, ett godkännande), och en
 // databas där migrationen inte körts ännu ska inte få hela Trakt-formuläret att sluta spara. Rena funktioner → enhetstestbara.
 

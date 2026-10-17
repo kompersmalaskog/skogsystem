@@ -1,6 +1,5 @@
 -- "Klar med trakten?" — planerarens färdigplanering (PR A).
--- SKRIVEN, INTE KÖRD. Körs av chat-Claude efter Martins ja. Idempotent (kan köras om). Additiv utom två avsiktliga
--- dataändringar (1b, 1c) som är märkta nedan. Efter körning: byt filens version till den prod stämplat (CLAUDE.md).
+-- Idempotent (kan köras om). Additiv utom två avsiktliga dataändringar (1b, 1c) som är märkta nedan.
 --
 -- Kontrollerat mot prod 2026-10-15 (bara SELECT): objekt_status_check = planerad/pagaende/skotning/avslutat, kolumnen
 -- status defaultar 'planerad', 5 objekt är 'planerad' utan klar_skickad_timestamp, skordare_band/skotare_band är redan
