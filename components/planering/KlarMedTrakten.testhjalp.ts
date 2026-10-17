@@ -65,7 +65,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     skordare, skotare,
     maskiner: { skordare: [{ id: 'R64101', namn: 'Rottne H8E' }, { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' }], skotare: [{ id: 'A110148', namn: 'Ponsse Elephant King AF' }, { id: 'A030353', namn: 'Ponsse Wisent 2015' }] },
     prognos: {
-      volym: prognos.volym != null ? String(prognos.volym) : '', areal: prognos.areal != null ? String(prognos.areal).replace('.', ',') : '', medelstam: prognos.medelstam != null ? String(prognos.medelstam).replace('.', ',') : '',
+      volym: prognos.volym != null ? String(prognos.volym) : '', areal: prognos.areal != null ? String(prognos.areal) : '', medelstam: prognos.medelstam != null ? String(prognos.medelstam) : '',   // som sidan håller dem: text med punkt (infoAreal '2.75') — kortet formaterar
       // Saknas medelstam räknar sidan snitt över alla trakter av typen (lib/g15Forslag: metod 'snitt-medelstam-saknas') — då bär förslaget `snittOver`.
       skordare: maskinPrognos(prognos.skordareTimmar, prognos.volym, f.utanForslag ? null : (prognos.medelstam == null
         ? { g15: 41, kalla: 'Medelstam saknas – snitt över alla trakter · ur 22 slutavverkningar · troligen 38–45', snittOver: 'slutavverkningar' }

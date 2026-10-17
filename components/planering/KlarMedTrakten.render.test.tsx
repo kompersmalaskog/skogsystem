@@ -212,6 +212,26 @@ describe('Mölleryd: en ny trakt — vad är kvar', () => {
   });
 });
 
+describe('svenskt talformat: decimalkomma överallt i kortet', () => {
+  it('areal "2.75" (text med punkt, som sidan håller den) visas som "2,75 ha" i prognoskortet och som "2,75" i fältet', () => {
+    montera({ areal: 2.75 });
+    expect(text('klar-cell-areal')).toBe('2,75 ha');
+    klicka(q('klar-cell-areal'));
+    expect((q('klar-areal') as HTMLInputElement).value).toBe('2,75');
+  });
+  it('G15-timmar med decimal visas med komma; volym med tusentalsmellanrum', () => {
+    montera({ skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41.5, volym: 1734.5 });
+    expect(text('klar-cell-skordartimmar')).toBe('41,5');
+    expect(utanMellanrum(text('klar-cell-volym'))).toContain('1 734,5');
+    klicka(q('klar-cell-skordartimmar'));
+    expect((q('klar-skordartimmar') as HTMLInputElement).value).toBe('41,5');
+  });
+  it('inga punkter som decimaltecken i något synligt tal i kortet', () => {
+    montera({ areal: 2.75, medelstam: 0.72, skordare: EGEN('R64101'), skotare: EGEN('A110148'), skordareTimmar: 41.5, skotareTimmar: 36.25, volym: 1734.5 });
+    expect(behallare!.textContent).not.toMatch(/\d\.\d/);
+  });
+});
+
 describe('Förutsättningar: bärighet, terräng och skotningsavstånd som ETT område', () => {
   it('tryck fäller ut tre segmentknappar på plats; etiketten är orange så länge inget är valt', () => {
     montera({});
@@ -517,11 +537,11 @@ describe('prognoskortet: volym, tabell, källa, Stämmer — siffror redigeras p
 });
 
 describe('medelstam saknas', () => {
-  it('raden "Medelstam › Skriv" står i Behöver dig (orange värde) med förklaringen; i prognoskortet står "saknas" dämpat', () => {
+  it('raden "Medelstam › Skriv" står i Behöver dig (orange värde, ingen grå förklaring under); i prognoskortet står "saknas" dämpat', () => {
     montera({ medelstam: null });
     expect(q('klar-behover')!.querySelector('[data-testid="klar-post-medelstam"]')!.getAttribute('data-kvar')).toBe('1');
     expect(text('klar-rad-medelstam')).toContain('Skriv');
-    expect(text('klar-post-medelstam')).toContain('snitt över alla trakter');
+    expect(text('klar-post-medelstam')).not.toContain('Saknas i traktdirektivet');   // samma sak står redan under prognosen
     expect(text('klar-cell-medelstam')).toBe('saknas');
     expect(q('klar-cell-medelstam')!.style.color).not.toBe(farg(FARG.orange));
     expect(finns('klar-kvar-text')).toBe(false);

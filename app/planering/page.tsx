@@ -22,7 +22,7 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
-import { arBasvag as arBasvagMark, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll } from '../../lib/objektKort'
+import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll } from '../../lib/objektKort'
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
@@ -13523,7 +13523,7 @@ export default function PlannerPage() {
                 )}
                 {(valtObjekt.areal || valtObjekt.typ) && (
                   <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.65)' }}>
-                    {valtObjekt.areal ? ` · ${valtObjekt.areal} ha` : ''}
+                    {valtObjekt.areal ? ` · ${svTal(valtObjekt.areal, 2)} ha` : ''}
                     {valtObjekt.typ ? ` · ${valtObjekt.typ === 'slutavverkning' ? 'Slutavv.' : valtObjekt.typ === 'gallring' ? 'Gallring' : (objektHuvudtyp(valtObjekt) ? typLabel(objektHuvudtyp(valtObjekt)) : valtObjekt.typ)}` : ''}
                   </span>
                 )}
@@ -14114,7 +14114,7 @@ export default function PlannerPage() {
             <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 6 }}>{maskindatorKort.namn || 'Objekt'}</div>
             <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)', marginBottom: 18 }}>
               {[
-                maskindatorKort.areal != null ? `${maskindatorKort.areal.toFixed(1)} ha` : null,
+                maskindatorKort.areal != null ? `${svTal(maskindatorKort.areal, 1)} ha` : null,
                 maskindatorKort.typText,
                 maskindatorKort.volymKvar != null ? `${Math.round(maskindatorKort.volymKvar)} m³ kvar` : null,
               ].filter(Boolean).join(' · ')}
@@ -15303,7 +15303,7 @@ export default function PlannerPage() {
             const areaM2 = pixelArea * scale * scale;
             const areaHa = areaM2 / 10000;
             
-            const txt = areaHa >= 0.01 ? `${areaHa.toFixed(2)} ha` : `${Math.round(areaM2)} m²`;
+            const txt = areaHa >= 0.01 ? `${svTal(areaHa, 2)} ha` : `${Math.round(areaM2)} m²`;
             
             // Hitta mittpunkt för att visa texten
             const centerX = measurePath.reduce((sum, p) => sum + p.x, 0) / measurePath.length;
@@ -15400,7 +15400,7 @@ export default function PlannerPage() {
           : traktInfo.rubrik;
         const kontext: string[] = [];
         if (traktInfo.nr) kontext.push(`Nr ${traktInfo.nr}`);
-        if (traktInfo.arealHa != null) kontext.push(`${traktInfo.arealHa.toFixed(2)} ha`);
+        if (traktInfo.arealHa != null) kontext.push(`${svTal(traktInfo.arealHa, 2)} ha`);
         const nyckel = traktKortNyckel;
         const befintlig = nyckel ? anteckningar[nyckel] : undefined;
         const harAnteckning = !!(befintlig && befintlig.text.trim());

@@ -127,6 +127,14 @@ describe('omdesignen (förslag 2): presentation, ingen ny logik', () => {
     expect(kort).not.toMatch(/<Rubrik>Behöver dig[^<]*\{/);          // ingen siffra i Behöver dig-rubriken
     expect(kort).not.toContain('klar-grupp-harDu');                    // Har du … är en vy, inte en utfällbar grupp
   });
+  it('areal i namnfältet, mätfigur, traktgränskortet och maskinkortet går genom svTal (decimalkomma) — aldrig rå sträng eller toFixed med punkt', () => {
+    expect(page).toContain("{valtObjekt.areal ? ` · ${svTal(valtObjekt.areal, 2)} ha` : ''}");
+    expect(page).toContain('kontext.push(`${svTal(traktInfo.arealHa, 2)} ha`)');
+    expect(page).toContain('`${svTal(maskindatorKort.areal, 1)} ha`');
+    expect(page).not.toContain('{valtObjekt.areal} ha');
+    expect(page).not.toMatch(/arealHa\.toFixed\(2\)\} ha/);
+    expect(kort).not.toMatch(/\{pg\.areal\.trim\(\)\} ha/);
+  });
   it('Förutsättningar är ETT område (segmentknappar på plats) och Har du … en egen vy, en fråga i taget', () => {
     expect(kort).toContain('function ForutsRad(');
     expect(kort).toContain('function FragorVy(');

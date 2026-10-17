@@ -354,3 +354,16 @@ describe('basväg i Om trakten (färg och längd)', () => {
     expect(arKortKommentar(bv({ id: 'c', comment: 'Röd väg' }))).toBe(false);
   });
 });
+
+describe('svTal — svensk decimalkomma', () => {
+  it('text med punkt, tal och text med komma blir svenskt; text som inte är ett tal lämnas', async () => {
+    const { svTal } = await import('./objektKort');
+    expect(svTal('2.75')).toBe('2,75');
+    expect(svTal(2.75)).toBe('2,75');
+    expect(svTal('2,75')).toBe('2,75');
+    expect(svTal('1734.5', 1)).toBe('1 734,5');
+    expect(svTal(3.6, 2)).toBe('3,6');
+    expect(svTal('abc')).toBe('abc');
+    expect(svTal(null)).toBe('');
+  });
+});

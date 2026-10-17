@@ -19,6 +19,7 @@ import {
   BARIGHET_VAL, FORUTSATTNING_IDS, HAR_DU_FRAGOR, SKOTNINGSAVSTAND_VAL, TERRANG_VAL, utforareLage,
   type HarDuFraga, type HarDuId, type HarDuSvar, type HarDuSvarVarde, type KlarStatus, type Post, type PostId, type UtforareVal, type Varning, type VedDetaljer,
 } from '@/lib/klarTrakt';
+import { svTal } from '@/lib/objektKort';
 import { Gruppkort, Huvud, Pil, Rubrik } from './infoDelar';
 import { Etikett, Falt, Val } from './klarDelar';
 import KlarVed from './KlarVed';
@@ -118,6 +119,8 @@ const tal = (t: string): number | null => {
   const n = Number(t.replace(/\s/g, '').replace(',', '.'));
   return t.trim() !== '' && Number.isFinite(n) ? n : null;
 };
+/** Svensk decimalkomma i ett skrivfält ("2.75" → "2,75"); det som skrivs tolkas av parseSvNum, så båda tecknen fungerar. */
+const komma = (t: string) => t.replace('.', ',');
 /** 1734 → "1 734" (tusentalsavgränsare, som resten av appen). */
 const sv = (n: number) => n.toLocaleString('sv-SE', { maximumFractionDigits: 1 });
 
@@ -237,7 +240,7 @@ function TalCell({ id, aktiv, onAktiv, onKlart, varde, onChange, label, tom, ali
   /** texten när talet saknas (dämpad — orange står bara i rubriken och i Behöver dig-raderna) */
   tom: string; align?: 'left' | 'right'; stor?: boolean; children: React.ReactNode;
 }) {
-  if (aktiv) return <Falt testid={`klar-${id}`} label={label} numeriskt kompakt value={varde} onChange={onChange} onKlart={onKlart} />;
+  if (aktiv) return <Falt testid={`klar-${id}`} label={label} numeriskt kompakt value={komma(varde)} onChange={onChange} onKlart={onKlart} />;
   const saknas = varde.trim() === '';
   // `stor` = ett tal som står fritt i kortet (volymen, medelstam, areal): ingen ruta, men samma 44 px träffyta. Annars en siffra i tabellen: en ruta som visar att den går att trycka på.
   const yta = stor
@@ -482,7 +485,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
         return (
           <PostRad key={id} forst={forst} post={x} uppmaning="Rita" oppen={oppen === 'basvag'} onToggle={() => vaxla('basvag')}
             varde={p.basvag.texter.length > 0 ? (p.basvag.sammanfattning ?? x.varde) : x.varde}
-            under={x.kvar ? 'Vida har en basväg i underlaget — den är inte ritad än' : p.basvag.kravs ? `Kräver basvägsanläggning${p.basvag.timmar ? ` · ${p.basvag.timmar} tim` : ''}` : undefined}>
+            under={x.kvar ? 'Vida har en basväg i underlaget — den är inte ritad än' : p.basvag.kravs ? `Kräver basvägsanläggning${p.basvag.timmar ? ` · ${svTal(p.basvag.timmar, 1)} tim` : ''}` : undefined}>
             <div data-testid="klar-basvag-redigera">
               <button type="button" data-testid="klar-basvag-rita" onClick={p.onRitaBasvag} className="press-scale" style={{ ...KNAPP.sekundar, cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation' }}>
                 {p.basvag.texter.length > 0 ? 'Rita en basväg till' : 'Rita basväg'}
@@ -498,7 +501,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
               {p.basvag.kravs && (
                 <>
                   <Etikett>Engångstid för anläggningen (G15-tim, läggs på skotarens prognos)</Etikett>
-                  <Falt testid="klar-basvag-timmar" label="Timmar för basvägsanläggning" numeriskt placeholder="t.ex. 6" value={p.basvag.timmar} onChange={(v) => p.onAndra({ basvagTimmar: v })} />
+                  <Falt testid="klar-basvag-timmar" label="Timmar för basvägsanläggning" numeriskt placeholder="t.ex. 6" value={komma(p.basvag.timmar)} onChange={(v) => p.onAndra({ basvagTimmar: v })} />
                 </>
               )}
             </div>
@@ -510,11 +513,10 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
         return <PostRad key={id} forst={forst} post={medMaskinnamn(x, p.skotare, p.maskiner.skotare)} uppmaning="Välj" oppen={oppen === id} onToggle={() => vaxla(id)}><UtforareRad roll="skotare" onKlart={() => stangRad('skotare')} v={p.skotare} maskiner={p.maskiner.skotare} onVal={(u) => p.onAndra({ skotare: u })} /></PostRad>;
       case 'medelstam':
         return (
-          <PostRad key={id} forst={forst} post={x} uppmaning="Skriv" oppen={oppen === id} onToggle={() => vaxla(id)}
-            under={x.kvar ? 'Saknas i traktdirektivet — förslaget räknar då snitt över alla trakter' : undefined}>
+          <PostRad key={id} forst={forst} post={x} uppmaning="Skriv" oppen={oppen === id} onToggle={() => vaxla(id)}>
             <div data-testid="klar-medelstam-redigera">
               <Etikett>Medelstam, m³fub per stam</Etikett>
-              <Falt testid="klar-medelstam-falt" label="Medelstam" numeriskt placeholder="t.ex. 0,72" value={pg.medelstam} onChange={(v) => p.onAndra({ medelstam: v })} onKlart={() => stangRad('medelstam')} />
+              <Falt testid="klar-medelstam-falt" label="Medelstam" numeriskt placeholder="t.ex. 0,72" value={komma(pg.medelstam)} onChange={(v) => p.onAndra({ medelstam: v })} onKlart={() => stangRad('medelstam')} />
             </div>
           </PostRad>
         );
@@ -553,7 +555,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
         {egen ? (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0 }}>
-              <TalCell id={roll === 'skordare' ? 'skordartimmar' : 'skotartimmar'} aktiv={aktiv(roll)} onAktiv={oppnaCell(roll)} onKlart={klarCell(roll)} varde={mp.tim} onChange={(t) => p.onAndra(roll === 'skordare' ? { skordareTimmar: t } : { skotareTimmar: t })} label={`${etikett}, G15-timmar`} tom="Skriv">{mp.tim.trim()}</TalCell>
+              <TalCell id={roll === 'skordare' ? 'skordartimmar' : 'skotartimmar'} aktiv={aktiv(roll)} onAktiv={oppnaCell(roll)} onKlart={klarCell(roll)} varde={mp.tim} onChange={(t) => p.onAndra(roll === 'skordare' ? { skordareTimmar: t } : { skotareTimmar: t })} label={`${etikett}, G15-timmar`} tom="Skriv">{svTal(mp.tim, 1)}</TalCell>
               {mp.andrad && mp.forslag && <span data-testid={`klar-${roll}-andrad`} style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>förslag {mp.forslag.g15}</span>}
             </div>
             <div data-testid={`klar-${roll}-prestation`} style={{ ...TYP.listtitel, ...TNUM, color: mp.prestation != null ? FARG.text : FARG.text3, textAlign: 'right', alignSelf: 'center', paddingRight: AVSTAND.m }}>{mp.prestation != null ? fmtPrestation(mp.prestation) : '–'}</div>
@@ -622,7 +624,7 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ ...TYP.meta, color: FARG.text2 }}>Volym</div>
                   {aktiv('volym')
-                    ? <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}><div style={{ width: 144 }}><Falt testid="klar-volym" label="Volym, m³fub" numeriskt kompakt value={pg.volym} onChange={(v) => p.onAndra({ volym: v })} onKlart={klarCell('volym')} /></div><span style={{ ...TYP.meta, color: FARG.text2 }}>m³fub</span></div>
+                    ? <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}><div style={{ width: 144 }}><Falt testid="klar-volym" label="Volym, m³fub" numeriskt kompakt value={komma(pg.volym)} onChange={(v) => p.onAndra({ volym: v })} onKlart={klarCell('volym')} /></div><span style={{ ...TYP.meta, color: FARG.text2 }}>m³fub</span></div>
                     : <TalCell id="volym" stor aktiv={false} onAktiv={oppnaCell('volym')} onKlart={klarCell('volym')} varde={pg.volym} onChange={() => {}} label="Volym, m³fub" tom="Skriv volym" align="left">
                         <span style={{ ...TYP.tal }}>{volymTal != null ? sv(volymTal) : pg.volym}</span><span style={{ ...TYP.text, color: FARG.text2 }}> m³fub</span>
                       </TalCell>}
@@ -630,14 +632,14 @@ export default function KlarMedTrakten(p: KlarMedTraktenProps) {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
                   <div style={{ ...TYP.meta, color: FARG.text2 }}>medelstam</div>
                   {aktiv('medelstam')
-                    ? <div style={{ width: 96 }}><Falt testid="klar-medelstam" label="Medelstam, m³fub per stam" numeriskt kompakt value={pg.medelstam} onChange={(v) => p.onAndra({ medelstam: v })} onKlart={klarCell('medelstam')} /></div>
+                    ? <div style={{ width: 96 }}><Falt testid="klar-medelstam" label="Medelstam, m³fub per stam" numeriskt kompakt value={komma(pg.medelstam)} onChange={(v) => p.onAndra({ medelstam: v })} onKlart={klarCell('medelstam')} /></div>
                     : <TalCell id="medelstam" stor aktiv={false} onAktiv={oppnaCell('medelstam')} onKlart={klarCell('medelstam')} varde={pg.medelstam} onChange={() => {}} label="Medelstam, m³fub per stam" tom="saknas">
                         <span style={{ ...TYP.rubrik, ...TNUM }}>{msTal != null ? msTal.toFixed(2).replace('.', ',') : pg.medelstam}</span>
                       </TalCell>}
                   {aktiv('areal')
-                    ? <div style={{ width: 96, marginTop: AVSTAND.xs }}><Falt testid="klar-areal" label="Areal, ha" numeriskt kompakt value={pg.areal} onChange={(v) => p.onAndra({ areal: v })} onKlart={klarCell('areal')} /></div>
+                    ? <div style={{ width: 96, marginTop: AVSTAND.xs }}><Falt testid="klar-areal" label="Areal, ha" numeriskt kompakt value={komma(pg.areal)} onChange={(v) => p.onAndra({ areal: v })} onKlart={klarCell('areal')} /></div>
                     : <TalCell id="areal" stor aktiv={false} onAktiv={oppnaCell('areal')} onKlart={klarCell('areal')} varde={pg.areal} onChange={() => {}} label="Areal, ha" tom="areal saknas">
-                        <span style={{ ...TYP.meta, color: FARG.text2 }}>{pg.areal.trim()} ha</span>
+                        <span style={{ ...TYP.meta, color: FARG.text2 }}>{svTal(pg.areal, 2)} ha</span>
                       </TalCell>}
                 </div>
               </div>
