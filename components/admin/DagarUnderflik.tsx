@@ -56,6 +56,8 @@ type Medarbetare = {
   medarbetare_id: string; namn: string; dagar: Dag[];
   synk: { datum: string; diff_min: number }[];
   deldagar: { datum: string; typ: string; fran_tid: string | null; till_tid: string | null }[];
+  /** Hemskickade dagar (betald tid, ingen frånvaro): dagen fylls upp till 8 tim som timlön. */
+  hemskickad?: { datum: string; fran_tid: string | null; minuter: number }[];
   ledighetskollision: { datum: string; typ: string }[];
   vilobrott: { datum: string; typ: string; vila_h: number; krav_h: number }[];
 };
@@ -139,8 +141,8 @@ export default function DagarUnderflik() {
         const per = new Map<string, Medarbetare>();
         for (const lista of svar) for (const m of lista) {
           const s = per.get(m.medarbetare_id);
-          if (!s) { per.set(m.medarbetare_id, { ...m, dagar: [...(m.dagar || [])], synk: [...(m.synk || [])], deldagar: [...(m.deldagar || [])], ledighetskollision: [...(m.ledighetskollision || [])], vilobrott: [...(m.vilobrott || [])] }); continue; }
-          s.dagar.push(...(m.dagar || [])); s.synk.push(...(m.synk || [])); s.deldagar.push(...(m.deldagar || []));
+          if (!s) { per.set(m.medarbetare_id, { ...m, dagar: [...(m.dagar || [])], synk: [...(m.synk || [])], deldagar: [...(m.deldagar || [])], hemskickad: [...(m.hemskickad || [])], ledighetskollision: [...(m.ledighetskollision || [])], vilobrott: [...(m.vilobrott || [])] }); continue; }
+          s.dagar.push(...(m.dagar || [])); s.synk.push(...(m.synk || [])); s.deldagar.push(...(m.deldagar || [])); (s.hemskickad ||= []).push(...(m.hemskickad || []));
           s.ledighetskollision.push(...(m.ledighetskollision || [])); s.vilobrott.push(...(m.vilobrott || []));
         }
         setData({ medarbetare: Array.from(per.values()) });
@@ -161,7 +163,8 @@ export default function DagarUnderflik() {
     const ut: Rad[] = [];
     for (const m of data.medarbetare) {
       const synk = new Map((m.synk || []).map(s => [s.datum, s.diff_min]));
-      const deldag = new Map((m.deldagar || []).map(x => [x.datum, x]));
+      // Hemskickad är en deldag som betalas (ingen frånvaro): dagens rad säger "hemskickad 2:00 – betalas" (dagAvvikelser).
+      const deldag = new Map([...(m.deldagar || []), ...(m.hemskickad || []).map(h => ({ datum: h.datum, typ: "hemskickad", fran_tid: h.fran_tid, till_tid: null }))].map(x => [x.datum, x]));
       const ledig = new Map((m.ledighetskollision || []).map(x => [x.datum, x.typ]));
       for (const d of m.dagar || []) {
         const min = (d.arbetad_min || 0) + (d.extra_min || 0);

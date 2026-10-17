@@ -24,7 +24,7 @@ Lön, kalender och Min tid måste i dag läsa båda källorna och slå ihop.
 
 | Kolumn | Värden |
 |---|---|
-| `typ` | semester · atk · komp · sjuk · vab · foraldraledig · inarbetad · tjanstledig · permission |
+| `typ` | semester · atk · komp · sjuk · vab · foraldraledig · inarbetad · tjanstledig · permission · hemskickad |
 | `status` | väntar · godkänd · nekad (ansökt) · registrerad (anmäld: sjuk/vab/föräldraledig) |
 | `ersatter_datum` | bara för `inarbetad`: den arbetade dagen som den lediga byts mot |
 | `kalla` | ansokan · morgonkort · admin · backfill |
@@ -171,6 +171,12 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
   timmar, och räknar Fortnox karens och 80 % själv?
 - Kalendern: dagen visar arbete (prick); månadskortet och Kontroll-steget
   räknar "Sjukdag (del av dag)". Ledighetsvyn visar "Del av dag — från 11:30".
+
+**Hemskickad (2026-10-17) — tionde typen, betald deldag.** Ingen frånvaro: maskinen gick sönder eller vädret stoppade jobbet och
+föraren åkte hem mitt på dagen. Raden är en deldag (`fran_tid` = klockslaget, ingen `till_tid`, `status = registrerad`) men dagen **fylls
+upp till 8 tim** och fyllnaden betalas som timlön (+ premie), räknas som arbetad tid mot ordinarie och ger aldrig övertid. Härledd, aldrig
+lagrad. Se CLAUDE.md "Hemskickad — betald deldag" och `loneberakning.hemskickad.test.ts`. Migration
+`20261017170000_ledighet_hemskickad.sql` (typ, registrerad, deldag, ny `ledighet_hemskickad_deldag`, RLS) — fil, inte körd.
 
 **Steg 3 — städning (2026-09-25).** Inget ställe läser `arbetsdag.dagtyp`
 för frånvaro längre (kontrollerat: lön, årsövertid, kalender, Kontroll,

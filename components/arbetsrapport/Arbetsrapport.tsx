@@ -16,7 +16,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { byggAvtalGrupper } from "@/lib/avtalVy";
 import { oppnaAvtalPdf as oppnaAvtalPdfFil, MEDD_EJ_UPPLADDAT } from "@/lib/avtalPdf";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, DELDAG_VAL, DELDAG_UNDERRAD, hemskickadMinuter, fmtTimMin, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, passMinuter } from "@/lib/arbetsdagRegler";
@@ -1998,7 +1998,7 @@ export default function Arbetsrapport() {
   const sparaDeldag = async () => {
     if (!deldagSheet || !medarbetare?.id) return;
     const s = deldagSheet;
-    if (!s.typ) { setDeldagSheet({ ...s, fel: "Välj sjuk, VAB eller föräldraledig." }); return; }
+    if (!s.typ) { setDeldagSheet({ ...s, fel: "Välj varför du åkte hem." }); return; }
     if (!/^\d{2}:\d{2}$/.test(s.tid)) { setDeldagSheet({ ...s, fel: "Ange klockslaget du åkte hem." }); return; }
     setDeldagSheet({ ...s, sparar: true, fel: null });
     const res = await registreraFranvaro(supabase, { medarbetareId: medarbetare.id, namn: medarbetare.namn || "", datum: s.datum, typ: s.typ, franTid: s.tid });
@@ -2006,6 +2006,16 @@ export default function Arbetsrapport() {
     setDeldagar(prev => ({ ...prev, [s.datum]: { typ: s.typ!, fran_tid: s.tid, till_tid: null, status: "registrerad" } }));
     setDeldagSheet(null);
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
+  };
+  // Hemskickad (maskinen gick sönder, väder) är BETALD tid, ingen frånvaro: dagen fylls upp till 8 tim som timlön. Texten säger vad som betalas,
+  // härlett ur den arbetade tiden den dagen (maskin + extra tid) — samma tal som lönemotorn. Medan passet pågår är den arbetade tiden inte slutlig.
+  // `dagRad` = dagens post som vyerna håller (byggDagPost: `arbMin`) eller en rå arbetsdag-rad (`arbetad_min`).
+  const hemskickadDagText = (datum: string, dagRad: any, pagar: boolean): string => {
+    if (pagar) return "Hemskickad – dagen fylls upp till 8 tim och betalas";
+    const maskinMin = Number(dagRad?.arbMin ?? dagRad?.arbetad_min ?? 0) || 0;
+    const extra = (extraTidData || []).filter((e: any) => e.datum === datum).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
+    const min = hemskickadMinuter(maskinMin + extra);
+    return min > 0 ? `Hemskickad ${fmtTimMin(min)} – betalas` : "Hemskickad – du hann arbeta 8 tim, inget att fylla upp";
   };
   const deldagSheetUI = deldagSheet && (() => {
     const s = deldagSheet;
@@ -2016,9 +2026,11 @@ export default function Arbetsrapport() {
             <div style={{ width:36, height:AVSTAND.xs, borderRadius:RADIE.rad, background:FARG.fyllning }} />
           </div>
           <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Åkte hem {s.datum.slice(8)}/{Number(s.datum.slice(5, 7))} — resten av dagen</p>
-          <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>Förmiddagen räknas som arbete. Frånvarotimmarna räknas mot 8 tim per dag tills schema är beslutat.</p>
+          <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{s.typ === "hemskickad"
+            ? "Du får betalt för resten av dagen: dagen fylls upp till 8 tim som timlön."
+            : "Förmiddagen räknas som arbete. Frånvarotimmarna räknas mot 8 tim per dag tills schema är beslutat."}</p>
           <div style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
-            {FRANVARO_VAL.map(v => (
+            {DELDAG_VAL.map(v => (
               <button key={v.id} onClick={()=>setDeldagSheet({ ...s, typ: v.id, fel: null })} style={{ ...(s.typ === v.id ? KNAPP.primar : KNAPP.sekundar), justifyContent:"flex-start", padding:`0 ${AVSTAND.l}px` }}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{v.ikon}</span>
                 {v.label}
@@ -2937,7 +2949,9 @@ export default function Arbetsrapport() {
       const under = franvaroIdag
         ? 'Registrerad — arbete i dag räknas ändå som arbete'
         : delIdag
-          ? `${FRANVARO_TYP_RUBRIK[delIdag.typ]} från ${fmtKlockslag(delIdag.fran_tid)} — förmiddagen räknas som arbete`
+          ? (delIdag.typ === "hemskickad"
+            ? hemskickadDagText(idagKey, idagArb, !idagArb?.slut_tid)
+            : `${FRANVARO_TYP_RUBRIK[delIdag.typ]} från ${fmtKlockslag(delIdag.fran_tid)} — förmiddagen räknas som arbete`)
           : !isWorking
             // En maskin utan filer (JD810E) startar ingenting själv — säg det,
             // annars väntar föraren på en dag som aldrig kommer.
@@ -3139,8 +3153,10 @@ export default function Arbetsrapport() {
             {/* Deldag: sjuk/VAB från ett klockslag — dagen är arbete OCH frånvaro */}
             {deldagar[idagKey] && (
               <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, marginTop:AVSTAND.xs }}>
-                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>{FRANVARO_VAL.find(v => v.id === deldagar[idagKey].typ)?.ikon || 'event_busy'}</span>
-                <span style={{ ...TYP.meta, color:FARG.text2 }}>{FRANVARO_TYP_RUBRIK[deldagar[idagKey].typ]} från {fmtKlockslag(deldagar[idagKey].fran_tid)} — förmiddagen räknas som arbete</span>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text2 }}>{DELDAG_VAL.find(v => v.id === deldagar[idagKey].typ)?.ikon || 'event_busy'}</span>
+                <span data-hemskickad={deldagar[idagKey].typ === "hemskickad" ? "" : undefined} style={{ ...TYP.meta, color:FARG.text2 }}>{deldagar[idagKey].typ === "hemskickad"
+                  ? hemskickadDagText(idagKey, idagArb, dagPågår || !idagArb?.slut_tid)
+                  : `${FRANVARO_TYP_RUBRIK[deldagar[idagKey].typ]} från ${fmtKlockslag(deldagar[idagKey].fran_tid)} — förmiddagen räknas som arbete`}</span>
               </div>
             )}
             {/* Bytesdag gjord för en arbetad röd dag: föraren ska se att det gick
@@ -3593,10 +3609,10 @@ export default function Arbetsrapport() {
           if ((harMaskinPass || perioddag) && !dagPågår) return null;
           return (
           <section style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp(delDag ? 'Åker hem' : 'Frånvaro', delDag ? `${FRANVARO_UNDERRAD} — resten av dagen` : FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
+            {kortKnapp(delDag ? 'Åker hem' : 'Frånvaro', delDag ? `${DELDAG_UNDERRAD} — resten av dagen` : FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
             {visaÖvrigt && (
               <div className="tona-in" style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
-                {FRANVARO_VAL.map(s=>(
+                {(delDag ? DELDAG_VAL : FRANVARO_VAL).map(s=>(
                   <button key={s.id} onClick={async ()=>{
                     const nu = new Date();
                     const franTid = delDag ? `${String(nu.getHours()).padStart(2, "0")}:${String(nu.getMinutes()).padStart(2, "0")}` : null;
@@ -3607,7 +3623,7 @@ export default function Arbetsrapport() {
                     else setFranvaroDagar(prev => ({ ...prev, [idagKey]: s.id }));
                     setVisaÖvrigt(false);
                     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-                    setHeldagsMeddelande({ typ: s.id, text: franTid ? `${FRANVARO_TYP_RUBRIK[s.id]} från ${franTid} — förmiddagen räknas som arbete` : s.meddelande, icon: s.ikon });
+                    setHeldagsMeddelande({ typ: s.id, text: franTid ? (s.id === "hemskickad" ? `Hemskickad från ${franTid} — dagen betalas upp till 8 tim` : `${FRANVARO_TYP_RUBRIK[s.id]} från ${franTid} — förmiddagen räknas som arbete`) : s.meddelande, icon: s.ikon });
                     setTimeout(() => setHeldagsMeddelande(null), 2500);
                   }}
                     style={{ ...KNAPP.sekundar, justifyContent:"flex-start", padding:`0 ${AVSTAND.l}px` }}>
@@ -4696,7 +4712,7 @@ export default function Arbetsrapport() {
     }
     for (const [datum, dd] of Object.entries(deldagar)) {
       if (!datum.startsWith(lönePeriod)) continue;
-      const label = `${FRANVARO_TYP_RUBRIK[dd.typ]} (del av dag)`;
+      const label = dd.typ === "hemskickad" ? FRANVARO_TYP_RUBRIK.hemskickad : `${FRANVARO_TYP_RUBRIK[dd.typ]} (del av dag)`;   // hemskickad är betald tid, ingen frånvaro
       frånvaroAntal.set(label, (frånvaroAntal.get(label) || 0) + 1);
     }
     const frånvaroRader = Array.from(frånvaroAntal.entries()) as [string,number][];
@@ -5856,13 +5872,15 @@ export default function Arbetsrapport() {
                 if (!rd?.datum) return null;
                 const dd = deldagar[rd.datum];
                 if (dd) return (
-                  <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
-                    {FRANVARO_TYP_RUBRIK[dd.typ]} från {fmtKlockslag(dd.fran_tid)} — förmiddagen räknas som arbete{dd.status === "väntar" ? " (väntar på godkännande)" : ""}.
+                  <p data-hemskickad={dd.typ === "hemskickad" ? "" : undefined} style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>
+                    {dd.typ === "hemskickad"
+                      ? `${hemskickadDagText(rd.datum, rd, false)}.`
+                      : <>{FRANVARO_TYP_RUBRIK[dd.typ]} från {fmtKlockslag(dd.fran_tid)} — förmiddagen räknas som arbete{dd.status === "väntar" ? " (väntar på godkännande)" : ""}.</>}
                   </p>
                 );
                 if (!rd.start_tid || franvaroDagar[rd.datum] || foreSkarpStart(rd.datum)) return null;
                 return (
-                  <button onClick={()=>setDeldagSheet({ datum: rd.datum, typ: null, tid: fmtKlockslag(rd.slut_tid) || "12:00", fel: null, sparar: false })} style={{ ...KNAPP.lank, ...TYP.meta, display:"flex", justifyContent:"flex-start", textAlign:"left", padding:0 }}>Åkte hem sjuk, VAB eller föräldraledig?</button>
+                  <button onClick={()=>setDeldagSheet({ datum: rd.datum, typ: null, tid: fmtKlockslag(rd.slut_tid) || "12:00", fel: null, sparar: false })} style={{ ...KNAPP.lank, ...TYP.meta, display:"flex", justifyContent:"flex-start", textAlign:"left", padding:0 }}>Åkte hem sjuk, VAB, föräldraledig eller hemskickad?</button>
                 );
               })()}
             </div>

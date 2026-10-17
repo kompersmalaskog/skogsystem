@@ -46,7 +46,7 @@
 import { getRödaDagar } from "../roda-dagar";
 import { isoVecka } from "../vilobrott";
 import { arArbetsdag } from "../arbetsdagRegler";
-import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, FRANVARO_STATUS_GALLER, type FranvaroRad } from "../franvaro";
+import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, hemskickadMinuter, arDeldag, FRANVARO_STATUS_GALLER, type FranvaroRad } from "../franvaro";
 
 export type OvertidModell = "vardagar" | "dagar" | "vecka" | "genomsnitt";
 
@@ -135,14 +135,27 @@ export function beraknaArsovertid(
     minPerDatum.set(e.datum, (minPerDatum.get(e.datum) || 0) + (e.minuter || 0));
   }
 
+  // HEMSKICKAD (typ 'hemskickad', del av dag): ingen frånvaro — dagen fylls upp till 8 tim och räknas som arbetad tid, som i lönemotorn
+  // (loneberakning: betalas som timlön, ordinarie, aldrig övertid av sig själv). Minuterna härleds ur den arbetade tiden den dagen. Om
+  // dagen är en arbetsdag avgörs av den ARBETADE tiden (före påfyllningen): en dag under 60 min är kortpass även med hemskickad.
+  const arbetadPerDatum = new Map(minPerDatum);
+  const hemPerDatum = new Map<string, number>();
+  for (const r of franvaro) {
+    if (r.typ !== "hemskickad" || !arDeldag(r) || !(FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status)) continue;
+    const d = r.startdatum;
+    if (!d || d < arStart || d > tomDatum || hemPerDatum.has(d)) continue;
+    hemPerDatum.set(d, hemskickadMinuter(minPerDatum.get(d) || 0));
+  }
+  hemPerDatum.forEach((hemMin, datum) => { if (hemMin > 0) minPerDatum.set(datum, (minPerDatum.get(datum) || 0) + hemMin); });
+
   // Per månad
   const manader = new Map<string, { min: number; arbetsdagar: number; kortpassMin: number }>();
   for (const [datum, min] of Array.from(minPerDatum.entries())) {
     const mp = datum.slice(0, 7);
     const m = manader.get(mp) || { min: 0, arbetsdagar: 0, kortpassMin: 0 };
     m.min += min;
-    if (arArbetsdag(min)) m.arbetsdagar++;
-    else m.kortpassMin += maskinPerDatum.get(datum) || 0; // kortpass = timlön, aldrig övertid (loneberakning)
+    if (arArbetsdag(arbetadPerDatum.get(datum) || 0)) m.arbetsdagar++;
+    else m.kortpassMin += (maskinPerDatum.get(datum) || 0) + (hemPerDatum.get(datum) || 0); // kortpass + hemskickad på en dag utan ×8 = timlön, aldrig övertid (loneberakning)
     manader.set(mp, m);
   }
   const [tÅ, tM, tD] = tomDatum.split("-").map(Number);
@@ -193,7 +206,7 @@ export function beraknaArsovertid(
   // som gäller (godkänd/registrerad); 'inarbetad' (skoftning) är ingen frånvaro. ARBETE VINNER: en heldagsrad över en
   // arbetad dag drar inget; en deldag drar schematimmar minus arbetade (lib/franvaro.deldagTimmar).
   const DAG_H = 40 / 5;
-  const gallande = franvaro.filter(r => (FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status) && r.typ !== "inarbetad");
+  const gallande = franvaro.filter(r => (FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status) && r.typ !== "inarbetad" && r.typ !== "hemskickad");
   // v1 börjar måndagen i ISO-vecka 1 (4 januari ligger alltid i den).
   const vecka1Start = new Date(ar, 0, 4);
   vecka1Start.setDate(vecka1Start.getDate() - ((vecka1Start.getDay() + 6) % 7));
@@ -214,7 +227,7 @@ export function beraknaArsovertid(
     let avdrag = 0;
     if (rodaBas[k]) { avdrag = DAG_H; e.roda += DAG_H; }
     else {
-      const min = minPerDatum.get(k) || 0;
+      const min = arbetadPerDatum.get(k) || 0;   // den ARBETADE tiden (hemskickad är inte frånvaro och fyller inte upp en heldagsrad)
       if (heldagFr[k] && !arArbetsdag(min)) avdrag = DAG_H;
       else if (deldagFr[k]) avdrag = deldagTimmar(DAG_H, min);
       e.franvaro += avdrag;

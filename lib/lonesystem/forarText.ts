@@ -11,7 +11,7 @@
  * en ny varning i motorn får aldrig försvinna tyst ur förarens vy.
  */
 
-import { FRANVARO_TYP_RUBRIK, arFranvaroTyp } from "@/lib/franvaro";
+import { FRANVARO_TYP_RUBRIK, arFranvaroTyp, hemskickadMinuter, fmtTimMin } from "@/lib/franvaro";
 import { ARBETSDAG_MIN_MINUTER, RAST_FRAGA_MIN, passOrimlighet } from "@/lib/arbetsdagRegler";
 import { arTidigVardag } from "@/lib/ob";
 import { loneartInfo } from "./loneart";
@@ -62,6 +62,12 @@ export function deldagText(dd: { typ: string; fran_tid: string | null; till_tid:
   if (dd.fran_tid) return `jobbade till ${hm(dd.fran_tid)}, sedan ${ord}`;
   if (dd.till_tid) return `${ord} till ${hm(dd.till_tid)}, sedan jobb`;
   return `${ord} en del av dagen`;
+}
+
+/** Hemskickad: "hemskickad 2:00 – betalas" — dagen fylls upp till 8 tim. Tomt när dagen redan hade 8 tim (inget att fylla upp). */
+export function hemskickadText(arbetadMin: number): string | null {
+  const min = hemskickadMinuter(arbetadMin);
+  return min > 0 ? `hemskickad ${fmtTimMin(min)} – betalas` : null;
 }
 
 /** "1 min", "1 tim 38 min" */
@@ -155,6 +161,13 @@ export function attTittaPa(spec: any): TittaPost[] {
     ut.push({
       nyckel: `dd${dd.datum}`, datum: dd.datum, rubrik: datumLang(dd.datum), hoger: deldagText(dd),
       text: `${deldagRubrik(dd.typ)}, ${Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro. ${EJ_BESTAMD}`,
+    });
+  }
+  // Hemskickad: betald tid, ingen frånvaro. En post per dag så föraren ser vad som betalas — och kan säga till om det är fel.
+  for (const h of (spec?.hemskickad || []) as { datum: string; minuter: number }[]) {
+    ut.push({
+      nyckel: `hs${h.datum}`, datum: h.datum, rubrik: datumLang(h.datum), hoger: `hemskickad ${fmtTimMin(h.minuter)}`,
+      text: `Du blev hemskickad. Dagen fylls upp till 8 tim och ${fmtTimMin(h.minuter)} betalas som timlön. Stämmer det inte — säg till Martin.`,
     });
   }
   for (const f of (spec?.franvaro || []) as { typ: string; dagar: number; datum: string[] }[]) {
@@ -262,7 +275,8 @@ export function dagAvvikelser(
   const orimligt = d.start_tid && d.slut_tid ? passOrimlighet(d.arbetad_min) : null;
   if (orimligt === "lang") ut.push(`pass ${minText(d.arbetad_min)}`);
   else if (orimligt === "negativ") ut.push("negativ tid");
-  if (ctx.deldag) ut.push(deldagText(ctx.deldag));
+  if (ctx.deldag?.typ === "hemskickad") { const t = hemskickadText(totalMin); if (t) ut.push(t); }   // betald tid, ingen frånvaro
+  else if (ctx.deldag) ut.push(deldagText(ctx.deldag));
   else if (ctx.ledig) ut.push(`${franvaroOrd(ctx.ledig)} och jobb`);
   if (arTidigVardag({ datum: d.datum, start_tid: d.start_tid ?? null, brandrisk_beordrad: null })) ut.push(`började ${hm(d.start_tid)}`);
   if ((d.rast_min || 0) > RAST_FRAGA_MIN) ut.push(`rast ${minText(d.rast_min || 0)}`);
