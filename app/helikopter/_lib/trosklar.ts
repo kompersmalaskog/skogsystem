@@ -10,7 +10,16 @@ export const TAKT_FONSTER_DAGAR = 5
 /** Ingen prognos före arbetsdag 4 i månaden — kräver PROGNOS_FRAN_ARBETSDAG − 1 gångna arbetsdagar med takt. */
 export const PROGNOS_FRAN_ARBETSDAG = 4
 
-/** |dagar efter| under detta visas som "På plan" i stället för ett dagtal. */
+/**
+ * SVARSRADEN STYRS AV PROGNOS MOT BESTÄLLT, inte av dagar efter/före plan. Läge, Uppföljningens spårkort, Veckoläget och onsdagsnotisen svarar alla på
+ * EN fråga: landar vi på beställningen — både skördat och skotat? (landarRoller i berakningar.ts: hittills + takt × arbetsdagar kvar, per roll.)
+ * Det finns därför ingen tröskel för "landar under": jämförelsen görs på de avrundade talen (landar < beställt).
+ *
+ * dagarEfter() och den här gränsen ligger kvar i berakningar.ts men styr bara det som fortfarande räknar mot plan idag (planstrecket och
+ * orange stapel i MOT BESTÄLLNING på Läge) — inte längre svarsrad, spårkort, stort tal eller flaskhalsruta.
+ *
+ * |dagar efter| under detta visas som "På plan" i stället för ett dagtal.
+ */
 export const PA_PLAN_GRANS_DAGAR = 1
 
 /** Oskotat räknas "i takt" när förändringen per dag ligger inom ± ett halvt lass. */

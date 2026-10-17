@@ -40,32 +40,39 @@ const bas: VeckoNotisData = {
 }
 
 describe('formateraVeckoNotis', () => {
-  it('efter plan: fem rader, skotaren är flaskhals med alla skotare som har takt', () => {
+  it('skotat landar under: fem rader — var det landar per roll, skotaren är flaskhals med alla skotare som har takt', () => {
     const text = formateraVeckoNotis(bas)
     const [slut] = text.split('\n\n')
-    // plan idag 2 500, (2 500 − 1 265) / 183,9 = 6,7 → 7 dagar efter. Veckoplan 1 136 × 3/5 = 682.
-    // behöver (5 000 − 1 265) / 11 = 340. Landar min(1 265 + 183,9 × 11, 912 + 2 675 + 277 × 11) = 3 288 → ca 3 300.
+    // Skördat landar 2 675 + 277,4 × 11 = 5 727 (≥ 5 000). Skotat landar 1 265 + 183,9 × 11 = 3 287 (kapas inte: skördat-prognosen + 912 är 6 639) → under.
+    // Veckoplan 1 136 × 3/5 = 682. Behöver (5 000 − 1 265) / 11 = 340.
     expect(slut.split('\n')).toEqual([
       `Vecka 38 · Slutavverkning · ${n(5000)} till Vida`,
-      `Skördat ${n(2675)} · skotat ${n(1265)} · 7 dagar efter plan`,
+      `Skördat landar ${n(5727)} · skotat landar ${n(3287)} av ${n(5000)}`,
       `Veckan hittills: plan 682, skördat 697, skotat 374`,
-      `Kör 184/dag · behöver 340 · landar ca ${n(3300)}`,
+      `Kör 184/dag · behöver 340`,
       `Skotaren är flaskhals: Elephant King 2026 184/dag på Rövemåla AU · Wisent 53/dag på Rössmåla Ga`,
     ])
   })
 
-  it('på plan: rad 2 slutar "på plan", ingen flaskhalsrad', () => {
+  it('skördat landar under men skotat når: skördaren är flaskhals — rad 2 pekar ut båda rollerna', () => {
     const text = formateraVeckoNotis(bas)
     const [, gall] = text.split('\n\n')
-    // gallring: plan idag 500, (500 − 487) / 53,3 = 0,2 → på plan. behöver (1 000 − 487) / 11 = 47.
-    // landar min(487 + 53,3 × 11 = 1 073, 902 + 239 + 27,3 × 11) = 1 073 → ca 1 100.
+    // gallring: skördat landar 239 + 27,3 × 11 = 539 (< 1 000). Skotat 486,5 + 53,3 × 11 = 1 073 (≥ 1 000). Behöver (1 000 − 487) / 11 = 47.
     expect(gall.split('\n')).toEqual([
       `Vecka 38 · Gallring · ${n(1000)} till Vida`,
-      'Skördat 239 · skotat 487 · på plan',
+      `Skördat landar 539 · skotat landar ${n(1073)} av ${n(1000)}`,
       'Veckan hittills: plan 136, skördat 88, skotat 171',
-      `Kör 53/dag · behöver 47 · landar ca ${n(1100)}`,
+      'Kör 53/dag · behöver 47',
+      'Skördaren är flaskhals: Ponsse Scorpion 277/dag på Hallaslätt AU · Rottne H8E -26 27/dag på Betet gallring',
     ])
-    expect(gall).not.toContain('flaskhals')
+  })
+
+  it('båda roller når beställt: ingen flaskhalsrad, ingen "dagar efter plan" någonstans', () => {
+    const bra = { ...bas, spar: [spar('slutavverkning', { skordat: 4600, skotat: 4000, takt_skordat: 100, takt_skotat: 120 })] }
+    const text = formateraVeckoNotis(bra)
+    expect(text.split('\n')[1]).toBe(`Skördat landar ${n(5700)} · skotat landar ${n(5320)} av ${n(5000)}`)
+    expect(text).not.toContain('flaskhals')
+    expect(formateraVeckoNotis(bas)).not.toMatch(/dagar? (efter|före) plan|på plan/)
   })
 
   it('inga objekt planerade: bara rubrikrad och "Inga objekt planerade"', () => {

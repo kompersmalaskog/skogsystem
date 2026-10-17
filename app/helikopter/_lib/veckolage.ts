@@ -2,7 +2,7 @@
 // rena vymodellen som sidan /helikopter/veckolage, PDF:en, bilden och onsdagsnotisen
 // (veckoNotis.ts) bygger på. Inga imports av React eller Supabase; testad i
 // veckolage.test.ts. Siffrorna räknas med raknaSpar/valjBas — samma som Läge/Uppföljning.
-import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, dagarEfter, raknaSpar, valjBas, type Lage, type SparLage } from './berakningar'
+import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, landarRoller, raknaSpar, valjBas, type SparLage } from './berakningar'
 import { MANAD_NAMN, dagarText, fmt, fmtDag, kortNamn, saknarData, sedanText, veckodag } from './format'
 export { saknarData, sedanText, veckodag }
 import type { Arbetsdagar, MaskinManad, SparRad, Typ, VeckaRad } from './queries'
@@ -64,12 +64,13 @@ export type SparVy = {
   typ: Typ
   /** Rubrik: "Slutavverkning · 5 000 m³fub till Vida" — volymen fet. Utan beställning: volym null, bolag " · ingen beställning". */
   rubrik: { typNamn: string; volym: string | null; bolag: string }
-  /** Stort tal: "4 dagar efter" (orange) / "På plan" / "2 dagar före" (grön) / "Inga objekt" (dämpad). liten = text i stället för tal. */
+  /** Stort tal: skotat landar i procent av beställt ("71 %", grön när spåret landar på beställt, annars orange) / "Inga objekt" (dämpad). liten = text i stället för tal. */
   stort: { text: string; ton: Ton; liten: boolean }
-  /** "Landar ca 2 400 av 5 000" / "Skotat 487 · skotar ut föregående månad · skördaren har inget planerat". */
+  /** "Skördat och skotat landar på beställningen" / "Skotat landar under beställt" / "Skotat 487 · skotar ut föregående månad · skördaren har inget planerat". */
   mening: string
-  skordat: { tal: string; under: string | null; ton: Ton }
-  skotat: { tal: string; under: string | null; ton: Ton }
+  /** Rutorna: "Skördat landar" + prognosen + "av 5 000" (grön när rollen landar på beställt, annars orange). Utan prognos: "Skördat" + hittills. */
+  skordat: { etikett: string; tal: string; under: string | null; ton: Ton }
+  skotat: { etikett: string; tal: string; under: string | null; ton: Ton }
   /** Bara när någon roll ligger efter. rader = maskinerna i den rollen (takt på objekt, eller "inga lass sedan …"). */
   flaskhals: { rubrik: string; rader: string[] } | null
   /** "Veckan hittills: plan 682 · skördat 697 · skotat 374". null utan pågående vecka. */
@@ -91,37 +92,46 @@ export type Veckolage = {
 /** Så många tecken får maskinraden i flaskhalsrutan vara på EN rad (14 px på 390 px); annars en rad per maskin. */
 export const FLASKHALS_RAD_MAX_TECKEN = 44
 
-/** "4 dagar efter" / "på plan" / "2 dagar före". */
-function lageKort(l: Lage | null): string | null {
-  if (!l) return null
-  if (l.status === 'pa_plan') return 'på plan'
-  return `${dagarText(l.dagar)} ${l.status === 'efter' ? 'efter' : 'före'}`
+/** Skotat landar i procent av beställt. Under beställt visas aldrig 100 % (99,6 % blir 99): talet och färgen säger samma sak. */
+function landarProcent(landar: number, bestallt: number, under: boolean): number {
+  const p = Math.round((100 * landar) / bestallt)
+  return under ? Math.min(99, p) : p
 }
 
 function stortTal(s: SparLage, ingenBest: boolean, ingaObjekt: boolean): SparVy['stort'] {
   if (ingenBest) return { text: 'Ingen beställning', ton: 'dampad', liten: true }
   if (ingaObjekt) return { text: 'Inga objekt', ton: 'dampad', liten: false }
-  if (!s.harPrognos || !s.lage) return { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, ton: 'dampad', liten: true }
-  if (s.lage.status === 'efter') return { text: `${dagarText(s.lage.dagar)} efter`, ton: 'orange', liten: false }
-  if (s.lage.status === 'fore') return { text: `${dagarText(s.lage.dagar)} före`, ton: 'gron', liten: false }
-  return { text: 'På plan', ton: 'gron', liten: false }
+  const roller = landarRoller(s)
+  if (!roller) return { text: `Prognos från dag ${PROGNOS_FRAN_ARBETSDAG}`, ton: 'dampad', liten: true }
+  const skotat = roller[1]
+  return { text: `${landarProcent(skotat.landar, skotat.bestallt, skotat.under)} %`, ton: skotat.under ? 'orange' : 'gron', liten: false }
 }
 
 function mening(s: SparLage, ingenBest: boolean, ingaObjekt: boolean): string {
   if (ingenBest) return `Skördat ${fmt(s.skordat)} · skotat ${fmt(s.skotat)}`
   if (ingaObjekt) return `Skotat ${fmt(s.skotat)}${s.skotat > 0 ? ' · skotar ut föregående månad' : ''} · skördaren har inget planerat`
-  if (!s.harPrognos || s.prognosSkotat == null) return `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`
-  return `Landar ca ${ca(s.prognosSkotat)} av ${fmt(s.bestallt)}`
+  const roller = landarRoller(s)
+  if (!roller) return `Skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`
+  const under = roller.filter(r => r.under)
+  if (under.length === 0) return 'Skördat och skotat landar på beställningen'
+  return `${under.length === 2 ? 'Skördat och skotat' : under[0].namn} landar under beställt`
 }
 
 /**
- * Flaskhalsrutan — bara när spåret (skotat mot plan, det stora talet) ligger efter; på plan
- * = ingen ruta. Rollen: skotaren om mer än en dags skotning ligger oskotat (samma regel som
- * Uppföljning), annars skördaren (skotaren har inget att hämta).
+ * Vilken roll som är flaskhals — null när spåret landar på beställningen (då finns ingen flaskhals att peka på). Landar bara en roll under är det
+ * den; landar båda under: skotaren om mer än en dags skotning ligger oskotat (samma regel som förut), annars skördaren.
  */
+export function flaskRoll(s: SparLage): 'skotare' | 'skordare' | null {
+  const under = landarRoller(s)?.filter(r => r.under) ?? []
+  if (under.length === 0) return null
+  if (under.length === 1) return under[0].roll === 'skotat' ? 'skotare' : 'skordare'
+  return s.oskotat > (s.taktSkotat ?? 0) ? 'skotare' : 'skordare'
+}
+
+/** Flaskhalsrutan — bara när någon roll landar under beställt (flaskRoll). rader = maskinerna i rollen (takt på objekt, eller "inga lass sedan …"). */
 function flaskhals(s: SparLage, kvar: number, maskiner: VeckolageMaskin[], globalaDagar: string[], idag: string, manadNamn: string): SparVy['flaskhals'] {
-  if (s.lage?.status !== 'efter') return null
-  const roll: 'skotare' | 'skordare' = s.oskotat > (s.taktSkotat ?? 0) ? 'skotare' : 'skordare'
+  const roll = flaskRoll(s)
+  if (roll == null) return null
 
   const namn = roll === 'skotare' ? 'Skotarna' : 'Skördarna'
   const gjort = roll === 'skotare' ? s.skotat : s.skordat
@@ -147,12 +157,14 @@ function flaskhals(s: SparLage, kvar: number, maskiner: VeckolageMaskin[], globa
 function sparVy(s: SparLage, d: VeckolageData, dagar: Arbetsdagar, manadNamn: string): SparVy {
   const ingenBest = s.bestallt <= 0
   const ingaObjekt = !ingenBest && (d.planerade[s.typ] ?? 0) === 0
-  // Lägen (text + färg) i rutorna bara med beställning, objekt och prognos.
-  const lagen = !ingenBest && !ingaObjekt && s.harPrognos
-  const skordatLage = lagen ? dagarEfter(s.plan, s.skordat, s.taktSkordat) : null
-  const skotatLage = lagen ? s.lage : null
+  // "Landar" i rutorna bara med beställning, objekt och prognos; annars hittills som förut.
+  const roller = !ingenBest && !ingaObjekt ? landarRoller(s) : null
   const av = ingenBest ? null : `av ${fmt(s.bestallt)}`
-  const under = (l: Lage | null) => (av == null ? null : `${av}${lageKort(l) ? ` · ${lageKort(l)}` : ''}`)
+  const ruta = (hittills: number, namn: 'Skördat' | 'Skotat', i: 0 | 1): SparVy['skordat'] => {
+    if (!roller) return { etikett: namn, tal: fmt(hittills), under: av, ton: 'neutral' }
+    const r = roller[i]
+    return { etikett: `${namn} landar`, tal: fmt(r.landar), under: av, ton: r.under ? 'orange' : 'gron' }
+  }
   const v = d.veckor[s.typ]
   const veckoPlan = v && v.plan != null && v.arbetsdagar > 0 && !ingenBest ? `plan ${fmt(v.plan * (d.vecka_gangna / v.arbetsdagar))} · ` : ''
   return {
@@ -160,9 +172,9 @@ function sparVy(s: SparLage, d: VeckolageData, dagar: Arbetsdagar, manadNamn: st
     rubrik: { typNamn: TYP_NAMN[s.typ], volym: ingenBest ? null : `${fmt(s.bestallt)} m³fub`, bolag: ingenBest ? ' · ingen beställning' : bolagText(s.bolag) },
     stort: stortTal(s, ingenBest, ingaObjekt),
     mening: mening(s, ingenBest, ingaObjekt),
-    skordat: { tal: fmt(s.skordat), under: under(skordatLage), ton: skordatLage?.status === 'efter' ? 'orange' : 'neutral' },
-    skotat: { tal: fmt(s.skotat), under: under(skotatLage), ton: skotatLage?.status === 'efter' ? 'orange' : 'neutral' },
-    flaskhals: lagen ? flaskhals(s, dagar.kvar, d.maskiner, d.dagar_tom_idag, d.idag, manadNamn) : null,
+    skordat: ruta(s.skordat, 'Skördat', 0),
+    skotat: ruta(s.skotat, 'Skotat', 1),
+    flaskhals: roller ? flaskhals(s, dagar.kvar, d.maskiner, d.dagar_tom_idag, d.idag, manadNamn) : null,
     veckan: v ? `Veckan hittills: ${veckoPlan}skördat ${fmt(v.skordat)} · skotat ${fmt(v.skotat)}` : null,
   }
 }

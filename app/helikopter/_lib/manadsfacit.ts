@@ -151,9 +151,9 @@ export function tidigareText(t: FacitSpar['tidigare_manader']): string {
   return 'tidigare månader'
 }
 
-/** Sista raden i ett spårkort: "Klart 29 sep · 265 skotat från augusti". Andra delen bara om volymen är > 0. */
+/** Sista raden i ett spårkort: "Beställt nått 29 sep · 265 skotat från augusti". Andra delen bara om volymen är > 0. */
 export function klartText(s: FacitSpar, status: FacitStatus): string {
-  const klart = s.klart_datum ? `Klart ${fmtDag(s.klart_datum)}` : status === 'avslutad' ? 'Inte klart' : 'Inte klart än'
+  const klart = s.klart_datum ? `Beställt nått ${fmtDag(s.klart_datum)}` : status === 'avslutad' ? 'Inte klart' : 'Inte klart än'
   return s.skotat_fran_tidigare > 0 ? `${klart} · ${fmt(s.skotat_fran_tidigare)} skotat från ${tidigareText(s.tidigare_manader)}` : klart
 }
 

@@ -101,14 +101,14 @@ describe('skotatFranTidigare', () => {
 describe('klartText', () => {
   const spar = (x: Partial<FacitSpar>): FacitSpar => ({ ...lasManadsfacit(facitSep).spar.slutavverkning!, ...x })
   it('klart + volym från tidigare månad', () => {
-    expect(klartText(spar({}), 'avslutad')).toBe(`Klart 30 sep · ${n(2835)} skotat från augusti`)
+    expect(klartText(spar({}), 'avslutad')).toBe(`Beställt nått 30 sep · ${n(2835)} skotat från augusti`)
   })
   it('andra delen bara om volymen är > 0', () => {
-    expect(klartText(spar({ skotat_fran_tidigare: 0, tidigare_manader: [] }), 'avslutad')).toBe('Klart 30 sep')
+    expect(klartText(spar({ skotat_fran_tidigare: 0, tidigare_manader: [] }), 'avslutad')).toBe('Beställt nått 30 sep')
   })
   it('flera tidigare månader → "tidigare månader"', () => {
     const t = [{ ar: 2026, manad: 8, volym: 100 }, { ar: 2026, manad: 7, volym: 50 }]
-    expect(klartText(spar({ skotat_fran_tidigare: 150, tidigare_manader: t }), 'avslutad')).toBe('Klart 30 sep · 150 skotat från tidigare månader')
+    expect(klartText(spar({ skotat_fran_tidigare: 150, tidigare_manader: t }), 'avslutad')).toBe('Beställt nått 30 sep · 150 skotat från tidigare månader')
     expect(tidigareText(t)).toBe('tidigare månader')
   })
   it('inte nått beställt: avslutad "Inte klart", pågående "Inte klart än"', () => {
@@ -192,9 +192,9 @@ describe('facitModell — september 2026', () => {
     expect(slut.skordatText).toBe(n(5170))
     expect(slut.skotatText).toBe(n(5142))
     expect(slut.skotatProcentText).toBe('103 %')
-    expect(slut.klartText).toBe(`Klart 30 sep · ${n(2835)} skotat från augusti`)
+    expect(slut.klartText).toBe(`Beställt nått 30 sep · ${n(2835)} skotat från augusti`)
     expect(m.spar[1].skotatProcentText).toBe('139 %')
-    expect(m.spar[1].klartText).toBe(`Klart 15 sep · ${n(976)} skotat från augusti`)
+    expect(m.spar[1].klartText).toBe(`Beställt nått 15 sep · ${n(976)} skotat från augusti`)
   })
   it('mätarna är andel av beställt, kapade vid 100 %', () => {
     expect(m.spar[0].skordatAndel).toBeCloseTo(1, 5)

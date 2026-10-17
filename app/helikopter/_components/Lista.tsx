@@ -24,7 +24,14 @@ export function Svarsrad({ svar }: { svar: Svar }) {
         {svar.avvikelse && <Ikon namn="warning" farg={FARG.orange} />}
         <h2 style={{ margin: 0, ...TYP.rubrik, color: svar.avvikelse ? FARG.text : FARG.text2 }}>{svar.rubrik}</h2>
       </div>
-      {svar.rad && <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs, paddingLeft: indrag }}>{svar.rad}</div>}
+      {/* Radbrytning bara mellan delarna (" · ") — aldrig mitt i "behöver 29/dag, kör 0". */}
+      {svar.rad && (
+        <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs, paddingLeft: indrag }}>
+          {svar.rad.split(' · ').map((del, i) => (
+            <span key={i}>{i > 0 && ' · '}<span style={{ whiteSpace: 'nowrap' }}>{del}</span></span>
+          ))}
+        </div>
+      )}
       {svar.varning && <div style={{ ...TYP.text, color: FARG.orange, marginTop: AVSTAND.xs, paddingLeft: indrag }}>{svar.varning}</div>}
     </section>
   )

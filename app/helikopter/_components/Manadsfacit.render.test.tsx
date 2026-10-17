@@ -81,7 +81,7 @@ describe('ManadsfacitVy', () => {
     expect(t).toContain('Levererat 6 532 av 6 000 m³fub')
     expect(t).toContain('Slutavverkning · 5 000 till Vida')
     expect(t).toContain('103 %')
-    expect(t).toContain('Klart 30 sep · 2 835 skotat från augusti')
+    expect(t).toContain('Beställt nått 30 sep · 2 835 skotat från augusti')
     expect(t).toContain('v36')
     expect(t).toContain('Skördat 5 918 · skotat 6 532 m³fub · 5 maskiner · 22 arbetsdagar')
     expect(cont.querySelector('button[aria-label="Dela månadsfacit"]')).toBeTruthy()
