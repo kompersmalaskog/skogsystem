@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { antalFaror, brandRadText, byggOmGrupper, dagText, listText, omGrupp, typRadText, type MiljoIn } from './omTrakten';
+import { antalFaror, brandRadText, byggOmGrupper, dagText, listText, omGrupp, omNamn, typRadText, type MiljoIn } from './omTrakten';
 import type { KartMarkering } from './objektKort';
 
 const M = (o: Partial<KartMarkering> & { id: string }): KartMarkering => ({ slag: 'symbol', typ: 'highstump', namn: 'Högstubbe', comment: '', lat: null, lng: null, skapad: null, ordning: 0, ...o });
@@ -105,6 +105,17 @@ describe('EN rad per typ', () => {
   it('rubrikens antal faror = markeringarna i gruppen Faror', () => {
     expect(antalFaror(byggOmGrupper([M({ id: '1', typ: 'warning', namn: 'Varning' }), M({ id: '2', typ: 'warning', namn: 'Varning' }), M({ id: '3', typ: 'powerline', namn: 'Kraftledning' })], null, null))).toBe(3);
     expect(antalFaror([])).toBe(0);
+  });
+});
+
+describe('ritad hänsynszon heter Hänsynsyta', () => {
+  it('raden, objektets titel och listens text — aldrig "Hänsyn" (som gruppen)', () => {
+    const z = M({ id: 'z', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Bok' });
+    const g = byggOmGrupper([z], null, null).find((x) => x.grupp === 'hansyn')!;
+    expect(g.rader.map(typRadText)).toEqual(['Hänsynsyta · 1 st']);
+    expect(listText(z)).toBe('Hänsynsyta · Bok');
+    expect(omNamn(z)).toBe('Hänsynsyta');
+    expect(omNamn(M({ id: 'w', slag: 'zon', typ: 'wet', namn: 'Blött' }))).toBe('Blött');
   });
 });
 

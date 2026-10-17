@@ -62,6 +62,9 @@ export function typRadText(r: Pick<TypRad, 'namn' | 'antal' | 'basvag' | 'miljo'
 }
 
 const KORT_VAG_KOMMENTAR = 24;
+
+/** Namnet i Om trakten. Ritade hänsynsytor heter zonens eget namn "Hänsyn" på kartan — här "Hänsynsyta", så att raden inte heter som gruppen HÄNSYN. */
+export const omNamn = (m: Pick<KartMarkering, 'slag' | 'typ' | 'namn'>): string => (m.slag === 'zon' && m.typ === 'protected' ? 'Hänsynsyta' : String(m.namn ?? ''));
 const versal = (t: string) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 const norm = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -73,7 +76,7 @@ function radFor(m: KartMarkering): { nyckel: string; namn: string } {
     const k = m.comment.trim();
     if (k && k.length <= KORT_VAG_KOMMENTAR && !(m.photoPath || m.photoData || m.fotoVantar)) return { nyckel: `symbol:road:${norm(k)}`, namn: versal(k.replace(/\s+/g, ' ')) };
   }
-  return { nyckel: `${m.slag}:${m.typ}`, namn: versal(m.namn || m.typ) };
+  return { nyckel: `${m.slag}:${m.typ}`, namn: versal(omNamn(m) || m.typ) };
 }
 
 const langd = (m: KartMarkering): number => (m.langdM != null && Number.isFinite(m.langdM) ? m.langdM : -1);
@@ -131,14 +134,14 @@ export function byggOmGrupper(ms: readonly KartMarkering[], pos: { lat: number; 
 export const antalFaror = (g: readonly OmGruppRader[]): number => g.find((x) => x.grupp === 'faror')?.rader.reduce((s, r) => s + r.antal, 0) ?? 0;
 
 /** Raden i typvyns lista: basväg = "Basväg röd · 640 m", annars symbolens namn. Kommentaren är en rad under (aldrig huvudtext). */
-export const objektTitel = (m: KartMarkering): string => (arBasvag(m) ? basvagText(m.farg, m.langdM) : m.namn);
+export const objektTitel = (m: KartMarkering): string => (arBasvag(m) ? basvagText(m.farg, m.langdM) : omNamn(m));
 
 // ── Texten i listen nertill när ETT objekt visas ──────────────────────────────────────────────────────────────────
 /** "Basväg röd · 329 m" / "Högstubbe" / "Kulturminne · Stenrös vid vägen" — det som står i NedfaldList. */
 export function listText(m: Pick<KartMarkering, 'comment' | 'namn' | 'typ' | 'slag' | 'farg' | 'langdM'>): string {
   if (arBasvag(m)) return basvagText(m.farg, m.langdM);
   const k = String(m.comment ?? '').trim().replace(/\s+/g, ' ');
-  return k ? `${m.namn} · ${k}` : String(m.namn ?? '');
+  return k ? `${omNamn(m)} · ${k}` : omNamn(m);
 }
 
 // ── Brandrisk: bara när någon dag är 3 eller högre ──────────────────────────────────────────────────────────────

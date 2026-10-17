@@ -4,7 +4,7 @@
 //   FAROR (röd rubrik med antal, alltid utfälld: varje fara är en rad) · FRÅN VIDA (texten) · HÄNSYN · VÄGAR · ÖVRIGT.
 //   "Basväg · 3 st · 905 m ›", "Röd väg · 3 st ›", "Stenmur · 1 st ›", "Hänsynsytor · 1 st ›", "Högstubbar · 3 av 11 markerade ›".
 // Brandrisk (bara när någon dag är 3 eller högre) står direkt under Faror.
-// Tryck på en typrad = TYPVYN: alla av typen markeras på kartan och objekten listas (vägar längst först). Tryck på ett objekt = kartan zoomar dit och framhäver det.
+// Tryck på en typrad = TYPVYN (har typen bara ETT objekt öppnas objektet direkt): alla av typen markeras på kartan och objekten listas (vägar längst först). Tryck på ett objekt = kartan zoomar dit och framhäver det.
 //   Telefon: arket stängs och en liten list nertill säger vad som visas ("Basväg röd · 329 m  ‹ Lista"); Lista tar tillbaka hit — i samma typvy, på samma plats i listan.
 //   Bred skärm: panelen ligger kvar.
 // Ingen text på raderna om att visa något — hela raden är tryckbar, bara en pil. Kommentar och foto visas på objektets rad i typvyn, aldrig som eget radformat i listan.
@@ -100,9 +100,14 @@ export default function OmTrakten(p: OmTraktenProps) {
   // Rullningen sparas per vy och ges tillbaka när man kommer tillbaka (efter ett objekt, eller från typvyn till listan).
   const sparaScroll = () => { const el = scrollRef.current; if (!el) return; if (typ) scrollTyp.current = el.scrollTop; else scrollLista.current = el.scrollTop; };
   useLayoutEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = typ ? scrollTyp.current : scrollLista.current; }, [typ]);
-  const oppnaTyp = (nyckel: string) => { sparaScroll(); scrollTyp.current = 0; setTyp(nyckel); };
   const tillLista = () => { sparaScroll(); setTyp(null); };
   const visaObjekt = (m: KartMarkering) => { sparaScroll(); p.onNav({ typ, scrollLista: scrollLista.current, scrollTyp: scrollTyp.current, q }); p.onVisa(m); };
+  // En typ med bara ETT objekt öppnar objektet direkt — ingen typvy med en enda rad ("‹ Lista" tar då tillbaka till listan). Ytor: ytan öppnas som förut.
+  const oppnaTyp = (r: TypRad) => {
+    if (r.ytaTyp && r.antal === 1) { ytorTraffar.find((y) => y.typLabel === r.ytaTyp)?.onOppna(); return; }
+    if (!r.ytaTyp && r.markeringar.length === 1) { visaObjekt(r.markeringar[0]); return; }
+    sparaScroll(); scrollTyp.current = 0; setTyp(r.nyckel);
+  };
 
   const objektProps = { objektId: p.objektId, ikon: p.ikon, framhavdId: p.framhavdId, onVisa: visaObjekt, onSlapp: p.onSlapp, onFoto: p.onFoto };
 
@@ -191,7 +196,7 @@ export default function OmTrakten(p: OmTraktenProps) {
           <section key={g.grupp} data-testid={`om-grupp-${g.grupp}`}>
             <Rubrik>{g.rubrik}</Rubrik>
             <Gruppkort>
-              {g.rader.map((r, i) => <TypRadKnapp key={r.nyckel} r={r} forsta={i === 0} ikon={r.markeringar[0] ? p.ikon(r.markeringar[0]) : <YtaIkon />} onTryck={() => oppnaTyp(r.nyckel)} />)}
+              {g.rader.map((r, i) => <TypRadKnapp key={r.nyckel} r={r} forsta={i === 0} ikon={r.markeringar[0] ? p.ikon(r.markeringar[0]) : <YtaIkon />} onTryck={() => oppnaTyp(r)} />)}
             </Gruppkort>
           </section>
         ))}

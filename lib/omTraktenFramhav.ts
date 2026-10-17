@@ -8,7 +8,7 @@
 import { FARG } from './design/tokens';
 import { arBasvag, type KartMarkering } from './objektKort';
 import { basvagText } from './basvag';
-import { listText } from './omTrakten';
+import { listText, omNamn } from './omTrakten';
 
 export interface FramhavdMarkering {
   /** alltid TEXT — kartans features bär markeringens id som det är (ofta ett tal, Date.now()), se `lika` */
@@ -71,7 +71,7 @@ export const likaNagon = (ids: readonly string[]): any[] => (ids.length === 1 ? 
 
 export function framhavdFran(m: Pick<KartMarkering, 'id' | 'slag' | 'typ' | 'namn' | 'comment' | 'farg' | 'langdM' | 'lat' | 'lng' | 'geometri'>): FramhavdMarkering {
   const komm = String(m.comment ?? '').trim();
-  const etikett = komm || (arBasvag(m) ? basvagText(m.farg, m.langdM) : String(m.namn ?? '').trim());
+  const etikett = komm || (arBasvag(m) ? basvagText(m.farg, m.langdM) : omNamn(m).trim());
   return { id: String(m.id), slag: m.slag, lat: m.lat, lng: m.lng, geometri: m.geometri, etikett, lista: listText(m) };
 }
 

@@ -348,15 +348,29 @@ describe('Om trakten — grupper och EN rad per typ', () => {
     expect(radText('miljo-hogstubbar')).toBe('Högstubbar · 0 av 11 markerade');
   });
 
-  it('Hänsynsytor (Vidas) är en typrad "Hänsynsytor · 1 st"; typvyn listar ytan och trycket öppnar den som förut', async () => {
+  it('Hänsynsytor (Vidas) är en typrad "Hänsynsytor · 2 st"; typvyn listar ytorna och trycket öppnar ytan som förut; med EN yta öppnas den direkt', async () => {
     const p = sk();
-    let oppnad = 0;
-    p.om.ytor = [{ nr: 1, typLabel: 'Hänsynsyta', text: 'Fuktig sänka', harLjud: false, harFoto: false, onOppna: () => { oppnad += 1; } }];
+    const oppnade: number[] = [];
+    p.om.ytor = [1, 2].map((nr) => ({ nr, typLabel: 'Hänsynsyta', text: `Sänka ${nr}`, harLjud: false, harFoto: false, onOppna: () => { oppnade.push(nr); } }));
     await oppnaOm(p);
+    expect(radText('yta-h-nsynsyta')).toBe('Hänsynsytor · 2 st');
+    klicka(q('om-typ-yta-h-nsynsyta'));
+    klicka(qa('om-yta')[1]);
+    expect(oppnade).toEqual([2]);
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    const en = sk(); const ett: number[] = [];
+    en.om.ytor = [{ nr: 1, typLabel: 'Hänsynsyta', text: 'Sänka', harLjud: false, harFoto: false, onOppna: () => { ett.push(1); } }];
+    await oppnaOm(en);
     expect(radText('yta-h-nsynsyta')).toBe('Hänsynsytor · 1 st');
     klicka(q('om-typ-yta-h-nsynsyta'));
-    klicka(q('om-yta'));
-    expect(oppnad).toBe(1);
+    expect(ett).toEqual([1]);                                       // ytan öppnas direkt
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('lista');   // ingen typvy med en enda rad
+  });
+
+  it('ritad hänsynszon heter "Hänsynsyta" i listan — inte "Hänsyn", som gruppen', async () => {
+    await oppnaOm(sk({ markeringar: [...SK, M({ id: 'z1', slag: 'zon', typ: 'protected', namn: 'Hänsyn', comment: 'Bok sparas', lat: 56.4011, lng: 14.7, skapad: 220 })] }));
+    expect(radText('zon-protected')).toBe('Hänsynsyta · 1 st');
+    expect(q('om-grupp-hansyn')!.textContent).not.toMatch(/Hänsyn ·/);
   });
 
   it('sökning filtrerar raderna och räknar bara träffarna (inget krav)', async () => {
@@ -401,10 +415,11 @@ describe('Om trakten — typvyn, objekten och vägen tillbaka', () => {
     expect(rader[0].querySelector('[data-testid="om-kommentar"]')!.textContent).toBe('Röd väg in från norr');
     expect(rader[1].querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Basväg · 260 m');
     expect(rader[1].querySelector('[data-testid="om-kommentar"]')).toBeNull();
-    // Kulturminnet med kommentar OCH foto: samma radformat, fotot en liten bild till höger.
-    klicka(q('info-tillbaka'));
+    // Kulturminnet med kommentar OCH foto: samma radformat, fotot en liten bild till höger (typvyn finns bara för två eller fler — lägg till ett).
+    await act(async () => { rot!.unmount(); }); behallare!.remove();
+    await oppnaOm(sk({ markeringar: [...SK, M({ id: 'k2', typ: 'culturemonument', namn: 'Kulturminne', lat: 56.4007, lng: 14.7002, skapad: 201 })] }));
     klicka(q('om-typ-symbol-culturemonument'));
-    const k = qa('om-objekt')[0];
+    const k = qa('om-objekt').find((r) => r.getAttribute('data-id') === 'k1')!;
     expect(k.querySelector('[data-testid="om-huvudtext"]')!.textContent).toBe('Kulturminne');
     expect(k.querySelector('[data-testid="om-kommentar"]')!.textContent).toBe('Stenrös vid vägen');
     expect(k.querySelector('[data-testid="om-foto"]')).not.toBeNull();
@@ -432,6 +447,32 @@ describe('Om trakten — typvyn, objekten och vägen tillbaka', () => {
     expect(qa('om-objekt').find((r) => r.getAttribute('data-id') === 'b2')!.getAttribute('data-framhavd')).toBe('1');
     klicka(qa('om-objekt-knapp')[1]);
     expect(spion.slapp).toEqual(['rad']);
+  });
+
+  it('en typrad med bara ETT objekt öppnar objektet direkt — ingen typvy, och "‹ Lista" tar tillbaka till listan', async () => {
+    await oppnaOm(sk());
+    expect(radText('linje-stonewall')).toBe('Stenmur · 1 st');
+    klicka(q('om-typ-linje-stonewall'));
+    expect(spion.visa).toEqual(['s1:ark']);
+    expect(spion.nav.at(-1)).toMatchObject({ typ: null });          // listan är där man var
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('lista');
+    expect(q('objekt-info')!.getAttribute('data-detent')).toBe('hel');   // arket blev aldrig halvt
+    expect(spion.typ.at(-1)).not.toMatch(/s1/);
+  });
+
+  it('två eller fler öppnar fortfarande typvyn (Röd väg · 3 st)', async () => {
+    await oppnaOm(sk());
+    klicka(q('om-typ-symbol-road-r-d-v-g'));
+    expect(q('om-innehall')!.getAttribute('data-vy')).toBe('typ');
+    expect(spion.visa).toEqual([]);
+  });
+
+  it('en typ med noll objekt (certifierat, inget satt) öppnar typvyn med "Inget satt än"', async () => {
+    const p = props({ markeringar: [] });
+    p.om.miljo = [{ id: 'hogstubbar', namn: 'Högstubbar', antal: 0, krav: 11, uppfyllt: false }, { id: 'evighetstrad', namn: 'Evighetsträd', antal: 0, krav: 37, uppfyllt: false }];
+    await oppnaOm(p);
+    klicka(q('om-typ-miljo-hogstubbar'));
+    expect(q('om-typ-tom')!.textContent).toBe('Inget satt än.');
   });
 
   it('en fara i listan går direkt till objektet (ingen typvy)', async () => {
