@@ -1,0 +1,1 @@
+grant execute on function skotar_lass_del_spara(uuid, jsonb), skotar_lass_rad_spara(uuid, jsonb), skotar_lass_rensa_delar(uuid) to authenticated;

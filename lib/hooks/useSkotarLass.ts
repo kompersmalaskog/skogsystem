@@ -306,7 +306,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   const idagIso = lokaltDatumStockholm(serverNu());
   const kvar = useMemo<Kvar | null>(() => (skordat ? beraknaKvar(skordat, lass) : null), [skordat, lass]);
   const sammanfattning = useMemo<KvarSammanfattning | null>(() => (kvar ? kvarSammanfattning(kvar, lass, idagIso) : null), [kvar, lass, idagIso]);
-  const idag = useMemo(() => idagText(lass, idagIso), [lass, idagIso]);
+  const idag = useMemo(() => idagText(lass, idagIso, maskinId ?? ''), [lass, idagIso, maskinId]);
   const valbara = useMemo(() => (skordat ? valbaraSortiment(skordat, skordat.some((s) => s.nyckel === VED_MARKAGARE_NYCKEL)) : []), [skordat]);
 
   const fardigskotad = useCallback(async () => {

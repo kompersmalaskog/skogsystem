@@ -58,8 +58,14 @@ describe('klar-dag', () => {
     expect(s.kvarText).toBe('Kvar ~121 m³');
     expect(s.klarText).toBe('Klar ~onsdag');
   });
-  it('idag: antal lass och m3', () => {
-    expect(idagText([d('2026-10-19', 20), d('2026-10-19', 11), d('2026-10-18', 50)], '2026-10-19')).toMatchObject({ antal: 2, m3: 31, text: 'Idag: 2 lass · 31 m³' });
+  it('idag: bara den egna maskinens lass, antal och m3 (andra skotare på trakten räknas inte)', () => {
+    const egen = (datum: string, m3: number) => ({ ...d(datum, m3), maskinId: 'M' });
+    const annan = { ...d('2026-10-19', 77), maskinId: 'ANNAN' };
+    const r = idagText([egen('2026-10-19', 20), egen('2026-10-19', 11), egen('2026-10-18', 50), annan], '2026-10-19', 'M');
+    expect(r).toMatchObject({ antal: 2, m3: 31, text: 'Idag: 2 lass · 31 m³' });
+    expect(r.lass).toHaveLength(2);
+    // kvar gäller hela trakten
+    expect(beraknaKvar([S('t', 200)], [egen('2026-10-19', 20), annan]).skotat).toBe(97);
   });
 });
 

@@ -7,6 +7,8 @@ import { join } from 'node:path';
 const rot = join(__dirname, '..', '..');
 const las = (rel: string) => readFileSync(join(rot, rel), 'utf8');
 const page = las('app/planering/page.tsx');
+// Migrationen är körd i prod i tio delar (Supabase-MCP:n hänger på stora funktionstexter): alla skotar_lass_*-filer i ordning.
+const migrationer = (): string => readdirSync(join(rot, 'supabase/migrations')).filter((f) => /^\d+_skotar_lass_.*\.sql$/.test(f)).sort().map((f) => las(`supabase/migrations/${f}`)).join('\n');
 
 describe('skotarläget i planeringsvyn', () => {
   it('allt är av utanför skotarkörvyn: aktiv kräver skotarKorvy, vald maskin och inget testläge', () => {
@@ -45,7 +47,7 @@ describe('datamodellen', () => {
     for (const f of skotarKod) expect(las(f), f).not.toMatch(/from ['"][^'"]*\/skotat['"]/);
   });
   it('migrationen är additiv och rör inte befintliga tabeller utom dim_objekt.skotning_avslutad (bara där den är NULL)', () => {
-    const sql = las('supabase/migrations/20261019150000_skotar_lass.sql');
+    const sql = migrationer();
     expect(sql).not.toMatch(/\bdrop\s+table\b/i);
     expect(sql).not.toMatch(/\balter\s+table\s+(?!if exists skotar_)(?!skotar_)/i);
     const upd = sql.match(/^\s*update\s+\w+/gim) ?? [];
@@ -53,7 +55,7 @@ describe('datamodellen', () => {
     expect(sql).toMatch(/skotning_avslutad is null/);
   });
   it('skalat värde lagras aldrig på lassraden: ingen kolumn för det i tabellerna', () => {
-    const sql = las('supabase/migrations/20261019150000_skotar_lass.sql');
+    const sql = migrationer();
     const tabeller = sql.slice(0, sql.indexOf('alter table skotar_lass enable'));
     expect(tabeller).not.toMatch(/m3_skalat/);
   });

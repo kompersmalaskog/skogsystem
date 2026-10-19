@@ -14052,8 +14052,7 @@ export default function PlannerPage() {
         const lassMedId = (id: string) => sl.lass.find((l) => l.id === id) ?? null;
         const kortLass = sl.kort ? lassMedId(sl.kort.lassId) : null;
         const andraLass = sl.andra ? lassMedId(sl.andra.lassId) : null;
-        const idagIso = lokaltDatumStockholm(serverNu());
-        const dagens = sl.lass.filter((l) => l.datum === idagIso && l.status !== 'struket');
+        const dagens = sl.idag.lass;   // den egna maskinens lass i dag (kvar och Trakten: skotat X av Y gäller hela trakten)
         return (
           <>
             {sl.kort && kortLass && !sl.andra && (

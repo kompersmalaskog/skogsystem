@@ -135,11 +135,11 @@ export function kvarSammanfattning(kvar: Kvar, lass: readonly Lass[], idag: stri
   };
 }
 
-/** "Idag: 7 lass · 131 m³" — maskinens lass på trakten i dag (alla skotare på trakten räknas i `lass`). */
-export function idagText(lass: readonly Lass[], idag: string): { antal: number; m3: number; text: string } {
-  const dagens = lass.filter((l) => raknasMed(l) && l.datum === idag);
+/** "Idag: 7 lass · 131 m³" — DEN EGNA maskinens lass på trakten i dag (kvar och "skotat X av Y" gäller hela trakten, "Idag" bara maskinen). */
+export function idagText(lass: readonly Lass[], idag: string, maskinId: string): { antal: number; m3: number; text: string; lass: Lass[] } {
+  const dagens = lass.filter((l) => raknasMed(l) && l.datum === idag && l.maskinId === maskinId);
   const m3 = dagens.reduce((s, l) => s + lassTotalM3(l), 0);
-  return { antal: dagens.length, m3, text: `Idag: ${dagens.length} ${dagens.length === 1 ? 'lass' : 'lass'} · ${m3} m³` };
+  return { antal: dagens.length, m3, text: `Idag: ${dagens.length} lass · ${m3} m³`, lass: dagens };
 }
 
 // ── Färdigskotad ───────────────────────────────────────────────────────────────────────────────────────────────────────
