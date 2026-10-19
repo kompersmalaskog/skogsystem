@@ -5,9 +5,10 @@
 //
 // AVSTEG 4/7 FRÅN PLANERINGSVYN: ARKET STÄNGS ALDRIG — DOCKAN ÄR DET UNDERSTA LÄGET, OCH DET FINNS BARA TVÅ: DOCK OCH HEL.
 // Planeringens ark (InfoRam) har halv och hel höjd och stängs genom att dras ned. Här stängs arket aldrig: brickorna ska alltid finnas kvar,
-// så det understa läget är dockan (bara brickorna och raden för det markerade) och det övre är hel (nästan hela skärmen, huvudet synligt).
-// Inget halvt läge: det gav kartan 126 px (oanvändbart) och innehållet en lika liten remsa, och att flytta gränsen flyttar bara problemet.
-// Arket är alltid så högt som hel och förskjuts nedåt med translateY, så ett läge är bara ett tal (hur många px som syns,
+// så det understa läget är dockan (bara brickorna och raden för det markerade) och det övre är hel (dockan + Rundan-innehållet).
+// Inget halvt läge: en bestämd andel av skärmen gav kartan 126 px (oanvändbart). Hel följer i stället sitt innehåll: kort innehåll lämnar
+// kartan synlig ovanför, långt innehåll tar skärmen minus huvudet och scrollar (minst dock + HEL_MIN_INNEHALL_PX, högst max).
+// Arket är alltid så högt som max och förskjuts nedåt med translateY, så ett läge är bara ett tal (hur många px som syns,
 // lib/egenkontrollArk.ts) och kartans padding kan räknas exakt. Det dras i greppet (44 px hög träffyta) och bara där: brickorna och
 // innehållet har egna tryck. Tryck på greppet växlar dock ↔ hel. Arket ligger nedtill på alla bredder (max KOLUMN.ark) — aldrig en panel från
 // höger: den som går rundan har tummen nere, och en panel på sidan täcker kartan åt ena hållet.
@@ -47,7 +48,8 @@ export default function RundArk({ lage, onLage, topp, children, malRef, onMatt, 
   const rotRef = useRef<HTMLElement | null>(null);
   const toppRef = useRef<HTMLDivElement | null>(null);
   const innehallRef = useRef<HTMLDivElement | null>(null);
-  const [mat, setMat] = useState({ fonster: 0, hel: 0, dock: 0 });
+  const inreRef = useRef<HTMLDivElement | null>(null);
+  const [mat, setMat] = useState({ fonster: 0, hel: 0, dock: 0, inre: 0 });
   const [dy, setDy] = useState<number | null>(null);
   const drag = useRef<{ y0: number; dy: number; flyttat: boolean } | null>(null);
   const slukKlick = useRef(false);
@@ -56,7 +58,11 @@ export default function RundArk({ lage, onLage, topp, children, malRef, onMatt, 
     const fonster = typeof window !== 'undefined' ? window.innerHeight : 0;
     const hel = rotRef.current?.offsetHeight ?? 0;
     const dock = toppRef.current?.offsetHeight ?? 0;
-    setMat((g) => (g.fonster === fonster && g.hel === hel && g.dock === dock ? g : { fonster, hel, dock }));
+    // Innehållets egen höjd: den inre omslagsdivens (som inte sträcks) plus ytterdivens padding (hemindikatorns luft ligger där).
+    const cs = innehallRef.current && typeof getComputedStyle === 'function' ? getComputedStyle(innehallRef.current) : null;
+    const pad = cs ? (Number.parseFloat(cs.paddingTop) || 0) + (Number.parseFloat(cs.paddingBottom) || 0) : 0;
+    const inre = (inreRef.current?.offsetHeight ?? 0) + pad;
+    setMat((g) => (g.fonster === fonster && g.hel === hel && g.dock === dock && g.inre === inre ? g : { fonster, hel, dock, inre }));
   }, []);
 
   useLayoutEffect(() => {
@@ -65,6 +71,7 @@ export default function RundArk({ lage, onLage, topp, children, malRef, onMatt, 
     if (ro) {
       if (rotRef.current) ro.observe(rotRef.current);
       if (toppRef.current) ro.observe(toppRef.current);
+      if (inreRef.current) ro.observe(inreRef.current);
     }
     window.addEventListener('resize', matOm);
     return () => { ro?.disconnect(); window.removeEventListener('resize', matOm); };
@@ -77,9 +84,9 @@ export default function RundArk({ lage, onLage, topp, children, malRef, onMatt, 
     el.toggleAttribute('inert', lage === 'dock');
   }, [lage]);
 
-  const h = arkHojder({ fonsterHojd: mat.fonster, dockPx: mat.dock, toppReservPx: Math.max(0, mat.fonster - mat.hel) });
+  const h = arkHojder({ fonsterHojd: mat.fonster, dockPx: mat.dock, toppReservPx: Math.max(0, mat.fonster - mat.hel), innehallPx: mat.inre });
   const synlig = dy === null ? h[lage] : arkDragHojd(lage, dy, h);
-  const forskjutning = h.hel - synlig;
+  const forskjutning = h.max - synlig;
 
   // Sidan mäter om kartans padding när det SLUTLIGA läget ändrats (inte under draget).
   const nyckel = `${lage}:${h.dock}:${h.hel}`;
@@ -155,7 +162,8 @@ export default function RundArk({ lage, onLage, topp, children, malRef, onMatt, 
           data-testid="ark-innehall"
           style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', padding: `0 ${AVSTAND.l}px ${medSafeBotten(AVSTAND.xl)}` }}
         >
-          {children}
+          {/* Omslaget mäts: det sträcks inte, så dess höjd är innehållets egen. flow-root håller första barnets marginal inne i höjden. */}
+          <div ref={inreRef} data-testid="ark-innehall-inre" style={{ display: 'flow-root' }}>{children}</div>
         </div>
       </section>
     </>

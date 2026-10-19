@@ -31,6 +31,9 @@ const utforande = (typ: 'slutavverkning' | 'gallring' = 'slutavverkning', over: 
   utforandeKatalog(typ).map((m, i) => rad(`u${i}`, { ordning: 10 + i, del: 'utforande', kalla: 'fast', grupp: null, punkt_typ: m.slug, rubrik: m.rubrik, geometri_snapshot: null, ...(over[i] ?? {}) }));
 
 let vyn: any;
+/** Fotoraderna hamtaFoton ger (egenkontroll_foto). Tom som standard. */
+let foton: any[] = [];
+const fotoRad = (id: string, punktId: string, sokvag: string) => ({ id, egenkontroll_id: 'runda-1', punkt_id: punktId, provyta_id: null, sokvag, tackningsgrad: null, lat: null, lng: null, tagen: null, skapad: '2026-10-17T08:00:00Z' });
 const hamtaRunda = vi.fn(async () => vyn);
 const svaraPaPunkt = vi.fn(async (id: string, status: string, _del: string) => ({ ...vyn.punkter.find((p: any) => p.id === id), status }));
 const avslutaRunda = vi.fn(async () => ({ ...RUNDA, status: 'klar' }));
@@ -52,7 +55,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     svaraPaPunkt: (id: string, s: string, d: string) => svaraPaPunkt(id, s, d),
     angraForstaSvaret: (id: string, d: string, s: string) => angraForstaSvaret(id, d, s),
     avslutaRunda: () => avslutaRunda(),
-    hamtaFoton: async () => [],
+    hamtaFoton: async () => foton,
     hamtaProvytor: async () => [],
     hamtaKontextmarkeringar: async () => [],
     hamtaVidaGrans: async () => ({ typ: 'saknas' }),
@@ -111,6 +114,7 @@ const kartObjekt = { lat: 56.05, lng: 14.05, vo_nummer: '1', kartbild_url: null,
 
 beforeEach(() => {
   localStorage.clear();
+  foton = [];
   (URL as any).createObjectURL = vi.fn(() => 'blob:test');
   (URL as any).revokeObjectURL = vi.fn();
   positionen = { status: 'ok', position: { lat: 56.0501, lng: 14.0502, noggrannhet: 6 }, skal: null, senasteNoggrannhet: 6, forsokIgen: () => {} };
@@ -356,6 +360,33 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     expect(huvud().textContent).toContain('Avslutad');
   });
 
+  it('tryck på en bricka i en AVSLUTAD runda visar svar, kommentar OCH foto — läsbart, utan en enda knapp (inget PDF-krav för att läsa sina anteckningar)', async () => {
+    foton = [fotoRad('f1', 'u0', 'runda-1/u0-1.jpg'), fotoRad('f2', 'u0', 'runda-1/u0-2.jpg')];
+    await montera();
+    await klick(bricka('u0'));
+    const r = raden()!;
+    expect(r.getAttribute('data-last')).toBe('1');
+    expect(r.textContent).toContain('✓ Bra');
+    expect(r.textContent).toContain('Rishögarna ligger bra');
+    expect(Array.from(r.querySelectorAll('img')).map((i) => i.getAttribute('src'))).toEqual(['https://signerad/runda-1/u0-1.jpg', 'https://signerad/runda-1/u0-2.jpg']);
+    expect(r.querySelectorAll('button')).toHaveLength(0);
+    // ...och ligger i dockan (alltid framme), inte bara i hel.
+    expect(r.closest('[data-testid=ark-innehall]')).toBeNull();
+  });
+
+  it('en planpunkt på kartan i en AVSLUTAD runda visar sin typ (text), kommentar och foto på samma sätt', async () => {
+    vyn = { ...vyn, punkter: [rad('p1', { status: 'avvikelse', avvikelse_typ: 'korspar', kommentar: 'Djupa spår vid brynet', besvarad: '2026-10-17T08:00:00Z' }), ...utforande()] };
+    foton = [fotoRad('f9', 'p1', 'runda-1/p1-1.jpg')];
+    await montera();
+    await klick(document.querySelector('[data-testid=karta-punkt-p1]')!);
+    const r = raden()!;
+    expect(r.textContent).toContain('Punkt p1');
+    expect(r.textContent).toContain('Körspår');
+    expect(r.textContent).toContain('Djupa spår vid brynet');
+    expect(r.querySelector('img')!.getAttribute('src')).toBe('https://signerad/runda-1/p1-1.jpg');
+    expect(r.querySelectorAll('button')).toHaveLength(0);
+  });
+
   it('ingen hjälprad, ingen Notera här, ingen Ångra, ingen avslutsknapp', async () => {
     await montera();
     expect(text()).not.toContain('Tryck på en bricka = Bra');
@@ -472,7 +503,7 @@ describe('HEL-LÄGET: rundan, inte punkterna', () => {
   });
 });
 
-describe('HEL-LÄGET: planpunkter UTAN plats på kartan är det enda som får en rad (annars omöjliga att besvara)', () => {
+describe('HEL-LÄGET: planpunkter UTAN markering på kartan är det enda som får en rad (annars omöjliga att besvara)', () => {
   const innehall = () => document.querySelector('[data-testid=ark-innehall]') as HTMLElement;
   const utanPlats = () => ({
     objektNamn: 'Utan plats', objektStatus: 'pagaende', egenkontroll: RUNDA, observationer: [],
@@ -488,7 +519,9 @@ describe('HEL-LÄGET: planpunkter UTAN plats på kartan är det enda som får en
     await montera();
     const block = innehall().querySelector('[data-testid=plan-utan-plats]')!;
     expect(block).not.toBeNull();
-    expect(block.textContent).toContain('Saknar plats på kartan');
+    expect(block.textContent).toContain('Punkter utan markering på kartan');
+    // Ingen felton: ett objekt utan Vida-traktgräns är ingen felaktighet (Brokamåla 1:5 V), och rubriken ska inte låta som en.
+    expect(block.textContent).not.toMatch(/saknar|fel|kan inte/i);
     expect(block.querySelectorAll('[data-testid=plan-rad]')).toHaveLength(2);
     expect(svaraPaPunkt).not.toHaveBeenCalled();
     await klick(block.querySelector('[data-testid=plan-rad]')!);
@@ -519,11 +552,12 @@ describe('HEL-LÄGET: planpunkter UTAN plats på kartan är det enda som får en
 describe('arket dras i greppet: två lägen med riktig höjd (offsetHeight stubbad — jsdom har ingen layout)', () => {
   const orig = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
   beforeEach(() => {
-    // Arket är 688 högt (hel), dockan (greppet + raden + brickorna) 260.
+    // Arket är 688 högt (max), dockan (greppet + raden + brickorna) 260 och innehållet långt (900): hel = max.
     Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
       configurable: true,
       get(this: HTMLElement) {
         if (this.getAttribute('data-testid') === 'rund-ark') return 688;
+        if (this.getAttribute('data-testid') === 'ark-innehall-inre') return 900;
         if (this.parentElement?.getAttribute('data-testid') === 'rund-ark' && this === this.parentElement.firstElementChild) return 260;
         return 0;
       },
@@ -565,6 +599,75 @@ describe('arket dras i greppet: två lägen med riktig höjd (offsetHeight stubb
     expect(ark().getAttribute('data-lage')).toBe('dock');
     await dra(600, 300);
     expect(ark().getAttribute('data-lage')).toBe('hel');   // draget landade i hel — och klicket efter draget växlade INTE tillbaka
+  });
+});
+
+describe('HEL FÖLJER SITT INNEHÅLL (offsetHeight stubbad — jsdom har ingen layout)', () => {
+  const orig = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+  let innre = 300;
+  beforeEach(() => {
+    innre = 300;
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.getAttribute('data-testid') === 'rund-ark') return 688;                       // max: skärmen 760 minus huvudet 72
+        if (this.getAttribute('data-testid') === 'ark-innehall-inre') return innre;            // innehållets egen höjd
+        if (this.parentElement?.getAttribute('data-testid') === 'rund-ark' && this === this.parentElement.firstElementChild) return 260;  // dockan
+        return 0;
+      },
+    });
+  });
+  afterEach(() => { if (orig) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', orig); });
+
+  const forskjutning = () => Number.parseInt((ark().style.transform.match(/translateY\((-?\d+)px\)/) ?? [])[1] ?? 'x', 10);
+  const synligHojd = () => 688 - forskjutning();
+  const oppnaHel = async () => { await klick(document.querySelector('[data-testid=ark-grepp]')!); };
+
+  it('KORT innehåll: hel är dock + innehåll (560), inte hela skärmen — kartan syns ovanför; dockan är orörd (260)', async () => {
+    await montera();
+    expect(synligHojd()).toBe(260);
+    await oppnaHel();
+    expect(ark().getAttribute('data-lage')).toBe('hel');
+    expect(synligHojd()).toBe(560);
+  });
+
+  it('LÅNGT innehåll: hel är max (688, skärmen minus huvudet) — aldrig högre', async () => {
+    innre = 2000;
+    await montera();
+    await oppnaHel();
+    expect(synligHojd()).toBe(688);
+  });
+
+  it('TOM runda: hel är minst dock + minimum (460) — inte en lucka', async () => {
+    innre = 0;
+    await montera();
+    await oppnaHel();
+    expect(synligHojd()).toBe(260 + 200);
+  });
+
+  it('dockan är densamma oavsett innehåll', async () => {
+    for (const h of [0, 300, 2000]) {
+      innre = h;
+      await montera();
+      expect(synligHojd()).toBe(260);
+      await act(async () => { root!.unmount(); });
+      host?.remove();
+    }
+  });
+
+  it('kartans mätpunkt följer det som syns: överkanten av arket är dock respektive hel', async () => {
+    await montera();
+    const mal = () => Number.parseInt((document.querySelector('[data-testid=ark-mal]') as HTMLElement).style.bottom, 10) + 1;
+    expect(mal()).toBe(260);
+    await oppnaHel();
+    expect(mal()).toBe(560);
+  });
+
+  it('innehållet i hel är inert i dock och nåbart i hel också när hel är lägre än max', async () => {
+    await montera();
+    expect(document.querySelector('[data-testid=ark-innehall]')!.hasAttribute('inert')).toBe(true);
+    await oppnaHel();
+    expect(document.querySelector('[data-testid=ark-innehall]')!.hasAttribute('inert')).toBe(false);
   });
 });
 

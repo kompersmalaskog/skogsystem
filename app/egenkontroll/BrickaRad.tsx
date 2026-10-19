@@ -7,7 +7,7 @@
 // ingenting (svara() skriver aldrig samma svar igen). Avvikelse skrivs aldrig rakt av — den behöver typ, foto och position och öppnar formuläret.
 
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import type { EgenkontrollPunkt, PunktStatus } from '@/lib/egenkontroll';
+import { AVVIKELSE_ETIKETT, type AvvikelseTyp, type EgenkontrollPunkt, type PunktStatus } from '@/lib/egenkontroll';
 import { BRICKSTATUS, FOTO_NOT_ETIKETT, radHandling, radKnappar } from '@/lib/egenkontrollBricka';
 
 export type BrickaRadProps = {
@@ -48,6 +48,10 @@ export default function BrickaRad({ punkt, fotoUrler, sparar, last, avstandText,
     return (
       <div data-testid="bricka-rad" data-last="1" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
         {rubrikrad}
+        {/* Typen (Körspår, Stubbhöjd …) i TEXT — den fanns i det gamla dokumentet per punkt och får inte försvinna med det. */}
+        {punkt.avvikelse_typ && (
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>{AVVIKELSE_ETIKETT[punkt.avvikelse_typ as AvvikelseTyp] ?? punkt.avvikelse_typ}</div>
+        )}
         {punkt.kommentar && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{punkt.kommentar}</div>}
         {punkt.plan_kommentar && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{punkt.plan_kommentar}</div>}
         {fotoUrler.length > 0 && (

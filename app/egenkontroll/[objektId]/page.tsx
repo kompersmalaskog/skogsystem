@@ -863,9 +863,9 @@ export default function EgenkontrollRundaPage() {
       {/* PLANPUNKTER UTAN PLATS PA KARTAN - den enda punktlistan, och bara nar det finns sadana (se planUtanPlats). */}
       {planUtanPlats.length > 0 && (
         <div data-testid="plan-utan-plats">
-          <SectionHeader>Saknar plats på kartan</SectionHeader>
+          <SectionHeader>Punkter utan markering på kartan</SectionHeader>
           <div style={{ ...TYP.meta, color: FARG.text2, padding: `0 ${AVSTAND.l}px ${AVSTAND.s}px` }}>
-            Du kan inte trycka på dem på kartan. Tryck här och svara i raden under kartan.
+            De har ingen symbol på kartan. Tryck här och svara i raden under kartan.
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
             {planUtanPlats.map((p) => (
