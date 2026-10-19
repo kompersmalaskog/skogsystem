@@ -239,7 +239,7 @@ function parseGallringsHistogram(
   };
 }
 
-const emptyResult = (arealHa: number, msg: string, status: 'error' | 'no_data' = 'error'): VolymResultat => ({
+export const emptyResult = (arealHa: number, msg: string, status: 'error' | 'no_data' = 'error'): VolymResultat => ({
   status, areal: arealHa, arealSkog: 0, totalVolymHa: 0, totalVolym: 0,
   medeldiameter: 0, medelhojd: 0, grundyta: 0, tradslag: [], skanningsAr: 0, sluAr: 0,
   andelSkog: 0, avverkatVarning: false, felmeddelande: msg,

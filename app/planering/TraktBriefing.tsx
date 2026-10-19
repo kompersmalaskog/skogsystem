@@ -6,10 +6,14 @@ import MarkeringFoto from './MarkeringFoto'
 // === Types ===
 interface Point { x: number; y: number }
 
+// En symbol eller pil har SVG-läget x/y; linjer och zoner har path i stället.
+type MedXY = Marker & { x: number; y: number };
+const harXY = (m: Marker): m is MedXY => typeof m.x === 'number' && typeof m.y === 'number';
+
 interface Marker {
-  id: string;
-  x: number;
-  y: number;
+  id: string | number;
+  x?: number;
+  y?: number;
   type?: string;
   isMarker?: boolean;
   isArrow?: boolean;
@@ -71,7 +75,7 @@ interface Props {
   setOverlays: (fn: (prev: any) => any) => void;
   traktName?: string;
   onClose: () => void;
-  onActiveMarkerChange?: (markerId: string | null) => void;
+  onActiveMarkerChange?: (markerId: string | number | null) => void;
   currentRole?: 'skordare' | 'skotare' | null;
   kvittSkordare?: KvittRad | null;
   kvittSkotare?: KvittRad | null;
@@ -82,7 +86,7 @@ interface Props {
   checkedStepIds?: string[];
   onChecklistChange?: (checkedIds: string[]) => void;
   onBriefingComplete?: (totalSteps: number) => void;
-  onShowOnMap?: (itemId: string, center: { lat: number; lon: number }, markerId?: string, source?: 'checklist' | 'mandatory', extra?: { bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; photoPath?: string; photoTs?: number; title?: string; icon?: string }) => void;
+  onShowOnMap?: (itemId: string, center: { lat: number; lon: number }, markerId?: string | number, source?: 'checklist' | 'mandatory', extra?: { bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; photoPath?: string; photoTs?: number; title?: string; icon?: string }) => void;
 }
 
 // Accent
@@ -295,13 +299,13 @@ export default function TraktBriefing({
     const built: BriefingStep[] = [];
 
     const boundaries = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2);
-    const landings = markers.filter(m => m.isMarker && m.type === 'landing');
+    const landings = markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker && m.type === 'landing');
     const mainRoads = markers.filter(m => m.isLine && m.lineType === 'mainRoad' && m.path && m.path.length > 1);
     const symbolMarkers = markers.filter(m => (m.isMarker && m.type !== 'landing') || m.isZone);
 
     const allPoints = boundaries.length > 0
       ? boundaries[0].path!.map(p => svgToLatLon(p.x, p.y))
-      : markers.filter(m => m.x !== undefined).map(m => svgToLatLon(m.x, m.y));
+      : markers.filter(harXY).map(m => svgToLatLon(m.x, m.y));
 
     let centerLat = 0, centerLon = 0;
     if (allPoints.length > 0) {
@@ -414,7 +418,7 @@ export default function TraktBriefing({
         else if (maxDist < 200) stepZoom = 16;
         else stepZoom = 15.5;
       } else {
-        ll = svgToLatLon(m.x, m.y);
+        ll = svgToLatLon(m.x ?? NaN, m.y ?? NaN);   // zon utan path eller symbol utan läge: samma NaN som förut
       }
       const t = getTag(m, symbolCategories);
       built.push({
