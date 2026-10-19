@@ -84,7 +84,7 @@ describe('Startsida (admin)', () => {
     expect(lankar(s)).toEqual(['/lastbil'])
     for (const b of Array.from(sektion('Alla vyer')!.querySelectorAll('button[aria-expanded]'))) await act(async () => { (b as HTMLButtonElement).click() })
     const markeVidLastbil = Array.from(document.querySelectorAll('a[href="/lastbil"] [role="status"]')).map(m => m.getAttribute('aria-label'))
-    expect(markeVidLastbil).toContain('1 lass saknar maskin')
+    expect(markeVidLastbil).toContain('1 att göra i Lastbilen')
   })
 
   it('Lastbilen utan väntande lass (0) → varken rad eller märke', async () => {
@@ -174,7 +174,7 @@ describe('HomeClient väljer sida efter roll', () => {
   it('förare → nya startsidan med förarens förinställda vyer, utan admin-vyer', async () => {
     h.roll = 'forare'; h.ek = 4
     await montera(<HomeClient />)
-    expect(lankar(sektion('Dina vyer')!)).toEqual(['/planera', '/planering', '/ledighet', '/maskinflytt', '/kalibrering', '/maskin-service', '/uppfoljning', '/utbildning'])
+    expect(lankar(sektion('Dina vyer')!)).toEqual(['/planera', '/planering', '/ledighet', '/lastbil', '/kalibrering', '/maskin-service', '/uppfoljning', '/utbildning'])
     expect(lankar()).not.toContain('/admin')
     expect(lankar()).not.toContain('/ekonomi')
     // Datahälsan är admins; föraren ser den aldrig i Behöver dig. Egenkontrollen syns.

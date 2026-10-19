@@ -118,6 +118,13 @@ const mock = vi.hoisted(() => ({
   spar: { status: 200, body: null as any },
 }));
 
+// Hämta-flödet har sin egen renderingstest (_components/hamta/HamtaFlode.render.test.tsx); här testas bara hur vyn öppnar och stänger det.
+vi.mock("./_components/hamta/HamtaFlode", () => ({
+  default: ({ onAvsluta }: { onAvsluta: (t: string) => void }) => (
+    <div><h1>Vilken maskin hämtar du?</h1><button type="button" onClick={() => onAvsluta("")}>Avbryt</button><button type="button" onClick={() => onAvsluta("Rundan är avslutad.")}>Klar</button></div>
+  ),
+}));
+
 vi.mock("@/lib/CurrentMedarbetareContext", () => ({
   useCurrentMedarbetare: () => ({ medarbetare: mock.medarbetare, loading: mock.loading }),
 }));
@@ -2284,5 +2291,86 @@ describe("Vilken maskin? — länken i notisen (?lass=<id>)", () => {
     window.history.replaceState(null, "", `/lastbil?lass=${LASS_ID}`);
     await montera();
     expect(window.location.search).not.toContain("lass=");
+  });
+});
+
+// ── Steg 3: "Hämta en maskin" — knappen mellan väntar-raderna och flikarna, och flödet som ersätter /maskinflytt ──
+describe("Hämta en maskin — uppifrån: pengatal, väntar-rader, knappen, flikarna", () => {
+  const hamtaKnapp = () => document.querySelector("[data-hamta-start]") as HTMLElement | null;
+  const fore = (a: Element | null, b: Element | null) => !!a && !!b && !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("admin: pengatalet först, sedan väntar-raderna, sedan knappen, sedan flikarna", async () => {
+    mock.lass = [LASS()];
+    mock.extraUnderlag = [OG_OKT()];
+    await montera();
+    expect(hamtaKnapp()!.textContent).toBe("Hämta en maskin");
+    expect(fore(remsa(), saknarRad())).toBe(true);
+    expect(fore(saknarRad(), vantarRad())).toBe(true);
+    expect(fore(vantarRad(), hamtaKnapp())).toBe(true);
+    expect(fore(hamtaKnapp(), document.querySelector('[role="tablist"]'))).toBe(true);
+  });
+
+  it("pengatalet står på samma plats oavsett om något väntar (inget ovanför kan flytta det)", async () => {
+    await montera();
+    const utanRader = Array.from(document.body.querySelectorAll("*")).indexOf(remsa()!);
+    mock.lass = [LASS()];
+    await ritaOm();
+    // remsan är fortfarande det första innehållet i vyn: inget element med innehåll ligger före den
+    const forst = document.querySelector("[data-remsa]")!.closest("div[style*='sticky']");
+    expect(forst).not.toBeNull();
+    expect(Array.from(document.body.querySelectorAll("*")).indexOf(remsa()!)).toBe(utanRader);
+  });
+
+  it("det finns EN primärknapp på sidan, och den är Hämta en maskin", async () => {
+    await montera();
+    expect(document.querySelectorAll("[data-hamta-start]")).toHaveLength(1);
+  });
+
+  it("förare ser knappen (och Nu-fliken), men varken remsan eller Fakturering", async () => {
+    mock.medarbetare = FORARE;
+    await montera();
+    expect(hamtaKnapp()).not.toBeNull();
+    expect(remsa()).toBeNull();
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Nu");
+    expect(text()).not.toContain("Fakturering");
+  });
+
+  it("tryck öppnar flödet: flikar och remsa försvinner, adressen blir ?hamta=1 — Avbryt tar tillbaka vyn", async () => {
+    await montera();
+    await klicka(hamtaKnapp()!);
+    expect(text()).toContain("Vilken maskin hämtar du?");
+    expect(window.location.search).toBe("?hamta=1");
+    expect(document.querySelector('[role="tablist"]')).toBeNull();
+    expect(remsa()).toBeNull();
+    await klicka(knapp(/^Avbryt$/));
+    expect(hamtaKnapp()).not.toBeNull();
+    expect(window.location.search).toContain("flik=korningar");
+    expect(text()).not.toContain("Vilken maskin hämtar du?");
+    expect(hookFel()).toEqual([]);
+  });
+
+  it("en omladdning på ?hamta=1 landar kvar i flödet", async () => {
+    window.history.replaceState(null, "", "/lastbil?hamta=1");
+    await montera();
+    expect(text()).toContain("Vilken maskin hämtar du?");
+    expect(hamtaKnapp()).toBeNull();
+  });
+
+  it("efter flödet står en rad som säger vad som hände — också för förare", async () => {
+    mock.medarbetare = FORARE;
+    window.history.replaceState(null, "", "/lastbil?hamta=1");
+    await montera();
+    await klicka(knapp(/^Avbryt$/));
+    // Avbryt i listan ger ingen rad (inget hände); kvittot bär bara riktiga utfall
+    expect(document.querySelector("[data-lass-kvitto]")).toBeNull();
+  });
+
+  it("Klar i flödet ger en rad överst med vad som hände — också för förare — och läser om vyn tyst", async () => {
+    mock.medarbetare = FORARE;
+    await montera();
+    await klicka(hamtaKnapp()!);
+    await klicka(knapp(/^Klar$/));
+    expect(document.querySelector("[data-lass-kvitto]")!.textContent).toBe("Rundan är avslutad.");
+    expect(hamtaKnapp()).not.toBeNull();
   });
 });

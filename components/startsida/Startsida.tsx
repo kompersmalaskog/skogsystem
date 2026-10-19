@@ -14,10 +14,12 @@ import Ikon from '@/components/design/Ikon'
 import Ark from '@/components/design/Ark'
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TRAFFYTA, TYP, designCss, overgang } from '@/lib/design/tokens'
 import { lassSaknarText } from '@/lib/lastbil/lass/vantar'
+import { flyttarAttGodkannaText } from '@/lib/lastbil/godkannVantar'
 import { MAX_FAVORITER, STANDARD_FAVORITER, favoriterFor, grupperFor, ovrigtFor, sokVyer, type MarkeKalla, type Roll, type Vy } from '@/lib/vyer'
 
 /** Räknare per källa. null = okänt (laddar eller läsfel) → inget märke, aldrig "0". */
-export type Marken = Partial<Record<MarkeKalla, number | null>>
+/** `godkann` hör till Lastbilen men är ingen egen vy-märkeskälla: Lastbilens märke är lass + flyttar att godkänna. */
+export type Marken = Partial<Record<MarkeKalla | 'godkann', number | null>>
 
 /** Datahälsans besked i den form startsidan behöver (samma som useDatahalsa ger). */
 export type DatahalsaBesked = { niva: 'laddar' | 'gron' | 'gul' | 'rod' | 'okant'; rubrik: string }
@@ -58,11 +60,16 @@ function Marke({ antal, text, iRad }: { antal: number; text: string; iRad?: bool
 const MARKE_TEXT: Record<MarkeKalla, string> = {
   egenkontroll: 'objekt väntar på egenkontroll',
   ledighet: 'att göra i ledighet',
-  lass: 'lass saknar maskin',
+  lass: 'att göra i Lastbilen',
 }
 
 function antalFor(v: Vy, marken: Marken): number | null {
   if (!v.marke) return null
+  if (v.marke === 'lass') {
+    // Lastbilen: lass som saknar maskin + flyttar som väntar på godkännande. Ett läsfel (null) på ena bidrar inte; båda null → inget märke.
+    const summa = (typeof marken.lass === 'number' ? marken.lass : 0) + (typeof marken.godkann === 'number' ? marken.godkann : 0)
+    return summa > 0 ? summa : null
+  }
   const n = marken[v.marke]
   return typeof n === 'number' && n > 0 ? n : null
 }
@@ -208,6 +215,8 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   if (typeof le === 'number' && le > 0) uppgifter.push({ id: 'ledighet', text: `${le} att göra i ledighet`, href: '/ledighet', farg: FARG.orange })
   const ls = marken.lass
   if (typeof ls === 'number' && ls > 0) uppgifter.push({ id: 'lass', text: lassSaknarText(ls), href: '/lastbil', farg: FARG.orange })
+  const gk = marken.godkann
+  if (typeof gk === 'number' && gk > 0) uppgifter.push({ id: 'godkann', text: flyttarAttGodkannaText(gk), href: '/lastbil?flik=fakturering', farg: FARG.orange })
   if (roll === 'admin' && datahalsa && (datahalsa.niva === 'rod' || datahalsa.niva === 'gul' || datahalsa.niva === 'okant')) {
     uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: datahalsa.niva === 'rod' ? FARG.rod : datahalsa.niva === 'gul' ? FARG.orange : FARG.text3 })
   }

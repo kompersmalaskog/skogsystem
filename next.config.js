@@ -76,6 +76,9 @@ const nextConfig = {
       // /planner var en gammal, helt egen kopia av planeringsvyn och är borttagen. Permanent: den kommer inte tillbaka, och ett bokmärke
       // eller en gammal länk ska landa i /planering (förutom Next-bygget har inget annat — middleware, sw.js, manifestet — pekat dit).
       { source: '/planner', destination: '/planering', permanent: true },
+      // /maskinflytt (förarflödet) är ersatt av "Hämta en maskin" i Lastbilen (steg 3 av 4). 308: den kommer inte tillbaka, och ett bokmärke eller en
+      // hemskärmsgenväg ska landa i Lastbilen. Bara adressen ovan — /maskinflytt/platser (flyttplatserna) lever kvar.
+      { source: '/maskinflytt', destination: '/lastbil', permanent: true },
       { source: '/massaved', destination: '/affarsuppfoljning/kvalitet', permanent: false },
       { source: '/massaved/:objektId/bitar', destination: '/affarsuppfoljning/objekt/:objektId/bitar', permanent: false },
       { source: '/massaved/:objektId', destination: '/affarsuppfoljning/objekt/:objektId', permanent: false },
