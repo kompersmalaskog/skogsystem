@@ -5,7 +5,12 @@
 
 import React from 'react';
 
-export function CentreraKnapp({ synlig, onTryck }: { synlig: boolean; onTryck: () => void }) {
+export function CentreraKnapp({ synlig, onTryck, bottom = 'calc(env(safe-area-inset-bottom, 0px) + 76px)' }: {
+  synlig: boolean;
+  onTryck: () => void;
+  /** Avstånd från skärmens nederkant. Standard = rakt ovanför planeringens +-knapp; rundvyn lägger den ovanför dockan. */
+  bottom?: string;
+}) {
   return (
     <button
       type="button"
@@ -17,7 +22,7 @@ export function CentreraKnapp({ synlig, onTryck }: { synlig: boolean; onTryck: (
       className="press-scale"
       style={{
         position: 'fixed',
-        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)',   // rakt ovanför +-knappen
+        bottom,   // standard: rakt ovanför +-knappen
         right: '16px',
         width: '44px',
         height: '44px',

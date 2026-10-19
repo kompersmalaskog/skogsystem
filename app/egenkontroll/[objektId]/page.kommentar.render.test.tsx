@@ -67,7 +67,7 @@ vi.mock('../useMinPosition', () => ({
   useLevandePosition: () => ({ status: 'ok', position: { lat: 56.0501, lng: 14.0502, noggrannhet: 6 }, skal: null, senasteNoggrannhet: 6, forsokIgen: () => {} }),
 }));
 vi.mock('../RundKarta', () => ({ default: () => createElement('div', { 'data-testid': 'karta' }) }));
-vi.mock('../TillbakaTillListan', () => ({ default: () => null }));
+vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
 vi.mock('../Forutsattningar', () => ({ default: () => null }));
 vi.mock('../GaTillYta', () => ({ default: () => null }));
 vi.mock('@/components/KartLagerMeny', () => ({ default: () => null }));
@@ -102,7 +102,8 @@ const skriv = async (el: HTMLTextAreaElement, varde: string) => {
   });
 };
 const ark = () => document.querySelector('[role=dialog][aria-label="Kommentar om rundan"]');
-const tillListan = async () => { if (harKnapp('Lista')) await klick(knapp('Lista')); };
+/** Kommentarsraden i arket (Rundan-innehållet): kommentaren bor där, tillsammans med avslut och observationer. */
+const kommentarRad = () => document.querySelector('[data-testid=kommentar-rad]') as HTMLButtonElement;
 
 const kartObjekt = { lat: 56.05, lng: 14.05, vo_nummer: '1', kartbild_url: null, kartbild_bounds: [[56.0, 14.0], [56.1, 14.1]] };
 
@@ -124,21 +125,24 @@ afterEach(async () => {
 });
 
 describe('under hela rundan: knappen pa kartan och arket', () => {
-  it('sidan monterar (hookordning) och kartan har knappen "Kommentar"', async () => {
+  it('sidan monterar (hookordning), kartan är hela vyn och kommentaren bor i Rundan-arket — inte som en knapp på kartan', async () => {
     await montera();
     expect(document.querySelector('[data-testid=karta]')).not.toBeNull();
-    expect(knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!.textContent).toContain('Kommentar');
+    expect(kommentarRad().textContent).toContain('KOMMENTAR OM RUNDAN');
+    // Flyttad in i arket: ingen fristående "Kommentar"-knapp vid kartan (där bor bara Notera här, Lager och Centrera).
+    expect(document.querySelector('[data-testid=rund-ark]')!.contains(kommentarRad())).toBe(true);
+    expect(knappar().some((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')).toBe(false);
   });
 
   it('knappen har en tryckyta pa minst 44', async () => {
     await montera();
-    const k = knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!;
+    const k = kommentarRad();
     expect(Number.parseInt(k.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
   });
 
   it('tryck oppnar arket; Spara ar INAKTIV tills nagot skrivits; Spara skriver texten mot RUNDAN och stanger', async () => {
     await montera();
-    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!);
+    await klick(kommentarRad());
     expect(ark()).not.toBeNull();
     const faltet = ark()!.querySelector('textarea') as HTMLTextAreaElement;
     const spara = Array.from(ark()!.querySelectorAll('button')).find((b) => b.textContent === 'Spara') as HTMLButtonElement;
@@ -154,20 +158,20 @@ describe('under hela rundan: knappen pa kartan och arket', () => {
 
   it('TEXTEN FORSVINNER INTE: stangs arket utan att spara ligger den kvar nar det oppnas igen, och i lokalt lager', async () => {
     await montera();
-    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!);
+    await klick(kommentarRad());
     await skriv(ark()!.querySelector('textarea') as HTMLTextAreaElement, 'Skrivet vid stenmuren');
     await klick(Array.from(ark()!.querySelectorAll('button')).find((b) => b.textContent === 'Avbryt')!);
     expect(ark()).toBeNull();
     expect(localStorage.getItem('egenkontroll_kommentar_utkast_runda-1')).toBe('Skrivet vid stenmuren');
-    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!);
+    await klick(kommentarRad());
     expect((ark()!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Skrivet vid stenmuren');
   });
 
-  it('OMLADDNING: ett lokalt utkast tas tillbaka nar sidan laddas, och knappen sager att en kommentar finns', async () => {
+  it('OMLADDNING: ett lokalt utkast tas tillbaka nar sidan laddas, och raden visar texten', async () => {
     localStorage.setItem('egenkontroll_kommentar_utkast_runda-1', 'Utkast fran innan appen laddades om');
     await montera();
-    expect(knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!.textContent).toContain('Kommentar skriven');
-    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!);
+    expect(kommentarRad().textContent).toContain('Utkast fran innan appen laddades om');
+    await klick(kommentarRad());
     expect((ark()!.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Utkast fran innan appen laddades om');
   });
 
@@ -181,7 +185,7 @@ describe('under hela rundan: knappen pa kartan och arket', () => {
   it('ett sparfel stanger inte arket: texten ligger kvar och felet star i arket', async () => {
     sparaRundKommentar.mockRejectedValueOnce(new Error('Kunde inte spara kommentaren: nat'));
     await montera();
-    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')!);
+    await klick(kommentarRad());
     await skriv(ark()!.querySelector('textarea') as HTMLTextAreaElement, 'Text som inte nadde fram');
     await klick(Array.from(ark()!.querySelectorAll('button')).find((b) => b.textContent === 'Spara')!);
     expect(ark()).not.toBeNull();
@@ -193,7 +197,6 @@ describe('under hela rundan: knappen pa kartan och arket', () => {
   it('listan visar den sparade texten pa en rad som oppnar arket', async () => {
     vyn = { ...vyn, egenkontroll: { ...RUNDA, kommentar: 'Bra avverkning' } };
     await montera();
-    await tillListan();
     expect(text()).toContain('KOMMENTAR OM RUNDAN');
     expect(text()).toContain('Bra avverkning');
   });
@@ -205,7 +208,6 @@ describe('avslutsdialogen: samma falt, sparas FORE avslutet', () => {
   });
 
   const oppnaDialog = async () => {
-    await tillListan();
     await klick(knapp(/^Avsluta rundan/));
     return document.querySelector('[role=dialog][aria-label="Avsluta rundan"]')!;
   };
@@ -259,12 +261,8 @@ describe('avslutad runda = last, med rapportraderna', () => {
 
   it('ingen kommentarsknapp pa kartan och ingen oppningsbar rad i listan - men texten syns', async () => {
     await montera();
-    expect(harKnapp('Kommentar')).toBe(false);
-    // En avslutad runda oppnar listan, men kartan gar att visa. Dar far knappen heller inte finnas.
-    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Visa kartan')!);
     expect(document.querySelector('[data-testid=karta]')).not.toBeNull();
     expect(knappar().some((b) => b.getAttribute('aria-label') === 'Kommentar om rundan')).toBe(false);
-    await tillListan();
     expect(text()).toContain('Slutord om rundan');
     const rad = knappar().find((b) => b.textContent?.includes('KOMMENTAR OM RUNDAN'))!;
     expect(rad.disabled).toBe(true);
@@ -329,7 +327,6 @@ describe('avslutad runda = last, med rapportraderna', () => {
   it('en oppen runda har inga rapportrader', async () => {
     vyn = { ...vyn, egenkontroll: RUNDA };
     await montera();
-    await tillListan();
     expect(text()).not.toContain('Rapport till Vida');
   });
 });

@@ -59,7 +59,7 @@ vi.mock('../useMinPosition', () => ({
   useLevandePosition: () => ({ status: 'ok', position: { lat: 56.0501, lng: 14.0502, noggrannhet: 6 }, skal: null, senasteNoggrannhet: 6, forsokIgen: () => {} }),
 }));
 vi.mock('../RundKarta', () => ({ default: () => createElement('div', { 'data-testid': 'karta' }) }));
-vi.mock('../TillbakaTillListan', () => ({ default: () => null }));
+vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
 vi.mock('../Forutsattningar', () => ({ default: () => null }));
 vi.mock('../GaTillYta', () => ({ default: () => null }));
 vi.mock('@/components/KartLagerMeny', () => ({ default: () => null }));

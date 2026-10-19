@@ -43,10 +43,7 @@ export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const pageName = pageNames[pathname]
-    // Rundvyn ligger på /egenkontroll/<objekt-uuid> — utan detta hade titeln
-    // blivit "Egenkontroll/9cd47e9c-…" via fallbacken längst ner.
     || (pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
-    : pathname.startsWith('/egenkontroll/') ? 'Egenkontroll'
     : pathname.startsWith('/gallring/') ? 'Gallring'
     : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
     : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
@@ -70,6 +67,9 @@ export default function TopBar() {
   if (pathname === '/planering' || pathname === '/maskin') return null
   // Utbildningssidorna har sina egna sidhuvuden (stor iOS-titel per sida)
   if (pathname.startsWith('/utbildning')) return null
+  // Rundvyn (/egenkontroll/<objekt>) har ett eget huvud (KartHuvud: pil, objektnamn, antal kvar) — kartan ska ha hela skärmen och
+  // "var är jag" ska stå på ETT ställe. Listan /egenkontroll (utan id) behåller toppfältet.
+  if (pathname.startsWith('/egenkontroll/')) return null
 
   return (
     <header style={{

@@ -138,7 +138,7 @@ describe('rundvyn — origobeslutet', () => {
     expect(k!.getAttribute('data-origotext')).toBe('');
   });
 
-  it('gränsmarkeringar som varken samlat eller enskilt stämmer med Vida (fel zoom): ingen karta, och listan säger varför', async () => {
+  it('gränsmarkeringar som varken samlat eller enskilt stämmer med Vida (fel zoom): kartan öppnas UTAN markeringar (origo null) och raden på kartan säger varför', async () => {
     const n = 'Bjällerhult au + ga';
     h.hamtaRunda = async () => rundaFor(n, {});
     h.kontext = async () => OBJEKT[n].granser.map((g, i) => ({ marker_id: `m${i + 1}`, data: { lineType: 'boundary', isLine: true, path: g.map(([x, y]) => ({ x: x * 2, y: y * 2 })) } }));
@@ -147,13 +147,15 @@ describe('rundvyn — origobeslutet', () => {
     await stilla();
     await stilla();
 
-    expect(karta()).toBeNull();
-    expect(text()).toContain('stämmer inte med Vidas traktgräns');
-    expect(text()).toContain('Be planeraren se över markeringarna');
+    // Rundvyn är kartan även när inga markeringar kan ritas: hellre inga punkter än fel (PR 278 och 322) — och förklaringen står vid kartan.
+    expect(karta()).not.toBeNull();
+    expect(karta()!.getAttribute('data-origo')).toBe('null');
+    expect(karta()!.getAttribute('data-origotext')).toContain('stämmer inte med Vidas traktgräns');
+    expect(karta()!.getAttribute('data-origotext')).toContain('Be planeraren se över markeringarna');
     expect(text()).not.toContain('Hämtar rundan');
   });
 
-  it('Vidas traktgräns går inte att läsa: eget besked (las_fel), aldrig "saknas" och aldrig en tyst karta', async () => {
+  it('Vidas traktgräns går inte att läsa: eget besked (las_fel), aldrig "saknas" — och kartan ritar inga markeringar', async () => {
     const n = 'Betet gallring 2026';
     h.hamtaRunda = async () => rundaFor(n, {});
     h.kontext = async () => kontextFor(n);
@@ -162,11 +164,11 @@ describe('rundvyn — origobeslutet', () => {
     await stilla();
     await stilla();
 
-    expect(karta()).toBeNull();
-    expect(text()).toContain('Kunde inte kontrollera var punkterna ligger');
+    expect(karta()!.getAttribute('data-origo')).toBe('null');
+    expect(karta()!.getAttribute('data-origotext')).toContain('Kunde inte kontrollera var punkterna ligger');
   });
 
-  it('markeringarna går inte att läsa: ingen karta — kvittot hade annars tyst blivit en svagare kontroll utan gränser', async () => {
+  it('markeringarna går inte att läsa: inga markeringar på kartan — kvittot hade annars tyst blivit en svagare kontroll utan gränser', async () => {
     const n = 'Betet gallring 2026';
     h.hamtaRunda = async () => rundaFor(n, {});
     h.kontext = async () => { throw new Error('läsfel'); };
@@ -175,11 +177,11 @@ describe('rundvyn — origobeslutet', () => {
     await stilla();
     await stilla();
 
-    expect(karta()).toBeNull();
-    expect(text()).toContain('Kunde inte kontrollera var punkterna ligger');
+    expect(karta()!.getAttribute('data-origo')).toBe('null');
+    expect(karta()!.getAttribute('data-origotext')).toContain('Kunde inte kontrollera var punkterna ligger');
   });
 
-  it('Brokamåla-fallet (ingen geometrirad): "Vidas traktgräns saknas", ingen karta', async () => {
+  it('Brokamåla-fallet (ingen geometrirad): "Vidas traktgräns saknas", inga markeringar på kartan', async () => {
     const n = 'Brokamåla 1:5 V';
     h.hamtaRunda = async () => rundaFor(n, {});
     h.kontext = async () => kontextFor(n);
@@ -188,8 +190,8 @@ describe('rundvyn — origobeslutet', () => {
     await stilla();
     await stilla();
 
-    expect(karta()).toBeNull();
-    expect(text()).toContain('Vidas traktgräns saknas');
+    expect(karta()!.getAttribute('data-origo')).toBe('null');
+    expect(karta()!.getAttribute('data-origotext')).toContain('Vidas traktgräns saknas');
   });
 
   it('objekt MED kartbild_bounds: kartan öppnar direkt med bildens mitt på zoom 15 — utan att vänta på Vida (som aldrig svarar här)', async () => {
