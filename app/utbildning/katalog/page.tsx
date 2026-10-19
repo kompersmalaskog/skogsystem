@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import Ikon from '@/components/design/Ikon';
 import { Sheet, ConfirmDialog } from '@/components/Sheet';
 import NyUtbildningSheet from '@/components/utbildning/NyUtbildningSheet';
+import GallerSheet from '@/components/utbildning/GallerSheet';
 import {
   Vy, Topprad, Tal, Kort, Rad, FallUt,
   LoadingView, ErrorView, EmptyView, KravtypBadge, PrimaryButton,
@@ -36,6 +37,8 @@ export default function KatalogPage() {
   const [ny, setNy] = useState(false);
   const [vald, setVald] = useState<UtbildningTyp | null>(null);
   const [bekraftaInaktivera, setBekraftaInaktivera] = useState(false);
+  const [gallerOppen, setGallerOppen] = useState(false);
+  const [kravPerTyp, setKravPerTyp] = useState<Record<string, string[]>>({});
   const [andrar, setAndrar] = useState(false);
   const [andraFel, setAndraFel] = useState<string | null>(null);
 
@@ -45,7 +48,7 @@ export default function KatalogPage() {
     const [typR, medR, kravR, bevisR] = await Promise.all([
       supabase.from('utbildning_typ').select('*').order('namn'),
       supabase.from('medarbetare').select('id, namn, roll, aktiv').eq('aktiv', true).order('namn'),
-      supabase.from('utbildning_krav').select('utbildning_typ_id'),
+      supabase.from('utbildning_krav').select('utbildning_typ_id, medarbetare_id'),
       supabase.from('utbildning_bevis').select('utbildning_typ_id').eq('aktiv', true),
     ]);
     const felet = typR.error || medR.error || kravR.error || bevisR.error;
@@ -55,7 +58,12 @@ export default function KatalogPage() {
       return;
     }
     const krav: Record<string, number> = {};
-    for (const r of (kravR.data as { utbildning_typ_id: string }[]) ?? []) krav[r.utbildning_typ_id] = (krav[r.utbildning_typ_id] ?? 0) + 1;
+    const perTyp: Record<string, string[]> = {};
+    for (const r of (kravR.data as { utbildning_typ_id: string; medarbetare_id: string }[]) ?? []) {
+      krav[r.utbildning_typ_id] = (krav[r.utbildning_typ_id] ?? 0) + 1;
+      (perTyp[r.utbildning_typ_id] ??= []).push(r.medarbetare_id);
+    }
+    setKravPerTyp(perTyp);
     const bevis: Record<string, number> = {};
     for (const r of (bevisR.data as { utbildning_typ_id: string }[]) ?? []) bevis[r.utbildning_typ_id] = (bevis[r.utbildning_typ_id] ?? 0) + 1;
     setKravAntal(krav);
@@ -165,7 +173,13 @@ export default function KatalogPage() {
             <Kort>
               <Rad titel="Kravtyp" pil="ingen" varde={<KravtypBadge kravtyp={vald.kravtyp} />} />
               <Rad titel="Förnyelse" pil="ingen" varde={fornyelseText(vald.giltighet_manader)} />
-              <Rad titel="Gäller" pil="ingen" sista varde={omfattningText(vald.galler_alla, kravAntal[vald.id] ?? 0)} />
+              <Rad
+                titel="Gäller"
+                sista
+                varde={omfattningText(vald.galler_alla, kravAntal[vald.id] ?? 0)}
+                vardeFarg={vald.galler_alla || (kravAntal[vald.id] ?? 0) > 0 ? undefined : FARG.orange}
+                onClick={() => setGallerOppen(true)}
+              />
             </Kort>
 
             {(vald.beskrivning || vald.anteckning) && (
@@ -208,6 +222,15 @@ export default function KatalogPage() {
         busy={andrar}
         onConfirm={() => vald && settAktiv(vald, false)}
         onCancel={() => setBekraftaInaktivera(false)}
+      />
+
+      <GallerSheet
+        open={gallerOppen}
+        typ={vald}
+        medarbetare={medarbetare}
+        nuvarande={vald ? (kravPerTyp[vald.id] ?? []) : []}
+        onClose={() => setGallerOppen(false)}
+        onSaved={() => { setGallerOppen(false); setVald(null); load(); }}
       />
 
       <NyUtbildningSheet

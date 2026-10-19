@@ -5,11 +5,12 @@ import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import RegistreraBevisSheet from '@/components/utbildning/RegistreraBevisSheet';
 import BevisSheet from '@/components/utbildning/BevisSheet';
+import GallerSheet from '@/components/utbildning/GallerSheet';
 import {
   Vy, Topprad, Etikett, Tal, Kort, Rad, FallUt, KlartKort,
   LoadingView, ErrorView, EmptyView, KravtypBadge, PrimaryButton,
 } from '@/components/utbildning/ui';
-import { AVSTAND } from '@/lib/design/tokens';
+import { AVSTAND, FARG } from '@/lib/design/tokens';
 import {
   STATUS_META,
   dagManad,
@@ -52,17 +53,20 @@ export default function UtbildningTypPage() {
 
   const [vald, setVald] = useState<UtbildningStatusRad | null>(null); // bevis-detalj
   const [registrera, setRegistrera] = useState(false);
+  const [gallerOppen, setGallerOppen] = useState(false);
+  const [krav, setKrav] = useState<string[]>([]);
   const [forvaldPerson, setForvaldPerson] = useState<string | undefined>(undefined);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [typR, statusR, medR] = await Promise.all([
+    const [typR, statusR, medR, kravR] = await Promise.all([
       supabase.from('utbildning_typ').select('*').eq('id', id).maybeSingle(),
       supabase.from('utbildning_status').select('*').eq('utbildning_typ_id', id),
       supabase.from('medarbetare').select('id, namn, roll, aktiv').eq('aktiv', true).order('namn'),
+      supabase.from('utbildning_krav').select('medarbetare_id').eq('utbildning_typ_id', id),
     ]);
-    const felet = typR.error || statusR.error || medR.error;
+    const felet = typR.error || statusR.error || medR.error || kravR.error;
     if (felet) {
       setError(felet.message);
       setLoading(false);
@@ -71,6 +75,7 @@ export default function UtbildningTypPage() {
     setTyp((typR.data as UtbildningTyp | null) ?? null);
     setRader((statusR.data as UtbildningStatusRad[]) ?? []);
     setMedarbetare((medR.data as Medarbetare[]) ?? []);
+    setKrav(((kravR.data as { medarbetare_id: string }[]) ?? []).map((r) => r.medarbetare_id));
     setLoading(false);
   }, [id]);
 
@@ -117,9 +122,19 @@ export default function UtbildningTypPage() {
               </Kort>
             </>
           ) : rader.length === 0 ? (
+            // Inte igång: ingen är kopplad, så utbildningen kan varken saknas
+            // eller gå ut. Enda vettiga handlingen här är att välja vilka.
             <>
               <Tal tal="0" under="personer omfattas" />
-              <EmptyView text="Ingen omfattas av den här utbildningen än. Välj vilka under Katalog." />
+              <Kort>
+                <Rad
+                  titel="Välj vilka utbildningen gäller"
+                  under="Tills någon är vald står den utanför alla kontroller"
+                  prick={FARG.orange}
+                  sista
+                  onClick={() => setGallerOppen(true)}
+                />
+              </Kort>
             </>
           ) : (
             <>
@@ -147,14 +162,11 @@ export default function UtbildningTypPage() {
             ))}
           </FallUt>
 
-          {/* Referensinfo — inte något man behöver läsa varje gång. */}
+          {/* Referensinfo — inte något man behöver läsa varje gång. Omfattningen
+              är dock det enda här som går att ÄNDRA, så den raden är tryckbar. */}
           <Kort>
-            <Rad
-              titel={`Förnyas ${fornyelseText(typ.giltighet_manader)} · ${omfattning}`}
-              dampad
-              sista
-              pil="ingen"
-            />
+            <Rad titel={`Förnyas ${fornyelseText(typ.giltighet_manader)}`} dampad pil="ingen" />
+            <Rad titel="Gäller" varde={omfattning} dampad sista onClick={() => setGallerOppen(true)} />
           </Kort>
 
           <div style={{ marginTop: AVSTAND.xl }}>
@@ -167,6 +179,15 @@ export default function UtbildningTypPage() {
 
 
       <BevisSheet rad={vald} onClose={() => setVald(null)} onDeleted={() => { setVald(null); load(); }} />
+
+      <GallerSheet
+        open={gallerOppen}
+        typ={typ}
+        medarbetare={medarbetare}
+        nuvarande={krav}
+        onClose={() => setGallerOppen(false)}
+        onSaved={() => { setGallerOppen(false); load(); }}
+      />
 
       <RegistreraBevisSheet
         open={registrera}

@@ -178,6 +178,21 @@ export function Rad({ titel, under, prick, varde, vardeFarg, href, onClick, sist
   return innehall;
 }
 
+/** Rubrik över ett kort — säger vad gruppen under är. `ton="varning"` är orange:
+ *  något är inte fel, det är inte PÅBÖRJAT (ingen vet vilka utbildningen gäller).
+ *  Rött är reserverat för det som faktiskt saknas eller har gått ut. */
+export function Grupprubrik({ ton, children }: { ton?: 'normal' | 'varning'; children: React.ReactNode }) {
+  return (
+    <p style={{
+      ...TYP.micro,
+      color: ton === 'varning' ? FARG.orange : FARG.text2,
+      margin: `${AVSTAND.xl}px 0 ${AVSTAND.xs}px ${AVSTAND.xs}px`,
+    }}>
+      {children}
+    </p>
+  );
+}
+
 /** Det som är i ordning: en dämpad rad som fäller ut raderna UNDER sig, i samma
  *  kort. Ingen ny sida — man trycker igen och det viks ihop. */
 export function FallUt({ etikett, antal, children }: { etikett: string; antal: number; children: React.ReactNode }) {

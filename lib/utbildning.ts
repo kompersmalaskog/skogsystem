@@ -65,6 +65,24 @@ export const KRAVTYP_META: Record<Kravtyp, { label: string; kort: string }> = {
 
 export const KRAVTYP_ORDNING: Kravtyp[] = ['lag', 'certifiering', 'bestallare'];
 
+/** Ordningen är konsekvensen, inte bokstavsordningen: ett lagkrav som saknas
+ *  kostar sanktionsavgift per anställd, ett beställarkrav kostar ett jobb. */
+export function kravtypRang(k: Kravtyp): number {
+  const i = KRAVTYP_ORDNING.indexOf(k);
+  return i === -1 ? KRAVTYP_ORDNING.length : i;
+}
+
+/** Är utbildningen IGÅNG — vet appen vilka den gäller?
+ *
+ *  `utbildning_status` ger en rad per person utbildningen gäller (alla i
+ *  företaget när `galler_alla`, annars de som står i `utbildning_krav`). NOLL
+ *  rader betyder därför inte "allt är bra" utan "ingen är vald": utbildningen
+ *  gäller ingen och kan varken saknas eller gå ut. Räknas den som "i ordning"
+ *  påstår vyn att ett lagkrav är uppfyllt när ingen ens är kopplad till det. */
+export function arIgang(rader: unknown[]): boolean {
+  return rader.length > 0;
+}
+
 /** Kräver statusen att någon gör något? Saknas och utgången är lika illa — båda
  *  betyder att personen inte får köra. Går ut snart är en förvarning. */
 export function kraverAtgard(s: UtbStatus): boolean {
@@ -123,6 +141,9 @@ export function fornyelseText(giltighet_manader: number | null): string {
 // "gäller alla" / "4 personer"
 export function omfattningText(galler_alla: boolean, antalPersoner: number): string {
   if (galler_alla) return 'gäller alla';
+  // "0 personer" läses som en siffra bland andra. Att ingen är vald är inte en
+  // nolla — det är att utbildningen inte är igång, och det ska stå i ord.
+  if (antalPersoner === 0) return 'ingen vald';
   return `${antalPersoner} ${antalPersoner === 1 ? 'person' : 'personer'}`;
 }
 
