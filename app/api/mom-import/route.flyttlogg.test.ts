@@ -193,6 +193,20 @@ describe("mom-import: lastbilsflytt ger förarens flyttrad", () => {
     expect((g.__db.arbetsdag as any[]).find(r => r.id === "ad-1")).toMatchObject({ rast_min: 19, bekraftad: true });
   });
 
+  it("den förare vars dag är BEKRÄFTAD hade maskinen: raden går inte till en annan förare på samma maskin", async () => {
+    // Oskar (bekräftad, 07:04–15:14) täcker mest av flytten 12:30–13:50; Martin (obekräftad, 13:00–18:00) täcker mindre.
+    g.__db.fakt_skift = [
+      { id: 1, datum: DAG, maskin_id: "A130743", operator_id: "R64428_8", inloggning_tid: "2026-10-12T07:04:00+00:00", maskin_inloggning_tid: "2026-10-12T07:04:00+00:00", utloggning_tid: "2026-10-12T15:14:00+00:00", langd_sek: 29400, shift_key: "100" },
+      { id: 2, datum: DAG, maskin_id: "A130743", operator_id: "R64428_9", inloggning_tid: "2026-10-12T13:00:00+00:00", maskin_inloggning_tid: "2026-10-12T13:00:00+00:00", utloggning_tid: "2026-10-12T18:00:00+00:00", langd_sek: 18000, shift_key: "101" },
+    ];
+    g.__db.fakt_tid = [];
+    g.__db.arbetsdag = [{ id: "ad-oskar", medarbetare_id: OSKAR, datum: DAG, start_tid: "07:04:00", slut_tid: "15:14:00", rast_min: 0, maskin_id: "A130743", redigerad: false, bekraftad: true }];
+    g.__db.maskin_flytt = [{ ...LOGGFLYTT, maskin_id: "A130743" }];
+    await post();
+    expect(arbetsdagFor(MARTIN)).toBeTruthy(); // Martins dag byggdes
+    expect(segmentInsatta()).toHaveLength(0);
+  });
+
   it("REDIGERAD dag rörs aldrig", async () => {
     g.__db.arbetsdag = [{ id: "ad-1", medarbetare_id: OSKAR, datum: DAG, start_tid: "07:04:00", slut_tid: "15:14:00", rast_min: 19, maskin_id: "R64428", redigerad: true, bekraftad: false }];
     await post();

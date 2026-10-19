@@ -268,7 +268,7 @@ describe("Svep för att ta bort en flyttloggsrad (föraren var inte med)", () =>
   it("ett svep uppåt/nedåt (scroll) är inget svep", async () => {
     fixtur(klartPass(), { arbetsdag_segment: [logSeg()] });
     await montera();
-    await svep(svepRad(), -30, 200);
+    await svep(svepRad(), -120, 300);
     expect(tabort()).toBeNull();
   });
   it("ett svep åt höger gör ingenting", async () => {
