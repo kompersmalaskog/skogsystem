@@ -152,6 +152,40 @@ describe('Utbildningsvyns startsida', () => {
     expect(text()).not.toContain('Alla utbildningar är giltiga');
   });
 
+  it('en utbildning ingen är kopplad till räknas ALDRIG som i ordning', async () => {
+    // 'c' (Motorsågskörkort AB, lagkrav) har noll rader i utbildning_status:
+    // ingen är vald. Förut hamnade den under "i ordning" och göms bakom den grå
+    // raden — appen påstod att ett lagkrav var uppfyllt.
+    h.data.utbildning_status = allaGiltiga().filter((r) => r.utbildning_typ_id !== 'c');
+
+    await montera();
+
+    expect(text()).toContain('Motorsågskörkort AB');
+    expect(text()).toContain('är inte igång');
+    expect(text()).toContain('Lagkrav · ingen person vald');
+    expect(text()).not.toContain('Alla utbildningar är giltiga');
+
+    // Den ligger inte i den hopfällda "i ordning"-listan.
+    const inneIOrdning = Array.from(container.querySelectorAll('[role="button"]'))
+      .some((el) => (el.textContent ?? '').includes('i ordning'));
+    expect(inneIOrdning).toBe(false);
+  });
+
+  it('lagkrav står först i åtgärdslistan, och raden säger vad det kostar', async () => {
+    const rader = allaGiltiga();
+    // Ett beställarkrav och ett lagkrav saknas båda — lagkravet ska stå överst.
+    rader[1] = rad('a', 'Första hjälpen / HLR', 'Oskar', 'utgangen', '2026-07-03');
+    rader[7] = rad('c', 'Motorsågskörkort AB', 'Stefan', 'saknas', null);
+    h.data.utbildning_status = rader;
+
+    await montera();
+
+    const sidtext = text();
+    expect(sidtext.indexOf('Motorsågskörkort AB')).toBeLessThan(sidtext.indexOf('Första hjälpen / HLR'));
+    expect(sidtext).toContain('Lagkrav ·');
+    expect(sidtext).toContain('Beställarkrav ·');
+  });
+
   it('tom katalog säger varför den är tom', async () => {
     h.data.utbildning_typ = [];
     h.data.utbildning_status = [];
