@@ -112,6 +112,10 @@ export default function LastbilVy() {
     oppnaFakturering();
   }, [oppnaFakturering]);
 
+  // Rubriken "Att göra" står bara när något väntar (lass eller flyttar) eller en läsning föll; Fakturering ensam står utan rubrik.
+  const harAttGora = saknar.lage.lage === 'fel' || (saknar.lage.lage === 'klar' && saknar.lage.rader.length > 0)
+    || vantar.lage.lage === 'fel' || paminn != null;
+
   // Bilens senaste avslutade körning (ur Bilen nu): tomtexten i en tom månad öppnar den rundans ark.
   const senasteRunda = nu.lage.lage === 'klar' ? senasteKorning(nu.lage.data.rundor) : null;
   const senaste = senasteRunda?.starttid ? { id: senasteRunda.id, start: senasteRunda.starttid } : null;
@@ -138,7 +142,7 @@ export default function LastbilVy() {
             </div>
             <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} />
             {arAdmin && (
-              <AttGoraKort>
+              <AttGoraKort medRubrik={harAttGora}>
                 <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
                 <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
                 <FaktureringRad period={period} status={fakt.status} onOppna={oppnaFakturering} onForsokIgen={fakt.forsokIgen} />

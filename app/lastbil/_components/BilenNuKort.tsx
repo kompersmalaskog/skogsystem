@@ -5,7 +5,7 @@ import Ark from '@/components/design/Ark';
 import Sektion from '@/components/design/Sektion';
 import LastbilKarta from '@/components/LastbilKarta';
 import { AVSTAND, FARG, KNAPP, KORT, TNUM, TYP, VIKT } from '@/lib/design/tokens';
-import { fmtAlder, lageRad, lampaRubrik, matareText, serviceRad, sistSedd, tankDelar, type TankDel } from './nu';
+import { kontaktRadArk, lageRad, lampaRubrik, matareText, serviceRad, sistSedd, tankDelar, type TankDel } from './nu';
 import type { NuLage } from './useLastbilNu';
 
 const NIVA_FARG: Record<TankDel['niva'], string> = { ok: FARG.text, orange: FARG.orange, rod: FARG.rod, dampad: FARG.text2 };
@@ -19,7 +19,7 @@ function Status({ text, rollAlert }: { text: string; rollAlert?: boolean }) {
 /**
  * "Bilen nu": ETT kort med bara det som behövs nu (omtaget 2026-10-19, Lastbilen är en sida utan flikar).
  *   Alltid:      läget i ord + sedan när, och EN tankrad (Diesel · AdBlue · Räckvidd, orden bredvid siffran).
- *   Bara när det gäller: en tänd varningslampa tar över rubriken, service under 1 000 km kvar, "Senast sedd …" när den är äldre än 15 min.
+ *   Bara när det gäller: en tänd varningslampa tar över rubriken, service under 1 000 km kvar, "Ingen kontakt sedan …" när senaste kontakt är äldre än 1 h.
  *   Länken "Visa var den står" längst ner öppnar kartarket — där bor också mätare och motortimmar.
  * Läsfel är ett fel med "Försök igen"; saknade värden står som "saknas i datan", aldrig 0.
  */
@@ -66,13 +66,14 @@ export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onFo
           {oppen && <span className="puls" aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: FARG.text, flex: 'none' }} />}
           <span>{lageRad(data)}</span>
         </div>
-        {/* EN rad, alltid: tre värden bredvid varandra i den mindre storleken (TYP.meta) så den ryms på en smal telefon (390 px, också vid
-            "Diesel 100 % · AdBlue 100 % · 1 540 km") — hellre mindre text än radbrytning. Orden ("tanka snart" …) står på egna rader under, bara när de gäller. */}
+        {/* EN rad, alltid: tre värden bredvid varandra i den mindre storleken (TYP.meta) — hellre mindre text än radbrytning. Uppmätt i Chromium på 390 px
+            (kortets innerbredd 326 px): "Diesel 100 % · AdBlue 100 % · Räckvidd 540 km" tar 324 px. Ryms inte "Räckvidd 1 540 km" (336 px) eller 360 px-skärmar —
+            då är "540 km kvar" en ordändring i `tankDelar`. Orden ("tanka snart" …) står på egna rader under, bara när de gäller. */}
         <div data-tank style={{ ...TYP.meta, fontWeight: VIKT.halvfet, ...TNUM, color: FARG.text, marginTop: AVSTAND.xs, display: 'flex', flexWrap: 'nowrap', whiteSpace: 'nowrap', columnGap: AVSTAND.s }}>
           {tank.map((d, i) => (
             <span key={i} style={{ display: 'flex', columnGap: AVSTAND.s }}>
               {i > 0 && <span aria-hidden style={{ color: FARG.text3 }}>·</span>}
-              <span data-niva={d.niva} aria-label={i === 2 ? `Räckvidd ${d.text}` : undefined} title={i === 2 ? 'Räckvidd' : undefined} style={{ color: NIVA_FARG[d.niva] }}>{d.text}</span>
+              <span data-niva={d.niva} style={{ color: NIVA_FARG[d.niva] }}>{d.text}</span>
             </span>
           ))}
         </div>
@@ -101,7 +102,7 @@ export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onFo
       {platsArk && data?.position && matare && (
         <Ark rubrik="Var står den" onStang={() => setPlatsArk(false)}>
           <LastbilKarta position={data.position} segment={[]} punkter={data.spar_idag ?? []} height={240} puls={!!data.oppen_runda} />
-          <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 ${AVSTAND.m}px` }}>Senast sedd {fmtAlder(data.position.alder_min)}</p>
+          <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px 0 ${AVSTAND.m}px` }}>{kontaktRadArk(data)}</p>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, padding: `${AVSTAND.xs}px 0`, ...TYP.meta, ...TNUM }}>
             <span style={{ color: FARG.text2 }}>Mätare</span><span data-matare style={{ color: FARG.text }}>{matare.km}</span>
           </div>

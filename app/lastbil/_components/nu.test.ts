@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fmtAlder, fmtDatum, fmtKlocka, fmtSedan, lageRad, lampaRubrik, matareText, senasteKorning, serviceRad, sistSedd, tankDelar, type LastbilData, type Runda } from './nu';
+import { fmtAlder, fmtDatum, fmtKlocka, fmtSedan, kontaktRadArk, lageRad, lampaRubrik, matareText, senasteKorning, serviceRad, sistSedd, tankDelar, type LastbilData, type Runda } from './nu';
 
 // Formen på /api/lastbil med värdena ur prod 2026-10-13 07:06 UTC (bilen stilla på LBC):
 // diesel 62 %, AdBlue 71,2 %, räckvidd 270 km, inga lampor, mätare 301 128 km, service saknas i avläsningen.
@@ -20,10 +20,11 @@ const NU = new Date('2026-10-13T09:00:00Z');   // 11:00 svensk tid, samma dag
 const med = (d: Partial<LastbilData>): LastbilData => ({ ...PARKERAD, ...d });
 
 describe('läget i ord + sedan när', () => {
-  it('parkerad: "Parkerad vid <plats> · sedan <klockslag>"', () => {
+  it('parkerad: "Parkerad vid <plats> · sedan <klockslag>" idag, annars bara datum — EN tid', () => {
     expect(lageRad(PARKERAD, NU)).toBe('Parkerad vid LBC · sedan 09:06');
     expect(lageRad(med({ parkerad: { plats: 'Kompersmåla', sedan: '2026-10-13T13:02:00Z' } }), NU)).toBe('Parkerad vid Kompersmåla · sedan 15:02');
-    expect(lageRad(med({ parkerad: { plats: 'LBC', sedan: '2026-10-12T07:06:59Z' } }), NU)).toBe('Parkerad vid LBC · sedan igår 09:06');
+    expect(lageRad(med({ parkerad: { plats: 'LBC', sedan: '2026-10-12T07:06:59Z' } }), NU)).toBe('Parkerad vid LBC · sedan 12 okt');
+    expect(lageRad(med({ parkerad: { plats: 'LBC', sedan: '2026-10-09T07:06:59Z' } }), NU)).toBe('Parkerad vid LBC · sedan 9 okt');
   });
 
   it('kör nu: maskin på flaket, rundans km och avfärd', () => {
@@ -52,14 +53,14 @@ describe('tankraden: EN kort rad, orden på egna rader under — bara när de g�
   const niva = (d: LastbilData) => tankDelar(d).map(x => x.niva);
   const ord = (d: LastbilData) => tankDelar(d).map(x => x.ord).filter(Boolean);
   it('62 % diesel, 71 % AdBlue, 270 km: allt ok, inga ord under', () => {
-    expect(text(PARKERAD)).toBe(['Diesel 62 %', 'AdBlue 71 %', `${(270).toLocaleString('sv-SE')} km`].join(' · '));
+    expect(text(PARKERAD)).toBe(['Diesel 62 %', 'AdBlue 71 %', `Räckvidd ${(270).toLocaleString('sv-SE')} km`].join(' · '));
     expect(niva(PARKERAD)).toEqual(['ok', 'ok', 'ok']);
     expect(ord(PARKERAD)).toEqual([]);
   });
   it('raden är kort även med fulla värden (så den ryms på 390 px): "Diesel 100 % · AdBlue 100 % · 1 540 km"', () => {
     const full = med({ tank: { diesel_pct: 100, adblue_pct: 100, rackvidd_km: 1540 } });
-    expect(text(full)).toBe(`Diesel 100 % · AdBlue 100 % · ${(1540).toLocaleString('sv-SE')} km`);
-    expect(text(full).length).toBeLessThanOrEqual(40);
+    expect(text(full)).toBe(`Diesel 100 % · AdBlue 100 % · Räckvidd ${(1540).toLocaleString('sv-SE')} km`);
+    expect(text(full).length).toBeLessThanOrEqual(47);
   });
   it('diesel under 15 % är röd "tanka nu", under 25 % orange "tanka snart" — orden står i `ord`, siffran i raden; gränserna som förut', () => {
     expect(tankDelar(med({ tank: { diesel_pct: 14, adblue_pct: 71, rackvidd_km: 95 } }))[0]).toEqual({ text: 'Diesel 14 %', niva: 'rod', ord: 'Diesel låg – tanka nu' });
@@ -69,7 +70,7 @@ describe('tankraden: EN kort rad, orden på egna rader under — bara när de g�
   });
   it('AdBlue under 20 % och räckvidd under 150 km är orange, med ord under', () => {
     expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 15, rackvidd_km: 400 } }))[1]).toEqual({ text: 'AdBlue 15 %', niva: 'orange', ord: 'AdBlue låg – fyll på' });
-    expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 71, rackvidd_km: 120 } }))[2]).toEqual({ text: '120 km', niva: 'orange', ord: 'Räckvidd kort – tanka snart' });
+    expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 71, rackvidd_km: 120 } }))[2]).toEqual({ text: 'Räckvidd 120 km', niva: 'orange', ord: 'Räckvidd kort – tanka snart' });
     expect(niva(med({ tank: { diesel_pct: 60, adblue_pct: 20, rackvidd_km: 150 } }))).toEqual(['ok', 'ok', 'ok']);
   });
   it('flera varningar ger flera rader ord, i ordningen diesel, AdBlue, räckvidd', () => {
@@ -77,7 +78,7 @@ describe('tankraden: EN kort rad, orden på egna rader under — bara när de g�
   });
   it('saknade värden: "–" i raden och "saknas i datan" under, dämpat — aldrig 0, aldrig orange eller rött', () => {
     const d = med({ tank: { diesel_pct: null, adblue_pct: 71, rackvidd_km: null } });
-    expect(text(d)).toBe(`Diesel – · AdBlue 71 % · –`);
+    expect(text(d)).toBe(`Diesel – · AdBlue 71 % · Räckvidd –`);
     expect(niva(d)).toEqual(['dampad', 'ok', 'dampad']);
     expect(ord(d)).toEqual(['Diesel saknas i datan', 'Räckvidd saknas i datan']);
     expect(ord(med({ tank: null }))).toEqual(['Diesel saknas i datan', 'AdBlue saknas i datan', 'Räckvidd saknas i datan']);
@@ -107,14 +108,31 @@ describe('bara när det gäller', () => {
     expect(serviceRad(h(null))).toBeNull();
     expect(serviceRad(med({ halsa: null }))).toBeNull();
   });
-  it('"Senast sedd" bara när positionen är äldre än 15 min, eller åldern är okänd', () => {
-    const p = (alder_min: number | null) => med({ position: { lat: 1, lng: 1, tidpunkt: null, alder_min } });
-    expect(sistSedd(p(2))).toBeNull();
-    expect(sistSedd(p(15))).toBeNull();
-    expect(sistSedd(p(16))).toBe('Senast sedd för 16 min sedan');
-    expect(sistSedd(p(130))).toBe('Senast sedd för 2 h 10 min sedan');
-    expect(sistSedd(p(null))).toBe('Senast sedd okänd tid');
-    expect(sistSedd(med({ position: null }))).toBeNull();
+  it('"Ingen kontakt sedan …" bara när senaste kontakt är äldre än 1 h — datum + klockslag, aldrig "99 h 49 min"', () => {
+    const nu = new Date('2026-10-13T09:00:00Z');   // 11:00 svensk tid
+    const p = (alder_min: number | null, tidpunkt: string | null = null) => med({ position: { lat: 1, lng: 1, tidpunkt, alder_min } });
+    expect(sistSedd(p(2), nu)).toBeNull();
+    expect(sistSedd(p(60), nu)).toBeNull();
+    expect(sistSedd(p(54, '2026-10-13T08:06:00Z'), nu)).toBeNull();
+    // idag: bara klockslaget
+    expect(sistSedd(p(130, '2026-10-13T06:50:00Z'), nu)).toBe('Ingen kontakt sedan 08:50');
+    // annan dag (även under 24 h): datum + klockslag
+    expect(sistSedd(p(14 * 60, '2026-10-12T19:00:00Z'), nu)).toBe('Ingen kontakt sedan 12 okt 21:00');
+    // över 24 h (99 h 49 min): datum, aldrig timmar
+    const gammal = sistSedd(p(99 * 60 + 49, '2026-10-09T05:11:00Z'), nu)!;
+    expect(gammal).toBe('Ingen kontakt sedan 9 okt 07:11');
+    expect(gammal).not.toMatch(/\d+ h/);
+    // tidpunkten saknas men åldern finns: tiden räknas ur åldern
+    expect(sistSedd(p(130), nu)).toBe('Ingen kontakt sedan 08:50');
+    // allt okänt: vi kan inte säga att den är färsk — och inte sedan när
+    expect(sistSedd(p(null), nu)).toBe('Tid för senaste kontakt saknas i datan');
+    expect(sistSedd(med({ position: null }), nu)).toBeNull();
+  });
+  it('kartarkets rad: färsk position säger "Senast sedd …", gammal samma text som kortet', () => {
+    const nu = new Date('2026-10-13T09:00:00Z');
+    const p = (alder_min: number | null, tidpunkt: string | null) => med({ position: { lat: 1, lng: 1, tidpunkt, alder_min } });
+    expect(kontaktRadArk(p(5, '2026-10-13T08:55:00Z'), nu)).toBe('Senast sedd för 5 min sedan');
+    expect(kontaktRadArk(p(99 * 60 + 49, '2026-10-09T05:11:00Z'), nu)).toBe('Ingen kontakt sedan 9 okt 07:11');
   });
 });
 
@@ -150,9 +168,8 @@ describe('tider (Stockholm, aldrig enhetens zon)', () => {
   it('sedan-texter', () => {
     const nu = new Date('2026-10-13T09:00:00Z');
     expect(fmtSedan('2026-10-13T07:06:59Z', nu)).toBe('sedan 09:06');
-    expect(fmtSedan('2026-10-12T07:06:59Z', nu)).toBe('sedan igår 09:06');
-    expect(fmtSedan('2026-10-09T07:06:59Z', nu)).toBe('sedan fre 09:06');
-    expect(fmtSedan('2026-09-28T06:53:39Z', nu)).toBe('sedan 28 sep 08:53');
+    expect(fmtSedan('2026-10-12T07:06:59Z', nu)).toBe('sedan 12 okt');
+    expect(fmtSedan('2026-09-28T06:53:39Z', nu)).toBe('sedan 28 sep');
     expect(fmtSedan(null, nu)).toBe('');
   });
   it('ålder', () => {

@@ -57,21 +57,25 @@ export function fmtAlder(min: number | null): string {
   return `för ${h} h${m ? ` ${m} min` : ''} sedan`;
 }
 
-/** "sedan 13:16", "sedan igår 13:16", "sedan tis 13:16", "sedan 3 aug 13:16". */
-export function fmtSedan(iso: string | null, nu: Date = new Date()): string {
-  if (!iso) return '';
+/** Samma Stockholmsdag som `nu`? */
+function arIdag(iso: string, nu: Date): boolean {
   const d = sthlmDelar(new Date(iso)), n = sthlmDelar(nu);
-  if (!d || !n) return '';
-  const dagnr = (x: { ar: number; man: number; dag: number }) => Date.UTC(x.ar, x.man - 1, x.dag) / 86400000;
-  const diff = dagnr(n) - dagnr(d);
-  const kl = fmtKlocka(iso);
-  if (diff <= 0) return `sedan ${kl}`;
-  if (diff === 1) return `sedan igår ${kl}`;
-  if (diff < 7) return `sedan ${DAG[new Date(Date.UTC(d.ar, d.man - 1, d.dag)).getUTCDay()]} ${kl}`;
-  return `sedan ${d.dag} ${MANAD[d.man - 1]} ${kl}`;
+  return !!d && !!n && d.ar === n.ar && d.man === n.man && d.dag === n.dag;
 }
 
-/** Läget i ord + sedan när. "Kör nu · Giant på flaket · 34 km · avfärd 06:41", "Parkerad vid Kompersmåla · sedan 15:02". */
+/** "12 okt" i Stockholmstid. */
+function fmtDagManad(iso: string): string {
+  const d = sthlmDelar(new Date(iso));
+  return d ? `${d.dag} ${MANAD[d.man - 1]}` : '';
+}
+
+/** "sedan 13:16" om det är idag, annars bara datumet: "sedan 12 okt". EN tid — aldrig datum och klockslag tillsammans i rubriken. */
+export function fmtSedan(iso: string | null, nu: Date = new Date()): string {
+  if (!iso) return '';
+  return arIdag(iso, nu) ? `sedan ${fmtKlocka(iso)}` : `sedan ${fmtDagManad(iso)}`;
+}
+
+/** Läget i ord + sedan när. "Kör nu · Giant på flaket · 34 km · avfärd 06:41", "Parkerad vid Kompersmåla · sedan 15:02" (idag) eller "… · sedan 12 okt" (annan dag). */
 export function lageRad(data: LastbilData, nu: Date = new Date()): string {
   const o = data.oppen_runda;
   if (o) {
@@ -98,13 +102,13 @@ export function lampaRubrik(data: LastbilData): { rubrik: string; under: string 
 }
 
 /**
- * En del av tankraden. `text` är det korta som står i raden ("Diesel 62 %", "AdBlue 80 %", "540 km" för räckvidden); `ord` är orden som står
+ * En del av tankraden. `text` är det korta som står i raden ("Diesel 62 %", "AdBlue 80 %", "Räckvidd 540 km"); `ord` är orden som står
  * på EGEN rad under raden, bara när de gäller ("Diesel låg – tanka snart", "Diesel saknas i datan"). Färgen (`niva`) förstärker bara — orden bär
  * betydelsen. `dampad` = värdet saknas i datan (aldrig 0).
  */
 export interface TankDel { text: string; niva: 'ok' | 'orange' | 'rod' | 'dampad'; ord: string | null }
 
-/** Raden: "Diesel 62 % · AdBlue 80 % · 540 km" (räckvidden utan etikett). Gränserna är `GRANS` — samma som förut. */
+/** Raden: "Diesel 62 % · AdBlue 80 % · Räckvidd 540 km". Gränserna är `GRANS` — samma som förut. */
 export function tankDelar(data: LastbilData): TankDel[] {
   const t = data.tank;
   const d = t?.diesel_pct, a = t?.adblue_pct, r = t?.rackvidd_km;
@@ -115,9 +119,9 @@ export function tankDelar(data: LastbilData): TankDel[] {
   const adblue: TankDel = a == null ? { text: 'AdBlue –', niva: 'dampad', ord: 'AdBlue saknas i datan' }
     : a < GRANS.adblueOrange ? { text: `AdBlue ${Math.round(a)} %`, niva: 'orange', ord: 'AdBlue låg – fyll på' }
     : { text: `AdBlue ${Math.round(a)} %`, niva: 'ok', ord: null };
-  const rackvidd: TankDel = r == null ? { text: '–', niva: 'dampad', ord: 'Räckvidd saknas i datan' }
-    : r < GRANS.rackviddOrange ? { text: `${r.toLocaleString('sv-SE')} km`, niva: 'orange', ord: 'Räckvidd kort – tanka snart' }
-    : { text: `${r.toLocaleString('sv-SE')} km`, niva: 'ok', ord: null };
+  const rackvidd: TankDel = r == null ? { text: 'Räckvidd –', niva: 'dampad', ord: 'Räckvidd saknas i datan' }
+    : r < GRANS.rackviddOrange ? { text: `Räckvidd ${r.toLocaleString('sv-SE')} km`, niva: 'orange', ord: 'Räckvidd kort – tanka snart' }
+    : { text: `Räckvidd ${r.toLocaleString('sv-SE')} km`, niva: 'ok', ord: null };
   return [diesel, adblue, rackvidd];
 }
 
@@ -129,12 +133,44 @@ export function serviceRad(data: LastbilData): string | null {
   return km <= 0 ? 'Service är försenad' : `Service om ${km.toLocaleString('sv-SE')} km`;
 }
 
-/** "Senast sedd för 54 min sedan" — bara när positionen är äldre än 15 min (eller åldern är okänd: då kan vi inte säga att den är färsk). */
-export const SEDD_VISA_EFTER_MIN = 15;
-export function sistSedd(data: LastbilData): string | null {
+/** "Ingen kontakt sedan 12 okt 15:02" — bara när senaste kontakt är äldre än 1 h. Datum + klockslag; är det idag står bara klockslaget. */
+export const KONTAKT_VISA_EFTER_MIN = 60;
+
+/** Tidpunkten för senaste kontakt: positionens egen tid, annars nu minus åldern. null = okänd. */
+function kontaktTid(data: LastbilData, nu: Date): string | null {
+  const p = data.position;
+  if (!p) return null;
+  if (p.tidpunkt) return p.tidpunkt;
+  if (p.alder_min != null) return new Date(nu.getTime() - p.alder_min * 60000).toISOString();
+  return null;
+}
+
+/** Minuter sedan senaste kontakt. Åldern från servern går före (samma klocka som resten av kortet). */
+function kontaktAlderMin(data: LastbilData, nu: Date): number | null {
+  const p = data.position;
+  if (!p) return null;
+  if (p.alder_min != null) return p.alder_min;
+  return p.tidpunkt ? Math.max(0, Math.round((nu.getTime() - Date.parse(p.tidpunkt)) / 60000)) : null;
+}
+
+function kontaktText(iso: string, nu: Date): string {
+  return arIdag(iso, nu) ? `Ingen kontakt sedan ${fmtKlocka(iso)}` : `Ingen kontakt sedan ${fmtDagManad(iso)} ${fmtKlocka(iso)}`;
+}
+
+export function sistSedd(data: LastbilData, nu: Date = new Date()): string | null {
   if (!data.position) return null;
-  const min = data.position.alder_min;
-  if (min != null && min <= SEDD_VISA_EFTER_MIN) return null;
+  const min = kontaktAlderMin(data, nu);
+  if (min != null && min <= KONTAKT_VISA_EFTER_MIN) return null;
+  const tid = kontaktTid(data, nu);
+  // Tiden okänd: vi kan inte säga att kontakten är färsk, och inte heller sedan när den bröts.
+  return tid ? kontaktText(tid, nu) : 'Tid för senaste kontakt saknas i datan';
+}
+
+/** Raden i kartarket — står alltid där. Färsk position: "Senast sedd för 5 min sedan"; annars samma text som på kortet (aldrig "99 h 49 min"). */
+export function kontaktRadArk(data: LastbilData, nu: Date = new Date()): string {
+  const gammal = sistSedd(data, nu);
+  if (gammal) return gammal;
+  const min = kontaktAlderMin(data, nu);
   return `Senast sedd ${fmtAlder(min)}`;
 }
 

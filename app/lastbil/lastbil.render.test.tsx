@@ -264,7 +264,9 @@ async function ritaOm() { await act(async () => { rot!.render(<LastbilVy />); })
 const hookFel = () => konsol.mock.calls.map(c => String(c[0])).filter(s => /hooks|Rendered (more|fewer)|#310|#300/i.test(s));
 
 const fakturRad = () => document.querySelector("[data-fakturering-rad]") as HTMLElement | null;
-const attGora = () => document.querySelector('section[aria-label="Att göra"]') as HTMLElement | null;
+// Kortet "Att göra" — med rubriken när lass/väntande finns, utan rubrik (data-att-gora-ensam) när Fakturering står ensam.
+const attGora = () => document.querySelector('section[aria-label="Att göra"], section[data-att-gora-ensam]') as HTMLElement | null;
+const attGoraRubrik = () => document.querySelector('section[aria-label="Att göra"]') as HTMLElement | null;
 const fakturaSida = () => document.querySelector("[data-fakturering-sida]") as HTMLElement | null;
 const tillbakaPil = () => document.querySelector("[data-tillbaka]") as HTMLElement | null;
 const tillFakturering = async () => { await klicka(fakturRad()!); };
@@ -2068,10 +2070,10 @@ describe("Bilen nu", () => {
   const tankText = () => Array.from(tank().querySelectorAll("[data-niva]")).map(c => c.textContent).join(" · ");
   const tankOrd = () => Array.from(kort().querySelectorAll("[data-tank-ord]")).map(e => e.textContent);
 
-  it("parkerad: läget i ord med sedan-när, EN tankrad och 'Senast sedd' (äldre än 15 min) — inget mer", async () => {
+  it("parkerad: läget i ord med EN tid (datum, klockslag bara idag), EN tankrad — och ingen kontaktrad när positionen är under 1 h", async () => {
     await nuFlik();
-    expect(kort().querySelector("[data-lage]")!.textContent).toBe("Parkerad vid LBC · sedan igår 09:06");
-    expect(tankText()).toBe(`Diesel 62 % · AdBlue 71 % · ${(270).toLocaleString("sv-SE")} km`);
+    expect(kort().querySelector("[data-lage]")!.textContent).toBe("Parkerad vid LBC · sedan 13 okt");
+    expect(tankText()).toBe(`Diesel 62 % · AdBlue 71 % · Räckvidd ${(270).toLocaleString("sv-SE")} km`);
     expect(tank().querySelectorAll("[data-niva]")).toHaveLength(3);               // EN rad med tre värden
     expect(tankOrd()).toEqual([]);                                                // inga ord under när allt är ok
     // raden bryts aldrig: nowrap, och den mindre storleken (TYP.meta, 13 px) så den ryms på en smal telefon
@@ -2079,11 +2081,22 @@ describe("Bilen nu", () => {
     expect(stil).toContain("white-space: nowrap");
     expect(stil).toContain("flex-wrap: nowrap");
     expect(stil).toContain("font-size: 13px");
-    expect(kort().querySelector("[data-sedd]")!.textContent).toBe("Senast sedd för 54 min sedan");
+    expect(kort().querySelector("[data-sedd]")).toBeNull();                       // 54 min: under 1 h, ingen kontaktrad
     // inget "Inga varningar", ingen mätare, ingen service ("saknas") och ingen rad "Senaste körning" i kortet
     for (const borta of ["Inga varningar", "Service", "301", "Mätare", "Senaste körning", "Motortimmar"]) expect(kort().textContent).not.toContain(borta);
     expect(kort().querySelector("[data-lampa]")).toBeNull();
     expect(kort().querySelector("[data-service]")).toBeNull();
+  });
+
+  it("ingen kontakt på över 1 h: 'Ingen kontakt sedan <datum> <tid>', dämpad — aldrig timmar och minuter", async () => {
+    mock.api.body = { ...LAGE, parkerad: { plats: "LBC", sedan: "2026-10-10T08:11:00Z" },
+      position: { lat: 56.459, lng: 14.702, tidpunkt: "2026-10-10T08:11:00Z", alder_min: 99 * 60 + 49 } };
+    await nuFlik();
+    expect(kort().querySelector("[data-lage]")!.textContent).toBe("Parkerad vid LBC · sedan 10 okt");          // EN tid i rubriken, bara datum
+    const sedd = kort().querySelector("[data-sedd]") as HTMLElement;
+    expect(sedd.textContent).toBe("Ingen kontakt sedan 10 okt 10:11");
+    expect(kort().textContent).not.toMatch(/\d+ h \d+ min|99 h/);
+    expect(sedd.getAttribute("style")).not.toMatch(/ff9f0a|ff453a/i);                                          // dämpad, inte orange/röd
   });
 
   it("ETT kort (en sektion) — ingen separat 'Senaste körning'-sektion och inget kort med mätare", async () => {
@@ -2114,7 +2127,7 @@ describe("Bilen nu", () => {
     await nuFlik();
     expect(tank().querySelector('[data-niva="rod"]')!.textContent).toBe("Diesel 14 %");
     expect(tank().querySelector('[data-niva="orange"]')!.textContent).toBe("AdBlue 18 %");
-    expect(tankText()).toContain("95 km");
+    expect(tankText()).toContain("Räckvidd 95 km");
     expect(tankOrd()).toEqual(["Diesel låg – tanka nu", "AdBlue låg – fyll på", "Räckvidd kort – tanka snart"]);
     expect(kort().querySelector('[data-tank-ord="rod"]')!.textContent).toBe("Diesel låg – tanka nu");
     expect(kort().querySelector("h1")).toBeNull();
@@ -2166,7 +2179,7 @@ describe("Bilen nu", () => {
   it("saknade värden står som 'saknas i datan', aldrig 0", async () => {
     mock.api.body = { ...LAGE, tank: { diesel_pct: null, adblue_pct: 71.2, rackvidd_km: null } };
     await nuFlik();
-    expect(tankText()).toBe("Diesel – · AdBlue 71 % · –");
+    expect(tankText()).toBe("Diesel – · AdBlue 71 % · Räckvidd –");
     expect(tankOrd()).toEqual(["Diesel saknas i datan", "Räckvidd saknas i datan"]);
     expect(tankText()).not.toMatch(/\b0 %/);
   });
@@ -2483,6 +2496,22 @@ describe("Hämta en maskin — uppifrån: knappen, Bilen nu, Att göra, Körning
     expect(fore(vantarRad(), fakturRad())).toBe(true);
     expect(attGora()!.contains(saknarRad()) && attGora()!.contains(vantarRad()) && attGora()!.contains(fakturRad())).toBe(true);
     expect(fore(attGora(), korningar())).toBe(true);
+    expect(attGoraRubrik()).not.toBeNull();                                       // lass/väntande finns: rubriken "Att göra" står
+  });
+
+  it("Att göra: rubriken står när ENBART lass saknar maskin, och när ENBART flyttar väntar", async () => {
+    mock.lass = [LASS()];
+    await montera();
+    expect(saknarRad()).not.toBeNull();
+    expect(vantarRad()).toBeNull();
+    expect(attGoraRubrik()).not.toBeNull();
+    await act(async () => { rot?.unmount(); }); rot = null;
+    mock.lass = [];
+    mock.extraUnderlag = [OG_OKT()];
+    await montera();
+    expect(saknarRad()).toBeNull();
+    expect(vantarRad()).not.toBeNull();
+    expect(attGoraRubrik()).not.toBeNull();
   });
 
   it("knappen står först och på samma plats oavsett vilka rader som visas under (inget element med innehåll ligger före den)", async () => {
@@ -2496,11 +2525,15 @@ describe("Hämta en maskin — uppifrån: knappen, Bilen nu, Att göra, Körning
     expect(Array.from(document.querySelectorAll("button, a, section, h1, h2")).find(e => e.textContent !== "")).toBe(hamtaKnapp());
   });
 
-  it("Att göra: bara rader som har något — utan lass och utan väntande står bara Fakturering-raden", async () => {
+  it("Att göra: bara rader som har något — utan lass och utan väntande står bara Fakturering-raden, UTAN rubrik", async () => {
     await montera();
     expect(saknarRad()).toBeNull();
     expect(vantarRad()).toBeNull();
     expect(fakturRad()).not.toBeNull();
+    expect(attGoraRubrik()).toBeNull();                                           // ingen rubrik "Att göra"
+    expect(attGora()!.hasAttribute("data-att-gora-ensam")).toBe(true);
+    expect(attGora()!.contains(fakturRad())).toBe(true);                          // raden står själv i sitt kort
+    expect(Array.from(document.querySelectorAll("h3")).map(h => h.textContent)).not.toContain("Att göra");
     expect(text()).not.toMatch(/0 lass|0 flyttar väntar/);
   });
 
