@@ -122,10 +122,26 @@ describe('rundvyn — origobeslutet', () => {
     expect(text()).not.toContain('Hämtar rundan');
   });
 
-  it('Bjällerhult (au + ga): kvittot faller → ingen karta, och listan säger varför med Vidas traktgräns som skäl', async () => {
+  it('Bjällerhult (au + ga): samlat stämmer inte men första gränsen gör det → kartan öppnas med lat/lng-origot', async () => {
     const n = 'Bjällerhult au + ga';
     h.hamtaRunda = async () => rundaFor(n, {});
     h.kontext = async () => kontextFor(n);
+    h.vida = async () => vidaFor(n);
+    await montera();
+    await stilla();
+    await stilla();
+
+    const k = karta();
+    expect(k, 'kartan ska öppnas').not.toBeNull();
+    const f = OBJEKT[n];
+    expect(JSON.parse(k!.getAttribute('data-origo')!)).toEqual({ lat: f.lat, lng: f.lng, zoom: 16 });
+    expect(k!.getAttribute('data-origotext')).toBe('');
+  });
+
+  it('gränsmarkeringar som varken samlat eller enskilt stämmer med Vida (fel zoom): ingen karta, och listan säger varför', async () => {
+    const n = 'Bjällerhult au + ga';
+    h.hamtaRunda = async () => rundaFor(n, {});
+    h.kontext = async () => OBJEKT[n].granser.map((g, i) => ({ marker_id: `m${i + 1}`, data: { lineType: 'boundary', isLine: true, path: g.map(([x, y]) => ({ x: x * 2, y: y * 2 })) } }));
     h.vida = async () => vidaFor(n);
     await montera();
     await stilla();

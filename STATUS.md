@@ -191,13 +191,13 @@ Följden: normkurvan räknas om. Gallring n 679 → 681 (a 3,7590 → 3,7615, b 
 | Hålabäck gallring 2026 | 923×807 mot 960×805, mitt −19/1 m | ritas (stark) |
 | Östra-Höka 1:7 A-C -25 | inga gränsmarkeringar; alla punkter i Vidas ruta | ritas (**svag**) |
 | Hålabäck au 2025 | inga gränsmarkeringar; punkterna i Vidas ruta + marginal | ritas (**svag**) |
-| Bjällerhult au + ga | gränsmarkeringarna 157×238 mot Vida 61×93 | **ritas inte** (Martin avgör, se nedan) |
+| Bjällerhult au + ga | samlat 157×238 mot Vida 61×93 stämmer inte, men första gränsen är 61×93 med Vidas mitt | ritas (stark, via enskild gräns) |
 | Brokamåla 1:5 V | zip utan geometrirad: inget att kontrollera mot | **ritas inte** |
 | Krokshult AU 2026 | inga markeringar alls | inget att rita |
 
 **Svag kontroll = begränsning.** Utan gränsmarkeringar syns ett förskjutet origo men inte ett rent skalfel (dubbelt så stora avstånd ligger fortfarande i Vidas ruta + marginal). Det står i koden och i ett test. Östra-Höka (10 punkter) och Hålabäck au (2) har den kontrollen.
 
-**Bjällerhult (Martin avgör):** den FÖRSTA gränsen (au) har exakt Vidas mått: 46,4 px / 70,5 px på zoom 16 = 61 × 93 m. Den ANDRA gränsen (ga, gallringsdelen) ligger utanför Vidas `L_TRAKTDEL` (som bara är 0,42 ha). Origot är därför troligen rätt; det som faller är kravet att ALLA gränsmarkeringar tillsammans ska ha Vidas storlek. Bekräfta vad "au + ga" omfattar. Om gallringsdelen ligger utanför traktdelen med flit kan kvittot ändras till "varje gräns jämförs för sig, minst en ska stämma" — en ändring i `beslutaOrigo`, inget annat.
+**Bjällerhult (Martin bekräftade 2026-10-19 i planeringsvyn att de nio markeringarna ligger rätt i skogen):** den FÖRSTA gränsen (au) har exakt Vidas mått: 46,4 px / 70,5 px på zoom 16 = 61 × 93 m. Den ANDRA gränsen (ga, gallringsdelen, 111×238 m) ligger utanför Vidas `L_TRAKTDEL` (0,42 ha, bara avverkningen). Kvittot kräver därför att alla gränser **tillsammans (samlat) ELLER minst en enskild gräns** stämmer mot Vidas ruta i storlek och mitt. Båda sätten behövs: Hålabäck gallring (402×379 + 301×229 enskilt, 923×807 samlat) och Hallaslätt AU (149×182 + 39×35 enskilt, 161×300 samlat) stämmer bara samlat; Bjällerhult stämmer bara enskilt. Martins första förslag, "minst en" ensamt, hade gjort Hålabäck och Hallaslätt blinda — upptäckt genom att köra regeln mot fixturen innan den byggdes. Förklaringen står i huvudet på `lib/egenkontrollOrigo.ts` så att ingen förenklar regeln till det ena. Provytor på ett kombinerat objekt (Bjällerhult) lottas inom BÅDA gränsernas ytor, även den del som är slutavverkning; objektet har ingen öppen gallringsrunda utan provytor, så det rör ingen idag.
 
 **Brokamåla:** zip från 2026-07-01 utan kartbild och utan bounds; importen svalde felet tyst. Importen skriver nu en rad i `import_varningar` när zipens bild saknas eller inte laddas upp (`lib/trakt/kartbildVarning.ts`). Vilken orsak det var i juli går inte att avgöra ur databasen. Brokamåla har ingen geometrirad (zip) och ritas därför inte; ett kvitto mot `objekt.areal` (gränsmarkeringarna 5,36 ha mot 5,2 ha på zoom 16) vore möjligt men är inte byggt.
 

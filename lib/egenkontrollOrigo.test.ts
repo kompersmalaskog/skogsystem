@@ -53,12 +53,13 @@ describe('fixturen ur prod är orörd', () => {
 
 describe('beslutaOrigo — de åtta objekten utan kartbild_bounds (prod 2026-10-19)', () => {
   it.each(['Betet gallring 2026', 'Hallaslätt AU 2026', 'Räveboda gallring 2026', 'Hålabäck gallring 2026'])(
-    '%s: gränsmarkeringarna har Vidas storlek och mitt → STARKT kvitto, ritas',
+    '%s: gränsmarkeringarna har Vidas storlek och mitt → STARKT kvitto, ritas (samlat)',
     (namn) => {
       const b = beslut(namn);
       expect(b.ok).toBe(true);
       if (!b.ok || b.kalla !== 'latlng') throw new Error('förväntade lat/lng-origo');
       expect(b.kvitto.styrka).toBe('stark');
+      expect(b.kvitto.via).toBe('samlat');
       expect(b.kvitto.granser).not.toBeNull();
     },
   );
@@ -74,11 +75,19 @@ describe('beslutaOrigo — de åtta objekten utan kartbild_bounds (prod 2026-10-
     },
   );
 
-  it('Bjällerhult (au + ga): gränsmarkeringarna 157×238 m mot Vidas 61×93 m → ritas INTE, och detaljen säger varför', () => {
+  it('Bjällerhult (au + ga): samlat 157×238 m mot Vidas 61×93 m stämmer inte, men FÖRSTA gränsen är 61×93 m med Vidas mitt → STARKT kvitto via enskild gräns, ritas', () => {
     const b = beslut('Bjällerhult au + ga');
-    expect(b).toMatchObject({ ok: false, skal: 'stammer_inte' });
-    if (b.ok) throw new Error('ska falla');
-    expect(b.detalj).toMatch(/157×238 m mot Vidas 61×93 m/);
+    expect(b.ok).toBe(true);
+    if (!b.ok || b.kalla !== 'latlng') throw new Error('förväntade lat/lng-origo');
+    expect(b.kvitto.styrka).toBe('stark');
+    expect(b.kvitto.via).toBe('enskild');
+    const g = b.kvitto.granser!;
+    expect(Math.round(g.bredd)).toBe(61);
+    expect(Math.round(g.hojd)).toBe(93);
+    expect(Math.round(g.vidaBredd)).toBe(61);
+    expect(Math.round(g.vidaHojd)).toBe(93);
+    expect(Math.abs(g.dx)).toBeLessThan(5);
+    expect(Math.abs(g.dy)).toBeLessThan(5);
   });
 
   it('Brokamåla (zip, ingen geometrirad): Vidas traktgräns saknas → ritas inte', () => {
@@ -95,6 +104,67 @@ describe('beslutaOrigo — de åtta objekten utan kartbild_bounds (prod 2026-10-
     expect(Math.round(g.vidaHojd)).toBe(523);
     expect(Math.abs(g.dx)).toBeLessThan(2);
     expect(Math.abs(g.dy)).toBeLessThan(2);
+  });
+});
+
+describe('beslutaOrigo — samlat ELLER enskild gräns (båda sätten behövs; se huvudet i egenkontrollOrigo.ts)', () => {
+  // REGRESSIONEN: flera traktdelar som var för sig är för små men tillsammans är Vidas ruta. "Minst en gräns" ensamt hade gjort dem blinda.
+  it.each(['Hålabäck gallring 2026', 'Hallaslätt AU 2026'])('%s: ingen enskild gräns stämmer, men alla tillsammans gör det → ritas, via samlat', (namn) => {
+    const f = OBJEKT[namn];
+    expect(f.granser.length).toBeGreaterThan(1);
+    for (const [i, g] of granser(f).entries()) {
+      const bara = beslut(namn, { granser: [g] });
+      expect(bara, `${namn} gräns ${i + 1} ensam`).toMatchObject({ ok: false, skal: 'stammer_inte' });
+    }
+    const b = beslut(namn);
+    expect(b.ok && b.kalla === 'latlng' && b.kvitto.via).toBe('samlat');
+  });
+
+  // Bjällerhult: en del utanför Vidas traktdel. "Bara samlat" kan aldrig uppfyllas.
+  it('Bjällerhult: samlat faller (157×238), enskilt går via första gränsen — och den andra gränsen ensam (111×238, utanför Vidas ruta) räcker inte', () => {
+    const namn = 'Bjällerhult au + ga';
+    const f = OBJEKT[namn];
+    expect(f.granser).toHaveLength(2);
+    const [forsta, andra] = granser(f);
+    expect(beslut(namn, { granser: [forsta, andra] }).ok).toBe(true);
+    const bara1 = beslut(namn, { granser: [forsta] });
+    expect(bara1.ok && bara1.kalla === 'latlng' && bara1.kvitto.via).toBe('samlat');   // en gräns ensam = samlat och enskild är samma sak
+    const bara2 = beslut(namn, { granser: [andra] });
+    expect(bara2).toMatchObject({ ok: false, skal: 'stammer_inte' });
+    if (bara2.ok) throw new Error('ska falla');
+    expect(bara2.detalj).toMatch(/111×238 m mot Vidas 61×93 m/);
+  });
+
+  it('Bjällerhult med fel zoom (alla markeringar ×2) och med förskjutet origo (400 px) → faller, detaljen säger att ingen gräns stämmer enskilt', () => {
+    const namn = 'Bjällerhult au + ga';
+    const f = OBJEKT[namn];
+    const fel = [
+      beslut(namn, { punkter: skala(punkter(f), 2), granser: granser(f).map((g) => skala(g, 2)) }),
+      beslut(namn, { punkter: flytta(punkter(f), 400, 0), granser: granser(f).map((g) => flytta(g, 400, 0)) }),
+    ];
+    for (const b of fel) {
+      expect(b).toMatchObject({ ok: false, skal: 'stammer_inte' });
+      if (b.ok) throw new Error('ska falla');
+      expect(b.detalj).toMatch(/och ingen av de 2 gränserna stämmer enskilt/);
+    }
+  });
+
+  it('en enskild gräns som stämmer räcker även när en annan ligger kilometer bort (verklig geografi, inte ett origofel)', () => {
+    const namn = 'Bjällerhult au + ga';
+    const f = OBJEKT[namn];
+    const [forsta, andra] = granser(f);
+    // Ordningen ska inte spela roll: den som stämmer kan vara först eller sist.
+    for (const g of [[forsta, flytta(andra, 3000, 3000)], [flytta(andra, 3000, 3000), forsta], [andra, forsta], [forsta, andra]]) {
+      const b = beslut(namn, { granser: g });
+      expect(b.ok && b.kalla === 'latlng' && b.kvitto.via).toBe('enskild');
+    }
+  });
+
+  it('en liten gräns som inte har Vidas storlek räcker inte, även om den ligger mitt i rutan (slumpträff kräver både storlek och mitt)', () => {
+    const namn = 'Betet gallring 2026';
+    const lilla: Punkt[] = [{ x: -10, y: -10 }, { x: 10, y: -10 }, { x: 10, y: 10 }, { x: -10, y: 10 }];
+    const b = beslut(namn, { granser: [lilla] });
+    expect(b).toMatchObject({ ok: false, skal: 'stammer_inte' });
   });
 });
 

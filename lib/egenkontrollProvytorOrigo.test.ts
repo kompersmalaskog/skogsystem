@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import fixtur from './__fixtures__/origo_kvitto_prod_2026-10-19.json';
 import { skapaProvytor } from './egenkontroll';
+import { svgToLatLon } from './kartkoordinater';
 
 type FixObjekt = { lat: number; lng: number; vida: number[] | null; granser: number[][][]; punkter: number[][] };
 const OBJEKT = fixtur.objekt as unknown as Record<string, FixObjekt>;
@@ -73,9 +74,30 @@ describe('skapaProvytor — origot är planeringens, kontrollerat mot Vidas trak
     }
   });
 
-  it('Bjällerhult-liknande fall (gränsmarkeringarna stämmer inte med Vida): inga provytor och ingenting skrivs — en gallring blir ingen runda utan mätning av en slump', async () => {
-    const { loggar, ut } = kor('Bjällerhult au + ga', 0.42);
+  it('Bjällerhult (au + ga): samlat stämmer inte men första gränsen gör det → provytor lottas, inom gränsmarkeringarnas ruta', async () => {
     // Bjällerhult är slutavverkning i verkligheten; objektTyp 'gallring' här gör bara att funktionen kör — det är origokvittot som testas.
+    for (let varv = 0; varv < 12; varv++) {
+      const { f, loggar, ut } = kor('Bjällerhult au + ga', 0.42);
+      expect(await ut).toBe(3);
+      const rader = loggar[0].rader as { lat: number; lng: number }[];
+      // Inte inom VIDAS ruta: Vidas traktdel (61×93 m) täcker bara avverkningen, gallringsdelen ligger utanför. Ytorna ska ligga inom
+      // gränsmarkeringarnas gemensamma ruta, läst med planeringens origo (lat/lng, zoom 16).
+      const ll = f.granser.flat().map(([x, y]) => svgToLatLon(x, y, { lat: f.lat, lng: f.lng, zoom: 16 }));
+      const w = Math.min(...ll.map((q) => q.lng)), e = Math.max(...ll.map((q) => q.lng));
+      const s = Math.min(...ll.map((q) => q.lat)), nn = Math.max(...ll.map((q) => q.lat));
+      for (const r of rader) {
+        expect(r.lng).toBeGreaterThan(w);
+        expect(r.lng).toBeLessThan(e);
+        expect(r.lat).toBeGreaterThan(s);
+        expect(r.lat).toBeLessThan(nn);
+      }
+    }
+  });
+
+  it('gränsmarkeringar som inte stämmer med Vida, varken samlat eller enskilt (Bjällerhult med fel zoom): inga provytor och ingenting skrivs — en gallring blir ingen runda utan mätning av en slump', async () => {
+    const f = OBJEKT['Bjällerhult au + ga'];
+    const skalad = { ...f, granser: f.granser.map((g) => g.map(([x, y]) => [x * 2, y * 2])) };
+    const { loggar, ut } = kor('Bjällerhult au + ga', 0.42, null, { rader: markeringsRader(skalad) });
     expect(await ut).toBe(0);
     expect(loggar).toHaveLength(0);
   });

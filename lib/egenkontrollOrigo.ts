@@ -18,9 +18,21 @@
 // KVITTOT. Faller origot tillbaka på lat/lng (inget kartbild_bounds) kan det inte bevisas av objektet självt, och en lycklig slump är det värsta
 // som kan hända här (punkter flera mil fel, ingen varning). Därför kontrolleras markeringarna mot Vidas traktgräns (objekt_geometri, lagret
 // L_TRAKTDEL) innan något ritas:
-//   STARKT   Finns gränsmarkeringar (lineType 'boundary') måste deras gemensamma ruta ha samma storlek och mitt som Vidas ruta. Det fångar fel zoom,
-//            förskjutet origo och en lat/lng som flyttats. Prod 2026-10-19: Betet gallring 308×528 m mot 305×523, Hallaslätt 161×300 mot 162×299,
-//            Räveboda 59×413 mot 55×414, Hålabäck gallring 923×807 mot 960×805 — mitt inom 0–19 m. Bjällerhult (au + ga): 157×238 mot 61×92 → faller.
+//   STARKT   Finns gränsmarkeringar (lineType 'boundary') måste de stämma mot Vidas ruta i storlek och mitt — ANTINGEN alla tillsammans (samlat)
+//            ELLER minst en enskild gräns. Det fångar fel zoom, förskjutet origo och en lat/lng som flyttats. Prod 2026-10-19: Betet gallring
+//            308×528 m mot 305×523, Hallaslätt 161×300 mot 162×299, Räveboda 59×413 mot 55×414, Hålabäck gallring 923×807 mot 960×805 —
+//            mitt inom 0–19 m. Bjällerhult (au + ga): samlat 157×238 mot 61×93 faller, men första gränsen är 61×93 och stämmer.
+//
+//            VARFÖR BÅDA SÄTTEN FINNS — förenkla inte till det ena (Martin 2026-10-19):
+//            · SAMLAT behövs för objekt med flera traktdelar som var för sig är för små men tillsammans är Vidas ruta. Hålabäck gallring:
+//              402×379 m och 301×229 m enskilt, 923×807 samlat mot Vidas 960×805. Hallaslätt AU: 149×182 och 39×35 enskilt, 161×300 samlat
+//              mot 162×299. Med bara "minst en" blir båda blinda trots att deras markeringar ligger rätt.
+//            · ENSKILD behövs för ett kombinerat objekt där en del ligger UTANFÖR Vidas traktdel. Bjällerhult au + ga bär två åtgärder på samma
+//              trakt: Vidas traktdel (0,42 ha) täcker bara avverkningen, gallringsdelen (111×238 m) ligger utanför. Med bara "samlat" kan
+//              kravet aldrig uppfyllas, och markeringar som verifierats rätt i planeringen blir blinda i rundan.
+//            Origot är gemensamt för alla markeringar på objektet: stämmer EN gräns i storlek och mitt ligger hela koordinatsystemet rätt.
+//            Att den andra gränsen ligger utanför Vidas ruta är då verklig geografi, inte ett origofel. Slumpträff på en liten gräns kräver
+//            både ±20 % i storlek per axel och mitt inom 25 m.
 //   SVAGT    Finns inga gränsmarkeringar kan skalan inte kontrolleras (en dubbelt så stor skala ligger fortfarande inom ruta + marginal). Då krävs
 //            bara att de flesta punkter ligger i Vidas ruta plus marginal — det fångar ett förskjutet origo men inte ett skalfel. Styrkan står i
 //            beslutet (kvitto.styrka) så att den som läser vet vad som kontrollerats.
@@ -55,7 +67,9 @@ export type OrigoKvitto = {
   punkter: number;
   /** Svag kontroll: andelen punkter inom Vidas ruta plus marginal. */
   andelInom: number | null;
-  /** Stark kontroll: gränsmarkeringarnas ruta mot Vidas, i meter. */
+  /** Stark kontroll: vilket sätt som stämde — alla gränser tillsammans ('samlat') eller en enskild gräns ('enskild'). */
+  via: 'samlat' | 'enskild' | null;
+  /** Stark kontroll: gränsmarkeringarnas ruta (den som stämde, eller samlade om ingen gjorde det) mot Vidas, i meter. */
   granser: { bredd: number; hojd: number; vidaBredd: number; vidaHojd: number; dx: number; dy: number } | null;
 };
 
@@ -159,6 +173,25 @@ function rutaUr(punkter: Punkt[], origo: Origo): Ruta {
 
 const rundaM = (v: number) => Math.round(v);
 
+type GransJamforelse = { ok: boolean; granser: NonNullable<OrigoKvitto['granser']> };
+
+/** Stämmer en uppsättning gränspunkters ruta mot Vidas ruta i storlek (±GRANS_ANDEL, minst GRANS_MIN_M per axel) och mitt? */
+function jamforGranser(punkter: Punkt[], origo: Origo, vidaBredd: number, vidaHojd: number, vida: Gran): GransJamforelse {
+  const [[vMinLng, vMinLat], [vMaxLng, vMaxLat]] = vida;
+  const mLng = METER_PER_GRAD_LAT * Math.cos((origo.lat * Math.PI) / 180);
+  const r = rutaUr(punkter, origo);
+  const bredd = (r.maxLng - r.minLng) * mLng;
+  const hojd = (r.maxLat - r.minLat) * METER_PER_GRAD_LAT;
+  const dx = ((r.minLng + r.maxLng) / 2 - (vMinLng + vMaxLng) / 2) * mLng;
+  const dy = ((r.minLat + r.maxLat) / 2 - (vMinLat + vMaxLat) / 2) * METER_PER_GRAD_LAT;
+  const storlekOk =
+    Math.abs(bredd - vidaBredd) <= Math.max(KVITTO.GRANS_MIN_M, KVITTO.GRANS_ANDEL * vidaBredd) &&
+    Math.abs(hojd - vidaHojd) <= Math.max(KVITTO.GRANS_MIN_M, KVITTO.GRANS_ANDEL * vidaHojd);
+  const mittTol = Math.max(KVITTO.GRANS_MIN_M, KVITTO.GRANS_ANDEL * Math.max(vidaBredd, vidaHojd));
+  const mittOk = Math.abs(dx) <= mittTol && Math.abs(dy) <= mittTol;
+  return { ok: storlekOk && mittOk, granser: { bredd, hojd, vidaBredd, vidaHojd, dx, dy } };
+}
+
 /**
  * Beslutar vilket origo markeringarna ska läsas med — eller att de inte ska ritas alls.
  *
@@ -181,7 +214,7 @@ export function beslutaOrigo(a: { objekt: ObjektOrigoIndata; punkter: Punkt[]; g
   const alla = a.punkter;
   if (alla.length === 0 && a.granser.length === 0) {
     // Inget att placera: origot kan inte flytta något. Beslutet är giltigt, men kontrollerar inget.
-    return { ok: true, origo, kalla: 'latlng', kvitto: { styrka: 'inga_punkter', punkter: 0, andelInom: null, granser: null } };
+    return { ok: true, origo, kalla: 'latlng', kvitto: { styrka: 'inga_punkter', punkter: 0, andelInom: null, via: null, granser: null } };
   }
 
   const [[vMinLng, vMinLat], [vMaxLng, vMaxLat]] = vida.gran;
@@ -190,28 +223,23 @@ export function beslutaOrigo(a: { objekt: ObjektOrigoIndata; punkter: Punkt[]; g
   const vidaHojd = (vMaxLat - vMinLat) * METER_PER_GRAD_LAT;
 
   if (a.granser.length > 0) {
-    // STARKT: gränsmarkeringarnas gemensamma ruta mot Vidas.
-    const r = rutaUr(a.granser.flat(), origo);
-    const bredd = (r.maxLng - r.minLng) * mLng;
-    const hojd = (r.maxLat - r.minLat) * METER_PER_GRAD_LAT;
-    const dx = ((r.minLng + r.maxLng) / 2 - (vMinLng + vMaxLng) / 2) * mLng;
-    const dy = ((r.minLat + r.maxLat) / 2 - (vMinLat + vMaxLat) / 2) * METER_PER_GRAD_LAT;
-    const granser = { bredd, hojd, vidaBredd, vidaHojd, dx, dy };
-
-    const storlekOk =
-      Math.abs(bredd - vidaBredd) <= Math.max(KVITTO.GRANS_MIN_M, KVITTO.GRANS_ANDEL * vidaBredd) &&
-      Math.abs(hojd - vidaHojd) <= Math.max(KVITTO.GRANS_MIN_M, KVITTO.GRANS_ANDEL * vidaHojd);
-    const mittTol = Math.max(KVITTO.GRANS_MIN_M, KVITTO.GRANS_ANDEL * Math.max(vidaBredd, vidaHojd));
-    const mittOk = Math.abs(dx) <= mittTol && Math.abs(dy) <= mittTol;
-
-    if (!storlekOk || !mittOk) {
-      return {
-        ok: false,
-        skal: 'stammer_inte',
-        detalj: `gränsmarkeringarna ${rundaM(bredd)}×${rundaM(hojd)} m mot Vidas ${rundaM(vidaBredd)}×${rundaM(vidaHojd)} m, mitt ${rundaM(dx)}/${rundaM(dy)} m`,
-      };
+    // STARKT: samlat ELLER minst en enskild gräns (se huvudet — båda sätten behövs, förenkla inte).
+    const samlat = jamforGranser(a.granser.flat(), origo, vidaBredd, vidaHojd, vida.gran);
+    if (samlat.ok) {
+      return { ok: true, origo, kalla: 'latlng', kvitto: { styrka: 'stark', punkter: alla.length, andelInom: null, via: 'samlat', granser: samlat.granser } };
     }
-    return { ok: true, origo, kalla: 'latlng', kvitto: { styrka: 'stark', punkter: alla.length, andelInom: null, granser } };
+    for (const g of a.granser) {
+      const enskild = jamforGranser(g, origo, vidaBredd, vidaHojd, vida.gran);
+      if (enskild.ok) {
+        return { ok: true, origo, kalla: 'latlng', kvitto: { styrka: 'stark', punkter: alla.length, andelInom: null, via: 'enskild', granser: enskild.granser } };
+      }
+    }
+    const s = samlat.granser;
+    return {
+      ok: false,
+      skal: 'stammer_inte',
+      detalj: `gränsmarkeringarna ${rundaM(s.bredd)}×${rundaM(s.hojd)} m mot Vidas ${rundaM(s.vidaBredd)}×${rundaM(s.vidaHojd)} m, mitt ${rundaM(s.dx)}/${rundaM(s.dy)} m, och ingen av de ${a.granser.length} gränserna stämmer enskilt`,
+    };
   }
 
   // SVAGT: inga gränsmarkeringar — bara att de flesta punkter ligger i Vidas ruta plus marginal.
@@ -231,7 +259,7 @@ export function beslutaOrigo(a: { objekt: ObjektOrigoIndata; punkter: Punkt[]; g
       detalj: `${inom} av ${alla.length} punkter ligger inom Vidas traktgräns (${rundaM(vidaBredd)}×${rundaM(vidaHojd)} m) plus ${rundaM(marginalM)} m`,
     };
   }
-  return { ok: true, origo, kalla: 'latlng', kvitto: { styrka: 'svag', punkter: alla.length, andelInom, granser: null } };
+  return { ok: true, origo, kalla: 'latlng', kvitto: { styrka: 'svag', punkter: alla.length, andelInom, via: null, granser: null } };
 }
 
 /**
