@@ -21,6 +21,7 @@ const kör = async (mod: any, body: any) => { const res = await mod.POST(req(bod
 
 describe.skipIf(!HAR_PROD_ENV)("salary-export dry_run: gammal route == ny route (byte för byte)", () => {
   it.each(["2026-09", "2026-08", "2026-07"])("löneperiod %s", async (period) => {
+    // @ts-ignore -- filen finns bara lokalt (.tmp är ignorerad av git) när bytediffen körs; testet hoppas över utan prod-miljö
     const gammal = await import("../../.tmp/bytediff/gammal_route");
     const ny = await import("../../app/api/fortnox/salary-export/route");
     const a = await kör(gammal, { period, dry_run: true });

@@ -178,12 +178,48 @@ const symbolText = (s: number) => {
   return 'Varierat';
 };
 
-const tim = (a,b) => {
+// Maskintidens avvikelse mot det föraren bekräftade (arbetsdag.synk_avvikelse, jsonb). Kvittensen ligger i samma fält.
+type SynkAvvikelse = {
+  bekraftad_start: string; bekraftad_slut: string; bekraftad_rast_min?: number;
+  mom_start: string; mom_slut: string; mom_rast_min?: number;
+  kvitterad?: string; val?: string; aktivitet?: string | null; segment_id?: string | number;
+};
+// Maskinstarten ligger före den angivna starten (arbetsdag.tidigarelagd_start, jsonb).
+type TidigarelagdStart = {
+  angiven_start: string; maskin_start: string; gap_min: number;
+  kvitterad?: string; val?: string; aktivitet?: string | null; segment_id?: string | number;
+};
+// En rad i dagens objektlista (arbetsdag_objekt).
+type DagObjekt = {
+  id: string; objekt_id: string | null; objekt_namn: string | null;
+  start_tid: string | null; slut_tid: string | null; arbetad_min: number | null; ordning: number | null;
+};
+// Dagens post: rad ur arbetsdag + dess arbetsdag_objekt, byggd av byggDagPost. Kalendercachen (dagData) och
+// Redigera-vyn (redDag) har samma form.
+type DagPost = {
+  id: string; status: 'ok' | 'saknas'; arbMin: number;
+  km: number; km_morgon: number; km_kvall: number; km_totalt: number;
+  trak: boolean; traktamente: boolean; dagtyp: string | null;
+  bekraftad: boolean; bekraftad_tid: string | null;
+  brandrisk_beordrad: boolean | null; km_kalla: string | null;
+  tidsfragor_svar: Record<string, string> | null;
+  synk_avvikelse: SynkAvvikelse | null; tidigarelagd_start: TidigarelagdStart | null;
+  start_tid: string | null; slut_tid: string | null; rast_min: number;
+  start: string; slut: string; rast: number;
+  maskin_id: string | null; maskin_namn: string | null;
+  objekt_id: string | null; objekt_namn: string | null; objekt_ägare: string | null;
+  objekt_lista: DagObjekt[];
+  redigerad?: boolean;
+};
+// Dagen som Redigera visar: datum är alltid satt, resten finns när raden lästs (annars bara datum).
+type RedDag = Partial<DagPost> & { datum: string };
+
+const tim = (a?: string | null, b?: string | null) => {
   if(!a||!b) return 0;
   const [sh,sm]=a.split(":").map(Number),[eh,em]=b.split(":").map(Number); 
   return Math.max(0,eh*60+em-sh*60-sm); 
 };
-const fmt = (m) => { 
+const fmt = (m: number) => { 
   const h=Math.floor(m/60),min=m%60; 
   if(!h)return`${min} min`; 
   if(!min)return`${h} tim`; 
@@ -409,7 +445,7 @@ const MinPicker = ({ value, onChange, label }: { value: number; onChange: (v: nu
 
 const KmPicker = ({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) => {
   const h=Math.floor(value/100),t=Math.floor((value%100)/10),e=value%10;
-  const D=(v,add)=>(
+  const D=(v: number, add: number)=>(
     <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:6 }}>
       <button style={{ width:44,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:"#fff" }} onClick={()=>onChange(Math.min(999,value+add))}>▲</button>
       <div style={{ width:48,height:52,background:"rgba(255,255,255,0.06)",borderRadius:12,fontSize:28,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff" }}>{v}</div>
@@ -559,7 +595,6 @@ export default function Arbetsrapport() {
   const [kmM,   setKmM]    = useState<{km:number}|null>(null);
   const [kmK,   setKmK]    = useState<{km:number}|null>(null);
   const [kmBerakning, setKmBerakning] = useState<number|null>(null);
-  const [extra, setExtra]  = useState([]);
   // Dagens tider — synkas från arbetsdag-tabellen via useEffect nedan.
   // Tomma initialvärden (inte hårdkodade defaults) så vi inte råkar skriva
   // pseudo-data till DB om bekraftaDagen körs innan synk landat.
@@ -731,7 +766,7 @@ export default function Arbetsrapport() {
   const [mStart,setMStart]=useState(()=>nuKlock5()),[mSlut,setMSlut]=useState(()=>nuKlock5()),[mRast,setMRast]=useState(0),[mBesk,setMBesk]=useState("");
 
   // historik redigering
-  const [redDag,setRedDag]=useState(null);
+  const [redDag,setRedDag]=useState<RedDag | null>(null);
   // Dagsegment — tid MÄRKT inom en inloggad dag (brandvakt, markägare), redan
   // betald, annoteras bara för fakturering. SKILD från extra_tid (som lönen adderar).
   const [dagSegment, setDagSegment] = useState<any[]>([]);
@@ -1094,7 +1129,7 @@ export default function Arbetsrapport() {
       if (cancelled || j?.status !== 'skrev') return;
       const tot = (j.km_morgon || 0) + (j.km_kvall || 0);
       setRedKm(tot);
-      setRedDag((d:any) => d ? { ...d, km_morgon: j.km_morgon, km_kvall: j.km_kvall, km_totalt: tot, km_kalla: 'auto' } : d);
+      setRedDag(d => d ? { ...d, km_morgon: j.km_morgon, km_kvall: j.km_kvall, km_totalt: tot, km_kalla: 'auto' } : d);
       setDagData(dd => ({ ...dd, [rDatum]: { ...(dd[rDatum]||{}), km_morgon: j.km_morgon, km_kvall: j.km_kvall, km_totalt: tot, km_kalla: 'auto' } }));
     }).catch(() => {});
     fetch(`/api/km-chain?medarbetare_id=${encodeURIComponent(medarbetare.id)}&datum=${redDag.datum}`)
@@ -1371,7 +1406,7 @@ export default function Arbetsrapport() {
   // EN byggare för dagens post (rad ur arbetsdag + dess arbetsdag_objekt-rader),
   // delad av månadsladdaren nedan och av öppnaRedigera — så cachen och den
   // auktoritativa läsningen aldrig kan skilja sig åt i form.
-  const byggDagPost = (r: any, objektRader: any[]): any => ({
+  const byggDagPost = (r: any, objektRader: any[]): DagPost => ({
     id: r.id,
     status: r.bekraftad ? 'ok' : 'saknas',
     arbMin: r.arbetad_min || 0,
@@ -1499,8 +1534,6 @@ export default function Arbetsrapport() {
   const totKmVisad  = useRaknaUppVarde(totKm);
   const ersKm  = Math.max(0,totKm-frikm);                          // km över gränsen
   const milPåbörjade = ersattningsMilDag(totKm, frikm);            // påbörjade mil (delad lib)
-  const totEx  = extra.reduce((a,e)=>a+e.min,0);
-  const totMin = arbMin+totEx;
   const igårDate = new Date(); igårDate.setDate(igårDate.getDate()-1);
   const igårKey = igårDate.toISOString().split('T')[0];
   const igårObekräftad = dagData[igårKey] && !dagData[igårKey].status?.includes?.('ok') && dagData[igårKey].start_tid && !historik.find(d => d.datum === igårKey && d.bekraftad);
@@ -1686,7 +1719,7 @@ export default function Arbetsrapport() {
       objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || data.objekt_id || null,
       objekt_ägare: null, objekt_lista: [],
     } }));
-    setRedDag((rd: any) => rd?.datum === datum && !rd.id ? { ...rd, ...data } : rd);
+    setRedDag(rd => rd?.datum === datum && !rd.id ? { ...rd, ...data } : rd);
     return data.id;
   };
   const SKALRAD_FEL = 'Kunde inte koppla perioden till dagen — inget sparat. Försök igen.';
@@ -1700,7 +1733,7 @@ export default function Arbetsrapport() {
   // Läsfel är inte "tom": cachen om den har dagen, annars ett ärligt fel.
   const öppnaRedigera = async (datum: string) => {
     const lasId = ++redLasId.current;
-    setRedDag({ datum } as any); // useState(null) — samma "any" som resten av Redigera
+    setRedDag({ datum });
     setRedStart("00:00"); setRedSlut("00:00"); setRedRast(0); setRedKm(0);
     setRedObjektId(null); setRedMaskinId(null);
     setRedKmBerakning(null);
@@ -2158,7 +2191,7 @@ export default function Arbetsrapport() {
   /** Skriv ett svar i dagens rad i BÅDA kopiorna (dagData och Redigeras redDag). */
   const patchaDag = (datum: string, patch: Record<string, any>) => {
     setDagData(d => ({ ...d, [datum]: { ...(d[datum] || {}), ...patch } }));
-    setRedDag((rd: any) => (rd?.datum === datum ? { ...rd, ...patch } : rd));
+    setRedDag(rd => (rd?.datum === datum ? { ...rd, ...patch } : rd));
     // Väntar-raderna i Dag räknas ur årsData: utan den här patchen låg en bekräftad dag kvar som
     // "väntar" tills appen laddades om (Martin 2026-10-06: "3 dagar väntar" fast allt var bekräftat).
     setÅrsData((a: any[]) => a.map((x: any) => (x.datum === datum ? { ...x, ...patch } : x)));
@@ -2603,7 +2636,7 @@ export default function Arbetsrapport() {
         if (segForm?.fromTidigarelagd && rd?.tidigarelagd_start && !rd.tidigarelagd_start.kvitterad) {
           const nyTL = { ...rd.tidigarelagd_start, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: v.typ, segment_id: data.id };
           const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidigarelagd_start: nyTL }, { id: rd.id });
-          if (res.ok) setRedDag((d: any) => ({ ...d, tidigarelagd_start: nyTL }));
+          if (res.ok) setRedDag(d => d ? { ...d, tidigarelagd_start: nyTL } : d);
         }
         // Synk-omriktning: kvittera avvikelsen när inget odäckt gap återstår.
         if (segForm?.fromSynk && rd?.synk_avvikelse && !rd.synk_avvikelse.kvitterad) {
@@ -2612,7 +2645,7 @@ export default function Arbetsrapport() {
           if (kvarGap.length === 0) {
             const nyAvv = { ...rd.synk_avvikelse, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: v.typ, segment_id: data.id };
             const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
-            if (res.ok) setRedDag((d: any) => ({ ...d, synk_avvikelse: nyAvv }));
+            if (res.ok) setRedDag(d => d ? { ...d, synk_avvikelse: nyAvv } : d);
           }
         }
       } else {
@@ -2685,7 +2718,7 @@ export default function Arbetsrapport() {
       if (raderad) { const kopia = { ...d }; delete kopia[datum]; return kopia; }
       return { ...d, [datum]: { ...d[datum], bekraftad: false, bekraftad_tid: null, status: 'saknas' } };
     });
-    setRedDag((rd: any) => rd?.datum === datum ? (raderad ? { datum } : { ...rd, bekraftad: false, bekraftad_tid: null }) : rd);
+    setRedDag(rd => rd?.datum === datum ? (raderad ? { datum } : { ...rd, bekraftad: false, bekraftad_tid: null }) : rd);
     setHistorik(h => raderad ? h.filter((x: any) => x.datum !== datum) : h.map((x: any) => x.datum === datum ? { ...x, bekraftad: false, bekraftad_tid: null } : x));
     setÅrsData((a: any[]) => raderad ? a.filter((x: any) => x.datum !== datum) : a.map((x: any) => x.datum === datum ? { ...x, bekraftad: false, bekraftad_tid: null } : x));
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
@@ -5689,7 +5722,7 @@ export default function Arbetsrapport() {
     // "Laddar…" — aldrig en tom editor som kan misstas för en tom dag. Misslyckas
     // läsningen och cachen saknar dagen: säg det, och ge vägen ut.
     if (redLaddar || redLasFel) {
-      const rdLas: any = redDag; // useState(null)
+      const rdLas = redDag;
       const p = String(rdLas.datum || "").split("-");
       const rubrik = p.length === 3 ? `${parseInt(p[2])} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][parseInt(p[1]) - 1]}` : "Dag";
       return (
@@ -5732,7 +5765,7 @@ export default function Arbetsrapport() {
     const harÄndrat = redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig||redKm!==redKmOrig||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
     // BEKRÄFTA-VILLKOR (en definition): (a) maskinpass avslutat, (b) heldagstyp (sjuk/vab) eller
     // (c) bara perioder utan pass. En period utan sluttid stoppar: en underskrift utan sluttid är ingen.
-    const rdK: any = redDag; // useState(null) — samma "any" som resten av Redigera
+    const rdK = redDag;
     const redHarStart = !!rdK?.start_tid;
     const redHarSlut = !!rdK?.slut_tid;
     const redErHelDag = !!franvaroDagar[rdK?.datum] && !redHarStart; // frånvarodagar utan pass har redan returnerat ovan
@@ -5849,7 +5882,7 @@ export default function Arbetsrapport() {
               {/* Arbetad röd dag: säg det, och om den byts mot en ledig dag (§5 mom 4).
                   Helglön betalas ändå (företagets praxis) — varför en dag gav eller inte gav helglön står i Min månad. */}
               {(() => {
-                const rd: any = redDag; // useState(null) — samma "any" som resten av Redigera
+                const rd = redDag;
                 const rodNamn = rd?.datum ? getRödaDagar(Number(String(rd.datum).slice(0, 4)))[rd.datum] : null;
                 if (!rodNamn || !rd?.start_tid) return null;
                 const byte = franvaroByten.rod[rd.datum];
@@ -6015,7 +6048,7 @@ export default function Arbetsrapport() {
             // Fragar bara nar skillnaden i ARBETAD tid >= troskeln. Forarens tider
             // andras ALDRIG av kortet - han valjer VAD tiden som inte var maskin var,
             // vilket blir en extra_tid-post. Kvittensen bor i jsonb-faltet.
-            const rd: any = redDag;
+            const rd = redDag;
             const a = rd?.synk_avvikelse;
             if (!a || a.kvitterad) return null;
             if (segForm?.fromSynk) return null; // synk-formuläret öppet — göm kortet
@@ -6029,14 +6062,14 @@ export default function Arbetsrapport() {
               const nyAvv = { ...a, kvitterad: new Date().toISOString(), val: 'hoppad', aktivitet: null };
               const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
               if (!res.ok) { setRedFel(res.fel); return; }
-              setRedDag((d:any) => ({ ...d, synk_avvikelse: nyAvv })); vibrera();
+              setRedDag(d => d ? { ...d, synk_avvikelse: nyAvv } : d); vibrera();
             };
             const uppdateraTider = async () => {
               const res = await uppdateraVerifierat(supabase, 'arbetsdag',
                 { start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, redigerad_av: medarbetare.id, synk_avvikelse: null },
                 { id: rd.id });
               if (!res.ok) { setRedFel(res.fel); return; }
-              setRedDag((d:any) => ({ ...d, start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null }));
+              setRedDag(d => d ? { ...d, start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null } : d);
               setDagData(dd => ({ ...dd, [rd.datum]: { ...(dd[rd.datum]||{}), start_tid: a.mom_start, slut_tid: a.mom_slut, rast_min: a.mom_rast_min, redigerad: true, synk_avvikelse: null } }));
               setSynkMin(null); vibrera();
             };
@@ -6110,7 +6143,7 @@ export default function Arbetsrapport() {
               const nyTL = { ...tl, kvitterad: new Date().toISOString(), val: 'hoppad', aktivitet: null };
               const res = await uppdateraVerifierat(supabase, 'arbetsdag', { tidigarelagd_start: nyTL }, { id: rd.id });
               if (!res.ok) { setRedFel(res.fel); return; }
-              setRedDag((d:any) => ({ ...d, tidigarelagd_start: nyTL })); vibrera();
+              setRedDag(d => d ? { ...d, tidigarelagd_start: nyTL } : d); vibrera();
             };
             const gap = { start: tl.angiven_start, slut: tl.maskin_start };
             return (
@@ -6431,7 +6464,7 @@ export default function Arbetsrapport() {
                         redigerad: true,
                         ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                       };
-                      setRedDag((d:any) => ({ ...d, ...sparad }));
+                      setRedDag(d => d ? { ...d, ...sparad } : d);
                       setDagData(dd => ({ ...dd, [(redDag as any).datum]: { ...(dd[(redDag as any).datum]||{}), ...sparad } }));
                       setRedFel(null);
                       setSparadKvittens(true);
@@ -6641,10 +6674,10 @@ export default function Arbetsrapport() {
                             ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
                           },
                         }));
-                        setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny, ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}) }));
+                        setRedDag(d => d ? { ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny, ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}) } : d);
                       } else {
                         // Ingen DB-rad än — bara lokal state (skrivs vid Spara/upsert)
-                        setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny }));
+                        setRedDag(d => d ? { ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny } : d);
                       }
                       setRedKm(ny);
                       stäng();
@@ -6684,7 +6717,7 @@ export default function Arbetsrapport() {
       setKalMånad(ny);setKalÅr(å);
     };
 
-    const dagKey=(d)=>`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const dagKey=(d: number)=>`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     const veckar=["Mån","Tis","Ons","Tor","Fre","Lör","Sön"];
     const cells=[...Array(startDag).fill(null),...Array(dagar).fill(0).map((_,i)=>i+1)];
     while(cells.length%7!==0)cells.push(null);

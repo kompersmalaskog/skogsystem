@@ -15,8 +15,8 @@ import { andradeKolumner, type Kolumner } from './autosparBaslinje';
 /** Minsta av en markör som avlägg-logiken läser (ett landing-Marker i planeringsvyn uppfyller den). */
 export interface AvlaggMarkor {
   id: string | number;
-  x: number;
-  y: number;
+  x?: number;   // SVG-läget (saknas på linjer/zoner) — används bara för att se om avlägget flyttats
+  y?: number;
   comment?: string;
   photoData?: string;
   roadCheck?: {
@@ -75,7 +75,7 @@ export function avlaggFullRad(objektId: string, m: AvlaggMarkor, lat: number, lo
   };
 }
 
-export interface AvlaggBas { cols: Kolumner; x: number; y: number }
+export interface AvlaggBas { cols: Kolumner; x?: number; y?: number }
 export type AvlaggBaslinje = Map<string, AvlaggBas>;
 
 export const avlaggBasFranMarkor = (m: AvlaggMarkor): AvlaggBas => ({ cols: avlaggKolumner(m), x: m.x, y: m.y });

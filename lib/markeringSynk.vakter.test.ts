@@ -74,7 +74,7 @@ describe('kön körs oberoende av planeringsvyn och synliggörs diskret', () => 
 
 describe('Ångra-raden "Symbol borttagen · Ångra" (5 s, ingen dialog)', () => {
   it('markeringsmenyns Ta bort visar raden (traktgränsen undantagen: dess yt-data raderas på riktigt)', () => {
-    const del = page.slice(page.indexOf('const deleteMarker = (id) =>'), page.indexOf('// Drag & drop för symboler'));
+    const del = page.slice(page.indexOf('const deleteMarker = (id: string | number) =>'), page.indexOf('// === Document-level event listeners for marker drag and arrow rotation ==='));
     expect(del).toContain('else visaBorttagen(marker)');
     expect(del).toContain("marker.lineType === 'boundary') raderaYtaData(");
     expect(del).not.toMatch(/confirm\(/);   // ingen bekräftelsedialog
