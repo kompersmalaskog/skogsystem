@@ -60,7 +60,7 @@ export default function SvepRad({ children, onTryck, onTaBort }: { children: Rea
         }}
         onPointerCancel={() => { start.current = null; riktning.current = null; setDrar(false); setForskjutning(f => (f <= -SVEP_TROSKEL ? -KNAPP_BREDD : 0)); }}
         style={{
-          touchAction: "pan-y", background: FARG.kort, cursor: "pointer",
+          touchAction: "pan-y", userSelect: "none", WebkitUserSelect: "none", background: FARG.kort, cursor: "pointer",
           transform: `translateX(${forskjutning}px)`,
           transition: drar || stillsam ? "none" : `transform ${RORELSE.tryck}ms ${RORELSE.kurva}`,
         }}
