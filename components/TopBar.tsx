@@ -26,6 +26,7 @@ const pageNames: Record<string, string> = {
   '/maskin-service': 'Maskinservice',
   '/datahalsa': 'Datahälsa',
   '/utbildning': 'Utbildning',
+  '/utbildning/katalog': 'Katalog',
   '/egenkontroll': 'Egenkontroll',
   '/gallring': 'Gallring',
   '/matning': 'Mätning',
@@ -44,6 +45,9 @@ export default function TopBar() {
   const pageName = pageNames[pathname]
     || (pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
     : pathname.startsWith('/gallring/') ? 'Gallring'
+    // /utbildning/typ/<id> och /utbildning/person/<id>: sidans EGEN etikett säger
+    // vilken utbildning eller person det gäller — toppfältet säger bara var man är.
+    : pathname.startsWith('/utbildning/') ? 'Utbildning'
     : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
     : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
     : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
@@ -64,8 +68,6 @@ export default function TopBar() {
   // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick). /maskin är SAMMA vy i maskinläge
   // ("Öppna som maskin") — utan den här raden ritades ett "Maskin v1.0.0"-fält ovanpå kartan.
   if (pathname === '/planering' || pathname === '/maskin') return null
-  // Utbildningssidorna har sina egna sidhuvuden (stor iOS-titel per sida)
-  if (pathname.startsWith('/utbildning')) return null
   // Rundvyn (/egenkontroll/<objekt>) har ett eget huvud (KartHuvud: pil, objektnamn, antal kvar) — kartan ska ha hela skärmen och
   // "var är jag" ska stå på ETT ställe. Listan /egenkontroll (utan id) behåller toppfältet.
   if (pathname.startsWith('/egenkontroll/')) return null

@@ -6,7 +6,7 @@ import Ikon from '@/components/design/Ikon';
 import { Sheet, ConfirmDialog } from '@/components/Sheet';
 import NyUtbildningSheet from '@/components/utbildning/NyUtbildningSheet';
 import {
-  Vy, Topprad, Etikett, Tal, Kort, Rad, FallUt,
+  Vy, Topprad, Tal, Kort, Rad, FallUt,
   LoadingView, ErrorView, EmptyView, KravtypBadge, PrimaryButton,
 } from '@/components/utbildning/ui';
 import { AVSTAND, FARG, IKON, TRAFFYTA, TYP } from '@/lib/design/tokens';
@@ -110,7 +110,6 @@ export default function KatalogPage() {
           </button>
         }
       />
-      <Etikett>Katalog</Etikett>
 
       {loading && <LoadingView text="Hämtar katalogen…" />}
       {!loading && error && <ErrorView error={error} onRetry={load} />}

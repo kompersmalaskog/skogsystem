@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import Ikon from '@/components/design/Ikon';
 import RegistreraBevisSheet from '@/components/utbildning/RegistreraBevisSheet';
 import {
-  Vy, Topprad, Etikett, Tal, Kort, Rad, FallUt, KlartKort,
+  Vy, Topprad, Tal, Kort, Rad, FallUt, KlartKort,
   LoadingView, ErrorView, EmptyView, PrimaryButton,
 } from '@/components/utbildning/ui';
 import { AVSTAND, FARG, IKON } from '@/lib/design/tokens';
@@ -130,7 +130,6 @@ export default function UtbildningStartPage() {
           </Link>
         }
       />
-      <Etikett>Utbildningar</Etikett>
 
       {loading && <LoadingView />}
       {!loading && error && <ErrorView error={error} onRetry={load} />}
