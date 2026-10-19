@@ -198,7 +198,7 @@ export async function GET(req: NextRequest) {
       `[korbarhet-tiles] Output PNG: ${pngBuffer.length} bytes (${width}x${height})`,
     );
 
-    return new NextResponse(pngBuffer, {
+    return new NextResponse(new Uint8Array(pngBuffer), {
       status: 200,
       headers: {
         'Content-Type': 'image/png',

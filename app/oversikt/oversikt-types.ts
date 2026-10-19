@@ -26,7 +26,7 @@ export interface OversiktObjekt {
   id: string;
   namn: string;
   vo_nummer?: string;
-  typ: 'slutavverkning' | 'gallring';
+  typ: 'slutavverkning' | 'gallring' | 'slut';   // 'slut' = äldre värde i gammal data; /objekt skriver 'slutavverkning'
   atgard?: string;
   status: string;
   volym: number;

@@ -40,7 +40,7 @@ const formatTyp = (typ: string) => {
     skordare: 'Skördare',
     skotare: 'Skotare',
   };
-  return map[typ?.toLowerCase()] ?? typ?.charAt(0).toUpperCase() + typ?.slice(1) ?? '';
+  return map[typ?.toLowerCase()] ?? typ?.charAt(0).toUpperCase() + typ?.slice(1);
 };
 
 const KATEGORIER = ['Service', 'Reparation', 'Däck'];
