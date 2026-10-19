@@ -86,6 +86,9 @@ import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatR
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
 import { basvagSammanfattning, basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
+import { BackvagVal } from '../../components/planering/BackvagVal'
+import { arVagTyp, backvagFeature, lasBackvag, medBackvag, BACKVAG_FORVALD_ANDE, BACKVAG_STRECK_FARGER, type Backvag } from '../../lib/backvag'
+import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck } from '../../lib/kartstil'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
@@ -1335,6 +1338,7 @@ export default function PlannerPage() {
 
     // === GeoJSON Sources för linjer, zoner och ritning ===
     map.addSource('lines-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('backvag-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });   // tvärstreck i hinderänden av en backväg (lib/backvag)
     map.addSource('zones-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('drawing-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('drawing-points-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1481,6 +1485,17 @@ export default function PlannerPage() {
       },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 },
     });
+
+    // === Backväg: tvärstreck (⊣) i hinderänden, i vägens egen färg med mörk kant. Vägen själv rörs inte. ===
+    // Prefix 'line-' → med i körvyns KEEP_PREFIX-whitelist, syns alltså i körvyn och skotarläget. Klipps inte på zoom (SYMBOL_UNDANTAG): det är en del av linjen.
+    try {
+      for (const f of BACKVAG_STRECK_FARGER) {
+        const namn = backvagIkonNamn(f);
+        const bild = map.hasImage(namn) ? null : canvasToMapLibreImage(ritaBackvagStreck(f));
+        if (bild) map.addImage(namn, bild);
+      }
+      map.addLayer(backvagStreckLager('backvag-source', 'line'));
+    } catch (e) { console.error('[MapLibre] line-backvag error:', e); }
 
     // === Fotspår-ikon för stig/led (symbol-placement: 'line') ===
     {
@@ -8073,8 +8088,9 @@ export default function PlannerPage() {
     try {
       const src = map.getSource('lines-source') as any;
       if (!src) return;
-      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
+      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); (map.getSource('backvag-source') as any)?.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
       const features: any[] = [];
+      const backvagFeatures: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
       markers
         .filter((m: any) => m.isLine && m.path && m.path.length > 1 && String(m.id) !== String(redigeraGransId))   // dölj gränsen som redigeras (ritas som preview i st.)
@@ -8102,6 +8118,9 @@ export default function PlannerPage() {
           properties: { lineType: m.lineType, id: m.id, nearby, label, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}) },
           geometry: { type: 'LineString', coordinates: coords },
         });
+        // Backväg: tvärstreck i hinderänden (egen källa, vägens linje rörs inte).
+        const bvf = backvagFeature(m, coords as [number, number][]);
+        if (bvf) backvagFeatures.push(bvf);
         // RISA-delsträcka på basväg → egen blå feature (isRisa) ovanpå vägen. Ingen lineType → matchar
         // inte de vanliga väglagren, bara det blå risa-lagret.
         if (m.lineType === 'mainRoad' && m.risaPath && m.risaPath.length >= 2) {
@@ -8114,6 +8133,7 @@ export default function PlannerPage() {
         }
       });
       src.setData({ type: 'FeatureCollection', features });
+      (map.getSource('backvag-source') as any)?.setData({ type: 'FeatureCollection', features: backvagFeatures });
       if (features.length > 0) {
         const types = features.reduce((acc: Record<string, number>, f: any) => { acc[f.properties.lineType] = (acc[f.properties.lineType] || 0) + 1; return acc; }, {});
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
@@ -10551,6 +10571,11 @@ export default function PlannerPage() {
           safeSetVisibility('trail-footprints', vis);
         }
       });
+      // Backväg: tvärstrecket följer sin vägs synlighet (lagerväljaren per linjetyp) — en dold väg lämnar inget streck kvar.
+      safeSetVisibility('line-backvag', visibleLayers.lines ? 'visible' : 'none');
+      if (map.getLayer('line-backvag')) {
+        map.setFilter('line-backvag', ['in', ['get', 'lineType'], ['literal', lineTypeIds.filter((id) => visibleLines[id] !== false)]]);
+      }
       // Line hitbox
       safeSetVisibility('line-hitbox', visibleLayers.lines ? 'visible' : 'none');
       // Zone layers
@@ -15905,6 +15930,14 @@ export default function PlannerPage() {
                 <div style={{ marginBottom: AVSTAND.l }}>
                   <BasvagFargVal valt={fargTillVal(marker.farg)}
                     onVal={(v) => setMarkers((prev: any[]) => prev.map((m: any) => (m.id === marker.id ? medBasvagVal(m, v) : m)))} />
+                </div>
+              )}
+
+              {/* Backväg: en EGENSKAP på vägen (basväg, stickväg, backväg-typerna) — man kör in och måste backa ut. Vägens färg rörs inte; ett tvärstreck ritas i hinderänden. */}
+              {marker.isLine && arVagTyp(marker.lineType) && (
+                <div style={{ marginBottom: AVSTAND.l }}>
+                  <BackvagVal backvag={lasBackvag(marker)}
+                    onAndra={(bv: Backvag | null) => setMarkers((prev: any[]) => prev.map((m: any) => (m.id === marker.id ? medBackvag(m, bv) : m)))} />
                 </div>
               )}
 

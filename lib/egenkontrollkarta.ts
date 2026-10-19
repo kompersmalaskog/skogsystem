@@ -18,6 +18,8 @@ import {
 } from './kartstil';
 import { markerIconDefs } from './marker-icons';
 import { arBasvagFarg } from './basvag';
+import { backvagFeature } from './backvag';
+import { backvagStreckLager } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
 import { avstandM, provytaStatus, type ProvytaStatus } from './provytor';
 import { provytaBildNamn } from './provytaIkon';
@@ -447,6 +449,28 @@ export function provytaLager(): any[] {
 // ---------------------------------------------------------------------------
 
 export const OBSERVATION_KALLA = 'ek-observationer';
+
+// BACKVAG: tvarstreck (⊣) i hinderanden av en vag (lib/backvag). Egen kalla (punkter), egen ikon, samma utseende som i planeringen. Kontextens
+// vagar ar nedtonade (opacitet 0.4) - deras streck ar det ocksa, annars star ett fullstarkt streck pa en blek vag.
+export const BACKVAG_KALLA = 'ek-backvag';
+
+/**
+ * Tvarstrecket for en vag ur dess markering (kontext: raden ur planering_markeringar, kontrollpunkt: geometri_snapshot). `typ` = vagens linjetyp
+ * (kontrollpunkten har den som punkt_typ). Ingen backvag, ingen vag eller ingen giltig geometri -> null.
+ */
+export function backvagFeatureUrData(data: unknown, origo: Origo, typ?: string, dim = false): Feature | null {
+  if (!ar(data) || !Array.isArray(data.path)) return null;
+  const lineType = typ ?? (typeof data.lineType === 'string' ? data.lineType : '');
+  const koord = pathTillGeoJson(giltigPath(data.path), origo) as Koord[];
+  if (koord.length < 2) return null;
+  const f = backvagFeature({ id: data.id, lineType, farg: data.farg, backvag: data.backvag }, koord as [number, number][]);
+  return f ? { ...f, properties: { ...f.properties, dim } } : null;
+}
+
+/** Lagret: kontrollpunkternas streck fullstarka, kontextens nedtonade. Ligger over linjerna. */
+export function backvagLager(): any[] {
+  return [backvagStreckLager(BACKVAG_KALLA, 'ek', null, ['case', ['==', ['get', 'dim'], true], 0.45, 1])];
+}
 /** Lagrets id ar kontrakt mot tryckhanteraren i RundKarta och lagermenyn - byt det aldrig utan att soka efter det. */
 export const OBSERVATION_LAGER_ID = 'ek-observation';
 
