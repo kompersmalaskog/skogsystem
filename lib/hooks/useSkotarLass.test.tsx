@@ -171,6 +171,28 @@ describe('nytt avlägg och tvetydighet', () => {
   });
 });
 
+describe('minne mellan dagar', () => {
+  it('en lossning från i går är ingen "förra lossning": första lossningen vid samma avlägg i dag blir ett nytt lass, inte en ignorerad upprepning', async () => {
+    const { hamtaLassKo } = await import('@/lib/skotarLass/koKopplad');
+    const k = await hamtaLassKo();
+    await k.spara({
+      id: 'igar', objektId: 'o1', voNummer: '555', maskinId: 'A030353', medarbetareId: null, lassNummer: 1, datum: '2026-10-18', status: 'bekraftat', bekraftadAv: 'forare', bekraftadTid: null,
+      sparPunkter: [], vagar: [], skapad: '2026-10-18T10:00:00.000Z', andrad: '2026-10-18T10:00:00.000Z',
+      delar: [{ delNr: 1, avlaggId: 'vida:2', avlaggNummer: '2', lossadTid: '2026-10-18T10:00:00.000Z', lat: BAS.lat, lng: BAS.lng, rader: [{ nyckel: 'tall', namn: 'Tall', m3: 9 }] }],
+    });
+    // Appen startas om i dag (ny montering över samma lager): detektorn läser in sin start ur det som ligger lokalt.
+    await act(async () => { root.unmount(); });
+    root = createRoot(div);
+    await visa();
+    await stå(5, 40);
+    const nytt = vy.lass.find((l) => l.id !== 'igar');
+    expect(nytt).toBeDefined();
+    expect(nytt!.lassNummer).toBe(2);
+    expect(nytt!.delar).toHaveLength(1);
+    expect(vy.lass.find((l) => l.id === 'igar')!.delar).toHaveLength(1);
+  });
+});
+
 describe('inaktivt', () => {
   it('aktiv=false: ingen upptäckt, inget lass', async () => {
     await visa({ aktiv: false });

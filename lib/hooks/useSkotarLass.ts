@@ -51,6 +51,7 @@ export interface SkotarLassIn {
 }
 
 const KO_MAX_FIXAR = 3000;
+const SENASTE_LOSSNING_MAX_MS = 2 * 3_600_000;
 
 export function useSkotarLass(i: SkotarLassIn) {
   const { aktiv, objekt, maskinId, medarbetareId, position } = i;
@@ -100,7 +101,9 @@ export function useSkotarLass(i: SkotarLassIn) {
       const mitt = efter.filter((l) => l.maskinId === inRef.current.maskinId && l.status !== 'struket');
       const sista = mitt.sort((a, b) => b.lassNummer - a.lassNummer)[0];
       const del = sista?.delar[sista.delar.length - 1];
-      detRef.current = nyDetektor(del ? { lat: del.lat, lng: del.lng, ts: Date.parse(del.lossadTid), avlaggId: del.avlaggId } : null);
+      // Bara en färsk lossning (≤ 2 h) minns detektorn: en lossning från i går är ingen "förra lossning" — att stå vid ett annat avlägg i dag är ett nytt lass, inte del 2.
+      const farsk = del && nu - Date.parse(del.lossadTid) <= SENASTE_LOSSNING_MAX_MS;
+      detRef.current = nyDetektor(del && farsk ? { lat: del.lat, lng: del.lng, ts: Date.parse(del.lossadTid), avlaggId: del.avlaggId } : null);
       fixarRef.current = [];
       void ladda().then(() => { if (!avbruten) void k.antalVantande().then((n) => setVantande(n)); });
     })();
