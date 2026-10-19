@@ -8,7 +8,7 @@
 // Darfor visas noggrannheten i meter, och en yta som snitslats i falt markeras,
 // for da - och bara da - gar en kontrollmatning att gora pa samma yta.
 
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { avstandM, provytaStatus, riktning, skadeandel } from '@/lib/provytor';
 import type { EgenkontrollProvyta } from '@/lib/egenkontroll';
 import ProvytaMarke from './ProvytaMarke';

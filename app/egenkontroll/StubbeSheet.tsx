@@ -15,7 +15,7 @@
 // sammanfattning SIST. Misslyckas uppladdningen stangs formularet aldrig.
 
 import { useEffect, useRef, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   sparaStubbe,
   stubbeDom,

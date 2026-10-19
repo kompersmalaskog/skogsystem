@@ -1,24 +1,43 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import BottomNav from '@/components/BottomNav';
-import ListGroup from '@/components/ListGroup';
-import ListRow from '@/components/ListRow';
-import SectionHeader from '@/components/SectionHeader';
 import RegistreraBevisSheet from '@/components/utbildning/RegistreraBevisSheet';
 import BevisSheet from '@/components/utbildning/BevisSheet';
-import { UtbHeader, LoadingView, ErrorView, EmptyView } from '@/components/utbildning/ui';
 import {
-  T,
+  Vy, Topprad, Etikett, Tal, Kort, Rad, FallUt, KlartKort,
+  LoadingView, ErrorView, EmptyView, PrimaryButton,
+} from '@/components/utbildning/ui';
+import { AVSTAND } from '@/lib/design/tokens';
+import {
   STATUS_META,
-  formatDatum,
+  dagManad,
+  delaPaAtgard,
+  iOrdningText,
+  manadAr,
+  tidTillNasta,
   visaNamn,
-  type UtbildningTyp,
-  type UtbildningStatusRad,
   type Medarbetare,
+  type UtbildningStatusRad,
+  type UtbildningTyp,
 } from '@/lib/utbildning';
+
+function varfor(r: UtbildningStatusRad): string {
+  switch (r.status) {
+    case 'utgangen':
+      return r.giltig_till
+        ? `Gick ${dagManad(r.genomford_datum)} · utgick ${dagManad(r.giltig_till)}`
+        : 'Utgången';
+    case 'saknas':
+      return 'Aldrig registrerad';
+    case 'gar_ut_snart':
+      return r.giltig_till ? `Går ut ${manadAr(r.giltig_till)}` : 'Går ut snart';
+    default:
+      return '';
+  }
+}
 
 export default function UtbildningPersonPage() {
   const params = useParams();
@@ -59,12 +78,22 @@ export default function UtbildningPersonPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const har = rader.filter((r) => r.status !== 'saknas');
-  const saknar = rader.filter((r) => r.status === 'saknas');
+  const { atgarda, klara } = useMemo(() => delaPaAtgard(rader), [rader]);
+  const nasta = tidTillNasta(rader);
+
+  // Utbildningar i katalogen som INTE gäller personen — syns, men undanlagda.
+  const gallerInte = useMemo(() => {
+    const mina = new Set(rader.map((r) => r.utbildning_typ_id));
+    return typer.filter((t) => !mina.has(t.id));
+  }, [typer, rader]);
+
+  const etikett = person
+    ? [visaNamn(person.namn), person.roll].filter(Boolean).join(' · ')
+    : 'Medarbetare';
 
   return (
-    <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff, paddingBottom: 120, marginTop: 'calc(-56px - env(safe-area-inset-top))' }}>
-      <UtbHeader title={person ? visaNamn(person.namn) : 'Medarbetare'} back={{ href: '/utbildning', label: 'Utbildningar' }} />
+    <Vy>
+      <Topprad bak={{ href: '/utbildning', label: 'Utbildningar' }} />
 
       {loading && <LoadingView />}
       {!loading && error && <ErrorView error={error} onRetry={load} />}
@@ -72,48 +101,70 @@ export default function UtbildningPersonPage() {
 
       {!loading && !error && person && (
         <>
-          <SectionHeader>Har ({har.length})</SectionHeader>
-          <div style={{ padding: '0 16px' }}>
-            {har.length === 0 ? (
-              <EmptyView text="Inga giltiga utbildningar." />
-            ) : (
-              <ListGroup>
-                {har.map((r) => (
-                  <ListRow
+          <Etikett>{etikett}</Etikett>
+
+          {atgarda.length > 0 ? (
+            <>
+              <Tal tal={String(atgarda.length)} under="behöver åtgärdas" />
+              <Kort>
+                {atgarda.map((r, i) => (
+                  <Rad
                     key={r.utbildning_typ_id}
-                    status={r.status}
-                    title={r.utbildning_namn}
-                    subtitle={r.giltig_till ? `Giltig t.o.m. ${formatDatum(r.giltig_till)}` : 'Ingen utgång'}
-                    value={STATUS_META[r.status].label}
-                    valueColor={STATUS_META[r.status].color}
-                    onClick={() => setVald(r)}
+                    prick={STATUS_META[r.status].farg}
+                    titel={r.utbildning_namn}
+                    under={varfor(r)}
+                    sista={i === atgarda.length - 1}
+                    onClick={() => {
+                      if (r.bevis_id) { setVald(r); return; }
+                      setForvaldTyp(r.utbildning_typ_id);
+                      setRegistrera(true);
+                    }}
                   />
                 ))}
-              </ListGroup>
-            )}
-          </div>
-
-          {saknar.length > 0 && (
+              </Kort>
+            </>
+          ) : rader.length === 0 ? (
             <>
-              <SectionHeader>Saknar ({saknar.length})</SectionHeader>
-              <div style={{ padding: '0 16px' }}>
-                <ListGroup>
-                  {saknar.map((r) => (
-                    <ListRow
-                      key={r.utbildning_typ_id}
-                      status="saknas"
-                      title={r.utbildning_namn}
-                      value="Registrera"
-                      valueColor={T.blue}
-                      onClick={() => { setForvaldTyp(r.utbildning_typ_id); setRegistrera(true); }}
-                    />
-                  ))}
-                </ListGroup>
-              </div>
+              <Tal tal="0" under="utbildningar gäller" />
+              <EmptyView text="Inga utbildningar gäller den här personen." />
+            </>
+          ) : (
+            <>
+              {nasta
+                ? <Tal tal={nasta.tal} under={nasta.under} />
+                : <Tal tal={String(rader.length)} under="utbildningar · alla giltiga" />}
+              <KlartKort rubrik="Alla utbildningar är giltiga" />
             </>
           )}
 
-          {rader.length === 0 && <EmptyView text="Inga utbildningar gäller den här personen." />}
+          <FallUt
+            etikett={atgarda.length > 0 ? iOrdningText(klara.length) : `Visa alla ${rader.length} utbildningar`}
+            antal={atgarda.length > 0 ? klara.length : rader.length}
+          >
+            {(atgarda.length > 0 ? klara : rader).map((r, i, arr) => (
+              <Rad
+                key={r.utbildning_typ_id}
+                prick={STATUS_META[r.status].farg}
+                titel={r.utbildning_namn}
+                under={r.genomford_datum ? `Gick ${dagManad(r.genomford_datum)}` : undefined}
+                varde={r.giltig_till ? manadAr(r.giltig_till) : 'Ingen utgång'}
+                sista={i === arr.length - 1}
+                onClick={() => setVald(r)}
+              />
+            ))}
+          </FallUt>
+
+          <FallUt etikett={`${gallerInte.length} gäller inte ${visaNamn(person.namn).split(' ')[0]}`} antal={gallerInte.length}>
+            {gallerInte.map((t, i) => (
+              <Rad key={t.id} titel={t.namn} dampad pil="ingen" sista={i === gallerInte.length - 1} />
+            ))}
+          </FallUt>
+
+          <div style={{ marginTop: AVSTAND.xl }}>
+            <PrimaryButton onClick={() => { setForvaldTyp(undefined); setRegistrera(true); }}>
+              Registrera bevis
+            </PrimaryButton>
+          </div>
         </>
       )}
 
@@ -130,6 +181,6 @@ export default function UtbildningPersonPage() {
         forvaldTypId={forvaldTyp}
         forvaldMedarbetareId={person?.id}
       />
-    </div>
+    </Vy>
   );
 }

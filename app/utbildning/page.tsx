@@ -1,55 +1,69 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import BottomNav from '@/components/BottomNav';
-import ListGroup from '@/components/ListGroup';
-import ListRow from '@/components/ListRow';
-import SectionHeader from '@/components/SectionHeader';
+import Ikon from '@/components/design/Ikon';
 import RegistreraBevisSheet from '@/components/utbildning/RegistreraBevisSheet';
-import { UtbHeader, LoadingView, ErrorView, EmptyView } from '@/components/utbildning/ui';
 import {
-  T,
-  KRAVTYP_META,
+  Vy, Topprad, Etikett, Tal, Kort, Rad, FallUt, KlartKort,
+  LoadingView, ErrorView, EmptyView, PrimaryButton,
+} from '@/components/utbildning/ui';
+import { AVSTAND, FARG, IKON } from '@/lib/design/tokens';
+import {
+  STATUS_META,
+  dagManad,
   fornyelseText,
-  aggregatFarg,
-  manadKort,
+  iOrdningText,
+  kraverAtgard,
+  manadAr,
+  tidTillNasta,
   varstaStatus,
-  type UtbildningTyp,
-  type UtbildningStatusRad,
+  visaNamn,
   type Medarbetare,
   type UtbStatus,
+  type UtbildningStatusRad,
+  type UtbildningTyp,
 } from '@/lib/utbildning';
 
-type Aggregat = {
-  antal: number;
-  giltig: number;
-  gar_ut_snart: number;
-  utgangen: number;
-  saknas: number;
+type Post = {
+  typ: UtbildningTyp;
+  rader: UtbildningStatusRad[];
+  atgarda: UtbildningStatusRad[];
   varst: UtbStatus | null;
-  narmasteGarUt: string | null; // närmaste giltig_till bland gar_ut_snart
+  /** Närmaste utgångsdatum bland raderna — används för talet när allt är klart. */
+  narmaste: string | null;
 };
 
-// Sorteringsrang för listan: saknas, utgången, går ut snart, giltig (matchar 1b).
-const LIST_RANG: Record<UtbStatus, number> = { saknas: 0, utgangen: 1, gar_ut_snart: 2, giltig: 3 };
-function listRang(v: UtbStatus | null): number {
-  return v == null ? 4 : LIST_RANG[v];
+// Värst först i åtgärdslistan.
+const RANG: Record<UtbStatus, number> = { utgangen: 0, saknas: 1, gar_ut_snart: 2, giltig: 3 };
+
+/** Vem och varför — inte vilket förnyelseintervall. När något är fel vill man
+ *  veta vem det gäller och när det hände. */
+function varforText(p: Post): string {
+  const n = p.atgarda.length;
+  if (n === 0) return '';
+  const vem = n === 1 ? visaNamn(p.atgarda[0].medarbetare_namn) : `${n} personer`;
+  const r = p.atgarda[0];
+  switch (p.varst) {
+    case 'utgangen':
+      return r.giltig_till ? `${vem} · utgick ${dagManad(r.giltig_till)}` : `${vem} · utgången`;
+    case 'saknas':
+      return n === 1 ? `${vem} saknar` : `${vem} saknar`;
+    case 'gar_ut_snart':
+      return r.giltig_till ? `${vem} · går ut i ${manadAr(r.giltig_till)}` : `${vem} · går ut snart`;
+    default:
+      return '';
+  }
 }
 
-function radVarde(a: Aggregat): { text: string; color: string } {
-  if (a.antal === 0) return { text: '', color: T.t2 };
-  switch (a.varst) {
-    case 'saknas':
-      return { text: `${a.saknas} saknar`, color: T.red };
-    case 'utgangen':
-      return { text: `${a.utgangen} utgången`, color: T.red };
-    case 'gar_ut_snart':
-      return { text: a.narmasteGarUt ? `Går ut i ${manadKort(a.narmasteGarUt)}` : 'Går ut snart', color: T.orange };
-    default:
-      return { text: 'Klart', color: T.green };
-  }
+/** Raden för en utbildning som är i ordning: hur många och när den går ut. */
+function iOrdningUnder(p: Post): string {
+  const antal = p.rader.length;
+  const vem = antal === 1 ? '1 person' : `Alla ${antal}`;
+  if (p.typ.giltighet_manader == null) return `${vem} · ingen utgång`;
+  return p.narmaste ? `${vem} · går ut ${manadAr(p.narmaste)}` : `${vem} · ${fornyelseText(p.typ.giltighet_manader)}`;
 }
 
 export default function UtbildningStartPage() {
@@ -82,101 +96,95 @@ export default function UtbildningStartPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const aggregatFor = (typId: string): Aggregat => {
-    const rader = status.filter((r) => r.utbildning_typ_id === typId);
-    const a: Aggregat = { antal: rader.length, giltig: 0, gar_ut_snart: 0, utgangen: 0, saknas: 0, varst: null, narmasteGarUt: null };
-    for (const r of rader) {
-      a[r.status]++;
-      if (r.status === 'gar_ut_snart' && r.giltig_till) {
-        if (!a.narmasteGarUt || r.giltig_till < a.narmasteGarUt) a.narmasteGarUt = r.giltig_till;
-      }
-    }
-    a.varst = varstaStatus(rader.map((r) => r.status));
-    return a;
-  };
+  const poster: Post[] = useMemo(() => (typer ?? []).map((typ) => {
+    const rader = status.filter((r) => r.utbildning_typ_id === typ.id);
+    const atgarda = rader
+      .filter((r) => kraverAtgard(r.status))
+      .sort((a, b) => RANG[a.status] - RANG[b.status]);
+    const datum = rader.map((r) => r.giltig_till).filter((d): d is string => !!d).sort();
+    return { typ, rader, atgarda, varst: varstaStatus(rader.map((r) => r.status)), narmaste: datum[0] ?? null };
+  }), [typer, status]);
 
-  // Aggregat per utbildning, sorterat efter allvarlighetsgrad.
-  const lista = (typer ?? [])
-    .map((t) => ({ t, a: aggregatFor(t.id) }))
-    .sort((x, y) => listRang(x.a.varst) - listRang(y.a.varst) || x.t.namn.localeCompare(y.t.namn, 'sv'));
+  const attAtgarda = poster
+    .filter((p) => p.atgarda.length > 0)
+    .sort((a, b) => RANG[a.varst ?? 'giltig'] - RANG[b.varst ?? 'giltig'] || a.typ.namn.localeCompare(b.typ.namn, 'sv'));
+  const iOrdning = poster
+    .filter((p) => p.atgarda.length === 0)
+    .sort((a, b) => a.typ.namn.localeCompare(b.typ.namn, 'sv'));
 
-  // Sammanfattning: räkna utbildningar per värsta status.
-  const nUtgangen = lista.filter((r) => r.a.varst === 'utgangen').length;
-  const nSaknas = lista.filter((r) => r.a.varst === 'saknas').length;
-  const nGarUt = lista.filter((r) => r.a.varst === 'gar_ut_snart').length;
-  const nAtgard = nUtgangen + nSaknas + nGarUt;
+  const nasta = tidTillNasta(status);
 
-  const sammanfattningUnder = [
-    nUtgangen ? `${nUtgangen} utgången` : null,
-    nSaknas ? `${nSaknas} saknas` : null,
-    nGarUt ? `${nGarUt} går ut snart` : null,
-  ].filter(Boolean).join(' · ');
-
-  const sammanfattningPrick = nUtgangen || nSaknas ? T.red : nGarUt ? T.orange : T.green;
+  // Vilken utbildning som går ut först — raden under den gröna bocken.
+  const narmastePost = poster
+    .filter((p) => p.narmaste)
+    .sort((a, b) => (a.narmaste! < b.narmaste! ? -1 : 1))[0];
+  const narmasteRad = narmastePost
+    ? `${narmastePost.typ.namn} går ut ${manadAr(narmastePost.narmaste)}`
+    : undefined;
 
   return (
-    <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff, paddingBottom: 120, marginTop: 'calc(-56px - env(safe-area-inset-top))' }}>
-      <UtbHeader
-        title="Utbildningar"
-        action={
-          <Link href="/utbildning/katalog" aria-label="Katalog" style={{ color: T.blue, display: 'inline-flex', alignItems: 'center', padding: 4 }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 24 }}>settings</span>
+    <Vy>
+      <Topprad
+        atgard={
+          <Link href="/utbildning/katalog" aria-label="Katalog" style={{ color: FARG.bla, display: 'inline-flex', alignItems: 'center', padding: AVSTAND.xs }}>
+            <Ikon namn="settings" storlek={IKON.rad} farg={FARG.bla} />
           </Link>
         }
       />
+      <Etikett>Utbildningar</Etikett>
 
       {loading && <LoadingView />}
       {!loading && error && <ErrorView error={error} onRetry={load} />}
 
-      {!loading && !error && typer && (
-        <>
-          {/* Sammanfattning */}
-          <div style={{ padding: '12px 16px 0' }}>
-            <ListGroup>
-              <ListRow
-                dotColor={nAtgard ? sammanfattningPrick : T.green}
-                title={nAtgard ? `${nAtgard} behöver åtgärdas` : 'Allt är klart'}
-                subtitle={nAtgard ? sammanfattningUnder : undefined}
-                chevron={nAtgard > 0}
-              />
-            </ListGroup>
-          </div>
+      {!loading && !error && typer && typer.length === 0 && (
+        <EmptyView text="Katalogen är tom. Lägg till en utbildning under inställningar." />
+      )}
 
-          {typer.length === 0 ? (
-            <EmptyView text="Katalogen är tom. Lägg till en utbildning under inställningar." />
+      {!loading && !error && typer && typer.length > 0 && (
+        <>
+          {attAtgarda.length > 0 ? (
+            <>
+              <Tal tal={String(attAtgarda.length)} under="behöver åtgärdas" />
+              <Kort>
+                {attAtgarda.map((p, i) => (
+                  <Rad
+                    key={p.typ.id}
+                    href={`/utbildning/typ/${p.typ.id}`}
+                    prick={STATUS_META[p.varst ?? 'giltig'].farg}
+                    titel={p.typ.namn}
+                    under={varforText(p)}
+                    sista={i === attAtgarda.length - 1}
+                  />
+                ))}
+              </Kort>
+            </>
           ) : (
             <>
-              <SectionHeader>Alla utbildningar</SectionHeader>
-              <div style={{ padding: '0 16px' }}>
-                <ListGroup>
-                  {lista.map(({ t, a }) => {
-                    const v = radVarde(a);
-                    return (
-                      <ListRow
-                        key={t.id}
-                        href={`/utbildning/typ/${t.id}`}
-                        dotColor={a.varst ? aggregatFarg(a.varst) : undefined}
-                        title={t.namn}
-                        subtitle={`${KRAVTYP_META[t.kravtyp].label} · ${fornyelseText(t.giltighet_manader)}`}
-                        value={v.text}
-                        valueColor={v.color}
-                      />
-                    );
-                  })}
-                </ListGroup>
-              </div>
+              {nasta
+                ? <Tal tal={nasta.tal} under={nasta.under} />
+                : <Tal tal={String(poster.length)} under="utbildningar vi håller koll på" />}
+              <KlartKort rubrik="Alla utbildningar är giltiga" rad={narmasteRad} />
             </>
           )}
 
-          {/* Registrera utbildning */}
-          <div style={{ padding: '22px 16px 0' }}>
-            <ListGroup>
-              <ListRow
-                title={<span style={{ color: T.blue }}>Registrera utbildning</span>}
-                onClick={() => setRegistrera(true)}
-                chevron={false}
+          <FallUt
+            etikett={attAtgarda.length > 0 ? iOrdningText(iOrdning.length) : `Visa alla ${poster.length} utbildningar`}
+            antal={attAtgarda.length > 0 ? iOrdning.length : poster.length}
+          >
+            {(attAtgarda.length > 0 ? iOrdning : poster).map((p, i, arr) => (
+              <Rad
+                key={p.typ.id}
+                href={`/utbildning/typ/${p.typ.id}`}
+                prick={STATUS_META[p.varst ?? 'giltig'].farg}
+                titel={p.typ.namn}
+                under={p.atgarda.length > 0 ? varforText(p) : iOrdningUnder(p)}
+                sista={i === arr.length - 1}
               />
-            </ListGroup>
+            ))}
+          </FallUt>
+
+          <div style={{ marginTop: AVSTAND.xl }}>
+            <PrimaryButton onClick={() => setRegistrera(true)}>Registrera utbildning</PrimaryButton>
           </div>
         </>
       )}
@@ -190,6 +198,6 @@ export default function UtbildningStartPage() {
         typer={typer ?? []}
         medarbetare={medarbetare}
       />
-    </div>
+    </Vy>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import { STATUS_META, type UtbStatus } from '@/lib/utbildning';
+import { STATUS_META } from '@/lib/listTema';
+import type { UtbStatus } from '@/lib/utbildning';
 
 // Liten färgprick som speglar ett status-värde från vyn utbildning_status.
 // `saknas` ritas som en ihålig ring, övriga som fylld prick.

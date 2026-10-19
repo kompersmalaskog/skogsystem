@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { T, type Kravtyp, type Medarbetare } from '@/lib/utbildning';
+import { type Kravtyp, type Medarbetare } from '@/lib/utbildning';
+import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
 import { Sheet } from '@/components/Sheet';
 import { FieldLabel, inputStyle, SegmentedControl, Toggle, PrimaryButton, PersonChecklist } from './ui';
 
@@ -114,7 +115,7 @@ export default function NyUtbildningSheet({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: ingenUtgang ? 16 : 10 }}>
-        <div style={{ fontSize: 16, color: T.t1, fontFamily: T.ff }}>Ingen utgång</div>
+        <div style={{ ...TYP.text, color: FARG.text, fontFamily: 'inherit' }}>Ingen utgång</div>
         <Toggle checked={ingenUtgang} onChange={setIngenUtgang} />
       </div>
       {!ingenUtgang && (
@@ -126,8 +127,8 @@ export default function NyUtbildningSheet({
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: gallerAlla ? 16 : 10 }}>
         <div>
-          <div style={{ fontSize: 16, color: T.t1, fontFamily: T.ff }}>Gäller alla</div>
-          <div style={{ fontSize: 13, color: T.t2, fontFamily: T.ff }}>Annars väljer du vilka den gäller</div>
+          <div style={{ ...TYP.text, color: FARG.text, fontFamily: 'inherit' }}>Gäller alla</div>
+          <div style={{ ...TYP.meta, color: FARG.text2, fontFamily: 'inherit' }}>Annars väljer du vilka den gäller</div>
         </div>
         <Toggle checked={gallerAlla} onChange={setGallerAlla} />
       </div>
@@ -144,7 +145,7 @@ export default function NyUtbildningSheet({
       <FieldLabel>Anteckning (valfritt)</FieldLabel>
       <textarea value={anteckning} onChange={(e) => setAnteckning(e.target.value)} rows={2} style={{ ...inputStyle, marginBottom: 20, resize: 'vertical' }} />
 
-      {error && <div style={{ fontSize: 13, color: T.red, marginBottom: 12 }}>{error}</div>}
+      {error && <div style={{ ...TYP.meta, color: FARG.rod, marginBottom: 12 }}>{error}</div>}
 
       <PrimaryButton onClick={save} disabled={saving || !namn.trim()}>
         {saving ? 'Sparar…' : 'Lägg till utbildning'}

@@ -17,7 +17,7 @@ import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
 import ListGroup from '@/components/ListGroup';
 import PageContainer from '@/components/PageContainer';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   aktuelltAr,
   hamtaGallringar,

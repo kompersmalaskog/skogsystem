@@ -39,7 +39,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
 import PageContainer from '@/components/PageContainer';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   hamtaRunda,
   generateEgenkontroll,

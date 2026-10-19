@@ -16,7 +16,7 @@ import ListGroup from '@/components/ListGroup';
 import ListRow from '@/components/ListRow';
 import SectionHeader from '@/components/SectionHeader';
 import PageContainer from '@/components/PageContainer';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { hamtaVantande, type VantandeOversikt, type VantandeRad } from '@/lib/egenkontroll';
 import { kortDatum, dagarSedan, anmarkningsText } from './format';
 

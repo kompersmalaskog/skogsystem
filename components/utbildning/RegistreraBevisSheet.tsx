@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
-import { T, type UtbildningTyp, type Medarbetare } from '@/lib/utbildning';
+import { type UtbildningTyp, type Medarbetare } from '@/lib/utbildning';
+import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
 import { Sheet } from '@/components/Sheet';
 import { FieldLabel, inputStyle, Toggle, PrimaryButton, PersonChecklist } from './ui';
 
@@ -162,7 +163,7 @@ export default function RegistreraBevisSheet({
       <div
         onClick={() => !pdfBusy && fileRef.current?.click()}
         style={{
-          border: `1.5px dashed ${T.sep}`,
+          border: `1.5px dashed ${FARG.linje}`,
           borderRadius: 10,
           padding: '14px 16px',
           textAlign: 'center',
@@ -171,13 +172,13 @@ export default function RegistreraBevisSheet({
         }}
       >
         {pdfBusy ? (
-          <span style={{ fontSize: 14, color: T.t2 }}>Läser av och laddar upp…</span>
+          <span style={{ ...TYP.meta, color: FARG.text2 }}>Läser av och laddar upp…</span>
         ) : pdfName ? (
-          <span style={{ fontSize: 14, color: T.t1 }}>
+          <span style={{ ...TYP.meta, color: FARG.text }}>
             📄 {pdfName} {pdfUrl ? '✓' : ''}
           </span>
         ) : (
-          <span style={{ fontSize: 14, color: T.t2 }}>Klicka för att välja PDF — fälten förifylls</span>
+          <span style={{ ...TYP.meta, color: FARG.text2 }}>Klicka för att välja PDF — fälten förifylls</span>
         )}
         <input
           ref={fileRef}
@@ -188,9 +189,9 @@ export default function RegistreraBevisSheet({
         />
       </div>
       {pdfError && (
-        <div style={{ fontSize: 13, color: T.red, marginBottom: 16 }}>
+        <div style={{ ...TYP.meta, color: FARG.rod, marginBottom: 16 }}>
           {pdfError}
-          <button onClick={() => { setPdfError(null); setPdfName(null); setPdfUrl(null); }} style={{ display: 'block', marginTop: 4, background: 'none', border: 'none', color: T.t2, fontSize: 13, cursor: 'pointer', fontFamily: T.ff }}>
+          <button onClick={() => { setPdfError(null); setPdfName(null); setPdfUrl(null); }} style={{ display: 'block', marginTop: 4, background: 'none', border: 'none', color: FARG.text2, ...TYP.meta, cursor: 'pointer', fontFamily: 'inherit' }}>
             Rensa
           </button>
         </div>
@@ -209,8 +210,8 @@ export default function RegistreraBevisSheet({
       {/* Avvikande giltighet */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: avvikande ? 10 : 16 }}>
         <div>
-          <div style={{ fontSize: 16, color: T.t1, fontFamily: T.ff }}>Avvikande giltighetsdatum</div>
-          <div style={{ fontSize: 13, color: T.t2, fontFamily: T.ff }}>Sätts bara om utgången avviker från intervallet</div>
+          <div style={{ ...TYP.text, color: FARG.text, fontFamily: 'inherit' }}>Avvikande giltighetsdatum</div>
+          <div style={{ ...TYP.meta, color: FARG.text2, fontFamily: 'inherit' }}>Sätts bara om utgången avviker från intervallet</div>
         </div>
         <Toggle checked={avvikande} onChange={setAvvikande} />
       </div>
@@ -223,7 +224,7 @@ export default function RegistreraBevisSheet({
       <textarea value={anteckning} onChange={(e) => setAnteckning(e.target.value)} rows={2} style={{ ...inputStyle, marginBottom: 20, resize: 'vertical' }} />
 
       {saveError && (
-        <div style={{ fontSize: 13, color: T.red, marginBottom: 12 }}>Kunde inte spara: {saveError}</div>
+        <div style={{ ...TYP.meta, color: FARG.rod, marginBottom: 12 }}>Kunde inte spara: {saveError}</div>
       )}
 
       <PrimaryButton onClick={save} disabled={saving || !valTypId || antal === 0}>

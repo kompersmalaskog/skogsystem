@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import BottomNav from '@/components/BottomNav';
-import ListGroup from '@/components/ListGroup';
-import ListRow from '@/components/ListRow';
-import SectionHeader from '@/components/SectionHeader';
+import Ikon from '@/components/design/Ikon';
 import { Sheet, ConfirmDialog } from '@/components/Sheet';
 import NyUtbildningSheet from '@/components/utbildning/NyUtbildningSheet';
-import { UtbHeader, LoadingView, ErrorView, EmptyView, KravtypBadge, PrimaryButton } from '@/components/utbildning/ui';
 import {
-  T,
+  Vy, Topprad, Etikett, Tal, Kort, Rad, FallUt,
+  LoadingView, ErrorView, EmptyView, KravtypBadge, PrimaryButton,
+} from '@/components/utbildning/ui';
+import { AVSTAND, FARG, IKON, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import {
   KRAVTYP_ORDNING,
   KRAVTYP_META,
   fornyelseText,
@@ -93,60 +94,66 @@ export default function KatalogPage() {
 
   function inaktivUnderrad(t: UtbildningTyp): string {
     const n = bevisAntal[t.id] ?? 0;
-    return `inaktiverad ${dagManad(t.uppdaterad)} · ${n} bevis ${n === 1 ? 'sparat' : 'sparade'}`;
+    return `Inaktiverad ${dagManad(t.uppdaterad)} · ${n} bevis ${n === 1 ? 'sparat' : 'sparade'}`;
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: T.bg, color: T.t1, fontFamily: T.ff, paddingBottom: 120, marginTop: 'calc(-56px - env(safe-area-inset-top))' }}>
-      <UtbHeader
-        title="Katalog"
-        subtitle={typer ? `${aktiva.length} aktiva utbildningar` : undefined}
-        back={{ href: '/utbildning', label: 'Utbildningar' }}
-        action={
-          <button onClick={() => setNy(true)} aria-label="Ny utbildning" style={{ background: 'none', border: 'none', color: T.blue, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', padding: 4, marginRight: -4 }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 26 }}>add</span>
+    <Vy>
+      <Topprad
+        bak={{ href: '/utbildning', label: 'Utbildningar' }}
+        atgard={
+          <button
+            onClick={() => setNy(true)}
+            aria-label="Ny utbildning"
+            style={{ background: 'none', border: 'none', color: FARG.bla, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', minHeight: TRAFFYTA.min, padding: AVSTAND.xs }}
+          >
+            <Ikon namn="add" storlek={IKON.rad} farg={FARG.bla} />
           </button>
         }
       />
+      <Etikett>Katalog</Etikett>
 
-      {loading && <LoadingView />}
+      {loading && <LoadingView text="Hämtar katalogen…" />}
       {!loading && error && <ErrorView error={error} onRetry={load} />}
 
       {!loading && !error && typer && (
         <>
-          {typer.length === 0 && <EmptyView text="Katalogen är tom. Tryck + för att lägga till." />}
-
-          {aktiva.length > 0 && (
+          {typer.length === 0 ? (
             <>
-              <SectionHeader>Aktiva</SectionHeader>
-              <div style={{ padding: '0 16px' }}>
-                <ListGroup>
-                  {aktiva.map((t) => (
-                    <ListRow key={t.id} title={t.namn} subtitle={aktivUnderrad(t)} onClick={() => { setVald(t); setAndraFel(null); }} />
-                  ))}
-                </ListGroup>
-              </div>
+              <Tal tal="0" under="utbildningar i katalogen" />
+              <EmptyView text="Katalogen är tom. Tryck + för att lägga till." />
             </>
-          )}
-
-          {inaktiva.length > 0 && (
+          ) : (
             <>
-              <SectionHeader>Inaktiva</SectionHeader>
-              <div style={{ padding: '0 16px' }}>
-                <ListGroup>
-                  {inaktiva.map((t) => (
-                    <ListRow
-                      key={t.id}
-                      title={<span style={{ color: T.t2 }}>{t.namn}</span>}
-                      subtitle={inaktivUnderrad(t)}
-                      onClick={() => { setVald(t); setAndraFel(null); }}
-                    />
-                  ))}
-                </ListGroup>
-                <div style={{ fontSize: 13, color: T.t2, padding: '7px 16px 0', fontFamily: T.ff }}>
-                  Inaktiverade utbildningar visas inte i listorna, men behåller sina sparade bevis.
-                </div>
-              </div>
+              {/* Katalogen är undantaget: här finns inget att åtgärda — listan ÄR innehållet. */}
+              <Tal tal={String(aktiva.length)} under="utbildningar vi håller koll på" />
+              <Kort>
+                {aktiva.map((t, i) => (
+                  <Rad
+                    key={t.id}
+                    titel={t.namn}
+                    under={aktivUnderrad(t)}
+                    sista={i === aktiva.length - 1}
+                    onClick={() => { setVald(t); setAndraFel(null); }}
+                  />
+                ))}
+              </Kort>
+
+              <FallUt
+                etikett={`${inaktiva.length} inaktiverad${inaktiva.length === 1 ? '' : 'e'} utbildning${inaktiva.length === 1 ? '' : 'ar'}`}
+                antal={inaktiva.length}
+              >
+                {inaktiva.map((t, i) => (
+                  <Rad
+                    key={t.id}
+                    titel={t.namn}
+                    under={inaktivUnderrad(t)}
+                    dampad
+                    sista={i === inaktiva.length - 1}
+                    onClick={() => { setVald(t); setAndraFel(null); }}
+                  />
+                ))}
+              </FallUt>
             </>
           )}
         </>
@@ -158,26 +165,32 @@ export default function KatalogPage() {
       <Sheet open={!!vald} onClose={() => setVald(null)} title={vald ? vald.namn : ''}>
         {vald && (
           <>
-            <ListGroup>
-              <ListRow title="Kravtyp" chevron={false} trailing={<KravtypBadge kravtyp={vald.kravtyp} />} />
-              <ListRow title="Förnyelse" chevron={false} value={fornyelseText(vald.giltighet_manader)} />
-              <ListRow title="Gäller" chevron={false} value={omfattningText(vald.galler_alla, kravAntal[vald.id] ?? 0)} />
-            </ListGroup>
+            <Kort>
+              <Rad titel="Kravtyp" pil="ingen" varde={<KravtypBadge kravtyp={vald.kravtyp} />} />
+              <Rad titel="Förnyelse" pil="ingen" varde={fornyelseText(vald.giltighet_manader)} />
+              <Rad titel="Gäller" pil="ingen" sista varde={omfattningText(vald.galler_alla, kravAntal[vald.id] ?? 0)} />
+            </Kort>
 
             {(vald.beskrivning || vald.anteckning) && (
-              <div style={{ padding: '12px 0 0' }}>
-                <ListGroup>
-                  {vald.beskrivning && <div style={{ padding: '11px 16px', fontSize: 15, color: T.t1 }}>{vald.beskrivning}</div>}
-                  {vald.anteckning && <div style={{ padding: '11px 16px', fontSize: 14, color: T.t2 }}>{vald.anteckning}</div>}
-                </ListGroup>
-              </div>
+              <Kort>
+                {vald.beskrivning && (
+                  <div style={{ ...TYP.text, color: FARG.text, padding: `${AVSTAND.m}px 0`, borderBottom: vald.anteckning ? `1px solid ${FARG.linje}` : 'none' }}>
+                    {vald.beskrivning}
+                  </div>
+                )}
+                {vald.anteckning && (
+                  <div style={{ ...TYP.meta, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>{vald.anteckning}</div>
+                )}
+              </Kort>
             )}
 
-            {andraFel && <div style={{ fontSize: 13, color: T.red, margin: '12px 0 0' }}>Kunde inte ändra: {andraFel}</div>}
+            {andraFel && (
+              <p style={{ ...TYP.meta, color: FARG.rod, margin: `${AVSTAND.m}px 0 0` }}>Kunde inte ändra: {andraFel}</p>
+            )}
 
-            <div style={{ padding: '20px 0 0' }}>
+            <div style={{ marginTop: AVSTAND.xl }}>
               {vald.aktiv ? (
-                <PrimaryButton onClick={() => setBekraftaInaktivera(true)} color={T.red} disabled={andrar}>
+                <PrimaryButton destruktiv onClick={() => setBekraftaInaktivera(true)} disabled={andrar}>
                   Inaktivera utbildning
                 </PrimaryButton>
               ) : (
@@ -206,6 +219,6 @@ export default function KatalogPage() {
         onSaved={() => { setNy(false); load(); }}
         medarbetare={medarbetare}
       />
-    </div>
+    </Vy>
   );
 }
