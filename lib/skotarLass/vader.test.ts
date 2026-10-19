@@ -1,25 +1,58 @@
 import { describe, expect, it } from 'vitest';
-import { morgonkort, morgonkortProv, regnMm, vaderIkon, vaderPerDag, type PmpTimeSeries } from './vader';
+import { morgonkort, morgonkortProv, regnMm, vaderIkon, vaderPerDag } from './vader';
+import { snow1gTillSteg, type PrognosSteg } from '@/lib/smhi-prognos';
 import { avstand } from './geo';
 import { tunnaSpar, vagTider } from './spar';
 
-const ts = (iso: string, pmean: number, t = 10): PmpTimeSeries => ({ validTime: iso, parameters: [{ name: 'pmean', values: [pmean] }, { name: 't', values: [t] }] });
 const NU = Date.parse('2026-10-19T06:00:00Z');
+/** Ett SNOW1g-steg: mängd `mm` över intervallet som slutar vid `iso` och började `start`. */
+const steg = (iso: string, mm: number | null, startIso: string | null, temp = 10, symbol: number | null = null): PrognosSteg => ({
+  ms: Date.parse(iso), startMs: startIso ? Date.parse(startIso) : null, temp, symbol, vindMs: null, vindRiktning: null, nederbordKategori: null, nederbordMm: mm,
+});
+const dag = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-describe('väder', () => {
-  it('regn: pmean viktas med stegets längd, bara inom 24 h', () => {
-    const serie = [ts('2026-10-19T06:00:00Z', 1), ts('2026-10-19T07:00:00Z', 2), ts('2026-10-19T09:00:00Z', 0), ts('2026-10-20T06:00:00Z', 5), ts('2026-10-20T12:00:00Z', 9)];
-    // 1×1 + 2×2 + 0×21 + (ej inom 24 h: steget börjar 06:00 dag 2 = slutet) = 5
-    expect(regnMm(serie, NU)).toBeCloseTo(5, 6);
+describe('väder (SNOW1gv1)', () => {
+  it('regn: nederbörden är en mängd per intervall — bara delen inom 24 h räknas', () => {
+    const serie = [
+      steg('2026-10-19T06:00:00Z', null, null),
+      steg('2026-10-19T07:00:00Z', 1, '2026-10-19T06:00:00Z'),
+      steg('2026-10-19T09:00:00Z', 4, '2026-10-19T07:00:00Z'),
+      steg('2026-10-20T06:00:00Z', 9, '2026-10-19T09:00:00Z'),   // 21 h, alla inom fönstret
+      steg('2026-10-20T12:00:00Z', 12, '2026-10-20T06:00:00Z'),  // börjar vid fönstrets slut → räknas inte
+    ];
+    expect(regnMm(serie, NU)).toBeCloseTo(1 + 4 + 9, 6);
+  });
+  it('ett intervall som korsar fönstrets slut räknas proportionellt, inte hela', () => {
+    const serie = [steg('2026-10-20T12:00:00Z', 12, '2026-10-20T00:00:00Z')];   // 12 mm över 12 h; fönstret slutar 06:00 → 6 mm
+    expect(regnMm(serie, NU)).toBeCloseTo(6, 6);
   });
   it('saknade data är null, aldrig 0', () => {
     expect(regnMm(null, NU)).toBeNull();
     expect(regnMm([], NU)).toBeNull();
+    expect(regnMm([steg('2026-10-19T07:00:00Z', null, '2026-10-19T06:00:00Z')], NU)).toBeNull();
   });
-  it('per dag: regn och temperaturer', () => {
-    const d = vaderPerDag([ts('2026-10-19T06:00:00Z', 1, 4), ts('2026-10-19T07:00:00Z', 0, 9), ts('2026-10-20T06:00:00Z', 2, 6)], (ms) => new Date(ms).toISOString().slice(0, 10));
-    expect(d[0]).toMatchObject({ datum: '2026-10-19', regnMm: 1, tempMax: 9, tempMin: 4 });
+  it('morgonkortets regel räknar rätt med SNOW1g: 10 mm på ett dygn ger kort, 9,9 gör det inte', () => {
+    const mm = (m: number) => regnMm([steg('2026-10-19T18:00:00Z', m, '2026-10-19T06:00:00Z')], NU);
+    expect(morgonkort({ regnMm: mm(10), brandklass: 1, redanVisatIdag: false })?.rader[0]).toContain('~10 mm');
+    expect(morgonkort({ regnMm: mm(9.9), brandklass: 1, redanVisatIdag: false })).toBeNull();
+  });
+  it('per dag: regn fördelat på datum, högsta och lägsta temperatur', () => {
+    const serie = [
+      steg('2026-10-19T06:00:00Z', null, null, 4),
+      steg('2026-10-19T07:00:00Z', 1, '2026-10-19T06:00:00Z', 9),
+      steg('2026-10-20T06:00:00Z', 2, '2026-10-19T07:00:00Z', 6),   // 23 h: 17 h på 19:e (till midnatt), 6 h på 20:e
+    ];
+    const d = vaderPerDag(serie, dag);
+    expect(d[0]).toMatchObject({ datum: '2026-10-19', tempMax: 9, tempMin: 4 });
+    expect(d[0].regnMm).toBeCloseTo(1 + 2 * (17 / 23), 6);
     expect(d[1].datum).toBe('2026-10-20');
+    expect(d[1].regnMm).toBeCloseTo(2 * (6 / 23), 6);
+  });
+  it('ett 6-timmarssteg över midnatt delas på datumen (sommartid: datumskiftet vid 22:00 UTC)', () => {
+    const lokal = (ms: number) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm' }).format(new Date(ms));
+    const serie = [steg('2026-07-02T01:00:00Z', 6, '2026-07-01T19:00:00Z')];   // 21:00–03:00 lokal tid: 3 h före, 3 h efter midnatt
+    const d = vaderPerDag(serie, lokal);
+    expect(d.map((x) => [x.datum, Math.round((x.regnMm ?? 0) * 10) / 10])).toEqual([['2026-07-01', 3], ['2026-07-02', 3]]);
   });
 });
 
@@ -69,18 +102,20 @@ describe('spår per väg', () => {
 });
 
 describe('väder för ⓘ: tre dagar med ikon', () => {
-  const tsSym = (iso: string, pmean: number, t: number, sym: number): PmpTimeSeries => ({ validTime: iso, parameters: [{ name: 'pmean', values: [pmean] }, { name: 't', values: [t] }, { name: 'Wsymb2', values: [sym] }] });
-  const dag = (ms: number) => new Date(ms).toISOString().slice(0, 10);
   it('standard är tre dagar, symbolen är den närmast lunch', () => {
-    const serie: PmpTimeSeries[] = [];
-    for (const d of ['19', '20', '21', '22', '23']) for (const h of ['06', '10', '16']) serie.push(tsSym(`2026-10-${d}T${h}:00:00Z`, 0, 8, h === '10' ? 3 : 1));
+    const serie: PrognosSteg[] = [];
+    for (const d of ['19', '20', '21', '22', '23']) for (const h of ['06', '10', '16']) serie.push(steg(`2026-10-${d}T${h}:00:00Z`, 0, null, 8, h === '10' ? 3 : 1));
     const v = vaderPerDag(serie, dag);
     expect(v).toHaveLength(3);
     expect(v.map((x) => x.symbol)).toEqual([3, 3, 3]);   // 10:00 ligger närmast 10:30, inte 06:00 eller 16:00
     expect(vaderPerDag(serie, dag, 5)).toHaveLength(5);
   });
-  it('utan Wsymb2 är symbolen null (ingen gissad ikon)', () => {
-    expect(vaderPerDag([ts('2026-10-19T10:00:00Z', 0, 8)], dag)[0].symbol).toBeNull();
+  it('utan symbol_code är symbolen null (ingen gissad ikon)', () => {
+    expect(vaderPerDag([steg('2026-10-19T10:00:00Z', 0, null, 8)], dag)[0].symbol).toBeNull();
+  });
+  it('SNOW1g-svar → ikon: symbol_code 1–27 som förut', () => {
+    const json = { timeSeries: [{ time: '2026-10-19T10:00:00Z', data: { air_temperature: 8, symbol_code: 19 } }] };
+    expect(vaderIkon(vaderPerDag(snow1gTillSteg(json), dag)[0].symbol)).toBe('regn');
   });
   it('Wsymb2 → ikon: alla 27 symboler hamnar i en ikon, okänt är null', () => {
     const ikoner = Array.from({ length: 27 }, (_, i) => vaderIkon(i + 1));

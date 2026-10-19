@@ -105,6 +105,7 @@ import { typLabel } from '../../lib/objekt/typ'
 import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
 import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
+import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
@@ -10739,27 +10740,16 @@ export default function PlannerPage() {
   const fetchSmhiWeather = async (lat: number, lon: number) => {
     setTmaWeather({ status: 'loading' });
     try {
-      const roundedLon = Math.round(lon * 1000000) / 1000000;
-      const roundedLat = Math.round(lat * 1000000) / 1000000;
-      const url = `https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${roundedLon}/lat/${roundedLat}/data.json`;
-      console.log('[SMHI] Fetching:', url);
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-
-      // Hitta närmaste tidsserie (första är den mest aktuella prognosen)
-      const ts = data.timeSeries?.[0];
+      // SMHI SNOW1gv1 (lib/smhi-prognos; ersätter PMP3gv2 som stängdes 2026-03-31). Närmaste tidssteg = vädret nu.
+      const steg = await hamtaPrognos(lat, lon);
+      if (!steg) throw new Error('Ingen prognos');
+      const ts = narmasteSteg(steg, Date.now());
       if (!ts) throw new Error('Ingen tidsserie');
 
-      const getParam = (name: string) => {
-        const p = ts.parameters?.find((p: any) => p.name === name);
-        return p?.values?.[0];
-      };
-
-      const temp = getParam('t');        // °C
-      const ws = getParam('ws');          // m/s
-      const wd = getParam('wd');          // grader
-      const pcat = getParam('pcat');      // nederbördskategori
+      const temp = ts.temp ?? undefined;                  // °C
+      const ws = ts.vindMs ?? undefined;                  // m/s
+      const wd = ts.vindRiktning ?? undefined;            // grader
+      const pcat = ts.nederbordKategori ?? undefined;     // nederbördskategori
 
       // Vindriktning till text och pil
       const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -20793,6 +20783,7 @@ export default function PlannerPage() {
       )}
 
       {/* === Skotning panel (slide-in från höger) === */}
+      {!skotarLassAktiv && (
       <div style={{
         position: 'fixed', top: '56px', right: 0, bottom: 0,
         width: '340px', maxWidth: '90vw',
@@ -21056,6 +21047,7 @@ export default function PlannerPage() {
             </div>
           )}
         </div>
+      )}
 
       {/* Skotning pulse animation */}
       <style>{`

@@ -36,8 +36,8 @@ export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAkt
   }
   return [
     ...(o.korvyAktiv ? [] : [{ id: 'korvy' as const, etikett: 'Körvy' }]),
-    // utanSkotning = skotarläget med lassrapportering i appen: det gamla Skotning-verktyget (sortiment och högar, Skotningsuttag) förvirrar där och visas inte.
-    ...(o.maskinSlag === 'skordare' ? [] : [...(o.utanSkotning ? [] : [{ id: 'skotning' as const, etikett: 'Skotning' }]), { id: 'utkort' as const, etikett: 'Utkört' }]),
+    // utanSkotning = skotarläget med lassrapportering i appen: det gamla skotningsverktyget (Skotning: sortiment och högar, Utkört: rita yta → Skotningsuttag) förvirrar där och visas inte.
+    ...(o.maskinSlag === 'skordare' || o.utanSkotning ? [] : [{ id: 'skotning' as const, etikett: 'Skotning' }, { id: 'utkort' as const, etikett: 'Utkört' }]),
     { id: 'mer', etikett: 'Mer' },
   ];
 }
@@ -248,7 +248,7 @@ export interface MerIn {
   maskinlage: boolean;
   /** Skotning-knappen finns redan på kortet (förare på skotare/okänd maskin) → ingen dubblett i Mer */
   skotningFinnsSomKnapp: boolean;
-  /** Skotarläget med lassrapportering: Skotning-verktyget (Skotningsuttag) visas varken som knapp eller i Mer. */
+  /** Skotarläget med lassrapportering: det gamla skotningsverktyget (Skotning, Markera utkört → Skotningsuttag) visas varken som knapp eller i Mer. */
   utanSkotning?: boolean;
   status: string | null;
   korvy?: { basKartaText: string; gpsText: string; gpsProblem: boolean; dataText: string; andrasSparText: string | null };
@@ -292,7 +292,7 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
   // Skotning-arket (sortiment, högar) ligger här för dem som inte har den som knapp på kortet — annars nås det inte alls.
   const foraren: MerRad[] = [
     ...(c.skotningFinnsSomKnapp || c.utanSkotning ? [] : [{ id: 'skotning', etikett: 'Skotning', under: 'Sortiment och högar', ikon: 'local_shipping', onTryck: c.go.skotning }]),
-    { id: 'markera-utkort', etikett: 'Markera utkört', under: 'Rita det som är utkört', ikon: 'edit', onTryck: c.go.markeraUtkort },
+    ...(c.utanSkotning ? [] : [{ id: 'markera-utkort', etikett: 'Markera utkört', under: 'Rita det som är utkört', ikon: 'edit', onTryck: c.go.markeraUtkort }]),
     { id: 'genomgang', etikett: 'Genomgång & kvittering', under: 'Gå igenom trakten och kvittera markeringarna', ikon: 'menu_book', onTryck: c.go.genomgang },
   ];
   grupper.push({ id: 'foraren', titel: 'Föraren', rader: foraren });

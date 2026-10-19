@@ -11,10 +11,16 @@ vi.mock('@/lib/smhi-brandrisk', () => ({ fetchSmhiFwi: async () => ({ peakIdx: 4
 import { useSkotarVader, type SkotarVader } from './useSkotarVader';
 import { MORGONKORT_NYCKEL } from '@/lib/skotarLass/vader';
 
+/** SNOW1gv1-svar: `time`, platt `data`, nederbörd som mängd över intervallet som slutar vid `time`. */
 const serie = () => {
-  const ts: any[] = [];
-  for (const d of ['19', '20', '21', '22']) for (const h of ['06', '10', '16']) ts.push({ validTime: `2026-10-${d}T${h}:00:00Z`, parameters: [{ name: 'pmean', values: [0] }, { name: 't', values: [8] }, { name: 'Wsymb2', values: [3] }] });
-  return { timeSeries: ts };
+  const timeSeries: any[] = [];
+  let forra: string | null = null;
+  for (const d of ['19', '20', '21', '22']) for (const h of ['06', '10', '16']) {
+    const time = `2026-10-${d}T${h}:00:00Z`;
+    timeSeries.push({ time, ...(forra ? { intervalParametersStartTime: forra } : {}), data: { air_temperature: 8, symbol_code: 3, precipitation_amount_mean: 0, wind_speed: 9999 } });
+    forra = time;
+  }
+  return { createdTime: '2026-10-19T05:00:00Z', referenceTime: '2026-10-19T05:00:00Z', timeSeries };
 };
 
 let root: Root; let div: HTMLDivElement; let vy: SkotarVader; let urls: string[];
@@ -35,7 +41,9 @@ afterEach(() => { act(() => root.unmount()); div.remove(); vi.unstubAllGlobals()
 describe('useSkotarVader', () => {
   it('hämtar för positionen den får (traktens) och ger tre dagar', async () => {
     await visa({ pos: { lat: 57.1234, lon: 14.5678 } });
+    expect(urls[0]).toContain('/category/snow1g/version/1/');
     expect(urls[0]).toContain('lon/14.5678/lat/57.1234');
+    expect(urls.some((u) => u.includes('pmp3g'))).toBe(false);
     expect(vy.dagar).toHaveLength(3);
     expect(vy.dagar[0].symbol).toBe(3);
   });

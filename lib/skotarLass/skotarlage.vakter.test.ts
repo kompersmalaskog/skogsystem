@@ -63,6 +63,8 @@ describe('skotarläget i planeringsvyn', () => {
     expect(hook).toContain('if (test) setKort(morgonkortProv(regn24h, brandklass));');
     // Skotning-verktyget (Skotningsuttag) visas varken som knapp på kortet eller i Mer när lassrapporteringen är aktiv; planeringsvyns eget flöde är orört.
     expect(page).toContain('maskinSlag, utanSkotning: skotarLassAktiv }),');
+    // Själva Skotningsuttag-panelen (resultatrutan i Markera utkört) ritas inte alls när lassrapporteringen är aktiv.
+    expect(page).toMatch(/\{\/\* === Skotning panel \(slide-in från höger\) === \*\/\}\s*\{!skotarLassAktiv && \(\s*<div style=\{\{\s*position: 'fixed', top: '56px', right: 0, bottom: 0,/);
     expect(page).toContain("utanSkotning: skotarLassAktiv, status: valtObjekt.status ?? null");
   });
   it('kvar kräver Opti-lassen (skotat före appens start) och räknar aldrig en trakt med avslutad skotning', () => {

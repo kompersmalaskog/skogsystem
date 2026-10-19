@@ -1,4 +1,4 @@
-// Väder och morgonkort för skotaren. Rena funktioner — hämtningen (SMHI pmp3g/fwif1g) görs av hooken.
+// Väder och morgonkort för skotaren. Rena funktioner — hämtningen (SMHI SNOW1gv1, lib/smhi-prognos; brandrisk fwif1g) görs av hooken.
 //
 // Morgonkortet visas högst EN gång per dag, vid första starten, och bara om något gäller:
 //   • ≥ 10 mm regn väntas närmaste 24 timmarna, och/eller
@@ -11,42 +11,15 @@ export const MORGONKORT = {
   HORISONT_H: 24,
 } as const;
 
-export interface PmpTimeSeries {
-  validTime: string;
-  parameters?: Array<{ name: string; values?: number[] }>;
-}
-
-const param = (ts: PmpTimeSeries, namn: string): number | null => {
-  const v = ts.parameters?.find((p) => p.name === namn)?.values?.[0];
-  return typeof v === 'number' && Number.isFinite(v) ? v : null;
-};
+import { nederbordMellan, nederbordPerDatum, type PrognosSteg } from '@/lib/smhi-prognos';
 
 /**
- * Regn (mm) under de närmaste `timmar` timmarna ur SMHI pmp3g: `pmean` är medelintensitet i mm/h över steget fram till nästa tidpunkt
- * (steget är 1 h de första dygnen, sedan 3 och 6 h) — därför viktas den med stegets längd i stället för att summeras rakt av.
- * Saknas data returneras null (aldrig 0: "inget regn" och "vet inte" är olika svar).
+ * Regn (mm) under de närmaste `timmar` timmarna ur SMHI SNOW1gv1: nederbörden är en MÄNGD över ett intervall (inte en intensitet), så varje intervall räknas
+ * med den del som ligger inom fönstret (fördelat jämnt på intervallet). Saknas data returneras null (aldrig 0: "inget regn" och "vet inte" är olika svar).
  */
-export function regnMm(serie: readonly PmpTimeSeries[] | null | undefined, nuMs: number, timmar: number = MORGONKORT.HORISONT_H): number | null {
-  if (!serie?.length) return null;
-  const till = nuMs + timmar * 3_600_000;
-  const punkter = serie
-    .map((t) => ({ ms: Date.parse(t.validTime), pmean: param(t, 'pmean') }))
-    .filter((p) => Number.isFinite(p.ms))
-    .sort((a, b) => a.ms - b.ms);
-  if (punkter.length < 2) return null;
-  let summa = 0;
-  let sett = false;
-  for (let i = 0; i < punkter.length; i++) {
-    const start = punkter[i].ms;
-    // Sista punktens steg antas lika långt som det före.
-    const slut = i + 1 < punkter.length ? punkter[i + 1].ms : start + (start - punkter[i - 1].ms);
-    const a = Math.max(start, nuMs);
-    const b = Math.min(slut, till);
-    if (b <= a || punkter[i].pmean == null) continue;
-    summa += (punkter[i].pmean as number) * ((b - a) / 3_600_000);
-    sett = true;
-  }
-  return sett ? summa : null;
+export function regnMm(steg: readonly PrognosSteg[] | null | undefined, nuMs: number, timmar: number = MORGONKORT.HORISONT_H): number | null {
+  if (!steg?.length) return null;
+  return nederbordMellan(steg, nuMs, nuMs + timmar * 3_600_000);
 }
 
 export interface VaderDag {
@@ -69,32 +42,32 @@ export function vaderIkon(symbol: number | null | undefined): VaderIkon | null {
   return 'snoblandat';   // 12–17 byar av snöblandat regn/snö, 22–27 snöblandat regn/snöfall
 }
 
-/** Kommande dagar för ⓘ-panelen: regn (mm), högsta och lägsta temperatur per dag. `datumAv` ger lokalt datum för en tidpunkt. */
-export function vaderPerDag(serie: readonly PmpTimeSeries[] | null | undefined, datumAv: (ms: number) => string, antal: number = 3): VaderDag[] {
-  if (!serie?.length) return [];
-  const punkter = serie
-    .map((t) => ({ ms: Date.parse(t.validTime), pmean: param(t, 'pmean'), t: param(t, 't'), sym: param(t, 'Wsymb2') }))
-    .filter((p) => Number.isFinite(p.ms))
-    .sort((a, b) => a.ms - b.ms);
+/** Kommande dagar för ⓘ-panelen: regn (mm), högsta och lägsta temperatur och dagens vädersymbol. `datumAv` ger lokalt datum för en tidpunkt. */
+export function vaderPerDag(steg: readonly PrognosSteg[] | null | undefined, datumAv: (ms: number) => string, antal: number = 3): VaderDag[] {
+  if (!steg?.length) return [];
+  const regn = nederbordPerDatum(steg, datumAv);
   const per = new Map<string, VaderDag>();
   const lunchAvstand = new Map<string, number>();
-  for (let i = 0; i < punkter.length; i++) {
-    const p = punkter[i];
-    const slut = i + 1 < punkter.length ? punkter[i + 1].ms : p.ms + (i > 0 ? p.ms - punkter[i - 1].ms : 3_600_000);
+  const dagAv = (datum: string): VaderDag => {
+    let d = per.get(datum);
+    if (!d) { d = { datum, regnMm: regn.get(datum) ?? null, tempMax: null, tempMin: null, symbol: null }; per.set(datum, d); }
+    return d;
+  };
+  for (const p of steg) {
     const datum = datumAv(p.ms);
-    const d = per.get(datum) ?? { datum, regnMm: null, tempMax: null, tempMin: null, symbol: null };
+    const d = dagAv(datum);
     // Dagens ikon = symbolen närmast lunch (10:30 UTC ≈ 12:30 sommartid / 11:30 vintertid).
-    if (p.sym != null) {
+    if (p.symbol != null) {
       const avst = Math.abs(p.ms - Date.parse(`${datum}T10:30:00Z`));
-      if (avst < (lunchAvstand.get(datum) ?? Infinity)) { lunchAvstand.set(datum, avst); d.symbol = p.sym; }
+      if (avst < (lunchAvstand.get(datum) ?? Infinity)) { lunchAvstand.set(datum, avst); d.symbol = p.symbol; }
     }
-    if (p.pmean != null) d.regnMm = (d.regnMm ?? 0) + p.pmean * ((slut - p.ms) / 3_600_000);
-    if (p.t != null) {
-      d.tempMax = d.tempMax == null ? p.t : Math.max(d.tempMax, p.t);
-      d.tempMin = d.tempMin == null ? p.t : Math.min(d.tempMin, p.t);
+    if (p.temp != null) {
+      d.tempMax = d.tempMax == null ? p.temp : Math.max(d.tempMax, p.temp);
+      d.tempMin = d.tempMin == null ? p.temp : Math.min(d.tempMin, p.temp);
     }
-    per.set(datum, d);
   }
+  // Ett datum som bara har nederbörd (intervall utan egen tidpunkt i serien) tas också med.
+  for (const datum of regn.keys()) dagAv(datum);
   return Array.from(per.values()).sort((a, b) => a.datum.localeCompare(b.datum)).slice(0, antal);
 }
 

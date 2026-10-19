@@ -7,7 +7,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { serverNu } from '@/lib/serverKlocka';
 import { lokaltDatumStockholm } from '@/lib/hyttspar';
 import { fetchSmhiFwi } from '@/lib/smhi-brandrisk';
-import { morgonkort, morgonkortProv, MORGONKORT_NYCKEL, regnMm, vaderPerDag, type Morgonkort, type PmpTimeSeries, type VaderDag } from '@/lib/skotarLass/vader';
+import { hamtaPrognos, type PrognosSteg } from '@/lib/smhi-prognos';
+import { morgonkort, morgonkortProv, MORGONKORT_NYCKEL, regnMm, vaderPerDag, type Morgonkort, type VaderDag } from '@/lib/skotarLass/vader';
 
 export interface SkotarVader {
   dagar: VaderDag[];
@@ -46,12 +47,9 @@ export function useSkotarVader(aktiv: boolean, pos: { lat: number; lon: number }
     setLaddar(true);
     (async () => {
       let regn: number | null = null;
-      let serie: PmpTimeSeries[] | null = null;
-      try {
-        const url = `https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
-        const r = await fetch(url);
-        if (r.ok) { serie = ((await r.json()).timeSeries ?? []) as PmpTimeSeries[]; regn = regnMm(serie, serverNu()); }
-      } catch { /* offline: inget väder, inget kort */ }
+      // SMHI SNOW1gv1 (lib/smhi-prognos). Går hämtningen inte (ingen täckning) blir det inget väder och inget kort — aldrig en gissning.
+      const serie: PrognosSteg[] | null = await hamtaPrognos(lat, lon);
+      if (serie) regn = regnMm(serie, serverNu());
       let klass: number | null = null;
       try { klass = (await fetchSmhiFwi(lat, lon)).peakIdx; } catch { /* */ }
       if (avbruten) return;

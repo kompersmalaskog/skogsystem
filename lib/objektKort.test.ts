@@ -40,8 +40,8 @@ describe('knapprad efter roll', () => {
   });
   it('skördarförare har ingen skotning att öppna eller markera utkört: Körvy · Mer', () => {
     expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skordare' }))).toEqual(['korvy', 'mer']);
-    // skotarläget med lassrapportering: inget Skotning-verktyg (Skotningsuttag) – Utkört finns kvar
-    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare', utanSkotning: true }))).toEqual(['korvy', 'utkort', 'mer']);
+    // skotarläget med lassrapportering: inget gammalt skotningsverktyg – varken Skotning eller Utkört (som leder till Skotningsuttag)
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare', utanSkotning: true }))).toEqual(['korvy', 'mer']);
   });
   it('körvyn redan igång: ingen Körvy-knapp (Avsluta körvy ligger i Mer)', () => {
     expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: true, maskinSlag: 'skotare' }))).toEqual(['skotning', 'utkort', 'mer']);
@@ -150,6 +150,8 @@ describe('Mer', () => {
   it('Mer: utanSkotning (skotarläget med lassrapportering) tar bort Skotning-raden — annars finns den för den som inte har knappen', () => {
     expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false })), 'foraren')).toContain('skotning');
     expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning: true })), 'foraren')).not.toContain('skotning');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false })), 'foraren')).toContain('markera-utkort');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning: true })), 'foraren')).not.toContain('markera-utkort');
   });
 
   it('planerare (admin): körvyerna, föraren, planeraren, övrigt — och inga Byt objekt, Brandrisk, Gallring, Inställningar, Förslag', () => {
