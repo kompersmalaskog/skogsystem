@@ -79,10 +79,11 @@ export function stegaDetektor(s: DetektorState, fix: DetektorFix, ctx: DetektorK
   st.sistaTs = fix.ts;
 
   // Har maskinen lastat sedan förra lossningen? (avståndet räknas på varje fix)
-  if (st.senaste) {
-    const bort = avstand(fix, st.senaste);
+  const forraLossning = st.senaste;
+  if (forraLossning) {
+    const bort = avstand(fix, forraLossning);
     if (!st.lamnat && bort > AVLAGG.RADIE_M) st = { ...st, lamnat: true };
-    if (!st.lastat && (bort >= LOSSNING.LASTNING_AVSTAND_M || (st.lamnat && (fix.ts - st.senaste.ts) / 1000 >= LOSSNING.LASTNING_TID_S))) st = { ...st, lastat: true };
+    if (!st.lastat && (bort >= LOSSNING.LASTNING_AVSTAND_M || (st.lamnat && (fix.ts - forraLossning.ts) / 1000 >= LOSSNING.LASTNING_TID_S))) st = { ...st, lastat: true };
   }
 
   // Rör sig maskinen? Nytt ankare, nollställ utlösta flaggor.

@@ -49,10 +49,14 @@ function Raknare({ namn, ikon, vy, smal, onTryck, testid, handling }: {
 
 const Avdelare = () => <span aria-hidden="true" style={{ width: 1, alignSelf: 'center', height: AVSTAND.xl, background: FARG.linje, flexShrink: 0 }} />;
 
+/** Skotarens kvar-del: "Kvar ~121 m³ · Klar ~onsdag", åtskild av en tunn linje. Tryck öppnar kvar per sortiment. */
+export interface KvarDel { text: string; klar: string | null; onTryck: () => void }
+
 export function KorvyObjektPill({
-  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix,
+  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar,
   onNamn, onHogstubbe, onEvighetstrad,
 }: {
+  kvar?: KvarDel | null;
   namn: string;
   hogstubbar: RaknareVy;
   evighetstrad: RaknareVy;
@@ -67,15 +71,9 @@ export function KorvyObjektPill({
   onHogstubbe: () => void;
   onEvighetstrad: () => void;
 }) {
-  return (
-    <div
-      data-testid="korvy-objektpill"
-      style={{
-        pointerEvents: 'auto', flex: smal ? '1 1 auto' : '0 1 auto', minWidth: 0, maxWidth: smal ? 'none' : 'calc(100% - 120px)', display: 'flex', alignItems: 'stretch',
-        height: PILL_HOJD_PX, borderRadius: PILL_HOJD_PX / 2, overflow: 'hidden', background: FARG.kort, color: FARG.text,
-        border: orangeKant ? `1px solid ${FARG.orange}` : `1px solid ${FARG.linje}`,
-      }}
-    >
+  // Namn + räknare. Med kvar-delen (skotare) hamnar de i en egen rad, så kvar-delen kan ligga bredvid (dator) eller under (telefon).
+  const rad = (
+    <>
       <button
         type="button"
         data-testid="korvy-pill-namn"
@@ -95,6 +93,38 @@ export function KorvyObjektPill({
       <Raknare namn="Högstubbar" ikon={ikonHogstubbe} vy={hogstubbar} smal={smal} onTryck={onHogstubbe} testid="korvy-pill-hogstubbar" handling="Tryck för att sätta en högstubbe här" />
       <Avdelare />
       <Raknare namn="Evighetsträd" ikon={ikonEvighetstrad} vy={evighetstrad} smal={smal} onTryck={onEvighetstrad} testid="korvy-pill-evighetstrad" handling="Tryck för att sätta ett evighetsträd här" />
+    </>
+  );
+  return (
+    <div
+      data-testid="korvy-objektpill"
+      style={{
+        pointerEvents: 'auto', flex: smal ? '1 1 auto' : '0 1 auto', minWidth: 0, maxWidth: smal ? 'none' : 'calc(100% - 120px)', display: 'flex', alignItems: 'stretch',
+        minHeight: PILL_HOJD_PX, borderRadius: PILL_HOJD_PX / 2, overflow: 'hidden', background: FARG.kort, color: FARG.text,
+        flexDirection: kvar && smal ? 'column' : 'row',
+        border: orangeKant ? `1px solid ${FARG.orange}` : `1px solid ${FARG.linje}`,
+      }}
+    >
+      {kvar ? <div style={{ display: 'flex', alignItems: 'stretch', minWidth: 0, flex: '1 1 auto' }}>{rad}</div> : rad}
+      {kvar && (
+        <>
+          {smal ? <span aria-hidden="true" style={{ height: 1, alignSelf: 'stretch', background: FARG.linje, flexShrink: 0 }} /> : <Avdelare />}
+          <button
+            type="button"
+            data-testid="korvy-pill-kvar"
+            aria-label={`${kvar.text}${kvar.klar ? `, ${kvar.klar}` : ''}. Tryck för kvar per sortiment`}
+            onClick={kvar.onTryck}
+            className="press-dim"
+            style={{
+              display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: PILL_HOJD_PX, padding: `0 ${smal ? AVSTAND.m : AVSTAND.l}px`, border: 'none',
+              background: 'transparent', color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, ...TYP.listtitel, ...TNUM,
+            }}
+          >
+            <span>{kvar.text}</span>
+            {kvar.klar && <span style={{ color: FARG.text2 }}>· {kvar.klar}</span>}
+          </button>
+        </>
+      )}
     </div>
   );
 }

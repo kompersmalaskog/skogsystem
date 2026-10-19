@@ -46,6 +46,8 @@ export interface ObjektKortProps {
   planering?: { rader: SammanfattningRad[]; oplanerad: boolean; gamla: string } | null;
   klarRad?: { chip: { text: string; ton: 'orange' | 'gron' | 'neutral' } | null } | null;
   onKlar?: () => void;
+  /** Skotarläget: vädret de närmaste dagarna (bara här — inget väder på kartan). Sist på kortet. */
+  vader?: React.ReactNode;
 }
 
 /** En text begränsad till tre rader; "Läs allt ›" när den inte ryms (mätt i webbläsaren, annars den rena tumregeln). */
@@ -178,6 +180,7 @@ export default function ObjektKort(p: ObjektKortProps) {
           )}
           <LarmKort larm={p.larm} />
         </Gruppkort>
+        {p.vader && <div data-testid="kort-vader" style={{ marginTop: AVSTAND.l }}>{p.vader}</div>}
       </div>
     </>
   );

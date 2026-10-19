@@ -103,6 +103,18 @@ import { StartSvartSkarm, MaskinSomFelSkarm, MaskinFelSkarm } from '../../compon
 import { VilkenMaskinSkarm } from '../../components/maskin/VilkenMaskinSkarm'
 import { typLabel } from '../../lib/objekt/typ'
 import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
+import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
+import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
+import { egnaNummer, nastaEgnaNummer } from '../../lib/skotarLass/avlagg'
+import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
+import { farduskotatKontroll } from '../../lib/skotarLass/kvar'
+import type { VagLinje } from '../../lib/skotarLass/spar'
+import { LossningsKort, NyttAvlaggKort } from '../../components/planering/skotar/LossningsKort'
+import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
+import { KvarArk } from '../../components/planering/skotar/KvarArk'
+import { MorgonKortVy, VaderLista } from '../../components/planering/skotar/VaderMorgon'
+import { AvlaggSkotatSektion } from '../../components/planering/skotar/AvlaggSkotatSektion'
+import { FardigskotadKort } from '../../components/planering/skotar/FardigskotadKort'
 import { filtreraHyttsparRad, hyttsparInsertRad, kanLoggaHyttspar, type HyttsparCtx } from '../../lib/hyttsparNyckel'
 import { skapaJobb, narmasteVirkesobjekt, ytaKontextIds, avstandText as startaJobbAvstandText } from '../../lib/startaJobb'
 import { lasBesked } from '../../lib/startaJobbOverlamning'
@@ -335,6 +347,7 @@ interface Marker {
   x?: number;           // symboler och pilar; linjer och zoner har path i stället
   y?: number;
   type?: string;
+  avlaggNummer?: string;   // ett eget avläggs löpnummer (skotarläget, lib/skotarLass/avlagg): sätts en gång och behålls
   isMarker?: boolean;
   isArrow?: boolean;
   isZone?: boolean;
@@ -8949,7 +8962,7 @@ export default function PlannerPage() {
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
       // 'measure-' + 'figur-etikett' = Mät/Rita-figuren (punkter, linje, yta, etikett). Utan dem döljs figuren i körvyn
       // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-'];
       for (const l of allLayers) {
         // wms-layer-*: DEFERAS. Den kurerade skyddsmängden lämnas ORÖRD här och tänds av defer-
         // effekten en knapp EFTER öppning → basen (LM nedtonad) + symboler laddar okonkurrerat →
@@ -11958,6 +11971,142 @@ export default function PlannerPage() {
     if (korvyActive || (klarGaller && typ !== 'firewood')) visaKvitto(osakerM ? `${kvittoRubrik(symbolNamn(typ))} · osäker ±${osakerM} m` : kvittoRubrik(symbolNamn(typ)), 'ok', id);
   };
   placeraSymbolRef.current = placeraSymbol;
+
+  // ═══ SKOTARLÄGE: lassrapportering i appen (lib/skotarLass, lib/hooks/useSkotarLass) ═══════════════════════════════════════════════════
+  // Bara skotare, bara med vald maskin, aldrig i testläge. Skördarvyn och planeringen rörs inte: allt nedan är av när skotarLassAktiv är falskt.
+  const skotarMaskinId = skotarKorvy ? hyttsparMaskinId(enhetMaskinId, 'skotare', null) : null;
+  const skotarLassAktiv = skotarKorvy && !!valtObjekt?.id && !!skotarMaskinId && !testlage;
+  const skotarEgnaAvlagg = useMemo(() => (skotarLassAktiv
+    ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null }; })
+    : []),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [skotarLassAktiv, markers, mapCenter.lat, mapCenter.lng, scale]);
+  // Skördarens stråk som linjer (cachade på källans identitet): för "Nytt avlägg här?" (långt från spåret) och tid per väg.
+  const skotarVagCacheRef = useRef<{ kalla: any[]; linjer: VagLinje[] }>({ kalla: [], linjer: [] });
+  const skotarHamtaVagar = (): VagLinje[] => {
+    const kalla = andrasFeaturesRef.current;
+    if (skotarVagCacheRef.current.kalla !== kalla) {
+      skotarVagCacheRef.current = {
+        kalla,
+        linjer: kalla.map((f: any, i: number) => ({ vag: `s${i}`, linje: ((f?.geometry?.coordinates ?? []) as [number, number][]).map(([lng, lat]) => ({ lat, lng })) })).filter((v: VagLinje) => v.linje.length > 1),
+      };
+    }
+    return skotarVagCacheRef.current.linjer;
+  };
+  // "Nytt avlägg här?" → Ja: ett eget avlägg på platsen, synligt för alla direkt (vanlig markering via markeringssynken), med sitt löpnummer.
+  const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string): string | null => {
+    const { x, y } = latLonToSvg(lat, lon);
+    const id = Date.now();
+    const m: any = nyMarkering('landing', id, x, y);
+    m.avlaggNummer = nummer;
+    m.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
+    setMarkers((prev: any[]) => [...prev, m]);
+    korvyEgnaMarkorRef.current.add(String(id));
+    startaAvlaggVagkontroll(id, lat, lon);
+    return String(id);
+  };
+  const skotarLass = useSkotarLass({
+    aktiv: skotarLassAktiv,
+    objekt: valtObjekt ? { id: valtObjekt.id, vo: valtObjekt.vo_nummer ? String(valtObjekt.vo_nummer) : null, namn: valtObjekt.namn } : null,
+    maskinId: skotarMaskinId,
+    medarbetareId: currentMedarbetare?.id ?? null,
+    position: currentPosition,
+    vida: klarVidaPunkter,
+    egna: skotarEgnaAvlagg,
+    hamtaVagar: skotarHamtaVagar,
+    skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
+  });
+  const skotarVader = useSkotarVader(skotarKorvy && !testlage, currentPosition);
+  const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
+  const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
+  const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
+  // Egna avlägg får sitt löpnummer en gång och behåller det (sparas på markeringen): ett raderat avlägg flyttar aldrig om de andra.
+  useEffect(() => {
+    if (!skotarLassAktiv) return;
+    const saknas = skotarEgnaAvlagg.filter((e) => e.nummer == null || e.nummer === '');
+    if (!saknas.length) return;
+    const nr = egnaNummer(klarVidaPunkter, skotarEgnaAvlagg);
+    setMarkers((prev: any[]) => prev.map((m) => (m.isMarker && m.type === 'landing' && !m.avlaggNummer && nr.has(String(m.id)) ? { ...m, avlaggNummer: nr.get(String(m.id)) } : m)));
+  }, [skotarLassAktiv, skotarEgnaAvlagg, klarVidaPunkter]);
+
+  // Avläggen på kartan i skotarläget: vita rutor med numret i, vald får en ring (lib/skotarLass). De gamla avläggssymbolerna (Vidas punkt och egna
+  // markeringar) göms med filter medan skotarläget är aktivt — rutorna tar över som synlig symbol OCH träffyta (56 px). Kortets innehåll är oförändrat.
+  const skotarOrigFilterRef = useRef<Record<string, any>>({});
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !skotarLassAktiv) return;
+    const FIL = ['trakt-punkt-circle', 'trakt-punkt-label', 'markers-layer', 'markers-hit'];
+    try {
+      if (!map.hasImage('skotar-avlagg-ruta')) {
+        const px = 40, c = document.createElement('canvas'); c.width = px; c.height = px;
+        const g = c.getContext('2d');
+        if (g) {
+          g.fillStyle = '#ffffff'; g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 2;
+          const r = 6, m = 3, w = px - 2 * m;
+          g.beginPath(); g.moveTo(m + r, m); g.arcTo(m + w, m, m + w, m + w, r); g.arcTo(m + w, m + w, m, m + w, r); g.arcTo(m, m + w, m, m, r); g.arcTo(m, m, m + w, m, r); g.closePath();
+          g.fill(); g.stroke();
+          map.addImage('skotar-avlagg-ruta', g.getImageData(0, 0, px, px), { pixelRatio: 2 });
+        }
+      }
+      if (!map.getSource('skotar-avlagg-source')) map.addSource('skotar-avlagg-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any });
+      if (!map.getLayer('skotar-avlagg-ring')) map.addLayer({ id: 'skotar-avlagg-ring', type: 'circle', source: 'skotar-avlagg-source', filter: ['==', ['get', 'vald'], true], paint: { 'circle-radius': 22, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } });
+      if (!map.getLayer('skotar-avlagg-ruta')) map.addLayer({ id: 'skotar-avlagg-ruta', type: 'symbol', source: 'skotar-avlagg-source', layout: { 'icon-image': 'skotar-avlagg-ruta', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 14, 0.85, 17, 1.1], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'text-field': ['to-string', ['get', 'nummer']], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 14, 13, 17, 16], 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-anchor': 'center' }, paint: { 'text-color': '#000000' } });
+      if (!map.getLayer('skotar-avlagg-hit')) map.addLayer({ id: 'skotar-avlagg-hit', type: 'circle', source: 'skotar-avlagg-source', paint: { 'circle-radius': 28, 'circle-color': 'rgba(0,0,0,0)', 'circle-pitch-alignment': 'viewport' } });
+      for (const id of FIL) if (map.getLayer(id) && !(id in skotarOrigFilterRef.current)) skotarOrigFilterRef.current[id] = map.getFilter(id) ?? null;
+      const dold = ['==', ['get', '_typ'], '__skotar_dold__'];
+      for (const id of ['trakt-punkt-circle', 'trakt-punkt-label']) if (map.getLayer(id)) map.setFilter(id, dold as any);
+      const ejLanding = ['!=', ['get', 'type'], 'landing'];
+      if (map.getLayer('markers-layer')) map.setFilter('markers-layer', ['all', skotarOrigFilterRef.current['markers-layer'] ?? ['!=', ['get', 'prick'], true], ejLanding] as any);
+      if (map.getLayer('markers-hit')) map.setFilter('markers-hit', ejLanding as any);
+    } catch (e) { console.error('[Skotarlass] avläggslager:', e); }
+    return () => {
+      try {
+        for (const id of ['skotar-avlagg-hit', 'skotar-avlagg-ruta', 'skotar-avlagg-ring']) if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource('skotar-avlagg-source')) map.removeSource('skotar-avlagg-source');
+        for (const id of FIL) if (map.getLayer(id) && id in skotarOrigFilterRef.current) map.setFilter(id, skotarOrigFilterRef.current[id]);
+        skotarOrigFilterRef.current = {};
+      } catch { /* kartan är borta */ }
+    };
+  }, [skotarLassAktiv, mapLibreReady, korvyBasKarta]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !skotarLassAktiv) return;
+    const src = map.getSource('skotar-avlagg-source') as any;
+    if (!src) return;
+    src.setData({
+      type: 'FeatureCollection',
+      features: skotarLass.avlagg.map((a) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [a.lng, a.lat] }, properties: { id: a.id, nummer: a.nummer, vald: a.id === skotarValtAvlagg } })),
+    });
+  }, [skotarLassAktiv, mapLibreReady, korvyBasKarta, skotarLass.avlagg, skotarValtAvlagg]);
+  // Tryck på ett avlägg: Vidas öppnar sitt vanliga trakt-kort (samma innehåll som förut), egna sitt markörkort — med "skotat hit" överst.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !skotarLassAktiv) return;
+    const onKlick = (e: any) => {
+      if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current || ritlageRef.current) return;
+      const id = String(e.features?.[0]?.properties?.id ?? '');
+      if (!id) return;
+      featureClickedRef.current = true;
+      setSkotarValtAvlagg(id);
+      if (id.startsWith('egen:')) { setMarkerMenuOpen(Number(id.slice(5)) as any); return; }
+      const nr = id.slice(5);
+      const f = (traktGeo?.features ?? []).find((x: any) => x?.properties?._typ === 'punkt' && String(x.properties.EXTRA_LABE ?? x.properties.LOPNR ?? '').trim() === nr);
+      if (!f) return;
+      const props: any = f.properties || {};
+      const nyckel = ytaNyckel(props);
+      featureClickedRef.current = true;
+      setTraktInfo(byggTraktKort(props));
+      setTraktKortNyckel(nyckel);
+      setTraktKortVida(null);
+      setAnteckningUtkast(nyckel ? (anteckningarRef.current[nyckel]?.text || '') : '');
+      setAnteckningSkrivlage(false);
+      setTraktKortSvepY(0);
+    };
+    map.on('click', 'skotar-avlagg-hit', onKlick);
+    return () => { try { map.off('click', 'skotar-avlagg-hit', onKlick); } catch { /* */ } };
+  }, [skotarLassAktiv, mapLibreReady, korvyBasKarta, traktGeo]);
+  // Ringen släcks när avläggets kort stängts.
+  useEffect(() => { if (skotarValtAvlagg && !traktInfo && !markerMenuOpen) setSkotarValtAvlagg(null); }, [skotarValtAvlagg, traktInfo, markerMenuOpen]);
   // Vid maskinen: maskinens position — aldrig en gammal eller saknad (efter åldersvakten betyder gpsFixFarsk=false att den inte längre är maskinens)
   // Telefonens GPS: medelvärde av några sekunders BRA fixar (≤ 20 m) i stället för EN fix, med "Söker position…" om det inte går direkt. Maskindatorns
   // serial-GPS är oförändrad (en position, direkt).
@@ -12142,6 +12291,9 @@ export default function PlannerPage() {
         rader: lineTypes.filter((l) => !l.id.includes('sideRoad') && !l.id.includes('backRoad'))
           .map((l) => vaxel(l.id, l.name, l.id === 'mainRoad' ? 'blå/gul · röd · gul · blå' : undefined, visibleLines[l.id] !== false, l.id === 'mainRoad' ? basvagYta() : linjeYta(l.color, l.striped ? l.color2 : undefined), () => setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false })))),
       });
+    }
+    if (skotarLassAktiv) {
+      g.push({ id: 'skotad-trakt', rubrik: 'Trakten', rader: [{ id: 'fardigskotad', namn: 'Trakten färdigskotad', under: skotarLass.avslut ? 'Redan avslutad' : 'Skotat sätts lika med skördat', typ: 'knapp', onTryck: () => { stangPlus(); setSkotarFardigOppet(true); } }] });
     }
     g.push({ id: 'varning', rader: [{ id: 'varningsinstallningar', namn: 'Varningsinställningar', typ: 'knapp', onTryck: () => { stangPlus(); setWarningMenuOpen(true); } }] });
     return g;
@@ -13076,6 +13228,11 @@ export default function PlannerPage() {
               ikonEvighetstrad={renderIcon('eternitytree', 18, '#fff')}
               orangeKant={!!visarSomForare}
               prefix={visarSomForare && simuleradForare ? <span style={{ color: '#ff9f0a', fontWeight: 600, marginRight: 6 }}>👁 {simuleradForare.namn.split(' ')[0]} ·</span> : undefined}
+              kvar={skotarLassAktiv && skotarLass.avslut
+                ? { text: 'Färdigskotad', klar: null, onTryck: () => setSkotarKvarOppet(true) }
+                : skotarLassAktiv && skotarLass.sammanfattning
+                  ? { text: skotarLass.sammanfattning.kvarText, klar: skotarLass.sammanfattning.klarText, onTryck: () => setSkotarKvarOppet(true) }
+                  : null}
               onNamn={() => setTraktOversiktOpen(o => !o)}
               onHogstubbe={() => placeraVidMaskinen('highstump')}
               onEvighetstrad={() => placeraVidMaskinen('eternitytree')}
@@ -13556,6 +13713,7 @@ export default function PlannerPage() {
             else if (id === 'utkort') { startaMarkeraUtkort(); stang(); }
           },
           kort: {
+            vader: skotarKorvy && !testlage ? <VaderLista dagar={skotarVader.dagar} laddar={skotarVader.laddar} /> : undefined,
             rad: objektRad({ typ: typTxt, avtalsform: valtObjekt.avtalsform, cert: certTxt, arSlutavverkning: objektHuvudtyp(valtObjekt) === 'slutavverkning' }),
             knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag }),
             faror: faroLinjer,
@@ -13917,6 +14075,59 @@ export default function PlannerPage() {
              akut-kortet till en komponent. Fast botten-plats: smal rad på håll → växer till stort kort inom
              kategori-radien via EN mjuk height-övergång (diskret, ej GPS-bunden skalning → ingen mikroskak).
              Krymper/försvinner vid Sett/passerad. Faror: blink + skärmkant-glöd + tre pip. RÖR EJ skotarkörvyn. === */}
+      {/* ═══ SKOTARLÄGE: lassrapportering. Allt nedan finns bara för skotare med vald maskin (skotarLassAktiv) — skördarvyn och planeringen rörs inte. ═══ */}
+      {skotarKorvy && skotarVader.kort && !testlage && <MorgonKortVy kort={skotarVader.kort} onOk={skotarVader.stangKort} />}
+      {skotarLassAktiv && (() => {
+        const sl = skotarLass;
+        const lassMedId = (id: string) => sl.lass.find((l) => l.id === id) ?? null;
+        const kortLass = sl.kort ? lassMedId(sl.kort.lassId) : null;
+        const andraLass = sl.andra ? lassMedId(sl.andra.lassId) : null;
+        const idagIso = lokaltDatumStockholm(serverNu());
+        const dagens = sl.lass.filter((l) => l.datum === idagIso && l.status !== 'struket');
+        return (
+          <>
+            {sl.kort && kortLass && !sl.andra && (
+              <LossningsKort
+                kort={sl.kort} lass={kortLass} avlagg={sl.avlagg}
+                onAndra={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
+                onFyllI={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
+                onValjAvlagg={(a) => sl.valjAvlagg(kortLass.id, sl.kort!.delNr, a)}
+                onTaBort={() => sl.strykLass(kortLass.id)}
+              />
+            )}
+            {!sl.kort && !sl.andra && sl.nyttAvlagg && (
+              <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
+            )}
+            {sl.andra && andraLass && (
+              <AndraLassArk
+                lass={andraLass} delNr={sl.andra.delNr} avlagg={sl.avlagg} valbara={sl.valbara}
+                onRad={(rad, delta) => sl.andraRad(sl.andra!.delNr, rad, delta)}
+                onAvlagg={(a) => sl.valjAvlagg(andraLass.id, sl.andra!.delNr, a)}
+                onKlar={() => sl.stangAndra(true)}
+                onAvbryt={sl.avbrytAndra}
+                onTaBort={() => sl.strykLass(andraLass.id)}
+              />
+            )}
+            {skotarKvarOppet && sl.kvar && sl.sammanfattning && (
+              <KvarArk
+                kvar={sl.kvar} sammanfattning={sl.sammanfattning} dagens={dagens} idagText={sl.idag.text} vantande={sl.vantande}
+                onLass={(l) => { setSkotarKvarOppet(false); sl.oppnaAndra(l.id); }}
+                onStang={() => setSkotarKvarOppet(false)}
+              />
+            )}
+            {skotarFardigOppet && (
+              <FardigskotadKort
+                kontroll={sl.kvar ? farduskotatKontroll(sl.kvar) : null}
+                klar={!!sl.avslut}
+                onKarta={() => setSkotarFardigOppet(false)}
+                onBekrafta={() => { void sl.fardigskotad(); }}
+                onAvbryt={() => setSkotarFardigOppet(false)}
+              />
+            )}
+          </>
+        );
+      })()}
+
       {korvyActive && !skotarKorvy && korvyProx && (() => {
         const p = korvyProx;
         const big = p.big;
@@ -15129,6 +15340,11 @@ export default function PlannerPage() {
                 <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.3)' }} />
               </div>
               <div style={{ overflowY: 'auto', padding: '4px 22px 22px' }}>
+                {/* Skotarläget: vad som skotats HIT överst; Vidas eget innehåll ligger oförändrat under "Från Vida" */}
+                {skotarLassAktiv && traktInfo.kategori === 'punkt' && traktInfo.nr && valtObjekt && (
+                  <AvlaggSkotatSektion nummer={traktInfo.nr} objektNamn={valtObjekt.namn} kalla="vida"
+                    stat={skotatTillAvlagg(skotarLass.lass, `vida:${traktInfo.nr}`, skotarLass.avslut?.faktorer)} />
+                )}
                 <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{typKalla}</div>
                 <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{rubrikVisad}</div>
                 {kontext.length > 0 && (
@@ -15655,6 +15871,15 @@ export default function PlannerPage() {
                 </div>
                 <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{getMarkerName()}</span>
               </div>
+
+              {/* Skotarläget: vad som skotats HIT överst; kortets vanliga innehåll ligger oförändrat under avdelaren */}
+              {skotarLassAktiv && marker.isMarker && marker.type === 'landing' && valtObjekt && (
+                <AvlaggSkotatSektion
+                  nummer={String(marker.avlaggNummer ?? skotarLass.avlagg.find((a) => a.id === `egen:${marker.id}`)?.nummer ?? '')}
+                  objektNamn={valtObjekt.namn} kalla="egen"
+                  stat={skotatTillAvlagg(skotarLass.lass, `egen:${marker.id}`, skotarLass.avslut?.faktorer)}
+                />
+              )}
 
               {/* Gallringszon: valt huvudträdslag (färgar zonen) */}
               {marker.isZone && marker.zoneType === 'gallring' && (

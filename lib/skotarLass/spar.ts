@@ -46,7 +46,7 @@ export function vagTider(fixar: readonly RaFix[], vagar: readonly VagLinje[]): V
     if (!(dt > 0) || dt > SPAR.MAX_STEG_S) continue;
     const mitt: LatLng = { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 };
     let basta: string | null = null;
-    let min = SPAR.VAG_RADIE_M;
+    let min: number = SPAR.VAG_RADIE_M;
     for (const v of vagar) {
       const d = avstandTillLinje(mitt, v.linje);
       if (d <= min) { min = d; basta = v.vag; }
