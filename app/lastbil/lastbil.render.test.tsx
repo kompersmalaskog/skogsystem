@@ -2073,7 +2073,7 @@ describe("Bilen nu", () => {
   it("parkerad: läget i ord med EN tid (datum, klockslag bara idag), EN tankrad — och ingen kontaktrad när positionen är under 1 h", async () => {
     await nuFlik();
     expect(kort().querySelector("[data-lage]")!.textContent).toBe("Parkerad vid LBC · sedan 13 okt");
-    expect(tankText()).toBe(`Diesel 62 % · AdBlue 71 % · Räckvidd ${(270).toLocaleString("sv-SE")} km`);
+    expect(tankText()).toBe(`Diesel 62 % · AdBlue 71 % · ${(270).toLocaleString("sv-SE")} km kvar`);
     expect(tank().querySelectorAll("[data-niva]")).toHaveLength(3);               // EN rad med tre värden
     expect(tankOrd()).toEqual([]);                                                // inga ord under när allt är ok
     // raden bryts aldrig: nowrap, och den mindre storleken (TYP.meta, 13 px) så den ryms på en smal telefon
@@ -2127,7 +2127,7 @@ describe("Bilen nu", () => {
     await nuFlik();
     expect(tank().querySelector('[data-niva="rod"]')!.textContent).toBe("Diesel 14 %");
     expect(tank().querySelector('[data-niva="orange"]')!.textContent).toBe("AdBlue 18 %");
-    expect(tankText()).toContain("Räckvidd 95 km");
+    expect(tankText()).toContain("95 km kvar");
     expect(tankOrd()).toEqual(["Diesel låg – tanka nu", "AdBlue låg – fyll på", "Räckvidd kort – tanka snart"]);
     expect(kort().querySelector('[data-tank-ord="rod"]')!.textContent).toBe("Diesel låg – tanka nu");
     expect(kort().querySelector("h1")).toBeNull();

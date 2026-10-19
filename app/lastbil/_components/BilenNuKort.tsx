@@ -18,7 +18,7 @@ function Status({ text, rollAlert }: { text: string; rollAlert?: boolean }) {
 
 /**
  * "Bilen nu": ETT kort med bara det som behövs nu (omtaget 2026-10-19, Lastbilen är en sida utan flikar).
- *   Alltid:      läget i ord + sedan när, och EN tankrad (Diesel · AdBlue · Räckvidd, orden bredvid siffran).
+ *   Alltid:      läget i ord + sedan när, och EN tankrad (Diesel · AdBlue · km kvar, orden bredvid siffran).
  *   Bara när det gäller: en tänd varningslampa tar över rubriken, service under 1 000 km kvar, "Ingen kontakt sedan …" när senaste kontakt är äldre än 1 h.
  *   Länken "Visa var den står" längst ner öppnar kartarket — där bor också mätare och motortimmar.
  * Läsfel är ett fel med "Försök igen"; saknade värden står som "saknas i datan", aldrig 0.
@@ -67,8 +67,7 @@ export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onFo
           <span>{lageRad(data)}</span>
         </div>
         {/* EN rad, alltid: tre värden bredvid varandra i den mindre storleken (TYP.meta) — hellre mindre text än radbrytning. Uppmätt i Chromium på 390 px
-            (kortets innerbredd 326 px): "Diesel 100 % · AdBlue 100 % · Räckvidd 540 km" tar 324 px. Ryms inte "Räckvidd 1 540 km" (336 px) eller 360 px-skärmar —
-            då är "540 km kvar" en ordändring i `tankDelar`. Orden ("tanka snart" …) står på egna rader under, bara när de gäller. */}
+            (kortets innerbredd 326 px): "Diesel 100 % · AdBlue 100 % · 540 km kvar" tar 294 px ("Räckvidd 540 km" tog 324 px och rymdes inte på 360 px). Ryms inte: "1 540 km kvar" vid full tank (305 px) eller 360 px med fulla tankar. Orden ("tanka snart" …) står på egna rader under, bara när de gäller. */}
         <div data-tank style={{ ...TYP.meta, fontWeight: VIKT.halvfet, ...TNUM, color: FARG.text, marginTop: AVSTAND.xs, display: 'flex', flexWrap: 'nowrap', whiteSpace: 'nowrap', columnGap: AVSTAND.s }}>
           {tank.map((d, i) => (
             <span key={i} style={{ display: 'flex', columnGap: AVSTAND.s }}>

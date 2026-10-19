@@ -102,13 +102,13 @@ export function lampaRubrik(data: LastbilData): { rubrik: string; under: string 
 }
 
 /**
- * En del av tankraden. `text` är det korta som står i raden ("Diesel 62 %", "AdBlue 80 %", "Räckvidd 540 km"); `ord` är orden som står
+ * En del av tankraden. `text` är det korta som står i raden ("Diesel 62 %", "AdBlue 80 %", "540 km kvar"); `ord` är orden som står
  * på EGEN rad under raden, bara när de gäller ("Diesel låg – tanka snart", "Diesel saknas i datan"). Färgen (`niva`) förstärker bara — orden bär
  * betydelsen. `dampad` = värdet saknas i datan (aldrig 0).
  */
 export interface TankDel { text: string; niva: 'ok' | 'orange' | 'rod' | 'dampad'; ord: string | null }
 
-/** Raden: "Diesel 62 % · AdBlue 80 % · Räckvidd 540 km". Gränserna är `GRANS` — samma som förut. */
+/** Raden: "Diesel 62 % · AdBlue 80 % · 540 km kvar". Gränserna är `GRANS` — samma som förut. */
 export function tankDelar(data: LastbilData): TankDel[] {
   const t = data.tank;
   const d = t?.diesel_pct, a = t?.adblue_pct, r = t?.rackvidd_km;
@@ -120,8 +120,8 @@ export function tankDelar(data: LastbilData): TankDel[] {
     : a < GRANS.adblueOrange ? { text: `AdBlue ${Math.round(a)} %`, niva: 'orange', ord: 'AdBlue låg – fyll på' }
     : { text: `AdBlue ${Math.round(a)} %`, niva: 'ok', ord: null };
   const rackvidd: TankDel = r == null ? { text: 'Räckvidd –', niva: 'dampad', ord: 'Räckvidd saknas i datan' }
-    : r < GRANS.rackviddOrange ? { text: `Räckvidd ${r.toLocaleString('sv-SE')} km`, niva: 'orange', ord: 'Räckvidd kort – tanka snart' }
-    : { text: `Räckvidd ${r.toLocaleString('sv-SE')} km`, niva: 'ok', ord: null };
+    : r < GRANS.rackviddOrange ? { text: `${r.toLocaleString('sv-SE')} km kvar`, niva: 'orange', ord: 'Räckvidd kort – tanka snart' }
+    : { text: `${r.toLocaleString('sv-SE')} km kvar`, niva: 'ok', ord: null };
   return [diesel, adblue, rackvidd];
 }
 
