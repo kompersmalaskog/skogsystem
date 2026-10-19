@@ -69,7 +69,7 @@ vi.mock('../RundKarta', () => ({
       key: o.id, 'data-testid': `karta-obs-${o.id}`, onClick: () => p.onValjObservation?.(o.id), disabled: !p.onValjObservation,
     }, `karta:${o.id}`))),
 }));
-vi.mock('../TillbakaTillListan', () => ({ default: () => null }));
+vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
 vi.mock('../Forutsattningar', () => ({ default: () => null }));
 vi.mock('../GaTillYta', () => ({ default: () => null }));
 vi.mock('@/components/KartLagerMeny', () => ({ default: () => null }));
@@ -98,8 +98,11 @@ const knapp = (t: string | RegExp) => {
 const klick = async (el: Element) => { await act(async () => { (el as HTMLElement).click(); }); };
 /** En sektionsrubrik (SectionHeader ritar en span). */
 const rubrik = (t: string) => Array.from(document.querySelectorAll('span')).find((e) => e.textContent === t);
-/** Till listan, om den inte redan ar det (ar all terrang besvarad oppnar sidan listan av sig sjalv). */
-const tillListan = async () => { if (knappar().some((b) => b.textContent?.includes('Lista'))) await klick(knapp('Lista')); };
+/** Till listan: pa kartan oppnar namnet i huvudet Rundan-arket (listan som ark); ar all terrang besvarad oppnar sidan listan av sig sjalv. */
+const tillListan = async () => {
+  const oppna = document.querySelector('[aria-label="Öppna rundan"]') as HTMLElement | null;
+  if (oppna) await klick(oppna);
+};
 
 const kartObjekt = { lat: 56.05, lng: 14.05, vo_nummer: '1', kartbild_url: null, kartbild_bounds: [[56.0, 14.0], [56.1, 14.1]] };
 
@@ -168,7 +171,7 @@ describe('raknarna: observationer ar tillagg, inte punkter', () => {
   it('"N av M klara" raknar bara planpunkterna - tva observationer andrar inte talet', async () => {
     await montera();
     // Gå till listan (ikonen "Lista") och las rubriken.
-    await klick(knapp('Lista'));
+    await tillListan();
     expect(text()).toContain('1 av 2 klara');
     expect(text()).not.toContain('av 4 klara');
     expect(text()).not.toContain('3 av');
@@ -176,14 +179,14 @@ describe('raknarna: observationer ar tillagg, inte punkter', () => {
 
   it('en observation med tonen Avvikelse ger INGEN avvikelse i planens sammanfattning', async () => {
     await montera();
-    await klick(knapp('Lista'));
+    await tillListan();
     // Planen har ingen avvikelse och inget "kan bli bättre"; observation o2 ar en avvikelse men hor inte hit.
     expect(text()).not.toMatch(/1 avvikelse/);
   });
 
   it('observationerna ligger under EGEN rubrik i listan, med antal, foto och kommentar', async () => {
     await montera();
-    await klick(knapp('Lista'));
+    await tillListan();
     expect(rubrik('Observationer')).toBeDefined();
     expect(text()).toContain('2 observationer');
     expect(text()).toContain('Rishög som ligger perfekt');
@@ -194,7 +197,7 @@ describe('raknarna: observationer ar tillagg, inte punkter', () => {
 
   it('observationerna star inte bland planpunkternas rader', async () => {
     await montera();
-    await klick(knapp('Lista'));
+    await tillListan();
     // Planpunkternas grupp ("Hänsyn") och observationerna ar tva skilda block: den ena innehaller inte den andra.
     const hansyn = rubrik('Hänsyn')!.parentElement!.parentElement!;
     const observationer = rubrik('Observationer')!.parentElement!.parentElement!;
@@ -249,7 +252,7 @@ describe('avslutad runda = last', () => {
 describe('en oppen runda: observationen oppnas ur listan', () => {
   it('ett tryck pa raden oppnar den for andring', async () => {
     await montera();
-    await klick(knapp('Lista'));
+    await tillListan();
     await klick(knappar().find((b) => /Ändra observationen: Bra/.test(b.getAttribute('aria-label') ?? ''))!);
     expect(document.querySelector('[role=dialog][aria-label="Observation"]')).not.toBeNull();
   });

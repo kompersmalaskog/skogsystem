@@ -14,7 +14,11 @@ import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent, type PlusLage } 
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
 import { ARK_HOJD_PROCENT } from '@/lib/objektKarta';
 
-export type InfoVy = 'kort' | 'om' | 'mer' | 'klar';
+// 'rundan' = Rundan-arket i egenkontrollens rundvy (app/egenkontroll/[objektId]). Ramen vet inget om innehållet; värdet finns bara för att
+// arket ska öppnas på halv höjd som kortet och inte på full höjd som "Om trakten"/"Mer".
+export type InfoVy = 'kort' | 'om' | 'mer' | 'klar' | 'rundan';
+
+const oppnasHalvt = (vy: InfoVy, halv: boolean) => vy === 'kort' || vy === 'rundan' || halv;
 
 export interface InfoRamProps {
   oppen: boolean;
@@ -35,7 +39,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, halv = false, onStang, c
   const lage = useSkarmLage(oppen);
   const [inne, setInne] = useState(false);
   const [utglidet, setUtglidet] = useState(!oppen);   // monterad stängd (sidan lämnar den monterad) → inget i DOM
-  const [detent, setDetent] = useState<Detent>(vy === 'kort' || halv ? 'halv' : 'hel');
+  const [detent, setDetent] = useState<Detent>(oppnasHalvt(vy, halv) ? 'halv' : 'hel');
   const [dragPx, setDragPx] = useState<number | null>(null);
   const drag = useRef<{ y0: number; h0: number; flyttat: boolean } | null>(null);
   const arkRef = useRef<HTMLDivElement>(null);
@@ -45,7 +49,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, halv = false, onStang, c
   // Varje öppning börjar rent: rörelsen in från kanten, kortet på halv höjd.
   useEffect(() => {
     if (!oppen) return;
-    setDetent(vy === 'kort' || halv ? 'halv' : 'hel');
+    setDetent(oppnasHalvt(vy, halv) ? 'halv' : 'hel');
     setDragPx(null);
     setUtglidet(false);
     if (minskadRorelse()) { setInne(true); return; }
@@ -56,7 +60,7 @@ export default function InfoRam({ oppen, vy, ariaLabel, halv = false, onStang, c
   }, [oppen]);
 
   // Byter vy (kort → Om trakten → Mer): egna ark på full höjd, tillbaka till kortet på halv.
-  useEffect(() => { if (oppen) { setDetent(vy === 'kort' || halv ? 'halv' : 'hel'); setDragPx(null); } }, [vy, oppen, halv]);
+  useEffect(() => { if (oppen) { setDetent(oppnasHalvt(vy, halv) ? 'halv' : 'hel'); setDragPx(null); } }, [vy, oppen, halv]);
 
   // Utglidningen klar → ta bort ur DOM.
   useEffect(() => {

@@ -34,6 +34,10 @@ const ALFA = new Set(["0.04", "0.08", "0.1", "0.10"]); // rgba(255,255,255,x) so
 /** Filer som är rättade mot tokens. Nya literaler här är fel, inte skuld. */
 export const SKARPA = [
   "components/arbetsrapport/Arbetsrapport.tsx", // piloten (dagsvyn) — nya literaler fäller
+  // Rundvyns ram (2026-10-19): byggd mot tokens från början, noll literaler.
+  "components/design/KartHuvud.tsx",
+  "components/design/KartKnapp.tsx",
+  "app/egenkontroll/RundDock.tsx",
   // Admin (2026-10): flyttat till tokens, noll literaler. components/admin/ui.tsx är byggstenarna.
   "components/admin/ui.tsx",
   "components/admin/AdminClient.tsx",
