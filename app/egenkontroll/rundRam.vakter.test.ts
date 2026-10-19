@@ -104,6 +104,12 @@ describe('6. allt står still', () => {
   });
 });
 
+describe('dockans höjd', () => {
+  it('högst 55 % av skärmen: 45 % klippte OK/Avvikelse vid en plankommentar på sex rader (uppmätt på 390 x 760)', () => {
+    expect(utanKommentarer(las(DOCK))).toContain("maxHeight: '55vh'");
+  });
+});
+
 describe('7. svarsknapparna ligger utanför kartans tryckyta', () => {
   it('dockan är ett syskon till kartan i sidan, aldrig ett barn till RundKarta', () => {
     const s = utanKommentarer(las(SIDA));
