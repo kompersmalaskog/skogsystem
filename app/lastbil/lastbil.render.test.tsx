@@ -87,6 +87,9 @@ const OBJEKT = [
   { id: "o-brokamala", namn: "Brokamåla 1:5 V" }, { id: "o-tjuvon", namn: "Tjuvön AU 2026", lat: 57.5, lng: 15.5 },
   { id: "o-ulfsnas", namn: "Ulfsnäs AU 2026" }, { id: "o-dockemala", namn: "Dockemåla AU 2026" }, { id: "o-stankelsmala", namn: "Stänkelsmåla 2025" },
   { id: "o-akelius", namn: "400763 Akelius Tåget SA" }, { id: "o-kampamala", namn: "Kämpamåla AU 2026" },
+  // Kundförslaget: bolaget, markägaren när bolaget är Privat, och en trakt utan bolag.
+  { id: "o-kvida", namn: "Vida-trakt AU", bolag: "Vida", markagare: "Åke Svensson" }, { id: "o-kenergi", namn: "Energi-trakt", bolag: "Vida Energi", markagare: "Bo Ek" },
+  { id: "o-kprivat", namn: "Privat-trakt", bolag: "Privat", markagare: "Lisa Andersson" }, { id: "o-kutan", namn: "Utan-bolag-trakt", bolag: null, markagare: "Okänd Ägare" },
 ];
 
 const mock = vi.hoisted(() => ({
@@ -707,7 +710,7 @@ describe("Körningar: året, läsfel och CSV", () => {
 });
 
 // ── Godkänna flyttar: Arbetsrapportens bekräfta-modell ─────────────────────────────────────────────
-const OG_OKT = () => U("og1", "2026-10-08", 62, "A130743", "o-ostra", "o-vallust", { ...OGODKAND, flytt_id: "bg1" });   // en NY flytt i oktober
+const OG_OKT = () => U("og1", "2026-10-08", 62, "A130743", "o-ostra", "o-vallust", { ...OGODKAND, flytt_id: "bg1", kund: "Vida" });   // en fakturerad flytt MÅSTE ha kund (sheeten kräver den)   // en NY flytt i oktober
 const OG_SEP = () => U("og2", "2026-09-29", 41, "JD810E", "o-tjuvon", "o-dockemala", OGODKAND);  // och en som väntat sedan september
 async function skrivText(el: HTMLTextAreaElement, v: string) {
   const sat = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
@@ -906,8 +909,8 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
     expect(valRad("Maskin")!.textContent).toContain("chevron_right");
     expect(kmS().value).toBe("62");
     expect(dlg()!.querySelector("[data-matt]")!.textContent).toBe("km");     // fakturerad km = mätt km: samma tal två gånger är brus
-    expect(kundS().value).toBe("");
-    expect(kundS().placeholder).toBe("Ingen");
+    expect(kundS().value).toBe("Vida");                           // en fakturerad flytt har en kund; ett förslag skriver aldrig över den
+    expect(dlg()!.querySelector("[data-kund-kalla]")).toBeNull();
     expect(sparaS().disabled).toBe(true);
     expect(knapp(/^Stryk flytten …$/, dlg()!)).toBeDefined();
     expect(besked()).toBeNull();                                  // inget ändrat = inget förhandsbesked
@@ -955,6 +958,7 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
   });
 
   it("kund: 'Tillagd av <namn> <datum>' efter ifyllning; ändrad kund säger 'Ändrad från …'", async () => {
+    mock.extraUnderlag = [{ ...OG_OKT(), kund: null }];            // en gammal rad utan kund (de 7 i prod)
     await oppnaFakturering();
     await oppnaS("og1", "Elefant 26");
     await skrivIn(kundS(), "  Vida Skog  ");
@@ -999,7 +1003,7 @@ describe("Flytten (sheet): öppna, läsa och rätta", () => {
 
   it("km som saknades kan fyllas i, och märks 'ifylld, saknades i datan' — aldrig som en mätning", async () => {
     mock.flyttar.push(BEN("bg4", "3bfa4d19", "A130743", "o-ostra", "o-vallust", null as any, 60, true, { fakturerbar_manuell: true }));   // utan mätt km är det bara admins val som gör den fakturerbar
-    mock.extraUnderlag = [U("og4", "2026-10-09", null, "A130743", "o-ostra", "o-vallust", { ...OGODKAND, flytt_id: "bg4" })];
+    mock.extraUnderlag = [U("og4", "2026-10-09", null, "A130743", "o-ostra", "o-vallust", { ...OGODKAND, flytt_id: "bg4", kund: "Vida" })];
     await oppnaFakturering();
     expect(underlagRad("og4")!.textContent).toContain("km saknas i datan");
     await oppnaS("og4", "Elefant 26");
@@ -1092,14 +1096,16 @@ describe("Flytten (sheet): FLYTTEN går via ratta_flytt, med bara de nycklar som
   });
 
   it("typ → Kunduppdrag kräver kund INNAN man sparar; kunden följer med i samma ratta_flytt", async () => {
+    mock.extraUnderlag = [{ ...OG_OKT(), kund: null }];
     await oppnaFakturering();
     await oppnaS("og1", "Elefant 26");
     await valj("Typ", /Kunduppdrag/);
     await skrivText(anledningS(), "körde åt Vida");
     expect(sparaS().disabled).toBe(true);
-    expect(dlg()!.textContent).toContain("Kund krävs för kunduppdrag.");
+    expect(dlg()!.querySelector("[data-kund-krav]")!.textContent).toBe("Välj kund — den här flytten faktureras");
     await skrivIn(kundS(), "Vida Skog");
     expect(sparaS().disabled).toBe(false);
+    expect(dlg()!.querySelector("[data-kund-krav]")).toBeNull();
     await klicka(sparaS());
     expect(mock.rpc[0].args.p_andringar).toEqual({ flytt_typ: "kunduppdrag", kund: "Vida Skog" });
     expect(mock.skrivningar).toEqual([]);                            // kunden gick med flytten, inte som en separat underlagsskrivning
@@ -1399,7 +1405,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(besked()).toBe("Blir inte fakturerbar — underlaget stryks");    // åt det hållet också
   });
 
-  it("icke-fakturerbar Service 53 km → Produktion: 'Blir fakturerbar — hamnar under Att godkänna', och ratta_flytt får BARA flytt_typ", async () => {
+  it("icke-fakturerbar Service 53 km → Produktion: 'Blir fakturerbar — hamnar under Att godkänna', och ratta_flytt får flytt_typ + kunden som krävs", async () => {
     mock.flyttar.push(BN1());
     await oppnaFranRunda("Elefant 26");
     expect(besked()).toBeNull();
@@ -1407,8 +1413,11 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(besked()).toBe("Blir fakturerbar — hamnar under Att godkänna");
     expect(sparaS().disabled).toBe(true);                                         // anledning saknas
     await skrivText(anledningS(), "  det var en produktionsflytt, inte service  ");
+    expect(sparaS().disabled).toBe(true);                                         // blir fakturerbar → kund krävs
+    expect(dlg()!.querySelector("[data-kund-krav]")!.textContent).toBe("Välj kund — den här flytten faktureras");
+    await skrivIn(kundS(), "Vida");
     await klicka(sparaS());
-    expect(mock.rpc).toEqual([{ namn: "ratta_flytt", args: { p_flytt: "bn1", p_andringar: { flytt_typ: "produktion" }, p_anledning: "det var en produktionsflytt, inte service", p_av: "Test Admin" } }]);
+    expect(mock.rpc).toEqual([{ namn: "ratta_flytt", args: { p_flytt: "bn1", p_andringar: { flytt_typ: "produktion", kund: "Vida" }, p_anledning: "det var en produktionsflytt, inte service", p_av: "Test Admin" } }]);
     expect(mock.skrivningar).toEqual([]);                                         // inget underlag fanns att skriva mot
     // tillbaka i rundans ark: kvittot säger vad databasen gjorde, och flyttens markering är uppdaterad
     expect(arkEl().querySelector('[data-flytt-vy]')).toBeNull();
@@ -1427,14 +1436,14 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     expect(mock.rpc[0].args.p_andringar).toEqual({ flytt_typ: "produktion" });
   });
 
-  it("utan underlag får ett kunduppdrag sin kund i FLYTTEN (kravet är databasens) och kunden följer med ratta_flytt", async () => {
+  it("utan underlag får en flytt som faktureras sin kund under FAKTURA (kravet är både appens och databasens) och kunden följer med ratta_flytt", async () => {
     mock.flyttar.push(BN2());
     await oppnaFranRunda("Wisent");
     await valj("Typ", /Kunduppdrag/);
     expect(besked()).toBe("Blir fakturerbar — hamnar under Att godkänna");
     await skrivText(anledningS(), "körde åt Vida");
     expect(sparaS().disabled).toBe(true);
-    expect(dlg()!.textContent).toContain("Kund krävs för kunduppdrag.");
+    expect(dlg()!.querySelector("[data-kund-krav]")!.textContent).toBe("Välj kund — den här flytten faktureras");
     await skrivIn(kundS(), "Vida Skog");
     expect(sparaS().disabled).toBe(false);
     await klicka(sparaS());
@@ -1502,6 +1511,7 @@ describe("Flytten från Körningar: samma sheet som i Fakturering, för alla avs
     await oppnaFranRunda("Elefant 26");
     await valj("Typ", /Produktion/);
     await skrivText(anledningS(), "test");
+    await skrivIn(kundS(), "Vida");
     await klicka(sparaS());
     expect(dlg()!.textContent).toContain("Flytten är godkänd för fakturering — lämna tillbaka den till Att godkänna först");
     expect(kvittoRunda()).toBeNull();
@@ -1640,7 +1650,7 @@ describe("Flytten (sheet): manuellt val av fakturering", () => {
     expect(besked()).toBeNull(); expect(sparaS().disabled).toBe(true);
   });
 
-  it("15 km produktion, efter brytaren: Valt manuellt + Återgå, förhandsbesked 'hamnar under Att godkänna', och ratta_flytt får BARA fakturerbar_manuell", async () => {
+  it("15 km produktion, efter brytaren: Valt manuellt + Återgå, förhandsbesked 'hamnar under Att godkänna', och ratta_flytt får fakturerbar_manuell + kunden som krävs", async () => {
     mock.flyttar.push(BN3());
     await oppnaFranRunda("Elefant 26");
     await klicka(brytare());
@@ -1652,9 +1662,11 @@ describe("Flytten (sheet): manuellt val av fakturering", () => {
     expect(besked()).toBe("Blir fakturerbar — hamnar under Att godkänna");
     expect(sparaS().disabled).toBe(true);                                   // anledning krävs
     await skrivText(anledningS(), "  kunden ska betala, trots korta sträckan  ");
+    expect(sparaS().disabled).toBe(true);                                   // faktureras → kund krävs
+    await skrivIn(kundS(), "Vida");
     expect(sparaS().disabled).toBe(false);
     await klicka(sparaS());
-    expect(mock.rpc).toEqual([{ namn: "ratta_flytt", args: { p_flytt: "bn3", p_andringar: { fakturerbar_manuell: true }, p_anledning: "kunden ska betala, trots korta sträckan", p_av: "Test Admin" } }]);
+    expect(mock.rpc).toEqual([{ namn: "ratta_flytt", args: { p_flytt: "bn3", p_andringar: { fakturerbar_manuell: true, kund: "Vida" }, p_anledning: "kunden ska betala, trots korta sträckan", p_av: "Test Admin" } }]);
     expect(mock.skrivningar).toEqual([]);
     expect(kvittoRunda()!.textContent).toContain("Den är nu fakturerbar och ligger under Att godkänna.");
     // Valet minns: öppnas flytten igen står det som manuellt val, och historiken säger det.
@@ -1741,6 +1753,152 @@ describe("Flytten (sheet): manuellt val av fakturering", () => {
     await oppnaFranRunda("Elefant 26");
     expect(dlg()!.querySelector("[data-last]")).not.toBeNull();
     expect(dlg()!.textContent).toContain("Valt manuellt — automatiskt hade det varit nej (under 30 km)");
+  });
+});
+
+describe("Flytten (sheet): kunden föreslås ur trakten och krävs när flytten faktureras", () => {
+  beforeEach(() => { mock.rpcHandler = rpcSomDb; });
+  const kallaText = () => dlg()!.querySelector("[data-kund-kalla]")?.textContent ?? null;
+  const kravText = () => dlg()!.querySelector("[data-kund-krav]")?.textContent ?? null;
+  const KRAV = "Välj kund — den här flytten faktureras";
+  /** Byt Från/Till till en trakt via sökningen (som en människa gör det). */
+  const valjTrakt = async (rad: "Från" | "Till", sok: string, namn: RegExp) => {
+    await klicka(valRad(rad)!);
+    await skrivIn(dlg()!.querySelector('input[aria-label="Sök trakt eller plats"]') as HTMLInputElement, sok);
+    await klicka(knapp(namn, dlg()!));
+  };
+  /** En fakturerbar produktionsflytt (53 km) med ett underlag som SAKNAR kund — som de sju i prod. */
+  const medKundlosFlytt = (fran: string, till: string) => {
+    mock.flyttar.push(BEN("bk1", "3bfa4d19", "A130743", fran, till, 53, 60, true));
+    mock.extraUnderlag = [U("ok1", "2026-10-09", 53, "A130743", fran, till, { ...OGODKAND, flytt_id: "bk1" })];
+  };
+  const oppnaK = async () => { await oppnaFakturering(); await oppnaS("ok1", "Elefant 26"); };
+
+  it("Vida: kunden är bolaget, och källan står under (\"Vida · från traktens bolag\")", async () => {
+    medKundlosFlytt("o-halaback", "o-kvida");
+    await oppnaK();
+    expect(kundS().value).toBe("Vida");
+    expect(kallaText()).toBe("Vida · från traktens bolag");
+    expect(kravText()).toBeNull();
+  });
+
+  it("Vida Energi är sitt eget bolag", async () => {
+    medKundlosFlytt("o-halaback", "o-kenergi");
+    await oppnaK();
+    expect(kundS().value).toBe("Vida Energi");
+    expect(kallaText()).toBe("Vida Energi · från traktens bolag");
+  });
+
+  it("Privat: kunden är markägaren, och källan säger det (\"Lisa Andersson · markägare\")", async () => {
+    medKundlosFlytt("o-halaback", "o-kprivat");
+    await oppnaK();
+    expect(kundS().value).toBe("Lisa Andersson");
+    expect(kallaText()).toBe("Lisa Andersson · markägare");
+  });
+
+  it("Till-trakten först; saknar den bolag tas Från-trakten", async () => {
+    medKundlosFlytt("o-kvida", "o-kutan");
+    await oppnaK();
+    expect(kundS().value).toBe("Vida");                                        // Till (utan bolag) ger inget → Från
+    expect(kallaText()).toBe("Vida · från traktens bolag");
+  });
+
+  it("saknat bolag på båda ändarna: inget förslag (ingen gissning), 'Välj kund' och en grå Spara trots ändring och anledning", async () => {
+    medKundlosFlytt("o-halaback", "o-kutan");
+    await oppnaK();
+    expect(kundS().value).toBe("");
+    expect(kundS().placeholder).toBe("Välj kund");
+    expect(kallaText()).toBeNull();
+    expect(kravText()).toBe(KRAV);
+    await valj("Maskin", /Giant/);
+    await skrivText(anledningS(), "fel maskin");
+    expect(sparaS().disabled).toBe(true);                                       // ändrat + anledning, men ingen kund
+    expect(kravText()).toBe(KRAV);
+    await skrivIn(kundS(), "  Okänd Ägare  ");
+    expect(sparaS().disabled).toBe(false);
+    expect(kravText()).toBeNull();
+  });
+
+  it("kunden följer ett byte av trakt — tills man själv ändrat den", async () => {
+    medKundlosFlytt("o-halaback", "o-kvida");
+    await oppnaK();
+    expect(kundS().value).toBe("Vida");
+    await valjTrakt("Till", "privat", /Privat-trakt/);
+    expect(kundS().value).toBe("Lisa Andersson");                              // följde med bytet
+    expect(kallaText()).toBe("Lisa Andersson · markägare");
+    await valjTrakt("Till", "energi", /Energi-trakt/);
+    expect(kundS().value).toBe("Vida Energi");
+    await skrivIn(kundS(), "Egen Kund");                                        // nu är den ändrad för hand
+    expect(kallaText()).toBeNull();
+    await valjTrakt("Till", "vida-trakt", /Vida-trakt AU/);
+    expect(kundS().value).toBe("Egen Kund");                                    // följer inte längre med
+    expect(kallaText()).toBeNull();
+  });
+
+  it("att tömma fältet för hand är också 'ändrat för hand': förslaget kommer inte tillbaka av sig självt", async () => {
+    medKundlosFlytt("o-halaback", "o-kvida");
+    await oppnaK();
+    await skrivIn(kundS(), "");
+    expect(kundS().value).toBe("");
+    await valjTrakt("Till", "privat", /Privat-trakt/);
+    expect(kundS().value).toBe("");
+    expect(kravText()).toBe(KRAV);
+  });
+
+  it("en kund som redan finns skrivs aldrig över av ett förslag, inte heller vid byte av trakt", async () => {
+    medKundlosFlytt("o-halaback", "o-kvida");
+    mock.extraUnderlag = [U("ok1", "2026-10-09", 53, "A130743", "o-halaback", "o-kvida", { ...OGODKAND, flytt_id: "bk1", kund: "Skogsbolaget" })];
+    await oppnaK();
+    expect(kundS().value).toBe("Skogsbolaget");
+    expect(kallaText()).toBeNull();
+    await valjTrakt("Till", "privat", /Privat-trakt/);
+    expect(kundS().value).toBe("Skogsbolaget");
+    expect(kallaText()).toBeNull();
+  });
+
+  it("förslaget sparas först när man trycker Spara: en rättning skickar kunden med (ratta_flytt) och inget annat skrivs", async () => {
+    medKundlosFlytt("o-halaback", "o-kvida");
+    await oppnaK();
+    await valj("Maskin", /Giant/);
+    await skrivText(anledningS(), "fel maskin");
+    expect(mock.rpc).toEqual([]);                                               // inget skrivs av att titta
+    await klicka(sparaS());
+    expect(mock.rpc[0].args.p_andringar).toEqual({ maskin_id: "PONS20SDJAA270231", extern_maskin: null, kund: "Vida" });
+    expect(mock.skrivningar).toEqual([]);
+  });
+
+  it("att bara ta emot förslaget på ett underlag utan kund är en ren FAKTURA-ändring: Spara går, och det är underlaget som får kunden", async () => {
+    medKundlosFlytt("o-halaback", "o-kvida");
+    await oppnaK();
+    expect(sparaS().disabled).toBe(true);                                       // anledning krävs
+    await skrivText(anledningS(), "kunden var inte ifylld");
+    expect(sparaS().disabled).toBe(false);
+    await klicka(sparaS());
+    expect(mock.rpc).toEqual([]);
+    expect(mock.skrivningar[0].varden).toEqual({ kund: "Vida", redigerad_av: "Test Admin" });
+  });
+
+  it("manuellt 'Fakturera' på en flytt utan underlag: kundraden dyker upp förifylld, krävs, och följer med ratta_flytt", async () => {
+    mock.flyttar.push(BEN("bk2", "3e823d15", "A130743", "o-halaback", "o-kprivat", 15, 25, false, { starttid: "2026-10-06T14:00:00Z", koord_kalla: "gps" }));
+    await oppnaFranRunda("Elefant 26");
+    expect(dlg()!.querySelector("[data-rutt]")!.textContent).toContain("Privat-trakt");   // rätt flytt är öppen
+    expect(kundS()).toBeNull();                                                 // 15 km: faktureras inte → ingen kundrad, inget förslag
+    await klicka(dlg()!.querySelector('button[role="switch"][aria-label="Fakturera"]') as HTMLElement);
+    expect(kundS().value).toBe("Lisa Andersson");
+    expect(kallaText()).toBe("Lisa Andersson · markägare");
+    await skrivText(anledningS(), "kunden betalar");
+    expect(sparaS().disabled).toBe(false);
+    await klicka(sparaS());
+    expect(mock.rpc[0].args.p_andringar).toEqual({ fakturerbar_manuell: true, kund: "Lisa Andersson" });
+  });
+
+  it("flytten faktureras inte: ingen kundrad, inget förslag, inget krav", async () => {
+    mock.flyttar.push(BEN("bk3", "3e823d15", "A130743", "o-halaback", "o-kvida", 15, 25, false, { starttid: "2026-10-06T14:00:00Z", koord_kalla: "gps" }));
+    await oppnaFranRunda("Elefant 26");
+    expect(dlg()!.querySelector("[data-rutt]")!.textContent).toContain("Vida-trakt");     // rätt flytt är öppen
+    expect(kundS()).toBeNull();
+    expect(kravText()).toBeNull();
+    expect(kallaText()).toBeNull();
   });
 });
 
