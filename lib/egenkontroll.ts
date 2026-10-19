@@ -1418,10 +1418,11 @@ export async function sparaPunktKommentar(
  * Rundans EGEN kommentar: nagra rader om rundan som hamnar sist pa rapportens sida 1 (lib/egenkontrollRapport.ts).
  * Samma falt (egenkontroll.kommentar) skrivs fran tva stallen - under hela rundan och i avslutsvyn - och bada gar hit.
  *
- * TABELLEN egenkontroll HAR INGEN LASTRIGGER (till skillnad fran egenkontroll_punkt, som ar last i tre lager) och
- * policyn ar ALL/true. En klar runda ar darfor last HAR och bara har: kravOppenRundaId ger ett begripligt besked, och
- * UPDATE:n filtrerar pa status = 'pagaende' sa att en runda som avslutas mellan kontrollen och skrivningen ger noll rader
- * i stallet for en skrivning pa en klar runda. Noll rader ar ett fel, aldrig "sparat".
+ * EN KLAR RUNDA AR LAST I FYRA LAGER (triggern egenkontroll_last, migration 20261019140826, ar det fjarde): punkter, foton och
+ * provytor var redan lasta, och sjalva rundan (kommentaren som gar med i A4-rapporten) lases nu av databasen. Det har ar
+ * det oversta lagret: kravOppenRundaId ger ett begripligt besked i stallet for ett check_violation, och UPDATE:n
+ * filtrerar pa status = 'pagaende' sa att en runda som avslutas mellan kontrollen och skrivningen ger noll rader.
+ * Noll rader ar ett fel, aldrig "sparat".
  *
  * Tom text lagras som NULL (ingen kommentar), och vardet laser tillbaka och jamfors - som sparaPunktKommentar.
  */
