@@ -73,6 +73,9 @@ const nextConfig = {
   // sig hålla — då kan de göras permanenta. Omdirigeringar körs före middleware, så en utloggad hamnar ändå på inloggningen med rätt mål.
   async redirects() {
     return [
+      // /planner var en gammal, helt egen kopia av planeringsvyn och är borttagen. Permanent: den kommer inte tillbaka, och ett bokmärke
+      // eller en gammal länk ska landa i /planering (förutom Next-bygget har inget annat — middleware, sw.js, manifestet — pekat dit).
+      { source: '/planner', destination: '/planering', permanent: true },
       { source: '/massaved', destination: '/affarsuppfoljning/kvalitet', permanent: false },
       { source: '/massaved/:objektId/bitar', destination: '/affarsuppfoljning/objekt/:objektId/bitar', permanent: false },
       { source: '/massaved/:objektId', destination: '/affarsuppfoljning/objekt/:objektId', permanent: false },

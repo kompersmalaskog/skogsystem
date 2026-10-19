@@ -282,12 +282,6 @@ describe('städningen', () => {
     expect(page).toContain("traktTab === 'larm' &&");
     for (const id of ['klar-rad-', 'klar-basvag-timmar', 'klar-trailer-kommentar', 'klar-manuell-text', 'klar-ved-rad', 'klar-areal', 'klar-volym', 'klar-medelstam', 'skordartimmar', 'skotartimmar', 'id="konfiguration"', 'id="band-skordare"', 'id="band-skotare"', 'id="breddat"', 'id="ris"', 'id="vagn"']) expect(allt, id).toContain(id);
   });
-  it('/planner har ingen checklista längre (den sparades aldrig); frågorna bor i Har du … på Planering', () => {
-    const planner = las('../app/planner/page.tsx');
-    expect(planner).not.toContain('setChecklistOpen');
-    expect(planner).not.toContain("id: 'checklist'");
-    expect(planner).not.toContain('=== CHECKLISTA ===');
-  });
   it('Mer › Planeraren har ingen tilldelning och ingen "Klar — skicka"', () => {
     const mer = las('../components/planering/MerMeny.tsx');
     expect(mer).not.toContain('tilldelning');

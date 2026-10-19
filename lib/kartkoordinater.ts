@@ -9,10 +9,9 @@
 //
 // KOPIOR SOM FINNS KVAR. Samma logik ligger i dag ocksa i:
 //   app/planering/page.tsx   (originalet)
-//   app/planner/page.tsx
 //   app/oversikt/SkordarKarta.tsx  (uttalad replik, med samma varning)
 // Den har filen ar identisk med dem i BERAKNINGEN. Den ar avsiktligt inte
-// inkopplad i de tre - forarkartan gar inte att verifiera visuellt i nagon
+// inkopplad i de tva - forarkartan gar inte att verifiera visuellt i nagon
 // automatiserad miljo (MapLibre renderar inte i den inbaddade webblasaren), och
 // att flytta forarnas karta i en PR om nagot annat vore fel sorts risk. En egen
 // liten PR far peka om dem, en at gangen, med kartan sida vid sida fore och efter.
