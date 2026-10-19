@@ -171,6 +171,21 @@ describe("vilken förare hade maskinen", () => {
   });
 });
 
+describe("kantfall i tid", () => {
+  it("ett överlapp med förarens pass på under en minut ger ingen rad (15:59:30 mot passets slut 16:00)", () => {
+    const f = flytt();
+    f.hamtad_tid = "2026-10-05T13:59:30Z"; f.sluttid = "2026-10-05T14:40:00Z"; // 15:59:30–16:40 lokal
+    expect(plan([f]).skapa).toHaveLength(0);
+  });
+  it("avlastning efter midnatt räknas som dagens slut: 16:00 → 00:30 nästa dag mot pass till 23:30 blir 16:00–23:30", () => {
+    const f = flytt();
+    f.hamtad_tid = "2026-10-05T14:00:00Z"; f.sluttid = "2026-10-05T22:30:00Z"; // 16:00 → 00:30 (6 okt) lokal
+    const r = plan([f], [dag({ start_tid: "06:00:00", slut_tid: "23:30:00" })]);
+    expect(r.skapa).toHaveLength(1);
+    expect([r.skapa[0].start_tid, r.skapa[0].slut_tid]).toEqual(["16:00:00", "23:30:00"]);
+  });
+});
+
 describe("inom förarens pass (märkt tid, redan betald — lönen oförändrad)", () => {
   it("klipps mot passets slut: 15:30–16:30 mot slut 16:00 blir 15:30–16:00", () => {
     const r = plan([flytt({ h: "15:30", s: "16:30" })]);
