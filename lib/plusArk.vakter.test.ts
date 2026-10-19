@@ -45,7 +45,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
   const lager = mellan(page, 'const byggLager = (): LagerGrupp[] => {', 'const byggPlusRad = ');
   it('grupperna kommer i ordningen Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina markeringar, Produktionsdata, Zontyper, Linjetyper, Varningsinställningar', () => {
     const ordning = Array.from(lager.matchAll(/g\.push\(\{\s*id: [`']([^`'$]+)/g)).map((m) => m[1]);
-    expect(ordning).toEqual(['bakgrundskarta', 'kompass', 'overlay', 'wms-', 'smhi', 'markeringar', 'produktionsdata', 'zontyper', 'linjetyper', 'varning']);
+    expect(ordning).toEqual(['bakgrundskarta', 'kompass', 'overlay', 'wms-', 'smhi', 'markeringar', 'produktionsdata', 'zontyper', 'linjetyper', 'skotad-trakt', 'varning']);   // 'skotad-trakt' = skotarens rad "Trakten färdigskotad" (bara skotare, lib/skotarLass)
     // WMS-grupperna kommer ur samma lista som förut (lib/mapLayers), i dess ordning
     expect(lager).toContain('for (const grp of wmsLayerGroups) {');
   });

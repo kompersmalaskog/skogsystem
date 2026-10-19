@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { hamtaPrognos, nederbordPerDatum } from '@/lib/smhi-prognos';
 
 interface Station {
   id: number;
@@ -39,7 +40,7 @@ function findNearest(stations: Station[], lat: number, lon: number): Station | n
   return nearest;
 }
 
-// SMHI PMP API: hämta 10-dagars prognos med temperatur
+// SMHI SNOW1gv1 (ersätter PMP3gv2, stängd 2026-03-31): 10-dagars prognos med temperatur och nederbörd per dag.
 interface PrognosDag {
   datum: string;
   nederbord: number;
@@ -50,43 +51,25 @@ interface PrognosDag {
 
 async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosDag[]; summa3d: number; summa7d: number } | null> {
   try {
-    const url = `https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const data = await resp.json();
+    const steg = await hamtaPrognos(lat, lon, false);
+    if (!steg) return null;
 
-    const timeSeries = data.timeSeries || [];
+    const utcDatum = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    // Nederbörd är en mängd per intervall (SNOW1g) och fördelas på tid — summeras aldrig rått per steg.
+    const regnPerDag = nederbordPerDatum(steg, utcDatum);
 
-    // Aggregera per dag: nederbörd, symbol, temperatur
-    const dagMap = new Map<string, {
-      nederbord: number;
-      symbols: number[];
-      temps: number[];
-    }>();
-
-    for (const ts of timeSeries) {
-      const dt = new Date(ts.validTime);
-      const dag = ts.validTime.slice(0, 10); // 'YYYY-MM-DD'
-
-      let pmean = 0;
-      let wsymb2 = 1;
-      let temp = 0;
-      for (const p of ts.parameters || []) {
-        if (p.name === 'pmean') pmean = p.values?.[0] ?? 0;
-        if (p.name === 'Wsymb2') wsymb2 = p.values?.[0] ?? 1;
-        if (p.name === 't') temp = p.values?.[0] ?? 0;
-      }
-
-      const entry = dagMap.get(dag) || { nederbord: 0, symbols: [], temps: [] };
-      entry.nederbord += pmean;
-      entry.temps.push(temp);
+    // Aggregera per dag: symbol och temperatur
+    const dagMap = new Map<string, { symbols: number[]; temps: number[] }>();
+    for (const ts of steg) {
+      const dag = utcDatum(ts.ms); // 'YYYY-MM-DD'
+      const entry = dagMap.get(dag) || { symbols: [], temps: [] };
+      if (ts.temp != null) entry.temps.push(ts.temp);
       // Dagssymbol: använd dagtid (6-18) för representativt väder
-      const hour = dt.getUTCHours();
-      if (hour >= 6 && hour <= 18) {
-        entry.symbols.push(wsymb2);
-      }
+      const hour = new Date(ts.ms).getUTCHours();
+      if (ts.symbol != null && hour >= 6 && hour <= 18) entry.symbols.push(ts.symbol);
       dagMap.set(dag, entry);
     }
+    for (const dag of regnPerDag.keys()) if (!dagMap.has(dag)) dagMap.set(dag, { symbols: [], temps: [] });
 
     // Konvertera till array, sorterat, max 10 dagar
     const today = new Date().toISOString().slice(0, 10);
@@ -112,7 +95,7 @@ async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosD
 
       dagar.push({
         datum,
-        nederbord: Math.round(val.nederbord * 10) / 10,
+        nederbord: Math.round((regnPerDag.get(datum) ?? 0) * 10) / 10,
         symbol,
         tempMin,
         tempMax,
@@ -128,7 +111,7 @@ async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosD
       summa7d: Math.round(summa7d * 10) / 10,
     };
   } catch (e) {
-    console.error('[smhi-nederb] PMP prognos error:', e);
+    console.error('[smhi-nederb] SNOW1g prognos error:', e);
     return null;
   }
 }

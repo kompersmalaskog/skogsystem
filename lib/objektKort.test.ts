@@ -40,6 +40,8 @@ describe('knapprad efter roll', () => {
   });
   it('skördarförare har ingen skotning att öppna eller markera utkört: Körvy · Mer', () => {
     expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skordare' }))).toEqual(['korvy', 'mer']);
+    // skotarläget med lassrapportering: inget gammalt skotningsverktyg – varken Skotning eller Utkört (som leder till Skotningsuttag)
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare', utanSkotning: true }))).toEqual(['korvy', 'mer']);
   });
   it('körvyn redan igång: ingen Körvy-knapp (Avsluta körvy ligger i Mer)', () => {
     expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: true, maskinSlag: 'skotare' }))).toEqual(['skotning', 'utkort', 'mer']);
@@ -145,6 +147,12 @@ describe('Mer', () => {
   });
   const bas = (o: Partial<MerIn> = {}): MerIn => ({ roll: 'planerare', arAdmin: true, korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: false, status: 'planerad', tillTrakt: true, vagdata: { varde: '3 vägar', misslyckad: false, kanKora: true }, go: go(), ...o });
   const id = (r: ReturnType<typeof byggMerGrupper>, g: string) => r.grupper.find((x) => x.id === g)?.rader.map((x) => x.id) ?? null;
+  it('Mer: utanSkotning (skotarläget med lassrapportering) tar bort Skotning-raden — annars finns den för den som inte har knappen', () => {
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false })), 'foraren')).toContain('skotning');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning: true })), 'foraren')).not.toContain('skotning');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false })), 'foraren')).toContain('markera-utkort');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning: true })), 'foraren')).not.toContain('markera-utkort');
+  });
 
   it('planerare (admin): körvyerna, föraren, planeraren, övrigt — och inga Byt objekt, Brandrisk, Gallring, Inställningar, Förslag', () => {
     const r = bas();

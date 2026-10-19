@@ -11,7 +11,9 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
   it('den nya pillen ersätter den gamla ENDAST när körvyn är aktiv; planeringens pill är else-grenen', () => {
     expect(page).toContain('{korvyActive && valtObjekt ? (\n            <KorvyObjektPill');
     expect(page).toContain('          ) : (\n          /* Objekt-pill (glasig).');
+    // Namnet öppnar objektinfon — för skördare OCH skotare, exakt som före #831. Objekt byts med hemknappen (maskinlådan), aldrig av namnet.
     expect(page).toContain("onNamn={() => setTraktOversiktOpen(o => !o)}");
+    expect(page).not.toContain('skotarBytObjekt');
   });
   it('räknarna sätter en markering vid maskinen (aldrig en gammal/saknad position)', () => {
     expect(page).toContain("onHogstubbe={() => placeraVidMaskinen('highstump')}");
@@ -153,7 +155,7 @@ describe('Mät i körvyn OCH planeringen → en rad, Klar visar talet', () => {
   });
   it('ett tryck medan man mäter eller har valt en symbol öppnar INGET kort (ytkort, larm, symbolkort …) — alla tryckvakter', () => {
     const vakt = 'hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current';
-    expect(page.split(vakt).length - 1).toBe(10);                                        // yt-, larm-, symbol-, hög-, GROT-, TMA- … och linjens tryck
+    expect(page.split(vakt).length - 1).toBe(11);                                        // yt-, larm-, symbol-, hög-, GROT-, TMA- … linjens tryck och skotarens avläggsrutor
     expect(page).toContain('skotningDrawing || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;');   // zonens tryck
   });
   it('ett tryck på kartan utanför dockan STÄNGER den (och gör inget annat); lyftet efter ett långtryck stänger inte', () => {

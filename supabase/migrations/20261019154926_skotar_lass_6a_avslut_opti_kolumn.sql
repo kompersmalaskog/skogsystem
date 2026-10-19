@@ -1,0 +1,1 @@
+alter table skotar_trakt_avslut add column if not exists opti jsonb not null default '{}'::jsonb;

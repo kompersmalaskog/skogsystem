@@ -18,7 +18,7 @@ describe('prickarna gäller bara planeringsvyn (objektListaVal) — inte maskinl
 
   it('listan öppnas bara via ställen som själva kollar objektListaVal (annars aldrig öppen i maskinläge/körvy)', () => {
     const anrop = page.split('\n').filter((r) => r.includes('setObjektListaOppen(true)'));
-    expect(anrop.length).toBe(2);   // namnpillens tryck och tangent — ⓘ öppnar kortet (ObjektInfo), inte listan
+    expect(anrop.length).toBe(2);   // namnpillens tryck och tangent — ⓘ öppnar kortet (ObjektInfo), inte listan; skotarens namn byter aldrig objekt
     for (const r of anrop) expect(r).toContain('if (objektListaVal) setObjektListaOppen(true)');
   });
 
