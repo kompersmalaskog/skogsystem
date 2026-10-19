@@ -1,7 +1,7 @@
 "use client"
 import { underTopbar, medSafeBotten } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
-import { useState, useEffect, useRef, Fragment, Children, Suspense } from 'react'
+import { useState, useEffect, useRef, Fragment, Children, Suspense, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { hamtaRisKandidater, hamtaKopplingar, sparaKopplingar, grotHamtadAutomatik, angraGrotHamtadAutomatik } from '@/lib/grot-koppling'
@@ -482,8 +482,19 @@ async function sparaObjektTillSupabase(obj: any, syskon: any[]): Promise<{ ok: b
 }
 // === SLUT SUPABASE ===
 
-function parseExternSkotning(obj) {
-  const copy = { ...obj };
+// Objektraden i Redigering: kolumnerna ur objekt/dim_objekt som vyn läser, plus de härledda _extern_*-fälten.
+// Alla fält är valfria — importerade och handskrivna rader ser olika ut, och kolumner som en migration lägger till kan saknas.
+type RObjekt = {
+  id?: string; vo_nummer?: string | null; object_name?: string | null; skogsagare?: string | null; bolag?: string | null
+  maskin_id?: string | null; maskin_typ?: string | null; start_date?: string | null; end_date?: string | null
+  huvudtyp?: string | null; atgard?: string | null; avtalsform?: string | null
+  skordning_avslutad?: string | null; skotning_avslutad?: string | null
+  exkludera?: boolean | null; egen_skotning?: boolean | null; risskotning?: boolean | null; ovrigt_info?: string | null
+  [falt: string]: unknown
+}
+
+function parseExternSkotning(obj: RObjekt): RObjekt {
+  const copy: RObjekt = { ...obj };
   try {
     if (obj.ovrigt_info) {
       const parsed = JSON.parse(obj.ovrigt_info);
@@ -500,20 +511,20 @@ function parseExternSkotning(obj) {
 }
 
 // "Ser ut som autogenererat datum" — heltalssträng, t.ex. 20260408 eller 80426
-function looksLikeAutoDate(name) {
+function looksLikeAutoDate(name: unknown) {
   if (!name) return false
   return /^\d+$/.test(String(name).trim())
 }
 
 // Vilket avslutsfält som hör till maskintypen
-function avslutadFieldFor(maskin_typ) {
+function avslutadFieldFor(maskin_typ: string | null | undefined) {
   if (maskin_typ === 'Harvester') return { field: 'skordning_avslutad', label: 'skördning' }
   if (maskin_typ === 'Forwarder') return { field: 'skotning_avslutad', label: 'skotning' }
   return null
 }
 
 // Antal dagar sedan en ISO-tidsstämpel, eller null om ogiltig
-function daysSinceISO(iso) {
+function daysSinceISO(iso?: string | null) {
   if (!iso) return null
   const d = new Date(iso)
   if (isNaN(d.getTime())) return null
@@ -521,14 +532,14 @@ function daysSinceISO(iso) {
 }
 
 // Formatera ISO-tidsstämpel till YYYY-MM-DD (för date-input + display)
-function formatYMD(iso) {
+function formatYMD(iso?: string | null) {
   if (!iso) return null
   const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/)
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null
 }
 
 // Användarvänlig tidsstämpel: "2026-04-27 17:12"
-function formatEndDateDisplay(iso) {
+function formatEndDateDisplay(iso?: string | null) {
   if (!iso) return null
   const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/)
   if (!m) return null
@@ -536,12 +547,12 @@ function formatEndDateDisplay(iso) {
 }
 
 // Versaliserar första bokstaven
-function capFirst(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
+function capFirst(s: string) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
 // Konkreta varningar för fält som behöver fixas (oftast import-fel).
 // volym (skördat/skotat över VO-gruppen) är valfri — anropare med kortInfo
 // skickar den så luckvarningen "skotning klar men 0 m³" kan räknas.
-function getWarnings(obj, volym?: { skordat: number; skotat: number }) {
+function getWarnings(obj: RObjekt | null | undefined, volym?: { skordat: number; skotat: number }) {
   if (!obj || obj.exkludera) return []
   const w = []
 
@@ -635,7 +646,7 @@ function progressText(saknas: any[], total: number = KRAV_FALT.length) {
 }
 
 // Smooth scroll + flash highlight i 0.6s
-function scrollAndFlash(targetId) {
+function scrollAndFlash(targetId: string) {
   if (typeof document === 'undefined') return
   const el = document.getElementById(targetId)
   if (!el) return
@@ -649,7 +660,7 @@ function scrollAndFlash(targetId) {
 // Samma logik som SQL-fixet:
 //   date(fil_dag) = date(d.start_date)
 //   AND extract(hour from filnamnets klockslag) = extract(hour from d.start_date)
-async function hamtaNamnFranFilnamn(obj) {
+async function hamtaNamnFranFilnamn(obj: RObjekt | null | undefined) {
   const maskinId = obj?.maskin_id
   const startDate = obj?.start_date
   if (!maskinId) {
@@ -704,8 +715,11 @@ async function hamtaNamnFranFilnamn(obj) {
   return { ok: true, name: unika[0] }
 }
 
+// Musens och pekskärmens händelser har olika fält för Y-läget; getY läser det som finns.
+type PekarHandelse = { clientY?: number; touches?: ArrayLike<{ clientY: number }>; changedTouches?: ArrayLike<{ clientY: number }> }
+
 // Mini progress ring
-function MiniRing({ progress, size = 32, stroke = 3 }) {
+function MiniRing({ progress, size = 32, stroke = 3 }: { progress: number; size?: number; stroke?: number }) {
   const radius = (size - stroke) / 2
   const circ = radius * 2 * Math.PI
   const offset = circ - progress * circ
@@ -720,7 +734,7 @@ function MiniRing({ progress, size = 32, stroke = 3 }) {
 }
 
 // Animated Card
-function AnimatedCard({ children, delay, onClick }) {
+function AnimatedCard({ children, delay, onClick }: { children: ReactNode; delay: number; onClick: () => void }) {
   const [visible, setVisible] = useState(false)
   const [pressed, setPressed] = useState(false)
   const [hover, setHover] = useState(false)
@@ -758,7 +772,7 @@ function AnimatedCard({ children, delay, onClick }) {
 }
 
 // Chip with hover
-function Chip({ label, selected, onClick, editMode, onDelete }) {
+function Chip({ label, selected, onClick, editMode, onDelete }: { label: string; selected: boolean; onClick: () => void; editMode: boolean; onDelete: () => void }) {
   const [hover, setHover] = useState(false)
   
   return (
@@ -782,7 +796,7 @@ function Chip({ label, selected, onClick, editMode, onDelete }) {
 }
 
 // Filter Chip
-function FilterChip({ label, active, onClick }) {
+function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   const [hover, setHover] = useState(false)
   
   return (
@@ -812,12 +826,15 @@ function FilterChip({ label, active, onClick }) {
 
 // Chip Input
 // fast = fast lista (t.ex. avtalsform): inga fria värden — varken sökfältet eller "+ ny".
-function ChipInput({ label, value, options, setOptions, onChange, embedded = false, onAddOption, onRemoveOption, fast = false }: any) {
+function ChipInput({ label, value, options, setOptions, onChange, embedded = false, onAddOption, onRemoveOption, fast = false }: {
+  label?: string | null; value: string | null | undefined; options: string[]; setOptions: (v: string[]) => void; onChange: (v: string) => void
+  embedded?: boolean; onAddOption?: (v: string) => void; onRemoveOption?: (v: string) => void; fast?: boolean
+}) {
   const [input, setInput] = useState('')
   const [hantera, setHantera] = useState(false)
   const filtered = input.trim() ? options.filter(o => o.toLowerCase().includes(input.toLowerCase())) : options
 
-  const handleSelect = (val) => { onChange(val); setInput('') }
+  const handleSelect = (val: string) => { onChange(val); setInput('') }
   const handleCreate = () => {
     if (!input.trim()) return
     const newVal = input.trim()
@@ -828,7 +845,7 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
     onChange(newVal)
     setInput('')
   }
-  const handleRemove = (val: any) => {
+  const handleRemove = (val: string) => {
     if (onRemoveOption) onRemoveOption(val) // föräldern tar bort ur tabellen + listan
   }
 
@@ -883,7 +900,7 @@ function ChipInput({ label, value, options, setOptions, onChange, embedded = fal
 }
 
 // Egenskap Switch
-function EgenskapSwitch({ label, active, onClick, orange }) {
+function EgenskapSwitch({ label, active, onClick, orange }: { label: string; active: boolean; onClick: () => void; orange?: boolean }) {
   const [bounce, setBounce] = useState(false)
   const [hover, setHover] = useState(false)
   const activeColor = orange ? '#FF9F0A' : '#adc6ff'
@@ -926,7 +943,7 @@ function EgenskapSwitch({ label, active, onClick, orange }) {
 }
 
 // DateToggle (för avslut-datum)
-function DateToggle({ label, date, onToggle, onDateChange }) {
+function DateToggle({ label, date, onToggle, onDateChange }: { label: string; date: string | null | undefined; onToggle: (v: string | null) => void; onDateChange: (v: string | null) => void }) {
   const [bounce, setBounce] = useState(false)
   const [hover, setHover] = useState(false)
   const [textInput, setTextInput] = useState('')
@@ -1038,7 +1055,7 @@ function DateToggle({ label, date, onToggle, onDateChange }) {
 // Direkt-redigerbart fält i iOS Settings-stil: label vänster, input höger.
 // onChange uppdaterar state vid varje keystroke; spara till Supabase sker
 // vid stora gröna Spara-knappen i footern.
-function LockedInput({ label, value, onChange, placeholder, embedded = false }) {
+function LockedInput({ label, value, onChange, placeholder, embedded = false }: { label: string; value: string | null | undefined; onChange: (v: string) => void; placeholder?: string; embedded?: boolean }) {
   const [focused, setFocused] = useState(false)
   const baseStyle = embedded ? styles.directRowEmbedded : styles.directRowStandalone
   return (
@@ -1103,8 +1120,13 @@ function SaveButton({ onClick, saving, saved, dirty, antal }: any) {
 function ConfirmDialog({
   open, title, message,
   confirmLabel = 'Fortsätt', cancelLabel = 'Avbryt',
-  discardLabel = null as any, onDiscard = null as any,
+  discardLabel = null, onDiscard = null,
   onConfirm, onCancel, destructive = false,
+}: {
+  open: boolean; title: string; message: ReactNode
+  confirmLabel?: string; cancelLabel?: string
+  discardLabel?: string | null; onDiscard?: (() => void) | null
+  onConfirm: () => void; onCancel: () => void; destructive?: boolean
 }) {
   if (!open) return null
   const showDiscard = !!(discardLabel && onDiscard)
@@ -1198,7 +1220,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
   const [scrolled, setScrolled] = useState(false)
   const [dragOffset, setDragOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
-  const dragStartY = useRef(null)
+  const dragStartY = useRef<number | null>(null)
   const contentRef = useRef<any>(null)
   const wasOpenRef = useRef(open)
 
@@ -1232,7 +1254,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
   // Esc-tangent
   useEffect(() => {
     if (!open) return
-    const onKey = (e) => { if (e.key === 'Escape') handleClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1241,20 +1263,20 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
   // Drag-listening på document — bara aktiv under drag
   useEffect(() => {
     if (!isDragging) return
-    const getY = (e) => {
+    const getY = (e: PekarHandelse) => {
       if (typeof e.clientY === 'number') return e.clientY
       if (e.touches && e.touches[0]) return e.touches[0].clientY
       if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0].clientY
       return null
     }
-    const onMove = (e) => {
+    const onMove = (e: PekarHandelse) => {
       if (dragStartY.current === null) return
       const y = getY(e)
       if (y === null) return
       const offset = Math.max(0, y - dragStartY.current)
       setDragOffset(offset)
     }
-    const onUp = (e) => {
+    const onUp = (e: PekarHandelse) => {
       const y = getY(e)
       const offset = (y !== null && dragStartY.current !== null) ? Math.max(0, y - dragStartY.current) : dragOffset
       setIsDragging(false)
@@ -1280,7 +1302,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDragging])
 
-  const onDragStart = (e) => {
+  const onDragStart = (e: PekarHandelse) => {
     const y = (typeof e.clientY === 'number')
       ? e.clientY
       : (e.touches && e.touches[0] ? e.touches[0].clientY : null)
@@ -1337,7 +1359,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
           {subtitel}
         </div>
         <div style={{ ...styles.scrollFade, opacity: scrolled ? 1 : 0 }} />
-        <div ref={contentRef} style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
+        <div ref={contentRef} style={styles.sheetContent} onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 10)}>
           {children}
         </div>
         {footer && <div style={styles.sheetFooter}>{footer}</div>}
@@ -1347,7 +1369,7 @@ function EditSheet({ open, onClose, onBack, title, subtitel, footer, contentKey,
 }
 
 // iOS Settings-stil grupp: kort med tunna avdelare mellan rader
-function IosGroup({ title, children }) {
+function IosGroup({ title, children }: { title?: string; children: ReactNode }) {
   const items = Children.toArray(children).filter(Boolean)
   if (items.length === 0) return null
   return (
@@ -2349,7 +2371,7 @@ function NamnRad({ obj, set, direktSpara }: any) {
       const ok = await direktSpara({ object_name: r.name })
       setQf({ status: ok ? 'done' : 'error', message: ok ? `Hämtat: ${r.name}` : 'Namnet kunde inte sparas — försök igen' })
     } else {
-      setQf({ status: 'error', message: r.message })
+      setQf({ status: 'error', message: r.message ?? '' })
     }
     setTimeout(() => setQf({ status: 'idle', message: '' }), 3000)
   }
@@ -2819,7 +2841,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
         </div>
         <div id="bolag-section">
           <KravRad label="Bolag" value={obj.bolag} expanded={oppetFalt === 'bolag'} onToggle={() => setOppetFalt(oppetFalt === 'bolag' ? null : 'bolag')}>
-            <ChipInput embedded label={null} value={obj.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v: any) => { set({ ...obj, bolag: v }); direktSpara({ bolag: v || null }); if (v) setOppetFalt(null) }} onAddOption={listAtgarder?.onAddBolag} onRemoveOption={listAtgarder?.onRemoveBolag} />
+            <ChipInput embedded label={null} value={obj.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v: string) => { set({ ...obj, bolag: v }); direktSpara({ bolag: v || null }); if (v) setOppetFalt(null) }} onAddOption={listAtgarder?.onAddBolag} onRemoveOption={listAtgarder?.onRemoveBolag} />
           </KravRad>
         </div>
         <div id="skogsagare-section">
@@ -2843,7 +2865,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
         <div id="atgard-section">
           <KravRad label="Åtgärd" value={obj.atgard} expanded={oppetFalt === 'atgard'} onToggle={() => setOppetFalt(oppetFalt === 'atgard' ? null : 'atgard')}>
             {obj.huvudtyp ? (
-              <ChipInput embedded label={null} value={obj.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v: any) => { set({ ...obj, atgard: v }); direktSpara({ atgard: v || null }); if (v) setOppetFalt(null) }} />
+              <ChipInput embedded label={null} value={obj.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v: string) => { set({ ...obj, atgard: v }); direktSpara({ atgard: v || null }); if (v) setOppetFalt(null) }} />
             ) : (
               <div style={{ padding: '0 16px 16px', fontSize: 13, color: 'rgba(255,255,255,0.45)' }}>Välj huvudtyp först.</div>
             )}
@@ -2858,7 +2880,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
           <div id="avtalsform-section">
             <KravRad label="Avtalsform" value={obj.avtalsform} expanded={oppetFalt === 'avtalsform'} onToggle={() => setOppetFalt(oppetFalt === 'avtalsform' ? null : 'avtalsform')}>
               <ChipInput embedded fast label={null} value={obj.avtalsform || ''} options={[...AVTALSFORMER]} setOptions={() => {}}
-                onChange={(v: any) => { set({ ...obj, avtalsform: v }); direktSpara({ avtalsform: v || null }); if (v) setOppetFalt(null) }} />
+                onChange={(v: string) => { set({ ...obj, avtalsform: v }); direktSpara({ avtalsform: v || null }); if (v) setOppetFalt(null) }} />
             </KravRad>
             {objektRad && <TraktSager trakt={objektRad.avtalsform} dim={obj.avtalsform}
               onAnvand={(v: string) => { set({ ...obj, avtalsform: v }); direktSpara({ avtalsform: v }) }} />}
@@ -2871,7 +2893,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
         <NamnRad obj={obj} set={set} direktSpara={direktSpara} />
         <div style={{ padding: '4px 0' }}>
           <ChipInput embedded label="Inköpare" value={obj.inkopare || ''} options={inkopare} setOptions={setInkopare}
-            onChange={(v: any) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v || null }) }}
+            onChange={(v: string) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v || null }) }}
             onAddOption={listAtgarder?.onAddInkopare} onRemoveOption={listAtgarder?.onRemoveInkopare} />
           {objektRad && <TraktSager trakt={objektRad.inkopare} dim={obj.inkopare} provenans={obj.auto_ifyllt?.inkopare}
             onAnvand={(v: string) => { set({ ...obj, inkopare: v }); direktSpara({ inkopare: v }) }} />}
@@ -2949,7 +2971,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
             <div id="avslut-skordare-section" style={{ padding: '10px 16px' }}>
               <div style={styles.switchList}>
                 <DateToggle label="Skördning avslutad" date={obj.skordning_avslutad || null}
-                  onToggle={(val: any) => avslut('harvester', { skordning_avslutad: val, skordning_avslutad_auto: false })}
+                  onToggle={(val: string | null) => avslut('harvester', { skordning_avslutad: val, skordning_avslutad_auto: false })}
                   onDateChange={(val: any) => avslut('harvester', { skordning_avslutad: val, skordning_avslutad_auto: false })} />
               </div>
               <AvslutForslagRuta obj={obj} field="skordning_avslutad" autoField="skordning_avslutad_auto" label="skördning" forslag={skordForslag}
@@ -2960,7 +2982,7 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
             <div id="avslut-skotare-section" style={{ padding: '10px 16px' }}>
               <div style={styles.switchList}>
                 <DateToggle label="Skotning avslutad" date={obj.skotning_avslutad || null}
-                  onToggle={(val: any) => avslut('forwarder', { skotning_avslutad: val, skotning_avslutad_auto: false })}
+                  onToggle={(val: string | null) => avslut('forwarder', { skotning_avslutad: val, skotning_avslutad_auto: false })}
                   onDateChange={(val: any) => avslut('forwarder', { skotning_avslutad: val, skotning_avslutad_auto: false })} />
                 {obj.skotning_avslutad && obj.skordning_avslutad && obj.skotning_avslutad < obj.skordning_avslutad && (
                   <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>Skotning är satt före skördningens avslutsdatum.</div>
@@ -3629,7 +3651,7 @@ function ObjektRedigeringInner() {
   // maskiner ska ALDRIG vara valbara (Akelius-på-sålda-Elefant-buggen).
   const [aktivaSkotare, setAktivaSkotare] = useState<{ id: string; namn: string }[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const [bolag, setBolag] = useState(STANDARD_BOLAG)
   const [inkopare, setInkopare] = useState<string[]>([])
   // Åtgärd, inte avtalsform: Au/Rp/LRK/VF/Bark har ett eget fält (Avtalsform) och står inte här.
@@ -3759,8 +3781,8 @@ function ObjektRedigeringInner() {
     ])
       .then(async ([objektData, maskinData, hprRes]) => {
         // Skapa lookup-objekt för maskiner: { maskin_id: modell }
-        const maskinLookup = {}
-        const maskinTypMap = {}
+        const maskinLookup: Record<string, string> = {}
+        const maskinTypMap: Record<string, string | null> = {}
         maskinData.forEach(m => {
           maskinLookup[m.maskin_id] = (m.visningsnamn && String(m.visningsnamn).trim()) || m.modell
           maskinTypMap[m.maskin_id] = m.maskin_typ || null
@@ -4254,9 +4276,9 @@ function ObjektRedigeringInner() {
 // VY 2 - ALLA OBJEKT
 function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, kortInfo, fildata, listAtgarder, onBack }: any) {
   const [search, setSearch] = useState('')
-  const [filterBolag, setFilterBolag] = useState(null)
+  const [filterBolag, setFilterBolag] = useState<string | null>(null)
   const [filterHuvudtyp, setFilterHuvudtyp] = useState<string | null>(null)
-  const [filterInkopare, setFilterInkopare] = useState(null)
+  const [filterInkopare, setFilterInkopare] = useState<string | null>(null)
   const [filterSaknarPlanering, setFilterSaknarPlanering] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [redigerObj, setRedigerObj] = useState<any>(null)
@@ -4268,9 +4290,9 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   // "Alla objekt" = alla AKTIVA, grupperade per VO — ett fysiskt objekt är
   // ETT kort även när det består av flera maskinrader. Sök/filter träffar
   // om NÅGON rad i gruppen matchar.
-  const allaAktiva = objekt.filter(o => o.exkludera !== true)
-  const unikaBolag = [...new Set(allaAktiva.map(o => o.bolag).filter(Boolean))].sort()
-  const unikaInkopare = [...new Set(allaAktiva.map(o => o.inkopare).filter(Boolean))].sort()
+  const allaAktiva: RObjekt[] = objekt.filter((o: RObjekt) => o.exkludera !== true)
+  const unikaBolag = [...new Set(allaAktiva.map(o => o.bolag).filter((b): b is string => !!b))].sort()
+  const unikaInkopare = [...new Set(allaAktiva.map(o => o.inkopare).filter((i): i is string => typeof i === 'string' && !!i))].sort()
   const finnsSaknarPlan = allaAktiva.some((o: any) => o.saknar_planering === true)
 
   let filtered = grupperaPerVo(objekt).filter(g => g.rader.some((o: any) => o.exkludera !== true))
@@ -4428,7 +4450,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   )
 }
 
-const styles = {
+const styles: Record<string, CSSProperties> = {
   container: { position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0, background: '#000', fontFamily: "'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif", color: '#fff', padding: '16px 20px 100px', WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
   headerCenter: { textAlign: 'center', flex: 1 },
