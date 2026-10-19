@@ -1,7 +1,7 @@
 // Hemskickad (Martin 2026-10-17): maskinen gick sönder eller vädret stoppade jobbet och föraren skickades hem mitt på dagen.
 //
 //   - Dagen fylls upp till 8 tim: arbetad tid + hemskickad tid = 8.
-//   - Hemskickad tid betalas som TIMLÖN (och därmed premie, som timlönen), räknas som arbetad tid mot månadens ordinarie och ger aldrig övertid.
+//   - Hemskickad tid betalas som TIMLÖN (och därmed premie, som timlönen), räknas som arbetad tid mot månadens ordinarie (lib/lonesystem/manadsordinarie): övertid först när månaden är full.
 //   - Den är ingen frånvaro: ingen "deldag", ingen frånvarorad, ingen löneart för sjukfrånvaro.
 //
 // Rena enhetstester — ingen databas. Raden är en ledighetsrad med typ 'hemskickad' och klockslaget föraren åkte hem; timmarna HÄRLEDS ur
@@ -59,30 +59,38 @@ describe("hemskickad: dagen fylls upp till 8 tim och betalas som timlön", () =>
   });
 });
 
-describe("hemskickad: aldrig övertid, räknas mot månadens ordinarie", () => {
-  it("en dag med minst 8 tim arbete har inget att fyllas upp: raden gör ingenting", () => {
+describe("hemskickad: räknas som arbetad tid mot månadens ordinarie", () => {
+  it("en dag med minst 8 tim arbete har inget att fyllas upp: raden gör ingenting (månaden är inte full → allt är timlön)", () => {
     for (const min of [480, 540, 600]) {
       const u = kor([dag("2026-09-07", min)], [hem("2026-09-07", "16:00")]);
       expect(u.hemskickad, `${min} min`).toEqual([]);
       expect(u.hemskickad_h).toBe(0);
-      expect(u.timlon_h).toBe(8);
-      expect(u.overtid_h).toBe(Math.round((min - 480) / 60 * 100) / 100);
+      expect(u.timlon_h).toBe(Math.round(min / 60 * 100) / 100);
+      expect(u.overtid_h).toBe(0);
     }
   });
 
-  it("den hemskickade dagen är en hel 8-timmarsdag UTANFÖR månadens utjämning: den ger aldrig övertid själv och tar inte bort andras", () => {
-    // Dag A 10 tim (2 tim över 8), dag B 6 tim + hemskickad. Utan hemskickad jämnas A:s extra tid ut mot B:s korta dag: 16 tim arbete mot
-    // 16 ordinarie → ingen övertid. Med hemskickad är B en full dag (8) och A:s två timmar är övertid — det är arbete över 8 tim på en dag.
-    const utan = kor([dag("2026-09-07", 600), dag("2026-09-08", 360)]);
-    expect(utan.timlon_h).toBe(16);
+  it("hemskickad tid fyller månaden som annan arbetad tid: den ger övertid först när månaden är full", () => {
+    // Septembers 22 vardagar: 20 à 8 tim, den 7:e 6 tim (+ 2 tim hemskickad), den 8:e 10 tim. Utan hemskickad blir det 176 tim = precis ordinarie;
+    // med hemskickad 178 tim → de två timmarna över är övertid (månaden är full).
+    const SEP = Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`).filter(d => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w !== 0 && w !== 6; });
+    const dagar = SEP.map(d => dag(d, d === "2026-09-07" ? 360 : d === "2026-09-08" ? 600 : 480));
+    const utan = kor(dagar);
+    expect(utan.timlon_h).toBe(176);
     expect(utan.overtid_h).toBe(0);
-    const med = kor([dag("2026-09-07", 600), dag("2026-09-08", 360)], [hem("2026-09-08")]);
-    expect(med.timlon_h).toBe(16);
+    const med = kor(dagar, [hem("2026-09-07")]);
+    expect(med.timlon_h).toBe(176);
     expect(med.overtid_h).toBe(2);
     expect(med.hemskickad_h).toBe(2);
   });
 
-  it("flera hemskickade dagar: timlön = ordinarie (antal arbetsdagar × 8), övertid 0", () => {
+  it("en halvfull månad med hemskickad ger ingen övertid, hur lång en annan dag än var", () => {
+    const med = kor([dag("2026-09-07", 600), dag("2026-09-08", 360)], [hem("2026-09-08")]);
+    expect(med.timlon_h).toBe(18);
+    expect(med.overtid_h).toBe(0);
+  });
+
+  it("flera hemskickade dagar: timlön = arbetad tid inklusive hemskickad (3 × 8), övertid 0 — månaden är inte full", () => {
     const u = kor([dag("2026-09-07", 240), dag("2026-09-08", 300), dag("2026-09-09", 480)], [hem("2026-09-07", "12:00"), hem("2026-09-08", "13:00")]);
     expect(u.timlon_h).toBe(24);
     expect(u.overtid_h).toBe(0);

@@ -19,15 +19,18 @@
  * månadens maskintyp) är Martins arbetsgivarbeslut 2026-09-29:
  * docs/lonesystem/premielon.md. Leta inte efter en paragraf.
  *
- * Övertid:
- *   Ordinarie tid = antal arbetsdagar × 8h
- *   Övertid = totalt jobbat - ordinarie
- *   Timlön = ordinarie (inte totalt!)
+ * Övertid (Martins beslut 2026-10-19 — övertid först när månadens ordinarie timmar är fyllda):
+ *   Månadens ordinarie = vardagar × 8h − röda vardagar − frånvarodagar − dagar före anställning − deldagens timmar
+ *                        (lib/lonesystem/manadsordinarie)
+ *   Arbetad tid  = maskin + extra tid + kortpass + hemskickad tid
+ *   Timlön       = min(arbetad tid, månadens ordinarie)
+ *   Övertid      = max(0, arbetad tid − månadens ordinarie)
+ *   En månad som överlappar förarens utjämningsperiod behåller den gamla formeln (arbetade dagar × 8h).
  *   En rad per månad med Date = löneperiodens första dag.
  *
  * Arbetsdag = dag med minst 60 min maskintid + extra tid (lib/arbetsdagRegler).
- * Kortare dagar ("kortpass") är betald tid men ingen arbetsdag: ingen ×8 i
- * övertidsbasen, ingen vältlappsvecka, ingen reseersättning. De listas i
+ * Kortare dagar ("kortpass") är betald tid men ingen arbetsdag: ingen
+ * vältlappsvecka, ingen reseersättning (de räknas som arbetad tid mot månadens ordinarie). De listas i
  * varningarna så granskningen ser dem.
  */
 
@@ -35,8 +38,9 @@ import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
 import { loneartInfo, type LoneartKey, type Loneartskoder } from "./loneart";
 import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag, hemskickadMinuter } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
-import { helglonIManad, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
+import { helglonIManad, helglonDagar as helglonDagarArsLista, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
 import { brandriskSumma, minTillTimmar, type BrandriskSumma } from "../ob";
+import { manadensOrdinarie, overlapparUtjamning, utjamningOrdinarie, ordinarieText, type OrdinarieResultat } from "./manadsordinarie";
 
 type ArbetsdagInput = {
   datum: string;        // YYYY-MM-DD
@@ -85,8 +89,8 @@ export type DeldagRad = {
 
 /**
  * Hemskickad (typ 'hemskickad', del av dag): dagen fylls upp till 8 tim. Raden bär klockslaget föraren åkte hem; minuterna HÄRLEDS ur
- * den arbetade tiden den dagen (maskin + extra tid) och lagras aldrig. Betalas som timlön, ingår i premien, räknas som arbetad tid mot
- * månadens ordinarie och ger aldrig övertid. En hemskickad dag är en hel 8-timmarsdag utanför utjämningen mot andra dagar.
+ * den arbetade tiden den dagen (maskin + extra tid) och lagras aldrig. Betalas som timlön, ingår i premien och räknas som arbetad tid mot
+ * månadens ordinarie (lib/lonesystem/manadsordinarie): den ger övertid först när månaden är full, som annan arbetad tid.
  */
 export type HemskickadRad = {
   datum: string;
@@ -115,11 +119,16 @@ type MaskinTypMap = Record<string, "skordare" | "skotare">;
  *                   över månadsskiftet. Saknas den används `ledigheter` (äldre anrop).
  *  anstallningsdatum  kvalifikationstiden (§10 mom 3). Saknas den kontrolleras inget och beräkningen varnar.
  *  foretagsledare   företagsledare får INGA lönerader alls (lönen ligger utanför appen), men kontrollvyerna får sin information.
+ *  utjamning/aktiv  månadens ordinarie (lib/lonesystem/manadsordinarie), se fälten.
  */
 export type LonKontext = {
   franvaroRunt?: LedighetInput[];
   anstallningsdatum?: string | null;
   foretagsledare?: boolean;
+  /** Förarens utjämningsperioder (tabellen utjamningsperiod). En månad som överlappar någon behåller dagens formel (arbetade dagar × 8). */
+  utjamning?: { startdatum: string; slutdatum: string }[];
+  /** medarbetare.aktiv. `false` varnar: det finns inget slutdatum, så dagar efter avslut kan inte dras av ur månadens ordinarie. */
+  aktiv?: boolean;
 };
 
 /**
@@ -161,7 +170,10 @@ export type ExportSammanfattning = {
   /** Företagsledare (medarbetare.foretagsledare): inga lönerader alls, lönen ligger utanför appen. */
   foretagsledare: boolean;
   arbetsdagar: number;
+  /** Månadens ordinarie timmar (lib/lonesystem/manadsordinarie). Månad som överlappar utjämningsperiod: arbetade dagar × 8. */
   ordinarie_h: number;
+  /** Hur ordinarie räknades: vardagar och avdragna dagar (röda, frånvaro, före anställning, deldagens timmar). */
+  ordinarie: OrdinarieResultat;
   extra_h: number;      // varav extra tid (utanför maskinen) — ingår i timlön/övertid
   timlon_h: number;
   premielon_skordare_h: number;
@@ -298,7 +310,7 @@ export function beräknaExport(
     .map(d => ({ datum: d.datum, minuter: dagTotalMin(d), km_totalt: d.km_totalt || 0 }))
     .sort((a, b) => a.datum.localeCompare(b.datum));
   const antalArbetsdagar = produktionsDagar.length;
-  const ordinarie = antalArbetsdagar * 8; // timmar
+  const gammalOrdinarie = antalArbetsdagar * 8; // timmar — dagens formel, gäller en månad som överlappar en utjämningsperiod
 
   // ── HEMSKICKAD — dagen fylls upp till 8 tim, betalas som timlön ──
   // Raden (ledighet typ 'hemskickad', klockslag) säger bara att föraren åkte hem; minuterna härleds ur arbetad tid den dagen. Hemskickad tid på en
@@ -324,6 +336,110 @@ export function beräknaExport(
   hemskickad.sort((a, b) => a.datum.localeCompare(b.datum));
   const hemMinTotalt = hemArbetsdagMin + hemOvrigMin;
   const hemskickadH = Math.round(hemMinTotalt / 60 * 100) / 100;
+
+  // ── UNDERLAG: frånvaro, bytesdagar, deldagar och helglön ──
+  // Byggs HÄR, före månadens ordinarie, eftersom ordinarie dras av dem. Varningarna om dem skrivs längre ned, i samma ordning som förr.
+  //
+  // FRÅNVARO ur godkänd ledighet (primär källa): expandera varje ledighet start–slut till datum, begränsa till ARBETSPERIODENS månad, och
+  // tillämpa "arbete vinner": en dag med arbetspass (arbetad_min > 0) räknas som arbete, inte frånvaro. Läggs ALDRIG som lönerad (löneart
+  // okänd) — ytas som franvaro + varning för manuell hantering.
+  const arbetadeDatum = new Set(dagar.filter(d => (d.arbetad_min || 0) > 0).map(d => d.datum));
+  const franvaroPerTyp = new Map<string, string[]>();
+  // ── BYTESDAGAR (inarbetad, §5 mom 4) — inte frånvaro att sätta löneart på ──
+  // Den lediga dagen är ledighet UTAN avdrag (lönen följer schemat); den röda
+  // dagen är en vanlig arbetsdag i ordinarie (+ söndagstillägg om beordrat,
+  // löneart OB öppen) och ger INGEN helglön (§10 mom 2). Listas separat med
+  // upplysning; ett byte kan spänna över månadsskiftet — då syns det i båda.
+  const byten: ByteRad[] = [];
+  for (const l of ledigheter) {
+    if (l.typ !== 'inarbetad' || !l.ersatter_datum || !l.startdatum) continue;
+    const ledig = l.startdatum, ersatter = l.ersatter_datum;
+    if (!ledig.startsWith(arbperiod) && !ersatter.startsWith(arbperiod)) continue;
+    byten.push({
+      ledig, ersatter,
+      ersatterNamn: rodVardagNamn(ersatter) || 'röd dag',
+      ersatterArbetad: arbetadeDatum.has(ersatter) || arbetadeUtanforPerioden.has(ersatter),
+      ledigArbetad: arbetadeDatum.has(ledig),
+    });
+  }
+  // ── DELDAGAR (klockslag på raden) — arbete PLUS frånvaro samma dag ──
+  // "Arbete vinner" gäller BARA heldagsrader (nedan). En deldag är förmiddag
+  // arbete, eftermiddag frånvaro; timmarna härleds mot schematimmar/dag.
+  const schemaH = schemaTimmarPerDag(ordinarieVeckaH);
+  const arbetadMinPerDatum = new Map(dagar.map(d => [d.datum, d.arbetad_min || 0]));
+  const deldagar: DeldagRad[] = [];
+  for (const l of ledigheter) {
+    if (!arDeldag(l) || l.typ === 'inarbetad' || !l.startdatum) continue;
+    if (String(l.typ || '').toLowerCase() === 'hemskickad') continue;   // betald tid, ingen frånvaro: egen lista ovan (`hemskickad`)
+    if (!l.startdatum.startsWith(arbperiod)) continue;
+    const arbetadMin = arbetadMinPerDatum.get(l.startdatum) || 0;
+    deldagar.push({
+      datum: l.startdatum, typ: (l.typ || 'ledig').toLowerCase(),
+      fran_tid: l.fran_tid ? String(l.fran_tid).slice(0, 5) : null, till_tid: l.till_tid ? String(l.till_tid).slice(0, 5) : null,
+      arbetad_min: arbetadMin, timmar: deldagTimmar(schemaH, arbetadMin), schema_timmar: schemaH,
+    });
+  }
+  deldagar.sort((a, b) => a.datum.localeCompare(b.datum));
+  // ── HELDAGSRADER — "arbete vinner" ──
+  for (const l of ledigheter) {
+    if (l.typ === 'inarbetad') continue; // bytesdagar ovan — aldrig "frånvaro att sätta löneart på"
+    if (String(l.typ || '').toLowerCase() === 'hemskickad') continue; // betald tid (egen lista `hemskickad`), aldrig frånvaro — även om en rad skulle sakna klockslag
+    if (arDeldag(l)) continue;           // deldagar ovan
+    if (!l.startdatum || !l.slutdatum) continue;
+    const start = new Date(l.startdatum + "T00:00:00");
+    const slut = new Date(l.slutdatum + "T00:00:00");
+    for (let d = new Date(start); d <= slut; d.setDate(d.getDate() + 1)) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (!iso.startsWith(arbperiod)) continue;      // bara arbetsperiodens månad
+      if (arbetadeDatum.has(iso)) continue;          // arbete vinner — BARA för heldagsrader
+      const typ = (l.typ || 'ledig').toLowerCase();
+      const arr = franvaroPerTyp.get(typ) || [];
+      if (!arr.includes(iso)) arr.push(iso);
+      franvaroPerTyp.set(typ, arr);
+    }
+  }
+  // (Förr lästes även arbetsdag.dagtyp här. Joacims sjukdag 2026-08-19 låg
+  // BARA där och försvann tyst ur augusti-underlaget tills #546 — och sedan
+  // steg 2 (2026-09-18) ligger den i ledighet_ansokningar som alla andra.
+  // Två källor är borta; `ledigheter` är den enda.)
+  const franvaro = Array.from(franvaroPerTyp.entries())
+    .map(([typ, datum]) => ({ typ, dagar: datum.length, datum: datum.sort() }))
+    .sort((a, b) => b.dagar - a.dagar);
+
+  // ── HELGLÖN §10 (lib/lonesystem/helglon) ──
+  // Varje röd vardag i arbetsmånaden ur avtalets tolv namn ger 8 tim — företagets praxis (Martin 2026-10-17), över avtalets
+  // minimum: "bortfallna timmar" (§10 mom 2) tillämpas inte, så en ARBETAD röd dag ger helglön OCH vanlig lön för de arbetade
+  // timmarna (inget söndagstillägg). Närvarokravet (mom 4) och kvalifikationstiden (mom 3) avgör vilka dagar som INTE ger helglön;
+  // varje dag bär sin orsak (`skal`). Lönearten väljs efter månadens maskintyp (som övertiden). Blir en lönerad när lönearten har en kod.
+  const arbetadeInklExtra = new Set<string>(arbetadeDatum);
+  for (const e of extraTid) if (e?.datum && (e.minuter || 0) > 0) arbetadeInklExtra.add(e.datum);
+  // Bytesdag: en arbetad röd dag som byts mot en ledig dag — märks så att granskningen ser att ledigheten finns.
+  const bytesLedigPerRod = new Map(byten.map(b => [b.ersatter, b.ledig]));
+  const anstDatum = (lon.anstallningsdatum || "").trim() || null;
+  const franvaroRunt: FranvaroPost[] = (lon.franvaroRunt ?? ledigheter).map(l => ({ ...l, typ: String(l.typ || "").toLowerCase() }));
+  const helglonDagarLista: HelglonDag[] = foretagsledare ? [] : helglonIManad(helglonNamn, arbperiod, { arbetadeDatum: arbetadeInklExtra, franvaro: franvaroRunt, anstallningsdatum: anstDatum })
+    .map(h => bytesLedigPerRod.has(h.datum) ? { ...h, bytesLedig: bytesLedigPerRod.get(h.datum) } : h);
+  const helglonGerDagar = helglonDagarLista.filter(h => h.ger);
+  const helglonTimmar = helglonGerDagar.length * HELGLON_TIMMAR;
+  const anstallningsdatumSaknas = helglonDagarLista.length > 0 && !anstDatum;
+  const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar, anstallningsdatumSaknas };
+
+  // ── MÅNADENS ORDINARIE (lib/lonesystem/manadsordinarie) ──
+  // Röda vardagar avdras ALLTID (helglön betalas för dem, också när dagen arbetades) — därför ur avtalets lista, inte ur helglönens
+  // `ger`, och också för en företagsledare (vars helglönslista är tom). En månad som överlappar förarens utjämningsperiod behåller
+  // dagens formel: arbetade dagar × 8.
+  const utjamningsManad = overlapparUtjamning(arbperiod, lon.utjamning ?? []);
+  const ordinarieRes: OrdinarieResultat = utjamningsManad
+    ? utjamningOrdinarie(arbperiod, antalArbetsdagar)
+    : manadensOrdinarie({
+      arbetsperiod: arbperiod,
+      rodaDagar: Object.keys(helglonDagarArsLista(helglonNamn, Number(arbperiod.slice(0, 4)))).filter(d => d.startsWith(arbperiod)),
+      ledigheter,
+      arbetadeDatum,
+      deldagar: deldagar.map(d => ({ datum: d.datum, timmar: d.timmar })),
+      anstallningsdatum: anstDatum,
+    });
+  const ordinarie = ordinarieRes.timmar; // timmar
 
   // Räkna obekräftade
   let obekraftade = 0;
@@ -363,9 +479,8 @@ export function beräknaExport(
   skotareH = Math.round(skotareH * 100) / 100;
   const extraHRund = Math.round(extraH * 100) / 100;
 
-  // OBS (flaggat, ej beslutat): extra tid på en dag UTAN maskinpass ökar
-  // totalH men inte antalArbetsdagar/ordinarie — sådan tid lutar mot
-  // övertid. Varnas nedan så det syns i exporten i stället för att gissas.
+  // Extra tid på en dag UTAN maskinpass är arbetad tid. Mot månadens ordinarie räknas den som all annan arbetad tid; i en utjämningsmånad
+  // (gamla formeln: arbetade dagar × 8) höjer den inte ordinarie och lutar därför mot övertid. Varnas så det syns i exporten.
   const passDatum = new Set(produktionsDagar.map(d => d.datum));
   const extraUtanPassMin = extraTid
     .filter(e => e?.datum && !passDatum.has(e.datum))
@@ -373,15 +488,23 @@ export function beräknaExport(
   if (extraUtanPassMin > 0) {
     varningar.push(
       `${Math.round(extraUtanPassMin / 60 * 100) / 100}h extra tid ligger på dagar utan maskinpass — ` +
-      `räknas som arbetstid men höjer inte ordinarie-timmarna (kan ge övertid). Granska.`,
+      (utjamningsManad
+        ? `räknas som arbetstid men höjer inte ordinarie-timmarna (kan ge övertid). Granska.`
+        : `räknas som arbetad tid mot månadens ordinarie. Granska.`),
     );
   }
+  // medarbetare har inget slutdatum (bara aktiv + anställningsdatum): dagar efter avslut kan inte dras av. En inaktiv förare ska synas.
+  if (lon.aktiv === false && !foretagsledare && !utjamningsManad) {
+    varningar.push("Förarens konto är inaktivt men slutdatum saknas: månadens ordinarie dras inte av för dagar efter avslut. Kontrollera ordinarie timmar.");
+  }
 
-  // Övertid = totalt - ordinarie (kortpassens timmar är ordinarie, aldrig övertid)
-  const overtidH = Math.round(Math.max(0, totalH - ordinarie - kortpassH - hemOvrigH) * 100) / 100;
-
-  // Timlön = ordinarie (inte totalt!) — räknas på HELA arbetstiden inkl extra
-  const timlonH = Math.round(Math.min(totalH, ordinarie + kortpassH + hemOvrigH) * 100) / 100;
+  // Övertid = arbetad tid − månadens ordinarie, aldrig negativ. Timlön = det som ryms i ordinarie (inte totalt!) — räknas på HELA
+  // arbetstiden inkl extra tid, kortpass och hemskickad tid. Månad som överlappar utjämningsperiod: dagens formel (kortpass och hemskickad
+  // tid på dagar utan ×8 är ordinarie; ordinarie = arbetade dagar × 8).
+  const overtidH = Math.round(Math.max(0, utjamningsManad ? totalH - ordinarie - kortpassH - hemOvrigH : totalH - ordinarie) * 100) / 100;
+  const timlonH = Math.round(Math.min(totalH, utjamningsManad ? ordinarie + kortpassH + hemOvrigH : ordinarie) * 100) / 100;
+  // Timlönens text är den gamla så länge talet är det gamla (granskningen och byte-diffen ser då bara det som ändrats).
+  const gammalTimlonH = Math.round(Math.min(totalH, gammalOrdinarie + kortpassH + hemOvrigH) * 100) / 100;
   const kortpassHRund = Math.round(kortpassH * 100) / 100;
 
   // ── PREMIELÖN — ER EGEN KONSTRUKTION, INTE KOLLEKTIVAVTALET ──
@@ -418,7 +541,10 @@ export function beräknaExport(
 
   // ── 1. TIMLÖN ──
   if (timlonH > 0) {
-    laggRad("timlon", timlonH.toFixed(2), `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})${hemskickadH > 0 ? ` varav ${hemskickadH}h hemskickad` : ''}`);
+    const timlonText = utjamningsManad || timlonH === gammalTimlonH
+      ? `${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h${kortpassHRund > 0 ? ` + ${kortpassHRund}h kortpass` : ''})`
+      : `${timlonH}h (arbetade ${totalH}h av månadens ordinarie ${ordinarie}h: ${ordinarieText(ordinarieRes)})`;
+    laggRad("timlon", timlonH.toFixed(2), `Timlön: ${timlonText}${hemskickadH > 0 ? ` varav ${hemskickadH}h hemskickad` : ''}`);
   }
 
   // ── 2. PREMIELÖN — på alla timlönetimmar, fördelat efter månadens maskintyp ──
@@ -462,33 +588,12 @@ export function beräknaExport(
   }
   if (kortpass.length > 0) {
     const lista = kortpass.map(k => `${k.datum} ${k.minuter} min${k.km_totalt > 0 ? ` · ${k.km_totalt} km` : ''}`).join(', ');
-    varningar.push(`Kortpass (under ${ARBETSDAG_MIN_MINUTER} min): ${lista} — betald tid men ingen arbetsdag: ingen ×8 i övertidsbasen, ingen vältlappsvecka, ingen reseersättning. Ta bort dagen om den är en felinloggning.`);
+    varningar.push(utjamningsManad
+      ? `Kortpass (under ${ARBETSDAG_MIN_MINUTER} min): ${lista} — betald tid men ingen arbetsdag: ingen ×8 i övertidsbasen, ingen vältlappsvecka, ingen reseersättning. Ta bort dagen om den är en felinloggning.`
+      : `Kortpass (under ${ARBETSDAG_MIN_MINUTER} min): ${lista} — betald tid (räknas som arbetad tid mot månadens ordinarie) men ingen arbetsdag: ingen vältlappsvecka, ingen reseersättning. Ta bort dagen om den är en felinloggning.`);
   }
 
-  // ── FRÅNVARO ur godkänd ledighet (primär källa) ──
-  // Expandera varje ledighet start–slut till datum, begränsa till ARBETSPERIODENS
-  // månad, och tillämpa "arbete vinner": en dag med arbetspass (arbetad_min > 0)
-  // räknas som arbete, inte frånvaro. Läggs ALDRIG som lönerad (löneart okänd) —
-  // ytas som franvaro + varning för manuell hantering.
-  const arbetadeDatum = new Set(dagar.filter(d => (d.arbetad_min || 0) > 0).map(d => d.datum));
-  const franvaroPerTyp = new Map<string, string[]>();
-  // ── BYTESDAGAR (inarbetad, §5 mom 4) — inte frånvaro att sätta löneart på ──
-  // Den lediga dagen är ledighet UTAN avdrag (lönen följer schemat); den röda
-  // dagen är en vanlig arbetsdag i ordinarie (+ söndagstillägg om beordrat,
-  // löneart OB öppen) och ger INGEN helglön (§10 mom 2). Listas separat med
-  // upplysning; ett byte kan spänna över månadsskiftet — då syns det i båda.
-  const byten: ByteRad[] = [];
-  for (const l of ledigheter) {
-    if (l.typ !== 'inarbetad' || !l.ersatter_datum || !l.startdatum) continue;
-    const ledig = l.startdatum, ersatter = l.ersatter_datum;
-    if (!ledig.startsWith(arbperiod) && !ersatter.startsWith(arbperiod)) continue;
-    byten.push({
-      ledig, ersatter,
-      ersatterNamn: rodVardagNamn(ersatter) || 'röd dag',
-      ersatterArbetad: arbetadeDatum.has(ersatter) || arbetadeUtanforPerioden.has(ersatter),
-      ledigArbetad: arbetadeDatum.has(ledig),
-    });
-  }
+  // ── FRÅNVARO, BYTESDAGAR, DELDAGAR, HELGLÖN — varningar och lönerad (underlaget byggdes ovan) ──
   for (const b of byten) {
     const rod = `${b.ersatterNamn} ${b.ersatter}`;
     if (b.ledigArbetad) {
@@ -499,77 +604,15 @@ export function beräknaExport(
       varningar.push(`Bytesdag (§5 mom 4): ${b.ledig} är inarbetad ledighet — ersätter ${rod} som arbetades. Ingen lönerad, inget avdrag; den röda dagens timmar är ordinarie tid (+ söndagstillägg om beordrat), helglönen flyttas inte.`);
     }
   }
-  // ── DELDAGAR (klockslag på raden) — arbete PLUS frånvaro samma dag ──
-  // "Arbete vinner" gäller BARA heldagsrader (nedan). En deldag är förmiddag
-  // arbete, eftermiddag frånvaro; timmarna härleds mot schematimmar/dag.
-  const schemaH = schemaTimmarPerDag(ordinarieVeckaH);
-  const arbetadMinPerDatum = new Map(dagar.map(d => [d.datum, d.arbetad_min || 0]));
-  const deldagar: DeldagRad[] = [];
-  for (const l of ledigheter) {
-    if (!arDeldag(l) || l.typ === 'inarbetad' || !l.startdatum) continue;
-    if (String(l.typ || '').toLowerCase() === 'hemskickad') continue;   // betald tid, ingen frånvaro: egen lista ovan (`hemskickad`)
-    if (!l.startdatum.startsWith(arbperiod)) continue;
-    const arbetadMin = arbetadMinPerDatum.get(l.startdatum) || 0;
-    deldagar.push({
-      datum: l.startdatum, typ: (l.typ || 'ledig').toLowerCase(),
-      fran_tid: l.fran_tid ? String(l.fran_tid).slice(0, 5) : null, till_tid: l.till_tid ? String(l.till_tid).slice(0, 5) : null,
-      arbetad_min: arbetadMin, timmar: deldagTimmar(schemaH, arbetadMin), schema_timmar: schemaH,
-    });
-  }
-  deldagar.sort((a, b) => a.datum.localeCompare(b.datum));
   for (const dd of deldagar) {
     const nar = dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`;
     const arb = Math.round(dd.arbetad_min / 6) / 10;
     varningar.push(`Deldag (${dd.typ}) ${dd.datum} ${nar}: ${dd.timmar} tim frånvaro (arbetade ${arb} tim, räknat mot ${dd.schema_timmar} tim/dag — ANTAGANDE tills schema beslutats, §12 mom 3 anm 2). Dagen är arbetsdag. Löneart ej fastställd; läggs INTE som lönerad.`);
   }
-
-  // ── HELDAGSRADER — "arbete vinner" ──
-  for (const l of ledigheter) {
-    if (l.typ === 'inarbetad') continue; // bytesdagar ovan — aldrig "frånvaro att sätta löneart på"
-    if (String(l.typ || '').toLowerCase() === 'hemskickad') continue; // betald tid (egen lista `hemskickad`), aldrig frånvaro — även om en rad skulle sakna klockslag
-    if (arDeldag(l)) continue;           // deldagar ovan
-    if (!l.startdatum || !l.slutdatum) continue;
-    const start = new Date(l.startdatum + "T00:00:00");
-    const slut = new Date(l.slutdatum + "T00:00:00");
-    for (let d = new Date(start); d <= slut; d.setDate(d.getDate() + 1)) {
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      if (!iso.startsWith(arbperiod)) continue;      // bara arbetsperiodens månad
-      if (arbetadeDatum.has(iso)) continue;          // arbete vinner — BARA för heldagsrader
-      const typ = (l.typ || 'ledig').toLowerCase();
-      const arr = franvaroPerTyp.get(typ) || [];
-      if (!arr.includes(iso)) arr.push(iso);
-      franvaroPerTyp.set(typ, arr);
-    }
-  }
-  // (Förr lästes även arbetsdag.dagtyp här. Joacims sjukdag 2026-08-19 låg
-  // BARA där och försvann tyst ur augusti-underlaget tills #546 — och sedan
-  // steg 2 (2026-09-18) ligger den i ledighet_ansokningar som alla andra.
-  // Två källor är borta; `ledigheter` är den enda.)
-  const franvaro = Array.from(franvaroPerTyp.entries())
-    .map(([typ, datum]) => ({ typ, dagar: datum.length, datum: datum.sort() }))
-    .sort((a, b) => b.dagar - a.dagar);
   for (const f of franvaro) {
     const spann = f.datum.length > 1 ? `${f.datum[0]}…${f.datum[f.datum.length - 1]}` : f.datum[0];
     varningar.push(`Frånvaro (${f.typ}): ${f.dagar} dag(ar) ${spann} — löneart för Fortnox ej fastställd; läggs INTE som lönerad, sätt manuellt innan sändning.`);
   }
-
-  // ── HELGLÖN §10 (lib/lonesystem/helglon) ──
-  // Varje röd vardag i arbetsmånaden ur avtalets tolv namn ger 8 tim — företagets praxis (Martin 2026-10-17), över avtalets
-  // minimum: "bortfallna timmar" (§10 mom 2) tillämpas inte, så en ARBETAD röd dag ger helglön OCH vanlig lön för de arbetade
-  // timmarna (inget söndagstillägg). Närvarokravet (mom 4) och kvalifikationstiden (mom 3) avgör vilka dagar som INTE ger helglön;
-  // varje dag bär sin orsak (`skal`). Lönearten väljs efter månadens maskintyp (som övertiden). Blir en lönerad när lönearten har en kod.
-  const arbetadeInklExtra = new Set<string>(arbetadeDatum);
-  for (const e of extraTid) if (e?.datum && (e.minuter || 0) > 0) arbetadeInklExtra.add(e.datum);
-  // Bytesdag: en arbetad röd dag som byts mot en ledig dag — märks så att granskningen ser att ledigheten finns.
-  const bytesLedigPerRod = new Map(byten.map(b => [b.ersatter, b.ledig]));
-  const anstDatum = (lon.anstallningsdatum || "").trim() || null;
-  const franvaroRunt: FranvaroPost[] = (lon.franvaroRunt ?? ledigheter).map(l => ({ ...l, typ: String(l.typ || "").toLowerCase() }));
-  const helglonDagarLista: HelglonDag[] = foretagsledare ? [] : helglonIManad(helglonNamn, arbperiod, { arbetadeDatum: arbetadeInklExtra, franvaro: franvaroRunt, anstallningsdatum: anstDatum })
-    .map(h => bytesLedigPerRod.has(h.datum) ? { ...h, bytesLedig: bytesLedigPerRod.get(h.datum) } : h);
-  const helglonGerDagar = helglonDagarLista.filter(h => h.ger);
-  const helglonTimmar = helglonGerDagar.length * HELGLON_TIMMAR;
-  const anstallningsdatumSaknas = helglonDagarLista.length > 0 && !anstDatum;
-  const helglon = { dagar: helglonDagarLista, timmar: helglonTimmar, anstallningsdatumSaknas };
   if (helglonDagarLista.length > 0) {
     const lista = helglonDagarLista.map(h => `${h.datum} ${h.namn}${h.ger ? (h.arbetad ? ` (${helglonSkalText(h.skal)})` : '') : ` (ingen helglön: ${helglonSkalText(h.skal)})`}${h.bytesLedig ? ` (byts mot ledig ${h.bytesLedig})` : ''}`).join(', ');
     varningar.push(`Helglön §10: ${helglonTimmar} tim (${lista}). Praxis: varje röd vardag ger 8 tim, även om du arbetar den (arbetade timmar lönas dessutom, inget söndagstillägg §8 mom 1). Närvarokravet (§10 mom 4) och kvalifikationstiden (mom 3) är kontrollerade.`);
@@ -608,6 +651,7 @@ export function beräknaExport(
     foretagsledare,
     arbetsdagar: antalArbetsdagar,
     ordinarie_h: ordinarie,
+    ordinarie: ordinarieRes,
     extra_h: extraHRund,
     // Företagsledare: lönen ligger utanför appen, så inga löntal (timlön, premie, övertid, vältlappar, mil) visas för dem.
     timlon_h: foretagsledare ? 0 : timlonH,

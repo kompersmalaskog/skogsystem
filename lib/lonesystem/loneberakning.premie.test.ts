@@ -24,12 +24,13 @@ describe("premielön = timlönetimmar, fördelad efter månadens maskintyp", () 
   });
 
   it("extra tid (planering, flytt) får premie — men övertid får det inte", () => {
-    // 2 dagar à 8 h maskin + 4 h extra (utanför maskinen) → totalt 20, ordinarie 16.
-    const u = beräknaExport("m", "X", "7", [dag("2026-09-07", 480, "R64428"), dag("2026-09-08", 480, "R64428")], { R64428: TYP.SK }, "2026-10",
+    // Septembers 22 vardagar à 8 h maskin + 4 h extra (utanför maskinen) → arbetat 180, månadens ordinarie 176.
+    const sep = Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`).filter(d => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w !== 0 && w !== 6; });
+    const u = beräknaExport("m", "X", "7", sep.map(d => dag(d, 480, "R64428")), { R64428: TYP.SK }, "2026-10",
       [{ datum: "2026-09-07", minuter: 240 }]);
-    expect(u.timlon_h).toBe(16);
+    expect(u.timlon_h).toBe(176);
     expect(u.overtid_h).toBe(4);
-    expect(u.premielon_skordare_h).toBe(16); // = timlön, inte 16 maskin + 4 extra
+    expect(u.premielon_skordare_h).toBe(176); // = timlön, inte 176 maskin + 4 extra
   });
 
   it("två maskintyper: timmarna utanför maskinen fördelas efter månadens andel", () => {

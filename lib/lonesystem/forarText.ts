@@ -123,7 +123,7 @@ const ERSATTA = [
   /^Ingen helglön skickas/, /^Anställningsdatum saknas/,
   // Löneart utan kod: adminens text (den pekar på Lön → Lönearter). Föraren får en egen post nedan, eller ingen (frivillig premie).
   /^Löneart saknas/, /skickas inte: ingen kod är kopplad/,
-  // Extra tid på dagar utan maskinpass: en granskningsnotis om övertidsbasen.
+  // Extra tid på dagar utan maskinpass: en granskningsnotis (räknas som arbetad tid mot månadens ordinarie).
   // Perioddagar (Joacim) har alltid det — för föraren är det ingen avvikelse.
   /extra tid ligger på dagar utan maskinpass/,
 ];
