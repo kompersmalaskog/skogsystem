@@ -69,6 +69,8 @@ import RundKarta from '../RundKarta';
 import StubbeSheet from '../StubbeSheet';
 import TillbakaTillListan from '../TillbakaTillListan';
 import ProvytaSheet from '../ProvytaSheet';
+import ObservationSheet from '../ObservationSheet';
+import ObservationLista, { observationAntalText } from '../ObservationLista';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import Forutsattningar from '../Forutsattningar';
 import KartLagerMeny, { type EgetLager } from '@/components/KartLagerMeny';
@@ -79,7 +81,7 @@ import GaTillYta from '../GaTillYta';
 import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
 import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import { anmarkningsText, kortDatum } from '../format';
-import { LAYOUT, designCss, medSafeBotten, underTopbar } from '@/lib/design/tokens';
+import { AVSTAND, FARG, LAYOUT, RADIE, TYP, designCss, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import {
   SAKNAR_PLATS_MENING,
   UTAN_POSITION_MENING,
@@ -114,6 +116,7 @@ function avstandText(m: number): string {
 const EGNA_LAGER: EgetLager[] = [
   { id: 'ekPunkter', namn: 'Kontrollpunkter', beskrivning: 'Punkterna ur planen, fargade efter svar' },
   { id: 'ekProvytor', namn: 'Provytor', beskrivning: 'Lottade ytor, matta och omatta' },
+  { id: 'ekObservationer', namn: 'Observationer', beskrivning: 'Det du själv noterat ute på rundan' },
   { id: 'ekStammar', namn: 'Avverkade stammar', beskrivning: '' },
 ];
 
@@ -569,6 +572,12 @@ export default function EgenkontrollRundaPage() {
   const [stubbePunkt, setStubbePunkt] = useState<EgenkontrollPunkt | null>(null);
   const [provytor, setProvytor] = useState<EgenkontrollProvyta[]>([]);
   const [provytaVald, setProvytaVald] = useState<EgenkontrollProvyta | null>(null);
+  // "Notera har": ny observation (med positionen i det ogonblick man tryckte) eller en befintlig som oppnats for andring.
+  const [observationSheet, setObservationSheet] = useState<
+    | { lage: 'ny'; start: { lat: number; lng: number; noggrannhet: number | null } | null }
+    | { lage: 'andra'; observation: EgenkontrollPunkt }
+    | null
+  >(null);
 
   // DIN POSITION, levande. Sidan ager bevakningen och delar ut den - kartan,
   // kortet och listan ska aldrig kunna vara oense om var man ar.
@@ -608,7 +617,7 @@ export default function EgenkontrollRundaPage() {
   // vad rundan handlar om. Stammolnet ar av: det ar 12 000 prickar som ska
   // tandas nar man vill se var det ar kort, inte ligga och skrapa.
   const [egnaVarden, setEgnaVarden] = useState<Record<string, boolean>>({
-    ekPunkter: true, ekProvytor: true, ekStammar: false,
+    ekPunkter: true, ekProvytor: true, ekObservationer: true, ekStammar: false,
   });
   const visaStammar = egnaVarden.ekStammar === true;
   const [gaTill, setGaTill] = useState<EgenkontrollProvyta | null>(null);
@@ -849,6 +858,9 @@ export default function EgenkontrollRundaPage() {
   // aldrig en gissning - det star pa knappen sa man vet hur langt man har kvar
   // utan att blada.
   const allaPunkter = vy?.punkter ?? [];
+  // OBSERVATIONER ar tillagg, inga punkter: de ar redan bortdelade i hamtaRunda och ingar aldrig i allaPunkter,
+  // kvar, "N av M klara" eller avslutsknappen.
+  const observationer = vy?.observationer ?? [];
   const kvar = allaPunkter.filter((p) => p.status === null).length;
   const antalBattre = allaPunkter.filter((p) => p.status === 'battre').length;
   const rundanKlar = vy?.egenkontroll?.status === 'klar';
@@ -935,6 +947,16 @@ export default function EgenkontrollRundaPage() {
     const t = setTimeout(() => { setKlartKort(false); setFrystPos(minPosition); setLage('lista'); }, 1200);
     return () => clearTimeout(t);
   }, [klartKort]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * "Notera har": positionen tas NU, i trycket. Saknas den (ingen fix an) startar bevakningen om i samma tryck -
+   * i en installerad PWA pa iOS ges ingen platsprompt utan en riktig gest - och arket tar forsta duglig fix.
+   */
+  const noteraHar = () => {
+    setSparFel(null);
+    if (pos.status === 'saknas') pos.forsokIgen();
+    setObservationSheet({ lage: 'ny', start: pos.status === 'ok' ? pos.position : null });
+  };
 
   const gaTillLista = () => { setKlartKort(false); setFrystPos(minPosition); setLage('lista'); };
   const gaTillKarta = () => { setKlartKort(false); setFrystPos(null); setLage('karta'); };
@@ -1039,6 +1061,7 @@ export default function EgenkontrollRundaPage() {
               punkter={vy.punkter}
               kontext={kontext}
               provytor={provytor}
+              observationer={observationer}
               valdPunktId={valdPunktId}
               hojd="100%"
               stammar={stammar ?? []}
@@ -1051,6 +1074,11 @@ export default function EgenkontrollRundaPage() {
               onValjProvyta={(nr) => {
                 const y = provytor.find((q) => q.nummer === nr);
                 if (y) setProvytaVald(y);
+              }}
+              // En observation oppnas for andring bara medan rundan ar oppen - en klar runda ar last.
+              onValjObservation={rundanKlar ? undefined : (id) => {
+                const o = observationer.find((q) => q.id === id);
+                if (o) setObservationSheet({ lage: 'andra', observation: o });
               }}
             />
             {/* Vilken runda man ar i. Inget tryck - bara ett namn. */}
@@ -1094,6 +1122,26 @@ export default function EgenkontrollRundaPage() {
               </span>
               Lager
             </button>
+            {/* NOTERA HAR. Neutralt namn: en observation ar ris ELLER ros, aldrig bara en avvikelse. Nere till
+                vanster, ovanfor attributionen (som ligger i hornet och maste vara synlig). 52 hog - handske i skog.
+                Inte pa en klar runda: den ar last. */}
+            {!rundanKlar && (
+              <button
+                onClick={noteraHar}
+                aria-label="Notera här"
+                style={{
+                  position: 'absolute', left: SIDMARGINAL, bottom: 52, zIndex: 10,
+                  minHeight: 52, padding: `0 ${AVSTAND.xl}px`, borderRadius: RADIE.knapp, border: 'none',
+                  background: FARG.text, color: FARG.bg, fontSize: 17, fontWeight: 600, fontFamily: T.ff,
+                  display: 'flex', alignItems: 'center', gap: AVSTAND.s,
+                }}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>
+                  add_location_alt
+                </span>
+                Notera här
+              </button>
+            )}
           </div>
 
           {/* KORTET. Tar bara den plats det behover, och aldrig mer an 45 % av
@@ -1458,6 +1506,23 @@ export default function EgenkontrollRundaPage() {
                   </div>
                 )}
 
+                {/* OBSERVATIONERNA: det besiktaren sag ute, atskilt fran det planen fragade om. Egen rubrik, egen
+                    lista, aldrig bland planpunkterna och aldrig i "N av M klara". Ett tryck oppnar dem for andring
+                    medan rundan ar oppen; i det avslutade dokumentet ar de skrivskyddade. */}
+                {observationer.length > 0 && (
+                  <div>
+                    <SectionHeader>Observationer</SectionHeader>
+                    <div style={{ ...TYP.meta, color: T.t2, padding: '0 16px 8px' }}>
+                      {observationAntalText(observationer.length)} — det du såg ute, utöver det planen frågade om
+                    </div>
+                    <ObservationLista
+                      observationer={observationer}
+                      fotoPerPunkt={fotoPerPunkt}
+                      onOppna={rundanKlar ? undefined : (o) => setObservationSheet({ lage: 'andra', observation: o })}
+                    />
+                  </div>
+                )}
+
                 {/* Fallback: okand del ska synas, inte forsvinna. */}
                 {!serieLage && ovrigaPunkter.length > 0 && (
                   <div>
@@ -1614,6 +1679,21 @@ export default function EgenkontrollRundaPage() {
           />
         )}
 
+        {/* NOTERA HAR / ANDRA EN OBSERVATION. Bildens sokvag bar punktens id (lasbarande - ror inte byggSokvag). */}
+        {observationSheet && vy?.egenkontroll && (
+          <ObservationSheet
+            key={observationSheet.lage === 'ny' ? 'ny' : observationSheet.observation.id}
+            lage={observationSheet.lage}
+            egenkontrollId={vy.egenkontroll.id}
+            observation={observationSheet.lage === 'andra' ? observationSheet.observation : undefined}
+            fotoUrler={observationSheet.lage === 'andra' ? fotoPerPunkt[observationSheet.observation.id] ?? [] : []}
+            startPosition={observationSheet.lage === 'ny' ? observationSheet.start : null}
+            pos={pos}
+            onStang={() => setObservationSheet(null)}
+            onSparad={() => { setObservationSheet(null); ladda({ tyst: true }); laddaTillbehor(true); }}
+          />
+        )}
+
         {/* APP-EGEN DIALOG - aldrig confirm(). Den blockeras tyst i inbaddade
             lagen, och ett tyst blockerat confirm() betyder att avslutet bara
             "inte hander" utan att nagon forstar varfor.
@@ -1656,6 +1736,9 @@ export default function EgenkontrollRundaPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18 }}>
                 <Sammanfattningsrad etikett="Punkter" varde={`${allaPunkter.length}`} />
+                {observationer.length > 0 && (
+                  <Sammanfattningsrad etikett="Observationer" varde={`${observationer.length}`} />
+                )}
                 <Sammanfattningsrad
                   etikett="Avvikelser"
                   varde={`${antalAvvikelser}`}

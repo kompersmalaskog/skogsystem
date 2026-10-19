@@ -26,12 +26,15 @@ import type { MapLayers } from '@/lib/hooks/useMapLayers';
 import { signeraKartfil } from '@/lib/kartfiler';
 import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
 import {
-  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
+  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, OBSERVATION_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
   geometriKoordinater, kontextFeature, kontextLager, kontextUtanKontrollpunkter,
-  kontrollFeatures, kontrollLager, kontrollLagerIdn, provytaFeatures, provytaLager,
+  kontrollFeatures, kontrollLager, kontrollLagerIdn, observationFeatures, observationLager,
+  observationLagerIdn, provytaFeatures, provytaLager,
   provytaLagerIdn, valdLinjeFilter, valdSymbolFilter,
 } from '@/lib/egenkontrollkarta';
 import { IKON_PIXELRATIO, provytaBildNamn, ritaProvytaIkon } from '@/lib/provytaIkon';
+import { OBS_PIXELRATIO, observationBildNamn, ritaObservationIkon } from '@/lib/observationIkon';
+import { OBSERVATION_TONER } from '@/lib/egenkontrollObservation';
 import type { ProvytaStatus } from '@/lib/provytor';
 import { PIL_STIL, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
 import {
@@ -59,6 +62,8 @@ export type KartObjektData = {
 
 type Geo = { type: 'FeatureCollection'; features: any[] };
 const TOM: Geo = { type: 'FeatureCollection', features: [] };
+/** Stabil tom lista: en ny [] vid varje rendering skulle starta om varje effekt som beror pa den. */
+const INGA_OBSERVATIONER: EgenkontrollPunkt[] = [];
 
 /**
  * Bilderna lagren refererar: symbolerna (lib/marker-icons.ts - samma som
@@ -91,6 +96,25 @@ async function laggTillBilder(map: any, nummer: number[]): Promise<void> {
   await Promise.all(laddar);
   sakraNummerBilder(map, nummer);
   sakraProvytaBilder(map);
+  sakraObservationBilder(map);
+}
+
+/**
+ * Observationernas tre ikoner (bra, battre, avvikelse): cirkel, triangel, romb (lib/observationIkon.ts).
+ * En ikon som saknas gor att just den tonen inte syns, sa det larmas hellre an tigs.
+ */
+function sakraObservationBilder(map: any): void {
+  for (const ton of OBSERVATION_TONER) {
+    const namn = observationBildNamn(ton);
+    if (map.hasImage(namn)) continue;
+    try {
+      const bild = canvasToMapLibreImage(ritaObservationIkon(ton));
+      if (bild) map.addImage(namn, bild, { pixelRatio: OBS_PIXELRATIO });
+      else console.error('[egenkontroll] observationsikonen kunde inte ritas:', ton);
+    } catch (e) {
+      console.error('[egenkontroll] observationsikonen kunde inte laggas till:', ton, e);
+    }
+  }
 }
 
 /**
@@ -144,11 +168,13 @@ export default function RundKarta({
   punkter,
   kontext,
   provytor,
+  observationer = INGA_OBSERVATIONER,
   valdPunktId,
   onPosition,
   position,
   onValjPunkt,
   onValjProvyta,
+  onValjObservation,
   hojd = HOJD_INLINE,
   centreraPa,
   stammar,
@@ -162,6 +188,11 @@ export default function RundKarta({
   /** Ravt data ur planering_markeringar - bara orientering. */
   kontext: { data: any; marker_id?: string | null }[];
   provytor: EgenkontrollProvyta[];
+  /**
+   * Besiktarens egna observationer, ritade DAR DE GJORDES (deras egen position). Aldrig kontrollpunkter:
+   * de ligger i ett eget lager och en egen kalla, och ingar inte i punkter.
+   */
+  observationer?: EgenkontrollPunkt[];
   valdPunktId: string | null;
   /** Positionen delas uppat sa avstandslistan slipper en egen GPS-prenumeration. */
   onPosition?: (p: { lat: number; lng: number; noggrannhet: number | null } | null) => void;
@@ -175,6 +206,8 @@ export default function RundKarta({
   onValjPunkt?: (punktId: string) => void;
   /** Tryck pa en provyta (dess nummer). */
   onValjProvyta?: (nummer: number) => void;
+  /** Tryck pa en observation (id) - oppnar den for andring. */
+  onValjObservation?: (id: string) => void;
   /** 180 i rundvyn, '100%' i helskarm. Ett lage i taget ar monterat. */
   hojd?: number | string;
   /** Ga-vyn centrerar pa ytan. */
@@ -223,6 +256,8 @@ export default function RundKarta({
   onValjPunktRef.current = onValjPunkt;
   const onValjProvytaRef = useRef(onValjProvyta);
   onValjProvytaRef.current = onValjProvyta;
+  const onValjObservationRef = useRef(onValjObservation);
+  onValjObservationRef.current = onValjObservation;
   const styrdPosition = position !== undefined;
 
   // --- Geometrierna ---------------------------------------------------------
@@ -275,6 +310,12 @@ export default function RundKarta({
   const provyteGeo = useMemo<Geo>(
     () => ({ type: 'FeatureCollection', features: provytaFeatures(provytor) }),
     [provytor],
+  );
+
+  /** Observationerna. Egen position, egen kalla, egna lager - se observationFeatures. */
+  const observationGeo = useMemo<Geo>(
+    () => ({ type: 'FeatureCollection', features: observationFeatures(observationer) }),
+    [observationer],
   );
 
   /** Stammolnet. Sma, graa, ej tryckbara - underlag, inte innehall. */
@@ -371,10 +412,10 @@ export default function RundKarta({
     // orientering och ska inte ga att trycka pa. Lager som ar slackta ger inga
     // traffar, sa en punkt man tagit bort ur kartan gar inte heller att tryck pa.
     map.on('click', (e: any) => {
-      if (!onValjPunktRef.current && !onValjProvytaRef.current) return;
+      if (!onValjPunktRef.current && !onValjProvytaRef.current && !onValjObservationRef.current) return;
       const lagerIdn = ((map.getStyle()?.layers ?? []) as { id: string }[])
         .map((l) => l.id)
-        .filter((id) => id.startsWith('ek-p-') || provytaLagerIdn().includes(id));
+        .filter((id) => id.startsWith('ek-p-') || provytaLagerIdn().includes(id) || observationLagerIdn().includes(id));
       if (lagerIdn.length === 0) return;
       const r = TRAFF_RADIE_PX;
       const traffar = map.queryRenderedFeatures(
@@ -391,6 +432,7 @@ export default function RundKarta({
       const traff = valjTraff(kandidater);
       if (!traff) return;
       if (traff.kind === 'provyta') onValjProvytaRef.current?.(Number(traff.id));
+      else if (traff.kind === 'observation') onValjObservationRef.current?.(traff.id);
       else onValjPunktRef.current?.(traff.id);
     });
 
@@ -494,6 +536,11 @@ export default function RundKarta({
       map.addSource(PROVYTA_KALLA, { type: 'geojson', data: provyteGeo });
       for (const spec of provytaLager()) laggTillLager(map, spec);
 
+      // OBSERVATIONERNA: ovanpa allt annat utom din egen position. En observation ska aldrig
+      // doljas av en kontrollpunkt som hamnar pa samma plats.
+      map.addSource(OBSERVATION_KALLA, { type: 'geojson', data: observationGeo });
+      for (const spec of observationLager()) laggTillLager(map, spec);
+
       map.addSource('ek-jag', { type: 'geojson', data: TOM });
       map.addLayer({
         id: 'ek-jag', type: 'circle', source: 'ek-jag',
@@ -549,8 +596,9 @@ export default function RundKarta({
     map.getSource(KONTEXT_KALLA)?.setData(kontextGeo);
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
     map.getSource(PROVYTA_KALLA)?.setData(provyteGeo);
+    map.getSource(OBSERVATION_KALLA)?.setData(observationGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
-  }, [punktGeo, nummerGeo, kontextGeo, kontroll.nummer, avvikelseGeo, provyteGeo, stamGeo, laddad]);
+  }, [punktGeo, nummerGeo, kontextGeo, kontroll.nummer, avvikelseGeo, provyteGeo, observationGeo, stamGeo, laddad]);
 
   // --- Bakgrundskartan ------------------------------------------------------
   // Alla fyra ligger redan i stilen; vi tander en och slacker de andra. Att
@@ -596,6 +644,8 @@ export default function RundKarta({
     for (const id of [...kontrollLagerIdn(), 'ek-avvikelse']) satt(id, punkterPa);
     const ytorPa = egnaVarden.ekProvytor !== false;
     for (const id of provytaLagerIdn()) satt(id, ytorPa);
+    const observationerPa = egnaVarden.ekObservationer !== false;
+    for (const id of observationLagerIdn()) satt(id, observationerPa);
   }, [egnaVarden, laddad]);
 
   // Strombrytaren tander/slacker lagret utan att rita om kartan.

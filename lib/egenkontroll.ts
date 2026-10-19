@@ -21,11 +21,20 @@
 // Rader skapas EN gang har. Darefter bara UPDATE, aldrig upsert - samma monster
 // som updateMarkerDataInDb i app/planering/page.tsx. En UPDATE mot ett borttaget
 // id traffar 0 rader och kan omojligt aterskapa nagot.
+//
+// ETT UNDANTAG: OBSERVATIONERNA (se skapaObservation). De finns inte pa forhand -
+// besiktaren gor dem ute - sa de skapas med INSERT, en gang, och andras sedan med
+// UPDATE. Aldrig upsert ens dar: en radering som hunnit ga igenom far inte
+// aterupplivas av en andring som kom efter.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { kartOrigoFranBounds, svgToLatLon, type Origo } from './kartkoordinater';
 import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
 import { hamtaVader, type Arbetsfonster, type VaderSnapshot } from './egenkontrollvader';
+import {
+  OBSERVATION_ORDNING, OBSERVATION_RUBRIK, arObservationTon, arObservationTyp, delaObservationer,
+  giltigPosition, type ObservationTon, type ObservationTyp,
+} from './egenkontrollObservation';
 
 // Den delade klienten hamtas LAT (dynamisk import nedan), inte har uppe.
 // ./supabase bygger webblasarklienten redan vid import och kraver da
@@ -121,15 +130,15 @@ export type GenereraOptions = KlientOptions & {
  */
 async function kravSession(
   options: KlientOptions,
+  /** Felet nar sessionen saknas. Standard galler att LASA; en skrivning som observationens sager vad som inte sparades. */
+  ingenSession = 'Du är inte inloggad längre. Logga in igen för att se egenkontrollerna.',
 ): Promise<{ klient: SupabaseClient; epost: string | null }> {
   if (options.klient) return { klient: options.klient, epost: null };
 
   const klient = (await import('./supabase')).supabase;
   const { data } = await klient.auth.getUser();
   if (!data?.user) {
-    throw new Error(
-      'Du är inte inloggad längre. Logga in igen för att se egenkontrollerna.',
-    );
+    throw new Error(ingenSession);
   }
   return { klient, epost: data.user.email ?? data.user.id };
 }
@@ -974,6 +983,8 @@ export async function hamtaVantande(
       .from('egenkontroll_punkt')
       .select('egenkontroll_id, status')
       .in('egenkontroll_id', rundor.map((r) => r.id))
+      // Observationer ar tillagg, inga punkter att besvara: de raknas aldrig i "N av M" eller i avvikelserna.
+      .neq('kalla', 'observation')
       .order('id', { ascending: true });
     if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
     punkter = (punktRader ?? []) as unknown as typeof punkter;
@@ -1027,7 +1038,14 @@ export type RundVy = {
   kartObjekt: KartObjekt;
   /** null = ingen runda startad an. */
   egenkontroll: Egenkontroll | null;
+  /**
+   * Planpunkterna, utforandet och matningarna - ALLT som ska besvaras. Aldrig observationer:
+   * de delas bort har (delaObservationer), sa att varje raknare nedstroms (N av M klara, kvar,
+   * avslutsknappen, oversikten) saknar dem utan att behova minnas ett filter.
+   */
   punkter: EgenkontrollPunkt[];
+  /** Det besiktaren sag ute och sjalv noterade. Tillagg, inte punkter att beta av. Aldst forst. */
+  observationer: EgenkontrollPunkt[];
 };
 
 /** Hamtar objektets runda med punkter. Skapar ALDRIG nagot. */
@@ -1067,7 +1085,7 @@ export async function hamtaRunda(
       kartbild_bounds: o.kartbild_bounds ?? null,
     },
   };
-  if (!runda) return { ...bas, egenkontroll: null, punkter: [] };
+  if (!runda) return { ...bas, egenkontroll: null, punkter: [], observationer: [] };
 
   // .order() kravs for stabil ordning - utan ORDER BY ar radordningen inte
   // garanterad och punkterna skulle kunna byta plats mellan laddningar.
@@ -1079,11 +1097,9 @@ export async function hamtaRunda(
 
   if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
 
-  return {
-    ...bas,
-    egenkontroll: runda,
-    punkter: (punktRader ?? []) as unknown as EgenkontrollPunkt[],
-  };
+  // DELAS VID KALLAN. Se RundVy.punkter.
+  const { punkter, observationer } = delaObservationer((punktRader ?? []) as unknown as EgenkontrollPunkt[]);
+  return { ...bas, egenkontroll: runda, punkter, observationer };
 }
 
 /**
@@ -1181,6 +1197,8 @@ export async function avslutaRunda(
     .from('egenkontroll_punkt')
     .select('id, status')
     .eq('egenkontroll_id', egenkontrollId)
+    // En observation ar alltid besvarad och ska aldrig raknas som "kvar" eller som en punkt.
+    .neq('kalla', 'observation')
     .order('ordning', { ascending: true });
 
   if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
@@ -1460,6 +1478,196 @@ async function kravOppenRunda(klient: SupabaseClient, punktId: string): Promise<
   const status = (data as { egenkontroll?: { status?: string } } | null)?.egenkontroll?.status;
   if (status === 'klar') {
     throw new Error('Rundan är avslutad och går inte att ändra.');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Observationer - "Notera har"
+// ---------------------------------------------------------------------------
+//
+// Det besiktaren ser ute och som planen inte fragade om: hoga stubbar i ett horn, korskador
+// vid en backe, en rishog som ligger perfekt. Ris OCH ros - tonen ar Bra / Kan bli battre /
+// Avvikelse, och typen (Korspar / Stubbhojd / Hansyn / Annat) galler at bada hallen.
+//
+// SCHEMAT (migration 20261017172551_egenkontroll_observation): kalla='observation' och
+// del='observation', kopplade av CHECK observation_ar_komplett, som ocksa kraver status, typ och
+// position. Observationer har ordning 0 och delar inte unikhetsregeln for planpunkterna.
+// En klar runda ar last i tre lager - triggern egenkontroll_punkt_last avvisar INSERT, UPDATE och
+// DELETE - och den har koden lagger bara det begripliga beskedet ovanpa (kravOppenRundaId).
+
+/** Bucketen (lib/egenkontrollfoto.ts BUCKET). Upprepad har sa att lib-koden inte importerar webblasarklienten. */
+const FOTO_BUCKET = 'egenkontroll-foto';
+
+/** Utan session sparas ingenting - och det ska sagas, inte forvaxlas med "ingen data". */
+const SESSION_SAKNAS_OBSERVATION = 'Du är inte inloggad längre. Logga in igen — ingenting har sparats.';
+
+/** Databasens fel -> en uppmaning. Det ravt check_violation ar inget en besiktare i skogen kan agera pa. */
+function observationFel(error: { message?: string } | null, grund: string): Error {
+  const m = error?.message ?? '';
+  if (/avslutad/i.test(m)) return new Error('Rundan är avslutad och går inte att ändra.');
+  if (/observation_ar_komplett/i.test(m)) {
+    return new Error('Observationen behöver ton, typ och position för att kunna sparas.');
+  }
+  return new Error(`${grund}: ${m || 'okänt fel'}`);
+}
+
+/** Som kravOppenRunda, men for en runda som inte har nagon punkt an. Ett LASFEL ar ett fel, aldrig "oppen". */
+async function kravOppenRundaId(klient: SupabaseClient, egenkontrollId: string): Promise<void> {
+  const { data, error } = await klient
+    .from('egenkontroll')
+    .select('status')
+    .eq('id', egenkontrollId)
+    .maybeSingle();
+  if (error) throw new Error(`Kunde inte läsa rundan: ${error.message}`);
+  if (!data) throw new Error('Rundan hittades inte. Ladda om sidan.');
+  if ((data as { status?: string }).status === 'klar') {
+    throw new Error('Rundan är avslutad och går inte att ändra.');
+  }
+}
+
+export type ObservationInmatning = {
+  /**
+   * Punktens id, skapat av ANROPAREN fore uppladdningen: bildens sokvag (byggSokvag) bar det, och
+   * bilden laddas upp FORE raden - precis som en avvikelse. Misslyckas bilden skrivs ingen rad.
+   */
+  id: string;
+  egenkontrollId: string;
+  ton: ObservationTon;
+  typ: ObservationTyp;
+  kommentar?: string | null;
+  /** Positionen dar observationen gjordes. Kvitto, aldrig inmatning - och den kravs. */
+  lat: number;
+  lng: number;
+  /** Laggs en bild till direkt efter? En avvikelse kraver det (fotot ligger i en annan tabell, sa det kan inte vara en CHECK). */
+  harFoto: boolean;
+};
+
+function kravGiltigObservation(
+  i: { ton: unknown; typ: unknown; harFoto: boolean },
+): asserts i is { ton: ObservationTon; typ: ObservationTyp; harFoto: boolean } {
+  if (!arObservationTon(i.ton)) throw new Error('Välj om det är bra, kan bli bättre eller en avvikelse.');
+  if (!arObservationTyp(i.typ)) throw new Error('Välj vad det gäller.');
+  if (i.ton === 'avvikelse' && !i.harFoto) throw new Error('En avvikelse behöver ett foto.');
+}
+
+/**
+ * Skapar en observation. INSERT, en gang - se huvudkommentaren om undantaget fran UPDATE-only.
+ *
+ * SPARORDNING (anroparen): bilden FORST (byggSokvag(egenkontrollId, id)), sedan den har raden, sist
+ * fotoraden (laggTillFoto). Da kan ingen avvikelse bli liggande utan bild.
+ *
+ * Laser tillbaka VARDET, inte antalet rader: det som star i databasen ar det som visas.
+ */
+export async function skapaObservation(
+  i: ObservationInmatning,
+  options: KlientOptions = {},
+): Promise<EgenkontrollPunkt> {
+  kravGiltigObservation(i);
+  if (!giltigPosition(i.lat, i.lng)) {
+    throw new Error('Positionen saknas — hämta den innan du sparar.');
+  }
+  const { klient } = await kravSession(options, SESSION_SAKNAS_OBSERVATION);
+  await kravOppenRundaId(klient, i.egenkontrollId);
+
+  const kommentar = tomtEllerNull(i.kommentar);
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .insert({
+      id: i.id,
+      egenkontroll_id: i.egenkontrollId,
+      ordning: OBSERVATION_ORDNING,
+      del: 'observation',
+      kalla: 'observation',
+      rubrik: OBSERVATION_RUBRIK,
+      status: i.ton,
+      avvikelse_typ: i.typ,
+      kommentar,
+      lat: i.lat,
+      lng: i.lng,
+      besvarad: new Date().toISOString(),
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw observationFel(error, 'Observationen kunde inte sparas');
+  if (!data) throw new Error('Observationen sparades inte — raden kunde inte läsas tillbaka. Ladda om sidan.');
+  const sparad = data as unknown as EgenkontrollPunkt;
+  if (
+    sparad.kalla !== 'observation' || sparad.status !== i.ton || sparad.avvikelse_typ !== i.typ ||
+    sparad.lat !== i.lat || sparad.lng !== i.lng
+  ) {
+    throw new Error('Observationen sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/**
+ * Andrar tonen, typen och kommentaren pa en observation. UPDATE, aldrig upsert - och bara pa en rad
+ * som ar en observation (.eq kalla): en planpunkts id kan aldrig skrivas om hit. Positionen andras
+ * inte: den ar var observationen gjordes, och en observation som flyttats ar en annan observation.
+ *
+ * `antalFoton` = bilder som finns PLUS en som laggs till i samma andetag: tonen Avvikelse kraver minst en.
+ */
+export async function andraObservation(
+  id: string,
+  nytt: { ton: ObservationTon; typ: ObservationTyp; kommentar?: string | null; antalFoton: number },
+  options: KlientOptions = {},
+): Promise<EgenkontrollPunkt> {
+  kravGiltigObservation({ ton: nytt.ton, typ: nytt.typ, harFoto: nytt.antalFoton > 0 });
+  const { klient } = await kravSession(options, SESSION_SAKNAS_OBSERVATION);
+  await kravOppenRunda(klient, id);
+
+  const kommentar = tomtEllerNull(nytt.kommentar);
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .update({ status: nytt.ton, avvikelse_typ: nytt.typ, kommentar })
+    .eq('id', id)
+    .eq('kalla', 'observation')
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw observationFel(error, 'Ändringen kunde inte sparas');
+  if (!data) throw new Error('Ändringen sparades inte — observationen hittades inte. Ladda om sidan.');
+  const sparad = data as unknown as EgenkontrollPunkt;
+  if (sparad.status !== nytt.ton || sparad.avvikelse_typ !== nytt.typ || sparad.kommentar !== kommentar) {
+    throw new Error('Ändringen sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/**
+ * Tar bort en observation medan rundan ar oppen. Fotoraderna foljer med (ON DELETE CASCADE); filerna
+ * tas bort EFTER raden, och misslyckas det ligger bara en foraldralos fil kvar i bucketen - dokumentet
+ * ar rattat. Det omvanda (filen borta, raden kvar) hade lamnat en rad som pekar pa ingenting.
+ *
+ * DELETE-LASET ar triggern egenkontroll_punkt_last (BEFORE INSERT OR UPDATE OR DELETE): en klar runda
+ * kan ingen radera en punkt ur. Kontrollen har ger bara beskedet.
+ */
+export async function taBortObservation(id: string, options: KlientOptions = {}): Promise<void> {
+  const { klient } = await kravSession(options, SESSION_SAKNAS_OBSERVATION);
+  await kravOppenRunda(klient, id);
+
+  const { data: foton, error: fotoFel } = await klient
+    .from('egenkontroll_foto')
+    .select('sokvag')
+    .eq('punkt_id', id);
+  if (fotoFel) throw new Error(`Kunde inte läsa bilderna: ${fotoFel.message}`);
+
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .delete()
+    .eq('id', id)
+    .eq('kalla', 'observation')
+    .select('id');
+  if (error) throw observationFel(error, 'Observationen kunde inte tas bort');
+  if (!data || data.length !== 1) {
+    throw new Error('Observationen hittades inte — den kan redan vara borttagen. Ladda om sidan.');
+  }
+
+  const sokvagar = ((foton ?? []) as unknown as { sokvag: string }[]).map((f) => f.sokvag).filter(Boolean);
+  if (sokvagar.length > 0) {
+    const { error: lagringsFel } = await klient.storage.from(FOTO_BUCKET).remove(sokvagar);
+    if (lagringsFel) console.error('[egenkontroll] observationens bilder kunde inte tas bort ur lagringen:', lagringsFel.message);
   }
 }
 
