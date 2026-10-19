@@ -1411,6 +1411,43 @@ export async function sparaPunktKommentar(
 }
 
 /**
+ * Rundans EGEN kommentar: nagra rader om rundan som hamnar sist pa rapportens sida 1 (lib/egenkontrollRapport.ts).
+ * Samma falt (egenkontroll.kommentar) skrivs fran tva stallen - under hela rundan och i avslutsvyn - och bada gar hit.
+ *
+ * TABELLEN egenkontroll HAR INGEN LASTRIGGER (till skillnad fran egenkontroll_punkt, som ar last i tre lager) och
+ * policyn ar ALL/true. En klar runda ar darfor last HAR och bara har: kravOppenRundaId ger ett begripligt besked, och
+ * UPDATE:n filtrerar pa status = 'pagaende' sa att en runda som avslutas mellan kontrollen och skrivningen ger noll rader
+ * i stallet for en skrivning pa en klar runda. Noll rader ar ett fel, aldrig "sparat".
+ *
+ * Tom text lagras som NULL (ingen kommentar), och vardet laser tillbaka och jamfors - som sparaPunktKommentar.
+ */
+export async function sparaRundKommentar(
+  egenkontrollId: string,
+  kommentar: string | null,
+  options: KlientOptions = {},
+): Promise<Egenkontroll> {
+  const { klient } = await kravSession(options);
+  await kravOppenRundaId(klient, egenkontrollId);
+
+  const varde = tomtEllerNull(kommentar);
+  const { data, error } = await klient
+    .from('egenkontroll')
+    .update({ kommentar: varde })
+    .eq('id', egenkontrollId)
+    .eq('status', 'pagaende')
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw new Error(`Kunde inte spara kommentaren: ${error.message}`);
+  if (!data) throw new Error('Kommentaren sparades inte — rundan är avslutad eller finns inte längre. Ladda om sidan.');
+  const sparad = data as unknown as Egenkontroll;
+  if (sparad.kommentar !== varde) {
+    throw new Error('Kommentaren sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/**
  * Markeringarna som KONTEXT pa kartan - grans, diken, pilar.
  *
  * Detta ar orientering, inte dokumentets innehall. Kontrollpunkternas geometri
