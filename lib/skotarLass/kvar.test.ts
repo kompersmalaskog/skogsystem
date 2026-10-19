@@ -1,0 +1,95 @@
+import { describe, expect, it } from 'vitest';
+import { beraknaKvar, datumText, farduskotatKontroll, idagText, klarDatum, kvarSammanfattning, perDag, skalningsfaktorer, snittPerDag } from './kvar';
+import { lassTotalM3 } from './lassModell';
+import type { Lass } from './typer';
+
+const lass = (datum: string, rader: Array<[string, number]>, status: Lass['status'] = 'bekraftat', nr = 1): Lass => ({
+  id: `${datum}-${nr}-${Math.random()}`, objektId: 'o', voNummer: null, maskinId: 'M', medarbetareId: null, lassNummer: nr, datum, status,
+  bekraftadAv: 'forare', bekraftadTid: null, sparPunkter: [], vagar: [], skapad: '', andrad: '',
+  delar: [{ delNr: 1, avlaggId: 'vida:1', avlaggNummer: '1', lossadTid: '', lat: 0, lng: 0, rader: rader.map(([nyckel, m3]) => ({ nyckel, namn: nyckel, m3 })) }],
+});
+const S = (nyckel: string, m3: number) => ({ nyckel, namn: nyckel, m3 });
+
+describe('kvar', () => {
+  it('skördat minus rapporterat per sortiment; struket räknas inte', () => {
+    const k = beraknaKvar([S('tall', 100), S('massa', 50)], [lass('2026-10-19', [['tall', 30]]), lass('2026-10-19', [['massa', 99]], 'struket')]);
+    expect(k.rader.map((r) => [r.nyckel, r.kvar])).toEqual([['tall', 70], ['massa', 50]]);
+    expect(k.kvarTotal).toBe(120);
+  });
+  it('rapporterat mer än skördat ger negativ kvar på raden men drar inte ner totalen', () => {
+    const k = beraknaKvar([S('tall', 10), S('massa', 10)], [lass('d', [['tall', 15], ['massa', 4]])]);
+    expect(k.rader.find((r) => r.nyckel === 'tall')?.kvar).toBe(-5);
+    expect(k.kvarTotal).toBe(6);
+  });
+  it('sortiment som skördaren inte mätt tas med', () => {
+    expect(beraknaKvar([], [lass('d', [['ved', 3]])]).rader[0]).toMatchObject({ nyckel: 'ved', skordat: 0, kvar: -3 });
+  });
+});
+
+describe('klar-dag', () => {
+  const d = (datum: string, m3: number) => lass(datum, [['t', m3]]);
+  it('visas inte förrän två dagars underlag', () => {
+    expect(snittPerDag(perDag([d('2026-10-19', 100)]), '2026-10-19')).toBeNull();
+    expect(kvarSammanfattning(beraknaKvar([S('t', 300)], [d('2026-10-19', 100)]), [d('2026-10-19', 100)], '2026-10-19').klarText).toBeNull();
+  });
+  it('snitt över hela dagar före idag när de räcker', () => {
+    const dagar = perDag([d('2026-10-15', 100), d('2026-10-16', 140), d('2026-10-19', 20)]);
+    expect(snittPerDag(dagar, '2026-10-19')).toBe(120);
+  });
+  it('har bara en hel dag + idag: idag tas med', () => {
+    expect(snittPerDag(perDag([d('2026-10-16', 100), d('2026-10-19', 140)]), '2026-10-19')).toBe(120);
+  });
+  it('klar-dag räknas i arbetsdagar, helg hoppas över', () => {
+    // fredag 2026-10-23: 250 kvar, 100/dag => 3 dagar => fre, mån, tis
+    expect(klarDatum(250, 100, '2026-10-23')).toBe('2026-10-27');
+    expect(klarDatum(50, 100, '2026-10-19')).toBe('2026-10-19');
+    expect(klarDatum(0, 100, '2026-10-19')).toBeNull();
+  });
+  it('datumtext', () => {
+    expect(datumText('2026-10-19', '2026-10-19')).toBe('idag');
+    expect(datumText('2026-10-20', '2026-10-19')).toBe('i morgon');
+    expect(datumText('2026-10-21', '2026-10-19')).toBe('onsdag');
+    expect(datumText('2026-11-03', '2026-10-19')).toBe('3 nov');
+  });
+  it('sammanfattning: "Kvar ~121 m³" och "Klar ~onsdag"', () => {
+    const ls = [d('2026-10-15', 60), d('2026-10-16', 60)];
+    const k = beraknaKvar([S('t', 121 + 120)], ls);
+    const s = kvarSammanfattning(k, ls, '2026-10-19');
+    expect(s.kvarText).toBe('Kvar ~121 m³');
+    expect(s.klarText).toBe('Klar ~onsdag');
+  });
+  it('idag: antal lass och m3', () => {
+    expect(idagText([d('2026-10-19', 20), d('2026-10-19', 11), d('2026-10-18', 50)], '2026-10-19')).toMatchObject({ antal: 2, m3: 31, text: 'Idag: 2 lass · 31 m³' });
+  });
+});
+
+describe('färdigskotad', () => {
+  it('under 3 % och 10 m³ kvar → ok', () => {
+    expect(farduskotatKontroll(beraknaKvar([S('t', 500)], [lass('d', [['t', 495]])])).ok).toBe(true);
+  });
+  it('över 10 m³ kvar → fråga med sortimenten', () => {
+    const k = farduskotatKontroll(beraknaKvar([S('massa', 300), S('kubb', 200)], [lass('d', [['massa', 282], ['kubb', 193]])]));
+    expect(k.ok).toBe(false);
+    expect(k.kvarM3).toBe(25);
+    expect(k.rader.map((r) => r.nyckel)).toEqual(['massa', 'kubb']);
+  });
+  it('över 3 % av en liten trakt → fråga', () => {
+    expect(farduskotatKontroll(beraknaKvar([S('t', 100)], [lass('d', [['t', 96]])])).ok).toBe(false);
+  });
+  it('skalning: skotat blir EXAKT skördat per sortiment, upp och ner', () => {
+    const skordat = [S('tall', 120), S('massa', 45), S('ved', 12)];
+    const ls = [lass('d', [['tall', 50], ['massa', 60]]), lass('d', [['tall', 50], ['massa', 20]], 'bekraftat', 2)];
+    const s = skalningsfaktorer(skordat, ls);
+    expect(s.faktorer.tall).toBeCloseTo(1.2);
+    expect(s.faktorer.massa).toBeCloseTo(45 / 80);
+    expect(s.tillagg).toEqual({ ved: 12 });
+    // kontroll: summan efter skalning = skördat
+    const sum = (n: string) => ls.reduce((t, l) => t + l.delar[0].rader.filter((r) => r.nyckel === n).reduce((x, r) => x + r.m3, 0), 0) * s.faktorer[n];
+    expect(sum('tall')).toBeCloseTo(120, 9);
+    expect(sum('massa')).toBeCloseTo(45, 9);
+    expect(ls.map(lassTotalM3)).toEqual([110, 70]);   // förarens värden orörda
+  });
+  it('skördat 0 men rapporterat → faktor 0', () => {
+    expect(skalningsfaktorer([], [lass('d', [['x', 5]])]).faktorer.x).toBe(0);
+  });
+});
