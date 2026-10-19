@@ -25,9 +25,12 @@ export function arLedighetNotis(typ: unknown): typ is typeof LEDIGHET_ANSOKAN | 
  */
 export const LEDIGHET_MAX_ALDER_MS = 24 * 60 * 60 * 1000;
 
-/** PostgREST `.or()`-uttrycket för flushens urval: förfallna rader ELLER ledighetsrader (som har skickas_at 'infinity'). */
-export const flushUrval = (nuIso: string) =>
-  `skickas_at.lte.${nuIso},typ.in.(${LEDIGHET_ANSOKAN},${LEDIGHET_BESLUT})`;
+/**
+ * PostgREST `.or()`-uttrycket för flushens urval: förfallna rader ELLER ledighetsrader (som har skickas_at 'infinity').
+ * `extraTyper` = fler notistyper som köas med 'infinity' av samma skäl (lass_maskin, lib/lastbil/lass/notis.ts).
+ */
+export const flushUrval = (nuIso: string, extraTyper: readonly string[] = []) =>
+  `skickas_at.lte.${nuIso},typ.in.(${[LEDIGHET_ANSOKAN, LEDIGHET_BESLUT, ...extraTyper].join(',')})`;
 
 export type LedighetNotisRad = {
   id: string;

@@ -13,10 +13,13 @@ import RundaArk from './_components/RundaArk';
 import Ark from '@/components/design/Ark';
 import { periodNu, type Period } from './_components/period';
 import { pamminnelse, type Pamminnelse } from './_components/vantar';
-import { lasUrl, skrivUrl, type Flik } from './_components/url';
+import { lasLassId, lasUrl, skrivUrl, type Flik } from './_components/url';
 import { useFakturerbart } from './_components/useFakturerbart';
 import { useLastbilNu } from './_components/useLastbilNu';
 import { useVantar } from './_components/useVantar';
+import { useSaknarMaskin } from './_components/useSaknarMaskin';
+import SaknarMaskinRad from './_components/SaknarMaskinRad';
+import LassArk from './_components/MaskinSheet';
 import { useEnRunda, useRundor } from './_components/useRundor';
 
 /**
@@ -46,6 +49,10 @@ export default function LastbilVy() {
   const nu = useLastbilNu(!loading && flik === 'nu');
   const fakt = useFakturerbart(period, arAdmin);
   const vantar = useVantar(arAdmin);
+  // "Vilken maskin?": lassen bilens vikt hittat men appen inte kunde para ihop med en maskin. Länken i notisen (?lass=<id>) öppnar arket direkt.
+  const saknar = useSaknarMaskin(arAdmin);
+  const [valtLass, setValtLass] = useState<string | null>(() => lasLassId(typeof window === 'undefined' ? '' : window.location.search));
+  const [kvitto, setKvitto] = useState('');
   // Efter Godkänn/Stryk/Ångra: läs om remsan, listan och påminnelsen TYST (inget blinkar till "Läser …").
   const { laddaOmTyst: faktTyst } = fakt;
   const { laddaOmTyst: vantarTyst } = vantar;
@@ -58,6 +65,18 @@ export default function LastbilVy() {
   const enRunda = useEnRunda(valdRunda, !!iListan);
   const { laddaOmTyst: enRundaTyst } = enRunda;
   // Efter en rättning/strykning av en flytt: rundan, remsan (underlag kan ha skapats/strukits) och påminnelsen läses om tyst.
+  // Efter ett svar på "Vilken maskin?": arket stängs, en rad säger vad som hände, och raden, remsan och påminnelsen läses om tyst.
+  const { laddaOmTyst: saknarTyst } = saknar;
+  const efterLass = useCallback((text: string) => {
+    setValtLass(null);
+    setKvitto(text);
+    saknarTyst(); faktTyst(); vantarTyst();
+  }, [saknarTyst, faktTyst, vantarTyst]);
+  useEffect(() => {
+    if (!kvitto) return;
+    const t = setTimeout(() => setKvitto(''), 6000);
+    return () => clearTimeout(t);
+  }, [kvitto]);
   const efterRattning = useCallback(() => { rundorTyst(); enRundaTyst(); faktTyst(); vantarTyst(); }, [rundorTyst, enRundaTyst, faktTyst, vantarTyst]);
   const arkRunda = iListan ?? (valdRunda && enRunda.lage.lage === 'klar' ? enRunda.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null);
 
@@ -86,6 +105,14 @@ export default function LastbilVy() {
             <Rubrik flik={flik} onFlik={valjFlik} arAdmin={arAdmin} period={period} onPeriod={setPeriod}
               remsa={fakt.status} onRemsaForsokIgen={fakt.forsokIgen} />
             <div style={{ paddingTop: AVSTAND.s }}>
+              {arAdmin && kvitto && (
+                <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px` }}>{kvitto}</p>
+              )}
+              {arAdmin && (
+                <div style={{ paddingBottom: AVSTAND.m }}>
+                  <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
+                </div>
+              )}
               {arAdmin && (
                 <div style={{ paddingBottom: AVSTAND.m }}>
                   <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
@@ -105,6 +132,10 @@ export default function LastbilVy() {
         )}
       </VyKolumn>
 
+      {arAdmin && valtLass && (
+        <LassArk lassId={valtLass} iListan={saknar.lage.lage === 'klar' ? saknar.lage.rader.find(r => r.id === valtLass) ?? null : null}
+          onStang={() => setValtLass(null)} onKlar={efterLass} />
+      )}
       {valdRunda && arkRunda && (
         <RundaArk runda={arkRunda} onStang={() => setValdRunda(null)} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} onAndrad={efterRattning} />
       )}

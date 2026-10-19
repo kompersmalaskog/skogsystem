@@ -77,6 +77,27 @@ describe('Startsida (admin)', () => {
     expect(lankar(s)).toEqual(['/egenkontroll', '/ledighet', '/datahalsa'])
   })
 
+  it('Lastbilen: "1 lass saknar maskin" står i Behöver dig, leder till /lastbil och sitter som märke på Lastbilen — bara när något väntar', async () => {
+    await montera(<Startsida roll="admin" marken={{ lass: 1 }} />)
+    const s = sektion('Behöver dig')!
+    expect(s.textContent).toContain('1 lass saknar maskin')
+    expect(lankar(s)).toEqual(['/lastbil'])
+    for (const b of Array.from(sektion('Alla vyer')!.querySelectorAll('button[aria-expanded]'))) await act(async () => { (b as HTMLButtonElement).click() })
+    const markeVidLastbil = Array.from(document.querySelectorAll('a[href="/lastbil"] [role="status"]')).map(m => m.getAttribute('aria-label'))
+    expect(markeVidLastbil).toContain('1 lass saknar maskin')
+  })
+
+  it('Lastbilen utan väntande lass (0) → varken rad eller märke', async () => {
+    await montera(<Startsida roll="admin" marken={{ lass: 0 }} />)
+    expect(sektion('Behöver dig')).toBeNull()
+  })
+
+  it('Lastbilen med okänt antal (läsfel = null) → inget märke, aldrig 0', async () => {
+    await montera(<Startsida roll="admin" marken={{ lass: null }} />)
+    expect(sektion('Behöver dig')).toBeNull()
+    expect(document.querySelectorAll('a[href="/lastbil"] [role="status"]')).toHaveLength(0)
+  })
+
   it('favoriterna: åtta rutor, märket sitter på rätt ruta', async () => {
     await montera(<Startsida roll="admin" marken={{ egenkontroll: 5 }} />)
     expect(lankar(sektion('Dina vyer')!)).toHaveLength(8)

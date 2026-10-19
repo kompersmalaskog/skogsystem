@@ -17,6 +17,12 @@ export function lasUrl(search: string, nu: Date = new Date()): { flik: Flik | nu
   };
 }
 
+/** /lastbil?lass=<id> — länken i notisen "Vilken maskin?". Ett tomt eller uppenbart ogiltigt id är som om det inte stod där. */
+export function lasLassId(search: string): string | null {
+  const id = new URLSearchParams(search).get('lass');
+  return id && /^[0-9a-f-]{8,40}$/i.test(id) ? id : null;
+}
+
 export function skrivUrl(flik: Flik, period: Period): string {
   return `?flik=${flik}&per=${periodTillText(period)}`;
 }

@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { hamtaVantande } from '@/lib/egenkontroll'
 import { hamtaLedighetPrick, type LedighetPrick } from '@/lib/ledighet/prick'
+import { hamtaAntalVantandeLass } from '@/lib/lastbil/lass/vantar'
 import { lasFavoriter, sparaFavoriter } from '@/lib/startsidaFavoriter'
 
 // Hur länge vi väntar på rollen innan svaret räknas som okänt (läsfel får aldrig ge en tom skärm).
@@ -26,6 +27,8 @@ export type StartsidaData = {
   rollKlar: boolean
   vantandeEgenkontroll: number | null
   ledighetPrick: LedighetPrick | null
+  /** Lass som väntar på ett svar om maskin (bara admin ser dem). null = kunde inte läsas → inget märke, aldrig 0. */
+  vantandeLass: number | null
   /** undefined = läses; null = inga egna (eller läsfel) → rollens förinställda. */
   favoritIds: string[] | null | undefined
   sparaFavoriterna: (ids: string[]) => Promise<boolean>
@@ -36,12 +39,23 @@ export function useStartsidaData(): StartsidaData {
   const [rollKlar, setRollKlar] = useState(false)
   const [vantandeEgenkontroll, setVantandeEgenkontroll] = useState<number | null>(null)
   const [ledighetPrick, setLedighetPrick] = useState<LedighetPrick | null>(null)
+  const [vantandeLass, setVantandeLass] = useState<number | null>(null)
   const [favoritIds, setFavoritIds] = useState<string[] | null | undefined>(undefined)
 
   // Ledighetsmärket ska stämma när man kommer tillbaka till appen (t.ex. från en push), inte bara vid första laddningen.
   useEffect(() => {
     let vid = true
     const hamta = () => { hamtaLedighetPrick(supabase).then(p => { if (vid) setLedighetPrick(p) }) }
+    hamta()
+    const synlig = () => { if (document.visibilityState === 'visible') hamta() }
+    document.addEventListener('visibilitychange', synlig)
+    return () => { vid = false; document.removeEventListener('visibilitychange', synlig) }
+  }, [])
+
+  // Lastbilens frågor ("Vilken maskin?") — samma tal som raden överst på /lastbil. Läses om när man kommer tillbaka till appen.
+  useEffect(() => {
+    let vid = true
+    const hamta = () => { hamtaAntalVantandeLass(supabase).then(n => { if (vid) setVantandeLass(n) }) }
     hamta()
     const synlig = () => { if (document.visibilityState === 'visible') hamta() }
     document.addEventListener('visibilitychange', synlig)
@@ -71,5 +85,5 @@ export function useStartsidaData(): StartsidaData {
     return landat != null
   }
 
-  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, favoritIds, sparaFavoriterna }
+  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, favoritIds, sparaFavoriterna }
 }

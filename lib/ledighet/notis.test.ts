@@ -142,6 +142,14 @@ describe("flushUrval — förfallna rader ELLER ledighetsrader (som köas med sk
   });
 });
 
+describe("flushUrval — fler köade typer", () => {
+  it("lägger extra typer efter ledighetstyperna, utan att ändra standardutseendet", () => {
+    expect(flushUrval("2026-10-20T12:00:00.000Z", ["lass_maskin"])).toBe(
+      "skickas_at.lte.2026-10-20T12:00:00.000Z,typ.in.(ledighet_ansokan,ledighet_beslut,lass_maskin)",
+    );
+  });
+});
+
 describe("länkens id — vyn ska landa PÅ ansökan", () => {
   it("beslutsnotisen bär ansökans id (ur raden, inte ur payloaden som kan vara gammal)", async () => {
     const u = await byggLedighetNotis({ ...BESLUT, payload: { ansokan_id: "a-1" } }, finns(RAD({ id: "ratt-id", status: "nekad" })));

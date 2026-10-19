@@ -47,6 +47,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
+    // Närvaro: när appen öppnades på enheten — väljer vem som får "Vilken maskin?" (lib/lastbil/lass/notis.ts). En SEPARAT
+    // skrivning och best effort: saknas kolumnen (migrationen ej körd) eller faller den får registreringen aldrig ett fel.
+    try {
+      await supabase.from("push_subscriptions").update({ senast_oppnad: new Date().toISOString() }).eq("endpoint", subscription.endpoint);
+    } catch { /* närvaron är en bonus, aldrig ett villkor */ }
+
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(

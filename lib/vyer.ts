@@ -17,7 +17,7 @@ export type Roll = 'admin' | 'forare'
 export type GruppId = 'produktion' | 'maskiner' | 'objekt' | 'personal' | 'ekonomi' | 'admin' | 'ovrigt'
 
 /** Vilken räknare som sitter på vyn (källan läses av startsidan, aldrig gissad). */
-export type MarkeKalla = 'egenkontroll' | 'ledighet'
+export type MarkeKalla = 'egenkontroll' | 'ledighet' | 'lass'
 
 export type Vy = {
   /** Stabil nyckel — används av favoriterna (sparas senare per person). Byt aldrig. */
@@ -61,7 +61,7 @@ export const VYER: Vy[] = [
   { id: 'kalibrering', namn: 'Kalibrering', href: '/kalibrering', ikon: 'straighten', grupp: 'maskiner', sokord: ['kontrollmätning', 'hqc'] },
   { id: 'servicelogg', namn: 'Servicelogg', href: '/maskin-service', ikon: 'build', grupp: 'maskiner', sokord: ['service'] },
   { id: 'maskinflytt', namn: 'Maskinflytt', href: '/maskinflytt', ikon: 'delivery_truck_speed', grupp: 'maskiner', sokord: ['flytt'] },
-  { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', sokord: ['körningar', 'fakturering', 'flyttlogg'] },
+  { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', marke: 'lass', sokord: ['körningar', 'fakturering', 'flyttlogg'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
   // Objekt
