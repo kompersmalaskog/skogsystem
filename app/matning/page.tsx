@@ -33,7 +33,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import {
   beskedForPunkt,

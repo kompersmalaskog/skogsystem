@@ -10,7 +10,7 @@
 // (import + komponenten), sa parallella PR:ar pa objektvyn inte trasslar.
 
 import { useEffect, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   hamtaRunda,
   hamtaFoton,

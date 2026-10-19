@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import ListGroup from '@/components/ListGroup';
-import ListRow from '@/components/ListRow';
-import StatusDot from '@/components/StatusDot';
+import Ikon from '@/components/design/Ikon';
 import { Sheet, ConfirmDialog } from '@/components/Sheet';
-import { T, STATUS_META, formatDatum, visaNamn, type UtbildningStatusRad } from '@/lib/utbildning';
+import { Kort, Rad } from '@/components/utbildning/ui';
+import { AVSTAND, FARG, IKON, RADIE, TYP } from '@/lib/design/tokens';
+import { STATUS_META, formatDatum, visaNamn, type UtbildningStatusRad } from '@/lib/utbildning';
 
 const BUCKET = 'utbildningsbevis';
 
@@ -64,49 +64,46 @@ export default function BevisSheet({
       <Sheet open={!!rad} onClose={onClose} title={rad ? rad.utbildning_namn : ''}>
         {rad && (
           <>
-            <ListGroup>
-              <ListRow title="Person" href={`/utbildning/person/${rad.medarbetare_id}`} value={visaNamn(rad.medarbetare_namn)} />
-              <ListRow
-                title="Status"
-                chevron={false}
-                trailing={
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: STATUS_META[rad.status].color, fontSize: 15 }}>
-                    <StatusDot status={rad.status} />
+            <Kort>
+              <Rad titel="Person" href={`/utbildning/person/${rad.medarbetare_id}`} varde={visaNamn(rad.medarbetare_namn)} />
+              <Rad
+                titel="Status"
+                pil="ingen"
+                varde={
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.inuti, color: STATUS_META[rad.status].farg }}>
+                    <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: RADIE.cirkel, background: STATUS_META[rad.status].farg }} />
                     {STATUS_META[rad.status].label}
                   </span>
                 }
               />
-              <ListRow title="Genomförd" value={formatDatum(rad.genomford_datum) || '—'} chevron={false} />
-              <ListRow title="Giltig t.o.m." value={rad.giltig_till ? formatDatum(rad.giltig_till) : 'Ingen utgång'} chevron={false} />
-            </ListGroup>
+              <Rad titel="Genomförd" pil="ingen" varde={formatDatum(rad.genomford_datum) || '—'} />
+              <Rad titel="Giltig t.o.m." pil="ingen" sista varde={rad.giltig_till ? formatDatum(rad.giltig_till) : 'Ingen utgång'} />
+            </Kort>
 
-            <div style={{ padding: '12px 0 0' }}>
-              <ListGroup>
-                {rad.pdf_url && (
-                  <ListRow
-                    title={<span style={{ color: T.blue }}>Visa bevis (PDF)</span>}
-                    onClick={visaBevis}
-                    chevron={false}
-                    leading={<span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: T.blue }}>picture_as_pdf</span>}
-                  />
-                )}
-                <ListRow title="Öppna utbildning" href={`/utbildning/typ/${rad.utbildning_typ_id}`} />
-              </ListGroup>
-            </div>
-
-            {bevisFel && <div style={{ fontSize: 13, color: T.red, margin: '12px 0 0' }}>{bevisFel}</div>}
-            {fel && <div style={{ fontSize: 13, color: T.red, margin: '12px 0 0' }}>Kunde inte ta bort: {fel}</div>}
-
-            <div style={{ padding: '16px 0 0' }}>
-              <ListGroup>
-                <ListRow
-                  title="Ta bort bevis"
-                  danger
-                  chevron={false}
-                  onClick={() => setBekrafta(true)}
-                  leading={<span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: T.red }}>delete</span>}
+            <Kort>
+              {rad.pdf_url && (
+                <Rad
+                  titel="Visa bevis (PDF)"
+                  onClick={visaBevis}
+                  pil="hoger"
+                  varde={<Ikon namn="picture_as_pdf" storlek={IKON.text} farg={FARG.text2} />}
                 />
-              </ListGroup>
+              )}
+              <Rad titel="Öppna utbildning" href={`/utbildning/typ/${rad.utbildning_typ_id}`} sista />
+            </Kort>
+
+            {bevisFel && <p style={{ ...TYP.meta, color: FARG.rod, margin: `${AVSTAND.m}px 0 0` }}>{bevisFel}</p>}
+            {fel && <p style={{ ...TYP.meta, color: FARG.rod, margin: `${AVSTAND.m}px 0 0` }}>Kunde inte ta bort: {fel}</p>}
+
+            <div style={{ marginTop: AVSTAND.l }}>
+              <button
+                type="button"
+                onClick={() => setBekrafta(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.inuti, background: 'none', border: 'none', color: FARG.rod, cursor: 'pointer', fontFamily: 'inherit', ...TYP.text, minHeight: 44, padding: 0 }}
+              >
+                <Ikon namn="delete" storlek={IKON.text} farg={FARG.rod} />
+                Ta bort bevis
+              </button>
             </div>
           </>
         )}

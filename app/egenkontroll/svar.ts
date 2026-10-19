@@ -3,7 +3,7 @@
 // Ligger i en egen fil for att en Next-sida bara far exportera sin default: det som
 // bada vyerna behover kan inte bo i page.tsx.
 
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import type { PunktDel, PunktStatus } from '@/lib/egenkontroll';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det

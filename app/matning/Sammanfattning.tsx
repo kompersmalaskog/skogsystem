@@ -15,7 +15,7 @@
 // för att tigas ihjäl.
 
 import { useCallback, useEffect, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { tradslagStil } from '@/lib/tradslag';
 import { fmtDecimal } from '@/lib/gallring';
 

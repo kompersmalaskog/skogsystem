@@ -35,7 +35,7 @@ import { useParams } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
 import PageContainer from '@/components/PageContainer';
 import { typLabel } from '@/lib/objekt/typ';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   hamtaRunda,
   generateEgenkontroll,

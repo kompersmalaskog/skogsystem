@@ -3,7 +3,8 @@
 import React from 'react';
 import Link from 'next/link';
 import StatusDot from './StatusDot';
-import { T, type UtbStatus } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
+import type { UtbStatus } from '@/lib/utbildning';
 
 type Props = {
   title: React.ReactNode;

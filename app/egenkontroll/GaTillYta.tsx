@@ -14,7 +14,7 @@
 // och vyn sager rakt ut att pilen inte kunde aktiveras.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { avstandM, riktning, type LatLng } from '@/lib/provytor';
 import type { EgenkontrollProvyta } from '@/lib/egenkontroll';
 import RundKarta, { type KartObjektData } from './RundKarta';

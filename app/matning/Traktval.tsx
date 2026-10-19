@@ -12,7 +12,7 @@
 // därför skriks traktnamnet ut på mätskärmen efteråt, inte bara här.
 
 import { useEffect, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { supabase } from '@/lib/supabase';
 
 export type Trakt = { id: string; namn: string; areal: number | null };

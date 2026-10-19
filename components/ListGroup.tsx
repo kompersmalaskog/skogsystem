@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 
 // Avrundad iOS-grupp (#1C1C1E) med avdelare mellan raderna.
 // Avdelaren dras in 37px när intilliggande rad har en prick, annars 16px.

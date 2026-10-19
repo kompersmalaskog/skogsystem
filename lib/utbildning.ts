@@ -1,8 +1,13 @@
-// Delad modell, tema och hjälpare för utbildningsvyerna (/utbildning/**).
+// Delad modell och hjälpare för utbildningsvyerna (/utbildning/**).
 //
 // VIKTIGT: status och utgångsdatum räknas ALDRIG ut här — de kommer färdiga
-// från databasvyn `utbildning_status`. Det här filen mappar bara ett givet
-// status-värde till färg/etikett (ren presentation).
+// från databasvyn `utbildning_status`. Filen mappar bara ett GIVET status-värde
+// till färg/etikett och delar upp redan hämtade rader (ren presentation).
+//
+// Vyn har ingen egen palett. Färg, typsnitt, avstånd och form kommer ur
+// lib/design/tokens, som resten av appen.
+
+import { FARG } from './design/tokens';
 
 export type Kravtyp = 'lag' | 'certifiering' | 'bestallare';
 export type UtbStatus = 'giltig' | 'gar_ut_snart' | 'utgangen' | 'saknas';
@@ -43,28 +48,13 @@ export type Medarbetare = {
   aktiv?: boolean | null;
 };
 
-// ---- Tema (iOS-mörkt, exakta värden) ----
-export const T = {
-  bg: '#000000',
-  group: '#1C1C1E',
-  groupHi: '#2C2C2E',
-  sep: '#38383A',
-  chevron: '#48484A',
-  t1: '#FFFFFF',
-  t2: '#8E8E93',
-  green: '#30D158',
-  orange: '#FF9F0A',
-  red: '#FF453A',
-  blue: '#0A84FF',
-  gray: '#8E8E93',
-  ff: "-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',system-ui,sans-serif",
-} as const;
+// ---- Status: etikett och färg ur FARG ----
 
-export const STATUS_META: Record<UtbStatus, { label: string; color: string }> = {
-  giltig: { label: 'Giltig', color: T.green },
-  gar_ut_snart: { label: 'Går ut snart', color: T.orange },
-  utgangen: { label: 'Utgången', color: T.red },
-  saknas: { label: 'Saknas', color: T.gray },
+export const STATUS_META: Record<UtbStatus, { label: string; farg: string }> = {
+  giltig: { label: 'Giltig', farg: FARG.gron },
+  gar_ut_snart: { label: 'Går ut snart', farg: FARG.orange },
+  utgangen: { label: 'Utgången', farg: FARG.rod },
+  saknas: { label: 'Saknas', farg: FARG.rod },
 };
 
 export const KRAVTYP_META: Record<Kravtyp, { label: string; kort: string }> = {
@@ -74,6 +64,12 @@ export const KRAVTYP_META: Record<Kravtyp, { label: string; kort: string }> = {
 };
 
 export const KRAVTYP_ORDNING: Kravtyp[] = ['lag', 'certifiering', 'bestallare'];
+
+/** Kräver statusen att någon gör något? Saknas och utgången är lika illa — båda
+ *  betyder att personen inte får köra. Går ut snart är en förvarning. */
+export function kraverAtgard(s: UtbStatus): boolean {
+  return s === 'utgangen' || s === 'saknas' || s === 'gar_ut_snart';
+}
 
 // Prioritet för att välja den "värsta" statusen i en aggregerad rad.
 // (Aggregering av givna statusvärden — inte beräkning av status.)
@@ -91,6 +87,16 @@ export function varstaStatus(statusar: UtbStatus[]): UtbStatus | null {
   );
 }
 
+/** Delar redan hämtade rader i "kräver något" och "i ordning", värst först.
+ *  Ingen beräkning — bara sortering av givna statusvärden. */
+export function delaPaAtgard<R extends { status: UtbStatus }>(rader: R[]): { atgarda: R[]; klara: R[] } {
+  const atgarda = rader
+    .filter((r) => kraverAtgard(r.status))
+    .sort((a, b) => STATUS_PRIORITET[b.status] - STATUS_PRIORITET[a.status]);
+  const klara = rader.filter((r) => !kraverAtgard(r.status));
+  return { atgarda, klara };
+}
+
 export function formatDatum(d: string | null): string {
   if (!d) return '';
   const parsed = new Date(d);
@@ -105,7 +111,6 @@ export function visaNamn(namn: string | null | undefined): string {
 
 // ---- Presentation (ren formatering av redan hämtad data) ----
 
-const MANAD_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 const MANAD_LANG = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
 
 // "vart 5:e år" / "ingen utgång" / "vart 18 mån" — räknar om jämna år.
@@ -121,11 +126,12 @@ export function omfattningText(galler_alla: boolean, antalPersoner: number): str
   return `${antalPersoner} ${antalPersoner === 1 ? 'person' : 'personer'}`;
 }
 
-export function manadKort(dateStr: string | null): string {
+/** "mars 2026" — månad och år, för ett utgångsdatum. */
+export function manadAr(dateStr: string | null): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '';
-  return MANAD_KORT[d.getMonth()];
+  return `${MANAD_LANG[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 // "3 mars"
@@ -136,15 +142,44 @@ export function dagManad(dateStr: string | null): string {
   return `${d.getDate()} ${MANAD_LANG[d.getMonth()]}`;
 }
 
-// Prickfärg på startvyns aggregat: saknas OCH utgången = röd (behöver åtgärd).
-export function aggregatFarg(status: UtbStatus): string {
-  switch (status) {
-    case 'utgangen':
-    case 'saknas':
-      return T.red;
-    case 'gar_ut_snart':
-      return T.orange;
-    case 'giltig':
-      return T.green;
-  }
+/** Datum som en rad läser det: "19 oktober", med år bara när det inte är i år. */
+export function datumMedAr(dateStr: string | null, nu: Date = new Date()): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const dag = dagManad(dateStr);
+  return d.getFullYear() === nu.getFullYear() ? dag : `${dag} ${d.getFullYear()}`;
+}
+
+/** Hela månader från `nu` till `datum`, nedåt. Negativt när datumet passerat. */
+export function manaderTill(datum: string, nu: Date = new Date()): number | null {
+  const d = new Date(datum);
+  if (isNaN(d.getTime())) return null;
+  const dagar = Math.floor((d.getTime() - nu.getTime()) / 86_400_000);
+  return Math.floor(dagar / 30.44);
+}
+
+/** Talet högst upp när inget behöver åtgärdas: tiden till nästa utgång.
+ *  Saknas giltighetsdatum helt (allt utan utgång) finns inget tal att visa. */
+export function tidTillNasta(
+  rader: { giltig_till: string | null }[],
+  nu: Date = new Date()
+): { tal: string; under: string } | null {
+  const datum = rader
+    .map((r) => r.giltig_till)
+    .filter((d): d is string => !!d)
+    .sort();
+  const nasta = datum[0];
+  if (!nasta) return null;
+  const man = manaderTill(nasta, nu);
+  if (man == null) return null;
+  if (man >= 24) return { tal: `${Math.floor(man / 12)} år`, under: 'tills nästa går ut' };
+  if (man >= 1) return { tal: `${man} mån`, under: 'tills nästa går ut' };
+  return { tal: 'Snart', under: 'går nästa ut' };
+}
+
+/** "5 utbildningar är i ordning" / "1 utbildning är i ordning" */
+export function iOrdningText(antal: number, ord: 'utbildning' | 'medarbetare' = 'utbildning'): string {
+  const flertal = ord === 'utbildning' ? 'utbildningar' : 'medarbetare';
+  return `${antal} ${antal === 1 ? ord : flertal} är i ordning`;
 }

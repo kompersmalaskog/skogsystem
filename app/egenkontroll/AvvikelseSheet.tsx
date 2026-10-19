@@ -10,7 +10,7 @@
 // Planeraren avgor om det far sparas utan bild - inte appen.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   svaraMedAvvikelse,
   laggTillFoto,

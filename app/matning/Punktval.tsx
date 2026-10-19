@@ -13,7 +13,7 @@
 // sista biten är ögat, inte telefonen.
 
 import { useCallback, useEffect, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { supabase } from '@/lib/supabase';
 import {
   FRAMME_M,
