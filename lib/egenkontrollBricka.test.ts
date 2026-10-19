@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { angraForstaSvaret, utforandeKatalog, type EgenkontrollPunkt } from './egenkontroll';
 import {
-  BRICKA_NAMN, BRICKSTATUS, RAD_MAX_DVH, brickaTryck, byggBrickor, kvarText, radHandling, radKnappar, svarsDel,
+  BRICKA_NAMN, BRICKSTATUS, DOCK_SKYDD_MS, RAD_MAX_DVH, brickaTryck, byggBrickor, inomDockSkydd, kvarText, radHandling, radKnappar, svarsDel,
 } from './egenkontrollBricka';
 
 function punkt(over: Partial<EgenkontrollPunkt>): EgenkontrollPunkt {
@@ -187,5 +187,19 @@ describe('angraForstaSvaret', () => {
     // Status tom men besvarad kvar: raderna säger olika — det är ett fel, inte ett lyckat Ångra.
     const halv = fejk(() => ({ data: { id: 'p', status: null, besvarad: '2026-10-19T08:00:00Z' }, error: null }));
     await expect(angraForstaSvaret('p', 'utforande', 'bra', { klient: halv.klient })).rejects.toThrow('som väntat');
+  });
+});
+
+describe('DOCK_SKYDD_MS — dubbeltrycksskyddet i dockan', () => {
+  it('är kort nog att inte kännas som en fördröjning och långt nog för ett sent dubbeltryck (samma 250–500 ms som skyddet i den borttagna serien)', () => {
+    expect(DOCK_SKYDD_MS).toBeGreaterThanOrEqual(250);
+    expect(DOCK_SKYDD_MS).toBeLessThanOrEqual(500);
+  });
+
+  it('inomDockSkydd: inert strikt före skyddets slut, aldrig vid noll (inget skydd har startat)', () => {
+    expect(inomDockSkydd(1_000, 0)).toBe(false);
+    expect(inomDockSkydd(1_000, 1_000 + DOCK_SKYDD_MS)).toBe(true);
+    expect(inomDockSkydd(1_000 + DOCK_SKYDD_MS - 1, 1_000 + DOCK_SKYDD_MS)).toBe(true);
+    expect(inomDockSkydd(1_000 + DOCK_SKYDD_MS, 1_000 + DOCK_SKYDD_MS)).toBe(false);
   });
 });

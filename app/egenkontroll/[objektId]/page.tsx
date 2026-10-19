@@ -101,7 +101,7 @@ import RundArk from '../RundArk';
 import RundDock from '../RundDock';
 import BrickaRad from '../BrickaRad';
 import { useKartPadding } from '../useKartPadding';
-import { ANGRA_MS, brickaTryck, byggBrickor, kvarText, svarsDel, type Bricka as BrickaData } from '@/lib/egenkontrollBricka';
+import { ANGRA_MS, DOCK_SKYDD_MS, brickaTryck, byggBrickor, inomDockSkydd, kvarText, svarsDel, type Bricka as BrickaData } from '@/lib/egenkontrollBricka';
 import { nastaGreppLage, type ArkLage } from '@/lib/egenkontrollArk';
 import {
   UTAN_POSITION_MENING,
@@ -110,7 +110,7 @@ import {
 } from '@/lib/egenkontrollFlode';
 import { useLevandePosition, type LevandePosition } from '../useMinPosition';
 import { GUL, statusEtikett } from '../svar';
-import { avslutaStatus } from '@/lib/egenkontrollSerie';
+import { avslutaStatus } from '@/lib/egenkontrollAvsluta';
 
 /** Hela meter. GPS:en under krontak ar 5-15 m - decimaler hade latsats om en
  *  precision som inte finns. Over en kilometer: en decimal i km. */
@@ -342,6 +342,8 @@ export default function EgenkontrollRundaPage() {
   const [centreraPa, setCentreraPa] = useState<{ lat: number; lng: number } | null>(null);
   // Angra efter ett svar som ett TRYCK pa en bricka skrev (ANGRA_MS). Bara det forsta svaret - att andra ett svar gors med raden.
   const [angra, setAngra] = useState<{ punktId: string; rubrik: string } | null>(null);
+  // DOCKVAKTEN (lib/egenkontrollBricka.ts, DOCK_SKYDD_MS): tidpunkten da skyddet efter senaste svaret i dockan upphor. Ett ref, inte state: ingenting ritas om.
+  const dockSkyddTill = useRef(0);
   // KARTLAGREN. overlays delas med planeringsvyn genom mapLayers_v4 - slar
   // man pa Markfuktighet har ar den pa dar ocksa, och tvartom. Baskartan
   // sparas per vy: planeringsvyn haller sin i en vanlig useState och tappar
@@ -738,11 +740,13 @@ export default function EgenkontrollRundaPage() {
 
   /** Tryck pa en bricka: markera ALLTID; en obesvarad far Bra i samma tryck (lib/egenkontrollBricka.ts, brickaTryck). */
   const trycktBricka = async (b: BrickaData) => {
+    if (inomDockSkydd(Date.now(), dockSkyddTill.current)) return;
     const p = allaPunkter.find((q) => q.id === b.id);
     if (!p) return;
     const t = brickaTryck({ id: p.id, status: p.status }, rundanKlar);
     setMarkeradId(t.markera);
     if (t.svara === null) return;
+    dockSkyddTill.current = Date.now() + DOCK_SKYDD_MS;
     if (await svara(p, t.svara)) setAngra({ punktId: p.id, rubrik: p.rubrik });
   };
 
@@ -752,7 +756,12 @@ export default function EgenkontrollRundaPage() {
   // svarat vill se vad hen svarade, och en karta som hoppar medan fingret ar kvar pa skarmen ger ett oavsiktligt tryck pa nasta sak.
   // Darfor: ett svar skriver svaret och ror ingenting annat. Ingen auto-markering av "nasta", ingen kameraflytt, ingen timer. Kartan flyttar
   // sig bara nar man SJALV markerar en punkt (tryck pa en symbol eller en rad i listan) eller trycker Centrera.
-  const radSvarar = (status: PunktStatus) => { if (markerad) void svara(markerad, status); };
+  const radSvarar = (status: PunktStatus) => {
+    if (!markerad || inomDockSkydd(Date.now(), dockSkyddTill.current)) return;
+    // Bara ett tryck som SKRIVER startar skyddet (samma svar igen skriver ingenting).
+    if (markerad.status !== status) dockSkyddTill.current = Date.now() + DOCK_SKYDD_MS;
+    void svara(markerad, status);
+  };
 
   /** Tryck pa en symbol pa kartan eller en rad i listan: markera punkten och ha dockan framme sa att raden syns. */
   const markeraPunkt = (id: string) => { setMarkeradId(id); setArkLage('dock'); };

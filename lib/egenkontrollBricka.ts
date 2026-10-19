@@ -88,6 +88,24 @@ export function brickaTryck(bricka: Pick<Bricka, 'id' | 'status'>, last: boolean
   return { markera: bricka.id, svara: !last && bricka.status === null ? 'bra' : null };
 }
 
+/**
+ * DOCKVAKTEN: efter ett SVAR i dockan (tryck pa en bricka som skriver Bra, eller ett tryck i raden) ar nasta tryck pa en bricka eller en radknapp
+ * inert i DOCK_SKYDD_MS. Det skyddar mot ett sent dubbeltryck (handske, kall skarm, tum som studsar).
+ *
+ * Varfor dockan behover det: raden for det markerade ligger OVER brickorna och arket animerar sin hojd (transform), sa brickorna och
+ * radknapparna flyttar sig under forsta tiondelen. Ett andra tryck pa samma stalle hamnar da pa NAGOT ANNAT (en annan bricka som far Bra,
+ * eller "Godkant" i raden som skriver over Bra) - tyst och fel. Det gamla skyddet (350 ms) bodde i serien som togs bort i 7b.
+ *
+ * Bara trycken som SKRIVER startar skyddet; ett tryck som bara markerar en besvarad bricka gor det inte, sa att man kan bladdra fritt.
+ * Skyddet syns inte: ingen grad knapp, ingen forsening - trycket gor bara ingenting.
+ */
+export const DOCK_SKYDD_MS = 350;
+
+/** Ar vi inom skyddstiden? `skyddTill` = tidpunkten (ms) da skyddet upphor; 0 = inget skydd har startat. */
+export function inomDockSkydd(nu: number, skyddTill: number): boolean {
+  return nu < skyddTill;
+}
+
 /** Status i ord och tecken. FORM bär svaret, färgen upprepar det: ✓ Bra, ~ Godkänt, ! Bättre. */
 export const BRICKSTATUS: Record<string, { tecken: string; ord: string; farg: 'gron' | 'text2' | 'orange' | 'rod' }> = {
   bra: { tecken: '✓', ord: 'Bra', farg: 'gron' },

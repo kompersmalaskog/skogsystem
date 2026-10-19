@@ -1,15 +1,11 @@
-// Egenkontrollens flode: kartan ar huvudsaken, listan stodet.
+// Egenkontrollens position: bedomPosition avgor om positionen duger, avstandPerPunkt raknar avstand och riktning till planpunkterna.
 //
 // ALLT HAR AR RENT - ingen React, ingen karta, ingen databas - sa att reglerna
 // gar att testa utan en webblasare. Sidan (app/egenkontroll/[objektId]/page.tsx)
 // och positionskroken (app/egenkontroll/useMinPosition.ts) anropar bara dessa.
 //
-// TILLSTANDET HARLEDS UR DATA, det lagras aldrig. En runda ar:
-//   - i terrangen    : planpunkterna (del='plan'), de som har en plats pa kartan
-//   - utanfor kartan : utforande, matning, ovrigt
-// "Sista punkten i terrangen" ar alltsa en fraga till datan (terrangKvar === 0),
-// inte ett flagga nagon satt. Ett lagrat tillstand kan sta fel mot verkligheten;
-// ett harlett kan det inte.
+// Kortflodet (narmaste obesvarade, serien, tillstand 1-3) ar borta sedan ramen (PR 4): inget markeras av sig sjalvt och inget gar vidare
+// av sig sjalvt. Det som finns kvar ar positionen och avstandet som raden i dockan visar for en markerad planpunkt.
 
 import { punktPlatser, type EgenkontrollPunkt } from './egenkontroll';
 import { avstandM, riktning } from './provytor';
@@ -85,7 +81,7 @@ export function positionSkalText(skal: PositionSkal | null, noggrannhetM?: numbe
 }
 
 // ---------------------------------------------------------------------------
-// Avstand och ordning
+// Avstand
 // ---------------------------------------------------------------------------
 
 export type AvstandRad = { m: number; r: string };
@@ -111,162 +107,4 @@ export function avstandPerPunkt(
     if (bast) karta.set(p.id, bast);
   }
   return karta;
-}
-
-/**
- * Narmaste OBESVARADE punkt som har en plats. null = ingen att peka ut.
- * `utom` lyfter bort en punkt (den man precis svarade pa), sa en punkt aldrig
- * foreslas som "nasta" direkt efter att den besvarats.
- */
-export function narmasteObesvarade(
-  planpunkter: EgenkontrollPunkt[],
-  avstand: Map<string, AvstandRad>,
-  utom?: string | null,
-): string | null {
-  let bast: { id: string; m: number } | null = null;
-  for (const p of planpunkter) {
-    if (p.status !== null || p.id === utom) continue;
-    const a = avstand.get(p.id);
-    if (!a) continue;
-    // Strikt mindre: vid exakt lika langt vinner den som kommer forst i rundan -
-    // en stabil, forklarbar ordning, inte slumpen.
-    if (!bast || a.m < bast.m) bast = { id: p.id, m: a.m };
-  }
-  return bast?.id ?? null;
-}
-
-/**
- * Ordningen i en grupp: narmast forst, punkter utan plats SIST i sin ordning.
- * Stabil sortering - lika avstand behaller rundans egen ordning.
- */
-export function ordnaGruppEfterAvstand(
-  punkter: EgenkontrollPunkt[],
-  avstand: Map<string, AvstandRad>,
-): EgenkontrollPunkt[] {
-  const med = punkter.filter((p) => avstand.has(p.id));
-  const utan = punkter.filter((p) => !avstand.has(p.id));
-  const sorterad = med
-    .map((p, i) => ({ p, i }))
-    .sort((a, b) => avstand.get(a.p.id)!.m - avstand.get(b.p.id)!.m || a.i - b.i)
-    .map((x) => x.p);
-  return [...sorterad, ...utan];
-}
-
-// ---------------------------------------------------------------------------
-// Tillstandet
-// ---------------------------------------------------------------------------
-
-/** Punkterna "i terrangen" - de som kontrolleras mot planen. */
-export function terrangPunkter(punkter: EgenkontrollPunkt[]): EgenkontrollPunkt[] {
-  return punkter.filter((p) => p.del === 'plan');
-}
-
-export function terrangKvar(punkter: EgenkontrollPunkt[]): number {
-  return terrangPunkter(punkter).filter((p) => p.status === null).length;
-}
-
-/**
- * Var rundan ska oppna, innan anvandaren valt nagot.
- *   karta  = gå rundan (tillstand 1)
- *   lista  = oversikt (2) eller avsluta (3)
- * Kartan kraver ett origo (annars finns ingen punkt att visa), en oppen runda
- * och minst en punkt kvar i terrangen. Allt annat oppnar listan - en fardigt
- * besvarad terrang har ingenting kvar att ga till.
- */
-export function startLage(args: {
-  harRunda: boolean;
-  klar: boolean;
-  harOrigo: boolean;
-  terrangKvar: number;
-  positionHarFallit: boolean;
-  /** Kortet har redan en punkt: man ar i flodet. */
-  harKort: boolean;
-}): 'karta' | 'lista' {
-  if (!args.harRunda || args.klar || !args.harOrigo) return 'lista';
-  // I FLODET (kortet har en punkt) lamnas kartan aldrig av sig sjalv - inte nar
-  // sista punkten besvaras (da ska kortet fa visa sitt svar en stund innan vyn
-  // byter, och det byter SIDAN, med en timer) och inte nar positionen tappas.
-  if (args.harKort) return 'karta';
-  if (args.terrangKvar === 0) return 'lista';
-  if (args.positionHarFallit) return 'lista';
-  return 'karta';
-}
-
-/**
- * Hur listans rader ritas. KOMPAKT = en rad per punkt som ger oversikt (✓ eller
- * avstand) och oppnar kartan. FULL = dagens kort med OK/Avvikelse direkt i listan.
- *
- * Full nar positionen saknas: da ar listan sjalva flodet, och tre tryck per punkt
- * ar att straffa anvandaren for nagot appen inte klarar. Kompakt annars, eller
- * nar allt i terrangen redan ar besvarat (inget kvar att svara pa).
- */
-export function radLage(args: { harFrystPosition: boolean; terrangKvar: number }): 'kompakt' | 'full' {
-  return args.harFrystPosition || args.terrangKvar === 0 ? 'kompakt' : 'full';
-}
-
-/**
- * Vilken punkt kortet ska visa EFTER att `besvarad` just fatt sitt forsta svar.
- *   { typ: 'punkt', id }   - narmaste obesvarade
- *   { typ: 'klart' }       - sista punkten i terrangen: dags for avslutet
- *   { typ: 'stanna' }      - ingen position (eller bara punkter utan plats kvar):
- *                            kortet star kvar, aldrig en gissad nasta
- */
-export type EfterSvar = { typ: 'punkt'; id: string } | { typ: 'klart' } | { typ: 'stanna' };
-
-export function efterSvar(args: {
-  planpunkter: EgenkontrollPunkt[];
-  besvaradId: string;
-  avstand: Map<string, AvstandRad>;
-}): EfterSvar {
-  const kvar = args.planpunkter.filter((p) => p.status === null && p.id !== args.besvaradId);
-  if (kvar.length === 0) return { typ: 'klart' };
-  const nasta = narmasteObesvarade(args.planpunkter, args.avstand, args.besvaradId);
-  return nasta ? { typ: 'punkt', id: nasta } : { typ: 'stanna' };
-}
-
-/** Sagt i kortet nar punkterna som aterstar inte har nagon plats pa kartan. Samma mening som tomma kortet. */
-export const SAKNAR_PLATS_MENING = 'Punkterna som återstår saknar plats på kartan. Svara på dem i listan.';
-
-/**
- * Kan kortet stangas, och i sa fall: varfor gar det inte vidare av sig sjalvt?
- *
- * Ett kort med en BESVARAD punkt har ingenting kvar att gora. Efter ett forsta svar
- * flyttas det till narmaste obesvarade (efterSvar) - men det finns inget att flytta
- * till nar position saknas, och inte heller nar det som aterstar saknar plats. Da
- * star kortet kvar, och utan en stang-knapp fanns bara ett annat tryck pa kartan
- * som vag ut. Samma sak galler en besvarad punkt man tryckt upp for att titta pa.
- *
- *   kanStangas  - kortet visar en besvarad punkt (och vyn ar inte pa vag till avslutet)
- *   forklaring  - satt bara nar ingen nasta kan pekas ut och terrangen inte ar klar:
- *                 'position' = utan position gar ordningen inte att avgora,
- *                 'plats'    = positionen duger men det som aterstar saknar plats.
- *
- * Ett OBESVARAT kort stangs aldrig: det ska besvaras. Kortet byter inte punkt av sig
- * sjalvt, sa att det inte forsvinner medan man star vid punkten.
- */
-export type KortStangning = { kanStangas: boolean; forklaring: 'position' | 'plats' | null };
-
-export function kortStangning(args: {
-  kort: Pick<EgenkontrollPunkt, 'status'> | null;
-  /** Sista punkten ar besvarad och vyn byter till avslutet av sig sjalv. */
-  klartKort: boolean;
-  terrangKvar: number;
-  /** Finns en narmaste obesvarade punkt att peka ut (narmasteObesvarade != null)? */
-  nastaFinns: boolean;
-  positionOk: boolean;
-}): KortStangning {
-  if (!args.kort || args.kort.status === null || args.klartKort) {
-    return { kanStangas: false, forklaring: null };
-  }
-  if (args.terrangKvar === 0 || args.nastaFinns) return { kanStangas: true, forklaring: null };
-  return { kanStangas: true, forklaring: args.positionOk ? 'plats' : 'position' };
-}
-
-/**
- * Ar detta en punkts FORSTA svar? Bara da gar kortet vidare. Att rattta ett
- * redan givet svar (ok -> avvikelse) ska inte flytta nagon: man star kvar pa
- * punkten man ratter.
- */
-export function arForstaSvaret(forra: string | null | undefined, nu: string | null): boolean {
-  return forra === null && nu !== null;
 }
