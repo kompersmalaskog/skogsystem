@@ -228,6 +228,9 @@ Provytorna lottas en gång av avsikt (det finns ingen funktion som lottar om). P
   "Löneunderlag" istället — verifiera
 
 ## Nästa
+- **Egenkontroll, öppna punkter efter A4-rapporten (#830, 2026-10-19):**
+  1. `PdfForhandsvisning` ligger i `app/helikopter/_components/` men används nu också av egenkontrollens `RapportDela` (generell, tar en `skapa`-funktion). Flytten till `components/` görs av **helikopterns ägare**, inte av egenkontrollspåret (en vy ägs av ett spår). Tills dess importeras den därifrån.
+  2. **Låstrigger på `egenkontroll`:** tabellen saknar trigger (policyn är ALL/true), så en klar runds `kommentar` är bara låst i klienten (`sparaRundKommentar`, `lib/egenkontroll.ts`). Martin kör migrationen själv via MCP och säger till. När den ligger: döp filen efter versionen prod stämplade (`schema_migrations`), lägg till den i repot och ta bort anteckningen om "bara låst i klienten" i CLAUDE.md.
 - 26 /api-rutter saknar egen auth (bara middleware skyddar dem). Egen säkerhets-PR med kravInloggad() — inte nu. Rutter (grov sökning, verifiera per rutt): app-state, forarkarta, handelse, kalibrering/{bedomning,diagnos,kalender,kontroll,objekt,tradslag}, kontroll/[id], korbarhet-tiles, parse-pdf, resurs, resurs/[id], roadcheck, routing, sgu-proxy, slu-geotiff, smhi-nederb, tract-analysis, wms-proxy. Öppna med avsikt (ska INTE få kravInloggad): auth/callback, fortnox/auth, fortnox/callback, version, mom-import (IMPORT_SECRET — verifiera)
 - Fixa kalenderklick
 - Timer-banner testad med fliknavigation
