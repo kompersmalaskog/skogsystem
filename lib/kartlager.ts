@@ -19,13 +19,6 @@ export const KARTLAGER_NAMN: Record<Kartlager, string> = { satellite: 'Flygfoto'
 /** Kartlagrets lager-id i kartstilen (page.tsx mapStyleConfig). */
 export const KARTLAGER_LAGER_ID: Record<Kartlager, string> = { satellite: 'satellite-layer', lantmateriet: 'lm-layer', terrain: 'terrain-layer', osm: 'osm-layer' };
 
-/** Nästa baskarta i körvyns växel (Mer): Flygfoto → Karta → Topokarta → Flygfoto. OpenStreetMap (bara valbart i Lager) går tillbaka till Flygfoto. */
-export function nastaBaskarta(v: Kartlager): Kartlager {
-  if (v === 'satellite') return 'lantmateriet';
-  if (v === 'lantmateriet') return 'terrain';
-  return 'satellite';
-}
-
 /** Den lokala kopian: senast valda lager på den här enheten, vem som valde det och om det ännu inte nått kontot. */
 export interface LokalKopia { val: Kartlager; osynkad: boolean; anvandarId: string | null }
 

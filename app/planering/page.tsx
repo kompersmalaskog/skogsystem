@@ -107,7 +107,7 @@ import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
 import { useKartlager } from '../../lib/hooks/useKartlager'
-import { KARTLAGER_LAGER_ID, KARTLAGER_NAMN, nastaBaskarta } from '../../lib/kartlager'
+import { KARTLAGER_LAGER_ID } from '../../lib/kartlager'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
@@ -9000,7 +9000,7 @@ export default function PlannerPage() {
       }
       // Återställ zone-fill-opaciteten (gallring-nollningen ovan) till originalet gallringCase(0.75, 0.2).
       try { if (map.getLayer('zone-fill')) map.setPaintProperty('zone-fill', 'fill-opacity', ['case', ['==', ['get', 'zoneType'], 'gallring'], 0.75, 0.2] as any); } catch {}
-      // Bytte föraren kartlager MEDAN körvyn var igång (Mer › Baskarta) är den sparade synligheten från körvyns start föråldrad: det valda lagret gäller.
+      // Bytte föraren kartlager MEDAN körvyn var igång (+ › Alla › Lager › Bakgrundskarta) är den sparade synligheten från körvyns start föråldrad: det valda lagret gäller.
       for (const [kl, lagerId] of Object.entries(KARTLAGER_LAGER_ID)) {
         try { if (map.getLayer(lagerId)) map.setLayoutProperty(lagerId, 'visibility', kl === korvyBasKarta ? 'visible' : 'none'); } catch {}
       }
@@ -13562,7 +13562,6 @@ export default function PlannerPage() {
           roll: kortRoll, arAdmin: isAdminRiktig, korvyAktiv: korvyActive, maskinlage: maskinlage || !!maskinSomParam,
           skotningFinnsSomKnapp: kortRoll === 'forare' && maskinSlag !== 'skordare', utanSkotning: skotarLassAktiv, status: valtObjekt.status ?? null, tillTrakt: true,
           korvy: korvyActive ? {
-            basKartaText: `Baskarta: ${KARTLAGER_NAMN[korvyBasKarta]} → ${KARTLAGER_NAMN[nastaBaskarta(korvyBasKarta)]}`,
             gpsText: korvyStatus.gpsText, gpsProblem: korvyStatus.harProblem, dataText: korvyStatus.dataText,
             andrasSparText: andrasRoll ? (andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår') : null,
           } : undefined,
@@ -13571,7 +13570,6 @@ export default function PlannerPage() {
             skordarKorvy: efter(() => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); }),
             skotarKorvy: efter(() => { setKorvyForceRoll('skotare'); setKorvyActive(true); }),
             avslutaKorvy: efter(() => { setKorvyActive(false); setKorvyForceRoll(null); }),
-            vaxlaBaskarta: efter(() => setMapType(nastaBaskarta(korvyBasKarta))),
             gps: efter(() => { acquireGpsWithFallback(); }),
             data: efter(() => { refetchMarkers(true); }),
             andrasSpar: efter(() => { hamtaAndrasSpar(); }),
@@ -13580,7 +13578,6 @@ export default function PlannerPage() {
             genomgang: efter(() => { setBriefingMode(true); setActiveCategory(null); }),
             vagdata: efter(() => { korOmVagdata(); }),
             trakt: efter(() => { setTraktOpen(true); }),
-            lager: efter(() => oppnaPlusArk('lager')),
             installningar: efter(() => oppnaInst(false)),
             gpsKalla: webSerialStott ? efter(() => oppnaInst(true)) : null,
             forslag: efter(() => { window.location.href = '/forbattringsforslag'; }),
@@ -14057,7 +14054,7 @@ export default function PlannerPage() {
       {/* Skotarkörvyns stråk-autopanel (närmaste stråkets sortiment) borttagen — pekade på fel stråk / visade redan utkört virke (Daniel, fältfynd). Högarna på kartan + tryck-popupen räcker. */}
 
       {/* REN SKÄRM (fältfynd): "Uppdatera spår"-knappen och Baskarta-växlaren är BORTTAGNA från
-          kartytan — båda bor nu i +-menyns KÖRVY-grupp (Uppdatera skördarens/skotarens spår + Baskarta).
+          kartytan. Spåruppdateringen bor i objektinfons Mer › Körvy; kartlagret bor BARA i + › Alla › Lager (inte i ⓘ/Mer).
           Kartytan i körvy visar bara karta + position + autopanel/HUD. */}
 
       {/* KOMPASSEN bor i Lager-menyn (rad "Kompass", AV som standard) — INGEN knapp på kartytan i körvy: skärmen har bara hem-knapp,
@@ -17984,8 +17981,8 @@ export default function PlannerPage() {
                     </svg>
                   </div>
                   
-                  {/* Karttyp */}
-                  <div
+                  {/* Karttyp — göms i körvyn: där bor lagervalet BARA i + › Alla › Lager (EN plats; vakt: lib/kartlager.vakter.test.ts) */}
+                  {!korvyActive && <div
                     onClick={() => {
                       if (mapType === 'lantmateriet') setMapType('satellite');
                       else if (mapType === 'satellite') setMapType('terrain');
@@ -18014,7 +18011,7 @@ export default function PlannerPage() {
                         {mapType === 'lantmateriet' ? 'Karta' : mapType === 'satellite' ? 'Flygfoto' : mapType === 'terrain' ? 'Topokarta' : 'OpenStreetMap'}
                       </div>
                     </div>
-                  </div>
+                  </div>}
 
                   {/* Visa karta */}
                   <div

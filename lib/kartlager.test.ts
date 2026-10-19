@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KARTLAGER, KARTLAGER_LAGER_ID, KARTLAGER_NAMN, LOKAL_NYCKEL, STANDARD_KARTLAGER, arKartlager, avstam, lasLokal, nastaBaskarta, skrivLokal, startLager, type LokalKopia } from './kartlager';
+import { KARTLAGER, KARTLAGER_LAGER_ID, KARTLAGER_NAMN, LOKAL_NYCKEL, STANDARD_KARTLAGER, arKartlager, avstam, lasLokal, skrivLokal, startLager, type LokalKopia } from './kartlager';
 
 const lager = (initial: Record<string, string> = {}) => {
   const m = new Map(Object.entries(initial));
@@ -19,12 +19,6 @@ describe('kartlager: standard och namn', () => {
   it('arKartlager släpper bara igenom kända värden', () => {
     expect(['satellite', 'lantmateriet', 'terrain', 'osm'].every(arKartlager)).toBe(true);
     expect([null, undefined, '', 'hybrid', 'lm', 3, {}].some(arKartlager)).toBe(false);
-  });
-  it('körvyns växel: Flygfoto → Karta → Topokarta → Flygfoto, OSM går till Flygfoto', () => {
-    expect(nastaBaskarta('satellite')).toBe('lantmateriet');
-    expect(nastaBaskarta('lantmateriet')).toBe('terrain');
-    expect(nastaBaskarta('terrain')).toBe('satellite');
-    expect(nastaBaskarta('osm')).toBe('satellite');
   });
 });
 

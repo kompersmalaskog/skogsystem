@@ -12,12 +12,32 @@ describe('kartlagret per användare: planeringssidan', () => {
     expect(page).toContain('const [mapType, setMapType] = useKartlager();');
     expect(page).not.toMatch(/useState<'osm' \| 'satellite' \| 'terrain' \| 'lantmateriet'>\('lantmateriet'\)/);
   });
-  it('körvyn följer SAMMA lager: ingen egen osparad baskarta, körvyns whitelist visar det valda lagret och växeln i Mer byter mapType', () => {
+  it('körvyn följer SAMMA lager: ingen egen osparad baskarta, körvyns whitelist visar det valda lagret och lagervalet byter mapType (på ETT ställe, se nedan)', () => {
     expect(page).toContain('const korvyBasKarta = mapType;');
     expect(page).not.toContain('setKorvyBasKarta');
     expect(page).toContain('const SHOW = new Set<string>([KARTLAGER_LAGER_ID[korvyBasKarta]]);');
-    expect(page).toContain('vaxlaBaskarta: efter(() => setMapType(nastaBaskarta(korvyBasKarta))),');
-    expect(page).toContain('basKartaText: `Baskarta: ${KARTLAGER_NAMN[korvyBasKarta]} → ${KARTLAGER_NAMN[nastaBaskarta(korvyBasKarta)]}`,');
+  });
+  it('lagervalet bor på ETT ställe i körvyn: + › Alla › Lager. Inte i objektinfon (ⓘ) och inte i Mer › Baskarta / Mer › Lager', () => {
+    const kort = las('lib/objektKort.ts');
+    // Mer (ⓘ): inga rader eller ingångar för baskarta/lager
+    expect(kort).not.toMatch(/id: 'baskarta'/);
+    expect(kort).not.toMatch(/id: 'lager'/);
+    expect(kort).not.toContain('basKartaText');
+    expect(kort).not.toContain('vaxlaBaskarta');
+    expect(kort).not.toMatch(/\blager: \(\) => void/);
+    // Sidan: ingen koppling från Mer till kartlagret
+    expect(page).not.toContain('vaxlaBaskarta');
+    expect(page).not.toContain('basKartaText');
+    expect(page).not.toMatch(/^\s*lager: efter\(/m);
+    expect(page).not.toContain('nastaBaskarta');
+    // Den enda rutan som byter lager i körvyn är plusarkets Bakgrundskarta
+    expect(page).toContain("onTryck: () => setMapType(t.id) })),");
+    // Den gamla Fler val-menyns Karttyp-rad göms i körvyn
+    expect(page).toMatch(/\{!korvyActive && <div\s+onClick=\{\(\) => \{\s+if \(mapType === 'lantmateriet'\) setMapType\('satellite'\)/);
+    // Och ingen annan fil än plusarket/sidan skriver kartlagret
+    for (const f of ['components/planering/ObjektInfo.tsx', 'components/planering/MerMeny.tsx', 'components/planering/ObjektKort.tsx']) {
+      expect(las(f), f).not.toMatch(/setMapType|useKartlager|Baskarta/);
+    }
   });
   it('lämnar körvyn efter att lagret bytts där: det valda lagret är synligt, inte det som var synligt när körvyn startade', () => {
     expect(page).toMatch(/for \(const \[kl, lagerId\] of Object\.entries\(KARTLAGER_LAGER_ID\)\) \{[\s\S]{0,200}kl === korvyBasKarta \? 'visible' : 'none'/);
@@ -35,7 +55,7 @@ describe('kartlagret per användare: planeringssidan', () => {
   });
   it('varje byte går genom setMapType (hookens välj) — Lager-listan och Karttyp-raden sparar därmed också', () => {
     expect(page).toContain("onTryck: () => setMapType(t.id) })),");
-    expect(page).toContain("if (mapType === 'lantmateriet') setMapType('satellite');");
+    expect(page).toContain("if (mapType === 'lantmateriet') setMapType('satellite');"); // gamla menyn (utanför körvyn)
   });
 });
 

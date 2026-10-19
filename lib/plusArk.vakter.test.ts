@@ -226,7 +226,7 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
   });
   it('gamla val som finns kvar i Mer, med samma handling i sidan', () => {
     for (const rad of [
-      'Baskarta: ${KARTLAGER_NAMN[korvyBasKarta]} → ${KARTLAGER_NAMN[nastaBaskarta(korvyBasKarta)]}', 'gpsText: korvyStatus.gpsText', 'dataText: korvyStatus.dataText',
+      'gpsText: korvyStatus.gpsText', 'dataText: korvyStatus.dataText',
       "avslutaKorvy: efter(() => { setKorvyActive(false); setKorvyForceRoll(null); }),",
       "skordarKorvy: efter(() => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); }),",
       "skotarKorvy: efter(() => { setKorvyForceRoll('skotare'); setKorvyActive(true); }),",
@@ -272,8 +272,7 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
 });
 
 describe('ingångarna till Lager-fliken — den gamla helskärmsmenyn är borta, så alla vägar dit måste leda till arket', () => {
-  it('objektinfons Lager-rad och Inställningar → Karta → Lager öppnar arket på Lager-fliken', () => {
-    expect(page).toContain("lager: efter(() => oppnaPlusArk('lager')),");
+  it('Inställningar → Karta → Lager öppnar arket på Lager-fliken (objektinfon har ingen Lager-rad: lagervalet bor bara i +)', () => {
     expect(page).toContain("oppnaPlusArk('lager');   // Lager bor i plusarkets Lager-flik");
     expect(page).toContain('const oppnaPlusArk = (flik: FlikId) => { setLangtryckPunkt(null); setPlusArkStart(flik); setPlusRadOppen(true); };');
   });
