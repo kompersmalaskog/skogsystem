@@ -91,7 +91,7 @@ describe('källvakter: alla ställen som läser status är med', () => {
   });
   it('arbetsrapport och planera räknar oplanerad som aktiv; maskinflytt kan flytta dit; sammanslagning av ett påbörjat jobb gäller även en oplanerad Vida-trakt', () => {
     expect(las('./arbetsobjekt.ts')).toContain('"oplanerad", "planerad", "pagaende", "skordning", "skotning"');
-    expect(las('../app/maskinflytt/MaskinflyttClient.tsx')).toContain("s === 'pagaende' || s === 'planerad' || s === 'oplanerad'");
+    expect(las('../app/lastbil/_components/hamta/destinationer.ts')).toContain("s === 'pagaende' || s === 'planerad' || s === 'oplanerad'");
     expect(las('./slaIhopJobb.ts')).toContain("till.status === 'planerad' || till.status === 'oplanerad'");
   });
   it('importen av produktionsfiler flippar (o)planerad → pagaende (loggläge som förut)', () => {

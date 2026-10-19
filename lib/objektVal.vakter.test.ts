@@ -21,7 +21,7 @@ describe('nya objektlistan med ett objekt bakom gäller bara planeringsvyn — i
 
   it('inget objekt valt: kartan med listan i planeringsvyn OCH i maskinläge (Martin 2026-10-17); maskinens val öppnar körvyn som förut', () => {
     expect(page).toContain('    if (anvandObjektListaUtanObjekt({ maskinlage, maskinSom: !!maskinSomParam, korvyActive })) {\n      const visaListan');
-    expect(page).toContain('<ObjektKartaTom onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista}');
+    expect(page).toContain('<ObjektKartaTom kartlager={mapType} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista}');
     expect(page).toContain("? { maskinId: enhetMaskinId, klararTyp: dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.klarar_typ ?? null }");
     const m = /const valjObjektIMaskin = \(obj: any\) => \{([\s\S]*?)\n  \};/.exec(page);
     expect(m).not.toBeNull();
@@ -46,6 +46,9 @@ describe('nya objektlistan med ett objekt bakom gäller bara planeringsvyn — i
   it('körvyns pill och dess objektinfo-ingång är orörda; körvyn får varken byt-pill, info-knapp eller Kör hit', () => {
     expect(page).toContain('{korvyActive && valtObjekt ? (\n            <KorvyObjektPill');
     expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
+    // skotarkörvyn har EN ⓘ-knapp uppe till höger (platshållarens plats, objektinfo/väder) — skördarens körvy har ingen; namnet i pillen byter aldrig objekt
+    expect(page).toContain('{objektListaVal || skotarKorvy ? (');
+    expect(page.match(/data-testid="objektinfo-knapp"/g)).toHaveLength(1);
     expect(page).toContain("!(korvyActive && screenSize.width < 640) && <span style={{ width: '44px', flexShrink: 0 }} aria-hidden=\"true\" />");
     // pillens byt-läge faller tillbaka till gamla vägen utan listvillkoret; Byt objekt finns inte längre som menyval (namnet och ⌂ gör det)
     expect(page).toContain('onClick={() => { if (objektListaVal) setObjektListaOppen(true); else setTraktOversiktOpen(o => !o); }}');

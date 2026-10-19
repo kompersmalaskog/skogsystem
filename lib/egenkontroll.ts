@@ -1281,6 +1281,37 @@ export async function svaraPaPunkt(
 }
 
 /**
+ * ANGRA ett forsta svar: punkten blir obesvarad igen. Bara for tryckgenvagen (ett tryck pa en obesvarad bricka ger Bra) - en handske
+ * i en buske ska kunna tas tillbaka utan att punkten raknas som besvarad.
+ *
+ * Villkoret `status = svar` ar poangen: har nagon annan (eller raden) hunnit andra svaret skrivs ingenting over - noll rader tillbaka ar ett
+ * FEL. Databasen tillater null (status_hor_till_del), och en klar runda ar last av egenkontroll_punkt_last som vanligt. Anroparen
+ * ska bara erbjuda Angra pa ett svar som just skrivits; att aterstalla ett svar som stod sedan tidigare ar inte Angra utan en andring.
+ */
+export async function angraForstaSvaret(
+  punktId: string,
+  del: PunktDel,
+  svar: PunktStatus,
+  options: KlientOptions = {},
+): Promise<EgenkontrollPunkt> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient
+    .from('egenkontroll_punkt')
+    .update({ status: null, avvikelse_typ: null, besvarad: null })
+    .eq('id', punktId)
+    .eq('del', del)
+    .eq('status', svar)
+    .select('*')
+    .maybeSingle();
+  if (error) throw new Error(`Kunde inte ångra svaret: ${error.message}`);
+  if (!data) throw new Error('Svaret är redan ändrat eller rundan är avslutad — det gick inte att ångra. Ladda om sidan.');
+  const sparad = data as unknown as EgenkontrollPunkt;
+  // Status OCH besvarad hör ihop (CHECK status_och_besvarad_hanger_ihop): båda ska vara tomma efteråt, annars har något annat skrivit emellan.
+  if (sparad.status !== null || sparad.besvarad !== null) throw new Error('Svaret ångrades inte som väntat. Ladda om sidan.');
+  return sparad;
+}
+
+/**
  * Avslutar rundan: status='klar' + klar=now().
  *
  * LASET LIGGER I DATABASEN. Triggern egenkontroll_punkt_last avvisar INSERT

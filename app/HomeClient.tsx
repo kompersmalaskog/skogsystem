@@ -44,7 +44,6 @@ const adminApps = [
   { href: '/helikopter-v2', label: 'Helikopter v2', icon: 'helicopter' },
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
   { href: '/kontroller', label: 'Kontroller', icon: 'fact_check' },
-  { href: '/maskinflytt', label: 'Maskinflytt', icon: 'delivery_truck_speed' },
   { href: '/lastbil', label: 'Lastbilen', icon: 'pin_drop' },
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
   { href: '/personal', label: 'Personal', icon: 'badge' },
@@ -117,7 +116,7 @@ function Raknarmarke({ antal, label }: { antal: number; label: string }) {
 function NyStartsida({ roll, data }: { roll: Roll; data: StartsidaData }) {
   const { besked } = useDatahalsa()
   return (
-    <Startsida roll={roll} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass }}
+    <Startsida roll={roll} marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande }}
       datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna} />
   )
 }
@@ -160,14 +159,14 @@ export default function HomeClient() {
   // är känd (null = inget märke). Rollen avgör vilken startsida som visas; tills den är känd visas bara bakgrunden,
   // så ingen ser den gamla sidan blinka förbi. Läsfel eller långsamt svar → den gamla sidan, som förut.
   const data = useStartsidaData()
-  const { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass } = data
+  const { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande } = data
 
   // Märket per ruta — samma oavsett vilken lista rutan står i. (Förut satt egenkontrollens märke bara på
   // Produktion-listan, men Egenkontroll står under Administration, så märket syntes aldrig.)
   const marke = (href: string): { badge?: number; badgeLabel?: string } =>
     href === '/egenkontroll' ? { badge: vantandeEgenkontroll ?? undefined, badgeLabel: 'objekt väntar på egenkontroll' }
     : href === '/ledighet' ? { badge: ledighetPrick?.antal, badgeLabel: 'att göra i ledighet' }
-    : href === '/lastbil' ? { badge: vantandeLass ?? undefined, badgeLabel: 'lass saknar maskin' }
+    : href === '/lastbil' ? { badge: ((vantandeLass ?? 0) + (vantandeGodkannande ?? 0)) || undefined, badgeLabel: 'att göra i Lastbilen' }
     : {}
 
   if (!rollKlar) return <div style={{ position: 'fixed', inset: 0, background: '#000' }} />

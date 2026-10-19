@@ -27,7 +27,7 @@ export type KortRoll = 'planerare' | 'forare';
  * Förare: Körvy · Skotning · Utkört · Mer. Körvy-knappen försvinner medan körvyn redan är igång (Avsluta körvy ligger i Mer). En skördarförare har
  * ingen skotning att öppna eller markera utkört: Skotning och Utkört visas för skotare och när maskinen inte är känd.
  */
-export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAktiv: boolean; maskinSlag: 'skordare' | 'skotare' | null }): KortKnapp[] {
+export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAktiv: boolean; maskinSlag: 'skordare' | 'skotare' | null; utanSkotning?: boolean }): KortKnapp[] {
   if (o.roll === 'planerare') {
     return [
       ...(o.harKoordinat ? [{ id: 'kor-hit' as const, etikett: 'Kör hit' }] : []),
@@ -36,7 +36,8 @@ export function kortKnappar(o: { roll: KortRoll; harKoordinat: boolean; korvyAkt
   }
   return [
     ...(o.korvyAktiv ? [] : [{ id: 'korvy' as const, etikett: 'Körvy' }]),
-    ...(o.maskinSlag === 'skordare' ? [] : [{ id: 'skotning' as const, etikett: 'Skotning' }, { id: 'utkort' as const, etikett: 'Utkört' }]),
+    // utanSkotning = skotarläget med lassrapportering i appen: det gamla skotningsverktyget (Skotning: sortiment och högar, Utkört: rita yta → Skotningsuttag) förvirrar där och visas inte.
+    ...(o.maskinSlag === 'skordare' || o.utanSkotning ? [] : [{ id: 'skotning' as const, etikett: 'Skotning' }, { id: 'utkort' as const, etikett: 'Utkört' }]),
     { id: 'mer', etikett: 'Mer' },
   ];
 }
@@ -247,15 +248,17 @@ export interface MerIn {
   maskinlage: boolean;
   /** Skotning-knappen finns redan på kortet (förare på skotare/okänd maskin) → ingen dubblett i Mer */
   skotningFinnsSomKnapp: boolean;
+  /** Skotarläget med lassrapportering: det gamla skotningsverktyget (Skotning, Markera utkört → Skotningsuttag) visas varken som knapp eller i Mer. */
+  utanSkotning?: boolean;
   status: string | null;
-  korvy?: { basKartaText: string; gpsText: string; gpsProblem: boolean; dataText: string; andrasSparText: string | null };
+  korvy?: { gpsText: string; gpsProblem: boolean; dataText: string; andrasSparText: string | null };
   vagdata?: { varde: string; misslyckad: boolean; kanKora: boolean } | null;
   tillTrakt: boolean;
   go: {
-    skordarKorvy: () => void; skotarKorvy: () => void; avslutaKorvy: () => void; vaxlaBaskarta: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
+    skordarKorvy: () => void; skotarKorvy: () => void; avslutaKorvy: () => void; gps: () => void; data: () => void; andrasSpar: () => void;
     skotning: () => void; markeraUtkort: () => void; genomgang: () => void;
     vagdata: () => void; trakt: () => void;
-    lager: () => void; installningar: () => void; gpsKalla: (() => void) | null; forslag: () => void;
+    installningar: () => void; gpsKalla: (() => void) | null; forslag: () => void;
   };
 }
 
@@ -271,7 +274,6 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
   const korvy: MerRad[] = [];
   if (c.korvyAktiv && c.korvy) {
     korvy.push(
-      { id: 'baskarta', etikett: c.korvy.basKartaText, ikon: 'layers', onTryck: c.go.vaxlaBaskarta },
       { id: 'gps', etikett: c.korvy.gpsText, ikon: 'my_location', onTryck: c.go.gps, farlig: c.korvy.gpsProblem },
       { id: 'kartdata', etikett: c.korvy.dataText, ikon: 'refresh', onTryck: c.go.data },
       ...(c.korvy.andrasSparText ? [{ id: 'andras-spar', etikett: c.korvy.andrasSparText, ikon: 'refresh', onTryck: c.go.andrasSpar }] : []),
@@ -288,8 +290,8 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
   // FÖRAREN — Markera utkört, Genomgång & kvittering (Briefing + Kvittera markeringar i ETT val: genomgången slutar med kvittering).
   // Skotning-arket (sortiment, högar) ligger här för dem som inte har den som knapp på kortet — annars nås det inte alls.
   const foraren: MerRad[] = [
-    ...(c.skotningFinnsSomKnapp ? [] : [{ id: 'skotning', etikett: 'Skotning', under: 'Sortiment och högar', ikon: 'local_shipping', onTryck: c.go.skotning }]),
-    { id: 'markera-utkort', etikett: 'Markera utkört', under: 'Rita det som är utkört', ikon: 'edit', onTryck: c.go.markeraUtkort },
+    ...(c.skotningFinnsSomKnapp || c.utanSkotning ? [] : [{ id: 'skotning', etikett: 'Skotning', under: 'Sortiment och högar', ikon: 'local_shipping', onTryck: c.go.skotning }]),
+    ...(c.utanSkotning ? [] : [{ id: 'markera-utkort', etikett: 'Markera utkört', under: 'Rita det som är utkört', ikon: 'edit', onTryck: c.go.markeraUtkort }]),
     { id: 'genomgang', etikett: 'Genomgång & kvittering', under: 'Gå igenom trakten och kvittera markeringarna', ikon: 'menu_book', onTryck: c.go.genomgang },
   ];
   grupper.push({ id: 'foraren', titel: 'Föraren', rader: foraren });
@@ -299,14 +301,11 @@ export function byggMerGrupper(c: MerIn): { grupper: MerGrupp[]; planerarenBlock
   if (planerarenBlock) grupper.push({ id: 'planeraren', titel: 'Planeraren', rader: [] });
 
   // ÖVRIGT — Vägdata, Trakt (bara Larm kvar). Vidas egenkontroll-checklista (checklist_items) är borttagen härifrån 2026-10-15 — datan och /egenkontroll rörs inte. I körvy och maskinläge (där startsidan inte nås) även
-  // Lager, Inställningar, GPS-källa och Förslag. Annars bor Inställningar och Förslag på startsidan.
+  // Inställningar, GPS-källa och Förslag. KARTLAGER/baskarta finns INTE här: lagervalet bor på ETT ställe i körvyn, + › Alla › Lager (ⓘ visar information, inga kartinställningar). Annars bor Inställningar och Förslag på startsidan.
   const ovrigt: MerRad[] = [
     ...(c.vagdata ? [{ id: 'vagdata', etikett: 'Vägdata', under: c.vagdata.varde, ikon: c.vagdata.misslyckad ? 'error' : 'route', onTryck: c.vagdata.kanKora ? c.go.vagdata : () => {}, farlig: c.vagdata.misslyckad }] : []),
     ...(c.tillTrakt ? [{ id: 'trakt', etikett: 'Trakt', under: 'Larm', ikon: 'info', onTryck: c.go.trakt }] : []),
   ];
-  if (c.korvyAktiv) {
-    ovrigt.push({ id: 'lager', etikett: 'Lager', under: 'Visa och dölj kartlager', ikon: 'layers', onTryck: c.go.lager });
-  }
   if (c.korvyAktiv || c.maskinlage) {
     ovrigt.push({ id: 'installningar', etikett: 'Inställningar', under: 'Kompass, tillstånd, karta', ikon: 'settings', onTryck: c.go.installningar });
     if (c.go.gpsKalla) ovrigt.push({ id: 'gps-kalla', etikett: 'GPS-källa', under: 'Serieport och baudrate', ikon: 'gps_fixed', onTryck: c.go.gpsKalla });

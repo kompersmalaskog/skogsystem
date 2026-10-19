@@ -35,7 +35,7 @@ describe('Flyttloggen är riven (steg 4)', () => {
 
   it('ingen kod länkar till den gamla adressen — utom testerna som kontrollerar att den saknas', () => {
     // Renderingstestet nämner adressen bara för att kontrollera att länken saknas.
-    const undantag = ['flyttloggen.borta.test.ts', 'lastbil.render.test.tsx'];
+    const undantag = ['flyttloggen.borta.test.ts', 'maskinflytt.borta.test.ts', 'lastbil.render.test.tsx'];
     const traffar = kallfiler(ROT)
       .filter(f => !undantag.some(u => f.endsWith(u)))
       .filter(f => readFileSync(f, 'utf8').includes(GAMMAL))
@@ -43,11 +43,11 @@ describe('Flyttloggen är riven (steg 4)', () => {
     expect(traffar).toEqual([]);
   });
 
-  it('hemskärmen har inget Flyttlogg-kort, men Lastbilen och Maskinflytt finns kvar', () => {
+  it('hemskärmen har inget Flyttlogg-kort och inget Maskinflytt-kort (steg 3) — bara Lastbilen', () => {
     const hem = readFileSync(join(ROT, 'app', 'HomeClient.tsx'), 'utf8');
     expect(hem).not.toMatch(/label: 'Flyttlogg'/);
     expect(hem).toContain("href: '/lastbil'");
-    expect(hem).toContain("href: '/maskinflytt'");
+    expect(hem).not.toMatch(/label: 'Maskinflytt'/);
   });
 
   it('den döda vyn är borta', () => {

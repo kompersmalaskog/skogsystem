@@ -96,8 +96,10 @@ describe('sidan raknar aldrig in observationer i punkterna', () => {
 
   it('raknarna "kvar", "antalBattre", avslutaStatus, terrangKvar och serien ror inte observationer', () => {
     const raknare = rader.filter((r) =>
-      /\bconst kvar\b|\bconst antalBattre\b|avslutaStatus\(|raknaTerrangKvar\(|byggSerie\(|\bconst antalPlan\b|\bconst besvaradePlan\b|\bconst antalAvvikelser\b/.test(r));
-    expect(raknare.length).toBeGreaterThanOrEqual(6);
+      /\bconst kvar\b|\bconst antalBattre\b|avslutaStatus\(|raknaTerrangKvar\(|byggSerie\(|\bconst antalAvvikelser\b/.test(r));
+    // "N av M klara" (antalPlan/besvaradePlan) är borta sedan hel-läget slutade lista punkterna (Martin 2026-10-19); kvar, antalBattre,
+    // avslutaStatus och antalAvvikelser är de räknare som finns kvar.
+    expect(raknare.length).toBeGreaterThanOrEqual(4);
     for (const r of raknare) expect(r, r).not.toMatch(/observation/i);
   });
 

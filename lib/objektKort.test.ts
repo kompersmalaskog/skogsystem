@@ -40,6 +40,8 @@ describe('knapprad efter roll', () => {
   });
   it('skördarförare har ingen skotning att öppna eller markera utkört: Körvy · Mer', () => {
     expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skordare' }))).toEqual(['korvy', 'mer']);
+    // skotarläget med lassrapportering: inget gammalt skotningsverktyg – varken Skotning eller Utkört (som leder till Skotningsuttag)
+    expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: false, maskinSlag: 'skotare', utanSkotning: true }))).toEqual(['korvy', 'mer']);
   });
   it('körvyn redan igång: ingen Körvy-knapp (Avsluta körvy ligger i Mer)', () => {
     expect(ids(kortKnappar({ roll: 'forare', harKoordinat: true, korvyAktiv: true, maskinSlag: 'skotare' }))).toEqual(['skotning', 'utkort', 'mer']);
@@ -140,11 +142,17 @@ describe('Om trakten: sortering, sök, avstånd', () => {
 describe('Mer', () => {
   const fn = () => vi.fn();
   const go = (): MerIn['go'] => ({
-    skordarKorvy: fn(), skotarKorvy: fn(), avslutaKorvy: fn(), vaxlaBaskarta: fn(), gps: fn(), data: fn(), andrasSpar: fn(),
-    skotning: fn(), markeraUtkort: fn(), genomgang: fn(), vagdata: fn(), trakt: fn(), lager: fn(), installningar: fn(), gpsKalla: fn(), forslag: fn(),
+    skordarKorvy: fn(), skotarKorvy: fn(), avslutaKorvy: fn(), gps: fn(), data: fn(), andrasSpar: fn(),
+    skotning: fn(), markeraUtkort: fn(), genomgang: fn(), vagdata: fn(), trakt: fn(), installningar: fn(), gpsKalla: fn(), forslag: fn(),
   });
   const bas = (o: Partial<MerIn> = {}): MerIn => ({ roll: 'planerare', arAdmin: true, korvyAktiv: false, maskinlage: false, skotningFinnsSomKnapp: false, status: 'planerad', tillTrakt: true, vagdata: { varde: '3 vägar', misslyckad: false, kanKora: true }, go: go(), ...o });
   const id = (r: ReturnType<typeof byggMerGrupper>, g: string) => r.grupper.find((x) => x.id === g)?.rader.map((x) => x.id) ?? null;
+  it('Mer: utanSkotning (skotarläget med lassrapportering) tar bort Skotning-raden — annars finns den för den som inte har knappen', () => {
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false })), 'foraren')).toContain('skotning');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning: true })), 'foraren')).not.toContain('skotning');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false })), 'foraren')).toContain('markera-utkort');
+    expect(id(byggMerGrupper(bas({ roll: 'forare', arAdmin: false, utanSkotning: true })), 'foraren')).not.toContain('markera-utkort');
+  });
 
   it('planerare (admin): körvyerna, föraren, planeraren, övrigt — och inga Byt objekt, Brandrisk, Gallring, Inställningar, Förslag', () => {
     const r = bas();
@@ -168,12 +176,14 @@ describe('Mer', () => {
     expect(id(m, 'foraren')).toEqual(['markera-utkort', 'genomgang']);
     expect(m.planerarenBlock).toBe(false);
   });
-  it('körvy igång: all kontroll bor i Mer — baskarta, GPS, kartdata, spår, Avsluta körvy (röd) — samt Lager, Inställningar, GPS-källa och Förslag', () => {
+  it('körvy igång: GPS, kartdata, spår, Avsluta körvy (röd) — samt Inställningar, GPS-källa och Förslag; INGEN baskarta/Lager (lagervalet bor bara i +)', () => {
     const m = byggMerGrupper(bas({ roll: 'forare', arAdmin: false, korvyAktiv: true, skotningFinnsSomKnapp: true,
-      korvy: { basKartaText: 'Baskarta: Karta → Topokarta', gpsText: 'GPS: ok', gpsProblem: false, dataText: 'Kartdata: nu', andrasSparText: 'Uppdatera skotarens spår' } }));
-    expect(id(m, 'korvy')).toEqual(['baskarta', 'gps', 'kartdata', 'andras-spar', 'avsluta-korvy']);
+      korvy: { gpsText: 'GPS: ok', gpsProblem: false, dataText: 'Kartdata: nu', andrasSparText: 'Uppdatera skotarens spår' } }));
+    expect(id(m, 'korvy')).toEqual(['gps', 'kartdata', 'andras-spar', 'avsluta-korvy']);
     expect(m.grupper.find((g) => g.id === 'korvy')!.rader.at(-1)!.farlig).toBe(true);
-    expect(id(m, 'ovrigt')).toEqual(['vagdata', 'trakt', 'lager', 'installningar', 'gps-kalla', 'forslag']);
+    expect(id(m, 'ovrigt')).toEqual(['vagdata', 'trakt', 'installningar', 'gps-kalla', 'forslag']);
+    expect([...id(m, 'korvy')!, ...id(m, 'ovrigt')!]).not.toContain('baskarta');
+    expect([...id(m, 'korvy')!, ...id(m, 'ovrigt')!]).not.toContain('lager');
   });
   it('maskindator (hem leder till objektlistan): Inställningar och Förslag får inte försvinna — startsidan nås inte', () => {
     const m = byggMerGrupper(bas({ roll: 'forare', arAdmin: false, maskinlage: true, skotningFinnsSomKnapp: true }));

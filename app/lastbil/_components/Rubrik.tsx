@@ -8,17 +8,27 @@ import { bytTyp, kanGaBakat, kanGaFramat, periodEtikett, periodKort, stegaPeriod
 import type { FakturerbartStatus } from './useFakturerbart';
 
 /**
- * Den fasta rubriken: flikarna, perioden (Månad | År) och, för admin, fakturerbart-remsan.
- * Sticky i flödet (skillen: aldrig fixed + uppmätt paddingTop) — rubriken reserverar sin egen höjd.
- * Perioden gäller Körningar och Fakturering; på Nu finns inget val att göra, men remsan visar
- * fortfarande vald period så att den aldrig byter värde bara för att man bytt flik.
+ * Pengatalet: fakturerbart-remsan, sticky överst på ALLA flikar (bara admin). Står stilla på samma plats — inget ovanför den kan
+ * flytta den (väntar-rader och "Hämta en maskin" ligger UNDER) — och byter bara värde när PERIODEN byts.
  */
-export default function Rubrik({
-  flik, onFlik, arAdmin, period, onPeriod, remsa, onRemsaForsokIgen,
+export function PengatalsRemsa({ period, remsa, onForsokIgen }: { period: Period; remsa: FakturerbartStatus; onForsokIgen: () => void }) {
+  return (
+    <div style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 50, background: FARG.bg, padding: `${AVSTAND.l}px 0 ${AVSTAND.m}px` }}>
+      <Remsa etikett={periodKort(period)} status={remsa} onForsokIgen={onForsokIgen} />
+    </div>
+  );
+}
+
+/**
+ * Flikarna och perioden (Månad | År). Ligger UNDER väntar-raderna och "Hämta en maskin" (steg 3: raden → knappen → flikarna).
+ * Perioden gäller Körningar och Fakturering; på Nu finns inget val att göra, men remsan visar fortfarande vald period så att den
+ * aldrig byter värde bara för att man bytt flik.
+ */
+export default function Flikrad({
+  flik, onFlik, arAdmin, period, onPeriod,
 }: {
   flik: Flik; onFlik: (f: Flik) => void; arAdmin: boolean;
   period: Period; onPeriod: (p: Period) => void;
-  remsa: FakturerbartStatus; onRemsaForsokIgen: () => void;
 }) {
   const flikar = [
     ['korningar', 'Körningar'],
@@ -29,7 +39,7 @@ export default function Rubrik({
   const stegKnapp = { ...KNAPP.lank, width: TRAFFYTA.min, justifyContent: 'center' } as const;
 
   return (
-    <div style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 50, background: FARG.bg, padding: `${AVSTAND.l}px 0 ${AVSTAND.m}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+    <div style={{ padding: `${AVSTAND.m}px 0`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       <Flikkontroll flikar={flikar} aktiv={flik} onVal={onFlik} />
 
       {flik !== 'nu' && (
@@ -50,8 +60,6 @@ export default function Rubrik({
           </div>
         </div>
       )}
-
-      {arAdmin && <Remsa etikett={periodKort(period)} status={remsa} onForsokIgen={onRemsaForsokIgen} />}
     </div>
   );
 }

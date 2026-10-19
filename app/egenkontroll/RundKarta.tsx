@@ -46,6 +46,7 @@ import {
 } from '@/lib/egenkontrollTryck';
 import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } from '@/lib/marker-icons';
 import { T } from '@/lib/listTema';
+import { AVSTAND, FARG, KOLUMN, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
 import type { LatLng } from '@/lib/provytor';
 
@@ -182,6 +183,7 @@ export default function RundKarta({
   onValjObservation,
   hojd = HOJD_INLINE,
   centreraPa,
+  kartPadding,
   stammar,
   visaStammar = false,
   baskarta = BASKARTA_DEFAULT,
@@ -223,8 +225,14 @@ export default function RundKarta({
   onValjObservation?: (id: string) => void;
   /** 180 i rundvyn, '100%' i helskarm. Ett lage i taget ar monterat. */
   hojd?: number | string;
-  /** Ga-vyn centrerar pa ytan. */
+  /** Ga-vyn centrerar pa ytan. Rundvyns Centrera-knapp skickar ett NYTT objekt vid varje tryck - effekten kors da pa nytt. */
   centreraPa?: { lat: number; lng: number } | null;
+  /**
+   * Rundvyns flytande huvud (uppe) och docka (nere) ligger OVANPA kartan. Satt = (1) kameran passas in i den del som syns, sa en vald
+   * punkt hamnar mellan huvudet och dockan, och (2) notisraderna under kartan (origo saknas, positionen kunde inte hamtas) ritas som
+   * kort under huvudet i stallet for i en flexyta under kartan - dockan hade lagt sig ovanpa dem. Utelamnad = som forut (ga-vyn).
+   */
+  kartPadding?: { top: number; bottom: number } | null;
   /**
    * Avverkade stammar (WGS84). Skickas BARA i helskarmslaget - i den lilla
    * kartan ar 12 000 prickar brus, inte underlag.
@@ -242,6 +250,16 @@ export default function RundKarta({
   // inte langre sanningen. Ref:en ger det som galler NAR lagret laggs pa.
   const overlaysRef = useRef<MapLayers | undefined>(overlays);
   overlaysRef.current = overlays;
+
+  // Huvudet och dockan lagger sig ovanpa kartan (se kartPadding). Lases NAR kameran flyttas - hojden andras med kortets innehall,
+  // och ingen kameraflytt ska ge en ny init av kartan.
+  const kartPaddingRef = useRef<{ top: number; bottom: number } | null | undefined>(kartPadding);
+  kartPaddingRef.current = kartPadding;
+  /** MapLibre-padding for en kameraflytt: `n` runt om, plus det huvudet (uppe) och dockan (nere) upptar. Utan kartPadding: ett tal, som forut. */
+  const padd = (n: number): number | { top: number; bottom: number; left: number; right: number } => {
+    const kp = kartPaddingRef.current;
+    return kp ? { top: kp.top + n, bottom: kp.bottom + n, left: n, right: n } : n;
+  };
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -583,7 +601,7 @@ export default function RundKarta({
           for (const q of geometriKoordinater(f.geometry)) { b2.extend(q); nagot = true; }
         }
       }
-      if (nagot) map.fitBounds(b2, { padding: 24, maxZoom: 16, duration: 0 });
+      if (nagot) map.fitBounds(b2, { padding: padd(24), maxZoom: 16, duration: 0 });
       setLaddad(true);
     };
     map.once('style.load', initiera);
@@ -673,7 +691,7 @@ export default function RundKarta({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !laddad || !centreraPa) return;
-    map.easeTo({ center: [centreraPa.lng, centreraPa.lat], zoom: 17, duration: 400 });
+    map.easeTo({ center: [centreraPa.lng, centreraPa.lat], zoom: 17, duration: 400, ...(kartPaddingRef.current ? { padding: padd(0) } : {}) });
   }, [centreraPa, laddad]);
 
   // Pricken. STYRD position = det sidan ger (null = ingen prick - en position som
@@ -704,12 +722,12 @@ export default function RundKarta({
     const f = punktGeo.features.find((x: any) => x.properties.id === valdPunktId);
     if (!f) return;
     if (f.geometry.type === 'Point') {
-      map.easeTo({ center: f.geometry.coordinates, zoom: Math.max(map.getZoom(), 16), duration: 450 });
+      map.easeTo({ center: f.geometry.coordinates, zoom: Math.max(map.getZoom(), 16), duration: 450, ...(kartPaddingRef.current ? { padding: padd(0) } : {}) });
     } else {
       // Linjer och zoner: alla brytpunkter (en zon ar en Polygon - ringen ligger en niva ner).
       const b = new window.maplibregl.LngLatBounds();
       for (const c of geometriKoordinater(f.geometry)) b.extend(c);
-      map.fitBounds(b, { padding: 40, maxZoom: 17, duration: 450 });
+      map.fitBounds(b, { padding: padd(40), maxZoom: 17, duration: 450 });
     }
   }, [valdPunktId, punktGeo, laddad]);
 
@@ -728,10 +746,39 @@ export default function RundKarta({
   // Talfallet (rundvyns 180) ar orort - ett tal ger en definitiv hojd som
   // aldrig har berott pa foraldern.
   const fyller = typeof hojd === 'string';
+  const overlagg = !!kartPadding;
+
+  // Notisraderna. Under kartan i en flexyta (ga-vyn, som forut) - eller, med kartPadding, som kort UNDER huvudet ovanpa kartan.
+  const notiser = (
+    <>
+      {/* Sag rakt ut vad kartan INTE kan har - anvandaren ska slippa prova sig fram. */}
+      {!origo && (
+        <div
+          data-testid="karta-notis"
+          style={overlagg
+            ? { pointerEvents: 'auto', padding: `${AVSTAND.s}px ${AVSTAND.m}px`, borderRadius: RADIE.kort, background: FARG.kort, ...TYP.meta, color: T.orange }
+            : { ...TYP.meta, color: T.orange, marginTop: AVSTAND.s }}
+        >
+          {origoText ?? 'Planeringens markeringar kan inte placeras på kartan för det här objektet.'}
+          {' '}Kartan visar var du är, men tryck på en punkt centrerar ingenting.
+        </div>
+      )}
+      {origo && positionsFel && (
+        <button
+          onClick={hamtaPosition}
+          style={overlagg
+            ? { pointerEvents: 'auto', minHeight: TRAFFYTA.min, width: '100%', borderRadius: RADIE.kort, border: 'none', background: FARG.kort, color: FARG.text, ...TYP.meta, fontFamily: T.ff }
+            : { marginTop: AVSTAND.s, minHeight: TRAFFYTA.min, width: '100%', borderRadius: RADIE.rad, border: 'none', background: FARG.fyllning, color: FARG.text2, ...TYP.meta, fontFamily: T.ff }}
+        >
+          Din position kunde inte hämtas — tryck för att försöka igen
+        </button>
+      )}
+    </>
+  );
 
   return (
     <div style={fyller
-      ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }
+      ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }
       : { marginBottom: 12 }}>
       <div
         ref={containerRef}
@@ -744,25 +791,16 @@ export default function RundKarta({
           overflow: 'hidden', background: '#ECEDE7',
         }}
       />
-      {/* Sag rakt ut vad kartan INTE kan har - anvandaren ska slippa prova sig fram. */}
-      {!origo && (
-        <div style={{ fontSize: 12.5, color: T.orange, lineHeight: 1.4, marginTop: 6 }}>
-          {origoText ?? 'Planeringens markeringar kan inte placeras på kartan för det här objektet.'}
-          {' '}Kartan visar var du är, men tryck på en punkt centrerar ingenting.
-        </div>
-      )}
-      {origo && positionsFel && (
-        <button
-          onClick={hamtaPosition}
+      {overlagg ? (
+        <div
           style={{
-            marginTop: 6, minHeight: 44, width: '100%', borderRadius: 10,
-            border: '1.5px solid rgba(255,255,255,0.14)', background: 'transparent',
-            color: T.t2, fontSize: 14, fontFamily: T.ff,
+            position: 'absolute', left: AVSTAND.l, right: AVSTAND.l, top: (kartPadding?.top ?? 0) + AVSTAND.s, maxWidth: KOLUMN.ark, zIndex: 5,
+            display: 'flex', flexDirection: 'column', gap: AVSTAND.s, pointerEvents: 'none',
           }}
         >
-          Din position kunde inte hämtas — tryck för att försöka igen
-        </button>
-      )}
+          {notiser}
+        </div>
+      ) : notiser}
     </div>
   );
 }

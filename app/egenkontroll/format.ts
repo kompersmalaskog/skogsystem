@@ -59,3 +59,10 @@ export function anmarkningsText(avvikelser: number, battre: number): string {
   if (battre === 0) return a;
   return `${a} — ${battre} kan bli bättre`;
 }
+
+/**
+ * Konsekvensen, i klartext, i bekräftelsen före ett avslut. Avslutsknappen är den vita primärknappen — det mest framträdande på skärmen —
+ * och avslutet går inte att ta tillbaka: rundan låses i databasen (fyra lager) och blir rapporten till Vida. Konsekvensen står därför i
+ * själva bekräftelsen och inte bara i en hjälprad.
+ */
+export const AVSLUTA_KONSEKVENS = 'Rundan låses och kan inte ändras.';

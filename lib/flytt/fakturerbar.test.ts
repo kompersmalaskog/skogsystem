@@ -91,7 +91,7 @@ describe('vakt: alla som AVGÖR fakturerbar använder fakturerbarEffektiv', () =
     expect(traffar).toEqual([]);
   });
   it('förarflödet (Lämnat) och rättningen räknar med fakturerbarEffektiv', () => {
-    expect(readFileSync(join(ROT, 'app/maskinflytt/MaskinflyttClient.tsx'), 'utf8')).toMatch(/fakturerbarEffektiv\(flyttTyp, flyttKm, null\)/);
+    expect(readFileSync(join(ROT, 'app/lastbil/_components/hamta/dagSkriv.ts'), 'utf8')).toMatch(/fakturerbarEffektiv\(typ, flyttKm, null\)/);
     expect(readFileSync(join(ROT, 'app/lastbil/_components/ratta.ts'), 'utf8')).toMatch(/fakturerbarEffektiv\(typ, km, manuell\)/);
   });
 });
