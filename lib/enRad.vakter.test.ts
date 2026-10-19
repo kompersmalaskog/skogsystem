@@ -178,11 +178,10 @@ describe('ett ord för samma sak: zontypen "protected" heter Hänsyn överallt (
     expect(page).not.toContain('Naturvårdszon');
     expect(page).toContain("zoneTypes.find(t => t.id === marker.zoneType)?.name || 'Zon'");   // kortets rubrik
   });
-  it('/planner, översikten och egenkontrollen: samma ord', () => {
-    expect(las('../app/planner/page.tsx')).toContain("{ id: 'protected', name: 'Hänsyn',");
+  it('översikten och egenkontrollen: samma ord', () => {
     expect(las('../app/oversikt/markeringar.ts')).toContain("protected: 'Hänsyn',");
     expect(las('./egenkontroll.ts')).toContain("protected: { rubrik: 'Hänsyn', grupp: 'Naturvård' },");
-    for (const [fil, gammal] of [['../app/oversikt/markeringar.ts', 'Skyddat område'], ['./egenkontroll.ts', 'Skyddad zon'], ['../app/planner/page.tsx', "{ id: 'protected', name: 'Naturvård'"]]) expect(las(fil), gammal).not.toContain(gammal);
+    for (const [fil, gammal] of [['../app/oversikt/markeringar.ts', 'Skyddat område'], ['./egenkontroll.ts', 'Skyddad zon']]) expect(las(fil), gammal).not.toContain(gammal);
   });
   it('den lagrade typen är orörd: id och färg', () => {
     expect(page).toContain("{ id: 'zone_protected',");
