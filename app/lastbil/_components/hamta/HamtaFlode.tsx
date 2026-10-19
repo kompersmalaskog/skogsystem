@@ -22,7 +22,7 @@ import { avstandKort, osakerRad, sorteraMaskiner } from './maskinPos';
 import { useHamtaData, type HamtaData } from './useHamtaData';
 import {
   DestLista, EnkelRad, ExternArk, Fel, KartKnapp, KartappArk, Kvittorad, MaskinListeRad, Meta, PosVarningArk, Rubrik, RundaFragaArk,
-  Fot, SEKUNDAR_KANT, Topp,
+  Fot, Topp,
 } from './HamtaDelar';
 
 /** Längre bort än så (fågelväg) mellan förarens GPS och där maskinen/trakten ska vara → frågan "Stämmer platsen?". */
@@ -390,7 +390,7 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
           {utkast.flyttId ? (
             <Kvittorad id="lassat" text={`Lassat ${utkast.lassatTid ? tidKort(utkast.lassatTid) : ''}`.trim()} onAndra={angraLassa} sparar={sparar} />
           ) : (
-            <button type="button" data-lassa onClick={tryckLassa} disabled={sparar} style={{ ...SEKUNDAR_KANT, ...(sparar ? INAKTIV : {}) }}>
+            <button type="button" data-lassa onClick={tryckLassa} disabled={sparar} style={{ ...KNAPP.sekundar, ...(sparar ? INAKTIV : {}) }}>
               {sparar ? 'Sparar …' : 'Lassat'}
             </button>
           )}
@@ -427,7 +427,7 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
           {mal && (utkast.lossad ? (
             <Kvittorad id="lossad" text={`${maskinNamn} lossad på ${utkast.lossad.namn}`} onAndra={() => setArk('andraLossad')} />
           ) : (
-            <button type="button" data-lossa onClick={tryckLossa} disabled={sparar} style={{ ...SEKUNDAR_KANT, ...(sparar ? INAKTIV : {}) }}>
+            <button type="button" data-lossa onClick={tryckLossa} disabled={sparar} style={{ ...KNAPP.sekundar, ...(sparar ? INAKTIV : {}) }}>
               {sparar ? 'Sparar …' : 'Lassat av här'}
             </button>
           ))}
@@ -453,12 +453,12 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
             {utkast.navHem ? (
               <>
                 <button type="button" data-klar onClick={tryckKlar} disabled={sparar} style={{ ...KNAPP.primar, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Klar'}</button>
-                {data.bas && <a data-kartknapp="hem" {...lankAttr(kartLank(kartapp, data.bas.lat, data.bas.lng))} style={{ ...SEKUNDAR_KANT, textDecoration: 'none' }}>{kartEtikett} igen</a>}
+                {data.bas && <a data-kartknapp="hem" {...lankAttr(kartLank(kartapp, data.bas.lat, data.bas.lng))} style={{ ...KNAPP.sekundar, textDecoration: 'none' }}>{kartEtikett} igen</a>}
               </>
             ) : (
               <>
                 <KartKnapp id="hem" app={kartapp} lat={data.bas?.lat ?? null} lng={data.bas?.lng ?? null} etikett={kartEtikett} onTryck={() => andra({ navHem: true })} />
-                <button type="button" data-klar onClick={tryckKlar} disabled={sparar} style={{ ...SEKUNDAR_KANT, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Klar'}</button>
+                <button type="button" data-klar onClick={tryckKlar} disabled={sparar} style={{ ...KNAPP.sekundar, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Klar'}</button>
               </>
             )}
           </div>

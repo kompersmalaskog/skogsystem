@@ -273,7 +273,8 @@ describe('steg 2 — hämtar maskinen', () => {
     expect(primar.textContent).toBe('Öppna i Google Maps');
     expect(sekundar.textContent).toBe('Lassat');
     expect(primar.getAttribute('style')).toMatch(/background: (rgb\(255, 255, 255\)|#fff)/);
-    expect(sekundar.getAttribute('style')).toMatch(/border: 1px solid/);                     // kantlinje: ser tryckbar ut
+    expect(sekundar.getAttribute('style')).toMatch(/background: rgba\(255, 255, 255, 0\.1\)/);
+    expect(sekundar.getAttribute('style')).not.toMatch(/border: 1px/);                     // appens vanliga sekundärknapp (fylld), ingen kantlinje
     expect(sel('[data-vidare]')).toBeNull();
     expect(sel('[data-byt-maskin]')).toBeNull();
   });
@@ -528,7 +529,7 @@ describe('samma regler i alla steg: ingen prick, inget ≈, EN primär knapp, h�
     const stil = (b: Element) => b.getAttribute('style') ?? '';
     const alla = Array.from(document.querySelectorAll('button, a')).filter(b => !b.closest('[role="dialog"]') && !b.hasAttribute('disabled'));
     const primara = alla.filter(b => /background: (rgb\(255, 255, 255\)|#fff)/.test(stil(b)));
-    const sekundara = alla.filter(b => /border: 1px solid/.test(stil(b)));
+    const sekundara = alla.filter(b => /background: rgba\(255, 255, 255, 0\.1\)/.test(stil(b)));
     expect(primara.length).toBeLessThanOrEqual(1);
     expect(sekundara.length).toBeLessThanOrEqual(1);
     return { primar: primara[0]?.textContent, sekundar: sekundara[0]?.textContent };

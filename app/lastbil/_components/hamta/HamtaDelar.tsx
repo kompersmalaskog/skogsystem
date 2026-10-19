@@ -9,13 +9,6 @@ import { KARTAPPAR, kartLank, lankAttr, type Kartapp } from './kartapp';
 import { avstandKort, osakerRad, type MaskinRad } from './maskinPos';
 
 
-/**
- * Skärmens EN sekundära knapp: den vanliga sekundära (fylld) med en tydlig kantlinje, så den ser tryckbar ut bredvid den vita
- * primärknappen. Ett steg har högst en av dem (Lassat, Lassat av här, Klar / "… igen"). Kanten är text3 — en tunn linje i
- * linjefärgen försvinner i solljus.
- */
-export const SEKUNDAR_KANT = { ...KNAPP.sekundar, border: `1px solid ${FARG.text3}` } as const;
-
 const faltStil = { ...TYP.text, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: AVSTAND.m, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' as const, minHeight: TRAFFYTA.min };
 
 /** Översta raden i ALLA steg: bara Avbryt till vänster, ingen titel. Sticky i flödet (aldrig fixed + uppmätt padding). */
