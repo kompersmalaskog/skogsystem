@@ -7,6 +7,7 @@ import VyKolumn from '@/components/design/VyKolumn';
 import Flikrad, { PengatalsRemsa } from './_components/Rubrik';
 import HamtaFlode from './_components/hamta/HamtaFlode';
 import { lasHamtaUrl } from './_components/hamta/flode';
+import HamtaKnapp from './_components/hamta/HamtaKnapp';
 import NuFlik from './_components/NuFlik';
 import FaktureringFlik from './_components/FaktureringFlik';
 import VantarRad from './_components/VantarRad';
@@ -133,7 +134,7 @@ export default function LastbilVy() {
                   <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
                 </div>
               )}
-              <button type="button" data-hamta-start onClick={startaHamta} style={KNAPP.primar}>Hämta en maskin</button>
+              <HamtaKnapp forareId={medarbetare?.id ?? null} aktiv={!loading && !hamtar} onStart={startaHamta} />
               <Flikrad flik={flik} onFlik={valjFlik} arAdmin={arAdmin} period={period} onPeriod={setPeriod} />
               {flik === 'nu' && <NuFlik lage={nu.lage} onForsokIgen={nu.forsokIgen} onOppnaRunda={setValdRunda} />}
               {flik === 'korningar' && (

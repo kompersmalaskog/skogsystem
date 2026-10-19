@@ -349,7 +349,7 @@ describe("roller", () => {
     expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Nu");
     expect(Array.from(document.querySelectorAll('[role="tab"]')).map(t => t.textContent)).toEqual(["Körningar", "Nu"]);
     expect(remsa()).toBeNull();
-    expect(mock.anrop).toEqual([]);
+    expect(mock.anrop.filter(a => a !== "maskin_flytt")).toEqual([]);   // bara förarens egen öppna flytt (knappen "Fortsätt hämta X") läses, inget om fakturering
   });
 
   it("en förare som följer en länk till Fakturering hamnar på Nu", async () => {
@@ -357,7 +357,7 @@ describe("roller", () => {
     window.history.replaceState(null, "", "/lastbil?flik=fakturering&per=2026-09");
     await montera();
     expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Nu");
-    expect(mock.anrop).toEqual([]);
+    expect(mock.anrop.filter(a => a !== "maskin_flytt")).toEqual([]);
   });
 });
 

@@ -14,6 +14,7 @@ import {
   ateroppnaRunda, avbrytFlytt, avslutaFlytt, hittaDag, hittaNyligenStangd, sakraDag, skapaFlytt, startaHemresa, stangDag,
   type Ctx, type Dag, type FlyttPart, type Mal,
 } from './dagSkriv';
+import { oppenFlyttGaller } from './pagaende';
 import { destKoordinat, narmastePlats, rangordnaDestinationer, type DestRad } from './destinationer';
 import { lasUtkast, nyttUtkast, rensaUtkast, sparaUtkast, type Steg, type Utkast, type ValdPlats } from './flode';
 import { getFarskGps, type Pos } from './gps';
@@ -79,7 +80,8 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
       .order('starttid', { ascending: false }).limit(1)
       .then(({ data: rader }) => {
         const f = rader?.[0];
-        if (!f) return;
+        // En öppen flytt äldre än 12 h tas aldrig upp automatiskt — den rättas av admin (samma gräns som knappen "Fortsätt hämta X").
+        if (!f || !oppenFlyttGaller(f, Date.now())) return;
         setUtkast(u => u.steg !== 'val' ? u : {
           ...nyttUtkast(f.starttid), steg: 'kor', maskinId: f.maskin_id ?? null,
           extern: f.extern_maskin ? { namn: f.extern_maskin, kund: f.kund ?? '' } : null,

@@ -749,6 +749,13 @@ describe('Avbryt, extern maskin, cron-runda och kartapp', () => {
     expect(sel('[data-kvitto="lassat"]')!.textContent).toMatch(/Lassat 12:10/);
   });
 
+  it('en öppen flytt äldre än 12 h tas INTE upp automatiskt: flödet öppnar maskinlistan', async () => {
+    db().tabeller.maskin_flytt = [{ id: 'f-gammal', maskin_id: 'PONS20SDJAA270231', extern_maskin: null, kund: null, medarbetare_id: 'm-1', starttid: '2026-10-18T20:00:00Z', hamtad_tid: '2026-10-18T20:10:00Z', sluttid: null, avbruten: false }];
+    await montera();
+    expect(text()).toContain('Vilken maskin hämtar du?');
+    expect(db().skrivningar).toHaveLength(0);
+  });
+
   it('kartappsvalet visas inte på en enhet utan Apple Kartor', async () => {
     await montera();
     await tryck(/^Giant/);
