@@ -176,6 +176,52 @@ Följden: normkurvan räknas om. Gallring n 679 → 681 (a 3,7590 → 3,7615, b 
 **Förväntat och verifierat:** slutavverkningskurvan helt oförändrad (n 893, a 3,947795, b 0,676473; alla fyra kurvrader identiska på alla decimaler: Hästhagen var redan utanför området och de tre andra är maskinstandard med 2–3 h, som aldrig ingick i kurvan); gallring oförändrad. Hash per maskin och åtgärd i `vy_hist_maskin_ar` före och efter: 82 av 88 kombinationer bit för bit lika (alla gallringsgrupper och alla maskiner utom tre); de som skiljer är Komatsu 941 (slutavverkning och "(ingen)" ändras, ny grupp special), Komatsu 941 AptMan (samma) och Rottne H8E Logmax (slutavverkning försvinner, special tillkommer, "(ingen)" ändras). Slutavverkningens `viktat_index` på de åtta kontrollerade raderna med minst 200 h oförändrat (88,2, 104,6, 90,1 …). Special har inget index (ingen kurva), så de fyra får inget index och ingen flagga: `utanfor_normalomrade` är noll i `vy_hist_objekt_index` och `vy_hist_objekt_lista`. Oskar har ingen slutavverkning kvar (jämförelsen 27 → 26 rader).
 **Normalområdet 0,10–1,5 ligger kvar som skyddsnät** för slutavverkning: nästa objekt med liten medelstam och många timmar drar inte kurvan, och märks "utanför normalområdet" tills det är klassat.
 
+## KARTANS ORIGO I EGENKONTROLLEN OCH PROVYTOR UTAN LOTTNING (2026-10-19)
+
+**Felet:** egenkontrollen läste planeringens markeringar (x/y relativt ett origo) bara om objektet hade `kartbild_bounds`. Planeringen räknar origot med `objektStartKamera`: kartbildens mitt på zoom 15, annars objektets lat/lng på zoom 16. Alla 23 objekt som kom in via Vidas envz-leverans (6 aug och framåt) saknar bounds, så de blev blinda i rundan — trots att planeringen ritar dem rätt. Nio av tjugo öppna rundor låg i det läget, och de tre gallringarna bland dem fick inga provytor.
+
+**Nu (PR `egenkontroll-origo-som-planeringen`, ingen migration):** egenkontrollen tar `objektStartKamera` (en regel, `lib/egenkontrollOrigo.ts`) och kontrollerar markeringarna mot Vidas traktgräns (`objekt_geometri`, `L_TRAKTDEL`) när origot är lat/lng. Stämmer det inte ritas inget och vyn säger varför. `kartbild_bounds` skrivs ALDRIG för att lösa det — sätts bounds byter planeringen origo från zoom 16 till zoom 15 och varje befintlig markering flyttas dubbelt så långt från mitten (Betet gallring: gränsen 308×528 m på zoom 16 mot Vidas 305×523, men 616×1056 m på zoom 15 — uppmätt i riktig MapLibre). Vakt: `lib/egenkontrollOrigo.vakter.test.ts`.
+
+### Utfall per objekt (kvittot körs mot prodens markeringar, fixtur `lib/__fixtures__/origo_kvitto_prod_2026-10-19.json`)
+| Objekt | Kontroll | Resultat |
+|---|---|---|
+| Betet gallring 2026 | gränsmarkeringarna 308×528 m mot Vida 305×523, mitt 0/1 m | ritas (stark) |
+| Hallaslätt AU 2026 | 162×300 mot 162×299, mitt 1/0 m | ritas (stark) |
+| Räveboda gallring 2026 | 59×413 mot 55×414 | ritas (stark) |
+| Hålabäck gallring 2026 | 923×807 mot 960×805, mitt −19/1 m | ritas (stark) |
+| Östra-Höka 1:7 A-C -25 | inga gränsmarkeringar; alla punkter i Vidas ruta | ritas (**svag**) |
+| Hålabäck au 2025 | inga gränsmarkeringar; punkterna i Vidas ruta + marginal | ritas (**svag**) |
+| Bjällerhult au + ga | gränsmarkeringarna 157×238 mot Vida 61×93 | **ritas inte** (Martin avgör, se nedan) |
+| Brokamåla 1:5 V | zip utan geometrirad: inget att kontrollera mot | **ritas inte** |
+| Krokshult AU 2026 | inga markeringar alls | inget att rita |
+
+**Svag kontroll = begränsning.** Utan gränsmarkeringar syns ett förskjutet origo men inte ett rent skalfel (dubbelt så stora avstånd ligger fortfarande i Vidas ruta + marginal). Det står i koden och i ett test. Östra-Höka (10 punkter) och Hålabäck au (2) har den kontrollen.
+
+**Bjällerhult (Martin avgör):** den FÖRSTA gränsen (au) har exakt Vidas mått: 46,4 px / 70,5 px på zoom 16 = 61 × 93 m. Den ANDRA gränsen (ga, gallringsdelen) ligger utanför Vidas `L_TRAKTDEL` (som bara är 0,42 ha). Origot är därför troligen rätt; det som faller är kravet att ALLA gränsmarkeringar tillsammans ska ha Vidas storlek. Bekräfta vad "au + ga" omfattar. Om gallringsdelen ligger utanför traktdelen med flit kan kvittot ändras till "varje gräns jämförs för sig, minst en ska stämma" — en ändring i `beslutaOrigo`, inget annat.
+
+**Brokamåla:** zip från 2026-07-01 utan kartbild och utan bounds; importen svalde felet tyst. Importen skriver nu en rad i `import_varningar` när zipens bild saknas eller inte laddas upp (`lib/trakt/kartbildVarning.ts`). Vilken orsak det var i juli går inte att avgöra ur databasen. Brokamåla har ingen geometrirad (zip) och ritas därför inte; ett kvitto mot `objekt.areal` (gränsmarkeringarna 5,36 ha mot 5,2 ha på zoom 16) vore möjligt men är inte byggt.
+
+**Rörs inte (annat spår):** `/matning` (`lib/matning/punkter.ts`) har kvar den gamla bounds-only-regeln och är lika blind för envz-objekt. `app/oversikt/SkordarKarta.tsx` har en egen kopia av regeln. Planeringsvyn är orörd.
+
+### Provytor: tre av fyra öppna gallringsrundor har noll — INTE omlottade av den här PR:en
+Provytorna lottas en gång av avsikt (det finns ingen funktion som lottar om). PR:en ändrar bara att NYA rundor på envz-objekt får dem, om kvittot går igenom. De tre befintliga rundorna är orörda:
+
+| Objekt | Runda (egenkontroll.id) | Startad | Besvarade | Areal → antal ytor | HPR-stammar | Kvitto |
+|---|---|---|---|---|---|---|
+| Betet gallring 2026 | `0f0d8985-a360-4cc3-a902-f07260e62a2e` | 2026-10-19 | 1 av 10 | 9,48 → 3 | 8 671 | stark, klarar |
+| Hålabäck gallring 2026 | `70669805-d9b2-4413-a4f3-fa880f235fae` | 2026-09-18 | 0 av 10 | 9,17 → 3 | 2 690 | stark, klarar |
+| Räveboda gallring 2026 | `731a62d8-ba9c-486f-9267-a69a8363bd28` | 2026-10-17 | 0 av 12 | **saknas** → inga | 1 365 | stark, klarar |
+
+(Hössjömåla Gallring 25 har 7 provytor — den har bounds.)
+
+**Vad som krävs för att de ska få provytor:**
+1. Den här PR:en i produktion (origot + kvittot).
+2. **Räveboda: `objekt.areal` är null** (importens TD-parser fick ingen areal). `antalProvytor(null)` ger inga ytor, så arealen måste sättas först (Vidas traktdels ruta är 55 × 414 m, högst 2,3 ha — men ett värde ska ur Vida, inte gissas).
+3. Ett **engångsskript** som anropar `skapaProvytor(klient, egenkontrollId, objektId, 'gallring', objekt)` (exporterad för testet) för respektive runda. Det finns inte och byggs inte förrän du bestämt. Lottningen är slumpad och filtrerar mot HPR-stammarna (≤ 10 m från närmaste avverkade stam).
+4. Följd att väga in: en runda som får provytor kan inte avslutas förrän ytorna är mätta (`avslutaStatus` räknar dem). Betet gallring startades i dag; Hålabäck gallring i september.
+
+**Ångra** (efter en körning, per runda): `delete from egenkontroll_provyta where egenkontroll_id = '<runda>';` — ytorna har inga beroenden än så länge de är omätta; mätta ytor och deras foton är en egen sak (`egenkontroll_foto.provyta_id`).
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,
