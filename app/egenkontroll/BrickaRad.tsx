@@ -8,7 +8,7 @@
 
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { AVVIKELSE_ETIKETT, type AvvikelseTyp, type EgenkontrollPunkt, type PunktStatus } from '@/lib/egenkontroll';
-import { BRICKSTATUS, FOTO_NOT_ETIKETT, radHandling, radKnappar } from '@/lib/egenkontrollBricka';
+import { BRICKSTATUS, FOTO_NOT_ETIKETT, RAD_MAX_DVH, radHandling, radKnappar } from '@/lib/egenkontrollBricka';
 
 export type BrickaRadProps = {
   punkt: EgenkontrollPunkt;
@@ -48,20 +48,32 @@ export default function BrickaRad({ punkt, fotoUrler, sparar, last, avstandText,
     return (
       <div data-testid="bricka-rad" data-last="1" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
         {rubrikrad}
-        {/* Typen (Körspår, Stubbhöjd …) i TEXT — den fanns i det gamla dokumentet per punkt och får inte försvinna med det. */}
-        {punkt.avvikelse_typ && (
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>{AVVIKELSE_ETIKETT[punkt.avvikelse_typ as AvvikelseTyp] ?? punkt.avvikelse_typ}</div>
-        )}
-        {punkt.kommentar && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{punkt.kommentar}</div>}
-        {punkt.plan_kommentar && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{punkt.plan_kommentar}</div>}
-        {fotoUrler.length > 0 && (
-          <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
-            {fotoUrler.map((url) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={url} src={url} alt="" style={{ width: TRAFFYTA.primar + AVSTAND.s, height: TRAFFYTA.primar + AVSTAND.s, borderRadius: RADIE.rad, objectFit: 'cover' }} />
-            ))}
-          </div>
-        )}
+        {/* Innehållet (typ, kommentar, foton) scrollar INOM raden när det är långt: raden har en maxhöjd (RAD_MAX_DVH) och rubrikraden ovanför står kvar.
+            En låst runda har brickan som enda plats för anteckningarna — en text som fyller hela arket och inte går att nå är sämre än ingen. */}
+        <div
+          data-testid="bricka-rad-innehall"
+          tabIndex={0}
+          aria-label="Anteckningar"
+          style={{
+            display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, maxHeight: `${RAD_MAX_DVH}dvh`, overflowY: 'auto', overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          {/* Typen (Körspår, Stubbhöjd …) i TEXT — den fanns i det gamla dokumentet per punkt och får inte försvinna med det. */}
+          {punkt.avvikelse_typ && (
+            <div style={{ ...TYP.meta, color: FARG.text2 }}>{AVVIKELSE_ETIKETT[punkt.avvikelse_typ as AvvikelseTyp] ?? punkt.avvikelse_typ}</div>
+          )}
+          {punkt.kommentar && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{punkt.kommentar}</div>}
+          {punkt.plan_kommentar && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{punkt.plan_kommentar}</div>}
+          {fotoUrler.length > 0 && (
+            <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
+              {fotoUrler.map((url) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={url} src={url} alt="" style={{ width: TRAFFYTA.primar + AVSTAND.s, height: TRAFFYTA.primar + AVSTAND.s, borderRadius: RADIE.rad, objectFit: 'cover' }} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }

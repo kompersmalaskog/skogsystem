@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { utforandeKatalog } from '@/lib/egenkontroll';
+import { RAD_MAX_DVH } from '@/lib/egenkontrollBricka';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -387,6 +388,42 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     expect(r.querySelectorAll('button')).toHaveLength(0);
   });
 
+  it('LÅNG anteckning (2000 tecken) och tre foton: raden har en MAXHÖJD och scrollar INOM sig — allt går att nå, rubrikraden står kvar, dockan växer inte med texten', async () => {
+    const lang = Array.from({ length: 251 }, (_, i) => `Rad${String(i).padStart(3, '0')}x`).join(' ');
+    expect(lang.length).toBeGreaterThanOrEqual(2000);
+    vyn = { ...vyn, punkter: [rad('p1', { status: 'ok' }), ...utforande('slutavverkning', { 0: { status: 'bra', kommentar: lang } })] };
+    foton = [fotoRad('f1', 'u0', 'runda-1/u0-1.jpg'), fotoRad('f2', 'u0', 'runda-1/u0-2.jpg'), fotoRad('f3', 'u0', 'runda-1/u0-3.jpg')];
+    await montera();
+    await klick(bricka('u0'));
+    const r = raden()!;
+    const inne = r.querySelector('[data-testid=bricka-rad-innehall]') as HTMLElement;
+    expect(inne).not.toBeNull();
+    // Maxhöjden och scrollen ligger på innehållet, inte på hela raden — och maxhöjden är konstanten, inte ett eget tal.
+    expect(inne.style.maxHeight).toBe(`${RAD_MAX_DVH}dvh`);
+    expect(inne.style.overflowY).toBe('auto');
+    // ALLT finns i det som scrollar: hela texten (över 2000 tecken, från första till sista raden) och alla tre fotona.
+    expect(inne.textContent).toContain(lang);
+    expect(inne.textContent).toContain('Rad000x');
+    expect(inne.textContent).toContain('Rad250x');
+    expect(Array.from(inne.querySelectorAll('img')).map((i) => i.getAttribute('src'))).toEqual([
+      'https://signerad/runda-1/u0-1.jpg', 'https://signerad/runda-1/u0-2.jpg', 'https://signerad/runda-1/u0-3.jpg',
+    ]);
+    // Rubrikraden (namn + svar) ligger UTANFÖR det som scrollar, så man alltid ser vilken bricka det gäller.
+    const rubrik = Array.from(r.children).find((c) => c.textContent?.includes('✓ Bra') && !inne.contains(c))!;
+    expect(rubrik).toBeDefined();
+    expect(inne.contains(rubrik)).toBe(false);
+    // Ingen enda knapp, och inget annat i raden har en egen höjdgräns som skulle kapa texten.
+    expect(r.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('en KORT anteckning har samma behållare (maxhöjden bara begränsar — den lägger inte till tomrum)', async () => {
+    await montera();
+    await klick(bricka('u0'));
+    const inne = raden()!.querySelector('[data-testid=bricka-rad-innehall]') as HTMLElement;
+    expect(inne).not.toBeNull();
+    expect(inne.textContent).toContain('Rishögarna ligger bra');
+  });
+
   it('ingen hjälprad, ingen Notera här, ingen Ångra, ingen avslutsknapp', async () => {
     await montera();
     expect(text()).not.toContain('Tryck på en bricka = Bra');
@@ -643,6 +680,24 @@ describe('HEL FÖLJER SITT INNEHÅLL (offsetHeight stubbad — jsdom har ingen l
     await montera();
     await oppnaHel();
     expect(synligHojd()).toBe(260 + 200);
+  });
+
+  it('SIDOKNAPPARNA är gömda i hel också när det finns karta ovanför (kort innehåll) och framme i dock — de kommer inte och går med innehållets längd', async () => {
+    const sidoknappar = () => ({
+      notera: knappar().some((b) => /Notera här/.test(b.textContent ?? '')),
+      lager: knappar().some((b) => b.getAttribute('aria-label') === 'Kartlager'),
+      centrera: document.querySelector('[data-testid=centrera-knapp]') !== null,
+    });
+    for (const hojd of [0, 300, 2000]) {
+      innre = hojd;
+      await montera();
+      expect(sidoknappar(), `dock, innehåll ${hojd}`).toEqual({ notera: true, lager: true, centrera: true });
+      await oppnaHel();
+      expect(synligHojd() < 688 || hojd === 2000).toBe(true);     // kort innehåll: kartan syns ovanför — knapparna är ändå borta
+      expect(sidoknappar(), `hel, innehåll ${hojd}`).toEqual({ notera: false, lager: false, centrera: false });
+      await act(async () => { root!.unmount(); });
+      host?.remove();
+    }
   });
 
   it('dockan är densamma oavsett innehåll', async () => {

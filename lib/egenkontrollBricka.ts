@@ -145,3 +145,9 @@ export const FOTO_NOT_ETIKETT = 'Foto · Not';
 
 /** Hur länge "Ångra" står kvar efter ett svar som skrevs av ett tryck på en bricka. */
 export const ANGRA_MS = 5000;
+
+/**
+ * Radens maxhöjd för innehållet (kommentar, typ, foton) på en avslutad runda, i procent av skärmens höjd (dvh). Mer än så scrollar INOM raden: på en låst
+ * runda är brickan enda platsen anteckningarna finns i appen, så en lång text får aldrig fylla hela arket och lämna resten onåbar.
+ */
+export const RAD_MAX_DVH = 30;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { angraForstaSvaret, utforandeKatalog, type EgenkontrollPunkt } from './egenkontroll';
 import {
-  BRICKA_NAMN, BRICKSTATUS, brickaTryck, byggBrickor, kvarText, radHandling, radKnappar, svarsDel,
+  BRICKA_NAMN, BRICKSTATUS, RAD_MAX_DVH, brickaTryck, byggBrickor, kvarText, radHandling, radKnappar, svarsDel,
 } from './egenkontrollBricka';
 
 function punkt(over: Partial<EgenkontrollPunkt>): EgenkontrollPunkt {
@@ -123,6 +123,13 @@ describe('raden', () => {
     }
     // Godkänt är inte grönt (Bra) och inte blått (blått är bara navigering).
     expect(BRICKSTATUS.godkant.farg).toBe('text2');
+  });
+});
+
+describe('RAD_MAX_DVH — radens maxhöjd på en avslutad runda', () => {
+  it('är en bestämd andel av skärmen: tillräckligt för att läsa utan scroll i vanliga fall, men så lite att dockan lämnar kartan synlig', () => {
+    expect(RAD_MAX_DVH).toBeGreaterThanOrEqual(20);   // under det är en vanlig anteckning (några rader) redan en scrollruta
+    expect(RAD_MAX_DVH).toBeLessThanOrEqual(35);      // över det tar dock + rad mer än två tredjedelar av en 760 px hög skärm
   });
 });
 
