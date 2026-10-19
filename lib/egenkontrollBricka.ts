@@ -89,21 +89,25 @@ export function brickaTryck(bricka: Pick<Bricka, 'id' | 'status'>, last: boolean
 }
 
 /**
- * DOCKVAKTEN: efter ett SVAR i dockan (tryck pa en bricka som skriver Bra, eller ett tryck i raden) ar nasta tryck pa en bricka eller en radknapp
- * inert i DOCK_SKYDD_MS. Det skyddar mot ett sent dubbeltryck (handske, kall skarm, tum som studsar).
+ * DOCKVAKTEN: efter ett tryck som SKRIVER ett svar är ett nytt tryck på SAMMA tryckyta inert i DOCK_SKYDD_MS — samma bricka (`bricka:<id>`) eller
+ * samma radknapp (`rad:<status>`). Det skyddar mot ett sent dubbeltryck (handske, kall skärm, tum som studsar). Ett tryck på en ANNAN bricka eller
+ * en annan radknapp går igenom direkt: det är ett avsiktligt, snabbt svar, och inget tryckbart flyttar sig under fingret (raden har fast plats
+ * och arket animerar bara vid lägesbyte — se RundArk). Det gamla skyddet (350 ms på ALLA tryck) dolde att layouten rörde sig; det var ett plåster.
  *
- * Varfor dockan behover det: raden for det markerade ligger OVER brickorna och arket animerar sin hojd (transform), sa brickorna och
- * radknapparna flyttar sig under forsta tiondelen. Ett andra tryck pa samma stalle hamnar da pa NAGOT ANNAT (en annan bricka som far Bra,
- * eller "Godkant" i raden som skriver over Bra) - tyst och fel. Det gamla skyddet (350 ms) bodde i serien som togs bort i 7b.
- *
- * Bara trycken som SKRIVER startar skyddet; ett tryck som bara markerar en besvarad bricka gor det inte, sa att man kan bladdra fritt.
- * Skyddet syns inte: ingen grad knapp, ingen forsening - trycket gor bara ingenting.
+ * Bara trycken som SKRIVER startar skyddet; ett tryck som bara markerar en besvarad bricka gör det inte, så att man kan bläddra fritt.
+ * Skyddet syns inte: ingen grå knapp, ingen försening — trycket gör bara ingenting.
  */
 export const DOCK_SKYDD_MS = 350;
 
-/** Ar vi inom skyddstiden? `skyddTill` = tidpunkten (ms) da skyddet upphor; 0 = inget skydd har startat. */
-export function inomDockSkydd(nu: number, skyddTill: number): boolean {
-  return nu < skyddTill;
+/** Skyddet efter senaste skrivande tryck: vilken tryckyta och när det upphör (ms). Null = inget skydd har startat. */
+export type DockSkydd = { nyckel: string; till: number } | null;
+
+export const brickaSkyddNyckel = (id: string): string => `bricka:${id}`;
+export const radSkyddNyckel = (status: string): string => `rad:${status}`;
+
+/** Ar trycket pa `nyckel` inom skyddstiden? Bara SAMMA tryckyta som senaste skrivande tryck skyddas. */
+export function inomDockSkydd(nu: number, skydd: DockSkydd, nyckel: string): boolean {
+  return skydd !== null && skydd.nyckel === nyckel && nu < skydd.till;
 }
 
 /** Status i ord och tecken. FORM bär svaret, färgen upprepar det: ✓ Bra, ~ Godkänt, ! Bättre. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { angraForstaSvaret, utforandeKatalog, type EgenkontrollPunkt } from './egenkontroll';
 import {
-  BRICKA_NAMN, BRICKSTATUS, DOCK_SKYDD_MS, RAD_MAX_DVH, brickaTryck, byggBrickor, inomDockSkydd, kvarText, radHandling, radKnappar, svarsDel,
+  BRICKA_NAMN, BRICKSTATUS, DOCK_SKYDD_MS, RAD_MAX_DVH, brickaSkyddNyckel, brickaTryck, byggBrickor, inomDockSkydd, kvarText, radSkyddNyckel, radHandling, radKnappar, svarsDel,
 } from './egenkontrollBricka';
 
 function punkt(over: Partial<EgenkontrollPunkt>): EgenkontrollPunkt {
@@ -196,10 +196,25 @@ describe('DOCK_SKYDD_MS — dubbeltrycksskyddet i dockan', () => {
     expect(DOCK_SKYDD_MS).toBeLessThanOrEqual(500);
   });
 
-  it('inomDockSkydd: inert strikt före skyddets slut, aldrig vid noll (inget skydd har startat)', () => {
-    expect(inomDockSkydd(1_000, 0)).toBe(false);
-    expect(inomDockSkydd(1_000, 1_000 + DOCK_SKYDD_MS)).toBe(true);
-    expect(inomDockSkydd(1_000 + DOCK_SKYDD_MS - 1, 1_000 + DOCK_SKYDD_MS)).toBe(true);
-    expect(inomDockSkydd(1_000 + DOCK_SKYDD_MS, 1_000 + DOCK_SKYDD_MS)).toBe(false);
+  it('inomDockSkydd: bara SAMMA tryckyta, strikt före skyddets slut, aldrig utan skydd', () => {
+    const skydd = { nyckel: brickaSkyddNyckel('u3'), till: 1_000 + DOCK_SKYDD_MS };
+    expect(inomDockSkydd(1_000, null, brickaSkyddNyckel('u3'))).toBe(false);                       // inget skydd har startat
+    expect(inomDockSkydd(1_000, skydd, brickaSkyddNyckel('u3'))).toBe(true);
+    expect(inomDockSkydd(1_000 + DOCK_SKYDD_MS - 1, skydd, brickaSkyddNyckel('u3'))).toBe(true);
+    expect(inomDockSkydd(1_000 + DOCK_SKYDD_MS, skydd, brickaSkyddNyckel('u3'))).toBe(false);      // strikt
+  });
+
+  it('en ANNAN bricka eller en annan radknapp skyddas inte — bara samma yta som just skrev', () => {
+    const skydd = { nyckel: brickaSkyddNyckel('u3'), till: 1_000 + DOCK_SKYDD_MS };
+    expect(inomDockSkydd(1_100, skydd, brickaSkyddNyckel('u4'))).toBe(false);
+    expect(inomDockSkydd(1_100, skydd, radSkyddNyckel('bra'))).toBe(false);
+    const rad = { nyckel: radSkyddNyckel('godkant'), till: 1_000 + DOCK_SKYDD_MS };
+    expect(inomDockSkydd(1_100, rad, radSkyddNyckel('godkant'))).toBe(true);
+    expect(inomDockSkydd(1_100, rad, radSkyddNyckel('battre'))).toBe(false);
+    expect(inomDockSkydd(1_100, rad, brickaSkyddNyckel('u3'))).toBe(false);
+  });
+
+  it('nycklarna för en bricka och en radknapp kan aldrig vara lika, hur id:t än ser ut', () => {
+    expect(brickaSkyddNyckel('bra')).not.toBe(radSkyddNyckel('bra'));
   });
 });
