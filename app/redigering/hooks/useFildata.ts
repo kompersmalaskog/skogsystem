@@ -14,6 +14,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { typAvMaskin } from './useMatchning';
+import { optiLokalDag } from '@/lib/optiTid';
 
 export type MaskinFiler = {
   maskinId: string;
@@ -198,7 +199,7 @@ export function useFildata(): Fildata {
           hamtaAlla('fakt_sortiment', KOL),
           supabase.from('dim_maskin').select('*'),
           hamtaAlla('meta_importerade_filer', 'filnamn, importerad_tid'),
-          supabase.from('hpr_filer').select('objekt_nyckel, filnamn, fil_datum'),
+          supabase.from('hpr_filer').select('objekt_nyckel, filnamn, fil_datum, tid_ar_utc'),
           supabase.from('dim_objekt').select('objekt_id, vo_nummer'),
         ]);
         if (maskinRes.error) throw new Error('Kunde inte läsa dim_maskin: ' + maskinRes.error.message);
@@ -266,7 +267,7 @@ export function useFildata(): Fildata {
             objekt_id: objektId,
             maskin_id: maskinId,
             filnamn: h.filnamn,
-            datum: h.fil_datum ? String(h.fil_datum).slice(0, 10) : null,
+            datum: h.fil_datum ? (optiLokalDag(String(h.fil_datum), h.tid_ar_utc) ?? String(h.fil_datum).slice(0, 10)) : null,
           });
         });
 

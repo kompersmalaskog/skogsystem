@@ -762,6 +762,92 @@ def parse_tid_utc(dt_str) -> Optional[datetime]:
 
 
 # ============================================================
+# OPTI-TIDER I DATABASEN — väggklocka internt, verkligt UTC i databasen
+# ============================================================
+# Importen räknar internt med NAIV SVENSK VÄGGKLOCKA (parse_datetime): datum, HH:MM, jämförelser och kuvert-sammanslagningen
+# bygger på den och rörs inte. I GRÄNSEN mot databasen konverteras: det som skrivs är det verkliga ögonblicket, det som
+# läses tillbaka görs om till väggklocka igen. Kolumnen `tid_ar_utc` på varje rad säger vilken konvention raden har
+# (true = verkligt UTC, false = äldre rad där väggklockan lagrats som UTC) — se supabase/migrations/…_opti_tider_utc.sql.
+#
+# Tabeller där tiden ingår i den unika nyckeln (fakt_produktion.monitoring_start, fakt_kalibrering_historik.datum) står
+# MEDVETET utanför: ändrad konvention där ger dubbletter när gammal och ny import blandas, och ingen läsare behöver dem.
+# dim_objekt.start_date/end_date är en NAIV kolumn (utan tidszon) och är lokal tid redan.
+OPTI_TIDSKOLUMNER = {
+    'fakt_skift': ('inloggning_tid', 'utloggning_tid', 'maskin_inloggning_tid'),
+    'detalj_stam': ('tidpunkt',),
+    'detalj_gps_spar': ('tidpunkt',),
+    'detalj_kontroll_stock': ('machine_measurement_date', 'operator_measurement_date', 'harvest_date'),
+    'hpr_filer': ('fil_datum',),
+}
+
+
+def utc_till_stockholm_lokal(dt_utc: datetime) -> datetime:
+    """Verkligt UTC-ögonblick → naiv svensk väggklocka (omvänd mot stockholm_lokal_till_utc)."""
+    if dt_utc.tzinfo is not None:
+        dt_utc = dt_utc.astimezone(timezone.utc).replace(tzinfo=None)
+    sommar_start = _sista_sondag(dt_utc.year, 3).replace(hour=1)
+    sommar_slut = _sista_sondag(dt_utc.year, 10).replace(hour=1)
+    return dt_utc + timedelta(hours=2 if sommar_start <= dt_utc < sommar_slut else 1)
+
+
+def db_tid_till_lokal(varde, ar_utc=False) -> Optional[datetime]:
+    """En tid ur databasen (sträng från PostgREST eller datetime) → naiv svensk väggklocka. `ar_utc` är radens tid_ar_utc:
+    true = verkligt UTC (omräknas), false/saknas = äldre rad där väggklockan ligger som UTC (tas som den är). None om tomt
+    eller otolkbart — den som anropar avgör vad det betyder (aldrig en påhittad tid)."""
+    if varde is None or varde == '':
+        return None
+    try:
+        if isinstance(varde, datetime):
+            dt = varde
+        else:
+            txt = str(varde).strip().replace(' ', 'T', 1)
+            m = re.search(r'(Z|[+-]\d{2}(?::?\d{2})?)$', txt)
+            rest = txt[:m.start()] if m else txt
+            dt = datetime.fromisoformat(normalisera_sekundbrak(rest))
+            if m and m.group(1) != 'Z':
+                tz = m.group(1).replace(':', '')
+                sek = (int(tz[1:3]) * 3600 + (int(tz[3:5]) * 60 if len(tz) >= 5 else 0)) * (1 if tz[0] == '+' else -1)
+                dt = dt - timedelta(seconds=sek)
+            dt = dt.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
+        return utc_till_stockholm_lokal(dt) if ar_utc else dt.replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def lokal_tid_till_db_iso(lokal: datetime, ar_utc: bool) -> str:
+    """Naiv väggklocka → det som ska skrivas i en rad med den konventionen (se db_tid_till_lokal)."""
+    return stockholm_lokal_till_utc(lokal).isoformat() if ar_utc else lokal.isoformat()
+
+
+def konvertera_opti_tider(table: str, data: List[Dict]) -> List[Dict]:
+    """Rader till en tabell med Opti-tider: väggklockan blir verkligt UTC och raden märks tid_ar_utc = true. Ger NYA
+    dictar — anroparens rader rörs inte. En tid som redan är tidszonsmedveten (datetime med tzinfo) görs bara till UTC."""
+    kolumner = OPTI_TIDSKOLUMNER.get(table)
+    if not kolumner or not data:
+        return data
+    ut = []
+    for row in data:
+        ny = dict(row)
+        for k in kolumner:
+            v = ny.get(k)
+            if isinstance(v, datetime):
+                ny[k] = (v.astimezone(timezone.utc) if v.tzinfo is not None else stockholm_lokal_till_utc(v)).isoformat()
+            elif isinstance(v, str) and v.strip():
+                # En sträng är antingen redan ett absolut ögonblick (har offset/Z) eller naiv väggklocka. Raden märks true,
+                # så en naiv sträng MÅSTE konverteras här — annars vore flaggan en osanning.
+                d = parse_tid_utc(v)   # med offset/Z: absolut; utan: svensk väggklocka → UTC (se parse_tid_utc)
+                if d is None:
+                    raise ValueError(f"{table}.{k}: otolkbar tid {v!r}")
+                ny[k] = d.isoformat()
+        ny['tid_ar_utc'] = True
+        ut.append(ny)
+    return ut
+
+
+# ============================================================
 # SYNTETISKA SKIFT (Rottne) — slutar när nästa förare loggar in
 # ============================================================
 # Rottne saknar OperatorShiftDefinition: parsern bygger syntetiska skift (shift_key "SYN_<datum>_<operator>") av WorkTime
@@ -865,7 +951,7 @@ def kapa_syntetiska_skift_i_db(maskin_id: str, datum) -> int:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/fakt_skift",
             params={'maskin_id': f"eq.{maskin_id}", 'datum': f"eq.{datum}",
-                    'select': 'id,maskin_id,datum,operator_id,shift_key,inloggning_tid,utloggning_tid,langd_sek'},
+                    'select': 'id,maskin_id,datum,operator_id,shift_key,inloggning_tid,utloggning_tid,langd_sek,tid_ar_utc'},
             headers=SUPABASE_HEADERS, timeout=30)
         if not resp.ok:
             logger.warning(f"  Skiftkapning: kunde inte läsa fakt_skift {maskin_id} {datum} ({resp.status_code})")
@@ -877,8 +963,8 @@ def kapa_syntetiska_skift_i_db(maskin_id: str, datum) -> int:
     rader = []
     for r in lasta:
         p = dict(r)
-        p['inloggning_tid'] = parse_datetime(r.get('inloggning_tid'))
-        p['utloggning_tid'] = parse_datetime(r.get('utloggning_tid'))
+        p['inloggning_tid'] = db_tid_till_lokal(r.get('inloggning_tid'), r.get('tid_ar_utc'))
+        p['utloggning_tid'] = db_tid_till_lokal(r.get('utloggning_tid'), r.get('tid_ar_utc'))
         rader.append(p)
     n = 0
     for orig, ny in zip(rader, kapa_syntetiska_skift(rader)):
@@ -888,7 +974,9 @@ def kapa_syntetiska_skift_i_db(maskin_id: str, datum) -> int:
             pr = requests.patch(
                 f"{SUPABASE_URL}/rest/v1/fakt_skift?id=eq.{orig['id']}",
                 headers=SUPABASE_HEADERS,
-                data=json.dumps({'utloggning_tid': ny['utloggning_tid'].isoformat(), 'langd_sek': ny['langd_sek']}),
+                # skrivs i RADENS konvention — de andra tiderna på raden rörs inte, så flaggan får inte ändras
+                data=json.dumps({'utloggning_tid': lokal_tid_till_db_iso(ny['utloggning_tid'], bool(orig.get('tid_ar_utc'))),
+                                 'langd_sek': ny['langd_sek']}),
                 timeout=30)
             if pr.status_code in (200, 204):
                 n += 1
@@ -968,7 +1056,7 @@ def hamta_befintligt_skift(rad: Dict):
                 params={'maskin_id': f"eq.{rad['maskin_id']}",
                         'datum': f"eq.{rad['datum']}",
                         'shift_key': f"eq.{rad['shift_key']}",
-                        'select': 'inloggning_tid,utloggning_tid,maskin_inloggning_tid'},
+                        'select': 'inloggning_tid,utloggning_tid,maskin_inloggning_tid,tid_ar_utc'},
                 headers=SUPABASE_HEADERS, timeout=30)
             if not resp.ok:
                 orsak = f"HTTP {resp.status_code}"
@@ -980,7 +1068,7 @@ def hamta_befintligt_skift(rad: Dict):
         if not rader:
             return 'ok', None
         r = rader[0]
-        tolkad = {k: parse_datetime(r.get(k)) for k in ('inloggning_tid', 'utloggning_tid', 'maskin_inloggning_tid')}
+        tolkad = {k: db_tid_till_lokal(r.get(k), r.get('tid_ar_utc')) for k in ('inloggning_tid', 'utloggning_tid', 'maskin_inloggning_tid')}
         # En tid som FINNS i databasen men inte går att tolka får aldrig tolkas som "saknas".
         for k, v in tolkad.items():
             if r.get(k) and v is None:
@@ -3605,6 +3693,8 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
         return 0
     
     try:
+        # Opti-tider: väggklocka → verkligt UTC + tid_ar_utc = true (nya dictar, anroparens rader rörs inte)
+        data = konvertera_opti_tider(table, data)
         # Konvertera datetime till ISO-format och ersätt None med null-kompatibelt
         for row in data:
             for key, value in list(row.items()):
@@ -3655,6 +3745,8 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
             return len(normalized)
         else:
             logger.error(f"  Fel vid sparande till {table}: {response.status_code} - {response.text[:200]}")
+            if table in OPTI_TIDSKOLUMNER and 'tid_ar_utc' in (response.text or ''):
+                logger.error("  → Databasen saknar kolumnen tid_ar_utc: migrationen …_opti_tider_utc.sql ska köras FÖRE den här importen.")
             _rapportera_import_fel(
                 table,
                 normalized[0].get('filnamn') if normalized else None,
@@ -4115,7 +4207,7 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
         # Detta är scope-fixen — multi-fil-dagar aggregeras nu korrekt.
         skift_resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/fakt_skift?datum=in.({datum_in})"
-            f"&select=operator_id,maskin_id,datum,inloggning_tid,utloggning_tid,langd_sek",
+            f"&select=operator_id,maskin_id,datum,inloggning_tid,utloggning_tid,langd_sek,tid_ar_utc",
             headers=SUPABASE_HEADERS, timeout=30
         )
         if skift_resp.status_code != 200:
@@ -4172,8 +4264,8 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
                 continue
 
             datum_str = str(datum)
-            inl_dt = parse_datetime(str(inl)) if inl else None
-            utl_dt = parse_datetime(str(utl)) if utl else None
+            inl_dt = db_tid_till_lokal(inl, s.get('tid_ar_utc')) if inl else None
+            utl_dt = db_tid_till_lokal(utl, s.get('tid_ar_utc')) if utl else None
             if not inl_dt:
                 continue
 
@@ -4833,7 +4925,10 @@ def _save_hpr_tables(data: Dict):
         if t and (earliest is None or t < earliest):
             earliest = t
     if earliest:
-        fil_row['fil_datum'] = earliest.isoformat() if hasattr(earliest, 'isoformat') else str(earliest)
+        # earliest är väggklocka (parse_datetime) → verkligt UTC, och raden märks så
+        fil_row['fil_datum'] = (stockholm_lokal_till_utc(earliest).isoformat() if isinstance(earliest, datetime)
+                                else str(earliest))
+        fil_row['tid_ar_utc'] = True
 
     # Snapshot-dedup per objekt_nyckel (frikopplad från objekt-tabellen). Utan detta blir
     # varje kumulativt snapshot en ny rad (on_conflict=filnamn) -> ackumulering + dubbel-

@@ -1470,3 +1470,9 @@ INTE BYGGD. Beskrivningen finns har for att beslutet
 ska kunna tas utan att utreda om igen.
 
 Uppdatera denna fil vid varje commit.
+
+
+## Datakorrigeringar i prod (direkt SQL, godkända av Martin)
+
+### 2026-10-19 — Kroksjömåla-dubbletter (objekt_id `11155842`)
+Rester från när appen byggdes upp. Raderat direkt i prod med Martins godkännande, i en sats: 12 `fakt_lass` (153 m³sob, alla exakta kopior av lass under annat objekt_id: samma maskin, datum, lass_nummer, lossningstid, volym och fil), 40 `fakt_lass_sortiment` (alla med exakt tvilling under det riktiga objektet `11251460`), 10 `fakt_skotning_status` och 1 `dim_objekt`. Efteråt: noll rader kvar under `11155842`, `11251460` oförändrat (25 lass). **Ångra:** `docs/data-korrigeringar/2026-10-19_kroksjomala_11155842_angra.sql` (INSERT-satser med radernas exakta innehåll, en transaktion).

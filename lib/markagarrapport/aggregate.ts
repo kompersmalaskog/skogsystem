@@ -11,6 +11,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AggregateResult, MarkagarRapport } from './types';
+import { optiLokalDag } from '../optiTid';
 import {
   detectRot,
   normalizeTradslag,
@@ -185,11 +186,12 @@ export async function aggregateMarkagarRapport(
     stubbbehandling: boolean | string | null;
     manuell_frikap: boolean | string | null;
     tidpunkt: string | null;
+    tid_ar_utc?: boolean | null;
     filnamn: string | null; maskin_id: string;
   }>((from, to) => {
     let q = supabase
       .from('detalj_stam')
-      .select('stam_key, dbh_mm, latitude, longitude, tradslag_id, stem_grade, stubbbehandling, manuell_frikap, tidpunkt, filnamn, maskin_id')
+      .select('stam_key, dbh_mm, latitude, longitude, tradslag_id, stem_grade, stubbbehandling, manuell_frikap, tidpunkt, tid_ar_utc, filnamn, maskin_id')
       .eq('objekt_id', objektIdText);
     if (filnamnFilter) q = q.in('filnamn', filnamnFilter);
     return q.order('id').range(from, to);
@@ -241,7 +243,7 @@ export async function aggregateMarkagarRapport(
   // 8. fakt_skift → operatör
   const datumSet = new Set<string>();
   for (const s of stammarRaw) {
-    if (s.tidpunkt) datumSet.add(String(s.tidpunkt).slice(0, 10));
+    if (s.tidpunkt) datumSet.add(optiLokalDag(s.tidpunkt, s.tid_ar_utc) ?? String(s.tidpunkt).slice(0, 10));
   }
   let operatorNamn = new Set<string>();
   if (datumSet.size > 0 && maskinIds.length > 0) {
@@ -575,7 +577,7 @@ export async function aggregateMarkagarRapport(
 
   // 18. Header-info — datum från första tidpunkt
   const tidpunkter = stammarRaw
-    .map(s => s.tidpunkt ? String(s.tidpunkt).slice(0, 10) : null)
+    .map(s => s.tidpunkt ? (optiLokalDag(s.tidpunkt, s.tid_ar_utc) ?? String(s.tidpunkt).slice(0, 10)) : null)
     .filter((t): t is string => !!t)
     .sort();
   const forsta_datum = tidpunkter[0] ?? null;

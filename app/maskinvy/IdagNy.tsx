@@ -3,6 +3,7 @@ import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { sthlmDagGranserUtc, optiLokalDag, optiLokalTimme } from '@/lib/optiTid'
 import {
   C, FONT, MASKINER, COMBO_IDS, fmtSv, fmtTid,
   type Maskin,
@@ -174,18 +175,21 @@ async function fetchPaged(
   return rows
 }
 
-/** detalj_stam — filtreras på tidpunkt-range (har inget datum-kolumn) */
+/** detalj_stam — filtreras på tidpunkt-range (har inget datum-kolumn).
+ *  tidpunkt är verkligt UTC för rader med tid_ar_utc = true och svensk väggklocka lagrad som UTC för äldre rader (lib/optiTid.ts).
+ *  Frågan hämtar därför ett vidare fönster som rymmer dagen i båda konventionerna, och dagen filtreras sedan exakt här. */
 async function fetchDetaljStam(ids: string[], datum: string): Promise<any[]> {
   const PAGE = 2000
   let rows: any[] = [], off = 0
-  const startTs = `${datum}T00:00:00`
-  const endTs   = `${datum}T23:59:59.999`
+  const startTs = sthlmDagGranserUtc(datum).fran                       // verkligt UTC: dagens första sekund
+  const [a, m, d] = datum.split('-').map(Number)
+  const endTs   = new Date(Date.UTC(a, m - 1, d + 1)).toISOString()    // äldre rader: väggklockan når aldrig nästa dygn
   while (true) {
     const { data, error } = await supabase
-      .from('detalj_stam').select('tidpunkt, tradslag_id, dbh_mm')
+      .from('detalj_stam').select('tidpunkt, tid_ar_utc, tradslag_id, dbh_mm')
       .in('maskin_id', ids)
       .gte('tidpunkt', startTs)
-      .lte('tidpunkt', endTs)
+      .lt('tidpunkt', endTs)
       .order('id')  // unik tiebreaker — .range() kräver total ordning
       .range(off, off + PAGE - 1)
     if (error) throw error
@@ -194,7 +198,7 @@ async function fetchDetaljStam(ids: string[], datum: string): Promise<any[]> {
     if (batch.length < PAGE) break
     off += PAGE
   }
-  return rows
+  return rows.filter(r => optiLokalDag(r.tidpunkt, r.tid_ar_utc) === datum)
 }
 
 /** fakt_avbrott — alla avbrott för aktuell dag via RPC (kringgår RLS), bucketas på starttimme */
@@ -281,7 +285,8 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
   const stamDetalj: StamDetail[] = []
   for (const r of rytmRows) {
     if (!r.tidpunkt) continue
-    const h = new Date(r.tidpunkt).getHours()
+    const h = optiLokalTimme(r.tidpunkt, r.tid_ar_utc)
+    if (h == null) continue
     hourBuckets[h] = (hourBuckets[h] || 0) + 1
     stamDetalj.push({
       hour: h,

@@ -483,7 +483,11 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
     }
 
     if parsed['fil_datum']:
-        fil_row['fil_datum'] = parsed['fil_datum'].isoformat()
+        # Väggklocka (parse_datetime) → verkligt UTC, och raden märks så (hpr_filer.tid_ar_utc). Samma regel som
+        # skogsmaskin_import_version_6.py — regeln bor där, inte här.
+        import skogsmaskin_import_version_6 as M
+        fil_row['fil_datum'] = M.stockholm_lokal_till_utc(parsed['fil_datum']).isoformat()
+        fil_row['tid_ar_utc'] = True
 
     # Matcha objekt_id (UUID-FK) via vo_nummer — för registrerade objekt. FRIKOPPLAT från dedupen.
     for vo in parsed['vo_nummers']:

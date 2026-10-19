@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { kapaSyntetiskaSkift } from '@/lib/skiftKapning';
 import { rastMinFranSek } from '@/lib/rastMin';
+import { normaliseraSkiftTider } from '@/lib/optiTid';
 
 // SERVICE-ROLLEN, inte anon: routen är server-side och läser/skriver RLS-låsta
 // tabeller (operator_medarbetare, fakt_skift, arbetsdag). Med anon-nyckeln såg
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
     // 2. Hämta fakt_skift-rader
     let query = supabase
       .from('fakt_skift')
-      .select('datum, maskin_id, operator_id, inloggning_tid, maskin_inloggning_tid, utloggning_tid, langd_sek, shift_key')
+      .select('datum, maskin_id, operator_id, inloggning_tid, maskin_inloggning_tid, utloggning_tid, langd_sek, shift_key, tid_ar_utc')
       .order('datum', { ascending: false });
 
     if (filterDatum) {
@@ -91,7 +92,12 @@ export async function POST(req: NextRequest) {
     // Ett SYNTETISKT (Rottne, SYN_) pass slutar när nästa förare loggar in på samma maskin. Importen kapar redan
     // fakt_skift; här är samma regel ett skydd så arbetsdagen blir rätt även om raden ännu inte kapats (R64428
     // 2026-10-07: Oskar fick Martins utloggning 20:50 och arbetsdag 06:59–20:50). Äkta Ponsse-skift rörs aldrig.
-    const skift = kapaSyntetiskaSkift(skiftRader as any[]);
+    //
+    // Skifttiderna normaliseras FÖRST till svensk väggklocka i det gamla lagringsformatet ("…T09:04:00+00:00" = 09:04), oavsett
+    // om raden är lagrad som verkligt UTC (tid_ar_utc = true) eller som väggklocka-som-UTC (false, äldre rader och rader från en
+    // äldre importversion). Allt nedan — jämförelser av strängar, kapning, hhmm() — ser då exakt det det alltid sett, så
+    // arbetsdagens start och slut (och därmed lönen) kan inte påverkas av vilken konvention en rad har.
+    const skift = kapaSyntetiskaSkift((skiftRader as any[]).map(normaliseraSkiftTider));
 
     // 3. Hämta skyddade rader: manuellt REDIGERADE och BEKRÄFTADE.
     // En bekräftelse är förarens underskrift — synken skriver ALDRIG över den

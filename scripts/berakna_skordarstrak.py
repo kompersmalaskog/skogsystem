@@ -22,7 +22,10 @@ Användning:
   python scripts/berakna_skordarstrak.py --lista-omatchade  # sampla detalj_gps_spar-objekt utan app-objekt
 """
 import os, sys, math, argparse
-from datetime import datetime
+from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import skogsmaskin_import_version_6 as M   # stockholm_lokal_till_utc — regeln bor på ETT ställe
 
 try:
     import requests
@@ -157,7 +160,7 @@ def las_gps_for_vo(vo):
     """Alla detalj_gps_spar-rader för ett objekt_id (=vo), keyset-paginerat på id (unik tiebreaker)."""
     out, last = [], 0
     while True:
-        rows = get(f"detalj_gps_spar?objekt_id=eq.{vo}&id=gt.{last}&select=id,maskin_id,tidpunkt,latitude,longitude&order=id.asc&limit=1000")
+        rows = get(f"detalj_gps_spar?objekt_id=eq.{vo}&id=gt.{last}&select=id,maskin_id,tidpunkt,tid_ar_utc,latitude,longitude&order=id.asc&limit=1000")
         if not rows:
             break
         out.extend(rows); last = rows[-1]['id']
@@ -165,12 +168,18 @@ def las_gps_for_vo(vo):
             break
     return out
 
-def parse_tid(s):
+def parse_tid(s, ar_utc=True):
+    """Verkligt UTC-ögonblick. detalj_gps_spar.tidpunkt är verkligt UTC för rader med tid_ar_utc = true; äldre rader har svensk
+    väggklocka lagrad som UTC (ar_utc = false) och räknas om här, så att stråket blir rätt även när en objekts punkter är
+    en blandning (kumulativa HPR-filer skrivs över i omgångar)."""
     if not s: return None
     try:
-        return datetime.fromisoformat(s.replace('Z', '+00:00'))
+        t = datetime.fromisoformat(s.replace('Z', '+00:00'))
     except Exception:
         return None
+    if ar_utc:
+        return t
+    return M.stockholm_lokal_till_utc(t.replace(tzinfo=None))
 
 # ── Kärnan: bygg stråk för ett objekt ────────────────────────────────────────
 def bygg_strak_for_objekt(vo, objekt_uuid, rows):
@@ -187,7 +196,7 @@ def bygg_strak_for_objekt(vo, objekt_uuid, rows):
             key = (r['tidpunkt'], r['latitude'], r['longitude'])
             if key in seen: continue
             seen.add(key)
-            t = parse_tid(r['tidpunkt'])
+            t = parse_tid(r['tidpunkt'], bool(r.get('tid_ar_utc')))
             if t is None or r['latitude'] is None or r['longitude'] is None: continue
             dedup.append((r['longitude'], r['latitude'], t))
         stats['dedup'] += len(dedup)

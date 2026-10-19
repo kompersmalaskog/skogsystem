@@ -125,6 +125,7 @@ import MarkeringFoto from './MarkeringFoto'
 import MaskinMeny from '@/components/startsida/MaskinMeny'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
+import { optiLokalDag } from '@/lib/optiTid'
 
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
 const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
@@ -5369,7 +5370,7 @@ export default function PlannerPage() {
         while (true) {
           const { data, error } = await supabase
             .from('detalj_stam')
-            .select('latitude, longitude, total_volym, tradslag_id, sortiment, bio_energy_adaption, tidpunkt')
+            .select('latitude, longitude, total_volym, tradslag_id, sortiment, bio_energy_adaption, tidpunkt, tid_ar_utc')
             .in('objekt_id', hogarIds)
             .not('latitude', 'is', null)
             .order('id')  // unik tiebreaker — .range() kräver total ordning
@@ -5389,7 +5390,7 @@ export default function PlannerPage() {
             tradslag: tsNamn.get(s.tradslag_id) || 'OKÄNT',
             sortiment: s.sortiment,
             bio_energy_adaption: s.bio_energy_adaption,
-            datum: s.tidpunkt ? String(s.tidpunkt).slice(0, 10) : '',
+            datum: s.tidpunkt ? (optiLokalDag(s.tidpunkt, s.tid_ar_utc) ?? String(s.tidpunkt).slice(0, 10)) : '',
           }));
         console.log(`[HOGAR] vo=${vo}, ${dedupStammar.length} stammar (detalj_stam, okapad)`);
 

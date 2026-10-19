@@ -105,7 +105,7 @@ def main():
     print(f"Hämtar fakt_skift för 2026...")
     alla_skift = fetch_all(
         f"{SUPABASE_URL}/rest/v1/fakt_skift?datum=gte.{START_DATE}"
-        f"&select=operator_id,maskin_id,datum,inloggning_tid,utloggning_tid,langd_sek"
+        f"&select=operator_id,maskin_id,datum,inloggning_tid,utloggning_tid,langd_sek,tid_ar_utc"
         f"&order=datum"
     )
     print(f"  {len(alla_skift)} fakt_skift-rader\n")
@@ -148,8 +148,9 @@ def main():
             okand_operator += 1
             continue
 
-        inl_dt = parse_datetime(str(inl)) if inl else None
-        utl_dt = parse_datetime(str(utl)) if utl else None
+        # tid_ar_utc avgör om raden är verkligt UTC eller väggklocka lagrad som UTC (imp.db_tid_till_lokal)
+        inl_dt = imp.db_tid_till_lokal(inl, s.get('tid_ar_utc')) if inl else None
+        utl_dt = imp.db_tid_till_lokal(utl, s.get('tid_ar_utc')) if utl else None
         if not inl_dt:
             continue
 
