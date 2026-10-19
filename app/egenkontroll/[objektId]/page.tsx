@@ -45,6 +45,7 @@ import {
   generateEgenkontroll,
   svaraPaPunkt,
   avslutaRunda,
+  sparaRundKommentar,
   utforandeUnderrad,
   hamtaFoton,
   hamtaKontextmarkeringar,
@@ -78,6 +79,11 @@ import KartLagerMeny, { type EgetLager } from '@/components/KartLagerMeny';
 import { BASKARTOR, BASKARTA_DEFAULT, type BaskartaId } from '@/lib/mapLayers';
 import { useMapLayers, useStringSetting } from '@/lib/hooks/useMapLayers';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
+import RundKommentarSheet, { KOMMENTAR_FALT, KOMMENTAR_PLATSHALLARE } from '../RundKommentarSheet';
+import RapportDela from '../RapportDela';
+import { byggRapport } from '@/lib/egenkontrollRapport';
+import { byggRapportIndata } from '@/lib/egenkontrollRapportIndata';
+import { arUtkast, lasUtkast, rensaUtkast, sparaUtkast } from '@/lib/egenkontrollKommentarUtkast';
 import GaTillYta from '../GaTillYta';
 import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
 import {
@@ -576,6 +582,8 @@ export default function EgenkontrollRundaPage() {
   // Signerade URL:er per punkt. Misslyckad signering ger INGEN post - kortet
   // visar da ingen miniatyr i stallet for en trasig bildikon.
   const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
+  // Fotoraderna som de ar (sokvag, punkt, tackningsgrad) - rapportens bilaga behover dem, kortet bara URL:erna.
+  const [fotoRader, setFotoRader] = useState<EgenkontrollFoto[]>([]);
   const [sheet, setSheet] = useState<{ lage: SheetLage; punkt: EgenkontrollPunkt } | null>(null);
   const [valdPunktId, setValdPunktId] = useState<string | null>(null);
   const [stubbePunkt, setStubbePunkt] = useState<EgenkontrollPunkt | null>(null);
@@ -640,6 +648,9 @@ export default function EgenkontrollRundaPage() {
   const [kontextStatus, setKontextStatus] = useState<'laddar' | 'ok' | 'fel'>('laddar');
   const [vida, setVida] = useState<VidaGrans>({ typ: 'laddar' });
   const [avslutar, setAvslutar] = useState(false);
+  // Rundans kommentar: utkastet (null = inget utkast, det sparade galler) och arket. Samma falt skrivs i arket och i avslutsdialogen.
+  const [kommentarUtkast, setKommentarUtkast] = useState<string | null>(null);
+  const [visaKommentar, setVisaKommentar] = useState(false);
 
   // TYST OMLASNING. Efter varje sparad avvikelse, provyta och stubbe las rundan om -
   // och den gamla ladda() satte laddar=true, sa HELA vyn byttes mot "Hamtar
@@ -724,7 +735,7 @@ export default function EgenkontrollRundaPage() {
   const laddaTillbehor = useCallback(async (omlasning = false) => {
     const mitt = ++tillbehorLopnr.current;
     const galler = () => mitt === tillbehorLopnr.current;
-    if (!rundaId) { setFotoPerPunkt({}); setProvytor([]); setYtorLasta(false); return; }
+    if (!rundaId) { setFotoPerPunkt({}); setFotoRader([]); setProvytor([]); setYtorLasta(false); return; }
     let miste = false;
     try {
       const ytor = await hamtaProvytor(rundaId);
@@ -749,8 +760,9 @@ export default function EgenkontrollRundaPage() {
         (karta[p.punktId] ??= []).push(p.url);
       }
       setFotoPerPunkt(karta);
+      setFotoRader(foton);
     } catch {
-      if (galler()) { if (omlasning) miste = true; else setFotoPerPunkt({}); }
+      if (galler()) { if (omlasning) miste = true; else { setFotoPerPunkt({}); setFotoRader([]); } }
     }
     if (miste && galler()) {
       setSparFel('Ändringen sparades, men provytor eller bilder kunde inte läsas om. Ladda om sidan.');
@@ -804,6 +816,19 @@ export default function EgenkontrollRundaPage() {
     setAvslutar(true);
     setSparFel(null);
     try {
+      // KOMMENTAREN FORST: skrivs den inte ska rundan inte heller avslutas - efteraat gar den inte att andra. Gar sparningen fel
+      // stannar texten kvar som utkast och rundan ar fortfarande oppen.
+      if (arUtkast(kommentarUtkast, vy.egenkontroll.kommentar)) {
+        try {
+          await sparaRundKommentar(vy.egenkontroll.id, kommentarUtkast);
+        } catch (e) {
+          setVisaAvslutsdialog(false);
+          setSparFel(`Rundan är inte avslutad — kommentaren sparades inte. ${e instanceof Error ? e.message : ''} Det du skrivit ligger kvar.`.trim());
+          return;
+        }
+        rensaUtkast(vy.egenkontroll.id);
+        setKommentarUtkast(null);
+      }
       await avslutaRunda(vy.egenkontroll.id);
       setVisaAvslutsdialog(false);
       await ladda(); // las om fran DB - skarmen visar det som faktiskt star dar
@@ -905,6 +930,18 @@ export default function EgenkontrollRundaPage() {
   const kvar = allaPunkter.filter((p) => p.status === null).length;
   const antalBattre = allaPunkter.filter((p) => p.status === 'battre').length;
   const rundanKlar = vy?.egenkontroll?.status === 'klar';
+
+  // RUNDANS KOMMENTAR. Ett utkast som sparats lokalt (appen laddades om, tackningen forsvann) tas tillbaka nar rundan laddats - men bara
+  // om det skiljer sig fran det som redan star pa servern, och aldrig for en klar runda (den ar last). Servern ar sanningen.
+  const rundaKommentar = vy?.egenkontroll?.kommentar ?? null;
+  useEffect(() => {
+    if (!rundaId || rundanKlar) { setKommentarUtkast(null); return; }
+    const lagrad = lasUtkast(rundaId);
+    if (arUtkast(lagrad, rundaKommentar)) setKommentarUtkast(lagrad);
+    else { if (lagrad !== null) rensaUtkast(rundaId); setKommentarUtkast(null); }
+  }, [rundaId, rundanKlar, rundaKommentar]);
+  const kommentarText = kommentarUtkast ?? rundaKommentar ?? '';
+  const andraKommentar = (t: string) => { setKommentarUtkast(t); if (rundaId) sparaUtkast(rundaId, t); };
   // AVSLUTA RAKNAR BADA SLAGEN, som avslutaRunda. Forr raknade knappen bara punkterna: den var
   // aktiv med omatta provytor kvar och gav sedan ett fel ("6 provytor aterstar") - sedan
   // provytorna byggdes. Sa "kan avslutas" och "avslutaRunda tar emot det" kan inte vara oense.
@@ -934,6 +971,23 @@ export default function EgenkontrollRundaPage() {
   // AVSLUTA-LAGET SOM SERIE: terrangen klar (eller saknas), pagaende runda, minst ett kort.
   // Tillstand 2 behaller sin kolumn, och en avslutad runda ar ett dokument - se arSerieLage.
   const serie = useMemo(() => byggSerie(vy?.punkter ?? []), [vy?.punkter]);
+
+  // RAPPORTEN (A4 + bilaga): bara pa en AVSLUTAD runda. Samma tillstand som sidan visar - origot ar det som beslutaOrigo betrodde
+  // (null = inga platser och ingen traktgrans i rapporten, hellre farre pinnar an en punkt pa fel plats).
+  const rapportModell = useMemo(() => {
+    if (!vy?.egenkontroll || vy.egenkontroll.status !== 'klar') return null;
+    return byggRapport(byggRapportIndata({
+      objektNamn: vy.objektNamn,
+      voNummer: vy.kartObjekt.vo_nummer,
+      runda: vy.egenkontroll,
+      punkter: vy.punkter,
+      observationer: vy.observationer,
+      foton: fotoRader,
+      provytor,
+      origo,
+      granserXy: markeringsGranser(kontext),
+    }));
+  }, [vy, fotoRader, provytor, origo, kontext]);
   const serieLage = arSerieLage({ harRunda: !!vy?.egenkontroll, klar: rundanKlar, terrangKvar, serieLangd: serie.length });
   // Ett val man gjort gallde dar och da - lamnar man avsluta-laget ska man mota det forsta obesvarade nasta gang.
   useEffect(() => { if (!serieLage) setValtKortId(null); }, [serieLage]);
@@ -1185,6 +1239,25 @@ export default function EgenkontrollRundaPage() {
                 Notera här
               </button>
             )}
+            {/* RUNDANS KOMMENTAR, under hela rundan (Martin 2026-10-19): man skriver bast vid stenmuren, inte i bilen hem. Ovanfor
+                Notera har. Samma falt som textfaltet i avslutsdialogen. */}
+            {!rundanKlar && (
+              <button
+                onClick={() => setVisaKommentar(true)}
+                aria-label="Kommentar om rundan"
+                style={{
+                  position: 'absolute', left: SIDMARGINAL, bottom: 52 + 52 + AVSTAND.s, zIndex: 10,
+                  minHeight: 48, padding: `0 ${AVSTAND.l}px`, borderRadius: RADIE.knapp, border: 'none',
+                  background: 'rgba(28,28,30,0.92)', color: FARG.text, ...TYP.listtitel, fontFamily: T.ff,
+                  display: 'flex', alignItems: 'center', gap: AVSTAND.s,
+                }}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 20 }}>
+                  {kommentarText.trim() ? 'edit_note' : 'notes'}
+                </span>
+                {kommentarText.trim() ? 'Kommentar skriven' : 'Kommentar'}
+              </button>
+            )}
           </div>
 
           {/* KORTET. Tar bara den plats det behover, och aldrig mer an 45 % av
@@ -1353,6 +1426,30 @@ export default function EgenkontrollRundaPage() {
                 maskiner={vy.egenkontroll.maskiner}
                 rundaId={vy.egenkontroll.id}
               />
+            )}
+
+            {/* RUNDANS KOMMENTAR i listan: texten syns, ett tryck oppnar arket. En klar runda visar den skrivskyddad (ingen text = ingen rad). */}
+            {vy.egenkontroll && !gaTill && (rundanKlar ? !!kommentarText.trim() : true) && (
+              <div style={{ marginTop: AVSTAND.s }}>
+                <button
+                  type="button"
+                  onClick={rundanKlar ? undefined : () => setVisaKommentar(true)}
+                  disabled={rundanKlar}
+                  style={{
+                    width: '100%', textAlign: 'left', background: FARG.kort, border: 'none', borderRadius: RADIE.kort,
+                    padding: AVSTAND.l, color: FARG.text, fontFamily: T.ff, minHeight: 44,
+                    display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m, cursor: rundanKlar ? 'default' : 'pointer',
+                  }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ ...TYP.micro, color: FARG.text2, display: 'block', marginBottom: AVSTAND.xs }}>KOMMENTAR OM RUNDAN</span>
+                    <span style={{ ...TYP.text, color: kommentarText.trim() ? FARG.text : FARG.text2, display: 'block', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                      {kommentarText.trim() ? kommentarText : 'Skriv några rader — de hamnar sist i rapporten.'}
+                    </span>
+                  </span>
+                  {!rundanKlar && <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22, color: FARG.text2 }}>chevron_right</span>}
+                </button>
+              </div>
             )}
 
             {/* Provytorna: oforandrade, men inte langre klistrade under en liten
@@ -1591,6 +1688,7 @@ export default function EgenkontrollRundaPage() {
                 {/* Avslutet. En klar runda visar ingen knapp alls - den ska
                     kannas last, inte som en knapp man inte far trycka pa. */}
                 {rundanKlar ? (
+                  <>
                   <div
                     style={{
                       marginTop: 28,
@@ -1615,6 +1713,9 @@ export default function EgenkontrollRundaPage() {
                       {anmarkningsText(antalAvvikelser, antalBattre)}
                     </span>
                   </div>
+                  {/* RAPPORTEN: A4 och bilaga (lib/egenkontrollRapport.ts). Bara pa en avslutad runda. */}
+                  {rapportModell && <RapportDela modell={rapportModell} />}
+                  </>
                 ) : serieLage ? null : (
                   <button
                     onClick={() => setVisaAvslutsdialog(true)}
@@ -1796,6 +1897,21 @@ export default function EgenkontrollRundaPage() {
                 />
               </div>
 
+              {/* KOMMENTAREN TILL RAPPORTEN: samma falt som arket under rundan, med det som redan star. Sista chansen - efteraat gar
+                  rundan inte att andra. Sparas FORE avslutet; gar det inte avslutas inte rundan. */}
+              <div style={{ marginBottom: AVSTAND.l }}>
+                <div style={{ ...TYP.micro, color: FARG.text2, marginBottom: AVSTAND.xs }}>KOMMENTAR TILL RAPPORTEN</div>
+                <textarea
+                  value={kommentarText}
+                  onChange={(e) => andraKommentar(e.target.value)}
+                  placeholder={KOMMENTAR_PLATSHALLARE}
+                  aria-label="Kommentar till rapporten"
+                  disabled={avslutar}
+                  style={{ ...KOMMENTAR_FALT, minHeight: 96, background: FARG.upphojt }}
+                />
+                <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Hamnar sist på sida 1. Valfritt.</div>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <button
                   onClick={avsluta}
@@ -1823,6 +1939,17 @@ export default function EgenkontrollRundaPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {visaKommentar && vy?.egenkontroll && !rundanKlar && (
+          <RundKommentarSheet
+            egenkontrollId={vy.egenkontroll.id}
+            sparad={vy.egenkontroll.kommentar}
+            text={kommentarText}
+            onText={andraKommentar}
+            onStang={() => setVisaKommentar(false)}
+            onSparad={() => { setVisaKommentar(false); setKommentarUtkast(null); ladda({ tyst: true }); }}
+          />
         )}
 
         {/* App-egen felruta - aldrig alert(), den blockeras tyst i inbaddade lagen. */}

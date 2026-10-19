@@ -54,6 +54,8 @@ export const SKARPA = [
   "components/admin/UtjamningsSektion.tsx",
   "components/admin/PeriodKalender.tsx",
   "components/admin/PeriodArk.tsx",
+  "app/egenkontroll/RundKommentarSheet.tsx",    // rundans kommentar (A4-rapporten) — tokens från början
+  "app/egenkontroll/RapportDela.tsx",            // Rapport till Vida — tokens från början
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
   "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad

@@ -15,7 +15,6 @@
 // pdf-lib (ren JS, fungerar i iOS-PWA:n) som Manadsfacit; standardfonterna klarar WinAnsi. Laddas dynamiskt
 // sa att pdf-lib inte hamnar i sidans bundle.
 
-import { OBSERVATION_TON } from './egenkontrollObservation';
 import { OMDOME_ETIKETT, type Bild, type Fynd, type LatLng, type RapportModell } from './egenkontrollRapport';
 
 const A4 = { b: 595.28, h: 841.89 };
@@ -156,7 +155,7 @@ export async function skapaRapportPdf(m: RapportModell): Promise<Uint8Array> {
     const nr = f.nr !== null ? `${f.nr}` : '';
     if (nr) text(nr, MARG, y, STEG.text, fet, SVART);
     const typ = f.typ ? ` · ${f.typ}` : '';
-    const ton = f.observation ? ` · ${OBSERVATION_TON[f.omdome].etikett}` : '';
+    const ton = f.observation ? ` · ${OMDOME_ETIKETT[f.omdome]}` : '';
     if (f.antalBilder > 0) {
       const t = 'Bild i bilagan';
       text(t, MARG + B - bredd(t, STEG.meta, normal), y + 1, STEG.meta, normal, GRA);
