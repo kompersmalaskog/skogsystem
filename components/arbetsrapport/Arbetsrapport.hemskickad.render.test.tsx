@@ -58,6 +58,9 @@ let rot: ReturnType<typeof createRoot> | null = null;
 let behallare: HTMLDivElement | null = null;
 
 beforeEach(() => {
+  // Fast klockslag (13:00 UTC = 15:00 svensk tid, efter passets slut 12:00): kvällsläget "Något fel?" visas först när passet är slut,
+  // så testet var rött varje dag före ca 12:00. Bara Date fakas — timers är riktiga (stilla() väntar på setTimeout).
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(IDAG + "T13:00:00Z"));
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   for (const k of Object.keys(DB)) delete DB[k];
   SKRIVET.length = 0;
@@ -71,7 +74,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => { rot?.unmount(); });
   behallare?.remove(); rot = null; behallare = null;
-  vi.restoreAllMocks(); vi.unstubAllGlobals();
+  vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
 const stilla = async (n = 4) => { for (let i = 0; i < n; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); }); };
