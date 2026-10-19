@@ -1,10 +1,9 @@
-// Svarens ord och farger - EN gang, delat av kolumnen (page.tsx) och serien (UtforandeSerie.tsx).
+// Svarens ord och farger - EN gang, delat av rundvyn (page.tsx), provytorna och Oversikten.
 //
 // Ligger i en egen fil for att en Next-sida bara far exportera sin default: det som
-// bada vyerna behover kan inte bo i page.tsx.
+// flera vyer behover kan inte bo i page.tsx.
 
 import { T } from '@/lib/listTema';
-import type { PunktDel, PunktStatus } from '@/lib/egenkontroll';
 
 // GULT, INTE ROTT, for "Kan bli battre". Ingen har brutit mot nagot - blir det
 // rott slutar folk satta det, och da far vi "Godkant" pa allt och verktyget ar
@@ -26,16 +25,3 @@ export function statusEtikett(status: string | null): { text: string; farg: stri
   if (status && STATUS_TEXT[status]) return STATUS_TEXT[status];
   return { text: 'Obesvarad', farg: T.t2 };
 }
-
-/** Knapparna per del. Aldrig fler an dessa - tre val ar redan gransen i hytt. */
-export const SVARSALTERNATIV: Record<PunktDel, { status: PunktStatus; etikett: string; farg: string }[]> = {
-  plan: [
-    { status: 'ok', etikett: 'OK', farg: T.green },
-    { status: 'avvikelse', etikett: 'Avvikelse', farg: T.red },
-  ],
-  utforande: [
-    { status: 'bra', etikett: 'Bra', farg: T.green },
-    { status: 'godkant', etikett: 'Godkänt', farg: T.blue },
-    { status: 'battre', etikett: 'Kan bli bättre', farg: GUL },
-  ],
-};

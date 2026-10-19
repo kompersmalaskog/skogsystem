@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { utforandeKatalog } from '@/lib/egenkontroll';
-import { RAD_MAX_DVH } from '@/lib/egenkontrollBricka';
+import { DOCK_SKYDD_MS, RAD_MAX_DVH } from '@/lib/egenkontrollBricka';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -111,9 +111,17 @@ const radKnapp = (svar: string) => document.querySelector(`[data-testid=bricka-r
 const ark = () => document.querySelector('[data-testid=rund-ark]') as HTMLElement;
 const huvud = () => document.querySelector('[data-testid=kart-huvud]') as HTMLElement;
 
+// Klockan som dockvakten läser (Date.now): verklig tid + ett förskott testet själv skjuter fram. Utan förskott ligger två tryck i ett test
+// några millisekunder isär, alltså INOM skyddstiden — precis som ett dubbeltryck. `efterSkyddet()` = nästa tryck är ett nytt, avsiktligt.
+let klockForskott = 0;
+const efterSkyddet = () => { klockForskott += DOCK_SKYDD_MS + 50; };
+
 const kartObjekt = { lat: 56.05, lng: 14.05, vo_nummer: '1', kartbild_url: null, kartbild_bounds: [[56.0, 14.0], [56.1, 14.1]] };
 
 beforeEach(() => {
+  klockForskott = 0;
+  const verkligNu = Date.now.bind(Date);
+  vi.spyOn(Date, 'now').mockImplementation(() => verkligNu() + klockForskott);
   localStorage.clear();
   foton = [];
   (URL as any).createObjectURL = vi.fn(() => 'blob:test');
@@ -127,6 +135,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.mocked(Date.now).mockRestore();
   if (root) await act(async () => { root!.unmount(); });
   host?.remove();
   root = null;
@@ -240,8 +249,10 @@ describe('TRYCK MARKERAR, RADEN SVARAR', () => {
     await klick(bricka('u5'));
     await klick(radKnapp('godkant')!);
     expect(svaraPaPunkt).toHaveBeenLastCalledWith('u5', 'godkant', 'utforande');
+    efterSkyddet();
     await klick(radKnapp('battre')!);
     expect(svaraPaPunkt).toHaveBeenLastCalledWith('u5', 'battre', 'utforande');
+    efterSkyddet();
     await klick(radKnapp('bra')!);
     expect(svaraPaPunkt).toHaveBeenLastCalledWith('u5', 'bra', 'utforande');
     // ...och aldrig mot en annan punkt.
@@ -282,6 +293,7 @@ describe('TRYCK MARKERAR, RADEN SVARAR', () => {
     await montera();
     await klick(bricka('u1'));
     expect(document.querySelector('[data-testid=angra-kvitto]')).not.toBeNull();
+    efterSkyddet();
     await klick(radKnapp('godkant')!);
     expect(document.querySelector('[data-testid=angra-kvitto]')).toBeNull();
   });
@@ -293,6 +305,62 @@ describe('TRYCK MARKERAR, RADEN SVARAR', () => {
     expect(bricka('u6').getAttribute('data-status')).toBe('');
     expect(text()).toContain('Kunde inte spara svaret: nät');
     expect(document.querySelector('[data-testid=angra-kvitto]')).toBeNull();
+  });
+});
+
+describe('DOCKVAKTEN: två tryck inom skyddstiden ger ETT svar, inte två (handske, kall skärm, tum som studsar)', () => {
+  it('dubbeltryck på samma obesvarade bricka: ett svar', async () => {
+    await montera();
+    await klick(bricka('u3'));
+    await klick(bricka('u3'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+  });
+
+  it('ett andra tryck på ANNAN bricka (där den första flyttat sig) skriver ingenting och markerar ingenting', async () => {
+    await montera();
+    await klick(bricka('u3'));
+    await klick(bricka('u4'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    expect(svaraPaPunkt).toHaveBeenCalledWith('u3', 'bra', 'utforande');
+    expect(bricka('u4').getAttribute('data-status')).toBe('');
+    expect(bricka('u4').getAttribute('aria-pressed')).toBe('false');
+    expect(bricka('u3').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('ett sent tryck i RADEN direkt efter bricktrycket skriver inte över Bra', async () => {
+    await montera();
+    await klick(bricka('u3'));
+    await klick(radKnapp('godkant')!);
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    expect(bricka('u3').getAttribute('data-status')).toBe('bra');
+  });
+
+  it('dubbeltryck på en radknapp: ett svar', async () => {
+    vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 5: { status: 'bra' } })] };
+    await montera();
+    await klick(bricka('u5'));
+    await klick(radKnapp('battre')!);
+    await klick(radKnapp('godkant')!);
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    expect(svaraPaPunkt).toHaveBeenCalledWith('u5', 'battre', 'utforande');
+  });
+
+  it('efter skyddstiden gäller nästa tryck igen — skyddet är en kort paus, ingen spärr', async () => {
+    await montera();
+    await klick(bricka('u3'));
+    efterSkyddet();
+    await klick(bricka('u4'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(2);
+    expect(svaraPaPunkt).toHaveBeenLastCalledWith('u4', 'bra', 'utforande');
+  });
+
+  it('ett tryck som bara MARKERAR (besvarad bricka) startar inget skydd: man kan bläddra och sedan svara direkt', async () => {
+    vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 0: { status: 'bra' } })] };
+    await montera();
+    await klick(bricka('u0'));
+    await klick(bricka('u1'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    expect(svaraPaPunkt).toHaveBeenCalledWith('u1', 'bra', 'utforande');
   });
 });
 
@@ -458,6 +526,7 @@ describe('RUNDA UTAN KOORDINATER: tom kartbakgrund, förklarande rad, brickorna 
     expect(brickor()).toHaveLength(11);
     await klick(bricka('u0'));
     expect(svaraPaPunkt).toHaveBeenCalledWith('u0', 'bra', 'utforande');
+    efterSkyddet();
     await klick(radKnapp('battre')!);
     expect(svaraPaPunkt).toHaveBeenLastCalledWith('u0', 'battre', 'utforande');
   });

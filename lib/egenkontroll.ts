@@ -759,8 +759,8 @@ function utforandeRad(mall: UtforandeMall) {
 //  - Bara ADDITIVT. Aldrig en borttagning eller andring av en befintlig punkt; en slug som katalogen slutat anvanda ligger kvar.
 //  - Bara en PAGAENDE runda. En klar runda ror vi aldrig (databasen lasar den ocksa - egenkontroll_punkt_last avvisar INSERT).
 //  - EN LASARE SKRIVER ALDRIG: det har ar en egen funktion som sidan anropar, inte en bieffekt i hamtaRunda (Oversikten laser samma vag).
-//  - Nya punkter far ordning max+1.. (observationer raknas inte; de har ordning 0 och eget index). Serien sorteras pa del fore ordning
-//    (byggSerie), sa de hamnar sist bland utforandet oavsett var i ordningen de ligger.
+//  - Nya punkter far ordning max+1.. (observationer raknas inte; de har ordning 0 och eget index). Brickorna byggs ur katalogen (byggBrickor), sa de
+//    hamnar sist bland utforandet oavsett var i ordningen de ligger.
 //  - Samtidiga enheter: bada raknar samma max+1, det partiella unika indexet egenkontroll_punkt_ordning_plan_key later EN igenom och den andra
 //    far 23505 - da LASER vi om och ser att det redan ar gjort. Inget extra index behovs (se STATUS.md om ett eget index pa slugen).
 
