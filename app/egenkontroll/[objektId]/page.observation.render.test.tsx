@@ -165,12 +165,13 @@ describe('kartan: Notera här', () => {
 });
 
 describe('raknarna: observationer ar tillagg, inte punkter', () => {
-  it('"N av M klara" raknar bara planpunkterna - tva observationer andrar inte talet', async () => {
+  it('"N kvar" (huvudet och avslutsknappen) raknar bara punkterna - tva observationer andrar inte talet', async () => {
     await montera();
-    // Listan ligger i arket under brickorna (alltid i DOM, ej nåbar i dock-läget) — läs rubriken.
-    expect(text()).toContain('1 av 2 klara');
-    expect(text()).not.toContain('av 4 klara');
-    expect(text()).not.toContain('3 av');
+    // En obesvarad punkt kvar. Hade observationerna raknats blev det 3.
+    expect(document.querySelector('[data-testid=kart-huvud]')!.textContent).toContain('1 kvar');
+    expect(text()).toContain('Avsluta rundan — 1 punkt kvar');
+    expect(text()).not.toContain('3 kvar');
+    expect(text()).not.toContain('3 punkter kvar');
   });
 
   it('en observation med tonen Avvikelse ger INGEN avvikelse i planens sammanfattning', async () => {
@@ -189,16 +190,12 @@ describe('raknarna: observationer ar tillagg, inte punkter', () => {
     expect(text()).toContain('Fotot saknas.');
   });
 
-  it('observationerna star inte bland planpunkternas rader', async () => {
+  it('observationerna star inte bland nagra punkter - hel-laget har ingen punktlista, bara observationerna under sin egen rubrik', async () => {
     await montera();
-    // Planpunkternas grupp ("Hänsyn") och observationerna ar tva skilda block: den ena innehaller inte den andra.
-    const hansyn = rubrik('Hänsyn')!.parentElement!.parentElement!;
     const observationer = rubrik('Observationer')!.parentElement!.parentElement!;
-    expect(hansyn.contains(observationer)).toBe(false);
-    expect(observationer.contains(hansyn)).toBe(false);
-    expect(hansyn.textContent).not.toContain('Rishög');
-    expect(hansyn.textContent).toContain('Punkt p1');
+    expect(observationer.textContent).toContain('Rishög');
     expect(observationer.textContent).not.toContain('Punkt p1');
+    expect(document.querySelector('[data-testid=plan-rad]')).toBeNull();
   });
 
   it('i avslutsdialogen star observationerna som egen rad, skild fran Punkter', async () => {

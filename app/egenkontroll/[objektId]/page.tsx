@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
 import PageContainer from '@/components/PageContainer';
+import { typLabel } from '@/lib/objekt/typ';
 import { T } from '@/lib/utbildning';
 import {
   hamtaRunda,
@@ -44,7 +45,6 @@ import {
   sparaRundKommentar,
   kompletteraRunda,
   saknadeUtforandepunkter,
-  utforandeUnderrad,
   hamtaFoton,
   hamtaKontextmarkeringar,
   hamtaVidaGrans,
@@ -55,13 +55,10 @@ import {
   punktPlatser,
   stubbeDom,
   KRAVNIVA_STUBBEHANDLING,
-  AVVIKELSE_ETIKETT,
-  GRUPPER,
   type RundVy,
   type EgenkontrollPunkt,
   type PunktDel,
   type PunktStatus,
-  type AvvikelseTyp,
   type EgenkontrollFoto,
   type EgenkontrollProvyta,
 } from '@/lib/egenkontroll';
@@ -109,7 +106,6 @@ import { nastaGreppLage, type ArkLage } from '@/lib/egenkontrollArk';
 import {
   UTAN_POSITION_MENING,
   avstandPerPunkt as beraknaAvstand,
-  ordnaGruppEfterAvstand,
   positionSkalText,
 } from '@/lib/egenkontrollFlode';
 import { useLevandePosition, type LevandePosition } from '../useMinPosition';
@@ -141,60 +137,6 @@ function stamBeskrivning(stammar: LatLng[] | null, fel: boolean): string {
   if (fel) return 'Kunde inte läsas — försök igen senare';
   if (stammar.length === 0) return 'Inga hittades för objektet';
   return `${stammar.length.toLocaleString('sv-SE')} stammar ur maskindatan`;
-}
-
-/**
- * Grupp och sedan ordning. Presentationsordning valjs HAR, i vyn - ordning
- * ar punktens plats i rundan, inte ett lofte om hur den ska visas. Grupper
- * som inte finns i GRUPPER hamnar sist i stallet for att forsvinna.
- */
-function gruppera(punkter: EgenkontrollPunkt[]): { grupp: string; punkter: EgenkontrollPunkt[] }[] {
-  const per = new Map<string, EgenkontrollPunkt[]>();
-  for (const p of punkter) {
-    const g = p.grupp ?? 'Övrigt';
-    if (!per.has(g)) per.set(g, []);
-    per.get(g)!.push(p);
-  }
-  const rang = (g: string) => {
-    const i = (GRUPPER as readonly string[]).indexOf(g);
-    return i === -1 ? GRUPPER.length : i;
-  };
-  return Array.from(per.entries())
-    .map(([grupp, ps]) => ({ grupp, punkter: [...ps].sort((a, b) => a.ordning - b.ordning) }))
-    .sort((a, b) => rang(a.grupp) - rang(b.grupp) || (a.grupp < b.grupp ? -1 : 1));
-}
-
-/**
- * En punkt som DOKUMENT: svar, kommentar och foton som text och bild, utan en enda svarsknapp. Bara pa en AVSLUTAD runda (listan i arket) -
- * pa en oppen runda svarar man via brickorna och raden (BrickaRad). Planerarens kommentar star under rubriken, mindre och nedtonad;
- * saknas den ritas ingenting.
- */
-function PunktDokument({ punkt, fotoUrler }: { punkt: EgenkontrollPunkt; fotoUrler: string[] }) {
-  const etikett = statusEtikett(punkt.status);
-  const underrad = punkt.del === 'utforande' ? utforandeUnderrad(punkt.punkt_typ) : null;
-  const hjalptext = punkt.plan_kommentar ?? underrad;
-  return (
-    <div style={{ background: FARG.upphojt, borderRadius: RADIE.kort, padding: AVSTAND.m, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-      <div style={{ ...TYP.listtitel }}>{punkt.rubrik}</div>
-      {hjalptext && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{hjalptext}</div>}
-      {/* Typen i TEXT bredvid statusen - fargen bar aldrig ensam. */}
-      <div style={{ ...TYP.meta, color: etikett.farg }}>
-        {etikett.text}
-        {punkt.avvikelse_typ && (
-          <span style={{ color: FARG.text2 }}>{' · '}{AVVIKELSE_ETIKETT[punkt.avvikelse_typ as AvvikelseTyp] ?? punkt.avvikelse_typ}</span>
-        )}
-      </div>
-      {punkt.kommentar && <div style={{ ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{punkt.kommentar}</div>}
-      {fotoUrler.length > 0 && (
-        <div style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap', marginTop: AVSTAND.xs }}>
-          {fotoUrler.map((url) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={url} src={url} alt="" style={{ width: TRAFFYTA.primar + AVSTAND.s, height: TRAFFYTA.primar + AVSTAND.s, borderRadius: RADIE.rad, objectFit: 'cover' }} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /** Rad i avslutsdialogen. Siffran ar hogerstalld sa tre rader gar att skanna. */
@@ -287,17 +229,16 @@ function MatningsKort({
 }
 
 /**
- * En planpunkt i listan i arket: rubriken och svaret i ORD (eller avstandet / "Kvar"). Ett tryck MARKERAR punkten (kartan visar den och raden i
- * dockan bar svarsknapparna) - listan svarar aldrig sjalv. Den markerade raden ar inverterad, sa markeringen inte hanger pa en farg.
+ * En planpunkt som INTE har nagon plats pa kartan (ingen betrodd kartplacering): den enda vagen att MARKERA den. Alla andra planpunkter markeras
+ * genom att man trycker pa dem pa kartan - de ar aldrig med har. Raden svarar aldrig sjalv: ett tryck markerar punkten och raden i dockan
+ * bar svarsknapparna, precis som for en punkt pa kartan.
  */
 function PunktRad({
   punkt,
-  avstand,
   markerad,
   onMarkera,
 }: {
   punkt: EgenkontrollPunkt;
-  avstand: number | null;
   markerad: boolean;
   onMarkera: () => void;
 }) {
@@ -318,7 +259,7 @@ function PunktRad({
     >
       <span style={{ ...TYP.listtitel }}>{punkt.rubrik}</span>
       <span style={{ ...TYP.meta, color: markerad ? FARG.bg : besvarad ? et.farg : FARG.text2, whiteSpace: 'nowrap', flexShrink: 0 }}>
-        {besvarad ? `✓ ${et.text}` : avstand != null ? avstandText(avstand) : 'Kvar'}
+        {besvarad ? `✓ ${et.text}` : 'Kvar'}
       </span>
     </button>
   );
@@ -393,8 +334,6 @@ export default function EgenkontrollRundaPage() {
 
   // ARKETS LAGE och det MARKERADE: val man gjort pa skarmen - ingenting harleds, ingenting lagras.
   const [arkLage, setArkLage] = useState<ArkLage>('dock');
-  // Listans avstand FRYSES nar arket oppnas: rader som sorterar om sig under fingret ar varre an ett avstand som ar nagra sekunder gammalt.
-  const [frystPos, setFrystPos] = useState<MinPosition>(null);
   // Kartans padding mats om nar arket bytt lage (matNyckel); sidoknapparna doljs medan arket dras.
   const huvudRef = useRef<HTMLElement>(null);
   const malRef = useRef<HTMLDivElement>(null);
@@ -648,10 +587,6 @@ export default function EgenkontrollRundaPage() {
     () => (vy?.punkter ?? []).filter((p) => p.del === 'plan'),
     [vy?.punkter],
   );
-  const utforandepunkter = useMemo(
-    () => (vy?.punkter ?? []).filter((p) => p.del === 'utforande').sort((a, b) => a.ordning - b.ordning),
-    [vy?.punkter],
-  );
   const matningspunkter = useMemo(
     () => (vy?.punkter ?? []).filter((p) => p.del === 'matning').sort((a, b) => a.ordning - b.ordning),
     [vy?.punkter],
@@ -666,8 +601,6 @@ export default function EgenkontrollRundaPage() {
       .sort((a, b) => a.ordning - b.ordning),
     [vy?.punkter],
   );
-
-  const grupper = useMemo(() => gruppera(planpunkter), [planpunkter]);
 
   // ORIGO: objektStartKamera, SAMMA som planeringsvyn, med ett kvitto mot Vidas traktgrans nar objektet saknar kartbild_bounds
   // (lib/egenkontrollOrigo.ts - lasa huvudet dar innan du andrar nagot har, och SKRIV ALDRIG kartbild_bounds for att losa det).
@@ -695,32 +628,21 @@ export default function EgenkontrollRundaPage() {
   const origo = useMemo(() => origoVarde, [origoVarde?.lat, origoVarde?.lng, origoVarde?.zoom]);
 
   // Avstand och riktning per punkt (en LINJE matas till sin narmaste brytpunkt -
-  // lib/egenkontrollFlode.ts). TVA uppsattningar, med flit:
-  //   LEVANDE  ur din position nu    - kortet pa kartan ("narmaste obesvarade")
-  //   LISTAN   ur positionen i det ogonblick listan oppnades - fryst, sa att rader
-  //            inte sorterar om sig under fingret
+  // lib/egenkontrollFlode.ts), ur din position nu. Visas pa raden i dockan for den markerade planpunkten.
   const avstandLive = useMemo(
     () => beraknaAvstand(planpunkter, origo, minPosition),
     [planpunkter, origo, minPosition],
   );
-  const avstandLista = useMemo(
-    () => beraknaAvstand(planpunkter, origo, frystPos),
-    [planpunkter, origo, frystPos],
-  );
 
-  // Punkterna som FINNS pa kartan. Resten gar bara att svara pa i listan - de
-  // gissas aldrig in pa kartan och blir aldrig en "narmaste".
+  // Punkterna som FINNS pa kartan. De markeras genom att man trycker pa dem dar. Resten gissas aldrig in pa kartan - de far en egen,
+  // snal lista i arket (planUtanPlats) sa att de inte blir omojliga att besvara.
   const harPlats = useMemo(() => {
     const s = new Set<string>();
     if (!origo) return s;
     for (const p of planpunkter) if (punktPlatser(p, origo).length > 0) s.add(p.id);
     return s;
   }, [planpunkter, origo]);
-  const antalPlan = planpunkter.length;
-  const besvaradePlan = planpunkter.filter((p) => p.status !== null).length;
   const antalAvvikelser = planpunkter.filter((p) => p.status === 'avvikelse').length;
-  const antalUtforande = utforandepunkter.length;
-  const besvaradeUtforande = utforandepunkter.filter((p) => p.status !== null).length;
   const antalMatning = matningspunkter.length;
   const besvaradeMatning = matningspunkter.filter((p) => p.status !== null).length;
 
@@ -803,8 +725,6 @@ export default function EgenkontrollRundaPage() {
       areal: vy.kartObjekt.areal ?? null,
     }));
   }, [vy, fotoRader, provytor, origo, kontext, kontextStatus, rapportKartdata]);
-  // Listans avstand fryses nar arket oppnas (se frystPos).
-  useEffect(() => { setFrystPos(arkLage === 'dock' ? null : minPosition); }, [arkLage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ANGRA star i ANGRA_MS - och forsvinner om svaret hunnit andras med raden (da vore Angra att skriva over ett annat svar).
   useEffect(() => {
@@ -861,24 +781,10 @@ export default function EgenkontrollRundaPage() {
     setObservationSheet({ lage: 'ny', start: pos.status === 'ok' ? pos.position : null });
   };
 
-  // Planpunkterna i listan. Bara en AVSLUTAD runda visar dem som dokument (svar, kommentar, foto); en oppen runda visar markeringsrader.
-  const planLista = grupper.map(({ grupp, punkter }) => {
-    const ordnade = ordnaGruppEfterAvstand(punkter, avstandLista);
-    return (
-      <div key={grupp}>
-        <SectionHeader>{grupp}</SectionHeader>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-          {ordnade.map((p) =>
-            rundanKlar ? (
-              <PunktDokument key={p.id} punkt={p} fotoUrler={fotoPerPunkt[p.id] ?? []} />
-            ) : (
-              <PunktRad key={p.id} punkt={p} avstand={avstandLista.get(p.id)?.m ?? null} markerad={markeradId === p.id} onMarkera={() => markeraPunkt(p.id)} />
-            ),
-          )}
-        </div>
-      </div>
-    );
-  });
+  // PLANPUNKTER UTAN PLATS PA KARTAN: de enda planpunkter som far en rad i arket. Alla andra markeras pa kartan och besvaras i raden i dockan -
+  // en punkt har EN vag in, aldrig tva. Utan en betrodd kartplacering (t.ex. objekt vars traktgrans saknas, se lib/egenkontrollOrigo.ts) finns
+  // ingen symbol att trycka pa, och da vore punkten omojlig att besvara och rundan omojlig att avsluta. Avslutad runda: ingen lista.
+  const planUtanPlats = rundanKlar ? [] : planpunkter.filter((p) => !harPlats.has(p.id)).sort((a, b) => a.ordning - b.ordning);
 
   const sidoknapparSynliga = arkLage !== 'hel' && !drar;
   const sidoBottom = (extra: number) => `${mat.bottom + AVSTAND.m + extra}px`;
@@ -888,15 +794,22 @@ export default function EgenkontrollRundaPage() {
     display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', pointerEvents: 'none', zIndex: 5,
   });
 
-  // RUNDAN-INNEHALLET: det som syns nar arket dras upp, under brickorna.
+  // RUNDAN-INNEHALLET: det som syns nar arket dras upp, under brickorna. RUNDAN, INTE PUNKTERNA (Martin 2026-10-19): utforandepunkterna bor i
+  // dockan och planpunkterna pa kartan, och ingen av dem har en rad har - annars gar samma punkt att namnge och markera pa tva stallen, och
+  // det ar den gamla fraga-listan tillbaka bakom ett drag. Har ligger: objektets namn och atgard, vagbeskrivningen (PR 5), forutsattningarna,
+  // kommentaren, matningarna (stubbehandling och provytor, som inte ar brickor), observationerna och avslutet. Undantaget ar planUtanPlats.
   const rundanInnehall = vy?.egenkontroll ? (
     <>
-      <div style={{ marginTop: AVSTAND.s }}>
-        <div style={{ ...TYP.rubrik }}>{besvaradePlan} av {antalPlan} klara</div>
+      <div style={{ marginTop: AVSTAND.s }} data-testid="rund-rubrik">
+        <div style={{ ...TYP.rubrik }}>{vy.objektNamn}</div>
+        <div style={{ ...TYP.text, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>{typLabel(vy.egenkontroll.objekt_typ)}</div>
         <p style={{ ...TYP.text, color: antalAvvikelser > 0 ? FARG.rod : antalBattre > 0 ? FARG.orange : FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>
           {anmarkningsText(antalAvvikelser, antalBattre)}
         </p>
       </div>
+
+      {/* VAGBESKRIVNINGEN: PR 5 lagger in den har, direkt under namn och atgard (innan forutsattningarna). Ingenting ritas till dess -
+          ett tomt kort ar en tom rad. */}
 
       {kompletteringSaknas > 0 && !rundanKlar && (
         <div role="status" style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.s}px 0 0` }}>
@@ -947,23 +860,17 @@ export default function EgenkontrollRundaPage() {
         <div style={{ margin: `${AVSTAND.s}px 0` }}><PositionRad pos={pos} /></div>
       )}
 
-      {antalPlan === 0 ? (
-        <div style={{ background: FARG.upphojt, borderRadius: RADIE.kort, padding: AVSTAND.l, marginTop: AVSTAND.s }}>
-          <div style={{ ...TYP.text }}>Rundan har inga punkter mot planen.</div>
-          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-            Objektet saknade markeringar som blir kontrollpunkter — hänsyn, kulturlämningar, basvägar eller avlägg.
+      {/* PLANPUNKTER UTAN PLATS PA KARTAN - den enda punktlistan, och bara nar det finns sadana (se planUtanPlats). */}
+      {planUtanPlats.length > 0 && (
+        <div data-testid="plan-utan-plats">
+          <SectionHeader>Saknar plats på kartan</SectionHeader>
+          <div style={{ ...TYP.meta, color: FARG.text2, padding: `0 ${AVSTAND.l}px ${AVSTAND.s}px` }}>
+            Du kan inte trycka på dem på kartan. Tryck här och svara i raden under kartan.
           </div>
-        </div>
-      ) : (
-        planLista
-      )}
-
-      {/* UTFORANDET i den avslutade rundan: dokumentet visar varje punkt med svar, kommentar och foton. En oppen runda har brickorna i dockan. */}
-      {rundanKlar && antalUtforande > 0 && (
-        <div>
-          <SectionHeader>Utförandet</SectionHeader>
           <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            {utforandepunkter.map((p) => <PunktDokument key={p.id} punkt={p} fotoUrler={fotoPerPunkt[p.id] ?? []} />)}
+            {planUtanPlats.map((p) => (
+              <PunktRad key={p.id} punkt={p} markerad={markeradId === p.id} onMarkera={() => markeraPunkt(p.id)} />
+            ))}
           </div>
         </div>
       )}
@@ -1003,13 +910,10 @@ export default function EgenkontrollRundaPage() {
         </div>
       )}
 
-      {/* Fallback: en okand del ska synas, inte forsvinna. */}
+      {/* En okand del far aldrig forsvinna tyst - avslutaRunda raknar den. Antalet sags, punkten namnges inte (ingen punktlista har). */}
       {ovrigaPunkter.length > 0 && (
-        <div>
-          <SectionHeader>Övrigt</SectionHeader>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-            {ovrigaPunkter.map((p) => <PunktDokument key={p.id} punkt={p} fotoUrler={fotoPerPunkt[p.id] ?? []} />)}
-          </div>
+        <div role="status" data-testid="okand-del" style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.s }}>
+          {ovrigaPunkter.length === 1 ? '1 punkt av en okänd sort kan inte visas här' : `${ovrigaPunkter.length} punkter av en okänd sort kan inte visas här`}.
         </div>
       )}
 

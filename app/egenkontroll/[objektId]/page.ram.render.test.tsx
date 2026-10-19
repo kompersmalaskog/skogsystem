@@ -401,6 +401,121 @@ describe('RUNDA UTAN KOORDINATER: tom kartbakgrund, förklarande rad, brickorna 
   });
 });
 
+describe('HEL-LÄGET: rundan, inte punkterna', () => {
+  // Utförandepunkterna bor i dockan och planpunkterna på kartan. En punkt som också har en rad i hel går att namnge och markera på två ställen -
+  // den gamla frågelistan tillbaka bakom ett drag. Hel innehåller rundan: namn och åtgärd, kommentaren, mätningarna, observationerna, avslutet.
+  const innehall = () => document.querySelector('[data-testid=ark-innehall]') as HTMLElement;
+  const oppnaHel = async () => { await klick(document.querySelector('[data-testid=ark-grepp]')!); };
+
+  it('INGEN punkts namn och ingen svarsknapp renderas i hel — varken planpunkt eller utförandepunkt; brickorna finns bara i dockan', async () => {
+    await montera();
+    await oppnaHel();
+    expect(ark().getAttribute('data-lage')).toBe('hel');
+    const h = innehall();
+    for (const p of vyn.punkter) expect(h.textContent, `hel nämner "${p.rubrik}"`).not.toContain(p.rubrik);
+    expect(h.querySelector('[data-testid=plan-rad]')).toBeNull();
+    expect(h.querySelector('[data-testid=bricka]')).toBeNull();
+    expect(h.querySelector('[data-testid=bricka-rad]')).toBeNull();
+    expect(h.querySelector('[data-svar]')).toBeNull();
+    expect(h.querySelector('[data-testid=plan-utan-plats]')).toBeNull();
+    expect(brickor()).toHaveLength(11);
+    for (const b of brickor()) expect(h.contains(b)).toBe(false);
+  });
+
+  it('en markerad punkt har sin rad i DOCKAN, aldrig i hel', async () => {
+    await montera();
+    await klick(bricka('u2'));
+    await oppnaHel();
+    expect(raden()).not.toBeNull();
+    expect(innehall().contains(raden())).toBe(false);
+    expect(innehall().textContent).not.toContain(vyn.punkter.find((p: any) => p.id === 'u2').rubrik);
+  });
+
+  it('hel innehåller rundan: objektets namn och åtgärd, kommentaren och Avsluta rundan', async () => {
+    await montera();
+    await oppnaHel();
+    const h = innehall();
+    const rubrik = h.querySelector('[data-testid=rund-rubrik]')!;
+    expect(rubrik.textContent).toContain('Ravemåla');
+    expect(rubrik.textContent).toContain('Slutavverkning');
+    expect(h.contains(document.querySelector('[data-testid=kommentar-rad]'))).toBe(true);
+    expect(h.contains(document.querySelector('[data-testid=avsluta-knapp]'))).toBe(true);
+  });
+
+  it('åtgärden följer rundans typ: Gallring på en gallringsrunda', async () => {
+    vyn = { ...vyn, egenkontroll: { ...RUNDA, objekt_typ: 'gallring' }, punkter: [rad('p1'), ...utforande('gallring')] };
+    await montera();
+    await oppnaHel();
+    expect(innehall().querySelector('[data-testid=rund-rubrik]')!.textContent).toContain('Gallring');
+  });
+
+  it('en AVSLUTAD runda listar inte heller punkterna i hel (förut ett dokument per punkt) — bara rundan och rapporten', async () => {
+    vyn = {
+      ...vyn,
+      egenkontroll: { ...RUNDA, status: 'klar', klar: '2026-10-17T12:00:00Z' },
+      punkter: [rad('p1', { status: 'ok' }), ...utforande('slutavverkning', { 0: { status: 'bra', kommentar: 'Rishögarna ligger bra' } })],
+    };
+    await montera();
+    await oppnaHel();
+    const h = innehall();
+    for (const p of vyn.punkter) expect(h.textContent, `hel nämner "${p.rubrik}"`).not.toContain(p.rubrik);
+    expect(h.textContent).not.toContain('Rishögarna ligger bra');
+    expect(h.textContent).not.toContain('Utförandet');
+    expect(h.textContent).toContain('Avslutad');
+  });
+
+  it('mätningarna (stubbehandling) ligger kvar i hel — de är inga brickor och har ingen annan väg in', async () => {
+    vyn = { ...vyn, punkter: [rad('p1'), ...utforande(), rad('stubbe', { ordning: 40, del: 'matning', kalla: 'fast', grupp: null, punkt_typ: 'stubbehandling', rubrik: 'Stubbehandling', geometri_snapshot: null })] };
+    await montera();
+    await oppnaHel();
+    expect(innehall().textContent).toContain('Mät stubbehandling');
+  });
+});
+
+describe('HEL-LÄGET: planpunkter UTAN plats på kartan är det enda som får en rad (annars omöjliga att besvara)', () => {
+  const innehall = () => document.querySelector('[data-testid=ark-innehall]') as HTMLElement;
+  const utanPlats = () => ({
+    objektNamn: 'Utan plats', objektStatus: 'pagaende', egenkontroll: RUNDA, observationer: [],
+    kartObjekt: { lat: null, lng: null, vo_nummer: null, kartbild_url: null, kartbild_bounds: null },
+    punkter: [rad('p1', { geometri_snapshot: null }), rad('p2', { ordning: 2, geometri_snapshot: null, status: 'ok' }), ...utforande()],
+  });
+  beforeEach(() => {
+    positionen = { status: 'saknas', position: null, skal: 'ingen_gps', senasteNoggrannhet: null, forsokIgen: () => {} };
+  });
+
+  it('utan kartplacering listas planpunkterna under en egen rubrik, och ett tryck MARKERAR (raden i dockan svarar)', async () => {
+    vyn = utanPlats();
+    await montera();
+    const block = innehall().querySelector('[data-testid=plan-utan-plats]')!;
+    expect(block).not.toBeNull();
+    expect(block.textContent).toContain('Saknar plats på kartan');
+    expect(block.querySelectorAll('[data-testid=plan-rad]')).toHaveLength(2);
+    expect(svaraPaPunkt).not.toHaveBeenCalled();
+    await klick(block.querySelector('[data-testid=plan-rad]')!);
+    expect(svaraPaPunkt).not.toHaveBeenCalled();
+    expect(raden()!.textContent).toContain('Punkt p1');
+    expect(radKnapp('ok')).not.toBeNull();
+    expect(innehall().contains(raden())).toBe(false);
+  });
+
+  it('en punkt har EN väg in: finns den på kartan har den ingen rad, saknas den finns den bara i listan', async () => {
+    await montera(); // standardrundan: båda planpunkterna har en plats
+    expect(innehall().querySelector('[data-testid=plan-utan-plats]')).toBeNull();
+    expect(document.querySelector('[data-testid=karta-punkt-p1]')).not.toBeNull();
+    await act(async () => { root!.unmount(); });
+    host?.remove();
+    vyn = utanPlats();
+    await montera();
+    expect(innehall().querySelector('[data-testid=plan-utan-plats]')).not.toBeNull();
+  });
+
+  it('en avslutad runda har ingen sådan lista', async () => {
+    vyn = { ...utanPlats(), egenkontroll: { ...RUNDA, status: 'klar', klar: '2026-10-17T12:00:00Z' } };
+    await montera();
+    expect(innehall().querySelector('[data-testid=plan-utan-plats]')).toBeNull();
+  });
+});
+
 describe('arket dras i greppet: två lägen med riktig höjd (offsetHeight stubbad — jsdom har ingen layout)', () => {
   const orig = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
   beforeEach(() => {
