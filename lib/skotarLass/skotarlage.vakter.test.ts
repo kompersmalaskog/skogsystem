@@ -37,12 +37,17 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).toMatch(/height: `calc\(env\(safe-area-inset-top, 0px\) \+ \$\{TESTBANNER_HOJD_PX\}px\)`/);
     expect(page).toMatch(/padding: `calc\(env\(safe-area-inset-top, 0px\) \+ 12px\$\{testlage \? ` \+ \$\{TESTBANNER_HOJD_PX\}px` : ''\}\) 16px 12px`/);
   });
-  it('objektnamnet i pillen byter ALDRIG objekt (objekt byts med hemknappen) — namnet öppnar objektinfon som före #831; ingen extra ⓘ-knapp för skotare (en väg räcker)', () => {
+  it('objektnamnet i pillen byter ALDRIG objekt (objekt byts med hemknappen) — namnet öppnar objektinfon som före #831; ⓘ-knappen uppe till höger finns i skotarkörvyn (EN, på platshållarens plats)', () => {
     expect(page).not.toContain('skotarBytObjekt');
     expect(page).not.toContain('bytObjekt');
     expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
-    expect(page).toContain('{objektListaVal ? (');
-    expect(page).not.toContain('objektListaVal || skotarKorvy');
+    // ⓘ uppe till höger (rund mörk knapp 44 px, öppnar objektinfon/väder) måste finnas i skotarkörvyn — och bara EN: på platshållarens plats, aldrig en andra bredvid pillen.
+    expect(page).toContain('{objektListaVal || skotarKorvy ? (');
+    expect(page.match(/data-testid="objektinfo-knapp"/g)).toHaveLength(1);
+    const knapp = page.slice(page.indexOf('data-testid="objektinfo-knapp"'), page.indexOf('data-testid="objektinfo-knapp"') + 1400);
+    expect(knapp).toContain('aria-label="Objektinfo"');
+    expect(knapp).toContain("width: '44px', height: '44px', borderRadius: '22px'");
+    expect(knapp).toContain('setTraktOversiktOpen(o => !o)');
     const pill = las('components/planering/KorvyObjektPill.tsx');
     expect(pill).not.toContain('korvy-pill-byt');   // ingen pil ⌄ i körvyns pill
   });
