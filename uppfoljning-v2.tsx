@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 
 const C = {
   bg:'#09090b', card:'#131315', card2:'#1a1a1d', border:'rgba(255,255,255,0.06)',
@@ -37,6 +37,7 @@ const objektLista = [
 const testAnalys = {
   medelstam: 0.29,
   skordare: {
+    antalStammar: undefined as number | undefined,   // saknas i testdatan; vyn faller då tillbaka på objektets stammar
     arbetstid:36.5, g15:28.5, g0:32.1, kortaStopp:85, avbrott:115, rast:60, tomgang:42,
     stamPerG15:22.1, m3PerG15:19.1, flertrad:34,
     diesel:{tot:142,perM3:0.26,perTim:4.98},
@@ -54,11 +55,13 @@ const testAnalys = {
   }
 };
 
-const fmtDate = (d) => { if(!d) return null; const p=new Date(d); return p.toLocaleDateString('sv-SE',{day:'numeric',month:'short'}); };
-const daysBetween = (a,b) => { if(!a||!b) return null; return Math.floor((new Date(b)-new Date(a))/864e5); };
-const fmtMin = (m) => { const h=Math.floor(m/60); const min=m%60; return `${h}:${min.toString().padStart(2,'0')}`; };
+type Objekt = (typeof objektLista)[number];
 
-function Section({title, sub, children, defaultOpen=false}) {
+const fmtDate = (d?: string | null) => { if(!d) return null; const p=new Date(d); return p.toLocaleDateString('sv-SE',{day:'numeric',month:'short'}); };
+const daysBetween = (a?: string | null, b?: string | null) => { if(!a||!b) return null; return Math.floor((new Date(b).getTime()-new Date(a).getTime())/864e5); };
+const fmtMin = (m: number) => { const h=Math.floor(m/60); const min=m%60; return `${h}:${min.toString().padStart(2,'0')}`; };
+
+function Section({title, sub, children, defaultOpen=false}: {title: string; sub?: string; children: ReactNode; defaultOpen?: boolean}) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{marginBottom:12}}>
@@ -78,7 +81,7 @@ function Section({title, sub, children, defaultOpen=false}) {
   );
 }
 
-function Bar({pct, color, height=8}) {
+function Bar({pct, color, height=8}: {pct: number; color: string; height?: number}) {
   return (
     <div style={{height,background:'rgba(255,255,255,0.04)',borderRadius:height/2,overflow:'hidden'}}>
       <div style={{width:`${Math.min(100,pct)}%`,height:'100%',background:color,borderRadius:height/2,opacity:.65,transition:'width 0.5s ease'}}/>
@@ -86,7 +89,7 @@ function Bar({pct, color, height=8}) {
   );
 }
 
-function ObjektKort({obj, onClick}) {
+function ObjektKort({obj, onClick}: {obj: Objekt; onClick: () => void}) {
   const kvar = obj.volSk>0 ? 100-Math.round((obj.volSt/obj.volSk)*100) : 0;
   const ej = obj.volSk===0;
   const tf = obj.typ==='slutavverkning'?C.yellow:C.green;
@@ -140,7 +143,7 @@ function ObjektKort({obj, onClick}) {
   );
 }
 
-function ObjektDetalj({obj, onBack}) {
+function ObjektDetalj({obj, onBack}: {obj: Objekt; onBack: () => void}) {
   const d = testAnalys;
   const framkort = obj.volSk>0?Math.round((obj.volSt/obj.volSk)*100):0;
   const kvar = 100-framkort;
@@ -454,7 +457,7 @@ export default function App() {
   const [flik, setFlik] = useState('pagaende');
   const [filter, setFilter] = useState('alla');
   const [sok, setSok] = useState('');
-  const [valt, setValt] = useState(null);
+  const [valt, setValt] = useState<Objekt | null>(null);
 
   const lista = useMemo(() => {
     return objektLista

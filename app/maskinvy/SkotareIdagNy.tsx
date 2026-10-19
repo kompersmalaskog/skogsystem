@@ -186,7 +186,8 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
     fetchMomTider(maskinId, senasteDatum),
   ])
 
-  const tidRows = tidResult.status === 'fulfilled' ? (tidResult.value.data || []) : []
+  const tidRows: Array<{ processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }> =
+    tidResult.status === 'fulfilled' ? (tidResult.value.data || []) : []
   const g15sek  = tidRows.reduce(
     (sum, r) => sum + (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0), 0,
   )

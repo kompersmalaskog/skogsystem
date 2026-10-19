@@ -8,7 +8,7 @@ type Maskin = { maskin_id: any; modell: string; tillverkare: string; typ: string
 
 // Paginated Supabase fetch — fetches all rows beyond the 1000-row default limit.
 // queryFn receives a range (from, to) and must return a fresh query with .range() applied.
-async function fetchAllRows(queryFn: (from: number, to: number) => Promise<{ data: any[] | null }>): Promise<any[]> {
+async function fetchAllRows(queryFn: (from: number, to: number) => PromiseLike<{ data: any[] | null }>): Promise<any[]> {
   const PAGE = 1000;
   let all: any[] = [];
   let offset = 0;

@@ -21,7 +21,7 @@ export interface SmhiFwiDaily {
   fwiIndex: number;    // MCF class (peak)
   fwi: number;         // numeric FWI (peak)
   peakHour: number;    // hour of peak
-  temp: number;        // max temp
+  temp: string;        // max temp som visningstext, t.ex. "12°"
   wind: string;        // "↗ 8 m/s"
   windLevel: string;   // "vdry" | "dry" | ""
   humidity: string;    // "Mycket torr luft" | "Torr luft" | "Fuktigt"
