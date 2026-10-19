@@ -7,10 +7,26 @@ interface Point {
   y: number;
 }
 
+// En symbol eller pil har SVG-läget x/y; linjer och zoner har path i stället.
+type MedXY = Marker & { x: number; y: number };
+const harXY = (m: Marker): m is MedXY => typeof m.x === 'number' && typeof m.y === 'number';
+// En linje eller zon har path (SVG-punkter).
+type MedPath = Marker & { path: Point[] };
+const harPath = (m: Marker): m is MedPath => Array.isArray(m.path);
+
+// Händelse från mus (clientX/clientY) eller pekskärm (touches[0]) — hanterarna läser det som finns.
+type PekarEv = { stopPropagation: () => void; preventDefault: () => void } & (
+  | { touches: ArrayLike<{ clientX: number; clientY: number }> }
+  | { touches?: undefined; clientX: number; clientY: number }
+);
+
+// iOS 13+: DeviceOrientationEvent.requestPermission finns bara i Safari och ingår inte i lib.dom.
+type DeviceOrientationMedTillstand = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
+
 interface Marker {
-  id: string;
-  x: number;
-  y: number;
+  id: number | string;   // nya markeringar får Date.now() (ett tal)
+  x?: number;
+  y?: number;
   type?: string;
   isMarker?: boolean;
   isArrow?: boolean;
@@ -26,7 +42,7 @@ interface Marker {
 }
 
 interface Warning {
-  id: string;
+  id: number | string;
   type: string;
   icon: string;
   name: string;
@@ -55,7 +71,7 @@ export default function PlannerPage() {
   // === STATE ===
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
+  const [markerMenuOpen, setMarkerMenuOpen] = useState<string | number | null>(null);
   
   // === KARTA ===
   const [screenSize, setScreenSize] = useState({ width: 800, height: 600 });
@@ -65,7 +81,7 @@ export default function PlannerPage() {
   const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('osm');
   
   // Overlay-lager
-  const [overlays, setOverlays] = useState({
+  const [overlays, setOverlays] = useState<Record<string, boolean>>({
     propertyLines: false,  // Fastighetsgränser
     moisture: false,       // Markfuktighet (kräver konto)
     wetlands: false,       // Sumpskog (öppet)
@@ -81,7 +97,7 @@ export default function PlannerPage() {
   
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
-  const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
+  const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<(string | number)[]>([]); // IDs av kvitterade
   const [activeWarning, setActiveWarning] = useState<Warning | null>(null); // Markör som visar varning
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // Foto i fullskärm
   const WARNING_DISTANCE = 40; // meter - varning triggas
@@ -96,7 +112,7 @@ export default function PlannerPage() {
     vagbredd: 4, // Vägbredd i meter
   });
   const [stickvagWarningShown, setStickvagWarningShown] = useState(false); // Har vi varnat för detta utanför-tillfälle
-  const previousStickvagRef = useRef<any>(null); // Senaste stickvägen att mäta mot
+  const previousStickvagRef = useRef<Marker | null>(null); // Senaste stickvägen att mäta mot
   const [showSavedPopup, setShowSavedPopup] = useState(false); // Popup efter sparande
   const [savedVagColor, setSavedVagColor] = useState<string | null>(null); // Sparad färg för highlight
   const [lastUsedColorId, setLastUsedColorId] = useState<string>('rod'); // Senast använda färgen
@@ -144,7 +160,7 @@ export default function PlannerPage() {
   
   // Foto
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingPhotoMarkerId, setPendingPhotoMarkerId] = useState<string | null>(null);
+  const [pendingPhotoMarkerId, setPendingPhotoMarkerId] = useState<string | number | null>(null);
   
   // Ångra
   const [history, setHistory] = useState<Marker[][]>([]);
@@ -152,13 +168,13 @@ export default function PlannerPage() {
   const undoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Flytta symboler (drag & drop)
-  const [draggingMarker, setDraggingMarker] = useState<string | null>(null);
+  const [draggingMarker, setDraggingMarker] = useState<string | number | null>(null);
   const [hasMoved, setHasMoved] = useState(false);
   const [dragStart, setDragStart] = useState<Point>({ x: 0, y: 0 });
   const justEndedDrag = useRef(false);
   
   // Rotera pilar
-  const [rotatingArrow, setRotatingArrow] = useState<string | null>(null);
+  const [rotatingArrow, setRotatingArrow] = useState<string | number | null>(null);
   const [rotationCenter, setRotationCenter] = useState<Point>({ x: 0, y: 0 });
   
   // Snabbval (senast använda)
@@ -217,9 +233,9 @@ export default function PlannerPage() {
     gpsPausedRef.current = gpsPaused;
   }, [gpsPaused]);
   
-  const [currentPosition, setCurrentPosition] = useState<GeolocationPosition | null>(null);
+  const [currentPosition, setCurrentPosition] = useState<{ lat: number; lon: number } | null>(null);
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
-  const [trackingPath, setTrackingPath] = useState<Point[]>([]);
+  const [trackingPath, setTrackingPath] = useState<{ lat: number; lon: number }[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
   const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
   const [gpsPath, setGpsPath] = useState<Point[]>([]); // Spårad linje i kartkoordinater
@@ -308,9 +324,10 @@ export default function PlannerPage() {
       setMapRotation(0);
       lastHeadingRef.current = 0;
       
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const orientationEvent = typeof DeviceOrientationEvent !== 'undefined' ? (DeviceOrientationEvent as DeviceOrientationMedTillstand) : undefined;
+      if (orientationEvent && typeof orientationEvent.requestPermission === 'function') {
         // iOS 13+ kräver tillstånd
-        DeviceOrientationEvent.requestPermission()
+        orientationEvent.requestPermission()
           .then(permission => {
             if (permission === 'granted') {
               setCompassMode(true);
@@ -332,9 +349,9 @@ export default function PlannerPage() {
     }
   };
   
-  const handleOrientation = (event) => {
+  const handleOrientation = (event: DeviceOrientationEvent & { webkitCompassHeading?: number }) => {
     // webkitCompassHeading för iOS, alpha för Android
-    let heading = event.webkitCompassHeading || (360 - event.alpha);
+    let heading = event.webkitCompassHeading || (360 - (event.alpha ?? 0));
     if (heading !== null && !isNaN(heading)) {
       // Normalisera till 0-360
       heading = ((heading % 360) + 360) % 360;
@@ -368,14 +385,14 @@ export default function PlannerPage() {
   }, []);
   
   // Synlighet
-  const [visibleLines, setVisibleLines] = useState({
+  const [visibleLines, setVisibleLines] = useState<Record<string, boolean>>({
     boundary: true, mainRoad: true, sideRoadRed: true, 
     sideRoadYellow: true, sideRoadBlue: true, nature: true, ditch: true,
   });
-  const [visibleZones, setVisibleZones] = useState({
+  const [visibleZones, setVisibleZones] = useState<Record<string, boolean>>({
     wet: true, steep: true, protected: true, culture: true, noentry: true,
   });
-  const [visibleLayers, setVisibleLayers] = useState({
+  const [visibleLayers, setVisibleLayers] = useState<Record<string, boolean>>({
     symbols: true,
     arrows: true,
     zones: true,
@@ -714,7 +731,7 @@ export default function PlannerPage() {
   ];
 
   // Platt lista för bakåtkompatibilitet
-  const markerTypes = symbolCategories.flatMap(cat => cat.symbols);
+  const markerTypes: { id: string; name: string; icon?: string }[] = symbolCategories.flatMap(cat => cat.symbols);
 
   const lineTypes = [
     { id: 'boundary', name: 'Traktgräns', color: '#ef4444', color2: '#fbbf24', striped: true },
@@ -788,7 +805,7 @@ export default function PlannerPage() {
   };
   
   // Konvertera GPS till kartkoordinater (relativ till startpunkt)
-  const gpsToMap = (lat, lon, startLat, startLon, startX, startY) => {
+  const gpsToMap = (lat: number, lon: number, startLat: number, startLon: number, startX: number, startY: number) => {
     // Meter per grad (approximation för Sverige ~59°N)
     const mPerDegLat = 111320;
     const mPerDegLon = 111320 * Math.cos(startLat * Math.PI / 180);
@@ -861,16 +878,16 @@ export default function PlannerPage() {
     
     if (stickvägar.length === 0) return null;
     
-    let nearestRoad = null;
+    let nearestRoad: Marker | null = null;
     let minDistance = Infinity;
     
-    stickvägar.forEach(road => {
+    for (const road of stickvägar) {
       const result = getDistanceToPath(pos, road.path!);
       if (result.distance < minDistance) {
         minDistance = result.distance;
         nearestRoad = road;
       }
-    });
+    }
     
     return nearestRoad;
   };
@@ -912,7 +929,7 @@ export default function PlannerPage() {
     }
   };
   
-  const startGpsTracking = (lineType) => {
+  const startGpsTracking = (lineType: string) => {
     if (!('geolocation' in navigator)) {
       alert('GPS stöds inte i denna enhet');
       return;
@@ -936,7 +953,7 @@ export default function PlannerPage() {
     if (isStickväg) {
       // Hitta alla stickvägar (inte backvägar)
       const previousStickvägar = markers.filter(m => 
-        m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType)
+        m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType ?? '')
       );
       
       // Aktivera ALLTID stickvagMode för stickvägar
@@ -1273,7 +1290,7 @@ export default function PlannerPage() {
   };
 
   // === MARKERING HANTERING ===
-  const saveToHistory = (prevMarkers) => {
+  const saveToHistory = (prevMarkers: Marker[]) => {
     setHistory(prev => [...prev.slice(-20), prevMarkers]); // Spara max 20 steg
     setShowUndo(true);
     
@@ -1297,14 +1314,14 @@ export default function PlannerPage() {
     }
   };
 
-  const deleteMarker = (id) => {
+  const deleteMarker = (id: string | number) => {
     saveToHistory([...markers]);
     setMarkers(prev => prev.filter(m => m.id !== id));
     setMarkerMenuOpen(null);
   };
 
   // Drag & drop för symboler
-  const handleMarkerDragStart = (e, marker) => {
+  const handleMarkerDragStart = (e: PekarEv, marker: Marker) => {
     // I översiktsläge: visa info istället för drag
     if (stickvagOversikt) {
       e.stopPropagation();
@@ -1339,7 +1356,7 @@ export default function PlannerPage() {
     setHasMoved(false);
   };
   
-  const handleMarkerDragMove = (e, rect) => {
+  const handleMarkerDragMove = (e: PekarEv, rect: DOMRect) => {
     if (!draggingMarker) return;
     
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -1388,14 +1405,14 @@ export default function PlannerPage() {
   };
   
   // Rotera pil genom att dra
-  const startRotatingArrow = (arrowId, centerX, centerY) => {
+  const startRotatingArrow = (arrowId: string | number, centerX: number, centerY: number) => {
     saveToHistory([...markers]);
     setRotatingArrow(arrowId);
     setRotationCenter({ x: centerX, y: centerY });
     setMarkerMenuOpen(null);
   };
   
-  const handleRotationMove = (e, rect) => {
+  const handleRotationMove = (e: PekarEv, rect: DOMRect) => {
     if (!rotatingArrow) return;
     
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -1427,7 +1444,7 @@ export default function PlannerPage() {
   };
   
   // Hantera foto från kamera
-  const handlePhotoCapture = (e) => {
+  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !pendingPhotoMarkerId) return;
     
@@ -1450,7 +1467,7 @@ export default function PlannerPage() {
   };
   
   // Klick på linjer/zoner (kan inte dras)
-  const handleMarkerClick = (e, marker) => {
+  const handleMarkerClick = (e: PekarEv, marker: Marker) => {
     e.stopPropagation();
     if (draggingMarker) return;
     
@@ -1474,7 +1491,7 @@ export default function PlannerPage() {
   };
 
   // === KARTA INTERAKTION ===
-  const handleMapClick = (e) => {
+  const handleMapClick = (e: React.MouseEvent<Element> | React.TouchEvent<Element>) => {
     // I översiktsläge: stäng paneler vid klick på tom yta
     if (stickvagOversikt) {
       setSelectedOversiktVag(null);
@@ -1501,16 +1518,17 @@ export default function PlannerPage() {
     if (menuOpen) return;
     
     const rect = e.currentTarget.getBoundingClientRect();
-    const isTouch = e.type === 'touchend' || (e.nativeEvent && e.nativeEvent.changedTouches);
+    const andraPekare = 'changedTouches' in e.nativeEvent ? e.nativeEvent.changedTouches : undefined;
+    const isTouch = e.type === 'touchend' || !!andraPekare;
     const touchOffset = isTouch ? 50 : 0; // Offset uppåt för touch så symbolen hamnar ovanför fingret
     
-    let clientX, clientY;
-    if (isTouch && e.nativeEvent?.changedTouches?.[0]) {
-      clientX = e.nativeEvent.changedTouches[0].clientX;
-      clientY = e.nativeEvent.changedTouches[0].clientY;
+    let clientX: number, clientY: number;
+    if (isTouch && andraPekare?.[0]) {
+      clientX = andraPekare[0].clientX;
+      clientY = andraPekare[0].clientY;
     } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
+      clientX = 'clientX' in e ? e.clientX : NaN;
+      clientY = 'clientY' in e ? e.clientY : NaN;
     }
     
     const x = (clientX - rect.left - pan.x) / zoom;
@@ -1519,7 +1537,7 @@ export default function PlannerPage() {
     // Placera symbol
     if (selectedSymbol) {
       saveToHistory([...markers]);
-      const newMarker = {
+      const newMarker: Marker = {
         id: Date.now(),
         type: selectedSymbol,
         x, y,
@@ -1598,9 +1616,9 @@ export default function PlannerPage() {
 
   // Dra-för-att-rita med offset
   const drawOffset = 0; // Ritas direkt där fingret är
-  const [drawCursor, setDrawCursor] = useState(null); // Visar var linjen ritas
+  const [drawCursor, setDrawCursor] = useState<Point | null>(null); // Visar var linjen ritas
   
-  const handleDrawStart = (e, rect) => {
+  const handleDrawStart = (e: PekarEv, rect: DOMRect) => {
     if (!isDrawMode && !isZoneMode && !measureMode && !measureAreaMode) return;
     
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -1651,7 +1669,7 @@ export default function PlannerPage() {
       // Om det är långt, lägg till mellanpunkter
       if (dist > 20) {
         const steps = Math.ceil(dist / 15);
-        const newPoints = [];
+        const newPoints: Point[] = [];
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
           newPoints.push({
@@ -1668,7 +1686,7 @@ export default function PlannerPage() {
     }
   };
   
-  const handleDrawMove = (e, rect) => {
+  const handleDrawMove = (e: PekarEv, rect: DOMRect) => {
     if (!isDrawing && !isMeasuring) return;
     
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -1752,7 +1770,7 @@ export default function PlannerPage() {
   };
 
   // Pan
-  const handleMouseDown = (e) => {
+  const handleMouseDown = (e: React.MouseEvent) => {
     // Ignorera i översiktsläge
     if (stickvagOversikt) return;
     
@@ -1762,7 +1780,7 @@ export default function PlannerPage() {
     }
   };
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning) {
       setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
     }
@@ -1773,14 +1791,14 @@ export default function PlannerPage() {
   };
 
   // Meny drag
-  const handleMenuDragStart = (e) => {
+  const handleMenuDragStart = (e: PekarEv) => {
     e.preventDefault();
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     dragStartY.current = clientY;
     dragStartHeight.current = menuHeight;
     
-    const handleMove = (e) => {
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
       const delta = dragStartY.current - clientY;
       const newHeight = Math.max(0, Math.min(500, dragStartHeight.current + delta));
       setMenuHeight(newHeight);
@@ -1819,7 +1837,7 @@ export default function PlannerPage() {
   // === RENDER HELPERS ===
   
   // Beräkna längd på en path (i meter)
-  const calculateLength = (path) => {
+  const calculateLength = (path: Point[] | null | undefined) => {
     if (!path || path.length < 2) return 0;
     let length = 0;
     for (let i = 1; i < path.length; i++) {
@@ -1831,7 +1849,7 @@ export default function PlannerPage() {
   };
   
   // Beräkna area på en polygon (i m²)
-  const calculateArea = (path) => {
+  const calculateArea = (path: Point[] | null | undefined) => {
     if (!path || path.length < 3) return 0;
     let area = 0;
     for (let i = 0; i < path.length; i++) {
@@ -1843,7 +1861,7 @@ export default function PlannerPage() {
   };
   
   // Formatera längd (m eller km)
-  const formatLength = (meters) => {
+  const formatLength = (meters: number) => {
     if (meters >= 1000) {
       return `${(meters / 1000).toFixed(2)} km`;
     }
@@ -1851,7 +1869,7 @@ export default function PlannerPage() {
   };
   
   // Formatera area (m² eller ha)
-  const formatArea = (sqMeters) => {
+  const formatArea = (sqMeters: number) => {
     if (sqMeters >= 10000) {
       return `${(sqMeters / 10000).toFixed(2)} ha`;
     }
@@ -1861,7 +1879,7 @@ export default function PlannerPage() {
   // === KÖRLÄGE FUNKTIONER ===
   
   // Beräkna avstånd i meter mellan två punkter
-  const calculateDistanceMeters = (p1, p2) => {
+  const calculateDistanceMeters = (p1: Point, p2: Point) => {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const pixelDistance = Math.sqrt(dx * dx + dy * dy);
@@ -1869,7 +1887,7 @@ export default function PlannerPage() {
   };
   
   // Beräkna opacity baserat på avstånd (för körläge)
-  const getMarkerOpacity = (markerPos) => {
+  const getMarkerOpacity = (markerPos: Point & { id: string | number }) => {
     if (!drivingMode) return 1;
     if (!gpsMapPosition) return 0.2;
     
@@ -1897,10 +1915,10 @@ export default function PlannerPage() {
   const getActiveWarnings = () => {
     if (!drivingMode || !gpsMapPosition) return [];
     
-    const warnings = [];
+    const warnings: Warning[] = [];
     
     // Hjälpfunktion: hitta närmaste punkt på en linje
-    const distanceToLine = (point, path) => {
+    const distanceToLine = (point: Point, path: Point[]) => {
       let minDist = Infinity;
       for (let i = 0; i < path.length - 1; i++) {
         const a = path[i];
@@ -1935,26 +1953,26 @@ export default function PlannerPage() {
     markers.forEach(m => {
       if (acknowledgedWarnings.includes(m.id)) return;
       
-      let distance = null;
-      let type = null;
-      let icon = null;
-      let name = null;
+      let distance: number | null = null;
+      let type = '';
+      let icon = '';
+      let name = '';
       
-      if (m.isMarker) {
+      if (m.isMarker && harXY(m)) {
         const pos = { x: m.x, y: m.y };
         distance = calculateDistanceMeters(gpsMapPosition, pos);
         const markerType = markerTypes.find(t => t.id === m.type);
         type = 'symbol';
         icon = markerType?.icon || '📍';
         name = markerType?.name || 'Markering';
-      } else if (m.isZone && m.path?.length > 0) {
+      } else if (m.isZone && m.path && m.path.length > 0) {
         // Kolla avstånd till zonens kant (inte mittpunkt)
         distance = distanceToLine(gpsMapPosition, [...m.path, m.path[0]]); // Stäng polygonen
         const zoneType = zoneTypes.find(t => t.id === m.zoneType);
         type = 'zone';
         icon = zoneType?.icon || '⬡';
         name = zoneType?.name || 'Zon';
-      } else if (m.isLine && m.path?.length > 1) {
+      } else if (m.isLine && m.path && m.path.length > 1) {
         // Kolla avstånd till linjen
         distance = distanceToLine(gpsMapPosition, m.path);
         const lineType = lineTypes.find(t => t.id === m.lineType);
@@ -1981,7 +1999,7 @@ export default function PlannerPage() {
   };
   
   // Track vilka varningar som spelat ljud (för att undvika dubbletter)
-  const playedWarningsRef = useRef<Set<string>>(new Set());
+  const playedWarningsRef = useRef<Set<string | number>>(new Set());
   
   // Kolla varningar när GPS uppdateras
   useEffect(() => {
@@ -2039,7 +2057,7 @@ export default function PlannerPage() {
   
   // Beräkna prognos
   // Skapa smooth SVG path med cubic bezier curves
-  const createSmoothPath = (points, closed = false) => {
+  const createSmoothPath = (points: Point[] | null | undefined, closed = false) => {
     if (!points || points.length < 2) return '';
     if (points.length === 2) {
       return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
@@ -2066,7 +2084,7 @@ export default function PlannerPage() {
     return d;
   };
   
-  const renderLine = (path, typeId, width = 6) => {
+  const renderLine = (path: Point[] | null | undefined, typeId: string | undefined, width = 6) => {
     if (!path || path.length < 2) return null;
     const type = lineTypes.find(t => t.id === typeId);
     if (!type) return null;
@@ -2097,7 +2115,7 @@ export default function PlannerPage() {
     }
   };
 
-  const renderZone = (marker) => {
+  const renderZone = (marker: Marker) => {
     const path = marker.path;
     const typeId = marker.zoneType;
     if (!path || path.length < 3) return null;
@@ -2581,7 +2599,7 @@ export default function PlannerPage() {
         <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
           
           {/* Zoner */}
-          {visibleLayers.zones && markers.filter(m => m.isZone && visibleZones[m.zoneType]).map(m => 
+          {visibleLayers.zones && markers.filter((m): m is MedPath => harPath(m) && !!m.isZone && !!m.zoneType && visibleZones[m.zoneType]).map(m => 
             renderZone(m)
           )}
           
@@ -2617,12 +2635,12 @@ export default function PlannerPage() {
           )}
 
           {/* Linjer */}
-          {visibleLayers.lines && markers.filter(m => m.isLine && visibleLines[m.lineType]).map(m => 
+          {visibleLayers.lines && markers.filter((m): m is MedPath => harPath(m) && !!m.isLine && !!m.lineType && visibleLines[m.lineType]).map(m => 
             renderLine(m.path, m.lineType, m.lineType === 'mainRoad' ? 10 : m.lineType === 'boundary' ? 6 : 6)
           )}
           
           {/* Mått-labels för linjer */}
-          {showMeasurements && visibleLayers.lines && markers.filter(m => m.isLine && visibleLines[m.lineType]).map(m => {
+          {showMeasurements && visibleLayers.lines && markers.filter((m): m is MedPath => harPath(m) && !!m.isLine && !!m.lineType && visibleLines[m.lineType]).map(m => {
             const midIndex = Math.floor(m.path.length / 2);
             const midPoint = m.path[midIndex];
             const length = calculateLength(m.path);
@@ -2671,7 +2689,7 @@ export default function PlannerPage() {
           {/* Mätlinje - ritas nu utanför transform så den alltid syns där man drar */}
           
           {/* Markeringar (inte foton) */}
-          {visibleLayers.symbols && markers.filter(m => m.isMarker).map(m => {
+          {visibleLayers.symbols && markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker).map(m => {
             const type = markerTypes.find(t => t.id === m.type);
             const isMenuOpen = markerMenuOpen === m.id;
             const isDragging = draggingMarker === m.id;
@@ -2770,7 +2788,7 @@ export default function PlannerPage() {
           })}
           
           {/* Pilar */}
-          {visibleLayers.arrows && markers.filter(m => m.isArrow).map(m => {
+          {visibleLayers.arrows && markers.filter((m): m is MedXY => harXY(m) && !!m.isArrow).map(m => {
             const arrow = arrowTypes.find(t => t.id === m.arrowType);
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
@@ -2833,7 +2851,7 @@ export default function PlannerPage() {
           })}
           
           {/* Klickbara linjer (osynlig hitbox) */}
-          {visibleLayers.lines && markers.filter(m => m.isLine && visibleLines[m.lineType]).map(m => (
+          {visibleLayers.lines && markers.filter((m): m is MedPath => harPath(m) && !!m.isLine && !!m.lineType && visibleLines[m.lineType]).map(m => (
             <path 
               key={`click-${m.id}`}
               d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')} 
@@ -2848,7 +2866,7 @@ export default function PlannerPage() {
           ))}
           
           {/* Klickbara zoner (osynlig hitbox) */}
-          {visibleLayers.zones && markers.filter(m => m.isZone && visibleZones[m.zoneType]).map(m => (
+          {visibleLayers.zones && markers.filter((m): m is MedPath => harPath(m) && !!m.isZone && !!m.zoneType && visibleZones[m.zoneType]).map(m => (
             <path 
               key={`click-zone-${m.id}`}
               d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'} 
@@ -2865,7 +2883,7 @@ export default function PlannerPage() {
             <path
               d={previousStickvagRef.current.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')}
               fill="none"
-              stroke={lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ef4444'}
+              stroke={lineTypes.find(t => t.id === previousStickvagRef.current?.lineType)?.color || '#ef4444'}
               strokeWidth={6}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -2928,7 +2946,7 @@ export default function PlannerPage() {
           
           {/* Rotationsindikator */}
           {rotatingArrow && (() => {
-            const arrow = markers.find(m => m.id === rotatingArrow);
+            const arrow = markers.find((m): m is MedXY => harXY(m) && m.id === rotatingArrow);
             if (!arrow) return null;
             return (
               <g>
@@ -3571,7 +3589,7 @@ export default function PlannerPage() {
               {/* Rotera - bara för pilar */}
               {marker.isArrow && (
                 <button
-                  onClick={() => startRotatingArrow(marker.id, marker.x, marker.y)}
+                  onClick={() => { if (harXY(marker)) startRotatingArrow(marker.id, marker.x, marker.y); }}
                   style={{
                     width: '48px',
                     height: '48px',
@@ -3595,8 +3613,8 @@ export default function PlannerPage() {
               {marker.isLine && (
                 <button
                   onClick={() => {
-                    setCurrentPath([...marker.path]);
-                    setDrawType(marker.lineType);
+                    setCurrentPath([...(marker.path ?? [])]);
+                    setDrawType(marker.lineType ?? null);
                     setIsDrawMode(true);
                     setDrawPaused(true);
                     saveToHistory([...markers]);
@@ -5685,7 +5703,7 @@ export default function PlannerPage() {
                       </svg>
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff', color: '#22c55e' }}>Starta GPS-spårning</div>
+                      <div style={{ fontSize: '15px', color: '#22c55e' }}>Starta GPS-spårning</div>
                       <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Börja gå längs stickvägen</div>
                     </div>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.5" style={{ opacity: 0.6 }}>
