@@ -18,14 +18,17 @@ vi.mock('@/lib/skotarLass/koKopplad', async () => {
     skickaLass: async (l) => { if (!server.online) return false; server.skickade.push(l); return true; },
     skickaAvslut: async () => server.online,
   });
+  // Torrkörningens kö (som i koKopplad): egen, i minnet, skickar aldrig.
+  const nyTorr = () => ko.skapaLassKo({ lager: ko.skapaMinnesKoLager(), paForandring: () => lyssnare.forEach((f) => f()), skickaLass: async () => true, skickaAvslut: async () => true });
   let k = ny();
+  let kTorr = nyTorr();
   return {
-    aterstallKo: () => { k = ny(); },
-    hamtaLassKo: async () => k,
+    aterstallKo: () => { k = ny(); kTorr = nyTorr(); },
+    hamtaLassKo: async (torr?: boolean) => (torr ? kTorr : k),
     prenumereraLassKo: (f: () => void) => { lyssnare.add(f); return () => lyssnare.delete(f); },
-    sparaLass: async (l: any) => { await k.spara(l); void k.kor(); },
-    begarFardigskotad: async (o: string) => { await k.begarAvslut(o, new Date().toISOString()); void k.kor(); },
-    lasLassForObjekt: async (o: string) => ({ lass: await k.lassForObjekt(o), fran: 'lokalt' as const }),
+    sparaLass: async (l: any, torr?: boolean) => { const q = torr ? kTorr : k; await q.spara(l); if (!torr) void k.kor(); },
+    begarFardigskotad: async (o: string, torr?: boolean) => { const q = torr ? kTorr : k; await q.begarAvslut(o, new Date().toISOString()); if (!torr) void k.kor(); },
+    lasLassForObjekt: async (o: string, torr?: boolean) => ({ lass: await (torr ? kTorr : k).lassForObjekt(o), fran: 'lokalt' as const }),
     lasAvslut: async () => null,
     lasSkordat: async () => [{ nyckel: 'tall', namn: 'Tall', m3: 100 }, { nyckel: 'massa', namn: 'Massa', m3: 50 }],
   };
@@ -190,6 +193,43 @@ describe('minne mellan dagar', () => {
     expect(nytt!.lassNummer).toBe(2);
     expect(nytt!.delar).toHaveLength(1);
     expect(vy.lass.find((l) => l.id === 'igar')!.delar).toHaveLength(1);
+  });
+});
+
+describe('torrkörning (testläget)', () => {
+  it('Provkör lossning ger ett lass vid avlägget, förifyllt kort för föraren — och inget skickas', async () => {
+    await visa({ torr: true });
+    await act(async () => { vy.provkorLossning('vida:2'); });
+    expect(vy.lass).toHaveLength(1);
+    expect(vy.lass[0].delar[0].avlaggId).toBe('vida:2');
+    expect(vy.kort?.fas).toBe('forare');   // första lasset på trakten bekräftar sig aldrig självt
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(server.skickade).toHaveLength(0);
+  });
+  it('lasset och Ändra fungerar som i maskinen, men Färdigskotad skickas aldrig', async () => {
+    await visa({ torr: true });
+    await act(async () => { vy.provkorLossning(null); });   // närmaste/första avlägg
+    const id = vy.lass[0].id;
+    await act(async () => { vy.oppnaAndra(id); });
+    await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
+    await act(async () => { vy.stangAndra(true); });
+    expect(vy.lass[0].status).toBe('bekraftat');
+    await act(async () => { await vy.fardigskotad(); });
+    expect(vy.avslut).not.toBeNull();   // vyn visar Färdigskotad …
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(server.skickade).toHaveLength(0);   // … men ingenting når servern
+  });
+  it('utan torr gör Provkör ingenting (förarna kan aldrig provköra)', async () => {
+    await visa({ torr: false });
+    await act(async () => { vy.provkorLossning('vida:2'); });
+    expect(vy.lass).toHaveLength(0);
+  });
+  it('torrlass hamnar aldrig i den riktiga kön', async () => {
+    await visa({ torr: true });
+    await act(async () => { vy.provkorLossning('vida:2'); });
+    const ko = await import('@/lib/skotarLass/koKopplad');
+    expect(await (await ko.hamtaLassKo(false)).lassForObjekt('o1')).toHaveLength(0);
+    expect(await (await ko.hamtaLassKo(true)).lassForObjekt('o1')).toHaveLength(1);
   });
 });
 

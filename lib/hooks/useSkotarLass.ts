@@ -12,7 +12,7 @@ import { lokaltDatumStockholm } from '@/lib/hyttspar';
 import { hamtaAltNummer, hogarObjektIds } from '@/lib/objektNummer';
 import { supabase } from '@/lib/supabase';
 import { byggAvlagg, nastaEgnaNummer, type EgenMarkering, type VidaPunkt } from '@/lib/skotarLass/avlagg';
-import { avstandTillLinje } from '@/lib/skotarLass/geo';
+import { avstand, avstandTillLinje } from '@/lib/skotarLass/geo';
 import { avvisaFraga, lossningVidNyttAvlagg, nyDetektor, sattSenasteAvlagg, stegaDetektor, type DetektorState, type Handelse } from '@/lib/skotarLass/lossning';
 import {
   AUTO_BEKRAFTA_MS, andraRad as andraRadModell, bekrafta, bytAvlagg, forraLass, kanBekrafta, laggTillDel, nastaLassNummer, skapaLass, stryk,
@@ -35,8 +35,10 @@ export interface LossningsKort { lassId: string; delNr: number; fas: KortFas; st
 export interface NyttAvlaggFraga { lat: number; lng: number; ts: number }
 
 export interface SkotarLassIn {
-  /** skotarKorvy + valt objekt + maskin vald, ej testläge. */
+  /** skotarKorvy + valt objekt + maskin vald (enhetens eller testlägets). */
   aktiv: boolean;
+  /** Testläget (admin: /maskin?som=): lassen bor bara i minnet — inget skickas, ingen riktig kö rörs, Färdigskotad skrivs aldrig. */
+  torr?: boolean;
   objekt: { id: string; vo: string | null; namn: string } | null;
   maskinId: string | null;
   medarbetareId: string | null;
@@ -55,6 +57,7 @@ const SENASTE_LOSSNING_MAX_MS = 2 * 3_600_000;
 
 export function useSkotarLass(i: SkotarLassIn) {
   const { aktiv, objekt, maskinId, medarbetareId, position } = i;
+  const torr = !!i.torr;
   const [lass, setLass] = useState<Lass[]>([]);
   const [skordat, setSkordat] = useState<SkordatSortiment[] | null>(null);
   const [skordatLaddat, setSkordatLaddat] = useState(false);
@@ -81,19 +84,19 @@ export function useSkotarLass(i: SkotarLassIn) {
   // ── Läs in: lokalt först, sedan servern ──────────────────────────────────────────────────────────────
   const ladda = useCallback(async () => {
     if (!objektId) return;
-    const ut = await lasLassForObjekt(objektId);
+    const ut = await lasLassForObjekt(objektId, torr);
     if (inRef.current.objekt?.id === objektId) setLass(ut.lass);
-  }, [objektId]);
+  }, [objektId, torr]);
 
   useEffect(() => {
     if (!aktiv || !objektId) { setLass([]); setSkordat(null); setSkordatLaddat(false); setAvslut(null); setKort(null); setNyttAvlagg(null); setAndra(null); return; }
     let avbruten = false;
     (async () => {
-      const k = await hamtaLassKo();
+      const k = await hamtaLassKo(torr);
       // Lokalt visas direkt (även utan nät); förslag som aldrig hann bekräfta sig bekräftas nu.
       const lokalt = await k.lassForObjekt(objektId);
       const nu = serverNu();
-      for (const l of lokalt) { const b = bekraftaForslagVidStart(l, nu); if (b !== l) await sparaLass(b); }
+      for (const l of lokalt) { const b = bekraftaForslagVidStart(l, nu); if (b !== l) await sparaLass(b, torr); }
       if (avbruten) return;
       const efter = await k.lassForObjekt(objektId);
       setLass(efter);
@@ -108,7 +111,7 @@ export function useSkotarLass(i: SkotarLassIn) {
       void ladda().then(() => { if (!avbruten) void k.antalVantande().then((n) => setVantande(n)); });
     })();
     return () => { avbruten = true; };
-  }, [aktiv, objektId, ladda]);
+  }, [aktiv, objektId, ladda, torr]);
 
   // Servern: lass från alla skotare på trakten, jämnt (en annan maskin kan ha kört lass) och när kön ändrats.
   useEffect(() => {
@@ -116,14 +119,14 @@ export function useSkotarLass(i: SkotarLassIn) {
     const iv = window.setInterval(() => { if (document.visibilityState === 'visible') void ladda(); }, 60_000);
     const av = prenumereraLassKo(() => {
       void (async () => {
-        const k = await hamtaLassKo();
+        const k = await hamtaLassKo(torr);
         const ls = await k.lassForObjekt(objektId);
         setLass(ls);
         setVantande(await k.antalVantande());
       })();
     });
     return () => { window.clearInterval(iv); av(); };
-  }, [aktiv, objektId, ladda]);
+  }, [aktiv, objektId, ladda, torr]);
 
   // Skördat och avslut: en gång per trakt (skördat ändras bara när nya filer kommer; avslut när föraren avslutar).
   useEffect(() => {
@@ -147,7 +150,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   const spara = useCallback((l: Lass) => {
     setLass((prev) => (prev.some((x) => x.id === l.id) ? prev.map((x) => (x.id === l.id ? l : x)) : [...prev, l]));
     lassRef.current = lassRef.current.some((x) => x.id === l.id) ? lassRef.current.map((x) => (x.id === l.id ? l : x)) : [...lassRef.current, l];
-    void sparaLass(l);
+    void sparaLass(l, inRef.current.torr);
   }, []);
 
   const kontext = useCallback((): LassKontext | null => {
@@ -311,11 +314,26 @@ export function useSkotarLass(i: SkotarLassIn) {
 
   const fardigskotad = useCallback(async () => {
     if (!objektId) return;
-    await begarFardigskotad(objektId);
+    await begarFardigskotad(objektId, torr);
     setAvslut({ faktorer: {}, tillagg: {}, skillnadM3: 0, avslutadTid: new Date(serverNu()).toISOString() });
-  }, [objektId]);
+  }, [objektId, torr]);
+
+  /** Bara torrkörningen (testläget): låtsas att maskinen lossat vid avlägget `avlaggId` (annars det närmaste/första) — så hela flödet går att se vid skrivbordet,
+   *  där ingen GPS rör sig. Samma väg som en riktig lossning (kort, förifyllning, Ändra, kvar), men lagras bara i minnet. */
+  const provkorLossning = useCallback((avlaggId: string | null) => {
+    if (!inRef.current.torr) return;
+    const lista = avlaggRef.current;
+    const p = senastePosRef.current;
+    const a = lista.find((x) => x.id === avlaggId)
+      ?? (p ? [...lista].sort((x, y) => avstand(p, x) - avstand(p, y))[0] : lista[0]);
+    if (!a) return;
+    const ts = serverNu();
+    detRef.current = { ...detRef.current, senaste: { lat: a.lat, lng: a.lng, ts, avlaggId: a.id }, lastat: false, lamnat: false };
+    hanteraHandelse({ typ: 'lossning', lossning: 'nytt_lass', ts, lat: a.lat, lng: a.lng, traff: { narmaste: a, avstandM: 0, kandidater: [a], tvetydigt: false } });
+  }, [hanteraHandelse]);
 
   return {
+    provkorLossning,
     lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, kvar, sammanfattning, idag, valbara, avslut,
     oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
     avbrytKort: () => setKort(null),

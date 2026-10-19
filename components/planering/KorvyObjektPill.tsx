@@ -53,10 +53,12 @@ const Avdelare = () => <span aria-hidden="true" style={{ width: 1, alignSelf: 'c
 export interface KvarDel { text: string; klar: string | null; onTryck: () => void }
 
 export function KorvyObjektPill({
-  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar,
+  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar, visaRaknare = true,
   onNamn, onHogstubbe, onEvighetstrad,
 }: {
   kvar?: KvarDel | null;
+  /** false på en skotare: Högstubbar/Evighetsträd hör till skördaren. Pillen är då bara namnet (+ Kvar · Klar när lassen går att räkna). */
+  visaRaknare?: boolean;
   namn: string;
   hogstubbar: RaknareVy;
   evighetstrad: RaknareVy;
@@ -89,10 +91,14 @@ export function KorvyObjektPill({
           {prefix}{namn}
         </span>
       </button>
-      <Avdelare />
-      <Raknare namn="Högstubbar" ikon={ikonHogstubbe} vy={hogstubbar} smal={smal} onTryck={onHogstubbe} testid="korvy-pill-hogstubbar" handling="Tryck för att sätta en högstubbe här" />
-      <Avdelare />
-      <Raknare namn="Evighetsträd" ikon={ikonEvighetstrad} vy={evighetstrad} smal={smal} onTryck={onEvighetstrad} testid="korvy-pill-evighetstrad" handling="Tryck för att sätta ett evighetsträd här" />
+      {visaRaknare && (
+        <>
+          <Avdelare />
+          <Raknare namn="Högstubbar" ikon={ikonHogstubbe} vy={hogstubbar} smal={smal} onTryck={onHogstubbe} testid="korvy-pill-hogstubbar" handling="Tryck för att sätta en högstubbe här" />
+          <Avdelare />
+          <Raknare namn="Evighetsträd" ikon={ikonEvighetstrad} vy={evighetstrad} smal={smal} onTryck={onEvighetstrad} testid="korvy-pill-evighetstrad" handling="Tryck för att sätta ett evighetsträd här" />
+        </>
+      )}
     </>
   );
   return (

@@ -11974,9 +11974,11 @@ export default function PlannerPage() {
   placeraSymbolRef.current = placeraSymbol;
 
   // ═══ SKOTARLÄGE: lassrapportering i appen (lib/skotarLass, lib/hooks/useSkotarLass) ═══════════════════════════════════════════════════
-  // Bara skotare, bara med vald maskin, aldrig i testläge. Skördarvyn och planeringen rörs inte: allt nedan är av när skotarLassAktiv är falskt.
+  // Bara skotare, bara med vald maskin. MASKINEN är enhetens (enhetMaskinId, samma som hyttspåret) och ROLLEN kommer ur maskinregistret
+  // (oppnaKorvyPa(obj, enhetRoll) → korvyForceRoll) — föraren väljer aldrig något. I testläget (admin: /maskin?som=<maskin_id>) är enhetMaskinId den visade maskinen;
+  // där är lassen en torrkörning (bara minne, inget skickas). Skördarvyn och planeringen rörs inte: allt nedan är av när skotarLassAktiv är falskt.
   const skotarMaskinId = skotarKorvy ? hyttsparMaskinId(enhetMaskinId, 'skotare', null) : null;
-  const skotarLassAktiv = skotarKorvy && !!valtObjekt?.id && !!skotarMaskinId && !testlage;
+  const skotarLassAktiv = skotarKorvy && !!valtObjekt?.id && !!skotarMaskinId;
   const skotarEgnaAvlagg = useMemo(() => (skotarLassAktiv
     ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null }; })
     : []),
@@ -11996,6 +11998,7 @@ export default function PlannerPage() {
   };
   // "Nytt avlägg här?" → Ja: ett eget avlägg på platsen, synligt för alla direkt (vanlig markering via markeringssynken), med sitt löpnummer.
   const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string): string | null => {
+    if (testlageAktivRef.current) return null;   // torrkörningen skapar aldrig en riktig markering (markeringssynken skulle skriva den)
     const { x, y } = latLonToSvg(lat, lon);
     const id = Date.now();
     const m: any = nyMarkering('landing', id, x, y);
@@ -12008,6 +12011,7 @@ export default function PlannerPage() {
   };
   const skotarLass = useSkotarLass({
     aktiv: skotarLassAktiv,
+    torr: !!testlage,
     objekt: valtObjekt ? { id: valtObjekt.id, vo: valtObjekt.vo_nummer ? String(valtObjekt.vo_nummer) : null, namn: valtObjekt.namn } : null,
     maskinId: skotarMaskinId,
     medarbetareId: currentMedarbetare?.id ?? null,
@@ -12888,6 +12892,12 @@ export default function PlannerPage() {
           boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
         }}>
           <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}</span>
+          {skotarLassAktiv && (
+            <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
+              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Provkör lossning
+            </button>
+          )}
           <button type="button" onClick={avslutaTestlage}
             style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             Avsluta
@@ -13197,6 +13207,7 @@ export default function PlannerPage() {
               ikonHogstubbe={renderIcon('highstump', 18, '#fff')}
               ikonEvighetstrad={renderIcon('eternitytree', 18, '#fff')}
               orangeKant={!!visarSomForare}
+              visaRaknare={!skotarKorvy}
               prefix={visarSomForare && simuleradForare ? <span style={{ color: '#ff9f0a', fontWeight: 600, marginRight: 6 }}>👁 {simuleradForare.namn.split(' ')[0]} ·</span> : undefined}
               kvar={skotarLassAktiv && skotarLass.avslut
                 ? { text: 'Färdigskotad', klar: null, onTryck: () => setSkotarKvarOppet(true) }

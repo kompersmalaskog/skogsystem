@@ -11,9 +11,26 @@ const page = las('app/planering/page.tsx');
 const migrationer = (): string => readdirSync(join(rot, 'supabase/migrations')).filter((f) => /^\d+_skotar_lass_.*\.sql$/.test(f)).sort().map((f) => las(`supabase/migrations/${f}`)).join('\n');
 
 describe('skotarläget i planeringsvyn', () => {
-  it('allt är av utanför skotarkörvyn: aktiv kräver skotarKorvy, vald maskin och inget testläge', () => {
-    expect(page).toMatch(/const skotarLassAktiv = skotarKorvy && !!valtObjekt\?\.id && !!skotarMaskinId && !testlage;/);
+  it('allt är av utanför skotarkörvyn: aktiv kräver skotarKorvy och en vald maskin', () => {
+    expect(page).toMatch(/const skotarLassAktiv = skotarKorvy && !!valtObjekt\?\.id && !!skotarMaskinId;/);
     expect(page).toMatch(/useSkotarLass\(\{\s*aktiv: skotarLassAktiv,/);
+  });
+  it('maskinen är ENHETENS (samma källa som hyttspåret) — föraren väljer aldrig maskin för skotarläget', () => {
+    expect(page).toMatch(/const skotarMaskinId = skotarKorvy \? hyttsparMaskinId\(enhetMaskinId, 'skotare', null\) : null;/);
+    // rollen kommer ur maskinregistret: valjObjektIMaskin → oppnaKorvyPa(obj, enhetRoll) → korvyForceRoll
+    expect(page).toMatch(/const enhetRoll = enhetMaskinId \? rollForMaskin\(dimMaskiner, enhetMaskinId\) : null;/);
+    expect(page).toMatch(/oppnaKorvyPa\(obj, enhetRoll\);/);
+  });
+  it('testläget (/maskin?som=) kör skotarläget som TORRKÖRNING: minneskö, inget skickas, inga riktiga markeringar', () => {
+    expect(page).toMatch(/useSkotarLass\(\{\s*aktiv: skotarLassAktiv,\s*torr: !!testlage,/);
+    expect(page).toMatch(/skotarSkapaAvlagg = [^\n]*\n\s*if \(testlageAktivRef\.current\) return null;/);
+    expect(page).toContain('skotarLass.provkorLossning(skotarValtAvlagg)');
+    const ko = las('lib/skotarLass/koKopplad.ts');
+    expect(ko).toMatch(/if \(torr\) \{[\s\S]{0,260}skickaLass: async \(\) => true, skickaAvslut: async \(\) => true/);
+    expect(ko).toMatch(/if \(!torr\) void korLassKo\(\);/);
+  });
+  it('skotarens pill har inga skördarräknare (Högstubbar/Evighetsträd hör till skördaren)', () => {
+    expect(page).toMatch(/<KorvyObjektPill[\s\S]{0,900}visaRaknare=\{!skotarKorvy\}/);
   });
   it('körvyns lager-whitelist släpper igenom avläggsrutorna (annars ligger datan i källan men ritas aldrig)', () => {
     expect(page).toMatch(/KEEP_PREFIX = \[[^\]]*'skotar-avlagg-'/);

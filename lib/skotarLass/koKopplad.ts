@@ -17,7 +17,14 @@ export function prenumereraLassKo(fn: () => void): () => void {
 const meddela = () => lyssnare.forEach((fn) => { try { fn(); } catch { /* */ } });
 
 let ko: Promise<SkotarLassKo> | null = null;
-export function hamtaLassKo(): Promise<SkotarLassKo> {
+// TORRKÖRNING (admin: /maskin?som=<maskin_id>, testläget): egen kö i MINNET som aldrig skickar något och aldrig delar lager med den riktiga —
+// lass, Ändra och Färdigskotad fungerar som i maskinen men ingenting når skotar_lass* eller dim_objekt. Läsningar (skördat, andras lass) är vanliga.
+let torrKo: Promise<SkotarLassKo> | null = null;
+export function hamtaLassKo(torr: boolean = false): Promise<SkotarLassKo> {
+  if (torr) {
+    torrKo ??= Promise.resolve(skapaLassKo({ lager: skapaMinnesKoLager(), paForandring: meddela, skickaLass: async () => true, skickaAvslut: async () => true }));
+    return torrKo;
+  }
   if (!ko) {
     ko = (async () => {
       const lager = (await skapaIndexedDbKoLager()) ?? skapaMinnesKoLager();
@@ -51,16 +58,16 @@ export async function korLassKo(): Promise<void> {
   } catch { /* */ }
 }
 
-export async function sparaLass(lass: Lass): Promise<void> {
-  const k = await hamtaLassKo();
+export async function sparaLass(lass: Lass, torr: boolean = false): Promise<void> {
+  const k = await hamtaLassKo(torr);
   await k.spara(lass);
-  void korLassKo();
+  if (!torr) void korLassKo();
 }
 
-export async function begarFardigskotad(objektId: string): Promise<void> {
-  const k = await hamtaLassKo();
+export async function begarFardigskotad(objektId: string, torr: boolean = false): Promise<void> {
+  const k = await hamtaLassKo(torr);
   await k.begarAvslut(objektId, new Date(serverNu()).toISOString());
-  void korLassKo();
+  if (!torr) void korLassKo();
 }
 
 export async function antalVantandeLass(): Promise<number> {
@@ -68,8 +75,8 @@ export async function antalVantandeLass(): Promise<number> {
 }
 
 /** Trakten alla lass: det som ligger lokalt + det servern har (alla skotare). Utan täckning ges bara det lokala, utan fel. */
-export async function lasLassForObjekt(objektId: string): Promise<{ lass: Lass[]; fran: 'server' | 'lokalt' }> {
-  const k = await hamtaLassKo();
+export async function lasLassForObjekt(objektId: string, torr: boolean = false): Promise<{ lass: Lass[]; fran: 'server' | 'lokalt' }> {
+  const k = await hamtaLassKo(torr);
   let fran: 'server' | 'lokalt' = 'lokalt';
   try {
     const { data, error } = await hamtaAlla<any>(() => supabase.from('skotar_lass').select(LASS_SELECT).eq('objekt_id', objektId) as any, 'id');

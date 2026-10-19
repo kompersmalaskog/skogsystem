@@ -195,6 +195,24 @@ describe('KorvyObjektPill med kvar', () => {
     await visa(<KorvyObjektPill {...pillProps} smal={false} />);
     expect(q('korvy-pill-kvar')).toBeNull();
   });
+  it('skotare (visaRaknare=false): inga skördarräknare, bara namn | Kvar · Klar', async () => {
+    await visa(<KorvyObjektPill {...pillProps} smal={false} visaRaknare={false} kvar={{ text: 'Kvar ~121 m³', klar: 'Klar ~onsdag', onTryck: vi.fn() }} />);
+    expect(q('korvy-pill-hogstubbar')).toBeNull();
+    expect(q('korvy-pill-evighetstrad')).toBeNull();
+    expect(q('korvy-pill-namn')?.textContent).toContain('Trakten');
+    expect(q('korvy-pill-kvar')?.textContent).toBe('Kvar ~121 m³· Klar ~onsdag');
+  });
+  it('skotare utan läsbar kvar: bara namnet — aldrig skördarräknare och aldrig ett påhittat 0', async () => {
+    await visa(<KorvyObjektPill {...pillProps} smal={false} visaRaknare={false} kvar={null} />);
+    expect(q('korvy-pill-hogstubbar')).toBeNull();
+    expect(q('korvy-pill-kvar')).toBeNull();
+    expect(q('korvy-pill-namn')).not.toBeNull();
+  });
+  it('skördare: räknarna är kvar som förut', async () => {
+    await visa(<KorvyObjektPill {...pillProps} smal={false} />);
+    expect(q('korvy-pill-hogstubbar')).not.toBeNull();
+    expect(q('korvy-pill-evighetstrad')).not.toBeNull();
+  });
   it('telefon: kvar-delen ligger under namnraden', async () => {
     await visa(<KorvyObjektPill {...pillProps} smal kvar={{ text: 'Kvar ~121 m³', klar: null, onTryck: vi.fn() }} />);
     expect((q('korvy-objektpill') as HTMLElement).style.flexDirection).toBe('column');
