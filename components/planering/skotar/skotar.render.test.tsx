@@ -404,11 +404,34 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
   });
   it('Morgonkort och väderlista', async () => {
     const ok = vi.fn();
-    await visa(<><MorgonKortVy kort={{ rubrik: 'Idag', rader: ['Brandrisk 3 idag'] }} onOk={ok} /><VaderLista dagar={[{ datum: '2026-10-20', regnMm: 12, tempMax: 9, tempMin: 3 }]} laddar={false} /></>);
+    await visa(<><MorgonKortVy kort={{ rubrik: 'Idag', rader: ['Brandrisk 3 idag'] }} onOk={ok} /><VaderLista dagar={[{ datum: '2026-10-20', regnMm: 12, tempMax: 9, tempMin: 3, symbol: 19 }]} laddar={false} /></>);
     expect(q('morgonkort')?.textContent).toContain('Brandrisk 3 idag');
     expect(q('vader-lista')?.textContent).toContain('12 mm');
     await tryck('morgonkort-ok');
     expect(ok).toHaveBeenCalled();
+  });
+  it('VaderLista: tre dagar med dag, ikon, temperatur och mm — Idag och I morgon, torr dag är 0 mm, saknad dag är –', async () => {
+    const dagar = [
+      { datum: '2026-10-19', regnMm: 0.2, tempMax: 11.4, tempMin: 4.6, symbol: 1 },
+      { datum: '2026-10-20', regnMm: 12.4, tempMax: 9, tempMin: 3, symbol: 19 },
+      { datum: '2026-10-21', regnMm: null, tempMax: null, tempMin: null, symbol: null },
+    ];
+    await visa(<VaderLista dagar={dagar} laddar={false} idag="2026-10-19" />);
+    const rader = Array.from(document.querySelectorAll('[data-testid="vader-dag"]')).map((r) => r.textContent);
+    expect(rader).toHaveLength(3);
+    expect(rader[0]).toContain('Idag');
+    expect(rader[0]).toContain('5–11°');
+    expect(rader[0]).toContain('0 mm');
+    expect(rader[1]).toContain('I morgon');
+    expect(rader[1]).toContain('12 mm');
+    expect(rader[2]).toContain('ons 21 okt');
+    expect(rader[2]).toContain('–');
+    expect(q('vader-ikon-sol')).not.toBeNull();
+    expect(q('vader-ikon-regn')).not.toBeNull();
+    // Ikonerna har ingen egen färg: de ärver textfärgen (currentColor), bara systemets färger finns i raderna.
+    const svgar = Array.from(document.querySelectorAll('[data-testid="vader-lista"] svg'));
+    expect(svgar.length).toBe(2);
+    for (const sv of svgar) { expect(sv.getAttribute('stroke')).toBe('currentColor'); expect(sv.getAttribute('fill')).toBe('none'); }
   });
   it('VaderLista utan data säger det', async () => {
     await visa(<VaderLista dagar={[]} laddar={false} />);

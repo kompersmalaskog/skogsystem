@@ -51,6 +51,20 @@ describe('skotarläget i planeringsvyn', () => {
     const pill = las('components/planering/KorvyObjektPill.tsx');
     expect(pill).not.toContain('korvy-pill-byt');   // ingen pil ⌄ i körvyns pill
   });
+  it('väder i objektinfon: för TRAKTENS position, också i testläget; morgonkortet provkörs med knappen i den gula bannern; Skotning-verktyget saknas i skotarläget', () => {
+    expect(page).toContain("const skotarVader = useSkotarVader(skotarKorvy, skotarVaderPos, !!testlage);");
+    expect(page).toMatch(/const skotarVaderPos = useMemo\(\(\) => \{\s*const la = Number\(valtObjekt\?\.lat\), lo = Number\(valtObjekt\?\.lng\);/);
+    expect(page).toContain('vader: skotarKorvy ? <VaderLista dagar={skotarVader.dagar} laddar={skotarVader.laddar} idag={lokaltDatumStockholm(serverNu())} /> : undefined,');
+    expect(page).not.toMatch(/skotarKorvy && !testlage/);   // väder och morgonkort göms inte längre i testläget
+    expect(page).toContain('{skotarKorvy && skotarVader.kort && <MorgonKortVy kort={skotarVader.kort} onOk={skotarVader.stangKort} />}');
+    expect(page).toMatch(/data-testid="skotar-provkor-morgonkort" onClick=\{skotarVader\.provkorKort\}/);
+    const hook = las('lib/hooks/useSkotarVader.ts');
+    expect(hook).toContain('if (test) return;');   // testläget: inget automatiskt kort, inget förbrukat
+    expect(hook).toContain('if (test) setKort(morgonkortProv(regn24h, brandklass));');
+    // Skotning-verktyget (Skotningsuttag) visas varken som knapp på kortet eller i Mer när lassrapporteringen är aktiv; planeringsvyns eget flöde är orört.
+    expect(page).toContain('maskinSlag, utanSkotning: skotarLassAktiv }),');
+    expect(page).toContain("utanSkotning: skotarLassAktiv, status: valtObjekt.status ?? null");
+  });
   it('kvar kräver Opti-lassen (skotat före appens start) och räknar aldrig en trakt med avslutad skotning', () => {
     const hook = las('lib/hooks/useSkotarLass.ts');
     expect(hook).toMatch(/skordat && opti && skotningAvslutad !== true \? beraknaKvar\(skordat, lass, opti\)/);

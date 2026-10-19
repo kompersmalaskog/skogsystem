@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { morgonkort, regnMm, vaderPerDag, type PmpTimeSeries } from './vader';
+import { morgonkort, morgonkortProv, regnMm, vaderIkon, vaderPerDag, type PmpTimeSeries } from './vader';
 import { avstand } from './geo';
 import { tunnaSpar, vagTider } from './spar';
 
@@ -65,5 +65,45 @@ describe('spår per väg', () => {
     expect(t[0].lat).toBeCloseTo(fixar[0].lat, 9);
     expect(t[t.length - 1].lat).toBeCloseTo(fixar[999].lat, 9);
     expect(avstand(t[0], t[1])).toBeGreaterThanOrEqual(5.9);
+  });
+});
+
+describe('väder för ⓘ: tre dagar med ikon', () => {
+  const tsSym = (iso: string, pmean: number, t: number, sym: number): PmpTimeSeries => ({ validTime: iso, parameters: [{ name: 'pmean', values: [pmean] }, { name: 't', values: [t] }, { name: 'Wsymb2', values: [sym] }] });
+  const dag = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  it('standard är tre dagar, symbolen är den närmast lunch', () => {
+    const serie: PmpTimeSeries[] = [];
+    for (const d of ['19', '20', '21', '22', '23']) for (const h of ['06', '10', '16']) serie.push(tsSym(`2026-10-${d}T${h}:00:00Z`, 0, 8, h === '10' ? 3 : 1));
+    const v = vaderPerDag(serie, dag);
+    expect(v).toHaveLength(3);
+    expect(v.map((x) => x.symbol)).toEqual([3, 3, 3]);   // 10:00 ligger närmast 10:30, inte 06:00 eller 16:00
+    expect(vaderPerDag(serie, dag, 5)).toHaveLength(5);
+  });
+  it('utan Wsymb2 är symbolen null (ingen gissad ikon)', () => {
+    expect(vaderPerDag([ts('2026-10-19T10:00:00Z', 0, 8)], dag)[0].symbol).toBeNull();
+  });
+  it('Wsymb2 → ikon: alla 27 symboler hamnar i en ikon, okänt är null', () => {
+    const ikoner = Array.from({ length: 27 }, (_, i) => vaderIkon(i + 1));
+    expect(ikoner.every((x) => x != null)).toBe(true);
+    expect([vaderIkon(1), vaderIkon(4), vaderIkon(6), vaderIkon(7), vaderIkon(9), vaderIkon(11), vaderIkon(15), vaderIkon(20), vaderIkon(21), vaderIkon(24)])
+      .toEqual(['sol', 'halvklart', 'moln', 'dimma', 'regn', 'aska', 'snoblandat', 'regn', 'aska', 'snoblandat']);
+    expect([vaderIkon(0), vaderIkon(28), vaderIkon(null), vaderIkon(undefined), vaderIkon(2.5)]).toEqual([null, null, null, null, null]);
+  });
+});
+
+describe('morgonkortProv (testbannern)', () => {
+  it('gäller något: samma kort som det riktiga', () => {
+    expect(morgonkortProv(20, 1)).toEqual(morgonkort({ regnMm: 20, brandklass: 1, redanVisatIdag: false }));
+    expect(morgonkortProv(0, 4)?.rader).toEqual(['Brandrisk 4 idag']);
+  });
+  it('gäller inget: ett märkt provkort med värdena — aldrig ett kort som ser riktigt ut', () => {
+    const k = morgonkortProv(3.2, 2);
+    expect(k.rader).toEqual(['Provkörning – inget kort hade visats nu (regn 3 mm, brandrisk 2)']);
+    expect(morgonkortProv(null, null).rader[0]).toContain('regn okänt, brandrisk okänt');
+  });
+  it('tröskelreglerna för det riktiga kortet är oförändrade', () => {
+    expect(morgonkort({ regnMm: 9.9, brandklass: 2, redanVisatIdag: false })).toBeNull();
+    expect(morgonkort({ regnMm: 10, brandklass: 1, redanVisatIdag: false })).not.toBeNull();
+    expect(morgonkort({ regnMm: 0, brandklass: 3, redanVisatIdag: false })).not.toBeNull();
   });
 });

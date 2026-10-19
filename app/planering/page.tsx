@@ -12024,7 +12024,13 @@ export default function PlannerPage() {
     hamtaVagar: skotarHamtaVagar,
     skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
   });
-  const skotarVader = useSkotarVader(skotarKorvy && !testlage, currentPosition);
+  // Väder för TRAKTENS position (inte där telefonen är); saknas koordinat faller det tillbaka på enhetens position. Testläget: dagarna hämtas, morgonkortet provkörs med knappen i bannern.
+  const skotarVaderPos = useMemo(() => {
+    const la = Number(valtObjekt?.lat), lo = Number(valtObjekt?.lng);
+    if (valtObjekt?.lat != null && valtObjekt?.lng != null && Number.isFinite(la) && Number.isFinite(lo)) return { lat: la, lon: lo };
+    return currentPosition;
+  }, [valtObjekt?.lat, valtObjekt?.lng, currentPosition]);
+  const skotarVader = useSkotarVader(skotarKorvy, skotarVaderPos, !!testlage);
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
@@ -12901,6 +12907,12 @@ export default function PlannerPage() {
               Provkör lossning
             </button>
           )}
+          {skotarKorvy && (
+            <button type="button" data-testid="skotar-provkor-morgonkort" onClick={skotarVader.provkorKort}
+              style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Visa morgonkort
+            </button>
+          )}
           <button type="button" onClick={avslutaTestlage}
             style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             Avsluta
@@ -13553,7 +13565,7 @@ export default function PlannerPage() {
         const sammanf = omSammanfattning(omMarkeringar, ovrigaYtor.map((y) => ({ harText: !!(y.vidaText || foersta(anteckningar[y.nyckel]?.text)) })));
         const merIn = byggMerGrupper({
           roll: kortRoll, arAdmin: isAdminRiktig, korvyAktiv: korvyActive, maskinlage: maskinlage || !!maskinSomParam,
-          skotningFinnsSomKnapp: kortRoll === 'forare' && maskinSlag !== 'skordare', status: valtObjekt.status ?? null, tillTrakt: true,
+          skotningFinnsSomKnapp: kortRoll === 'forare' && maskinSlag !== 'skordare', utanSkotning: skotarLassAktiv, status: valtObjekt.status ?? null, tillTrakt: true,
           korvy: korvyActive ? {
             basKartaText: korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta',
             gpsText: korvyStatus.gpsText, gpsProblem: korvyStatus.harProblem, dataText: korvyStatus.dataText,
@@ -13698,9 +13710,9 @@ export default function PlannerPage() {
             else if (id === 'utkort') { startaMarkeraUtkort(); stang(); }
           },
           kort: {
-            vader: skotarKorvy && !testlage ? <VaderLista dagar={skotarVader.dagar} laddar={skotarVader.laddar} /> : undefined,
+            vader: skotarKorvy ? <VaderLista dagar={skotarVader.dagar} laddar={skotarVader.laddar} idag={lokaltDatumStockholm(serverNu())} /> : undefined,
             rad: objektRad({ typ: typTxt, avtalsform: valtObjekt.avtalsform, cert: certTxt, arSlutavverkning: objektHuvudtyp(valtObjekt) === 'slutavverkning' }),
-            knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag }),
+            knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag, utanSkotning: skotarLassAktiv }),
             faror: faroLinjer,
             tillForaren: forareTexter,
             planering: forarPlanering,
@@ -14061,7 +14073,7 @@ export default function PlannerPage() {
              kategori-radien via EN mjuk height-övergång (diskret, ej GPS-bunden skalning → ingen mikroskak).
              Krymper/försvinner vid Sett/passerad. Faror: blink + skärmkant-glöd + tre pip. RÖR EJ skotarkörvyn. === */}
       {/* ═══ SKOTARLÄGE: lassrapportering. Allt nedan finns bara för skotare med vald maskin (skotarLassAktiv) — skördarvyn och planeringen rörs inte. ═══ */}
-      {skotarKorvy && skotarVader.kort && !testlage && <MorgonKortVy kort={skotarVader.kort} onOk={skotarVader.stangKort} />}
+      {skotarKorvy && skotarVader.kort && <MorgonKortVy kort={skotarVader.kort} onOk={skotarVader.stangKort} />}
       {skotarLassAktiv && (() => {
         const sl = skotarLass;
         const lassMedId = (id: string) => sl.lass.find((l) => l.id === id) ?? null;
