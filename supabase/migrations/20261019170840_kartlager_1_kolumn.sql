@@ -1,0 +1,1 @@
+alter table medarbetare add column if not exists kartlager text check (kartlager is null or kartlager in ('satellite', 'lantmateriet', 'terrain', 'osm'));
