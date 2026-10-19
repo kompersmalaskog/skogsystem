@@ -270,6 +270,9 @@ const attGoraRubrik = () => document.querySelector('section[aria-label="Att gör
 const fakturaSida = () => document.querySelector("[data-fakturering-sida]") as HTMLElement | null;
 const tillbakaPil = () => document.querySelector("[data-tillbaka]") as HTMLElement | null;
 const tillFakturering = async () => { await klicka(fakturRad()!); };
+/** År-vyn har ingen dörr från Körningar (Martin 2026-10-19): den nås via växeln på fakturasidan (eller ?per=2026) och perioden är EN. */
+const tillAr = async () => { await klicka(fakturRad()!); await klicka(knapp(/^År$/)); await klicka(tillbakaPil()!); };
+const filterKnapp = (id: "flytt" | "ovrig") => document.querySelector(`[data-filter="${id}"]`) as HTMLElement;
 const tillHuvudsidan = async () => { await klicka(tillbakaPil()!); };
 /** Flikkontrollen Körningar/Fakturering/Nu är borta: det enda som är kvar av "tabs" är Månad | År i periodväljaren. */
 const flikNamn = () => Array.from(document.querySelectorAll('[role="tab"]')).map(t => t.textContent);
@@ -318,10 +321,10 @@ describe("pengatalet: raden Fakturering och fakturasidan", () => {
 
   it("fakturasidan är en egen sida med tillbaka-pil: inga flikar, och huvudsidan är borta medan den visas", async () => {
     await montera();
-    expect(flikNamn()).toEqual(["Månad", "År"]);
+    expect(flikNamn()).toEqual([]);                                               // huvudsidan har ingen Månad/År-växel
     await tillFakturering();
     expect(tillbakaPil()).not.toBeNull();
-    expect(flikNamn()).toEqual(["Månad", "År"]);
+    expect(flikNamn()).toEqual(["Månad", "År"]);                                  // fakturasidan har den
     expect(document.querySelector("[data-hamta-start]")).toBeNull();
     expect(document.querySelector("[data-korningar]")).toBeNull();
     await tillHuvudsidan();
@@ -346,7 +349,7 @@ describe("pengatalet: raden Fakturering och fakturasidan", () => {
     expect(fakturRad()!.textContent).toContain("140 km");
     await klicka(knapp(/Förra månaden/));
     expect(fakturRad()!.textContent).toContain("105 km");
-    await klicka(knapp(/^År$/));
+    await tillAr();
     expect(fakturRad()!.textContent).toContain("Fakturering · 2026");
     expect(fakturRad()!.textContent).toContain("334 km");
     await tillFakturering();
@@ -412,7 +415,7 @@ describe("roller", () => {
     expect(attGora()).toBeNull();
     expect(fakturRad()).toBeNull();
     expect(remsa()).toBeNull();
-    expect(flikNamn()).toEqual(["Månad", "År"]);                      // ingen flikkontroll Körningar/Fakturering/Nu
+    expect(flikNamn()).toEqual([]);                                   // ingen flikkontroll Körningar/Fakturering/Nu, ingen Månad/År-växel
     // ekonomidata, lass och rättningsspår läses aldrig för en förare
     for (const t of ["fakturaunderlag_flytt", "lastbil_lass", "maskin_flytt_rattning"]) expect(mock.anrop).not.toContain(t);
   });
@@ -448,11 +451,11 @@ describe("adressen", () => {
   it("skriver period (och fakturasidan) i adressen när man byter", async () => {
     await montera();
     expect(window.location.search).toBe("?per=2026-10");
-    await klicka(knapp(/^År$/));
-    expect(window.location.search).toBe("?per=2026");
-    await klicka(knapp(/^Månad$/));
-    expect(window.location.search).toBe("?per=2026-10");
     await tillFakturering();
+    expect(window.location.search).toBe("?flik=fakturering&per=2026-10");
+    await klicka(knapp(/^År$/));
+    expect(window.location.search).toBe("?flik=fakturering&per=2026");
+    await klicka(knapp(/^Månad$/));
     expect(window.location.search).toBe("?flik=fakturering&per=2026-10");
     await tillHuvudsidan();
     expect(window.location.search).toBe("?per=2026-10");
@@ -585,19 +588,24 @@ const ark = () => document.querySelector('[role="dialog"]') as HTMLElement | nul
 const flikRad = () => document.querySelector('[role="tablist"]')!;
 
 describe("Körningar: månadskortet och rundlistan (oktober 2026, riktiga rader)", () => {
-  it("månadskortet: ETT tal (818 km = 296 + 522), antal, diesel och l/mil", async () => {
+  it("månadskortet: ETT stort tal (818 km) och EN dämpad rad '5 rundor · 4,3 l/mil' — inga liter", async () => {
     await montera();
     const kort = document.querySelector('section[aria-label="Månaden"]')!.textContent!;
     expect(kort).toContain("Körd i oktober");
     expect(kort).toContain("818 km");
-    expect(kort).toContain("5 rundor · 349 l · 4,3 l/mil");
-    expect(kort).toContain("Flyttrundor · 2 rundor");
-    expect(kort).toContain("296 km");
-    expect(kort).toContain("3,9 l/mil");                       // (67,3 + 49,2) l över (163,2 + 132,6) km mätare
-    expect(kort).toContain("Övrig körning · 3 rundor");
-    expect(kort).toContain("522 km");
-    expect(kort).toContain("4,5 l/mil");                       // (126,9 + 18,4 + 87,6) l över (294 + 47,5 + 180,1) km mätare
-    expect(kort).not.toContain("med lass");                    // en flyttrunda är inte lastad hela vägen: vi kallar den inte "med lass"
+    expect(document.querySelector("[data-manadsrad]")!.textContent).toBe("5 rundor · 4,3 l/mil");
+    expect(kort).not.toMatch(/\d l(?![\/\w])|349/);                      // liter hör inte hemma i toppen
+    expect(kort).not.toContain("296");                         // filterraderna ligger i eget kort, inte i månadskortet
+  });
+
+  it("två rader i eget kort: 'Flyttar 296 km ›' och 'Övrig körning 522 km ›' — inga rundor eller l/mil på raderna", async () => {
+    await montera();
+    const kort = document.querySelector('section[aria-label="Typ av körning"]')!;
+    expect(kort.querySelectorAll("button")).toHaveLength(2);
+    expect(filterKnapp("flytt").textContent).toBe("Flyttar296 kmchevron_right");
+    expect(filterKnapp("ovrig").textContent).toBe("Övrig körning522 kmchevron_right");
+    expect(kort.textContent).not.toMatch(/runda|rundor|l\/mil|med lass|Flyttrundor/);
+    expect(document.querySelector('section[aria-label="Månaden"]')!.contains(kort)).toBe(false);
   });
 
   it("rundraden: två rader text och ETT tal — datum · tid, 'Maskin · Från → Till' eller 'Övrig körning', km till höger; ingen diesel, förare eller Fakturerbar-märke", async () => {
@@ -623,10 +631,16 @@ describe("Körningar: månadskortet och rundlistan (oktober 2026, riktiga rader)
     expect(km.reduce((a, b) => a + b, 0)).toBe(818);
   });
 
-  it("rundorna ligger per vecka, nyast först (v42, v41, v40) och varje rad är tryckbar", async () => {
+  it("rundorna ligger i ETT kort, nyast först, utan veckorubriker, och varje rad är tryckbar", async () => {
     await montera();
-    expect(Array.from(document.querySelectorAll("section[aria-label^='Vecka']")).map(x => x.getAttribute("aria-label"))).toEqual(["Vecka 42", "Vecka 41", "Vecka 40"]);
-    expect(Array.from(document.querySelectorAll("[data-runda]")).map(r => r.tagName)).toEqual(Array(5).fill("BUTTON"));
+    expect(document.querySelectorAll("section[aria-label^='Vecka']")).toHaveLength(0);
+    expect(text()).not.toMatch(/Vecka \d/);
+    const lista = document.querySelector("[data-rundlista]")!;
+    expect(document.querySelectorAll("[data-rundlista]")).toHaveLength(1);
+    const rader = Array.from(lista.querySelectorAll("[data-runda]"));
+    expect(rader).toHaveLength(5);
+    expect(rader.map(r => r.tagName)).toEqual(Array(5).fill("BUTTON"));
+    expect(rader.map(r => r.getAttribute("data-runda"))).toEqual(["30154836", "3e823d15", "3bfa4d19", "b9c1d038", "34cddb13"]);   // mån 12, tis 6, mån 5, tor 1 (14:23), tor 1 (07:22)
     expect(rundrad("30154836")!.textContent).toContain("mån 12 okt · 11:30");
   });
 
@@ -643,9 +657,11 @@ describe("Körningar: månadskortet och rundlistan (oktober 2026, riktiga rader)
 
   it("ÖVRIG KÖRNING ÄR TRYCKBAR: knappen filtrerar till dem, och varje runda öppnar ett ark", async () => {
     await montera();
-    await klicka(knapp(/Övrig körning · 3 rundor/));
+    await klicka(filterKnapp("ovrig"));
     expect(Array.from(document.querySelectorAll("[data-runda]")).map(r => r.getAttribute("data-runda")).sort()).toEqual(["30154836", "34cddb13", "b9c1d038"]);
-    expect(knapp(/Visa alla rundor/)).toBeTruthy();
+    expect(document.querySelector("[data-urval]")!.textContent).toBe("3 rundor · 4,5 l/mil" + "Visa alla");          // urvalet överst: antal + l/mil, och Visa alla
+    expect(knapp(/^Visa alla$/)).toBeTruthy();
+    expect(filterKnapp("ovrig").getAttribute("aria-pressed")).toBe("true");
     await klicka(rundrad("30154836")!);
     const a = ark()!.textContent!;
     expect(a).toContain("Övrig körning");
@@ -653,15 +669,17 @@ describe("Körningar: månadskortet och rundlistan (oktober 2026, riktiga rader)
     expect(a).toContain("Ingen registrerad");                      // förare
     expect(a).toContain("126,9 l · 4,3 l/mil");
     expect(a).toContain("Ingen flytt är kopplad till rundan och inget syfte är registrerat");
-    await klicka(knapp(/Visa alla rundor/));
+    await klicka(knapp(/^Visa alla$/));
     expect(document.querySelectorAll("[data-runda]").length).toBe(5);
+    expect(document.querySelector("[data-urval]")).toBeNull();
   });
 
   it("filtret är ett val som kan tas bort: ett tryck till på samma knapp visar alla igen", async () => {
     await montera();
-    await klicka(knapp(/Flyttrundor · 2 rundor/));
+    await klicka(filterKnapp("flytt"));
     expect(document.querySelectorAll("[data-runda]").length).toBe(2);
-    await klicka(knapp(/Flyttrundor · 2 rundor/));
+    expect(document.querySelector("[data-urval]")!.textContent).toBe("2 rundor · 3,9 l/mil" + "Visa alla");
+    await klicka(filterKnapp("flytt"));
     expect(document.querySelectorAll("[data-runda]").length).toBe(5);
   });
 
@@ -799,7 +817,7 @@ describe("Körningar: kedjan, tom runda och aldrig 0 för saknade värden", () =
 describe("Körningar: året, läsfel och CSV", () => {
   it("året: månaderna som rader (också en tom månad), och ett tryck går till månaden — raden Fakturering följer med", async () => {
     await montera();
-    await klicka(knapp(/^År$/));
+    await tillAr();
     const kort = document.querySelector('section[aria-label="Året"]')!.textContent!;
     expect(kort).toContain("Körd 2026");
     expect(kort).toContain("1\u00a0117 km");                           // 818 (okt) + 109 (aug) + 190 (jul)
@@ -1446,7 +1464,7 @@ describe("Körningar: länken till Flyttplatser (bodde i Flyttloggen)", () => {
   it("finns på Körningar, månad och år, och går till /maskinflytt/platser", async () => {
     await montera();
     expect(document.querySelector('a[href="/maskinflytt/platser"]')!.textContent).toContain("Flyttplatser");
-    await klicka(knapp(/^År$/));
+    await tillAr();
     expect(document.querySelector('a[href="/maskinflytt/platser"]')).not.toBeNull();
   });
 });
