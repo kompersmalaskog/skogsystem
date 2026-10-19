@@ -595,7 +595,6 @@ export default function Arbetsrapport() {
   const [kmM,   setKmM]    = useState<{km:number}|null>(null);
   const [kmK,   setKmK]    = useState<{km:number}|null>(null);
   const [kmBerakning, setKmBerakning] = useState<number|null>(null);
-  const [extra, setExtra]  = useState<{ min: number }[]>([]);
   // Dagens tider — synkas från arbetsdag-tabellen via useEffect nedan.
   // Tomma initialvärden (inte hårdkodade defaults) så vi inte råkar skriva
   // pseudo-data till DB om bekraftaDagen körs innan synk landat.
@@ -1535,8 +1534,6 @@ export default function Arbetsrapport() {
   const totKmVisad  = useRaknaUppVarde(totKm);
   const ersKm  = Math.max(0,totKm-frikm);                          // km över gränsen
   const milPåbörjade = ersattningsMilDag(totKm, frikm);            // påbörjade mil (delad lib)
-  const totEx  = extra.reduce((a,e)=>a+e.min,0);
-  const totMin = arbMin+totEx;
   const igårDate = new Date(); igårDate.setDate(igårDate.getDate()-1);
   const igårKey = igårDate.toISOString().split('T')[0];
   const igårObekräftad = dagData[igårKey] && !dagData[igårKey].status?.includes?.('ok') && dagData[igårKey].start_tid && !historik.find(d => d.datum === igårKey && d.bekraftad);
