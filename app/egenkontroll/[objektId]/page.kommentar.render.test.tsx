@@ -43,6 +43,8 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
   return {
     ...verklig,
     hamtaRunda: () => hamtaRunda(),
+    // Ryggraden: kompletteringen vid oppning ar inte det som provas har - en deterministisk stubb, aldrig ett riktigt nat-anrop.
+    kompletteraRunda: async () => ({ tillagda: [] }),
     sparaRundKommentar: (id: string, t: string | null) => sparaRundKommentar(id, t),
     avslutaRunda: () => avslutaRunda(),
     hamtaStammoln: (vo: string) => hamtaStammoln(vo),

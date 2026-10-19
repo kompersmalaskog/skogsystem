@@ -728,7 +728,12 @@ async function byggPlanrader(klient: SupabaseClient, objektId: string) {
  * Kulturlamning, vilket den inte ar.
  */
 export function byggUtforanderader(objektTyp: ObjektTyp) {
-  return utforandeKatalog(objektTyp).map((mall) => ({
+  return utforandeKatalog(objektTyp).map(utforandeRad);
+}
+
+/** EN rad for en katalogpunkt - samma form vid generering och vid komplettering, sa att de aldrig kan skilja sig at. */
+function utforandeRad(mall: UtforandeMall) {
+  return {
     del: 'utforande',
     kalla: 'fast',
     grupp: null,
@@ -740,7 +745,95 @@ export function byggUtforanderader(objektTyp: ObjektTyp) {
     geometri_snapshot: null,
     plan_kommentar: null,
     status: null,
-  }));
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ryggraden: utforandepunkterna ar desamma varje gang
+// ---------------------------------------------------------------------------
+//
+// Utforandepunkterna FRYSTES vid genereringen, och katalogen vaxer: tva punkter lades till efter att 14 av 24 rundor skapats (naturhansyn_utforande,
+// grotuttag), och tre rundor skapades innan utforandet fanns alls. En pagaende runda ska fa det katalogen kraver NAR DEN OPPNAS.
+//
+// REGLER (Martin 2026-10-19):
+//  - Bara ADDITIVT. Aldrig en borttagning eller andring av en befintlig punkt; en slug som katalogen slutat anvanda ligger kvar.
+//  - Bara en PAGAENDE runda. En klar runda ror vi aldrig (databasen lasar den ocksa - egenkontroll_punkt_last avvisar INSERT).
+//  - EN LASARE SKRIVER ALDRIG: det har ar en egen funktion som sidan anropar, inte en bieffekt i hamtaRunda (Oversikten laser samma vag).
+//  - Nya punkter far ordning max+1.. (observationer raknas inte; de har ordning 0 och eget index). Serien sorteras pa del fore ordning
+//    (byggSerie), sa de hamnar sist bland utforandet oavsett var i ordningen de ligger.
+//  - Samtidiga enheter: bada raknar samma max+1, det partiella unika indexet egenkontroll_punkt_ordning_plan_key later EN igenom och den andra
+//    far 23505 - da LASER vi om och ser att det redan ar gjort. Inget extra index behovs (se STATUS.md om ett eget index pa slugen).
+
+/**
+ * Utforandepunkterna katalogen kraver men rundan saknar, i katalogens ordning. RENT - inga skrivningar, anvands ocksa av listan for
+ * att rakna "N av M" utan att nagon oppnat rundan. En okand slug i rundan raknas inte och tas inte bort.
+ */
+export function saknadeUtforandepunkter(
+  objektTyp: ObjektTyp,
+  befintliga: Iterable<string | null | undefined>,
+): UtforandeMall[] {
+  const finns = new Set<string>();
+  for (const slug of befintliga) if (slug) finns.add(slug);
+  return utforandeKatalog(objektTyp).filter((m) => !finns.has(m.slug));
+}
+
+export type KompletteraResultat = {
+  /** Slugarna som lades till av DETTA anrop. Tom = inget att lagga till, eller nagon annan hann fore. */
+  tillagda: string[];
+};
+
+/**
+ * Lagger till utforandepunkter som katalogen kraver men en PAGAENDE runda saknar. Se reglerna ovan.
+ *
+ * Kastar bara pa ett riktigt fel (lasfel, nat, rattigheter) - anroparen ska da lata rundan oppna som forut och saga att N punkter saknas.
+ * En runda som avslutats under tiden (databasens lås) eller som en annan enhet hunnit komplettera ar INGET fel.
+ */
+export async function kompletteraRunda(
+  egenkontrollId: string,
+  options: KlientOptions = {},
+): Promise<KompletteraResultat> {
+  const { klient } = await kravSession(options);
+
+  const { data: runda, error: rundFel } = await klient
+    .from('egenkontroll')
+    .select('id, status, objekt_typ')
+    .eq('id', egenkontrollId)
+    .maybeSingle();
+  if (rundFel) throw new Error(`Kunde inte läsa rundan: ${rundFel.message}`);
+  if (!runda) throw new Error('Rundan hittades inte. Ladda om sidan.');
+  const { status, objekt_typ } = runda as unknown as { status: string; objekt_typ: ObjektTyp };
+  // En klar runda ror vi ALDRIG.
+  if (status === 'klar') return { tillagda: [] };
+
+  // Hoegst tre varv: ett 23505 betyder att nagon annan skrev samma ordning - las om och se vad som fortfarande saknas.
+  for (let forsok = 0; forsok < 3; forsok += 1) {
+    const { data: punkter, error: punktFel } = await klient
+      .from('egenkontroll_punkt')
+      .select('ordning, del, punkt_typ')
+      .eq('egenkontroll_id', egenkontrollId)
+      // Observationer har ordning 0 och eget index - de ska varken raknas som utforande eller paverka max.
+      .neq('kalla', 'observation')
+      .order('ordning', { ascending: true });
+    if (punktFel) throw new Error(`Kunde inte läsa punkterna: ${punktFel.message}`);
+
+    const rader = (punkter ?? []) as unknown as { ordning: number; del: string; punkt_typ: string | null }[];
+    const saknas = saknadeUtforandepunkter(
+      objekt_typ,
+      rader.filter((p) => p.del === 'utforande').map((p) => p.punkt_typ),
+    );
+    if (saknas.length === 0) return { tillagda: [] };
+
+    const hogst = rader.reduce((m, p) => Math.max(m, p.ordning), 0);
+    const nya = saknas.map((mall, i) => ({ ...utforandeRad(mall), egenkontroll_id: egenkontrollId, ordning: hogst + 1 + i }));
+    const { error } = await klient.from('egenkontroll_punkt').insert(nya);
+    if (!error) return { tillagda: saknas.map((m) => m.slug) };
+    // Avslutad mellan kontrollen och skrivningen: databasens lås. Inget att gora, inget fel.
+    if (error.code === '23514') return { tillagda: [] };
+    // Nagon annan enhet skrev samma ordning samtidigt: las om.
+    if (error.code === '23505') continue;
+    throw new Error(`Kunde inte lägga till punkterna: ${error.message}`);
+  }
+  throw new Error('Punkterna kunde inte läggas till — någon annan ändrade rundan samtidigt. Ladda om sidan.');
 }
 
 // ---------------------------------------------------------------------------
@@ -904,6 +997,11 @@ export type VantandeRad = {
   antalAvvikelser: number;
   /** "kan bli battre" pa utforandepunkter - ingen avvikelse, men en anmarkning. */
   antalBattre: number;
+  /**
+   * Utforandepunkter katalogen kraver men en PAGAENDE runda an saknar (rent raknat, inget skrivs). De ingar redan i antalPunkter, sa
+   * listan sager samma "N av M" som rundan gor nar den oppnas och kompletteras. 0 for en klar runda: den ror vi aldrig.
+   */
+  antalSaknade: number;
   klarDatum: string | null;
 };
 
@@ -980,11 +1078,11 @@ export async function hamtaVantande(
 
   // Punktraknarna aggregeras i JS - PostgREST har ingen GROUP BY. Volymen ar
   // liten (en runda per objekt, tiotals punkter) sa det kostar ingenting.
-  let punkter: { egenkontroll_id: string; status: string | null }[] = [];
+  let punkter: { egenkontroll_id: string; status: string | null; del: string; punkt_typ: string | null }[] = [];
   if (rundor.length > 0) {
     const { data: punktRader, error: punktFel } = await klient
       .from('egenkontroll_punkt')
-      .select('egenkontroll_id, status')
+      .select('egenkontroll_id, status, del, punkt_typ')
       .in('egenkontroll_id', rundor.map((r) => r.id))
       // Observationer ar tillagg, inga punkter att besvara: de raknas aldrig i "N av M" eller i avvikelserna.
       .neq('kalla', 'observation')
@@ -996,13 +1094,18 @@ export async function hamtaVantande(
   const rader: VantandeRad[] = medDatum.map((o) => {
     const runda = valjRunda(rundor.filter((r) => r.objekt_id === o.id));
     const egna = runda ? punkter.filter((p) => p.egenkontroll_id === runda.id) : [];
+    // Pagaende runda: raknas med det den KOMMER att fa nar den oppnas (kompletteraRunda). Ren funktion, inga skrivningar.
+    const saknade = runda && runda.status !== 'klar'
+      ? saknadeUtforandepunkter(runda.objekt_typ, egna.filter((p) => p.del === 'utforande').map((p) => p.punkt_typ)).length
+      : 0;
     return {
       objekt_id: o.id,
       namn: o.namn ?? 'Objekt utan namn',
       avslutat: o.avslutat,
       rundstatus: !runda ? 'ej_startad' : runda.status === 'klar' ? 'klar' : 'pagaende',
       egenkontroll_id: runda?.id ?? null,
-      antalPunkter: egna.length,
+      antalPunkter: egna.length + saknade,
+      antalSaknade: saknade,
       antalBesvarade: egna.filter((p) => p.status !== null).length,
       antalAvvikelser: egna.filter((p) => p.status === 'avvikelse').length,
       antalBattre: egna.filter((p) => p.status === 'battre').length,
