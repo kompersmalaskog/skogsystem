@@ -117,18 +117,58 @@ describe('steg 1 — vilken maskin?', () => {
     expect(t).not.toMatch(/\d\d:\d\d/);
   });
 
-  it('topprad: bara Avbryt till vänster — ingen "Hämta en maskin" uppe till höger, i något steg', async () => {
+  it('topprad: Avbryt bara i första steget; "‹ Tillbaka" i stegen efter, men aldrig när något är sparat', async () => {
     mock.gps = { lat: 56.5452, lng: 14.7451, accuracy: 6 };
     await montera();
-    const topp = () => sel('[data-hamta-avbryt]')!.parentElement!.textContent;
+    const topp = () => (document.querySelector('[data-hamta-avbryt], [data-hamta-tillbaka]')?.textContent ?? '');
     expect(topp()).toBe('Avbryt');                                   // Vilken maskin?
     await tryck(/^Giant/);
-    expect(topp()).toBe('Avbryt');                                   // Hämtar X
+    expect(sel('[data-hamta-avbryt]')).toBeNull();
+    expect(topp()).toBe('‹ Tillbaka');                               // Hämtar X, inget sparat
     await tryck(/^Öppna i /); await tryck('Vart ska Giant?');
-    expect(topp()).toBe('Avbryt');                                   // Vart ska X?
+    expect(topp()).toBe('‹ Tillbaka');                               // Vart ska X?, inget sparat
     await tryck(/^Vällust RP/); await tryck(/^Öppna i /); await tryck('Vägen hem till LBC');
-    expect(topp()).toBe('Avbryt');                                   // Vägen hem
+    expect(topp()).toBe('');                                         // Vägen hem: ingen väg bakåt
     expect(text().match(/Hämta en maskin/g)).toBeNull();
+  });
+
+  it('Tillbaka är ren navigering: Vart ska X? → Hämtar X → maskinlistan, utan att något skrivs', async () => {
+    mock.gps = { lat: 56.5452, lng: 14.7451, accuracy: 6 };
+    await montera();
+    await tryck(/^Giant/); await tryck(/^Öppna i /); await tryck('Vart ska Giant?');
+    await tryck('‹ Tillbaka');
+    expect(text()).toContain('Hämtar Giant');
+    await tryck('‹ Tillbaka');
+    expect(text()).toContain('Vilken maskin hämtar du?');
+    expect(sel('[data-hamta-avbryt]')).toBeTruthy();
+    expect(db().skrivningar).toHaveLength(0);
+  });
+
+  it('Lassat tryckt: ingen Tillbaka i Hämtar X, och Tillbaka från Vart ska X? lämnar lastningen orörd', async () => {
+    mock.gps = { lat: 56.5452, lng: 14.7451, accuracy: 6 };
+    await montera();
+    await tryck(/^Giant/); await tryck(/^Lassat$/);
+    expect(sel('[data-hamta-tillbaka]')).toBeNull();
+    expect(sel('[data-hamta-avbryt]')).toBeNull();
+    await tryck('Vart ska Giant?');
+    const skrivningar = db().skrivningar.length;
+    await tryck('‹ Tillbaka');
+    expect(text()).toContain('Lassat 12:30'.slice(0, 6));            // kvittot står kvar
+    expect(sel('[data-hamta-tillbaka]')).toBeNull();                 // flytten är öppen: ingen väg bakåt förrän man tryckt Ändra
+    expect(db().skrivningar).toHaveLength(skrivningar);              // bakåt skrev och ångrade ingenting
+    expect(skriv('maskin_flytt', 'update').some(s => s.varden.avbruten === true)).toBe(false);
+  });
+
+  it('Lassat av här tryckt: ingen Tillbaka i Vart ska X? och ingen i Vägen hem (före lossningen finns den)', async () => {
+    mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
+    await montera();
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
+    expect(sel('[data-hamta-tillbaka]')).toBeTruthy();               // lastat men inte lossat: Tillbaka finns (den rör inte lastningen)
+    await tryck(/^Vällust RP/); await tryck(/^Lassat av här/);
+    expect(sel('[data-hamta-tillbaka]')).toBeNull();
+    await tryck('Vägen hem till LBC');
+    expect(sel('[data-hamta-tillbaka]')).toBeNull();
+    expect(sel('[data-hamta-avbryt]')).toBeNull();
   });
 
   it('fotnoten "Avstånden är fågelväg." visas när avstånd visas — och döljs när inget avstånd visas', async () => {
@@ -283,8 +323,7 @@ describe('steg 2 — hämtar maskinen', () => {
     await montera();
     await tryck(/^Giant/);
     expect(sel('[data-osaker]')).toBeNull();                                                  // Giant har färsk position
-    await tryck('Avbryt');
-    await montera();
+    await tryck('‹ Tillbaka');
     await tryck(/^810E/);
     expect(sel('[data-osaker]')!.textContent).toMatch(/^Plats osäker/);
     expect(sel('[data-osaker]')!.getAttribute('style')).toMatch(/color: (rgb\(255, 159, 10\)|#ff9f0a)/i);
@@ -636,13 +675,15 @@ describe('steg 4 — vägen hem och Klar', () => {
 });
 
 describe('Avbryt, extern maskin, cron-runda och kartapp', () => {
-  it('Avbryt efter Lassa avbryter den öppna flytten och rensar utkastet', async () => {
+  it('Ändra på Lassat-kvittot är sättet att avbryta en öppen flytt: flytten avbryts (inte raderas) och Tillbaka kommer tillbaka', async () => {
     await montera();
     await tryck(/^Giant/); await lassaNara();
-    await tryck('Avbryt');
+    expect(sel('[data-hamta-tillbaka]')).toBeNull();
+    await tryck('Ändra', sel('[data-kvitto="lassat"]')!);
     expect(skriv('maskin_flytt', 'update').some(s => s.varden.avbruten === true)).toBe(true);
-    expect(localStorage.getItem(UTKAST_NYCKEL)).toBeNull();
-    expect(avslut).toEqual(['']);
+    expect(sel('[data-hamta-tillbaka]')).toBeTruthy();
+    await tryck('‹ Tillbaka');
+    expect(text()).toContain('Vilken maskin hämtar du?');
   });
 
   it('Avbryt i listan skriver ingenting', async () => {

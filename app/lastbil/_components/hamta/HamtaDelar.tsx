@@ -11,11 +11,16 @@ import { avstandKort, osakerRad, type MaskinRad } from './maskinPos';
 
 const faltStil = { ...TYP.text, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: AVSTAND.m, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' as const, minHeight: TRAFFYTA.min };
 
-/** Översta raden i ALLA steg: bara Avbryt till vänster, ingen titel. Sticky i flödet (aldrig fixed + uppmätt padding). */
-export function Topp({ onAvbryt, deaktiverad }: { onAvbryt: () => void; deaktiverad?: boolean }) {
+/**
+ * Översta raden. Första steget (Vilken maskin?): "Avbryt" lämnar flödet. Stegen efter: "‹ Tillbaka" går ETT steg bakåt — ren navigering som
+ * aldrig skriver eller ångrar något. Är något sparat i steget (Lassat, Lassat av här, hemresan) finns ingen knapp alls: raden står tom
+ * (samma höjd, så inget hoppar) och vägen tillbaka är "Ändra" på kvittot. Sticky i flödet (aldrig fixed + uppmätt padding).
+ */
+export function Topp({ onAvbryt, onTillbaka, deaktiverad }: { onAvbryt?: () => void; onTillbaka?: () => void; deaktiverad?: boolean }) {
+  const knapp = onAvbryt ? { data: 'data-hamta-avbryt', text: 'Avbryt', tryck: onAvbryt } : onTillbaka ? { data: 'data-hamta-tillbaka', text: '‹ Tillbaka', tryck: onTillbaka } : null;
   return (
-    <div style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 50, background: FARG.bg, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${AVSTAND.s}px 0` }}>
-      <button type="button" data-hamta-avbryt onClick={onAvbryt} disabled={deaktiverad} style={{ ...KNAPP.lank, ...(deaktiverad ? INAKTIV : {}) }}>Avbryt</button>
+    <div style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 50, background: FARG.bg, display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0` }}>
+      {knapp && <button type="button" {...{ [knapp.data]: '' }} onClick={knapp.tryck} disabled={deaktiverad} style={{ ...KNAPP.lank, ...(deaktiverad ? INAKTIV : {}) }}>{knapp.text}</button>}
     </div>
   );
 }

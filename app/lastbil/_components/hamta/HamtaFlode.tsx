@@ -116,15 +116,6 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
     setUtkast({ ...nyttUtkast(new Date().toISOString()), steg: 'kor', extern: { namn, kund } });
   };
 
-  const avbryt = async () => {
-    setSparar(true);
-    // Lastningen är frivillig och vikten noterar den ändå — en öppen flytt som lämnas kvar skulle bara bli en föräldralös rad.
-    if (utkast.flyttId && !utkast.lossad) await avbrytFlytt(utkast.flyttId);
-    rensaUtkast();
-    setSparar(false);
-    onAvsluta('');
-  };
-
   // ── Steg 2: Lassa ──
   const lassaMed = async (punkt: { lat: number; lng: number }, hoppaRundaFraga = false) => {
     setSparar(true); setFel(null);
@@ -362,7 +353,8 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
     const vidare = utkast.navKor || !!utkast.flyttId;
     return (
       <>
-        <Topp onAvbryt={avbryt} deaktiverad={sparar} />
+        {/* Tillbaka bara när inget är sparat: Lassat-kvittots Ändra är vägen bakåt efter lastning (den avbryter flytten). */}
+        <Topp onTillbaka={utkast.flyttId ? undefined : () => { setFel(null); setUtkast(nyttUtkast(new Date().toISOString())); }} deaktiverad={sparar} />
         <Rubrik>Hämtar {maskinNamn}</Rubrik>
         {harPlats ? (
           <Sektion rubrik="Där den står">
@@ -411,7 +403,8 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
     const vald = (r: DestRad) => andra({ dest: tillValdPlats(r), navDest: false, lossad: null });
     return (
       <>
-        <Topp onAvbryt={avbryt} deaktiverad={sparar} />
+        {/* Tillbaka bara före "Lassat av här": efter lossning backar inget (rättningen går via Ändra på lossningen). */}
+        <Topp onTillbaka={utkast.lossad ? undefined : () => { setFel(null); setSok(''); andra({ steg: 'kor' }); }} deaktiverad={sparar} />
         <Rubrik>Vart ska {maskinNamn}?</Rubrik>
         <DestLista rader={rader} valdNyckel={valdNyckel} sok={sok} onSok={setSok} onVal={vald} />
 
@@ -441,7 +434,8 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
   // ═════════ Steg: vägen hem ═════════
   return (
     <>
-      <Topp onAvbryt={() => { rensaUtkast(); onAvsluta(''); }} deaktiverad={sparar} />
+      {/* Vägen hem: ingen väg bakåt — hemresan är startad och går inte att ångra härifrån. */}
+      <Topp />
       <Rubrik under="Bilen är tom. Rundan avslutas när den står hemma.">Vägen hem till LBC</Rubrik>
       {frammeVarning ? (
         <div style={{ ...KORT }}>
