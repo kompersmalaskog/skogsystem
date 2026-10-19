@@ -22,8 +22,10 @@ import { AVVIKELSE_ETIKETT } from './egenkontroll';
 import { forutsattningsRader, period } from './egenkontrollForutsattningar';
 import { OBSERVATION_TON, OBSERVATION_TYP_ETIKETT, arObservationTon, arObservationTyp, type ObservationTon } from './egenkontrollObservation';
 import { sammanstallProvytor, type LatLng } from './provytor';
+import { markeringsStil, type KartMarkering } from './egenkontrollRapportKarta';
+import { HYTTSPAR_ETIKETT } from './egenkontrollRapportKarta';
 
-export type { LatLng };
+export type { LatLng, KartMarkering };
 
 export type Omdome = 'avvikelse' | 'battre' | 'godkant' | 'bra';
 
@@ -52,7 +54,34 @@ export type RapportIndata = {
   platser: Record<string, LatLng | null>;
   /** Vidas traktgrans som ringar, for vektorkartan. Tom lista = ingen grans ritas. */
   traktgrans: LatLng[][];
+  /**
+   * STAMMOLNET: en punkt per avverkad stam (hpr_filer med flest stammar, positioner ur hpr_stammar). null = gick inte att lasa
+   * (ett FEL, sagt pa kartan); [] = inga stammar hittades. Glesas ALDRIG ut - monstret (stickvagarna, halen dar hansynen star) ar poangen.
+   */
+  stammar: LatLng[] | null;
+  /** Filens eget stammar_count - FAKTA om vad som gjordes. Kan vara fler an stammar.length (de utan position). */
+  antalStammar: number | null;
+  /** Hyttsparet per roll, ritat. [] = inget spar finns (kommer med pa nya objekt); null = gick inte att lasa. */
+  hyttspar: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[] | null;
+  /** Planeringens markeringar (basvagar, hansynsytor, symboler) i lat/lng. null = gick inte att lasa. */
+  markeringar: KartMarkering[] | null;
+  /** Hektar ur objektet. null = saknas (aldrig 0). */
+  areal: number | null;
+  /**
+   * JAMFORELSEN MOT TIDIGARE RUNDOR av samma typ. BYGGS INTE an - det finns tva rundor och inget att jamfora mot - men faltet finns,
+   * sa att raden gar att lagga till utan att modellen skrivs om: ge en lista rader, rapporten skriver dem under faktaraden.
+   * null/utelamnad = ingen rad.
+   */
+  jamforelse?: JamforelseRad[] | null;
+  /** Anmarkningar fran den som byggde indata (t.ex. att origot inte betrodds, sa markeringarna inte ritas). Skrivs under kartan. */
+  extraAnmarkningar?: string[];
 };
+
+/** En rad i jamforelsen, t.ex. { etikett: 'Stammar per ha', text: '468 · tidigare rundor 410–520' }. */
+export type JamforelseRad = { etikett: string; text: string };
+
+/** En rad i kartans teckenforklaring - bara lager som FINNS pa kartan. */
+export type Teckenforklaring = { nyckel: string; etikett: string };
 
 export type Fynd = {
   /** Lopnumret. null = fyndet star bara som rad i "Bra"/"Godkant" (ingen text, inget foto). */
@@ -118,11 +147,31 @@ export type RapportModell = {
   forutsattningar: string[];
   /** Kommentaren i stycken. null = ingen skrivits - rapporten visar da ingen tom ruta. */
   kommentar: string[] | null;
+  /**
+   * KARTAN PA SIDA 1, direkt under de tre talen - det forsta man ser (Vidas bilaga oppnar ocksa med kartan): man orienterar sig forst, laser sedan.
+   * Lager underifran: traktgrans, stammoln, hyttspar, planeringens markeringar, kontrollpunkterna (numrerade, overst).
+   */
+  karta: {
+    granser: LatLng[][];
+    stammar: LatLng[];
+    hyttspar: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[];
+    markeringar: KartMarkering[];
+    pinnar: { nr: number; rubrik: string; plats: LatLng }[];
+    utanPlats: { nr: number; rubrik: string }[];
+    /** "2 247 stammar · 4,8 ha" - fakta om vad som gjordes. null = varken stammar eller areal kanda. */
+    fakta: string | null;
+    /** Det som saknas pa kartan och SKA sagas ("Stammolnet kunde inte lasas") - aldrig en tyst tom karta. */
+    anmarkningar: string[];
+    teckenforklaring: Teckenforklaring[];
+  };
+  /** Jamforelsen mot tidigare rundor. null tills den byggs (se RapportIndata.jamforelse). */
+  jamforelse: JamforelseRad[] | null;
   bilaga: {
     bilder: Bild[];
     /** Foton pa en punkt utan text som varken ar en avvikelse eller en observation. Tas inte med. */
     utanText: number;
-    karta: { granser: LatLng[][]; pinnar: { nr: number; rubrik: string; plats: LatLng }[]; utanPlats: { nr: number; rubrik: string }[] };
+    /** Bilagans EGNA karta - till fotonumren: traktgrans, stammoln (blekt, for orientering) och de numrerade pinnarna. */
+    karta: { granser: LatLng[][]; stammar: LatLng[]; pinnar: { nr: number; rubrik: string; plats: LatLng }[]; utanPlats: { nr: number; rubrik: string }[] };
   };
   filnamn: string;
 };
@@ -168,6 +217,32 @@ function tomtEllerNull(s: string | null | undefined): string | null {
 }
 
 const TAL_FORMAT = (v: number) => String(Math.round(v * 10) / 10).replace('.', ',');
+
+/** 2247 -> "2 247" (hart mellanslag: talet far aldrig brytas over en rad). */
+export function tusental(n: number): string {
+  return Math.round(n).toLocaleString('sv-SE');
+}
+
+/** Hektar: hogst tva decimaler, utan avslutande nollor. 4 -> "4", 4.8 -> "4,8", 0.83 -> "0,83". */
+export function arealText(ha: number): string {
+  return String(Math.round(ha * 100) / 100).replace('.', ',');
+}
+
+/** "2 247 stammar · 4,8 ha". Skiljer sig stammar med position fran filens antal sags bada. null = inget av dem kant. */
+export function faktaRad(stammar: LatLng[] | null, antalStammar: number | null, areal: number | null): string | null {
+  const delar: string[] = [];
+  const antal = antalStammar ?? (stammar && stammar.length > 0 ? stammar.length : null);
+  if (antal !== null && antal > 0) {
+    const medPos = stammar?.length ?? 0;
+    delar.push(
+      antalStammar !== null && medPos > 0 && medPos !== antalStammar
+        ? `${tusental(antal)} stammar (${tusental(medPos)} med position)`
+        : `${tusental(antal)} stammar`,
+    );
+  }
+  if (areal !== null && Number.isFinite(areal) && areal > 0) delar.push(`${arealText(areal)} ha`);
+  return delar.length === 0 ? null : delar.join(' · ');
+}
 
 function omdomeAv(status: string | null): Omdome | null {
   if (status === 'ok' || status === 'bra') return 'bra';
@@ -403,6 +478,22 @@ export function byggRapport(i: RapportIndata): RapportModell {
     provytor = rader;
   }
 
+  // 8. Kartan pa sida 1: lagren och teckenforklaringen. Teckenforklaringen har en rad per lager som FINNS.
+  const markeringar = (i.markeringar ?? []).filter((m) => markeringsStil(m.slag, m.typ) !== null);
+  const anmarkningar: string[] = [];
+  if (i.stammar === null) anmarkningar.push('Stammolnet kunde inte läsas.');
+  else if (i.stammar.length === 0) anmarkningar.push('Inga avverkade stammar hittades för objektet.');
+  if (i.hyttspar === null) anmarkningar.push('Hyttsparet kunde inte läsas.');
+  if (i.markeringar === null) anmarkningar.push('Planeringens markeringar kunde inte läsas.');
+  anmarkningar.push(...(i.extraAnmarkningar ?? []));
+  const forklaring: Teckenforklaring[] = [];
+  const lagg = (nyckel: string, etikett: string) => { if (!forklaring.some((f) => f.nyckel === nyckel)) forklaring.push({ nyckel, etikett }); };
+  if (i.traktgrans.length > 0) lagg('traktgrans', 'Traktgräns');
+  if ((i.stammar?.length ?? 0) > 0) lagg('stammar', 'Avverkad stam');
+  for (const h of i.hyttspar ?? []) if (h.linjer.length > 0) lagg(`hyttspar:${h.roll}`, HYTTSPAR_ETIKETT[h.roll]);
+  for (const m of markeringar) { const st = markeringsStil(m.slag, m.typ); if (st) lagg(st.nyckel, st.etikett); }
+  if (pinnar.length > 0) lagg('kontrollpunkt', 'Kontrollpunkt (numret står i rapporten)');
+
   const maskingrupp = [
     runda.maskiner?.skordare_maskin ? `Skördare ${runda.maskiner.skordare_maskin}` : null,
     runda.maskiner?.skotare_maskin ? `Skotare ${runda.maskiner.skotare_maskin}` : null,
@@ -431,7 +522,19 @@ export function byggRapport(i: RapportIndata): RapportModell {
     provytor,
     forutsattningar: forutsattningsRader(runda.vader, runda.maskiner),
     kommentar: stycken(runda.kommentar),
-    bilaga: { bilder, utanText, karta: { granser: i.traktgrans, pinnar, utanPlats } },
+    karta: {
+      granser: i.traktgrans,
+      stammar: i.stammar ?? [],
+      hyttspar: (i.hyttspar ?? []).filter((h) => h.linjer.length > 0),
+      markeringar,
+      pinnar,
+      utanPlats,
+      fakta: faktaRad(i.stammar, i.antalStammar, i.areal),
+      anmarkningar,
+      teckenforklaring: forklaring,
+    },
+    jamforelse: i.jamforelse && i.jamforelse.length > 0 ? i.jamforelse : null,
+    bilaga: { bilder, utanText, karta: { granser: i.traktgrans, stammar: i.stammar ?? [], pinnar, utanPlats } },
     filnamn: `egenkontroll-${slug(i.objektNamn)}-${datumDel}`,
   };
 }

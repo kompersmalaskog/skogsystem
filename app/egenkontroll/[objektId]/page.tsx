@@ -52,6 +52,8 @@ import {
   hamtaVidaGrans,
   hamtaProvytor,
   hamtaAvverkadeStammar,
+  hamtaStammoln,
+  hamtaHyttspar,
   punktPlatser,
   stubbeDom,
   KRAVNIVA_STUBBEHANDLING,
@@ -972,10 +974,30 @@ export default function EgenkontrollRundaPage() {
   // Tillstand 2 behaller sin kolumn, och en avslutad runda ar ett dokument - se arSerieLage.
   const serie = useMemo(() => byggSerie(vy?.punkter ?? []), [vy?.punkter]);
 
+  // RAPPORTENS KARTLAGER hamtas bara for en AVSLUTAD runda (stammolnet kan vara over 12 000 punkter): stammoln och hyttspar, var for sig sa att
+  // ett fel pa det ena aldrig tar det andra. Ett lasfel blir null och sags pa kartan - aldrig "inga stammar".
+  const [rapportKartdata, setRapportKartdata] = useState<{
+    stammar: LatLng[] | null; antalStammar: number | null; hyttspar: Awaited<ReturnType<typeof hamtaHyttspar>> | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!rundanKlar || !vo) { setRapportKartdata(null); return; }
+    let avbruten = false;
+    (async () => {
+      const [st, hy] = await Promise.allSettled([hamtaStammoln(vo), hamtaHyttspar(objektId)]);
+      if (avbruten) return;
+      setRapportKartdata({
+        stammar: st.status === 'fulfilled' ? st.value.punkter : null,
+        antalStammar: st.status === 'fulfilled' ? st.value.antal : null,
+        hyttspar: hy.status === 'fulfilled' ? hy.value : null,
+      });
+    })();
+    return () => { avbruten = true; };
+  }, [rundanKlar, vo, objektId]);
+
   // RAPPORTEN (A4 + bilaga): bara pa en AVSLUTAD runda. Samma tillstand som sidan visar - origot ar det som beslutaOrigo betrodde
   // (null = inga platser och ingen traktgrans i rapporten, hellre farre pinnar an en punkt pa fel plats).
   const rapportModell = useMemo(() => {
-    if (!vy?.egenkontroll || vy.egenkontroll.status !== 'klar') return null;
+    if (!vy?.egenkontroll || vy.egenkontroll.status !== 'klar' || !rapportKartdata) return null;
     return byggRapport(byggRapportIndata({
       objektNamn: vy.objektNamn,
       voNummer: vy.kartObjekt.vo_nummer,
@@ -986,8 +1008,14 @@ export default function EgenkontrollRundaPage() {
       provytor,
       origo,
       granserXy: markeringsGranser(kontext),
+      // Kartlagren: ett lasfel ar null (sagt i rapporten), aldrig "inga".
+      kontext: kontextStatus === 'ok' ? kontext : null,
+      stammar: rapportKartdata.stammar,
+      antalStammar: rapportKartdata.antalStammar,
+      hyttspar: rapportKartdata.hyttspar,
+      areal: vy.kartObjekt.areal ?? null,
     }));
-  }, [vy, fotoRader, provytor, origo, kontext]);
+  }, [vy, fotoRader, provytor, origo, kontext, kontextStatus, rapportKartdata]);
   const serieLage = arSerieLage({ harRunda: !!vy?.egenkontroll, klar: rundanKlar, terrangKvar, serieLangd: serie.length });
   // Ett val man gjort gallde dar och da - lamnar man avsluta-laget ska man mota det forsta obesvarade nasta gang.
   useEffect(() => { if (!serieLage) setValtKortId(null); }, [serieLage]);
@@ -1715,6 +1743,9 @@ export default function EgenkontrollRundaPage() {
                   </div>
                   {/* RAPPORTEN: A4 och bilaga (lib/egenkontrollRapport.ts). Bara pa en avslutad runda. */}
                   {rapportModell && <RapportDela modell={rapportModell} />}
+                  {!rapportModell && (
+                    <div role="status" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xl }}>Förbereder rapporten — hämtar kartlagren…</div>
+                  )}
                   </>
                 ) : serieLage ? null : (
                   <button

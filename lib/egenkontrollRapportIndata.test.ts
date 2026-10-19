@@ -15,6 +15,7 @@ const bas = (origo: typeof ORIGO | null) => byggRapportIndata({
   observationer: [punkt('obs', null, { lat: 56.2, lng: 15.2 })],
   foton: [], provytor: [], origo,
   granserXy: [[{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }]],
+  kontext: [], stammar: [], antalStammar: null, hyttspar: [], areal: null,
 });
 
 describe('byggRapportIndata', () => {
@@ -37,5 +38,38 @@ describe('byggRapportIndata', () => {
   it('observationens egen position finns kvar i punkten (modellen laser den ur lat/lng), aven utan origo', () => {
     const i = bas(null);
     expect(i.observationer[0]).toMatchObject({ lat: 56.2, lng: 15.2 });
+  });
+});
+
+describe('byggRapportIndata: kartlagren', () => {
+  const kontext = [
+    { data: { path: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 40 }], lineType: 'mainRoad' } },
+    { data: { path: [{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }], zoneType: 'protected' } },
+    { data: { x: 12, y: -8, type: 'eternitytree' } },
+    { data: { x: 3, y: 3, arrowType: 'fellingdirection' } },   // pil: ritas inte
+    { data: { nonsens: true } },                                   // gar inte att placera: hoppas over
+  ];
+  const med = (origo: typeof ORIGO | null, k: { data?: unknown }[] | null) => byggRapportIndata({
+    objektNamn: 'A', voNummer: '1', runda: RUNDA, punkter: [], observationer: [], foton: [], provytor: [], origo, granserXy: [],
+    kontext: k, stammar: null, antalStammar: null, hyttspar: [], areal: 4.8,
+  });
+
+  it('med betrott origo blir linjer, ytor och symboler lat/lng; pilar och oplacerbara hoppas over', () => {
+    const i = med(ORIGO, kontext);
+    expect(i.markeringar!.map((m) => `${m.slag}:${m.typ}`)).toEqual(['linje:mainRoad', 'zon:protected', 'symbol:eternitytree']);
+    const sym = i.markeringar!.find((m) => m.slag === 'symbol') as { plats: { lat: number; lng: number } };
+    expect(sym.plats).toEqual(svgToLatLon(12, -8, ORIGO));
+    expect(i.areal).toBe(4.8);
+  });
+
+  it('UTAN betrott origo ritas inga markeringar och det SAGS - men ett tomt kontext ar ingen anmarkning', () => {
+    const i = med(null, kontext);
+    expect(i.markeringar).toEqual([]);
+    expect(i.extraAnmarkningar![0]).toContain('markeringar ritas inte');
+    expect(med(null, []).extraAnmarkningar).toEqual([]);
+  });
+
+  it('markeringar som inte gick att lasa blir null (ett FEL), aldrig en tom lista', () => {
+    expect(med(ORIGO, null).markeringar).toBeNull();
   });
 });

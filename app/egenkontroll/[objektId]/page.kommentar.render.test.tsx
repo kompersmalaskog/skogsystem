@@ -27,7 +27,16 @@ let vyn: any;
 const hamtaRunda = vi.fn(async () => vyn);
 const sparaRundKommentar = vi.fn(async (_id: string, text: string | null) => ({ ...RUNDA, kommentar: text }));
 const avslutaRunda = vi.fn(async () => ({ ...RUNDA, status: 'klar' }));
+// Kartlagren till rapporten: hamtas bara for en AVSLUTAD runda.
+let stammoln: () => Promise<{ punkter: { lat: number; lng: number }[]; antal: number | null }> = async () => ({ punkter: [{ lat: 56.05, lng: 14.05 }], antal: 1 });
+const hamtaStammoln = vi.fn((_vo: string) => stammoln());
+const hamtaHyttspar = vi.fn(async (_objektId: string) => [] as any[]);
 
+let sistaIndata: any = null;
+vi.mock('@/lib/egenkontrollRapportIndata', async (orig) => {
+  const verklig = await orig<typeof import('@/lib/egenkontrollRapportIndata')>();
+  return { ...verklig, byggRapportIndata: (a: any) => { sistaIndata = a; return verklig.byggRapportIndata(a); } };
+});
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'ob1' }) }));
 vi.mock('@/lib/egenkontroll', async (orig) => {
   const verklig = await orig<typeof import('@/lib/egenkontroll')>();
@@ -36,6 +45,8 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     hamtaRunda: () => hamtaRunda(),
     sparaRundKommentar: (id: string, t: string | null) => sparaRundKommentar(id, t),
     avslutaRunda: () => avslutaRunda(),
+    hamtaStammoln: (vo: string) => hamtaStammoln(vo),
+    hamtaHyttspar: (id: string) => hamtaHyttspar(id),
     hamtaFoton: async () => [],
     hamtaProvytor: async () => [],
     hamtaKontextmarkeringar: async () => [],
@@ -95,6 +106,8 @@ const kartObjekt = { lat: 56.05, lng: 14.05, vo_nummer: '1', kartbild_url: null,
 
 beforeEach(() => {
   localStorage.clear();
+  stammoln = async () => ({ punkter: [{ lat: 56.05, lng: 14.05 }], antal: 1 });
+  sistaIndata = null;
   (URL as any).createObjectURL = vi.fn(() => 'blob:test');
   (URL as any).revokeObjectURL = vi.fn();
   vyn = { objektNamn: 'Ravemåla', objektStatus: 'pagaende', kartObjekt, egenkontroll: RUNDA, punkter: [punkt('p1'), punkt('p2', { status: null, besvarad: null })], observationer: [] };
@@ -260,6 +273,55 @@ describe('avslutad runda = last, med rapportraderna', () => {
     expect(text()).toContain('Rapport till Vida');
     expect(harKnapp(/^.*Rapport.*A4/)).toBe(true);
     expect(harKnapp(/Bilaga/)).toBe(true);
+  });
+
+  it('KARTLAGREN HAMTAS BARA FOR EN AVSLUTAD RUNDA - stammolnet kan vara over 12 000 punkter', async () => {
+    await montera();
+    expect(hamtaStammoln).toHaveBeenCalledWith('1');
+    expect(hamtaHyttspar).toHaveBeenCalledWith('ob1');
+    vi.clearAllMocks();
+    vyn = { ...vyn, egenkontroll: RUNDA };
+    if (root) await act(async () => { root!.unmount(); });
+    host?.remove();
+    await montera();
+    expect(hamtaStammoln).not.toHaveBeenCalled();
+    expect(hamtaHyttspar).not.toHaveBeenCalled();
+  });
+
+  it('rapportraderna dyker upp NAR kartlagren ar hamtade - dessforinnan star "Forbereder rapporten", aldrig en halvfardig rapport', async () => {
+    let slappStammoln!: () => void;
+    stammoln = () => new Promise((res) => { slappStammoln = () => res({ punkter: [], antal: null }); });
+    await montera();
+    expect(text()).toContain('Förbereder rapporten');
+    expect(text()).not.toContain('Rapport till Vida');
+    await act(async () => { slappStammoln(); await new Promise((r) => setTimeout(r, 10)); });
+    expect(text()).not.toContain('Förbereder rapporten');
+    expect(text()).toContain('Rapport till Vida');
+  });
+
+  it('gar stammolnet INTE att lasa kommer rapporten anda - och sager det (ett fel ar inte "inga stammar")', async () => {
+    stammoln = async () => { throw new Error('nat'); };
+    await montera();
+    expect(text()).toContain('Rapport till Vida');
+    expect(sistaIndata.stammar).toBeNull();          // ett FEL, aldrig en tom lista ("inga stammar hittades")
+    expect(sistaIndata.antalStammar).toBeNull();
+  });
+
+  it('gar hyttsparet INTE att lasa ar det null (sags pa kartan) - inte [] ("inget spar finns"), och ett fel pa det ena tar inte det andra', async () => {
+    hamtaHyttspar.mockRejectedValueOnce(new Error('nat'));
+    await montera();
+    expect(sistaIndata.hyttspar).toBeNull();
+    expect(sistaIndata.stammar).toHaveLength(1);
+  });
+
+  it('kartlagren och faktan nar rapporten: stammarna, filens antal, hyttsparet, objektets areal', async () => {
+    stammoln = async () => ({ punkter: [{ lat: 56.05, lng: 14.05 }, { lat: 56.051, lng: 14.051 }], antal: 3 });
+    vyn = { ...vyn, kartObjekt: { ...kartObjekt, areal: 4.8 } };
+    await montera();
+    expect(sistaIndata.stammar).toHaveLength(2);
+    expect(sistaIndata.antalStammar).toBe(3);
+    expect(sistaIndata.hyttspar).toEqual([]);
+    expect(sistaIndata.areal).toBe(4.8);
   });
 
   it('en oppen runda har inga rapportrader', async () => {

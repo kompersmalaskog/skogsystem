@@ -31,6 +31,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { svgToLatLon, type Origo } from './kartkoordinater';
 import { beslutaOrigo, lasVidaGrans, markeringsPunkter, type VidaGrans } from './egenkontrollOrigo';
 import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
+import { hyttsparRitadeLinjer } from './sparJamning';
 import { hamtaVader, type Arbetsfonster, type VaderSnapshot } from './egenkontrollvader';
 import {
   OBSERVATION_ORDNING, OBSERVATION_RUBRIK, arObservationTon, arObservationTyp, delaObservationer,
@@ -1032,6 +1033,8 @@ export type KartObjekt = {
   vo_nummer: string | null;
   kartbild_url: string | null;
   kartbild_bounds: unknown;
+  /** Hektar, ur objektet. Rapportens faktarad ("2 247 stammar · 4,8 ha"); null = saknas, aldrig 0. */
+  areal?: number | null;
 };
 
 export type RundVy = {
@@ -1059,7 +1062,7 @@ export async function hamtaRunda(
 
   const { data: objekt, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, status, vo_nummer, lat, lng, kartbild_url, kartbild_bounds')
+    .select('id, namn, status, vo_nummer, lat, lng, kartbild_url, kartbild_bounds, areal')
     .eq('id', objektId)
     .maybeSingle();
 
@@ -1085,6 +1088,7 @@ export async function hamtaRunda(
       vo_nummer: (o.vo_nummer as string) ?? null,
       kartbild_url: (o.kartbild_url as string) ?? null,
       kartbild_bounds: o.kartbild_bounds ?? null,
+      areal: typeof o.areal === 'number' ? o.areal : o.areal != null && Number.isFinite(Number(o.areal)) ? Number(o.areal) : null,
     },
   };
   if (!runda) return { ...bas, egenkontroll: null, punkter: [], observationer: [] };
@@ -1946,8 +1950,22 @@ export async function hamtaAvverkadeStammar(
   voNummer: string | null | undefined,
   options: KlientOptions = {},
 ): Promise<LatLng[]> {
+  return (await hamtaStammoln(voNummer, options)).punkter;
+}
+
+/**
+ * Stammolnet: alla avverkade stammar med position, och filens EGET antal.
+ *
+ * `antal` ar hpr_filer.stammar_count for filen med flest stammar - det ar FAKTA om vad som gjordes ("2 247 stammar") och
+ * kan vara fler an `punkter`, som bara ar de stammar som har en position. Rapporten skriver bada nar de skiljer sig.
+ * null = ingen fil hittades. Samma matchning och samma paginering som hamtaAvverkadeStammar (som anropar den har).
+ */
+export async function hamtaStammoln(
+  voNummer: string | null | undefined,
+  options: KlientOptions = {},
+): Promise<{ punkter: LatLng[]; antal: number | null }> {
   const vo = String(voNummer ?? '').trim();
-  if (!vo) return [];
+  if (!vo) return { punkter: [], antal: null };
   const { klient } = await kravSession(options);
 
   const { data: filer, error: filFel } = await klient
@@ -1957,9 +1975,9 @@ export async function hamtaAvverkadeStammar(
     .order('stammar_count', { ascending: false, nullsFirst: false });
   if (filFel) throw new Error(`Kunde inte läsa HPR-filerna: ${filFel.message}`);
 
-  const fil = ((filer ?? []) as unknown as { id: string; objekt_nyckel: string }[])
+  const fil = ((filer ?? []) as unknown as { id: string; objekt_nyckel: string; stammar_count: number | null }[])
     .find((f) => String(f.objekt_nyckel ?? '').split(':')[1] === vo);
-  if (!fil) return [];
+  if (!fil) return { punkter: [], antal: null };
 
   // Sidhamtning: en gallring kan ha over 12 000 stammar och PostgREST tar
   // 1000 at gangen. .order() kravs for stabil paginering.
@@ -1978,7 +1996,43 @@ export async function hamtaAvverkadeStammar(
     for (const r of rader) if (r.lat != null && r.lng != null) ut.push({ lat: r.lat, lng: r.lng });
     if (rader.length < 1000) break;
   }
-  return ut;
+  return { punkter: ut, antal: typeof fil.stammar_count === 'number' ? fil.stammar_count : null };
+}
+
+/**
+ * Hyttsparet for ett objekt: skordarens och skotarens spar, EN lista linjer per roll, redo att ritas.
+ *
+ * ENDAST RITNING (hyttsparRitadeLinjer - utjamnat). Anvand aldrig harifran till en berakning: CLAUDE.md, "Hyttspar: RITNINGEN ar
+ * utjamnad, DATAN ar ra". Noll rader = inget spar finns (nya objekt far det; de klara rundorna fran fore sparningen har inget) -
+ * tom lista, och kartan sager inget om hyttspar. Ett LASFEL kastas: det ar inte "inget spar".
+ */
+export async function hamtaHyttspar(
+  objektId: string,
+  options: KlientOptions = {},
+): Promise<{ roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[]> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient
+    .from('hyttspar')
+    .select('roll, datum, points')
+    .eq('objekt_id', objektId)
+    .order('datum', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw new Error(`Kunde inte läsa hyttsparet: ${error.message}`);
+
+  const per: Record<'skordare' | 'skotare', LatLng[][]> = { skordare: [], skotare: [] };
+  for (const rad of (data ?? []) as unknown as { roll: string; points: unknown }[]) {
+    if (rad.roll !== 'skordare' && rad.roll !== 'skotare') continue;
+    if (!Array.isArray(rad.points)) continue;
+    const punkter = (rad.points as { lat?: unknown; lng?: unknown; tid?: unknown }[])
+      .filter((p) => typeof p?.lat === 'number' && typeof p?.lng === 'number')
+      .map((p) => ({ lat: p.lat as number, lng: p.lng as number, tid: typeof p.tid === 'string' ? p.tid : '' }));
+    for (const linje of hyttsparRitadeLinjer(punkter)) {
+      per[rad.roll].push(linje.map(([lng, lat]) => ({ lat, lng })));
+    }
+  }
+  return (['skordare', 'skotare'] as const)
+    .filter((roll) => per[roll].length > 0)
+    .map((roll) => ({ roll, linjer: per[roll] }));
 }
 
 /** Provytorna for en runda, i nummerordning. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Egenkontroll, EgenkontrollFoto, EgenkontrollProvyta, EgenkontrollPunkt } from './egenkontroll';
-import { besokText, byggRapport, type RapportIndata } from './egenkontrollRapport';
+import { arealText, besokText, byggRapport, faktaRad, type RapportIndata } from './egenkontrollRapport';
 
 let raknare = 0;
 
@@ -39,7 +39,7 @@ const RUNDA: Egenkontroll = {
 function indata(over: Partial<RapportIndata> = {}): RapportIndata {
   return {
     objektNamn: 'Aramo Marcus AU 2026', voNummer: '886788', runda: RUNDA, punkter: [], observationer: [],
-    foton: [], provytor: [], platser: {}, traktgrans: [], ...over,
+    foton: [], provytor: [], platser: {}, traktgrans: [], stammar: [], antalStammar: null, hyttspar: [], markeringar: [], areal: null, ...over,
   };
 }
 
@@ -302,5 +302,96 @@ describe('dagens data (prod 2026-10-19): ett enda fynd med text - det som hander
     expect(m.battre.map((f) => f.text)).toEqual([null, null, null]);
     expect(m.bilaga.bilder.map((b) => b.fotoId)).toEqual(['a']);
     expect(m.bilaga.utanText).toBe(2);
+  });
+});
+
+const ll = (lat: number, lng: number) => ({ lat, lng });
+const NBSP = /\u00a0/g;
+
+describe('kartan pa sida 1: fakta, lager och anmarkningar', () => {
+  it('faktaraden: "2 247 stammar · 4,8 ha" (filens antal; areal utan avslutande nollor)', () => {
+    const m = byggRapport(indata({ stammar: Array.from({ length: 2247 }, (_, i) => ll(56 + i * 1e-6, 15)), antalStammar: 2247, areal: 4.8 }));
+    expect((m.karta.fakta ?? '').replace(NBSP, ' ')).toBe('2 247 stammar · 4,8 ha');
+    expect(arealText(4)).toBe('4');
+    expect(arealText(0.83)).toBe('0,83');
+    expect(arealText(4.9)).toBe('4,9');
+  });
+
+  it('skiljer sig antalet fran de med position sags BADA - aldrig ett pastaende om fler an som ritas', () => {
+    const t = faktaRad([ll(56, 15), ll(56.1, 15)], 3, 2);
+    expect((t ?? '').replace(NBSP, ' ')).toBe('3 stammar (2 med position) · 2 ha');
+  });
+
+  it('inga stammar och ingen areal: ingen faktarad. Bara areal: bara areal. Antal saknas men punkter finns: punkternas antal.', () => {
+    expect(faktaRad([], null, null)).toBeNull();
+    expect(faktaRad(null, null, null)).toBeNull();
+    expect(faktaRad(null, null, 2)).toBe('2 ha');
+    expect(faktaRad([ll(1, 1), ll(2, 2)], null, null)).toBe('2 stammar');
+    expect(faktaRad([], null, 0)).toBeNull(); // areal 0 ar "saknas", aldrig "0 ha"
+  });
+
+  it('STAMMOLNET GLESAS ALDRIG UT - modellen ger kartan varje stam, i samma ordning', () => {
+    const stammar = Array.from({ length: 2247 }, (_, i) => ll(56 + i * 1e-5, 15 + i * 1e-5));
+    const m = byggRapport(indata({ stammar }));
+    expect(m.karta.stammar).toHaveLength(2247);
+    expect(m.karta.stammar[0]).toEqual(stammar[0]);
+    expect(m.karta.stammar[2246]).toEqual(stammar[2246]);
+    expect(m.bilaga.karta.stammar).toHaveLength(2247);
+  });
+
+  it('det som saknas pa kartan SAGS: stammar som inte gick att lasa, inga stammar, hyttspar som inte gick att lasa, markeringar som inte gick att lasa', () => {
+    const fel = byggRapport(indata({ stammar: null, hyttspar: null, markeringar: null }));
+    expect(fel.karta.anmarkningar).toEqual(['Stammolnet kunde inte läsas.', 'Hyttsparet kunde inte läsas.', 'Planeringens markeringar kunde inte läsas.']);
+    const inga = byggRapport(indata({ stammar: [] }));
+    expect(inga.karta.anmarkningar).toEqual(['Inga avverkade stammar hittades för objektet.']);
+  });
+
+  it('inget hyttspar (nya objekt har det, de tva klara rundorna inte) ar INGEN anmarkning och inget lager', () => {
+    const m = byggRapport(indata({ stammar: [ll(56, 15)], hyttspar: [] }));
+    expect(m.karta.anmarkningar).toEqual([]);
+    expect(m.karta.hyttspar).toEqual([]);
+    expect(m.karta.teckenforklaring.map((f) => f.nyckel)).toEqual(['stammar']);
+  });
+
+  it('teckenforklaringen har en rad per lager som FINNS, i lagerordning, utan dubbletter; traktgransen som markering hoppas over', () => {
+    const m = byggRapport(indata({
+      traktgrans: [[ll(56, 15), ll(56.01, 15), ll(56.01, 15.01)]],
+      stammar: [ll(56, 15)],
+      hyttspar: [{ roll: 'skordare', linjer: [[ll(56, 15), ll(56.001, 15)]] }, { roll: 'skotare', linjer: [] }],
+      markeringar: [
+        { slag: 'linje', typ: 'mainRoad', punkter: [ll(56, 15), ll(56.001, 15)] },
+        { slag: 'linje', typ: 'mainRoad', punkter: [ll(56.002, 15), ll(56.003, 15)] },
+        { slag: 'linje', typ: 'boundary', punkter: [ll(56, 15), ll(56.001, 15)] },
+        { slag: 'zon', typ: 'protected', punkter: [ll(56, 15), ll(56.001, 15), ll(56.001, 15.001)] },
+        { slag: 'symbol', typ: 'okand_symbol', plats: ll(56, 15) },
+      ],
+    }));
+    // Ett spar utan linjer ar inget lager: det filtreras bort ur kartan, inte bara ur forklaringen.
+    expect(m.karta.hyttspar.map((h) => h.roll)).toEqual(['skordare']);
+    expect(m.karta.teckenforklaring.map((f) => f.etikett)).toEqual([
+      'Traktgräns', 'Avverkad stam', 'Skördarens spår', 'Basväg', 'Hänsynsyta', 'Övrig symbol',
+    ]);
+    // Boundary-linjen ritas som markering aldrig (den ar traktgransens lager).
+    expect(m.karta.markeringar.some((x) => x.slag === 'linje' && x.typ === 'boundary')).toBe(false);
+    expect(m.karta.markeringar).toHaveLength(4);
+  });
+
+  it('kontrollpunkterna kommer med i teckenforklaringen bara nar det finns pinnar', () => {
+    const a = punkt({ rubrik: 'Stenmur', status: 'avvikelse', del: 'plan', kalla: 'markering', avvikelse_typ: 'hansyn_skadad', lat: 56, lng: 15 });
+    const med = byggRapport(indata({ punkter: [a] }));
+    expect(med.karta.teckenforklaring.some((f) => f.nyckel === 'kontrollpunkt')).toBe(true);
+    expect(byggRapport(indata()).karta.teckenforklaring).toEqual([]);
+  });
+
+  it('JAMFORELSEN: byggs inte an (null), men en lista rader gar rakt igenom utan att modellen skrivs om', () => {
+    expect(byggRapport(indata()).jamforelse).toBeNull();
+    expect(byggRapport(indata({ jamforelse: [] })).jamforelse).toBeNull();
+    const rad = { etikett: 'Stammar per ha', text: '468 · tidigare rundor 410–520' };
+    expect(byggRapport(indata({ jamforelse: [rad] })).jamforelse).toEqual([rad]);
+  });
+
+  it('extra anmarkningar fran den som byggde indata skrivs under kartan', () => {
+    const m = byggRapport(indata({ extraAnmarkningar: ['Planeringens markeringar ritas inte: origot är inte betrott.'] }));
+    expect(m.karta.anmarkningar).toContain('Planeringens markeringar ritas inte: origot är inte betrott.');
   });
 });

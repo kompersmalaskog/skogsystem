@@ -15,7 +15,10 @@
 // pdf-lib (ren JS, fungerar i iOS-PWA:n) som Manadsfacit; standardfonterna klarar WinAnsi. Laddas dynamiskt
 // sa att pdf-lib inte hamnar i sidans bundle.
 
-import { OMDOME_ETIKETT, type Bild, type Fynd, type LatLng, type RapportModell } from './egenkontrollRapport';
+import { OMDOME_ETIKETT, type Bild, type Fynd, type RapportModell } from './egenkontrollRapport';
+import { kartaHojd, ritaKarta, ritaTeckenforklaring } from './egenkontrollRapportKartaPdf';
+
+export { projicera, skalstock } from './egenkontrollRapportKartaPdf';
 
 const A4 = { b: 595.28, h: 841.89 };
 const MARG = 48;
@@ -149,6 +152,26 @@ export async function skapaRapportPdf(m: RapportModell): Promise<Uint8Array> {
     y += STEG.meta * RAD + 2;
   }
 
+  // KARTAN, direkt under de tre talen: det forsta man ser - man orienterar sig forst, laser sedan (som Vidas bilaga). Vektor, alla lager;
+  // stammolnet glesas aldrig ut. Se lib/egenkontrollRapportKartaPdf.ts.
+  y += 6;
+  const kl = { granser: m.karta.granser, stammar: m.karta.stammar, hyttspar: m.karta.hyttspar, markeringar: m.karta.markeringar, pinnar: m.karta.pinnar };
+  const kh = kartaHojd(kl, B);
+  rum(kh + 60);
+  const ritad = ritaKarta(lib, sida, { normal, fet }, { x: MARG, top: y, b: B, h: kh }, kl, san);
+  if (!ritad) text('Kartan saknas: ingen traktgräns, inga stammar och inga positioner finns för den här rundan.', MARG + 12, y + 14, STEG.text, normal, GRA);
+  y += kh + 8;
+  if (m.karta.fakta) {
+    text(m.karta.fakta, MARG, y, STEG.text, fet, SVART);
+    y += STEG.text * RAD + 2;
+  }
+  for (const j of m.jamforelse ?? []) {
+    text(`${j.etikett}: ${j.text}`, MARG, y, STEG.meta, normal, GRA);
+    y += STEG.meta * RAD;
+  }
+  y += ritaTeckenforklaring(lib, sida, { normal }, MARG, y, B, m.karta.teckenforklaring, san) + 2;
+  for (const a of m.karta.anmarkningar) { stycke(a, MARG, STEG.meta, fet, SVART); }
+
   // 3. Fynd. Rubriken pa raden ar fet; texten under ar besiktarens egen kommentar - aldrig en fylld rad.
   const fynd = (f: Fynd) => {
     rum(STEG.text * RAD * 2);
@@ -230,33 +253,6 @@ export type HamtaBild = (sokvag: string) => Promise<BildData | null>;
 /** Antal bilder per sida. Tva ryms med bildtext; fler gor dem sma. */
 const BILDER_PER_SIDA = 2;
 
-/** Meter -> ett "snyggt" langd for skalstocken: 50, 100, 200, 500, 1000 ... */
-export function skalstock(meterPerPt: number, maxPt: number): { meter: number; pt: number } {
-  const kandidater = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
-  let valt = kandidater[0];
-  for (const k of kandidater) if (k / meterPerPt <= maxPt) valt = k;
-  return { meter: valt, pt: valt / meterPerPt };
-}
-
-/**
- * Projicerar punkter till en ruta (b x h pt) utan att forvrida: längdgraden skalas med cos(lat), annars blir
- * kartan bredare an den ar i verkligheten. Norr ar uppat. Returnerar en funktion och meter per pt.
- */
-export function projicera(punkter: LatLng[], b: number, h: number, pad = 18) {
-  const lat0 = punkter.reduce((s, p) => s + p.lat, 0) / punkter.length;
-  const k = Math.cos((lat0 * Math.PI) / 180);
-  const xs = punkter.map((p) => p.lng * k), ys = punkter.map((p) => p.lat);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const spannX = Math.max(maxX - minX, 1e-6), spannY = Math.max(maxY - minY, 1e-6);
-  const skala = Math.min((b - 2 * pad) / spannX, (h - 2 * pad) / spannY);
-  const offX = (b - spannX * skala) / 2, offY = (h - spannY * skala) / 2;
-  return {
-    /** x, y i rutans egna koordinater, y nedat fran overkanten. */
-    till: (p: LatLng) => ({ x: offX + (p.lng * k - minX) * skala, y: h - (offY + (p.lat - minY) * skala) }),
-    meterPerPt: 111320 / skala,
-  };
-}
-
 export async function skapaBilagaPdf(m: RapportModell, hamtaBild: HamtaBild): Promise<Uint8Array> {
   // Foton FORST: en bild som inte gar att hamta far aldrig bli en lucka i ett utskick.
   const data: (BildData | null)[] = [];
@@ -289,37 +285,22 @@ export async function skapaBilagaPdf(m: RapportModell, hamtaBild: HamtaBild): Pr
   const kartSida = nySida();
   huvud(kartSida, MARG);
   const KARTA_Y = MARG + 28, KARTA_H = 360;
-  kartSida.drawRectangle({ x: MARG, y: A4.h - KARTA_Y - KARTA_H, width: B, height: KARTA_H, color: KARTYTA, borderColor: LINJE, borderWidth: 0.5 });
-  const { granser, pinnar, utanPlats } = m.bilaga.karta;
-  const allaPunkter: LatLng[] = [...granser.flat(), ...pinnar.map((p) => p.plats)];
+  const { granser, stammar, pinnar, utanPlats } = m.bilaga.karta;
   let yy = KARTA_Y + KARTA_H + 16;
-  if (allaPunkter.length === 0) {
-    textPa(kartSida, 'Kartan saknas: ingen traktgräns och inga positioner finns för den här rundan.', MARG + 12, KARTA_Y + 14, STEG.text, normal, GRA);
-  } else {
-    const pr = projicera(allaPunkter, B, KARTA_H);
-    const xy = (p: LatLng) => { const q = pr.till(p); return { x: MARG + q.x, y: A4.h - KARTA_Y - q.y }; };
-    for (const ring of granser) {
-      if (ring.length < 2) continue;
-      for (let i = 0; i < ring.length; i += 1) {
-        const a = xy(ring[i]), z = xy(ring[(i + 1) % ring.length]);
-        kartSida.drawLine({ start: a, end: z, thickness: 1.2, color: c(60), dashArray: [5, 3] });
-      }
-    }
-    for (const p of pinnar) {
-      const q = xy(p.plats);
-      kartSida.drawCircle({ x: q.x, y: q.y, size: 8.5, color: SVART });
-      const t = String(p.nr);
-      kartSida.drawText(t, { x: q.x - mat(t, STEG.meta, fet) / 2, y: q.y - STEG.meta * 0.36, size: STEG.meta, font: fet, color: c(255) });
-    }
-    // Norrpil och skalstock: utan dem ar en karta en teckning.
-    textPa(kartSida, 'N', MARG + B - 20, KARTA_Y + 10, STEG.meta, fet, SVART);
-    kartSida.drawLine({ start: { x: MARG + B - 16, y: A4.h - KARTA_Y - 32 }, end: { x: MARG + B - 16, y: A4.h - KARTA_Y - 22 }, thickness: 1.2, color: SVART });
-    const sk = skalstock(pr.meterPerPt, 120);
-    const sx = MARG + 14, sy = A4.h - KARTA_Y - KARTA_H + 16;
-    kartSida.drawLine({ start: { x: sx, y: sy }, end: { x: sx + sk.pt, y: sy }, thickness: 1.5, color: SVART });
-    textPa(kartSida, sk.meter >= 1000 ? `${sk.meter / 1000} km` : `${sk.meter} m`, sx, A4.h - sy + 4, STEG.micro, normal, GRA);
-    if (granser.length > 0) textPa(kartSida, 'Streckad linje: Vidas traktgräns', MARG + B - 130, A4.h - (A4.h - KARTA_Y - KARTA_H + 16) + 4, STEG.micro, normal, GRA);
+  // Bilagans EGEN karta, till fotonumren: traktgrans, stammolnet blekt (orientering) och de numrerade pinnarna.
+  const ritad = ritaKarta(lib, kartSida, { normal, fet }, { x: MARG, top: KARTA_Y, b: B, h: KARTA_H }, { granser, stammar, pinnar }, san, { stammarBlek: true });
+  if (!ritad) textPa(kartSida, 'Kartan saknas: ingen traktgräns och inga positioner finns för den här rundan.', MARG + 12, KARTA_Y + 14, STEG.text, normal, GRA);
+  const poster = [
+    ...(granser.length > 0 ? [{ nyckel: 'traktgrans', etikett: 'Traktgräns' }] : []),
+    ...(pinnar.length > 0 ? [{ nyckel: 'kontrollpunkt', etikett: 'Numret hör till rapporten och fotona' }] : []),
+  ];
+  let ly = KARTA_Y + KARTA_H + 8;
+  ly += ritaTeckenforklaring(lib, kartSida, { normal }, MARG, ly, B, poster, san);
+  if (stammar.length > 0) {
+    textPa(kartSida, 'Grå prickar: avverkade stammar (orientering).', MARG, ly, STEG.micro, normal, GRA);
+    ly += 12;
   }
+  yy = ly + 8;
   // Teckenforklaring: numren pa kartan = numren i rapporten och pa fotona.
   // Alla numrerade fynd star i listan - de utan plats med det sagt, sa inget nummer fran rapporten saknas har.
   const lista = [
