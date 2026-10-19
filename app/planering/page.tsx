@@ -12025,12 +12025,6 @@ export default function PlannerPage() {
     skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
   });
   const skotarVader = useSkotarVader(skotarKorvy && !testlage, currentPosition);
-  // Objektbyte i skotarläget: tryck på objektnamnet (pilen ⌄ i pillen). Maskinläge = maskinlådans "Byt objekt" (objektlistan med prickarna); annars lämnas körvyn
-  // och planeringens lista öppnas. Objektinfon har sin egen ⓘ-knapp bredvid pillen.
-  const skotarBytObjekt = () => {
-    if (maskinlage) { tillObjektlistan(); return; }
-    setKorvyActive(false); setKorvyForceRoll(null); setObjektListaOppen(true);
-  };
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
@@ -13224,8 +13218,7 @@ export default function PlannerPage() {
                 : skotarLassAktiv && skotarLass.sammanfattning
                   ? { text: skotarLass.sammanfattning.kvarText, klar: skotarLass.sammanfattning.klarText, onTryck: () => setSkotarKvarOppet(true) }
                   : null}
-              bytObjekt={skotarKorvy}
-              onNamn={() => { if (skotarKorvy) skotarBytObjekt(); else setTraktOversiktOpen(o => !o); }}
+              onNamn={() => setTraktOversiktOpen(o => !o)}
               onHogstubbe={() => placeraVidMaskinen('highstump')}
               onEvighetstrad={() => placeraVidMaskinen('eternitytree')}
             />

@@ -122,6 +122,158 @@ describe('AndraLassArk', () => {
   });
 });
 
+describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
+  const sortiment = (n: number) => Array.from({ length: n }, (_, i) => ({ nyckel: `s${i}`, namn: `Massa: Sort${i}_V3`, m3: 0 }));
+  const valbara = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }];
+  const rendera = (fn: Partial<Parameters<typeof AndraLassArk>[0]> = {}) => visa(
+    <AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
+  const pekare = async (id: string, typ: 'pointerdown' | 'pointerup' | 'pointercancel') => {
+    const e = q(id); if (!e) throw new Error(`saknas: ${id}`);
+    await act(async () => { e.dispatchEvent(new MouseEvent(typ, { bubbles: true, cancelable: true })); });
+  };
+  const px = (v: string | number | undefined) => parseFloat(String(v ?? '0'));
+
+  it('arket är centrerat och ca 640 px brett (full bredd minus marginal på smal skärm)', async () => {
+    await rendera();
+    const panel = q('andra-lass') as HTMLElement;
+    expect(panel.style.maxWidth).toBe('640px');
+    expect(panel.style.width).toBe('100%');
+    const ram = panel.parentElement as HTMLElement;
+    expect(ram.style.justifyContent).toBe('center');
+    expect(px(ram.style.paddingLeft)).toBeGreaterThan(0);   // marginal mot skärmkanten när skärmen är smalare än arket
+  });
+  it('rader ≥ 56 px, − och + minst 48×48, siffran 22–24 px fet', async () => {
+    await rendera();
+    expect(px((q('andra-rad-talltimmer') as HTMLElement).style.minHeight)).toBeGreaterThanOrEqual(56);
+    for (const id of ['minus-talltimmer', 'plus-talltimmer']) {
+      const b = q(id) as HTMLElement;
+      expect(px(b.style.width)).toBeGreaterThanOrEqual(48); expect(px(b.style.height)).toBeGreaterThanOrEqual(48);
+    }
+    const siffra = q('andra-siffra-talltimmer') as HTMLElement;
+    expect(px(siffra.style.fontSize)).toBeGreaterThanOrEqual(22); expect(px(siffra.style.fontSize)).toBeLessThanOrEqual(24);
+    expect(siffra.style.fontWeight).toBe('700');
+    expect(siffra.textContent).toBe('10');
+  });
+  it('namnen i två nivåer: sortimentet vitt/semibold, mottagaren grå', async () => {
+    await rendera({ valbara: [...valbara, { nyckel: 'k', namn: 'Timmer: Vislanda_195_1-2_V3', m3: 0 }] });
+    const rad = (q('andra-rad-talltimmer') as HTMLElement).querySelectorAll('span span');
+    expect(rad[0].textContent).toBe('Timmer'); expect((rad[0] as HTMLElement).style.fontWeight).toBe('600');
+    expect(rad[1].textContent?.trim()).toBe('Tall');
+    const tillagg = (q('tillagg-k') as HTMLElement).textContent ?? '';
+    expect(tillagg).toContain('Timmer 195 1-2'); expect(tillagg).toContain('Vislanda');
+  });
+
+  describe('håll in − / +', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+    it('ett steg direkt, upprepning medan man håller, stopp när man släpper', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await pekare('plus-talltimmer', 'pointerdown');
+      expect(onRad).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(300); });
+      expect(onRad).toHaveBeenCalledTimes(1);   // ännu ingen upprepning
+      await act(async () => { vi.advanceTimersByTime(100 + 120 * 5); });
+      expect(onRad.mock.calls.length).toBeGreaterThanOrEqual(6);
+      expect(onRad.mock.calls.every((c) => c[1] === 1)).toBe(true);
+      await pekare('plus-talltimmer', 'pointerup');
+      const efter = onRad.mock.calls.length;
+      await act(async () => { vi.advanceTimersByTime(2000); });
+      expect(onRad).toHaveBeenCalledTimes(efter);
+      // webbläsaren skickar ett klick efter släppet — det får inte ge ett extra steg
+      await tryck('plus-talltimmer');
+      expect(onRad).toHaveBeenCalledTimes(efter);
+    });
+    it('minus räknar neråt; efter ca 1,5 s går det snabbare; avbrutet tryck stoppar', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await pekare('minus-talltimmer', 'pointerdown');
+      await act(async () => { vi.advanceTimersByTime(1500); });
+      const vid15 = onRad.mock.calls.length;
+      await act(async () => { vi.advanceTimersByTime(500); });
+      expect(onRad.mock.calls.length - vid15).toBeGreaterThanOrEqual(8);   // 50 ms-takt (långsam takt hade gett ~4)
+      expect(onRad.mock.calls.every((c) => c[1] === -1)).toBe(true);
+      await pekare('minus-talltimmer', 'pointercancel');
+      const stopp = onRad.mock.calls.length;
+      await act(async () => { vi.advanceTimersByTime(1000); });
+      expect(onRad).toHaveBeenCalledTimes(stopp);
+    });
+  });
+
+  describe('tryck på siffran skriver värdet direkt', () => {
+    const skriv = async (v: string) => {
+      const f = q('andra-siffra-talltimmer-falt') as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(f, v);
+        f.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      return f;
+    };
+    it('Enter sparar: skillnaden mot dagens värde skickas som ett steg', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await tryck('andra-siffra-talltimmer');
+      const f = await skriv('25');
+      expect(f.getAttribute('inputmode')).toBe('numeric');
+      await act(async () => { f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(onRad).toHaveBeenCalledTimes(1);
+      expect(onRad.mock.calls[0][1]).toBe(15);   // 25 − 10
+      expect(q('andra-siffra-talltimmer-falt')).toBeNull();
+    });
+    it('bara siffror; tomt fält och Esc ändrar inget; 0 tar bort raden (delta = −värdet)', async () => {
+      const onRad = vi.fn();
+      await rendera({ onRad });
+      await tryck('andra-siffra-talltimmer');
+      let f = await skriv('1a2b');
+      expect(f.value).toBe('12');
+      await skriv('');
+      await act(async () => { f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(onRad).not.toHaveBeenCalled();
+      await tryck('andra-siffra-talltimmer');
+      f = await skriv('30');
+      await act(async () => { f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+      expect(onRad).not.toHaveBeenCalled();
+      await tryck('andra-siffra-talltimmer');
+      await skriv('0');
+      await act(async () => { (q('andra-siffra-talltimmer-falt') as HTMLInputElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(onRad.mock.calls[0][1]).toBe(-10);
+    });
+  });
+
+  describe('Lägg till: rutnät', () => {
+    it('2–3 kolumner, knappar ≥ 48 px; högst 8 direkt och en "Fler ›"-knapp som visar resten', async () => {
+      await rendera({ valbara: [...valbara, ...sortiment(12)] });
+      const grid = q('tillagg-grid') as HTMLElement;
+      expect(grid.style.display).toBe('grid');
+      expect(grid.style.gridTemplateColumns).toContain('minmax(150px');   // 640 px bred → 3 kolumner, 390 px → 2
+      expect(div.querySelectorAll('[data-testid^="tillagg-s"]')).toHaveLength(8);
+      for (const b of Array.from(div.querySelectorAll<HTMLElement>('[data-testid^="tillagg-s"]'))) expect(px(b.style.minHeight)).toBeGreaterThanOrEqual(48);
+      expect(q('tillagg-fler')?.textContent).toContain('Fler (4)');
+      await tryck('tillagg-fler');
+      expect(div.querySelectorAll('[data-testid^="tillagg-s"]')).toHaveLength(12);
+      expect(q('tillagg-fler')).toBeNull();
+    });
+    it('åtta eller färre: ingen Fler-knapp', async () => {
+      await rendera({ valbara: [...valbara, ...sortiment(8)] });
+      expect(div.querySelectorAll('[data-testid^="tillagg-s"]')).toHaveLength(8);
+      expect(q('tillagg-fler')).toBeNull();
+    });
+    it('ett tryck lägger till 1 m³ av sortimentet', async () => {
+      const onRad = vi.fn();
+      await rendera({ valbara: [...valbara, ...sortiment(3)], onRad });
+      await tryck('tillagg-s1');
+      expect(onRad).toHaveBeenCalledWith(expect.objectContaining({ nyckel: 's1' }), 1);
+    });
+  });
+
+  it('avlägget överst med Byt ›, totalen uppe till höger, Avbryt/Klar nederst — kvar', async () => {
+    await rendera();
+    expect(q('andra-avlagg')?.textContent).toContain('Byt ›');
+    expect(q('andra-summa')?.textContent).toContain('18');
+    expect(q('andra-avbryt')).not.toBeNull(); expect(q('andra-klar')).not.toBeNull();
+  });
+});
+
 describe('Kvar, färdigskotad, väder, avlägg', () => {
   const skordat = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 100 }, { nyckel: 'granmassa', namn: 'Massa: Gran_V3', m3: 40 }];
   const bekr = [lass({ status: 'bekraftat' })];
@@ -297,15 +449,13 @@ describe('KorvyObjektPill med kvar', () => {
     expect(q('korvy-pill-namn')?.textContent).toContain('Trakten');
     expect(q('korvy-pill-kvar')?.textContent).toBe('Kvar ~121 m³· Klar ~onsdag');
   });
-  it('skotare: ett tryck på namnet byter objekt och pilen ⌄ syns; skördare har ingen pil', async () => {
+  it('namnet öppnar objektinfon och har ingen pil ⌄ (objekt byts med hemknappen)', async () => {
     const onNamn = vi.fn();
-    await visa(<KorvyObjektPill {...pillProps} onNamn={onNamn} smal={false} visaRaknare={false} bytObjekt />);
-    expect(q('korvy-pill-byt')).not.toBeNull();
-    expect(q('korvy-pill-namn')?.getAttribute('aria-label')).toContain('byta objekt');
+    await visa(<KorvyObjektPill {...pillProps} onNamn={onNamn} smal={false} visaRaknare={false} />);
+    expect(q('korvy-pill-byt')).toBeNull();
+    expect(q('korvy-pill-namn')?.getAttribute('aria-label')).toContain('objektinfo');
     await tryck('korvy-pill-namn');
     expect(onNamn).toHaveBeenCalled();
-    await visa(<KorvyObjektPill {...pillProps} smal={false} />);
-    expect(q('korvy-pill-byt')).toBeNull();
   });
   it('skotare utan läsbar kvar: bara namnet — aldrig skördarräknare och aldrig ett påhittat 0', async () => {
     await visa(<KorvyObjektPill {...pillProps} smal={false} visaRaknare={false} kvar={null} />);

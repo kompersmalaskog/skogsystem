@@ -53,14 +53,12 @@ const Avdelare = () => <span aria-hidden="true" style={{ width: 1, alignSelf: 'c
 export interface KvarDel { text: string; klar: string | null; onTryck: () => void }
 
 export function KorvyObjektPill({
-  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar, visaRaknare = true, bytObjekt = false,
+  namn, hogstubbar, evighetstrad, smal, ikonHogstubbe, ikonEvighetstrad, orangeKant, prefix, kvar, visaRaknare = true,
   onNamn, onHogstubbe, onEvighetstrad,
 }: {
   kvar?: KvarDel | null;
   /** false på en skotare: Högstubbar/Evighetsträd hör till skördaren. Pillen är då bara namnet (+ Kvar · Klar när lassen går att räkna). */
   visaRaknare?: boolean;
-  /** Skotare: ett tryck på namnet byter objekt (pilen ⌄ visar det) i stället för att öppna objektinfon. */
-  bytObjekt?: boolean;
   namn: string;
   hogstubbar: RaknareVy;
   evighetstrad: RaknareVy;
@@ -81,7 +79,7 @@ export function KorvyObjektPill({
       <button
         type="button"
         data-testid="korvy-pill-namn"
-        aria-label={bytObjekt ? `${namn}. Tryck för att byta objekt` : `${namn}. Tryck för objektinfo`}
+        aria-label={`${namn}. Tryck för objektinfo`}
         onClick={onNamn}
         className="press-dim"
         style={{
@@ -92,9 +90,6 @@ export function KorvyObjektPill({
         <span style={{ ...(smal ? TYP.listtitel : TYP.rubrik), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {prefix}{namn}
         </span>
-        {bytObjekt && (
-          <svg aria-hidden="true" data-testid="korvy-pill-byt" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: AVSTAND.s, flexShrink: 0, opacity: 0.7 }}><path d="M6 9 L12 15 L18 9" /></svg>
-        )}
       </button>
       {visaRaknare && (
         <>

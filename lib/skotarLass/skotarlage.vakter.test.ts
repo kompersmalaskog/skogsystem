@@ -37,11 +37,13 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).toMatch(/height: `calc\(env\(safe-area-inset-top, 0px\) \+ \$\{TESTBANNER_HOJD_PX\}px\)`/);
     expect(page).toMatch(/padding: `calc\(env\(safe-area-inset-top, 0px\) \+ 12px\$\{testlage \? ` \+ \$\{TESTBANNER_HOJD_PX\}px` : ''\}\) 16px 12px`/);
   });
-  it('objektbyte i skotarläget: namnet byter objekt (⌄), objektinfon har egen ⓘ-knapp', () => {
-    expect(page).toContain('const skotarBytObjekt = () => {');
-    expect(page).toMatch(/if \(maskinlage\) \{ tillObjektlistan\(\); return; \}/);
-    expect(page).toContain('bytObjekt={skotarKorvy}');
+  it('objektnamnet i pillen byter ALDRIG objekt (objekt byts med hemknappen) — namnet öppnar objektinfon som före #831; ⓘ-knappen finns kvar', () => {
+    expect(page).not.toContain('skotarBytObjekt');
+    expect(page).not.toContain('bytObjekt');
+    expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
     expect(page).toContain('{objektListaVal || skotarKorvy ? (');
+    const pill = las('components/planering/KorvyObjektPill.tsx');
+    expect(pill).not.toContain('korvy-pill-byt');   // ingen pil ⌄ i körvyns pill
   });
   it('kvar kräver Opti-lassen (skotat före appens start) och räknar aldrig en trakt med avslutad skotning', () => {
     const hook = las('lib/hooks/useSkotarLass.ts');
