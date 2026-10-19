@@ -56,7 +56,7 @@ export async function skapaFlyttRader(supabase: any, dagar: FlyttDag[]): Promise
     });
     for (const rad of rader) {
       const { error: insFel } = await supabase.from("arbetsdag_segment").insert(rad);
-      if (!insFel) { skapade++; (upptagna.get(k) || upptagna.set(k, []).get(k)!).push({ start_tid: rad.start_tid, slut_tid: rad.slut_tid }); continue; }
+      if (!insFel) { skapade++; continue; }
       if (insFel.code === "23P01") continue; // överlappar något synken inte kände till — hoppa över, ingen dubbelräkning
       console.warn("flytt: flyttraden kunde inte skrivas (migration ej körd?):", insFel.message);
       return { skapade, skippade: "insert" };

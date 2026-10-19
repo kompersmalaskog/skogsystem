@@ -299,6 +299,9 @@ describe("Flytt: föraren kan ändra och ta bort den som vilken rad som helst", 
     const gravar = skrivna("arbetsdag_flytt_borta").filter(s => s.op === "insert");
     expect(gravar).toHaveLength(1);
     expect(gravar[0].vals).toMatchObject({ datum: IDAG, start_tid: "12:30:00", slut_tid: "13:50:00" });
+    // dagen visar den nya tiden direkt (raderna läses om efter sparning)
+    expect(text()).toMatch(/12:40–13:30/);
+    expect(text()).not.toMatch(/12:30–13:50/);
   });
   it("Spara utan att ändra tiden skriver ingen gravsten", async () => {
     fixtur(klartPass(), { arbetsdag_segment: [flyttSeg()] });

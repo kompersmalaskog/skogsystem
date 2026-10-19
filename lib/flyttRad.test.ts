@@ -116,6 +116,15 @@ describe("raden ligger INOM den betalda dagen", () => {
     });
     expect(r).toHaveLength(0);
   });
+  it("en dag med bara ETT klockslag (start eller slut saknas) får inga flyttrader — passet är okänt", () => {
+    const l = luckaMed({ start: `${DATUM}T12:30:00`, slut: `${DATUM}T13:50:00` });
+    expect(planeraFlyttar({ medarbetareId: MED, dag: { datum: DATUM, start_tid: null, slut_tid: "15:14:00" }, luckor: [l], upptagna: [], borta: [] })).toHaveLength(0);
+    expect(planeraFlyttar({ medarbetareId: MED, dag: { datum: DATUM, start_tid: "07:04:00", slut_tid: null }, luckor: [l], upptagna: [], borta: [] })).toHaveLength(0);
+  });
+  it("en lucka på över ett dygn (klockslagen ser ut som en dagtid) är ingen flytt: 11 okt 14:00 → 12 okt 15:00", () => {
+    expect(plan([luckaMed({ start: "2026-10-11T14:00:00", slut: `${DATUM}T15:00:00` })])).toHaveLength(0);
+    expect(plan([luckaMed({ start: `${DATUM}T10:00:00`, slut: "2026-10-13T11:00:00" })])).toHaveLength(0);
+  });
   it("summan av flyttraderna kan aldrig överstiga dagens pass", () => {
     const luckor = [
       luckaMed({ start: `${DATUM}T05:00:00`, slut: `${DATUM}T09:00:00` }),

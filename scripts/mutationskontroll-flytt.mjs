@@ -58,7 +58,6 @@ const M = [
   ["luckans start och slut byter plats", "start: l.start_lokal, slut: l.slut_lokal", "start: l.slut_lokal, slut: l.start_lokal", SYNK],
   ["trakternas namn hämtas inte", 'const { data: namn, error: namnFel } = await supabase.from("dim_objekt")', 'const { data: namn, error: namnFel } = await supabase.from("dim_objekt_finns_inte")', SYNK],
   ["en lucka med fel från GPS-funktionen stoppar inte (RPC saknas ignoreras tyst)", 'return { skapade, skippade: "rpc" };', "continue;", SYNK],
-  ["en skapad rad blir inte upptagen (nästa lucka kan krocka)", "(upptagna.get(k) || upptagna.set(k, []).get(k)!).push({ start_tid: rad.start_tid, slut_tid: rad.slut_tid }); continue; }", "continue; }", SYNK],
 
   // ── synksteget (route.ts) ──
   ["flyttsteget körs aldrig", "const flytt = await skapaFlyttRader(supabase, flyttDagar as any);", "const flytt = { skapade: 0 } as any;", ROUTE],
@@ -94,4 +93,6 @@ if (process.argv.includes("--bara-monster")) {
   process.exit(fel ? 2 : 0);
 }
 
-kor({ filer: [REGEL, SYNK, ROUTE, UI], tester: TESTER, standardFil: REGEL, mutationer: M });
+// MUT_FILTER=<regex>: kör bara mutanter vars namn matchar (efter att ett test lagts till för en överlevare).
+const urval = process.env.MUT_FILTER ? M.filter(([namn]) => new RegExp(process.env.MUT_FILTER, "i").test(namn)) : M;
+kor({ filer: [REGEL, SYNK, ROUTE, UI], tester: TESTER, standardFil: REGEL, mutationer: urval });

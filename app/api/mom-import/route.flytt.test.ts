@@ -238,6 +238,23 @@ describe("mom-import: flytt får aldrig stoppa synken (migrationen körs av Mart
     expect(arbetsdagFor(OSKAR)).toBeTruthy();
     expect(segmentInsatta()).toHaveLength(0);
   });
+  it("RPC:n saknas: synken slutar fråga efter första felet (inte ett anrop per dag, var 5:e minut)", async () => {
+    g.__rpc = {};
+    const dag2 = "2026-10-11";
+    g.__db.fakt_skift.push({
+      id: 2, datum: dag2, maskin_id: "R64428", operator_id: "R64428_9",
+      inloggning_tid: "2026-10-11T07:00:00+00:00", maskin_inloggning_tid: "2026-10-11T07:00:00+00:00",
+      utloggning_tid: "2026-10-11T15:00:00+00:00", langd_sek: 28800, shift_key: "SYN_2026-10-11_R64428_9",
+    });
+    g.__db.fakt_tid.push(
+      { id: 3, datum: dag2, maskin_id: "R64428", operator_id: "R64428_9", objekt_id: "11105602", processing_sek: 9000, terrain_sek: 0, other_work_sek: 0, rast_sek: 0, engine_time_sek: 9000 },
+      { id: 4, datum: dag2, maskin_id: "R64428", operator_id: "R64428_9", objekt_id: "11183108", processing_sek: 9000, terrain_sek: 0, other_work_sek: 0, rast_sek: 0, engine_time_sek: 9000 },
+    );
+    const svar = await POST(new Request("https://app.example/api/mom-import", { method: "POST", body: "{}" }) as any);
+    expect(svar.status).toBe(200);
+    expect((g.__db.arbetsdag as any[]).length).toBe(2); // båda dagarna byggdes
+    expect(g.__rpcAnrop).toHaveLength(1);
+  });
   it("RPC:n kastar: dagen byggs ändå", async () => {
     g.__rpc = { flytt_luckor: () => { throw new Error("nätet föll"); } };
     const svar = await post();
