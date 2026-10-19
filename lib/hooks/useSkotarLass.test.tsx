@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 
-const server = vi.hoisted(() => ({ online: true, skickade: [] as any[] }));
+const server = vi.hoisted(() => ({ online: true, skickade: [] as any[], avslutOpti: [] as any[], begart: [] as Array<{ torr: boolean; opti: Record<string, number> | undefined }> }));
 const opti = vi.hoisted(() => ({ lass: [] as any[] | null, avslutad: false as boolean | null }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
@@ -17,7 +17,7 @@ vi.mock('@/lib/skotarLass/koKopplad', async () => {
     lager: ko.skapaMinnesKoLager(),
     paForandring: () => lyssnare.forEach((f) => f()),
     skickaLass: async (l) => { if (!server.online) return false; server.skickade.push(l); return true; },
-    skickaAvslut: async () => server.online,
+    skickaAvslut: async (_o: string, opti: any) => { if (server.online) server.avslutOpti.push(opti); return server.online; },
   });
   // Torrkörningens kö (som i koKopplad): egen, i minnet, skickar aldrig.
   const nyTorr = () => ko.skapaLassKo({ lager: ko.skapaMinnesKoLager(), paForandring: () => lyssnare.forEach((f) => f()), skickaLass: async () => true, skickaAvslut: async () => true });
@@ -28,7 +28,7 @@ vi.mock('@/lib/skotarLass/koKopplad', async () => {
     hamtaLassKo: async (torr?: boolean) => (torr ? kTorr : k),
     prenumereraLassKo: (f: () => void) => { lyssnare.add(f); return () => lyssnare.delete(f); },
     sparaLass: async (l: any, torr?: boolean) => { const q = torr ? kTorr : k; await q.spara(l); if (!torr) void k.kor(); },
-    begarFardigskotad: async (o: string, torr?: boolean) => { const q = torr ? kTorr : k; await q.begarAvslut(o, new Date().toISOString()); if (!torr) void k.kor(); },
+    begarFardigskotad: async (o: string, torr?: boolean, optiAv?: Record<string, number>) => { server.begart.push({ torr: !!torr, opti: optiAv }); const q = torr ? kTorr : k; await q.begarAvslut(o, new Date().toISOString(), optiAv); if (!torr) void k.kor(); },
     lasLassForObjekt: async (o: string, torr?: boolean) => ({ lass: await (torr ? kTorr : k).lassForObjekt(o), fran: 'lokalt' as const }),
     lasAvslut: async () => null,
     lasOptiLass: async () => opti.lass,
@@ -71,7 +71,7 @@ async function stå(nordM: number, sek: number) {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   vi.setSystemTime(new Date('2026-10-19T08:00:00Z'));
-  server.online = true; server.skickade = []; opti.lass = []; opti.avslutad = false; skapade.length = 0; position = null; extraNu = undefined;
+  server.online = true; server.skickade = []; server.avslutOpti = []; server.begart = []; opti.lass = []; opti.avslutad = false; skapade.length = 0; position = null; extraNu = undefined;
   (await import('@/lib/skotarLass/koKopplad') as any).aterstallKo();
   div = document.createElement('div'); document.body.appendChild(div); root = createRoot(div);
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -256,6 +256,44 @@ describe('kvar med Opti-lass', () => {
     await act(async () => { await Promise.resolve(); });
     expect(vy.kvar).toBeNull();
     expect(vy.skotningAvslutad).toBe(true);
+  });
+});
+
+describe('Färdigskotad på en trakt som började i Opti', () => {
+  const optiLass = () => [{ maskinId: 'A030353', datum: '2026-10-18', lassNummer: 1, tidMs: Date.parse('2026-10-18T10:00:00Z'), volymM3: 60, rader: [{ namn: 'Tall', kundkod: null, m3: 60 }] }];
+  it('skickar med Opti-volymen före appens start (så servern skalar appens lass mot skördat − Opti) och skalar vyn likadant', async () => {
+    opti.lass = optiLass();
+    await visa({ torr: true, objekt: { id: 'o9', vo: '555', namn: 'Trakten' } });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { vy.provkorLossning('vida:2'); });
+    const id = vy.lass[0].id;
+    await act(async () => { vy.oppnaAndra(id); });
+    await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
+    await act(async () => { vy.stangAndra(true); });
+    const appTall = vy.lass[0].delar[0].rader.find((r) => r.nyckel === 'tall')!.m3;
+    await act(async () => { await vy.fardigskotad(); });
+    expect(server.begart).toHaveLength(1);
+    expect(server.begart[0].opti).toEqual({ tall: 60 });
+    // Opti 60 + appens skalade tall = skördat 100
+    expect(60 + appTall * vy.avslut!.faktorer.tall).toBeCloseTo(100, 9);
+    expect(server.skickade).toHaveLength(0);   // torrkörning: ingenting når servern
+  });
+  it('trakt utan Opti-lass: ingen Opti dras av', async () => {
+    opti.lass = [];
+    await visa({ torr: true, objekt: { id: 'o9', vo: '555', namn: 'Trakten' } });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { vy.provkorLossning('vida:2'); });
+    await act(async () => { await vy.fardigskotad(); });
+    expect(server.begart[0].opti).toEqual({});
+  });
+  it('kunde inte läsa Opti-lassen → Färdigskotad skickas inte (skalningen vore fel)', async () => {
+    opti.lass = null;
+    await visa({ torr: true, objekt: { id: 'o9', vo: '555', namn: 'Trakten' } });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { vy.provkorLossning('vida:2'); });
+    await act(async () => { await vy.fardigskotad(); });
+    expect(server.begart).toHaveLength(0);
+    expect(vy.avslut).toBeNull();
   });
 });
 

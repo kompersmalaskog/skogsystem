@@ -39,8 +39,8 @@ export function hamtaLassKo(torr: boolean = false): Promise<SkotarLassKo> {
           // sparad:false/nyare_finns = servern har en nyare version; vår behöver inte skickas.
           return !!data;
         },
-        skickaAvslut: async (objektId) => {
-          const { error } = await supabase.rpc('skotar_farduskotat', { p_objekt: objektId });
+        skickaAvslut: async (objektId, opti) => {
+          const { error } = await supabase.rpc('skotar_farduskotat', { p_objekt: objektId, p_opti: opti });
           if (error) { try { console.warn('[Skotarlass] färdigskotad:', error.message); } catch { /* */ } return false; }
           return true;
         },
@@ -66,9 +66,10 @@ export async function sparaLass(lass: Lass, torr: boolean = false): Promise<void
   if (!torr) void korLassKo();
 }
 
-export async function begarFardigskotad(objektId: string, torr: boolean = false): Promise<void> {
+/** `opti` = Opti-lassens volym före appens start per skördarens sortiment (`optiForAvslut`): servern drar av den innan appens lass skalas. */
+export async function begarFardigskotad(objektId: string, torr: boolean = false, opti: Record<string, number> = {}): Promise<void> {
   const k = await hamtaLassKo(torr);
-  await k.begarAvslut(objektId, new Date(serverNu()).toISOString());
+  await k.begarAvslut(objektId, new Date(serverNu()).toISOString(), opti);
   if (!torr) void korLassKo();
 }
 

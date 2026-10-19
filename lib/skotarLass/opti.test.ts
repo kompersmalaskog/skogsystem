@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { appStartPerMaskin, fordelaOpti, kodKlass, namnNyckel, optiPerDag, raknadeOptiLass, type OptiLass } from './opti';
-import { beraknaKvar, kvarSammanfattning, kvarVy, skotningPerDag } from './kvar';
+import { appStartPerMaskin, fordelaOpti, optiForAvslut, kodKlass, namnNyckel, optiPerDag, raknadeOptiLass, type OptiLass } from './opti';
+import { beraknaKvar, kvarSammanfattning, kvarVy, skalningsfaktorer, skotningPerDag } from './kvar';
 import type { SkordatSortiment } from './sortiment';
 import type { Lass } from './typer';
 
@@ -143,5 +143,31 @@ describe('klar-dag direkt på pågående trakter', () => {
     const app = [appLass('W', '2026-10-19T12:00:00Z', [['x', 50]])];
     expect(optiPerDag(raknadeOptiLass(ol, appStartPerMaskin(app)))).toEqual([]);
     expect(skotningPerDag(app, ol)).toEqual([{ datum: '2026-10-19', m3: 50 }]);
+  });
+});
+
+describe('optiForAvslut — Opti-volymen Färdigskotad drar av', () => {
+  const skordat = [S('tall', 100, ['011-X']), S('massa', 50, ['100-1'])];
+  const ol = [
+    opti('W', '2026-10-13', 1, '2026-10-13T08:00:00Z', [['Tall_V3', '011-X', 30]]),
+    opti('W', '2026-10-14', 2, '2026-10-14T08:00:00Z', [['Tall_V3', '011-X', 20], ['Massa_V3', '100-1', 8]]),
+    opti('W', '2026-10-19', 3, '2026-10-19T13:00:00Z', [['Tall_V3', '011-X', 10]]),   // efter appens start: appen har det lasset
+  ];
+  it('bara Opti-lassen före maskinens första app-lass, fördelade på skördarens sortiment', () => {
+    const app = [appLass('W', '2026-10-19T12:00:00Z', [['tall', 15]])];
+    expect(optiForAvslut(skordat, ol, app)).toEqual({ tall: 50, massa: 8 });
+  });
+  it('trakt som började i appen (inga Opti-lass) → tomt, hela skördat är appens mål', () => {
+    expect(optiForAvslut(skordat, [], [appLass('W', '2026-10-19T12:00:00Z', [['tall', 15]])])).toEqual({});
+  });
+  it('maskin utan app-lass: allt Opti räknas', () => {
+    expect(optiForAvslut(skordat, ol, [])).toEqual({ tall: 60, massa: 8 });
+  });
+  it('Opti + appens skalade lass = skördat (hela kedjan, samma tal som kvar-räkningen)', () => {
+    const app = [appLass('W', '2026-10-19T12:00:00Z', [['tall', 15]])];
+    const o = optiForAvslut(skordat, ol, app);
+    const s = skalningsfaktorer(skordat, app, o);
+    expect(o.tall + 15 * s.faktorer.tall).toBeCloseTo(100, 9);
+    expect(beraknaKvar(skordat, app, ol).rader.find((r) => r.nyckel === 'tall')!.skotatOpti).toBe(o.tall);   // kvar-räkningen och avslutet drar av samma Opti
   });
 });

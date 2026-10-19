@@ -12,12 +12,13 @@ const lass = (id: string, nr: number, andrad = '2026-10-19T08:00:00.000Z', objek
 function riggad(natOk: { v: boolean }) {
   const skickade: Lass[] = [];
   const avslut: string[] = [];
+  const optiSkickat: Array<Record<string, number>> = [];
   const ko = skapaLassKo({
     lager: skapaMinnesKoLager(),
     skickaLass: async (l) => { if (!natOk.v) return false; skickade.push(l); return true; },
-    skickaAvslut: async (o) => { if (!natOk.v) return false; avslut.push(o); return true; },
+    skickaAvslut: async (o, opti) => { if (!natOk.v) return false; avslut.push(o); optiSkickat.push(opti); return true; },
   });
-  return { ko, skickade, avslut };
+  return { ko, skickade, avslut, optiSkickat };
 }
 
 describe('lasskö', () => {
@@ -96,6 +97,17 @@ describe('lasskö', () => {
     expect(avslut).toEqual(['o1']);
     expect(await ko.avslutSkickat('o1')).toBe(true);
     expect(await ko.antalVantande()).toBe(0);
+  });
+  it('Färdigskotad bär med sig Opti-volymen som räknades när föraren tryckte (även efter en omstart av kön); äldre poster utan Opti skickar tomt', async () => {
+    const nat = { v: false };
+    const { ko, optiSkickat } = riggad(nat);
+    await ko.begarAvslut('o1', '2026-10-19T12:00:00.000Z', { tall: 50, massa: 8 });
+    await ko.begarAvslut('o2', '2026-10-19T12:01:00.000Z');
+    await ko.kor();
+    expect(optiSkickat).toEqual([]);
+    nat.v = true;
+    await ko.kor();
+    expect(optiSkickat).toEqual([{ tall: 50, massa: 8 }, {}]);
   });
   it('ett pågående varv delas av samtidiga anrop', async () => {
     const nat = { v: true };

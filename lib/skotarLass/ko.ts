@@ -19,6 +19,8 @@ export interface AvslutPost {
   /** När föraren tryckte Färdigskotad. */
   begard: string;
   skickad: boolean;
+  /** Opti-lassens volym före appens start per skördarens sortiment (m³), uträknad när föraren tryckte — skickas med till servern. Saknas på äldre poster (= ingen Opti). */
+  opti?: Record<string, number>;
 }
 
 export interface KoLager {
@@ -81,8 +83,8 @@ export interface KoBeroenden {
   lager: KoLager;
   /** Skickar ett lass. true = servern har det (eller har ett nyare — då är vårt inte längre aktuellt att skicka). */
   skickaLass: (l: Lass) => Promise<boolean>;
-  /** Kör Färdigskotad på servern. true = klart. */
-  skickaAvslut: (objektId: string) => Promise<boolean>;
+  /** Kör Färdigskotad på servern (med Opti-volymen som drogs av). true = klart. */
+  skickaAvslut: (objektId: string, opti: Record<string, number>) => Promise<boolean>;
   paForandring?: () => void;
 }
 
@@ -94,7 +96,7 @@ export interface SkotarLassKo {
   /** Lägger in lass hämtade från servern. Ett lass med en lokal, oskickad ändring rörs aldrig. */
   tagEmotServer(serverLass: Lass[]): Promise<void>;
   /** Begär Färdigskotad. Skickas efter att trakten lass skickats. */
-  begarAvslut(objektId: string, nu: string): Promise<void>;
+  begarAvslut(objektId: string, nu: string, opti?: Record<string, number>): Promise<void>;
   avslutSkickat(objektId: string): Promise<boolean>;
   antalVantande(): Promise<number>;
   /** Ett varv: lass först, sedan avslut. Stannar vid första felet (ingen täckning) — nästa varv försöker igen. */
@@ -127,8 +129,8 @@ export function skapaLassKo(b: KoBeroenden): SkotarLassKo {
     meddela();
   }
 
-  async function begarAvslut(objektId: string, nu: string): Promise<void> {
-    await b.lager.putAvslut({ objektId, begard: nu, skickad: false });
+  async function begarAvslut(objektId: string, nu: string, opti: Record<string, number> = {}): Promise<void> {
+    await b.lager.putAvslut({ objektId, begard: nu, skickad: false, opti });
     meddela();
     // Färdigskotad räknar på serverns lass: lassen först (kor() skickar dem före avslutet).
   }
@@ -162,7 +164,7 @@ export function skapaLassKo(b: KoBeroenden): SkotarLassKo {
         const kvarLass = (await b.lager.allaLass()).some((x) => x.objektId === a.objektId && vantar(x));
         if (kvarLass) continue;
         let ok = false;
-        try { ok = await b.skickaAvslut(a.objektId); } catch { ok = false; }
+        try { ok = await b.skickaAvslut(a.objektId, a.opti ?? {}); } catch { ok = false; }
         if (!ok) return { skickade, kvar: await antalVantande() };
         await b.lager.putAvslut({ ...a, skickad: true });
         skickade += 1;

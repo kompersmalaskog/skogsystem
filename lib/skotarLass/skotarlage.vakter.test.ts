@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const rot = join(__dirname, '..', '..');
 const las = (rel: string) => readFileSync(join(rot, rel), 'utf8');
 const page = las('app/planering/page.tsx');
-// Migrationen är körd i prod i tio delar (Supabase-MCP:n hänger på stora funktionstexter): alla skotar_lass_*-filer i ordning.
+// Migrationen är körd i prod i tio delar (+ sex delar 6a–6f för Färdigskotad med Opti) (Supabase-MCP:n hänger på stora funktionstexter): alla skotar_lass_*-filer i ordning.
 const migrationer = (): string => readdirSync(join(rot, 'supabase/migrations')).filter((f) => /^\d+_skotar_lass_.*\.sql$/.test(f)).sort().map((f) => las(`supabase/migrations/${f}`)).join('\n');
 
 describe('skotarläget i planeringsvyn', () => {
@@ -37,11 +37,12 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).toMatch(/height: `calc\(env\(safe-area-inset-top, 0px\) \+ \$\{TESTBANNER_HOJD_PX\}px\)`/);
     expect(page).toMatch(/padding: `calc\(env\(safe-area-inset-top, 0px\) \+ 12px\$\{testlage \? ` \+ \$\{TESTBANNER_HOJD_PX\}px` : ''\}\) 16px 12px`/);
   });
-  it('objektnamnet i pillen byter ALDRIG objekt (objekt byts med hemknappen) — namnet öppnar objektinfon som före #831; ⓘ-knappen finns kvar', () => {
+  it('objektnamnet i pillen byter ALDRIG objekt (objekt byts med hemknappen) — namnet öppnar objektinfon som före #831; ingen extra ⓘ-knapp för skotare (en väg räcker)', () => {
     expect(page).not.toContain('skotarBytObjekt');
     expect(page).not.toContain('bytObjekt');
     expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
-    expect(page).toContain('{objektListaVal || skotarKorvy ? (');
+    expect(page).toContain('{objektListaVal ? (');
+    expect(page).not.toContain('objektListaVal || skotarKorvy');
     const pill = las('components/planering/KorvyObjektPill.tsx');
     expect(pill).not.toContain('korvy-pill-byt');   // ingen pil ⌄ i körvyns pill
   });
@@ -91,8 +92,29 @@ describe('datamodellen', () => {
     expect(sql).not.toMatch(/\bdrop\s+table\b/i);
     expect(sql).not.toMatch(/\balter\s+table\s+(?!if exists skotar_)(?!skotar_)/i);
     const upd = sql.match(/^\s*update\s+\w+/gim) ?? [];
-    expect(upd.map((u) => u.trim().toLowerCase().replace(/\s+/g, ' '))).toEqual(['update dim_objekt']);
-    expect(sql).toMatch(/skotning_avslutad is null/);
+    // Två gånger: den ursprungliga skotar_farduskotat(uuid) (3b) och ersättaren skotar_farduskotat(uuid, jsonb) (6d) — samma urval, båda bara där fältet är NULL.
+    expect(upd.map((u) => u.trim().toLowerCase().replace(/\s+/g, ' '))).toEqual(['update dim_objekt', 'update dim_objekt']);
+    expect(sql.match(/skotning_avslutad is null/g)).toHaveLength(2);
+  });
+  it('Färdigskotad räknar med Opti: servern drar Opti före appens start av skördat innan appens lass skalas, klienten skickar den med', () => {
+    const dir = join(rot, 'supabase/migrations');
+    const filer = readdirSync(dir).filter((f) => /^\d+_skotar_lass_6[a-f]_.*\.sql$/.test(f)).sort();
+    expect(filer.map((f) => f.replace(/^\d+_/, ''))).toEqual([
+      'skotar_lass_6a_avslut_opti_kolumn.sql', 'skotar_lass_6b_avslut_berakna.sql', 'skotar_lass_6c_avslut_berakna_omslag.sql',
+      'skotar_lass_6d_farduskotat.sql', 'skotar_lass_6e_farduskotat_omslag_grants.sql', 'skotar_lass_6f_farduskotat_enarg_revoke.sql',
+    ]);
+    const sql = filer.map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    expect(sql).toMatch(/add column if not exists opti jsonb/);
+    expect(sql).toMatch(/o := least\(greatest\(coalesce\(\(coalesce\(p_opti, '\{\}'::jsonb\) ->> k\)::numeric, 0\), 0\), s\);/);   // Opti kläms till 0..skördat
+    expect(sql).toMatch(/t := s - o;/);
+    expect(sql).toMatch(/v_fakt := v_fakt \|\| jsonb_build_object\(k, t \/ r\)/);   // faktor = mål / appens rapporterade, aldrig skördat / rapporterat
+    expect(sql).not.toMatch(/jsonb_build_object\(k, s \/ r\)/);
+    expect(sql).toMatch(/skotar_farduskotat\(p_objekt uuid, p_opti jsonb\)/);
+    const ko = las('lib/skotarLass/koKopplad.ts');
+    expect(ko).toContain("rpc('skotar_farduskotat', { p_objekt: objektId, p_opti: opti })");
+    const hook = las('lib/hooks/useSkotarLass.ts');
+    expect(hook).toContain('optiForAvslut(skordat, opti, lassRef.current)');
+    expect(hook).toMatch(/if \(!objektId \|\| !skordat \|\| !opti\) return;/);   // utan läst Opti skickas inget
   });
   it('skalat värde lagras aldrig på lassraden: ingen kolumn för det i tabellerna', () => {
     const sql = migrationer();

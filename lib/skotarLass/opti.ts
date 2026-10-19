@@ -155,3 +155,13 @@ export function optiPerDag(raknade: readonly OptiLass[]): Array<{ datum: string;
   return Array.from(per, ([datum, m3]) => ({ datum, m3 }));
 }
 
+/**
+ * Opti-lassens volym per skördarens sortiment som Färdigskotad drar av innan appens lass skalas: Opti före appens start, fördelat som kvar-räkningen.
+ * Skickas till skotar_farduskotat(p_objekt, p_opti) — servern kläms värdena till 0..skördat. Tomt objekt = ingen Opti-volym (trakten började i appen).
+ */
+export function optiForAvslut(skordat: readonly SkordatSortiment[], opti: readonly OptiLass[], lass: readonly Lass[]): Record<string, number> {
+  const per = fordelaOpti(skordat, raknadeOptiLass(opti, appStartPerMaskin(lass)));
+  const ut: Record<string, number> = {};
+  for (const [nyckel, m3] of per) if (m3 > 0.0001) ut[nyckel] = m3;
+  return ut;
+}

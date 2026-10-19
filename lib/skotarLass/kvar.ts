@@ -224,7 +224,11 @@ export interface Skalning {
   tillagg: Record<string, number>;
 }
 
-export function skalningsfaktorer(skordat: readonly SkordatSortiment[], lass: readonly Lass[]): Skalning {
+/**
+ * Skalfaktorerna vid Färdigskotad. Målet för APPENS lass per sortiment är skördat − Opti-lassen före appens start (`opti`, aldrig under 0, aldrig över skördat),
+ * så Opti + appens skalade lass = skördat. Utan Opti (trakten började i appen) är målet hela skördat. Samma räkning som SQL:en `skotar_avslut_berakna(p_objekt, p_opti)`.
+ */
+export function skalningsfaktorer(skordat: readonly SkordatSortiment[], lass: readonly Lass[], opti: Readonly<Record<string, number>> = {}): Skalning {
   const rapporterat = skotatPerSortiment(lass);
   const faktorer: Record<string, number> = {};
   const tillagg: Record<string, number> = {};
@@ -233,8 +237,9 @@ export function skalningsfaktorer(skordat: readonly SkordatSortiment[], lass: re
   for (const n of nycklar) {
     const s = skordatPer.get(n) ?? 0;
     const r = rapporterat.get(n)?.m3 ?? 0;
-    if (r > 0) faktorer[n] = s / r;
-    else if (s > 0) tillagg[n] = s;
+    const mal = s - Math.min(Math.max(opti[n] ?? 0, 0), s);
+    if (r > 0) faktorer[n] = mal / r;
+    else if (mal > 0) tillagg[n] = mal;
   }
   return { faktorer, tillagg };
 }

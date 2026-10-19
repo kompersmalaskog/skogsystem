@@ -96,6 +96,24 @@ describe('färdigskotad', () => {
     expect(sum('massa')).toBeCloseTo(45, 9);
     expect(ls.map(lassTotalM3)).toEqual([110, 70]);   // förarens värden orörda
   });
+  it('skalning med Opti: Opti före appens start + appens skalade lass = skördat per sortiment (övergången)', () => {
+    const skordat = [S('tall', 120), S('massa', 45), S('ved', 12), S('kubb', 30)];
+    const ls = [lass('d', [['tall', 50], ['massa', 10]])];
+    const opti = { tall: 70, massa: 40, ved: 5, kubb: 999 };   // kubb över skördat → klämt till 30; ved: Opti 5 utan appens lass → tillägg 7
+    const s = skalningsfaktorer(skordat, ls, opti);
+    expect(s.faktorer.tall).toBeCloseTo(1);          // 120 − 70 = 50 = appens rapporterade
+    expect(s.faktorer.massa).toBeCloseTo(0.5);       // 45 − 40 = 5 av 10
+    expect(s.tillagg).toEqual({ ved: 7 });
+    const sum = (n: string) => ls.reduce((t, l) => t + l.delar[0].rader.filter((r) => r.nyckel === n).reduce((x, r) => x + r.m3, 0), 0) * s.faktorer[n];
+    expect(sum('tall') + opti.tall).toBeCloseTo(120, 9);
+    expect(sum('massa') + opti.massa).toBeCloseTo(45, 9);
+    expect(s.faktorer.kubb).toBeUndefined();         // inget appens lass i kubb
+    expect(s.tillagg.kubb).toBeUndefined();          // Opti täcker allt (klämt till skördat) → inget tillägg
+  });
+  it('skalning med Opti: Opti som täcker hela skördat ger faktor 0, aldrig negativ; negativ Opti räknas som 0', () => {
+    expect(skalningsfaktorer([S('x', 10)], [lass('d', [['x', 5]])], { x: 50 }).faktorer.x).toBe(0);
+    expect(skalningsfaktorer([S('x', 10)], [lass('d', [['x', 5]])], { x: -4 }).faktorer.x).toBeCloseTo(2);
+  });
   it('skördat 0 men rapporterat → faktor 0', () => {
     expect(skalningsfaktorer([], [lass('d', [['x', 5]])]).faktorer.x).toBe(0);
   });

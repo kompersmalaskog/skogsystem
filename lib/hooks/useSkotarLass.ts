@@ -18,9 +18,9 @@ import {
   AUTO_BEKRAFTA_MS, andraRad as andraRadModell, bekrafta, bytAvlagg, forraLass, kanBekrafta, laggTillDel, nastaLassNummer, skapaLass, stryk,
   type LassKontext,
 } from '@/lib/skotarLass/lassModell';
-import { beraknaKvar, idagText, kvarSammanfattning, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
+import { beraknaKvar, idagText, kvarSammanfattning, skalningsfaktorer, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
 import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasOptiLass, lasSkordat, lasSkotningAvslutad, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
-import type { OptiLass } from '@/lib/skotarLass/opti';
+import { optiForAvslut, type OptiLass } from '@/lib/skotarLass/opti';
 import type { Avslut } from '@/lib/skotarLass/server';
 import { tunnaSpar, vagTider, type RaFix, type VagLinje } from '@/lib/skotarLass/spar';
 import { bekraftaForslagVidStart } from '@/lib/skotarLass/lassModell';
@@ -319,10 +319,13 @@ export function useSkotarLass(i: SkotarLassIn) {
   const valbara = useMemo(() => (skordat ? valbaraSortiment(skordat, skordat.some((s) => s.nyckel === VED_MARKAGARE_NYCKEL)) : []), [skordat]);
 
   const fardigskotad = useCallback(async () => {
-    if (!objektId) return;
-    await begarFardigskotad(objektId, torr);
-    setAvslut({ faktorer: {}, tillagg: {}, skillnadM3: 0, avslutadTid: new Date(serverNu()).toISOString() });
-  }, [objektId, torr]);
+    // Utan skördat och Opti-lassen går det inte att räkna rätt (appens lass skalas mot skördat MINUS Opti före appens start): då skickas inget.
+    if (!objektId || !skordat || !opti) return;
+    const optiAv = optiForAvslut(skordat, opti, lassRef.current);
+    await begarFardigskotad(objektId, torr, optiAv);
+    const sk = skalningsfaktorer(skordat, lassRef.current, optiAv);
+    setAvslut({ faktorer: sk.faktorer, tillagg: sk.tillagg, skillnadM3: 0, avslutadTid: new Date(serverNu()).toISOString() });
+  }, [objektId, torr, skordat, opti]);
 
   /** Bara torrkörningen (testläget): låtsas att maskinen lossat vid avlägget `avlaggId` (annars det närmaste/första) — så hela flödet går att se vid skrivbordet,
    *  där ingen GPS rör sig. Samma väg som en riktig lossning (kort, förifyllning, Ändra, kvar), men lagras bara i minnet. */
