@@ -1,5 +1,5 @@
 // Kan rundan avslutas? Ren funktion: sidan (app/egenkontroll/[objektId]/page.tsx) bygger knappens text och spärr på den.
-// Låg förr i lib/egenkontrollSerie.ts (serien är borta sedan ramen, PR 4); räkningen är oförändrad.
+// Låg förr i den gamla serie-filen (serien är borta sedan ramen, PR 4); räkningen är oförändrad.
 
 import { provytaStatus } from './provytor';
 

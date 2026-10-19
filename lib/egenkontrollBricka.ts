@@ -94,7 +94,7 @@ export function brickaTryck(bricka: Pick<Bricka, 'id' | 'status'>, last: boolean
  *
  * Varfor dockan behover det: raden for det markerade ligger OVER brickorna och arket animerar sin hojd (transform), sa brickorna och
  * radknapparna flyttar sig under forsta tiondelen. Ett andra tryck pa samma stalle hamnar da pa NAGOT ANNAT (en annan bricka som far Bra,
- * eller "Godkant" i raden som skriver over Bra) - tyst och fel. Det gamla skyddet (TUMSKYDD_MS, 350 ms) bodde i serien som togs bort i 7b.
+ * eller "Godkant" i raden som skriver over Bra) - tyst och fel. Det gamla skyddet (350 ms) bodde i serien som togs bort i 7b.
  *
  * Bara trycken som SKRIVER startar skyddet; ett tryck som bara markerar en besvarad bricka gor det inte, sa att man kan bladdra fritt.
  * Skyddet syns inte: ingen grad knapp, ingen forsening - trycket gor bara ingenting.

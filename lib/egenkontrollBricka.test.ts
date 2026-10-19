@@ -191,7 +191,7 @@ describe('angraForstaSvaret', () => {
 });
 
 describe('DOCK_SKYDD_MS — dubbeltrycksskyddet i dockan', () => {
-  it('är kort nog att inte kännas som en fördröjning och långt nog för ett sent dubbeltryck (samma 250–500 ms som det gamla TUMSKYDD_MS)', () => {
+  it('är kort nog att inte kännas som en fördröjning och långt nog för ett sent dubbeltryck (samma 250–500 ms som skyddet i den borttagna serien)', () => {
     expect(DOCK_SKYDD_MS).toBeGreaterThanOrEqual(250);
     expect(DOCK_SKYDD_MS).toBeLessThanOrEqual(500);
   });
