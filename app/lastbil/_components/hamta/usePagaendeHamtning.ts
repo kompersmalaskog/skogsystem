@@ -25,26 +25,32 @@ export function usePagaendeHamtning(forareId: string | null, aktiv: boolean): Pa
     if (!aktiv || !forareId) return;
     let avbruten = false;
     (async () => {
-      const utkast: Utkast | null = lasUtkast();
-      const f = await medAbortRetry(() => supabase.from('maskin_flytt')
-        .select('id, maskin_id, extern_maskin, starttid, hamtad_tid')
-        .is('sluttid', null).eq('avbruten', false).eq('medarbetare_id', forareId)
-        .order('starttid', { ascending: false }).limit(1) as any);
-      if (avbruten) return;
-      if (f.error) { console.error('[lastbil] pågående hämtning: läsfel', f.error); setLage({ lage: 'fel' }); return; }
-      const flytt = ((f.data as OppenFlytt[] | null) ?? [])[0] ?? null;
-
-      // Maskinnamnen ur dim_maskin (ett namn i hela appen) — bara de maskiner som kan bli aktuella.
-      const nuMs = Date.now();
-      const ider = [flytt && oppenFlyttGaller(flytt, nuMs) ? flytt.maskin_id : null, utkast?.maskinId ?? null].filter((x): x is string => !!x);
-      const namn = new Map<string, string>();
-      if (ider.length) {
-        const m = await medAbortRetry(() => supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER).in('maskin_id', ider) as any);
+      try {
+        const utkast: Utkast | null = lasUtkast();
+        const f = await medAbortRetry(() => supabase.from('maskin_flytt')
+          .select('id, maskin_id, extern_maskin, starttid, hamtad_tid')
+          .is('sluttid', null).eq('avbruten', false).eq('medarbetare_id', forareId)
+          .order('starttid', { ascending: false }).limit(1) as any);
         if (avbruten) return;
-        if (m.error) { console.error('[lastbil] pågående hämtning: maskinnamn', m.error); setLage({ lage: 'fel' }); return; }
-        for (const r of (m.data as any[] | null) ?? []) namn.set(r.maskin_id, maskinVisningsnamn(r));
+        if (f.error) { console.error('[lastbil] pågående hämtning: läsfel', f.error); setLage({ lage: 'fel' }); return; }
+        const flytt = ((f.data as OppenFlytt[] | null) ?? [])[0] ?? null;
+
+        // Maskinnamnen ur dim_maskin (ett namn i hela appen) — bara de maskiner som kan bli aktuella.
+        const nuMs = Date.now();
+        const ider = [flytt && oppenFlyttGaller(flytt, nuMs) ? flytt.maskin_id : null, utkast?.maskinId ?? null].filter((x): x is string => !!x);
+        const namn = new Map<string, string>();
+        if (ider.length) {
+          const m = await medAbortRetry(() => supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER).in('maskin_id', ider) as any);
+          if (avbruten) return;
+          if (m.error) { console.error('[lastbil] pågående hämtning: maskinnamn', m.error); setLage({ lage: 'fel' }); return; }
+          for (const r of (m.data as any[] | null) ?? []) namn.set(r.maskin_id, maskinVisningsnamn(r));
+        }
+        setLage({ lage: 'klar', pagaende: harledPagaende({ utkast, flytt, namnFor: id => namn.get(id) ?? null, nuMs }) });
+      } catch (e) {
+        // En läsning som kastar (nätet, ett oväntat svar) är ett läsfel: den vanliga knappen, aldrig ett obehandlat avbrott.
+        console.error('[lastbil] pågående hämtning', e);
+        if (!avbruten) setLage({ lage: 'fel' });
       }
-      setLage({ lage: 'klar', pagaende: harledPagaende({ utkast, flytt, namnFor: id => namn.get(id) ?? null, nuMs }) });
     })();
     return () => { avbruten = true; };
   }, [aktiv, forareId]);

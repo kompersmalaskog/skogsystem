@@ -109,6 +109,13 @@ describe('Fortsätt hämta X', () => {
     expect(knapp()).toBe('Hämta en maskin');
   });
 
+  it('en läsning som KASTAR (inte bara ger fel) är också ett läsfel: den vanliga knappen och inget obehandlat avbrott', async () => {
+    db().tabeller = null as any;                                   // fakens fråga kastar TypeError
+    await montera();
+    expect(knapp()).toBe('Hämta en maskin');
+    expect(rad()).toBeNull();
+  });
+
   it('utan öppen flytt men med utkast i Vart ska X? / Vägen hem (yngre än 12 h): "Fortsätt …" ur utkastet', async () => {
     sparaUtkast(utkast({ steg: 'dest', lossad: { tid: '2026-10-19T10:15:00Z', namn: 'Vällust RP' } }));
     await montera();
