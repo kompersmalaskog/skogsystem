@@ -767,7 +767,7 @@ def parse_tid_utc(dt_str) -> Optional[datetime]:
 # Importen räknar internt med NAIV SVENSK VÄGGKLOCKA (parse_datetime): datum, HH:MM, jämförelser och kuvert-sammanslagningen
 # bygger på den och rörs inte. I GRÄNSEN mot databasen konverteras: det som skrivs är det verkliga ögonblicket, det som
 # läses tillbaka görs om till väggklocka igen. Kolumnen `tid_ar_utc` på varje rad säger vilken konvention raden har
-# (true = verkligt UTC, false = äldre rad där väggklockan lagrats som UTC) — se supabase/migrations/…_opti_tider_utc.sql.
+# (true = verkligt UTC, false = äldre rad där väggklockan lagrats som UTC) — se supabase/migrations/…_opti_tider_utc_1_schema.sql.
 #
 # Tabeller där tiden ingår i den unika nyckeln (fakt_produktion.monitoring_start, fakt_kalibrering_historik.datum) står
 # MEDVETET utanför: ändrad konvention där ger dubbletter när gammal och ny import blandas, och ingen läsare behöver dem.
@@ -3746,7 +3746,7 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
         else:
             logger.error(f"  Fel vid sparande till {table}: {response.status_code} - {response.text[:200]}")
             if table in OPTI_TIDSKOLUMNER and 'tid_ar_utc' in (response.text or ''):
-                logger.error("  → Databasen saknar kolumnen tid_ar_utc: migrationen …_opti_tider_utc.sql ska köras FÖRE den här importen.")
+                logger.error("  → Databasen saknar kolumnen tid_ar_utc: migrationerna …_opti_tider_utc_*.sql ska köras FÖRE den här importen.")
             _rapportera_import_fel(
                 table,
                 normalized[0].get('filnamn') if normalized else None,
