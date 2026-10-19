@@ -226,7 +226,7 @@ describe('Mer (tavla 27): varje gammalt menyval finns kvar eller har flyttat —
   });
   it('gamla val som finns kvar i Mer, med samma handling i sidan', () => {
     for (const rad of [
-      "korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta'", 'gpsText: korvyStatus.gpsText', 'dataText: korvyStatus.dataText',
+      'Baskarta: ${KARTLAGER_NAMN[korvyBasKarta]} → ${KARTLAGER_NAMN[nastaBaskarta(korvyBasKarta)]}', 'gpsText: korvyStatus.gpsText', 'dataText: korvyStatus.dataText',
       "avslutaKorvy: efter(() => { setKorvyActive(false); setKorvyForceRoll(null); }),",
       "skordarKorvy: efter(() => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); }),",
       "skotarKorvy: efter(() => { setKorvyForceRoll('skotare'); setKorvyActive(true); }),",

@@ -21,7 +21,7 @@ describe('nya objektlistan med ett objekt bakom gäller bara planeringsvyn — i
 
   it('inget objekt valt: kartan med listan i planeringsvyn OCH i maskinläge (Martin 2026-10-17); maskinens val öppnar körvyn som förut', () => {
     expect(page).toContain('    if (anvandObjektListaUtanObjekt({ maskinlage, maskinSom: !!maskinSomParam, korvyActive })) {\n      const visaListan');
-    expect(page).toContain('<ObjektKartaTom onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista}');
+    expect(page).toContain('<ObjektKartaTom kartlager={mapType} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista}');
     expect(page).toContain("? { maskinId: enhetMaskinId, klararTyp: dimMaskiner.find((m) => m.maskin_id === enhetMaskinId)?.klarar_typ ?? null }");
     const m = /const valjObjektIMaskin = \(obj: any\) => \{([\s\S]*?)\n  \};/.exec(page);
     expect(m).not.toBeNull();

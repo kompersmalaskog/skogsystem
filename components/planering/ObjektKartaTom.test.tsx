@@ -42,7 +42,7 @@ vi.mock('next/dynamic', async () => {
 
 import ObjektKartaTom from './ObjektKartaTom';
 import { sattBredd } from './PlusRad.testhjalp';
-import { PRICK_KALLA, TOM_KARTA_STIL } from '@/lib/objektKarta';
+import { PRICK_KALLA, tomKartaStil } from '@/lib/objektKarta';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -64,11 +64,11 @@ const nerOchKlick = (ner: [number, number]) => act(() => {
   h.karta.canvas.dispatchEvent(new MouseEvent('click', { clientX: ner[0], clientY: ner[1], bubbles: true, cancelable: true }));
 });
 
-async function montera() {
+async function montera(kartlager?: 'satellite' | 'lantmateriet' | 'terrain' | 'osm') {
   behallare = document.createElement('div');
   document.body.appendChild(behallare);
   rot = createRoot(behallare);
-  await act(async () => { rot!.render(<ObjektKartaTom onValj={(o) => spion.valj.push(o.id)} onNavigera={() => {}} />); });
+  await act(async () => { rot!.render(<ObjektKartaTom onValj={(o) => spion.valj.push(o.id)} onNavigera={() => {}} kartlager={kartlager} />); });
   await flush();
 }
 
@@ -83,12 +83,12 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => { rot?.unmount(); }); behallare?.remove(); rot = null; document.body.innerHTML = ''; vi.useRealTimers(); });
 
 describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
-  it('en karta med Lantmäteriets bas monteras (inte en svart yta med text) och listan ligger ovanpå', async () => {
+  it('en karta med Lantmäteriets bas monteras (inte en svart yta med text) och listan ligger ovanpå — Flygfoto som standard', async () => {
     await montera();
     expect(q('planering-utan-objekt-karta')).not.toBeNull();
     expect(q('fake-maplibre')).not.toBeNull();
-    expect(h.kartaProps.mapStyle).toBe(TOM_KARTA_STIL);
-    expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).toContain('lm-layer');
+    expect(h.kartaProps.mapStyle).toEqual(tomKartaStil('satellite'));
+    expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).toContain('satellite-layer');
     expect(q('objekt-lista')).not.toBeNull();
     expect(q('objekt-lista')!.getAttribute('data-oppen')).toBe('1');
   });
@@ -185,12 +185,20 @@ describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
   });
 });
 
+describe('kartan utan objekt följer användarens kartlager', () => {
+  it.each([['satellite', 'satellite-layer'], ['lantmateriet', 'lm-layer'], ['terrain', 'terrain-layer'], ['osm', 'osm-layer']] as const)('%s → %s', async (lager, lagerId) => {
+    await montera(lager);
+    expect(h.kartaProps.mapStyle.layers.map((l: any) => l.id)).toEqual(['bg', lagerId]);
+    expect(Object.keys(h.kartaProps.mapStyle.sources)).toHaveLength(1);
+  });
+});
+
 describe('sidan: tomläget är kopplat dit det ska', () => {
   const sida = readFileSync(resolve(__dirname, '../../app/planering/page.tsx'), 'utf8');
   it('tomläget visar kartan (ObjektKartaTom) när listan ska visas — bara den svarta "Hämtar objekt…"-ytan medan minnet/adressen läses', () => {
     const i = sida.indexOf('// Visa objektväljaren om inget objekt är valt');
     const block = sida.slice(i, i + 2600);
-    expect(block).toMatch(/visaListan \? \(\s*(\/\/[^\n]*\n\s*)*<ObjektKartaTom onValj=\{maskinlage \? valjObjektIMaskin : valjObjektUrLista\}/);
+    expect(block).toMatch(/visaListan \? \(\s*(\/\/[^\n]*\n\s*)*<ObjektKartaTom kartlager=\{mapType\} onValj=\{maskinlage \? valjObjektIMaskin : valjObjektUrLista\}/);
     expect(block).toMatch(/Hämtar objekt…/);
     expect(block).not.toMatch(/<ObjektLista oppen kanStangas=\{false\}/);   // den bara-listan-på-svart-vägen är borta
   });

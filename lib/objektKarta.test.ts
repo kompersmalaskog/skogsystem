@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ARK_HOJD_ANDEL, PRICK_LAGER_SPEC, TRYCK_TOLERANS_PX, TOM_KARTA_STIL, arTryck, byggPrickar, kartPadding, narmastePrick, prickGrans, prickarGeoJson, sakerstallPrickLager,
+  ARK_HOJD_ANDEL, PRICK_LAGER_SPEC, TRYCK_TOLERANS_PX, TOM_KARTA_STIL, tomKartaStil, arTryck, byggPrickar, kartPadding, narmastePrick, prickGrans, prickarGeoJson, sakerstallPrickLager,
 } from './objektKarta';
 import { grupperaObjekt, type ListObjekt } from './objektVal';
 import { FARG } from './design/tokens';
@@ -177,5 +177,11 @@ describe('lagren', () => {
   it('tomkartans stil: Lantmäteriets bas som planeringsvyn (aldrig en svart yta)', () => {
     expect(TOM_KARTA_STIL.sources.lantmateriet.tiles[0]).toBe('/api/forarkarta?z={z}&x={x}&y={y}');
     expect(TOM_KARTA_STIL.layers.map((x) => x.id)).toEqual(['bg', 'lm-layer']);
+  });
+  it('tomkartans stil följer kartlagret: Flygfoto = ortofotot, Karta = dämpad Lantmäteri, Topokarta = full färg, OSM', () => {
+    expect(tomKartaStil('satellite').sources).toEqual({ satellite: expect.objectContaining({ tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], maxzoom: 18 }) });
+    expect(tomKartaStil('terrain').sources).toEqual({ topographic: expect.objectContaining({ tiles: ['/api/forarkarta?layer=farg&z={z}&x={x}&y={y}'] }) });
+    expect(tomKartaStil('osm').layers.map((x) => x.id)).toEqual(['bg', 'osm-layer']);
+    expect(tomKartaStil('lantmateriet')).toEqual(TOM_KARTA_STIL);
   });
 });
