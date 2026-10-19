@@ -43,6 +43,10 @@ vi.mock("@/lib/supabase", () => {
       const db = g.__db as Record<string, any[]>;
       const tab = (db[this.t] = db[this.t] || []);
       let rader: any[];
+      if ((this.mode === "insert" || this.mode === "upsert") && g.__insertFel?.[this.t]) {
+        g.__skriv.push({ tabell: this.t, op: "insert-FEL", vals: this.vals });
+        return Promise.resolve({ data: null, error: g.__insertFel[this.t], count: 0 }).then(res, rej);
+      }
       if (this.mode === "select") {
         rader = tab.filter(r => this.f.every(fn => fn(r))).map(r => ({ ...r }));
       } else if (this.mode === "delete") {
@@ -87,7 +91,7 @@ const g = globalThis as any;
 
 beforeEach(() => {
   g.IS_REACT_ACT_ENVIRONMENT = true;
-  g.__skriv = []; g.__kmKedja = null;
+  g.__skriv = []; g.__insertFel = {}; g.__kmKedja = null;
   try { localStorage.clear(); } catch { /* jsdom */ } // toasten hade en visning-per-dag-vakt i localStorage
   g.__kmDag = null; g.__kmDagAnrop = 0; g.__kmDagHall = false; g.__kmDagSlapp = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -251,6 +255,25 @@ describe("Flytt: föraren kan ändra och ta bort den som vilken rad som helst", 
     const ordning = (g.__skriv as any[]).map(s => s.tabell + ":" + s.op);
     expect(ordning.indexOf("arbetsdag_flytt_borta:insert")).toBeLessThan(ordning.indexOf("arbetsdag_segment:delete"));
     expect(text()).not.toMatch(/Flytt av maskin/);
+  });
+  it("kan gravstenen inte skrivas tas raden INTE bort (annars kommer den tillbaka vid nästa synk) och föraren får veta", async () => {
+    fixtur(klartPass(), { arbetsdag_segment: [flyttSeg()] });
+    g.__insertFel = { arbetsdag_flytt_borta: { code: "42501", message: "rls" } };
+    await montera();
+    await klick("Flytt av maskin");
+    await klickKnappMed("Ta bort"); await klickKnapp("Ja, ta bort");
+    expect(skrivna("arbetsdag_segment").filter(s => s.op === "delete")).toHaveLength(0);
+    expect(text()).toMatch(/Kunde inte ta bort/);
+    expect(text()).toMatch(/Period inom passet/); // formuläret står kvar
+  });
+  it("kan gravstenen inte skrivas sparas inte heller en ändrad tid", async () => {
+    fixtur(klartPass(), { arbetsdag_segment: [flyttSeg()] });
+    g.__insertFel = { arbetsdag_flytt_borta: { code: "42501", message: "rls" } };
+    await montera();
+    await klick("Flytt av maskin");
+    await skrivTid("Från", "12:40");
+    await klickKnapp("Spara");
+    expect(skrivna("arbetsdag_segment").filter(s => s.op === "update")).toHaveLength(0);
   });
   it("en rad föraren själv lagt in (kalla 'forare') tas bort utan gravsten", async () => {
     fixtur(klartPass(), { arbetsdag_segment: [flyttSeg({ id: "s-egen", kalla: "forare", kommentar: null })] });
