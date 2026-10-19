@@ -6,7 +6,7 @@
 //   avlagg_val  två avlägg ligger nära varandra → stora knappar med de möjliga avläggen.
 // Samma plats används av frågan "Nytt avlägg här?".
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens';
 import { AUTO_BEKRAFTA_MS, lassRad, lassTitel } from '@/lib/skotarLass/lassModell';
 import { sortimentVisning } from '@/lib/skotarLass/sortiment';
@@ -14,6 +14,21 @@ import { avlaggRubrik } from '@/lib/skotarLass/avlagg';
 import type { Avlagg, Lass } from '@/lib/skotarLass/typer';
 import type { LossningsKort as KortState, NyttAvlaggFraga } from '@/lib/hooks/useSkotarLass';
 import { knappPrimar, knappStor, meta, nertillKort, TRYCK_PX } from './stil';
+
+/** Den tunna linjen: fylls från vänster på AUTO_BEKRAFTA_MS (en övergång, inga egna keyframes). Startar om när kortet byter lass/del. */
+function Linje({ nyckel }: { nyckel: string }) {
+  const [fylld, setFylld] = useState(false);
+  useEffect(() => {
+    setFylld(false);
+    const f = requestAnimationFrame(() => requestAnimationFrame(() => setFylld(true)));
+    return () => cancelAnimationFrame(f);
+  }, [nyckel]);
+  return (
+    <div aria-hidden="true" style={{ height: 3, background: FARG.linje }}>
+      <div data-testid="lossning-linje" style={{ height: 3, background: FARG.gron, width: fylld ? '100%' : '0%', transition: `width ${AUTO_BEKRAFTA_MS}ms linear` }} />
+    </div>
+  );
+}
 
 export function LossningsKort({ kort, lass, avlagg, onAndra, onFyllI, onValjAvlagg, onTaBort }: {
   kort: KortState;
@@ -65,10 +80,7 @@ export function LossningsKort({ kort, lass, avlagg, onAndra, onFyllI, onValjAvla
             </div>
             <button type="button" data-testid="lossning-andra" onClick={onAndra} style={{ ...knappStor, flexShrink: 0 }}>Ändra</button>
           </div>
-          <div aria-hidden="true" style={{ height: 3, background: FARG.linje }}>
-            <div key={`${kort.lassId}-${kort.start}`} data-testid="lossning-linje" style={{ height: 3, background: FARG.gron, animation: `skotarLinje ${AUTO_BEKRAFTA_MS}ms linear forwards` }} />
-          </div>
-          <style>{`@keyframes skotarLinje { from { width: 0%; } to { width: 100%; } }`}</style>
+          <Linje nyckel={`${kort.lassId}-${kort.start}`} />
         </>
       )}
     </div>

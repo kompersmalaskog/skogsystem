@@ -39,7 +39,7 @@ describe('LossningsKort', () => {
     expect(q('lossningskort')?.textContent).toContain('Lass 7 lossat → Avlägg 2');
     expect(q('lossningskort')?.textContent).toContain('18 m³');
     expect(q('lossningskort')?.textContent).toMatch(/Timmer.*10.*Kubb.*5.*Massa.*3/);
-    expect((q('lossning-linje') as HTMLElement).style.animation).toContain('10000ms');
+    expect((q('lossning-linje') as HTMLElement).style.transition).toContain('10000ms');
     await tryck('lossning-andra');
     expect(onAndra).toHaveBeenCalledTimes(1);
   });

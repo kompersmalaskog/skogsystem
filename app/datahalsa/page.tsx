@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
 import { SKARP_START } from '@/lib/skarpStart'
+import SkotarLassKort from './SkotarLassKort'
 import {
   useDatahalsa, KANDA_IMPORTFEL, LEV_GRON_DYGN, LEV_GUL_DYGN,
   importFelKlass, type Besked, type LeveransRad, type ImportFelRad,
@@ -454,6 +455,9 @@ export default function DatahalsaPage() {
             tre kan vägavståndet (km) inte beräknas och dagen blir 0 i löneunderlaget.
           </div>
         </Kort>
+
+        {/* ── Skotarens lass i appen mot Opti (admin) ── */}
+        <SkotarLassKort />
 
       </main>
     </div>

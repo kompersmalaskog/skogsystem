@@ -105,8 +105,9 @@ import { typLabel } from '../../lib/objekt/typ'
 import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/objektNummer'
 import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
-import { egnaNummer, nastaEgnaNummer } from '../../lib/skotarLass/avlagg'
+import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
+import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
 import { farduskotatKontroll } from '../../lib/skotarLass/kvar'
 import type { VagLinje } from '../../lib/skotarLass/spar'
 import { LossningsKort, NyttAvlaggKort } from '../../components/planering/skotar/LossningsKort'
@@ -12035,37 +12036,9 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !skotarLassAktiv) return;
-    const FIL = ['trakt-punkt-circle', 'trakt-punkt-label', 'markers-layer', 'markers-hit'];
-    try {
-      if (!map.hasImage('skotar-avlagg-ruta')) {
-        const px = 40, c = document.createElement('canvas'); c.width = px; c.height = px;
-        const g = c.getContext('2d');
-        if (g) {
-          g.fillStyle = '#ffffff'; g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 2;
-          const r = 6, m = 3, w = px - 2 * m;
-          g.beginPath(); g.moveTo(m + r, m); g.arcTo(m + w, m, m + w, m + w, r); g.arcTo(m + w, m + w, m, m + w, r); g.arcTo(m, m + w, m, m, r); g.arcTo(m, m, m + w, m, r); g.closePath();
-          g.fill(); g.stroke();
-          map.addImage('skotar-avlagg-ruta', g.getImageData(0, 0, px, px), { pixelRatio: 2 });
-        }
-      }
-      if (!map.getSource('skotar-avlagg-source')) map.addSource('skotar-avlagg-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any });
-      if (!map.getLayer('skotar-avlagg-ring')) map.addLayer({ id: 'skotar-avlagg-ring', type: 'circle', source: 'skotar-avlagg-source', filter: ['==', ['get', 'vald'], true], paint: { 'circle-radius': 22, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } });
-      if (!map.getLayer('skotar-avlagg-ruta')) map.addLayer({ id: 'skotar-avlagg-ruta', type: 'symbol', source: 'skotar-avlagg-source', layout: { 'icon-image': 'skotar-avlagg-ruta', 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 14, 0.85, 17, 1.1], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'text-field': ['to-string', ['get', 'nummer']], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 14, 13, 17, 16], 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-anchor': 'center' }, paint: { 'text-color': '#000000' } });
-      if (!map.getLayer('skotar-avlagg-hit')) map.addLayer({ id: 'skotar-avlagg-hit', type: 'circle', source: 'skotar-avlagg-source', paint: { 'circle-radius': 28, 'circle-color': 'rgba(0,0,0,0)', 'circle-pitch-alignment': 'viewport' } });
-      for (const id of FIL) if (map.getLayer(id) && !(id in skotarOrigFilterRef.current)) skotarOrigFilterRef.current[id] = map.getFilter(id) ?? null;
-      const dold = ['==', ['get', '_typ'], '__skotar_dold__'];
-      for (const id of ['trakt-punkt-circle', 'trakt-punkt-label']) if (map.getLayer(id)) map.setFilter(id, dold as any);
-      const ejLanding = ['!=', ['get', 'type'], 'landing'];
-      if (map.getLayer('markers-layer')) map.setFilter('markers-layer', ['all', skotarOrigFilterRef.current['markers-layer'] ?? ['!=', ['get', 'prick'], true], ejLanding] as any);
-      if (map.getLayer('markers-hit')) map.setFilter('markers-hit', ejLanding as any);
-    } catch (e) { console.error('[Skotarlass] avläggslager:', e); }
+    try { skotarOrigFilterRef.current = laggTillAvlaggslager(map); } catch (e) { console.error('[Skotarlass] avläggslager:', e); }
     return () => {
-      try {
-        for (const id of ['skotar-avlagg-hit', 'skotar-avlagg-ruta', 'skotar-avlagg-ring']) if (map.getLayer(id)) map.removeLayer(id);
-        if (map.getSource('skotar-avlagg-source')) map.removeSource('skotar-avlagg-source');
-        for (const id of FIL) if (map.getLayer(id) && id in skotarOrigFilterRef.current) map.setFilter(id, skotarOrigFilterRef.current[id]);
-        skotarOrigFilterRef.current = {};
-      } catch { /* kartan är borta */ }
+      try { taBortAvlaggslager(map, skotarOrigFilterRef.current); skotarOrigFilterRef.current = {}; } catch { /* kartan är borta */ }
     };
   }, [skotarLassAktiv, mapLibreReady, korvyBasKarta]);
   useEffect(() => {
@@ -12073,10 +12046,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady || !skotarLassAktiv) return;
     const src = map.getSource('skotar-avlagg-source') as any;
     if (!src) return;
-    src.setData({
-      type: 'FeatureCollection',
-      features: skotarLass.avlagg.map((a) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [a.lng, a.lat] }, properties: { id: a.id, nummer: a.nummer, vald: a.id === skotarValtAvlagg } })),
-    });
+    src.setData(avlaggFeatures(skotarLass.avlagg, skotarValtAvlagg));
   }, [skotarLassAktiv, mapLibreReady, korvyBasKarta, skotarLass.avlagg, skotarValtAvlagg]);
   // Tryck på ett avlägg: Vidas öppnar sitt vanliga trakt-kort (samma innehåll som förut), egna sitt markörkort — med "skotat hit" överst.
   useEffect(() => {
@@ -12090,7 +12060,7 @@ export default function PlannerPage() {
       setSkotarValtAvlagg(id);
       if (id.startsWith('egen:')) { setMarkerMenuOpen(Number(id.slice(5)) as any); return; }
       const nr = id.slice(5);
-      const f = (traktGeo?.features ?? []).find((x: any) => x?.properties?._typ === 'punkt' && String(x.properties.EXTRA_LABE ?? x.properties.LOPNR ?? '').trim() === nr);
+      const f = (traktGeo?.features ?? []).find((x: any) => x?.properties?._typ === 'punkt' && visaAvlaggNummer(String(x.properties.EXTRA_LABE ?? x.properties.LOPNR ?? '')) === nr);
       if (!f) return;
       const props: any = f.properties || {};
       const nyckel = ytaNyckel(props);
@@ -15342,8 +15312,8 @@ export default function PlannerPage() {
               <div style={{ overflowY: 'auto', padding: '4px 22px 22px' }}>
                 {/* Skotarläget: vad som skotats HIT överst; Vidas eget innehåll ligger oförändrat under "Från Vida" */}
                 {skotarLassAktiv && traktInfo.kategori === 'punkt' && traktInfo.nr && valtObjekt && (
-                  <AvlaggSkotatSektion nummer={traktInfo.nr} objektNamn={valtObjekt.namn} kalla="vida"
-                    stat={skotatTillAvlagg(skotarLass.lass, `vida:${traktInfo.nr}`, skotarLass.avslut?.faktorer)} />
+                  <AvlaggSkotatSektion nummer={visaAvlaggNummer(traktInfo.nr)} objektNamn={valtObjekt.namn} kalla="vida"
+                    stat={skotatTillAvlagg(skotarLass.lass, `vida:${visaAvlaggNummer(traktInfo.nr)}`, skotarLass.avslut?.faktorer)} />
                 )}
                 <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{typKalla}</div>
                 <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{rubrikVisad}</div>
