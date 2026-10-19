@@ -33,6 +33,24 @@ describe('oktober 2026: som i mockupen', () => {
     expect(s.liter).toBe(349);
     expect(fmtLPerMil(s.lPerMil)).toBe('4,3');
   });
+  it('l/mil per rundtyp: Flyttrundor 3,9 och Övrig körning 4,5 — och totalen (4,3) ligger mellan dem', () => {
+    expect(s.literFlytt).toBe(116);                       // 67 + 49 (avrundade delar)
+    expect(s.literOvrig).toBe(233);                       // 127 + 18 + 88
+    expect(fmtLPerMil(s.lPerMilFlytt)).toBe('3,9');       // 116,5 l över 295,8 km mätare — rådata, inte de avrundade delarna
+    expect(fmtLPerMil(s.lPerMilOvrig)).toBe('4,5');       // 232,9 l över 521,6 km mätare
+    expect(s.lPerMil!).toBeGreaterThan(s.lPerMilFlytt!);
+    expect(s.lPerMil!).toBeLessThan(s.lPerMilOvrig!);
+  });
+  it('en rundtyp utan diesel i datan har null (aldrig 0): "diesel saknas i datan"', () => {
+    const utanDiesel = OKT.map(r => ({ ...r, bransle_l: r.id === '3e823d15' || r.id === '3bfa4d19' ? null : r.bransle_l }));
+    const t = summera(byggRundor(utanDiesel, BEN));
+    expect(t).toMatchObject({ literFlytt: null, lPerMilFlytt: null, flytt: 2 });
+    expect(t.literOvrig).toBe(233);
+  });
+  it('en rundtyp utan rundor har null, inte 0', () => {
+    const bara = summera(byggRundor(OKT.filter(r => r.id === '30154836'), BEN));
+    expect(bara).toMatchObject({ flytt: 0, literFlytt: null, lPerMilFlytt: null });
+  });
   it('mätare först, rutt som reserv, och en flytt har fakturerbara km', () => {
     const r = rundor.find(x => x.id === '3e823d15')!;
     expect(r).toMatchObject({ km: 163, kmKalla: 'mätare', flytt: true });

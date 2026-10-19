@@ -125,6 +125,11 @@ export interface Summa {
   km: number;                      // = kmFlytt + kmOvrig (avrundade delar)
   liter: number | null;            // null = ingen runda har diesel i datan
   lPerMil: number | null;          // bara rundor med både mätare och diesel
+  /** Samma tal per rundtyp (Flyttrundor / Övrig körning). Ett flyttrunda-snitt är blandat: det rymmer också tomkörningen dit och hem. */
+  literFlytt: number | null;
+  literOvrig: number | null;
+  lPerMilFlytt: number | null;
+  lPerMilOvrig: number | null;
   overlappande: number;
   ogiltiga: number;
   pagande: number;
@@ -134,15 +139,23 @@ export function summera(rundor: readonly Runda[]): Summa {
   const raknade = rundor.filter(r => r.giltig);
   const flytt = raknade.filter(r => r.flytt), ovrig = raknade.filter(r => !r.flytt);
   const sum = (a: readonly Runda[], f: (r: Runda) => number | null) => a.reduce((s, r) => s + (f(r) ?? 0), 0);
-  const medLiter = raknade.filter(r => r.liter != null);
-  const bada = raknade.filter(r => (r.matareKm ?? 0) > 0 && (r.literRa ?? 0) > 0);
+  // Liter och l/mil för en grupp rundor: bara rundor med diesel räknas (null = ingen har det), l/mil bara över rundor med BÅDE mätare och diesel.
+  const diesel = (a: readonly Runda[]) => {
+    const medLiter = a.filter(r => r.liter != null);
+    const bada = a.filter(r => (r.matareKm ?? 0) > 0 && (r.literRa ?? 0) > 0);
+    const matare = sum(bada, r => r.matareKm);
+    return {
+      liter: medLiter.length ? sum(a, r => r.liter) : null,
+      lPerMil: bada.length && matare > 0 ? sum(bada, r => r.literRa) / (matare / 10) : null,
+    };
+  };
   const kmFlytt = sum(flytt, r => r.km), kmOvrig = sum(ovrig, r => r.km);
-  const matare = sum(bada, r => r.matareKm);
+  const dTot = diesel(raknade), dFlytt = diesel(flytt), dOvrig = diesel(ovrig);
   return {
     antal: raknade.length, flytt: flytt.length, ovrig: ovrig.length,
     kmFlytt, kmOvrig, km: kmFlytt + kmOvrig,
-    liter: medLiter.length ? sum(raknade, r => r.liter) : null,
-    lPerMil: bada.length && matare > 0 ? sum(bada, r => r.literRa) / (matare / 10) : null,
+    liter: dTot.liter, lPerMil: dTot.lPerMil,
+    literFlytt: dFlytt.liter, literOvrig: dOvrig.liter, lPerMilFlytt: dFlytt.lPerMil, lPerMilOvrig: dOvrig.lPerMil,
     overlappande: raknade.filter(r => r.overlappar).length,
     ogiltiga: rundor.filter(r => r.ogiltigTid).length,
     pagande: rundor.filter(r => r.pagar).length,

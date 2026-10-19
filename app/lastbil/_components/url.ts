@@ -1,18 +1,18 @@
-// Flik och period i adressen: /lastbil?flik=fakturering&per=2026-10. Hem, notiser och gamla länkar
-// (t.ex. Flyttloggen) kan då peka på rätt flik och månad. Okänt eller ogiltigt värde = som om det inte
-// stod där — aldrig ett fel.
+// Adressen: /lastbil?per=2026-10 (huvudsidan) och /lastbil?flik=fakturering&per=2026-10 (fakturasidan, bara admin).
+// Hem, notiser och gamla länkar kan peka på rätt månad. Okänt eller ogiltigt värde = som om det inte stod där — aldrig ett fel.
+//
+// Lastbilen är EN sida utan flikar. Gamla länkar: ?flik=fakturering öppnar fakturasidan (en förare får huvudsidan);
+// ?flik=korningar och ?flik=nu betyder huvudsidan, som ingen parameter alls.
 
 import { periodFranText, periodTillText, type Period } from './period';
 
-export type Flik = 'korningar' | 'fakturering' | 'nu';
+/** Vilken sida: huvudsidan eller fakturasidan (en egen sida med tillbaka-pil, bara admin). */
+export type Sida = 'huvud' | 'fakturering';
 
-const FLIKAR: readonly Flik[] = ['korningar', 'fakturering', 'nu'];
-
-export function lasUrl(search: string, nu: Date = new Date()): { flik: Flik | null; period: Period | null } {
+export function lasUrl(search: string, nu: Date = new Date()): { sida: Sida; period: Period | null } {
   const p = new URLSearchParams(search);
-  const f = p.get('flik');
   return {
-    flik: FLIKAR.includes(f as Flik) ? (f as Flik) : null,
+    sida: p.get('flik') === 'fakturering' ? 'fakturering' : 'huvud',
     period: periodFranText(p.get('per'), nu),
   };
 }
@@ -23,6 +23,6 @@ export function lasLassId(search: string): string | null {
   return id && /^[0-9a-f-]{8,40}$/i.test(id) ? id : null;
 }
 
-export function skrivUrl(flik: Flik, period: Period): string {
-  return `?flik=${flik}&per=${periodTillText(period)}`;
+export function skrivUrl(sida: Sida, period: Period): string {
+  return sida === 'fakturering' ? `?flik=fakturering&per=${periodTillText(period)}` : `?per=${periodTillText(period)}`;
 }

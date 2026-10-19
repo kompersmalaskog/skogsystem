@@ -4,11 +4,10 @@ import { AVSTAND, FARG, KNAPP, KORT, TNUM, TRAFFYTA, TYP } from '@/lib/design/to
 import type { FakturerbartStatus } from './useFakturerbart';
 
 /**
- * PENGATALET: fakturerbart-summan i en fast remsa i rubriken, på alla flikar.
+ * PENGATALET på fakturasidan: fakturerbart-summan med uppdelningen hos faktureringen / fakturerade / strukna, överst på sidan
+ * (Lastbilen är sedan 2026-10-19 EN sida utan flikar; talet står också som raden "Fakturering · <månad>" i Att göra).
  *
- * Regler (Martin 2026-10-14): den står alltid stilla på fast plats och ligger aldrig i ett kort som
- * kan gömmas eller scrollas bort. Den räknar inte upp, ändras inte av flik, filter eller scroll, och
- * byter bara värde när PERIODEN byts. Ett läsfel är ett fel (aldrig 0 km): remsan säger det och
+ * Regler (Martin 2026-10-14): den räknar inte upp, ändras inte av filter eller scroll, och byter bara värde när PERIODEN byts. Ett läsfel är ett fel (aldrig 0 km): remsan säger det och
  * erbjuder "Försök igen".
  */
 export default function Remsa({ etikett, status, onForsokIgen }: { etikett: string; status: FakturerbartStatus; onForsokIgen: () => void }) {

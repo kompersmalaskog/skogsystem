@@ -32,7 +32,7 @@ describe('/maskinflytt är ersatt av Hämta en maskin i Lastbilen', () => {
 
   it('flyttplatserna lever kvar och leder tillbaka till Lastbilen', () => {
     expect(existsSync(join(ROT, 'app', 'maskinflytt', 'platser', 'page.tsx'))).toBe(true);
-    expect(readFileSync(join(ROT, 'app', 'maskinflytt', 'platser', 'PlatserClient.tsx'), 'utf8')).toContain('href="/lastbil?flik=korningar"');
+    expect(readFileSync(join(ROT, 'app', 'maskinflytt', 'platser', 'PlatserClient.tsx'), 'utf8')).toContain('href="/lastbil"');
   });
 
   it('startsidan har bara kortet Lastbilen: varken Maskinflytt-kort, vyregistrering eller favorit', () => {

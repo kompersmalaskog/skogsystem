@@ -8,7 +8,9 @@ export const MARKNING_FARG: Record<Farg, string> = { orange: FARG.orange, gron: 
 
 /**
  * EN rad per runda, alltid tryckbar — också Övrig körning (60 % av milen; den var en streckad,
- * otryckbar summarad i de gamla vyerna). Ett tal (km) per rad, detaljerna ligger i arket.
+ * otryckbar summarad i de gamla vyerna). Två rader text och ETT tal: rad 1 "datum · tid" med km till höger,
+ * rad 2 "Maskin · Från → Till" (flytt) eller "Övrig körning" — klipps med … på en rad, namnen kortas aldrig.
+ * Diesel, förare och fakturerbart ligger i arket. En avvikelse (pågår, avbruten, överlappar) får en rad till.
  */
 export default function RundaRad({ runda, sista, onOppna }: { runda: Runda; sista: boolean; onOppna: (r: Runda) => void }) {
   const markningar = rundaMarkningar(runda);
@@ -17,8 +19,8 @@ export default function RundaRad({ runda, sista, onOppna }: { runda: Runda; sist
       style={{ ...RAD, width: '100%', minHeight: TRAFFYTA.min, background: 'none', border: 'none', borderBottom: sista ? 'none' : RAD.borderBottom, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer', padding: `${AVSTAND.m}px 0` }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ ...TYP.listtitel, color: FARG.text }}>{rundaTidRad(runda)}</div>
-        <div style={{ ...TYP.meta, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {rundaRubrik(runda)} · {rundaUnder(runda)}
+        <div data-runda-rad2 style={{ ...TYP.meta, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {[rundaRubrik(runda), rundaUnder(runda)].filter(Boolean).join(' · ')}
         </div>
         {markningar.length > 0 && (
           <div style={{ ...TYP.meta }}>
@@ -30,7 +32,6 @@ export default function RundaRad({ runda, sista, onOppna }: { runda: Runda; sist
       </div>
       <div style={{ textAlign: 'right', ...TNUM }}>
         <div style={{ ...TYP.listtitel, color: FARG.text }}>{runda.km != null ? `${runda.km.toLocaleString('sv-SE')} km` : '–'}</div>
-        <div style={{ ...TYP.meta, color: FARG.text2 }}>{runda.liter != null ? `${runda.liter} l` : runda.giltig ? 'diesel saknas' : ''}</div>
       </div>
       <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text, color: FARG.text3 }}>chevron_right</span>
     </button>

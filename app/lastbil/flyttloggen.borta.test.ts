@@ -30,7 +30,7 @@ describe('Flyttloggen är riven (steg 4)', () => {
   it('den gamla adressen omdirigeras till Lastbilens Körningar', () => {
     SammanstallningPage();
     expect(redirect).toHaveBeenCalledTimes(1);
-    expect(redirect).toHaveBeenCalledWith('/lastbil?flik=korningar');
+    expect(redirect).toHaveBeenCalledWith('/lastbil');
   });
 
   it('ingen kod länkar till den gamla adressen — utom testerna som kontrollerar att den saknas', () => {

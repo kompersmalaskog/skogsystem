@@ -228,7 +228,7 @@ export default function PlatserClient() {
           ))}
         </div>
 
-        <Link href="/lastbil?flik=korningar" style={{
+        <Link href="/lastbil" style={{
           display: 'flex', alignItems: 'center', gap: 8, marginTop: 20,
           color: C.t3, fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: ff,
         }}>
