@@ -136,13 +136,108 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
     await tryck('kvar-idag'); await tryck('kvar-lass-7');
     expect(onLass).toHaveBeenCalledWith(bekr[0]);
   });
+  describe('KvarArk: läsbar i hytten', () => {
+    const mk = (n: string, m3: number) => ({ nyckel: n, namn: `Timmer: ${n}_V3`, m3 });
+    const nio = [mk('Vislanda_195_1-2', 200), mk('Vislanda Tall', 80), mk('Aa', 70), mk('Bb', 60), mk('Cc', 50), mk('Dd', 40), mk('Ee', 30), mk('Ff', 20), { nyckel: 'unclassified', namn: 'Unclassified', m3: 1 }];
+    const visaKvar = async (kvar: ReturnType<typeof beraknaKvar>, dagens: Lass[] = []) =>
+      visa(<KvarArk kvar={kvar} sammanfattning={kvarSammanfattning(kvar, dagens, '2026-10-19')} dagens={dagens} idagText="Idag: 0 lass · 0 m³" vantande={0} onLass={vi.fn()} onStang={vi.fn()} />);
+    it('högst sex sortiment på egen rad, resten samlat som "Övrigt ~X m³ ›" som fälls ut', async () => {
+      await visaKvar(beraknaKvar(nio, []));
+      expect(div.querySelectorAll('[data-testid^="kvar-rad-"]')).toHaveLength(6);
+      expect(q('kvar-ovrigt')?.textContent).toContain('Övrigt');
+      expect(q('kvar-ovrigt')?.textContent).toContain('~');
+      expect(q('kvar-ovrigt-lista')).toBeNull();
+      await tryck('kvar-ovrigt');
+      expect(div.querySelectorAll('[data-testid="kvar-ovrigt-lista"] [data-testid^="kvar-rad-"]')).toHaveLength(2);   // Ee och Ff
+    });
+    it('"Unclassified" visas aldrig för föraren — varken på egen rad eller i den utfällda listan', async () => {
+      await visaKvar(beraknaKvar(nio, []));
+      await tryck('kvar-ovrigt');
+      expect(q('kvar-ark')?.textContent?.toLowerCase()).not.toContain('unclassified');
+      expect(q('kvar-ovrigt')?.textContent).toContain('~');   // 1 m³ Unclassified + Ee + Ff räknas i Övrigt
+    });
+    it('sortimentet vitt/semibold och mottagaren grå efter', async () => {
+      await visaKvar(beraknaKvar([{ nyckel: 'a', namn: 'Timmer: Vislanda_195_1-2_V3', m3: 50 }], []));
+      const rad = q('kvar-rad-a') as HTMLElement;
+      const delar = rad.querySelectorAll('span span');
+      expect(delar[0].textContent).toBe('Timmer 195 1-2');
+      expect(delar[1].textContent?.trim()).toBe('Vislanda');
+      expect((delar[0] as HTMLElement).style.fontWeight).toBe('600');
+      expect((delar[1] as HTMLElement).style.color).not.toBe((delar[0] as HTMLElement).style.color);
+    });
+    it('skotat mer än skördat: "✓ klart", aldrig "över" eller minus', async () => {
+      const kvar = beraknaKvar([{ nyckel: 'a', namn: 'Timmer: A_V3', m3: 10 }, { nyckel: 'b', namn: 'Timmer: B_V3', m3: 100 }], [lass({ status: 'bekraftat', delar: [{ ...lass().delar[0], rader: [{ nyckel: 'a', namn: 'Timmer: A_V3', m3: 25 }] }] })]);
+      await visaKvar(kvar);
+      expect(q('kvar-rad-a')?.querySelector('[data-klart="ja"]')).not.toBeNull();
+      expect(q('kvar-rad-b')?.querySelector('[data-klart="ja"]')).toBeNull();
+      const txt = q('kvar-ark')?.textContent ?? '';
+      expect(txt).toContain('klart');
+      expect(txt).not.toMatch(/över/);
+      expect(txt).not.toMatch(/−|-\d/);
+    });
+    it('lassrader i två rader: "Lass 1 · 16:59 · Avlägg 01-2" och sortimenten under', async () => {
+      const l = lass({ lassNummer: 1, status: 'bekraftat', delar: [{ ...lass().delar[0], avlaggNummer: '01-2', lossadTid: '2026-10-19T14:59:00.000Z' }] });
+      await visaKvar(beraknaKvar(skordat, [l]), [l]);
+      await tryck('kvar-idag');
+      expect(q('kvar-lass-rubrik')?.textContent).toBe('Lass 1 · 16:59 · Avlägg 01-2');
+      expect(q('kvar-lass-sortiment')?.textContent).toBe('Timmer 10 · Kubb 5 · Massa 3 · 18 m³');
+    });
+    it('allt innehåll är minst 17 px (bara små versaler-rubriker får vara 13 px)', async () => {
+      const l = lass({ status: 'bekraftat' });
+      await visaKvar(beraknaKvar(nio, [l]), [l]);
+      await tryck('kvar-ovrigt'); await tryck('kvar-idag');
+      const smaa: string[] = [];
+      div.querySelectorAll<HTMLElement>('*').forEach((e) => {
+        const f = parseFloat(e.style.fontSize || '');
+        const harText = Array.from(e.childNodes).some((n) => n.nodeType === 3 && (n.textContent ?? '').trim());
+        if (harText && f && f < 17) smaa.push(`${f}px: ${e.textContent}`);
+      });
+      expect(smaa).toEqual([]);
+    });
+  });
+  describe('textstorlek i skotarläget: minst 17 px för allt föraren läser', () => {
+    // Små versaler-rubriker (uppercase) får vara 13 px — inget innehåll.
+    const smaTexter = (): string[] => {
+      const ut: string[] = [];
+      div.querySelectorAll<HTMLElement>('*').forEach((e) => {
+        const f = parseFloat(e.style.fontSize || '');
+        const harText = Array.from(e.childNodes).some((n) => n.nodeType === 3 && (n.textContent ?? '').trim());
+        if (harText && f && f < 17 && e.style.textTransform !== 'uppercase') ut.push(`${f}px: ${e.textContent}`);
+      });
+      return ut;
+    };
+    it('lasskortet (auto, fyll i, välj avlägg) och Nytt avlägg-frågan', async () => {
+      for (const fas of ['auto', 'forare', 'avlagg_val'] as const) {
+        await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas, start: 1 }} lass={lass()} avlagg={[A2, A3]} onAndra={vi.fn()} onFyllI={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
+        expect(smaTexter(), fas).toEqual([]);
+      }
+      await visa(<NyttAvlaggKort fraga={{ lat: 1, lng: 1, ts: 1 }} nummer="3" onSvar={vi.fn()} />);
+      expect(smaTexter()).toEqual([]);
+    });
+    it('avläggskortet (skotat hit, med och utan lass)', async () => {
+      const stat = skotatTillAvlagg([lass({ status: 'bekraftat' })], 'vida:2');
+      await visa(<AvlaggSkotatSektion nummer="2" objektNamn="Trakten" stat={stat} kalla="vida" />);
+      expect(smaTexter()).toEqual([]);
+      await visa(<AvlaggSkotatSektion nummer="9" objektNamn="Trakten" stat={skotatTillAvlagg([], 'egen:9')} kalla="egen" />);
+      expect(smaTexter()).toEqual([]);
+    });
+    it('Ändra lass, Färdigskotad och väder', async () => {
+      await visa(<AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={[{ nyckel: 'kubb', namn: 'Kubb: Tall_V3', m3: 0 }]} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />);
+      expect(smaTexter()).toEqual([]);
+      const kv = beraknaKvar([{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 100 }], []);
+      await visa(<FardigskotadKort kontroll={farduskotatKontroll(kv)} klar={false} onKarta={vi.fn()} onBekrafta={vi.fn()} onAvbryt={vi.fn()} />);
+      expect(smaTexter()).toEqual([]);
+      await visa(<VaderLista dagar={[]} laddar={false} />);
+      expect(smaTexter()).toEqual([]);
+    });
+  });
   it('FardigskotadKort: fråga vid stor skillnad, annars bekräftelse', async () => {
     const stor = farduskotatKontroll(beraknaKvar(skordat, [lass({ status: 'bekraftat' })]));
     expect(stor.ok).toBe(false);
     const onB = vi.fn(); const onK = vi.fn();
     await visa(<FardigskotadKort kontroll={stor} klar={false} onKarta={onK} onBekrafta={onB} onAvbryt={vi.fn()} />);
     expect(q('fardigskotad')?.getAttribute('data-fraga')).toBe('ja');
-    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~130 m³ kvar – Timmer · Tall ~90, Massa · Gran ~40/);
+    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~130 m³ kvar – Timmer ~90, Massa ~40/);
     await tryck('fardigskotad-karta'); await tryck('fardigskotad-anda');
     expect(onK).toHaveBeenCalled(); expect(onB).toHaveBeenCalled();
     const litet = farduskotatKontroll(beraknaKvar([{ nyckel: 'talltimmer', namn: 'T', m3: 100 }], [lass({ status: 'bekraftat', delar: [{ ...lass().delar[0], rader: [{ nyckel: 'talltimmer', namn: 'T', m3: 99 }] }] })]));
@@ -201,6 +296,16 @@ describe('KorvyObjektPill med kvar', () => {
     expect(q('korvy-pill-evighetstrad')).toBeNull();
     expect(q('korvy-pill-namn')?.textContent).toContain('Trakten');
     expect(q('korvy-pill-kvar')?.textContent).toBe('Kvar ~121 m³· Klar ~onsdag');
+  });
+  it('skotare: ett tryck på namnet byter objekt och pilen ⌄ syns; skördare har ingen pil', async () => {
+    const onNamn = vi.fn();
+    await visa(<KorvyObjektPill {...pillProps} onNamn={onNamn} smal={false} visaRaknare={false} bytObjekt />);
+    expect(q('korvy-pill-byt')).not.toBeNull();
+    expect(q('korvy-pill-namn')?.getAttribute('aria-label')).toContain('byta objekt');
+    await tryck('korvy-pill-namn');
+    expect(onNamn).toHaveBeenCalled();
+    await visa(<KorvyObjektPill {...pillProps} smal={false} />);
+    expect(q('korvy-pill-byt')).toBeNull();
   });
   it('skotare utan läsbar kvar: bara namnet — aldrig skördarräknare och aldrig ett påhittat 0', async () => {
     await visa(<KorvyObjektPill {...pillProps} smal={false} visaRaknare={false} kvar={null} />);

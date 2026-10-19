@@ -32,6 +32,26 @@ describe('skotarläget i planeringsvyn', () => {
   it('skotarens pill har inga skördarräknare (Högstubbar/Evighetsträd hör till skördaren)', () => {
     expect(page).toMatch(/<KorvyObjektPill[\s\S]{0,900}visaRaknare=\{!skotarKorvy\}/);
   });
+  it('testbannern skär inte av rutan: bannern har fast höjd och headern flyttas ner lika mycket i testläget', () => {
+    expect(page).toContain('const TESTBANNER_HOJD_PX = 36;');
+    expect(page).toMatch(/height: `calc\(env\(safe-area-inset-top, 0px\) \+ \$\{TESTBANNER_HOJD_PX\}px\)`/);
+    expect(page).toMatch(/padding: `calc\(env\(safe-area-inset-top, 0px\) \+ 12px\$\{testlage \? ` \+ \$\{TESTBANNER_HOJD_PX\}px` : ''\}\) 16px 12px`/);
+  });
+  it('objektbyte i skotarläget: namnet byter objekt (⌄), objektinfon har egen ⓘ-knapp', () => {
+    expect(page).toContain('const skotarBytObjekt = () => {');
+    expect(page).toMatch(/if \(maskinlage\) \{ tillObjektlistan\(\); return; \}/);
+    expect(page).toContain('bytObjekt={skotarKorvy}');
+    expect(page).toContain('{objektListaVal || skotarKorvy ? (');
+  });
+  it('kvar kräver Opti-lassen (skotat före appens start) och räknar aldrig en trakt med avslutad skotning', () => {
+    const hook = las('lib/hooks/useSkotarLass.ts');
+    expect(hook).toMatch(/skordat && opti && skotningAvslutad !== true \? beraknaKvar\(skordat, lass, opti\)/);
+    expect(hook).toContain('lasOptiLass(vo, ids)');
+    const ko = las('lib/skotarLass/koKopplad.ts');
+    expect(ko).toContain(".from('fakt_lass').select(");
+    expect(ko).toContain(".from('fakt_lass_sortiment').select(");
+    expect(ko).not.toMatch(/\.select\([^)]*lass_id/);   // raderna kopplas på (maskin, datum, lass_nummer) — aldrig lass_id
+  });
   it('körvyns lager-whitelist släpper igenom avläggsrutorna (annars ligger datan i källan men ritas aldrig)', () => {
     expect(page).toMatch(/KEEP_PREFIX = \[[^\]]*'skotar-avlagg-'/);
   });
@@ -43,7 +63,7 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page.indexOf('useSkotarVader(')).toBeLessThan(retur);
   });
   it('kvar-delen i pillen, färdigskotad-raden och korten bärs av skotarLassAktiv', () => {
-    expect(page).toMatch(/kvar=\{skotarLassAktiv && skotarLass\.avslut/);
+    expect(page).toMatch(/kvar=\{skotarLassAktiv && \(skotarLass\.avslut/);
     expect(page).toMatch(/if \(skotarLassAktiv\) \{\s*g\.push\(\{ id: 'skotad-trakt'/);
     expect(page).toMatch(/\{skotarLassAktiv && \(\(\) => \{\s*const sl = skotarLass;/);
   });
@@ -58,7 +78,8 @@ describe('datamodellen', () => {
   const skotarKod = [...filer('lib/skotarLass'), 'lib/hooks/useSkotarLass.ts', 'lib/hooks/useSkotarVader.ts', ...filer('components/planering/skotar')];
 
   it('appens lass skrivs aldrig i Opti-tabellerna (fakt_lass*) — bara i skotar_lass*', () => {
-    for (const f of skotarKod) expect(las(f), f).not.toMatch(/from\(\s*['"]fakt_lass/);
+    // Läsa fakt_lass* är rätt (Opti-lassen före appens start räknas i kvar) — att skriva dit är förbjudet.
+    for (const f of skotarKod) expect(las(f), f).not.toMatch(/from\(\s*['"]fakt_lass[^)]*\)\s*\.(insert|upsert|update|delete)/);
   });
   it('uppföljningens globala skotat-regel (lib/skotat.ts) rörs inte', () => {
     for (const f of skotarKod) expect(las(f), f).not.toMatch(/from ['"][^'"]*\/skotat['"]/);

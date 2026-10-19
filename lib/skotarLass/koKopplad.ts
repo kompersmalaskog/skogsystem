@@ -6,6 +6,8 @@ import { hamtaAlla } from '@/lib/supabaseAlla';
 import { skapaIndexedDbKoLager, skapaLassKo, skapaMinnesKoLager, type SkotarLassKo } from './ko';
 import { avslutFranServer, lassFranServer, lassTillPayload, LASS_SELECT, type Avslut } from './server';
 import { skordatPerSortiment, type SkordatSortiment } from './sortiment';
+import { optiTidUtcMs } from '@/lib/optiTid';
+import type { OptiLass } from './opti';
 import type { Lass } from './typer';
 
 const lyssnare = new Set<() => void>();
@@ -96,20 +98,76 @@ export async function lasAvslut(objektId: string): Promise<Avslut | null> {
   } catch { return null; }
 }
 
-/** Skördat per sortiment (skördarens mätning). null = kunde inte läsas — "kvar" visas då inte, aldrig som 0. */
+/** Namn och köparkod för sortiment-id:n (dim_sortiment), i omgångar. null = kunde inte läsas. */
+async function lasSortimentInfo(ids: readonly string[]): Promise<{ namn: Map<string, string>; kod: Map<string, string | null> } | null> {
+  const namn = new Map<string, string>();
+  const kod = new Map<string, string | null>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await supabase.from('dim_sortiment').select('sortiment_id, namn, kundkod').in('sortiment_id', ids.slice(i, i + 100));
+    if (error) return null;
+    for (const r of (data ?? []) as any[]) { if (r.namn) namn.set(r.sortiment_id, r.namn); kod.set(r.sortiment_id, r.kundkod ?? null); }
+  }
+  return { namn, kod };
+}
+
+/** Skördat per sortiment ur fakt_sortiment (volym_m3sub) + dim_sortiment.namn/kundkod. null = kunde inte läsas — "kvar" visas då inte, aldrig som 0. */
 export async function lasSkordat(voNummer: string, altIds: readonly string[]): Promise<SkordatSortiment[] | null> {
   try {
     const ids = Array.from(new Set([voNummer, ...altIds]));
     const rader = await hamtaAlla<any>(() => supabase.from('fakt_sortiment').select('id, sortiment_id, volym_m3sub').in('objekt_id', ids) as any, 'id');
     if (rader.error) return null;
-    const sid = Array.from(new Set(rader.data.map((r: any) => r.sortiment_id).filter(Boolean)));
-    const namn = new Map<string, string>();
-    for (let i = 0; i < sid.length; i += 100) {
-      const { data, error } = await supabase.from('dim_sortiment').select('sortiment_id, namn').in('sortiment_id', sid.slice(i, i + 100));
-      if (error) return null;
-      for (const r of (data ?? []) as any[]) if (r.namn) namn.set(r.sortiment_id, r.namn);
+    const sid = Array.from(new Set(rader.data.map((r: any) => r.sortiment_id).filter(Boolean))) as string[];
+    const info = await lasSortimentInfo(sid);
+    if (!info) return null;
+    return skordatPerSortiment(rader.data, info.namn, info.kod);
+  } catch { return null; }
+}
+
+/**
+ * Trakten Opti-lass (fakt_lass + fakt_lass_sortiment) från ALLA skotare. null = kunde inte läsas — kvar visas då inte (aldrig en gissning
+ * på halva underlaget). Tomt svar = inga Opti-lass på trakten. Tiderna görs till verkliga UTC-ögonblick med radens tid_ar_utc (lib/optiTid).
+ */
+export async function lasOptiLass(voNummer: string, altIds: readonly string[]): Promise<OptiLass[] | null> {
+  try {
+    const ids = Array.from(new Set([voNummer, ...altIds]));
+    const lass = await hamtaAlla<any>(() => supabase.from('fakt_lass').select('id, maskin_id, datum, lass_nummer, lossnings_tid, lastnings_tid, tid_ar_utc, volym_m3sub').in('objekt_id', ids) as any, 'id');
+    if (lass.error) return null;
+    if (!lass.data.length) return [];
+    const rader = await hamtaAlla<any>(() => supabase.from('fakt_lass_sortiment').select('id, maskin_id, datum, lass_nummer, sortiment_id, volym_m3sub').in('objekt_id', ids) as any, 'id');
+    if (rader.error) return null;
+    const sid = Array.from(new Set(rader.data.map((r: any) => r.sortiment_id).filter(Boolean))) as string[];
+    const info = await lasSortimentInfo(sid);
+    if (!info) return null;
+    // Raderna hör till ett lass via (maskin, datum, lass_nummer) — aldrig via lass_id (importen fyller det inte).
+    const nyckel = (m: string, d: string, n: number) => `${m}|${d}|${n}`;
+    const perLass = new Map<string, OptiLass['rader']>();
+    for (const r of rader.data) {
+      const volym = Number(r.volym_m3sub ?? 0);
+      const namn = info.namn.get(r.sortiment_id);
+      if (!namn || !(volym > 0)) continue;
+      const k = nyckel(r.maskin_id, String(r.datum), Number(r.lass_nummer));
+      const l = perLass.get(k) ?? [];
+      l.push({ namn, kundkod: info.kod.get(r.sortiment_id) ?? null, m3: volym });
+      perLass.set(k, l);
     }
-    return skordatPerSortiment(rader.data, namn);
+    return lass.data.map((l: any): OptiLass => ({
+      maskinId: String(l.maskin_id),
+      datum: String(l.datum),
+      lassNummer: Number(l.lass_nummer),
+      tidMs: optiTidUtcMs(l.lossnings_tid ?? l.lastnings_tid, l.tid_ar_utc),
+      volymM3: l.volym_m3sub != null && Number.isFinite(Number(l.volym_m3sub)) ? Number(l.volym_m3sub) : null,
+      rader: perLass.get(nyckel(String(l.maskin_id), String(l.datum), Number(l.lass_nummer))) ?? [],
+    }));
+  } catch { return null; }
+}
+
+/** Är skotningen redan avslutad på trakten (dim_objekt.skotning_avslutad satt, hur den än sattes)? null = kunde inte läsas. */
+export async function lasSkotningAvslutad(voNummer: string, altIds: readonly string[]): Promise<boolean | null> {
+  try {
+    const ids = Array.from(new Set([voNummer, ...altIds]));
+    const { data, error } = await supabase.from('dim_objekt').select('objekt_id, skotning_avslutad').in('vo_nummer', ids);
+    if (error) return null;
+    return ((data ?? []) as any[]).some((r) => r.skotning_avslutad != null);
   } catch { return null; }
 }
 

@@ -8,8 +8,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens';
-import { AUTO_BEKRAFTA_MS, lassRad, lassTitel } from '@/lib/skotarLass/lassModell';
-import { sortimentVisning } from '@/lib/skotarLass/sortiment';
+import { AUTO_BEKRAFTA_MS, lassSortimentText, lassTitel } from '@/lib/skotarLass/lassModell';
 import { avlaggRubrik } from '@/lib/skotarLass/avlagg';
 import type { Avlagg, Lass } from '@/lib/skotarLass/typer';
 import type { LossningsKort as KortState, NyttAvlaggFraga } from '@/lib/hooks/useSkotarLass';
@@ -75,7 +74,7 @@ export function LossningsKort({ kort, lass, avlagg, onAndra, onFyllI, onValjAvla
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ ...TYP.listtitel }}><span style={{ color: FARG.gron }} aria-hidden="true">✓ </span>{titel} lossat → {avlaggRubrik({ nummer: del.avlaggNummer ?? '' })}</div>
               <div style={{ ...meta, color: FARG.text, ...TNUM }}>
-                {del.rader.length ? lassRad({ avlaggNummer: null, rader: del.rader }, sortimentVisning).replace(/^Inget avlägg valt · /, '') : ''}
+                {del.rader.length ? lassSortimentText(del.rader) : ''}
               </div>
             </div>
             <button type="button" data-testid="lossning-andra" onClick={onAndra} style={{ ...knappStor, flexShrink: 0 }}>Ändra</button>

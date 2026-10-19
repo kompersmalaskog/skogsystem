@@ -608,6 +608,9 @@ async function hamtaPlaneringsObjekt(id: string): Promise<HamtaObjektSvar<any>> 
   return data ? { typ: 'hittad', objekt: data } : { typ: 'saknas' };
 }
 
+/** Den gula testbannerns höjd (utöver safe-area): rutan överst flyttas ner med lika mycket i testläget. */
+const TESTBANNER_HOJD_PX = 36;
+
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -12022,6 +12025,12 @@ export default function PlannerPage() {
     skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
   });
   const skotarVader = useSkotarVader(skotarKorvy && !testlage, currentPosition);
+  // Objektbyte i skotarläget: tryck på objektnamnet (pilen ⌄ i pillen). Maskinläge = maskinlådans "Byt objekt" (objektlistan med prickarna); annars lämnas körvyn
+  // och planeringens lista öppnas. Objektinfon har sin egen ⓘ-knapp bredvid pillen.
+  const skotarBytObjekt = () => {
+    if (maskinlage) { tillObjektlistan(); return; }
+    setKorvyActive(false); setKorvyForceRoll(null); setObjektListaOppen(true);
+  };
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
@@ -12885,7 +12894,7 @@ export default function PlannerPage() {
       {testlage && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9200,
-          background: '#f59e0b', color: '#1a1200',
+          background: '#f59e0b', color: '#1a1200', boxSizing: 'border-box', height: `calc(env(safe-area-inset-top, 0px) + ${TESTBANNER_HOJD_PX}px)`,
           padding: 'calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
           fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
@@ -13150,7 +13159,8 @@ export default function PlannerPage() {
           top: 0,
           left: 0,
           right: 0,
-          padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px',
+          // Den gula testbannern ("Visa som maskin", /maskin?som=) ligger över toppen: rutan flyttas ner under den, annars skärs den av.
+          padding: `calc(env(safe-area-inset-top, 0px) + 12px${testlage ? ` + ${TESTBANNER_HOJD_PX}px` : ''}) 16px 12px`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -13209,12 +13219,13 @@ export default function PlannerPage() {
               orangeKant={!!visarSomForare}
               visaRaknare={!skotarKorvy}
               prefix={visarSomForare && simuleradForare ? <span style={{ color: '#ff9f0a', fontWeight: 600, marginRight: 6 }}>👁 {simuleradForare.namn.split(' ')[0]} ·</span> : undefined}
-              kvar={skotarLassAktiv && skotarLass.avslut
-                ? { text: 'Färdigskotad', klar: null, onTryck: () => setSkotarKvarOppet(true) }
+              kvar={skotarLassAktiv && (skotarLass.avslut || skotarLass.skotningAvslutad)
+                ? { text: 'Färdigskotad', klar: null, onTryck: () => setSkotarFardigOppet(true) }
                 : skotarLassAktiv && skotarLass.sammanfattning
                   ? { text: skotarLass.sammanfattning.kvarText, klar: skotarLass.sammanfattning.klarText, onTryck: () => setSkotarKvarOppet(true) }
                   : null}
-              onNamn={() => setTraktOversiktOpen(o => !o)}
+              bytObjekt={skotarKorvy}
+              onNamn={() => { if (skotarKorvy) skotarBytObjekt(); else setTraktOversiktOpen(o => !o); }}
               onHogstubbe={() => placeraVidMaskinen('highstump')}
               onEvighetstrad={() => placeraVidMaskinen('eternitytree')}
             />
@@ -13284,7 +13295,7 @@ export default function PlannerPage() {
           )}
 
           {/* Platshållare där nödlägesknappen satt — håller objekt-pillen centrerad (körvy på telefon: pillen får hela bredden i stället) */}
-          {objektListaVal ? (
+          {objektListaVal || skotarKorvy ? (
             /* Objektinfon (traktöversikten) hade pillen som enda ingång — nu bär pillen "byt objekt", så infon får en egen knapp på platshållarens plats. */
             <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale"
               onClick={() => {
@@ -14098,7 +14109,7 @@ export default function PlannerPage() {
             {skotarFardigOppet && (
               <FardigskotadKort
                 kontroll={sl.kvar ? farduskotatKontroll(sl.kvar) : null}
-                klar={!!sl.avslut}
+                klar={!!(sl.avslut || sl.skotningAvslutad)}
                 onKarta={() => setSkotarFardigOppet(false)}
                 onBekrafta={() => { void sl.fardigskotad(); }}
                 onAvbryt={() => setSkotarFardigOppet(false)}

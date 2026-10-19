@@ -7,7 +7,8 @@
 import React from 'react';
 import { AVSTAND, FARG, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
 import type { FardigKontroll } from '@/lib/skotarLass/kvar';
-import { sortimentVisning } from '@/lib/skotarLass/sortiment';
+import { sortimentDelar } from '@/lib/skotarLass/sortiment';
+import { KVAR_SYNLIGA } from '@/lib/skotarLass/kvar';
 import { arkPanel, arkRam, knappPrimar, knappStor, meta } from './stil';
 
 export function FardigskotadKort({ kontroll, klar, onKarta, onBekrafta, onAvbryt }: {
@@ -19,6 +20,10 @@ export function FardigskotadKort({ kontroll, klar, onKarta, onBekrafta, onAvbryt
   onAvbryt: () => void;
 }) {
   const fraga = !!kontroll && !kontroll.ok;
+  // Samma sortiment som i Kvar-listan: de största för sig, resten (och Unclassified) som "Övrigt".
+  const namngivna = kontroll ? kontroll.rader.filter((r) => !r.oklassat) : [];
+  const synliga = namngivna.slice(0, KVAR_SYNLIGA);
+  const ovrigtKvar = kontroll ? [...namngivna.slice(KVAR_SYNLIGA), ...kontroll.rader.filter((r) => r.oklassat)].reduce((s, r) => s + r.kvar, 0) : 0;
   return (
     <div style={arkRam}>
       <div data-testid="fardigskotad" data-fraga={fraga ? 'ja' : 'nej'} role="dialog" aria-label="Trakten färdigskotad" style={{ ...arkPanel, padding: AVSTAND.l, paddingBottom: medSafeBotten(AVSTAND.l) }}>
@@ -38,7 +43,8 @@ export function FardigskotadKort({ kontroll, klar, onKarta, onBekrafta, onAvbryt
             <div style={{ ...TYP.rubrik }}>Har du fått med allt?</div>
             <div data-testid="fardigskotad-text" style={{ ...TYP.text, marginTop: AVSTAND.s }}>
               Enligt skördaren ~{Math.round(kontroll.kvarM3)} m³ kvar –{' '}
-              {kontroll.rader.map((r, i) => (<span key={r.nyckel}>{i > 0 ? ', ' : ''}{sortimentVisning(r.namn)} <span style={TNUM}>~{Math.round(r.kvar)}</span></span>))}
+              {synliga.map((r, i) => (<span key={r.nyckel}>{i > 0 ? ', ' : ''}{sortimentDelar(r.namn).sortiment} <span style={TNUM}>~{Math.round(r.kvar)}</span></span>))}
+              {ovrigtKvar >= 0.5 && <span>{synliga.length ? ', ' : ''}Övrigt <span style={TNUM}>~{Math.round(ovrigtKvar)}</span></span>}
             </div>
             <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.l }}>
               <button type="button" data-testid="fardigskotad-karta" onClick={onKarta} style={{ ...knappPrimar, flex: 1 }}>Kolla kartan</button>

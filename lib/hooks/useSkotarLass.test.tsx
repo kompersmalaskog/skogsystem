@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 
 const server = vi.hoisted(() => ({ online: true, skickade: [] as any[] }));
+const opti = vi.hoisted(() => ({ lass: [] as any[] | null, avslutad: false as boolean | null }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/lib/objektNummer', () => ({ hamtaAltNummer: async () => [], hogarObjektIds: (vo: string) => [vo] }));
@@ -30,6 +31,8 @@ vi.mock('@/lib/skotarLass/koKopplad', async () => {
     begarFardigskotad: async (o: string, torr?: boolean) => { const q = torr ? kTorr : k; await q.begarAvslut(o, new Date().toISOString()); if (!torr) void k.kor(); },
     lasLassForObjekt: async (o: string, torr?: boolean) => ({ lass: await (torr ? kTorr : k).lassForObjekt(o), fran: 'lokalt' as const }),
     lasAvslut: async () => null,
+    lasOptiLass: async () => opti.lass,
+    lasSkotningAvslutad: async () => opti.avslutad,
     lasSkordat: async () => [{ nyckel: 'tall', namn: 'Tall', m3: 100 }, { nyckel: 'massa', namn: 'Massa', m3: 50 }],
   };
 });
@@ -68,7 +71,7 @@ async function stå(nordM: number, sek: number) {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   vi.setSystemTime(new Date('2026-10-19T08:00:00Z'));
-  server.online = true; server.skickade = []; skapade.length = 0; position = null; extraNu = undefined;
+  server.online = true; server.skickade = []; opti.lass = []; opti.avslutad = false; skapade.length = 0; position = null; extraNu = undefined;
   (await import('@/lib/skotarLass/koKopplad') as any).aterstallKo();
   div = document.createElement('div'); document.body.appendChild(div); root = createRoot(div);
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -230,6 +233,29 @@ describe('torrkörning (testläget)', () => {
     const ko = await import('@/lib/skotarLass/koKopplad');
     expect(await (await ko.hamtaLassKo(false)).lassForObjekt('o1')).toHaveLength(0);
     expect(await (await ko.hamtaLassKo(true)).lassForObjekt('o1')).toHaveLength(1);
+  });
+});
+
+describe('kvar med Opti-lass', () => {
+  it('Opti före appens start räknas med; kvar visas först när Opti-lassen är lästa', async () => {
+    opti.lass = [{ maskinId: 'A030353', datum: '2026-10-18', lassNummer: 1, tidMs: Date.parse('2026-10-18T10:00:00Z'), volymM3: 60, rader: [{ namn: 'Tall', kundkod: null, m3: 60 }] }];
+    await visa({ objekt: { id: 'o9', vo: '555', namn: 'Trakten' } });  // ny trakt → allt läses om med de nya svaren
+    await act(async () => { await Promise.resolve(); });
+    expect(vy.kvar?.rader.find((r) => r.nyckel === 'tall')).toMatchObject({ skordat: 100, skotatOpti: 60, kvar: 40 });
+  });
+  it('kunde inte läsa Opti-lassen → ingen kvar (aldrig en gissning på halva underlaget)', async () => {
+    opti.lass = null;
+    await visa({ objekt: { id: 'o9', vo: '555', namn: 'Trakten' } });  // ny trakt → allt läses om med de nya svaren
+    await act(async () => { await Promise.resolve(); });
+    expect(vy.kvar).toBeNull();
+    expect(vy.sammanfattning).toBeNull();
+  });
+  it('skotningen redan avslutad (skotning_avslutad satt) → ingen kvar', async () => {
+    opti.avslutad = true;
+    await visa({ objekt: { id: 'o9', vo: '555', namn: 'Trakten' } });  // ny trakt → allt läses om med de nya svaren
+    await act(async () => { await Promise.resolve(); });
+    expect(vy.kvar).toBeNull();
+    expect(vy.skotningAvslutad).toBe(true);
   });
 });
 

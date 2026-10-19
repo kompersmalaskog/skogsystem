@@ -5,7 +5,7 @@
 import React from 'react';
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens';
 import type { Morgonkort, VaderDag } from '@/lib/skotarLass/vader';
-import { knappPrimar, meta } from './stil';
+import { knappPrimar, meta, smaRubrik } from './stil';
 
 export function MorgonKortVy({ kort, onOk }: { kort: Morgonkort; onOk: () => void }) {
   return (
@@ -27,7 +27,7 @@ const dagText = (iso: string) => { const d = new Date(`${iso}T12:00:00Z`); retur
 export function VaderLista({ dagar, laddar }: { dagar: readonly VaderDag[]; laddar: boolean }) {
   return (
     <div data-testid="vader-lista">
-      <div style={{ ...TYP.micro, color: FARG.text3, marginBottom: AVSTAND.s }}>Väder</div>
+      <div style={{ ...smaRubrik, marginBottom: AVSTAND.s }}>Väder</div>
       {dagar.length === 0 ? (
         <div style={meta}>{laddar ? 'Hämtar väder…' : 'Väder saknas just nu.'}</div>
       ) : dagar.map((d) => (

@@ -7,6 +7,7 @@
 // Det som INTE får bekräfta sig självt: första lasset på trakten, två avlägg nära varandra, inget avlägg, tomt lass.
 import { lokaltDatumStockholm } from '../hyttspar';
 import { avlaggRubrik } from './avlagg';
+import { sortimentDelar } from './sortiment';
 import type { Avlagg, Lass, LassDel, SortimentRad, SparPunkt, VagTid } from './typer';
 import type { AvlaggTraff } from './avlagg';
 import type { LossningsTyp } from './lossning';
@@ -181,6 +182,17 @@ export function lassTitel(l: Pick<Lass, 'lassNummer' | 'delar'>, delNr?: number)
 export function lassRad(del: Pick<LassDel, 'avlaggNummer' | 'rader'>, visaNamn: (namn: string) => string): string {
   const delar = [...del.rader].sort((a, b) => b.m3 - a.m3).map((r) => `${visaNamn(r.namn)} ${heltM3(r.m3)}`);
   return [del.avlaggNummer ? avlaggRubrik({ nummer: del.avlaggNummer }) : 'Inget avlägg valt', ...delar, `${totalM3(del.rader)} m³`].join(' · ');
+}
+
+/** Sortimenten under lassets rubrikrad: "Timmer 195 1-2 10 · Kubb 5 · 18 m³" (störst först, utan mottagare — den står i Kvar-listan). */
+export function lassSortimentText(rader: readonly SortimentRad[]): string {
+  const delar = [...rader].sort((a, b) => b.m3 - a.m3).filter((r) => heltM3(r.m3) > 0).map((r) => `${sortimentDelar(r.namn).sortiment} ${heltM3(r.m3)}`);
+  return [...delar, `${totalM3(rader)} m³`].join(' · ');
+}
+
+/** Lassets rubrikrad: "Lass 1 · 16:59 · Avlägg 01-2" (klockslaget ges av anroparen så modellen slipper tidszonen). */
+export function lassRubrikRad(l: Pick<Lass, 'lassNummer' | 'delar'>, del: Pick<LassDel, 'delNr' | 'avlaggNummer'>, klockslag: string): string {
+  return [lassTitel(l, del.delNr), klockslag, del.avlaggNummer ? avlaggRubrik({ nummer: del.avlaggNummer }) : 'Inget avlägg valt'].join(' · ');
 }
 
 // ── Ett lass som väntat sedan appen stängdes ──────────────────────────────────────────────────────────────────────────

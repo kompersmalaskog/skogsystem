@@ -25,5 +25,7 @@ export const arkPanel: CSSProperties = {
 };
 
 export const rubrik: CSSProperties = { ...TYP.listtitel, color: FARG.text };
-export const meta: CSSProperties = { ...TYP.meta, color: FARG.text2 };
+// Allt föraren ska LÄSA i skotarläget är minst 17 px (hytten skakar, solen blänker). Bara små versaler-rubriker får vara 13 px (`smaRubrik`).
+export const meta: CSSProperties = { ...TYP.text, color: FARG.text2 };
+export const smaRubrik: CSSProperties = { ...TYP.micro, fontSize: TYP.meta.fontSize, color: FARG.text3 };
 export const avdelare: CSSProperties = { height: 1, background: FARG.linje, margin: `${AVSTAND.m}px 0` };

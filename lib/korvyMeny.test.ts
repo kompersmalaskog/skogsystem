@@ -11,7 +11,9 @@ describe('objektpillen: tre tryckytor i körvyn, planeringens gamla pill orörd'
   it('den nya pillen ersätter den gamla ENDAST när körvyn är aktiv; planeringens pill är else-grenen', () => {
     expect(page).toContain('{korvyActive && valtObjekt ? (\n            <KorvyObjektPill');
     expect(page).toContain('          ) : (\n          /* Objekt-pill (glasig).');
-    expect(page).toContain("onNamn={() => setTraktOversiktOpen(o => !o)}");
+    // Skördare: namnet öppnar objektinfon (som förut). Skotare (skotarläget): namnet byter objekt och pilen ⌄ visas.
+    expect(page).toContain("onNamn={() => { if (skotarKorvy) skotarBytObjekt(); else setTraktOversiktOpen(o => !o); }}");
+    expect(page).toContain('bytObjekt={skotarKorvy}');
   });
   it('räknarna sätter en markering vid maskinen (aldrig en gammal/saknad position)', () => {
     expect(page).toContain("onHogstubbe={() => placeraVidMaskinen('highstump')}");

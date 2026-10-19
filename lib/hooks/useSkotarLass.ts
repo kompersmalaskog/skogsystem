@@ -19,7 +19,8 @@ import {
   type LassKontext,
 } from '@/lib/skotarLass/lassModell';
 import { beraknaKvar, idagText, kvarSammanfattning, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
-import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasSkordat, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
+import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasOptiLass, lasSkordat, lasSkotningAvslutad, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
+import type { OptiLass } from '@/lib/skotarLass/opti';
 import type { Avslut } from '@/lib/skotarLass/server';
 import { tunnaSpar, vagTider, type RaFix, type VagLinje } from '@/lib/skotarLass/spar';
 import { bekraftaForslagVidStart } from '@/lib/skotarLass/lassModell';
@@ -61,6 +62,9 @@ export function useSkotarLass(i: SkotarLassIn) {
   const [lass, setLass] = useState<Lass[]>([]);
   const [skordat, setSkordat] = useState<SkordatSortiment[] | null>(null);
   const [skordatLaddat, setSkordatLaddat] = useState(false);
+  // Opti-lassen (fakt_lass) och om skotningen redan är avslutad på trakten. null = ej läst / kunde inte läsas — då visas ingen kvar (aldrig en gissning).
+  const [opti, setOpti] = useState<OptiLass[] | null>(null);
+  const [skotningAvslutad, setSkotningAvslutad] = useState<boolean | null>(null);
   const [avslut, setAvslut] = useState<Avslut | null>(null);
   const [kort, setKort] = useState<LossningsKort | null>(null);
   const [nyttAvlagg, setNyttAvlagg] = useState<NyttAvlaggFraga | null>(null);
@@ -89,7 +93,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   }, [objektId, torr]);
 
   useEffect(() => {
-    if (!aktiv || !objektId) { setLass([]); setSkordat(null); setSkordatLaddat(false); setAvslut(null); setKort(null); setNyttAvlagg(null); setAndra(null); return; }
+    if (!aktiv || !objektId) { setLass([]); setSkordat(null); setSkordatLaddat(false); setOpti(null); setSkotningAvslutad(null); setAvslut(null); setKort(null); setNyttAvlagg(null); setAndra(null); return; }
     let avbruten = false;
     (async () => {
       const k = await hamtaLassKo(torr);
@@ -137,9 +141,9 @@ export function useSkotarLass(i: SkotarLassIn) {
       if (vo) {
         const alt = await hamtaAltNummer(supabase, objekt.id);
         const ids = hogarObjektIds(vo, alt);
-        const s = await lasSkordat(vo, ids);
-        if (!avbruten) { setSkordat(s); setSkordatLaddat(true); }
-      } else if (!avbruten) { setSkordat(null); setSkordatLaddat(true); }
+        const [s, o, sa] = await Promise.all([lasSkordat(vo, ids), lasOptiLass(vo, ids), lasSkotningAvslutad(vo, ids)]);
+        if (!avbruten) { setSkordat(s); setOpti(o); setSkotningAvslutad(sa); setSkordatLaddat(true); }
+      } else if (!avbruten) { setSkordat(null); setOpti(null); setSkotningAvslutad(null); setSkordatLaddat(true); }
       const a = await lasAvslut(objekt.id);
       if (!avbruten) setAvslut(a);
     })();
@@ -307,8 +311,10 @@ export function useSkotarLass(i: SkotarLassIn) {
 
   // ── Kvar, klar-dag, idag ─────────────────────────────────────────────────────────────────────────────
   const idagIso = lokaltDatumStockholm(serverNu());
-  const kvar = useMemo<Kvar | null>(() => (skordat ? beraknaKvar(skordat, lass) : null), [skordat, lass]);
-  const sammanfattning = useMemo<KvarSammanfattning | null>(() => (kvar ? kvarSammanfattning(kvar, lass, idagIso) : null), [kvar, lass, idagIso]);
+  // Kvar kräver BÅDE skördat och Opti-lassen (skotat före appens start): kan någon inte läsas finns ingen kvar att visa.
+  // En trakt där skotningen redan är avslutad (skotning_avslutad satt, hur den än sattes) visar ingen kvar.
+  const kvar = useMemo<Kvar | null>(() => (skordat && opti && skotningAvslutad !== true ? beraknaKvar(skordat, lass, opti) : null), [skordat, opti, lass, skotningAvslutad]);
+  const sammanfattning = useMemo<KvarSammanfattning | null>(() => (kvar ? kvarSammanfattning(kvar, lass, idagIso, opti ?? []) : null), [kvar, lass, idagIso, opti]);
   const idag = useMemo(() => idagText(lass, idagIso, maskinId ?? ''), [lass, idagIso, maskinId]);
   const valbara = useMemo(() => (skordat ? valbaraSortiment(skordat, skordat.some((s) => s.nyckel === VED_MARKAGARE_NYCKEL)) : []), [skordat]);
 
@@ -334,7 +340,7 @@ export function useSkotarLass(i: SkotarLassIn) {
 
   return {
     provkorLossning,
-    lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, kvar, sammanfattning, idag, valbara, avslut,
+    lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, kvar, sammanfattning, idag, valbara, avslut, skotningAvslutad,
     oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
     avbrytKort: () => setKort(null),
     gorForare: (lassId: string) => setKort((k) => (k && k.lassId === lassId ? { ...k, fas: 'forare' } : k)),

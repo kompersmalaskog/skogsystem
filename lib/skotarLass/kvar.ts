@@ -1,26 +1,36 @@
 // Kvar, klar-dag och färdigskotad. Rena funktioner.
 //
-// KVAR = skördat (skördarens mätning, fakt_sortiment) minus summan av rapporterade lass, per sortiment. Visas alltid med "~": det är en
-// uppskattning av förarens rapporterade hela m³. Lass som väntar på föraren räknas med (de är ifyllda som förra lasset) — de bekräftar
-// sig självt eller rättas inom sekunder; de som är struken räknas aldrig.
-import { sortimentNyckel, type SkordatSortiment } from './sortiment';
+// KVAR = skördat (skördarens mätning, fakt_sortiment) minus skotat, per sortiment. Skotat = Opti-lassen (fakt_lass) för tiden INNAN appen började
+// rapportera lass på trakten för maskinen + appens lass därefter (lib/skotarLass/opti.ts: ingen dubbelräkning). Visas alltid med "~": det är en
+// uppskattning. Lass som väntar på föraren räknas med (de är ifyllda som förra lasset) — de bekräftar sig självt eller rättas inom sekunder;
+// de som är struken räknas aldrig. Kvar blir aldrig negativt: skotat mer än skördat på ett sortiment är "klart", aldrig "X över".
+import { arOklassat, sortimentNyckel, type SkordatSortiment } from './sortiment';
 import { heltM3, lassTotalM3 } from './lassModell';
+import { appStartPerMaskin, fordelaOpti, optiPerDag, raknadeOptiLass, type OptiLass } from './opti';
 import type { Lass } from './typer';
 
 export interface KvarSortiment {
   nyckel: string;
   namn: string;
   skordat: number;
+  /** Skotat räknat mot skördat (aldrig mer än skördat). */
   skotat: number;
-  /** skördat − skotat. Negativ om föraren rapporterat mer än skördaren mätt. */
+  skotatApp: number;
+  skotatOpti: number;
+  /** skördat − skotat, aldrig negativt. */
   kvar: number;
+  /** Allt skördat är skotat (inom en halv m³). */
+  klart: boolean;
+  /** Skördarens "Unclassified": visas aldrig med eget namn, räknas i Övrigt. */
+  oklassat: boolean;
 }
 
 export interface Kvar {
   rader: KvarSortiment[];
   skordat: number;
+  /** Skotat räknat mot skördat, summerat över sortimenten (aldrig mer än skördat). */
   skotat: number;
-  /** Det som återstår att köra: summan av positiva kvar per sortiment. */
+  /** Det som återstår att köra: summan av kvar per sortiment. */
   kvarTotal: number;
 }
 
@@ -41,23 +51,52 @@ export function skotatPerSortiment(lass: readonly Lass[]): Map<string, { namn: s
   return per;
 }
 
-export function beraknaKvar(skordat: readonly SkordatSortiment[], lass: readonly Lass[]): Kvar {
-  const skotat = skotatPerSortiment(lass);
-  const rader: KvarSortiment[] = [];
-  const sedda = new Set<string>();
-  for (const s of skordat) {
-    const k = skotat.get(s.nyckel)?.m3 ?? 0;
-    sedda.add(s.nyckel);
-    rader.push({ nyckel: s.nyckel, namn: s.namn, skordat: s.m3, skotat: k, kvar: s.m3 - k });
-  }
-  // Sortiment föraren rapporterat som skördaren inte mätt (skördat 0): finns med, kvar negativ.
-  for (const [nyckel, g] of skotat) if (!sedda.has(nyckel)) rader.push({ nyckel, namn: g.namn, skordat: 0, skotat: g.m3, kvar: -g.m3 });
-  rader.sort((a, b) => b.kvar - a.kvar);
+/**
+ * Kvar per sortiment. `opti` är trakten Opti-lass (alla maskiner): de som ligger före maskinens första app-lass räknas, resten inte.
+ * Utan Opti-lass (tom lista) är det som förut: bara appens lass.
+ */
+export function beraknaKvar(skordat: readonly SkordatSortiment[], lass: readonly Lass[], opti: readonly OptiLass[] = []): Kvar {
+  const app = skotatPerSortiment(lass);
+  const optiSkotat = fordelaOpti(skordat, raknadeOptiLass(opti, appStartPerMaskin(lass)));
+  const rader: KvarSortiment[] = skordat.map((s) => {
+    const skotatApp = app.get(s.nyckel)?.m3 ?? 0;
+    const skotatOpti = optiSkotat.get(s.nyckel) ?? 0;
+    const skotat = Math.min(s.m3, skotatApp + skotatOpti);
+    const kvar = Math.max(0, s.m3 - skotat);
+    return { nyckel: s.nyckel, namn: s.namn, skordat: s.m3, skotat, skotatApp, skotatOpti, kvar, klart: kvar < 0.5, oklassat: arOklassat(s.nyckel) };
+  });
+  rader.sort((a, b) => b.kvar - a.kvar || b.skordat - a.skordat);
   return {
     rader,
     skordat: rader.reduce((s, r) => s + r.skordat, 0),
     skotat: rader.reduce((s, r) => s + r.skotat, 0),
-    kvarTotal: rader.reduce((s, r) => s + Math.max(0, r.kvar), 0),
+    kvarTotal: rader.reduce((s, r) => s + r.kvar, 0),
+  };
+}
+
+// ── Vad föraren ser: de största sortimenten + "Övrigt" ───────────────────────────────────────────────────────────────
+
+/** Så många sortiment visas på egen rad; resten (och skördarens Unclassified) samlas i "Övrigt". */
+export const KVAR_SYNLIGA = 6;
+
+export interface KvarVy {
+  /** På egen rad: sortimenten med kvar först (mest först), sedan klara (✓) tills raderna är fulla. */
+  synliga: KvarSortiment[];
+  /** Resten, samlat. null när allt fick plats. */
+  ovrigt: { kvar: number; klart: boolean; rader: KvarSortiment[] } | null;
+}
+
+export function kvarVy(kvar: Kvar, max: number = KVAR_SYNLIGA): KvarVy {
+  const namngivna = kvar.rader.filter((r) => !r.oklassat);
+  const medKvar = namngivna.filter((r) => !r.klart).sort((a, b) => b.kvar - a.kvar);
+  const klara = namngivna.filter((r) => r.klart).sort((a, b) => b.skordat - a.skordat);
+  const synliga = [...medKvar, ...klara].slice(0, max);
+  const resten = [...medKvar, ...klara].slice(max);
+  const ovrigtRader = [...resten, ...kvar.rader.filter((r) => r.oklassat)].sort((a, b) => b.kvar - a.kvar || b.skordat - a.skordat);
+  const ovrigtKvar = ovrigtRader.reduce((s, r) => s + r.kvar, 0);
+  return {
+    synliga,
+    ovrigt: ovrigtRader.length ? { kvar: ovrigtKvar, klart: ovrigtKvar < 0.5, rader: ovrigtRader } : null,
   };
 }
 
@@ -124,9 +163,17 @@ export interface KvarSammanfattning {
   kvarM3: number;
 }
 
-export function kvarSammanfattning(kvar: Kvar, lass: readonly Lass[], idag: string): KvarSammanfattning {
+/** Dagarna takten räknas på: appens lass + Opti-lassen som räknas (före appens start) — på pågående trakter syns klar-dag direkt. */
+export function skotningPerDag(lass: readonly Lass[], opti: readonly OptiLass[] = []): LassDag[] {
+  const per = new Map<string, number>();
+  for (const d of perDag(lass)) per.set(d.datum, (per.get(d.datum) ?? 0) + d.m3);
+  for (const d of optiPerDag(raknadeOptiLass(opti, appStartPerMaskin(lass)))) per.set(d.datum, (per.get(d.datum) ?? 0) + d.m3);
+  return Array.from(per, ([datum, m3]) => ({ datum, m3 })).filter((d) => d.m3 > 0).sort((a, b) => a.datum.localeCompare(b.datum));
+}
+
+export function kvarSammanfattning(kvar: Kvar, lass: readonly Lass[], idag: string, opti: readonly OptiLass[] = []): KvarSammanfattning {
   const m3 = Math.round(kvar.kvarTotal);
-  const snitt = snittPerDag(perDag(lass), idag);
+  const snitt = snittPerDag(skotningPerDag(lass, opti), idag);
   const datum = snitt != null ? klarDatum(kvar.kvarTotal, snitt, idag) : null;
   return {
     kvarM3: m3,

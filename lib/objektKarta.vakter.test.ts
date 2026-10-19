@@ -18,8 +18,12 @@ describe('prickarna gäller bara planeringsvyn (objektListaVal) — inte maskinl
 
   it('listan öppnas bara via ställen som själva kollar objektListaVal (annars aldrig öppen i maskinläge/körvy)', () => {
     const anrop = page.split('\n').filter((r) => r.includes('setObjektListaOppen(true)'));
-    expect(anrop.length).toBe(2);   // namnpillens tryck och tangent — ⓘ öppnar kortet (ObjektInfo), inte listan
-    for (const r of anrop) expect(r).toContain('if (objektListaVal) setObjektListaOppen(true)');
+    expect(anrop.length).toBe(3);   // namnpillens tryck och tangent + skotarens objektbyte — ⓘ öppnar kortet (ObjektInfo), inte listan
+    // Skotarläget (skotarBytObjekt) lämnar först körvyn (annars är objektListaVal falskt) och går i maskinläge via maskinlådans Byt objekt.
+    const skotar = anrop.filter((r) => r.includes('setKorvyActive(false)'));
+    expect(skotar).toHaveLength(1);
+    expect(page).toMatch(/const skotarBytObjekt = \(\) => \{\s*if \(maskinlage\) \{ tillObjektlistan\(\); return; \}/);
+    for (const r of anrop.filter((r) => !skotar.includes(r))) expect(r).toContain('if (objektListaVal) setObjektListaOppen(true)');
   });
 
   it('listan får prickarna och kartlägets besked; den gamla väljaren (ObjektValjare) får inget av det', () => {

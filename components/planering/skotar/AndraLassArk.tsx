@@ -8,6 +8,7 @@ import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
 import { avlaggRubrik } from '@/lib/skotarLass/avlagg';
 import { kanBekrafta, lassTitel, totalM3, heltM3 } from '@/lib/skotarLass/lassModell';
 import { sortimentVisning, VED_MARKAGARE_NYCKEL } from '@/lib/skotarLass/sortiment';
+import { SortimentNamn } from './SortimentNamn';
 import type { Avlagg, Lass, SortimentRad } from '@/lib/skotarLass/typer';
 import { arkPanel, arkRam, avdelare, knappPrimar, knappStor, meta, TRYCK_PX } from './stil';
 import { medSafeBotten } from '@/lib/design/tokens';
@@ -69,7 +70,7 @@ export function AndraLassArk({ lass, delNr, avlagg, valbara, onRad, onAvlagg, on
           {rader.length === 0 && <div style={{ ...meta, padding: `${AVSTAND.s}px 0` }}>Inga sortiment ännu — lägg till nedan.</div>}
           {rader.map((r) => (
             <div key={r.nyckel} data-testid={`andra-rad-${r.nyckel}`} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRYCK_PX + AVSTAND.s }}>
-              <div style={{ flex: 1, minWidth: 0, ...TYP.listtitel, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sortimentVisning(r.namn)}</div>
+              <div style={{ flex: 1, minWidth: 0 }}><SortimentNamn namn={r.namn} /></div>
               <Steg tecken="−" etikett={`Ett m³ mindre ${sortimentVisning(r.namn)}`} testid={`minus-${r.nyckel}`} onTryck={() => onRad(r, -1)} />
               <div style={{ width: 56, textAlign: 'center', ...TYP.rubrik, ...TNUM }}>{heltM3(r.m3)}</div>
               <Steg tecken="+" etikett={`Ett m³ mer ${sortimentVisning(r.namn)}`} testid={`plus-${r.nyckel}`} onTryck={() => onRad(r, +1)} />
@@ -83,7 +84,7 @@ export function AndraLassArk({ lass, delNr, avlagg, valbara, onRad, onAvlagg, on
                 {tillagg.map((v) => (
                   <button key={v.nyckel} type="button" data-testid={`tillagg-${v.nyckel}`} onClick={() => onRad(v, +1)}
                     style={{ ...knappStor, width: '100%', justifyContent: 'flex-start', display: 'flex', alignItems: 'center', background: 'transparent', color: FARG.text }}>
-                    + {v.nyckel === VED_MARKAGARE_NYCKEL ? 'Ved markägare' : sortimentVisning(v.namn)}
+                    + {v.nyckel === VED_MARKAGARE_NYCKEL ? 'Ved markägare' : sortimentVisning(v.namn).replace(' · ', ' ')}
                   </button>
                 ))}
               </div>

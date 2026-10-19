@@ -16,13 +16,14 @@ describe('kvar', () => {
     expect(k.rader.map((r) => [r.nyckel, r.kvar])).toEqual([['tall', 70], ['massa', 50]]);
     expect(k.kvarTotal).toBe(120);
   });
-  it('rapporterat mer än skördat ger negativ kvar på raden men drar inte ner totalen', () => {
+  it('skotat mer än skördat är "klart" — kvar blir aldrig negativt och drar inte ner totalen', () => {
     const k = beraknaKvar([S('tall', 10), S('massa', 10)], [lass('d', [['tall', 15], ['massa', 4]])]);
-    expect(k.rader.find((r) => r.nyckel === 'tall')?.kvar).toBe(-5);
+    expect(k.rader.find((r) => r.nyckel === 'tall')).toMatchObject({ kvar: 0, klart: true, skotat: 10 });
     expect(k.kvarTotal).toBe(6);
+    expect(k.skotat).toBe(14);   // 10 (kapat vid skördat) + 4
   });
-  it('sortiment som skördaren inte mätt tas med', () => {
-    expect(beraknaKvar([], [lass('d', [['ved', 3]])]).rader[0]).toMatchObject({ nyckel: 'ved', skordat: 0, kvar: -3 });
+  it('sortiment som skördaren inte mätt får ingen rad (det finns inget kvar att ha)', () => {
+    expect(beraknaKvar([], [lass('d', [['ved', 3]])]).rader).toEqual([]);
   });
 });
 
