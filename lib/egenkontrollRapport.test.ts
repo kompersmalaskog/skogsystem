@@ -113,7 +113,7 @@ describe('fynd, lopnummer och lasordning', () => {
       { nr: 1, rubrik: 'Overfart', plats: { lat: 56.2, lng: 15.2 } },
       { nr: 3, rubrik: 'Dike', plats: { lat: 56.3, lng: 15.3 } },
     ]);
-    expect(m.bilaga.karta.utanPlats).toEqual([2]);
+    expect(m.bilaga.karta.utanPlats).toEqual([{ nr: 2, rubrik: 'Kantzon' }]);
     expect(m.bilaga.karta.granser).toHaveLength(1);
   });
 });

@@ -122,7 +122,7 @@ export type RapportModell = {
     bilder: Bild[];
     /** Foton pa en punkt utan text som varken ar en avvikelse eller en observation. Tas inte med. */
     utanText: number;
-    karta: { granser: LatLng[][]; pinnar: { nr: number; rubrik: string; plats: LatLng }[]; utanPlats: number[] };
+    karta: { granser: LatLng[][]; pinnar: { nr: number; rubrik: string; plats: LatLng }[]; utanPlats: { nr: number; rubrik: string }[] };
   };
   filnamn: string;
 };
@@ -378,7 +378,9 @@ export function byggRapport(i: RapportIndata): RapportModell {
   const pinnar = allaNumrerade
     .filter((f): f is Fynd & { plats: LatLng; nr: number } => f.plats !== null && f.nr !== null)
     .map((f) => ({ nr: f.nr, rubrik: f.rubrik, plats: f.plats }));
-  const utanPlats = allaNumrerade.filter((f) => f.plats === null && f.nr !== null).map((f) => f.nr as number);
+  const utanPlats = allaNumrerade
+    .filter((f) => f.plats === null && f.nr !== null)
+    .map((f) => ({ nr: f.nr as number, rubrik: f.rubrik }));
 
   // 7. Provytorna: samma funktion som rundvyn - aldrig en egen berakning.
   let provytor: string[] | null = null;
