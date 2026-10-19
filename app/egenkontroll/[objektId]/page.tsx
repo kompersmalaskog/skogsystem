@@ -48,6 +48,7 @@ import {
   utforandeUnderrad,
   hamtaFoton,
   hamtaKontextmarkeringar,
+  hamtaVidaGrans,
   hamtaProvytor,
   hamtaAvverkadeStammar,
   punktPlatser,
@@ -79,7 +80,15 @@ import { useMapLayers, useStringSetting } from '@/lib/hooks/useMapLayers';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
 import GaTillYta from '../GaTillYta';
 import { skadeandel as _skadeandel, type LatLng } from '@/lib/provytor';
-import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
+import {
+  beslutaOrigo,
+  markeringsGranser,
+  markeringsPunkter,
+  origoForklaring,
+  snapshotPunkter,
+  type OrigoBeslut,
+  type VidaGrans,
+} from '@/lib/egenkontrollOrigo';
 import { anmarkningsText, kortDatum } from '../format';
 import { AVSTAND, FARG, LAYOUT, RADIE, TYP, designCss, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import {
@@ -558,7 +567,7 @@ export default function EgenkontrollRundaPage() {
   const objektId = params.objektId;
 
   const [vy, setVy] = useState<RundVy | null>(null);
-  const [laddar, setLaddar] = useState(true);
+  const [laddarRunda, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
   const [startar, setStartar] = useState(false);
   const [sparStatus, setSparStatus] = useState<Record<string, boolean>>({});
@@ -626,6 +635,10 @@ export default function EgenkontrollRundaPage() {
   const [stamFel, setStamFel] = useState(false);
   // Kontextlagret - orientering, aldrig dokumentets innehall.
   const [kontext, setKontext] = useState<{ data: any }[]>([]);
+  // Kontexten och Vidas traktgrans ar UNDERLAGET till origobeslutet (beslutaOrigo). Medan de laddas, eller om de inte gick att lasa, ar origot
+  // inte beslutat - det far aldrig tolkas som "inga markeringar" (da hade en strikt kontroll tyst blivit en svag).
+  const [kontextStatus, setKontextStatus] = useState<'laddar' | 'ok' | 'fel'>('laddar');
+  const [vida, setVida] = useState<VidaGrans>({ typ: 'laddar' });
   const [avslutar, setAvslutar] = useState(false);
 
   // TYST OMLASNING. Efter varje sparad avvikelse, provyta och stubbe las rundan om -
@@ -671,9 +684,21 @@ export default function EgenkontrollRundaPage() {
   // rita kontrollpunkterna, som ar det dokumentet handlar om.
   useEffect(() => {
     let avbruten = false;
+    setKontextStatus('laddar');
     hamtaKontextmarkeringar(objektId)
-      .then((m) => { if (!avbruten) setKontext(m as { data: any }[]); })
-      .catch(() => { if (!avbruten) setKontext([]); });
+      .then((m) => { if (!avbruten) { setKontext(m as { data: any }[]); setKontextStatus('ok'); } })
+      .catch(() => { if (!avbruten) { setKontext([]); setKontextStatus('fel'); } });
+    return () => { avbruten = true; };
+  }, [objektId]);
+
+  // Vidas traktgrans (L_TRAKTDEL), for kvittot i beslutaOrigo. Hamtas en gang per objekt; har objektet kartbild_bounds behovs den inte
+  // (beslutaOrigo vantar inte pa den da), och zip-objekten har ingen geometrirad.
+  useEffect(() => {
+    let avbruten = false;
+    setVida({ typ: 'laddar' });
+    hamtaVidaGrans(objektId)
+      .then((g) => { if (!avbruten) setVida(g); })
+      .catch((e) => { if (!avbruten) setVida({ typ: 'fel', meddelande: e instanceof Error ? e.message : undefined }); });
     return () => { avbruten = true; };
   }, [objektId]);
 
@@ -815,14 +840,30 @@ export default function EgenkontrollRundaPage() {
 
   const grupper = useMemo(() => gruppera(planpunkter), [planpunkter]);
 
-  // ORIGO ur kartbild_bounds - samma kalla som kartan. Saknas bounds gar
-  // markeringarnas SVG-rymd inte att placera, och da har ingen punkt ett
-  // avstand. Vi gissar aldrig en plats ur lat/lng: det ar ett annat origo an
-  // det planeraren ritade mot.
-  const origo = useMemo(
-    () => (vy?.kartObjekt ? kartOrigoFranBounds(vy.kartObjekt) : null),
-    [vy?.kartObjekt],
+  // ORIGO: objektStartKamera, SAMMA som planeringsvyn, med ett kvitto mot Vidas traktgrans nar objektet saknar kartbild_bounds
+  // (lib/egenkontrollOrigo.ts - lasa huvudet dar innan du andrar nagot har, och SKRIV ALDRIG kartbild_bounds for att losa det).
+  // Ingen egen regel har: att den var "bara bounds" gjorde alla objekt fran Vidas envz-leverans blinda.
+  const origoBeslut = useMemo<OrigoBeslut>(
+    () => beslutaOrigo({
+      objekt: vy?.kartObjekt ?? null,
+      punkter: [...snapshotPunkter(vy?.punkter ?? []), ...markeringsPunkter(kontext)],
+      granser: markeringsGranser(kontext),
+      // Utan lasta markeringar vet kvittot inte om det finns gransmarkeringar: da ar beslutet inte taget (aldrig en tyst svagare kontroll).
+      vida: kontextStatus === 'laddar' ? { typ: 'laddar' }
+        : kontextStatus === 'fel' ? { typ: 'fel', meddelande: 'Markeringarna gick inte att läsa.' }
+        : vida,
+    }),
+    [vy?.kartObjekt, vy?.punkter, kontext, kontextStatus, vida],
   );
+  const origoText = origoForklaring(origoBeslut);
+  // Origot ar inte beslutat an (Vidas traktgrans / markeringarna laddas): vyn laddar. Annars hade en runda utan kartbild_bounds oppnats i
+  // LISTAN och last dar - startvalet fryser forsta gangen (effekten nedan) - trots att kartan hade gatt att anvanda en kort stund senare.
+  const origoVantar = !!vy?.egenkontroll && !origoBeslut.ok && origoBeslut.skal === 'laddar';
+  const laddar = laddarRunda || origoVantar;
+  // Stabil identitet efter VARDE: en tyst omlasning bygger nya objekt, och kartans geometrier far inte byggas om for det.
+  const origoVarde = origoBeslut.ok ? origoBeslut.origo : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const origo = useMemo(() => origoVarde, [origoVarde?.lat, origoVarde?.lng, origoVarde?.zoom]);
 
   // Avstand och riktning per punkt (en LINJE matas till sin narmaste brytpunkt -
   // lib/egenkontrollFlode.ts). TVA uppsattningar, med flit:
@@ -1058,6 +1099,8 @@ export default function EgenkontrollRundaPage() {
           <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
             <RundKarta
               objekt={vy.kartObjekt}
+              origo={origo}
+              origoText={origoText}
               punkter={vy.punkter}
               kontext={kontext}
               provytor={provytor}
@@ -1399,7 +1442,7 @@ export default function EgenkontrollRundaPage() {
                 {radL === 'full' && terrangKvar > 0 && !rundanKlar && (
                   origo == null ? (
                     <div style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 4px 10px' }}>
-                      Objektet saknar kartbildens hörnkoordinater, så punkterna kan inte placeras i terrängen — de listas i grupp och ordning.
+                      {origoText}
                     </div>
                   ) : harPlats.size === 0 ? (
                     <div style={{ fontSize: 13, color: T.orange, lineHeight: 1.45, margin: '0 4px 10px' }}>
@@ -1631,6 +1674,8 @@ export default function EgenkontrollRundaPage() {
           <GaTillYta
             yta={gaTill}
             objekt={vy.kartObjekt}
+            origo={origo}
+            origoText={origoText}
             punkter={vy.punkter}
             kontext={kontext}
             provytor={provytor}

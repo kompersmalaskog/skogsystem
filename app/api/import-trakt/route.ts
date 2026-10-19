@@ -11,6 +11,7 @@ import { mergeFalt, executorGodkand, forvantadExecutorOrgnr } from '@/lib/trakt/
 import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
+import { kartbildVarning } from '@/lib/trakt/kartbildVarning';
 import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';
 // loggaImportFel (flyttad hit ur routen: loggar i import_fel, läses av /datahalsa — se kommentaren där) + skrivning som tål att
 // objekt.import_varningar inte går att skriva.
@@ -246,8 +247,11 @@ export async function POST(request: NextRequest) {
     const traktnr = String(falt.traktnr || td.traktnr || Date.now());
 
     // === KARTBILD (BARA zip — envz har TK-PDF, inte georef JPG). Bounds-blocket oförändrat. ===
+    // SKRIV ALDRIG kartbild_bounds HÄRLEDDA ur traktgränsen för envz-objekt (som saknar dem): planeringen räknar då om origot från lat/lng på zoom 16
+    // till bildens mitt på zoom 15, och varje befintlig markering flyttas dubbelt så långt från mitten. Se lib/egenkontrollOrigo.ts.
     let kartbild_url: string | null = null;
     let kartbild_bounds: number[][] | null = null;
+    let kartbildFel: string | null = null;   // varför bilden/bounds uteblev — blir en rad i import_varningar (lib/trakt/kartbildVarning.ts), aldrig bara console.error
     if (!envz && jpgEntry) {
       try {
         const jpgData = new Uint8Array(await jpgEntry.async('arraybuffer'));
@@ -257,6 +261,7 @@ export async function POST(request: NextRequest) {
           .upload(storagePath, jpgData, { contentType: 'image/jpeg', upsert: true });
         if (uploadError) {
           console.error('Kartbild upload error:', uploadError);
+          kartbildFel = `uppladdningen misslyckades (${uploadError.message ?? 'okänt fel'})`;
         } else {
           // Bucketen är PRIVAT — lagra PATH, aldrig URL. Läsning signerar via lib/kartfiler.ts.
           kartbild_url = storagePath;
@@ -282,12 +287,19 @@ export async function POST(request: NextRequest) {
               [lowerRight.lat, upperLeft.lng], // Southwest corner
               [upperLeft.lat, lowerRight.lng]  // Northeast corner
             ];
+          } else {
+            kartbildFel = kartbildFel ?? 'georeferensfilen (JGW) eller bildens storlek gick inte att läsa';
           }
+        } else {
+          kartbildFel = kartbildFel ?? 'zipen saknar georeferensfil (JGW)';
         }
       } catch (e) {
         console.error('Kartbild error:', e);
+        kartbildFel = `kartbilden kunde inte behandlas (${e instanceof Error ? e.message : String(e)})`;
       }
     }
+    const kartbildVarningText = kartbildVarning({ envz: !!envz, harJpg: !!jpgEntry, kartbild_url, kartbild_bounds, fel: kartbildFel });
+    if (kartbildVarningText) varningar.push(kartbildVarningText);
 
     // === DOKUMENT — spara paths i privata kartbilder-bucketen. Kända typer -> egna kolumner,
     // okända -> ovriga_dokument med originalnamnet bevarat. ===

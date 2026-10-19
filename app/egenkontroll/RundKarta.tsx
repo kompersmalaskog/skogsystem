@@ -13,18 +13,21 @@
 //   ar bara orientering. Nedtonat, underordnat, INTE tryckbart. Det ar inte
 //   innehall i dokumentet och ska inte se ut som det.
 //
-// BOUNDS KRAVS FOR MARKERINGARNA, INTE FOR POSITIONEN. Markeringar ligger i en
-// SVG-rymd vars origo harleds ur kartbild_bounds. Saknas bounds ritas INGA
-// markeringar - lat/lng-fallbacken anvander ett annat origo an det planeraren
-// ritade mot, och den familjen har gett flera mils fel (#278, #322). GPS-
-// positionen ar daremot redan WGS84 och behover ingenting.
+// ORIGOT KOMMER FRAN SIDAN, ALDRIG FRAN KARTAN. Markeringar ligger i en SVG-rymd
+// vars origo planeringsvyn bestammer (objektStartKamera: kartbildens mitt pa zoom 15,
+// annars objektets lat/lng pa zoom 16). Sidan beslutar det i beslutaOrigo
+// (lib/egenkontrollOrigo.ts), med ett kvitto mot Vidas traktgrans nar bounds saknas, och
+// skickar det hit. Kartan har ingen egen regel - att den hade en ("bara bounds") gjorde
+// alla objekt fran Vidas envz-leverans blinda trots att planeringen ritar dem ratt.
+// origo = null: INGA markeringar ritas (hellre inga an nagra pa fel plats - PR 278 och 322)
+// och origoText sager varfor. GPS-positionen ar redan WGS84 och behover ingenting.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FORARKARTA_ATTRIBUTION } from '@/app/oversikt/forarkarta-stil';
 import { BASKARTOR, BASKARTA_DEFAULT, buildKartStil, wmsTileLayers, type BaskartaId } from '@/lib/mapLayers';
 import type { MapLayers } from '@/lib/hooks/useMapLayers';
 import { signeraKartfil } from '@/lib/kartfiler';
-import { kartOrigoFranBounds } from '@/lib/kartkoordinater';
+import type { Origo } from '@/lib/kartkoordinater';
 import {
   KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, OBSERVATION_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
   geometriKoordinater, kontextFeature, kontextLager, kontextUtanKontrollpunkter,
@@ -165,6 +168,8 @@ function laggTillLager(map: any, spec: any, fore?: string): void {
 
 export default function RundKarta({
   objekt: objektProp,
+  origo,
+  origoText,
   punkter,
   kontext,
   provytor,
@@ -184,6 +189,14 @@ export default function RundKarta({
   egnaVarden,
 }: {
   objekt: KartObjektData | null;
+  /**
+   * Origot markeringarna ska lasas med, beslutat av sidan (beslutaOrigo). OBLIGATORISKT med flit: en
+   * karta som tyst raknar ut ett eget origo ar den familj av fel som flyttat punkter flera mil (PR 278 och 322).
+   * null = rita inga markeringar.
+   */
+  origo: Origo | null;
+  /** Varfor origo ar null, i klartext (origoForklaring). Visas under kartan. */
+  origoText?: string | null;
   punkter: EgenkontrollPunkt[];
   /** Ravt data ur planering_markeringar - bara orientering. */
   kontext: { data: any; marker_id?: string | null }[];
@@ -247,7 +260,6 @@ export default function RundKarta({
     : '';
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const objekt = useMemo(() => objektProp, [objektNyckel]);
-  const origo = useMemo(() => (objekt ? kartOrigoFranBounds(objekt) : null), [objekt]);
   // Ref sa hamtaPosition inte behover onPosition i sitt beroende och far ny identitet.
   const onPositionRef = useRef(onPosition);
   onPositionRef.current = onPosition;
@@ -735,8 +747,8 @@ export default function RundKarta({
       {/* Sag rakt ut vad kartan INTE kan har - anvandaren ska slippa prova sig fram. */}
       {!origo && (
         <div style={{ fontSize: 12.5, color: T.orange, lineHeight: 1.4, marginTop: 6 }}>
-          Planeringens markeringar kan inte placeras på kartan för det här objektet.
-          Kartan visar var du är, men tryck på en punkt centrerar ingenting.
+          {origoText ?? 'Planeringens markeringar kan inte placeras på kartan för det här objektet.'}
+          {' '}Kartan visar var du är, men tryck på en punkt centrerar ingenting.
         </div>
       )}
       {origo && positionsFel && (

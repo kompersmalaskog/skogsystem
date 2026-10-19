@@ -7,6 +7,11 @@
 // Anvands ett annat origo hamnar markeringen flera mil fel; den familjen av fel
 // har intraffat tva ganger (#278 auto-valt objekt, #322 matverktyget).
 //
+// ORIGOT BESLUTAS INTE HAR LANGRE FOR EGENKONTROLLEN. Egenkontrollen tar objektStartKamera
+// (lib/objektFlyg.ts), samma som planeringsvyn, via lib/egenkontrollOrigo.ts - lasa dess huvud
+// innan du ror nagot har: det forklarar varfor kartbild_bounds ALDRIG far skrivas for att
+// "losa" objekt som saknar dem (zoom 15 mot 16 flyttar varje befintlig markering).
+//
 // KOPIOR SOM FINNS KVAR. Samma logik ligger i dag ocksa i:
 //   app/planering/page.tsx   (originalet)
 //   app/oversikt/SkordarKarta.tsx  (uttalad replik, med samma varning)
@@ -38,8 +43,12 @@ export type KartObjekt = {
 /**
  * Origo HARLETT UR BOUNDS. null nar bounds saknas.
  *
- * Detta ar den enda varianten egenkontrollen anvander. Saknas bounds ritas inga
- * markeringar alls - hellre inga an nagra pa fel plats.
+ * EGENKONTROLLEN ANVANDER DEN INTE LANGRE (den togs bort 2026-10-19, se
+ * lib/egenkontrollOrigo.ts): att den bara godtog bounds gjorde att alla objekt fran Vidas
+ * envz-leverans (som aldrig far bounds) blev blinda, trots att planeringsvyn ritar dem
+ * ratt med lat/lng pa zoom 16. Kvar anvands den bara av /matning (lib/matning/punkter.ts),
+ * som har samma blindhet och ages av ett annat spar - ror den inte harifran.
+ * lib/egenkontrollOrigo.vakter.test.ts forbjuder egenkontrollen att importera den.
  */
 export function kartOrigoFranBounds(o: KartObjekt): Origo | null {
   const b = lasBounds(o.kartbild_bounds);
@@ -50,10 +59,10 @@ export function kartOrigoFranBounds(o: KartObjekt): Origo | null {
 /**
  * Origo med lat/lng-fallback - SAMMA beteende som planeringsvyn och forarkartan.
  *
- * VARNING: fallbacken anvander ett ANNAT origo (objektets punkt, zoom 16) an det
- * planeraren ritade mot. Ger den ratt lage ar det en lycklig slump. Finns har for
- * att de befintliga kopiorna ska kunna peka hit utan beteendeandring - valj
- * kartOrigoFranBounds nar det viktiga ar att inte visa nagot fel.
+ * Inget anropar den (kontrollerat 2026-10-19). Regeln bor i objektStartKamera
+ * (lib/objektFlyg.ts); den har ar bara en andra kopia av den och finns kvar for att de
+ * befintliga kopiorna ska kunna peka hit. Rakna ALDRIG ut ett origo for markeringar
+ * utan att kontrollera det mot Vidas traktgrans - se lib/egenkontrollOrigo.ts.
  */
 export function kartOrigoMedFallback(o: KartObjekt): Origo | null {
   const franBounds = kartOrigoFranBounds(o);

@@ -36,6 +36,8 @@ type OrienteringsLage = 'ej_fragad' | 'pa' | 'nekad' | 'saknas';
 export default function GaTillYta({
   yta,
   objekt,
+  origo,
+  origoText,
   punkter,
   kontext,
   provytor,
@@ -47,6 +49,9 @@ export default function GaTillYta({
 }: {
   yta: EgenkontrollProvyta;
   objekt: KartObjektData | null;
+  /** Origot sidan beslutat (beslutaOrigo) - samma som helskarmskartan. Aldrig ett eget. */
+  origo: Parameters<typeof RundKarta>[0]['origo'];
+  origoText?: string | null;
   punkter: Parameters<typeof RundKarta>[0]['punkter'];
   kontext: { data: any }[];
   provytor: EgenkontrollProvyta[];
@@ -198,6 +203,8 @@ export default function GaTillYta({
       <div style={{ flex: 1, minHeight: 0 }}>
         <RundKarta
           objekt={objekt}
+          origo={origo}
+          origoText={origoText}
           punkter={punkter}
           kontext={kontext}
           provytor={provytor}

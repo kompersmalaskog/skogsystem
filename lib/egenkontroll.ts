@@ -28,7 +28,8 @@
 // aterupplivas av en andring som kom efter.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { kartOrigoFranBounds, svgToLatLon, type Origo } from './kartkoordinater';
+import { svgToLatLon, type Origo } from './kartkoordinater';
+import { beslutaOrigo, lasVidaGrans, markeringsPunkter, type VidaGrans } from './egenkontrollOrigo';
 import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
 import { hamtaVader, type Arbetsfonster, type VaderSnapshot } from './egenkontrollvader';
 import {
@@ -98,7 +99,7 @@ export type GenereraResultat = {
   antalPlanpunkter: number;
   antalUtforandepunkter: number;
   antalMatningspunkter: number;
-  /** 0 = kunde inte laggas ut (saknad areal, bounds eller traktgrans). */
+  /** 0 = kunde inte laggas ut (saknad areal, origo som inte gar att lita pa - se beslutaOrigo - eller traktgrans). */
   antalProvytor: number;
 };
 
@@ -374,7 +375,8 @@ function byggMaskinSnapshot(objekt: Record<string, unknown>): MaskinSnapshot {
  * hade sagt att man har langt kvar nar man star vid anden av den.
  *
  * Konverteringen ar samma svgToLatLon som kartan anvander. Ingen andra
- * berakning - origo kommer ur kartbild_bounds och ingen annanstans.
+ * berakning. Origot kommer ur beslutaOrigo (lib/egenkontrollOrigo.ts): objektStartKamera,
+ * samma som planeringen, med ett kvitto mot Vidas traktgrans nar bounds saknas.
  */
 export function punktPlatser(p: EgenkontrollPunkt, origo: Origo): LatLng[] {
   const g = p.geometri_snapshot as
@@ -545,7 +547,7 @@ export async function generateEgenkontroll(
       klient, skapad.id, objektId, objektTyp,
       objekt as {
         avslutad_timestamp?: string | null; faktisk_slut?: string | null;
-        areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null;
+        areal?: number | null; kartbild_bounds?: unknown; lat?: number | null; lng?: number | null; vo_nummer?: string | null;
       },
     );
   } catch (fel) {
@@ -812,7 +814,7 @@ async function skapaPunkter(
   objektTyp: ObjektTyp,
   objekt: {
     avslutad_timestamp?: string | null; faktisk_slut?: string | null;
-    areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null;
+    areal?: number | null; kartbild_bounds?: unknown; lat?: number | null; lng?: number | null; vo_nummer?: string | null;
   },
 ): Promise<{ plan: number; utforande: number; matning: number; provytor: number }> {
   const planrader = await byggPlanrader(klient, objektId);
@@ -1433,6 +1435,15 @@ export async function hamtaKontextmarkeringar(
   return (data ?? []) as unknown as { marker_id: string | null; data: unknown }[];
 }
 
+/**
+ * Vidas traktgrans (L_TRAKTDEL) som ruta, for kvittot i beslutaOrigo. Ett lasfel ar 'fel', aldrig 'saknas'.
+ * Bara objekt UTAN kartbild_bounds behover den (de med bounds har inget kvitto).
+ */
+export async function hamtaVidaGrans(objektId: string, options: KlientOptions = {}): Promise<VidaGrans> {
+  const { klient } = await kravSession(options);
+  return lasVidaGrans(klient, objektId);
+}
+
 /** Foton for en runda, aldst forst. */
 export async function hamtaFoton(
   egenkontrollId: string,
@@ -1814,27 +1825,31 @@ export function antalProvytor(areal: number | null | undefined): number | null {
  * tradet kvar, och det ar det som ska bedomas.
  *
  * Returnerar antalet ytor. 0 betyder att de inte gick att lagga ut - saknad
- * areal, saknad kartbild_bounds (origot) eller saknad traktgrans. Vyn ska da
+ * areal, ett origo som inte kan bestammas (beslutaOrigo: ingen position, Vidas
+ * traktgrans saknas eller kvittot stammer inte) eller saknad traktgrans. Vyn ska da
  * saga det rakt ut; en tom lista utan forklaring later som att allt ar matt.
+ *
+ * ORIGOT ar samma som planeringens (objektStartKamera), inte langre "bara bounds":
+ * objekt fran Vidas envz-leverans har aldrig bounds men ritas ratt av planeringen,
+ * sa de fick 0 provytor (Betet gallring, Halabäck gallring). Det galler NYA rundor -
+ * en runda som redan skapats lottas aldrig om (se nedan).
  *
  * LOTTAS EN GANG. generateEgenkontroll returnerar en befintlig runda utan att
  * rora nagot, sa en andra korning kan inte lotta om. Det finns med avsikt
  * ingen funktion som lottar om.
  */
-async function skapaProvytor(
+// Exporterad for lib/egenkontrollProvytorOrigo.test.ts (hela origokedjan mot en fejkad klient) - anropas annars bara av skapaPunkter.
+export async function skapaProvytor(
   klient: SupabaseClient,
   egenkontrollId: string,
   objektId: string,
   objektTyp: ObjektTyp,
-  objekt: { areal?: number | null; kartbild_bounds?: unknown; vo_nummer?: string | null },
+  objekt: { areal?: number | null; kartbild_bounds?: unknown; lat?: number | null; lng?: number | null; vo_nummer?: string | null },
 ): Promise<number> {
   if (objektTyp !== 'gallring') return 0;
 
   const antal = antalProvytor(objekt.areal);
   if (antal == null) return 0;
-
-  const origo = kartOrigoFranBounds(objekt);
-  if (!origo) return 0; // utan origo gar markeringarna inte att placera
 
   // Traktgransen - INTE kartbild_bounds. Se lib/provytor.ts for varfor.
   const { data, error } = await klient
@@ -1851,10 +1866,17 @@ async function skapaProvytor(
 
   if (paths.length === 0) return 0;
 
+  // ORIGOT: objektStartKamera + kvitto mot Vidas traktgrans (lib/egenkontrollOrigo.ts). Ett lasfel KASTAS - provytorna lottas en enda gang,
+  // och generateEgenkontroll stadar bort rundan vid ett fel sa att nasta forsok kan lotta ratt. Aldrig en tyst "0 ytor" for ett nätfel.
+  const vida = await lasVidaGrans(klient, objektId);
+  if (vida.typ === 'fel') throw new Error(`Kunde inte läsa Vidas traktgräns: ${vida.meddelande ?? 'okänt fel'}`);
+  const beslut = beslutaOrigo({ objekt, punkter: markeringsPunkter(data ?? []), granser: paths, vida });
+  if (!beslut.ok) return 0; // utan ett origo som gar att lita pa gar markeringarna inte att placera
+
   // Stammarna hamtas EN gang och anvands bade som filter har och som lager i
   // helskarmskartan. Saknas de lottas det enbart innanfor traktgransen.
   const stammar = await hamtaAvverkadeStammar(objekt.vo_nummer, { klient });
-  const ytor = lottaProvytor(paths, origo, antal, stammar);
+  const ytor = lottaProvytor(paths, beslut.origo, antal, stammar);
   if (ytor.length === 0) return 0;
 
   const { error: skrivFel } = await klient.from('egenkontroll_provyta').insert(
