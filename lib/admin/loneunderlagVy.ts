@@ -93,6 +93,12 @@ export function byggForarKort(m: any, oenighet: any[] = []): ForarKort {
     if (b.ledigArbetad || !b.ersatterArbetad) kolla(`byte-${i}`, text, dagar, "Se dagen"); else info(`byte-${i}`, text);
   });
 
+  // Hemskickad: betald tid (timlön + premie), ingen frånvaro. Antalet timmar per förare och månad — det Admin ska kunna se.
+  const hem = (m.hemskickad || []) as { datum: string }[];
+  if (hem.length > 0) {
+    const h = Number(m.hemskickad_h || 0).toLocaleString("sv-SE");
+    info("hemskickad", `Hemskickad ${h} tim · ${hem.length} ${hem.length === 1 ? "dag" : "dagar"} (${hem.map(x => dagText(x.datum)).join(", ")}) – betalas som timlön`);
+  }
   (m.deldagar || []).forEach((dd: any, i: number) =>
     info(`deldag-${i}`, `Deldag ${dagText(dd.datum)}: ${dd.typ} ${dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`} · ${Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro, arbetade ${tim(dd.arbetad_min)} tim`));
   unikaUtjamningar(m.utjamning).forEach((u, i) => info(`utj-${i}`, utjamningsRad(u)));

@@ -185,3 +185,25 @@ describe("Lönearter utan kod — förarens ord, aldrig adminens text", () => {
     });
   });
 });
+
+describe("hemskickad — betald tid, aldrig frånvaro (Martin 2026-10-17)", () => {
+  const dag = (arbetad_min: number, extra_min = 0) => ({ datum: "2026-09-07", start_tid: "06:00", rast_min: 0, arbetad_min, extra_min, bekraftad: true });
+  it("dagen säger vad som betalas: 6 tim arbete → 'hemskickad 2:00 – betalas'", () => {
+    expect(dagAvvikelser(dag(360), { rodaDagar: {}, deldag: { typ: "hemskickad", fran_tid: "14:00:00", till_tid: null } })).toEqual(["hemskickad 2:00 – betalas"]);
+  });
+  it("extra tid räknas som arbetad tid den dagen", () => {
+    expect(dagAvvikelser(dag(300, 60), { rodaDagar: {}, deldag: { typ: "hemskickad", fran_tid: "14:00:00", till_tid: null } })).toEqual(["hemskickad 2:00 – betalas"]);
+  });
+  it("8 tim eller mer arbete: inget att fylla upp, så ingen avvikelse (ingen 'sedan hemskickad')", () => {
+    expect(dagAvvikelser(dag(480), { rodaDagar: {}, deldag: { typ: "hemskickad", fran_tid: "16:00:00", till_tid: null } })).toEqual([]);
+  });
+  it("en riktig deldag (sjuk) säger fortfarande 'jobbade till …, sedan sjuk'", () => {
+    expect(dagAvvikelser(dag(300), { rodaDagar: {}, deldag: { typ: "sjuk", fran_tid: "11:30:00", till_tid: null } })).toEqual(["jobbade till 11:30, sedan sjuk"]);
+  });
+  it("Min månad: en post per hemskickad dag med vad som betalas", () => {
+    const p = attTittaPa({ hemskickad: [{ datum: "2026-09-07", minuter: 120 }, { datum: "2026-09-09", minuter: 113 }] });
+    expect(p.map(x => [x.nyckel, x.hoger])).toEqual([["hs2026-09-07", "hemskickad 2:00"], ["hs2026-09-09", "hemskickad 1:53"]]);
+    expect(p[0].text).toBe("Du blev hemskickad. Dagen fylls upp till 8 tim och 2:00 betalas som timlön. Stämmer det inte — säg till Martin.");
+    expect(p[0].text).not.toMatch(/frånvaro|löneart/);
+  });
+});

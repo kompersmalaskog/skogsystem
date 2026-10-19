@@ -4003,3 +4003,49 @@ describe("Granskningen: Avtal", () => {
     expect(text()).toContain("Skogsavtalet 2022-2025");
   });
 });
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// Hemskickad (Martin 2026-10-17): maskinen gick sönder / väder. Betald tid (dagen fylls upp till 8 tim som timlön), ingen frånvaro.
+// Admin ser antalet hemskickade timmar per förare och månad (Löneunderlag) och "hemskickad 2:00 – betalas" på dagen (Dagar).
+// ─────────────────────────────────────────────────────────────────────────────────────
+describe("Hemskickad i Admin", () => {
+  const hemMed = (extra: Record<string, any> = {}) => ({
+    ...SALARY.medarbetare[0],
+    hemskickad: [{ datum: "2026-09-07", fran_tid: "14:00", arbetad_min: 360, minuter: 120, timmar: 2 }, { datum: "2026-09-09", fran_tid: "13:00", arbetad_min: 307, minuter: 173, timmar: 2.88 }],
+    hemskickad_h: 4.88, ...extra,
+  });
+
+  it("Löneunderlag: förarkortet säger antalet hemskickade timmar och dagarna — som betald tid, inte som något att kolla", async () => {
+    g.__salary = { ...SALARY, medarbetare: [hemMed()] };
+    await monter("flik=lon&underflik=underlag");
+    const t = text();
+    expect(t).toContain("Hemskickad 4,88 tim · 2 dagar (7 sep, 9 sep) – betalas som timlön");
+    expect(t).not.toMatch(/Deldag|frånvaro/i);
+    // Betald tid är ingen sak att kolla: raden gör inte svaret ("N saker att kolla") längre.
+    const utan = await (async () => { g.__salary = SALARY; await act(async () => { root.unmount(); }); cont.remove(); await monter("flik=lon&underflik=underlag"); return cont.querySelector("[data-svar]")!.textContent; })();
+    expect(utan).toContain("1 sak att kolla");
+    g.__salary = { ...SALARY, medarbetare: [hemMed()] };
+    await act(async () => { root.unmount(); }); cont.remove(); await monter("flik=lon&underflik=underlag");
+    expect(cont.querySelector("[data-svar]")!.textContent).toBe(utan);
+  });
+
+  it("Löneunderlag: en förare utan hemskickad har ingen sådan rad", async () => {
+    g.__salary = SALARY;
+    await monter("flik=lon&underflik=underlag");
+    expect(text()).not.toContain("Hemskickad");
+  });
+
+  it("Dagar: dagen säger 'hemskickad 2:00 – betalas' (8 tim minus de 6 arbetade), och en vanlig dag säger inget", async () => {
+    const dag = (datum: string, arbetad_min: number) => ({
+      id: `d-${datum}`, datum, start_tid: "06:00:00", slut_tid: "12:00:00", rast_min: 0, arbetad_min, extra_min: 0, objekt: ["Älmehult gallring 2026"], perioddag: false,
+      maskin_id: "R64101", km_totalt: 0, ersattningsmil: 0, traktamente: false, bekraftad: true, ob_min: 0,
+    });
+    g.__salary = { ...SALARY, medarbetare: [{ ...hemMed(), dagar: [dag("2026-09-07", 360), dag("2026-09-08", 480)], deldagar: [] }] };
+    await monter("flik=lon&underflik=dagar&period=2026-10");
+    const t = text();
+    expect(t).toContain("hemskickad 2:00 – betalas");
+    expect(t).toContain("1 dag med avvikelse");
+    expect(t).not.toContain("jobbade till 14:00, sedan hemskickad");
+  });
+});

@@ -175,7 +175,7 @@ describe("Tryckytor ≥ 44 px", () => {
     for (const b of pilar) expect([b.style.width, b.style.height]).toEqual([`${TRAFFYTA.min}px`, `${TRAFFYTA.min}px`]);
   });
   it("Redigeras länkar ('Åkte hem …', 'Byt mot ledig dag') ligger på egen rad, vänsterställda, utan minHeight:0", () => {
-    for (const text of ["Åkte hem sjuk, VAB eller föräldraledig?", "Byt mot ledig dag"]) {
+    for (const text of ["Åkte hem sjuk, VAB, föräldraledig eller hemskickad?", "Byt mot ledig dag"]) {
       const i = kalla.indexOf(`>${text}</button>`);
       expect(i, text).toBeGreaterThan(0);
       const stil = kalla.slice(kalla.lastIndexOf("<button", i), i);
