@@ -2065,13 +2065,20 @@ describe("Bilen nu", () => {
   const kort = () => document.querySelector('section[aria-label="Bilen nu"]') as HTMLElement;
   const tank = () => kort().querySelector("[data-tank]")!;
   /** Tankraden som en text: de tre värdena med mellanrum (på skärmen står de bredvid varandra och bryts mellan värdena). */
-  const tankText = () => Array.from(tank().children).map(c => c.textContent).join(" · ");
+  const tankText = () => Array.from(tank().querySelectorAll("[data-niva]")).map(c => c.textContent).join(" · ");
+  const tankOrd = () => Array.from(kort().querySelectorAll("[data-tank-ord]")).map(e => e.textContent);
 
   it("parkerad: läget i ord med sedan-när, EN tankrad och 'Senast sedd' (äldre än 15 min) — inget mer", async () => {
     await nuFlik();
     expect(kort().querySelector("[data-lage]")!.textContent).toBe("Parkerad vid LBC · sedan igår 09:06");
-    expect(tankText()).toBe("Diesel 62 % · AdBlue 71 % · Räckvidd 270 km");
-    expect(tank().children).toHaveLength(3);                                    // EN rad med tre värden
+    expect(tankText()).toBe(`Diesel 62 % · AdBlue 71 % · ${(270).toLocaleString("sv-SE")} km`);
+    expect(tank().querySelectorAll("[data-niva]")).toHaveLength(3);               // EN rad med tre värden
+    expect(tankOrd()).toEqual([]);                                                // inga ord under när allt är ok
+    // raden bryts aldrig: nowrap, och den mindre storleken (TYP.meta, 13 px) så den ryms på en smal telefon
+    const stil = tank().getAttribute("style")!;
+    expect(stil).toContain("white-space: nowrap");
+    expect(stil).toContain("flex-wrap: nowrap");
+    expect(stil).toContain("font-size: 13px");
     expect(kort().querySelector("[data-sedd]")!.textContent).toBe("Senast sedd för 54 min sedan");
     // inget "Inga varningar", ingen mätare, ingen service ("saknas") och ingen rad "Senaste körning" i kortet
     for (const borta of ["Inga varningar", "Service", "301", "Mätare", "Senaste körning", "Motortimmar"]) expect(kort().textContent).not.toContain(borta);
@@ -2098,15 +2105,18 @@ describe("Bilen nu", () => {
   it("låg diesel: siffran blir orange/röd MED orden bredvid ('tanka snart' / 'tanka nu') — och tar INTE över rubriken", async () => {
     mock.api.body = { ...LAGE, tank: { diesel_pct: 22, adblue_pct: 71.2, rackvidd_km: 270 } };
     await nuFlik();
-    expect(tankText()).toContain("Diesel 22 % – tanka snart");
-    expect(tank().querySelector('[data-niva="orange"]')!.textContent).toBe("Diesel 22 % – tanka snart");
+    expect(tankText()).toContain("Diesel 22 %");
+    expect(tank().querySelector('[data-niva="orange"]')!.textContent).toBe("Diesel 22 %");
+    expect(tankOrd()).toEqual(["Diesel låg – tanka snart"]);                      // orden på EGEN rad under, bara när de gäller
     expect(kort().querySelector("[data-lampa]")).toBeNull();
     await act(async () => { rot?.unmount(); }); rot = null;
     mock.api.body = { ...LAGE, tank: { diesel_pct: 14, adblue_pct: 18, rackvidd_km: 95 } };
     await nuFlik();
-    expect(tank().querySelector('[data-niva="rod"]')!.textContent).toBe("Diesel 14 % – tanka nu");
-    expect(tank().querySelector('[data-niva="orange"]')!.textContent).toBe("AdBlue 18 % – fyll på");
-    expect(tankText()).toContain("Räckvidd 95 km – tanka snart");
+    expect(tank().querySelector('[data-niva="rod"]')!.textContent).toBe("Diesel 14 %");
+    expect(tank().querySelector('[data-niva="orange"]')!.textContent).toBe("AdBlue 18 %");
+    expect(tankText()).toContain("95 km");
+    expect(tankOrd()).toEqual(["Diesel låg – tanka nu", "AdBlue låg – fyll på", "Räckvidd kort – tanka snart"]);
+    expect(kort().querySelector('[data-tank-ord="rod"]')!.textContent).toBe("Diesel låg – tanka nu");
     expect(kort().querySelector("h1")).toBeNull();
   });
 
@@ -2156,7 +2166,8 @@ describe("Bilen nu", () => {
   it("saknade värden står som 'saknas i datan', aldrig 0", async () => {
     mock.api.body = { ...LAGE, tank: { diesel_pct: null, adblue_pct: 71.2, rackvidd_km: null } };
     await nuFlik();
-    expect(tankText()).toBe("Diesel saknas i datan · AdBlue 71 % · Räckvidd saknas i datan");
+    expect(tankText()).toBe("Diesel – · AdBlue 71 % · –");
+    expect(tankOrd()).toEqual(["Diesel saknas i datan", "Räckvidd saknas i datan"]);
     expect(tankText()).not.toMatch(/\b0 %/);
   });
 

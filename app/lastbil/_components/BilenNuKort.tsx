@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Ark from '@/components/design/Ark';
 import Sektion from '@/components/design/Sektion';
 import LastbilKarta from '@/components/LastbilKarta';
-import { AVSTAND, FARG, KNAPP, KORT, TNUM, TYP } from '@/lib/design/tokens';
+import { AVSTAND, FARG, KNAPP, KORT, TNUM, TYP, VIKT } from '@/lib/design/tokens';
 import { fmtAlder, lageRad, lampaRubrik, matareText, serviceRad, sistSedd, tankDelar, type TankDel } from './nu';
 import type { NuLage } from './useLastbilNu';
 
@@ -66,12 +66,19 @@ export default function BilenNuKort({ lage, onForsokIgen }: { lage: NuLage; onFo
           {oppen && <span className="puls" aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: FARG.text, flex: 'none' }} />}
           <span>{lageRad(data)}</span>
         </div>
-        {/* EN rad: tre värden bredvid varandra. Ryms de inte på en smal telefon bryts raden MELLAN värdena (aldrig mitt i ett), därför ingen punkt-skiljare. */}
-        <div data-tank style={{ ...TYP.text, ...TNUM, color: FARG.text, marginTop: AVSTAND.xs, display: 'flex', flexWrap: 'wrap', columnGap: AVSTAND.l, rowGap: 0 }}>
+        {/* EN rad, alltid: tre värden bredvid varandra i den mindre storleken (TYP.meta) så den ryms på en smal telefon (390 px, också vid
+            "Diesel 100 % · AdBlue 100 % · 1 540 km") — hellre mindre text än radbrytning. Orden ("tanka snart" …) står på egna rader under, bara när de gäller. */}
+        <div data-tank style={{ ...TYP.meta, fontWeight: VIKT.halvfet, ...TNUM, color: FARG.text, marginTop: AVSTAND.xs, display: 'flex', flexWrap: 'nowrap', whiteSpace: 'nowrap', columnGap: AVSTAND.s }}>
           {tank.map((d, i) => (
-            <span key={i} data-niva={d.niva} style={{ color: NIVA_FARG[d.niva], whiteSpace: 'nowrap' }}>{d.text}</span>
+            <span key={i} style={{ display: 'flex', columnGap: AVSTAND.s }}>
+              {i > 0 && <span aria-hidden style={{ color: FARG.text3 }}>·</span>}
+              <span data-niva={d.niva} aria-label={i === 2 ? `Räckvidd ${d.text}` : undefined} title={i === 2 ? 'Räckvidd' : undefined} style={{ color: NIVA_FARG[d.niva] }}>{d.text}</span>
+            </span>
           ))}
         </div>
+        {tank.filter(d => d.ord).map((d, i) => (
+          <div key={i} data-tank-ord={d.niva} style={{ ...TYP.meta, color: NIVA_FARG[d.niva], marginTop: AVSTAND.xs }}>{d.ord}</div>
+        ))}
         {service && <div data-service style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.xs }}>{service}</div>}
         {sedd && <div data-sedd style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{sedd}</div>}
         {data.position && (

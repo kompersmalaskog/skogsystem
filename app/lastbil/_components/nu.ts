@@ -97,23 +97,27 @@ export function lampaRubrik(data: LastbilData): { rubrik: string; under: string 
   return { rubrik: lampor.length === 1 ? `${lampor[0].namn} lyser` : `${lampor.length} varningslampor lyser`, under: 'Kontrollera bilen' };
 }
 
-/** En del av tankraden. `dampad` = värdet saknas i datan (aldrig 0). Orden står bredvid siffran; färgen förstärker bara. */
-export interface TankDel { text: string; niva: 'ok' | 'orange' | 'rod' | 'dampad' }
+/**
+ * En del av tankraden. `text` är det korta som står i raden ("Diesel 62 %", "AdBlue 80 %", "540 km" för räckvidden); `ord` är orden som står
+ * på EGEN rad under raden, bara när de gäller ("Diesel låg – tanka snart", "Diesel saknas i datan"). Färgen (`niva`) förstärker bara — orden bär
+ * betydelsen. `dampad` = värdet saknas i datan (aldrig 0).
+ */
+export interface TankDel { text: string; niva: 'ok' | 'orange' | 'rod' | 'dampad'; ord: string | null }
 
-/** EN rad: "Diesel 62 % · AdBlue 71 % · Räckvidd 270 km". Gränserna är `GRANS` — samma som förut. */
+/** Raden: "Diesel 62 % · AdBlue 80 % · 540 km" (räckvidden utan etikett). Gränserna är `GRANS` — samma som förut. */
 export function tankDelar(data: LastbilData): TankDel[] {
   const t = data.tank;
   const d = t?.diesel_pct, a = t?.adblue_pct, r = t?.rackvidd_km;
-  const diesel: TankDel = d == null ? { text: 'Diesel saknas i datan', niva: 'dampad' }
-    : d < GRANS.dieselRod ? { text: `Diesel ${Math.round(d)} % – tanka nu`, niva: 'rod' }
-    : d < GRANS.dieselOrange ? { text: `Diesel ${Math.round(d)} % – tanka snart`, niva: 'orange' }
-    : { text: `Diesel ${Math.round(d)} %`, niva: 'ok' };
-  const adblue: TankDel = a == null ? { text: 'AdBlue saknas i datan', niva: 'dampad' }
-    : a < GRANS.adblueOrange ? { text: `AdBlue ${Math.round(a)} % – fyll på`, niva: 'orange' }
-    : { text: `AdBlue ${Math.round(a)} %`, niva: 'ok' };
-  const rackvidd: TankDel = r == null ? { text: 'Räckvidd saknas i datan', niva: 'dampad' }
-    : r < GRANS.rackviddOrange ? { text: `Räckvidd ${r} km – tanka snart`, niva: 'orange' }
-    : { text: `Räckvidd ${r} km`, niva: 'ok' };
+  const diesel: TankDel = d == null ? { text: 'Diesel –', niva: 'dampad', ord: 'Diesel saknas i datan' }
+    : d < GRANS.dieselRod ? { text: `Diesel ${Math.round(d)} %`, niva: 'rod', ord: 'Diesel låg – tanka nu' }
+    : d < GRANS.dieselOrange ? { text: `Diesel ${Math.round(d)} %`, niva: 'orange', ord: 'Diesel låg – tanka snart' }
+    : { text: `Diesel ${Math.round(d)} %`, niva: 'ok', ord: null };
+  const adblue: TankDel = a == null ? { text: 'AdBlue –', niva: 'dampad', ord: 'AdBlue saknas i datan' }
+    : a < GRANS.adblueOrange ? { text: `AdBlue ${Math.round(a)} %`, niva: 'orange', ord: 'AdBlue låg – fyll på' }
+    : { text: `AdBlue ${Math.round(a)} %`, niva: 'ok', ord: null };
+  const rackvidd: TankDel = r == null ? { text: '–', niva: 'dampad', ord: 'Räckvidd saknas i datan' }
+    : r < GRANS.rackviddOrange ? { text: `${r.toLocaleString('sv-SE')} km`, niva: 'orange', ord: 'Räckvidd kort – tanka snart' }
+    : { text: `${r.toLocaleString('sv-SE')} km`, niva: 'ok', ord: null };
   return [diesel, adblue, rackvidd];
 }
 

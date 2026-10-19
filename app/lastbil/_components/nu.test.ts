@@ -47,28 +47,41 @@ describe('läget i ord + sedan när', () => {
   });
 });
 
-describe('tankraden: EN rad, orden bredvid siffran, befintliga GRANS', () => {
+describe('tankraden: EN kort rad, orden på egna rader under — bara när de gäller', () => {
   const text = (d: LastbilData) => tankDelar(d).map(x => x.text).join(' · ');
   const niva = (d: LastbilData) => tankDelar(d).map(x => x.niva);
-  it('62 % diesel, 71 % AdBlue, 270 km: allt ok', () => {
-    expect(text(PARKERAD)).toBe('Diesel 62 % · AdBlue 71 % · Räckvidd 270 km');
+  const ord = (d: LastbilData) => tankDelar(d).map(x => x.ord).filter(Boolean);
+  it('62 % diesel, 71 % AdBlue, 270 km: allt ok, inga ord under', () => {
+    expect(text(PARKERAD)).toBe(['Diesel 62 %', 'AdBlue 71 %', `${(270).toLocaleString('sv-SE')} km`].join(' · '));
     expect(niva(PARKERAD)).toEqual(['ok', 'ok', 'ok']);
+    expect(ord(PARKERAD)).toEqual([]);
   });
-  it('diesel under 15 % är röd "tanka nu", under 25 % orange "tanka snart" — och gränserna är inklusive/exklusive som förut', () => {
-    expect(tankDelar(med({ tank: { diesel_pct: 14, adblue_pct: 71, rackvidd_km: 95 } }))[0]).toEqual({ text: 'Diesel 14 % – tanka nu', niva: 'rod' });
-    expect(tankDelar(med({ tank: { diesel_pct: 20, adblue_pct: 71, rackvidd_km: 200 } }))[0]).toEqual({ text: 'Diesel 20 % – tanka snart', niva: 'orange' });
+  it('raden är kort även med fulla värden (så den ryms på 390 px): "Diesel 100 % · AdBlue 100 % · 1 540 km"', () => {
+    const full = med({ tank: { diesel_pct: 100, adblue_pct: 100, rackvidd_km: 1540 } });
+    expect(text(full)).toBe(`Diesel 100 % · AdBlue 100 % · ${(1540).toLocaleString('sv-SE')} km`);
+    expect(text(full).length).toBeLessThanOrEqual(40);
+  });
+  it('diesel under 15 % är röd "tanka nu", under 25 % orange "tanka snart" — orden står i `ord`, siffran i raden; gränserna som förut', () => {
+    expect(tankDelar(med({ tank: { diesel_pct: 14, adblue_pct: 71, rackvidd_km: 95 } }))[0]).toEqual({ text: 'Diesel 14 %', niva: 'rod', ord: 'Diesel låg – tanka nu' });
+    expect(tankDelar(med({ tank: { diesel_pct: 20, adblue_pct: 71, rackvidd_km: 200 } }))[0]).toEqual({ text: 'Diesel 20 %', niva: 'orange', ord: 'Diesel låg – tanka snart' });
     expect(tankDelar(med({ tank: { diesel_pct: 15, adblue_pct: 71, rackvidd_km: 200 } }))[0].niva).toBe('orange');   // 15 är inte under 15
-    expect(tankDelar(med({ tank: { diesel_pct: 25, adblue_pct: 71, rackvidd_km: 200 } }))[0].niva).toBe('ok');       // 25 är inte under 25
+    expect(tankDelar(med({ tank: { diesel_pct: 25, adblue_pct: 71, rackvidd_km: 200 } }))[0]).toMatchObject({ niva: 'ok', ord: null });   // 25 är inte under 25
   });
-  it('AdBlue under 20 % och räckvidd under 150 km är orange, med ord', () => {
-    expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 15, rackvidd_km: 400 } }))[1]).toEqual({ text: 'AdBlue 15 % – fyll på', niva: 'orange' });
-    expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 71, rackvidd_km: 120 } }))[2]).toEqual({ text: 'Räckvidd 120 km – tanka snart', niva: 'orange' });
-    expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 20, rackvidd_km: 150 } })).map(d => d.niva)).toEqual(['ok', 'ok', 'ok']);
+  it('AdBlue under 20 % och räckvidd under 150 km är orange, med ord under', () => {
+    expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 15, rackvidd_km: 400 } }))[1]).toEqual({ text: 'AdBlue 15 %', niva: 'orange', ord: 'AdBlue låg – fyll på' });
+    expect(tankDelar(med({ tank: { diesel_pct: 60, adblue_pct: 71, rackvidd_km: 120 } }))[2]).toEqual({ text: '120 km', niva: 'orange', ord: 'Räckvidd kort – tanka snart' });
+    expect(niva(med({ tank: { diesel_pct: 60, adblue_pct: 20, rackvidd_km: 150 } }))).toEqual(['ok', 'ok', 'ok']);
   });
-  it('saknade värden står som "saknas i datan", aldrig 0, och är dämpade (varken orange eller röda)', () => {
-    expect(text(med({ tank: { diesel_pct: null, adblue_pct: 71, rackvidd_km: null } }))).toBe('Diesel saknas i datan · AdBlue 71 % · Räckvidd saknas i datan');
-    expect(niva(med({ tank: { diesel_pct: null, adblue_pct: 71, rackvidd_km: null } }))).toEqual(['dampad', 'ok', 'dampad']);
-    expect(text(med({ tank: null }))).toBe('Diesel saknas i datan · AdBlue saknas i datan · Räckvidd saknas i datan');
+  it('flera varningar ger flera rader ord, i ordningen diesel, AdBlue, räckvidd', () => {
+    expect(ord(med({ tank: { diesel_pct: 14, adblue_pct: 18, rackvidd_km: 95 } }))).toEqual(['Diesel låg – tanka nu', 'AdBlue låg – fyll på', 'Räckvidd kort – tanka snart']);
+  });
+  it('saknade värden: "–" i raden och "saknas i datan" under, dämpat — aldrig 0, aldrig orange eller rött', () => {
+    const d = med({ tank: { diesel_pct: null, adblue_pct: 71, rackvidd_km: null } });
+    expect(text(d)).toBe(`Diesel – · AdBlue 71 % · –`);
+    expect(niva(d)).toEqual(['dampad', 'ok', 'dampad']);
+    expect(ord(d)).toEqual(['Diesel saknas i datan', 'Räckvidd saknas i datan']);
+    expect(ord(med({ tank: null }))).toEqual(['Diesel saknas i datan', 'AdBlue saknas i datan', 'Räckvidd saknas i datan']);
+    expect(text(d)).not.toMatch(/\b0\b/);
   });
 });
 
