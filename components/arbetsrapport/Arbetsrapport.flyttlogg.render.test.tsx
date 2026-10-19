@@ -277,6 +277,25 @@ describe("Svep för att ta bort en flyttloggsrad (föraren var inte med)", () =>
     await svep(svepRad(), 150);
     expect(tabort()).toBeNull();
   });
+  it("webbläsaren skickar ett click efter ett drag: det är inget tryck och öppnar inte formuläret", async () => {
+    fixtur(klartPass(), { arbetsdag_segment: [logSeg()] });
+    await montera();
+    await svep(svepRad(), -120);
+    await act(async () => { svepRad().dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await vänta(3, 30);
+    expect(text()).not.toMatch(/Period inom passet/);
+    expect(tabort()).not.toBeNull(); // raden står kvar öppen
+  });
+  it("ett tryck på en öppnad rad stänger den (öppnar inte formuläret)", async () => {
+    fixtur(klartPass(), { arbetsdag_segment: [logSeg()] });
+    await montera();
+    await svep(svepRad(), -120);
+    await act(async () => { svepRad().dispatchEvent(new MouseEvent("click", { bubbles: true })); }); // webbläsarens click efter draget
+    await act(async () => { svepRad().dispatchEvent(new MouseEvent("click", { bubbles: true })); }); // själva trycket
+    await vänta(3, 30);
+    expect(tabort()).toBeNull();
+    expect(text()).not.toMatch(/Period inom passet/);
+  });
   it("Ta bort: gravsten med flyttens id skrivs FÖRE borttagningen, raden försvinner, summan är oförändrad", async () => {
     fixtur(klartPass(), { arbetsdag_segment: [logSeg()] });
     await montera();

@@ -47,6 +47,7 @@ vi.mock("@supabase/supabase-js", () => {
         g.__skriv.push({ tabell: this.t, op: "insert-FEL", vals: this.vals });
         return Promise.resolve({ data: null, error: fel, count: 0 }).then(res, rej);
       }
+      if (g.__kasta?.[this.t]) throw new Error("nätet föll: " + this.t);
       if (this.mode === "select" && g.__selectFel?.[this.t]) return Promise.resolve({ data: null, error: g.__selectFel[this.t], count: 0 }).then(res, rej);
       if (this.mode === "select") rader = tab.filter(r => this.f.every(fn => fn(r))).map(r => ({ ...r }));
       else if (this.mode === "update") {
@@ -109,7 +110,7 @@ const GPS_LUCKA = {
 };
 
 beforeEach(() => {
-  g.__skriv = []; g.__rpcAnrop = []; g.__insertFel = {}; g.__selectFel = {};
+  g.__skriv = []; g.__rpcAnrop = []; g.__insertFel = {}; g.__selectFel = {}; g.__kasta = {};
   g.__rpc = { flytt_luckor: () => ({ data: [], error: null }) };
   g.__db = {
     operator_medarbetare: [{ operator_id: "R64428_8", medarbetare_id: OSKAR }, { operator_id: "R64428_9", medarbetare_id: MARTIN }],
@@ -327,6 +328,15 @@ describe("mom-import: flyttloggssteget får aldrig stoppa synken (migrationen k�
     g.__selectFel = { objekt: { code: "XX000", message: "boom" } };
     await post();
     expect(segmentInsatta()[0].kommentar).toBe("Okänd plats → Okänd plats · 53 km");
+  });
+  it("flyttsteget kastar (nätet föll mitt i): dagen byggs ändå, synken svarar 200", async () => {
+    const varna = vi.spyOn(console, "warn").mockImplementation(() => {});
+    g.__kasta = { maskin_flytt: true };
+    const svar = await post();
+    expect(svar.status).toBe(200);
+    expect(arbetsdagFor(OSKAR)).toBeTruthy();
+    expect(varna.mock.calls.some(c => /steget föll/.test(String(c[0])))).toBe(true);
+    varna.mockRestore();
   });
   it("ingen flyttlogg alls: dagen byggs som vanligt", async () => {
     g.__db.maskin_flytt = undefined;
