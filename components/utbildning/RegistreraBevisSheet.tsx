@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
-import { type UtbildningTyp, type Medarbetare } from '@/lib/utbildning';
-import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
-import { Sheet } from '@/components/Sheet';
-import { FieldLabel, inputStyle, Toggle, PrimaryButton, PersonChecklist } from './ui';
+import { datumMedAr, fornyelseText, type UtbildningTyp, type Medarbetare } from '@/lib/utbildning';
+import { AVSTAND, FARG, IKON, TYP } from '@/lib/design/tokens';
+import Ark from '@/components/design/Ark';
+import Sektion from '@/components/design/Sektion';
+import Ikon from '@/components/design/Ikon';
+import { Rad, BockRad, FallUtYta, PersonChecklist, PrimaryButton, Toggle, inputStyle, FieldLabel } from './ui';
 
 const BUCKET = 'utbildningsbevis';
 
@@ -14,7 +16,19 @@ function idag(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-// Skärm 6 — registrera ett bevis för en utbildning, för en eller flera personer.
+type Vy = 'form' | 'utbildning' | 'datum';
+
+// Registrera ett bevis för en utbildning, för en eller flera personer.
+//
+// Formen är appens: ett `Ark` (grepp, rubrik vänster, Avbryt höger, innehållet
+// scrollar, EN vit knapp FAST i foten). Utbildning och datum är rader med
+// chevron som öppnar sin egen väljare i SAMMA ark — inga <select>, inga
+// versala etiketter staplade på varandra. PDF-avläsningen ligger FÖRST, för
+// den fyller i allt det andra. Antalet valda står på knappen i foten, aldrig
+// gömt i en etikett ("PERSONER (0 VALDA)").
+//
+// Blått finns inte här: en knapp som skapar data är aldrig blå, och gamla
+// arkets blå "Klar" uppe till höger (som stängde UTAN att spara) är borta.
 export default function RegistreraBevisSheet({
   open,
   onClose,
@@ -34,6 +48,7 @@ export default function RegistreraBevisSheet({
 }) {
   const { medarbetare: current } = useCurrentMedarbetare();
 
+  const [vy, setVy] = useState<Vy>('form');
   const [valTypId, setValTypId] = useState('');
   const [datum, setDatum] = useState(idag());
   const [valda, setValda] = useState<Set<string>>(new Set());
@@ -53,6 +68,7 @@ export default function RegistreraBevisSheet({
   // Återställ vid varje öppning.
   useEffect(() => {
     if (!open) return;
+    setVy('form');
     setValTypId(forvaldTypId ?? (typer[0]?.id ?? ''));
     setDatum(idag());
     setValda(new Set(forvaldMedarbetareId ? [forvaldMedarbetareId] : []));
@@ -71,6 +87,9 @@ export default function RegistreraBevisSheet({
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+
+  const allaEllerInga = (vald: boolean) =>
+    setValda(vald ? new Set(medarbetare.map((m) => m.id)) : new Set());
 
   async function handlePdf(file: File) {
     setPdfBusy(true);
@@ -145,41 +164,97 @@ export default function RegistreraBevisSheet({
     onSaved();
   }
 
+  if (!open) return null;
+
   const antal = valda.size;
+  const valdTyp = typer.find((t) => t.id === valTypId) ?? null;
+
+  // Väljarna är egna vyer i SAMMA ark — Avbryt/Esc/tryck utanför tar tillbaka
+  // till formuläret i stället för att kasta allt man fyllt i.
+  if (vy === 'utbildning') {
+    return (
+      <Ark rubrik="Välj utbildning" onStang={() => setVy('form')}>
+        {typer.length === 0 ? (
+          <p style={{ ...TYP.text, color: FARG.text2, margin: `${AVSTAND.m}px 0` }}>
+            Katalogen är tom. Lägg till en utbildning under Katalog först.
+          </p>
+        ) : (
+          <Sektion rubrik="Utbildningar" kort={false}>
+            {typer.map((t, i) => (
+              <BockRad
+                key={t.id}
+                titel={t.namn}
+                under={fornyelseText(t.giltighet_manader)}
+                vald={t.id === valTypId}
+                sista={i === typer.length - 1}
+                onToggle={() => { setValTypId(t.id); setVy('form'); }}
+              />
+            ))}
+          </Sektion>
+        )}
+      </Ark>
+    );
+  }
+
+  if (vy === 'datum') {
+    return (
+      <Ark
+        rubrik="Datum genomfört"
+        onStang={() => setVy('form')}
+        fot={<PrimaryButton onClick={() => setVy('form')}>Klar</PrimaryButton>}
+      >
+        <Sektion rubrik="Snabbval" kort={false}>
+          <BockRad titel="I dag" vald={datum === idag()} sista onToggle={() => setDatum(idag())} />
+        </Sektion>
+        <FieldLabel>Annat datum</FieldLabel>
+        <input
+          type="date"
+          value={datum}
+          max={idag()}
+          onChange={(e) => setDatum(e.target.value)}
+          style={inputStyle}
+          aria-label="Datum genomfört"
+        />
+      </Ark>
+    );
+  }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Registrera bevis">
-      {/* Utbildning */}
-      <FieldLabel>Utbildning</FieldLabel>
-      <select value={valTypId} onChange={(e) => setValTypId(e.target.value)} style={{ ...inputStyle, marginBottom: 16 }}>
-        {typer.length === 0 && <option value="">Inga utbildningar i katalogen</option>}
-        {typer.map((t) => (
-          <option key={t.id} value={t.id}>{t.namn}</option>
-        ))}
-      </select>
-
-      {/* PDF-avläsning */}
-      <FieldLabel>Bevis (PDF, valfritt)</FieldLabel>
-      <div
-        onClick={() => !pdfBusy && fileRef.current?.click()}
-        style={{
-          border: `1.5px dashed ${FARG.linje}`,
-          borderRadius: 10,
-          padding: '14px 16px',
-          textAlign: 'center',
-          cursor: pdfBusy ? 'default' : 'pointer',
-          marginBottom: pdfError ? 8 : 16,
-        }}
+    <Ark
+      rubrik="Registrera bevis"
+      onStang={onClose}
+      fot={
+        <>
+          {saveError && (
+            <p style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>Kunde inte spara: {saveError}</p>
+          )}
+          <PrimaryButton onClick={save} disabled={saving || !valTypId || antal === 0}>
+            {saving ? 'Sparar…' : antal <= 1 ? 'Registrera bevis' : `Registrera för ${antal} personer`}
+          </PrimaryButton>
+        </>
+      }
+    >
+      {/* PDF:en först — den fyller i utbildning, datum och person åt dig. */}
+      <Sektion
+        rubrik="Beviset"
+        kort={false}
+        not={pdfError ? undefined : 'En PDF fyller i utbildning, datum och person åt dig.'}
       >
-        {pdfBusy ? (
-          <span style={{ ...TYP.meta, color: FARG.text2 }}>Läser av och laddar upp…</span>
-        ) : pdfName ? (
-          <span style={{ ...TYP.meta, color: FARG.text }}>
-            📄 {pdfName} {pdfUrl ? '✓' : ''}
-          </span>
-        ) : (
-          <span style={{ ...TYP.meta, color: FARG.text2 }}>Klicka för att välja PDF — fälten förifylls</span>
-        )}
+        <Rad
+          titel={pdfBusy ? 'Läser av och laddar upp…' : pdfName ? 'Bevis (PDF)' : 'Läs av bevis (PDF)'}
+          under={pdfName ?? undefined}
+          onClick={() => { if (!pdfBusy) fileRef.current?.click(); }}
+          varde={
+            pdfUrl ? <Ikon namn="check_circle" storlek={IKON.rad} farg={FARG.text} /> : pdfBusy ? undefined : 'Valfritt'
+          }
+        />
+        <Rad
+          titel="Utbildning"
+          varde={valdTyp ? valdTyp.namn : 'Katalogen är tom'}
+          vardeFarg={valdTyp ? FARG.text : FARG.rod}
+          onClick={() => setVy('utbildning')}
+        />
+        <Rad titel="Datum genomfört" varde={datumMedAr(datum)} sista onClick={() => setVy('datum')} />
         <input
           ref={fileRef}
           type="file"
@@ -187,49 +262,54 @@ export default function RegistreraBevisSheet({
           style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePdf(f); }}
         />
-      </div>
+      </Sektion>
+
       {pdfError && (
-        <div style={{ ...TYP.meta, color: FARG.rod, marginBottom: 16 }}>
-          {pdfError}
-          <button onClick={() => { setPdfError(null); setPdfName(null); setPdfUrl(null); }} style={{ display: 'block', marginTop: 4, background: 'none', border: 'none', color: FARG.text2, ...TYP.meta, cursor: 'pointer', fontFamily: 'inherit' }}>
+        <p style={{ ...TYP.meta, color: FARG.rod, margin: `0 ${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
+          {pdfError}{' '}
+          <button
+            type="button"
+            onClick={() => { setPdfError(null); setPdfName(null); setPdfUrl(null); }}
+            style={{ background: 'none', border: 'none', color: FARG.text2, ...TYP.meta, cursor: 'pointer', fontFamily: 'inherit', padding: 0, textDecoration: 'underline' }}
+          >
             Rensa
           </button>
-        </div>
+        </p>
       )}
 
-      {/* Datum */}
-      <FieldLabel>Datum genomfört</FieldLabel>
-      <input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} style={{ ...inputStyle, marginBottom: 16 }} />
+      <Sektion rubrik="Vem har gått den?" kort={false}>
+        <PersonChecklist medarbetare={medarbetare} valda={valda} onToggle={toggle} onAlla={allaEllerInga} />
+      </Sektion>
 
-      {/* Personer */}
-      <FieldLabel>Personer ({antal} valda)</FieldLabel>
-      <div style={{ marginBottom: 16 }}>
-        <PersonChecklist medarbetare={medarbetare} valda={valda} onToggle={toggle} />
-      </div>
-
-      {/* Avvikande giltighet */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: avvikande ? 10 : 16 }}>
-        <div>
-          <div style={{ ...TYP.text, color: FARG.text, fontFamily: 'inherit' }}>Avvikande giltighetsdatum</div>
-          <div style={{ ...TYP.meta, color: FARG.text2, fontFamily: 'inherit' }}>Sätts bara om utgången avviker från intervallet</div>
-        </div>
-        <Toggle checked={avvikande} onChange={setAvvikande} />
-      </div>
-      {avvikande && (
-        <input type="date" value={giltigManuell} onChange={(e) => setGiltigManuell(e.target.value)} style={{ ...inputStyle, marginBottom: 16 }} />
-      )}
-
-      {/* Anteckning */}
-      <FieldLabel>Anteckning (valfritt)</FieldLabel>
-      <textarea value={anteckning} onChange={(e) => setAnteckning(e.target.value)} rows={2} style={{ ...inputStyle, marginBottom: 20, resize: 'vertical' }} />
-
-      {saveError && (
-        <div style={{ ...TYP.meta, color: FARG.rod, marginBottom: 12 }}>Kunde inte spara: {saveError}</div>
-      )}
-
-      <PrimaryButton onClick={save} disabled={saving || !valTypId || antal === 0}>
-        {saving ? 'Sparar…' : antal <= 1 ? 'Registrera bevis' : `Registrera för ${antal} personer`}
-      </PrimaryButton>
-    </Sheet>
+      {/* Det som bara rör ett fåtal bevis ligger undan, som "i ordning" gör på sidorna. */}
+      <Sektion rubrik="Mer" kort={false}>
+        <FallUtYta etikett="Anteckning och avvikande giltighet">
+          <FieldLabel>Anteckning</FieldLabel>
+          <textarea
+            value={anteckning}
+            onChange={(e) => setAnteckning(e.target.value)}
+            rows={2}
+            style={{ ...inputStyle, resize: 'vertical', marginBottom: AVSTAND.l }}
+            aria-label="Anteckning"
+          />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m }}>
+            <div>
+              <div style={{ ...TYP.text, color: FARG.text }}>Avvikande giltighetsdatum</div>
+              <div style={{ ...TYP.meta, color: FARG.text2 }}>Bara om utgången skiljer sig från intervallet</div>
+            </div>
+            <Toggle checked={avvikande} onChange={setAvvikande} />
+          </div>
+          {avvikande && (
+            <input
+              type="date"
+              value={giltigManuell}
+              onChange={(e) => setGiltigManuell(e.target.value)}
+              style={{ ...inputStyle, marginTop: AVSTAND.m }}
+              aria-label="Giltig till"
+            />
+          )}
+        </FallUtYta>
+      </Sektion>
+    </Ark>
   );
 }

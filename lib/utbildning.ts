@@ -142,6 +142,15 @@ export function dagManad(dateStr: string | null): string {
   return `${d.getDate()} ${MANAD_LANG[d.getMonth()]}`;
 }
 
+/** Datum som en rad läser det: "19 oktober", med år bara när det inte är i år. */
+export function datumMedAr(dateStr: string | null, nu: Date = new Date()): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const dag = dagManad(dateStr);
+  return d.getFullYear() === nu.getFullYear() ? dag : `${dag} ${d.getFullYear()}`;
+}
+
 /** Hela månader från `nu` till `datum`, nedåt. Negativt när datumet passerat. */
 export function manaderTill(datum: string, nu: Date = new Date()): number | null {
   const d = new Date(datum);

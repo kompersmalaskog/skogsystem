@@ -111,9 +111,13 @@ type RadProps = {
   sista?: boolean;
   dampad?: boolean;
   pil?: 'hoger' | 'upp' | 'ned' | 'ingen';
+  /** `checkbox` när raden är ett val (bockrad) — annars `button`. */
+  roll?: 'button' | 'checkbox';
+  /** Bara med `roll="checkbox"`: raden är vald. */
+  ariaChecked?: boolean;
 };
 
-export function Rad({ titel, under, prick, varde, vardeFarg, href, onClick, sista, dampad, pil }: RadProps) {
+export function Rad({ titel, under, prick, varde, vardeFarg, href, onClick, sista, dampad, pil, roll, ariaChecked }: RadProps) {
   const klickbar = !!(href || onClick);
   const pilen = pil ?? (klickbar ? 'hoger' : 'ingen');
 
@@ -158,7 +162,8 @@ export function Rad({ titel, under, prick, varde, vardeFarg, href, onClick, sist
   if (onClick) {
     return (
       <div
-        role="button"
+        role={roll ?? 'button'}
+        aria-checked={roll === 'checkbox' ? !!ariaChecked : undefined}
         tabIndex={0}
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
@@ -329,26 +334,86 @@ export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: 
 }
 
 // Fler personer kryssas i på en gång (registrera bevis / kravlista).
+/** Ett val i en lista: FYLLD ring när valt, TOM ring när inte — formen bär
+ *  informationen, inte färgen, och den tomma ringen visar att raden går att välja.
+ *  Blått används aldrig: ett val är ingen navigering. */
+export function BockRad({
+  titel, under, vald, onToggle, sista, dampad,
+}: {
+  titel: React.ReactNode;
+  under?: React.ReactNode;
+  vald: boolean;
+  onToggle: () => void;
+  sista?: boolean;
+  dampad?: boolean;
+}) {
+  return (
+    <Rad
+      titel={titel}
+      under={under}
+      sista={sista}
+      dampad={dampad}
+      pil="ingen"
+      roll="checkbox"
+      ariaChecked={vald}
+      onClick={onToggle}
+      varde={
+        <Ikon
+          namn={vald ? 'check_circle' : 'radio_button_unchecked'}
+          storlek={IKON.rad}
+          farg={vald ? FARG.text : FARG.text3}
+        />
+      }
+    />
+  );
+}
+
+/** Som `FallUt`, men direkt på en ARKYTA — ett ark är redan ett kort, så ett
+ *  `Kort` där inne blir kort-på-kort i samma färg och syns inte. Används för det
+ *  som bara rör ett fåtal bevis: anteckning, avvikande giltighet. */
+export function FallUtYta({ etikett, children }: { etikett: string; children: React.ReactNode }) {
+  const [oppen, setOppen] = useState(false);
+  return (
+    <>
+      <Rad titel={etikett} dampad sista={!oppen} pil={oppen ? 'upp' : 'ned'} onClick={() => setOppen((v) => !v)} />
+      {oppen && (
+        <div
+          className="tona-in"
+          style={{ padding: `${AVSTAND.m}px 0 0`, transition: `opacity ${RORELSE.byte}ms ${RORELSE.kurva}` }}
+        >
+          {children}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Personlistan ligger direkt på arkytan (inget `Kort`). "Alla" överst som i
+ *  iOS — antalet valda står på knappen i arkets fot, aldrig i en etikett. */
 export function PersonChecklist({
-  medarbetare, valda, onToggle,
+  medarbetare, valda, onToggle, onAlla,
 }: {
   medarbetare: Medarbetare[];
   valda: Set<string>;
   onToggle: (id: string) => void;
+  onAlla?: (vald: boolean) => void;
 }) {
+  const alla = medarbetare.length > 0 && medarbetare.every((m) => valda.has(m.id));
   return (
-    <Kort style={{ marginBottom: 0 }}>
+    <>
+      {onAlla && medarbetare.length > 1 && (
+        <BockRad titel={`Alla ${medarbetare.length}`} vald={alla} dampad onToggle={() => onAlla(!alla)} />
+      )}
       {medarbetare.map((m, i) => (
-        <Rad
+        <BockRad
           key={m.id}
           titel={visaNamn(m.namn)}
+          vald={valda.has(m.id)}
           sista={i === medarbetare.length - 1}
-          pil="ingen"
-          onClick={() => onToggle(m.id)}
-          varde={valda.has(m.id) ? <Ikon namn="check" storlek={IKON.rad} farg={FARG.bla} /> : undefined}
+          onToggle={() => onToggle(m.id)}
         />
       ))}
-    </Kort>
+    </>
   );
 }
 
