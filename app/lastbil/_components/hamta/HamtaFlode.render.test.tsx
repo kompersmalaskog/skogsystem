@@ -11,13 +11,21 @@ import { KLOCKA, LBC, OBJEKT, scenario } from './hamtaScenario';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const mock = vi.hoisted(() => ({ db: null as any, gps: null as null | { lat: number; lng: number; accuracy: number }, routingKm: 48, gpsFel: false }));
+const mock = vi.hoisted(() => ({ sheet: null as any, db: null as any, gps: null as null | { lat: number; lng: number; accuracy: number }, routingKm: 48, gpsFel: false }));
 
 vi.mock('@/lib/supabase', async () => {
   const { fakeSupabase } = await import('./fakeSupabase');
   mock.db = (await import('./fakeSupabase')).nyFakeDb();
   return { supabase: fakeSupabase(mock.db) };
 });
+
+// Sheeten "Flytten" har sin egen renderingstest (app/lastbil/lastbil.render.test.tsx); här testas bara att Hämta-flödet öppnar den för admin.
+vi.mock('../FlyttSheet', () => ({
+  default: (p: any) => {
+    mock.sheet = p;
+    return <div data-flyttsheet data-flytt-id={p.flyttId} data-namn={p.namn}><button type="button" onClick={p.onStang}>Stäng sheet</button></div>;
+  },
+}));
 
 import HamtaFlode from './HamtaFlode';
 import { UTKAST_NYCKEL } from './flode';
@@ -41,12 +49,12 @@ const tryck = async (re: RegExp | string, inom?: ParentNode) => klicka(knapp(re,
 const sel = (s: string) => document.querySelector(s) as HTMLElement | null;
 const skriv = (tabell: string, op?: 'insert' | 'update') => db().skrivningar.filter(s => s.tabell === tabell && (!op || s.op === op));
 
-async function montera(utkastRaw?: string) {
+async function montera(utkastRaw?: string, props: { arAdmin?: boolean; namn?: string } = {}) {
   if (utkastRaw) localStorage.setItem(UTKAST_NYCKEL, utkastRaw);
   ruta = document.createElement('div');
   document.body.appendChild(ruta);
   rot = createRoot(ruta);
-  await act(async () => { rot!.render(<div><style>{designCss}</style><HamtaFlode onAvsluta={t => avslut.push(t)} /></div>); });
+  await act(async () => { rot!.render(<div><style>{designCss}</style><HamtaFlode onAvsluta={t => avslut.push(t)} {...props} /></div>); });
   await vanta(10);
 }
 
@@ -375,7 +383,7 @@ describe('steg 3 — vart ska den?', () => {
     expect(text()).toMatch(/Tryck Lassa först/);
   });
 
-  it('"Ändra" på lossad förklarar att en avslutad flytt rättas av admin — den ändrar inget', async () => {
+  it('förare: "Ändra" på lossad förklarar att en avslutad flytt rättas av admin — den ändrar inget', async () => {
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
     await montera();
     await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
@@ -383,6 +391,7 @@ describe('steg 3 — vart ska den?', () => {
     const antal = db().skrivningar.length;
     await tryck('Ändra', sel('[data-kvitto="lossad"]')!);
     expect(text()).toMatch(/rättas av admin/);
+    expect(sel('[data-flyttsheet]')).toBeNull();
     expect(db().skrivningar).toHaveLength(antal);
   });
 });
@@ -600,5 +609,66 @@ describe('steg 4 — Klar blir primärknapp när kartappen öppnats', () => {
     expect(igen.getAttribute('href')).toContain('destination=56.459000,14.702000');
     await tryck('Klar');
     expect(avslut).toEqual(['Klart. Rundan avslutas när bilen står hemma.']);
+  });
+});
+
+describe('"Ändra" på ✓ lossad — admin rättar i sheeten "Flytten"', () => {
+  const lossa = async (props: { arAdmin?: boolean; namn?: string }) => {
+    mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
+    await montera(undefined, props);
+    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Vällust RP/); await tryck(/^Lassat av här/);
+  };
+
+  it('admin: öppnar FlyttSheet på just den här flytten, med adminens namn, och visar inte förklaringstexten', async () => {
+    await lossa({ arAdmin: true, namn: 'Joacim Ringberg' });
+    const flyttId = skriv('maskin_flytt', 'insert')[0].varden.id ?? db().tabeller.maskin_flytt[0].id;
+    const antal = db().skrivningar.length;
+    await tryck('Ändra', sel('[data-kvitto="lossad"]')!);
+    const sh = sel('[data-flyttsheet]')!;
+    expect(sh).toBeTruthy();
+    expect(sh.getAttribute('data-flytt-id')).toBe(db().tabeller.maskin_flytt[0].id);
+    expect(sh.getAttribute('data-namn')).toBe('Joacim Ringberg');
+    expect(text()).not.toMatch(/rättas av admin/);
+    expect(db().skrivningar).toHaveLength(antal);   // att öppna sheeten skriver inget
+    expect(flyttId).toBeTruthy();
+  });
+
+  it('admin: Stäng går tillbaka till kvittot utan ändring', async () => {
+    await lossa({ arAdmin: true });
+    await tryck('Ändra', sel('[data-kvitto="lossad"]')!);
+    await tryck('Stäng sheet');
+    expect(sel('[data-flyttsheet]')).toBeNull();
+    expect(sel('[data-kvitto="lossad"]')!.textContent).toContain('Giant lossad på Vällust RP');
+  });
+
+  it('admin: efter en rättning säger kvittot var flytten NU är lossad (läst ur flytten) och toasten från sheeten visas', async () => {
+    await lossa({ arAdmin: true });
+    await tryck('Ändra', sel('[data-kvitto="lossad"]')!);
+    // sheeten har rättat Till i databasen (ratta_flytt) och rapporterar klart
+    Object.assign(db().tabeller.maskin_flytt[0], { till_objekt_id: 'obj-skalviken', till_plats_id: null });
+    await act(async () => { mock.sheet.onKlar('Flytten är rättad.'); });
+    await vanta();
+    expect(sel('[data-flyttsheet]')).toBeNull();
+    expect(sel('[data-ratt-kvitto]')!.textContent).toBe('Flytten är rättad.');
+    expect(sel('[data-kvitto="lossad"]')!.textContent).toContain('Giant lossad på Skälviken RP J-Hus');
+  });
+
+  it('admin: strök sheeten flytten (avbruten) är lossningen borta ur flödet', async () => {
+    await lossa({ arAdmin: true });
+    await tryck('Ändra', sel('[data-kvitto="lossad"]')!);
+    Object.assign(db().tabeller.maskin_flytt[0], { avbruten: true });
+    await act(async () => { mock.sheet.onKlar('Flytten är struken.'); });
+    await vanta();
+    expect(sel('[data-kvitto="lossad"]')).toBeNull();
+    expect(sel('[data-lossa]')).toBeTruthy();
+  });
+
+  it('admin: faller bara FAKTURA-delen visas felet från sheeten på sidan', async () => {
+    await lossa({ arAdmin: true });
+    await tryck('Ändra', sel('[data-kvitto="lossad"]')!);
+    await act(async () => { mock.sheet.onDelvis('Flytten är rättad, men kunden sparades inte.'); });
+    await vanta();
+    expect(text()).toContain('Flytten är rättad, men kunden sparades inte.');
   });
 });

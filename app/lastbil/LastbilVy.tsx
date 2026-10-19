@@ -115,7 +115,7 @@ export default function LastbilVy() {
         {loading ? (
           <p role="status" style={{ color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>Läser …</p>
         ) : hamtar ? (
-          <HamtaFlode onAvsluta={efterHamta} />
+          <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
         ) : (
           <>
             {arAdmin && <PengatalsRemsa period={period} remsa={fakt.status} onForsokIgen={fakt.forsokIgen} />}

@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { rimligGpsPunkt } from '@/app/maskinflytt/senastePlats';
 import { kontrolleraFramme } from './framme';
 import FrammeVarning from './FrammeVarning';
+import FlyttSheet from '../FlyttSheet';
 import {
   ateroppnaRunda, avbrytFlytt, avslutaFlytt, hittaDag, hittaNyligenStangd, sakraDag, skapaFlytt, startaHemresa, stangDag,
   type Ctx, type Dag, type FlyttPart, type Mal,
@@ -39,7 +40,13 @@ const tidKort = (iso: string) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'E
  * gör vägen. "Lassa" och "Lassat av här" är frivilliga — trycker föraren skapas flytten som förut och lastbilens vikt kopplar
  * lasset till den (ingen dubblett); trycker föraren inte tar vikten hand om det.
  */
-export default function HamtaFlode({ onAvsluta }: { onAvsluta: (kvitto: string) => void }) {
+export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' }: {
+  onAvsluta: (kvitto: string) => void;
+  /** Admin rättar en avslutad flytt i sheeten "Flytten" (samma som i Körningar); andra får en förklaring. */
+  arAdmin?: boolean;
+  /** Inloggad användares namn — `p_av` i rättningen. */
+  namn?: string;
+}) {
   // Hooks ligger ALLTID före tidiga returer (skillen: React #310 2026-10-02).
   const { lage, forsokIgen } = useHamtaData(true);
   const [utkast, setUtkast] = useState<Utkast>(() => lasUtkast() ?? nyttUtkast(new Date().toISOString()));
@@ -48,6 +55,7 @@ export default function HamtaFlode({ onAvsluta }: { onAvsluta: (kvitto: string) 
   const [sparar, setSparar] = useState(false);
   const [kartapp, setKartapp] = useState<Kartapp>('google');
   const [ark, setArk] = useState<'extern' | 'kartapp' | 'hamtplats' | 'andraLossad' | null>(null);
+  const [rattKvitto, setRattKvitto] = useState<string | null>(null);
   const [varning, setVarning] = useState<Varning | null>(null);
   const [rundaFraga, setRundaFraga] = useState<{ rundaId: string; punkt: { lat: number; lng: number } } | null>(null);
   const [frammeVarning, setFrammeVarning] = useState<{ km: number } | null>(null);
@@ -254,6 +262,15 @@ export default function HamtaFlode({ onAvsluta }: { onAvsluta: (kvitto: string) 
     if (dag.v) await stang(dag.v);
   };
 
+  // Admin rättade flytten i sheeten: kvittot ska säga var den NU är lossad, läst ur flytten (aldrig gissat ur det som skickades).
+  const lasOmLossad = async () => {
+    if (!utkast.flyttId || !data) return;
+    const { data: f } = await supabase.from('maskin_flytt').select('till_objekt_id, till_plats_id, avbruten').eq('id', utkast.flyttId).maybeSingle();
+    if (!f) return;
+    if (f.avbruten) { andra({ lossad: null, flyttId: null, lassatTid: null }); return; }
+    const nyttNamn = (f.till_objekt_id && data.objekt.find(o => o.id === f.till_objekt_id)?.namn) || (f.till_plats_id && data.platser.find(p => p.id === f.till_plats_id)?.namn);
+    if (nyttNamn) andra({ lossad: utkast.lossad ? { ...utkast.lossad, namn: nyttNamn } : utkast.lossad });
+  };
   const valjKartapp = (k: Kartapp) => { setKartapp(k); sparaKartapp(k); };
   const kartappNamn = KARTAPPAR.find(k => k.id === kartapp)?.namn ?? 'Kartor';
   const kartEtikett = `Öppna i ${kartapp === 'apple' ? 'Kartor' : 'Google Maps'}`;
@@ -284,7 +301,14 @@ export default function HamtaFlode({ onAvsluta }: { onAvsluta: (kvitto: string) 
             onVal={r => { setArk(null); setSok(''); andra({ hamtPlats: tillValdPlats(r), navKor: false }); }} />
         </Ark>
       )}
-      {ark === 'andraLossad' && (
+      {ark === 'andraLossad' && arAdmin && utkast.flyttId && (
+        <FlyttSheet key={utkast.flyttId} flyttId={utkast.flyttId} namn={namn}
+          onStang={() => setArk(null)}
+          onKlar={text => { setRattKvitto(text); setArk(null); void lasOmLossad(); }}
+          onDelvis={f => { setFel(f); setArk(null); void lasOmLossad(); }}
+          onAndrad={() => { void lasOmLossad(); }} />
+      )}
+      {ark === 'andraLossad' && !arAdmin && (
         <Ark rubrik="Fel trakt?" onStang={() => setArk(null)} fot={<button type="button" onClick={() => setArk(null)} style={KNAPP.sekundar}>Okej</button>}>
           <p style={{ ...TYP.text, color: FARG.text, margin: `0 0 ${AVSTAND.m}px` }}>Flytten är sparad. Fel trakt, maskin eller sträcka rättas av admin: Lastbilen › Körningar, tryck på körningen och sedan på flytten.</p>
           <p style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>En avslutad flytt kan inte ändras härifrån — den kan redan ligga hos faktureringen.</p>
@@ -403,6 +427,7 @@ export default function HamtaFlode({ onAvsluta }: { onAvsluta: (kvitto: string) 
           )}
           {mal && mal.lat == null && <Meta orange>{mal.namn} saknar koordinat i appen — navigera själv.</Meta>}
           {fel && <Fel>{fel}</Fel>}
+          {rattKvitto && <p role="status" data-ratt-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: 0 }}>{rattKvitto}</p>}
           {mal && (utkast.lossad ? (
             <Kvittorad id="lossad" text={`${maskinNamn} lossad på ${utkast.lossad.namn}`} onAndra={() => setArk('andraLossad')} />
           ) : (
