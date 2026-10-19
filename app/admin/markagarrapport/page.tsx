@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import type { Viewport } from 'next';
+import { optiLokalDag } from '@/lib/optiTid';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Markägarrapport' };
@@ -86,13 +87,13 @@ export default async function Page() {
     const datumByVo = new Map<string, string>();
     const { data: hprRows } = await supabase
       .from('hpr_filer')
-      .select('objekt_nyckel, fil_datum');
+      .select('objekt_nyckel, fil_datum, tid_ar_utc');
     for (const h of hprRows ?? []) {
       const [maskin, ident] = String(h.objekt_nyckel ?? '').split(':');
       if (!ident || !h.fil_datum) continue;
       // numeriskt ident = vo (= dim_objekt.objekt_id); 'k<KEY>' → dim-fallback-id 'MASKIN_KEY'
       const voId = /^\d+$/.test(ident) ? ident : `${maskin}_${ident.slice(1)}`;
-      const d = String(h.fil_datum).slice(0, 10);
+      const d = optiLokalDag(String(h.fil_datum), h.tid_ar_utc) ?? String(h.fil_datum).slice(0, 10);
       const cur = datumByVo.get(voId);
       if (!cur || d < cur) datumByVo.set(voId, d);
     }

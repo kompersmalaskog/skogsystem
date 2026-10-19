@@ -9,6 +9,7 @@
 // Före migrationen (20261014081433_objekt_alt_nummer.sql) finns ingen tabell → läsningen ger [] och allt beter sig som förut.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { optiLokalDag } from '@/lib/optiTid';
 
 export interface AltNummer {
   /** '11271849' (kontraktsnummer, globalt) eller 'k132' (maskinens eget jobbnummer, bara för maskin_id) */
@@ -84,6 +85,7 @@ export interface HprFilRad {
   filnamn: string | null;
   objekt_nyckel: string | null;
   fil_datum?: string | null;
+  tid_ar_utc?: boolean | null;
   stammar_count?: number | null;
 }
 export interface ObjektNamnRad {
@@ -137,13 +139,13 @@ export function okopplatJobb(filer: readonly HprFilRad[], objekt: readonly Objek
     const d = nyckelDelar(f.objekt_nyckel);
     const filnamn = String(f.filnamn ?? '');
     if (!d) {
-      utanNyckel.push({ nyckel: null, maskin: null, ident: null, filnamn, namn: namnUrHprFilnamn(filnamn, null), datum: f.fil_datum ?? null, stammar: f.stammar_count ?? 0, kanKopplas: false });
+      utanNyckel.push({ nyckel: null, maskin: null, ident: null, filnamn, namn: namnUrHprFilnamn(filnamn, null), datum: f.fil_datum ? (optiLokalDag(f.fil_datum, f.tid_ar_utc) ?? f.fil_datum) : null, stammar: f.stammar_count ?? 0, kanKopplas: false });
       continue;
     }
     if (voSet.has(d.ident) || alias.some((a) => altNummerTraffar(a, d.maskin, d.ident))) continue;
     const jobb: OkopplatJobb = {
       nyckel: String(f.objekt_nyckel), maskin: d.maskin, ident: d.ident, filnamn,
-      namn: namnUrHprFilnamn(filnamn, d.maskin), datum: f.fil_datum ?? null, stammar: f.stammar_count ?? 0,
+      namn: namnUrHprFilnamn(filnamn, d.maskin), datum: f.fil_datum ? (optiLokalDag(f.fil_datum, f.tid_ar_utc) ?? f.fil_datum) : null, stammar: f.stammar_count ?? 0,
       kanKopplas: /^(\d+|k\d+)$/.test(d.ident),   // bara former tabellen tillåter (siffror eller k<ObjectKey>)
     };
     const prev = perNyckel.get(jobb.nyckel!);

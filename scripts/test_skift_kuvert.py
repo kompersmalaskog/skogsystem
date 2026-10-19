@@ -47,6 +47,13 @@ M.SKIFT_LAS_PAUS_SEK = 0          # inga riktiga sömnpauser i testet
 NYCKEL = 'SYN_2026-10-12_R64428_8'
 
 
+def lokal(rad, kol):
+    """Radens tid som svensk väggklocka (ISO, utan zon), oavsett om raden är lagrad som verkligt UTC (tid_ar_utc = true) eller som
+    väggklocka-som-UTC (äldre rad). Testet jämför väggklockan: det är den lönen och arbetsdagen bygger på."""
+    d = M.db_tid_till_lokal(rad.get(kol), rad.get('tid_ar_utc'))
+    return d.isoformat() if d else None
+
+
 class Svar:
     def __init__(self, kod=200, kropp=None):
         self.status_code = kod
@@ -144,17 +151,17 @@ class OskarsDag(unittest.TestCase):
         a = Attrapp([OSKAR_BEFINTLIGT])
         importera(a, sandasen_filen())
         r = a.db[0]
-        self.assertEqual(r['inloggning_tid'][:19], '2026-10-12T07:04:20')     # tidigaste
-        self.assertEqual(r['utloggning_tid'][:19], '2026-10-12T15:14:10')     # senaste
+        self.assertEqual(lokal(r, 'inloggning_tid')[:19], '2026-10-12T07:04:20')     # tidigaste
+        self.assertEqual(lokal(r, 'utloggning_tid')[:19], '2026-10-12T15:14:10')     # senaste
         self.assertEqual(r['langd_sek'], 29390)                              # spännet 07:04:20.4 → 15:14:10.80883
-        self.assertTrue(r['maskin_inloggning_tid'].startswith('2026-10-12T07:04:07'))
+        self.assertTrue(lokal(r, 'maskin_inloggning_tid').startswith('2026-10-12T07:04:07'))
 
     def test_filens_saknade_maskininloggning_raderar_inte_den_som_finns(self):
         sen = sandasen_filen()
         sen['maskin_inloggning_tid'] = None
         a = Attrapp([OSKAR_BEFINTLIGT])
         importera(a, sen)
-        self.assertTrue(a.db[0]['maskin_inloggning_tid'].startswith('2026-10-12T07:04:07'))
+        self.assertTrue(lokal(a.db[0], 'maskin_inloggning_tid').startswith('2026-10-12T07:04:07'))
 
     def test_samma_resultat_om_filen_importeras_igen(self):
         a = Attrapp([OSKAR_BEFINTLIGT])
@@ -169,14 +176,14 @@ class OskarsDag(unittest.TestCase):
         sen['utloggning_tid'] = datetime(2026, 10, 12, 15, 40, 0)
         a = Attrapp([OSKAR_BEFINTLIGT])
         importera(a, sen)
-        self.assertEqual(a.db[0]['utloggning_tid'][:19], '2026-10-12T15:40:00')
-        self.assertEqual(a.db[0]['inloggning_tid'][:19], '2026-10-12T07:04:20')
+        self.assertEqual(lokal(a.db[0], 'utloggning_tid')[:19], '2026-10-12T15:40:00')
+        self.assertEqual(lokal(a.db[0], 'inloggning_tid')[:19], '2026-10-12T07:04:20')
 
     def test_passet_finns_inte_skrivs_som_filen_sager(self):
         a = Attrapp([])
         importera(a, sandasen_filen())
         self.assertEqual(len(a.db), 1)
-        self.assertEqual(a.db[0]['inloggning_tid'][:19], '2026-10-12T13:49:44')
+        self.assertEqual(lokal(a.db[0], 'inloggning_tid')[:19], '2026-10-12T13:49:44')
         self.assertEqual(a.import_fel, [])
 
 
@@ -209,8 +216,8 @@ class LasningenFallerUtan(unittest.TestCase):
 
     def test_ett_enstaka_fel_klaras_av_omforsok(self):
         a = self._kor(['http500', 'timeout'])      # tredje försöket går bra
-        self.assertEqual(a.db[0]['inloggning_tid'][:19], '2026-10-12T07:04:20')
-        self.assertEqual(a.db[0]['utloggning_tid'][:19], '2026-10-12T15:14:10')
+        self.assertEqual(lokal(a.db[0], 'inloggning_tid')[:19], '2026-10-12T07:04:20')
+        self.assertEqual(lokal(a.db[0], 'utloggning_tid')[:19], '2026-10-12T15:14:10')
         self.assertEqual(a.import_fel, [])
 
     def test_omforsok_ar_begransade(self):
@@ -235,6 +242,64 @@ class LasningenFallerUtan(unittest.TestCase):
         self.assertEqual(nycklar, ['SYN_2026-10-12_R64428_8', 'SYN_2026-10-13_R64428_8'])
         self.assertEqual(a.db[0]['utloggning_tid'], OSKAR_BEFINTLIGT['utloggning_tid'])      # Oskar 12/10 orörd
         self.assertTrue(any(r['shift_key'] == 'SYN_2026-10-13_R64428_8' for r in a.db))     # 13/10 skrevs
+
+
+# Samma pass i den NYA konventionen (verkligt UTC, tid_ar_utc = true): 07:04:20 svensk sommartid = 05:04:20Z.
+OSKAR_RATTAD = dict(
+    OSKAR_BEFINTLIGT, tid_ar_utc=True,
+    inloggning_tid='2026-10-12T05:04:20.4+00:00',
+    utloggning_tid='2026-10-12T13:14:10.80883+00:00',
+    maskin_inloggning_tid='2026-10-12T05:04:07.329814+00:00')
+
+
+class Konventionen(unittest.TestCase):
+    """Importen skriver verkligt UTC och märker raden; läsningen tolkar båda konventionerna lika. Sammanslagningen ger samma pass
+    oavsett om det befintliga passet är en äldre rad (väggklocka som UTC) eller redan flyttat."""
+
+    def test_nytt_pass_skrivs_som_verkligt_utc_och_markeras(self):
+        a = Attrapp([])
+        importera(a, sandasen_filen())
+        r = a.db[0]
+        self.assertTrue(r['tid_ar_utc'])
+        self.assertEqual(r['inloggning_tid'][:19], '2026-10-12T11:49:44')     # 13:49:44 sommartid
+        self.assertEqual(r['utloggning_tid'][:19], '2026-10-12T12:52:45')     # 14:52:45
+        self.assertTrue(r['inloggning_tid'].endswith('+00:00'))
+
+    def test_vintertid_ger_en_timmes_skillnad(self):
+        vinter = dict(sandasen_filen(), datum=datetime(2026, 1, 12).date(), shift_key='SYN_2026-01-12_R64428_8',
+                      inloggning_tid=datetime(2026, 1, 12, 7, 0, 0), utloggning_tid=datetime(2026, 1, 12, 15, 0, 0))
+        a = Attrapp([])
+        importera(a, vinter)
+        self.assertEqual(a.db[0]['inloggning_tid'][:19], '2026-01-12T06:00:00')
+        self.assertEqual(a.db[0]['utloggning_tid'][:19], '2026-01-12T14:00:00')
+
+    def test_aldre_pass_flyttas_vid_sammanslagning_utan_att_vaggklockan_andras(self):
+        a = Attrapp([OSKAR_BEFINTLIGT])           # äldre rad: väggklocka lagrad som UTC, ingen tid_ar_utc
+        importera(a, sandasen_filen())
+        r = a.db[0]
+        self.assertTrue(r['tid_ar_utc'])
+        self.assertEqual(r['inloggning_tid'][:19], '2026-10-12T05:04:20')     # nu verkligt UTC
+        self.assertEqual(r['utloggning_tid'][:19], '2026-10-12T13:14:10')
+        self.assertEqual(lokal(r, 'inloggning_tid')[:19], '2026-10-12T07:04:20')
+        self.assertEqual(lokal(r, 'utloggning_tid')[:19], '2026-10-12T15:14:10')
+        self.assertEqual(r['langd_sek'], 29390)
+
+    def test_redan_flyttat_pass_ger_samma_resultat_som_aldre(self):
+        gammal = Attrapp([OSKAR_BEFINTLIGT]); importera(gammal, sandasen_filen())
+        ny = Attrapp([OSKAR_RATTAD]); importera(ny, sandasen_filen())
+        for k in ('inloggning_tid', 'utloggning_tid', 'maskin_inloggning_tid'):
+            self.assertEqual(lokal(ny.db[0], k), lokal(gammal.db[0], k), k)
+        self.assertEqual(ny.db[0]['langd_sek'], gammal.db[0]['langd_sek'])
+
+    def test_skrivningen_innehaller_inga_icke_utc_tider(self):
+        a = Attrapp([OSKAR_BEFINTLIGT])
+        importera(a, sandasen_filen())
+        for _, tabell, rader in [l for l in a.log if l[0] == 'POST' and l[1] == 'fakt_skift']:
+            for rad in rader:
+                for k in ('inloggning_tid', 'utloggning_tid', 'maskin_inloggning_tid'):
+                    if rad.get(k):
+                        self.assertTrue(str(rad[k]).endswith('+00:00'), f"{k}={rad[k]!r} är inte tidszonsmärkt UTC")
+                self.assertIs(rad['tid_ar_utc'], True)
 
 
 class Tidstolkning(unittest.TestCase):

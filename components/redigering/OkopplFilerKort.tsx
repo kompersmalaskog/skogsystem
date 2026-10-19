@@ -47,7 +47,7 @@ export default function OkopplFilerKort({ maskiner = {} }: { maskiner?: Record<s
   const ladda = useCallback(async (): Promise<Data | null> => {
     const aliasKolumner = 'id, objekt_id, nummer, maskin_id, byte_till';
     const [f, o, a0, ig] = await Promise.all([
-      hamtaAlla<HprFilRad>(() => supabase.from('hpr_filer').select('filnamn, objekt_nyckel, fil_datum, stammar_count'), 'id'),
+      hamtaAlla<HprFilRad>(() => supabase.from('hpr_filer').select('filnamn, objekt_nyckel, fil_datum, tid_ar_utc, stammar_count'), 'id'),
       hamtaAlla<ObjektNamnRad>(() => supabase.from('objekt').select('id, namn, vo_nummer'), 'id'),
       hamtaAlla<AltNummerRad>(() => supabase.from('objekt_alt_nummer').select(aliasKolumner), 'id'),
       hamtaAlla<{ nyckel: string }>(() => supabase.from('hpr_ignorerad').select('nyckel'), 'nyckel'),
