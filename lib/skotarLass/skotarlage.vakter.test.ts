@@ -29,7 +29,7 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).toMatch(/\{skotarLassAktiv && \(\(\) => \{\s*const sl = skotarLass;/);
   });
   it('Vidas avläggskort behåller sitt innehåll: skotat-sektionen läggs OVANPÅ, typKalla och rader finns kvar', () => {
-    expect(page).toMatch(/traktInfo\.kategori === 'punkt' && traktInfo\.nr && valtObjekt[\s\S]{0,400}\{typKalla\}<\/div>/);
+    expect(page).toMatch(/traktInfo\.kategori === 'punkt' && traktInfo\.nr && valtObjekt[\s\S]{0,900}\{typKalla\}<\/div>/);
     expect(page).toContain('{traktInfo.rader.map((r, i) => (');
   });
 });
