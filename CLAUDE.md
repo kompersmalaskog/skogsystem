@@ -463,13 +463,11 @@ Gor sa har:
 
 1. `npm install` i worktreen forst.
 2. Kor den LOKALA binaren: `./node_modules/.bin/tsc --noEmit -p tsconfig.json`
-3. Jamfor mot en BASLINJE. Repot har ~550 pre-existerande fel, sa ett antal
-   sager ingenting i sig. Kor samma kommando i en worktree pa `origin/main`
-   och diffa radagnostiskt:
-
-       sed -E 's/\([0-9]+,[0-9]+\)//' fel.txt | grep "error TS" | sort
-
-   Jamfor mangderna. Bara det som finns i grenen men inte i baslinjen ar ditt.
+3. Resultatet ska vara **0 fel** (`npm run typecheck`). CI (`.github/workflows/tsc.yml`) kor samma
+   kommando pa varje PR och blir rott vid minsta typfel — repot hade 464 fel tills PR-serien
+   "tsc: … → 0" (2026-10-19). Fel som `tsc` visar ar alltid dina egna.
+   Obs: `incremental: true` sparar resultat i `tsconfig.tsbuildinfo`; andrar du `tsconfig.json`
+   sjalv, ta bort den filen forst, annars kan en gammal korning visas igen.
 
 Samma princip galler all verifiering: **ett verktyg som svarar "inga fel" utan
 att ha kort ar samma sak som ett verktyg som ljuger.** Kontrollera att det
