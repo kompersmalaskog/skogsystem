@@ -14,12 +14,11 @@ export const slagText = (slag: 'skordare' | 'skotare' | null): string => (slag =
 
 const faltStil = { ...TYP.text, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: AVSTAND.m, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' as const, minHeight: TRAFFYTA.min };
 
-/** Översta raden: Avbryt till vänster, flödets namn till höger. Sticky i flödet (aldrig fixed + uppmätt padding). */
-export function Topp({ onAvbryt, deaktiverad, titel = true }: { onAvbryt: () => void; deaktiverad?: boolean; /** false = bara Avbryt (maskinlistan). */ titel?: boolean }) {
+/** Översta raden i ALLA steg: bara Avbryt till vänster, ingen titel. Sticky i flödet (aldrig fixed + uppmätt padding). */
+export function Topp({ onAvbryt, deaktiverad }: { onAvbryt: () => void; deaktiverad?: boolean }) {
   return (
     <div style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 50, background: FARG.bg, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${AVSTAND.s}px 0` }}>
       <button type="button" data-hamta-avbryt onClick={onAvbryt} disabled={deaktiverad} style={{ ...KNAPP.lank, ...(deaktiverad ? INAKTIV : {}) }}>Avbryt</button>
-      {titel && <span style={{ ...TYP.meta, color: FARG.text2 }}>Hämta en maskin</span>}
     </div>
   );
 }

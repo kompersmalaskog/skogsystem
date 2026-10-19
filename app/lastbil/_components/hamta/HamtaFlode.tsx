@@ -334,7 +334,7 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
     const kalla = data.fran ? 'Närmast lastbilen först' : 'Avstånd saknas — varken bilens eller din plats gick att läsa';
     return (
       <>
-        <Topp onAvbryt={() => onAvsluta('')} titel={false} />
+        <Topp onAvbryt={() => onAvsluta('')} />
         <Rubrik under={kalla}>Vilken maskin hämtar du?</Rubrik>
         {data.posFel && <Meta orange>Några maskiners platser gick inte att läsa — de står utan plats.</Meta>}
         <Sektion rubrik="Maskiner">
@@ -348,7 +348,7 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
         <Sektion rubrik="Annan">
           <EnkelRad id="extern" namn="Maskin som inte är vår" sub="Namn och kund — faktureras alltid" onTryck={() => setArk('extern')} />
         </Sektion>
-        <Meta>Avstånden är fågelväg.</Meta>
+        {rader.some(r => r.km != null) && <Meta>Avstånden är fågelväg.</Meta>}
         {overlag}
       </>
     );

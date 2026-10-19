@@ -109,10 +109,29 @@ describe('steg 1 — vilken maskin?', () => {
     expect(t).not.toMatch(/\d\d:\d\d/);
   });
 
-  it('topprad: bara Avbryt till vänster — ingen "Hämta en maskin" uppe till höger i listan (andra steg behåller titeln)', async () => {
+  it('topprad: bara Avbryt till vänster — ingen "Hämta en maskin" uppe till höger, i något steg', async () => {
+    mock.gps = { lat: 56.5452, lng: 14.7451, accuracy: 6 };
     await montera();
-    const topp = sel('[data-hamta-avbryt]')!.parentElement!;
-    expect(topp.textContent).toBe('Avbryt');
+    const topp = () => sel('[data-hamta-avbryt]')!.parentElement!.textContent;
+    expect(topp()).toBe('Avbryt');                                   // Vilken maskin?
+    await tryck(/^Giant/);
+    expect(topp()).toBe('Avbryt');                                   // Hämtar X
+    await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    expect(topp()).toBe('Avbryt');                                   // Vart ska X?
+    await tryck(/^Vällust RP/); await tryck(/Jag vet vägen/); await tryck('Vägen hem till LBC');
+    expect(topp()).toBe('Avbryt');                                   // Vägen hem
+    expect(text().match(/Hämta en maskin/g)).toBeNull();
+  });
+
+  it('fotnoten "Avstånden är fågelväg." visas när avstånd visas — och döljs när inget avstånd visas', async () => {
+    await montera();
+    expect(text().match(/Avstånden är fågelväg\./g)).toHaveLength(1);
+    await act(async () => { rot!.unmount(); }); rot = null; document.body.innerHTML = '';
+    db().tabeller.lastbil_logg = []; mock.gpsFel = true;           // varken bil eller telefon: inga avstånd
+    await montera();
+    expect(document.querySelectorAll('[data-maskin]')).toHaveLength(5);
+    expect(text()).not.toContain('Avstånden är fågelväg');
+    expect(text()).toContain('Avstånd saknas');
   });
 
   it('"Maskin som inte är vår" ligger i ett eget kort under listan med micro-rubriken "Annan"; fotnoten står en gång', async () => {
