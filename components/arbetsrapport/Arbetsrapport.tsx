@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties
 import { supabase } from "@/lib/supabase";
 import { anledningGiltig, ANLEDNING_MIN_TECKEN } from "@/lib/redigeraAnledning";
 import { maskinVisningsnamn, maskinNamnMap as byggMaskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
-import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL } from "@/lib/supabase-save";
+import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL, RADERA_FEL } from "@/lib/supabase-save";
 import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
 import TimmarGraf, { type GrafDag, type GrafManad } from "./TimmarGraf";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
@@ -25,6 +25,7 @@ import { delaKorning, korningDelarText } from "@/lib/arbetsdagKorning";
 import { tidsFragor, VILA_ORSAKER, vilaSvarText, arDagensVilobrott, type VilaOrsak } from "@/lib/dagFragor";
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
+import { arAutomatiskFlytt, flyttBortaRad } from "@/lib/flyttRad";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { brandriskUtanRad } from "@/lib/lonesystem/brandriskRader";
@@ -771,6 +772,9 @@ export default function Arbetsrapport() {
   // Dagsegment — tid MÄRKT inom en inloggad dag (brandvakt, markägare), redan
   // betald, annoteras bara för fakturering. SKILD från extra_tid (som lönen adderar).
   const [dagSegment, setDagSegment] = useState<any[]>([]);
+  // Maskinflytt som egen rad (synken skapar den ur GPS-spåret, kalla 'flytt'): dagens rader visas i Dag och Kväll.
+  const [idagFlytt, setIdagFlytt] = useState<any[]>([]);
+  const [flyttVersion, setFlyttVersion] = useState(0);
   const [segÖppen, setSegÖppen] = useState(false);
   const [segForm, setSegForm] = useState<null | { start: string; slut: string; typ: AktivitetTyp; deb: boolean; kommentar: string; fromSynk?: boolean; fromTidigarelagd?: boolean }>(null);
   const [segFel, setSegFel] = useState<string | null>(null);
@@ -1124,6 +1128,18 @@ export default function Arbetsrapport() {
       finally { setKmRäknar(false); }
     })();
   }, [steg, medarbetare?.id, dagData]);
+
+  // Dagens flyttrader (arbetsdag_segment, kalla 'flytt') till Dag och Kväll. Läsfel = ingen rad (en flytt är information,
+  // aldrig ett skäl att stoppa dagen); laddas om när dagen eller en rad ändrats.
+  useEffect(() => {
+    if (!medarbetare?.id) { setIdagFlytt([]); return; }
+    let levande = true;
+    const idagKey = new Date().toISOString().split('T')[0];
+    supabase.from('arbetsdag_segment').select('*')
+      .eq('medarbetare_id', medarbetare.id).eq('datum', idagKey).eq('kalla', 'flytt').order('start_tid', { ascending: true })
+      .then(({ data, error }: any) => { if (levande) setIdagFlytt(error ? [] : (data || [])); });
+    return () => { levande = false; };
+  }, [medarbetare?.id, dagData, flyttVersion]);
 
   // Hämta km-kedja för en specifik dag när kalenderns redigera-vy öppnas.
   // /api/km-chain bygger hem → obj1 → obj2 → ... → hem från arbetsdag-raderna
@@ -2510,6 +2526,19 @@ export default function Arbetsrapport() {
     setPeriodFel(null);
     setPeriodForm({ lage: 'redigera', tabell: 'extra', datum: rad.datum, rad, varden: periodVardenFran(rad), pass: passFor(rad.datum) });
   };
+  /**
+   * Gravsten för en automatisk flyttrad som föraren tar bort eller flyttar på: utan den skapar nästa synk (var 5:e minut)
+   * raden igen. Skrivs FÖRE borttagningen/ändringen — faller den ändras inget, så raden aldrig kommer tillbaka. 23505 = redan skriven.
+   */
+  const skrivFlyttBorta = async (rad: any): Promise<boolean> => {
+    const grav = flyttBortaRad(rad);
+    if (!grav) return true;
+    const { error } = await supabase.from('arbetsdag_flytt_borta').insert(grav);
+    if (error && (error as any).code !== '23505') { console.error('[flytt] gravsten kunde inte skrivas', error); return false; }
+    return true;
+  };
+  /** Öppna en flyttrad ur Dag/Kväll: segmenten för dagen läses in först så överlappskontrollen vet vad som finns. */
+  const oppnaFlyttRad = (sg: any) => { void laddaDagSegment(sg.datum); oppnaSegmentRedigera(sg); };
   /** Öppna ett befintligt segment (period inom passet) — samma formulär, UPDATE mot arbetsdag_segment. */
   const oppnaSegmentRedigera = (sg: any) => {
     setPeriodFel(null);
@@ -2596,8 +2625,14 @@ export default function Arbetsrapport() {
           start_tid: v.start, slut_tid: v.slut,
           aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
         };
+        // En automatisk flytt som får ny tid: den ursprungliga tiden får en gravsten, annars skapar synken om den.
+        const ny5 = (t: string) => (t || '').slice(0, 5);
+        if (arAutomatiskFlytt(periodForm.rad) && (ny5(periodForm.rad.start_tid) !== ny5(v.start) || ny5(periodForm.rad.slut_tid) !== ny5(v.slut))) {
+          if (!(await skrivFlyttBorta(periodForm.rad))) { setPeriodFel(SPARA_FEL); return; }
+        }
         const res = await uppdateraVerifierat(supabase, "arbetsdag_segment", payload, { id: periodForm.rad.id }, "*");
         if (!res.ok) { setPeriodFel(/23P01|overlap/i.test(res.fel) ? 'Perioden överlappar en du redan märkt.' : res.fel); return; }
+        setFlyttVersion(n => n + 1);
         const sparad = res.rows[0] || { ...periodForm.rad, ...payload };
         setDagSegment(d => d.map((x: any) => x.id === sparad.id ? sparad : x).sort((x: any, y: any) => (x.start_tid || '').localeCompare(y.start_tid || '')));
         const avvik = sparatSkiljerSig(v, sparad);
@@ -2753,8 +2788,10 @@ export default function Arbetsrapport() {
     const datum: string = periodForm.rad.datum;
     if (periodForm.tabell === 'segment') {
       // Segment finns bara med pass — skalraden berörs aldrig.
+      if (!(await skrivFlyttBorta(periodForm.rad))) { setPeriodFel(RADERA_FEL); return; } // automatisk flytt: gravsten FÖRE borttagningen
       const res = await raderaVerifierat(supabase, "arbetsdag_segment", { id });
       if (!res.ok) { setPeriodFel(res.fel); return; }
+      setFlyttVersion(n => n + 1);
       setDagSegment(d => d.filter((x: any) => x.id !== id));
       stangPeriodForm();
       return;
@@ -3268,6 +3305,31 @@ export default function Arbetsrapport() {
                     ? sammanRad("Objekt", dagObjNamn)
                     : kortRad("Objekt", <span style={{ color:FARG.orange }}>Saknas</span>, undefined, true);
                 })()}
+              </div>
+            )}
+            {/* FLYTT: en egen rad per maskinflytt (synken hittar den i GPS-spåret: ≥ 30 min och ≥ 2 km mellan två objekt). Tiden
+                ligger INOM passet och är redan betald — raden märker den, den lägger inte till något. Går att ändra och ta bort
+                som vilken rad som helst (periodformuläret); en borttagen flytt skapas inte om (gravsten). Texten är byggd av
+                radens egna fält: aktivitet, klockslag, trakter och km, aldrig en siffra som inte står på raden. */}
+            {harMaskinPass && idagFlytt.length > 0 && (
+              <div style={linjeUnder(true)}>
+                {idagFlytt.map((sg: any) => {
+                  const klock = `${(sg.start_tid||'').slice(0,5)}–${(sg.slut_tid||'').slice(0,5)}`;
+                  return (
+                    <div key={sg.id} onClick={()=>oppnaFlyttRad(sg)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                      <div style={{ minWidth:0 }}>
+                        <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{aktLabel(sg.aktivitet_typ)}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
+                          {klock}{sg.kommentar ? ` · ${sg.kommentar}` : ''} · räknas som arbetstid
+                        </p>
+                      </div>
+                      <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, flexShrink:0 }}>
+                        <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(periodMin((sg.start_tid||'').slice(0,5), (sg.slut_tid||'').slice(0,5)))}</span>
+                        <span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3 }}>chevron_right</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {/* PERIODDAG: EN rad per period — det man skriver under (Martin
@@ -6337,7 +6399,10 @@ export default function Arbetsrapport() {
                       {/* Objektet syns på raden — utan det skrev man under en perioddag i blindo. */}
                       {p.objektId && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{objektLista.find(o=>o.id===p.objektId)?.namn || p.objektId}</span>}
                       {p.kind==='extra' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.gron,...TNUM }}>+{fmt(p.minuter)}</span>}
-                      {(()=>{ const f = faktureringsEtikett(p.typ, !!p.deb, !!p.objektId); return <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:f.varna?FARG.orange:FARG.text2 }}>{f.text}</span>; })()}
+                      {/* En automatisk flytt faktureras aldrig härifrån (lastbilsflödet äger flyttfakturan): den räknas som arbetstid. */}
+                      {p.kind==='segment' && p.kalla==='flytt'
+                        ? <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>räknas som arbetstid</span>
+                        : (()=>{ const f = faktureringsEtikett(p.typ, !!p.deb, !!p.objektId); return <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:f.varna?FARG.orange:FARG.text2 }}>{f.text}</span>; })()}
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
                       <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
                     </div>
