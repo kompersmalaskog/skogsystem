@@ -705,6 +705,63 @@ def parse_datetime(dt_str) -> Optional[datetime]:
         return None
 
 # ============================================================
+# VERKLIG TID (UTC) UR OPTI-FILERNAS KLOCKSLAG
+# ============================================================
+# Opti-filerna (Ponsse) skriver maskinens LOKALA klocka med offset: "2026-04-30T17:28:54+02:00". parse_datetime() klipper
+# offseten och ger en naiv lokal tid — som PostgREST sedan tolkar som UTC i en timestamptz-kolumn. Resultat: lossnings_tid
+# stod 2 h (sommar) eller 1 h (vinter) FÖR SEN i databasen (uppmätt mot hyttspåret 2026-10: 125 min, varav ca 5 min är
+# maskinklockans drift — den rättas INTE här).
+#
+# parse_tid_utc() ger det verkliga ögonblicket:
+#   * med offset eller Z  → offseten gäller (maskinens egen uppgift)
+#   * utan offset         → lokal svensk tid (Europe/Stockholm, sommar-/vintertid enligt EU:s regel)
+# Svensk tid räknas här med EU:s regel i stället för zoneinfo: Windows saknar tidszonsdatabas om inte paketet tzdata är
+# installerat, och ett fast tillägg vore fel hälften av året.
+#
+# Datumet (fakt_lass.datum, dagsnycklar) tas fortfarande ur den LOKALA tiden via parse_datetime — en kväll efter 22:00
+# ska höra till samma dag som maskinen själv räknar.
+
+def _sista_sondag(ar: int, manad: int) -> datetime:
+    sista = datetime(ar, manad, 31)   # mars och oktober har 31 dagar
+    return sista - timedelta(days=(sista.weekday() + 1) % 7)
+
+
+def stockholm_lokal_till_utc(lokal: datetime) -> datetime:
+    """Naiv lokal svensk tid → UTC-ögonblick (tidszonsmedveten, UTC). Sommartid 01:00 UTC sista söndagen i mars till
+    01:00 UTC sista söndagen i oktober. Den dubbla timmen i oktober tolkas som sommartid (första förekomsten), den
+    obefintliga i mars som vintertid — samma som zoneinfo med fold=0."""
+    sommar_start = _sista_sondag(lokal.year, 3).replace(hour=1)
+    sommar_slut = _sista_sondag(lokal.year, 10).replace(hour=1)
+    som_utc = lokal - timedelta(hours=2)
+    if sommar_start <= som_utc < sommar_slut:
+        return (som_utc).replace(tzinfo=timezone.utc)
+    return (lokal - timedelta(hours=1)).replace(tzinfo=timezone.utc)
+
+
+def parse_tid_utc(dt_str) -> Optional[datetime]:
+    """Opti-tidsstämpel → verkligt UTC-ögonblick (se blocket ovan). None om tomt eller otolkbart."""
+    if not dt_str:
+        return None
+    try:
+        dt_str = str(dt_str).strip()
+        m = re.search(r'(Z|[+-]\d{2}:?\d{2})$', dt_str)
+        rest = dt_str[:m.start()] if m else dt_str
+        dt = datetime.fromisoformat(normalisera_sekundbrak(rest))
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc)
+        if m is None:
+            return stockholm_lokal_till_utc(dt)
+        tz = m.group(1)
+        if tz == 'Z':
+            return dt.replace(tzinfo=timezone.utc)
+        tz = tz.replace(':', '')
+        sek = (int(tz[1:3]) * 3600 + int(tz[3:5]) * 60) * (1 if tz[0] == '+' else -1)
+        return (dt - timedelta(seconds=sek)).replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+# ============================================================
 # SYNTETISKA SKIFT (Rottne) — slutar när nästa förare loggar in
 # ============================================================
 # Rottne saknar OperatorShiftDefinition: parsern bygger syntetiska skift (shift_key "SYN_<datum>_<operator>") av WorkTime
@@ -3387,8 +3444,11 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
             'volym_m3sob': total_volym,
             'volym_m3sub': total_volym_sub,
             'korstracka_m': distance,
-            'lastnings_tid': loading_dt,
-            'lossnings_tid': unloading_dt,
+            # Verkligt UTC-ögonblick (offseten ur filen), inte maskinens lokala klockslag lagrat som UTC. datum ovan är
+            # fortfarande den lokala dagen. tid_ar_utc skiljer nya rader från de äldre (migration 20261019073645_fpr_tider_utc).
+            'lastnings_tid': parse_tid_utc(loading_time_str),
+            'lossnings_tid': parse_tid_utc(unloading_time_str),
+            'tid_ar_utc': True,
             'destination_id': f"{maskin_id}_{dest_key}" if dest_key else None,
             'destination_namn': dest_names.get(dest_key, ''),
             'filnamn': filnamn,
@@ -3417,8 +3477,9 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
                 'objekt_id': objekt_id_fs,
                 'sortiment_id': f"{maskin_id}_{prod_key_fs}" if prod_key_fs else None,
                 'sortiment_namn': sortiment_namn_fs,
-                'start_tid': parse_datetime(start_str),
-                'slut_tid': parse_datetime(end_str) if end_str else None,
+                'start_tid': parse_tid_utc(start_str),
+                'slut_tid': parse_tid_utc(end_str) if end_str else None,
+                'tid_ar_utc': True,
                 'filnamn': filnamn
             })
 
@@ -5510,6 +5571,27 @@ def save_hqc_to_supabase(data: Dict) -> bool:
         logger.error(f"  Fel vid sparande av HQC: {e}")
         return False
 
+LASS_SORTIMENT_NYCKEL = ('maskin_id', 'objekt_id', 'datum', 'lass_nummer', 'sortiment_id')
+
+
+def aggregera_lass_sortiment(rader: List[Dict]) -> List[Dict]:
+    """Slår ihop rader med samma nyckel (maskin, objekt, datum, lass, sortiment) till EN rad. Volymerna summeras — samma
+    sak som fakt_lass.volym_m3sob gör över alla PartialLoad, så summan av sortimenten i ett lass är fortfarande lassets
+    volym. m3sub är None (okänd) om NÅGON av delarna saknar den: en summa av kända delar vore ett påstående om helheten.
+    Ordningen behålls (första förekomsten). Ren: indatan ändras inte."""
+    ut: Dict[tuple, Dict] = {}
+    for r in rader:
+        k = tuple(str(r.get(f)) for f in LASS_SORTIMENT_NYCKEL)
+        if k not in ut:
+            ut[k] = dict(r)
+            continue
+        a = ut[k]
+        a['volym_m3sob'] = (a.get('volym_m3sob') or 0) + (r.get('volym_m3sob') or 0)
+        a['volym_m3sub'] = (a['volym_m3sub'] + r['volym_m3sub']
+                            if a.get('volym_m3sub') is not None and r.get('volym_m3sub') is not None else None)
+    return list(ut.values())
+
+
 def save_fpr_to_supabase(data: Dict) -> bool:
     """Spara FPR-data till Supabase"""
     try:
@@ -5575,9 +5657,15 @@ def save_fpr_to_supabase(data: Dict) -> bool:
             if lass_data:
                 if upsert_data('fakt_lass', lass_data, ['maskin_id', 'objekt_id', 'lass_nummer', 'datum']) == 0:
                     fel.append('fakt_lass')
+            # EN rad per (lass, sortiment): två PartialLoad med samma produkt i ett lass gav två rader med samma nyckel i
+            # samma POST, och Postgres vägrar hela batchen ("ON CONFLICT DO UPDATE command cannot affect row a second
+            # time") — hela filens sortiment försvann (Rössmåla gallring: 66 lass, GROT Kroksjömåla). Misslyckandet
+            # ignorerades dessutom, så filen räknades som importerad.
+            lass_sortiment_data = aggregera_lass_sortiment(lass_sortiment_data)
             if lass_sortiment_data:
-                upsert_data('fakt_lass_sortiment', lass_sortiment_data, 
-                           ['maskin_id', 'objekt_id', 'datum', 'lass_nummer', 'sortiment_id'])
+                if upsert_data('fakt_lass_sortiment', lass_sortiment_data,
+                               ['maskin_id', 'objekt_id', 'datum', 'lass_nummer', 'sortiment_id']) == 0:
+                    fel.append('fakt_lass_sortiment')
 
         if data.get('skotning_status'):
             upsert_data('fakt_skotning_status', data['skotning_status'],
