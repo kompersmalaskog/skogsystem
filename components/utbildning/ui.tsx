@@ -16,8 +16,10 @@ import {
 } from '@/lib/design/tokens';
 import { KRAVTYP_META, visaNamn, type Kravtyp, type Medarbetare } from '@/lib/utbildning';
 
-/** Plats för bottennavigationen, så inget hamnar under den. */
-const BOTTEN_LUFT = AVSTAND.xxl * 4;
+/** Luft sist, så den vita knappen inte klistrar i skärmkanten. Utbildningsvyerna
+ *  har ingen bottennavigation — hemknappen sitter uppe till vänster i toppfältet,
+ *  som i Arbetsrapport, Ledighet och Lastbilen. */
+const BOTTEN_LUFT = AVSTAND.xxl;
 
 // ---- Vyns rot: svart, en kolumn, sidmarginal, rörelse-CSS ----
 export function Vy({ children }: { children: React.ReactNode }) {

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import BottomNav from '@/components/BottomNav';
 import RegistreraBevisSheet from '@/components/utbildning/RegistreraBevisSheet';
 import BevisSheet from '@/components/utbildning/BevisSheet';
 import {
@@ -168,7 +167,6 @@ export default function UtbildningPersonPage() {
         </>
       )}
 
-      <BottomNav />
 
       <BevisSheet rad={vald} onClose={() => setVald(null)} onDeleted={() => { setVald(null); load(); }} />
 

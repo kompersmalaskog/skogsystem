@@ -29,7 +29,6 @@ vi.mock('@/lib/supabase', () => ({
   },
 }));
 
-vi.mock('@/components/BottomNav', () => ({ default: () => null }));
 vi.mock('@/components/utbildning/RegistreraBevisSheet', () => ({ default: () => null }));
 
 import UtbildningStartPage from './page';

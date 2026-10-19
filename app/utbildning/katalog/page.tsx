@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import BottomNav from '@/components/BottomNav';
 import Ikon from '@/components/design/Ikon';
 import { Sheet, ConfirmDialog } from '@/components/Sheet';
 import NyUtbildningSheet from '@/components/utbildning/NyUtbildningSheet';
@@ -159,7 +158,6 @@ export default function KatalogPage() {
         </>
       )}
 
-      <BottomNav />
 
       {/* Typ-detalj */}
       <Sheet open={!!vald} onClose={() => setVald(null)} title={vald ? vald.namn : ''}>

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import BottomNav from '@/components/BottomNav';
 import Ikon from '@/components/design/Ikon';
 import RegistreraBevisSheet from '@/components/utbildning/RegistreraBevisSheet';
 import {
@@ -189,7 +188,6 @@ export default function UtbildningStartPage() {
         </>
       )}
 
-      <BottomNav />
 
       <RegistreraBevisSheet
         open={registrera}
