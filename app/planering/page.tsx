@@ -106,6 +106,8 @@ import { hamtaAltNummer, hogarObjektIds, nyckelHorTillObjekt } from '../../lib/o
 import { useSkotarLass } from '../../lib/hooks/useSkotarLass'
 import { useSkotarVader } from '../../lib/hooks/useSkotarVader'
 import { hamtaPrognos, narmasteSteg } from '../../lib/smhi-prognos'
+import { useKartlager } from '../../lib/hooks/useKartlager'
+import { KARTLAGER_LAGER_ID } from '../../lib/kartlager'
 import { egnaNummer, nastaEgnaNummer, visaNummer as visaAvlaggNummer } from '../../lib/skotarLass/avlagg'
 import { skotatTillAvlagg } from '../../lib/skotarLass/avlaggStat'
 import { avlaggFeatures, laggTillAvlaggslager, taBortAvlaggslager } from '../../lib/skotarLass/avlaggKarta'
@@ -1213,11 +1215,10 @@ export default function PlannerPage() {
   const [mapCenter, setMapCenter] = useState({ lat: 57.1052, lng: 14.8261 }); // Stenshult ungefär
   const [mapZoom, setMapZoom] = useState(16);
   const [showMap, setShowMap] = useState(true);
-  // Default 'lantmateriet' = Karta (LM topowebb nedtonad, dämpad). Tidigare Esri-satellit
-  // kombinerat med markfuktighet+lutning-overlays gav grötig gul/lila yta som dolde
-  // terräng-informationen. LM ger ren svensk kartografi med vägar, höjdkurvor och
-  // skogssymboler — och Topokarta är samma källa i full färg.
-  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain' | 'lantmateriet'>('lantmateriet');
+  // Bakgrundskartan: standard FLYGFOTO för alla. Valet sparas på ANVÄNDAREN (medarbetare.kartlager) med en lokal kopia på enheten för när nätet saknas
+  // (lib/kartlager.ts, lib/hooks/useKartlager.ts) och gäller överallt där den här kartan visas — planeringsvyn, körvyn, skotarläget, maskinläget.
+  // (Förut 'lantmateriet' = Karta som standard, och körvyn hade en egen växel Karta/Topokarta som inte sparades.)
+  const [mapType, setMapType] = useKartlager();
   
   // Overlay-lager — persistas i localStorage via useMapLayers
   const [overlays, setOverlays] = useMapLayers();
@@ -1312,15 +1313,15 @@ export default function PlannerPage() {
       // smälter ihop bättre med både Karta och Topokarta (Lantmäteriet),
       // osm. Körvy 2D använder samma 'bg'-layer som fallback.
       { id: 'bg', type: 'background' as const, paint: { 'background-color': '#e8e8e8' } },
-      { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: 'none' as const } },
-      // satellite-layer + terrain-layer initial-visibility matchar mapType-default ('terrain').
+      { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: (mapType === 'osm' ? 'visible' : 'none') as 'visible' | 'none' } },
+      // Baslagrens initiala synlighet följer det valda kartlagret (mapType: sparad lokalt/på kontot, annars Flygfoto) → ingen blixt av fel lager före handleMapReady.
       // handleMapReady läser mapType för att sätta exakt visibility vid map-init —
       // initial-värdena här är fallback om handleMapReady av nån anledning inte kör.
-      { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'none' as const } },
+      { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: (mapType === 'satellite' ? 'visible' : 'none') as 'visible' | 'none' } },
       // LM-baskartan är TYST: nedtonad topowebb + avmättnad/kontrast/opacitet så förarens egna
       // symboler, traktgränser, larmpin och GPS-prick DOMINERAR. Kartan = underlag, ej huvudsak.
-      { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 }, layout: { visibility: 'visible' as const } },
-      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'none' as const } },
+      { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 }, layout: { visibility: (mapType === 'lantmateriet' ? 'visible' : 'none') as 'visible' | 'none' } },
+      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: (mapType === 'terrain' ? 'visible' : 'none') as 'visible' | 'none' } },
     ],
   });
 
@@ -3882,9 +3883,9 @@ export default function PlannerPage() {
   // KÖRVY: pausa auto-följe när föraren drar i kartan (annars rycker nästa GPS-tick tillbaka kameran). Centrera-knappen
   // (EN komponent, lib/centrera) syns medan följningen är pausad; tryck återupptar den. Gäller ALL körvy (skotare och skördare).
   const [korvyFollowPaused, setKorvyFollowPaused] = useState(false);
-  // Körvyns bas-karta: 'lm' (Karta — LM nedtonad, dämpad) eller 'topo' (Topokarta — LM full färg).
-  // Default tyst så föraren möter den lugna svenska baskartan; toggla för terräng-detalj.
-  const [korvyBasKarta, setKorvyBasKarta] = useState<'lm' | 'topo'>('lm');
+  // Körvyns bas-karta = samma sparade kartlager som planeringsvyn (mapType): Flygfoto som standard, Karta (LM nedtonad, dämpad), Topokarta (LM full färg) eller OSM.
+  // Växeln i Mer byter mapType (och sparas därmed på användaren). Förut en egen, osparad växel 'lm' | 'topo'.
+  const korvyBasKarta = mapType;
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const korvyZoomRef = useRef<number>(KORVY_BASE_ZOOM);  // utjämnad närhets-zoom (lerp → ingen studs)
@@ -8957,7 +8958,7 @@ export default function PlannerPage() {
       // och sks-markfuktighet finns kvar i lager-menyn under 'Skogsstyrelsen
       // Raster' / 'Lantmäteriet' om föraren vill toggla på dem manuellt.
       // Bas-karta: Karta (LM dämpad) eller Topokarta (LM full färg) — växlas i toggeln.
-      const SHOW = new Set<string>([korvyBasKarta === 'lm' ? 'lm-layer' : 'terrain-layer']);
+      const SHOW = new Set<string>([KARTLAGER_LAGER_ID[korvyBasKarta]]);
       // Våra ritade data + immersion-layers. 'zone-' (singular) = de PLATTA zon-lagren
       // (zone-fill/zone-outline/zone-label) — MÅSTE vara med annars döljs zonerna i körvy. Förr
       // visades zoner i körvy bara via 'zones-korvy-*-extrusion' (3D-pelaren, nu borttagen); utan
@@ -8999,6 +9000,10 @@ export default function PlannerPage() {
       }
       // Återställ zone-fill-opaciteten (gallring-nollningen ovan) till originalet gallringCase(0.75, 0.2).
       try { if (map.getLayer('zone-fill')) map.setPaintProperty('zone-fill', 'fill-opacity', ['case', ['==', ['get', 'zoneType'], 'gallring'], 0.75, 0.2] as any); } catch {}
+      // Bytte föraren kartlager MEDAN körvyn var igång (+ › Alla › Lager › Bakgrundskarta) är den sparade synligheten från körvyns start föråldrad: det valda lagret gäller.
+      for (const [kl, lagerId] of Object.entries(KARTLAGER_LAGER_ID)) {
+        try { if (map.getLayer(lagerId)) map.setLayoutProperty(lagerId, 'visibility', kl === korvyBasKarta ? 'visible' : 'none'); } catch {}
+      }
       korvyPrevVisRef.current = null;
     }
   }, [korvyActive, skotarKorvy, mapLibreReady, korvyBasKarta]);
@@ -13035,7 +13040,7 @@ export default function PlannerPage() {
         <>
           {visaListan ? (
             // Kartan med alla objekt som prickar och listan ovanpå (lib/objektKarta) — aldrig en svart tom yta. Listan går inte att stänga här.
-            <ObjektKartaTom onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
+            <ObjektKartaTom kartlager={mapType} onValj={maskinlage ? valjObjektIMaskin : valjObjektUrLista} onNavigera={(o) => { startaNavigering(o); }} maskin={listMaskin} />
           ) : (
             <div data-testid="planering-utan-objekt" style={{ position: 'fixed', inset: 0, background: FARG.bg, color: FARG.text2, fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', ...TYP.meta }}>
               Hämtar objekt…
@@ -13557,7 +13562,6 @@ export default function PlannerPage() {
           roll: kortRoll, arAdmin: isAdminRiktig, korvyAktiv: korvyActive, maskinlage: maskinlage || !!maskinSomParam,
           skotningFinnsSomKnapp: kortRoll === 'forare' && maskinSlag !== 'skordare', utanSkotning: skotarLassAktiv, status: valtObjekt.status ?? null, tillTrakt: true,
           korvy: korvyActive ? {
-            basKartaText: korvyBasKarta === 'lm' ? 'Baskarta: Karta → Topokarta' : 'Baskarta: Topokarta → Karta',
             gpsText: korvyStatus.gpsText, gpsProblem: korvyStatus.harProblem, dataText: korvyStatus.dataText,
             andrasSparText: andrasRoll ? (andrasRoll === 'skordare' ? 'Uppdatera skördarens spår' : 'Uppdatera skotarens spår') : null,
           } : undefined,
@@ -13566,7 +13570,6 @@ export default function PlannerPage() {
             skordarKorvy: efter(() => { unlockKorvyLjud(); setKorvyForceRoll('skordare'); setKorvyActive(true); }),
             skotarKorvy: efter(() => { setKorvyForceRoll('skotare'); setKorvyActive(true); }),
             avslutaKorvy: efter(() => { setKorvyActive(false); setKorvyForceRoll(null); }),
-            vaxlaBaskarta: efter(() => setKorvyBasKarta(korvyBasKarta === 'lm' ? 'topo' : 'lm')),
             gps: efter(() => { acquireGpsWithFallback(); }),
             data: efter(() => { refetchMarkers(true); }),
             andrasSpar: efter(() => { hamtaAndrasSpar(); }),
@@ -13575,7 +13578,6 @@ export default function PlannerPage() {
             genomgang: efter(() => { setBriefingMode(true); setActiveCategory(null); }),
             vagdata: efter(() => { korOmVagdata(); }),
             trakt: efter(() => { setTraktOpen(true); }),
-            lager: efter(() => oppnaPlusArk('lager')),
             installningar: efter(() => oppnaInst(false)),
             gpsKalla: webSerialStott ? efter(() => oppnaInst(true)) : null,
             forslag: efter(() => { window.location.href = '/forbattringsforslag'; }),
@@ -14052,7 +14054,7 @@ export default function PlannerPage() {
       {/* Skotarkörvyns stråk-autopanel (närmaste stråkets sortiment) borttagen — pekade på fel stråk / visade redan utkört virke (Daniel, fältfynd). Högarna på kartan + tryck-popupen räcker. */}
 
       {/* REN SKÄRM (fältfynd): "Uppdatera spår"-knappen och Baskarta-växlaren är BORTTAGNA från
-          kartytan — båda bor nu i +-menyns KÖRVY-grupp (Uppdatera skördarens/skotarens spår + Baskarta).
+          kartytan. Spåruppdateringen bor i objektinfons Mer › Körvy; kartlagret bor BARA i + › Alla › Lager (inte i ⓘ/Mer).
           Kartytan i körvy visar bara karta + position + autopanel/HUD. */}
 
       {/* KOMPASSEN bor i Lager-menyn (rad "Kompass", AV som standard) — INGEN knapp på kartytan i körvy: skärmen har bara hem-knapp,
@@ -17979,8 +17981,8 @@ export default function PlannerPage() {
                     </svg>
                   </div>
                   
-                  {/* Karttyp */}
-                  <div
+                  {/* Karttyp — göms i körvyn: där bor lagervalet BARA i + › Alla › Lager (EN plats; vakt: lib/kartlager.vakter.test.ts) */}
+                  {!korvyActive && <div
                     onClick={() => {
                       if (mapType === 'lantmateriet') setMapType('satellite');
                       else if (mapType === 'satellite') setMapType('terrain');
@@ -18009,7 +18011,7 @@ export default function PlannerPage() {
                         {mapType === 'lantmateriet' ? 'Karta' : mapType === 'satellite' ? 'Flygfoto' : mapType === 'terrain' ? 'Topokarta' : 'OpenStreetMap'}
                       </div>
                     </div>
-                  </div>
+                  </div>}
 
                   {/* Visa karta */}
                   <div

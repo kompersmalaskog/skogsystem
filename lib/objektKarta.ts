@@ -8,6 +8,7 @@
 //   Kamera:   zoomar ut så att alla prickar ryms i DEN SYNLIGA delen av kartan — arket (telefon, nedre halvan) och panelen (bred skärm,
 //             höger) täcker resten, så de räknas bort som padding.
 
+import type { Kartlager } from '@/lib/kartlager';
 import { harKoordinat } from './navigera';
 import { PANEL_BREDD_PX, plusLage, type PlusLage } from './plusArk';
 import { AVSTAND, FARG } from './design/tokens';
@@ -192,13 +193,30 @@ export function sakerstallPrickLager(map: any): { setData: (d: unknown) => void 
 // ── Kartan när inget objekt är valt (första gången, objektet borttaget): baskartan + prickarna, aldrig en svart yta ──
 // Samma Lantmäteriet-bas och samma nedtoning som planeringsvyns karta (page.tsx mapStyleConfig: källan 'lantmateriet' + lagret 'lm-layer').
 export const TOM_KARTA_START = { center: [14.70, 56.40] as [number, number], zoom: 8 };   // verksamhetens mitt (som listans reserv för avstånd)
-export const TOM_KARTA_STIL = {
-  version: 8 as const,
-  sources: {
+/** Baskartan för kartan utan valt objekt: samma källor och nedtoning som planeringsvyns mapStyleConfig, för det kartlager användaren valt (lib/kartlager). */
+export function tomKartaStil(lager: Kartlager) {
+  const kallor = {
     lantmateriet: { type: 'raster' as const, tiles: ['/api/forarkarta?z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
-  },
-  layers: [
-    { id: 'bg', type: 'background' as const, paint: { 'background-color': 'rgb(232, 232, 232)' } },
-    { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 } },
-  ],
+    satellite: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=ortofoto&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 18, attribution: '&copy; Lantmäteriet' },
+    topographic: { type: 'raster' as const, tiles: ['/api/forarkarta?layer=farg&z={z}&x={x}&y={y}'], tileSize: 256, maxzoom: 17, attribution: '&copy; Lantmäteriet' },
+    osm: { type: 'raster' as const, tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '&copy; OpenStreetMap' },
+  };
+  const bas =
+    lager === 'satellite' ? { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 } }
+    : lager === 'terrain' ? { id: 'terrain-layer', type: 'raster' as const, source: 'topographic' }
+    : lager === 'osm' ? { id: 'osm-layer', type: 'raster' as const, source: 'osm' }
+    : { id: 'lm-layer', type: 'raster' as const, source: 'lantmateriet', paint: { 'raster-saturation': -0.45, 'raster-contrast': -0.06, 'raster-opacity': 0.9 } };
+  return {
+    version: 8 as const,
+    sources: { [bas.source]: kallor[bas.source as keyof typeof kallor] },
+    layers: [
+      { id: 'bg', type: 'background' as const, paint: { 'background-color': 'rgb(232, 232, 232)' } },
+      bas,
+    ],
+  };
+}
+/** Karta (Lantmäteriet, dämpad) — den gamla fasta baskartan; kvar för tester och som fallback. */
+export const TOM_KARTA_STIL = tomKartaStil('lantmateriet') as unknown as {
+  version: 8; sources: { lantmateriet: { type: 'raster'; tiles: string[]; tileSize: number; maxzoom: number; attribution: string } };
+  layers: Array<{ id: string; type: 'background' | 'raster'; paint: Record<string, any>; source?: string }>;
 };
