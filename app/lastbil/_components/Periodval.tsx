@@ -1,24 +1,18 @@
 'use client';
 
-import Flikkontroll from '@/components/design/Flikkontroll';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TRAFFYTA, TYP } from '@/lib/design/tokens';
-import { bytTyp, kanGaBakat, kanGaFramat, periodEtikett, stegaPeriod, type Period } from './period';
+import { kanGaBakat, kanGaFramat, periodEtikett, stegaPeriod, type Period } from './period';
 
 /**
- * Perioden: växeln Månad | År och steg bakåt/framåt med periodens namn mellan. Fakturasidan har hela väljaren; Körningar har bara
- * "‹ Oktober 2026 ›" (`utanVaxel`, Martin 2026-10-19). Egen väljare på varje, men EN period: byter man månad på fakturasidan står
- * samma månad i Körningar när man går tillbaka.
+ * Perioden: "‹ Oktober 2026 ›" — steg bakåt/framåt med periodens namn mellan, och inget annat. Det finns EN väg att byta period
+ * (Martin 2026-10-19): ingen Månad | År-växel. Körningar och fakturasidan har var sin väljare men perioden är EN (byter man månad på
+ * fakturasidan står samma månad i Körningar när man går tillbaka). År-vyn har samma steg för året ("‹ 2026 ›").
  */
-export default function Periodval({ period, onPeriod, utanVaxel }: { period: Period; onPeriod: (p: Period) => void; utanVaxel?: boolean }) {
+export default function Periodval({ period, onPeriod }: { period: Period; onPeriod: (p: Period) => void }) {
   const bak = kanGaBakat(period), fram = kanGaFramat(period);
   const stegKnapp = { ...KNAPP.lank, width: TRAFFYTA.min, justifyContent: 'center' } as const;
   return (
     <div data-periodval style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
-      {!utanVaxel && (
-        <div style={{ flex: 'none' }}>
-          <Flikkontroll flikar={[['man', 'Månad'], ['ar', 'År']] as const} aktiv={period.typ} onVal={t => onPeriod(bytTyp(period, t))} />
-        </div>
-      )}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <button type="button" aria-label={period.typ === 'ar' ? 'Förra året' : 'Förra månaden'} disabled={!bak}
           onClick={() => bak && onPeriod(stegaPeriod(period, -1))} style={{ ...stegKnapp, ...(bak ? {} : INAKTIV) }}>

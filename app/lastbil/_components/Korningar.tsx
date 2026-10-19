@@ -8,7 +8,7 @@ import Periodval from './Periodval';
 import RundaRad from './RundaRad';
 import { fmtDatum } from './nu';
 import { laddaNerCsv } from './csv';
-import { manaderIAr, manadForStart, periodEtikett, periodKort, periodTillText, type Period } from './period';
+import { periodEtikett, periodKort, periodTillText, type Manad } from './period';
 import { fmtLPerMil, rundorTillCsv, summera, type Runda, type Summa } from './rundor';
 import type { RundorLage } from './useRundor';
 
@@ -18,10 +18,6 @@ function Status({ text, alert }: { text: string; alert?: boolean }) {
   return <p role={alert ? 'alert' : 'status'} style={{ ...TYP.text, color: alert ? FARG.rod : FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>{text}</p>;
 }
 
-const litTxt = (s: Summa) => (s.liter != null ? `${s.liter.toLocaleString('sv-SE')} l` : 'diesel saknas i datan');
-/** Årsvyn: "5 rundor · 349 l · 4,3 l/mil" (liter står kvar här — årsvyn är orörd). */
-const metaRad = (s: Summa) =>
-  [`${s.antal} ${s.antal === 1 ? 'runda' : 'rundor'}`, litTxt(s), fmtLPerMil(s.lPerMil) ? `${fmtLPerMil(s.lPerMil)} l/mil` : null].filter(Boolean).join(' · ');
 const rundorText = (n: number) => `${n} ${n === 1 ? 'runda' : 'rundor'}`;
 /** "4,3 l/mil", eller "diesel saknas i datan" när ingen runda har diesel och mätare (aldrig 0). */
 const lPerMilText = (lPerMil: number | null) => (fmtLPerMil(lPerMil) ? `${fmtLPerMil(lPerMil)} l/mil` : 'diesel saknas i datan');
@@ -30,8 +26,8 @@ const manadsRad = (s: Summa) => `${rundorText(s.antal)} · ${lPerMilText(s.lPerM
 /** Urvalets rad överst i listan: "2 rundor · 3,9 l/mil"; en rundtyp utan rundor säger bara antalet. */
 const urvalsRad = (antal: number, lPerMil: number | null) => (antal === 0 ? rundorText(0) : `${rundorText(antal)} · ${lPerMilText(lPerMil)}`);
 
-/** Anmärkningar som gäller summan: sägs i klartext, aldrig tyst. */
-function Anmarkningar({ s }: { s: Summa }) {
+/** Anmärkningar som gäller summan: sägs i klartext, aldrig tyst. (Delas med År-vyn.) */
+export function Anmarkningar({ s }: { s: Summa }) {
   const rader = [
     s.overlappande > 0 && `${s.overlappande} rundor överlappar i tid och kan vara dubbelräknade i summorna.`,
     s.ogiltiga > 0 && `${s.ogiltiga} ${s.ogiltiga === 1 ? 'runda har' : 'rundor har'} sluttid före start och ingår inte i summorna.`,
@@ -45,12 +41,13 @@ function Anmarkningar({ s }: { s: Summa }) {
  * Körningar — "vad har bilen gjort och vad drog det?". Rubriken, "‹ Oktober 2026 ›" (ingen Månad/År-växel här), månaden i ett kort:
  * körd km (ETT stort tal) och EN dämpad rad "5 rundor · 4,3 l/mil"; två rader i ett eget kort ("Flyttar 296 km ›", "Övrig körning
  * 522 km ›") som filtrerar listan och då visar urvalets "2 rundor · 3,9 l/mil" + "Visa alla" överst i den; sedan ETT kort med alla
- * rundor i månaden, nyast först, utan veckorubriker. Detaljen ligger i arket. Årsvyn finns kvar (`?per=2026`, fakturasidans växel)
- * men har ingen dörr härifrån. Alla rundor räknas på sin svenska startdag. Är månaden tom öppnar "Senaste körning: <datum>" den
- * senaste rundans ark.
+ * rundor i månaden, nyast först, utan veckorubriker; under listan raden "Hela 2026 ›" (öppnar År-vyn) och sist CSV. Detaljen ligger
+ * i arket. Alla rundor räknas på sin svenska startdag. Är månaden tom öppnar "Senaste körning: <datum>" den senaste rundans ark.
  */
-export default function Korningar({ period, onPeriod, lage, onForsokIgen, onOppna, senaste, onOppnaSenaste }: {
-  period: Period; onPeriod: (p: Period) => void; lage: RundorLage; onForsokIgen: () => void; onOppna: (r: Runda) => void;
+export default function Korningar({ period, onPeriod, lage, onForsokIgen, onOppna, onOppnaAr, senaste, onOppnaSenaste }: {
+  period: Manad; onPeriod: (p: Manad) => void; lage: RundorLage; onForsokIgen: () => void; onOppna: (r: Runda) => void;
+  /** Raden "Hela <år> ›": öppnar År-vyn. */
+  onOppnaAr: () => void;
   /** Bilens senaste avslutade körning (ur Bilen nu), för tomtexten i en tom månad. */
   senaste: { id: string; start: string } | null; onOppnaSenaste: (r: { id: string; start: string }) => void;
 }) {
@@ -59,9 +56,9 @@ export default function Korningar({ period, onPeriod, lage, onForsokIgen, onOppn
     <section aria-label="Körningar" data-korningar>
       <h2 style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.rubrik, color: FARG.text }}>Körningar</h2>
       <div style={{ marginBottom: AVSTAND.m }}>
-        <Periodval period={period} onPeriod={onPeriod} utanVaxel />
+        <Periodval period={period} onPeriod={p => p.typ === 'man' && onPeriod(p)} />
       </div>
-      <Inre key={periodTillText(period)} period={period} lage={lage} onForsokIgen={onForsokIgen} onOppna={onOppna} onValjManad={onPeriod} senaste={senaste} onOppnaSenaste={onOppnaSenaste} />
+      <Inre key={periodTillText(period)} period={period} lage={lage} onForsokIgen={onForsokIgen} onOppna={onOppna} onOppnaAr={onOppnaAr} senaste={senaste} onOppnaSenaste={onOppnaSenaste} />
       <FlyttplatserLank />
     </section>
   );
@@ -77,8 +74,8 @@ function FlyttplatserLank() {
   );
 }
 
-function Inre({ period, lage, onForsokIgen, onOppna, onValjManad, senaste, onOppnaSenaste }: {
-  period: Period; lage: RundorLage; onForsokIgen: () => void; onOppna: (r: Runda) => void; onValjManad: (p: Period) => void;
+function Inre({ period, lage, onForsokIgen, onOppna, onOppnaAr, senaste, onOppnaSenaste }: {
+  period: Manad; lage: RundorLage; onForsokIgen: () => void; onOppna: (r: Runda) => void; onOppnaAr: () => void;
   senaste: { id: string; start: string } | null; onOppnaSenaste: (r: { id: string; start: string }) => void;
 }) {
   const [filter, setFilter] = useState<Filter>('alla');
@@ -99,8 +96,6 @@ function Inre({ period, lage, onForsokIgen, onOppna, onValjManad, senaste, onOpp
       </div>
     );
   }
-
-  if (period.typ === 'ar') return <ArsVy period={period} rundor={rundor} summa={summa} onValjManad={onValjManad} />;
 
   // Raden fyller kortets hela bredd när den är vald (negativ marginal ut i kortets padding); avdelaren under ligger inne i kortet.
   const filterRad = (id: Exclude<Filter, 'alla'>, namn: string, km: number, sista: boolean) => (
@@ -157,47 +152,16 @@ function Inre({ period, lage, onForsokIgen, onOppna, onValjManad, senaste, onOpp
       )}
 
       <Anmarkningar s={summa} />
+      {/* Hela året: under listan, ovanför CSV */}
+      <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+        <TryckRad attr={{ 'data-hela-aret': '' }} sista text={`Hela ${period.ar}`} onTryck={onOppnaAr} />
+      </div>
       <button type="button" disabled={rundor.length === 0}
         onClick={() => laddaNerCsv(rundorTillCsv(rundor), `rundor-${periodTillText(period)}.csv`)}
         style={{ ...KNAPP.tertiar, alignSelf: 'center', opacity: rundor.length === 0 ? 0.4 : 1 }}>
         <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text }}>download</span>
         Exportera {periodEtikett(period).toLowerCase()} som CSV
       </button>
-    </div>
-  );
-}
-
-/** År: månaderna som rader. Ett tryck går till månaden. En månad utan rundor syns med det. */
-function ArsVy({ period, rundor, summa, onValjManad }: { period: Extract<Period, { typ: 'ar' }>; rundor: Runda[]; summa: Summa; onValjManad: (p: Period) => void }) {
-  const manader = manaderIAr(period.ar);
-  const perManad = manader.map(m => {
-    const rs = rundor.filter(r => { const x = manadForStart(r.start); return x?.ar === m.ar && x.man === m.man; });
-    return { m, s: summera(rs) };
-  });
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
-      <section style={KORT} aria-label="Året">
-        <div style={{ ...TYP.micro, color: FARG.text2 }}>Körd {period.ar}</div>
-        <div style={{ ...TYP.tal, color: FARG.text, marginTop: AVSTAND.xs }}>{summa.km.toLocaleString('sv-SE')} km</div>
-        <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>{metaRad(summa)}</div>
-      </section>
-      <section style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }} aria-label="Månader">
-        {perManad.map(({ m, s }, i) => (
-          <button key={m.man} type="button" onClick={() => onValjManad(m)}
-            style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.inuti, width: '100%', minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px 0`, background: 'none', border: 'none', borderBottom: i === perManad.length - 1 ? 'none' : `1px solid ${FARG.linje}`, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ ...TYP.listtitel, color: FARG.text }}>{periodEtikett(m).split(' ')[0]}</div>
-              <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>{s.antal === 0 ? 'Inga rundor' : metaRad(s)}</div>
-            </div>
-            <div style={{ textAlign: 'right', ...TNUM }}>
-              <div style={{ ...TYP.listtitel, color: FARG.text }}>{s.km.toLocaleString('sv-SE')} km</div>
-              {s.km > 0 && <div style={{ ...TYP.meta, color: FARG.text2 }}>Övrig {Math.round((100 * s.kmOvrig) / s.km)} %</div>}
-            </div>
-            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.text, color: FARG.text3 }}>chevron_right</span>
-          </button>
-        ))}
-      </section>
-      <Anmarkningar s={summa} />
     </div>
   );
 }
