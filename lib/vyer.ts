@@ -60,8 +60,7 @@ export const VYER: Vy[] = [
   { id: 'maskinvy-2', namn: 'Maskinvy 2', href: '/maskinvy?ny=1', ikon: 'new_releases', grupp: 'maskiner' },
   { id: 'kalibrering', namn: 'Kalibrering', href: '/kalibrering', ikon: 'straighten', grupp: 'maskiner', sokord: ['kontrollmätning', 'hqc'] },
   { id: 'servicelogg', namn: 'Servicelogg', href: '/maskin-service', ikon: 'build', grupp: 'maskiner', sokord: ['service'] },
-  { id: 'maskinflytt', namn: 'Maskinflytt', href: '/maskinflytt', ikon: 'delivery_truck_speed', grupp: 'maskiner', sokord: ['flytt'] },
-  { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', marke: 'lass', sokord: ['körningar', 'fakturering', 'flyttlogg'] },
+  { id: 'lastbilen', namn: 'Lastbilen', href: '/lastbil', ikon: 'pin_drop', grupp: 'maskiner', marke: 'lass', sokord: ['flytt', 'maskinflytt', 'hämta maskin', 'körningar', 'fakturering', 'flyttlogg'] },
   { id: 'kontroller', namn: 'Kontroller', href: '/kontroller', ikon: 'fact_check', grupp: 'maskiner', sokord: ['besiktning', 'försäkring'] },
 
   // Objekt
@@ -96,7 +95,7 @@ export const VYER: Vy[] = [
 /** Förinställda favoriter per roll (tills var och en kan ändra sina — nästa PR). Max 8. */
 export const STANDARD_FAVORITER: Record<Roll, string[]> = {
   admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'bestallningar', 'ekonomi'],
-  forare: ['planera', 'planering', 'ledighet', 'maskinflytt', 'kalibrering', 'servicelogg', 'uppfoljning', 'utbildning'],
+  forare: ['planera', 'planering', 'ledighet', 'lastbilen', 'kalibrering', 'servicelogg', 'uppfoljning', 'utbildning'],
 }
 
 export const MAX_FAVORITER = 8

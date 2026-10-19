@@ -93,7 +93,7 @@ describe('Maskinlådan', () => {
 
   it('samma innehåll som startsidan: förarens vyer, inga adminvyer', async () => {
     await montera(spion().props)
-    expect(lankar(sektion('Dina vyer')!)).toEqual(['/planera', '/planering', '/ledighet', '/maskinflytt', '/kalibrering', '/maskin-service', '/uppfoljning', '/utbildning'])
+    expect(lankar(sektion('Dina vyer')!)).toEqual(['/planera', '/planering', '/ledighet', '/lastbil', '/kalibrering', '/maskin-service', '/uppfoljning', '/utbildning'])
     expect(lankar()).not.toContain('/admin')
     expect(document.body.textContent).not.toContain('Kompersmåla Skog')   // lådans eget huvud ersätter startsidans
   })

@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import { AVSTAND, FARG, FONT, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import VyKolumn from '@/components/design/VyKolumn';
-import Rubrik from './_components/Rubrik';
+import Flikrad, { PengatalsRemsa } from './_components/Rubrik';
+import HamtaFlode from './_components/hamta/HamtaFlode';
+import { lasHamtaUrl } from './_components/hamta/flode';
+import HamtaKnapp from './_components/hamta/HamtaKnapp';
 import NuFlik from './_components/NuFlik';
 import FaktureringFlik from './_components/FaktureringFlik';
 import VantarRad from './_components/VantarRad';
@@ -28,7 +31,8 @@ import { useEnRunda, useRundor } from './_components/useRundor';
  *   Körningar   – vad har bilen gjort och vad drog det?
  *   Fakturering – vad kan faktureras? (bara admin)        (kvittot, steg 3)
  *   Nu          – kan jag köra, och var är den?
- * Förarflödet (Lassat, Lassat av, Framme) ligger kvar i /maskinflytt — det är en göra-yta och rörs inte.
+ * Uppifrån: pengatalet (admin) → väntar-raderna (admin, bara när något väntar) → den stora knappen "Hämta en maskin" → flikarna.
+ * "Hämta en maskin" ersätter förarflödet /maskinflytt (steg 3, 2026-10): kartappen gör navigeringen, Lassa och Lassat av är frivilliga.
  *
  * Designad för admin (fakturering och månadskoll är huvudärendena); förare öppnar på Nu och ser
  * varken fakturerbart-remsan eller Fakturering.
@@ -45,6 +49,8 @@ export default function LastbilVy() {
   const flik: Flik = !valdFlik ? (arAdmin ? 'korningar' : 'nu') : valdFlik === 'fakturering' && !arAdmin ? 'nu' : valdFlik;
 
   const [valdRunda, setValdRunda] = useState<{ id: string; start: string } | null>(null);
+  // Hämta-flödet ersätter hela vyn medan det pågår. Adressen bär det (?hamta=1) så en omladdning landar kvar i flödet.
+  const [hamtar, setHamtar] = useState<boolean>(() => lasHamtaUrl(typeof window === 'undefined' ? '' : window.location.search));
 
   const nu = useLastbilNu(!loading && flik === 'nu');
   const fakt = useFakturerbart(period, arAdmin);
@@ -82,8 +88,17 @@ export default function LastbilVy() {
 
   useEffect(() => {
     if (loading) return;
-    window.history.replaceState(null, '', `${window.location.pathname}${skrivUrl(flik, period)}`);
-  }, [loading, flik, period]);
+    window.history.replaceState(null, '', `${window.location.pathname}${hamtar ? '?hamta=1' : skrivUrl(flik, period)}`);
+  }, [loading, flik, period, hamtar]);
+
+  const startaHamta = useCallback(() => { window.scrollTo(0, 0); setHamtar(true); }, []);
+  // Flödet slut (Klar, Avbryt): tillbaka till vyn, en rad säger vad som hände, och det som kan ha ändrats läses om tyst.
+  const efterHamta = useCallback((text: string) => {
+    window.scrollTo(0, 0);
+    setHamtar(false);
+    setKvitto(text);
+    saknarTyst(); faktTyst(); vantarTyst(); rundorTyst();
+  }, [saknarTyst, faktTyst, vantarTyst, rundorTyst]);
 
   const valjFlik = useCallback((f: Flik) => setValdFlik(f), []);
 
@@ -100,12 +115,13 @@ export default function LastbilVy() {
       <VyKolumn>
         {loading ? (
           <p role="status" style={{ color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>Läser …</p>
+        ) : hamtar ? (
+          <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
         ) : (
           <>
-            <Rubrik flik={flik} onFlik={valjFlik} arAdmin={arAdmin} period={period} onPeriod={setPeriod}
-              remsa={fakt.status} onRemsaForsokIgen={fakt.forsokIgen} />
+            {arAdmin && <PengatalsRemsa period={period} remsa={fakt.status} onForsokIgen={fakt.forsokIgen} />}
             <div style={{ paddingTop: AVSTAND.s }}>
-              {arAdmin && kvitto && (
+              {kvitto && (
                 <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px` }}>{kvitto}</p>
               )}
               {arAdmin && (
@@ -118,6 +134,8 @@ export default function LastbilVy() {
                   <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
                 </div>
               )}
+              <HamtaKnapp forareId={medarbetare?.id ?? null} aktiv={!loading && !hamtar} onStart={startaHamta} />
+              <Flikrad flik={flik} onFlik={valjFlik} arAdmin={arAdmin} period={period} onPeriod={setPeriod} />
               {flik === 'nu' && <NuFlik lage={nu.lage} onForsokIgen={nu.forsokIgen} onOppnaRunda={setValdRunda} />}
               {flik === 'korningar' && (
                 <KorningarFlik period={period} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
