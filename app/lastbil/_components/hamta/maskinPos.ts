@@ -67,6 +67,11 @@ export function sorteraMaskiner(maskiner: readonly MaskinMedPos[], fran: Punkt |
   });
 }
 
+/** "8,7 km" / "48 km" — fågelväg, avrundad; under 10 km med en decimal. Listan skriver inget "≈": fotnoten säger att det är fågelväg. */
+export function avstandKort(km: number): string {
+  return km < 10 ? `${(Math.round(km * 10) / 10).toLocaleString('sv-SE')} km` : `${Math.round(km)} km`;
+}
+
 /** "≈ 48 km" — fågelväg, avrundad; under 10 km med en decimal. */
 export function avstandText(km: number): string {
   return km < 10 ? `≈ ${(Math.round(km * 10) / 10).toLocaleString('sv-SE')} km` : `≈ ${Math.round(km)} km`;
@@ -91,6 +96,13 @@ export function tidText(tidMs: number, nuMs: number): string {
 export function datumText(isoDatum: string): string {
   const [, m, d] = isoDatum.slice(0, 10).split('-').map(Number);
   return `${d} ${MAN[m - 1]}`;
+}
+
+/** "Plats osäker · senast 31 aug" — tidsraden i maskinlistan. Visas BARA när positionen är osäker; utan tid står bara "Plats osäker". */
+export function osakerRad(pos: MaskinPos): string {
+  if (pos.tidMs == null) return 'Plats osäker';
+  const d = Object.fromEntries(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', day: 'numeric', month: 'numeric' }).formatToParts(new Date(pos.tidMs)).map(p => [p.type, p.value]));
+  return `Plats osäker · senast ${Number(d.day)} ${MAN[Number(d.month) - 1]}`;
 }
 
 /** Raden under maskinens namn: var den står och hur säkert det är. */

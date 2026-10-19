@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { avstandText, OSAKER_EFTER_MS, posRad, sorteraMaskiner, tidText, valjMaskinPos, type MaskinMedPos, type MaskinPos } from './maskinPos';
+import { avstandKort, avstandText, osakerRad, OSAKER_EFTER_MS, posRad, sorteraMaskiner, tidText, valjMaskinPos, type MaskinMedPos, type MaskinPos } from './maskinPos';
 
 const NU = Date.parse('2026-10-19T12:00:00Z');
 const timmar = (h: number) => NU - h * 3600 * 1000;
@@ -84,5 +84,16 @@ describe('texter', () => {
     expect(posRad(pos(56.5, 14.7), NU)).toEqual({ text: 'GPS idag 13:00', osaker: false });
     expect(posRad({ ...pos(56.5, 14.7, true), tidMs: Date.parse('2026-10-07T08:00:00Z'), kalla: 'plats' }, NU)).toEqual({ text: 'Senast känd plats 7 okt 10:00 · plats osäker', osaker: true });
     expect(posRad(null, NU).text).toContain('peka ut');
+  });
+
+  it('maskinlistan: avstånd utan "≈", en decimal under 10 km', () => {
+    expect(avstandKort(8.66)).toBe('8,7 km');
+    expect(avstandKort(48.4)).toBe('48 km');
+  });
+
+  it('tidsraden för en osäker position: "Plats osäker · senast 31 aug" (svensk dag); utan tid bara "Plats osäker"', () => {
+    expect(osakerRad({ ...pos(56.5, 14.7, true), tidMs: Date.parse('2026-08-31T09:00:00Z') })).toBe('Plats osäker · senast 31 aug');
+    expect(osakerRad({ ...pos(56.5, 14.7, true), tidMs: Date.parse('2026-08-31T23:30:00Z') })).toBe('Plats osäker · senast 1 sep');   // 01:30 svensk tid
+    expect(osakerRad({ ...pos(56.5, 14.7, true), tidMs: null })).toBe('Plats osäker');
   });
 });

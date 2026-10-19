@@ -83,43 +83,64 @@ afterEach(async () => {
 });
 
 describe('steg 1 — vilken maskin?', () => {
-  it('listan: närmast bilen först, med avstånd, position och källa — och en rad för maskin som inte är vår', async () => {
+  it('listan: Arbetsrapportens radmönster — namn, EN rad (trakten), avstånd och chevron; närmast lastbilen först', async () => {
     await montera();
     expect(text()).toContain('Vilken maskin hämtar du?');
-    expect(text()).toMatch(/Närmast bilen först · bilens plats idag 12:25/);
+    expect(sel('h1')!.parentElement!.textContent).toContain('Närmast lastbilen först');
     const rader = Array.from(document.querySelectorAll('[data-maskin]')).map(r => r.getAttribute('data-maskin'));
     // H8E (≈ 3,5 km) närmast, sedan de på Bågskyttebanan/Vällust, 810E längst bort
     expect(rader[0]).toBe('R64428');
     expect(rader).toHaveLength(5);
     expect(rader.indexOf('JD810E')).toBe(4);
     const giant = sel('[data-maskin="PONS20SDJAA270231"]')!;
-    expect(giant.textContent).toContain('Giant');
-    expect(giant.textContent).toContain('Skördare · står på Bågskyttebanan RP');
-    expect(giant.textContent).toContain('GPS idag 11:23');
-    expect(giant.textContent).toMatch(/≈ [\d,]+ km/);
-    expect(sel('[data-rad="extern"]')!.textContent).toContain('Maskin som inte är vår');
+    expect(giant.querySelector('[data-trakt]')!.textContent).toBe('Bågskyttebanan RP');
+    expect(giant.textContent).toMatch(/9,8 km/);
+    expect(giant.querySelector('[data-osaker]')).toBeNull();
+    // chevron i raden, ingen navigera-pil, ingen färgad prick
+    expect(giant.textContent).toContain('chevron_right');
+    expect(giant.textContent).not.toContain('navigation');
+    expect(giant.querySelector('span[aria-hidden][style*="border-radius: 50%"]')).toBeNull();
   });
 
-  it('810E: positionen från maskin_position är 12 dygn gammal — märkt "plats osäker"', async () => {
+  it('raden bär inte typ, källa eller klockslag: ingen "Skördare/Skotare", ingen "GPS …", inget "≈"', async () => {
+    await montera();
+    const t = Array.from(document.querySelectorAll('[data-maskin]')).map(r => r.textContent).join(' | ');
+    expect(t).not.toMatch(/Skördare|Skotare|GPS|≈|står på/);
+    expect(t).not.toMatch(/\d\d:\d\d/);
+  });
+
+  it('topprad: bara Avbryt till vänster — ingen "Hämta en maskin" uppe till höger i listan (andra steg behåller titeln)', async () => {
+    await montera();
+    const topp = sel('[data-hamta-avbryt]')!.parentElement!;
+    expect(topp.textContent).toBe('Avbryt');
+  });
+
+  it('"Maskin som inte är vår" ligger i ett eget kort under listan med micro-rubriken "Annan"; fotnoten står en gång', async () => {
+    await montera();
+    const rubriker = Array.from(document.querySelectorAll('h3')).map(h => h.textContent);
+    expect(rubriker).toEqual(['Maskiner', 'Annan']);
+    const annan = document.querySelector('section[aria-label="Annan"]')!;
+    expect(annan.querySelector('[data-rad="extern"]')!.textContent).toContain('Maskin som inte är vår');
+    expect(document.querySelector('section[aria-label="Maskiner"] [data-rad="extern"]')).toBeNull();
+    expect(text().match(/Avstånden är fågelväg\./g)).toHaveLength(1);
+    expect(text()).not.toContain('Kartappen visar vägen');
+  });
+
+  it('810E: positionen är 12 dygn gammal — orange tidsrad "Plats osäker · senast 7 okt" under trakten', async () => {
     await montera();
     const r = sel('[data-maskin="JD810E"]')!;
-    expect(r.textContent).toContain('plats osäker');
-    expect(r.textContent).toMatch(/Senast känd plats 7 okt/);
+    expect(r.querySelector('[data-trakt]')!.textContent).toBe('Älmehult gallring');
+    const o = r.querySelector('[data-osaker]') as HTMLElement;
+    expect(o.textContent).toBe('Plats osäker · senast 7 okt');
+    expect(o.getAttribute('style')).toContain('rgb(255, 159, 10)');
+    expect(document.querySelectorAll('[data-osaker]')).toHaveLength(1);   // tidsraden visas BARA för den osäkra
   });
 
-  it('H8E: en GPS-punkt från igår är inte osäker (under 3 dygn)', async () => {
+  it('H8E: en GPS-punkt från igår är inte osäker — ingen tidsrad', async () => {
     await montera();
     const r = sel('[data-maskin="R64428"]')!;
-    expect(r.textContent).toContain('GPS igår 09:03');
-    expect(r.textContent).not.toContain('osäker');
-  });
-
-  it('en maskin utan någon position står kvar i listan, utan avstånd och med uppmaningen att peka ut platsen', async () => {
-    db().tabeller.detalj_gps_spar = []; db().tabeller.hyttspar = []; db().tabeller.maskin_position = [];
-    await montera();
-    const r = sel('[data-maskin="JD810E"]')!;
-    expect(r.textContent).toContain('Plats saknas');
-    expect(r.textContent).not.toMatch(/≈/);
+    expect(r.querySelector('[data-trakt]')!.textContent).toBe('Sandåsen gallring');
+    expect(r.querySelector('[data-osaker]')).toBeNull();
   });
 
   it('läsfel på maskinerna är ett fel med Försök igen — aldrig en tom lista', async () => {
@@ -137,10 +158,21 @@ describe('steg 1 — vilken maskin?', () => {
     expect(text()).toContain('Några maskiners platser gick inte att läsa');
   });
 
-  it('bilens position saknas → telefonen är utgångspunkt, och raden säger det', async () => {
-    db().tabeller.lastbil_logg = [];
+  it('bilens position äldre än en timme → sorterat på telefonens GPS, och inget skrivs ut om det', async () => {
+    db().tabeller.lastbil_logg = [{ vin: 'VIN1', lat: 56.460, lng: 14.703, tidpunkt: '2026-10-19T08:00:00Z', odometer_m: 1, bransle_ml: 1 }];
+    mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 8 };   // telefonen står på Vällust
     await montera();
-    expect(text()).toContain('Närmast dig först · bilens plats saknas');
+    const rader = Array.from(document.querySelectorAll('[data-maskin]')).map(r => r.getAttribute('data-maskin'));
+    expect(rader[0]).toBe('A030353');   // Wisent står på Vällust — närmast telefonen, inte närmast LBC
+    expect(sel('h1')!.parentElement!.textContent).toContain('Närmast lastbilen först');
+    expect(text()).not.toMatch(/telefon|dig först|gammal|bilens plats/);
+  });
+
+  it('bilens position en halvtimme gammal räknas som färsk — sorterat på bilen', async () => {
+    db().tabeller.lastbil_logg = [{ vin: 'VIN1', lat: 56.460, lng: 14.703, tidpunkt: '2026-10-19T10:00:00Z', odometer_m: 1, bransle_ml: 1 }];
+    mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 8 };
+    await montera();
+    expect(document.querySelector('[data-maskin]')!.getAttribute('data-maskin')).toBe('R64428');
   });
 
   it('varken bil eller telefon → inga avstånd, och det står', async () => {
@@ -148,6 +180,37 @@ describe('steg 1 — vilken maskin?', () => {
     await montera();
     expect(text()).toContain('Avstånd saknas');
     expect(document.querySelectorAll('[data-maskin]')).toHaveLength(5);
+  });
+
+  it('en maskin utan någon position står kvar i listan, utan avstånd och med uppmaningen att peka ut platsen', async () => {
+    db().tabeller.detalj_gps_spar = []; db().tabeller.hyttspar = []; db().tabeller.maskin_position = [];
+    await montera();
+    const r = sel('[data-maskin="JD810E"]')!;
+    expect(r.querySelector('[data-trakt]')!.textContent).toBe('Plats saknas');
+    expect(r.textContent).not.toMatch(/\d km/);
+  });
+
+  it('läsfel på maskinerna är ett fel med Försök igen — aldrig en tom lista', async () => {
+    db().lasfel.add('dim_maskin');
+    await montera();
+    expect(text()).toContain('Kunde inte läsa maskinerna just nu.');
+    expect(sel('[data-maskin]')).toBeNull();
+    expect(knapp('Försök igen')).toBeTruthy();
+  });
+
+  it('en positionsläsning som faller gör inte listan tom — den säger det', async () => {
+    db().lasfel.add('detalj_gps_spar');
+    await montera();
+    expect(document.querySelectorAll('[data-maskin]')).toHaveLength(5);
+    expect(text()).toContain('Några maskiners platser gick inte att läsa');
+  });
+
+  it('bilens position saknas helt → sorterat på telefonens GPS, underrubriken oförändrad', async () => {
+    db().tabeller.lastbil_logg = [];
+    mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 8 };
+    await montera();
+    expect(sel('h1')!.parentElement!.textContent).toContain('Närmast lastbilen först');
+    expect(document.querySelector('[data-maskin]')!.getAttribute('data-maskin')).toBe('A030353');
   });
 });
 

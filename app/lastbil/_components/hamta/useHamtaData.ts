@@ -12,8 +12,8 @@ import { valjMaskinPos, type KandidatPos, type MaskinMedPos, type Punkt } from '
 import { getGps } from './gps';
 import type { Forare } from './dagSkriv';
 
-/** Bilens position äldre än så säger inget om var den står nu — då är telefonen utgångspunkten, om den går att läsa. */
-export const BIL_MAX_ALDER_MS = 6 * 3600 * 1000;
+/** Bilens position äldre än en timme säger inget om var den står nu — då sorteras listan på telefonens GPS i stället (utan att det skrivs ut). */
+export const BIL_MAX_ALDER_MS = 3600 * 1000;
 
 export interface Utgangspunkt { pos: Punkt; kalla: 'bil' | 'telefon'; tidMs: number | null; gammal: boolean }
 

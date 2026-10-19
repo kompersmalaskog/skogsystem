@@ -7,7 +7,7 @@ import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, LAYOUT, RAD, RADIE, TNUM, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
 import { GRUPP_RUBRIK, type DestGrupp, type DestRad } from './destinationer';
 import { KARTAPPAR, kartLank, lankAttr, type Kartapp } from './kartapp';
-import { avstandText, posRad, type MaskinRad } from './maskinPos';
+import { avstandKort, osakerRad, type MaskinRad } from './maskinPos';
 
 export const slagFarg = (slag: 'skordare' | 'skotare' | null): string => (slag === 'skordare' ? ROLLFARG_SKORDARE : slag === 'skotare' ? ROLLFARG_SKOTARE : FARG.text3);
 export const slagText = (slag: 'skordare' | 'skotare' | null): string => (slag === 'skordare' ? 'Skördare' : slag === 'skotare' ? 'Skotare' : 'Maskin');
@@ -15,11 +15,11 @@ export const slagText = (slag: 'skordare' | 'skotare' | null): string => (slag =
 const faltStil = { ...TYP.text, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: AVSTAND.m, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' as const, minHeight: TRAFFYTA.min };
 
 /** Översta raden: Avbryt till vänster, flödets namn till höger. Sticky i flödet (aldrig fixed + uppmätt padding). */
-export function Topp({ onAvbryt, deaktiverad }: { onAvbryt: () => void; deaktiverad?: boolean }) {
+export function Topp({ onAvbryt, deaktiverad, titel = true }: { onAvbryt: () => void; deaktiverad?: boolean; /** false = bara Avbryt (maskinlistan). */ titel?: boolean }) {
   return (
     <div style={{ position: 'sticky', top: LAYOUT.topbar, zIndex: 50, background: FARG.bg, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${AVSTAND.s}px 0` }}>
       <button type="button" data-hamta-avbryt onClick={onAvbryt} disabled={deaktiverad} style={{ ...KNAPP.lank, ...(deaktiverad ? INAKTIV : {}) }}>Avbryt</button>
-      <span style={{ ...TYP.meta, color: FARG.text2 }}>Hämta en maskin</span>
+      {titel && <span style={{ ...TYP.meta, color: FARG.text2 }}>Hämta en maskin</span>}
     </div>
   );
 }
@@ -73,20 +73,25 @@ export function KartKnapp({ app, lat, lng, etikett, onTryck, id }: { app: Kartap
   );
 }
 
-/** "Giant · Skördare · står på Bågskyttebanan RP" — en rad per maskin, närmast först. Hela raden är trycket. */
-export function MaskinListeRad({ rad, plats, nuMs, onVal }: { rad: MaskinRad; plats: string | null; nuMs: number; onVal: () => void }) {
-  const p = posRad(rad.pos, nuMs);
+/**
+ * Maskinlistans rad — Arbetsrapportens/Körningars radmönster (`RundaRad`): namnet stort, EN rad under (trakten), avståndet till höger
+ * och chevronen ›. Hela raden är trycket; kartappen öppnas i nästa steg, så ingen navigera-ikon här. Tidsraden under trakten står BARA
+ * när positionen är osäker, i orange och med ord ("Plats osäker · senast 31 aug"). Ingen färgad prick: färg bär aldrig info ensam,
+ * och typen (skördare/skotare) är inte det man väljer på.
+ */
+export function MaskinListeRad({ rad, trakt, onVal, sista }: { rad: MaskinRad; trakt: string | null; onVal: () => void; sista?: boolean }) {
   return (
     <button type="button" data-maskin={rad.maskin_id} onClick={onVal}
-      style={{ ...RAD, width: '100%', background: 'none', border: 'none', borderBottom: `1px solid ${FARG.linje}`, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer', padding: `${AVSTAND.m}px 0` }}>
-      <span aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: slagFarg(rad.slag), flex: 'none' }} />
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ ...TYP.listtitel, display: 'block' }}>{rad.namn}</span>
-        <span style={{ ...TYP.meta, color: FARG.text2, display: 'block' }}>{slagText(rad.slag)}{plats ? ` · står på ${plats}` : ''}</span>
-        <span style={{ ...TYP.meta, color: p.osaker ? FARG.orange : FARG.text2, display: 'block' }}>{p.text}</span>
-      </span>
-      {rad.km != null && <span style={{ ...TYP.listtitel, color: FARG.text, ...TNUM, whiteSpace: 'nowrap' }}>{avstandText(rad.km)}</span>}
-      {rad.pos && <NavIkon />}
+      style={{ ...RAD, width: '100%', minHeight: TRAFFYTA.min, background: 'none', border: 'none', borderBottom: sista ? 'none' : RAD.borderBottom, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer', padding: `${AVSTAND.m}px 0` }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ ...TYP.listtitel, color: FARG.text }}>{rad.namn}</div>
+        <div data-trakt style={{ ...TYP.meta, color: rad.pos ? FARG.text2 : FARG.orange, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {rad.pos ? (trakt ?? 'Okänd plats') : 'Plats saknas'}
+        </div>
+        {rad.pos?.osaker && <div data-osaker style={{ ...TYP.meta, color: FARG.orange }}>{osakerRad(rad.pos)}</div>}
+      </div>
+      {rad.km != null && <span style={{ ...TYP.listtitel, color: FARG.text, ...TNUM, whiteSpace: 'nowrap' }}>{avstandKort(rad.km)}</span>}
+      <Chevron />
     </button>
   );
 }

@@ -18,7 +18,7 @@ import { destKoordinat, narmastePlats, rangordnaDestinationer, type DestRad } fr
 import { lasUtkast, nyttUtkast, rensaUtkast, sparaUtkast, type Steg, type Utkast, type ValdPlats } from './flode';
 import { getFarskGps, type Pos } from './gps';
 import { KARTAPPAR, kanValjaKartapp, kartLank, lankAttr, lasKartapp, sparaKartapp, type Kartapp } from './kartapp';
-import { avstandText, posRad, sorteraMaskiner, tidText } from './maskinPos';
+import { avstandText, posRad, sorteraMaskiner } from './maskinPos';
 import { useHamtaData, type HamtaData } from './useHamtaData';
 import {
   DestLista, EnkelRad, ExternArk, Fel, KartKnapp, KartappArk, Kvittorad, MaskinListeRad, Meta, PosVarningArk, Rubrik, RundaFragaArk,
@@ -330,25 +330,25 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
   // ═════════ Steg: välj maskin ═════════
   if (utkast.steg === 'val') {
     const rader = sorteraMaskiner(data.maskiner, data.fran?.pos ?? null);
-    const kalla = !data.fran ? 'Avstånd saknas — varken bilens eller din plats gick att läsa'
-      : data.fran.kalla === 'telefon' ? 'Närmast dig först · bilens plats saknas'
-      : data.fran.gammal ? `Närmast bilens senaste plats först · ${data.fran.tidMs ? tidText(data.fran.tidMs, nuMs) : 'okänd tid'} (gammal)`
-      : `Närmast bilen först · bilens plats ${data.fran.tidMs ? tidText(data.fran.tidMs, nuMs) : 'saknar tid'}`;
+    // Bilens position äldre än en timme → listan sorteras på telefonens GPS (useHamtaData) och underrubriken säger ändå samma sak.
+    const kalla = data.fran ? 'Närmast lastbilen först' : 'Avstånd saknas — varken bilens eller din plats gick att läsa';
     return (
       <>
-        <Topp onAvbryt={() => onAvsluta('')} />
+        <Topp onAvbryt={() => onAvsluta('')} titel={false} />
         <Rubrik under={kalla}>Vilken maskin hämtar du?</Rubrik>
         {data.posFel && <Meta orange>Några maskiners platser gick inte att läsa — de står utan plats.</Meta>}
         <Sektion rubrik="Maskiner">
           {rader.length === 0 && <Meta>Inga aktiva maskiner hittades.</Meta>}
-          {rader.map(r => (
-            <MaskinListeRad key={r.maskin_id} rad={r} nuMs={nuMs}
-              plats={r.pos ? (r.pos.namn ?? narmastePlats(r.pos, data.objekt, data.platser)?.namn ?? null) : null}
+          {rader.map((r, i) => (
+            <MaskinListeRad key={r.maskin_id} rad={r} sista={i === rader.length - 1}
+              trakt={r.pos ? (r.pos.namn ?? narmastePlats(r.pos, data.objekt, data.platser)?.namn ?? null) : null}
               onVal={() => valjMaskin(r.maskin_id)} />
           ))}
+        </Sektion>
+        <Sektion rubrik="Annan">
           <EnkelRad id="extern" namn="Maskin som inte är vår" sub="Namn och kund — faktureras alltid" onTryck={() => setArk('extern')} />
         </Sektion>
-        <Meta>Avstånden är fågelväg. Kartappen visar vägen.</Meta>
+        <Meta>Avstånden är fågelväg.</Meta>
         {overlag}
       </>
     );
