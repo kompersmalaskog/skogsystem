@@ -56,6 +56,13 @@ export const SKARPA = [
   "components/admin/PeriodArk.tsx",
   "app/egenkontroll/RundKommentarSheet.tsx",    // rundans kommentar (A4-rapporten) — tokens från början
   "app/egenkontroll/RapportDela.tsx",            // Rapport till Vida — tokens från början
+  // Rundvyns ram (PR 4, 2026-10): tokens från början, noll literaler.
+  "app/egenkontroll/Bricka.tsx",
+  "app/egenkontroll/BrickaRad.tsx",
+  "app/egenkontroll/RundDock.tsx",
+  "app/egenkontroll/RundArk.tsx",
+  "components/design/KartHuvud.tsx",
+  "components/design/KartKnapp.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
   "app/ekonomi/delade/tabell.ts",               // delad tabellmatte + cellstilar
   "app/ekonomi/per-klass/PerKlassClient.tsx",   // Per klass — tokenstädad

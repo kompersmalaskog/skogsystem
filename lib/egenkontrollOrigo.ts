@@ -270,15 +270,15 @@ export function origoForklaring(b: OrigoBeslut): string | null {
   if (b.ok) return null;
   switch (b.skal) {
     case 'saknar_position':
-      return 'Objektet saknar position — varken kartbild eller koordinat — så punkterna kan inte placeras på kartan. De listas i grupp och ordning.';
+      return 'Objektet saknar position — varken kartbild eller koordinat — så punkterna kan inte placeras på kartan. De finns i arket under "Punkter utan markering på kartan".';
     case 'laddar':
       return 'Kontrollerar var punkterna ligger …';
     case 'las_fel':
-      return 'Kunde inte kontrollera var punkterna ligger. Ladda om sidan. Så länge listas de i grupp och ordning.';
+      return 'Kunde inte kontrollera var punkterna ligger. Ladda om sidan. Så länge finns de i arket under "Punkter utan markering på kartan".';
     case 'ingen_vida_grans':
-      return 'Vidas traktgräns saknas för objektet, så det går inte att kontrollera var planeringens punkter ligger — de ritas inte på kartan. De listas i grupp och ordning.';
+      return 'Vidas traktgräns saknas för objektet, så det går inte att kontrollera var planeringens punkter ligger — de ritas inte på kartan. De finns i arket under "Punkter utan markering på kartan".';
     case 'stammer_inte':
-      return 'Planeringens markeringar stämmer inte med Vidas traktgräns, så de ritas inte på kartan — hellre inga än fel. De listas i grupp och ordning. Be planeraren se över markeringarna.';
+      return 'Planeringens markeringar stämmer inte med Vidas traktgräns, så de ritas inte på kartan — hellre inga än fel. De finns i arket under "Punkter utan markering på kartan". Be planeraren se över markeringarna.';
   }
 }
 
