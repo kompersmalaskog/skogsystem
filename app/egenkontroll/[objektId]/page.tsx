@@ -46,6 +46,8 @@ import {
   svaraPaPunkt,
   avslutaRunda,
   sparaRundKommentar,
+  kompletteraRunda,
+  saknadeUtforandepunkter,
   utforandeUnderrad,
   hamtaFoton,
   hamtaKontextmarkeringar,
@@ -653,6 +655,8 @@ export default function EgenkontrollRundaPage() {
   // Rundans kommentar: utkastet (null = inget utkast, det sparade galler) och arket. Samma falt skrivs i arket och i avslutsdialogen.
   const [kommentarUtkast, setKommentarUtkast] = useState<string | null>(null);
   const [visaKommentar, setVisaKommentar] = useState(false);
+  // Utforandepunkter som saknas pa rundan och inte gick att lagga till (ingen tackning) - sags i listan, aldrig tyst.
+  const [kompletteringSaknas, setKompletteringSaknas] = useState(0);
 
   // TYST OMLASNING. Efter varje sparad avvikelse, provyta och stubbe las rundan om -
   // och den gamla ladda() satte laddar=true, sa HELA vyn byttes mot "Hamtar
@@ -662,7 +666,25 @@ export default function EgenkontrollRundaPage() {
   const ladda = useCallback(async (val: { tyst?: boolean } = {}) => {
     if (!val.tyst) { setLaddar(true); setFel(null); }
     try {
-      setVy(await hamtaRunda(objektId));
+      let rund = await hamtaRunda(objektId);
+      // RYGGRADEN: en PAGAENDE runda far de utforandepunkter katalogen kraver NAR DEN OPPNAS (additivt, se kompletteraRunda). Bara vid en riktig
+      // oppning, inte vid de tysta omlasningarna efter varje sparning - en misslyckad komplettering ska inte gora varje sparning langsammare.
+      // Gar det inte (ingen tackning) oppnas rundan som forut och sidan sager hur manga punkter som saknas.
+      if (rund.egenkontroll && rund.egenkontroll.status !== 'klar' && !val.tyst) {
+        const saknas = saknadeUtforandepunkter(rund.egenkontroll.objekt_typ, rund.punkter.map((p) => p.punkt_typ)).length;
+        if (saknas > 0) {
+          try {
+            await kompletteraRunda(rund.egenkontroll.id);
+            rund = await hamtaRunda(objektId);
+            setKompletteringSaknas(0);
+          } catch {
+            setKompletteringSaknas(saknas);
+          }
+        } else {
+          setKompletteringSaknas(0);
+        }
+      }
+      setVy(rund);
     } catch (e) {
       const text = e instanceof Error ? e.message : 'Kunde inte hämta egenkontrollen.';
       if (val.tyst) {
@@ -1444,6 +1466,12 @@ export default function EgenkontrollRundaPage() {
             <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: -0.5, margin: '4px 0 4px' }}>
               {vy.objektNamn}
             </h1>
+
+            {kompletteringSaknas > 0 && !rundanKlar && (
+              <div role="status" style={{ ...TYP.meta, color: FARG.orange, margin: `0 0 ${AVSTAND.s}px` }}>
+                {kompletteringSaknas === 1 ? '1 punkt saknas och läggs' : `${kompletteringSaknas} punkter saknas och läggs`} till när det finns täckning.
+              </div>
+            )}
 
             {/* Forutsattningarna OVANFOR kartan och utanfor det sticky blocket:
                 de ska ses en gang och sedan scrollas bort. Aldrig nere vid
