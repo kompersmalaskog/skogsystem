@@ -263,7 +263,7 @@ describe('Egna favoriter', () => {
     await act(async () => { Array.from(ark().querySelectorAll('button')).find(b => b.textContent?.includes('Återställ'))!.click() })
     await act(async () => { spara().click() })
     await flush()
-    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'bestallningar', 'ekonomi'])
+    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'lastbilen', 'ekonomi'])
   })
 
   it('HomeClient: sparade favoriter läses in för admin', async () => {

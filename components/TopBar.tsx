@@ -42,7 +42,8 @@ export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const pageName = pageNames[pathname]
-    || (pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
+    || (pathname.startsWith('/objekt/') ? 'Objekt'
+    : pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
     : pathname.startsWith('/gallring/') ? 'Gallring'
     : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
     : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'

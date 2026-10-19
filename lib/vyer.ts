@@ -52,7 +52,6 @@ export const VYER: Vy[] = [
   { id: 'gallring', namn: 'Gallring', href: '/gallring', ikon: 'forest', grupp: 'produktion' },
   { id: 'helikopter', namn: 'Helikopter', href: '/helikopter', ikon: 'flight', grupp: 'produktion', sokord: ['beställt', 'prognos'] },
   { id: 'helikopter-v2', namn: 'Helikopter v2', href: '/helikopter-v2', ikon: 'helicopter', grupp: 'produktion' },
-  { id: 'bestallningar', namn: 'Beställningar', href: '/bestallningar', ikon: 'shopping_cart', grupp: 'produktion', sokord: ['order'] },
   { id: 'affarsuppfoljning', namn: 'Affärsuppföljning', href: '/affarsuppfoljning', ikon: 'business_center', grupp: 'produktion', sokord: ['affär'] },
 
   // Maskiner
@@ -65,7 +64,7 @@ export const VYER: Vy[] = [
 
   // Objekt
   { id: 'planering', namn: 'Planering', href: '/planering', ikon: 'event_note', grupp: 'objekt', sokord: ['karta', 'trakt'] },
-  { id: 'objekt', namn: 'Objekt', href: '/objekt', ikon: 'layers', grupp: 'objekt', sokord: ['trakt', 'vo'] },
+  { id: 'objekt', namn: 'Objekt', href: '/objekt', ikon: 'layers', grupp: 'objekt', sokord: ['trakt', 'vo', 'beställning', 'order'] },
   { id: 'objektdetaljer', namn: 'Objektdetaljer', href: '/redigering', ikon: 'edit', grupp: 'objekt', sokord: ['redigering'] },
   { id: 'starta-jobb', namn: 'Starta jobb', href: '/starta-jobb', ikon: 'power_settings_new', grupp: 'objekt' },
   { id: 'egenkontroll', namn: 'Egenkontroll', href: '/egenkontroll', ikon: 'fact_check', grupp: 'objekt', marke: 'egenkontroll' },
@@ -94,7 +93,7 @@ export const VYER: Vy[] = [
 
 /** Förinställda favoriter per roll (tills var och en kan ändra sina — nästa PR). Max 8. */
 export const STANDARD_FAVORITER: Record<Roll, string[]> = {
-  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'bestallningar', 'ekonomi'],
+  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'lastbilen', 'ekonomi'],
   forare: ['planera', 'planering', 'ledighet', 'lastbilen', 'kalibrering', 'servicelogg', 'uppfoljning', 'utbildning'],
 }
 
