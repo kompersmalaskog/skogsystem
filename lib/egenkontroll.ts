@@ -1306,7 +1306,8 @@ export async function angraForstaSvaret(
   if (error) throw new Error(`Kunde inte ångra svaret: ${error.message}`);
   if (!data) throw new Error('Svaret är redan ändrat eller rundan är avslutad — det gick inte att ångra. Ladda om sidan.');
   const sparad = data as unknown as EgenkontrollPunkt;
-  if (sparad.status !== null) throw new Error('Svaret ångrades inte som väntat. Ladda om sidan.');
+  // Status OCH besvarad hör ihop (CHECK status_och_besvarad_hanger_ihop): båda ska vara tomma efteråt, annars har något annat skrivit emellan.
+  if (sparad.status !== null || sparad.besvarad !== null) throw new Error('Svaret ångrades inte som väntat. Ladda om sidan.');
   return sparad;
 }
 

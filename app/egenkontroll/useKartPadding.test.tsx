@@ -66,7 +66,7 @@ describe('useKartPadding', () => {
     await montera({ aktiv: true, huvud: { bottom: 64 }, dock: rekt(600, 1), omatning: 'dock' });
     expect(senaste!.bottom).toBe(200);
     // Samma element, ny överkant — som när translateY ändras.
-    await act(async () => { root!.render(createElement(Prov, { aktiv: true, huvud: { bottom: 64 }, dock: rekt(300, 1), omatning: 'halv' })); });
+    await act(async () => { root!.render(createElement(Prov, { aktiv: true, huvud: { bottom: 64 }, dock: rekt(300, 1), omatning: 'hel' })); });
     expect(senaste!.bottom).toBe(500);
   });
 });

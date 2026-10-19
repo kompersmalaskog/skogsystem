@@ -158,7 +158,7 @@ describe('angraForstaSvaret', () => {
   const har = (k: Kedja, namn: string, ...a: any[]) => k.ops.some((o) => o[0] === namn && a.every((x, i) => o[i + 1] === x));
 
   it('nollar status, typ och tid — men BARA om svaret fortfarande är det som skrevs', async () => {
-    const { klient, kedjor } = fejk(() => ({ data: { id: 'p', status: null }, error: null }));
+    const { klient, kedjor } = fejk(() => ({ data: { id: 'p', status: null, besvarad: null }, error: null }));
     await angraForstaSvaret('p', 'utforande', 'bra', { klient });
     const k = kedjor[0];
     expect(k.ops.find((o) => o[0] === 'update')![1]).toEqual({ status: null, avvikelse_typ: null, besvarad: null });
@@ -175,7 +175,10 @@ describe('angraForstaSvaret', () => {
   it('ett databasfel kastas med sin text; en rad som fortfarande har ett svar kastas', async () => {
     const fel = fejk(() => ({ data: null, error: { message: 'boom' } }));
     await expect(angraForstaSvaret('p', 'utforande', 'bra', { klient: fel.klient })).rejects.toThrow('boom');
-    const kvar = fejk(() => ({ data: { id: 'p', status: 'bra' }, error: null }));
+    const kvar = fejk(() => ({ data: { id: 'p', status: 'bra', besvarad: '2026-10-19T08:00:00Z' }, error: null }));
     await expect(angraForstaSvaret('p', 'utforande', 'bra', { klient: kvar.klient })).rejects.toThrow('som väntat');
+    // Status tom men besvarad kvar: raderna säger olika — det är ett fel, inte ett lyckat Ångra.
+    const halv = fejk(() => ({ data: { id: 'p', status: null, besvarad: '2026-10-19T08:00:00Z' }, error: null }));
+    await expect(angraForstaSvaret('p', 'utforande', 'bra', { klient: halv.klient })).rejects.toThrow('som väntat');
   });
 });

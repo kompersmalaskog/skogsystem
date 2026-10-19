@@ -33,6 +33,7 @@ const utforande = (typ: 'slutavverkning' | 'gallring' = 'slutavverkning', over: 
 let vyn: any;
 const hamtaRunda = vi.fn(async () => vyn);
 const svaraPaPunkt = vi.fn(async (id: string, status: string, _del: string) => ({ ...vyn.punkter.find((p: any) => p.id === id), status }));
+const avslutaRunda = vi.fn(async () => ({ ...RUNDA, status: 'klar' }));
 const angraForstaSvaret = vi.fn(async (id: string, _del: string, _svar: string) => {
   const p = vyn.punkter.find((q: any) => q.id === id);
   p.status = null;
@@ -50,6 +51,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     kompletteraRunda: async () => ({ tillagda: [] }),
     svaraPaPunkt: (id: string, s: string, d: string) => svaraPaPunkt(id, s, d),
     angraForstaSvaret: (id: string, d: string, s: string) => angraForstaSvaret(id, d, s),
+    avslutaRunda: () => avslutaRunda(),
     hamtaFoton: async () => [],
     hamtaProvytor: async () => [],
     hamtaKontextmarkeringar: async () => [],
@@ -164,16 +166,18 @@ describe('ramen: kartan är hela vyn, med huvud, ark och dock', () => {
     expect(ark().contains(document.querySelector('[data-testid=kommentar-rad]'))).toBe(true);
   });
 
-  it('greppet och huvudets namn växlar dock ↔ halv; innehållet under brickorna är inte nåbart i dock-läget', async () => {
+  it('greppet och huvudets namn växlar dock ↔ hel (inget mellanläge); innehållet under brickorna är inte nåbart i dock-läget', async () => {
     await montera();
     expect(document.querySelector('[data-testid=ark-innehall]')!.hasAttribute('inert')).toBe(true);
     await klick(document.querySelector('[data-testid=ark-grepp]')!);
-    expect(ark().getAttribute('data-lage')).toBe('halv');
+    expect(ark().getAttribute('data-lage')).toBe('hel');
     expect(document.querySelector('[data-testid=ark-innehall]')!.hasAttribute('inert')).toBe(false);
     await klick(document.querySelector('[data-testid=ark-grepp]')!);
     expect(ark().getAttribute('data-lage')).toBe('dock');
     await klick(huvud().querySelector('button')!);
-    expect(ark().getAttribute('data-lage')).toBe('halv');
+    expect(ark().getAttribute('data-lage')).toBe('hel');
+    // Lägena är exakt två — ett värde "halv" får aldrig förekomma.
+    expect(document.querySelector('[data-lage=halv]')).toBeNull();
   });
 });
 
@@ -397,7 +401,7 @@ describe('RUNDA UTAN KOORDINATER: tom kartbakgrund, förklarande rad, brickorna 
   });
 });
 
-describe('arket dras i greppet: tre lägen med riktig höjd (offsetHeight stubbad — jsdom har ingen layout)', () => {
+describe('arket dras i greppet: två lägen med riktig höjd (offsetHeight stubbad — jsdom har ingen layout)', () => {
   const orig = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
   beforeEach(() => {
     // Arket är 688 högt (hel), dockan (greppet + raden + brickorna) 260.
@@ -422,13 +426,13 @@ describe('arket dras i greppet: tre lägen med riktig höjd (offsetHeight stubba
     await act(async () => { g.dispatchEvent(peka('pointerup', till)); (g as HTMLElement).click(); });
   };
 
-  it('dra upp ett stycke: halv; dra långt upp: hel (då göms sidoknapparna); dra ned igen: tillbaka till dock', async () => {
+  it('dra upp förbi mitten: hel (då göms sidoknapparna); dra ned igen: tillbaka till dock; ett kort drag uppåt lämnar dockan', async () => {
     await montera();
     expect(ark().getAttribute('data-lage')).toBe('dock');
-    await dra(600, 300);                       // 300 px upp: närmast halv
-    expect(ark().getAttribute('data-lage')).toBe('halv');
+    await dra(600, 500);                       // 100 px upp: närmast dock
+    expect(ark().getAttribute('data-lage')).toBe('dock');
     expect(knappar().some((b) => /Notera här/.test(b.textContent ?? ''))).toBe(true);
-    await dra(400, 40);                        // långt upp: hel
+    await dra(600, 300);                       // 300 px upp: närmast hel
     expect(ark().getAttribute('data-lage')).toBe('hel');
     // I hel ligger arket under huvudet: sidoknapparna skulle hamna ovanpå det och göms.
     expect(knappar().some((b) => /Notera här/.test(b.textContent ?? ''))).toBe(false);
@@ -445,7 +449,7 @@ describe('arket dras i greppet: tre lägen med riktig höjd (offsetHeight stubba
     await dra(600, 580);                       // 20 px: under tröskeln
     expect(ark().getAttribute('data-lage')).toBe('dock');
     await dra(600, 300);
-    expect(ark().getAttribute('data-lage')).toBe('halv');   // draget landade i halv — och klicket efter draget växlade INTE tillbaka
+    expect(ark().getAttribute('data-lage')).toBe('hel');   // draget landade i hel — och klicket efter draget växlade INTE tillbaka
   });
 });
 
@@ -461,6 +465,45 @@ describe('hjälpraden', () => {
     vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 0: { status: 'bra' } })] };
     await montera();
     expect(text()).not.toContain('Tryck på en bricka ger Bra');
+  });
+});
+
+describe('AVSLUT: en bekräftelse som namnger konsekvensen', () => {
+  /** Allt besvarat och inga provytor: rundan går att avsluta. */
+  const allaSvarade = () => {
+    vyn = { ...vyn, punkter: [rad('p1', { status: 'ok' }), rad('p2', { status: 'ok' }), ...utforande('slutavverkning', Object.fromEntries(utforandeKatalog('slutavverkning').map((_, i) => [i, { status: 'bra' }])))] };
+  };
+  const avslutaKnapp = () => document.querySelector('[data-testid=avsluta-knapp]') as HTMLButtonElement;
+  const dialog = () => document.querySelector('[role=dialog][aria-label="Avsluta rundan"]');
+
+  it('knappen avslutar INTE: den öppnar en bekräftelse som säger "Rundan låses och kan inte ändras."', async () => {
+    allaSvarade();
+    await montera();
+    expect(avslutaKnapp().disabled).toBe(false);
+    await klick(avslutaKnapp());
+    expect(avslutaRunda).not.toHaveBeenCalled();
+    expect(dialog()).not.toBeNull();
+    expect(dialog()!.textContent).toContain('Rundan låses och kan inte ändras.');
+  });
+
+  it('"Gå tillbaka" stänger bekräftelsen utan att avsluta; först bekräftelsen avslutar, en gång', async () => {
+    allaSvarade();
+    await montera();
+    await klick(avslutaKnapp());
+    await klick(Array.from(dialog()!.querySelectorAll('button')).find((b) => b.textContent === 'Gå tillbaka')!);
+    expect(dialog()).toBeNull();
+    expect(avslutaRunda).not.toHaveBeenCalled();
+    await klick(avslutaKnapp());
+    await klick(Array.from(dialog()!.querySelectorAll('button')).find((b) => b.textContent === 'Avsluta rundan')!);
+    expect(avslutaRunda).toHaveBeenCalledTimes(1);
+  });
+
+  it('knappen är låst medan något återstår — och bekräftelsen kan då inte ens öppnas', async () => {
+    await montera();   // standardrundan har obesvarade punkter
+    expect(avslutaKnapp().disabled).toBe(true);
+    await klick(avslutaKnapp());
+    expect(dialog()).toBeNull();
+    expect(avslutaRunda).not.toHaveBeenCalled();
   });
 });
 

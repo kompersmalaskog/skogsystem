@@ -3,13 +3,19 @@
 // RUNDARKET: ett ark som ligger NEDERST på kartan och kan dras upp. Dockan (brickorna) är arkets understa läge; Rundan-innehållet
 // (listan, kommentaren, observationerna, stubbehandlingen, avslutet) ligger under brickorna och syns när arket dras upp.
 //
-// AVSTEG 4/7 FRÅN PLANERINGSVYN: ARKET HAR TRE LÄGEN I STÄLLET FÖR TVÅ.
-// Planeringens ark (InfoRam) har halv och hel höjd, och stängs genom att dras ned. Här stängs arket aldrig — dockan ÄR det understa läget,
-// och brickorna ska alltid finnas kvar — så lägena är tre: dock (bara brickorna), halv (innehållet under dem) och hel (nästan hela
-// skärmen, huvudet synligt). Arket är alltid så högt som hel och förskjuts nedåt med translateY, så ett läge är bara ett tal (hur många px som
-// syns, lib/egenkontrollArk.ts) och kartans padding kan räknas exakt. Det dras i greppet (44 px hög träffyta) och bara där: brickorna och
-// innehållet har egna tryck. Tryck på greppet växlar dock ↔ halv. Arket ligger nedtill på alla bredder (max KOLUMN.ark) — aldrig en panel från
+// AVSTEG 4/7 FRÅN PLANERINGSVYN: ARKET STÄNGS ALDRIG — DOCKAN ÄR DET UNDERSTA LÄGET, OCH DET FINNS BARA TVÅ: DOCK OCH HEL.
+// Planeringens ark (InfoRam) har halv och hel höjd och stängs genom att dras ned. Här stängs arket aldrig: brickorna ska alltid finnas kvar,
+// så det understa läget är dockan (bara brickorna och raden för det markerade) och det övre är hel (nästan hela skärmen, huvudet synligt).
+// Inget halvt läge: det gav kartan 126 px (oanvändbart) och innehållet en lika liten remsa, och att flytta gränsen flyttar bara problemet.
+// Arket är alltid så högt som hel och förskjuts nedåt med translateY, så ett läge är bara ett tal (hur många px som syns,
+// lib/egenkontrollArk.ts) och kartans padding kan räknas exakt. Det dras i greppet (44 px hög träffyta) och bara där: brickorna och
+// innehållet har egna tryck. Tryck på greppet växlar dock ↔ hel. Arket ligger nedtill på alla bredder (max KOLUMN.ark) — aldrig en panel från
 // höger: den som går rundan har tummen nere, och en panel på sidan täcker kartan åt ena hållet.
+//
+// SAFE-AREA: arkets nederkant ligger vid skärmens nederkant (bottom 0) och dockans innehåll slutar med `medSafeBotten(AVSTAND.m)` =
+// max(12 px, 8 px + env(safe-area-inset-bottom)), så den understa brickraden ligger alltid OVANFÖR hemindikatorn. Höjden som mäts (`toppRef`)
+// inkluderar den paddingen, så dockan sitter exakt rätt utan att något räknar med ett antaget mått. Hel slutar under huvudet, som ligger på
+// `env(safe-area-inset-top)` + 8 px (underKartHuvud). Kräver viewport-fit=cover (app/layout.tsx har det) — utan den är alla env() noll.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { AVSTAND, FARG, KOLUMN, RADIE, TRAFFYTA, medSafeBotten, overgang } from '@/lib/design/tokens';
@@ -26,7 +32,7 @@ export type RundArkProps = {
   onLage: (l: ArkLage) => void;
   /** Dockan: raden och brickorna. Alltid synlig. */
   topp: ReactNode;
-  /** Rundan-innehållet. Syns i halv och hel; ej nåbart (inert) i dock. */
+  /** Rundan-innehållet. Syns i hel; ej nåbart (inert) i dock. */
   children: ReactNode;
   /** Mätpunkt för kartans padding: ett nolldimensionellt element vars överkant är arkets synliga överkant. */
   malRef: RefObject<HTMLDivElement>;
@@ -76,7 +82,7 @@ export default function RundArk({ lage, onLage, topp, children, malRef, onMatt, 
   const forskjutning = h.hel - synlig;
 
   // Sidan mäter om kartans padding när det SLUTLIGA läget ändrats (inte under draget).
-  const nyckel = `${lage}:${h.dock}:${h.halv}:${h.hel}`;
+  const nyckel = `${lage}:${h.dock}:${h.hel}`;
   useEffect(() => { onMatt?.(nyckel); }, [nyckel, onMatt]);
 
   const start = (e: React.PointerEvent<HTMLButtonElement>) => {

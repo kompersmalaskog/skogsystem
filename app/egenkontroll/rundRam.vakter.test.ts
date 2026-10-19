@@ -11,7 +11,7 @@ const AVSTEG: { n: number; fil: string; ratt: string; nyckel: RegExp }[] = [
   { n: 1, fil: 'app/egenkontroll/RundDock.tsx', ratt: 'dockan med brickor', nyckel: /DOCKAN MED BRICKOR/ },
   { n: 2, fil: 'app/egenkontroll/Bricka.tsx', ratt: 'svarsstatus på varje bricka', nyckel: /SVARSSTATUS PÅ VARJE BRICKA/ },
   { n: 3, fil: 'app/egenkontroll/[objektId]/page.tsx', ratt: 'kartan navigerar inte bort när man svarar', nyckel: /KARTAN NAVIGERAR INTE BORT NAR MAN SVARAR/ },
-  { n: 4, fil: 'app/egenkontroll/RundArk.tsx', ratt: 'tre lägen i stället för två', nyckel: /TRE LÄGEN I STÄLLET FÖR TVÅ/ },
+  { n: 4, fil: 'app/egenkontroll/RundArk.tsx', ratt: 'arket stängs aldrig: dock och hel', nyckel: /ARKET STÄNGS ALDRIG/ },
   { n: 5, fil: 'lib/egenkontrollBricka.ts', ratt: 'katalogdriven, inte redigerbar punktlista', nyckel: /KATALOGDRIVEN OCH INTE REDIGERBAR/ },
   { n: 6, fil: 'app/egenkontroll/[objektId]/page.tsx', ratt: 'avslut i arket, inte i huvudet', nyckel: /AVSLUT LIGGER I ARKET OCH INTE I HUVUDET/ },
   { n: 7, fil: 'app/egenkontroll/BrickaRad.tsx', ratt: 'låstriggern gör vyn helt läsbar', nyckel: /LÅSTRIGGERN GÖR VYN HELT LÄSBAR/ },

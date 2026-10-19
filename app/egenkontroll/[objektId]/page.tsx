@@ -94,7 +94,7 @@ import {
   type OrigoBeslut,
   type VidaGrans,
 } from '@/lib/egenkontrollOrigo';
-import { anmarkningsText, kortDatum } from '../format';
+import { AVSLUTA_KONSEKVENS, anmarkningsText, kortDatum } from '../format';
 import { AVSTAND, FARG, INAKTIV, KNAPP, KOLUMN, LAYOUT, RADIE, TRAFFYTA, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 import KartHuvud, { underKartHuvud } from '@/components/design/KartHuvud';
 import KartKnapp from '@/components/design/KartKnapp';
@@ -105,7 +105,7 @@ import RundDock from '../RundDock';
 import BrickaRad from '../BrickaRad';
 import { useKartPadding } from '../useKartPadding';
 import { ANGRA_MS, brickaTryck, byggBrickor, kvarText, svarsDel, type Bricka as BrickaData } from '@/lib/egenkontrollBricka';
-import type { ArkLage } from '@/lib/egenkontrollArk';
+import { nastaGreppLage, type ArkLage } from '@/lib/egenkontrollArk';
 import {
   UTAN_POSITION_MENING,
   avstandPerPunkt as beraknaAvstand,
@@ -1108,7 +1108,7 @@ export default function EgenkontrollRundaPage() {
             tillbakaEtikett="Tillbaka till egenkontroll"
             titel={vy.objektNamn}
             meta={kvarText(kvarTotalt, rundanKlar)}
-            onTryck={() => setArkLage((l) => (l === 'dock' ? 'halv' : 'dock'))}
+            onTryck={() => setArkLage((l) => nastaGreppLage(l))}
             tryckEtikett="Visa rundan"
             oppen={arkLage !== 'dock'}
           />
@@ -1340,9 +1340,9 @@ export default function EgenkontrollRundaPage() {
               <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>
                 Avsluta rundan?
               </div>
-              <div style={{ fontSize: 15, color: T.t2, lineHeight: 1.5, marginBottom: 14 }}>
-                Detta sparas som egenkontrollens dokument. Efteråt går rundan inte
-                att ändra i appen.
+              <div data-testid="avsluta-konsekvens" style={{ ...TYP.listtitel, color: FARG.text, marginBottom: AVSTAND.xs }}>{AVSLUTA_KONSEKVENS}</div>
+              <div style={{ ...TYP.text, color: FARG.text2, marginBottom: AVSTAND.l }}>
+                Detta sparas som egenkontrollens dokument.
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18 }}>

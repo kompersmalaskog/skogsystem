@@ -1,33 +1,26 @@
-// Rundarkets tre lägen och vad ett drag i greppet gör. RENT — ingen React, ingen DOM.
+// Rundarkets två lägen och vad ett drag i greppet gör. RENT — ingen React, ingen DOM.
 //
 // Arket är alltid så högt som det högsta läget (`hel`) och förskjuts nedåt med translateY, så ett läge är bara ett tal: hur många pixlar
-// av arket som syns. dock = brickorna (och raden för det markerade), halv = Rundan-innehållet under dem, hel = nästan hela skärmen.
+// av arket som syns. dock = brickorna (och raden för det markerade), hel = nästan hela skärmen med Rundan-innehållet under brickorna.
+// Det finns inget mellanläge: en halv höjd gav kartan 126 px (oanvändbart) och innehållet en nästan lika liten remsa — att flytta gränsen
+// flyttar bara problemet. Kartan eller innehållet, aldrig ett mellanting.
 
-export type ArkLage = 'dock' | 'halv' | 'hel';
+export type ArkLage = 'dock' | 'hel';
 
-/** Synlig höjd i px per läge. Alltid dock <= halv <= hel. */
-export type ArkHojder = { dock: number; halv: number; hel: number };
+/** Synlig höjd i px per läge. Alltid dock <= hel. */
+export type ArkHojder = { dock: number; hel: number };
 
 /** Hur långt ett drag måste gå innan arket byter läge — under det ligger det kvar (ett darrande finger är inget val). */
 export const ARK_TARSKEL_PX = 56;
 
-/** Halva lägets andel av skärmhöjden. */
-export const ARK_HALV_ANDEL = 0.6;
-
-/** Det halva läget ska ge innehållet under brickorna minst så här mycket plats, hur hög dockan än är (markerad bricka + rad). */
-export const ARK_HALV_INNEHALL_PX = 240;
-
 /**
  * Lägenas höjder. `dockPx` är det uppmätta innehållet i dockan (grepp + raden + brickorna); `toppReservPx` är det som alltid ska vara
- * synligt ovanför arket i hela läget (huvudet och luften under det). Halv ger innehållet under brickorna minst
- * ARK_HALV_INNEHALL_PX (annars skulle en dock med markerad bricka äta hela det halva läget), men aldrig mer än hel. Dockan får aldrig bli
- * högre än hel, hur liten skärmen än är (en vriden telefon): ordningen dock <= halv <= hel gäller alltid.
+ * synligt ovanför arket i hel (huvudet och luften under det). Dockan blir aldrig högre än hel, hur liten skärmen än är (en vriden telefon).
  */
 export function arkHojder(args: { fonsterHojd: number; dockPx: number; toppReservPx: number }): ArkHojder {
   const hel = Math.max(0, Math.round(args.fonsterHojd - args.toppReservPx));
   const dock = Math.min(Math.max(0, Math.round(args.dockPx)), hel);
-  const halv = Math.min(hel, Math.max(dock + ARK_HALV_INNEHALL_PX, Math.round(args.fonsterHojd * ARK_HALV_ANDEL)));
-  return { dock, halv, hel };
+  return { dock, hel };
 }
 
 /** Förskjutningen nedåt (translateY) för ett läge. Hel = 0. */
@@ -44,17 +37,10 @@ export function arkDragHojd(nu: ArkLage, dy: number, h: ArkHojder): number {
 export function valjArkLage(nu: ArkLage, dy: number, h: ArkHojder): ArkLage {
   if (Math.abs(dy) < ARK_TARSKEL_PX) return nu;
   const mal = arkDragHojd(nu, dy, h);
-  const lagen: ArkLage[] = ['dock', 'halv', 'hel'];
-  let bast: ArkLage = nu;
-  let basta = Infinity;
-  for (const l of lagen) {
-    const d = Math.abs(h[l] - mal);
-    if (d < basta) { basta = d; bast = l; }
-  }
-  return bast;
+  return Math.abs(h.hel - mal) < Math.abs(h.dock - mal) ? 'hel' : 'dock';
 }
 
-/** Tryck på greppet växlar utan drag: dock → halv → dock. Hel nås bara genom att dra (eller med knappen i arket). */
+/** Tryck på greppet (eller huvudets namn) växlar utan drag: dock ↔ hel. */
 export function nastaGreppLage(nu: ArkLage): ArkLage {
-  return nu === 'dock' ? 'halv' : 'dock';
+  return nu === 'dock' ? 'hel' : 'dock';
 }
