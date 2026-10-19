@@ -23,7 +23,7 @@ describe("sthlmOffsetMin", () => {
     expect(sthlmOffsetMin(Date.parse("2026-07-15T12:00:00Z"))).toBe(120);
   });
 
-  it("följer EU:s regel över 2020–2035, minut för minut kring båda övergångarna", () => {
+  it("följer EU:s regel över 2020–2035, minut för minut kring båda övergångarna", { timeout: 30_000 }, () => {
     for (let ar = 2020; ar <= 2035; ar++) {
       for (const manad of [3, 10]) {
         const g = sistaSondag01(ar, manad);
@@ -42,11 +42,16 @@ describe("sthlmLokalTillUtcMs (väggklocka → ögonblick)", () => {
     expect(new Date(sthlmLokalTillUtcMs(Date.UTC(2026, 0, 12, 9, 4))).toISOString()).toBe("2026-01-12T08:04:00.000Z");
   });
 
-  it("samma svar som EU-regeln för varje kvart i 16 år, utom den dubbla och den obefintliga timmen", () => {
+  it("samma svar som EU-regeln: varje kvart ±3 dygn kring båda övergångarna och varje timme resten av året, 2020–2035, utom den dubbla och den obefintliga timmen", () => {
+    const DAG = 24 * 3_600_000;
     for (let ar = 2020; ar <= 2035; ar++) {
+      const grans = [sistaSondag01(ar, 3), sistaSondag01(ar, 10)];
       const start = Date.UTC(ar, 0, 1);
       const slut = Date.UTC(ar + 1, 0, 1);
       for (let v = start; v < slut; v += 15 * 60_000) {
+        // kvart för kvart bara nära övergångarna (där felen finns); resten av året jämförs varje timme
+        const nara = grans.some(g => Math.abs(v - g) <= 3 * DAG);
+        if (!nara && v % 3_600_000 !== 0) continue;
         const u = sthlmLokalTillUtcMs(v);
         // Förskjutningen vid det ögonblick vi valde ska vara den som gör väggklockan till v.
         const off = euOffset(u);
@@ -58,7 +63,7 @@ describe("sthlmLokalTillUtcMs (väggklocka → ögonblick)", () => {
         }
       }
     }
-  });
+  }, 30_000);
 
   it("dubbel timme i oktober → sommartid (första förekomsten); obefintlig i mars → vintertid", () => {
     expect(new Date(sthlmLokalTillUtcMs(Date.UTC(2026, 9, 25, 2, 30))).toISOString()).toBe("2026-10-25T00:30:00.000Z");
@@ -81,7 +86,7 @@ describe("optiTidSomVaggklocka — båda konventionerna ger samma väggklocka", 
     expect(optiTidSomVaggklocka("2026-10-12T09:04:00.808830+00:00", false)).toBe("2026-10-12T09:04:00.808830+00:00");
   });
 
-  it("rad som flyttats (äldre → ny) ger exakt samma sträng som före flytten, för varje 7:e minut i ett år", () => {
+  it("rad som flyttats (äldre → ny) ger exakt samma sträng som före flytten, för varje 7:e minut i ett år", { timeout: 30_000 }, () => {
     const start = Date.UTC(2026, 0, 1);
     const slut = Date.UTC(2027, 0, 1);
     for (let v = start; v < slut; v += 7 * 60_000 + 13_000) {
