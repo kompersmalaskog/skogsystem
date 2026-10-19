@@ -49,6 +49,14 @@ const tryck = async (re: RegExp | string, inom?: ParentNode) => klicka(knapp(re,
 const sel = (s: string) => document.querySelector(s) as HTMLElement | null;
 const skriv = (tabell: string, op?: 'insert' | 'update') => db().skrivningar.filter(s => s.tabell === tabell && (!op || s.op === op));
 
+/** Lassat trycks vid maskinen (annars frågar appen "Stämmer platsen?"); testets GPS flyttas sedan dit nästa steg ska ske. */
+const lassaNara = async () => {
+  const gps = mock.gps;
+  mock.gps = { lat: 56.545, lng: 14.745, accuracy: 6 };
+  await tryck(/^Lassat$/);
+  mock.gps = gps;
+};
+
 async function montera(utkastRaw?: string, props: { arAdmin?: boolean; namn?: string } = {}) {
   if (utkastRaw) localStorage.setItem(UTKAST_NYCKEL, utkastRaw);
   ruta = document.createElement('div');
@@ -116,9 +124,9 @@ describe('steg 1 — vilken maskin?', () => {
     expect(topp()).toBe('Avbryt');                                   // Vilken maskin?
     await tryck(/^Giant/);
     expect(topp()).toBe('Avbryt');                                   // Hämtar X
-    await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Öppna i /); await tryck('Vart ska Giant?');
     expect(topp()).toBe('Avbryt');                                   // Vart ska X?
-    await tryck(/^Vällust RP/); await tryck(/Jag vet vägen/); await tryck('Vägen hem till LBC');
+    await tryck(/^Vällust RP/); await tryck(/^Öppna i /); await tryck('Vägen hem till LBC');
     expect(topp()).toBe('Avbryt');                                   // Vägen hem
     expect(text().match(/Hämta en maskin/g)).toBeNull();
   });
@@ -250,10 +258,43 @@ describe('steg 2 — hämtar maskinen', () => {
     expect(db().skrivningar).toHaveLength(0);
   });
 
-  it('"Jag vet vägen — vidare" går vidare utan att kartappen öppnats', async () => {
+  it('Hämtar X följer maskinlistans mönster: ingen underrubrik, ingen prick, ingen ≈, "17 km bort", EN primär och EN sekundär knapp', async () => {
+    mock.gps = { lat: 56.5452, lng: 14.7451, accuracy: 6 };
     await montera();
     await tryck(/^Giant/);
-    await tryck(/Jag vet vägen/);
+    expect(sel('h1')!.parentElement!.querySelectorAll('p')).toHaveLength(0);                 // ingen underrubrik under "Hämtar Giant"
+    expect(document.querySelector('span[aria-hidden][style*="border-radius: 50%"]')).toBeNull();   // ingen färgad prick
+    const t = text();
+    expect(t).not.toMatch(/≈|GPS|frivilligt|Jag vet vägen|Välj en annan maskin|Utpekad/);
+    expect(sel('[data-avstand]')!.textContent).toMatch(/^\d+(,\d)? km bort$/);
+    expect(t).toContain('Bilen känner av lastningen själv om du inte trycker.');
+    const primar = sel('[data-kartknapp="kor"]')!;
+    const sekundar = sel('[data-lassa]')!;
+    expect(primar.textContent).toBe('Öppna i Google Maps');
+    expect(sekundar.textContent).toBe('Lassat');
+    expect(primar.getAttribute('style')).toMatch(/background: (rgb\(255, 255, 255\)|#fff)/);
+    expect(sekundar.getAttribute('style')).toMatch(/border: 1px solid/);                     // kantlinje: ser tryckbar ut
+    expect(sel('[data-vidare]')).toBeNull();
+    expect(sel('[data-byt-maskin]')).toBeNull();
+  });
+
+  it('tidsraden på kortet står BARA när positionen är osäker (orange, som i listan)', async () => {
+    await montera();
+    await tryck(/^Giant/);
+    expect(sel('[data-osaker]')).toBeNull();                                                  // Giant har färsk position
+    await tryck('Avbryt');
+    await montera();
+    await tryck(/^810E/);
+    expect(sel('[data-osaker]')!.textContent).toMatch(/^Plats osäker/);
+    expect(sel('[data-osaker]')!.getAttribute('style')).toMatch(/color: (rgb\(255, 159, 10\)|#ff9f0a)/i);
+  });
+
+  it('Lassat gör "Vart ska X?" till primärknappen — utan "Jag vet vägen" finns annars bara kartan som väg vidare', async () => {
+    await montera();
+    await tryck(/^Giant/);
+    expect(knapp(/^Öppna i /)).toBeTruthy();
+    await tryck(/^Lassat$/);
+    expect(sel('[data-kartknapp="kor"]')).toBeNull();
     expect(knapp('Vart ska Giant?')).toBeTruthy();
   });
 
@@ -261,7 +302,7 @@ describe('steg 2 — hämtar maskinen', () => {
     mock.gps = { lat: 56.5452, lng: 14.7451, accuracy: 6 };
     await montera();
     await tryck(/^Giant/);
-    await tryck(/^Lassa/);
+    await tryck(/^Lassat$/);
     const f = skriv('maskin_flytt', 'insert');
     expect(f).toHaveLength(1);
     expect(f[0].varden).toMatchObject({ maskin_id: 'PONS20SDJAA270231', extern_maskin: null, fran_lat: 56.5452, fran_lng: 14.7451, forare: 'Martin Test', medarbetare_id: 'm-1', fran_objekt_id: 'obj-bagskytte' });
@@ -275,7 +316,7 @@ describe('steg 2 — hämtar maskinen', () => {
   it('Lassa → Ändra tar bort lastningen: flytten avbryts (inte raderas) och knappen Lassa är tillbaka', async () => {
     await montera();
     await tryck(/^Giant/);
-    await tryck(/^Lassa/);
+    await tryck(/^Lassat$/);
     await tryck('Ändra', sel('[data-kvitto="lassat"]')!);
     const u = skriv('maskin_flytt', 'update');
     expect(u).toHaveLength(1);
@@ -289,7 +330,7 @@ describe('steg 2 — hämtar maskinen', () => {
     mock.gps = { lat: LBC.lat, lng: LBC.lng, accuracy: 8 };   // föraren står vid LBC, Giant står 11 km bort
     await montera();
     await tryck(/^Giant/);
-    await tryck(/^Lassa/);
+    await tryck(/^Lassat$/);
     expect(text()).toContain('Stämmer platsen?');
     expect(text()).toMatch(/Din plats ligger \d+ km från där Bågskyttebanan RP ska stå/);
     expect(skriv('maskin_flytt')).toHaveLength(0);   // ingenting sparat innan svaret
@@ -301,7 +342,7 @@ describe('steg 2 — hämtar maskinen', () => {
     mock.gpsFel = true;
     await montera();
     await tryck(/^Giant/);
-    await tryck(/^Lassa/);
+    await tryck(/^Lassat$/);
     expect(skriv('maskin_flytt')).toHaveLength(0);
     expect(text()).toMatch(/Position ej tillgänglig/);
     expect(sel('[data-lassa]')).toBeTruthy();
@@ -311,7 +352,7 @@ describe('steg 2 — hämtar maskinen', () => {
     db().skrivfel.add('maskin_flytt');
     await montera();
     await tryck(/^Giant/);
-    await tryck(/^Lassa/);
+    await tryck(/^Lassat$/);
     expect(text()).toContain('Kunde inte spara lastningen');
     expect(sel('[data-kvitto="lassat"]')).toBeNull();
   });
@@ -325,13 +366,14 @@ describe('steg 2 — hämtar maskinen', () => {
     await tryck(/Älmehult gallring/, sel('[role="dialog"]')!);
     const a = sel('[data-kartknapp="kor"]') as HTMLAnchorElement;
     expect(a.getAttribute('href')).toContain('destination=56.560000,14.620000');
-    expect(text()).toContain('Utpekad av dig');
+    expect(text()).toContain('Älmehult gallring');
+    expect(sel('[data-osaker]')).toBeNull();                       // en plats föraren pekat ut är aldrig osäker
   });
 
   it('draftet överlever en omladdning: samma steg, samma maskin', async () => {
     await montera();
     await tryck(/^Giant/);
-    await tryck(/^Lassa/);
+    await tryck(/^Lassat$/);
     await act(async () => { rot!.unmount(); }); rot = null; document.body.innerHTML = '';
     await montera();
     expect(text()).toContain('Hämtar Giant');
@@ -340,7 +382,7 @@ describe('steg 2 — hämtar maskinen', () => {
 });
 
 describe('steg 3 — vart ska den?', () => {
-  const tillDest = async () => { await montera(); await tryck(/^Giant/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?'); };
+  const tillDest = async () => { await montera(); await tryck(/^Giant/); await tryck(/^Öppna i /); await tryck('Vart ska Giant?'); };
 
   it('trakter som väntar på en skördare överst; tilldelad den här maskinen först; avslutade göms', async () => {
     await tillDest();
@@ -384,7 +426,7 @@ describe('steg 3 — vart ska den?', () => {
   it('Lassat av här (efter Lassa): avslutar flytten med GPS som Till, räknar km/fakturerbar, sparar maskinens position och visar kvittot', async () => {
     mock.gps = { lat: 56.545, lng: 14.745, accuracy: 6 };
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/);
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };   // framme på Vällust
     await tryck(/^Lassat av här/);
@@ -403,7 +445,7 @@ describe('steg 3 — vart ska den?', () => {
   it('under 30 km är flytten inte fakturerbar (EN regel, fakturerbarEffektiv)', async () => {
     mock.routingKm = 12;
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/);
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
     await tryck(/^Lassat av här/);
@@ -413,7 +455,7 @@ describe('steg 3 — vart ska den?', () => {
 
   it('verkstad som mål → service, aldrig fakturerbar', async () => {
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Verkstan Karlskrona/);
     mock.gps = { lat: 56.1601, lng: 15.5901, accuracy: 5 };
     await tryck(/^Lassat av här/);
@@ -423,7 +465,7 @@ describe('steg 3 — vart ska den?', () => {
 
   it('Lassat av här på fel plats (GPS långt från trakten) → frågan; "Använd trakten" sparar traktens koordinat', async () => {
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/);
     mock.gps = { lat: 56.545, lng: 14.745, accuracy: 6 };   // fortfarande vid lastplatsen
     await tryck(/^Lassat av här/);
@@ -436,7 +478,7 @@ describe('steg 3 — vart ska den?', () => {
 
   it('utan GPS gäller traktens koordinat', async () => {
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/);
     mock.gpsFel = true;
     await tryck(/^Lassat av här/);
@@ -447,7 +489,7 @@ describe('steg 3 — vart ska den?', () => {
   it('Lassat av utan Lassa och med färsk position: flytten skapas först, med maskinens plats som Från, sedan avslutas den', async () => {
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
     await montera();
-    await tryck(/^Giant/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await tryck(/^Öppna i /); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/); await tryck(/^Lassat av här/);
     const ins = skriv('maskin_flytt', 'insert');
     expect(ins).toHaveLength(1);
@@ -457,7 +499,7 @@ describe('steg 3 — vart ska den?', () => {
 
   it('Lassat av utan Lassa och med osäker position: ingenting skapas, appen ber om Lassa eller en utpekad plats', async () => {
     await montera();
-    await tryck(/^810E/); await tryck(/Jag vet vägen/); await tryck('Vart ska 810E?');
+    await tryck(/^810E/); await tryck(/^Öppna i /); await tryck('Vart ska 810E?');
     await tryck(/^Vällust RP/);
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
     await tryck(/^Lassat av här/);
@@ -468,7 +510,7 @@ describe('steg 3 — vart ska den?', () => {
   it('förare: "Ändra" på lossad förklarar att en avslutad flytt rättas av admin — den ändrar inget', async () => {
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/); await tryck(/^Lassat av här/);
     const antal = db().skrivningar.length;
     await tryck('Ändra', sel('[data-kvitto="lossad"]')!);
@@ -478,15 +520,51 @@ describe('steg 3 — vart ska den?', () => {
   });
 });
 
+describe('samma regler i alla steg: ingen prick, inget ≈, EN primär knapp, högst EN sekundär', () => {
+  const regler = () => {
+    const t = text();
+    expect(t).not.toMatch(/≈|frivilligt|Jag vet vägen|Välj en annan maskin/);
+    expect(document.querySelector('span[aria-hidden][style*="border-radius: 50%"]')).toBeNull();
+    const stil = (b: Element) => b.getAttribute('style') ?? '';
+    const alla = Array.from(document.querySelectorAll('button, a')).filter(b => !b.closest('[role="dialog"]') && !b.hasAttribute('disabled'));
+    const primara = alla.filter(b => /background: (rgb\(255, 255, 255\)|#fff)/.test(stil(b)));
+    const sekundara = alla.filter(b => /border: 1px solid/.test(stil(b)));
+    expect(primara.length).toBeLessThanOrEqual(1);
+    expect(sekundara.length).toBeLessThanOrEqual(1);
+    return { primar: primara[0]?.textContent, sekundar: sekundara[0]?.textContent };
+  };
+
+  it('Hämtar → Vart ska → Vägen hem', async () => {
+    mock.gps = { lat: 56.545, lng: 14.745, accuracy: 6 };
+    await montera();
+    await tryck(/^Giant/);
+    expect(regler()).toEqual({ primar: 'Öppna i Google Maps', sekundar: 'Lassat' });
+    await tryck(/^Lassat$/);
+    expect(regler()).toEqual({ primar: 'Vart ska Giant?', sekundar: undefined });          // kvittot ✓ Lassat ersätter knappen
+    await tryck('Vart ska Giant?');
+    await tryck(/^Vällust RP/);
+    expect(regler()).toEqual({ primar: 'Öppna i Google Maps', sekundar: 'Lassat av här' });
+    mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
+    await tryck(/^Öppna i /);
+    expect(regler()).toEqual({ primar: 'Vägen hem till LBC', sekundar: 'Lassat av här' });
+    await tryck(/^Lassat av här/);
+    expect(regler()).toEqual({ primar: 'Vägen hem till LBC', sekundar: undefined });
+    await tryck('Vägen hem till LBC');
+    expect(regler()).toEqual({ primar: 'Öppna i Google Maps', sekundar: 'Klar' });
+    await tryck(/^Öppna i /);
+    expect(regler()).toEqual({ primar: 'Klar', sekundar: 'Öppna i Google Maps igen' });
+  });
+});
+
 describe('steg 4 — vägen hem och Klar', () => {
   async function tillHem(opt: { lassa?: boolean } = {}) {
     mock.gps = { lat: 56.545, lng: 14.745, accuracy: 6 };
     await montera();
     await tryck(/^Giant/);
-    if (opt.lassa !== false) await tryck(/^Lassa/);
-    await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    if (opt.lassa !== false) await tryck(/^Lassat$/); else await tryck(/^Öppna i /);
+    await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/);
-    await tryck(/Jag vet vägen/);
+    await tryck(/^Öppna i /);
     await tryck('Vägen hem till LBC');
   }
 
@@ -540,8 +618,8 @@ describe('steg 4 — vägen hem och Klar', () => {
 
   it('Klar utan att något tryckts (ingen runda öppnad av föraren): inget stängs, flödet avslutas med en ärlig rad', async () => {
     await montera();
-    await tryck(/^Giant/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
-    await tryck(/^Vällust RP/); await tryck(/Jag vet vägen/); await tryck('Vägen hem till LBC');
+    await tryck(/^Giant/); await tryck(/^Öppna i /); await tryck('Vart ska Giant?');
+    await tryck(/^Vällust RP/); await tryck(/^Öppna i /); await tryck('Vägen hem till LBC');
     await tryck('Klar');
     expect(skriv('flyttdag')).toHaveLength(0);
     expect(avslut).toEqual(['Klart. Rundan avslutas när bilen står hemma.']);
@@ -559,7 +637,7 @@ describe('steg 4 — vägen hem och Klar', () => {
 describe('Avbryt, extern maskin, cron-runda och kartapp', () => {
   it('Avbryt efter Lassa avbryter den öppna flytten och rensar utkastet', async () => {
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/);
+    await tryck(/^Giant/); await lassaNara();
     await tryck('Avbryt');
     expect(skriv('maskin_flytt', 'update').some(s => s.varden.avbruten === true)).toBe(true);
     expect(localStorage.getItem(UTKAST_NYCKEL)).toBeNull();
@@ -590,9 +668,9 @@ describe('Avbryt, extern maskin, cron-runda och kartapp', () => {
     await tryck(/Platsen saknas|Var står den/);
     await tryck(/^Älmehult gallring/, sel('[role="dialog"]')!);
     mock.gps = { lat: 56.56, lng: 14.62, accuracy: 6 };
-    await tryck(/^Lassa/);
+    await tryck(/^Lassat$/);
     expect(skriv('maskin_flytt', 'insert')[0].varden).toMatchObject({ maskin_id: null, extern_maskin: 'Skotare Anderssons' });
-    await tryck(/Jag vet vägen/); await tryck('Vart ska Skotare Anderssons?');
+    await tryck('Vart ska Skotare Anderssons?');
     await tryck(/^Vällust RP/);
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 6 };
     await tryck(/^Lassat av här/);
@@ -604,7 +682,7 @@ describe('Avbryt, extern maskin, cron-runda och kartapp', () => {
   it('Lassa tar över den öppna runda cron:en startade (ingen andra runda skapas)', async () => {
     db().tabeller.flyttdag = [{ id: 'dag-auto', starttid: '2026-10-19T09:00:00Z', sluttid: null, medarbetare_id: null, auto_skapad: true, vin: 'VIN1', start_lat: 56.459, start_lng: 14.702 }];
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/);
+    await tryck(/^Giant/); await lassaNara();
     expect(skriv('flyttdag', 'insert')).toHaveLength(0);
     const tag = skriv('flyttdag', 'update').find(s => s.varden.auto_skapad === false)!;
     expect(tag.varden).toMatchObject({ forare: 'Martin Test', medarbetare_id: 'm-1', auto_skapad: false });
@@ -614,7 +692,7 @@ describe('Avbryt, extern maskin, cron-runda och kartapp', () => {
   it('en runda som cron stängde för mindre än en timme sedan: frågan ställs, "Fortsätt rundan" återöppnar den', async () => {
     db().tabeller.flyttdag = [{ id: 'dag-stangd', starttid: '2026-10-19T08:00:00Z', sluttid: '2026-10-19T10:00:00Z', medarbetare_id: null, auto_avslutad_av: 'cron', auto_skapad: true, status: 'avslutad' }];
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/);
+    await tryck(/^Giant/); await lassaNara();
     expect(text()).toContain('Fortsätta rundan?');
     expect(skriv('maskin_flytt')).toHaveLength(0);
     await tryck('Fortsätt rundan');
@@ -656,7 +734,7 @@ describe('steg 3 — efter Lassat av här', () => {
   it('primärknappen är Vägen hem även om kartappen aldrig öppnats på steget (föraren är framme)', async () => {
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
     await montera();
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/);
     await tryck(/^Lassat av här/);
     expect(sel('[data-kartknapp="dest"]')).toBeNull();
@@ -666,7 +744,7 @@ describe('steg 3 — efter Lassat av här', () => {
 
   it('handlingsraden (primärknapp, Lassat av här, kvitto) ligger i EN fast fot — aldrig under en lång lista', async () => {
     await montera();
-    await tryck(/^Giant/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await tryck(/^Öppna i /); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/);
     const fot = sel('[data-hamta-fot]')!;
     expect(fot.getAttribute('style')).toContain('sticky');
@@ -679,8 +757,8 @@ describe('steg 4 — Klar blir primärknapp när kartappen öppnats', () => {
   it('före kartan: Öppna i Kartor är primär och Klar tertiär; efter: Klar primär och kartlänken kvar som "igen"', async () => {
     mock.gps = { lat: 56.545, lng: 14.745, accuracy: 6 };
     await montera();
-    await tryck(/^Giant/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
-    await tryck(/^Vällust RP/); await tryck(/Jag vet vägen/); await tryck('Vägen hem till LBC');
+    await tryck(/^Giant/); await tryck(/^Öppna i /); await tryck('Vart ska Giant?');
+    await tryck(/^Vällust RP/); await tryck(/^Öppna i /); await tryck('Vägen hem till LBC');
     const primar = (el: HTMLElement) => el.getAttribute('style')!.includes('background: rgb(255, 255, 255)') || el.getAttribute('style')!.includes('background: #fff');
     expect(primar(sel('[data-kartknapp="hem"]')!)).toBe(true);
     expect(primar(sel('[data-klar]')!)).toBe(false);
@@ -698,7 +776,7 @@ describe('"Ändra" på ✓ lossad — admin rättar i sheeten "Flytten"', () => 
   const lossa = async (props: { arAdmin?: boolean; namn?: string }) => {
     mock.gps = { lat: 56.4702, lng: 14.8701, accuracy: 5 };
     await montera(undefined, props);
-    await tryck(/^Giant/); await tryck(/^Lassa/); await tryck(/Jag vet vägen/); await tryck('Vart ska Giant?');
+    await tryck(/^Giant/); await lassaNara(); await tryck('Vart ska Giant?');
     await tryck(/^Vällust RP/); await tryck(/^Lassat av här/);
   };
 

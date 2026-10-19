@@ -18,11 +18,11 @@ import { destKoordinat, narmastePlats, rangordnaDestinationer, type DestRad } fr
 import { lasUtkast, nyttUtkast, rensaUtkast, sparaUtkast, type Steg, type Utkast, type ValdPlats } from './flode';
 import { getFarskGps, type Pos } from './gps';
 import { KARTAPPAR, kanValjaKartapp, kartLank, lankAttr, lasKartapp, sparaKartapp, type Kartapp } from './kartapp';
-import { avstandText, posRad, sorteraMaskiner } from './maskinPos';
+import { avstandKort, osakerRad, sorteraMaskiner } from './maskinPos';
 import { useHamtaData, type HamtaData } from './useHamtaData';
 import {
   DestLista, EnkelRad, ExternArk, Fel, KartKnapp, KartappArk, Kvittorad, MaskinListeRad, Meta, PosVarningArk, Rubrik, RundaFragaArk,
-  Fot, Topp, slagFarg,
+  Fot, SEKUNDAR_KANT, Topp,
 } from './HamtaDelar';
 
 /** Längre bort än så (fågelväg) mellan förarens GPS och där maskinen/trakten ska vara → frågan "Stämmer platsen?". */
@@ -90,7 +90,6 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
 
   const maskin = data?.maskiner.find(m => m.maskin_id === utkast.maskinId) ?? null;
   const maskinNamn = maskin?.namn ?? utkast.extern?.namn ?? 'maskinen';
-  const slag = maskin?.slag ?? null;
 
   /** Där maskinen står: förarens egen utpekade plats, annars den lästa positionen. */
   const hamtPunkt = useMemo(() => {
@@ -116,7 +115,6 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
     setArk(null); setFel(null); setSok('');
     setUtkast({ ...nyttUtkast(new Date().toISOString()), steg: 'kor', extern: { namn, kund } });
   };
-  const bytMaskin = () => { setFel(null); setUtkast(nyttUtkast(new Date().toISOString())); };
 
   const avbryt = async () => {
     setSparar(true);
@@ -356,22 +354,23 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
 
   // ═════════ Steg: hämtar ═════════
   if (utkast.steg === 'kor') {
-    const p = maskin ? posRad(maskin.pos && !utkast.hamtPlats ? maskin.pos : null, nuMs) : { text: 'Extern maskin', osaker: false };
     const km = data.fran && hamtPunkt ? haversine(data.fran.pos.lat, data.fran.pos.lng, hamtPunkt.lat, hamtPunkt.lng) : null;
     const harPlats = !!hamtPunkt;
+    // Tidsraden står BARA när maskinens position är osäker (som i maskinlistan); en plats föraren själv pekat ut är aldrig osäker.
+    const osakerPos = maskin?.pos && !utkast.hamtPlats && maskin.pos.osaker ? maskin.pos : null;
+    // Primärknappen byter från kartan till "Vart ska X?" när man varit i kartappen ELLER lassat — då är maskinen hämtad.
+    const vidare = utkast.navKor || !!utkast.flyttId;
     return (
       <>
         <Topp onAvbryt={avbryt} deaktiverad={sparar} />
-        <Rubrik under={harPlats ? `${hamtNamn ?? 'Okänd plats'}${km != null ? ` · ${avstandText(km)}` : ''}` : undefined}>Hämtar {maskinNamn}</Rubrik>
+        <Rubrik>Hämtar {maskinNamn}</Rubrik>
         {harPlats ? (
           <Sektion rubrik="Där den står">
             <div style={{ ...RAD, borderBottom: 'none', padding: `${AVSTAND.m}px 0` }}>
-              <span aria-hidden style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: '50%', background: slagFarg(slag), flex: 'none' }} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ ...TYP.listtitel, display: 'block' }}>{hamtNamn ?? 'Okänd plats'}</span>
-                <span style={{ ...TYP.meta, color: utkast.hamtPlats ? FARG.text2 : p.osaker ? FARG.orange : FARG.text2, display: 'block' }}>
-                  {utkast.hamtPlats ? 'Utpekad av dig' : p.text}
-                </span>
+                {km != null && <span data-avstand style={{ ...TYP.meta, color: FARG.text2, display: 'block' }}>{avstandKort(km)} bort</span>}
+                {osakerPos && <span data-osaker style={{ ...TYP.meta, color: FARG.orange, display: 'block' }}>{osakerRad(osakerPos)}</span>}
               </span>
               <button type="button" data-andra-plats onClick={() => { setSok(''); setArk('hamtplats'); }} style={KNAPP.lank}>Ändra</button>
             </div>
@@ -382,26 +381,23 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
           </Sektion>
         )}
 
-        {utkast.navKor ? (
-          <button type="button" data-primar="vart" onClick={() => { setSok(''); andra({ steg: 'dest' }); }} style={KNAPP.primar}>Vart ska {maskinNamn}?</button>
-        ) : (
-          <KartKnapp id="kor" app={kartapp} lat={hamtPunkt?.lat ?? null} lng={hamtPunkt?.lng ?? null} etikett={kartEtikett} onTryck={() => andra({ navKor: true })} />
-        )}
-        <KartappRad />
-        {!utkast.navKor && harPlats && (
-          <button type="button" data-vidare onClick={() => andra({ navKor: true })} style={{ ...KNAPP.lank, width: '100%' }}>Jag vet vägen — vidare</button>
-        )}
-
-        {utkast.flyttId ? (
-          <Kvittorad id="lassat" text={`Lassat ${utkast.lassatTid ? tidKort(utkast.lassatTid) : ''}`.trim()} onAndra={angraLassa} sparar={sparar} />
-        ) : (
-          <button type="button" data-lassa onClick={tryckLassa} disabled={sparar} style={{ ...KNAPP.tertiar, width: '100%', ...(sparar ? INAKTIV : {}) }}>
-            {sparar ? 'Sparar …' : 'Lassa'}<span style={{ ...TYP.meta, color: FARG.text3, marginLeft: AVSTAND.xs }}>frivilligt</span>
-          </button>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+          {vidare ? (
+            <button type="button" data-primar="vart" onClick={() => { setSok(''); andra({ steg: 'dest' }); }} style={KNAPP.primar}>Vart ska {maskinNamn}?</button>
+          ) : (
+            <KartKnapp id="kor" app={kartapp} lat={hamtPunkt?.lat ?? null} lng={hamtPunkt?.lng ?? null} etikett={kartEtikett} onTryck={() => andra({ navKor: true })} />
+          )}
+          {utkast.flyttId ? (
+            <Kvittorad id="lassat" text={`Lassat ${utkast.lassatTid ? tidKort(utkast.lassatTid) : ''}`.trim()} onAndra={angraLassa} sparar={sparar} />
+          ) : (
+            <button type="button" data-lassa onClick={tryckLassa} disabled={sparar} style={{ ...SEKUNDAR_KANT, ...(sparar ? INAKTIV : {}) }}>
+              {sparar ? 'Sparar …' : 'Lassat'}
+            </button>
+          )}
+        </div>
         {fel && <Fel>{fel}</Fel>}
-        <Meta>Trycker du inte Lassa noterar bilen lastningen själv ur vikten.</Meta>
-        {!utkast.flyttId && <button type="button" data-byt-maskin onClick={bytMaskin} style={{ ...KNAPP.lank, width: '100%' }}>Välj en annan maskin</button>}
+        <Meta>Bilen känner av lastningen själv om du inte trycker.</Meta>
+        <KartappRad />
         {overlag}
       </>
     );
@@ -431,16 +427,11 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
           {mal && (utkast.lossad ? (
             <Kvittorad id="lossad" text={`${maskinNamn} lossad på ${utkast.lossad.namn}`} onAndra={() => setArk('andraLossad')} />
           ) : (
-            <button type="button" data-lossa onClick={tryckLossa} disabled={sparar} style={{ ...KNAPP.tertiar, width: '100%', ...(sparar ? INAKTIV : {}) }}>
-              {sparar ? 'Sparar …' : 'Lassat av här'}<span style={{ ...TYP.meta, color: FARG.text3, marginLeft: AVSTAND.xs }}>frivilligt</span>
+            <button type="button" data-lossa onClick={tryckLossa} disabled={sparar} style={{ ...SEKUNDAR_KANT, ...(sparar ? INAKTIV : {}) }}>
+              {sparar ? 'Sparar …' : 'Lassat av här'}
             </button>
           ))}
-          {(harKartval || (mal && !utkast.navDest && !utkast.lossad)) && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.m, flexWrap: 'wrap' }}>
-              {mal && !utkast.navDest && !utkast.lossad ? <button type="button" data-vidare onClick={() => andra({ navDest: true })} style={{ ...KNAPP.lank, ...TYP.meta }}>Jag vet vägen — vidare</button> : <span />}
-              {harKartval && <button type="button" data-kartapp-rad onClick={() => setArk('kartapp')} style={KNAPP.tertiar}>Kartapp: {kartappNamn}</button>}
-            </div>
-          )}
+          <KartappRad />
         </Fot>
         {overlag}
       </>
@@ -458,17 +449,19 @@ export default function HamtaFlode({ onAvsluta, arAdmin = false, namn = 'admin' 
         </div>
       ) : (
         <>
-          {utkast.navHem ? (
-            <>
-              <button type="button" data-klar onClick={tryckKlar} disabled={sparar} style={{ ...KNAPP.primar, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Klar'}</button>
-              {data.bas && <a data-kartknapp="hem" {...lankAttr(kartLank(kartapp, data.bas.lat, data.bas.lng))} style={{ ...KNAPP.tertiar, textDecoration: 'none', width: '100%' }}>{kartEtikett} igen</a>}
-            </>
-          ) : (
-            <>
-              <KartKnapp id="hem" app={kartapp} lat={data.bas?.lat ?? null} lng={data.bas?.lng ?? null} etikett={kartEtikett} onTryck={() => andra({ navHem: true })} />
-              <button type="button" data-klar onClick={tryckKlar} disabled={sparar} style={{ ...KNAPP.tertiar, width: '100%', ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Klar'}</button>
-            </>
-          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+            {utkast.navHem ? (
+              <>
+                <button type="button" data-klar onClick={tryckKlar} disabled={sparar} style={{ ...KNAPP.primar, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Klar'}</button>
+                {data.bas && <a data-kartknapp="hem" {...lankAttr(kartLank(kartapp, data.bas.lat, data.bas.lng))} style={{ ...SEKUNDAR_KANT, textDecoration: 'none' }}>{kartEtikett} igen</a>}
+              </>
+            ) : (
+              <>
+                <KartKnapp id="hem" app={kartapp} lat={data.bas?.lat ?? null} lng={data.bas?.lng ?? null} etikett={kartEtikett} onTryck={() => andra({ navHem: true })} />
+                <button type="button" data-klar onClick={tryckKlar} disabled={sparar} style={{ ...SEKUNDAR_KANT, ...(sparar ? INAKTIV : {}) }}>{sparar ? 'Sparar …' : 'Klar'}</button>
+              </>
+            )}
+          </div>
           <KartappRad />
           {!data.bas && <Meta orange>Hemmabasen saknas i appen — navigera själv.</Meta>}
           {fel && <Fel>{fel}</Fel>}

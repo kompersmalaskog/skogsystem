@@ -3,14 +3,18 @@
 import { useState, type ReactNode } from 'react';
 import Ark from '@/components/design/Ark';
 import Sektion from '@/components/design/Sektion';
-import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, KORT, LAYOUT, RAD, RADIE, TNUM, TRAFFYTA, TYP, medSafeBotten } from '@/lib/design/tokens';
 import { GRUPP_RUBRIK, type DestGrupp, type DestRad } from './destinationer';
 import { KARTAPPAR, kartLank, lankAttr, type Kartapp } from './kartapp';
 import { avstandKort, osakerRad, type MaskinRad } from './maskinPos';
 
-export const slagFarg = (slag: 'skordare' | 'skotare' | null): string => (slag === 'skordare' ? ROLLFARG_SKORDARE : slag === 'skotare' ? ROLLFARG_SKOTARE : FARG.text3);
-export const slagText = (slag: 'skordare' | 'skotare' | null): string => (slag === 'skordare' ? 'Skördare' : slag === 'skotare' ? 'Skotare' : 'Maskin');
+
+/**
+ * Skärmens EN sekundära knapp: den vanliga sekundära (fylld) med en tydlig kantlinje, så den ser tryckbar ut bredvid den vita
+ * primärknappen. Ett steg har högst en av dem (Lassat, Lassat av här, Klar / "… igen"). Kanten är text3 — en tunn linje i
+ * linjefärgen försvinner i solljus.
+ */
+export const SEKUNDAR_KANT = { ...KNAPP.sekundar, border: `1px solid ${FARG.text3}` } as const;
 
 const faltStil = { ...TYP.text, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: AVSTAND.m, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' as const, minHeight: TRAFFYTA.min };
 
@@ -30,7 +34,7 @@ export function Topp({ onAvbryt, deaktiverad }: { onAvbryt: () => void; deaktive
  */
 export function Fot({ children }: { children: ReactNode }) {
   return (
-    <div data-hamta-fot style={{ position: 'sticky', bottom: 0, zIndex: 40, background: FARG.bg, borderTop: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px 0 ${medSafeBotten(AVSTAND.m)}`, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+    <div data-hamta-fot style={{ position: 'sticky', bottom: 0, zIndex: 40, background: FARG.bg, borderTop: `1px solid ${FARG.linje}`, padding: `${AVSTAND.s}px 0 ${medSafeBotten(AVSTAND.m)}`, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
       {children}
     </div>
   );

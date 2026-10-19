@@ -72,25 +72,7 @@ export function avstandKort(km: number): string {
   return km < 10 ? `${(Math.round(km * 10) / 10).toLocaleString('sv-SE')} km` : `${Math.round(km)} km`;
 }
 
-/** "≈ 48 km" — fågelväg, avrundad; under 10 km med en decimal. */
-export function avstandText(km: number): string {
-  return km < 10 ? `≈ ${(Math.round(km * 10) / 10).toLocaleString('sv-SE')} km` : `≈ ${Math.round(km)} km`;
-}
-
 const MAN = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
-
-/** "idag 11:23" / "igår 18:02" / "18 okt 09:03" — svensk tid. `tidMs` är ett verkligt ögonblick. */
-export function tidText(tidMs: number, nuMs: number): string {
-  const fmt = (ms: number) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms));
-  const delar = (ms: number) => Object.fromEntries(fmt(ms).map(p => [p.type, p.value])) as Record<string, string>;
-  const t = delar(tidMs), n = delar(nuMs);
-  const dag = (d: Record<string, string>) => `${d.year}-${d.month}-${d.day}`;
-  const klock = `${t.hour}:${t.minute}`;
-  if (dag(t) === dag(n)) return `idag ${klock}`;
-  const igar = delar(nuMs - 24 * 3600 * 1000);
-  if (dag(t) === dag(igar)) return `igår ${klock}`;
-  return `${Number(t.day)} ${MAN[Number(t.month) - 1]} ${klock}`;
-}
 
 /** Datum utan klockslag: "7 okt". */
 export function datumText(isoDatum: string): string {
@@ -103,14 +85,4 @@ export function osakerRad(pos: MaskinPos): string {
   if (pos.tidMs == null) return 'Plats osäker';
   const d = Object.fromEntries(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', day: 'numeric', month: 'numeric' }).formatToParts(new Date(pos.tidMs)).map(p => [p.type, p.value]));
   return `Plats osäker · senast ${Number(d.day)} ${MAN[Number(d.month) - 1]}`;
-}
-
-/** Raden under maskinens namn: var den står och hur säkert det är. */
-export function posRad(pos: MaskinPos | null, nuMs: number): { text: string; osaker: boolean } {
-  if (!pos) return { text: 'Plats saknas — peka ut var den står', osaker: true };
-  const nar = pos.tidMs != null ? tidText(pos.tidMs, nuMs) : null;
-  const text = pos.kalla === 'gps'
-    ? `GPS ${nar ?? 'saknar tid'}`
-    : `Senast känd plats${nar ? ` ${nar}` : ''}`;
-  return { text: pos.osaker ? `${text} · plats osäker` : text, osaker: pos.osaker };
 }
