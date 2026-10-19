@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { hamtaStatusRatt, loggFalt } from '@/lib/scania'
 import { koraRundlogik } from '@/lib/lastbilRunda'
+import { koraLassdetektering } from '@/lib/lastbil/lass/kor'
 
 // Bakgrundsmotorn (STEG 1): var 5:e minut → en rå vehiclestatus från Scania →
 // en rad i lastbil_logg (dedupe på vin+tidpunkt, så samma avläsning aldrig
@@ -51,6 +52,7 @@ async function kor(req: NextRequest) {
   if (res.httpStatus !== 200 || !res.rad) {
     rapport.ok = false
     rapport.note = res.httpStatus === 429 ? 'rate limited' : `inget användbart svar (${res.httpStatus})`
+    rapport.lass = await koraLassdetektering(supabase)   // ett väntande lass utvärderas ändå
     return NextResponse.json(rapport, { status: 200 })
   }
 
@@ -67,6 +69,7 @@ async function kor(req: NextRequest) {
   if (!f.vin || !f.tidpunkt) {
     rapport.skrivet = false
     rapport.note = 'raden saknar vin/tidpunkt — hoppar skrivning'
+    rapport.lass = await koraLassdetektering(supabase)
     return NextResponse.json(rapport, { status: 200 })
   }
 
@@ -96,6 +99,10 @@ async function kor(req: NextRequest) {
   // parkerad bils runda aldrig auto-stängas 35 min efter ankomst. Egen
   // try/catch i modulen; ett fel här fäller aldrig loggskrivningen ovan.
   rapport.runda = await koraRundlogik(supabase)
+
+  // Lassdetekteringen (vikten → lass → flytt eller frågan "Vilken maskin?") körs också varje cykel: bevisen för ett väntande
+  // lass kan ha kommit utan att bilen skickat något. Kraschar aldrig (egen try/catch, fel i rapporten).
+  rapport.lass = await koraLassdetektering(supabase)
 
   return NextResponse.json(rapport, { status: 200 })
 }

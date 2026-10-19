@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import Ikon from '@/components/design/Ikon'
 import Ark from '@/components/design/Ark'
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TRAFFYTA, TYP, designCss, overgang } from '@/lib/design/tokens'
+import { lassSaknarText } from '@/lib/lastbil/lass/vantar'
 import { MAX_FAVORITER, STANDARD_FAVORITER, favoriterFor, grupperFor, ovrigtFor, sokVyer, type MarkeKalla, type Roll, type Vy } from '@/lib/vyer'
 
 /** Räknare per källa. null = okänt (laddar eller läsfel) → inget märke, aldrig "0". */
@@ -57,6 +58,7 @@ function Marke({ antal, text, iRad }: { antal: number; text: string; iRad?: bool
 const MARKE_TEXT: Record<MarkeKalla, string> = {
   egenkontroll: 'objekt väntar på egenkontroll',
   ledighet: 'att göra i ledighet',
+  lass: 'lass saknar maskin',
 }
 
 function antalFor(v: Vy, marken: Marken): number | null {
@@ -204,6 +206,8 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   if (typeof ek === 'number' && ek > 0) uppgifter.push({ id: 'egenkontroll', text: `${ek} objekt väntar på egenkontroll`, href: '/egenkontroll', farg: FARG.orange })
   const le = marken.ledighet
   if (typeof le === 'number' && le > 0) uppgifter.push({ id: 'ledighet', text: `${le} att göra i ledighet`, href: '/ledighet', farg: FARG.orange })
+  const ls = marken.lass
+  if (typeof ls === 'number' && ls > 0) uppgifter.push({ id: 'lass', text: lassSaknarText(ls), href: '/lastbil', farg: FARG.orange })
   if (roll === 'admin' && datahalsa && (datahalsa.niva === 'rod' || datahalsa.niva === 'gul' || datahalsa.niva === 'okant')) {
     uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: datahalsa.niva === 'rod' ? FARG.rod : datahalsa.niva === 'gul' ? FARG.orange : FARG.text3 })
   }

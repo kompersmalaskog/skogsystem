@@ -109,6 +109,8 @@ const mock = vi.hoisted(() => ({
   patchRundor: {} as Record<string, Record<string, unknown>>,
   anrop: [] as string[],
   flyttar: [] as any[],
+  lass: [] as any[],
+  lassFel: false,
   rattningar: [] as any[],
   rpc: [] as { namn: string; args: any }[],
   rpcHandler: null as null | ((namn: string, args: any) => { data: any; error: any }),
@@ -124,7 +126,7 @@ vi.mock("@/lib/supabase", () => {
   const tabeller = (): Record<string, any[]> => ({
     fakturaunderlag_flytt: [...mock.underlag, ...mock.extraUnderlag],
     flyttdag: [...FLYTTDAG, ...mock.extraRundor].map(r => ({ ...r, ...(mock.patchRundor[r.id] ?? {}) })),
-    maskin_flytt: mock.flyttar, maskin_flytt_rattning: mock.rattningar, dim_maskin: DIM_MASKIN, objekt: OBJEKT, flyttplats: [],
+    maskin_flytt: mock.flyttar, lastbil_lass: mock.lass, maskin_flytt_rattning: mock.rattningar, dim_maskin: DIM_MASKIN, objekt: OBJEKT, flyttplats: [],
   });
   const tid = (v: unknown) => Date.parse(String(v));
   class Q {
@@ -139,6 +141,9 @@ vi.mock("@/lib/supabase", () => {
     is(k: string, v: unknown) { this.filt.push(r => (v === null ? r[k] == null : r[k] === v)); return this; }
     not(k: string, _o: string, v: unknown) { this.filt.push(r => (v === null ? r[k] != null : r[k] !== v)); return this; }
     gte(k: string, v: string) { this.filt.push(r => tid(r[k]) >= tid(v)); return this; }
+    lte(k: string, v: string) { this.filt.push(r => tid(r[k]) <= tid(v)); return this; }
+    private en = false;
+    maybeSingle() { this.en = true; return this; }
     lt(k: string, v: string) { this.filt.push(r => tid(r[k]) < tid(v)); return this; }
     in(k: string, lista: string[]) { this.filt.push(r => lista.includes(r[k])); return this; }
     order() { return this; }
@@ -174,7 +179,10 @@ vi.mock("@/lib/supabase", () => {
       if (["flyttdag", "maskin_flytt"].includes(this.tabell) && mock.rundorFel) return { data: null, error: { message: "boom" } };
       // Migration 20261017100000 ej körd: en fråga som nämner kolumnen faller som i PostgREST.
       if (this.tabell === "maskin_flytt" && mock.manuellKolumnSaknas && this.kolumner.includes("fakturerbar_manuell")) return { data: null, error: { code: "42703", message: "column maskin_flytt.fakturerbar_manuell does not exist" } };
-      return { data: tabeller()[this.tabell].filter(r => this.filt.every(f => f(r))).slice(fran, till === Infinity ? undefined : till + 1), error: null };
+      if (this.tabell === "lastbil_lass" && mock.lassFel) return { data: null, error: { message: "boom" } };
+      const traffar = tabeller()[this.tabell].filter(r => this.filt.every(f => f(r))).slice(fran, till === Infinity ? undefined : till + 1);
+      if (this.en) return { data: traffar[0] ?? null, error: null };
+      return { data: traffar, error: null };
     }
     range(fran: number, till: number) { return Promise.resolve(this.kor(fran, till)); }
     then(res: any, rej: any) { return Promise.resolve(this.kor()).then(res, rej); }
@@ -218,7 +226,7 @@ beforeEach(() => {
   mock.underlag = nyaUnderlag(); mock.skrivningar = []; mock.skrivNoll = false; mock.skrivFel = false; mock.vantarFel = false; mock.manuellKolumnSaknas = false;
   mock.api = { status: 200, body: LAGE };
   mock.rundorFel = false; mock.extraRundor = []; mock.patchRundor = {};
-  mock.flyttar = MASKIN_FLYTT.map(b => ({ ...b })); mock.rattningar = []; mock.rpc = []; mock.rpcHandler = null;
+  mock.flyttar = MASKIN_FLYTT.map(b => ({ ...b })); mock.lass = []; mock.lassFel = false; mock.rattningar = []; mock.rpc = []; mock.rpcHandler = null;
   mock.spar = { status: 200, body: { ok: true, spar: [{ lat: 56.4, lng: 14.7 }, { lat: 56.5, lng: 14.8 }], segment: [], nagonOmatchad: false, matchningPa: false } };
   (globalThis as any).fetch = vi.fn(async (url: string) => {
     const a = String(url).startsWith("/api/lastbil/spar") ? mock.spar : mock.api;
@@ -2023,5 +2031,258 @@ describe("träffytor", () => {
     await klicka(knapp(/^Nu$/, document.querySelector('[role="tablist"]')!));
     await klicka(knapp(/Visa var den står/));
     expect(forLitet()).toEqual([]);
+  });
+});
+
+// ── "Vilken maskin?" — lass som bilens vikt hittat men som saknar maskin ──────────────────────────────────────
+const LASS_ID = "11111111-1111-4111-8111-111111111111";
+const LASS = (o: Record<string, unknown> = {}) => ({
+  id: LASS_ID, status: "vantar_maskin", status_orsak: "sakerhet",
+  fran_namn: "Östra-Hoka 1:7 A-C -25", till_namn: "Bågskyttebanan RP J-Hus- 25",
+  lassning_tid: "2026-10-12T10:23:00Z", lossning_tid: "2026-10-12T11:46:00Z", km: 45.7,
+  forslag_maskin_id: "A130743", sakerhet: "medel",
+  kandidater: [
+    { maskin_id: "A130743", poang: 6, utesluten: false, skal: [{ kod: "kedja_fran", dag: "2026-10-12", trakt: "Östra-Hoka" }, { kod: "kedja_till", dag: "2026-10-13", trakt: "Bågskyttebanan" }] },
+    { maskin_id: "PONS20SDJAA270231", poang: 0, utesluten: true, skal: [{ kod: "foljer_inte", medianM: 7000 }] },
+  ],
+  bevis: { km_osaker: false }, kund: "Vida", till_plats_id: null, besvarad_av: null, besvarad_tid: null, skapad_tid: "2026-10-12T12:00:00Z", ...o,
+});
+const saknarRad = () => document.querySelector("[data-saknar-maskin]") as HTMLElement | null;
+const lassArk = () => document.querySelector('[role="dialog"]') as HTMLElement | null;
+const skapaKnapp = () => knapp(/Skapa flytten|Skapar flytten/, lassArk()!) as HTMLButtonElement;
+const OK_SVAR = { data: { ok: true, skapad: true, flytt_id: "ny-flytt" }, error: null };
+
+describe("Vilken maskin? — raden överst", () => {
+  it("inget lass väntar → ingen rad alls (aldrig '0 lass')", async () => {
+    await montera();
+    expect(saknarRad()).toBeNull();
+    expect(text()).not.toMatch(/0 lass/);
+  });
+
+  it("ETT lass väntar → '1 lass saknar maskin', överst, ovanför påminnelsen om godkännande", async () => {
+    mock.lass = [LASS()];
+    await montera();
+    expect(saknarRad()!.textContent).toMatch(/^1 lass saknar maskin/);
+    const rader = Array.from(document.querySelectorAll("[data-saknar-maskin], [data-vantar]"));
+    expect(rader[0]).toBe(saknarRad());
+  });
+
+  it("tre lass → '3 lass saknar maskin'", async () => {
+    mock.lass = [LASS(), LASS({ id: "22222222-2222-4222-8222-222222222222" }), LASS({ id: "33333333-3333-4333-8333-333333333333" })];
+    await montera();
+    expect(saknarRad()!.textContent).toMatch(/^3 lass saknar maskin/);
+  });
+
+  it("ett lass som är besvarat eller för nytt (frågan har inte gått ut än) räknas inte", async () => {
+    mock.lass = [LASS({ status: "auto_flytt" }), LASS({ id: "22222222-2222-4222-8222-222222222222", lossning_tid: "2026-10-14T11:00:00Z" })];
+    await montera();
+    expect(saknarRad()).toBeNull();
+  });
+
+  it("läsfel → ett fel med Försök igen, aldrig 'inget väntar'", async () => {
+    mock.lassFel = true;
+    await montera();
+    expect(saknarRad()!.textContent).toContain("Kunde inte läsa vilka lass som saknar maskin");
+    mock.lassFel = false; mock.lass = [LASS()];
+    await klicka(knapp(/Försök igen/, saknarRad()!));
+    expect(saknarRad()!.textContent).toMatch(/^1 lass saknar maskin/);
+  });
+
+  it("förare ser ingen rad och frågan skickas aldrig", async () => {
+    mock.medarbetare = FORARE; mock.lass = [LASS()]; mock.anrop = [];
+    await montera();
+    expect(saknarRad()).toBeNull();
+    expect(mock.anrop).not.toContain("lastbil_lass");
+  });
+
+  it("monteras genom roll läses → admin utan hook-krasch", async () => {
+    mock.loading = true; mock.medarbetare = null; mock.lass = [LASS()];
+    await montera();
+    mock.loading = false; mock.medarbetare = ADMIN;
+    await ritaOm();
+    expect(hookFel()).toEqual([]);
+    expect(saknarRad()).not.toBeNull();
+  });
+});
+
+describe("Vilken maskin? — arket", () => {
+  beforeEach(() => { mock.lass = [LASS()]; });
+
+  it("trycket öppnar arket med rutten, tiden, sträckan och förslaget förvalt med skäl", async () => {
+    await montera();
+    await klicka(saknarRad()!);
+    const a = lassArk()!;
+    expect(a.getAttribute("aria-label")).toBe("Vilken maskin?");
+    expect(a.textContent).toContain("Östra-Hoka 1:7 A-C -25 → Bågskyttebanan RP J-Hus- 25".slice(0, 27));   // platsnamnet kortas till 28 tecken
+    expect(a.textContent).toContain("mån 12 okt · 12:23 → 13:46 · 45,7 km");
+    expect(a.textContent).toContain("Över 30 km — flytten faktureras");
+    const valt = Array.from(a.querySelectorAll('[role="option"][aria-selected="true"]'));
+    expect(valt).toHaveLength(1);
+    expect(valt[0].textContent).toContain("Elefant 26");
+    expect(valt[0].textContent).toContain("Troligen");
+    expect(valt[0].textContent).toContain("Skotade Östra-Hoka 12 okt");
+    expect(skapaKnapp().disabled).toBe(false);
+  });
+
+  it("en maskin som inte följde bilen står kvar i listan men märkt, och är inte förvald", async () => {
+    await montera();
+    await klicka(saknarRad()!);
+    const giant = Array.from(lassArk()!.querySelectorAll('[role="option"]')).find(o => /Giant/.test(o.textContent ?? ""))!;
+    expect(giant.textContent).toContain("Följde inte bilen");
+    expect(giant.getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("Skapa flytten anropar besvara_lass med förslagets maskin — och kvittot säger vad som hände", async () => {
+    mock.rpcHandler = () => OK_SVAR;
+    await montera();
+    await klicka(saknarRad()!);
+    await klicka(skapaKnapp());
+    expect(mock.rpc).toHaveLength(1);
+    expect(mock.rpc[0]).toEqual({ namn: "besvara_lass", args: { p_lass: LASS_ID, p_maskin_id: "A130743", p_extern_maskin: null, p_kund: null } });
+    expect(lassArk()).toBeNull();
+    expect(document.querySelector("[data-lass-kvitto]")!.textContent).toBe("Flytten är skapad och ligger under Att godkänna.");
+  });
+
+  it("ett annat val ger en annan maskin i anropet", async () => {
+    mock.rpcHandler = () => OK_SVAR;
+    await montera();
+    await klicka(saknarRad()!);
+    await klicka(Array.from(lassArk()!.querySelectorAll('[role="option"]')).find(o => /Wisent/.test(o.textContent ?? "")) as HTMLElement);
+    await klicka(skapaKnapp());
+    expect(mock.rpc[0].args.p_maskin_id).toBe("A030353");
+  });
+
+  it("SAKNAD KUND: fakturerbar flytt utan bolag → kundruta, Skapa är grå tills kund är ifylld", async () => {
+    mock.lass = [LASS({ kund: null, status_orsak: "kund_saknas" })];
+    mock.rpcHandler = () => OK_SVAR;
+    await montera();
+    await klicka(saknarRad()!);
+    expect(lassArk()!.getAttribute("aria-label")).toBe("Vilken kund?");
+    expect(lassArk()!.querySelector('input[aria-label="Kund"]')).not.toBeNull();
+    expect(skapaKnapp().disabled).toBe(true);
+    expect(lassArk()!.textContent).toContain("Välj kund — flytten faktureras");
+    await skrivIn(lassArk()!.querySelector('input[aria-label="Kund"]') as HTMLInputElement, "Vida");
+    expect(skapaKnapp().disabled).toBe(false);
+    await klicka(skapaKnapp());
+    expect(mock.rpc[0].args).toMatchObject({ p_maskin_id: "A130743", p_kund: "Vida" });
+  });
+
+  it("traktens kund finns → ingen kundruta", async () => {
+    await montera();
+    await klicka(saknarRad()!);
+    expect(lassArk()!.querySelector('input[aria-label="Kund"]')).toBeNull();
+  });
+
+  it("MASKIN SOM INTE ÄR VÅR: namn OCH kund krävs, och anropet går som extern maskin", async () => {
+    mock.rpcHandler = () => OK_SVAR;
+    await montera();
+    await klicka(saknarRad()!);
+    await klicka(Array.from(lassArk()!.querySelectorAll('[role="option"]')).find(o => /Maskin som inte är vår/.test(o.textContent ?? "")) as HTMLElement);
+    expect(skapaKnapp().disabled).toBe(true);
+    expect(lassArk()!.textContent).toContain("Skriv maskinens namn");
+    await skrivIn(lassArk()!.querySelector('input[aria-label="Maskinens namn"]') as HTMLInputElement, "Kunds Ponsse");
+    expect(skapaKnapp().disabled).toBe(true);
+    expect(lassArk()!.textContent).toContain("Välj kund");
+    await skrivIn(lassArk()!.querySelector('input[aria-label="Kund"]') as HTMLInputElement, "Anders Skog");
+    expect(skapaKnapp().disabled).toBe(false);
+    await klicka(skapaKnapp());
+    expect(mock.rpc[0].args).toEqual({ p_lass: LASS_ID, p_maskin_id: null, p_extern_maskin: "Kunds Ponsse", p_kund: "Anders Skog" });
+  });
+
+  it("det andra adminet hann före: 'Redan besvarat' med vem som svarade — ingen ny flytt", async () => {
+    mock.rpcHandler = () => ({ data: { ok: false, redan: true, status: "auto_flytt", av: "Joacim Ringberg", tid: "2026-10-14T10:40:00Z" }, error: null });
+    await montera();
+    await klicka(saknarRad()!);
+    await klicka(skapaKnapp());
+    expect(lassArk()!.getAttribute("aria-label")).toBe("Redan besvarat");
+    expect(lassArk()!.textContent).toContain("Joacim svarade 12:40. Flytten ligger under Att godkänna.");
+  });
+
+  it("databasens fel visas som det är och arket stannar öppet", async () => {
+    mock.rpcHandler = () => ({ data: null, error: { message: "Välj kund — flytten faktureras" } });
+    await montera();
+    await klicka(saknarRad()!);
+    await klicka(skapaKnapp());
+    expect(lassArk()).not.toBeNull();
+    expect(lassArk()!.querySelector('[role="alert"]')!.textContent).toBe("Välj kund — flytten faktureras");
+  });
+
+  it("'Det var ingen maskinflytt' kräver en bekräftelse och går till avvisa_lass", async () => {
+    mock.rpcHandler = () => ({ data: { ok: true }, error: null });
+    await montera();
+    await klicka(saknarRad()!);
+    await klicka(knapp(/Det var ingen maskinflytt/, lassArk()!));
+    expect(mock.rpc).toHaveLength(0);                                       // ett tryck räcker inte
+    expect(lassArk()!.textContent).toContain('Lasset sparas som "ingen maskinflytt"');
+    await klicka(knapp(/Ja, det var ingen maskinflytt/, lassArk()!));
+    expect(mock.rpc).toEqual([{ namn: "avvisa_lass", args: { p_lass: LASS_ID, p_orsak: "ingen_maskinflytt" } }]);
+    expect(document.querySelector("[data-lass-kvitto]")!.textContent).toBe("Markerat som ingen maskinflytt.");
+  });
+
+  it("osäker plats: arket säger det och var man kontrollerar", async () => {
+    mock.lass = [LASS({ bevis: { km_osaker: true } })];
+    await montera();
+    await klicka(saknarRad()!);
+    expect(lassArk()!.textContent).toContain("cirka 45,7 km");
+    expect(lassArk()!.textContent).toContain("Platsen är osäker");
+  });
+
+  it("allt tryckbart i arket är minst 44 px högt", async () => {
+    await montera();
+    await klicka(saknarRad()!);
+    const px = (v: string) => (v ? parseFloat(v) : 0);
+    const forLitet = Array.from(lassArk()!.querySelectorAll("button"))
+      .filter(e => Math.max(px((e as HTMLElement).style.minHeight), px((e as HTMLElement).style.height)) < 44)
+      .map(e => (e.textContent || "").trim().slice(0, 24));
+    expect(forLitet).toEqual([]);
+    expect(hookFel()).toEqual([]);
+  });
+});
+
+describe("Vilken maskin? — länken i notisen (?lass=<id>)", () => {
+  it("öppnar arket på just det lasset direkt", async () => {
+    mock.lass = [LASS()];
+    window.history.replaceState(null, "", `/lastbil?lass=${LASS_ID}`);
+    await montera();
+    expect(lassArk()!.getAttribute("aria-label")).toBe("Vilken maskin?");
+    expect(lassArk()!.textContent).toContain("mån 12 okt");
+  });
+
+  it("ett lass som redan är besvarat säger det — det försvinner inte tyst", async () => {
+    mock.lass = [LASS({ status: "auto_flytt", besvarad_av: "Martin Lindqvist", besvarad_tid: "2026-10-14T10:40:00Z" })];
+    window.history.replaceState(null, "", `/lastbil?lass=${LASS_ID}`);
+    await montera();
+    expect(lassArk()!.getAttribute("aria-label")).toBe("Redan besvarat");
+    expect(lassArk()!.textContent).toContain("Martin svarade 12:40");
+  });
+
+  it("ett lass som inte finns: klartext", async () => {
+    window.history.replaceState(null, "", `/lastbil?lass=${LASS_ID}`);
+    await montera();
+    expect(lassArk()!.textContent).toContain("Det lasset finns inte längre.");
+  });
+
+  it("läsfel: fel med Försök igen — aldrig ett tomt ark", async () => {
+    mock.lassFel = true;
+    window.history.replaceState(null, "", `/lastbil?lass=${LASS_ID}`);
+    await montera();
+    expect(lassArk()!.textContent).toContain("Kunde inte läsa lasset just nu.");
+    mock.lassFel = false; mock.lass = [LASS()];
+    await klicka(knapp(/Försök igen/, lassArk()!));
+    expect(lassArk()!.getAttribute("aria-label")).toBe("Vilken maskin?");
+  });
+
+  it("ett ogiltigt id i adressen är som om det inte stod där", async () => {
+    mock.lass = [LASS()];
+    window.history.replaceState(null, "", "/lastbil?lass=<script>");
+    await montera();
+    expect(lassArk()).toBeNull();
+  });
+
+  it("adressen rensas från ?lass efter första målningen (flik och period tar över)", async () => {
+    mock.lass = [LASS()];
+    window.history.replaceState(null, "", `/lastbil?lass=${LASS_ID}`);
+    await montera();
+    expect(window.location.search).not.toContain("lass=");
   });
 });

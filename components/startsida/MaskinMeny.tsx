@@ -140,7 +140,7 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
           paddingTop: 'env(safe-area-inset-top)', boxSizing: 'border-box',
           ...(panel ? { borderRight: `1px solid ${FARG.linje}` } : {}) }}>
         <Startsida roll={roll} huvud={{ overst, under }} bred={panel}
-          marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null }}
+          marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass }}
           datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna} />
       </div>
     </div>
