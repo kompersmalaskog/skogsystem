@@ -21,65 +21,7 @@ import { T } from '@/lib/utbildning';
 import { DAGAR_FORE, type VaderSnapshot } from '@/lib/egenkontrollvader';
 import type { MaskinSnapshot } from '@/lib/egenkontroll';
 
-const MANADER = ['jan', 'feb', 'mars', 'apr', 'maj', 'juni', 'juli', 'aug', 'sep', 'okt', 'nov', 'dec'];
-
-/** "8–26 maj", "24 apr–7 maj", "26 dec 2025–3 jan 2026". */
-function period(fran: string | null, till: string | null): string | null {
-  if (!fran || !till) return null;
-  const [aY, aM, aD] = fran.split('-').map(Number);
-  const [bY, bM, bD] = till.split('-').map(Number);
-  if (!aY || !bY) return null;
-  const m = (i: number) => MANADER[i - 1] ?? '';
-  if (aY !== bY) return `${aD} ${m(aM)} ${aY}–${bD} ${m(bM)} ${bY}`;
-  if (aM !== bM) return `${aD} ${m(aM)}–${bD} ${m(bM)}`;
-  return `${aD}–${bD} ${m(aM)}`;
-}
-
-function mm(v: number | null | undefined): string {
-  return v == null ? '—' : `${Math.round(v)} mm`;
-}
-
-function grader(v: number | null): string {
-  if (v == null) return '—';
-  const t = Math.round(v * 10) / 10;
-  return `${t > 0 ? '+' : ''}${String(t).replace('.', ',')} °C`;
-}
-
-/**
- * Bandtexten.
- *
- * null betyder OKANT, inte "utan band" - snapshotten skriver null sa fort
- * band-faltet ar falskt, eftersom vi inte kan skilja "korde utan band" fran
- * "ingen rorde faltet" (se byggMaskinSnapshot). "Utan band" och "uppgift
- * saknas" far aldrig se likadana ut, sa de har var sin text.
- */
-function bandText(band: boolean | null | undefined, par: string | null | undefined): string {
-  if (band == null) return 'Band uppgift saknas';
-  if (band === false) return 'Utan band';
-  return par ? `Band ${par} par` : 'Band, antal par okänt';
-}
-
-/** Kort skal till att vadret saknas — samma ordning som statusarna. */
-function saknasKort(vader: VaderSnapshot | null): string {
-  if (!vader) return 'Vädret sparades inte';
-  if (vader.status === 'saknar_koordinat') return 'Objektet saknar koordinat';
-  if (vader.status === 'saknar_skotdatum') return 'Skotdatum saknas';
-  return 'Vädret kunde inte hämtas';
-}
-
-/** Hela skalet, med vad man gor at det. De tre atgardas OLIKA. */
-function saknasLangt(vader: VaderSnapshot | null): string {
-  if (!vader) {
-    return 'Vädret sparades inte när rundan startades. Det hämtas en gång vid start och fylls inte i i efterhand — dokumentet ska säga samma sak om två år som i dag.';
-  }
-  if (vader.status === 'saknar_koordinat') {
-    return 'Objektet saknar koordinat, så det går inte att säga vilket väder som rådde. Sätt en koordinat på objektet, så följer vädret med nästa runda.';
-  }
-  if (vader.status === 'saknar_skotdatum') {
-    return 'Vi vet inte när trakten skotades. Objektet är inte kopplat till maskindatan, och utan den finns ingen ärlig källa till skotningsdatumen — objektets egna datum är skördens.';
-  }
-  return `Vädret kunde inte hämtas när rundan startades${vader.fel ? ` (${vader.fel})` : ''}. Det hämtas bara en gång, så raden fylls inte i i efterhand.`;
-}
+import { bandText, grader, mm, period, saknasKort, saknasLangt } from '@/lib/egenkontrollForutsattningar';
 
 function Rubrik({ children }: { children: React.ReactNode }) {
   return (
