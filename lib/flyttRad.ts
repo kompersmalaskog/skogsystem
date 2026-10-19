@@ -57,11 +57,12 @@ const hhmmss = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")
 const overlappar = (s: number, e: number, b: { s: number; e: number }) => s < b.e && b.s < e;
 
 /** "6,7 km" under 10 km, annars hela km — en decimal är mer än GPS-luckan kan lova över 10. */
-const kmText = (km: number) => (km < 10 ? `${km.toFixed(1).replace(".", ",")} km` : `${Math.round(km)} km`);
+const kmText = (km: number) => (Number.isInteger(km) || km >= 10 ? `${Math.round(km)} km` : `${km.toFixed(1).replace(".", ",")} km`);
 
 /** Radens kommentar: trakterna och km. Tiden härleds av raden själv. Okänd trakt = "Okänd plats", aldrig ett id. */
-export function flyttKommentar(franNamn: string | null | undefined, tillNamn: string | null | undefined, km: number): string {
-  return `${franNamn || "Okänd plats"} → ${tillNamn || "Okänd plats"} · ${kmText(km)}`;
+export function flyttKommentar(franNamn: string | null | undefined, tillNamn: string | null | undefined, km: number | null): string {
+  const trakter = `${franNamn || "Okänd plats"} → ${tillNamn || "Okänd plats"}`;
+  return km == null ? trakter : `${trakter} · ${kmText(km)}`; // flyttloggen kan sakna km: då utelämnas det, det gissas aldrig
 }
 
 /**
@@ -111,17 +112,19 @@ export function planeraFlyttar(i: {
   return valda;
 }
 
-/** Är det synkens egen flyttrad? En rad föraren själv lagt in (kalla 'forare') är aldrig det. */
+/** Är det en rad synken själv skapat — ur GPS-spåret ('flytt') eller flyttloggen ('flyttlogg')? En rad föraren lagt in ('forare') är aldrig det. */
 export function arAutomatiskFlytt(rad: { kalla?: string | null } | null | undefined): boolean {
-  return rad?.kalla === "flytt";
+  return rad?.kalla === "flytt" || rad?.kalla === "flyttlogg";
 }
 
 /**
  * Gravstenen för en automatisk flytt som föraren tagit bort eller flyttat på: tidsintervallet synken inte får skapa
  * en rad på igen. Null för allt annat.
  */
-export function flyttBortaRad(rad: { medarbetare_id: string; datum: string; start_tid: string; slut_tid: string; kalla?: string | null } | null | undefined) {
+export function flyttBortaRad(rad: { medarbetare_id: string; datum: string; start_tid: string; slut_tid: string; kalla?: string | null; flytt_id?: string | null } | null | undefined) {
   if (!rad || !arAutomatiskFlytt(rad)) return null;
   const hms = (t: string) => hhmmss(tMin(t));
-  return { medarbetare_id: rad.medarbetare_id, datum: rad.datum, start_tid: hms(rad.start_tid), slut_tid: hms(rad.slut_tid) };
+  const grund = { medarbetare_id: rad.medarbetare_id, datum: rad.datum, start_tid: hms(rad.start_tid), slut_tid: hms(rad.slut_tid) };
+  // En rad från flyttloggen kommer ihåg SIN flytt: flyttens id, inte tiden, hindrar att den skapas igen (tiden kan ändras i loggen).
+  return rad.kalla === "flyttlogg" ? { ...grund, flytt_id: rad.flytt_id ?? null } : grund;
 }
