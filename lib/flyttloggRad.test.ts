@@ -94,6 +94,9 @@ describe("raden: tid, innehåll, märkning", () => {
 });
 
 describe("vilka flyttar som INTE ger en rad", () => {
+  it("flytt av extern maskin (maskin_id saknas) får ingen rad ens när en dag saknar maskin (null ≠ null)", () => {
+    expect(plan([flytt({ maskin_id: null })], [dag({ maskin_id: null })]).skapa).toHaveLength(0);
+  });
   it("avbruten flytt", () => { expect(plan([flytt({ avbruten: true })]).skapa).toHaveLength(0); });
   it("lastning eller avlastning saknas (aldrig en gissad tid)", () => {
     expect(plan([flytt({ hamtad_tid: null })]).skapa).toHaveLength(0);
@@ -225,9 +228,11 @@ describe("en gång, aldrig igen efter svep, och aldrig dubbelt mot GPS-raden", (
     const borta = [{ medarbetare_id: DANIEL, datum: "2026-10-05", flytt_id: "f-1", start_tid: "07:15:00", slut_tid: "09:14:00" }];
     expect(plan([flytt()], [dag()], { borta }).skapa).toHaveLength(0);
   });
-  it("svep: gravsten med flyttens id hindrar också när tiden i loggen ändrats (en rättad flytt)", () => {
+  it("svep: flyttens id hindrar när tiden i loggen rättats så att den inte längre överlappar gravstenens tid", () => {
     const borta = [{ medarbetare_id: DANIEL, datum: "2026-10-05", flytt_id: "f-1", start_tid: "07:15:00", slut_tid: "09:14:00" }];
-    expect(plan([flytt({ s: "10:30" })], [dag()], { borta }).skapa).toHaveLength(0);
+    expect(plan([flytt({ h: "12:00", s: "13:00" })], [dag()], { borta }).skapa).toHaveLength(0);
+    // en ANNAN flytt samma dag (annat id, annan tid) hindras inte av den gravstenen
+    expect(plan([flytt({ id: "f-2", h: "12:00", s: "13:00" })], [dag()], { borta }).skapa).toHaveLength(1);
   });
   it("en gravsten för en GPS-rad på samma tid (föraren tog bort den) hindrar också flyttloggsraden", () => {
     const borta = [{ medarbetare_id: DANIEL, datum: "2026-10-05", flytt_id: null, start_tid: "07:20:00", slut_tid: "09:00:00" }];
