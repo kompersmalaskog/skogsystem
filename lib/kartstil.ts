@@ -124,9 +124,6 @@ export type LinjeStil = {
 export const LINJE_STIL: LinjeStil[] = [
   { id: 'boundary', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
   { id: 'mainRoad', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
-  { id: 'backRoadRed', color: LEGEND.fara },
-  { id: 'backRoadYellow', color: LEGEND.gul },
-  { id: 'backRoadBlue', color: LEGEND.vatten },
   { id: 'sideRoadRed', color: LEGEND.fara },
   { id: 'sideRoadYellow', color: LEGEND.gul },
   { id: 'sideRoadBlue', color: LEGEND.vatten },
@@ -384,7 +381,7 @@ export function nummerLager(kalla: string, prefix: string): any {
 }
 
 // ---------------------------------------------------------------------------
-// Backvag: tvarstreck (⊣) i hinderanden av en vag (lib/backvag). Vagen behaller sin farg och sitt utseende - strecket ar en egen punkt-feature
+// Backvag: DUBBLA tvarstreck (‖) i hinderanden av en vag (lib/backvag). Vagen behaller sin farg och sitt utseende - strecken ar en egen punkt-feature
 // (en liten ikon, roterad tvars over vagen) i vagens egen farg med morkt kant, sa den syns pa flygfoto och pa vit karta.
 // ---------------------------------------------------------------------------
 
@@ -392,11 +389,11 @@ export function nummerLager(kalla: string, prefix: string): any {
 export const BACKVAG_IKON_PREFIX = 'backvag-streck-';
 export const backvagIkonNamn = (farg: string): string => `${BACKVAG_IKON_PREFIX}${farg}`;
 
-/** Storleken i skarmpixlar mot zoom: staplen ska vara ett par ganger vagens bredd (2-7 px) sa den lases som ett tvarstreck, inte en prick. */
+/** Storleken mot zoom: staplarna ska vara ett par ganger vagens bredd (2-7 px) sa de lases som tvarstreck, inte en prick. */
 export const BACKVAG_IKON_STORLEK: Stopp = [[8, 0.22], [11, 0.3], [13, 0.38], [15, 0.5], [17, 0.62]];
 
 /**
- * Symbollagret for tvarstrecken. Ikonen ar en vagrat stapel; 'icon-rotate' = riktningen UT ur vagen, saa staplen hamnar tvars over vagen.
+ * Symbollagret for de dubbla tvarstrecken. Ikonen ar tva vagrata staplar; 'icon-rotate' = riktningen UT ur vagen, saa staplen hamnar tvars over vagen.
  * Rotation och lutning foljer kartan (som vagen), inte skarmen. Ligger over vaglinjerna men under symboler.
  */
 export function backvagStreckLager(kalla: string, prefix: string, filter?: any[] | null, opacitet?: any): any {
@@ -478,8 +475,9 @@ export function ritaNummerIkon(nr: number, px = 64): HTMLCanvasElement {
 }
 
 /**
- * Tvarstrecket: en vagrat stapel (mitt i bilden) med morkt kant, i vagens egen farg. 'blagul' = blatt med gula delar (basvag utan farg).
- * Staplen ar vagrat vid rotation 0, dvs. tvars over en vag som gar norrut; ikonen roteras med riktningen ut ur vagen.
+ * De dubbla tvarstrecken (‖): TVA vagrata staplar efter varandra (mitt i bilden) med morkt kant, i vagens egen farg - som dubbel snitsel i skogen.
+ * 'blagul' = blatt med gula delar (basvag utan farg). Staplarna ar vagrata vid rotation 0, dvs. tvars over en vag som gar norrut; ikonen roteras
+ * med riktningen ut ur vagen. Mellanrummet mellan dem ar morkt (kanten) sa de lases som TVA streck, ocksa pa en gul vag pa ljus karta.
  */
 export function ritaBackvagStreck(farg: 'red' | 'yellow' | 'blue' | 'blagul', px = 64): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -487,7 +485,9 @@ export function ritaBackvagStreck(farg: 'red' | 'yellow' | 'blue' | 'blagul', px
   const ctx = c.getContext('2d');
   if (!ctx) return c;
   const s = px / 64;
-  const langd = 46 * s, tjock = 12 * s, inre = 7 * s, x0 = (px - langd) / 2, y0 = (px - tjock) / 2;
+  const langd = 46 * s, tjock = 10 * s, inre = 5.5 * s, avstand = 18 * s;   // avstand = mellan strackens mittlinjer
+  const x0 = (px - langd) / 2;
+  const mitt = px / 2;
   const rund = (x: number, y: number, w: number, h: number, r: number) => {
     ctx.beginPath();
     ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
@@ -495,15 +495,18 @@ export function ritaBackvagStreck(farg: 'red' | 'yellow' | 'blue' | 'blagul', px
     ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
     ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
   };
-  ctx.fillStyle = 'rgba(0,0,0,0.9)';                          // morkt kant: syns pa ljus karta och pa flygfoto
-  rund(x0, y0, langd, tjock, 3 * s); ctx.fill();
-  const ix = x0 + 2 * s, iy = (px - inre) / 2, ilangd = langd - 4 * s;
-  if (farg === 'blagul') {                                    // blatt med gula delar, som basvagen utan farg
-    const delar = 4, w = ilangd / delar;
-    for (let i = 0; i < delar; i++) { ctx.fillStyle = i % 2 === 0 ? LEGEND.vatten : LEGEND.gul; ctx.fillRect(ix + i * w, iy, w + (i < delar - 1 ? 0.5 : 0), inre); }
-  } else {
-    ctx.fillStyle = farg === 'red' ? LEGEND.fara : farg === 'yellow' ? LEGEND.gul : LEGEND.vatten;
-    ctx.fillRect(ix, iy, ilangd, inre);
+  for (const dy of [-avstand / 2, avstand / 2]) {
+    const y0 = mitt + dy - tjock / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.9)';                        // morkt kant: syns pa ljus karta och pa flygfoto
+    rund(x0, y0, langd, tjock, 2.5 * s); ctx.fill();
+    const ix = x0 + 2 * s, iy = mitt + dy - inre / 2, ilangd = langd - 4 * s;
+    if (farg === 'blagul') {                                  // blatt med gula delar, som basvagen utan farg
+      const delar = 4, w = ilangd / delar;
+      for (let i = 0; i < delar; i++) { ctx.fillStyle = i % 2 === 0 ? LEGEND.vatten : LEGEND.gul; ctx.fillRect(ix + i * w, iy, w + (i < delar - 1 ? 0.5 : 0), inre); }
+    } else {
+      ctx.fillStyle = farg === 'red' ? LEGEND.fara : farg === 'yellow' ? LEGEND.gul : LEGEND.vatten;
+      ctx.fillRect(ix, iy, ilangd, inre);
+    }
   }
   return c;
 }

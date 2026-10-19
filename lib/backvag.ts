@@ -1,9 +1,9 @@
-// BACKVÄG: en EGENSKAP på en befintlig väg, ingen ny vägtyp. Man kör in på vägen men måste backa ut, för att det finns ett hinder i ena änden
-// (sten, brant backe, blött). Vägen behåller sin färg och sitt utseende — färgen är snitslet i skogen och rörs inte. Det enda som läggs till är ett
-// tvärstreck (⊣) i hinderänden, i vägens egen färg med mörk kant.
+// BACKVÄG: en EGENSKAP på en befintlig väg, ingen ny vägtyp. Man kör in på vägen men måste backa ut, för att det finns ett hinder i ena änden.
+// Föraren vet vad en backväg är: ingen orsak lagras eller visas. Vägen behåller sin färg och sitt utseende — färgen är snitslet i skogen och rörs inte.
+// Det enda som läggs till är DUBBLA tvärstreck (‖) i hinderänden, som dubbel snitsel i skogen, i vägens egen färg med mörk kant.
 //
 // Lagring: ett fält `backvag` på markeringen (JSONB i planering_markeringar.data, precis som `farg` och `nummer` på basvägen) — ingen migration.
-//   backvag: { ande: 'start' | 'slut', orsak?: 'sten' | 'brant' | 'blott' | 'annat' }
+//   backvag: { ande: 'start' | 'slut' }
 //   `ande` räknas längs väg-linjens ritriktning: 'start' = första punkten, 'slut' = sista. Ritas vägen om åt andra hållet byter ändarna plats.
 //   Saknas fältet (allt som ritades före backväg) är vägen en vanlig väg.
 //
@@ -12,44 +12,33 @@
 // Rena funktioner — används av planeringsvyn (kort + karta), kartstilen (egenkontrollens karta) och kortets text.
 
 export type BackvagAnde = 'start' | 'slut';
-export type BackvagOrsak = 'sten' | 'brant' | 'blott' | 'annat';
-export interface Backvag { ande: BackvagAnde; orsak?: BackvagOrsak }
+export interface Backvag { ande: BackvagAnde }
 
-/** Orsakerna i den ordning de visas. Valfri, EN åt gången, inget fritextfält. */
-export const BACKVAG_ORSAKER: ReadonlyArray<{ id: BackvagOrsak; namn: 'Sten' | 'Brant' | 'Blött' | 'Annat' }> = [
-  { id: 'sten', namn: 'Sten' },
-  { id: 'brant', namn: 'Brant' },
-  { id: 'blott', namn: 'Blött' },
-  { id: 'annat', namn: 'Annat' },
-];
 export const BACKVAG_ANDAR: ReadonlyArray<{ id: BackvagAnde; namn: 'Början' | 'Slutet' }> = [
   { id: 'start', namn: 'Början' },
   { id: 'slut', namn: 'Slutet' },
 ];
 
 export const arBackvagAnde = (v: unknown): v is BackvagAnde => v === 'start' || v === 'slut';
-export const arBackvagOrsak = (v: unknown): v is BackvagOrsak => v === 'sten' || v === 'brant' || v === 'blott' || v === 'annat';
 
-/** Vilka linjetyper är vägar: basväg, stickväg och backväg-typerna (alla i röd/gul/blå). Naturvård, dike, stig, stenmur och traktgräns är inga vägar. */
+/** Vilka linjetyper är vägar: basväg och stickväg (röd/gul/blå). Naturvård, dike, stig, stenmur och traktgräns är inga vägar. */
 export const VAG_LINJETYPER: readonly string[] = [
   'mainRoad',
   'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue',
-  'backRoadRed', 'backRoadYellow', 'backRoadBlue',
 ];
 export const arVagTyp = (lineType: unknown): boolean => typeof lineType === 'string' && VAG_LINJETYPER.includes(lineType);
 
-/** Läser `backvag` ur en markering. Okänt eller trasigt → null (en vanlig väg): aldrig ett påhittat hinder. */
+/** Läser `backvag` ur en markering. Okänt eller trasigt → null (en vanlig väg): aldrig ett påhittat hinder. Ett gammalt `orsak`-fält ignoreras. */
 export function lasBackvag(markering: unknown): Backvag | null {
   const v = (markering as { backvag?: unknown } | null | undefined)?.backvag;
   if (!v || typeof v !== 'object') return null;
-  const { ande, orsak } = v as { ande?: unknown; orsak?: unknown };
-  if (!arBackvagAnde(ande)) return null;
-  return arBackvagOrsak(orsak) ? { ande, orsak } : { ande };
+  const { ande } = v as { ande?: unknown };
+  return arBackvagAnde(ande) ? { ande } : null;
 }
 
 /** Sätter eller tar bort backväg på en markering (null = vanlig väg igen: fältet tas bort, som före backväg). Rör inget annat. */
 export function medBackvag<T extends object>(m: T, bv: Backvag | null): T {
-  if (bv) return { ...m, backvag: bv.orsak ? { ande: bv.ande, orsak: bv.orsak } : { ande: bv.ande } };
+  if (bv) return { ...m, backvag: { ande: bv.ande } };
   const { backvag: _bort, ...utan } = m as T & { backvag?: unknown };
   return utan as unknown as T;
 }
@@ -57,23 +46,14 @@ export function medBackvag<T extends object>(m: T, bv: Backvag | null): T {
 /** Slår på backväg. Hindret förvalt i SLUTET: vägen ritas in från vägnätet, så hindret är i regel längst in (syns direkt på kartan och går att byta). */
 export const BACKVAG_FORVALD_ANDE: BackvagAnde = 'slut';
 
-export const backvagOrsakNamn = (orsak: unknown): string | null => BACKVAG_ORSAKER.find((o) => o.id === orsak)?.namn ?? null;
-
-/** Kortets rubrik: "Backväg – backa ut". */
-export const BACKVAG_TITEL = 'Backväg – backa ut';
-
-/** "Backväg – backa ut" eller "Backväg – backa ut · Sten". */
-export function backvagText(bv: Backvag | null | undefined): string | null {
-  if (!bv) return null;
-  const orsak = backvagOrsakNamn(bv.orsak);
-  return orsak ? `${BACKVAG_TITEL} · ${orsak}` : BACKVAG_TITEL;
-}
+/** Kortet säger bara "Backväg". */
+export const BACKVAG_TITEL = 'Backväg';
 
 // ---------------------------------------------------------------------------
 // Tvärstreckets färg och läge
 // ---------------------------------------------------------------------------
 
-/** Vilken färg tvärstrecket får = vägens egen: röd, gul, blå, eller Blå/gul (basväg utan färg: blå med gula streck). */
+/** Vilken färg tvärstrecken får = vägens egen: röd, gul, blå, eller Blå/gul (basväg utan färg: blå med gula streck). */
 export type BackvagStreckFarg = 'red' | 'yellow' | 'blue' | 'blagul';
 export const BACKVAG_STRECK_FARGER: readonly BackvagStreckFarg[] = ['red', 'yellow', 'blue', 'blagul'];
 
@@ -128,7 +108,7 @@ export function backvagStreck(koordinater: ReadonlyArray<LngLat>, ande: BackvagA
   return { punkt: andpunkt, riktning: riktning(granne, andpunkt) };
 }
 
-/** En GeoJSON-feature för tvärstrecket (en punkt med ikon, riktning och vägens färg). Null om vägen inte är backväg eller saknar giltig geometri. */
+/** En GeoJSON-feature för de dubbla tvärstrecken (en punkt med ikon, riktning och vägens färg). Null om vägen inte är backväg eller saknar giltig geometri. */
 export function backvagFeature(
   markering: { id?: unknown; lineType?: unknown; farg?: unknown; backvag?: unknown },
   koordinater: ReadonlyArray<LngLat>,

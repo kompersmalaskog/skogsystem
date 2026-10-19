@@ -376,6 +376,15 @@ describe('kartan pa sida 1: fakta, lager och anmarkningar', () => {
     expect(m.karta.markeringar).toHaveLength(4);
   });
 
+  it('BACKVAG: teckenforklaringen har en rad "Backväg (dubbla tvärstreck i änden)" bara när en väg på kartan är backväg — och backväg följer med modellen', () => {
+    const vag = { slag: 'linje' as const, typ: 'mainRoad', punkter: [ll(56, 15), ll(56.001, 15)] };
+    const utan = byggRapport(indata({ markeringar: [vag] }));
+    expect(utan.karta.teckenforklaring.some((f) => f.nyckel === 'backvag')).toBe(false);
+    const med = byggRapport(indata({ markeringar: [vag, { ...vag, typ: 'sideRoadRed', backvag: 'slut' as const }] }));
+    expect(med.karta.teckenforklaring.map((f) => f.etikett)).toEqual(['Basväg', 'Stickväg', 'Backväg (dubbla tvärstreck i änden)']);
+    expect(med.karta.markeringar.find((m) => m.slag === 'linje' && m.typ === 'sideRoadRed')).toMatchObject({ backvag: 'slut' });
+  });
+
   it('kontrollpunkterna kommer med i teckenforklaringen bara nar det finns pinnar', () => {
     const a = punkt({ rubrik: 'Stenmur', status: 'avvikelse', del: 'plan', kalla: 'markering', avvikelse_typ: 'hansyn_skadad', lat: 56, lng: 15 });
     const med = byggRapport(indata({ punkter: [a] }));

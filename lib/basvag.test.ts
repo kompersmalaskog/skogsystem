@@ -140,7 +140,7 @@ describe('sidans koppling (page.tsx kan inte monteras i test — källvakt)', ()
     expect(k).toContain('<BasvagFargVal valt={valt} onVal={onVal} />');
   });
 
-  it('GALLRINGSVERKTYGET ÄR RÖRT: snitslingen startar sin spårning med bara linjetypen (inget färgfält), och stickväg/backväg tar aldrig `farg`', () => {
+  it('GALLRINGSVERKTYGET ÄR RÖRT: snitslingen startar sin spårning med bara linjetypen (inget färgfält), och stickväg tar aldrig `farg`', () => {
     expect(page).toContain('startGpsTracking(lineId);');
     expect(page).toContain("startGpsTracking(colorMap[colorId] || 'sideRoadRed');");
     expect(page).toContain("gpsFargRef.current = lineType === 'mainRoad' ? (farg ?? null) : null;");   // andra typer nollställer färgen

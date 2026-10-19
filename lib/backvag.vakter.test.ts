@@ -37,11 +37,40 @@ describe('backväg: planeringssidan', () => {
     expect(page).toContain("safeSetVisibility('line-backvag', visibleLayers.lines ? 'visible' : 'none');");
     expect(page).toContain("map.setFilter('line-backvag', ['in', ['get', 'lineType'], ['literal', lineTypeIds.filter((id) => visibleLines[id] !== false)]]);");
   });
-  it('kortet: Backväg visas för varje väg (basväg, stickväg, backväg-typerna) och sparas via medBackvag på markeringen — ingen ny vägtyp', () => {
+  it('kortet: Backväg visas för varje väg (basväg, stickväg) och sparas via medBackvag på markeringen — ingen ny vägtyp', () => {
     expect(page).toContain('marker.isLine && arVagTyp(marker.lineType) && (');
     expect(page).toContain('<BackvagVal backvag={lasBackvag(marker)}');
     expect(page).toContain('medBackvag(m, bv)');
-    expect(page).not.toMatch(/lineType: ?'backvag'|\{ id: 'backvag', (color|name)/);   // ingen NY linjetyp "backvag" (snitslingens befintliga backRoad*-typer finns kvar, orörda)
+    expect(page).not.toMatch(/lineType: ?'backvag'|\{ id: 'backvag'/);   // ingen linjetyp "backvag"
+  });
+});
+
+describe('backväg: bara EN modell — egenskapen på vägen', () => {
+  it('den gamla Stickväg/Backväg-växeln i snitslingsverktyget och linjetyperna backRoadRed/Yellow/Blue är borta ur all kod (prod hade 0 rader med dem)', () => {
+    const filer: string[] = [];
+    const gå = (d: string) => { for (const e of readdirSync(join(rot, d), { withFileTypes: true })) { const r = `${d}/${e.name}`; if (e.isDirectory()) { if (e.name !== 'node_modules') gå(r); } else if (/\.tsx?$/.test(e.name) && !/\.test\./.test(e.name)) filer.push(r); } };
+    gå('app'); gå('lib'); gå('components');
+    for (const f of filer) {
+      const t = las(f);
+      expect(t, f).not.toMatch(/backRoad(Red|Yellow|Blue)|isBackRoad|selectedVagType|setSelectedVagType/);
+    }
+    expect(page).not.toContain("n: 'Backväg' }");   // växelknappen
+    expect(page).toContain('const lineId = `sideRoad${eng}`;');   // snitslingen ritar bara stickväg
+  });
+});
+
+describe('backväg: dubbla tvärstreck (‖)', () => {
+  it('ikonen ritar TVÅ staplar med mörk kant (en loop över två lägen), i vägens färg — och lagret ritar en ikon per backväg', () => {
+    const k = las('lib/kartstil.ts');
+    expect(k).toContain('for (const dy of [-avstand / 2, avstand / 2]) {');
+    expect(k).toContain("ctx.fillStyle = 'rgba(0,0,0,0.9)';");
+    expect(k).toMatch(/farg === 'red' \? LEGEND\.fara : farg === 'yellow' \? LEGEND\.gul : LEGEND\.vatten/);
+  });
+  it('kortet har bara växeln och Början/Slutet: ingen orsak, ingen förklaringstext', () => {
+    const k = las('components/planering/BackvagVal.tsx').split('\n').filter((r) => !r.trim().startsWith('//')).join('\n');   // koden, inte kommentarerna
+    expect(k).not.toMatch(/orsak|Orsak|Sten|Brant|Blött/i);
+    expect(k).not.toContain('Man kör in');
+    expect(las('lib/backvag.ts')).not.toMatch(/BACKVAG_ORSAKER|BackvagOrsak/);
   });
 });
 

@@ -3,7 +3,7 @@ import { extractText, getDocumentProxy } from 'unpdf';
 import type { Egenkontroll, EgenkontrollFoto, EgenkontrollPunkt } from './egenkontroll';
 import { byggRapport, type RapportIndata } from './egenkontrollRapport';
 import { brytText, projicera, skalstock, skapaBilagaPdf, skapaRapportPdf } from './egenkontrollRapportPdf';
-import { kartaHojd, ritaKarta } from './egenkontrollRapportKartaPdf';
+import { backvagStreckPt, kartaHojd, ritaKarta, ritaTeckenforklaring } from './egenkontrollRapportKartaPdf';
 import { markeringsStil } from './egenkontrollRapportKarta';
 
 let n = 0;
@@ -258,8 +258,56 @@ describe('kartan pa sida 1', () => {
   });
 });
 
+describe('backväg i A4-kartan: dubbla tvärstreck (‖) i hinderänden', () => {
+  const ll = (lat: number, lng: number) => ({ lat, lng });
+  it('geometrin: två streck tvärs över vägen, bredvid varandra längs vägen, i den valda änden', () => {
+    // en väg rakt österut (x växer): sista punkten (100,50), första (0,50). Toppbaserade koordinater.
+    const vag = [{ x: 0, y: 50 }, { x: 60, y: 50 }, { x: 100, y: 50 }];
+    const slut = backvagStreckPt(vag, 'slut')!;
+    expect(slut).toHaveLength(2);
+    for (const [x1, y1, x2, y2] of slut) { expect(x1).toBeCloseTo(x2, 6); expect(Math.abs(y2 - y1)).toBeCloseTo(12, 6); }   // lodräta streck = tvärs över en vågrät väg
+    expect(slut.map((s) => s[0]).sort((a, b) => a - b)).toEqual([97, 103]);                                            // kring änden, 6 pt isär längs vägen
+    const start = backvagStreckPt(vag, 'start')!;
+    expect(start.map((s) => s[0]).sort((a, b) => a - b)).toEqual([-3, 3]);                                             // andra änden
+  });
+  it('dubbletter i änden ger ingen brusig riktning; en väg utan riktning ger inga streck', () => {
+    const med = [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50.1, y: 0 }];
+    const s = backvagStreckPt(med, 'slut')!;
+    expect(s[0][0]).toBeCloseTo(s[0][2], 6);
+    expect(backvagStreckPt([{ x: 1, y: 1 }, { x: 1, y: 1 }], 'slut')).toBeNull();
+    expect(backvagStreckPt([{ x: 1, y: 1 }], 'start')).toBeNull();
+  });
+  it('ritaKarta ritar vägen + två streck (mörk kant + färg) för en backväg, och ingenting extra för en vanlig väg', async () => {
+    const lib = await import('pdf-lib');
+    const ritaAntal = async (backvag: 'slut' | undefined) => {
+      const anrop: { arg: any; opt: any }[] = [];
+      const sida: any = new Proxy({}, { get: (_t, metod: string) => (arg: any, opt: any) => { if (metod === 'drawSvgPath') anrop.push({ arg, opt }); } });
+      const font: any = { widthOfTextAtSize: (t: string) => t.length * 4 };
+      ritaKarta(lib, sida, { normal: font, fet: font }, { x: 48, top: 100, b: 499, h: 300 },
+        { granser: [[ll(56, 15), ll(56.002, 15), ll(56.002, 15.004)]], stammar: [], markeringar: [{ slag: 'linje', typ: 'mainRoad', punkter: [ll(56, 15), ll(56.001, 15.001)], ...(backvag ? { backvag } : {}) }], pinnar: [] }, (t) => t, {});
+      return anrop.filter((x) => typeof x.arg === 'string' && x.arg.startsWith('M') && !x.arg.includes(' A ') && !x.arg.endsWith('Z'));
+    };
+    const vanlig = await ritaAntal(undefined), back = await ritaAntal('slut');
+    expect(back.length - vanlig.length).toBe(4);   // 2 streck × (mörk kant + färg)
+    const streck = back.slice(-4);
+    expect(streck[0].opt.borderColor).toEqual(lib.rgb(0.07, 0.07, 0.07));   // mörk kant först
+    expect(streck[0].opt.borderWidth).toBeGreaterThan(streck[1].opt.borderWidth);
+    expect(streck[1].opt.borderColor).toEqual(streck[3].opt.borderColor);                       // båda färgstrecken i samma färg…
+    expect(streck[1].opt.borderColor).toEqual(vanlig[vanlig.length - 1].opt.borderColor);        // …vägens egen
+  });
+  it('teckenförklaringen ritar en post för backväg utan att kasta', async () => {
+    const lib = await import('pdf-lib');
+    const anrop: string[] = [];
+    const sida: any = new Proxy({}, { get: (_t, metod: string) => () => { anrop.push(metod); } });
+    const font: any = { widthOfTextAtSize: (t: string) => t.length * 4 };
+    const h = ritaTeckenforklaring(lib, sida, { normal: font }, 48, 100, 499, [{ nyckel: 'backvag', etikett: 'Backväg (dubbla tvärstreck i änden)' }], (t) => t);
+    expect(h).toBeGreaterThan(0);
+    expect(anrop.filter((m) => m === 'drawSvgPath')).toHaveLength(5);   // vägen + 2 streck × (kant + färg)
+  });
+});
+
 describe('markeringsStil - farg ar aldrig ensam', () => {
-  const linjer = ['mainRoad', 'ditch', 'stonewall', 'nature', 'trail', 'backRoadRed', 'sideRoadRed', 'sideRoadBlue'];
+  const linjer = ['mainRoad', 'ditch', 'stonewall', 'nature', 'trail', 'sideRoadRed', 'sideRoadBlue'];
   it('inga tva linjetyper har samma farg, bredd OCH streckning - dike ar streckat, basvag heldragen', () => {
     const stilar = linjer.map((t) => markeringsStil('linje', t)!);
     const nycklar = stilar.map((s) => `${s.farg}|${s.bredd}|${JSON.stringify(s.streck)}`);

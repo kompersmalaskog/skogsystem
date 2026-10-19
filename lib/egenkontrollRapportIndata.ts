@@ -10,6 +10,7 @@ import type { Egenkontroll, EgenkontrollFoto, EgenkontrollProvyta, EgenkontrollP
 import { punktPlatser } from './egenkontroll';
 import { svgToLatLon, type Origo } from './kartkoordinater';
 import { kontextFeature } from './egenkontrollkarta';
+import { arVagTyp, lasBackvag } from './backvag';
 import type { JamforelseRad, KartMarkering, LatLng, RapportIndata } from './egenkontrollRapport';
 
 type Xy = { x: number; y: number };
@@ -60,7 +61,8 @@ export function byggRapportIndata(a: {
         if (kind === 'symbol' && f.geometry.type === 'Point') {
           markeringar.push({ slag: 'symbol', typ, plats: lnglat(f.geometry.coordinates) });
         } else if (kind === 'linje' && f.geometry.type === 'LineString') {
-          markeringar.push({ slag: 'linje', typ, punkter: (f.geometry.coordinates as [number, number][]).map(lnglat) });
+          const bv = arVagTyp(typ) ? lasBackvag(rad.data) : null;   // backväg: dubbla tvärstreck i hinderänden
+          markeringar.push({ slag: 'linje', typ, punkter: (f.geometry.coordinates as [number, number][]).map(lnglat), ...(bv ? { backvag: bv.ande } : {}) });
         } else if (kind === 'zon') {
           const ring = f.geometry.type === 'Polygon' ? (f.geometry.coordinates[0] as [number, number][]) : f.geometry.type === 'LineString' ? (f.geometry.coordinates as [number, number][]) : [];
           if (ring.length >= 2) markeringar.push({ slag: 'zon', typ, punkter: ring.map(lnglat) });

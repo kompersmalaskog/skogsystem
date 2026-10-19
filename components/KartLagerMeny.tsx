@@ -50,7 +50,7 @@ type Typ = {
   setVisibleZones?: (f: (prev: any) => any) => void;
   // Formen ar planeringsvyns egen - den kopierade JSX:en laser
   // striped/color2/dashed, sa typen maste bara dem.
-  lineTypes?: { id: string; name: string; color: string; color2?: string; striped?: boolean; dashed?: boolean; isBackRoad?: boolean }[];
+  lineTypes?: { id: string; name: string; color: string; color2?: string; striped?: boolean; dashed?: boolean }[];
   zoneTypes?: { id: string; name: string; color: string; icon?: string }[];
   visaBrandrisk?: boolean;
   visaProduktionshogar?: boolean;
@@ -671,7 +671,7 @@ export default function KartLagerMeny(p: Typ) {
                 }}>
                   Linjetyper
                 </div>
-                {(lineTypes ?? []).filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad')).map(line => (
+                {(lineTypes ?? []).filter(l => !l.id.includes('sideRoad') ).map(line => (
                   <div
                     key={line.id}
                     onClick={() => (setVisibleLines ?? noop)(prev => ({ ...prev, [line.id]: prev[line.id] === false }))}

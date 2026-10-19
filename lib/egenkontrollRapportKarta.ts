@@ -5,7 +5,8 @@
 // i svartvitt. Farger ur appens LEGEND (lib/kartstil.ts) sa att kartan i rapporten och kartan i appen kanns igen.
 
 export type KartMarkering =
-  | { slag: 'linje'; typ: string; punkter: { lat: number; lng: number }[] }
+  /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
+  | { slag: 'linje'; typ: string; punkter: { lat: number; lng: number }[]; backvag?: 'start' | 'slut' }
   | { slag: 'zon'; typ: string; punkter: { lat: number; lng: number }[] }
   | { slag: 'symbol'; typ: string; plats: { lat: number; lng: number } };
 
@@ -54,12 +55,11 @@ const SYMBOLER: Record<string, Omit<MarkeringStil, 'nyckel' | 'bredd' | 'streck'
   firewood: { etikett: 'Ved', farg: NEUTRAL },
 };
 
-/** Vag-linjer (backRoadXxx och sideRoadXxx) har fargen i namnet - men ritas i en egen bredd/streckning sa farg inte ar ensam. */
+/** Vag-linjer (sideRoadXxx) har fargen i namnet - men ritas i en egen bredd/streckning sa farg inte ar ensam. */
 function vagStil(typ: string): Omit<MarkeringStil, 'nyckel'> | null {
   const farg = typ.endsWith('Red') ? '#ff453a' : typ.endsWith('Yellow') ? '#d99a00' : typ.endsWith('Blue') ? '#3b82f6' : null;
   if (!farg) return null;
   if (typ.startsWith('sideRoad')) return { etikett: 'Stickväg', farg, bredd: 1.2, streck: [3, 1.5] };
-  if (typ.startsWith('backRoad')) return { etikett: 'Backväg', farg, bredd: 1.6, streck: [5, 2] };
   return null;
 }
 

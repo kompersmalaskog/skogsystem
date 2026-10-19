@@ -28,7 +28,6 @@ export const SUB_LABEL: Record<string, string> = {
   wet: 'Blöt mark', noentry: 'Kör ej',
   // Övrigt — linjer
   boundary: 'Traktgräns', mainRoad: 'Basväg', nature: 'Naturvärde', stickvag: 'Stickväg',
-  backRoadRed: 'Basväg', backRoadYellow: 'Basväg', backRoadBlue: 'Basväg',
   sideRoadRed: 'Stickväg', sideRoadYellow: 'Stickväg', sideRoadBlue: 'Stickväg',
   // Övrigt — pilar
   fellingdirection: 'Fällriktning', drivedirection: 'Körriktning',

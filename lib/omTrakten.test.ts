@@ -16,7 +16,7 @@ describe('grupper: Faror · Från Vida · Hänsyn · Vägar · Övrigt', () => {
     for (const t of ['nature', 'stonewall']) expect(g('linje', t)).toBe('hansyn');
     for (const t of ['protected', 'culture', 'fornlamning']) expect(g('zon', t)).toBe('hansyn');
     for (const t of ['road', 'bridge', 'turningpoint', 'corduroy', 'trail']) expect(g('symbol', t)).toBe('vagar');
-    for (const t of ['mainRoad', 'sideRoadRed', 'backRoadYellow']) expect(g('linje', t)).toBe('vagar');
+    for (const t of ['mainRoad', 'sideRoadRed', 'sideRoadYellow']) expect(g('linje', t)).toBe('vagar');
     for (const t of ['manualfelling', 'landing', 'brashpile', 'wet', 'steep', 'felloutside']) expect(g('symbol', t)).toBe('ovrigt');
     expect(g('linje', 'ditch')).toBe('ovrigt');
     expect(g('zon', 'wet')).toBe('ovrigt');
