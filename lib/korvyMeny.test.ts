@@ -124,7 +124,7 @@ describe('prickar: högstubbe/evighetsträd i körvyn', () => {
     expect(page).toContain('overlays[PRICK_LAGER_ID]]');
   });
   it('inget proximitetskort för prickar; tryck → litet kort med Ta bort', () => {
-    expect(page).toContain('const symbolMarkers = markers.filter(m => m.isMarker && !arPrick(m.type));');
+    expect(page).toContain('const symbolMarkers = markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker && !arPrick(m.type));');
     expect(page).toContain("if (korvyActiveRef.current && arPrick(m.type)) { setPrickValt({ id: String(m.id), typ: String(m.type) }); return; }");
     expect(page).toContain('testid="prick-kort"');
     expect(page).toContain("{ etikett: 'Ta bort', onClick: taBortPrick, destruktiv: true, testid: 'prick-tabort' }");

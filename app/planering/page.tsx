@@ -26,7 +26,7 @@ import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, 
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
-import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
+import { beraknaVolym, emptyResult, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { beraknaG15Forslag, forslagKalla, prestation, prestationVarning, snittTypOrd, type UtfallRad } from '../../lib/g15Forslag'
 import { hyttsparTillLinjer, lokaltDatumStockholm } from '../../lib/hyttspar'
@@ -298,10 +298,19 @@ function rdpThin(pts: { lat: number; lng: number; tid: string }[], epsM: number)
 }
 
 // === TYPES ===
+// iOS 13+: DeviceOrientationEvent.requestPermission finns bara i Safari och ingår inte i lib.dom.
+type DeviceOrientationMedTillstand = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
+
 interface Point {
   x: number;
   y: number;
 }
+
+// Händelse från mus (clientX/clientY) eller pekskärm (touches[0]) — de äldre canvas-hanterarna läser det som finns.
+type PekarEv = { stopPropagation: () => void; preventDefault: () => void } & (
+  | { touches: ArrayLike<{ clientX: number; clientY: number }> }
+  | { touches?: undefined; clientX: number; clientY: number }
+);
 
 interface RoadCheckResult {
   status: 'loading' | 'ok' | 'warning' | 'error';
@@ -321,9 +330,9 @@ interface RoadCheckResult {
 }
 
 interface Marker {
-  id: string;
-  x: number;
-  y: number;
+  id: number | string;   // nya markeringar får Date.now() (ett tal), de som lästs ur databasen kan ha text
+  x?: number;           // symboler och pilar; linjer och zoner har path i stället
+  y?: number;
   type?: string;
   isMarker?: boolean;
   isArrow?: boolean;
@@ -353,6 +362,10 @@ interface Marker {
   notes?: { id: string; date: string; text?: string; audioData?: string }[];
   roadCheck?: RoadCheckResult;
 }
+
+// En symbol eller pil på kartan har SVG-läget x/y; linjer och zoner har path i stället (därför är x/y valfria på Marker).
+type MedXY = Marker & { x: number; y: number };
+const harXY = (m: Marker): m is MedXY => typeof m.x === 'number' && typeof m.y === 'number';
 
 interface ChecklistItem {
   id: string;
@@ -721,7 +734,7 @@ export default function PlannerPage() {
   const korvyFigurAktivRef = useRef(false);                 // Mät/Rita i körvyn pågår → symbolkort och långtryck ska inte störa
   const plusRadOppenRef = useRef(false);                    // plusdockan är öppen (speglas i render, se plusRadOppen)
   const placeraSymbolRef = useRef<((typ: string, lat: number, lon: number) => void) | null>(null);   // EN väg för all symbolplacering (se placeraSymbol)
-  const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
+  const [markerMenuOpen, setMarkerMenuOpen] = useState<string | number | null>(null);
 
   // === OM TRAKTEN: anteckningslista + ljud ===
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -729,7 +742,7 @@ export default function PlannerPage() {
   const [pendingNewNoteId, setPendingNewNoteId] = useState<string | null>(null);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
-  const [recordingMarkerId, setRecordingMarkerId] = useState<string | null>(null);
+  const [recordingMarkerId, setRecordingMarkerId] = useState<string | number | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1136,7 +1149,7 @@ export default function PlannerPage() {
     const ab = avlaggBasRef.current;
     if (!ab || ab.id !== objektId) return;  // inte laddat ur DET HÄR objektet → skriv ingenting
     if (avlaggSparaPagarRef.current) { avlaggSparaOmRef.current = true; return; }
-    const landingMarkers = markers.filter(m => m.isMarker && m.type === 'landing');
+    const landingMarkers = markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker && m.type === 'landing');
     const { skriv, tystaNya } = avlaggAttSkriva(ab.bas, landingMarkers);
     for (const [id, b] of tystaNya) ab.bas.set(id, b);   // nya avlägg utan innehåll: ingen skrivning, bara baslinje
     if (skriv.length === 0) return;
@@ -2037,7 +2050,7 @@ export default function PlannerPage() {
 
   // Briefing-läge
   const [briefingMode, setBriefingMode] = useState(false);
-  const [briefingHighlightId, setBriefingHighlightId] = useState<string | null>(null);
+  const [briefingHighlightId, setBriefingHighlightId] = useState<string | number | null>(null);
   const [briefingCompleted, setBriefingCompleted] = useState(false);
   // STEG 6a-3: per-roll kvittering (objekt_kvittering) — två oberoende rader/objekt.
   const [kvittSkordare, setKvittSkordare] = useState<KvittRad | null>(null);
@@ -2047,7 +2060,7 @@ export default function PlannerPage() {
   const briefingCheckedIds: string[] = minRollKvitto?.checked_ids ?? [];
   const [briefingChecklistMode, setBriefingChecklistMode] = useState(false);
   const [briefingStepTotal, setBriefingStepTotal] = useState(0);
-  const [checklistMapView, setChecklistMapView] = useState<{ itemId: string; center: { lat: number; lon: number }; markerId?: string; source: 'checklist' | 'mandatory'; bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; photoPath?: string; photoTs?: number; title?: string; icon?: string } | null>(null);
+  const [checklistMapView, setChecklistMapView] = useState<{ itemId: string; center: { lat: number; lon: number }; markerId?: string | number; source: 'checklist' | 'mandatory'; bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; photoPath?: string; photoTs?: number; title?: string; icon?: string } | null>(null);
   const checklistPulseRef = useRef<any>(null);
   const checklistPrevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
@@ -2127,7 +2140,7 @@ export default function PlannerPage() {
   // unikt index finns) och påverkas INTE.
 
   // === LJUD: Supabase Storage helpers ===
-  const uploadAudioToStorage = useCallback(async (blob: Blob, markerId: string, noteId?: string): Promise<string | null> => {
+  const uploadAudioToStorage = useCallback(async (blob: Blob, markerId: string | number, noteId?: string): Promise<string | null> => {
     if (!valtObjekt?.id) return null;
     const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
     const path = noteId
@@ -2166,7 +2179,7 @@ export default function PlannerPage() {
   }, []);
 
   // Spela in ljud för en anteckning (note) på en boundary
-  const toggleNoteAudioRecording = useCallback(async (markerId: string, noteId: string) => {
+  const toggleNoteAudioRecording = useCallback(async (markerId: string | number, noteId: string) => {
     if (isRecordingAudio) { stopAnyRecording(); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2205,7 +2218,7 @@ export default function PlannerPage() {
   }, [isRecordingAudio, stopAnyRecording, uploadAudioToStorage]);
 
   // Spela in ljud direkt på en marker (audioData fältet)
-  const toggleMarkerAudioRecording = useCallback(async (markerId: string) => {
+  const toggleMarkerAudioRecording = useCallback(async (markerId: string | number) => {
     if (isRecordingAudio) { stopAnyRecording(); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2635,7 +2648,7 @@ export default function PlannerPage() {
 
   // Foto
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingPhotoMarkerId, setPendingPhotoMarkerId] = useState<string | null>(null);
+  const [pendingPhotoMarkerId, setPendingPhotoMarkerId] = useState<string | number | null>(null);
   
   // Ångra
   const [history, setHistory] = useState<Marker[][]>([]);
@@ -2643,19 +2656,19 @@ export default function PlannerPage() {
   const undoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Flytta symboler (drag & drop)
-  const [draggingMarker, setDraggingMarker] = useState<string | null>(null);
+  const [draggingMarker, setDraggingMarker] = useState<string | number | null>(null);
   const [hasMoved, setHasMoved] = useState(false);
   const [dragStart, setDragStart] = useState<Point>({ x: 0, y: 0 });
   const justEndedDrag = useRef(false);
   // Refs for document-level event handlers (avoid stale closures)
-  const draggingMarkerRef = useRef<string | null>(null);
+  const draggingMarkerRef = useRef<string | number | null>(null);
   const hasMovedRef = useRef(false);
   const dragStartRef = useRef<Point>({ x: 0, y: 0 });
 
   // Rotera pilar
-  const [rotatingArrow, setRotatingArrow] = useState<string | null>(null);
+  const [rotatingArrow, setRotatingArrow] = useState<string | number | null>(null);
   const [rotationCenter, setRotationCenter] = useState<Point>({ x: 0, y: 0 });
-  const rotatingArrowRef = useRef<string | null>(null);
+  const rotatingArrowRef = useRef<string | number | null>(null);
   const rotationCenterRef = useRef<Point>({ x: 0, y: 0 });
   
   // Snabbval (senast använda)
@@ -3217,7 +3230,7 @@ export default function PlannerPage() {
   }, [currentPosition]);
 
 
-  const [trackingPath, setTrackingPath] = useState<Point[]>([]);
+  const [trackingPath, setTrackingPath] = useState<{ lat: number; lon: number }[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
   const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
   const gpsFargRef = useRef<BasvagFarg | null>(null); // basväg: vald färg för linjen som spåras
@@ -6923,9 +6936,10 @@ export default function PlannerPage() {
       setMapRotation(0);
       lastHeadingRef.current = 0;
       
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const orientationEvent = typeof DeviceOrientationEvent !== 'undefined' ? (DeviceOrientationEvent as DeviceOrientationMedTillstand) : undefined;
+      if (orientationEvent && typeof orientationEvent.requestPermission === 'function') {
         // iOS 13+ kräver tillstånd
-        DeviceOrientationEvent.requestPermission()
+        orientationEvent.requestPermission()
           .then(permission => {
             if (permission === 'granted') {
               setCompassMode(true);
@@ -6947,9 +6961,9 @@ export default function PlannerPage() {
     }
   };
   
-  const handleOrientation = (event) => {
+  const handleOrientation = (event: DeviceOrientationEvent & { webkitCompassHeading?: number }) => {
     // webkitCompassHeading för iOS, alpha för Android
-    let heading = event.webkitCompassHeading || (360 - event.alpha);
+    let heading = event.webkitCompassHeading || (360 - (event.alpha ?? 0));
     if (heading !== null && !isNaN(heading)) {
       // Normalisera till 0-360
       heading = ((heading % 360) + 360) % 360;
@@ -7095,7 +7109,7 @@ export default function PlannerPage() {
       setVolymResultat(res);
       setVolymLoading(false);
     }).catch(() => {
-      setVolymResultat({ status: 'error', areal: 0, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Beräkning misslyckades' });
+      setVolymResultat(emptyResult(0, 'Beräkning misslyckades'));
       setVolymLoading(false);
     });
     beraknaKorbarhet(latLonPath, '/api/wms-proxy', '/api/sgu-proxy').then(res => {
@@ -8529,8 +8543,8 @@ export default function PlannerPage() {
       // KÖRVY: from-driver — visa symboler inom synhåll från MIG (GPS), inte från trakt-centrum.
       // Jämför två VERKLIGA positioner (GPS + symbolens svgToLatLon) → robust mot skevt/saknat
       // centrum. ÖVERSIKT (ej körvy): visa ALLA — from-center-filtret borttaget (se KORVY_SIGHT_M).
-      const symbolMarkers = markers.filter((m: any) => {
-        if (!m.isMarker) return false;
+      const symbolMarkers = markers.filter((m): m is MedXY => {
+        if (!harXY(m) || !m.isMarker) return false;
         if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;   // prick-lagret avslaget i körvyn → dolda
         if (!korvyActive || !korvyEffectivePos) return true;   // översikt / ingen fix än → alla
         const ll = svgToLatLon(m.x, m.y);
@@ -9018,7 +9032,7 @@ export default function PlannerPage() {
     // Skotarläget använder en annan producent (stråk + autopanel) — skördarens markör-kö tystas
     // helt (tom kö ⇒ nästa-panelen + akutvarningen visas inte, och zoomen ligger på baszoom).
     if (skotarKorvy) { setKorvyNextItems([]); return; }
-    const symbolMarkers = markers.filter(m => m.isMarker && !arPrick(m.type));   // högstubbe/evighetsträd = prickar, inget proximitetskort
+    const symbolMarkers = markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker && !arPrick(m.type));   // högstubbe/evighetsträd = prickar, inget proximitetskort
     const items: NextItem[] = [];
     for (const m of symbolMarkers) {
       const ll = svgToLatLon(m.x, m.y);
@@ -10680,7 +10694,7 @@ export default function PlannerPage() {
   const roadCheckHealRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const m of markers) {
-      if (m.type === 'landing' && m.isMarker && (m as any).roadCheck?.status === 'loading' && !roadCheckHealRef.current.has(String(m.id))) {
+      if (m.type === 'landing' && m.isMarker && harXY(m) && (m as any).roadCheck?.status === 'loading' && !roadCheckHealRef.current.has(String(m.id))) {
         const idNum = Number((m as any).id);  // markör-id = Date.now()-timestamp
         if (!Number.isNaN(idNum) && (Date.now() - idNum) < 30000) continue; // färsk → skapande-checken sköter
         roadCheckHealRef.current.add(String(m.id));
@@ -10891,7 +10905,7 @@ export default function PlannerPage() {
   };
 
   // Konvertera GPS till kartkoordinater (relativ till startpunkt)
-  const gpsToMap = (lat, lon, startLat, startLon, startX, startY) => {
+  const gpsToMap = (lat: number, lon: number, startLat: number, startLon: number, startX: number, startY: number) => {
     // Meter per grad (approximation för Sverige ~59°N)
     const mPerDegLat = 111320;
     const mPerDegLon = 111320 * Math.cos(startLat * Math.PI / 180);
@@ -11051,7 +11065,7 @@ export default function PlannerPage() {
     }
   };
   
-  const startGpsTracking = (lineType, farg?: BasvagFarg | null) => {
+  const startGpsTracking = (lineType: string, farg?: BasvagFarg | null) => {
     if (!('geolocation' in navigator)) {
       visaBesked('GPS stöds inte i denna enhet');
       return;
@@ -11537,7 +11551,7 @@ export default function PlannerPage() {
   };
 
   // === MARKERING HANTERING ===
-  const saveToHistory = (prevMarkers) => {
+  const saveToHistory = (prevMarkers: Marker[]) => {
     setHistory(prev => [...prev.slice(-20), prevMarkers]); // Spara max 20 steg
     setShowUndo(true);
     
@@ -11561,7 +11575,7 @@ export default function PlannerPage() {
     }
   };
 
-  const deleteMarker = (id) => {
+  const deleteMarker = (id: string | number) => {
     const marker = markers.find((m: any) => m.id === id);
     saveToHistory([...markers]);
     setMarkers(prev => prev.filter(m => m.id !== id));
@@ -11575,7 +11589,7 @@ export default function PlannerPage() {
   };
 
   // Drag & drop för symboler
-  const handleMarkerDragStart = (e, marker) => {
+  const handleMarkerDragStart = (e: PekarEv, marker: Marker) => {
     // I översiktsläge: visa info istället för drag
     if (stickvagOversikt) {
       e.stopPropagation();
@@ -11613,7 +11627,7 @@ export default function PlannerPage() {
     hasMovedRef.current = false;
   };
 
-  const handleMarkerDragMove = (e, rect) => {
+  const handleMarkerDragMove = (e: PekarEv, rect: DOMRect) => {
     if (!draggingMarker) return;
 
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -11665,7 +11679,7 @@ export default function PlannerPage() {
   };
   
   // Rotera pil genom att dra
-  const startRotatingArrow = (arrowId, centerX, centerY) => {
+  const startRotatingArrow = (arrowId: string | number, centerX: number, centerY: number) => {
     saveToHistory([...markers]);
     setRotatingArrow(arrowId);
     rotatingArrowRef.current = arrowId;
@@ -11674,7 +11688,7 @@ export default function PlannerPage() {
     setMarkerMenuOpen(null);
   };
   
-  const handleRotationMove = (e, rect) => {
+  const handleRotationMove = (e: PekarEv, rect: DOMRect) => {
     if (!rotatingArrow) return;
     
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -11788,7 +11802,7 @@ export default function PlannerPage() {
   // Hantera foto från kamera
   // Ett taget foto sparas LOKALT och beständigt direkt (lib/markeringFotoKo) och visas på markeringen genast; kön laddar upp det i bakgrunden när
   // nätet finns, och sätter photoPath när det är uppe (lyssnaren nedan). Aldrig "ta om bilden" för att nätet saknas — och aldrig base64 in i data.
-  const handlePhotoCapture = async (e) => {
+  const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     const markerId = pendingPhotoMarkerId;
     const objektId = valtObjekt?.id;
@@ -11840,7 +11854,7 @@ export default function PlannerPage() {
   }, []);
 
   // Klick på linjer/zoner (kan inte dras)
-  const handleMarkerClick = (e, marker) => {
+  const handleMarkerClick = (e: PekarEv, marker: Marker) => {
     e.stopPropagation();
     if (draggingMarker) return;
     
@@ -11864,7 +11878,7 @@ export default function PlannerPage() {
   };
 
   // === KARTA INTERAKTION ===
-  const handleMapClick = (e) => {
+  const handleMapClick = (e: React.MouseEvent<HTMLElement> | React.TouchEvent<HTMLElement>) => {
     // I översiktsläge: stäng paneler vid klick på tom yta
     if (stickvagOversikt) {
       setSelectedOversiktVag(null);
@@ -11886,16 +11900,17 @@ export default function PlannerPage() {
     if (menuOpen) return;
     
     const rect = e.currentTarget.getBoundingClientRect();
-    const isTouch = e.type === 'touchend' || (e.nativeEvent && e.nativeEvent.changedTouches);
+    const andraPekare = 'changedTouches' in e.nativeEvent ? e.nativeEvent.changedTouches : undefined;
+    const isTouch = e.type === 'touchend' || !!andraPekare;
     const touchOffset = isTouch ? 50 : 0; // Offset uppåt för touch så symbolen hamnar ovanför fingret
     
-    let clientX, clientY;
-    if (isTouch && e.nativeEvent?.changedTouches?.[0]) {
-      clientX = e.nativeEvent.changedTouches[0].clientX;
-      clientY = e.nativeEvent.changedTouches[0].clientY;
+    let clientX: number, clientY: number;
+    if (isTouch && andraPekare?.[0]) {
+      clientX = andraPekare[0].clientX;
+      clientY = andraPekare[0].clientY;
     } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
+      clientX = 'clientX' in e ? e.clientX : NaN;
+      clientY = 'clientY' in e ? e.clientY : NaN;
     }
     
     const x = (clientX - rect.left - pan.x) / zoom;
@@ -11904,7 +11919,7 @@ export default function PlannerPage() {
     // Placera symbol
     if (selectedSymbol) {
       saveToHistory([...markers]);
-      const newMarker = {
+      const newMarker: Marker = {
         id: Date.now(),
         type: selectedSymbol,
         x, y,
@@ -12028,9 +12043,9 @@ export default function PlannerPage() {
 
   // Dra-för-att-rita med offset
   const drawOffset = 0; // Ritas direkt där fingret är
-  const [drawCursor, setDrawCursor] = useState(null); // Visar var linjen ritas
+  const [drawCursor, setDrawCursor] = useState<Point | null>(null); // Visar var linjen ritas
   
-  const handleDrawStart = (e, rect) => {
+  const handleDrawStart = (e: PekarEv, rect: DOMRect) => {
     if (!isDrawMode && !isZoneMode && !measureMode && !measureAreaMode) return;
     
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -12081,7 +12096,7 @@ export default function PlannerPage() {
       // Om det är långt, lägg till mellanpunkter
       if (dist > 20) {
         const steps = Math.ceil(dist / 15);
-        const newPoints = [];
+        const newPoints: Point[] = [];
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
           newPoints.push({
@@ -12098,7 +12113,7 @@ export default function PlannerPage() {
     }
   };
   
-  const handleDrawMove = (e, rect) => {
+  const handleDrawMove = (e: PekarEv, rect: DOMRect) => {
     if (!isDrawing && !isMeasuring) return;
     
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -12181,7 +12196,7 @@ export default function PlannerPage() {
   };
 
   // Pan
-  const handleMouseDown = (e) => {
+  const handleMouseDown = (e: React.MouseEvent) => {
     // Ignorera i översiktsläge
     if (stickvagOversikt) return;
     
@@ -12191,7 +12206,7 @@ export default function PlannerPage() {
     }
   };
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning) {
       setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
     }
@@ -12202,14 +12217,14 @@ export default function PlannerPage() {
   };
 
   // Meny drag
-  const handleMenuDragStart = (e) => {
+  const handleMenuDragStart = (e: PekarEv) => {
     e.preventDefault();
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     dragStartY.current = clientY;
     dragStartHeight.current = menuHeight;
     
-    const handleMove = (e) => {
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
       const delta = dragStartY.current - clientY;
       const newHeight = Math.max(0, Math.min(500, dragStartHeight.current + delta));
       setMenuHeight(newHeight);
@@ -12241,7 +12256,7 @@ export default function PlannerPage() {
   // === RENDER HELPERS ===
   
   // Beräkna längd på en path (i meter)
-  const calculateLength = (path) => {
+  const calculateLength = (path: Point[] | null | undefined) => {
     if (!path || path.length < 2) return 0;
     let length = 0;
     for (let i = 1; i < path.length; i++) {
@@ -12253,7 +12268,7 @@ export default function PlannerPage() {
   };
   
   // Beräkna area på en polygon (i m²)
-  const calculateArea = (path) => {
+  const calculateArea = (path: Point[] | null | undefined) => {
     if (!path || path.length < 3) return 0;
     let area = 0;
     for (let i = 0; i < path.length; i++) {
@@ -13052,7 +13067,7 @@ export default function PlannerPage() {
 
   // Beräkna prognos
   // Skapa smooth SVG path med cubic bezier curves
-  const createSmoothPath = (points, closed = false) => {
+  const createSmoothPath = (points: Point[] | null | undefined, closed = false) => {
     if (!points || points.length < 2) return '';
     if (points.length === 2) {
       return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
@@ -13079,7 +13094,7 @@ export default function PlannerPage() {
     return d;
   };
   
-  const renderLine = (path, typeId) => {
+  const renderLine = (path: Point[] | null | undefined, typeId: string | undefined) => {
     if (!path || path.length < 2) return null;
     const type = lineTypes.find(t => t.id === typeId);
     if (!type) return null;
@@ -13114,7 +13129,7 @@ export default function PlannerPage() {
     }
   };
 
-  const renderZone = (marker) => {
+  const renderZone = (marker: Marker) => {
     const path = marker.path;
     const typeId = marker.zoneType;
     if (!path || path.length < 3) return null;
@@ -15021,7 +15036,7 @@ export default function PlannerPage() {
           {/* Mätlinje - ritas nu utanför transform så den alltid syns där man drar */}
           
           {/* Markeringar (inte foton) */}
-          {visibleLayers.symbols && markers.filter(m => m.isMarker).map(m => {
+          {visibleLayers.symbols && markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker).map(m => {
             const type = markerTypes.find(t => t.id === m.type);
             const isMenuOpen = markerMenuOpen === m.id;
             const isDragging = draggingMarker === m.id;
@@ -15084,7 +15099,7 @@ export default function PlannerPage() {
           })}
 
           {/* Pilar */}
-          {visibleLayers.arrows && markers.filter(m => m.isArrow).map(m => {
+          {visibleLayers.arrows && markers.filter((m): m is MedXY => harXY(m) && !!m.isArrow).map(m => {
             const arrow = arrowTypes.find(t => t.id === m.arrowType);
             const isDragging = draggingMarker === m.id;
             let opacity = 1;
@@ -16276,6 +16291,7 @@ export default function PlannerPage() {
                     <div style={{ color: '#8e8e93', fontSize: '13px', marginBottom: '8px' }}>{rc.message}</div>
                     <button
                       onClick={() => {
+                        if (!harXY(marker)) return;
                         const { lat, lon } = svgToLatLon(marker.x, marker.y);
                         setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, roadCheck: { ...m.roadCheck!, status: 'loading' as const } } : m));
                         checkRoadSafety(lat, lon).then(result => {
@@ -16509,14 +16525,15 @@ export default function PlannerPage() {
               {marker.isLine && (
                 <button
                   onClick={() => {
-                    setCurrentPath([...marker.path]);
+                    const linjePath = marker.path ?? [];
+                    setCurrentPath([...linjePath]);
                     // Convert SVG path to [lng, lat] for MapLibre drawing
-                    const lngLatCoords: [number, number][] = marker.path.map((p: any) => {
+                    const lngLatCoords: [number, number][] = linjePath.map((p: Point) => {
                       const { lat, lon } = svgToLatLon(p.x, p.y);
                       return [lon, lat] as [number, number];
                     });
                     setCurrentDrawCoords(lngLatCoords);
-                    setDrawType(marker.lineType);
+                    setDrawType(marker.lineType ?? null);
                     setIsDrawMode(true);
                     setDrawPaused(true);
                     saveToHistory([...markers]);

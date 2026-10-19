@@ -14,6 +14,8 @@ export interface LayerDef {
   layers: string
   name: string
   color: string
+  /** Hämta WMS-tiles vid högst denna zoom och skala upp därutöver. Ingen lagerdefinition sätter den i dag. */
+  maxNativeZoom?: number
   /**
    * true = visas i 3D-körvyns lager-meny.
    * false = filtreras bort i 3D (2D fortsätter visa det).
