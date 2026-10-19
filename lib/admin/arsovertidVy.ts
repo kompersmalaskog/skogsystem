@@ -124,8 +124,8 @@ export function utjamningsRad(u: Utjamning): string {
 const MANAD_NAMN = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"]
 
 /**
- * Vilka månader årets övertid kommer från, så att talet går att kontrollräkna: "januari 30,6 · juli 12 (utjämning) · oktober 8,4 hittills".
- * Månader utan övertid visas inte. Fastställd månad = bara talet; utjämning (uppskattad fördelning) och pågående månad (ställning hittills) säger det.
+ * Vilka månader årets övertid kommer från, så att talet går att kontrollräkna: "januari 30,6 · juli 12 (utjämning) · oktober 8,4 t.o.m. igår".
+ * Månader utan övertid visas inte. Fastställd månad = bara talet; utjämning (uppskattad fördelning) och pågående månad (ställning t.o.m. igår) säger det.
  */
 export function manadRad(per: PerManad | null | undefined): string {
   return Object.entries(per || {})
@@ -135,7 +135,7 @@ export function manadRad(per: PerManad | null | undefined): string {
     .map(x => {
       const namn = MANAD_NAMN[Number(x.ym.slice(5, 7)) - 1] || x.ym
       const tot = timmarText(x.fast + x.uppskattad)
-      if (x.stallning) return `${namn} ${tot} hittills`
+      if (x.stallning) return `${namn} ${tot} t.o.m. igår`
       if (x.uppskattad > 0 && x.fast > 0) return `${namn} ${tot} (varav ${timmarText(x.uppskattad)} utjämning)`
       if (x.uppskattad > 0) return `${namn} ${tot} (utjämning)`
       return `${namn} ${tot}`

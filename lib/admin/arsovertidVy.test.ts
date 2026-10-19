@@ -160,7 +160,7 @@ describe("overlapparManad: utjämningsraden visas bara när perioden berör mån
 describe("manadRad: vilka månader övertiden kommer från, så att årets tal går att kontrollräkna", () => {
   it("fastställd månad, utjämningsmånad och pågående ställning — i månadsordning, med svenska månadsnamn", () => {
     expect(manadRad({ "2026-10": { fast: 0, uppskattad: 8.4, stallning: true }, "2026-01": { fast: 30.6, uppskattad: 0 }, "2026-07": { fast: 0, uppskattad: 12 } }))
-      .toBe("januari 30,6 · juli 12 (utjämning) · oktober 8,4 hittills");
+      .toBe("januari 30,6 · juli 12 (utjämning) · oktober 8,4 t.o.m. igår");
   });
   it("månader utan övertid visas inte; ingen övertid alls ger tom text", () => {
     expect(manadRad({ "2026-02": { fast: 0, uppskattad: 0 }, "2026-03": { fast: 5, uppskattad: 0 } })).toBe("mars 5");

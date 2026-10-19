@@ -90,7 +90,7 @@ export default function ArsovertidKort({ svar, manad }: { svar: ArsovertidSvar; 
             Månadens ordinarie är vardagarna × 8 tim, minus röda vardagar, frånvaro (semester, sjuk, VAB, föräldraledig, ATK, komp, tjänstledig, permission) och dagar före anställning. Övertiden är arbetad tid över ordinarie, aldrig negativ.
           </p>
           <p style={{ margin: `0 0 ${AVSTAND.s}px`, color: FARG.text }}>
-            Den pågående månaden visar ställning hittills: arbetad tid minus ordinarie för vardagarna hittills. Idag räknas först när den har registrerad tid.
+            Den pågående månaden visar ställningen t.o.m. igår: arbetad tid minus ordinarie för vardagarna fram till igår. Dagens timmar, både arbetade och ordinarie, tas med först nästa dag — talet rör sig alltså inte under dagen.
           </p>
           <p style={{ margin: `0 0 ${AVSTAND.s}px`, color: FARG.text }}>
             En månad som överlappar en markerad utjämningsperiod (ovan) räknas som avtalet säger, Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em>. Veckorna däremellan räknas i antagna block om högst 16 veckor.

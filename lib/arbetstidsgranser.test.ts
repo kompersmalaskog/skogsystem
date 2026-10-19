@@ -271,9 +271,9 @@ describe("lagkontrollen räknar övertid per kalendermånad, samma regel som lö
     expect(g(45).niva).toBe("gul");
     expect(g(80).niva).toBe("gul");
     expect(g(80).markning).toBe("uppskattad");
-    expect(g(45).mening).toBe("45 av 50 tim övertid hittills i oktober — närmar sig gränsen");
-    expect(g(80).mening).toBe("80 av 50 tim övertid hittills i oktober — över gränsen hittills");
-    expect(g(12).mening).toBe("12 av 50 tim övertid hittills i oktober");
+    expect(g(45).mening).toBe("45 av 50 tim övertid i oktober t.o.m. igår — närmar sig gränsen");
+    expect(g(80).mening).toBe("80 av 50 tim övertid i oktober t.o.m. igår — över gränsen");
+    expect(g(12).mening).toBe("12 av 50 tim övertid i oktober t.o.m. igår");
   });
 
   it("manadsstatus: en ställning markeras som sådan, en fastställd månad inte", () => {

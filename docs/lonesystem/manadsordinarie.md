@@ -44,11 +44,11 @@ Lagkontrollen (Admin → Arbetstid, gräns 1–3, och Årsövertid-kortet) och M
 | Månad | Räknas som | Nivå |
 |-------|-----------|------|
 | avslutad, utanför utjämningsperiod | lönens övertid exakt (`max(0, arbetad − ordinarie)`) | fastställd, kan bli RÖD |
-| pågående | ställning hittills: arbetad hittills − ordinarie för vardagarna hittills (idag först när dagen har registrerad tid) | uppskattad, högst GUL; negativ = 0 |
+| pågående | ställning t.o.m. igår: arbetad tid − ordinarie för vardagarna, båda fram till igår | uppskattad, högst GUL; negativ = 0 |
 | överlappar en markerad utjämningsperiod | avtalets genomsnitt (§5 mom 2), fördelat på månader som förut | uppskattad, högst GUL |
 
 Årets tal = summan av månadernas tal, varje månad avrundad till en decimal först. Facit (prod 2026-10-19): Stefan jan 30,58 · Oskar jan 6,5 ·
-Oscar sep 0 (= lönen); Stefans avslutade månader 200,2 + pågående ställning 8,0 = 208,2.
+Oscar sep 0 (= lönen); Stefans avslutade månader 200,2 + pågående ställning t.o.m. igår 8,0 = 208,2.
 
-**Idag och ställningen:** ordinarie hittills räknar bara dagar fram till igår, och idag först när dagen har registrerad tid. Det gör att ställningen
-*sjunker* med en dags ordinarie (8 tim) så fort dagen får en registrerad minut — ett tänkt beteende, inte ett fel.
+**Idag och ställningen:** ställningen räknas t.o.m. IGÅR. Dagens timmar — arbetade och ordinarie — tas med först nästa dag, så talet rör sig aldrig under dagen
+(låst av testerna "LÅS: idag påverkar aldrig ställningen"). Texten säger "t.o.m. igår".

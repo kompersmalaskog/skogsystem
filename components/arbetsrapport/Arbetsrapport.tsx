@@ -4291,7 +4291,7 @@ export default function Arbetsrapport() {
               </div>
               {/* Inget omdöme under taket. Något sägs först när det behöver vetas. */}
               {årsOrd && <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:årsFarg }}>{årsOrd}</p>}
-              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{årsÖvH == null ? "Räknas när frånvaro och utjämningsperioder är lästa" : "Räknat per månad, som lönen: först när månadens timmar är fyllda"}</p>
+              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{årsÖvH == null ? "Räknas när frånvaro och utjämningsperioder är lästa" : "Räknat per månad, som lönen: först när månadens timmar är fyllda. Pågående månad t.o.m. igår."}</p>
             </div>
           </section>
 

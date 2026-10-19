@@ -108,24 +108,47 @@ describe("pågående månad: ställning hittills", () => {
   const TOM = "2026-10-19";
   const okt = (tim: number, utan: string[] = []) => vardagarMedTid("2026-10", tim, utan).filter(d => d.datum < "2026-10-19");
 
-  it("ordinarie hittills = vardagarna fram till igår; idag räknas först när den har registrerad tid", () => {
-    // 12 dagar × 9 = 108 tim; ordinarie hittills 12 × 8 = 96 → ställning +12 (utan tid idag)
+  it("ställningen är t.o.m. IGÅR: ordinarie och arbetat fram till igår, idag räknas varken på ena eller andra sidan", () => {
+    // 12 dagar × 9 = 108 tim; ordinarie 12 × 8 = 96 → +12
+    const a = beraknaArsovertid(okt(9), [], AR, TOM);
+    expect(manad(a, "2026-10")).toMatchObject({ pagaende: true, ordinarieH: 96, arbetadH: 108, stallning: 12, overtid: 12 });
+  });
+
+  it("LÅS: idag påverkar aldrig ställningen — samma tal oavsett hur mycket som registrerats idag (maskin, extra, hemskickad eller frånvaro)", () => {
     const utanIdag = beraknaArsovertid(okt(9), [], AR, TOM);
-    expect(manad(utanIdag, "2026-10")).toMatchObject({ pagaende: true, ordinarieH: 96, arbetadH: 108, stallning: 12, overtid: 12 });
-    // med 2 tim registrerade idag räknas idag som en ordinarie dag: 13 × 8 = 104, arbetat 110 → +6
-    const medIdag = beraknaArsovertid([...okt(9), dag(TOM, 2)], [], AR, TOM);
-    expect(manad(medIdag, "2026-10")).toMatchObject({ ordinarieH: 104, arbetadH: 110, stallning: 6, overtid: 6 });
+    const igar = manad(utanIdag, "2026-10");
+    const hem: FranvaroRad = fr("hemskickad", TOM, TOM, { fran_tid: "14:00:00", status: "registrerad" });
+    const varianter = [
+      beraknaArsovertid([...okt(9), dag(TOM, 0.02)], [], AR, TOM),           // en enda minut idag
+      beraknaArsovertid([...okt(9), dag(TOM, 3)], [], AR, TOM),
+      beraknaArsovertid([...okt(9), dag(TOM, 14)], [], AR, TOM),             // en lång dag
+      beraknaArsovertid(okt(9), [{ datum: TOM, minuter: 600 }], AR, TOM),    // bara extra tid idag
+      beraknaArsovertid([...okt(9), dag(TOM, 3)], [], AR, TOM, [], [hem]),   // hemskickad idag (dagen fylls till 8)
+      beraknaArsovertid([...okt(9), dag(TOM, 3)], [], AR, TOM, [], [fr("sjuk", TOM, TOM)]),   // heldagsfrånvaro idag
+    ];
+    for (const v of varianter) {
+      expect(manad(v, "2026-10")).toEqual(igar);
+      expect(v.modeller.manad).toBe(utanIdag.modeller.manad);
+    }
   });
 
-  it("gårdagen räknas: tisdag 20 okt utan tid idag → måndagen 19:e är med i ordinarie hittills", () => {
-    // vardagar före den 20:e = 13 (1,2,5–9,12–16,19) → 104 tim; idag (tisdag) har ingen tid
-    const a = beraknaArsovertid([...okt(8), dag("2026-10-19", 8)], [], AR, "2026-10-20");
-    expect(manad(a, "2026-10")).toMatchObject({ ordinarieH: 104, arbetadH: 104, stallning: 0 });
+  it("LÅS: talet rör sig inte under dagen — varje halvtimme idag från 0 till 12 tim ger samma ställning", () => {
+    const facit = manad(beraknaArsovertid(okt(9), [], AR, TOM), "2026-10").stallning;
+    for (let min = 0; min <= 720; min += 30) {
+      const a = beraknaArsovertid([...okt(9), { datum: TOM, arbetad_min: min }], [], AR, TOM);
+      expect(manad(a, "2026-10").stallning, `${min} min idag`).toBe(facit);
+    }
   });
 
-  it("extra tid idag räknas också som registrerad tid", () => {
-    const a = beraknaArsovertid(okt(8), [{ datum: TOM, minuter: 60 }], AR, TOM);
-    expect(manad(a, "2026-10").ordinarieH).toBe(104);
+  it("morgondagen tar med gårdagens timmar och gårdagens ordinarie: tisdag 20 okt efter en måndag med 12 tim", () => {
+    // vardagar före den 20:e = 13 → 104 tim; arbetat 96 + 12 (måndagen) = 108 → +4
+    const a = beraknaArsovertid([...okt(8), dag("2026-10-19", 12)], [], AR, "2026-10-20");
+    expect(manad(a, "2026-10")).toMatchObject({ ordinarieH: 104, arbetadH: 108, stallning: 4 });
+  });
+
+  it("månadens första dag: inget är gårdagen i månaden — ordinarie 0, arbetat 0, ställning 0", () => {
+    const a = beraknaArsovertid([dag("2026-10-01", 9)], [], AR, "2026-10-01");
+    expect(manad(a, "2026-10")).toMatchObject({ ordinarieH: 0, arbetadH: 0, stallning: 0, overtid: 0 });
   });
 
   it("under ordinarie är ställningen negativ men övertiden noll", () => {

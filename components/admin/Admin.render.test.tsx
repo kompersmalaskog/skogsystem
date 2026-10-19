@@ -3337,7 +3337,7 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
   it("all förklarande text ligger bakom en tertiär länk 'Så räknas det' som fäller ut — och fäller ihop igen", async () => {
     g.__arsovertid = svar(IDAG);
     await monter("flik=lon");
-    const FORKLARING = ["per kalendermånad", "ordinarie timmar är fyllda", "ställning hittills", "§5 mom 2", "Avtalet förutsätter", "genomsnitt över en beräkningsperiod", "röda vardagar"];
+    const FORKLARING = ["per kalendermånad", "ordinarie timmar är fyllda", "t.o.m. igår", "§5 mom 2", "Avtalet förutsätter", "genomsnitt över en beräkningsperiod", "röda vardagar"];
     for (const t of FORKLARING) expect(kortText(), t).not.toContain(t);
     const lank = blad("Så räknas det")[0].closest("button") as HTMLButtonElement;
     expect(lank.getAttribute("aria-expanded")).toBe("false");
@@ -3368,10 +3368,10 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
   it("månaderna: 'Så räknas det' visar per förare vilka månader övertiden kommer från, så att summan går att kontrollräkna", async () => {
     g.__arsovertid = svar([["s", "Stefan Karlsson", 51], ["m", "Martin Lindqvist", 0]]);
     await monter("flik=lon");
-    expect(kortText()).not.toContain("hittills i oktober");
+    expect(kortText()).not.toContain("t.o.m. igår");
     await klick("Så räknas det");
     // 30,6 (januari) + 12 (juli, utjämning) + 8,4 (oktober, pågående) = 51
-    expect(kortText()).toContain("Stefan: januari 30,6 · juli 12 (utjämning) · oktober 8,4 hittills");
+    expect(kortText()).toContain("Stefan: januari 30,6 · juli 12 (utjämning) · oktober 8,4 t.o.m. igår");
   });
 
   it("kan frånvaron inte läsas säger kortet det utan att fälla ut: talen är för LÅGA (basen drogs inte), aldrig 'ingen frånvaro'", async () => {

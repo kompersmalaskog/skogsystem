@@ -19,7 +19,7 @@
 // ÖVERTID PER MÅNAD (beslut Martin 2026-10-19, ersätter 2026-10-13): övertid räknas per KALENDERMÅNAD, med samma regel som lönen —
 // först när månadens ordinarie timmar är fyllda (lib/lonesystem/arsovertid, modell `manad`; reglerna i lib/lonesystem/manadsordinarie).
 //   - En AVSLUTAD månad är FASTSTÄLLD och ger exakt det tal lönen visar. Kan ge RÖD.
-//   - Den PÅGÅENDE månaden är "ställning hittills" (arbetat hittills − ordinarie hittills): UPPSKATTAD. Kan bara ge GUL.
+//   - Den PÅGÅENDE månaden är "ställning t.o.m. igår" (arbetat − ordinarie, båda fram till igår): UPPSKATTAD. Kan bara ge GUL.
 //   - En månad som överlappar en MARKERAD utjämningsperiod behåller avtalets genomsnitt (§5 mom 2), som lönen behåller sin gamla
 //     formel där: ej markerade block fördelas per vecka (veckans torsdag avgör månaden) som fastställda, en markerad period läggs hel
 //     på slutmånaden som UPPSKATTAD (pågående period: innevarande månad). Kan bara ge GUL — hur utjämningen verkligen fördelas på
@@ -241,7 +241,7 @@ const varre = (a: Niva, b: Niva): Niva => (NIVA_RANG[a] >= NIVA_RANG[b] ? a : b)
 const suffix = (n: Niva, gul: string, rod: string) => (n === "rod" ? ` — ${rod}` : n === "gul" ? ` — ${gul}` : "");
 
 // ─── gräns 3: övertid per månad ──────────────────────────────
-/** `stallning`: månaden är den pågående och talet är "ställning hittills" (arbetat − ordinarie hittills), inte en fastställd övertid. */
+/** `stallning`: månaden är den pågående och talet är "ställning t.o.m. igår" (arbetat − ordinarie fram till igår), inte en fastställd övertid. */
 export type Manadsstatus = { manad: string; fast: number; uppskattadTimmar: number; total: number; uppskattad: boolean; stallning: boolean; niva: Niva };
 
 function manadNiva(fast: number, uppskattadH: number): Niva {
@@ -373,7 +373,7 @@ const VARFOR = {
   extra_overtid_ar:
     "ATL 8 a § (arbetstidslagen): extra övertid högst 150 timmar per kalenderår, bara om det finns särskilda skäl och situationen inte kunnat lösas på annat rimligt sätt. Appen vet inte vilka timmar som beordrats som extra — den räknar allt över 250 timmar som extra. Räknat, inte mätt.",
   overtid_manad:
-    "ATL 8 § och 8 a § 2 st. (arbetstidslagen): allmän och extra övertid tillsammans får inte överstiga 50 timmar per kalendermånad (eller 48 timmar på fyra veckor). Avtalet avviker inte från det. En avslutad månad är fastställd och räknas som lönen. Den pågående månaden visar ställningen hittills (arbetat minus ordinarie hittills) och ger aldrig mer än gul, liksom övertid från en markerad utjämningsperiod, som läggs på periodens slutmånad som uppskattad fördelning.",
+    "ATL 8 § och 8 a § 2 st. (arbetstidslagen): allmän och extra övertid tillsammans får inte överstiga 50 timmar per kalendermånad (eller 48 timmar på fyra veckor). Avtalet avviker inte från det. En avslutad månad är fastställd och räknas som lönen. Den pågående månaden visar ställningen t.o.m. igår (arbetat minus ordinarie fram till igår) och ger aldrig mer än gul, liksom övertid från en markerad utjämningsperiod, som läggs på periodens slutmånad som uppskattad fördelning.",
   snitt_48:
     "ATL 10 b § (arbetstidslagen): den sammanlagda arbetstiden under varje period om sju dagar får i genomsnitt inte överstiga 48 timmar under högst fyra månader. Appen räknar de senaste fyra månaderna. Tolkning: semester och sjukfrånvaro under tid då föraren annars skulle ha arbetat likställs med fullgjord arbetstid och räknas som 8 tim per vardag (lagtexten säger det, men inte hur många timmar); andra frånvarotyper räknas som 0 tim.",
   veckovila:
@@ -417,7 +417,7 @@ export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
     const G = GRANSER.overtidManad;
     const man = manadNamn(s.manad);
     let mening: string;
-    if (s.stallning) mening = `${tim(s.total)} av ${tim(G)} tim övertid hittills i ${man}${s.total > G ? " — över gränsen hittills" : suffix(s.niva, "närmar sig gränsen", "")}`;
+    if (s.stallning) mening = `${tim(s.total)} av ${tim(G)} tim övertid i ${man} t.o.m. igår${s.total > G ? " — över gränsen" : suffix(s.niva, "närmar sig gränsen", "")}`;
     else if (s.uppskattad && s.niva !== "rod" && s.total >= G * GRANSER.gulAndel) mening = `${tim(s.total)} av ${tim(G)} tim övertid i ${man}, varav ${tim(s.uppskattadTimmar)} uppskattad fördelning från en utjämningsperiod`;
     else mening = `${tim(s.total)} av ${tim(G)} tim övertid i ${man}${suffix(s.niva, "närmar sig gränsen", "gränsen är passerad")}`;
     granser.push({

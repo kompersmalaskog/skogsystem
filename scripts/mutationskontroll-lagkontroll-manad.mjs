@@ -1,6 +1,6 @@
 // Mutationskontroll för lagkontrollens månadsövertid (testnivå full, Martin 2026-10-19): varje del av "lagkontrollen räknar övertid per
-// kalendermånad, samma regel som lönen" — utjämningsmånaden som behåller genomsnittet, den pågående månadens ställning (idag räknas först
-// med registrerad tid, aldrig röd), anställning/röda dagar/frånvaro/deldag in i ordinarie, årets tal som summan av månaderna, Min tid,
+// kalendermånad, samma regel som lönen" — utjämningsmånaden som behåller genomsnittet, den pågående månadens ställning (t.o.m. igår, idag räknas varken
+// arbetat eller ordinarie, aldrig röd), anställning/röda dagar/frånvaro/deldag in i ordinarie, årets tal som summan av månaderna, Min tid,
 // admin-vyn, Mitt avtal-raden, routernas koppling — ska bli RÖD när EN sak ändras tillbaka. Motorn: scripts/mutationsmotor.mjs.
 // Reglerna: lib/lonesystem/arsovertid.ts (modell `manad`), lib/lonesystem/manadsordinarie.ts, lib/arbetstidsgranser.ts.
 //
@@ -35,15 +35,16 @@ const M = [
   ["utjämningsmånader räknas med månadsregeln", "if (overlapparUtjamning(ym, perioder)) {", "if (false) {", ARS],
   ["alla månader räknas som utjämning", "if (overlapparUtjamning(ym, perioder)) {", "if (true) {", ARS],
   ["månaden efter en period som slutade räknas som utjämning (perioderna ignoreras)", "overlapparUtjamning(ym, perioder)", "overlapparUtjamning(ym, [])", ARS],
-  ["pågående månad: hela månadens ordinarie (inte hittills)", "const ordinarieTom = pagaende ? ((minPerDatum.get(tomDatum) || 0) > 0 ? tomDatum : plusDagarIso(tomDatum, -1)) : undefined;", "const ordinarieTom = undefined;", ARS],
-  ["pågående: idag räknas alltid", "(minPerDatum.get(tomDatum) || 0) > 0 ? tomDatum : plusDagarIso(tomDatum, -1)", "tomDatum", ARS],
-  ["pågående: idag räknas aldrig", "(minPerDatum.get(tomDatum) || 0) > 0 ? tomDatum : plusDagarIso(tomDatum, -1)", "plusDagarIso(tomDatum, -1)", ARS],
-  ["pågående: bara maskintid idag räknas som registrerad tid", "(minPerDatum.get(tomDatum) || 0) > 0", "(maskinPerDatum.get(tomDatum) || 0) > 0", ARS],
-  ["pågående: gårdagen räknas inte (−2)", "plusDagarIso(tomDatum, -1)", "plusDagarIso(tomDatum, -2)", ARS],
+  ["pågående månad: hela månadens ordinarie (inte t.o.m. igår)", "const ordinarieTom = pagaende ? plusDagarIso(tomDatum, -1) : undefined;", "const ordinarieTom = undefined;", ARS],
+  ["pågående: idag räknas i ordinarie", "const ordinarieTom = pagaende ? plusDagarIso(tomDatum, -1) : undefined;", "const ordinarieTom = pagaende ? tomDatum : undefined;", ARS],
+  ["pågående: gårdagen räknas inte i ordinarie (−2)", "plusDagarIso(tomDatum, -1) : undefined;", "plusDagarIso(tomDatum, -2) : undefined;", ARS],
+  ["pågående: dagens arbetade tid räknas med", "(manader.get(ym)?.min || 0) - (pagaende ? (minPerDatum.get(tomDatum) || 0) : 0);", "(manader.get(ym)?.min || 0);", ARS],
+  ["pågående: bara dagens maskintid dras bort", "(pagaende ? (minPerDatum.get(tomDatum) || 0) : 0)", "(pagaende ? (maskinPerDatum.get(tomDatum) || 0) : 0)", ARS],
+  ["avslutad månad: sista dagens tid dras bort", "(pagaende ? (minPerDatum.get(tomDatum) || 0) : 0)", "(minPerDatum.get(tomDatum) || 0)", ARS],
   ["avslutad månad får också en ställning", "stallning: pagaende ? stallning : null", "stallning", ARS],
   ["ingen månad är pågående", "const pagaende = ym === sistaManad;", "const pagaende = false;", ARS],
   ["övertid kan bli negativ", "overtid: r2(Math.max(0, stallning))", "overtid: stallning", ARS],
-  ["arbetad tid avrundas till en decimal (lönen har två)", "const arbetadH = r2((manader.get(ym)?.min || 0) / 60);", "const arbetadH = r1((manader.get(ym)?.min || 0) / 60);", ARS],
+  ["arbetad tid avrundas till en decimal (lönen har två)", "const arbetadH = r2(arbetadMin / 60);", "const arbetadH = r1(arbetadMin / 60);", ARS],
   ["ställningen räknas mot fel tal (arbetad − 0)", "const stallning = r2(arbetadH - ord.timmar);", "const stallning = r2(arbetadH);", ARS],
 
   // ── arsovertid.ts: det som dras av i ordinarie ──
@@ -76,12 +77,12 @@ const M = [
   ["årets övertid ur genomsnittet", "const ov = i.arsovertid.modeller.manad;", "const ov = i.arsovertid.modeller.genomsnitt;", GR],
   ["ställning markeras inte som sådan", "stallning: x.stallning === true,", "stallning: false,", GR],
   ["ställningens mening saknas", "if (s.stallning) mening =", "if (false) mening =", GR],
-  ["ställningens mening: aldrig 'över gränsen'", 's.total > G ? " — över gränsen hittills"', 'false ? " — över gränsen hittills"', GR],
+  ["ställningens mening: aldrig 'över gränsen'", 's.total > G ? " — över gränsen"', 'false ? " — över gränsen"', GR],
   ["månadsstatus läser inte månadsmodellen", "manadsstatus(overtidPerManad(i.arsovertid), i.tomDatum)", "manadsstatus(overtidPerManad({ ...i.arsovertid, manader: [] }), i.tomDatum)", GR],
 
   // ── Admin-vyn ──
   ["adminraden läser genomsnittet", "Number(m.modeller?.manad || 0)", "Number(m.modeller?.genomsnitt || 0)", VY],
-  ["månadsraden: pågående månad utan 'hittills'", "if (x.stallning) return `${namn} ${tot} hittills`", "if (false) return `${namn} ${tot} hittills`", VY],
+  ["månadsraden: pågående månad utan 't.o.m. igår'", "if (x.stallning) return `${namn} ${tot} t.o.m. igår`", "if (false) return `${namn} ${tot} t.o.m. igår`", VY],
   ["månadsraden: utjämning utan etikett", "if (x.uppskattad > 0) return `${namn} ${tot} (utjämning)`", "if (false) return `${namn} ${tot} (utjämning)`", VY],
   ["månadsraden: månader utan övertid visas", ".filter(x => x.fast + x.uppskattad > 0)", ".filter(x => true)", VY],
 

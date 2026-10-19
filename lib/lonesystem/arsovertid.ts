@@ -45,8 +45,9 @@
 //   per kalendermånad först när månadens ORDINARIE timmar är fyllda (lib/lonesystem/manadsordinarie — återanvänd, kopiera aldrig):
 //   vardagar × 8 − röda vardagar − frånvaro − dagar före anställning − deldagens timmar; övertid = max(0, arbetat − ordinarie).
 //     - En AVSLUTAD månad ger exakt lönens övertid (paritetstest mot beraknaLoneunderlag).
-//     - Den PÅGÅENDE månaden är "ställning hittills": arbetat hittills − ordinarie för vardagarna hittills (idag räknas först när den
-//       har registrerad tid, annars står ställningen på minus varje morgon). Kan bli gul, aldrig röd (lib/arbetstidsgranser).
+//     - Den PÅGÅENDE månaden är "ställning t.o.m. igår": arbetat − ordinarie för vardagarna fram till igår. Idag räknas varken på ena eller
+//       andra sidan (dagens timmar tas med först nästa dag), så talet rör sig aldrig under dagen. Kan bli gul, aldrig röd
+//       (lib/arbetstidsgranser).
 //     - En månad som överlappar en MARKERAD utjämningsperiod behåller genomsnittsmodellens fördelning (som lönen behåller sin gamla
 //       formel där): `manader[].modell === "utjamning"`.
 //   Årets tal = summan av månadernas tal (overtidPerManad), varje månad avrundad till en decimal först.
@@ -112,13 +113,13 @@ export type ArsovertidManad = {
   manad: string;                     // YYYY-MM
   /** 'manad' = lönens regel. 'utjamning' = månaden överlappar en markerad utjämningsperiod och följer genomsnittets fördelning. */
   modell: "manad" | "utjamning";
-  /** Arbetad tid i månaden (t.o.m. tomDatum): maskin + extra + hemskickad. Två decimaler, som lönen. */
+  /** Arbetad tid i månaden: maskin + extra + hemskickad, två decimaler som lönen. I den pågående månaden t.o.m. igår. */
   arbetadH: number;
-  /** Månadens ordinarie timmar; i den pågående månaden bara vardagarna hittills. null för utjämningsmånader. */
+  /** Månadens ordinarie timmar; i den pågående månaden bara vardagarna t.o.m. igår. null för utjämningsmånader. */
   ordinarieH: number | null;
   /** Övertid i månaden (aldrig negativ); i den pågående månaden = max(0, ställning). null för utjämningsmånader. */
   overtid: number | null;
-  /** Bara den pågående månaden: arbetat hittills − ordinarie hittills (kan vara negativ). */
+  /** Bara den pågående månaden: arbetat − ordinarie, båda t.o.m. igår (kan vara negativ). */
   stallning: number | null;
   /** Månaden är tomDatums månad — inte slut än. */
   pagaende: boolean;
@@ -160,7 +161,7 @@ export function isoVeckaMandag(ar: number, vecka: number): Date {
 
 /**
  * Årets övertid fördelad på kalendermånader (nycklar "YYYY-MM"). Se filhuvudet för månadsregeln.
- *   - Månad med månadsregeln (`manader`, modell 'manad'): avslutad = fastställd, pågående = uppskattad ställning hittills.
+ *   - Månad med månadsregeln (`manader`, modell 'manad'): avslutad = fastställd, pågående = uppskattad ställning t.o.m. igår.
  *   - Månad i en markerad utjämningsperiod, och varje månad som `manader` inte nämner (äldre anrop utan månadsmodell): genomsnittets
  *     fördelning — ej markerade block per vecka som fastställda (veckans torsdag avgör månaden), markerade perioder hela på
  *     slutmånaden som uppskattad (pågående period: innevarande månad).
@@ -407,13 +408,15 @@ export function beraknaArsovertid(
     const ym = `${ar}-${String(mon + 1).padStart(2, "0")}`;
     if (ym > sistaManad) break;
     const pagaende = ym === sistaManad;
-    const arbetadH = r2((manader.get(ym)?.min || 0) / 60);
+    // Pågående månad: ställningen är t.o.m. IGÅR. Dagens timmar — arbetade och ordinarie — tas med först nästa dag, så talet aldrig
+    // rör sig under dagen (Martin 2026-10-19). Avslutade månader har ingen "idag" i sig.
+    const arbetadMin = (manader.get(ym)?.min || 0) - (pagaende ? (minPerDatum.get(tomDatum) || 0) : 0);
+    const arbetadH = r2(arbetadMin / 60);
     if (overlapparUtjamning(ym, perioder)) {
       manadsLista.push({ manad: ym, modell: "utjamning", arbetadH, ordinarieH: null, overtid: null, stallning: null, pagaende });
       continue;
     }
-    // Pågående månad: ordinarie hittills. Idag räknas först när den har registrerad tid (annars står ställningen på minus varje morgon).
-    const ordinarieTom = pagaende ? ((minPerDatum.get(tomDatum) || 0) > 0 ? tomDatum : plusDagarIso(tomDatum, -1)) : undefined;
+    const ordinarieTom = pagaende ? plusDagarIso(tomDatum, -1) : undefined;
     const ord = manadensOrdinarie({
       arbetsperiod: ym, rodaDagar: rodaAvtal.filter(d => d.startsWith(ym)), ledigheter, arbetadeDatum, deldagar,
       anstallningsdatum: kontext.anstallningsdatum ?? null, tomDatum: ordinarieTom,
