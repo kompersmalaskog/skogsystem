@@ -26,6 +26,8 @@ import { tidsFragor, VILA_ORSAKER, vilaSvarText, arDagensVilobrott, type VilaOrs
 import PeriodForm, { type PeriodVarden } from "./PeriodForm";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { arAutomatiskFlytt, flyttBortaRad } from "@/lib/flyttRad";
+import { arFlyttloggsRad } from "@/lib/flyttloggRad";
+import SvepRad from "./SvepRad";
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { brandriskUtanRad } from "@/lib/lonesystem/brandriskRader";
@@ -775,6 +777,7 @@ export default function Arbetsrapport() {
   // Maskinflytt som egen rad (synken skapar den ur GPS-spåret, kalla 'flytt'): dagens rader visas i Dag och Kväll.
   const [idagFlytt, setIdagFlytt] = useState<any[]>([]);
   const [flyttVersion, setFlyttVersion] = useState(0);
+  const [flyttFel, setFlyttFel] = useState<string | null>(null);
   const [segÖppen, setSegÖppen] = useState(false);
   const [segForm, setSegForm] = useState<null | { start: string; slut: string; typ: AktivitetTyp; deb: boolean; kommentar: string; fromSynk?: boolean; fromTidigarelagd?: boolean }>(null);
   const [segFel, setSegFel] = useState<string | null>(null);
@@ -1136,8 +1139,8 @@ export default function Arbetsrapport() {
     let levande = true;
     const idagKey = new Date().toISOString().split('T')[0];
     supabase.from('arbetsdag_segment').select('*')
-      .eq('medarbetare_id', medarbetare.id).eq('datum', idagKey).eq('kalla', 'flytt').order('start_tid', { ascending: true })
-      .then(({ data, error }: any) => { if (levande) setIdagFlytt(error ? [] : (data || [])); });
+      .eq('medarbetare_id', medarbetare.id).eq('datum', idagKey).in('kalla', ['flytt', 'flyttlogg']).order('start_tid', { ascending: true })
+      .then(({ data, error }: any) => { if (levande) setIdagFlytt(error ? [] : (data || []).filter(arAutomatiskFlytt)); });
     return () => { levande = false; };
   }, [medarbetare?.id, dagData, flyttVersion]);
 
@@ -2537,6 +2540,16 @@ export default function Arbetsrapport() {
     if (error && (error as any).code !== '23505') { console.error('[flytt] gravsten kunde inte skrivas', error); return false; }
     return true;
   };
+  /** Svep → Ta bort på en rad från flyttloggen: gravsten med flyttens id FÖRE borttagningen; faller den ändras inget. */
+  const taBortFlyttloggsRad = async (sg: any) => {
+    setFlyttFel(null);
+    if (!(await skrivFlyttBorta(sg))) { setFlyttFel(RADERA_FEL); return; }
+    const res = await raderaVerifierat(supabase, "arbetsdag_segment", { id: sg.id });
+    if (!res.ok) { setFlyttFel(res.fel); return; }
+    setIdagFlytt(l => l.filter((x: any) => x.id !== sg.id));
+    setDagSegment(d => d.filter((x: any) => x.id !== sg.id));
+    setFlyttVersion(n => n + 1);
+  };
   /** Öppna en flyttrad ur Dag/Kväll: segmenten för dagen läses in först så överlappskontrollen vet vad som finns. */
   const oppnaFlyttRad = (sg: any) => { void laddaDagSegment(sg.datum); oppnaSegmentRedigera(sg); };
   /** Öppna ett befintligt segment (period inom passet) — samma formulär, UPDATE mot arbetsdag_segment. */
@@ -2625,9 +2638,10 @@ export default function Arbetsrapport() {
           start_tid: v.start, slut_tid: v.slut,
           aktivitet_typ: v.typ, objekt_id: v.objektId, debiterbar: v.deb, kommentar: v.kommentar.trim() || null,
         };
-        // En automatisk flytt som får ny tid: den ursprungliga tiden får en gravsten, annars skapar synken om den.
+        // En GPS-flytt som får ny tid: den ursprungliga tiden får en gravsten, annars skapar synken om den. (En rad från flyttloggen känns
+        // igen på flyttens id, inte på tiden — den behöver ingen gravsten för en ändrad tid.)
         const ny5 = (t: string) => (t || '').slice(0, 5);
-        if (arAutomatiskFlytt(periodForm.rad) && (ny5(periodForm.rad.start_tid) !== ny5(v.start) || ny5(periodForm.rad.slut_tid) !== ny5(v.slut))) {
+        if (periodForm.rad.kalla === 'flytt' && (ny5(periodForm.rad.start_tid) !== ny5(v.start) || ny5(periodForm.rad.slut_tid) !== ny5(v.slut))) {
           if (!(await skrivFlyttBorta(periodForm.rad))) { setPeriodFel(SPARA_FEL); return; }
         }
         const res = await uppdateraVerifierat(supabase, "arbetsdag_segment", payload, { id: periodForm.rad.id }, "*");
@@ -3315,13 +3329,12 @@ export default function Arbetsrapport() {
               <div style={linjeUnder(true)}>
                 {idagFlytt.map((sg: any) => {
                   const klock = `${(sg.start_tid||'').slice(0,5)}–${(sg.slut_tid||'').slice(0,5)}`;
-                  return (
-                    <div key={sg.id} onClick={()=>oppnaFlyttRad(sg)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
+                  const rad = (
+                    <div onClick={arFlyttloggsRad(sg) ? undefined : ()=>oppnaFlyttRad(sg)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, cursor:"pointer" }}>
                       <div style={{ minWidth:0 }}>
                         <p style={{ margin:0, ...TYP.listtitel, color:FARG.text }}>{aktLabel(sg.aktivitet_typ)}</p>
-                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>
-                          {klock}{sg.kommentar ? ` · ${sg.kommentar}` : ''} · räknas som arbetstid
-                        </p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color:FARG.text2 }}>{klock}{sg.kommentar ? ` · ${sg.kommentar}` : ''}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{arFlyttloggsRad(sg) ? 'Från flyttloggen · ' : ''}räknas som arbetstid</p>
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs, flexShrink:0 }}>
                         <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(periodMin((sg.start_tid||'').slice(0,5), (sg.slut_tid||'').slice(0,5)))}</span>
@@ -3329,7 +3342,12 @@ export default function Arbetsrapport() {
                       </div>
                     </div>
                   );
+                  // En flytt ur flyttloggen tas bort med ett svep (föraren var inte med); GPS-raden öppnas bara med tryck.
+                  return arFlyttloggsRad(sg)
+                    ? <SvepRad key={sg.id} onTryck={()=>oppnaFlyttRad(sg)} onTaBort={()=>taBortFlyttloggsRad(sg)}>{rad}</SvepRad>
+                    : <div key={sg.id}>{rad}</div>;
                 })}
+                {flyttFel && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color:FARG.orange }}>{flyttFel}</p>}
               </div>
             )}
             {/* PERIODDAG: EN rad per period — det man skriver under (Martin
@@ -6400,8 +6418,8 @@ export default function Arbetsrapport() {
                       {p.objektId && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{objektLista.find(o=>o.id===p.objektId)?.namn || p.objektId}</span>}
                       {p.kind==='extra' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.gron,...TNUM }}>+{fmt(p.minuter)}</span>}
                       {/* En automatisk flytt faktureras aldrig härifrån (lastbilsflödet äger flyttfakturan): den räknas som arbetstid. */}
-                      {p.kind==='segment' && p.kalla==='flytt'
-                        ? <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>räknas som arbetstid</span>
+                      {p.kind==='segment' && (p.kalla==='flytt' || p.kalla==='flyttlogg')
+                        ? <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>{p.kalla==='flyttlogg' ? 'Från flyttloggen · ' : ''}räknas som arbetstid</span>
                         : (()=>{ const f = faktureringsEtikett(p.typ, !!p.deb, !!p.objektId); return <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:f.varna?FARG.orange:FARG.text2 }}>{f.text}</span>; })()}
                       {p.kind==='segment' && p.kalla==='synk' && <span style={{ marginLeft:AVSTAND.s,...TYP.meta,color:FARG.text2 }}>via maskinavvikelse</span>}
                       <div style={{ ...TYP.meta, color: p.oppen ? FARG.orange : FARG.text2, ...TNUM }}>{p.oppen ? `${p.start} – sluttid saknas · fyll i eller ta bort` : `${p.start}–${p.slut}${p.kind==='extra' ? ' · läggs till' : ''}`}{p.kommentar?` · ${p.kommentar}`:''}</div>
