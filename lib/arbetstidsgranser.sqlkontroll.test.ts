@@ -11,7 +11,7 @@ const lok = (s: string) => { const [y, m, d] = s.split("-").map(Number); return 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const dagar = (fran: string, till: string, ok: (d: Date) => boolean) => { const ut: string[] = []; for (const d = lok(fran); iso(d) <= till; d.setDate(d.getDate() + 1)) if (ok(d)) ut.push(iso(d)); return ut; };
 const vardag = (d: Date) => d.getDay() !== 0 && d.getDay() !== 6;
-const arsovertid = { ar: 2026, tomDatum: TOM, timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: 0 }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } };
+const arsovertid = { ar: 2026, tomDatum: TOM, timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: 0, manad: 0 }, manader: [], perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } };
 const gr = (f: ReturnType<typeof byggArbetstid>, id: string) => f.granser.find(g => g.id === id)!;
 const NU = new Date("2026-10-13T13:00:00Z");   // 15:00 i Stockholm
 const fran15 = (d: string) => ({ datum: d, start_tid: "06:00", slut_tid: "15:00", arbetad_min: 480 });

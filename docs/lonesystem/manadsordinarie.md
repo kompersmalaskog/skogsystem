@@ -24,14 +24,31 @@ timlön 28,65, övertid 0 (förut 24 + 4,65). Januari 2026: 22 vardagar − nyå
 ## Det som inte ändras
 
 - **Utjämningsperiod** (tabellen `utjamningsperiod`, t.ex. Gävle 20 apr–5 jul 2026): en månad som överlappar förarens period behåller dagens
-  formel (ordinarie = arbetade dagar × 8). Årsövertiden (`arsovertid.ts`) rörs inte.
+  formel (ordinarie = arbetade dagar × 8). Lagkontrollen behåller genomsnittsmodellens fördelning för samma månader (se nedan).
 - **Företagsledare** (Martin, Joacim) får inga lönerader; ordinarie räknas ändå för kontrollvyerna.
 - **Helglön** betalas som förut (8 tim per röd vardag som ger helglön); den röda dagen dras av ur ordinarie oavsett om helglönen betalas.
 
 ## Kända begränsningar
 
 - **Avslut:** `medarbetare` saknar slutdatum. En förare med `aktiv = false` får en varning; dagar efter avslut dras inte av.
-- **Pågående månad:** ordinarie är hela månadens timmar, så en halv månad ger 0 övertid.
+- **Pågående månad (lönen):** ordinarie är hela månadens timmar, så en halv månad ger 0 övertid. Lagkontrollen räknar den pågående månaden annorlunda, som "ställning hittills" (nedan).
 - **Arbetad röd dag** ger 8 tim helglön + arbetade timmar; dagen är redan avdragen ur ordinarie, så de arbetade timmarna blir övertid först när
   månaden annars är full.
 - **Inte byggt:** varning för "dagar utan maskindata" (Martin: falsklarm för extra-förare).
+
+## Lagkontrollen och Min tid (2026-10-19)
+
+Lagkontrollen (Admin → Arbetstid, gräns 1–3, och Årsövertid-kortet) och Min tid räknar årets övertid med SAMMA regel som lönen:
+`beraknaArsovertid(...)` bygger `manader[]` (en post per kalendermånad) med `manadensOrdinarie` och `modeller.manad` är summan av månaderna.
+
+| Månad | Räknas som | Nivå |
+|-------|-----------|------|
+| avslutad, utanför utjämningsperiod | lönens övertid exakt (`max(0, arbetad − ordinarie)`) | fastställd, kan bli RÖD |
+| pågående | ställning t.o.m. igår: arbetad tid − ordinarie för vardagarna, båda fram till igår | uppskattad, högst GUL; negativ = 0 |
+| överlappar en markerad utjämningsperiod | avtalets genomsnitt (§5 mom 2), fördelat på månader som förut | uppskattad, högst GUL |
+
+Årets tal = summan av månadernas tal, varje månad avrundad till en decimal först. Facit (prod 2026-10-19): Stefan jan 30,58 · Oskar jan 6,5 ·
+Oscar sep 0 (= lönen); Stefans avslutade månader 200,2 + pågående ställning t.o.m. igår 8,0 = 208,2.
+
+**Idag och ställningen:** ställningen räknas t.o.m. IGÅR. Dagens timmar — arbetade och ordinarie — tas med först nästa dag, så talet rör sig aldrig under dagen
+(låst av testerna "LÅS: idag påverkar aldrig ställningen"). Texten säger "t.o.m. igår".

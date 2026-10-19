@@ -9,6 +9,9 @@ import type { GsAvtal } from "./gs-avtal";
 
 export const SAKNAS = "–";
 
+/** Hur övertid räknas (lagkontrollen och lönen, 2026-10-19). Appens egen regel — ingen avtalskolumn bär den, så den står kvar även när raden inte gick att läsa. */
+export const OVERTID_REGEL = "per kalendermånad – först när månadens timmar är fyllda";
+
 export type AvtalRad = [etikett: string, varde: string];
 export type AvtalGrupp = { rubrik: string; rader: AvtalRad[] };
 
@@ -70,6 +73,7 @@ export function byggAvtalGrupper(avtal: GsAvtal | null | undefined): AvtalGrupp[
     ] },
     { rubrik: "Övertid", rader: [
       ["Max övertid", medEnhet(a.max_overtid_ar_h, " tim/år")],
+      ["Övertid räknas", OVERTID_REGEL],
     ] },
     { rubrik: "Färdmedel & färdtid", rader: [
       ["Km-gräns", medEnhet(a.km_grans_per_dag, " km/dag")],

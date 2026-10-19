@@ -6,7 +6,7 @@
 // det LÄGSTA talet medan exporten skulle rapportera ett tal ÖVER taket:
 //
 //   vardagar    per månad: timmar − kalenderns vardagar (ej röda) × 8, negativa
-//               månader nollas — vad Min tid räknar                 Stefan 172,5
+//               månader nollas — vad Min tid räknade före 2026-10-19  Stefan 172,5
 //   dagar       per månad: timmar − arbetade dagar (≥ 60 min) × 8 — vad
 //               Fortnox-exporten rapporterar som 1435/1436            Stefan 270,9
 //   vecka       per ISO-vecka: timmar över 40                          Stefan 311
@@ -41,23 +41,37 @@
 // och finns inte i data. Därför inget rött "passerat taket" i admin. Taket
 // (gs_avtal.max_overtid_ar_h, 250) är en lagstadgad gräns, inte ett mål.
 //
+// FEMTE MODELLEN, `manad` — DEN LAGKONTROLLEN OCH MIN TID RÄKNAR MED (Martin 2026-10-19): samma regel som lönen (#824). Övertid uppstår
+//   per kalendermånad först när månadens ORDINARIE timmar är fyllda (lib/lonesystem/manadsordinarie — återanvänd, kopiera aldrig):
+//   vardagar × 8 − röda vardagar − frånvaro − dagar före anställning − deldagens timmar; övertid = max(0, arbetat − ordinarie).
+//     - En AVSLUTAD månad ger exakt lönens övertid (paritetstest mot beraknaLoneunderlag).
+//     - Den PÅGÅENDE månaden är "ställning t.o.m. igår": arbetat − ordinarie för vardagarna fram till igår. Idag räknas varken på ena eller
+//       andra sidan (dagens timmar tas med först nästa dag), så talet rör sig aldrig under dagen. Kan bli gul, aldrig röd
+//       (lib/arbetstidsgranser).
+//     - En månad som överlappar en MARKERAD utjämningsperiod behåller genomsnittsmodellens fördelning (som lönen behåller sin gamla
+//       formel där): `manader[].modell === "utjamning"`.
+//   Årets tal = summan av månadernas tal (overtidPerManad), varje månad avrundad till en decimal först.
+//
 // Räknas ALDRIG med skarp-start-golv: kalenderåret är kalenderåret.
 // ─────────────────────────────────────────────────────────────
 import { getRödaDagar } from "../roda-dagar";
 import { isoVecka } from "../vilobrott";
 import { arArbetsdag } from "../arbetsdagRegler";
-import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, hemskickadMinuter, arDeldag, FRANVARO_STATUS_GALLER, type FranvaroRad } from "../franvaro";
+import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, hemskickadMinuter, arDeldag, schemaTimmarPerDag, FRANVARO_STATUS_GALLER, type FranvaroRad } from "../franvaro";
+import { manadensOrdinarie, overlapparUtjamning, type OrdinarieLedighet } from "./manadsordinarie";
+import { helglonDagar } from "./helglon";
 
-export type OvertidModell = "vardagar" | "dagar" | "vecka" | "genomsnitt";
+export type OvertidModell = "vardagar" | "dagar" | "vecka" | "genomsnitt" | "manad";
 
 /** Avtalets längsta beräkningsperiod (§5 mom 2) utan lokal överenskommelse. */
 export const BERAKNINGSPERIOD_VECKOR = 16;
 
 export const OVERTID_MODELLER: { key: OvertidModell; namn: string; beskrivning: string; anvandsAv: string; avtalet: boolean }[] = [
-  { key: "vardagar",   namn: "Vardagar × 8",        beskrivning: "per månad: timmar minus kalenderns vardagar × 8", anvandsAv: "Min tid (förarens vy)", avtalet: false },
+  { key: "vardagar",   namn: "Vardagar × 8",        beskrivning: "per månad: timmar minus kalenderns vardagar × 8", anvandsAv: "ingen (Min tid använde den före 2026-10-19)", avtalet: false },
   { key: "dagar",      namn: "Arbetade dagar × 8",  beskrivning: "per månad: timmar minus arbetade dagar × 8", anvandsAv: "Fortnox-exporten (löneart 1435/1436)", avtalet: false },
   { key: "vecka",      namn: "Över 40 tim/vecka",   beskrivning: "per ISO-vecka: timmar över 40, ingen utjämning", anvandsAv: "ingen", avtalet: false },
-  { key: "genomsnitt", namn: "Genomsnitt",          beskrivning: `avtalet §5 mom 2: timmar över 40 × veckor per beräkningsperiod — markerade utjämningsperioder som egna, däremellan antagna block om högst ${BERAKNINGSPERIOD_VECKOR} veckor`, anvandsAv: "Skogsavtalet — frånvaro och komp ej avdragna", avtalet: true },
+  { key: "genomsnitt", namn: "Genomsnitt",          beskrivning: `avtalet §5 mom 2: timmar över 40 × veckor per beräkningsperiod — markerade utjämningsperioder som egna, däremellan antagna block om högst ${BERAKNINGSPERIOD_VECKOR} veckor`, anvandsAv: "Utjämningsmånader i lagkontrollen (Skogsavtalet §5 mom 2)", avtalet: true },
+  { key: "manad",      namn: "Månadens ordinarie",  beskrivning: "per kalendermånad: arbetad tid minus månadens ordinarie timmar (vardagar × 8 − röda dagar − frånvaro − före anställning), utjämningsmånader som genomsnitt", anvandsAv: "Lönen, lagkontrollen och Min tid", avtalet: false },
 ];
 
 export type ArsovertidDag = { datum: string; arbetad_min: number | null; dagtyp?: string | null; start_tid?: string | null };
@@ -84,6 +98,33 @@ export type Berakningsperiod = {
   avslutad: boolean;
 };
 
+/** Det beräkningen behöver utöver dagar, extra tid och frånvaro: det lönemotorn också läser ur medarbetare och avtal. Saknas det gäller avtalets standard. */
+export type ArsovertidKontext = {
+  /** medarbetare.anstallningsdatum: vardagar före det räknas inte i månadens ordinarie. */
+  anstallningsdatum?: string | null;
+  /** gs_avtal.helglon_dagar: avtalets röda dagar (de som dras ur månadens ordinarie). Saknas den gäller avtalets tolv. */
+  helglonNamn?: string | null;
+  /** gs_avtal.ordinarie_vecka_h: schematimmarna per dag för en deldag (40 → 8). */
+  ordinarieVeckaH?: number | null;
+};
+
+/** En kalendermånad i månadsmodellen. */
+export type ArsovertidManad = {
+  manad: string;                     // YYYY-MM
+  /** 'manad' = lönens regel. 'utjamning' = månaden överlappar en markerad utjämningsperiod och följer genomsnittets fördelning. */
+  modell: "manad" | "utjamning";
+  /** Arbetad tid i månaden: maskin + extra + hemskickad, två decimaler som lönen. I den pågående månaden t.o.m. igår. */
+  arbetadH: number;
+  /** Månadens ordinarie timmar; i den pågående månaden bara vardagarna t.o.m. igår. null för utjämningsmånader. */
+  ordinarieH: number | null;
+  /** Övertid i månaden (aldrig negativ); i den pågående månaden = max(0, ställning). null för utjämningsmånader. */
+  overtid: number | null;
+  /** Bara den pågående månaden: arbetat − ordinarie, båda t.o.m. igår (kan vara negativ). */
+  stallning: number | null;
+  /** Månaden är tomDatums månad — inte slut än. */
+  pagaende: boolean;
+};
+
 /** Veckan som den ingår i basen: arbetade timmar och basen (40 − frånvaro − röda vardagar). */
 export type ArsovertidVecka = { vecka: number; timmar: number; bas: number };
 
@@ -92,6 +133,8 @@ export type Arsovertid = {
   tomDatum: string;
   timmar: number;                       // totalt maskin + extra, hela året hittills
   modeller: Record<OvertidModell, number>;
+  /** Månadsmodellen månad för månad (januari t.o.m. tomDatums månad). Källan till `modeller.manad` och till lagkontrollens månadsstatus. */
+  manader: ArsovertidManad[];
   perioder: Berakningsperiod[];         // genomsnittsmodellens perioder, i ordning
   /** Vecka 1..innevarande, för den som ska fördela periodens övertid på veckor (lib/arbetstidsgranser). */
   veckor: ArsovertidVecka[];
@@ -100,9 +143,70 @@ export type Arsovertid = {
 };
 
 const r1 = (x: number) => Math.round(x * 10) / 10;
+const r2 = (x: number) => Math.round(x * 100) / 100;
+
+// ── Övertid per kalendermånad (lagkontrollens gräns 3, årets tal i gräns 1 och 2) ──
+export type ManadsOvertid = Record<string, { fast: number; uppskattad: number; stallning?: true }>;
+
+const isoLokal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const lokalDatum = (s: string) => { const [y, m, d] = s.slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
+const plusDagarIso = (s: string, n: number) => { const d = lokalDatum(s); d.setDate(d.getDate() + n); return isoLokal(d); };
+
+/** Måndagen i ISO-vecka `vecka` i ISO-året `ar` (vecka 1 är den som innehåller 4 januari). */
+export function isoVeckaMandag(ar: number, vecka: number): Date {
+  const d = new Date(ar, 0, 4);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + (vecka - 1) * 7);
+  return d;
+}
 
 /**
- * Räknar årets övertid enligt alla fyra modeller för EN medarbetare.
+ * Årets övertid fördelad på kalendermånader (nycklar "YYYY-MM"). Se filhuvudet för månadsregeln.
+ *   - Månad med månadsregeln (`manader`, modell 'manad'): avslutad = fastställd, pågående = uppskattad ställning t.o.m. igår.
+ *   - Månad i en markerad utjämningsperiod, och varje månad som `manader` inte nämner (äldre anrop utan månadsmodell): genomsnittets
+ *     fördelning — ej markerade block per vecka som fastställda (veckans torsdag avgör månaden), markerade perioder hela på
+ *     slutmånaden som uppskattad (pågående period: innevarande månad).
+ */
+export function overtidPerManad(a: Pick<Arsovertid, "ar" | "tomDatum" | "perioder" | "veckor"> & { manader?: ArsovertidManad[] }): ManadsOvertid {
+  const gen: ManadsOvertid = {};
+  const lagg = (ym: string, slag: "fast" | "uppskattad", h: number) => {
+    const m = gen[ym] || (gen[ym] = { fast: 0, uppskattad: 0 });
+    m[slag] += h;
+  };
+  const veckaManad = (v: number) => plusDagarIso(isoLokal(isoVeckaMandag(a.ar, v)), 3).slice(0, 7);   // torsdagen avgör
+  const veckaSondag = (v: number) => plusDagarIso(isoLokal(isoVeckaMandag(a.ar, v)), 6);
+  const perVecka = new Map(a.veckor.map(v => [v.vecka, Math.max(0, v.timmar - v.bas)]));
+
+  for (const p of a.perioder) {
+    if (!(p.overtid > 0)) continue;
+    if (p.markerad) {
+      const dag = p.avslutad ? veckaSondag(p.till) : a.tomDatum;
+      lagg(dag.slice(0, 7), "uppskattad", p.overtid);
+      continue;
+    }
+    let summa = 0;
+    for (let v = p.fran; v <= p.till; v++) summa += perVecka.get(v) || 0;
+    if (!(summa > 0)) { lagg(veckaManad(p.till), "fast", p.overtid); continue; }   // inget veckoöverskott att fördela på: ingen timme får tappas
+    for (let v = p.fran; v <= p.till; v++) {
+      const s = perVecka.get(v) || 0;
+      if (s > 0) lagg(veckaManad(v), "fast", (p.overtid * s) / summa);
+    }
+  }
+  for (const m of Object.values(gen)) { m.fast = r1(m.fast); m.uppskattad = r1(m.uppskattad); }
+  if (!a.manader || a.manader.length === 0) return gen;
+
+  const ut: ManadsOvertid = {};
+  const manadsregel = new Map(a.manader.filter(m => m.modell === "manad").map(m => [m.manad, m]));
+  for (const [ym, v] of Object.entries(gen)) if (!manadsregel.has(ym)) ut[ym] = v;
+  manadsregel.forEach((m, ym) => {
+    const h = r1(m.overtid ?? 0);
+    if (!(h > 0)) return;   // noll och negativt ger ingen post
+    ut[ym] = m.pagaende ? { fast: 0, uppskattad: h, stallning: true } : { fast: h, uppskattad: 0 };
+  });
+  return ut;
+}
+
+/**
+ * Räknar årets övertid enligt alla fem modeller för EN medarbetare.
  * `dagar` och `extra` = medarbetarens rader för kalenderåret `ar` t.o.m. `tomDatum`.
  * `perioder` = markerade utjämningsperioder som gäller medarbetaren (alla eller egna).
  */
@@ -113,6 +217,7 @@ export function beraknaArsovertid(
   tomDatum: string,
   perioder: Utjamningsperiod[] = [],
   franvaro: FranvaroRad[] = [],
+  kontext: ArsovertidKontext = {},
 ): Arsovertid {
   // arbetsdag.dagtyp läses inte (steg 3, 2026-09-25): frånvaro i sig läses
   // inte här än — veckor med frånvaro dras inte av basen (förbehållet i
@@ -285,14 +390,51 @@ export function beraknaArsovertid(
     }
   }
   const ovGenomsnitt = perioderUt.reduce((s, p) => s + p.overtid, 0);
+  const veckorUt: ArsovertidVecka[] = Array.from({ length: sistaVecka }, (_, i) => ({ vecka: i + 1, timmar: r1(minPerVecka(i + 1) / 60), bas: r1(basPerVecka.get(i + 1)?.bas ?? 0) }));
+
+  // ── Månadsregeln: lönens (lib/lonesystem/manadsordinarie), månad för månad ──
+  const rodaAvtal = Object.keys(helglonDagar(kontext.helglonNamn ?? null, ar));
+  const gallandeFr = franvaro.filter(r => (FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status));
+  const ledigheter: OrdinarieLedighet[] = gallandeFr.map(r => ({ typ: r.typ, startdatum: r.startdatum, slutdatum: r.slutdatum, fran_tid: r.fran_tid, till_tid: r.till_tid }));
+  const arbetadeDatum = new Set<string>();
+  maskinPerDatum.forEach((min, datum) => { if (min > 0) arbetadeDatum.add(datum); });   // som lönen: dagar med maskinpass (arbetad_min > 0)
+  const schemaH = schemaTimmarPerDag(kontext.ordinarieVeckaH);
+  const deldagar = gallandeFr
+    .filter(r => arDeldag(r) && r.typ !== "inarbetad" && r.typ !== "hemskickad" && !!r.startdatum)
+    .map(r => ({ datum: r.startdatum, timmar: deldagTimmar(schemaH, maskinPerDatum.get(r.startdatum) || 0) }));
+  const manadsLista: ArsovertidManad[] = [];
+  const sistaManad = tomDatum.slice(0, 7);
+  for (let mon = 0; mon < 12; mon++) {
+    const ym = `${ar}-${String(mon + 1).padStart(2, "0")}`;
+    if (ym > sistaManad) break;
+    const pagaende = ym === sistaManad;
+    // Pågående månad: ställningen är t.o.m. IGÅR. Dagens timmar — arbetade och ordinarie — tas med först nästa dag, så talet aldrig
+    // rör sig under dagen (Martin 2026-10-19). Avslutade månader har ingen "idag" i sig.
+    const arbetadMin = (manader.get(ym)?.min || 0) - (pagaende ? (minPerDatum.get(tomDatum) || 0) : 0);
+    const arbetadH = r2(arbetadMin / 60);
+    if (overlapparUtjamning(ym, perioder)) {
+      manadsLista.push({ manad: ym, modell: "utjamning", arbetadH, ordinarieH: null, overtid: null, stallning: null, pagaende });
+      continue;
+    }
+    const ordinarieTom = pagaende ? plusDagarIso(tomDatum, -1) : undefined;
+    const ord = manadensOrdinarie({
+      arbetsperiod: ym, rodaDagar: rodaAvtal.filter(d => d.startsWith(ym)), ledigheter, arbetadeDatum, deldagar,
+      anstallningsdatum: kontext.anstallningsdatum ?? null, tomDatum: ordinarieTom,
+    });
+    const stallning = r2(arbetadH - ord.timmar);
+    manadsLista.push({ manad: ym, modell: "manad", arbetadH, ordinarieH: ord.timmar, overtid: r2(Math.max(0, stallning)), stallning: pagaende ? stallning : null, pagaende });
+  }
+  const perManad = overtidPerManad({ ar, tomDatum, perioder: perioderUt, veckor: veckorUt, manader: manadsLista });
+  const ovManad = Object.values(perManad).reduce((s, m) => s + m.fast + m.uppskattad, 0);
 
   const timmar = Array.from(minPerDatum.values()).reduce((a, b) => a + b, 0) / 60;
   return {
     ar, tomDatum,
     timmar: r1(timmar),
-    modeller: { vardagar: r1(ovVardagar), dagar: r1(ovDagar), vecka: r1(ovVecka), genomsnitt: r1(ovGenomsnitt) },
+    modeller: { vardagar: r1(ovVardagar), dagar: r1(ovDagar), vecka: r1(ovVecka), genomsnitt: r1(ovGenomsnitt), manad: r1(ovManad) },
+    manader: manadsLista,
     perioder: perioderUt,
-    veckor: Array.from({ length: sistaVecka }, (_, i) => ({ vecka: i + 1, timmar: r1(minPerVecka(i + 1) / 60), bas: r1(basPerVecka.get(i + 1)?.bas ?? 0) })),
+    veckor: veckorUt,
     basavdrag: { franvaroTimmar: r1(avdragFranvaro), rodaTimmar: r1(avdragRoda) },
   };
 }

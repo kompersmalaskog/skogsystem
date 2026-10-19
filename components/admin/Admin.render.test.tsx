@@ -3249,7 +3249,9 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
     { fran: 17, till: 27, veckor: 11, timmar: 309.4, bas: 376, franvaroTimmar: 40, rodaTimmar: 24, overtid: 0, markerad: true },
     { fran: 28, till: 41, veckor: 14, timmar: 593.8, bas: 480, franvaroTimmar: 80, rodaTimmar: 0, overtid: 113.8, markerad: false },
   ];
-  const forare = (id: string, namn: string, genomsnitt: number) => ({ medarbetare_id: id, namn, timmar: 1000, modeller: { genomsnitt, vardagar: 205.5, dagar: 303.5, vecka: 344.3 }, perioder: PERIODER, basavdrag: { franvaroTimmar: 120, rodaTimmar: 64 } });
+  /** Månadsfördelningen servern skickar (overtidPerManad): jan fastställd, april–juli utjämning (uppskattad), oktober pågående ställning. */
+  const PER_MANAD = { "2026-01": { fast: 30.6, uppskattad: 0 }, "2026-07": { fast: 0, uppskattad: 12 }, "2026-10": { fast: 0, uppskattad: 8.4, stallning: true } };
+  const forare = (id: string, namn: string, genomsnitt: number) => ({ medarbetare_id: id, namn, timmar: 1000, modeller: { manad: genomsnitt, genomsnitt: 12.3, vardagar: 205.5, dagar: 303.5, vecka: 344.3 }, perioder: PERIODER, basavdrag: { franvaroTimmar: 120, rodaTimmar: 64 }, per_manad: PER_MANAD });
   const svar = (rader: [string, string, number][], extra: Record<string, any> = {}) => ({
     ok: true, ar: 2026, tak: 250, tomDatum: "2026-10-09", modeller: MODELLER,
     medarbetare: rader.map(([id, n, h]) => forare(id, n, h)),
@@ -3335,7 +3337,7 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
   it("all förklarande text ligger bakom en tertiär länk 'Så räknas det' som fäller ut — och fäller ihop igen", async () => {
     g.__arsovertid = svar(IDAG);
     await monter("flik=lon");
-    const FORKLARING = ["§5 mom 2", "Avtalet förutsätter", "v1–16", "v28–41", "(antagen)", "(markerad)", "genomsnitt över en beräkningsperiod", "minus frånvaro", "röda vardagar"];
+    const FORKLARING = ["per kalendermånad", "ordinarie timmar är fyllda", "t.o.m. igår", "§5 mom 2", "Avtalet förutsätter", "genomsnitt över en beräkningsperiod", "röda vardagar"];
     for (const t of FORKLARING) expect(kortText(), t).not.toContain(t);
     const lank = blad("Så räknas det")[0].closest("button") as HTMLButtonElement;
     expect(lank.getAttribute("aria-expanded")).toBe("false");
@@ -3363,16 +3365,13 @@ describe("Årsövertid: en fråga, hur nära taket är varje förare?", () => {
     expect(rader().length).toBe(0);
   });
 
-  it("basen: 'Så räknas det' visar per förare hur många tim som drogs ur basen för frånvaro och röda dagar", async () => {
-    g.__arsovertid = svar([["s", "Stefan Karlsson", 189.7], ["m", "Martin Lindqvist", 0]]);
+  it("månaderna: 'Så räknas det' visar per förare vilka månader övertiden kommer från, så att summan går att kontrollräkna", async () => {
+    g.__arsovertid = svar([["s", "Stefan Karlsson", 51], ["m", "Martin Lindqvist", 0]]);
     await monter("flik=lon");
-    expect(kortText()).not.toContain("drogs ur basen");
+    expect(kortText()).not.toContain("t.o.m. igår");
     await klick("Så räknas det");
-    expect(kortText()).toContain("Stefan: 120 tim frånvaro och 64 tim röda dagar drogs ur basen");
-    expect(kortText()).toContain("Martin: 120 tim frånvaro och 64 tim röda dagar drogs ur basen");
-    // perioderna visar basen de räknades mot
-    expect(kortText()).toContain("v1–16 (antagen): 683,9 tim mot bas 584 → 99,9");
-    expect(kortText()).toContain("v28–41 (antagen): 593,8 tim mot bas 480 → 113,8");
+    // 30,6 (januari) + 12 (juli, utjämning) + 8,4 (oktober, pågående) = 51
+    expect(kortText()).toContain("Stefan: januari 30,6 · juli 12 (utjämning) · oktober 8,4 t.o.m. igår");
   });
 
   it("kan frånvaron inte läsas säger kortet det utan att fälla ut: talen är för LÅGA (basen drogs inte), aldrig 'ingen frånvaro'", async () => {
@@ -3402,7 +3401,7 @@ describe("Översikten: kortet Arbetstid", () => {
   /** En förare med givet årsövertidstal (resten tomt) — byggd av den riktiga logiken, så UI:t visar exakt det servern skickar. */
   const forareMed = (id: string, namn: string, ov: number) => byggArbetstid({
     medarbetare_id: id, namn, tomDatum: "2026-10-13",
-    arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: ov }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
+    arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: ov, manad: ov }, manader: [], perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
     dagar: [], extra: [], franvaro: [], trosklar: TROSKLAR, tak: 250,
   });
   const svar = (forare: any[], varningar: string[] = []) => ({ ok: true, ar: 2026, tomDatum: "2026-10-13", forare, varningar });
@@ -3511,7 +3510,7 @@ describe("Översikten: kortet Arbetstid", () => {
   it("maskinflytt i underlaget: detaljen säger 'Maskinflytt ingår: …' och INTE 'Restid ingår inte'", async () => {
     const f = byggArbetstid({
       medarbetare_id: "s", namn: "Stefan Karlsson", tomDatum: "2026-10-13",
-      arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: 262 }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
+      arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: 262, manad: 262 }, manader: [], perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
       dagar: [], extra: [], franvaro: [], trosklar: TROSKLAR, tak: 250, nu: new Date("2026-10-13T10:00:00Z"),
       flytt: [{ starttid: "2026-09-25T04:00:00Z", sluttid: "2026-09-25T13:00:00Z", total_tid_min: 400 }],
     });
@@ -3538,7 +3537,7 @@ describe("Översikten: kortet Arbetstid", () => {
   });
 
   it("den gamla raden vid 200 tim finns inte längre (det nya kortet är enda källan)", async () => {
-    g.__arsovertid = { ok: true, ar: 2026, tak: 250, tomDatum: "2026-10-13", modeller: [], medarbetare: [{ medarbetare_id: "s", namn: "Stefan Karlsson", timmar: 1, modeller: { genomsnitt: 212.5 } }], utjamning: [] };
+    g.__arsovertid = { ok: true, ar: 2026, tak: 250, tomDatum: "2026-10-13", modeller: [], medarbetare: [{ medarbetare_id: "s", namn: "Stefan Karlsson", timmar: 1, modeller: { genomsnitt: 212.5, manad: 212.5 } }], utjamning: [] };
     await monter("flik=oversikt");
     expect(text()).not.toContain("tim övertid i år, taket är");
   });
@@ -3552,7 +3551,7 @@ describe("Delägare: bockrutan i Medarbetare och den grå raden i Arbetstid", ()
   const TROSKLAR = { dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
   const forareMed = (id: string, namn: string, ov: number, foretagsledare = false) => byggArbetstid({
     medarbetare_id: id, namn, tomDatum: "2026-10-13", foretagsledare,
-    arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: ov }, perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
+    arsovertid: { ar: 2026, tomDatum: "2026-10-13", timmar: 0, modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: ov, manad: ov }, manader: [], perioder: [], veckor: [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 } },
     dagar: [], extra: [], franvaro: [], trosklar: TROSKLAR, tak: 250,
   });
   const svar = (forare: any[], varningar: string[] = []) => ({ ok: true, ar: 2026, tomDatum: "2026-10-13", forare, varningar });

@@ -133,3 +133,48 @@ describe("årsövertid-routen läser frånvaron", () => {
     expect(j.medarbetare[0].basavdrag).toEqual({ franvaroTimmar: 8, rodaTimmar: 24 });
   });
 });
+
+describe("årsövertid-routen räknar per kalendermånad som lönen (modeller.manad)", () => {
+  /** Alla vardagar i februari 2026 (20 st) med 8,5 tim/dag = 170 tim mot månadens ordinarie 160. */
+  const feb = () => { const ut: string[] = []; for (let d = 1; d <= 28; d++) { const w = new Date(2026, 1, d).getDay(); if (w % 6) ut.push(`2026-02-${String(d).padStart(2, "0")}`); } return ut; };
+  beforeEach(() => {
+    g.__db.arbetsdag = feb().map(d => dag(d, 8.5));
+    g.__db.utjamningsperiod = [];
+    vi.setSystemTime(new Date(2026, 2, 10, 12, 0));
+  });
+
+  it("februari: 170 − 160 = 10 tim; svaret bär modeller.manad, månadslistan och fördelningen per månad", async () => {
+    const m = (await (await anropa()).json()).medarbetare[0];
+    expect(m.modeller.manad).toBe(10);
+    expect(m.manader.find((x: any) => x.manad === "2026-02")).toMatchObject({ modell: "manad", ordinarieH: 160, arbetadH: 170, overtid: 10, pagaende: false });
+    expect(m.per_manad["2026-02"]).toEqual({ fast: 10, uppskattad: 0 });
+  });
+
+  it("anställningsdatum läses ur medarbetare: anställd 16 feb → 10 vardagar bort ur ordinarie", async () => {
+    g.__db.medarbetare = [{ id: "s", namn: "Stefan Karlsson", anstallningsdatum: "2026-02-16" }];
+    g.__db.arbetsdag = feb().filter(d => d >= "2026-02-16").map(d => dag(d, 9));
+    const m = (await (await anropa()).json()).medarbetare[0];
+    expect(m.manader.find((x: any) => x.manad === "2026-02")).toMatchObject({ ordinarieH: 80, arbetadH: 90, overtid: 10 });
+  });
+
+  it("röda dagar följer avtalets lista (gs_avtal.helglon_dagar): utan Trettondagen är januari 8 tim längre", async () => {
+    g.__db.arbetsdag = [dag("2026-01-07", 8)];
+    const med = (await (await anropa()).json()).medarbetare[0].manader.find((x: any) => x.manad === "2026-01").ordinarieH;
+    g.__db.gs_avtal = [{ max_overtid_ar_h: 250, giltigt_fran: "2025-04-01", helglon_dagar: "Nyårsdagen,Julafton" }];
+    const utan = (await (await anropa()).json()).medarbetare[0].manader.find((x: any) => x.manad === "2026-01").ordinarieH;
+    expect(med).toBe(160);
+    expect(utan).toBe(168);
+  });
+
+  it("en månad i en utjämningsperiod räknas som förut och får ingen månadsövertid", async () => {
+    g.__db.utjamningsperiod = [{ startdatum: "2026-02-02", slutdatum: "2026-02-08", medarbetare_id: null, anteckning: "Test" }];
+    const m = (await (await anropa()).json()).medarbetare[0];
+    expect(m.manader.find((x: any) => x.manad === "2026-02")).toMatchObject({ modell: "utjamning", overtid: null });
+  });
+
+  it("en annans utjämningsperiod rör inte Stefan", async () => {
+    g.__db.utjamningsperiod = [{ startdatum: "2026-02-02", slutdatum: "2026-02-08", medarbetare_id: "annan", anteckning: "Test" }];
+    const m = (await (await anropa()).json()).medarbetare[0];
+    expect(m.manader.find((x: any) => x.manad === "2026-02").modell).toBe("manad");
+  });
+});

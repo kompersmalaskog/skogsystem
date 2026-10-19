@@ -6,7 +6,7 @@ import {
   GRANSER, nivaMotTak, isoVeckaMandag, overtidPerManad, manadsstatus, snittVeckaH, byggArbetstid, sorteraAttGora, dataFranDatum, flyttdagTillPass,
   type ArbetstidIndata,
 } from "./arbetstidsgranser";
-import { beraknaArsovertid, type Arsovertid, type Berakningsperiod } from "./lonesystem/arsovertid";
+import { beraknaArsovertid, type Arsovertid, type ArsovertidManad, type Berakningsperiod } from "./lonesystem/arsovertid";
 import fx from "./lonesystem/testdata/stefan2026.json";
 
 const TROSKLAR = { dygnsvila_krav_h: 11, dygnsvila_varning_h: 12, veckovila_krav_h: 36, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14 };
@@ -22,10 +22,14 @@ const vk = (vecka: number, timmar: number, bas = 40) => ({ vecka, timmar, bas })
 const per = (fran: number, till: number, overtid: number, o: Partial<Berakningsperiod> = {}): Berakningsperiod => ({
   fran, till, veckor: till - fran + 1, timmar: 0, bas: 0, franvaroTimmar: 0, rodaTimmar: 0, overtid, markerad: false, avslutad: true, ...o,
 });
-function ars(o: { ar?: number; tomDatum: string; genomsnitt?: number; perioder?: Berakningsperiod[]; veckor?: { vecka: number; timmar: number; bas: number }[] }): Arsovertid {
+function ars(o: { ar?: number; tomDatum: string; genomsnitt?: number; manad?: number; manader?: ArsovertidManad[]; perioder?: Berakningsperiod[]; veckor?: { vecka: number; timmar: number; bas: number }[] }): Arsovertid {
+  const genomsnitt = o.genomsnitt ?? (o.perioder || []).reduce((s, p) => s + p.overtid, 0);
   return {
     ar: o.ar ?? 2026, tomDatum: o.tomDatum, timmar: 0,
-    modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt: o.genomsnitt ?? (o.perioder || []).reduce((s, p) => s + p.overtid, 0) },
+    // Månadsmodellen (lönens regel) är det lagkontrollen räknar årets övertid med; utan egen uppgift är den lika med genomsnittet, så
+    // de äldre testerna om gränserna fortfarande handlar om gränserna.
+    modeller: { vardagar: 0, dagar: 0, vecka: 0, genomsnitt, manad: o.manad ?? genomsnitt },
+    manader: o.manader ?? [],
     perioder: o.perioder ?? [], veckor: o.veckor ?? [], basavdrag: { franvaroTimmar: 0, rodaTimmar: 0 },
   };
 }
@@ -238,6 +242,71 @@ describe("gräns 3: månadsstatus — RÖD bara för fastställd övertid, GUL f
     const g = gr(f, "overtid_manad");
     expect(g.niva).toBe("rod");
     expect(g.mening).toBe("52 av 50 tim övertid i oktober — gränsen är passerad");
+  });
+});
+
+// ─── månadsregeln (lönens, #824) i lagkontrollen ──────────────
+const mm = (manad: string, overtid: number | null, o: Partial<ArsovertidManad> = {}): ArsovertidManad =>
+  ({ manad, modell: "manad", arbetadH: 0, ordinarieH: 0, overtid, stallning: null, pagaende: false, ...o });
+
+describe("lagkontrollen räknar övertid per kalendermånad, samma regel som lönen", () => {
+  it("gräns 1 och 2 läser årets månadsövertid (modeller.manad), inte genomsnittet", () => {
+    const f = byggArbetstid(indata({ arsovertid: ars({ tomDatum: "2026-10-13", genomsnitt: 100, manad: 262 }) }));
+    expect(gr(f, "allman_overtid_ar").varde).toBe(262);
+    expect(gr(f, "allman_overtid_ar").niva).toBe("rod");
+    expect(gr(f, "extra_overtid_ar").varde).toBe(12);
+  });
+
+  it("gräns 3: en avslutad månad är fastställd och kan bli RÖD (52 tim i september)", () => {
+    const f = byggArbetstid(indata({ arsovertid: ars({ tomDatum: "2026-10-13", manader: [mm("2026-09", 52)] }) }));
+    const g = gr(f, "overtid_manad");
+    expect(g.niva).toBe("rod");
+    expect(g.markning).toBeUndefined();
+    expect(g.mening).toBe("52 av 50 tim övertid i september — gränsen är passerad");
+  });
+
+  it("gräns 3: pågående månad är 'ställning hittills' — gul vid 45, aldrig röd, ens vid 80", () => {
+    const g = (h: number) => gr(byggArbetstid(indata({ arsovertid: ars({ tomDatum: "2026-10-13", manader: [mm("2026-10", h, { pagaende: true, stallning: h })] }) })), "overtid_manad");
+    expect(g(44.9).niva).toBe("lugn");
+    expect(g(45).niva).toBe("gul");
+    expect(g(80).niva).toBe("gul");
+    expect(g(80).markning).toBe("uppskattad");
+    expect(g(45).mening).toBe("45 av 50 tim övertid i oktober t.o.m. igår — närmar sig gränsen");
+    expect(g(80).mening).toBe("80 av 50 tim övertid i oktober t.o.m. igår — över gränsen");
+    expect(g(12).mening).toBe("12 av 50 tim övertid i oktober t.o.m. igår");
+  });
+
+  it("manadsstatus: en ställning markeras som sådan, en fastställd månad inte", () => {
+    expect(manadsstatus({ "2026-10": { fast: 0, uppskattad: 30, stallning: true } }, "2026-10-13").stallning).toBe(true);
+    expect(manadsstatus({ "2026-10": { fast: 30, uppskattad: 0 } }, "2026-10-13").stallning).toBe(false);
+  });
+
+  it("overtidPerManad: en månad med månadsregeln ersätter genomsnittets fördelning på den månaden", () => {
+    // genomsnittet lade 30 tim fastställt på oktober (v41); månadsregeln säger 8 → 8 gäller
+    const a = ars({ tomDatum: "2026-10-30", perioder: [per(40, 41, 30)], veckor: [vk(41, 70)], manader: [mm("2026-10", 8)] });
+    expect(overtidPerManad(a)["2026-10"]).toEqual({ fast: 8, uppskattad: 0 });
+  });
+
+  it("overtidPerManad: pågående månad läggs som uppskattad ställning; negativ ställning blir inget alls", () => {
+    expect(overtidPerManad(ars({ tomDatum: "2026-10-13", manader: [mm("2026-10", 12, { pagaende: true, stallning: 12 })] }))["2026-10"]).toEqual({ fast: 0, uppskattad: 12, stallning: true });
+    const neg = overtidPerManad(ars({ tomDatum: "2026-10-13", manader: [mm("2026-10", 0, { pagaende: true, stallning: -24 })] }))["2026-10"];
+    expect((neg?.fast || 0) + (neg?.uppskattad || 0)).toBe(0);
+  });
+
+  it("overtidPerManad: en månad med månadsregeln och 0 övertid får inte genomsnittets fördelning (månaden ersätts, inte kompletteras)", () => {
+    const a = ars({ tomDatum: "2026-10-30", perioder: [per(40, 41, 30)], veckor: [vk(41, 70)], manader: [mm("2026-10", 0)] });
+    expect(overtidPerManad(a)["2026-10"]).toBeUndefined();
+  });
+
+  it("overtidPerManad: en utjämningsmånad behåller genomsnittets fördelning (månaden ersätts inte)", () => {
+    const a = ars({ tomDatum: "2026-10-13", perioder: [per(17, 27, 62, { markerad: true, avslutad: true })], veckor: [vk(17, 72)],
+      manader: [mm("2026-07", null, { modell: "utjamning", ordinarieH: null })] });
+    expect(overtidPerManad(a)["2026-07"]).toEqual({ fast: 0, uppskattad: 62 });
+  });
+
+  it("overtidPerManad: en månad som saknas i månadsmodellen får genomsnittets fördelning som förut", () => {
+    const a = ars({ tomDatum: "2026-10-13", perioder: [per(36, 37, 10)], veckor: [vk(36, 60), vk(37, 30)] });
+    expect(overtidPerManad(a)).toEqual(overtidPerManad({ ...a, manader: undefined } as any));
   });
 });
 
@@ -887,18 +956,32 @@ describe("flyttdag: maskinflyttens körtid räknas i gränserna 4–6 (bara i ko
 // ─── mot Stefans riktiga 2026-data ───────────────────────────
 describe("Stefan 2026 (riktig data): övertiden fördelas på månader utan att något försvinner eller tillkommer", () => {
   const a = beraknaArsovertid(fx.arbetsdag as any, fx.extra_tid as any, 2026, fx.tomDatum, fx.utjamning as any, fx.franvaro as any);
+  /** Genomsnittets fördelning ensam (utan månadsmodellen) — det som gäller för utjämningsmånaderna. */
+  const genomsnittsFordelning = () => overtidPerManad({ ...a, manader: undefined } as any);
 
-  it("summan över månaderna = summan av periodernas övertid (± avrundning)", () => {
-    const m = overtidPerManad(a);
+  it("genomsnittets fördelning: summan över månaderna = summan av periodernas övertid (± avrundning)", () => {
+    const m = genomsnittsFordelning();
     const summa = Object.values(m).reduce((s, x) => s + x.fast + x.uppskattad, 0);
     const perioder = a.perioder.reduce((s, p) => s + p.overtid, 0);
     expect(Math.abs(summa - perioder)).toBeLessThan(0.5);
   });
 
-  it("Gävle (markerad v17–27, avslutad) ger noll övertid — ingenting på någon månad", () => {
-    const m = overtidPerManad(a);
-    const uppsk = Object.values(m).reduce((s, x) => s + x.uppskattad, 0);
+  it("Gävle (markerad v17–27, avslutad) ger noll övertid — ingenting uppskattat i genomsnittets fördelning", () => {
+    const uppsk = Object.values(genomsnittsFordelning()).reduce((s, x) => s + x.uppskattad, 0);
     expect(uppsk).toBe(0);
+  });
+
+  it("årets tal (månadsregeln) = summan av månadernas tal; Gävle-månaderna (apr–jul) är utjämning och behåller genomsnittets fördelning, den pågående månaden är uppskattad ställning", () => {
+    const m = overtidPerManad(a);
+    const summa = Object.values(m).reduce((s, x) => s + x.fast + x.uppskattad, 0);
+    expect(Math.abs(summa - a.modeller.manad)).toBeLessThan(0.05);
+    for (const ym of ["2026-04", "2026-05", "2026-06", "2026-07"]) {
+      expect(a.manader.find(x => x.manad === ym)!.modell, ym).toBe("utjamning");
+      expect(m[ym] ?? { fast: 0, uppskattad: 0 }, ym).toEqual(genomsnittsFordelning()[ym] ?? { fast: 0, uppskattad: 0 });
+    }
+    const nu = a.manader.find(x => x.pagaende)!;
+    expect(nu.manad).toBe(fx.tomDatum.slice(0, 7));
+    expect(m[nu.manad]?.stallning ?? true).toBe(true);
   });
 
   it("perioderna har fått avslutad-flaggan: v1–16 och Gävle klara, v28–41 beroende på tomDatum", () => {
@@ -908,12 +991,12 @@ describe("Stefan 2026 (riktig data): övertiden fördelas på månader utan att 
     expect(a.veckor[0].vecka).toBe(1);
   });
 
-  it("hela kedjan ger sex gränser för Stefan och ingen månad över 50 tim fastställd övertid", () => {
+  it("hela kedjan ger sex gränser för Stefan; årets övertid (gräns 1) är månadsregelns tal", () => {
     const f = byggArbetstid({
       medarbetare_id: "s", namn: "Stefan Karlsson", tomDatum: fx.tomDatum, arsovertid: a, dagar: fx.arbetsdag as any, extra: fx.extra_tid as any,
       franvaro: fx.franvaro as any, trosklar: TROSKLAR, tak: 250,
     });
     expect(f.granser).toHaveLength(6);
-    expect(gr(f, "allman_overtid_ar").varde).toBe(a.modeller.genomsnitt);
+    expect(gr(f, "allman_overtid_ar").varde).toBe(a.modeller.manad);
   });
 });

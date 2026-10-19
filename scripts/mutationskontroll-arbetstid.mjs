@@ -9,6 +9,7 @@ import { kor } from "./mutationsmotor.mjs";
 const FIL = "lib/arbetstidsgranser.ts";
 const VILA = "lib/vilobrott.ts";
 const STHLM = "lib/sthlmTid.ts";
+const ARS = "lib/lonesystem/arsovertid.ts";   // overtidPerManad (fördelningen på månader) bor här sedan 2026-10-19
 
 const M = [
   // nivå
@@ -37,13 +38,13 @@ const M = [
   ["månad: fast > G → >=", "if (fast > G) return \"rod\";", "if (fast >= G) return \"rod\";"],
   ["månad: uppskattad kan bli röd", 'return n === "rod" ? "gul" : n;', "return n;"],
   ["månad: uppskattad räknas inte med", "nivaMotTak(fast + uppskattadH, G)", "nivaMotTak(fast, G)"],
-  ["markerad period behandlas som fastställd", "if (p.markerad) {", "if (!p.markerad) {"],
-  ["avslutad period läggs på tomDatum", "p.avslutad ? veckaSondag(p.till) : a.tomDatum", "a.tomDatum"],
-  ["pågående period läggs på sista veckan", "p.avslutad ? veckaSondag(p.till) : a.tomDatum", "veckaSondag(p.till)"],
-  ["veckans månad: måndag i stället för torsdag", "iso(isoVeckaMandag(a.ar, v)), 3)", "iso(isoVeckaMandag(a.ar, v)), 0)"],
-  ["veckans månad: söndag i stället för torsdag", "iso(isoVeckaMandag(a.ar, v)), 3)", "iso(isoVeckaMandag(a.ar, v)), 6)"],
-  ["fördelning utan skalning", "(p.overtid * s) / summa", "s"],
-  ["fördelning: negativa veckor räknas", "Math.max(0, v.timmar - v.bas)", "v.timmar - v.bas"],
+  ["markerad period behandlas som fastställd", "if (p.markerad) {", "if (!p.markerad) {", ARS],
+  ["avslutad period läggs på tomDatum", "p.avslutad ? veckaSondag(p.till) : a.tomDatum", "a.tomDatum", ARS],
+  ["pågående period läggs på sista veckan", "p.avslutad ? veckaSondag(p.till) : a.tomDatum", "veckaSondag(p.till)", ARS],
+  ["veckans månad: måndag i stället för torsdag", "isoLokal(isoVeckaMandag(a.ar, v)), 3)", "isoLokal(isoVeckaMandag(a.ar, v)), 0)", ARS],
+  ["veckans månad: söndag i stället för torsdag", "isoLokal(isoVeckaMandag(a.ar, v)), 3)", "isoLokal(isoVeckaMandag(a.ar, v)), 6)", ARS],
+  ["fördelning utan skalning", "(p.overtid * s) / summa", "s", ARS],
+  ["fördelning: negativa veckor räknas", "Math.max(0, v.timmar - v.bas)", "v.timmar - v.bas", ARS],
   ["månadsval: bara innevarande månad", "if (NIVA_RANG[b.niva] > NIVA_RANG[a.niva]) return b;", "if (false) return b;"],
   ["månadsval: lägst nivå vinner", "if (NIVA_RANG[b.niva] > NIVA_RANG[a.niva]) return b;", "if (NIVA_RANG[b.niva] < NIVA_RANG[a.niva]) return b;"],
   ["månadsval: lägst summa vinner vid lika", "b.total > a.total", "b.total < a.total"],
@@ -135,4 +136,4 @@ const M = [
   ["sortering: närmast gränsen sist", "|| narmast(b) - narmast(a)", "|| narmast(a) - narmast(b)"],
 ];
 
-kor({ filer: [FIL, VILA, STHLM], tester: ["lib/arbetstidsgranser.test.ts"], standardFil: FIL, mutationer: M });
+kor({ filer: [FIL, VILA, STHLM, ARS], tester: ["lib/arbetstidsgranser.test.ts"], standardFil: FIL, mutationer: M });
