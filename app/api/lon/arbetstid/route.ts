@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/lon/arbetstid
  * Lagkontroll för arbetstid (lib/arbetstidsgranser): sex gränser per förare, räknade t.o.m. i dag. admin.
- * Övertiden är samma beräkning som årsövertiden (beraknaArsovertid, avtalets genomsnittsmodell); snitt och vila ur samma
+ * Övertiden är samma beräkning som årsövertiden (beraknaArsovertid, månadsregeln = lönens; utjämningsmånader som avtalets genomsnitt); snitt och vila ur samma
  * rader. Läsningen är PAGINERAD (lib/lonesystem/allaRader) — PostgREST svarar högst 1000 rader per anrop, och 12 förare × ett halvår är mer än så.
  * Maskinflyttens körtid (flyttdag.total_tid_min, mätt starttid → "Kör hem") räknas i gränserna 4–6 — bara här, lönen läser den inte.
  * Läsfel som påverkar talen blir `varningar` (aldrig "ingen gräns nådd"); fel på själva arbetstiden är ett 500.
@@ -42,9 +42,9 @@ export async function GET(_req: NextRequest) {
 
     const nu = new Date();
     const [medRes0, avtalRes, utjRes, dagar, extra, flyttRes] = await Promise.all([
-      supabase.from("medarbetare").select("id, namn, foretagsledare").order("namn"),
+      supabase.from("medarbetare").select("id, namn, foretagsledare, anstallningsdatum").order("namn"),
       supabase.from("gs_avtal")
-        .select("max_overtid_ar_h, dygnsvila_krav_h, dygnsvila_varning_h, veckovila_krav_h, veckovila_fonster_dagar, kompensation_deadline_dagar")
+        .select("max_overtid_ar_h, helglon_dagar, ordinarie_vecka_h, dygnsvila_krav_h, dygnsvila_varning_h, veckovila_krav_h, veckovila_fonster_dagar, kompensation_deadline_dagar")
         .order("giltigt_fran", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("utjamningsperiod").select("startdatum, slutdatum, medarbetare_id, anteckning")
         .lte("startdatum", tomDatum).gte("slutdatum", `${ar}-01-01`).order("startdatum"),
@@ -64,7 +64,7 @@ export async function GET(_req: NextRequest) {
     let medRes: { data: any[] | null; error: any } = medRes0 as any;
     if (medRes0.error && /foretagsledare/i.test(String(medRes0.error.message || ""))) {
       varningar.push("Kolumnen medarbetare.foretagsledare finns inte än (migration 20261013155407_medarbetare_foretagsledare.sql är inte körd) — ingen person räknas som delägare, så delägare kan visas som gula eller röda.");
-      medRes = await supabase.from("medarbetare").select("id, namn").order("namn") as any;
+      medRes = await supabase.from("medarbetare").select("id, namn, anstallningsdatum").order("namn") as any;
     }
     if (medRes.error) throw medRes.error;
 
@@ -105,7 +105,7 @@ export async function GET(_req: NextRequest) {
       if (sina.length === 0 && sinaExtra.length === 0 && sinFlytt.length === 0) return null;
       const perioder = utjamning.filter(u => !u.medarbetare_id || u.medarbetare_id === m.id);
       const franvaro = franvaroRes.rader.filter(f => f.medarbetare_id === m.id);
-      const arsovertid = beraknaArsovertid(sina, sinaExtra, ar, tomDatum, perioder, franvaro);
+      const arsovertid = beraknaArsovertid(sina, sinaExtra, ar, tomDatum, perioder, franvaro, { anstallningsdatum: m.anstallningsdatum ?? null, helglonNamn: avtal?.helglon_dagar ?? null, ordinarieVeckaH: avtal?.ordinarie_vecka_h ?? null });
       return byggArbetstid({ medarbetare_id: m.id, namn: m.namn || "Namnlös", tomDatum, arsovertid, dagar: sina, extra: sinaExtra, franvaro, trosklar, tak, flytt: sinFlytt, nu, foretagsledare: m.foretagsledare === true });
     }).filter(Boolean);
 

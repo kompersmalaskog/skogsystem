@@ -1,18 +1,15 @@
 "use client";
 // Årsövertid (Admin → Lön → Löneunderlag): EN fråga — hur nära taket (250 tim/år) är varje förare?
 // En rad per förare: namn till vänster, "74,5 av 250 tim" till höger, tunn stapel under. Grå normalt, orange över
-// (tak − 50), röd över taket; noll visas dämpad. Talen är avtalets modell (Skogsavtalet §5 mom 2), exakt kolumnen
-// "Genomsnitt" som kortet visade förut. Allt förklarande ligger bakom länken "Så räknas det".
+// (tak − 50), röd över taket; noll visas dämpad. Talen är månadsregeln (samma som lönen, sedan 2026-10-19; utjämningsmånader som
+// avtalets genomsnitt, Skogsavtalet §5 mom 2). Allt förklarande ligger bakom länken "Så räknas det".
 // Uppbyggnaden är ren (lib/admin/arsovertidVy): samma funktion ger Översiktens rad vid 200 tim.
 import React, { useState } from "react";
 import { AVSTAND, FARG, KNAPP, RADIE, TNUM, TYP } from "@/lib/design/tokens";
 import { Kort } from "./ui";
-import { arsovertidRader, narmarTaket, overlapparManad, timmarText, unikaUtjamningar, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
+import { arsovertidRader, manadRad, narmarTaket, overlapparManad, timmarText, unikaUtjamningar, utjamningsRad, type ArsovertidSvar, type Niva } from "@/lib/admin/arsovertidVy";
 
 const FARG_PER_NIVA: Record<Niva, string> = { noll: FARG.text3, lugn: FARG.text2, varning: FARG.orange, over: FARG.rod };
-
-const periodText = (p: any) =>
-  `v${p.fran}–${p.till}${p.markerad ? " (markerad)" : " (antagen)"}: ${timmarText(Number(p.timmar))} tim mot bas ${timmarText(Number(p.bas ?? 40 * Number(p.veckor)))} → ${timmarText(Number(p.overtid))}`;
 
 export default function ArsovertidKort({ svar, manad }: { svar: ArsovertidSvar; /** Arbetsmånaden som visas (YYYY-MM): utjämningsraden visas bara när perioden berör den. */ manad?: string }) {
   const [oppen, setOppen] = useState(false);
@@ -31,7 +28,7 @@ export default function ArsovertidKort({ svar, manad }: { svar: ArsovertidSvar; 
   const rader = narmarTaket(alla);
   const hogst = alla.length > 0 ? alla[0] : null; // sorterad på timmar, störst först
   const utjamning = unikaUtjamningar(svar.utjamning).filter(u => !manad || overlapparManad(u, manad));
-  const perioderPerForare = (svar.medarbetare || []).filter(m => Array.isArray(m.perioder) && m.perioder.length > 0);
+  const manaderPerForare = (svar.medarbetare || []).map(m => ({ m, rad: manadRad(m.per_manad) })).filter(x => x.rad);
 
   return (
     <Kort style={{ marginBottom: AVSTAND.m }}>
@@ -87,25 +84,27 @@ export default function ArsovertidKort({ svar, manad }: { svar: ArsovertidSvar; 
       {oppen && (
         <div style={{ ...TYP.meta, color: FARG.text2 }}>
           <p style={{ margin: `0 0 ${AVSTAND.s}px`, color: FARG.text }}>
-            Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em>. Perioderna är de markerade utjämningsperioderna ovan; veckorna däremellan räknas i antagna block om högst 16 veckor.
+            Övertid räknas per kalendermånad, med samma regel som lönen: först när månadens ordinarie timmar är fyllda. Årets tal är summan av månaderna.
           </p>
           <p style={{ margin: `0 0 ${AVSTAND.s}px`, color: FARG.text }}>
-            Basen per vecka är 40 tim minus frånvaro (semester, sjuk, VAB, föräldraledig, ATK, komp, tjänstledig, permission) och minus röda vardagar, 8 tim per dag. Övertiden är timmarna över basen, aldrig negativ.
+            Månadens ordinarie är vardagarna × 8 tim, minus röda vardagar, frånvaro (semester, sjuk, VAB, föräldraledig, ATK, komp, tjänstledig, permission) och dagar före anställning. Övertiden är arbetad tid över ordinarie, aldrig negativ.
+          </p>
+          <p style={{ margin: `0 0 ${AVSTAND.s}px`, color: FARG.text }}>
+            Den pågående månaden visar ställning hittills: arbetad tid minus ordinarie för vardagarna hittills. Idag räknas först när den har registrerad tid.
+          </p>
+          <p style={{ margin: `0 0 ${AVSTAND.s}px`, color: FARG.text }}>
+            En månad som överlappar en markerad utjämningsperiod (ovan) räknas som avtalet säger, Skogsavtalet §5 mom 2: ordinarie arbetstid är 40 tim/vecka <em>i genomsnitt över en beräkningsperiod om högst 16 veckor</em>. Veckorna däremellan räknas i antagna block om högst 16 veckor.
           </p>
           <p style={{ margin: `0 0 ${AVSTAND.s}px`, color: FARG.text }}>
             Avtalet förutsätter att utjämning över mer än en vecka är <strong>överenskommen</strong>. En markerad period är en anteckning om vad som gjordes, inte ett bevis på att det var avtalat. Längre än 16 veckor kräver lokal överenskommelse.
           </p>
           <p style={{ margin: `0 0 ${AVSTAND.s}px` }}>
-            En vecka utan registrerad frånvaro räknas med full bas även om föraren inte arbetade den (appen vet inte att den var ledig). Komp (§8 mom 3) räknas inte som övertid enligt §5 mom 5 anm 3. Räknat t.o.m. {svar.tomDatum}.
+            Komp (§8 mom 3) räknas inte som övertid enligt §5 mom 5 anm 3. Räknat t.o.m. {svar.tomDatum}.
           </p>
-          {perioderPerForare.map(m => (
-            <div key={m.medarbetare_id} style={{ margin: `0 0 ${AVSTAND.s}px` }}>
-              <p style={{ margin: 0 }}>
-                <span style={{ color: FARG.text }}>{(m.namn || "").split(" ")[0]}</span>
-                {m.basavdrag ? `: ${timmarText(m.basavdrag.franvaroTimmar)} tim frånvaro och ${timmarText(m.basavdrag.rodaTimmar)} tim röda dagar drogs ur basen` : ""}
-              </p>
-              <p style={{ margin: 0 }}>{m.perioder!.map(periodText).join(" · ")}</p>
-            </div>
+          {manaderPerForare.map(({ m, rad }) => (
+            <p key={m.medarbetare_id} style={{ margin: `0 0 ${AVSTAND.s}px` }}>
+              <span style={{ color: FARG.text }}>{(m.namn || "").split(" ")[0]}</span>: {rad}
+            </p>
           ))}
         </div>
       )}

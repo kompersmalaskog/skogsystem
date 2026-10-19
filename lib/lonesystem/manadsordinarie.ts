@@ -38,6 +38,11 @@ export type OrdinarieIndata = {
   deldagar: { datum: string; timmar: number }[];
   /** medarbetare.anstallningsdatum. Saknas det kontrolleras inget. */
   anstallningsdatum: string | null;
+  /**
+   * Räkna bara vardagarna t.o.m. detta datum — "ordinarie hittills" i en pågående månad (lagkontrollen, lib/lonesystem/arsovertid).
+   * Röda dagar, frånvaro och anställning efter datumet räknas då inte heller. Lönen anger aldrig det: den räknar hela månaden.
+   */
+  tomDatum?: string;
 };
 
 export type OrdinarieResultat = {
@@ -73,7 +78,7 @@ export function vardagarIManad(ym: string): string[] {
 const avrunda2 = (x: number) => Math.round(x * 100) / 100;
 
 export function manadensOrdinarie(i: OrdinarieIndata): OrdinarieResultat {
-  const vardagar = vardagarIManad(i.arbetsperiod);
+  const vardagar = vardagarIManad(i.arbetsperiod).filter(d => !i.tomDatum || d <= i.tomDatum);
   const iManaden = new Set(vardagar);
 
   const roda = [...new Set(i.rodaDagar)].filter(d => iManaden.has(d)).sort();

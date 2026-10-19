@@ -16,19 +16,24 @@
 // ÄRLIG DATA (CLAUDE.md): det som är RÄKNAT eller UPPSKATTAT säger det (`markning`), det som saknas underlag för blir
 // `null`, aldrig noll, och restid som inte finns i underlaget sägs vara utanför ("Restid ingår inte").
 //
-// ÖVERTID PER MÅNAD (beslut Martin 2026-10-13): övertid uppstår enligt avtalet (§5 mom 2) först när genomsnittet över en
-// beräkningsperiod överstiger 40 tim/vecka.
-//   - FASTSTÄLLD övertid = veckor utanför markerad utjämningsperiod. Den fördelas per vecka (veckans överskott, skalat så
-//     att summan blir periodens övertid) och hör till månaden där veckans torsdag ligger. Kan ge RÖD.
-//   - UPPSKATTAD fördelning = övertid ur en MARKERAD utjämningsperiod. Hela den läggs på periodens slutmånad (pågående
-//     period: innevarande månad). Kan bara ge GUL — hur den verkligen fördelas på månader avgörs av hur utjämningen lades ut.
-// Pågående, ej markerade block räknas som fastställda: ingen utjämning är dokumenterad för dem.
+// ÖVERTID PER MÅNAD (beslut Martin 2026-10-19, ersätter 2026-10-13): övertid räknas per KALENDERMÅNAD, med samma regel som lönen —
+// först när månadens ordinarie timmar är fyllda (lib/lonesystem/arsovertid, modell `manad`; reglerna i lib/lonesystem/manadsordinarie).
+//   - En AVSLUTAD månad är FASTSTÄLLD och ger exakt det tal lönen visar. Kan ge RÖD.
+//   - Den PÅGÅENDE månaden är "ställning hittills" (arbetat hittills − ordinarie hittills): UPPSKATTAD. Kan bara ge GUL.
+//   - En månad som överlappar en MARKERAD utjämningsperiod behåller avtalets genomsnitt (§5 mom 2), som lönen behåller sin gamla
+//     formel där: ej markerade block fördelas per vecka (veckans torsdag avgör månaden) som fastställda, en markerad period läggs hel
+//     på slutmånaden som UPPSKATTAD (pågående period: innevarande månad). Kan bara ge GUL — hur utjämningen verkligen fördelas på
+//     månader avgörs av hur den lades ut.
+// ÅRETS ÖVERTID (gräns 1 och 2) är summan av månadernas övertid, varje månad avrundad till en decimal först.
 // ─────────────────────────────────────────────────────────────
 import { getRödaDagar } from "./roda-dagar";
 import { arArbetsdag } from "./arbetsdagRegler";
 import { analyseraVilobrott, medPerioddagSpann, veckovilaPerDag, type VilaTrosklar } from "./vilobrott";
 import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, FRANVARO_STATUS_GALLER, type FranvaroRad } from "./franvaro";
-import type { Arsovertid } from "./lonesystem/arsovertid";
+import { overtidPerManad, isoVeckaMandag, type Arsovertid, type ManadsOvertid } from "./lonesystem/arsovertid";
+
+// Övertid per månad ligger i lib/lonesystem/arsovertid (där månadsmodellen räknas); lagkontrollen läser den härifrån som förut.
+export { overtidPerManad, isoVeckaMandag, type ManadsOvertid };
 import { sthlmDelar, sthlmVaggklocka } from "./sthlmTid";
 
 export const GRANSER = {
@@ -197,13 +202,6 @@ function medFlyttSpann<T extends { datum: string; start_tid?: string | null; slu
   return ut;
 }
 
-/** Måndagen i ISO-vecka `vecka` i ISO-året `ar` (vecka 1 är den som innehåller 4 januari). */
-export function isoVeckaMandag(ar: number, vecka: number): Date {
-  const d = new Date(ar, 0, 4);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + (vecka - 1) * 7);
-  return d;
-}
-
 /** Samma dag-i-månaden `n` månader bakåt, kapad vid månadens sista dag. */
 function minusManader(s: string, n: number): string {
   const d = lokal(s);
@@ -243,42 +241,8 @@ const varre = (a: Niva, b: Niva): Niva => (NIVA_RANG[a] >= NIVA_RANG[b] ? a : b)
 const suffix = (n: Niva, gul: string, rod: string) => (n === "rod" ? ` — ${rod}` : n === "gul" ? ` — ${gul}` : "");
 
 // ─── gräns 3: övertid per månad ──────────────────────────────
-export type ManadsOvertid = Record<string, { fast: number; uppskattad: number }>;
-
-/**
- * Årets övertid fördelad på kalendermånader (nycklar "YYYY-MM"). Se filhuvudet för reglerna: ej markerade block
- * fördelas per vecka och är fastställda, markerade utjämningsperioder läggs hela på slutmånaden som uppskattad.
- */
-export function overtidPerManad(a: Pick<Arsovertid, "ar" | "tomDatum" | "perioder" | "veckor">): ManadsOvertid {
-  const ut: ManadsOvertid = {};
-  const lagg = (ym: string, slag: "fast" | "uppskattad", h: number) => {
-    const m = ut[ym] || (ut[ym] = { fast: 0, uppskattad: 0 });
-    m[slag] += h;
-  };
-  const veckaManad = (v: number) => plusDagar(iso(isoVeckaMandag(a.ar, v)), 3).slice(0, 7);   // torsdagen avgör
-  const veckaSondag = (v: number) => plusDagar(iso(isoVeckaMandag(a.ar, v)), 6);
-  const perVecka = new Map(a.veckor.map(v => [v.vecka, Math.max(0, v.timmar - v.bas)]));
-
-  for (const p of a.perioder) {
-    if (!(p.overtid > 0)) continue;
-    if (p.markerad) {
-      const dag = p.avslutad ? veckaSondag(p.till) : a.tomDatum;
-      lagg(dag.slice(0, 7), "uppskattad", p.overtid);
-      continue;
-    }
-    let summa = 0;
-    for (let v = p.fran; v <= p.till; v++) summa += perVecka.get(v) || 0;
-    if (!(summa > 0)) { lagg(veckaManad(p.till), "fast", p.overtid); continue; }   // inget veckoöverskott att fördela på: ingen timme får tappas
-    for (let v = p.fran; v <= p.till; v++) {
-      const s = perVecka.get(v) || 0;
-      if (s > 0) lagg(veckaManad(v), "fast", (p.overtid * s) / summa);
-    }
-  }
-  for (const m of Object.values(ut)) { m.fast = r1(m.fast); m.uppskattad = r1(m.uppskattad); }
-  return ut;
-}
-
-export type Manadsstatus = { manad: string; fast: number; uppskattadTimmar: number; total: number; uppskattad: boolean; niva: Niva };
+/** `stallning`: månaden är den pågående och talet är "ställning hittills" (arbetat − ordinarie hittills), inte en fastställd övertid. */
+export type Manadsstatus = { manad: string; fast: number; uppskattadTimmar: number; total: number; uppskattad: boolean; stallning: boolean; niva: Niva };
 
 function manadNiva(fast: number, uppskattadH: number): Niva {
   const G = GRANSER.overtidManad;
@@ -295,7 +259,7 @@ export function manadsstatus(per: ManadsOvertid, tomDatum: string): Manadsstatus
   const forra = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}`;
   const kandidat = (ym: string): Manadsstatus => {
     const x = per[ym] || { fast: 0, uppskattad: 0 };
-    return { manad: ym, fast: x.fast, uppskattadTimmar: x.uppskattad, total: r1(x.fast + x.uppskattad), uppskattad: x.uppskattad > 0, niva: manadNiva(x.fast, x.uppskattad) };
+    return { manad: ym, fast: x.fast, uppskattadTimmar: x.uppskattad, total: r1(x.fast + x.uppskattad), uppskattad: x.uppskattad > 0, stallning: x.stallning === true, niva: manadNiva(x.fast, x.uppskattad) };
   };
   const a = kandidat(nu), b = kandidat(forra);
   if (NIVA_RANG[b.niva] > NIVA_RANG[a.niva]) return b;
@@ -405,11 +369,11 @@ function bedomVila(i: ArbetstidIndata): { vecka: VilaMatt; dygn: VilaMatt } {
 // ─── texter ──────────────────────────────────────────────────
 const VARFOR = {
   allman_overtid_ar:
-    "Skogsavtalet §5 mom 5: arbetsgivaren får begära högst 250 timmar allmän övertid per kalenderår. Övertid är tid över ordinarie 40 tim/vecka räknat som genomsnitt över beräkningsperioden (§5 mom 2, högst 16 veckor), alltså först när genomsnittet överskrids. Det som går över 250 räknas som extra övertid och kräver särskilda skäl (gräns 2).",
+    "Skogsavtalet §5 mom 5: arbetsgivaren får begära högst 250 timmar allmän övertid per kalenderår. Appen räknar övertid per kalendermånad, med samma regel som lönen: först när månadens ordinarie timmar är fyllda (vardagar × 8 tim, minus röda dagar, frånvaro och dagar före anställning). En månad i en markerad utjämningsperiod räknas som avtalets genomsnitt (§5 mom 2, högst 16 veckor). Det som går över 250 räknas som extra övertid och kräver särskilda skäl (gräns 2).",
   extra_overtid_ar:
     "ATL 8 a § (arbetstidslagen): extra övertid högst 150 timmar per kalenderår, bara om det finns särskilda skäl och situationen inte kunnat lösas på annat rimligt sätt. Appen vet inte vilka timmar som beordrats som extra — den räknar allt över 250 timmar som extra. Räknat, inte mätt.",
   overtid_manad:
-    "ATL 8 § och 8 a § 2 st. (arbetstidslagen): allmän och extra övertid tillsammans får inte överstiga 50 timmar per kalendermånad (eller 48 timmar på fyra veckor). Avtalet avviker inte från det. Övertid uppstår först när genomsnittet över en beräkningsperiod överskrids; övertid från en markerad utjämningsperiod läggs därför på periodens slutmånad som uppskattad fördelning och ger aldrig mer än gul.",
+    "ATL 8 § och 8 a § 2 st. (arbetstidslagen): allmän och extra övertid tillsammans får inte överstiga 50 timmar per kalendermånad (eller 48 timmar på fyra veckor). Avtalet avviker inte från det. En avslutad månad är fastställd och räknas som lönen. Den pågående månaden visar ställningen hittills (arbetat minus ordinarie hittills) och ger aldrig mer än gul, liksom övertid från en markerad utjämningsperiod, som läggs på periodens slutmånad som uppskattad fördelning.",
   snitt_48:
     "ATL 10 b § (arbetstidslagen): den sammanlagda arbetstiden under varje period om sju dagar får i genomsnitt inte överstiga 48 timmar under högst fyra månader. Appen räknar de senaste fyra månaderna. Tolkning: semester och sjukfrånvaro under tid då föraren annars skulle ha arbetat likställs med fullgjord arbetstid och räknas som 8 tim per vardag (lagtexten säger det, men inte hur många timmar); andra frånvarotyper räknas som 0 tim.",
   veckovila:
@@ -423,7 +387,8 @@ export const RESTID_NOTIS = "Restid ingår inte: ingen restid och ingen maskinfl
 // ─── bygg allt för en förare ─────────────────────────────────
 export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
   const tak = i.tak ?? GRANSER.allmanOvertidAr;
-  const ov = i.arsovertid.modeller.genomsnitt;
+  // Årets övertid = summan av månadernas övertid (månadsregeln, samma som lönen); utjämningsmånader med genomsnittets fördelning.
+  const ov = i.arsovertid.modeller.manad;
   const granser: Gransstatus[] = [];
 
   // 1 — allmän övertid per år
@@ -452,7 +417,8 @@ export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
     const G = GRANSER.overtidManad;
     const man = manadNamn(s.manad);
     let mening: string;
-    if (s.uppskattad && s.niva !== "rod" && s.total >= G * GRANSER.gulAndel) mening = `${tim(s.total)} av ${tim(G)} tim övertid i ${man}, varav ${tim(s.uppskattadTimmar)} uppskattad fördelning från en utjämningsperiod`;
+    if (s.stallning) mening = `${tim(s.total)} av ${tim(G)} tim övertid hittills i ${man}${s.total > G ? " — över gränsen hittills" : suffix(s.niva, "närmar sig gränsen", "")}`;
+    else if (s.uppskattad && s.niva !== "rod" && s.total >= G * GRANSER.gulAndel) mening = `${tim(s.total)} av ${tim(G)} tim övertid i ${man}, varav ${tim(s.uppskattadTimmar)} uppskattad fördelning från en utjämningsperiod`;
     else mening = `${tim(s.total)} av ${tim(G)} tim övertid i ${man}${suffix(s.niva, "närmar sig gränsen", "gränsen är passerad")}`;
     granser.push({
       id: "overtid_manad", namn: "Övertid per månad", niva: s.niva, varde: s.total, grans: G, enhet: "tim", andel: Math.min(1, s.total / G),

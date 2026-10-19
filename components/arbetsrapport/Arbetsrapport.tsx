@@ -16,7 +16,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { byggAvtalGrupper } from "@/lib/avtalVy";
 import { oppnaAvtalPdf as oppnaAvtalPdfFil, MEDD_EJ_UPPLADDAT } from "@/lib/avtalPdf";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, DELDAG_VAL, DELDAG_UNDERRAD, hemskickadMinuter, fmtTimMin, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type Byte, type Deldag } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, DELDAG_VAL, DELDAG_UNDERRAD, hemskickadMinuter, fmtTimMin, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type FranvaroRad, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, passMinuter } from "@/lib/arbetsdagRegler";
@@ -28,6 +28,7 @@ import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, 
 import { harOppenPeriod as harOppenPeriodPaDag, harledGap, valideraSegment, klassificeraPeriod, periodMin, passKrockarMedPerioder, passKrockText } from "@/lib/dagsegment";
 import { skaFragaBrandrisk, obMinuter, fmtOb, arTidigVardag } from "@/lib/ob";
 import { brandriskUtanRad } from "@/lib/lonesystem/brandriskRader";
+import { minTidArsovertid } from "@/lib/lonesystem/minTidArsovertid";
 import { loneartInfo, loneartEnhetText, fmtMangd } from "@/lib/lonesystem/loneart";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { attTittaPa, dagAvvikelser, datumLang, minText, timMin, kmUppdelning } from "@/lib/lonesystem/forarText";
@@ -831,6 +832,10 @@ export default function Arbetsrapport() {
   // posterna — januari saknas då. Hämtas när Min tid öppnas; vyn ritas direkt
   // och staplarna fylls när datan kommer.
   const [årsExtra, setÅrsExtra] = useState<{ datum: string; minuter: number }[] | null>(null);
+  // Årets övertid räknas med lönens och lagkontrollens regel (lib/lonesystem/minTidArsovertid): frånvaro och utjämningsperioder hör till
+  // beräkningen. Tills BÅDA är lästa (eller om läsningen faller) visas ingen siffra — en övertid räknad utan dem vore för låg, inte noll.
+  const [årsFranvaro, setÅrsFranvaro] = useState<FranvaroRad[] | null>(null);
+  const [årsUtjamning, setÅrsUtjamning] = useState<{ startdatum: string; slutdatum: string }[] | null>(null);
   useEffect(() => {
     if (steg !== "mintid" || !medarbetare?.id) return;
     let avbruten = false;
@@ -861,6 +866,22 @@ export default function Arbetsrapport() {
         if (!data || data.length < SIDA) break;
       }
       setÅrsExtra(rader);
+    })();
+    (async () => {
+      const år = nu.getFullYear();
+      const fr = await hamtaFranvaro(supabase, { medarbetareId: medarbetare.id, fran: `${år}-01-01`, till: `${år}-12-31` });
+      if (avbruten) return;
+      if (fr.fel) { console.error("[min tid] årets frånvaro:", fr.fel); return; }
+      setÅrsFranvaro(fr.rader);
+    })();
+    (async () => {
+      const år = nu.getFullYear();
+      const { data, error } = await supabase.from("utjamningsperiod").select("startdatum, slutdatum, medarbetare_id")
+        .lte("startdatum", `${år}-12-31`).gte("slutdatum", `${år}-01-01`);
+      if (avbruten) return;
+      // Tabellen saknas (migrationen ej körd) = inga perioder; alla andra fel = okänt, ingen siffra.
+      if (error && !/does not exist|42P01|PGRST205/.test(`${error.code || ""} ${error.message || ""}`)) { console.error("[min tid] utjämningsperioder:", error.message); return; }
+      setÅrsUtjamning((data || []).filter((u: any) => !u.medarbetare_id || u.medarbetare_id === medarbetare.id));
     })();
     return () => { avbruten = true; };
   }, [steg, medarbetare?.id]);
@@ -3990,36 +4011,23 @@ export default function Arbetsrapport() {
     // stannar som rådata. (Kvartalsblocket var död kod och är borttaget.)
     const rödaDagar2 = getRödaDagar(nu.getFullYear());
 
-    // År — övertid beräknad per månad (årstaket är ett kalenderårsbegrepp och
-    // får inte golvas — se lib/skarpStart)
-    let årsÖvH = 0;
-    for(let m=0;m<=nu.getMonth();m++){
-      const mp=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
-      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0)
-        + extraMinMellan(`${mp}-01`, `${mp}-31`);
-      // Räkna vardagar i månaden
-      const dIM2=m===nu.getMonth()?nu.getDate():new Date(nu.getFullYear(),m+1,0).getDate();
-      let mArbD=0;
-      for(let d=1;d<=dIM2;d++){
-        const dt=new Date(nu.getFullYear(),m,d);
-        const dow=dt.getDay();
-        const k=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        if(dow!==0&&dow!==6&&!rödaDagar2[k]) mArbD++;
-      }
-      const mMålMin=mArbD*480;
-      const mÖv=Math.max(0,mMin-mMålMin);
-      årsÖvH+=mÖv/60;
-    }
-    årsÖvH=Math.round(årsÖvH*10)/10;
+    // År — övertid per kalendermånad med lönens och lagkontrollens regel (lib/lonesystem/minTidArsovertid → beraknaArsovertid, modell
+    // `manad`: först när månadens ordinarie timmar är fyllda; pågående månad = ställning hittills). Årstaket är ett kalenderårsbegrepp
+    // och får inte golvas — se lib/skarpStart. Förr: en egen loop här (timmar − vardagar × 8) som gav ett annat tal än Admin.
+    const årsÖvH: number | null = årsExtra && årsFranvaro && årsUtjamning
+      ? minTidArsovertid({
+          dagar: årsData, extra: årsExtra, franvaro: årsFranvaro, utjamning: årsUtjamning,
+          anstallningsdatum: medarbetare?.anstallningsdatum ?? null, helglonNamn: gsAvtal?.helglon_dagar ?? null,
+          ordinarieVeckaH: gsAvtal?.ordinarie_vecka_h ?? null, idag: nu,
+        }).timmar
+      : null;
     // Övertidstaket ur AVTALET (gs_avtal.max_overtid_ar_h — kolumnen heter så;
     // "max_overtid_ar" fanns inte och gav alltid 250). Taket är en LAGSTADGAD
     // GRÄNS, inte ett mål: talet visas utan omdöme, stapeln är neutral, och
     // något sägs först när man närmar sig (inom 50 h: orange) eller är över (röd).
-    // OBS: den här vyn räknar mot kalenderns vardagar — EN av TRE modeller
-    // (lib/lonesystem/arsovertid); exporten räknar mot arbetade dagar och ger ett
-    // högre tal. Vilken som gäller är en avtalsfråga; byts inte här på egen hand.
+    // Talet är det lagkontrollen i Admin visar för samma förare (Martin 2026-10-19).
     const övertidTak = Number(gsAvtal?.max_overtid_ar_h ?? 250);
-    const årsNiva: 'ok'|'nara'|'over' = årsÖvH >= övertidTak ? 'over' : årsÖvH >= övertidTak-50 ? 'nara' : 'ok';
+    const årsNiva: 'ok'|'nara'|'over' = årsÖvH == null ? 'ok' : årsÖvH >= övertidTak ? 'over' : årsÖvH >= övertidTak-50 ? 'nara' : 'ok';
     const årsFarg = årsNiva==='over' ? FARG.rod : årsNiva==='nara' ? FARG.orange : FARG.fyllning;
     const årsOrd = årsNiva==='over' ? `Över taket på ${övertidTak} tim — kräver extra övertid` : årsNiva==='nara' ? `Närmar dig taket på ${övertidTak} tim` : null;
     // Vilovarningar visas på ETT ställe för handling — Dag-vyn (där bekräftelsen
@@ -4275,15 +4283,15 @@ export default function Arbetsrapport() {
             <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Övertid {nu.getFullYear()}</h3>
             <div style={KORT}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:AVSTAND.s }}>
-                <span style={{ ...TYP.rubrik, ...TNUM, color:FARG.text }}>{årsÖvH.toLocaleString('sv-SE')} tim</span>
+                <span style={{ ...TYP.rubrik, ...TNUM, color:FARG.text }}>{årsÖvH == null ? "–" : `${årsÖvH.toLocaleString('sv-SE')} tim`}</span>
                 <span style={{ ...TYP.meta, ...TNUM, color:FARG.text2 }}>av {övertidTak} tim</span>
               </div>
               <div style={{ height:AVSTAND.xs, background:FARG.linje, borderRadius:RADIE.rad, overflow:"hidden" }}>
-                <div style={{ height:"100%", width:`${Math.min(100, övertidTak > 0 ? årsÖvH/övertidTak*100 : 0)}%`, background:årsFarg, borderRadius:RADIE.rad, transition:`width ${RORELSE.tal}ms ${RORELSE.kurva}` }} />
+                <div style={{ height:"100%", width:`${Math.min(100, övertidTak > 0 && årsÖvH != null ? årsÖvH/övertidTak*100 : 0)}%`, background:årsFarg, borderRadius:RADIE.rad, transition:`width ${RORELSE.tal}ms ${RORELSE.kurva}` }} />
               </div>
               {/* Inget omdöme under taket. Något sägs först när det behöver vetas. */}
               {årsOrd && <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:årsFarg }}>{årsOrd}</p>}
-              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Räknat per månad mot kalenderns vardagar × 8 tim</p>
+              <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{årsÖvH == null ? "Räknas när frånvaro och utjämningsperioder är lästa" : "Räknat per månad, som lönen: först när månadens timmar är fyllda"}</p>
             </div>
           </section>
 

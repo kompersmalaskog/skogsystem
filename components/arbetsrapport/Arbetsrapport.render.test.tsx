@@ -148,6 +148,7 @@ describe("Mitt avtal visar avtalet — eller –, aldrig en gissning", () => {
     expect(varde("Avsättning")).toBe("3,62%");
     expect(varde("Nästa period")).toBe("3,92%");
     expect(varde("Max övertid")).toBe("250 tim/år");
+    expect(varde("Övertid räknas")).toBe("per kalendermånad – först när månadens timmar är fyllda");
     expect(varde("Km-gräns")).toBe("60 km/dag");
     expect(text()).toContain("Kristi himmelsfärd");
     expect(text()).not.toContain("kunde inte läsas");
@@ -175,6 +176,7 @@ describe("Mitt avtal visar avtalet — eller –, aldrig en gissning", () => {
     for (const e of ["Avtal", "Gäller", "Max övertid", "Km-gräns", "Avsättning", "Nästa period", "Ledig tid", "Pension-tillägg", "Ersättning efter karens", "Semesterdagar", "Ersättning tidsbegränsad", "Dagar", "Skifttillägg", "Bortovaro >12h"]) {
       expect(varde(e), e).toBe("–");
     }
+    expect(varde("Övertid räknas")).toBe("per kalendermånad – först när månadens timmar är fyllda");   // appens egen regel, inget avtalsvärde
     expect(text()).toContain("Avtalet kunde inte läsas");
     for (const hittat of ["Skogsavtalet 2025-2027", "GS-avtalet", "65,2", "8,03", "1 apr 2025", "250 tim", "25 dagar", "+20%", "80%"]) expect(text(), hittat).not.toContain(hittat);
   });

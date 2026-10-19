@@ -201,3 +201,17 @@ describe("GET /api/lon/arbetstid", () => {
     expect(med2).toBeGreaterThan(utan);
   });
 });
+
+describe("GET /api/lon/arbetstid: övertiden räknas per kalendermånad som lönen (månadsregeln)", () => {
+  const arsOvertid = async () => (await (await anropa()).json()).forare[0].granser.find((x: any) => x.id === "allman_overtid_ar").varde;
+
+  it("8 tim varje vardag fyller varje månads ordinarie exakt: ingen övertid i år", async () => {
+    // aug 24–31: 48 tim av 184 · sep: 176 av 176 · okt 1–13 (idag har registrerad tid): 72 av 72
+    expect(await arsOvertid()).toBe(0);
+  });
+
+  it("anställningsdatum läses ur medarbetare och sänker ordinarie: anställd 15 sep → augusti 48 + september (176 − 96) = 128", async () => {
+    g.__db.medarbetare = [{ id: "s", namn: "Stefan Karlsson", anstallningsdatum: "2026-09-15" }];
+    expect(await arsOvertid()).toBe(128);
+  });
+});

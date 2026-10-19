@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { byggAvtalGrupper, avtalsperiod, avtalDatum, helglonLista, SAKNAS } from "./avtalVy";
+import { byggAvtalGrupper, avtalsperiod, avtalDatum, helglonLista, SAKNAS, OVERTID_REGEL } from "./avtalVy";
 import { GS_AVTAL_KOLUMNER, type GsAvtal } from "./gs-avtal";
 
 // Raden som den ser ut i prod (2026-10-14).
@@ -24,6 +24,7 @@ describe("Mitt avtal — värdena ur raden", () => {
       "Avtalsperiod/Avtal": "Skogsavtalet 2025-2027",
       "Avtalsperiod/Gäller": "1 apr 2025 – 31 mar 2027",
       "Övertid/Max övertid": "250 tim/år",
+      "Övertid/Övertid räknas": OVERTID_REGEL,
       "Färdmedel & färdtid/Km-gräns": "60 km/dag",
       "ATK/Avsättning": "3,62%",
       "ATK/Nästa period": "3,92%",
@@ -56,7 +57,9 @@ describe("Mitt avtal — värdena ur raden", () => {
 
   it("raden kunde inte läsas (null): ALLA värden är –, inget namn och ingen period påhittas", () => {
     for (const a of [null, undefined]) {
-      expect(allaVarden(a)).toEqual(Array(14).fill(SAKNAS));
+      // reglen om hur övertid räknas är appens egen och inget som avtalsraden bär: den står kvar även när raden inte gick att läsa
+      expect(allaVarden(a).filter(v => v !== OVERTID_REGEL)).toEqual(Array(14).fill(SAKNAS));
+      expect(platt(a)["Övertid/Övertid räknas"]).toBe(OVERTID_REGEL);
     }
   });
 
@@ -137,5 +140,18 @@ describe("GS_AVTAL_KOLUMNER", () => {
     for (const k of ["timlon_kr", "ob_lordag_kr", "fardtid_kr", "atk_period", "atk_ledig_tim", "atk_faktor", "skifttillagg_kr", "bortovaro_kr"]) {
       expect((GS_AVTAL_KOLUMNER as readonly string[]).includes(k), k).toBe(false);
     }
+  });
+});
+
+
+describe("raden om hur övertid räknas (lagkontroll och lön, 2026-10-19)", () => {
+  it("står under Övertid, direkt efter Max övertid, och säger det med föraren-ord: per kalendermånad, först när månadens timmar är fyllda", () => {
+    const g = byggAvtalGrupper(PROD).find(x => x.rubrik === "Övertid")!;
+    expect(g.rader.map(r => r[0])).toEqual(["Max övertid", "Övertid räknas"]);
+    expect(OVERTID_REGEL).toBe("per kalendermånad – först när månadens timmar är fyllda");
+    expect(`${g.rader[1][0]} ${g.rader[1][1]}.`).toBe("Övertid räknas per kalendermånad – först när månadens timmar är fyllda.");
+  });
+  it("ändras inte av avtalets värden (ingen kolumn bär regeln)", () => {
+    expect(platt({ ...PROD, max_overtid_ar_h: 200, ordinarie_vecka_h: 38 })["Övertid/Övertid räknas"]).toBe(OVERTID_REGEL);
   });
 });
