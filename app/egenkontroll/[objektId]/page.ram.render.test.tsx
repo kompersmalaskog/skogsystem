@@ -154,6 +154,13 @@ describe('kartläget: EN rad uppe, dockan nere, sidokolumn, inget annat', () => 
     expect(JSON.parse(karta().getAttribute('data-centrera')!)).toEqual({ lat: POSITION.lat, lng: POSITION.lng });
   });
 
+  it('Centrera ligger ovanför dockan (bottom ur dockans avstånd), inte på planeringens plats ovanför +-knappen', async () => {
+    await montera();
+    const c = document.querySelector('[data-testid="centrera-knapp"]') as HTMLElement;
+    expect(c.style.bottom).toContain('safe-area-inset-bottom');
+    expect(c.style.bottom).not.toContain('76px');
+  });
+
   it('Centrera finns inte som knapp utan position (den är dold, inte en död knapp)', async () => {
     positionen = { status: 'saknas', position: null, skal: 'timeout', senasteNoggrannhet: null, forsokIgen: () => {} };
     await montera();
@@ -216,6 +223,8 @@ describe('Rundan-arket: listan som ark ovanpå kartan', () => {
   it('listraderna i arket är kompakta (positionen fryses vid öppningen) och ett tryck på en rad stänger arket med punkten i dockan', async () => {
     await montera();
     await klick(oppnaRundan());
+    // Kompakta rader har inga svarsknappar — de finns bara i fulla kort (som listan visar när positionen inte fryses).
+    expect(Array.from(ark()!.querySelectorAll('button')).some((b) => b.textContent === 'Avvikelse')).toBe(false);
     const rad = Array.from(ark()!.querySelectorAll('button')).find((b) => /Punkt p1/.test(b.textContent ?? ''));
     expect(rad, 'en rad för Punkt p1 i arket').toBeDefined();
     await klick(rad!);
@@ -229,6 +238,36 @@ describe('Rundan-arket: listan som ark ovanpå kartan', () => {
     expect(document.querySelector('[data-testid="rundkarta"]')!.getAttribute('data-vald')).toBe('p3');
     const kartaEl = document.querySelector('[data-testid="rundkarta"]')!;
     expect(kartaEl.contains(dock())).toBe(false);
+  });
+});
+
+describe('terrängen klar: utförandeserien är en rad i arket som leder till sidan', () => {
+  const utforande = (id: string) => punkt(id, { del: 'utforande', grupp: null, geometri_snapshot: null, punkt_typ: 'utforande', rubrik: `Utförande ${id}` });
+  beforeEach(() => {
+    vyn = { ...vyn, punkter: [punkt('p1', { status: 'ok' }), punkt('p2', { status: 'ok' }), utforande('u1'), utforande('u2')] };
+  });
+
+  it('arket har EN rad "Utförandet · 0 av 2" (inte serien), och ett tryck öppnar listsidan med arket stängt', async () => {
+    await montera();
+    // All terräng är besvarad: rundan öppnar som lista (serien). Kartan nås med "Karta".
+    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Visa kartan') ?? null);
+    await klick(oppnaRundan());
+    const rad = Array.from(ark()!.querySelectorAll('button')).find((b) => /Utförandet · 0 av 2/.test(b.textContent ?? ''));
+    expect(rad, 'serieraden').toBeDefined();
+    await klick(rad!);
+    // Listsidan (solid huvud) har tagit över, och arket är stängt.
+    // (Kartan ligger kvar monterad men dold, så det flytande huvudet finns fortfarande i DOM — leta efter sidans solida.)
+    expect(Array.from(document.querySelectorAll('[data-testid="kart-huvud"]')).some((h) => h.getAttribute('data-flytande') === '0')).toBe(true);
+    expect(ark()?.getAttribute('data-oppen') ?? '0').toBe('0');
+  });
+
+  it('tillbaka till kartan öppnar INTE arket igen (det stängdes när kartan försvann)', async () => {
+    await montera();
+    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Visa kartan') ?? null);
+    await klick(oppnaRundan());
+    await klick(Array.from(ark()!.querySelectorAll('button')).find((b) => /Utförandet · 0 av 2/.test(b.textContent ?? '')) ?? null);
+    await klick(knappar().find((b) => b.getAttribute('aria-label') === 'Visa kartan') ?? null);
+    expect(ark()?.getAttribute('data-oppen') ?? '0').toBe('0');
   });
 });
 
