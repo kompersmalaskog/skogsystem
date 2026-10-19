@@ -4062,7 +4062,7 @@ export default function Arbetsrapport() {
               <button onClick={()=>setSteg('lön')} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", borderBottom:"none", ...TYP.meta }}>
                 <span style={{ color:FARG.text2 }}>{månNamnLång}</span>
                 {/* Timmarna ur lönebiblioteket — samma tal som specen. Inget "av":
-                    månadens ordinarie är arbetade dagar × 8, inte schemat. */}
+                    månadens ordinarie är månadens vardagar × 8 minus röda dagar och frånvaro (lib/lonesystem/manadsordinarie), inte schemat. */}
                 {minTidManad.h != null ? (
                   <span style={{ display:"flex", alignItems:"center", gap:AVSTAND.xs }}>
                     <span style={{ ...TYP.listtitel, ...TNUM, color:FARG.text }}>{(Math.round(minTidManad.h*10)/10).toLocaleString('sv-SE')} tim</span>

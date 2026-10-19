@@ -9,13 +9,13 @@ import type { Loneartskoder } from "./loneart";
 const dag = (datum: string, min: number, maskin: string | null) => ({ datum, arbetad_min: min, maskin_id: maskin, km_totalt: 0, bekraftad: true, dagtyp: null });
 const TYP = { SK: "skordare" as const, SO: "skotare" as const };
 
-/** Tre arbetsdagar, 10 h på två av dem → övertid; 70 km en dag → körersättning; skördare. */
+/** Septembers 22 vardagar (månadens ordinarie = 176 tim): 10 h på de två första, 8 h på resten → 4 tim övertid; 80 km en dag → körersättning. */
+const SEP = Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`).filter(d => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w !== 0 && w !== 6; });
+const fullManad = (maskin: string) => SEP.map((d, i) => dag(d, i < 2 ? 600 : 480, maskin));
+
 function kor(koder: Loneartskoder) {
-  const dagar = [
-    { ...dag("2026-09-07", 600, "R64428"), km_totalt: 80 },
-    dag("2026-09-08", 600, "R64428"),
-    dag("2026-09-09", 480, "R64428"),
-  ];
+  const dagar = fullManad("R64428");
+  dagar[0] = { ...dagar[0], km_totalt: 80 };
   return beräknaExport("m", "Anna", "7", dagar, { R64428: TYP.SK }, "2026-10", [], [], 60, null, new Set(), null, null, koder);
 }
 const koder = (u: ReturnType<typeof kor>) => u.rader.map(r => `${r.loneart}:${r.SalaryCode}`).sort();
@@ -39,7 +39,7 @@ describe("löneartskoder ur mappningen", () => {
     expect(efter.rader.filter(r => r.loneart !== "timlon").map(r => r.SalaryCode)).toEqual(fore.rader.filter(r => r.loneart !== "timlon").map(r => r.SalaryCode));
   });
   it("skotarens övertid går på overtid_skotare", () => {
-    const dagar = [dag("2026-09-07", 600, "A030353"), dag("2026-09-08", 600, "A030353")];
+    const dagar = fullManad("A030353");
     const u = beräknaExport("m", "X", "7", dagar, { A030353: TYP.SO }, "2026-10", [], [], 60, null, new Set(), null, null, { ...PROD_KODER, overtid_skotare: "1436" });
     expect(u.rader.find(r => r.loneart === "overtid_skotare")!.SalaryCode).toBe("1436");
   });
@@ -48,7 +48,7 @@ describe("löneartskoder ur mappningen", () => {
     const u = kor(utanValtlappar);
     expect(u.rader.some(r => r.loneart === "valtlappar")).toBe(false);
     expect(u.saknade_loneartskoder).toEqual(["valtlappar"]);
-    expect(u.varningar.find(v => /^Löneart saknas för Vältlappar/.test(v))).toMatch(/3 veckor|1 veckor|1 vecka/);
+    expect(u.varningar.find(v => /^Löneart saknas för Vältlappar/.test(v))).toMatch(/5 veckor/);
     expect(u.varningar.join(" ")).toMatch(/Lön → Lönearter/);
     expect(u.varningar.join(" ")).not.toMatch(/Lön → Lönesystem/);
   });
@@ -75,11 +75,11 @@ describe("premielön är frivillig", () => {
   it("men det syns: en varning med mängden, och raden finns kvar i förhandsvisningen som 'frivillig utan kod'", () => {
     const u = kor(utanPremie);
     const varning = u.varningar.find(v => /^Premielön skördare/.test(v));
-    expect(varning).toMatch(/24 tim/);
+    expect(varning).toMatch(/176 tim/);
     expect(varning).toMatch(/skickas inte/);
     expect(varning).toMatch(/Lön → Lönearter/);
     const rad = u.lonerader.find(r => r.loneart === "premielon_skordare")!;
-    expect(rad).toMatchObject({ status: "valfri_utan_kod", kod: null, mangd: "24.00" });
+    expect(rad).toMatchObject({ status: "valfri_utan_kod", kod: null, mangd: "176.00" });
   });
   it("kraschar inte, och övriga rader är oförändrade mot när premien har kod", () => {
     const med = kor(PROD_KODER);
@@ -98,7 +98,7 @@ describe("lonerader: varje rad som HAR antal, med sin status", () => {
   it("en rad utan kod finns kvar med status 'saknar_kod' och kod null", () => {
     const { valtlappar, ...utan } = PROD_KODER;
     const u = kor(utan);
-    expect(u.lonerader.find(r => r.loneart === "valtlappar")).toMatchObject({ status: "saknar_kod", kod: null, mangd: "1" });
+    expect(u.lonerader.find(r => r.loneart === "valtlappar")).toMatchObject({ status: "saknar_kod", kod: null, mangd: "5" });
     expect(u.rader.some(r => r.loneart === "valtlappar")).toBe(false);
   });
   it("en löneart utan antal syns inte alls (ingen helglön, ingen övertid)", () => {

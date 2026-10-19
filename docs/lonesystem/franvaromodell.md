@@ -174,7 +174,7 @@ fortnox"; koden använder `morgonkort` för förarens anmälan och har inget
 
 **Hemskickad (2026-10-17) — tionde typen, betald deldag.** Ingen frånvaro: maskinen gick sönder eller vädret stoppade jobbet och
 föraren åkte hem mitt på dagen. Raden är en deldag (`fran_tid` = klockslaget, ingen `till_tid`, `status = registrerad`) men dagen **fylls
-upp till 8 tim** och fyllnaden betalas som timlön (+ premie), räknas som arbetad tid mot ordinarie och ger aldrig övertid. Härledd, aldrig
+upp till 8 tim** och fyllnaden betalas som timlön (+ premie) och räknas som arbetad tid mot månadens ordinarie (övertid först när månaden är full, `manadsordinarie.md`). Härledd, aldrig
 lagrad. Se CLAUDE.md "Hemskickad — betald deldag" och `loneberakning.hemskickad.test.ts`. Migration
 `20261017170000_ledighet_hemskickad.sql` (typ, registrerad, deldag, ny `ledighet_hemskickad_deldag`, RLS) — fil, inte körd.
 

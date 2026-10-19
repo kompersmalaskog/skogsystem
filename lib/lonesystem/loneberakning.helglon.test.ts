@@ -190,16 +190,19 @@ describe("företagsledare: inga lönerader alls", () => {
     expect(u.rader.length).toBeGreaterThan(3);
   });
   it("inga löntal visas för dem (timlön, övertid, vältlappar, mil är 0), men arbetsdagar och ordinarie tid finns kvar för kontrollvyerna", () => {
-    const dagar = [{ ...dag("2026-12-01", 600, "A030353"), km_totalt: 150 }, dag("2026-12-02", 600, "A030353")];
+    // Hela december 2026 (23 vardagar, 10 tim/dag): månadens ordinarie är 23 − 3 röda vardagar = 20 × 8 = 160, resten är övertid.
+    const dagar = Array.from({ length: 31 }, (_, i) => `2026-12-${String(i + 1).padStart(2, "0")}`)
+      .filter(d => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w !== 0 && w !== 6; })
+      .map((d, i) => ({ ...dag(d, 600, "A030353"), km_totalt: i === 0 ? 150 : 0 }));
     const vanlig = kor(KODER, dagar);
-    expect(vanlig.timlon_h).toBe(16);
+    expect(vanlig.timlon_h).toBe(160);
     expect(vanlig.overtid_h).toBeGreaterThan(0);
     expect(vanlig.valtlappar_veckor).toBeGreaterThan(0);
     expect(vanlig.kor_mil).toBeGreaterThan(0);
     const u = kor(KODER, dagar, "2027-01", { lon: { foretagsledare: true } });
     expect([u.timlon_h, u.overtid_h, u.valtlappar_veckor, u.kor_mil, u.premielon_skordare_h, u.premielon_skotare_h]).toEqual([0, 0, 0, 0, 0, 0]);
-    expect(u.arbetsdagar).toBe(2);
-    expect(u.ordinarie_h).toBe(16);
+    expect(u.arbetsdagar).toBe(23);
+    expect(u.ordinarie_h).toBe(160);      // månadens ordinarie räknas även för en företagsledare (kontrollvyerna), röda dagar ur avtalets lista
   });
   it("ingen varning om anställningsnummer eller premie för dem — de skickas aldrig", () => {
     const u = beräknaExport("m", "Martin", "", [dag("2026-12-01", 480, "OKANDMASKIN")], {}, "2027-01", [], [], 60, null, new Set(), null, null, PROD_KODER, { foretagsledare: true });

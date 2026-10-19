@@ -21,7 +21,7 @@ Så räknas den (`lib/lonesystem/loneberakning.ts`):
 
 | | |
 |---|---|
-| **Premietimmar** | = timlönetimmarna (ordinarie 8 tim × arbetsdagar + kortpass, som mest hela arbetstiden). **Övertid ger ingen premie**, som förr. |
+| **Premietimmar** | = timlönetimmarna (arbetad tid, som mest månadens ordinarie — vardagar × 8 tim minus röda dagar och frånvaro, se `manadsordinarie.md`). **Övertid ger ingen premie**, som förr. |
 | **Fördelning skördare/skotare** | efter månadens andel maskintid på dagar med typad maskin. 120 tim skördare + 40 tim skotare → 75 % av premietimmarna på 1355, 25 % på 1354. |
 | **Ingen maskintid i månaden** | typen på förarens maskin på medarbetarraden (`medarbetare.maskin_id` → `maskiner.typ`). |
 | **Ingen maskin där heller** | ingen premie, och en varning i granskningen och i förarens spec: "Sätt förarens maskin i admin." |

@@ -151,7 +151,7 @@ export async function beraknaLoneunderlag(
   const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, ledRuntRes, avtalRes, utjRes, viloRes] = await Promise.all([
     // foretagsledare (inga lönerader alls) och anstallningsdatum (kvalifikationstid för helglön) styr vad en förare får: läses
     // här, aldrig ur klienten. Ett läsfel stoppar underlaget (en tyst "false" skulle ge företagsledarna lönerader).
-    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum").order("namn"),
+    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum, aktiv").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
     // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
     supabase.from("arbetsdag")
@@ -202,6 +202,12 @@ export async function beraknaLoneunderlag(
   // Frånvaro är lönegrund — ett läsfel får inte bli "ingen frånvaro".
   if (ledRes.fel) throw new Error(`Kunde inte läsa frånvaro: ${ledRes.fel}`);
   if (ledRuntRes.fel) throw new Error(`Kunde inte läsa frånvaron runt månaden: ${ledRuntRes.fel}`);
+  // Utjämningsperioderna avgör också HUR månadens ordinarie räknas (lib/lonesystem/manadsordinarie): en månad som överlappar förarens
+  // period behåller dagens formel. Saknas tabellen helt (migrationen ej körd) finns inga perioder; ett annat läsfel stoppar underlaget —
+  // en tyst tom lista skulle ge en utjämnad förare den nya regeln.
+  if (utjRes?.error && !/42P01|PGRST205/.test(`${utjRes.error.code ?? ""} ${utjRes.error.message ?? ""}`)) {
+    throw new Error(`Kunde inte läsa utjämningsperioder: ${utjRes.error.message ?? utjRes.error.code}`);
+  }
   const utjamningAlla: { startdatum: string; slutdatum: string; medarbetare_id: string | null; anteckning: string }[] =
     utjRes?.error ? [] : (utjRes?.data || []);
 
@@ -320,7 +326,7 @@ export async function beraknaLoneunderlag(
   const kmGrans = avtalRes.data?.km_grans_per_dag ?? 60;
 
   // Beräkna per medarbetare
-  const medarbetare = (medRes.data || []) as { id: string; namn: string; maskin_id?: string | null; foretagsledare?: boolean | null; anstallningsdatum?: string | null }[];
+  const medarbetare = (medRes.data || []) as { id: string; namn: string; maskin_id?: string | null; foretagsledare?: boolean | null; anstallningsdatum?: string | null; aktiv?: boolean | null }[];
   const resultat: LoneunderlagRad[] = [];
   // Granskningsdata som INTE går till Fortnox men syns i granskningsvyn:
   // OB-timmar (löneart ej fastställd) + maskiner som saknar typ (tyst borttagen
@@ -346,6 +352,10 @@ export async function beraknaLoneunderlag(
       franvaroRunt: ledRuntPerMed.get(med.id) || [],
       anstallningsdatum: med.anstallningsdatum ?? null,
       foretagsledare: med.foretagsledare === true,
+      // Månadens ordinarie (lib/lonesystem/manadsordinarie): en månad som överlappar förarens utjämningsperiod behåller dagens formel,
+      // och en förare som inte är aktiv varnas (medarbetare har inget slutdatum — dagar efter avslut kan inte dras av).
+      utjamning: utjamningAlla.filter(u => !u.medarbetare_id || u.medarbetare_id === med.id).map(u => ({ startdatum: u.startdatum, slutdatum: u.slutdatum })),
+      aktiv: med.aktiv ?? undefined,
     }); // period = löneperiod
 
     let status = "utkast";
