@@ -1,6 +1,6 @@
 'use client';
 
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 
 // iOS-grupperad list-rubrik: gemener-versal, sekundär text, valfri åtgärd till höger.
 export default function SectionHeader({

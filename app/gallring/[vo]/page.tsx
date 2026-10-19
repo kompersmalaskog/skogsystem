@@ -25,7 +25,7 @@ import { useParams } from 'next/navigation';
 import BottomNav from '@/components/BottomNav';
 import PageContainer from '@/components/PageContainer';
 import SectionHeader from '@/components/SectionHeader';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   hamtaGallring,
   datumspann,

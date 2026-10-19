@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { T, type Kravtyp, type Medarbetare } from '@/lib/utbildning';
-import { Sheet } from '@/components/Sheet';
-import { FieldLabel, inputStyle, SegmentedControl, Toggle, PrimaryButton, PersonChecklist } from './ui';
+import { fornyelseText, type Kravtyp, type Medarbetare } from '@/lib/utbildning';
+import { AVSTAND, FARG, TYP } from '@/lib/design/tokens';
+import Ark from '@/components/design/Ark';
+import Sektion from '@/components/design/Sektion';
+import { BockRad, PersonChecklist, PrimaryButton, SegmentedControl, inputStyle, FieldLabel } from './ui';
 
-// Skärm 5 — lägg till en ny utbildning i katalogen (utbildning_typ).
+// Lägg till en ny utbildning i katalogen (utbildning_typ).
+//
+// Samma form som Registrera bevis: `Ark` med Avbryt uppe och EN vit knapp fast
+// i foten, rader i stället för staplade versala etiketter, och "gäller alla
+// eller vissa" som ett val man SER — inte en brytare vars motsats är osynlig.
 export default function NyUtbildningSheet({
   open,
   onClose,
@@ -49,6 +55,9 @@ export default function NyUtbildningSheet({
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+
+  const allaEllerInga = (vald: boolean) =>
+    setValda(vald ? new Set(medarbetare.map((m) => m.id)) : new Set());
 
   async function save() {
     if (!namn.trim()) return;
@@ -95,13 +104,32 @@ export default function NyUtbildningSheet({
     onSaved();
   }
 
+  if (!open) return null;
+
   return (
-    <Sheet open={open} onClose={onClose} title="Ny utbildning">
+    <Ark
+      rubrik="Ny utbildning"
+      onStang={onClose}
+      fot={
+        <>
+          {error && <p style={{ ...TYP.meta, color: FARG.rod, margin: 0 }}>{error}</p>}
+          <PrimaryButton onClick={save} disabled={saving || !namn.trim()}>
+            {saving ? 'Sparar…' : 'Lägg till utbildning'}
+          </PrimaryButton>
+        </>
+      }
+    >
       <FieldLabel>Namn</FieldLabel>
-      <input value={namn} onChange={(e) => setNamn(e.target.value)} placeholder="t.ex. YKB" style={{ ...inputStyle, marginBottom: 16 }} />
+      <input
+        value={namn}
+        onChange={(e) => setNamn(e.target.value)}
+        placeholder="t.ex. YKB"
+        style={{ ...inputStyle, marginBottom: AVSTAND.xl }}
+        aria-label="Namn"
+      />
 
       <FieldLabel>Kravtyp</FieldLabel>
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: AVSTAND.xl }}>
         <SegmentedControl<Kravtyp>
           value={kravtyp}
           onChange={setKravtyp}
@@ -113,42 +141,64 @@ export default function NyUtbildningSheet({
         />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: ingenUtgang ? 16 : 10 }}>
-        <div style={{ fontSize: 16, color: T.t1, fontFamily: T.ff }}>Ingen utgång</div>
-        <Toggle checked={ingenUtgang} onChange={setIngenUtgang} />
-      </div>
-      {!ingenUtgang && (
-        <>
-          <FieldLabel>Giltighet (månader)</FieldLabel>
-          <input type="number" inputMode="numeric" min={1} value={manader} onChange={(e) => setManader(e.target.value)} style={{ ...inputStyle, marginBottom: 16 }} />
-        </>
-      )}
+      <Sektion
+        rubrik="Förnyelse"
+        kort={false}
+        not={ingenUtgang ? undefined : `Visas som: ${fornyelseText(parseInt(manader, 10) || null)}`}
+      >
+        <BockRad
+          titel="Ingen utgång"
+          under="Gäller tills vidare"
+          vald={ingenUtgang}
+          sista={ingenUtgang}
+          onToggle={() => setIngenUtgang((v) => !v)}
+        />
+        {!ingenUtgang && (
+          <div style={{ padding: `${AVSTAND.m}px 0 0` }}>
+            <FieldLabel>Giltighet (månader)</FieldLabel>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={manader}
+              onChange={(e) => setManader(e.target.value)}
+              style={inputStyle}
+              aria-label="Giltighet i månader"
+            />
+          </div>
+        )}
+      </Sektion>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: gallerAlla ? 16 : 10 }}>
-        <div>
-          <div style={{ fontSize: 16, color: T.t1, fontFamily: T.ff }}>Gäller alla</div>
-          <div style={{ fontSize: 13, color: T.t2, fontFamily: T.ff }}>Annars väljer du vilka den gäller</div>
-        </div>
-        <Toggle checked={gallerAlla} onChange={setGallerAlla} />
-      </div>
-      {!gallerAlla && (
-        <div style={{ marginBottom: 16 }}>
-          <FieldLabel>Gäller ({valda.size} valda)</FieldLabel>
-          <PersonChecklist medarbetare={medarbetare} valda={valda} onToggle={toggle} />
-        </div>
-      )}
+      <Sektion rubrik="Vem gäller den?" kort={false}>
+        <BockRad titel="Alla i företaget" vald={gallerAlla} onToggle={() => setGallerAlla(true)} />
+        <BockRad
+          titel="Bara vissa"
+          vald={!gallerAlla}
+          sista={gallerAlla}
+          onToggle={() => setGallerAlla(false)}
+        />
+        {!gallerAlla && (
+          <PersonChecklist medarbetare={medarbetare} valda={valda} onToggle={toggle} onAlla={allaEllerInga} />
+        )}
+      </Sektion>
 
       <FieldLabel>Beskrivning (valfritt)</FieldLabel>
-      <textarea value={beskrivning} onChange={(e) => setBeskrivning(e.target.value)} rows={2} style={{ ...inputStyle, marginBottom: 16, resize: 'vertical' }} />
+      <textarea
+        value={beskrivning}
+        onChange={(e) => setBeskrivning(e.target.value)}
+        rows={2}
+        style={{ ...inputStyle, resize: 'vertical', marginBottom: AVSTAND.xl }}
+        aria-label="Beskrivning"
+      />
 
       <FieldLabel>Anteckning (valfritt)</FieldLabel>
-      <textarea value={anteckning} onChange={(e) => setAnteckning(e.target.value)} rows={2} style={{ ...inputStyle, marginBottom: 20, resize: 'vertical' }} />
-
-      {error && <div style={{ fontSize: 13, color: T.red, marginBottom: 12 }}>{error}</div>}
-
-      <PrimaryButton onClick={save} disabled={saving || !namn.trim()}>
-        {saving ? 'Sparar…' : 'Lägg till utbildning'}
-      </PrimaryButton>
-    </Sheet>
+      <textarea
+        value={anteckning}
+        onChange={(e) => setAnteckning(e.target.value)}
+        rows={2}
+        style={{ ...inputStyle, resize: 'vertical' }}
+        aria-label="Anteckning"
+      />
+    </Ark>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { AVSTAND, FARG, IKON, RADIE, RORELSE, TRAFFYTA, TYP, medSafeBotten, underTopbar } from '@/lib/design/tokens';
 import { PANEL_BREDD_PX } from '@/lib/plusArk';
 

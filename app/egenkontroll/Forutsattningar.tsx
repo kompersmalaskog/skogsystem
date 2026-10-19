@@ -17,7 +17,7 @@
 // saker om samma runda - samma skal som ProvyteSammanstallning.
 
 import { useEffect, useState } from 'react';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { DAGAR_FORE, type VaderSnapshot } from '@/lib/egenkontrollvader';
 import type { MaskinSnapshot } from '@/lib/egenkontroll';
 

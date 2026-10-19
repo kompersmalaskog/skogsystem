@@ -19,7 +19,7 @@
 // Skadeandelen ar gul som mattfarg (en matning, ingen avvikelse mot planen),
 // inte som varning.
 
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import {
   provytaStatus, sammanstallProvytor, skadeandel,
   type Medelvarde,

@@ -45,7 +45,7 @@ import {
   type Kandidat,
 } from '@/lib/egenkontrollTryck';
 import { canvasToMapLibreImage, loadMarkerImageForMaplibre, markerIconDefs } from '@/lib/marker-icons';
-import { T } from '@/lib/utbildning';
+import { T } from '@/lib/listTema';
 import { AVSTAND, FARG, KOLUMN, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { EgenkontrollPunkt, EgenkontrollProvyta } from '@/lib/egenkontroll';
 import type { LatLng } from '@/lib/provytor';
