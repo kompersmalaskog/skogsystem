@@ -49,14 +49,14 @@ export function byggVilobrottArk(rader: VilobrottRad[], medarbetare_id: string):
         sort: punktNyckel(p.datum, p.start_tid),
         rad: { slag: "pass", nyckel: `pass-${i}`, datum: p.datum, dag: dagMedVeckodag(p.datum), tid: `${p.start_tid}–${p.slut_tid}` },
       }));
-      const kravText = b.typ === "dygnsvila" ? `kravet är ${vilaH(b.krav_h)}` : `kravet är ${vilaH(b.krav_h)} i följd`;
+      const kravText = `kravet ${vilaH(b.krav_h)}`;
       const slagText = d.vila.slag === "fore_forsta" ? " före första passet" : d.vila.slag === "efter_sista" ? " efter sista passet, fram till nu" : "";
       poster.push({
         sort: punktNyckel(d.vila.fran.datum, d.vila.fran.tid),
         rad: {
           slag: "vila", nyckel: "vila",
           rubrik: `${b.typ === "veckovila" ? "Längsta vilan" : "Vila"} ${vilaH(d.vila.h)}${slagText} · ${kravText}`,
-          detalj: `${veckodag(d.vila.fran.datum)} ${d.vila.fran.tid} → ${veckodag(d.vila.till.datum)} ${d.vila.till.tid}`,
+          detalj: `${veckodag(d.vila.fran.datum)} ${d.vila.fran.tid} → ${veckodag(d.vila.till.datum)} ${d.vila.till.tid}${b.typ === "veckovila" ? " · sammanhängande" : ""}`,
         },
       });
       // Pass före vilan först; ett pass som börjar när vilan börjar hör till efter den (stabil sortering, vilan före).

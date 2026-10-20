@@ -446,7 +446,7 @@ describe("Översikt = att-göra-lista", () => {
       expect(d.querySelector('[data-vila-pass="2026-09-28"]')!.textContent).toContain("05:00–20:30");
       expect(d.querySelector('[data-vila-pass="2026-09-29"]')!.textContent).toContain("05:00–15:30");
       const vila = d.querySelector("[data-vila-vila]")!.textContent!;
-      expect(vila).toContain("Vila 8,5 h · kravet är 11 h");
+      expect(vila).toContain("Vila 8,5 h · kravet 11 h");
       expect(vila).toContain("mån 20:30 → tis 05:00");
       // exakt två pass, vilan mellan dem
       const ordning = Array.from(d.querySelectorAll("[data-vila-pass],[data-vila-vila]")).map(e => e.hasAttribute("data-vila-vila") ? "vila" : e.getAttribute("data-vila-pass"));
@@ -462,7 +462,7 @@ describe("Översikt = att-göra-lista", () => {
       const d = document.body.querySelector("[data-vilobrott-detalj]")!;
       expect(d.textContent).toContain("7 dagar:");
       expect(d.querySelectorAll("[data-vila-vila]")).toHaveLength(1);
-      expect(d.querySelector("[data-vila-vila]")!.textContent).toMatch(/Längsta vilan .* h · kravet är 36 h i följd/);
+      expect(d.querySelector("[data-vila-vila]")!.textContent).toMatch(/Längsta vilan .* h · kravet 36 h.*sammanhängande/);
       expect(d.querySelectorAll("[data-vila-pass]").length).toBeGreaterThanOrEqual(5);
     });
 
