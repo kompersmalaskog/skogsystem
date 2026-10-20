@@ -23,12 +23,12 @@ Kontinuerlig WAL-push är PITR-maskineriet. Fönstrets längd syns bara i dashbo
 | Steg | Vad | Status |
 |---|---|---|
 | 1 | Fyra volatila DEFINER-funktioner: `revoke … from public, anon` (avsnitt 1) | **KÖRD** `20261020083010` |
-| 2 | Backup-/testtabeller: flytta till schemat `arkiv` — INTE drop. Tre av de nio är levande referenstabeller och stannar (avsnitt 2) | **ej körd** |
+| 2 | Backup-/testtabeller: sex flyttade till schemat `arkiv` (INTE drop), tre levande referenstabeller fick RLS + läs-policy (avsnitt 2) | **KÖRD** `20261020100110` … `100148` (10 migrationer) |
 | 3 | `objekt`: `enable row level security` + `revoke all from anon` (avsnitt 3) | **KÖRD** `20261020090625` |
 | 3b | `markering_delete_logg`: samma (avsnitt 3) | **KÖRD** `20261020090646` |
 | 4 | De 22 `true`-tabellerna, en migration per tabell, `20261020090743` … `090831` (avsnitt 4) | **KÖRD** |
 | 5 | Åtta maskindata-funktioner: `revoke … from public, anon` (avsnitt 5) | **KÖRD** `20261020090856` |
-| 8 | Nio SECURITY DEFINER-vyer — **anon läser fortfarande `objekt`-data genom `planering_vy`** | ej körd, kräver beslut |
+| 8 | Nio SECURITY DEFINER-vyer: åtta `security_invoker` + anon-läsrätten borttagen (`planering_vy` först); `medarbetare_namn` lämnas medvetet (avsnitt 8) | **KÖRD** `20261020100210` … `100232` (8 migrationer) |
 | 9 | `search_path` på de fyra DEFINER-funktionerna som saknar det | ej körd |
 | 10 | Läckta lösenord (HaveIBeenPwned) i Auth: en kryssruta | ej gjord |
 | 11 | 37 DEFINER-funktioner kan köras av INLOGGADE, bl.a. de tre cron-funktionerna | ej körd, kräver beslut |
@@ -37,17 +37,17 @@ Kontinuerlig WAL-push är PITR-maskineriet. Fönstrets längd syns bara i dashbo
 
 | Lint | Före | Efter | Vad som återstår |
 |---|---|---|---|
-| `rls_disabled_in_public` (ERROR) | 11 | **9** | de nio backup-/testtabellerna (steg 2) |
+| `rls_disabled_in_public` (ERROR) | 11 | **0** | — (efter steg 3, 3b och 2) |
 | `policy_exists_rls_disabled` (ERROR) | 1 (`objekt`) | **0** | — |
-| `anon_security_definer_function_executable` (WARN) | 22 | **15** | sex triggerfunktioner (kan inte anropas som RPC), fem identitetshjälpare (`aktuell_medarbetare_id`, `ar_admin`, `ar_godkannare`, `min_maskin_id`, `mina_operator_ids`), `flytt_ar_last`, `jamfor_migrationer` (namngivet undantag), `ratta_flytt`/`stryk_flytt` (kontrollerar `ar_admin()`) |
+| `anon_security_definer_function_executable` (WARN) | 22 | **16** (15 av våra + `korvy_min_medarbetare()` som ett annat spår la till 09:13, en identitetshjälpare som returnerar null för anon) | sex triggerfunktioner (kan inte anropas som RPC), fem identitetshjälpare (`aktuell_medarbetare_id`, `ar_admin`, `ar_godkannare`, `min_maskin_id`, `mina_operator_ids`), `flytt_ar_last`, `jamfor_migrationer` (namngivet undantag), `ratta_flytt`/`stryk_flytt` (kontrollerar `ar_admin()`) |
 | `rls_enabled_no_policy` (INFO) | 6 | 7 | de sex som service-nyckeln ensam läser, plus `markering_delete_logg` (avsiktligt: bara triggern skriver) |
-| `security_definer_view` (ERROR) | 9 | 9 | avsnitt 8 |
-| `function_search_path_mutable` (WARN) | 87 | 87 | avsnitt 9: 4 DEFINER + 83 INVOKER |
-| `authenticated_security_definer_function_executable` (WARN) | 37 | 37 | avsnitt 11 |
+| `security_definer_view` (ERROR) | 9 | **1** | `medarbetare_namn`, medvetet (avsnitt 8) |
+| `function_search_path_mutable` (WARN) | 87 | 89 | avsnitt 9: 4 DEFINER + 83 INVOKER, plus två nya INVOKER-funktioner från ett annat spår (`egenkontroll_stickprov_las`, `egenkontroll_fagelvag_km`) |
+| `authenticated_security_definer_function_executable` (WARN) | 37 | 39 | avsnitt 11; +2 från ett annat spår (`korvy_min_medarbetare`, `egenkontroll_stickprov`) |
 | `auth_leaked_password_protection` (WARN) | 1 | 1 | avsnitt 10 |
 | `extension_in_public` (WARN) | 2 (`btree_gist`, `pg_net`) | 2 | ej granskat |
 
-Siffrorna stämmer med vårt eget arbete: 11 RLS-avstängda tabeller → 9, 22 anon-körbara DEFINER-funktioner → 15 (efter steg 1 och 5), och `objekt` var den enda `policy_exists_rls_disabled`.
+Siffrorna stämmer med vårt eget arbete: 11 RLS-avstängda tabeller → 0, 22 anon-körbara DEFINER-funktioner → 15 av våra (efter steg 1 och 5), 9 DEFINER-vyer → 1, och `objekt` var den enda `policy_exists_rls_disabled`.
 
 ## Läget FÖRE stegen (verifierat 2026-10-20 morgon; efterläget står i tabellen i avsnitt 0)
 
@@ -91,7 +91,7 @@ ska inte röras: `koppla_konto_till_medarbetare`, `koppla_medarbetare_till_konto
 **Redan täta (rörs inte).** `ratta_flytt` och `stryk_flytt` börjar med `if not ar_admin() then raise exception … errcode 42501`. Provat som anon: `stryk_flytt(…)` avvisades med
 `42501 Bara admin kan stryka en flytt` innan något skrevs. Täta — rör inte.
 
-## 2. Backup-/testtabellerna: flytta, radera inte — och tre av nio är INTE backuper
+## 2. Backup-/testtabellerna: flytta, radera inte — och tre av nio är INTE backuper — KÖRD
 
 Nio tabeller utan RLS och med anon CRUD: `arbetsdag_backup_13jun`, `arbetsdag_backup_operator_20260714` (arbetsdagar per förare), `backup_km_dalarna_20260814`, `backup_km_stefan_juli_20260812` (km per förare),
 `backup_ledighet_testrader_20260812`, `fakt_tid_test`, `kontroll_baslinje`, `kravprofil`, `normalisering_karta`. **Appens TypeScript läser inga av dem, men SQL-funktioner gör det** (sökt i `pg_proc`-källorna 2026-10-20):
@@ -105,7 +105,7 @@ Nio tabeller utan RLS och med anon CRUD: `arbetsdag_backup_13jun`, `arbetsdag_ba
 
 Det tidigare förslaget (drop eller flytta alla nio) hade brutit tre funktioner. Därför två delar:
 
-**2a. De sex backuperna flyttas till ett eget schema utan anon-grants. Inget raderas, inget behöver återskapas.**
+**2a (körd `20261020100110` … `100127`, en migration per tabell). De sex backuperna flyttas till ett eget schema utan anon-grants. Inget raderas, inget behöver återskapas.**
 ```sql
 create schema if not exists arkiv;
 revoke all on schema arkiv from anon, authenticated;
@@ -119,7 +119,7 @@ revoke all on all tables in schema arkiv from anon, authenticated;   -- tabeller
 ```
 `arkiv` exponeras inte av PostgREST om projektets exponerade scheman är standard (`public`, `graphql_public`) — kontrollera i Settings → API före körning; `revoke … from anon, authenticated` ovan gäller ändå. Återställning: `alter table arkiv.<t> set schema public;`.
 
-**2b. De tre referenstabellerna stannar i `public` men får RLS** (policyer FÖRE `enable`, annars slutar `normalisera()` att fungera för inloggade):
+**2b (körd `20261020100144` … `100148`, en migration per tabell). De tre referenstabellerna stannar i `public` men får RLS** (policyer FÖRE `enable`, annars slutar `normalisera()` att fungera för inloggade):
 ```sql
 create policy normalisering_karta_las on public.normalisering_karta for select to authenticated using (true);
 alter table public.normalisering_karta enable row level security;
@@ -127,6 +127,8 @@ revoke all on public.normalisering_karta from anon;
 -- samma för kravprofil och kontroll_baslinje
 ```
 Skrivning går bara via service-nyckeln/migrationer. Kontrollera före: vilka som anropar `normalisera`/`massaved_mal`/`kontroll_produktfalt` och med vilken roll (de tre anropas av vyer med ägare `postgres`, som omgår RLS, och av importen med service-nyckeln).
+
+**Bevis efter (rullade `DO`-block):** de sex tabellerna ligger i `arkiv`, `anon` och `authenticated` har inget (varken schema eller tabell); inga tabeller utan RLS återstår i `public`. Som `anon`: `kravprofil` och `arkiv.*` ger `42501`. Som förare: `kravprofil` 13 rader, `normalisering_karta` 28, `kontroll_baslinje` 3, och **`massaved_mal()` (som appen anropar från `/affarsuppfoljning`) ger sin rad** — utan läs-policyn hade den gett tomt. En INSERT i `kravprofil` som förare avvisas (`42501`): de tre tabellerna är nu läs-only för inloggade, skrivning går via service-nyckeln. PostgREST-schemalistan (`db_schemas`) syns inte via SQL; `arkiv` är dessutom stängt för både `anon` och `authenticated` (schema-USAGE), så en exponering ger ändå ingen åtkomst. Återställning: `alter table arkiv.<t> set schema public;` + `grant` efter behov.
 
 ## 3. `objekt` och `markering_delete_logg` — KÖRDA
 
@@ -204,27 +206,30 @@ Sökt i koden: alla `createClient(`, `createServerClient(`, `createBrowserClient
 ## 7. Ej granskat
 `storage.objects` (buckets `kartbilder`, `utbildningsbevis`, `trakt-inbox`), Realtime-publikationer, andra scheman än `public`.
 
-## 8. Nio SECURITY DEFINER-vyer (lint `security_definer_view`, ERROR) — ANON LÄSER `objekt`-DATA IGENOM EN AV DEM
+## 8. Nio SECURITY DEFINER-vyer (lint `security_definer_view`, ERROR) — KÖRD för åtta
 
-Frågan var om vyerna är en medveten genväg runt de sex tabellerna med RLS på och noll policies (`handelse`, `kontroll`, `resurs`, `detalj_stam_diameter`, `stamplings_cell`, `stamplings_rapport`). **Svar: nej.** Ingen av de nio vyerna läser någon av de sex tabellerna (beroenden ur `pg_depend`), och de ställen i appens kod som rör dem använder service-nyckeln (`app/api/stampling/*` via `adminKlient()`, `app/api/fordon/notify-pamin`); Python-skripten (`import_diameterserie.py` m.fl.) är inte kontrollerade för vilken nyckel de kör. De sex är alltså avsiktligt "bara service-nyckeln", inte en lucka som vyerna täcker. Inga policies behöver skrivas före vyerna ändras.
+Frågan var om vyerna är en medveten genväg runt de sex tabellerna med RLS på och noll policies (`handelse`, `kontroll`, `resurs`, `detalj_stam_diameter`, `stamplings_cell`, `stamplings_rapport`), eller om appen läser vyerna för att policies saknas. **Svar: nej, och nej.** Ingen av de nio vyerna läser någon av de sex tabellerna (beroenden ur `pg_depend`); appen läser de sex bara med service-nyckeln (`app/api/stampling/*` via `adminKlient()`, `app/api/fordon/notify-pamin`). Och appen läser **åtta av nio vyer inte alls** (sökt i `app`, `lib`, `components`, `scripts`, `*.py`); den nionde, `medarbetare_namn`, läses av `app/planering/page.tsx:3316`. Inga policies behövde skrivas före vyerna ändrades.
 
-| Vy | Läser | Läses av appen? | Anon `select` | Anon fick (provat) |
+| Vy | Läser | Läses av appen? | Anon fick före (provat) | Efter |
 |---|---|---|---|---|
-| `planering_vy` | `objekt`, `dim_objekt`, `bestallningar` | nej | **ja** | **100 rader** — namn, `inkopare`, `skogsagare`, lat/long, volymer |
-| `vy_daglig_sammanfattning` | `fakt_produktion`, `fakt_tid`, `dim_maskin` | nej | **ja** | **1 460 rader** — produktion och tid per maskin och dag |
-| `vy_sortiment_klass` | `dim_sortiment`, `dim_sortiment_grupp` | nej | **ja** | 296 rader |
-| `vy_normalisering_luckor` | `dim_sortiment`, `vy_sortiment_klass` | nej | **ja** | 9 rader |
-| `vy_kalibrering_status` | `fakt_kalibrering` | nej | **ja** | 3 rader |
-| `vy_virke_karta` | `detalj_stam`, `detalj_stock`, `dim_objekt` | nej | **ja** | 0 rader (tom just nu, men öppen) |
-| `produktion_per_dag` | `mom_produktion`, `maskiner` | nej | **ja** | 0 rader |
-| `lager_varningar` | `lager_artiklar` | nej | **ja** | 0 rader |
-| `medarbetare_namn` | `medarbetare` | **ja**, `app/planering/page.tsx:3316` (`id, fornamn`) | nej (`42501`) | — |
+| `planering_vy` | `objekt`, `dim_objekt`, `bestallningar` | nej | **100 rader** — namn, `inkopare`, `skogsagare`, lat/long, volymer | anon `42501`, förare 102 = ägare 102 |
+| `vy_daglig_sammanfattning` | `fakt_produktion`, `fakt_tid`, `dim_maskin` | nej | **1 460 rader** — produktion och tid per maskin och dag | anon `42501`, förare 1 460 = ägare |
+| `vy_sortiment_klass` | `dim_sortiment`, `dim_sortiment_grupp` | nej | 296 rader | anon `42501`, förare 296 = ägare |
+| `vy_normalisering_luckor` | `dim_sortiment`, `vy_sortiment_klass` | nej | 9 rader | anon `42501`, förare 9 = ägare |
+| `vy_kalibrering_status` | `fakt_kalibrering` | nej | 3 rader | anon `42501`, förare 3 = ägare |
+| `vy_virke_karta` | `detalj_stam`, `detalj_stock`, `dim_objekt` | nej | 0 rader (tom just nu, men öppen) | anon `42501`, förare 0 = ägare |
+| `produktion_per_dag` | `mom_produktion`, `maskiner` | nej | 0 rader | anon `42501`, förare 0 = ägare |
+| `lager_varningar` | `lager_artiklar` | nej | 0 rader | anon `42501`, förare 0 = ägare |
+| `medarbetare_namn` | `medarbetare` | **ja**, `app/planering/page.tsx:3316` (`id, fornamn`) | `42501` redan | oförändrad (förare 7) — **lämnad som DEFINER** |
 
-**Konsekvens för steg 3:** `planering_vy` är ägd av `postgres` (omgår RLS) och har anon-`select`, så RLS på `objekt` stänger inte den vägen. Markägare, inköpare och koordinater är fortfarande läsbara för vem som helst via `/rest/v1/planering_vy`. Samma för produktionsdatan via `vy_daglig_sammanfattning`.
-**Förslag, två delar, båda reversibla:**
-- **8a (ingen appeffekt, ingen läsare finns):** `revoke select on public.<vy> from anon;` på de åtta vyerna. En migration per vy eller en för gruppen.
-- **8b (senare, eget beslut):** `alter view public.<vy> set (security_invoker = true);` så vyn lyder anroparens RLS. Då måste underliggande tabeller ha rätt policies för de roller som läser vyn. De åtta har ingen läsare i appen, så frågan är om de ska finnas alls (externt verktyg? kontrollera API-loggen).
-- **`medarbetare_namn` är den medvetna genvägen:** koden säger "alla inloggade får läsa id + förnamn". Den lämnas som DEFINER (anon har redan inget), och lintet kvarstår som en dokumenterad avvikelse; att byta till `security_invoker` hade tagit bort förnamnen för alla utom admin.
+**Gjort per vy, en migration var, `planering_vy` först** (`20261020100210` … `100232`):
+```sql
+alter view public.<vy> set (security_invoker = true);   -- vyn lyder anroparens RLS i stället för ägarens (postgres)
+revoke all on public.<vy> from anon;
+```
+Inget i appen påverkas (ingen läsare), och som förare ger varje vy samma antal rader som ägaren — alltså inga rader som RLS tar bort. PostgreSQL 17.6 (security_invoker kräver 15+).
+
+**`medarbetare_namn` lämnas medvetet som DEFINER.** `medarbetare` har en deliberat snäv select-policy (`user_id = auth.uid() OR ar_admin()`: du ser dig själv, admin ser alla) eftersom tabellen bär kontaktuppgifter och lönerelaterade fält. Vyn är en kolumnbegränsad projektion (`id`, `fornamn`) som låter alla inloggade se förnamn i planeringsvyn. Med `security_invoker` skulle förare bara se sitt eget namn; att i stället öppna tabellen för alla rader för att vyn ska bli invoker skulle läcka alla kolumner. Det är alltså inte en saknad policy utan en avsiktlig genväg. Lintet `security_definer_view` kvarstår på just den (1 st) som dokumenterad avvikelse; anon har redan inget. Vill man bli av med lintet är vägen en `SECURITY DEFINER`-funktion som returnerar bara `id, fornamn` (och vyn tas bort) — en egen ändring i `app/planering/page.tsx`.
 
 ## 9. `search_path` på funktioner (lint `function_search_path_mutable`, WARN, 87 st)
 
