@@ -12,7 +12,7 @@ import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
 import { kartbildVarning } from '@/lib/trakt/kartbildVarning';
-import { klassaVarningar } from '@/lib/trakt/varningar';
+import { klassaVarningar, VOLYM_BEHALLEN_NYCKEL } from '@/lib/trakt/varningar';
 import { orimligVolymText } from '@/lib/trakt/rimlighet';
 import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';
 // loggaImportFel (flyttad hit ur routen: loggar i import_fel, läses av /datahalsa — se kommentaren där) + skrivning som tål att
@@ -463,7 +463,13 @@ export async function POST(request: NextRequest) {
         varningar.push(`Omimport: lät dina ändringar ligga kvar i ${behollna.join(', ')} (leveransen hade ett annat värde).`);
       }
       patch.import_varden = importVarden;
-      patch.import_varningar = klassaVarningar(varningar);                    // varningar refreshas alltid
+      // En volym som någon rättat för hand ligger kvar (byggOmimportPatch), men filens avvikande tal försvinner inte tyst: det blir en fråga.
+      const rader = klassaVarningar(varningar);
+      const filVolym = Number(data.volym);
+      if (behollna.includes('volym') && Number.isFinite(filVolym) && filVolym > 0) {
+        rader.push({ nyckel: VOLYM_BEHALLEN_NYCKEL, sort: 'fraga', text: `Filen har ${filVolym} m³fub men volymen är rättad för hand — den rättade volymen behölls.`, varde: filVolym });
+      }
+      patch.import_varningar = rader;                                         // varningar refreshas alltid; [] = kontrollerat, inget hittat (aldrig null)
 
       const skrivUpd = await skrivObjektTolerantMotVarningskolumn<any>(patch, (p) =>
         supabase.from('objekt').update(p).eq('id', befintlig!.id).select().single());

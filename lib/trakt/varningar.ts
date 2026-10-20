@@ -25,7 +25,17 @@ export interface Varning {
   fil?: string;
   /** `info_namnde_stamplingslangd`: importen fick en ledtråd om att filen kan vara stämplingslängden. */
   ledtrad?: string;
+  /** `volym_behallen`: volymen (m³fub) som filen hade när omimporten lät en handrättad volym ligga kvar. */
+  varde?: number;
 }
+
+/**
+ * Omimporten hittade ett annat volymtal i filen än det som står i objektet, och lät det som står ligga kvar eftersom någon rättat det för hand
+ * (byggOmimportPatch, regel 5). Det är en fråga — Vida kan ha uppdaterat sitt tal — och aldrig en tyst skrivning åt något håll.
+ * Raden bär filens tal i `varde`; vyn bygger texten live mot objektets nuvarande volym (lib/objekt/filenGav.ts), så en volym som sedan rättats
+ * till filens tal inte lämnar en inaktuell fråga.
+ */
+export const VOLYM_BEHALLEN_NYCKEL = 'volym_behallen';
 
 const OKAND_PDF = /^PDF utan känt suffix: "(.+)" — /;
 const OSAKER_STAMPLINGSLANGD = /^"(.+)" tolkad som stämplingslängd via Info — OSÄKER/;
@@ -52,9 +62,28 @@ export function klassaVarning(text: string): Varning {
   return { nyckel: `ovrigt:${text.slice(0, 40)}`, sort: 'noterat', text };
 }
 
-/** Importen: raderna den samlat blir de strukturerade raderna som skrivs till `import_varningar`. Tom lista → null (som förut). */
-export function klassaVarningar(rader: string[]): Varning[] | null {
-  return rader.length > 0 ? rader.map(klassaVarning) : null;
+/**
+ * Importen: raderna den samlat blir de strukturerade raderna som skrivs till `import_varningar`. En TOM lista skrivs som tom lista, inte null:
+ * `[]` = importen körde kontrollerna och hittade inget, `null` = ingen import har loggat något (prod 2026-10-20: 44 av 69 objekt — 21 inlagda
+ * för hand, 3 via Starta jobb, 20 via den äldre traktdirektiv-vägen). "Inget hittat" och "aldrig letat" får inte se likadana ut.
+ */
+export function klassaVarningar(rader: string[]): Varning[] {
+  return rader.map(klassaVarning);
+}
+
+export type ImportKontroll = 'kontrollerad' | 'okand';
+
+/** Har någon import loggat kontroller för objektet? En array (även tom) = ja; null/annat = okänt, aldrig "rent". */
+export function importKontroll(raw: unknown): ImportKontroll {
+  return Array.isArray(raw) ? 'kontrollerad' : 'okand';
+}
+
+/** Texten som skiljer "aldrig letat" från "inget hittat". `kalla` säger varför ingen kontroll finns. */
+export function importKontrollText(kalla: string | null | undefined, raw: unknown): string {
+  if (importKontroll(raw) === 'kontrollerad') return 'Kontrollerades vid importen';
+  if (kalla === 'manuell' || kalla === 'starta-jobb') return 'Inlagd för hand — ingen traktfil har kontrollerats';
+  if (kalla === 'traktdirektiv') return 'Importerades innan kontrollerna fanns — ingen kontroll är loggad';
+  return 'Ingen importkontroll är loggad för det här objektet';
 }
 
 function arVarning(v: unknown): v is Varning {

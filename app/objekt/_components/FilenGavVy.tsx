@@ -16,6 +16,7 @@ import {
   type Fraga, type GeoSammanfattning, type VolymFraga,
 } from '@/lib/objekt/filenGav';
 import { arRotpost } from '@/lib/objekt/rotpost';
+import { importKontroll, importKontrollText } from '@/lib/trakt/varningar';
 import { faktorText, jamfor, stamplingsText } from '@/lib/objekt/stamplingslangd';
 import { lasManadUrl, manadEtikett, type Manad } from '@/lib/objekt/manad';
 import { oppnaFil } from '@/lib/objekt/oppnaFil';
@@ -200,9 +201,11 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
           <Rad titel="Stämplingslängd" sista
             under={stampLage === 'bekraftad' ? 'Skriven av dig · tryck för att ändra'
               : stampLage === 'gissad' ? 'Gissad: PDF:en tolkades som stämplingslängd, ingen har bekräftat · skriv in talet'
-                : stampLage === 'pdf' ? 'PDF i filen · skriv in talet för att jämföra'
+                : stampLage === 'okontrollerad' ? 'PDF sparad, ingen vet hur den identifierades · skriv in talet'
                   : avslutad ? 'Skriv in talet för att kontrollera volymen' : 'Skriv in talet från stämplingslängden'}
-            hoger={stampLage === 'bekraftad' ? (stampJamf ? stamplingsText(stampJamf) : undefined) : stampLage === 'gissad' ? <span style={{ color: FARG.orange }} data-stamplingslangd-gissad="">gissad</span> : undefined}
+            hoger={stampLage === 'bekraftad' ? (stampJamf ? stamplingsText(stampJamf) : undefined)
+              : stampLage === 'gissad' ? <span style={{ color: FARG.orange }} data-stamplingslangd-gissad="">gissad</span>
+                : stampLage === 'okontrollerad' ? <span style={{ color: FARG.orange }} data-stamplingslangd-okontrollerad="">okontrollerad</span> : undefined}
             onTryck={onStampling} attr={{ 'data-stamplingslangd-tal': '' }} />
         )}
       </Sektion>
@@ -221,7 +224,7 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
         {bladOppna && blad.map((b, i) => <Rad key={b.path} titel={`Blad ${i + 1} av ${blad.length}`} dampad onTryck={() => oppna(b.path)} />)}
 
         {/* Stämplingslängd visas när den finns. Att den saknas är normaltillståndet (4 av 42 slutavverkningar har en) och är ingen information. */}
-        {o.stamplingslangd_url && <Rad titel="Stämplingslängd (PDF)" under={stampLage === 'gissad' ? 'Gissad, ej bekräftad' : 'Finns'} onTryck={() => oppna(o.stamplingslangd_url)} />}
+        {o.stamplingslangd_url && <Rad titel="Stämplingslängd (PDF)" under={stampLage === 'gissad' ? 'Gissad, ej bekräftad' : stampLage === 'okontrollerad' ? 'Ej kontrollerad' : 'Finns'} onTryck={() => oppna(o.stamplingslangd_url)} />}
         {o.valtlapp_url && <Rad titel="Vältlappar" under="Finns" onTryck={() => oppna(o.valtlapp_url)} />}
 
         <Rad titel="Hänsyn" pil={false}
@@ -247,12 +250,15 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
         <Rad titel="Status" under={TILLSTAND_TEXT[id]} pil={false} sista />
       </Sektion>
 
-      {noter.length > 0 && (
-        <Sektion rubrik="Importen">
+      {/* "Inget hittat" och "aldrig letat" ser inte likadana ut: raden säger vilket av dem det är. */}
+      <Sektion rubrik="Importen">
+        <Rad titel="Importkontroll" pil={false} sista={noter.length === 0}
+          under={importKontrollText(o.kalla, o.import_varningar)} attr={{ 'data-importkontroll': importKontroll(o.import_varningar) }} />
+        {noter.length > 0 && <>
           <Rad titel={`Importnoteringar (${noter.length})`} dampad sista={!noterOppna} pil onTryck={() => setNoterOppna(v => !v)} />
           {noterOppna && noter.map((n, i) => <Rad key={i} titel={n} dampad pil={false} sista={i === noter.length - 1} />)}
-        </Sektion>
-      )}
+        </>}
+      </Sektion>
     </>
   );
 }
@@ -301,7 +307,7 @@ function VolymFragaKort({ q, sista, onRatta, onStampling, onOppna, onAnvand }: {
       <div style={{ marginTop: AVSTAND.s, display: 'flex', gap: AVSTAND.l, flexWrap: 'wrap' }}>
         {q.nyckel === 'stamplingslangd_saknas'
           ? <>
-            {q.fil && <button type="button" onClick={() => onOppna(q.path ?? null)} disabled={!q.path} style={{ ...KNAPP.lank, ...(q.path ? null : INAKTIV) }}>Öppna filen</button>}
+            {q.path != null && <button type="button" onClick={() => onOppna(q.path ?? null)} style={KNAPP.lank}>Öppna filen</button>}
             <button type="button" onClick={onStampling} style={KNAPP.lank} data-skriv-stamplingslangd="">Skriv in stämplingslängden</button>
           </>
           : <button type="button" onClick={onRatta} style={KNAPP.lank} data-ratta-volym="">Rätta volymen</button>}

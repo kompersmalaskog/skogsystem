@@ -75,9 +75,15 @@ describe('frågan "stämplingslängd saknas"', () => {
     expect(f[0]).toMatchObject({ fil: 'Skälviken.pdf', path: 'sl.pdf' });
   });
 
-  it('en PDF som importen KÄNDE IGEN på filnamnet (ingen OSÄKER-rad) är ingen gissning — ingen fråga (Åbogen)', () => {
-    expect(fraga({ avtalsform: 'Rp', stamplingslangd_url: 'sl.pdf' })).toEqual([]);
-    expect(fraga({ avtalsform: 'Rp', stamplingslangd_url: 'sl.pdf', import_varningar: [{ nyckel: 'okand_pdf:Annan.pdf', sort: 'fraga', text: 'x', fil: 'Annan.pdf' }] })).toEqual([]);
+  it('en PDF UTAN spår (ingen importlogg, null) är okontrollerad och ställer frågan — filnamnet bär ingen information (Åbogen)', () => {
+    // *_stamplingslangd.pdf är namnet importen SATTE vid sparandet, inte originalnamnet: det går inte att veta att någon identifierat filen.
+    for (const import_varningar of [null, undefined, [], [{ nyckel: 'okand_pdf:Annan.pdf', sort: 'fraga', text: 'x', fil: 'Annan.pdf' }]]) {
+      const f = fraga({ avtalsform: 'Rp', stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar });
+      expect(f, JSON.stringify(import_varningar)).toHaveLength(1);
+      expect(f[0].text).toContain('inget säger hur den identifierades');
+      expect(f[0]).toMatchObject({ path: '890004_stamplingslangd.pdf' });
+    }
+    expect(fraga({ avtalsform: 'Rp', status: 'avslutat', stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar: null })).toEqual([]);
   });
 
   it('gissad PDF + inskrivet tal = bekräftad: ingen fråga, och gissningens PDF-fråga faller på en rotpost', () => {
@@ -100,11 +106,12 @@ describe('frågan "stämplingslängd saknas"', () => {
 
 
 describe('stämplingslängdens läge', () => {
-  it('bekräftad = tal inskrivet; gissad = PDF + OSÄKER-rad; pdf = PDF utan gissning; saknas = inget', () => {
+  it('bekräftad = tal inskrivet; gissad = PDF + OSÄKER-rad; okontrollerad = PDF utan spår; saknas = inget', () => {
     expect(stamplingslangdLage({ stamplingslangd_volym: 1884 })).toBe('bekraftad');
     expect(stamplingslangdLage({ stamplingslangd_volym: 1884, stamplingslangd_url: 'x.pdf', import_varningar: GISSNING })).toBe('bekraftad');
     expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: GISSNING })).toBe('gissad');
-    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: [] })).toBe('pdf');
+    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: [] })).toBe('okontrollerad');
+    expect(stamplingslangdLage({ stamplingslangd_url: 'x.pdf', import_varningar: null })).toBe('okontrollerad');
     expect(stamplingslangdLage({})).toBe('saknas');
     expect(stamplingslangdLage({ stamplingslangd_volym: 0 })).toBe('saknas');
     // En gissning vars PDF aldrig laddades upp är ingen PDF att visa.

@@ -39,7 +39,7 @@ describe('klassaVarning — prod-raderna får rätt sort', () => {
 });
 
 describe('importens skrivning och läsningen av äldre rader', () => {
-  it('tom lista skrivs som null (som förut)', () => expect(klassaVarningar([])).toBeNull());
+  it('tom lista skrivs som TOM LISTA — "kontrollerat, inget hittat" är inte "aldrig kontrollerat" (null)', () => expect(klassaVarningar([])).toEqual([]));
   it('importen skriver objekt; en äldre textrad läses som samma objekt', () => {
     const [ny] = klassaVarningar([PROD[7][0]])!;
     expect(ny).toMatchObject({ sort: 'fraga', fil: 'Skälviken.pdf' });
@@ -56,7 +56,8 @@ describe('källvakt: båda skrivningarna i routen går via klassningen', () => {
   const route = readFileSync(resolve(__dirname, '../../app/api/import-trakt/route.ts'), 'utf8');
   it('INSERT och UPDATE skriver strukturerade rader, aldrig den råa listan', () => {
     expect(route).toMatch(/import_varningar: klassaVarningar\(varningar\)/);
-    expect(route).toMatch(/patch\.import_varningar = klassaVarningar\(varningar\)/);
+    expect(route).toMatch(/const rader = klassaVarningar\(varningar\);/);   // UPDATE: klassade rader (+ ev. volymfrågan), sedan patch.import_varningar = rader
+    expect(route).toMatch(/patch\.import_varningar = rader;/);
     expect(route).not.toMatch(/import_varningar: varningar\.length/);
     expect(route).not.toMatch(/patch\.import_varningar = varningar\.length/);
   });

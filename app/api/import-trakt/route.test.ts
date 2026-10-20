@@ -117,6 +117,14 @@ describe('import av Skälviken (VO 11161397)', () => {
     expect(h.db.tabeller.objekt[0]).toMatchObject({ typ: 'grot', avtalsform: 'Au' });
   });
 
+  it('importkontrollen skrivs ALLTID som lista: [] = kontrollerat och inget hittat, aldrig null (= aldrig kontrollerat) — på INSERT och på omimport', async () => {
+    await importera(tdText({ ursprung: 'Rotpost' }));
+    expect(Array.isArray(h.db.tabeller.objekt[0].import_varningar)).toBe(true);
+    h.db.tabeller.objekt[0].import_varningar = null;                  // äldre rad utan kontroll
+    await importera(tdText({ ursprung: 'Rotpost' }));
+    expect(Array.isArray(h.db.tabeller.objekt[0].import_varningar)).toBe(true);
+  });
+
   it('importen sparar vad den satte per fält (import_varden)', async () => {
     await importera(tdText({ ursprung: 'Rotpost', arbetsform: 'Första gallring' }), OBJECT_INFO({ purpose: 'Gallring' }));
     expect(h.db.tabeller.objekt[0].import_varden).toMatchObject({ avtalsform: 'Rp', atgard: 'Första gallring', typ: 'gallring', volym: 950 });
@@ -196,6 +204,27 @@ describe('omimport skriver inte över det Martin rättat', () => {
     await importera(tdText({ ursprung: 'Rotpost' }), OBJECT_INFO({ target: 1100 }));
     expect(h.db.tabeller.objekt[0]).toMatchObject({ avtalsform: 'Rp', volym: 1100 });
     expect(h.db.tabeller.objekt[0].import_varden.volym).toBe(1100);
+  });
+
+  it('en handrättad VOLYM ligger kvar och filens avvikande tal blir en FRÅGA, inte en tyst skrivning (Bågskyttebanan)', async () => {
+    await importera(tdText({ ursprung: 'Rotpost' }), OBJECT_INFO({ target: 3495 }));
+    expect(h.db.tabeller.objekt[0].volym).toBe(3495);
+    h.db.tabeller.objekt[0].volym = 1687;                              // Martin godkänner utfallsförslaget
+
+    const r = await importera(tdText({ ursprung: 'Rotpost' }), OBJECT_INFO({ target: 3495 }));
+    const rad = h.db.tabeller.objekt[0];
+    expect(rad.volym).toBe(1687);                                      // inte återställd
+    expect(rad.import_varden.volym).toBe(3495);                        // importens minne = filens tal
+    expect(r.body.varningar.join(' ')).toContain('ligga kvar i volym');
+    expect(rad.import_varningar).toContainEqual(expect.objectContaining({ nyckel: 'volym_behallen', sort: 'fraga', varde: 3495 }));
+  });
+
+  it('en volym ingen rättat följer filen, och ger ingen volymfråga', async () => {
+    await importera(tdText({ ursprung: 'Rotpost' }), OBJECT_INFO({ target: 1000 }));
+    await importera(tdText({ ursprung: 'Rotpost' }), OBJECT_INFO({ target: 1200 }));
+    const rad = h.db.tabeller.objekt[0];
+    expect(rad.volym).toBe(1200);
+    expect((rad.import_varningar ?? []).some((v: any) => v.nyckel === 'volym_behallen')).toBe(false);
   });
 
   it('status, anteckningar och pinnen skrivs som förut aldrig över', async () => {

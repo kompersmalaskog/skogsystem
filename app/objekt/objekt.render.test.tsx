@@ -714,12 +714,38 @@ describe('Stämplingslängd gäller bara en rotpost (avtalsformen avgör, inte t
     expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeNull();
   });
 
-  it('Rp med en PDF som importen KÄNDE IGEN på filnamnet = ingen fråga, och raden finns kvar så talet kan skrivas in för jämförelse', async () => {
-    med('molleryd', { stamplingslangd_url: 'sl.pdf' });
-    await monteraObjekt('molleryd');
+  it('Rp med en PDF UTAN spår (Åbogen-fallet: ingen importlogg) = okontrollerad: frågan ställs, raden säger det, aldrig "PDF i filen"', async () => {
+    med('vashult', { avtalsform: 'Rp', stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar: null, kalla: 'traktdirektiv' });
+    await monteraObjekt('vashult');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('inget säger hur den identifierades');
+    const rad = behallare!.querySelector('[data-stamplingslangd-tal]')!;
+    expect(rad.textContent).toContain('ingen vet hur den identifierades');
+    expect(rad.textContent).not.toContain('PDF i filen');
+    expect(behallare!.querySelector('[data-stamplingslangd-okontrollerad]')!.textContent).toBe('okontrollerad');
+    expect(text()).toContain('Ej kontrollerad');
+    await klicka(knapp('Öppna filen'));
+    expect(DB.signerade).toContain('kartbilder/890004_stamplingslangd.pdf');
+  });
+
+  it('Åbogen som AVSLUTAD: raden visar okontrollerad, men ingen fråga', async () => {
+    med('bagskytte', { stamplingslangd_url: '890004_stamplingslangd.pdf', import_varningar: null, kalla: 'traktdirektiv' });
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-stamplingslangd-okontrollerad]')).toBeTruthy();
     expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
-    expect(behallare!.querySelector('[data-stamplingslangd-tal]')!.textContent).toContain('PDF i filen');
-    expect(behallare!.querySelector('[data-stamplingslangd-gissad]')).toBeNull();
+  });
+
+  it('importkontroll: "inget hittat" och "aldrig letat" ser inte likadana ut', async () => {
+    med('vashult', { import_varningar: null, kalla: 'traktdirektiv' });
+    await monteraObjekt('vashult');
+    expect(behallare!.querySelector('[data-importkontroll="okand"]')!.textContent).toContain('Importerades innan kontrollerna fanns');
+    rot!.unmount(); behallare!.innerHTML = ''; rot = createRoot(behallare!);
+    med('vashult', { import_varningar: [], kalla: 'envz' });
+    await monteraObjekt('vashult');
+    expect(behallare!.querySelector('[data-importkontroll="kontrollerad"]')!.textContent).toContain('Kontrollerades vid importen');
+    rot!.unmount(); behallare!.innerHTML = ''; rot = createRoot(behallare!);
+    med('vashult', { import_varningar: null, kalla: 'manuell' });
+    await monteraObjekt('vashult');
+    expect(behallare!.querySelector('[data-importkontroll="okand"]')!.textContent).toContain('Inlagd för hand');
   });
 
   it('Rp med en GISSAD PDF (OSÄKER) = frågan ställs och raden säger "gissad", inte "PDF i filen" (Skälviken)', async () => {
