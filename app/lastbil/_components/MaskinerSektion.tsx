@@ -9,7 +9,7 @@ import FlyttSheet from './FlyttSheet';
 import { fmtDatum } from './nu';
 import { fmtMinuter } from './rundaText';
 import {
-  FLYTT, MELLANRUM, ejRaknadeText, fmtDagar, grupperaMaskiner, saknarKmText, saknarTidText, sammanfatta, snittUnder, starPa,
+  FLYTT, MELLANRUM, fmtDagar, grupperaMaskiner, saknarKmText, saknarTidText, sammanfatta, snittUnder, starPa,
   type Flytt, type Maskin,
 } from './maskiner';
 import type { MaskinerLage } from './useMaskiner';
@@ -85,7 +85,7 @@ function MaskinArk({ maskin, ar, arAdmin, namn, onStang, onAndrad }: {
       <div data-maskin-snitt style={{ marginTop: AVSTAND.m }}>
         <Rad rubrik="Lassat → lossat" hoger={s.tid.snitt != null ? fmtMinuter(s.tid.snitt) : '–'} under={snittUnder(s.tid, FLYTT, saknarTidText)} />
         <Rad rubrik="Snitt-km" hoger={s.km.snitt != null ? km(s.km.snitt) : '–'} under={snittUnder(s.km, FLYTT, saknarKmText)} sista={!s.trakt} />
-        {s.trakt && <Rad rubrik="På en trakt" hoger={s.trakt.snitt != null ? fmtDagar(s.trakt.snitt) : '–'} under={snittUnder(s.trakt, MELLANRUM, ejRaknadeText)} sista />}
+        {s.trakt && <Rad rubrik="På en trakt" hoger={s.trakt.snitt != null ? fmtDagar(s.trakt.snitt) : '–'} under={snittUnder(s.trakt, MELLANRUM)} sista />}
       </div>
 
       <div style={{ ...TYP.micro, color: FARG.text2, margin: `${AVSTAND.l}px 0 ${AVSTAND.xs}px` }}>Flyttar</div>

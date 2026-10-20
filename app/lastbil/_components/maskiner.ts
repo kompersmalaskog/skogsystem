@@ -155,20 +155,20 @@ export const fmtDagar = (d: number): string => {
 const plural = (n: number, ett: string, flera: string) => `${n} ${n === 1 ? ett : flera}`;
 
 /**
- * Raden under ett snitt: vad det bygger på, alltid med antalet, och vad som inte kunde räknas.
- * "snitt av 4 flyttar" · "bara 2 flyttar – för få för snitt" · "snitt av 5 mellanrum · 5 mellanrum kan inte räknas".
+ * Raden under ett snitt, dämpad: bara vad snittet bygger på. "snitt av 4 flyttar" · "bara 2 flyttar – för få för snitt".
+ * `saknasText` ges bara för en rad som en saknad uppgift PÅVERKAR (km- och tidsraden: "1 flytt saknar km"); raden "På en trakt" får
+ * ingen — mellanrum som inte går att räkna nämns inte.
  */
-export function snittUnder(s: Snitt, enhet: { ett: string; flera: string; ingen: string }, saknasText: (n: number) => string): string {
+export function snittUnder(s: Snitt, enhet: { ett: string; flera: string; ingen: string }, saknasText?: (n: number) => string): string {
   // Inget räknat men något saknas: säg bara vad som saknas ("11 flyttar saknar tid") — "ingen flytt att räkna på" vore dubbelt.
-  if (s.antal === 0 && s.saknar > 0) return saknasText(s.saknar);
+  if (s.antal === 0 && s.saknar > 0 && saknasText) return saknasText(s.saknar);
   const grund = s.snitt != null
     ? `snitt av ${plural(s.antal, enhet.ett, enhet.flera)}`
     : s.antal === 0 ? `${enhet.ingen} att räkna på` : `bara ${plural(s.antal, enhet.ett, enhet.flera)} – för få för snitt`;
-  return s.saknar > 0 ? `${grund} · ${saknasText(s.saknar)}` : grund;
+  return s.saknar > 0 && saknasText ? `${grund} · ${saknasText(s.saknar)}` : grund;
 }
 
 export const FLYTT = { ett: 'flytt', flera: 'flyttar', ingen: 'ingen flytt' } as const;
 export const MELLANRUM = { ett: 'mellanrum', flera: 'mellanrum', ingen: 'inget mellanrum' } as const;
 export const saknarKmText = (n: number) => `${plural(n, 'flytt', 'flyttar')} saknar km`;
 export const saknarTidText = (n: number) => `${plural(n, 'flytt', 'flyttar')} saknar tid`;
-export const ejRaknadeText = (n: number) => `${n} mellanrum kan inte räknas`;

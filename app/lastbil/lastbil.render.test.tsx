@@ -1696,7 +1696,8 @@ describe("Uppföljning: Maskiner", () => {
     expect(snitt).toContain("Lassat → lossat");
     expect(snitt).toContain("snitt av 11 flyttar");
     expect(snitt).toContain("Snitt-kmsnitt av 11 flyttar23 km");              // 249 / 11 = 22,6
-    expect(snitt).toContain("På en traktsnitt av 5 mellanrum · 5 mellanrum kan inte räknas2,8 dagar");
+    expect(snitt).toContain("På en traktsnitt av 5 mellanrum2,8 dagar");
+    expect(snitt).not.toMatch(/kan inte räknas|saknar/);
   });
 
   it("Elefant 26: för få räknebara mellanrum ger inget snitt, och flyttar utan Från står som 'Från saknas'", async () => {
@@ -1704,7 +1705,8 @@ describe("Uppföljning: Maskiner", () => {
     await tillAr();
     await klicka(maskinRad("Elefant 26"));
     const snitt = norm(dlg()!.querySelector("[data-maskin-snitt]")!.textContent);
-    expect(snitt).toContain("På en traktbara 1 mellanrum – för få för snitt · 2 mellanrum kan inte räknas–");
+    expect(snitt).toContain("På en traktbara 1 mellanrum – för få för snitt–");
+    expect(snitt).not.toMatch(/kan inte räknas/);
     expect(snitt).toContain("snitt av 4 flyttar");
     const lista = norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent);
     expect(lista.match(/Från saknas/g)).toHaveLength(3);

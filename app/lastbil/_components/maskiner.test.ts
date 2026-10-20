@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MASKIN_NAMN, OBJEKT_NAMN, prodFlyttRader } from './maskiner.fixtur';
 import {
-  EXTERN_NYCKEL, FLYTT, MELLANRUM, byggFlyttar, dagarSedan, ejRaknadeText, fmtDagar, grupperaMaskiner, saknarKmText, saknarTidText,
+  EXTERN_NYCKEL, FLYTT, MELLANRUM, byggFlyttar, dagarSedan, fmtDagar, grupperaMaskiner, saknarKmText, saknarTidText,
   sammanfatta, snittUnder, starPa, type FlyttRad,
 } from './maskiner';
 
@@ -26,18 +26,18 @@ describe('Maskiner: prod-siffrorna (19 flyttar, 5 maskiner)', () => {
     expect(snittUnder(s.tid, FLYTT, saknarTidText)).toBe('snitt av 11 flyttar');
   });
 
-  it('Giant: 10 mellanrum, 5 räknebara med snitt 2,8 dagar, 5 kan inte räknas', () => {
+  it('Giant: 10 mellanrum, 5 räknebara med snitt 2,8 dagar — raden säger bara "snitt av 5 mellanrum"', () => {
     const t = sammanfatta(per('Giant')).trakt!;
     expect(t.antal).toBe(5);
     expect(t.saknar).toBe(5);
     expect(fmtDagar(t.snitt!)).toBe('2,8 dagar');
-    expect(snittUnder(t, MELLANRUM, ejRaknadeText)).toBe('snitt av 5 mellanrum · 5 mellanrum kan inte räknas');
+    expect(snittUnder(t, MELLANRUM)).toBe('snitt av 5 mellanrum');
   });
 
-  it('Elefant 26: bara 1 räknebart mellanrum (9,8 dagar) → inget snitt, 2 kan inte räknas; tid och km räknas på alla 4', () => {
+  it('Elefant 26: bara 1 räknebart mellanrum (9,8 dagar) → inget snitt, och de som inte räknas nämns inte; tid och km räknas på alla 4', () => {
     const s = sammanfatta(per('Elefant 26'));
     expect(s.trakt).toMatchObject({ antal: 1, saknar: 2, snitt: null });
-    expect(snittUnder(s.trakt!, MELLANRUM, ejRaknadeText)).toBe('bara 1 mellanrum – för få för snitt · 2 mellanrum kan inte räknas');
+    expect(snittUnder(s.trakt!, MELLANRUM)).toBe('bara 1 mellanrum – för få för snitt');
     expect(snittUnder(s.tid, FLYTT, saknarTidText)).toBe('snitt av 4 flyttar');
     expect(s.km.snitt).toBeCloseTo(143 / 4, 6);
   });
@@ -52,11 +52,11 @@ describe('Maskiner: prod-siffrorna (19 flyttar, 5 maskiner)', () => {
   it('en maskin med EN flytt har inget mellanrum alls', () => {
     const t = sammanfatta(per('H8E -26')).trakt!;
     expect(t).toMatchObject({ antal: 0, saknar: 0, snitt: null });
-    expect(snittUnder(t, MELLANRUM, ejRaknadeText)).toBe('inget mellanrum att räkna på');
-    // …men när det FINNS ett mellanrum som inte går att räkna (2 flyttar, olika plats) står bara det
+    expect(snittUnder(t, MELLANRUM)).toBe('inget mellanrum att räkna på');
+    // 2 flyttar på olika plats: ett mellanrum som inte går att räkna — det står inget om det, bara att inget finns att räkna på
     const wisent = sammanfatta(per('Wisent')).trakt!;
     expect(wisent).toMatchObject({ antal: 0, saknar: 1 });
-    expect(snittUnder(wisent, MELLANRUM, ejRaknadeText)).toBe('1 mellanrum kan inte räknas');
+    expect(snittUnder(wisent, MELLANRUM)).toBe('inget mellanrum att räkna på');
     expect(snittUnder(sammanfatta(per('H8E -26')).tid, FLYTT, saknarTidText)).toBe('bara 1 flytt – för få för snitt');
   });
 
@@ -96,6 +96,17 @@ describe('Maskiner: saknade värden räknas inte i snittet, och det sägs', () =
   it('tid och km är aldrig 0 när de saknas: null, inte en nolla i snittet', () => {
     const s = sammanfatta(grupperaMaskiner(bygg(giant().map(r => ({ ...r, flytt_km: null }))))[0]);
     expect(s.km.snitt).toBeNull();
+  });
+});
+
+describe('Maskiner: "saknar" står bara där det påverkar raden', () => {
+  it('km- och tidsraden får "N flyttar saknar …", raden På en trakt får aldrig något om saknade mellanrum', () => {
+    const rader = prodFlyttRader().filter(r => r.maskin_id === 'PONS20SDJAA270231').map((r, i) => (i === 0 ? { ...r, flytt_km: null, tid_flytt_min: null } : r));
+    const s = sammanfatta(grupperaMaskiner(bygg(rader))[0]);
+    expect(snittUnder(s.km, FLYTT, saknarKmText)).toBe('snitt av 10 flyttar · 1 flytt saknar km');
+    expect(snittUnder(s.tid, FLYTT, saknarTidText)).toBe('snitt av 10 flyttar · 1 flytt saknar tid');
+    expect(snittUnder(s.trakt!, MELLANRUM)).not.toMatch(/saknar|kan inte/);
+    expect(snittUnder({ snitt: null, antal: 2, saknar: 3 }, MELLANRUM)).toBe('bara 2 mellanrum – för få för snitt');
   });
 });
 
