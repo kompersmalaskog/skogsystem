@@ -54,6 +54,21 @@ export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
 /** Larmar ALDRIG, oavsett vem som satte dem: förarens pillräknare och planerarens symboler av samma typ (Martin 2026-10-20). Ritas gröna (Natur) som förut. */
 export const LARMFRIA_SYMBOLER: readonly string[] = ['highstump', 'eternitytree'];
 
+/**
+ * Symbolens NAMN — EN källa för menyn (symbolkategorierna), namnet under symbolen på kartan (markers-korvy-label) och larmkortet/Om trakten.
+ * Förut hette samma symbol "El-ledning" i menyn men "Kraftledning" under symbolen, och "Varning" i kortet men "Fara" på kartan.
+ * (Kraftledning är Vidas LINJE-lager, se VIDA nedan — det är en annan sak än symbolen El-ledning.)
+ */
+export const SYMBOL_NAMN: Readonly<Record<string, string>> = {
+  eternitytree: 'Evighetsträd', naturecorner: 'Naturhörna',
+  culturemonument: 'Kulturminne', culturestump: 'Kulturstubbe',
+  highstump: 'Högstubbe', landing: 'Avlägg', brashpile: 'Rishög', windfall: 'Vindfälle', manualfelling: 'Manuell fällning', felloutside: 'Träd att avverka',
+  powerline: 'El-ledning', road: 'Väg', turningpoint: 'Vändplats',
+  ditch: 'Dike', bridge: 'Bro', corduroy: 'Kavling', wet: 'Fuktig mark', steep: 'Brant', trail: 'Stig / Led',
+  warning: 'Varning', firewood: 'Ved',
+};
+export const symbolNamn = (typ: string | null | undefined): string => (typ && SYMBOL_NAMN[typ]) || 'Markering';
+
 export const gruppForSymbol = (typ: string | null | undefined): FargGrupp => (typ && SYMBOL_GRUPP[typ]) || 'info';
 export const symbolFarg = (typ: string | null | undefined): string => GRUPPER[gruppForSymbol(typ)].farg;
 
@@ -88,3 +103,22 @@ export const VIDA: Readonly<Record<VidaSlag, { grupp: FargGrupp; namn: string; f
 /** Texten på inkörningskortet för en förbjuden yta. */
 export const forbjudenYtaText = (namn: string): string => `${namn} – Du är inne i ytan, kör inte här`;
 export const ytaText = (namn: string): string => `${namn} – Du är inne i ytan`;
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// FÄLLNINGSCIRKELN (skördaren, 30 m = trädlängd): vad som är "något man inte får fälla på", och vilken grupp (= färg) det ger.
+// Skild från larmet: cirkeln är tyst och tar med det som inte larmar (Evighetsträd). Röd vinner över Brun/Grön.
+// Brant, Ej framkomlig, Blött, Högstubbe, Manuell fällning och Info påverkar inte cirkeln.
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+export type FallningGrupp = 'fara' | 'kultur' | 'natur';
+
+export const FALLNING_SYMBOL: Readonly<Record<string, FallningGrupp>> = {
+  powerline: 'fara', warning: 'fara',
+  culturemonument: 'kultur', culturestump: 'kultur',
+  naturecorner: 'natur', eternitytree: 'natur',
+};
+export const FALLNING_LINJE: Readonly<Record<string, FallningGrupp>> = { stonewall: 'natur' };
+export const FALLNING_YTA: Readonly<Record<string, FallningGrupp>> = { protected: 'natur', culture: 'kultur', fornlamning: 'kultur' };
+export const FALLNING_VIDA: Readonly<Record<VidaSlag, FallningGrupp>> = {
+  kraftledning: 'fara', hansynsyta: 'natur', nyckelbiotop: 'natur', raa_yta: 'kultur', raa_punkt: 'kultur',
+};

@@ -57,7 +57,13 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
 const PLUS_ZON_PX = 72;
 const PLUS_OVER_PX = 20 + 44 + AVSTAND.s;
 
-/** Den smala raden längst ner: "Sett <Namn>". Samma plats som kvittot (KorvyKvitto): bredvid plus-knappen, på telefon ovanför den. */
+/** Minsta höjd på Sett-knappen: tummen i en skakande hytt, ofta med handske. */
+export const SETT_KNAPP_MIN_PX = 56;
+
+/**
+ * Raden längst ner: namnet på det som larmar och en STOR knapp "✓ Sett". Samma plats som kvittot (KorvyKvitto): bredvid plus-knappen, på telefon
+ * ovanför den. Knappen är den enda träffytan (raden är bara text), så en trasig tumträff på namnet kvitterar aldrig något.
+ */
 export function SettRad({ namn, farg, smal, onSett }: { namn: string; farg: string; smal: boolean; onSett: () => void }) {
   return (
     <div
@@ -66,21 +72,30 @@ export function SettRad({ namn, farg, smal, onSett }: { namn: string; farg: stri
         bottom: smal ? `calc(${PLUS_OVER_PX}px + env(safe-area-inset-bottom, 0px))` : medSafeBotten(AVSTAND.l + AVSTAND.xs),
       }}
     >
-      <button
-        type="button"
-        data-testid="larm-sett"
-        aria-label={`Kvittera ${namn}`}
-        onClick={() => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8); onSett(); }}
-        className="press-dim"
+      <div
+        data-testid="larm-sett-rad"
         style={{
-          pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', maxWidth: 520, minHeight: 56, boxSizing: 'border-box', padding: `0 ${AVSTAND.l}px`,
-          border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, background: FARG.kort, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', ...TYP.listtitel,
+          pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', maxWidth: 520, boxSizing: 'border-box', padding: AVSTAND.xs, paddingLeft: AVSTAND.l,
+          border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, background: FARG.kort, color: FARG.text,
         }}
       >
         <span aria-hidden="true" style={{ width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: farg, flexShrink: 0 }} />
-        <span style={{ flex: '1 1 auto', minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Sett {namn}</span>
-        <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 22, color: FARG.text2 }}>check</span>
-      </button>
+        <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...TYP.listtitel }}>{namn}</span>
+        <button
+          type="button"
+          data-testid="larm-sett"
+          aria-label={`Sett ${namn}`}
+          onClick={() => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(8); onSett(); }}
+          className="press-dim"
+          style={{
+            flexShrink: 0, minWidth: 124, minHeight: SETT_KNAPP_MIN_PX, boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s, padding: `0 ${AVSTAND.l}px`,
+            border: 'none', borderRadius: RADIE.knapp, background: FARG.text, color: FARG.bg, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation', ...TYP.rubrik,
+          }}
+        >
+          <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 26 }}>check</span>
+          <span>Sett</span>
+        </button>
+      </div>
     </div>
   );
 }

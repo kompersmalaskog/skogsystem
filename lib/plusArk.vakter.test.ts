@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { FLIKAR } from './plusArk';
+import { SYMBOL_NAMN } from './larm/grupper';
 
 // Vakt för plusarkets ommöblering ("Alla" → Symboler · Ytor · Spårning · Lager). Ommöbleringen får inte tappa eller lägga till något:
 // samma symbolkategorier, samma lager i samma grupper och ordning som den gamla Lager-menyn, och varje val som "Fler val" hade.
@@ -18,7 +19,8 @@ const mellan = (src: string, fran: string, till: string): string => {
 describe('Symboler: samma kategorier, namn och ordning som appen alltid haft', () => {
   const kat = mellan(page, 'const symbolCategories = [', 'const markerTypes');
   const namn = Array.from(kat.matchAll(/^\s{6}name: '([^']+)'/gm)).map((m) => m[1]);
-  const symboler = Array.from(kat.matchAll(/\{ id: '([a-z]+)', name: '([^']+)' \}/g)).map((m) => `${m[1]}=${m[2]}`);
+  // Namnen kommer ur SYMBOL_NAMN (lib/larm/grupper, EN källa för menyn, kartans etikett och larmkortet); id:t ska peka på sitt eget namn.
+  const symboler = Array.from(kat.matchAll(/\{ id: '([a-z]+)', name: SYMBOL_NAMN\.([a-z]+) \}/g)).map((m) => `${m[1]}=${m[1] === m[2] ? SYMBOL_NAMN[m[2]] : 'FEL:' + m[2]}`);
 
   it('de sex kategorierna i den ordning appen har dem', () => {
     expect(namn).toEqual(['Naturvård', 'Kultur', 'Avverkning', 'Infrastruktur', 'Terräng', 'Övrigt']);

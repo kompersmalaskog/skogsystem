@@ -17,7 +17,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, STRECK_ZON, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
+  zonKantLager,
+  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
   LINJE_KANT_BREDD, LINJE_KANT_BREDD_GRANS, LINJE_STIL, NUMMER_FONT_PX, NUMMER_STORLEK, PIL_STIL,
   STENMUR_BREDD, STENMUR_FARG, ZON_BREDD, ZON_FYLLNING_OPACITET, ZON_KANT_BREDD, ZON_KANT_FARG,
   ritaPilIkon, zoomKurva,
@@ -166,13 +167,14 @@ describe('zonerna', () => {
     expect(stopp(c, 'zoneCasingWidth')).toEqual(ZON_KANT_BREDD.map((s) => [...s]));
   });
 
-  it('fyllning 0,2, mork kant, vit streckning [2,2]', () => {
+  it('fyllning 0,2, mork kant, INGEN vit streckning (ytans farg ar gruppens farg)', () => {
     const k = sammanfoga(KALLA);
     expect(k).toContain(sammanfoga("gallringCase(GALLRING_FILL_OPACITY, 0.2)"));
     expect(ZON_FYLLNING_OPACITET).toBe(0.2);
     expect(k).toContain(sammanfoga("id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)'"));
     expect(ZON_KANT_FARG).toBe('rgba(0,0,0,0.6)');
-    expect(k).toContain(sammanfoga(`'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [${STRECK_ZON.join(', ')}]`));
+    expect(k).not.toContain("id: 'zone-outline-dash'");
+    expect(sammanfoga(JSON.stringify(zonKantLager('k', 'ek', null)))).not.toContain('dasharray');
   });
 
   it('zonfarger kommer ur lib/zone-colors - planeringens egen kalla', () => {

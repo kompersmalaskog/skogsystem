@@ -91,7 +91,6 @@ export const STRECK_DASHED = [3, 2] as const;
 export const STRECK_VANLIG = [2.5, 1.5] as const;
 export const STRECK_RANDAD = [2, 2] as const;
 export const STRECK_STENMUR = [2, 0.85] as const;
-export const STRECK_ZON = [2, 2] as const;
 export const KANT_SVART_STARK = 'rgba(0,0,0,0.9)';
 export const KANT_SVART_MJUK = 'rgba(0,0,0,0.5)';
 
@@ -282,11 +281,6 @@ export function zonKantLager(kalla: string, prefix: string, bas: any[] | null, d
     {
       id: `${prefix}-zon-linje`, type: 'line', source: kalla, filter,
       paint: { 'line-color': farg, 'line-width': zoomKurva(ZON_BREDD, bf), ...op },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-    },
-    {
-      id: `${prefix}-zon-streck`, type: 'line', source: kalla, filter,
-      paint: { 'line-color': '#fff', 'line-width': zoomKurva(ZON_BREDD, bf), 'line-dasharray': [...STRECK_ZON], ...op },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     },
   ];

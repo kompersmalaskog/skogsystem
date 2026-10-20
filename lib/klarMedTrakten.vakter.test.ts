@@ -1,6 +1,7 @@
 // Källvakter för "Klar med trakten?": sidan (app/planering/page.tsx) går inte att montera i vitest, så kopplingarna som kortet vilar på låses här.
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+import { SYMBOL_NAMN } from './larm/grupper';
 
 const las = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const page = las('../app/planering/page.tsx');
@@ -90,7 +91,8 @@ describe('kortet och sidan', () => {
     }
   });
   it('ved-symbolen: egen symboltyp som aldrig hamnar i dockan eller "senast använda", sätts via placeraSymbol och öppnar kortet igen', () => {
-    expect(page).toContain("{ id: 'firewood', name: 'Ved' }");
+    expect(page).toContain("{ id: 'firewood', name: SYMBOL_NAMN.firewood }");
+    expect(SYMBOL_NAMN.firewood).toBe('Ved');
     expect(page).toContain("if (typ !== 'firewood') noteraPlus({ typ: 'symbol', id: typ });");
     expect(page).toContain("if (typ !== 'firewood') setRecentSymbols");
     expect(page).toContain("void klarHook.spara({ ved: { ...klarFalt.ved, plats: 'karta', lat, lng: lon, markeringId: String(id) } });");

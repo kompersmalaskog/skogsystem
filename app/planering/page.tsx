@@ -51,9 +51,11 @@ import { avlaggAttSkriva, avlaggBaslinjeFran, avlaggFullRad, mergaAvlagg, type A
 import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type BrandBaslinje } from '../../lib/brandSpar'
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
+import { useFallning } from '../../lib/hooks/useFallning'
+import { FALLNING_M } from '../../lib/larm/fallning'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
-import { FARG_FARA, FARG_KULTUR, FARG_NATUR, SYMBOL_GRUPP, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
@@ -1373,7 +1375,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring', type: 'line', source: 'zones-source', filter: gallringEjLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthGallring }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring-lov', type: 'line', source: 'zones-source', filter: gallringLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthLov }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
+    // Ingen vit streckning på ytkanten: ytans färg kommer ur färggruppen (lib/larm/grupper) och en vit streckning lade sig över den (Hänsyn läste vit i stället för grön).
     // Zon-etikett: namnet mitt på ytan. Blött heter "RISA" (instruktionen på EN blick); övriga varningsytor heter sitt namn, för att
     // Kulturmiljö och Fornlämning har samma brun (färggrupp Kultur) — färgen är aldrig ensam bärare. Gallringszonen har ingen etikett.
     // Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
@@ -2008,13 +2010,8 @@ export default function PlannerPage() {
             ['match', ['get', 'type'], [...KORVY_FARO_TYPER] as any, true, false],
           ],
           layout: {
-            'text-field': ['match', ['get', 'type'],
-              'powerline',     'Kraftledning',
-              'manualfelling', 'Manuell fällning',
-              'warning',       'Fara',
-              'steep',         'Brant',
-              '',
-            ],
+            // Namnet under symbolen är symbolens eget namn (SYMBOL_NAMN) — samma som i menyn och larmkortet.
+            'text-field': ['match', ['get', 'type'], ...[...KORVY_FARO_TYPER].flatMap((t) => [t, SYMBOL_NAMN[t] ?? '']), ''] as any,
             'text-size': 14,
             'text-offset': [0, 1.2],
             'text-anchor': 'top',
@@ -7821,59 +7818,59 @@ export default function PlannerPage() {
       name: 'Naturvård',
       bgColor: LEGEND.naturvard,
       symbols: [
-        { id: 'eternitytree', name: 'Evighetsträd' },
-        { id: 'naturecorner', name: 'Naturhörna' },
+        { id: 'eternitytree', name: SYMBOL_NAMN.eternitytree },
+        { id: 'naturecorner', name: SYMBOL_NAMN.naturecorner },
       ]
     },
     {
       name: 'Kultur',
       bgColor: LEGEND.kultur,
       symbols: [
-        { id: 'culturemonument', name: 'Kulturminne' },
-        { id: 'culturestump', name: 'Kulturstubbe' },
+        { id: 'culturemonument', name: SYMBOL_NAMN.culturemonument },
+        { id: 'culturestump', name: SYMBOL_NAMN.culturestump },
       ]
     },
     {
       name: 'Avverkning',
       symbols: [
-        { id: 'highstump', name: 'Högstubbe' },
-        { id: 'landing', name: 'Avlägg' },
-        { id: 'brashpile', name: 'Rishög' },
-        { id: 'windfall', name: 'Vindfälle' },
-        { id: 'manualfelling', name: 'Manuell fällning' },
-        { id: 'felloutside', name: 'Träd att avverka' },
+        { id: 'highstump', name: SYMBOL_NAMN.highstump },
+        { id: 'landing', name: SYMBOL_NAMN.landing },
+        { id: 'brashpile', name: SYMBOL_NAMN.brashpile },
+        { id: 'windfall', name: SYMBOL_NAMN.windfall },
+        { id: 'manualfelling', name: SYMBOL_NAMN.manualfelling },
+        { id: 'felloutside', name: SYMBOL_NAMN.felloutside },
       ]
     },
     {
       name: 'Infrastruktur',
       symbols: [
-        { id: 'powerline', name: 'El-ledning' },
-        { id: 'road', name: 'Väg' },
-        { id: 'turningpoint', name: 'Vändplats' },
+        { id: 'powerline', name: SYMBOL_NAMN.powerline },
+        { id: 'road', name: SYMBOL_NAMN.road },
+        { id: 'turningpoint', name: SYMBOL_NAMN.turningpoint },
       ]
     },
     {
       name: 'Terräng',
       symbols: [
-        { id: 'ditch', name: 'Dike' },
-        { id: 'bridge', name: 'Bro' },
-        { id: 'corduroy', name: 'Kavling' },
-        { id: 'wet', name: 'Fuktig mark' },
-        { id: 'steep', name: 'Brant' },
-        { id: 'trail', name: 'Stig / Led' },
+        { id: 'ditch', name: SYMBOL_NAMN.ditch },
+        { id: 'bridge', name: SYMBOL_NAMN.bridge },
+        { id: 'corduroy', name: SYMBOL_NAMN.corduroy },
+        { id: 'wet', name: SYMBOL_NAMN.wet },
+        { id: 'steep', name: SYMBOL_NAMN.steep },
+        { id: 'trail', name: SYMBOL_NAMN.trail },
       ]
     },
     {
       name: 'Övrigt',
       symbols: [
-        { id: 'warning', name: 'Varning' },
+        { id: 'warning', name: SYMBOL_NAMN.warning },
       ]
     },
   ];
 
   // Platt lista för bakåtkompatibilitet
   // Ved-symbolen hör inte till någon palett: den sätts bara från Klar med trakten? › Ved. Den behöver ändå ett namn och en ikon överallt där markeringar listas.
-  const markerTypes = [...symbolCategories.flatMap(cat => cat.symbols), { id: 'firewood', name: 'Ved' }];
+  const markerTypes = [...symbolCategories.flatMap(cat => cat.symbols), { id: 'firewood', name: SYMBOL_NAMN.firewood }];
 
   const lineTypes = [
     { id: 'boundary', name: 'Traktgräns', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
@@ -9025,6 +9022,14 @@ export default function PlannerPage() {
     ljudCtx: () => korvyAudioCtxRef.current,
     torr: !!testlage,   // testläget skriver inga kvittenser
   });
+  // FÄLLNINGSCIRKELN (30 m = trädlängd): bara skördaren, aldrig skotarläget. Tyst — färg efter vad som ligger inom 30 m (lib/larm/fallning).
+  const fall = useFallning({
+    aktiv: korvyActive && !skotarKorvy,
+    pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
+    markers,
+    svgToLatLon,
+    vida: traktGeo,
+  });
 
   // === GPS-PRICK på kartan (Apple Maps-stil) — WebGL circle-layers ===
   // Skapar source/layers vid första GPS-fix om de saknas. Uppdaterar data vid varje
@@ -9264,7 +9269,7 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] gps-cone-fill:', e); }
     }
 
-    // 4b) Fällningsradie-ring (40 m runt maskinen). Läge 3: osynlig (line-opacity 0) tills en
+    // 4b) Fällningscirkel (30 m runt skördaren, FALLNING_M). Färg och synlighet styrs av useFallning (se effekten nedan). Förut: osynlig (line-opacity 0) tills en
     //     fara är inom räckhåll → tonas fram via transition. Geometri + opacity styrs per tick.
     if (!map.getSource('gps-radie-source')) {
       try {
@@ -9313,6 +9318,33 @@ export default function PlannerPage() {
             'circle-pitch-alignment': 'viewport',
           } });
       } catch (e) { console.error('[Körvy] larm-ring:', e); }
+    }
+    // FÄLLNINGSCIRKELNS orsak (lib/larm/fallning): det som gör cirkeln röd/brun/grön lyser upp i gruppens färg. Tyst — bara ritning.
+    if (!map.getSource('larm-fall-source')) {
+      try { map.addSource('larm-fall-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Körvy] larm-fall-source:', e); }
+    }
+    if (!map.getLayer('larm-fall-fill')) {
+      try {
+        map.addLayer({ id: 'larm-fall-fill', type: 'fill', source: 'larm-fall-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': ['get', 'farg'], 'fill-opacity': 0.3 } });
+      } catch (e) { console.error('[Körvy] larm-fall-fill:', e); }
+    }
+    if (!map.getLayer('larm-fall-kant')) {
+      try {
+        map.addLayer({ id: 'larm-fall-kant', type: 'line', source: 'larm-fall-source', filter: ['!=', ['geometry-type'], 'Point'],
+          paint: { 'line-color': '#000000', 'line-width': 9, 'line-opacity': 0.5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+      } catch (e) { console.error('[Körvy] larm-fall-kant:', e); }
+    }
+    if (!map.getLayer('larm-fall-linje')) {
+      try {
+        map.addLayer({ id: 'larm-fall-linje', type: 'line', source: 'larm-fall-source', filter: ['!=', ['geometry-type'], 'Point'],
+          paint: { 'line-color': ['get', 'farg'], 'line-width': 5, 'line-opacity': 1 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+      } catch (e) { console.error('[Körvy] larm-fall-linje:', e); }
+    }
+    if (!map.getLayer('larm-fall-punkt')) {
+      try {
+        map.addLayer({ id: 'larm-fall-punkt', type: 'circle', source: 'larm-fall-source', filter: ['==', ['geometry-type'], 'Point'],
+          paint: { 'circle-radius': 22, 'circle-color': ['get', 'farg'], 'circle-opacity': 0.25, 'circle-stroke-color': ['get', 'farg'], 'circle-stroke-width': 4, 'circle-stroke-opacity': 1, 'circle-pitch-alignment': 'viewport' } });
+      } catch (e) { console.error('[Körvy] larm-fall-punkt:', e); }
     }
 
     // 5) Maskin-ikon: mjuk riktnings-KÄGLA (viskar körriktningen istället för en pil som skriker).
@@ -9764,28 +9796,36 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
-  // === KÖRVY: fällningsradie-ring — geometri per tick + tonas fram bara när fara inom räckhåll ===
+  // === KÖRVY: fällningscirkeln (30 m runt skördaren) — alltid synlig men svag, tar gruppens färg när något skyddsvärt ligger inom 30 m ===
+  // Skotarläget har ingen cirkel. Orsaken (objektet som ger färgen) lyser upp i larm-fall-lagren. Tyst: inget ljud, inget kort.
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !korvyActive) return;
+    if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
-    if (!pos || pos.lat == null || pos.lon == null) return;
     try {
+      const visa = korvyActive && !skotarKorvy && pos && pos.lat != null && pos.lon != null;
       const src = map.getSource('gps-radie-source') as any;
       if (src) {
-        src.setData({
+        src.setData(visa
+          ? { type: 'FeatureCollection', features: [{ type: 'Feature' as const, properties: {}, geometry: { type: 'Polygon' as const, coordinates: circlePolygon(pos.lat, pos.lon, FALLNING_M, 48) } }] }
+          : { type: 'FeatureCollection', features: [] });
+      }
+      if (map.getLayer('gps-radie-line')) {
+        map.setPaintProperty('gps-radie-line', 'line-color', fall.farg);
+        map.setPaintProperty('gps-radie-line', 'line-opacity', visa ? fall.opacitet : 0);
+        map.setPaintProperty('gps-radie-line', 'line-width', fall.grupp ? 4 : 2);
+        map.setPaintProperty('gps-radie-line', 'line-dasharray', fall.grupp ? [1, 0] : [2, 2]);
+      }
+      const fsrc = map.getSource('larm-fall-source') as any;
+      if (fsrc) {
+        fsrc.setData({
           type: 'FeatureCollection',
-          features: [{ type: 'Feature' as const, properties: {}, geometry: { type: 'Polygon' as const, coordinates: circlePolygon(pos.lat, pos.lon, FALLNINGSRADIE_M, 48) } }],
+          features: visa ? fall.orsaker.filter((o) => o.geometri).map((o) => ({ type: 'Feature' as const, properties: { id: o.id, namn: o.namn, farg: fall.farg }, geometry: o.geometri as any })) : [],
         });
       }
-      // Läge 3: ringen syns bara när närmaste hindret ligger inom fällningsradien.
-      const faraInom = larm.ringar.length > 0;
-      if (map.getLayer('gps-radie-line')) {
-        map.setPaintProperty('gps-radie-line', 'line-opacity', faraInom ? 0.75 : 0);
-      }
-    } catch (e) { console.error('[Körvy] gps-radie update:', e); }
+    } catch (e) { console.error('[Körvy] fällningscirkel update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyActive, mapLibreReady, larm.ringar]);
+  }, [currentPosition, korvyActive, skotarKorvy, mapLibreReady, fall]);
 
   // === KÖRVY: larmets ringar på kartan (gruppens färg) ===
   useEffect(() => {
@@ -9898,7 +9938,7 @@ export default function PlannerPage() {
         }
         if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCw);
 
-        ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
+        ['zone-fill', 'zone-outline-casing', 'zone-outline'].forEach(id => {
           if (!map.getLayer(id)) return;
           if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', 0.2);
           else map.setPaintProperty(id, 'line-opacity', 1);
@@ -9917,7 +9957,7 @@ export default function PlannerPage() {
               ['case', ['==', ['get', 'id'], briefingHighlightId], 1, 0.3]);
           }
           // Dim zones
-          ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
+          ['zone-fill', 'zone-outline-casing', 'zone-outline'].forEach(id => {
             if (!map.getLayer(id)) return;
             if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', 0.05);
             else map.setPaintProperty(id, 'line-opacity', 0.15);
@@ -10018,7 +10058,7 @@ export default function PlannerPage() {
         }
 
         // Zones
-        ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
+        ['zone-fill', 'zone-outline-casing', 'zone-outline'].forEach(id => {
           if (!map.getLayer(id)) return;
           if (activeZoneId) {
             if (id === 'zone-fill') {
@@ -10399,7 +10439,6 @@ export default function PlannerPage() {
       safeSetVisibility('zone-fill', zoneVis);
       safeSetVisibility('zone-outline-casing', zoneVis);
       safeSetVisibility('zone-outline', zoneVis);
-      safeSetVisibility('zone-outline-dash', zoneVis);
       // TMA roads (actual layer names: tma-roads-glow, tma-roads-line)
       const tmaVis = visibleLayers.lines ? 'visible' : 'none';
       safeSetVisibility('tma-roads-glow', tmaVis);

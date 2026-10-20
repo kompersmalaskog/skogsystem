@@ -65,3 +65,20 @@ export function narRuta(pos: LatLon, punkter: readonly LatLon[], marginM: number
   const dLon = marginM / (M_PER_GRAD * Math.cos(pos.lat * RAD));
   return pos.lat >= minLat - dLat && pos.lat <= maxLat + dLat && pos.lon >= minLon - dLon && pos.lon <= maxLon + dLon;
 }
+
+/**
+ * Avstånd i meter från `pos` till närmaste punkt på ytan: 0 när positionen ligger inne i ytan (hål räknas som utanför), annars till närmaste kant.
+ * Ringarna behöver inte vara slutna. Färre än tre punkter i ytterkanten är ingen yta (Infinity).
+ */
+export function avstandTillYtaM(pos: LatLon, ringar: ReadonlyArray<readonly LatLon[]>): number {
+  const ytter = ringar[0] ?? [];
+  if (ytter.length < 3) return Infinity;
+  if (arInnePolygon(pos, ringar)) return 0;
+  let min = Infinity;
+  for (const ring of ringar) {
+    if (ring.length < 2) continue;
+    const sluten = ring[0].lat === ring[ring.length - 1].lat && ring[0].lon === ring[ring.length - 1].lon ? ring : [...ring, ring[0]];
+    min = Math.min(min, avstandTillLinjeM(pos, sluten));
+  }
+  return min;
+}
