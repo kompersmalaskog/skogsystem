@@ -120,6 +120,7 @@ import type { VagLinje } from '../../lib/skotarLass/spar'
 import { LossningsKort, NyttAvlaggKort } from '../../components/planering/skotar/LossningsKort'
 import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
 import { KvarArk } from '../../components/planering/skotar/KvarArk'
+import { SkotarNedreRad, VantarPaDigArk } from '../../components/planering/skotar/LossaHar'
 import { MorgonKortVy, VaderLista } from '../../components/planering/skotar/VaderMorgon'
 import { AvlaggSkotatSektion } from '../../components/planering/skotar/AvlaggSkotatSektion'
 import { FardigskotadKort } from '../../components/planering/skotar/FardigskotadKort'
@@ -11997,7 +11998,7 @@ export default function PlannerPage() {
   const skotarMaskinId = skotarKorvy ? hyttsparMaskinId(enhetMaskinId, 'skotare', null) : null;
   const skotarLassAktiv = skotarKorvy && !!valtObjekt?.id && !!skotarMaskinId;
   const skotarEgnaAvlagg = useMemo(() => (skotarLassAktiv
-    ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null }; })
+    ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null, viaLossaHar: !!m.skapadViaLossaHar }; })
     : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [skotarLassAktiv, markers, mapCenter.lat, mapCenter.lng, scale]);
@@ -12014,17 +12015,25 @@ export default function PlannerPage() {
     return skotarVagCacheRef.current.linjer;
   };
   // "Nytt avlägg här?" → Ja: ett eget avlägg på platsen, synligt för alla direkt (vanlig markering via markeringssynken), med sitt löpnummer.
-  const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string): string | null => {
+  const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string, via?: 'lossa_har'): string | null => {
     if (testlageAktivRef.current) return null;   // torrkörningen skapar aldrig en riktig markering (markeringssynken skulle skriva den)
     const { x, y } = latLonToSvg(lat, lon);
     const id = Date.now();
     const m: any = nyMarkering('landing', id, x, y);
     m.avlaggNummer = nummer;
+    if (via === 'lossa_har') m.skapadViaLossaHar = true;   // bara dessa flyttas mot snittet av lossningarna (lib/skotarLass/lossaHar); Vidas, planerarens och handsatta flyttas aldrig
     m.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
     setMarkers((prev: any[]) => [...prev, m]);
     korvyEgnaMarkorRef.current.add(String(id));
     startaAvlaggVagkontroll(id, lat, lon);
     return String(id);
+  };
+  // Ett avlägg som skapats via Lossa här flyttas mot snittet av lossningarna (≥ 3 bekräftade lass). Dubbelspärr: bara en markering med skapadViaLossaHar rörs.
+  const skotarFlyttaAvlagg = (markerId: string, lat: number, lon: number) => {
+    if (testlageAktivRef.current) return;
+    const { x, y } = latLonToSvg(lat, lon);
+    setMarkers((prev: any[]) => prev.map((m) => (m.isMarker && m.type === 'landing' && m.skapadViaLossaHar && String(m.id) === markerId ? { ...m, x, y } : m)));
+    startaAvlaggVagkontroll(Number(markerId), lat, lon);
   };
   const skotarLass = useSkotarLass({
     aktiv: skotarLassAktiv,
@@ -12036,7 +12045,8 @@ export default function PlannerPage() {
     vida: klarVidaPunkter,
     egna: skotarEgnaAvlagg,
     hamtaVagar: skotarHamtaVagar,
-    skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
+    skapaEgetAvlagg: (lat, lng, nummer, via) => skotarSkapaAvlagg(lat, lng, nummer, via),
+    flyttaEgetAvlagg: skotarFlyttaAvlagg,
     omlasning: skordarKopplingNr,
   });
   // Väder för TRAKTENS position (inte där telefonen är); saknas koordinat faller det tillbaka på enhetens position. Testläget: dagarna hämtas, morgonkortet provkörs med knappen i bannern.
@@ -12048,6 +12058,7 @@ export default function PlannerPage() {
   const skotarVader = useSkotarVader(skotarKorvy, skotarVaderPos, !!testlage);
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
+  const [skotarVantarOppet, setSkotarVantarOppet] = useState(false);
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
   // Egna avlägg får sitt löpnummer en gång och behåller det (sparas på markeringen): ett raderat avlägg flyttar aldrig om de andra.
   useEffect(() => {
@@ -12919,7 +12930,7 @@ export default function PlannerPage() {
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
               style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
-              Provkör lossning
+              {skotarLass.oppen ? 'Provkör: kör ut ur zonen' : 'Provkör lossning'}
             </button>
           )}
           {skotarKorvy && (
@@ -14099,6 +14110,7 @@ export default function PlannerPage() {
                 kort={sl.kort} lass={kortLass} avlagg={sl.avlagg}
                 onAndra={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
                 onFyllI={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
+                onStammer={() => sl.stammer(kortLass.id)}
                 onValjAvlagg={(a) => sl.valjAvlagg(kortLass.id, sl.kort!.delNr, a)}
                 onTaBort={() => sl.strykLass(kortLass.id)}
               />
@@ -14106,9 +14118,22 @@ export default function PlannerPage() {
             {!sl.kort && !sl.andra && sl.nyttAvlagg && (
               <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
             )}
+            {/* Reservknappen "Lossa här" och "N lass väntar på dig" är ALLTID på plats i skotarläget (ovanför kortet nertill). */}
+            {!sl.andra && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet && (
+              <SkotarNedreRad antalVantar={sl.vantarPaDig.length} lossar={!!sl.oppen} vidLossaHar={sl.lossaHar} onVisaVantar={() => setSkotarVantarOppet(true)} />
+            )}
+            {skotarVantarOppet && !sl.andra && (
+              <VantarPaDigArk
+                lass={sl.vantarPaDig}
+                onStammer={(l) => sl.stammer(l.id)}
+                onFyllI={(l) => { setSkotarVantarOppet(false); sl.oppnaAndra(l.id); }}
+                onStryk={(l) => sl.strykLass(l.id)}
+                onStang={() => setSkotarVantarOppet(false)}
+              />
+            )}
             {sl.andra && andraLass && (
               <AndraLassArk
-                lass={andraLass} delNr={sl.andra.delNr} avlagg={sl.avlagg} valbara={sl.valbara}
+                lass={andraLass} delNr={sl.andra.delNr} avlagg={sl.avlagg} valbara={sl.valbara} alla={sl.allaSortiment} onLasOm={sl.lasOmSortiment}
                 onRad={(rad, delta) => sl.andraRad(sl.andra!.delNr, rad, delta)}
                 onAvlagg={(a) => sl.valjAvlagg(andraLass.id, sl.andra!.delNr, a)}
                 onKlar={() => sl.stangAndra(true)}

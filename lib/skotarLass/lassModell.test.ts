@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { traffaAvlagg } from './avlagg';
 import {
-  andraRad, bekrafta, bekraftaForslagVidStart, bytAvlagg, forraLass, foreslagnaRader, kanBekrafta, laggTillDel, lassRad, lassTitel,
+  andraRad, bekrafta, forslagTillVantande, bytAvlagg, forraLass, foreslagnaRader, kanBekrafta, laggTillDel, lassRad, lassTitel,
   lassTotalM3, nastaLassNummer, sattRad, skapaLass, stryk, type LassKontext,
 } from './lassModell';
 import { sortimentNyckel, sortimentVisning, skordatPerSortiment, valbaraSortiment, VED_MARKAGARE_NYCKEL } from './sortiment';
@@ -70,11 +70,25 @@ describe('lass', () => {
     expect(lassTitel(l2)).toBe('Lass 1 · del 2');
     expect(lassTitel(l)).toBe('Lass 1');
   });
-  it('nummer: nästa efter maskinens högsta, struket återanvänds inte', () => {
+  it('nummer = antal lass som räknas (bekräftade + väntande) på maskinen och trakten + 1 — struket tar inget nummer med sig', () => {
     const l1 = bekraftatMed([R('tall', 1)], 1);
     const l2 = stryk(bekraftatMed([R('tall', 1)], 2), NU);
-    expect(nastaLassNummer([l1, l2], ctx.maskinId, 'o1')).toBe(3);
+    expect(nastaLassNummer([l1, l2], ctx.maskinId, 'o1')).toBe(2);   // lass 2 struket: nästa heter 2 igen (Bågskyttebanan: "Lass 3" fast ett strukits)
     expect(nastaLassNummer([l1, l2], 'annan', 'o1')).toBe(1);
+    expect(nastaLassNummer([l1, l2], ctx.maskinId, 'annan-trakt')).toBe(1);
+    const vantande = { ...bekraftatMed([R('tall', 1)], 2), status: 'vantar_forare' as const };
+    expect(nastaLassNummer([l1, vantande], ctx.maskinId, 'o1')).toBe(3);   // väntande räknas
+  });
+  it('numret är ANTALET som räknas + 1 (inte högsta + 1): lass 1 och 4 som räknas ger 3', () => {
+    const l1 = bekraftatMed([R('tall', 1)], 1);
+    const l4 = bekraftatMed([R('tall', 1)], 4);
+    expect(nastaLassNummer([l1, l4], ctx.maskinId, 'o1')).toBe(3);
+  });
+  it('struket lass mitt i raden: numret hoppar över ett som redan är taget — två lass som räknas heter aldrig lika', () => {
+    const l1 = bekraftatMed([R('tall', 1)], 1);
+    const l2 = stryk(bekraftatMed([R('tall', 1)], 2), NU);
+    const l3 = bekraftatMed([R('tall', 1)], 3);
+    expect(nastaLassNummer([l1, l2, l3], ctx.maskinId, 'o1')).toBe(4);   // 2 räknas + 1 = 3, men 3 är taget
   });
   it('förra lasset hoppar över struket och tomt ofyllt', () => {
     const l1 = bekraftatMed([R('tall', 4)], 1);
@@ -82,10 +96,14 @@ describe('lass', () => {
     expect(forraLass([l1, l2], ctx.maskinId, 'o1')?.lassNummer).toBe(1);
     expect(foreslagnaRader(null)).toEqual([]);
   });
-  it('ett förslag som aldrig hann bekräftas bekräftas vid nästa start; ett väntande lass ligger kvar', () => {
+  it('ett förslag vars lossning aldrig tog slut (appen stängdes) bekräftar inte sig självt utan väntar på föraren; väntande och bekräftade lass rörs inte', () => {
     const forslag = nyttLass(bekraftatMed([R('tall', 4)], 1), 2);
-    expect(bekraftaForslagVidStart(forslag, NU).status).toBe('bekraftat');
-    expect(bekraftaForslagVidStart(nyttLass(null), NU).status).toBe('vantar_forare');
+    expect(forslag.status).toBe('foreslaget');
+    expect(forslagTillVantande(forslag, NU).status).toBe('vantar_forare');
+    const vantar = nyttLass(null);
+    expect(forslagTillVantande(vantar, NU)).toBe(vantar);
+    const klar = bekraftatMed([R('tall', 4)], 1);
+    expect(forslagTillVantande(klar, NU)).toBe(klar);
   });
   it('lasraden: avlägg, sortiment störst först, summa', () => {
     const l = bekraftatMed([R('a', 5), R('b', 10)], 1);
