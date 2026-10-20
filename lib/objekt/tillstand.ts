@@ -3,6 +3,8 @@
 // `objekt.status` är CHECK-låst (oplanerad, planerad, pagaende, skotning, avslutat), men gammal data kan ha `klar`/`skordning`
 // (CLAUDE.md, objekt.status). Allt som inte är känt blir "Status saknas" — aldrig en gissning att det väntar.
 //
+import { fragor } from './filenGav';
+
 // Ett avslutat objekt räknar INTE ner volymen: det är fortfarande inlagt i beställningen (se tackning.ts).
 
 export type TillstandId = 'vantar' | 'planerad' | 'igang' | 'klar' | 'okant';
@@ -32,32 +34,25 @@ export interface ObjektSaknar {
   typ: string | null;
   status: string | null;
   volym: number | null;
+  kalla: string | null;
   traktdirektiv_url: string | null;
-  stamplingslangd_url: string | null;
   import_varningar: unknown;
 }
 
-/** Är stämplingslängden en osäker tolkning som ännu inte bekräftats? (Importen skriver en OSÄKER-rad i `import_varningar`.) */
-export const OSAKER_STAMPLINGSLANGD = /^"(.+)" tolkad som stämplingslängd via Info — OSÄKER/;
-export const BEKRAFTAD_STAMPLINGSLANGD = /^Bekräftad: "(.+)" är stämplingslängd/;
-
-export function harOsakerStamplingslangd(varningar: unknown): boolean {
-  return Array.isArray(varningar) && varningar.some(v => typeof v === 'string' && OSAKER_STAMPLINGSLANGD.test(v));
-}
-
 /**
- * Det som saknas OCH som någon kan göra något åt. Ett klart objekt får ingen sådan rad (inget att åtgärda).
- * Stämplingslängd gäller slutavverkning; en gallring skrivs inte upp för att den saknas (ingen av de nio gallringarna i
- * prod har någon — se rapporten, detta är ett antagande att bekräfta).
+ * Det som kräver en hand, på samma rad — och bara det. Ett klart objekt får ingen sådan rad.
+ * Stämplingslängd flaggas INTE: kolumnen är tom på 38 av 42 slutavverkningar och 24 av 24 gallringar (prod 2026-10-19), så "saknar" vore
+ * normaltillståndet. Det som går att åtgärda är en okänd PDF — en fråga, se lib/trakt/varningar.
+ * Volym krävs på gallring och slutavverkning (beställningen räknas i m³fub); GROT har ingen beställning. Traktdirektiv krävs inte av objekt
+ * som lagts in för hand eller via Starta jobb — de har aldrig någon.
  */
 export function saknas(o: ObjektSaknar): string[] {
   if (tillstandId(o.status) === 'klar') return [];
   const ut: string[] = [];
-  if (!(typeof o.volym === 'number' && o.volym > 0)) ut.push('saknar volym');
-  if (!o.traktdirektiv_url) ut.push('saknar traktdirektiv');
-  if (o.typ === 'slutavverkning') {
-    if (harOsakerStamplingslangd(o.import_varningar)) ut.push('stämplingslängd osäker');
-    else if (!o.stamplingslangd_url) ut.push('saknar stämplingslängd');
-  }
+  const harBestallning = o.typ === 'gallring' || o.typ === 'slutavverkning';
+  if (harBestallning && !(typeof o.volym === 'number' && o.volym > 0)) ut.push('saknar volym');
+  if (!o.traktdirektiv_url && o.kalla !== 'manuell' && o.kalla !== 'starta-jobb') ut.push('saknar traktdirektiv');
+  const n = fragor(o.import_varningar, { stamplingslangd_url: null, ovriga_dokument: null }).length;
+  if (n > 0) ut.push(n === 1 ? '1 fråga' : `${n} frågor`);
   return ut;
 }

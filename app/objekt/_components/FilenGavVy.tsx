@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import Ikon from '@/components/design/Ikon';
 import Rad from '@/components/design/Rad';
@@ -9,15 +10,15 @@ import Tillstand from '@/components/design/Tillstand';
 import VyKolumn from '@/components/design/VyKolumn';
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TNUM, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import { supabase } from '@/lib/supabase';
-import { bekraftaStamplingslangd } from '@/lib/objekt/data';
 import {
-  bladText, certText, fmtHa, geometriSammanfattning, tolkaVarningar, traktkartor,
-  type GeoSammanfattning, type Osakert,
+  bladText, certText, fmtHa, fragor, geometriSammanfattning, noterat, traktkartor,
+  type Fraga, type GeoSammanfattning,
 } from '@/lib/objekt/filenGav';
 import { lasManadUrl, manadEtikett, type Manad } from '@/lib/objekt/manad';
 import { oppnaFil } from '@/lib/objekt/oppnaFil';
-import { fmtM3, visadVolym } from '@/lib/objekt/tackning';
+import { fmtM3, typNamn, visadVolym } from '@/lib/objekt/tackning';
 import { tillstandId, TILLSTAND_TEXT } from '@/lib/objekt/tillstand';
+import AndraObjektArk from './AndraObjektArk';
 
 interface Objekt {
   id: string; namn: string; typ: string | null; status: string | null; volym: number | null; areal: number | null; cert: string | null; grot: boolean | null;
@@ -43,14 +44,16 @@ async function lasObjekt(id: string): Promise<Lage> {
   return { lage: 'klar', objekt: data as Objekt, geo: g.error ? null : geometriSammanfattning(g.data?.geometri), geoFel: !!g.error };
 }
 
-const typNamn = (t: string | null) => (t === 'gallring' ? 'Gallring' : t === 'slutavverkning' ? 'Slutavverkning' : t ? t : 'Typ saknas');
 const antalFragor = (c: unknown) => (Array.isArray(c) ? c.length : 0);
 /** Hårt mellanslag mellan tal och enhet: "205 m" bryts aldrig efter talet. */
-const fmtM = (m: number) => `${m.toLocaleString('sv-SE')}\u00a0m`;
+const fmtM = (m: number) => `${m.toLocaleString('sv-SE')} m`;
 
 export default function FilenGavVy({ objektId }: { objektId: string }) {
+  const router = useRouter();
   const [lage, setLage] = useState<Lage>({ lage: 'laddar' });
   const [forsok, setForsok] = useState(0);
+  const [andra, setAndra] = useState(false);
+  const [kvitto, setKvitto] = useState('');
   const [manad] = useState<Manad>(() => lasManadUrl(typeof window === 'undefined' ? '' : window.location.search));
 
   useEffect(() => {
@@ -61,17 +64,20 @@ export default function FilenGavVy({ objektId }: { objektId: string }) {
   }, [objektId, forsok]);
 
   const laddaOmTyst = useCallback(() => { lasObjekt(objektId).then(l => setLage(l)); }, [objektId]);
+  const tillbaka = `/objekt?ar=${manad.ar}&manad=${manad.manad}`;
 
   return (
     <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD, fontFamily: FONT, WebkitFontSmoothing: 'antialiased', paddingBottom: AVSTAND.xxl }}>
       <style>{designCss}{KOLUMN_CSS}</style>
       <VyKolumn>
-        <div style={{ paddingTop: AVSTAND.s }}>
-          <Link href={`/objekt?ar=${manad.ar}&manad=${manad.manad}`} style={{ ...KNAPP.lank, textDecoration: 'none', gap: AVSTAND.xs }}>
+        <div style={{ paddingTop: AVSTAND.s, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Link href={tillbaka} style={{ ...KNAPP.lank, textDecoration: 'none', gap: AVSTAND.xs }}>
             <Ikon namn="chevron_left" storlek={IKON.rad} farg="inherit" />
             {manadEtikett(manad)}
           </Link>
+          {lage.lage === 'klar' && <button type="button" style={KNAPP.lank} onClick={() => setAndra(true)} data-andra="">Ändra</button>}
         </div>
+        {kvitto && <p role="status" data-kvitto="" style={{ margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0`, ...TYP.meta, color: FARG.text2 }}>{kvitto}</p>}
         <Tillstand nyckel={lage.lage}>
           {lage.lage === 'laddar' && <p role="status" style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>Läser objektet …</p>}
           {lage.lage === 'saknas' && <p role="status" style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>Objektet finns inte längre. Gå tillbaka till listan.</p>}
@@ -81,18 +87,26 @@ export default function FilenGavVy({ objektId }: { objektId: string }) {
               <button type="button" style={KNAPP.lank} onClick={() => setForsok(n => n + 1)}>Försök igen</button>
             </div>
           )}
-          {lage.lage === 'klar' && <Innehall o={lage.objekt} geo={lage.geo} geoFel={lage.geoFel} onAndrad={laddaOmTyst} />}
+          {lage.lage === 'klar' && <Innehall o={lage.objekt} geo={lage.geo} geoFel={lage.geoFel} />}
         </Tillstand>
       </VyKolumn>
+
+      {andra && lage.lage === 'klar' && (
+        <AndraObjektArk objekt={lage.objekt} forvaldManad={manad} onStang={() => setAndra(false)}
+          onFlyttad={text => { setAndra(false); setKvitto(text); laddaOmTyst(); }}
+          onBorttagen={() => router.replace(tillbaka)} />
+      )}
     </div>
   );
 }
 
-function Innehall({ o, geo, geoFel, onAndrad }: { o: Objekt; geo: GeoSammanfattning | null; geoFel: boolean; onAndrad: () => void }) {
-  const tolkade = tolkaVarningar(o.import_varningar);
+function Innehall({ o, geo, geoFel }: { o: Objekt; geo: GeoSammanfattning | null; geoFel: boolean }) {
+  const id = tillstandId(o.status);
   const blad = traktkartor(o);
   const fara = geo?.faror ?? [];
-  const id = tillstandId(o.status);
+  // Frågor ställs inte på avslutade objekt (Bågskyttebanan är avslutad men har en gammal OSÄKER-rad kvar).
+  const fragorHar = id === 'klar' ? [] : fragor(o.import_varningar, o);
+  const noter = noterat(o.import_varningar);
   const saknarVolym = !(typeof o.volym === 'number' && o.volym > 0);
   const [bladOppna, setBladOppna] = useState(false);
   const [noterOppna, setNoterOppna] = useState(false);
@@ -104,25 +118,36 @@ function Innehall({ o, geo, geoFel, onAndrad }: { o: Objekt; geo: GeoSammanfattn
   }
 
   const geoSaknas = geoFel ? 'Geometrin gick inte att läsa just nu' : 'Ingen geometri sparad för objektet';
+  const volymText = saknarVolym ? null : `${fmtM3(visadVolym(o.volym))} m³fub`;
 
   return (
     <>
+      {/* Namnet är vyns rubrik. Volymen ligger en nivå ned (meta-raden) — talet ska inte skrika högre än titeln i en vy som svarar på "vad är med i filen". */}
       <header style={{ padding: `${AVSTAND.m}px 0 ${AVSTAND.xl}px` }}>
         <h1 style={{ margin: 0, ...TYP.titel, overflowWrap: 'anywhere' }}>{o.namn}</h1>
         <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.text, color: FARG.text2 }}>{typNamn(o.typ)} · {TILLSTAND_TEXT[id]}</p>
-        <p style={{ margin: `${AVSTAND.m}px 0 0`, display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, flexWrap: 'wrap' }}>
-          <span style={{ ...TYP.tal, color: saknarVolym ? FARG.orange : FARG.text }}>{saknarVolym ? 'saknas' : fmtM3(visadVolym(o.volym))}</span>
-          {!saknarVolym && <span style={{ ...TYP.text, color: FARG.text2 }}>m³fub</span>}
-          {typeof o.areal === 'number' && <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>· {fmtHa(o.areal)} ha</span>}
-        </p>
+        {(volymText || typeof o.areal === 'number') && (
+          <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.listtitel, ...TNUM }}>
+            {[volymText, typeof o.areal === 'number' ? `${fmtHa(o.areal)} ha` : null].filter(Boolean).join(' · ')}
+          </p>
+        )}
       </header>
 
-      {/* Osäkert först, före allt annat. */}
-      {tolkade.osakert.length > 0 && (
-        <Sektion rubrik="Osäkert">
-          {tolkade.osakert.map((q, i) => (
-            <OsakertKort key={q.rad} q={q} o={o} sista={i === tolkade.osakert.length - 1} onOppna={oppna} onKlar={onAndrad} />
+      {/* Faran först: det är en risk i marken, inte en fil. */}
+      {fara.length > 0 && (
+        <Sektion rubrik="Fara">
+          {fara.map((f, i) => (
+            <Rad key={f.namn} sista={i === fara.length - 1} pil={false}
+              titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Ikon namn="warning" farg={FARG.orange} />{f.namn} över trakten</span>}
+              under={`${fmtM(f.meter)} ritad i filen`} attr={{ 'data-fara': f.namn }} />
           ))}
+        </Sektion>
+      )}
+
+      {/* Det som kräver en människa — och bara det. Okänd PDF och osäker stämplingslängd är SAMMA fråga. */}
+      {fragorHar.length > 0 && (
+        <Sektion rubrik={fragorHar.length === 1 ? 'Fråga' : 'Frågor'}>
+          {fragorHar.map((q, i) => <FragaKort key={q.nyckel} q={q} sista={i === fragorHar.length - 1} onOppna={oppna} />)}
         </Sektion>
       )}
       {filFel && <p role="alert" style={{ margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>{filFel}</p>}
@@ -140,30 +165,21 @@ function Innehall({ o, geo, geoFel, onAndrad }: { o: Objekt; geo: GeoSammanfattn
           onTryck={blad.length === 0 ? undefined : blad.length === 1 ? () => oppna(blad[0].path) : () => setBladOppna(v => !v)} />
         {bladOppna && blad.map((b, i) => <Rad key={b.path} titel={`Blad ${i + 1} av ${blad.length}`} dampad onTryck={() => oppna(b.path)} />)}
 
-        {(o.typ === 'slutavverkning' || o.stamplingslangd_url) && (
-          <Rad titel="Stämplingslängd"
-            under={o.stamplingslangd_url
-              ? (tolkade.osakert.some(q => q.slag === 'stamplingslangd') ? 'Finns, men vi är inte säkra på att det är rätt fil' : 'Finns')
-              : 'Ingen stämplingslängd i filen'}
-            onTryck={o.stamplingslangd_url ? () => oppna(o.stamplingslangd_url) : undefined} />
-        )}
+        {/* Stämplingslängd visas när den finns. Att den saknas är normaltillståndet (4 av 42 slutavverkningar har en) och är ingen information. */}
+        {o.stamplingslangd_url && <Rad titel="Stämplingslängd" under="Finns" onTryck={() => oppna(o.stamplingslangd_url)} />}
         {o.valtlapp_url && <Rad titel="Vältlappar" under="Finns" onTryck={() => oppna(o.valtlapp_url)} />}
 
         <Rad titel="Hänsyn" pil={false}
           under={geo == null ? geoSaknas
             : geo.hansyn == null ? 'Inga hänsynsytor i filen'
-              : `${geo.hansyn.antal} ${geo.hansyn.antal === 1 ? 'yta' : 'ytor'} · ${fmtHa(geo.hansyn.ha)}\u00a0ha${geo.hansyn.beskrivningar.length ? ` · ${geo.hansyn.beskrivningar.slice(0, 2).join(', ')}${geo.hansyn.beskrivningar.length > 2 ? ` +${geo.hansyn.beskrivningar.length - 2}` : ''}` : ''}`} />
+              : `${geo.hansyn.antal} ${geo.hansyn.antal === 1 ? 'yta' : 'ytor'} · ${fmtHa(geo.hansyn.ha)} ha${geo.hansyn.beskrivningar.length ? ` · ${geo.hansyn.beskrivningar.slice(0, 2).join(', ')}${geo.hansyn.beskrivningar.length > 2 ? ` +${geo.hansyn.beskrivningar.length - 2}` : ''}` : ''}`} />
 
-        <Rad titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}>{fara.length > 0 && <Ikon namn="warning" farg={FARG.orange} />}Kör &amp; fara</span>}
-          pil={false}
-          under={geo == null ? geoSaknas : (
-            <>
-              {fara.map(f => <span key={f.namn} style={{ color: FARG.orange }}>{f.namn} över trakten · {fmtM(f.meter)} ritad{' · '}</span>)}
-              {geo.basvag ? `Basväg ${fmtM(geo.basvag.meter)}${geo.basvag.antal > 1 ? ` (${geo.basvag.antal} st)` : ''}` : 'Ingen basväg i filen'}
-              {geo.andraLinjer.map(l => ` · ${l.namn} ${fmtM(l.meter)}`)}
-              {geo.avlagg > 0 ? ` · ${geo.avlagg} avlägg` : ''}
-            </>
-          )} />
+        <Rad titel="Körning" pil={false}
+          under={geo == null ? geoSaknas : [
+            geo.basvag ? `Basväg ${fmtM(geo.basvag.meter)}${geo.basvag.antal > 1 ? ` (${geo.basvag.antal} st)` : ''}` : 'Ingen basväg i filen',
+            ...geo.andraLinjer.map(l => `${l.namn} ${fmtM(l.meter)}`),
+            geo.avlagg > 0 ? `${geo.avlagg} avlägg` : null,
+          ].filter(Boolean).join(' · ')} />
 
         <Rad titel="Egenkontroll" pil={false} sista
           under={antalFragor(o.checklist_items) > 0 ? `${antalFragor(o.checklist_items)} frågor` : 'Inga frågor i filen'} />
@@ -176,53 +192,28 @@ function Innehall({ o, geo, geoFel, onAndrad }: { o: Objekt; geo: GeoSammanfattn
         <Rad titel="Status" under={TILLSTAND_TEXT[id]} pil={false} sista />
       </Sektion>
 
-      {(tolkade.ovriga.length > 0 || tolkade.bekraftade.length > 0) && (
+      {noter.length > 0 && (
         <Sektion rubrik="Importen">
-          {tolkade.bekraftade.map(fil => (
-            <Rad key={fil} titel="Stämplingslängd bekräftad" under={`${fil} är stämplingslängden — bekräftat av dig.`} pil={false} />
-          ))}
-          {tolkade.ovriga.length > 0 && (
-            <>
-              <Rad titel={`Övriga importnoteringar (${tolkade.ovriga.length})`} dampad sista={!noterOppna} pil
-                onTryck={() => setNoterOppna(v => !v)} />
-              {noterOppna && tolkade.ovriga.map((n, i) => <Rad key={i} titel={n} dampad pil={false} sista={i === tolkade.ovriga.length - 1} />)}
-            </>
-          )}
+          <Rad titel={`Importnoteringar (${noter.length})`} dampad sista={!noterOppna} pil onTryck={() => setNoterOppna(v => !v)} />
+          {noterOppna && noter.map((n, i) => <Rad key={i} titel={n} dampad pil={false} sista={i === noter.length - 1} />)}
         </Sektion>
       )}
     </>
   );
 }
 
-function OsakertKort({ q, o, sista, onOppna, onKlar }: { q: Osakert; o: Objekt; sista: boolean; onOppna: (path: string | null) => void; onKlar: () => void }) {
-  const [sparar, setSparar] = useState(false);
-  const [fel, setFel] = useState<string | null>(null);
-  // Filens plats: den tolkade stämplingslängden, eller den okända PDF:en bland övriga dokument.
-  const path = q.slag === 'stamplingslangd' ? o.stamplingslangd_url : (o.ovriga_dokument ?? []).find(d => d.namn === q.fil)?.path ?? null;
-  // "Ja" finns där vi kan göra något av svaret: en tolkad stämplingslängd, eller en okänd PDF på en slutavverkning som saknar stämplingslängd.
-  const kanSvara = q.slag === 'stamplingslangd' || (o.typ === 'slutavverkning' && !o.stamplingslangd_url);
-
-  async function ja() {
-    setSparar(true); setFel(null);
-    try { await bekraftaStamplingslangd(o.id, q, { path }); onKlar(); } catch (e) { setFel(e instanceof Error ? e.message : String(e)); setSparar(false); }
-  }
-
+function FragaKort({ q, sista, onOppna }: { q: Fraga; sista: boolean; onOppna: (path: string | null) => void }) {
   return (
-    <div data-osakert={q.slag} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
+    <div data-fraga={q.nyckel} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
       <p style={{ margin: 0, ...TYP.text }}>
-        {q.slag === 'stamplingslangd'
+        {q.nannderStamplingslangd
           ? `Är det här stämplingslängden? Filen hette ${q.fil} och hade inget namn vi känner igen. Anteckningen i filen nämner en stämplingslängd, så vi tolkade den som det.`
-          : `Vad är ${q.fil}? Filen hade inget namn vi känner igen och ligger som övrigt dokument.${kanSvara ? ' Slutavverkningen saknar stämplingslängd — är det den?' : ''}`}
+          : `Vad är ${q.fil}? Filen hade inget namn vi känner igen och ligger som övrigt dokument.`}
       </p>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l, marginTop: AVSTAND.m }}>
-        {kanSvara && (
-          <button type="button" onClick={ja} disabled={sparar} style={{ ...KNAPP.sekundar, flex: 1, ...(sparar ? INAKTIV : null) }}>
-            {sparar ? 'Sparar …' : q.slag === 'stamplingslangd' ? 'Ja, det stämmer' : 'Ja, det är stämplingslängden'}
-          </button>
-        )}
-        <button type="button" onClick={() => onOppna(path)} disabled={!path} style={{ ...KNAPP.lank, ...(path ? null : INAKTIV) }}>Öppna filen</button>
+      {/* Bara "Öppna filen": ett svar måste kunna bäras över en omimport, och det kan det inte än. */}
+      <div style={{ marginTop: AVSTAND.s }}>
+        <button type="button" onClick={() => onOppna(q.path)} disabled={!q.path} style={{ ...KNAPP.lank, ...(q.path ? null : INAKTIV) }}>Öppna filen</button>
       </div>
-      {fel && <p role="alert" style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.orange }}>{fel}</p>}
     </div>
   );
 }

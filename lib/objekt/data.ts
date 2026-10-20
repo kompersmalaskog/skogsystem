@@ -1,21 +1,20 @@
 // Läsning och skrivning för Objekt-vyn (objekt + beställningar i EN vy). Ett läsfel är ett fel — aldrig en tom lista som ser ut som
 // "inga objekt" (CLAUDE.md, ärlig data). Skrivningar kräver rader tillbaka: noll rader är ett fel, inte "sparat".
 import { supabase } from '@/lib/supabase';
-import { bekraftadRad, type Osakert } from './filenGav';
 import type { Manad } from './manad';
-import type { ObjektTyp } from './tackning';
+import type { ObjektTyp, SektionTyp } from './tackning';
 
 export interface ObjektRad {
   id: string;
   namn: string;
   typ: string | null;
   bolag: string | null;
+  kalla: string | null;
   ar: number | null;
   manad: number | null;
   volym: number | null;
   status: string | null;
   traktdirektiv_url: string | null;
-  stamplingslangd_url: string | null;
   import_varningar: unknown;
 }
 
@@ -29,17 +28,32 @@ export interface Post {
   volym: number;
 }
 
-const LISTKOLUMNER = 'id, namn, typ, bolag, ar, manad, volym, status, traktdirektiv_url, stamplingslangd_url, import_varningar';
+const LISTKOLUMNER = 'id, namn, typ, bolag, kalla, ar, manad, volym, status, traktdirektiv_url, import_varningar';
 
-/** Objekt av de två typerna med beställning för månaden. Avslutade ingår: volymen står kvar. */
+/** Månadens objekt: gallring och slutavverkning (har beställning) och GROT (har ingen). Avslutade ingår: volymen står kvar. */
 export async function hamtaObjektForManad(m: Manad): Promise<ObjektRad[]> {
   const { data, error } = await supabase
     .from('objekt')
     .select(LISTKOLUMNER)
     .eq('ar', m.ar)
     .eq('manad', m.manad)
-    .in('typ', ['gallring', 'slutavverkning'])
+    .in('typ', ['gallring', 'slutavverkning', 'grot'])
     .order('ordning', { ascending: true })
+    .order('namn', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ObjektRad[];
+}
+
+/**
+ * De levande objekten som saknar månad (Starta jobb lägger dem så). Avslutade utan månad räknas inte hit: de har aldrig räknats mot någon
+ * beställning och är en egen fråga. De syns sist i vyn så att de inte döljs.
+ */
+export async function hamtaUtanManad(): Promise<ObjektRad[]> {
+  const { data, error } = await supabase
+    .from('objekt')
+    .select(LISTKOLUMNER)
+    .or('ar.is.null,manad.is.null')
+    .neq('status', 'avslutat')
     .order('namn', { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as ObjektRad[];
@@ -84,34 +98,25 @@ export async function standardBolag(): Promise<{ bolag: string; bolag_id: number
  * Ett objekt lagt in för hand. Typ, år och månad sätts av vyn. Status utelämnas medvetet: databasens default (`oplanerad`) gäller —
  * status styrs av planeringsvyn (Klar för maskin), aldrig här (objekt_status_check).
  */
-export async function laggInObjekt(o: { namn: string; volym: number; typ: ObjektTyp; bolag: string } & Manad): Promise<void> {
+export async function laggInObjekt(o: { namn: string; volym: number | null; typ: SektionTyp; bolag: string | null } & Manad): Promise<void> {
   const { data, error } = await supabase
     .from('objekt')
-    .insert({ namn: o.namn.trim(), volym: Math.round(o.volym), typ: o.typ, bolag: o.bolag, ar: o.ar, manad: o.manad, kalla: 'manuell' })
+    .insert({ namn: o.namn.trim(), volym: o.volym == null ? null : Math.round(o.volym), typ: o.typ, bolag: o.bolag, ar: o.ar, manad: o.manad, kalla: 'manuell' })
     .select('id');
   if (error) throw new Error(error.message);
   if ((data ?? []).length !== 1) throw new Error('Objektet sparades inte. Försök igen.');
 }
 
-/**
- * "Ja, det stämmer": importens OSÄKER-rad ersätts med en Bekräftad-rad i `import_varningar`. Är filen en okänd PDF
- * (inte redan stämplingslängd) flyttas den dessutom till stämplingslängd och tas bort ur övriga dokument.
- * En omimport skriver om `import_varningar` och frågan kommer tillbaka — importen bevarar inget av det här.
- */
-export async function bekraftaStamplingslangd(objektId: string, osakert: Osakert, fil: { path: string | null }): Promise<void> {
-  const { data: rad, error: lasFel } = await supabase.from('objekt').select('import_varningar, ovriga_dokument, stamplingslangd_url').eq('id', objektId).maybeSingle();
-  if (lasFel) throw new Error(lasFel.message);
-  if (!rad) throw new Error('Objektet finns inte längre.');
-  const varningar: string[] = Array.isArray(rad.import_varningar) ? rad.import_varningar.filter((v: unknown): v is string => typeof v === 'string') : [];
-  const patch: Record<string, unknown> = {
-    import_varningar: varningar.map(v => (v === osakert.rad ? bekraftadRad(osakert.fil) : v)),
-  };
-  if (osakert.slag === 'okand_pdf') {
-    if (!fil.path) throw new Error('Filen hittades inte bland objektets dokument.');
-    patch.stamplingslangd_url = fil.path;
-    patch.ovriga_dokument = (Array.isArray(rad.ovriga_dokument) ? rad.ovriga_dokument : []).filter((d: { path?: string }) => d.path !== fil.path);
-  }
-  const { data, error } = await supabase.from('objekt').update(patch).eq('id', objektId).select('id');
+/** Flytta ett objekt till en annan månad. Rör ingenting annat (status och tilldelning styrs av planeringsvyn). */
+export async function flyttaObjekt(objektId: string, till: Manad): Promise<void> {
+  const { data, error } = await supabase.from('objekt').update({ ar: till.ar, manad: till.manad }).eq('id', objektId).select('id');
   if (error) throw new Error(error.message);
-  if ((data ?? []).length !== 1) throw new Error('Ändringen sparades inte. Försök igen.');
+  if ((data ?? []).length !== 1) throw new Error('Objektet flyttades inte. Försök igen.');
+}
+
+/** Ta bort ett felimporterat objekt. Anroparen har redan fått en bekräftelse. Ett fel (t.ex. att något hänger ihop med objektet) visas som det är. */
+export async function taBortObjekt(objektId: string): Promise<void> {
+  const { data, error } = await supabase.from('objekt').delete().eq('id', objektId).select('id');
+  if (error) throw new Error(error.message);
+  if ((data ?? []).length !== 1) throw new Error('Objektet togs inte bort. Försök igen.');
 }

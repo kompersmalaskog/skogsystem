@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { inlagtSumma, lageText, bestalltSumma, rubrikTal, visadVolym } from './tackning';
 import { saknas, tillstandId, TILLSTAND_TEXT } from './tillstand';
 import { byggForslag, kommandeManader, stegaManad, manadEtikett } from './manad';
-import { bekraftadRad, certText, geometriSammanfattning as geo, tolkaVarningar, traktkartor } from './filenGav';
+import { certText, fragor, geometriSammanfattning as geo, noterat, traktkartor } from './filenGav';
 
 // Facit: prod oktober 2026 (verifierat mot databasen 2026-10-19).
 const GALLRING = [{ volym: 146 }, { volym: 100 }, { volym: 88 }];
@@ -42,14 +42,21 @@ describe('tillstånd', () => {
     expect(TILLSTAND_TEXT[tillstandId('klar')]).toBe('Klar'); // gammal data
     expect(TILLSTAND_TEXT[tillstandId(null)]).toBe('Status saknas'); // gissar inte "väntar"
   });
-  const osaker = ['"Skälviken.pdf" tolkad som stämplingslängd via Info — OSÄKER, bekräfta i UI:t.'];
-  it('saknas: bara det som går att åtgärda, aldrig på klara objekt', () => {
-    const mollerud = { typ: 'slutavverkning', status: 'oplanerad', volym: 1005, traktdirektiv_url: 'td.pdf', stamplingslangd_url: null, import_varningar: [] };
-    expect(saknas(mollerud)).toEqual(['saknar stämplingslängd']);
-    expect(saknas({ ...mollerud, stamplingslangd_url: 'sl.pdf', import_varningar: osaker })).toEqual(['stämplingslängd osäker']);
-    expect(saknas({ ...mollerud, status: 'avslutat' })).toEqual([]);
-    expect(saknas({ ...mollerud, typ: 'gallring' })).toEqual([]);
-    expect(saknas({ ...mollerud, volym: null, traktdirektiv_url: null })).toEqual(['saknar volym', 'saknar traktdirektiv', 'saknar stämplingslängd']);
+  const OKAND = ['PDF utan känt suffix: "Mölleryd.pdf" — sparad som övrigt dokument.'];
+  const bas = { typ: 'slutavverkning', status: 'oplanerad', volym: 1005, kalla: 'envz', traktdirektiv_url: 'td.pdf', import_varningar: [] as unknown };
+  it('saknas: bara det som kräver en hand, aldrig på klara objekt', () => {
+    expect(saknas(bas)).toEqual([]);
+    expect(saknas({ ...bas, import_varningar: OKAND })).toEqual(['1 fråga']);
+    expect(saknas({ ...bas, status: 'avslutat', import_varningar: OKAND })).toEqual([]);
+    expect(saknas({ ...bas, volym: null, traktdirektiv_url: null })).toEqual(['saknar volym', 'saknar traktdirektiv']);
+  });
+  it('stämplingslängd flaggas ALDRIG som saknad (4 av 42 slutavverkningar har en — normaltillståndet)', () => {
+    expect(saknas({ ...bas }).join()).not.toMatch(/stämplingslängd/);
+    expect(saknas({ ...bas, typ: 'gallring' }).join()).not.toMatch(/stämplingslängd/);
+  });
+  it('GROT och objekt lagda för hand/via Starta jobb nagas inte för volym och traktdirektiv', () => {
+    expect(saknas({ ...bas, typ: 'grot', volym: null, traktdirektiv_url: null, kalla: 'starta-jobb' })).toEqual([]);
+    expect(saknas({ ...bas, traktdirektiv_url: null, kalla: 'manuell' })).toEqual([]);
   });
 });
 
@@ -104,27 +111,28 @@ describe('geometrin — Skälviken', () => {
   });
 });
 
-describe('import_varningar → det osäkra', () => {
+describe('frågor ur import_varningar', () => {
   const v = [
     'OGI ForestOwner: URBAN EK (urban.ek@vida.se) — VIDA-kontakt, ej lagrad som markägare.',
     '"Skälviken.pdf" tolkad som stämplingslängd via Info — OSÄKER, bekräfta i UI:t.',
     'PDF utan känt suffix: "Mölleryd.pdf" — sparad som övrigt dokument.',
     'Okänt lagernamn "SV_FASTIGHET" — importeras som typ \'okänt\'.',
   ];
-  it('sorterar osäkert, bekräftat och övrigt — och tappar inget', () => {
-    const t = tolkaVarningar(v);
-    expect(t.osakert.map(o => [o.slag, o.fil])).toEqual([['stamplingslangd', 'Skälviken.pdf'], ['okand_pdf', 'Mölleryd.pdf']]);
-    expect(t.ovriga).toHaveLength(2);
-    expect(t.osakert.length + t.ovriga.length).toBe(v.length);
+  const dok = { stamplingslangd_url: 'sl.pdf', ovriga_dokument: [{ namn: 'Mölleryd.pdf', path: '886465_ovrigt_0.pdf' }] };
+  it('bara det som kräver en människa blir en fråga; Skälviken och Mölleryd är SAMMA fråga', () => {
+    const f = fragor(v, dok);
+    expect(f.map(q => [q.fil, q.nannderStamplingslangd])).toEqual([['Skälviken.pdf', true], ['Mölleryd.pdf', false]]);
+    expect(f[0].path).toBe('sl.pdf');
+    expect(f[1].path).toBe('886465_ovrigt_0.pdf');
   });
-  it('en bekräftad rad tolkas som bekräftad, inte som osäker', () => {
-    const t = tolkaVarningar([bekraftadRad('Skälviken.pdf')]);
-    expect(t.osakert).toEqual([]);
-    expect(t.bekraftade).toEqual(['Skälviken.pdf']);
+  it('noterat visas hopfällt, utveckling visas aldrig', () => {
+    expect(noterat(v)).toEqual([v[0]]);
+    expect(noterat(v).join()).not.toMatch(/Okänt lagernamn/);
   });
-  it('tål null och skräp', () => {
-    expect(tolkaVarningar(null).osakert).toEqual([]);
-    expect(tolkaVarningar([1, null, {}]).ovriga).toEqual([]);
+  it('tål null, skräp och nya objektrader', () => {
+    expect(fragor(null, dok)).toEqual([]);
+    expect(fragor([1, null, {}], dok)).toEqual([]);
+    expect(fragor([{ nyckel: 'okand_pdf:A.pdf', sort: 'fraga', text: 'x', fil: 'A.pdf' }], dok)).toHaveLength(1);
   });
 });
 

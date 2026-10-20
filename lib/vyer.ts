@@ -93,7 +93,7 @@ export const VYER: Vy[] = [
 
 /** Förinställda favoriter per roll (tills var och en kan ändra sina — nästa PR). Max 8. */
 export const STANDARD_FAVORITER: Record<Roll, string[]> = {
-  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'lastbilen', 'ekonomi'],
+  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi'],
   forare: ['planera', 'planering', 'ledighet', 'lastbilen', 'kalibrering', 'servicelogg', 'uppfoljning', 'utbildning'],
 }
 

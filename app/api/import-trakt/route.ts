@@ -12,6 +12,7 @@ import { packaGeometri, bboxCentrum } from '@/lib/trakt/geometri';
 import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
 import { kartbildVarning } from '@/lib/trakt/kartbildVarning';
+import { klassaVarningar } from '@/lib/trakt/varningar';
 import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';
 // loggaImportFel (flyttad hit ur routen: loggar i import_fel, läses av /datahalsa — se kommentaren där) + skrivning som tål att
 // objekt.import_varningar inte går att skriva.
@@ -390,7 +391,7 @@ export async function POST(request: NextRequest) {
       oversiktskarta_url,                                      // _ÖK.pdf (egen typ)
       valtlapp_url,
       ovriga_dokument: ovriga_dokument.length > 0 ? ovriga_dokument : null,
-      import_varningar: varningar.length > 0 ? varningar : null,
+      import_varningar: klassaVarningar(varningar),                 // {nyckel, sort, text}: bara `fraga` visas för en människa (lib/trakt/varningar.ts)
       ar,
       manad,
       ordning: 1,
@@ -456,7 +457,7 @@ export async function POST(request: NextRequest) {
         varningar.push(`Omimport: lät dina ändringar ligga kvar i ${behollna.join(', ')} (leveransen hade ett annat värde).`);
       }
       patch.import_varden = importVarden;
-      patch.import_varningar = varningar.length > 0 ? varningar : null;       // varningar refreshas alltid
+      patch.import_varningar = klassaVarningar(varningar);                    // varningar refreshas alltid
 
       const skrivUpd = await skrivObjektTolerantMotVarningskolumn<any>(patch, (p) =>
         supabase.from('objekt').update(p).eq('id', befintlig!.id).select().single());

@@ -1,55 +1,46 @@
 // "Vad filen gav oss": traktfilens innehåll, översatt till vad det BETYDER. All data finns redan sparad av importen — inget här skrivs till
 // importflödet. Tre källor på objektraden/geometrin:
-//   • import_varningar (jsonb, ALLTID text[] — inte strukturerad) → det osäkra, tolkat med mönster nedan,
+//   • import_varningar (jsonb: {nyckel, sort, text}, äldre rader ren text) → frågorna, via lib/trakt/varningar,
 //   • dokumentkolumnerna (traktdirektiv_url, traktkarta_url/traktkartor, stamplingslangd_url, valtlapp_url, ovriga_dokument),
 //   • objekt_geometri.geometri (GeoJSON med _typ/_lager/FLBESKR och SHAPE.STAr/STLe) → hänsyn, basväg, kraftledning, avlägg.
 //
 // Saknas något står det: "Ingen stämplingslängd i filen" är information, en tom rad är det inte.
 
-import { BEKRAFTAD_STAMPLINGSLANGD, OSAKER_STAMPLINGSLANGD } from './tillstand';
+import { tillVarningar } from '@/lib/trakt/varningar';
 
 // ---------------------------------------------------------------------------
-// Det osäkra (import_varningar)
+// Frågorna (import_varningar)
 // ---------------------------------------------------------------------------
+// Importen ger varje rad en sort (lib/trakt/varningar.ts). Vyn visar bara `fraga` — det som kräver en människa. `noterat` ligger hopfällt,
+// `utveckling` visas inte alls. Okänd PDF och osäker stämplingslängd är SAMMA fråga: "vad är den här PDF:en?".
 
-/** Importen sparade en PDF som "övrigt dokument" för att namnet inte kändes igen. */
-const OKAND_PDF = /^PDF utan känt suffix: "(.+)" — sparad som övrigt dokument/;
-
-export type OsakertSlag = 'stamplingslangd' | 'okand_pdf';
-
-export interface Osakert {
-  slag: OsakertSlag;
+export interface Fraga {
+  nyckel: string;
   fil: string;
-  /** Raden i import_varningar som detta kommer ur (för att kunna ersättas vid bekräftelse). */
-  rad: string;
+  /** Importen fick en ledtråd: Info nämnde en stämplingslängd, så den här PDF:en tolkades som det. */
+  nannderStamplingslangd: boolean;
+  /** Var filen ligger i bucketen (null = hittades inte bland objektets dokument). */
+  path: string | null;
 }
 
-export interface TolkadeVarningar {
-  osakert: Osakert[];
-  /** Bekräftade av användaren (importen ber om bekräftelse "i UI:t"). */
-  bekraftade: string[];
-  /** Resten — importens egna noteringar. Visas hopfällda längst ner, aldrig borttagna. */
-  ovriga: string[];
-}
-
-/** Raderna som är importens bakgrundsbrus för den här vyn: Vida-kontakten, hoppade lager, okända lagernamn. De ligger kvar under "Övriga importnoteringar". */
-export function tolkaVarningar(varningar: unknown): TolkadeVarningar {
-  const ut: TolkadeVarningar = { osakert: [], bekraftade: [], ovriga: [] };
-  if (!Array.isArray(varningar)) return ut;
-  for (const v of varningar) {
-    if (typeof v !== 'string') continue;
-    let m = OSAKER_STAMPLINGSLANGD.exec(v);
-    if (m) { ut.osakert.push({ slag: 'stamplingslangd', fil: m[1], rad: v }); continue; }
-    m = OKAND_PDF.exec(v);
-    if (m) { ut.osakert.push({ slag: 'okand_pdf', fil: m[1], rad: v }); continue; }
-    m = BEKRAFTAD_STAMPLINGSLANGD.exec(v);
-    if (m) { ut.bekraftade.push(m[1]); continue; }
-    ut.ovriga.push(v);
+/** En fråga per fil. Dubbletter (samma fil nämnd av två regler) slås ihop. */
+export function fragor(varningar: unknown, dok: Pick<DokKolumner, 'stamplingslangd_url' | 'ovriga_dokument'>): Fraga[] {
+  const sett = new Set<string>();
+  const ut: Fraga[] = [];
+  for (const v of tillVarningar(varningar)) {
+    if (v.sort !== 'fraga' || !v.fil || sett.has(v.nyckel)) continue;
+    sett.add(v.nyckel);
+    const ledtrad = v.ledtrad === 'info_namnde_stamplingslangd';
+    const bland = (dok.ovriga_dokument ?? []).find(d => d.namn === v.fil)?.path ?? null;
+    ut.push({ nyckel: v.nyckel, fil: v.fil, nannderStamplingslangd: ledtrad, path: ledtrad ? (dok.stamplingslangd_url ?? bland) : bland });
   }
   return ut;
 }
 
-export const bekraftadRad = (fil: string): string => `Bekräftad: "${fil}" är stämplingslängd.`;
+/** Det som är beslutat och bara för kännedom — visas hopfällt längst ner. Utvecklingsrader visas aldrig. */
+export function noterat(varningar: unknown): string[] {
+  return tillVarningar(varningar).filter(v => v.sort === 'noterat').map(v => v.text);
+}
 
 // ---------------------------------------------------------------------------
 // Dokumenten

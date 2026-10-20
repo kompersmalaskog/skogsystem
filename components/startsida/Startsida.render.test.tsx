@@ -98,9 +98,9 @@ describe('Startsida (admin)', () => {
     expect(document.querySelectorAll('a[href="/lastbil"] [role="status"]')).toHaveLength(0)
   })
 
-  it('favoriterna: åtta rutor, märket sitter på rätt ruta', async () => {
+  it('favoriterna: sju rutor (Objekt och Beställningar är en vy sedan 2026-10-19), märket sitter på rätt ruta', async () => {
     await montera(<Startsida roll="admin" marken={{ egenkontroll: 5 }} />)
-    expect(lankar(sektion('Dina vyer')!)).toHaveLength(8)
+    expect(lankar(sektion('Dina vyer')!)).toHaveLength(7)
     // Egenkontroll är inte en adminfavorit — märket syns i gruppen Objekt (ihopfälld: summan på gruppraden).
     const objektRad = knapp('Objekt')
     expect(objektRad.querySelector('[role="status"]')?.textContent).toBe('5')
@@ -242,7 +242,7 @@ describe('Egna favoriter', () => {
   })
 
   it('åtta valda → plus är avstängt och det står varför', async () => {
-    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} favoritIds={null} />)
+    await montera(<Startsida roll="admin" marken={{}} onSparaFavoriter={async () => true} favoritIds={['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi', 'kalibrering']} />)
     await andra()
     expect(iArk('Lägg till Ledighet').disabled).toBe(true)
     expect(ark().textContent).toContain('plats för 8')
@@ -263,7 +263,7 @@ describe('Egna favoriter', () => {
     await act(async () => { Array.from(ark().querySelectorAll('button')).find(b => b.textContent?.includes('Återställ'))!.click() })
     await act(async () => { spara().click() })
     await flush()
-    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'lastbilen', 'ekonomi'])
+    expect(sparat[0]).toEqual(['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi'])
   })
 
   it('HomeClient: sparade favoriter läses in för admin', async () => {

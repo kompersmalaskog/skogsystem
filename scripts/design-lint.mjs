@@ -88,6 +88,7 @@ export const SKARPA = [
   "app/objekt/_components/BestallningArk.tsx",
   "app/objekt/_components/ManuellArk.tsx",
   "app/objekt/_components/FilenGavVy.tsx",
+  "app/objekt/_components/AndraObjektArk.tsx",
   "components/design/Rad.tsx",
   "components/design/Falt.tsx",
   "components/design/Manadsvaljare.tsx",

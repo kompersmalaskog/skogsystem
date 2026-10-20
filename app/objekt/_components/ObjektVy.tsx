@@ -8,19 +8,22 @@ import Sektion from '@/components/design/Sektion';
 import Tillstand from '@/components/design/Tillstand';
 import VyKolumn from '@/components/design/VyKolumn';
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
-import { hamtaObjektForManad, hamtaPoster, type ObjektRad, type Post } from '@/lib/objekt/data';
+import { hamtaObjektForManad, hamtaPoster, hamtaUtanManad, type ObjektRad, type Post } from '@/lib/objekt/data';
 import { importeraTraktfil, type ImportUtfall } from '@/lib/objekt/importTraktfil';
 import { lasManadUrl, manadEtikett, stegaManad, type Manad } from '@/lib/objekt/manad';
-import { bestalltSumma, lageText, rubrikTal, inlagtSumma, TYPER, visadVolym, fmtM3, type ObjektTyp } from '@/lib/objekt/tackning';
+import { bestalltSumma, fmtM3, inlagtSumma, lageText, rubrikTal, TYPER, typNamn, visadVolym, type ObjektTyp } from '@/lib/objekt/tackning';
 import { saknas, tillstandId, TILLSTAND_TEXT, type TillstandId } from '@/lib/objekt/tillstand';
 import BestallningArk from './BestallningArk';
 import ManuellArk from './ManuellArk';
 
-type Lage = { lage: 'laddar' } | { lage: 'fel'; text: string } | { lage: 'klar'; objekt: ObjektRad[]; poster: Post[] };
+type Lage = { lage: 'laddar' } | { lage: 'fel'; text: string } | { lage: 'klar'; objekt: ObjektRad[]; poster: Post[]; utanManad: ObjektRad[] };
 
-/** Tillståndsordet och dess färg: ordet bär betydelsen, färgen förstärker den. Klart är dämpat (hela raden), inte en egen färg. */
+/**
+ * Tillståndsordets färg. Orange är RESERVERAT för det som kräver en hand (saknas, fråga, fel): "Väntar på planering" är normaltillståndet för
+ * en nyss importerad trakt (3 av 6 oktoberobjekt) — vore det orange betydde orange ingenting. Aktivt (Igång) är grönt, planerat vitt, resten dämpat.
+ */
 const TILLSTAND_FARG: Record<TillstandId, string> = {
-  vantar: FARG.orange, planerad: FARG.text, igang: FARG.gron, klar: FARG.text2, okant: FARG.orange,
+  vantar: FARG.text2, planerad: FARG.text, igang: FARG.gron, klar: FARG.text2, okant: FARG.orange,
 };
 
 export default function ObjektVy() {
@@ -36,8 +39,8 @@ export default function ObjektVy() {
 
   const ladda = useCallback((tyst: boolean) => {
     if (!tyst) setLage({ lage: 'laddar' });
-    return Promise.all([hamtaObjektForManad(manad), hamtaPoster(manad)])
-      .then(([objekt, poster]) => ({ lage: 'klar', objekt, poster }) as const)
+    return Promise.all([hamtaObjektForManad(manad), hamtaPoster(manad), hamtaUtanManad()])
+      .then(([objekt, poster, utanManad]) => ({ lage: 'klar', objekt, poster, utanManad }) as const)
       .catch(e => ({ lage: 'fel', text: e instanceof Error ? e.message : String(e) }) as const);
   }, [manad]);
 
@@ -74,6 +77,7 @@ export default function ObjektVy() {
   const klar = lage.lage === 'klar';
   const objekt = klar ? lage.objekt : [];
   const poster = klar ? lage.poster : [];
+  const utanManad = klar ? lage.utanManad : [];
 
   const perTyp = TYPER.map(t => {
     const rader = objekt.filter(o => o.typ === t.id);
@@ -81,9 +85,9 @@ export default function ObjektVy() {
     const inlagt = inlagtSumma(rader);
     return { ...t, rader, bestallt, inlagt, lage: lageText(inlagt, bestallt) };
   });
+  const grotRader = objekt.filter(o => o.typ === 'grot');
   const inlagtPerTyp = Object.fromEntries(perTyp.map(t => [t.id, t.inlagt])) as Record<ObjektTyp, number>;
   const antalPerTyp = Object.fromEntries(perTyp.map(t => [t.id, t.rader.length])) as Record<ObjektTyp, number>;
-  const forvaldTyp = (perTyp.find(t => !t.lage.fylld) ?? perTyp[0]).id;
   const manadParam = `?ar=${manad.ar}&manad=${manad.manad}`;
 
   return (
@@ -121,22 +125,40 @@ export default function ObjektVy() {
               <button type="button" style={KNAPP.lank} onClick={() => setForsok(n => n + 1)}>Försök igen</button>
             </div>
           )}
-          {lage.lage === 'klar' && perTyp.map(t => (
-            <Sektion key={t.id} rubrik={t.namn} hoger={rubrikTal(t.inlagt, t.bestallt)} onRubrikTryck={() => setArk('bestallning')}>
-              {t.rader.length === 0 && (
-                <p style={{ ...TYP.text, color: FARG.text2, margin: 0, padding: `${AVSTAND.m}px 0` }}>
-                  Inga objekt inlagda i {manadEtikett(manad).toLowerCase()}. Importera en traktfil så dyker de upp här.
-                </p>
+          {lage.lage === 'klar' && (
+            <>
+              {perTyp.map(t => (
+                <Sektion key={t.id} rubrik={t.namn} hoger={rubrikTal(t.inlagt, t.bestallt)} onRubrikTryck={() => setArk('bestallning')}>
+                  {t.rader.length === 0 && (
+                    <p style={{ ...TYP.text, color: FARG.text2, margin: 0, padding: `${AVSTAND.m}px 0` }}>
+                      Inga objekt inlagda i {manadEtikett(manad).toLowerCase()}. Importera en traktfil så dyker de upp här.
+                    </p>
+                  )}
+                  {t.rader.map(o => <ObjektListRad key={o.id} o={o} manadParam={manadParam} />)}
+                  <Rad
+                    titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}>
+                      {t.lage.fylld && <Ikon namn="check_circle" fylld storlek={IKON.rad} farg={FARG.gron} />}
+                      {t.lage.text}
+                    </span>}
+                    sista attr={{ 'data-lage': '' }} />
+                </Sektion>
+              ))}
+
+              {/* GROT har ingen beställning (bestallningar.typ tillåter bara gallring/slutavverkning), så ingen rubrikrad med tal och inget läge. */}
+              {grotRader.length > 0 && (
+                <Sektion rubrik="GROT">
+                  {grotRader.map((o, i) => <ObjektListRad key={o.id} o={o} manadParam={manadParam} sista={i === grotRader.length - 1} />)}
+                </Sektion>
               )}
-              {t.rader.map(o => <ObjektListRad key={o.id} o={o} manadParam={manadParam} />)}
-              <Rad
-                titel={<span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}>
-                  {t.lage.fylld && <Ikon namn="check_circle" fylld storlek={IKON.rad} farg={FARG.gron} />}
-                  {t.lage.text}
-                </span>}
-                sista attr={{ 'data-lage': '' }} />
-            </Sektion>
-          ))}
+
+              {/* De levande objekten utan månad syns här — de räknas inte mot någon beställning, men de ska inte döljas. */}
+              {utanManad.length > 0 && (
+                <Sektion rubrik={`Utan månad (${utanManad.length})`} not="De räknas inte mot någon beställning. Öppna ett objekt för att ge det en månad.">
+                  {utanManad.map((o, i) => <ObjektListRad key={o.id} o={o} manadParam={manadParam} visaTyp sista={i === utanManad.length - 1} />)}
+                </Sektion>
+              )}
+            </>
+          )}
         </Tillstand>
       </VyKolumn>
 
@@ -145,7 +167,7 @@ export default function ObjektVy() {
           onStang={() => setArk(null)} onSparad={text => { setArk(null); setKvitto(text); laddaOmTyst(); }} />
       )}
       {ark === 'manuell' && (
-        <ManuellArk manad={manad} forvaldTyp={forvaldTyp}
+        <ManuellArk manad={manad}
           bolagFor={typ => poster.find(p => p.typ === typ)?.bolag ?? poster[0]?.bolag ?? null}
           onStang={() => setArk(null)} onSparad={text => { setArk(null); setKvitto(text); laddaOmTyst(); }} />
       )}
@@ -153,18 +175,21 @@ export default function ObjektVy() {
   );
 }
 
-function ObjektListRad({ o, manadParam }: { o: ObjektRad; manadParam: string }) {
+function ObjektListRad({ o, manadParam, visaTyp, sista }: { o: ObjektRad; manadParam: string; visaTyp?: boolean; sista?: boolean }) {
   const id = tillstandId(o.status);
   const sak = saknas(o);
-  const saknarVolym = !(typeof o.volym === 'number' && o.volym > 0);
+  const harBestallning = o.typ === 'gallring' || o.typ === 'slutavverkning';
+  const harVolym = typeof o.volym === 'number' && o.volym > 0;
   return (
     <Rad
       titel={o.namn}
-      dampad={id === 'klar'}
+      sista={sista}
       href={`/objekt/${o.id}${manadParam}`}
-      hoger={saknarVolym ? <span style={{ color: FARG.orange }}>saknas</span> : fmtM3(visadVolym(o.volym))}
+      // Klart är dämpat i TILLSTÅNDSORDET, inte i talet: ett avslutat objekts volym är en del av täckningen och ritas som alla andra.
+      hoger={harVolym ? fmtM3(visadVolym(o.volym)) : harBestallning ? <span style={{ color: FARG.orange }}>saknas</span> : undefined}
       under={
         <>
+          {visaTyp && <span>{typNamn(o.typ)}{' · '}</span>}
           <span style={{ color: TILLSTAND_FARG[id] }}>{TILLSTAND_TEXT[id]}</span>
           {sak.filter(s => s !== 'saknar volym').map(s => <span key={s} style={{ color: FARG.orange }}>{' · '}{s}</span>)}
         </>

@@ -12,6 +12,11 @@ export const TYPER: readonly { id: ObjektTyp; namn: string }[] = [
   { id: 'slutavverkning', namn: 'Slutavverkning' },
 ];
 
+/** Sektionerna i vyn: de två som har en beställning, och GROT som inte har någon (bestallningar.typ tillåter bara gallring/slutavverkning). */
+export type SektionTyp = ObjektTyp | 'grot';
+export const MANUELLA_TYPER: readonly { id: SektionTyp; namn: string }[] = [...TYPER, { id: 'grot', namn: 'GROT' }];
+export const typNamn = (t: string | null | undefined): string => MANUELLA_TYPER.find(x => x.id === t)?.namn ?? (t ? t : 'Typ saknas');
+
 export const fmtM3 = (n: number): string => Math.round(n).toLocaleString('sv-SE');
 
 /** Volymen som visas på en rad (heltal). Saknad volym är 0 i summan men skrivs "saknas" på raden. */

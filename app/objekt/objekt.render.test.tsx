@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * RENDERINGSKONTROLL: Objekt + beställning i EN vy. Vad som vaktas här — och som tsc/lint inte ser:
- *  - HOOK-ORDNING: vyn monteras genom laddar → klar → ark öppet/stängt utan "Rendered more/fewer hooks" (React #310, 2026-10-02).
+ *  - HOOK-ORDNING: vyn monteras genom laddar → klar → ark öppet/stängt utan "Rendered more/fewer hooks" (Reacts hook-fel 310, 2026-10-02).
  *  - TÄCKNINGEN: det avslutade Bågskyttebanan syns OCH räknas ("6 234 / 5 000", "Beställningen fylld · 1 234 över") — förut dolde
  *    listan avslutade objekt medan stapeln räknade dem.
  *  - TILLSTÅND I KLARTEXT på varje rad, och det som saknas på samma rad.
@@ -14,22 +14,33 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const routerReplace = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: routerReplace, push: vi.fn() }) }));
+
 const OBJ = (id: string, namn: string, typ: string, volym: number, status: string, o: Record<string, unknown> = {}) => ({
-  id, namn, typ, bolag: 'Vida', ar: 2026, manad: 10, volym, status, ordning: 1, areal: null, cert: 'FSC PEFC', grot: false, markagare: 'Johannishus Godsförvaltning Ab',
+  id, namn, typ, bolag: 'Vida', ar: 2026, manad: 10, volym, status, kalla: 'envz', ordning: 1, areal: null, cert: 'FSC PEFC', grot: false, markagare: 'Johannishus Godsförvaltning Ab',
   inkopare: 'Martin Hjert', fastighetsbeteckning: 'JOHANNISHUS 1:2', traktdirektiv_url: 'td.pdf', stamplingslangd_url: null, traktkarta_url: null, traktkartor: null,
   oversiktskarta_url: null, valtlapp_url: null, ovriga_dokument: null, checklist_items: null, import_varningar: [], ...o,
 });
 const SKALVIKEN_VARNING = '"Skälviken.pdf" tolkad som stämplingslängd via Info — OSÄKER, bekräfta i UI:t.';
+const MOLLERYD_VARNING = 'PDF utan känt suffix: "Mölleryd.pdf" — sparad som övrigt dokument.';
+const URBAN = 'OGI ForestOwner: URBAN EK (urban.ek@vida.se) — VIDA-kontakt, ej lagrad som markägare.';
+const LAGER = 'Okänt lagernamn "SV_FASTIGHET" — importeras som typ \'okänt\'. Kolla om VIDA lagt till ett lager.';
 const OBJEKT = [
   OBJ('sandasen', 'Sandåsen gallring 2025', 'gallring', 146, 'pagaende', { cert: 'PEFC', markagare: 'Hans Koch', inkopare: 'Jan-Erik Gustafsson' }),
   OBJ('vashult', 'Vashult gallring 2026', 'gallring', 100, 'oplanerad', { cert: 'None' }),
   OBJ('intaget', 'Intaget gallring', 'gallring', 88, 'oplanerad', { cert: 'None' }),
-  OBJ('bagskytte', 'Bågskyttebanan RP J-Hus- 25', 'slutavverkning', 3495, 'avslutat', { stamplingslangd_url: 'sl.pdf', grot: true }),
+  OBJ('bagskytte', 'Bågskyttebanan RP J-Hus- 25', 'slutavverkning', 3495, 'avslutat', { stamplingslangd_url: 'sl.pdf', grot: true, import_varningar: [URBAN, SKALVIKEN_VARNING.replace('Skälviken', 'Bågskyttebanan')] }),
   OBJ('skalviken', 'Skälviken RP J-Hus -25', 'slutavverkning', 1734, 'planerad', {
     areal: 7.28, grot: true, stamplingslangd_url: 'sl-skalviken.pdf', traktkarta_url: '883966_traktkarta.pdf', checklist_items: new Array(22).fill({ fraga: 'f' }),
-    import_varningar: ['OGI ForestOwner: URBAN EK (urban.ek@vida.se) — VIDA-kontakt, ej lagrad som markägare.', SKALVIKEN_VARNING],
+    import_varningar: [URBAN, SKALVIKEN_VARNING, LAGER],
   }),
-  OBJ('molleryd', 'Mölleryd RP J-Hus -25', 'slutavverkning', 1005, 'oplanerad', {}),
+  OBJ('molleryd', 'Mölleryd RP J-Hus -25', 'slutavverkning', 1005, 'oplanerad', { ovriga_dokument: [{ namn: 'Mölleryd.pdf', path: '886465_ovrigt_0.pdf' }], import_varningar: [URBAN, MOLLERYD_VARNING] }),
+  // Tredje typen: GROT har ingen beställning. Den här ligger i oktober; Kroksjömåla och Kompersmåla väggata saknar månad (prod 2026-10-19).
+  OBJ('grot-okt', 'Hålabäck GROT', 'grot', 0, 'planerad', { volym: null, kalla: 'starta-jobb', traktdirektiv_url: null }),
+  OBJ('kroksjomala', 'Kroksjömåla Grot', 'grot', 0, 'pagaende', { volym: null, ar: null, manad: null, kalla: 'starta-jobb', traktdirektiv_url: null, bolag: 'Vida Energi' }),
+  OBJ('vaggata', 'Kompersmåla väggata', 'slutavverkning', 0, 'oplanerad', { volym: null, ar: null, manad: null, kalla: 'starta-jobb', traktdirektiv_url: null, bolag: null }),
+  OBJ('gammal-utan-manad', 'Gammal avslutad', 'slutavverkning', 400, 'avslutat', { ar: null, manad: null }),
 ];
 const POSTER = [
   { id: 'b-g', ar: 2026, manad: 10, typ: 'gallring', bolag: 'Vida', bolag_id: 1, volym: 1000 },
@@ -50,24 +61,26 @@ const DB: { objekt: any[]; poster: any[]; lasFel: boolean; skrivningar: { tabell
 vi.mock('@/lib/supabase', () => {
   const byggare = (tabell: string) => {
     const f: { k: string; v: any; op: string }[] = [];
-    let op = 'select', payload: any = null, enkel = false;
+    let op = 'select', payload: any = null, enkel = false, utanManad = false;
     const tabellrader = () => (tabell === 'objekt' ? DB.objekt : tabell === 'bestallningar' ? DB.poster : tabell === 'objekt_geometri' ? [{ objekt_id: 'skalviken', geometri: GEOMETRI }] : []);
     const svar = () => {
       if (DB.lasFel && op === 'select') return { data: null, error: { message: 'Anslutningen avbröts' } };
-      if (op === 'upsert' || op === 'insert' || op === 'update') {
+      if (op === 'upsert' || op === 'insert' || op === 'update' || op === 'delete') {
         DB.skrivningar.push({ tabell, op, payload, filter: f.map(x => `${x.k}${x.op}${x.v}`) });
         const n = Array.isArray(payload) ? payload.length : 1;
         return { data: Array.from({ length: n }, (_, i) => ({ id: `ny-${i}` })), error: null };
       }
-      let rader = tabellrader().filter(r => f.every(x => (x.op === 'eq' ? r[x.k] === x.v : x.op === 'in' ? x.v.includes(r[x.k]) : x.op === 'gte' ? r[x.k] >= x.v : x.op === 'lte' ? r[x.k] <= x.v : true)));
+      let rader = tabellrader().filter(r => f.every(x => (x.op === 'eq' ? r[x.k] === x.v : x.op === 'in' ? x.v.includes(r[x.k]) : x.op === 'gte' ? r[x.k] >= x.v : x.op === 'lte' ? r[x.k] <= x.v : x.op === 'neq' ? r[x.k] !== x.v : true)))
+        .filter(r => !utanManad || r.ar == null || r.manad == null);
       return { data: enkel ? (rader[0] ?? null) : rader, error: null };
     };
     const p: any = new Proxy(() => {}, {
       get(_t, prop: string) {
         if (prop === 'then') return (res: any, rej: any) => Promise.resolve(svar()).then(res, rej);
         if (prop === 'maybeSingle' || prop === 'single') return () => { enkel = true; return p; };
-        if (prop === 'upsert' || prop === 'insert' || prop === 'update') return (pl: any) => { op = prop; payload = pl; return p; };
-        if (prop === 'eq' || prop === 'in' || prop === 'gte' || prop === 'lte') return (k: string, v: any) => { f.push({ k, v, op: prop }); return p; };
+        if (prop === 'or') return () => { utanManad = true; return p; };
+        if (prop === 'upsert' || prop === 'insert' || prop === 'update' || prop === 'delete') return (pl?: any) => { op = prop; payload = pl ?? null; return p; };
+        if (prop === 'eq' || prop === 'in' || prop === 'gte' || prop === 'lte' || prop === 'neq') return (k: string, v: any) => { f.push({ k, v, op: prop }); return p; };
         return () => p;
       },
     });
@@ -79,7 +92,7 @@ vi.mock('@/lib/supabase', () => {
 let rot: ReturnType<typeof createRoot> | null = null;
 let behallare: HTMLDivElement | null = null;
 let konsolFel: string[] = [];
-const hookFel = () => konsolFel.filter(m => /Rendered (more|fewer) hooks|change in the order of Hooks|#310/i.test(m));
+const hookFel = () => konsolFel.filter(m => /Rendered (more|fewer) hooks|change in the order of Hooks|Minified React error/i.test(m));
 const stilla = async (n = 4) => { for (let i = 0; i < n; i++) await act(async () => { await new Promise(r => setTimeout(r, 15)); }); };
 /** Tillstand tonar över i 250 ms (RORELSE.byte) — vänta tills villkoret gäller i stället för en fast tid. */
 async function tills(vill: () => boolean, max = 2000) {
@@ -94,7 +107,7 @@ const nbsp = (s: string) => s.replace(/(\d) (?=\d{3}\b)/g, '$1\u00a0');
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.lasFel = false; DB.skrivningar = []; DB.signerade = [];
+  routerReplace.mockClear(); konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.lasFel = false; DB.skrivningar = []; DB.signerade = [];
   vi.spyOn(console, 'error').mockImplementation((...a: any[]) => { konsolFel.push(a.map(String).join(' ')); });
   vi.stubGlobal('open', vi.fn(() => ({ close() {}, location: { href: '' } })));
   behallare = document.createElement('div');
@@ -131,9 +144,50 @@ describe('Objekt + beställning — listan', () => {
     expect(rad('vashult')).toContain('Väntar på planering');
     expect(rad('bagskytte')).toContain('Klar');
     expect(rad('bagskytte')).not.toMatch(/saknar/); // ett klart objekt nagas inte
-    expect(rad('skalviken')).toContain('Planerad · stämplingslängd osäker');
-    expect(rad('molleryd')).toContain('Väntar på planering · saknar stämplingslängd');
+    expect(rad('bagskytte')).not.toMatch(/fråga/); // ...och ställer ingen fråga, fast en gammal OSÄKER-rad finns kvar
+    expect(rad('skalviken')).toContain('Planerad · 1 fråga');
+    expect(rad('molleryd')).toContain('Väntar på planering · 1 fråga');
     expect(rad('molleryd')).toContain(nbsp('1 005'));
+    expect(text()).not.toMatch(/saknar stämplingslängd|stämplingslängd osäker/); // saknad stämplingslängd är normaltillståndet, ingen varning
+  });
+
+  it('orange bär bara det som kräver en hand: "Väntar på planering" är normaltillstånd (dämpat), frågan är orange', async () => {
+    await montera();
+    const farg = (id: string, ord: string) => Array.from(behallare!.querySelector(`[data-objekt="${id}"]`)!.querySelectorAll('span')).find(x => (x.textContent ?? '').includes(ord))!.style.color;
+    expect(farg('vashult', 'Väntar på planering')).toBe('rgb(142, 142, 147)'); // FARG.text2
+    expect(farg('molleryd', '1 fråga')).toBe('rgb(255, 159, 10)'); // FARG.orange
+    expect(farg('sandasen', 'Igång')).toBe('rgb(48, 209, 88)');
+  });
+
+  it('klart är dämpat i ORDET, inte i talet: ett avslutat objekts volym ritas som alla andras', async () => {
+    await montera();
+    const rad = behallare!.querySelector('[data-objekt="bagskytte"]')!;
+    const tal = Array.from(rad.querySelectorAll<HTMLElement>('div')).find(d => d.textContent === nbsp('3 495') && d.style.color)!;
+    expect(tal.style.color).toBe('rgb(255, 255, 255)');
+    expect(Array.from(rad.querySelectorAll('span')).find(x => x.textContent === 'Klar')!.style.color).toBe('rgb(142, 142, 147)');
+  });
+
+  it('GROT är en tredje sektion utan beställning (ingen rubrikrad med tal, inget läge)', async () => {
+    await montera();
+    const sek = behallare!.querySelector('section[aria-label="GROT"]')!;
+    expect(sek.querySelector('[data-objekt="grot-okt"]')).toBeTruthy();
+    expect(sek.querySelector('button')).toBeNull(); // rubriken är inte tryckbar: det finns ingen beställning att ändra
+    expect(sek.textContent).not.toMatch(/beställning/i);
+    expect(behallare!.querySelector('[data-objekt="grot-okt"]')!.textContent).not.toMatch(/saknar|saknas/); // GROT har ingen volymkrav
+  });
+
+  it('de levande objekten utan månad har en plats sist — och de avslutade utan månad drar inte in i den', async () => {
+    await montera();
+    const sek = behallare!.querySelector('section[aria-label="Utan månad (2)"]')!;
+    expect(sek).toBeTruthy();
+    expect(sek.querySelector('[data-objekt="kroksjomala"]')!.textContent).toContain('GROT · Igång');
+    expect(sek.querySelector('[data-objekt="vaggata"]')!.textContent).toContain('Slutavverkning · Väntar på planering');
+    expect(sek.querySelector('[data-objekt="gammal-utan-manad"]')).toBeNull();
+    expect(sek.textContent).toContain('räknas inte mot någon beställning');
+    const sektioner = Array.from(behallare!.querySelectorAll('section')).map(x => x.getAttribute('aria-label'));
+    expect(sektioner[sektioner.length - 1]).toBe('Utan månad (2)');
+    // De räknas inte i täckningen:
+    expect(text()).toContain(nbsp('334 / 1 000'));
   });
 
   it('läsfel är ett fel med Försök igen — aldrig en tom lista', async () => {
@@ -206,22 +260,48 @@ describe('Ändra beställning', () => {
 });
 
 describe('Lägg in manuellt', () => {
-  it('två fält + typ; knappen är inaktiv tills namn och volym finns; objektet får månadens år/månad och status utelämnas', async () => {
+  const sattVarde = async (el: HTMLInputElement, v: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { setter.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const faltInput = () => Array.from(behallare!.ownerDocument.querySelectorAll<HTMLInputElement>('input:not([type="file"])'));
+  const typFlikar = () => Array.from(behallare!.ownerDocument.querySelectorAll<HTMLElement>('[data-typval] [role="tab"]'));
+
+  it('tre typer och INGET förval: knappen är inaktiv även när namn och volym finns, tills en typ har valts', async () => {
     await montera();
     await klicka(knapp('eller lägg in manuellt'));
-    expect(text()).toContain('Läggs in i oktober 2026.');
-    const lagg = knapp('Lägg in', true) as HTMLButtonElement;
-    expect(lagg.style.opacity).toBe('0.4');
-    const [namn, volym] = Array.from(behallare!.ownerDocument.querySelectorAll<HTMLInputElement>('input:not([type="file"])'));
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-    await act(async () => { setter.call(namn, 'Testtrakten'); namn.dispatchEvent(new Event('input', { bubbles: true })); setter.call(volym, '250'); volym.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(typFlikar().map(t => t.textContent)).toEqual(['Gallring', 'Slutavverkning', 'GROT']);
+    expect(typFlikar().some(t => t.getAttribute('aria-selected') === 'true')).toBe(false);
+    const [namn, volym] = faltInput();
+    await sattVarde(namn, 'Testtrakten'); await sattVarde(volym, '250');
     await stilla();
+    expect((knapp('Lägg in', true) as HTMLButtonElement).style.opacity).toBe('0.4');
+    await klicka(typFlikar()[1]);
+    expect((knapp('Lägg in', true) as HTMLButtonElement).style.opacity).not.toBe('0.4');
+  });
+
+  it('objektet får månadens år/månad, vald typ och beställningens bolag; status utelämnas', async () => {
+    await montera();
+    await klicka(knapp('eller lägg in manuellt'));
+    const [namn, volym] = faltInput();
+    await sattVarde(namn, 'Testtrakten'); await sattVarde(volym, '250');
+    await klicka(typFlikar()[1]);
     await klicka(knapp('Lägg in', true));
     const s = DB.skrivningar[0];
     expect(s.tabell).toBe('objekt');
-    expect(s.payload).toMatchObject({ namn: 'Testtrakten', volym: 250, ar: 2026, manad: 10, kalla: 'manuell', bolag: 'Vida' });
+    expect(s.payload).toMatchObject({ namn: 'Testtrakten', volym: 250, typ: 'slutavverkning', ar: 2026, manad: 10, kalla: 'manuell', bolag: 'Vida' });
     expect(s.payload).not.toHaveProperty('status');
-    expect(s.payload.typ).toBe('gallring'); // förvald: den typ vars beställning inte är fylld
+  });
+
+  it('GROT: volymen är valfri, ingen enhet, och inget bolag gissas', async () => {
+    await montera();
+    await klicka(knapp('eller lägg in manuellt'));
+    await klicka(typFlikar()[2]);
+    expect(text()).toContain('Volym (valfritt)');
+    const [namn] = faltInput();
+    await sattVarde(namn, 'Ny grotjobb');
+    await klicka(knapp('Lägg in', true));
+    expect(DB.skrivningar[0].payload).toMatchObject({ namn: 'Ny grotjobb', volym: null, typ: 'grot', bolag: null, ar: 2026, manad: 10 });
   });
 });
 
@@ -235,48 +315,79 @@ describe('Objektvyn — vad filen gav oss', () => {
     await stilla();
   }
 
-  it('Skälviken: det osäkra först, sedan en rad per sak med vad filen BETYDER', async () => {
+  it('Skälviken: faran först, sedan frågan, sedan en rad per sak med vad filen BETYDER', async () => {
     await monteraObjekt('skalviken');
     expect(hookFel()).toEqual([]);
     const t = text();
-    expect(t.indexOf('Osäkert')).toBeLessThan(t.indexOf('Vad filen gav oss'));
+    expect(t.indexOf('Fara')).toBeLessThan(t.indexOf('Fråga'));
+    expect(t.indexOf('Fråga')).toBeLessThan(t.indexOf('Vad filen gav oss'));
     expect(t).toContain('Är det här stämplingslängden? Filen hette Skälviken.pdf och hade inget namn vi känner igen.');
-    expect(knapp('Ja, det stämmer')).toBeTruthy();
     expect(knapp('Öppna filen')).toBeTruthy();
+    expect(knapp('Ja, det stämmer')).toBeUndefined(); // en bekräftelse som försvinner vid nästa omimport är sämre än ingen knapp
     expect(t).toContain('1 blad');
     expect(t).toContain('5 ytor · 0,83\u00a0ha · Grova lövträd F');
-    expect(t).toContain('Kraftledning över trakten · 731\u00a0m ritad');
+    expect(t).toContain('Kraftledning över trakten');
+    expect(t).toContain('731\u00a0m ritad i filen');
     expect(t).toContain('Basväg 205\u00a0m');
     expect(t).toContain('1 avlägg');
     expect(t).toContain('22 frågor');
     expect(t).toContain('JOHANNISHUS 1:2 · inköpare Martin Hjert');
     expect(t).toContain('FSC PEFC');
     expect(t).toContain('Johannishus Godsförvaltning Ab');
-    expect(t).toContain(nbsp('1 734'));
-    expect(t).toContain('7,28 ha');
+    expect(t).toContain('7,28\u00a0ha');
   });
 
-  it('"Ja, det stämmer" ersätter OSÄKER-raden med en Bekräftad-rad — rör inga andra rader', async () => {
+  it('faran är en egen rad (Fara) och Körning bär bara vägen — kraftledningen står inte på båda', async () => {
     await monteraObjekt('skalviken');
-    DB.objekt = OBJEKT.map(o => (o.id === 'skalviken' ? { ...o, import_varningar: o.import_varningar } : o));
-    await klicka(knapp('Ja, det stämmer'));
-    const s = DB.skrivningar.find(x => x.tabell === 'objekt')!;
-    expect(s.op).toBe('update');
-    expect(s.payload.import_varningar).toEqual([
-      'OGI ForestOwner: URBAN EK (urban.ek@vida.se) — VIDA-kontakt, ej lagrad som markägare.',
-      'Bekräftad: "Skälviken.pdf" är stämplingslängd.',
-    ]);
-    expect(s.payload).not.toHaveProperty('stamplingslangd_url'); // den var redan tolkad som stämplingslängd
+    const fara = behallare!.querySelector('[data-fara="Kraftledning"]')!;
+    expect(fara.textContent).toContain('Kraftledning över trakten');
+    const kor = Array.from(behallare!.querySelectorAll('button')).find(b => b.textContent?.startsWith('Körning'))
+      ?? Array.from(behallare!.querySelectorAll('div')).find(d => d.textContent?.startsWith('KörningBasväg'))!;
+    expect(kor.textContent).not.toMatch(/Kraftledning/);
   });
 
-  it('saknade filer står som information, aldrig som en tom rad', async () => {
+  it('namnet är rubriken och volymen ligger en nivå ned — inget TYP.tal som skriker högre än titeln', async () => {
+    await monteraObjekt('skalviken');
+    const h1 = behallare!.querySelector('h1')!;
+    expect(h1.style.fontSize).toBe('30px');
+    const volym = Array.from(behallare!.querySelectorAll('p')).find(p => p.textContent!.includes('m³fub'))!;
+    expect(volym.style.fontSize).toBe('17px');
+    expect(Array.from(behallare!.querySelectorAll('*')).some(e => (e as HTMLElement).style?.fontSize === '32px')).toBe(false);
+  });
+
+  it('en okänd PDF är SAMMA fråga som den osäkra stämplingslängden (Mölleryd), med "Öppna filen" som enda knapp', async () => {
     await monteraObjekt('molleryd');
+    expect(text()).toContain('Vad är Mölleryd.pdf? Filen hade inget namn vi känner igen');
+    expect(behallare!.querySelectorAll('[data-fraga]')).toHaveLength(1);
+    expect(knapp('Öppna filen')).toBeTruthy();
+    await klicka(knapp('Öppna filen'));
+    expect(DB.signerade).toContain('kartbilder/886465_ovrigt_0.pdf');
+  });
+
+  it('en avslutad trakt får ingen fråga, fast en gammal OSÄKER-rad finns kvar (Bågskyttebanan)', async () => {
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-fraga]')).toBeNull();
+    expect(text()).not.toContain('Är det här stämplingslängden');
+  });
+
+  it('noterat ligger hopfällt och utveckling visas aldrig', async () => {
+    await monteraObjekt('skalviken');
+    expect(text()).toContain('Importnoteringar (1)'); // ForestOwner-raden
+    expect(text()).not.toContain('Okänt lagernamn');
+    expect(text()).not.toContain('URBAN EK'); // hopfälld
+    await klicka(Array.from(behallare!.querySelectorAll('button')).find(b => b.textContent?.includes('Importnoteringar')));
+    expect(text()).toContain('URBAN EK');
+    expect(text()).not.toContain('Okänt lagernamn');
+  });
+
+  it('saknade filer står som information; saknad stämplingslängd är ingen rad alls', async () => {
+    await monteraObjekt('vashult');
     const t = text();
     expect(t).toContain('Ingen traktkarta i filen');
-    expect(t).toContain('Ingen stämplingslängd i filen');
     expect(t).toContain('Ingen geometri sparad för objektet');
     expect(t).toContain('Inga frågor i filen');
-    expect(t).not.toContain('Osäkert'); // inget osäkert att fråga om
+    expect(t).not.toMatch(/Ingen stämplingslängd i filen|Stämplingslängd/);
+    expect(t).not.toContain('Fråga'); // inget att fråga om
   });
 
   it('läsfel är ett fel med Försök igen; ett okänt id säger att objektet inte finns', async () => {
@@ -288,5 +399,61 @@ describe('Objektvyn — vad filen gav oss', () => {
     DB.lasFel = false;
     await monteraObjekt('finns-inte');
     expect(text()).toContain('Objektet finns inte längre');
+  });
+});
+
+describe('Objektvyn — Ändra: flytta månad och ta bort', () => {
+  async function monteraObjekt(id: string) {
+    window.history.replaceState({}, '', '/objekt/x?ar=2026&manad=10');
+    const { default: FilenGavVy } = await import('./_components/FilenGavVy');
+    rot = createRoot(behallare!);
+    await act(async () => { rot!.render(<FilenGavVy objektId={id} />); });
+    await tills(() => !text().includes('Läser objektet'));
+    await stilla();
+  }
+
+  it('Spara är inaktiv tills månaden ändrats; sparar bara år och månad (aldrig status)', async () => {
+    await monteraObjekt('molleryd');
+    await klicka(behallare!.querySelector('[data-andra]'));
+    expect(text()).toContain('Oktober 2026');
+    expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).toBe('0.4');
+    await klicka(behallare!.ownerDocument.querySelector('[aria-label="Nästa månad"]'));
+    expect(text()).toContain('November 2026');
+    await klicka(knapp('Spara', true));
+    const s = DB.skrivningar.find(x => x.tabell === 'objekt')!;
+    expect(s.op).toBe('update');
+    expect(s.payload).toEqual({ ar: 2026, manad: 11 });
+    expect(s.filter).toEqual(['ideqmolleryd']);
+  });
+
+  it('ett objekt utan månad kan få en: Välj månad lägger det i månaden man kom ifrån', async () => {
+    await monteraObjekt('kroksjomala');
+    await klicka(behallare!.querySelector('[data-andra]'));
+    expect(text()).toContain('Ingen månad');
+    await klicka(behallare!.ownerDocument.querySelector('[data-valj-manad]'));
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar.find(x => x.tabell === 'objekt')!.payload).toEqual({ ar: 2026, manad: 10 });
+  });
+
+  it('Ta bort kräver bekräftelse i samma ark, och tar först bort när man bekräftar', async () => {
+    await monteraObjekt('molleryd');
+    await klicka(behallare!.querySelector('[data-andra]'));
+    await klicka(behallare!.ownerDocument.querySelector('[data-ta-bort]'));
+    expect(text()).toContain('Mölleryd RP J-Hus -25 tas bort från appen. Det går inte att ångra.');
+    expect(DB.skrivningar).toHaveLength(0); // inget raderat än
+    await klicka(behallare!.ownerDocument.querySelector('[data-borttag]'));
+    const s = DB.skrivningar.find(x => x.tabell === 'objekt')!;
+    expect(s.op).toBe('delete');
+    expect(s.filter).toEqual(['ideqmolleryd']);
+    expect(routerReplace).toHaveBeenCalledWith('/objekt?ar=2026&manad=10'); // tillbaka till listan
+  });
+
+  it('Avbryt i bekräftelsen tar tillbaka formuläret, inte stänger arket', async () => {
+    await monteraObjekt('molleryd');
+    await klicka(behallare!.querySelector('[data-andra]'));
+    await klicka(behallare!.ownerDocument.querySelector('[data-ta-bort]'));
+    await klicka(knapp('Avbryt', true));
+    expect(text()).toContain('Ändra objekt');
+    expect(DB.skrivningar).toHaveLength(0);
   });
 });
