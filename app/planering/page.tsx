@@ -57,6 +57,9 @@ import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad } from '../../components/planering/LarmKort'
+import { VidaSaknasRad, VIDA_RAD_HOJD_PX } from '../../components/planering/VidaSaknasRad'
+import { arVidaVo, lasVidaLager, skapaFornyare } from '../../lib/larm/vidaLager'
+import { useVidaLagerFel } from '../../lib/hooks/useVidaLagerFel'
 import { useGrind } from '../../lib/hooks/useGrind'
 import { GRIND_TYP, rensaGrindKod } from '../../lib/grind'
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, gruppForLinje, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
@@ -636,6 +639,9 @@ async function hamtaPlaneringsObjekt(id: string): Promise<HamtaObjektSvar<any>> 
 
 /** Den gula testbannerns höjd (utöver safe-area): rutan överst flyttas ner med lika mycket i testläget. */
 const TESTBANNER_HOJD_PX = 36;
+
+// Förnyar sessionen före nytt försök att hämta Vidas lager (en utgången session ger tomma rader utan fel). Spärrad: högst en förnyelse per minut.
+const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 
 export default function PlannerPage() {
   // === OBJEKTVAL ===
@@ -3026,6 +3032,7 @@ export default function PlannerPage() {
   const [startIngenKarta, setStartIngenKarta] = useState(false);                     // beslutet blev förarlista → ingen karta
   const [startFlygStart, setStartFlygStart] = useState<number | null>(null);         // flygningen startade
   const [startDold, setStartDold] = useState(false);                                 // overlayen avmonterad efter 'klar'
+  const vidaFel = useVidaLagerFel(valtObjekt?.id ?? null);   // hämtfel på Vidas lager → raden "Vidas lager saknas …" + nytt försök (hooken ligger här: före effekten som hämtar)
   const [traktGeoHamtadFor, setTraktGeoHamtadFor] = useState<string | null>(null);   // objekt-id vars trakt-geometri-svar kommit (finns ELLER saknas)
   const startFixFarskSattRef = useRef(false);
   const startOversiktSattRef = useRef(false);                                        // översikten är satt (en gång)
@@ -4776,26 +4783,33 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const src = map.getSource('trakt-geo-source') as any;
     if (!src) return;
-    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); return; }
+    if (!valtObjekt?.id) { src.setData({ type: 'FeatureCollection', features: [] }); setGeoTyper(new Set()); setGeoKategorier(new Set()); setTraktGeo(null); setTraktGeoHamtadFor(null); vidaFel.rapportera('finns'); return; }
     let avbruten = false;
     (async () => {
       // Startflödet och /maskin-sidan kan ha förladdat just det här objektets geometri (parallellt med kartans laddning). EN gång.
       // GROT-jobb som hör till ett virkesobjekt visar VIRKESOBJEKTETS traktgräns (och därmed dess ytor): objekt.hor_till_objekt_id (Starta jobb).
       const geoObjektId: string = (valtObjekt as any).hor_till_objekt_id || valtObjekt.id;
       const forladdad = geoObjektId === valtObjekt.id ? taForladdadTraktGeo(valtObjekt.id) : null;
-      const { data, error } = forladdad
-        ? await forladdad
-        : await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', geoObjektId).maybeSingle();
+      // Tre svar, aldrig två (lib/larm/vidaLager): finns / saknas (svaret kom, ingen geometri) / fel (hämtningen misslyckades — då visas raden
+      // "Vidas lager saknas …" och sidan försöker igen, `vidaFel.forsok`). Ett hämtfel får aldrig se ut som "trakten har ingen geometri".
+      // En Vida-trakt (numeriskt vo_nummer) har alltid traktgräns: tomt svar = fel (utgången session ger tomma rader UTAN fel), och sessionen förnyas före nytt försök.
+      // Ett P-VO-jobb (privat / väntar på Vida): tomt = saknas på riktigt, ingen rad.
+      const svar = await lasVidaLager(
+        () => forladdad ?? supabase.from('objekt_geometri').select('geometri').eq('objekt_id', geoObjektId).maybeSingle(),
+        { forvantas: arVidaVo((valtObjekt as any).vo_nummer), forny: fornyaSessionVida },
+      );
       if (avbruten) return;
-      const fc: any = (data as any)?.geometri;
-      if (error || !fc || !Array.isArray(fc.features) || fc.features.length === 0) {
+      vidaFel.rapportera(svar.status);
+      if (svar.status === 'fel') console.error('[Vidas lager] hämtning misslyckades:', svar.orsak);
+      if (svar.status !== 'finns') {
         src.setData({ type: 'FeatureCollection', features: [] });
         setGeoTyper(new Set());
         setGeoKategorier(new Set());
         setTraktGeo(null);
-        setTraktGeoHamtadFor(valtObjekt.id);   // svaret kom: geometri SAKNAS (startsekvensen väntar annars i onödan)
+        setTraktGeoHamtadFor(valtObjekt.id);   // svaret kom (eller hämtningen föll): startsekvensen väntar annars i onödan. Felet syns i vidaFel, inte här.
         return;
       }
+      const fc: any = svar.fc;
       src.setData(fc);
       setTraktGeo(fc);
       setTraktGeoHamtadFor(valtObjekt.id);     // svaret kom: geometri FINNS (batchas med setTraktGeo ovan)
@@ -4830,7 +4844,7 @@ export default function PlannerPage() {
       }
     })();
     return () => { avbruten = true; };
-  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [valtObjekt?.id, (valtObjekt as any)?.hor_till_objekt_id, mapLibreReady, vidaFel.forsok]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === Hänsynsytor: i KÖRVYN lätt fyllning (≤ 0,15) och kanten bär färgen; planeringsvyn oförändrad ===
   useEffect(() => {
@@ -13730,12 +13744,15 @@ export default function PlannerPage() {
       })()}
 
       {/* === LARMET (körvy + skotarläge): ETT kort överst, "Sett <Namn>" nederst. Se lib/larm och useKorvyLarm. === */}
+      {korvyActive && vidaFel.fel && (
+        <VidaSaknasRad top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px)`} />
+      )}
       {korvyActive && larm.kort && (
         <LarmKortVy
           kort={larm.kort}
           fler={larm.fler}
           riktning={larm.kort.bearing != null ? korvyRiktning(larm.kort.bearing, korvyHeading) : null}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px)`}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
         />
       )}
       {korvyActive && grindKort && (
