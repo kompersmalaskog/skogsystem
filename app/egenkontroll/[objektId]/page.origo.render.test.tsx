@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   kontext: null as unknown as () => Promise<unknown>,
   vida: null as unknown as () => Promise<unknown>,
   renderAntal: 0,
+  vidaFragad: 0,
 }));
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'obj-1' }) }));
@@ -36,8 +37,11 @@ vi.mock('@/lib/egenkontroll', async () => {
   return {
     ...a,
     hamtaRunda: () => h.hamtaRunda(),
+    // Rundorna här har bara planpunkter, så sidan kompletterar dem vid öppningen. Det är INTE det testet prövar: utan mock går anropet mot den
+    // riktiga Supabase-klienten (session saknas -> kastar efter en kall modulladdning på ~70 ms) och testet blev en kapplöpning mot väntetiden.
+    kompletteraRunda: async () => ({ tillagda: [] }),
     hamtaKontextmarkeringar: () => h.kontext(),
-    hamtaVidaGrans: () => h.vida(),
+    hamtaVidaGrans: () => { h.vidaFragad++; return h.vida(); },
     hamtaProvytor: async () => [],
     hamtaFoton: async () => [],
     hamtaAvverkadeStammar: async () => [],
@@ -85,10 +89,18 @@ async function montera() {
   await act(async () => { root!.render(createElement(Page)); });
 }
 const stilla = async () => { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+/** Väntar på ett VILLKOR, inte på ett fast antal tick: släpper igenom händelseloopen tills det stämmer, och faller med en förklaring om det aldrig gör det. */
+async function vantaTills(villkor: () => boolean, beskrivning: string, tidsgransMs = 3000) {
+  const slut = Date.now() + tidsgransMs;
+  while (!villkor()) {
+    if (Date.now() > slut) throw new Error(`Väntade ${tidsgransMs} ms men det hände aldrig: ${beskrivning}`);
+    await stilla();
+  }
+}
 const karta = () => host!.querySelector('[data-testid="rundkarta"]') as HTMLElement | null;
 const text = () => host!.textContent ?? '';
 
-beforeEach(() => { h.renderAntal = 0; });
+beforeEach(() => { h.renderAntal = 0; h.vidaFragad = 0; });
 afterEach(async () => {
   if (root) await act(async () => { root!.unmount(); });
   host?.remove();
@@ -105,14 +117,14 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => kontextFor(n);
     h.vida = () => vida.p;
     await montera();
-    await stilla();
+    await vantaTills(() => h.vidaFragad > 0, 'sidan frågar efter Vidas traktgräns');
 
     // Origot är inte beslutat: ingen karta, och INTE heller listan — vyn laddar. (Utan det fryser startvalet på listan för gott.)
     expect(karta()).toBeNull();
     expect(text()).toContain('Hämtar rundan');
 
     await act(async () => { vida.lamna(vidaFor(n)); });
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas när Vidas traktgräns kommit');
 
     const k = karta();
     expect(k, 'kartan ska öppnas när kvittot gått igenom').not.toBeNull();
@@ -128,8 +140,7 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => kontextFor(n);
     h.vida = async () => vidaFor(n);
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas');
 
     const k = karta();
     expect(k, 'kartan ska öppnas').not.toBeNull();
@@ -144,8 +155,7 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => OBJEKT[n].granser.map((g, i) => ({ marker_id: `m${i + 1}`, data: { lineType: 'boundary', isLine: true, path: g.map(([x, y]) => ({ x: x * 2, y: y * 2 })) } }));
     h.vida = async () => vidaFor(n);
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas');
 
     // Rundvyn är kartan även när inga markeringar kan ritas: hellre inga punkter än fel (PR 278 och 322) — och förklaringen står vid kartan.
     expect(karta()).not.toBeNull();
@@ -161,8 +171,7 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => kontextFor(n);
     h.vida = async () => { throw new Error('nätet föll'); };
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas');
 
     expect(karta()!.getAttribute('data-origo')).toBe('null');
     expect(karta()!.getAttribute('data-origotext')).toContain('Kunde inte kontrollera var punkterna ligger');
@@ -174,8 +183,7 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => { throw new Error('läsfel'); };
     h.vida = async () => vidaFor(n);
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas');
 
     expect(karta()!.getAttribute('data-origo')).toBe('null');
     expect(karta()!.getAttribute('data-origotext')).toContain('Kunde inte kontrollera var punkterna ligger');
@@ -187,8 +195,7 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => kontextFor(n);
     h.vida = async () => ({ typ: 'saknas' });
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas');
 
     expect(karta()!.getAttribute('data-origo')).toBe('null');
     expect(karta()!.getAttribute('data-origotext')).toContain('Vidas traktgräns saknas');
@@ -200,8 +207,7 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => kontextFor(n);
     h.vida = () => new Promise(() => {});   // svarar aldrig
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas');
 
     // Kontexten (markeringarna) laddas ändå före beslutet — men Vida behövs inte när origot kommer ur bilden.
     const k = karta();
@@ -215,14 +221,12 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => kontextFor(n);
     h.vida = async () => vidaFor(n);
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => karta() !== null, 'kartan öppnas');
     const fore = karta()!.getAttribute('data-origo');
     expect(fore).toBeTruthy();
     // Ingen oändlig omrenderingsloop: antalet kartrenderingar är litet och stabilt efter att beslutet fattats.
     const antal = h.renderAntal;
-    await stilla();
-    await stilla();
+    for (let i = 0; i < 5; i++) await stilla();
     expect(h.renderAntal).toBe(antal);
     expect(karta()!.getAttribute('data-origo')).toBe(fore);
   });
@@ -233,8 +237,7 @@ describe('rundvyn — origobeslutet', () => {
     h.kontext = async () => [];
     h.vida = () => new Promise(() => {});
     await montera();
-    await stilla();
-    await stilla();
+    await vantaTills(() => text().includes('Starta egenkontroll'), 'startknappen visas');
 
     expect(text()).toContain('Starta egenkontroll');
     expect(text()).not.toContain('Hämtar rundan');
