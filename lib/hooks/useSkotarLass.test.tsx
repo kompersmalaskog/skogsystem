@@ -7,8 +7,11 @@ import { act } from 'react';
 
 const server = vi.hoisted(() => ({ online: true, skickade: [] as any[], avslutOpti: [] as any[], begart: [] as Array<{ torr: boolean; opti: Record<string, number> | undefined }> }));
 const opti = vi.hoisted(() => ({ lass: [] as any[] | null, avslutad: false as boolean | null }));
-// Sortimentkällorna: skördat (null = standard, tall + massa), objektets egna sortiment och senaste 12 månaderna.
-const sort = vi.hoisted(() => ({ skordat: null as any[] | null, objekt: [] as string[] | null, historik: null as any[] | null }));
+type SkordatRad = { nyckel: string; namn: string; m3: number };
+const SKORDAT_STANDARD: SkordatRad[] = [{ nyckel: 'tall', namn: 'Tall', m3: 100 }, { nyckel: 'massa', namn: 'Massa', m3: 50 }];
+// Sortimentkällorna: skördat (SKORDAT_STANDARD som standard; [] = skördaren läst men inget skördat; null = kunde inte läsas),
+// objektets egna sortiment och senaste 12 månaderna.
+const sort = vi.hoisted(() => ({ skordat: undefined as SkordatRad[] | null | undefined, objekt: [] as string[] | null, historik: null as any[] | null }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/lib/objektNummer', () => ({ hamtaAltNummer: async () => [], hogarObjektIds: (vo: string) => [vo] }));
@@ -35,7 +38,7 @@ vi.mock('@/lib/skotarLass/koKopplad', async () => {
     lasAvslut: async () => null,
     lasOptiLass: async () => opti.lass,
     lasSkotningAvslutad: async () => opti.avslutad,
-    lasSkordat: async () => sort.skordat ?? [{ nyckel: 'tall', namn: 'Tall', m3: 100 }, { nyckel: 'massa', namn: 'Massa', m3: 50 }],
+    lasSkordat: async () => (sort.skordat === undefined ? SKORDAT_STANDARD : sort.skordat),
     lasObjektSortiment: async () => sort.objekt,
     lasSortimentHistorik: async () => sort.historik,
   };
@@ -75,7 +78,7 @@ async function stå(nordM: number, sek: number) {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   vi.setSystemTime(new Date('2026-10-19T08:00:00Z'));
-  server.online = true; server.skickade = []; server.avslutOpti = []; server.begart = []; opti.lass = []; opti.avslutad = false; sort.skordat = null; sort.objekt = []; sort.historik = null; skapade.length = 0; position = null; extraNu = undefined;
+  server.online = true; server.skickade = []; server.avslutOpti = []; server.begart = []; opti.lass = []; opti.avslutad = false; sort.skordat = undefined; sort.objekt = []; sort.historik = null; skapade.length = 0; position = null; extraNu = undefined;
   (await import('@/lib/skotarLass/koKopplad') as any).aterstallKo();
   div = document.createElement('div'); document.body.appendChild(div); root = createRoot(div);
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -480,6 +483,39 @@ describe('Färdigskotad på en trakt som började i Opti', () => {
     await act(async () => { await vy.fardigskotad(); });
     expect(server.begart).toHaveLength(0);
     expect(vy.avslut).toBeNull();
+  });
+});
+
+describe('trakt utan skördat (inte påbörjad)', () => {
+  const laddaOm = async (skordat: typeof sort.skordat) => { sort.skordat = skordat; await visa({ objekt: { id: 'o-ny', vo: '777', namn: 'Skälviken' } }); await act(async () => { await Promise.resolve(); }); };
+  it('skördaren är läst men har inget skördat → ingen Kvar (aldrig "Kvar ~0 m³" som säger att trakten är klar)', async () => {
+    await laddaOm([]);
+    expect(vy.skordatLaddat).toBe(true);
+    expect(vy.kvar).toBeNull();
+    expect(vy.sammanfattning).toBeNull();
+    expect(vy.ingetSkordat).toBe(true);
+  });
+  it('rader med noll m³ räknas som inget skördat', async () => {
+    await laddaOm([{ nyckel: 'tall', namn: 'Tall', m3: 0 }]);
+    expect(vy.kvar).toBeNull();
+    expect(vy.ingetSkordat).toBe(true);
+  });
+  it('Färdigskotad skickas aldrig för en trakt utan skördat', async () => {
+    await laddaOm([]);
+    await act(async () => { await vy.fardigskotad(); });
+    expect(server.begart).toHaveLength(0);
+    expect(vy.avslut).toBeNull();
+  });
+  it('med skördat visas Kvar som förut, och ingetSkordat är falskt', async () => {
+    await laddaOm(SKORDAT_STANDARD);
+    expect(vy.kvar?.kvarTotal).toBe(150);
+    expect(vy.sammanfattning?.kvarText).toBe('Kvar ~150 m³');
+    expect(vy.ingetSkordat).toBe(false);
+  });
+  it('skördaren kunde inte läsas (null) är något annat än tomt: ingen Kvar, men inte heller "inget skördat"', async () => {
+    await laddaOm(null);
+    expect(vy.kvar).toBeNull();
+    expect(vy.ingetSkordat).toBe(false);
   });
 });
 

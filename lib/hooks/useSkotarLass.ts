@@ -22,7 +22,7 @@ import {
   andraRad as andraRadModell, bekrafta, bytAvlagg, forraLass, kanBekrafta, laggTillDel, nastaLassNummer, skapaLass, stryk,
   type LassKontext,
 } from '@/lib/skotarLass/lassModell';
-import { beraknaKvar, idagText, kvarSammanfattning, skalningsfaktorer, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
+import { beraknaKvar, harSkordat, idagText, kvarSammanfattning, skalningsfaktorer, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
 import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasObjektSortiment, lasOptiLass, lasSkordat, lasSkotningAvslutad, lasSortimentHistorik, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
 import { optiForAvslut, type OptiLass } from '@/lib/skotarLass/opti';
 import type { Avslut } from '@/lib/skotarLass/server';
@@ -410,7 +410,9 @@ export function useSkotarLass(i: SkotarLassIn) {
   const idagIso = lokaltDatumStockholm(serverNu());
   // Kvar kräver BÅDE skördat och Opti-lassen (skotat före appens start): kan någon inte läsas finns ingen kvar att visa.
   // En trakt där skotningen redan är avslutad (skotning_avslutad satt, hur den än sattes) visar ingen kvar.
-  const kvar = useMemo<Kvar | null>(() => (skordat && opti && skotningAvslutad !== true ? beraknaKvar(skordat, lass, opti) : null), [skordat, opti, lass, skotningAvslutad]);
+  const kvar = useMemo<Kvar | null>(() => (skordat && opti && skotningAvslutad !== true && harSkordat(skordat) ? beraknaKvar(skordat, lass, opti) : null), [skordat, opti, lass, skotningAvslutad]);
+  /** Skördaren är läst men har inget skördat på trakten (inte påbörjad): Kvar visas inte, och Färdigskotad går inte att trycka. */
+  const ingetSkordat = !!skordat && !harSkordat(skordat);
   const sammanfattning = useMemo<KvarSammanfattning | null>(() => (kvar ? kvarSammanfattning(kvar, lass, idagIso, opti ?? []) : null), [kvar, lass, idagIso, opti]);
   const idag = useMemo(() => idagText(lass, idagIso, maskinId ?? ''), [lass, idagIso, maskinId]);
   // Mest använda först: hur ofta sortimentet använts på trakten (appens lass + Opti-lassen), annars senaste 12 månaderna.
@@ -428,7 +430,7 @@ export function useSkotarLass(i: SkotarLassIn) {
 
   const fardigskotad = useCallback(async () => {
     // Utan skördat och Opti-lassen går det inte att räkna rätt (appens lass skalas mot skördat MINUS Opti före appens start): då skickas inget.
-    if (!objektId || !skordat || !opti) return;
+    if (!objektId || !skordat || !opti || !harSkordat(skordat)) return;
     const optiAv = optiForAvslut(skordat, opti, lassRef.current);
     await begarFardigskotad(objektId, torr, optiAv);
     const sk = skalningsfaktorer(skordat, lassRef.current, optiAv);
@@ -489,7 +491,7 @@ export function useSkotarLass(i: SkotarLassIn) {
 
   return {
     provkorLossning, lossaHar, stammer, vantarPaDig, oppen,
-    lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, kvar, sammanfattning, idag, valbara, allaSortiment: sortimentval.alla, sortimentKalla: sortimentval.kalla, lasOmSortiment, avslut, skotningAvslutad,
+    lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, ingetSkordat, kvar, sammanfattning, idag, valbara, allaSortiment: sortimentval.alla, sortimentKalla: sortimentval.kalla, lasOmSortiment, avslut, skotningAvslutad,
     oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
     avbrytKort: () => setKort(null),
   };
