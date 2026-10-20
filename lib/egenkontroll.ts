@@ -2175,7 +2175,7 @@ export async function hamtaStammoln(
 export async function hamtaHyttspar(
   objektId: string,
   options: KlientOptions = {},
-): Promise<{ roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[]> {
+): Promise<{ roll: 'skordare' | 'skotare'; linjer: LatLng[][]; /** Antal sparade dagar (rader) spåret byggs av - för lagermenyns "5 dagar". */ dagar: number }[]> {
   const { klient } = await kravSession(options);
   const { data, error } = await klient
     .from('hyttspar')
@@ -2186,19 +2186,23 @@ export async function hamtaHyttspar(
   if (error) throw new Error(`Kunde inte läsa hyttsparet: ${error.message}`);
 
   const per: Record<'skordare' | 'skotare', LatLng[][]> = { skordare: [], skotare: [] };
+  const dagar: Record<'skordare' | 'skotare', number> = { skordare: 0, skotare: 0 };
   for (const rad of (data ?? []) as unknown as { roll: string; points: unknown }[]) {
     if (rad.roll !== 'skordare' && rad.roll !== 'skotare') continue;
     if (!Array.isArray(rad.points)) continue;
     const punkter = (rad.points as { lat?: unknown; lng?: unknown; tid?: unknown }[])
       .filter((p) => typeof p?.lat === 'number' && typeof p?.lng === 'number')
       .map((p) => ({ lat: p.lat as number, lng: p.lng as number, tid: typeof p.tid === 'string' ? p.tid : '' }));
+    let gavLinje = false;
     for (const linje of hyttsparRitadeLinjer(punkter)) {
       per[rad.roll].push(linje.map(([lng, lat]) => ({ lat, lng })));
+      gavLinje = true;
     }
+    if (gavLinje) dagar[rad.roll] += 1;
   }
   return (['skordare', 'skotare'] as const)
     .filter((roll) => per[roll].length > 0)
-    .map((roll) => ({ roll, linjer: per[roll] }));
+    .map((roll) => ({ roll, linjer: per[roll], dagar: dagar[roll] }));
 }
 
 /** Provytorna for en runda, i nummerordning. */

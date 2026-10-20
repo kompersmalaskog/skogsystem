@@ -417,7 +417,8 @@ describe('lasVidaGrans', () => {
       klient({ data: [{ geometri: { features: [fc('L_TRAKTDEL', [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.1], [14.0, 56.0]]]), fc('SV_FASTIGHET', [[[10, 50], [20, 50], [20, 60], [10, 60], [10, 50]]])] } }], error: null }, t),
       'obj-1',
     );
-    expect(r).toEqual({ typ: 'ok', gran: [[14.0, 56.0], [14.1, 56.1]] });
+    // ringar = traktgränsens yttre ring (PR 8a: lagret "Vidas traktgräns") - FASTIGHETEN räknas inte, som för rutan.
+    expect(r).toEqual({ typ: 'ok', gran: [[14.0, 56.0], [14.1, 56.1]], ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.1], [14.0, 56.0]]] });
     expect(t).toEqual(['objekt_geometri']);
   });
 
@@ -426,7 +427,10 @@ describe('lasVidaGrans', () => {
       klient({ data: [{ geometri: { features: [fc('L_TRAKTDEL', [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.0]]])] } }, { geometri: { features: [fc('L_TRAKTDEL', [[[14.2, 56.2], [14.3, 56.2], [14.3, 56.3], [14.2, 56.2]]])] } }], error: null }),
       'obj-1',
     );
-    expect(r).toEqual({ typ: 'ok', gran: [[14.0, 56.0], [14.3, 56.3]] });
+    expect(r).toEqual({
+      typ: 'ok', gran: [[14.0, 56.0], [14.3, 56.3]],
+      ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.0]], [[14.2, 56.2], [14.3, 56.2], [14.3, 56.3], [14.2, 56.2]]],
+    });
   });
 
   it('läsfel är "fel" (med meddelandet), aldrig "saknas"', async () => {
