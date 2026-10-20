@@ -44,6 +44,11 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     hamtaFoton: async () => [],
     hamtaProvytor: async () => [],
     hamtaKontextmarkeringar: async () => [],
+    // Vidas traktgräns: sidan frågar alltid (objektet har här kartbild_bounds, så svaret avgör inte origot). Ett RIKTIGT svar i stället för ett läsfel via den riktiga klienten.
+    hamtaVidaGrans: async () => ({ typ: 'ok' as const, gran: [[56.0, 14.0], [56.1, 14.1]] }),
+    // Avslutad runda: rapportens kartlager. Riktiga svar, aldrig anropet mot den riktiga klienten (ingen session i testet).
+    hamtaStammoln: async () => ({ punkter: [{ lat: 56.05, lng: 14.05 }], antal: 1 }),
+    hamtaHyttspar: async () => [],
     hamtaAvverkadeStammar: async () => [],
   };
 });
