@@ -5,7 +5,7 @@ import { serverNu } from '@/lib/serverKlocka';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 import { skapaIndexedDbKoLager, skapaLassKo, skapaMinnesKoLager, type SkotarLassKo } from './ko';
 import { avslutFranServer, lassFranServer, lassTillPayload, LASS_SELECT, type Avslut } from './server';
-import { skordatPerSortiment, type SkordatSortiment } from './sortiment';
+import { skordatPerSortiment, sortimentNyckel, type HistorikSortiment, type SkordatSortiment } from './sortiment';
 import { optiTidUtcMs } from '@/lib/optiTid';
 import type { OptiLass } from './opti';
 import type { Lass } from './typer';
@@ -160,6 +160,61 @@ export async function lasOptiLass(voNummer: string, altIds: readonly string[]): 
       rader: perLass.get(nyckel(String(l.maskin_id), String(l.datum), Number(l.lass_nummer))) ?? [],
     }));
   } catch { return null; }
+}
+
+/** Objektets egna sortiment (objekt.sortiment: Vida-order/traktdirektiv). [] = inga angivna, null = kunde inte läsas. */
+export async function lasObjektSortiment(objektId: string): Promise<string[] | null> {
+  try {
+    const { data, error } = await supabase.from('objekt').select('sortiment').eq('id', objektId).maybeSingle();
+    if (error) return null;
+    const s = (data as any)?.sortiment;
+    return Array.isArray(s) ? s.map((x: unknown) => String(x ?? '')).filter(Boolean) : [];
+  } catch { return null; }
+}
+
+const HISTORIK_NYCKEL = 'skotar_sortiment_historik_v1';
+const HISTORIK_MAX_ALDER_MS = 24 * 3_600_000;
+
+/** Sortimenten vi använt senaste 12 månaderna (Opti: fakt_lass_sortiment, appens lass: skotar_lass_sortiment), antal rader per namn. null = kunde inte läsas. */
+export async function raknaSortimentHistorik(): Promise<HistorikSortiment[] | null> {
+  try {
+    const fran = new Date(serverNu() - 365 * 86_400_000).toISOString().slice(0, 10);
+    const [opti, app] = await Promise.all([
+      hamtaAlla<any>(() => supabase.from('fakt_lass_sortiment').select('id, sortiment_namn').gte('datum', fran) as any, 'id'),
+      hamtaAlla<any>(() => supabase.from('skotar_lass_sortiment').select('lass_id, del_nr, sortiment_nyckel, sortiment_namn') as any, ['lass_id', 'del_nr', 'sortiment_nyckel']),
+    ]);
+    if (opti.error || app.error) return null;
+    const per = new Map<string, HistorikSortiment>();
+    for (const r of [...opti.data, ...app.data]) {
+      const namn = String(r.sortiment_namn ?? '').trim();
+      if (!namn) continue;
+      const nyckel = sortimentNyckel(namn);
+      const h = per.get(nyckel) ?? { nyckel, namn, antal: 0 };
+      h.antal += 1;
+      per.set(nyckel, h);
+    }
+    return Array.from(per.values());
+  } catch { return null; }
+}
+
+/**
+ * Historiken för Ändra-arket. Läses högst en gång per dygn och enhet och sparas på enheten: ett lass ska gå att registrera utan täckning,
+ * och en lista vi läst i går är bättre än ingen. Ett läsfel ger den sparade listan (hur gammal den än är); finns ingen alls: null.
+ */
+export async function lasSortimentHistorik(tvinga = false): Promise<HistorikSortiment[] | null> {
+  let sparad: { ts: number; lista: HistorikSortiment[] } | null = null;
+  try {
+    const t = typeof localStorage !== 'undefined' ? localStorage.getItem(HISTORIK_NYCKEL) : null;
+    const j = t ? JSON.parse(t) : null;
+    if (j && Array.isArray(j.lista) && Number.isFinite(j.ts)) sparad = j;
+  } catch { /* */ }
+  if (sparad && !tvinga && serverNu() - sparad.ts < HISTORIK_MAX_ALDER_MS && sparad.lista.length) return sparad.lista;
+  const ny = await raknaSortimentHistorik();
+  if (ny && ny.length) {
+    try { localStorage.setItem(HISTORIK_NYCKEL, JSON.stringify({ ts: serverNu(), lista: ny })); } catch { /* */ }
+    return ny;
+  }
+  return sparad?.lista?.length ? sparad.lista : ny;
 }
 
 /** Är skotningen redan avslutad på trakten (dim_objekt.skotning_avslutad satt, hur den än sattes)? null = kunde inte läsas. */

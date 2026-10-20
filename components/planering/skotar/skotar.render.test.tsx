@@ -355,28 +355,81 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
   });
 
   describe('Lägg till: rutnät', () => {
-    it('2–3 kolumner, knappar ≥ 48 px; högst 8 direkt och en "Fler ›"-knapp som visar resten', async () => {
+    it('2–3 kolumner, knappar ≥ 48 px; högst 8 direkt och "Fler sortiment…" som visar resten', async () => {
       await rendera({ valbara: [...valbara, ...sortiment(12)] });
       const grid = q('tillagg-grid') as HTMLElement;
       expect(grid.style.display).toBe('grid');
       expect(grid.style.gridTemplateColumns).toContain('minmax(150px');   // 640 px bred → 3 kolumner, 390 px → 2
       expect(div.querySelectorAll('[data-testid^="tillagg-s"]')).toHaveLength(8);
       for (const b of Array.from(div.querySelectorAll<HTMLElement>('[data-testid^="tillagg-s"]'))) expect(px(b.style.minHeight)).toBeGreaterThanOrEqual(48);
-      expect(q('tillagg-fler')?.textContent).toContain('Fler (4)');
+      expect(q('tillagg-fler')?.textContent).toContain('Fler sortiment…');
+      expect(q('tillagg-fler')?.textContent).toContain('(4)');
       await tryck('tillagg-fler');
       expect(div.querySelectorAll('[data-testid^="tillagg-s"]')).toHaveLength(12);
       expect(q('tillagg-fler')).toBeNull();
     });
-    it('åtta eller färre: ingen Fler-knapp', async () => {
+    it('åtta eller färre: "Fler sortiment…" finns ändå — hela listan är alltid ett tryck bort', async () => {
       await rendera({ valbara: [...valbara, ...sortiment(8)] });
       expect(div.querySelectorAll('[data-testid^="tillagg-s"]')).toHaveLength(8);
-      expect(q('tillagg-fler')).toBeNull();
+      expect(q('tillagg-fler')?.textContent).toContain('Fler sortiment…');
     });
     it('ett tryck lägger till 1 m³ av sortimentet', async () => {
       const onRad = vi.fn();
       await rendera({ valbara: [...valbara, ...sortiment(3)], onRad });
       await tryck('tillagg-s1');
       expect(onRad).toHaveBeenCalledWith(expect.objectContaining({ nyckel: 's1' }), 1);
+    });
+  });
+
+  describe('Sortimentlistan är aldrig tom (Skälviken: inget skördat än)', () => {
+    const tomtLass = () => { const l = lass({ status: 'vantar_forare' }); l.delar[0].rader = []; return l; };
+    const reserv = [{ nyckel: 'gran timmer · urshult', namn: 'Gran timmer · Urshult', m3: 0 }, { nyckel: 'massa · björk', namn: 'Massa · Björk', m3: 0 }];
+
+    it('trakt utan skördat: listan visas (reserven), texten "lägg till nedan" stämmer, och Klar går att trycka efter ett val', async () => {
+      // Hooken ger reserven som primära när inget är skördat: här den första ur objektets sortiment.
+      const onKlar = vi.fn(); const onRad = vi.fn();
+      await rendera({ lass: tomtLass(), valbara: reserv, alla: reserv, onKlar, onRad });
+      expect(q('andra-rad-talltimmer')).toBeNull();
+      expect(div.textContent).toContain('Inga sortiment ännu — lägg till nedan.');
+      expect(q('tillagg-grid')).not.toBeNull();
+      expect(q('tillagg-gran timmer · urshult')).not.toBeNull();
+      expect((q('andra-klar') as HTMLButtonElement).disabled).toBe(true);
+      await tryck('tillagg-gran timmer · urshult');
+      expect(onRad).toHaveBeenCalledWith(expect.objectContaining({ nyckel: 'gran timmer · urshult' }), 1);
+      // …och när valet gjort lasset bekräftbart (rad på lasset) går Klar att trycka.
+      const med = lass({ status: 'vantar_forare' });
+      await rendera({ lass: med, valbara: reserv, alla: reserv, onKlar });
+      await tryck('andra-klar');
+      expect(onKlar).toHaveBeenCalledTimes(1);
+    });
+    it('korta listan tom men hela finns: "Fler sortiment…" visar den — föraren fastnar aldrig', async () => {
+      await rendera({ lass: tomtLass(), valbara: [], alla: reserv });
+      expect(q('sortiment-saknas')).toBeNull();
+      expect(q('tillagg-gran timmer · urshult')).toBeNull();
+      expect(q('tillagg-fler')?.textContent).toContain('Fler sortiment…');
+      await tryck('tillagg-fler');
+      expect(q('tillagg-gran timmer · urshult')).not.toBeNull();
+      expect(q('tillagg-massa · björk')).not.toBeNull();
+    });
+    it('"Fler sortiment…" lägger de övriga EFTER de primära, utan dubbletter', async () => {
+      await rendera({ lass: tomtLass(), valbara: [reserv[0]], alla: [reserv[0], reserv[1]] });
+      expect(div.querySelectorAll('[data-testid^="tillagg-"][data-testid$="urshult"], [data-testid="tillagg-massa · björk"]')).toHaveLength(1);
+      await tryck('tillagg-fler');
+      const ids = Array.from(div.querySelectorAll('[data-testid^="tillagg-"]')).map((e) => e.getAttribute('data-testid')).filter((t) => t !== 'tillagg-grid');
+      expect(ids).toEqual(['tillagg-gran timmer · urshult', 'tillagg-massa · björk']);
+    });
+    it('"Fler sortiment…" finns alltid, också när allt redan syns', async () => {
+      await rendera({ lass: tomtLass(), valbara: [reserv[0]], alla: [reserv[0]] });
+      expect(q('tillagg-fler')?.textContent).toContain('Fler sortiment…');
+    });
+    it('ingenting kunde läsas: det står, med Försök igen — aldrig "lägg till nedan" om det inte finns något nedan', async () => {
+      const onLasOm = vi.fn();
+      await rendera({ lass: tomtLass(), valbara: [], alla: [], onLasOm });
+      expect(div.textContent).not.toContain('lägg till nedan');
+      expect(q('sortiment-saknas')).not.toBeNull();
+      expect(q('tillagg-fler')).toBeNull();
+      await tryck('tillagg-lasom');
+      expect(onLasOm).toHaveBeenCalledTimes(1);
     });
   });
 

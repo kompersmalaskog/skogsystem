@@ -23,12 +23,12 @@ import {
   type LassKontext,
 } from '@/lib/skotarLass/lassModell';
 import { beraknaKvar, idagText, kvarSammanfattning, skalningsfaktorer, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
-import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasOptiLass, lasSkordat, lasSkotningAvslutad, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
+import { hamtaLassKo, begarFardigskotad, lasAvslut, lasLassForObjekt, lasObjektSortiment, lasOptiLass, lasSkordat, lasSkotningAvslutad, lasSortimentHistorik, prenumereraLassKo, sparaLass } from '@/lib/skotarLass/koKopplad';
 import { optiForAvslut, type OptiLass } from '@/lib/skotarLass/opti';
 import type { Avslut } from '@/lib/skotarLass/server';
 import { tunnaSpar, vagTider, type RaFix, type VagLinje } from '@/lib/skotarLass/spar';
 import { forslagTillVantande } from '@/lib/skotarLass/lassModell';
-import { valbaraSortiment, VED_MARKAGARE_NYCKEL, type SkordatSortiment } from '@/lib/skotarLass/sortiment';
+import { sortimentVal, type HistorikSortiment, type SkordatSortiment } from '@/lib/skotarLass/sortiment';
 import type { Avlagg, Lass, SortimentRad } from '@/lib/skotarLass/typer';
 
 export type KortFas =
@@ -75,6 +75,11 @@ export function useSkotarLass(i: SkotarLassIn) {
   const [lass, setLass] = useState<Lass[]>([]);
   const [skordat, setSkordat] = useState<SkordatSortiment[] | null>(null);
   const [skordatLaddat, setSkordatLaddat] = useState(false);
+  // Sortimentlistan i Ändra får aldrig vara tom (skördaren kan ha lämnat ingenting än, privata jobb har inget Vida-underlag): objektets egna sortiment
+  // och de vi använt senaste 12 månaderna är reserven. null = ej läst / kunde inte läsas.
+  const [objektSortiment, setObjektSortiment] = useState<string[] | null>(null);
+  const [historik, setHistorik] = useState<HistorikSortiment[] | null>(null);
+  const [sortimentOm, setSortimentOm] = useState(0);
   // Opti-lassen (fakt_lass) och om skotningen redan är avslutad på trakten. null = ej läst / kunde inte läsas — då visas ingen kvar (aldrig en gissning).
   const [opti, setOpti] = useState<OptiLass[] | null>(null);
   const [skotningAvslutad, setSkotningAvslutad] = useState<boolean | null>(null);
@@ -150,6 +155,20 @@ export function useSkotarLass(i: SkotarLassIn) {
     });
     return () => { window.clearInterval(iv); av(); };
   }, [aktiv, objektId, ladda, torr]);
+
+  // Reserven för sortimentlistan. Objektets sortiment per trakt; historiken en gång (sparad på enheten, så den finns även utan täckning).
+  useEffect(() => {
+    if (!aktiv || !objekt?.id) { setObjektSortiment(null); return; }
+    let avbruten = false;
+    void lasObjektSortiment(objekt.id).then((l) => { if (!avbruten) setObjektSortiment(l); });
+    return () => { avbruten = true; };
+  }, [aktiv, objekt?.id, sortimentOm]);
+  useEffect(() => {
+    if (!aktiv) return;
+    let avbruten = false;
+    void lasSortimentHistorik(sortimentOm > 0).then((h) => { if (!avbruten) setHistorik(h); });
+    return () => { avbruten = true; };
+  }, [aktiv, sortimentOm]);
 
   // Skördat och avslut: en gång per trakt (skördat ändras bara när nya filer kommer; avslut när föraren avslutar).
   useEffect(() => {
@@ -394,7 +413,9 @@ export function useSkotarLass(i: SkotarLassIn) {
   const kvar = useMemo<Kvar | null>(() => (skordat && opti && skotningAvslutad !== true ? beraknaKvar(skordat, lass, opti) : null), [skordat, opti, lass, skotningAvslutad]);
   const sammanfattning = useMemo<KvarSammanfattning | null>(() => (kvar ? kvarSammanfattning(kvar, lass, idagIso, opti ?? []) : null), [kvar, lass, idagIso, opti]);
   const idag = useMemo(() => idagText(lass, idagIso, maskinId ?? ''), [lass, idagIso, maskinId]);
-  const valbara = useMemo(() => (skordat ? valbaraSortiment(skordat, skordat.some((s) => s.nyckel === VED_MARKAGARE_NYCKEL)) : []), [skordat]);
+  const sortimentval = useMemo(() => sortimentVal({ skordat, objekt: objektSortiment, historik }), [skordat, objektSortiment, historik]);
+  const valbara = sortimentval.primara;
+  const lasOmSortiment = useCallback(() => setSortimentOm((n) => n + 1), []);
 
   const fardigskotad = useCallback(async () => {
     // Utan skördat och Opti-lassen går det inte att räkna rätt (appens lass skalas mot skördat MINUS Opti före appens start): då skickas inget.
@@ -459,7 +480,7 @@ export function useSkotarLass(i: SkotarLassIn) {
 
   return {
     provkorLossning, lossaHar, stammer, vantarPaDig, oppen,
-    lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, kvar, sammanfattning, idag, valbara, avslut, skotningAvslutad,
+    lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, kvar, sammanfattning, idag, valbara, allaSortiment: sortimentval.alla, sortimentKalla: sortimentval.kalla, lasOmSortiment, avslut, skotningAvslutad,
     oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
     avbrytKort: () => setKort(null),
   };

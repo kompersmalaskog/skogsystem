@@ -79,3 +79,73 @@ export function valbaraSortiment(skordat: readonly SkordatSortiment[], harMarkag
   if (harMarkagarVed && !ut.some((u) => u.nyckel === VED_MARKAGARE_NYCKEL)) ut.push({ nyckel: VED_MARKAGARE_NYCKEL, namn: VED_MARKAGARE_NAMN, m3: 0 });
   return ut;
 }
+
+// ── Sortimentlistan i Ändra får aldrig vara tom ────────────────────────────────────────────────────────
+// Skördarens filer kommer 1–2 gånger om dagen och privata jobb har inget Vida-underlag, så skotaren kan börja innan något är skördat.
+// Förarens lista byggs därför i tre steg, första som ger något gäller: (1) det skördaren kapat på trakten, (2) objektets egna sortiment
+// (Vida-order/traktdirektiv, objekt.sortiment), (3) sortimenten vi använt senaste 12 månaderna, mest använda först.
+// "Fler sortiment…" visar ALLTID hela listan (alla tre källorna + Ved markägare), så föraren aldrig fastnar.
+
+export type SortimentKalla = 'skordat' | 'objekt' | 'historik' | 'ingen';
+
+/** Ett sortiment vi använt senaste 12 månaderna (Opti-lass + appens lass). `antal` = antal rader, för "mest använda först". */
+export interface HistorikSortiment { nyckel: string; namn: string; antal: number }
+
+/** Objektets egna sortiment (`objekt.sortiment`, t.ex. "Gran timmer · Urshult") som valbara rader. Tomma och dubbletter bort. */
+export function objektSortimentRader(lista: readonly (string | null | undefined)[] | null | undefined): SortimentRad[] {
+  const sett = new Set<string>();
+  const ut: SortimentRad[] = [];
+  for (const s of lista ?? []) {
+    const namn = String(s ?? '').trim();
+    if (!namn) continue;
+    const nyckel = sortimentNyckel(namn);
+    if (sett.has(nyckel)) continue;
+    sett.add(nyckel);
+    ut.push({ nyckel, namn: nyckel === VED_MARKAGARE_NYCKEL ? VED_MARKAGARE_NAMN : namn, m3: 0 });
+  }
+  return ut;
+}
+
+/** Historiken som valbara rader, mest använda först (lika många: namnet). "Unclassified" är aldrig ett val. */
+export function historikSortimentRader(h: readonly HistorikSortiment[] | null | undefined): SortimentRad[] {
+  return [...(h ?? [])]
+    .filter((x) => x.nyckel && x.namn && !arOklassat(x.nyckel))
+    .sort((a, b) => b.antal - a.antal || a.namn.localeCompare(b.namn, 'sv'))
+    .map((x) => ({ nyckel: x.nyckel, namn: x.nyckel === VED_MARKAGARE_NYCKEL ? VED_MARKAGARE_NAMN : x.namn, m3: 0 }));
+}
+
+function utanDubbletter(listor: readonly (readonly SortimentRad[])[]): SortimentRad[] {
+  const sett = new Set<string>();
+  const ut: SortimentRad[] = [];
+  for (const l of listor) for (const r of l) { if (sett.has(r.nyckel)) continue; sett.add(r.nyckel); ut.push(r); }
+  return ut;
+}
+
+export interface SortimentVal {
+  /** Det som visas först under "Lägg till": traktens egna val, annars objektets, annars de mest använda. */
+  primara: SortimentRad[];
+  /** Hela listan (primära först): skördat + objektets + senaste 12 månaderna + Ved markägare. Visas av "Fler sortiment…". */
+  alla: SortimentRad[];
+  kalla: SortimentKalla;
+}
+
+export function sortimentVal(i: {
+  skordat: readonly SkordatSortiment[] | null;
+  objekt: readonly (string | null | undefined)[] | null;
+  historik: readonly HistorikSortiment[] | null;
+}): SortimentVal {
+  const sk = i.skordat ?? [];
+  const harMarkagarVed = sk.some((s) => s.nyckel === VED_MARKAGARE_NYCKEL);
+  const skordatRader = valbaraSortiment(sk, harMarkagarVed);
+  // Skördat räknas bara om det finns ett riktigt sortiment (inte bara "Unclassified"/markägarens ved som ensam rad av ingenting).
+  const harSkordat = sk.some((s) => !arOklassat(s.nyckel));
+  const objektRader = objektSortimentRader(i.objekt);
+  const historikRader = historikSortimentRader(i.historik);
+  const ved: SortimentRad[] = [{ nyckel: VED_MARKAGARE_NYCKEL, namn: VED_MARKAGARE_NAMN, m3: 0 }];
+  const [primara, kalla]: [SortimentRad[], SortimentKalla] = harSkordat
+    ? [skordatRader, 'skordat']
+    : objektRader.length
+      ? [objektRader, 'objekt']
+      : historikRader.length ? [historikRader, 'historik'] : [[], 'ingen'];
+  return { primara, alla: utanDubbletter([primara, skordatRader, objektRader, historikRader, ved]), kalla };
+}

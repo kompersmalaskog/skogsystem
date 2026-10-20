@@ -96,12 +96,16 @@ function Siffra({ varde, etikett, onSkriv, testid }: { varde: number; etikett: s
   );
 }
 
-export function AndraLassArk({ lass, delNr, avlagg, valbara, onRad, onAvlagg, onKlar, onAvbryt, onTaBort }: {
+export function AndraLassArk({ lass, delNr, avlagg, valbara, alla, onLasOm, onRad, onAvlagg, onKlar, onAvbryt, onTaBort }: {
   lass: Lass;
   delNr: number;
   avlagg: readonly Avlagg[];
   /** Traktens sortiment (skördarens namn, vanligaste först) + Ved markägare när trakten har det. */
   valbara: readonly SortimentRad[];
+  /** HELA listan (traktens + objektets + senaste 12 månadernas + Ved markägare). "Fler sortiment…" visar den, så föraren aldrig fastnar. Utan den gäller `valbara`. */
+  alla?: readonly SortimentRad[];
+  /** Försök läsa sortimentlistan igen (när ingenting gick att läsa alls). */
+  onLasOm?: () => void;
   onRad: (rad: Pick<SortimentRad, 'nyckel' | 'namn'>, delta: number) => void;
   onAvlagg: (a: Avlagg) => void;
   onKlar: () => void;
@@ -115,7 +119,12 @@ export function AndraLassArk({ lass, delNr, avlagg, valbara, onRad, onAvlagg, on
   const rader = del.rader;
   const finns = new Set(rader.map((r) => r.nyckel));
   const tillagg = valbara.filter((v) => !finns.has(v.nyckel));
-  const synliga = fler ? tillagg : tillagg.slice(0, TILLAGG_SYNLIGA);
+  const primara = new Set(valbara.map((v) => v.nyckel));
+  const ovriga = (alla ?? valbara).filter((v) => !finns.has(v.nyckel) && !primara.has(v.nyckel));
+  const synliga = fler ? [...tillagg, ...ovriga] : tillagg.slice(0, TILLAGG_SYNLIGA);
+  // Det som ligger "nedan": inget alls betyder att listan inte gick att läsa (då står det, med Försök igen) — aldrig en hänvisning till ett tomt ställe.
+  const nedan = tillagg.length + ovriga.length;
+  const listaSaknas = (alla ?? valbara).length === 0;
   const sum = totalM3(rader);
   const klarKan = kanBekrafta(lass);
 
@@ -145,7 +154,7 @@ export function AndraLassArk({ lass, delNr, avlagg, valbara, onRad, onAvlagg, on
           )}
 
           <div style={avdelare} />
-          {rader.length === 0 && <div style={{ ...meta, padding: `${AVSTAND.s}px 0` }}>Inga sortiment ännu — lägg till nedan.</div>}
+          {rader.length === 0 && !listaSaknas && <div style={{ ...meta, padding: `${AVSTAND.s}px 0` }}>Inga sortiment ännu — lägg till nedan.</div>}
           {rader.map((r) => (
             <div key={r.nyckel} data-testid={`andra-rad-${r.nyckel}`} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRYCK_PX, marginBottom: AVSTAND.s }}>
               <div style={{ flex: 1, minWidth: 0 }}><SortimentNamn namn={r.namn} /></div>
@@ -155,7 +164,16 @@ export function AndraLassArk({ lass, delNr, avlagg, valbara, onRad, onAvlagg, on
             </div>
           ))}
 
-          {tillagg.length > 0 && (
+          {listaSaknas ? (
+            <>
+              <div style={avdelare} />
+              <div data-testid="sortiment-saknas" style={{ ...meta, padding: `${AVSTAND.s}px 0` }}>Sortimentlistan gick inte att läsa just nu.</div>
+              {onLasOm && (
+                <button type="button" data-testid="tillagg-lasom" onClick={onLasOm}
+                  style={{ ...knappStor, width: '100%', minHeight: TRYCK_PX, background: FARG.fyllning, color: FARG.text }}>Försök igen</button>
+              )}
+            </>
+          ) : (
             <>
               <div style={avdelare} />
               <div style={{ ...smaRubrik, marginBottom: AVSTAND.s }}>Lägg till</div>
@@ -167,10 +185,11 @@ export function AndraLassArk({ lass, delNr, avlagg, valbara, onRad, onAvlagg, on
                     <SortimentNamn namn={v.namn} />
                   </button>
                 ))}
-                {!fler && tillagg.length > TILLAGG_SYNLIGA && (
+                {/* ALLTID kvar medan listan är hopfälld: hela listan är ett tryck bort, även när den korta råkar vara tom eller fel. */}
+                {!fler && (
                   <button type="button" data-testid="tillagg-fler" onClick={() => setFler(true)}
                     style={{ ...knappStor, width: '100%', minHeight: TRYCK_PX, gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', color: FARG.text }}>
-                    Fler ({tillagg.length - TILLAGG_SYNLIGA}) ›
+                    Fler sortiment…{nedan > synliga.length ? ` (${nedan - synliga.length})` : ''}
                   </button>
                 )}
               </div>

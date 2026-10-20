@@ -7,6 +7,8 @@ import { act } from 'react';
 
 const server = vi.hoisted(() => ({ online: true, skickade: [] as any[], avslutOpti: [] as any[], begart: [] as Array<{ torr: boolean; opti: Record<string, number> | undefined }> }));
 const opti = vi.hoisted(() => ({ lass: [] as any[] | null, avslutad: false as boolean | null }));
+// Sortimentkällorna: skördat (null = standard, tall + massa), objektets egna sortiment och senaste 12 månaderna.
+const sort = vi.hoisted(() => ({ skordat: null as any[] | null, objekt: [] as string[] | null, historik: null as any[] | null }));
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 vi.mock('@/lib/objektNummer', () => ({ hamtaAltNummer: async () => [], hogarObjektIds: (vo: string) => [vo] }));
@@ -33,7 +35,9 @@ vi.mock('@/lib/skotarLass/koKopplad', async () => {
     lasAvslut: async () => null,
     lasOptiLass: async () => opti.lass,
     lasSkotningAvslutad: async () => opti.avslutad,
-    lasSkordat: async () => [{ nyckel: 'tall', namn: 'Tall', m3: 100 }, { nyckel: 'massa', namn: 'Massa', m3: 50 }],
+    lasSkordat: async () => sort.skordat ?? [{ nyckel: 'tall', namn: 'Tall', m3: 100 }, { nyckel: 'massa', namn: 'Massa', m3: 50 }],
+    lasObjektSortiment: async () => sort.objekt,
+    lasSortimentHistorik: async () => sort.historik,
   };
 });
 
@@ -71,7 +75,7 @@ async function stå(nordM: number, sek: number) {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   vi.setSystemTime(new Date('2026-10-19T08:00:00Z'));
-  server.online = true; server.skickade = []; server.avslutOpti = []; server.begart = []; opti.lass = []; opti.avslutad = false; skapade.length = 0; position = null; extraNu = undefined;
+  server.online = true; server.skickade = []; server.avslutOpti = []; server.begart = []; opti.lass = []; opti.avslutad = false; sort.skordat = null; sort.objekt = []; sort.historik = null; skapade.length = 0; position = null; extraNu = undefined;
   (await import('@/lib/skotarLass/koKopplad') as any).aterstallKo();
   div = document.createElement('div'); document.body.appendChild(div); root = createRoot(div);
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -588,5 +592,37 @@ describe('avlägg skapade via Lossa här flyttas mot snittet av lossningarna', (
     await stå(260, 30);                                 // kör ut ur zonen
     expect(vy.oppen).toBeNull();
     expect(flytta).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sortimentlistan i Ändra är aldrig tom (Skälviken: skotaren börjar innan något är skördat)', () => {
+  /** beforeEach har redan monterat med standardkällorna: montera om, så källorna läses på nytt. */
+  const omstart = async () => { await act(async () => { root.unmount(); }); root = createRoot(div); await visa(); };
+  it('skördat finns: traktens egna sortiment först, reserven bara i "alla"', async () => {
+    sort.objekt = ['Gran timmer · Urshult']; sort.historik = [{ nyckel: 'bmavfall_v3', namn: 'BmavFall_V3', antal: 9 }];
+    await omstart();
+    expect(vy.valbara.map((r) => r.nyckel)).toEqual(['tall', 'massa']);
+    expect(vy.allaSortiment.map((r) => r.nyckel)).toEqual(['tall', 'massa', 'gran timmer · urshult', 'bmavfall_v3', 'ved_markagare']);
+  });
+  it('inget skördat än: objektets sortiment gäller', async () => {
+    sort.skordat = []; sort.objekt = ['Gran timmer · Urshult', 'Massa · Björk']; sort.historik = [{ nyckel: 'bmavfall_v3', namn: 'BmavFall_V3', antal: 9 }];
+    await omstart();
+    expect(vy.sortimentKalla).toBe('objekt');
+    expect(vy.valbara.map((r) => r.namn)).toEqual(['Gran timmer · Urshult', 'Massa · Björk']);
+  });
+  it('inget skördat och inga objektsortiment (privat jobb): de mest använda senaste 12 månaderna', async () => {
+    sort.skordat = []; sort.objekt = []; sort.historik = [{ nyckel: 'b', namn: 'B', antal: 2 }, { nyckel: 'a', namn: 'A', antal: 7 }];
+    await omstart();
+    expect(vy.sortimentKalla).toBe('historik');
+    expect(vy.valbara.map((r) => r.nyckel)).toEqual(['a', 'b']);
+  });
+  it('kan ingenting läsas finns ändå Ved markägare i "alla", och lasOmSortiment läser om', async () => {
+    sort.skordat = []; sort.objekt = null; sort.historik = null;
+    await omstart();
+    expect(vy.valbara).toEqual([]);
+    expect(vy.allaSortiment.map((r) => r.nyckel)).toEqual(['ved_markagare']);
+    sort.historik = [{ nyckel: 'a', namn: 'A', antal: 1 }];
+    await act(async () => { vy.lasOmSortiment(); });
+    expect(vy.valbara.map((r) => r.nyckel)).toEqual(['a']);
   });
 });
