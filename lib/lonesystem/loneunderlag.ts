@@ -19,6 +19,8 @@ import { ledighetKollisioner } from "@/lib/ledighetKollision";
 import { hamtaFranvaro, arDeldag } from "@/lib/franvaro";
 import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
+import { aktLabel } from "@/lib/aktiviteter";
+import { dagensPlatser, dagensObjektOrdnat, berakaDagKm, hamtaObjektKoordinater } from "@/lib/routing";
 import { RAST_FRAGA_MIN, passOrimlighet, rastSaknas, RAST_SAKNAS_FRAN_MINUTER, type PassOrimlighet } from "@/lib/arbetsdagRegler";
 
 export type LoneunderlagRad = ExportSammanfattning & { status: string };
@@ -34,6 +36,18 @@ const plusDagar = (iso: string, n: number) => {
 /** En rad i förarens tidrapport — samma arbetsdag-rad beräkningen redan läser,
  *  plus rast/objekt/extra tid. Mängder; km är rådata, ersattningsmil det som
  *  blir ersättning (samma lib/kmErsattning som exporten). */
+/** En rad ur extra_tid, så som den står i underlaget. Summan av `minuter` över månaden är `arbetat.extra_min`. */
+export type ExtraPost = {
+  datum: string;
+  start_tid: string | null;
+  slut_tid: string | null;
+  minuter: number;
+  aktivitet: string;
+  objekt: string | null;
+  kommentar: string | null;
+  debiterbar: boolean;
+};
+
 export type LoneunderlagDag = {
   id: string;
   datum: string;
@@ -51,6 +65,16 @@ export type LoneunderlagDag = {
   maskin_id: string | null;
   km_totalt: number;
   ersattningsmil: number;   // påbörjade mil över fri pendling — det som ersätts
+  /** Pendlingsbenen (arbetsdag.km_morgon / km_kvall: hem → första trakten, sista trakten → hem). Rådata, inget räknas om. */
+  km_morgon: number;
+  km_kvall: number;
+  /** Varifrån km kommer: 'auto' = beräknad av appen, 'forare' = förarens egen uppgift, null = ingen uppgift (dagar från före källan sparades). */
+  km_kalla: "auto" | "forare" | null;
+  /** Trakterna benen gick mellan — på ALLA dagar med känd trakt, och bara i granskningen (`medMaskintid`). Härlett ur dagens objekt med samma
+   *  funktion som räknade km (lib/routing dagensPlatser); sparas inte. Saknar trakterna koordinat står ändå första och sista trakten.
+   *  `appen` = vad appen hade fått för dagen (samma routing som en beräknad dag), bara när dagens km är förarens EGEN: ren visning, dagens km
+   *  och lönen rörs aldrig. null när routing inte går att räkna (saknad koordinat eller hemadress, eller ingen väg hittades). */
+  km_rutt?: { forsta: string; sista: string; appen: { morgon: number; kvall: number; totalt: number } | null } | null;
   /** LÖNEKVOT-underlag (bara dry_run för admin, `medMaskintid`): maskinens G15
    *  den dagen under FÖRARENS inloggning (fakt_tid.operator_id → medarbetare via
    *  operator_medarbetare). GRANSKNINGSSTÖD, aldrig lön.
@@ -83,6 +107,8 @@ export type LoneunderlagBerikad = LoneunderlagRad & {
   synk: SynkRad[];
   ledighetskollision: ReturnType<typeof ledighetKollisioner>;
   dagar: LoneunderlagDag[];
+  /** All extra tid i månaden rad för rad (inkl. dagar utan maskinpass), äldst först. */
+  extra_poster: ExtraPost[];
   km_grans: number;         // fri pendling km/dag ur gs_avtal — för förklaringstexten
   rast_langa: RastLangRad[];
   // Pass över ARBETSDAG_MAX_MINUTER ('lang') eller negativa ('negativ' = rast
@@ -151,18 +177,18 @@ export async function beraknaLoneunderlag(
   const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, ledRuntRes, avtalRes, utjRes, viloRes] = await Promise.all([
     // foretagsledare (inga lönerader alls) och anstallningsdatum (kvalifikationstid för helglön) styr vad en förare får: läses
     // här, aldrig ur klienten. Ett läsfel stoppar underlaget (en tyst "false" skulle ge företagsledarna lönerader).
-    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum, aktiv").order("namn"),
+    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum, aktiv, hem_lat, hem_lng").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
     // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
     supabase.from("arbetsdag")
-      .select("id, medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp, synk_avvikelse, start_tid, brandrisk_beordrad, slut_tid, rast_min, traktamente, objekt_id")
+      .select("id, medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, km_morgon, km_kvall, km_kalla, bekraftad, dagtyp, synk_avvikelse, start_tid, brandrisk_beordrad, slut_tid, rast_min, traktamente, objekt_id")
       .gte("datum", arbStart).lte("datum", arbSlut),
     // Extra tid = arbete när maskinen var av — arbetstid rakt av,
     // ska in i timlön/övertid (arbetad_min ser den inte)
     // (objekt_id/aktivitet_typ/klockslag läses för perioddagens dag-för-dag-rad
     // — beräkningen ser bara minuter.)
     supabase.from("extra_tid")
-      .select("medarbetare_id, datum, minuter, objekt_id, aktivitet_typ, start_tid, slut_tid")
+      .select("medarbetare_id, datum, minuter, objekt_id, aktivitet_typ, start_tid, slut_tid, kommentar, typ, debiterbar")
       .gte("datum", arbStart).lte("datum", arbSlut),
     // Maskintyp: EN källa, dim_maskin.maskin_typ (lib/maskinNamn maskinSlag) — aldrig `maskiner`.
     supabase.from("dim_maskin").select("maskin_id, maskin_typ, sander_filer"),
@@ -403,6 +429,23 @@ export async function beraknaLoneunderlag(
     if (!aoByArb.has(r.arbetsdag_id)) aoByArb.set(r.arbetsdag_id, []);
     aoByArb.get(r.arbetsdag_id)!.push(r);
   }
+  // Platserna benen gick mellan (granskningen): bara för beräknade dagar, med SAMMA funktion och koordinatkedja som räknade km.
+  // Granskningsstöd — ett läsfel ger ingen rutt, aldrig ett fel i lönen.
+  let kmKoord: Awaited<ReturnType<typeof hamtaObjektKoordinater>> = {};
+  if (p.medMaskintid) {
+    const autoIds = Array.from(new Set<string>(dagRader.flatMap(d => [
+      ...(d.objekt_id ? [String(d.objekt_id)] : []),
+      ...((aoByArb.get(d.id) || []).map(r => r.objekt_id).filter(Boolean).map(String)),
+    ])));
+    try { kmKoord = await hamtaObjektKoordinater(supabase, autoIds); } catch { kmKoord = {}; }
+  }
+  // Hemmets koordinat per förare (för att räkna fram vad appen hade fått där km är förarens egen).
+  const hemPerMed = new Map<string, { lat: number | null; lng: number | null }>(
+    ((medRes.data || []) as any[]).map(m => [m.id, { lat: m.hem_lat != null ? Number(m.hem_lat) : null, lng: m.hem_lng != null ? Number(m.hem_lng) : null }]),
+  );
+  // Routing kan ge ett anrop mot ORS första gången en sträcka räknas (resultatet cachas i route_cache, som nattjobbet och månadsvyn). Högst så här
+  // många per körning: resten visas utan appens värde tills sträckan är cachad, så en granskning av ett helt år aldrig blir en storm mot ORS.
+  let orsBudget = 20;
   const extraMinPerDag = new Map<string, number>(); // `${med}|${datum}` → min
   const extraPerDag = new Map<string, any[]>();       // `${med}|${datum}` → perioder (för perioddagens rad)
   for (const e of (extraRes.data || []) as any[]) {
@@ -412,6 +455,22 @@ export async function beraknaLoneunderlag(
     if (!extraPerDag.has(k)) extraPerDag.set(k, []);
     extraPerDag.get(k)!.push(e);
   }
+  const extraPosterPerMed = new Map<string, ExtraPost[]>();
+  for (const e of (extraRes.data || []) as any[]) {
+    if (!e.medarbetare_id || !e.datum || !beraknadeIds.has(e.medarbetare_id)) continue;
+    if (!extraPosterPerMed.has(e.medarbetare_id)) extraPosterPerMed.set(e.medarbetare_id, []);
+    extraPosterPerMed.get(e.medarbetare_id)!.push({
+      datum: e.datum,
+      start_tid: e.start_tid ? String(e.start_tid).slice(0, 5) : null,
+      slut_tid: e.slut_tid ? String(e.slut_tid).slice(0, 5) : null,
+      minuter: Number(e.minuter || 0),
+      aktivitet: aktLabel(e.aktivitet_typ || e.typ),
+      objekt: e.objekt_id ? (objNamn.get(String(e.objekt_id)) || String(e.objekt_id)) : null,
+      kommentar: e.kommentar ? String(e.kommentar) : null,
+      debiterbar: !!e.debiterbar,
+    });
+  }
+  for (const l of Array.from(extraPosterPerMed.values())) l.sort((a, b) => a.datum.localeCompare(b.datum) || String(a.start_tid || "").localeCompare(String(b.start_tid || "")));
   const dagarPerMed = new Map<string, LoneunderlagDag[]>();
   for (const d of dagRader) {
     const k = `${d.medarbetare_id}|${d.datum}`;
@@ -432,11 +491,35 @@ export async function beraknaLoneunderlag(
     ));
     const objekt = perioddag && objektUrRad.length === 0 ? objektUrPerioder : objektUrRad;
     const km = Number(d.km_totalt || 0);
+    const kmKalla: LoneunderlagDag["km_kalla"] = d.km_kalla === "auto" || d.km_kalla === "forare" ? d.km_kalla : null;
+    let kmRutt: LoneunderlagDag["km_rutt"] = null;
+    if (p.medMaskintid) {
+      const aoRader = ao.map(r => ({ objekt_id: r.objekt_id, ordning: r.ordning }));
+      const namn = (id: string) => objNamn.get(id) || ao.find(r => String(r.objekt_id) === id)?.objekt_namn || id;
+      // Trakterna med koordinat är dem kmräkningen använde; saknas koordinat helt visas ändå första och sista trakten.
+      let platser = dagensPlatser(aoRader, [d.objekt_id], kmKoord);
+      if (platser.length === 0) platser = dagensObjektOrdnat(aoRader, [d.objekt_id]);
+      if (platser.length > 0) {
+        kmRutt = { forsta: namn(platser[0]), sista: namn(platser[platser.length - 1]), appen: null };
+        const hem = hemPerMed.get(d.medarbetare_id);
+        if (kmKalla === "forare" && hem?.lat != null && hem?.lng != null) {
+          try {
+            const ber = await berakaDagKm(supabase, { aoRader, fallbackObjektId: [d.objekt_id], koordMap: kmKoord, hemLat: hem.lat, hemLng: hem.lng, allowOrs: orsBudget > 0 });
+            // En haversine-gissning (källa 'fallback') är ingen routing: den visas aldrig som appens värde.
+            if (ber && ber.källa !== "fallback") {
+              orsBudget -= ber.orsAnrop;
+              kmRutt.appen = { morgon: ber.km_morgon, kvall: ber.km_kvall, totalt: ber.km_morgon + ber.km_kvall };
+            }
+          } catch { /* granskningsstöd: ingen routing, bara trakten */ }
+        }
+      }
+    }
     const rad: LoneunderlagDag = {
       id: d.id, datum: d.datum, start_tid: d.start_tid, slut_tid: d.slut_tid, rast_min: d.rast_min,
       arbetad_min: perioddag ? exMin : Number(d.arbetad_min || 0),
       extra_min: perioddag ? 0 : exMin,
       objekt, maskin_id: d.maskin_id ?? null, km_totalt: km, ersattningsmil: ersattningsMilDag(km, kmGrans),
+      km_morgon: Number(d.km_morgon || 0), km_kvall: Number(d.km_kvall || 0), km_kalla: kmKalla, km_rutt: kmRutt,
       traktamente: !!d.traktamente, dagtyp: d.dagtyp ?? null, bekraftad: !!d.bekraftad,
       brandrisk_beordrad: d.brandrisk_beordrad ?? null, ob_min: obMinuter(d),
       perioddag,
@@ -539,6 +622,7 @@ export async function beraknaLoneunderlag(
     synk: synkAvvikelser.filter(s => s.medarbetare_id === r.medarbetare_id),
     ledighetskollision: ledKollMap.get(r.medarbetare_id) || [],
     dagar: dagarPerMed.get(r.medarbetare_id) || [],
+    extra_poster: extraPosterPerMed.get(r.medarbetare_id) || [],
     km_grans: kmGrans,
     rast_langa: (rastLangaPerMed.get(r.medarbetare_id) || []).sort((a, b) => a.datum.localeCompare(b.datum)),
     // Orimliga pass ur samma dagrader — arbetad_min är databasens tal (modulo 24 h).

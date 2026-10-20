@@ -211,6 +211,19 @@ export type ExportSammanfattning = {
   // Bytesdagar (inarbetad, §5 mom 4) som rör arbetsmånaden — den lediga dagen
   // ELLER den röda dagen ligger i månaden. Upplysning, ingen lönerad.
   byten: ByteRad[];
+  /** Vad arbetad tid består av, i hela minuter (Admin → Förare · Månad). Samma poster som totalH nedan summerar; inget räknas om i vyn. */
+  arbetat: ArbetatDelar;
+};
+
+export type ArbetatDelar = {
+  /** Maskintid på arbetsdagar (arbetsdag.arbetad_min). */
+  maskin_min: number;
+  /** All extra tid (extra_tid), också på kortpass och dagar utan maskinpass. */
+  extra_min: number;
+  /** Maskinminuter på dagar under arbetsdagströskeln (betald tid, ingen arbetsdag). */
+  kortpass_min: number;
+  /** Hemskickad fyllnad (8 tim minus arbetat). */
+  hemskickad_min: number;
 };
 
 function isoVecka(d: Date): number {
@@ -669,5 +682,11 @@ export function beräknaExport(
     deldagar,
     hemskickad,
     hemskickad_h: hemskickadH,
+    arbetat: {
+      maskin_min: produktionsDagar.reduce((a, d) => a + (d.arbetad_min || 0), 0),
+      extra_min: extraTid.reduce((a, e) => a + (e?.minuter || 0), 0),
+      kortpass_min: Math.round(kortpassH * 60),
+      hemskickad_min: hemMinTotalt,
+    },
   };
 }
