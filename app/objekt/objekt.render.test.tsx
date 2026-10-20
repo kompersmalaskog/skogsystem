@@ -17,8 +17,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const routerReplace = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: routerReplace, push: vi.fn() }) }));
 
+const VO: Record<string, string> = { bagskytte: '11271849', sandasen: '11000001', skalviken: '11161397' };
 const OBJ = (id: string, namn: string, typ: string, volym: number, status: string, o: Record<string, unknown> = {}) => ({
-  id, namn, typ, bolag: 'Vida', ar: 2026, manad: 10, volym, status, kalla: 'envz', ordning: 1, areal: null, cert: 'FSC PEFC', grot: false, markagare: 'Johannishus Godsförvaltning Ab',
+  id, vo_nummer: VO[id] ?? null, namn, typ, bolag: 'Vida', ar: 2026, manad: 10, volym, status, kalla: 'envz', ordning: 1, areal: null, cert: 'FSC PEFC', grot: false, markagare: 'Johannishus Godsförvaltning Ab',
   inkopare: 'Martin Hjert', fastighetsbeteckning: 'JOHANNISHUS 1:2', traktdirektiv_url: 'td.pdf', stamplingslangd_url: null, traktkarta_url: null, traktkartor: null,
   oversiktskarta_url: null, valtlapp_url: null, ovriga_dokument: null, checklist_items: null, import_varningar: [], ...o,
 });
@@ -42,6 +43,11 @@ const OBJEKT = [
   OBJ('vaggata', 'Kompersmåla väggata', 'slutavverkning', 0, 'oplanerad', { volym: null, ar: null, manad: null, kalla: 'starta-jobb', traktdirektiv_url: null, bolag: null }),
   OBJ('gammal-utan-manad', 'Gammal avslutad', 'slutavverkning', 400, 'avslutat', { ar: null, manad: null }),
 ];
+// Maskinernas utfall (fakt_produktion: flera rader per objekt — dag × trädslag). Bågskyttebanan 1 687 m³fub (prod 2026-10-20), Sandåsen 294 hittills.
+const UTFALL = [
+  { id: 1, objekt_id: '11271849', volym_m3sub: 1000.5 }, { id: 2, objekt_id: '11271849', volym_m3sub: 686.5 },
+  { id: 3, objekt_id: '11000001', volym_m3sub: 294 }, { id: 4, objekt_id: '11161397', volym_m3sub: 1700 },
+];
 const POSTER = [
   { id: 'b-g', ar: 2026, manad: 10, typ: 'gallring', bolag: 'Vida', bolag_id: 1, volym: 1000 },
   { id: 'b-s', ar: 2026, manad: 10, typ: 'slutavverkning', bolag: 'Vida', bolag_id: 1, volym: 5000 },
@@ -56,15 +62,16 @@ const GEOMETRI = { features: [
 ] };
 
 // ---- Supabase-fake: filtrerar eller returnerar fel, loggar skrivningar ----
-const DB: { objekt: any[]; poster: any[]; lasFel: boolean; saknarKolumner: boolean; skrivningar: { tabell: string; op: string; payload: any; filter?: any }[]; signerade: string[] } = { objekt: [], poster: [], lasFel: false, saknarKolumner: false, skrivningar: [], signerade: [] };
+const DB: { objekt: any[]; poster: any[]; utfall: any[]; utfallFel: boolean; lasFel: boolean; saknarKolumner: boolean; skrivningar: { tabell: string; op: string; payload: any; filter?: any }[]; signerade: string[] } = { objekt: [], poster: [], utfall: [], utfallFel: false, lasFel: false, saknarKolumner: false, skrivningar: [], signerade: [] };
 
 vi.mock('@/lib/supabase', () => {
   const byggare = (tabell: string) => {
     const f: { k: string; v: any; op: string }[] = [];
     let op = 'select', payload: any = null, enkel = false, utanManad = false, valda = '';
-    const tabellrader = () => (tabell === 'objekt' ? DB.objekt : tabell === 'bestallningar' ? DB.poster : tabell === 'objekt_geometri' ? [{ objekt_id: 'skalviken', geometri: GEOMETRI }] : []);
+    const tabellrader = () => (tabell === 'objekt' ? DB.objekt : tabell === 'fakt_produktion' ? DB.utfall : tabell === 'bestallningar' ? DB.poster : tabell === 'objekt_geometri' ? [{ objekt_id: 'skalviken', geometri: GEOMETRI }] : []);
     const svar = () => {
       if (DB.lasFel && op === 'select') return { data: null, error: { message: 'Anslutningen avbröts' } };
+      if (DB.utfallFel && tabell === 'fakt_produktion') return { data: null, error: { message: 'Utfallet kunde inte läsas' } };
       // Migrationen objekt_stamplingslangd_tal ej körd: PostgREST svarar 42703 på en select som nämner kolumnerna och PGRST204 på en skrivning.
       if (DB.saknarKolumner && tabell === 'objekt' && op === 'select' && /stamplingslangd_volym/.test(valda)) return { data: null, error: { code: '42703', message: 'column objekt.stamplingslangd_volym does not exist' } };
       if (DB.saknarKolumner && tabell === 'objekt' && op === 'update' && payload && 'stamplingslangd_volym' in payload) return { data: null, error: { code: 'PGRST204', message: "Could not find the 'stamplingslangd_volym' column of 'objekt' in the schema cache" } };
@@ -111,7 +118,7 @@ const nbsp = (s: string) => s.replace(/(\d) (?=\d{3}\b)/g, '$1\u00a0');
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  routerReplace.mockClear(); konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.lasFel = false; DB.saknarKolumner = false; DB.skrivningar = []; DB.signerade = [];
+  routerReplace.mockClear(); konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.utfall = UTFALL; DB.utfallFel = false; DB.lasFel = false; DB.saknarKolumner = false; DB.skrivningar = []; DB.signerade = [];
   vi.spyOn(console, 'error').mockImplementation((...a: any[]) => { konsolFel.push(a.map(String).join(' ')); });
   vi.stubGlobal('open', vi.fn(() => ({ close() {}, location: { href: '' } })));
   behallare = document.createElement('div');
@@ -149,7 +156,7 @@ describe('Objekt + beställning — listan', () => {
     expect(rad('bagskytte')).toContain('Klar');
     expect(rad('bagskytte')).not.toMatch(/saknar/); // ett klart objekt nagas inte
     // ...och ställer ingen fråga om PDF:er (en gammal OSÄKER-rad finns kvar) — men volymen är en fråga: 615 m³fub/ha ingår i täckningen.
-    expect(rad('bagskytte')).toContain('1 fråga');
+    expect(rad('bagskytte')).toContain('2 frågor'); // orimlig volym per hektar + avvikande utfall (plan 3 495 mot utfall 1 687)
     expect(rad('skalviken')).not.toMatch(/orimlig|per hektar/); // 238 m³fub/ha är rimligt
     expect(rad('skalviken')).toContain('Planerad · 1 fråga');
     expect(rad('molleryd')).toContain('Väntar på planering · 1 fråga');
@@ -382,7 +389,7 @@ describe('Objektvyn — vad filen gav oss', () => {
 
   it('en avslutad trakt får ingen fråga om PDF:er, fast en gammal OSÄKER-rad finns kvar (Bågskyttebanan) — men volymen är en fråga', async () => {
     await monteraObjekt('bagskytte');
-    expect(Array.from(behallare!.querySelectorAll('[data-fraga]')).map(e => e.getAttribute('data-fraga'))).toEqual(['orimlig_volym']);
+    expect(Array.from(behallare!.querySelectorAll('[data-fraga]')).map(e => e.getAttribute('data-fraga'))).toEqual(['orimlig_volym', 'avvikande_utfall']);
     expect(text()).not.toContain('Är det här stämplingslängden');
     expect(text()).toContain(nbsp('3 495 m³fub på 5,68 ha är 615 per hektar. Kontrollera mot stämplingslängden.'));
   });
@@ -500,7 +507,7 @@ describe('Volymen: rimlighet, enhet och stämplingslängdens tal', () => {
     expect(behallare!.querySelector('[data-objekt="bagskytte"]')!.textContent).toContain(nbsp('3 495 m³fub'));
     await monteraObjekt('bagskytte');
     expect(behallare!.querySelector('[data-volym]')!.textContent).toContain(nbsp('3 495 m³fub'));
-    expect(behallare!.querySelector('[data-volym]')!.textContent).toContain('Från Vida');
+    expect(behallare!.querySelector('[data-volym]')!.textContent).toContain('Plan, från Vida');
   });
 
   it('Bågskyttebanan (avslutad): frågan om orimlig volym visas, med knappen Rätta volymen — och talet är orört', async () => {
@@ -583,5 +590,75 @@ describe('Volymen: rimlighet, enhet och stämplingslängdens tal', () => {
     await skriv(behallare!.ownerDocument.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!, '1884');
     await klicka(knapp('Spara', true));
     expect(text()).toContain('databasen saknar fältet');
+  });
+});
+
+
+describe('Utfall mot plan', () => {
+  async function monteraObjekt(id: string) {
+    window.history.replaceState({}, '', '/objekt/x?ar=2026&manad=10');
+    const { default: FilenGavVy } = await import('./_components/FilenGavVy');
+    rot = createRoot(behallare!);
+    await act(async () => { rot!.render(<FilenGavVy objektId={id} />); });
+    await tills(() => !text().includes('Läser objektet'));
+    await stilla();
+  }
+
+  it('båda talen under Volym: plan från Vida och utfall från maskinerna (summan av alla rader)', async () => {
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-volym]')!.textContent).toContain(nbsp('3 495 m³fub'));
+    expect(behallare!.querySelector('[data-volym]')!.textContent).toContain('Plan, från Vida');
+    expect(behallare!.querySelector('[data-utfall]')!.textContent).toContain(nbsp('1 687 m³fub'));
+    expect(behallare!.querySelector('[data-utfall]')!.textContent).toContain('Maskinerna');
+  });
+
+  it('Bågskyttebanan: avvikande utfall med båda talen och båda per hektar — och ett FÖRSLAG som kräver ett tryck', async () => {
+    await monteraObjekt('bagskytte');
+    const f = behallare!.querySelector('[data-fraga="avvikande_utfall"]')!;
+    expect(f.textContent).toContain(nbsp('Planen är 3 495 m³fub (615 per hektar) och utfallet från maskinerna 1 687 m³fub (297 per hektar). De avviker 107 %.'));
+    expect(f.textContent).toContain(nbsp('Utfallet från maskinerna är 1 687 m³fub. Använd det?'));
+    expect(DB.skrivningar).toEqual([]); // föreslår, skriver inte
+    await klicka(f.querySelector('[data-anvand-utfall]'));
+    expect(DB.skrivningar).toHaveLength(1);
+    expect(DB.skrivningar[0]).toMatchObject({ tabell: 'objekt', op: 'update', payload: { volym: 1687 } });
+    expect(Object.keys(DB.skrivningar[0].payload)).toEqual(['volym']);
+    expect(text()).toContain(nbsp('Volymen är satt till 1 687 m³fub (utfallet från maskinerna).'));
+  });
+
+  it('en pågående trakt vars utfall redan överstiger planen (Sandåsen 294 mot 146) är en fråga — men utan förslag (utfallet är inte klart)', async () => {
+    await monteraObjekt('sandasen');
+    const f = behallare!.querySelector('[data-fraga="avvikande_utfall"]')!;
+    expect(f.textContent).toContain('hittills');
+    expect(f.querySelector('[data-anvand-utfall]')).toBeNull();
+    expect(f.textContent).not.toContain('Använd det');
+  });
+
+  it('en pågående trakt som ännu skördat MINDRE än planen är normal — ingen fråga', async () => {
+    DB.utfall = [{ id: 1, objekt_id: '11000001', volym_m3sub: 60 }];
+    await monteraObjekt('sandasen');
+    expect(behallare!.querySelector('[data-fraga="avvikande_utfall"]')).toBeNull();
+    expect(behallare!.querySelector('[data-utfall]')!.textContent).toContain('Maskinerna, hittills');
+  });
+
+  it('inom 40 % är det ingen fråga (Skälviken: 1 734 mot 1 700)', async () => {
+    await monteraObjekt('skalviken');
+    expect(behallare!.querySelector('[data-fraga="avvikande_utfall"]')).toBeNull();
+  });
+
+  it('listan: raden för Bågskyttebanan och Sandåsen visar en fråga; täckningen räknar fortfarande PLANEN (växlar inte till utfall)', async () => {
+    await montera();
+    expect(behallare!.querySelector('[data-objekt="bagskytte"]')!.textContent).toContain('2 frågor');
+    expect(behallare!.querySelector('[data-objekt="sandasen"]')!.textContent).toContain('1 fråga');
+    expect(text()).toContain(nbsp('6 234 / 5 000 m³fub'));
+    expect(text()).toContain(nbsp('334 / 1 000 m³fub'));
+  });
+
+  it('utfallet kan inte läsas: listan visas ändå, och objektvyn säger det — den påstår inte "inget utfall"', async () => {
+    DB.utfallFel = true;
+    await montera();
+    expect(text()).toContain(nbsp('6 234 / 5 000 m³fub'));
+    expect(behallare!.querySelector('[data-fraga="avvikande_utfall"]')).toBeNull();
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-utfall]')!.textContent).toContain('Kunde inte läsas just nu');
   });
 });

@@ -37,6 +37,7 @@ export interface ObjektSaknar {
   areal?: number | null;
   stamplingslangd_volym?: number | null;
   stamplingslangd_enhet?: string | null;
+  utfall?: number | null;
   kalla: string | null;
   traktdirektiv_url: string | null;
   import_varningar: unknown;

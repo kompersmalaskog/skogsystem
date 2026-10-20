@@ -10,6 +10,7 @@ import Tillstand from '@/components/design/Tillstand';
 import VyKolumn from '@/components/design/VyKolumn';
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TNUM, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import { supabase } from '@/lib/supabase';
+import { hamtaUtfall, rattaVolym } from '@/lib/objekt/data';
 import {
   bladText, certText, fmtHa, fragor, geometriSammanfattning, noterat, traktkartor, volymFragor,
   type Fraga, type GeoSammanfattning, type VolymFraga,
@@ -19,12 +20,13 @@ import { lasManadUrl, manadEtikett, type Manad } from '@/lib/objekt/manad';
 import { oppnaFil } from '@/lib/objekt/oppnaFil';
 import { ENHET_M3FUB, fmtM3, typNamn, visadVolym } from '@/lib/objekt/tackning';
 import { tillstandId, TILLSTAND_TEXT } from '@/lib/objekt/tillstand';
+import { arAvslutat } from '@/lib/objekt/utfall';
 import AndraObjektArk from './AndraObjektArk';
 import StamplingslangdArk from './StamplingslangdArk';
 
 interface Objekt {
   id: string; namn: string; typ: string | null; status: string | null; volym: number | null; areal: number | null; cert: string | null; grot: boolean | null;
-  bolag?: string | null; kalla?: string | null;
+  bolag?: string | null; kalla?: string | null; vo_nummer?: string | null;
   /** Stämplingslängdens tal, inskrivet av en människa. Saknas kolumnerna (migrationen ej körd) är de undefined. */
   stamplingslangd_volym?: number | null; stamplingslangd_enhet?: string | null;
   ar: number | null; manad: number | null;
@@ -39,14 +41,20 @@ type Lage =
   | { lage: 'fel'; text: string }
   | { lage: 'saknas' }
   // `geo`: null = ingen geometri sparad för objektet; geoFel = geometrin gick inte att läsa (inte samma sak).
-  | { lage: 'klar'; objekt: Objekt; geo: GeoSammanfattning | null; geoFel: boolean };
+  // `utfall`: maskinernas m³fub under objektets VO-nummer (null = inget); utfallFel = det gick inte att läsa (inte samma sak som inget utfall).
+  | { lage: 'klar'; objekt: Objekt; geo: GeoSammanfattning | null; geoFel: boolean; utfall: number | null; utfallFel: boolean };
 
 async function lasObjekt(id: string): Promise<Lage> {
   const { data, error } = await supabase.from('objekt').select('*').eq('id', id).maybeSingle();
   if (error) return { lage: 'fel', text: error.message };
   if (!data) return { lage: 'saknas' };
   const g = await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', id).maybeSingle();
-  return { lage: 'klar', objekt: data as Objekt, geo: g.error ? null : geometriSammanfattning(g.data?.geometri), geoFel: !!g.error };
+  const o = data as Objekt;
+  let utfall: number | null = null, utfallFel = false;
+  if (o.vo_nummer) {
+    try { utfall = (await hamtaUtfall([o.vo_nummer])).get(o.vo_nummer) ?? null; } catch { utfallFel = true; }
+  }
+  return { lage: 'klar', objekt: o, geo: g.error ? null : geometriSammanfattning(g.data?.geometri), geoFel: !!g.error, utfall, utfallFel };
 }
 
 const antalFragor = (c: unknown) => (Array.isArray(c) ? c.length : 0);
@@ -93,7 +101,7 @@ export default function FilenGavVy({ objektId }: { objektId: string }) {
               <button type="button" style={KNAPP.lank} onClick={() => setForsok(n => n + 1)}>Försök igen</button>
             </div>
           )}
-          {lage.lage === 'klar' && <Innehall o={lage.objekt} geo={lage.geo} geoFel={lage.geoFel} onRatta={() => setAndra(true)} onStampling={() => setStampArk(true)} />}
+          {lage.lage === 'klar' && <Innehall o={lage.objekt} geo={lage.geo} geoFel={lage.geoFel} utfall={lage.utfall} utfallFel={lage.utfallFel} onRatta={() => setAndra(true)} onStampling={() => setStampArk(true)} onVolymSatt={text => { setKvitto(text); laddaOmTyst(); }} />}
         </Tillstand>
       </VyKolumn>
 
@@ -110,14 +118,14 @@ export default function FilenGavVy({ objektId }: { objektId: string }) {
   );
 }
 
-function Innehall({ o, geo, geoFel, onRatta, onStampling }: { o: Objekt; geo: GeoSammanfattning | null; geoFel: boolean; onRatta: () => void; onStampling: () => void }) {
+function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onVolymSatt }: { o: Objekt; geo: GeoSammanfattning | null; geoFel: boolean; utfall: number | null; utfallFel: boolean; onRatta: () => void; onStampling: () => void; onVolymSatt: (text: string) => void }) {
   const id = tillstandId(o.status);
   const blad = traktkartor(o);
   const fara = geo?.faror ?? [];
   // Frågor ställs inte på avslutade objekt (Bågskyttebanan är avslutad men har en gammal OSÄKER-rad kvar).
   const fragorHar = id === 'klar' ? [] : fragor(o.import_varningar, o);
   // Frågorna om volymen gäller också ett avslutat objekt (dess volym ingår i beställningens täckning) och räknas live ur objektets värden.
-  const volymFr = volymFragor(o);
+  const volymFr = volymFragor({ ...o, utfall });
   const stampJamf = jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet);
   const antalFr = fragorHar.length + volymFr.length;
   const noter = noterat(o.import_varningar);
@@ -161,7 +169,8 @@ function Innehall({ o, geo, geoFel, onRatta, onStampling }: { o: Objekt; geo: Ge
       {/* Det som kräver en människa — och bara det. Okänd PDF och osäker stämplingslängd är SAMMA fråga. */}
       {antalFr > 0 && (
         <Sektion rubrik={antalFr === 1 ? 'Fråga' : 'Frågor'}>
-          {volymFr.map((q, i) => <VolymFragaKort key={q.nyckel} q={q} sista={i === volymFr.length - 1 && fragorHar.length === 0} onRatta={onRatta} onStampling={onStampling} />)}
+          {volymFr.map((q, i) => <VolymFragaKort key={q.nyckel} q={q} sista={i === volymFr.length - 1 && fragorHar.length === 0} onRatta={onRatta} onStampling={onStampling}
+            onAnvand={async v => { await rattaVolym(o.id, v); onVolymSatt(`Volymen är satt till ${fmtM3(v)} ${ENHET_M3FUB} (utfallet från maskinerna).`); }} />)}
           {fragorHar.map((q, i) => <FragaKort key={q.nyckel} q={q} sista={i === fragorHar.length - 1} onOppna={oppna} />)}
         </Sektion>
       )}
@@ -170,9 +179,16 @@ function Innehall({ o, geo, geoFel, onRatta, onStampling }: { o: Objekt; geo: Ge
       {/* Volymen och stämplingslängden bredvid varandra, med enhet: m³fub (Vidas tal, beställningen) mot m³sk (stämplingslängden) skiljer ungefär 20 %. */}
       <Sektion rubrik="Volym" not={o.stamplingslangd_volym != null && o.stamplingslangd_enhet === 'm3sk' ? `m³sk omräknas till m³fub med ${faktorText()}.` : undefined}>
         <Rad titel="Volym" pil={false}
-          under={o.kalla === 'manuell' || o.kalla === 'starta-jobb' ? 'Inlagd för hand' : o.bolag ? `Från ${o.bolag}` : 'Från traktfilen'}
+          under={o.kalla === 'manuell' || o.kalla === 'starta-jobb' ? 'Plan, inlagd för hand' : o.bolag ? `Plan, från ${o.bolag}` : 'Plan, från traktfilen'}
           hoger={saknarVolym ? <span style={{ color: FARG.orange }}>saknas</span> : `${fmtM3(visadVolym(o.volym))} ${ENHET_M3FUB}`}
           attr={{ 'data-volym': '' }} />
+        {/* Utfallet: vad maskinerna faktiskt skördat under objektets VO-nummer. Ingen ny insamling — fakt_produktion finns redan. */}
+        {(utfall != null || utfallFel || id === 'klar' || id === 'igang') && (
+          <Rad titel="Utfall" pil={false}
+            under={utfallFel ? 'Kunde inte läsas just nu' : utfall == null ? 'Inga maskinfiler under VO-numret' : arAvslutat(o.status) ? 'Maskinerna' : 'Maskinerna, hittills'}
+            hoger={utfallFel ? <span style={{ color: FARG.orange }}>saknas</span> : utfall == null ? undefined : `${fmtM3(utfall)} ${ENHET_M3FUB}`}
+            attr={{ 'data-utfall': '' }} />
+        )}
         <Rad titel="Stämplingslängd" sista
           under={stampJamf ? 'Skriven av dig · tryck för att ändra' : 'Skriv in talet från stämplingslängden'}
           hoger={stampJamf ? stamplingsText(stampJamf) : undefined}
@@ -245,11 +261,31 @@ function FragaKort({ q, sista, onOppna }: { q: Fraga; sista: boolean; onOppna: (
   );
 }
 
-/** En fråga om volymen: texten med båda talen och en knapp till rätt ställe att rätta. */
-function VolymFragaKort({ q, sista, onRatta, onStampling }: { q: VolymFraga; sista: boolean; onRatta: () => void; onStampling: () => void }) {
+/**
+ * En fråga om volymen: texten med båda talen och en knapp till rätt ställe att rätta. Har frågan ett förslag (utfallet av en avslutad trakt)
+ * föreslår systemet och en människa godkänner med knappen — talet skrivs aldrig av sig självt.
+ */
+function VolymFragaKort({ q, sista, onRatta, onStampling, onAnvand }: { q: VolymFraga; sista: boolean; onRatta: () => void; onStampling: () => void; onAnvand: (volym: number) => Promise<void> }) {
+  const [upptagen, setUpptagen] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+  async function anvand(v: number) {
+    setUpptagen(true); setFel(null);
+    try { await onAnvand(v); } catch (e) { setFel(e instanceof Error ? e.message : String(e)); setUpptagen(false); }
+  }
   return (
     <div data-fraga={q.nyckel} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
       <p style={{ margin: 0, ...TYP.text }}>{q.text}</p>
+      {q.forslagVolym != null && (
+        <>
+          <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text }} data-utfall-forslag="">Utfallet från maskinerna är {fmtM3(q.forslagVolym)} {ENHET_M3FUB}. Använd det?</p>
+          <div style={{ marginTop: AVSTAND.s }}>
+            <button type="button" disabled={upptagen} onClick={() => anvand(q.forslagVolym!)} data-anvand-utfall="" style={{ ...KNAPP.sekundar, ...(upptagen ? INAKTIV : null) }}>
+              {upptagen ? 'Sparar …' : `Använd ${fmtM3(q.forslagVolym)} ${ENHET_M3FUB}`}
+            </button>
+          </div>
+          {fel && <p role="alert" style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.orange }}>{fel}</p>}
+        </>
+      )}
       <div style={{ marginTop: AVSTAND.s, display: 'flex', gap: AVSTAND.l, flexWrap: 'wrap' }}>
         <button type="button" onClick={onRatta} style={KNAPP.lank} data-ratta-volym="">Rätta volymen</button>
         {q.nyckel === 'stamplingslangd_avviker' && <button type="button" onClick={onStampling} style={KNAPP.lank}>Ändra stämplingslängden</button>}

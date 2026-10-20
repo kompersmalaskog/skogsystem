@@ -9,6 +9,7 @@
 import { ORIMLIG_VOLYM_NYCKEL, orimligVolymText } from '@/lib/trakt/rimlighet';
 import { tillVarningar } from '@/lib/trakt/varningar';
 import { avvikelseText, jamfor } from './stamplingslangd';
+import { AVVIKANDE_UTFALL_NYCKEL, avvikandeUtfall } from './utfall';
 
 // ---------------------------------------------------------------------------
 // Frågorna (import_varningar)
@@ -52,17 +53,24 @@ export interface VolymUnderlag {
   areal?: number | null;
   stamplingslangd_volym?: number | null;
   stamplingslangd_enhet?: string | null;
+  status?: string | null;
+  /** Maskinernas utfall i m³fub (lib/objekt/utfall.ts). null/undefined = inget utfall. */
+  utfall?: number | null;
 }
 
 export interface VolymFraga {
-  nyckel: 'orimlig_volym' | 'stamplingslangd_avviker';
+  nyckel: 'orimlig_volym' | 'avvikande_utfall' | 'stamplingslangd_avviker';
   text: string;
+  /** Ett förslag på ny volym (m³fub) som en människa kan godkänna — bara när utfallet är slutgiltigt. Skrivs aldrig av sig självt. */
+  forslagVolym?: number;
 }
 
 export function volymFragor(o: VolymUnderlag): VolymFraga[] {
   const ut: VolymFraga[] = [];
   const orimlig = orimligVolymText(o.typ, o.volym, o.areal);
   if (orimlig) ut.push({ nyckel: ORIMLIG_VOLYM_NYCKEL, text: orimlig });
+  const utfall = avvikandeUtfall({ status: o.status ?? null, volym: o.volym, areal: o.areal ?? null, utfall: o.utfall });
+  if (utfall) ut.push({ nyckel: AVVIKANDE_UTFALL_NYCKEL, text: utfall.text, ...(utfall.forslag != null ? { forslagVolym: utfall.forslag } : null) });
   const avviker = avvikelseText(o.volym, jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet));
   if (avviker) ut.push({ nyckel: 'stamplingslangd_avviker', text: avviker });
   return ut;

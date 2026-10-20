@@ -1,11 +1,15 @@
 // Läsning och skrivning för Objekt-vyn (objekt + beställningar i EN vy). Ett läsfel är ett fel — aldrig en tom lista som ser ut som
 // "inga objekt" (CLAUDE.md, ärlig data). Skrivningar kräver rader tillbaka: noll rader är ett fel, inte "sparat".
 import { supabase } from '@/lib/supabase';
+import { hamtaAlla } from '@/lib/supabaseAlla';
 import type { Manad } from './manad';
 import type { ObjektTyp, SektionTyp } from './tackning';
 
 export interface ObjektRad {
   id: string;
+  vo_nummer?: string | null;
+  /** Maskinernas utfall i m³fub (lib/objekt/utfall.ts). null = inget utfall under VO-numret; undefined = inte läst (läsfel eller inget VO-nummer). */
+  utfall?: number | null;
   namn: string;
   typ: string | null;
   bolag: string | null;
@@ -14,7 +18,7 @@ export interface ObjektRad {
   manad: number | null;
   volym: number | null;
   areal: number | null;
-  /** Stämplingslängdens tal, inskrivet av en människa (migration 20261020120000). Saknas kolumnerna är de undefined. */
+  /** Stämplingslängdens tal, inskrivet av en människa (migration 20261020094926_objekt_stamplingslangd_tal, körd i prod 2026-10-20). Saknas kolumnerna är de undefined. */
   stamplingslangd_volym?: number | null;
   stamplingslangd_enhet?: string | null;
   status: string | null;
@@ -32,7 +36,7 @@ export interface Post {
   volym: number;
 }
 
-const LISTKOLUMNER_BAS = 'id, namn, typ, bolag, kalla, ar, manad, volym, areal, status, traktdirektiv_url, import_varningar';
+const LISTKOLUMNER_BAS = 'id, vo_nummer, namn, typ, bolag, kalla, ar, manad, volym, areal, status, traktdirektiv_url, import_varningar';
 const STAMPLINGSKOLUMNER = 'stamplingslangd_volym, stamplingslangd_enhet';
 
 /** Kolumnerna finns inte förrän migrationen `objekt_stamplingslangd_tal` körts: PostgREST svarar då 42703/PGRST204 på själva listan. */
@@ -47,7 +51,34 @@ async function lasObjekt(bygg: (kolumner: string) => PromiseLike<{ data: unknown
   let r = await bygg(`${LISTKOLUMNER_BAS}, ${STAMPLINGSKOLUMNER}`);
   if (r.error && arKolumnSaknas(r.error)) r = await bygg(LISTKOLUMNER_BAS);
   if (r.error) throw new Error(r.error.message ?? 'Okänt fel');
-  return (r.data ?? []) as ObjektRad[];
+  return medUtfall((r.data ?? []) as ObjektRad[]);
+}
+
+/**
+ * Utfall per VO-nummer: SUM(fakt_produktion.volym_m3sub), m³fub. fakt_produktion har många rader per objekt (dag × trädslag × operator), så alla
+ * sidor läses. Ett nummer utan rader finns inte i svaret (inget utfall — inte 0). Ett läsfel kastas: en halv summa vore sämre än ingen.
+ */
+export async function hamtaUtfall(voNummer: readonly string[]): Promise<Map<string, number>> {
+  const vo = Array.from(new Set(voNummer.filter(v => v && v.trim() !== '')));
+  const ut = new Map<string, number>();
+  if (vo.length === 0) return ut;
+  const { data, error } = await hamtaAlla<{ id: number; objekt_id: string; volym_m3sub: number | null }>(
+    () => supabase.from('fakt_produktion').select('id, objekt_id, volym_m3sub').in('objekt_id', vo) as any,
+    'id',
+  );
+  if (error) throw new Error(error.message ?? 'Utfallet kunde inte läsas');
+  for (const r of data) ut.set(r.objekt_id, (ut.get(r.objekt_id) ?? 0) + (Number(r.volym_m3sub) || 0));
+  return ut;
+}
+
+/** Listan får sitt utfall ur ett enda extra anrop. Går det inte att läsa visas listan ändå (utfallet är ett tillägg): raderna får inget utfall och ingen jämförelse görs. */
+async function medUtfall(rader: ObjektRad[]): Promise<ObjektRad[]> {
+  try {
+    const u = await hamtaUtfall(rader.map(r => r.vo_nummer ?? ''));
+    return rader.map(r => (r.vo_nummer ? { ...r, utfall: u.get(r.vo_nummer) ?? null } : r));
+  } catch {
+    return rader;
+  }
 }
 
 /** Månadens objekt: gallring och slutavverkning (har beställning) och GROT (har ingen). Avslutade ingår: volymen står kvar. */
