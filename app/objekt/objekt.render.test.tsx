@@ -337,6 +337,16 @@ describe('Objektvyn — vad filen gav oss', () => {
     expect(t).toContain('7,28\u00a0ha');
   });
 
+  it('tryckbara rader har skiljelinjen under sig, precis som de som inte går att trycka på (sista raden har ingen)', async () => {
+    await monteraObjekt('skalviken');
+    const rader = Array.from(behallare!.querySelectorAll<HTMLElement>('section[aria-label="Vad filen gav oss"] button, section[aria-label="Vad filen gav oss"] > div > div'));
+    const traktdirektiv = Array.from(behallare!.querySelectorAll<HTMLElement>('button')).find(b => b.textContent?.startsWith('Traktdirektiv'))!;
+    expect(traktdirektiv.style.borderBottomStyle).toBe('solid');
+    const egenkontroll = Array.from(behallare!.querySelectorAll<HTMLElement>('div')).find(d => d.textContent?.startsWith('Egenkontroll22') && d.style.minHeight)!;
+    expect(egenkontroll.style.borderBottomStyle).toBe('none');
+    expect(rader.length).toBeGreaterThan(3);
+  });
+
   it('faran är en egen rad (Fara) och Körning bär bara vägen — kraftledningen står inte på båda', async () => {
     await monteraObjekt('skalviken');
     const fara = behallare!.querySelector('[data-fara="Kraftledning"]')!;

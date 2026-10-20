@@ -55,8 +55,11 @@ export default function Rad({ titel, under, hoger, hogerUnder, pil, onTryck, hre
   }
   if (onTryck) {
     return (
-      <button type="button" onClick={onTryck} {...(attr ?? {})} style={{ ...stil, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', minHeight: TRAFFYTA.min }}>
-        {innehall}
+      // `border: 'none'` FÖRE spridningen: nollställer knappens egen ram, men raden behåller sin linje under. (Står den efter spridningen
+      // — även med borderBottom omskriven — vinner den, eftersom en nyckel som redan finns i objektet behåller sin ursprungliga plats.)
+      <button type="button" onClick={onTryck} {...(attr ?? {})}
+        style={{ border: 'none', ...stil, background: 'none', cursor: 'pointer', fontFamily: 'inherit', minHeight: TRAFFYTA.min }}>
+      {innehall}
       </button>
     );
   }
