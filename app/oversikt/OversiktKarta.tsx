@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { TALL_FARG } from '@/lib/tradslag';
 import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
@@ -231,7 +232,7 @@ function ObjCard({ obj, warnings, farorStatus = 'ok', koPlats, devicePos, skotar
 
   const statBox: React.CSSProperties = { flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` };
   const chip: React.CSSProperties = { ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm };
-  const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
+  const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': TALL_FARG, 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
   const Sec = ({ label }: { label: string }) => (
     <div style={{ ...T.label, marginBottom: SP.sm }}>{label}</div>
   );

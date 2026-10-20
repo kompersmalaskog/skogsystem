@@ -15,7 +15,10 @@
 export type FargGrupp = 'fara' | 'natur' | 'kultur' | 'blott' | 'att_gora' | 'info';
 export type LarmRegel = 'alltid' | 'tills_kvitterat' | 'aldrig';
 
-export interface GruppDef { id: FargGrupp; namn: string; farg: string; larm: LarmRegel }
+/** Formen säger hur allvarligt det är: rundad triangel = Fara, rundad ruta = Att göra (en bock att pricka av), cirkel = övriga grupper. */
+export type SymbolForm = 'cirkel' | 'triangel' | 'ruta';
+
+export interface GruppDef { id: FargGrupp; namn: string; farg: string; larm: LarmRegel; form: SymbolForm }
 
 export const FARG_FARA = '#FF453A';
 export const FARG_NATUR = '#30D158';
@@ -25,19 +28,19 @@ export const FARG_ATT_GORA = '#AF52DE';
 export const FARG_INFO = '#1C1C1E';
 
 export const GRUPPER: Record<FargGrupp, GruppDef> = {
-  fara: { id: 'fara', namn: 'Fara', farg: FARG_FARA, larm: 'alltid' },
-  natur: { id: 'natur', namn: 'Natur', farg: FARG_NATUR, larm: 'tills_kvitterat' },
-  kultur: { id: 'kultur', namn: 'Kultur', farg: FARG_KULTUR, larm: 'tills_kvitterat' },
-  blott: { id: 'blott', namn: 'Blött', farg: FARG_BLOTT, larm: 'tills_kvitterat' },
-  att_gora: { id: 'att_gora', namn: 'Att göra', farg: FARG_ATT_GORA, larm: 'aldrig' },
-  info: { id: 'info', namn: 'Info', farg: FARG_INFO, larm: 'aldrig' },
+  fara: { id: 'fara', namn: 'Fara', farg: FARG_FARA, larm: 'alltid', form: 'triangel' },
+  natur: { id: 'natur', namn: 'Natur', farg: FARG_NATUR, larm: 'tills_kvitterat', form: 'cirkel' },
+  kultur: { id: 'kultur', namn: 'Kultur', farg: FARG_KULTUR, larm: 'tills_kvitterat', form: 'cirkel' },
+  blott: { id: 'blott', namn: 'Blött', farg: FARG_BLOTT, larm: 'tills_kvitterat', form: 'cirkel' },
+  att_gora: { id: 'att_gora', namn: 'Att göra', farg: FARG_ATT_GORA, larm: 'aldrig', form: 'ruta' },
+  info: { id: 'info', namn: 'Info', farg: FARG_INFO, larm: 'aldrig', form: 'cirkel' },
 };
 export const GRUPP_ORDNING: readonly FargGrupp[] = ['fara', 'natur', 'kultur', 'blott', 'att_gora', 'info'];
 
 /** Markeringssymbolens (lib/marker-icons) grupp. Okänd typ = Info (aldrig ett påhittat larm). */
 export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
   // Fara
-  powerline: 'fara', warning: 'fara', steep: 'fara',
+  powerline: 'fara', warning: 'fara', steep: 'fara', huntingtower: 'fara', groundcable: 'fara',
   // Natur
   eternitytree: 'natur', naturecorner: 'natur', highstump: 'natur',
   // Kultur
@@ -47,7 +50,7 @@ export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
   // Att göra (Manuell fällning är INTE fara längre)
   manualfelling: 'att_gora', felloutside: 'att_gora',
   // Info
-  landing: 'info', firewood: 'info', brashpile: 'info', windfall: 'info', road: 'info', turningpoint: 'info',
+  gate: 'info', landing: 'info', firewood: 'info', brashpile: 'info', windfall: 'info', road: 'info', turningpoint: 'info',
   ditch: 'info', bridge: 'info', corduroy: 'info', trail: 'info', default: 'info',
 };
 
@@ -61,11 +64,12 @@ export const LARMFRIA_SYMBOLER: readonly string[] = ['highstump', 'eternitytree'
  */
 export const SYMBOL_NAMN: Readonly<Record<string, string>> = {
   eternitytree: 'Evighetsträd', naturecorner: 'Naturhörna',
-  culturemonument: 'Kulturminne', culturestump: 'Kulturstubbe',
+  // Kulturlämning = stenröse, tjärdal, kolbotten, råsten. Gamla Kulturstubbar ritas och heter Kulturlämning (ingen data ändras).
+  culturemonument: 'Kulturlämning', culturestump: 'Kulturlämning',
   highstump: 'Högstubbe', landing: 'Avlägg', brashpile: 'Rishög', windfall: 'Vindfälle', manualfelling: 'Manuell fällning', felloutside: 'Träd att avverka',
   powerline: 'El-ledning', road: 'Väg', turningpoint: 'Vändplats',
   ditch: 'Dike', bridge: 'Bro', corduroy: 'Kavling', wet: 'Fuktig mark', steep: 'Brant', trail: 'Stig / Led',
-  warning: 'Varning', firewood: 'Ved',
+  warning: 'Varning', firewood: 'Ved', huntingtower: 'Jakttorn', groundcable: 'Markkabel', gate: 'Grind',
 };
 export const symbolNamn = (typ: string | null | undefined): string => (typ && SYMBOL_NAMN[typ]) || 'Markering';
 

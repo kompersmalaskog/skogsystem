@@ -33,6 +33,7 @@
 import { ZONE_COLORS } from './zone-colors';
 import { ICON_SIZE } from './marker-icons';
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
+import { FORBJUDNA_ZONTYPER, SNEDSTRECK_GRUPPER, snedstreckId } from './ytaStil';
 
 // ---------------------------------------------------------------------------
 // Palett - ordagrant ur LEGEND i app/planering/page.tsx
@@ -193,7 +194,7 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
       if (!dim?.utanKant) {
         lager.push({
           id: `${prefix}-lin-${lt.id}-kant`, type: 'line', source: kalla, filter,
-          paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(STENMUR_BREDD, bf, 3), 'line-opacity': 0.5 },
+          paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(STENMUR_BREDD, bf, 3), 'line-opacity': 1 },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
       }
@@ -261,6 +262,15 @@ export function zonFyllLager(kalla: string, prefix: string, bas: any[] | null, d
     filter: och(ar('kind', 'zon'), bas),
     paint: { 'fill-color': zonFargUttryck(), 'fill-opacity': ZON_FYLLNING_OPACITET * (dim?.opacitet ?? 1) },
   }];
+}
+
+/** Snedstreckningen på ytor man inte får köra in i (lib/ytaStil: Hänsyn, Fornlämning, Ej framkomlig) — ett lager per grupp, ovanpå fyllningen. Bilderna `snedstreck-<grupp>` laddas av kartan. */
+export function zonSnedstreckLager(kalla: string, prefix: string, bas: any[] | null, dim?: Dimning): any[] {
+  return SNEDSTRECK_GRUPPER.map((grupp) => ({
+    id: `${prefix}-zon-snedstreck-${grupp}`, type: 'fill', source: kalla,
+    filter: och(ar('kind', 'zon'), bas, ['in', ['get', 'typ'], ['literal', FORBJUDNA_ZONTYPER(grupp)]]),
+    paint: { 'fill-pattern': snedstreckId(grupp), 'fill-opacity': dim?.opacitet ?? 1 },
+  }));
 }
 
 /**

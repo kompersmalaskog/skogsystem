@@ -257,10 +257,10 @@ describe('sidans koppling (page.tsx kan inte monteras — källvakt)', () => {
     expect(page).toContain('offset: [-panelPx / 2, 0]');
     expect(page).toContain("const panelPx = lage === 'panel' ? PANEL_BREDD_PX");
   });
-  it('markeringarna bär hela linjen/ytan (geometri) och listans ikon är kartans (getIconDef: riktig färg + vit ring)', () => {
+  it('markeringarna bär hela linjen/ytan (geometri) och listans ikon är kartans: SymbolIkon (samma form, färg och glyf ur lib/symboler)', () => {
     expect(page).toContain('geometri = heltSpar(m.path)');
-    expect(page).toContain('const def = getIconDef(m.typ);');
-    expect(page).toContain('background: def.bg, border:');
+    expect(page).toContain('<SymbolIkon typ={');
+    expect(page).not.toContain('const def = getIconDef(m.typ);');
     expect(page).not.toContain("const chipBg = (t: string) =>");
   });
 });

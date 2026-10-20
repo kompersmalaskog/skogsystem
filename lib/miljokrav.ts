@@ -104,5 +104,7 @@ export const PRICK_NAMN: Readonly<Record<string, string>> = { highstump: 'Högst
 /** Prickarna har ett eget lager (overlay-id) i Lager-menyn. Saknas nyckeln är det PÅ — bara ett uttryckligt false döljer dem. */
 export const PRICK_LAGER_ID = 'miljoPrickar';
 export const prickarSynliga = (overlays: Record<string, boolean> | null | undefined): boolean => overlays?.[PRICK_LAGER_ID] !== false;
-/** Prickens diameter i px (ritas som circle-radius = hälften). */
-export const PRICK_DIAMETER_PX = 6;
+/** Prickens diameter i px (ritas som circle-radius = hälften). 10 px: syns och går att se på avstånd i hytten. */
+export const PRICK_DIAMETER_PX = 10;
+/** Prickens kant: mörk, så den läses mot flygfoto och vit karta. */
+export const PRICK_KANT_FARG = '#1a1a1a';

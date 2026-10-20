@@ -10,6 +10,7 @@
 
 import type { PDFFont, PDFPage } from 'pdf-lib';
 import type { RapportModell, LatLng } from './egenkontrollRapport';
+import { FORM_PATH, GLYF_LINJE_BREDD, GLYF_PLACERING, FORM_KANT_BREDD, SYMBOL_VIEWBOX, symbolDef } from './symboler';
 import {
   HYTTSPAR_FARG, STAMMOLN_FARG, TRAKTGRANS_FARG, markeringsStil,
   type KartMarkering,
@@ -113,7 +114,8 @@ export function ritaKarta(
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'zon' || m.punkter.length < 3) continue;
     const st = markeringsStil('zon', m.typ); if (!st) continue;
-    sida.drawSvgPath(bana(m.punkter, true), { ...SVG, color: hex(lib, st.farg), opacity: 0.16, borderColor: hex(lib, st.farg), borderWidth: st.bredd, borderOpacity: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+    sida.drawSvgPath(bana(m.punkter, true), { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.08 : 0.16, borderColor: hex(lib, st.farg), borderWidth: st.bredd, borderOpacity: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+    if (st.snedstreck) ritaSnedstreck(lib, sida, m.punkter.map(ap), st.farg);
   }
 
   // 1. Traktgrans (streckad) - ritas ovanpa ytorna men under stammarna, sa den syns men aldrig doljer monstret.
@@ -152,8 +154,8 @@ export function ritaKarta(
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'symbol') continue;
     const st = markeringsStil('symbol', m.typ); if (!st) continue;
-    const a = ap(m.plats), d = 3.4;
-    sida.drawSvgPath(`M ${a.x} ${a.y - d} L ${a.x + d} ${a.y} L ${a.x} ${a.y + d} L ${a.x - d} ${a.y} Z`, { ...SVG, color: grå(255), borderColor: hex(lib, st.farg), borderWidth: 1.3 });
+    const a = ap(m.plats), d = 4.6;
+    ritaSymbol(lib, sida, m.typ, a, d * 2);
     if (opts.etiketter !== false) {
       const text = san(st.etikett), bredd = fonter.normal.widthOfTextAtSize(text, 6.5);
       const rect = { x0: a.x + d + 2, x1: a.x + d + 2 + bredd, y0: a.y - 4, y1: a.y + 4 };
@@ -212,6 +214,33 @@ function ritaTvarstreck(lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number 
   sida.drawSvgPath(bana, { ...SVG, borderColor: farg, borderWidth: inre, borderLineCap: lib.LineCapStyle.Butt });
 }
 
+/** Symbolen i PDF:en: SAMMA form, kant och glyf som på kartan (lib/symboler) — vektor, så den är skarp i alla storlekar. `a` = mittpunkt, toppbaserad sidkoordinat. */
+export function ritaSymbol(lib: PdfLib, sida: PDFPage, typ: string, a: { x: number; y: number }, storlek: number): void {
+  const d = symbolDef(typ);
+  const sc = storlek / SYMBOL_VIEWBOX, h = SYMBOL_VIEWBOX / 2;
+  const ox = a.x - h * sc, oy = SIDHOJD - (a.y - h * sc);
+  sida.drawSvgPath(FORM_PATH[d.form], { x: ox, y: oy, scale: sc, color: hex(lib, d.farg), borderColor: lib.rgb(1, 1, 1), borderWidth: Math.max(0.6, FORM_KANT_BREDD * sc), borderLineCap: lib.LineCapStyle.Round });
+  const g = GLYF_PLACERING[d.form];
+  sida.drawSvgPath(d.glyf, { x: ox + g.x * sc, y: oy - g.y * sc, scale: sc * g.skala, borderColor: lib.rgb(1, 1, 1), borderWidth: GLYF_LINJE_BREDD * sc * g.skala, borderLineCap: lib.LineCapStyle.Round });
+}
+
+/** Snedstreckning (45°) i gruppens färg inuti en yta — ytor man inte får köra in i. Klipps mot ytans ring; `ring` är toppbaserade sidkoordinater. */
+export function ritaSnedstreck(lib: PdfLib, sida: PDFPage, ring: { x: number; y: number }[], farg: string, avstand = 4.5, tjocklek = 0.9): void {
+  if (ring.length < 3) return;
+  const xs = ring.map((p) => p.x), ys = ring.map((p) => p.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const ops = [lib.pushGraphicsState(), lib.moveTo(ring[0].x, SIDHOJD - ring[0].y)];
+  for (const p of ring.slice(1)) ops.push(lib.lineTo(p.x, SIDHOJD - p.y));
+  ops.push(lib.closePath(), lib.clip(), lib.endPath());
+  sida.pushOperators(...ops);
+  const c = hex(lib, farg);
+  for (let k = x0 - (y1 - y0); k <= x1; k += avstand) {
+    sida.drawLine({ start: { x: k, y: SIDHOJD - y1 }, end: { x: k + (y1 - y0), y: SIDHOJD - y0 }, thickness: tjocklek, color: c, opacity: 0.9 });
+  }
+  sida.pushOperators(lib.popGraphicsState());
+}
+
+
 /** En rad (eller flera) med teckenforklaring: ett litet prov per lager + dess namn. Returnerar hojden som anvandes. */
 export function ritaTeckenforklaring(
   lib: PdfLib,
@@ -240,8 +269,11 @@ export function ritaTeckenforklaring(
     else if (p.nyckel === 'kontrollpunkt') sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 3.6, color: grå(17) });
     else if (slag === 'linje' || slag === 'zon' || slag === 'symbol') {
       const st = markeringsStil(slag, typ);
-      if (st && slag === 'symbol') sida.drawSvgPath(`M ${cx + PROV / 2} ${mid - 3} L ${cx + PROV / 2 + 3} ${mid} L ${cx + PROV / 2} ${mid + 3} L ${cx + PROV / 2 - 3} ${mid} Z`, { ...SVG, color: grå(255), borderColor: hex(lib, st.farg), borderWidth: 1.1 });
-      else if (st && slag === 'zon') sida.drawSvgPath(`M ${cx} ${mid - 3} L ${cx + PROV} ${mid - 3} L ${cx + PROV} ${mid + 3} L ${cx} ${mid + 3} Z`, { ...SVG, color: hex(lib, st.farg), opacity: 0.16, borderColor: hex(lib, st.farg), borderWidth: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+      if (st && slag === 'symbol') ritaSymbol(lib, sida, typ, { x: cx + PROV / 2, y: mid }, 9);
+      else if (st && slag === 'zon') {
+        sida.drawSvgPath(`M ${cx} ${mid - 3} L ${cx + PROV} ${mid - 3} L ${cx + PROV} ${mid + 3} L ${cx} ${mid + 3} Z`, { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.08 : 0.16, borderColor: hex(lib, st.farg), borderWidth: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+        if (st.snedstreck) ritaSnedstreck(lib, sida, [{ x: cx, y: mid - 3 }, { x: cx + PROV, y: mid - 3 }, { x: cx + PROV, y: mid + 3 }, { x: cx, y: mid + 3 }], st.farg, 3, 0.7);
+      }
       else if (st) sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, st.farg), borderWidth: Math.min(st.bredd, 2.2), ...(st.streck ? { borderDashArray: st.streck } : {}) });
     }
     sida.drawText(text, { x: cx + PROV + 4, y: SIDHOJD - cy - STORLEK * 0.78 - 0.5, size: STORLEK, font: fonter.normal, color: grå(70) });

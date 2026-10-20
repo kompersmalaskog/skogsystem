@@ -56,8 +56,17 @@ import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
-import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
-import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
+import { GrindKortVy, LarmKortVy, SettRad } from '../../components/planering/LarmKort'
+import { useGrind } from '../../lib/hooks/useGrind'
+import { GRIND_TYP, rensaGrindKod } from '../../lib/grind'
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
+import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring } from '../../lib/symboler'
+import { SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
+import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
+import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
+import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
+import { FORBJUDNA_ZONTYPER, SNEDSTRECK_GRUPPER, VIDA_ETIKETT, YTA_ETIKETT, YTA_ETIKETT_STIL, snedstreckBild, snedstreckId } from '@/lib/ytaStil';
+
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
@@ -85,7 +94,7 @@ import type { OmNav } from '../../components/planering/OmTrakten'
 import { startaFramhavning, startaKartSlapp } from '../../lib/omTraktenFramhavKarta'
 import { mittAvPunkter, omSammanfattning, punkterUrGeometri } from '../../lib/omTrakten'
 import { lagerBild, tonadYta, linjeYta, sparYta } from '../../lib/lagerForhandsbild'
-import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, prickarSynliga } from '../../lib/miljokrav'
+import { miljoKrav, raknaMiljo, kravStatus, tolkaAreal, arPrick, PRICK_NAMN, PRICK_LAGER_ID, PRICK_DIAMETER_PX, PRICK_KANT_FARG, prickarSynliga } from '../../lib/miljokrav'
 import { avverkadAreaM2, avverkadAndel, avverkatHa } from '../../lib/avverkadAreal'
 import { hamtaPlusRad, sparaPlusRad, tomtPlusRad, beraknaRad, noteraAnvandning, fastaPost, aterstallDocka, arDockPost, postNyckel, nyckelTillPost, RITA_NAMN, MAT_NAMN, MAX_FASTA, type PlusPost, type PlusRadState } from '../../lib/plusRad'
 import { nyMarkering, angraMarkering, kanPlaceraPaPosition, placeringsFelText, kvittoRubrik, KVITTO_MS } from '../../lib/snabbMarkering'
@@ -152,6 +161,10 @@ import MaskinMeny from '@/components/startsida/MaskinMeny'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 import { optiLokalDag } from '@/lib/optiTid'
+/** Lagren som bär en egen yta: fyllning, snedstreckning (ytor man inte får köra in i) och kant. En lista för synlighet och nedtoning. */
+const ZONE_LAGER = (): string[] => ['zone-fill', ...SNEDSTRECK_GRUPPER.map((g) => `zone-hatch-${g}`), 'zone-outline-casing', 'zone-outline'];
+const arZonYta = (id: string): boolean => id === 'zone-fill' || id.startsWith('zone-hatch-');
+
 
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
 const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
@@ -382,6 +395,7 @@ interface Marker {
   risaPath?: Point[];   // basväg: delsträcka (SVG-punkter) som ska risas — ritas blå + geofence i körvy
   comment?: string;
   antal?: number; // miljöhänsyn: bara eternitytree/highstump — hur många träd/stubbar punkten representerar
+  kod?: string;   // Grind: hänglåskoden (bara siffror). Visas i körvyn inom ~50 m. Aldrig i A4-rapporten.
   photoData?: string;   // GAMMALT: inbäddat base64-foto — nya foton går till Storage (photoPath)
   photoPath?: string;   // Storage-sökväg i bucketen markering-foton ({objekt_id}/{marker_id}.jpg)
   photoTs?: number;     // sätts vid varje uppladdning — tvingar ny signerad URL vid omtag
@@ -1373,6 +1387,11 @@ export default function PlannerPage() {
     const gallringLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['==', ['get', 'tradslag'], 'lov']] as any;
     const gallringEjLov = ['all', ['==', ['get', 'zoneType'], 'gallring'], ['!=', ['get', 'tradslag'], 'lov']] as any;
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': gallringCase(GALLRING_FILL_OPACITY, 0.2) } });
+    // Ytor man inte får köra in i (Hänsyn, Fornlämning, Ej framkomlig) snedstreckas i gruppens färg; övriga är heldragna (lib/ytaStil).
+    for (const grupp of SNEDSTRECK_GRUPPER) {
+      if (!map.hasImage(snedstreckId(grupp))) map.addImage(snedstreckId(grupp), snedstreckBild(grupp));
+      map.addLayer({ id: `zone-hatch-${grupp}`, type: 'fill', source: 'zones-source', filter: ['in', ['get', 'zoneType'], ['literal', FORBJUDNA_ZONTYPER(grupp)]], paint: { 'fill-pattern': snedstreckId(grupp) } });
+    }
     map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring', type: 'line', source: 'zones-source', filter: gallringEjLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthGallring }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
@@ -1385,9 +1404,9 @@ export default function PlannerPage() {
       id: 'zone-label',
       type: 'symbol',
       source: 'zones-source',
-      filter: ['in', ['get', 'zoneType'], ['literal', ['wet', 'steep', 'protected', 'culture', 'noentry', 'fornlamning']]],
+      filter: ['in', ['get', 'zoneType'], ['literal', Object.keys(YTA_ETIKETT)]],
       layout: {
-        'text-field': ['match', ['get', 'zoneType'], 'wet', 'RISA', 'steep', 'Brant', 'protected', 'Hänsyn', 'culture', 'Kulturmiljö', 'noentry', 'Ej framkomlig', 'fornlamning', 'Fornlämning', ''],
+        'text-field': ['match', ['get', 'zoneType'], ...Object.entries(YTA_ETIKETT).flat(), ''],
         'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22],
         'text-allow-overlap': true,
@@ -1397,9 +1416,9 @@ export default function PlannerPage() {
         'text-letter-spacing': 0.08,
       },
       paint: {
-        'text-color': '#ffffff',
-        'text-halo-color': 'rgba(0,0,0,0.7)',
-        'text-halo-width': 1.8,
+        'text-color': YTA_ETIKETT_STIL.text,
+        'text-halo-color': YTA_ETIKETT_STIL.kant,
+        'text-halo-width': YTA_ETIKETT_STIL.kantBredd,
       },
     });
 
@@ -1422,7 +1441,7 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'line-stonewall-casing', type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], 'stonewall'],
-          paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-opacity': 0.5, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 7, 11, 8, 13, 9, 15, 10, 17, 12] },
+          paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-opacity': 1, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 7, 11, 8, 13, 9, 15, 10, 17, 12] },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
         map.addLayer({
@@ -1746,7 +1765,7 @@ export default function PlannerPage() {
       source: 'grot-source',
       paint: {
         'circle-radius': grotRadius,
-        'circle-color': '#f59e0b',
+        'circle-color': GROT_FARG,
         'circle-opacity': 0.85,
         'circle-stroke-width': 2.5,
         'circle-stroke-color': 'rgba(255,255,255,0.8)',
@@ -1793,10 +1812,11 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     // Hänsynsytor — grön fylld yta + kontur (Natur; Vidas egen _farg används inte: färgen kommer ur färggruppen)
     map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': FARG_NATUR, 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-hatch', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-pattern': snedstreckId('natur') }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': FARG_NATUR, 'line-width': 1.5 }, layout: { visibility: 'none' } });
     // LOPNR mitt i varje hänsynsyta (symbol på polygon = centroid). Numret kopplar ytan till
     // traktdirektivets hänsynstabell; tryck på ytan öppnar åtgärdstexten (se handleTraktKlick).
-    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'LOPNR'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
+    map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], layout: { 'text-field': ['concat', VIDA_ETIKETT.hansynsyta, ' ', ['to-string', ['coalesce', ['get', 'LOPNR'], '']]], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
     // Kör & fara — basväg (brun HELDRAGEN, tjock) vs kraftledning (röd STRECKAD, tunnare).
     // Två lager: streckning kan inte vara datadriven. FLBESKR avgör vilket -> visuellt distinkt.
     map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
@@ -1817,12 +1837,16 @@ export default function PlannerPage() {
     // === Nyckelbiotoper (SV_SKS_NYCKELBIOTOP_101, Skogsstyrelsen) — svag grön fyllning + STRECKAD kontur ===
     // Streckningen skiljer dem från traktdelens heldragna gröna kontur. Tappbara → gemensamt kort.
     map.addLayer({ id: 'trakt-nb-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'fill-color': FARG_NATUR, 'fill-opacity': 0.10 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-nb-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'line-color': FARG_NATUR, 'line-width': 2, 'line-dasharray': [3, 2] }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-nb-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'line-color': FARG_NATUR, 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-nb-hatch', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'fill-pattern': snedstreckId('natur') }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-nb-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], layout: { 'text-field': VIDA_ETIKETT.nyckelbiotop, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
 
     // === RAÄ-lämningar (L_RAA_POLY/LINE/POINT_101, Riksantikvarieämbetet) — brun kontur/symbol (Kultur) ===
     // Poly: svag fyllning + kontur. Line: brunt streck. Point: liten brun prick med mörk kant.
     // Samma brun som fornlämning och kulturminne (lib/larm/grupper). Tappbara → gemensamt kort.
     map.addLayer({ id: 'trakt-raa-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], paint: { 'fill-color': FARG_KULTUR, 'fill-opacity': 0.14 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-raa-hatch', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], paint: { 'fill-pattern': snedstreckId('kultur') }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-raa-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], layout: { 'text-field': VIDA_ETIKETT.raa_yta, 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22], 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'], 'text-letter-spacing': 0.08, 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': YTA_ETIKETT_STIL.text, 'text-halo-color': YTA_ETIKETT_STIL.kant, 'text-halo-width': YTA_ETIKETT_STIL.kantBredd } });
     map.addLayer({ id: 'trakt-raa-line', type: 'line', source: 'trakt-geo-source', filter: ['in', ['get', '_lager'], ['literal', ['L_RAA_POLY_101', 'L_RAA_LINE_101']]], paint: { 'line-color': FARG_KULTUR, 'line-width': 2.5 }, layout: { visibility: 'none' } });
     map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': FARG_KULTUR, 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
 
@@ -1976,10 +2000,10 @@ export default function PlannerPage() {
           paint: {
             'circle-radius': PRICK_DIAMETER_PX / 2,
             'circle-color': ['match', ['get', 'type'], 'eternitytree', symbolFarg('eternitytree'), symbolFarg('highstump')],   // Natur (grön) för båda — lib/larm/grupper
-            'circle-opacity': 0.75,
-            'circle-stroke-width': 1,
-            'circle-stroke-color': FARG.text,
-            'circle-stroke-opacity': 0.6,
+            'circle-opacity': 1,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': PRICK_KANT_FARG,   // mörk kant: pricken syns mot både ljus och mörk karta
+            'circle-stroke-opacity': 1,
             'circle-pitch-alignment': 'viewport',
           },
         });
@@ -1993,7 +2017,7 @@ export default function PlannerPage() {
         if (!map.getLayer('markers-hit')) {
           map.addLayer({
             id: 'markers-hit', type: 'circle', source: 'markers-source',
-            paint: { 'circle-radius': 20, 'circle-color': 'rgba(0,0,0,0)' },
+            paint: { 'circle-radius': TRAFF_RADIE_PX, 'circle-color': 'rgba(0,0,0,0)' },   // 44 px (TRAFFYTA.min) — samma träffyta som egenkontrollen
           });
         }
       } catch (e) { console.error('[MapLibre] markers-hit error:', e); }
@@ -2074,7 +2098,7 @@ export default function PlannerPage() {
         if (!map.getLayer('arrows-hit')) {
           map.addLayer({
             id: 'arrows-hit', type: 'circle', source: 'arrows-source',
-            paint: { 'circle-radius': 20, 'circle-color': 'rgba(0,0,0,0)' },
+            paint: { 'circle-radius': TRAFF_RADIE_PX, 'circle-color': 'rgba(0,0,0,0)' },
           });
         }
       } catch (e) { console.error('[MapLibre] arrows-hit error:', e); }
@@ -2725,6 +2749,7 @@ export default function PlannerPage() {
   // Meny
   const [menuOpen, setMenuOpen] = useState(false);
   const [antalPrompt, setAntalPrompt] = useState<{ markerId: string; type: string } | null>(null);
+  const [kodPrompt, setKodPrompt] = useState<string | null>(null);   // Grind: markerId vars hänglåskod planeraren just ska skriva
   const [menuTab, setMenuTab] = useState('symbols'); // symbols, lines, zones, arrows, settings
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
@@ -4829,12 +4854,17 @@ export default function PlannerPage() {
     set('trakt-gr-stripe', true);
     set('trakt-hansyn-fill', !!overlays.hansyn);
     set('trakt-hansyn-line', !!overlays.hansyn);
+    set('trakt-hansyn-hatch', !!overlays.hansyn);
     set('trakt-hansyn-label', !!overlays.hansyn);
     // Nyckelbiotoper (Skogsstyrelsen) + RAÄ-lämningar — egna toggles, default PÅ.
     set('trakt-nb-fill', !!overlays.traktNyckelbiotop);
     set('trakt-nb-line', !!overlays.traktNyckelbiotop);
+    set('trakt-nb-hatch', !!overlays.traktNyckelbiotop);
+    set('trakt-nb-label', !!overlays.traktNyckelbiotop);
     set('trakt-raa-fill', !!overlays.traktLamning);
     set('trakt-raa-line', !!overlays.traktLamning);
+    set('trakt-raa-hatch', !!overlays.traktLamning);
+    set('trakt-raa-label', !!overlays.traktLamning);
     set('trakt-raa-point', !!overlays.traktLamning);
     // Kör & fara: basväg + kraftledning + punkter (avlägg/larm) i samma lager.
     set('trakt-basvag-line', !!overlays.korFara);
@@ -5193,22 +5223,10 @@ export default function PlannerPage() {
       return;
     }
 
-    const TRADSLAG_COLOR: Record<string, string> = {
-      'GRAN': '#1d9e75',
-      'TALL': '#e8832a',
-      'BJÖRK': '#f0f0f0',
-      'ÖVR_LÖV': '#888780',
-    };
-    const BLANDAT_COLOR = '#6b7c3a';
+    const TRADSLAG_COLOR = HOG_TRADSLAG_FARG;
+    const BLANDAT_COLOR = KARTA_BLANDAT;
 
-    const getSortimentColor = (s: string): string => {
-      if (s.startsWith('Gran')) return '#1d9e75';
-      if (s.startsWith('Tall')) return '#e8832a';
-      if (s.startsWith('Björk')) return '#f0f0f0';
-      if (s.startsWith('Övr_löv')) return '#888780';
-      if (s === 'GROT') return '#8B5E3C';
-      return '#6b7c3a';
-    };
+    const getSortimentColor = sortimentFarg;
 
     const generatePieIcon = (sortimentData: Record<string, number>, size: number, fallbackColor = '#6b7c3a'): ImageData => {
       const canvas = document.createElement('canvas');
@@ -5232,6 +5250,7 @@ export default function PlannerPage() {
         ctx.arc(cx, cy, r, 0, 2 * Math.PI);
         ctx.fillStyle = fallbackColor;
         ctx.fill();
+        if (fallbackColor === HOG_TRADSLAG_FARG['BJÖRK']) { ctx.strokeStyle = BJORK_KANT_FARG; ctx.lineWidth = 1.5; ctx.stroke(); }
       } else {
         let startAngle = -Math.PI / 2;
         const entries = Object.entries(sortimentData).sort((a, b) => b[1] - a[1]);
@@ -5243,6 +5262,7 @@ export default function PlannerPage() {
           ctx.closePath();
           ctx.fillStyle = getSortimentColor(sortiment);
           ctx.fill();
+          if (sortiment.startsWith('Björk')) { ctx.strokeStyle = BJORK_KANT_FARG; ctx.lineWidth = 1.5; ctx.stroke(); }   // vit björk får mörk kant mot den vita pajkanten
           startAngle += sliceAngle;
         }
       }
@@ -5331,7 +5351,7 @@ export default function PlannerPage() {
             grotHogar.push({
               type: 'Feature' as const,
               geometry: { type: 'Point' as const, coordinates: [cLng + 0.00008, cLat + 0.00008] }, // Liten offset så de inte överlappar helt
-              properties: { volym: Math.round(volym * 100) / 100, tradslag, stammar: grotCount, datum, color: '#f59e0b' },
+              properties: { volym: Math.round(volym * 100) / 100, tradslag, stammar: grotCount, datum, color: GROT_FARG },
             });
           }
         }
@@ -5585,13 +5605,7 @@ export default function PlannerPage() {
   // === Kvar att köra: auto-laddning ===
   useEffect(() => {
     if (!valtObjekt?.id) { setKvarData([]); return; }
-    const getSortColor = (s: string): string => {
-      if (s.startsWith('Gran')) return '#1d9e75';
-      if (s.startsWith('Tall')) return '#e8832a';
-      if (s.startsWith('Björk')) return '#f0f0f0';
-      if (s.startsWith('Övr_löv')) return '#888780';
-      return '#6b7c3a';
-    };
+    const getSortColor = sortimentFarg;
     const load = async () => {
       // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — exakt vo-segment-jämförelse
       // klientsida (split ':' + ===), ingen LIKE. stammar_count är opålitlig — används ej.
@@ -6454,14 +6468,7 @@ export default function PlannerPage() {
 
       // Identify högar within polygon — respektera aktiva lager
       try {
-        const getSortColor = (s: string): string => {
-          if (s.startsWith('Gran')) return '#1d9e75';
-          if (s.startsWith('Tall')) return '#e8832a';
-          if (s.startsWith('Björk')) return '#f0f0f0';
-          if (s.startsWith('Övr_löv')) return '#888780';
-          if (s === 'GROT') return '#8B5E3C';
-          return '#6b7c3a';
-        };
+        const getSortColor = sortimentFarg;
 
         const grouped: { sortiment: string; volym: number; color: string; typ: 'virke' | 'grot' }[] = [];
         let antalHogar = 0;
@@ -6508,7 +6515,7 @@ export default function PlannerPage() {
             }
           }
           if (grotCount > 0) {
-            grouped.push({ sortiment: 'GROT', volym: Math.round(grotVol * 10) / 10, color: '#8B5E3C', typ: 'grot' });
+            grouped.push({ sortiment: 'GROT', volym: Math.round(grotVol * 10) / 10, color: GROT_FARG, typ: 'grot' });
           }
         }
 
@@ -7603,187 +7610,9 @@ export default function PlannerPage() {
   // Symboler grupperade för skogsbruk
   // === SVG IKONER (Tesla-stil) ===
   const renderIcon = (iconId: string, size: number = 24, color: string = '#fff') => {
+    // Symbolernas glyfer bor i lib/symboler (EN källa: karta, meny, kort, dock, teckenförklaring, A4). Här finns bara pilarna kvar.
+    if (iconId !== 'default' && (iconId in GLYF || iconId in SYMBOL_ALIAS)) return <SymbolGlyf typ={iconId} storlek={size} farg={color} />;
     const icons: Record<string, any> = {
-      // NATURVÅRD
-      'eternitytree': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3 Q4 6 4 12 Q4 16 12 16 Q20 16 20 12 Q20 6 12 3Z" />
-          <line x1="12" y1="16" x2="12" y2="22" />
-          <path d="M9 22 Q12 20 15 22" />
-        </svg>
-      ),
-      'naturecorner': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="8" cy="10" r="4" />
-          <circle cx="16" cy="10" r="4" />
-          <circle cx="12" cy="7" r="3" />
-          <path d="M3 20 Q12 16 21 20" />
-          <line x1="8" y1="14" x2="8" y2="17" />
-          <line x1="16" y1="14" x2="16" y2="17" />
-        </svg>
-      ),
-      // KULTUR
-      'culturemonument': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <text x="12" y="17" textAnchor="middle" fontSize="16" fontWeight="bold" fontFamily="Arial, sans-serif" fill={color}>R</text>
-        </svg>
-      ),
-      'culturestump': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M8 22 L8 14 Q8 11 12 11 Q16 11 16 14 L16 22" />
-          <path d="M8 14 Q10 10 12 12 Q14 10 16 14" />
-          <text x="12" y="19" textAnchor="middle" fontSize="7" fontWeight="bold" fontFamily="Arial, sans-serif" fill={color} stroke="none">R</text>
-        </svg>
-      ),
-      // AVVERKNING
-      'firewood': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <ellipse cx="7" cy="17" rx="3" ry="2.4" />
-          <ellipse cx="14" cy="17" rx="3" ry="2.4" />
-          <ellipse cx="10.5" cy="11" rx="3" ry="2.4" />
-          <ellipse cx="18" cy="11" rx="2.6" ry="2.2" />
-          <line x1="3" y1="21" x2="21" y2="21" />
-        </svg>
-      ),
-      'highstump': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 22 L9 8 Q9 5 12 5 Q15 5 15 8 L15 22" />
-          <path d="M9 8 L8 4 L10 6 L12 3 L14 6 L16 4 L15 8" />
-          <line x1="5" y1="22" x2="5" y2="10" strokeDasharray="3,3" strokeWidth="1.5" />
-          <path d="M4 10 L6 10" strokeWidth="1.5" />
-          <path d="M4 22 L6 22" strokeWidth="1.5" />
-        </svg>
-      ),
-      'landing': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <ellipse cx="6" cy="18" rx="4" ry="2" />
-          <ellipse cx="14" cy="18" rx="4" ry="2" />
-          <ellipse cx="18" cy="18" rx="4" ry="2" />
-          <ellipse cx="10" cy="13" rx="4" ry="2" />
-          <ellipse cx="14" cy="13" rx="4" ry="2" />
-          <ellipse cx="12" cy="8" rx="4" ry="2" />
-        </svg>
-      ),
-      'brashpile': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 20 Q4 14 8 12 Q6 10 8 8 Q10 6 12 8 Q14 6 16 8 Q18 10 16 12 Q20 14 20 20 Z" />
-          <line x1="10" y1="10" x2="8" y2="5" />
-          <line x1="14" y1="10" x2="16" y2="4" />
-          <line x1="12" y1="12" x2="12" y2="6" />
-        </svg>
-      ),
-      'windfall': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 17 L5 14 L4 12 L6 13 L5 10" />
-          <line x1="5" y1="15" x2="21" y2="9" strokeWidth="3" />
-          <path d="M9 14 L7 18" />
-          <path d="M13 12 L11 17" />
-          <path d="M17 10 L15 15" />
-        </svg>
-      ),
-      'manualfelling': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <line x1="5" y1="22" x2="13" y2="9" stroke={color} strokeWidth="3.5" strokeLinecap="round" />
-          <path d="M11 11 L13 6 Q19 3 18 8 Q20 10 17 12 L13 10 Z" fill={color} stroke={color} strokeWidth="1" strokeLinejoin="round" />
-        </svg>
-      ),
-      // Träd att avverka: stubbe + bred glipa + kapad brant lutande stam med krona (samma glyf som kartan)
-      'felloutside': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="2" y1="21" x2="12" y2="21" />
-          <rect x="3.5" y="18.3" width="5.5" height="2.7" />
-          <line x1="7" y1="13" x2="17" y2="5" strokeWidth="2.8" />
-          <circle cx="18.6" cy="4.2" r="3" />
-        </svg>
-      ),
-      // INFRASTRUKTUR
-      'powerline': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-          <path d="M13 2 L3 14 L10 14 L10 22 L21 10 L14 10 Z" />
-        </svg>
-      ),
-      'road': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M8 22 L11 2" />
-          <path d="M16 22 L13 2" />
-          <line x1="12" y1="20" x2="12" y2="15" strokeWidth="2.5" />
-          <line x1="12" y1="12" x2="12" y2="7" strokeWidth="2.5" />
-          <line x1="12" y1="5" x2="12" y2="2" strokeWidth="2.5" />
-        </svg>
-      ),
-      'turningpoint': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="7" />
-          <path d="M12 5 A7 7 0 1 1 5 12" strokeWidth="2.5" />
-          <path d="M5 8 L5 12 L9 12" strokeWidth="2" />
-        </svg>
-      ),
-      // TERRÄNG
-      'ditch': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M2 8 L8 16 L16 16 L22 8" />
-          <path d="M9 14 Q12 12 15 14" />
-          <line x1="2" y1="8" x2="2" y2="5" />
-          <line x1="22" y1="8" x2="22" y2="5" />
-        </svg>
-      ),
-      'bridge': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M2 17 L6 22 L18 22 L22 17" />
-          <path d="M8 20 Q12 18 16 20" />
-          <rect x="4" y="11" width="16" height="4" rx="1" fill={color} stroke="none" />
-          <line x1="6" y1="15" x2="6" y2="19" strokeWidth="2.5" />
-          <line x1="18" y1="15" x2="18" y2="19" strokeWidth="2.5" />
-        </svg>
-      ),
-      'corduroy': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="3" y1="8" x2="21" y2="8" strokeWidth="3.5" />
-          <line x1="3" y1="12" x2="21" y2="12" strokeWidth="3.5" />
-          <line x1="3" y1="16" x2="21" y2="16" strokeWidth="3.5" />
-          <path d="M12 3 L12 5 M10 4 L12 2 L14 4" strokeWidth="1.5" />
-          <path d="M12 21 L12 19 M10 20 L12 22 L14 20" strokeWidth="1.5" />
-        </svg>
-      ),
-      'wet': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3 Q7 10 7 14 Q7 19 12 19 Q17 19 17 14 Q17 10 12 3Z" />
-          <path d="M3 22 Q7 19 11 22 Q15 25 19 22" />
-        </svg>
-      ),
-      'steep': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 20 L12 5 L21 20 Z" />
-          <line x1="7" y1="16" x2="17" y2="16" />
-          <line x1="9" y1="12" x2="15" y2="12" />
-        </svg>
-      ),
-      'trail': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-          <ellipse cx="6" cy="19" rx="2.2" ry="3.5" />
-          <ellipse cx="4.5" cy="14.5" rx="0.9" ry="1.1" />
-          <ellipse cx="5.8" cy="14" rx="0.8" ry="1" />
-          <ellipse cx="7" cy="14.2" rx="0.7" ry="0.9" />
-          <ellipse cx="8" cy="14.8" rx="0.6" ry="0.8" />
-          <ellipse cx="14" cy="12" rx="2.2" ry="3.5" />
-          <ellipse cx="12.5" cy="7.5" rx="0.9" ry="1.1" />
-          <ellipse cx="13.8" cy="7" rx="0.8" ry="1" />
-          <ellipse cx="15" cy="7.2" rx="0.7" ry="0.9" />
-          <ellipse cx="16" cy="7.8" rx="0.6" ry="0.8" />
-          <ellipse cx="20" cy="5" rx="1.8" ry="2.8" />
-          <ellipse cx="18.8" cy="1.8" rx="0.7" ry="0.8" />
-          <ellipse cx="19.8" cy="1.5" rx="0.6" ry="0.7" />
-        </svg>
-      ),
-      // ÖVRIGT
-      'warning': (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3 L22 21 L2 21 Z" />
-          <line x1="12" y1="9" x2="12" y2="14" strokeWidth="2.5" />
-          <circle cx="12" cy="17" r="1.2" fill={color} />
-        </svg>
-      ),
-      // PILAR
       'fellingdirection': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="12" y1="20" x2="12" y2="6" />
@@ -7815,64 +7644,18 @@ export default function PlannerPage() {
     return gruppForSymbol(symbolId) === 'info' ? FARG.fyllning : '#ffffff';   // vit kant på alla färggrupper — ingen andra nyans
   };
 
-  const symbolCategories = [
-    {
-      name: 'Naturvård',
-      bgColor: LEGEND.naturvard,
-      symbols: [
-        { id: 'eternitytree', name: SYMBOL_NAMN.eternitytree },
-        { id: 'naturecorner', name: SYMBOL_NAMN.naturecorner },
-      ]
-    },
-    {
-      name: 'Kultur',
-      bgColor: LEGEND.kultur,
-      symbols: [
-        { id: 'culturemonument', name: SYMBOL_NAMN.culturemonument },
-        { id: 'culturestump', name: SYMBOL_NAMN.culturestump },
-      ]
-    },
-    {
-      name: 'Avverkning',
-      symbols: [
-        { id: 'highstump', name: SYMBOL_NAMN.highstump },
-        { id: 'landing', name: SYMBOL_NAMN.landing },
-        { id: 'brashpile', name: SYMBOL_NAMN.brashpile },
-        { id: 'windfall', name: SYMBOL_NAMN.windfall },
-        { id: 'manualfelling', name: SYMBOL_NAMN.manualfelling },
-        { id: 'felloutside', name: SYMBOL_NAMN.felloutside },
-      ]
-    },
-    {
-      name: 'Infrastruktur',
-      symbols: [
-        { id: 'powerline', name: SYMBOL_NAMN.powerline },
-        { id: 'road', name: SYMBOL_NAMN.road },
-        { id: 'turningpoint', name: SYMBOL_NAMN.turningpoint },
-      ]
-    },
-    {
-      name: 'Terräng',
-      symbols: [
-        { id: 'ditch', name: SYMBOL_NAMN.ditch },
-        { id: 'bridge', name: SYMBOL_NAMN.bridge },
-        { id: 'corduroy', name: SYMBOL_NAMN.corduroy },
-        { id: 'wet', name: SYMBOL_NAMN.wet },
-        { id: 'steep', name: SYMBOL_NAMN.steep },
-        { id: 'trail', name: SYMBOL_NAMN.trail },
-      ]
-    },
-    {
-      name: 'Övrigt',
-      symbols: [
-        { id: 'warning', name: SYMBOL_NAMN.warning },
-      ]
-    },
-  ];
+  // Symbolerna i menyn kommer ur lib/symboler (MENY_KATEGORIER, namn ur SYMBOL_NAMN). Gamla typer som tagits ur menyn (Kulturstubbe, Dike, Stig, Brant) ritas fortfarande
+  // och finns kvar i markerTypes nedan — så en gammal markering aldrig blir namnlös.
+  const KATEGORI_BG: Record<string, string> = { Naturvård: LEGEND.naturvard, Kultur: LEGEND.kultur };
+  const symbolCategories = MENY_KATEGORIER.map((k) => ({
+    name: k.namn,
+    ...(KATEGORI_BG[k.namn] ? { bgColor: KATEGORI_BG[k.namn] } : {}),
+    symbols: k.symboler.map((id) => ({ id, name: SYMBOL_NAMN[id] })),
+  }));
 
-  // Platt lista för bakåtkompatibilitet
+  // Platt lista för bakåtkompatibilitet (menyn + typer som inte längre finns i menyn + Ved)
   // Ved-symbolen hör inte till någon palett: den sätts bara från Klar med trakten? › Ved. Den behöver ändå ett namn och en ikon överallt där markeringar listas.
-  const markerTypes = [...symbolCategories.flatMap(cat => cat.symbols), { id: 'firewood', name: SYMBOL_NAMN.firewood }];
+  const markerTypes = [...symbolCategories.flatMap(cat => cat.symbols), ...UR_MENYN.map((id) => ({ id, name: SYMBOL_NAMN[id] })), { id: 'firewood', name: SYMBOL_NAMN.firewood }];
 
   const lineTypes = [
     { id: 'boundary', name: 'Traktgräns', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
@@ -7903,9 +7686,9 @@ export default function PlannerPage() {
   // #f0f0f0 (björkvit); den mörka casingen (rgba(0,0,0,0.6)) bär kontrasten mot ljus karta. Zonens
   // fält-färg tas alltså från trädslaget, inte från zoneTypes-posten (som bara ger picker-/kort-accent).
   const GALLRING_TRADSLAG = [
-    { id: 'tall', name: 'Tall', color: '#e8832a' },
-    { id: 'gran', name: 'Gran', color: '#1d9e75' },
-    { id: 'lov',  name: 'Löv',  color: '#f0f0f0' },
+    { id: 'tall', name: 'Tall', color: GALLRING_FARG.tall },
+    { id: 'gran', name: 'Gran', color: GALLRING_FARG.gran },
+    { id: 'lov',  name: 'Löv',  color: GALLRING_FARG.lov },
   ];
   // Skyddsnät: en gallring-zon med SAKNAT/OKÄNT trädslag ska rendera SKRIKANDE MAGENTA — aldrig en
   // trovärdig oliv (#6b7c3a föll tidigare som "beige" och dolde luckan). En lucka ska SE UT som en
@@ -9032,6 +8815,13 @@ export default function PlannerPage() {
     svgToLatLon,
     vida: traktGeo,
   });
+  // GRIND MED KOD (lib/grind): inom ~50 m visas hänglåskoden i ett kort högst upp. Tyst, ingen kvittering. Körvyn och skotarläget.
+  const grindKort = useGrind({
+    aktiv: korvyActive,
+    pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
+    markers,
+    svgToLatLon,
+  });
 
   // === GPS-PRICK på kartan (Apple Maps-stil) — WebGL circle-layers ===
   // Skapar source/layers vid första GPS-fix om de saknas. Uppdaterar data vid varje
@@ -9945,9 +9735,9 @@ export default function PlannerPage() {
         }
         if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCw);
 
-        ['zone-fill', 'zone-outline-casing', 'zone-outline'].forEach(id => {
+        ZONE_LAGER().forEach(id => {
           if (!map.getLayer(id)) return;
-          if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', 0.2);
+          if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? 0.2 : 1);
           else map.setPaintProperty(id, 'line-opacity', 1);
         });
         if (map.getLayer('markers-layer')) {
@@ -9964,9 +9754,9 @@ export default function PlannerPage() {
               ['case', ['==', ['get', 'id'], briefingHighlightId], 1, 0.3]);
           }
           // Dim zones
-          ['zone-fill', 'zone-outline-casing', 'zone-outline'].forEach(id => {
+          ZONE_LAGER().forEach(id => {
             if (!map.getLayer(id)) return;
-            if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', 0.05);
+            if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? 0.05 : 0.15);
             else map.setPaintProperty(id, 'line-opacity', 0.15);
           });
         } catch (e) { /* */ }
@@ -10065,16 +9855,16 @@ export default function PlannerPage() {
         }
 
         // Zones
-        ['zone-fill', 'zone-outline-casing', 'zone-outline'].forEach(id => {
+        ZONE_LAGER().forEach(id => {
           if (!map.getLayer(id)) return;
           if (activeZoneId) {
-            if (id === 'zone-fill') {
-              map.setPaintProperty(id, 'fill-opacity', ['case', ['==', ['get', 'id'], activeZoneId], activeOp * 0.35, 0.05]);
+            if (arZonYta(id)) {
+              map.setPaintProperty(id, 'fill-opacity', ['case', ['==', ['get', 'id'], activeZoneId], id === 'zone-fill' ? activeOp * 0.35 : 1, id === 'zone-fill' ? 0.05 : 0.15]);
             } else {
               map.setPaintProperty(id, 'line-opacity', ['case', ['==', ['get', 'id'], activeZoneId], activeOp, 0.15]);
             }
           } else {
-            if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', briefingHighlightId ? 0.05 : 0.2);
+            if (arZonYta(id)) map.setPaintProperty(id, 'fill-opacity', id === 'zone-fill' ? (briefingHighlightId ? 0.05 : 0.2) : (briefingHighlightId ? 0.15 : 1));
             else map.setPaintProperty(id, 'line-opacity', briefingHighlightId ? 0.15 : 1);
           }
         });
@@ -10443,9 +10233,7 @@ export default function PlannerPage() {
       safeSetVisibility('line-hitbox', visibleLayers.lines ? 'visible' : 'none');
       // Zone layers
       const zoneVis = visibleLayers.zones ? 'visible' : 'none';
-      safeSetVisibility('zone-fill', zoneVis);
-      safeSetVisibility('zone-outline-casing', zoneVis);
-      safeSetVisibility('zone-outline', zoneVis);
+      ZONE_LAGER().forEach(id => safeSetVisibility(id, zoneVis));
       // TMA roads (actual layer names: tma-roads-glow, tma-roads-line)
       const tmaVis = visibleLayers.lines ? 'visible' : 'none';
       safeSetVisibility('tma-roads-glow', tmaVis);
@@ -11847,6 +11635,7 @@ export default function PlannerPage() {
       setTraktOversiktOpen(true);
     }
     if (!korvyActive && m.antal !== undefined) setAntalPrompt({ markerId: String(id), type: typ });
+    if (!korvyActive && typ === GRIND_TYP) setKodPrompt(String(id));   // planeraren skriver hänglåskoden när grinden sätts
     if (navigator.vibrate) navigator.vibrate(30);
     // Ved-symbolen är ingen verktygssymbol: den ska aldrig hamna bland "senast använda" eller i plusdockan.
     if (typ !== 'firewood') setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
@@ -12054,8 +11843,7 @@ export default function PlannerPage() {
   );
   const postIkon = (p: PlusPost): React.ReactNode => {
     if (p.typ === 'symbol') {
-      const b = getIconBackground(p.id);
-      return <span style={{ width: ikonPx, height: ikonPx, borderRadius: '50%', background: b === 'rgba(0,0,0,0.6)' ? FARG.fyllning : b, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(p.id, Math.round(ikonPx * 0.55), FARG.text)}</span>;
+      return <SymbolIkon typ={p.id} storlek={ikonPx} />;
     }
     if (p.typ === 'lager') return svgIkon(<><path d="M12 3 L2 8 L12 13 L22 8 Z" /><path d="M2 12 L12 17 L22 12" /><path d="M2 16 L12 21 L22 16" /></>);
     if (p.typ === 'rita') return p.id === 'linje' ? svgIkon(<path d="M4 20 C 8 8, 14 18, 20 4" />) : svgIkon(<path d="M5 6 L19 4 L20 18 L6 20 Z" fill={FARG.fyllning} />);
@@ -12066,7 +11854,7 @@ export default function PlannerPage() {
   const arFastNu = (p: PlusPost) => plusRadState.fasta.some((x) => postNyckel(x) === postNyckel(p));
   // Dockan: symbolens RIKTIGA färg (samma som ikonen på kartan: grön naturvård, orange kultur, röd fara, lila träd att avverka, annars mörk) + vit glyf.
   const postVy = (p: PlusPost, fast: boolean): PlusPostVy => {
-    const dock = p.typ === 'symbol' ? { dockFarg: getIconDef(p.id).bg, dockRing: getIconDef(p.id).outline, dockGlyf: renderIcon(p.id, 30, FARG.text) } : {};
+    const dock = p.typ === 'symbol' ? { dockFarg: getIconDef(p.id).bg, dockRing: getIconDef(p.id).outline, dockGlyf: renderIcon(p.id, 30, FARG.text), dockSymbol: (px: number) => <SymbolIkon typ={p.id} storlek={px} /> } : {};
     return { nyckel: postNyckel(p), etikett: postEtikett(p), ikon: postIkon(p), fast, pa: p.typ === 'lager' ? lagerPa(p.id) : undefined, fastbar: arDockPost(p), ...dock };
   };
   // ── PLUS-ARKET: dockan + arkets tre flikar (Symboler · Rita & mät · Lager) — plus = kartan ──
@@ -13381,8 +13169,7 @@ export default function PlannerPage() {
         const ikonPx = AVSTAND.xl + AVSTAND.xs;
         const ikonFor = (m: KartMarkering) => {
           if (m.slag === 'symbol') {
-            const def = getIconDef(m.typ);
-            return <span style={{ width: ikonPx, height: ikonPx, boxSizing: 'border-box', borderRadius: RADIE.cirkel, background: def.bg, border: `${AVSTAND.xs / 2}px solid ${def.outline}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{renderIcon(m.typ, AVSTAND.l, FARG.text)}</span>;
+            return <span style={{ width: ikonPx, height: ikonPx, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><SymbolIkon typ={m.typ} storlek={ikonPx} /></span>;
           }
           return (
             <span style={{ width: ikonPx, height: ikonPx, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -13662,6 +13449,7 @@ export default function PlannerPage() {
               } : null,
             },
           },
+          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features) },
           klar: klarGaller ? {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
@@ -13948,6 +13736,13 @@ export default function PlannerPage() {
           fler={larm.fler}
           riktning={larm.kort.bearing != null ? korvyRiktning(larm.kort.bearing, korvyHeading) : null}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px)`}
+        />
+      )}
+      {korvyActive && grindKort && (
+        <GrindKortVy
+          kod={grindKort.kod}
+          symbol={<SymbolIkon typ={GRIND_TYP} storlek={52} />}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort ? 96 : 0}px)`}
         />
       )}
       {korvyActive && larm.settRad && (
@@ -15422,6 +15217,29 @@ export default function PlannerPage() {
         );
       })()}
 
+      {/* === GRIND: hänglåskoden skrivs när grinden sätts (bara siffror). Visas i körvyn inom ~50 m (lib/grind), aldrig i A4-rapporten. === */}
+      {kodPrompt && (() => {
+        const m = markers.find(mm => String(mm.id) === kodPrompt);
+        const val = String(m?.kod ?? '');
+        const setVal = (v: string) => setMarkers(prev => prev.map(mm => String(mm.id) === kodPrompt ? { ...mm, kod: rensaGrindKod(v) } : mm));
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400 }}
+            onClick={() => setKodPrompt(null)}>
+            <div style={{ background: '#000', borderRadius: '24px', padding: '28px', width: '86%', maxWidth: '360px', border: '1px solid rgba(255,255,255,0.15)' }}
+              onClick={ev => ev.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '14px' }}><SymbolIkon typ={GRIND_TYP} storlek={52} /></div>
+              <div style={{ fontSize: '17px', fontWeight: 600, color: '#fff', textAlign: 'center', marginBottom: '6px' }}>Hänglåskod</div>
+              <div style={{ fontSize: '14px', color: '#8e8e93', textAlign: 'center', marginBottom: '18px' }}>Bara siffror. Förarna ser koden när de är nära grinden.</div>
+              <input data-testid="grind-kod-falt" type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" autoFocus value={val}
+                onChange={ev => setVal(ev.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', textAlign: 'center', padding: '14px 0', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '32px', fontWeight: 700, letterSpacing: '4px', fontFamily: 'inherit', marginBottom: '20px' }} />
+              <button type="button" className="btn-press" onClick={() => setKodPrompt(null)}
+                style={{ width: '100%', padding: '15px', borderRadius: '14px', border: 'none', background: '#0a84ff', color: '#fff', fontSize: '16px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Klar</button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* === CENTRERA-KNAPP — EN komponent, samma beteende och utseende i körvyn och planeringsvyn (lib/centrera). Körvyn: dold så
              länge kartan följer maskinen; drar föraren i kartan pausas följningen och knappen syns; tryck → följning igen.
              Planeringen: dold när kartan står på positionen; dras kartan bort syns den; tryck → centrera EN gång (ingen följning). */}
@@ -15602,6 +15420,10 @@ export default function PlannerPage() {
                 gap: '12px',
                 marginBottom: '20px',
               }}>
+                {marker.isMarker ? (
+                  // Symbolen som på kartan: gruppens form och färg med vit kant och glyf (lib/symboler) — ikonrutan har alltid gruppens färg.
+                  <SymbolIkon typ={marker.type} storlek={52} />
+                ) : (
                 <div style={{
                   width: '52px',
                   height: '52px',
@@ -15614,8 +15436,24 @@ export default function PlannerPage() {
                 }}>
                   {renderIcon(getMarkerIconId(), 28, '#fff')}
                 </div>
+                )}
                 <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{getMarkerName()}</span>
               </div>
+              {/* Vad den betyder: gruppen (färg + form + om den larmar) och EN mening — samma text som i teckenförklaringen (lib/symboler) */}
+              {(() => {
+                const f = marker.isMarker
+                  ? (() => { const d = symbolDef(marker.type); return { grupp: d.grupp, text: d.forklaring }; })()
+                  : marker.isZone ? (() => { const y = ytaForklaring(marker.zoneType || ''); return y ? { grupp: y.grupp, text: y.forklaring } : null; })()
+                  : marker.isLine && marker.lineType === 'stonewall' ? { grupp: 'natur' as const, text: LINJE_FORKLARING.stonewall }
+                  : null;
+                if (!f) return null;
+                return (
+                  <div data-testid="marker-forklaring" style={{ textAlign: 'center', marginTop: '-8px', marginBottom: '18px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: f.grupp === 'info' ? '#EBEBF5' : GRUPPER[f.grupp].farg }}>{GRUPPER[f.grupp].namn} <span style={{ fontWeight: 400, color: '#8e8e93', textTransform: 'none', letterSpacing: 0 }}>· {GRUPP_FORKLARING[f.grupp]}</span></div>
+                    <div style={{ fontSize: '15px', color: '#c7c7cc', marginTop: '6px', lineHeight: 1.4 }}>{f.text}</div>
+                  </div>
+                );
+              })()}
 
               {/* Skotarläget: vad som skotats HIT överst; kortets vanliga innehåll ligger oförändrat under avdelaren */}
               {skotarLassAktiv && marker.isMarker && marker.type === 'landing' && valtObjekt && (
@@ -15728,6 +15566,16 @@ export default function PlannerPage() {
                 </div>
               )}
             
+            {/* Grind: hänglåskoden (planeraren ändrar den här; förarna ser den i körvyn inom ~50 m) */}
+            {marker.type === GRIND_TYP && (
+              <div style={{ textAlign: 'center', marginBottom: '14px' }}>
+                <div style={{ fontSize: '13px', color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Hänglåskod</div>
+                <input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={String(marker.kod ?? '')} placeholder="Ingen kod"
+                  onChange={ev => { const v = rensaGrindKod(ev.target.value); setMarkers(prev => prev.map(mm => String(mm.id) === String(marker.id) ? { ...mm, kod: v } : mm)); }}
+                  style={{ width: '60%', boxSizing: 'border-box', textAlign: 'center', padding: '10px 0', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '24px', fontWeight: 700, letterSpacing: '3px', fontFamily: 'inherit' }} />
+              </div>
+            )}
+
             {/* Antal (miljöhänsyn) */}
             {(marker.type === 'eternitytree' || marker.type === 'naturecorner' || marker.type === 'highstump') && (
               <div style={{ fontSize: '15px', color: '#8e8e93', textAlign: 'center', marginBottom: '12px' }}>
@@ -19980,14 +19828,7 @@ export default function PlannerPage() {
       {/* === Multi-select högar panel (slide-in från höger) === */}
       {multiSelectPanel && !skotningPanel && (() => {
         const features = hogarFeaturesRef.current;
-        const getSortColor = (s: string): string => {
-          if (s.startsWith('Gran')) return '#1d9e75';
-          if (s.startsWith('Tall')) return '#e8832a';
-          if (s.startsWith('Björk')) return '#f0f0f0';
-          if (s.startsWith('Övr_löv')) return '#888780';
-          if (s === 'GROT') return '#8B5E3C';
-          return '#6b7c3a';
-        };
+        const getSortColor = sortimentFarg;
         // Summera sortiment från valda högar
         const sortimentMap: Record<string, { volym: number; color: string }> = {};
         let volymUtanSortiment = 0;   // högar med okänt sortiment (t.ex. gamla stockar utan stem_key)
@@ -20341,7 +20182,7 @@ export default function PlannerPage() {
             padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}>
-            <div style={{ fontSize: '15px', fontWeight: '600', color: valdHog.isGrot ? '#f59e0b' : '#1d9e75' }}>
+            <div style={{ fontSize: '15px', fontWeight: '600', color: valdHog.isGrot ? GROT_FARG : '#1d9e75' }}>
               {valdHog.isGrot ? 'GROT-hög' : 'Produktionshög'}
             </div>
             <button
@@ -20370,14 +20211,7 @@ export default function PlannerPage() {
               {Object.entries(valdHog.sortimentVolym)
                 .sort((a, b) => b[1] - a[1])
                 .map(([s, v], i) => {
-                  const getCol = (s: string) => {
-                    if (s.startsWith('Gran')) return '#1d9e75';
-                    if (s.startsWith('Tall')) return '#e8832a';
-                    if (s.startsWith('Björk')) return '#f0f0f0';
-                    if (s.startsWith('Övr_löv')) return '#888780';
-                    if (s === 'GROT') return '#f59e0b';
-                    return '#6b7c3a';
-                  };
+                  const getCol = sortimentFarg;
                   return (
                     <div key={i} style={{
                       display: 'flex', alignItems: 'center', gap: '10px',
@@ -20488,7 +20322,7 @@ export default function PlannerPage() {
                     <div key={i}>
                       {showHeader && (
                         <div style={{
-                          fontSize: '13px', fontWeight: '600',                          color: h.typ === 'grot' ? '#8B5E3C' : '#8e8e93',
+                          fontSize: '13px', fontWeight: '600',                          color: h.typ === 'grot' ? GROT_FARG : '#8e8e93',
                           padding: '12px 0 6px', marginTop: i > 0 ? '8px' : 0,
                           borderTop: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
                         }}>

@@ -1,5 +1,6 @@
 'use client'
 import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { TALL_FARG } from '@/lib/tradslag'
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -50,7 +51,7 @@ function toTitleCase(s: string): string {
 function tradslakFarg(namn: string): string {
   const u = (namn || '').toUpperCase()
   if (u.startsWith('GRAN'))                            return '#30d158'
-  if (u.startsWith('TALL'))                            return '#ff9f0a'
+  if (u.startsWith('TALL'))                            return TALL_FARG
   if (u.startsWith('BJÖRK') || u.startsWith('BJORK')) return '#ffd60a'
   return '#636366'
 }

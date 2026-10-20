@@ -128,3 +128,32 @@ export function SettRad({ namn, farg, smal, onSett }: { namn: string; farg: stri
     </div>
   );
 }
+
+/**
+ * GRINDKORTET (Info, ingen varning): "Grind · Stäng efter dig" med hänglåskoden stort till höger. Samma plats och form som larmkortet men utan färgad ram,
+ * utan puls och utan ljud. Ligger under larmkortet när båda visas (`under`). Koden syns bara här — aldrig i A4-rapporten.
+ */
+export function GrindKortVy({ kod, top, symbol }: { kod: string; top: string; symbol: React.ReactNode }) {
+  return (
+    <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 610, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+      <div
+        role="status"
+        data-testid="grind-kort"
+        style={{
+          width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
+          background: FARG.kort, borderRadius: RADIE.sheet, color: FARG.text, pointerEvents: 'auto', boxShadow: '0 16px 50px rgba(0,0,0,0.7)',
+        }}
+      >
+        <span aria-hidden="true" style={{ flexShrink: 0, display: 'flex' }}>{symbol}</span>
+        <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          <span style={{ ...TYP.rubrik }}>Grind</span>
+          <span style={{ ...TYP.text, color: FARG.text2, whiteSpace: 'nowrap' }}>Stäng efter dig</span>
+        </span>
+        <span style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+          <span style={{ ...TYP.micro, color: FARG.text2 }}>Kod</span>
+          <span data-testid="grind-kod" style={{ ...TYP.tal, fontSize: 32, letterSpacing: 2, whiteSpace: 'nowrap' }}>{kod}</span>
+        </span>
+      </div>
+    </div>
+  );
+}

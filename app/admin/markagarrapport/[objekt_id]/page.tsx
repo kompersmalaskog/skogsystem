@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
+import { TALL_FARG } from '@/lib/tradslag';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import type { Viewport } from 'next';
@@ -303,7 +304,7 @@ function Skogen({ stammar }: { stammar: MarkagarRapport['karta']['stammar'] }) {
         }}
       >
         <span><Dot color="#34c759" /> Gran</span>
-        <span><Dot color="#ff9500" /> Tall</span>
+        <span><Dot color={TALL_FARG} /> Tall</span>
         <span><Dot color="#d4c5a0" /> Björk</span>
         <span><Dot color="#8e8e93" /> Övr löv</span>
         <span><Ring color={ROT_RING} /> Rotskada</span>

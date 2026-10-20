@@ -37,6 +37,8 @@ export interface ObjektKortProps {
   /** "N markeringar · M med text" — null = inga markeringar (raden visas inte) */
   paTrakten: string | null;
   onPaTrakten: () => void;
+  /** "Vad betyder kartan ›" — öppnar teckenförklaringen. Saknas = ingen rad. */
+  onKarta?: () => void;
   brand: { lat: number; lng: number } | null;
   onBrand: () => void;
   dokument: { antal: number; chips: React.ReactNode } | null;
@@ -170,6 +172,9 @@ export default function ObjektKort(p: ObjektKortProps) {
         <Gruppkort testid="kort-uppdrag">
           {p.paTrakten && (
             <RadKnapp forstaRad testid="kort-pa-trakten" etikett={<><span style={{ color: FARG.text2 }}>På trakten </span>{p.paTrakten}</>} onTryck={p.onPaTrakten} />
+          )}
+          {p.onKarta && (
+            <RadKnapp forstaRad={!p.paTrakten} testid="kort-vad-betyder-kartan" etikett="Vad betyder kartan" onTryck={p.onKarta} />
           )}
           {p.dokument && (
             <>
