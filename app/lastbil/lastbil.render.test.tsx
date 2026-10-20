@@ -2832,6 +2832,22 @@ describe("Vilken maskin? — arket", () => {
     expect(skapaKnapp().disabled).toBe(false);
   });
 
+  it("lastvikten står på raden under rutten: 'last 25 t' — och inget alls när vikten saknas", async () => {
+    mock.lass = [LASS({ lastvikt_kg: 25_400 })];
+    await montera();
+    await klicka(saknarRad()!);
+    expect(norm(lassArk()!.textContent)).toContain("45,7 km · last 25 t");
+  });
+
+  it("saknas lastvikten visas ingenting — inget '0 t', inget '–'", async () => {
+    mock.lass = [LASS()];
+    await montera();
+    await klicka(saknarRad()!);
+    const t = norm(lassArk()!.textContent);
+    expect(t).toContain("45,7 km");
+    expect(t).not.toMatch(/last \d|0 t\b|45,7 km · –/);
+  });
+
   it("ett historiskt lass med en flytt på samma tid säger det — 'En flytt med Wisent finns samma tid' — och hur man avvisar", async () => {
     mock.lass = [LASS({ bevis: { km_osaker: false, historisk: true, flytt_samma_tid: [{ flytt_id: "f1", maskin_id: "A030353", extern_maskin: null, avbruten: false, skal: "annan_plats" }] } })];
     await montera();

@@ -19,6 +19,7 @@ export interface LassRad {
   lassning_tid: string;
   lossning_tid: string;
   km: number | null;
+  lastvikt_kg?: number | null;
   forslag_maskin_id: string | null;
   sakerhet: Sakerhet;
   kandidater: Kandidat[];
@@ -31,7 +32,7 @@ export interface LassRad {
 }
 
 export const LASS_KOLUMNER =
-  'id, status, status_orsak, fran_namn, till_namn, lassning_tid, lossning_tid, km, forslag_maskin_id, sakerhet, kandidater, bevis, kund, till_plats_id, besvarad_av, besvarad_tid, skapad_tid';
+  'id, status, status_orsak, fran_namn, till_namn, lassning_tid, lossning_tid, km, lastvikt_kg, forslag_maskin_id, sakerhet, kandidater, bevis, kund, till_plats_id, besvarad_av, besvarad_tid, skapad_tid';
 
 const komma = (x: number) => String(Math.round(x * 10) / 10).replace('.', ',');
 
@@ -46,6 +47,14 @@ export const lassTidText = (r: Pick<LassRad, 'lassning_tid' | 'lossning_tid'>): 
 export function lassKmText(r: Pick<LassRad, 'km' | 'bevis'>): string {
   if (r.km == null) return 'sträcka saknas';
   return `${r.bevis?.km_osaker ? 'cirka ' : ''}${komma(r.km)} km`;
+}
+
+/** "last 25 t" — lastvikten (lastad minus tom, ±5 t) i hela ton, så den som svarar kan känna igen maskinen. Saknas den: null, aldrig "0 t". */
+export function lassViktText(r: Pick<LassRad, 'lastvikt_kg'>): string | null {
+  const kg = r.lastvikt_kg;
+  if (kg == null || !Number.isFinite(kg)) return null;
+  const ton = Math.round(kg / 1000);
+  return ton > 0 ? `last ${ton} t` : null;
 }
 
 export const lassFakturerbar = (r: Pick<LassRad, 'km'>, extern: boolean): boolean =>

@@ -7,7 +7,7 @@ import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, RAD, RADIE, TNUM, TYP } from '@/li
 import { lassFraga } from '@/lib/lastbil/lass/notis';
 import { avvisaLass, besvaraLass } from './besvara';
 import {
-  kravKundRuta, lassFakturerbar, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText,
+  kravKundRuta, lassFakturerbar, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText, lassViktText,
   redanText, saknasForSvar, type LassRad, type SvarUtfall, type Val,
 } from './lass';
 import { useAktivaMaskiner, useEttLass, type MaskinVal } from './useSaknarMaskin';
@@ -115,7 +115,7 @@ function Svar({ rad, onStang, onKlar }: { rad: LassRad; onStang: () => void; onK
     <Ark rubrik={lassFraga(rad.status_orsak)} onStang={onStang} fot={fot}>
       <div style={{ marginBottom: AVSTAND.l }}>
         <div style={{ ...TYP.listtitel }}>{lassRuttText(rad)}</div>
-        <div style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{lassTidText(rad)} · {lassKmText(rad)}</div>
+        <div style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{[lassTidText(rad), lassKmText(rad), lassViktText(rad)].filter(Boolean).join(' · ')}</div>
         {faktureras && <div style={{ ...TYP.meta, color: FARG.text2 }}>Över 30 km — flytten faktureras</div>}
         {not && <p style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.s}px 0 0` }}>{not}</p>}
         {samtidiga.length > 0 && (
