@@ -184,6 +184,7 @@ Martin ville bort med flikraden (Hem, Översikt, Planering, Objekt, Mer) i egenk
 - Hem från rundan är TVÅ tryck (pil → lista → hus), avsiktligt, inget hus i `KartHuvud`.
 - `TopBar`: hemknappens träffyta 36 → 44 px (`TRAFFYTA.min`), synliga rutan oförändrad (pixelidentisk header mot main i riktig Chromium, vänsterkant 12 px).
 - Vakter (mutationskontrollerade, 10 av 10): `app/egenkontroll/flikrad.vakter.test.ts`, `page.lista.render.test.tsx` (inget `bottennav` i laddning, huvudlista, underlista, fel), `components/TopBar.egenkontroll.render.test.tsx`.
+- `TopBar.tsx` har två literaler som design-lint räknar som nya (`rgba(255,255,255,0.7)` på hemikonens färg och `borderRadius: 6` på ikonbilden). De är INTE tokeniserade med flit: ingen token har exakt det värdet (`FARG.text2` är `#8e8e93`, inte vit 70 %; `RADIE` har 4, 10, 12 och 16, inte 6), och att byta till närmaste token ändrar hur den globala hemknappen ser ut på varje sida. Värdena är oförändrade (raderna flyttades bara in i den inre rutan), så lintens "nya" är samma literaler som förut. De tokeniseras när hemknappens utseende får en egen designändring — då ska värdena in i `FARG`/`RADIE` på riktigt, inte närmast.
 - **Ej provat:** riktig iPhone/PWA (safe-area), tryckytan med riktigt finger.
 
 ## KARTANS ORIGO I EGENKONTROLLEN OCH PROVYTOR UTAN LOTTNING (2026-10-19)
