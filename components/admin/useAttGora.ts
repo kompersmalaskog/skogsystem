@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { ymdLokal } from "@/lib/datumLokal";
 import { franGolv } from "@/lib/skarpStart";
 import { useDatahalsa } from "@/app/datahalsa/useDatahalsa";
-import { laddaVilobrottLista } from "@/lib/admin/vilobrottLista";
+import { laddaVilobrottLista, type VilobrottRad } from "@/lib/admin/vilobrottLista";
 import {
   byggAttGora, type AttGoraIndata, type Kalla, type Sak, type StammerRad,
   type Person, type MaskinRad, type ObekraftadDag, type LonLage, type AvtalRad, type ArbetstidSvar,
@@ -25,6 +25,8 @@ export type AttGora = {
   laddar: boolean; saker: Sak[]; stammer: StammerRad[]; ladda: () => void;
   /** Förare som är gula eller röda på en arbetstidsgräns (röda först) och läsfel som påverkar talen. */
   arbetstid: ArbetstidForare[]; arbetstidVarningar: string[];
+  /** Alla vilobrott i fönstret (med dagarna de gäller) — arket som en vilobrottsrad öppnar läser ur dem. Tom tills de lästs. */
+  vilobrott: VilobrottRad[];
 };
 
 export function useAttGora(): AttGora {
@@ -122,5 +124,5 @@ export function useAttGora(): AttGora {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [laddar, indata, dh.leverans.data, dh.leverans.fel]);
 
-  return { laddar, saker: byggt.saker, stammer: byggt.stammer, arbetstid: byggt.arbetstid, arbetstidVarningar: byggt.arbetstidVarningar, ladda };
+  return { laddar, saker: byggt.saker, stammer: byggt.stammer, arbetstid: byggt.arbetstid, arbetstidVarningar: byggt.arbetstidVarningar, vilobrott: indata.vilobrott.data ?? [], ladda };
 }

@@ -5,7 +5,7 @@
 // "obesvarat" och det enda som kräver något; ett besvarat står kvar, grått, med svaret.
 // 0 h-brott (för lite underlag, inte ett verkligt brott) filtreras bort med arTroligtVilobrott.
 import { supabase } from "@/lib/supabase";
-import { analyseraVilobrott, medPerioddagSpann, arTroligtVilobrott, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
+import { analyseraVilobrott, medPerioddagSpann, arTroligtVilobrott, vilobrottDagar, type Vilobrott, type VilobrottDagar, type VilaTrosklar } from "@/lib/vilobrott";
 import { hamtaGiltigtAvtal, vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { vilaSvarText } from "@/lib/dagFragor";
 import { ymdLokal } from "@/lib/datumLokal";
@@ -15,6 +15,8 @@ export type VilobrottRad = Vilobrott & {
   namn: string;
   /** Förarens svar i klartext ("Planerat enligt avtal"). Null = obesvarat. */
   svar: string | null;
+  /** Dagarna brottet gäller (passen, vilan och var den ligger). Null = brottet gick inte att peka ut i underlaget; då visas bara beskrivningen. */
+  dagar: VilobrottDagar | null;
 };
 
 type Medarbetare = { id: string; namn: string | null };
@@ -54,10 +56,11 @@ export function beraknaVilobrottLista(indata: {
 
   const ut: VilobrottRad[] = [];
   dagPerMed.forEach((dagar, medId) => {
-    const brott = analyseraVilobrott(medPerioddagSpann(dagar, perPerMed.get(medId) || []), trosklar, nu);
+    const spann = medPerioddagSpann(dagar, perPerMed.get(medId) || []);
+    const brott = analyseraVilobrott(spann, trosklar, nu);
     for (const b of brott.filter(arTroligtVilobrott)) {
       const r = svarMap.get(nyckel(medId, b.datum, b.typ));
-      ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null });
+      ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8), svar: r ? vilaSvarText(r.orsak, r.orsak_fritext) : null, dagar: vilobrottDagar(b, spann, trosklar, nu) });
     }
   });
   return ut.sort((a, b) => b.datum.localeCompare(a.datum));

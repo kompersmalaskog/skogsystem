@@ -15,6 +15,8 @@ export type AdminFlik = "oversikt" | "medarbetare" | "maskiner" | "lon" | "avtal
 export type Mal =
   | { typ: "flik"; flik: AdminFlik; underflik?: string; params?: Record<string, string> }
   | { typ: "sida"; href: string }
+  /** Vilobrotten för en person: ett ark med dagarna de gäller (Översikten öppnar det på plats). */
+  | { typ: "vilobrott"; medarbetare_id: string }
   | { typ: "forsok" };
 
 export type Sak = { id: string; rubrik: string; detalj?: string; knapp: string; mal: Mal };
@@ -129,7 +131,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
           id: `vila-${id}`,
           rubrik: `${lista[0].namn}: ${lista.length} ${lista.length === 1 ? "obesvarat vilobrott" : "obesvarade vilobrott"}`,
           detalj: sorterat.map(b => `${datumKort(b.datum)} ${b.typ === "dygnsvila" ? "dygnsvila" : "veckovila"} ${vilaTimmarText(b.vila_h)}`).join(" · "),
-          knapp: "Öppna", mal: { typ: "flik", flik: "lon", underflik: "vila" },
+          knapp: "Öppna", mal: { typ: "vilobrott", medarbetare_id: id },
         });
       });
     } else stammer.push({ id: "vila", rubrik: "Inga obesvarade vilobrott" });
