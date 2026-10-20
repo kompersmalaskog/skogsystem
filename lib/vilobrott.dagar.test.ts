@@ -65,6 +65,21 @@ describe("vilobrottDagar: dagarna bakom ett brott", () => {
     expect(dagar).toBe(6);
   });
 
+  it("veckovila: passet som vilan BÖRJAR efter visas även när det ligger före fönstrets första dag", () => {
+    // Vilan lör 19 sep 12:00 → sön 20 sep 18:00 (30 h) räknas i fönstret 20–26 sep fast lördagen är före fönstret.
+    const pass = [
+      ...dagarFran("2026-09-08", 5), dag("2026-09-13", "06:00", "10:00"), dag("2026-09-14", "07:00"), dag("2026-09-15"), dag("2026-09-16"), dag("2026-09-17"), dag("2026-09-18"),
+      dag("2026-09-19", "06:00", "12:00"), dag("2026-09-20", "18:00", "22:00"), ...dagarFran("2026-09-21", 6),
+    ];
+    const dagligt = veckovilaPerDag(pass, 7, null).find(r => r.datum === "2026-09-26")!;
+    expect(dagligt.max_h).toBe(30);
+    const d = vilobrottDagar({ typ: "veckovila", datum: "2026-09-26", vila_h: 30 }, pass, trosklar, null)!;
+    expect(d.fonster).toEqual({ fran: "2026-09-20", till: "2026-09-26" });
+    expect(d.vila.fran).toEqual({ datum: "2026-09-19", tid: "12:00" });
+    expect(d.pass.map(p => p.datum)).toContain("2026-09-19");   // utanför fönstret, men det är passet vilan börjar efter
+    expect(d.pass.map(p => p.datum)).not.toContain("2026-09-18");
+  });
+
   it("veckovila: fönstret är det vars längsta vila är brottets lägsta (inte bara stretchens första dag)", () => {
     const pass = dagarFran("2026-09-14", 10);   // 14 h vila varje natt, aldrig 36 h
     const brott = analyseraVilobrott(pass, trosklar, null).filter(x => x.typ === "veckovila");
