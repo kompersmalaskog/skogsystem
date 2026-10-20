@@ -101,8 +101,11 @@ import RundArk from '../RundArk';
 import RundDock from '../RundDock';
 import BrickaRad from '../BrickaRad';
 import { useKartPadding } from '../useKartPadding';
-import { ANGRA_MS, DOCK_SKYDD_MS, brickaTryck, byggBrickor, inomDockSkydd, kvarText, svarsDel, type Bricka as BrickaData } from '@/lib/egenkontrollBricka';
-import { nastaGreppLage, type ArkLage } from '@/lib/egenkontrollArk';
+import {
+  ANGRA_MS, DOCK_SKYDD_MS, brickaSkyddNyckel, brickaTryck, byggBrickor, inomDockSkydd, kvarText, radSkyddNyckel, svarsDel,
+  type Bricka as BrickaData, type DockSkydd,
+} from '@/lib/egenkontrollBricka';
+import { efterSymboltryck, nastaGreppLage, type ArkLage } from '@/lib/egenkontrollArk';
 import {
   UTAN_POSITION_MENING,
   avstandPerPunkt as beraknaAvstand,
@@ -342,8 +345,9 @@ export default function EgenkontrollRundaPage() {
   const [centreraPa, setCentreraPa] = useState<{ lat: number; lng: number } | null>(null);
   // Angra efter ett svar som ett TRYCK pa en bricka skrev (ANGRA_MS). Bara det forsta svaret - att andra ett svar gors med raden.
   const [angra, setAngra] = useState<{ punktId: string; rubrik: string } | null>(null);
-  // DOCKVAKTEN (lib/egenkontrollBricka.ts, DOCK_SKYDD_MS): tidpunkten da skyddet efter senaste svaret i dockan upphor. Ett ref, inte state: ingenting ritas om.
-  const dockSkyddTill = useRef(0);
+  // DOCKVAKTEN (lib/egenkontrollBricka.ts, DOCK_SKYDD_MS): vilken tryckyta (bricka eller radknapp) som skrev senast och till när den ar skyddad.
+  // Ett ref, inte state: ingenting ritas om.
+  const dockSkydd = useRef<DockSkydd>(null);
   // KARTLAGREN. overlays delas med planeringsvyn genom mapLayers_v4 - slar
   // man pa Markfuktighet har ar den pa dar ocksa, och tvartom. Baskartan
   // sparas per vy: planeringsvyn haller sin i en vanlig useState och tappar
@@ -740,13 +744,16 @@ export default function EgenkontrollRundaPage() {
 
   /** Tryck pa en bricka: markera ALLTID; en obesvarad far Bra i samma tryck (lib/egenkontrollBricka.ts, brickaTryck). */
   const trycktBricka = async (b: BrickaData) => {
-    if (inomDockSkydd(Date.now(), dockSkyddTill.current)) return;
+    // Samma bricka inom skyddstiden efter att den skrev: ett sent dubbeltryck. En ANNAN bricka går igenom direkt (inget flyttar sig under fingret).
+    const nyckel = brickaSkyddNyckel(b.id);
+    if (inomDockSkydd(Date.now(), dockSkydd.current, nyckel)) return;
     const p = allaPunkter.find((q) => q.id === b.id);
     if (!p) return;
     const t = brickaTryck({ id: p.id, status: p.status }, rundanKlar);
     setMarkeradId(t.markera);
-    if (t.svara === null) return;
-    dockSkyddTill.current = Date.now() + DOCK_SKYDD_MS;
+    // En bricka som håller pa att sparas skrivs inte en gång till (ett langsamt nät låter tryck 2 komma efter skyddstiden).
+    if (t.svara === null || sparStatus[p.id]) return;
+    dockSkydd.current = { nyckel, till: Date.now() + DOCK_SKYDD_MS };
     if (await svara(p, t.svara)) setAngra({ punktId: p.id, rubrik: p.rubrik });
   };
 
@@ -757,14 +764,16 @@ export default function EgenkontrollRundaPage() {
   // Darfor: ett svar skriver svaret och ror ingenting annat. Ingen auto-markering av "nasta", ingen kameraflytt, ingen timer. Kartan flyttar
   // sig bara nar man SJALV markerar en punkt (tryck pa en symbol eller en rad i listan) eller trycker Centrera.
   const radSvarar = (status: PunktStatus) => {
-    if (!markerad || inomDockSkydd(Date.now(), dockSkyddTill.current)) return;
+    const nyckel = radSkyddNyckel(status);
+    if (!markerad || inomDockSkydd(Date.now(), dockSkydd.current, nyckel)) return;
     // Bara ett tryck som SKRIVER startar skyddet (samma svar igen skriver ingenting).
-    if (markerad.status !== status) dockSkyddTill.current = Date.now() + DOCK_SKYDD_MS;
+    if (markerad.status !== status) dockSkydd.current = { nyckel, till: Date.now() + DOCK_SKYDD_MS };
     void svara(markerad, status);
   };
 
-  /** Tryck pa en symbol pa kartan eller en rad i listan: markera punkten och ha dockan framme sa att raden syns. */
-  const markeraPunkt = (id: string) => { setMarkeradId(id); setArkLage('dock'); };
+  /** Tryck pa en symbol pa kartan eller en rad i listan: markera punkten. Ar arket sankt lyfts det till dock sa att raden gar att na (det enda som
+   *  hojer arket av sig sjalvt); dock och hel ligger kvar - raden syns i bada. */
+  const markeraPunkt = (id: string) => { setMarkeradId(id); setArkLage(efterSymboltryck); };
 
   const angraSvaret = async () => {
     const a = angra;
@@ -1023,7 +1032,7 @@ export default function EgenkontrollRundaPage() {
             meta={kvarText(kvarTotalt, rundanKlar)}
             onTryck={() => setArkLage((l) => nastaGreppLage(l))}
             tryckEtikett="Visa rundan"
-            oppen={arkLage !== 'dock'}
+            oppen={arkLage === 'hel'}
           />
 
           {/* SIDOKNAPPARNA ligger ovanfor arket och foljer dess overkant (mat.bottom): Notera har till vanster, Lager och Centrera till hoger.
@@ -1075,20 +1084,19 @@ export default function EgenkontrollRundaPage() {
                 markeradId={markeradId}
                 sparStatus={sparStatus}
                 onTryck={trycktBricka}
-                visaHjalp={!rundanKlar && brickor.length > 0 && brickor.every((b) => b.status === null)}
                 rad={
-                  markerad && svarsDel(markerad.del) ? (
-                    <BrickaRad
-                      punkt={markerad}
-                      fotoUrler={fotoPerPunkt[markerad.id] ?? []}
-                      sparar={!!sparStatus[markerad.id]}
-                      last={rundanKlar}
-                      avstandText={markerad.del === 'plan' && avstandLive.get(markerad.id) ? avstandText(avstandLive.get(markerad.id)!.m) : null}
-                      onSvara={radSvarar}
-                      onAvvikelse={() => setSheet({ lage: 'avvikelse', punkt: markerad })}
-                      onFotoNot={() => setSheet({ lage: 'foto', punkt: markerad })}
-                    />
-                  ) : null
+                  // Raden finns ALLTID (utan markering med avstangda knappar), sa att dockan inte andrar hojd nar man markerar.
+                  <BrickaRad
+                    punkt={markerad && svarsDel(markerad.del) ? markerad : null}
+                    fotoUrler={markerad ? fotoPerPunkt[markerad.id] ?? [] : []}
+                    sparar={markerad ? !!sparStatus[markerad.id] : false}
+                    last={rundanKlar}
+                    hjalp={!rundanKlar && brickor.length > 0 && brickor.every((b) => b.status === null)}
+                    avstandText={markerad && markerad.del === 'plan' && avstandLive.get(markerad.id) ? avstandText(avstandLive.get(markerad.id)!.m) : null}
+                    onSvara={radSvarar}
+                    onAvvikelse={() => { if (markerad) setSheet({ lage: 'avvikelse', punkt: markerad }); }}
+                    onFotoNot={() => { if (markerad) setSheet({ lage: 'foto', punkt: markerad }); }}
+                  />
                 }
               />
             }

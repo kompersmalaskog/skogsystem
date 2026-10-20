@@ -115,10 +115,13 @@ const huvud = () => document.querySelector('[data-testid=kart-huvud]') as HTMLEl
 // några millisekunder isär, alltså INOM skyddstiden — precis som ett dubbeltryck. `efterSkyddet()` = nästa tryck är ett nytt, avsiktligt.
 let klockForskott = 0;
 const efterSkyddet = () => { klockForskott += DOCK_SKYDD_MS + 50; };
+const efter = (ms: number) => { klockForskott += ms; };
 
 const kartObjekt = { lat: 56.05, lng: 14.05, vo_nummer: '1', kartbild_url: null, kartbild_bounds: [[56.0, 14.0], [56.1, 14.1]] };
 
 beforeEach(() => {
+  // Standardsvaret på ett skrivet svar (ett test kan ha ersatt det): raden kommer tillbaka med den nya statusen.
+  svaraPaPunkt.mockImplementation(async (id: string, status: string, _del: string) => ({ ...vyn.punkter.find((p: any) => p.id === id), status }));
   klockForskott = 0;
   const verkligNu = Date.now.bind(Date);
   vi.spyOn(Date, 'now').mockImplementation(() => verkligNu() + klockForskott);
@@ -180,26 +183,80 @@ describe('ramen: kartan är hela vyn, med huvud, ark och dock', () => {
     expect(ark().contains(document.querySelector('[data-testid=kommentar-rad]'))).toBe(true);
   });
 
-  it('greppet och huvudets namn växlar dock ↔ hel (inget mellanläge); innehållet under brickorna är inte nåbart i dock-läget', async () => {
+  it('greppet och huvudets namn går vidare ETT läge varje gång: dock → hel → sänkt → dock (inget mellanläge)', async () => {
     await montera();
-    expect(document.querySelector('[data-testid=ark-innehall]')!.hasAttribute('inert')).toBe(true);
+    const lage = () => ark().getAttribute('data-lage');
+    expect(lage()).toBe('dock');
     await klick(document.querySelector('[data-testid=ark-grepp]')!);
-    expect(ark().getAttribute('data-lage')).toBe('hel');
-    expect(document.querySelector('[data-testid=ark-innehall]')!.hasAttribute('inert')).toBe(false);
+    expect(lage()).toBe('hel');
     await klick(document.querySelector('[data-testid=ark-grepp]')!);
-    expect(ark().getAttribute('data-lage')).toBe('dock');
+    expect(lage()).toBe('sankt');
+    await klick(document.querySelector('[data-testid=ark-grepp]')!);
+    expect(lage()).toBe('dock');
+    // Huvudets namn gör samma sak som greppet — och pilen (aria-expanded) står uppe bara i hel, inte i sänkt.
+    const pil = () => huvud().querySelector('button')!.getAttribute('aria-expanded');
+    expect(pil()).toBe('false');                  // dock
     await klick(huvud().querySelector('button')!);
-    expect(ark().getAttribute('data-lage')).toBe('hel');
-    // Lägena är exakt två — ett värde "halv" får aldrig förekomma.
+    expect(lage()).toBe('hel');
+    expect(pil()).toBe('true');
+    await klick(huvud().querySelector('button')!);
+    expect(lage()).toBe('sankt');
+    expect(pil()).toBe('false');
+    // Lägena är exakt tre — ett värde "halv" får aldrig förekomma.
     expect(document.querySelector('[data-lage=halv]')).toBeNull();
+  });
+
+  it('inert följer läget: dockan är inert i sänkt, innehållet under brickorna är inert utom i hel', async () => {
+    await montera();
+    const dockInert = () => document.querySelector('[data-testid=ark-dock]')!.hasAttribute('inert');
+    const innehallInert = () => document.querySelector('[data-testid=ark-innehall]')!.hasAttribute('inert');
+    expect([dockInert(), innehallInert()]).toEqual([false, true]);          // dock
+    await klick(document.querySelector('[data-testid=ark-grepp]')!);
+    expect([dockInert(), innehallInert()]).toEqual([false, false]);         // hel
+    await klick(document.querySelector('[data-testid=ark-grepp]')!);
+    expect([dockInert(), innehallInert()]).toEqual([true, true]);           // sänkt
+  });
+
+  it('sidoknapparna (Notera här, Lager, Centrera) syns i sänkt och dock, och göms i hel', async () => {
+    await montera();
+    const syns = () => knappar().some((b) => /Notera här/.test(b.textContent ?? '')) && knappar().some((b) => b.getAttribute('aria-label') === 'Kartlager');
+    const grepp = () => document.querySelector('[data-testid=ark-grepp]')!;
+    expect(syns()).toBe(true);        // dock
+    await klick(grepp());
+    expect(syns()).toBe(false);       // hel
+    await klick(grepp());
+    expect(syns()).toBe(true);        // sänkt: man går, och Notera här måste finnas
+  });
+
+  it('symboltrycket på kartan lyfter sänkt → dock (raden måste gå att nå) — och ingenting annat höjer eller sänker arket', async () => {
+    await montera();
+    const lage = () => ark().getAttribute('data-lage');
+    const grepp = () => document.querySelector('[data-testid=ark-grepp]')!;
+    await klick(grepp()); await klick(grepp());                              // dock → hel → sänkt
+    expect(lage()).toBe('sankt');
+    await klick(document.querySelector('[data-testid=karta-punkt-p1]')!);
+    expect(lage()).toBe('dock');
+    expect(raden()!.textContent).toContain('Punkt p1');
+    // Dock ligger kvar vid ett nytt symboltryck.
+    await klick(document.querySelector('[data-testid=karta-punkt-p2]')!);
+    expect(lage()).toBe('dock');
+    // Hel ligger kvar — raden syns överst i hel också, så arket sänks inte av sig självt.
+    await klick(grepp());
+    expect(lage()).toBe('hel');
+    await klick(document.querySelector('[data-testid=karta-punkt-p1]')!);
+    expect(lage()).toBe('hel');
+    // Att svara, markera en bricka eller byta markering ändrar inte heller läget (sänkt: det finns inget att trycka på i dockan).
+    await klick(grepp());
+    expect(lage()).toBe('sankt');
   });
 });
 
 describe('TRYCK MARKERAR, RADEN SVARAR', () => {
   it('tryck på en OBESVARAD bricka: markeras OCH får Bra (utförande), med Ångra', async () => {
     await montera();
-    expect(raden()).toBeNull();
+    expect(raden()!.getAttribute('data-tom')).toBe('1');      // raden står där hela tiden, med avstängda knappar
     await klick(bricka('u3'));
+    expect(raden()!.getAttribute('data-tom')).toBeNull();
     expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
     expect(svaraPaPunkt).toHaveBeenCalledWith('u3', 'bra', 'utforande');
     expect(bricka('u3').getAttribute('aria-pressed')).toBe('true');
@@ -308,50 +365,71 @@ describe('TRYCK MARKERAR, RADEN SVARAR', () => {
   });
 });
 
-describe('DOCKVAKTEN: två tryck inom skyddstiden ger ETT svar, inte två (handske, kall skärm, tum som studsar)', () => {
-  it('dubbeltryck på samma obesvarade bricka: ett svar', async () => {
+describe('DOCKVAKTEN: samma tryckyta inom skyddstiden ger ETT svar — en annan bricka går igenom direkt', () => {
+  it('två tryck på SAMMA obesvarade bricka inom skyddstiden: ett svar, inte två', async () => {
     await montera();
     await klick(bricka('u3'));
     await klick(bricka('u3'));
-    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
-  });
-
-  it('ett andra tryck på ANNAN bricka (där den första flyttat sig) skriver ingenting och markerar ingenting', async () => {
-    await montera();
-    await klick(bricka('u3'));
-    await klick(bricka('u4'));
     expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
     expect(svaraPaPunkt).toHaveBeenCalledWith('u3', 'bra', 'utforande');
-    expect(bricka('u4').getAttribute('data-status')).toBe('');
-    expect(bricka('u4').getAttribute('aria-pressed')).toBe('false');
-    expect(bricka('u3').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('ett sent tryck i RADEN direkt efter bricktrycket skriver inte över Bra', async () => {
+  it('tryck på en ANNAN bricka 100 ms senare ger ett svar till — avsiktliga snabba svar sväljs inte', async () => {
     await montera();
     await klick(bricka('u3'));
-    await klick(radKnapp('godkant')!);
-    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
-    expect(bricka('u3').getAttribute('data-status')).toBe('bra');
+    efter(100);
+    await klick(bricka('u4'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(2);
+    expect(svaraPaPunkt).toHaveBeenLastCalledWith('u4', 'bra', 'utforande');
+    expect(bricka('u4').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('dubbeltryck på en radknapp: ett svar', async () => {
+  it('samma bricka igen efter skyddstiden gäller som ett nytt tryck (en besvarad bricka skriver aldrig, men markerar)', async () => {
+    await montera();
+    await klick(bricka('u3'));
+    efterSkyddet();
+    await klick(bricka('u3'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);               // u3 är redan besvarad: inget nytt skrivs
+  });
+
+  it('två tryck på SAMMA radknapp inom skyddstiden: ett svar', async () => {
     vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 5: { status: 'bra' } })] };
     await montera();
     await klick(bricka('u5'));
     await klick(radKnapp('battre')!);
-    await klick(radKnapp('godkant')!);
+    await klick(radKnapp('battre')!);
     expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
     expect(svaraPaPunkt).toHaveBeenCalledWith('u5', 'battre', 'utforande');
   });
 
-  it('efter skyddstiden gäller nästa tryck igen — skyddet är en kort paus, ingen spärr', async () => {
+  it('en ANNAN radknapp 100 ms senare går igenom (raden ligger still, så inget hamnar fel)', async () => {
+    vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 5: { status: 'bra' } })] };
+    await montera();
+    await klick(bricka('u5'));
+    await klick(radKnapp('battre')!);
+    efter(100);
+    await klick(radKnapp('godkant')!);
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(2);
+    expect(svaraPaPunkt).toHaveBeenLastCalledWith('u5', 'godkant', 'utforande');
+  });
+
+  it('ett tryck i raden direkt efter ett bricktryck skriver över Bra bara om det är ett annat, avsiktligt tryck (raden ligger still)', async () => {
     await montera();
     await klick(bricka('u3'));
+    efter(100);
+    await klick(radKnapp('godkant')!);
+    expect(svaraPaPunkt).toHaveBeenLastCalledWith('u3', 'godkant', 'utforande');
+  });
+
+  it('efter skyddstiden gäller samma bricka igen — skyddet är en kort paus, ingen spärr', async () => {
+    vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 5: { status: 'bra' } })] };
+    await montera();
+    await klick(bricka('u5'));
+    await klick(radKnapp('battre')!);
     efterSkyddet();
-    await klick(bricka('u4'));
-    expect(svaraPaPunkt).toHaveBeenCalledTimes(2);
-    expect(svaraPaPunkt).toHaveBeenLastCalledWith('u4', 'bra', 'utforande');
+    await klick(radKnapp('battre')!);
+    // Samma svar igen skriver ändå inget (punkten är redan "battre").
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
   });
 
   it('ett tryck som bara MARKERAR (besvarad bricka) startar inget skydd: man kan bläddra och sedan svara direkt', async () => {
@@ -361,6 +439,146 @@ describe('DOCKVAKTEN: två tryck inom skyddstiden ger ETT svar, inte två (hands
     await klick(bricka('u1'));
     expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
     expect(svaraPaPunkt).toHaveBeenCalledWith('u1', 'bra', 'utforande');
+  });
+
+  it('VAKTEN SJÄLV (inte bara status/spar-spärren): kommer inte svaret ikapp i tid skrivs samma bricka inte en gång till inom skyddstiden — men väl efter den', async () => {
+    // Servern svarar men raden hinner inte uppdateras (statusen står kvar tom): då är det bara vakten som hindrar tryck 2.
+    svaraPaPunkt.mockImplementation(async (id: string) => vyn.punkter.find((p: any) => p.id === id));
+    await montera();
+    await klick(bricka('u3'));
+    await klick(bricka('u3'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    efterSkyddet();
+    await klick(bricka('u3'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(2);           // skyddet är en paus, ingen spärr
+  });
+
+  it('VAKTEN SJÄLV i raden: samma radknapp skrivs inte två gånger inom skyddstiden även när statusen inte hunnit ikapp — en annan knapp går igenom', async () => {
+    svaraPaPunkt.mockImplementation(async (id: string) => vyn.punkter.find((p: any) => p.id === id));
+    vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 5: { status: 'bra' } })] };
+    await montera();
+    await klick(bricka('u5'));
+    await klick(radKnapp('battre')!);
+    await klick(radKnapp('battre')!);
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    efter(100);
+    await klick(radKnapp('godkant')!);
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(2);
+  });
+
+  it('en bricka som HÅLLER PÅ ATT SPARAS skrivs inte en gång till — inte ens efter skyddstiden (långsamt nät)', async () => {
+    let klar: (v?: unknown) => void = () => {};
+    svaraPaPunkt.mockImplementationOnce(() => new Promise((res) => { klar = res as typeof klar; }));
+    await montera();
+    await klick(bricka('u3'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    expect(bricka('u3').textContent).toContain('Sparar…');
+    efterSkyddet();
+    await klick(bricka('u3'));
+    expect(svaraPaPunkt).toHaveBeenCalledTimes(1);
+    await act(async () => { klar(vyn.punkter.find((p: any) => p.id === 'u3')); });
+  });
+});
+
+describe('RADEN LIGGER STILL: inget tryckbart flyttar sig under fingret när man markerar', () => {
+  it('raden finns hela tiden: samma element och samma knappar före och efter att något markeras — bara avstängda/påslagna', async () => {
+    await montera();
+    const rad0 = raden()!;
+    const knappar0 = Array.from(rad0.querySelectorAll('button')).map((b) => b.getAttribute('data-svar'));
+    expect(knappar0).toEqual(['bra', 'godkant', 'battre', 'foto-not']);
+    expect(Array.from(rad0.querySelectorAll('button')).every((b) => b.disabled)).toBe(true);
+    await klick(bricka('u3'));
+    expect(raden()).toBe(rad0);                                                          // inte ommonterad
+    expect(Array.from(raden()!.querySelectorAll('button')).map((b) => b.getAttribute('data-svar'))).toEqual(knappar0);
+    expect(Array.from(raden()!.querySelectorAll('button')).every((b) => !b.disabled)).toBe(true);
+    // Knappraden är sista barnet både med och utan markering: det som växer (innehållsfältet) ligger OVANFÖR den.
+    expect(raden()!.lastElementChild!.querySelector('[data-svar=bra]')).not.toBeNull();
+  });
+
+  it('arket animeras BARA vid lägesbyte: en markering (och en rad som växer med innehåll) ändrar höjden utan övergång', async () => {
+    vyn = { ...vyn, punkter: [rad('p1'), ...utforande('slutavverkning', { 0: { status: 'bra', kommentar: 'Rishögarna ligger bra', avvikelse_typ: 'korspar' } })] };
+    foton = [fotoRad('f1', 'u0', 'runda-1/u0-1.jpg')];
+    await montera();
+    expect(ark().style.transition).toBe('none');
+    await klick(bricka('u3'));
+    expect(ark().style.transition).toBe('none');                       // raden fick ett namn — ingen animation
+    await klick(bricka('u0'));
+    expect(ark().style.transition).toBe('none');                       // raden fick ett innehållsfält — ingen animation
+    await klick(document.querySelector('[data-testid=ark-grepp]')!);
+    expect(ark().style.transition).toContain('transform');             // lägesbyte: animeras
+    await act(async () => { await new Promise((r) => setTimeout(r, 520)); });
+    await klick(bricka('u3'));
+    expect(ark().style.transition).toBe('none');                       // och släpper igen när animationen är klar
+  });
+
+  it('radens innehållsfält får sitt tak av arket (--rad-max), så att kartan har KARTA_MIN_PX kvar', async () => {
+    await montera();
+    expect(ark().style.getPropertyValue('--rad-max')).toMatch(/^\d+px$/);
+  });
+});
+
+describe('RADEN VISAR VAD SOM FINNS PÅ PUNKTEN — också medan rundan pågår, ovanför knapparna', () => {
+  beforeEach(() => {
+    vyn = {
+      ...vyn,
+      punkter: [rad('p1'), ...utforande('slutavverkning', { 0: { status: 'battre', kommentar: 'Djupa spår vid brynet', avvikelse_typ: 'korspar', besvarad: '2026-10-19T08:00:00Z' } })],
+    };
+    foton = [fotoRad('f1', 'u0', 'runda-1/u0-1.jpg'), fotoRad('f2', 'u0', 'runda-1/u0-2.jpg')];
+  });
+
+  it('typ (text), kommentar och foton syns i raden på en PÅGÅENDE runda, och fältet ligger OVANFÖR knappraden', async () => {
+    await montera();
+    await klick(bricka('u0'));
+    const r = raden()!;
+    expect(r.getAttribute('data-last')).toBeNull();
+    const falt = r.querySelector('[data-testid=bricka-rad-innehall]') as HTMLElement;
+    expect(falt).not.toBeNull();
+    expect(falt.textContent).toContain('Körspår');
+    expect(falt.textContent).toContain('Djupa spår vid brynet');
+    expect(Array.from(falt.querySelectorAll('img')).map((i) => i.getAttribute('src'))).toEqual(['https://signerad/runda-1/u0-1.jpg', 'https://signerad/runda-1/u0-2.jpg']);
+    // Ordningen i DOM:en: rubrikrad, fält, knappar — det som kan växa ligger ovanför det man trycker på.
+    const barn = Array.from(r.children);
+    expect(barn.indexOf(falt)).toBeLessThan(barn.indexOf(r.lastElementChild!));
+    expect(r.lastElementChild!.contains(radKnapp('bra'))).toBe(true);
+    expect(r.style.flexDirection).toBe('column');          // inte 'column-reverse': knapparna ligger nederst också på skärmen
+    // Knapparna är PÅ: rundan pågår.
+    expect(Array.from(r.querySelectorAll('button')).every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('en punkt utan innehåll har inget fält (inget tomrum) — och fältet har radens tak och scrollar (samma regel som på en låst runda)', async () => {
+    await montera();
+    await klick(bricka('u3'));
+    expect(raden()!.querySelector('[data-testid=bricka-rad-innehall]')).toBeNull();
+    await klick(bricka('u0'));
+    const falt = raden()!.querySelector('[data-testid=bricka-rad-innehall]') as HTMLElement;
+    expect(falt.style.maxHeight).toBe(`var(--rad-max, ${RAD_MAX_DVH}dvh)`);
+    expect(falt.style.overflowY).toBe('auto');
+  });
+
+  it('SAMMA komponent på pågående och låst runda: samma delar, bara knapparna skiljer', async () => {
+    await montera();
+    await klick(bricka('u0'));
+    const delar = (r: Element) => Array.from(r.children).map((c) => c.getAttribute('data-testid') ?? c.tagName);
+    const pagaende = delar(raden()!);
+    await act(async () => { root!.unmount(); });
+    host?.remove();
+    vyn = { ...vyn, egenkontroll: { ...RUNDA, status: 'klar', klar: '2026-10-17T12:00:00Z' } };
+    await montera();
+    await klick(bricka('u0'));
+    expect(delar(raden()!)).toEqual(pagaende);
+  });
+
+  it('i sänkt är dockan dold (visibility) så att ingen rad tittar fram under greppet — och synlig i dock och hel', async () => {
+    await montera();
+    const dock = () => document.querySelector('[data-testid=ark-dock]') as HTMLElement;
+    const grepp = () => document.querySelector('[data-testid=ark-grepp]')!;
+    expect(dock().style.visibility).toBe('visible');
+    await klick(grepp()); expect(dock().style.visibility).toBe('visible');       // hel
+    await klick(grepp());                                                         // sänkt: dold först när arket hunnit glida ned
+    expect(dock().style.visibility).toBe('visible');
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    expect(dock().style.visibility).toBe('hidden');
+    await klick(grepp()); expect(dock().style.visibility).toBe('visible');       // dock: synlig direkt
   });
 });
 
@@ -398,7 +616,7 @@ describe('planpunkter: markeras på kartan, raden bär OK och Avvikelse', () => 
   it('ingenting markeras av sig självt — inte ens när positionen finns', async () => {
     await montera();
     expect(document.querySelector('[data-testid=karta]')!.getAttribute('data-vald')).toBe('');
-    expect(raden()).toBeNull();
+    expect(raden()!.getAttribute('data-tom')).toBe('1');
   });
 });
 
@@ -420,16 +638,34 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     expect(svaraPaPunkt).not.toHaveBeenCalled();
   });
 
-  it('raden visar svar och kommentar som text — utan en enda svarsknapp', async () => {
+  const allaAvstangda = (r: Element) => {
+    const b = Array.from(r.querySelectorAll('button'));
+    expect(b.length).toBeGreaterThan(0);
+    for (const k of b) expect(k.disabled, `knappen ${k.getAttribute('data-svar')} är avstängd`).toBe(true);
+  };
+
+  it('raden är SAMMA komponent som på en pågående runda: svar och kommentar som text, knapparna avstängda (det nuvarande svaret står intryckt)', async () => {
     await montera();
     await klick(bricka('u0'));
     expect(raden()!.getAttribute('data-last')).toBe('1');
     expect(raden()!.textContent).toContain('Rishögarna ligger bra');
-    expect(raden()!.querySelectorAll('button')).toHaveLength(0);
+    allaAvstangda(raden()!);
+    expect(radKnapp('bra')!.getAttribute('aria-pressed')).toBe('true');
+    expect(radKnapp('godkant')!.getAttribute('aria-pressed')).toBe('false');
     expect(huvud().textContent).toContain('Avslutad');
+    // Ett tryck på en avstängd knapp skriver ingenting.
+    await klick(radKnapp('godkant')!);
+    expect(svaraPaPunkt).not.toHaveBeenCalled();
   });
 
-  it('tryck på en bricka i en AVSLUTAD runda visar svar, kommentar OCH foto — läsbart, utan en enda knapp (inget PDF-krav för att läsa sina anteckningar)', async () => {
+  it('utan markering står raden kvar på en låst runda och säger hur man ser ett svar', async () => {
+    await montera();
+    expect(raden()!.getAttribute('data-tom')).toBe('1');
+    expect(raden()!.textContent).toContain('Tryck på en bricka för att se svaret');
+    allaAvstangda(raden()!);
+  });
+
+  it('tryck på en bricka i en AVSLUTAD runda visar svar, kommentar OCH foto — läsbart, knapparna avstängda (inget PDF-krav för att läsa sina anteckningar)', async () => {
     foton = [fotoRad('f1', 'u0', 'runda-1/u0-1.jpg'), fotoRad('f2', 'u0', 'runda-1/u0-2.jpg')];
     await montera();
     await klick(bricka('u0'));
@@ -438,7 +674,7 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     expect(r.textContent).toContain('✓ Bra');
     expect(r.textContent).toContain('Rishögarna ligger bra');
     expect(Array.from(r.querySelectorAll('img')).map((i) => i.getAttribute('src'))).toEqual(['https://signerad/runda-1/u0-1.jpg', 'https://signerad/runda-1/u0-2.jpg']);
-    expect(r.querySelectorAll('button')).toHaveLength(0);
+    allaAvstangda(r);
     // ...och ligger i dockan (alltid framme), inte bara i hel.
     expect(r.closest('[data-testid=ark-innehall]')).toBeNull();
   });
@@ -453,7 +689,7 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     expect(r.textContent).toContain('Körspår');
     expect(r.textContent).toContain('Djupa spår vid brynet');
     expect(r.querySelector('img')!.getAttribute('src')).toBe('https://signerad/runda-1/p1-1.jpg');
-    expect(r.querySelectorAll('button')).toHaveLength(0);
+    allaAvstangda(r);
   });
 
   it('LÅNG anteckning (2000 tecken) och tre foton: raden har en MAXHÖJD och scrollar INOM sig — allt går att nå, rubrikraden står kvar, dockan växer inte med texten', async () => {
@@ -467,7 +703,7 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     const inne = r.querySelector('[data-testid=bricka-rad-innehall]') as HTMLElement;
     expect(inne).not.toBeNull();
     // Maxhöjden och scrollen ligger på innehållet, inte på hela raden — och maxhöjden är konstanten, inte ett eget tal.
-    expect(inne.style.maxHeight).toBe(`${RAD_MAX_DVH}dvh`);
+    expect(inne.style.maxHeight).toBe(`var(--rad-max, ${RAD_MAX_DVH}dvh)`);
     expect(inne.style.overflowY).toBe('auto');
     // ALLT finns i det som scrollar: hela texten (över 2000 tecken, från första till sista raden) och alla tre fotona.
     expect(inne.textContent).toContain(lang);
@@ -480,8 +716,8 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     const rubrik = Array.from(r.children).find((c) => c.textContent?.includes('✓ Bra') && !inne.contains(c))!;
     expect(rubrik).toBeDefined();
     expect(inne.contains(rubrik)).toBe(false);
-    // Ingen enda knapp, och inget annat i raden har en egen höjdgräns som skulle kapa texten.
-    expect(r.querySelectorAll('button')).toHaveLength(0);
+    // Knapparna är avstängda, och inget annat i raden har en egen höjdgräns som skulle kapa texten.
+    allaAvstangda(r);
   });
 
   it('en KORT anteckning har samma behållare (maxhöjden bara begränsar — den lägger inte till tomrum)', async () => {
@@ -655,15 +891,16 @@ describe('HEL-LÄGET: planpunkter UTAN markering på kartan är det enda som få
   });
 });
 
-describe('arket dras i greppet: två lägen med riktig höjd (offsetHeight stubbad — jsdom har ingen layout)', () => {
+describe('arket dras i greppet: tre lägen med riktig höjd (offsetHeight stubbad — jsdom har ingen layout)', () => {
   const orig = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
   beforeEach(() => {
-    // Arket är 688 högt (max), dockan (greppet + raden + brickorna) 260 och innehållet långt (900): hel = max.
+    // Arket är 688 högt (max), toppen (greppet 40 + dockan 220) 260 och innehållet långt (900): sänkt 40, dock 260, hel = max.
     Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
       configurable: true,
       get(this: HTMLElement) {
         if (this.getAttribute('data-testid') === 'rund-ark') return 688;
         if (this.getAttribute('data-testid') === 'ark-innehall-inre') return 900;
+        if (this.getAttribute('data-testid') === 'ark-dock') return 220;
         if (this.parentElement?.getAttribute('data-testid') === 'rund-ark' && this === this.parentElement.firstElementChild) return 260;
         return 0;
       },
@@ -681,30 +918,35 @@ describe('arket dras i greppet: två lägen med riktig höjd (offsetHeight stubb
     await act(async () => { g.dispatchEvent(peka('pointerup', till)); (g as HTMLElement).click(); });
   };
 
-  it('dra upp förbi mitten: hel (då göms sidoknapparna); dra ned igen: tillbaka till dock; ett kort drag uppåt lämnar dockan', async () => {
+  const lage = () => ark().getAttribute('data-lage');
+
+  it('drag åt BÅDA hållen, ett läge per drag: dock → hel → dock → sänkt → dock, och ett långt drag går hela vägen', async () => {
     await montera();
-    expect(ark().getAttribute('data-lage')).toBe('dock');
-    await dra(600, 500);                       // 100 px upp: närmast dock
-    expect(ark().getAttribute('data-lage')).toBe('dock');
-    expect(knappar().some((b) => /Notera här/.test(b.textContent ?? ''))).toBe(true);
-    await dra(600, 300);                       // 300 px upp: närmast hel
-    expect(ark().getAttribute('data-lage')).toBe('hel');
+    expect(lage()).toBe('dock');
+    await dra(600, 520);                       // 80 px upp: över tröskeln = ett läge upp
+    expect(lage()).toBe('hel');
     // I hel ligger arket under huvudet: sidoknapparna skulle hamna ovanpå det och göms.
     expect(knappar().some((b) => /Notera här/.test(b.textContent ?? ''))).toBe(false);
-    expect(knappar().some((b) => b.getAttribute('aria-label') === 'Kartlager')).toBe(false);
-    // Brickorna finns kvar överst i arket i alla lägen.
-    expect(brickor()).toHaveLength(11);
-    await dra(100, 800);                       // långt ned: dock
-    expect(ark().getAttribute('data-lage')).toBe('dock');
+    expect(brickor()).toHaveLength(11);        // brickorna finns kvar överst i arket
+    await dra(300, 380);                       // 80 px ned: hel → dock
+    expect(lage()).toBe('dock');
+    await dra(300, 380);                       // 80 px ned: dock → sänkt (kort drag med handske)
+    expect(lage()).toBe('sankt');
     expect(knappar().some((b) => /Notera här/.test(b.textContent ?? ''))).toBe(true);
+    await dra(600, 520);                       // 80 px upp: sänkt → dock, inte kvar i sänkt
+    expect(lage()).toBe('dock');
+    await dra(100, 800);                       // långt ned: dock → sänkt (det finns inget under sänkt)
+    expect(lage()).toBe('sankt');
+    await dra(700, 20);                        // långt upp: sänkt → hel
+    expect(lage()).toBe('hel');
   });
 
   it('ett kort drag (under tröskeln) lämnar arket kvar, och ett drag räknas inte som ett tryck på greppet', async () => {
     await montera();
     await dra(600, 580);                       // 20 px: under tröskeln
-    expect(ark().getAttribute('data-lage')).toBe('dock');
+    expect(lage()).toBe('dock');
     await dra(600, 300);
-    expect(ark().getAttribute('data-lage')).toBe('hel');   // draget landade i hel — och klicket efter draget växlade INTE tillbaka
+    expect(lage()).toBe('hel');                // draget landade i hel — och klicket efter draget växlade INTE vidare till sänkt
   });
 });
 
@@ -718,6 +960,7 @@ describe('HEL FÖLJER SITT INNEHÅLL (offsetHeight stubbad — jsdom har ingen l
       get(this: HTMLElement) {
         if (this.getAttribute('data-testid') === 'rund-ark') return 688;                       // max: skärmen 760 minus huvudet 72
         if (this.getAttribute('data-testid') === 'ark-innehall-inre') return innre;            // innehållets egen höjd
+        if (this.getAttribute('data-testid') === 'ark-dock') return 220;                        // dockinnehållet (toppen minus greppet 40)
         if (this.parentElement?.getAttribute('data-testid') === 'rund-ark' && this === this.parentElement.firstElementChild) return 260;  // dockan
         return 0;
       },
@@ -777,6 +1020,16 @@ describe('HEL FÖLJER SITT INNEHÅLL (offsetHeight stubbad — jsdom har ingen l
       await act(async () => { root!.unmount(); });
       host?.remove();
     }
+  });
+
+  it('SÄNKT visar bara greppet: höjden är toppen minus dockinnehållet (40), inte dockan', async () => {
+    await montera();
+    const mal = () => Number.parseInt((document.querySelector('[data-testid=ark-mal]') as HTMLElement).style.bottom, 10) + 1;
+    await oppnaHel();
+    await oppnaHel();
+    expect(ark().getAttribute('data-lage')).toBe('sankt');
+    expect(synligHojd()).toBe(40);
+    expect(mal()).toBe(40);                       // kartans padding får nästan hela skärmen
   });
 
   it('kartans mätpunkt följer det som syns: överkanten av arket är dock respektive hel', async () => {
