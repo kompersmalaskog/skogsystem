@@ -62,6 +62,17 @@ describe('byggRapportIndata: kartlagren', () => {
     expect(i.areal).toBe(4.8);
   });
 
+  it('BACKVAG: en väg med backvag-fältet får backvag i änden; en vanlig väg, ett dike med fältet och ett trasigt fält får det inte', () => {
+    const p = [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 40 }];
+    const i = med(ORIGO, [
+      { data: { path: p, lineType: 'mainRoad', backvag: { ande: 'slut' } } },
+      { data: { path: p, lineType: 'sideRoadBlue', backvag: { ande: 'start', orsak: 'sten' } } },
+      { data: { path: p, lineType: 'mainRoad' } },
+      { data: { path: p, lineType: 'ditch', backvag: { ande: 'slut' } } },
+      { data: { path: p, lineType: 'mainRoad', backvag: { ande: 'mitten' } } },
+    ]);
+    expect(i.markeringar!.map((m) => (m.slag === 'linje' ? `${m.typ}:${m.backvag ?? '-'}` : m.slag))).toEqual(['mainRoad:slut', 'sideRoadBlue:start', 'mainRoad:-', 'ditch:-', 'mainRoad:-']);
+  });
   it('UTAN betrott origo ritas inga markeringar och det SAGS - men ett tomt kontext ar ingen anmarkning', () => {
     const i = med(null, kontext);
     expect(i.markeringar).toEqual([]);

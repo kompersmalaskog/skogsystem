@@ -29,17 +29,19 @@ import type { MapLayers } from '@/lib/hooks/useMapLayers';
 import { signeraKartfil } from '@/lib/kartfiler';
 import type { Origo } from '@/lib/kartkoordinater';
 import {
-  KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, OBSERVATION_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
+  BACKVAG_KALLA, KONTEXT_KALLA, KONTROLL_KALLA, NUMMER_KALLA, OBSERVATION_KALLA, PROVYTA_KALLA, VALD_LINJE_ID, VALD_SYMBOL_ID,
   geometriKoordinater, kontextFeature, kontextLager, kontextUtanKontrollpunkter,
   kontrollFeatures, kontrollLager, kontrollLagerIdn, observationFeatures, observationLager,
   observationLagerIdn, provytaFeatures, provytaLager,
   provytaLagerIdn, valdLinjeFilter, valdSymbolFilter,
 } from '@/lib/egenkontrollkarta';
+import { backvagFeatureUrData, backvagLager, klassaPunkt } from '@/lib/egenkontrollkarta';
 import { IKON_PIXELRATIO, provytaBildNamn, ritaProvytaIkon } from '@/lib/provytaIkon';
 import { OBS_PIXELRATIO, observationBildNamn, ritaObservationIkon } from '@/lib/observationIkon';
 import { OBSERVATION_TONER } from '@/lib/egenkontrollObservation';
 import type { ProvytaStatus } from '@/lib/provytor';
-import { PIL_STIL, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
+import { PIL_STIL, backvagIkonNamn, ritaBackvagStreck, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
+import { BACKVAG_STRECK_FARGER } from '@/lib/backvag';
 import {
   TRAFF_RADIE_PX, avstandTillGeometriPx, traffIdFranEgenskaper, traffKindFranEgenskaper, valjTraff,
   type Kandidat,
@@ -98,6 +100,11 @@ async function laggTillBilder(map: any, nummer: number[]): Promise<void> {
     } catch { /* se ovan */ }
   }
   await Promise.all(laddar);
+  for (const f of BACKVAG_STRECK_FARGER) {
+    const namn = backvagIkonNamn(f);
+    if (map.hasImage(namn)) continue;
+    try { const bild = canvasToMapLibreImage(ritaBackvagStreck(f)); if (bild) map.addImage(namn, bild); } catch { /* ett streck som saknas ska inte falla kartan */ }
+  }
   sakraNummerBilder(map, nummer);
   sakraProvytaBilder(map);
   sakraObservationBilder(map);
@@ -322,6 +329,23 @@ export default function RundKarta({
     const features = kontextUtanKontrollpunkter(kontext, punkter)
       .map((m) => kontextFeature(m?.data, origo))
       .filter(Boolean) as any[];
+    return { type: 'FeatureCollection', features };
+  }, [kontext, punkter, origo]);
+
+  // BACKVAG: tvarstreck i hinderanden av en vag. Kontrollpunkternas ur sin snapshot, kontextens ur planeringens markering (nedtonade).
+  const backvagGeo = useMemo<Geo>(() => {
+    if (!origo) return TOM;
+    const features: any[] = [];
+    for (const p of punkter) {
+      const klass = klassaPunkt(p.punkt_typ, p.geometri_snapshot);
+      if (klass?.kind !== 'linje') continue;
+      const f = backvagFeatureUrData(p.geometri_snapshot, origo, klass.typ, false);
+      if (f) features.push(f);
+    }
+    for (const m of kontextUtanKontrollpunkter(kontext, punkter)) {
+      const f = backvagFeatureUrData(m?.data, origo, undefined, true);
+      if (f) features.push(f);
+    }
     return { type: 'FeatureCollection', features };
   }, [kontext, punkter, origo]);
 
@@ -552,6 +576,10 @@ export default function RundKarta({
       map.addSource(NUMMER_KALLA, { type: 'geojson', data: nummerGeo });
       for (const spec of kontrollLager()) laggTillLager(map, spec);
 
+      // BACKVAG: tvarstrecket i hinderanden, over linjerna.
+      map.addSource(BACKVAG_KALLA, { type: 'geojson', data: backvagGeo });
+      for (const spec of backvagLager()) laggTillLager(map, spec);
+
       // Avvikelsernas egna GPS-positioner - eget lager, egen rymd.
       map.addSource('ek-avvikelser', { type: 'geojson', data: avvikelseGeo });
       map.addLayer({
@@ -624,11 +652,12 @@ export default function RundKarta({
     map.getSource(KONTROLL_KALLA)?.setData(punktGeo);
     map.getSource(NUMMER_KALLA)?.setData(nummerGeo);
     map.getSource(KONTEXT_KALLA)?.setData(kontextGeo);
+    map.getSource(BACKVAG_KALLA)?.setData(backvagGeo);
     map.getSource('ek-avvikelser')?.setData(avvikelseGeo);
     map.getSource(PROVYTA_KALLA)?.setData(provyteGeo);
     map.getSource(OBSERVATION_KALLA)?.setData(observationGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
-  }, [punktGeo, nummerGeo, kontextGeo, kontroll.nummer, avvikelseGeo, provyteGeo, observationGeo, stamGeo, laddad]);
+  }, [punktGeo, nummerGeo, kontextGeo, backvagGeo, kontroll.nummer, avvikelseGeo, provyteGeo, observationGeo, stamGeo, laddad]);
 
   // --- Bakgrundskartan ------------------------------------------------------
   // Alla fyra ligger redan i stilen; vi tander en och slacker de andra. Att

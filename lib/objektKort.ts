@@ -217,7 +217,7 @@ export type MarkeringsGrupp = 'faror' | 'ovrigt' | 'vagar';
 const FARA_SYMBOLER = new Set(['warning', 'powerline', 'windfall']);
 const FARA_ZONER = new Set(['noentry']);
 const VAG_SYMBOLER = new Set(['road', 'turningpoint', 'bridge', 'corduroy', 'trail']);
-const VAG_LINJER = new Set(['mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'trail']);
+const VAG_LINJER = new Set(['mainRoad', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'trail']);
 export function markeringsGrupp(m: Pick<KartMarkering, 'slag' | 'typ'>): MarkeringsGrupp {
   if (m.slag === 'symbol') return FARA_SYMBOLER.has(m.typ) ? 'faror' : VAG_SYMBOLER.has(m.typ) ? 'vagar' : 'ovrigt';
   if (m.slag === 'zon') return FARA_ZONER.has(m.typ) ? 'faror' : 'ovrigt';

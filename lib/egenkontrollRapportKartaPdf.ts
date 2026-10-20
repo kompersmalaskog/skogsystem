@@ -143,6 +143,10 @@ export function ritaKarta(
     if (m.slag !== 'linje' || m.punkter.length < 2) continue;
     const st = markeringsStil('linje', m.typ); if (!st) continue;
     sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: hex(lib, st.farg), borderWidth: st.bredd, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+    if (m.backvag) {
+      const strack = backvagStreckPt(m.punkter.map(ap), m.backvag);
+      if (strack) for (const s of strack) ritaTvarstreck(lib, sida, SVG, s, hex(lib, st.farg), st.bredd);
+    }
   }
   const placerade: { x0: number; x1: number; y0: number; y1: number }[] = [];
   for (const m of l.markeringar ?? []) {
@@ -180,6 +184,34 @@ export function ritaKarta(
   return { meterPerPt: pr.meterPerPt };
 }
 
+/**
+ * Backvag i rapporten: DUBBLA tvarstreck (‖) i hinderanden, tvars over vagen - som i appen. Returnerar tva strack [x1,y1,x2,y2] (sidans pt, toppbaserade),
+ * eller null om vagen saknar riktning. Anden tas i ritriktningen ('start' = forsta punkten); grannen ar den narmaste punkten minst 3 pt bort.
+ */
+export function backvagStreckPt(pts: { x: number; y: number }[], ande: 'start' | 'slut', halvLangd = 6, halvAvstand = 3): [number, number, number, number][] | null {
+  if (pts.length < 2) return null;
+  const rad = ande === 'start' ? pts : [...pts].reverse();   // rad[0] = hinderanden
+  const e = rad[0];
+  let g = rad[1];
+  for (let i = 1; i < rad.length; i++) { g = rad[i]; if (Math.hypot(e.x - g.x, e.y - g.y) >= 3) break; }
+  const L = Math.hypot(e.x - g.x, e.y - g.y);
+  if (L === 0) return null;
+  const dx = (e.x - g.x) / L, dy = (e.y - g.y) / L;   // riktningen UT ur vagen
+  const px = -dy, py = dx;                              // vinkelrat
+  return [-halvAvstand, halvAvstand].map((o) => {
+    const cx = e.x + dx * o, cy = e.y + dy * o;
+    return [cx - px * halvLangd, cy - py * halvLangd, cx + px * halvLangd, cy + py * halvLangd] as [number, number, number, number];
+  });
+}
+
+/** Ett tvarstreck: morkt kant (bredare) och vagens farg ovanpa, som i appen. */
+function ritaTvarstreck(lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, s: [number, number, number, number], farg: ReturnType<PdfLib['rgb']>, vagBredd: number): void {
+  const bana = `M ${s[0].toFixed(2)} ${s[1].toFixed(2)} L ${s[2].toFixed(2)} ${s[3].toFixed(2)}`;
+  const inre = Math.max(0.9, vagBredd * 0.7);
+  sida.drawSvgPath(bana, { ...SVG, borderColor: lib.rgb(0.07, 0.07, 0.07), borderWidth: inre + 1.1, borderLineCap: lib.LineCapStyle.Butt });
+  sida.drawSvgPath(bana, { ...SVG, borderColor: farg, borderWidth: inre, borderLineCap: lib.LineCapStyle.Butt });
+}
+
 /** En rad (eller flera) med teckenforklaring: ett litet prov per lager + dess namn. Returnerar hojden som anvandes. */
 export function ritaTeckenforklaring(
   lib: PdfLib,
@@ -201,6 +233,10 @@ export function ritaTeckenforklaring(
     if (p.nyckel === 'traktgrans') sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, TRAKTGRANS_FARG), borderWidth: 1.2, borderDashArray: [4, 2] });
     else if (p.nyckel === 'stammar') sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 1.6, color: hex(lib, STAMMOLN_FARG) });
     else if (slag === 'hyttspar') sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, HYTTSPAR_FARG[typ as 'skordare' | 'skotare']), borderWidth: 0.9, ...(typ === 'skotare' ? { borderDashArray: [3, 1.5] } : {}) });
+    else if (p.nyckel === 'backvag') {   // en kort vag med dubbla tvarstreck i andan, i neutral morkgra (farg ar aldrig ensam)
+      sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV - 5} ${mid}`, { ...SVG, borderColor: grå(90), borderWidth: 1.2 });
+      for (const s of backvagStreckPt([{ x: cx, y: mid }, { x: cx + PROV - 5, y: mid }], 'slut', 3.4, 2)!) ritaTvarstreck(lib, sida, SVG, s, grå(90), 1.2);
+    }
     else if (p.nyckel === 'kontrollpunkt') sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 3.6, color: grå(17) });
     else if (slag === 'linje' || slag === 'zon' || slag === 'symbol') {
       const st = markeringsStil(slag, typ);

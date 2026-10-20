@@ -66,7 +66,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
     expect(lager).toContain("[['symbols', 'Symboler'], ['lines', 'Linjer'], ['zones', 'Zoner'], ['arrows', 'Pilar']]");
     expect(lager).toContain('setVisibleLayers((prev) => ({ ...prev, [id]: !prev[id] }))');
     expect(lager).toContain('setVisibleZones((prev) => ({ ...prev, [z.id]: prev[z.id] === false }))');
-    expect(lager).toContain("lineTypes.filter((l) => !l.id.includes('sideRoad') && !l.id.includes('backRoad'))");
+    expect(lager).toContain("lineTypes.filter((l) => !l.id.includes('sideRoad'))");
     expect(lager).toContain('setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false }))');
     expect(lager).toContain('if (visibleLayers.zones) {');
     expect(lager).toContain('if (visibleLayers.lines) {');
@@ -170,11 +170,11 @@ describe('Rita & mät: ÅTTA rutor — alla ritverktyg (och Snitsla stickvägar)
   it('typlistorna är oförändrade: samma filter och samma klick för linjetyper (rita och GPS), samma zontyper med Gallringszonens trädslag', () => {
     const rit = mellan(page, '{/* Linjer - Rita */}', '{/* === ZONER === */}');
     const gps = mellan(page, '{/* Linjer - GPS */}', '{/* Linjer - Rita */}');
-    const filter = "lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (";
+    const filter = "lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad')).map(type => (";
     // Rita linje OCH Spåra med GPS visar SAMMA lista (ritaLinjeTyper, se enRad.vakter.test.ts): Basväg som EN rad först, övriga linjetyper som förut
     expect(rit).toContain('typer={ritaLinjeTyper}');
     expect(gps).toContain('typer={ritaLinjeTyper}');
-    expect(page).toContain("const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'));");
+    expect(page).toContain("const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad'));");
     expect(filter).toContain("lineTypes.filter(t => t.id !== 'boundary'");
     expect(rit).toContain('setDrawType(type.id);');
     expect(rit).toContain('setDrawFarg(null);');   // övriga linjetyper har ingen färg; Basväg startar via startaBasvagRita

@@ -93,7 +93,7 @@ function MarkChip({ label, count, color, bg }: { label: string; count: number; c
 /* Markeringar som beskriver maskinernas FÖRUTSÄTTNINGAR (körnät/logistik på trakten) —
    inte hänsyn. Allt annat grupperas som hänsyn (samma humanisering som Karta-fliken). */
 const FORUT_SUBTYPER = new Set([
-  'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
+  'mainRoad',
   'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag',
   'drivedirection', 'landing', 'turningpoint', 'bridge', 'corduroy',
 ]);

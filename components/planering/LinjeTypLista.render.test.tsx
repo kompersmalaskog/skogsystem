@@ -10,7 +10,7 @@ import { BASVAG_SENASTE_FARG_NYCKEL, lasSenasteBasvagFarg, sparaSenasteBasvagFar
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-// samma urval som sidens ritaLinjeTyper: lineTypes utan traktgräns, stickväg och backväg (i sidans ordning)
+// samma urval som sidens ritaLinjeTyper: lineTypes utan traktgräns och stickväg (i sidans ordning)
 const TYPER: LinjeTyp[] = [
   { id: 'mainRoad', name: 'Basväg', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
   { id: 'nature', name: 'Naturvård', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },

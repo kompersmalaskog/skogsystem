@@ -95,7 +95,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
       if (/stonewall:\s*true/.test(rest)) o.stonewall = true;
       return o;
     });
-    expect(kalla.length).toBe(12);
+    expect(kalla.length).toBe(9);   // backRoad* (3) borttagna: backväg är en egenskap på vägen
     expect(LINJE_STIL).toEqual(kalla);
   });
 

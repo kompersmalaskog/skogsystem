@@ -492,6 +492,7 @@ export function byggRapport(i: RapportIndata): RapportModell {
   if ((i.stammar?.length ?? 0) > 0) lagg('stammar', 'Avverkad stam');
   for (const h of i.hyttspar ?? []) if (h.linjer.length > 0) lagg(`hyttspar:${h.roll}`, HYTTSPAR_ETIKETT[h.roll]);
   for (const m of markeringar) { const st = markeringsStil(m.slag, m.typ); if (st) lagg(st.nyckel, st.etikett); }
+  if (markeringar.some((m) => m.slag === 'linje' && m.backvag)) lagg('backvag', 'Backväg (dubbla tvärstreck i änden)');
   if (pinnar.length > 0) lagg('kontrollpunkt', 'Kontrollpunkt (numret står i rapporten)');
 
   const maskingrupp = [

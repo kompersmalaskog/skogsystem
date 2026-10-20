@@ -86,6 +86,9 @@ import { TELEFON_GPS, cirkelPolygon, osakerhetsText, samlaPosition, type SamlatR
 import { pathMeters as geoPathMeters, ringAreaM2 as geoRingAreaM2, formatLength as geoFormatLength, formatArea as geoFormatArea, formatHa, figurEtikett } from '../../lib/geoMat'
 import { basvagSammanfattning, basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_FARG_UTTRYCK, BASVAG_UTAN_FARG, basvagFargHex, basvagLangdM, basvagNamn, basvagYta, lasSenasteBasvagFarg, sparaSenasteBasvagFarg, fargTillVal, medBasvagVal, valTillFarg, type BasvagFarg, type BasvagVal } from '../../lib/basvag'
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
+import { BackvagVal } from '../../components/planering/BackvagVal'
+import { arVagTyp, backvagFeature, lasBackvag, medBackvag, BACKVAG_FORVALD_ANDE, BACKVAG_STRECK_FARGER, type Backvag } from '../../lib/backvag'
+import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck } from '../../lib/kartstil'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
@@ -1335,6 +1338,7 @@ export default function PlannerPage() {
 
     // === GeoJSON Sources för linjer, zoner och ritning ===
     map.addSource('lines-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('backvag-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });   // dubbla tvärstreck i hinderänden av en backväg (lib/backvag)
     map.addSource('zones-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('drawing-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('drawing-points-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1396,9 +1400,6 @@ export default function PlannerPage() {
     const lineTypeDefs = [
       { id: 'boundary', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
       { id: 'mainRoad', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
-      { id: 'backRoadRed', color: LEGEND.fara },
-      { id: 'backRoadYellow', color: LEGEND.gul },
-      { id: 'backRoadBlue', color: LEGEND.vatten },
       { id: 'sideRoadRed', color: LEGEND.fara },
       { id: 'sideRoadYellow', color: LEGEND.gul },
       { id: 'sideRoadBlue', color: LEGEND.vatten },
@@ -1481,6 +1482,17 @@ export default function PlannerPage() {
       },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 },
     });
+
+    // === Backväg: DUBBLA tvärstreck (‖) i hinderänden, i vägens egen färg med mörk kant. Vägen själv rörs inte. ===
+    // Prefix 'line-' → med i körvyns KEEP_PREFIX-whitelist, syns alltså i körvyn och skotarläget. Klipps inte på zoom (SYMBOL_UNDANTAG): det är en del av linjen.
+    try {
+      for (const f of BACKVAG_STRECK_FARGER) {
+        const namn = backvagIkonNamn(f);
+        const bild = map.hasImage(namn) ? null : canvasToMapLibreImage(ritaBackvagStreck(f));
+        if (bild) map.addImage(namn, bild);
+      }
+      map.addLayer(backvagStreckLager('backvag-source', 'line'));
+    } catch (e) { console.error('[MapLibre] line-backvag error:', e); }
 
     // === Fotspår-ikon för stig/led (symbol-placement: 'line') ===
     {
@@ -2717,8 +2729,6 @@ export default function PlannerPage() {
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
   const [activeCategory, setActiveCategory] = useState<string | null>(null); // Ny fullskärmsmeny
-  // Stickväg (default) eller backväg — segmenterad väljare i Gallring-menyn, minns sitt läge.
-  const [selectedVagType, setSelectedVagType] = useState('stickvag');
   
   // Rita
   const [isDrawMode, setIsDrawMode] = useState(false);
@@ -7071,12 +7081,11 @@ export default function PlannerPage() {
   // Synlighet
   // Lager-synlighet. DEFAULT: allt synligt. Persisteras PER OBJEKT (localStorage). Ett lager är
   // synligt om det inte UTTRYCKLIGEN släckts (!== false) → framtida linjetyper defaultar synliga
-  // och kan aldrig hamna i "stig-fällan" (saknad default = osynlig). Bug 2026-07: trail + backRoad*
+  // och kan aldrig hamna i "stig-fällan" (saknad default = osynlig). Bug 2026-07: trail + (de borttagna) backRoad*
   // saknades i defaulten → alltid dolda tills föraren tände dem manuellt, om och om igen.
   const DEFAULT_VISIBLE_LINES: Record<string, boolean> = {
     boundary: true, mainRoad: true, nature: true, ditch: true, trail: true,
     sideRoadRed: true, sideRoadYellow: true, sideRoadBlue: true,
-    backRoadRed: true, backRoadYellow: true, backRoadBlue: true,
   };
   const DEFAULT_VISIBLE_ZONES: Record<string, boolean> = {
     wet: true, steep: true, protected: true, culture: true, noentry: true, fornlamning: true,
@@ -7932,9 +7941,6 @@ export default function PlannerPage() {
   const lineTypes = [
     { id: 'boundary', name: 'Traktgräns', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
     { id: 'mainRoad', name: 'Basväg', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
-    { id: 'backRoadRed', name: 'Backväg Röd', color: LEGEND.fara, striped: false, isBackRoad: true },
-    { id: 'backRoadYellow', name: 'Backväg Gul', color: LEGEND.gul, striped: false, isBackRoad: true },
-    { id: 'backRoadBlue', name: 'Backväg Blå', color: LEGEND.vatten, striped: false, isBackRoad: true },
     { id: 'sideRoadRed', name: 'Stickväg Röd', color: LEGEND.fara, striped: false },
     { id: 'sideRoadYellow', name: 'Stickväg Gul', color: LEGEND.gul, striped: false },
     { id: 'sideRoadBlue', name: 'Stickväg Blå', color: LEGEND.vatten, striped: false },
@@ -8003,7 +8009,7 @@ export default function PlannerPage() {
     { id: 'drivedirection', name: 'Körriktning', color: LEGEND.vatten },
   ];
 
-  // Färger för stickvägar/backvägar (Gallring)
+  // Färger för stickvägar (Gallring)
   // BARA RÖD/GUL/BLÅ. De fem övriga togs bort 2026-07: de var en tyst FÄLLA — vägen sparades
   // som sideRoadGreen/Orange/... men findNearestStickvag räknar bara Red/Yellow/Blue, så
   // avståndsmätningen slutade fungera utan att något syntes. Verifierat före borttag: 0 sparade
@@ -8073,8 +8079,9 @@ export default function PlannerPage() {
     try {
       const src = map.getSource('lines-source') as any;
       if (!src) return;
-      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
+      if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); (map.getSource('backvag-source') as any)?.setData({ type: 'FeatureCollection', features: [] }); return; } // inget origo → rita inte på fel plats
       const features: any[] = [];
+      const backvagFeatures: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
       markers
         .filter((m: any) => m.isLine && m.path && m.path.length > 1 && String(m.id) !== String(redigeraGransId))   // dölj gränsen som redigeras (ritas som preview i st.)
@@ -8102,6 +8109,9 @@ export default function PlannerPage() {
           properties: { lineType: m.lineType, id: m.id, nearby, label, ...(m.lineType === 'mainRoad' && m.farg ? { farg: m.farg } : {}) },
           geometry: { type: 'LineString', coordinates: coords },
         });
+        // Backväg: dubbla tvärstreck i hinderänden (egen källa, vägens linje rörs inte).
+        const bvf = backvagFeature(m, coords as [number, number][]);
+        if (bvf) backvagFeatures.push(bvf);
         // RISA-delsträcka på basväg → egen blå feature (isRisa) ovanpå vägen. Ingen lineType → matchar
         // inte de vanliga väglagren, bara det blå risa-lagret.
         if (m.lineType === 'mainRoad' && m.risaPath && m.risaPath.length >= 2) {
@@ -8114,6 +8124,7 @@ export default function PlannerPage() {
         }
       });
       src.setData({ type: 'FeatureCollection', features });
+      (map.getSource('backvag-source') as any)?.setData({ type: 'FeatureCollection', features: backvagFeatures });
       if (features.length > 0) {
         const types = features.reduce((acc: Record<string, number>, f: any) => { acc[f.properties.lineType] = (acc[f.properties.lineType] || 0) + 1; return acc; }, {});
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
@@ -10037,7 +10048,7 @@ export default function PlannerPage() {
       briefingPulseRef.current = null;
     }
 
-    const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
+    const lineTypeIds = ['boundary', 'mainRoad',
       'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
     // Non-boundary lines (boundary is always visible during briefing)
     const dimmableLineTypes = lineTypeIds.filter(lt => lt !== 'boundary');
@@ -10538,7 +10549,7 @@ export default function PlannerPage() {
     };
     try {
       // Line layers per type
-      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
+      const lineTypeIds = ['boundary', 'mainRoad', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
       const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
       lineTypeIds.forEach(id => {
         const vis = visibleLayers.lines && visibleLines[id] !== false ? 'visible' : 'none';
@@ -10551,6 +10562,11 @@ export default function PlannerPage() {
           safeSetVisibility('trail-footprints', vis);
         }
       });
+      // Backväg: tvärstrecket följer sin vägs synlighet (lagerväljaren per linjetyp) — en dold väg lämnar inget streck kvar.
+      safeSetVisibility('line-backvag', visibleLayers.lines ? 'visible' : 'none');
+      if (map.getLayer('line-backvag')) {
+        map.setFilter('line-backvag', ['in', ['get', 'lineType'], ['literal', lineTypeIds.filter((id) => visibleLines[id] !== false)]]);
+      }
       // Line hitbox
       safeSetVisibility('line-hitbox', visibleLayers.lines ? 'visible' : 'none');
       // Zone layers
@@ -10995,7 +11011,7 @@ export default function PlannerPage() {
     return best;
   };
 
-  // Alla snitslade stickvägar (backvägar/traktgräns exkluderade).
+  // Alla snitslade stickvägar (traktgräns exkluderad).
   const stickvagLinjer = (): Marker[] => markers.filter(m =>
     m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '') && m.path && m.path.length > 1);
 
@@ -11398,13 +11414,12 @@ export default function PlannerPage() {
     return () => clearTimeout(t);
   }, [sparadToast]);
 
-  // Ett tryck på en färg = igång. Typen (stickväg/backväg) är förvald och minns sitt läge,
-  // så normalfallet kostar noll extra tryck. Ersätter det gamla 3-stegsflödet
-  // (färgsida → typval → "Starta GPS-spårning").
+  // Ett tryck på en färg = igång (stickväg). Ersätter det gamla 3-stegsflödet
+  // (färgsida → typval → "Starta GPS-spårning"). Backväg är en egenskap på vägen (kortet), ingen typ att välja här.
   const startaSnitsling = (colorId: string) => {
     const colorMap: Record<string, string> = { rod: 'Red', gul: 'Yellow', bla: 'Blue' };
     const eng = colorMap[colorId] || 'Red';
-    const lineId = selectedVagType === 'backvag' ? `backRoad${eng}` : `sideRoad${eng}`;
+    const lineId = `sideRoad${eng}`;
     setLastUsedColorId(colorId);
     startGpsTracking(lineId);
     setStickvagMode(true);
@@ -12266,7 +12281,7 @@ export default function PlannerPage() {
     if (visibleLayers.lines) {
       g.push({
         id: 'linjetyper', rubrik: 'Linjetyper',
-        rader: lineTypes.filter((l) => !l.id.includes('sideRoad') && !l.id.includes('backRoad'))
+        rader: lineTypes.filter((l) => !l.id.includes('sideRoad'))
           .map((l) => vaxel(l.id, l.name, l.id === 'mainRoad' ? 'blå/gul · röd · gul · blå' : undefined, visibleLines[l.id] !== false, l.id === 'mainRoad' ? basvagYta() : linjeYta(l.color, l.striped ? l.color2 : undefined), () => setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false })))),
       });
     }
@@ -12386,7 +12401,7 @@ export default function PlannerPage() {
   const framhavListSynlig = !!framhavdMarkering && framhavdLageRef.current === 'ark' && !traktOversiktOpen && !plusRadOppen && !menuOpen && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig;
   const punktText = (n: number) => (n === 0 ? 'tryck på kartan' : `${n} punkt${n === 1 ? '' : 'er'}`);
   // Basväg är EN rad (färgen väljs när man trycker på den); övriga linjetyper som förut. Stickvägar ritas inte här — de görs i Snitsla stickvägar.
-  const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad') && !t.id.includes('backRoad'));
+  const ritaLinjeTyper = lineTypes.filter(t => t.id !== 'boundary' && !t.id.includes('sideRoad'));
   useEffect(() => { if (!menuOpen) setBasvagSteg(null); }, [menuOpen]);   // stängd meny: färgvalet fälls ihop till nästa gång
   const oppnaBasvagSteg = (steg: 'rita' | 'spara') => {
     if (basvagSteg === steg) { setBasvagSteg(null); return; }
@@ -15908,6 +15923,14 @@ export default function PlannerPage() {
                 </div>
               )}
 
+              {/* Backväg: en EGENSKAP på vägen (basväg, stickväg) — man kör in och måste backa ut. Vägens färg rörs inte; dubbla tvärstreck ritas i hinderänden. */}
+              {marker.isLine && arVagTyp(marker.lineType) && (
+                <div style={{ marginBottom: AVSTAND.l }}>
+                  <BackvagVal backvag={lasBackvag(marker)}
+                    onAndra={(bv: Backvag | null) => setMarkers((prev: any[]) => prev.map((m: any) => (m.id === marker.id ? medBackvag(m, bv) : m)))} />
+                </div>
+              )}
+
               {/* Eget område / traktgräns: redigera serienummer (planerare). Titeln visar "Område <nr>".
                   Döljs när ytan är ensam (visaGransNummer=false → ingen siffra visas ändå). */}
               {marker.isLine && marker.lineType === 'boundary' && isAdminRiktig && objektNumrering.visaGransNummer && (() => {
@@ -17391,7 +17414,7 @@ export default function PlannerPage() {
             {activeCategory === 'gallring' && !subMenu && (
               <div style={{ padding: '12px' }}>
                 {/* SNITSLA — ett tryck på färgen startar GPS. Typen är förvald och minns sig,
-                    så normalfallet (stickväg) kostar noll extra tryck. */}
+                    stickväg: inget typval, backväg är en egenskap på vägen. */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '16px', padding: '16px', marginBottom: '16px',
@@ -17401,22 +17424,11 @@ export default function PlannerPage() {
                     Tryck på färgen du har i handen — GPS startar direkt
                   </div>
 
-                  <div style={{ display: 'flex', gap: '4px', padding: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '12px', marginBottom: '14px' }}>
-                    {[{ id: 'stickvag', n: 'Stickväg' }, { id: 'backvag', n: 'Backväg' }].map(t => (
-                      <button key={t.id} type="button" onClick={() => setSelectedVagType(t.id)} style={{
-                        flex: 1, padding: '10px 0', borderRadius: '9px', border: 'none', cursor: 'pointer',
-                        fontFamily: 'inherit', fontSize: '14px', fontWeight: 600,
-                        background: selectedVagType === t.id ? '#0a84ff' : 'transparent',
-                        color: selectedVagType === t.id ? '#fff' : 'rgba(255,255,255,0.55)',
-                      }}>{t.n}</button>
-                    ))}
-                  </div>
-
                   <div style={{ display: 'flex', gap: '12px' }}>
                     {vagColors.map(f => (
                       <button key={f.id} type="button" className="btn-press"
                         onClick={() => startaSnitsling(f.id)}
-                        aria-label={`Snitsla ${f.name} ${selectedVagType === 'backvag' ? 'backväg' : 'stickväg'}`}
+                        aria-label={`Snitsla ${f.name} stickväg`}
                         style={{
                           flex: 1, height: '72px', borderRadius: '16px', border: 'none',
                           cursor: 'pointer', background: f.color, position: 'relative', fontFamily: 'inherit',
@@ -17594,7 +17606,7 @@ export default function PlannerPage() {
                     Sparade stickvägar
                   </div>
                   <div style={{ fontSize: '36px', fontWeight: '400', marginTop: '8px', opacity: 0.9 }}>
-                    {markers.filter(m => m.isLine && (m.lineType?.startsWith('sideRoad') || m.lineType?.startsWith('backRoad'))).length}
+                    {markers.filter(m => m.isLine && m.lineType?.startsWith('sideRoad')).length}
                   </div>
                 </div>
               </div>
