@@ -58,3 +58,33 @@ describe("Vilobrott-listan med de gemensamma reglerna", () => {
     expect(l.find(b => b.namn === "Natt" && b.datum === "2026-10-06")?.svar).not.toBeNull();
   });
 });
+
+describe("Företagsledare får inga vilobrott (ATL gäller inte företagsledande ställning)", () => {
+  // Samma pass för båda: en vecka i rad med 14 tim natter och en natt med 8,5 tim vila — ger både dygns- och veckovilobrott för den som omfattas.
+  const pass = (id: string) => [
+    ...dagar("2026-09-14", "2026-09-19", () => true).map(d => rad(id, d, "05:00", "15:00")),
+    rad(id, "2026-09-20", "05:00", "20:30"), rad(id, "2026-09-21", "05:00", "15:30"),
+  ];
+  const kor = (foretagsledare: boolean) => beraknaVilobrottLista({
+    medarbetare: [{ id: "a", namn: "Anna Berg" }, { id: "m", namn: "Martin Lindqvist", foretagsledare }],
+    arbetsdagar: [...pass("a"), ...pass("m")], perioder: [], svar: [], trosklar: TROSKLAR, nu: null,
+  });
+
+  it("förutsättning: utan flaggan ger samma underlag brott för Martin", () => {
+    expect(kor(false).filter(b => b.namn === "Martin Lindqvist").length).toBeGreaterThan(0);
+  });
+  it("med flaggan: inga vilobrott för Martin Lindqvist — men Anna med samma pass har dem kvar", () => {
+    const l = kor(true);
+    expect(l.filter(b => b.namn === "Martin Lindqvist")).toEqual([]);
+    expect(l.filter(b => b.namn === "Anna Berg").length).toBeGreaterThan(0);
+  });
+  it("bara flaggan true undantar: null och false gör det inte (ett läsfel får aldrig dölja brott i tysthet)", () => {
+    const med = (v: boolean | null | undefined) => beraknaVilobrottLista({
+      medarbetare: [{ id: "m", namn: "Martin Lindqvist", foretagsledare: v }], arbetsdagar: pass("m"), perioder: [], svar: [], trosklar: TROSKLAR, nu: null,
+    }).length;
+    expect(med(null)).toBeGreaterThan(0);
+    expect(med(undefined)).toBeGreaterThan(0);
+    expect(med(false)).toBeGreaterThan(0);
+  });
+});
+

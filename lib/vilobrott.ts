@@ -195,17 +195,26 @@ function arbetsIntervaller(dagar: Arbetsdag[]): Intervall[] {
  * `nu` är det ögonblick underlaget är komplett t.o.m.; utan `nu` ingen avslutande vila (se underlagetTill för vad anroparna ger).
  */
 function maxGap(windowStart: Date, windowEnd: Date, intervaller: Intervall[], nu?: Date): number {   // nu undefined = ingen avslutande vila
+  return langstaGap(windowStart, windowEnd, intervaller, nu).ms / 3600000;
+}
+
+/** Den längsta vilan i fönstret OCH var den ligger: mellan två pass, före första passet eller efter sista fram till `nu`.
+ *  `fran`/`till` är ögonblick (ms); före första passet är `fran` fönstrets start, efter sista är `till` `nu`. EN uträkning — maxGap är bara dess längd. */
+type Gap = { ms: number; fran: number; till: number; slag: "mellan" | "fore_forsta" | "efter_sista" | "ingen" };
+
+function langstaGap(windowStart: Date, windowEnd: Date, intervaller: Intervall[], nu?: Date): Gap {
   const wsT = windowStart.getTime();
   const weT = windowEnd.getTime();
-  if (weT <= wsT) return 0;
-  if (intervaller.length === 0) return 0;
+  const ingen: Gap = { ms: 0, fran: 0, till: 0, slag: "ingen" };
+  if (weT <= wsT) return ingen;
+  if (intervaller.length === 0) return ingen;
 
   // Sortera stigande på start-tid (säkerhet — anrop ger sorterad lista idag)
   const sorted = [...intervaller].sort((a, b) => a.start.getTime() - b.start.getTime());
 
-  let maxMs = 0;
+  let basta: Gap = ingen;
   const forstaStart = sorted[0].start.getTime();
-  if (forstaStart > wsT) maxMs = forstaStart - wsT;                         // före första passet
+  if (forstaStart > wsT) basta = { ms: forstaStart - wsT, fran: wsT, till: forstaStart, slag: "fore_forsta" };   // före första passet
   let cursor = sorted[0].end.getTime();
   for (let i = 1; i < sorted.length; i++) {
     const gapStart = cursor;
@@ -214,7 +223,7 @@ function maxGap(windowStart: Date, windowEnd: Date, intervaller: Intervall[], nu
     // räknas — inte den klippta delen.
     if (gapEnd > gapStart && gapEnd > wsT && gapStart < weT) {
       const len = gapEnd - gapStart;
-      if (len > maxMs) maxMs = len;
+      if (len > basta.ms) basta = { ms: len, fran: gapStart, till: gapEnd, slag: "mellan" };
     }
     // Uppdatera cursor — hanterar fall där arbets-intervall överlappar
     // (osannolikt för dygnsdata, men robust).
@@ -222,9 +231,9 @@ function maxGap(windowStart: Date, windowEnd: Date, intervaller: Intervall[], nu
   }
   if (nu) {                                                                  // efter sista passet, fram till nu
     const nuT = nu.getTime();
-    if (nuT > cursor && nuT > wsT && cursor < weT && nuT - cursor > maxMs) maxMs = nuT - cursor;
+    if (nuT > cursor && nuT > wsT && cursor < weT && nuT - cursor > basta.ms) basta = { ms: nuT - cursor, fran: cursor, till: nuT, slag: "efter_sista" };
   }
-  return maxMs / 3600000;
+  return basta;
 }
 
 /**
@@ -295,6 +304,19 @@ export function veckovilaPerDag(arbetsdagar: Arbetsdag[], fonsterDagar: number, 
   return dagligVeckovila(sorterad, fonsterDagar, underlagetTill(arbetsdagar, arbetsIntervaller(sorterad), nu));
 }
 
+/** Vilan mellan två pass: när dag1 slutade (ett pass över midnatt slutar nästa dygn), när dag2 började och timmarna emellan. EN uträkning —
+ *  dygnsvilans brott och ark-vyn över dagarna (vilobrottDagar) läser båda den här. */
+function dygnsMellan(dag1: Arbetsdag, dag2: Arbetsdag): { slut: Date; start: Date; vila_h: number } | null {
+  const slut1 = tidTillTimmar(dag1.slut_tid!);
+  const start2 = tidTillTimmar(dag2.start_tid!);
+  if (!slut1 || !start2) return null;
+  let d1 = new Date(`${dag1.datum}T${pad(slut1.h)}:${pad(slut1.m)}:00`);
+  const start1 = tidTillTimmar(dag1.start_tid!);
+  if (start1 && slut1.h * 60 + slut1.m <= start1.h * 60 + start1.m) d1 = new Date(d1.getTime() + 86400000);   // pass över midnatt: slutar nästa dygn
+  const d2 = new Date(`${dag2.datum}T${pad(start2.h)}:${pad(start2.m)}:00`);
+  return { slut: d1, start: d2, vila_h: (d2.getTime() - d1.getTime()) / 3600000 };
+}
+
 /**
  * Analyserar vilan i `arbetsdagar` (en förare). Samma regler för alla anropare — Vilobrott-listan, förarens appar och lagkontrollen:
  *  - ett pass vars sluttid ligger före starttiden (22:00–02:00) slutar NÄSTA dygn (förut räknades dygnsvilan från sluttiden samma datum,
@@ -331,15 +353,9 @@ export function analyseraVilobrott(
     );
     if (dagarMellan > trosklar.veckovila_fonster_dagar) continue;
 
-    const slut1 = tidTillTimmar(dag1.slut_tid!);
-    const start2 = tidTillTimmar(dag2.start_tid!);
-    if (!slut1 || !start2) continue;
-
-    let d1 = new Date(`${dag1.datum}T${pad(slut1.h)}:${pad(slut1.m)}:00`);
-    const start1 = tidTillTimmar(dag1.start_tid!);
-    if (start1 && slut1.h * 60 + slut1.m <= start1.h * 60 + start1.m) d1 = new Date(d1.getTime() + 86400000);   // pass över midnatt: slutar nästa dygn
-    const d2 = new Date(`${dag2.datum}T${pad(start2.h)}:${pad(start2.m)}:00`);
-    const vila = (d2.getTime() - d1.getTime()) / 3600000;
+    const mellan = dygnsMellan(dag1, dag2);
+    if (!mellan) continue;
+    const { slut: d1, vila_h: vila } = mellan;
     if (vila > 0 && vila < trosklar.dygnsvila_krav_h) {
       const v = isoVecka(new Date(dag1.datum));
       brott.push({
@@ -408,4 +424,83 @@ export function analyseraVilobrott(
   if (runStart) emit();
 
   return brott;
+}
+
+
+// ── Dagarna bakom ett brott ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Admin trycker på ett vilobrott och ska se DAGARNA det gäller. Ingen ny uträkning: samma pass, samma vila och samma fönster som
+// analyseraVilobrott räknade brottet ur — här bara med var vilan ligger. Hittas inte exakt den vila som brottet bär (annat underlag än
+// det brottet räknades på) returneras null, och arket visar då brottets egen beskrivning i stället för att peka ut fel dagar.
+
+export type VilobrottPass = { datum: string; start_tid: string; slut_tid: string };
+export type VilobrottPunkt = { datum: string; tid: string };
+export type VilobrottDagar = {
+  /** Passen att visa, äldst först (dygnsvila: dagen före och dagen efter; veckovila: fönstrets pass + passen som gränsar till vilan). */
+  pass: VilobrottPass[];
+  /** Vilan som avgör brottet: från/till och längd. `slag` säger om den ligger mellan två pass, före första passet eller efter sista fram till nu. */
+  vila: { fran: VilobrottPunkt; till: VilobrottPunkt; h: number; slag: "mellan" | "fore_forsta" | "efter_sista" };
+  /** Veckovila: fönstret (första och sista datum) vars längsta vila är brottets. Dygnsvila: null. */
+  fonster: { fran: string; till: string } | null;
+};
+
+const punkt = (ms: number): VilobrottPunkt => { const d = new Date(ms); return { datum: datumStr(d), tid: `${pad(d.getHours())}:${pad(d.getMinutes())}` }; };
+const hhmm = (t: string) => t.slice(0, 5);
+const tillPass = (r: Arbetsdag): VilobrottPass => ({ datum: r.datum, start_tid: hhmm(r.start_tid!), slut_tid: hhmm(r.slut_tid!) });
+const avrunda1 = (h: number) => Math.round(h * 10) / 10;
+
+export function vilobrottDagar(
+  b: Pick<Vilobrott, "typ" | "datum" | "vila_h">,
+  arbetsdagar: Arbetsdag[],
+  trosklar: VilaTrosklar,
+  nu?: Date | null,
+): VilobrottDagar | null {
+  const sorterad = passUrval(arbetsdagar);
+  if (b.typ === "dygnsvila") {
+    // Två pass kan ha samma datum: det par vars vila är brottets är det rätta.
+    for (let i = 0; i < sorterad.length - 1; i++) {
+      if (sorterad[i].datum !== b.datum) continue;
+      const mellan = dygnsMellan(sorterad[i], sorterad[i + 1]);
+      if (!mellan || avrunda1(mellan.vila_h) !== avrunda1(Number(b.vila_h))) continue;
+      return {
+        pass: [tillPass(sorterad[i]), tillPass(sorterad[i + 1])],
+        vila: { fran: punkt(mellan.slut.getTime()), till: punkt(mellan.start.getTime()), h: mellan.vila_h, slag: "mellan" },
+        fonster: null,
+      };
+    }
+    return null;
+  }
+
+  const intervaller = arbetsIntervaller(sorterad);
+  const underlag = underlagetTill(arbetsdagar, intervaller, nu);
+  const dagliga = dagligVeckovila(sorterad, trosklar.veckovila_fonster_dagar, underlag);
+  // Stretchen börjar på brottets datum; brottets vila är den LÄGSTA längsta-vilan i stretchen — dagen som bär den är fönstret att visa.
+  const start = dagliga.findIndex(r => r.datum === b.datum);
+  if (start < 0) return null;
+  let dag: DagligVeckovila | null = null;
+  for (let k = start; k < dagliga.length; k++) {
+    const r = dagliga[k];
+    if (!(r.max_h > 0 && r.max_h < trosklar.veckovila_krav_h)) break;
+    if (avrunda1(r.max_h) === avrunda1(Number(b.vila_h))) { dag = r; break; }
+  }
+  if (!dag) return null;
+
+  const slutDag = new Date(dag.datum + "T00:00:00");
+  const fonsterStart = new Date(slutDag);
+  fonsterStart.setDate(slutDag.getDate() - (trosklar.veckovila_fonster_dagar - 1));
+  const fonsterSlut = new Date(slutDag);
+  fonsterSlut.setHours(23, 59, 59, 999);
+  const gap = langstaGap(fonsterStart, fonsterSlut, intervaller, underlag);
+  if (gap.slag === "ingen") return null;
+
+  const fran = datumStr(fonsterStart);
+  const pass = sorterad.filter(r => {
+    if (r.datum >= fran && r.datum <= dag!.datum) return true;
+    const iv = arbetsIntervaller([r])[0];                       // passet som gränsar till vilan (kan ligga utanför fönstret)
+    return !!iv && (iv.end.getTime() === gap.fran || iv.start.getTime() === gap.till);
+  }).map(tillPass);
+  return {
+    pass,
+    vila: { fran: punkt(gap.fran), till: punkt(gap.till), h: gap.ms / 3600000, slag: gap.slag },
+    fonster: { fran, till: dag.datum },
+  };
 }
