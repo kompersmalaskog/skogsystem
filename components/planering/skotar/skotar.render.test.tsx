@@ -608,6 +608,14 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
     expect(q('fardigskotad')?.getAttribute('data-fraga')).toBe('nej');
     expect(q('fardigskotad-ja')).not.toBeNull();
   });
+  it('FardigskotadKort på en trakt utan skördat säger det, och har ingen knapp som färdigskotar', async () => {
+    await visa(<FardigskotadKort kontroll={null} ingetSkordat klar={false} onKarta={vi.fn()} onBekrafta={vi.fn()} onAvbryt={vi.fn()} />);
+    expect(q('fardigskotad-inget')?.textContent).toMatch(/inte skördat något på trakten än/);
+    expect(q('fardigskotad-ja')).toBeNull();
+    expect(q('fardigskotad-anda')).toBeNull();
+    await visa(<FardigskotadKort kontroll={null} klar={false} onKarta={vi.fn()} onBekrafta={vi.fn()} onAvbryt={vi.fn()} />);
+    expect(q('fardigskotad-inget')?.textContent).toMatch(/Skördaren är inte läst än/);
+  });
   it('FardigskotadKort utan läst skördare lovar ingenting', async () => {
     await visa(<FardigskotadKort kontroll={null} klar={false} onKarta={vi.fn()} onBekrafta={vi.fn()} onAvbryt={vi.fn()} />);
     expect(q('fardigskotad-ja')).toBeNull();

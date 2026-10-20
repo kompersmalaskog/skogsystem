@@ -117,7 +117,7 @@ describe('skotarläget i planeringsvyn', () => {
   });
   it('kvar kräver Opti-lassen (skotat före appens start) och räknar aldrig en trakt med avslutad skotning', () => {
     const hook = las('lib/hooks/useSkotarLass.ts');
-    expect(hook).toMatch(/skordat && opti && skotningAvslutad !== true \? beraknaKvar\(skordat, lass, opti\)/);
+    expect(hook).toMatch(/skordat && opti && skotningAvslutad !== true && harSkordat\(skordat\) \? beraknaKvar\(skordat, lass, opti\)/);   // och inget skördat alls ger ingen Kvar (aldrig \"Kvar ~0 m³\")
     expect(hook).toContain('lasOptiLass(vo, ids)');
     const ko = las('lib/skotarLass/koKopplad.ts');
     expect(ko).toContain(".from('fakt_lass').select(");
@@ -183,7 +183,7 @@ describe('datamodellen', () => {
     expect(ko).toContain("rpc('skotar_farduskotat', { p_objekt: objektId, p_opti: opti })");
     const hook = las('lib/hooks/useSkotarLass.ts');
     expect(hook).toContain('optiForAvslut(skordat, opti, lassRef.current)');
-    expect(hook).toMatch(/if \(!objektId \|\| !skordat \|\| !opti\) return;/);   // utan läst Opti skickas inget
+    expect(hook).toMatch(/if \(!objektId \|\| !skordat \|\| !opti \|\| !harSkordat\(skordat\)\) return;/);   // utan läst Opti, eller utan något skördat, skickas inget
   });
   it('skalat värde lagras aldrig på lassraden: ingen kolumn för det i tabellerna', () => {
     const sql = migrationer();

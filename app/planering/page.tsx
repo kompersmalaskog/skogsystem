@@ -72,6 +72,7 @@ import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } fro
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
 import { SkordarForslag } from '../../components/planering/SkordarForslag'
+import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
@@ -4759,15 +4760,17 @@ export default function PlannerPage() {
   }, [overlays, mapLibreReady]);
 
   // === Produktionshögar: Toggle visibility ===
+  // Skotarläget: PÅ från början (lib/skotarHogar.ts). Alla andra vyer: lagret `produktionshogar` som förut.
+  const hogarPa = hogarSynliga(overlays, skotarKorvy);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const vis = overlays.produktionshogar ? 'visible' : 'none';
+    const vis = hogarPa ? 'visible' : 'none';
     if (map.getLayer('hogar-hit')) map.setLayoutProperty('hogar-hit', 'visibility', vis);
     if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', vis);
     if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', vis);
     if (map.getLayer('hogar-cluster-label')) map.setLayoutProperty('hogar-cluster-label', 'visibility', vis);
-  }, [overlays.produktionshogar, mapLibreReady]);
+  }, [hogarPa, mapLibreReady]);
 
   // === GROT-högar: Toggle visibility ===
   useEffect(() => {
@@ -5212,7 +5215,7 @@ export default function PlannerPage() {
   // === Produktionshögar + GROT: Hämta och klustra HPR-stammar ===
   useEffect(() => {
     const map = mapInstanceRef.current;
-    const anyActive = overlays.produktionshogar || overlays.grothogar;
+    const anyActive = hogarPa || overlays.grothogar;
     if (!map || !mapLibreReady || !valtObjekt?.id || !anyActive) {
       // Rensa data om toggle av eller inget objekt
       hogarFeaturesRef.current = [];
@@ -5585,7 +5588,7 @@ export default function PlannerPage() {
     };
 
     loadHogar();
-  }, [valtObjekt?.id, overlays.produktionshogar, overlays.grothogar, mapLibreReady, hogarReload]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [valtObjekt?.id, hogarPa, overlays.grothogar, mapLibreReady, hogarReload]); // eslint-disable-line react-hooks/exhaustive-deps
   // OBS: skotningReload borttagen från deps — save-handlers gör lokal uppdatering av kartan,
   // loadHogar ska INTE köras om efter sparande (det skriver över den lokala uppdateringen och högar "kommer tillbaka").
   // hogarReload däremot bump:as BARA vid ångra — då VILL vi köra om så de ångrade högarna kommer tillbaka.
@@ -6502,7 +6505,7 @@ export default function PlannerPage() {
         let antalHogar = 0;
 
         // Virke-högar (bara om virkes-lagret är aktivt)
-        if (overlays.produktionshogar) {
+        if (hogarPa) {
           const virkeSortMap: Record<string, { volym: number; color: string }> = {};
           for (const f of hogarFeaturesRef.current) {
             const [lng, lat] = f.geometry.coordinates;
@@ -12285,7 +12288,7 @@ export default function PlannerPage() {
     g.push({
       id: 'produktionsdata', rubrik: 'Produktionsdata',
       rader: [
-        vaxel('produktionshogar', 'Avverkade stammar', undefined, !!(overlays as any).produktionshogar, lagerBild('produktionshogar'), sla('produktionshogar')),
+        vaxel('produktionshogar', 'Avverkade stammar', undefined, hogarPa, lagerBild('produktionshogar'), skotarKorvy ? () => setOverlays((prev: any) => vaxlaSkotarHogar(prev)) : sla('produktionshogar')),
         vaxel('grothogar', 'GROT (grenar & toppar)', undefined, !!(overlays as any).grothogar, lagerBild('grothogar'), sla('grothogar')),
         vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
         vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
@@ -14151,6 +14154,7 @@ export default function PlannerPage() {
             {skotarFardigOppet && (
               <FardigskotadKort
                 kontroll={sl.kvar ? farduskotatKontroll(sl.kvar) : null}
+                ingetSkordat={sl.ingetSkordat}
                 klar={!!(sl.avslut || sl.skotningAvslutad)}
                 onKarta={() => setSkotarFardigOppet(false)}
                 onBekrafta={() => { void sl.fardigskotad(); }}
