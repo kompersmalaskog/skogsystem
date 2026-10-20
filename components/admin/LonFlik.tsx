@@ -417,15 +417,19 @@ function FortnoxExportSektion({
         {medarbetare.map((m: any, mi: number) => {
           const k: ForarKort = kort[mi];
           return (
-            <div key={mi} data-forare={m.medarbetare_id} style={{
-              padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
-              borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${FARG.linje}`,
-            }}>
+            // Hela kortet är en rad (iOS): tryck öppnar Förare · Månad. Knapparna inuti (Se dagen, Fyll i …) gör sitt eget och öppnar inget.
+            <div key={mi} data-forare={m.medarbetare_id} role="button" tabIndex={0} aria-label={`${m.namn}, öppna månaden`}
+              onClick={e => { if (!(e.target as HTMLElement).closest("button")) onForare(m.medarbetare_id); }}
+              onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onForare(m.medarbetare_id); } }}
+              style={{
+                padding: `${AVSTAND.m}px ${AVSTAND.l}px`, cursor: "pointer",
+                borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${FARG.linje}`,
+              }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: AVSTAND.s }}>
                 <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: AVSTAND.s }}>
                   {!k.ledare && <StatusBadge status={m.status} />}
-                  <Lank smal onClick={() => onForare(m.medarbetare_id)} style={{ flexShrink: 0 }}>Öppna</Lank>
+                  <Ikon namn="chevron_right" farg={FARG.text3} />
                 </span>
               </div>
               {k.saknarAnstNr && (
