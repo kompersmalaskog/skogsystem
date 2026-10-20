@@ -28,7 +28,7 @@ import { optiForAvslut, type OptiLass } from '@/lib/skotarLass/opti';
 import type { Avslut } from '@/lib/skotarLass/server';
 import { tunnaSpar, vagTider, type RaFix, type VagLinje } from '@/lib/skotarLass/spar';
 import { forslagTillVantande } from '@/lib/skotarLass/lassModell';
-import { sortimentVal, type HistorikSortiment, type SkordatSortiment } from '@/lib/skotarLass/sortiment';
+import { sortimentVal, traktAnvandning, type HistorikSortiment, type SkordatSortiment } from '@/lib/skotarLass/sortiment';
 import type { Avlagg, Lass, SortimentRad } from '@/lib/skotarLass/typer';
 
 export type KortFas =
@@ -413,7 +413,16 @@ export function useSkotarLass(i: SkotarLassIn) {
   const kvar = useMemo<Kvar | null>(() => (skordat && opti && skotningAvslutad !== true ? beraknaKvar(skordat, lass, opti) : null), [skordat, opti, lass, skotningAvslutad]);
   const sammanfattning = useMemo<KvarSammanfattning | null>(() => (kvar ? kvarSammanfattning(kvar, lass, idagIso, opti ?? []) : null), [kvar, lass, idagIso, opti]);
   const idag = useMemo(() => idagText(lass, idagIso, maskinId ?? ''), [lass, idagIso, maskinId]);
-  const sortimentval = useMemo(() => sortimentVal({ skordat, objekt: objektSortiment, historik }), [skordat, objektSortiment, historik]);
+  // Mest använda först: hur ofta sortimentet använts på trakten (appens lass + Opti-lassen), annars senaste 12 månaderna.
+  // Lasset som ändras just nu räknas inte med: knapparna under "Lägg till" får aldrig byta plats medan föraren trycker på dem.
+  const andraId = andra?.lassId ?? null;
+  const sortimentval = useMemo(
+    () => sortimentVal({
+      skordat, objekt: objektSortiment, historik,
+      traktAnvandning: traktAnvandning(lass.filter((l) => l.id !== andraId), (opti ?? []).flatMap((o) => o.rader.map((r) => r.namn))),
+    }),
+    [skordat, objektSortiment, historik, lass, opti, andraId],
+  );
   const valbara = sortimentval.primara;
   const lasOmSortiment = useCallback(() => setSortimentOm((n) => n + 1), []);
 

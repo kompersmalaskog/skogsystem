@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { historikSortimentRader, objektSortimentRader, sortimentVal, VED_MARKAGARE_NYCKEL, type SkordatSortiment } from './sortiment';
+import { historikSortimentRader, objektSortimentRader, ordnaMestAnvanda, sortimentVal, traktAnvandning, VED_MARKAGARE_NYCKEL, type SkordatSortiment } from './sortiment';
 
 const sk = (namn: string, m3 = 10): SkordatSortiment => ({ nyckel: namn.toLowerCase(), namn, m3 });
 const hist = [
@@ -46,5 +46,33 @@ describe('sortimentVal: kedjan skördat → objektets → senaste 12 månaderna'
     expect(objektSortimentRader(['Hemved'])[0]).toMatchObject({ nyckel: VED_MARKAGARE_NYCKEL, namn: 'Ved markägare' });
     expect(objektSortimentRader(null)).toEqual([]);
     expect(historikSortimentRader(null)).toEqual([]);
+  });
+});
+
+describe('"Lägg till": traktens egna sortiment, mest använda först', () => {
+  const lassMed = (status: string, ...nycklar: string[]) => ({ status, delar: [{ rader: nycklar.map((nyckel) => ({ nyckel })) }] });
+
+  it('räknar användning på trakten: lass som räknas + Opti-lassens rader, aldrig strukna', () => {
+    const per = traktAnvandning([lassMed('bekraftat', 'tall', 'massa'), lassMed('vantar_forare', 'tall'), lassMed('struket', 'massa', 'massa')], ['Tall', 'Massa']);
+    expect(per.get('tall')).toBe(3);
+    expect(per.get('massa')).toBe(2);
+  });
+  it('skördat: mest använda på trakten först, inte störst skördat — och lika många: skördat störst först', () => {
+    const sk2 = [sk('Kubb', 90), sk('Tall', 50), sk('Massa', 40), sk('Gran', 10)];
+    const v = sortimentVal({ skordat: sk2, objekt: [], historik: null, traktAnvandning: new Map([['massa', 5], ['tall', 2]]) });
+    expect(v.primara.map((r) => r.nyckel)).toEqual(['massa', 'tall', 'kubb', 'gran']);
+  });
+  it('inget använt på trakten: senaste 12 månaderna avgör, sist listans egen ordning', () => {
+    const sk2 = [sk('Kubb', 90), sk('Tall', 50), sk('Massa', 40)];
+    const v = sortimentVal({ skordat: sk2, objekt: [], historik: [{ nyckel: 'massa', namn: 'Massa', antal: 900 }, { nyckel: 'tall', namn: 'Tall', antal: 30 }] });
+    expect(v.primara.map((r) => r.nyckel)).toEqual(['massa', 'tall', 'kubb']);
+  });
+  it('trakten går före historiken: mindre använt på trakten men inget i historiken slår inte mer använt på trakten', () => {
+    const rader = [{ nyckel: 'a', namn: 'A', m3: 0 }, { nyckel: 'b', namn: 'B', m3: 0 }];
+    expect(ordnaMestAnvanda(rader, new Map([['b', 1]]), [{ nyckel: 'a', namn: 'A', antal: 5000 }]).map((r) => r.nyckel)).toEqual(['b', 'a']);
+  });
+  it('ändrar inte listans innehåll, bara ordningen; "alla" följer de primära först', () => {
+    const v = sortimentVal({ skordat: [sk('Tall', 5), sk('Massa', 4)], objekt: ['Gran timmer · Urshult'], historik: null, traktAnvandning: new Map([['massa', 3]]) });
+    expect(v.alla.map((r) => r.nyckel).slice(0, 3)).toEqual(['massa', 'tall', 'gran timmer · urshult']);
   });
 });

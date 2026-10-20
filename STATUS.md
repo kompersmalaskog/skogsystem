@@ -228,6 +228,7 @@ Provytorna lottas en gång av avsikt (det finns ingen funktion som lottar om). P
   "Löneunderlag" istället — verifiera
 
 ## Nästa
+- **Smarta förslag efter data — skotarläget (Martin 2026-10-20, EJ BYGGD, bygg inte nu):** när det finns 1–2 veckors bekräftade lass + spår: räkna i efterhand hur ofta olika förslag hade varit rätt — (1) "Samma som förra", (2) förarens mönster på trakten, (3) högarna han passerade under lastningen (skördarens stammar längs lastspåret). Byt bara förslag om en metod är rätt minst 8 av 10. Se CLAUDE.md "Framtida förbättringar".
 - **Avläggszon som sträcka längs vägen (skotarläget, version 2 efter testveckan; Martin 2026-10-20, EJ BYGGD):** se CLAUDE.md "Avläggszon som sträcka längs vägen". Cirkel 50 m gäller tills dess. "Lossa här" lägger avlägget mitt på stoppet och flyttar det mot snittet efter ≥ 3 bekräftade lass (bara Lossa här-avlägg), #863.
 - **Egenkontroll, öppna punkter efter A4-rapporten (#830, 2026-10-19):**
   1. `PdfForhandsvisning` ligger i `app/helikopter/_components/` men används nu också av egenkontrollens `RapportDela` (generell, tar en `skapa`-funktion). Flytten till `components/` görs av **helikopterns ägare**, inte av egenkontrollspåret (en vy ägs av ett spår). Tills dess importeras den därifrån.

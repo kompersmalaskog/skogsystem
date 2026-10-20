@@ -626,3 +626,33 @@ describe('sortimentlistan i Ändra är aldrig tom (Skälviken: skotaren börjar 
     expect(vy.valbara.map((r) => r.nyckel)).toEqual(['a']);
   });
 });
+
+describe('lassnumret räknar inte strukna lass (Bågskyttebanan: nästa hette "Lass 3" fast ett var struket)', () => {
+  it('strukna lass 1 → nästa lass heter 1; Stämmer på ett lass och sedan ett nytt → 2', async () => {
+    await lossa(200);
+    expect(vy.lass.map((l) => l.lassNummer)).toEqual([1]);
+    await act(async () => { vy.strykLass(vy.lass[0].id); });
+    await korIvag(60);
+    await stå(5, 700);   // > 10 min senare, ny lossning vid avlägget
+    const levande = vy.lass.filter((l) => l.status !== 'struket');
+    expect(levande).toHaveLength(1);
+    expect(levande[0].lassNummer).toBe(1);   // inte 2
+    expect(vy.lass).toHaveLength(2);         // det strukna ligger kvar som struket
+  });
+});
+
+describe('Lägg till: mest använda på trakten först', () => {
+  const omstart = async () => { await act(async () => { root.unmount(); }); root = createRoot(div); await visa(); };
+  it('sortimentet föraren använt mest på trakten ligger först; lasset som ändras just nu räknas inte (knapparna byter inte plats under fingret)', async () => {
+    sort.skordat = [{ nyckel: 'tall', namn: 'Tall', m3: 100 }, { nyckel: 'massa', namn: 'Massa', m3: 50 }, { nyckel: 'kubb', namn: 'Kubb', m3: 20 }];
+    await omstart();
+    expect(vy.valbara.map((r) => r.nyckel)).toEqual(['tall', 'massa', 'kubb']);   // inget använt än: skördat störst först
+    await lossa(200);
+    const id = vy.lass[0].id;
+    await act(async () => { vy.oppnaAndra(id, 1); });
+    for (let i = 0; i < 3; i++) await act(async () => { vy.andraRad(1, { nyckel: 'kubb', namn: 'Kubb' }, 1); });
+    expect(vy.valbara.map((r) => r.nyckel)).toEqual(['tall', 'massa', 'kubb']);   // lasset under ändring räknas inte med
+    await act(async () => { vy.stangAndra(true); });
+    expect(vy.valbara.map((r) => r.nyckel)[0]).toBe('kubb');                      // klart: kubb är nu det mest använda på trakten
+  });
+});

@@ -129,10 +129,39 @@ export interface SortimentVal {
   kalla: SortimentKalla;
 }
 
+/**
+ * "Mest använda först" bland de primära: först hur många gånger sortimentet använts PÅ TRAKTEN (`traktAnvandning`, per nyckel), sedan
+ * senaste 12 månaderna (historiken), sist ordningen listan redan hade (skördat störst först / objektets ordning). Stabil sortering.
+ */
+export function ordnaMestAnvanda(
+  rader: readonly SortimentRad[],
+  traktAnvandning: ReadonlyMap<string, number> | null | undefined,
+  historik: readonly HistorikSortiment[] | null | undefined,
+): SortimentRad[] {
+  const hist = new Map((historik ?? []).map((h) => [h.nyckel, h.antal]));
+  const pa = (r: SortimentRad) => traktAnvandning?.get(r.nyckel) ?? 0;
+  const tolv = (r: SortimentRad) => hist.get(r.nyckel) ?? 0;
+  return rader.map((r, i) => ({ r, i })).sort((a, b) => pa(b.r) - pa(a.r) || tolv(b.r) - tolv(a.r) || a.i - b.i).map((x) => x.r);
+}
+
+/** Hur ofta varje sortiment (nyckel) använts på trakten: rader i lass som räknas (aldrig strukna) + Opti-lassens rader. */
+export function traktAnvandning(
+  lass: ReadonlyArray<{ status: string; delar: ReadonlyArray<{ rader: ReadonlyArray<{ nyckel: string }> }> }>,
+  optiNamn: ReadonlyArray<string> = [],
+): Map<string, number> {
+  const per = new Map<string, number>();
+  const plus = (nyckel: string) => per.set(nyckel, (per.get(nyckel) ?? 0) + 1);
+  for (const l of lass) { if (l.status === 'struket') continue; for (const d of l.delar) for (const r of d.rader) plus(r.nyckel); }
+  for (const namn of optiNamn) if (namn) plus(sortimentNyckel(namn));
+  return per;
+}
+
 export function sortimentVal(i: {
   skordat: readonly SkordatSortiment[] | null;
   objekt: readonly (string | null | undefined)[] | null;
   historik: readonly HistorikSortiment[] | null;
+  /** Hur ofta sortimentet använts på trakten (se `traktAnvandning`). */
+  traktAnvandning?: ReadonlyMap<string, number> | null;
 }): SortimentVal {
   const sk = i.skordat ?? [];
   const harMarkagarVed = sk.some((s) => s.nyckel === VED_MARKAGARE_NYCKEL);
@@ -142,10 +171,11 @@ export function sortimentVal(i: {
   const objektRader = objektSortimentRader(i.objekt);
   const historikRader = historikSortimentRader(i.historik);
   const ved: SortimentRad[] = [{ nyckel: VED_MARKAGARE_NYCKEL, namn: VED_MARKAGARE_NAMN, m3: 0 }];
-  const [primara, kalla]: [SortimentRad[], SortimentKalla] = harSkordat
+  const [forst, kalla]: [SortimentRad[], SortimentKalla] = harSkordat
     ? [skordatRader, 'skordat']
     : objektRader.length
       ? [objektRader, 'objekt']
       : historikRader.length ? [historikRader, 'historik'] : [[], 'ingen'];
+  const primara = ordnaMestAnvanda(forst, i.traktAnvandning, i.historik);
   return { primara, alla: utanDubbletter([primara, skordatRader, objektRader, historikRader, ved]), kalla };
 }

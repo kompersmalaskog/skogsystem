@@ -36,11 +36,17 @@ export const lassTotalM3 = (l: Pick<Lass, 'delar'>): number => l.delar.reduce((s
 
 const kopieraRader = (rader: readonly SortimentRad[]): SortimentRad[] => rader.map((r) => ({ nyckel: r.nyckel, namn: r.namn, m3: heltM3(r.m3) }));
 
-/** Lassens nummer: nästa efter maskinens högsta på trakten (struket räknas inte bort — numret återanvänds aldrig). */
+/**
+ * Lassens nummer = antal lass som räknas (bekräftade + väntande, aldrig strukna) för maskinen på trakten + 1. Ett struket lass tar inte ett nummer
+ * med sig: strök föraren lass 3 heter nästa lass 3 igen (Martin, Bågskyttebanan 2026-10-20: "Lass 3" fast ett lass strukits). Strök han ett lass
+ * mitt i raden, och numret räknat så redan är taget av ett lass som räknas, hoppas det över — två lass som räknas heter aldrig lika.
+ */
 export function nastaLassNummer(lass: readonly Lass[], maskinId: string, objektId: string): number {
-  let max = 0;
-  for (const l of lass) if (l.maskinId === maskinId && l.objektId === objektId) max = Math.max(max, l.lassNummer);
-  return max + 1;
+  const raknas = lass.filter((l) => l.maskinId === maskinId && l.objektId === objektId && l.status !== 'struket');
+  const tagna = new Set(raknas.map((l) => l.lassNummer));
+  let nr = raknas.length + 1;
+  while (tagna.has(nr)) nr += 1;
+  return nr;
 }
 
 /** Maskinens senaste (icke-strukna) lass på trakten — "förra lasset" som nästa lass fylls i efter. */

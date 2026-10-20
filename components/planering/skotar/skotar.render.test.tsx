@@ -2,10 +2,11 @@
 // Skotarens lassvyer renderade på riktigt: kortet efter lossning, Ändra lasset, kvar, färdigskotad, morgonkort, avläggets "skotat hit" och pillen med kvar.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-import { act } from 'react';
+import React, { act } from 'react';
 import { LossningsKort, NyttAvlaggKort, lossarTid } from './LossningsKort';
 import { SkotarNedreRad, VantarPaDigArk, vantarText } from './LossaHar';
-import { AndraLassArk } from './AndraLassArk';
+import { AndraLassArk, HALL } from './AndraLassArk';
+import { andraRad as andraRadModell } from '@/lib/skotarLass/lassModell';
 import { KvarArk } from './KvarArk';
 import { FardigskotadKort } from './FardigskotadKort';
 import { MorgonKortVy, VaderLista } from './VaderMorgon';
@@ -285,9 +286,9 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       await rendera({ onRad });
       await pekare('plus-talltimmer', 'pointerdown');
       expect(onRad).toHaveBeenCalledTimes(1);
-      await act(async () => { vi.advanceTimersByTime(300); });
+      await act(async () => { vi.advanceTimersByTime(HALL.START_MS - 50); });
       expect(onRad).toHaveBeenCalledTimes(1);   // ännu ingen upprepning
-      await act(async () => { vi.advanceTimersByTime(100 + 120 * 5); });
+      await act(async () => { vi.advanceTimersByTime(50 + HALL.STEG_MS * 5); });
       expect(onRad.mock.calls.length).toBeGreaterThanOrEqual(6);
       expect(onRad.mock.calls.every((c) => c[1] === 1)).toBe(true);
       await pekare('plus-talltimmer', 'pointerup');
@@ -298,11 +299,17 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       await tryck('plus-talltimmer');
       expect(onRad).toHaveBeenCalledTimes(efter);
     });
-    it('minus räknar neråt; efter ca 1,5 s går det snabbare; avbrutet tryck stoppar', async () => {
+    it('tiderna: upprepningen börjar inom en halv sekund och blir snabbare ca 0,5 s senare', () => {
+      expect(HALL.START_MS).toBeLessThan(500);
+      expect(HALL.SNABB_EFTER_MS - HALL.START_MS).toBeGreaterThanOrEqual(400);
+      expect(HALL.SNABB_EFTER_MS - HALL.START_MS).toBeLessThanOrEqual(600);
+      expect(HALL.SNABB_STEG_MS).toBeLessThan(HALL.STEG_MS);
+    });
+    it('minus räknar neråt; efter ca 0,5 s av upprepning går det snabbare; avbrutet tryck stoppar', async () => {
       const onRad = vi.fn();
       await rendera({ onRad });
       await pekare('minus-talltimmer', 'pointerdown');
-      await act(async () => { vi.advanceTimersByTime(1500); });
+      await act(async () => { vi.advanceTimersByTime(HALL.SNABB_EFTER_MS); });
       const vid15 = onRad.mock.calls.length;
       await act(async () => { vi.advanceTimersByTime(500); });
       expect(onRad.mock.calls.length - vid15).toBeGreaterThanOrEqual(8);   // 50 ms-takt (långsam takt hade gett ~4)
@@ -351,6 +358,43 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       await skriv('0');
       await act(async () => { (q('andra-siffra-talltimmer-falt') as HTMLInputElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
       expect(onRad.mock.calls[0][1]).toBe(-10);
+    });
+  });
+
+  describe('− ner till 0 tar bort raden, och den ligger åter under "Lägg till"', () => {
+    // Det riktiga arket med den riktiga lassmodellen och ett tillstånd som hos sidan: inget förfalskat.
+    const NU = Date.parse('2026-10-19T12:00:00Z');
+    function Tillstand({ start }: { start: Lass }) {
+      const [l, setL] = React.useState(start);
+      return <AndraLassArk lass={l} delNr={1} avlagg={[A2, A3]}
+        valbara={[{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }, { nyckel: 'granmassa', namn: 'Massa: Gran_V3', m3: 0 }]}
+        onRad={(rad, d) => setL((x) => andraRadModell(x, 1, rad, d, NU))}
+        onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />;
+    }
+    it('1 m³ kvar → − → raden är borta (ingen egen ta-bort-knapp) och sortimentet finns under Lägg till', async () => {
+      const l = lass(); l.delar[0].rader = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 1 }];
+      await visa(<Tillstand start={l} />);
+      expect(q('andra-rad-talltimmer')).not.toBeNull();
+      expect(q('tillagg-talltimmer')).toBeNull();
+      await tryck('minus-talltimmer');
+      expect(q('andra-rad-talltimmer')).toBeNull();
+      expect(q('tillagg-talltimmer')).not.toBeNull();
+      expect(div.textContent).not.toMatch(/ta bort (raden|sortiment)/i);
+      expect(q('andra-summa')?.textContent).toContain('0');
+    });
+    it('en gång till + från Lägg till: raden är tillbaka med 1 m³', async () => {
+      const l = lass(); l.delar[0].rader = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 1 }];
+      await visa(<Tillstand start={l} />);
+      await tryck('minus-talltimmer'); await tryck('tillagg-talltimmer');
+      expect(q('andra-siffra-talltimmer')?.textContent).toBe('1');
+    });
+    it('trycken är minst 56 px: − och +, siffran, Lägg till-knapparna och Fler sortiment…', async () => {
+      await visa(<Tillstand start={lass()} />);
+      for (const id of ['minus-talltimmer', 'plus-talltimmer', 'andra-siffra-talltimmer', 'tillagg-granmassa', 'tillagg-fler', 'andra-klar', 'andra-avbryt']) {
+        const e = q(id) as HTMLElement;
+        const h = px(e.style.minHeight || e.style.height);
+        expect(h, id).toBeGreaterThanOrEqual(56);
+      }
     });
   });
 

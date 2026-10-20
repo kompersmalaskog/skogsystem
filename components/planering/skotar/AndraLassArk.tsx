@@ -20,8 +20,8 @@ import { medSafeBotten } from '@/lib/design/tokens';
 const SIFFRA_PX = 24;
 /** Så många sortiment visas direkt under Lägg till; resten ligger bakom "Fler ›". */
 export const TILLAGG_SYNLIGA = 8;
-/** Håll in: första steget direkt, upprepning efter HALL_START_MS, snabbare efter HALL_SNABB_EFTER_MS. */
-export const HALL = { START_MS: 400, STEG_MS: 120, SNABB_EFTER_MS: 1500, SNABB_STEG_MS: 50 } as const;
+/** Håll in: första steget direkt, upprepning efter START_MS, och efter ytterligare ~0,5 s av upprepning (SNABB_EFTER_MS räknat från nedtryck) går det snabbare. */
+export const HALL = { START_MS: 350, STEG_MS: 120, SNABB_EFTER_MS: 850, SNABB_STEG_MS: 50 } as const;
 
 /** − / +: ett steg vid tryck, upprepning medan man håller. Pekarhändelser (inte klick) så att ett långt tryck aldrig blir ett enda steg. */
 function HallKnapp({ tecken, etikett, onSteg, testid }: { tecken: string; etikett: string; onSteg: () => void; testid: string }) {
