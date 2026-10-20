@@ -36,7 +36,6 @@ const adminApps = [
   { href: '/planering', label: 'Planering', icon: 'event_note' },
   { href: '/objekt', label: 'Objekt', icon: 'layers' },
   { href: '/redigering', label: 'Objektdetaljer', icon: 'edit' },
-  { href: '/bestallningar', label: 'Beställningar', icon: 'shopping_cart' },
   { href: '/ledighet', label: 'Ledighet', icon: 'beach_access' },
   { href: '/utbildning', label: 'Utbildning', icon: 'school' },
   { href: '/forbattringsforslag', label: 'Feedback', icon: 'feedback' },

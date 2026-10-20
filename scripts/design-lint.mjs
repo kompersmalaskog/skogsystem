@@ -84,6 +84,19 @@ export const SKARPA = [
   "app/ledighet/_components/SchemaVy.tsx",
   "app/ledighet/_components/ValjKalender.tsx",
   "app/ledighet/_components/delar.tsx",
+  // Objekt + beställning i EN vy (2026-10-19): tokens från början, noll literaler.
+  "app/objekt/page.tsx",
+  "app/objekt/[id]/page.tsx",
+  "app/objekt/_components/ObjektVy.tsx",
+  "app/objekt/_components/BestallningArk.tsx",
+  "app/objekt/_components/ManuellArk.tsx",
+  "app/objekt/_components/FilenGavVy.tsx",
+  "app/objekt/_components/AndraObjektArk.tsx",
+  "app/objekt/_components/StamplingslangdArk.tsx",
+  "app/objekt/_components/BolagValjare.tsx",
+  "components/design/Rad.tsx",
+  "components/design/Falt.tsx",
+  "components/design/Manadsvaljare.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

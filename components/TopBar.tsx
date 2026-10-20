@@ -43,7 +43,8 @@ export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const pageName = pageNames[pathname]
-    || (pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
+    || (pathname.startsWith('/objekt/') ? 'Objekt'
+    : pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
     : pathname.startsWith('/gallring/') ? 'Gallring'
     // /utbildning/typ/<id> och /utbildning/person/<id>: sidans EGEN etikett säger
     // vilken utbildning eller person det gäller — toppfältet säger bara var man är.

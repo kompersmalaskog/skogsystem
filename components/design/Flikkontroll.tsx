@@ -3,9 +3,9 @@ import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP, VIKT } from "@/lib/design/tokens";
 /**
  * Flikkontroll för "samma data, olika vinkel" — Min tids form (Arbetsrapport.tsx, `minTidFlik`):
  * `FARG.linje`-bakgrund, 4 px inre marginal, 44 px knappar, vald = `FARG.fyllning` + 600.
- * Inte navigation (skillen: tabbar är olika vyer av samma data).
+ * `aktiv={null}` = inget valt (ett val som inte får ha ett förval). Inte navigation (skillen: tabbar är olika vyer av samma data).
  */
-export default function Flikkontroll<T extends string>({ flikar, aktiv, onVal }: { flikar: readonly (readonly [T, string])[]; aktiv: T; onVal: (id: T) => void }) {
+export default function Flikkontroll<T extends string>({ flikar, aktiv, onVal }: { flikar: readonly (readonly [T, string])[]; aktiv: T | null; onVal: (id: T) => void }) {
   return (
     <div role="tablist" style={{ display: "flex", background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs }}>
       {flikar.map(([id, etikett]) => {
