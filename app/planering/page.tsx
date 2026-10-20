@@ -53,6 +53,7 @@ import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
+import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
@@ -9319,32 +9320,13 @@ export default function PlannerPage() {
           } });
       } catch (e) { console.error('[Körvy] larm-ring:', e); }
     }
-    // FÄLLNINGSCIRKELNS orsak (lib/larm/fallning): det som gör cirkeln röd/brun/grön lyser upp i gruppens färg. Tyst — bara ritning.
-    if (!map.getSource('larm-fall-source')) {
-      try { map.addSource('larm-fall-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Körvy] larm-fall-source:', e); }
+    // FÄLLNINGSCIRKELNS orsak (lib/larm/fallning): det som gör cirkeln röd/brun/grön lyser upp i gruppens färg. Tyst — bara ritning. Lagren: lib/larm/fallningKarta.
+    if (!map.getSource(FALL_KALLA)) {
+      try { map.addSource(FALL_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Körvy] larm-fall-source:', e); }
     }
-    if (!map.getLayer('larm-fall-fill')) {
-      try {
-        map.addLayer({ id: 'larm-fall-fill', type: 'fill', source: 'larm-fall-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': ['get', 'farg'], 'fill-opacity': 0.3 } });
-      } catch (e) { console.error('[Körvy] larm-fall-fill:', e); }
-    }
-    if (!map.getLayer('larm-fall-kant')) {
-      try {
-        map.addLayer({ id: 'larm-fall-kant', type: 'line', source: 'larm-fall-source', filter: ['!=', ['geometry-type'], 'Point'],
-          paint: { 'line-color': '#000000', 'line-width': 9, 'line-opacity': 0.5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-      } catch (e) { console.error('[Körvy] larm-fall-kant:', e); }
-    }
-    if (!map.getLayer('larm-fall-linje')) {
-      try {
-        map.addLayer({ id: 'larm-fall-linje', type: 'line', source: 'larm-fall-source', filter: ['!=', ['geometry-type'], 'Point'],
-          paint: { 'line-color': ['get', 'farg'], 'line-width': 5, 'line-opacity': 1 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-      } catch (e) { console.error('[Körvy] larm-fall-linje:', e); }
-    }
-    if (!map.getLayer('larm-fall-punkt')) {
-      try {
-        map.addLayer({ id: 'larm-fall-punkt', type: 'circle', source: 'larm-fall-source', filter: ['==', ['geometry-type'], 'Point'],
-          paint: { 'circle-radius': 22, 'circle-color': ['get', 'farg'], 'circle-opacity': 0.25, 'circle-stroke-color': ['get', 'farg'], 'circle-stroke-width': 4, 'circle-stroke-opacity': 1, 'circle-pitch-alignment': 'viewport' } });
-      } catch (e) { console.error('[Körvy] larm-fall-punkt:', e); }
+    for (const spec of fallningLagerSpecar()) {
+      if (map.getLayer(spec.id)) continue;
+      try { map.addLayer(spec); } catch (e) { console.error('[Körvy] ' + spec.id + ':', e); }
     }
 
     // 5) Maskin-ikon: mjuk riktnings-KÄGLA (viskar körriktningen istället för en pil som skriker).
@@ -9811,18 +9793,10 @@ export default function PlannerPage() {
           : { type: 'FeatureCollection', features: [] });
       }
       if (map.getLayer('gps-radie-line')) {
-        map.setPaintProperty('gps-radie-line', 'line-color', fall.farg);
-        map.setPaintProperty('gps-radie-line', 'line-opacity', visa ? fall.opacitet : 0);
-        map.setPaintProperty('gps-radie-line', 'line-width', fall.grupp ? 4 : 2);
-        map.setPaintProperty('gps-radie-line', 'line-dasharray', fall.grupp ? [1, 0] : [2, 2]);
+        for (const [k, v] of Object.entries(fallningCirkelPaint(fall, !!visa))) map.setPaintProperty('gps-radie-line', k, v);
       }
-      const fsrc = map.getSource('larm-fall-source') as any;
-      if (fsrc) {
-        fsrc.setData({
-          type: 'FeatureCollection',
-          features: visa ? fall.orsaker.filter((o) => o.geometri).map((o) => ({ type: 'Feature' as const, properties: { id: o.id, namn: o.namn, farg: fall.farg }, geometry: o.geometri as any })) : [],
-        });
-      }
+      const fsrc = map.getSource(FALL_KALLA) as any;
+      if (fsrc) fsrc.setData(fallningOrsakData(fall, !!visa));
     } catch (e) { console.error('[Körvy] fällningscirkel update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyActive, skotarKorvy, mapLibreReady, fall]);

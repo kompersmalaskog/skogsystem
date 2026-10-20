@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import * as karta from './fallningKarta';
 import { avstandTillYtaM } from './geo';
 import { bedomFallning, fallningKandidater, FALLNING_M, NEUTRAL, type FallningKandidat } from './fallning';
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FALLNING_SYMBOL, FALLNING_VIDA, GRUPPER } from './grupper';
@@ -157,9 +159,8 @@ describe('bedomFallning (rena regler)', () => {
   it('kantfall: exakt 30 m räknas', () => expect(bedomFallning([k('a', 'natur', 30)]).grupp).toBe('natur'));
 });
 
+const page = readFileSync('app/planering/page.tsx', 'utf8');
 describe('fällningscirkeln i sidan', () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const page = require('node:fs').readFileSync('app/planering/page.tsx', 'utf8') as string;
   it('bara skördaren: hooken är avstängd i skotarläget och effekten ritar inget där', () => {
     expect(page).toContain('aktiv: korvyActive && !skotarKorvy,');
     expect(page).toContain('const visa = korvyActive && !skotarKorvy &&');
@@ -173,5 +174,36 @@ describe('fällningscirkeln i sidan', () => {
     const b = page.indexOf('// === KÖRVY: larmets ringar på kartan');
     const eff = page.slice(a, b);
     expect(eff).not.toMatch(/spelaLarmLjud|vibrate|setLarm|kvittera/);
+  });
+});
+
+describe('fällningscirkelns kartlager (lib/larm/fallningKarta)', () => {
+  it('neutral: vit, svag, tunn, streckad; färgad: gruppens färg, tjock, heldragen; osynlig när visa är false', () => {
+    const n = karta.fallningCirkelPaint(NEUTRAL, true);
+    expect(n['line-color']).toBe('#ffffff');
+    expect(n['line-opacity']).toBeLessThan(0.5);
+    expect(n['line-width']).toBe(2);
+    expect(n['line-dasharray']).toEqual([2, 2]);
+    const f = bedom([sym('x', 'powerline', 10)]);
+    const c = karta.fallningCirkelPaint(f, true);
+    expect(c['line-color']).toBe(FARG_FARA);
+    expect(c['line-opacity']).toBeGreaterThan(0.8);
+    expect(c['line-width']).toBe(4);
+    expect(c['line-dasharray']).toEqual([1, 0]);
+    expect(karta.fallningCirkelPaint(f, false)['line-opacity']).toBe(0);
+  });
+  it('orsakerna blir features i gruppens färg; inget när cirkeln inte visas', () => {
+    const f = bedom([sym('x', 'culturemonument', 10)]);
+    const d = karta.fallningOrsakData(f, true);
+    expect(d.features).toHaveLength(1);
+    expect(d.features[0].properties).toMatchObject({ id: 'x', farg: FARG_KULTUR });
+    expect(karta.fallningOrsakData(f, false).features).toEqual([]);
+    expect(karta.fallningOrsakData(NEUTRAL, true).features).toEqual([]);
+  });
+  it('sidan lägger lagren ur fallningLagerSpecar och rör inget annat', () => {
+    expect(page.includes('fallningLagerSpecar()')).toBe(true);
+    expect(page.includes("id: 'larm-fall-fill'")).toBe(false);
+    expect(karta.fallningLagerSpecar().map((l: any) => l.id)).toEqual(['larm-fall-fill', 'larm-fall-kant', 'larm-fall-linje', 'larm-fall-punkt']);
+    expect(karta.fallningLagerSpecar().every((l: any) => l.id.startsWith('larm-'))).toBe(true);   // KEEP_PREFIX i körvyn
   });
 });
