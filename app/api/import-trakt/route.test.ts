@@ -155,14 +155,16 @@ describe('fil utan "Ursprung"', () => {
     expect(r.status).toBe(200);
     const rad = h.db.tabeller.objekt[0];
     expect(rad.avtalsform).toBeNull();
-    expect(rad.import_varningar.join(' ')).toMatch(/Ursprung/);
+    expect(rad.import_varningar.map((v: { text: string }) => v.text).join(' ')).toMatch(/Ursprung/);
+    // Importen skriver {nyckel, sort, text} (lib/trakt/varningar.ts), inte ren text.
+    expect(rad.import_varningar.every((v: { nyckel?: string; sort?: string }) => typeof v.nyckel === 'string' && ['fraga', 'noterat', 'utveckling'].includes(v.sort ?? ''))).toBe(true);
     expect(r.body.varningar.join(' ')).toMatch(/avtalsform lämnades tom/);
   });
   it('okänt Ursprung: tomt + råtexten i varningen', async () => {
     await importera(tdText({ ursprung: 'Egen skog' }));
     const rad = h.db.tabeller.objekt[0];
     expect(rad.avtalsform).toBeNull();
-    expect(rad.import_varningar.join(' ')).toContain('"Egen skog"');
+    expect(rad.import_varningar.map((v: { text: string }) => v.text).join(' ')).toContain('"Egen skog"');
   });
 });
 
