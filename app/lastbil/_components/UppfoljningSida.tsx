@@ -5,11 +5,13 @@ import Flikkontroll from '@/components/design/Flikkontroll';
 import { AVSTAND, FARG, IKON, KNAPP, KORT, LAYOUT, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { Anmarkningar } from './Korningar';
 import Periodval from './Periodval';
+import MaskinerSektion from './MaskinerSektion';
 import Staplar from './Staplar';
 import { periodEtikett, type Manad, type Period } from './period';
 import { fmtLPerMil, summera, type Summa } from './rundor';
 import type { RundorLage } from './useRundor';
 import type { FakturerbartStatus } from './useFakturerbart';
+import type { MaskinerLage } from './useMaskiner';
 import { ENHET, betaltRader, forbrukningRader, korstrackaRader, lagen, perManad, vantandeFlyttar, type Lage } from './uppfoljning';
 
 const litTxt = (s: Summa) => (s.liter != null ? `${s.liter.toLocaleString('sv-SE')} l` : 'diesel saknas i datan');
@@ -23,8 +25,14 @@ const metaRad = (s: Summa) =>
  * över ETT diagram · månadslistan, där ett tryck går till Körningar för månaden.
  * Den visar körning, inte fakturering. Lastbilen är en egen maskin i uppföljningen: l/mil och km blandas aldrig med maskinernas l/h.
  */
-export default function UppfoljningSida({ ar, onAr, fakt, lage, onForsokIgen, onTillbaka, onValjManad }: {
+export default function UppfoljningSida({ ar, onAr, fakt, maskiner, arAdmin, namn, onMaskinAndrad, lage, onForsokIgen, onTillbaka, onValjManad }: {
   ar: number; onAr: (ar: number) => void;
+  /** Årets flyttar per maskin ("Maskiner" längst ner). */
+  maskiner: { lage: MaskinerLage; forsokIgen: () => void };
+  /** Bara admin kan öppna en flytt för att rätta den (sheeten "Flytten"). */
+  arAdmin: boolean; namn: string;
+  /** En flytt rättades i maskinens ark: läs om allt som kan ha ändrats. */
+  onMaskinAndrad: () => void;
   /** Årets fakturaunderlag (bara admin; null = förare, då finns inget Betalt-läge). */
   fakt: { status: FakturerbartStatus; forsokIgen: () => void } | null;
   lage: RundorLage; onForsokIgen: () => void; onTillbaka: () => void; onValjManad: (m: Manad) => void;
@@ -111,6 +119,10 @@ export default function UppfoljningSida({ ar, onAr, fakt, lage, onForsokIgen, on
           <Anmarkningar s={summa} />
         </div>
       )}
+      {/* Maskiner läser maskin_flytt själv: ett fel i rundorna ska inte ta bort den, och tvärtom. */}
+      <div style={{ marginTop: AVSTAND.xl }}>
+        <MaskinerSektion ar={ar} lage={maskiner.lage} onForsokIgen={maskiner.forsokIgen} arAdmin={arAdmin} namn={namn} onAndrad={onMaskinAndrad} />
+      </div>
     </div>
   );
 }

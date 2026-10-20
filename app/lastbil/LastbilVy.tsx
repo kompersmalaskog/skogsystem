@@ -27,6 +27,7 @@ import { useSaknarMaskin } from './_components/useSaknarMaskin';
 import SaknarMaskinRad from './_components/SaknarMaskinRad';
 import LassArk from './_components/MaskinSheet';
 import { useEnRunda, useRundor } from './_components/useRundor';
+import { useMaskiner } from './_components/useMaskiner';
 
 /**
  * Lastbilen — EN sida utan flikar (omtaget 2026-10-19). Uppifrån, och i den ordningen alltid:
@@ -63,6 +64,8 @@ export default function LastbilVy() {
   const fakt = useFakturerbart(period, arAdmin);
   // Uppföljningens Betalt-läge: årets underlag (bara admin, bara när sidan är öppen).
   const faktAr = useFakturerbart({ typ: 'ar', ar }, arAdmin && !loading && onskadSida === 'ar');
+  // Uppföljningens "Maskiner": årets flyttar per maskin (alla roller, direkt ur maskin_flytt).
+  const maskiner = useMaskiner(ar, !loading && onskadSida === 'ar');
   const vantar = useVantar(arAdmin);
   // "Vilken maskin?": lassen bilens vikt hittat men appen inte kunde para ihop med en maskin. Länken i notisen (?lass=<id>) öppnar arket direkt.
   const saknar = useSaknarMaskin(arAdmin);
@@ -93,6 +96,10 @@ export default function LastbilVy() {
     return () => clearTimeout(t);
   }, [kvitto]);
   const efterRattning = useCallback(() => { rundorTyst(); enRundaTyst(); faktTyst(); vantarTyst(); }, [rundorTyst, enRundaTyst, faktTyst, vantarTyst]);
+  // En rättning i en maskins ark: maskinerna, årets Betalt, rundorna och påminnelsen läses om tyst.
+  const { laddaOmTyst: maskinerTyst } = maskiner;
+  const { laddaOmTyst: faktArTyst } = faktAr;
+  const efterMaskinRattning = useCallback(() => { maskinerTyst(); faktArTyst(); faktTyst(); vantarTyst(); rundorTyst(); }, [maskinerTyst, faktArTyst, faktTyst, vantarTyst, rundorTyst]);
   const arkRunda = iListan ?? (valdRunda && enRunda.lage.lage === 'klar' ? enRunda.lage.rundor.find(r => r.id === valdRunda.id) ?? null : null);
 
   useEffect(() => {
@@ -139,7 +146,8 @@ export default function LastbilVy() {
         ) : hamtar ? (
           <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
         ) : sida === 'ar' ? (
-          <UppfoljningSida ar={ar} onAr={setAr} fakt={arAdmin ? { status: faktAr.status, forsokIgen: faktAr.forsokIgen } : null} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
+          <UppfoljningSida ar={ar} onAr={setAr} fakt={arAdmin ? { status: faktAr.status, forsokIgen: faktAr.forsokIgen } : null}
+            maskiner={{ lage: maskiner.lage, forsokIgen: maskiner.forsokIgen }} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} onMaskinAndrad={efterMaskinRattning} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
             onTillbaka={tillHuvudsidan} onValjManad={valjManadFranAr} />
         ) : sida === 'fakturering' ? (
           <FaktureringSida period={period} onPeriod={setPeriod} status={fakt.status} namn={medarbetare?.namn || 'admin'}
