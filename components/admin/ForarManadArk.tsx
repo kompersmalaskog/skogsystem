@@ -7,10 +7,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
-import { AVSTAND, FARG, TNUM, TYP } from "@/lib/design/tokens";
+import { AVSTAND, FARG, TNUM, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarManad, type VyDag, type VyExtra } from "@/lib/admin/forarManadVy";
-import { Lank, Lista, Rad, Sektion, Sheet, Stod } from "./ui";
+import { Ikon, Lank, Lista, Rad, Sektion, Sheet, Stod } from "./ui";
 
 const fet = { color: FARG.text, fontWeight: TYP.listtitel.fontWeight, ...TNUM } as const;
 
@@ -25,23 +25,29 @@ function ExtraRader({ poster }: { poster: VyExtra[] }) {
   );
 }
 
+/** Bitarna skrivs med " · " emellan och bryts bara mellan bitarna, aldrig mitt i en ("160 km egen (appen: 118 km)"). */
+function Bitar({ delar }: { delar: string[] }) {
+  return <>{delar.map((t, i) => <React.Fragment key={i}>{i > 0 && " · "}<span style={{ display: "inline-block" }}>{t}</span></React.Fragment>)}</>;
+}
+
+/** En dag: datum och tid överst (hela bredden), tider och plats/km på egna rader under, varningen i orange. Hela raden är en knapp. */
 function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: () => void; sista: boolean }) {
   return (
-    <Rad attr={{ "data-dag": d.datum }} rubrik={d.rubrik} chevron onClick={onVal} sista={sista}
-      detalj={(
-        <>
-          {d.radDelar.length > 0 && (
-            <span style={TNUM}>
-              {d.radDelar.map((t, i) => <React.Fragment key={i}>{i > 0 && " · "}<span style={{ display: "inline-block" }}>{t}</span></React.Fragment>)}
-            </span>
-          )}
-          {d.avvikelser.length > 0 && <span data-dag-varning="" style={{ display: "block", color: FARG.orange }}>{d.avvikelser.join(" · ")}</span>}
-        </>
-      )}
-      hoger={<span style={{ ...fet }}>{d.tid}</span>}>
+    <div data-dag={d.datum} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
+      <button type="button" onClick={onVal} aria-expanded={oppen}
+        style={{ display: "block", width: "100%", padding: 0, background: "none", border: "none", color: "inherit", fontFamily: "inherit", textAlign: "left", cursor: "pointer", minHeight: TRAFFYTA.min }}>
+        <span style={{ display: "flex", alignItems: "center", gap: AVSTAND.m }}>
+          <span style={{ flex: 1, minWidth: 0, ...TYP.listtitel, color: FARG.text }}>{d.rubrik}</span>
+          <span style={{ ...TYP.meta, ...fet, whiteSpace: "nowrap" }}>{d.tid}</span>
+          <Ikon namn="chevron_right" farg={FARG.text3} />
+        </span>
+        {d.radTid.length > 0 && <span style={{ display: "block", marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}><Bitar delar={d.radTid} /></span>}
+        {d.radKm.length > 0 && <span style={{ display: "block", marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}><Bitar delar={d.radKm} /></span>}
+        {d.avvikelser.length > 0 && <span data-dag-varning="" style={{ display: "block", marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.orange }}>{d.avvikelser.join(" · ")}</span>}
+      </button>
       {oppen && (
         <div data-dag-detalj="" style={{ paddingTop: AVSTAND.s }}>
-          {d.detalj.map((t, i) => <p key={i} style={{ margin: i ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, color: t.endsWith("ingen uppgift om källa") || t === "Ingen uppgift om km" ? FARG.text3 : FARG.text2, ...TNUM }}>{t}</p>)}
+          {d.detalj.map((t, i) => <p key={i} style={{ margin: i ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, color: t.includes("ingen uppgift") ? FARG.text3 : FARG.text2, ...TNUM }}>{t}</p>)}
           {d.extra.map(e => (
             <p key={e.nyckel} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
               Extra tid {e.tid} · {e.text.split(" · ").slice(1).join(" · ")}{e.kommentar ? ` · ${e.kommentar}` : ""}
@@ -49,7 +55,7 @@ function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: (
           ))}
         </div>
       )}
-    </Rad>
+    </div>
   );
 }
 

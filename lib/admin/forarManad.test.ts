@@ -68,28 +68,28 @@ describe("Förare · Månad — Stefan september 2026", () => {
     const d = m.dagar.find((x: any) => x.datum === "2026-09-14");
     expect(d.km_kalla).toBe("auto");
     // Flyttobjektet (dagens första) har ingen plats — SAMMA funktion som räknade km hoppar över det, så benet går till Hålabäck.
-    expect(d.km_rutt).toEqual({ forsta: "Hålabäck au 2025", sista: "Hallaslätt AU 2026" });
+    expect(d.km_rutt).toEqual({ forsta: "Hålabäck au 2025", sista: "Hallaslätt AU 2026", appen: null });
     const v = vy.dagar.find(x => x.datum === "2026-09-14")!;
     expect(v.detalj).toContain("Hem → Hålabäck au 2025 · 34 km");
     expect(v.detalj).toContain("Hallaslätt AU 2026 → Hem · 7 km");
     expect(v.rad).toContain("41 km beräknad");
   });
 
-  it("förarens egen km: 'förarens egen' + km, inga platser", async () => {
+  it("förarens egen km: märkt 'egen', och trakten är ändå känd (ingen appen-siffra utan hemmets koordinat)", async () => {
     const { m, vy } = await stefan(d => (d.datum === "2026-09-15" ? { ...d, km_kalla: "forare" } : d));
-    expect(m.dagar.find((x: any) => x.datum === "2026-09-15").km_rutt).toBeNull();
+    expect(m.dagar.find((x: any) => x.datum === "2026-09-15").km_rutt).toEqual({ forsta: "Hålabäck au 2025", sista: "Hålabäck au 2025", appen: null });
     const v = vy.dagar.find(x => x.datum === "2026-09-15")!;
-    expect(v.detalj.some(t => t.startsWith("Förarens egen · 68 km"))).toBe(true);
-    expect(v.detalj.some(t => t.includes("→"))).toBe(false);
-    expect(v.rad).toContain("68 km förarens egen");
+    expect(v.detalj.some(t => t.startsWith("Egen · 68 km totalt"))).toBe(true);
+    expect(v.detalj).toContain("Hem → Hålabäck au 2025 · 34 km");
+    expect(v.rad).toContain("Hem → Hålabäck au 2025 · 68 km egen · → 1 mil");
+    expect(v.rad).not.toContain("appen");
   });
 
-  it("ingen km-källa: grått 'ingen uppgift', ingen varning och inga platser", async () => {
+  it("ingen km-källa: grått 'ingen uppgift' och ingen varning — trakten visas ändå", async () => {
     const { vy } = await stefan(d => (d.datum === "2026-09-16" ? { ...d, km_kalla: null } : d));
     const v = vy.dagar.find(x => x.datum === "2026-09-16")!;
-    expect(v.rad).toContain("68 km ingen uppgift");
-    expect(v.detalj).toContain("68 km · ingen uppgift om källa");
-    expect(v.detalj.some(t => t.includes("→"))).toBe(false);
+    expect(v.rad).toContain("Hem → Hålabäck au 2025 · 68 km ingen uppgift");
+    expect(v.detalj).toContain("68 km · ingen uppgift om källa · 1 mil ersätts");
     expect(v.avvikelser.join(" ")).not.toMatch(/km|källa|uppgift/);
     expect(kmKallaText(null)).toBe("ingen uppgift");
   });
@@ -128,7 +128,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     const { vy } = await stefan();
     const d = vy.dagar.find(x => x.datum === "2026-09-10")!;
     expect(d.tid).toBe("9 tim 40 min");
-    expect(d.rad).toBe("06:03–11:43 · extra tid 4 tim · 14 km beräknad");
+    expect(d.rad).toBe("06:03–11:43 · extra tid 4 tim · Hem → Hallaslätt AU 2026 · 14 km beräknad");
     for (const dag of vy.dagar) expect(`${dag.tid} ${dag.rad}`).not.toMatch(/\d,\d\d/);
   });
 
@@ -136,8 +136,8 @@ describe("Förare · Månad — Stefan september 2026", () => {
     const { vy } = await stefan();
     const lang = vy.dagar.find(x => x.datum === "2026-09-03")!;
     expect(lang.avvikelser).toContain("rast 3 tim 43 min");
-    expect(lang.rad).toBe("05:55–18:05 · 22 km beräknad");
-    expect(vy.dagar.find(x => x.datum === "2026-09-02")!.rad).toBe("05:54–17:16 · rast 32 min · 22 km beräknad");
+    expect(lang.rad).toBe("05:55–18:05 · Hem → 400763 Akelius Tåget SA -26 · 22 km beräknad");
+    expect(vy.dagar.find(x => x.datum === "2026-09-02")!.rad).toBe("05:54–17:16 · rast 32 min · Hem → 400763 Akelius Tåget SA -26 · 22 km beräknad");
   });
 
   it("premiens förklaring skrivs med decimalkomma och tim, inte motorns punkt och h", async () => {

@@ -31,6 +31,9 @@ export type VyDag = {
   /** Raden under: start–slut · rast · extra tid · km med källa — bara tim och min. `radDelar` är samma rad i bitar som inte bryts mitt i. */
   rad: string;
   radDelar: string[];
+  /** Samma rad i två rader: tider (start–slut · rast · extra tid) och plats/km (Hem → trakt · km med källa · → mil). */
+  radTid: string[];
+  radKm: string[];
   tid: string;
   avvikelser: string[];
   detalj: string[];
@@ -59,10 +62,20 @@ export type ForarManadVy = {
 const hm = (t: string | null | undefined) => (t ? String(t).slice(0, 5) : "");
 const kmText = (n: number) => `${Math.round(n).toLocaleString("sv-SE")} km`;
 
-/** Källan i klartext: 'auto' = beräknad, 'forare' = förarens egen, annars ingen uppgift (dagar från före källan sparades). */
+/** Källan i klartext: 'auto' = beräknad, 'forare' = förarens egen (märkt "egen"), annars ingen uppgift (dagar från före källan sparades). */
 export function kmKallaText(k: string | null | undefined): string {
-  return k === "auto" ? "beräknad" : k === "forare" ? "förarens egen" : "ingen uppgift";
+  return k === "auto" ? "beräknad" : k === "forare" ? "egen" : "ingen uppgift";
 }
+
+/** Dagens km med källa: "113 km beräknad", "160 km egen (appen: 118 km)", "68 km ingen uppgift". Appens värde bara när föraren har skrivit egen km
+ *  och routing gick att räkna — det är en jämförelse, dagens km och lönen är de egna. */
+function kmDagText(d: any): string {
+  const appen = d.km_kalla === "forare" ? d.km_rutt?.appen : null;
+  return `${kmText(d.km_totalt)} ${kmKallaText(d.km_kalla)}${appen ? ` (appen: ${kmText(appen.totalt)})` : ""}`;
+}
+
+/** "Hem → trakt": den första trakten dagen började på. Tom när dagens trakt inte är känd. */
+const hemTill = (d: any): string | null => (d.km_rutt ? `Hem → ${d.km_rutt.forsta}` : null);
 
 function extraRad(e: ExtraPost, i: number): VyExtra {
   const klockslag = e.start_tid || e.slut_tid ? `${hm(e.start_tid) || "–"}–${hm(e.slut_tid) || "–"}` : null;
@@ -82,19 +95,18 @@ function dagDetaljer(d: any, maskinNamn: Record<string, string>): string[] {
   ut.push(d.start_tid || d.slut_tid ? `${hm(d.start_tid) || "–"}–${hm(d.slut_tid) || "–"}${d.rast_min ? ` · rast ${minText(d.rast_min)}` : " · ingen rast"}` : "Inga klockslag, tiden ligger i perioder");
   ut.push(d.extra_min > 0 ? `Maskintid ${minText(d.arbetad_min)} + extra tid ${minText(d.extra_min)}` : `Tid ${minText((d.arbetad_min || 0) + (d.extra_min || 0))}`);
   ut.push((d.objekt || []).length ? `Trakt: ${d.objekt.join(", ")}` : "Ingen trakt");
-  // Km: källan alltid med. Bara en BERÄKNAD dag har platser (härledda ur dagens trakter, samma funktion som räknade km);
-  // förarens egen km har inga.
-  if (d.km_kalla === "auto" && d.km_rutt) {
-    ut.push(`Hem → ${d.km_rutt.forsta} · ${kmText(d.km_morgon)}`);
-    ut.push(`${d.km_rutt.sista} → Hem · ${kmText(d.km_kvall)}`);
-    ut.push(`Beräknad · ${kmText(d.km_totalt)} totalt${d.ersattningsmil ? ` · ${d.ersattningsmil} mil ersätts` : ""}`);
-  } else if (d.km_kalla === "forare") {
-    ut.push(`Förarens egen · ${kmText(d.km_totalt)}${d.ersattningsmil ? ` · ${d.ersattningsmil} mil ersätts` : ""}`);
-  } else if (d.km_kalla === "auto") {
-    ut.push(`Beräknad · ${kmText(d.km_totalt)}${d.ersattningsmil ? ` · ${d.ersattningsmil} mil ersätts` : ""}`);
-  } else {
-    ut.push(d.km_totalt ? `${kmText(d.km_totalt)} · ingen uppgift om källa` : "Ingen uppgift om km");
+  // Km: källan alltid med, och trakterna benen gick mellan på ALLA dagar (härledda ur dagens trakter, samma funktion som räknade km). Är km förarens
+  // egen står också vad appen hade fått bredvid — bara visning.
+  const appen = d.km_kalla === "forare" ? d.km_rutt?.appen : null;
+  const ben = (km: number, appenKm: number | undefined) => (km > 0 ? ` · ${kmText(km)}${appenKm != null ? ` (appen: ${kmText(appenKm)})` : ""}` : "");
+  if (d.km_rutt) {
+    ut.push(`Hem → ${d.km_rutt.forsta}${ben(d.km_morgon, appen?.morgon)}`);
+    ut.push(`${d.km_rutt.sista} → Hem${ben(d.km_kvall, appen?.kvall)}`);
   }
+  const mil = d.ersattningsmil ? ` · ${d.ersattningsmil} mil ersätts` : "";
+  if (d.km_kalla === "auto") ut.push(`Beräknad · ${kmText(d.km_totalt)} totalt${mil}`);
+  else if (d.km_kalla === "forare") ut.push(`Egen · ${kmText(d.km_totalt)} totalt${appen ? ` (appen: ${kmText(appen.totalt)})` : ""}${mil}`);
+  else ut.push(d.km_totalt ? `${kmText(d.km_totalt)} · ingen uppgift om källa${mil}` : "Ingen uppgift om km");
   if (d.ob_min > 0) ut.push(`OB ${minText(d.ob_min)}`);
   if (d.traktamente) ut.push("Traktamente");
   ut.push(d.bekraftad ? "Bekräftad av föraren" : "Inte bekräftad");
@@ -152,7 +164,8 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
     sa: `Ersättning räknas per dag: km över ${m.km_grans} km (fri pendling), avrundat uppåt till påbörjad mil.`,
     dagarOver: dagarRå.filter(d => d.ersattningsmil > 0).map(d => ({
       datum: d.datum,
-      text: `${dagText(d.datum)} · ${kmText(d.km_totalt)} → ${d.ersattningsmil} mil`,
+      // datum · Hem → trakt · km med källa · → mil
+      text: [dagText(d.datum), hemTill(d), kmDagText(d), `→ ${d.ersattningsmil} mil`].filter(Boolean).join(" · "),
     })),
   };
 
@@ -173,12 +186,17 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
     if (d.extra_min > 0 && !d.arbetad_min && !d.perioddag) avv.push("extra tid utan pass");
     const dt = new Date(`${d.datum}T12:00:00`);
     // Rasten står redan som varning på dagen när den är lång: den visas inte två gånger.
-    const radDelar = [
+    const radTid = [
       d.start_tid || d.slut_tid ? `${hm(d.start_tid) || "–"}–${hm(d.slut_tid) || "–"}` : null,
       d.rast_min && !avv.some(x => x.startsWith("rast ")) ? `rast ${minText(d.rast_min)}` : null,
       d.extra_min > 0 ? `extra tid ${minText(d.extra_min)}` : null,
-      d.km_totalt ? `${kmText(d.km_totalt)} ${kmKallaText(d.km_kalla)}` : null,
     ].filter(Boolean) as string[];
+    const radKm = [
+      hemTill(d),
+      d.km_totalt ? kmDagText(d) : null,
+      d.ersattningsmil ? `→ ${d.ersattningsmil} mil` : null,
+    ].filter(Boolean) as string[];
+    const radDelar = [...radTid, ...radKm];
     const rad = radDelar.join(" · ");
     return {
       nyckel: d.id || d.datum,
@@ -186,6 +204,8 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
       rubrik: `${DAG[dt.getDay()]} ${dagText(d.datum)}`,
       rad,
       radDelar,
+      radTid,
+      radKm,
       tid: minText(min),
       avvikelser: avv,
       detalj: dagDetaljer(d, ctx.maskinNamn),

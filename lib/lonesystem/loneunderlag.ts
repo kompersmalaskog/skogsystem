@@ -20,7 +20,7 @@ import { hamtaFranvaro, arDeldag } from "@/lib/franvaro";
 import { obMinuter, arTidigVardag, oenighetsMorgnar } from "@/lib/ob";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { aktLabel } from "@/lib/aktiviteter";
-import { dagensPlatser, hamtaObjektKoordinater } from "@/lib/routing";
+import { dagensPlatser, dagensObjektOrdnat, berakaDagKm, hamtaObjektKoordinater } from "@/lib/routing";
 import { RAST_FRAGA_MIN, passOrimlighet, rastSaknas, RAST_SAKNAS_FRAN_MINUTER, type PassOrimlighet } from "@/lib/arbetsdagRegler";
 
 export type LoneunderlagRad = ExportSammanfattning & { status: string };
@@ -70,9 +70,11 @@ export type LoneunderlagDag = {
   km_kvall: number;
   /** Varifrån km kommer: 'auto' = beräknad av appen, 'forare' = förarens egen uppgift, null = ingen uppgift (dagar från före källan sparades). */
   km_kalla: "auto" | "forare" | null;
-  /** Platserna benen gick mellan — bara för en BERÄKNAD dag ('auto'), och bara i granskningen (`medMaskintid`). Härlett ur dagens trakter
-   *  med samma funktion som räknade km (lib/routing dagensPlatser); sparas inte. Förarens egen km har inga platser. */
-  km_rutt?: { forsta: string; sista: string } | null;
+  /** Trakterna benen gick mellan — på ALLA dagar med känd trakt, och bara i granskningen (`medMaskintid`). Härlett ur dagens objekt med samma
+   *  funktion som räknade km (lib/routing dagensPlatser); sparas inte. Saknar trakterna koordinat står ändå första och sista trakten.
+   *  `appen` = vad appen hade fått för dagen (samma routing som en beräknad dag), bara när dagens km är förarens EGEN: ren visning, dagens km
+   *  och lönen rörs aldrig. null när routing inte går att räkna (saknad koordinat eller hemadress, eller ingen väg hittades). */
+  km_rutt?: { forsta: string; sista: string; appen: { morgon: number; kvall: number; totalt: number } | null } | null;
   /** LÖNEKVOT-underlag (bara dry_run för admin, `medMaskintid`): maskinens G15
    *  den dagen under FÖRARENS inloggning (fakt_tid.operator_id → medarbetare via
    *  operator_medarbetare). GRANSKNINGSSTÖD, aldrig lön.
@@ -175,7 +177,7 @@ export async function beraknaLoneunderlag(
   const [medRes, arbRes, extraRes, maskinRes, mappRes, loggRes, ledRes, ledRuntRes, avtalRes, utjRes, viloRes] = await Promise.all([
     // foretagsledare (inga lönerader alls) och anstallningsdatum (kvalifikationstid för helglön) styr vad en förare får: läses
     // här, aldrig ur klienten. Ett läsfel stoppar underlaget (en tyst "false" skulle ge företagsledarna lönerader).
-    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum, aktiv").order("namn"),
+    supabase.from("medarbetare").select("id, namn, maskin_id, foretagsledare, anstallningsdatum, aktiv, hem_lat, hem_lng").order("namn"),
     // (id, slut_tid, rast_min, traktamente, objekt_id läses för förarens dag-
     // för-dag-rader — de påverkar inte beräkningen, som bara ser de gamla fälten.)
     supabase.from("arbetsdag")
@@ -431,12 +433,19 @@ export async function beraknaLoneunderlag(
   // Granskningsstöd — ett läsfel ger ingen rutt, aldrig ett fel i lönen.
   let kmKoord: Awaited<ReturnType<typeof hamtaObjektKoordinater>> = {};
   if (p.medMaskintid) {
-    const autoIds = Array.from(new Set<string>(dagRader.filter(d => d.km_kalla === "auto").flatMap(d => [
+    const autoIds = Array.from(new Set<string>(dagRader.flatMap(d => [
       ...(d.objekt_id ? [String(d.objekt_id)] : []),
       ...((aoByArb.get(d.id) || []).map(r => r.objekt_id).filter(Boolean).map(String)),
     ])));
     try { kmKoord = await hamtaObjektKoordinater(supabase, autoIds); } catch { kmKoord = {}; }
   }
+  // Hemmets koordinat per förare (för att räkna fram vad appen hade fått där km är förarens egen).
+  const hemPerMed = new Map<string, { lat: number | null; lng: number | null }>(
+    ((medRes.data || []) as any[]).map(m => [m.id, { lat: m.hem_lat != null ? Number(m.hem_lat) : null, lng: m.hem_lng != null ? Number(m.hem_lng) : null }]),
+  );
+  // Routing kan ge ett anrop mot ORS första gången en sträcka räknas (resultatet cachas i route_cache, som nattjobbet och månadsvyn). Högst så här
+  // många per körning: resten visas utan appens värde tills sträckan är cachad, så en granskning av ett helt år aldrig blir en storm mot ORS.
+  let orsBudget = 20;
   const extraMinPerDag = new Map<string, number>(); // `${med}|${datum}` → min
   const extraPerDag = new Map<string, any[]>();       // `${med}|${datum}` → perioder (för perioddagens rad)
   for (const e of (extraRes.data || []) as any[]) {
@@ -484,11 +493,25 @@ export async function beraknaLoneunderlag(
     const km = Number(d.km_totalt || 0);
     const kmKalla: LoneunderlagDag["km_kalla"] = d.km_kalla === "auto" || d.km_kalla === "forare" ? d.km_kalla : null;
     let kmRutt: LoneunderlagDag["km_rutt"] = null;
-    if (p.medMaskintid && kmKalla === "auto" && Number(d.km_morgon || 0) + Number(d.km_kvall || 0) > 0) {
-      const platser = dagensPlatser(ao.map(r => ({ objekt_id: r.objekt_id, ordning: r.ordning })), [d.objekt_id], kmKoord);
+    if (p.medMaskintid) {
+      const aoRader = ao.map(r => ({ objekt_id: r.objekt_id, ordning: r.ordning }));
+      const namn = (id: string) => objNamn.get(id) || ao.find(r => String(r.objekt_id) === id)?.objekt_namn || id;
+      // Trakterna med koordinat är dem kmräkningen använde; saknas koordinat helt visas ändå första och sista trakten.
+      let platser = dagensPlatser(aoRader, [d.objekt_id], kmKoord);
+      if (platser.length === 0) platser = dagensObjektOrdnat(aoRader, [d.objekt_id]);
       if (platser.length > 0) {
-        const namn = (id: string) => objNamn.get(id) || ao.find(r => String(r.objekt_id) === id)?.objekt_namn || id;
-        kmRutt = { forsta: namn(platser[0]), sista: namn(platser[platser.length - 1]) };
+        kmRutt = { forsta: namn(platser[0]), sista: namn(platser[platser.length - 1]), appen: null };
+        const hem = hemPerMed.get(d.medarbetare_id);
+        if (kmKalla === "forare" && hem?.lat != null && hem?.lng != null) {
+          try {
+            const ber = await berakaDagKm(supabase, { aoRader, fallbackObjektId: [d.objekt_id], koordMap: kmKoord, hemLat: hem.lat, hemLng: hem.lng, allowOrs: orsBudget > 0 });
+            // En haversine-gissning (källa 'fallback') är ingen routing: den visas aldrig som appens värde.
+            if (ber && ber.källa !== "fallback") {
+              orsBudget -= ber.orsAnrop;
+              kmRutt.appen = { morgon: ber.km_morgon, kvall: ber.km_kvall, totalt: ber.km_morgon + ber.km_kvall };
+            }
+          } catch { /* granskningsstöd: ingen routing, bara trakten */ }
+        }
       }
     }
     const rad: LoneunderlagDag = {
