@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassTidText, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
+import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
 import { lasLassId } from './url';
 
 const rad = (o: Partial<LassRad> = {}): LassRad => ({
@@ -86,5 +86,25 @@ describe('lasLassId — länken i notisen', () => {
     expect(lasLassId('?lass=<script>')).toBeNull();
     expect(lasLassId('?lass=')).toBeNull();
     expect(lasLassId('')).toBeNull();
+  });
+});
+
+describe('lassSamtidigaRader — "En flytt med X finns samma tid"', () => {
+  const namn = (id: string) => ({ A030353: 'Wisent', R64428: 'H8E -23' } as Record<string, string>)[id] ?? null;
+  const flytt = (o = {}) => ({ flytt_id: 'f1', maskin_id: 'R64428', extern_maskin: null, avbruten: false, skal: 'annan_plats' as const, ...o });
+  it('en rad per flytt, med maskinens visningsnamn', () => {
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt(), flytt({ flytt_id: 'f2', maskin_id: 'A030353' })] } }), namn))
+      .toEqual(['En flytt med H8E -23 finns samma tid', 'En flytt med Wisent finns samma tid']);
+  });
+  it('avbruten flytt säger det; maskin som inte är vår visar namnet den skrevs med; okänt namn blir "en maskin", aldrig ett maskin_id', () => {
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt({ avbruten: true, skal: 'avbruten' })] } }), namn)).toEqual(['En avbruten flytt med H8E -23 finns samma tid']);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt({ maskin_id: null, extern_maskin: 'Ponsse X' })] } }), namn)).toEqual(['En flytt med Ponsse X finns samma tid']);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [flytt({ maskin_id: 'OKAND_1' })] } }), namn)).toEqual(['En flytt med en maskin finns samma tid']);
+  });
+  it('inget bevis, ingen lista eller skräp i jsonb-kolumnen → inga rader, ingen krasch', () => {
+    expect(lassSamtidigaRader(rad({ bevis: null }), namn)).toEqual([]);
+    expect(lassSamtidigaRader(rad({ bevis: { km_osaker: false } }), namn)).toEqual([]);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: 'x' as any } }), namn)).toEqual([]);
+    expect(lassSamtidigaRader(rad({ bevis: { flytt_samma_tid: [null, 5, {}] as any } }), namn)).toEqual([]);
   });
 });

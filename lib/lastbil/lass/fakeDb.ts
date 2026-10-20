@@ -7,7 +7,7 @@ type Svar = { data: any; error: any };
 export class FakeDb {
   tabeller: Record<string, Rad[]> = {};
   rpcHandlers: Record<string, (args: any) => Svar | Promise<Svar>> = {};
-  anrop: { rpc: { namn: string; args: any }[]; upserts: { tabell: string; rader: Rad[] }[]; updates: { tabell: string; varden: Rad; traffade: number }[] } = { rpc: [], upserts: [], updates: [] };
+  anrop: { tabeller: string[]; rpc: { namn: string; args: any }[]; upserts: { tabell: string; rader: Rad[] }[]; updates: { tabell: string; varden: Rad; traffade: number }[] } = { tabeller: [], rpc: [], upserts: [], updates: [] };
   /** Tabeller vars läsning ska ge ett fel. */
   lasFel: Record<string, string> = {};
   private n = 0;
@@ -16,7 +16,7 @@ export class FakeDb {
 
   constructor(start: Record<string, Rad[]> = {}) { this.tabeller = JSON.parse(JSON.stringify(start)); }
 
-  from(tabell: string) { return new Fraga(this, tabell); }
+  from(tabell: string) { this.anrop.tabeller.push(tabell); return new Fraga(this, tabell); }
   async rpc(namn: string, args: any): Promise<Svar> {
     this.anrop.rpc.push({ namn, args });
     const h = this.rpcHandlers[namn];
@@ -30,6 +30,7 @@ class Fraga implements PromiseLike<Svar> {
   private filter: ((r: Rad) => boolean)[] = [];
   private ordning: { kol: string; stigande: boolean } | null = null;
   private gräns = Infinity;
+  private fran = 0;
   private handling: 'select' | 'upsert' | 'update' = 'select';
   private nya: Rad[] = [];
   private varden: Rad = {};
@@ -43,6 +44,9 @@ class Fraga implements PromiseLike<Svar> {
   eq(k: string, v: any) { this.filter.push(r => r[k] === v); return this; }
   in(k: string, v: any[]) { this.filter.push(r => v.includes(r[k])); return this; }
   gte(k: string, v: any) { this.filter.push(r => r[k] != null && jamfor(r[k], v) >= 0); return this; }
+  lt(k: string, v: any) { this.filter.push(r => r[k] != null && jamfor(r[k], v) < 0); return this; }
+  is(k: string, v: any) { this.filter.push(r => (v === null ? r[k] == null : r[k] === v)); return this; }
+  range(a: number, b: number) { this.fran = a; this.gräns = b - a + 1; return this; }
   lte(k: string, v: any) { this.filter.push(r => r[k] != null && jamfor(r[k], v) <= 0); return this; }
   not(k: string, op: string, v: any) { if (op === 'is' && v === null) this.filter.push(r => r[k] != null); return this; }
   order(kol: string, o?: { ascending?: boolean }) { this.ordning = { kol, stigande: o?.ascending !== false }; return this; }
@@ -64,7 +68,7 @@ class Fraga implements PromiseLike<Svar> {
       if (this.db.lasFel[this.tabell]) return { data: null, error: { message: this.db.lasFel[this.tabell] } };
       let ut = rader.filter(r => this.filter.every(f => f(r)));
       if (this.ordning) { const { kol, stigande } = this.ordning; ut = [...ut].sort((a, b) => (jamfor(a[kol], b[kol])) * (stigande ? 1 : -1)); }
-      return { data: ut.slice(0, this.gräns).map(r => ({ ...r })), error: null };
+      return { data: ut.slice(this.fran, this.fran + this.gräns).map(r => ({ ...r })), error: null };
     }
     if (this.handling === 'upsert') {
       const inlagda: Rad[] = [];

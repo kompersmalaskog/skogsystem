@@ -2832,6 +2832,29 @@ describe("Vilken maskin? — arket", () => {
     expect(skapaKnapp().disabled).toBe(false);
   });
 
+  it("ett historiskt lass med en flytt på samma tid säger det — 'En flytt med Wisent finns samma tid' — och hur man avvisar", async () => {
+    mock.lass = [LASS({ bevis: { km_osaker: false, historisk: true, flytt_samma_tid: [{ flytt_id: "f1", maskin_id: "A030353", extern_maskin: null, avbruten: false, skal: "annan_plats" }] } })];
+    await montera();
+    await klicka(saknarRad()!);
+    const not = lassArk()!.querySelector("[data-flytt-samma-tid]")!;
+    expect(not.textContent).toContain("En flytt med Wisent finns samma tid");
+    expect(not.textContent).toContain('välj "Det var ingen maskinflytt"');
+  });
+
+  it("en AVBRUTEN flytt på samma tid säger också det", async () => {
+    mock.lass = [LASS({ bevis: { km_osaker: false, flytt_samma_tid: [{ flytt_id: "f1", maskin_id: "A030353", extern_maskin: null, avbruten: true, skal: "avbruten" }] } })];
+    await montera();
+    await klicka(saknarRad()!);
+    expect(lassArk()!.querySelector("[data-flytt-samma-tid]")!.textContent).toContain("En avbruten flytt med Wisent finns samma tid");
+  });
+
+  it("ett lass utan flytt på samma tid har ingen sådan rad (cron-lassen skriver aldrig bevis.flytt_samma_tid)", async () => {
+    await montera();
+    await klicka(saknarRad()!);
+    expect(lassArk()!.querySelector("[data-flytt-samma-tid]")).toBeNull();
+    expect(lassArk()!.textContent).not.toContain("finns samma tid");
+  });
+
   it("en maskin som inte följde bilen står kvar i listan men märkt, och är inte förvald", async () => {
     await montera();
     await klicka(saknarRad()!);

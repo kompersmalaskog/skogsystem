@@ -7,7 +7,7 @@ import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, RAD, RADIE, TNUM, TYP } from '@/li
 import { lassFraga } from '@/lib/lastbil/lass/notis';
 import { avvisaLass, besvaraLass } from './besvara';
 import {
-  kravKundRuta, lassFakturerbar, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassTidText,
+  kravKundRuta, lassFakturerbar, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText,
   redanText, saknasForSvar, type LassRad, type SvarUtfall, type Val,
 } from './lass';
 import { useAktivaMaskiner, useEttLass, type MaskinVal } from './useSaknarMaskin';
@@ -56,6 +56,7 @@ function Svar({ rad, onStang, onKlar }: { rad: LassRad; onStang: () => void; onK
   const saknas = saknasForSvar(rad, val, externVald);
   const faktureras = lassFakturerbar(rad, externVald);
   const not = lassPlatsNot(rad);
+  const samtidiga = lassSamtidigaRader(rad, id => (maskiner.lage.lage === 'klar' ? maskiner.lage.maskiner.find(m => m.maskin_id === id)?.namn ?? null : null));
 
   const { forslag, andra } = useMemo(() => {
     if (maskiner.lage.lage !== 'klar') return { forslag: null as MaskinVal | null, andra: [] as MaskinVal[] };
@@ -117,6 +118,12 @@ function Svar({ rad, onStang, onKlar }: { rad: LassRad; onStang: () => void; onK
         <div style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{lassTidText(rad)} · {lassKmText(rad)}</div>
         {faktureras && <div style={{ ...TYP.meta, color: FARG.text2 }}>Över 30 km — flytten faktureras</div>}
         {not && <p style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.s}px 0 0` }}>{not}</p>}
+        {samtidiga.length > 0 && (
+          <div data-flytt-samma-tid style={{ margin: `${AVSTAND.s}px 0 0` }}>
+            {samtidiga.map((t, i) => <p key={i} style={{ ...TYP.meta, color: FARG.orange, margin: 0 }}>{t}</p>)}
+            <p style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 0` }}>Är det samma flytt: välj "Det var ingen maskinflytt".</p>
+          </div>
+        )}
       </div>
 
       {maskiner.lage.lage === 'laddar' && <Meddelande>Läser maskinerna …</Meddelande>}
