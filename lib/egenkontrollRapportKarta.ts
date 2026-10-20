@@ -24,6 +24,8 @@ export type MarkeringStil = {
   streck: number[] | null;
   /** Ytor man inte får köra in i ritas snedstreckade i gruppens färg (lib/ytaStil), som i appen. */
   snedstreck?: boolean;
+  /** Kraftledning: röd linje med mörk kant, stolpar och farosymbol (ritaKraftledning), som i appen. */
+  ledning?: boolean;
 };
 
 const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
@@ -32,6 +34,8 @@ const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
   stonewall: { etikett: 'Stenmur', farg: linjeFarg('stonewall') ?? FARG_NATUR, bredd: 1.6, streck: [2, 1] },
   nature: { etikett: 'Naturvård (linje)', farg: FARG_NATUR, bredd: 1.4, streck: [4, 2] },
   trail: { etikett: 'Stig', farg: '#8e8e93', bredd: 0.9, streck: [2, 2] },
+  // En egen ledning ritad som linje ser ut som Vidas Kraftledning: gruppens röd, kant, stolpar, farosymbol.
+  powerline: { etikett: 'Kraftledning', farg: FARG_FARA, bredd: 1.6, streck: null, ledning: true },
 };
 
 /** Zonens färg ur dess färggrupp. */

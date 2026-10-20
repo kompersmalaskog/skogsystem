@@ -9,7 +9,7 @@
 //
 // Vilka symboler som larmar avgörs av gruppen (lib/larm) — här finns bara utseendet och förklaringen.
 
-import { GRUPPER, SYMBOL_GRUPP, SYMBOL_NAMN, YTA, VIDA, type FargGrupp, type SymbolForm, type VidaSlag } from './larm/grupper';
+import { GRUPPER, LINJE_GRUPP, LINJE_NAMN, SYMBOL_GRUPP, SYMBOL_NAMN, YTA, VIDA, type FargGrupp, type SymbolForm, type VidaSlag } from './larm/grupper';
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Former (viewBox 0 0 48 48, vit kant 3)
@@ -137,6 +137,37 @@ export const VIDA_FORKLARING: Readonly<Record<VidaSlag, string>> = {
   raa_punkt: 'Fornlämning (RAÄ) – lagskyddad, håll avstånd.',
 };
 export const LINJE_FORKLARING: Readonly<Record<string, string>> = { stonewall: 'Stenmur – kör inte över, fäll inte på den.' };
+
+/**
+ * KORTET FÖR EN LINJE (tryck på en linje på kartan): namn, grupp och EN mening — samma uppbyggnad som för symboler och ytor. Stenmur och Vidas Kraftledning
+ * har en riktig grupp (Kultur resp. Fara, ur lib/larm/grupper) och en mening ur teckenförklaringens tabeller. Övriga linjer (basväg, stickväg, dike, stig,
+ * traktgräns, naturvård) är snitselfärger i skogen: de ritas i sin egen färg och hör inte till larmet, men får ändå ett kort — gruppen är då Info
+ * (Naturvård: Natur). Gruppen på kortet ändrar aldrig linjens färg eller larmet.
+ */
+export interface LinjeKort { namn: string; grupp: FargGrupp; forklaring: string }
+const LINJE_KORT_OVRIGA: Readonly<Record<string, LinjeKort>> = {
+  mainRoad: { namn: 'Basväg', grupp: 'info', forklaring: 'Basväg – huvudväg för maskiner och lastbil.' },
+  sideRoadRed: { namn: 'Stickväg', grupp: 'info', forklaring: 'Stickväg – här går maskinen in i beståndet.' },
+  sideRoadYellow: { namn: 'Stickväg', grupp: 'info', forklaring: 'Stickväg – här går maskinen in i beståndet.' },
+  sideRoadBlue: { namn: 'Stickväg', grupp: 'info', forklaring: 'Stickväg – här går maskinen in i beståndet.' },
+  boundary: { namn: 'Traktgräns', grupp: 'info', forklaring: 'Traktgräns – avverkningen stannar vid linjen.' },
+  nature: { namn: 'Naturvård', grupp: 'natur', forklaring: 'Naturvårdslinje – hänsyn, kör och fäll varsamt.' },
+  ditch: { namn: 'Dike', grupp: 'info', forklaring: 'Dike – korsa med försiktighet.' },
+  trail: { namn: 'Stig / Led', grupp: 'info', forklaring: 'Stig eller led – ingen körväg.' },
+};
+/** Alla linjetyper som kan ritas (egna): varje en har ett kort. Vakt: lib/linjeKort.test.ts läser kartstilens och sidans linjelistor. */
+export const LINJE_KORT_TYPER: readonly string[] = ['stonewall', ...Object.keys(LINJE_KORT_OVRIGA)];
+export function linjeKort(lineType: string | null | undefined): LinjeKort {
+  const t = lineType ?? '';
+  if (t in LINJE_GRUPP) return { namn: LINJE_NAMN[t] ?? 'Linje', grupp: LINJE_GRUPP[t], forklaring: LINJE_FORKLARING[t] ?? '' };
+  return LINJE_KORT_OVRIGA[t] ?? { namn: 'Linje', grupp: 'info', forklaring: '' };
+}
+/** Vidas linjer (objekt_geometri, lagret L_TILLAGGSLINJER): Kraftledning = Fara; allt annat är en basväg ur Vidas data = Info. `flbeskr` = Vidas egen beskrivning. */
+export function vidaLinjeKort(flbeskr: string | null | undefined): LinjeKort & { slag: 'kraftledning' | 'basvag' } {
+  const beskr = (flbeskr ?? '').trim();
+  if (/kraftled/i.test(beskr)) return { slag: 'kraftledning', namn: VIDA.kraftledning.namn, grupp: VIDA.kraftledning.grupp, forklaring: VIDA_FORKLARING.kraftledning };
+  return { slag: 'basvag', namn: beskr || 'Basväg', grupp: 'info', forklaring: LINJE_KORT_OVRIGA.mainRoad.forklaring };
+}
 
 /** Gruppens korta rad i teckenförklaringen: vad färgen och formen betyder. */
 export const GRUPP_FORKLARING: Readonly<Record<FargGrupp, string>> = {

@@ -24,6 +24,8 @@ import {
   ritaPilIkon, zoomKurva,
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
+import { symbolDef } from './symboler';
+import { MAPLIBRE_SPACING_FAKTOR, KRAFTLEDNING_KANT_EXTRA, KRAFTLEDNING_STOLPE_AVSTAND_PX, KRAFTLEDNING_STOLPE_BILD, KRAFTLEDNING_SYMBOL_AVSTAND_PX, kraftledningLager } from './kartstil';
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
 
 // Radslut normaliseras: filen kan ha CRLF pa Windows och LF pa Vercel, och
@@ -240,5 +242,54 @@ describe('basvagsnumret', () => {
 describe('zoomKurva ar den enda kurvbyggaren', () => {
   it('ger exakt formen planeringen skriver for hand', () => {
     expect(zoomKurva([[5, 3], [8, 4]])).toEqual(['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4]);
+  });
+});
+
+describe('kraftledningen ser ut som en ledning (kraftledningLager)', () => {
+  const lager = kraftledningLager('trakt-geo-source', 'trakt-kraftledning', ['==', ['get', 'x'], 1], false);
+  const id = (s: string) => lager.find((l: any) => l.id === `trakt-kraftledning-${s}`);
+  it('fyra lager, underst till överst: kant, linje, stolpar, farosymbol — och de startar dolda när sidan tänder dem', () => {
+    expect(lager.map((l: any) => l.id)).toEqual(['trakt-kraftledning-casing', 'trakt-kraftledning-line', 'trakt-kraftledning-stolpar', 'trakt-kraftledning-symbol']);
+    for (const l of lager) { expect(l.layout.visibility).toBe('none'); expect(l.filter).toEqual(['==', ['get', 'x'], 1]); }
+    expect(kraftledningLager('k', 'p', null).every((l: any) => l.layout.visibility === 'visible' && !('filter' in l))).toBe(true);
+  });
+  it('röd linje (gruppens röd) med mörk kant som är bredare än linjen — heldragen', () => {
+    expect(id('line').paint['line-color']).toBe(FARG_FARA);
+    expect(id('line').paint).not.toHaveProperty('line-dasharray');
+    expect(id('casing').paint['line-color']).toBe(KANT_SVART_STARK);
+    const bredd = (l: any) => (l.paint['line-width'] as any[]).filter((_, i) => i >= 3 && i % 2 === 0);
+    bredd(id('line')).forEach((w, i) => expect(bredd(id('casing'))[i]).toBeCloseTo(w + KRAFTLEDNING_KANT_EXTRA, 3));
+  });
+  it('stolpar: ett tvärstreck vinkelrätt mot linjen ungefär var 40:e px (symbol-placement line, kartans rotation)', () => {
+    const l = id('stolpar');
+    expect(l.type).toBe('symbol');
+    expect(l.layout['symbol-placement']).toBe('line');
+    expect(KRAFTLEDNING_STOLPE_AVSTAND_PX).toBe(40);   // målet på skärmen; MapLibre ritar ~1,2 × det inställda värdet (kalibrerat, se kartstil)
+    expect(l.layout['symbol-spacing']).toBe(Math.round(40 / MAPLIBRE_SPACING_FAKTOR));
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeGreaterThan(38);
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeLessThan(42);
+    expect(l.layout['icon-image']).toBe(KRAFTLEDNING_STOLPE_BILD);
+    expect(l.layout['icon-rotation-alignment']).toBe('map');   // ikonens x-axel följer linjen; stapeln är lodrät i bilden → vinkelrät mot linjen
+    expect(l.layout['icon-allow-overlap']).toBe(true);
+  });
+  it('farosymbolen (röd triangel med blixt, ur symbolkällan) upprepad ungefär var 250:e px, upprätt', () => {
+    const l = id('symbol');
+    expect(l.layout['symbol-placement']).toBe('line');
+    expect(KRAFTLEDNING_SYMBOL_AVSTAND_PX).toBe(250);
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeGreaterThan(245);
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeLessThan(255);
+    expect(l.layout['icon-image']).toBe('marker-powerline');
+    expect(l.layout['icon-rotation-alignment']).toBe('viewport');
+    expect(symbolDef('powerline')).toMatchObject({ form: 'triangel', farg: FARG_FARA });
+  });
+  it('sidan ritar Vidas kraftledning med EXAKT den här funktionen (ingen egen, streckad variant kvar), och en ledning är ett undantag från zoom-klippet', () => {
+    const sida = readFileSync('app/planering/page.tsx', 'utf8');
+    expect(sida).toContain("kraftledningLager('trakt-geo-source', 'trakt-kraftledning'");
+    expect(sida).not.toMatch(/id: 'trakt-kraftledning-line', type: 'line'/);
+    expect(sida).toContain('ritaStolpeIkon()');
+    const symbolZoom = readFileSync('lib/symbolZoom.ts', 'utf8');
+    expect(symbolZoom).toContain("'trakt-kraftledning-stolpar'");
+    expect(symbolZoom).toContain("'trakt-kraftledning-symbol'");
+    for (const l of ['casing', 'line', 'stolpar', 'symbol']) expect(sida).toContain("`trakt-kraftledning-${l}`");   // tänds/släcks med Kör & fara
   });
 });

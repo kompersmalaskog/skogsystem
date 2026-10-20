@@ -56,9 +56,9 @@ describe('Vad betyder kartan: bara det som finns på trakten', () => {
 });
 
 describe('Vidas kraftledning och RAÄ-punkt får en bild som matchar kartan', () => {
-  it('kraftledningen är en streckad linje i Fara; RAÄ-punkten en Kulturlämning-symbol; ytorna är ytor', () => {
+  it('kraftledningen är en LEDNING (linje) i Fara; RAÄ-punkten en Kulturlämning-symbol; ytorna är ytor', () => {
     const r = byggTeckenforklaring({ vida: ['kraftledning', 'raa_punkt', 'hansynsyta'] }).flatMap((g) => g.rader);
-    expect(r.find((x) => x.nyckel === 'vida:kraftledning')).toMatchObject({ slag: 'linje', streckad: true, grupp: 'fara' });
+    expect(r.find((x) => x.nyckel === 'vida:kraftledning')).toMatchObject({ slag: 'linje', ledning: true, grupp: 'fara' });
     expect(r.find((x) => x.nyckel === 'vida:raa_punkt')).toMatchObject({ slag: 'symbol', typ: 'culturemonument', grupp: 'kultur' });
     expect(r.find((x) => x.nyckel === 'yta:protected')).toMatchObject({ slag: 'yta', forbjuden: true });   // Vidas hänsynsyta = vår Hänsyn
   });

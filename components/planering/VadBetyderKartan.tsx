@@ -40,8 +40,23 @@ export function ForklaringBild({ rad }: { rad: ForklaringRad }) {
       </span>
     );
   }
+  if (rad.slag === 'linje' && rad.ledning) {
+    // Kraftledningen som på kartan: röd linje med mörk kant, korta stolpar (tvärstreck) och farosymbolen (triangel med blixt) — samma bild ur symbolkällan.
+    return (
+      <span aria-hidden="true" data-bild="linje" data-ledning="ja" style={{ position: 'relative', width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <span style={{ position: 'absolute', left: 0, right: 0, height: 8, borderRadius: RADIE.cirkel, background: KANT_SVART_STARK }} />
+        <span style={{ position: 'absolute', left: 1, right: 1, height: 4, borderRadius: RADIE.cirkel, background: farg }} />
+        {[0.12, 0.88].map((x) => (
+          <span key={x} data-stolpe="ja" style={{ position: 'absolute', left: `${x * 100}%`, width: 6, height: 20, marginLeft: -3, borderRadius: 2, background: KANT_SVART_STARK, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <span style={{ width: 2.5, height: 16, background: farg }} />
+          </span>
+        ))}
+        <span data-farosymbol="ja" style={{ position: 'absolute', left: '50%', marginLeft: -9, top: BILD / 2 - 9, display: 'flex' }}><SymbolIkon typ="powerline" storlek={18} /></span>
+      </span>
+    );
+  }
   if (rad.slag === 'linje') {
-    return <span aria-hidden="true" data-bild="linje" style={{ width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center' }}><span style={{ width: '100%', height: 0, borderTop: `3px ${rad.streckad ? 'dashed' : 'solid'} ${farg}`, borderRadius: RADIE.cirkel }} /></span>;
+    return <span aria-hidden="true" data-bild="linje" style={{ width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center' }}><span style={{ width: '100%', height: 0, borderTop: `3px solid ${farg}`, borderRadius: RADIE.cirkel }} /></span>;
   }
   const streck = rad.forbjuden
     ? { backgroundImage: `repeating-linear-gradient(135deg, ${farg} 0 2px, transparent 2px 6px)`, backgroundSize: `${SNEDSTRECK_PX}px ${SNEDSTRECK_PX}px` }

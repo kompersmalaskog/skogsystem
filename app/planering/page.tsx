@@ -63,7 +63,7 @@ import { useVidaLagerFel } from '../../lib/hooks/useVidaLagerFel'
 import { useGrind } from '../../lib/hooks/useGrind'
 import { GRIND_TYP, rensaGrindKod } from '../../lib/grind'
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, gruppForLinje, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
-import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring } from '../../lib/symboler'
+import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort } from '../../lib/symboler'
 import { SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
 import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
@@ -107,7 +107,8 @@ import { basvagSammanfattning, basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_F
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
 import { BackvagVal } from '../../components/planering/BackvagVal'
 import { arVagTyp, backvagFeature, lasBackvag, medBackvag, BACKVAG_FORVALD_ANDE, BACKVAG_STRECK_FARGER, type Backvag } from '../../lib/backvag'
-import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck } from '../../lib/kartstil'
+import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck, kraftledningLager, ritaStolpeIkon, KRAFTLEDNING_STOLPE_BILD } from '../../lib/kartstil'
+import { LINJE_TRAFF_PX, narmasteLinje, linjeAtgard, VIDA_LINJE_TRAFFLAGER, EGNA_LINJER_TRAFFLAGER } from '../../lib/linjeTryck'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
@@ -816,6 +817,7 @@ export default function PlannerPage() {
   // sparPagarRef = en merge skriver just nu; upptagenRef = handen ritar/placerar (uppdateras av effekt nedan). Är något av dem sant → skjut upp.
   const sparPagarRef = useRef(false);
   const upptagenRef = useRef(false);
+  const oppnaVidaLinjeRef = useRef<((props: any) => void) | null>(null);   // öppnar kortet för en tryckt Vida-linje (sätts av trakt-kort-effekten; används av linje-trycket)
   const ritlageRef = useRef(false);                          // Rita linje/Rita yta pågår (typ vald): ett tryck är en PUNKT — inget Vida-ytkort ska öppnas
 
   // Markeringar: lokalt först, kö mot servern, hämtning som sammanfogas med det som väntar (lib/hooks/useMarkeringarSynk — laddning, hämta om, spara, radera,
@@ -1050,7 +1052,7 @@ export default function PlannerPage() {
     const kort: TraktKort = {
       kategori: 'omrade', arealHa: null, rader: [],
       rubrik: nr != null ? `Område ${nr}` : 'Traktgräns',   // titeln räknas live i kortet (följer numret vid ändring)
-      kalla, nr: '',
+      kalla, nr: '', grupp: linjeKort('boundary').grupp, forklaring: linjeKort('boundary').forklaring,
     };
     const nyckel = 'omrade:' + marker.id;
     featureClickedRef.current = true;
@@ -1574,7 +1576,8 @@ export default function PlannerPage() {
     }
 
     // === Line hitbox layer ===
-    map.addLayer({ id: 'line-hitbox', type: 'line', source: 'lines-source', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 20 } });
+    // Osynlig träffyta: LINJE_TRAFF_PX (44 px) bred oavsett hur tunn linjen ritas (lib/linjeTryck).
+    map.addLayer({ id: 'line-hitbox', type: 'line', source: 'lines-source', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': LINJE_TRAFF_PX } });
 
     // KÖRVY emphasis: vit halo under linjer inom 200m, 2× width. Default dold.
     try {
@@ -1828,8 +1831,15 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-basvag-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['!', ['in', 'kraftled', FLB]]], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#a16207'], 'line-width': 4 }, layout: { visibility: 'none', 'line-cap': 'round' } });
     // UNDANTAG: kraftledning använder INTE _farg. VIDA:s TColor för TYP 37 är SVART (rgb(0,0,0)),
     // och ett svart streck på gråskalig bakgrund i solljus är oläsbart — och det är den enda
-    // linjen som kan döda någon. Alltid röd streckad. Ändra inte till _farg.
-    map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': FARG_FARA, 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
+    // linjen som kan döda någon. Alltid gruppens röd. Ändra inte till _farg.
+    // Ser ut som en LEDNING (lib/kartstil kraftledningLager): röd linje med mörk kant, korta stolpar (tvärstreck) var ~40:e px och farosymbolen
+    // (triangel med blixt, bilden marker-powerline) var ~250:e px. Samma funktion ritar en egen ledning som linje.
+    try {
+      if (!map.hasImage(KRAFTLEDNING_STOLPE_BILD)) { const b = canvasToMapLibreImage(ritaStolpeIkon()); if (b) map.addImage(KRAFTLEDNING_STOLPE_BILD, b); }
+    } catch (e) { console.error('[MapLibre] kraftledning-stolpe:', e); }
+    for (const l of kraftledningLager('trakt-geo-source', 'trakt-kraftledning', ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], false)) map.addLayer(l);
+    // Träffyta för ALLA Vidas linjer (kraftledning + basväg): osynlig, LINJE_TRAFF_PX bred — samma som egna linjer. Tänds/släcks med Kör & fara.
+    map.addLayer({ id: 'trakt-linje-hit', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'linje'], paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': LINJE_TRAFF_PX }, layout: { visibility: 'none' } });
     // Kör & fara — punkter, ENDAST avlägg. Vidas avlägg ritas med VÅR avläggssymbol (samma bild som ett eget avlägg, `marker-landing`) och behåller Vidas nummer som etikett
     // (EXTRA_LABE); att de kommer från Vida syns bara i kortet vid tryck, aldrig på kartan. Larmkoordinaten ritas av det befintliga larm-pin-lagret (rött, överst) —
     // vi ritar INTE en dubblett här, därför filtrerar vi bort larm (['!', ['in','larm',FLB]]). Avlägget ligger ofta ~3 m från larmet: avläggssymbolen är en mörk
@@ -4882,7 +4892,8 @@ export default function PlannerPage() {
     set('trakt-raa-point', !!overlays.traktLamning);
     // Kör & fara: basväg + kraftledning + punkter (avlägg/larm) i samma lager.
     set('trakt-basvag-line', !!overlays.korFara);
-    set('trakt-kraftledning-line', !!overlays.korFara);
+    for (const l of ['casing', 'line', 'stolpar', 'symbol']) set(`trakt-kraftledning-${l}`, !!overlays.korFara);
+    set('trakt-linje-hit', !!overlays.korFara);
     set('trakt-punkt-circle', !!overlays.korFara);
     set('trakt-punkt-label', !!overlays.korFara);
   }, [overlays.hansyn, overlays.korFara, overlays.traktNyckelbiotop, overlays.traktLamning, mapLibreReady, geoTyper]);
@@ -6169,7 +6180,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const LAGER = [
-      'trakt-punkt-circle', 'trakt-raa-point', 'trakt-basvag-line', 'trakt-kraftledning-line',
+      'trakt-punkt-circle', 'trakt-raa-point',   // Vidas LINJER (kraftledning, basväg) trycks via linje-trycket (nedan, närmaste linje vinner), inte här
       'trakt-raa-line', 'trakt-hansyn-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill',
     ];
     // Öppna trakt-kortet (bottom sheet) + ladda ev. sparad anteckning (via ref → aldrig stale).
@@ -6182,6 +6193,11 @@ export default function PlannerPage() {
       setAnteckningUtkast(nyckel ? (anteckningarRef.current[nyckel]?.text || '') : '');
       setAnteckningSkrivlage(false);
       setTraktKortSvepY(0);
+    };
+    // Vidas LINJER (kraftledning, basväg): kortet öppnas av linje-trycket (närmaste linje vinner, egna och Vidas tillsammans) via den här.
+    oppnaVidaLinjeRef.current = (props: any) => {
+      const k = vidaLinjeKort(props?.FLBESKR);
+      oppnaKort({ kategori: 'linje', kalla: 'Vida', rubrik: k.namn, nr: '', arealHa: null, rader: [], grupp: k.grupp, forklaring: k.forklaring }, null, null);
     };
     // Öppna en Vida-traktdels ytkort utifrån dess partKey — delas av tryck-på-ytan (onKlick)
     // och tryck-på-numret (yta-nr-hit). Samma kort, en källa.
@@ -6289,6 +6305,7 @@ export default function PlannerPage() {
       map.off('click', 'yta-nr-hit', onYtaNrKlick);
       map.off('mouseenter', 'yta-nr-hit', onEnter);
       map.off('mouseleave', 'yta-nr-hit', onLeave);
+      oppnaVidaLinjeRef.current = null;
     };
   }, [mapLibreReady, larmPlacering]);
 
@@ -6882,25 +6899,31 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
+    // ALLA linjer (egna och Vidas) trycks här: träffytan är LINJE_TRAFF_PX (44 px) bred oavsett hur tunn linjen ritas, och när flera ligger under fingret
+    // vinner den NÄRMASTE (lib/linjeTryck — avstånd i skärmpixlar till själva linjen, högst 22 px). En egen linje öppnar markörkortet/ytkortet, en Vida-linje
+    // (Kraftledning, basväg) trakt-kortet. EN lyssnare på hela kartan (inte per lager) så att trycket aldrig hanteras två gånger.
     const onLineClick = (e: any) => {
       if (isDrawMode || isZoneMode || risaMarkMode || skotningDrawing || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;   // tryck = mätpunkt / symbolplacering, inget kort
+      if (ritlageRef.current || omradeRitningRef.current || larmPlacering) return;
       // Prioritet (lib/klickPrioritet): larm > ytnummer > punkt > LINJE > yta. Ligger trycket på något
       // högre (symbol/pil/hög/ytnummer) → avstå. Linjen träffas lätt av misstag längs hela sträckningen.
       if (vinnandeKategoriForKarta(map, e.point) !== 'linje') return;
-      if (e.features && e.features.length > 0) {
-        const featureId = e.features[0].properties.id;
-        const marker = markers.find(m => String(m.id) === String(featureId));
-        if (!marker) return;
-        // Snitsel-KARTLÄGET: tryck på en stickväg = mät mot DEN (lås). Otvetydigt val när det är trångt.
-        // Tryck igen på samma → tillbaka till auto.
-        if (stickvagMode && snitselKarta && marker.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(marker.lineType || '')) {
-          setMatVagId(prev => prev === String(marker.id) ? null : String(marker.id));
-          return;
-        }
-        // Egna områden/traktgränser (boundary) → SAMMA yt-kort som Vida-bitarna (ett kort, inte två).
-        if (marker.isLine && marker.lineType === 'boundary') { oppnaGranskort(marker); return; }
-        setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
-      }
+      const lager = [EGNA_LINJER_TRAFFLAGER, VIDA_LINJE_TRAFFLAGER].filter((l) => map.getLayer(l));
+      const traffar = lager.length ? map.queryRenderedFeatures(e.point, { layers: lager }) : [];
+      const vald = narmasteLinje(
+        { x: e.point.x, y: e.point.y },
+        traffar.map((f: any) => ({ geometri: f.geometry, data: f })),
+        (lng, lat) => map.project([lng, lat]),
+      );
+      if (!vald) return;
+      const atgard = linjeAtgard(vald.kandidat.data as any, markers, { stickvagMode, snitselKarta });
+      if (!atgard) return;
+      if (atgard.typ === 'vida') { oppnaVidaLinjeRef.current?.(atgard.props); return; }
+      // Snitsel-KARTLÄGET: tryck på en stickväg = mät mot DEN (lås). Otvetydigt val när det är trångt. Tryck igen på samma → tillbaka till auto.
+      if (atgard.typ === 'stickvag-mat') { setMatVagId(prev => prev === String(atgard.marker.id) ? null : String(atgard.marker.id)); return; }
+      // Egna områden/traktgränser (boundary) → SAMMA yt-kort som Vida-bitarna (ett kort, inte två).
+      if (atgard.typ === 'granskort') { oppnaGranskort(atgard.marker); return; }
+      setMarkerMenuOpen(atgard.marker.id === markerMenuOpen ? null : atgard.marker.id);
     };
 
     const onZoneClick = (e: any) => {
@@ -6916,7 +6939,7 @@ export default function PlannerPage() {
       }
     };
 
-    map.on('click', 'line-hitbox', onLineClick);
+    map.on('click', onLineClick);
     map.on('click', 'zone-fill', onZoneClick);
 
     // Cursor change on hover (use container with !important to override MapLibre CSS)
@@ -6925,14 +6948,18 @@ export default function PlannerPage() {
     const onLeave = () => { if (!isDrawMode && !isZoneMode) container.style.removeProperty('cursor'); };
     map.on('mouseenter', 'line-hitbox', onEnter);
     map.on('mouseleave', 'line-hitbox', onLeave);
+    map.on('mouseenter', 'trakt-linje-hit', onEnter);
+    map.on('mouseleave', 'trakt-linje-hit', onLeave);
     map.on('mouseenter', 'zone-fill', onEnter);
     map.on('mouseleave', 'zone-fill', onLeave);
 
     return () => {
-      map.off('click', 'line-hitbox', onLineClick);
+      map.off('click', onLineClick);
       map.off('click', 'zone-fill', onZoneClick);
       map.off('mouseenter', 'line-hitbox', onEnter);
       map.off('mouseleave', 'line-hitbox', onLeave);
+      map.off('mouseenter', 'trakt-linje-hit', onEnter);
+      map.off('mouseleave', 'trakt-linje-hit', onLeave);
       map.off('mouseenter', 'zone-fill', onEnter);
       map.off('mouseleave', 'zone-fill', onLeave);
     };
@@ -14841,7 +14868,7 @@ export default function PlannerPage() {
       {traktInfo && (() => {
         const TYP_NAMN: Record<TraktKategori, string> = {
           traktdel: 'Traktdel', hansyn: 'Hänsynsyta', punkt: 'Avlägg',
-          nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', omrade: 'Område', ignorera: '',
+          nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', omrade: 'Område', linje: 'Linje', ignorera: '',
         };
         const typNamn = TYP_NAMN[traktInfo.kategori] || 'Trakt-objekt';
         // Numrerade ytor (hänsyn/traktdel/område): rubriken bär redan typ+nummer → undertexten = bara källan
@@ -14906,6 +14933,13 @@ export default function PlannerPage() {
                 <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{rubrikVisad}</div>
                 {kontext.length > 0 && (
                   <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', marginBottom: '16px' }}>{kontext.join(' · ')}</div>
+                )}
+                {/* Linjekort: gruppen och EN mening — samma uppbyggnad som symbolens och ytans kort, samma text som teckenförklaringen (lib/symboler) */}
+                {traktInfo.grupp && traktInfo.forklaring && (
+                  <div data-testid="trakt-forklaring" style={{ marginBottom: '18px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: traktInfo.grupp === 'info' ? '#EBEBF5' : GRUPPER[traktInfo.grupp].farg }}>{GRUPPER[traktInfo.grupp].namn}</div>
+                    <div style={{ fontSize: '15px', color: '#c7c7cc', marginTop: '6px', lineHeight: 1.4 }}>{traktInfo.forklaring}</div>
+                  </div>
                 )}
                 {/* Källans egen text (Vida/SKS/RAÄ) */}
                 {traktInfo.rader.length > 0 && (
@@ -15461,7 +15495,7 @@ export default function PlannerPage() {
                 const f = marker.isMarker
                   ? (() => { const d = symbolDef(marker.type); return { grupp: d.grupp, text: d.forklaring }; })()
                   : marker.isZone ? (() => { const y = ytaForklaring(marker.zoneType || ''); return y ? { grupp: y.grupp, text: y.forklaring } : null; })()
-                  : marker.isLine && marker.lineType === 'stonewall' ? { grupp: gruppForLinje('stonewall') ?? ('kultur' as const), text: LINJE_FORKLARING.stonewall }
+                  : marker.isLine ? (() => { const k = linjeKort(marker.lineType); return k.forklaring ? { grupp: k.grupp, text: k.forklaring } : null; })()
                   : null;
                 if (!f) return null;
                 return (

@@ -34,7 +34,7 @@ export const SYMBOL_LAGER: readonly string[] = [
 ];
 
 /** Symbollager som medvetet INTE klipps: verktyg (rita/mät), maskinens position, körvyns egen etikett (körvy-bara), skotarens avläggsrutor (körvy-bara, ska alltid synas), backvägens tvärstreck (en del av vägens linje, ska synas på alla zoomnivåer). Varje `type: 'symbol'`-lager i page.tsx måste stå i någon av listorna. */
-export const SYMBOL_UNDANTAG: readonly string[] = ['figur-etikett', 'hornedit-nr', 'maskin-symbol', 'markers-korvy-label', 'skotar-avlagg-ruta', 'line-backvag'];
+export const SYMBOL_UNDANTAG: readonly string[] = ['figur-etikett', 'hornedit-nr', 'maskin-symbol', 'markers-korvy-label', 'skotar-avlagg-ruta', 'line-backvag', 'trakt-kraftledning-stolpar', 'trakt-kraftledning-symbol'];
 
 const rad = (g: number) => (g * Math.PI) / 180;
 

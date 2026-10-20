@@ -73,4 +73,14 @@ describe('VadBetyderKartan', () => {
     expect(alla('teckenforklaring-grupp-').map((g) => g.dataset.testid)).toEqual(['teckenforklaring-grupp-kultur']);
     expect(q('teckenforklaring-rad-linje:stonewall')!.querySelector('[data-bild="linje"]')!.getAttribute('data-kant')).toBe('stark');
   });
+  it('Vidas Kraftledning visas som en LEDNING: röd linje med mörk kant, stolpar och farosymbolen (triangel med blixt)', () => {
+    visa([], ['kraftledning']);
+    const bild = q('teckenforklaring-rad-vida:kraftledning')!.querySelector<HTMLElement>('[data-bild="linje"]')!;
+    expect(bild.getAttribute('data-ledning')).toBe('ja');
+    expect(bild.querySelectorAll('[data-stolpe]').length).toBeGreaterThanOrEqual(2);
+    const symbol = bild.querySelector('[data-farosymbol] svg')!;
+    expect(symbol.getAttribute('data-form')).toBe('triangel');
+    expect(symbol.getAttribute('data-symbol')).toBe('powerline');
+    expect(bild.innerHTML).not.toContain('dashed');   // ingen streckad variant kvar
+  });
 });

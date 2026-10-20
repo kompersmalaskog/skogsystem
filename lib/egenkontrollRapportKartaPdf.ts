@@ -144,6 +144,7 @@ export function ritaKarta(
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'linje' || m.punkter.length < 2) continue;
     const st = markeringsStil('linje', m.typ); if (!st) continue;
+    if (st.ledning) { ritaKraftledning(lib, sida, m.punkter.map(ap), st.farg, st.bredd); continue; }
     // Stenmur: KRAFTIG mörk kant under gruppens färg (som på kartan) — ingen andra nyans.
     if (m.typ === 'stonewall') sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: lib.rgb(0.05, 0.05, 0.05), borderWidth: st.bredd + 2.2 });
     sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: hex(lib, st.farg), borderWidth: st.bredd, ...(st.streck ? { borderDashArray: st.streck } : {}) });
@@ -216,6 +217,44 @@ function ritaTvarstreck(lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number 
   sida.drawSvgPath(bana, { ...SVG, borderColor: farg, borderWidth: inre, borderLineCap: lib.LineCapStyle.Butt });
 }
 
+/** Punkter längs en polylinje (sidans pt) var `steg:e pt` med riktning (enhetsvektor) — första efter halva steget, så stolparna ligger jämnt fördelade. */
+export function punkterLangsLinje(pts: { x: number; y: number }[], steg: number): { x: number; y: number; dx: number; dy: number }[] {
+  const ut: { x: number; y: number; dx: number; dy: number }[] = [];
+  let kvar = steg / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L === 0) continue;
+    const dx = (b.x - a.x) / L, dy = (b.y - a.y) / L;
+    let t = kvar;
+    while (t <= L) { ut.push({ x: a.x + dx * t, y: a.y + dy * t, dx, dy }); t += steg; }
+    kvar = t - L;
+  }
+  return ut;
+}
+
+/**
+ * KRAFTLEDNINGEN i rapporten, som i appen (lib/kartstil kraftledningLager): gruppens röd med mörk kant, korta stolpar vinkelräta mot linjen och farosymbolen
+ * (triangel med blixt, ur symbolkällan) upprepad längs linjen. `pts` = sidans pt, toppbaserade. Avstånden är i pt (kartans 40 resp. 250 px motsvaras av
+ * ungefär 14 resp. 90 pt på en A4).
+ */
+export function ritaKraftledning(
+  lib: PdfLib, sida: PDFPage, pts: { x: number; y: number }[], farg: string, bredd: number,
+  val: { stolpeAvstand?: number; symbolAvstand?: number; symbolStorlek?: number } = {},
+): void {
+  if (pts.length < 2) return;
+  const SVG = { x: 0, y: SIDHOJD } as const;
+  const bana = `M ${pts.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ')}`;
+  sida.drawSvgPath(bana, { ...SVG, borderColor: lib.rgb(0.07, 0.07, 0.07), borderWidth: bredd + 1.6, borderLineCap: lib.LineCapStyle.Round });
+  sida.drawSvgPath(bana, { ...SVG, borderColor: hex(lib, farg), borderWidth: bredd, borderLineCap: lib.LineCapStyle.Round });
+  const halv = Math.max(3.2, bredd * 2.6);
+  for (const p of punkterLangsLinje(pts, val.stolpeAvstand ?? 14)) {
+    const nx = -p.dy, ny = p.dx;   // vinkelrätt mot linjen
+    ritaTvarstreck(lib, sida, SVG, [p.x - nx * halv, p.y - ny * halv, p.x + nx * halv, p.y + ny * halv], hex(lib, farg), bredd);
+  }
+  for (const p of punkterLangsLinje(pts, val.symbolAvstand ?? 90)) ritaSymbol(lib, sida, 'powerline', { x: p.x, y: p.y }, val.symbolStorlek ?? 9);
+}
+
 /** Symbolen i PDF:en: SAMMA form, kant och glyf som på kartan (lib/symboler) — vektor, så den är skarp i alla storlekar. `a` = mittpunkt, toppbaserad sidkoordinat. */
 export function ritaSymbol(lib: PdfLib, sida: PDFPage, typ: string, a: { x: number; y: number }, storlek: number): void {
   const d = symbolDef(typ);
@@ -276,6 +315,7 @@ export function ritaTeckenforklaring(
         sida.drawSvgPath(`M ${cx} ${mid - 3} L ${cx + PROV} ${mid - 3} L ${cx + PROV} ${mid + 3} L ${cx} ${mid + 3} Z`, { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.08 : 0.16, borderColor: hex(lib, st.farg), borderWidth: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
         if (st.snedstreck) ritaSnedstreck(lib, sida, [{ x: cx, y: mid - 3 }, { x: cx + PROV, y: mid - 3 }, { x: cx + PROV, y: mid + 3 }, { x: cx, y: mid + 3 }], st.farg, 3, 0.7);
       }
+      else if (st?.ledning) ritaKraftledning(lib, sida, [{ x: cx, y: mid }, { x: cx + PROV, y: mid }], st.farg, 1.1, { stolpeAvstand: 5, symbolAvstand: PROV, symbolStorlek: 6.5 });
       else if (st) sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, st.farg), borderWidth: Math.min(st.bredd, 2.2), ...(st.streck ? { borderDashArray: st.streck } : {}) });
     }
     sida.drawText(text, { x: cx + PROV + 4, y: SIDHOJD - cy - STORLEK * 0.78 - 0.5, size: STORLEK, font: fonter.normal, color: grå(70) });

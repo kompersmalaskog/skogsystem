@@ -4,7 +4,8 @@
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
 export type TraktKategori =
-  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'ignorera';
+  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'ignorera';
+//   'linje'  = Vidas linje (L_TILLAGGSLINJER: kraftledning, basväg) — byggs av lib/linjeKort, inte ur `_lager`-tabellen nedan.
 //   'omrade' = planerarens egna ritade område (planering_markeringar, ej objekt_geometri) — PR B.
 
 // _lager → kategori (+ källa). Allt som inte mappas → 'ignorera' (renderas/tappas inte).
@@ -49,6 +50,9 @@ export interface TraktKort {
   rubrik: string;
   nr: string;                    // Nr/löpnr/traktdelsnr (kontextrad)
   arealHa: number | null;
+  /** Linjekort (kategori 'linje'): gruppen (kicker) och EN mening — ur samma källa som teckenförklaringen (lib/symboler). */
+  grupp?: import('./larm/grupper').FargGrupp;
+  forklaring?: string;
   rader: { etikett?: string; text: string }[];   // beskrivande textfält (åtgärd / biotop / lämningsbeskrivning)
 }
 

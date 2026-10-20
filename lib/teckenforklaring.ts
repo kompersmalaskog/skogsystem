@@ -12,8 +12,8 @@ export const GRUPP_ORDNING: readonly FargGrupp[] = ['fara', 'natur', 'kultur', '
 export type ForklaringSlag = 'symbol' | 'yta' | 'linje';
 export interface ForklaringRad {
   nyckel: string;
-  /** linje: ritas streckad (kraftledningen) i stället för heldragen */
-  streckad?: boolean;
+  /** linje: ritas som en LEDNING (kraftledningen): röd med mörk kant, stolpar och farosymbol — som på kartan (lib/kartstil kraftledningLager) */
+  ledning?: boolean;
   slag: ForklaringSlag;
   /** symbol: symboltypen · yta: zoneType eller `vida:<slag>` · linje: lineType */
   typ: string;
@@ -58,7 +58,7 @@ const vidaRad = (slag: VidaSlag): ForklaringRad | null => {
   const d = VIDA[slag];
   const bas = { nyckel: `vida:${slag}`, namn: d.namn, forklaring: VIDA_FORKLARING[slag], grupp: d.grupp, forbjuden: d.forbjuden };
   // Kraftledningen är en linje (röd, streckad på kartan), RAÄ-punkten ritas som en Kulturlämning (en punkt i gruppen Kultur); övriga är ytor.
-  if (slag === 'kraftledning') return { ...bas, slag: 'linje', typ: slag, streckad: true };
+  if (slag === 'kraftledning') return { ...bas, slag: 'linje', typ: slag, ledning: true };
   if (slag === 'raa_punkt') return { ...bas, slag: 'symbol', typ: 'culturemonument' };
   return { ...bas, slag: 'yta', typ: `vida:${slag}` };
 };

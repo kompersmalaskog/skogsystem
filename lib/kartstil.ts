@@ -429,6 +429,59 @@ export function backvagStreckLager(kalla: string, prefix: string, filter?: any[]
 }
 
 // ---------------------------------------------------------------------------
+// KRAFTLEDNINGEN: ser ut som en ledning. Röd linje (gruppens röd) med mörk kant, korta STOLPAR (tvärstreck vinkelräta mot linjen) ungefär var 40:e px,
+// och farosymbolen (röd triangel med blixt, ur lib/symboler — bilden `marker-powerline`) upprepad ungefär var 250:e px. Vidas Kraftledning och en egen
+// ledning som linje ritas EXAKT likadant (samma funktion). Teckenförklaringen och A4 visar samma linje (VadBetyderKartan, egenkontrollRapportKartaPdf).
+// ---------------------------------------------------------------------------
+
+/** Önskat avstånd på SKÄRMEN (css-px) mellan två stolpar resp. två farosymboler. */
+export const KRAFTLEDNING_STOLPE_AVSTAND_PX = 40;
+export const KRAFTLEDNING_SYMBOL_AVSTAND_PX = 250;
+/**
+ * MapLibres `symbol-spacing` blir ~1,2 gånger så långt på skärmen som värdet säger (mätt 2026-10-20 i riktig MapLibre 5, DPR 1 och 2, flera zoomnivåer: 40 gav
+ * ~48 px mellan stolparna). Värdet som skickas till kartan delas därför med faktorn, så stolparna hamnar ungefär var 40:e px på skärmen.
+ */
+export const MAPLIBRE_SPACING_FAKTOR = 1.2;
+export const KRAFTLEDNING_STOLPE_SPACING = Math.round(KRAFTLEDNING_STOLPE_AVSTAND_PX / MAPLIBRE_SPACING_FAKTOR);
+export const KRAFTLEDNING_SYMBOL_SPACING = Math.round(KRAFTLEDNING_SYMBOL_AVSTAND_PX / MAPLIBRE_SPACING_FAKTOR);
+export const KRAFTLEDNING_BREDD: Stopp = [[5, 2], [8, 2.5], [11, 3], [13, 3.5], [15, 4], [17, 5]];
+/** Kanten är bredare än linjen med så här många px (kraftig, som Stenmurens). */
+export const KRAFTLEDNING_KANT_EXTRA = 3;
+export const KRAFTLEDNING_STOLPE_BILD = 'kraftledning-stolpe';
+/** Farosymbolens bild i kartan (samma som El-ledning-symbolen: form, glyf och färg ur symbolkällan). */
+export const KRAFTLEDNING_SYMBOL_BILD = 'marker-powerline';
+export const KRAFTLEDNING_STOLPE_STORLEK: Stopp = [[8, 0.5], [11, 0.6], [13, 0.7], [15, 0.85], [17, 1]];
+export const KRAFTLEDNING_SYMBOL_STORLEK: Stopp = [[8, 0.3], [11, 0.36], [13, 0.42], [15, 0.5], [17, 0.62]];
+
+/**
+ * Lagren för en kraftledning på `kalla` (ids `${prefix}-casing`, `-line`, `-stolpar`, `-symbol`; underst till överst). `filter` väljer ledningens features.
+ * `synlig` = false → lagren startar dolda (sidan tänder dem med övriga Kör & fara-lager). Stolpar och symboler är symbollager med `symbol-placement: line`
+ * (avståndet är i pixlar och följer inte zoomen, så stolparna ligger lika tätt på skärmen).
+ */
+export function kraftledningLager(kalla: string, prefix: string, filter: any[] | null, synlig = true): any[] {
+  const vis = { visibility: synlig ? 'visible' : 'none' } as const;
+  const bas = { source: kalla, ...(filter ? { filter } : {}) };
+  return [
+    { id: `${prefix}-casing`, type: 'line', ...bas, paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(KRAFTLEDNING_BREDD, 1, KRAFTLEDNING_KANT_EXTRA), 'line-opacity': 1 }, layout: { ...vis, 'line-cap': 'round', 'line-join': 'round' } },
+    { id: `${prefix}-line`, type: 'line', ...bas, paint: { 'line-color': FARG_FARA, 'line-width': zoomKurva(KRAFTLEDNING_BREDD) }, layout: { ...vis, 'line-cap': 'round', 'line-join': 'round' } },
+    {
+      id: `${prefix}-stolpar`, type: 'symbol', ...bas,
+      layout: {
+        ...vis, 'symbol-placement': 'line', 'symbol-spacing': KRAFTLEDNING_STOLPE_SPACING, 'icon-image': KRAFTLEDNING_STOLPE_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_STOLPE_STORLEK),
+        'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-keep-upright': false, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      },
+    },
+    {
+      id: `${prefix}-symbol`, type: 'symbol', ...bas,
+      layout: {
+        ...vis, 'symbol-placement': 'line', 'symbol-spacing': KRAFTLEDNING_SYMBOL_SPACING, 'icon-image': KRAFTLEDNING_SYMBOL_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_SYMBOL_STORLEK),
+        'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Ikoner (canvas) - kraver DOM, anropas bara fran webblasaren
 // ---------------------------------------------------------------------------
 
@@ -522,5 +575,31 @@ export function ritaBackvagStreck(farg: 'red' | 'yellow' | 'blue' | 'blagul', px
       ctx.fillRect(ix, iy, ilangd, inre);
     }
   }
+  return c;
+}
+
+/**
+ * Stolpen: ETT tvärstreck — vertikalt i bilden, och `symbol-placement: line` lägger ikonens x-axel längs linjen, så strecket står vinkelrätt mot ledningen.
+ * Gruppens röd med mörk kant (syns på flygfoto och på vit karta). Bilden är symmetrisk, så den behöver inte vändas.
+ */
+export function ritaStolpeIkon(farg: string = FARG_FARA, px = 40): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = px; c.height = px;
+  const ctx = c.getContext('2d');
+  if (!ctx) return c;
+  const s = px / 40;
+  const langd = 30 * s, tjock = 9 * s, inre = 4.5 * s;
+  const x0 = (px - tjock) / 2, y0 = (px - langd) / 2;
+  const rund = (x: number, y: number, w: number, h: number, r: number) => {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  };
+  ctx.fillStyle = KANT_SVART_STARK;
+  rund(x0, y0, tjock, langd, 2.5 * s); ctx.fill();
+  ctx.fillStyle = farg;
+  ctx.fillRect(x0 + (tjock - inre) / 2, y0 + 2 * s, inre, langd - 4 * s);
   return c;
 }

@@ -4,7 +4,7 @@ import { extractText, getDocumentProxy } from 'unpdf';
 import type { Egenkontroll } from './egenkontroll';
 import { byggRapport, type RapportIndata } from './egenkontrollRapport';
 import { skapaRapportPdf } from './egenkontrollRapportPdf';
-import { ritaKarta, ritaSnedstreck, ritaSymbol, ritaTeckenforklaring } from './egenkontrollRapportKartaPdf';
+import { punkterLangsLinje, ritaKarta, ritaKraftledning, ritaSnedstreck, ritaSymbol, ritaTeckenforklaring } from './egenkontrollRapportKartaPdf';
 import { FORM_PATH, symbolDef } from './symboler';
 
 const ll = (lat: number, lng: number) => ({ lat, lng });
@@ -107,5 +107,41 @@ describe('en hel rapport med symboler och ytor blir ett giltigt PDF och nämner 
     const s1 = (text as string[])[0].replace(/\s+/g, ' ');
     for (const namn of ['Kulturlämning', 'Grind', 'Jakttorn', 'Hänsyn']) expect(s1, namn).toContain(namn);
     expect(s1).not.toContain('Kulturstubbe');
+  });
+});
+
+describe('Kraftledningen i PDF:en: samma linje som i appen (mörk kant, röd, stolpar, farosymbol)', () => {
+  it('punkterLangsLinje: jämnt fördelade, med riktning, över flera segment', () => {
+    const p = punkterLangsLinje([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }], 20);
+    expect(p).toHaveLength(8);   // 150 pt långt, första vid 10, sedan var 20:e (10, 30 … 150)
+    expect(p[0]).toMatchObject({ x: 10, y: 0, dx: 1, dy: 0 });
+    expect(p[5]).toMatchObject({ x: 100, dy: 1 });
+    expect(punkterLangsLinje([{ x: 0, y: 0 }], 20)).toEqual([]);
+  });
+  it('ritas: mörk kantbana FÖRST (bredare), sedan röd linje, stolpar vinkelräta mot linjen, och farosymbolen (triangel med blixt)', async () => {
+    const { lib, sida, anrop } = await fake();
+    ritaKraftledning(lib, sida, [{ x: 100, y: 100 }, { x: 100, y: 300 }], '#FF453A', 1.6);   // lodrät linje
+    const banor = anrop.filter((a) => a.metod === 'drawSvgPath');
+    const kant = banor[0], linje = banor[1];
+    expect([kant.opt.borderColor.red, kant.opt.borderColor.green].every((c: number) => c < 0.1)).toBe(true);
+    expect(kant.opt.borderWidth).toBeGreaterThan(linje.opt.borderWidth);
+    expect([linje.opt.borderColor.red, linje.opt.borderColor.green, linje.opt.borderColor.blue].map((c: number) => +c.toFixed(3))).toEqual(hexRgb('#FF453A').map((c) => +c.toFixed(3)));
+    // stolpar: 200 pt / 14 pt ≈ 14 st, varje en mörk + en röd bana, VÅGRÄTA (vinkelräta mot den lodräta linjen): samma y i början och slut
+    const stolpar = banor.slice(2).filter((b) => /^M [\d.]+ [\d.]+ L [\d.]+ [\d.]+$/.test(b.arg));
+    expect(stolpar.length).toBeGreaterThanOrEqual(2 * 13);
+    for (const b of stolpar) { const [, x1, y1, x2, y2] = b.arg.match(/M ([\d.]+) ([\d.]+) L ([\d.]+) ([\d.]+)/)!.map(Number); expect(Math.abs(y1 - y2)).toBeLessThan(1e-6); expect(Math.abs(x1 - x2)).toBeGreaterThan(5); }
+    // farosymbolen: triangelns bana + blixtens glyf, ur symbolkällan
+    expect(banor.some((b) => b.arg === FORM_PATH.triangel)).toBe(true);
+    expect(banor.some((b) => b.arg === symbolDef('powerline').glyf)).toBe(true);
+  });
+  it('kartan ritar en egen ledning (lineType powerline) som ledning; teckenförklaringen har raden Kraftledning med samma linje', async () => {
+    const a = await fake();
+    const lager = { granser: [[ll(56, 15), ll(56.002, 15), ll(56.002, 15.004)]], stammar: [], pinnar: [], markeringar: [{ slag: 'linje' as const, typ: 'powerline', punkter: [ll(56.0005, 15.0005), ll(56.0015, 15.0025)] }] };
+    ritaKarta(a.lib, a.sida, { normal: a.font, fet: a.font }, RUTA, lager, (t) => t, {});
+    expect(a.anrop.some((c) => c.metod === 'drawSvgPath' && c.arg === FORM_PATH.triangel)).toBe(true);
+    const b = await fake();
+    ritaTeckenforklaring(b.lib, b.sida, { normal: b.font }, 48, 500, 499, [{ nyckel: 'linje:powerline', etikett: 'Kraftledning' }], (t: string) => t);
+    expect(b.anrop.some((c) => c.metod === 'drawSvgPath' && c.arg === FORM_PATH.triangel)).toBe(true);   // farosymbolen i provet
+    expect(b.anrop.some((c) => c.metod === 'drawText' && c.arg === 'Kraftledning')).toBe(true);
   });
 });
