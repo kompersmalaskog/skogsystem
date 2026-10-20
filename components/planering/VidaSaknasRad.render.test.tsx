@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VidaSaknasRad } from './VidaSaknasRad';
-import { lasVidaLager } from '@/lib/larm/vidaLager';
+import { arVidaVo, lasVidaLager } from '@/lib/larm/vidaLager';
 import { VIDA_FORSOK_MS, useVidaLagerFel } from '@/lib/hooks/useVidaLagerFel';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -17,11 +17,11 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { act(() => { rot?.unmount(); }); ruta?.remove(); rot = null; ruta = null; vi.useRealTimers(); });
 
 type Svar = { data: any; error: any };
-function Provkorning({ objektId, hamta }: { objektId: string; hamta: () => Promise<Svar> }) {
+function Provkorning({ objektId, hamta, vo = '11166440', forny }: { objektId: string; hamta: () => Promise<Svar>; vo?: string; forny?: () => Promise<unknown> }) {
   const vida = useVidaLagerFel(objektId);
   useEffect(() => {
     let avbruten = false;
-    void lasVidaLager(hamta).then((s) => { if (!avbruten) vida.rapportera(s.status); });
+    void lasVidaLager(hamta, { forvantas: arVidaVo(vo), forny }).then((s) => { if (!avbruten) vida.rapportera(s.status); });
     return () => { avbruten = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objektId, vida.forsok]);
@@ -51,8 +51,8 @@ describe('"Vidas lager saknas" — rad vid hämtfel', () => {
     expect(hamta).toHaveBeenCalledTimes(4);
     expect(rad()).not.toBeNull();
   });
-  it('ett hämtfel ser ALDRIG ut som "trakten har ingen geometri": ingen geometri (svar utan fel) ger ingen rad', async () => {
-    await montera(<Provkorning objektId="o1" hamta={async () => ({ data: null, error: null })} />);
+  it('ett P-VO-jobb utan geometri (svar utan fel) är "saknas" på riktigt: ingen rad', async () => {
+    await montera(<Provkorning objektId="o1" vo="P-1018" hamta={async () => ({ data: null, error: null })} />);
     expect(rad()).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(VIDA_FORSOK_MS * 3); });
     expect(rad()).toBeNull();
@@ -81,6 +81,33 @@ describe('"Vidas lager saknas" — rad vid hämtfel', () => {
   });
 });
 
+describe('tomt svar utan fel: Vida-trakt vs P-VO', () => {
+  const TOMT = async (): Promise<Svar> => ({ data: null, error: null });
+  it('numeriskt vo + tomt svar → raden syns (och består, med nytt försök)', async () => {
+    const hamta = vi.fn(TOMT);
+    await montera(<Provkorning objektId="o1" vo="11166440" hamta={hamta} />);
+    expect(rad()).not.toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(VIDA_FORSOK_MS); });
+    expect(hamta.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(rad()).not.toBeNull();
+  });
+  it('P-VO + tomt svar → ingen rad (tomt = saknas på riktigt)', async () => {
+    const hamta = vi.fn(TOMT);
+    await montera(<Provkorning objektId="o1" vo="P-1018" hamta={hamta} />);
+    expect(rad()).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(VIDA_FORSOK_MS * 3); });
+    expect(rad()).toBeNull();
+    expect(hamta).toHaveBeenCalledTimes(1);
+  });
+  it('numeriskt vo, utgången session: tomt → förnyas → geometri kommer → raden syns aldrig', async () => {
+    const hamta = vi.fn<() => Promise<Svar>>().mockResolvedValueOnce({ data: null, error: null }).mockResolvedValue(GEO);
+    const forny = vi.fn().mockResolvedValue({});
+    await montera(<Provkorning objektId="o1" vo="11166440" hamta={hamta} forny={forny} />);
+    expect(forny).toHaveBeenCalledTimes(1);
+    expect(rad()).toBeNull();
+  });
+});
+
 describe('sidan: kopplingen (källvakt)', () => {
   const sida = readFileSync(join(process.cwd(), 'app/planering/page.tsx'), 'utf8');
   it('hämtningen går genom lasVidaLager och fel rapporteras — det gamla "error || !fc" som slog ihop fel och saknas är borta', () => {
@@ -88,6 +115,9 @@ describe('sidan: kopplingen (källvakt)', () => {
     expect(sida).toContain('vidaFel.rapportera(svar.status)');
     expect(sida).not.toMatch(/if \(error \|\| !fc \|\|/);
     expect(sida).toContain('vidaFel.forsok');   // nytt försök är ett beroende för hämtningen
+    expect(sida).toContain('forvantas: arVidaVo((valtObjekt as any).vo_nummer)');   // Vida-trakt: tomt = fel; P-VO: tomt = saknas
+    expect(sida).toContain('forny: fornyaSessionVida');
+    expect(sida).toContain('skapaFornyare(() => supabase.auth.refreshSession())');
   });
   it('raden visas i körvyn och skotarläget (korvyActive), och larmkortet flyttas under den', () => {
     expect(sida).toMatch(/\{korvyActive && vidaFel\.fel && \(\s*<VidaSaknasRad/);

@@ -58,7 +58,7 @@ import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData
 import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
 import { VidaSaknasRad, VIDA_RAD_HOJD_PX } from '../../components/planering/VidaSaknasRad'
-import { lasVidaLager } from '../../lib/larm/vidaLager'
+import { arVidaVo, lasVidaLager, skapaFornyare } from '../../lib/larm/vidaLager'
 import { useVidaLagerFel } from '../../lib/hooks/useVidaLagerFel'
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
@@ -625,6 +625,9 @@ async function hamtaPlaneringsObjekt(id: string): Promise<HamtaObjektSvar<any>> 
 
 /** Den gula testbannerns höjd (utöver safe-area): rutan överst flyttas ner med lika mycket i testläget. */
 const TESTBANNER_HOJD_PX = 36;
+
+// Förnyar sessionen före nytt försök att hämta Vidas lager (en utgången session ger tomma rader utan fel). Spärrad: högst en förnyelse per minut.
+const fornyaSessionVida = skapaFornyare(() => supabase.auth.refreshSession())
 
 export default function PlannerPage() {
   // === OBJEKTVAL ===
@@ -4764,7 +4767,12 @@ export default function PlannerPage() {
       const forladdad = geoObjektId === valtObjekt.id ? taForladdadTraktGeo(valtObjekt.id) : null;
       // Tre svar, aldrig två (lib/larm/vidaLager): finns / saknas (svaret kom, ingen geometri) / fel (hämtningen misslyckades — då visas raden
       // "Vidas lager saknas …" och sidan försöker igen, `vidaFel.forsok`). Ett hämtfel får aldrig se ut som "trakten har ingen geometri".
-      const svar = await lasVidaLager(() => forladdad ?? supabase.from('objekt_geometri').select('geometri').eq('objekt_id', geoObjektId).maybeSingle());
+      // En Vida-trakt (numeriskt vo_nummer) har alltid traktgräns: tomt svar = fel (utgången session ger tomma rader UTAN fel), och sessionen förnyas före nytt försök.
+      // Ett P-VO-jobb (privat / väntar på Vida): tomt = saknas på riktigt, ingen rad.
+      const svar = await lasVidaLager(
+        () => forladdad ?? supabase.from('objekt_geometri').select('geometri').eq('objekt_id', geoObjektId).maybeSingle(),
+        { forvantas: arVidaVo((valtObjekt as any).vo_nummer), forny: fornyaSessionVida },
+      );
       if (avbruten) return;
       vidaFel.rapportera(svar.status);
       if (svar.status === 'fel') console.error('[Vidas lager] hämtning misslyckades:', svar.orsak);
