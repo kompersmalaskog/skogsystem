@@ -181,7 +181,7 @@ export async function raknaSortimentHistorik(): Promise<HistorikSortiment[] | nu
     const fran = new Date(serverNu() - 365 * 86_400_000).toISOString().slice(0, 10);
     const [opti, app] = await Promise.all([
       hamtaAlla<any>(() => supabase.from('fakt_lass_sortiment').select('id, sortiment_namn').gte('datum', fran) as any, 'id'),
-      hamtaAlla<any>(() => supabase.from('skotar_lass_sortiment').select('lass_id, del_nr, sortiment_nyckel, sortiment_namn') as any, ['lass_id', 'del_nr', 'sortiment_nyckel']),
+      hamtaAlla<any>(() => supabase.from('skotar_lass_sortiment').select('del_nr, sortiment_nyckel, sortiment_namn') as any, ['lass_id', 'del_nr', 'sortiment_nyckel']),
     ]);
     if (opti.error || app.error) return null;
     const per = new Map<string, HistorikSortiment>();
