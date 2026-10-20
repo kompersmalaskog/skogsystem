@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { SymbolIkon } from '@/components/SymbolIkon';
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
+import { KANT_SVART_STARK } from '@/lib/kartstil';
 import { GRUPPER } from '@/lib/larm/grupper';
 import { SNEDSTRECK_PX } from '@/lib/ytaStil';
 import { byggTeckenforklaring, type ForklaringRad, type TeckenMarkering } from '@/lib/teckenforklaring';
@@ -24,9 +25,21 @@ export interface VadBetyderKartanProps {
 const BILD = 40;
 
 /** Ytans bild: gruppens färg, heldragen kant; snedstreckad (som på kartan) när den är en yta man inte får köra in i. Linjen: en streckad/heldragen stapel. */
+/** Stenmurens kant i teckenförklaringen (px): kraftig, som på kartan. */
+const STENMUR_BILD_KANT_PX = 10;
+
 export function ForklaringBild({ rad }: { rad: ForklaringRad }) {
   if (rad.slag === 'symbol') return <SymbolIkon typ={rad.typ} storlek={BILD} />;
   const farg = GRUPPER[rad.grupp].farg;
+  if (rad.slag === 'linje' && rad.typ === 'stonewall') {
+    // Stenmuren som på kartan: gruppens färg, streckad som stenar på rad, med KRAFTIG mörk kant under — ingen andra nyans.
+    return (
+      <span aria-hidden="true" data-bild="linje" data-kant="stark" style={{ position: 'relative', width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <span style={{ position: 'absolute', left: 0, right: 0, height: STENMUR_BILD_KANT_PX, borderRadius: RADIE.cirkel, background: KANT_SVART_STARK }} />
+        <span style={{ position: 'absolute', left: 0, right: 0, height: 0, borderTop: `${STENMUR_BILD_KANT_PX - 4}px dashed ${farg}` }} />
+      </span>
+    );
+  }
   if (rad.slag === 'linje') {
     return <span aria-hidden="true" data-bild="linje" style={{ width: BILD, height: BILD, flexShrink: 0, display: 'flex', alignItems: 'center' }}><span style={{ width: '100%', height: 0, borderTop: `3px ${rad.streckad ? 'dashed' : 'solid'} ${farg}`, borderRadius: RADIE.cirkel }} /></span>;
   }

@@ -22,10 +22,11 @@ function kalleFiler(rot: string, ut: string[] = []): string[] {
 }
 
 describe('formen säger allvar', () => {
-  it('Röd (Fara) = rundad triangel, Lila (Att göra) = rundad ruta, övriga grupper = cirkel', () => {
+  it('BARA TVÅ former: Röd (Fara) = rundad triangel, ALLA andra grupper (även Lila, Att göra) = cirkel', () => {
     expect(GRUPPER.fara.form).toBe('triangel');
-    expect(GRUPPER.att_gora.form).toBe('ruta');
-    for (const g of ['natur', 'kultur', 'blott', 'info'] as const) expect(GRUPPER[g].form, g).toBe('cirkel');
+    for (const g of ['natur', 'kultur', 'blott', 'att_gora', 'info'] as const) expect(GRUPPER[g].form, g).toBe('cirkel');
+    expect(new Set(Object.values(GRUPPER).map((g) => g.form))).toEqual(new Set(['triangel', 'cirkel']));
+    expect(Object.keys(FORM_PATH).sort()).toEqual(['cirkel', 'triangel']);
   });
   it('symbolens form kommer ur gruppen — varje symbol, utan undantag', () => {
     for (const typ of SYMBOL_TYPER) expect(symbolDef(typ).form, typ).toBe(GRUPPER[SYMBOL_GRUPP[typ] ?? 'info'].form);
@@ -114,7 +115,7 @@ describe('inga kopior av glyfer, former och färger', () => {
   const lasa = (p: string) => readFileSync(p, 'utf8');
 
   it('en glyf-bana (t.ex. ledningens blixt) eller en form-bana står bara i lib/symboler.ts', () => {
-    const sokta = [GLYF.powerline, GLYF.huntingtower, GLYF.groundcable, FORM_PATH.triangel, FORM_PATH.ruta];
+    const sokta = [GLYF.powerline, GLYF.huntingtower, GLYF.groundcable, FORM_PATH.triangel, FORM_PATH.cirkel];
     for (const f of ALLA) {
       if (f.endsWith('lib/symboler.ts')) continue;
       const t = lasa(f);

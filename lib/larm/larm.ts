@@ -63,6 +63,8 @@ export const TOMT_LARM: LarmState = { steg: {}, sett: {} };
 export interface LarmKort {
   id: string;
   kalla: LarmKalla;
+  /** Symboltyp / linjetyp / yttyp / Vidas lager — ikonen i kortet hämtas ur symbolkällan med den (lib/symboler). */
+  typ?: string;
   grupp: FargGrupp;
   farg: string;
   namn: string;
@@ -80,6 +82,7 @@ export interface LarmKort {
 export interface LarmNasta {
   id: string;
   kalla: LarmKalla;
+  typ?: string;
   grupp: FargGrupp;
   farg: string;
   namn: string;
@@ -225,7 +228,7 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
   if (vinnare) {
     const o = vinnare.o;
     kort = {
-      id: o.id, kalla: o.kalla, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, namn: o.namn,
+      id: o.id, kalla: o.kalla, typ: o.typ, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, namn: o.namn,
       text: kortText(o),
       avstandM: o.kalla === 'yta' ? null : Math.round(o.avstandM ?? 0),
       bearing: o.bearing ?? null,
@@ -237,7 +240,7 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
   const sett = rang.find((x) => harSettRad(x.o) && !x.kvitterad && !nyaSett[x.o.id]);
   if (sett) settRad = { id: sett.o.id, namn: sett.o.namn, farg: GRUPPER[sett.o.grupp].farg };
   const fler: LarmNasta[] = ovriga.map(({ o }) => ({
-    id: o.id, kalla: o.kalla, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, namn: o.namn,
+    id: o.id, kalla: o.kalla, typ: o.typ, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, namn: o.namn,
     text: o.kalla === 'yta' ? 'inne i ytan' : (o.kommentar || null),
     avstandM: o.kalla === 'yta' ? null : Math.round(o.avstandM ?? 0),
   }));

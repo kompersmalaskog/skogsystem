@@ -14,6 +14,8 @@
 // naturvårdsträd, `antal` st). Samma siffra i körvyn och planeringen — annars skulle två vyer säga olika om samma objekt.
 // Markeringar räknas per OBJEKT oavsett vem som satte dem (alla markörer på objektet, inte bara förarens egna).
 
+import { SYMBOL_NAMN } from './larm/grupper';
+
 export const HOGSTUBBAR_PER_HA = 3;
 export const EVIGHETSTRAD_PER_HA = 10;
 
@@ -100,7 +102,7 @@ export function kravStatus(antal: number, krav: number | null, andelAvverkat: nu
 
 export const PRICK_TYPER: readonly string[] = ['highstump', 'eternitytree'];
 export const arPrick = (typ: string | null | undefined): boolean => !!typ && PRICK_TYPER.includes(typ);
-export const PRICK_NAMN: Readonly<Record<string, string>> = { highstump: 'Högstubbe', eternitytree: 'Evighetsträd' };
+export const PRICK_NAMN: Readonly<Record<string, string>> = { highstump: SYMBOL_NAMN.highstump, eternitytree: SYMBOL_NAMN.eternitytree };
 /** Prickarna har ett eget lager (overlay-id) i Lager-menyn. Saknas nyckeln är det PÅ — bara ett uttryckligt false döljer dem. */
 export const PRICK_LAGER_ID = 'miljoPrickar';
 export const prickarSynliga = (overlays: Record<string, boolean> | null | undefined): boolean => overlays?.[PRICK_LAGER_ID] !== false;

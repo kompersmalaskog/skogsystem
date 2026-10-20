@@ -15,8 +15,8 @@
 export type FargGrupp = 'fara' | 'natur' | 'kultur' | 'blott' | 'att_gora' | 'info';
 export type LarmRegel = 'alltid' | 'tills_kvitterat' | 'aldrig';
 
-/** Formen säger hur allvarligt det är: rundad triangel = Fara, rundad ruta = Att göra (en bock att pricka av), cirkel = övriga grupper. */
-export type SymbolForm = 'cirkel' | 'triangel' | 'ruta';
+/** Bara TVÅ former: rundad triangel = Fara (Röd), cirkel = alla andra grupper (även Att göra). Formen säger allvar, färgen vilken sort. */
+export type SymbolForm = 'cirkel' | 'triangel';
 
 export interface GruppDef { id: FargGrupp; namn: string; farg: string; larm: LarmRegel; form: SymbolForm }
 
@@ -32,7 +32,7 @@ export const GRUPPER: Record<FargGrupp, GruppDef> = {
   natur: { id: 'natur', namn: 'Natur', farg: FARG_NATUR, larm: 'tills_kvitterat', form: 'cirkel' },
   kultur: { id: 'kultur', namn: 'Kultur', farg: FARG_KULTUR, larm: 'tills_kvitterat', form: 'cirkel' },
   blott: { id: 'blott', namn: 'Blött', farg: FARG_BLOTT, larm: 'tills_kvitterat', form: 'cirkel' },
-  att_gora: { id: 'att_gora', namn: 'Att göra', farg: FARG_ATT_GORA, larm: 'aldrig', form: 'ruta' },
+  att_gora: { id: 'att_gora', namn: 'Att göra', farg: FARG_ATT_GORA, larm: 'aldrig', form: 'cirkel' },
   info: { id: 'info', namn: 'Info', farg: FARG_INFO, larm: 'aldrig', form: 'cirkel' },
 };
 export const GRUPP_ORDNING: readonly FargGrupp[] = ['fara', 'natur', 'kultur', 'blott', 'att_gora', 'info'];

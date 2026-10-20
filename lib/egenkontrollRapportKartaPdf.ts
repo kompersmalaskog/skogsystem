@@ -144,6 +144,8 @@ export function ritaKarta(
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'linje' || m.punkter.length < 2) continue;
     const st = markeringsStil('linje', m.typ); if (!st) continue;
+    // Stenmur: KRAFTIG mörk kant under gruppens färg (som på kartan) — ingen andra nyans.
+    if (m.typ === 'stonewall') sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: lib.rgb(0.05, 0.05, 0.05), borderWidth: st.bredd + 2.2 });
     sida.drawSvgPath(bana(m.punkter, false), { ...SVG, borderColor: hex(lib, st.farg), borderWidth: st.bredd, ...(st.streck ? { borderDashArray: st.streck } : {}) });
     if (m.backvag) {
       const strack = backvagStreckPt(m.punkter.map(ap), m.backvag);

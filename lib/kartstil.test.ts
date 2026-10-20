@@ -20,7 +20,7 @@ import {
   zonKantLager,
   IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
   LINJE_KANT_BREDD, LINJE_KANT_BREDD_GRANS, LINJE_STIL, NUMMER_FONT_PX, NUMMER_STORLEK, PIL_STIL,
-  STENMUR_BREDD, STENMUR_FARG, ZON_BREDD, ZON_FYLLNING_OPACITET, ZON_KANT_BREDD, ZON_KANT_FARG,
+  STENMUR_BREDD, STENMUR_FARG, STENMUR_KANT_EXTRA, ZON_BREDD, ZON_FYLLNING_OPACITET, ZON_KANT_BREDD, ZON_KANT_FARG,
   ritaPilIkon, zoomKurva,
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
@@ -150,6 +150,11 @@ describe('linjetyperna (lineTypeDefs)', () => {
   it('stenmur: farg, bredd och streckning', () => {
     const helt = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
     expect(helt).toContain("id: 'line-stonewall-casing'");   // mörk kant under, som övriga linjer
+    // KRAFTIG kant: bredare än muren med STENMUR_KANT_EXTRA, nära svart — ingen andra nyans.
+    const kant = helt.slice(helt.indexOf("id: 'line-stonewall-casing'"), helt.indexOf("id: 'line-stonewall-base'"));
+    expect(stopp(kant, 'stenmur/kant')).toEqual(STENMUR_BREDD.map(([z, v]) => [z, v + STENMUR_KANT_EXTRA]));
+    expect(kant).toContain('rgba(0,0,0,0.9)');
+    expect(STENMUR_KANT_EXTRA).toBeGreaterThanOrEqual(5);
     const block = helt.slice(helt.indexOf("id: 'line-stonewall-base'"));
     expect(block).toContain("'line-color': FARG_STENMUR");
     expect(STENMUR_FARG).toBe(FARG_STENMUR);   // Stenmur = Kultur (brun), gruppens färg

@@ -6,13 +6,11 @@
 
 import React from 'react';
 import type { LarmKort as Kort, LarmNasta } from '@/lib/larm/larm';
-import type { FargGrupp } from '@/lib/larm/grupper';
+import { LarmIkon } from '@/components/SymbolIkon';
 import { AVSTAND, FARG, RADIE, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 
-/** Ikonen följer gruppen (formen bär betydelsen när färgen inte syns i solljus). */
-const IKON: Record<FargGrupp, string> = {
-  fara: 'warning', natur: 'forest', kultur: 'museum', blott: 'water_drop', att_gora: 'content_cut', info: 'info',
-};
+/** Ikonens storlek i kortet: som en träffyta, tydlig på håll. */
+const LARM_IKON_PX = 56;
 
 export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; riktning: string | null; top: string; fler?: readonly LarmNasta[] }) {
   const rad2 = kort.text ?? (riktning && kort.avstandM != null ? riktning : null);
@@ -37,9 +35,8 @@ export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; rik
           <span aria-hidden="true" data-testid="larm-puls" className="puls" style={{ position: 'absolute', inset: -AVSTAND.s, border: `${AVSTAND.s}px solid ${kort.farg}`, borderRadius: RADIE.sheet + AVSTAND.s, pointerEvents: 'none' }} />
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l }}>
-        <span aria-hidden="true" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: RADIE.kort, background: kort.farg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 30, color: FARG.text }}>{kort.forbjuden ? 'block' : IKON[kort.grupp]}</span>
-        </span>
+        {/* Ikonen = kartans symbol (form, glyf och färg ur lib/symboler + lib/larm/grupper): triangel med blixt för El-ledning, cirkel för resten. */}
+        <span data-testid="larm-ikon" style={{ flexShrink: 0, display: 'flex' }}><LarmIkon kalla={kort.kalla} typ={kort.typ} grupp={kort.grupp} storlek={LARM_IKON_PX} /></span>
         <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <span style={{ ...TYP.rubrik, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kort.namn}</span>
           {rad2 && <span style={{ ...TYP.text, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rad2}</span>}

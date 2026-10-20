@@ -63,4 +63,14 @@ describe('VadBetyderKartan', () => {
     act(() => { q('info-stang')!.click(); });
     expect(spion).toEqual({ tillbaka: 1, stang: 1 });
   });
+  it('BARA TVÅ former: triangel för Röd, cirkel för allt annat — även Lila (Att göra)', () => {
+    visa([{ isMarker: true, type: 'warning' }, { isMarker: true, type: 'manualfelling' }, { isMarker: true, type: 'landing' }]);
+    const form = (typ: string) => q(`teckenforklaring-rad-symbol:${typ}`)!.querySelector('svg')!.getAttribute('data-form');
+    expect([form('warning'), form('manualfelling'), form('landing')]).toEqual(['triangel', 'cirkel', 'cirkel']);
+  });
+  it('Stenmur står under Kultur (brun) med kraftig mörk kant på provet', () => {
+    visa([{ isLine: true, lineType: 'stonewall' }]);
+    expect(alla('teckenforklaring-grupp-').map((g) => g.dataset.testid)).toEqual(['teckenforklaring-grupp-kultur']);
+    expect(q('teckenforklaring-rad-linje:stonewall')!.querySelector('[data-bild="linje"]')!.getAttribute('data-kant')).toBe('stark');
+  });
 });

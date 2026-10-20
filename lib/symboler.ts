@@ -4,7 +4,7 @@
 // Det finns ingen kopia av en glyf, en form eller en förklaring någon annanstans — en vakt (lib/symboler.test.ts) läser källorna och larmar.
 //
 //   Färg   = gruppen (lib/larm/grupper): vad det är och om det larmar.
-//   Form   = gruppens form: rundad triangel för Röd (Fara), rundad ruta för Lila (Att göra), cirkel för övriga. Vit kant.
+//   Form   = gruppens form: rundad triangel för Röd (Fara), cirkel för ALLA andra grupper (även Lila, Att göra). Vit kant.
 //   Glyf   = en egen tydlig bild per symbol (stroke-path, viewBox 24, vit). Avlägg, Ved och Rishög är tre olika bilder.
 //
 // Vilka symboler som larmar avgörs av gruppen (lib/larm) — här finns bara utseendet och förklaringen.
@@ -18,13 +18,11 @@ import { GRUPPER, SYMBOL_GRUPP, SYMBOL_NAMN, YTA, VIDA, type FargGrupp, type Sym
 export const FORM_PATH: Readonly<Record<SymbolForm, string>> = {
   cirkel: 'M24 2a22 22 0 1 0 0.01 0z',
   triangel: 'M24 3.5L45.5 41.5Q46.5 44.5 43 44.5L5 44.5Q1.5 44.5 2.5 41.5Z',
-  ruta: 'M11 4h26a7 7 0 0 1 7 7v26a7 7 0 0 1-7 7H11a7 7 0 0 1-7-7V11a7 7 0 0 1 7-7z',
 };
 /** Glyfen (24 × 24) lagd mitt i formen: förskjutning och skala i formens 48-ruta. Triangelns tyngdpunkt ligger lägre och ytan är mindre, så glyfen krymps och flyttas ned. */
 export const GLYF_PLACERING: Readonly<Record<SymbolForm, { x: number; y: number; skala: number }>> = {
   cirkel: { x: 12, y: 12, skala: 1 },
   triangel: { x: 14.4, y: 20.5, skala: 0.8 },
-  ruta: { x: 12, y: 12, skala: 1 },
 };
 /** Samma placering som SVG-transform (gränssnittet och kartbilderna). */
 export const GLYF_TRANSFORM: Readonly<Record<SymbolForm, string>> = Object.fromEntries(
@@ -187,6 +185,26 @@ export function symbolSvg(typ: string | null | undefined, storlek: number, kant 
 
 /** Alla typer som ritas (för bilder och kontroller): de i GLYF, utom 'default' som är reservbilden. */
 export const SYMBOL_TYPER: readonly string[] = Object.keys(GLYF).filter((t) => t !== 'default');
+
+/**
+ * Larmkortets ikon för det som INTE är en symbol (linje, yta, Vidas lager): formen och färgen kommer från GRUPPEN (samma som kartan), glyfen från
+ * den symbol som betyder samma sak — Kraftledning (Vida) får ledningens blixt, Fornlämning/Kulturmiljö kulturlämningens glyf. Två glyfer finns
+ * bara här: Stenmurens stenar och Ej framkomligs kryss.
+ */
+const ANNAN_IKON_SYMBOL: Readonly<Record<string, string>> = {
+  kraftledning: 'powerline', hansynsyta: 'naturecorner', nyckelbiotop: 'naturecorner', raa_yta: 'culturemonument', raa_punkt: 'culturemonument',
+  protected: 'naturecorner', culture: 'culturemonument', fornlamning: 'culturemonument', wet: 'wet', steep: 'steep',
+};
+const ANNAN_IKON_GLYF: Readonly<Record<string, string>> = {
+  stonewall: 'M3 19h18 M5 19v-5h5v5 M12 19v-5h6v5 M8 14V9h6v5',
+  noentry: 'M6 6l12 12 M18 6L6 18',
+};
+export function larmIkonDef(kalla: 'symbol' | 'linje' | 'yta', typ: string | null | undefined, grupp: FargGrupp): SymbolDef {
+  if (kalla === 'symbol') return symbolDef(typ);
+  const t = typ ?? '';
+  const glyf = ANNAN_IKON_GLYF[t] ?? GLYF[ANNAN_IKON_SYMBOL[t] ?? ''] ?? GLYF.default;
+  return { id: t || 'default', grupp, farg: GRUPPER[grupp].farg, form: GRUPPER[grupp].form, glyf, namn: '', forklaring: '' };
+}
 
 /** Egna ytor och Vidas lager: grupp, namn och förklaring från samma tabeller som kartan. */
 export function ytaForklaring(zoneType: string): { grupp: FargGrupp; namn: string; forklaring: string; forbjuden: boolean } | null {

@@ -22,7 +22,7 @@ export interface MarkerIconDef {
   id: string
   bg: string
   outline: string
-  /** Formen (rundad triangel för Röd, rundad ruta för Lila, annars cirkel) — gruppens, lib/larm/grupper. */
+  /** Formen (rundad triangel för Röd, annars cirkel) — gruppens, lib/larm/grupper. */
   form: SymbolForm
 }
 
@@ -45,7 +45,7 @@ export function getIconDef(typeId: string | undefined): MarkerIconDef {
   return markerIconDefs.find(d => d.id === 'default')!
 }
 
-/** Bygg SVG-string för en markörtyp: formen (cirkel, rundad triangel eller rundad ruta) med vit kant och glyfen. */
+/** Bygg SVG-string för en markörtyp: formen (cirkel eller rundad triangel) med vit kant och glyfen. */
 export function buildMarkerSvg(typeId: string, size: number = ICON_SIZE): string {
   return symbolSvg(typeId, size)
 }

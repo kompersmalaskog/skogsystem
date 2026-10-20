@@ -59,7 +59,7 @@ import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad } from '../../components/planering/LarmKort'
 import { useGrind } from '../../lib/hooks/useGrind'
 import { GRIND_TYP, rensaGrindKod } from '../../lib/grind'
-import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, gruppForLinje, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring } from '../../lib/symboler'
 import { SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
@@ -1441,7 +1441,7 @@ export default function PlannerPage() {
         map.addLayer({
           id: 'line-stonewall-casing', type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], 'stonewall'],
-          paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-opacity': 1, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 7, 11, 8, 13, 9, 15, 10, 17, 12] },
+          paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-opacity': 1, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 8, 8, 9, 11, 10, 13, 11, 15, 12, 17, 14] },   // = stenmurens bredd + STENMUR_KANT_EXTRA (5): kraftig kant
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
         map.addLayer({
@@ -15444,7 +15444,7 @@ export default function PlannerPage() {
                 const f = marker.isMarker
                   ? (() => { const d = symbolDef(marker.type); return { grupp: d.grupp, text: d.forklaring }; })()
                   : marker.isZone ? (() => { const y = ytaForklaring(marker.zoneType || ''); return y ? { grupp: y.grupp, text: y.forklaring } : null; })()
-                  : marker.isLine && marker.lineType === 'stonewall' ? { grupp: 'natur' as const, text: LINJE_FORKLARING.stonewall }
+                  : marker.isLine && marker.lineType === 'stonewall' ? { grupp: gruppForLinje('stonewall') ?? ('kultur' as const), text: LINJE_FORKLARING.stonewall }
                   : null;
                 if (!f) return null;
                 return (

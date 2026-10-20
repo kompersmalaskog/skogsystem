@@ -175,7 +175,7 @@ export function PlusRad({ poster, ark, oppen = true, startFlik, onPost, onFastna
       }}
     >
       {p.dockSymbol ? (
-        // Symbolen som på kartan: formen i gruppens färg (cirkel, rundad triangel eller rundad ruta) med vit kant och glyf.
+        // Symbolen som på kartan: formen i gruppens färg (cirkel eller rundad triangel) med vit kant och glyf.
         <span aria-hidden="true" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX, height: kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX }}>
           {p.dockSymbol(kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX)}
           {p.fast && <Nal />}

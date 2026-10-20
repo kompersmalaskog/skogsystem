@@ -31,10 +31,10 @@ describe('symbolerna i PDF:en', () => {
     expect([fyll.red, fyll.green, fyll.blue].map((x: number) => +x.toFixed(3))).toEqual(hexRgb(d.farg).map((x) => +x.toFixed(3)));
     expect(banor[0].opt.borderColor).toMatchObject({ red: 1, green: 1, blue: 1 });   // vit kant som på kartan
   });
-  it('triangel för Röd (Fara), cirkel för Natur, ruta för Att göra — samma form som appen', async () => {
+  it('triangel för Röd (Fara), cirkel för ALLA andra grupper (även Att göra) — samma form som appen', async () => {
     expect(symbolDef('warning').form).toBe('triangel');
     expect(symbolDef('highstump').form).toBe('cirkel');
-    expect(symbolDef('felloutside').form).toBe('ruta');
+    expect(symbolDef('felloutside').form).toBe('cirkel');
   });
   it('kartan ritar varje symbol med ritaSymbol (inte den gamla romben)', async () => {
     const { lib, sida, anrop, font } = await fake();
@@ -46,6 +46,20 @@ describe('symbolerna i PDF:en', () => {
     expect(banor).toContain(FORM_PATH.triangel);
     expect(banor).toContain(FORM_PATH.cirkel);
     expect(banor.some((b) => typeof b === 'string' && /^M \S+ \S+ L \S+ \S+ L \S+ \S+ L \S+ \S+ Z$/.test(b) && b.split('L').length === 4 && !b.includes('Q'))).toBe(false);   // ingen romb
+  });
+});
+
+describe('Stenmuren i PDF:en: gruppens färg med kraftig mörk kant', () => {
+  it('en mörk (nästan svart) bana ritas FÖRST och är bredare; sedan murens bana i brunt (Kultur) — ingen andra nyans', async () => {
+    const { lib, sida, anrop, font } = await fake();
+    const lager = { granser: [[ll(56, 15), ll(56.002, 15), ll(56.002, 15.004)]], stammar: [], pinnar: [], markeringar: [{ slag: 'linje' as const, typ: 'stonewall', punkter: [ll(56.0005, 15.0005), ll(56.0015, 15.0025)] }] };
+    ritaKarta(lib, sida, { normal: font, fet: font }, RUTA, lager, (t) => t, {});
+    const banor = anrop.filter((c) => c.metod === 'drawSvgPath' && c.opt?.borderWidth != null && c.opt?.color == null);
+    const mur = banor.find((b) => Math.abs(b.opt.borderColor.red - 0xB5 / 255) < 0.01);
+    expect(mur).toBeTruthy();
+    const kant = banor.find((b) => b.opt.borderColor.red < 0.1 && b.opt.borderColor.green < 0.1 && b.opt.borderWidth > mur!.opt.borderWidth + 2);
+    expect(kant).toBeTruthy();
+    expect(banor.indexOf(kant!)).toBe(banor.indexOf(mur!) - 1);   // kanten ligger direkt under muren
   });
 });
 

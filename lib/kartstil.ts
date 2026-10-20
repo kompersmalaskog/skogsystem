@@ -83,8 +83,9 @@ export const LINJE_BREDD_GRANS: Stopp = [[5, 3], [8, 4], [11, 5], [13, 5], [15, 
 export const LINJE_KANT_BREDD: Stopp = [[5, 4], [8, 4], [11, 5], [13, 6], [15, 8], [17, 9]];
 export const LINJE_KANT_BREDD_GRANS: Stopp = [[5, 5], [8, 6], [11, 7], [13, 7], [15, 9], [17, 10]];
 export const STENMUR_BREDD: Stopp = [[5, 3], [8, 4], [11, 5], [13, 6], [15, 7], [17, 9]];
-/** Stenmur = gruppens färg (Kultur, brun) med mörk kant — ingen egen nyans. */
+/** Stenmur = gruppens färg (Kultur, brun) med KRAFTIG mörk kant — ingen egen nyans. Kanten är bredare än muren med så här många px (2,5 px per sida). */
 export const STENMUR_FARG = FARG_STENMUR;
+export const STENMUR_KANT_EXTRA = 5;
 
 // Streckning. Konstanter, inte litteraler i byggarna, sa att driftvakten kan
 // jamfora DEN HAR sidan mot planeringen - inte bara planeringen mot en text.
@@ -194,7 +195,7 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
       if (!dim?.utanKant) {
         lager.push({
           id: `${prefix}-lin-${lt.id}-kant`, type: 'line', source: kalla, filter,
-          paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(STENMUR_BREDD, bf, 3), 'line-opacity': 1 },
+          paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(STENMUR_BREDD, bf, STENMUR_KANT_EXTRA), 'line-opacity': 1 },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
       }

@@ -10,7 +10,7 @@ import { formatVolym, pc, getMaskinTyp, grotDeadlineDays, skotarTillstand, type 
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 import {
-  FARA_SUBTYPER, HANSYN_SUBTYPER, SUB_LABEL, prettifySub, markeringSub, classifyMarkering,
+  FARA_SUBTYPER, HANSYN_SUBTYPER, markeringNamn, markeringSub, classifyMarkering,
   type MarkLevel, type FaraNiva,
 } from './markeringar';
 import SkotarRad from './SkotarRad';
@@ -1082,7 +1082,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       if (!m.objekt_id) continue;
       const level = classifyMarkering(m.data);   // fara | hansyn | ovrigt (aldrig bortfiltrerad)
       const subRaw = markeringSub(m.data);
-      const label = subRaw ? (SUB_LABEL[subRaw] || prettifySub(subRaw)) : 'Markering';
+      const label = subRaw ? markeringNamn(m.data) : 'Markering';
       // Planerarens beskrivning ligger i data.comment (planering_markeringar).
       const comment = typeof m.data?.comment === 'string' && m.data.comment.trim() ? m.data.comment.trim() : undefined;
       if (!map[m.objekt_id]) map[m.objekt_id] = { level: null, items: [] };
