@@ -15,11 +15,13 @@ import { bolagNyckel, hamtaBolag, skapaBolag, sokBolag, type Bolag } from '@/lib
 // "inga bolag".
 type Hamtat = { lage: 'laddar' } | { lage: 'fel'; text: string } | { lage: 'klar'; alla: Bolag[] };
 
-export default function BolagValjare({ valt, onVal, onTillbaka, rubrik = 'Välj bolag' }: {
+export default function BolagValjare({ valt, onVal, onTillbaka, rubrik = 'Välj bolag', upptagna = [] }: {
   valt: Bolag | null;
   onVal: (b: Bolag) => void;
   onTillbaka: () => void;
   rubrik?: string;
+  /** Bolag som redan har en sektion i arket: visas nedtonade och går inte att välja. Det ogiltiga läget förhindras i stället för att rapporteras efteråt. */
+  upptagna?: readonly number[];
 }) {
   const [hamtat, setHamtat] = useState<Hamtat>({ lage: 'laddar' });
   const [q, setQ] = useState('');
@@ -42,6 +44,8 @@ export default function BolagValjare({ valt, onVal, onTillbaka, rubrik = 'Välj 
     setSkapar(true); setFel(null);
     try {
       const b = await skapaBolag(q);
+      // Servern returnerar det befintliga bolaget om namnet redan fanns (annan versalisering): är det upptaget går det inte att välja.
+      if (upptagna.includes(b.id)) { setFel(`${b.namn} finns redan i arket.`); setSkapar(false); return; }
       onVal(b);
     } catch (e) {
       setFel(e instanceof Error ? e.message : String(e));
@@ -74,10 +78,13 @@ export default function BolagValjare({ valt, onVal, onTillbaka, rubrik = 'Välj 
               <Sektion rubrik="Bolag" kort={false}>
                 {sok.traffar.map((b, i) => {
                   const ar = valt != null && bolagNyckel(valt.namn) === bolagNyckel(b.namn);
+                  const upptaget = upptagna.includes(b.id) && !ar;
                   return (
-                    <Rad key={b.id} titel={b.namn} sista={i === sok.traffar.length - 1} pil={false}
+                    <Rad key={b.id} titel={b.namn} sista={i === sok.traffar.length - 1} pil={false} dampad={upptaget}
+                      under={upptaget ? 'Finns redan i arket' : undefined}
                       hoger={ar ? <Ikon namn="check_circle" fylld storlek={IKON.rad} farg={FARG.text} /> : undefined}
-                      onTryck={() => onVal(b)} attr={{ 'data-bolag-val': String(b.id), 'aria-pressed': String(ar) }} />
+                      onTryck={upptaget ? undefined : () => onVal(b)}
+                      attr={{ 'data-bolag-val': String(b.id), 'aria-pressed': String(ar), ...(upptaget ? { 'data-upptaget': '' } : null) }} />
                   );
                 })}
               </Sektion>

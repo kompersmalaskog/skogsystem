@@ -266,25 +266,23 @@ describe('Objekt + beställning — listan', () => {
 });
 
 describe('Ändra beställning', () => {
-  it('rubrikraden öppnar arket; Spara är inaktiv tills något ändrats; sparar med nyckeln (ar, manad, bolag, typ)', async () => {
+  it('rubrikraden öppnar arket; Spara är inaktiv tills något ändrats; en befintlig beställning uppdateras på id (nyckeln är ar, manad, typ, bolag_id)', async () => {
     await montera();
     await klicka(behallare!.ownerDocument.querySelector('section[aria-label="Gallring"] h3 button'));
     expect(hookFel()).toEqual([]);
     const spara = knapp('Spara', true) as HTMLButtonElement;
     expect(spara.style.opacity).toBe('0.4');
-    expect(text()).toContain(nbsp('Redan inlagt för Vida: 334 m³fub i 3 objekt'));
-    expect(text()).toContain(nbsp('Redan inlagt för Vida: 6 234 m³fub i 3 objekt'));
-    // Bolaget syns på varje beställning — det är vem beställningen gäller.
-    expect(Array.from(behallare!.ownerDocument.querySelectorAll('[data-bestallning]')).map(e => e.getAttribute('data-bolag'))).toEqual(['Vida', 'Vida']);
-
-    const falt = behallare!.ownerDocument.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]');
+    // Bolag ytterst, typ inuti: EN sektion (Vida) med gallring och slutavverkning som två rader.
+    const sektioner = Array.from(behallare!.ownerDocument.querySelectorAll('[data-bolagsektion]'));
+    expect(sektioner.map(e => e.getAttribute('data-bolag'))).toEqual(['Vida']);
+    expect(Array.from(sektioner[0].querySelectorAll('[data-bestallning]')).map(e => e.getAttribute('data-typ'))).toEqual(['gallring', 'slutavverkning']);
+    const falt = behallare!.ownerDocument.querySelectorAll<HTMLInputElement>('[data-bolagsektion] input[inputmode="numeric"]');
     expect(Array.from(falt).map(i => i.value)).toEqual(['1000', '5000']);
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
     await act(async () => { setter.call(falt[0], '1200'); falt[0].dispatchEvent(new Event('input', { bubbles: true })); });
     await stilla();
     expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).not.toBe('0.4');
     await klicka(knapp('Spara', true));
-    // Merge-nyckeln är (ar, manad, typ, bolag_id): den befintliga posten uppdateras (på id), ingenting nytt läggs till.
     expect(DB.skrivningar).toHaveLength(1);
     expect(DB.skrivningar[0]).toMatchObject({ tabell: 'bestallningar', op: 'update', payload: { volym: 1200 } });
     expect(DB.skrivningar[0].filter).toEqual(['ideqb-g']);
@@ -855,7 +853,7 @@ describe('Stämplingslängd gäller bara en rotpost (avtalsformen avgör, inte t
 // ---------------------------------------------------------------------------
 // Bolag: väljare (välj eller SKAPA), inget standardbolag, täckning per bolag, förslag per bolag
 // ---------------------------------------------------------------------------
-describe('Bolag — beställningsarket', () => {
+describe('Bolag — beställningsarket (bolag ytterst, typ inuti)', () => {
   const satt = async (el: HTMLInputElement, v: string) => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
     await act(async () => { setter.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -863,39 +861,106 @@ describe('Bolag — beställningsarket', () => {
   };
   const doc = () => behallare!.ownerDocument;
   const oppnaArk = async (url = '/objekt?ar=2026&manad=10') => { await montera(url); await klicka(doc().querySelector('[data-bestallning-knapp]')); };
-  const fält = (typ: string) => Array.from(doc().querySelectorAll<HTMLElement>(`[data-bestallning^="${typ}:"]`));
-  const volymIn = (el: HTMLElement) => el.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+  const sektioner = () => Array.from(doc().querySelectorAll<HTMLElement>('[data-bolagsektion]'));
+  const sektion = (bolag: string) => sektioner().find(e => e.getAttribute('data-bolag') === bolag)!;
+  const nySektion = () => sektioner().at(-1)!;
+  const rad = (sek: HTMLElement, typ: string) => sek.querySelector<HTMLElement>(`[data-bestallning][data-typ="${typ}"]`)!;
+  const faltIn = (sek: HTMLElement, typ: string) => rad(sek, typ).querySelector<HTMLInputElement>('input')!;
+  const underText = (sek: HTMLElement, typ: string) => rad(sek, typ).querySelector('[data-talrad-under]')?.textContent ?? null;
+  const underTon = (sek: HTMLElement, typ: string) => rad(sek, typ).querySelector('[data-talrad-under]')?.getAttribute('data-ton') ?? null;
   const sparaOpacity = () => (knapp('Spara', true) as HTMLButtonElement).style.opacity;
-  async function valjBolagFor(el: HTMLElement, id: number) {
-    await klicka(el.querySelector('[data-bolag-rad]'));
+  async function valjBolagFor(sek: HTMLElement, id: number) {
+    await klicka(sek.querySelector('[data-bolag-rad]'));
     await tills(() => !!doc().querySelector('[data-bolag-val]'));
     await klicka(doc().querySelector(`[data-bolag-val="${id}"]`));
   }
 
-  it('"Lägg till bolag" ger en ny beställning utan bolag: Spara är stängd tills ett bolag är valt, och bolaget syns', async () => {
+  it('STRUKTUR: bolaget är rubriken en gång, gallring och slutavverkning två rader under — och fyra texter är borta för att strukturen redan säger dem', async () => {
     await oppnaArk();
-    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
-    const nytt = fält('gallring').at(-1)!;
-    expect(nytt.getAttribute('data-bolag')).toBe(''); // inget förifyllt: månaden har redan ett bolag på typen, och det här ska vara ett ANNAT
-    expect(nytt.textContent).toContain('Välj bolag');
-    await satt(volymIn(nytt), '300');
+    expect(sektioner()).toHaveLength(1);
+    expect(sektion('Vida').querySelector('section')!.getAttribute('aria-label')).toBe('Vida');
+    expect(Array.from(sektion('Vida').querySelectorAll('[data-bestallning]')).map(e => e.getAttribute('data-typ'))).toEqual(['gallring', 'slutavverkning']);
+    const ark = doc().querySelector('[role="dialog"]')!.textContent!;
+    expect(ark).not.toContain('Beställningens bolag'); // raden finns inte: bolaget är rubriken
+    expect(ark).not.toMatch(/En beställning på .* för ett annat bolag/);
+    expect(ark).not.toContain('Redan inlagt för Vida'); // "för Vida" står redan i rubriken
+    expect(ark).not.toMatch(/ i \d+ objekt/); // antalet objekt hör hemma i listan
+    expect(ark).not.toContain('Beställt'); // fältet står på raden Gallring med m³fub bredvid
+    expect(sektion('Vida').querySelector('[data-bolag-rad]')).toBeNull(); // en sparad sektions bolag är fast: ingen rad att trycka på
+    expect(ark.match(/Vida/g)!.length).toBe(1); // Vida sägs EN gång
+  });
+
+  it('LIVE-räkning: raden under räknar om medan talet skrivs — orden är kvar, fylld, över, och färgen är dämpad / grön / grön', async () => {
+    await oppnaArk();
+    const vida = sektion('Vida');
+    expect(underText(vida, 'gallring')).toBe('334 inlagt · 666 kvar');
+    expect(underTon(vida, 'gallring')).toBe('dampad'); // kvar är normaltillståndet: inte orange
+    expect(underText(vida, 'slutavverkning')).toBe(nbsp('6 234 inlagt · 1 234 över'));
+    expect(underTon(vida, 'slutavverkning')).toBe('gron');
+    await satt(faltIn(vida, 'gallring'), '334');
+    expect(underText(sektion('Vida'), 'gallring')).toBe('334 inlagt · beställningen fylld');
+    expect(underTon(sektion('Vida'), 'gallring')).toBe('gron');
+    await satt(faltIn(sektion('Vida'), 'gallring'), '300');
+    expect(underText(sektion('Vida'), 'gallring')).toBe('334 inlagt · 34 över');
+    await satt(faltIn(sektion('Vida'), 'gallring'), '2 000');
+    expect(underText(sektion('Vida'), 'gallring')).toBe(nbsp('334 inlagt · 1 666 kvar'));
+    expect(underTon(sektion('Vida'), 'gallring')).toBe('dampad');
+    // inget orange någonstans i läget: orange är för det som kräver en hand
+    expect(doc().querySelector('[data-talrad-under][data-ton="orange"]')).toBeNull();
+  });
+
+  it('samma ORD som listans sektionsfot för samma tal: kvar / fylld / över', async () => {
+    await montera();
+    const lista = text();
+    expect(lista).toContain('666 m³fub kvar till beställningen');
+    expect(lista).toContain(nbsp('Beställningen fylld · 1 234 m³fub över'));
+    await klicka(doc().querySelector('[data-bestallning-knapp]'));
+    expect(underText(sektion('Vida'), 'gallring')).toContain('666 kvar');
+    expect(underText(sektion('Vida'), 'slutavverkning')).toContain(nbsp('1 234 över'));
+  });
+
+  it('"Lägg till bolag" lägger en NY sektion med BÅDA typerna, som frågar bolag: Spara är stängd tills ett bolag är valt', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    expect(sektioner()).toHaveLength(2);
+    const ny = nySektion();
+    expect(ny.getAttribute('data-bolag')).toBe(''); // ingen förifyllning, inte ens Vida
+    expect(ny.querySelector('section')!.getAttribute('aria-label')).toBe('Nytt bolag');
+    expect(ny.querySelector('[data-bolag-rad]')!.textContent).toContain('Välj bolag');
+    expect(Array.from(ny.querySelectorAll('[data-bestallning]')).map(e => e.getAttribute('data-typ'))).toEqual(['gallring', 'slutavverkning']);
+    await satt(faltIn(ny, 'gallring'), '300');
+    await satt(faltIn(nySektion(), 'slutavverkning'), '200');
     expect(sparaOpacity()).toBe('0.4');
     expect(doc().querySelector('[data-saknar-bolag]')!.textContent).toContain('Välj bolag');
-    await valjBolagFor(nytt, 3); // Privat
-    expect(fält('gallring').at(-1)!.getAttribute('data-bolag')).toBe('Privat');
+    await valjBolagFor(nySektion(), 3); // Privat
+    expect(nySektion().getAttribute('data-bolag')).toBe('Privat');
     expect(doc().querySelector('[data-saknar-bolag]')).toBeNull();
     expect(sparaOpacity()).not.toBe('0.4');
     await klicka(knapp('Spara', true));
     expect(DB.skrivningar).toHaveLength(1);
     expect(DB.skrivningar[0]).toMatchObject({ tabell: 'bestallningar', op: 'insert' });
-    expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ ar: 2026, manad: 10, typ: 'gallring', bolag: 'Privat', bolag_id: 3, volym: 300 })]);
+    expect(DB.skrivningar[0].payload).toEqual([
+      expect.objectContaining({ ar: 2026, manad: 10, typ: 'gallring', bolag: 'Privat', bolag_id: 3, volym: 300 }),
+      expect.objectContaining({ ar: 2026, manad: 10, typ: 'slutavverkning', bolag: 'Privat', bolag_id: 3, volym: 200 }),
+    ]);
+  });
+
+  it('en ny sektion räknar live mot det valda bolagets objekt (Privat har inga: ingen rad under förrän något finns)', async () => {
+    DB.objekt = [...OBJEKT, OBJ('privat-g', 'Privat gallring', 'gallring', 80, 'planerad', { bolag: 'Privat' })];
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    expect(underText(nySektion(), 'gallring')).toBeNull(); // inget bolag valt: inget att räkna mot
+    await valjBolagFor(nySektion(), 3);
+    expect(underText(nySektion(), 'gallring')).toBe('80 inlagt'); // inlagt finns, ingen beställning skriven än
+    expect(underText(nySektion(), 'slutavverkning')).toBeNull();
+    await satt(faltIn(nySektion(), 'gallring'), '200');
+    expect(underText(nySektion(), 'gallring')).toBe('80 inlagt · 120 kvar');
   });
 
   it('SKAPA ett nytt bolag ur sökfältet (ATA Timber): POST /api/bolag, bolaget väljs, och beställningen sparas på det nya bolag_id', async () => {
     await oppnaArk();
-    await klicka(doc().querySelector('[data-lagg-till-bolag="slutavverkning"]'));
-    const nytt = fält('slutavverkning').at(-1)!;
-    await klicka(nytt.querySelector('[data-bolag-rad]'));
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    await klicka(nySektion().querySelector('[data-bolag-rad]'));
     await tills(() => !!doc().querySelector('[data-bolag-val]'));
     expect(doc().querySelector('[data-skapa-bolag]')).toBeNull(); // tomt sökfält: inget att skapa
     await satt(doc().querySelector<HTMLInputElement>('[data-bolagvaljare] input')!, 'ATA Timber');
@@ -903,40 +968,67 @@ describe('Bolag — beställningsarket', () => {
     expect(doc().querySelector('[data-skapa-bolag="ATA Timber"]')!.textContent).toContain('Lägg till ”ATA Timber”');
     await klicka(doc().querySelector('[data-skapa-bolag]'));
     expect(DB.bolagPost).toEqual(['ATA Timber']);
-    const efter = fält('slutavverkning').at(-1)!;
-    expect(efter.getAttribute('data-bolag')).toBe('ATA Timber');
-    await satt(volymIn(efter), '800');
+    expect(nySektion().getAttribute('data-bolag')).toBe('ATA Timber');
+    await satt(faltIn(nySektion(), 'slutavverkning'), '800');
     await klicka(knapp('Spara', true));
     expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ typ: 'slutavverkning', bolag: 'ATA Timber', bolag_id: 103, volym: 800 })]);
   });
 
   it('ett namn som redan finns erbjuds inte som nytt (ingen dubblett med annan versalisering)', async () => {
     await oppnaArk();
-    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
-    await klicka(fält('gallring').at(-1)!.querySelector('[data-bolag-rad]'));
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    await klicka(nySektion().querySelector('[data-bolag-rad]'));
     await tills(() => !!doc().querySelector('[data-bolag-val]'));
     await satt(doc().querySelector<HTMLInputElement>('[data-bolagvaljare] input')!, 'vida');
     expect(doc().querySelector('[data-skapa-bolag]')).toBeNull();
-    expect(Array.from(doc().querySelectorAll('[data-bolag-val]')).map(e => e.textContent)).toEqual(['Vida', 'Vida Energi']);
+    expect(Array.from(doc().querySelectorAll('[data-bolag-val]')).map(e => e.getAttribute('data-bolag-val'))).toEqual(['1', '2']);
+  });
+
+  it('bolag som redan har en sektion i arket är NEDTONADE i väljaren och går inte att välja — det ogiltiga läget förhindras', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    await klicka(nySektion().querySelector('[data-bolag-rad]'));
+    await tills(() => !!doc().querySelector('[data-bolag-val]'));
+    const vida = doc().querySelector('[data-bolag-val="1"]')!;
+    expect(vida.hasAttribute('data-upptaget')).toBe(true);
+    expect(vida.textContent).toContain('Finns redan i arket');
+    expect(doc().querySelector('[data-bolag-val="3"]')!.hasAttribute('data-upptaget')).toBe(false);
+    await klicka(vida);
+    expect(doc().querySelector('[data-bolagvaljare]')).toBeTruthy(); // trycket gjorde ingenting: väljaren står kvar
+    await klicka(doc().querySelector('[data-bolag-val="3"]')); // ...och ett ledigt bolag går att välja
+    expect(sektioner().map(e => e.getAttribute('data-bolag'))).toEqual(['Vida', 'Privat']);
+  });
+
+  it('skapar man ett namn som servern känner igen som ett upptaget bolag väljs det inte — det står varför', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    await klicka(nySektion().querySelector('[data-bolag-rad]'));
+    await tills(() => !!doc().querySelector('[data-bolag-val]'));
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: { method?: string }) => init?.method === 'POST'
+      ? { ok: true, status: 200, json: async () => ({ bolag: { id: 1, namn: 'Vida' } }) } // servern mappar "Vida Timber…" till Vida
+      : { ok: true, status: 200, json: async () => ({ bolag: DB.bolag }) }));
+    await satt(doc().querySelector<HTMLInputElement>('[data-bolagvaljare] input')!, 'Vidas Timber');
+    await klicka(doc().querySelector('[data-skapa-bolag]'));
+    expect(text()).toContain('Vida finns redan i arket.');
+    expect(doc().querySelector('[data-bolagvaljare]')).toBeTruthy();
   });
 
   it('Avbryt i väljaren tar tillbaka formuläret med allt som är ifyllt', async () => {
     await oppnaArk();
-    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
-    const nytt = fält('gallring').at(-1)!;
-    await satt(volymIn(nytt), '300');
-    await klicka(nytt.querySelector('[data-bolag-rad]'));
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    await satt(faltIn(nySektion(), 'gallring'), '300');
+    await klicka(nySektion().querySelector('[data-bolag-rad]'));
     await tills(() => !!doc().querySelector('[data-bolagvaljare]'));
     await klicka(knapp('Avbryt', true));
     expect(doc().querySelector('[data-bolagvaljare]')).toBeNull();
-    expect(volymIn(fält('gallring').at(-1)!).value).toBe('300');
+    expect(faltIn(nySektion(), 'gallring').value).toBe('300');
   });
 
   it('bolagen går inte att läsa: ett fel med Försök igen — aldrig en tom lista', async () => {
     await oppnaArk();
-    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
     DB.bolagFel = true;
-    await klicka(fält('gallring').at(-1)!.querySelector('[data-bolag-rad]'));
+    await klicka(nySektion().querySelector('[data-bolag-rad]'));
     await tills(() => text().includes('Kunde inte läsa bolagen'));
     expect(text()).toContain('Kunde inte läsa bolagen. Bolagen kunde inte hämtas');
     expect(doc().querySelector('[data-bolag-val]')).toBeNull();
@@ -946,71 +1038,64 @@ describe('Bolag — beställningsarket', () => {
     expect(doc().querySelectorAll('[data-bolag-val]').length).toBe(3);
   });
 
-  it('FÖRIFYLLNING syns och går att byta: en månad med ett bolag förifyller en ny typ — raden visar det, och ett byte sparas på det valda bolaget', async () => {
-    await oppnaArk('/objekt?ar=2026&manad=11'); // november: bara Vida gallring
-    const slut = fält('slutavverkning')[0];
-    expect(slut.getAttribute('data-bolag')).toBe('Vida'); // förifyllt...
-    expect(slut.textContent).toContain('Förifyllt eller valt · tryck för att byta'); // ...och sagt
-    await valjBolagFor(slut, 3); // byt till Privat
-    expect(fält('slutavverkning')[0].getAttribute('data-bolag')).toBe('Privat');
-    await satt(volymIn(fält('slutavverkning')[0]), '900');
-    await klicka(knapp('Spara', true));
-    expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ manad: 11, typ: 'slutavverkning', bolag: 'Privat', bolag_id: 3, volym: 900 })]);
-  });
-
-  it('två bolag i månaden: inget förifylls — ett val ska göras, ingen gissning', async () => {
-    DB.poster = [
-      { id: 'x1', ar: 2026, manad: 12, typ: 'gallring', bolag: 'Vida', bolag_id: 1, volym: 100 },
-      { id: 'x2', ar: 2026, manad: 12, typ: 'gallring', bolag: 'ATA Timber', bolag_id: 7, volym: 100 },
-    ];
+  it('en månad utan någon beställning har inga sektioner (ingenting förifylls): bara "Lägg till bolag", och bolaget väljs', async () => {
     await oppnaArk('/objekt?ar=2026&manad=12');
-    const slut = fält('slutavverkning')[0];
-    expect(slut.getAttribute('data-bolag')).toBe('');
-    await satt(volymIn(slut), '500');
+    expect(sektioner()).toHaveLength(0);
+    await klicka(doc().querySelector('[data-lagg-till-bolag]'));
+    await satt(faltIn(nySektion(), 'gallring'), '400');
     expect(sparaOpacity()).toBe('0.4');
-  });
-
-  it('en månad utan någon beställning förifyller inget (det finns inget standardbolag): Spara är stängd tills bolaget valts', async () => {
-    await oppnaArk('/objekt?ar=2026&manad=12');
-    for (const f of fält('gallring').concat(fält('slutavverkning'))) expect(f.getAttribute('data-bolag')).toBe('');
-    await satt(volymIn(fält('gallring')[0]), '400');
-    expect(sparaOpacity()).toBe('0.4');
-    await valjBolagFor(fält('gallring')[0], 1);
+    await valjBolagFor(nySektion(), 1);
     expect(sparaOpacity()).not.toBe('0.4');
     await klicka(knapp('Spara', true));
     expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ typ: 'gallring', bolag: 'Vida', bolag_id: 1, volym: 400 })]); // Vida för att någon VALDE det
   });
 
-  it('samma bolag två gånger på samma typ går inte att spara (samma nyckel ar, manad, typ, bolag)', async () => {
-    await oppnaArk();
-    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
-    const nytt = fält('gallring').at(-1)!;
-    await satt(volymIn(nytt), '50');
-    await valjBolagFor(nytt, 1); // Vida finns redan på gallring i oktober
-    expect(doc().querySelector('[data-dubbelt-bolag]')).toBeTruthy();
-    expect(sparaOpacity()).toBe('0.4');
+  it('ett bolag med beställning på bara EN typ visar båda raderna; den tomma blir en NY beställning med bolagets bolag_id (Vida november: bara gallring)', async () => {
+    await oppnaArk('/objekt?ar=2026&manad=11');
+    const vida = sektion('Vida');
+    expect(faltIn(vida, 'gallring').value).toBe('500');
+    expect(faltIn(vida, 'slutavverkning').value).toBe('');
+    await satt(faltIn(vida, 'slutavverkning'), '900');
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar).toHaveLength(1);
+    expect(DB.skrivningar[0].op).toBe('insert');
+    expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ manad: 11, typ: 'slutavverkning', bolag: 'Vida', bolag_id: 1, volym: 900 })]); // gallringen rördes inte
   });
 
-  it('bolaget på en BEFINTLIG beställning är fast: raden går inte att trycka på (att byta bolag vore en annan beställning)', async () => {
+  it('ett bolag med objekt men UTAN beställning (Privat) är ingen sektion i ARKET — men syns i LISTAN med sina trakter och utan täckningsrad', async () => {
+    DB.objekt = [...OBJEKT, OBJ('privat-g', 'Privat gallring', 'gallring', 80, 'planerad', { bolag: 'Privat' })];
     await oppnaArk();
-    const g = fält('gallring')[0];
-    expect(g.textContent).toContain('Beställningens bolag');
-    await klicka(g.querySelector('[data-bolag-rad]'));
-    expect(doc().querySelector('[data-bolagvaljare]')).toBeNull();
+    expect(sektioner().map(e => e.getAttribute('data-bolag'))).toEqual(['Vida']);
+    const listan = doc().querySelector('[data-bolaggrupp="Privat"]')!;
+    expect(listan.querySelector('[data-objekt="privat-g"]')).toBeTruthy();
+    expect(listan.querySelector('[data-lage]')).toBeNull();
   });
 
   it('ett skrivfel visas som det är (unikt index) och ingenting tystas', async () => {
     await oppnaArk();
     DB.skrivFel = { code: '23505', message: 'duplicate key' };
-    await satt(volymIn(fält('gallring')[0]), '1200');
+    await satt(faltIn(sektion('Vida'), 'gallring'), '1200');
     await klicka(knapp('Spara', true));
     expect(text()).toContain('Det finns redan en beställning');
     expect(text()).not.toContain('är sparad');
   });
 
+  it('FÖRSLAGET: raden och skärmen säger samma ord (Föreslå → Förslag), commit-knappen är en annan handling (Lägg in)', async () => {
+    await oppnaArk();
+    const rad = doc().querySelector('[data-foresla]')!;
+    expect(rad.textContent).toContain('Föreslå samma för nov 2026 – dec 2027');
+    expect(rad.textContent).not.toContain('Lägg in'); // raden lägger inte in något: den öppnar ett förslag
+    await klicka(rad);
+    await tills(() => doc().querySelectorAll('[data-forslag-manad]').length > 0);
+    expect(doc().querySelector('[role="dialog"]')!.getAttribute('aria-label')).toBe('Förslag');
+    expect(knapp('Lägg in 13 månader')).toBeTruthy();
+    expect(text()).not.toContain('Förhandsgranska');
+  });
+
   it('förslaget för kommande månader kopierar PER BOLAG: varje bolags beställning följer med, med sitt bolag_id', async () => {
     DB.poster = [...POSTER, { id: 'b-ata', ar: 2026, manad: 10, typ: 'slutavverkning', bolag: 'ATA Timber', bolag_id: 7, volym: 400 }];
     await oppnaArk();
+    expect(sektioner().map(e => e.getAttribute('data-bolag'))).toEqual(['ATA Timber', 'Vida']); // två bolag med beställning: två sektioner
     await klicka(doc().querySelector('[data-foresla]'));
     await tills(() => doc().querySelectorAll('[data-forslag-manad]').length > 0);
     expect(text()).toContain(nbsp('Vida gallring 1 000 m³fub')); // flera bolag: sammanfattningen nämner vilka

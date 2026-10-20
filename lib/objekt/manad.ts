@@ -10,6 +10,8 @@ export interface Manad { ar: number; manad: number }
 
 export const manadNyckel = (m: Manad): string => `${m.ar}-${m.manad}`;
 export const manadEtikett = (m: Manad): string => `${MANADER[m.manad - 1]} ${m.ar}`;
+/** "nov 2026" — kort form för rader där hela månadsnamnet tar för stor plats. */
+export const manadKort = (m: Manad): string => `${MANADER[m.manad - 1].slice(0, 3).toLowerCase()} ${m.ar}`;
 
 export function stegaManad(m: Manad, dir: number): Manad {
   const idx = m.ar * 12 + (m.manad - 1) + dir;
