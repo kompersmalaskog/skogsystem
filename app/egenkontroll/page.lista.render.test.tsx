@@ -18,7 +18,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: (u: string) => h.pushade.push(u) }) }));
-vi.mock('@/components/BottomNav', () => ({ default: () => null }));
+// Flikraden finns inte i egenkontrollen. Mocken ritar en synlig markör (inte null) så att en återinförd <BottomNav /> fäller testerna nedan.
+vi.mock('@/components/BottomNav', () => ({ default: () => <nav data-testid="bottennav" /> }));
 vi.mock('./useEnPosition', () => ({ useEnPosition: () => h.position }));
 vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => h.vag }));
 vi.mock('@/lib/navigera', async () => {
@@ -291,6 +292,38 @@ describe('avstånd, bilknapp och öppna objektet', () => {
     h.lista = async () => oversikt([rad('Ett', 'ej_startad', '2026-08-10T10:00:00Z', { lat: null, lng: null })]);
     await montera_och_vanta();
     expect(tid('bil-o-Ett')).toBeNull();
+  });
+});
+
+describe('ingen flikrad: listan går ut via hemknappen i toppfältet, inte via en bottennavigation', () => {
+  const medRader = () => oversikt([rad('Ett', 'ej_startad', '2026-08-10T10:00:00Z'), rad('Pågår', 'pagaende', '2026-09-01T10:00:00Z')]);
+
+  it('varken när listan laddas', async () => {
+    h.lista = () => new Promise(() => {});
+    await montera();
+    expect(text()).toContain('Hämtar egenkontrollerna');
+    expect(tid('bottennav')).toBeNull();
+  });
+
+  it('huvudlistan', async () => {
+    h.lista = async () => medRader();
+    await montera_och_vanta();
+    expect(tid('bottennav')).toBeNull();
+  });
+
+  it('underlistan (Påbörjade, Starta på ett annat objekt)', async () => {
+    h.lista = async () => medRader();
+    await montera_och_vanta();
+    await klicka(tid('kategori-påbörjade'));
+    expect(tid('underrubrik')).not.toBeNull();
+    expect(tid('bottennav')).toBeNull();
+  });
+
+  it('felläget', async () => {
+    h.lista = async () => { throw new Error('nät'); };
+    await montera_och_vanta();
+    expect(tid('lista-fel')).not.toBeNull();
+    expect(tid('bottennav')).toBeNull();
   });
 });
 

@@ -12,7 +12,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import BottomNav from '@/components/BottomNav';
 import Ikon from '@/components/design/Ikon';
 import { AVSTAND, FARG, IKON, KNAPP, KORT, TYP } from '@/lib/design/tokens';
 import { hamtaStickprov, hamtaVantande, type VantandeOversikt } from '@/lib/egenkontroll';
@@ -91,7 +90,7 @@ export default function EgenkontrollListPage() {
 
   // ── Laddar / fel ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   if (laddar) {
-    return <ListRot><p style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', marginTop: AVSTAND.xxl }}>Hämtar egenkontrollerna…</p><BottomNav /></ListRot>;
+    return <ListRot><p style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', marginTop: AVSTAND.xxl }}>Hämtar egenkontrollerna…</p></ListRot>;
   }
   if (fel) {
     return (
@@ -103,7 +102,6 @@ export default function EgenkontrollListPage() {
           <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s, wordBreak: 'break-word' }}>{fel}</div>
           <button type="button" onClick={ladda} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>Försök igen</button>
         </div>
-        <BottomNav />
       </ListRot>
     );
   }
@@ -119,7 +117,6 @@ export default function EgenkontrollListPage() {
         {lista.length === 0
           ? <p style={{ ...TYP.text, color: FARG.text2 }}>Inget här.</p>
           : <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }} data-testid={`lista-${vy}`}>{lista.map((r, i) => radEl(r, i === lista.length - 1))}</div>}
-        <BottomNav />
       </ListRot>
     );
   }
@@ -205,7 +202,6 @@ export default function EgenkontrollListPage() {
       {(data?.antalUtanDatum ?? 0) > 0 && (
         <Not testid="utan-datum">{data!.antalUtanDatum} äldre objekt saknar avslutsdatum och listas inte här. De kan startas från objektet.</Not>
       )}
-      <BottomNav />
     </ListRot>
   );
 }
