@@ -29,7 +29,19 @@ export interface KlassSumma {
   kmRa: number;
   /** Liter i klassen; null = ingen bränsleuppgift alls. */
   liter: number | null;
+  /** Exakta liter och km med bränsleuppgift, före avrundning — bara för att summera ihop till månad och år. */
+  literRa: number;
+  kmDiesel: number;
   /** l/mil över de segment som har bränsleuppgift; null = ingen. */
+  lPerMil: number | null;
+}
+
+/** Månadens (eller årets) diesel ur mätaren: alla klasser ihop. l/mil över km MED bränsleuppgift, som i diagrammet. */
+export interface Diesel {
+  /** Hela liter; null = ingen bränsleuppgift alls ("diesel saknas"), aldrig 0. */
+  liter: number | null;
+  literRa: number;
+  kmDiesel: number;
   lPerMil: number | null;
 }
 
@@ -42,6 +54,8 @@ export interface ViktManad {
   okand: KlassSumma;
   /** Summan av de avrundade delarna. */
   km: number;
+  /** Lastad + tom + okänd. */
+  diesel: Diesel;
 }
 
 const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -51,21 +65,28 @@ function klass(km: unknown, liter: unknown, kmDiesel: unknown): KlassSumma {
   return {
     km: Math.round(kmRa), kmRa,
     liter: kd > 0 ? Math.round(num(liter)) : null,
+    literRa: kd > 0 ? num(liter) : 0, kmDiesel: kd,
     lPerMil: kd > 0 && num(liter) > 0 ? num(liter) / (kd / 10) : null,
   };
 }
 
-const TOM_KLASS: KlassSumma = { km: 0, kmRa: 0, liter: null, lPerMil: null };
+const TOM_KLASS: KlassSumma = { km: 0, kmRa: 0, liter: null, literRa: 0, kmDiesel: 0, lPerMil: null };
+
+const dieselAv = (literRa: number, kmDiesel: number): Diesel => ({
+  liter: kmDiesel > 0 ? Math.round(literRa) : null, literRa, kmDiesel,
+  lPerMil: kmDiesel > 0 && literRa > 0 ? literRa / (kmDiesel / 10) : null,
+});
 
 /** Årets månader (nyast först) med sin viktuppdelning. En månad utan rad i svaret är "vikt saknas" — aldrig en nolla som ser ut som mätning. */
 export function perViktManad(ar: number, rader: readonly ViktRad[], nu?: Date): ViktManad[] {
   return manaderIAr(ar, nu).map(m => {
     const r = rader.find(x => Number(x.man) === m.man);
-    if (!r) return { m, harVikt: false, lastad: TOM_KLASS, tom: TOM_KLASS, okand: TOM_KLASS, km: 0 };
+    if (!r) return { m, harVikt: false, lastad: TOM_KLASS, tom: TOM_KLASS, okand: TOM_KLASS, km: 0, diesel: dieselAv(0, 0) };
     const lastad = klass(r.km_lastad, r.liter_lastad, r.km_diesel_lastad);
     const tom = klass(r.km_tom, r.liter_tom, r.km_diesel_tom);
     const okand = klass(r.km_okand, r.liter_okand, r.km_diesel_okand);
-    return { m, harVikt: lastad.kmRa + tom.kmRa > 0, lastad, tom, okand, km: lastad.km + tom.km + okand.km };
+    const diesel = dieselAv(lastad.literRa + tom.literRa + okand.literRa, lastad.kmDiesel + tom.kmDiesel + okand.kmDiesel);
+    return { m, harVikt: lastad.kmRa + tom.kmRa > 0, lastad, tom, okand, km: lastad.km + tom.km + okand.km, diesel };
   });
 }
 
@@ -80,6 +101,20 @@ export function matarAr(manader: readonly ViktManad[], harKorning: (m: Manad) =>
   return {
     km: manader.reduce((s, v) => s + (matarKm(v) ?? 0), 0),
     saknas: manader.filter(v => matarKm(v) == null && harKorning(v.m)).map(v => v.m),
+  };
+}
+
+/**
+ * Årets diesel ur mätaren: summan av månadernas visade liter (så raden går att räkna ihop) och l/mil över alla km med bränsleuppgift.
+ * Bara månader med mätare räknas (som årets km); månad utan bränsle ger inga liter, och saknas bränsle överallt är det null.
+ */
+export function dieselAr(manader: readonly ViktManad[]): Diesel {
+  const med = manader.filter(v => matarKm(v) != null);
+  const kmDiesel = med.reduce((a, v) => a + v.diesel.kmDiesel, 0);
+  const literRa = med.reduce((a, v) => a + v.diesel.literRa, 0);
+  return {
+    liter: kmDiesel > 0 ? med.reduce((a, v) => a + (v.diesel.liter ?? 0), 0) : null, literRa, kmDiesel,
+    lPerMil: kmDiesel > 0 && literRa > 0 ? literRa / (kmDiesel / 10) : null,
   };
 }
 

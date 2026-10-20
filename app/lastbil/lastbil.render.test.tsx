@@ -858,7 +858,7 @@ describe("Körningar: året, läsfel och CSV", () => {
     const kort = document.querySelector('section[aria-label="Året"]')!.textContent!;
     expect(kort).toContain("Körd 2026");
     expect(kort).toContain("3\u00a0627 km");                           // MÄTARENS km (Martins första körning): aug 1 441 + sep 1 356 + okt 830 — inte rundornas 1 117
-    expect(kort).toContain("11 rundor · 394 l · 4,3 l/mil");           // rundor och liter står kvar (rundornas)
+    expect(kort).toContain("11 rundor · 1\u00a0449 l · 4,3 l/mil");        // antalet är rundornas; liter och l/mil är MÄTARENS (555 + 565 + 329 = 1 449, över km med bränsle)
     expect(kort).toContain("mätare saknas för juli");                  // juli har rundor men ingen mätare: årets km täcker inte juli och det sägs
     const manader = document.querySelector('section[aria-label="Månader"]')!;
     expect(Array.from(manader.querySelectorAll("button")).map(b => b.textContent!.match(/^(Oktober|September|Augusti|Juli)/)?.[0])).toEqual(["Oktober", "September", "Augusti", "Juli"]);
@@ -872,6 +872,11 @@ describe("Körningar: året, läsfel och CSV", () => {
     expect(rad("Augusti")).toContain("Med lass 33 %");
     expect(rad("Juli")).toContain("mätare saknas");
     expect(rad("Juli")).not.toMatch(/\d km/);
+    expect(rad("Juli")).not.toMatch(/ l\b|l\/mil/);                    // inga rundornas liter där mätaren saknas
+    // liter och l/mil på månadsraden är mätarens: aug 555 l över 1 327 km med bränsle = 4,2, sep 565 l = 4,5, okt 329 l = 4,2
+    expect(rad("Augusti")).toContain("555 l · 4,2 l/mil");
+    expect(rad("September")).toContain("Inga rundor · 565 l · 4,5 l/mil");   // mätaren körde fast inga rundor finns: båda sägs
+    expect(rad("Oktober")).toContain("329 l · 4,2 l/mil");
     expect(manader.textContent).not.toMatch(/Övrig/);
     expect(text()).not.toMatch(/Fakturering|fakturerbar/i);             // den visar körning, inte fakturering
     await klicka(Array.from(manader.querySelectorAll("button")).find(b => b.textContent!.startsWith("Augusti")) as HTMLElement);
@@ -1007,7 +1012,8 @@ describe("Körningar: året, läsfel och CSV", () => {
     expect(text()).toContain("Kunde inte läsa vikten just nu.");
     await klicka(knapp(/^Betalt$/)!);
     expect(text()).toContain("Kunde inte läsa vikten just nu.");       // Betalt bygger också på mätarens km
-    expect(text()).toContain("11 rundor · 394 l · 4,3 l/mil");           // rundorna är lästa
+    expect(document.querySelector('section[aria-label="Året"]')!.textContent).toContain("11 rundor");   // rundorna är lästa
+    expect(document.querySelector('section[aria-label="Året"]')!.textContent).not.toMatch(/ l\b|l\/mil/);   // men liter och l/mil är mätarens och skrivs inte utan den
     expect(document.querySelector("[data-maskiner]")).not.toBeNull();   // Maskiner påverkas inte
     await klicka(knapp(/^Förbrukning$/)!);
     mock.viktFel = false;

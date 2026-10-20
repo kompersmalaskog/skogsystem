@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LASS_SAKNAS_FAKTOR, lassMotFlyttar, matarAr, matarKm, perViktManad, type ViktRad } from './vikt';
+import { LASS_SAKNAS_FAKTOR, dieselAr, lassMotFlyttar, matarAr, matarKm, perViktManad, type ViktRad } from './vikt';
 import { PROD_VIKT_RADER } from './vikt.fixtur';
 import type { Flytt } from './maskiner';
 
@@ -111,5 +111,41 @@ describe('mätarens km: lastad + tom + okänd, och månader mätaren inte täcke
   it('en månad med bara okänd körning täcks inte av mätaren (delsumma vore ett falskt tal)', () => {
     const bara = perViktManad(2026, [rad({ km_lastad: 0, km_tom: 0, km_okand: 9 })], NU).find(v => v.m.man === 8)!;
     expect(matarKm(bara)).toBeNull();
+  });
+});
+
+describe('dieselns summa: lastad + tom + okänd delat med km med bränsle (en rad ska gå att räkna ihop)', () => {
+  const man = perViktManad(2026, PROD_VIKT_RADER, NU);
+  const m = (n: number) => man.find(x => x.m.man === n)!;
+  it('månadens liter och l/mil över alla klasser: aug 555 l, 4,2 l/mil · sep 565 l, 4,5 · okt 329 l, 4,2', () => {
+    expect([8, 9, 10].map(n => m(n).diesel.liter)).toEqual([555, 565, 329]);
+    expect([8, 9, 10].map(n => Math.round((m(n).diesel.lPerMil as number) * 10) / 10)).toEqual([4.2, 4.5, 4.2]);
+  });
+  it('okänd körning med bränsle ingår i litrarna och i nämnaren', () => {
+    const r = perViktManad(2026, [rad({ km_lastad: 100, liter_lastad: 50, km_diesel_lastad: 100, km_tom: 100, liter_tom: 30, km_diesel_tom: 100, km_okand: 50, liter_okand: 20, km_diesel_okand: 50 })], NU).find(x => x.m.man === 8)!;
+    expect(r.diesel.liter).toBe(100);
+    expect(r.diesel.lPerMil).toBeCloseTo(100 / 25, 6);                  // 100 l över 250 km = 4 l/mil
+  });
+  it('saknas diesel för en del räknas bara km med diesel i nämnaren — litrarna är oförändrade', () => {
+    const r = perViktManad(2026, [rad({ km_lastad: 100, liter_lastad: 50, km_diesel_lastad: 100, km_tom: 300, liter_tom: 0, km_diesel_tom: 0 })], NU).find(x => x.m.man === 8)!;
+    expect(r.diesel.liter).toBe(50);
+    expect(r.diesel.lPerMil).toBe(5);                                    // 50 l över de 100 km som har diesel, inte över 400
+  });
+  it('ingen diesel alls: liter och l/mil är null, aldrig 0', () => {
+    const r = perViktManad(2026, [rad({ liter_lastad: 0, km_diesel_lastad: 0, liter_tom: 0, km_diesel_tom: 0 })], NU).find(x => x.m.man === 8)!;
+    expect(r.diesel).toMatchObject({ liter: null, lPerMil: null });
+    expect(dieselAr([r]).liter).toBeNull();
+  });
+  it('året: liter = summan av månadernas visade liter (1 449), l/mil över alla km med bränsle, juli utan mätare räknas inte', () => {
+    const ar = dieselAr(man);
+    expect(ar.liter).toBe(555 + 565 + 329);
+    expect(ar.lPerMil).toBeCloseTo((555.09 + 564.853 + 329.42) / ((482 + 845 + 504 + 755 + 242 + 535) / 10), 2);
+    // en månad med bara okänd körning täcks inte av mätaren och bidrar inte med liter
+    const bara = perViktManad(2026, [rad({ km_lastad: 0, km_tom: 0, km_okand: 9, liter_okand: 5, km_diesel_okand: 9 })], NU);
+    expect(dieselAr(bara).liter).toBeNull();
+  });
+  it('året summerar månadernas AVRUNDADE liter (10,4 + 10,4 = 10 + 10, inte 21) — som månadslistan', () => {
+    const tva = perViktManad(2026, [rad({ man: 8, liter_lastad: 10.4, liter_tom: 0, km_diesel_tom: 0 }), rad({ man: 9, liter_lastad: 10.4, liter_tom: 0, km_diesel_tom: 0 })], NU);
+    expect(dieselAr(tva).liter).toBe(20);
   });
 });

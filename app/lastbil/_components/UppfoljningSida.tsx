@@ -8,19 +8,28 @@ import Periodval from './Periodval';
 import MaskinerSektion from './MaskinerSektion';
 import Staplar from './Staplar';
 import { periodEtikett, type Manad, type Period } from './period';
-import { fmtLPerMil, summera, type Summa } from './rundor';
+import { fmtLPerMil, summera } from './rundor';
 import type { RundorLage } from './useRundor';
 import type { FakturerbartStatus } from './useFakturerbart';
 import type { MaskinerLage } from './useMaskiner';
 import LassMotFlyttar from './LassMotFlyttar';
 import type { ViktLage } from './useVikt';
 import { ENHET, MED_LASS, UTAN_LASS, betaltRader, forbrukningRader, harOkand, korstrackaRader, korstrackaSerier, lagen, perManad, vantandeFlyttar, type Lage } from './uppfoljning';
-import { lassMotFlyttar, matarAr, matarKm, perViktManad } from './vikt';
+import { dieselAr, lassMotFlyttar, matarAr, matarKm, perViktManad, type Diesel } from './vikt';
 
-const litTxt = (s: Summa) => (s.liter != null ? `${s.liter.toLocaleString('sv-SE')} l` : 'diesel saknas i datan');
-/** "5 rundor · 349 l · 4,3 l/mil". */
-const metaRad = (s: Summa) =>
-  [`${s.antal} ${s.antal === 1 ? 'runda' : 'rundor'}`, litTxt(s), fmtLPerMil(s.lPerMil) ? `${fmtLPerMil(s.lPerMil)} l/mil` : null].filter(Boolean).join(' · ');
+/**
+ * "5 rundor · 349 l · 4,3 l/mil": antalet är RUNDORNAS, liter och l/mil är MÄTARENS (lastbil_vikt_manad: lastad + tom + okänd, l/mil över
+ * km med bränsleuppgift). Utan diesel ur mätaren (juli, eller vikten ej läst) står bara antalet, och med mätare men utan bränsle "diesel saknas".
+ */
+function metaRad(antal: number, diesel: Diesel | null): string {
+  const delar = [antal === 0 ? 'Inga rundor' : `${antal} ${antal === 1 ? 'runda' : 'rundor'}`];
+  if (diesel) {
+    delar.push(diesel.liter != null ? `${diesel.liter.toLocaleString('sv-SE')} l` : 'diesel saknas i datan');
+    const lm = fmtLPerMil(diesel.lPerMil);
+    if (lm) delar.push(`${lm} l/mil`);
+  }
+  return delar.join(' · ');
+}
 
 /**
  * Uppföljning: lastbilens år som en egen sida under Lastbilen (öppnas av raden "Uppföljning ›" längst ner i Körningar, eller direkt
@@ -82,7 +91,7 @@ export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmi
             <div style={{ ...TYP.micro, color: FARG.text2 }}>Körd {ar}</div>
             <div data-ars-km style={{ ...TYP.tal, color: FARG.text, marginTop: AVSTAND.xs }}>{matar ? `${matar.km.toLocaleString('sv-SE')} km` : '– km'}</div>
             <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>
-              {metaRad(summa)}{matar && matar.saknas.length > 0 ? ` · mätare saknas för ${matar.saknas.map(m => periodEtikett(m).split(' ')[0].toLowerCase()).join(', ')}` : ''}
+              {metaRad(summa.antal, matar && viktManader ? dieselAr(viktManader) : null)}{matar && matar.saknas.length > 0 ? ` · mätare saknas för ${matar.saknas.map(m => periodEtikett(m).split(' ')[0].toLowerCase()).join(', ')}` : ''}
             </div>
           </section>
 
@@ -132,7 +141,7 @@ export default function UppfoljningSida({ ar, onAr, fakt, vikt, maskiner, arAdmi
                   style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.inuti, width: '100%', minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px 0`, background: 'none', border: 'none', borderBottom: i === manader.length - 1 ? 'none' : `1px solid ${FARG.linje}`, textAlign: 'left', color: FARG.text, font: 'inherit', cursor: 'pointer' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ ...TYP.listtitel, color: FARG.text }}>{periodEtikett(m).split(' ')[0]}</div>
-                    <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>{s.antal === 0 ? 'Inga rundor' : metaRad(s)}</div>
+                    <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }}>{metaRad(s.antal, v && matarKm(v) != null ? v.diesel : null)}</div>
                   </div>
                   <div data-manad-km style={{ textAlign: 'right', ...TNUM }}>
                     {km != null && v ? (
