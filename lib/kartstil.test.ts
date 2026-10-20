@@ -24,7 +24,7 @@ import {
   ritaPilIkon, zoomKurva,
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
-import { FARG_FARA, FARG_KULTUR, FARG_NATUR } from './larm/grupper';
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
 
 // Radslut normaliseras: filen kan ha CRLF pa Windows och LF pa Vercel, och
 // vakten ska ge samma svar bada stallena.
@@ -67,7 +67,7 @@ function stopp(uttryck: string, vad: string): [number, number][] {
 const sammanfoga = (s: string) => s.replace(/\s+/g, '');
 
 /** Färgkonstanterna ur färggrupperna (lib/larm/grupper) som planeringens källtext använder vid namn. */
-const FARG_KONSTANTER: Record<string, string> = { FARG_FARA, FARG_NATUR, FARG_KULTUR };
+const FARG_KONSTANTER: Record<string, string> = { FARG_FARA, FARG_NATUR, FARG_KULTUR, FARG_STENMUR };
 
 describe('LEGEND', () => {
   it('lib/kartstil.LEGEND ar identisk med LEGEND i planeringsvyn', () => {
@@ -151,8 +151,8 @@ describe('linjetyperna (lineTypeDefs)', () => {
     const helt = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
     expect(helt).toContain("id: 'line-stonewall-casing'");   // mörk kant under, som övriga linjer
     const block = helt.slice(helt.indexOf("id: 'line-stonewall-base'"));
-    expect(block).toContain("'line-color': FARG_NATUR");
-    expect(STENMUR_FARG).toBe(FARG_NATUR);
+    expect(block).toContain("'line-color': FARG_STENMUR");
+    expect(STENMUR_FARG).toBe(FARG_STENMUR);   // Stenmur = Kultur (brun), gruppens färg
     expect(stopp(block, 'stenmur/bredd')).toEqual(STENMUR_BREDD.map((s) => [...s]));
     expect(sammanfoga(block)).toContain(sammanfoga(`'line-dasharray': [${STRECK_STENMUR.join(', ')}]`));
     expect(sammanfoga(block)).toContain(sammanfoga("'line-cap': 'butt'"));

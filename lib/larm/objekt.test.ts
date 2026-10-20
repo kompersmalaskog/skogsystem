@@ -46,9 +46,9 @@ describe('Högstubbe och Evighetsträd larmar ALDRIG (typen avgör, inte vem som
 });
 
 describe('linjeObjekt (Stenmur)', () => {
-  it('Stenmur: avstånd till närmaste punkt på linjen, grupp Natur', () => {
+  it('Stenmur: avstånd till närmaste punkt på linjen, grupp Kultur', () => {
     const o = linjeObjekt({ id: 'sm', lineType: 'stonewall', koordinater: [p(-50, 25), p(50, 25)] }, O)!;
-    expect(o).toMatchObject({ kalla: 'linje', grupp: 'natur', namn: 'Stenmur' });
+    expect(o).toMatchObject({ kalla: 'linje', grupp: 'kultur', namn: 'Stenmur' });
     expect(o.avstandM).toBeCloseTo(25, 0);
   });
   it('övriga linjer larmar inte (basväg, stickväg, traktgräns)', () => {

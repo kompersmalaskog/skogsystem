@@ -5,7 +5,7 @@
 // i svartvitt. Farger ur FARGGRUPPERNA (lib/larm/grupper: Rod = Fara, Gron = Natur, Brun = Kultur, Bla = Blott, Lila = Att gora, Mork = Info) sa att
 // kartan i rapporten och kartan i appen kanns igen. Kulturmiljo och Fornlamning har samma brun och skiljs darfor at med streckning och namn.
 
-import { FARG_FARA, FARG_NATUR, GRUPPER, symbolFarg, ytaDef } from './larm/grupper';
+import { FARG_FARA, FARG_NATUR, GRUPPER, linjeFarg, symbolFarg, ytaDef } from './larm/grupper';
 
 export type KartMarkering =
   /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
@@ -26,7 +26,7 @@ export type MarkeringStil = {
 const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
   mainRoad: { etikett: 'Basväg', farg: '#3b82f6', bredd: 2.2, streck: null },
   ditch: { etikett: 'Dike', farg: '#0e7490', bredd: 0.9, streck: [3, 2] },
-  stonewall: { etikett: 'Stenmur', farg: FARG_NATUR, bredd: 1.6, streck: [2, 1] },
+  stonewall: { etikett: 'Stenmur', farg: linjeFarg('stonewall') ?? FARG_NATUR, bredd: 1.6, streck: [2, 1] },
   nature: { etikett: 'Naturvård (linje)', farg: FARG_NATUR, bredd: 1.4, streck: [4, 2] },
   trail: { etikett: 'Stig', farg: '#8e8e93', bredd: 0.9, streck: [2, 2] },
 };

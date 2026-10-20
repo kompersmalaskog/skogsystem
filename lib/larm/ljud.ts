@@ -17,6 +17,21 @@ export const LJUDSCHEMA: Readonly<Record<LarmLjud, readonly Ton[]>> = {
   ],
 };
 
+/** Flera nya larm inom det här fönstret ger bara EN ljudsignal (ett ljud per ny sak, men inget pipande kluster). */
+export const LJUD_FONSTER_MS = 2000;
+export interface SenastLjud { tid: number; ljud: LarmLjud }
+const STYRKA: Record<LarmLjud, number> = { nara: 1, mycket_nara: 2 };
+
+/**
+ * Ska ljudet spelas nu? Inom fönstret efter förra ljudet tystas lika starka eller svagare ljud; ett STARKARE (Röd inom 15 m efter ett vanligt ljud)
+ * får ersätta, så att det farligaste aldrig försvinner bakom ett vanligt larm. Ren funktion — hooken håller senast spelade.
+ */
+export function skaSpelaLjud(ljud: LarmLjud | null, nu: number, senast: SenastLjud | null): boolean {
+  if (!ljud) return false;
+  if (!senast || nu - senast.tid >= LJUD_FONSTER_MS) return true;
+  return STYRKA[ljud] > STYRKA[senast.ljud];
+}
+
 /** Total längd i sekunder. */
 export const ljudLangd = (l: LarmLjud): number => Math.max(...LJUDSCHEMA[l].map((t) => t.start + t.varaktighet));
 

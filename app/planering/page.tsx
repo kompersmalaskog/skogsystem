@@ -51,12 +51,13 @@ import { avlaggAttSkriva, avlaggBaslinjeFran, avlaggFullRad, mergaAvlagg, type A
 import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type BrandBaslinje } from '../../lib/brandSpar'
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
+import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint } from '../../lib/larm/pulsKarta'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
-import { FARG_FARA, FARG_KULTUR, FARG_NATUR, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, SYMBOL_GRUPP, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
@@ -178,7 +179,7 @@ const LEGEND = {
   fara:          FARG_FARA,  // röd       – traktgräns, ej framkomlig, naturvårds-kantrand (lib/larm/grupper: EN källa)
   gul:           '#fbbf24',  // gul       – gräns/basväg-rand, gul väg, kultur-ikonkant
   vatten:        '#3b82f6',  // blå       – basväg, blå väg, blött, körriktning
-  naturvard:     FARG_NATUR, // grön      – naturvårdslinje/-zon, naturvård-ikon, fällriktning, stenmur
+  naturvard:     FARG_NATUR, // grön      – naturvårdslinje/-zon, naturvård-ikon, fällriktning
   naturvardKant: '#4ade80',  // ljusgrön  – naturvård-ikonkant
   kultur:        FARG_KULTUR, // brun     – kulturmiljö (orange betyder bara tall)
   fornlamning:   FARG_KULTUR, // brun     – fornlämning (samma brun, namnet står i ytan)
@@ -1412,10 +1413,10 @@ export default function PlannerPage() {
       { id: 'nature', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
       { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
       { id: 'trail', color: LEGEND.vit, dashed: true },
-      { id: 'stonewall', color: FARG_NATUR, stonewall: true },
+      { id: 'stonewall', color: FARG_STENMUR, stonewall: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
-      // Stenmur: eget block-streckat utseende (butt-cap), skilt från generiska loopen. Natur = grön (lib/larm/grupper) med mörk kant under
+      // Stenmur: eget block-streckat utseende (butt-cap), skilt från generiska loopen. Kultur = brun (lib/larm/grupper) med mörk kant under
       // (samma färg i planering och körvy — ingen växling; kanten bär den mot ljus och mörk karta).
       if (lt.id === 'stonewall') {
         map.addLayer({
@@ -1428,7 +1429,7 @@ export default function PlannerPage() {
           id: 'line-stonewall-base', type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], 'stonewall'],
           paint: {
-            'line-color': FARG_NATUR,
+            'line-color': FARG_STENMUR,   // gruppens färg (Kultur, brun) — ingen egen nyans
             'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 6, 15, 7, 17, 9],
             'line-dasharray': [2, 0.85], // ~12/5 px vid ~6px bredd → läser som stenar på rad
           },
@@ -7884,7 +7885,7 @@ export default function PlannerPage() {
     { id: 'trail', name: 'Stig/Led', color: LEGEND.vit, striped: false, dashed: true },
     // Stenmur: biotopskyddad hänsynslinje. Grå (enda gråa linjen). `color` = picker-swatch +
     // live-preview (mellangrå, syns i mörk meny OCH på ljus karta); kart-färgen sätts i lineTypeDefs.
-    { id: 'stonewall', name: 'Stenmur', color: FARG_NATUR, striped: false, dashed: true },
+    { id: 'stonewall', name: 'Stenmur', color: FARG_STENMUR, striped: false, dashed: true },
   ];
 
   const zoneTypes = [
@@ -9320,6 +9321,14 @@ export default function PlannerPage() {
           } });
       } catch (e) { console.error('[Körvy] larm-ring:', e); }
     }
+    // PULSEN (lib/larm/pulsKarta): det STORA larmkortets objekt pulserar (mjukt sken i gruppens färg); en linje bara sträckan närmast maskinen.
+    if (!map.getSource(PULS_KALLA)) {
+      try { map.addSource(PULS_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Körvy] larm-puls-source:', e); }
+    }
+    for (const spec of pulsLagerSpecar()) {
+      if (map.getLayer(spec.id)) continue;
+      try { map.addLayer(spec); } catch (e) { console.error('[Körvy] ' + spec.id + ':', e); }
+    }
     // FÄLLNINGSCIRKELNS orsak (lib/larm/fallning): det som gör cirkeln röd/brun/grön lyser upp i gruppens färg. Tyst — bara ritning. Lagren: lib/larm/fallningKarta.
     if (!map.getSource(FALL_KALLA)) {
       try { map.addSource(FALL_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Körvy] larm-fall-source:', e); }
@@ -9811,11 +9820,35 @@ export default function PlannerPage() {
       src.setData({
         type: 'FeatureCollection',
         features: korvyActive
-          ? larm.ringar.filter((r) => r.geometri).map((r) => ({ type: 'Feature' as const, properties: { id: r.id, farg: r.farg, steg: r.steg, grupp: r.grupp }, geometry: r.geometri as any }))
+          ? larm.ringar.filter((r) => r.geometri).map((r) => ({ type: 'Feature' as const, properties: { id: r.id, farg: r.farg, steg: r.steg, grupp: r.grupp, roll: r.roll }, geometry: r.geometri as any }))
           : [],
       });
     } catch (e) { console.error('[Körvy] larm-ring update:', e); }
   }, [larm.ringar, korvyActive, mapLibreReady]);
+
+  // === KÖRVY: pulsen på det stora larmets objekt (data) + andningen (paint, ~10 bilder/s, stilla vid "minska rörelser") ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(PULS_KALLA) as any;
+    if (!src) return;
+    const pos = korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null;
+    try { src.setData(pulsData(korvyActive ? larm.puls : null, pos)); } catch (e) { console.error('[Körvy] larm-puls update:', e); }
+    if (!korvyActive || !larm.puls) return;
+    const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const tick = () => {
+      const paint = pulsPaint(pulsFas(Date.now(), minskad));
+      for (const [lager, egenskaper] of Object.entries(paint)) {
+        if (!map.getLayer(lager)) continue;
+        for (const [k, v] of Object.entries(egenskaper)) { try { map.setPaintProperty(lager, k, v); } catch { /* lagret kan vara på väg bort */ } }
+      }
+    };
+    tick();
+    if (minskad) return;
+    const t = setInterval(tick, 100);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [larm.puls, korvyActive, mapLibreReady, korvyEffectivePos?.lat, korvyEffectivePos?.lon]);
 
   // === KÖRVY: uppdatera maskin-source (Point + heading) vid varje tick ===
   useEffect(() => {
@@ -13912,6 +13945,7 @@ export default function PlannerPage() {
       {korvyActive && larm.kort && (
         <LarmKortVy
           kort={larm.kort}
+          fler={larm.fler}
           riktning={larm.kort.bearing != null ? korvyRiktning(larm.kort.bearing, korvyHeading) : null}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px)`}
         />

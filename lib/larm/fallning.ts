@@ -2,9 +2,9 @@
 //
 //   Neutral och svag när inget skyddsvärt finns inom 30 m.
 //   Tar gruppens färg när något man inte får fälla på ligger inom 30 m:
-//     Röd:  El-ledning, Kraftledning (Vida), Varning
-//     Brun: Kulturminne, Kulturstubbe, Kulturmiljö, Fornlämning (egen, Vidas RAÄ)
-//     Grön: Stenmur, Hänsyn (egen och Vidas), Nyckelbiotop, Naturhörna, Evighetsträd
+//     Röd:  El-ledning, Kraftledning (Vida), Varning, Jakttorn (inte Markkabel: den ligger i marken)
+//     Brun: Kulturminne, Kulturstubbe, Kulturmiljö, Fornlämning (egen, Vidas RAÄ), Stenmur
+//     Grön: Hänsyn (egen och Vidas), Nyckelbiotop, Naturhörna, Evighetsträd
 //   Punkter räknas på avståndet, linjer och ytor på NÄRMASTE punkt (en yta man står i har avstånd 0). Flera samtidigt: Röd före Brun/Grön, annars närmast.
 //   Objekten som orsakar färgen lyser upp på kartan. Cirkeln är TYST: inget ljud, inget kort, ingen kvittering. Evighetsträd räknas här fast det inte larmar.
 //   Blå, Lila och Mörk (och Brant, Ej framkomlig, Högstubbe) påverkar inte cirkeln.

@@ -82,3 +82,42 @@ export function avstandTillYtaM(pos: LatLon, ringar: ReadonlyArray<readonly LatL
   }
   return min;
 }
+
+/**
+ * Sträckan av en linje som ligger inom `halvM` meter åt vardera hållet (längs linjen) från den punkt på linjen som ligger närmast `pos`.
+ * Används för pulsen på en lång linje (Kraftledning, El-ledning, Stenmur): bara stället där maskinen är pulserar, inte hela linjen.
+ * Kortare linjer än 2·halvM ger hela linjen. Färre än två punkter ger linjen som den är.
+ */
+export function klippLinjeNara(pos: LatLon, linje: readonly LatLon[], halvM: number): LatLon[] {
+  if (linje.length < 2) return [...linje];
+  const langd: number[] = [0];
+  for (let i = 0; i < linje.length - 1; i++) langd.push(langd[i] + avstandPunktM(linje[i], linje[i + 1]));
+  const total = langd[langd.length - 1];
+  if (total <= 2 * halvM) return [...linje];
+  // Närmaste punkt på linjen: segment + andel.
+  let bastD = Infinity, bastS = 0;
+  for (let i = 0; i < linje.length - 1; i++) {
+    const [ax, ay] = xy(pos, linje[i]);
+    const [bx, by] = xy(pos, linje[i + 1]);
+    const dx = bx - ax, dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
+    const d = Math.hypot(ax + t * dx, ay + t * dy);
+    if (d < bastD) { bastD = d; bastS = langd[i] + t * (langd[i + 1] - langd[i]); }
+  }
+  const lo = Math.max(0, bastS - halvM), hi = Math.min(total, bastS + halvM);
+  const punktVid = (sM: number): LatLon => {
+    for (let i = 0; i < linje.length - 1; i++) {
+      if (sM <= langd[i + 1] || i === linje.length - 2) {
+        const seg = langd[i + 1] - langd[i];
+        const f = seg === 0 ? 0 : Math.max(0, Math.min(1, (sM - langd[i]) / seg));
+        return { lat: linje[i].lat + (linje[i + 1].lat - linje[i].lat) * f, lon: linje[i].lon + (linje[i + 1].lon - linje[i].lon) * f };
+      }
+    }
+    return linje[linje.length - 1];
+  };
+  const ut: LatLon[] = [punktVid(lo)];
+  for (let i = 0; i < linje.length; i++) if (langd[i] > lo && langd[i] < hi) ut.push(linje[i]);
+  ut.push(punktVid(hi));
+  return ut;
+}

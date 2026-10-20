@@ -38,7 +38,7 @@ describe('fällningscirkeln — radie och neutral', () => {
 
 describe('fällningscirkeln — färg per grupp', () => {
   it.each([
-    ['powerline', 'fara', FARG_FARA], ['warning', 'fara', FARG_FARA],
+    ['powerline', 'fara', FARG_FARA], ['warning', 'fara', FARG_FARA], ['huntingtower', 'fara', FARG_FARA],
     ['culturemonument', 'kultur', FARG_KULTUR], ['culturestump', 'kultur', FARG_KULTUR],
     ['naturecorner', 'natur', FARG_NATUR], ['eternitytree', 'natur', FARG_NATUR],
   ])('symbolen %s ger %s', (typ, grupp, farg) => {
@@ -55,6 +55,21 @@ describe('fällningscirkeln — färg per grupp', () => {
     expect(bedom([sym('x', 'eternitytree', 5)]).farg).toBe(GRUPPER.natur.farg);
   });
 
+  it('Jakttorn färgar cirkeln RÖD; Markkabel (ligger i marken) påverkar den inte', () => {
+    const u = bedom([sym('torn', 'huntingtower', 20)]);
+    expect(u.grupp).toBe('fara');
+    expect(u.farg).toBe(FARG_FARA);
+    expect(bedom([sym('kabel', 'groundcable', 5)]).grupp).toBeNull();
+  });
+
+  it('Stenmur ger BRUN cirkel (Kultur), och Röd (Jakttorn) vinner över den', () => {
+    const mur = linje('mur', 'stonewall', [[10, -50], [10, 50]]);
+    expect(bedom([mur]).farg).toBe(FARG_KULTUR);
+    const u = bedom([mur, sym('torn', 'huntingtower', 25)]);
+    expect(u.grupp).toBe('fara');
+    expect(u.orsaker.map((o) => o.id)).toEqual(['torn']);
+  });
+
   it('Evighetsträd räknas fast det inte larmar', () => {
     expect(bedom([sym('e', 'eternitytree', 10)]).grupp).toBe('natur');
   });
@@ -63,7 +78,8 @@ describe('fällningscirkeln — färg per grupp', () => {
     for (const typ of ['steep', 'wet', 'highstump', 'manualfelling', 'felloutside', 'landing', 'road', 'ditch', 'bridge']) {
       expect(bedom([sym('x', typ, 5)]).grupp, typ).toBeNull();
     }
-    expect(Object.keys(FALLNING_SYMBOL).sort()).toEqual(['culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'powerline', 'warning']);
+    expect(Object.keys(FALLNING_SYMBOL).sort()).toEqual(['culturemonument', 'culturestump', 'eternitytree', 'huntingtower', 'naturecorner', 'powerline', 'warning']);
+    expect(FALLNING_SYMBOL.groundcable, 'Markkabel ligger i marken').toBeUndefined();
   });
 
   it('Röd vinner över Brun och Grön — även när Röd ligger längre bort', () => {
@@ -83,10 +99,11 @@ describe('fällningscirkeln — färg per grupp', () => {
 });
 
 describe('fällningscirkeln — linjer och ytor räknas på närmaste punkt', () => {
-  it('Stenmur: ändpunkterna är långt borta men linjen passerar 20 m bort → grön', () => {
+  it('Stenmur: ändpunkterna är långt borta men linjen passerar 20 m bort → BRUN (Kultur: en stenmur är en kulturlämning)', () => {
     const m = linje('mur', 'stonewall', [[20, -200], [20, 200]]);
     const u = bedom([m]);
-    expect(u.grupp).toBe('natur');
+    expect(u.grupp).toBe('kultur');
+    expect(u.farg).toBe(FARG_KULTUR);
     expect(u.orsaker[0].avstandM).toBeGreaterThan(19);
     expect(u.orsaker[0].avstandM).toBeLessThan(21);
   });

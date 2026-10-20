@@ -251,3 +251,101 @@ describe('undantag och hjälpare', () => {
     expect(innehallHash({ type: 'wet', comment: 'a' })).not.toBe(innehallHash({ type: 'wet', comment: 'b' }));
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// FLERA LARM SAMTIDIGT: ETT stort kort, en liten rad under, pulsen på rätt objekt
+// ---------------------------------------------------------------------------------------------------------------------------------
+describe('flera larm samtidigt', () => {
+  const rod = (id: string, d: number, extra: Partial<LarmObjekt> = {}) => sym('fara', d, { id, namn: id, ...extra });
+  const gron = (id: string, d: number, extra: Partial<LarmObjekt> = {}) => sym('natur', d, { id, namn: id, ...extra });
+
+  it('två röda: det NÄRMASTE är det stora kortet, det andra står i den lilla raden', () => {
+    const u = steg([rod('Varning', 18), rod('Kraftledning', 13)]);
+    expect(u.kort).toMatchObject({ namn: 'Kraftledning', avstandM: 13 });
+    expect(u.fler).toHaveLength(1);
+    expect(u.fler[0]).toMatchObject({ namn: 'Varning', avstandM: 18, grupp: 'fara' });
+  });
+
+  it('röd + grön: RÖD vinner även när den ligger längre bort; grönt blir raden', () => {
+    const u = steg([gron('Hänsyn', 5), rod('Varning', 35)]);
+    expect(u.kort).toMatchObject({ namn: 'Varning', grupp: 'fara' });
+    expect(u.fler.map((f) => f.namn)).toEqual(['Hänsyn']);
+  });
+
+  it('inom samma grupp närmast först', () => {
+    const u = steg([gron('A', 30), gron('B', 10), gron('C', 20)]);
+    expect([u.kort?.namn, ...u.fler.map((f) => f.namn)]).toEqual(['B', 'C', 'A']);
+  });
+
+  it('tre samtidigt: ETT stort kort och "+2 till" (aldrig flera stora kort) — fler är de två andra i ordning', () => {
+    const u = steg([rod('R', 12), gron('G', 20), gron('G2', 30)]);
+    expect(u.kort?.namn).toBe('R');
+    expect(u.fler).toHaveLength(2);
+    expect(u.fler.map((f) => f.namn)).toEqual(['G', 'G2']);
+  });
+
+  it('en kommentar följer med till raden; ytor har ingen meter', () => {
+    const u = steg([rod('El-ledning', 10), gron('Evighetsträd', 20, { kommentar: 'Spara åt markägaren' }), yta('kultur', true, false, { namn: 'Kulturmiljö' })]);
+    expect(u.fler.find((f) => f.namn === 'Evighetsträd')).toMatchObject({ text: 'Spara åt markägaren', avstandM: 20 });
+    expect(u.fler.find((f) => f.namn === 'Kulturmiljö')).toMatchObject({ kalla: 'yta', avstandM: null, text: 'inne i ytan' });
+  });
+
+  it('en förbjuden yta man står i går före Röd (som förut)', () => {
+    const u = steg([rod('Varning', 5), yta('natur', true, true, { namn: 'Hänsyn' })]);
+    expect(u.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true });
+    expect(u.fler[0].namn).toBe('Varning');
+  });
+
+  it('passerat: när det stora lämnat radien flyttar nästa upp (och raden försvinner)', () => {
+    let u = steg([rod('R', 12), gron('G', 20)]);
+    expect(u.kort?.namn).toBe('R');
+    u = steg([rod('R', 80), gron('G', 25)], INGEN, A, u.state);          // R är utom radien (40 + 10 m)
+    expect(u.kort?.namn).toBe('G');
+    expect(u.fler).toEqual([]);
+  });
+
+  it('"Sett" gäller det stora: efter Sett flyttar nästa OKVITTERADE upp, och Sett-raden hör till det nya kortet', () => {
+    const r = gron('Hänsyn', 10), g = gron('Stenmur', 25);
+    let u = steg([r, g]);
+    expect(u.kort?.namn).toBe('Hänsyn');
+    expect(u.settRad).toEqual({ id: 'Hänsyn', namn: 'Hänsyn' });
+    // föraren trycker Sett → kvittensen sparas (hook) och passagen märks
+    const kvitt = new Map([['Hänsyn', { hash: r.hash, forareId: A }]]);
+    u = steg([r, g], kvitt, A, markeraSett(u.state, 'Hänsyn'));
+    expect(u.kort?.namn).toBe('Stenmur');
+    expect(u.settRad).toEqual({ id: 'Stenmur', namn: 'Stenmur' });
+    expect(u.fler).toEqual([]);                                           // kvitterad grön larmar inte mer → ingen rad
+  });
+
+  it('Sett på en RÖD: den tystas inte men sjunker till raden när något annat väntar på kvittering', () => {
+    const r = rod('Varning', 8), g = gron('Hänsyn', 25);
+    let u = steg([r, g]);
+    expect(u.kort?.namn).toBe('Varning');
+    u = steg([r, g], new Map([['Varning', { hash: r.hash, forareId: A }]]), A, markeraSett(u.state, 'Varning'));
+    expect(u.kort?.namn).toBe('Hänsyn');
+    expect(u.fler.map((f) => f.namn)).toEqual(['Varning']);               // röd larmar fortfarande, bara inte överst
+    expect(u.settRad?.namn).toBe('Hänsyn');
+  });
+
+  it('Sett på en röd när inget annat väntar: kortet står kvar (röd tystas aldrig), ingen Sett-rad', () => {
+    const r = rod('Varning', 8);
+    let u = steg([r]);
+    u = steg([r], new Map([['Varning', { hash: r.hash, forareId: A }]]), A, markeraSett(u.state, 'Varning'));
+    expect(u.kort?.namn).toBe('Varning');
+    expect(u.settRad).toBeNull();
+  });
+
+  it('ringarna: det stora kortets objekt är "stor" (pulserar), det ENDA i "+"-raden är "nasta" (lyser, pulserar inte), övriga "ovrig"', () => {
+    const u = steg([rod('R', 12), gron('G', 20)]);
+    expect(u.ringar.find((r) => r.id === 'R')?.roll).toBe('stor');
+    expect(u.ringar.find((r) => r.id === 'G')?.roll).toBe('nasta');
+    const v = steg([rod('R', 12), gron('G', 20), gron('H', 30)]);
+    expect(v.ringar.find((r) => r.id === 'R')?.roll).toBe('stor');
+    expect(v.ringar.filter((r) => r.roll === 'nasta')).toEqual([]);       // "+2 till" har inget namngivet objekt
+    expect(v.ringar.filter((r) => r.roll === 'ovrig').map((r) => r.id).sort()).toEqual(['G', 'H']);
+  });
+
+  it('ett enda larm: ingen rad', () => {
+    expect(steg([rod('R', 12)]).fler).toEqual([]);
+  });
+});

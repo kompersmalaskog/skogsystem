@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LJUDSCHEMA, ljudLangd, spelaLarmLjud } from './ljud';
+import { LJUDSCHEMA, LJUD_FONSTER_MS, ljudLangd, skaSpelaLjud, spelaLarmLjud } from './ljud';
 
 describe('larmljudet', () => {
   it('ETT ljud på 40 m: ett tvåtonsmärke, kortare än en sekund', () => {
@@ -29,4 +29,18 @@ describe('larmljudet', () => {
     expect(spelaLarmLjud(ctx, 'mycket_nara')).toBe(true);
     expect(osc).toHaveLength(1);
   });
+});
+
+
+describe('flera nya larm inom ~2 s ger bara ETT ljud', () => {
+  it('första ljudet spelas; ett lika starkt inom fönstret tystas; efter fönstret spelas det igen', () => {
+    expect(skaSpelaLjud('nara', 1000, null)).toBe(true);
+    expect(skaSpelaLjud('nara', 1000 + LJUD_FONSTER_MS - 1, { tid: 1000, ljud: 'nara' })).toBe(false);
+    expect(skaSpelaLjud('nara', 1000 + LJUD_FONSTER_MS, { tid: 1000, ljud: 'nara' })).toBe(true);
+  });
+  it('ett STARKARE ljud (Röd inom 15 m) får ersätta ett vanligt inom fönstret — det farligaste försvinner aldrig', () => {
+    expect(skaSpelaLjud('mycket_nara', 1500, { tid: 1000, ljud: 'nara' })).toBe(true);
+    expect(skaSpelaLjud('nara', 1500, { tid: 1000, ljud: 'mycket_nara' })).toBe(false);
+  });
+  it('inget ljud = inget att spela', () => expect(skaSpelaLjud(null, 5000, null)).toBe(false));
 });

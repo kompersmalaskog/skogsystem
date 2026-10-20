@@ -5,7 +5,7 @@
 // Kvitteringen ("Sett <Namn>") är en smal rad längst ner (SettRad) — inte en knapp i kortet.
 
 import React from 'react';
-import type { LarmKort as Kort } from '@/lib/larm/larm';
+import type { LarmKort as Kort, LarmNasta } from '@/lib/larm/larm';
 import type { FargGrupp } from '@/lib/larm/grupper';
 import { AVSTAND, FARG, RADIE, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 
@@ -14,7 +14,7 @@ const IKON: Record<FargGrupp, string> = {
   fara: 'warning', natur: 'forest', kultur: 'museum', blott: 'water_drop', att_gora: 'content_cut', info: 'info',
 };
 
-export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: string | null; top: string }) {
+export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; riktning: string | null; top: string; fler?: readonly LarmNasta[] }) {
   const rad2 = kort.text ?? (riktning && kort.avstandM != null ? riktning : null);
   return (
     <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 620, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -27,7 +27,7 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
         data-pulserar={kort.pulserar ? 'ja' : 'nej'}
         data-forbjuden={kort.forbjuden ? 'ja' : 'nej'}
         style={{
-          position: 'relative', width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.l}px`,
+          position: 'relative', width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, padding: `${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.l}px`,
           background: FARG.kort, border: `3px solid ${kort.farg}`, borderRadius: RADIE.sheet, color: FARG.text, pointerEvents: 'auto',
           boxShadow: '0 16px 50px rgba(0,0,0,0.7)',
         }}
@@ -36,6 +36,7 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
         {kort.pulserar && (
           <span aria-hidden="true" data-testid="larm-puls" className="puls" style={{ position: 'absolute', inset: -AVSTAND.s, border: `${AVSTAND.s}px solid ${kort.farg}`, borderRadius: RADIE.sheet + AVSTAND.s, pointerEvents: 'none' }} />
         )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l }}>
         <span aria-hidden="true" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: RADIE.kort, background: kort.farg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="material-symbols-outlined" style={{ fontSize: 30, color: FARG.text }}>{kort.forbjuden ? 'block' : IKON[kort.grupp]}</span>
         </span>
@@ -49,7 +50,35 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
             <span style={{ ...TYP.listtitel, color: FARG.text2 }}>m</span>
           </span>
         )}
+        </div>
+        {fler.length > 0 && <FlerRad fler={fler} />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Den lilla raden under det stora kortet: ETT till larm = "+ <Namn> · <kommentar>  <meter> m", två eller fler = "+N till". Aldrig flera stora kort.
+ * Raden ligger i SAMMA kort, under en tunn linje — den är information, ingen knapp.
+ */
+function FlerRad({ fler }: { fler: readonly LarmNasta[] }) {
+  const en = fler.length === 1 ? fler[0] : null;
+  return (
+    <div
+      data-testid="larm-fler"
+      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, paddingTop: AVSTAND.s, paddingRight: AVSTAND.s, borderTop: `1px solid ${FARG.linje}`, ...TYP.text }}
+    >
+      {en ? (
+        <>
+          <span aria-hidden="true" data-testid="larm-fler-prick" style={{ width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: en.farg, flexShrink: 0 }} />
+          <span data-testid="larm-fler-namn" style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            + {en.namn}{en.text ? <span style={{ color: FARG.text2 }}> · {en.text}</span> : null}
+          </span>
+          {en.avstandM != null && <span data-testid="larm-fler-meter" style={{ flexShrink: 0, ...TYP.listtitel }}>{en.avstandM} m</span>}
+        </>
+      ) : (
+        <span data-testid="larm-fler-antal" style={{ flex: '1 1 auto', color: FARG.text2 }}>+{fler.length} till</span>
+      )}
     </div>
   );
 }

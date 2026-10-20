@@ -58,8 +58,8 @@ describe('färggrupper', () => {
     expect(gruppForSymbol('finns-inte')).toBe('info');
     expect(gruppForSymbol(undefined)).toBe('info');
   });
-  it('Stenmur är Natur; övriga linjer är ingen grupp', () => {
-    expect(gruppForLinje('stonewall')).toBe('natur');
+  it('Stenmur är Kultur (brun, en kulturlämning); övriga linjer är ingen grupp', () => {
+    expect(gruppForLinje('stonewall')).toBe('kultur');
     expect(gruppForLinje('mainRoad')).toBeNull();
     expect(gruppForLinje('boundary')).toBeNull();
   });
