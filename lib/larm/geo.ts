@@ -82,3 +82,38 @@ export function avstandTillYtaM(pos: LatLon, ringar: ReadonlyArray<readonly LatL
   }
   return min;
 }
+
+/**
+ * Sträckan av en linje närmast `pos`: `halvM` meter åt varje håll från närmaste punkt (kortare där linjen tar slut). Linjer som är kortare än
+ * 2 × halvM returneras hela. Sträckan följer linjens egna punkter, så en böj ligger kvar. Koordinaterna returneras som { lat, lon }.
+ */
+export function strackaNarmast(pos: LatLon, linje: readonly LatLon[], halvM: number): LatLon[] {
+  if (linje.length < 2) return [...linje];
+  // Kumulativ längd längs linjen och närmaste punkt (segment + andel).
+  const kum: number[] = [0];
+  for (let i = 1; i < linje.length; i++) kum.push(kum[i - 1] + avstandPunktM(linje[i - 1], linje[i]));
+  const total = kum[kum.length - 1];
+  let bastD = Infinity, bastS = 0;
+  for (let i = 0; i < linje.length - 1; i++) {
+    const [ax, ay] = xy(pos, linje[i]);
+    const [bx, by] = xy(pos, linje[i + 1]);
+    const dx = bx - ax, dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
+    const d = Math.hypot(ax + t * dx, ay + t * dy);
+    if (d < bastD) { bastD = d; bastS = kum[i] + t * (kum[i + 1] - kum[i]); }
+  }
+  const fran = Math.max(0, bastS - halvM);
+  const till = Math.min(total, bastS + halvM);
+  const punktVid = (s: number): LatLon => {
+    let i = 1;
+    while (i < kum.length - 1 && kum[i] < s) i++;
+    const seg = kum[i] - kum[i - 1];
+    const f = seg === 0 ? 0 : Math.max(0, Math.min(1, (s - kum[i - 1]) / seg));
+    return { lat: linje[i - 1].lat + (linje[i].lat - linje[i - 1].lat) * f, lon: linje[i - 1].lon + (linje[i].lon - linje[i - 1].lon) * f };
+  };
+  const ut: LatLon[] = [punktVid(fran)];
+  for (let i = 0; i < linje.length; i++) if (kum[i] > fran && kum[i] < till) ut.push(linje[i]);
+  ut.push(punktVid(till));
+  return ut;
+}

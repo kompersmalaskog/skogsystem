@@ -3,7 +3,8 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, expect, it, afterEach, vi } from 'vitest';
-import { SettRad, SETT_KNAPP_MIN_PX } from './LarmKort';
+import { LarmKortVy, SettRad, SETT_KNAPP_MIN_PX } from './LarmKort';
+import type { LarmKort as Kort } from '@/lib/larm/larm';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let rot: Root | null = null;
@@ -37,5 +38,38 @@ describe('SettRad', () => {
     expect(onSett).not.toHaveBeenCalled();
     act(() => { q('larm-sett').click(); });
     expect(onSett).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LarmKortVy — ETT stort kort med en liten +-rad', () => {
+  const kort: Kort = { id: 'a', kalla: 'linje', grupp: 'fara', farg: '#FF453A', namn: 'Kraftledning', text: null, avstandM: 13, bearing: null, pulserar: false, forbjuden: false };
+  const rad = { id: 'b', grupp: 'natur' as const, farg: '#30D158', namn: 'Varning', text: 'Gammal stubbe', avstandM: 18 };
+
+  it('ett larm: inget +-rad', () => {
+    montera(<LarmKortVy kort={kort} riktning={null} top="0px" nasta={null} />);
+    expect(ruta!.querySelector('[data-testid="larm-nasta"]')).toBeNull();
+    expect(ruta!.querySelectorAll('[data-testid="larm-kort"]').length).toBe(1);
+  });
+  it('två larm: raden i SAMMA kort med namn, kommentar och meter — aldrig ett andra stort kort', () => {
+    montera(<LarmKortVy kort={kort} riktning={null} top="0px" nasta={{ rad, fler: 0 }} />);
+    expect(ruta!.querySelectorAll('[data-testid="larm-kort"]').length).toBe(1);
+    const nasta = q('larm-kort').querySelector('[data-testid="larm-nasta"]') as HTMLElement;
+    expect(nasta).not.toBeNull();
+    expect(nasta.querySelector('[data-testid="larm-nasta-text"]')!.textContent).toBe('+ Varning · Gammal stubbe');
+    expect(nasta.querySelector('[data-testid="larm-nasta-meter"]')!.textContent).toBe('18 m');
+    expect(q('larm-meter').textContent).toContain('13');   // det stora kortets meter är oförändrat
+  });
+  it('utan kommentar: bara namnet efter plustecknet', () => {
+    montera(<LarmKortVy kort={kort} riktning={null} top="0px" nasta={{ rad: { ...rad, text: null }, fler: 0 }} />);
+    expect(q('larm-nasta-text').textContent).toBe('+ Varning');
+  });
+  it('flera: "+2 till", inget namn', () => {
+    montera(<LarmKortVy kort={kort} riktning={null} top="0px" nasta={{ rad: null, fler: 2 }} />);
+    expect(q('larm-nasta-text').textContent).toBe('+2 till');
+    expect(ruta!.querySelectorAll('[data-testid="larm-kort"]').length).toBe(1);
+  });
+  it('+-raden är ingen knapp (Sett gäller det stora larmet och bor i Sett-raden)', () => {
+    montera(<LarmKortVy kort={kort} riktning={null} top="0px" nasta={{ rad, fler: 0 }} />);
+    expect(ruta!.querySelectorAll('button').length).toBe(0);
   });
 });

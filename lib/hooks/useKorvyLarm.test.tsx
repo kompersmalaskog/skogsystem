@@ -2,7 +2,7 @@
 // Larmet i körvyn (lib/hooks/useKorvyLarm) i React: samma hook som sidan kör, mot en låtsasdatabas för kvitteringarna.
 // Det som avgörs i lib/larm (grupp × kvitterad × annan förare) provas där; här provas kopplingen: markeringar → larm, ljud, och att kvitteringen
 // skrivs under RÄTT förare och bara tystar den föraren.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { useKorvyLarm, type KorvyLarmIn, type KorvyLarmUt } from './useKorvyLarm';
@@ -49,7 +49,11 @@ function mount(inp: KorvyLarmIn) {
   act(() => { root.render(<H p={inp} />); });
   return (p: KorvyLarmIn) => act(() => { root.render(<H p={p} />); });
 }
-const tom = async () => { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+// Klockan är styrd (Date.now): larmets ljudspärr (2 s) går på den. `tom` låter 3 s gå efter varje steg, så varje steg är "en ny sak";
+// `tomSnabbt` låter ingen tid gå, för det som ska hända inom samma ögonblick.
+let klocka = 1_000_000;
+const tomSnabbt = async () => { await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+const tom = async () => { await tomSnabbt(); klocka += 3000; };
 
 function bas(over: Partial<KorvyLarmIn> = {}): KorvyLarmIn {
   return {
@@ -59,7 +63,8 @@ function bas(over: Partial<KorvyLarmIn> = {}): KorvyLarmIn {
 }
 const sym = (id: number, type: string, metersNorr: number, extra: any = {}) => ({ id, isMarker: true, type, x: norr(metersNorr), y: POS.lon, ...extra });
 
-beforeEach(() => { document.body.innerHTML = ''; });
+beforeEach(() => { document.body.innerHTML = ''; klocka = 1_000_000; vi.spyOn(Date, 'now').mockImplementation(() => klocka); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('useKorvyLarm — kopplingen till sidan', () => {
   it('Brun (Kulturminne) 30 m bort: kort med namn och meter, ETT ljud, "Sett"-rad; Sett tystar och sparar under förarens id', async () => {
@@ -183,5 +188,78 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mount(bas({ markers: [sym(1, 'culturemonument', 30)], db: felDb })); await tom();
     expect(ut.kort).toMatchObject({ namn: 'Kulturminne' });
+  });
+});
+
+describe('useKorvyLarm — flera larm samtidigt', () => {
+  const stenmur = (id: string, metersNorr: number) => ({ id, isLine: true, lineType: 'stonewall', path: [{ x: norr(metersNorr), y: POS.lon - 200 * M * 1.8 }, { x: norr(metersNorr), y: POS.lon + 200 * M * 1.8 }] });
+  // Kraftledningen är Vidas linje (Röd): 1,2 km lång, öst–väst, `metersNorr` m norr om maskinen.
+  const kraftVida = (metersNorr: number) => ({ features: [{ type: 'Feature', properties: { _typ: 'linje', _lager: 'L_TILLAGGSLINJER', FLBESKR: 'Kraftledning 12 kV' },
+    geometry: { type: 'LineString', coordinates: [-600, -300, 0, 300, 600].map((o) => [POS.lon + o * M * 1.8, norr(metersNorr)]) } }] });
+
+  it('Röd 13 m + Natur 18 m: ETT stort kort (Röd), +-raden med nästa larm och meter, bara Röds objekt pulserar', async () => {
+    mount(bas({ markers: [sym(1, 'powerline', 13), sym(2, 'culturemonument', 18)] })); await tom();
+    expect(ut.kort).toMatchObject({ grupp: 'fara' });
+    expect(ut.nasta).toMatchObject({ fler: 0, rad: { namn: 'Kulturminne', grupp: 'kultur' } });
+    expect(ut.nasta!.rad!.avstandM).toBeCloseTo(18, 0);
+    expect(ut.puls).toMatchObject({ id: '1', farg: ut.kort!.farg });
+    expect(ut.puls!.geometri.type).toBe('Point');
+    expect(ut.ringar.find((r) => r.id === '2')?.roll).toBe('plus');
+  });
+
+  it('tre samtidigt: "+2 till" (ingen namngiven rad)', async () => {
+    mount(bas({ markers: [sym(1, 'powerline', 13), sym(2, 'culturemonument', 18), sym(3, 'culturemonument', 25)] })); await tom();
+    expect(ut.nasta).toEqual({ rad: null, fler: 2 });
+  });
+
+  it('Sett gäller det stora; nästa okvitterade flyttar upp direkt och pulsen följer med', async () => {
+    const db = fakeDb([]);
+    mount(bas({ markers: [sym(1, 'powerline', 13), sym(2, 'culturemonument', 18)], db })); await tom();
+    expect(ut.settRad).toEqual({ id: '1', namn: 'El-ledning' });
+    await act(async () => { ut.kvittera(); });
+    await tomSnabbt();
+    expect(ut.kort).toMatchObject({ namn: 'Kulturminne' });          // kulturminnet är nu det stora kortet…
+    expect(ut.settRad).toEqual({ id: '2', namn: 'Kulturminne' });    // …och Sett gäller det
+    expect(ut.puls?.id).toBe('2');                                   // pulsen har flyttat med
+    expect(ut.nasta?.rad).toMatchObject({ namn: 'El-ledning' });
+    expect(db.upserts).toHaveLength(1);                              // bara det stora kvitterades
+  });
+
+  it('en linje (Kraftledning) pulserar bara på sträckan närmast maskinen, inte hela linjen', async () => {
+    mount(bas({ vida: kraftVida(12) })); await tom();
+    expect(ut.kort).toMatchObject({ grupp: 'fara', namn: 'Kraftledning' });
+    expect(ut.ringar[0].geometri!.coordinates).toHaveLength(5);      // ringen/linjen längst ned följer hela ledningen som förut
+    const g = ut.puls!.geometri;
+    expect(g.type).toBe('LineString');
+    const langd = g.coordinates.slice(1).reduce((a: number, c: number[], i: number) => a + Math.hypot((c[0] - g.coordinates[i][0]) * 111320 * Math.cos(POS.lat * Math.PI / 180), (c[1] - g.coordinates[i][1]) * 111320), 0);
+    expect(langd).toBeGreaterThan(70); expect(langd).toBeLessThan(90);   // ~40 m åt varje håll
+  });
+
+  it('+-radens objekt pulserar inte (puls följer bara det stora)', async () => {
+    mount(bas({ markers: [sym(1, 'powerline', 13), stenmur('sm', 25)] })); await tom();
+    expect(ut.puls?.id).toBe('1');
+    expect(ut.nasta?.rad?.namn).toBe('Stenmur');
+  });
+
+  it('LJUD: flera nya larm inom ~2 s ger bara ett ljud; en ny sak efter 2 s ger ett nytt', async () => {
+    const { ctx, toner } = ljudCtx();
+    const rerender = mount(bas({ markers: [sym(2, 'culturemonument', 30)], ljudCtx: () => ctx })); await tomSnabbt();
+    expect(toner).toHaveLength(2);                                   // första saken: tvåtonsmärket
+    klocka += 800;
+    rerender(bas({ markers: [sym(2, 'culturemonument', 30), sym(3, 'culturemonument', 35)], ljudCtx: () => ctx })); await tomSnabbt();
+    expect(ut.nasta?.rad).not.toBeNull();                            // den nya syns i +-raden…
+    expect(toner).toHaveLength(2);                                   // …men ger inget nytt ljud inom 2 s
+    klocka += 2500;
+    rerender(bas({ markers: [sym(2, 'culturemonument', 30), sym(3, 'culturemonument', 35), sym(4, 'powerline', 36)], ljudCtx: () => ctx })); await tomSnabbt();
+    expect(toner).toHaveLength(4);                                   // en ny sak efter spärren: ljud igen
+  });
+
+  it('LJUD: Röd inom 15 m tystas aldrig av ett ljud som kom just före', async () => {
+    const { ctx, toner } = ljudCtx();
+    const rerender = mount(bas({ markers: [sym(2, 'culturemonument', 30)], ljudCtx: () => ctx })); await tomSnabbt();
+    toner.length = 0;
+    klocka += 500;
+    rerender(bas({ markers: [sym(2, 'culturemonument', 30), sym(1, 'powerline', 10)], ljudCtx: () => ctx })); await tomSnabbt();
+    expect(toner).toEqual([520]);                                    // det tydliga ljudet går igenom
   });
 });

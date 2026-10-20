@@ -5,16 +5,43 @@
 // Kvitteringen ("Sett <Namn>") är en smal rad längst ner (SettRad) — inte en knapp i kortet.
 
 import React from 'react';
-import type { LarmKort as Kort } from '@/lib/larm/larm';
+import type { LarmKort as Kort, LarmNasta } from '@/lib/larm/larm';
 import type { FargGrupp } from '@/lib/larm/grupper';
-import { AVSTAND, FARG, RADIE, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, TNUM, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 
 /** Ikonen följer gruppen (formen bär betydelsen när färgen inte syns i solljus). */
 const IKON: Record<FargGrupp, string> = {
   fara: 'warning', natur: 'forest', kultur: 'museum', blott: 'water_drop', att_gora: 'content_cut', info: 'info',
 };
 
-export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: string | null; top: string }) {
+/**
+ * Raden under det stora kortet: "+ Namn · kommentar  18 m" när ETT annat larm väntar, "+N till" när fler väntar. Aldrig ett andra stort kort.
+ * Färgen är bara en prick bredvid namnet — ordet bär betydelsen.
+ */
+function NastaRad({ nasta }: { nasta: LarmNasta }) {
+  const r = nasta.rad;
+  return (
+    <div
+      data-testid="larm-nasta"
+      data-grupp={r?.grupp ?? 'flera'}
+      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, paddingTop: AVSTAND.s, borderTop: `1px solid ${FARG.linje}`, color: FARG.text2, ...TYP.text }}
+    >
+      {r ? (
+        <>
+          <span aria-hidden="true" style={{ width: AVSTAND.s + AVSTAND.xs, height: AVSTAND.s + AVSTAND.xs, borderRadius: RADIE.cirkel, background: r.farg, flexShrink: 0 }} />
+          <span data-testid="larm-nasta-text" style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {`+ ${r.namn}${r.text ? ` · ${r.text}` : ''}`}
+          </span>
+          {r.avstandM != null && <span data-testid="larm-nasta-meter" style={{ flexShrink: 0, ...TNUM }}>{r.avstandM} m</span>}
+        </>
+      ) : (
+        <span data-testid="larm-nasta-text">{`+${nasta.fler} till`}</span>
+      )}
+    </div>
+  );
+}
+
+export function LarmKortVy({ kort, riktning, top, nasta }: { kort: Kort; riktning: string | null; top: string; nasta?: LarmNasta | null }) {
   const rad2 = kort.text ?? (riktning && kort.avstandM != null ? riktning : null);
   return (
     <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 620, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -27,7 +54,7 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
         data-pulserar={kort.pulserar ? 'ja' : 'nej'}
         data-forbjuden={kort.forbjuden ? 'ja' : 'nej'}
         style={{
-          position: 'relative', width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.l}px`,
+          position: 'relative', width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, padding: `${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.l}px`,
           background: FARG.kort, border: `3px solid ${kort.farg}`, borderRadius: RADIE.sheet, color: FARG.text, pointerEvents: 'auto',
           boxShadow: '0 16px 50px rgba(0,0,0,0.7)',
         }}
@@ -36,19 +63,22 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
         {kort.pulserar && (
           <span aria-hidden="true" data-testid="larm-puls" className="puls" style={{ position: 'absolute', inset: -AVSTAND.s, border: `${AVSTAND.s}px solid ${kort.farg}`, borderRadius: RADIE.sheet + AVSTAND.s, pointerEvents: 'none' }} />
         )}
-        <span aria-hidden="true" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: RADIE.kort, background: kort.farg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 30, color: FARG.text }}>{kort.forbjuden ? 'block' : IKON[kort.grupp]}</span>
-        </span>
-        <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
-          <span style={{ ...TYP.rubrik, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kort.namn}</span>
-          {rad2 && <span style={{ ...TYP.text, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rad2}</span>}
-        </span>
-        {kort.avstandM != null && (
-          <span data-testid="larm-meter" style={{ flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 4, paddingRight: AVSTAND.s }}>
-            <span style={{ ...TYP.tal }}>{kort.avstandM}</span>
-            <span style={{ ...TYP.listtitel, color: FARG.text2 }}>m</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l }}>
+          <span aria-hidden="true" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: RADIE.kort, background: kort.farg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 30, color: FARG.text }}>{kort.forbjuden ? 'block' : IKON[kort.grupp]}</span>
           </span>
-        )}
+          <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+            <span style={{ ...TYP.rubrik, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kort.namn}</span>
+            {rad2 && <span style={{ ...TYP.text, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rad2}</span>}
+          </span>
+          {kort.avstandM != null && (
+            <span data-testid="larm-meter" style={{ flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 4, paddingRight: AVSTAND.s }}>
+              <span style={{ ...TYP.tal }}>{kort.avstandM}</span>
+              <span style={{ ...TYP.listtitel, color: FARG.text2 }}>m</span>
+            </span>
+          )}
+        </div>
+        {nasta && <NastaRad nasta={nasta} />}
       </div>
     </div>
   );

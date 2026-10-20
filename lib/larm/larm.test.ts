@@ -197,11 +197,12 @@ describe('linjer (Stenmur, Kraftledning) larmar på avstånd till närmaste punk
 });
 
 describe('vem får kortet, och "Sett"-raden', () => {
-  it('ett kort i taget: förbjuden yta före Röd före övrigt, annars närmast', () => {
+  it('ett kort i taget: Röd före förbjuden yta före övrigt, annars närmast', () => {
     const natur = sym('natur', 5, { id: 'n' });
     const fara = sym('fara', 30, { id: 'f' });
     const zon = yta('natur', true, true, { id: 'z' });
-    expect(steg([natur, fara, zon]).kort?.id).toBe('z');
+    expect(steg([natur, fara, zon]).kort?.id).toBe('f');
+    expect(steg([natur, zon]).kort?.id).toBe('z');
     expect(steg([natur, fara]).kort?.id).toBe('f');
     expect(steg([sym('natur', 30, { id: 'a' }), sym('kultur', 10, { id: 'b' })]).kort?.id).toBe('b');
   });
@@ -249,5 +250,88 @@ describe('undantag och hjälpare', () => {
   it('hashen följer typ och kommentar', () => {
     expect(innehallHash({ type: 'wet', comment: 'a' })).toBe(innehallHash({ type: 'wet', comment: 'a' }));
     expect(innehallHash({ type: 'wet', comment: 'a' })).not.toBe(innehallHash({ type: 'wet', comment: 'b' }));
+  });
+});
+
+describe('flera larm samtidigt: ETT stort kort, en liten +-rad', () => {
+  const fara = (d: number, extra: Partial<LarmObjekt> = {}) => sym('fara', d, { id: `f${d}`, namn: 'Kraftledning', ...extra });
+  const natur = (d: number, extra: Partial<LarmObjekt> = {}) => sym('natur', d, { id: `n${d}`, namn: 'Stenmur', ...extra });
+
+  it('två röda: den närmaste är det stora kortet, den andra står i +-raden med meter', () => {
+    const u = steg([fara(30, { id: 'lang' }), fara(13, { id: 'nar' })]);
+    expect(u.kort?.id).toBe('nar');
+    expect(u.nasta).toMatchObject({ fler: 0, rad: { id: 'lang', namn: 'Kraftledning', avstandM: 30 } });
+  });
+  it('röd + grön: Röd vinner även när Grön är närmare', () => {
+    const u = steg([natur(5), fara(35)]);
+    expect(u.kort?.id).toBe('f35');
+    expect(u.nasta?.rad).toMatchObject({ id: 'n5', namn: 'Stenmur', avstandM: 5 });
+  });
+  it('+-raden bär kommentaren om det finns en (Varning med planerarens text)', () => {
+    const u = steg([fara(10), natur(20, { kommentar: 'Gammal mur' })]);
+    expect(u.nasta?.rad).toMatchObject({ namn: 'Stenmur', text: 'Gammal mur' });
+    expect(steg([fara(10), natur(20)]).nasta?.rad?.text).toBeNull();
+  });
+  it('tre samtidigt: bara "+2 till" i raden, inget namn', () => {
+    const u = steg([fara(10), natur(20), sym('kultur', 25, { id: 'k' })]);
+    expect(u.kort?.id).toBe('f10');
+    expect(u.nasta).toEqual({ rad: null, fler: 2 });
+  });
+  it('ett enda larm: ingen +-rad', () => {
+    expect(steg([fara(10)]).nasta).toBeNull();
+    expect(steg([]).nasta).toBeNull();
+  });
+  it('det som inte larmar (kvitterad Grön, Lila) räknas inte i +-raden', () => {
+    const n = natur(20);
+    expect(steg([fara(10), n], kv(n)).nasta).toBeNull();
+    expect(steg([fara(10), sym('att_gora', 5, { id: 'l' })]).nasta).toBeNull();
+  });
+  it('inom samma grupp närmast först, bland övriga grupper också', () => {
+    expect(steg([natur(30, { id: 'a' }), natur(10, { id: 'b' })]).kort?.id).toBe('b');
+    expect(steg([natur(30, { id: 'a' }), sym('blott', 10, { id: 'b' })]).kort?.id).toBe('b');
+  });
+  it('Sett gäller det stora; därefter flyttar nästa okvitterade upp och får Sett-raden', () => {
+    const a = fara(10); const b = natur(20);
+    let u = steg([a, b]);
+    expect(u.kort?.id).toBe(a.id);
+    expect(u.settRad?.id).toBe(a.id);
+    u = steg([a, b], INGEN, A, markeraSett(u.state, a.id));
+    expect(u.kort?.id).toBe(b.id);              // den okvitterade Gröna flyttar upp…
+    expect(u.settRad?.id).toBe(b.id);           // …och Sett-knappen gäller nu den
+    expect(u.nasta?.rad?.id).toBe(a.id);        // Röd är kvar i raden: den larmar fortfarande, bara inte som stort kort
+    u = steg([a, b], INGEN, A, markeraSett(u.state, b.id));
+    expect(u.kort?.id).toBe(a.id);              // allt kvitterat: det viktigaste står kvar, utan Sett-rad
+    expect(u.settRad).toBeNull();
+  });
+  it('Sett på det stora ändrar inget ljud (ingen ny sak kom)', () => {
+    const a = fara(10); const b = natur(20);
+    const u0 = steg([a, b]);
+    expect(steg([a, b], INGEN, A, markeraSett(u0.state, a.id)).ljud).toBeNull();
+  });
+  it('när det stora passerats (lämnat 40 m) flyttar nästa upp', () => {
+    const f = fara(10); const n = natur(20);
+    const u0 = steg([f, n]);
+    const u1 = steg([fara(60), n], INGEN, A, u0.state);
+    expect(u1.kort?.id).toBe(n.id);
+    expect(u1.nasta).toBeNull();
+  });
+  it('ringarnas roll: stor = kortets objekt, plus = +-radens objekt, övriga som förut', () => {
+    const r = steg([fara(10), natur(20), sym('kultur', 25, { id: 'k' })]).ringar;
+    expect(r.find((x) => x.id === 'f10')?.roll).toBe('stor');
+    expect(r.filter((x) => x.roll === 'plus')).toHaveLength(0);       // tre larm: raden säger bara "+2 till", ingen namngiven
+    expect(r.filter((x) => x.roll === 'ovrig').map((x) => x.id).sort()).toEqual(['k', 'n20']);
+    const tva = steg([fara(10), natur(20)]).ringar;
+    expect(tva.find((x) => x.id === 'n20')?.roll).toBe('plus');
+  });
+  it('en kvitterad Grön (utan kort) har ring men ingen roll i larmet: övrig', () => {
+    const n = natur(20);
+    const u = steg([fara(10), n], kv(n));
+    expect(u.ringar.find((x) => x.id === n.id)?.roll).toBe('ovrig');
+  });
+  it('förbjuden yta är inte Röd: Röd vinner, ytan hamnar i +-raden', () => {
+    const z = yta('natur', true, true, { id: 'z', namn: 'Hänsyn' });
+    const u = steg([z, fara(20)]);
+    expect(u.kort?.id).toBe('f20');
+    expect(u.nasta?.rad).toMatchObject({ id: 'z', text: 'Du är inne i ytan, kör inte här', avstandM: null });
   });
 });

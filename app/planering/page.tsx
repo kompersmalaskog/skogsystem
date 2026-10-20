@@ -53,6 +53,7 @@ import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
+import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint } from '../../lib/larm/puls'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
@@ -9320,6 +9321,14 @@ export default function PlannerPage() {
           } });
       } catch (e) { console.error('[Körvy] larm-ring:', e); }
     }
+    // PULSEN: det stora larmets objekt (lib/larm/puls). Lagren sätts här, datat och rörelsen i effekten "larmets puls".
+    if (!map.getSource(PULS_KALLA)) {
+      try { map.addSource(PULS_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Körvy] larm-puls-source:', e); }
+    }
+    for (const spec of pulsLagerSpecar()) {
+      if (map.getLayer(spec.id)) continue;
+      try { map.addLayer(spec); } catch (e) { console.error('[Körvy] ' + spec.id + ':', e); }
+    }
     // FÄLLNINGSCIRKELNS orsak (lib/larm/fallning): det som gör cirkeln röd/brun/grön lyser upp i gruppens färg. Tyst — bara ritning. Lagren: lib/larm/fallningKarta.
     if (!map.getSource(FALL_KALLA)) {
       try { map.addSource(FALL_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }); } catch (e) { console.error('[Körvy] larm-fall-source:', e); }
@@ -9816,6 +9825,41 @@ export default function PlannerPage() {
       });
     } catch (e) { console.error('[Körvy] larm-ring update:', e); }
   }, [larm.ringar, korvyActive, mapLibreReady]);
+
+  // === KÖRVY: larmets PULS — det stora kortets objekt får ett mjukt sken i gruppens färg som andas (lib/larm/puls) ===
+  // Ett objekt i taget; flyttar nästa larm upp flyttar pulsen med. Datat följer positionen (en linjes närmaste sträcka flyttar sig),
+  // men rörelsen startas om bara när det är ett ANNAT objekt — annars hoppar skenet i fas vid varje GPS-fix.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(PULS_KALLA) as any;
+    if (!src) return;
+    try { src.setData(pulsData(korvyActive ? larm.puls : null)); } catch (e) { console.error('[Körvy] larm-puls update:', e); }
+  }, [larm.puls, korvyActive, mapLibreReady]);
+  const pulsId = korvyActive ? larm.puls?.id ?? null : null;
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !pulsId) return;
+    const sattFas = (f: number) => {
+      const p = pulsPaint(f);
+      try {
+        if (map.getLayer('larm-puls-punkt')) { map.setPaintProperty('larm-puls-punkt', 'circle-radius', p.punktRadie); map.setPaintProperty('larm-puls-punkt', 'circle-opacity', p.punktOpacitet); }
+        if (map.getLayer('larm-puls-linje')) { map.setPaintProperty('larm-puls-linje', 'line-width', p.linjeBredd); map.setPaintProperty('larm-puls-linje', 'line-opacity', p.linjeOpacitet); }
+        if (map.getLayer('larm-puls-yta')) map.setPaintProperty('larm-puls-yta', 'fill-opacity', p.ytaOpacitet);
+      } catch { /* kartan byter stil: nästa bildruta försöker igen */ }
+    };
+    // Med "minska rörelse" står skenet still.
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { sattFas(0); return; }
+    let raf = 0;
+    let sist = 0;
+    const t0 = performance.now();
+    const bildruta = (nu: number) => {
+      if (nu - sist >= 50) { sist = nu; sattFas(pulsFas(nu - t0)); }   // ~20 bilder/s räcker för ett mjukt sken och sparar batteri
+      raf = requestAnimationFrame(bildruta);
+    };
+    raf = requestAnimationFrame(bildruta);
+    return () => cancelAnimationFrame(raf);
+  }, [pulsId, mapLibreReady]);
 
   // === KÖRVY: uppdatera maskin-source (Point + heading) vid varje tick ===
   useEffect(() => {
@@ -13912,6 +13956,7 @@ export default function PlannerPage() {
       {korvyActive && larm.kort && (
         <LarmKortVy
           kort={larm.kort}
+          nasta={larm.nasta}
           riktning={larm.kort.bearing != null ? korvyRiktning(larm.kort.bearing, korvyHeading) : null}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px)`}
         />

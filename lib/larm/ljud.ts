@@ -17,6 +17,20 @@ export const LJUDSCHEMA: Readonly<Record<LarmLjud, readonly Ton[]>> = {
   ],
 };
 
+/** Flera nya larm inom så här lång tid från det första ljudet ger bara ETT ljud (ett per ny sak, men aldrig en ljudsalva). */
+export const LJUD_SAMLA_MS = 2000;
+export interface SenastLjud { tid: number; ljud: LarmLjud }
+
+/**
+ * Ska ljudet spelas nu? Inom LJUD_SAMLA_MS efter förra ljudet tystas ett nytt — utom när det är det tydligare ljudet (Röd inom 15 m) och förra var
+ * det vanliga: faran får aldrig döljas av ett ljud som kom en sekund tidigare. Fönstret räknas från det första ljudet, så det inte glider.
+ */
+export function ljudBeslut(senast: SenastLjud | null, nu: number, nytt: LarmLjud): { spela: boolean; senast: SenastLjud | null } {
+  const inom = senast != null && nu - senast.tid < LJUD_SAMLA_MS;
+  if (inom && !(nytt === 'mycket_nara' && senast!.ljud === 'nara')) return { spela: false, senast };
+  return { spela: true, senast: { tid: nu, ljud: nytt } };
+}
+
 /** Total längd i sekunder. */
 export const ljudLangd = (l: LarmLjud): number => Math.max(...LJUDSCHEMA[l].map((t) => t.start + t.varaktighet));
 

@@ -122,7 +122,11 @@ describe('Vidas lager', () => {
     expect(u.find((o) => o.id.endsWith(':4'))?.avstandM).toBe(Infinity);
   });
   it('inkörning i en Vida-yta ger larm; utanför ytan inte', () => {
-    const inne = stegaLarm({ objekt: vidaObjekt(FC, O), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
+    // Kraftledningen (Röd, 20 m) är viktigare än ytorna och blir det stora kortet; utan den är det den förbjudna ytan.
+    const medKraft = stegaLarm({ objekt: vidaObjekt(FC, O), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
+    expect(medKraft.kort).toMatchObject({ grupp: 'fara', namn: 'Kraftledning' });
+    const utanKraft = vidaObjekt(FC, O).filter((o) => !o.id.endsWith(':4'));
+    const inne = stegaLarm({ objekt: utanKraft, kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
     expect(inne.kort).toMatchObject({ forbjuden: true });
     expect(inne.ljud).not.toBeNull();
     const ute = stegaLarm({ objekt: vidaObjekt(FC, p(200, 0)), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
