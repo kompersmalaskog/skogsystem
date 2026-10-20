@@ -71,6 +71,7 @@ import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
+import { SkordarForslag } from '../../components/planering/SkordarForslag'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
@@ -2786,6 +2787,7 @@ export default function PlannerPage() {
   const omradeRitningRef = useRef(false);                        // spegel för stale-closure-dörrvakt i klickhanterarna
   useEffect(() => { omradeRitningRef.current = omradeRitning; }, [omradeRitning]);
   const [skotningReload, setSkotningReload] = useState(0);
+  const [skordarKopplingNr, setSkordarKopplingNr] = useState(0);   // +1 när skördarens objekt kopplats: skotarens Kvar läser om
   const [kvarData, setKvarData] = useState<{ sortiment: string; total: number; uttag: number; kvar: number; color: string }[]>([]);
   // Ångra senaste uttag: bump:as BARA vid ångra → loadHogar kör om (högarna kommer tillbaka). ALDRIG
   // vid spara (då gör save-handlern en lokal kartuppdatering; en om-körning skulle ta tillbaka högarna).
@@ -5317,7 +5319,9 @@ export default function PlannerPage() {
       // bär nu total_volym/sortiment/bio_energy_adaption (migration 20260930_detalj_stam_
       // karthogar.sql). Filtrera på objekt_id = vo (samma numeriska nyckel som förr).
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
-      if (!/^\d+$/.test(vo)) {
+      // Extra nummer (objekt_alt_nummer) bär skördarens maskinobjekt även för ett jobb utan Vida-nummer (P-VO, Starta jobb): utan dem och utan numerisk vo finns inget att läsa.
+      const altNr = await hamtaAltNummer(supabase, valtObjekt.id);
+      if (!/^\d+$/.test(vo) && altNr.length === 0) {
         console.log('[HOGAR] Ingen numerisk vo — inga stammar');
         (map.getSource('hogar-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
         (map.getSource('grot-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
@@ -5373,7 +5377,7 @@ export default function PlannerPage() {
       const STAM_TAK = 20000;
       // Objektets extra nummer (objekt_alt_nummer): en HPR-fil vars ordernummer inte är objektets vo_nummer ligger under
       // sitt eget nummer i detalj_stam.objekt_id och hör ändå hit (lib/objektNummer). Utan extra nummer: bara vo, som förut.
-      const hogarIds = hogarObjektIds(vo, await hamtaAltNummer(supabase, valtObjekt.id));
+      const hogarIds = hogarObjektIds(vo, altNr);
 
       const { count: stamAntal } = await supabase
         .from('detalj_stam').select('id', { count: 'exact', head: true })
@@ -5626,8 +5630,8 @@ export default function PlannerPage() {
       // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — exakt vo-segment-jämförelse
       // klientsida (split ':' + ===), ingen LIKE. stammar_count är opålitlig — används ej.
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
-      const altNummer = /^\d+$/.test(vo) ? await hamtaAltNummer(supabase, valtObjekt.id) : [];   // extra nummer: filer under annat ordernummer
-      const { data: kandidatFiler } = /^\d+$/.test(vo)
+      const altNummer = await hamtaAltNummer(supabase, valtObjekt.id);   // extra nummer: filer under annat ordernummer (också för ett P-VO utan Vida-nummer)
+      const { data: kandidatFiler } = /^\d+$/.test(vo) || altNummer.length > 0
         ? await supabase.from('hpr_filer').select('id, fil_datum, objekt_nyckel')
             .order('fil_datum', { ascending: false, nullsFirst: false })
         : { data: [] as { id: string; fil_datum: string | null; objekt_nyckel: string | null }[] };
@@ -12033,6 +12037,7 @@ export default function PlannerPage() {
     egna: skotarEgnaAvlagg,
     hamtaVagar: skotarHamtaVagar,
     skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
+    omlasning: skordarKopplingNr,
   });
   // Väder för TRAKTENS position (inte där telefonen är); saknas koordinat faller det tillbaka på enhetens position. Testläget: dagarna hämtas, morgonkortet provkörs med knappen i bannern.
   const skotarVaderPos = useMemo(() => {
@@ -14506,6 +14511,13 @@ export default function PlannerPage() {
           ]}
         />
       )}
+      {/* SKÖRDARENS OBJEKT: ett jobb utan Vida-nummer (Starta jobb) som saknar skördardata — databasen föreslår, ett tryck kopplar. Skotarläget och planeringen, aldrig skördarens egen körvy. */}
+      <SkordarForslag
+        objektId={valtObjekt?.id ?? null}
+        aktiv={!!valtObjekt?.id && (skotarKorvy || (!korvyActive && !maskinlage && !maskinSomParam)) && !objektListaOppen && !traktOversiktOpen && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && !korvyKvitto}
+        smal={smalSkarm}
+        onKopplad={() => { setHogarReload(prev => prev + 1); setSkotningReload(prev => prev + 1); setSkordarKopplingNr(prev => prev + 1); }}
+      />
       {(korvyActive || klarGaller) && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
         <KorvyKvitto text={kvittoMedKvar(korvyKvitto.text, klarStatus.antalKvar, klarGaller && klarDataKlart && korvyKvitto.ton === 'ok')} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
       )}

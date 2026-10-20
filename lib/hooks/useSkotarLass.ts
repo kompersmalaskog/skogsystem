@@ -51,6 +51,8 @@ export interface SkotarLassIn {
   hamtaVagar: () => VagLinje[];
   /** Skapar en egen avläggsmarkering på platsen (synlig för alla direkt via markeringssynken). Ger markeringens id. */
   skapaEgetAvlagg: (lat: number, lng: number, nummer: string) => string | null;
+  /** Ändras när trakten fått nya extra nummer (skördarens objekt kopplat): skördat och Opti-lass läses om. */
+  omlasning?: number;
 }
 
 const KO_MAX_FIXAR = 3000;
@@ -148,7 +150,7 @@ export function useSkotarLass(i: SkotarLassIn) {
       if (!avbruten) setAvslut(a);
     })();
     return () => { avbruten = true; };
-  }, [aktiv, objekt?.id, objekt?.vo]);
+  }, [aktiv, objekt?.id, objekt?.vo, i.omlasning]);
 
   // ── Spara ett lass (lokalt först) och uppdatera vyn direkt ───────────────────────────────────────────
   const spara = useCallback((l: Lass) => {
