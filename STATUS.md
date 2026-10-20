@@ -1540,3 +1540,18 @@ Uppdatera denna fil vid varje commit.
 
 ### 2026-10-19 — Kroksjömåla-dubbletter (objekt_id `11155842`)
 Rester från när appen byggdes upp. Raderat direkt i prod med Martins godkännande, i en sats: 12 `fakt_lass` (153 m³sob, alla exakta kopior av lass under annat objekt_id: samma maskin, datum, lass_nummer, lossningstid, volym och fil), 40 `fakt_lass_sortiment` (alla med exakt tvilling under det riktiga objektet `11251460`), 10 `fakt_skotning_status` och 1 `dim_objekt`. Efteråt: noll rader kvar under `11155842`, `11251460` oförändrat (25 lass). **Ångra:** `docs/data-korrigeringar/2026-10-19_kroksjomala_11155842_angra.sql` (INSERT-satser med radernas exakta innehåll, en transaktion).
+
+### 2026-10-20 — Max objekt (Ljuvadal / Vällust, P-1024) kopplat till skördarens och skotarens maskinobjekt
+Godkänt av Martin 2026-10-20 (i samband med releasen av #860). Två rader direkt i prod, objekt `e073caa4-23d4-4894-a96d-7387fbfa4a11`:
+```sql
+update objekt set dim_objekt_id = 'PONS20SDJAA270231_132' where id = 'e073caa4-23d4-4894-a96d-7387fbfa4a11' and dim_objekt_id is null;
+insert into objekt_alt_nummer (objekt_id, nummer, maskin_id, kalla) values ('e073caa4-23d4-4894-a96d-7387fbfa4a11', 'k185', 'A030353', 'manuell');
+```
+(Aliaset `k132` för Giant låg redan, skapat av Martin 06:51.) Läst tillbaka efteråt: `dim_objekt_id` = `PONS20SDJAA270231_132`, alias `k132/PONS20SDJAA270231` + `k185/A030353`, 644 stammar och 122,4 m³ skördat under Giants nyckel, 4 Opti-lass / 52,5 m³ under `A030353_185`.
+
+Ångra:
+```sql
+update objekt set dim_objekt_id = null where id = 'e073caa4-23d4-4894-a96d-7387fbfa4a11';
+delete from objekt_alt_nummer where objekt_id = 'e073caa4-23d4-4894-a96d-7387fbfa4a11' and nummer = 'k185' and maskin_id = 'A030353';
+```
+(`delete` via Supabase-MCP kan hänga i 60 s — kör i SQL-editorn.) Samma koppling görs framöver av kortet "Skördaren har kört här … Koppla" (RPC `koppla_skordarobjekt`); P-1012 har samma mönster och får förslaget när någon öppnar det.
