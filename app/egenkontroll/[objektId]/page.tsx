@@ -112,6 +112,10 @@ import {
   positionSkalText,
 } from '@/lib/egenkontrollFlode';
 import { useLevandePosition, type LevandePosition } from '../useMinPosition';
+import { Bil } from '../ListDelar';
+import { useVagavstand } from '@/lib/hooks/useVagavstand';
+import { harKoordinat, startaNavigering } from '@/lib/navigera';
+import { fagelKm, kmText } from '@/lib/objektVal';
 import { GUL, statusEtikett } from '../svar';
 import { avslutaStatus } from '@/lib/egenkontrollAvsluta';
 
@@ -333,6 +337,14 @@ export default function EgenkontrollRundaPage() {
   // DIN POSITION, levande. Sidan ager bevakningen och delar ut den - kartan,
   // kortet och listan ska aldrig kunna vara oense om var man ar.
   const pos = useLevandePosition();
+  // Vägbeskrivningen i hel-läget (PR 5): samma navigering och samma vägavstånd som listan och objektlistan i planeringen.
+  const vagLat = pos.position?.lat ?? null;
+  const vagLng = pos.position?.lng ?? null;
+  const vagPos = useMemo(() => (vagLat != null && vagLng != null ? { lat: vagLat, lng: vagLng } : null), [vagLat, vagLng]);
+  const kartLat = vy?.kartObjekt.lat ?? null;
+  const kartLng = vy?.kartObjekt.lng ?? null;
+  const vagObjekt = useMemo(() => (harKoordinat({ lat: kartLat, lng: kartLng }) ? [{ id: objektId, lat: kartLat, lng: kartLng }] : []), [objektId, kartLat, kartLng]);
+  const vagKm = useVagavstand({ aktiv: true, pos: vagPos, objekt: vagObjekt, urval: () => true })[objektId] ?? null;
   const minPosition: MinPosition = pos.position;
 
   // ARKETS LAGE och det MARKERADE: val man gjort pa skarmen - ingenting harleds, ingenting lagras.
@@ -826,8 +838,24 @@ export default function EgenkontrollRundaPage() {
         </p>
       </div>
 
-      {/* VAGBESKRIVNINGEN: PR 5 lagger in den har, direkt under namn och atgard (innan forutsattningarna). Ingenting ritas till dess -
-          ett tomt kort ar en tom rad. */}
+      {/* VAGBESKRIVNINGEN (PR 5): direkt under namn och atgard, innan forutsattningarna. Samma navigering (lib/navigera) som listans bilknapp och
+          objektinfons Vagbeskrivning. Avstandet ar vagavstand nar det kommit, annars fagelvag med ~, utan position inget - men knappen star kvar
+          (kartappen vet var du ar). Saknar objektet plats ritas ingen knapp. */}
+      {harKoordinat({ lat: kartLat, lng: kartLng }) && (() => {
+        const avst = vagKm != null ? kmText(vagKm) : vagPos ? kmText(fagelKm(vagPos.lat, vagPos.lng, kartLat as number, kartLng as number), true) : '';
+        return (
+          <button
+            type="button"
+            data-testid="vagbeskrivning"
+            aria-label={`Vägbeskrivning till ${vy.objektNamn}${avst ? `, ${avst}` : ''}`}
+            onClick={() => startaNavigering({ lat: kartLat, lng: kartLng })}
+            style={{ ...KNAPP.sekundar, marginTop: AVSTAND.m, justifyContent: 'space-between' }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.inuti }}><Bil />Vägbeskrivning</span>
+            {avst && <span style={{ color: FARG.text2 }}>{avst}</span>}
+          </button>
+        );
+      })()}
 
       {kompletteringSaknas > 0 && !rundanKlar && (
         <div role="status" style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.s}px 0 0` }}>
