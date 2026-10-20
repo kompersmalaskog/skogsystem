@@ -106,6 +106,8 @@ const mock = vi.hoisted(() => ({
   manuellKolumnSaknas: false,
   rundorFel: false,
   maskinerFel: false,
+  viktRader: [] as any[],
+  viktFel: false,
   extraRundor: [] as any[],
   patchRundor: {} as Record<string, Record<string, unknown>>,
   anrop: [] as string[],
@@ -198,7 +200,10 @@ vi.mock("@/lib/supabase", () => {
   }
   return { supabase: {
     from: (t: string) => new Q(t),
-    rpc: async (namn: string, args: any) => { mock.rpc.push({ namn, args }); return mock.rpcHandler ? mock.rpcHandler(namn, args) : { data: null, error: { message: "inget svar" } }; },
+    rpc: async (namn: string, args: any) => {
+      // Bilens vikt per månad (Uppföljning): egen rad i fejken och inte i rpc-loggen, så tester av ratta_flytt/stryk_flytt inte ser den.
+      if (namn === "lastbil_vikt_manad") return mock.viktFel ? { data: null, error: { message: "boom" } } : { data: mock.viktRader, error: null };
+      mock.rpc.push({ namn, args }); return mock.rpcHandler ? mock.rpcHandler(namn, args) : { data: null, error: { message: "inget svar" } }; },
   } };
 });
 
@@ -234,7 +239,7 @@ beforeEach(() => {
   mock.medarbetare = ADMIN; mock.loading = false; mock.underlagFel = false; mock.namnFel = false; mock.extraUnderlag = []; mock.anrop = [];
   mock.underlag = nyaUnderlag(); mock.skrivningar = []; mock.skrivNoll = false; mock.skrivFel = false; mock.vantarFel = false; mock.manuellKolumnSaknas = false;
   mock.api = { status: 200, body: LAGE };
-  mock.rundorFel = false; mock.maskinerFel = false; mock.extraRundor = []; mock.patchRundor = {};
+  mock.rundorFel = false; mock.maskinerFel = false; mock.viktRader = PROD_VIKT_RADER.map(r => ({ ...r })); mock.viktFel = false; mock.extraRundor = []; mock.patchRundor = {};
   mock.flyttar = MASKIN_FLYTT.map(b => ({ ...b })); mock.lass = []; mock.lassFel = false; mock.rattningar = []; mock.rpc = []; mock.rpcHandler = null;
   mock.spar = { status: 200, body: { ok: true, spar: [{ lat: 56.4, lng: 14.7 }, { lat: 56.5, lng: 14.8 }], segment: [], nagonOmatchad: false, matchningPa: false } };
   (globalThis as any).fetch = vi.fn(async (url: string) => {
@@ -852,12 +857,27 @@ describe("Körningar: året, läsfel och CSV", () => {
     await tillAr();
     const kort = document.querySelector('section[aria-label="Året"]')!.textContent!;
     expect(kort).toContain("Körd 2026");
-    expect(kort).toContain("1\u00a0117 km");                           // 818 (okt) + 109 (aug) + 190 (jul)
-    expect(kort).toContain("11 rundor · 394 l · 4,3 l/mil");           // År-vyn är oförändrad: liter står kvar här
+    expect(kort).toContain("3\u00a0627 km");                           // MÄTARENS km (Martins första körning): aug 1 441 + sep 1 356 + okt 830 — inte rundornas 1 117
+    expect(kort).toContain("11 rundor · 1\u00a0449 l · 4,3 l/mil");        // antalet är rundornas; liter och l/mil är MÄTARENS (555 + 565 + 329 = 1 449, över km med bränsle)
+    expect(kort).toContain("mätare saknas för juli");                  // juli har rundor men ingen mätare: årets km täcker inte juli och det sägs
     const manader = document.querySelector('section[aria-label="Månader"]')!;
     expect(Array.from(manader.querySelectorAll("button")).map(b => b.textContent!.match(/^(Oktober|September|Augusti|Juli)/)?.[0])).toEqual(["Oktober", "September", "Augusti", "Juli"]);
-    expect(manader.textContent).toContain("Inga rundor");              // september
-    expect(manader.textContent).toMatch(/Övrig 64 %/);
+    expect(manader.textContent).toContain("Inga rundor");              // september: inga rundor, men mätaren har kört
+    // km i listan är mätarens: okt 830, sep 1 356, aug 1 441; juli saknar mätare. Andelen är Med lass (inte Övrig).
+    const rad = (n: string) => norm(Array.from(manader.querySelectorAll("button")).find(b => b.textContent!.startsWith(n))!.textContent);
+    expect(rad("Oktober")).toContain("830 km");
+    expect(rad("Oktober")).toContain("Med lass 29 %");
+    expect(rad("September")).toContain("1\u00a0356 km".replace("\u00a0", " "));
+    expect(rad("Augusti")).toContain("1 441 km");
+    expect(rad("Augusti")).toContain("Med lass 33 %");
+    expect(rad("Juli")).toContain("mätare saknas");
+    expect(rad("Juli")).not.toMatch(/\d km/);
+    expect(rad("Juli")).not.toMatch(/ l\b|l\/mil/);                    // inga rundornas liter där mätaren saknas
+    // liter och l/mil på månadsraden är mätarens: aug 555 l över 1 327 km med bränsle = 4,2, sep 565 l = 4,5, okt 329 l = 4,2
+    expect(rad("Augusti")).toContain("555 l · 4,2 l/mil");
+    expect(rad("September")).toContain("Inga rundor · 565 l · 4,5 l/mil");   // mätaren körde fast inga rundor finns: båda sägs
+    expect(rad("Oktober")).toContain("329 l · 4,2 l/mil");
+    expect(manader.textContent).not.toMatch(/Övrig/);
     expect(text()).not.toMatch(/Fakturering|fakturerbar/i);             // den visar körning, inte fakturering
     await klicka(Array.from(manader.querySelectorAll("button")).find(b => b.textContent!.startsWith("Augusti")) as HTMLElement);
     expect(arsSida()).toBeNull();
@@ -894,63 +914,126 @@ describe("Körningar: året, läsfel och CSV", () => {
     await montera();
     await tillAr();
     const sida = arsSida()!;
-    const ordning = ['section[aria-label="Året"]', '[role="tablist"]', '[data-staplar]', '[data-fotnot]', 'section[aria-label="Månader"]']
+    const ordning = ['section[aria-label="Året"]', '[role="tablist"]', '[data-staplar]', 'section[aria-label="Månader"]']
       .map(q => sida.querySelector(q)!);
     expect(ordning.every(Boolean)).toBe(true);
     for (let i = 1; i < ordning.length; i++) expect(!!(ordning[i - 1].compareDocumentPosition(ordning[i]) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(sida.querySelectorAll("[data-staplar]").length).toBe(1);
     expect(sida.querySelectorAll('[role="tablist"]').length).toBe(1);
-    expect(sida.querySelector('[data-fotnot]')!.textContent).toBe("Flyttar räknar hela rundan, även tomkörningen.");
+    // Fotnoten om tomkörning är borta (Martin 2026-10-20): Förbrukning har ingen fotnot alls.
+    expect(sida.querySelector("[data-fotnot]")).toBeNull();
+    expect(text()).not.toContain("tomkörningen");
   });
 
-  it("Förbrukning (förvald): l/mil per månad med Flyttar och Övrig körning bredvid varandra; saknad diesel är ingen stapel", async () => {
+  it("Förbrukning (förvald): l/mil per månad ur vikten, Med lass och Utan lass bredvid varandra; juli säger 'vikt saknas' och är aldrig 0", async () => {
     await montera();
     await tillAr();
     expect(document.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toBe("Förbrukning");
     const d = document.querySelector("[data-staplar]")!;
     expect(d.getAttribute("data-staplar")).toBe("bredvid");
-    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Flyttar.*Övrig körning.*l\/mil/);
-    const okt = d.querySelector('[data-stapelrad="okt"]')!;
-    expect(okt.getAttribute("aria-label")).toBe("okt: Flyttar 3,9, Övrig körning 4,5");
-    expect(okt.querySelectorAll("[title]").length).toBe(2);              // två staplar
-    const sep = d.querySelector('[data-stapelrad="sep"]')!;              // inga rundor: ingen stapel, "–" och aldrig 0
-    expect(sep.querySelectorAll("[title]").length).toBe(0);
-    expect(sep.textContent).toContain("inga flyttar");
-    expect(sep.textContent).not.toMatch(/\b0\b/);
-    const jul = d.querySelector('[data-stapelrad="jul"]')!;              // rundor utan diesel
-    expect(jul.textContent).toContain("diesel saknas");
+    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Med lass.*Utan lass.*l\/mil/);
+    expect(d.querySelector("[data-legend]")!.textContent).not.toMatch(/Flyttar|Övrig/);
+    // Martins första körning: aug 5,10 / 3,66 · sep 5,47 / 3,83 · okt 5,30 / 3,76 (en decimal som resten av sidan)
+    expect(d.querySelector('[data-stapelrad="okt"]')!.getAttribute("aria-label")).toBe("okt: Med lass 5,3, Utan lass 3,8");
+    expect(d.querySelector('[data-stapelrad="sep"]')!.getAttribute("aria-label")).toBe("sep: Med lass 5,5, Utan lass 3,8");
+    expect(d.querySelector('[data-stapelrad="aug"]')!.getAttribute("aria-label")).toBe("aug: Med lass 5,1, Utan lass 3,7");
+    expect(d.querySelector('[data-stapelrad="okt"]')!.querySelectorAll("[title]").length).toBe(2);   // två staplar
+    const jul = d.querySelector('[data-stapelrad="jul"]')!;                                           // ingen vikt i juli
+    expect(jul.querySelectorAll("[title]").length).toBe(0);
+    expect(jul.textContent).toContain("vikt saknas");
     expect(jul.textContent).not.toMatch(/\b0\b/);
+    expect(jul.getAttribute("aria-label")).toBe("jul: vikt saknas");
   });
 
-  it("Körsträcka: km per månad staplat, summan till höger och delarna som text", async () => {
+  it("Förbrukning: med lass förbrukar mer än utan lass, och stapeln är längre", async () => {
+    await montera();
+    await tillAr();
+    const bredd = (el: Element) => parseFloat((el as HTMLElement).style.width);
+    const [med, utan] = Array.from(document.querySelector('[data-stapelrad="sep"]')!.querySelectorAll("[title]"));
+    expect(bredd(med)).toBeGreaterThan(bredd(utan));
+    expect(bredd(med) / bredd(utan)).toBeCloseTo(5.47 / 3.83, 1);
+  });
+
+  it("Körsträcka: km per månad ur mätaren, Med lass + Utan lass + Okänd staplat, summan till höger och delarna som text", async () => {
     await montera();
     await tillAr();
     await klicka(knapp(/^Körsträcka$/)!);
     const d = document.querySelector("[data-staplar]")!;
     expect(d.getAttribute("data-staplar")).toBe("staplat");
-    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Flyttar.*Övrig körning.*km/);
-    const okt = d.querySelector('[data-stapelrad="okt"]')!;
-    expect(okt.textContent).toContain("818");
-    expect(okt.textContent).toContain("296 + 522");
-    expect(okt.getAttribute("aria-label")).toBe("okt: 818 (Flyttar 296, Övrig körning 522)");
-    expect(d.querySelector('[data-stapelrad="sep"]')!.getAttribute("aria-label")).toBe("sep: inga rundor");
-    expect(document.querySelector("[data-fotnot]")).not.toBeNull();       // fotnoten gäller båda lägena
+    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Med lass.*Utan lass.*Okänd.*km/);
+    const aug = d.querySelector('[data-stapelrad="aug"]')!;
+    expect(aug.textContent!.replace(/\s/g, " ")).toContain("1 441");
+    expect(aug.textContent).toContain("482 + 845 + 114");
+    expect(aug.getAttribute("aria-label")!.replace(/\s/g, " ")).toBe("aug: 1 441 (Med lass 482, Utan lass 845, Okänd 114)");
+    expect(d.querySelector('[data-stapelrad="sep"]')!.textContent).toContain("504 + 755 + 97");
+    expect(d.querySelector('[data-stapelrad="okt"]')!.textContent).toContain("242 + 535 + 53");
+    const jul = d.querySelector('[data-stapelrad="jul"]')!;
+    expect(jul.textContent).toContain("vikt saknas");
+    expect(jul.getAttribute("aria-label")).toBe("jul: vikt saknas");
+    expect(document.querySelector("[data-fotnot]")!.textContent).toBe("Okänd = lastades eller lossades under sträckan, eller så saknades vikten.");
   });
 
-  it("stapellängderna följer värdena: l/mil bredvid (3,9 mot 4,5) och km staplat (296 mot 522, lika långa som summan 818)", async () => {
+  it("Körsträcka: okänd körning visas bara i de månader den finns; tre toner och förklaringen står kvar", async () => {
+    mock.viktRader = [{ ...PROD_VIKT_RADER[0], km_okand: 0 }, PROD_VIKT_RADER[1], PROD_VIKT_RADER[2]];
+    await montera();
+    await tillAr();
+    await klicka(knapp(/^Körsträcka$/)!);
+    const d = document.querySelector("[data-staplar]")!;
+    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Med lass.*Utan lass.*Okänd.*km/);
+    const aug = d.querySelector('[data-stapelrad="aug"]')!;
+    expect(aug.textContent).toContain("482 + 845");
+    expect(aug.textContent).not.toContain("+ 114");
+    expect(aug.querySelectorAll("[title]").length).toBe(2);
+    const sep = d.querySelector('[data-stapelrad="sep"]')!;
+    expect(sep.querySelectorAll("[title]").length).toBe(3);
+    // tre olika toner: vit, grå, ljusare grå (färg bär aldrig ensam — legend och delar står i text ovan)
+    const toner = Array.from(sep.querySelectorAll("[title]")).map(e => (e as HTMLElement).style.background);
+    expect(new Set(toner).size).toBe(3);
+  });
+
+  it("utan någon okänd körning finns varken tredje serien eller förklaringen", async () => {
+    mock.viktRader = PROD_VIKT_RADER.map(r => ({ ...r, km_okand: 0 }));
+    await montera();
+    await tillAr();
+    await klicka(knapp(/^Körsträcka$/)!);
+    expect(document.querySelector("[data-legend]")!.textContent).not.toContain("Okänd");
+    expect(document.querySelector("[data-fotnot]")).toBeNull();
+    expect(document.querySelector('[data-stapelrad="aug"]')!.textContent).toContain("482 + 845");
+  });
+
+  it("vikten går inte att läsa: ALLA lägen säger det med Försök igen, och årets km blir '–' — aldrig 0; resten av sidan påverkas inte", async () => {
+    mock.viktFel = true;
+    await montera();
+    await tillAr();
+    expect(text()).toContain("Kunde inte läsa vikten just nu.");
+    expect(document.querySelector("[data-staplar]")).toBeNull();
+    expect(document.querySelector("[data-ars-km]")!.textContent).toBe("– km");
+    await klicka(knapp(/^Körsträcka$/)!);
+    expect(text()).toContain("Kunde inte läsa vikten just nu.");
+    await klicka(knapp(/^Betalt$/)!);
+    expect(text()).toContain("Kunde inte läsa vikten just nu.");       // Betalt bygger också på mätarens km
+    expect(document.querySelector('section[aria-label="Året"]')!.textContent).toContain("11 rundor");   // rundorna är lästa
+    expect(document.querySelector('section[aria-label="Året"]')!.textContent).not.toMatch(/ l\b|l\/mil/);   // men liter och l/mil är mätarens och skrivs inte utan den
+    expect(document.querySelector("[data-maskiner]")).not.toBeNull();   // Maskiner påverkas inte
+    await klicka(knapp(/^Förbrukning$/)!);
+    mock.viktFel = false;
+    await klicka(knapp(/Försök igen/, document.querySelector('section[aria-label="Diagram"]')!)!);
+    expect(document.querySelector('[data-stapelrad="okt"]')!.getAttribute("aria-label")).toBe("okt: Med lass 5,3, Utan lass 3,8");
+    expect(document.querySelector("[data-ars-km]")!.textContent!.replace(/\s/g, " ")).toBe("3 627 km");
+  });
+
+  it("stapellängderna följer värdena: km staplat (482 mot 845, lika långa som summan 1 441)", async () => {
     await montera();
     await tillAr();
     const bredd = (el: Element) => parseFloat((el as HTMLElement).style.width);
-    const fb = Array.from(document.querySelector('[data-stapelrad="okt"]')!.querySelectorAll("[title]"));
-    expect(bredd(fb[0]) / bredd(fb[1])).toBeCloseTo(3.9 / 4.5, 1);
     await klicka(knapp(/^Körsträcka$/)!);
-    const km = Array.from(document.querySelector('[data-stapelrad="okt"]')!.querySelectorAll("[title]"));
-    expect(bredd(km[0]) / bredd(km[1])).toBeCloseTo(296 / 522, 2);
-    const storst = Array.from(document.querySelectorAll('[data-stapelrad] [title]')).map(bredd);
-    expect(Math.max(...storst)).toBeLessThanOrEqual(82);                 // största värdet lämnar plats åt talet
+    const km = Array.from(document.querySelector('[data-stapelrad="aug"]')!.querySelectorAll("[title]"));
+    expect(bredd(km[0]) / bredd(km[1])).toBeCloseTo(482 / 845, 2);
+    const storst = Array.from(document.querySelectorAll('[data-stapelrad]')).map(r => Array.from(r.querySelectorAll("[title]")).map(bredd).reduce((a, b) => a + b, 0));
+    expect(Math.max(...storst)).toBeLessThanOrEqual(82);                 // största månaden lämnar plats åt talet
   });
 
-  it("Betalt (admin): lika hög stapel som Körsträcka, 'X av Y km' vid stapeln, fotnot om Ej betalt och prod-siffrorna för fakturerat", async () => {
+  it("Betalt (admin): 'X av Y km' vid stapeln (rundornas km), fotnot om Ej betalt och prod-siffrorna för fakturerat", async () => {
     await montera();
     await tillAr();
     expect(flikNamn()).toEqual(["Förbrukning", "Körsträcka", "Betalt"]);
@@ -959,19 +1042,14 @@ describe("Körningar: året, läsfel och CSV", () => {
     expect(d.getAttribute("data-staplar")).toBe("staplat");
     expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Fakturerat.*Ej betalt.*km/);
     const okt = d.querySelector('[data-stapelrad="okt"]')!;
-    expect(okt.textContent!.replace(/\s/g, " ")).toContain("89 av 818 km");
+    expect(okt.textContent!.replace(/\s/g, " ")).toContain("89 av 830 km");          // Y = mätarens km (inte rundornas 818)
     expect(okt.textContent).toContain("11 %");
-    expect(okt.getAttribute("aria-label")!.replace(/\s/g, " ")).toBe("okt: 89 av 818 km (Fakturerat 89, Ej betalt 729)");
-    expect(d.querySelector('[data-stapelrad="aug"]')!.textContent!.replace(/\s/g, " ")).toContain("105 av 109 km");   // fixturens augusti har bara 109 körda km
-    expect(d.querySelector('[data-stapelrad="sep"]')!.textContent!.replace(/\s/g, " ")).toContain("140 av 0 km");     // fixturen har ingen runda i september
+    expect(okt.getAttribute("aria-label")!.replace(/\s/g, " ")).toBe("okt: 89 av 830 km (Fakturerat 89, Ej betalt 741)");
+    expect(d.querySelector('[data-stapelrad="aug"]')!.textContent!.replace(/\s/g, " ")).toContain("105 av 1 441 km");
+    expect(d.querySelector('[data-stapelrad="sep"]')!.textContent!.replace(/\s/g, " ")).toContain("140 av 1 356 km");   // samma Y som i Körsträcka-läget
+    expect(d.querySelector('[data-stapelrad="jul"]')!.textContent).toContain("vikt saknas");
     expect(document.querySelector("[data-fotnot]")!.textContent).toBe("Ej betalt = tomkörning, service, korta och egna flyttar.");
     expect(document.querySelector("[data-vantar]")).toBeNull();                     // inga väntande flyttar
-    // stapeln är lika lång som i Körsträcka (samma skala: största månaden fyller lika mycket)
-    const bredd = (el: Element) => parseFloat((el as HTMLElement).style.width);
-    const bt = Array.from(okt.querySelectorAll("[title]")).map(bredd).reduce((a, b) => a + b, 0);
-    await klicka(knapp(/^Körsträcka$/)!);
-    const ks = Array.from(document.querySelector('[data-stapelrad="okt"]')!.querySelectorAll("[title]")).map(bredd).reduce((a, b) => a + b, 0);
-    expect(bt).toBeCloseTo(ks, 5);
   });
 
   it("Betalt: ogodkända flyttar räknas inte men sägs i en dämpad rad; växlar man bort och tillbaka finns raden bara i Betalt", async () => {
@@ -979,7 +1057,7 @@ describe("Körningar: året, läsfel och CSV", () => {
     await montera();
     await tillAr();
     await klicka(knapp(/^Betalt$/)!);
-    expect(document.querySelector('[data-stapelrad="okt"]')!.textContent!.replace(/\s/g, " ")).toContain("89 av 818 km");
+    expect(document.querySelector('[data-stapelrad="okt"]')!.textContent!.replace(/\s/g, " ")).toContain("89 av 830 km");
     expect(document.querySelector("[data-vantar]")!.textContent).toBe("1 flytt väntar på godkännande · 40 km");
     await klicka(knapp(/^Körsträcka$/)!);
     expect(document.querySelector("[data-vantar]")).toBeNull();
@@ -994,7 +1072,79 @@ describe("Körningar: året, läsfel och CSV", () => {
     expect(document.querySelector("[data-staplar]")).toBeNull();
     mock.underlagFel = false;
     await klicka(knapp(/Försök igen/, document.querySelector('section[aria-label="Diagram"]')!)!);
-    expect(document.querySelector('[data-stapelrad="okt"]')!.textContent!.replace(/\s/g, " ")).toContain("89 av 818 km");
+    expect(document.querySelector('[data-stapelrad="okt"]')!.textContent!.replace(/\s/g, " ")).toContain("89 av 830 km");
+  });
+
+  // ── Betalt: kört med lass (ur vikten) mot registrerade flyttar (maskin_flytt.flytt_km) ──
+  const lassSek = () => document.querySelector("[data-lass-mot-flyttar]") as HTMLElement | null;
+  const flyttMan = (id: string, iso: string, km: number | null) => ({ ...maskinRader()[0], id, starttid: iso, hamtad_tid: iso, sluttid: iso, flytt_km: km });
+  const lassRad = (man: number) => lassSek()!.querySelector(`[data-lass-manad="${man}"]`) as HTMLElement;
+  const betalt = async () => { await montera(); await tillAr(); await klicka(knapp(/^Betalt$/)!); };
+
+  it("Betalt (admin): 'Kört med lass X km · registrerade flyttar Y km' per månad med vikt; mer än 1,5 × Y ger orange 'Lass kan saknas'", async () => {
+    mock.flyttar = [flyttMan("f1", "2026-08-10T10:00:00Z", 400), flyttMan("f2", "2026-09-10T10:00:00Z", 200), flyttMan("f3", "2026-10-10T10:00:00Z", 100)];
+    await betalt();
+    const sek = lassSek()!;
+    expect(sek.querySelector("h3")!.textContent).toBe("Lass och flyttar");
+    // Efter diagrammet och fotnoten, före månadslistan
+    const diagram = arsSida()!.querySelector('section[aria-label="Diagram"]')!;
+    const manader = arsSida()!.querySelector('section[aria-label="Månader"]')!;
+    expect(!!(diagram.compareDocumentPosition(sek) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(!!(sek.compareDocumentPosition(manader) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    // juli har ingen vikt: ingen rad
+    expect(sek.querySelector('[data-lass-manad="7"]')).toBeNull();
+    // aug: 482 mot 400 → 1,5 × 400 = 600, inget larm
+    expect(norm(lassRad(8).textContent)).toBe("AugustiKört med lass 482 km · registrerade flyttar 400 km");
+    expect(lassRad(8).querySelector("[data-lass-kan-saknas]")).toBeNull();
+    expect(lassRad(8).tagName).toBe("DIV");                                   // ingen länk när allt stämmer
+    // sep: 504 mot 200 → 1,5 × 200 = 300 → larm. okt: 242 mot 100 → 150 → larm.
+    expect(norm(lassRad(9).textContent)).toBe("SeptemberKört med lass 504 km · registrerade flyttar 200 kmLass kan saknas");
+    expect(norm(lassRad(10).textContent)).toBe("OktoberKört med lass 242 km · registrerade flyttar 100 kmLass kan saknas");
+    expect(lassRad(9).querySelector("[data-lass-kan-saknas]")!.getAttribute("style")).toContain("color");
+  });
+
+  it("'Lass kan saknas' är en länk: ett tryck går till Körningar för månaden", async () => {
+    mock.flyttar = [flyttMan("f1", "2026-09-10T10:00:00Z", 200)];
+    await betalt();
+    await klicka(lassRad(9));
+    expect(arsSida()).toBeNull();
+    expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("Körd i september");
+    expect(window.location.search).toBe("?per=2026-09");
+  });
+
+  it("inga registrerade flyttar alls i en månad med lass ger larm (Y = 0), och en flytt utan km sägs vid raden", async () => {
+    mock.flyttar = [flyttMan("f1", "2026-09-10T10:00:00Z", null), flyttMan("f2", "2026-09-11T10:00:00Z", 450)];
+    await betalt();
+    expect(norm(lassRad(10).textContent)).toBe("OktoberKört med lass 242 km · registrerade flyttar 0 kmLass kan saknas");
+    expect(norm(lassRad(9).textContent)).toContain("registrerade flyttar 450 km · 1 flytt saknar km");
+    expect(lassRad(9).querySelector("[data-lass-kan-saknas]")).toBeNull();     // 504 ≤ 1,5 × 450
+  });
+
+  it("jämförelsen finns bara i Betalt: Förbrukning och Körsträcka har den inte", async () => {
+    await montera();
+    await tillAr();
+    expect(lassSek()).toBeNull();
+    await klicka(knapp(/^Körsträcka$/)!);
+    expect(lassSek()).toBeNull();
+    await klicka(knapp(/^Betalt$/)!);
+    expect(lassSek()).not.toBeNull();
+  });
+
+  it("en förare ser aldrig jämförelsen eller 'Lass kan saknas' (Betalt är bara för admin)", async () => {
+    mock.medarbetare = FORARE;
+    await montera();
+    await tillAr();
+    expect(lassSek()).toBeNull();
+    expect(text()).not.toContain("Lass kan saknas");
+    expect(flikNamn()).toEqual(["Förbrukning", "Körsträcka"]);
+  });
+
+  it("flyttarna går inte att läsa: jämförelsen säger det, och diagrammet i Betalt påverkas inte", async () => {
+    mock.maskinerFel = true;
+    await betalt();
+    expect(lassSek()!.textContent).toBe("Kunde inte jämföra med flyttarna just nu.");
+    expect(text()).not.toContain("Lass kan saknas");
+    expect(document.querySelector('[data-stapelrad="okt"]')!.textContent!.replace(/\s/g, " ")).toContain("89 av 830 km");
   });
 
   it("månadslistan under diagrammet: ett tryck går till Körningar för månaden", async () => {
@@ -1656,6 +1806,7 @@ describe("Körningar: länken till Flyttplatser (bodde i Flyttloggen)", () => {
 
 // ── Uppföljning › Maskiner: en rad per maskin, arket med snitt och flyttlistan ─────────────────────────────────
 import { prodFlyttRader } from "./_components/maskiner.fixtur";
+import { PROD_VIKT_RADER } from "./_components/vikt.fixtur";
 import { dagarSedan } from "./_components/maskiner";
 
 /** Martins prod-siffror 2026-10-20 (19 flyttar) som rader i maskin_flytt-fejken. */

@@ -5,11 +5,12 @@ import type { Stapel, StapelRad } from './uppfoljning';
 
 // Staplar per månad: EN komponent för uppföljningens diagram (vågräta rader, en månad per rad, så tolv månader aldrig
 // trängs). Två lägen: BREDVID (en stapel per serie, värdet vid stapelns slut) och STAPLAT (serierna efter varandra i en stapel,
-// summan till höger med delarna under). Färg bär aldrig ensam: första serien är vit, andra grå, och varje värde står som
-// text; teckenförklaringen ovanför nämner serierna i samma ordning som staplarna. Saknad mätning är ingen stapel och
-// orden står bredvid ("diesel saknas") — aldrig en nolla.
+// summan till höger med delarna under). Färg bär aldrig ensam: första serien är vit, andra grå, en eventuell tredje (okänd)
+// ljusare grå, och varje värde står som text; teckenförklaringen ovanför nämner serierna i samma ordning som staplarna. Saknad mätning är ingen stapel och
+// orden står bredvid ("diesel saknas") — aldrig en nolla. En hel månad utan mätning (`rad.saknas`, "vikt saknas") ritas utan
+// staplar: bara orden.
 
-const TON = [FARG.text, FARG.text3] as const;      // serie 1 vit, serie 2 grå
+const TON = [FARG.text, FARG.text3, FARG.text2] as const;   // serie 1 vit, serie 2 grå, serie 3 (okänd) ljusare grå
 const SPAR_BREDD = 0.82;                            // största värdet fyller så mycket av spåret; resten är plats för talet
 const STAPEL_HOJD = AVSTAND.m;
 
@@ -40,7 +41,7 @@ export default function Staplar({ rader, lage, serier, enhet }: {
 }
 
 function Rad({ rad, lage, andel, sista }: { rad: StapelRad; lage: 'bredvid' | 'staplat'; andel: (v: number) => number; sista: boolean }) {
-  const beskrivning = `${rad.etikett}: ` + (lage === 'staplat'
+  const beskrivning = `${rad.etikett}: ` + (rad.saknas ? rad.saknas : lage === 'staplat'
     ? (rad.total != null ? `${rad.total} (${rad.staplar.map(s => `${s.namn} ${s.text}`).join(', ')})` : 'inga rundor')
     : rad.staplar.map(s => `${s.namn} ${s.saknas ?? s.text}`).join(', '));
   const synliga = rad.staplar.filter(x => (x.varde ?? 0) > 0);
@@ -48,7 +49,9 @@ function Rad({ rad, lage, andel, sista }: { rad: StapelRad; lage: 'bredvid' | 's
     <div role="img" aria-label={beskrivning} data-stapelrad={rad.etikett}
       style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, borderTop: `1px solid ${FARG.linje}`, borderBottom: sista ? `1px solid ${FARG.linje}` : 'none' }}>
       <div style={{ width: AVSTAND.xxl + AVSTAND.s, flex: 'none', ...TYP.meta, color: FARG.text2, textTransform: 'capitalize' }}>{rad.etikett}</div>
-      {lage === 'bredvid' ? (
+      {rad.saknas ? (
+        <div data-saknas style={{ flex: 1, minWidth: 0, ...TYP.meta, color: FARG.text2 }}>{rad.saknas}</div>
+      ) : lage === 'bredvid' ? (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           {rad.staplar.map((s, i) => <Enkel key={s.namn} stapel={s} ton={TON[i]} bredd={s.varde != null ? andel(s.varde) : 0} />)}
         </div>
