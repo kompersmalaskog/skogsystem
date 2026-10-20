@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { useKorvyLarm, type KorvyLarmIn, type KorvyLarmUt } from './useKorvyLarm';
+import { vidaNycklar } from '../vidaNycklar';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -139,10 +140,24 @@ describe('useKorvyLarm — El-ledning som linje och vår kommentar på Vidas obj
 
   it('vår kommentar på Vidas Kraftledning står i larmkortet; ändras den gäller en gammal kvittens inte längre', async () => {
     const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { _typ: 'linje', _lager: 'L_TILLAGGSLINJER', FLBESKR: 'Kraftledning' }, geometry: { type: 'LineString', coordinates: [c(20, -200), c(20, 200)] } }] };
-    const rerender = mount(bas({ vida: fc as any, kommentarer: { 'linje:kraftledning:0': 'Hänger lågt vid vägen' } })); await tom();
+    const rerender = mount(bas({ vida: fc as any, kommentarer: { [vidaNycklar(fc.features)[0]!]: 'Hänger lågt vid vägen' } })); await tom();
     expect(ut.kort).toMatchObject({ namn: 'Kraftledning', grupp: 'fara', text: 'Hänger lågt vid vägen' });
     rerender(bas({ vida: fc as any, kommentarer: {} })); await tom();
     expect(ut.kort?.text ?? null).toBeNull();
+  });
+});
+
+describe('useKorvyLarm — kommentarer på egna markeringar', () => {
+  it('larmkortet visar senaste kommentaren med namn ("Daniel: Stolpe lutar"); den ersätter markeringens äldre kommentarfält', async () => {
+    const m = sym(7, 'warning', 12, { comment: 'Gammal text' });
+    const typNamn = (t?: string) => (t === 'warning' ? 'Varning' : 'Markering');
+    mount(bas({ markers: [m], typNamn, kommentarer: { 'marker:7': 'Daniel: Stolpe lutar' } })); await tom();
+    expect(ut.kort).toMatchObject({ namn: 'Varning', text: 'Daniel: Stolpe lutar' });
+  });
+  it('utan ny kommentar gäller det äldre kommentarfältet, utan namn', async () => {
+    const typNamn = (t?: string) => (t === 'warning' ? 'Varning' : 'Markering');
+    mount(bas({ markers: [sym(7, 'warning', 12, { comment: 'Gammal text' })], typNamn })); await tom();
+    expect(ut.kort).toMatchObject({ text: 'Gammal text' });
   });
 });
 

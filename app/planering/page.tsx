@@ -65,6 +65,8 @@ import { useGrind } from '../../lib/hooks/useGrind'
 import { GRIND_TYP, rensaGrindKod } from '../../lib/grind'
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, gruppForLinje, SYMBOL_NAMN, gruppForSymbol, symbolFarg, larmRegelText, type FargGrupp } from '../../lib/larm/grupper'
 import { KartKort, KartKortNederst, type KartKortFoto } from '../../components/planering/KartKort'
+import { useKartkommentarer } from '../../lib/hooks/useKartkommentarer'
+import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, markerNyckel } from '../../lib/kartkommentar'
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
 import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
@@ -405,6 +407,9 @@ interface Marker {
   photoData?: string;   // GAMMALT: inbäddat base64-foto — nya foton går till Storage (photoPath)
   photoPath?: string;   // Storage-sökväg i bucketen markering-foton ({objekt_id}/{marker_id}.jpg)
   photoTs?: number;     // sätts vid varje uppladdning — tvingar ny signerad URL vid omtag
+  photoAv?: string;     // fotografens medarbetar-id (nya foton). Bara fotografen eller admin byter fotot. Saknas = äldre foto utan fotograf
+  photoAvNamn?: string; // fotografens namn, för visningen
+  photoTaget?: string;  // när fotot togs (ISO)
   audioData?: string;  // base64-kodat ljud (audio/webm eller audio/mp4)
   notes?: { id: string; date: string; text?: string; audioData?: string }[];
   roadCheck?: RoadCheckResult;
@@ -874,14 +879,14 @@ export default function PlannerPage() {
     (async () => {
       const { data, error } = await supabase
         .from('objekt_yta_media')
-        .select('id, yta_nyckel, typ, url, text, skapad_at, medarbetare:skapad_av(namn)')
+        .select('id, yta_nyckel, typ, url, text, skapad_at, skapad_av, medarbetare:skapad_av(namn)')
         .in('objekt_id', ytaKontextIds(valtObjekt))   // GROT-jobb: även virkesobjektets media
         .order('skapad_at', { ascending: true });
       if (avbruten) return;
       if (error || !data) { setYtaMedia({}); return; }
-      const karta: Record<string, { id: string; typ: 'audio' | 'foto'; url: string; text: string | null; namn: string | null; skapad_at: string }[]> = {};
+      const karta: Record<string, { id: string; typ: 'audio' | 'foto'; url: string; text: string | null; namn: string | null; skapad_at: string; skapad_av: string | null }[]> = {};
       for (const r of data as any[]) {
-        (karta[r.yta_nyckel] ||= []).push({ id: r.id, typ: r.typ, url: r.url, text: r.text ?? null, namn: (r.medarbetare as any)?.namn ?? null, skapad_at: r.skapad_at });
+        (karta[r.yta_nyckel] ||= []).push({ id: r.id, typ: r.typ, url: r.url, text: r.text ?? null, namn: (r.medarbetare as any)?.namn ?? null, skapad_at: r.skapad_at, skapad_av: r.skapad_av ?? null });
       }
       setYtaMedia(karta);
     })();
@@ -924,7 +929,7 @@ export default function PlannerPage() {
     }, { select: 'id, skapad_at' });
     if (!res.ok) { setYtaMediaFel(res.fel); return false; }
     const rad = (res.rows as any[])[0];
-    setYtaMedia(prev => ({ ...prev, [nyckel]: [ ...(prev[nyckel] || []), { id: rad.id, typ, url, text: null, namn: currentMedarbetare?.namn ?? null, skapad_at: rad.skapad_at } ] }));
+    setYtaMedia(prev => ({ ...prev, [nyckel]: [ ...(prev[nyckel] || []), { id: rad.id, typ, url, text: null, namn: currentMedarbetare?.namn ?? null, skapad_at: rad.skapad_at, skapad_av: currentMedarbetare?.id ?? null } ] }));
     return true;
   }, [valtObjekt?.id, currentMedarbetare?.id, currentMedarbetare?.namn]);
 
@@ -2526,7 +2531,7 @@ export default function PlannerPage() {
   const [anteckningFel, setAnteckningFel] = useState<string | null>(null);
   // Per-yta MEDIA (tabell objekt_yta_media): ljud + foto knutna till ytan, FLERA rader per yta i ordning.
   // Cachas per objekt: yta_nyckel → lista. Förare ser + spelar upp; bara admin (planerare) lägger till/tar bort.
-  const [ytaMedia, setYtaMedia] = useState<Record<string, { id: string; typ: 'audio' | 'foto'; url: string; text: string | null; namn: string | null; skapad_at: string }[]>>({});
+  const [ytaMedia, setYtaMedia] = useState<Record<string, { id: string; typ: 'audio' | 'foto'; url: string; text: string | null; namn: string | null; skapad_at: string; skapad_av: string | null }[]>>({});
   const [ytaMediaSparar, setYtaMediaSparar] = useState(false); // ljud-upload / foto-upload pågår
   const [ytaMediaFel, setYtaMediaFel] = useState<string | null>(null);
   const [recordingYtaNyckel, setRecordingYtaNyckel] = useState<string | null>(null); // inspelning för denna yta
@@ -8850,7 +8855,14 @@ export default function PlannerPage() {
   // 8) LARMET (körvy OCH skotarläge): lib/larm avgör vad som larmar (typen → färggrupp → regel), hooken matar den med markeringar,
   //    linjer (Stenmur, Risa), ytor och Vidas geometri. ETT kort överst med namn och meter, ETT ljud, "Sett <Namn>" nederst.
   //    Kvitteringen sparas per förare (korvy_kvittens_forare) med den RIKTIGA inloggade föraren — aldrig en simulerad.
-  const vidaKommentarer = useMemo(() => Object.fromEntries(Object.entries(anteckningar).map(([k, v]) => [k, v.text])), [anteckningar]);
+  // Kommentarer på kartan: EN RAD PER KOMMENTAR med författare och tid (kartkommentar), på Vidas objekt och egna markeringar. Larmkortet visar den senaste med namn.
+  const kk = useKartkommentarer({
+    objektId: valtObjekt?.id,
+    lasObjektIds: valtObjekt ? ytaKontextIds(valtObjekt) : undefined,
+    minId: currentMedarbetare?.id ?? null,
+    minNamn: currentMedarbetare?.namn ?? null,
+    arAdmin: isAdminRiktig,
+  });
   const larm = useKorvyLarm({
     aktiv: korvyActive,
     pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
@@ -8859,7 +8871,7 @@ export default function PlannerPage() {
     typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
     egna: korvyEgnaMarkorRef.current,
     vida: traktGeo,
-    kommentarer: vidaKommentarer,   // vår kommentar på Vida-objekt (objekt_yta_anteckning): visas i larmkortet
+    kommentarer: kk.larmKommentarer,   // senaste kommentaren med namn per objekt (Vidas objekt och egna markeringar): visas i larmkortet
     objektId: valtObjekt?.id ?? null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id), namn: currentMedarbetare.namn ?? null } : null,
     db: supabase,
@@ -11428,6 +11440,8 @@ export default function PlannerPage() {
     try {
       const blob = await komprimeraMarkeringFoto(file);
       await laggFotoIKo(String(objektId), String(markerId), blob);
+      // Fotografen och tiden skrivs in i markeringen (nya foton); bara fotografen eller admin byter fotot sedan.
+      setMarkers((prev: any[]) => prev.map((m: any) => (String(m.id) === String(markerId) ? { ...m, photoAv: currentMedarbetare?.id ?? undefined, photoAvNamn: currentMedarbetare?.namn ?? undefined, photoTaget: new Date().toISOString() } : m)));
       // Objektet kan ha bytts under komprimeringen → rör inte en annan trakts meny.
       if (markersObjektIdRef.current !== objektId) return;
       // Öppna menyn igen för samma markör: fotot syns (lokalt) direkt.
@@ -14907,10 +14921,10 @@ export default function PlannerPage() {
         if (traktInfo.nr) kontext.push(`Nr ${traktInfo.nr}`);
         if (traktInfo.arealHa != null) kontext.push(`${svTal(traktInfo.arealHa, 2)} ha`);
         const nyckel = traktKortNyckel;
-        const befintlig = nyckel ? anteckningar[nyckel] : undefined;
-        const harAnteckning = !!(befintlig && befintlig.text.trim());
-        const kanSkriva = isAdminRiktig && !!nyckel;   // bara planerare skriver; kräver stabil nyckel
-        const datumStr = befintlig?.uppdaterad_at ? new Date(befintlig.uppdaterad_at).toLocaleDateString('sv-SE') : '';
+        // Alla med en medarbetarrad får kommentera och fota Vidas objekt (kräver en stabil nyckel); ändra och ta bort gäller bara det man själv lagt till (admin får ta bort andras).
+        const minId = currentMedarbetare?.id ?? null;
+        const kanLagga = !!nyckel && !!minId;
+        const arMitt = (mm: { skapad_av: string | null }) => !!minId && mm.skapad_av === minId;
         const media = nyckel ? (ytaMedia[nyckel] || []) : [];   // ljud + foto för ytan, i skapelseordning
         const isRecYta = isRecordingAudio && recordingYtaNyckel === nyckel;
         const bet = traktKortBetydelse(traktInfo);
@@ -14918,9 +14932,10 @@ export default function PlannerPage() {
         const fotoRader: KartKortFoto[] = media.filter((mm) => mm.typ === 'foto').map((mm) => ({
           id: mm.id,
           node: <img src={mm.url} alt="Foto" onClick={() => setFullscreenPhoto(mm.url)} style={{ maxHeight: '180px', width: '100%', objectFit: 'cover', cursor: 'pointer', display: 'block' }} />,
+          av: forfattarText(mm.namn, mm.skapad_at),
           text: mm.text,
-          onSparaText: kanSkriva ? (t: string) => { sparaYtaMediaText(nyckel!, mm.id, t); } : undefined,
-          onTaBort: kanSkriva ? () => { raderaYtaMedia(nyckel!, mm); } : undefined,
+          onSparaText: arMitt(mm) ? (t: string) => { sparaYtaMediaText(nyckel!, mm.id, t); } : undefined,
+          onTaBort: (arMitt(mm) || isAdminRiktig) ? () => { raderaYtaMedia(nyckel!, mm); } : undefined,
         }));
         return (
           <KartKort
@@ -14932,12 +14947,14 @@ export default function PlannerPage() {
             larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
             mening={bet.forklaring}
             kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
-            // Vidas data ändras aldrig: kommentaren och fotona sparas hos oss (objekt_yta_anteckning / objekt_yta_media), kopplade till objekt_id + objektets nyckel.
-            kommentar={nyckel ? { text: befintlig?.text || '', meta: harAnteckning ? [befintlig!.namn, datumStr].filter(Boolean).join(' · ') : null } : null}
-            kanSkriva={kanSkriva}
-            onSparaKommentar={async (t) => ((await sparaAnteckning(nyckel!, t)) ? null : 'Kunde inte spara — försök igen.')}
+            // Vidas data ändras aldrig: kommentarerna (kartkommentar, en rad per kommentar) och fotona (objekt_yta_media) sparas hos oss, kopplade till objekt_id + objektets nyckel.
+            kommentarer={nyckel && valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, minId, arAdmin: isAdminRiktig }) : null}
+            kanKommentera={kanLagga}
+            onLaggKommentar={(t) => kk.lagg(nyckel!, t)}
+            onAndraKommentar={(id, t) => kk.andra(id, t)}
+            onRaderaKommentar={(id) => kk.radera(id)}
             foton={nyckel ? fotoRader : []}
-            onLaggTillFoto={nyckel ? () => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); } : undefined}
+            onLaggTillFoto={kanLagga ? () => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); } : undefined}
             fotoSparar={ytaMediaSparar}
             fotoFel={ytaMediaFel}
             onStang={stangTraktKort}
@@ -15059,19 +15076,22 @@ export default function PlannerPage() {
                     </div>
                   );
                 })()}
-            {nyckel && (ljudRader.length > 0 || kanSkriva) && (
+            {nyckel && (ljudRader.length > 0 || kanLagga) && (
               <KartKortNederst>
                 <div data-testid="kartkort-ljud" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {ljudRader.map((mm) => (
-                    <div key={mm.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
-                      {kanSkriva && (
-                        <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
-                          style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                      )}
+                    <div key={mm.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>{forfattarText(mm.namn, mm.skapad_at)}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
+                        {(arMitt(mm) || isAdminRiktig) && (
+                          <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
+                            style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                        )}
+                      </div>
                     </div>
                   ))}
-                  {kanSkriva && (
+                  {kanLagga && (
                     <div>
                       <button disabled={ytaMediaSparar} onClick={() => toggleYtaAudioRecording(nyckel)}
                         style={{ padding: '9px 14px', borderRadius: '10px', border: isRecYta ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.15)', background: isRecYta ? 'rgba(239,68,68,0.18)' : 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '7px', animation: isRecYta ? 'pulse 1s infinite' : 'none' }}>
@@ -15378,6 +15398,8 @@ export default function PlannerPage() {
         const kortGrupp: FargGrupp = betydelse?.grupp ?? 'info';
         const markerFoton: KartKortFoto[] = (harFoto(marker) || lokalFotoFor(marker)) ? [{
           id: 'foto',
+          // Vem som tog fotot och när (nya foton); ett äldre foto har ingen fotograf.
+          av: marker.photoAv ? forfattarText(marker.photoAvNamn, marker.photoTaget ?? (typeof marker.photoTs === 'number' ? new Date(marker.photoTs).toISOString() : null)) : 'Äldre foto',
           node: (
             <MarkeringFoto lokal={lokalFotoFor(marker)} photoPath={marker.photoPath} photoData={marker.photoData} photoTs={marker.photoTs} onOpen={setFullscreenPhoto}
               style={{ width: '100%', maxHeight: '220px', minHeight: 120, objectFit: 'cover', display: 'block' }} />
@@ -15399,16 +15421,21 @@ export default function PlannerPage() {
             grupp={kortGrupp}
             larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden })}
             mening={betydelse?.mening ?? null}
-            kommentar={{ text: marker.comment || '' }}
-            kanSkriva
-            onSparaKommentar={(t) => {
-              // Samma väg som redigeringskortet: minnet först, sedan en omedelbar skrivning (markeringssynken lägger den i kön om nätet saknas).
-              setMarkers((prev: any[]) => prev.map((m: any) => (String(m.id) === String(marker.id) ? { ...m, comment: t } : m)));
-              saveMarkerToDb({ ...marker, comment: t } as any);
-              return null;
+            kommentarer={valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel: markerNyckel(marker.id), objektId: valtObjekt.id, aldreText: marker.comment, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : null}
+            kanKommentera={!!currentMedarbetare?.id}
+            onLaggKommentar={(t) => kk.lagg(markerNyckel(marker.id), t)}
+            onAndraKommentar={(id, t) => kk.andra(id, t)}
+            onRaderaKommentar={(id) => {
+              // Markeringens äldre kommentarfält (före författare sparades) tas bort ur markeringen; övriga är rader i kartkommentar.
+              if (id.startsWith('aldre:')) {
+                setMarkers((prev: any[]) => prev.map((m: any) => (String(m.id) === String(marker.id) ? { ...m, comment: undefined } : m)));
+                saveMarkerToDb({ ...marker, comment: undefined } as any);
+              } else kk.radera(id);
             }}
             foton={markerFoton}
-            onLaggTillFoto={() => { setPendingPhotoMarkerId(marker.id); fileInputRef.current?.click(); }}
+            fotoKnapp={markerFoton.length ? 'Byt foto' : 'Lägg till foto'}
+            // Ett foto per markering: bara den som tog det (eller admin) byter det. Ett äldre foto utan fotograf kan bara admin byta.
+            onLaggTillFoto={(!markerFoton.length || isAdminRiktig || (!!currentMedarbetare?.id && marker.photoAv === currentMedarbetare.id)) ? () => { setPendingPhotoMarkerId(marker.id); fileInputRef.current?.click(); } : undefined}
             onStang={() => setMarkerMenuOpen(null)}
           >
               {/* Skotarläget: vad som skotats HIT överst; kortets vanliga innehåll ligger oförändrat under avdelaren */}

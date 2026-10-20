@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { arUndantagen, linjeObjekt, symbolObjekt, vidaObjekt, vidaSlag, ytaObjekt } from './objekt';
+import { vidaNycklar } from '../vidaNycklar';
 import { stegaLarm, TOMT_LARM } from './larm';
 
 const O = { lat: 56.5, lon: 14.7 };
@@ -141,14 +142,14 @@ describe('Vidas lager', () => {
   it('vår kommentar på Vidas Kraftledning visas i larmkortet och ändrar hashen (en gammal kvittens gäller inte längre)', () => {
     const utan = vidaObjekt(FC, O).find((o) => o.id.endsWith(':4'))!;
     expect(utan.kommentar).toBeNull();
-    const med = vidaObjekt(FC, O, 60, { 'linje:kraftledning-12-kv:0': 'Hänger lågt vid vägen' }).find((o) => o.id.endsWith(':4'))!;
+    const med = vidaObjekt(FC, O, 60, { [vidaNycklar(FC.features)[4]!]: 'Hänger lågt vid vägen' }).find((o) => o.id.endsWith(':4'))!;
     expect(med.kommentar).toBe('Hänger lågt vid vägen');
     expect(med.hash).not.toBe(utan.hash);
     const r = stegaLarm({ objekt: [med], kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
     expect(r.kort).toMatchObject({ namn: 'Kraftledning', grupp: 'fara', text: 'Hänger lågt vid vägen' });
   });
   it('en kommentar på ett annat objekt (annan nyckel) hamnar inte på ledningen', () => {
-    const o = vidaObjekt(FC, O, 60, { 'linje:kraftledning-12-kv:1': 'annan ledning', 'hansyn:9': 'x' }).find((x) => x.id.endsWith(':4'))!;
+    const o = vidaObjekt(FC, O, 60, { [vidaNycklar(FC.features)[5]!]: 'annan ledning', 'hansyn:9': 'x' }).find((x) => x.id.endsWith(':4'))!;
     expect(o.kommentar).toBeNull();
   });
   it('tom eller saknad samling ger inga objekt', () => {

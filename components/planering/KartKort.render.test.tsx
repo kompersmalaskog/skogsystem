@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { KartKort, KartKortNederst, type KartKortProps } from './KartKort';
+import { KartKort, KartKortNederst, type KartKortKommentar, type KartKortProps } from './KartKort';
 import { larmRegelText } from '@/lib/larm/grupper';
 import { traktKortBetydelse, vidaLinjeKort, linjeKort, symbolDef, ytaForklaring } from '@/lib/symboler';
 
@@ -14,7 +14,7 @@ function visa(p: Partial<KartKortProps> = {}) {
   const root = createRoot(cont);
   const props: KartKortProps = {
     ikon: <span>ikon</span>, namn: 'Kraftledning', grupp: 'fara', larmRegel: 'Larmar alltid', mening: 'Kraftledning – håll avstånd och fäll inte åt det hållet.',
-    kalla: 'Linje · Vida', kommentar: { text: '' }, kanSkriva: true, onSparaKommentar: async () => null, foton: [], onLaggTillFoto: () => {}, onStang: () => {}, ...p,
+    kalla: 'Linje · Vida', kommentarer: [], kanKommentera: true, onLaggKommentar: () => {}, onAndraKommentar: () => {}, onRaderaKommentar: () => {}, foton: [], onLaggTillFoto: () => {}, onStang: () => {}, ...p,
   };
   act(() => { root.render(<KartKort {...props} />); });
   return { cont, root };
@@ -60,7 +60,7 @@ describe('KartKort — uppbyggnad', () => {
     const root = createRoot(cont);
     act(() => {
       root.render(
-        <KartKort ikon={null} namn="X" grupp="info" larmRegel="Larmar inte" mening={null} kommentar={{ text: '' }} kanSkriva onSparaKommentar={() => null} foton={[]} onLaggTillFoto={() => {}} onStang={() => {}}>
+        <KartKort ikon={null} namn="X" grupp="info" larmRegel="Larmar inte" mening={null} kommentarer={[]} kanKommentera foton={[]} onLaggTillFoto={() => {}} onStang={() => {}}>
           <div data-testid="del">särskilt</div>
           <KartKortNederst><div data-testid="nederst">åtgärder</div></KartKortNederst>
         </KartKort>,
@@ -72,49 +72,76 @@ describe('KartKort — uppbyggnad', () => {
   });
 });
 
-describe('KartKort — kommentaren', () => {
-  it('går att skriva och spara; sparas med den trimmade texten', async () => {
-    const spara = vi.fn(async () => null);
-    visa({ onSparaKommentar: spara });
+const k = (id: string, over: Partial<KartKortKommentar> = {}): KartKortKommentar => ({ id, text: 'text ' + id, forfattare: 'Daniel · i går 16:20', vantar: false, kanAndra: false, kanRadera: false, ...over });
+const alla = (id: string) => Array.from(document.querySelectorAll(`[data-testid="${id}"]`)) as HTMLElement[];
+
+describe('KartKort — kommentarerna: en rad per kommentar med namn och tid', () => {
+  it('varje kommentar är en egen rad med författare och tid; äldre kommentar utan författare heter "Äldre kommentar"', () => {
+    visa({ kommentarer: [k('1', { forfattare: null, text: 'gammal' }), k('2'), k('3', { forfattare: 'Oskar · idag 12:02', text: 'svar' })] });
+    expect(alla('kartkort-kommentar-rad')).toHaveLength(3);
+    expect(alla('kartkort-kommentar-forfattare').map((e) => e.textContent)).toEqual(['Äldre kommentar', 'Daniel · i går 16:20', 'Oskar · idag 12:02']);
+    expect(alla('kartkort-kommentar-text').map((e) => e.textContent)).toEqual(['gammal', 'text 2', 'svar']);
+  });
+
+  it('en kommentar som väntar på nät märks "väntar"', () => {
+    visa({ kommentarer: [k('1', { vantar: true })] });
+    expect(t('kartkort-kommentar-vantar')!.textContent).toContain('väntar');
+  });
+
+  it('ny kommentar: skriv och spara; tom text går inte att spara; Avbryt kastar utkastet', () => {
+    const lagg = vi.fn();
+    visa({ onLaggKommentar: lagg });
     expect(t('kartkort-kommentar-tom')).not.toBeNull();
-    klick(t('kartkort-kommentar-andra'));
+    klick(t('kartkort-kommentar-ny'));
+    expect((t('kartkort-kommentar-spara') as HTMLButtonElement).disabled).toBe(true);
     skriv(t('kartkort-kommentar-falt') as HTMLTextAreaElement, '  Hänger lågt vid vägen ');
-    await act(async () => { klick(t('kartkort-kommentar-spara')); });
-    expect(spara).toHaveBeenCalledWith('Hänger lågt vid vägen');
-    expect(t('kartkort-kommentar-falt')).toBeNull();                       // tillbaka i visningsläget
-  });
-
-  it('en befintlig kommentar visas med vem/när och går att ändra', () => {
-    visa({ kommentar: { text: 'Hänger lågt', meta: 'Martin · 2026-10-20' } });
-    expect(t('kartkort-kommentar-text')!.textContent).toBe('Hänger lågt');
-    expect(t('kartkort-kommentar')!.textContent).toContain('Martin · 2026-10-20');
-    klick(t('kartkort-kommentar-andra'));
-    expect((t('kartkort-kommentar-falt') as HTMLTextAreaElement).value).toBe('Hänger lågt');
-  });
-
-  it('misslyckas sparningen står felet kvar och fältet stängs inte (inget tyst tapp)', async () => {
-    visa({ onSparaKommentar: async () => 'Kunde inte spara — försök igen.' });
-    klick(t('kartkort-kommentar-andra'));
-    skriv(t('kartkort-kommentar-falt') as HTMLTextAreaElement, 'text');
-    await act(async () => { klick(t('kartkort-kommentar-spara')); });
-    expect(t('kartkort-kommentar-fel')!.textContent).toBe('Kunde inte spara — försök igen.');
-    expect((t('kartkort-kommentar-falt') as HTMLTextAreaElement).value).toBe('text');
-  });
-
-  it('Avbryt kastar utkastet', () => {
-    visa({ kommentar: { text: 'gammal' } });
-    klick(t('kartkort-kommentar-andra'));
-    skriv(t('kartkort-kommentar-falt') as HTMLTextAreaElement, 'ny');
+    klick(t('kartkort-kommentar-spara'));
+    expect(lagg).toHaveBeenCalledWith('Hänger lågt vid vägen');
+    expect(t('kartkort-kommentar-falt')).toBeNull();
+    klick(t('kartkort-kommentar-ny'));
+    skriv(t('kartkort-kommentar-falt') as HTMLTextAreaElement, 'utkast');
     klick(t('kartkort-kommentar-avbryt'));
-    expect(t('kartkort-kommentar-text')!.textContent).toBe('gammal');
+    klick(t('kartkort-kommentar-ny'));
+    expect((t('kartkort-kommentar-falt') as HTMLTextAreaElement).value).toBe('');
   });
 
-  it('den som inte får skriva ser kommentaren men ingen knapp; objekt utan stabil nyckel har ingen kommentarsplats', () => {
-    visa({ kanSkriva: false, kommentar: { text: 'bara läsning' } });
-    expect(t('kartkort-kommentar-text')!.textContent).toBe('bara läsning');
-    expect(t('kartkort-kommentar-andra')).toBeNull();
+  it('man ändrar och tar bort bara sina egna: knapparna syns bara på rader där behörigheten är räknad', () => {
+    visa({ kommentarer: [k('egen', { kanAndra: true, kanRadera: true }), k('annans'), k('adminRadera', { kanRadera: true })] });
+    const rad = (id: string) => document.querySelector(`[data-kommentar-id="${id}"]`)!;
+    expect(rad('egen').querySelector('[data-testid="kartkort-kommentar-andra"]')).not.toBeNull();
+    expect(rad('egen').querySelector('[data-testid="kartkort-kommentar-ta-bort"]')).not.toBeNull();
+    expect(rad('annans').querySelector('[data-testid="kartkort-kommentar-andra"]')).toBeNull();
+    expect(rad('annans').querySelector('[data-testid="kartkort-kommentar-ta-bort"]')).toBeNull();
+    expect(rad('adminRadera').querySelector('[data-testid="kartkort-kommentar-andra"]')).toBeNull();
+    expect(rad('adminRadera').querySelector('[data-testid="kartkort-kommentar-ta-bort"]')).not.toBeNull();
+  });
+
+  it('ändra: fältet öppnas med texten, Spara skickar id + ny text', () => {
+    const andra = vi.fn();
+    visa({ kommentarer: [k('egen', { kanAndra: true, text: 'Stolpe lutar' })], onAndraKommentar: andra });
+    klick(t('kartkort-kommentar-andra'));
+    const falt = t('kartkort-kommentar-andra-falt') as HTMLTextAreaElement;
+    expect(falt.value).toBe('Stolpe lutar');
+    skriv(falt, 'Stolpe 3 lutar');
+    klick(t('kartkort-kommentar-andra-spara'));
+    expect(andra).toHaveBeenCalledWith('egen', 'Stolpe 3 lutar');
+  });
+
+  it('ta bort frågar först (inget tyst tapp) och skickar id när man bekräftar', () => {
+    const radera = vi.fn();
+    visa({ kommentarer: [k('egen', { kanRadera: true })], onRaderaKommentar: radera });
+    klick(t('kartkort-kommentar-ta-bort'));
+    expect(radera).not.toHaveBeenCalled();
+    klick(t('kartkort-kommentar-ta-bort-ja'));
+    expect(radera).toHaveBeenCalledWith('egen');
+  });
+
+  it('den som inte får kommentera ser kommentarerna men ingen knapp för en ny; objekt utan stabil nyckel har ingen kommentarsplats', () => {
+    visa({ kanKommentera: false, kommentarer: [k('1')] });
+    expect(t('kartkort-kommentar-ny')).toBeNull();
+    expect(alla('kartkort-kommentar-rad')).toHaveLength(1);
     document.body.innerHTML = '';
-    visa({ kommentar: null });
+    visa({ kommentarer: null });
     expect(t('kartkort-kommentar')).toBeNull();
   });
 });
@@ -127,18 +154,19 @@ describe('KartKort — foto', () => {
     expect(lagg).toHaveBeenCalledTimes(1);
     expect(t('kartkort-foto-lagg-till')!.textContent).toBe('Lägg till foto');
     document.body.innerHTML = '';
-    visa({ foton: [{ id: 'f1', node: <img alt="Foto" src="x.jpg" />, text: 'Stolpe 3' }] });
+    visa({ foton: [{ id: 'f1', node: <img alt="Foto" src="x.jpg" />, text: 'Stolpe 3', av: 'Daniel · i går 16:20' }], fotoKnapp: 'Byt foto' });
     expect(document.querySelectorAll('[data-testid="kartkort-foto"]')).toHaveLength(1);
     expect(t('kartkort-foto')!.textContent).toContain('Stolpe 3');
+    expect(t('kartkort-foto-av')!.textContent).toBe('Daniel · i går 16:20');     // fotot visar vem som tog det
     expect(t('kartkort-foto-lagg-till')!.textContent).toBe('Byt foto');
   });
 
-  it('den som inte får skriva ser fotona men ingen knapp; inget foto och ingen rätt att lägga till: ingen fotoruta', () => {
-    visa({ kanSkriva: false, foton: [{ id: 'f1', node: <img alt="Foto" src="x.jpg" /> }] });
+  it('den som inte får lägga till ser fotona men ingen knapp; inget foto och ingen rätt att lägga till: ingen fotoruta', () => {
+    visa({ onLaggTillFoto: undefined, foton: [{ id: 'f1', node: <img alt="Foto" src="x.jpg" /> }] });
     expect(t('kartkort-foto')).not.toBeNull();
     expect(t('kartkort-foto-lagg-till')).toBeNull();
     document.body.innerHTML = '';
-    visa({ kanSkriva: false, foton: [] });
+    visa({ onLaggTillFoto: undefined, foton: [] });
     expect(t('kartkort-foton')).toBeNull();
   });
 

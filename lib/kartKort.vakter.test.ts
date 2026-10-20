@@ -26,19 +26,36 @@ describe('KartKort — en komponent för alla typer', () => {
     expect(sida).not.toContain('placeholder="Skriv en anteckning för den här ytan…"');
   });
 
-  it('Vidas objekt: kommentaren och fotot sparas hos oss (sparaAnteckning / ytfoto-flödet), aldrig i Vidas data', () => {
+  it('Vidas objekt: kommentaren (kartkommentar) och fotot (ytfoto-flödet) sparas hos oss, aldrig i Vidas data', () => {
     const trakt = sida.slice(sida.indexOf('const bet = traktKortBetydelse(traktInfo)'));
-    expect(trakt).toContain('sparaAnteckning(nyckel!');
+    expect(trakt).toContain('kk.lagg(nyckel!');
+    expect(trakt).toContain('kk.andra(id, t)');
+    expect(trakt).toContain('kk.radera(id)');
     expect(trakt).toContain('ytaFotoInputRef.current?.click()');
     expect(trakt).toContain('sparaYtaMediaText');
     expect(trakt).toContain('raderaYtaMedia');
     expect(trakt).not.toMatch(/objekt_geometri['"`]\)\s*\.\s*(update|upsert|insert)/);
   });
 
-  it('en egen markering sparar kommentaren direkt (minnet först, sedan saveMarkerToDb) och fotot går via samma filväljare som förut', () => {
+  it('en egen markering: en kommentarsrad per kommentar (marker:<id>) och fotot går via samma filväljare som förut', () => {
     const mark = sida.slice(sida.indexOf('testid="marker-kort"'));
-    expect(mark).toContain('saveMarkerToDb({ ...marker, comment: t }');
+    expect(mark).toContain('kk.lagg(markerNyckel(marker.id), t)');
     expect(mark).toContain('setPendingPhotoMarkerId(marker.id); fileInputRef.current?.click()');
+    // Det gamla enda kommentarfältet skrivs inte längre över av kortet (det visas som "Äldre kommentar"):
+    expect(mark).not.toContain('saveMarkerToDb({ ...marker, comment: t }');
+  });
+
+  it('ett foto per egen markering: bara fotografen eller admin byter det, och nya foton bär fotograf och tid', () => {
+    expect(sida).toContain('marker.photoAv === currentMedarbetare.id');
+    expect(sida).toContain('photoAv: currentMedarbetare?.id ?? undefined');
+    expect(sida).toContain('photoTaget: new Date().toISOString()');
+  });
+
+  it('på Vidas objekt får bara den som lade till ett foto/ljud ändra dess text och bara den eller admin ta bort det', () => {
+    const trakt = sida.slice(sida.indexOf('const bet = traktKortBetydelse(traktInfo)'));
+    expect(trakt).toContain('onSparaText: arMitt(mm)');
+    expect(trakt).toContain('onTaBort: (arMitt(mm) || isAdminRiktig)');
+    expect(sida).toContain('const kanLagga = !!nyckel && !!minId;');
   });
 
   it('komponenten läser gruppen ur grupper.ts och har ingen egen färgtabell', () => {
@@ -46,7 +63,7 @@ describe('KartKort — en komponent för alla typer', () => {
     expect(kort).not.toMatch(/#[0-9a-fA-F]{6}/);
   });
 
-  it('kommentaren på ett Vida-objekt kommer in i larmet: sidan skickar kommentarerna till useKorvyLarm', () => {
-    expect(sida).toMatch(/kommentarer:\s*vidaKommentarer/);
+  it('larmkortet får senaste kommentaren med namn: sidan skickar kk.larmKommentarer till useKorvyLarm', () => {
+    expect(sida).toMatch(/kommentarer:\s*kk\.larmKommentarer/);
   });
 });

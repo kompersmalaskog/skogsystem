@@ -28,11 +28,16 @@ export interface KartKortFoto {
   /** Själva bilden (så att egna markeringar kan använda sin fotokomponent och Vidas objekt en vanlig bild). */
   node: React.ReactNode;
   text?: string | null;
+  /** Vem som tog fotot och när: "Martin · i går 16:20". Null = okänt (äldre foto). */
+  av?: string | null;
   /** Bildtexten går att ändra (sparas när fältet lämnas). */
   onSparaText?: (text: string) => void;
   /** Bara när fotot går att ta bort. */
   onTaBort?: () => void;
 }
+
+/** Raden på kortet (lib/kartkommentar `kortKommentarer`): författare och tid är färdig text, behörigheten är räknad. */
+export type KartKortKommentar = import('@/lib/kartkommentar').KortKommentar;
 
 export interface KartKortProps {
   /** Symbolens/linjens/ytans ikon — samma bild som på kartan. */
@@ -45,14 +50,18 @@ export interface KartKortProps {
   mening: string | null;
   /** Varifrån objektet kommer, t.ex. "Vida" — liten rad under meningen. */
   kalla?: string | null;
-  /** Kommentaren. `null` = kortet har ingen kommentarsplats (objekt utan stabil nyckel kan inte spara någon). */
-  kommentar: { text: string; meta?: string | null } | null;
-  kanSkriva: boolean;
-  /** Sparar kommentaren; returnerar ett felmeddelande, eller null när det gick bra. */
-  onSparaKommentar?: (text: string) => Promise<string | null> | string | null;
+  /** Kommentarerna, äldst först: EN RAD PER KOMMENTAR med författare och tid (lib/kartkommentar). `null` = objektet kan inte ha kommentarer (ingen stabil nyckel). */
+  kommentarer: KartKortKommentar[] | null;
+  /** Får lägga till en kommentar (inloggad medarbetare). Ändra/ta bort styrs per rad. */
+  kanKommentera: boolean;
+  onLaggKommentar?: (text: string) => void;
+  onAndraKommentar?: (id: string, text: string) => void;
+  onRaderaKommentar?: (id: string) => void;
   foton: KartKortFoto[];
-  /** Visas när fotot går att lägga till. */
+  /** Får lägga till/byta foto (knappen visas bara då). */
   onLaggTillFoto?: () => void;
+  /** Texten på fotoknappen ("Byt foto" när kortet bara har plats för ett). Default "Lägg till foto". */
+  fotoKnapp?: string;
   fotoSparar?: boolean;
   fotoFel?: string | null;
   onStang: () => void;
@@ -115,10 +124,12 @@ export function KartKort(p: KartKortProps) {
 
           {delar}
 
-          {p.kommentar && <KartKortKommentar text={p.kommentar.text} meta={p.kommentar.meta ?? null} kanSkriva={p.kanSkriva} onSpara={p.onSparaKommentar} />}
+          {p.kommentarer && (
+            <KartKortKommentarer rader={p.kommentarer} kanKommentera={p.kanKommentera} onLagg={p.onLaggKommentar} onAndra={p.onAndraKommentar} onRadera={p.onRaderaKommentar} />
+          )}
 
-          {(p.foton.length > 0 || (p.kanSkriva && p.onLaggTillFoto)) && (
-            <KartKortFoton foton={p.foton} onLaggTill={p.kanSkriva ? p.onLaggTillFoto : undefined} sparar={p.fotoSparar} fel={p.fotoFel} />
+          {(p.foton.length > 0 || p.onLaggTillFoto) && (
+            <KartKortFoton foton={p.foton} onLaggTill={p.onLaggTillFoto} sparar={p.fotoSparar} fel={p.fotoFel} knapp={p.fotoKnapp} />
           )}
 
           {nederst}
@@ -133,53 +144,77 @@ export function KartKort(p: KartKortProps) {
 const rubrik: React.CSSProperties = { ...TYP.micro, color: FARG.text3, marginBottom: AVSTAND.s };
 const knappLiten: React.CSSProperties = { ...KNAPP.sekundar, width: 'auto', minHeight: TRAFFYTA.min };
 
-/** Kommentaren: text eller "Ingen kommentar"; den som får skriva ändrar den här, på plats. */
-export function KartKortKommentar({ text, meta, kanSkriva, onSpara }: { text: string; meta: string | null; kanSkriva: boolean; onSpara?: (t: string) => Promise<string | null> | string | null }) {
-  const [skriver, setSkriver] = useState(false);
-  const [utkast, setUtkast] = useState(text);
-  const [sparar, setSparar] = useState(false);
-  const [fel, setFel] = useState<string | null>(null);
-  // Följer den sparade texten när något annat ändrar den (annan enhet, hämtning) medan man inte skriver.
-  useEffect(() => { if (!skriver) setUtkast(text); }, [text, skriver]);
-  const harText = text.trim().length > 0;
-  const redigerbar = kanSkriva && !!onSpara;
-
-  const spara = async () => {
-    if (!onSpara) return;
-    setSparar(true); setFel(null);
-    let svar: string | null;
-    try { svar = await onSpara(utkast.trim()); } catch (e) { svar = String((e as any)?.message ?? e); }
-    setSparar(false);
-    if (svar) { setFel(svar); return; }
-    setSkriver(false);
-  };
-
+/** Kommentarerna: en rad per kommentar med författare och tid. Man ändrar och tar bort bara sina egna (admin får ta bort andras). */
+export function KartKortKommentarer({ rader, kanKommentera, onLagg, onAndra, onRadera }: {
+  rader: KartKortKommentar[]; kanKommentera: boolean; onLagg?: (t: string) => void; onAndra?: (id: string, t: string) => void; onRadera?: (id: string) => void;
+}) {
+  const [skriverNy, setSkriverNy] = useState(false);
+  const [nyText, setNyText] = useState('');
   return (
     <div data-testid="kartkort-kommentar">
-      <div style={rubrik}>Kommentar</div>
+      <div style={rubrik}>Kommentarer{rader.length > 1 ? ` (${rader.length})` : ''}</div>
+      {rader.length === 0 && !skriverNy && <div data-testid="kartkort-kommentar-tom" style={{ ...TYP.text, color: FARG.text3 }}>Ingen kommentar</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+        {rader.map((r) => <KommentarRadVy key={r.id} r={r} onAndra={onAndra} onRadera={onRadera} />)}
+      </div>
+      {kanKommentera && onLagg && (skriverNy ? (
+        <div style={{ marginTop: AVSTAND.m }}>
+          <textarea
+            data-testid="kartkort-kommentar-falt" value={nyText} onChange={(e) => setNyText(e.target.value)} autoFocus placeholder="Skriv en kommentar…" rows={3}
+            style={{ width: '100%', boxSizing: 'border-box', padding: AVSTAND.m, borderRadius: RADIE.kort, background: FARG.fyllning, border: `1px solid ${FARG.linje}`, color: FARG.text, ...TYP.text, fontFamily: 'inherit', resize: 'vertical' }}
+          />
+          <div style={{ display: 'flex', gap: AVSTAND.m, marginTop: AVSTAND.m }}>
+            <button type="button" data-testid="kartkort-kommentar-spara" disabled={!nyText.trim()} onClick={() => { onLagg(nyText.trim()); setNyText(''); setSkriverNy(false); }} className="press-dim"
+              style={{ ...KNAPP.primar, flex: 1, opacity: nyText.trim() ? 1 : 0.4 }}>Spara</button>
+            <button type="button" data-testid="kartkort-kommentar-avbryt" onClick={() => { setNyText(''); setSkriverNy(false); }} className="press-dim" style={knappLiten}>Avbryt</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" data-testid="kartkort-kommentar-ny" onClick={() => setSkriverNy(true)} className="press-dim" style={{ ...knappLiten, marginTop: AVSTAND.m }}>
+          {rader.length > 0 ? 'Ny kommentar' : 'Lägg till kommentar'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function KommentarRadVy({ r, onAndra, onRadera }: { r: KartKortKommentar; onAndra?: (id: string, t: string) => void; onRadera?: (id: string) => void }) {
+  const [skriver, setSkriver] = useState(false);
+  const [utkast, setUtkast] = useState(r.text);
+  const [fraga, setFraga] = useState(false);
+  useEffect(() => { if (!skriver) setUtkast(r.text); }, [r.text, skriver]);
+  return (
+    <div data-testid="kartkort-kommentar-rad" data-kommentar-id={r.id}>
+      <div style={{ ...TYP.meta, color: FARG.text3, marginBottom: AVSTAND.xs }}>
+        <span data-testid="kartkort-kommentar-forfattare">{r.forfattare ?? 'Äldre kommentar'}</span>{r.vantar ? <span data-testid="kartkort-kommentar-vantar"> · väntar</span> : null}
+      </div>
       {skriver ? (
         <>
           <textarea
-            data-testid="kartkort-kommentar-falt" value={utkast} onChange={(e) => setUtkast(e.target.value)} autoFocus placeholder="Skriv en kommentar…" rows={3}
+            data-testid="kartkort-kommentar-andra-falt" value={utkast} onChange={(e) => setUtkast(e.target.value)} autoFocus rows={3}
             style={{ width: '100%', boxSizing: 'border-box', padding: AVSTAND.m, borderRadius: RADIE.kort, background: FARG.fyllning, border: `1px solid ${FARG.linje}`, color: FARG.text, ...TYP.text, fontFamily: 'inherit', resize: 'vertical' }}
           />
-          {fel && <div data-testid="kartkort-kommentar-fel" style={{ ...TYP.meta, color: FARG.rod, marginTop: AVSTAND.s }}>{fel}</div>}
-          <div style={{ display: 'flex', gap: AVSTAND.m, marginTop: AVSTAND.m }}>
-            <button type="button" data-testid="kartkort-kommentar-spara" disabled={sparar} onClick={spara} className="press-dim" style={{ ...KNAPP.primar, flex: 1, opacity: sparar ? 0.5 : 1 }}>{sparar ? 'Sparar…' : 'Spara'}</button>
-            <button type="button" data-testid="kartkort-kommentar-avbryt" disabled={sparar} onClick={() => { setSkriver(false); setUtkast(text); setFel(null); }} className="press-dim" style={knappLiten}>Avbryt</button>
+          <div style={{ display: 'flex', gap: AVSTAND.m, marginTop: AVSTAND.s }}>
+            <button type="button" data-testid="kartkort-kommentar-andra-spara" disabled={!utkast.trim()} onClick={() => { onAndra?.(r.id, utkast.trim()); setSkriver(false); }} className="press-dim"
+              style={{ ...KNAPP.primar, flex: 1, opacity: utkast.trim() ? 1 : 0.4 }}>Spara</button>
+            <button type="button" onClick={() => { setSkriver(false); setUtkast(r.text); }} className="press-dim" style={knappLiten}>Avbryt</button>
           </div>
         </>
       ) : (
         <>
-          {harText
-            ? <div data-testid="kartkort-kommentar-text" style={{ ...TYP.text, color: FARG.text, whiteSpace: 'pre-wrap' }}>{text}</div>
-            : <div data-testid="kartkort-kommentar-tom" style={{ ...TYP.text, color: FARG.text3 }}>Ingen kommentar</div>}
-          {harText && meta && <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xs }}>{meta}</div>}
-          {redigerbar && (
-            <button type="button" data-testid="kartkort-kommentar-andra" onClick={() => { setUtkast(text); setSkriver(true); setFel(null); }} className="press-dim" style={{ ...knappLiten, marginTop: AVSTAND.m }}>
-              {harText ? 'Ändra kommentar' : 'Lägg till kommentar'}
-            </button>
-          )}
+          <div data-testid="kartkort-kommentar-text" style={{ ...TYP.text, color: FARG.text, whiteSpace: 'pre-wrap' }}>{r.text}</div>
+          {fraga ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, marginTop: AVSTAND.s }}>
+              <span style={{ ...TYP.meta, color: FARG.text2 }}>Ta bort kommentaren?</span>
+              <button type="button" data-testid="kartkort-kommentar-ta-bort-ja" onClick={() => { onRadera?.(r.id); setFraga(false); }} className="press-dim" style={{ ...knappLiten, color: FARG.rod }}>Ta bort</button>
+              <button type="button" onClick={() => setFraga(false)} className="press-dim" style={knappLiten}>Behåll</button>
+            </div>
+          ) : (r.kanAndra && onAndra) || (r.kanRadera && onRadera) ? (
+            <div style={{ display: 'flex', gap: AVSTAND.m, marginTop: AVSTAND.s }}>
+              {r.kanAndra && onAndra && <button type="button" data-testid="kartkort-kommentar-andra" onClick={() => { setUtkast(r.text); setSkriver(true); }} className="press-dim" style={knappLiten}>Ändra</button>}
+              {r.kanRadera && onRadera && <button type="button" data-testid="kartkort-kommentar-ta-bort" onClick={() => setFraga(true)} className="press-dim" style={knappLiten}>Ta bort</button>}
+            </div>
+          ) : null}
         </>
       )}
     </div>
@@ -187,7 +222,7 @@ export function KartKortKommentar({ text, meta, kanSkriva, onSpara }: { text: st
 }
 
 /** Fotona: bilderna, en bildtext om det finns en, och "Lägg till foto" för den som får. */
-export function KartKortFoton({ foton, onLaggTill, sparar, fel }: { foton: KartKortFoto[]; onLaggTill?: () => void; sparar?: boolean; fel?: string | null }) {
+export function KartKortFoton({ foton, onLaggTill, sparar, fel, knapp }: { foton: KartKortFoto[]; onLaggTill?: () => void; sparar?: boolean; fel?: string | null; knapp?: string }) {
   return (
     <div data-testid="kartkort-foton">
       <div style={rubrik}>Foto</div>
@@ -201,6 +236,7 @@ export function KartKortFoton({ foton, onLaggTill, sparar, fel }: { foton: KartK
                   style={{ ...KNAPP.sekundar, width: TRAFFYTA.min, padding: 0, color: FARG.rod }}>✕</button>
               )}
             </div>
+            {f.av ? <div data-testid="kartkort-foto-av" style={{ ...TYP.meta, color: FARG.text3 }}>{f.av}</div> : null}
             {f.onSparaText ? (
               <input type="text" defaultValue={f.text ?? ''} placeholder="Bildtext…" key={`${f.id}-${f.text ?? ''}`} data-testid="kartkort-foto-text"
                 onBlur={(e) => { if ((f.text ?? '') !== e.target.value.trim()) f.onSparaText?.(e.target.value); }}
@@ -213,7 +249,7 @@ export function KartKortFoton({ foton, onLaggTill, sparar, fel }: { foton: KartK
         {onLaggTill && (
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
             <button type="button" data-testid="kartkort-foto-lagg-till" disabled={sparar} onClick={onLaggTill} className="press-dim" style={{ ...knappLiten, opacity: sparar ? 0.5 : 1 }}>
-              {foton.length > 0 ? 'Byt foto' : 'Lägg till foto'}
+              {knapp ?? 'Lägg till foto'}
             </button>
             {sparar && <span style={{ ...TYP.meta, color: FARG.text2 }}>Laddar upp…</span>}
           </div>
