@@ -6,8 +6,8 @@ Lokalt test av egenkontrollens månadsstickprov (PR 5), mot en tom Postgres 16 m
     # del 4 har första dragningsmånad 2026-11-01; testet kör den med 2000-01-01 så den går att prova idag:
     sed "s/date '2026-11-01'/date '2000-01-01'/" ../../migrations/20261020093202_egenkontroll_stickprov_4_publik.sql | psql -v ON_ERROR_STOP=1 -q -d t
     # 5a, sedan 5b (ersätter dragningen från del 3):
-    psql -v ON_ERROR_STOP=1 -q -d t -f ../../migrations/20261020130000_egenkontroll_stickprov_5a_ankare_forsok.sql
-    psql -v ON_ERROR_STOP=1 -q -d t -f ../../migrations/20261020130100_egenkontroll_stickprov_5b_dra_med_granne.sql
+    psql -v ON_ERROR_STOP=1 -q -d t -f ../../migrations/20261020094713_egenkontroll_stickprov_5a_ankare_forsok.sql
+    psql -v ON_ERROR_STOP=1 -q -d t -f ../../migrations/20261020094743_egenkontroll_stickprov_5b_dra_med_granne.sql
     psql -v ON_ERROR_STOP=1 -q -d t -f data.sql
     psql -v ON_ERROR_STOP=1 -q -d t -f test.sql
 

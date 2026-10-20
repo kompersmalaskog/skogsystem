@@ -1,21 +1,14 @@
 -- Egenkontrollens månadsstickprov, del 1 av 4: tabellen. 2026-10-20 (PR 5).
 --
--- Ett stickprov = ETT ankare som har minst en granne inom 15 km, plus de närmaste grannarna (högst två, aldrig "fyll upp till tre"),
--- bland FÖREGÅENDE månads avslutade objekt. Dragningen sker EN gång per månad och kan inte göras om: raden är låst av triggern nedan,
+-- Ett stickprov = ETT ankare slumpat bland FÖREGÅENDE månads avslutade objekt + de objekt som ligger nära ankaret (<= 15 km fågelväg,
+-- högst två, aldrig "fyll upp till tre"). Dragningen sker EN gång per månad och kan inte göras om: raden är låst av triggern nedan,
 -- och appen har ingen skrivväg alls (bara funktionerna i del 3 och 4, SECURITY DEFINER).
 --
--- GRANSKNING (visa Vida att urvalet inte är handplockat) — REGELN FRÅN OCH MED DEL 5 (algoritm_version 2). `fro` och `kandidater` sparas.
--- Ankaret räknas om så här, utan databasen:
---   1. kandidater = raderna i `kandidater` (sorterade på id, text, stigande)
---   2. fro-ordning = kandidaterna sorterade på md5(fro || ':' || id) (hex-text, stigande; lika = id)
---   3. ankare = den FÖRSTA i fro-ordningen som har minst en annan kandidat inom troskel_km fågelväg (med koordinat)
---   4. har ingen kandidat en granne: den första i fro-ordningen, dragen ensam (forklaring 'for_langt' eller 'tunn_manad')
---   5. grannar = de närmaste kandidaterna inom troskel_km från ankaret (högst max_antal - 1), avstånd först, id som tiebreak
---   ankare_forsok = hur många ankare som prövades i fro-ordning (hittat på plats k = k; inget hade granne = antalet kandidater)
--- Fågelväg = haversine, R = 6371 km. Slumpen är bara fro (ordningen); grannarna följer av geografin. Skälet till steg 3: en ensam
--- kandidat som ankare gav en halv förmiddag i bilen för ett objekt (torrkörning mot oktober 2026: 2 av 10 dragningar).
--- Den ursprungliga regeln (algoritm_version 1, DEL 3): ankare = kandidat nummer (md5(fro) första 60 bitar) mod antal, utan krav på granne.
--- Inga rader med version 1 finns i prod.
+-- GRANSKNING (visa Vida att urvalet inte är handplockat): `fro` och `kandidater` sparas. Ankaret räknas om så här, utan databasen:
+--   1. kandidater = raderna i `kandidater`, redan sorterade på id (text, stigande)
+--   2. index      = (de första 60 bitarna av md5(fro) som heltal) mod antalet kandidater   (0-baserat)
+--   3. ankare     = kandidater[index]
+-- Grannarna följer av geografin (fågelväg, haversine, R = 6371 km), inte av slump.
 --
 -- Kör del 1-4 i ordning. Ingen av dem rör befintliga tabeller. Inget dras före 2026-11-01 (se del 4).
 
