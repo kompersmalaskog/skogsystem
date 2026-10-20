@@ -3,8 +3,8 @@
 // Reservknappen "Lossa här" och raden "N lass väntar på dig" — alltid på plats i skotarläget, ovanför kortet nertill (lossningskortet, "Nytt avlägg här?").
 //
 // "Lossa här": när upptäckten missar (Daniel, Mölleryd 2026-10-20) räcker ETT tryck för ett lass vid närmaste avlägg.
-// "N lass väntar på dig": ett lass som inte kunde bekräfta sig självt (första lasset, kort lossning, del 2, tomt) får aldrig ligga och hänga utan att synas —
-// här bekräftar eller stryker föraren det (lass 2 från 09:57 hängde kvar i vantar_forare hela dagen).
+// "N lass väntar på dig": inget lass bekräftar sig självt, så ett lass som föraren lämnade avlägget utan att svara på ligger här tills han bekräftar, fyller i eller
+// stryker det (lass 2 från 09:57 hängde kvar i vantar_forare hela dagen utan att något visade det).
 
 import React, { useEffect, useState } from 'react';
 import { AVSTAND, FARG, TNUM, TYP, medSafeBotten } from '@/lib/design/tokens';
@@ -35,7 +35,7 @@ export function SkotarNedreRad({ antalVantar, vidLossaHar, onVisaVantar, lossar 
   antalVantar: number;
   vidLossaHar: () => void;
   onVisaVantar: () => void;
-  /** En lossning pågår: knappen markerar den som bekräftad i stället för att skapa ett nytt lass. */
+  /** En lossning pågår: kortet har frågan, så "Lossa här" behövs inte (och göms). */
   lossar: boolean;
 }) {
   const hojd = useNertillHojd();
@@ -44,9 +44,9 @@ export function SkotarNedreRad({ antalVantar, vidLossaHar, onVisaVantar, lossar 
       position: 'fixed', left: AVSTAND.l, right: 96, zIndex: 215, display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s, alignItems: 'center',
       bottom: `calc(${medSafeBotten(AVSTAND.l)} + ${hojd > 0 ? hojd + AVSTAND.s : 0}px)`,
     }}>
-      <button type="button" data-testid="lossa-har" onClick={vidLossaHar} style={{ ...knappStor, background: FARG.kort, border: `1px solid ${FARG.linje}` }}>
-        {lossar ? 'Lossar – stämmer' : 'Lossa här'}
-      </button>
+      {!lossar && (
+        <button type="button" data-testid="lossa-har" onClick={vidLossaHar} style={{ ...knappStor, background: FARG.kort, border: `1px solid ${FARG.linje}` }}>Lossa här</button>
+      )}
       {antalVantar > 0 && (
         <button type="button" data-testid="lass-vantar" onClick={onVisaVantar} style={{ ...knappStor, background: FARG.kort, border: `1px solid ${FARG.linje}` }}>
           <span style={TNUM}>{vantarText(antalVantar)}</span> <span aria-hidden="true" style={{ color: FARG.text2 }}>›</span>

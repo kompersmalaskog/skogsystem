@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AVLAGG, byggAvlagg, traffaAvlagg, nastaEgnaNummer, egnaNummer, visaNummer } from './avlagg';
 import {
-  LOSSNING, avvisaFraga, lossningManuell, nyDetektor, sjalvbekraftaEfterSlut, slutaOppenLossning, stegaDetektor, type DetektorState, type Handelse,
+  LOSSNING, avvisaFraga, lossningManuell, nyDetektor, slutaOppenLossning, stegaDetektor, type DetektorState, type Handelse,
 } from './lossning';
 import type { Avlagg } from './typer';
 import molleryd from './__fixtures__/molleryd_elefanten_2026-10-20.json';
@@ -114,13 +114,11 @@ describe('lossningsdetektor — stilla 3 min inom zonen', () => {
       expect(slut).toBeTruthy();
       expect(slut!.stillaS).toBeGreaterThan(350);
       expect(slut!.manuell).toBe(false);
-      expect(sjalvbekraftaEfterSlut(slut!)).toBe(true);
     });
-    it('under 5 min stilla → väntar på tryck', () => {
+    it('en kort lossning (strax över 3 min) tar också slut', () => {
       const { h } = kor([...still(0, 220, 5), ...kor_(222, 40, 5, 200)], a);
       const slut = h.find((x) => x.typ === 'lossning_slut') as { stillaS: number; manuell: boolean };
-      expect(slut.stillaS).toBeLessThan(LOSSNING.SJALVBEKRAFTA_STILLA_S);
-      expect(sjalvbekraftaEfterSlut(slut)).toBe(false);
+      expect(slut.stillaS).toBeGreaterThanOrEqual(LOSSNING.STILLA_S);
     });
     it('kör iväg inom zonen (rör sig i en minut) → slut, så en kort cykel på en liten trakt syns', () => {
       const { h } = kor([...still(0, 400, 5), ...kor_(402, 100, 5, 45)], a);
@@ -163,13 +161,12 @@ describe('lossningsdetektor — stilla 3 min inom zonen', () => {
   });
 
   describe('Lossa här', () => {
-    it('öppnar en lossning som räknas som bekräftad vid slut (föraren tryckte) — och ger ingen dubblett när maskinen sedan står 3 min', () => {
+    it('öppnar en lossning (föraren tryckte) — och ger ingen dubblett när maskinen sedan står 3 min', () => {
       const st = lossningManuell(nyDetektor(), { ...pos(5), ts: 1_000_000 }, 'vida:2');
       const { h } = kor([...still(0, 400, 5), ...kor_(402, 40, 5, 200)], a, st);
       expect(h.filter((x) => x.typ === 'lossning')).toHaveLength(0);
       const slut = h.find((x) => x.typ === 'lossning_slut') as { manuell: boolean; stillaS: number };
       expect(slut.manuell).toBe(true);
-      expect(sjalvbekraftaEfterSlut({ stillaS: 0, manuell: true })).toBe(true);
     });
     it('provkörningen kan avsluta en öppen lossning', () => {
       const st = lossningManuell(nyDetektor(), { ...pos(5), ts: 1_000_000 }, 'vida:2');
@@ -206,7 +203,7 @@ describe('lossningsdetektor — stilla 3 min inom zonen', () => {
 
   it('LOSSNING-konstanterna är de specade (Martin 2026-10-20)', () => {
     expect(LOSSNING.STILLA_S).toBe(180);
-    expect(LOSSNING.SJALVBEKRAFTA_STILLA_S).toBe(300);
+    expect('SJALVBEKRAFTA_STILLA_S' in LOSSNING).toBe(false);   // ingen självbekräftelse
   });
 });
 
@@ -220,7 +217,7 @@ describe('Daniels Mölleryd 2026-10-20 (hyttspår → lossningar)', () => {
 
   function replay(fran = '07:40:00') {
     let st = nyDetektor();
-    const ut: Array<{ typ: string; lossning?: string; start: number; avlagg?: string; stillaS?: number; sjalv?: boolean; vid: number }> = [];
+    const ut: Array<{ typ: string; lossning?: string; start: number; avlagg?: string; stillaS?: number; vid: number }> = [];
     for (let i = 0; i < punkter.length; i++) {
       const p = punkter[i];
       const till = i + 1 < punkter.length ? punkter[i + 1].ts : p.ts + 1000;
@@ -230,7 +227,7 @@ describe('Daniels Mölleryd 2026-10-20 (hyttspår → lossningar)', () => {
         st = r.state;
         const h = r.handelse;
         if (h?.typ === 'lossning') ut.push({ typ: h.typ, lossning: h.lossning, start: h.ts, avlagg: h.traff.narmaste?.nummer, vid: t });
-        if (h?.typ === 'lossning_slut') ut.push({ typ: h.typ, start: h.lassTs, stillaS: h.stillaS, sjalv: sjalvbekraftaEfterSlut(h), vid: t });
+        if (h?.typ === 'lossning_slut') ut.push({ typ: h.typ, start: h.lassTs, stillaS: h.stillaS, vid: t });
       }
     }
     return ut;
@@ -262,10 +259,8 @@ describe('Daniels Mölleryd 2026-10-20 (hyttspår → lossningar)', () => {
     expect(l.filter((x) => x.lossning === 'ny_del')).toHaveLength(1);
   });
 
-  it('varje lossning tar slut och de flesta var stilla över 5 min (självbekräftar)', () => {
-    const ut = replay();
-    const slut = ut.filter((x) => x.typ === 'lossning_slut');
+  it('varje lossning tar slut (då går obesvarade lass till väntelistan)', () => {
+    const slut = replay().filter((x) => x.typ === 'lossning_slut');
     expect(slut.length).toBeGreaterThanOrEqual(7);
-    expect(slut.filter((x) => x.sjalv).length).toBeGreaterThanOrEqual(6);
   });
 });

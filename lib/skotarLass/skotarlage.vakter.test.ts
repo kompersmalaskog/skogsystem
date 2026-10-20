@@ -19,9 +19,13 @@ describe('avläggsupptäckten (Daniel, Mölleryd 2026-10-20)', () => {
     expect(hook.match(/window\.setTimeout\(/g)).toHaveLength(1);
     expect(hook).toMatch(/fas !== 'klar'\) return;\s*const t = window\.setTimeout/);
   });
-  it('självbekräftelsen sker på ETT ställe — när lossningen tog slut — och kräver sjalvbekraftaEfterSlut (stilla ≥ 5 min eller Lossa här)', () => {
-    expect(hook).toMatch(/l\.status === 'foreslaget' && kanBekrafta\(l\) && del\?\.avlaggId && sjalvbekraftaEfterSlut\(h\)/);
-    expect(detektor).toMatch(/h\.manuell \|\| h\.stillaS >= LOSSNING\.SJALVBEKRAFTA_STILLA_S/);
+  it('INGEN självbekräftelse (Martin 2026-10-20): appen vet att han lossar, aldrig vad — bekräftat blir bara det föraren svarat Stämmer/Klar på', () => {
+    expect(hook).not.toMatch(/bekrafta\([^)]*'auto'/);
+    expect(hook).not.toContain('sjalvbekrafta');
+    expect(detektor).not.toMatch(/sjalvbekrafta|SJALVBEKRAFTA/i);
+    // bekräftelse finns på exakt två ställen: Klar i Ändra och Stämmer — båda som 'forare'
+    expect(hook.match(/bekrafta\(/g)).toHaveLength(2);
+    expect(hook.match(/bekrafta\([^)]*'forare'/g)).toHaveLength(2);
   });
   it('en omladdning mitt i en lossning bekräftar inget (förslaget väntar på föraren)', () => {
     expect(hook).toContain('forslagTillVantande(l, nu)');
@@ -35,10 +39,9 @@ describe('avläggsupptäckten (Daniel, Mölleryd 2026-10-20)', () => {
     expect(las('components/planering/skotar/LossaHar.tsx')).toContain("querySelector('[data-nertill-kort]')");
     for (const f of ['LossningsKort', 'LossaHar']) expect(las(`components/planering/skotar/${f}.tsx`)).toContain('data-nertill-kort');
   });
-  it('värdena Martin beslutade 2026-10-20: 3 min stilla, zon 50 m, 25 m ruta, självbekräfta efter 5 min, spärr efter förra lossningen', () => {
+  it('värdena Martin beslutade 2026-10-20: 3 min stilla, zon 50 m, 25 m ruta, spärr efter förra lossningen', () => {
     expect(detektor).toMatch(/STILLA_S: 180,/);
     expect(detektor).toMatch(/STILLA_UTBREDNING_M: 25,/);
-    expect(detektor).toMatch(/SJALVBEKRAFTA_STILLA_S: 300,/);
     expect(detektor).toMatch(/CYKEL_S: 600,/);
     expect(las('lib/skotarLass/avlagg.ts')).toMatch(/RADIE_M: 50,/);
   });

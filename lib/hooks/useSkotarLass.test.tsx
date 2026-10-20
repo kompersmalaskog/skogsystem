@@ -101,13 +101,16 @@ describe('lossning → lass', () => {
     expect(vy.kort).toBeNull();
   });
 
-  it('första lasset: när han kört ut ur zonen väntar kortet på föraren (Fyll i) och bekräftar sig aldrig självt', async () => {
+  it('lämnar han avlägget utan att svara försvinner kortet och lasset ligger i "väntar på dig" — det bekräftar sig aldrig självt', async () => {
     await lossa(200);
+    expect(vy.vantarPaDig).toHaveLength(0);   // kortet visar det medan han lossar
     await korIvag();
-    expect(vy.kort?.fas).toBe('forare');
-    await act(async () => { vi.advanceTimersByTime(300_000); });
+    expect(vy.kort).toBeNull();
     expect(vy.lass[0].status).toBe('vantar_forare');
-    expect(vy.kort?.fas).toBe('forare');
+    expect(vy.vantarPaDig.map((l) => l.lassNummer)).toEqual([1]);
+    await act(async () => { vi.advanceTimersByTime(30 * 60_000); });
+    expect(vy.lass[0].status).toBe('vantar_forare');
+    expect(vy.lass[0].bekraftadAv).toBeNull();
   });
 
   it('föraren fyller i och trycker Klar → bekräftat, skickat, kvar räknas', async () => {
@@ -135,7 +138,7 @@ describe('lossning → lass', () => {
     await stå(120, 11 * 60);
   }
 
-  it('andra lasset fylls i som förra och bekräftar sig självt först när han stått still ≥ 5 min och kört ut ur zonen', async () => {
+  it('andra lasset fylls i som förra men bekräftas ALDRIG av sig självt — inte efter 15 min stilla och utkörd heller; först Stämmer bekräftar', async () => {
     await forstaLassetKlart();
     await lossa(200);
     const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
@@ -144,27 +147,41 @@ describe('lossning → lass', () => {
     expect(vy.kort?.fas).toBe('lossar');
     await act(async () => { vi.advanceTimersByTime(60_000); });
     expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('foreslaget');   // ingen 10 s-timer
-    await lossa(300);                                    // totalt över 5 min stilla
-    await korIvag(20);                                   // precis utanför zonen i 20 s → lossningen tar slut (kvittot hinner inte försvinna)
+    await lossa(800);                                    // totalt 15 min stilla med förifyllt lass
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('foreslaget');
+    expect(vy.kort?.fas).toBe('lossar');                  // frågan står kvar
+    await act(async () => { vy.stammer(l2.id); });        // ett tryck
     const efter = vy.lass.find((l) => l.lassNummer === 2)!;
     expect(efter.status).toBe('bekraftat');
-    expect(efter.bekraftadAv).toBe('auto');
+    expect(efter.bekraftadAv).toBe('forare');
     expect(vy.kort?.fas).toBe('klar');
     await act(async () => { vi.advanceTimersByTime(6_500); });
     expect(vy.kort).toBeNull();                           // kvittot försvinner av sig självt, lasset är redan bekräftat
+    await korIvag(20);                                    // lossningen tar slut: inget mer händer med lasset
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('bekraftat');
   });
 
-  it('en kort lossning (under 5 min) väntar på ett tryck: Stämmer bekräftar, och lasset syns i "väntar på dig" när kortet är borta', async () => {
+  it('andra lasset: lämnar han utan att trycka ligger det förifyllda lasset i "väntar på dig" (inte bekräftat)', async () => {
+    await forstaLassetKlart();
+    await lossa(500);
+    await korIvag();
+    const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
+    expect(l2.status).toBe('vantar_forare');
+    expect(l2.delar[0].rader).toEqual([{ nyckel: 'tall', namn: 'Tall', m3: 10 }]);
+    expect(vy.kort).toBeNull();
+    expect(vy.vantarPaDig.map((l) => l.lassNummer)).toEqual([2]);
+  });
+
+  it('Stämmer på raden i "väntar på dig" bekräftar lasset som förare', async () => {
     await forstaLassetKlart();
     await lossa(215);
     await korIvag();
     const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
     expect(l2.status).toBe('vantar_forare');
-    expect(vy.kort?.fas).toBe('kontroll');
-    expect(vy.vantarPaDig).toHaveLength(0);               // kortet visar det redan
-    await act(async () => { vy.avbrytKort(); });
+    expect(vy.kort).toBeNull();
     expect(vy.vantarPaDig.map((l) => l.lassNummer)).toEqual([2]);
     await act(async () => { vy.stammer(l2.id); });
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.bekraftadAv).toBe('forare');
     expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('bekraftat');
     expect(vy.vantarPaDig).toHaveLength(0);
   });
@@ -186,6 +203,28 @@ describe('lossning → lass', () => {
     await lossa(200);
     expect(vy.lass.filter((l) => l.status !== 'struket')).toHaveLength(1);
     expect(vy.kort?.fas).toBe('lossar');
+  });
+
+  it('Avbryt i Ändra bekräftar inget: lasset är som förut (ett förslag stannar förslag medan han lossar)', async () => {
+    await forstaLassetKlart();
+    await lossa(200);
+    const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
+    await act(async () => { vy.oppnaAndra(l2.id); });
+    await act(async () => { vy.avbrytAndra(); });
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('foreslaget');
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.bekraftadAv).toBeNull();
+    expect(vy.kort?.fas).toBe('lossar');
+  });
+
+  it('Avbryt i Ändra efter att lossningen tog slut: lasset väntar på föraren, inte kvar som förslag', async () => {
+    await forstaLassetKlart();
+    await lossa(200);
+    const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
+    await act(async () => { vy.oppnaAndra(l2.id); });
+    await korIvag();
+    await act(async () => { vy.avbrytAndra(); });
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('vantar_forare');
+    expect(vy.vantarPaDig.map((l) => l.lassNummer)).toEqual([2]);
   });
 
   it('Avbryt i Ändra återställer lasset', async () => {
@@ -228,7 +267,7 @@ describe('Lossa här (reservknappen när upptäckten missar)', () => {
     await act(async () => { vy.lossaHar(); });
     expect(vy.lass).toHaveLength(1);
   });
-  it('trycket gäller som bekräftelse: ett förifyllt lass bekräftar sig när han kört ut, även efter bara någon minut', async () => {
+  it('Lossa här är bara ett lass som börjat: det bekräftas inte heller av sig självt', async () => {
     await lossa(200);
     await act(async () => { vy.oppnaAndra(vy.lass[0].id); });
     await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
@@ -241,7 +280,8 @@ describe('Lossa här (reservknappen när upptäckten missar)', () => {
     expect(l2.status).toBe('foreslaget');
     await stå(10, 60);
     await korIvag();
-    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('bekraftat');
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('vantar_forare');
+    expect(vy.kort).toBeNull();
   });
   it('utan avlägg på trakten ställs frågan "Nytt avlägg här?" på platsen', async () => {
     await visa({ vida: [] });
@@ -346,7 +386,8 @@ describe('torrkörning (testläget)', () => {
     expect(vy.oppen).not.toBeNull();
     await act(async () => { vy.provkorLossning('vida:2'); });
     expect(vy.oppen).toBeNull();
-    expect(vy.kort?.fas).toBe('forare');   // första lasset på trakten bekräftar sig aldrig självt
+    expect(vy.kort).toBeNull();   // obesvarat: kortet försvinner, lasset ligger i "väntar på dig"
+    expect(vy.vantarPaDig).toHaveLength(1);
     await act(async () => { vi.advanceTimersByTime(60_000); });
     expect(server.skickade).toHaveLength(0);
   });

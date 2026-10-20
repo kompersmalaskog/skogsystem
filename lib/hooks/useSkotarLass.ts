@@ -1,8 +1,8 @@
 'use client';
 
 // Skotarens lassrapportering: kopplar detektorn (lib/skotarLass/lossning), lassmodellen och den lokala kön till skotarkörvyn.
-// Appen gör det den säkert vet (lossning vid avlägg → ett förifyllt lass som bekräftar sig självt), föraren bara det bara han vet
-// (första lasset, två avlägg nära varandra, inget avlägg, hur ett lass delades på två avlägg).
+// Appen vet att maskinen lossar, aldrig VAD: lassen förifylls som förra lasset men INGET bekräftas av sig självt — föraren trycker Stämmer
+// (Daniels 14 självbekräftade lass blev kopior av "Timmer Vislanda 20 m³"). Lämnar han avlägget utan svar väntar lasset i "N lass väntar på dig".
 //
 // Alla ändringar sparas lokalt FÖRST (kön) — täckning behövs aldrig för att rapportera. Inget fel visas för föraren på grund av nätet.
 
@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { byggAvlagg, nastaEgnaNummer, type EgenMarkering, type VidaPunkt } from '@/lib/skotarLass/avlagg';
 import { avstand, avstandTillLinje } from '@/lib/skotarLass/geo';
 import {
-  avvisaFraga, lossningManuell, lossningVidNyttAvlagg, nyDetektor, sattSenasteAvlagg, sjalvbekraftaEfterSlut, slutaOppenLossning, stegaDetektor,
+  avvisaFraga, lossningManuell, lossningVidNyttAvlagg, nyDetektor, sattSenasteAvlagg, slutaOppenLossning, stegaDetektor,
   type DetektorState, type Handelse, type SlutHandelse,
 } from '@/lib/skotarLass/lossning';
 import {
@@ -31,16 +31,15 @@ import { valbaraSortiment, VED_MARKAGARE_NYCKEL, type SkordatSortiment } from '@
 import type { Avlagg, Lass, SortimentRad } from '@/lib/skotarLass/typer';
 
 export type KortFas =
-  | 'lossar'        // lossningen pågår: "Lossar → Avlägg 01-1" med löpande tid. Ingen timer — kortet står kvar tills maskinen lämnat avlägget.
-  | 'klar'          // lossningen tog slut och lasset bekräftade sig självt: ett kvitto en kort stund
-  | 'kontroll'      // lossningen tog slut men lasset bekräftar sig inte självt (stod still < 5 min, osäkert): Stämmer / Ändra / ingen lossning
-  | 'forare'        // föraren måste fylla i (första lasset, del 2, tomt)
+  | 'lossar'        // lossningen pågår: "Lossar → Avlägg 01-1" med löpande tid + frågan (Samma som förra … Stämmer / Ändra / ✕, eller Fyll i). Står kvar tills svar eller tills maskinen lämnat avlägget.
+  | 'klar'          // föraren svarade Stämmer: ett kvitto en kort stund
   | 'avlagg_val';   // två avlägg nära varandra: stora knappar
 
-/** Kvittot "✓ Lass 7 lossat" står så här länge (ms). Lasset är redan bekräftat — det är ingen timer att vänta på. */
+/** Kvittot "✓ Lass 7 lossat" efter Stämmer står så här länge (ms). Lasset är redan bekräftat — det är ingen timer att vänta på. */
 export const KVITTO_MS = 6_000;
 
-export interface LossningsKort { lassId: string; delNr: number; fas: KortFas; start: number }
+/** `andrad`: föraren har ändrat sortimenten (då står det inte längre "Samma som förra"). */
+export interface LossningsKort { lassId: string; delNr: number; fas: KortFas; start: number; andrad?: boolean }
 export interface NyttAvlaggFraga { lat: number; lng: number; ts: number }
 
 export interface SkotarLassIn {
@@ -84,6 +83,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   const [oppen, setOppen] = useState<{ lassId: string; delNr: number } | null>(null);
   const oppenRef = useRef<{ lassId: string; delNr: number } | null>(null);
   oppenRef.current = oppen;
+  const andradeRef = useRef<Set<string>>(new Set());   // lass vars sortiment föraren ändrat (kortet säger då inte "Samma som förra")
   const ursprungRef = useRef<Lass | null>(null);   // lasset som det var när Ändra öppnades (Avbryt återställer)
 
   const lassRef = useRef<Lass[]>([]);
@@ -180,25 +180,17 @@ export function useSkotarLass(i: SkotarLassIn) {
   // ── Lossning upptäckt ────────────────────────────────────────────────────────────────────────────────
   const hamtaLass = (id: string) => lassRef.current.find((x) => x.id === id) ?? null;
 
-  /** Lossningen tog slut (maskinen lämnade avlägget): har den stått still ≥ 5 min (eller föraren tryckte "Lossa här") bekräftar lasset sig självt — annars väntar det på föraren. */
-  const hanteraSlut = useCallback((h: SlutHandelse) => {
+  /** Lossningen tog slut (maskinen lämnade avlägget). Är lasset inte bekräftat av föraren väntar det på honom ("N lass väntar på dig") — ingenting bekräftar sig självt. */
+  const hanteraSlut = useCallback((_h: SlutHandelse) => {
     const o = oppenRef.current;
     oppenRef.current = null;
     setOppen(null);
     if (!o) return;
     const l = hamtaLass(o.lassId);
     if (!l || l.status === 'struket') { setKort((k) => (k && k.lassId === o.lassId ? null : k)); return; }
-    const nu = serverNu();
-    const del = l.delar.find((d) => d.delNr === o.delNr);
-    if (l.status === 'bekraftat') { setKort((k) => (k && k.lassId === l.id ? { ...k, fas: 'klar', start: nu } : k)); return; }   // föraren hann bekräfta (Ändra → Klar)
-    if (l.status === 'foreslaget' && kanBekrafta(l) && del?.avlaggId && sjalvbekraftaEfterSlut(h)) {
-      spara(bekrafta(l, 'auto', nu));
-      setKort({ lassId: l.id, delNr: o.delNr, fas: 'klar', start: nu });
-      return;
-    }
-    const vantar = l.status === 'foreslaget' ? { ...l, status: 'vantar_forare' as const, andrad: new Date(nu).toISOString() } : l;
-    if (vantar !== l) spara(vantar);
-    setKort({ lassId: l.id, delNr: o.delNr, fas: kanBekrafta(vantar) ? 'kontroll' : 'forare', start: nu });
+    if (l.status === 'bekraftat') return;   // föraren svarade redan (kvittot har sin egen timer)
+    if (l.status === 'foreslaget') spara({ ...l, status: 'vantar_forare', andrad: new Date(serverNu()).toISOString() });
+    setKort((k) => (k && k.lassId === l.id && k.fas !== 'klar' ? null : k));   // lämnade avlägget utan svar: kortet försvinner, lasset ligger i väntelistan
   }, [spara]);
 
   const hanteraHandelse = useCallback((h: Handelse) => {
@@ -289,7 +281,7 @@ export function useSkotarLass(i: SkotarLassIn) {
     const o = oppenRef.current;
     if (!o || o.lassId !== lassId) return;
     const del = hamtaLass(lassId)?.delar.find((d) => d.delNr === o.delNr);
-    if (del) setKort({ lassId, delNr: o.delNr, fas: 'lossar', start: Date.parse(del.lossadTid) });
+    if (del) setKort({ lassId, delNr: o.delNr, fas: 'lossar', start: Date.parse(del.lossadTid), andrad: andradeRef.current.has(lassId) });
   }, []);
 
   const stangAndra = useCallback((klar: boolean) => {
@@ -307,8 +299,9 @@ export function useSkotarLass(i: SkotarLassIn) {
     if (u && andra && u.id === andra.lassId) {
       const nu = serverNu();
       const tillbaka = { ...u, andrad: new Date(nu).toISOString() };
-      // Ett förslag som föraren tittade på och lämnade orört är bekräftat (som om linjen fyllts).
-      spara(u.status === 'foreslaget' ? bekrafta(tillbaka, 'auto', nu) : tillbaka);
+      // Avbryt bekräftar ingenting. Hann lossningen ta slut medan Ändra var öppet väntar lasset på föraren (inte kvar som ett förslag).
+      spara(oppenRef.current?.lassId === u.id ? tillbaka : forslagTillVantande(tillbaka, nu));
+      andradeRef.current.delete(u.id);
     }
     ursprungRef.current = null;
     if (andra) aterLossarKort(andra.lassId);
@@ -318,7 +311,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   const andraRad = useCallback((delNr: number, rad: Pick<SortimentRad, 'nyckel' | 'namn'>, delta: number) => {
     if (!andra) return;
     const l = hamtaLass(andra.lassId);
-    if (l) spara(andraRadModell(l, delNr, rad, delta, serverNu()));
+    if (l) { spara(andraRadModell(l, delNr, rad, delta, serverNu())); andradeRef.current.add(l.id); }
   }, [andra, spara]);
 
   const valjAvlagg = useCallback((lassId: string, delNr: number, a: Avlagg) => {
@@ -331,8 +324,9 @@ export function useSkotarLass(i: SkotarLassIn) {
     const del = ny.delar.find((d) => d.delNr === delNr);
     const pagar = oppenRef.current?.lassId === lassId && oppenRef.current.delNr === delNr;
     setKort((k) => (k && k.lassId === lassId
-      ? { ...k, fas: pagar ? 'lossar' : kanBekrafta(ny) ? 'kontroll' : 'forare', start: pagar && del ? Date.parse(del.lossadTid) : serverNu() }
+      ? (pagar ? { ...k, fas: 'lossar' as const, start: del ? Date.parse(del.lossadTid) : serverNu() } : null)
       : k));
+    if (!pagar && ny.status === 'foreslaget') spara(forslagTillVantande(ny, serverNu()));
   }, [spara]);
 
   const strykLass = useCallback((lassId: string) => {
@@ -346,11 +340,14 @@ export function useSkotarLass(i: SkotarLassIn) {
     setKort(null); setAndra(null);
   }, [spara]);
 
-  /** "Stämmer" på ett lass som väntat på föraren (kortet efter en kort lossning, eller raden i "N lass väntar på dig"). */
+  /** "Stämmer" — det enda sättet ett lass blir bekräftat (utom Klar i Ändra): på kortet medan han lossar, eller på raden i "N lass väntar på dig". */
   const stammer = useCallback((lassId: string) => {
     const l = hamtaLass(lassId);
-    if (l && kanBekrafta(l)) spara(bekrafta(l, 'forare', serverNu()));
-    setKort((k) => (k && k.lassId === lassId ? null : k));
+    if (!l || !kanBekrafta(l)) return;
+    const nu = serverNu();
+    spara(bekrafta(l, 'forare', nu));
+    andradeRef.current.delete(lassId);
+    setKort((k) => (k && k.lassId === lassId ? { ...k, fas: 'klar', start: nu } : k));
   }, [spara]);
 
   /** "Nytt avlägg här?" — Ja: ett eget avlägg på platsen (synligt för alla direkt) och lossningen räknas dit. */
@@ -393,7 +390,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   }, [objektId, torr, skordat, opti]);
 
   /** Bara torrkörningen (testläget): låtsas att maskinen lossat vid avlägget `avlaggId` (annars det närmaste/första) — så hela flödet går att se vid skrivbordet,
-   *  där ingen GPS rör sig. Första trycket börjar en lossning, nästa låtsas att maskinen kört ut ur zonen efter 10 min stilla (lasset bekräftar sig självt).
+   *  där ingen GPS rör sig. Första trycket börjar en lossning, nästa låtsas att maskinen kört ut ur zonen efter 10 min stilla (ett obesvarat lass går till väntelistan).
    *  Samma väg som en riktig lossning (kort, förifyllning, Ändra, kvar), men lagras bara i minnet. */
   const provkorLossning = useCallback((avlaggId: string | null) => {
     if (!inRef.current.torr) return;
@@ -413,15 +410,12 @@ export function useSkotarLass(i: SkotarLassIn) {
     hanteraHandelse({ typ: 'lossning', lossning: 'nytt_lass', ts, lat: a.lat, lng: a.lng, traff: { narmaste: a, avstandM: 0, kandidater: [a], tvetydigt: false } });
   }, [hanteraHandelse]);
 
-  /** "Lossa här" — reservknappen när upptäckten missar. Pågår redan en lossning markeras den som bekräftad av föraren; annars blir det ett nytt lass vid närmaste avlägg
-   *  (cykelregeln gäller inte: föraren vet). Finns inget avlägg alls frågas "Nytt avlägg här?" på platsen. */
+  /** "Lossa här" — reservknappen när upptäckten missar: ett nytt lass vid närmaste avlägg (cykelregeln gäller inte: föraren vet) med samma kort som en upptäckt
+   *  lossning. Finns inget avlägg alls frågas "Nytt avlägg här?" på platsen. */
   const lossaHar = useCallback(() => {
     const ctx = kontext();
     if (!ctx) return;
-    if (detRef.current.oppen) {
-      detRef.current = { ...detRef.current, oppen: { ...detRef.current.oppen, manuell: true } };
-      return;
-    }
+    if (detRef.current.oppen) return;   // en lossning pågår redan: kortet har svaret
     const nu = serverNu();
     const p = senastePosRef.current;
     const farsk = p && Date.now() - p.at <= 120_000 ? p : null;
@@ -446,7 +440,6 @@ export function useSkotarLass(i: SkotarLassIn) {
     lass, avlagg, kort, nyttAvlagg, andra, vantande, skordat, skordatLaddat, kvar, sammanfattning, idag, valbara, avslut, skotningAvslutad,
     oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
     avbrytKort: () => setKort(null),
-    gorForare: (lassId: string) => setKort((k) => (k && k.lassId === lassId ? { ...k, fas: 'forare' } : k)),
   };
 }
 

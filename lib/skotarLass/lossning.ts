@@ -5,7 +5,7 @@
 //     (AVLAGG.RADIE_M, 50 m: en avläggshög ligger längs vägen och är 80–90 m lång, så en liten radie runt punkten missar ändarna).
 //     Passage, vändning och att plocka rent står aldrig 3 min i följd och ger ingen lossning.
 //   • Lossningen är ÖPPEN tills maskinen lämnat zonen (LAMNAT_S utanför). Då kommer ett slut-event med hur länge den stått still — det är
-//     då appen avgör om lasset kan bekräfta sig självt (stilla ≥ SJALVBEKRAFTA_STILLA_S) eller ska vänta på föraren.
+//     då lasset går till väntelistan om föraren inte svarat. Appen vet att han lossar, aldrig VAD — ingenting bekräftas av sig självt.
 //   • CYKEL: ingen NY lossning tidigare än CYKEL_S (15 min) efter att förra tog slut. Står maskinen still igen inom den tiden är det samma lossning /
 //     plocka rent (upprepning) — utom vid ett ANNAT avlägg, då är det samma last på ett andra avlägg (ny_del).
 //   • "Nytt avlägg här?": långt stopp utanför alla avlägg, bort från skördarens spår och från förra lossningen.
@@ -21,7 +21,7 @@ export const LOSSNING = {
   /** "Stilla" = under hela STILLA_S har maskinen inte rört sig mer än så här (rutan fixarna spänner upp). 10 m från ett fast ankare var för snävt: verklig GPS-drift
    *  + omplacering längs högen gjorde att Daniels 15-minuters lossning aldrig stod "still" (Mölleryd 2026-10-20). */
   STILLA_UTBREDNING_M: 25,
-  /** Stilla-tiden (för självbekräftelsen) räknas medan maskinen rört sig högst PAUS_UTBREDNING_M under senaste PAUS_S, alltså under ca 1 km/h. */
+  /** Stilla-tiden räknas medan maskinen rört sig högst PAUS_UTBREDNING_M under senaste PAUS_S, alltså under ca 1 km/h. */
   PAUS_S: 60,
   PAUS_UTBREDNING_M: 15,
   /** Utanför zonen så här länge = maskinen har lämnat avlägget och lossningen är slut. */
@@ -32,8 +32,6 @@ export const LOSSNING = {
   /** Ingen ny lossning tidigare än så här efter att förra tog slut. Elefanten kör 28–46 min per lass (Opti, start till start), men i Mölleryd kom Daniels äkta
    *  lass 3 bara 13–14 min efter att förra lossningen tagit slut (kort väg) — 15 min hade slängt det. */
   CYKEL_S: 600,
-  /** Stilla minst så här länge (sammanlagt) och sedan utkörd ur zonen → lasset bekräftar sig självt. Kortare/osäkert väntar på ett tryck. */
-  SJALVBEKRAFTA_STILLA_S: 300,
   /** "Nytt avlägg här?" kräver ett långt stopp utanför alla avlägg… */
   NYTT_AVLAGG_STILLA_S: 90,
   /** …en bit från skördarens spår (lastning sker på stickvägen)… */
@@ -114,10 +112,6 @@ export interface DetektorKontext {
   /** Avstånd (m) från fixen till närmaste skördarspår. undefined = okänt → "Nytt avlägg här?" ställs inte. */
   avstandTillSpar?: number;
 }
-
-/** Kan lasset bekräfta sig självt när lossningen tog slut? Stilla minst SJALVBEKRAFTA_STILLA_S, eller ett tryck på "Lossa här". */
-export const sjalvbekraftaEfterSlut = (h: Pick<SlutHandelse, 'stillaS' | 'manuell'>): boolean =>
-  h.manuell || h.stillaS >= LOSSNING.SJALVBEKRAFTA_STILLA_S;
 
 const centrumFor = (o: OppenLossning, avlagg: readonly Avlagg[]): LatLng =>
   (o.avlaggId ? avlagg.find((a) => a.id === o.avlaggId) : null) ?? o;

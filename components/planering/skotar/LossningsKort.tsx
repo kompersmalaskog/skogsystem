@@ -1,21 +1,22 @@
 'use client';
 
-// Kortet nederst över kartan när skotaren lossar vid ett avlägg. Täcker så lite karta som möjligt (en smal list, plats kvar åt plus-knappen).
-//   lossar      "Lossar → Avlägg 01-1" med löpande tid. Står kvar tills maskinen lämnat avlägget — ingen timer, det försvinner inte medan han lossar.
-//   klar        "✓ Lass 7 lossat → Avlägg 01-1" + sortimenten + Ändra: lossningen tog slut och lasset bekräftade sig självt (stilla ≥ 5 min). Står en kort stund.
-//   kontroll    lossningen tog slut men lasset bekräftar sig inte självt (kort lossning): Stämmer / Ändra / ✕. Står kvar tills föraren svarat.
-//   forare      lasset måste fyllas i (första lasset, del 2, tomt) → en stor knapp "Fyll i".
+// Kortet nederst över kartan när skotaren lossar vid ett avlägg. Täcker så lite karta som möjligt (plats kvar åt plus-knappen).
+// Appen vet att han lossar, aldrig VAD — därför bekräftar föraren alltid själv; inget bekräftas av sig självt.
+//   lossar      "Lossar → Avlägg 01-1" med löpande tid, och frågan: "Samma som förra: Timmer Vislanda 20 m³" + stor Stämmer (ett tryck) + Ändra + ✕ Inget lass.
+//               Saknas något att förifylla (första lasset, del 2) står "Fyll i" i stället för Stämmer. Kortet står kvar tills svar eller tills maskinen lämnat avlägget;
+//               lämnar han utan svar försvinner det och lasset ligger i "N lass väntar på dig".
+//   klar        "✓ Lass 7 lossat → Avlägg 01-1" efter Stämmer, en kort stund (lasset är redan bekräftat).
 //   avlagg_val  två avlägg ligger nära varandra → stora knappar med de möjliga avläggen.
 // Samma plats används av frågan "Nytt avlägg här?".
 
 import React, { useEffect, useState } from 'react';
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens';
 import { serverNu } from '@/lib/serverKlocka';
-import { lassSortimentText, lassTitel } from '@/lib/skotarLass/lassModell';
+import { kanBekrafta, lassSortimentText, lassTitel } from '@/lib/skotarLass/lassModell';
 import { avlaggRubrik } from '@/lib/skotarLass/avlagg';
 import type { Avlagg, Lass } from '@/lib/skotarLass/typer';
 import type { LossningsKort as KortState, NyttAvlaggFraga } from '@/lib/hooks/useSkotarLass';
-import { knappPrimar, knappStor, meta, nertillKort, TRYCK_PX } from './stil';
+import { knappPrimar, knappStor, meta, nertillKort } from './stil';
 
 /** "4:12" — hur länge lossningen pågått (från att maskinen stannade). Räknar varje sekund; lasset sparas aldrig med den här texten. */
 export const lossarTid = (ms: number): string => {
@@ -33,11 +34,6 @@ function Tid({ start }: { start: number }) {
   return <span data-testid="lossning-tid" style={{ ...TYP.tal, ...TNUM, lineHeight: 1 }}>{lossarTid(nu - start)}</span>;
 }
 
-const NerKnapp = ({ onClick, etikett, testid }: { onClick: () => void; etikett: string; testid: string }) => (
-  <button type="button" aria-label={etikett} data-testid={testid} onClick={onClick}
-    style={{ ...knappStor, flexShrink: 0, minWidth: TRYCK_PX, padding: 0, color: FARG.text2 }}>✕</button>
-);
-
 export function LossningsKort({ kort, lass, avlagg, onAndra, onFyllI, onStammer, onValjAvlagg, onTaBort }: {
   kort: KortState;
   lass: Lass;
@@ -51,6 +47,7 @@ export function LossningsKort({ kort, lass, avlagg, onAndra, onFyllI, onStammer,
   const del = lass.delar.find((d) => d.delNr === kort.delNr) ?? lass.delar[lass.delar.length - 1];
   const titel = lassTitel(lass, del.delNr);
   const avl = avlaggRubrik({ nummer: del.avlaggNummer ?? '' });
+  const harRader = del.rader.length > 0;
   const kandidater = avlagg
     .filter((a) => Math.hypot((a.lat - del.lat) * 111320, (a.lng - del.lng) * 111320 * Math.cos((del.lat * Math.PI) / 180)) <= 90)
     .sort((a, b) => Math.hypot(a.lat - del.lat, a.lng - del.lng) - Math.hypot(b.lat - del.lat, b.lng - del.lng))
@@ -71,33 +68,26 @@ export function LossningsKort({ kort, lass, avlagg, onAndra, onFyllI, onStammer,
           </div>
         </div>
       ) : kort.fas === 'lossar' ? (
-        <div style={rad}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ ...TYP.listtitel }}>Lossar → {avl}</div>
-            <div style={meta}>{titel}</div>
+        <div style={{ padding: AVSTAND.l }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ ...TYP.listtitel }}>Lossar → {avl}</div>
+              <div style={meta}>{titel}</div>
+            </div>
+            <Tid start={kort.start} />
           </div>
-          <Tid start={kort.start} />
-          <button type="button" data-testid="lossning-andra" onClick={onAndra} style={{ ...knappStor, flexShrink: 0 }}>Ändra</button>
-          <NerKnapp onClick={onTaBort} etikett="Det var ingen lossning — ta bort" testid="lossning-ta-bort" />
-        </div>
-      ) : kort.fas === 'kontroll' ? (
-        <div style={rad}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ ...TYP.listtitel }}>{titel} lossat → {avl}</div>
-            <div style={{ ...meta, color: FARG.text, ...TNUM }}>{del.rader.length ? lassSortimentText(del.rader) : ''}</div>
+          <div data-testid="lossning-fraga" style={{ ...meta, color: harRader ? FARG.text : FARG.text2, ...TNUM, marginTop: AVSTAND.s }}>
+            {harRader
+              ? `${kort.andrad ? 'Lastat' : 'Samma som förra'}: ${lassSortimentText(del.rader)}`
+              : lass.delar.length > 1 && del.delNr > 1 ? 'Samma last — fyll i hur den delades' : 'Fyll i vad som lastades'}
           </div>
-          <button type="button" data-testid="lossning-stammer" onClick={onStammer} style={{ ...knappPrimar, flexShrink: 0 }}>Stämmer</button>
-          <button type="button" data-testid="lossning-andra" onClick={onAndra} style={{ ...knappStor, flexShrink: 0 }}>Ändra</button>
-          <NerKnapp onClick={onTaBort} etikett="Det var ingen lossning — ta bort" testid="lossning-ta-bort" />
-        </div>
-      ) : kort.fas === 'forare' ? (
-        <div style={rad}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ ...TYP.listtitel }}>{titel} lossat → {avl}</div>
-            <div style={meta}>{lass.delar.length > 1 && del.delNr > 1 ? 'Samma last — fyll i hur den delades' : 'Fyll i vad som lastades'}</div>
+          <div style={{ display: 'flex', gap: AVSTAND.s, marginTop: AVSTAND.m }}>
+            {kanBekrafta(lass)
+              ? <button type="button" data-testid="lossning-stammer" onClick={onStammer} style={{ ...knappPrimar, flex: 1 }}>Stämmer</button>
+              : <button type="button" data-testid="lossning-fyll-i" onClick={onFyllI} style={{ ...knappPrimar, flex: 1 }}>Fyll i</button>}
+            {kanBekrafta(lass) && <button type="button" data-testid="lossning-andra" onClick={onAndra} style={{ ...knappStor, flexShrink: 0 }}>Ändra</button>}
+            <button type="button" data-testid="lossning-ta-bort" onClick={onTaBort} style={{ ...knappStor, flexShrink: 0, color: FARG.text2 }}>✕ Inget lass</button>
           </div>
-          <button type="button" data-testid="lossning-fyll-i" onClick={onFyllI} style={{ ...knappPrimar, flexShrink: 0 }}>Fyll i</button>
-          <NerKnapp onClick={onTaBort} etikett="Det var ingen lossning — ta bort" testid="lossning-ta-bort" />
         </div>
       ) : (
         <div style={rad}>

@@ -56,18 +56,30 @@ describe('LossningsKort', () => {
       await act(async () => { vi.advanceTimersByTime(3000); });
       expect(q('lossning-tid')?.textContent).toBe('4:15');
       expect(q('lossning-linje')).toBeNull();
-      expect(q('lossning-andra')).not.toBeNull();
-      expect(q('lossning-ta-bort')).not.toBeNull();
-      expect(q('lossning-stammer')).toBeNull();
     } finally { vi.useRealTimers(); }
   });
-  it('kontroll: Stämmer är den primära knappen, bredvid Ändra och ingen lossning', async () => {
-    const onStammer = vi.fn();
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'kontroll', start: 1 }} lass={lass({ status: 'vantar_forare' })} {...kortProps} onStammer={onStammer} />);
-    await tryck('lossning-stammer');
-    expect(onStammer).toHaveBeenCalledTimes(1);
-    expect(q('lossning-andra')).not.toBeNull();
-    expect(q('lossning-ta-bort')).not.toBeNull();
+  it('lossar med förifyllning: "Samma som förra: …" + stor Stämmer (ett tryck), Ändra och "✕ Inget lass" — från första sekunden, ingen timer', async () => {
+    const onStammer = vi.fn(); const onAndra = vi.fn(); const onTaBort = vi.fn();
+    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1 }} lass={lass()} {...kortProps} onStammer={onStammer} onAndra={onAndra} onTaBort={onTaBort} />);
+    expect(q('lossning-fraga')?.textContent).toMatch(/^Samma som förra: Timmer.*10.*Kubb.*5.*Massa.*3.*18 m³$/);
+    expect(q('lossning-ta-bort')?.textContent).toContain('Inget lass');
+    await tryck('lossning-stammer'); await tryck('lossning-andra'); await tryck('lossning-ta-bort');
+    expect(onStammer).toHaveBeenCalledTimes(1); expect(onAndra).toHaveBeenCalledTimes(1); expect(onTaBort).toHaveBeenCalledTimes(1);
+    expect(q('lossning-fyll-i')).toBeNull();
+  });
+  it('har föraren ändrat sortimenten står det "Lastat:" — inte längre "Samma som förra"', async () => {
+    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1, andrad: true }} lass={lass()} {...kortProps} />);
+    expect(q('lossning-fraga')?.textContent).toMatch(/^Lastat: /);
+  });
+  it('kortet bekräftar ingenting av sig självt: inga anrop utan tryck, även efter lång tid', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const onStammer = vi.fn(); const onAndra = vi.fn(); const onTaBort = vi.fn();
+      await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: Date.now() }} lass={lass()} {...kortProps} onStammer={onStammer} onAndra={onAndra} onTaBort={onTaBort} />);
+      await act(async () => { vi.advanceTimersByTime(30 * 60_000); });
+      expect(onStammer).not.toHaveBeenCalled(); expect(onAndra).not.toHaveBeenCalled(); expect(onTaBort).not.toHaveBeenCalled();
+      expect(q('lossning-stammer')).not.toBeNull();   // och står kvar
+    } finally { vi.useRealTimers(); }
   });
   it('lossarTid: m:ss', () => {
     expect(lossarTid(0)).toBe('0:00');
@@ -76,17 +88,23 @@ describe('LossningsKort', () => {
     expect(lossarTid(15 * 60_000 + 5_000)).toBe('15:05');
     expect(lossarTid(-5)).toBe('0:00');
   });
-  it('forare: stor knapp "Fyll i"', async () => {
+  it('inget att förifylla (första lasset): stor knapp "Fyll i" i stället för Stämmer', async () => {
     const onFyllI = vi.fn();
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'forare', start: 1 }} lass={lass({ status: 'vantar_forare' })} avlagg={[A2]} onAndra={vi.fn()} onFyllI={onFyllI} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
-    expect(q('lossning-linje')).toBeNull();
+    const tomt = lass({ status: 'vantar_forare' }); tomt.delar[0].rader = [];
+    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1 }} lass={tomt} avlagg={[A2]} onAndra={vi.fn()} onFyllI={onFyllI} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
+    expect(q('lossning-stammer')).toBeNull();
+    expect(q('lossning-fraga')?.textContent).toBe('Fyll i vad som lastades');
+    expect(q('lossning-andra')).toBeNull();   // Fyll i ÄR Ändra — ingen andra knapp med samma jobb
     await tryck('lossning-fyll-i');
     expect(onFyllI).toHaveBeenCalled();
+    expect(q('lossning-ta-bort')).not.toBeNull();
   });
   it('del 2 heter "Lass 7 · del 2"', async () => {
     const l = lass(); l.delar.push({ delNr: 2, avlaggId: 'vida:3', avlaggNummer: '3', lossadTid: '2026-10-19T12:20:00.000Z', lat: 56.6001, lng: 15.8, rader: [] });
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 2, fas: 'forare', start: 1 }} lass={l} avlagg={[A2, A3]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
-    expect(q('lossningskort')?.textContent).toContain('Lass 7 · del 2 lossat → Avlägg 3');
+    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 2, fas: 'lossar', start: 1 }} lass={l} avlagg={[A2, A3]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
+    expect(q('lossningskort')?.textContent).toContain('Lossar → Avlägg 3');
+    expect(q('lossningskort')?.textContent).toContain('Lass 7 · del 2');
+    expect(q('lossning-fraga')?.textContent).toBe('Samma last — fyll i hur den delades');
   });
   it('avlagg_val: stora knappar med möjliga avlägg', async () => {
     const onValj = vi.fn();
@@ -96,7 +114,7 @@ describe('LossningsKort', () => {
     expect(onValj).toHaveBeenCalledWith(A3);
   });
   it('alla tryckytor är minst 56 px höga', async () => {
-    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'forare', start: 1 }} lass={lass({ status: 'vantar_forare' })} avlagg={[A2]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
+    await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas: 'lossar', start: 1 }} lass={lass()} avlagg={[A2]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
     for (const b of Array.from(div.querySelectorAll('button'))) expect(parseInt((b as HTMLElement).style.minHeight || '0', 10) >= 56 || parseInt((b as HTMLElement).style.minWidth || '0', 10) >= 56).toBe(true);
   });
 });
@@ -133,9 +151,10 @@ describe('Lossa här och "N lass väntar på dig"', () => {
     expect(q('lass-vantar')?.textContent).toContain('2 lass väntar på dig');
     expect(vantarText(1)).toBe('1 lass väntar på dig');
   });
-  it('pågår en lossning säger knappen det (trycket markerar den som bekräftad, skapar inget nytt lass)', async () => {
-    await visa(<SkotarNedreRad antalVantar={0} lossar vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
-    expect(q('lossa-har')?.textContent).toBe('Lossar – stämmer');
+  it('pågår en lossning är det kortet som har frågan: Lossa här göms (men raden om väntande lass står kvar)', async () => {
+    await visa(<SkotarNedreRad antalVantar={2} lossar vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
+    expect(q('lossa-har')).toBeNull();
+    expect(q('lass-vantar')).not.toBeNull();
   });
   it('raden lägger sig ovanför kortet nertill, inte under det', async () => {
     const kort = document.createElement('div');
@@ -453,8 +472,8 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       });
       return ut;
     };
-    it('lasskortet (lossar, klar, kontroll, fyll i, välj avlägg) och Nytt avlägg-frågan', async () => {
-      for (const fas of ['lossar', 'klar', 'kontroll', 'forare', 'avlagg_val'] as const) {
+    it('lasskortet (lossar, klar, välj avlägg) och Nytt avlägg-frågan', async () => {
+      for (const fas of ['lossar', 'klar', 'avlagg_val'] as const) {
         await visa(<LossningsKort kort={{ lassId: 'l7', delNr: 1, fas, start: 1 }} lass={lass()} avlagg={[A2, A3]} onAndra={vi.fn()} onFyllI={vi.fn()} onStammer={vi.fn()} onValjAvlagg={vi.fn()} onTaBort={vi.fn()} />);
         expect(smaTexter(), fas).toEqual([]);
       }
