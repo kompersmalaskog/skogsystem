@@ -5,6 +5,7 @@ import {
 } from './lossning';
 import type { Avlagg } from './typer';
 import molleryd from './__fixtures__/molleryd_elefanten_2026-10-20.json';
+import ljuvadal from './__fixtures__/ljuvadal_wisent_2026-10-20.json';
 
 // 1 m ≈ 0,000009 grader lat
 const M = 1 / 111320;
@@ -259,8 +260,55 @@ describe('Daniels Mölleryd 2026-10-20 (hyttspår → lossningar)', () => {
     expect(l.filter((x) => x.lossning === 'ny_del')).toHaveLength(1);
   });
 
+  it('mot Optis sju lass samma dag: lika många nya lass (7) — Optis tider är registreringstider (tre i en klump 11:46–11:48) och räknas inte som facit på minuten', () => {
+    const l = lass(replay()).filter((x) => x.lossning === 'nytt_lass');
+    expect((molleryd as any).opti).toHaveLength(7);
+    expect(l).toHaveLength((molleryd as any).opti.length);
+  });
+
   it('varje lossning tar slut (då går obesvarade lass till väntelistan)', () => {
     const slut = replay().filter((x) => x.typ === 'lossning_slut');
     expect(slut.length).toBeGreaterThanOrEqual(7);
+  });
+});
+
+// ── Facit mot Opti, andra dagen: Max (Wisent), Ljuvadal Camping, 2026-10-20 ───────────────────────────────────────────────────────────────────────────
+// Privat jobb utan Vida-geometri: inga avlägg fanns förrän Max själv satte markering 1 klockan 13:21. Han lossar på VÄGEN, och landningen är ett ca 100 m långt
+// stråk: de fem lossningarna ligger 0,3–1,4 m från den väg han kör på, men 6–58 m från markering 1. Optis tid är när han registrerade (0–4 min efter att han lämnat).
+describe('Max Ljuvadal 2026-10-20 (hyttspår → lossningar mot Optis fem lass)', () => {
+  const max = ljuvadal as any;
+  const pts = max.spar.split(';').map((r: string) => { const [t, la, ln] = r.split(','); return { ts: Number(t) * 1000, lat: Number(la), lng: Number(ln) }; });
+  function replay(avlagg: Avlagg[]) {
+    let st = nyDetektor();
+    const lossningar: Array<{ start: number; slut: number | null; lossning: string }> = [];
+    for (let i = 0; i < pts.length; i++) {
+      const till = i + 1 < pts.length ? pts[i + 1].ts : pts[i].ts + 1000;
+      for (let t = pts[i].ts; t < till; t += 1000) {
+        const r = stegaDetektor(st, { lat: pts[i].lat, lng: pts[i].lng, ts: t }, { avlagg });
+        st = r.state;
+        const h = r.handelse;
+        if (h?.typ === 'lossning' && h.lossning !== 'upprepning') lossningar.push({ start: h.ts, slut: null, lossning: h.lossning });
+        if (h?.typ === 'lossning_slut' && lossningar.length) lossningar[lossningar.length - 1].slut = t;
+      }
+    }
+    return lossningar;
+  }
+  const optiTider: number[] = max.opti.map((t: string) => Date.parse(t));
+
+  it('inga avlägg (som för Max före 13:21): inga lossningar — appen vet inte var landningen är', () => {
+    expect(replay([])).toEqual([]);
+  });
+  it('ETT avlägg mitt på landningen: fem lossningar, en per Opti-lass, och Optis tid ligger 0–20 min efter lossningens början/slut', () => {
+    const l = replay([{ id: 'x', nummer: '1', kalla: 'egen', ...max.landningsmitt }]);
+    expect(l.filter((x) => x.lossning === 'nytt_lass')).toHaveLength(5);
+    expect(l.filter((x) => x.lossning === 'ny_del')).toHaveLength(0);
+    optiTider.forEach((t, i) => {
+      expect(l[i].start, `lass ${i + 1}`).toBeLessThanOrEqual(t);
+      expect(t - (l[i].slut ?? t), `lass ${i + 1}`).toBeLessThanOrEqual(20 * 60_000);
+    });
+  });
+  it('bara Maxs egen markering 1 (55–60 m från tre av landningarna) ger två av fem — ett avlägg måste ligga mitt på stråket', () => {
+    const l = replay([max.avlaggMarker as Avlagg]);
+    expect(l.filter((x) => x.lossning === 'nytt_lass')).toHaveLength(2);
   });
 });
