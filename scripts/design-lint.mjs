@@ -57,6 +57,9 @@ export const SKARPA = [
   "app/egenkontroll/RundKommentarSheet.tsx",    // rundans kommentar (A4-rapporten) — tokens från början
   "app/egenkontroll/RapportDela.tsx",            // Rapport till Vida — tokens från början
   // Rundvyns ram (PR 4, 2026-10): tokens från början, noll literaler.
+  // Listan (PR 5, 2026-10-20): tokens från början, noll literaler.
+  "app/egenkontroll/page.tsx",
+  "app/egenkontroll/ListDelar.tsx",
   "app/egenkontroll/Bricka.tsx",
   "app/egenkontroll/BrickaRad.tsx",
   "app/egenkontroll/RundDock.tsx",

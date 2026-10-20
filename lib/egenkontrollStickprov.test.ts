@@ -201,6 +201,8 @@ describe('kategorier och kortet', () => {
     expect(beslutskort(kat)?.objekt_id).toBe('e1');   // e1 avslutades före d1
     expect(beslutskort(kat, (id) => (id === 'd1' ? 3 : 30))?.objekt_id).toBe('d1');
     expect(beslutskort(kat, (id) => (id === 'd1' ? 3 : null))?.objekt_id).toBe('e1');   // delvis känt avstånd räknas inte — hellre väntetiden än en halv sanning
+    // och tvärtom: det äldsta objektet har känt avstånd, det nyare saknar — det nyare får inte vinna på att "saknat" läses som 0
+    expect(beslutskort(kat, (id) => (id === 'e1' ? 30 : null))?.objekt_id).toBe('e1');
   });
 
   it('kortet: utan dragning (eller allt dragit klart) → påbörjade först, sedan det som väntat längst', () => {
