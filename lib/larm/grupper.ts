@@ -1,0 +1,87 @@
+// FÄRGGRUPPER — EN källa för symbolens, ytans, ringens och kortets färg, och för vad som larmar.
+// Färgen säger vad det är och om det larmar (skissen "Färgspråket", tavla 10–12).
+//
+//   Röd    Fara     larmar alltid (även kvitterad: kvitteringen sparas som bevis men tystar inte)
+//   Grön   Natur    larmar tills föraren kvitterat
+//   Brun   Kultur   larmar tills föraren kvitterat
+//   Blå    Blött    larmar tills föraren kvitterat
+//   Lila   Att göra larmar aldrig
+//   Mörk   Info     larmar aldrig
+//
+// Orange betyder bara tall: ingen grupp är orange. Kultur är brun.
+// Ytor man inte får köra in i (Hänsyn, Nyckelbiotop, Fornlämning, Ej framkomlig) larmar ALLTID vid inkörning, även kvitterade.
+// Form och glyf ändras inte här (egen PR) — bara färg.
+
+export type FargGrupp = 'fara' | 'natur' | 'kultur' | 'blott' | 'att_gora' | 'info';
+export type LarmRegel = 'alltid' | 'tills_kvitterat' | 'aldrig';
+
+export interface GruppDef { id: FargGrupp; namn: string; farg: string; larm: LarmRegel }
+
+export const FARG_FARA = '#FF453A';
+export const FARG_NATUR = '#30D158';
+export const FARG_KULTUR = '#B5651D';
+export const FARG_BLOTT = '#0A84FF';
+export const FARG_ATT_GORA = '#AF52DE';
+export const FARG_INFO = '#1C1C1E';
+
+export const GRUPPER: Record<FargGrupp, GruppDef> = {
+  fara: { id: 'fara', namn: 'Fara', farg: FARG_FARA, larm: 'alltid' },
+  natur: { id: 'natur', namn: 'Natur', farg: FARG_NATUR, larm: 'tills_kvitterat' },
+  kultur: { id: 'kultur', namn: 'Kultur', farg: FARG_KULTUR, larm: 'tills_kvitterat' },
+  blott: { id: 'blott', namn: 'Blött', farg: FARG_BLOTT, larm: 'tills_kvitterat' },
+  att_gora: { id: 'att_gora', namn: 'Att göra', farg: FARG_ATT_GORA, larm: 'aldrig' },
+  info: { id: 'info', namn: 'Info', farg: FARG_INFO, larm: 'aldrig' },
+};
+export const GRUPP_ORDNING: readonly FargGrupp[] = ['fara', 'natur', 'kultur', 'blott', 'att_gora', 'info'];
+
+/** Markeringssymbolens (lib/marker-icons) grupp. Okänd typ = Info (aldrig ett påhittat larm). */
+export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
+  // Fara
+  powerline: 'fara', warning: 'fara', steep: 'fara',
+  // Natur
+  eternitytree: 'natur', naturecorner: 'natur', highstump: 'natur',
+  // Kultur
+  culturemonument: 'kultur', culturestump: 'kultur',
+  // Blött
+  wet: 'blott',
+  // Att göra (Manuell fällning är INTE fara längre)
+  manualfelling: 'att_gora', felloutside: 'att_gora',
+  // Info
+  landing: 'info', firewood: 'info', brashpile: 'info', windfall: 'info', road: 'info', turningpoint: 'info',
+  ditch: 'info', bridge: 'info', corduroy: 'info', trail: 'info', default: 'info',
+};
+
+export const gruppForSymbol = (typ: string | null | undefined): FargGrupp => (typ && SYMBOL_GRUPP[typ]) || 'info';
+export const symbolFarg = (typ: string | null | undefined): string => GRUPPER[gruppForSymbol(typ)].farg;
+
+/** Egna ritade linjer som ingår i en grupp. Övriga linjer (basväg, stickväg, traktgräns …) är snitselfärger i skogen och rörs inte. */
+export const LINJE_GRUPP: Readonly<Record<string, FargGrupp>> = { stonewall: 'natur' };
+export const gruppForLinje = (lineType: string | null | undefined): FargGrupp | null => (lineType && LINJE_GRUPP[lineType]) || null;
+export const LINJE_NAMN: Readonly<Record<string, string>> = { stonewall: 'Stenmur' };
+
+export interface YtaDef { grupp: FargGrupp; namn: string; forbjuden: boolean }
+
+/** Egna ritade ytor (zoneType). `forbjuden` = ytor man inte får köra in i: larmar alltid vid inkörning, även kvitterade. Gallringszonen är ingen varningsyta. */
+export const YTA: Readonly<Record<string, YtaDef>> = {
+  wet: { grupp: 'blott', namn: 'Blött', forbjuden: false },
+  steep: { grupp: 'fara', namn: 'Brant', forbjuden: false },
+  protected: { grupp: 'natur', namn: 'Hänsyn', forbjuden: true },
+  culture: { grupp: 'kultur', namn: 'Kulturmiljö', forbjuden: false },
+  noentry: { grupp: 'fara', namn: 'Ej framkomlig', forbjuden: true },
+  fornlamning: { grupp: 'kultur', namn: 'Fornlämning', forbjuden: true },
+};
+export const ytaDef = (zoneType: string | null | undefined): YtaDef | null => (zoneType && YTA[zoneType]) || null;
+
+/** Vidas lager (objekt_geometri) → grupp. Nyckelbiotop och hänsynsyta är förbjudna ytor, RAÄ-ytor är Fornlämning, RAÄ-punkter är Kultur. */
+export type VidaSlag = 'kraftledning' | 'hansynsyta' | 'nyckelbiotop' | 'raa_yta' | 'raa_punkt';
+export const VIDA: Readonly<Record<VidaSlag, { grupp: FargGrupp; namn: string; forbjuden: boolean }>> = {
+  kraftledning: { grupp: 'fara', namn: 'Kraftledning', forbjuden: false },
+  hansynsyta: { grupp: 'natur', namn: 'Hänsyn', forbjuden: true },
+  nyckelbiotop: { grupp: 'natur', namn: 'Nyckelbiotop', forbjuden: true },
+  raa_yta: { grupp: 'kultur', namn: 'Fornlämning', forbjuden: true },
+  raa_punkt: { grupp: 'kultur', namn: 'Fornlämning (RAÄ)', forbjuden: false },
+};
+
+/** Texten på inkörningskortet för en förbjuden yta. */
+export const forbjudenYtaText = (namn: string): string => `${namn} – Du är inne i ytan, kör inte här`;
+export const ytaText = (namn: string): string => `${namn} – Du är inne i ytan`;
