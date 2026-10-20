@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { traffaAvlagg } from './avlagg';
 import {
-  andraRad, bekrafta, bekraftaForslagVidStart, bytAvlagg, forraLass, foreslagnaRader, kanBekrafta, laggTillDel, lassRad, lassTitel,
+  andraRad, bekrafta, forslagTillVantande, bytAvlagg, forraLass, foreslagnaRader, kanBekrafta, laggTillDel, lassRad, lassTitel,
   lassTotalM3, nastaLassNummer, sattRad, skapaLass, stryk, type LassKontext,
 } from './lassModell';
 import { sortimentNyckel, sortimentVisning, skordatPerSortiment, valbaraSortiment, VED_MARKAGARE_NYCKEL } from './sortiment';
@@ -82,10 +82,14 @@ describe('lass', () => {
     expect(forraLass([l1, l2], ctx.maskinId, 'o1')?.lassNummer).toBe(1);
     expect(foreslagnaRader(null)).toEqual([]);
   });
-  it('ett förslag som aldrig hann bekräftas bekräftas vid nästa start; ett väntande lass ligger kvar', () => {
+  it('ett förslag vars lossning aldrig tog slut (appen stängdes) bekräftar inte sig självt utan väntar på föraren; väntande och bekräftade lass rörs inte', () => {
     const forslag = nyttLass(bekraftatMed([R('tall', 4)], 1), 2);
-    expect(bekraftaForslagVidStart(forslag, NU).status).toBe('bekraftat');
-    expect(bekraftaForslagVidStart(nyttLass(null), NU).status).toBe('vantar_forare');
+    expect(forslag.status).toBe('foreslaget');
+    expect(forslagTillVantande(forslag, NU).status).toBe('vantar_forare');
+    const vantar = nyttLass(null);
+    expect(forslagTillVantande(vantar, NU)).toBe(vantar);
+    const klar = bekraftatMed([R('tall', 4)], 1);
+    expect(forslagTillVantande(klar, NU)).toBe(klar);
   });
   it('lasraden: avlägg, sortiment störst först, summa', () => {
     const l = bekraftatMed([R('a', 5), R('b', 10)], 1);

@@ -10,6 +10,43 @@ const page = las('app/planering/page.tsx');
 // Migrationen är körd i prod i tio delar (+ sex delar 6a–6f för Färdigskotad med Opti) (Supabase-MCP:n hänger på stora funktionstexter): alla skotar_lass_*-filer i ordning.
 const migrationer = (): string => readdirSync(join(rot, 'supabase/migrations')).filter((f) => /^\d+_skotar_lass_.*\.sql$/.test(f)).sort().map((f) => las(`supabase/migrations/${f}`)).join('\n');
 
+describe('avläggsupptäckten (Daniel, Mölleryd 2026-10-20)', () => {
+  const hook = las('lib/hooks/useSkotarLass.ts');
+  const detektor = las('lib/skotarLass/lossning.ts');
+  it('lasset bekräftar sig aldrig av en timer: ingen AUTO_BEKRAFTA_MS, och den enda timern i hooken är kvittot som försvinner', () => {
+    expect(hook).not.toContain('AUTO_BEKRAFTA');
+    expect(las('lib/skotarLass/lassModell.ts')).not.toContain('AUTO_BEKRAFTA');
+    expect(hook.match(/window\.setTimeout\(/g)).toHaveLength(1);
+    expect(hook).toMatch(/fas !== 'klar'\) return;\s*const t = window\.setTimeout/);
+  });
+  it('självbekräftelsen sker på ETT ställe — när lossningen tog slut — och kräver sjalvbekraftaEfterSlut (stilla ≥ 5 min eller Lossa här)', () => {
+    expect(hook).toMatch(/l\.status === 'foreslaget' && kanBekrafta\(l\) && del\?\.avlaggId && sjalvbekraftaEfterSlut\(h\)/);
+    expect(detektor).toMatch(/h\.manuell \|\| h\.stillaS >= LOSSNING\.SJALVBEKRAFTA_STILLA_S/);
+  });
+  it('en omladdning mitt i en lossning bekräftar inget (förslaget väntar på föraren)', () => {
+    expect(hook).toContain('forslagTillVantande(l, nu)');
+    expect(hook).not.toContain('bekraftaForslagVidStart');
+  });
+  it('Lossa här och "väntar på dig" finns bara i skotarläget och ligger ovanför kortet nertill', () => {
+    const bit = page.slice(page.indexOf('SKOTARLÄGE: lassrapportering. Allt nedan finns bara'));
+    expect(bit).toMatch(/<SkotarNedreRad antalVantar=\{sl\.vantarPaDig\.length\} lossar=\{!!sl\.oppen\} onLossaHar=\{sl\.lossaHar\}/);
+    expect(bit).toContain('<VantarPaDigArk');
+    expect(page.match(/<SkotarNedreRad/g)).toHaveLength(1);
+    expect(las('components/planering/skotar/LossaHar.tsx')).toContain("querySelector('[data-nertill-kort]')");
+    for (const f of ['LossningsKort', 'LossaHar']) expect(las(`components/planering/skotar/${f}.tsx`)).toContain('data-nertill-kort');
+  });
+  it('värdena Martin beslutade 2026-10-20: 3 min stilla, zon 50 m, 25 m ruta, självbekräfta efter 5 min, spärr efter förra lossningen', () => {
+    expect(detektor).toMatch(/STILLA_S: 180,/);
+    expect(detektor).toMatch(/STILLA_UTBREDNING_M: 25,/);
+    expect(detektor).toMatch(/SJALVBEKRAFTA_STILLA_S: 300,/);
+    expect(detektor).toMatch(/CYKEL_S: 600,/);
+    expect(las('lib/skotarLass/avlagg.ts')).toMatch(/RADIE_M: 50,/);
+  });
+  it('detektorn rör aldrig fakt_lass och har inga timers (ren funktion)', () => {
+    expect(detektor).not.toMatch(/setTimeout|setInterval|Date\.now|fakt_lass|supabase/);
+  });
+});
+
 describe('skotarläget i planeringsvyn', () => {
   it('allt är av utanför skotarkörvyn: aktiv kräver skotarKorvy och en vald maskin', () => {
     expect(page).toMatch(/const skotarLassAktiv = skotarKorvy && !!valtObjekt\?\.id && !!skotarMaskinId;/);

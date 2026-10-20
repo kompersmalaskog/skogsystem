@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { byggAvlagg, traffaAvlagg, nastaEgnaNummer, egnaNummer, visaNummer } from './avlagg';
-import { LOSSNING, nyDetektor, stegaDetektor, avvisaFraga, type DetektorState, type Handelse } from './lossning';
+import { AVLAGG, byggAvlagg, traffaAvlagg, nastaEgnaNummer, egnaNummer, visaNummer } from './avlagg';
+import {
+  LOSSNING, avvisaFraga, lossningManuell, nyDetektor, sjalvbekraftaEfterSlut, slutaOppenLossning, stegaDetektor, type DetektorState, type Handelse,
+} from './lossning';
 import type { Avlagg } from './typer';
+import molleryd from './__fixtures__/molleryd_elefanten_2026-10-20.json';
 
 // 1 m ≈ 0,000009 grader lat
 const M = 1 / 111320;
@@ -9,24 +12,35 @@ const BAS = { lat: 56.6, lng: 15.8 };
 const pos = (nordM: number, ostM = 0) => ({ lat: BAS.lat + nordM * M, lng: BAS.lng + (ostM * M) / Math.cos((BAS.lat * Math.PI) / 180) });
 const avl = (nummer: string, nordM: number, ostM = 0): Avlagg => ({ id: `vida:${nummer}`, nummer, kalla: 'vida', ...pos(nordM, ostM) });
 
-/** Kör detektorn över en lista (sek, nordM, ostM) och samla händelserna. */
-function kor(fixar: Array<[number, number, number?]>, avlagg: Avlagg[], start: DetektorState = nyDetektor(), spar?: number) {
+/** Kör detektorn över en lista (sek, nordM, ostM) — en fix per sekund mellan punkterna (som en riktig GPS) — och samla händelserna. */
+function kor(punkter: Array<[number, number, number?]>, avlagg: Avlagg[], start: DetektorState = nyDetektor(), spar?: number) {
   let st = start;
-  const h: Handelse[] = [];
-  for (const [s, n, o] of fixar) {
-    const r = stegaDetektor(st, { ...pos(n, o ?? 0), ts: 1_000_000 + s * 1000 }, { avlagg, avstandTillSpar: spar });
-    st = r.state;
-    if (r.handelse) h.push(r.handelse);
+  const h: Array<Handelse & { vid: number }> = [];
+  for (let i = 0; i < punkter.length; i++) {
+    const [s, n, o] = punkter[i];
+    const till = i + 1 < punkter.length ? punkter[i + 1][0] : s + 1;
+    for (let t = s; t < till; t++) {
+      const r = stegaDetektor(st, { ...pos(n, o ?? 0), ts: 1_000_000 + t * 1000 }, { avlagg, avstandTillSpar: spar });
+      st = r.state;
+      if (r.handelse) h.push({ ...r.handelse, vid: t });
+    }
   }
   return { st, h };
 }
+/** Står still (liten brusning) på en plats från `fran` till `till` sekunder. */
 const still = (fran: number, till: number, nord: number, ost = 0): Array<[number, number, number]> =>
   Array.from({ length: Math.floor((till - fran) / 2) + 1 }, (_, i) => [fran + i * 2, nord + (i % 2) * 0.5, ost] as [number, number, number]);
+/** Kör rakt från A till B på `sek` sekunder. */
+const kor_ = (fran: number, sek: number, n0: number, n1: number, ost = 0): Array<[number, number, number]> =>
+  Array.from({ length: sek / 2 + 1 }, (_, i) => [fran + i * 2, n0 + ((n1 - n0) * i) / (sek / 2), ost] as [number, number, number]);
+
+const typer = (h: Handelse[]) => h.filter((x) => x.typ === 'lossning').map((x) => (x as { lossning: string }).lossning);
 
 describe('avlägg', () => {
-  it('närmaste avlägg inom 40 m, annars inget', () => {
+  it('närmaste avlägg inom zonen (50 m), annars inget', () => {
     const a = [avl('2', 0), avl('3', 500)];
-    expect(traffaAvlagg(pos(20), a).narmaste?.nummer).toBe('2');
+    expect(AVLAGG.RADIE_M).toBe(50);
+    expect(traffaAvlagg(pos(45), a).narmaste?.nummer).toBe('2');
     expect(traffaAvlagg(pos(60), a).narmaste).toBeNull();
   });
   it('två avlägg inom 50 m från varandra är tvetydiga och listas närmast först', () => {
@@ -49,48 +63,121 @@ describe('avlägg', () => {
   });
 });
 
-describe('lossningsdetektor', () => {
+describe('lossningsdetektor — stilla 3 min inom zonen', () => {
   const a = [avl('2', 0)];
 
-  it('30 s stilla vid ett avlägg = nytt lass (första lossningen)', () => {
-    const { h } = kor(still(0, 40, 5), a);
-    expect(h).toHaveLength(1);
-    expect(h[0]).toMatchObject({ typ: 'lossning', lossning: 'nytt_lass' });
+  it('3 min stilla vid ett avlägg = nytt lass (första lossningen), lossningen börjar när maskinen stannade', () => {
+    const { h } = kor(still(0, 200, 5), a);
+    const l = h.filter((x) => x.typ === 'lossning');
+    expect(l).toHaveLength(1);
+    expect(l[0]).toMatchObject({ lossning: 'nytt_lass', ts: 1_000_000 });
+    expect(l[0].vid).toBeGreaterThanOrEqual(LOSSNING.STILLA_S - 2);
   });
-  it('29 s räcker inte', () => {
-    expect(kor(still(0, 28, 5), a).h).toHaveLength(0);
+  it('2 min 50 s räcker inte (Daniels fel 1 och 3: 30 s var för kort — passage och plocka rent gav ruta)', () => {
+    expect(kor(still(0, 170, 5), a).h).toHaveLength(0);
   });
-  it('en lossning utlöser en händelse, inte en per fix', () => {
-    expect(kor(still(0, 300, 5), a).h).toHaveLength(1);
+  it('en lossning utlöser EN händelse, inte en per fix', () => {
+    expect(kor(still(0, 600, 5), a).h.filter((x) => x.typ === 'lossning')).toHaveLength(1);
   });
   it('kör förbi avlägget utan att stanna: ingen lossning', () => {
-    const fixar: Array<[number, number]> = Array.from({ length: 20 }, (_, i) => [i * 2, -100 + i * 10]);
-    expect(kor(fixar, a).h).toHaveLength(0);
+    expect(kor(kor_(0, 100, -150, 150), a).h).toHaveLength(0);
   });
-  it('lossar, lastar (kranpaus 60 s utanför avlägg), lossar igen = nytt lass', () => {
-    const fixar = [...still(0, 40, 5), ...still(60, 130, 400), ...still(200, 240, 5)];
-    const { h } = kor(fixar, a);
-    expect(h.filter((x) => x.typ === 'lossning').map((x) => (x as { lossning: string }).lossning)).toEqual(['nytt_lass', 'nytt_lass']);
+  it('kryper man 25 m eller mer på 3 min är det inte stilla; under 25 m är det stilla (verklig GPS-drift och omplacering längs högen)', () => {
+    const krypa = (m: number) => Array.from({ length: 21 }, (_, i) => [i * 10, 5 + (m * i) / 20] as [number, number]);
+    expect(kor(krypa(40), a).h.filter((x) => x.typ === 'lossning')).toHaveLength(0);
+    expect(kor(krypa(20), a).h.filter((x) => x.typ === 'lossning')).toHaveLength(1);
   });
-  it('lossar och står kvar / kör till samma avlägg utan att lasta = upprepning (hooken ignorerar den)', () => {
-    const fixar = [...still(0, 40, 5), ...still(100, 140, -10)];
-    const { h } = kor(fixar, a);
-    expect(h.map((x) => (x as { lossning: string }).lossning)).toEqual(['nytt_lass', 'upprepning']);
-  });
-  it('samma last på ett andra avlägg utan lastning emellan = del 2', () => {
-    const tva = [avl('2', 0), avl('3', 200)];
-    const fixar = [...still(0, 40, 5), ...Array.from({ length: 10 }, (_, i) => [50 + i * 2, 20 + i * 18] as [number, number]), ...still(80, 120, 205)];
-    const { h } = kor(fixar, tva);
-    expect(h.map((x) => (x as { lossning: string }).lossning)).toEqual(['nytt_lass', 'ny_del']);
-  });
-  it('lastat via 240 s sedan lossningen räknas som nytt lass även nära avlägget', () => {
-    const fixar = [...still(0, 40, 5), ...still(100, 130, 70), ...still(300, 340, 5)];
-    const { h } = kor(fixar, a);
-    expect(h.map((x) => (x as { lossning: string }).lossning)).toEqual(['nytt_lass', 'nytt_lass']);
+  it('Daniels fel 2: stopp 45 m från punkten ger lossning (zonen är 50 m, inte 40)', () => {
+    expect(kor(still(0, 200, 45), a).h.filter((x) => x.typ === 'lossning')).toHaveLength(1);
+    expect(kor(still(0, 200, 55), a).h.filter((x) => x.typ === 'lossning')).toHaveLength(0);
   });
   it('tvetydigt avlägg flaggas i träffen', () => {
-    const { h } = kor(still(0, 40, 5), [avl('2', 0), avl('3', 30)]);
-    expect((h[0] as { traff: { tvetydigt: boolean } }).traff.tvetydigt).toBe(true);
+    const { h } = kor(still(0, 200, 5), [avl('2', 0), avl('3', 30)]);
+    expect((h.find((x) => x.typ === 'lossning') as { traff: { tvetydigt: boolean } }).traff.tvetydigt).toBe(true);
+  });
+  it('glapp i loggen längre än 90 s nollställer stillastående', () => {
+    // fixar bara vid dessa tider (inget hålls mellan dem): varje glapp är > 90 s
+    let st = nyDetektor();
+    const h: Handelse[] = [];
+    for (const t of [0, 100, 200, 300, 400]) {
+      const r = stegaDetektor(st, { ...pos(5), ts: 1_000_000 + t * 1000 }, { avlagg: a });
+      st = r.state;
+      if (r.handelse) h.push(r.handelse);
+    }
+    expect(h).toHaveLength(0);
+  });
+
+  describe('lossningen tar slut', () => {
+    it('lämnar maskinen zonen: slut med hur länge den stod still', () => {
+      const { h } = kor([...still(0, 400, 5), ...kor_(402, 40, 5, 200)], a);
+      const slut = h.find((x) => x.typ === 'lossning_slut') as { stillaS: number; manuell: boolean } | undefined;
+      expect(slut).toBeTruthy();
+      expect(slut!.stillaS).toBeGreaterThan(350);
+      expect(slut!.manuell).toBe(false);
+      expect(sjalvbekraftaEfterSlut(slut!)).toBe(true);
+    });
+    it('under 5 min stilla → väntar på tryck', () => {
+      const { h } = kor([...still(0, 220, 5), ...kor_(222, 40, 5, 200)], a);
+      const slut = h.find((x) => x.typ === 'lossning_slut') as { stillaS: number; manuell: boolean };
+      expect(slut.stillaS).toBeLessThan(LOSSNING.SJALVBEKRAFTA_STILLA_S);
+      expect(sjalvbekraftaEfterSlut(slut)).toBe(false);
+    });
+    it('kör iväg inom zonen (rör sig i en minut) → slut, så en kort cykel på en liten trakt syns', () => {
+      const { h } = kor([...still(0, 400, 5), ...kor_(402, 100, 5, 45)], a);
+      expect(h.filter((x) => x.typ === 'lossning_slut')).toHaveLength(1);
+    });
+    it('en omplacering på 20 s tar inte slut på lossningen', () => {
+      const { h } = kor([...still(0, 300, 5), ...kor_(302, 20, 5, 25), ...still(324, 500, 25)], a);
+      expect(h.filter((x) => x.typ === 'lossning_slut')).toHaveLength(0);
+    });
+    it('under lossningen ger ingen ny lossning, hur länge maskinen än står', () => {
+      expect(kor(still(0, 2000, 5), a).h.filter((x) => x.typ === 'lossning')).toHaveLength(1);
+    });
+  });
+
+  describe('cykelregeln — ingen ny lossning tidigare än 10 min efter förra tog slut', () => {
+    const cykel = (mellanSek: number, avlagg = a, nord2 = 5) => {
+      const forsta = [...still(0, 400, 5), ...kor_(402, 40, 5, 200)];
+      const slutTid = 402 + 20;
+      const andra = still(slutTid + mellanSek, slutTid + mellanSek + 300, nord2);
+      // från (200 m bort) till nord2 på 30 s innan andra stoppet
+      return kor([...forsta, ...kor_(slutTid + mellanSek - 30, 30, 200, nord2), ...andra], avlagg);
+    };
+    it('står maskinen still igen inom 10 min vid samma avlägg = samma lossning / plocka rent (upprepning, inget nytt lass)', () => {
+      expect(typer(cykel(300).h)).toEqual(['nytt_lass', 'upprepning']);
+    });
+    it('efter 10 min är det ett nytt lass', () => {
+      expect(typer(cykel(700).h)).toEqual(['nytt_lass', 'nytt_lass']);
+    });
+    it('inom 10 min vid ett ANNAT avlägg = samma last på två avlägg (del 2)', () => {
+      const tva = [avl('2', 0), avl('3', 200)];
+      expect(typer(cykel(250, tva, 205).h)).toEqual(['nytt_lass', 'ny_del']);
+    });
+    it('upprepningen utlöses en gång per stillastående, inte en per fix', () => {
+      expect(cykel(300).h.filter((x) => x.typ === 'lossning' && (x as { lossning: string }).lossning === 'upprepning')).toHaveLength(1);
+    });
+    it('omladdning mitt i en cykel: förra lossningen räknas som nyss avslutad', () => {
+      const start = nyDetektor({ ...pos(5), ts: 1_000_000 - 120_000, avlaggId: 'vida:2' });
+      expect(typer(kor(still(0, 200, 5), a, start).h)).toEqual(['upprepning']);
+    });
+  });
+
+  describe('Lossa här', () => {
+    it('öppnar en lossning som räknas som bekräftad vid slut (föraren tryckte) — och ger ingen dubblett när maskinen sedan står 3 min', () => {
+      const st = lossningManuell(nyDetektor(), { ...pos(5), ts: 1_000_000 }, 'vida:2');
+      const { h } = kor([...still(0, 400, 5), ...kor_(402, 40, 5, 200)], a, st);
+      expect(h.filter((x) => x.typ === 'lossning')).toHaveLength(0);
+      const slut = h.find((x) => x.typ === 'lossning_slut') as { manuell: boolean; stillaS: number };
+      expect(slut.manuell).toBe(true);
+      expect(sjalvbekraftaEfterSlut({ stillaS: 0, manuell: true })).toBe(true);
+    });
+    it('provkörningen kan avsluta en öppen lossning', () => {
+      const st = lossningManuell(nyDetektor(), { ...pos(5), ts: 1_000_000 }, 'vida:2');
+      const r = slutaOppenLossning(st, 1_000_000 + 10_000, 600);
+      expect(r.handelse).toMatchObject({ typ: 'lossning_slut', stillaS: 600 });
+      expect(r.state.oppen).toBeNull();
+      expect(slutaOppenLossning(nyDetektor(), 1, 1).handelse).toBeNull();
+    });
   });
 
   describe('Nytt avlägg här?', () => {
@@ -112,16 +199,73 @@ describe('lossningsdetektor', () => {
       expect(kor(still(0, 100, 310), a, st, 60).h).toHaveLength(0);
     });
     it('stopp nära förra lossningen (< 150 m) → ingen fråga', () => {
-      const { h } = kor([...still(0, 40, 5), ...still(100, 200, 100)], a, nyDetektor(), 60);
+      const { h } = kor([...still(0, 400, 5), ...kor_(402, 60, 5, 100), ...still(464, 600, 100)], a, nyDetektor(), 60);
       expect(h.filter((x) => x.typ === 'nytt_avlagg_fraga')).toHaveLength(0);
     });
   });
 
-  it('glapp i loggen längre än 90 s nollställer stillastående', () => {
-    const fixar: Array<[number, number]> = [[0, 5], [10, 5], [20, 5], [200, 5], [210, 5]];
-    expect(kor(fixar, a).h).toHaveLength(0);
+  it('LOSSNING-konstanterna är de specade (Martin 2026-10-20)', () => {
+    expect(LOSSNING.STILLA_S).toBe(180);
+    expect(LOSSNING.SJALVBEKRAFTA_STILLA_S).toBe(300);
   });
-  it('LOSSNING-konstanterna är de specade', () => {
-    expect(LOSSNING.STILLA_S).toBe(30);
+});
+
+// ── Daniels riktiga spår: Elefanten A130743, Mölleryd, 2026-10-20 ─────────────────────────────────────────────────────────────────────────────────────
+// Hyttspåret (punkter ≥ 2 m isär) hålls mellan punkterna, en fix per sekund. Appens egna 17 lass den dagen kom av den gamla regeln (30 s, 40 m) och är INTE facit:
+// Daniel strök bara lass 1 och fyllde bara i lass 3. Facit är Optis lass för dagen (FPR kommer kvällen 2026-10-20) — jämförelsen görs när filen kommit.
+describe('Daniels Mölleryd 2026-10-20 (hyttspår → lossningar)', () => {
+  const avlagg = molleryd.avlagg as Avlagg[];
+  const punkter = molleryd.spar.split(';').map((r) => { const [t, la, ln] = r.split(','); return { ts: Number(t) * 1000, lat: Number(la), lng: Number(ln) }; });
+  const KL = (iso: string) => Date.parse(`2026-10-20T${iso}Z`);
+
+  function replay(fran = '07:40:00') {
+    let st = nyDetektor();
+    const ut: Array<{ typ: string; lossning?: string; start: number; avlagg?: string; stillaS?: number; sjalv?: boolean; vid: number }> = [];
+    for (let i = 0; i < punkter.length; i++) {
+      const p = punkter[i];
+      const till = i + 1 < punkter.length ? punkter[i + 1].ts : p.ts + 1000;
+      for (let t = p.ts; t < till; t += 1000) {
+        if (t < KL(fran)) continue;
+        const r = stegaDetektor(st, { lat: p.lat, lng: p.lng, ts: t }, { avlagg });
+        st = r.state;
+        const h = r.handelse;
+        if (h?.typ === 'lossning') ut.push({ typ: h.typ, lossning: h.lossning, start: h.ts, avlagg: h.traff.narmaste?.nummer, vid: t });
+        if (h?.typ === 'lossning_slut') ut.push({ typ: h.typ, start: h.lassTs, stillaS: h.stillaS, sjalv: sjalvbekraftaEfterSlut(h), vid: t });
+      }
+    }
+    return ut;
+  }
+  const lass = (ut: ReturnType<typeof replay>) => ut.filter((x) => x.typ === 'lossning' && x.lossning !== 'upprepning');
+  const nara = (l: { start: number }, hhmm: string, minuter: number) => Math.abs(l.start - KL(`${hhmm}:00`)) <= minuter * 60_000;
+
+  it('inget lass på de korta stoppen (lass 1: 59 s, lass 4: 44 s, lass 12: 40 s) — passage och plocka rent ger ingen ruta', () => {
+    const l = lass(replay());
+    expect(l.some((x) => nara(x, '07:47', 2))).toBe(false);
+    expect(l.some((x) => nara(x, '08:50', 2) && x.start > KL('08:49:50'))).toBe(false);
+    expect(l.some((x) => nara(x, '09:28', 2))).toBe(false);
+  });
+
+  it('Daniels äkta lass 3 (stoppet 08:34–08:49, han fyllde själv i det) hittas — 13 min efter förra lossningens slut, därför är cykeln 10 min och inte 15', () => {
+    const l = lass(replay());
+    expect(l.some((x) => nara(x, '08:31', 4))).toBe(true);
+  });
+
+  it('lunchen (45 min stilla vid punkten) ger ingen egen lossning', () => {
+    const l = lass(replay());
+    // lunchen 09:54–10:39 UTC: inget lass startar mitt i den
+    expect(l.filter((x) => x.start > KL('09:56:00') && x.start < KL('10:37:00'))).toHaveLength(0);
+  });
+
+  it('ett lass per äkta cykel: 7 lass och en del 2 mot appens 16 (gamla regeln)', () => {
+    const l = lass(replay());
+    expect(l.filter((x) => x.lossning === 'nytt_lass')).toHaveLength(7);
+    expect(l.filter((x) => x.lossning === 'ny_del')).toHaveLength(1);
+  });
+
+  it('varje lossning tar slut och de flesta var stilla över 5 min (självbekräftar)', () => {
+    const ut = replay();
+    const slut = ut.filter((x) => x.typ === 'lossning_slut');
+    expect(slut.length).toBeGreaterThanOrEqual(7);
+    expect(slut.filter((x) => x.sjalv).length).toBeGreaterThanOrEqual(6);
   });
 });

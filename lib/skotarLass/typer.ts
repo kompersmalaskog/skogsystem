@@ -41,7 +41,7 @@ export interface VagTid { vag: string; sek: number; andel: number }
 export interface SparPunkt { lat: number; lng: number; tid: string }
 
 export type LassStatus =
-  | 'foreslaget'      // upptäckt och ifyllt som förra lasset; bekräftar sig självt när linjen fyllts
+  | 'foreslaget'      // upptäckt och ifyllt som förra lasset; bekräftar sig självt när lossningen tog slut (stilla ≥ 5 min + utkörd ur zonen)
   | 'vantar_forare'   // föraren måste fylla i eller välja avlägg (första lasset, två avlägg nära varandra, inget avlägg)
   | 'bekraftat'
   | 'struket';

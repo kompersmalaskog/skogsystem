@@ -79,18 +79,39 @@ beforeEach(async () => {
 });
 afterEach(async () => { await act(async () => { root.unmount(); }); div.remove(); vi.useRealTimers(); });
 
+/** Kör bort från avlägget (115 m, utanför zonen) i `sek` sekunder: lossningen tar slut. */
+const korIvag = (sek = 30) => stå(120, sek);
+/** Lossar i `sek` sekunder vid avlägget (en lossning börjar efter 3 min, lasset skapas då). */
+const lossa = (sek = 200) => stå(5, sek);
+
 describe('lossning → lass', () => {
-  it('första lasset: kortet väntar på föraren (bekräftar sig inte självt)', async () => {
-    await stå(5, 40);
+  it('3 min stilla vid avlägget: ett lass och kortet "Lossar" som står kvar — ingen timer tar bort det medan han lossar', async () => {
+    await lossa(200);
     expect(vy.lass).toHaveLength(1);
+    expect(vy.kort?.fas).toBe('lossar');
+    await lossa(600);   // tio minuter till vid avlägget
+    expect(vy.kort?.fas).toBe('lossar');
+    expect(vy.lass).toHaveLength(1);
+    expect(vy.lass[0].status).toBe('vantar_forare');   // första lasset: bekräftar sig aldrig självt
+  });
+
+  it('under 3 min stilla (passage, plocka rent) ger inget lass och ingen ruta', async () => {
+    await lossa(120);
+    expect(vy.lass).toHaveLength(0);
+    expect(vy.kort).toBeNull();
+  });
+
+  it('första lasset: när han kört ut ur zonen väntar kortet på föraren (Fyll i) och bekräftar sig aldrig självt', async () => {
+    await lossa(200);
+    await korIvag();
+    expect(vy.kort?.fas).toBe('forare');
+    await act(async () => { vi.advanceTimersByTime(300_000); });
     expect(vy.lass[0].status).toBe('vantar_forare');
     expect(vy.kort?.fas).toBe('forare');
-    await act(async () => { vi.advanceTimersByTime(30_000); });
-    expect(vy.lass[0].status).toBe('vantar_forare');
   });
 
   it('föraren fyller i och trycker Klar → bekräftat, skickat, kvar räknas', async () => {
-    await stå(5, 40);
+    await lossa(200);
     const id = vy.lass[0].id;
     await act(async () => { vy.oppnaAndra(id); });
     await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
@@ -101,28 +122,74 @@ describe('lossning → lass', () => {
     expect(server.skickade.at(-1).id).toBe(id);
     expect(vy.kvar?.rader.find((r) => r.nyckel === 'tall')?.kvar).toBe(90);
     expect(vy.sammanfattning?.kvarText).toBe('Kvar ~135 m³');
+    expect(vy.kort?.fas).toBe('lossar');   // lossningen pågår fortfarande: kortet kommer tillbaka när Ändra stängs
   });
 
-  it('andra lasset fylls i som förra och bekräftar sig självt när linjen fyllts (10 s)', async () => {
-    await stå(5, 40);
+  /** Ett bekräftat första lass, och föraren har kört ut: nästa cykel börjar om 11 min. */
+  async function forstaLassetKlart() {
+    await lossa(200);
     await act(async () => { vy.oppnaAndra(vy.lass[0].id); });
     await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
     await act(async () => { vy.stangAndra(true); });
-    await stå(400, 70);    // kör iväg och lastar (kranpaus utanför avlägg)
-    await stå(5, 32);      // tillbaka vid avlägget (30 s stilla utlöser lossningen; kortet hinner inte bekräfta sig)
-    expect(vy.lass).toHaveLength(2);
+    await korIvag();
+    await stå(120, 11 * 60);
+  }
+
+  it('andra lasset fylls i som förra och bekräftar sig självt först när han stått still ≥ 5 min och kört ut ur zonen', async () => {
+    await forstaLassetKlart();
+    await lossa(200);
     const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
     expect(l2.delar[0].rader).toEqual([{ nyckel: 'tall', namn: 'Tall', m3: 10 }]);
-    expect(vy.kort?.fas).toBe('auto');
     expect(l2.status).toBe('foreslaget');
-    await act(async () => { vi.advanceTimersByTime(10_500); });
+    expect(vy.kort?.fas).toBe('lossar');
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('foreslaget');   // ingen 10 s-timer
+    await lossa(300);                                    // totalt över 5 min stilla
+    await korIvag(20);                                   // precis utanför zonen i 20 s → lossningen tar slut (kvittot hinner inte försvinna)
+    const efter = vy.lass.find((l) => l.lassNummer === 2)!;
+    expect(efter.status).toBe('bekraftat');
+    expect(efter.bekraftadAv).toBe('auto');
+    expect(vy.kort?.fas).toBe('klar');
+    await act(async () => { vi.advanceTimersByTime(6_500); });
+    expect(vy.kort).toBeNull();                           // kvittot försvinner av sig självt, lasset är redan bekräftat
+  });
+
+  it('en kort lossning (under 5 min) väntar på ett tryck: Stämmer bekräftar, och lasset syns i "väntar på dig" när kortet är borta', async () => {
+    await forstaLassetKlart();
+    await lossa(215);
+    await korIvag();
+    const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
+    expect(l2.status).toBe('vantar_forare');
+    expect(vy.kort?.fas).toBe('kontroll');
+    expect(vy.vantarPaDig).toHaveLength(0);               // kortet visar det redan
+    await act(async () => { vy.avbrytKort(); });
+    expect(vy.vantarPaDig.map((l) => l.lassNummer)).toEqual([2]);
+    await act(async () => { vy.stammer(l2.id); });
     expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('bekraftat');
-    expect(vy.lass.find((l) => l.lassNummer === 2)!.bekraftadAv).toBe('auto');
-    expect(vy.kort).toBeNull();
+    expect(vy.vantarPaDig).toHaveLength(0);
+  });
+
+  it('står maskinen still igen inom 10 min efter lossningen är det samma lossning — inget nytt lass', async () => {
+    await lossa(200);
+    await korIvag();
+    await stå(120, 120);   // 2 min ute
+    await lossa(250);      // tillbaka och still igen
+    expect(vy.lass).toHaveLength(1);
+  });
+
+  it('Det var ingen lossning (✕) släpper cykelregeln: nästa äkta lossning blir ett lass', async () => {
+    await lossa(200);
+    await act(async () => { vy.strykLass(vy.lass[0].id); });
+    expect(vy.lass[0].status).toBe('struket');
+    expect(vy.oppen).toBeNull();
+    await korIvag();
+    await lossa(200);
+    expect(vy.lass.filter((l) => l.status !== 'struket')).toHaveLength(1);
+    expect(vy.kort?.fas).toBe('lossar');
   });
 
   it('Avbryt i Ändra återställer lasset', async () => {
-    await stå(5, 40);
+    await lossa(200);
     await act(async () => { vy.oppnaAndra(vy.lass[0].id); });
     await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +7); });
     expect(vy.lass[0].delar[0].rader).toHaveLength(1);
@@ -133,7 +200,7 @@ describe('lossning → lass', () => {
 
   it('utan täckning: allt sparas lokalt, inget kastas, skickas när nätet kommer', async () => {
     server.online = false;
-    await stå(5, 40);
+    await lossa(200);
     await act(async () => { vy.oppnaAndra(vy.lass[0].id); });
     await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
     await act(async () => { vy.stangAndra(true); });
@@ -143,6 +210,76 @@ describe('lossning → lass', () => {
     const { hamtaLassKo } = await import('@/lib/skotarLass/koKopplad');
     await act(async () => { await (await hamtaLassKo()).kor(); });
     expect(server.skickade.at(-1).status).toBe('bekraftat');
+  });
+});
+
+describe('Lossa här (reservknappen när upptäckten missar)', () => {
+  it('ett tryck ger ett lass vid närmaste avlägg, utan att maskinen stått still', async () => {
+    await stå(10, 10);
+    await act(async () => { vy.lossaHar(); });
+    expect(vy.lass).toHaveLength(1);
+    expect(vy.lass[0].delar[0].avlaggId).toBe('vida:2');
+    expect(vy.kort?.fas).toBe('lossar');
+    expect(vy.oppen).not.toBeNull();
+  });
+  it('trycker man igen medan lossningen pågår blir det inget nytt lass', async () => {
+    await stå(10, 10);
+    await act(async () => { vy.lossaHar(); });
+    await act(async () => { vy.lossaHar(); });
+    expect(vy.lass).toHaveLength(1);
+  });
+  it('trycket gäller som bekräftelse: ett förifyllt lass bekräftar sig när han kört ut, även efter bara någon minut', async () => {
+    await lossa(200);
+    await act(async () => { vy.oppnaAndra(vy.lass[0].id); });
+    await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
+    await act(async () => { vy.stangAndra(true); });
+    await korIvag();
+    await stå(120, 11 * 60);
+    await stå(10, 20);
+    await act(async () => { vy.lossaHar(); });
+    const l2 = vy.lass.find((l) => l.lassNummer === 2)!;
+    expect(l2.status).toBe('foreslaget');
+    await stå(10, 60);
+    await korIvag();
+    expect(vy.lass.find((l) => l.lassNummer === 2)!.status).toBe('bekraftat');
+  });
+  it('utan avlägg på trakten ställs frågan "Nytt avlägg här?" på platsen', async () => {
+    await visa({ vida: [] });
+    await stå(10, 10);
+    await act(async () => { vy.lossaHar(); });
+    expect(vy.nyttAvlagg).not.toBeNull();
+    expect(vy.lass).toHaveLength(0);
+  });
+});
+
+describe('lass som väntar på föraren syns', () => {
+  it('ett lass i vantar_forare som ligger kvar från tidigare (lass 2 från 09:57) visas i "väntar på dig" när appen öppnas', async () => {
+    const { hamtaLassKo } = await import('@/lib/skotarLass/koKopplad');
+    await (await hamtaLassKo()).spara({
+      id: 'hangande', objektId: 'o1', voNummer: '555', maskinId: 'A030353', medarbetareId: null, lassNummer: 2, datum: '2026-10-19', status: 'vantar_forare', bekraftadAv: null, bekraftadTid: null,
+      sparPunkter: [], vagar: [], skapad: '2026-10-19T07:57:03.000Z', andrad: '2026-10-19T07:57:03.000Z',
+      delar: [{ delNr: 1, avlaggId: 'vida:2', avlaggNummer: '2', lossadTid: '2026-10-19T07:56:32.000Z', lat: BAS.lat, lng: BAS.lng, rader: [] }],
+    });
+    await act(async () => { root.unmount(); });
+    root = createRoot(div);
+    await visa();
+    expect(vy.kort).toBeNull();
+    expect(vy.vantarPaDig.map((l) => l.id)).toEqual(['hangande']);
+    await act(async () => { vy.strykLass('hangande'); });
+    expect(vy.vantarPaDig).toHaveLength(0);
+  });
+  it('ett förslag vars lossning aldrig tog slut (appen stängdes) bekräftar inte sig självt utan väntar på föraren', async () => {
+    const { hamtaLassKo } = await import('@/lib/skotarLass/koKopplad');
+    await (await hamtaLassKo()).spara({
+      id: 'avbrutet', objektId: 'o1', voNummer: '555', maskinId: 'A030353', medarbetareId: null, lassNummer: 3, datum: '2026-10-19', status: 'foreslaget', bekraftadAv: null, bekraftadTid: null,
+      sparPunkter: [], vagar: [], skapad: '2026-10-19T07:57:03.000Z', andrad: '2026-10-19T07:57:03.000Z',
+      delar: [{ delNr: 1, avlaggId: 'vida:2', avlaggNummer: '2', lossadTid: '2026-10-19T07:56:32.000Z', lat: BAS.lat, lng: BAS.lng, rader: [{ nyckel: 'tall', namn: 'Tall', m3: 10 }] }],
+    });
+    await act(async () => { root.unmount(); });
+    root = createRoot(div);
+    await visa();
+    expect(vy.lass.find((l) => l.id === 'avbrutet')!.status).toBe('vantar_forare');
+    expect(vy.vantarPaDig.map((l) => l.id)).toEqual(['avbrutet']);
   });
 });
 
@@ -169,7 +306,7 @@ describe('nytt avlägg och tvetydighet', () => {
   });
   it('två avlägg nära varandra: föraren väljer, kortet bekräftar inte självt', async () => {
     await visa({ vida: [{ nummer: '2', lat: BAS.lat, lng: BAS.lng }, { nummer: '3', lat: BAS.lat + 25 * M, lng: BAS.lng }] });
-    await stå(10, 40);
+    await stå(10, 200);
     expect(vy.kort?.fas).toBe('avlagg_val');
     expect(vy.lass[0].delar[0].avlaggId).toBeNull();
     await act(async () => { vy.valjAvlagg(vy.lass[0].id, 1, vy.avlagg[1]); });
@@ -190,7 +327,7 @@ describe('minne mellan dagar', () => {
     await act(async () => { root.unmount(); });
     root = createRoot(div);
     await visa();
-    await stå(5, 40);
+    await stå(5, 200);
     const nytt = vy.lass.find((l) => l.id !== 'igar');
     expect(nytt).toBeDefined();
     expect(nytt!.lassNummer).toBe(2);
@@ -205,6 +342,10 @@ describe('torrkörning (testläget)', () => {
     await act(async () => { vy.provkorLossning('vida:2'); });
     expect(vy.lass).toHaveLength(1);
     expect(vy.lass[0].delar[0].avlaggId).toBe('vida:2');
+    expect(vy.kort?.fas).toBe('lossar');   // lossningen pågår tills nästa Provkör-tryck ("kör ut ur zonen")
+    expect(vy.oppen).not.toBeNull();
+    await act(async () => { vy.provkorLossning('vida:2'); });
+    expect(vy.oppen).toBeNull();
     expect(vy.kort?.fas).toBe('forare');   // första lasset på trakten bekräftar sig aldrig självt
     await act(async () => { vi.advanceTimersByTime(60_000); });
     expect(server.skickade).toHaveLength(0);
@@ -300,7 +441,7 @@ describe('Färdigskotad på en trakt som började i Opti', () => {
 describe('inaktivt', () => {
   it('aktiv=false: ingen upptäckt, inget lass', async () => {
     await visa({ aktiv: false });
-    await stå(5, 60);
+    await stå(5, 400);
     expect(vy.lass).toHaveLength(0);
   });
 });

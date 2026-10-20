@@ -3,8 +3,8 @@ import { avstand } from './geo';
 import type { Avlagg, LatLng } from './typer';
 
 export const AVLAGG = {
-  /** Så nära ett avlägg ska maskinen stå för att räknas som att den lossar där. */
-  RADIE_M: 40,
+  /** Zonen runt ett avlägg: en avläggshög ligger längs vägen (80–90 m lång i Mölleryd) och Vidas punkt ligger i mitten, så lossningarna ligger 3–45 m från punkten. Två avlägg 177 m isär (01-1/01-2) överlappar inte. */
+  RADIE_M: 50,
   /** Ligger två avlägg så här nära varandra går lossningen inte att avgöra själv — föraren väljer. */
   TVETYDIGT_M: 50,
 } as const;
