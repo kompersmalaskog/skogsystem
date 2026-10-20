@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: (u: string) => h.pushade.push(u) }) }));
 vi.mock('@/components/BottomNav', () => ({ default: () => null }));
-vi.mock('./useMinPosition', () => ({ useLevandePosition: () => h.position }));
+vi.mock('./useEnPosition', () => ({ useEnPosition: () => h.position }));
 vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => h.vag }));
 vi.mock('@/lib/navigera', async () => {
   const a = await vi.importActual<Record<string, unknown>>('@/lib/navigera');
@@ -78,8 +78,8 @@ const text = () => host!.textContent ?? '';
 const klicka = async (el: HTMLElement | null) => { expect(el, 'elementet att klicka på').not.toBeNull(); await act(async () => { el!.click(); }); };
 async function montera_och_vanta() { await montera(); await vantaTills(() => !text().includes('Hämtar egenkontrollerna'), 'listan laddad'); }
 
-const MED_POSITION = { status: 'ok', position: { lat: 56.4, lng: 14.8, noggrannhet: 5 }, skal: null, senasteNoggrannhet: 5, forsokIgen: () => {} };
-const UTAN_POSITION = { status: 'saknas', position: null, skal: null, senasteNoggrannhet: null, forsokIgen: () => {} };
+const MED_POSITION = { lat: 56.4, lng: 14.8 };
+const UTAN_POSITION = null;
 
 beforeEach(() => {
   nr = 0; h.vag = {}; h.position = MED_POSITION; h.pushade = []; h.navigerade = []; h.antalLaddningar = 0;
@@ -227,12 +227,14 @@ describe('Starta på ett annat objekt', () => {
     expect([...host!.querySelectorAll('[data-testid^="rad-"]')].map((e) => e.getAttribute('data-testid'))).toEqual(['rad-o-Gallring 1']);
   });
 
-  it('GROT går inte att starta: den listas inte, och huvudlistan säger att den finns', async () => {
+  it('GROT går inte att starta: den listas inte, och ingen rad pekar på det man inte kan göra', async () => {
     h.lista = async () => lista();
     await montera_och_vanta();
-    expect(text()).toContain('1 objekt av annan typ (GROT, energiklippning) kan inte kontrolleras ännu.');
+    expect(text()).not.toContain('annan typ');
+    expect(text()).not.toContain('GROT');
     await klicka(tid('kategori-starta-på-ett-annat-objekt'));
     expect(text()).not.toContain('GROT-jobb');
+    expect(text()).not.toContain('annan typ');
   });
 
   it('en enda typ → ingen väljare', async () => {

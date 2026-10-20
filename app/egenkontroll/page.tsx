@@ -17,12 +17,12 @@ import Ikon from '@/components/design/Ikon';
 import { AVSTAND, FARG, IKON, KNAPP, KORT, TYP } from '@/lib/design/tokens';
 import { hamtaStickprov, hamtaVantande, type VantandeOversikt } from '@/lib/egenkontroll';
 import type { ObjektTyp } from '@/lib/egenkontroll';
-import { beslutskort, dragenText, forklaringText, kategorisera, klusterRad, arKontrollerbar, type Stickprov } from '@/lib/egenkontrollStickprov';
+import { beslutskort, dragenText, forklaringText, kategorisera, klusterRad, type Stickprov } from '@/lib/egenkontrollStickprov';
 import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { harKoordinat, startaNavigering } from '@/lib/navigera';
 import { fagelKm } from '@/lib/objektVal';
 import { typLabel } from '@/lib/objekt/typ';
-import { useLevandePosition } from './useMinPosition';
+import { useEnPosition } from './useEnPosition';
 import { BilKnapp, Kategorirad, ListRot, Not, Objektrad, RadKort, TillbakaRad, Typval, radMeta, type Avstand, type RadData } from './ListDelar';
 
 type Vy = 'huvud' | 'paborjade' | 'klara' | 'annat';
@@ -38,10 +38,7 @@ export default function EgenkontrollListPage() {
   const [laddar, setLaddar] = useState(true);
   const [vy, setVy] = useState<Vy>('huvud');
   const [valdTyp, setValdTyp] = useState<string | null>(null);
-  const position = useLevandePosition();
-  const lat = position.position?.lat ?? null;
-  const lng = position.position?.lng ?? null;
-  const pos = useMemo(() => (lat != null && lng != null ? { lat, lng } : null), [lat, lng]);
+  const pos = useEnPosition();   // EN position, ingen bevakning (batteri) — se useEnPosition.ts
 
   const ladda = useCallback(async () => {
     setLaddar(true);
@@ -89,9 +86,6 @@ export default function EgenkontrollListPage() {
   }, [kat.annat]);
   const aktivTyp = typer.some((t) => t.id === valdTyp) ? valdTyp! : typer[0]?.id ?? '';
   const annatLista = kat.annat.filter((r) => (r.typ ?? '').toLowerCase() === aktivTyp);
-
-  // Det som inte går att kontrollera ännu (GROT, energiklippning) sägs, så listan inte tiger om det den utelämnar.
-  const annanTyp = rader.filter((r) => r.rundstatus === 'ej_startad' && !arKontrollerbar(r.typ)).length;
 
   const rubrikFor: Record<Exclude<Vy, 'huvud'>, string> = { paborjade: 'Påbörjade', klara: 'Klara', annat: 'Starta på ett annat objekt' };
 
@@ -208,9 +202,6 @@ export default function EgenkontrollListPage() {
         </div>
       )}
 
-      {annanTyp > 0 && (
-        <Not testid="annan-typ">{annanTyp} objekt av annan typ (GROT, energiklippning) kan inte kontrolleras ännu.</Not>
-      )}
       {(data?.antalUtanDatum ?? 0) > 0 && (
         <Not testid="utan-datum">{data!.antalUtanDatum} äldre objekt saknar avslutsdatum och listas inte här. De kan startas från objektet.</Not>
       )}
