@@ -34,7 +34,7 @@ function Dagar({ b }: { b: VilobrottArkBrott }) {
 
 export default function VilobrottArk({ vy, hamtaManad, onStang }: {
   vy: VilobrottArkVy;
-  /** Vart "Se hela månaden" går: en funktion som öppnar Förare · Månad på dagen, eller null när månaden inte går att öppna än. */
+  /** Vart "Se hela månaden" går: en funktion som öppnar Förare · Månad på dagen, eller null när månaden inte går att öppna än (då visas ingen länk). */
   hamtaManad: (b: VilobrottArkBrott) => (() => void) | null;
   onStang: () => void;
 }) {
@@ -54,11 +54,8 @@ export default function VilobrottArk({ vy, hamtaManad, onStang }: {
                 <div data-vilobrott-detalj="">
                   <Dagar b={b} />
                   <p data-vila-svar="" style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{b.svarText}</p>
-                  <div style={{ marginTop: AVSTAND.s }}>
-                    {manad
-                      ? <Lank smal onClick={manad}>Se hela månaden ›</Lank>
-                      : <p data-vila-manad-ej="" style={{ margin: 0, ...TYP.meta, color: FARG.text3 }}>Förare · Månad öppnas när lönemånaden är avslutad</p>}
-                  </div>
+                  {/* Länken finns bara när månaden går att öppna; för innevarande månad är den dold, utan förklaring (arket visar redan dagarna). */}
+                  {manad && <div style={{ marginTop: AVSTAND.s }}><Lank smal onClick={manad}>Se hela månaden ›</Lank></div>}
                 </div>
               )}
             </Rad>

@@ -19,7 +19,7 @@ export type VilobrottRad = Vilobrott & {
   dagar: VilobrottDagar | null;
 };
 
-type Medarbetare = { id: string; namn: string | null };
+type Medarbetare = { id: string; namn: string | null; /** Företagsledare / delägare: arbetstidslagen gäller inte, de får inga vilobrott. */ foretagsledare?: boolean | null };
 type Dag = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
 type Svar = { medarbetare_id: string; datum: string; typ: string; besvarat_av_forare: boolean | null; orsak: string | null; orsak_fritext: string | null };
 
@@ -37,6 +37,8 @@ export function beraknaVilobrottLista(indata: {
 }): VilobrottRad[] {
   const { medarbetare, arbetsdagar, perioder, svar, trosklar, nu } = indata;
   const namnMap = new Map(medarbetare.map(m => [m.id, m.namn || m.id.slice(0, 8)]));
+  // Företagsledare (medarbetare.foretagsledare, samma flagga som tar bort deras lönerader) analyseras inte alls: ATL gäller inte företagsledande ställning.
+  const ledare = new Set(medarbetare.filter(m => m.foretagsledare === true).map(m => m.id));
   const dagPerMed = new Map<string, Dag[]>();
   for (const d of arbetsdagar) {
     if (!d.medarbetare_id) continue;
@@ -56,6 +58,7 @@ export function beraknaVilobrottLista(indata: {
 
   const ut: VilobrottRad[] = [];
   dagPerMed.forEach((dagar, medId) => {
+    if (ledare.has(medId)) return;
     const spann = medPerioddagSpann(dagar, perPerMed.get(medId) || []);
     const brott = analyseraVilobrott(spann, trosklar, nu);
     for (const b of brott.filter(arTroligtVilobrott)) {
@@ -70,7 +73,7 @@ export function beraknaVilobrottLista(indata: {
 export async function laddaVilobrottLista(idag: Date = new Date()): Promise<VilobrottRad[]> {
   const fran = ymdLokal(new Date(idag.getFullYear(), idag.getMonth() - 3, 1));
   const [medRes, arbRes, perRes, svarRes, avtal] = await Promise.all([
-    supabase.from("medarbetare").select("id, namn").order("namn"),
+    supabase.from("medarbetare").select("id, namn, foretagsledare").order("namn"),
     supabase.from("arbetsdag").select("medarbetare_id, datum, start_tid, slut_tid").gte("datum", fran).order("datum"),
     // Perioddagarna: arbetstidslagen gäller all arbetstid, inte bara maskintid.
     supabase.from("extra_tid").select("medarbetare_id, datum, start_tid, slut_tid").gte("datum", fran).not("slut_tid", "is", null),

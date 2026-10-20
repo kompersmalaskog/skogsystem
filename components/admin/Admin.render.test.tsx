@@ -524,7 +524,31 @@ describe("Översikt = att-göra-lista", () => {
       await klickRad("Anna Berg: 1 obesvarat vilobrott");
       expect(document.body.querySelector('[data-vila-pass="2026-10-05"]')).not.toBeNull();
       expect(blad("Se hela månaden ›").length).toBe(0);
-      expect(document.body.querySelector("[data-vila-manad-ej]")).not.toBeNull();
+      // ingen förklarande text i stället: länken är bara borta
+      expect(document.body.querySelector("[data-vila-manad-ej]")).toBeNull();
+      expect(text()).not.toContain("Förare · Månad öppnas");
+      expect(ark()!.textContent).toContain("Obesvarat");   // arket visar ändå dagarna och status
+    });
+
+    it("pågående månad: tidigare månad har länken kvar — det är innevarande månad som saknar den", async () => {
+      mangaSaker();
+      await monter("flik=oversikt");
+      await klickRad(RAD);
+      await oppnaBrott("dygnsvila");   // 28 sep, avslutad månad
+      expect(blad("Se hela månaden ›").length).toBe(1);
+    });
+
+    it("Martin Lindqvist (företagsledare) ger inga vilobrott i Översikt — Anna med samma pass har dem kvar", async () => {
+      mangaSaker();
+      g.__db.medarbetare.push({ ...MED[1], id: "m9", namn: "Martin Lindqvist", foretagsledare: true, user_id: "u9", maskin_id: "R64101", hem_lat: 56.4, hem_lng: 14.7 });
+      g.__db.arbetsdag = [...g.__db.arbetsdag, ...g.__db.arbetsdag.filter((d: any) => d.medarbetare_id === "m1").map((d: any) => ({ ...d, medarbetare_id: "m9" }))];
+      await monter("flik=oversikt");
+      expect(text()).toContain("Anna Berg: 2 obesvarade vilobrott");
+      expect(text()).not.toMatch(/Martin Lindqvist: \d+ obesvara/);
+      // inte heller i Lön → Vilobrott (samma lista)
+      await monter("flik=lon&underflik=vila");
+      expect(text()).toContain("Anna Berg");
+      expect(text()).not.toContain("Martin Lindqvist");
     });
   });
 
