@@ -1,12 +1,12 @@
 // Uppföljningen (året). Toppen och månadslistan ligger på rundorna (`summera`): samma regler som Körningar — hela km per runda,
 // summa av avrundade delar, l/mil bara över rundor med BÅDE mätare och diesel, och saknad diesel är null (aldrig 0).
 // Förbrukning och Körsträcka (staplarna) ligger på bilens VIKT (`vikt.ts`, SQL-funktionen lastbil_vikt_manad): mätt körning delad
-// på med lass / utan lass / okänd. Betalt ligger på rundornas km och fakturaunderlaget. Mätarens och rundornas km är inte samma tal.
+// på med lass / utan lass / okänd. Betalt ligger på mätarens km och fakturaunderlaget. Beslut Martin 2026-10-20: ALL körsträcka på Uppföljning-sidan (Körd, månadslistan, Körsträcka, Betalt) kommer från mätaren; Körningar-sidan är rundor.
 
 import { manaderIAr, manadForStart, type Manad } from './period';
 import { arGodkand, summeraFakturerbart, type UnderlagRad } from './fakturerbart';
 import { fmtLPerMil, summera, type Runda, type Summa } from './rundor';
-import type { KlassSumma, ViktManad } from './vikt';
+import { matarKm, type KlassSumma, type ViktManad } from './vikt';
 
 export type Lage = 'forbrukning' | 'korstracka' | 'betalt';
 
@@ -85,24 +85,28 @@ export const ENHET: Record<Lage, string> = { forbrukning: 'l/mil', korstracka: '
 const manadsNyckel = (m: Manad) => `${m.ar}-${String(m.man).padStart(2, '0')}`;
 
 /**
- * Betalt: samma stapel som Körsträcka (ALLA körda km i månaden), delad i Fakturerat och Ej betalt = körda minus fakturerade.
- * Fakturerat är pengatalets regel (`summeraFakturerbart`: godkända och fakturerade flyttar, strukna och ogodkända räknas inte,
- * varje flytts km avrundad före summering), grupperat på underlagets datum. Ej betalt blir därmed tomkörning, service, korta
- * och egna flyttar — och summan går alltid ihop med Körsträcka-läget. Ger underlaget MER km än rundorna (en rättad sträcka)
- * är Ej betalt 0, aldrig negativt.
+ * Betalt: en stapel över ALLA körda km i månaden ur MÄTAREN (samma tal som Körsträcka och månadslistan), delad i Fakturerat och
+ * Ej betalt = körda minus fakturerade. Fakturerat är pengatalets regel (`summeraFakturerbart`: godkända och fakturerade flyttar,
+ * strukna och ogodkända räknas inte, varje flytts km avrundad före summering), grupperat på underlagets datum. Ej betalt blir
+ * därmed tomkörning, service, korta och egna flyttar — och summan går alltid ihop med Körsträcka-läget. Ger underlaget MER km än
+ * mätaren (en rättad sträcka) är Ej betalt 0, aldrig negativt. En månad utan mätare har inget "av Y": säger "vikt saknas", eller
+ * (finns fakturerade km ändå) bara de fakturerade km — aldrig ett påhittat Y.
  */
-export function betaltRader(rader: readonly ManadRad[], underlag: readonly UnderlagRad[]): StapelRad[] {
-  return rader.map(({ m, s }) => {
-    const fakt = summeraFakturerbart(underlag.filter(u => (u.datum ?? '').slice(0, 7) === manadsNyckel(m))).km;
-    const ejBetalt = Math.max(0, s.km - fakt);
-    if (s.antal === 0 && fakt === 0) {
-      return { etikett: manadKort(m), staplar: [{ namn: 'Fakturerat', varde: 0, text: '0', saknas: null }, { namn: 'Ej betalt', varde: 0, text: '0', saknas: null }], total: null, delar: null };
+export function betaltRader(manader: readonly ViktManad[], underlag: readonly UnderlagRad[]): StapelRad[] {
+  return manader.map(v => {
+    const fakt = summeraFakturerbart(underlag.filter(u => (u.datum ?? '').slice(0, 7) === manadsNyckel(v.m))).km;
+    const km = matarKm(v);
+    const etikett = manadKort(v.m);
+    if (km == null) {
+      if (fakt === 0) return { etikett, staplar: [{ namn: 'Fakturerat', varde: 0, text: '0', saknas: null }, { namn: 'Ej betalt', varde: 0, text: '0', saknas: null }], total: null, delar: null, saknas: VIKT_SAKNAS };
+      return { etikett, staplar: [{ namn: 'Fakturerat', varde: fakt, text: tusental(fakt), saknas: null }], total: `${tusental(fakt)} km fakturerat`, delar: 'körsträcka saknas', saknas: null };
     }
+    const ejBetalt = Math.max(0, km - fakt);
     return {
-      etikett: manadKort(m),
+      etikett,
       staplar: [{ namn: 'Fakturerat', varde: fakt, text: tusental(fakt), saknas: null }, { namn: 'Ej betalt', varde: ejBetalt, text: tusental(ejBetalt), saknas: null }],
-      total: `${tusental(fakt)} av ${tusental(s.km)} km`,
-      delar: s.km > 0 ? `${Math.round((100 * fakt) / s.km)} %` : null,
+      total: `${tusental(fakt)} av ${tusental(km)} km`,
+      delar: km > 0 ? `${Math.round((100 * fakt) / km)} %` : null,
     };
   });
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LASS_SAKNAS_FAKTOR, lassMotFlyttar, perViktManad, type ViktRad } from './vikt';
+import { LASS_SAKNAS_FAKTOR, lassMotFlyttar, matarAr, matarKm, perViktManad, type ViktRad } from './vikt';
 import { PROD_VIKT_RADER } from './vikt.fixtur';
 import type { Flytt } from './maskiner';
 
@@ -17,17 +17,18 @@ describe('perViktManad: Martins prod-siffror', () => {
   it('månaderna nyast först, juli med', () => {
     expect(man.map(x => x.m.man)).toEqual([10, 9, 8, 7]);
   });
-  it('km per klass i hela km och l/mil som Martin räknade: aug 5,28 / 3,66 · sep 5,58 / 3,83 · okt 5,45 / 3,76', () => {
-    expect([m(8).lastad.km, m(8).tom.km]).toEqual([538, 845]);
-    expect([m(9).lastad.km, m(9).tom.km]).toEqual([601, 755]);
-    expect([m(10).lastad.km, m(10).tom.km]).toEqual([295, 535]);
+  it('km per klass i hela km och l/mil som Martins första körning: aug 5,10 / 3,66 · sep 5,47 / 3,83 · okt 5,30 / 3,76', () => {
+    expect([m(8).lastad.km, m(8).tom.km]).toEqual([482, 845]);
+    expect([m(9).lastad.km, m(9).tom.km]).toEqual([504, 755]);
+    expect([m(10).lastad.km, m(10).tom.km]).toEqual([242, 535]);
     const tvaDec = (v: number | null) => Math.round((v as number) * 100) / 100;
-    expect([m(8).lastad.lPerMil, m(8).tom.lPerMil].map(tvaDec)).toEqual([5.28, 3.66]);
-    expect([m(9).lastad.lPerMil, m(9).tom.lPerMil].map(tvaDec)).toEqual([5.58, 3.83]);
-    expect([m(10).lastad.lPerMil, m(10).tom.lPerMil].map(tvaDec)).toEqual([5.45, 3.76]);
+    expect([m(8).lastad.lPerMil, m(8).tom.lPerMil].map(tvaDec)).toEqual([5.1, 3.66]);
+    expect([m(9).lastad.lPerMil, m(9).tom.lPerMil].map(tvaDec)).toEqual([5.47, 3.83]);
+    expect([m(10).lastad.lPerMil, m(10).tom.lPerMil].map(tvaDec)).toEqual([5.3, 3.76]);
   });
   it('summan är summan av de avrundade delarna', () => {
-    expect(m(8).km).toBe(538 + 845);
+    expect(m(8).km).toBe(482 + 845 + 114);
+    expect([m(9).km, m(10).km]).toEqual([504 + 755 + 97, 242 + 535 + 53]);
     const r = perViktManad(2026, [rad({ km_lastad: 10.4, km_tom: 20.4, km_okand: 5.4 })], NU).find(x => x.m.man === 8)!;
     expect([r.lastad.km, r.tom.km, r.okand.km, r.km]).toEqual([10, 20, 5, 35]);
   });
@@ -90,5 +91,25 @@ describe('lassMotFlyttar: kört med lass mot registrerade flyttar', () => {
   });
   it('månader utan känd vikt (juli) jämförs inte', () => {
     expect(lassMotFlyttar(perViktManad(2026, PROD_VIKT_RADER, NU), []).map(x => x.m.man)).toEqual([10, 9, 8]);
+  });
+});
+
+describe('mätarens km: lastad + tom + okänd, och månader mätaren inte täcker', () => {
+  const man = perViktManad(2026, PROD_VIKT_RADER, NU);
+  it('månadens km är mätarens: aug 1 441 · sep 1 356 · okt 830 (inklusive okänd)', () => {
+    expect(man.map(v => [v.m.man, matarKm(v)])).toEqual([[10, 830], [9, 1356], [8, 1441], [7, null]]);
+  });
+  it('juli har ingen mätare: null, inte 0', () => {
+    expect(matarKm(man.find(v => v.m.man === 7)!)).toBeNull();
+  });
+  it('året = summan av månaderna som listan visar (3 627), och juli nämns som saknad när det fanns rundor', () => {
+    const ar = matarAr(man, () => true);
+    expect(ar.km).toBe(1441 + 1356 + 830);
+    expect(ar.saknas.map(m => m.man)).toEqual([7]);
+    expect(matarAr(man, m => m.man !== 7).saknas).toEqual([]);          // en månad utan körning är inte "saknad"
+  });
+  it('en månad med bara okänd körning täcks inte av mätaren (delsumma vore ett falskt tal)', () => {
+    const bara = perViktManad(2026, [rad({ km_lastad: 0, km_tom: 0, km_okand: 9 })], NU).find(v => v.m.man === 8)!;
+    expect(matarKm(bara)).toBeNull();
   });
 });

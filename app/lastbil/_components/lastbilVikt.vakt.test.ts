@@ -5,9 +5,9 @@ import { LASS } from '@/lib/lastbil/lass/detektera';
 
 // SQL-funktionen lastbil_vikt_manad och lassdetekteringen måste dela gräns för "lastad". Funktionen testas i riktig Postgres
 // (supabase/tests/lastbil_vikt_manad.sql); här vaktas att gränsen i migrationen är LASS.LASTAD_KG och att behörigheten är som avsett.
-const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/20261020120000_lastbil_vikt_manad.sql'), 'utf8');
+const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/20261020111258_lastbil_vikt_manad.sql'), 'utf8');
 
-describe('lastbil_vikt_manad (migration 20261020120000)', () => {
+describe('lastbil_vikt_manad (migration 20261020111258)', () => {
   it('lastad-gränsen i SQL är samma som lassdetekteringens (LASS.LASTAD_KG)', () => {
     const grans = Array.from(SQL.matchAll(/vikt[01] >= (\d+)/g)).map(m => Number(m[1]));
     expect(grans).toEqual([LASS.LASTAD_KG, LASS.LASTAD_KG]);

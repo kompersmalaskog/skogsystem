@@ -1,7 +1,7 @@
 // Lastbilens körning uppdelad på lastad / tom / okänd ur bilens bruttovikt (Uppföljning, steg 3). EN härledning för Förbrukning,
 // Körsträcka och jämförelsen i Betalt, så de aldrig läser olika underlag.
 //
-// Källa: SQL-funktionen lastbil_vikt_manad (migration 20261020120000): segment mellan två mätpunkter där mätaren ökat, klassade på
+// Källa: SQL-funktionen lastbil_vikt_manad (migration 20261020111258): segment mellan två mätpunkter där mätaren ökat, klassade på
 // vikten i ändpunkterna (lastad ≥ 34 t, tom under, olika klass i ändarna eller ingen vikt = okänd). Siffrorna är MÄTT körning
 // (mätaren i bilen) — inte rundornas km, så summan kan skilja sig lite från "Körd 2026" och månadslistan, som bygger på rundorna.
 //
@@ -67,6 +67,20 @@ export function perViktManad(ar: number, rader: readonly ViktRad[], nu?: Date): 
     const okand = klass(r.km_okand, r.liter_okand, r.km_diesel_okand);
     return { m, harVikt: lastad.kmRa + tom.kmRa > 0, lastad, tom, okand, km: lastad.km + tom.km + okand.km };
   });
+}
+
+/**
+ * Körd km i månaden ur MÄTAREN (lastad + tom + okänd), avrundad per klass; null = mätare saknas. En månad utan känd vikt
+ * (juli: loggen börjar 31 juli) räknas som saknad — den täcker inte månaden, och en delsumma vore ett falskt tal.
+ */
+export const matarKm = (v: ViktManad): number | null => (v.harVikt ? v.km : null);
+
+/** Årets mätar-km: summan av månadernas km, och vilka månader (med körning) som mätaren inte täcker. */
+export function matarAr(manader: readonly ViktManad[], harKorning: (m: Manad) => boolean): { km: number; saknas: Manad[] } {
+  return {
+    km: manader.reduce((s, v) => s + (matarKm(v) ?? 0), 0),
+    saknas: manader.filter(v => matarKm(v) == null && harKorning(v.m)).map(v => v.m),
+  };
 }
 
 /** Lass kan saknas när bilen kört med lass mer än 1,5 gånger så långt som de registrerade flyttarna. */

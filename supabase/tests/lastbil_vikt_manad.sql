@@ -1,4 +1,4 @@
--- Lokalt test av lastbil_vikt_manad (migration 20261020120000). Körs mot en tom Postgres, ingen Supabase behövs:
+-- Lokalt test av lastbil_vikt_manad (migration 20261020111258). Körs mot en tom Postgres, ingen Supabase behövs:
 --   psql -v ON_ERROR_STOP=1 -f supabase/tests/lastbil_vikt_manad.sql <db>     (från repo-roten: migrationen läses med \i)
 -- Varje fall har sitt facit i kommentaren; testet kastar om en rad avviker.
 do $$ begin
@@ -41,7 +41,7 @@ insert into lastbil_logg values
  ('C','2025-05-01 10:00Z',100000,1000,w('28000')),
  ('C','2025-05-01 10:08Z',110000,3000,w('28000'));     -- 2025: tom 10 km, 2 l
 
-\i supabase/migrations/20261020120000_lastbil_vikt_manad.sql
+\i supabase/migrations/20261020111258_lastbil_vikt_manad.sql
 
 do $$
 declare r record; n int;
