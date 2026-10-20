@@ -15,7 +15,7 @@ export function rundaRubrik(r: Runda): string {
   return 'Övrig körning';
 }
 
-/** Raden under rubriken: var det gick, eller vad som saknas. Aldrig tyst tomt. */
+/** Raden under rubriken: var det gick, eller vad som saknas. Tom sträng för vanlig övrig körning — rubriken "Övrig körning" säger allt. */
 export function rundaUnder(r: Runda): string {
   if (r.flytt) {
     if (r.ben.length === 1) return `${r.ben[0].fran ? r.ben[0].fran + ' → ' : '→ '}${r.ben[0].till ?? 'okänd plats'}`;
@@ -23,7 +23,7 @@ export function rundaUnder(r: Runda): string {
   }
   if (r.avbruten) return r.forare ? `Förare: ${r.forare} · avbröts` : 'Avbröts';
   if (r.tom) return 'Bilen rörde sig aldrig';
-  return r.forare ? `Förare: ${r.forare} · ingen flytt kopplad` : 'Ingen förare registrerad · ingen flytt kopplad';
+  return '';   // Övrig körning: rubriken räcker (förare och "ingen flytt kopplad" hör till arket, inte raden)
 }
 
 /** "mån 12 okt · 11:30" (svensk tid). En runda utan giltig tid säger det. */
@@ -39,7 +39,6 @@ export function rundaMarkningar(r: Runda): Markning[] {
   if (r.ogiltigTid) m.push({ text: 'Sluttid före start, räknas inte', farg: 'orange' });
   if (r.overlappar) m.push({ text: 'Överlappar en annan runda', farg: 'orange' });
   if (r.fortsattningEfter) m.push({ text: `Fortsättning efter ${fmtKlocka(r.fortsattningEfter)}`, farg: 'dampad' });
-  if (r.ben.some(b => b.fakturerbar)) m.push({ text: 'Fakturerbar', farg: 'gron' });
   return m;
 }
 

@@ -1,8 +1,8 @@
-// Nu-fliken: vad lastbilen gör just nu, härlett ur /api/lastbil. Rena funktioner — all text byggs här
+// Kortet "Bilen nu": vad lastbilen gör just nu, härlett ur /api/lastbil. Rena funktioner — all text byggs här
 // så den går att testa, och så vyn bara ritar. Stockholmstid genomgående (servern kör UTC).
 //
-// Tillstånd syns, de räknas aldrig ut (skillen): läget står i ord överst, och en avvikelse
-// (varningslampa, låg tank) TAR ÖVER rubriken med färgen som förstärkning av orden.
+// Tillstånd syns, de räknas aldrig ut (skillen): läget står i ord, en tänd varningslampa TAR ÖVER rubriken,
+// och tankraden har orden bredvid siffran (färgen förstärker bara).
 
 import { sthlmDelar } from '@/lib/sthlmTid';
 
@@ -57,96 +57,121 @@ export function fmtAlder(min: number | null): string {
   return `för ${h} h${m ? ` ${m} min` : ''} sedan`;
 }
 
-/** "sedan 13:16", "sedan igår 13:16", "sedan tis 13:16", "sedan 3 aug 13:16". */
+/** Samma Stockholmsdag som `nu`? */
+function arIdag(iso: string, nu: Date): boolean {
+  const d = sthlmDelar(new Date(iso)), n = sthlmDelar(nu);
+  return !!d && !!n && d.ar === n.ar && d.man === n.man && d.dag === n.dag;
+}
+
+/** "12 okt" i Stockholmstid. */
+function fmtDagManad(iso: string): string {
+  const d = sthlmDelar(new Date(iso));
+  return d ? `${d.dag} ${MANAD[d.man - 1]}` : '';
+}
+
+/** "sedan 13:16" om det är idag, annars bara datumet: "sedan 12 okt". EN tid — aldrig datum och klockslag tillsammans i rubriken. */
 export function fmtSedan(iso: string | null, nu: Date = new Date()): string {
   if (!iso) return '';
-  const d = sthlmDelar(new Date(iso)), n = sthlmDelar(nu);
-  if (!d || !n) return '';
-  const dagnr = (x: { ar: number; man: number; dag: number }) => Date.UTC(x.ar, x.man - 1, x.dag) / 86400000;
-  const diff = dagnr(n) - dagnr(d);
-  const kl = fmtKlocka(iso);
-  if (diff <= 0) return `sedan ${kl}`;
-  if (diff === 1) return `sedan igår ${kl}`;
-  if (diff < 7) return `sedan ${DAG[new Date(Date.UTC(d.ar, d.man - 1, d.dag)).getUTCDay()]} ${kl}`;
-  return `sedan ${d.dag} ${MANAD[d.man - 1]} ${kl}`;
+  return arIdag(iso, nu) ? `sedan ${fmtKlocka(iso)}` : `sedan ${fmtDagManad(iso)}`;
 }
 
-export type Avvikelse = { niva: 'rod' | 'orange'; rubrik: string; under: string };
-
-/** Det som kräver handling. Röd före orange, den allvarligaste vinner. */
-export function harledAvvikelse(data: LastbilData): Avvikelse | null {
-  const lampor = data.halsa?.lampor ?? [];
-  if (lampor.length > 0) {
-    return { niva: 'rod', rubrik: lampor.length === 1 ? `${lampor[0].namn} lyser` : `${lampor.length} varningslampor lyser`, under: 'Kontrollera bilen' };
-  }
-  const d = data.tank?.diesel_pct, a = data.tank?.adblue_pct, r = data.tank?.rackvidd_km;
-  if (d != null && d < GRANS.dieselRod) return { niva: 'rod', rubrik: `Diesel ${Math.round(d)} % – tanka nu`, under: r != null ? `Räckvidd ${r} km` : 'Låg nivå' };
-  if (d != null && d < GRANS.dieselOrange) return { niva: 'orange', rubrik: `Diesel ${Math.round(d)} % – tanka snart`, under: r != null ? `Räckvidd ${r} km` : 'Planera tankning' };
-  if (r != null && r < GRANS.rackviddOrange) return { niva: 'orange', rubrik: `Räckvidd ${r} km – tanka snart`, under: 'Planera tankning' };
-  if (a != null && a < GRANS.adblueOrange) return { niva: 'orange', rubrik: `AdBlue ${Math.round(a)} % – fyll på`, under: 'Låg AdBlue-nivå' };
-  return null;
-}
-
-export interface Hero {
-  /** Liten versal etikett över rubriken. */
-  mikro: string | null;
-  rubrik: string;
-  /** Färgen förstärker orden i rubriken — den bär aldrig ensam. */
-  farg: 'text' | 'rod' | 'orange';
-  /** Sekundär rad direkt under rubriken (maskin på flaket, km kvar). */
-  rad: string | null;
-  /** Skärmens huvudtal när bilen rullar (rundans km hittills). */
-  tal: string | null;
-  meta: string;
-  /** Puls bara för "pågår just nu". */
-  puls: boolean;
-}
-
-/** Lägesraden: "Kör nu 06:41", "Parkerad på LBC". Avvikelsen tar över rubriken men läget står kvar i metan. */
-function lageText(data: LastbilData): string | null {
-  const o = data.oppen_runda;
-  if (o) return o.pa_vag_hem ? 'På väg hem' : 'Kör nu';
-  if (data.parkerad) return `Parkerad på ${data.parkerad.plats}`;
-  return null;
-}
-
-export function harledHero(data: LastbilData, nu: Date = new Date()): Hero {
-  const alder = `senast sedd ${fmtAlder(data.position?.alder_min ?? null)}`;
-  const avvik = harledAvvikelse(data);
-  if (avvik) {
-    const lage = lageText(data);
-    return {
-      mikro: 'Kräver handling', rubrik: avvik.rubrik, farg: avvik.niva, rad: null, tal: null, puls: false,
-      meta: [avvik.under, lage, alder].filter(Boolean).join(' · '),
-    };
-  }
+/** Läget i ord + sedan när. "Kör nu · Giant på flaket · 34 km · avfärd 06:41", "Parkerad vid Kompersmåla · sedan 15:02" (idag) eller "… · sedan 12 okt" (annan dag). */
+export function lageRad(data: LastbilData, nu: Date = new Date()): string {
   const o = data.oppen_runda;
   if (o) {
-    const m = o.maskin;
-    const rubrik = o.pa_vag_hem ? 'På väg hem'
-      : m ? (m.lage === 'lossad' ? `${m.namn} lossad` : `${m.namn} på flaket`)
-      : 'Övrig körning';
-    const rad = o.pa_vag_hem
-      ? (o.km_kvar != null ? `ungefär ${o.km_kvar} km kvar` : null)
-      : m ? null : 'ingen maskin på flaket';
-    return {
-      mikro: o.pa_vag_hem ? 'På väg hem' : 'Kör nu', rubrik, farg: 'text', rad,
-      tal: o.live_km != null ? `${o.live_km} km` : '–',
-      meta: [o.starttid ? `Avfärd ${fmtKlocka(o.starttid)}` : null, alder].filter(Boolean).join(' · '),
-      puls: true,
-    };
+    const delar: string[] = [o.pa_vag_hem ? 'På väg hem' : 'Kör nu'];
+    if (o.pa_vag_hem) {
+      if (o.km_kvar != null) delar.push(`ungefär ${o.km_kvar} km kvar`);
+      else if (o.live_km != null) delar.push(`${o.live_km} km`);
+    } else {
+      delar.push(o.maskin ? (o.maskin.lage === 'lossad' ? `${o.maskin.namn} lossad` : `${o.maskin.namn} på flaket`) : 'Övrig körning');
+      if (o.live_km != null) delar.push(`${o.live_km} km`);
+    }
+    if (o.starttid) delar.push(`avfärd ${fmtKlocka(o.starttid)}`);
+    return delar.join(' · ');
   }
-  if (data.parkerad) {
-    const sedan = fmtSedan(data.parkerad.sedan, nu);
-    return {
-      mikro: null, rubrik: `Parkerad på ${data.parkerad.plats}`, farg: 'text', rad: null, tal: null, puls: false,
-      meta: [sedan, alder].filter(Boolean).join(' · '),
-    };
-  }
-  return {
-    mikro: null, rubrik: data.namn ? `Scania ${data.namn}` : 'Lastbilen', farg: 'text', rad: null, tal: null, puls: false,
-    meta: ['Ingen runda pågår', alder].join(' · '),
-  };
+  if (data.parkerad) return [`Parkerad vid ${data.parkerad.plats}`, fmtSedan(data.parkerad.sedan, nu)].filter(Boolean).join(' · ');
+  return 'Ingen runda pågår';
+}
+
+/** En tänd varningslampa tar över rubriken (röd, med orden "lyser" och "Kontrollera bilen" — färgen förstärker bara). */
+export function lampaRubrik(data: LastbilData): { rubrik: string; under: string } | null {
+  const lampor = data.halsa?.lampor ?? [];
+  if (lampor.length === 0) return null;
+  return { rubrik: lampor.length === 1 ? `${lampor[0].namn} lyser` : `${lampor.length} varningslampor lyser`, under: 'Kontrollera bilen' };
+}
+
+/**
+ * En del av tankraden. `text` är det korta som står i raden ("Diesel 62 %", "AdBlue 80 %", "540 km kvar"); `ord` är orden som står
+ * på EGEN rad under raden, bara när de gäller ("Diesel låg – tanka snart", "Diesel saknas i datan"). Färgen (`niva`) förstärker bara — orden bär
+ * betydelsen. `dampad` = värdet saknas i datan (aldrig 0).
+ */
+export interface TankDel { text: string; niva: 'ok' | 'orange' | 'rod' | 'dampad'; ord: string | null }
+
+/** Raden: "Diesel 62 % · AdBlue 80 % · 540 km kvar". Gränserna är `GRANS` — samma som förut. */
+export function tankDelar(data: LastbilData): TankDel[] {
+  const t = data.tank;
+  const d = t?.diesel_pct, a = t?.adblue_pct, r = t?.rackvidd_km;
+  const diesel: TankDel = d == null ? { text: 'Diesel –', niva: 'dampad', ord: 'Diesel saknas i datan' }
+    : d < GRANS.dieselRod ? { text: `Diesel ${Math.round(d)} %`, niva: 'rod', ord: 'Diesel låg – tanka nu' }
+    : d < GRANS.dieselOrange ? { text: `Diesel ${Math.round(d)} %`, niva: 'orange', ord: 'Diesel låg – tanka snart' }
+    : { text: `Diesel ${Math.round(d)} %`, niva: 'ok', ord: null };
+  const adblue: TankDel = a == null ? { text: 'AdBlue –', niva: 'dampad', ord: 'AdBlue saknas i datan' }
+    : a < GRANS.adblueOrange ? { text: `AdBlue ${Math.round(a)} %`, niva: 'orange', ord: 'AdBlue låg – fyll på' }
+    : { text: `AdBlue ${Math.round(a)} %`, niva: 'ok', ord: null };
+  const rackvidd: TankDel = r == null ? { text: 'Räckvidd –', niva: 'dampad', ord: 'Räckvidd saknas i datan' }
+    : r < GRANS.rackviddOrange ? { text: `${r.toLocaleString('sv-SE')} km kvar`, niva: 'orange', ord: 'Räckvidd kort – tanka snart' }
+    : { text: `${r.toLocaleString('sv-SE')} km kvar`, niva: 'ok', ord: null };
+  return [diesel, adblue, rackvidd];
+}
+
+/** Service visas BARA när det är under 1 000 km kvar (annars ingen rad). Saknas värdet visas inget — vi påstår ingenting. */
+export const SERVICE_VISA_UNDER_KM = 1000;
+export function serviceRad(data: LastbilData): string | null {
+  const km = data.halsa?.service_km;
+  if (km == null || km >= SERVICE_VISA_UNDER_KM) return null;
+  return km <= 0 ? 'Service är försenad' : `Service om ${km.toLocaleString('sv-SE')} km`;
+}
+
+/** "Ingen kontakt sedan 12 okt 15:02" — bara när senaste kontakt är äldre än 1 h. Datum + klockslag; är det idag står bara klockslaget. */
+export const KONTAKT_VISA_EFTER_MIN = 60;
+
+/** Tidpunkten för senaste kontakt: positionens egen tid, annars nu minus åldern. null = okänd. */
+function kontaktTid(data: LastbilData, nu: Date): string | null {
+  const p = data.position;
+  if (!p) return null;
+  if (p.tidpunkt) return p.tidpunkt;
+  if (p.alder_min != null) return new Date(nu.getTime() - p.alder_min * 60000).toISOString();
+  return null;
+}
+
+/** Minuter sedan senaste kontakt. Åldern från servern går före (samma klocka som resten av kortet). */
+function kontaktAlderMin(data: LastbilData, nu: Date): number | null {
+  const p = data.position;
+  if (!p) return null;
+  if (p.alder_min != null) return p.alder_min;
+  return p.tidpunkt ? Math.max(0, Math.round((nu.getTime() - Date.parse(p.tidpunkt)) / 60000)) : null;
+}
+
+function kontaktText(iso: string, nu: Date): string {
+  return arIdag(iso, nu) ? `Ingen kontakt sedan ${fmtKlocka(iso)}` : `Ingen kontakt sedan ${fmtDagManad(iso)} ${fmtKlocka(iso)}`;
+}
+
+export function sistSedd(data: LastbilData, nu: Date = new Date()): string | null {
+  if (!data.position) return null;
+  const min = kontaktAlderMin(data, nu);
+  if (min != null && min <= KONTAKT_VISA_EFTER_MIN) return null;
+  const tid = kontaktTid(data, nu);
+  // Tiden okänd: vi kan inte säga att kontakten är färsk, och inte heller sedan när den bröts.
+  return tid ? kontaktText(tid, nu) : 'Tid för senaste kontakt saknas i datan';
+}
+
+/** Raden i kartarket — står alltid där. Färsk position: "Senast sedd för 5 min sedan"; annars samma text som på kortet (aldrig "99 h 49 min"). */
+export function kontaktRadArk(data: LastbilData, nu: Date = new Date()): string {
+  const gammal = sistSedd(data, nu);
+  if (gammal) return gammal;
+  const min = kontaktAlderMin(data, nu);
+  return `Senast sedd ${fmtAlder(min)}`;
 }
 
 /** Senaste AVSLUTADE runda med giltig tid. En pågående runda är hjälten; en runda med sluttid före start räknas inte. */
@@ -159,48 +184,11 @@ export function senasteKorning(rundor: readonly Runda[]): Runda | null {
   return null;
 }
 
-export function rundaTitel(r: Runda): string {
-  if (r.typ !== 'flytt') return 'Övrig körning';
-  return r.antal_flytt > 1 ? `Flytt · ${r.antal_flytt} maskiner` : 'Flytt';
-}
-
-/** Rader i tank/hälsa-kortet. `saknas i datan` när ett värde saknas — aldrig 0. */
-export interface TankRad {
-  rubrik: string;
-  /** Orange eller röd när värdet ligger under gränsen — samma gräns som rubriken. */
-  farg: 'text' | 'rod' | 'orange';
-  under: string;
-}
-
-export function tankRad(data: LastbilData): TankRad {
-  const t = data.tank;
-  const d = t?.diesel_pct, a = t?.adblue_pct, r = t?.rackvidd_km;
-  const dTxt = d != null ? `Diesel ${Math.round(d)} %` : 'Diesel saknas i datan';
-  const aTxt = a != null ? `AdBlue ${Math.round(a)} %` : 'AdBlue saknas i datan';
-  const rTxt = r != null ? `Räckvidd ${r} km` : 'Räckvidd saknas i datan';
-  const farg: TankRad['farg'] = d != null && d < GRANS.dieselRod ? 'rod' : (d != null && d < GRANS.dieselOrange) || (a != null && a < GRANS.adblueOrange) || (r != null && r < GRANS.rackviddOrange) ? 'orange' : 'text';
-  return { rubrik: `${dTxt} · ${aTxt}`, farg, under: rTxt };
-}
-
-export interface LampRad {
-  rubrik: string;
-  farg: 'gron' | 'rod' | 'dampad';
-  under: string;
-}
-
-export function lampRad(data: LastbilData): LampRad {
-  const h = data.halsa;
-  const lampor = h?.lampor ?? [];
-  const service = h?.service_km != null ? `Service om ${h.service_km.toLocaleString('sv-SE')} km` : 'Service: saknas i datan';
-  if (!h || !h.har_lampor) return { rubrik: 'Varningslampor saknas i datan', farg: 'dampad', under: service };
-  if (lampor.length === 0) return { rubrik: 'Inga varningar', farg: 'gron', under: service };
-  return { rubrik: lampor.length === 1 ? lampor[0].namn : `${lampor.length} varningar`, farg: 'rod', under: service };
-}
-
-export function matareText(data: LastbilData): { km: string; motortimmar: string | null } {
+/** Mätare och motortimmar: de bor i kartarket ("Visa var den står"), inte på kortet. Saknade värden står som "saknas i datan". */
+export function matareText(data: LastbilData): { km: string; motortimmar: string } {
   const h = data.halsa;
   return {
     km: h?.matare_km != null ? `${h.matare_km.toLocaleString('sv-SE')} km` : 'saknas i datan',
-    motortimmar: h?.motortimmar != null ? `Motortimmar ${h.motortimmar.toLocaleString('sv-SE')} h` : null,
+    motortimmar: h?.motortimmar != null ? `${h.motortimmar.toLocaleString('sv-SE')} h` : 'saknas i datan',
   };
 }

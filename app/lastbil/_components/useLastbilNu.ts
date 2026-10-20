@@ -13,7 +13,7 @@ const UPPDATERA_MS = 60_000;
 
 /**
  * Lastbilens läge ur /api/lastbil (position, tank, hälsa, pågående runda, senaste rundor).
- * Läser om var minut medan Nu-fliken är öppen. Misslyckas en omläsning visas det senaste
+ * Läser om var minut medan huvudsidan visas (kortet "Bilen nu"). Misslyckas en omläsning visas det senaste
  * kända svaret med en tyst notering — aldrig en tom vy för att nätet hickade.
  */
 export function useLastbilNu(aktiv: boolean) {

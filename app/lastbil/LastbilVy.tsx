@@ -4,19 +4,22 @@ import { useCallback, useEffect, useState } from 'react';
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext';
 import { AVSTAND, FARG, FONT, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import VyKolumn from '@/components/design/VyKolumn';
-import Flikrad, { PengatalsRemsa } from './_components/Rubrik';
 import HamtaFlode from './_components/hamta/HamtaFlode';
 import { lasHamtaUrl } from './_components/hamta/flode';
 import HamtaKnapp from './_components/hamta/HamtaKnapp';
-import NuFlik from './_components/NuFlik';
-import FaktureringFlik from './_components/FaktureringFlik';
+import BilenNuKort from './_components/BilenNuKort';
+import AttGoraKort from './_components/AttGoraKort';
+import FaktureringRad from './_components/FaktureringRad';
+import FaktureringSida from './_components/FaktureringSida';
 import VantarRad from './_components/VantarRad';
-import KorningarFlik from './_components/KorningarFlik';
+import Korningar from './_components/Korningar';
+import { senasteKorning } from './_components/nu';
 import RundaArk from './_components/RundaArk';
 import Ark from '@/components/design/Ark';
-import { periodNu, type Period } from './_components/period';
+import ArsSida from './_components/ArsSida';
+import { periodNu, type Manad, type Period } from './_components/period';
 import { pamminnelse, type Pamminnelse } from './_components/vantar';
-import { lasLassId, lasUrl, skrivUrl, type Flik } from './_components/url';
+import { lasLassId, lasUrl, skrivUrl, type Sida } from './_components/url';
 import { useFakturerbart } from './_components/useFakturerbart';
 import { useLastbilNu } from './_components/useLastbilNu';
 import { useVantar } from './_components/useVantar';
@@ -26,33 +29,36 @@ import LassArk from './_components/MaskinSheet';
 import { useEnRunda, useRundor } from './_components/useRundor';
 
 /**
- * Lastbilen — EN vy för det man tittar på (omtaget 2026-10, byggt som Arbetsrapporten: flikar är
- * frågor, varje flik öppnar på svaret, detaljen ligger ett ark bort):
- *   Körningar   – vad har bilen gjort och vad drog det?
- *   Fakturering – vad kan faktureras? (bara admin)        (kvittot, steg 3)
- *   Nu          – kan jag köra, och var är den?
- * Uppifrån: pengatalet (admin) → väntar-raderna (admin, bara när något väntar) → den stora knappen "Hämta en maskin" → flikarna.
- * "Hämta en maskin" ersätter förarflödet /maskinflytt (steg 3, 2026-10): kartappen gör navigeringen, Lassa och Lassat av är frivilliga.
- *
- * Designad för admin (fakturering och månadskoll är huvudärendena); förare öppnar på Nu och ser
- * varken fakturerbart-remsan eller Fakturering.
+ * Lastbilen — EN sida utan flikar (omtaget 2026-10-19). Uppifrån, och i den ordningen alltid:
+ *   1. "Hämta en maskin" / "Fortsätt hämta X" direkt under titeln — flyttar sig aldrig.
+ *   2. Kortet "Bilen nu": läget, tankraden, och bara det som gäller nu (lampa, service, senast sedd).
+ *   3. "Att göra" (bara admin): lass som saknar maskin, flyttar som väntar på godkännande, och raden
+ *      "Fakturering · <månad>  36 km ›" som öppnar fakturasidan (en egen sida med tillbaka-pil).
+ *   4. Körningar: månadsväljaren, månadens sammanfattning (körd km, rundor · liter · l/mil, Flyttrundor / Övrig körning) och rundorna.
+ * Förare ser 1, 2 och 4 — inget "Att göra", ingen fakturering. Pengatalet (fakturerbart-summan) står inte längre i en sticky remsa:
+ * det är talet på raden "Fakturering" och överst på fakturasidan, och byter värde bara när PERIODEN byts.
+ * Gamla länkar: ?flik=fakturering → fakturasidan (en förare får huvudsidan); ?flik=korningar och ?flik=nu → huvudsidan.
+ * "Hämta en maskin" ersätter förarflödet /maskinflytt: kartappen gör navigeringen, Lassa och Lassat av är frivilliga.
  */
 export default function LastbilVy() {
   const { medarbetare, loading } = useCurrentMedarbetare();
   const arAdmin = medarbetare?.roll === 'admin';
 
   // Hooks ligger ALLTID före tidiga returer (skillen: React #310 2026-10-02).
-  const [valdFlik, setValdFlik] = useState<Flik | null>(() => lasUrl(typeof window === 'undefined' ? '' : window.location.search).flik);
-  const [period, setPeriod] = useState<Period>(() => lasUrl(typeof window === 'undefined' ? '' : window.location.search).period ?? periodNu());
+  const startUrl = () => lasUrl(typeof window === 'undefined' ? '' : window.location.search);
+  const [onskadSida, setOnskadSida] = useState<Sida>(() => startUrl().sida);
+  // Perioden är alltid en MÅNAD (den man kom från när År-vyn är öppen); År-vyn har sitt eget år.
+  const [period, setPeriod] = useState<Manad>(() => startUrl().period ?? periodNu());
+  const [ar, setAr] = useState<number>(() => startUrl().ar ?? periodNu().ar);
 
-  // Admin öppnar på Körningar (månadskollen), förare på Nu. Fakturering finns bara för admin.
-  const flik: Flik = !valdFlik ? (arAdmin ? 'korningar' : 'nu') : valdFlik === 'fakturering' && !arAdmin ? 'nu' : valdFlik;
+  // Fakturasidan finns bara för admin: en förare som följer en gammal länk dit får huvudsidan.
+  const sida: Sida = onskadSida === 'fakturering' && !arAdmin ? 'huvud' : onskadSida;
 
   const [valdRunda, setValdRunda] = useState<{ id: string; start: string } | null>(null);
   // Hämta-flödet ersätter hela vyn medan det pågår. Adressen bär det (?hamta=1) så en omladdning landar kvar i flödet.
   const [hamtar, setHamtar] = useState<boolean>(() => lasHamtaUrl(typeof window === 'undefined' ? '' : window.location.search));
 
-  const nu = useLastbilNu(!loading && flik === 'nu');
+  const nu = useLastbilNu(!loading && !hamtar && sida === 'huvud');
   const fakt = useFakturerbart(period, arAdmin);
   const vantar = useVantar(arAdmin);
   // "Vilken maskin?": lassen bilens vikt hittat men appen inte kunde para ihop med en maskin. Länken i notisen (?lass=<id>) öppnar arket direkt.
@@ -63,7 +69,7 @@ export default function LastbilVy() {
   const { laddaOmTyst: faktTyst } = fakt;
   const { laddaOmTyst: vantarTyst } = vantar;
   const efterAndring = useCallback(() => { faktTyst(); vantarTyst(); }, [faktTyst, vantarTyst]);
-  const rundor = useRundor(period, !loading && flik === 'korningar');
+  const rundor = useRundor(sida === 'ar' ? { typ: 'ar', ar } : period, !loading && (sida === 'huvud' || sida === 'ar'));
   const { laddaOmTyst: rundorTyst } = rundor;
   // Arket för en runda: finns den i den inlästa listan används den, annars (tryck på "Senaste körning" på Nu)
   // läses just den rundan med sina grannar i tiden.
@@ -88,8 +94,8 @@ export default function LastbilVy() {
 
   useEffect(() => {
     if (loading) return;
-    window.history.replaceState(null, '', `${window.location.pathname}${hamtar ? '?hamta=1' : skrivUrl(flik, period)}`);
-  }, [loading, flik, period, hamtar]);
+    window.history.replaceState(null, '', `${window.location.pathname}${hamtar ? '?hamta=1' : skrivUrl(sida, period, ar)}`);
+  }, [loading, sida, period, ar, hamtar]);
 
   const startaHamta = useCallback(() => { window.scrollTo(0, 0); setHamtar(true); }, []);
   // Flödet slut (Klar, Avbryt): tillbaka till vyn, en rad säger vad som hände, och det som kan ha ändrats läses om tyst.
@@ -100,14 +106,26 @@ export default function LastbilVy() {
     saknarTyst(); faktTyst(); vantarTyst(); rundorTyst();
   }, [saknarTyst, faktTyst, vantarTyst, rundorTyst]);
 
-  const valjFlik = useCallback((f: Flik) => setValdFlik(f), []);
+  const oppnaFakturering = useCallback(() => { window.scrollTo(0, 0); setOnskadSida('fakturering'); }, []);
+  const tillHuvudsidan = useCallback(() => { window.scrollTo(0, 0); setOnskadSida('huvud'); }, []);
+  // "Hela 2026 ›" längst ner i Körningar: År-vyn för månadens år; tillbaka-pilen går till månaden man kom från.
+  const oppnaAr = useCallback(() => { window.scrollTo(0, 0); setAr(period.ar); setOnskadSida('ar'); }, [period.ar]);
+  const valjManadFranAr = useCallback((m: Manad) => { window.scrollTo(0, 0); setPeriod(m); setOnskadSida('huvud'); }, []);
 
-  // Påminnelsen: på Fakturering räknas bara det som väntar UTANFÖR perioden listan redan visar.
-  const paminn = vantar.lage.lage === 'klar' ? pamminnelse(vantar.lage.rader, flik === 'fakturering' ? period : null) : null;
+  // Påminnelsen: på fakturasidan räknas bara det som väntar UTANFÖR perioden listan redan visar.
+  const paminn = vantar.lage.lage === 'klar' ? pamminnelse(vantar.lage.rader, sida === 'fakturering' ? period : null) : null;
   const oppnaVantande = useCallback((p: Pamminnelse) => {
     if (p.mal) setPeriod(p.mal);
-    setValdFlik('fakturering');
-  }, []);
+    oppnaFakturering();
+  }, [oppnaFakturering]);
+
+  // Rubriken "Att göra" står bara när något väntar (lass eller flyttar) eller en läsning föll; Fakturering ensam står utan rubrik.
+  const harAttGora = saknar.lage.lage === 'fel' || (saknar.lage.lage === 'klar' && saknar.lage.rader.length > 0)
+    || vantar.lage.lage === 'fel' || paminn != null;
+
+  // Bilens senaste avslutade körning (ur Bilen nu): tomtexten i en tom månad öppnar den rundans ark.
+  const senasteRunda = nu.lage.lage === 'klar' ? senasteKorning(nu.lage.data.rundor) : null;
+  const senaste = senasteRunda?.starttid ? { id: senasteRunda.id, start: senasteRunda.starttid } : null;
 
   return (
     <div style={{ ...VY_ROT, minHeight: ROT_MIN_HOJD, fontFamily: FONT, WebkitFontSmoothing: 'antialiased', paddingBottom: AVSTAND.xxl }}>
@@ -117,36 +135,32 @@ export default function LastbilVy() {
           <p role="status" style={{ color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.xl}px 0`, margin: 0 }}>Läser …</p>
         ) : hamtar ? (
           <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
+        ) : sida === 'ar' ? (
+          <ArsSida ar={ar} onAr={setAr} tillbakaTill={period} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
+            onTillbaka={tillHuvudsidan} onValjManad={valjManadFranAr} />
+        ) : sida === 'fakturering' ? (
+          <FaktureringSida period={period} onPeriod={setPeriod} status={fakt.status} namn={medarbetare?.namn || 'admin'}
+            vantar={vantar.lage} pamminnelse={paminn} onOppnaVantande={oppnaVantande} onVantarForsokIgen={vantar.forsokIgen}
+            onTillbaka={tillHuvudsidan} onForsokIgen={fakt.forsokIgen} onAndrad={efterAndring} />
         ) : (
-          <>
-            {arAdmin && <PengatalsRemsa period={period} remsa={fakt.status} onForsokIgen={fakt.forsokIgen} />}
-            <div style={{ paddingTop: AVSTAND.s }}>
-              {kvitto && (
-                <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px` }}>{kvitto}</p>
-              )}
-              {arAdmin && (
-                <div style={{ paddingBottom: AVSTAND.m }}>
-                  <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
-                </div>
-              )}
-              {arAdmin && (
-                <div style={{ paddingBottom: AVSTAND.m }}>
-                  <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
-                </div>
-              )}
+          <div style={{ paddingTop: AVSTAND.s }}>
+            <div style={{ marginBottom: AVSTAND.xl }}>
               <HamtaKnapp forareId={medarbetare?.id ?? null} aktiv={!loading && !hamtar} onStart={startaHamta} />
-              <Flikrad flik={flik} onFlik={valjFlik} arAdmin={arAdmin} period={period} onPeriod={setPeriod} />
-              {flik === 'nu' && <NuFlik lage={nu.lage} onForsokIgen={nu.forsokIgen} onOppnaRunda={setValdRunda} />}
-              {flik === 'korningar' && (
-                <KorningarFlik period={period} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
-                  onOppna={r => setValdRunda({ id: r.id, start: r.start })} onValjManad={setPeriod} />
-              )}
-              {flik === 'fakturering' && (
-                <FaktureringFlik period={period} status={fakt.status} namn={medarbetare?.namn || 'admin'}
-                  onForsokIgen={fakt.forsokIgen} onAndrad={efterAndring} />
+              {kvitto && (
+                <p role="status" data-lass-kvitto style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0` }}>{kvitto}</p>
               )}
             </div>
-          </>
+            <BilenNuKort lage={nu.lage} onForsokIgen={nu.forsokIgen} />
+            {arAdmin && (
+              <AttGoraKort medRubrik={harAttGora}>
+                <SaknarMaskinRad lage={saknar.lage} onOppna={setValtLass} onForsokIgen={saknar.forsokIgen} />
+                <VantarRad lage={vantar.lage} pamminnelse={paminn} onOppna={oppnaVantande} onForsokIgen={vantar.forsokIgen} />
+                <FaktureringRad period={period} status={fakt.status} onOppna={oppnaFakturering} onForsokIgen={fakt.forsokIgen} />
+              </AttGoraKort>
+            )}
+            <Korningar period={period} onPeriod={setPeriod} lage={rundor.lage} onForsokIgen={rundor.forsokIgen} onOppnaAr={oppnaAr}
+              onOppna={r => setValdRunda({ id: r.id, start: r.start })} senaste={senaste} onOppnaSenaste={setValdRunda} />
+          </div>
         )}
       </VyKolumn>
 
