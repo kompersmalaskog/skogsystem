@@ -31,10 +31,14 @@ describe('Vad betyder kartan: bara det som finns på trakten', () => {
       vida: ['nyckelbiotop', 'raa_yta'],
     });
     const alla = g.flatMap((x) => x.rader);
-    expect(alla.map((r) => r.nyckel).sort()).toEqual(['vida:nyckelbiotop', 'vida:raa_yta', 'yta:protected', 'yta:wet']);   // gallringszonen är ingen varningsyta
+    expect(alla.map((r) => r.nyckel).sort()).toEqual(['vida:nyckelbiotop', 'yta:fornlamning', 'yta:protected', 'yta:wet']);   // Vidas RAÄ-yta = vår Fornlämning (EN rad)   // gallringszonen är ingen varningsyta
     expect(alla.find((r) => r.nyckel === 'yta:protected')).toMatchObject({ forbjuden: true, forklaring: YTA_FORKLARING.protected });
     expect(alla.find((r) => r.nyckel === 'yta:wet')!.forbjuden).toBe(false);
     expect(alla.find((r) => r.nyckel === 'vida:nyckelbiotop')).toMatchObject({ namn: VIDA.nyckelbiotop.namn, forklaring: VIDA_FORKLARING.nyckelbiotop, forbjuden: true });
+  });
+  it('samma sak från Vida och från oss är EN rad: Hänsyn egen + Vidas hänsynsyta, Fornlämning egen + Vidas RAÄ-yta', () => {
+    const g = byggTeckenforklaring({ markeringar: [{ isZone: true, zoneType: 'protected' }, { isZone: true, zoneType: 'fornlamning' }], vida: ['hansynsyta', 'raa_yta'] });
+    expect(rader(g).sort()).toEqual(['yta:fornlamning', 'yta:protected']);
   });
   it('en okänd symboltyp får ingen rad (vi gissar inte ett namn)', () => {
     expect(byggTeckenforklaring({ markeringar: [sym('hittepa')] })).toEqual([]);
@@ -56,7 +60,7 @@ describe('Vidas kraftledning och RAÄ-punkt får en bild som matchar kartan', ()
     const r = byggTeckenforklaring({ vida: ['kraftledning', 'raa_punkt', 'hansynsyta'] }).flatMap((g) => g.rader);
     expect(r.find((x) => x.nyckel === 'vida:kraftledning')).toMatchObject({ slag: 'linje', streckad: true, grupp: 'fara' });
     expect(r.find((x) => x.nyckel === 'vida:raa_punkt')).toMatchObject({ slag: 'symbol', typ: 'culturemonument', grupp: 'kultur' });
-    expect(r.find((x) => x.nyckel === 'vida:hansynsyta')).toMatchObject({ slag: 'yta', forbjuden: true });
+    expect(r.find((x) => x.nyckel === 'yta:protected')).toMatchObject({ slag: 'yta', forbjuden: true });   // Vidas hänsynsyta = vår Hänsyn
   });
 });
 

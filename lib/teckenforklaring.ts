@@ -50,7 +50,11 @@ const ytaRad = (zoneType: string): ForklaringRad | null => {
   const d = YTA[zoneType]; if (!d) return null;
   return { nyckel: `yta:${zoneType}`, slag: 'yta', typ: zoneType, namn: d.namn, forklaring: YTA_FORKLARING[zoneType] ?? '', grupp: d.grupp, forbjuden: d.forbjuden };
 };
-const vidaRad = (slag: VidaSlag): ForklaringRad => {
+/** Samma sak från Vida och från oss är EN rad: Vidas hänsynsyta = vår Hänsyn, Vidas RAÄ-yta = vår Fornlämning (som i Om trakten). */
+const VIDA_SOM_EGEN: Partial<Record<VidaSlag, string>> = { hansynsyta: 'protected', raa_yta: 'fornlamning' };
+const vidaRad = (slag: VidaSlag): ForklaringRad | null => {
+  const egen = VIDA_SOM_EGEN[slag];
+  if (egen) return ytaRad(egen);
   const d = VIDA[slag];
   const bas = { nyckel: `vida:${slag}`, namn: d.namn, forklaring: VIDA_FORKLARING[slag], grupp: d.grupp, forbjuden: d.forbjuden };
   // Kraftledningen är en linje (röd, streckad på kartan), RAÄ-punkten ritas som en Kulturlämning (en punkt i gruppen Kultur); övriga är ytor.
