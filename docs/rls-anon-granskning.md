@@ -1,8 +1,8 @@
 # RLS och anon-nyckeln — granskning av `public` (2026-10-20)
 
-**Allt nedan är läsande SQL mot prod (`mxydghzfacbenbgpodex`) och läsning av koden 2026-10-20. Inget är ändrat, ingen migration ingår.** Anon-nyckeln
-ligger i webbläsarbundeln, så "anon" betyder "vem som helst som öppnar appens JavaScript". Två läsningar kördes som roll `anon` (`set local role anon`,
-bara SELECT resp. ett anrop som avvisades) för att bevisa, inte anta.
+**Dokumentet beskriver läget i prod (`mxydghzfacbenbgpodex`) 2026-10-20 och vad som gjorts.** Steg 1, 3, 3b, 4 och 5 är KÖRDA (migrationerna ligger i `supabase/migrations/20261020*`, byte-identiska med
+det som kördes, versionerna stämplade av prod). Steg 2 och avsnitten 8–11 är förslag som inte är körda. Anon-nyckeln ligger i webbläsarbundeln, så "anon" betyder "vem som helst som öppnar appens JavaScript".
+Bevisen kördes som roll `anon` och `authenticated` (`set local role …` i `DO`-block som slutar i `RAISE EXCEPTION`, alltså rullade tillbaka) — inte antaganden.
 
 ## Metod: grant + RLS + policy måste stämma samtidigt
 
@@ -15,18 +15,41 @@ Att läsa `pg_policies` ensamt ger fel svar åt båda hållen. En tabell är öp
 Exempel åt båda hållen i den här databasen: `bestallningar` har policyn `Allow anonymous read` (ser öppen ut) men anon har **ingen** table-GRANT, så den är
 verkningslös; `objekt` har fyra policies som ser stängda ut (`authenticated`) men RLS är **av**, så de gör ingenting och anon har full CRUD.
 
-## 0. Ordning och förutsättningar
+## 0. Ordning, status och kvitto
 
-**Steg 1 (de fyra funktionerna) är KÖRT 2026-10-20 08:30 UTC** och krävde inte PITR: en `revoke` är reversibel med en `grant`. Migration `20261020083010_rls_steg1_revoke_fyra_funktioner`
-(filen i `supabase/migrations/`, byte-identisk med det som kördes). Före/efter står i avsnitt 1.
+**Backup/PITR är verifierat PÅ av Martin, inifrån databasen:** `archive_mode=on`, `archive_command` via wal-g, `wal_level=logical`, 5 351 arkiverade WAL-segment, 0 misslyckade, senast arkiverad två minuter före kontrollen.
+Kontinuerlig WAL-push är PITR-maskineriet. Fönstrets längd syns bara i dashboarden. **Steg 2 är omskrivet så att fönstret inte behövs:** inget raderas, tabellerna flyttas till ett eget schema.
 
-**Steg 2–5 väntar på att Martin bekräftar backup/PITR.** De är inte reversibla på samma sätt (droppa backup-tabeller, slå på RLS, byta policies) och `anon` har **DELETE** på `objekt` och 10 tabeller
-till (avsnitt 2 och 3). Databasen går **inte att återskapa ur migrationerna** (de är additiva, innehållet saknas). Alltså, innan steg 2:
-1. Bekräfta i Supabase-konsolen att **Point-in-Time Recovery** är på, och vilket fönster som gäller.
-2. Ta en **manuell backup** (eller `pg_dump` av de tabeller som rörs) och kontrollera att den går att läsa tillbaka.
-3. Varje steg körs först som en `DO`-körning som slutar i `RAISE EXCEPTION` (rullas tillbaka), därefter på riktigt.
+| Steg | Vad | Status |
+|---|---|---|
+| 1 | Fyra volatila DEFINER-funktioner: `revoke … from public, anon` (avsnitt 1) | **KÖRD** `20261020083010` |
+| 2 | Backup-/testtabeller: flytta till schemat `arkiv` — INTE drop. Tre av de nio är levande referenstabeller och stannar (avsnitt 2) | **ej körd** |
+| 3 | `objekt`: `enable row level security` + `revoke all from anon` (avsnitt 3) | **KÖRD** `20261020090625` |
+| 3b | `markering_delete_logg`: samma (avsnitt 3) | **KÖRD** `20261020090646` |
+| 4 | De 22 `true`-tabellerna, en migration per tabell, `20261020090743` … `090831` (avsnitt 4) | **KÖRD** |
+| 5 | Åtta maskindata-funktioner: `revoke … from public, anon` (avsnitt 5) | **KÖRD** `20261020090856` |
+| 8 | Nio SECURITY DEFINER-vyer — **anon läser fortfarande `objekt`-data genom `planering_vy`** | ej körd, kräver beslut |
+| 9 | `search_path` på de fyra DEFINER-funktionerna som saknar det | ej körd |
+| 10 | Läckta lösenord (HaveIBeenPwned) i Auth: en kryssruta | ej gjord |
+| 11 | 37 DEFINER-funktioner kan köras av INLOGGADE, bl.a. de tre cron-funktionerna | ej körd, kräver beslut |
 
-## Läget (verifierat)
+**Linterns egna lint-namn är kvittot** (`get_advisors` type `security`; kör om efter varje steg). Före → efter 2026-10-20:
+
+| Lint | Före | Efter | Vad som återstår |
+|---|---|---|---|
+| `rls_disabled_in_public` (ERROR) | 11 | **9** | de nio backup-/testtabellerna (steg 2) |
+| `policy_exists_rls_disabled` (ERROR) | 1 (`objekt`) | **0** | — |
+| `anon_security_definer_function_executable` (WARN) | 22 | **15** | sex triggerfunktioner (kan inte anropas som RPC), fem identitetshjälpare (`aktuell_medarbetare_id`, `ar_admin`, `ar_godkannare`, `min_maskin_id`, `mina_operator_ids`), `flytt_ar_last`, `jamfor_migrationer` (namngivet undantag), `ratta_flytt`/`stryk_flytt` (kontrollerar `ar_admin()`) |
+| `rls_enabled_no_policy` (INFO) | 6 | 7 | de sex som service-nyckeln ensam läser, plus `markering_delete_logg` (avsiktligt: bara triggern skriver) |
+| `security_definer_view` (ERROR) | 9 | 9 | avsnitt 8 |
+| `function_search_path_mutable` (WARN) | 87 | 87 | avsnitt 9: 4 DEFINER + 83 INVOKER |
+| `authenticated_security_definer_function_executable` (WARN) | 37 | 37 | avsnitt 11 |
+| `auth_leaked_password_protection` (WARN) | 1 | 1 | avsnitt 10 |
+| `extension_in_public` (WARN) | 2 (`btree_gist`, `pg_net`) | 2 | ej granskat |
+
+Siffrorna stämmer med vårt eget arbete: 11 RLS-avstängda tabeller → 9, 22 anon-körbara DEFINER-funktioner → 15 (efter steg 1 och 5), och `objekt` var den enda `policy_exists_rls_disabled`.
+
+## Läget FÖRE stegen (verifierat 2026-10-20 morgon; efterläget står i tabellen i avsnitt 0)
 
 | | Antal | Anon kan |
 |---|---|---|
@@ -68,47 +91,70 @@ ska inte röras: `koppla_konto_till_medarbetare`, `koppla_medarbetare_till_konto
 **Redan täta (rörs inte).** `ratta_flytt` och `stryk_flytt` börjar med `if not ar_admin() then raise exception … errcode 42501`. Provat som anon: `stryk_flytt(…)` avvisades med
 `42501 Bara admin kan stryka en flytt` innan något skrevs. Täta — rör inte.
 
-## 2. Backup-/testtabellerna (9 st, RLS av, anon CRUD)
+## 2. Backup-/testtabellerna: flytta, radera inte — och tre av nio är INTE backuper
 
-`arbetsdag_backup_13jun`, `arbetsdag_backup_operator_20260714` (arbetsdagar per förare), `backup_km_dalarna_20260814`, `backup_km_stefan_juli_20260812` (km per förare),
-`backup_ledighet_testrader_20260812`, `fakt_tid_test`, `kontroll_baslinje`, `kravprofil`, `normalisering_karta`. Inget i appen läser dem (sökt i koden). Minst risk — görs först av tabellerna.
-Antingen `drop table` (efter att innehållet säkrats), eller flytta till ett schema utan anon-grants:
+Nio tabeller utan RLS och med anon CRUD: `arbetsdag_backup_13jun`, `arbetsdag_backup_operator_20260714` (arbetsdagar per förare), `backup_km_dalarna_20260814`, `backup_km_stefan_juli_20260812` (km per förare),
+`backup_ledighet_testrader_20260812`, `fakt_tid_test`, `kontroll_baslinje`, `kravprofil`, `normalisering_karta`. **Appens TypeScript läser inga av dem, men SQL-funktioner gör det** (sökt i `pg_proc`-källorna 2026-10-20):
+
+| Tabell | Läses av | Konsekvens |
+|---|---|---|
+| `normalisering_karta` | `normalisera(text,text)`, `kontroll_produktfalt()` | **levande referenstabell** (sortimentsnormalisering) |
+| `kravprofil` | `massaved_mal()` | **levande referenstabell** |
+| `kontroll_baslinje` | `kontroll_produktfalt()` | **levande referenstabell** |
+| övriga sex | ingen funktion, vy, främmande nyckel eller trigger | riktiga backuper/testdata (`backup_km_dalarna_20260814` 106 rader, `fakt_tid_test` 1 rad) |
+
+Det tidigare förslaget (drop eller flytta alla nio) hade brutit tre funktioner. Därför två delar:
+
+**2a. De sex backuperna flyttas till ett eget schema utan anon-grants. Inget raderas, inget behöver återskapas.**
 ```sql
 create schema if not exists arkiv;
 revoke all on schema arkiv from anon, authenticated;
-alter table public.arbetsdag_backup_13jun set schema arkiv;   -- … samma för de övriga åtta
+alter table public.arbetsdag_backup_13jun               set schema arkiv;
+alter table public.arbetsdag_backup_operator_20260714   set schema arkiv;
+alter table public.backup_km_dalarna_20260814           set schema arkiv;
+alter table public.backup_km_stefan_juli_20260812       set schema arkiv;
+alter table public.backup_ledighet_testrader_20260812   set schema arkiv;
+alter table public.fakt_tid_test                        set schema arkiv;
+revoke all on all tables in schema arkiv from anon, authenticated;   -- tabellerna behåller annars sina gamla grants
 ```
+`arkiv` exponeras inte av PostgREST om projektets exponerade scheman är standard (`public`, `graphql_public`) — kontrollera i Settings → API före körning; `revoke … from anon, authenticated` ovan gäller ändå. Återställning: `alter table arkiv.<t> set schema public;`.
 
-## 3. `objekt` (och `markering_delete_logg`): policies FÖRE att RLS slås på
-
-`objekt`: alla trakter, markägarnamn, telefon, e-post, adress, inköpare. Fyra verkningslösa policies (`insert/read/update_objekt`, `auth.role() = 'authenticated'`); ingen DELETE-policy.
-Ordning, i en rollback-provad körning:
+**2b. De tre referenstabellerna stannar i `public` men får RLS** (policyer FÖRE `enable`, annars slutar `normalisera()` att fungera för inloggade):
 ```sql
--- 3a. DELETE för admin FÖRE enable. Utan den slutar "Ta bort" i Objekt-vyn (#845) att fungera när RLS slås på.
-create policy objekt_delete_admin on public.objekt for delete to authenticated using (ar_admin());
--- 3b. Granska de befintliga insert/read/update-policies — avgör om update ska begränsas till planerare/admin.
--- 3c. SIST:
-alter table public.objekt enable row level security;
+create policy normalisering_karta_las on public.normalisering_karta for select to authenticated using (true);
+alter table public.normalisering_karta enable row level security;
+revoke all on public.normalisering_karta from anon;
+-- samma för kravprofil och kontroll_baslinje
+```
+Skrivning går bara via service-nyckeln/migrationer. Kontrollera före: vilka som anropar `normalisera`/`massaved_mal`/`kontroll_produktfalt` och med vilken roll (de tre anropas av vyer med ägare `postgres`, som omgår RLS, och av importen med service-nyckeln).
+
+## 3. `objekt` och `markering_delete_logg` — KÖRDA
+
+`objekt`: alla trakter, markägarnamn, telefon, e-post, adress, inköpare. **Rättelse mot förra utkastet: DELETE-policyn fanns redan** — `objekt_admin` (`ALL`, `to authenticated`, `ar_admin()`) — så steg 3a ("skapa admin-DELETE före enable") behövdes inte. Övriga policies: `insert_objekt`, `read_objekt`, `update_objekt` (`auth.role() = 'authenticated'`). De var verkningslösa så länge RLS var av.
+```sql
+alter table public.objekt enable row level security;       -- 20261020090625
 revoke all on public.objekt from anon;
+alter table public.markering_delete_logg enable row level security;   -- 20261020090646
+revoke all on public.markering_delete_logg from anon;
 ```
-Kontrollera efteråt med en session som förare och en som admin: `/planering`, `/objekt`, `/oversikt`, `/starta-jobb`, och en import (service-nyckeln omgår RLS).
-`markering_delete_logg` (395 rader) skrivs av triggern `logg_raderad_markering` (DEFINER, ägaren omgår RLS): `enable row level security` utan policies räcker; kontrollera vem som läser den.
+**Bevis, före körning (rullad tillbaka):** med RLS på gav `anon` `42501`, en förare (Max) såg 67 rader och kunde uppdatera, `ar_admin()` gav false för föraren och true för Martin, som såg 67 rader.
+**Efter:** `relrowsecurity=true`, `anon` kan inget (select/delete false), `authenticated` select true, `service_role` delete true.
+**Ej provat:** DELETE som admin/förare. Ett `DELETE`-prov i `execute_sql` hängde i 60 s (samma verktygsbeteende som `DROP`, se CLAUDE.md); läst ur policyn gäller: admin får, förare får inte. Konsekvens: `deleteObj` i gamla `app/objekt/page.tsx` (webbläsarens klient) fungerar nu bara för admin; `lib/slaIhopJobb.ts` raderar med service-nyckeln och påverkas inte; importen använder `SUPABASE_SERVICE_ROLE_KEY`.
+`markering_delete_logg` (395 rader) skrivs av `logg_raderad_markering` (DEFINER, ägare `postgres` med `bypassrls`); inget i koden läser den. Ingen policy skapad, avsiktligt (INFO-lintet `rls_enabled_no_policy` hör ihop med detta).
 
-## 4. De 22 `true`-tabellerna, en i taget
+## 4. De 22 `true`-tabellerna — KÖRDA, en migration per tabell
 
-Alla har anon table-GRANT (avsnittet "Läget"). Ordning från minst till mest dagligt använda av förarna: `brand_brandvakt`, `brand_efterkontroll`, `brand_kontakter`,
-`brand_samrad`, `brand_tillbud`, `tma_assessments`, `avlagg_assessments`, `feedback`, `briefing_status`, `kvittering_status`, `kvittering_reset_logg`, `objekt_kvittering`,
-`service_paminnelser`, `detalj_kontroll_stam`, `detalj_kontroll_stock_matpunkt`, `objekt_vagdata`\*, `dim_objekt_sortiment_fonster`\*, `maskin_ko`, `maskin_service`, `maskiner`,
-`gps_tracks`, och sist `planering_markeringar` (\* = bara läsning i dag). För varje tabell:
+Migrationerna `20261020090743` … `090831` (`rls_steg4_01_brand_brandvakt` … `rls_steg4_22_planering_markeringar`). Per tabell:
 ```sql
-drop policy "<namn>" on public.<tabell>;
-create policy <tabell>_authenticated on public.<tabell> for all to authenticated using (true) with check (true);
-revoke all on public.<tabell> from anon;      -- grant är det som faktiskt öppnar; policyn är andra låset
+alter policy "<namn>" on public.<tabell> to authenticated;   -- villkoret oförändrat (true); bara rollen byts från public/anon
+revoke all on public.<tabell> from anon;                      -- grant är det som faktiskt öppnar; policyn är andra låset
 ```
-`using (true)` för `authenticated` är fortfarande vidöppet *inom* företaget; skärp (per roll, per ägare) i ett eget steg efter att anon är stängt.
-`bestallningar`: släpp den verkningslösa policyn `Allow anonymous read` som städning (ingen risk, ingen effekt).
+**`alter policy` i stället för `drop policy` + `create policy`**: `DROP` hänger i Supabase-MCP:n (se CLAUDE.md), och `alter policy … to` ger samma slutläge med en sats utan fönster där tabellen saknar policy. Tabeller med flera policies fick alla ändrade (`detalj_kontroll_stam`, `detalj_kontroll_stock_matpunkt`, `dim_objekt_sortiment_fonster`, `maskiner`, `gps_tracks`); `objekt_vagdata` hade `{anon,authenticated}` och blev `{authenticated}`.
+**Bevis efter:** för alla 22 tabeller `relrowsecurity=true`, `anon` har ingen table-privilege, alla policies har rollen `{authenticated}`. I ett rullat `DO`-block gav `select count(*)` som `authenticated` (förare) rader på alla 22 (t.ex. `planering_markeringar` 480, `detalj_kontroll_stock_matpunkt` 6 859, `dim_objekt_sortiment_fonster` 1 131) och som `anon` `42501` på alla 22.
+**Kontrollerat före:** server-routrarna som rör tabellerna (`cron/stada-markering-foton`, `vagdata-cron`, `kalibrering/*`) använder `SUPABASE_SERVICE_ROLE_KEY`; markeringskön (`lib/markeringSynkKo.ts`, `lib/markeringSynk.ts`, `lib/fotoKo.ts`) har ingen särbehandling av 401/42501 (sökt), så ett avvisat skrivförsök ligger kvar i kön och görs om; en förare med utgången session fördröjer men tappar inte — inte provat med en riktigt utgången session.
+`using (true)` för `authenticated` är fortfarande vidöppet *inom* företaget; skärp (per roll, per ägare) i ett eget steg. `bestallningar`: den verkningslösa policyn `Allow anonymous read` är kvar (ingen anon-grant, ingen effekt); att släppa den kräver `DROP` och är städning, inte säkerhet.
 
-## 5. Maskindata-gruppen: ÅTTA funktioner (läsläckan)
+## 5. Maskindata-gruppen: ÅTTA funktioner (läsläckan) — KÖRD `20261020090856`
 
 Alla åtta har `=X/postgres` + explicit anon-grant + `authenticated` + `service_role`, och `search_path=public`. De skiljer sig i *skälet* till revoken — skriv inte fel skäl:
 
@@ -135,6 +181,7 @@ revoke execute on function public.maskindata_tid(text[], date, date)            
 revoke execute on function public.maskin_har_manuell_datakalla(text)                from public, anon;
 revoke execute on function public.maskindata_flertrad_period(text[], date, date)    from public, anon;
 ```
+**Körd.** `proacl` före, identisk på alla åtta: `{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}`; efter: `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`. `has_function_privilege`: `anon` false, `authenticated` true, `service_role` true på alla åtta. Anon-körbara funktioner i `public`: 268 → **260**, varav DEFINER 22 → **15**.
 Övriga stable DEFINER-funktioner är ofarliga och rörs inte: `aktuell_medarbetare_id`, `ar_admin`, `ar_godkannare`, `min_maskin_id`, `mina_operator_ids` returnerar anroparens egen identitet (null för anon), `flytt_ar_last` returnerar ett boolean.
 
 ### Namngivet undantag: `jamfor_migrationer` behåller anon-körning
@@ -156,3 +203,51 @@ Sökt i koden: alla `createClient(`, `createServerClient(`, `createBrowserClient
 
 ## 7. Ej granskat
 `storage.objects` (buckets `kartbilder`, `utbildningsbevis`, `trakt-inbox`), Realtime-publikationer, andra scheman än `public`.
+
+## 8. Nio SECURITY DEFINER-vyer (lint `security_definer_view`, ERROR) — ANON LÄSER `objekt`-DATA IGENOM EN AV DEM
+
+Frågan var om vyerna är en medveten genväg runt de sex tabellerna med RLS på och noll policies (`handelse`, `kontroll`, `resurs`, `detalj_stam_diameter`, `stamplings_cell`, `stamplings_rapport`). **Svar: nej.** Ingen av de nio vyerna läser någon av de sex tabellerna (beroenden ur `pg_depend`), och de ställen i appens kod som rör dem använder service-nyckeln (`app/api/stampling/*` via `adminKlient()`, `app/api/fordon/notify-pamin`); Python-skripten (`import_diameterserie.py` m.fl.) är inte kontrollerade för vilken nyckel de kör. De sex är alltså avsiktligt "bara service-nyckeln", inte en lucka som vyerna täcker. Inga policies behöver skrivas före vyerna ändras.
+
+| Vy | Läser | Läses av appen? | Anon `select` | Anon fick (provat) |
+|---|---|---|---|---|
+| `planering_vy` | `objekt`, `dim_objekt`, `bestallningar` | nej | **ja** | **100 rader** — namn, `inkopare`, `skogsagare`, lat/long, volymer |
+| `vy_daglig_sammanfattning` | `fakt_produktion`, `fakt_tid`, `dim_maskin` | nej | **ja** | **1 460 rader** — produktion och tid per maskin och dag |
+| `vy_sortiment_klass` | `dim_sortiment`, `dim_sortiment_grupp` | nej | **ja** | 296 rader |
+| `vy_normalisering_luckor` | `dim_sortiment`, `vy_sortiment_klass` | nej | **ja** | 9 rader |
+| `vy_kalibrering_status` | `fakt_kalibrering` | nej | **ja** | 3 rader |
+| `vy_virke_karta` | `detalj_stam`, `detalj_stock`, `dim_objekt` | nej | **ja** | 0 rader (tom just nu, men öppen) |
+| `produktion_per_dag` | `mom_produktion`, `maskiner` | nej | **ja** | 0 rader |
+| `lager_varningar` | `lager_artiklar` | nej | **ja** | 0 rader |
+| `medarbetare_namn` | `medarbetare` | **ja**, `app/planering/page.tsx:3316` (`id, fornamn`) | nej (`42501`) | — |
+
+**Konsekvens för steg 3:** `planering_vy` är ägd av `postgres` (omgår RLS) och har anon-`select`, så RLS på `objekt` stänger inte den vägen. Markägare, inköpare och koordinater är fortfarande läsbara för vem som helst via `/rest/v1/planering_vy`. Samma för produktionsdatan via `vy_daglig_sammanfattning`.
+**Förslag, två delar, båda reversibla:**
+- **8a (ingen appeffekt, ingen läsare finns):** `revoke select on public.<vy> from anon;` på de åtta vyerna. En migration per vy eller en för gruppen.
+- **8b (senare, eget beslut):** `alter view public.<vy> set (security_invoker = true);` så vyn lyder anroparens RLS. Då måste underliggande tabeller ha rätt policies för de roller som läser vyn. De åtta har ingen läsare i appen, så frågan är om de ska finnas alls (externt verktyg? kontrollera API-loggen).
+- **`medarbetare_namn` är den medvetna genvägen:** koden säger "alla inloggade får läsa id + förnamn". Den lämnas som DEFINER (anon har redan inget), och lintet kvarstår som en dokumenterad avvikelse; att byta till `security_invoker` hade tagit bort förnamnen för alla utom admin.
+
+## 9. `search_path` på funktioner (lint `function_search_path_mutable`, WARN, 87 st)
+
+**Rättelse mot uppgiften "22 är DEFINER": det är 4.** De 22 var antalet anon-körbara DEFINER-funktioner (annan mängd, nu 15). Av de 87 saknar **4 DEFINER-funktioner och 83 INVOKER-funktioner** `search_path` (extensionsfunktioner exkluderade):
+- **DEFINER (kapningsvägen):** `fortnox_kör_sync`, `avtal_kör_notify`, `fordon_kör_notify` (de tre cron-funktionerna) och `handle_new_user`.
+- **INVOKER (83):** bl.a. `helikopter_ny_*`, `massaved_*`, `opti_tid_*`, `fpr_*`, `egenkontroll_*_last_nar_klar`, `rebuild_fakt_sortiment`, `affar_oversikt`. Lägre risk (de körs med anroparens rättigheter).
+
+`set search_path = ''` är säkert för de fyra DEFINER-funktionerna: läst i fulltext är varje referens kvalificerad (`vault.decrypted_secrets`, `net.http_post`, `public.anvandare`; `jsonb_build_object`/`now()` ligger i `pg_catalog`, som alltid söks).
+```sql
+alter function public."fortnox_kör_sync"()  set search_path = '';
+alter function public."avtal_kör_notify"()  set search_path = '';
+alter function public."fordon_kör_notify"() set search_path = '';
+alter function public.handle_new_user()     set search_path = '';
+```
+**För de 83 INVOKER-funktionerna är `''` inte säkert utan genomgång:** de refererar tabeller okvalificerat och slutar fungera. Använd `public, pg_temp` (som de övriga 15 DEFINER-funktionerna använder `public`), eller kvalificera först. Eget steg, efter de fyra. Kvitto: `function_search_path_mutable` 87 → 83 efter de fyra.
+
+## 10. Läckta lösenord i Auth (lint `auth_leaked_password_protection`, WARN)
+
+Skyddet mot lösenord som finns i läckor (HaveIBeenPwned) är av. Det är en kryssruta i dashboarden (Authentication → Sign In / Providers → Password), inte SQL, och kan inte göras av migrationerna. Kvitto: lintet försvinner. Påverkar bara nya lösenord och lösenordsbyten.
+
+## 11. Inloggade kan köra 37 SECURITY DEFINER-funktioner (lint `authenticated_security_definer_function_executable`, WARN)
+
+Steg 1 och 5 tog bara bort `anon` (Martins instruktion: "rör `authenticated` inte alls"). **Kvar för en inloggad förare, via `/rest/v1/rpc/…`:** bl.a. de tre funktionerna `fortnox_kör_sync`, `avtal_kör_notify` och `fordon_kör_notify`
+(de anropar Vercel med hemligheten ur Vault, så vilken inloggad som helst kan trigga en Fortnox-synk eller ett utskick), `fyll_dim_fran_trakt`, och `helikopter_notis_manad`/`helikopter_notis_vecka` (köar notiser).
+**Sökt i appens kod 2026-10-20:** appen anropar `avvisa_lass`, `besvara_lass`, `next_privat_vo`, `tilldela_vo_maskinobjekt`, `satt_kartlager` och `skotar_farduskotat` — men **ingen** av de sju ovan (de tre cron-funktionerna, `fyll_dim_fran_trakt`, de två `helikopter_notis_*`). `pg_cron` kör jobb 1 (`fortnox_kör_sync`) och 3 (`avtal_kör_notify`) som `postgres`; `fordon_kör_notify` har inget cron-jobb.
+**Inte åtgärdat.** Förslag: `revoke execute … from authenticated` på de sju (de behåller `service_role` och `postgres`), efter att Supabase API-loggen visat att inget annat än appen och cron anropar dem. Resten av de 37 kräver en funktion-för-funktion-genomgång (de flesta kontrollerar anroparen själva).
