@@ -29,7 +29,7 @@ describe('avläggsupptäckten (Daniel, Mölleryd 2026-10-20)', () => {
   });
   it('Lossa här och "väntar på dig" finns bara i skotarläget och ligger ovanför kortet nertill', () => {
     const bit = page.slice(page.indexOf('SKOTARLÄGE: lassrapportering. Allt nedan finns bara'));
-    expect(bit).toMatch(/<SkotarNedreRad antalVantar=\{sl\.vantarPaDig\.length\} lossar=\{!!sl\.oppen\} onLossaHar=\{sl\.lossaHar\}/);
+    expect(bit).toMatch(/<SkotarNedreRad antalVantar=\{sl\.vantarPaDig\.length\} lossar=\{!!sl\.oppen\} vidLossaHar=\{sl\.lossaHar\}/);
     expect(bit).toContain('<VantarPaDigArk');
     expect(page.match(/<SkotarNedreRad/g)).toHaveLength(1);
     expect(las('components/planering/skotar/LossaHar.tsx')).toContain("querySelector('[data-nertill-kort]')");

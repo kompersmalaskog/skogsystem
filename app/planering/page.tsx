@@ -14111,7 +14111,7 @@ export default function PlannerPage() {
             )}
             {/* Reservknappen "Lossa här" och "N lass väntar på dig" är ALLTID på plats i skotarläget (ovanför kortet nertill). */}
             {!sl.andra && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet && (
-              <SkotarNedreRad antalVantar={sl.vantarPaDig.length} lossar={!!sl.oppen} onLossaHar={sl.lossaHar} onVisaVantar={() => setSkotarVantarOppet(true)} />
+              <SkotarNedreRad antalVantar={sl.vantarPaDig.length} lossar={!!sl.oppen} vidLossaHar={sl.lossaHar} onVisaVantar={() => setSkotarVantarOppet(true)} />
             )}
             {skotarVantarOppet && !sl.andra && (
               <VantarPaDigArk

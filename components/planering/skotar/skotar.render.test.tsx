@@ -124,17 +124,17 @@ describe('Lossa här och "N lass väntar på dig"', () => {
 
   it('Lossa här finns alltid; raden om väntande lass bara när något väntar', async () => {
     const onLossa = vi.fn();
-    await visa(<SkotarNedreRad antalVantar={0} lossar={false} onLossaHar={onLossa} onVisaVantar={vi.fn()} />);
+    await visa(<SkotarNedreRad antalVantar={0} lossar={false} vidLossaHar={onLossa} onVisaVantar={vi.fn()} />);
     expect(q('lossa-har')?.textContent).toBe('Lossa här');
     expect(q('lass-vantar')).toBeNull();
     await tryck('lossa-har');
     expect(onLossa).toHaveBeenCalledTimes(1);
-    await visa(<SkotarNedreRad antalVantar={2} lossar={false} onLossaHar={onLossa} onVisaVantar={vi.fn()} />);
+    await visa(<SkotarNedreRad antalVantar={2} lossar={false} vidLossaHar={onLossa} onVisaVantar={vi.fn()} />);
     expect(q('lass-vantar')?.textContent).toContain('2 lass väntar på dig');
     expect(vantarText(1)).toBe('1 lass väntar på dig');
   });
   it('pågår en lossning säger knappen det (trycket markerar den som bekräftad, skapar inget nytt lass)', async () => {
-    await visa(<SkotarNedreRad antalVantar={0} lossar onLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
+    await visa(<SkotarNedreRad antalVantar={0} lossar vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
     expect(q('lossa-har')?.textContent).toBe('Lossar – stämmer');
   });
   it('raden lägger sig ovanför kortet nertill, inte under det', async () => {
@@ -143,7 +143,7 @@ describe('Lossa här och "N lass väntar på dig"', () => {
     kort.getBoundingClientRect = () => ({ height: 90 } as DOMRect);
     document.body.appendChild(kort);
     try {
-      await visa(<SkotarNedreRad antalVantar={0} lossar={false} onLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
+      await visa(<SkotarNedreRad antalVantar={0} lossar={false} vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
       expect((q('skotar-nedre-rad') as HTMLElement).style.bottom).toContain('98px');
     } finally { kort.remove(); }
   });
@@ -166,7 +166,7 @@ describe('Lossa här och "N lass väntar på dig"', () => {
     expect(q('vantar-fyll-i-5')).toBeNull();
   });
   it('alla tryckytor är minst 56 px', async () => {
-    await visa(<SkotarNedreRad antalVantar={3} lossar={false} onLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
+    await visa(<SkotarNedreRad antalVantar={3} lossar={false} vidLossaHar={vi.fn()} onVisaVantar={vi.fn()} />);
     for (const b of Array.from(div.querySelectorAll('button'))) expect(parseInt((b as HTMLElement).style.minHeight || '0', 10)).toBeGreaterThanOrEqual(56);
     const l = vantar(5); l.delar[0].rader = [{ nyckel: 'a', namn: 'A', m3: 5 }];
     await visa(<VantarPaDigArk lass={[l, vantar(6)]} onStammer={vi.fn()} onFyllI={vi.fn()} onStryk={vi.fn()} onStang={vi.fn()} />);

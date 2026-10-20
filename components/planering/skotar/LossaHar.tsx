@@ -31,9 +31,9 @@ function useNertillHojd(): number {
 /** "1 lass väntar på dig", "2 lass väntar på dig" (lass är samma ord i plural). */
 export const vantarText = (n: number): string => `${n} lass väntar på dig`;
 
-export function SkotarNedreRad({ antalVantar, onLossaHar, onVisaVantar, lossar }: {
+export function SkotarNedreRad({ antalVantar, vidLossaHar, onVisaVantar, lossar }: {
   antalVantar: number;
-  onLossaHar: () => void;
+  vidLossaHar: () => void;
   onVisaVantar: () => void;
   /** En lossning pågår: knappen markerar den som bekräftad i stället för att skapa ett nytt lass. */
   lossar: boolean;
@@ -44,7 +44,7 @@ export function SkotarNedreRad({ antalVantar, onLossaHar, onVisaVantar, lossar }
       position: 'fixed', left: AVSTAND.l, right: 96, zIndex: 215, display: 'flex', flexWrap: 'wrap', gap: AVSTAND.s, alignItems: 'center',
       bottom: `calc(${medSafeBotten(AVSTAND.l)} + ${hojd > 0 ? hojd + AVSTAND.s : 0}px)`,
     }}>
-      <button type="button" data-testid="lossa-har" onClick={onLossaHar} style={{ ...knappStor, background: FARG.kort, border: `1px solid ${FARG.linje}` }}>
+      <button type="button" data-testid="lossa-har" onClick={vidLossaHar} style={{ ...knappStor, background: FARG.kort, border: `1px solid ${FARG.linje}` }}>
         {lossar ? 'Lossar – stämmer' : 'Lossa här'}
       </button>
       {antalVantar > 0 && (
