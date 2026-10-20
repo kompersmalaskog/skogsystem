@@ -159,7 +159,7 @@ describe('Objekt + beställning — listan', () => {
     expect(rad('bagskytte')).toContain('2 frågor'); // orimlig volym per hektar + avvikande utfall (plan 3 495 mot utfall 1 687)
     expect(rad('skalviken')).not.toMatch(/orimlig|per hektar/); // 238 m³fub/ha är rimligt
     expect(rad('skalviken')).toContain('Planerad · 1 fråga');
-    expect(rad('molleryd')).toContain('Väntar på planering · 1 fråga');
+    expect(rad('molleryd')).toContain('Väntar på planering · 2 frågor'); // okänd PDF + rotpost utan identifierad stämplingslängd
     expect(rad('molleryd')).toContain(nbsp('1 005'));
     expect(text()).not.toMatch(/saknar stämplingslängd|stämplingslängd osäker/); // saknad stämplingslängd är normaltillståndet, ingen varning
   });
@@ -168,7 +168,7 @@ describe('Objekt + beställning — listan', () => {
     await montera();
     const farg = (id: string, ord: string) => Array.from(behallare!.querySelector(`[data-objekt="${id}"]`)!.querySelectorAll('span')).find(x => (x.textContent ?? '').includes(ord))!.style.color;
     expect(farg('vashult', 'Väntar på planering')).toBe('rgb(142, 142, 147)'); // FARG.text2
-    expect(farg('molleryd', '1 fråga')).toBe('rgb(255, 159, 10)'); // FARG.orange
+    expect(farg('molleryd', '2 frågor')).toBe('rgb(255, 159, 10)'); // FARG.orange
     expect(farg('sandasen', 'Igång')).toBe('rgb(48, 209, 88)');
   });
 
@@ -381,7 +381,9 @@ describe('Objektvyn — vad filen gav oss', () => {
   it('en okänd PDF är SAMMA fråga som den osäkra stämplingslängden (Mölleryd), med "Öppna filen" som enda knapp', async () => {
     await monteraObjekt('molleryd');
     expect(text()).toContain('Vad är Mölleryd.pdf? Filen hade inget namn vi känner igen');
-    expect(behallare!.querySelectorAll('[data-fraga]')).toHaveLength(1);
+    // Mölleryd RP är en rotpost utan identifierad stämplingslängd: den frågan kommer ovanpå PDF-frågan, och pekar på den oidentifierade PDF:en.
+    expect(Array.from(behallare!.querySelectorAll('[data-fraga]')).map(e => e.getAttribute('data-fraga'))).toEqual(['stamplingslangd_saknas', 'okand_pdf:Mölleryd.pdf']);
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')!.textContent).toContain('kan det vara stämplingslängden?');
     expect(knapp('Öppna filen')).toBeTruthy();
     await klicka(knapp('Öppna filen'));
     expect(DB.signerade).toContain('kartbilder/886465_ovrigt_0.pdf');
@@ -660,5 +662,78 @@ describe('Utfall mot plan', () => {
     expect(behallare!.querySelector('[data-fraga="avvikande_utfall"]')).toBeNull();
     await monteraObjekt('bagskytte');
     expect(behallare!.querySelector('[data-utfall]')!.textContent).toContain('Kunde inte läsas just nu');
+  });
+});
+
+
+describe('Stämplingslängd gäller bara en rotpost (avtalsformen avgör, inte typen)', () => {
+  async function monteraObjekt(id: string) {
+    window.history.replaceState({}, '', '/objekt/x?ar=2026&manad=10');
+    const { default: FilenGavVy } = await import('./_components/FilenGavVy');
+    rot = createRoot(behallare!);
+    await act(async () => { rot!.render(<FilenGavVy objektId={id} />); });
+    await tills(() => !text().includes('Läser objektet'));
+    await stilla();
+  }
+  const med = (id: string, o: Record<string, unknown>) => { DB.objekt = OBJEKT.map(x => (x.id === id ? { ...x, ...o } : x)); };
+
+  it('Rp utan stämplingslängd = fråga — också på en GALLRING (typen avgör inte)', async () => {
+    med('vashult', { avtalsform: 'Rp', stamplingslangd_url: null });
+    await monteraObjekt('vashult');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeTruthy();
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeTruthy();
+    expect(behallare!.querySelector('[data-skriv-stamplingslangd]')).toBeTruthy();
+  });
+
+  it('Au = frågan ställs aldrig och raden visas inte (N Rimshult: avverkningsuppdrag, ingen stämplingslängd, korrekt)', async () => {
+    med('vashult', { avtalsform: 'Au', stamplingslangd_url: null });
+    await monteraObjekt('vashult');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeNull();
+    expect(text()).not.toMatch(/rotpost|Skriv in talet från stämplingslängden/);
+  });
+
+  it('avtalsformen går före namnet: Au i fältet slår RP i namnet', async () => {
+    med('molleryd', { avtalsform: 'Au' }); // "Mölleryd RP J-Hus -25"
+    await monteraObjekt('molleryd');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeNull();
+  });
+
+  it('avtalsform saknas → "RP" i namnet avgör (Mölleryd RP) — och utan båda ställs ingen fråga (Vashult gallring)', async () => {
+    await monteraObjekt('molleryd');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeTruthy();
+    rot!.unmount();
+    behallare!.innerHTML = '';
+    rot = createRoot(behallare!);
+    await monteraObjekt('vashult');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeNull();
+  });
+
+  it('Rp MED stämplingslängd (PDF) = ingen fråga, och raden finns kvar så talet kan skrivas in för jämförelse', async () => {
+    med('molleryd', { stamplingslangd_url: 'sl.pdf' });
+    await monteraObjekt('molleryd');
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_saknas"]')).toBeNull();
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeTruthy(); // raden finns: talet kan skrivas in för jämförelse
+  });
+
+  it('en inskriven stämplingslängd på ett avverkningsuppdrag visas inte och ger ingen jämförelsefråga', async () => {
+    med('bagskytte', { avtalsform: 'Au', volym: 3495, stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' });
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')).toBeNull();
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_avviker"]')).toBeNull();
+  });
+
+  it('listan: raden för en rotpost utan stämplingslängd visar frågan, ett avverkningsuppdrag gör det inte', async () => {
+    med('vashult', { avtalsform: 'Rp' });
+    await montera();
+    expect(behallare!.querySelector('[data-objekt="vashult"]')!.textContent).toContain('1 fråga');
+    rot!.unmount();
+    behallare!.innerHTML = '';
+    rot = createRoot(behallare!);
+    med('vashult', { avtalsform: 'Au' });
+    await montera();
+    expect(behallare!.querySelector('[data-objekt="vashult"]')!.textContent).not.toContain('fråga');
   });
 });

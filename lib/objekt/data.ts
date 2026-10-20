@@ -21,6 +21,10 @@ export interface ObjektRad {
   /** Stämplingslängdens tal, inskrivet av en människa (migration 20261020094926_objekt_stamplingslangd_tal, körd i prod 2026-10-20). Saknas kolumnerna är de undefined. */
   stamplingslangd_volym?: number | null;
   stamplingslangd_enhet?: string | null;
+  /** Stämplingslängdens PDF (importen). */
+  stamplingslangd_url?: string | null;
+  /** Rp = rotpost, Au = avverkningsuppdrag (migration 20261014125836); fångas bara på nyimporterade objekt. Saknas kolumnen är den undefined. */
+  avtalsform?: string | null;
   status: string | null;
   traktdirektiv_url: string | null;
   import_varningar: unknown;
@@ -36,12 +40,12 @@ export interface Post {
   volym: number;
 }
 
-const LISTKOLUMNER_BAS = 'id, vo_nummer, namn, typ, bolag, kalla, ar, manad, volym, areal, status, traktdirektiv_url, import_varningar';
-const STAMPLINGSKOLUMNER = 'stamplingslangd_volym, stamplingslangd_enhet';
+const LISTKOLUMNER_BAS = 'id, vo_nummer, namn, typ, bolag, kalla, ar, manad, volym, areal, status, traktdirektiv_url, stamplingslangd_url, import_varningar';
+const STAMPLINGSKOLUMNER = 'stamplingslangd_volym, stamplingslangd_enhet, avtalsform';
 
 /** Kolumnerna finns inte förrän migrationen `objekt_stamplingslangd_tal` körts: PostgREST svarar då 42703/PGRST204 på själva listan. */
 const arKolumnSaknas = (e: { code?: string | null; message?: string | null } | null) =>
-  !!e && (e.code === '42703' || e.code === 'PGRST204' || /stamplingslangd_(volym|enhet)/.test(String(e.message ?? '')));
+  !!e && (e.code === '42703' || e.code === 'PGRST204' || /(stamplingslangd_(volym|enhet)|avtalsform)/.test(String(e.message ?? '')));
 
 /**
  * Listan läses med stämplingslängdens kolumner; saknas de (migrationen ej körd) läses den utan dem — listan får aldrig falla för ett tillägg.

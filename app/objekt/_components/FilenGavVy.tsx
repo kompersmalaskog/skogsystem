@@ -15,6 +15,7 @@ import {
   bladText, certText, fmtHa, fragor, geometriSammanfattning, noterat, traktkartor, volymFragor,
   type Fraga, type GeoSammanfattning, type VolymFraga,
 } from '@/lib/objekt/filenGav';
+import { arRotpost } from '@/lib/objekt/rotpost';
 import { faktorText, jamfor, stamplingsText } from '@/lib/objekt/stamplingslangd';
 import { lasManadUrl, manadEtikett, type Manad } from '@/lib/objekt/manad';
 import { oppnaFil } from '@/lib/objekt/oppnaFil';
@@ -26,7 +27,7 @@ import StamplingslangdArk from './StamplingslangdArk';
 
 interface Objekt {
   id: string; namn: string; typ: string | null; status: string | null; volym: number | null; areal: number | null; cert: string | null; grot: boolean | null;
-  bolag?: string | null; kalla?: string | null; vo_nummer?: string | null;
+  bolag?: string | null; kalla?: string | null; vo_nummer?: string | null; avtalsform?: string | null;
   /** Stämplingslängdens tal, inskrivet av en människa. Saknas kolumnerna (migrationen ej körd) är de undefined. */
   stamplingslangd_volym?: number | null; stamplingslangd_enhet?: string | null;
   ar: number | null; manad: number | null;
@@ -126,7 +127,10 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
   const fragorHar = id === 'klar' ? [] : fragor(o.import_varningar, o);
   // Frågorna om volymen gäller också ett avslutat objekt (dess volym ingår i beställningens täckning) och räknas live ur objektets värden.
   const volymFr = volymFragor({ ...o, utfall });
-  const stampJamf = jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet);
+  // Stämplingslängd gäller bara en rotpost (avtalsformen avgör — lib/objekt/rotpost.ts): på ett avverkningsuppdrag finns inget att stämpla, så raden visas inte.
+  const rotpost = arRotpost(o);
+  const visaUtfall = utfall != null || utfallFel || id === 'klar' || id === 'igang';
+  const stampJamf = rotpost ? jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet) : null;
   const antalFr = fragorHar.length + volymFr.length;
   const noter = noterat(o.import_varningar);
   const saknarVolym = !(typeof o.volym === 'number' && o.volym > 0);
@@ -177,22 +181,24 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
       {filFel && <p role="alert" style={{ margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>{filFel}</p>}
 
       {/* Volymen och stämplingslängden bredvid varandra, med enhet: m³fub (Vidas tal, beställningen) mot m³sk (stämplingslängden) skiljer ungefär 20 %. */}
-      <Sektion rubrik="Volym" not={o.stamplingslangd_volym != null && o.stamplingslangd_enhet === 'm3sk' ? `m³sk omräknas till m³fub med ${faktorText()}.` : undefined}>
-        <Rad titel="Volym" pil={false}
+      <Sektion rubrik="Volym" not={rotpost && o.stamplingslangd_volym != null && o.stamplingslangd_enhet === 'm3sk' ? `m³sk omräknas till m³fub med ${faktorText()}.` : undefined}>
+        <Rad titel="Volym" pil={false} sista={!visaUtfall && !rotpost}
           under={o.kalla === 'manuell' || o.kalla === 'starta-jobb' ? 'Plan, inlagd för hand' : o.bolag ? `Plan, från ${o.bolag}` : 'Plan, från traktfilen'}
           hoger={saknarVolym ? <span style={{ color: FARG.orange }}>saknas</span> : `${fmtM3(visadVolym(o.volym))} ${ENHET_M3FUB}`}
           attr={{ 'data-volym': '' }} />
         {/* Utfallet: vad maskinerna faktiskt skördat under objektets VO-nummer. Ingen ny insamling — fakt_produktion finns redan. */}
-        {(utfall != null || utfallFel || id === 'klar' || id === 'igang') && (
-          <Rad titel="Utfall" pil={false}
+        {visaUtfall && (
+          <Rad titel="Utfall" pil={false} sista={!rotpost}
             under={utfallFel ? 'Kunde inte läsas just nu' : utfall == null ? 'Inga maskinfiler under VO-numret' : arAvslutat(o.status) ? 'Maskinerna' : 'Maskinerna, hittills'}
             hoger={utfallFel ? <span style={{ color: FARG.orange }}>saknas</span> : utfall == null ? undefined : `${fmtM3(utfall)} ${ENHET_M3FUB}`}
             attr={{ 'data-utfall': '' }} />
         )}
-        <Rad titel="Stämplingslängd" sista
-          under={stampJamf ? 'Skriven av dig · tryck för att ändra' : 'Skriv in talet från stämplingslängden'}
-          hoger={stampJamf ? stamplingsText(stampJamf) : undefined}
-          onTryck={onStampling} attr={{ 'data-stamplingslangd-tal': '' }} />
+        {rotpost && (
+          <Rad titel="Stämplingslängd" sista
+            under={stampJamf ? 'Skriven av dig · tryck för att ändra' : o.stamplingslangd_url ? 'PDF i filen · skriv in talet för att jämföra' : 'Skriv in talet från stämplingslängden'}
+            hoger={stampJamf ? stamplingsText(stampJamf) : undefined}
+            onTryck={onStampling} attr={{ 'data-stamplingslangd-tal': '' }} />
+        )}
       </Sektion>
 
       <Sektion rubrik="Vad filen gav oss">
@@ -287,7 +293,9 @@ function VolymFragaKort({ q, sista, onRatta, onStampling, onAnvand }: { q: Volym
         </>
       )}
       <div style={{ marginTop: AVSTAND.s, display: 'flex', gap: AVSTAND.l, flexWrap: 'wrap' }}>
-        <button type="button" onClick={onRatta} style={KNAPP.lank} data-ratta-volym="">Rätta volymen</button>
+        {q.nyckel === 'stamplingslangd_saknas'
+          ? <button type="button" onClick={onStampling} style={KNAPP.lank} data-skriv-stamplingslangd="">Skriv in stämplingslängden</button>
+          : <button type="button" onClick={onRatta} style={KNAPP.lank} data-ratta-volym="">Rätta volymen</button>}
         {q.nyckel === 'stamplingslangd_avviker' && <button type="button" onClick={onStampling} style={KNAPP.lank}>Ändra stämplingslängden</button>}
       </div>
     </div>

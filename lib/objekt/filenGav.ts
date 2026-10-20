@@ -9,7 +9,8 @@
 import { ORIMLIG_VOLYM_NYCKEL, orimligVolymText } from '@/lib/trakt/rimlighet';
 import { tillVarningar } from '@/lib/trakt/varningar';
 import { avvikelseText, jamfor } from './stamplingslangd';
-import { AVVIKANDE_UTFALL_NYCKEL, avvikandeUtfall } from './utfall';
+import { arRotpost } from './rotpost';
+import { AVVIKANDE_UTFALL_NYCKEL, arAvslutat, avvikandeUtfall } from './utfall';
 
 // ---------------------------------------------------------------------------
 // Frågorna (import_varningar)
@@ -48,6 +49,11 @@ export function fragor(varningar: unknown, dok: Pick<DokKolumner, 'stamplingslan
 // gäller de ÄVEN avslutade objekt: en avslutad trakts volym ingår i beställningens täckning, och ett fel tal där ger fel läge i alla månader.
 
 export interface VolymUnderlag {
+  namn?: string | null;
+  /** Rp = rotpost, Au = avverkningsuppdrag (lib/objekt/rotpost.ts). Fångas bara på nyimporterade objekt; annars avgör "RP" i namnet. */
+  avtalsform?: string | null;
+  stamplingslangd_url?: string | null;
+  import_varningar?: unknown;
   typ: string | null;
   volym: number | null;
   areal?: number | null;
@@ -59,7 +65,7 @@ export interface VolymUnderlag {
 }
 
 export interface VolymFraga {
-  nyckel: 'orimlig_volym' | 'avvikande_utfall' | 'stamplingslangd_avviker';
+  nyckel: 'orimlig_volym' | 'avvikande_utfall' | 'stamplingslangd_avviker' | 'stamplingslangd_saknas';
   text: string;
   /** Ett förslag på ny volym (m³fub) som en människa kan godkänna — bara när utfallet är slutgiltigt. Skrivs aldrig av sig självt. */
   forslagVolym?: number;
@@ -71,8 +77,20 @@ export function volymFragor(o: VolymUnderlag): VolymFraga[] {
   if (orimlig) ut.push({ nyckel: ORIMLIG_VOLYM_NYCKEL, text: orimlig });
   const utfall = avvikandeUtfall({ status: o.status ?? null, volym: o.volym, areal: o.areal ?? null, utfall: o.utfall });
   if (utfall) ut.push({ nyckel: AVVIKANDE_UTFALL_NYCKEL, text: utfall.text, ...(utfall.forslag != null ? { forslagVolym: utfall.forslag } : null) });
-  const avviker = avvikelseText(o.volym, jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet));
-  if (avviker) ut.push({ nyckel: 'stamplingslangd_avviker', text: avviker });
+  // Stämplingslängd gäller bara en ROTPOST (avtalsformen avgör, inte typen). På ett avverkningsuppdrag finns inget att stämpla — ingen jämförelse, ingen fråga.
+  if (arRotpost(o)) {
+    const avviker = avvikelseText(o.volym, jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet));
+    if (avviker) ut.push({ nyckel: 'stamplingslangd_avviker', text: avviker });
+    // Saknas den: varken PDF eller inskrivet tal. Inte på en avslutad trakt — stämplingslängden är en uppskattning före avverkning och betyder inget efteråt.
+    const harTal = jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet) != null || (o.stamplingslangd_volym != null && Number(o.stamplingslangd_volym) > 0);
+    if (!arAvslutat(o.status) && !o.stamplingslangd_url && !harTal) {
+      const okanda = fragor(o.import_varningar, { stamplingslangd_url: null, ovriga_dokument: null }).length;
+      ut.push({
+        nyckel: 'stamplingslangd_saknas',
+        text: `Det här är en rotpost — virket säljs på rot och ska ha en stämplingslängd, men ingen är identifierad.${okanda > 0 ? ' En PDF i filen är oidentifierad (se frågan om den): kan det vara stämplingslängden?' : ''} Skriv in talet när du har det.`,
+      });
+    }
+  }
   return ut;
 }
 

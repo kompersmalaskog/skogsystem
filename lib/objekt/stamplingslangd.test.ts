@@ -38,7 +38,7 @@ describe('stämplingslängdens tal', () => {
   });
 
   it('volymFragor: orimlig volym och avvikelse är två olika frågor; rättad volym ger ingen', () => {
-    const bag = { typ: 'slutavverkning', volym: 3495, areal: 5.68, stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' };
+    const bag = { namn: 'Bågskyttebanan RP J-Hus- 25', stamplingslangd_url: 'sl.pdf', typ: 'slutavverkning', volym: 3495, areal: 5.68, stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' };
     expect(volymFragor(bag).map(f => f.nyckel)).toEqual(['orimlig_volym', 'stamplingslangd_avviker']);
     expect(volymFragor({ ...bag, volym: 1560 })).toEqual([]); // 274/ha, och 0,2 % från 1 564
     expect(volymFragor({ ...bag, stamplingslangd_volym: null, stamplingslangd_enhet: null }).map(f => f.nyckel)).toEqual(['orimlig_volym']);
