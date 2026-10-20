@@ -11,7 +11,7 @@ import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TY
 import { hamtaObjektForManad, hamtaPoster, hamtaUtanManad, type ObjektRad, type Post } from '@/lib/objekt/data';
 import { importeraTraktfil, type ImportUtfall } from '@/lib/objekt/importTraktfil';
 import { lasManadUrl, manadEtikett, stegaManad, type Manad } from '@/lib/objekt/manad';
-import { bestalltSumma, fmtM3, inlagtSumma, lageText, rubrikTal, TYPER, typNamn, visadVolym, type ObjektTyp } from '@/lib/objekt/tackning';
+import { bestalltSumma, ENHET_M3FUB, fmtM3, inlagtSumma, lageText, rubrikTal, TYPER, typNamn, visadVolym, type ObjektTyp } from '@/lib/objekt/tackning';
 import { saknas, tillstandId, TILLSTAND_TEXT, type TillstandId } from '@/lib/objekt/tillstand';
 import BestallningArk from './BestallningArk';
 import ManuellArk from './ManuellArk';
@@ -186,7 +186,7 @@ function ObjektListRad({ o, manadParam, visaTyp, sista }: { o: ObjektRad; manadP
       sista={sista}
       href={`/objekt/${o.id}${manadParam}`}
       // Klart är dämpat i TILLSTÅNDSORDET, inte i talet: ett avslutat objekts volym är en del av täckningen och ritas som alla andra.
-      hoger={harVolym ? fmtM3(visadVolym(o.volym)) : harBestallning ? <span style={{ color: FARG.orange }}>saknas</span> : undefined}
+      hoger={harVolym ? `${fmtM3(visadVolym(o.volym))} ${ENHET_M3FUB}` : harBestallning ? <span style={{ color: FARG.orange }}>saknas</span> : undefined}
       under={
         <>
           {visaTyp && <span>{typNamn(o.typ)}{' · '}</span>}

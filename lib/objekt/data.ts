@@ -13,6 +13,10 @@ export interface ObjektRad {
   ar: number | null;
   manad: number | null;
   volym: number | null;
+  areal: number | null;
+  /** Stämplingslängdens tal, inskrivet av en människa (migration 20261020120000). Saknas kolumnerna är de undefined. */
+  stamplingslangd_volym?: number | null;
+  stamplingslangd_enhet?: string | null;
   status: string | null;
   traktdirektiv_url: string | null;
   import_varningar: unknown;
@@ -28,20 +32,34 @@ export interface Post {
   volym: number;
 }
 
-const LISTKOLUMNER = 'id, namn, typ, bolag, kalla, ar, manad, volym, status, traktdirektiv_url, import_varningar';
+const LISTKOLUMNER_BAS = 'id, namn, typ, bolag, kalla, ar, manad, volym, areal, status, traktdirektiv_url, import_varningar';
+const STAMPLINGSKOLUMNER = 'stamplingslangd_volym, stamplingslangd_enhet';
+
+/** Kolumnerna finns inte förrän migrationen `objekt_stamplingslangd_tal` körts: PostgREST svarar då 42703/PGRST204 på själva listan. */
+const arKolumnSaknas = (e: { code?: string | null; message?: string | null } | null) =>
+  !!e && (e.code === '42703' || e.code === 'PGRST204' || /stamplingslangd_(volym|enhet)/.test(String(e.message ?? '')));
+
+/**
+ * Listan läses med stämplingslängdens kolumner; saknas de (migrationen ej körd) läses den utan dem — listan får aldrig falla för ett tillägg.
+ * Övriga fel är fel som förut.
+ */
+async function lasObjekt(bygg: (kolumner: string) => PromiseLike<{ data: unknown; error: { code?: string | null; message?: string | null } | null }>): Promise<ObjektRad[]> {
+  let r = await bygg(`${LISTKOLUMNER_BAS}, ${STAMPLINGSKOLUMNER}`);
+  if (r.error && arKolumnSaknas(r.error)) r = await bygg(LISTKOLUMNER_BAS);
+  if (r.error) throw new Error(r.error.message ?? 'Okänt fel');
+  return (r.data ?? []) as ObjektRad[];
+}
 
 /** Månadens objekt: gallring och slutavverkning (har beställning) och GROT (har ingen). Avslutade ingår: volymen står kvar. */
 export async function hamtaObjektForManad(m: Manad): Promise<ObjektRad[]> {
-  const { data, error } = await supabase
+  return lasObjekt(k => supabase
     .from('objekt')
-    .select(LISTKOLUMNER)
+    .select(k)
     .eq('ar', m.ar)
     .eq('manad', m.manad)
     .in('typ', ['gallring', 'slutavverkning', 'grot'])
     .order('ordning', { ascending: true })
-    .order('namn', { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as ObjektRad[];
+    .order('namn', { ascending: true }));
 }
 
 /**
@@ -49,14 +67,12 @@ export async function hamtaObjektForManad(m: Manad): Promise<ObjektRad[]> {
  * beställning och är en egen fråga. De syns sist i vyn så att de inte döljs.
  */
 export async function hamtaUtanManad(): Promise<ObjektRad[]> {
-  const { data, error } = await supabase
+  return lasObjekt(k => supabase
     .from('objekt')
-    .select(LISTKOLUMNER)
+    .select(k)
     .or('ar.is.null,manad.is.null')
     .neq('status', 'avslutat')
-    .order('namn', { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as ObjektRad[];
+    .order('namn', { ascending: true }));
 }
 
 /** Månadens poster, och — om `tom` — alla poster från och med månaden (förslaget behöver se vilka månader som redan är inlagda). */
@@ -119,4 +135,31 @@ export async function taBortObjekt(objektId: string): Promise<void> {
   const { data, error } = await supabase.from('objekt').delete().eq('id', objektId).select('id');
   if (error) throw new Error(error.message);
   if ((data ?? []).length !== 1) throw new Error('Objektet togs inte bort. Försök igen.');
+}
+
+/**
+ * Rätta objektets volym (m³fub, heltal). Det inmätta talet från VO:n är det som räknas för en avslutad trakt — den här skrivningen är hur det
+ * kommer in när Vida har levererat det. Rör ingenting annat. `import_varden` lämnas orört, så en omimport skriver inte över det rättade talet
+ * (byggOmimportPatch skriver bara över ett fält som fortfarande har exakt värdet förra importen satte).
+ */
+export async function rattaVolym(objektId: string, volym: number): Promise<void> {
+  if (!Number.isFinite(volym) || volym <= 0) throw new Error('Volymen måste vara ett positivt tal.');
+  const { data, error } = await supabase.from('objekt').update({ volym: Math.round(volym) }).eq('id', objektId).select('id');
+  if (error) throw new Error(error.message);
+  if ((data ?? []).length !== 1) throw new Error('Volymen sparades inte. Försök igen.');
+}
+
+/** Stämplingslängdens tal med enhet, eller null/null för att ta bort det. Kräver migrationen `objekt_stamplingslangd_tal`: utan den säger felet det. */
+export async function sparaStamplingslangd(objektId: string, tal: number | null, enhet: string | null): Promise<void> {
+  if (tal != null && (!Number.isFinite(tal) || tal <= 0)) throw new Error('Talet måste vara positivt.');
+  const { data, error } = await supabase
+    .from('objekt')
+    .update({ stamplingslangd_volym: tal, stamplingslangd_enhet: tal == null ? null : enhet })
+    .eq('id', objektId)
+    .select('id');
+  if (error) {
+    if (arKolumnSaknas(error)) throw new Error('Stämplingslängdens tal kan inte sparas än: databasen saknar fältet (migrationen objekt_stamplingslangd_tal är inte körd).');
+    throw new Error(error.message);
+  }
+  if ((data ?? []).length !== 1) throw new Error('Talet sparades inte. Försök igen.');
 }

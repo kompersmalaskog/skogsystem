@@ -3,13 +3,15 @@
 // ForestOwner (URBAN EK) 23 rader på 23 objekt, PDF utan känt suffix 18, Flera traktkarta 10, Hoppade över lagret 4, OSÄKER stämplingslängd 3,
 // Okänt Purpose 2. En lista som larmar på alla objekt slutar betyda något inom en vecka.
 //
-//   fraga      → kräver en människa (okänd PDF, osäker stämplingslängd)               → visas i objektvyn
+//   fraga      → kräver en människa (okänd PDF, osäker stämplingslängd, orimlig volym) → visas i objektvyn
 //   noterat    → beslutet är redan taget (Vida-kontakten, hoppade lager, flera kartor) → visas hopfällt
 //   utveckling → till utvecklaren (okänt lagernamn, okänt Purpose)                    → visas inte
 //
 // Importen skriver objekt `{ nyckel, sort, text, fil? }`. Rader som skrevs före detta (ren text) tolkas av SAMMA funktion när de läses
 // (`tillVarningar`), så ingen migration och ingen omimport krävs. En rad som ingen regel känner igen är `noterat`: den syns hopfälld i stället
 // för att bli en fråga eller försvinna.
+
+import { ORIMLIG_VOLYM_NYCKEL, ORIMLIG_VOLYM_RAD } from './rimlighet';
 
 export type VarningSort = 'fraga' | 'noterat' | 'utveckling';
 
@@ -40,6 +42,7 @@ export function klassaVarning(text: string): Varning {
   // Osäker stämplingslängd och okänd PDF är SAMMA mänskliga fråga ("vad är den här PDF:en?"). Skillnaden är bara om Info nämnde en stämplingslängd.
   if ((m = OSAKER_STAMPLINGSLANGD.exec(text))) return { nyckel: `okand_pdf:${m[1]}`, sort: 'fraga', text, fil: m[1], ledtrad: 'info_namnde_stamplingslangd' };
   if ((m = OKAND_PDF.exec(text))) return { nyckel: `okand_pdf:${m[1]}`, sort: 'fraga', text, fil: m[1] };
+  if (ORIMLIG_VOLYM_RAD.test(text)) return { nyckel: ORIMLIG_VOLYM_NYCKEL, sort: 'fraga', text };
   if (INFO_NAMNER_FLERA.test(text)) return { nyckel: 'info_namnde_stamplingslangd', sort: 'noterat', text };
   if (FOREST_OWNER.test(text)) return { nyckel: 'forestowner_vida', sort: 'noterat', text };
   if ((m = HOPPADE_LAGER.exec(text))) return { nyckel: `hoppat_lager:${m[1]}`, sort: 'noterat', text };

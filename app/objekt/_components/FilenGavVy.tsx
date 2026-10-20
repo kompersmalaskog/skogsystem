@@ -11,17 +11,22 @@ import VyKolumn from '@/components/design/VyKolumn';
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TNUM, TYP, VY_ROT, designCss } from '@/lib/design/tokens';
 import { supabase } from '@/lib/supabase';
 import {
-  bladText, certText, fmtHa, fragor, geometriSammanfattning, noterat, traktkartor,
-  type Fraga, type GeoSammanfattning,
+  bladText, certText, fmtHa, fragor, geometriSammanfattning, noterat, traktkartor, volymFragor,
+  type Fraga, type GeoSammanfattning, type VolymFraga,
 } from '@/lib/objekt/filenGav';
+import { faktorText, jamfor, stamplingsText } from '@/lib/objekt/stamplingslangd';
 import { lasManadUrl, manadEtikett, type Manad } from '@/lib/objekt/manad';
 import { oppnaFil } from '@/lib/objekt/oppnaFil';
-import { fmtM3, typNamn, visadVolym } from '@/lib/objekt/tackning';
+import { ENHET_M3FUB, fmtM3, typNamn, visadVolym } from '@/lib/objekt/tackning';
 import { tillstandId, TILLSTAND_TEXT } from '@/lib/objekt/tillstand';
 import AndraObjektArk from './AndraObjektArk';
+import StamplingslangdArk from './StamplingslangdArk';
 
 interface Objekt {
   id: string; namn: string; typ: string | null; status: string | null; volym: number | null; areal: number | null; cert: string | null; grot: boolean | null;
+  bolag?: string | null; kalla?: string | null;
+  /** Stämplingslängdens tal, inskrivet av en människa. Saknas kolumnerna (migrationen ej körd) är de undefined. */
+  stamplingslangd_volym?: number | null; stamplingslangd_enhet?: string | null;
   ar: number | null; manad: number | null;
   markagare: string | null; inkopare: string | null; fastighetsbeteckning: string | null;
   traktdirektiv_url: string | null; traktkarta_url: string | null; traktkartor: { namn: string; path: string; ordning?: number }[] | null;
@@ -53,6 +58,7 @@ export default function FilenGavVy({ objektId }: { objektId: string }) {
   const [lage, setLage] = useState<Lage>({ lage: 'laddar' });
   const [forsok, setForsok] = useState(0);
   const [andra, setAndra] = useState(false);
+  const [stampArk, setStampArk] = useState(false);
   const [kvitto, setKvitto] = useState('');
   const [manad] = useState<Manad>(() => lasManadUrl(typeof window === 'undefined' ? '' : window.location.search));
 
@@ -87,7 +93,7 @@ export default function FilenGavVy({ objektId }: { objektId: string }) {
               <button type="button" style={KNAPP.lank} onClick={() => setForsok(n => n + 1)}>Försök igen</button>
             </div>
           )}
-          {lage.lage === 'klar' && <Innehall o={lage.objekt} geo={lage.geo} geoFel={lage.geoFel} />}
+          {lage.lage === 'klar' && <Innehall o={lage.objekt} geo={lage.geo} geoFel={lage.geoFel} onRatta={() => setAndra(true)} onStampling={() => setStampArk(true)} />}
         </Tillstand>
       </VyKolumn>
 
@@ -96,16 +102,24 @@ export default function FilenGavVy({ objektId }: { objektId: string }) {
           onFlyttad={text => { setAndra(false); setKvitto(text); laddaOmTyst(); }}
           onBorttagen={() => router.replace(tillbaka)} />
       )}
+      {stampArk && lage.lage === 'klar' && (
+        <StamplingslangdArk objekt={lage.objekt} onStang={() => setStampArk(false)}
+          onSparad={text => { setStampArk(false); setKvitto(text); laddaOmTyst(); }} />
+      )}
     </div>
   );
 }
 
-function Innehall({ o, geo, geoFel }: { o: Objekt; geo: GeoSammanfattning | null; geoFel: boolean }) {
+function Innehall({ o, geo, geoFel, onRatta, onStampling }: { o: Objekt; geo: GeoSammanfattning | null; geoFel: boolean; onRatta: () => void; onStampling: () => void }) {
   const id = tillstandId(o.status);
   const blad = traktkartor(o);
   const fara = geo?.faror ?? [];
   // Frågor ställs inte på avslutade objekt (Bågskyttebanan är avslutad men har en gammal OSÄKER-rad kvar).
   const fragorHar = id === 'klar' ? [] : fragor(o.import_varningar, o);
+  // Frågorna om volymen gäller också ett avslutat objekt (dess volym ingår i beställningens täckning) och räknas live ur objektets värden.
+  const volymFr = volymFragor(o);
+  const stampJamf = jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet);
+  const antalFr = fragorHar.length + volymFr.length;
   const noter = noterat(o.import_varningar);
   const saknarVolym = !(typeof o.volym === 'number' && o.volym > 0);
   const [bladOppna, setBladOppna] = useState(false);
@@ -145,12 +159,25 @@ function Innehall({ o, geo, geoFel }: { o: Objekt; geo: GeoSammanfattning | null
       )}
 
       {/* Det som kräver en människa — och bara det. Okänd PDF och osäker stämplingslängd är SAMMA fråga. */}
-      {fragorHar.length > 0 && (
-        <Sektion rubrik={fragorHar.length === 1 ? 'Fråga' : 'Frågor'}>
+      {antalFr > 0 && (
+        <Sektion rubrik={antalFr === 1 ? 'Fråga' : 'Frågor'}>
+          {volymFr.map((q, i) => <VolymFragaKort key={q.nyckel} q={q} sista={i === volymFr.length - 1 && fragorHar.length === 0} onRatta={onRatta} onStampling={onStampling} />)}
           {fragorHar.map((q, i) => <FragaKort key={q.nyckel} q={q} sista={i === fragorHar.length - 1} onOppna={oppna} />)}
         </Sektion>
       )}
       {filFel && <p role="alert" style={{ margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>{filFel}</p>}
+
+      {/* Volymen och stämplingslängden bredvid varandra, med enhet: m³fub (Vidas tal, beställningen) mot m³sk (stämplingslängden) skiljer ungefär 20 %. */}
+      <Sektion rubrik="Volym" not={o.stamplingslangd_volym != null && o.stamplingslangd_enhet === 'm3sk' ? `m³sk omräknas till m³fub med ${faktorText()}.` : undefined}>
+        <Rad titel="Volym" pil={false}
+          under={o.kalla === 'manuell' || o.kalla === 'starta-jobb' ? 'Inlagd för hand' : o.bolag ? `Från ${o.bolag}` : 'Från traktfilen'}
+          hoger={saknarVolym ? <span style={{ color: FARG.orange }}>saknas</span> : `${fmtM3(visadVolym(o.volym))} ${ENHET_M3FUB}`}
+          attr={{ 'data-volym': '' }} />
+        <Rad titel="Stämplingslängd" sista
+          under={stampJamf ? 'Skriven av dig · tryck för att ändra' : 'Skriv in talet från stämplingslängden'}
+          hoger={stampJamf ? stamplingsText(stampJamf) : undefined}
+          onTryck={onStampling} attr={{ 'data-stamplingslangd-tal': '' }} />
+      </Sektion>
 
       <Sektion rubrik="Vad filen gav oss">
         <Rad titel="Traktdirektiv"
@@ -166,7 +193,7 @@ function Innehall({ o, geo, geoFel }: { o: Objekt; geo: GeoSammanfattning | null
         {bladOppna && blad.map((b, i) => <Rad key={b.path} titel={`Blad ${i + 1} av ${blad.length}`} dampad onTryck={() => oppna(b.path)} />)}
 
         {/* Stämplingslängd visas när den finns. Att den saknas är normaltillståndet (4 av 42 slutavverkningar har en) och är ingen information. */}
-        {o.stamplingslangd_url && <Rad titel="Stämplingslängd" under="Finns" onTryck={() => oppna(o.stamplingslangd_url)} />}
+        {o.stamplingslangd_url && <Rad titel="Stämplingslängd (PDF)" under="Finns" onTryck={() => oppna(o.stamplingslangd_url)} />}
         {o.valtlapp_url && <Rad titel="Vältlappar" under="Finns" onTryck={() => oppna(o.valtlapp_url)} />}
 
         <Rad titel="Hänsyn" pil={false}
@@ -213,6 +240,19 @@ function FragaKort({ q, sista, onOppna }: { q: Fraga; sista: boolean; onOppna: (
       {/* Bara "Öppna filen": ett svar måste kunna bäras över en omimport, och det kan det inte än. */}
       <div style={{ marginTop: AVSTAND.s }}>
         <button type="button" onClick={() => onOppna(q.path)} disabled={!q.path} style={{ ...KNAPP.lank, ...(q.path ? null : INAKTIV) }}>Öppna filen</button>
+      </div>
+    </div>
+  );
+}
+
+/** En fråga om volymen: texten med båda talen och en knapp till rätt ställe att rätta. */
+function VolymFragaKort({ q, sista, onRatta, onStampling }: { q: VolymFraga; sista: boolean; onRatta: () => void; onStampling: () => void }) {
+  return (
+    <div data-fraga={q.nyckel} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
+      <p style={{ margin: 0, ...TYP.text }}>{q.text}</p>
+      <div style={{ marginTop: AVSTAND.s, display: 'flex', gap: AVSTAND.l, flexWrap: 'wrap' }}>
+        <button type="button" onClick={onRatta} style={KNAPP.lank} data-ratta-volym="">Rätta volymen</button>
+        {q.nyckel === 'stamplingslangd_avviker' && <button type="button" onClick={onStampling} style={KNAPP.lank}>Ändra stämplingslängden</button>}
       </div>
     </div>
   );

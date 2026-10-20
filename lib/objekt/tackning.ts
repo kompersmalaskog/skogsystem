@@ -36,9 +36,12 @@ export function bestalltSumma(poster: readonly Post[]): number | null {
   return poster.reduce((s, p) => s + Math.round(Number(p.volym) || 0), 0);
 }
 
-/** "334 / 1 000" — eller "334 / –" när ingen beställning finns. */
+/** Enheten står vid varje volym i vyn: Vidas tal och beställningen är m³fub, stämplingslängden är m³sk (lib/objekt/stamplingslangd.ts). */
+export const ENHET_M3FUB = 'm³fub';
+
+/** "334 / 1 000 m³fub" — eller "334 / – m³fub" när ingen beställning finns. */
 export function rubrikTal(inlagt: number, bestallt: number | null): string {
-  return `${fmtM3(inlagt)} / ${bestallt == null ? '–' : fmtM3(bestallt)}`;
+  return `${fmtM3(inlagt)} / ${bestallt == null ? '–' : fmtM3(bestallt)} ${ENHET_M3FUB}`;
 }
 
 export interface Lage {
@@ -47,10 +50,10 @@ export interface Lage {
   fylld: boolean;
 }
 
-/** Sista raden i en sektion: "666 m³fub kvar till beställningen" eller "Beställningen fylld · 1 234 över". */
+/** Sista raden i en sektion: "666 m³fub kvar till beställningen" eller "Beställningen fylld · 1 234 m³fub över". */
 export function lageText(inlagt: number, bestallt: number | null): Lage {
   if (bestallt == null) return { text: 'Ingen beställning inlagd', fylld: false };
   if (inlagt < bestallt) return { text: `${fmtM3(bestallt - inlagt)} m³fub kvar till beställningen`, fylld: false };
   if (inlagt === bestallt) return { text: 'Beställningen fylld', fylld: true };
-  return { text: `Beställningen fylld · ${fmtM3(inlagt - bestallt)} över`, fylld: true };
+  return { text: `Beställningen fylld · ${fmtM3(inlagt - bestallt)} m³fub över`, fylld: true };
 }

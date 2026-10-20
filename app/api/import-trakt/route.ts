@@ -13,6 +13,7 @@ import { kopplaHyttsparTillObjekt } from '@/lib/hyttsparKoppling';
 import { klassificeraDokument } from '@/lib/trakt/dokument';
 import { kartbildVarning } from '@/lib/trakt/kartbildVarning';
 import { klassaVarningar } from '@/lib/trakt/varningar';
+import { orimligVolymText } from '@/lib/trakt/rimlighet';
 import { byggOmimportPatch, hittaBefintligtObjekt, importVardenForNyttObjekt, SKYDDADE_VID_OMIMPORT, type BefintligtObjekt } from '@/lib/trakt/befintligt';
 // loggaImportFel (flyttad hit ur routen: loggar i import_fel, läses av /datahalsa — se kommentaren där) + skrivning som tål att
 // objekt.import_varningar inte går att skriva.
@@ -228,6 +229,11 @@ export async function POST(request: NextRequest) {
       medelstam: td.medelstam,
     };
     const falt = envzUttag ? mergeFalt(tdRecord, envzUttag.falt) : tdRecord;
+
+    // Rimlighet: volym mot areal (m³fub/ha). Flaggar bara — talet rättas aldrig här (lib/trakt/rimlighet.ts). Vyn härleder samma fråga
+    // live, så en volym som rättas efteråt släcker den utan omimport.
+    const orimligVolym = orimligVolymText(falt.typ, falt.volym, falt.areal);
+    if (orimligVolym) varningar.push(orimligVolym);
 
     // Geometri (envz) + kartpin. Pin = bbox-centrum för traktgränsen; nödlösning = larmkoordinat.
     let geoFeatures: any[] = [];

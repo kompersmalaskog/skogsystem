@@ -30,7 +30,7 @@ const OBJEKT = [
   OBJ('sandasen', 'Sandåsen gallring 2025', 'gallring', 146, 'pagaende', { cert: 'PEFC', markagare: 'Hans Koch', inkopare: 'Jan-Erik Gustafsson' }),
   OBJ('vashult', 'Vashult gallring 2026', 'gallring', 100, 'oplanerad', { cert: 'None' }),
   OBJ('intaget', 'Intaget gallring', 'gallring', 88, 'oplanerad', { cert: 'None' }),
-  OBJ('bagskytte', 'Bågskyttebanan RP J-Hus- 25', 'slutavverkning', 3495, 'avslutat', { stamplingslangd_url: 'sl.pdf', grot: true, import_varningar: [URBAN, SKALVIKEN_VARNING.replace('Skälviken', 'Bågskyttebanan')] }),
+  OBJ('bagskytte', 'Bågskyttebanan RP J-Hus- 25', 'slutavverkning', 3495, 'avslutat', { areal: 5.68, stamplingslangd_url: 'sl.pdf', grot: true, import_varningar: [URBAN, SKALVIKEN_VARNING.replace('Skälviken', 'Bågskyttebanan')] }),
   OBJ('skalviken', 'Skälviken RP J-Hus -25', 'slutavverkning', 1734, 'planerad', {
     areal: 7.28, grot: true, stamplingslangd_url: 'sl-skalviken.pdf', traktkarta_url: '883966_traktkarta.pdf', checklist_items: new Array(22).fill({ fraga: 'f' }),
     import_varningar: [URBAN, SKALVIKEN_VARNING, LAGER],
@@ -56,15 +56,18 @@ const GEOMETRI = { features: [
 ] };
 
 // ---- Supabase-fake: filtrerar eller returnerar fel, loggar skrivningar ----
-const DB: { objekt: any[]; poster: any[]; lasFel: boolean; skrivningar: { tabell: string; op: string; payload: any; filter?: any }[]; signerade: string[] } = { objekt: [], poster: [], lasFel: false, skrivningar: [], signerade: [] };
+const DB: { objekt: any[]; poster: any[]; lasFel: boolean; saknarKolumner: boolean; skrivningar: { tabell: string; op: string; payload: any; filter?: any }[]; signerade: string[] } = { objekt: [], poster: [], lasFel: false, saknarKolumner: false, skrivningar: [], signerade: [] };
 
 vi.mock('@/lib/supabase', () => {
   const byggare = (tabell: string) => {
     const f: { k: string; v: any; op: string }[] = [];
-    let op = 'select', payload: any = null, enkel = false, utanManad = false;
+    let op = 'select', payload: any = null, enkel = false, utanManad = false, valda = '';
     const tabellrader = () => (tabell === 'objekt' ? DB.objekt : tabell === 'bestallningar' ? DB.poster : tabell === 'objekt_geometri' ? [{ objekt_id: 'skalviken', geometri: GEOMETRI }] : []);
     const svar = () => {
       if (DB.lasFel && op === 'select') return { data: null, error: { message: 'Anslutningen avbröts' } };
+      // Migrationen objekt_stamplingslangd_tal ej körd: PostgREST svarar 42703 på en select som nämner kolumnerna och PGRST204 på en skrivning.
+      if (DB.saknarKolumner && tabell === 'objekt' && op === 'select' && /stamplingslangd_volym/.test(valda)) return { data: null, error: { code: '42703', message: 'column objekt.stamplingslangd_volym does not exist' } };
+      if (DB.saknarKolumner && tabell === 'objekt' && op === 'update' && payload && 'stamplingslangd_volym' in payload) return { data: null, error: { code: 'PGRST204', message: "Could not find the 'stamplingslangd_volym' column of 'objekt' in the schema cache" } };
       if (op === 'upsert' || op === 'insert' || op === 'update' || op === 'delete') {
         DB.skrivningar.push({ tabell, op, payload, filter: f.map(x => `${x.k}${x.op}${x.v}`) });
         const n = Array.isArray(payload) ? payload.length : 1;
@@ -77,6 +80,7 @@ vi.mock('@/lib/supabase', () => {
     const p: any = new Proxy(() => {}, {
       get(_t, prop: string) {
         if (prop === 'then') return (res: any, rej: any) => Promise.resolve(svar()).then(res, rej);
+        if (prop === 'select') return (k?: string) => { if (typeof k === 'string') valda = k; return p; };
         if (prop === 'maybeSingle' || prop === 'single') return () => { enkel = true; return p; };
         if (prop === 'or') return () => { utanManad = true; return p; };
         if (prop === 'upsert' || prop === 'insert' || prop === 'update' || prop === 'delete') return (pl?: any) => { op = prop; payload = pl ?? null; return p; };
@@ -107,7 +111,7 @@ const nbsp = (s: string) => s.replace(/(\d) (?=\d{3}\b)/g, '$1\u00a0');
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  routerReplace.mockClear(); konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.lasFel = false; DB.skrivningar = []; DB.signerade = [];
+  routerReplace.mockClear(); konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.lasFel = false; DB.saknarKolumner = false; DB.skrivningar = []; DB.signerade = [];
   vi.spyOn(console, 'error').mockImplementation((...a: any[]) => { konsolFel.push(a.map(String).join(' ')); });
   vi.stubGlobal('open', vi.fn(() => ({ close() {}, location: { href: '' } })));
   behallare = document.createElement('div');
@@ -129,10 +133,10 @@ describe('Objekt + beställning — listan', () => {
     await montera();
     expect(hookFel()).toEqual([]);
     const t = text();
-    expect(t).toContain(nbsp('334 / 1 000'));
-    expect(t).toContain(nbsp('6 234 / 5 000'));
+    expect(t).toContain(nbsp('334 / 1 000 m³fub'));
+    expect(t).toContain(nbsp('6 234 / 5 000 m³fub'));
     expect(t).toContain(nbsp('666 m³fub kvar till beställningen'));
-    expect(t).toContain(nbsp('Beställningen fylld · 1 234 över'));
+    expect(t).toContain(nbsp('Beställningen fylld · 1 234 m³fub över'));
     expect(t).toContain('Bågskyttebanan RP J-Hus- 25'); // avslutat: syns OCH räknas
     expect(t).toContain('Oktober 2026');
   });
@@ -144,7 +148,9 @@ describe('Objekt + beställning — listan', () => {
     expect(rad('vashult')).toContain('Väntar på planering');
     expect(rad('bagskytte')).toContain('Klar');
     expect(rad('bagskytte')).not.toMatch(/saknar/); // ett klart objekt nagas inte
-    expect(rad('bagskytte')).not.toMatch(/fråga/); // ...och ställer ingen fråga, fast en gammal OSÄKER-rad finns kvar
+    // ...och ställer ingen fråga om PDF:er (en gammal OSÄKER-rad finns kvar) — men volymen är en fråga: 615 m³fub/ha ingår i täckningen.
+    expect(rad('bagskytte')).toContain('1 fråga');
+    expect(rad('skalviken')).not.toMatch(/orimlig|per hektar/); // 238 m³fub/ha är rimligt
     expect(rad('skalviken')).toContain('Planerad · 1 fråga');
     expect(rad('molleryd')).toContain('Väntar på planering · 1 fråga');
     expect(rad('molleryd')).toContain(nbsp('1 005'));
@@ -162,7 +168,7 @@ describe('Objekt + beställning — listan', () => {
   it('klart är dämpat i ORDET, inte i talet: ett avslutat objekts volym ritas som alla andras', async () => {
     await montera();
     const rad = behallare!.querySelector('[data-objekt="bagskytte"]')!;
-    const tal = Array.from(rad.querySelectorAll<HTMLElement>('div')).find(d => d.textContent === nbsp('3 495') && d.style.color)!;
+    const tal = Array.from(rad.querySelectorAll<HTMLElement>('div')).find(d => d.textContent === nbsp('3 495 m³fub') && d.style.color)!;
     expect(tal.style.color).toBe('rgb(255, 255, 255)');
     expect(Array.from(rad.querySelectorAll('span')).find(x => x.textContent === 'Klar')!.style.color).toBe('rgb(142, 142, 147)');
   });
@@ -187,7 +193,7 @@ describe('Objekt + beställning — listan', () => {
     const sektioner = Array.from(behallare!.querySelectorAll('section')).map(x => x.getAttribute('aria-label'));
     expect(sektioner[sektioner.length - 1]).toBe('Utan månad (2)');
     // De räknas inte i täckningen:
-    expect(text()).toContain(nbsp('334 / 1 000'));
+    expect(text()).toContain(nbsp('334 / 1 000 m³fub'));
   });
 
   it('läsfel är ett fel med Försök igen — aldrig en tom lista', async () => {
@@ -374,10 +380,11 @@ describe('Objektvyn — vad filen gav oss', () => {
     expect(DB.signerade).toContain('kartbilder/886465_ovrigt_0.pdf');
   });
 
-  it('en avslutad trakt får ingen fråga, fast en gammal OSÄKER-rad finns kvar (Bågskyttebanan)', async () => {
+  it('en avslutad trakt får ingen fråga om PDF:er, fast en gammal OSÄKER-rad finns kvar (Bågskyttebanan) — men volymen är en fråga', async () => {
     await monteraObjekt('bagskytte');
-    expect(behallare!.querySelector('[data-fraga]')).toBeNull();
+    expect(Array.from(behallare!.querySelectorAll('[data-fraga]')).map(e => e.getAttribute('data-fraga'))).toEqual(['orimlig_volym']);
     expect(text()).not.toContain('Är det här stämplingslängden');
+    expect(text()).toContain(nbsp('3 495 m³fub på 5,68 ha är 615 per hektar. Kontrollera mot stämplingslängden.'));
   });
 
   it('noterat ligger hopfällt och utveckling visas aldrig', async () => {
@@ -396,7 +403,7 @@ describe('Objektvyn — vad filen gav oss', () => {
     expect(t).toContain('Ingen traktkarta i filen');
     expect(t).toContain('Ingen geometri sparad för objektet');
     expect(t).toContain('Inga frågor i filen');
-    expect(t).not.toMatch(/Ingen stämplingslängd i filen|Stämplingslängd/);
+    expect(t).not.toMatch(/Ingen stämplingslängd i filen/);
     expect(t).not.toContain('Fråga'); // inget att fråga om
   });
 
@@ -465,5 +472,116 @@ describe('Objektvyn — Ändra: flytta månad och ta bort', () => {
     await klicka(knapp('Avbryt', true));
     expect(text()).toContain('Ändra objekt');
     expect(DB.skrivningar).toHaveLength(0);
+  });
+});
+
+
+describe('Volymen: rimlighet, enhet och stämplingslängdens tal', () => {
+  async function monteraObjekt(id: string) {
+    window.history.replaceState({}, '', '/objekt/x?ar=2026&manad=10');
+    const { default: FilenGavVy } = await import('./_components/FilenGavVy');
+    rot = createRoot(behallare!);
+    await act(async () => { rot!.render(<FilenGavVy objektId={id} />); });
+    await tills(() => !text().includes('Läser objektet'));
+    await stilla();
+  }
+  const stamp = (id: string, volym: number | null, enhet: string | null) => { DB.objekt = OBJEKT.map(o => (o.id === id ? { ...o, stamplingslangd_volym: volym, stamplingslangd_enhet: enhet } : o)); };
+  const skriv = async (el: HTMLInputElement, v: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { setter.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await stilla();
+  };
+
+  it('enheten står vid varje volym: rubrik, rad, läge och objektets Volym', async () => {
+    await montera();
+    expect(text()).toContain(nbsp('334 / 1 000 m³fub'));
+    expect(text()).toContain(nbsp('666 m³fub kvar till beställningen'));
+    expect(behallare!.querySelector('[data-objekt="sandasen"]')!.textContent).toContain('146 m³fub');
+    expect(behallare!.querySelector('[data-objekt="bagskytte"]')!.textContent).toContain(nbsp('3 495 m³fub'));
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-volym]')!.textContent).toContain(nbsp('3 495 m³fub'));
+    expect(behallare!.querySelector('[data-volym]')!.textContent).toContain('Från Vida');
+  });
+
+  it('Bågskyttebanan (avslutad): frågan om orimlig volym visas, med knappen Rätta volymen — och talet är orört', async () => {
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-fraga="orimlig_volym"]')).toBeTruthy();
+    expect(behallare!.querySelector('[data-ratta-volym]')).toBeTruthy();
+    expect(DB.skrivningar).toEqual([]); // flaggar bara, rättar ingenting av sig självt
+  });
+
+  it('ett normalt objekt (Skälviken, 238/ha) har ingen volymfråga', async () => {
+    await monteraObjekt('skalviken');
+    expect(behallare!.querySelector('[data-fraga="orimlig_volym"]')).toBeNull();
+    expect(behallare!.querySelector('[data-fraga="stamplingslangd_avviker"]')).toBeNull();
+  });
+
+  it('Rätta volymen: Ändra-arket sparar bara volymen (heltal), utan att flytta månad', async () => {
+    await monteraObjekt('bagskytte');
+    await klicka(behallare!.querySelector('[data-ratta-volym]'));
+    const falt = behallare!.ownerDocument.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+    expect(falt.value).toBe('3495');
+    expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).toBe('0.4'); // inget ändrat än
+    await skriv(falt, '1560');
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar).toHaveLength(1);
+    expect(DB.skrivningar[0]).toMatchObject({ tabell: 'objekt', op: 'update', payload: { volym: 1560 } });
+    expect(Object.keys(DB.skrivningar[0].payload)).toEqual(['volym']);
+    expect(text()).toContain('volymen är 1');
+  });
+
+  it('stämplingslängdens tal: m³sk räknas om med 0,83 och faktorn syns; sparas som skrivet, med enhet', async () => {
+    await monteraObjekt('bagskytte');
+    await klicka(behallare!.querySelector('[data-stamplingslangd-tal]'));
+    expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).toBe('0.4'); // varken tal eller enhet
+    await klicka(Array.from(behallare!.ownerDocument.querySelectorAll('[role="tab"]')).find(b => b.textContent === 'm³sk'));
+    await skriv(behallare!.ownerDocument.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!, '1884');
+    expect(text()).toContain(nbsp('≈ 1 564 m³fub (× 0,83)'));
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar).toHaveLength(1);
+    expect(DB.skrivningar[0]).toMatchObject({ tabell: 'objekt', op: 'update', payload: { stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' } });
+  });
+
+  it('enheten har inget förval: utan val går det inte att spara', async () => {
+    await monteraObjekt('bagskytte');
+    await klicka(behallare!.querySelector('[data-stamplingslangd-tal]'));
+    await skriv(behallare!.ownerDocument.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!, '1884');
+    expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).toBe('0.4');
+    expect(behallare!.ownerDocument.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(0);
+  });
+
+  it('inskrivet tal visas som "1 884 m³sk ≈ 1 564 m³fub", och avviker det mer än 15 % blir det en fråga med båda talen och faktorn', async () => {
+    stamp('bagskytte', 1884, 'm3sk');
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')!.textContent).toContain(nbsp('1 884 m³sk ≈ 1 564 m³fub'));
+    const f = behallare!.querySelector('[data-fraga="stamplingslangd_avviker"]')!;
+    expect(f.textContent).toContain(nbsp('Volymen 3 495 m³fub avviker 124 % från stämplingslängden, 1 884 m³sk ≈ 1 564 m³fub (× 0,83)'));
+    expect(text()).toContain('m³sk omräknas till m³fub med × 0,83');
+  });
+
+  it('inom 15 % (volymen rättad till 1 560) är det ingen fråga alls — frågan släcks av sig själv', async () => {
+    DB.objekt = OBJEKT.map(o => (o.id === 'bagskytte' ? { ...o, volym: 1560, stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' } : o));
+    await monteraObjekt('bagskytte');
+    expect(behallare!.querySelector('[data-fraga]')).toBeNull();
+    expect(behallare!.querySelector('[data-stamplingslangd-tal]')!.textContent).toContain(nbsp('1 884 m³sk ≈ 1 564 m³fub'));
+  });
+
+  it('listraden för ett klart objekt visar frågan när stämplingslängden avviker men volymen är rimlig per hektar', async () => {
+    DB.objekt = OBJEKT.map(o => (o.id === 'bagskytte' ? { ...o, volym: 2000, stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' } : o));
+    await montera();
+    expect(behallare!.querySelector('[data-objekt="bagskytte"]')!.textContent).toContain('1 fråga'); // 2 000 mot 1 564 = 28 %
+  });
+
+  it('migrationen ej körd: listan och objektet läses ändå, och inskrivningen säger varför den inte går', async () => {
+    DB.saknarKolumner = true;
+    await montera();
+    expect(hookFel()).toEqual([]);
+    expect(text()).toContain(nbsp('6 234 / 5 000 m³fub')); // listan föll inte för ett tillägg
+    await monteraObjekt('bagskytte');
+    await klicka(behallare!.querySelector('[data-stamplingslangd-tal]'));
+    await klicka(Array.from(behallare!.ownerDocument.querySelectorAll('[role="tab"]')).find(b => b.textContent === 'm³sk'));
+    await skriv(behallare!.ownerDocument.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!, '1884');
+    await klicka(knapp('Spara', true));
+    expect(text()).toContain('databasen saknar fältet');
   });
 });

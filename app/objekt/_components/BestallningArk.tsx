@@ -154,7 +154,7 @@ export default function BestallningArk({
 
   // ---- Förslaget ----
   if (vy === 'forslag') {
-    const sammanfattning = TYPER.filter(t => kallVolymer[t.id]).map(t => `${t.namn} ${fmtM3(kallVolymer[t.id]!)}`).join(' · ');
+    const sammanfattning = TYPER.filter(t => kallVolymer[t.id]).map(t => `${t.namn} ${fmtM3(kallVolymer[t.id]!)} m³fub`).join(' · ');
     const ingenKalla = Object.keys(kallVolymer).length === 0;
     const blockerad = valda.length === 0 || ingenKalla || ogiltig || sparar || hamtat.lage !== 'klar';
     const knapptext = andrad
@@ -189,7 +189,7 @@ export default function BestallningArk({
               <Sektion rubrik="Månader" kort={false}>
                 {forslag.map((r, i) => {
                   const nyckel = manadNyckel(r.manad);
-                  const redanText = r.redan ? TYPER.filter(t => r.redan![t.id] != null).map(t => `${t.namn} ${fmtM3(r.redan![t.id]!)}`).join(' · ') : null;
+                  const redanText = r.redan ? TYPER.filter(t => r.redan![t.id] != null).map(t => `${t.namn} ${fmtM3(r.redan![t.id]!)} m³fub`).join(' · ') : null;
                   const vald = r.vald && !avvalda.has(nyckel);
                   return (
                     <Rad key={nyckel} sista={i === forslag.length - 1}

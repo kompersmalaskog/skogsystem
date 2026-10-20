@@ -28,9 +28,9 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => h.db.klient() }));
 import { NextRequest } from 'next/server';
 import { POST } from './route';
 
-const OBJECT_INFO = (o: { purpose?: string; target?: number } = {}) => `<?xml version="1.0"?><ObjectInfo>
+const OBJECT_INFO = (o: { purpose?: string; target?: number; area?: string } = {}) => `<?xml version="1.0"?><ObjectInfo>
   <Objectnumber>887818</Objectnumber><orderNumber>11161397</orderNumber><Objectname>Skälviken RP J-Hus- 25</Objectname>
-  <Requestor>Vida</Requestor><Purpose>${o.purpose ?? 'Slutavverkning'}</Purpose><Area>3,6</Area><Target>${o.target ?? 950}</Target>
+  <Requestor>Vida</Requestor><Purpose>${o.purpose ?? 'Slutavverkning'}</Purpose><Area>${o.area ?? '3,6'}</Area><Target>${o.target ?? 950}</Target>
   <Executor>556990-3940</Executor></ObjectInfo>`;
 
 /** Minnesdatabas för tabellerna routen rör. `saknasKolumner` = kolumner PostgREST inte känner till (migrationen ej körd). */
@@ -224,5 +224,31 @@ describe('migrationen 20261014125836 ej körd (kolumnerna avtalsform/import_vard
     expect(r.body.ejSkrivnaKolumner).toEqual(expect.arrayContaining(['avtalsform', 'import_varden']));
     const fel = h.db.tabeller.import_fel.find((f: any) => f.felkod === 'KOLUMN_SAKNAS');
     expect(fel?.feltext).toContain('20261014125836_avtalsform_och_import_varden.sql');
+  });
+});
+
+describe('rimlighetskontroll: volym mot areal (Bågskyttebanan: 3 495 m³fub på 5,68 ha)', () => {
+  const frågor = () => (h.db.tabeller.objekt[0].import_varningar as { nyckel: string; sort: string; text: string }[] | null)?.filter((v) => v.nyckel === 'orimlig_volym') ?? [];
+
+  it('615 m³fub/ha på en slutavverkning blir en fråga med båda talen i texten — och talet rättas INTE', async () => {
+    const r = await importera(tdText({ ursprung: 'Rotpost' }), OBJECT_INFO({ target: 3495, area: '5,68' }));
+    expect(r.status).toBe(200);
+    expect(frågor()).toEqual([{ nyckel: 'orimlig_volym', sort: 'fraga', text: '3\u00a0495 m³fub på 5,68 ha är 615 per hektar. Kontrollera mot stämplingslängden.' }]);
+    expect(h.db.tabeller.objekt[0].volym).toBe(3495); // flaggar bara
+  });
+
+  it('ett normalt tal (950 på 3,6 ha = 264/ha) ger ingen fråga', async () => {
+    await importera(tdText({ ursprung: 'Rotpost' }));
+    expect(frågor()).toEqual([]);
+  });
+
+  it('gallring bedöms mot gallringens intervall (15–80): 264/ha är orimligt där', async () => {
+    await importera(tdText({ ursprung: 'Rotpost', arbetsform: 'Första gallring' }), OBJECT_INFO({ purpose: 'Gallring' }));
+    expect(frågor()).toHaveLength(1);
+  });
+
+  it('GROT bedöms inte (volymen är valfri och mäts inte i m³fub)', async () => {
+    await importera(tdText({ ursprung: 'Avverkningsuppdrag' }), OBJECT_INFO({ purpose: 'GROT-skotning', target: 9999, area: '1' }));
+    expect(frågor()).toEqual([]);
   });
 });

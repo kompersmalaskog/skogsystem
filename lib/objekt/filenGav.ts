@@ -6,7 +6,9 @@
 //
 // Saknas något står det: "Ingen stämplingslängd i filen" är information, en tom rad är det inte.
 
+import { ORIMLIG_VOLYM_NYCKEL, orimligVolymText } from '@/lib/trakt/rimlighet';
 import { tillVarningar } from '@/lib/trakt/varningar';
+import { avvikelseText, jamfor } from './stamplingslangd';
 
 // ---------------------------------------------------------------------------
 // Frågorna (import_varningar)
@@ -34,6 +36,35 @@ export function fragor(varningar: unknown, dok: Pick<DokKolumner, 'stamplingslan
     const bland = (dok.ovriga_dokument ?? []).find(d => d.namn === v.fil)?.path ?? null;
     ut.push({ nyckel: v.nyckel, fil: v.fil, nannderStamplingslangd: ledtrad, path: ledtrad ? (dok.stamplingslangd_url ?? bland) : bland });
   }
+  return ut;
+}
+
+// ---------------------------------------------------------------------------
+// Frågorna om volymen (härledda vid läsning — aldrig lagrade)
+// ---------------------------------------------------------------------------
+// Volymen jämförs med arealen (m³fub/ha) och med stämplingslängdens tal. Frågorna räknas ur objektets nuvarande värden varje gång en vy
+// öppnas, så en rättad volym släcker dem av sig själv (en lagrad rad skulle ligga kvar tills nästa import). Till skillnad från PDF-frågorna
+// gäller de ÄVEN avslutade objekt: en avslutad trakts volym ingår i beställningens täckning, och ett fel tal där ger fel läge i alla månader.
+
+export interface VolymUnderlag {
+  typ: string | null;
+  volym: number | null;
+  areal?: number | null;
+  stamplingslangd_volym?: number | null;
+  stamplingslangd_enhet?: string | null;
+}
+
+export interface VolymFraga {
+  nyckel: 'orimlig_volym' | 'stamplingslangd_avviker';
+  text: string;
+}
+
+export function volymFragor(o: VolymUnderlag): VolymFraga[] {
+  const ut: VolymFraga[] = [];
+  const orimlig = orimligVolymText(o.typ, o.volym, o.areal);
+  if (orimlig) ut.push({ nyckel: ORIMLIG_VOLYM_NYCKEL, text: orimlig });
+  const avviker = avvikelseText(o.volym, jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet));
+  if (avviker) ut.push({ nyckel: 'stamplingslangd_avviker', text: avviker });
   return ut;
 }
 
