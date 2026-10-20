@@ -184,7 +184,7 @@ describe('ett ord för samma sak: zontypen "protected" heter Hänsyn överallt (
   });
   it('den lagrade typen är orörd: id och färg', () => {
     expect(las('./larm/grupper.ts')).toContain("protected: { grupp: 'natur', namn: 'Hänsyn', forbjuden: true }");   // larmgruppen bär samma lagrade typ
-    expect(las('./zone-colors.ts')).toContain("protected:   '#30d158'");
+    expect(las('./larm/grupper.ts')).toContain("FARG_NATUR = '#30D158'");   // zonfärgen härleds ur färggruppen (lib/zone-colors)
   });
 });
 

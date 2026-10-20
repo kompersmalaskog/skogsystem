@@ -7812,7 +7812,7 @@ export default function PlannerPage() {
   };
 
   const getIconBorder = (symbolId: string): string => {
-    return gruppForSymbol(symbolId) === 'info' ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.5)';   // vit kant på alla färggrupper — ingen andra nyans
+    return gruppForSymbol(symbolId) === 'info' ? FARG.fyllning : '#ffffff';   // vit kant på alla färggrupper — ingen andra nyans
   };
 
   const symbolCategories = [

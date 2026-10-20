@@ -7,7 +7,7 @@
 import React from 'react';
 import type { LarmKort as Kort } from '@/lib/larm/larm';
 import type { FargGrupp } from '@/lib/larm/grupper';
-import { AVSTAND, FARG, RADIE, TYP, medSafeBotten } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 
 /** Ikonen följer gruppen (formen bär betydelsen när färgen inte syns i solljus). */
 const IKON: Record<FargGrupp, string> = {
@@ -18,7 +18,7 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
   const rad2 = kort.text ?? (riktning && kort.avstandM != null ? riktning : null);
   return (
     <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 620, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
-      <style>{`@keyframes larmPuls { 0%,100% { box-shadow: 0 0 0 0 ${kort.farg}00, 0 16px 50px rgba(0,0,0,0.7); } 50% { box-shadow: 0 0 0 8px ${kort.farg}66, 0 16px 50px rgba(0,0,0,0.7); } } @media (prefers-reduced-motion: reduce) { [data-testid="larm-kort"] { animation: none !important; } }`}</style>
+      <style>{designCss}</style>
       <div
         role="alert"
         aria-live="assertive"
@@ -27,15 +27,19 @@ export function LarmKortVy({ kort, riktning, top }: { kort: Kort; riktning: stri
         data-pulserar={kort.pulserar ? 'ja' : 'nej'}
         data-forbjuden={kort.forbjuden ? 'ja' : 'nej'}
         style={{
-          width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.l}px`,
+          position: 'relative', width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.m}px ${AVSTAND.l}px`,
           background: FARG.kort, border: `3px solid ${kort.farg}`, borderRadius: RADIE.sheet, color: FARG.text, pointerEvents: 'auto',
-          boxShadow: '0 16px 50px rgba(0,0,0,0.7)', animation: kort.pulserar ? 'larmPuls 0.9s ease-in-out infinite' : 'none',
+          boxShadow: '0 16px 50px rgba(0,0,0,0.7)',
         }}
       >
+        {/* Inom 15 m (bara Röd): en ram runt kortet pulserar (designCss .puls — opacity, texten i kortet står still och går att läsa). */}
+        {kort.pulserar && (
+          <span aria-hidden="true" data-testid="larm-puls" className="puls" style={{ position: 'absolute', inset: -AVSTAND.s, border: `${AVSTAND.s}px solid ${kort.farg}`, borderRadius: RADIE.sheet + AVSTAND.s, pointerEvents: 'none' }} />
+        )}
         <span aria-hidden="true" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: RADIE.kort, background: kort.farg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="material-symbols-outlined" style={{ fontSize: 30, color: FARG.text }}>{kort.forbjuden ? 'block' : IKON[kort.grupp]}</span>
         </span>
-        <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <span style={{ ...TYP.rubrik, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kort.namn}</span>
           {rad2 && <span style={{ ...TYP.text, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rad2}</span>}
         </span>
@@ -73,7 +77,7 @@ export function SettRad({ namn, farg, smal, onSett }: { namn: string; farg: stri
           border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, background: FARG.kort, color: FARG.text, fontFamily: 'inherit', cursor: 'pointer', ...TYP.listtitel,
         }}
       >
-        <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 6, background: farg, flexShrink: 0 }} />
+        <span aria-hidden="true" style={{ width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: farg, flexShrink: 0 }} />
         <span style={{ flex: '1 1 auto', minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Sett {namn}</span>
         <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 22, color: FARG.text2 }}>check</span>
       </button>
