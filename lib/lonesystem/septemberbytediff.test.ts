@@ -40,7 +40,10 @@ const arBrandrisk = (key: string) => key.startsWith("brandrisk");
  * `foretagsledare` och `helglon.anstallningsdatumSaknas` — och hemskickad (2026-10-17): fälten `hemskickad` och `hemskickad_h`, som MÅSTE vara
  * tomma för de här månaderna (ingen hemskickad rad finns i underlaget; testet nedan kräver det). Inget annat tas bort.
  */
-function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ordinarie, ...r }: any) {
+function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ordinarie, arbetat, extra_poster, ...r }: any) {
+  // Förarens månad (Admin, 2026-10-20): `arbetat` (vad arbetad tid består av), `extra_poster` och på varje dag km-källa/ben/rutt är RENA
+  // uppställningar av det motorn redan räknade — de tas bort som tillägg, och att de stämmer mot motorn kontrolleras i forarManad.paritet.test.ts.
+  const dagar_ = r.dagar?.map(({ km_morgon, km_kvall, km_kalla, km_rutt, ...d }: any) => d);
   // Hemskickad ändrar ingenting för en månad utan hemskickad rad: tom lista, noll timmar (annars är det inte ett tillägg utan en ändring).
   expect(hemskickad).toEqual([]);
   expect(hemskickad_h).toBe(0);
@@ -48,6 +51,7 @@ function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hem
   const { anstallningsdatumSaknas, ...helglon } = r.helglon || {};
   return {
     ...r,
+    ...(dagar_ ? { dagar: dagar_ } : {}),
     helglon: r.helglon ? helglon : r.helglon,
     saknade_loneartskoder: r.saknade_loneartskoder.filter((k: string) => !arBrandrisk(k)),
     varningar: r.varningar.filter((v: string) => !/^Löneart saknas för Brandrisk – /.test(v)),
