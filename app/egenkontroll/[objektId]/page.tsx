@@ -71,9 +71,15 @@ import ObservationSheet from '../ObservationSheet';
 import ObservationLista, { observationAntalText } from '../ObservationLista';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import Forutsattningar from '../Forutsattningar';
-import KartLagerMeny, { type EgetLager } from '@/components/KartLagerMeny';
+import KartLagerMeny from '@/components/KartLagerMeny';
 import { BASKARTOR, BASKARTA_DEFAULT, type BaskartaId } from '@/lib/mapLayers';
 import { useMapLayers, useStringSetting } from '@/lib/hooks/useMapLayers';
+import { useEgenkontrollLager } from '@/lib/hooks/useEgenkontrollLager';
+import {
+  arBasvagPunkt, lagerRader, raknaPlanVagar, sparKnapp, sparLasningUr, tillampaSparKnapp,
+  type LagerIndata, type SparLasning,
+} from '@/lib/egenkontrollLager';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import ProvyteSammanstallning from '../ProvyteSammanstallning';
 import RundKommentarSheet, { KOMMENTAR_FALT, KOMMENTAR_PLATSHALLARE } from '../RundKommentarSheet';
 import RapportDela from '../RapportDela';
@@ -124,19 +130,6 @@ import { avslutaStatus } from '@/lib/egenkontrollAvsluta';
 function avstandText(m: number): string {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
-
-// Egenkontrollens egna lager i kartmenyn.
-//
-// TRE TOGGLAR, INTE FEM. "Din position" har ingen: den ar ankaret, och den som
-// rakar slacka sig sjalv i skogen vinner ingenting pa det. Avvikelser har inget
-// eget lager heller - de AR kontrollpunkter med en status, och tva strombrytare
-// for samma punkt skulle gora att den kan vara bade tand och slackt.
-const EGNA_LAGER: EgetLager[] = [
-  { id: 'ekPunkter', namn: 'Kontrollpunkter', beskrivning: 'Punkterna ur planen, fargade efter svar' },
-  { id: 'ekProvytor', namn: 'Provytor', beskrivning: 'Lottade ytor, matta och omatta' },
-  { id: 'ekObservationer', namn: 'Observationer', beskrivning: 'Det du själv noterat ute på rundan' },
-  { id: 'ekStammar', namn: 'Avverkade stammar', beskrivning: '' },
-];
 
 /** Stammolnets rad sager sitt eget tillstand - tomt far inte betyda tva saker. */
 function stamBeskrivning(stammar: LatLng[] | null, fel: boolean): string {
@@ -371,12 +364,11 @@ export default function EgenkontrollRundaPage() {
   );
   const [lagerMeny, setLagerMeny] = useState(false);
 
-  // Egenkontrollens egna lager. Punkter och provytor ar PA som default - de ar
-  // vad rundan handlar om. Stammolnet ar av: det ar 12 000 prickar som ska
-  // tandas nar man vill se var det ar kort, inte ligga och skrapa.
-  const [egnaVarden, setEgnaVarden] = useState<Record<string, boolean>>({
-    ekPunkter: true, ekProvytor: true, ekObservationer: true, ekStammar: false,
-  });
+  // Egenkontrollens egna lager (lib/egenkontrollLager). Punkter, provytor och observationer ar PA som default - de ar vad rundan handlar om.
+  // Underlagen (planens vagar i full styrka, hyttspar, Vidas traktgrans, stammoln) ar AV: det ar tillagg man tander nar man vill se dem,
+  // inte nagot som ligger och skrapar. Valet SPARAS PER ENHET (hooken) och galler medan man gar - ett svar, en ny bricka eller ett byte
+  // av arklage ror det aldrig. Tomt/trasigt/avstangt minne = standarden.
+  const [egnaVarden, setEgnaVarden] = useEgenkontrollLager();
   const visaStammar = egnaVarden.ekStammar === true;
   const [gaTill, setGaTill] = useState<EgenkontrollProvyta | null>(null);
   // Stammarna hamtas EN gang och bara nar lagret slas pa i menyn.
@@ -695,6 +687,40 @@ export default function EgenkontrollRundaPage() {
   // --- BRICKORNA OCH DET MARKERADE ------------------------------------------
   const brickor = useMemo(() => byggBrickor(vy?.punkter ?? []), [vy?.punkter]);
   const markerad = markeradId ? allaPunkter.find((p) => p.id === markeradId) ?? null : null;
+
+  // --- LAGREN (PR 8a): hyttspar, planens vagar, Vidas traktgrans --------------------------------------------------------------------------
+  // Hyttsparet hamtas forst nar nagon ber om det: menyn oppnas, Basvag-brickan markeras eller ett sparlager ar tant (sparat val). Ett helt
+  // objekts hyttspar ar inget man hamtar i onodan. Ett fel ar ett fel ("kunde inte lasas"), aldrig "inget spar", och menyn forsoker igen nar den
+  // oppnas nasta gang. Lasningen horer till ett OBJEKT: byter man objekt galler den inte langre.
+  const [sparState, setSparState] = useState<{ objektId: string; lasning: SparLasning; data: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[] } | null>(null);
+  const spar: SparLasning | null = sparState && sparState.objektId === objektId ? sparState.lasning : null;
+  const sparData = useMemo(() => (sparState && sparState.objektId === objektId ? sparState.data : []), [sparState, objektId]);
+  const basvagMarkerad = arBasvagPunkt(markerad?.punkt_typ);
+  const sparBegard = lagerMeny || basvagMarkerad || egnaVarden.ekSparSkordare === true || egnaVarden.ekSparSkotare === true;
+  useEffect(() => {
+    if (!sparBegard || spar !== null) return;
+    const for_ = objektId;
+    setSparState({ objektId: for_, lasning: { typ: 'laddar' }, data: [] });
+    hamtaHyttspar(for_)
+      .then((rader) => setSparState((nu) => (nu && nu.objektId === for_ ? { objektId: for_, lasning: sparLasningUr(rader), data: rader } : nu)))
+      .catch(() => setSparState((nu) => (nu && nu.objektId === for_ ? { objektId: for_, lasning: { typ: 'fel' }, data: [] } : nu)));
+  }, [sparBegard, spar, objektId]);
+  /** Menyn oppnas: ett tidigare misslyckat forsok gors om (spar nollas -> effekten ovan hamtar igen). */
+  const oppnaLagerMeny = () => {
+    if (spar?.typ === 'fel') setSparState(null);
+    setLagerMeny(true);
+  };
+
+  const planVagar = useMemo(() => raknaPlanVagar(kontext, vy?.punkter ?? []), [kontext, vy?.punkter]);
+  const vidaRingar = useMemo(() => (vida.typ === 'ok' ? vida.ringar ?? [] : []), [vida]);
+  const lagerIndata = useMemo<LagerIndata>(() => ({
+    origoOk: !!origo, kontextStatus, planVagar, spar, vida,
+    stammarText: stamBeskrivning(stammar, stamFel),
+    rollFarg: { skordare: ROLLFARG_SKORDARE, skotare: ROLLFARG_SKOTARE },
+  }), [origo, kontextStatus, planVagar, spar, vida, stammar, stamFel]);
+  const lagerRaderLista = useMemo(() => lagerRader(lagerIndata), [lagerIndata]);
+  // Knappen "Visa hyttspåret" (Basvag-brickan): skriver SAMMA varden som menyn, sa menyn aldrig star pa "av" medan lagret ar pa.
+  const sparKnappen = basvagMarkerad ? sparKnapp(lagerIndata, egnaVarden) : null;
   // ETT tal i huvudet: allt som aterstar (punkter OCH provytor), samma som avslutsknappen raknar.
   const kvarTotalt = avsl.kvarPunkter + avsl.kvarProvytor;
   // Kartan ar hela vyn nar rundan finns och ar inladdad - ocksa utan koordinater (da tom bakgrund + en forklarande rad, brickorna fungerar anda).
@@ -1024,6 +1050,8 @@ export default function EgenkontrollRundaPage() {
               baskarta={baskarta}
               overlays={overlays}
               egnaVarden={egnaVarden}
+              spar={sparData}
+              vidaRingar={vidaRingar}
               position={pos.position}
               onValjPunkt={markeraPunkt}
               onValjProvyta={(nr) => {
@@ -1073,7 +1101,7 @@ export default function EgenkontrollRundaPage() {
                 {!rundanKlar ? (
                   <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="add_location_alt" etikett="Notera här" onClick={noteraHar} stor /></div>
                 ) : <span />}
-                <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="layers" etikett="Lager" ariaLabel="Kartlager" onClick={() => setLagerMeny(true)} /></div>
+                <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="layers" etikett="Lager" ariaLabel="Kartlager" onClick={oppnaLagerMeny} /></div>
               </div>
               <CentreraKnapp
                 synlig={pos.position != null}
@@ -1081,6 +1109,30 @@ export default function EgenkontrollRundaPage() {
                 onTryck={() => { if (pos.position) setCentreraPa({ lat: pos.position.lat, lng: pos.position.lng }); }}
                 bottom={sidoBottom(TRAFFYTA.primar + AVSTAND.s)}
               />
+              {/* "Visa hyttspåret": syns BARA när en basväg är markerad, ovanför Centrera i högerkanten - utanför dockan, sa dockan aldrig
+                  vaxer nar man markerar (inget tryckbart far flytta sig under fingret) och knappen finns aven nar arket ar sankt. Skriver SAMMA varden
+                  som lagermenyn. Ar spåret redan tant star "Dölj hyttspåret"; finns inget står en dampad rad som sager det. */}
+              {sparKnappen && (
+                <div style={{ ...kolumnStil(sidoBottom(2 * (TRAFFYTA.primar + AVSTAND.s))), justifyContent: 'flex-end' }}>
+                  {sparKnappen.typ === 'ingen' ? (
+                    <div
+                      role="status"
+                      data-testid="spar-knapp-ingen"
+                      style={{ pointerEvents: 'auto', padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderRadius: RADIE.knapp, background: FARG.kort, color: FARG.text2, ...TYP.meta }}
+                    >
+                      {sparKnappen.etikett}
+                    </div>
+                  ) : (
+                    <div style={{ pointerEvents: 'auto' }} data-testid="spar-knapp" data-lage={sparKnappen.typ}>
+                      <KartKnapp
+                        ikon="route"
+                        etikett={sparKnappen.etikett}
+                        onClick={() => setEgnaVarden((prev) => tillampaSparKnapp(lagerIndata, prev))}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
               {angra && (
                 <div style={kolumnStil(sidoBottom(TRAFFYTA.primar + AVSTAND.s))}>
                   <div
@@ -1178,11 +1230,7 @@ export default function EgenkontrollRundaPage() {
           setMapType={setBaskarta}
           overlays={overlays}
           setOverlays={setOverlays}
-          egnaLager={EGNA_LAGER.map((l) =>
-            l.id === 'ekStammar'
-              ? { ...l, beskrivning: stamBeskrivning(stammar, stamFel) }
-              : l,
-          )}
+          egnaLager={lagerRaderLista}
           egnaVarden={egnaVarden}
           setEgnaVarden={setEgnaVarden}
         />
