@@ -5,7 +5,7 @@ Lokalt test av egenkontrollens månadsstickprov (PR 5), mot en tom Postgres 16 m
     for f in ../../migrations/20261020093{115,121,149}_egenkontroll_stickprov_*.sql; do psql -v ON_ERROR_STOP=1 -q -d t -f $f; done
     # del 4 har första dragningsmånad 2026-11-01; testet kör den med 2000-01-01 så den går att prova idag:
     sed "s/date '2026-11-01'/date '2000-01-01'/" ../../migrations/20261020093202_egenkontroll_stickprov_4_publik.sql | psql -v ON_ERROR_STOP=1 -q -d t
-    for f in ../../migrations/202610201301{00,}*_egenkontroll_stickprov_5*.sql; do :; done   # 5a, sedan 5b (ersätter dragningen):
+    # 5a, sedan 5b (ersätter dragningen från del 3):
     psql -v ON_ERROR_STOP=1 -q -d t -f ../../migrations/20261020130000_egenkontroll_stickprov_5a_ankare_forsok.sql
     psql -v ON_ERROR_STOP=1 -q -d t -f ../../migrations/20261020130100_egenkontroll_stickprov_5b_dra_med_granne.sql
     psql -v ON_ERROR_STOP=1 -q -d t -f data.sql
