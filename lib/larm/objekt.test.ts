@@ -123,7 +123,9 @@ describe('Vidas lager', () => {
   });
   it('inkörning i en Vida-yta ger larm; utanför ytan inte', () => {
     const inne = stegaLarm({ objekt: vidaObjekt(FC, O), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
-    expect(inne.kort).toMatchObject({ forbjuden: true });
+    // Vidas Kraftledning (Röd) ligger inom 15 m här och går före ytan; ytan står i den lilla raden.
+    expect(inne.kort).toMatchObject({ grupp: 'fara' });
+    expect(inne.fler.some((f) => f.kalla === 'yta' && f.text === 'inne i ytan')).toBe(true);
     expect(inne.ljud).not.toBeNull();
     const ute = stegaLarm({ objekt: vidaObjekt(FC, p(200, 0)), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
     expect(ute.kort).toBeNull();

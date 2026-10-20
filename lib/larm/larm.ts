@@ -154,10 +154,10 @@ function nastaSteg(o: LarmObjekt, prev: Steg): Steg {
   return 'nara';
 }
 
-/** Vem vinner det stora kortet? Förbjuden yta före Röd före övrigt, därefter närmast. */
+/** Vem vinner det stora kortet? Röd före förbjuden yta före övrigt (Martin 2026-10-20: Röd är faran), därefter närmast. */
 function prio(o: LarmObjekt): number {
-  if (o.forbjuden) return 0;
-  if (o.grupp === 'fara') return 1;
+  if (o.grupp === 'fara' && !o.forbjuden) return 0;
+  if (o.forbjuden) return 1;
   return 2;
 }
 
@@ -170,7 +170,7 @@ const arMycketNaraRod = (a: Rangbar) => a.steg === 'mycket_nara' && a.o.grupp ==
 const harSjunkit = (a: Rangbar) => !!a.sett || (!!a.kvitterad && a.o.grupp === 'fara' && !a.o.forbjuden);
 
 /**
- * Rangordningen: Röd inom 15 m först (alltid), sedan det som kvitterats sist, förbjuden yta → Röd → övrigt, inom samma nivå närmast först.
+ * Rangordningen: Röd inom 15 m först (alltid), sedan det som kvitterats sist, Röd → förbjuden yta → övrigt, inom samma nivå närmast först.
  */
 export function rangordna<T extends Rangbar>(aktiva: readonly T[]): T[] {
   return [...aktiva].sort((a, b) =>

@@ -197,11 +197,12 @@ describe('linjer (Stenmur, Kraftledning) larmar på avstånd till närmaste punk
 });
 
 describe('vem får kortet, och "Sett"-raden', () => {
-  it('ett kort i taget: förbjuden yta före Röd före övrigt, annars närmast', () => {
+  it('ett kort i taget: Röd före förbjuden yta före övrigt, annars närmast', () => {
     const natur = sym('natur', 5, { id: 'n' });
     const fara = sym('fara', 30, { id: 'f' });
     const zon = yta('natur', true, true, { id: 'z' });
-    expect(steg([natur, fara, zon]).kort?.id).toBe('z');
+    expect(steg([natur, fara, zon]).kort?.id).toBe('f');
+    expect(steg([natur, zon]).kort?.id).toBe('z');
     expect(steg([natur, fara]).kort?.id).toBe('f');
     expect(steg([sym('natur', 30, { id: 'a' }), sym('kultur', 10, { id: 'b' })]).kort?.id).toBe('b');
   });
@@ -290,13 +291,16 @@ describe('flera larm samtidigt', () => {
     expect(u.fler.find((f) => f.namn === 'Kulturmiljö')).toMatchObject({ kalla: 'yta', avstandM: null, text: 'inne i ytan' });
   });
 
-  it('en förbjuden yta man står i går före Röd utanför 15 m (som förut) — men EFTER Röd inom 15 m', () => {
-    const u = steg([rod('Varning', 20), yta('natur', true, true, { namn: 'Hänsyn' })]);
+  it('Röd går före en förbjuden yta man står i — Röd är faran (både inom och utanför 15 m)', () => {
+    for (const d of [5, 20]) {
+      const u = steg([rod('Varning', d), yta('natur', true, true, { namn: 'Hänsyn' })]);
+      expect(u.kort).toMatchObject({ namn: 'Varning' });
+      expect(u.fler[0].namn).toBe('Hänsyn');
+    }
+  });
+  it('förbjuden yta går före övrigt', () => {
+    const u = steg([gron('Naturhörna', 5), yta('natur', true, true, { namn: 'Hänsyn' })]);
     expect(u.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true });
-    expect(u.fler[0].namn).toBe('Varning');
-    const n = steg([rod('Varning', 5), yta('natur', true, true, { namn: 'Hänsyn' })]);
-    expect(n.kort).toMatchObject({ namn: 'Varning' });
-    expect(n.fler[0].namn).toBe('Hänsyn');
   });
 
   describe('Röd inom 15 m ligger ALLTID överst, även kvitterad — Sett gäller första okvitterade', () => {
