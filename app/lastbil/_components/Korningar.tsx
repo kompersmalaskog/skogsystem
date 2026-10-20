@@ -26,7 +26,7 @@ const manadsRad = (s: Summa) => `${rundorText(s.antal)} · ${lPerMilText(s.lPerM
 /** Urvalets rad överst i listan: "2 rundor · 3,9 l/mil"; en rundtyp utan rundor säger bara antalet. */
 const urvalsRad = (antal: number, lPerMil: number | null) => (antal === 0 ? rundorText(0) : `${rundorText(antal)} · ${lPerMilText(lPerMil)}`);
 
-/** Anmärkningar som gäller summan: sägs i klartext, aldrig tyst. (Delas med År-vyn.) */
+/** Anmärkningar som gäller summan: sägs i klartext, aldrig tyst. (Delas med Uppföljning.) */
 export function Anmarkningar({ s }: { s: Summa }) {
   const rader = [
     s.overlappande > 0 && `${s.overlappande} rundor överlappar i tid och kan vara dubbelräknade i summorna.`,
@@ -41,12 +41,12 @@ export function Anmarkningar({ s }: { s: Summa }) {
  * Körningar — "vad har bilen gjort och vad drog det?". Rubriken, "‹ Oktober 2026 ›" (ingen Månad/År-växel här), månaden i ett kort:
  * körd km (ETT stort tal) och EN dämpad rad "5 rundor · 4,3 l/mil"; två rader i ett eget kort ("Flyttar 296 km ›", "Övrig körning
  * 522 km ›") som filtrerar listan och då visar urvalets "2 rundor · 3,9 l/mil" + "Visa alla" överst i den; sedan ETT kort med alla
- * rundor i månaden, nyast först, utan veckorubriker; under listan raden "Hela 2026 ›" (öppnar År-vyn) och sist CSV. Detaljen ligger
+ * rundor i månaden, nyast först, utan veckorubriker; under listan raden "Uppföljning ›" (öppnar uppföljningssidan) och sist CSV. Detaljen ligger
  * i arket. Alla rundor räknas på sin svenska startdag. Är månaden tom öppnar "Senaste körning: <datum>" den senaste rundans ark.
  */
 export default function Korningar({ period, onPeriod, lage, onForsokIgen, onOppna, onOppnaAr, senaste, onOppnaSenaste }: {
   period: Manad; onPeriod: (p: Manad) => void; lage: RundorLage; onForsokIgen: () => void; onOppna: (r: Runda) => void;
-  /** Raden "Hela <år> ›": öppnar År-vyn. */
+  /** Raden "Uppföljning ›": öppnar uppföljningssidan (årets körning). */
   onOppnaAr: () => void;
   /** Bilens senaste avslutade körning (ur Bilen nu), för tomtexten i en tom månad. */
   senaste: { id: string; start: string } | null; onOppnaSenaste: (r: { id: string; start: string }) => void;
@@ -152,9 +152,9 @@ function Inre({ period, lage, onForsokIgen, onOppna, onOppnaAr, senaste, onOppna
       )}
 
       <Anmarkningar s={summa} />
-      {/* Hela året: under listan, ovanför CSV */}
+      {/* Uppföljning (året): under listan, ovanför CSV */}
       <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
-        <TryckRad attr={{ 'data-hela-aret': '' }} sista text={`Hela ${period.ar}`} onTryck={onOppnaAr} />
+        <TryckRad attr={{ 'data-uppfoljning': '' }} sista text="Uppföljning" onTryck={onOppnaAr} />
       </div>
       <button type="button" disabled={rundor.length === 0}
         onClick={() => laddaNerCsv(rundorTillCsv(rundor), `rundor-${periodTillText(period)}.csv`)}

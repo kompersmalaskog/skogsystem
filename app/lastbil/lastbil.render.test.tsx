@@ -270,8 +270,8 @@ const attGoraRubrik = () => document.querySelector('section[aria-label="Att gör
 const fakturaSida = () => document.querySelector("[data-fakturering-sida]") as HTMLElement | null;
 const tillbakaPil = () => document.querySelector("[data-tillbaka]") as HTMLElement | null;
 const tillFakturering = async () => { await klicka(fakturRad()!); };
-/** År-vyn: raden "Hela 2026 ›" längst ner i Körningar öppnar den (egen sida, tillbaka-pil till månaden man kom från). */
-const helaAret = () => document.querySelector("[data-hela-aret]") as HTMLElement | null;
+/** Uppföljning: raden "Uppföljning ›" längst ner i Körningar öppnar den (egen sida, tillbaka-pil till Lastbilen). */
+const helaAret = () => document.querySelector("[data-uppfoljning]") as HTMLElement | null;
 const arsSida = () => document.querySelector("[data-ars-sida]") as HTMLElement | null;
 const tillAr = async () => { await klicka(helaAret()!); };
 const filterKnapp = (id: "flytt" | "ovrig") => document.querySelector(`[data-filter="${id}"]`) as HTMLElement;
@@ -815,10 +815,11 @@ describe("Körningar: kedjan, tom runda och aldrig 0 för saknade värden", () =
 });
 
 describe("Körningar: året, läsfel och CSV", () => {
-  it("raden 'Hela 2026 ›' står under listan och ovanför CSV, och År-vyn är en egen sida med tillbaka-pil till månaden man kom från", async () => {
+  it("raden 'Uppföljning ›' står under listan och ovanför CSV, och Uppföljning är en egen sida med tillbaka-pil till Lastbilen", async () => {
     await montera();
     const rad = helaAret()!;
-    expect(rad.textContent).toContain("Hela 2026");
+    expect(rad.textContent).toContain("Uppföljning");
+    expect(rad.textContent).not.toContain("Hela");
     const lista = document.querySelector("[data-rundlista]")!;
     const csv = knapp(/Exportera/)!;
     const fore = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -827,19 +828,19 @@ describe("Körningar: året, läsfel och CSV", () => {
     await klicka(rad);
     expect(arsSida()).not.toBeNull();
     expect(document.querySelector("[data-korningar]")).toBeNull();
-    expect(tillbakaPil()!.textContent).toBe("‹ Oktober 2026");          // månaden man kom från
+    expect(tillbakaPil()!.textContent).toBe("‹ Lastbilen");
     expect(document.querySelector("[data-periodval]")!.textContent).toContain("2026");
-    expect(flikNamn()).toEqual([]);
+    expect(flikNamn()).toEqual(["Förbrukning", "Körsträcka"]);          // bara diagramväxeln; sidan har inga flikar
     await klicka(tillbakaPil()!);
     expect(arsSida()).toBeNull();
     expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("Körd i oktober");
   });
 
-  it("raden säger månadens år, och tillbaka går till just den månaden (augusti)", async () => {
+  it("tillbaka går till Lastbilen med månaden man kom från kvar (augusti)", async () => {
     await montera();
     await klicka(knapp(/Förra månaden/)); await klicka(knapp(/Förra månaden/));
     await klicka(helaAret()!);
-    expect(tillbakaPil()!.textContent).toBe("‹ Augusti 2026");
+    expect(tillbakaPil()!.textContent).toBe("‹ Lastbilen");
     await klicka(tillbakaPil()!);
     expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("Körd i augusti");
   });
@@ -875,7 +876,94 @@ describe("Körningar: året, läsfel och CSV", () => {
     await montera();
     expect(arsSida()).not.toBeNull();
     expect(document.querySelector('section[aria-label="Året"]')!.textContent).toContain("Körd 2026");
-    expect(tillbakaPil()!.textContent).toBe("‹ Oktober 2026");
+    expect(tillbakaPil()!.textContent).toBe("‹ Lastbilen");
+  });
+
+  it("direktöppning: ?ar=2026 utan per= visar Uppföljning med ‹ Lastbilen, och tillbaka landar på innevarande månad", async () => {
+    window.history.replaceState(null, "", "/lastbil?ar=2026");
+    await montera();
+    expect(arsSida()).not.toBeNull();
+    expect(tillbakaPil()!.textContent).toBe("‹ Lastbilen");
+    await klicka(tillbakaPil()!);
+    expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("Körd i oktober");
+  });
+
+  it("Uppföljning: stort km-tal och en dämpad rad överst, EN växel över ETT diagram, och månadslistan under", async () => {
+    await montera();
+    await tillAr();
+    const sida = arsSida()!;
+    const ordning = ['section[aria-label="Året"]', '[role="tablist"]', '[data-staplar]', '[data-fotnot]', 'section[aria-label="Månader"]']
+      .map(q => sida.querySelector(q)!);
+    expect(ordning.every(Boolean)).toBe(true);
+    for (let i = 1; i < ordning.length; i++) expect(!!(ordning[i - 1].compareDocumentPosition(ordning[i]) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(sida.querySelectorAll("[data-staplar]").length).toBe(1);
+    expect(sida.querySelectorAll('[role="tablist"]').length).toBe(1);
+    expect(sida.querySelector('[data-fotnot]')!.textContent).toBe("Flyttar räknar hela rundan, även tomkörningen.");
+  });
+
+  it("Förbrukning (förvald): l/mil per månad med Flyttar och Övrig körning bredvid varandra; saknad diesel är ingen stapel", async () => {
+    await montera();
+    await tillAr();
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toBe("Förbrukning");
+    const d = document.querySelector("[data-staplar]")!;
+    expect(d.getAttribute("data-staplar")).toBe("bredvid");
+    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Flyttar.*Övrig körning.*l\/mil/);
+    const okt = d.querySelector('[data-stapelrad="okt"]')!;
+    expect(okt.getAttribute("aria-label")).toBe("okt: Flyttar 3,9, Övrig körning 4,5");
+    expect(okt.querySelectorAll("[title]").length).toBe(2);              // två staplar
+    const sep = d.querySelector('[data-stapelrad="sep"]')!;              // inga rundor: ingen stapel, "–" och aldrig 0
+    expect(sep.querySelectorAll("[title]").length).toBe(0);
+    expect(sep.textContent).toContain("inga flyttar");
+    expect(sep.textContent).not.toMatch(/\b0\b/);
+    const jul = d.querySelector('[data-stapelrad="jul"]')!;              // rundor utan diesel
+    expect(jul.textContent).toContain("diesel saknas");
+    expect(jul.textContent).not.toMatch(/\b0\b/);
+  });
+
+  it("Körsträcka: km per månad staplat, summan till höger och delarna som text", async () => {
+    await montera();
+    await tillAr();
+    await klicka(knapp(/^Körsträcka$/)!);
+    const d = document.querySelector("[data-staplar]")!;
+    expect(d.getAttribute("data-staplar")).toBe("staplat");
+    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Flyttar.*Övrig körning.*km/);
+    const okt = d.querySelector('[data-stapelrad="okt"]')!;
+    expect(okt.textContent).toContain("818");
+    expect(okt.textContent).toContain("296 + 522");
+    expect(okt.getAttribute("aria-label")).toBe("okt: 818 (Flyttar 296, Övrig körning 522)");
+    expect(d.querySelector('[data-stapelrad="sep"]')!.getAttribute("aria-label")).toBe("sep: inga rundor");
+    expect(document.querySelector("[data-fotnot]")).not.toBeNull();       // fotnoten gäller båda lägena
+  });
+
+  it("stapellängderna följer värdena: l/mil bredvid (3,9 mot 4,5) och km staplat (296 mot 522, lika långa som summan 818)", async () => {
+    await montera();
+    await tillAr();
+    const bredd = (el: Element) => parseFloat((el as HTMLElement).style.width);
+    const fb = Array.from(document.querySelector('[data-stapelrad="okt"]')!.querySelectorAll("[title]"));
+    expect(bredd(fb[0]) / bredd(fb[1])).toBeCloseTo(3.9 / 4.5, 1);
+    await klicka(knapp(/^Körsträcka$/)!);
+    const km = Array.from(document.querySelector('[data-stapelrad="okt"]')!.querySelectorAll("[title]"));
+    expect(bredd(km[0]) / bredd(km[1])).toBeCloseTo(296 / 522, 2);
+    const storst = Array.from(document.querySelectorAll('[data-stapelrad] [title]')).map(bredd);
+    expect(Math.max(...storst)).toBeLessThanOrEqual(82);                 // största värdet lämnar plats åt talet
+  });
+
+  it("månadslistan under diagrammet: ett tryck går till Körningar för månaden", async () => {
+    await montera();
+    await tillAr();
+    await klicka(arsSida()!.querySelector('section[aria-label="Månader"] [data-manad="8"]') as HTMLElement);
+    expect(arsSida()).toBeNull();
+    expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("Körd i augusti");
+    expect(window.location.search).toBe("?per=2026-08");
+  });
+
+  it("en förare ser Uppföljning med samma två lägen (körning, inte fakturering)", async () => {
+    mock.medarbetare = FORARE;
+    await montera();
+    await tillAr();
+    expect(arsSida()).not.toBeNull();
+    expect(flikNamn()).toEqual(["Förbrukning", "Körsträcka"]);
+    expect(text()).not.toMatch(/Fakturering|fakturerbar|Betalt/i);
   });
 
   it("läsfel: säger det, visar inga tal, och Försök igen läser om — raden Fakturering påverkas inte", async () => {

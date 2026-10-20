@@ -16,7 +16,7 @@ import Korningar from './_components/Korningar';
 import { senasteKorning } from './_components/nu';
 import RundaArk from './_components/RundaArk';
 import Ark from '@/components/design/Ark';
-import ArsSida from './_components/ArsSida';
+import UppfoljningSida from './_components/UppfoljningSida';
 import { periodNu, type Manad, type Period } from './_components/period';
 import { pamminnelse, type Pamminnelse } from './_components/vantar';
 import { lasLassId, lasUrl, skrivUrl, type Sida } from './_components/url';
@@ -34,7 +34,8 @@ import { useEnRunda, useRundor } from './_components/useRundor';
  *   2. Kortet "Bilen nu": läget, tankraden, och bara det som gäller nu (lampa, service, senast sedd).
  *   3. "Att göra" (bara admin): lass som saknar maskin, flyttar som väntar på godkännande, och raden
  *      "Fakturering · <månad>  36 km ›" som öppnar fakturasidan (en egen sida med tillbaka-pil).
- *   4. Körningar: månadsväljaren, månadens sammanfattning (körd km, rundor · liter · l/mil, Flyttrundor / Övrig körning) och rundorna.
+ *   4. Körningar: månadsväljaren, månadens sammanfattning (körd km, rundor · liter · l/mil, Flyttrundor / Övrig körning) och rundorna;
+ *      längst ner raden "Uppföljning ›" som öppnar årets sida (egen sida, "‹ Lastbilen" tillbaka).
  * Förare ser 1, 2 och 4 — inget "Att göra", ingen fakturering. Pengatalet (fakturerbart-summan) står inte längre i en sticky remsa:
  * det är talet på raden "Fakturering" och överst på fakturasidan, och byter värde bara när PERIODEN byts.
  * Gamla länkar: ?flik=fakturering → fakturasidan (en förare får huvudsidan); ?flik=korningar och ?flik=nu → huvudsidan.
@@ -47,7 +48,7 @@ export default function LastbilVy() {
   // Hooks ligger ALLTID före tidiga returer (skillen: React #310 2026-10-02).
   const startUrl = () => lasUrl(typeof window === 'undefined' ? '' : window.location.search);
   const [onskadSida, setOnskadSida] = useState<Sida>(() => startUrl().sida);
-  // Perioden är alltid en MÅNAD (den man kom från när År-vyn är öppen); År-vyn har sitt eget år.
+  // Perioden är alltid en MÅNAD (den Körningar står på, också när Uppföljning är öppen); Uppföljning har sitt eget år.
   const [period, setPeriod] = useState<Manad>(() => startUrl().period ?? periodNu());
   const [ar, setAr] = useState<number>(() => startUrl().ar ?? periodNu().ar);
 
@@ -108,7 +109,7 @@ export default function LastbilVy() {
 
   const oppnaFakturering = useCallback(() => { window.scrollTo(0, 0); setOnskadSida('fakturering'); }, []);
   const tillHuvudsidan = useCallback(() => { window.scrollTo(0, 0); setOnskadSida('huvud'); }, []);
-  // "Hela 2026 ›" längst ner i Körningar: År-vyn för månadens år; tillbaka-pilen går till månaden man kom från.
+  // "Uppföljning ›" längst ner i Körningar: uppföljningssidan för månadens år; tillbaka-pilen går till Lastbilen (huvudsidan).
   const oppnaAr = useCallback(() => { window.scrollTo(0, 0); setAr(period.ar); setOnskadSida('ar'); }, [period.ar]);
   const valjManadFranAr = useCallback((m: Manad) => { window.scrollTo(0, 0); setPeriod(m); setOnskadSida('huvud'); }, []);
 
@@ -136,7 +137,7 @@ export default function LastbilVy() {
         ) : hamtar ? (
           <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
         ) : sida === 'ar' ? (
-          <ArsSida ar={ar} onAr={setAr} tillbakaTill={period} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
+          <UppfoljningSida ar={ar} onAr={setAr} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
             onTillbaka={tillHuvudsidan} onValjManad={valjManadFranAr} />
         ) : sida === 'fakturering' ? (
           <FaktureringSida period={period} onPeriod={setPeriod} status={fakt.status} namn={medarbetare?.namn || 'admin'}

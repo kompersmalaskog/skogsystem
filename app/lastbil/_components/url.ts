@@ -1,14 +1,14 @@
 // Adressen: /lastbil?per=2026-10 (huvudsidan), /lastbil?flik=fakturering&per=2026-10 (fakturasidan, bara admin) och
-// /lastbil?ar=2026&per=2026-10 (År-vyn; per= är månaden man kom från och dit tillbaka-pilen går).
+// /lastbil?ar=2026&per=2026-10 (Uppföljning, årets sida; per= är månaden Körningar står på när man går tillbaka — saknas den gäller innevarande månad).
 // Hem, notiser och gamla länkar kan peka på rätt månad. Okänt eller ogiltigt värde = som om det inte stod där — aldrig ett fel.
 //
 // Lastbilen är EN sida utan flikar. Gamla länkar: ?flik=fakturering öppnar fakturasidan (en förare får huvudsidan);
-// ?flik=korningar och ?flik=nu betyder huvudsidan, som ingen parameter alls; ?per=2026 (ett år) öppnar År-vyn.
-// Perioden är alltid en MÅNAD utom i År-vyn, som har sitt eget år.
+// ?flik=korningar och ?flik=nu betyder huvudsidan, som ingen parameter alls; ?per=2026 (ett år) öppnar Uppföljning.
+// Perioden är alltid en MÅNAD utom i Uppföljning, som har sitt eget år.
 
 import { periodFranText, periodTillText, type Manad } from './period';
 
-/** Vilken sida: huvudsidan, fakturasidan (bara admin) eller År-vyn (egen sida med tillbaka-pil till månaden man kom från). */
+/** Vilken sida: huvudsidan, fakturasidan (bara admin) eller Uppföljning (`'ar'`: egen sida, tillbaka-pil till Lastbilen). */
 export type Sida = 'huvud' | 'fakturering' | 'ar';
 
 export function lasUrl(search: string, nu: Date = new Date()): { sida: Sida; period: Manad | null; ar: number | null } {
