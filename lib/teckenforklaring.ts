@@ -64,7 +64,7 @@ const vidaRad = (slag: VidaSlag): ForklaringRad | null => {
 };
 const linjeRad = (lineType: string): ForklaringRad | null => {
   const grupp = LINJE_GRUPP[lineType]; if (!grupp) return null;
-  return { nyckel: `linje:${lineType}`, slag: 'linje', typ: lineType, namn: LINJE_NAMN[lineType] ?? lineType, forklaring: LINJE_FORKLARING[lineType] ?? '', grupp, forbjuden: false };
+  return { nyckel: `linje:${lineType}`, slag: 'linje', typ: lineType, namn: LINJE_NAMN[lineType] ?? lineType, forklaring: LINJE_FORKLARING[lineType] ?? '', grupp, forbjuden: false, ...(lineType === 'powerline' ? { ledning: true } : {}) };
 };
 
 /** Symbolerna som går att sätta ur menyn (samma lista som symbolarket). */

@@ -31,6 +31,8 @@ export interface KorvyLarmIn {
   egna: ReadonlySet<string>;
   /** Vidas geometri (FeatureCollection) för objektet. */
   vida: { features?: any[] } | null;
+  /** Vår kommentar per Vida-objekt (nyckel ur lib/vidaNycklar → text): visas i larmkortet och ingår i kvittensens hash. */
+  kommentarer?: Readonly<Record<string, string>>;
   objektId: string | null;
   /** Den RIKTIGA inloggade föraren (kvitteringen skrivs under hens id; en simulerad förare kan inte spara). */
   forare: { id: string; namn: string | null } | null;
@@ -121,7 +123,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     risaInneRef.current = risaNu;
 
     const vidaFeatures = inp.vida?.features ?? [];
-    for (const o of vidaObjekt(inp.vida, pos)) {
+    for (const o of vidaObjekt(inp.vida, pos, undefined, inp.kommentarer)) {
       objekt.push(o);
       const i = Number(o.id.split(':').pop());
       const g = vidaFeatures[i]?.geometry;
@@ -145,7 +147,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
       ringar: r.ringar.map((x) => ({ ...x, geometri: geom.get(x.id) ?? null })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inp.aktiv, inp.pos?.lat, inp.pos?.lon, inp.markers, inp.vida, inp.forare?.id, kvittVersion, settVersion]);
+  }, [inp.aktiv, inp.pos?.lat, inp.pos?.lon, inp.markers, inp.vida, inp.kommentarer, inp.forare?.id, kvittVersion, settVersion]);
 
   const kvittera = useCallback(() => {
     const i = inpRef.current;

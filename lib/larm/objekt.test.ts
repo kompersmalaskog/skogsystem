@@ -51,6 +51,14 @@ describe('linjeObjekt (Stenmur)', () => {
     expect(o).toMatchObject({ kalla: 'linje', grupp: 'kultur', namn: 'Stenmur' });
     expect(o.avstandM).toBeCloseTo(25, 0);
   });
+  it('El-ledning som LINJE: Röd, avstånd till närmaste punkt på linjen, larmar alltid (även när den kvitterats)', () => {
+    const o = linjeObjekt({ id: 'el', lineType: 'powerline', koordinater: [p(-200, 25), p(200, 25)] }, O)!;
+    expect(o).toMatchObject({ kalla: 'linje', grupp: 'fara', namn: 'El-ledning', typ: 'powerline' });
+    expect(o.avstandM).toBeCloseTo(25, 0);                                    // linjen passerar 25 m bort, ändpunkterna ligger 200 m bort
+    const r = stegaLarm({ objekt: [o], kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
+    expect(r.kort).toMatchObject({ grupp: 'fara', namn: 'El-ledning' });
+    expect(r.ljud).not.toBeNull();
+  });
   it('övriga linjer larmar inte (basväg, stickväg, traktgräns)', () => {
     for (const t of ['mainRoad', 'sideRoadRed', 'boundary', 'ditch', 'trail', 'nature']) expect(linjeObjekt({ id: 'x', lineType: t, koordinater: [p(0, 0), p(1, 1)] }, O), t).toBeNull();
   });
@@ -129,6 +137,19 @@ describe('Vidas lager', () => {
     expect(inne.ljud).not.toBeNull();
     const ute = stegaLarm({ objekt: vidaObjekt(FC, p(200, 0)), kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
     expect(ute.kort).toBeNull();
+  });
+  it('vår kommentar på Vidas Kraftledning visas i larmkortet och ändrar hashen (en gammal kvittens gäller inte längre)', () => {
+    const utan = vidaObjekt(FC, O).find((o) => o.id.endsWith(':4'))!;
+    expect(utan.kommentar).toBeNull();
+    const med = vidaObjekt(FC, O, 60, { 'linje:kraftledning-12-kv:0': 'Hänger lågt vid vägen' }).find((o) => o.id.endsWith(':4'))!;
+    expect(med.kommentar).toBe('Hänger lågt vid vägen');
+    expect(med.hash).not.toBe(utan.hash);
+    const r = stegaLarm({ objekt: [med], kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
+    expect(r.kort).toMatchObject({ namn: 'Kraftledning', grupp: 'fara', text: 'Hänger lågt vid vägen' });
+  });
+  it('en kommentar på ett annat objekt (annan nyckel) hamnar inte på ledningen', () => {
+    const o = vidaObjekt(FC, O, 60, { 'linje:kraftledning-12-kv:1': 'annan ledning', 'hansyn:9': 'x' }).find((x) => x.id.endsWith(':4'))!;
+    expect(o.kommentar).toBeNull();
   });
   it('tom eller saknad samling ger inga objekt', () => {
     expect(vidaObjekt(null, O)).toEqual([]);

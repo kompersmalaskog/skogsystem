@@ -107,6 +107,20 @@ describe('fällningscirkeln — linjer och ytor räknas på närmaste punkt', ()
     expect(u.orsaker[0].avstandM).toBeGreaterThan(19);
     expect(u.orsaker[0].avstandM).toBeLessThan(21);
   });
+  it('El-ledning som LINJE: ändpunkterna är långt borta men linjen passerar 20 m bort → RÖD cirkel, och Röd vinner över Brun', () => {
+    const el = linje('el', 'powerline', [[20, -200], [20, 200]]);
+    const u = bedom([el]);
+    expect(u.grupp).toBe('fara');
+    expect(u.farg).toBe(FARG_FARA);
+    expect(u.orsaker[0].avstandM).toBeGreaterThan(19);
+    expect(u.orsaker[0].avstandM).toBeLessThan(21);
+    const med = bedom([linje('mur', 'stonewall', [[5, -50], [5, 50]]), el]);
+    expect(med.grupp).toBe('fara');
+    expect(med.orsaker.map((o) => o.id)).toEqual(['el']);
+  });
+  it('El-ledning som linje 40 m bort räknas inte', () => {
+    expect(bedom([linje('el', 'powerline', [[40, -200], [40, 200]])]).grupp).toBeNull();
+  });
   it('Stenmur 40 m bort räknas inte', () => {
     expect(bedom([linje('mur', 'stonewall', [[40, -200], [40, 200]])]).grupp).toBeNull();
   });

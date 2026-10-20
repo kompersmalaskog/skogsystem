@@ -101,9 +101,10 @@ describe('linjetyperna (lineTypeDefs)', () => {
       if (/striped:\s*true/.test(rest)) o.striped = true;
       if (/dashed:\s*true/.test(rest)) o.dashed = true;
       if (/stonewall:\s*true/.test(rest)) o.stonewall = true;
+      if (/kraftledning:\s*true/.test(rest)) o.kraftledning = true;
       return o;
     });
-    expect(kalla.length).toBe(9);   // backRoad* (3) borttagna: backväg är en egenskap på vägen
+    expect(kalla.length).toBe(10);   // backRoad* (3) borttagna: backväg är en egenskap på vägen; + El-ledning som linje (powerline)
     expect(LINJE_STIL).toEqual(kalla);
   });
 
@@ -242,6 +243,23 @@ describe('basvagsnumret', () => {
 describe('zoomKurva ar den enda kurvbyggaren', () => {
   it('ger exakt formen planeringen skriver for hand', () => {
     expect(zoomKurva([[5, 3], [8, 4]])).toEqual(['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4]);
+  });
+});
+
+describe('en dämpad El-ledning (egenkontrollens kontextkarta) — samma funktion, nedtonad', () => {
+  const lager = kraftledningLager('k', 'p', null, true, { opacitet: 0.4, breddFaktor: 0.6, utanKant: true });
+  it('alla lager har opacitet ≤ 0,5 och kanten (casing) utelämnas när dimningen säger utanKant', () => {
+    expect(lager.map((l: any) => l.id)).toEqual(['p-line', 'p-stolpar', 'p-symbol']);
+    for (const l of lager) expect(l.paint['line-opacity'] ?? l.paint['icon-opacity'], l.id).toBeLessThanOrEqual(0.5);
+  });
+  it('med kant (dimning utan utanKant) är casingen dämpad den också', () => {
+    const med = kraftledningLager('k', 'p', null, true, { opacitet: 0.4, breddFaktor: 1 });
+    expect(med.find((l: any) => l.id === 'p-casing').paint['line-opacity']).toBe(0.4);
+  });
+  it('utan dimning är allt som förut: full opacitet, casing först', () => {
+    const full = kraftledningLager('k', 'p', null);
+    expect(full[0].id).toBe('p-casing');
+    expect(full[0].paint['line-opacity']).toBe(1);
   });
 });
 

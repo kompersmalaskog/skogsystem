@@ -71,6 +71,18 @@ export const SYMBOL_NAMN: Readonly<Record<string, string>> = {
   ditch: 'Dike', bridge: 'Bro', corduroy: 'Kavling', wet: 'Fuktig mark', steep: 'Brant', trail: 'Stig / Led',
   warning: 'Varning', firewood: 'Ved', huntingtower: 'Jakttorn', groundcable: 'Markkabel', gate: 'Grind',
 };
+/**
+ * LARMREGELN I KLARTEXT, för kortet på kartan (samma kort för symboler, linjer, ytor och Vidas objekt). Gruppens regel (`GRUPPER[g].larm`) — utom
+ * Högstubbe och Evighetsträd, som ritas gröna men larmar ALDRIG (`LARMFRIA_SYMBOLER`), och ytor man inte får köra in i, som larmar alltid vid inkörning
+ * även när de är kvitterade (`forbjuden`).
+ */
+export const LARM_REGEL_TEXT: Readonly<Record<LarmRegel, string>> = { alltid: 'Larmar alltid', tills_kvitterat: 'Larmar tills du kvitterat', aldrig: 'Larmar inte' };
+export function larmRegelText(o: { grupp: FargGrupp; typ?: string | null; forbjuden?: boolean }): string {
+  if (o.typ && LARMFRIA_SYMBOLER.includes(o.typ)) return LARM_REGEL_TEXT.aldrig;
+  if (o.forbjuden) return LARM_REGEL_TEXT.alltid;
+  return LARM_REGEL_TEXT[GRUPPER[o.grupp].larm];
+}
+
 export const symbolNamn = (typ: string | null | undefined): string => (typ && SYMBOL_NAMN[typ]) || 'Markering';
 
 export const gruppForSymbol = (typ: string | null | undefined): FargGrupp => (typ && SYMBOL_GRUPP[typ]) || 'info';
@@ -78,13 +90,13 @@ export const symbolFarg = (typ: string | null | undefined): string => GRUPPER[gr
 
 /** Egna ritade linjer som ingår i en grupp. Övriga linjer (basväg, stickväg, traktgräns …) är snitselfärger i skogen och rörs inte. */
 /** Stenmur = Kultur (brun): en stenmur i skogen är en kulturlämning (Martin 2026-10-20). Larmar tills kvitterat, som övrig Kultur. */
-export const LINJE_GRUPP: Readonly<Record<string, FargGrupp>> = { stonewall: 'kultur' };
+export const LINJE_GRUPP: Readonly<Record<string, FargGrupp>> = { stonewall: 'kultur', powerline: 'fara' };   // El-ledning som linje = Röd (Martin 2026-10-20): larmar på avstånd till närmaste punkt, ingår i fällningscirkeln
 export const gruppForLinje = (lineType: string | null | undefined): FargGrupp | null => (lineType && LINJE_GRUPP[lineType]) || null;
 /** Linjens färg ur sin grupp (Stenmur: brun). null = linjen är ingen grupp (snitselfärger i skogen). */
 export const linjeFarg = (lineType: string | null | undefined): string | null => { const g = gruppForLinje(lineType); return g ? GRUPPER[g].farg : null; };
 /** Stenmurens färg = gruppens (brun). Ett namn så att kartlagren och testerna kan hänvisa till den. */
 export const FARG_STENMUR = GRUPPER[LINJE_GRUPP.stonewall].farg;
-export const LINJE_NAMN: Readonly<Record<string, string>> = { stonewall: 'Stenmur' };
+export const LINJE_NAMN: Readonly<Record<string, string>> = { stonewall: 'Stenmur', powerline: 'El-ledning' };
 
 export interface YtaDef { grupp: FargGrupp; namn: string; forbjuden: boolean }
 
@@ -126,7 +138,7 @@ export const FALLNING_SYMBOL: Readonly<Record<string, FallningGrupp>> = {
   culturemonument: 'kultur', culturestump: 'kultur',
   naturecorner: 'natur', eternitytree: 'natur',
 };
-export const FALLNING_LINJE: Readonly<Record<string, FallningGrupp>> = { stonewall: 'kultur' };
+export const FALLNING_LINJE: Readonly<Record<string, FallningGrupp>> = { stonewall: 'kultur', powerline: 'fara' };
 export const FALLNING_YTA: Readonly<Record<string, FallningGrupp>> = { protected: 'natur', culture: 'kultur', fornlamning: 'kultur' };
 export const FALLNING_VIDA: Readonly<Record<VidaSlag, FallningGrupp>> = {
   kraftledning: 'fara', hansynsyta: 'natur', nyckelbiotop: 'natur', raa_yta: 'kultur', raa_punkt: 'kultur',

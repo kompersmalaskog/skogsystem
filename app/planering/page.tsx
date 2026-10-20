@@ -59,12 +59,14 @@ import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad } from '../../components/planering/LarmKort'
 import { VidaSaknasRad, VIDA_RAD_HOJD_PX } from '../../components/planering/VidaSaknasRad'
 import { arVidaVo, lasVidaLager, skapaFornyare } from '../../lib/larm/vidaLager'
+import { medVidaNycklar } from '../../lib/vidaNycklar'
 import { useVidaLagerFel } from '../../lib/hooks/useVidaLagerFel'
 import { useGrind } from '../../lib/hooks/useGrind'
 import { GRIND_TYP, rensaGrindKod } from '../../lib/grind'
-import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, gruppForLinje, SYMBOL_NAMN, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
-import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort } from '../../lib/symboler'
-import { SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, gruppForLinje, SYMBOL_NAMN, gruppForSymbol, symbolFarg, larmRegelText, type FargGrupp } from '../../lib/larm/grupper'
+import { KartKort, KartKortNederst, type KartKortFoto } from '../../components/planering/KartKort'
+import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
+import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
 import { BJORK_KANT_FARG, GALLRING_FARG, GROT_FARG, HOG_TRADSLAG_FARG, KARTA_BLANDAT, sortimentFarg } from '../../lib/tradslag';
 import { TRAFF_RADIE_PX } from '../../lib/egenkontrollTryck';
@@ -1441,8 +1443,18 @@ export default function PlannerPage() {
       { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
       { id: 'trail', color: LEGEND.vit, dashed: true },
       { id: 'stonewall', color: FARG_STENMUR, stonewall: true },
+      { id: 'powerline', color: FARG_FARA, kraftledning: true },
     ];
+    // Stolpe-bilden för ledningar (egna och Vidas): läggs en gång, före första ledningslagret.
+    try {
+      if (!map.hasImage(KRAFTLEDNING_STOLPE_BILD)) { const b = canvasToMapLibreImage(ritaStolpeIkon()); if (b) map.addImage(KRAFTLEDNING_STOLPE_BILD, b); }
+    } catch (e) { console.error('[MapLibre] kraftledning-stolpe:', e); }
     lineTypeDefs.forEach((lt: any) => {
+      // El-ledning som linje: ritas som en LEDNING (lib/kartstil kraftledningLager) — exakt som Vidas Kraftledning. Prefix 'line-' → med i körvyn.
+      if (lt.id === 'powerline') {
+        for (const l of kraftledningLager('lines-source', 'line-powerline', ['==', ['get', 'lineType'], 'powerline'], true)) map.addLayer(l);
+        return;
+      }
       // Stenmur: eget block-streckat utseende (butt-cap), skilt från generiska loopen. Kultur = brun (lib/larm/grupper) med mörk kant under
       // (samma färg i planering och körvy — ingen växling; kanten bär den mot ljus och mörk karta).
       if (lt.id === 'stonewall') {
@@ -4819,7 +4831,9 @@ export default function PlannerPage() {
         setTraktGeoHamtadFor(valtObjekt.id);   // svaret kom (eller hämtningen föll): startsekvensen väntar annars i onödan. Felet syns i vidaFel, inte här.
         return;
       }
-      const fc: any = svar.fc;
+      let fc: any = svar.fc;
+      // Varje feature får sin stabila nyckel (`_nyckel`, lib/vidaNycklar): vår kommentar och våra foton på Vidas objekt sparas hos oss under den nyckeln.
+      fc = medVidaNycklar(fc);
       src.setData(fc);
       setTraktGeo(fc);
       setTraktGeoHamtadFor(valtObjekt.id);     // svaret kom: geometri FINNS (batchas med setTraktGeo ovan)
@@ -6197,7 +6211,7 @@ export default function PlannerPage() {
     // Vidas LINJER (kraftledning, basväg): kortet öppnas av linje-trycket (närmaste linje vinner, egna och Vidas tillsammans) via den här.
     oppnaVidaLinjeRef.current = (props: any) => {
       const k = vidaLinjeKort(props?.FLBESKR);
-      oppnaKort({ kategori: 'linje', kalla: 'Vida', rubrik: k.namn, nr: '', arealHa: null, rader: [], grupp: k.grupp, forklaring: k.forklaring }, null, null);
+      oppnaKort({ kategori: 'linje', kalla: 'Vida', rubrik: k.namn, nr: '', arealHa: null, rader: [], grupp: k.grupp, forklaring: k.forklaring }, typeof props?._nyckel === 'string' ? props._nyckel : null, null);
     };
     // Öppna en Vida-traktdels ytkort utifrån dess partKey — delas av tryck-på-ytan (onKlick)
     // och tryck-på-numret (yta-nr-hit). Samma kort, en källa.
@@ -7710,6 +7724,8 @@ export default function PlannerPage() {
     // Stenmur: biotopskyddad hänsynslinje. Grå (enda gråa linjen). `color` = picker-swatch +
     // live-preview (mellangrå, syns i mörk meny OCH på ljus karta); kart-färgen sätts i lineTypeDefs.
     { id: 'stonewall', name: 'Stenmur', color: FARG_STENMUR, striped: false, dashed: true },
+    // El-ledning som LINJE: planeraren drar en ledning på privata jobb utan Vida-underlag. Röd (Fara), larmar på avstånd till närmaste punkt, ingår i fällningscirkeln.
+    { id: 'powerline', name: 'El-ledning', color: FARG_FARA, striped: false },
   ];
 
   const zoneTypes = [
@@ -8834,6 +8850,7 @@ export default function PlannerPage() {
   // 8) LARMET (körvy OCH skotarläge): lib/larm avgör vad som larmar (typen → färggrupp → regel), hooken matar den med markeringar,
   //    linjer (Stenmur, Risa), ytor och Vidas geometri. ETT kort överst med namn och meter, ETT ljud, "Sett <Namn>" nederst.
   //    Kvitteringen sparas per förare (korvy_kvittens_forare) med den RIKTIGA inloggade föraren — aldrig en simulerad.
+  const vidaKommentarer = useMemo(() => Object.fromEntries(Object.entries(anteckningar).map(([k, v]) => [k, v.text])), [anteckningar]);
   const larm = useKorvyLarm({
     aktiv: korvyActive,
     pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
@@ -8842,6 +8859,7 @@ export default function PlannerPage() {
     typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
     egna: korvyEgnaMarkorRef.current,
     vida: traktGeo,
+    kommentarer: vidaKommentarer,   // vår kommentar på Vida-objekt (objekt_yta_anteckning): visas i larmkortet
     objektId: valtObjekt?.id ?? null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id), namn: currentMedarbetare.namn ?? null } : null,
     db: supabase,
@@ -10254,6 +10272,8 @@ export default function PlannerPage() {
       // Line layers per type
       const lineTypeIds = ['boundary', 'mainRoad', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
       const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
+      // El-ledningen (ledningsutseendet) följer lagerväljaren som övriga linjer.
+      for (const del of ['casing', 'line', 'stolpar', 'symbol']) safeSetVisibility(`line-powerline-${del}`, visibleLayers.lines && visibleLines.powerline !== false ? 'visible' : 'none');
       lineTypeIds.forEach(id => {
         const vis = visibleLayers.lines && visibleLines[id] !== false ? 'visible' : 'none';
         safeSetVisibility(`line-${id}-casing`, vis);
@@ -14892,54 +14912,40 @@ export default function PlannerPage() {
         const kanSkriva = isAdminRiktig && !!nyckel;   // bara planerare skriver; kräver stabil nyckel
         const datumStr = befintlig?.uppdaterad_at ? new Date(befintlig.uppdaterad_at).toLocaleDateString('sv-SE') : '';
         const media = nyckel ? (ytaMedia[nyckel] || []) : [];   // ljud + foto för ytan, i skapelseordning
-        const harMedia = media.length > 0;
         const isRecYta = isRecordingAudio && recordingYtaNyckel === nyckel;
+        const bet = traktKortBetydelse(traktInfo);
+        const ljudRader = media.filter((mm) => mm.typ === 'audio');
+        const fotoRader: KartKortFoto[] = media.filter((mm) => mm.typ === 'foto').map((mm) => ({
+          id: mm.id,
+          node: <img src={mm.url} alt="Foto" onClick={() => setFullscreenPhoto(mm.url)} style={{ maxHeight: '180px', width: '100%', objectFit: 'cover', cursor: 'pointer', display: 'block' }} />,
+          text: mm.text,
+          onSparaText: kanSkriva ? (t: string) => { sparaYtaMediaText(nyckel!, mm.id, t); } : undefined,
+          onTaBort: kanSkriva ? () => { raderaYtaMedia(nyckel!, mm); } : undefined,
+        }));
         return (
-          <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-            onClick={stangTraktKort}
+          <KartKort
+            key={nyckel || traktInfo.rubrik}
+            testid="trakt-kort"
+            ikon={<LarmIkon kalla={bet.ikon.kalla} typ={bet.ikon.typ} grupp={bet.grupp} storlek={52} />}
+            namn={rubrikVisad}
+            grupp={bet.grupp}
+            larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
+            mening={bet.forklaring}
+            kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
+            // Vidas data ändras aldrig: kommentaren och fotona sparas hos oss (objekt_yta_anteckning / objekt_yta_media), kopplade till objekt_id + objektets nyckel.
+            kommentar={nyckel ? { text: befintlig?.text || '', meta: harAnteckning ? [befintlig!.namn, datumStr].filter(Boolean).join(' · ') : null } : null}
+            kanSkriva={kanSkriva}
+            onSparaKommentar={async (t) => ((await sparaAnteckning(nyckel!, t)) ? null : 'Kunde inte spara — försök igen.')}
+            foton={nyckel ? fotoRader : []}
+            onLaggTillFoto={nyckel ? () => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); } : undefined}
+            fotoSparar={ytaMediaSparar}
+            fotoFel={ytaMediaFel}
+            onStang={stangTraktKort}
           >
-            {/* Bottom sheet — kartan syns ovanför; svep ner eller Stäng för att stänga */}
-            <div
-              key={nyckel || traktInfo.rubrik}
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                width: '100%', maxWidth: '560px', maxHeight: '82vh', display: 'flex', flexDirection: 'column',
-                background: 'rgba(20,20,22,0.94)', backdropFilter: 'blur(30px) saturate(180%)', WebkitBackdropFilter: 'blur(30px) saturate(180%)',
-                borderTopLeftRadius: 20, borderTopRightRadius: 20, border: '1px solid rgba(255,255,255,0.12)', borderBottom: 'none',
-                transform: `translateY(${traktKortSvepY}px)`,
-                transition: traktKortSvepStartRef.current == null ? 'transform 0.25s cubic-bezier(0.32,0.72,0,1)' : 'none',
-                animation: 'sheetSlideUp 0.28s cubic-bezier(0.32,0.72,0,1)',
-                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-              }}
-            >
-              <style>{`@keyframes sheetSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
-              {/* Drag-handle — svep ner för att stänga */}
-              <div
-                style={{ flexShrink: 0, padding: '10px 0 6px', display: 'flex', justifyContent: 'center', cursor: 'grab', touchAction: 'none' }}
-                onTouchStart={(e) => { traktKortSvepStartRef.current = e.touches[0].clientY; }}
-                onTouchMove={(e) => { if (traktKortSvepStartRef.current != null) { const dy = e.touches[0].clientY - traktKortSvepStartRef.current; setTraktKortSvepY(Math.max(0, dy)); } }}
-                onTouchEnd={() => { const y = traktKortSvepY; traktKortSvepStartRef.current = null; if (y > 100) stangTraktKort(); else setTraktKortSvepY(0); }}
-              >
-                <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.3)' }} />
-              </div>
-              <div style={{ overflowY: 'auto', padding: '4px 22px 22px' }}>
-                {/* Skotarläget: vad som skotats HIT överst; Vidas eget innehåll ligger oförändrat under "Från Vida" */}
+            {/* Skotarläget: vad som skotats HIT överst; Vidas eget innehåll ligger oförändrat under "Från Vida" */}
                 {skotarLassAktiv && traktInfo.kategori === 'punkt' && traktInfo.nr && valtObjekt && (
                   <AvlaggSkotatSektion nummer={visaAvlaggNummer(traktInfo.nr)} objektNamn={valtObjekt.namn} kalla="vida"
                     stat={skotatTillAvlagg(skotarLass.lass, `vida:${visaAvlaggNummer(traktInfo.nr)}`, skotarLass.avslut?.faktorer)} />
-                )}
-                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{typKalla}</div>
-                <div style={{ fontSize: '19px', fontWeight: 700, color: '#fff', marginBottom: kontext.length ? '2px' : '14px' }}>{rubrikVisad}</div>
-                {kontext.length > 0 && (
-                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', marginBottom: '16px' }}>{kontext.join(' · ')}</div>
-                )}
-                {/* Linjekort: gruppen och EN mening — samma uppbyggnad som symbolens och ytans kort, samma text som teckenförklaringen (lib/symboler) */}
-                {traktInfo.grupp && traktInfo.forklaring && (
-                  <div data-testid="trakt-forklaring" style={{ marginBottom: '18px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: traktInfo.grupp === 'info' ? '#EBEBF5' : GRUPPER[traktInfo.grupp].farg }}>{GRUPPER[traktInfo.grupp].namn}</div>
-                    <div style={{ fontSize: '15px', color: '#c7c7cc', marginTop: '6px', lineHeight: 1.4 }}>{traktInfo.forklaring}</div>
-                  </div>
                 )}
                 {/* Källans egen text (Vida/SKS/RAÄ) */}
                 {traktInfo.rader.length > 0 && (
@@ -15053,105 +15059,30 @@ export default function PlannerPage() {
                     </div>
                   );
                 })()}
-                {/* Kompersmåla Skog — planerarens anteckning: text + ljud + foto (förare ser/spelar upp, admin skapar) */}
-                {nyckel && (harAnteckning || kanSkriva || harMedia) && (
-                  <div style={{ marginBottom: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                    <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.35)', marginBottom: '8px' }}>Kompersmåla Skog</div>
-                    {/* TEXT */}
-                    {anteckningSkrivlage ? (
-                      <>
-                        <textarea
-                          value={anteckningUtkast}
-                          onChange={(e) => setAnteckningUtkast(e.target.value)}
-                          placeholder="Skriv en anteckning för den här ytan…"
-                          autoFocus
-                          style={{ width: '100%', minHeight: '90px', boxSizing: 'border-box', padding: '12px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '15px', lineHeight: 1.5, outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
-                        />
-                        {anteckningFel && (<div style={{ fontSize: '13px', color: '#ff453a', marginTop: '8px' }}>{anteckningFel}</div>)}
-                        <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                          <button disabled={anteckningSparar} onClick={() => sparaAnteckning(nyckel, anteckningUtkast)}
-                            style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: anteckningSparar ? 'rgba(29,158,117,0.5)' : '#1d9e75', color: '#fff', fontSize: '15px', fontWeight: 600, cursor: anteckningSparar ? 'default' : 'pointer', fontFamily: 'inherit' }}>
-                            {anteckningSparar ? 'Sparar…' : 'Spara'}
-                          </button>
-                          <button disabled={anteckningSparar} onClick={() => { setAnteckningSkrivlage(false); setAnteckningFel(null); setAnteckningUtkast(befintlig?.text || ''); }}
-                            style={{ padding: '12px 18px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '15px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                            Avbryt
-                          </button>
-                        </div>
-                      </>
-                    ) : harAnteckning ? (
-                      <>
-                        <div style={{ fontSize: '15px', lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{befintlig!.text}</div>
-                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginTop: '6px' }}>{[befintlig!.namn, datumStr].filter(Boolean).join(' · ')}</div>
-                        {kanSkriva && (
-                          <button onClick={() => { setAnteckningUtkast(befintlig!.text); setAnteckningSkrivlage(true); setAnteckningFel(null); }}
-                            style={{ marginTop: '10px', padding: '8px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.85)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                            Redigera
-                          </button>
-                        )}
-                      </>
-                    ) : kanSkriva ? (
-                      <button onClick={() => { setAnteckningUtkast(''); setAnteckningSkrivlage(true); setAnteckningFel(null); }}
-                        style={{ padding: '10px 16px', borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.2)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                        + Lägg till anteckning
+            {nyckel && (ljudRader.length > 0 || kanSkriva) && (
+              <KartKortNederst>
+                <div data-testid="kartkort-ljud" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {ljudRader.map((mm) => (
+                    <div key={mm.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
+                      {kanSkriva && (
+                        <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
+                          style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                  {kanSkriva && (
+                    <div>
+                      <button disabled={ytaMediaSparar} onClick={() => toggleYtaAudioRecording(nyckel)}
+                        style={{ padding: '9px 14px', borderRadius: '10px', border: isRecYta ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.15)', background: isRecYta ? 'rgba(239,68,68,0.18)' : 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '7px', animation: isRecYta ? 'pulse 1s infinite' : 'none' }}>
+                        {isRecYta ? <>⏹ <span style={{ color: '#ff453a', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span></> : <>🎤 Spela in</>}
                       </button>
-                    ) : null}
-
-                    {/* LJUD + FOTO — samma flöde som markörernas media. Visas i ordning; admin kan ta bort. */}
-                    {(harMedia || kanSkriva) && (
-                      <div style={{ marginTop: (harAnteckning || kanSkriva) ? '14px' : 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {media.map((mm) => (
-                          <div key={mm.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              {mm.typ === 'audio' ? (
-                                <audio controls src={mm.url} style={{ flex: 1, height: '36px', borderRadius: '8px' }} />
-                              ) : (
-                                <img src={mm.url} alt="Foto" onClick={() => setFullscreenPhoto(mm.url)}
-                                  style={{ flex: 1, maxHeight: '180px', width: '100%', objectFit: 'cover', borderRadius: '12px', cursor: 'pointer', display: 'block' }} />
-                              )}
-                              {kanSkriva && (
-                                <button onClick={() => raderaYtaMedia(nyckel, mm)} aria-label="Ta bort"
-                                  style={{ width: '30px', height: '30px', flexShrink: 0, borderRadius: '15px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ff6961', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                              )}
-                            </div>
-                            {/* Bildtext under mediat: admin redigerar (spar vid blur), förare läser. */}
-                            {kanSkriva ? (
-                              <input type="text" defaultValue={mm.text ?? ''} placeholder="Bildtext…" key={`bt-${mm.id}-${mm.text ?? ''}`}
-                                onBlur={(e) => { if ((mm.text ?? '') !== e.target.value.trim()) sparaYtaMediaText(nyckel, mm.id, e.target.value); }}
-                                style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', outline: 'none', fontFamily: 'inherit' }} />
-                            ) : (mm.text ? (
-                              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', lineHeight: 1.4, padding: '0 2px' }}>{mm.text}</div>
-                            ) : null)}
-                          </div>
-                        ))}
-                        {ytaMediaFel && (<div style={{ fontSize: '13px', color: '#ff453a' }}>{ytaMediaFel}</div>)}
-                        {kanSkriva && (
-                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            <button disabled={ytaMediaSparar} onClick={() => toggleYtaAudioRecording(nyckel)}
-                              style={{ padding: '9px 14px', borderRadius: '10px', border: isRecYta ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.15)', background: isRecYta ? 'rgba(239,68,68,0.18)' : 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '7px', animation: isRecYta ? 'pulse 1s infinite' : 'none' }}>
-                              {isRecYta ? <>⏹ <span style={{ color: '#ff453a', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span></> : <>🎤 Spela in</>}
-                            </button>
-                            <button disabled={ytaMediaSparar || isRecYta} onClick={() => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); }}
-                              style={{ padding: '9px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                              📷 Foto
-                            </button>
-                            {ytaMediaSparar && (<span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', alignSelf: 'center' }}>Laddar upp…</span>)}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {traktInfo.rader.length === 0 && !harAnteckning && !kanSkriva && !harMedia && (
-                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '18px' }}>Ingen beskrivning för den här {typNamn.toLowerCase()}en.</div>
-                )}
-                <button onClick={stangTraktKort}
-                  style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '15px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  Stäng
-                </button>
-              </div>
-            </div>
-          </div>
+                    </div>
+                  )}
+                </div>
+              </KartKortNederst>
+            )}
+          </KartKort>
         );
       })()}
 
@@ -15438,74 +15369,48 @@ export default function PlannerPage() {
           return 'rgba(0,0,0,0.6)';
         };
         
+        // Vad det är och om det larmar — SAMMA kort som för Vidas objekt (components/planering/KartKort): namn · grupp, larmregeln i klartext, EN mening, kommentar, foto.
+        const betydelse: { grupp: FargGrupp; mening: string | null; forbjuden: boolean } | null =
+          marker.isMarker ? (() => { const d = symbolDef(marker.type); return { grupp: d.grupp, mening: d.forklaring || null, forbjuden: false }; })()
+          : marker.isZone ? (() => { const y = ytaForklaring(marker.zoneType || ''); return y ? { grupp: y.grupp, mening: y.forklaring || null, forbjuden: y.forbjuden } : null; })()
+          : marker.isLine ? (() => { const k = linjeKort(marker.lineType); return { grupp: k.grupp, mening: k.forklaring || null, forbjuden: false }; })()
+          : null;
+        const kortGrupp: FargGrupp = betydelse?.grupp ?? 'info';
+        const markerFoton: KartKortFoto[] = (harFoto(marker) || lokalFotoFor(marker)) ? [{
+          id: 'foto',
+          node: (
+            <MarkeringFoto lokal={lokalFotoFor(marker)} photoPath={marker.photoPath} photoData={marker.photoData} photoTs={marker.photoTs} onOpen={setFullscreenPhoto}
+              style={{ width: '100%', maxHeight: '220px', minHeight: 120, objectFit: 'cover', display: 'block' }} />
+          ),
+        }] : [];
+
         return (
-          <div 
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0,0,0,0.85)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 300,
-            }}
-            onClick={() => setMarkerMenuOpen(null)}
-          >
-            <div 
-              style={{
-                background: '#000',
-                borderRadius: '24px',
-                padding: '28px',
-                width: '90%',
-                maxWidth: '500px',
-
-                border: '1px solid rgba(255,255,255,0.15)',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header med ikon och namn */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '12px',
-                marginBottom: '20px',
-              }}>
-                {marker.isMarker ? (
-                  // Symbolen som på kartan: gruppens form och färg med vit kant och glyf (lib/symboler) — ikonrutan har alltid gruppens färg.
-                  <SymbolIkon typ={marker.type} storlek={52} />
-                ) : (
-                <div style={{
-                  width: '52px',
-                  height: '52px',
-                  background: getMarkerBgColor(),
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: `2px solid ${getIconBorder(marker.type || '')}`,
-                }}>
-                  {renderIcon(getMarkerIconId(), 28, '#fff')}
-                </div>
-                )}
-                <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{getMarkerName()}</span>
+          <KartKort
+            testid="marker-kort"
+            ikon={marker.isMarker ? (
+              // Symbolen som på kartan: gruppens form och färg med vit kant och glyf (lib/symboler) — ikonrutan har alltid gruppens färg.
+              <SymbolIkon typ={marker.type} storlek={52} />
+            ) : (
+              <div style={{ width: '52px', height: '52px', background: getMarkerBgColor(), borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${getIconBorder(marker.type || '')}` }}>
+                {renderIcon(getMarkerIconId(), 28, '#fff')}
               </div>
-              {/* Vad den betyder: gruppen (färg + form + om den larmar) och EN mening — samma text som i teckenförklaringen (lib/symboler) */}
-              {(() => {
-                const f = marker.isMarker
-                  ? (() => { const d = symbolDef(marker.type); return { grupp: d.grupp, text: d.forklaring }; })()
-                  : marker.isZone ? (() => { const y = ytaForklaring(marker.zoneType || ''); return y ? { grupp: y.grupp, text: y.forklaring } : null; })()
-                  : marker.isLine ? (() => { const k = linjeKort(marker.lineType); return k.forklaring ? { grupp: k.grupp, text: k.forklaring } : null; })()
-                  : null;
-                if (!f) return null;
-                return (
-                  <div data-testid="marker-forklaring" style={{ textAlign: 'center', marginTop: '-8px', marginBottom: '18px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: f.grupp === 'info' ? '#EBEBF5' : GRUPPER[f.grupp].farg }}>{GRUPPER[f.grupp].namn} <span style={{ fontWeight: 400, color: '#8e8e93', textTransform: 'none', letterSpacing: 0 }}>· {GRUPP_FORKLARING[f.grupp]}</span></div>
-                    <div style={{ fontSize: '15px', color: '#c7c7cc', marginTop: '6px', lineHeight: 1.4 }}>{f.text}</div>
-                  </div>
-                );
-              })()}
-
+            )}
+            namn={getMarkerName()}
+            grupp={kortGrupp}
+            larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden })}
+            mening={betydelse?.mening ?? null}
+            kommentar={{ text: marker.comment || '' }}
+            kanSkriva
+            onSparaKommentar={(t) => {
+              // Samma väg som redigeringskortet: minnet först, sedan en omedelbar skrivning (markeringssynken lägger den i kön om nätet saknas).
+              setMarkers((prev: any[]) => prev.map((m: any) => (String(m.id) === String(marker.id) ? { ...m, comment: t } : m)));
+              saveMarkerToDb({ ...marker, comment: t } as any);
+              return null;
+            }}
+            foton={markerFoton}
+            onLaggTillFoto={() => { setPendingPhotoMarkerId(marker.id); fileInputRef.current?.click(); }}
+            onStang={() => setMarkerMenuOpen(null)}
+          >
               {/* Skotarläget: vad som skotats HIT överst; kortets vanliga innehåll ligger oförändrat under avdelaren */}
               {skotarLassAktiv && marker.isMarker && marker.type === 'landing' && valtObjekt && (
                 <AvlaggSkotatSektion
@@ -15593,30 +15498,6 @@ export default function PlannerPage() {
                 </button>
               )}
 
-              {/* Foto - klickbart för fullskärm */}
-              {(harFoto(marker) || lokalFotoFor(marker)) && (
-                <div style={{
-                  marginBottom: '16px',
-                  borderRadius: '16px',
-                  overflow: 'hidden',
-                }}>
-                  <MarkeringFoto
-                    lokal={lokalFotoFor(marker)}
-                    photoPath={marker.photoPath}
-                    photoData={marker.photoData}
-                    photoTs={marker.photoTs}
-                    onOpen={setFullscreenPhoto}
-                    style={{
-                      width: '100%',
-                      maxHeight: '220px',
-                      minHeight: 120,
-                      objectFit: 'cover',
-                      display: 'block',
-                    }}
-                  />
-                </div>
-              )}
-            
             {/* Grind: hänglåskoden (planeraren ändrar den här; förarna ser den i körvyn inom ~50 m) */}
             {marker.type === GRIND_TYP && (
               <div style={{ textAlign: 'center', marginBottom: '14px' }}>
@@ -15634,31 +15515,7 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* Kommentar */}
-            {marker.comment ? (
-              <div style={{ 
-                fontSize: '17px', 
-                color: '#fff',
-                fontWeight: '500',
-                textAlign: 'center',
-                padding: '16px',
-                background: 'rgba(255,255,255,0.06)',
-                borderRadius: '12px',
-                lineHeight: '1.5',
-              }}>
-                {marker.comment}
-              </div>
-            ) : (
-              <div style={{ 
-                fontSize: '15px', 
-                color: 'rgba(255,255,255,0.3)',
-                textAlign: 'center',
-                fontStyle: 'italic',
-              }}>
-                Ingen kommentar
-              </div>
-            )}
-
+            <KartKortNederst>
             {/* Vägkontroll för avlägg */}
             {marker.type === 'landing' && marker.roadCheck && (() => {
               const rc = marker.roadCheck;
@@ -16342,8 +16199,8 @@ export default function PlannerPage() {
                 );
               })()}
 
-          </div>
-        </div>
+            </KartKortNederst>
+          </KartKort>
         );
       })()}
 

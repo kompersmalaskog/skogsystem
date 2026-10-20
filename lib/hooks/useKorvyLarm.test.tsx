@@ -125,6 +125,27 @@ describe('useKorvyLarm — flera larm samtidigt', () => {
   });
 });
 
+describe('useKorvyLarm — El-ledning som linje och vår kommentar på Vidas objekt', () => {
+  const M_LON = 1 / (111320 * Math.cos(POS.lat * Math.PI / 180));
+  const c = (nord: number, ost: number): [number, number] => [POS.lon + ost * M_LON, POS.lat + nord * M];
+
+  it('en ritad El-ledning (linje) larmar Röd på avstånd till närmaste punkt på linjen; pulsen bär hela linjen', async () => {
+    const el = { id: 'el', isLine: true, lineType: 'powerline', path: [{ x: norr(25), y: POS.lon - 200 * M_LON }, { x: norr(25), y: POS.lon + 200 * M_LON }] };
+    mount(bas({ markers: [el] })); await tom();
+    expect(ut.kort).toMatchObject({ namn: 'El-ledning', grupp: 'fara' });
+    expect(ut.kort!.avstandM).toBeCloseTo(25, 0);                        // inte avståndet till en ändpunkt (200 m)
+    expect(ut.puls?.geometri.type).toBe('LineString');
+  });
+
+  it('vår kommentar på Vidas Kraftledning står i larmkortet; ändras den gäller en gammal kvittens inte längre', async () => {
+    const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { _typ: 'linje', _lager: 'L_TILLAGGSLINJER', FLBESKR: 'Kraftledning' }, geometry: { type: 'LineString', coordinates: [c(20, -200), c(20, 200)] } }] };
+    const rerender = mount(bas({ vida: fc as any, kommentarer: { 'linje:kraftledning:0': 'Hänger lågt vid vägen' } })); await tom();
+    expect(ut.kort).toMatchObject({ namn: 'Kraftledning', grupp: 'fara', text: 'Hänger lågt vid vägen' });
+    rerender(bas({ vida: fc as any, kommentarer: {} })); await tom();
+    expect(ut.kort?.text ?? null).toBeNull();
+  });
+});
+
 describe('useKorvyLarm — kopplingen till sidan', () => {
   it('Brun (Kulturminne) 30 m bort: kort med namn och meter, ETT ljud, "Sett"-rad; Sett tystar och sparar under förarens id', async () => {
     const { ctx, toner } = ljudCtx(); const db = fakeDb([]);

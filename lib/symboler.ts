@@ -136,7 +136,10 @@ export const VIDA_FORKLARING: Readonly<Record<VidaSlag, string>> = {
   raa_yta: 'Fornlämning – lagskyddad. Kör inte in.',
   raa_punkt: 'Fornlämning (RAÄ) – lagskyddad, håll avstånd.',
 };
-export const LINJE_FORKLARING: Readonly<Record<string, string>> = { stonewall: 'Stenmur – kör inte över, fäll inte på den.' };
+export const LINJE_FORKLARING: Readonly<Record<string, string>> = {
+  stonewall: 'Stenmur – kör inte över, fäll inte på den.',
+  powerline: 'El-ledning – håll avstånd och fäll inte åt det hållet.',
+};
 
 /**
  * KORTET FÖR EN LINJE (tryck på en linje på kartan): namn, grupp och EN mening — samma uppbyggnad som för symboler och ytor. Stenmur och Vidas Kraftledning
@@ -156,7 +159,7 @@ const LINJE_KORT_OVRIGA: Readonly<Record<string, LinjeKort>> = {
   trail: { namn: 'Stig / Led', grupp: 'info', forklaring: 'Stig eller led – ingen körväg.' },
 };
 /** Alla linjetyper som kan ritas (egna): varje en har ett kort. Vakt: lib/linjeKort.test.ts läser kartstilens och sidans linjelistor. */
-export const LINJE_KORT_TYPER: readonly string[] = ['stonewall', ...Object.keys(LINJE_KORT_OVRIGA)];
+export const LINJE_KORT_TYPER: readonly string[] = ['stonewall', 'powerline', ...Object.keys(LINJE_KORT_OVRIGA)];
 export function linjeKort(lineType: string | null | undefined): LinjeKort {
   const t = lineType ?? '';
   if (t in LINJE_GRUPP) return { namn: LINJE_NAMN[t] ?? 'Linje', grupp: LINJE_GRUPP[t], forklaring: LINJE_FORKLARING[t] ?? '' };
@@ -246,4 +249,22 @@ export function ytaForklaring(zoneType: string): { grupp: FargGrupp; namn: strin
 export function vidaForklaring(slag: VidaSlag): { grupp: FargGrupp; namn: string; forklaring: string; forbjuden: boolean } {
   const d = VIDA[slag];
   return { grupp: d.grupp, namn: d.namn, forklaring: VIDA_FORKLARING[slag], forbjuden: d.forbjuden };
+}
+
+/**
+ * Vad ett Vida-/trakt-objekt BETYDER på kortet (gruppen, EN mening och om ytan är förbjuden att köra in i) — ur samma tabeller som teckenförklaringen och larmet.
+ * Linjer bär sin grupp och mening på kortet (`byggTraktKort`/`vidaLinjeKort`); hänsynsyta, nyckelbiotop och fornlämning kommer ur `VIDA`, avlägg ur symbolen
+ * Avlägg. Traktdelen är bara traktens yta: Info, ingen mening.
+ */
+export interface TraktKortBetydelse { grupp: FargGrupp; forklaring: string | null; forbjuden: boolean; ikon: { kalla: 'symbol' | 'linje' | 'yta'; typ: string } }
+export function traktKortBetydelse(k: { kategori: string; grupp?: FargGrupp; forklaring?: string }): TraktKortBetydelse {
+  const vida = (slag: VidaSlag, typ: string): TraktKortBetydelse => { const v = vidaForklaring(slag); return { grupp: v.grupp, forklaring: v.forklaring, forbjuden: v.forbjuden, ikon: { kalla: 'yta', typ } }; };
+  switch (k.kategori) {
+    case 'linje': return { grupp: k.grupp ?? 'info', forklaring: k.forklaring || null, forbjuden: false, ikon: { kalla: 'linje', typ: k.grupp === 'fara' ? 'kraftledning' : 'mainRoad' } };
+    case 'hansyn': return vida('hansynsyta', 'hansynsyta');
+    case 'nyckelbiotop': return vida('nyckelbiotop', 'nyckelbiotop');
+    case 'lamning': return vida('raa_yta', 'raa_yta');
+    case 'punkt': { const d = symbolDef('landing'); return { grupp: d.grupp, forklaring: d.forklaring || null, forbjuden: false, ikon: { kalla: 'symbol', typ: 'landing' } }; }
+    default: return { grupp: 'info', forklaring: null, forbjuden: false, ikon: { kalla: 'yta', typ: 'default' } };
+  }
 }

@@ -98,6 +98,8 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
 export function ytaNyckel(props: Record<string, any> | null | undefined): string | null {
   const { kategori } = klassaTraktFeature(props);
   const p = props || {};
+  // Vidas linjer (kraftledning, basväg) nycklas av lib/vidaNycklar och bär nyckeln som `_nyckel` på featuren.
+  if (kategori === 'ignorera' && typeof p._nyckel === 'string' && p._nyckel) return p._nyckel;
   switch (kategori) {
     case 'hansyn':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
     case 'traktdel':     { const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K); return v ? `traktdel:${v}` : null; }

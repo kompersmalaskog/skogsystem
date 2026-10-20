@@ -122,6 +122,8 @@ export type LinjeStil = {
   striped?: boolean;
   dashed?: boolean;
   stonewall?: boolean;
+  /** El-ledning ritad som linje: ritas som en ledning (kraftledningLager) — samma utseende som Vidas Kraftledning. */
+  kraftledning?: boolean;
 };
 
 export const LINJE_STIL: LinjeStil[] = [
@@ -134,6 +136,7 @@ export const LINJE_STIL: LinjeStil[] = [
   { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
   { id: 'trail', color: LEGEND.vit, dashed: true },
   { id: 'stonewall', color: STENMUR_FARG, stonewall: true },
+  { id: 'powerline', color: FARG_FARA, kraftledning: true },
 ];
 
 export const LINJE_TYP_IDN: string[] = LINJE_STIL.map((l) => l.id);
@@ -190,6 +193,9 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
     if (urval?.endast && !urval.endast.includes(lt.id)) continue;
     if (urval?.utom?.includes(lt.id)) continue;
     const filter = och(ar('kind', 'linje'), ar('typ', lt.id), bas);
+
+    // El-ledning som linje: ledningsutseendet (röd, mörk kant, stolpar, farosymbol) — samma funktion som Vidas Kraftledning.
+    if (lt.kraftledning) { lager.push(...kraftledningLager(kalla, `${prefix}-lin-${lt.id}`, filter, true, dim)); continue; }
 
     if (lt.stonewall) {
       if (!dim?.utanKant) {
@@ -458,23 +464,26 @@ export const KRAFTLEDNING_SYMBOL_STORLEK: Stopp = [[8, 0.3], [11, 0.36], [13, 0.
  * `synlig` = false → lagren startar dolda (sidan tänder dem med övriga Kör & fara-lager). Stolpar och symboler är symbollager med `symbol-placement: line`
  * (avståndet är i pixlar och följer inte zoomen, så stolparna ligger lika tätt på skärmen).
  */
-export function kraftledningLager(kalla: string, prefix: string, filter: any[] | null, synlig = true): any[] {
+export function kraftledningLager(kalla: string, prefix: string, filter: any[] | null, synlig = true, dim?: Dimning): any[] {
   const vis = { visibility: synlig ? 'visible' : 'none' } as const;
   const bas = { source: kalla, ...(filter ? { filter } : {}) };
+  const bf = dim?.breddFaktor ?? 1;
+  const op = dim ? { 'line-opacity': dim.opacitet } : {};
+  const ikonOp = dim ? { paint: { 'icon-opacity': dim.opacitet } } : {};
   return [
-    { id: `${prefix}-casing`, type: 'line', ...bas, paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(KRAFTLEDNING_BREDD, 1, KRAFTLEDNING_KANT_EXTRA), 'line-opacity': 1 }, layout: { ...vis, 'line-cap': 'round', 'line-join': 'round' } },
-    { id: `${prefix}-line`, type: 'line', ...bas, paint: { 'line-color': FARG_FARA, 'line-width': zoomKurva(KRAFTLEDNING_BREDD) }, layout: { ...vis, 'line-cap': 'round', 'line-join': 'round' } },
+    ...(dim?.utanKant ? [] : [{ id: `${prefix}-casing`, type: 'line', ...bas, paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(KRAFTLEDNING_BREDD, bf, KRAFTLEDNING_KANT_EXTRA), 'line-opacity': dim ? dim.opacitet : 1 }, layout: { ...vis, 'line-cap': 'round', 'line-join': 'round' } }]),
+    { id: `${prefix}-line`, type: 'line', ...bas, paint: { 'line-color': FARG_FARA, 'line-width': zoomKurva(KRAFTLEDNING_BREDD, bf), ...op }, layout: { ...vis, 'line-cap': 'round', 'line-join': 'round' } },
     {
-      id: `${prefix}-stolpar`, type: 'symbol', ...bas,
+      id: `${prefix}-stolpar`, type: 'symbol', ...bas, ...ikonOp,
       layout: {
-        ...vis, 'symbol-placement': 'line', 'symbol-spacing': KRAFTLEDNING_STOLPE_SPACING, 'icon-image': KRAFTLEDNING_STOLPE_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_STOLPE_STORLEK),
+        ...vis, 'symbol-placement': 'line', 'symbol-spacing': KRAFTLEDNING_STOLPE_SPACING, 'icon-image': KRAFTLEDNING_STOLPE_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_STOLPE_STORLEK, bf),
         'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-keep-upright': false, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     },
     {
-      id: `${prefix}-symbol`, type: 'symbol', ...bas,
+      id: `${prefix}-symbol`, type: 'symbol', ...bas, ...ikonOp,
       layout: {
-        ...vis, 'symbol-placement': 'line', 'symbol-spacing': KRAFTLEDNING_SYMBOL_SPACING, 'icon-image': KRAFTLEDNING_SYMBOL_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_SYMBOL_STORLEK),
+        ...vis, 'symbol-placement': 'line', 'symbol-spacing': KRAFTLEDNING_SYMBOL_SPACING, 'icon-image': KRAFTLEDNING_SYMBOL_BILD, 'icon-size': zoomKurva(KRAFTLEDNING_SYMBOL_STORLEK, bf),
         'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
       },
     },
