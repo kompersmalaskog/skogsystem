@@ -48,6 +48,44 @@ export function fragor(varningar: unknown, dok: Pick<DokKolumner, 'stamplingslan
 // öppnas, så en rättad volym släcker dem av sig själv (en lagrad rad skulle ligga kvar tills nästa import). Till skillnad från PDF-frågorna
 // gäller de ÄVEN avslutade objekt: en avslutad trakts volym ingår i beställningens täckning, och ett fel tal där ger fel läge i alla månader.
 
+// ---------------------------------------------------------------------------
+// Stämplingslängdens tre lägen (Martin 2026-10-20)
+// ---------------------------------------------------------------------------
+// En PDF som importen TOLKAT som stämplingslängd (ledtråd i Info, ingen igenkänd filnamn → "OSÄKER, bekräfta i UI:t") är en gissning, inte ett fynd.
+// Prod 2026-10-20: av nio rotposter har fem en stamplingslangd_url; fyra av dem (Arvidstorp, Bågskyttebanan, Skälviken, Vällust) kommer ur en sådan
+// gissning, ingen är bekräftad. Åbogen är igenkänd på filnamnet. Att behandla en gissad PDF som "funnen" tystade frågan på precis de objekt där
+// ingen människa läst papperet — och Bågskyttebanans 3 495 m³ (rätt: 1 687) stod i prod sedan augusti just därför.
+//   bekraftad = ett tal är inskrivet: en människa har läst stämplingslängden. Bara det tystar frågan helt.
+//   gissad    = en PDF finns men importen gissade vad den är, och ingen har bekräftat. Frågan ställs, och raden säger "gissad".
+//   pdf       = en PDF finns och importen kände igen den på filnamnet (ingen OSÄKER-rad). Inte en gissning → ingen fråga; talet kan ändå skrivas in.
+//   saknas    = varken PDF eller tal.
+// Ett svar "ja, det stämmer" finns inte: det skulle skrivas över av nästa omimport (CLAUDE.md). Talet är bekräftelsen.
+export type StamplingslangdLage = 'bekraftad' | 'gissad' | 'pdf' | 'saknas';
+
+export function stamplingslangdLage(o: {
+  stamplingslangd_url?: string | null;
+  stamplingslangd_volym?: number | null;
+  import_varningar?: unknown;
+}): StamplingslangdLage {
+  if (o.stamplingslangd_volym != null && Number(o.stamplingslangd_volym) > 0) return 'bekraftad';
+  if (!o.stamplingslangd_url) return 'saknas';
+  return gissadPdf(o) ? 'gissad' : 'pdf';
+}
+
+/** Importen tolkade den filen som stämplingslängd på en ledtråd och sa själv att den var osäker. */
+function gissadPdf(o: { import_varningar?: unknown }) {
+  return fragor(o.import_varningar, { stamplingslangd_url: null, ovriga_dokument: null }).find(f => f.nannderStamplingslangd) ?? null;
+}
+
+/**
+ * Frågorna om filer som ska visas: som `fragor`, men på en rotpost ersätts den gissade stämplingslängden av volymfrågan `stamplingslangd_saknas`
+ * (samma fil, EN fråga i stället för två) — och är talet inskrivet är gissningen avgjord av en människa och frågan om PDF:en faller.
+ */
+export function oppnaFragor(o: { avtalsform?: string | null; namn?: string | null; import_varningar?: unknown } & Pick<DokKolumner, 'stamplingslangd_url' | 'ovriga_dokument'>): Fraga[] {
+  const alla = fragor(o.import_varningar, o);
+  return arRotpost(o) ? alla.filter(f => !f.nannderStamplingslangd) : alla;
+}
+
 export interface VolymUnderlag {
   namn?: string | null;
   /** Rp = rotpost, Au = avverkningsuppdrag (lib/objekt/rotpost.ts). Fångas bara på nyimporterade objekt; annars avgör "RP" i namnet. */
@@ -67,6 +105,9 @@ export interface VolymUnderlag {
 export interface VolymFraga {
   nyckel: 'orimlig_volym' | 'avvikande_utfall' | 'stamplingslangd_avviker' | 'stamplingslangd_saknas';
   text: string;
+  /** Bara `stamplingslangd_saknas` när PDF:en är en gissning: filen som tolkades, och var den ligger (så frågan kan erbjuda "Öppna filen"). */
+  fil?: string;
+  path?: string | null;
   /** Ett förslag på ny volym (m³fub) som en människa kan godkänna — bara när utfallet är slutgiltigt. Skrivs aldrig av sig självt. */
   forslagVolym?: number;
 }
@@ -81,14 +122,23 @@ export function volymFragor(o: VolymUnderlag): VolymFraga[] {
   if (arRotpost(o)) {
     const avviker = avvikelseText(o.volym, jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet));
     if (avviker) ut.push({ nyckel: 'stamplingslangd_avviker', text: avviker });
-    // Saknas den: varken PDF eller inskrivet tal. Inte på en avslutad trakt — stämplingslängden är en uppskattning före avverkning och betyder inget efteråt.
-    const harTal = jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet) != null || (o.stamplingslangd_volym != null && Number(o.stamplingslangd_volym) > 0);
-    if (!arAvslutat(o.status) && !o.stamplingslangd_url && !harTal) {
+    // Frågan ställs inte på en avslutad trakt: stämplingslängden är en uppskattning före avverkning och en obesvarad fråga betyder inget efteråt.
+    // Raden och fältet finns kvar (FilenGavVy) — Bågskyttebanans fel hittades just så, genom att talet jämfördes efteråt.
+    const lage = stamplingslangdLage(o);
+    if (!arAvslutat(o.status) && (lage === 'saknas' || lage === 'gissad')) {
+      const gissad = lage === 'gissad' ? gissadPdf(o) : null;
       const okanda = fragor(o.import_varningar, { stamplingslangd_url: null, ovriga_dokument: null }).length;
-      ut.push({
-        nyckel: 'stamplingslangd_saknas',
-        text: `Det här är en rotpost — virket säljs på rot och ska ha en stämplingslängd, men ingen är identifierad.${okanda > 0 ? ' En PDF i filen är oidentifierad (se frågan om den): kan det vara stämplingslängden?' : ''} Skriv in talet när du har det.`,
-      });
+      ut.push(gissad
+        ? {
+          nyckel: 'stamplingslangd_saknas',
+          text: `Det här är en rotpost och ska ha en stämplingslängd. Importen gissade att "${gissad.fil}" är den, men ingen har bekräftat det. Öppna filen och skriv in talet.`,
+          fil: gissad.fil,
+          path: o.stamplingslangd_url ?? null,
+        }
+        : {
+          nyckel: 'stamplingslangd_saknas',
+          text: `Det här är en rotpost — virket säljs på rot och ska ha en stämplingslängd, men ingen är identifierad.${okanda > 0 ? ' En PDF i filen är oidentifierad (se frågan om den): kan det vara stämplingslängden?' : ''} Skriv in talet när du har det.`,
+        });
     }
   }
   return ut;

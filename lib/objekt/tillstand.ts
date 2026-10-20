@@ -3,7 +3,7 @@
 // `objekt.status` är CHECK-låst (oplanerad, planerad, pagaende, skotning, avslutat), men gammal data kan ha `klar`/`skordning`
 // (CLAUDE.md, objekt.status). Allt som inte är känt blir "Status saknas" — aldrig en gissning att det väntar.
 //
-import { fragor, volymFragor } from './filenGav';
+import { oppnaFragor, volymFragor } from './filenGav';
 
 // Ett avslutat objekt räknar INTE ner volymen: det är fortfarande inlagt i beställningen (se tackning.ts).
 
@@ -62,7 +62,7 @@ export function saknas(o: ObjektSaknar): string[] {
   const harBestallning = o.typ === 'gallring' || o.typ === 'slutavverkning';
   if (harBestallning && !(typeof o.volym === 'number' && o.volym > 0)) ut.push('saknar volym');
   if (!o.traktdirektiv_url && o.kalla !== 'manuell' && o.kalla !== 'starta-jobb') ut.push('saknar traktdirektiv');
-  const n = fragor(o.import_varningar, { stamplingslangd_url: null, ovriga_dokument: null }).length + volymN;
+  const n = oppnaFragor({ ...o, stamplingslangd_url: o.stamplingslangd_url ?? null, ovriga_dokument: null }).length + volymN;
   if (n > 0) ut.push(n === 1 ? '1 fråga' : `${n} frågor`);
   return ut;
 }

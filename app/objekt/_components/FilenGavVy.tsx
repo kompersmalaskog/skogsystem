@@ -12,7 +12,7 @@ import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN_CSS, ROT_MIN_HOJD, TN
 import { supabase } from '@/lib/supabase';
 import { hamtaUtfall, rattaVolym } from '@/lib/objekt/data';
 import {
-  bladText, certText, fmtHa, fragor, geometriSammanfattning, noterat, traktkartor, volymFragor,
+  bladText, certText, fmtHa, geometriSammanfattning, noterat, oppnaFragor, stamplingslangdLage, traktkartor, volymFragor,
   type Fraga, type GeoSammanfattning, type VolymFraga,
 } from '@/lib/objekt/filenGav';
 import { arRotpost } from '@/lib/objekt/rotpost';
@@ -124,13 +124,16 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
   const blad = traktkartor(o);
   const fara = geo?.faror ?? [];
   // Frågor ställs inte på avslutade objekt (Bågskyttebanan är avslutad men har en gammal OSÄKER-rad kvar).
-  const fragorHar = id === 'klar' ? [] : fragor(o.import_varningar, o);
+  const fragorHar = id === 'klar' ? [] : oppnaFragor(o);
   // Frågorna om volymen gäller också ett avslutat objekt (dess volym ingår i beställningens täckning) och räknas live ur objektets värden.
   const volymFr = volymFragor({ ...o, utfall });
   // Stämplingslängd gäller bara en rotpost (avtalsformen avgör — lib/objekt/rotpost.ts): på ett avverkningsuppdrag finns inget att stämpla, så raden visas inte.
   const rotpost = arRotpost(o);
   const visaUtfall = utfall != null || utfallFel || id === 'klar' || id === 'igang';
   const stampJamf = rotpost ? jamfor(o.volym, o.stamplingslangd_volym, o.stamplingslangd_enhet) : null;
+  // Stämplingslängdens läge (lib/objekt/filenGav.ts): bara ett inskrivet tal är bekräftat; en PDF som importen gissat på är "gissad", aldrig "funnen".
+  const stampLage = stamplingslangdLage(o);
+  const avslutad = arAvslutat(o.status);
   const antalFr = fragorHar.length + volymFr.length;
   const noter = noterat(o.import_varningar);
   const saknarVolym = !(typeof o.volym === 'number' && o.volym > 0);
@@ -173,7 +176,7 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
       {/* Det som kräver en människa — och bara det. Okänd PDF och osäker stämplingslängd är SAMMA fråga. */}
       {antalFr > 0 && (
         <Sektion rubrik={antalFr === 1 ? 'Fråga' : 'Frågor'}>
-          {volymFr.map((q, i) => <VolymFragaKort key={q.nyckel} q={q} sista={i === volymFr.length - 1 && fragorHar.length === 0} onRatta={onRatta} onStampling={onStampling}
+          {volymFr.map((q, i) => <VolymFragaKort key={q.nyckel} q={q} sista={i === volymFr.length - 1 && fragorHar.length === 0} onRatta={onRatta} onStampling={onStampling} onOppna={oppna}
             onAnvand={async v => { await rattaVolym(o.id, v); onVolymSatt(`Volymen är satt till ${fmtM3(v)} ${ENHET_M3FUB} (utfallet från maskinerna).`); }} />)}
           {fragorHar.map((q, i) => <FragaKort key={q.nyckel} q={q} sista={i === fragorHar.length - 1} onOppna={oppna} />)}
         </Sektion>
@@ -195,8 +198,11 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
         )}
         {rotpost && (
           <Rad titel="Stämplingslängd" sista
-            under={stampJamf ? 'Skriven av dig · tryck för att ändra' : o.stamplingslangd_url ? 'PDF i filen · skriv in talet för att jämföra' : 'Skriv in talet från stämplingslängden'}
-            hoger={stampJamf ? stamplingsText(stampJamf) : undefined}
+            under={stampLage === 'bekraftad' ? 'Skriven av dig · tryck för att ändra'
+              : stampLage === 'gissad' ? 'Gissad: PDF:en tolkades som stämplingslängd, ingen har bekräftat · skriv in talet'
+                : stampLage === 'pdf' ? 'PDF i filen · skriv in talet för att jämföra'
+                  : avslutad ? 'Skriv in talet för att kontrollera volymen' : 'Skriv in talet från stämplingslängden'}
+            hoger={stampLage === 'bekraftad' ? (stampJamf ? stamplingsText(stampJamf) : undefined) : stampLage === 'gissad' ? <span style={{ color: FARG.orange }} data-stamplingslangd-gissad="">gissad</span> : undefined}
             onTryck={onStampling} attr={{ 'data-stamplingslangd-tal': '' }} />
         )}
       </Sektion>
@@ -215,7 +221,7 @@ function Innehall({ o, geo, geoFel, utfall, utfallFel, onRatta, onStampling, onV
         {bladOppna && blad.map((b, i) => <Rad key={b.path} titel={`Blad ${i + 1} av ${blad.length}`} dampad onTryck={() => oppna(b.path)} />)}
 
         {/* Stämplingslängd visas när den finns. Att den saknas är normaltillståndet (4 av 42 slutavverkningar har en) och är ingen information. */}
-        {o.stamplingslangd_url && <Rad titel="Stämplingslängd (PDF)" under="Finns" onTryck={() => oppna(o.stamplingslangd_url)} />}
+        {o.stamplingslangd_url && <Rad titel="Stämplingslängd (PDF)" under={stampLage === 'gissad' ? 'Gissad, ej bekräftad' : 'Finns'} onTryck={() => oppna(o.stamplingslangd_url)} />}
         {o.valtlapp_url && <Rad titel="Vältlappar" under="Finns" onTryck={() => oppna(o.valtlapp_url)} />}
 
         <Rad titel="Hänsyn" pil={false}
@@ -271,7 +277,7 @@ function FragaKort({ q, sista, onOppna }: { q: Fraga; sista: boolean; onOppna: (
  * En fråga om volymen: texten med båda talen och en knapp till rätt ställe att rätta. Har frågan ett förslag (utfallet av en avslutad trakt)
  * föreslår systemet och en människa godkänner med knappen — talet skrivs aldrig av sig självt.
  */
-function VolymFragaKort({ q, sista, onRatta, onStampling, onAnvand }: { q: VolymFraga; sista: boolean; onRatta: () => void; onStampling: () => void; onAnvand: (volym: number) => Promise<void> }) {
+function VolymFragaKort({ q, sista, onRatta, onStampling, onOppna, onAnvand }: { q: VolymFraga; sista: boolean; onRatta: () => void; onStampling: () => void; onOppna: (path: string | null) => void; onAnvand: (volym: number) => Promise<void> }) {
   const [upptagen, setUpptagen] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
   async function anvand(v: number) {
@@ -294,7 +300,10 @@ function VolymFragaKort({ q, sista, onRatta, onStampling, onAnvand }: { q: Volym
       )}
       <div style={{ marginTop: AVSTAND.s, display: 'flex', gap: AVSTAND.l, flexWrap: 'wrap' }}>
         {q.nyckel === 'stamplingslangd_saknas'
-          ? <button type="button" onClick={onStampling} style={KNAPP.lank} data-skriv-stamplingslangd="">Skriv in stämplingslängden</button>
+          ? <>
+            {q.fil && <button type="button" onClick={() => onOppna(q.path ?? null)} disabled={!q.path} style={{ ...KNAPP.lank, ...(q.path ? null : INAKTIV) }}>Öppna filen</button>}
+            <button type="button" onClick={onStampling} style={KNAPP.lank} data-skriv-stamplingslangd="">Skriv in stämplingslängden</button>
+          </>
           : <button type="button" onClick={onRatta} style={KNAPP.lank} data-ratta-volym="">Rätta volymen</button>}
         {q.nyckel === 'stamplingslangd_avviker' && <button type="button" onClick={onStampling} style={KNAPP.lank}>Ändra stämplingslängden</button>}
       </div>
