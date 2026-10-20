@@ -105,6 +105,7 @@ const mock = vi.hoisted(() => ({
   vantarFel: false,
   manuellKolumnSaknas: false,
   rundorFel: false,
+  maskinerFel: false,
   extraRundor: [] as any[],
   patchRundor: {} as Record<string, Record<string, unknown>>,
   anrop: [] as string[],
@@ -183,6 +184,7 @@ vi.mock("@/lib/supabase", () => {
       if (this.tabell === "fakturaunderlag_flytt" && mock.vantarFel && this.filt.length >= 3) return { data: null, error: { message: "boom" } };
       if (this.tabell === "fakturaunderlag_flytt" && mock.underlagFel) return { data: null, error: { message: "boom" } };
       if (this.tabell === "dim_maskin" && mock.namnFel) return { data: null, error: { message: "boom" } };
+      if (this.tabell === "maskin_flytt" && mock.maskinerFel && this.kolumner.includes("extern_maskin, starttid, hamtad_tid")) return { data: null, error: { message: "boom" } };
       if (["flyttdag", "maskin_flytt"].includes(this.tabell) && mock.rundorFel) return { data: null, error: { message: "boom" } };
       // Migration 20261017100000 ej körd: en fråga som nämner kolumnen faller som i PostgREST.
       if (this.tabell === "maskin_flytt" && mock.manuellKolumnSaknas && this.kolumner.includes("fakturerbar_manuell")) return { data: null, error: { code: "42703", message: "column maskin_flytt.fakturerbar_manuell does not exist" } };
@@ -232,7 +234,7 @@ beforeEach(() => {
   mock.medarbetare = ADMIN; mock.loading = false; mock.underlagFel = false; mock.namnFel = false; mock.extraUnderlag = []; mock.anrop = [];
   mock.underlag = nyaUnderlag(); mock.skrivningar = []; mock.skrivNoll = false; mock.skrivFel = false; mock.vantarFel = false; mock.manuellKolumnSaknas = false;
   mock.api = { status: 200, body: LAGE };
-  mock.rundorFel = false; mock.extraRundor = []; mock.patchRundor = {};
+  mock.rundorFel = false; mock.maskinerFel = false; mock.extraRundor = []; mock.patchRundor = {};
   mock.flyttar = MASKIN_FLYTT.map(b => ({ ...b })); mock.lass = []; mock.lassFel = false; mock.rattningar = []; mock.rpc = []; mock.rpcHandler = null;
   mock.spar = { status: 200, body: { ok: true, spar: [{ lat: 56.4, lng: 14.7 }, { lat: 56.5, lng: 14.8 }], segment: [], nagonOmatchad: false, matchningPa: false } };
   (globalThis as any).fetch = vi.fn(async (url: string) => {
@@ -1649,6 +1651,169 @@ describe("Körningar: länken till Flyttplatser (bodde i Flyttloggen)", () => {
     expect(document.querySelector('a[href="/maskinflytt/platser"]')!.textContent).toContain("Flyttplatser");
     await tillAr();
     expect(document.querySelector('a[href="/maskinflytt/platser"]')).toBeNull();
+  });
+});
+
+// ── Uppföljning › Maskiner: en rad per maskin, arket med snitt och flyttlistan ─────────────────────────────────
+import { prodFlyttRader } from "./_components/maskiner.fixtur";
+import { dagarSedan } from "./_components/maskiner";
+
+/** Martins prod-siffror 2026-10-20 (19 flyttar) som rader i maskin_flytt-fejken. */
+const maskinRader = () => prodFlyttRader().map(r => ({
+  ...BEN(r.id, "x", r.maskin_id ?? "JD810E", r.fran_objekt_id, r.till_objekt_id ?? "o-ostra", r.flytt_km ?? 0, r.tid_flytt_min ?? 0, false),
+  ...r, flyttdag_id: "x", avbruten: false,
+}));
+const maskinerSek = () => document.querySelector("[data-maskiner]") as HTMLElement;
+const maskinRad = (namn: string) => knapp(new RegExp(`^Visa ${namn}$`), maskinerSek())!;
+const norm = (t: string | null | undefined) => (t ?? "").replace(/chevron_right/g, "").replace(/\s/g, " ");
+
+describe("Uppföljning: Maskiner", () => {
+  beforeEach(() => { mock.flyttar = maskinRader(); });
+
+  it("står under månadslistan med rubriken Maskiner, en rad per maskin, flest flyttar först", async () => {
+    await montera();
+    await tillAr();
+    const sek = maskinerSek();
+    expect(sek.querySelector("h3")!.textContent).toBe("Maskiner");
+    const manader = arsSida()!.querySelector('section[aria-label="Månader"]')!;
+    expect(!!(manader.compareDocumentPosition(sek) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    const rader = Array.from(sek.querySelectorAll("button")).map(b => norm(b.textContent));
+    expect(rader).toEqual([
+      "Giant11 flyttar249 km", "Elefant 264 flyttar143 km", "Wisent2 flyttar54 km", "810E1 flytt31 km", "R644281 flytt16 km",
+    ]);
+  });
+
+  it("Giant: antal stort, 'Står på X sedan N dagar', och de tre snitten med antalet utskrivet", async () => {
+    await montera();
+    await tillAr();
+    await klicka(maskinRad("Giant"));
+    const d = dlg()!;
+    expect(d.getAttribute("aria-label")).toBe("Giant");
+    expect(d.querySelector("[data-maskin-antal]")!.textContent).toBe("11 flyttar");
+    expect(d.textContent).toContain("i 2026");
+    expect(d.querySelector("[data-star-pa]")!.textContent).toMatch(/^Står på .+ sedan \d+ dagar$/);
+    const snitt = norm(d.querySelector("[data-maskin-snitt]")!.textContent);
+    expect(snitt).toContain("Lassat → lossat");
+    expect(snitt).toContain("snitt av 11 flyttar");
+    expect(snitt).toContain("Snitt-kmsnitt av 11 flyttar23 km");              // 249 / 11 = 22,6
+    expect(snitt).toContain("På en traktsnitt av 5 mellanrum2,8 dagar");
+    expect(snitt).not.toMatch(/kan inte räknas|saknar/);
+  });
+
+  it("Elefant 26: för få räknebara mellanrum ger inget snitt, och flyttar utan Från står som 'Från saknas'", async () => {
+    await montera();
+    await tillAr();
+    await klicka(maskinRad("Elefant 26"));
+    const snitt = norm(dlg()!.querySelector("[data-maskin-snitt]")!.textContent);
+    expect(snitt).toContain("På en traktbara 1 mellanrum – för få för snitt–");
+    expect(snitt).not.toMatch(/kan inte räknas/);
+    expect(snitt).toContain("snitt av 4 flyttar");
+    const lista = norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent);
+    expect(lista.match(/Från saknas/g)).toHaveLength(3);
+  });
+
+  it("Wisent (2 flyttar): inget snitt — 'bara 2 flyttar – för få för snitt' — och flyttlistan har båda flyttarna med km och tid", async () => {
+    await montera();
+    await tillAr();
+    await klicka(maskinRad("Wisent"));
+    const d = dlg()!;
+    expect(norm(d.querySelector("[data-maskin-snitt]")!.textContent)).toContain("bara 2 flyttar – för få för snitt");
+    const rader = d.querySelectorAll("[data-maskin-flyttar] > *");
+    expect(rader).toHaveLength(2);
+    expect(norm(rader[0].textContent)).toMatch(/km/);
+    expect(norm(d.querySelector("[data-maskin-flyttar]")!.textContent)).toMatch(/\d+ min|\d+ h/);
+  });
+
+  it("en flytt utan km räknas inte i snittet: 'N flyttar saknar km' står vid km-raden och i listan, och talet i raden är bara de som har km", async () => {
+    mock.flyttar = maskinRader().map((r: any) => (r.id === "g0" ? { ...r, flytt_km: null } : r));
+    await montera();
+    await tillAr();
+    expect(norm(maskinRad("Giant").textContent)).toContain("1 flytt saknar km");
+    expect(norm(maskinRad("Giant").textContent)).toContain("229 km");
+    await klicka(maskinRad("Giant"));
+    expect(norm(dlg()!.querySelector("[data-maskin-snitt]")!.textContent)).toContain("snitt av 10 flyttar · 1 flytt saknar km");
+    expect(norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent)).toContain("km saknas");
+  });
+
+  it("alla flyttar utan km: raden visar '–' och 'N flyttar saknar km', aldrig '0 km'", async () => {
+    mock.flyttar = maskinRader().map((r: any) => (r.maskin_id === "A030353" ? { ...r, flytt_km: null } : r));
+    await montera();
+    await tillAr();
+    const t = norm(maskinRad("Wisent").textContent);
+    expect(t).toBe("Wisent2 flyttar · 2 flyttar saknar km–");
+    expect(t).not.toContain("0 km");
+  });
+
+  it("admin trycker en flytt i arket och får sheeten 'Flytten'; Avbryt tar tillbaka maskinens ark", async () => {
+    await montera();
+    await tillAr();
+    await klicka(maskinRad("Giant"));
+    expect(dlg()!.textContent).toContain("Tryck på en flytt för att rätta eller stryka den.");
+    await klicka(knapp(/^Visa flytten Giant/, dlg()!.querySelector("[data-maskin-flyttar]")!)!);
+    expect(dlg()!.getAttribute("aria-label")).toMatch(/^Giant · /);
+    expect(valRad("Maskin")).not.toBeNull();
+    await klicka(knapp(/^Avbryt$/, dlg()!)!);
+    expect(dlg()!.getAttribute("aria-label")).toBe("Giant");
+  });
+
+  it("en förare ser maskinerna och flyttlistan men kan inte öppna en flytt för att rätta den", async () => {
+    mock.medarbetare = FORARE;
+    await montera();
+    await tillAr();
+    await klicka(maskinRad("Giant"));
+    expect(dlg()!.querySelector("[data-maskin-antal]")!.textContent).toBe("11 flyttar");
+    expect(dlg()!.textContent).not.toContain("Tryck på en flytt");
+    expect(knapp(/^Visa flytten/, dlg()!)).toBeUndefined();
+  });
+
+  it("andras maskiner är en egen sista rad och har varken 'Står på' eller 'På en trakt'", async () => {
+    mock.flyttar = [...maskinRader(), ...[1, 2].map(n => ({
+      ...BEN(`x${n}`, "x", "JD810E", "o-vallust", "o-ostra", 40, 120, false),
+      maskin_id: null, extern_maskin: n === 1 ? "Vidas skördare" : "Annan skördare", flyttdag_id: "x", avbruten: false,
+      starttid: "2026-09-10T06:00:00Z", hamtad_tid: "2026-09-10T06:00:00Z", sluttid: `2026-09-1${n}T09:00:00Z`, flytt_km: 40, tid_flytt_min: 120,
+    }))];
+    await montera();
+    await tillAr();
+    const rader = Array.from(maskinerSek().querySelectorAll("button")).map(b => norm(b.textContent));
+    expect(rader[rader.length - 1]).toBe("Andras maskiner2 flyttar80 km");
+    await klicka(maskinRad("Andras maskiner"));
+    expect(dlg()!.querySelector("[data-star-pa]")).toBeNull();
+    expect(norm(dlg()!.querySelector("[data-maskin-snitt]")!.textContent)).not.toContain("På en trakt");
+    expect(norm(dlg()!.querySelector("[data-maskin-flyttar]")!.textContent)).toContain("Vidas skördare");
+  });
+
+  it("pågående och avbrutna flyttar räknas inte", async () => {
+    mock.flyttar = [...maskinRader(), { ...BEN("pag", "x", "PONS20SDJAA270231", "o-vallust", "o-ostra", 0, 0, false), sluttid: null, avbruten: false, flyttdag_id: "x" },
+      { ...BEN("avb", "x", "PONS20SDJAA270231", "o-vallust", "o-ostra", 99, 99, false), sluttid: "2026-09-30T10:00:00Z", avbruten: true, flyttdag_id: "x" }];
+    await montera();
+    await tillAr();
+    expect(norm(maskinRad("Giant").textContent)).toContain("11 flyttar");
+    expect(norm(maskinRad("Giant").textContent)).toContain("249 km");
+  });
+
+  it("ingen flytt i året: det står, aldrig en tom ruta", async () => {
+    mock.flyttar = [];
+    await montera();
+    await tillAr();
+    expect(maskinerSek().textContent).toContain("Inga flyttar i 2026.");
+  });
+
+  it("läsfel: säger det med Försök igen och tar inte bort resten av sidan; Försök igen läser om", async () => {
+    mock.maskinerFel = true;
+    await montera();
+    await tillAr();
+    expect(maskinerSek().textContent).toContain("Kunde inte läsa maskinerna just nu.");
+    expect(document.querySelector('section[aria-label="Året"]')).not.toBeNull();     // årets körning är kvar
+    mock.maskinerFel = false;
+    await klicka(knapp(/Försök igen/, maskinerSek())!);
+    expect(norm(maskinRad("Giant").textContent)).toContain("11 flyttar");
+  });
+
+  it("året byts i Uppföljning: maskinerna läses för det året", async () => {
+    await montera();
+    await tillAr();
+    expect(knapp(/Förra året/)!.hasAttribute("disabled")).toBe(true);                  // 2025 finns inte; samma regel som resten av sidan
+    expect(maskinerSek().textContent).toContain("Giant");
   });
 });
 
