@@ -7,15 +7,16 @@
 
 import React from 'react';
 import Ikon from '@/components/design/Ikon';
-import { AVSTAND, FARG, FONT, IKON, KORT, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VIKT, designCss, KOLUMN_CSS, kolumnRot } from '@/lib/design/tokens';
+import { AVSTAND, FARG, FONT, IKON, KORT, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VIKT, designCss, KOLUMN_CSS, kolumnRot, medSafeBotten } from '@/lib/design/tokens';
 import { harKoordinat } from '@/lib/navigera';
 import { kmText } from '@/lib/objektVal';
 import { anmarkningsText, kortDatum } from './format';
 import { vantatText } from '@/lib/egenkontrollStickprov';
 import type { VantandeRad } from '@/lib/egenkontroll';
 
-/** Luft sist, över bottennavigationen. */
-const BOTTEN_LUFT = AVSTAND.xxl * 4;
+/** Luft sist: listan har ingen bottennavigation (egenkontrollen går ut via hemknappen i toppfältet), så sista raden ska bara ligga
+ *  fri från hemindikatorn. Förut 128 px för att rymma flikraden — nu en död yta om den fick stå kvar. */
+const BOTTEN_LUFT = medSafeBotten(AVSTAND.xl);
 
 export function ListRot({ children }: { children: React.ReactNode }) {
   return (
@@ -27,7 +28,7 @@ export function ListRot({ children }: { children: React.ReactNode }) {
         color: FARG.text,
         fontFamily: FONT,
         WebkitFontSmoothing: 'antialiased',
-        padding: `${AVSTAND.l}px ${AVSTAND.sidmarginal}px ${BOTTEN_LUFT}px`,
+        padding: `${AVSTAND.l}px ${AVSTAND.sidmarginal}px ${BOTTEN_LUFT}`,
         boxSizing: 'border-box',
       }}
     >

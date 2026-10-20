@@ -176,6 +176,16 @@ Följden: normkurvan räknas om. Gallring n 679 → 681 (a 3,7590 → 3,7615, b 
 **Förväntat och verifierat:** slutavverkningskurvan helt oförändrad (n 893, a 3,947795, b 0,676473; alla fyra kurvrader identiska på alla decimaler: Hästhagen var redan utanför området och de tre andra är maskinstandard med 2–3 h, som aldrig ingick i kurvan); gallring oförändrad. Hash per maskin och åtgärd i `vy_hist_maskin_ar` före och efter: 82 av 88 kombinationer bit för bit lika (alla gallringsgrupper och alla maskiner utom tre); de som skiljer är Komatsu 941 (slutavverkning och "(ingen)" ändras, ny grupp special), Komatsu 941 AptMan (samma) och Rottne H8E Logmax (slutavverkning försvinner, special tillkommer, "(ingen)" ändras). Slutavverkningens `viktat_index` på de åtta kontrollerade raderna med minst 200 h oförändrat (88,2, 104,6, 90,1 …). Special har inget index (ingen kurva), så de fyra får inget index och ingen flagga: `utanfor_normalomrade` är noll i `vy_hist_objekt_index` och `vy_hist_objekt_lista`. Oskar har ingen slutavverkning kvar (jämförelsen 27 → 26 rader).
 **Normalområdet 0,10–1,5 ligger kvar som skyddsnät** för slutavverkning: nästa objekt med liten medelstam och många timmar drar inte kurvan, och märks "utanför normalområdet" tills det är klassat.
 
+## EGENKONTROLLEN UTAN FLIKRAD (2026-10-20)
+
+Martin ville bort med flikraden (Hem, Översikt, Planering, Objekt, Mer) i egenkontrollen, med skälet att dockan och flikraden slåss om botten. **Skälet stämde inte:** rundvyn har aldrig haft flikraden (ingen `BottomNav`, ingen `TopBar`, bara `KartHuvud` och arket). Bara LISTAN (`app/egenkontroll/page.tsx`, fyra lägen) renderade den. Mätt i riktig Chromium 390 × 760 (safe-area 0): flikraden 81 px, understa brickraden 704–748 — en flikrad i rundvyn hade täckt hela understa raden och 17 px av nästa (på iPhone ~105 px och ungefär 11 px av raden ovanför). Beslutet togs på ett annat skäl: flikraden är undantaget i appen (den delade `BottomNav` renderas nu bara av Gallring) och egenkontrollen ska följa mönstret (Utbildning tog bort sin 2026-10-19).
+
+- Listan: `<BottomNav />` borta i alla fyra lägen; `BOTTEN_LUFT` 128 px → `medSafeBotten(AVSTAND.xl)` (24 px på dator, 8 + safe-area på iPhone).
+- Hem från rundan är TVÅ tryck (pil → lista → hus), avsiktligt, inget hus i `KartHuvud`.
+- `TopBar`: hemknappens träffyta 36 → 44 px (`TRAFFYTA.min`), synliga rutan oförändrad (pixelidentisk header mot main i riktig Chromium, vänsterkant 12 px).
+- Vakter (mutationskontrollerade, 10 av 10): `app/egenkontroll/flikrad.vakter.test.ts`, `page.lista.render.test.tsx` (inget `bottennav` i laddning, huvudlista, underlista, fel), `components/TopBar.egenkontroll.render.test.tsx`.
+- **Ej provat:** riktig iPhone/PWA (safe-area), tryckytan med riktigt finger.
+
 ## KARTANS ORIGO I EGENKONTROLLEN OCH PROVYTOR UTAN LOTTNING (2026-10-19)
 
 **Felet:** egenkontrollen läste planeringens markeringar (x/y relativt ett origo) bara om objektet hade `kartbild_bounds`. Planeringen räknar origot med `objektStartKamera`: kartbildens mitt på zoom 15, annars objektets lat/lng på zoom 16. Alla 23 objekt som kom in via Vidas envz-leverans (6 aug och framåt) saknar bounds, så de blev blinda i rundan — trots att planeringen ritar dem rätt. Nio av tjugo öppna rundor låg i det läget, och de tre gallringarna bland dem fick inga provytor.
