@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
+import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText, lassViktText, LASS_KOLUMNER, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
 import { lasLassId } from './url';
 
 const rad = (o: Partial<LassRad> = {}): LassRad => ({
@@ -22,6 +22,16 @@ describe('texter', () => {
   it('sträckan är "cirka" när bilen inte stod stilla i båda ändar — och "saknas" när den inte går att räkna', () => {
     expect(lassKmText(rad({ bevis: { km_osaker: true } }))).toBe('cirka 45,7 km');
     expect(lassKmText(rad({ km: null }))).toBe('sträcka saknas');
+  });
+  it('lastvikten i hela ton; saknas den står ingenting (aldrig "0 t" eller "–")', () => {
+    expect(lassViktText(rad({ lastvikt_kg: 25_400 }))).toBe('last 25 t');
+    expect(lassViktText(rad({ lastvikt_kg: 25_600 }))).toBe('last 26 t');
+    expect(lassViktText(rad({ lastvikt_kg: null }))).toBeNull();
+    expect(lassViktText(rad())).toBeNull();
+    expect(lassViktText(rad({ lastvikt_kg: 0 }))).toBeNull();
+  });
+  it('vikten läses ur databasen (kolumnlistan har lastvikt_kg)', () => {
+    expect(LASS_KOLUMNER.split(', ')).toContain('lastvikt_kg');
   });
   it('förslaget: hur säkert + skälen; ingen förslagsmaskin = ingen rad', () => {
     expect(lassForslagText(rad())).toBe('Troligen · Skotade Östra-Hoka 12 okt');
