@@ -27,7 +27,7 @@ describe('grupperaPerBolag', () => {
   it('bolag med beställning men utan objekt: hela beställningen är kvar', () => {
     const [g] = grupperaPerBolag([], [P('slutavverkning', 'ATA Timber', 500)]);
     expect(g.typer[0]).toMatchObject({ typ: 'slutavverkning', bestallt: 500, inlagt: 0, objekt: [] });
-    expect(g.typer[0].lage).toEqual({ text: '500 m³fub kvar till beställningen', fylld: false });
+    expect(g.typer[0].lage).toEqual({ text: '500 m³fub kvar till beställningen', fylld: false, lage: 'kvar' });
   });
 
   it('typer utan vare sig post eller objekt ritas inte; GROT hör till sitt bolag och har ingen beställning', () => {

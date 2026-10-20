@@ -44,16 +44,46 @@ export function rubrikTal(inlagt: number, bestallt: number | null): string {
   return `${fmtM3(inlagt)} / ${bestallt == null ? '–' : fmtM3(bestallt)} ${ENHET_M3FUB}`;
 }
 
+/**
+ * Läget mot beställningen — EN beräkning, så att orden är desamma överallt: `kvar`, `fylld`, `over`. Listans sektionsfot renderar den långt
+ * (`lageText`), beställningsarket kort (`lageKort`). Meningsbyggnaden får skilja sig; orden och gränserna får aldrig göra det.
+ *   kvar   inlagt < beställt   (antal = hur mycket som fattas)
+ *   fylld  inlagt = beställt   (antal = 0)
+ *   over   inlagt > beställt   (antal = hur mycket över)
+ * Jämförelsen görs på avrundade tal (visadVolym/Math.round), som allt annat i vyn: det som visas är det som räknas.
+ */
+export type LageOrd = 'kvar' | 'fylld' | 'over';
+export interface LageDel { lage: LageOrd; antal: number }
+
+export function lageDel(inlagt: number, bestallt: number): LageDel {
+  const i = Math.round(inlagt);
+  const b = Math.round(bestallt);
+  if (i < b) return { lage: 'kvar', antal: b - i };
+  if (i === b) return { lage: 'fylld', antal: 0 };
+  return { lage: 'over', antal: i - b };
+}
+
 export interface Lage {
   text: string;
   /** true = beställningen är fylld (eller mer). */
   fylld: boolean;
+  lage?: LageOrd;
 }
 
-/** Sista raden i en sektion: "666 m³fub kvar till beställningen" eller "Beställningen fylld · 1 234 m³fub över". */
+/** Sista raden i en sektion i LISTAN: "666 m³fub kvar till beställningen" / "Beställningen fylld" / "Beställningen fylld · 1 234 m³fub över". */
 export function lageText(inlagt: number, bestallt: number | null): Lage {
   if (bestallt == null) return { text: 'Ingen beställning inlagd', fylld: false };
-  if (inlagt < bestallt) return { text: `${fmtM3(bestallt - inlagt)} m³fub kvar till beställningen`, fylld: false };
-  if (inlagt === bestallt) return { text: 'Beställningen fylld', fylld: true };
-  return { text: `Beställningen fylld · ${fmtM3(inlagt - bestallt)} m³fub över`, fylld: true };
+  const d = lageDel(inlagt, bestallt);
+  if (d.lage === 'kvar') return { text: `${fmtM3(d.antal)} m³fub kvar till beställningen`, fylld: false, lage: d.lage };
+  if (d.lage === 'fylld') return { text: 'Beställningen fylld', fylld: true, lage: d.lage };
+  return { text: `Beställningen fylld · ${fmtM3(d.antal)} m³fub över`, fylld: true, lage: d.lage };
+}
+
+/** Raden under ett fält i BESTÄLLNINGSARKET, kort: "379 inlagt · 621 kvar" / "379 inlagt · beställningen fylld" / "5 037 inlagt · 37 över". */
+export function lageKort(inlagt: number, bestallt: number): { text: string; lage: LageOrd } {
+  const d = lageDel(inlagt, bestallt);
+  const i = `${fmtM3(inlagt)} inlagt`;
+  if (d.lage === 'kvar') return { text: `${i} · ${fmtM3(d.antal)} kvar`, lage: d.lage };
+  if (d.lage === 'fylld') return { text: `${i} · beställningen fylld`, lage: d.lage };
+  return { text: `${i} · ${fmtM3(d.antal)} över`, lage: d.lage };
 }

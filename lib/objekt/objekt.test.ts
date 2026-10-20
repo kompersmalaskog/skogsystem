@@ -13,15 +13,15 @@ describe('täckning', () => {
     const inlagt = inlagtSumma(GALLRING);
     expect(inlagt).toBe(334);
     expect(rubrikTal(inlagt, bestalltSumma([{ volym: 1000 }]))).toBe('334 / 1 000 m³fub');
-    expect(lageText(inlagt, 1000)).toEqual({ text: '666 m³fub kvar till beställningen', fylld: false });
+    expect(lageText(inlagt, 1000)).toEqual({ text: '666 m³fub kvar till beställningen', fylld: false, lage: 'kvar' });
   });
   it('slutavverkning 6 234 / 5 000 — fylld, 1 234 över (det avslutade Bågskyttebanan räknas)', () => {
     const inlagt = inlagtSumma(SLUT);
     expect(inlagt).toBe(6234);
-    expect(lageText(inlagt, 5000)).toEqual({ text: 'Beställningen fylld · 1 234 m³fub över', fylld: true });
+    expect(lageText(inlagt, 5000)).toEqual({ text: 'Beställningen fylld · 1 234 m³fub över', fylld: true, lage: 'over' });
   });
   it('exakt lika är fylld utan "över"; ingen beställning säger det', () => {
-    expect(lageText(1000, 1000)).toEqual({ text: 'Beställningen fylld', fylld: true });
+    expect(lageText(1000, 1000)).toEqual({ text: 'Beställningen fylld', fylld: true, lage: 'fylld' });
     expect(lageText(5, null).text).toBe('Ingen beställning inlagd');
     expect(rubrikTal(5, null)).toBe('5 / – m³fub');
   });

@@ -96,6 +96,7 @@ export const SKARPA = [
   "app/objekt/_components/BolagValjare.tsx",
   "components/design/Rad.tsx",
   "components/design/Falt.tsx",
+  "components/design/TalRad.tsx",
   "components/design/Manadsvaljare.tsx",
 ];
 
