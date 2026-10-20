@@ -2865,6 +2865,28 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
     expect(text()).toContain("Löneartskod saknas för Helglön. Inget är skickat.");
   });
 
+  it("Förare · Månad: Öppna på förarens kort öppnar arket (adressen bär ?forare=) och Stäng lämnar det", async () => {
+    const m1 = SALARY.medarbetare[0] as any;
+    g.__salary = { ...SALARY, medarbetare: [{ ...m1, arbetsdagar: 22, timlon_h: 176, overtid_h: 42.17, ordinarie_h: 176, extra_h: 4, kor_mil: 0, km_grans: 60,
+      ordinarie: { modell: "manad", timmar: 176, vardagar: 22, roda: [], franvaro: [], anstallning: [], deldag_h: 0 }, arbetat: { maskin_min: 12850, extra_min: 240, kortpass_min: 0, hemskickad_min: 0 },
+      extra_poster: [{ datum: "2026-09-10", start_tid: "12:15", slut_tid: "16:15", minuter: 240, aktivitet: "Annat", objekt: null, kommentar: "Gokart", debiterbar: false }] }] };
+    await monter("flik=lon&underflik=underlag&period=2026-10");
+    const oppna = Array.from(cont.querySelectorAll("[data-forare] button")).find(b => b.textContent === "Öppna") as HTMLButtonElement;
+    expect(oppna).toBeTruthy();
+    expect(document.body.querySelector("[data-forare-manad]")).toBeNull();
+    await act(async () => { oppna.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    const ark = document.body.querySelector("[data-forare-manad]")!;
+    expect(ark).not.toBeNull();
+    expect(ark.querySelector("[data-svar]")!.textContent).toBe("42 tim 10 min (42,17)");
+    expect(ark.querySelector('[data-extra-post="2026-09-10"]')!.textContent).toContain("Gokart");
+    expect(window.location.search).toContain("forare=m1");
+    await act(async () => { (Array.from(ark.querySelectorAll("button")).find(b => b.textContent === "Stäng") as HTMLButtonElement).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await lugn();
+    expect(document.body.querySelector("[data-forare-manad]")).toBeNull();
+    expect(window.location.search).not.toContain("forare=");
+  });
+
   it("valfri månad går att öppna direkt via adressen (period=…), och en ogiltig period faller tillbaka på nu", async () => {
     g.__salary = { ...SALARY, arbetsperiod: "2026-08" };
     await monter("flik=lon&underflik=underlag&period=2026-09");

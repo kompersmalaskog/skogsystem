@@ -25,6 +25,7 @@ import VilobrottUnderflik from "./VilobrottUnderflik";
 // regler. Byggd mot lib/design/tokens — första admin-ytan som är det.
 import DagarUnderflik from "./DagarUnderflik";
 import ArsovertidKort from "./ArsovertidKort";
+import ForarManadArk from "./ForarManadArk";
 
 // Kort i granskningen: luft mellan staplade kort.
 const Card = ({ children, style }: { children: React.ReactNode; style?: CSSProperties }) => <Kort style={{ marginBottom: AVSTAND.m, ...style }}>{children}</Kort>;
@@ -234,8 +235,15 @@ function Loneunderlag() {
         }}
         onSkicka={() => setVisaBekräftelse(true)}
         onMal={gaMal}
+        onForare={id => sattParam("forare", id)}
         exportResultat={exportResultat}
       />
+
+      {/* Förare · Månad: varför blev lönen, övertiden och milen som de blev. Förarens id står i adressen (?forare=…). */}
+      {(() => {
+        const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
+        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} onStang={() => sattParam("forare", null)} /> : null;
+      })()}
 
       {/* ÅRSÖVERTID: en fråga — hur nära taket är varje förare? Avtalets modell (§5 mom 2); förklaringen ligger bakom
           "Så räknas det" (components/admin/ArsovertidKort). */}
@@ -301,7 +309,7 @@ function Loneunderlag() {
 /* ─── FORTNOX EXPORT SEKTION ─── */
 
 function FortnoxExportSektion({
-  period, arbetsManad, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, onMal, exportResultat,
+  period, arbetsManad, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, onMal, onForare, exportResultat,
 }: {
   period: string;
   arbetsManad: string;
@@ -310,6 +318,7 @@ function FortnoxExportSektion({
   onFörhandsgranska: () => void;
   onSkicka: () => void;
   onMal: (mal: Mal) => void;
+  onForare: (id: string) => void;
   exportResultat: any;
 }) {
   const [visaFragor, setVisaFragor] = useState(false);
@@ -414,7 +423,10 @@ function FortnoxExportSektion({
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: AVSTAND.s }}>
                 <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
-                {!k.ledare && <StatusBadge status={m.status} />}
+                <span style={{ display: "flex", alignItems: "center", gap: AVSTAND.s }}>
+                  {!k.ledare && <StatusBadge status={m.status} />}
+                  <Lank smal onClick={() => onForare(m.medarbetare_id)} style={{ flexShrink: 0 }}>Öppna</Lank>
+                </span>
               </div>
               {k.saknarAnstNr && (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
