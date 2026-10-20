@@ -98,15 +98,15 @@ export async function hamtaObjektForManad(m: Manad): Promise<ObjektRad[]> {
 }
 
 /**
- * De levande objekten som saknar månad (Starta jobb lägger dem så). Avslutade utan månad räknas inte hit: de har aldrig räknats mot någon
- * beställning och är en egen fråga. De syns sist i vyn så att de inte döljs.
+ * Levande objekt som kan behöva kompletteras (Starta jobb lägger dem utan månad och ofta utan bolag). Avslutade ingår inte: de har aldrig
+ * räknats mot någon beställning och tjatar inte. Filtret på vad som fattas görs i `attKomplettera` (lib/objekt/bolagGrupper.ts).
  */
-export async function hamtaUtanManad(): Promise<ObjektRad[]> {
+export async function hamtaLevandeObjekt(): Promise<ObjektRad[]> {
   return lasObjekt(k => supabase
     .from('objekt')
     .select(k)
-    .or('ar.is.null,manad.is.null')
-    .neq('status', 'avslutat')
+    .in('typ', ['gallring', 'slutavverkning', 'grot'])
+    .or('status.is.null,status.not.in.(avslutat,klar)')
     .order('namn', { ascending: true }));
 }
 
@@ -123,33 +123,59 @@ export async function hamtaPoster(fran: Manad, tillOchMed?: Manad): Promise<Post
   return rader.filter(r => nyckel(r) >= nyckel(fran) && nyckel(r) <= nyckel(tillOchMed));
 }
 
-export interface NyPost { ar: number; manad: number; typ: ObjektTyp; bolag: string; bolag_id: number | null; volym: number }
+/** En beställning att skriva. En NY post har alltid `bolag_id`: bolaget väljs (eller skapas) av en människa, det finns ingen reserv. `id` = en befintlig post som ändras (en gammal rad kan sakna bolag_id). */
+export interface NyPost { ar: number; manad: number; typ: ObjektTyp; bolag: string; bolag_id: number | null; volym: number; id?: string }
 
-/** Skriver beställningar med nyckeln (ar, manad, bolag, typ) — samma som tabellens unika index. Kräver att alla rader kom tillbaka. */
+/**
+ * Skriver beställningar. Merge-nyckeln är (ar, manad, typ, bolag_id) — samma som det gamla formuläret: finns en post med nyckeln uppdateras
+ * den, annars läggs en ny. En post med `id` uppdateras direkt. Tabellens unika index (ar, manad, bolag, typ) är bältet: en kollision ger ett
+ * tydligt fel, aldrig en tyst överskrivning. Kräver att varje rad kom tillbaka.
+ */
 export async function sparaPoster(poster: NyPost[]): Promise<void> {
   if (poster.length === 0) return;
+  for (const p of poster) {
+    if (!p.bolag.trim() || (p.id == null && !Number.isFinite(p.bolag_id))) throw new Error('Välj bolag innan du sparar.');
+  }
   const nu = new Date().toISOString();
-  const { data, error } = await supabase
-    .from('bestallningar')
-    .upsert(poster.map(p => ({ ...p, uppdaterad_at: nu })), { onConflict: 'ar,manad,bolag,typ' })
-    .select('id');
-  if (error) throw new Error(error.message);
-  if ((data ?? []).length !== poster.length) throw new Error('Beställningen sparades inte. Försök igen.');
-}
+  const ar = Array.from(new Set(poster.map(p => p.ar)));
+  const { data: finns, error: lasFel } = await supabase.from('bestallningar').select('id, ar, manad, typ, bolag, bolag_id').in('ar', ar);
+  if (lasFel) throw new Error(lasFel.message);
+  const befintliga = (finns ?? []) as { id: string; ar: number; manad: number; typ: string; bolag: string; bolag_id: number | null }[];
 
-/** Bolaget en ny beställning får när månaden inte har någon: det senast inlagda. Finns ingen alls: Vida. */
-export async function standardBolag(): Promise<{ bolag: string; bolag_id: number | null }> {
-  const { data, error } = await supabase.from('bestallningar').select('bolag, bolag_id').order('ar', { ascending: false }).order('manad', { ascending: false }).limit(1);
-  if (error) throw new Error(error.message);
-  const r = (data ?? [])[0] as { bolag: string; bolag_id: number | null } | undefined;
-  return r ? { bolag: r.bolag, bolag_id: r.bolag_id } : { bolag: 'Vida', bolag_id: 1 };
+  const uppdatera: { id: string; p: NyPost }[] = [];
+  const nya: NyPost[] = [];
+  for (const p of poster) {
+    const traff = p.id
+      ? befintliga.find(b => b.id === p.id)
+      : befintliga.find(b => b.ar === p.ar && b.manad === p.manad && b.typ === p.typ && b.bolag_id === p.bolag_id);
+    if (p.id && !traff) throw new Error('Beställningen finns inte längre. Läs om vyn och försök igen.');
+    if (traff) uppdatera.push({ id: traff.id, p }); else nya.push(p);
+  }
+
+  const felText = (e: { code?: string | null; message?: string | null }, p?: NyPost) =>
+    e.code === '23505' ? `Det finns redan en beställning på ${p ? `${p.bolag}, ${p.typ === 'gallring' ? 'gallring' : 'slutavverkning'}, ` : ''}den månaden. Läs om vyn.` : String(e.message ?? 'Okänt fel');
+
+  for (const { id, p } of uppdatera) {
+    const { data, error } = await supabase.from('bestallningar').update({ volym: p.volym, uppdaterad_at: nu }).eq('id', id).select('id');
+    if (error) throw new Error(felText(error, p));
+    if ((data ?? []).length !== 1) throw new Error('Beställningen sparades inte. Försök igen.');
+  }
+  if (nya.length > 0) {
+    const { data, error } = await supabase
+      .from('bestallningar')
+      .insert(nya.map(p => ({ ar: p.ar, manad: p.manad, typ: p.typ, bolag: p.bolag, bolag_id: p.bolag_id, volym: p.volym, uppdaterad_at: nu })))
+      .select('id');
+    if (error) throw new Error(felText(error, nya[0]));
+    if ((data ?? []).length !== nya.length) throw new Error('Beställningen sparades inte. Försök igen.');
+  }
 }
 
 /**
  * Ett objekt lagt in för hand. Typ, år och månad sätts av vyn. Status utelämnas medvetet: databasens default (`oplanerad`) gäller —
  * status styrs av planeringsvyn (Klar för maskin), aldrig här (objekt_status_check).
  */
-export async function laggInObjekt(o: { namn: string; volym: number | null; typ: SektionTyp; bolag: string | null } & Manad): Promise<void> {
+export async function laggInObjekt(o: { namn: string; volym: number | null; typ: SektionTyp; bolag: string } & Manad): Promise<void> {
+  if (!o.bolag.trim()) throw new Error('Välj bolag innan du sparar.');
   const { data, error } = await supabase
     .from('objekt')
     .insert({ namn: o.namn.trim(), volym: o.volym == null ? null : Math.round(o.volym), typ: o.typ, bolag: o.bolag, ar: o.ar, manad: o.manad, kalla: 'manuell' })

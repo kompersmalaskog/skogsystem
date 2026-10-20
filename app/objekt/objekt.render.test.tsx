@@ -62,12 +62,12 @@ const GEOMETRI = { features: [
 ] };
 
 // ---- Supabase-fake: filtrerar eller returnerar fel, loggar skrivningar ----
-const DB: { objekt: any[]; poster: any[]; utfall: any[]; utfallFel: boolean; lasFel: boolean; saknarKolumner: boolean; skrivningar: { tabell: string; op: string; payload: any; filter?: any }[]; signerade: string[] } = { objekt: [], poster: [], utfall: [], utfallFel: false, lasFel: false, saknarKolumner: false, skrivningar: [], signerade: [] };
+const DB: { objekt: any[]; poster: any[]; utfall: any[]; utfallFel: boolean; lasFel: boolean; saknarKolumner: boolean; skrivFel: { code?: string; message: string } | null; bolag: { id: number; namn: string }[]; bolagFel: boolean; bolagPost: string[]; skrivningar: { tabell: string; op: string; payload: any; filter?: any }[]; signerade: string[] } = { objekt: [], poster: [], utfall: [], utfallFel: false, lasFel: false, saknarKolumner: false, skrivFel: null, bolag: [], bolagFel: false, bolagPost: [], skrivningar: [], signerade: [] };
 
 vi.mock('@/lib/supabase', () => {
   const byggare = (tabell: string) => {
     const f: { k: string; v: any; op: string }[] = [];
-    let op = 'select', payload: any = null, enkel = false, utanManad = false, valda = '';
+    let op = 'select', payload: any = null, enkel = false, levande = false, valda = '';
     const tabellrader = () => (tabell === 'objekt' ? DB.objekt : tabell === 'fakt_produktion' ? DB.utfall : tabell === 'bestallningar' ? DB.poster : tabell === 'objekt_geometri' ? [{ objekt_id: 'skalviken', geometri: GEOMETRI }] : []);
     const svar = () => {
       if (DB.lasFel && op === 'select') return { data: null, error: { message: 'Anslutningen avbröts' } };
@@ -78,10 +78,11 @@ vi.mock('@/lib/supabase', () => {
       if (op === 'upsert' || op === 'insert' || op === 'update' || op === 'delete') {
         DB.skrivningar.push({ tabell, op, payload, filter: f.map(x => `${x.k}${x.op}${x.v}`) });
         const n = Array.isArray(payload) ? payload.length : 1;
+        if (DB.skrivFel && tabell === 'bestallningar') return { data: null, error: DB.skrivFel };
         return { data: Array.from({ length: n }, (_, i) => ({ id: `ny-${i}` })), error: null };
       }
       let rader = tabellrader().filter(r => f.every(x => (x.op === 'eq' ? r[x.k] === x.v : x.op === 'in' ? x.v.includes(r[x.k]) : x.op === 'gte' ? r[x.k] >= x.v : x.op === 'lte' ? r[x.k] <= x.v : x.op === 'neq' ? r[x.k] !== x.v : true)))
-        .filter(r => !utanManad || r.ar == null || r.manad == null);
+        .filter(r => !levande || !['avslutat', 'klar'].includes(r.status));
       return { data: enkel ? (rader[0] ?? null) : rader, error: null };
     };
     const p: any = new Proxy(() => {}, {
@@ -89,7 +90,7 @@ vi.mock('@/lib/supabase', () => {
         if (prop === 'then') return (res: any, rej: any) => Promise.resolve(svar()).then(res, rej);
         if (prop === 'select') return (k?: string) => { if (typeof k === 'string') valda = k; return p; };
         if (prop === 'maybeSingle' || prop === 'single') return () => { enkel = true; return p; };
-        if (prop === 'or') return () => { utanManad = true; return p; };
+        if (prop === 'or') return (uttryck: string) => { if (/status\.is\.null/.test(uttryck)) levande = true; return p; };
         if (prop === 'upsert' || prop === 'insert' || prop === 'update' || prop === 'delete') return (pl?: any) => { op = prop; payload = pl ?? null; return p; };
         if (prop === 'eq' || prop === 'in' || prop === 'gte' || prop === 'lte' || prop === 'neq') return (k: string, v: any) => { f.push({ k, v, op: prop }); return p; };
         return () => p;
@@ -118,9 +119,24 @@ const nbsp = (s: string) => s.replace(/(\d) (?=\d{3}\b)/g, '$1\u00a0');
 
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  routerReplace.mockClear(); konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.utfall = UTFALL; DB.utfallFel = false; DB.lasFel = false; DB.saknarKolumner = false; DB.skrivningar = []; DB.signerade = [];
+  routerReplace.mockClear(); konsolFel = []; DB.objekt = OBJEKT; DB.poster = POSTER; DB.utfall = UTFALL; DB.utfallFel = false; DB.lasFel = false; DB.saknarKolumner = false; DB.skrivFel = null; DB.bolag = [{ id: 1, namn: 'Vida' }, { id: 2, namn: 'Vida Energi' }, { id: 3, namn: 'Privat' }]; DB.bolagFel = false; DB.bolagPost = []; DB.skrivningar = []; DB.signerade = [];
   vi.spyOn(console, 'error').mockImplementation((...a: any[]) => { konsolFel.push(a.map(String).join(' ')); });
   vi.stubGlobal('open', vi.fn(() => ({ close() {}, location: { href: '' } })));
+  // /api/bolag: GET listar, POST skapar (finns namnet redan, med annan versalisering, returneras det befintliga — som servern).
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+    if (String(url) !== '/api/bolag') throw new Error(`oväntat fetch-anrop: ${url}`);
+    if (DB.bolagFel) return { ok: false, status: 500, json: async () => ({ error: 'Bolagen kunde inte hämtas' }) };
+    if (init?.method === 'POST') {
+      const namn = String(JSON.parse(init.body ?? '{}').namn ?? '').trim();
+      DB.bolagPost.push(namn);
+      const finns = DB.bolag.find(b => b.namn.toLowerCase() === namn.toLowerCase());
+      if (finns) return { ok: true, status: 200, json: async () => ({ bolag: finns }) };
+      const ny = { id: 100 + DB.bolag.length, namn };
+      DB.bolag = [...DB.bolag, ny];
+      return { ok: true, status: 200, json: async () => ({ bolag: ny }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ bolag: DB.bolag }) };
+  }));
   behallare = document.createElement('div');
   document.body.appendChild(behallare);
 });
@@ -189,18 +205,36 @@ describe('Objekt + beställning — listan', () => {
     expect(behallare!.querySelector('[data-objekt="grot-okt"]')!.textContent).not.toMatch(/saknar|saknas/); // GROT har ingen volymkrav
   });
 
-  it('de levande objekten utan månad har en plats sist — och de avslutade utan månad drar inte in i den', async () => {
+  it('Behöver kompletteras: objekt som inte går att räkna ligger sist, med vad som fattas utskrivet — avslutade utan månad drar inte in', async () => {
     await montera();
-    const sek = behallare!.querySelector('section[aria-label="Utan månad (2)"]')!;
+    const sek = behallare!.querySelector('section[aria-label="Behöver kompletteras (2)"]')!;
     expect(sek).toBeTruthy();
-    expect(sek.querySelector('[data-objekt="kroksjomala"]')!.textContent).toContain('GROT · Igång');
-    expect(sek.querySelector('[data-objekt="vaggata"]')!.textContent).toContain('Slutavverkning · Väntar på planering');
-    expect(sek.querySelector('[data-objekt="gammal-utan-manad"]')).toBeNull();
+    expect(sek.querySelector('[data-objekt="kroksjomala"]')!.textContent).toContain('GROT · Igång · saknar månad');
+    expect(sek.querySelector('[data-objekt="kroksjomala"] [data-saknar]')!.textContent).not.toMatch(/bolag|volym/); // Vida Energi finns, och GROT kräver ingen volym
+    expect(sek.querySelector('[data-objekt="vaggata"]')!.textContent).toContain('Slutavverkning · Väntar på planering · saknar månad · bolag · volym');
+    expect(sek.querySelector('[data-objekt="gammal-utan-manad"]')).toBeNull(); // avslutad: tjatar inte
     expect(sek.textContent).toContain('räknas inte mot någon beställning');
     const sektioner = Array.from(behallare!.querySelectorAll('section')).map(x => x.getAttribute('aria-label'));
-    expect(sektioner[sektioner.length - 1]).toBe('Utan månad (2)');
-    // De räknas inte i täckningen:
+    expect(sektioner[sektioner.length - 1]).toBe('Behöver kompletteras (2)');
+    expect(sektioner.join('|')).not.toContain('Utan månad');
+    // De räknas inte i något bolags täckning:
     expect(text()).toContain(nbsp('334 / 1 000 m³fub'));
+    expect(behallare!.querySelector('[data-bolaggrupp="Vida"] [data-objekt="vaggata"]')).toBeNull();
+    expect(behallare!.querySelector('[data-bolaggrupp="Vida Energi"]')).toBeNull(); // Kroksjömåla har bolag men ingen månad: ingen grupp för en månad den inte hör till
+  });
+
+  it('ett objekt i månaden utan bolag kan inte grupperas: det hamnar i Behöver kompletteras, räknas inte i Vida och försvinner inte', async () => {
+    DB.objekt = [...OBJEKT, OBJ('bolaglos', 'Bolaglös gallring', 'gallring', 700, 'oplanerad', { bolag: null })];
+    await montera();
+    expect(behallare!.querySelector('[data-bolaggrupp] [data-objekt="bolaglos"]')).toBeNull();
+    expect(behallare!.querySelector('section[aria-label^="Behöver kompletteras"] [data-objekt="bolaglos"]')!.textContent).toContain('saknar bolag');
+    expect(text()).toContain(nbsp('334 / 1 000 m³fub')); // Vidas gallring oförändrad: 700 räknas inte dit
+  });
+
+  it('ett AVSLUTAT objekt i månaden utan bolag försvinner inte heller (det var med i månaden innan)', async () => {
+    DB.objekt = [...OBJEKT, OBJ('klar-bolaglos', 'Avslutad bolaglös', 'gallring', 200, 'avslutat', { bolag: null })];
+    await montera();
+    expect(behallare!.querySelector('section[aria-label^="Behöver kompletteras"] [data-objekt="klar-bolaglos"]')!.textContent).toContain('saknar bolag');
   });
 
   it('läsfel är ett fel med Försök igen — aldrig en tom lista', async () => {
@@ -217,14 +251,15 @@ describe('Objekt + beställning — listan', () => {
 
   it('en månad utan objekt säger varför listan är tom och vad som fyller den', async () => {
     await montera('/objekt?ar=2026&manad=12');
-    expect(text()).toContain('Inga objekt inlagda i december 2026. Importera en traktfil');
-    expect(text()).toContain('Ingen beställning inlagd');
+    expect(text()).toContain('Inga beställningar eller objekt med bolag i december 2026');
+    expect(behallare!.querySelector('[data-bolaggrupp]')).toBeNull(); // inget bolag, inga sektioner
+    expect(behallare!.querySelector('[data-bestallning-knapp]')).toBeTruthy(); // men beställningen går att nå ändå
   });
 
   it('månadsväljaren byter månad och adressen följer', async () => {
     await montera();
     await klicka(behallare!.ownerDocument.querySelector('[aria-label="Nästa månad"]'));
-    await tills(() => text().includes('Inga objekt inlagda i november 2026'));
+    await tills(() => text().includes('Inga objekt inlagda för Vida i november 2026'));
     expect(text()).toContain('November 2026');
     expect(window.location.search).toBe('?ar=2026&manad=11');
   });
@@ -237,8 +272,10 @@ describe('Ändra beställning', () => {
     expect(hookFel()).toEqual([]);
     const spara = knapp('Spara', true) as HTMLButtonElement;
     expect(spara.style.opacity).toBe('0.4');
-    expect(text()).toContain(nbsp('Redan inlagt: 334 m³fub i 3 objekt'));
-    expect(text()).toContain(nbsp('Redan inlagt: 6 234 m³fub i 3 objekt'));
+    expect(text()).toContain(nbsp('Redan inlagt för Vida: 334 m³fub i 3 objekt'));
+    expect(text()).toContain(nbsp('Redan inlagt för Vida: 6 234 m³fub i 3 objekt'));
+    // Bolaget syns på varje beställning — det är vem beställningen gäller.
+    expect(Array.from(behallare!.ownerDocument.querySelectorAll('[data-bestallning]')).map(e => e.getAttribute('data-bolag'))).toEqual(['Vida', 'Vida']);
 
     const falt = behallare!.ownerDocument.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]');
     expect(Array.from(falt).map(i => i.value)).toEqual(['1000', '5000']);
@@ -247,9 +284,10 @@ describe('Ändra beställning', () => {
     await stilla();
     expect((knapp('Spara', true) as HTMLButtonElement).style.opacity).not.toBe('0.4');
     await klicka(knapp('Spara', true));
+    // Merge-nyckeln är (ar, manad, typ, bolag_id): den befintliga posten uppdateras (på id), ingenting nytt läggs till.
     expect(DB.skrivningar).toHaveLength(1);
-    expect(DB.skrivningar[0].payload).toMatchObject([{ ar: 2026, manad: 10, typ: 'gallring', bolag: 'Vida', bolag_id: 1, volym: 1200 }]);
-    expect(DB.skrivningar[0].payload).toHaveLength(1); // bara det som ändrats
+    expect(DB.skrivningar[0]).toMatchObject({ tabell: 'bestallningar', op: 'update', payload: { volym: 1200 } });
+    expect(DB.skrivningar[0].filter).toEqual(['ideqb-g']);
     expect(text()).toContain('Beställningen för oktober är sparad.');
   });
 
@@ -306,15 +344,21 @@ describe('Lägg in manuellt', () => {
     expect(s.payload).not.toHaveProperty('status');
   });
 
-  it('GROT: volymen är valfri, ingen enhet, och inget bolag gissas', async () => {
+  it('GROT: volymen är valfri, ingen enhet — och bolaget MÅSTE väljas (det finns inget att ärva och inget gissas)', async () => {
     await montera();
     await klicka(knapp('eller lägg in manuellt'));
     await klicka(typFlikar()[2]);
     expect(text()).toContain('Volym (valfritt)');
     const [namn] = faltInput();
     await sattVarde(namn, 'Ny grotjobb');
+    await stilla();
+    expect(behallare!.ownerDocument.querySelector('[data-bolag-rad="manuell"]')!.textContent).toContain('Välj bolag');
+    expect((knapp('Lägg in', true) as HTMLButtonElement).style.opacity).toBe('0.4'); // utan bolag går det inte att lägga in
+    await klicka(behallare!.ownerDocument.querySelector('[data-bolag-rad="manuell"]'));
+    await tills(() => !!behallare!.ownerDocument.querySelector('[data-bolag-val]'));
+    await klicka(behallare!.ownerDocument.querySelector('[data-bolag-val="2"]')); // Vida Energi
     await klicka(knapp('Lägg in', true));
-    expect(DB.skrivningar[0].payload).toMatchObject({ namn: 'Ny grotjobb', volym: null, typ: 'grot', bolag: null, ar: 2026, manad: 10 });
+    expect(DB.skrivningar[0].payload).toMatchObject({ namn: 'Ny grotjobb', volym: null, typ: 'grot', bolag: 'Vida Energi', ar: 2026, manad: 10 });
   });
 });
 
@@ -805,5 +849,272 @@ describe('Stämplingslängd gäller bara en rotpost (avtalsformen avgör, inte t
     med('vashult', { avtalsform: 'Au' });
     await montera();
     expect(behallare!.querySelector('[data-objekt="vashult"]')!.textContent).not.toContain('fråga');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bolag: väljare (välj eller SKAPA), inget standardbolag, täckning per bolag, förslag per bolag
+// ---------------------------------------------------------------------------
+describe('Bolag — beställningsarket', () => {
+  const satt = async (el: HTMLInputElement, v: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { setter.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await stilla();
+  };
+  const doc = () => behallare!.ownerDocument;
+  const oppnaArk = async (url = '/objekt?ar=2026&manad=10') => { await montera(url); await klicka(doc().querySelector('[data-bestallning-knapp]')); };
+  const fält = (typ: string) => Array.from(doc().querySelectorAll<HTMLElement>(`[data-bestallning^="${typ}:"]`));
+  const volymIn = (el: HTMLElement) => el.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+  const sparaOpacity = () => (knapp('Spara', true) as HTMLButtonElement).style.opacity;
+  async function valjBolagFor(el: HTMLElement, id: number) {
+    await klicka(el.querySelector('[data-bolag-rad]'));
+    await tills(() => !!doc().querySelector('[data-bolag-val]'));
+    await klicka(doc().querySelector(`[data-bolag-val="${id}"]`));
+  }
+
+  it('"Lägg till bolag" ger en ny beställning utan bolag: Spara är stängd tills ett bolag är valt, och bolaget syns', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
+    const nytt = fält('gallring').at(-1)!;
+    expect(nytt.getAttribute('data-bolag')).toBe(''); // inget förifyllt: månaden har redan ett bolag på typen, och det här ska vara ett ANNAT
+    expect(nytt.textContent).toContain('Välj bolag');
+    await satt(volymIn(nytt), '300');
+    expect(sparaOpacity()).toBe('0.4');
+    expect(doc().querySelector('[data-saknar-bolag]')!.textContent).toContain('Välj bolag');
+    await valjBolagFor(nytt, 3); // Privat
+    expect(fält('gallring').at(-1)!.getAttribute('data-bolag')).toBe('Privat');
+    expect(doc().querySelector('[data-saknar-bolag]')).toBeNull();
+    expect(sparaOpacity()).not.toBe('0.4');
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar).toHaveLength(1);
+    expect(DB.skrivningar[0]).toMatchObject({ tabell: 'bestallningar', op: 'insert' });
+    expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ ar: 2026, manad: 10, typ: 'gallring', bolag: 'Privat', bolag_id: 3, volym: 300 })]);
+  });
+
+  it('SKAPA ett nytt bolag ur sökfältet (ATA Timber): POST /api/bolag, bolaget väljs, och beställningen sparas på det nya bolag_id', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag="slutavverkning"]'));
+    const nytt = fält('slutavverkning').at(-1)!;
+    await klicka(nytt.querySelector('[data-bolag-rad]'));
+    await tills(() => !!doc().querySelector('[data-bolag-val]'));
+    expect(doc().querySelector('[data-skapa-bolag]')).toBeNull(); // tomt sökfält: inget att skapa
+    await satt(doc().querySelector<HTMLInputElement>('[data-bolagvaljare] input')!, 'ATA Timber');
+    expect(doc().querySelector('[data-bolag-val]')).toBeNull(); // inget befintligt bolag matchar
+    expect(doc().querySelector('[data-skapa-bolag="ATA Timber"]')!.textContent).toContain('Lägg till ”ATA Timber”');
+    await klicka(doc().querySelector('[data-skapa-bolag]'));
+    expect(DB.bolagPost).toEqual(['ATA Timber']);
+    const efter = fält('slutavverkning').at(-1)!;
+    expect(efter.getAttribute('data-bolag')).toBe('ATA Timber');
+    await satt(volymIn(efter), '800');
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ typ: 'slutavverkning', bolag: 'ATA Timber', bolag_id: 103, volym: 800 })]);
+  });
+
+  it('ett namn som redan finns erbjuds inte som nytt (ingen dubblett med annan versalisering)', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
+    await klicka(fält('gallring').at(-1)!.querySelector('[data-bolag-rad]'));
+    await tills(() => !!doc().querySelector('[data-bolag-val]'));
+    await satt(doc().querySelector<HTMLInputElement>('[data-bolagvaljare] input')!, 'vida');
+    expect(doc().querySelector('[data-skapa-bolag]')).toBeNull();
+    expect(Array.from(doc().querySelectorAll('[data-bolag-val]')).map(e => e.textContent)).toEqual(['Vida', 'Vida Energi']);
+  });
+
+  it('Avbryt i väljaren tar tillbaka formuläret med allt som är ifyllt', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
+    const nytt = fält('gallring').at(-1)!;
+    await satt(volymIn(nytt), '300');
+    await klicka(nytt.querySelector('[data-bolag-rad]'));
+    await tills(() => !!doc().querySelector('[data-bolagvaljare]'));
+    await klicka(knapp('Avbryt', true));
+    expect(doc().querySelector('[data-bolagvaljare]')).toBeNull();
+    expect(volymIn(fält('gallring').at(-1)!).value).toBe('300');
+  });
+
+  it('bolagen går inte att läsa: ett fel med Försök igen — aldrig en tom lista', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
+    DB.bolagFel = true;
+    await klicka(fält('gallring').at(-1)!.querySelector('[data-bolag-rad]'));
+    await tills(() => text().includes('Kunde inte läsa bolagen'));
+    expect(text()).toContain('Kunde inte läsa bolagen. Bolagen kunde inte hämtas');
+    expect(doc().querySelector('[data-bolag-val]')).toBeNull();
+    DB.bolagFel = false;
+    await klicka(knapp('Försök igen'));
+    await tills(() => !!doc().querySelector('[data-bolag-val]'));
+    expect(doc().querySelectorAll('[data-bolag-val]').length).toBe(3);
+  });
+
+  it('FÖRIFYLLNING syns och går att byta: en månad med ett bolag förifyller en ny typ — raden visar det, och ett byte sparas på det valda bolaget', async () => {
+    await oppnaArk('/objekt?ar=2026&manad=11'); // november: bara Vida gallring
+    const slut = fält('slutavverkning')[0];
+    expect(slut.getAttribute('data-bolag')).toBe('Vida'); // förifyllt...
+    expect(slut.textContent).toContain('Förifyllt eller valt · tryck för att byta'); // ...och sagt
+    await valjBolagFor(slut, 3); // byt till Privat
+    expect(fält('slutavverkning')[0].getAttribute('data-bolag')).toBe('Privat');
+    await satt(volymIn(fält('slutavverkning')[0]), '900');
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ manad: 11, typ: 'slutavverkning', bolag: 'Privat', bolag_id: 3, volym: 900 })]);
+  });
+
+  it('två bolag i månaden: inget förifylls — ett val ska göras, ingen gissning', async () => {
+    DB.poster = [
+      { id: 'x1', ar: 2026, manad: 12, typ: 'gallring', bolag: 'Vida', bolag_id: 1, volym: 100 },
+      { id: 'x2', ar: 2026, manad: 12, typ: 'gallring', bolag: 'ATA Timber', bolag_id: 7, volym: 100 },
+    ];
+    await oppnaArk('/objekt?ar=2026&manad=12');
+    const slut = fält('slutavverkning')[0];
+    expect(slut.getAttribute('data-bolag')).toBe('');
+    await satt(volymIn(slut), '500');
+    expect(sparaOpacity()).toBe('0.4');
+  });
+
+  it('en månad utan någon beställning förifyller inget (det finns inget standardbolag): Spara är stängd tills bolaget valts', async () => {
+    await oppnaArk('/objekt?ar=2026&manad=12');
+    for (const f of fält('gallring').concat(fält('slutavverkning'))) expect(f.getAttribute('data-bolag')).toBe('');
+    await satt(volymIn(fält('gallring')[0]), '400');
+    expect(sparaOpacity()).toBe('0.4');
+    await valjBolagFor(fält('gallring')[0], 1);
+    expect(sparaOpacity()).not.toBe('0.4');
+    await klicka(knapp('Spara', true));
+    expect(DB.skrivningar[0].payload).toEqual([expect.objectContaining({ typ: 'gallring', bolag: 'Vida', bolag_id: 1, volym: 400 })]); // Vida för att någon VALDE det
+  });
+
+  it('samma bolag två gånger på samma typ går inte att spara (samma nyckel ar, manad, typ, bolag)', async () => {
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-lagg-till-bolag="gallring"]'));
+    const nytt = fält('gallring').at(-1)!;
+    await satt(volymIn(nytt), '50');
+    await valjBolagFor(nytt, 1); // Vida finns redan på gallring i oktober
+    expect(doc().querySelector('[data-dubbelt-bolag]')).toBeTruthy();
+    expect(sparaOpacity()).toBe('0.4');
+  });
+
+  it('bolaget på en BEFINTLIG beställning är fast: raden går inte att trycka på (att byta bolag vore en annan beställning)', async () => {
+    await oppnaArk();
+    const g = fält('gallring')[0];
+    expect(g.textContent).toContain('Beställningens bolag');
+    await klicka(g.querySelector('[data-bolag-rad]'));
+    expect(doc().querySelector('[data-bolagvaljare]')).toBeNull();
+  });
+
+  it('ett skrivfel visas som det är (unikt index) och ingenting tystas', async () => {
+    await oppnaArk();
+    DB.skrivFel = { code: '23505', message: 'duplicate key' };
+    await satt(volymIn(fält('gallring')[0]), '1200');
+    await klicka(knapp('Spara', true));
+    expect(text()).toContain('Det finns redan en beställning');
+    expect(text()).not.toContain('är sparad');
+  });
+
+  it('förslaget för kommande månader kopierar PER BOLAG: varje bolags beställning följer med, med sitt bolag_id', async () => {
+    DB.poster = [...POSTER, { id: 'b-ata', ar: 2026, manad: 10, typ: 'slutavverkning', bolag: 'ATA Timber', bolag_id: 7, volym: 400 }];
+    await oppnaArk();
+    await klicka(doc().querySelector('[data-foresla]'));
+    await tills(() => doc().querySelectorAll('[data-forslag-manad]').length > 0);
+    expect(text()).toContain(nbsp('Vida gallring 1 000 m³fub')); // flera bolag: sammanfattningen nämner vilka
+    expect(text()).toContain(nbsp('ATA Timber slutavverkning 400 m³fub'));
+    await klicka(knapp('Lägg in 13 månader'));
+    const skrivet = DB.skrivningar[0].payload as any[];
+    expect(skrivet).toHaveLength(39); // 13 månader × 3 beställningar (Vida gallring, Vida slutavverkning, ATA slutavverkning)
+    expect(skrivet.filter(r => r.bolag === 'ATA Timber').every(r => r.bolag_id === 7 && r.typ === 'slutavverkning' && r.volym === 400)).toBe(true);
+    expect(skrivet.filter(r => r.bolag === 'Vida').every(r => r.bolag_id === 1)).toBe(true);
+    expect(skrivet.every(r => Number.isFinite(r.bolag_id))).toBe(true);
+  });
+});
+
+describe('Bolag — täckningen per bolag', () => {
+  const ATA_POST = { id: 'b-ata', ar: 2026, manad: 10, typ: 'gallring', bolag: 'ATA Timber', bolag_id: 7, volym: 300 };
+  const grupp = (b: string) => behallare!.querySelector(`[data-bolaggrupp="${b}"]`)!;
+
+  it('ett objekt räknas mot SITT bolags beställning — ATA:s 120 m³fub ligger inte i Vidas 334', async () => {
+    DB.poster = [...POSTER, ATA_POST];
+    DB.objekt = [...OBJEKT, OBJ('ata-g', 'ATA gallring', 'gallring', 120, 'pagaende', { bolag: 'ATA Timber' })];
+    await montera();
+    expect(grupp('Vida').textContent).toContain(nbsp('334 / 1 000 m³fub'));
+    expect(grupp('Vida').textContent).not.toContain('ATA gallring');
+    expect(grupp('ATA Timber').textContent).toContain(nbsp('120 / 300 m³fub'));
+    expect(grupp('ATA Timber').textContent).toContain(nbsp('180 m³fub kvar till beställningen'));
+    expect(grupp('ATA Timber').querySelector('[data-objekt="ata-g"]')).toBeTruthy();
+  });
+
+  it('sektionerna grupperas per bolag med typ inuti, och bolag med beställning står före bolag utan', async () => {
+    DB.poster = [...POSTER, ATA_POST];
+    DB.objekt = [...OBJEKT, OBJ('ata-g', 'ATA gallring', 'gallring', 120, 'pagaende', { bolag: 'ATA Timber' }), OBJ('privat-g', 'Privat gallring', 'gallring', 80, 'planerad', { bolag: 'Privat' })];
+    await montera();
+    const namn = Array.from(behallare!.querySelectorAll('[data-bolaggrupp]')).map(e => e.getAttribute('data-bolaggrupp'));
+    expect(namn).toEqual(['ATA Timber', 'Vida', 'Privat']); // med beställning: alfabetiskt; utan: sist
+    expect(Array.from(grupp('Vida').querySelectorAll('section')).map(x => x.getAttribute('aria-label'))).toEqual(['Gallring', 'Slutavverkning', 'GROT']);
+  });
+
+  it('ett bolag UTAN beställning visar sina trakter men ingen täckningsrad — och räknas aldrig mot någon annans', async () => {
+    DB.objekt = [...OBJEKT, OBJ('privat-g', 'Privat gallring', 'gallring', 80, 'planerad', { bolag: 'Privat' })];
+    await montera();
+    const g = grupp('Privat');
+    expect(g.querySelector('[data-objekt="privat-g"]')).toBeTruthy();
+    expect(g.querySelector('[data-lage]')).toBeNull();
+    expect(g.textContent).toContain('Ingen beställning');
+    expect(g.textContent).not.toMatch(/kvar till beställningen|Beställningen fylld| \/ /);
+    expect(grupp('Vida').textContent).toContain(nbsp('334 / 1 000 m³fub')); // Privats 80 räknas inte hos Vida
+  });
+
+  it('ett bolag MED beställning men utan objekt visar hela beställningen som kvar', async () => {
+    DB.poster = [...POSTER, ATA_POST];
+    await montera();
+    const g = grupp('ATA Timber');
+    expect(g.textContent).toContain(nbsp('0 / 300 m³fub'));
+    expect(g.querySelector('[data-lage]')!.textContent).toBe(nbsp('300 m³fub kvar till beställningen'));
+    expect(g.textContent).toContain('Inga objekt inlagda för ATA Timber');
+  });
+
+  it('bolagen matchas oavsett versaler: objektet "vida" hör till beställningen "Vida"', async () => {
+    DB.objekt = [...OBJEKT, OBJ('liten', 'Gemen gallring', 'gallring', 10, 'planerad', { bolag: ' vida ' })];
+    await montera();
+    expect(behallare!.querySelectorAll('[data-bolaggrupp]')).toHaveLength(1);
+    expect(grupp('Vida').textContent).toContain(nbsp('344 / 1 000 m³fub'));
+  });
+});
+
+describe('Bolag — Lägg in manuellt', () => {
+  const doc = () => behallare!.ownerDocument;
+  const typFlikar = () => Array.from(doc().querySelectorAll<HTMLElement>('[data-typval] [role="tab"]'));
+  const satt = async (el: HTMLInputElement, v: string) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { setter.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await stilla();
+  };
+  const faltInput = () => Array.from(doc().querySelectorAll<HTMLInputElement>('input:not([type="file"])'));
+
+  it('bolaget förifylls från månadens beställning, syns på raden och går att byta', async () => {
+    await montera();
+    await klicka(knapp('eller lägg in manuellt'));
+    await klicka(typFlikar()[1]);
+    const rad = doc().querySelector('[data-bolag-rad="manuell"]')!;
+    expect(rad.getAttribute('data-bolag')).toBe('Vida');
+    expect(rad.textContent).toContain('Förifyllt från månadens beställning');
+    await klicka(rad);
+    await tills(() => !!doc().querySelector('[data-bolag-val]'));
+    await klicka(doc().querySelector('[data-bolag-val="3"]'));
+    const [namn, volym] = faltInput();
+    await satt(namn, 'Privattrakten'); await satt(volym, '90');
+    await klicka(knapp('Lägg in', true));
+    expect(DB.skrivningar[0].payload).toMatchObject({ namn: 'Privattrakten', typ: 'slutavverkning', bolag: 'Privat' });
+  });
+
+  it('en månad utan beställning förifyller inget: bolaget väljs, och går det att SKAPA där också', async () => {
+    await montera('/objekt?ar=2026&manad=12');
+    await klicka(knapp('eller lägg in manuellt'));
+    await klicka(typFlikar()[0]);
+    const [namn, volym] = faltInput();
+    await satt(namn, 'Ny kundtrakt'); await satt(volym, '60');
+    expect((knapp('Lägg in', true) as HTMLButtonElement).style.opacity).toBe('0.4');
+    await klicka(doc().querySelector('[data-bolag-rad="manuell"]'));
+    await tills(() => !!doc().querySelector('[data-bolagvaljare]'));
+    await satt(doc().querySelector<HTMLInputElement>('[data-bolagvaljare] input')!, 'ATA Timber');
+    await klicka(doc().querySelector('[data-skapa-bolag]'));
+    expect(doc().querySelector('[data-bolag-rad="manuell"]')!.getAttribute('data-bolag')).toBe('ATA Timber');
+    await klicka(knapp('Lägg in', true));
+    expect(DB.skrivningar[0].payload).toMatchObject({ namn: 'Ny kundtrakt', typ: 'gallring', bolag: 'ATA Timber', ar: 2026, manad: 12 });
   });
 });

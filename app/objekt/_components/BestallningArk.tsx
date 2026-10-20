@@ -7,13 +7,20 @@ import Ikon from '@/components/design/Ikon';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TYP } from '@/lib/design/tokens';
-import { hamtaPoster, sparaPoster, standardBolag, type NyPost, type Post } from '@/lib/objekt/data';
+import { bolagNyckel, forifyllBolag, type Bolag } from '@/lib/objekt/bolag';
+import { hamtaPoster, sparaPoster, type NyPost, type Post } from '@/lib/objekt/data';
 import { byggForslag, kommandeManader, manadEtikett, manadNyckel, MANADER, type Manad, type Volymer } from '@/lib/objekt/manad';
-import { fmtM3, TYPER, type ObjektTyp } from '@/lib/objekt/tackning';
+import { fmtM3, inlagtSumma, TYPER, type ObjektTyp } from '@/lib/objekt/tackning';
+import BolagValjare from './BolagValjare';
 
 // Ändra beställning: båda typerna för månaden, med vad som redan är inlagt under varje. Plus "Föreslå samma för kommande månader" som öppnar
 // förslaget i SAMMA ark (egen vy, Avbryt tar tillbaka hit) — systemet föreslår, användaren godkänner, annars blir ett år tjugofyra
 // inmatningar. Spara är inaktiv tills något ändrats.
+//
+// BOLAGET: varje beställning har ett synligt bolag. En ny beställning förifylls med bolaget från månadens befintliga poster (om de är samma
+// bolag) men raden "Bolag" visar det och går att byta — med sök och möjlighet att SKAPA ett nytt bolag (så en ny kund kommer in utan kodändring).
+// Det finns inget standardbolag: utan valt bolag går en beställning inte att spara. Bolaget på en BEFINTLIG beställning ändras inte här (det
+// vore en annan beställning); "Lägg till bolag" lägger en ny beställning för ett annat bolag.
 
 interface Falten {
   nyckel: string;
@@ -21,6 +28,8 @@ interface Falten {
   id: string | null;
   bolag: string | null;
   bolag_id: number | null;
+  /** En befintlig beställning: bolaget är fast. */
+  fast: boolean;
   start: string;
   nu: string;
 }
@@ -38,22 +47,25 @@ const visa = (n: number): string => String(Math.round(n));
 function byggFalt(poster: readonly Post[]): Falten[] {
   return TYPER.flatMap(({ id: typ }): Falten[] => {
     const av = poster.filter(p => p.typ === typ).sort((a, b) => a.bolag.localeCompare(b.bolag, 'sv'));
-    if (av.length === 0) return [{ nyckel: `${typ}:ny`, typ, id: null, bolag: null, bolag_id: null, start: '', nu: '' }];
-    return av.map(p => ({ nyckel: `${typ}:${p.id}`, typ, id: p.id, bolag: p.bolag, bolag_id: p.bolag_id, start: visa(p.volym), nu: visa(p.volym) }));
+    if (av.length === 0) {
+      // Förifyllning, aldrig en reserv: samma bolag som månadens övriga poster om de alla är ett och samma — annars inget valt.
+      const f = forifyllBolag(poster, typ);
+      return [{ nyckel: `${typ}:ny`, typ, id: null, bolag: f?.namn ?? null, bolag_id: f?.id ?? null, fast: false, start: '', nu: '' }];
+    }
+    return av.map(p => ({ nyckel: `${typ}:${p.id}`, typ, id: p.id, bolag: p.bolag, bolag_id: p.bolag_id, fast: true, start: visa(p.volym), nu: visa(p.volym) }));
   });
 }
 
-type Vy = 'form' | 'forslag';
+type Vy = 'form' | 'forslag' | 'bolag';
 type Hamtat = { lage: 'laddar' } | { lage: 'fel'; text: string } | { lage: 'klar'; poster: Post[] };
 
 export default function BestallningArk({
-  manad, poster, inlagt, antalObjekt, onStang, onSparad,
+  manad, poster, objekt, onStang, onSparad,
 }: {
   manad: Manad;
   poster: readonly Post[];
-  /** Vad som redan är inlagt per typ (m³fub) och hur många objekt det är. */
-  inlagt: Record<ObjektTyp, number>;
-  antalObjekt: Record<ObjektTyp, number>;
+  /** Månadens objekt: vad som redan är inlagt visas per typ OCH bolag. */
+  objekt: readonly { typ: string | null; bolag: string | null; volym: number | null }[];
   onStang: () => void;
   onSparad: (text: string) => void;
 }) {
@@ -64,17 +76,33 @@ export default function BestallningArk({
   const [hamtat, setHamtat] = useState<Hamtat>({ lage: 'laddar' });
   const [avvalda, setAvvalda] = useState<Set<string>>(new Set());
   const [forsok, setForsok] = useState(0);
+  const [valjerFor, setValjerFor] = useState<string | null>(null);
 
-  const antalPerTyp = (typ: ObjektTyp) => falt.filter(f => f.typ === typ).length;
   const tolkade = falt.map(f => ({ f, v: tolkaVolym(f.nu) }));
   const andrad = falt.some(f => f.nu.trim() !== f.start.trim());
   // Tomt fält är giltigt bara där det inte fanns något från början; en befintlig beställning tas inte bort här (skriv 0).
   const ogiltig = tolkade.some(({ f, v }) => (f.nu.trim() === '' ? f.start.trim() !== '' : v == null));
-  const kanSpara = andrad && !ogiltig && !sparar;
+  // En ny beställning med en volym måste ha ett valt bolag — det finns ingen reserv som fyller i ett åt dig.
+  const saknarBolag = (f: Falten) => !f.fast && f.nu.trim() !== '' && f.bolag_id == null;
+  const utanBolag = falt.filter(saknarBolag);
+  // Samma bolag två gånger på samma typ vore två beställningar på samma nyckel (ar, manad, typ, bolag).
+  const dubblett = (f: Falten) => f.bolag_id != null && falt.some(g => g !== f && g.typ === f.typ && g.bolag_id === f.bolag_id);
+  const harDubblett = falt.some(dubblett);
+  const kanSpara = andrad && !ogiltig && utanBolag.length === 0 && !harDubblett && !sparar;
 
-  /** Volymerna som föreslås för kommande månader: det som står i fälten just nu (summa per typ). */
-  const kallVolymer: Volymer = {};
-  for (const { f, v } of tolkade) if (v != null && v > 0) kallVolymer[f.typ] = (kallVolymer[f.typ] ?? 0) + v;
+  /** Vad som redan är inlagt för typen och bolaget (m³fub och antal objekt). */
+  const inlagtFor = (typ: ObjektTyp, bolag: string) => {
+    const rader = objekt.filter(o => o.typ === typ && bolagNyckel(o.bolag) === bolagNyckel(bolag));
+    return { summa: inlagtSumma(rader), antal: rader.length };
+  };
+
+  /** Posterna som föreslås för kommande månader: det som står i fälten just nu, per typ OCH bolag. Fält utan valt bolag räknas inte. */
+  const kallPoster: { typ: ObjektTyp; bolag: string; bolag_id: number; volym: number }[] = [];
+  for (const { f, v } of tolkade) {
+    if (v == null || v <= 0 || f.bolag == null || f.bolag_id == null) continue;
+    const finns = kallPoster.find(k => k.typ === f.typ && k.bolag_id === f.bolag_id);
+    if (finns) finns.volym += v; else kallPoster.push({ typ: f.typ, bolag: f.bolag, bolag_id: f.bolag_id, volym: v });
+  }
 
   // Förslaget läser kommande månaders beställningar först när det öppnas.
   useEffect(() => {
@@ -102,29 +130,35 @@ export default function BestallningArk({
   const forslag = useMemo(() => byggForslag(manad, befintliga), [manad, befintliga]);
   const valda = forslag.filter(r => r.vald && !avvalda.has(manadNyckel(r.manad)));
 
-  /** Bolaget en ny post får: samma som typens befintliga post denna månad, annars det senast inlagda. */
-  async function bolagFor(typ: ObjektTyp): Promise<{ bolag: string; bolag_id: number | null }> {
-    const har = falt.find(f => f.typ === typ && f.bolag);
-    if (har?.bolag) return { bolag: har.bolag, bolag_id: har.bolag_id };
-    const annan = falt.find(f => f.bolag);
-    if (annan?.bolag) return { bolag: annan.bolag, bolag_id: annan.bolag_id };
-    return standardBolag();
-  }
-
-  async function dennaManadsPoster(): Promise<NyPost[]> {
+  function dennaManadsPoster(): NyPost[] {
     const ut: NyPost[] = [];
     for (const { f, v } of tolkade) {
       if (f.nu.trim() === f.start.trim() || v == null) continue;
-      const b = f.bolag ? { bolag: f.bolag, bolag_id: f.bolag_id } : await bolagFor(f.typ);
-      ut.push({ ar: manad.ar, manad: manad.manad, typ: f.typ, bolag: b.bolag, bolag_id: b.bolag_id, volym: v });
+      if (f.bolag == null) throw new Error('Välj bolag innan du sparar.');
+      ut.push({ ar: manad.ar, manad: manad.manad, typ: f.typ, bolag: f.bolag, bolag_id: f.bolag_id, volym: v, ...(f.id ? { id: f.id } : null) });
     }
     return ut;
+  }
+
+  function valtBolag(b: Bolag) {
+    setFalt(rader => rader.map(r => (r.nyckel === valjerFor ? { ...r, bolag: b.namn, bolag_id: b.id } : r)));
+    setValjerFor(null);
+    setVy('form');
+  }
+
+  function laggTillBolag(typ: ObjektTyp) {
+    setFalt(rader => {
+      const n = rader.filter(r => r.typ === typ && !r.fast).length;
+      const ny: Falten = { nyckel: `${typ}:tillagd${n}${rader.length}`, typ, id: null, bolag: null, bolag_id: null, fast: false, start: '', nu: '' };
+      const sista = rader.map((r, i) => (r.typ === typ ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+      return [...rader.slice(0, sista + 1), ny, ...rader.slice(sista + 1)];
+    });
   }
 
   async function spara() {
     setSparar(true); setFel(null);
     try {
-      await sparaPoster(await dennaManadsPoster());
+      await sparaPoster(dennaManadsPoster());
       onSparad(`Beställningen för ${MANADER[manad.manad - 1].toLowerCase()} är sparad.`);
     } catch (e) {
       setFel(e instanceof Error ? e.message : String(e));
@@ -135,13 +169,11 @@ export default function BestallningArk({
   async function laggIn() {
     setSparar(true); setFel(null);
     try {
-      const rader: NyPost[] = await dennaManadsPoster();
+      const rader: NyPost[] = dennaManadsPoster();
       for (const r of valda) {
-        for (const { id: typ } of TYPER) {
-          const v = kallVolymer[typ];
-          if (!v || r.redan?.[typ] != null) continue; // skriver aldrig över en månad som redan har en beställning
-          const b = await bolagFor(typ);
-          rader.push({ ar: r.manad.ar, manad: r.manad.manad, typ, bolag: b.bolag, bolag_id: b.bolag_id, volym: v });
+        for (const k of kallPoster) {
+          if (r.redan?.[k.typ] != null) continue; // skriver aldrig över en månad som redan har en beställning på typen
+          rader.push({ ar: r.manad.ar, manad: r.manad.manad, typ: k.typ, bolag: k.bolag, bolag_id: k.bolag_id, volym: k.volym });
         }
       }
       await sparaPoster(rader);
@@ -154,8 +186,9 @@ export default function BestallningArk({
 
   // ---- Förslaget ----
   if (vy === 'forslag') {
-    const sammanfattning = TYPER.filter(t => kallVolymer[t.id]).map(t => `${t.namn} ${fmtM3(kallVolymer[t.id]!)} m³fub`).join(' · ');
-    const ingenKalla = Object.keys(kallVolymer).length === 0;
+    const flera = new Set(kallPoster.map(k => k.bolag_id)).size > 1;
+    const sammanfattning = kallPoster.map(k => `${flera ? `${k.bolag} ` : ''}${TYPER.find(t => t.id === k.typ)!.namn.toLowerCase()} ${fmtM3(k.volym)} m³fub`).join(' · ');
+    const ingenKalla = kallPoster.length === 0;
     const blockerad = valda.length === 0 || ingenKalla || ogiltig || sparar || hamtat.lage !== 'klar';
     const knapptext = andrad
       ? `Spara och lägg in ${valda.length} ${valda.length === 1 ? 'månad' : 'månader'}`
@@ -210,6 +243,15 @@ export default function BestallningArk({
     );
   }
 
+  // ---- Bolagsväljaren: ett eget ark i samma flöde, Avbryt tar tillbaka formuläret med allt som är ifyllt ----
+  if (vy === 'bolag') {
+    const aktiv = falt.find(f => f.nyckel === valjerFor);
+    return (
+      <BolagValjare valt={aktiv?.bolag_id != null && aktiv.bolag ? { id: aktiv.bolag_id, namn: aktiv.bolag } : null}
+        onVal={valtBolag} onTillbaka={() => { setValjerFor(null); setVy('form'); }} />
+    );
+  }
+
   // ---- Formuläret ----
   const forsta = kommandeManader(manad)[0];
   const sista = kommandeManader(manad).slice(-1)[0];
@@ -218,6 +260,8 @@ export default function BestallningArk({
       fot={(
         <>
           {fel && <p role="alert" style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>{fel}</p>}
+          {utanBolag.length > 0 && <p role="status" data-saknar-bolag="" style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>Välj bolag för varje beställning du skrivit in.</p>}
+          {harDubblett && <p role="status" data-dubbelt-bolag="" style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>Samma bolag finns två gånger på samma typ. Ta bort ett av dem.</p>}
           <button type="button" onClick={spara} disabled={!kanSpara} style={{ ...KNAPP.primar, ...(kanSpara ? null : INAKTIV) }}>
             {sparar ? 'Sparar …' : 'Spara'}
           </button>
@@ -226,13 +270,26 @@ export default function BestallningArk({
       <p style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.l}px`, ...TYP.text, color: FARG.text2 }}>{manadEtikett(manad)}</p>
       {TYPER.map(t => (
         <Sektion key={t.id} rubrik={t.namn} kort={false}>
-          {falt.filter(f => f.typ === t.id).map(f => (
-            <Falt key={f.nyckel}
-              etikett={antalPerTyp(t.id) > 1 && f.bolag ? `Beställt · ${f.bolag}` : 'Beställt'}
-              value={f.nu} inputMode="numeric" enhet="m³fub"
-              onChange={v => setFalt(rader => rader.map(r => (r.nyckel === f.nyckel ? { ...r, nu: v } : r)))}
-              stod={`Redan inlagt: ${fmtM3(inlagt[t.id])} m³fub i ${antalObjekt[t.id]} objekt`} />
-          ))}
+          {falt.filter(f => f.typ === t.id).map(f => {
+            const saknar = saknarBolag(f);
+            const i = f.bolag != null ? inlagtFor(t.id, f.bolag) : null;
+            return (
+              <div key={f.nyckel} data-bestallning={f.nyckel} data-bolag={f.bolag ?? ''} style={{ marginBottom: AVSTAND.s }}>
+                <Rad titel="Bolag" sista pil={!f.fast}
+                  under={f.fast ? 'Beställningens bolag' : f.bolag ? 'Förifyllt eller valt · tryck för att byta' : undefined}
+                  hoger={f.bolag ?? <span style={{ color: FARG.orange }}>Välj bolag</span>}
+                  onTryck={f.fast ? undefined : () => { setValjerFor(f.nyckel); setVy('bolag'); }}
+                  attr={{ 'data-bolag-rad': f.nyckel, ...(saknar || (f.bolag == null && !f.fast) ? { 'data-bolag-saknas': '' } : null) }} />
+                <div style={{ height: AVSTAND.m }} />
+                <Falt etikett="Beställt" value={f.nu} inputMode="numeric" enhet="m³fub"
+                  onChange={v => setFalt(rader => rader.map(r => (r.nyckel === f.nyckel ? { ...r, nu: v } : r)))}
+                  stod={i ? `Redan inlagt för ${f.bolag}: ${fmtM3(i.summa)} m³fub i ${i.antal} objekt` : 'Välj bolag för att se vad som är inlagt'} />
+              </div>
+            );
+          })}
+          <Rad titel="Lägg till bolag" under={`En beställning på ${t.namn.toLowerCase()} för ett annat bolag`} sista pil={false}
+            hoger={<Ikon namn="add" storlek={IKON.rad} farg={FARG.text} />}
+            onTryck={() => laggTillBolag(t.id)} attr={{ 'data-lagg-till-bolag': t.id }} />
         </Sektion>
       ))}
       <Sektion rubrik="Fler månader" kort={false}>
