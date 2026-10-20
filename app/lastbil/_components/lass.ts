@@ -7,6 +7,7 @@
 import { fakturerbarEffektiv } from '@/lib/flytt/fakturerbar';
 import { skalRad, type Kandidat, type Sakerhet } from '@/lib/lastbil/lass/maskin';
 import { kortNamn } from '@/lib/lastbil/lass/notis';
+import { samtidigaUrBevis, samtidigText, type SamtidigFlytt } from '@/lib/lastbil/lass/samtidig';
 import { fmtDatum, fmtKlocka } from './nu';
 
 export interface LassRad {
@@ -21,7 +22,7 @@ export interface LassRad {
   forslag_maskin_id: string | null;
   sakerhet: Sakerhet;
   kandidater: Kandidat[];
-  bevis: { km_osaker?: boolean } | null;
+  bevis: { km_osaker?: boolean; historisk?: boolean; flytt_samma_tid?: SamtidigFlytt[] } | null;
   kund: string | null;
   till_plats_id: string | null;
   besvarad_av: string | null;
@@ -57,6 +58,14 @@ export function lassPlatsNot(r: Pick<LassRad, 'status_orsak' | 'bevis'>): string
   }
   if (r.status_orsak === 'auto_misslyckades') return 'Flytten kunde inte skapas av sig själv. Välj maskin så skapas den nu.';
   return null;
+}
+
+/**
+ * Rader om förarens registrerade flytt på samma tid ("En flytt med H8E -23 finns samma tid"), så den som svarar kan avvisa lasset i
+ * stället för att dubblera. Bara de historiska lassen har dem. `namnFor` slår upp visningsnamnet ur maskinlistan (null = inte läst än).
+ */
+export function lassSamtidigaRader(r: Pick<LassRad, 'bevis'>, namnFor: (maskinId: string) => string | null): string[] {
+  return samtidigaUrBevis(r.bevis).map(s => samtidigText(s, s.maskin_id ? namnFor(s.maskin_id) : null));
 }
 
 const SAKERHET_ORD: Record<Sakerhet, string> = { hog: 'Säker', medel: 'Troligen', lag: 'Osäkert', okand: '' };
