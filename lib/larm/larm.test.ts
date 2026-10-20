@@ -290,10 +290,59 @@ describe('flera larm samtidigt', () => {
     expect(u.fler.find((f) => f.namn === 'Kulturmiljö')).toMatchObject({ kalla: 'yta', avstandM: null, text: 'inne i ytan' });
   });
 
-  it('en förbjuden yta man står i går före Röd (som förut)', () => {
-    const u = steg([rod('Varning', 5), yta('natur', true, true, { namn: 'Hänsyn' })]);
+  it('en förbjuden yta man står i går före Röd utanför 15 m (som förut) — men EFTER Röd inom 15 m', () => {
+    const u = steg([rod('Varning', 20), yta('natur', true, true, { namn: 'Hänsyn' })]);
     expect(u.kort).toMatchObject({ namn: 'Hänsyn', forbjuden: true });
     expect(u.fler[0].namn).toBe('Varning');
+    const n = steg([rod('Varning', 5), yta('natur', true, true, { namn: 'Hänsyn' })]);
+    expect(n.kort).toMatchObject({ namn: 'Varning' });
+    expect(n.fler[0].namn).toBe('Hänsyn');
+  });
+
+  describe('Röd inom 15 m ligger ALLTID överst, även kvitterad — Sett gäller första okvitterade', () => {
+    it('kvitterad Röd inom 15 m: stort kort kvar, ingen Sett på den; Sett gäller första okvitterade i +-raden', () => {
+      const r = rod('Varning', 8);
+      const g = gron('Hänsyn', 20);
+      const u = steg([g, r], kv(r));
+      expect(u.kort).toMatchObject({ namn: 'Varning', pulserar: true });
+      expect(u.fler.map((f) => f.namn)).toEqual(['Hänsyn']);
+      expect(u.settRad).toMatchObject({ id: g.id, namn: 'Hänsyn' });
+    });
+    it('Sett på Röd inom 15 m (denna passage) flyttar den inte ned; Sett går till nästa', () => {
+      const r = rod('Varning', 8);
+      const g = gron('Hänsyn', 20);
+      const s0 = steg([g, r]);
+      expect(s0.settRad?.id).toBe(r.id);
+      const s1 = markeraSett(s0.state, r.id);
+      const u = steg([g, r], kv(r), A, s1);
+      expect(u.kort?.namn).toBe('Varning');
+      expect(u.settRad?.id).toBe(g.id);
+    });
+    it('kvitterad Röd ensam inom 15 m: kortet står kvar, ingen Sett-rad', () => {
+      const r = rod('Varning', 8);
+      const u = steg([r], kv(r));
+      expect(u.kort?.namn).toBe('Varning');
+      expect(u.settRad).toBeNull();
+    });
+    it('kvitterad Röd UTANFÖR 15 m får sjunka under en okvitterad grön', () => {
+      const r = rod('Varning', 25);
+      const g = gron('Hänsyn', 30);
+      const u = steg([g, r], kv(r));
+      expect(u.kort?.namn).toBe('Hänsyn');
+      expect(u.fler.map((f) => f.namn)).toEqual(['Varning']);
+      expect(u.settRad?.id).toBe(g.id);
+    });
+    it('okvitterad Röd utanför 15 m vinner som förut över grön', () => {
+      const u = steg([gron('Hänsyn', 5), rod('Varning', 30)]);
+      expect(u.kort?.namn).toBe('Varning');
+    });
+    it('två röda inom 15 m, den ena kvitterad: närmast först, Sett på den okvitterade om den står i raden', () => {
+      const a = rod('A', 6);
+      const b = rod('B', 12);
+      const u = steg([a, b], kv(a));
+      expect(u.kort?.namn).toBe('A');
+      expect(u.settRad?.id).toBe(b.id);
+    });
   });
 
   it('passerat: när det stora lämnat radien flyttar nästa upp (och raden försvinner)', () => {
@@ -308,17 +357,17 @@ describe('flera larm samtidigt', () => {
     const r = gron('Hänsyn', 10), g = gron('Stenmur', 25);
     let u = steg([r, g]);
     expect(u.kort?.namn).toBe('Hänsyn');
-    expect(u.settRad).toEqual({ id: 'Hänsyn', namn: 'Hänsyn' });
+    expect(u.settRad).toMatchObject({ id: 'Hänsyn', namn: 'Hänsyn' });
     // föraren trycker Sett → kvittensen sparas (hook) och passagen märks
     const kvitt = new Map([['Hänsyn', { hash: r.hash, forareId: A }]]);
     u = steg([r, g], kvitt, A, markeraSett(u.state, 'Hänsyn'));
     expect(u.kort?.namn).toBe('Stenmur');
-    expect(u.settRad).toEqual({ id: 'Stenmur', namn: 'Stenmur' });
+    expect(u.settRad).toMatchObject({ id: 'Stenmur', namn: 'Stenmur' });
     expect(u.fler).toEqual([]);                                           // kvitterad grön larmar inte mer → ingen rad
   });
 
-  it('Sett på en RÖD: den tystas inte men sjunker till raden när något annat väntar på kvittering', () => {
-    const r = rod('Varning', 8), g = gron('Hänsyn', 25);
+  it('Sett på en RÖD UTANFÖR 15 m: den tystas inte men sjunker till raden när något annat väntar på kvittering', () => {
+    const r = rod('Varning', 22), g = gron('Hänsyn', 25);
     let u = steg([r, g]);
     expect(u.kort?.namn).toBe('Varning');
     u = steg([r, g], new Map([['Varning', { hash: r.hash, forareId: A }]]), A, markeraSett(u.state, 'Varning'));

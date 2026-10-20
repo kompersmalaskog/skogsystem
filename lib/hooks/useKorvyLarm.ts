@@ -46,7 +46,7 @@ export interface KorvyLarmUt {
   fler: LarmNasta[];
   /** Det stora larmets objekt — pulserar på kartan. Linjer: hela linjen (sidan klipper sträckan närmast maskinen, lib/larm/pulsKarta). */
   puls: Puls | null;
-  settRad: { id: string; namn: string } | null;
+  settRad: { id: string; namn: string; farg: string } | null;
   ringar: RingMedGeometri[];
   kvittera: () => void;
 }

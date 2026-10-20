@@ -100,7 +100,7 @@ describe('useKorvyLarm — flera larm samtidigt', () => {
     expect(ut.kort?.namn).toBe('Kulturminne');
     expect(ut.puls?.id).toBe('2');
     expect(ut.fler).toEqual([]);
-    expect(ut.settRad).toEqual({ id: '2', namn: 'Kulturminne' });
+    expect(ut.settRad).toMatchObject({ id: '2', namn: 'Kulturminne' });
   });
 
   it('en linje (Stenmur, brun) i stort kort: pulsen bär hela linjens geometri till sidan, som klipper sträckan närmast maskinen', async () => {
@@ -133,7 +133,7 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     expect(ut.kort).toMatchObject({ namn: 'Kulturminne', grupp: 'kultur', pulserar: false });
     expect(ut.kort!.avstandM).toBeCloseTo(30, 0);
     expect(toner).toHaveLength(2);                                   // ETT ljud = tvåtonsmärket (inte tre pip)
-    expect(ut.settRad).toEqual({ id: '1', namn: 'Kulturminne' });
+    expect(ut.settRad).toMatchObject({ id: '1', namn: 'Kulturminne' });
     await act(async () => { ut.kvittera(); });
     expect(ut.settRad).toBeNull();
     expect(db.upserts).toHaveLength(1);
@@ -143,7 +143,7 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
   it('TESTLÄGE (torr): Sett tystar i minnet men skriver ingenting i databasen', async () => {
     const db = fakeDb([]);
     mount(bas({ markers: [sym(1, 'culturemonument', 30)], db, torr: true })); await tom();
-    expect(ut.settRad).toEqual({ id: '1', namn: 'Kulturminne' });
+    expect(ut.settRad).toMatchObject({ id: '1', namn: 'Kulturminne' });
     await act(async () => { ut.kvittera(); });
     expect(ut.settRad).toBeNull();
     expect(db.upserts).toHaveLength(0);

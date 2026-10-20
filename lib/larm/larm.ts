@@ -100,7 +100,7 @@ export interface LarmUtfall {
   /** Resten av de larm som pågår, i rangordning (det första flyttar upp när det stora är passerat). Tom = inget under kortet. */
   fler: LarmNasta[];
   /** Den smala raden längst ner: "Sett <Namn>" — alltid för det STORA kortet. Null när ingen kvittering behövs. */
-  settRad: { id: string; namn: string } | null;
+  settRad: { id: string; namn: string; farg: string } | null;
   ringar: LarmRing[];
   /** ETT ljud: det tydligaste som utlöstes i det här steget. */
   ljud: LarmLjud | null;
@@ -161,9 +161,23 @@ function prio(o: LarmObjekt): number {
   return 2;
 }
 
-/** Rangordningen: det som kvitterats under den här passagen sist, sedan förbjuden yta → Röd → övrigt, inom samma nivå närmast först. */
-export function rangordna<T extends { o: LarmObjekt; sett?: boolean }>(aktiva: readonly T[]): T[] {
-  return [...aktiva].sort((a, b) => Number(!!a.sett) - Number(!!b.sett) || prio(a.o) - prio(b.o) || (a.o.avstandM ?? 0) - (b.o.avstandM ?? 0));
+type Rangbar = { o: LarmObjekt; sett?: boolean; kvitterad?: boolean; steg?: Steg };
+
+/** Röd inom 15 m ligger ALLTID överst — kvitterad eller inte (kvittensen tar bort knappen, inte kortet). */
+const arMycketNaraRod = (a: Rangbar) => a.steg === 'mycket_nara' && a.o.grupp === 'fara' && !a.o.forbjuden;
+
+/** En kvitterad Röd (databasen) och allt som fått "Sett" i den här passagen får sjunka — utom Röd inom 15 m. Förbjuden yta sjunker bara av Sett. */
+const harSjunkit = (a: Rangbar) => !!a.sett || (!!a.kvitterad && a.o.grupp === 'fara' && !a.o.forbjuden);
+
+/**
+ * Rangordningen: Röd inom 15 m först (alltid), sedan det som kvitterats sist, förbjuden yta → Röd → övrigt, inom samma nivå närmast först.
+ */
+export function rangordna<T extends Rangbar>(aktiva: readonly T[]): T[] {
+  return [...aktiva].sort((a, b) =>
+    Number(!arMycketNaraRod(a)) - Number(!arMycketNaraRod(b))
+    || Number(harSjunkit(a) && !arMycketNaraRod(a)) - Number(harSjunkit(b) && !arMycketNaraRod(b))
+    || prio(a.o) - prio(b.o)
+    || (a.o.avstandM ?? 0) - (b.o.avstandM ?? 0));
 }
 
 function kortText(o: LarmObjekt): string | null {
@@ -218,8 +232,10 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
       pulserar: vinnare.steg === 'mycket_nara',
       forbjuden: !!o.forbjuden,
     };
-    if (harSettRad(o) && !vinnare.kvitterad && !nyaSett[o.id]) settRad = { id: o.id, namn: o.namn };
   }
+  // "✓ Sett <Namn>" gäller första OKVITTERADE i rangordningen: det stora kortet, eller — när en kvitterad Röd inom 15 m ligger överst utan knapp — första i +-raden.
+  const sett = rang.find((x) => harSettRad(x.o) && !x.kvitterad && !nyaSett[x.o.id]);
+  if (sett) settRad = { id: sett.o.id, namn: sett.o.namn, farg: GRUPPER[sett.o.grupp].farg };
   const fler: LarmNasta[] = ovriga.map(({ o }) => ({
     id: o.id, kalla: o.kalla, grupp: o.grupp, farg: GRUPPER[o.grupp].farg, namn: o.namn,
     text: o.kalla === 'yta' ? 'inne i ytan' : (o.kommentar || null),

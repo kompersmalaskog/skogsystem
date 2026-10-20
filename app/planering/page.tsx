@@ -13951,7 +13951,7 @@ export default function PlannerPage() {
         />
       )}
       {korvyActive && larm.settRad && (
-        <SettRad namn={larm.settRad.namn} farg={larm.kort?.id === larm.settRad.id ? larm.kort.farg : FARG.text2} smal={screenSize.width < 640} onSett={larm.kvittera} />
+        <SettRad namn={larm.settRad.namn} farg={larm.settRad.farg} smal={screenSize.width < 640} onSett={larm.kvittera} />
       )}
 
 
