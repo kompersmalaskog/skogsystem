@@ -830,7 +830,7 @@ describe("Körningar: året, läsfel och CSV", () => {
     expect(document.querySelector("[data-korningar]")).toBeNull();
     expect(tillbakaPil()!.textContent).toBe("‹ Lastbilen");
     expect(document.querySelector("[data-periodval]")!.textContent).toContain("2026");
-    expect(flikNamn()).toEqual(["Förbrukning", "Körsträcka"]);          // bara diagramväxeln; sidan har inga flikar
+    expect(flikNamn()).toEqual(["Förbrukning", "Körsträcka", "Betalt"]);   // bara diagramväxeln (admin); sidan har inga flikar
     await klicka(tillbakaPil()!);
     expect(arsSida()).toBeNull();
     expect(document.querySelector('section[aria-label="Månaden"]')!.textContent).toContain("Körd i oktober");
@@ -946,6 +946,53 @@ describe("Körningar: året, läsfel och CSV", () => {
     expect(bredd(km[0]) / bredd(km[1])).toBeCloseTo(296 / 522, 2);
     const storst = Array.from(document.querySelectorAll('[data-stapelrad] [title]')).map(bredd);
     expect(Math.max(...storst)).toBeLessThanOrEqual(82);                 // största värdet lämnar plats åt talet
+  });
+
+  it("Betalt (admin): lika hög stapel som Körsträcka, 'X av Y km' vid stapeln, fotnot om Ej betalt och prod-siffrorna för fakturerat", async () => {
+    await montera();
+    await tillAr();
+    expect(flikNamn()).toEqual(["Förbrukning", "Körsträcka", "Betalt"]);
+    await klicka(knapp(/^Betalt$/)!);
+    const d = document.querySelector("[data-staplar]")!;
+    expect(d.getAttribute("data-staplar")).toBe("staplat");
+    expect(d.querySelector("[data-legend]")!.textContent).toMatch(/Fakturerat.*Ej betalt.*km/);
+    const okt = d.querySelector('[data-stapelrad="okt"]')!;
+    expect(okt.textContent!.replace(/\s/g, " ")).toContain("89 av 818 km");
+    expect(okt.textContent).toContain("11 %");
+    expect(okt.getAttribute("aria-label")!.replace(/\s/g, " ")).toBe("okt: 89 av 818 km (Fakturerat 89, Ej betalt 729)");
+    expect(d.querySelector('[data-stapelrad="aug"]')!.textContent!.replace(/\s/g, " ")).toContain("105 av 109 km");   // fixturens augusti har bara 109 körda km
+    expect(d.querySelector('[data-stapelrad="sep"]')!.textContent!.replace(/\s/g, " ")).toContain("140 av 0 km");     // fixturen har ingen runda i september
+    expect(document.querySelector("[data-fotnot]")!.textContent).toBe("Ej betalt = tomkörning, service, korta och egna flyttar.");
+    expect(document.querySelector("[data-vantar]")).toBeNull();                     // inga väntande flyttar
+    // stapeln är lika lång som i Körsträcka (samma skala: största månaden fyller lika mycket)
+    const bredd = (el: Element) => parseFloat((el as HTMLElement).style.width);
+    const bt = Array.from(okt.querySelectorAll("[title]")).map(bredd).reduce((a, b) => a + b, 0);
+    await klicka(knapp(/^Körsträcka$/)!);
+    const ks = Array.from(document.querySelector('[data-stapelrad="okt"]')!.querySelectorAll("[title]")).map(bredd).reduce((a, b) => a + b, 0);
+    expect(bt).toBeCloseTo(ks, 5);
+  });
+
+  it("Betalt: ogodkända flyttar räknas inte men sägs i en dämpad rad; växlar man bort och tillbaka finns raden bara i Betalt", async () => {
+    mock.extraUnderlag = [{ ...nyaUnderlag()[7], id: "ogk", godkand_tid: null, godkand_av: null, datum: "2026-10-07", km: 40 }];
+    await montera();
+    await tillAr();
+    await klicka(knapp(/^Betalt$/)!);
+    expect(document.querySelector('[data-stapelrad="okt"]')!.textContent!.replace(/\s/g, " ")).toContain("89 av 818 km");
+    expect(document.querySelector("[data-vantar]")!.textContent).toBe("1 flytt väntar på godkännande · 40 km");
+    await klicka(knapp(/^Körsträcka$/)!);
+    expect(document.querySelector("[data-vantar]")).toBeNull();
+  });
+
+  it("Betalt: går fakturaunderlaget inte att läsa är det ett fel med Försök igen, aldrig 0 km", async () => {
+    mock.underlagFel = true;
+    await montera();
+    await tillAr();
+    await klicka(knapp(/^Betalt$/)!);
+    expect(text()).toContain("Kunde inte läsa fakturerat just nu.");
+    expect(document.querySelector("[data-staplar]")).toBeNull();
+    mock.underlagFel = false;
+    await klicka(knapp(/Försök igen/, document.querySelector('section[aria-label="Diagram"]')!)!);
+    expect(document.querySelector('[data-stapelrad="okt"]')!.textContent!.replace(/\s/g, " ")).toContain("89 av 818 km");
   });
 
   it("månadslistan under diagrammet: ett tryck går till Körningar för månaden", async () => {

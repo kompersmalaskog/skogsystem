@@ -54,13 +54,13 @@ function Rad({ rad, lage, andel, sista }: { rad: StapelRad; lage: 'bredvid' | 's
         </div>
       ) : (
         <>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', height: STAPEL_HOJD, gap: 1 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', height: STAPEL_HOJD }}>
             {synliga.map((s, i) => (
               <div key={s.namn} title={`${s.namn} ${s.text}`}
-                style={{ width: `${andel(s.varde as number) * 100}%`, background: TON[rad.staplar.indexOf(s)], borderRadius: `${i === 0 ? RADIE.stapel : 0}px ${i === synliga.length - 1 ? RADIE.stapel : 0}px ${i === synliga.length - 1 ? RADIE.stapel : 0}px ${i === 0 ? RADIE.stapel : 0}px` }} />
+                style={{ width: `${andel(s.varde as number) * 100}%`, background: TON[rad.staplar.indexOf(s)], borderLeft: i === 0 ? 'none' : `1px solid ${FARG.kort}`, borderRadius: `${i === 0 ? RADIE.stapel : 0}px ${i === synliga.length - 1 ? RADIE.stapel : 0}px ${i === synliga.length - 1 ? RADIE.stapel : 0}px ${i === 0 ? RADIE.stapel : 0}px` }} />
             ))}
           </div>
-          <div style={{ width: AVSTAND.xxl * 3, flex: 'none', textAlign: 'right', ...TNUM }}>
+          <div style={{ minWidth: AVSTAND.xxl * 3, flex: 'none', textAlign: 'right', whiteSpace: 'nowrap', ...TNUM }}>
             {rad.total != null
               ? <><div style={{ ...TYP.listtitel, color: FARG.text }}>{rad.total}</div><div style={{ ...TYP.meta, color: FARG.text2 }}>{rad.delar}</div></>
               : <div style={{ ...TYP.meta, color: FARG.text2 }}>–</div>}

@@ -61,6 +61,8 @@ export default function LastbilVy() {
 
   const nu = useLastbilNu(!loading && !hamtar && sida === 'huvud');
   const fakt = useFakturerbart(period, arAdmin);
+  // Uppföljningens Betalt-läge: årets underlag (bara admin, bara när sidan är öppen).
+  const faktAr = useFakturerbart({ typ: 'ar', ar }, arAdmin && !loading && onskadSida === 'ar');
   const vantar = useVantar(arAdmin);
   // "Vilken maskin?": lassen bilens vikt hittat men appen inte kunde para ihop med en maskin. Länken i notisen (?lass=<id>) öppnar arket direkt.
   const saknar = useSaknarMaskin(arAdmin);
@@ -137,7 +139,7 @@ export default function LastbilVy() {
         ) : hamtar ? (
           <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
         ) : sida === 'ar' ? (
-          <UppfoljningSida ar={ar} onAr={setAr} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
+          <UppfoljningSida ar={ar} onAr={setAr} fakt={arAdmin ? { status: faktAr.status, forsokIgen: faktAr.forsokIgen } : null} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
             onTillbaka={tillHuvudsidan} onValjManad={valjManadFranAr} />
         ) : sida === 'fakturering' ? (
           <FaktureringSida period={period} onPeriod={setPeriod} status={fakt.status} namn={medarbetare?.namn || 'admin'}

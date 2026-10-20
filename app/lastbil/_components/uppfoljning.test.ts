@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { byggRundor, summera, type Ben, type RundaRad } from './rundor';
-import { forbrukningRader, korstrackaRader, perManad } from './uppfoljning';
+import type { UnderlagRad } from './fakturerbart';
+import { betaltRader, forbrukningRader, korstrackaRader, lagen, perManad, vantandeFlyttar } from './uppfoljning';
 
 // Året i uppföljningen ska vara SUMMAN av månaderna som listan visar, och månaderna ska stämma med prod. Fixturen speglar
 // prod-månaderna (flyttdag, giltiga rundor, 2026-10-20): juli 3 rundor 190 km utan diesel · augusti 8 flytt/587 km/249 l +
@@ -91,5 +92,71 @@ describe('Körsträcka: km per månad, Flyttar + Övrig staplade', () => {
   it('en månad utan rundor har ingen summa (inte "0 km")', () => {
     const tom = korstrackaRader(perManad(2026, [], NU));
     expect(tom.every(r => r.total === null && r.delar === null)).toBe(true);
+  });
+});
+
+// ── Betalt: samma stapel som Körsträcka, delad i Fakturerat (pengatalets regel) och Ej betalt (= körda minus fakturerade) ──
+const U = (datum: string, km: number | null, o: Partial<UnderlagRad> = {}): UnderlagRad => ({
+  id: `u${++nr}`, flytt_id: null, km, status: 'aktiv', fakturerad_tid: null, godkand_tid: '2026-10-01T10:00:00Z', godkand_av: 'x', kund: 'Vida', datum, maskin: 'Giant',
+  fran_objekt_id: null, fran_plats_id: null, till_objekt_id: null, till_plats_id: null, struken_tid: null, struken_anledning: null,
+  km_original: null, kund_original: null, redigerad_tid: null, redigerad_av: null, ...o,
+});
+// Prod 2026-10-20 (godkända + fakturerade, ej strukna, avrundat per flytt): aug 105 km (3 flyttar), sep 140 (3), okt 89 (2).
+const PROD_UNDERLAG = [
+  U('2026-08-25', 34), U('2026-08-28', 40), U('2026-08-31', 31),
+  U('2026-09-01', 49), U('2026-09-01', 47), U('2026-09-25', 44),
+  U('2026-10-05', 36), U('2026-10-06', 53),
+];
+const rad = (rs: ReturnType<typeof betaltRader>, e: string) => rs.find(r => r.etikett === e)!;
+const text = (s: string | null) => (s ?? '').replace(/\s/g, ' ');
+
+describe('Betalt: prod-siffrorna', () => {
+  const rs = betaltRader(perManad(2026, prodAret(), NU), PROD_UNDERLAG);
+  it('stapeln är lika hög som Körsträcka: fakturerat + ej betalt = körda km i månaden', () => {
+    const kors = korstrackaRader(perManad(2026, prodAret(), NU));
+    for (const r of rs) {
+      const summa = r.staplar.reduce((s, x) => s + (x.varde ?? 0), 0);
+      expect(summa).toBe(Number(text(kors.find(k => k.etikett === r.etikett)!.total).replace(/ /g, '')));
+    }
+  });
+  it('okt 89 av 818 km, sep 140 av 1 362, aug 105 av 1 403 — och juli (ingen fakturering) 0 av 190', () => {
+    expect(text(rad(rs, 'okt').total)).toBe('89 av 818 km');
+    expect(text(rad(rs, 'sep').total)).toBe('140 av 1 362 km');
+    expect(text(rad(rs, 'aug').total)).toBe('105 av 1 403 km');
+    expect(text(rad(rs, 'jul').total)).toBe('0 av 190 km');
+  });
+  it('ej betalt = körda minus fakturerade, och andelen står som text', () => {
+    expect(rad(rs, 'okt').staplar.map(s => s.varde)).toEqual([89, 729]);
+    expect(rad(rs, 'okt').delar).toBe('11 %');
+    expect(rad(rs, 'jul').staplar.map(s => s.varde)).toEqual([0, 190]);
+  });
+});
+
+describe('Betalt: vad som räknas som fakturerat', () => {
+  const man = perManad(2026, prodAret(), NU);
+  it('ogodkända och strukna flyttar räknas inte; de ogodkända sägs i en egen rad med antal och km', () => {
+    const u = [...PROD_UNDERLAG, U('2026-10-07', 40, { godkand_tid: null, godkand_av: null }), U('2026-10-08', 60, { status: 'struken' })];
+    expect(text(rad(betaltRader(man, u), 'okt').total)).toBe('89 av 818 km');
+    expect(vantandeFlyttar(u)).toEqual({ antal: 1, km: 40 });
+    expect(vantandeFlyttar(PROD_UNDERLAG)).toEqual({ antal: 0, km: 0 });
+  });
+  it('en fakturerad flytt räknas som godkänd, och varje flyttens km avrundas före summering', () => {
+    const u = [U('2026-10-05', 35.6, { godkand_tid: null, godkand_av: null, fakturerad_tid: '2026-10-10T10:00:00Z' }), U('2026-10-06', 53.4)];
+    expect(rad(betaltRader(man, u), 'okt').staplar[0].varde).toBe(36 + 53);
+  });
+  it('mer fakturerat än körda km i månaden ger ej betalt 0, aldrig negativt', () => {
+    const u = [U('2026-07-20', 500)];
+    const jul = rad(betaltRader(man, u), 'jul');
+    expect(jul.staplar.map(s => s.varde)).toEqual([500, 0]);
+  });
+  it('en månad utan rundor och utan fakturering har ingen summa (–), inte "0 av 0"', () => {
+    expect(rad(betaltRader(perManad(2026, [], NU), []), 'sep').total).toBeNull();
+  });
+});
+
+describe('Växelns lägen: Betalt finns bara för admin', () => {
+  it('admin får tre, förare två', () => {
+    expect(lagen(true).map(([id]) => id)).toEqual(['forbrukning', 'korstracka', 'betalt']);
+    expect(lagen(false).map(([id]) => id)).toEqual(['forbrukning', 'korstracka']);
   });
 });

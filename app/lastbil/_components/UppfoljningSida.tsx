@@ -9,7 +9,8 @@ import Staplar from './Staplar';
 import { periodEtikett, type Manad, type Period } from './period';
 import { fmtLPerMil, summera, type Summa } from './rundor';
 import type { RundorLage } from './useRundor';
-import { ENHET, LAGEN, forbrukningRader, korstrackaRader, perManad, type Lage } from './uppfoljning';
+import type { FakturerbartStatus } from './useFakturerbart';
+import { ENHET, betaltRader, forbrukningRader, korstrackaRader, lagen, perManad, vantandeFlyttar, type Lage } from './uppfoljning';
 
 const litTxt = (s: Summa) => (s.liter != null ? `${s.liter.toLocaleString('sv-SE')} l` : 'diesel saknas i datan');
 /** "5 rundor · 349 l · 4,3 l/mil". */
@@ -22,8 +23,10 @@ const metaRad = (s: Summa) =>
  * över ETT diagram · månadslistan, där ett tryck går till Körningar för månaden.
  * Den visar körning, inte fakturering. Lastbilen är en egen maskin i uppföljningen: l/mil och km blandas aldrig med maskinernas l/h.
  */
-export default function UppfoljningSida({ ar, onAr, lage, onForsokIgen, onTillbaka, onValjManad }: {
+export default function UppfoljningSida({ ar, onAr, fakt, lage, onForsokIgen, onTillbaka, onValjManad }: {
   ar: number; onAr: (ar: number) => void;
+  /** Årets fakturaunderlag (bara admin; null = förare, då finns inget Betalt-läge). */
+  fakt: { status: FakturerbartStatus; forsokIgen: () => void } | null;
   lage: RundorLage; onForsokIgen: () => void; onTillbaka: () => void; onValjManad: (m: Manad) => void;
 }) {
   const period: Extract<Period, { typ: 'ar' }> = { typ: 'ar', ar };
@@ -31,6 +34,11 @@ export default function UppfoljningSida({ ar, onAr, lage, onForsokIgen, onTillba
   const summa = useMemo(() => (rundor ? summera(rundor) : null), [rundor]);
   const manader = useMemo(() => (rundor ? perManad(ar, rundor) : null), [ar, rundor]);
   const [valt, setValt] = useState<Lage>('forbrukning');
+  const flikar = useMemo(() => lagen(fakt !== null), [fakt !== null]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const aktivt: Lage = flikar.some(([id]) => id === valt) ? valt : 'forbrukning';
+  const underlag = fakt?.status.lage === 'klar' ? fakt.status.rader : null;
+  const betalt = useMemo(() => (manader && underlag ? betaltRader(manader, underlag) : null), [manader, underlag]);
+  const vantar = useMemo(() => (underlag ? vantandeFlyttar(underlag) : null), [underlag]);
 
   return (
     <div data-ars-sida>
@@ -56,15 +64,33 @@ export default function UppfoljningSida({ ar, onAr, lage, onForsokIgen, onTillba
             <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.xs }}>{metaRad(summa)}</div>
           </section>
 
-          <Flikkontroll flikar={LAGEN} aktiv={valt} onVal={setValt} />
+          <Flikkontroll flikar={flikar} aktiv={aktivt} onVal={setValt} />
           <section style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }} aria-label="Diagram">
-            <Staplar
-              lage={valt === 'forbrukning' ? 'bredvid' : 'staplat'}
-              rader={valt === 'forbrukning' ? forbrukningRader(manader) : korstrackaRader(manader)}
-              serier={['Flyttar', 'Övrig körning']}
-              enhet={ENHET[valt]} />
+            {aktivt === 'betalt' && fakt && !betalt ? (
+              fakt.status.lage === 'fel' ? (
+                <div style={{ textAlign: 'center', padding: `${AVSTAND.l}px 0` }}>
+                  <p role="alert" style={{ ...TYP.text, color: FARG.rod, margin: `0 0 ${AVSTAND.m}px` }}>Kunde inte läsa fakturerat just nu.</p>
+                  <button type="button" onClick={fakt.forsokIgen} style={KNAPP.sekundar}>Försök igen</button>
+                </div>
+              ) : (
+                <p role="status" style={{ ...TYP.text, color: FARG.text2, textAlign: 'center', padding: `${AVSTAND.l}px 0`, margin: 0 }}>Läser fakturerat …</p>
+              )
+            ) : (
+              <Staplar
+                lage={aktivt === 'forbrukning' ? 'bredvid' : 'staplat'}
+                rader={aktivt === 'forbrukning' ? forbrukningRader(manader) : aktivt === 'betalt' && betalt ? betalt : korstrackaRader(manader)}
+                serier={aktivt === 'betalt' ? ['Fakturerat', 'Ej betalt'] : ['Flyttar', 'Övrig körning']}
+                enhet={ENHET[aktivt]} />
+            )}
           </section>
-          <p data-fotnot style={{ ...TYP.meta, color: FARG.text2, margin: `0 ${AVSTAND.xs}px` }}>Flyttar räknar hela rundan, även tomkörningen.</p>
+          <p data-fotnot style={{ ...TYP.meta, color: FARG.text2, margin: `0 ${AVSTAND.xs}px` }}>
+            {aktivt === 'betalt' ? 'Ej betalt = tomkörning, service, korta och egna flyttar.' : 'Flyttar räknar hela rundan, även tomkörningen.'}
+          </p>
+          {aktivt === 'betalt' && vantar && vantar.antal > 0 && (
+            <p data-vantar style={{ ...TYP.meta, ...TNUM, color: FARG.text2, margin: `0 ${AVSTAND.xs}px` }}>
+              {vantar.antal} {vantar.antal === 1 ? 'flytt väntar' : 'flyttar väntar'} på godkännande · {vantar.km.toLocaleString('sv-SE')} km
+            </p>
+          )}
 
           <section style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }} aria-label="Månader">
             {manader.map(({ m, s }, i) => (

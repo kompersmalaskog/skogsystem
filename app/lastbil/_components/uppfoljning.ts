@@ -3,11 +3,16 @@
 // rundor med BÅDE mätare och diesel, och saknad diesel är null (aldrig 0).
 
 import { manaderIAr, manadForStart, type Manad } from './period';
+import { arGodkand, summeraFakturerbart, type UnderlagRad } from './fakturerbart';
 import { fmtLPerMil, summera, type Runda, type Summa } from './rundor';
 
-export type Lage = 'forbrukning' | 'korstracka';
+export type Lage = 'forbrukning' | 'korstracka' | 'betalt';
 
-export const LAGEN: readonly (readonly [Lage, string])[] = [['forbrukning', 'Förbrukning'], ['korstracka', 'Körsträcka']];
+/** Växelns lägen. Betalt bygger på fakturaunderlaget (ekonomidata, RLS admin-only) och finns därför bara för admin. */
+export function lagen(arAdmin: boolean): readonly (readonly [Lage, string])[] {
+  const gemensamma = [['forbrukning', 'Förbrukning'], ['korstracka', 'Körsträcka']] as const;
+  return arAdmin ? [...gemensamma, ['betalt', 'Betalt']] : gemensamma;
+}
 
 export interface ManadRad { m: Manad; s: Summa }
 
@@ -55,4 +60,35 @@ export function korstrackaRader(rader: readonly ManadRad[]): StapelRad[] {
   }));
 }
 
-export const ENHET: Record<Lage, string> = { forbrukning: 'l/mil', korstracka: 'km' };
+export const ENHET: Record<Lage, string> = { forbrukning: 'l/mil', korstracka: 'km', betalt: 'km' };
+
+const manadsNyckel = (m: Manad) => `${m.ar}-${String(m.man).padStart(2, '0')}`;
+
+/**
+ * Betalt: samma stapel som Körsträcka (ALLA körda km i månaden), delad i Fakturerat och Ej betalt = körda minus fakturerade.
+ * Fakturerat är pengatalets regel (`summeraFakturerbart`: godkända och fakturerade flyttar, strukna och ogodkända räknas inte,
+ * varje flytts km avrundad före summering), grupperat på underlagets datum. Ej betalt blir därmed tomkörning, service, korta
+ * och egna flyttar — och summan går alltid ihop med Körsträcka-läget. Ger underlaget MER km än rundorna (en rättad sträcka)
+ * är Ej betalt 0, aldrig negativt.
+ */
+export function betaltRader(rader: readonly ManadRad[], underlag: readonly UnderlagRad[]): StapelRad[] {
+  return rader.map(({ m, s }) => {
+    const fakt = summeraFakturerbart(underlag.filter(u => (u.datum ?? '').slice(0, 7) === manadsNyckel(m))).km;
+    const ejBetalt = Math.max(0, s.km - fakt);
+    if (s.antal === 0 && fakt === 0) {
+      return { etikett: manadKort(m), staplar: [{ namn: 'Fakturerat', varde: 0, text: '0', saknas: null }, { namn: 'Ej betalt', varde: 0, text: '0', saknas: null }], total: null, delar: null };
+    }
+    return {
+      etikett: manadKort(m),
+      staplar: [{ namn: 'Fakturerat', varde: fakt, text: tusental(fakt), saknas: null }, { namn: 'Ej betalt', varde: ejBetalt, text: tusental(ejBetalt), saknas: null }],
+      total: `${tusental(fakt)} av ${tusental(s.km)} km`,
+      delar: s.km > 0 ? `${Math.round((100 * fakt) / s.km)} %` : null,
+    };
+  });
+}
+
+/** Ogodkända aktiva flyttar i årets underlag: de ingår inte i Betalt (som pengatalet) och sägs i en dämpad rad. */
+export function vantandeFlyttar(underlag: readonly UnderlagRad[]): { antal: number; km: number } {
+  const v = underlag.filter(u => u.status !== 'struken' && !arGodkand(u));
+  return { antal: v.length, km: v.reduce((s, u) => s + (u.km == null ? 0 : Math.round(u.km)), 0) };
+}
