@@ -11998,7 +11998,7 @@ export default function PlannerPage() {
   const skotarMaskinId = skotarKorvy ? hyttsparMaskinId(enhetMaskinId, 'skotare', null) : null;
   const skotarLassAktiv = skotarKorvy && !!valtObjekt?.id && !!skotarMaskinId;
   const skotarEgnaAvlagg = useMemo(() => (skotarLassAktiv
-    ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null }; })
+    ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null, viaLossaHar: !!m.skapadViaLossaHar }; })
     : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [skotarLassAktiv, markers, mapCenter.lat, mapCenter.lng, scale]);
@@ -12015,17 +12015,25 @@ export default function PlannerPage() {
     return skotarVagCacheRef.current.linjer;
   };
   // "Nytt avlägg här?" → Ja: ett eget avlägg på platsen, synligt för alla direkt (vanlig markering via markeringssynken), med sitt löpnummer.
-  const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string): string | null => {
+  const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string, via?: 'lossa_har'): string | null => {
     if (testlageAktivRef.current) return null;   // torrkörningen skapar aldrig en riktig markering (markeringssynken skulle skriva den)
     const { x, y } = latLonToSvg(lat, lon);
     const id = Date.now();
     const m: any = nyMarkering('landing', id, x, y);
     m.avlaggNummer = nummer;
+    if (via === 'lossa_har') m.skapadViaLossaHar = true;   // bara dessa flyttas mot snittet av lossningarna (lib/skotarLass/lossaHar); Vidas, planerarens och handsatta flyttas aldrig
     m.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
     setMarkers((prev: any[]) => [...prev, m]);
     korvyEgnaMarkorRef.current.add(String(id));
     startaAvlaggVagkontroll(id, lat, lon);
     return String(id);
+  };
+  // Ett avlägg som skapats via Lossa här flyttas mot snittet av lossningarna (≥ 3 bekräftade lass). Dubbelspärr: bara en markering med skapadViaLossaHar rörs.
+  const skotarFlyttaAvlagg = (markerId: string, lat: number, lon: number) => {
+    if (testlageAktivRef.current) return;
+    const { x, y } = latLonToSvg(lat, lon);
+    setMarkers((prev: any[]) => prev.map((m) => (m.isMarker && m.type === 'landing' && m.skapadViaLossaHar && String(m.id) === markerId ? { ...m, x, y } : m)));
+    startaAvlaggVagkontroll(Number(markerId), lat, lon);
   };
   const skotarLass = useSkotarLass({
     aktiv: skotarLassAktiv,
@@ -12037,7 +12045,8 @@ export default function PlannerPage() {
     vida: klarVidaPunkter,
     egna: skotarEgnaAvlagg,
     hamtaVagar: skotarHamtaVagar,
-    skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
+    skapaEgetAvlagg: (lat, lng, nummer, via) => skotarSkapaAvlagg(lat, lng, nummer, via),
+    flyttaEgetAvlagg: skotarFlyttaAvlagg,
     omlasning: skordarKopplingNr,
   });
   // Väder för TRAKTENS position (inte där telefonen är); saknas koordinat faller det tillbaka på enhetens position. Testläget: dagarna hämtas, morgonkortet provkörs med knappen i bannern.

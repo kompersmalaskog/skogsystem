@@ -47,14 +47,14 @@ const VIDA = [{ nummer: '2', lat: BAS.lat, lng: BAS.lng }];
 let root: Root; let div: HTMLDivElement;
 let vy: SkotarLassVy;
 let position: { lat: number; lon: number } | null = null;
-const skapade: Array<{ lat: number; lng: number; nummer: string }> = [];
+const skapade: Array<{ lat: number; lng: number; nummer: string; via?: string }> = [];
 
 let extraNu: Partial<SkotarLassIn> | undefined;
 function Harness({ extra }: { extra?: Partial<SkotarLassIn> }) {
   extra = extra ?? extraNu;
   vy = useSkotarLass({
     aktiv: true, objekt: { id: 'o1', vo: '555', namn: 'Trakten' }, maskinId: 'A030353', medarbetareId: 'm1', position,
-    vida: VIDA, egna: [], hamtaVagar: () => [], skapaEgetAvlagg: (lat, lng, nummer) => { skapade.push({ lat, lng, nummer }); return '123'; }, ...extra,
+    vida: VIDA, egna: [], hamtaVagar: () => [], skapaEgetAvlagg: (lat, lng, nummer, via) => { skapade.push({ lat, lng, nummer, via }); return '123'; }, ...extra,
   });
   return null;
 }
@@ -484,5 +484,109 @@ describe('inaktivt', () => {
     await visa({ aktiv: false });
     await stå(5, 400);
     expect(vy.lass).toHaveLength(0);
+  });
+});
+
+// ── Lossa här: avlägget mitt på stoppet, och flytten mot snittet av lossningarna (Martin 2026-10-20) ──────────────────────────────────────────────────────
+describe('Lossa här skapar avlägg mitt på stoppet', () => {
+  it('inom 50 m från ett avlägg: ett lass där, ingen fråga', async () => {
+    await stå(40, 20);
+    await act(async () => { vy.lossaHar(); });
+    expect(vy.nyttAvlagg).toBeNull();
+    expect(vy.lass).toHaveLength(1);
+    expect(vy.lass[0].delar[0].avlaggId).toBe('vida:2');
+  });
+  it('längre än 50 m från alla avlägg: frågan "Nytt avlägg här?" märkt via Lossa här — inget lass förrän han svarat', async () => {
+    await stå(200, 20);
+    await act(async () => { vy.lossaHar(); });
+    expect(vy.nyttAvlagg?.via).toBe('lossa_har');
+    expect(vy.lass).toHaveLength(0);
+  });
+  it('platsen är mitten på stoppet (medelvärdet av de senaste fixarna), och Ja skapar ett märkt avlägg + ett lass där', async () => {
+    // fixar växlar mellan 200,0 och 204,0 m: stoppets mitt är 202 m
+    for (let t = 0; t <= 40; t += 2) { position = nord(200 + (t % 4 === 0 ? 0 : 4)); await act(async () => { vi.advanceTimersByTime(2000); root.render(<Harness />); }); }
+    await act(async () => { vy.lossaHar(); });
+    expect((vy.nyttAvlagg!.lat - BAS.lat) / M).toBeCloseTo(202, 0);
+    await act(async () => { vy.svaraNyttAvlagg(true); });
+    expect(skapade).toHaveLength(1);
+    expect(skapade[0].via).toBe('lossa_har');
+    expect((skapade[0].lat - BAS.lat) / M).toBeCloseTo(202, 0);
+    expect(vy.lass).toHaveLength(1);
+    expect(vy.lass[0].delar[0].avlaggId).toBe('egen:123');
+  });
+  it('rör sig maskinen (fixarna spänner över mer än 25 m) gäller senaste fixen, inte ett medelvärde mitt emellan', async () => {
+    for (let t = 0; t <= 40; t += 2) { position = nord(200 + t * 2); await act(async () => { vi.advanceTimersByTime(2000); root.render(<Harness />); }); }
+    await act(async () => { vy.lossaHar(); });
+    expect((vy.nyttAvlagg!.lat - BAS.lat) / M).toBeCloseTo(280, 0);
+  });
+  it('ett avlägg som inte skapats via Lossa här får ingen märkning ("Nytt avlägg här?" från detektorn)', async () => {
+    await visa({ vida: [] });
+    await stå(300, 130);   // långt stopp utanför alla avlägg, ingen skördarspår känd → frågan kommer inte av sig själv
+    expect(vy.nyttAvlagg).toBeNull();
+  });
+});
+
+describe('avlägg skapade via Lossa här flyttas mot snittet av lossningarna', () => {
+  const lassVid = (nr: number, avlaggId: string, nordM: number, over: Record<string, unknown> = {}) => ({
+    id: `b${nr}`, objektId: 'o1', voNummer: '555', maskinId: 'A030353', medarbetareId: null, lassNummer: nr, datum: '2026-10-19', status: 'bekraftat', bekraftadAv: 'forare', bekraftadTid: '2026-10-19T07:00:00.000Z',
+    sparPunkter: [], vagar: [], skapad: '2026-10-19T07:00:00.000Z', andrad: '2026-10-19T07:00:00.000Z',
+    delar: [{ delNr: 1, avlaggId, avlaggNummer: '1', lossadTid: `2026-10-19T0${nr}:00:00.000Z`, lat: BAS.lat + nordM * M, lng: BAS.lng, rader: [{ nyckel: 'tall', namn: 'Tall', m3: 10 }] }], ...over,
+  });
+  const EGET = { id: '123', lat: BAS.lat + 200 * M, lng: BAS.lng, nummer: '1' };
+  async function montera(lass: any[], egna: any[], extra: Partial<SkotarLassIn> = {}) {
+    const { hamtaLassKo } = await import('@/lib/skotarLass/koKopplad');
+    for (const l of lass) await (await hamtaLassKo(extra.torr)).spara(l);
+    await act(async () => { root.unmount(); });
+    root = createRoot(div);
+    await visa({ vida: [], egna, ...extra });
+  }
+
+  it('efter 3 bekräftade lass flyttas avlägget till snittet (200 → 215 m norr)', async () => {
+    const flytta = vi.fn();
+    await montera([lassVid(1, 'egen:123', 210), lassVid(2, 'egen:123', 215), lassVid(3, 'egen:123', 220)], [{ ...EGET, viaLossaHar: true }], { flyttaEgetAvlagg: flytta });
+    expect(flytta).toHaveBeenCalledTimes(1);
+    expect(flytta.mock.calls[0][0]).toBe('123');
+    expect((flytta.mock.calls[0][1] - BAS.lat) / M).toBeCloseTo(215, 0);
+  });
+  it('bara två lass: ingen flytt', async () => {
+    const flytta = vi.fn();
+    await montera([lassVid(1, 'egen:123', 210), lassVid(2, 'egen:123', 220)], [{ ...EGET, viaLossaHar: true }], { flyttaEgetAvlagg: flytta });
+    expect(flytta).not.toHaveBeenCalled();
+  });
+  it('struket och obekräftat lass räknas inte', async () => {
+    const flytta = vi.fn();
+    await montera([lassVid(1, 'egen:123', 210), lassVid(2, 'egen:123', 215), lassVid(3, 'egen:123', 220, { status: 'struket' }), lassVid(4, 'egen:123', 220, { status: 'vantar_forare', bekraftadAv: null })], [{ ...EGET, viaLossaHar: true }], { flyttaEgetAvlagg: flytta });
+    expect(flytta).not.toHaveBeenCalled();
+  });
+  it('ett eget avlägg som INTE skapats via Lossa här (handsatt, planerarens) flyttas aldrig — inte heller Vidas', async () => {
+    const flytta = vi.fn();
+    await montera([lassVid(1, 'egen:123', 215), lassVid(2, 'egen:123', 215), lassVid(3, 'egen:123', 215), lassVid(4, 'vida:2', 30), lassVid(5, 'vida:2', 30), lassVid(6, 'vida:2', 30)], [EGET], { flyttaEgetAvlagg: flytta, vida: VIDA as any });
+    expect(flytta).not.toHaveBeenCalled();
+  });
+  it('snittet nära där avlägget redan står (< 8 m) flyttar inget — markeringen hoppar inte för varje lass', async () => {
+    const flytta = vi.fn();
+    await montera([lassVid(1, 'egen:123', 203), lassVid(2, 'egen:123', 204), lassVid(3, 'egen:123', 205)], [{ ...EGET, viaLossaHar: true }], { flyttaEgetAvlagg: flytta });
+    expect(flytta).not.toHaveBeenCalled();
+  });
+  it('torrkörningen (testläget) flyttar aldrig något', async () => {
+    const flytta = vi.fn();
+    await montera([lassVid(1, 'egen:123', 215), lassVid(2, 'egen:123', 215), lassVid(3, 'egen:123', 215)], [{ ...EGET, viaLossaHar: true }], { flyttaEgetAvlagg: flytta, torr: true });
+    expect(flytta).not.toHaveBeenCalled();
+  });
+  it('inte medan en lossning pågår vid avlägget — först när maskinen lämnat det', async () => {
+    const flytta = vi.fn();
+    // två bekräftade lass vid avlägget (200 m), och maskinen står nu där och lossar: lass 3 bekräftas mitt i lossningen
+    await montera([lassVid(1, 'egen:123', 215), lassVid(2, 'egen:123', 215)], [{ ...EGET, viaLossaHar: true }], { flyttaEgetAvlagg: flytta });
+    await stå(200, 200);
+    expect(vy.oppen).not.toBeNull();
+    const id = vy.lass.find((l) => l.status !== 'bekraftat')!.id;
+    await act(async () => { vy.oppnaAndra(id); });
+    await act(async () => { vy.andraRad(1, { nyckel: 'tall', namn: 'Tall' }, +10); });
+    await act(async () => { vy.stangAndra(true); });
+    expect(vy.lass.filter((l) => l.status === 'bekraftat')).toHaveLength(3);
+    expect(flytta).not.toHaveBeenCalled();            // lossningen pågår fortfarande
+    await stå(260, 30);                                 // kör ut ur zonen
+    expect(vy.oppen).toBeNull();
+    expect(flytta).toHaveBeenCalledTimes(1);
   });
 });

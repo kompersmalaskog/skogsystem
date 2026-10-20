@@ -45,6 +45,14 @@ describe('avläggsupptäckten (Daniel, Mölleryd 2026-10-20)', () => {
     expect(detektor).toMatch(/CYKEL_S: 600,/);
     expect(las('lib/skotarLass/avlagg.ts')).toMatch(/RADIE_M: 50,/);
   });
+  it('Lossa här: bara avlägg märkta skapadViaLossaHar flyttas, och bara av hookens effekt (aldrig Vidas, planerarens eller handsatta)', () => {
+    expect(page).toMatch(/if \(via === 'lossa_har'\) m\.skapadViaLossaHar = true;/);
+    expect(page).toMatch(/m\.isMarker && m\.type === 'landing' && m\.skapadViaLossaHar && String\(m\.id\) === markerId/);
+    expect(page.match(/skapadViaLossaHar/g)).toHaveLength(4);   // sätts, läses till egna avlägg, flytt-spärren (en gång i kommentar/filter)
+    expect(hook).toMatch(/if \(!aktiv \|\| torr\) return;\s*for \(const a of avlagg\)/);
+    expect(hook).toContain('detRef.current.oppen?.avlaggId === a.id');
+    expect(las('lib/skotarLass/lossaHar.ts')).toMatch(/if \(a\.kalla !== 'egen' \|\| !a\.viaLossaHar\) return null;/);
+  });
   it('detektorn rör aldrig fakt_lass och har inga timers (ren funktion)', () => {
     expect(detektor).not.toMatch(/setTimeout|setInterval|Date\.now|fakt_lass|supabase/);
   });

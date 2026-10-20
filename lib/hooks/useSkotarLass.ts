@@ -11,7 +11,8 @@ import { serverNu } from '@/lib/serverKlocka';
 import { lokaltDatumStockholm } from '@/lib/hyttspar';
 import { hamtaAltNummer, hogarObjektIds } from '@/lib/objektNummer';
 import { supabase } from '@/lib/supabase';
-import { byggAvlagg, nastaEgnaNummer, type EgenMarkering, type VidaPunkt } from '@/lib/skotarLass/avlagg';
+import { AVLAGG, byggAvlagg, nastaEgnaNummer, type EgenMarkering, type VidaPunkt } from '@/lib/skotarLass/avlagg';
+import { avlaggFlytt, stoppMitt } from '@/lib/skotarLass/lossaHar';
 import { avstand, avstandTillLinje } from '@/lib/skotarLass/geo';
 import {
   avvisaFraga, lossningManuell, lossningVidNyttAvlagg, nyDetektor, sattSenasteAvlagg, slutaOppenLossning, stegaDetektor,
@@ -40,7 +41,8 @@ export const KVITTO_MS = 6_000;
 
 /** `andrad`: föraren har ändrat sortimenten (då står det inte längre "Samma som förra"). */
 export interface LossningsKort { lassId: string; delNr: number; fas: KortFas; start: number; andrad?: boolean }
-export interface NyttAvlaggFraga { lat: number; lng: number; ts: number }
+/** `via`: frågan kom av ett tryck på "Lossa här" — avlägget märks då och flyttas senare mot snittet av lossningarna. */
+export interface NyttAvlaggFraga { lat: number; lng: number; ts: number; via?: 'lossa_har' }
 
 export interface SkotarLassIn {
   /** skotarKorvy + valt objekt + maskin vald (enhetens eller testlägets). */
@@ -57,7 +59,9 @@ export interface SkotarLassIn {
   /** Skördarens stråk som linjer (för "Nytt avlägg här?" och tid per väg). Läses vid behov. */
   hamtaVagar: () => VagLinje[];
   /** Skapar en egen avläggsmarkering på platsen (synlig för alla direkt via markeringssynken). Ger markeringens id. */
-  skapaEgetAvlagg: (lat: number, lng: number, nummer: string) => string | null;
+  skapaEgetAvlagg: (lat: number, lng: number, nummer: string, via?: 'lossa_har') => string | null;
+  /** Flyttar ett avlägg som skapats via Lossa här (markeringens id). Rör aldrig något annat avlägg. */
+  flyttaEgetAvlagg?: (markerId: string, lat: number, lng: number) => void;
   /** Ändras när trakten fått nya extra nummer (skördarens objekt kopplat): skördat och Opti-lass läses om. */
   omlasning?: number;
 }
@@ -359,9 +363,9 @@ export function useSkotarLass(i: SkotarLassIn) {
     const ctx = kontext();
     if (!ctx) return;
     const nummer = nastaEgnaNummer(avlaggRef.current);
-    const markerId = inRef.current.skapaEgetAvlagg(f.lat, f.lng, nummer);
+    const markerId = inRef.current.skapaEgetAvlagg(f.lat, f.lng, nummer, f.via);
     if (!markerId) return;
-    const nytt: Avlagg = { id: `egen:${markerId}`, nummer, kalla: 'egen', lat: f.lat, lng: f.lng };
+    const nytt: Avlagg = { id: `egen:${markerId}`, nummer, kalla: 'egen', lat: f.lat, lng: f.lng, ...(f.via === 'lossa_har' ? { viaLossaHar: true } : {}) };
     avlaggRef.current = [...avlaggRef.current, nytt];
     const r = lossningVidNyttAvlagg(detRef.current, { lat: f.lat, lng: f.lng, ts: f.ts }, nytt.id);
     detRef.current = r.state;
@@ -370,6 +374,18 @@ export function useSkotarLass(i: SkotarLassIn) {
       traff: { narmaste: nytt, avstandM: 0, kandidater: [nytt], tvetydigt: false },
     });
   }, [nyttAvlagg, kontext, hanteraHandelse]);
+
+  // ── Avlägg som skapats via Lossa här flyttas mot snittet av lossningarna ──────────────────────────────────────────────────────────────────────
+  // Efter ≥ 3 bekräftade lass vid avlägget (lib/skotarLass/lossaHar). Aldrig medan en lossning pågår vid det (zonen ska inte flytta sig under maskinen),
+  // aldrig i torrkörningen, aldrig Vidas, planerarens eller handsatta avlägg. Ett lass räknas en gång: efter flytten ligger snittet på avlägget.
+  useEffect(() => {
+    if (!aktiv || torr) return;
+    for (const a of avlagg) {
+      const f = avlaggFlytt(a, lass);
+      if (!f || detRef.current.oppen?.avlaggId === a.id) continue;
+      inRef.current.flyttaEgetAvlagg?.(a.id.replace(/^egen:/, ''), f.lat, f.lng);
+    }
+  }, [aktiv, torr, avlagg, lass, oppen]);
 
   // ── Kvar, klar-dag, idag ─────────────────────────────────────────────────────────────────────────────
   const idagIso = lokaltDatumStockholm(serverNu());
@@ -411,7 +427,7 @@ export function useSkotarLass(i: SkotarLassIn) {
   }, [hanteraHandelse]);
 
   /** "Lossa här" — reservknappen när upptäckten missar: ett nytt lass vid närmaste avlägg (cykelregeln gäller inte: föraren vet) med samma kort som en upptäckt
-   *  lossning. Finns inget avlägg alls frågas "Nytt avlägg här?" på platsen. */
+   *  lossning. Finns inget avlägg inom zonen (50 m) frågas "Nytt avlägg här?" — då läggs avlägget MITT PÅ STOPPET och märks (viaLossaHar). */
   const lossaHar = useCallback(() => {
     const ctx = kontext();
     if (!ctx) return;
@@ -419,11 +435,17 @@ export function useSkotarLass(i: SkotarLassIn) {
     const nu = serverNu();
     const p = senastePosRef.current;
     const farsk = p && Date.now() - p.at <= 120_000 ? p : null;
+    // Där han står: mitten på stoppet (medelvärdet av de senaste fixarna om han stått still), inte där fingret råkade vara.
+    const mitt = farsk ? stoppMitt(fixarRef.current, nu, farsk) : null;
     const lista = avlaggRef.current;
-    if (lista.length === 0) { if (farsk) setNyttAvlagg({ lat: farsk.lat, lng: farsk.lng, ts: nu }); return; }
-    const fran = farsk ?? { lat: lista[0].lat, lng: lista[0].lng };
+    const narmaste = mitt ? [...lista].sort((x, y) => avstand(mitt, x) - avstand(mitt, y))[0] : null;
+    // Inget avlägg inom zonen: ett nytt avlägg MITT PÅ STOPPET (frågan "Nytt avlägg här?"), märkt så att det kan flyttas mot snittet av lossningarna.
+    // Ett lass kopplat till ett avlägg 200 m bort vore fel.
+    if (mitt && (!narmaste || avstand(mitt, narmaste) > AVLAGG.RADIE_M)) { setNyttAvlagg({ lat: mitt.lat, lng: mitt.lng, ts: nu, via: 'lossa_har' }); return; }
+    if (lista.length === 0) return;
+    const fran = mitt ?? { lat: lista[0].lat, lng: lista[0].lng };
     const a = [...lista].sort((x, y) => avstand(fran, x) - avstand(fran, y))[0];
-    const lat = farsk?.lat ?? a.lat, lng = farsk?.lng ?? a.lng;
+    const lat = mitt?.lat ?? a.lat, lng = mitt?.lng ?? a.lng;
     detRef.current = lossningManuell(detRef.current, { lat, lng, ts: nu }, a.id);
     hanteraHandelse({ typ: 'lossning', lossning: 'nytt_lass', ts: nu, lat, lng, traff: { narmaste: a, avstandM: avstand({ lat, lng }, a), kandidater: [a], tvetydigt: false } });
   }, [kontext, hanteraHandelse]);

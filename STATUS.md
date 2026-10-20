@@ -228,6 +228,7 @@ Provytorna lottas en gång av avsikt (det finns ingen funktion som lottar om). P
   "Löneunderlag" istället — verifiera
 
 ## Nästa
+- **Avläggszon som sträcka längs vägen (skotarläget, version 2 efter testveckan; Martin 2026-10-20, EJ BYGGD):** se CLAUDE.md "Avläggszon som sträcka längs vägen". Cirkel 50 m gäller tills dess. "Lossa här" lägger avlägget mitt på stoppet och flyttar det mot snittet efter ≥ 3 bekräftade lass (bara Lossa här-avlägg), #863.
 - **Egenkontroll, öppna punkter efter A4-rapporten (#830, 2026-10-19):**
   1. `PdfForhandsvisning` ligger i `app/helikopter/_components/` men används nu också av egenkontrollens `RapportDela` (generell, tar en `skapa`-funktion). Flytten till `components/` görs av **helikopterns ägare**, inte av egenkontrollspåret (en vy ägs av ett spår). Tills dess importeras den därifrån.
   2. ~~Låstrigger på `egenkontroll`~~ **KLAR 2026-10-19** (Martin körde migrationen via MCP, provad i transaktion med rollback; filen `20261019140826_egenkontroll_las_nar_klar.sql` är byte-identisk med `schema_migrations`, md5 `b2bea962…`, 1 099 byte). De tre gamla rundorna (Åbogen, Järnemåla, Spåramåla) avslutades i efterhand samma dag. Ångra för triggern: `drop trigger` hänger i Supabase-MCP:n (60 s) — ta bort den i ett eget anrop utanför MCP:n, eller använd escapen `app.egenkontroll_tillat_andring` per transaktion.

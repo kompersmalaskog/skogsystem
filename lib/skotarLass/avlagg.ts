@@ -10,7 +10,7 @@ export const AVLAGG = {
 } as const;
 
 export interface VidaPunkt { nummer: string; lat: number | null; lng: number | null }
-export interface EgenMarkering { id: string; lat: number; lng: number; nummer?: number | string | null }
+export interface EgenMarkering { id: string; lat: number; lng: number; nummer?: number | string | null; viaLossaHar?: boolean }
 
 /** "Avlägg 2" och "2" är samma sak: rubriken står redan som "Avlägg". */
 export function visaNummer(nummer: string): string {
@@ -60,7 +60,7 @@ export function byggAvlagg(vida: readonly VidaPunkt[], egna: readonly EgenMarker
   const nr = egnaNummer(vida, egna);
   for (const e of egna) {
     if (!Number.isFinite(e.lat) || !Number.isFinite(e.lng)) continue;
-    ut.push({ id: `egen:${e.id}`, nummer: nr.get(e.id) ?? '', kalla: 'egen', lat: e.lat, lng: e.lng });
+    ut.push({ id: `egen:${e.id}`, nummer: nr.get(e.id) ?? '', kalla: 'egen', lat: e.lat, lng: e.lng, ...(e.viaLossaHar ? { viaLossaHar: true } : {}) });
   }
   return ut;
 }

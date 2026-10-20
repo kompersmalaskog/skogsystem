@@ -14,6 +14,8 @@ export interface Avlagg {
   kalla: AvlaggKalla;
   lat: number;
   lng: number;
+  /** Skapat med "Lossa här" (eget avlägg): det enda som flyttas mot snittet av lossningarna. Vidas och planerarens avlägg flyttas aldrig. */
+  viaLossaHar?: boolean;
 }
 
 /** Sortimentsraden i ett lass. `nyckel` är det som grupperar (skördarens namn, städat), `namn` det som visas. */
