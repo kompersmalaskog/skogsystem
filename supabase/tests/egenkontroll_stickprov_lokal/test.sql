@@ -6,12 +6,16 @@ select 'dragning 1: ny=' || (egenkontroll_stickprov_dra('2026-10-01')->>'ny');
 select 'dragning 2: ny=' || (egenkontroll_stickprov_dra('2026-10-01')->>'ny');
 select 'kandidater sep: ' || jsonb_array_length(kandidater) || ' (väntat 11: tio med timestamp + Betet AU via faktisk_slut)' from egenkontroll_stickprov where manad='2026-10-01';
 select 'valda: ' || jsonb_array_length(valda) || ' förklaring=' || forklaring || ' spridning=' || coalesce(spridning_km::text,'-') from egenkontroll_stickprov where manad='2026-10-01';
--- 2. Ankaret kan räknas om utan databasens slumpfunktion: md5(fro) -> 60 bitar -> mod n över id-sorterad lista
+-- 2. Ankaret räknas om utan databasens slumpfunktion (regel version 2): första kandidaten i fro-ordning med minst en granne inom 15 km
+select 'algoritm_version 2, ankare_forsok satt: ' || (algoritm_version = 2 and ankare_forsok >= 1) from egenkontroll_stickprov where manad='2026-10-01';
 select 'omräknat ankare stämmer: ' || (
-  (select (kandidater -> ((('x' || substr(md5(fro),1,15))::bit(60)::bigint) % jsonb_array_length(kandidater))::int ->> 'id')::uuid = ankare_objekt_id
-     and ankare_index = ((('x' || substr(md5(fro),1,15))::bit(60)::bigint) % jsonb_array_length(kandidater))::int
-   from egenkontroll_stickprov where manad='2026-10-01'));
-select 'kandidaterna är id-sorterade: ' || (select (select array_agg(e->>'id' order by ord) from jsonb_array_elements(kandidater) with ordinality t(e,ord)) = (select array_agg(e->>'id' order by e->>'id') from jsonb_array_elements(kandidater) e) from egenkontroll_stickprov where manad='2026-10-01');
+  select (
+    select k.id from jsonb_to_recordset(e.kandidater) k(id uuid, lat double precision, lng double precision)
+     where exists (select 1 from jsonb_to_recordset(e.kandidater) g(id uuid, lat double precision, lng double precision)
+                    where g.id <> k.id and egenkontroll_fagelvag_km(k.lat,k.lng,g.lat,g.lng) <= 15)
+     order by md5(e.fro || ':' || k.id::text) collate "C", k.id::text collate "C" limit 1) = e.ankare_objekt_id
+  from egenkontroll_stickprov e where e.manad='2026-10-01');
+select 'kandidaterna är id-sorterade: ' || (select (select array_agg(e->>'id' order by ord) from jsonb_array_elements(kandidater) with ordinality t(e,ord)) = (select array_agg(e->>'id' order by e->>'id' collate "C") from jsonb_array_elements(kandidater) e) from egenkontroll_stickprov where manad='2026-10-01');
 -- 3. Låset
 do $$ begin begin update egenkontroll_stickprov set fro='x'; raise exception 'UPDATE gick igenom'; exception when check_violation then null; end; end $$;
 do $$ begin begin delete from egenkontroll_stickprov; raise exception 'DELETE gick igenom'; exception when check_violation then null; end; end $$;
@@ -29,6 +33,7 @@ end $$;
 select 'invariant: valda<=3 ' || bool_and(jsonb_array_length(valda) between 1 and 3)
    || ' | grannar<=15km ' || bool_and((select coalesce(bool_and((e->>'km_fran_ankare')::numeric <= 15),true) from jsonb_array_elements(valda) e))
    || ' | ankare först ' || bool_and((valda->0->>'objekt_id')::uuid = ankare_objekt_id)
+   || ' | aldrig ensam när ett kluster finns ' || bool_and(jsonb_array_length(valda) >= 2 or not exists (select 1 from jsonb_to_recordset(kandidater) a(id uuid, lat double precision, lng double precision), jsonb_to_recordset(kandidater) b(id uuid, lat double precision, lng double precision) where a.id<>b.id and egenkontroll_fagelvag_km(a.lat,a.lng,b.lat,b.lng) <= 15))
    || ' | ingen GROT/ingen utan datum ' || bool_and(not exists (select 1 from jsonb_array_elements(kandidater) k where k->>'namn' like 'GROT%'))
    from utfall;
 select 'förklaringar: ' || string_agg(forklaring || '=' || n, ', ') from (select forklaring, count(*) n from utfall group by 1 order by 1) x;
@@ -60,6 +65,34 @@ select 'ankare utan plats: valda=' || jsonb_array_length(egenkontroll_stickprov_
 insert into objekt (namn, typ, status, lat, lng, avslutad_timestamp) values ('Gränsfall','gallring','avslutat',56.4,14.8,'2026-11-30 23:30+00');
 select 'gränsfall i december-källa: ' || exists (select 1 from jsonb_array_elements((egenkontroll_stickprov_dra('2027-01-01')->'kandidater')) k where k->>'namn'='Gränsfall');
 select 'gränsfall inte i november-källa: ' || not exists (select 1 from jsonb_array_elements((select kandidater from egenkontroll_stickprov where manad='2026-12-01')) k where k->>'namn'='Gränsfall');
+-- 8b. Inget kluster alls: tre objekt långt isär -> ett ensamt, det första i fro-ordning, ankare_forsok = antalet kandidater
+insert into objekt (namn, typ, status, lat, lng, avslutad_timestamp) values
+  ('Syd','gallring','avslutat',55.5,13.0,'2027-03-10 10:00+00'), ('Mitt','gallring','avslutat',57.5,15.0,'2027-03-11 10:00+00'), ('Nord','gallring','avslutat',59.5,17.0,'2027-03-12 10:00+00');
+select egenkontroll_stickprov_dra('2027-04-01') is not null as dragen;
+select 'inget kluster: valda=' || jsonb_array_length(valda) || ' förklaring=' || forklaring || ' ankare_forsok=' || ankare_forsok
+    || ' första i fro-ordning: ' || ((select k->>'id' from jsonb_array_elements(kandidater) k order by md5(fro || ':' || (k->>'id')) collate "C" limit 1)::uuid = ankare_objekt_id)
+  from egenkontroll_stickprov where manad='2027-04-01';
+-- 8c. Ett kluster + en ensam, ett ankare utan koordinat: ankare utan plats hoppas över så länge ett kluster finns
+insert into objekt (namn, typ, status, lat, lng, avslutad_timestamp) values
+  ('A','gallring','avslutat',56.40,14.80,'2027-05-10 10:00+00'), ('B','gallring','avslutat',56.41,14.81,'2027-05-11 10:00+00'),
+  ('Ensam','gallring','avslutat',58.0,16.0,'2027-05-12 10:00+00'), ('Plats saknas','gallring','avslutat',null,null,'2027-05-13 10:00+00');
+select set_config('app.stickprov_tillat_andring','on',false);
+create temp table k as select * from egenkontroll_stickprov where false;
+do $$ begin for i in 1..100 loop delete from egenkontroll_stickprov where manad='2027-06-01'; perform egenkontroll_stickprov_dra('2027-06-01'); insert into k select * from egenkontroll_stickprov where manad='2027-06-01'; end loop; end $$;
+select 'kluster + ensam + utan plats (100 dragningar): alltid A+B: ' || bool_and(jsonb_array_length(valda)=2 and (valda->0->>'namn') in ('A','B')) || ' | max ankare_forsok ' || max(ankare_forsok) from k;
+select set_config('app.stickprov_tillat_andring','off',false);
+-- 8d. Oktobers verkliga data (källa för november), 100 dragningar i en transaktion som rullas tillbaka
+begin;
+select set_config('app.stickprov_tillat_andring','on',true);
+create temp table okt as select * from egenkontroll_stickprov where false;
+do $$ begin for i in 1..100 loop delete from egenkontroll_stickprov where manad='2026-11-01'; perform egenkontroll_stickprov_dra('2026-11-01'); insert into okt select * from egenkontroll_stickprov where manad='2026-11-01'; end loop; end $$;
+select 'oktober: kandidater=' || jsonb_array_length(kandidater) from okt limit 1;
+select 'oktober: antal valda -> ' || string_agg(a || ' objekt: ' || n, ', ' order by a) from (select jsonb_array_length(valda) a, count(*) n from okt group by 1) x;
+select 'oktober: valda=' || jsonb_array_length(valda) || ' spridning=' || coalesce(spridning_km::text,'-') || ' forklaring=' || forklaring || ' dragningar=' || count(*) from okt group by jsonb_array_length(valda), spridning_km, forklaring order by 1;
+select 'oktober: ankare ' || (select string_agg(namn || '=' || n, ', ' order by namn) from (select k->>'namn' namn, count(*) n from okt o, jsonb_array_elements(o.valda) k where (k->>'ordning')::int=1 group by 1) q);
+select 'oktober: ankare_forsok -> ' || string_agg(ankare_forsok || ':' || n, ', ' order by ankare_forsok) from (select ankare_forsok, count(*) n from okt group by 1) q;
+rollback;
+select 'efter rollback: rader för november = ' || count(*) from egenkontroll_stickprov where manad='2026-11-01';
 -- 9. Publika funktionen (första månad flyttad till år 2000 i testkopian)
 select set_config('app.stickprov_tillat_andring','on',false);
 delete from egenkontroll_stickprov where manad >= '2026-09-01';
