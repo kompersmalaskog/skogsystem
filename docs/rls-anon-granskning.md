@@ -15,13 +15,16 @@ Att läsa `pg_policies` ensamt ger fel svar åt båda hållen. En tabell är öp
 Exempel åt båda hållen i den här databasen: `bestallningar` har policyn `Allow anonymous read` (ser öppen ut) men anon har **ingen** table-GRANT, så den är
 verkningslös; `objekt` har fyra policies som ser stängda ut (`authenticated`) men RLS är **av**, så de gör ingenting och anon har full CRUD.
 
-## 0. STOPP — bekräfta backup/PITR innan något arbete börjar
+## 0. Ordning och förutsättningar
 
-`anon` har **DELETE** på `objekt` och 10 tabeller till (avsnitt 3 och 2), och databasen går **inte att återskapa ur migrationerna** (de är additiva, innehållet
-saknas). Alltså:
+**Steg 1 (de fyra funktionerna) är KÖRT 2026-10-20 08:30 UTC** och krävde inte PITR: en `revoke` är reversibel med en `grant`. Migration `20261020083010_rls_steg1_revoke_fyra_funktioner`
+(filen i `supabase/migrations/`, byte-identisk med det som kördes). Före/efter står i avsnitt 1.
+
+**Steg 2–5 väntar på att Martin bekräftar backup/PITR.** De är inte reversibla på samma sätt (droppa backup-tabeller, slå på RLS, byta policies) och `anon` har **DELETE** på `objekt` och 10 tabeller
+till (avsnitt 2 och 3). Databasen går **inte att återskapa ur migrationerna** (de är additiva, innehållet saknas). Alltså, innan steg 2:
 1. Bekräfta i Supabase-konsolen att **Point-in-Time Recovery** är på, och vilket fönster som gäller.
 2. Ta en **manuell backup** (eller `pg_dump` av de tabeller som rörs) och kontrollera att den går att läsa tillbaka.
-3. Först därefter någon ändring nedan. Varje steg körs först som en `DO`-körning som slutar i `RAISE EXCEPTION` (rullas tillbaka), därefter på riktigt.
+3. Varje steg körs först som en `DO`-körning som slutar i `RAISE EXCEPTION` (rullas tillbaka), därefter på riktigt.
 
 ## Läget (verifierat)
 
@@ -45,21 +48,24 @@ Verifierat per funktion: `prosecdef`, `provolatile`, `proacl` och om källan all
 | `fordon_kör_notify()` | bigint | skickar fordonspåminnelser |
 | `fyll_dim_fran_trakt(p_objekt_id uuid)` | integer | skriver dim-rader ur en trakt (ingen anropare i appens kod hittad — kontrollera triggrar) |
 
-Alla fyra har `=X/postgres` i `proacl`, alltså EXECUTE via **PUBLIC**. Därför:
+Alla fyra hade `=X/postgres` i `proacl`, alltså EXECUTE via **PUBLIC**, plus en explicit grant till anon. Därför `from public, anon`:
 ```sql
 revoke execute on function public.fortnox_kör_sync()          from public, anon;
 revoke execute on function public.avtal_kör_notify()          from public, anon;
 revoke execute on function public.fordon_kör_notify()         from public, anon;
 revoke execute on function public.fyll_dim_fran_trakt(uuid)   from public, anon;
 ```
-`authenticated` och `service_role` har egna, explicita grants i `proacl` och berörs inte; pg_cron kör som `postgres` (ägaren) och berörs inte. Kontrollera
-efteråt med `has_function_privilege('anon', …)` (ska vara falskt) och `has_function_privilege('authenticated', …)` (ska vara sant).
+**Körd.** `proacl` före, identisk på alla fyra: `{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}`.
+`proacl` efter, identisk på alla fyra: `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`. Verifierat efteråt: `has_function_privilege` för `anon` = **false**, för `authenticated`,
+`service_role` och `postgres` = **true** på alla fyra. Anon-körbara funktioner i `public`: 272 → 268, varav DEFINER 26 → 22. pg_cron (jobb 1 och 3, kör som `postgres`) och alla fem cron-jobb är fortsatt aktiva.
+`fyll_dim_fran_trakt(uuid)` anropas av två INVOKER-triggerfunktioner (`objekt_autofyll_dim` på `objekt`, `dim_objekt_autofyll_fran_trakt` på `dim_objekt`) som körs som den som skriver; skrivarna är
+`authenticated` (appen) och `service_role` (importen), som behåller sina grants. Återställning om något oväntat visar sig: `grant execute on function … to public, anon;` med samma signaturer.
 
 **Inte utnyttjbara, trots sina namn.** Sex funktioner returnerar `trigger`; Postgres vägrar att anropa en triggerfunktion som RPC. De är alltså inte ett hål och
 ska inte röras: `koppla_konto_till_medarbetare`, `koppla_medarbetare_till_konto`, `skapa_fakturaunderlag_flytt`, `handle_new_user`, `logg_raderad_markering`,
 `kö_ledighet_notis`.
 
-**Redan täta.** `ratta_flytt` och `stryk_flytt` börjar med `if not ar_admin() then raise exception … errcode 42501`. Provat som anon: `stryk_flytt(…)` avvisades med
+**Redan täta (rörs inte).** `ratta_flytt` och `stryk_flytt` börjar med `if not ar_admin() then raise exception … errcode 42501`. Provat som anon: `stryk_flytt(…)` avvisades med
 `42501 Bara admin kan stryka en flytt` innan något skrevs. Täta — rör inte.
 
 ## 2. Backup-/testtabellerna (9 st, RLS av, anon CRUD)
@@ -102,26 +108,41 @@ revoke all on public.<tabell> from anon;      -- grant är det som faktiskt öpp
 `using (true)` för `authenticated` är fortfarande vidöppet *inom* företaget; skärp (per roll, per ägare) i ett eget steg efter att anon är stängt.
 `bestallningar`: släpp den verkningslösa policyn `Allow anonymous read` som städning (ingen risk, ingen effekt).
 
-## 5. `maskindata_*` (läsläckan) och release-grinden
+## 5. Maskindata-gruppen: ÅTTA funktioner (läsläckan)
 
-**Sex** `SECURITY DEFINER`-funktioner läser produktionsdata förbi RLS och är anropbara av anon utan kontroll av anroparen: `maskindata_avbrott`, `maskindata_lass`, `maskindata_lass_senaste`,
-`maskindata_produktion`, `maskindata_produktion_senaste`, `maskindata_tid`. **Bevisat:** som roll `anon` gav `maskindata_tid(array['R64428','PONS20SDJAA270231','R64101'], 2026-09-01, 2026-10-19)`
-**102 rader** (tid per dag och maskin). (Martin räknade sju; sjunde är troligen `maskindata_flertrad_period`, som inte syns bland anon-körbara DEFINER-funktioner — kontrollera `prosecdef` på den.)
-Appen anropar dem som inloggad (`supabase.rpc(...)` i `app/maskinvy/*`), så `authenticated` måste behålla sin explicita grant:
+Alla åtta har `=X/postgres` + explicit anon-grant + `authenticated` + `service_role`, och `search_path=public`. De skiljer sig i *skälet* till revoken — skriv inte fel skäl:
+
+| Funktion | SECURITY DEFINER | Skäl till revoke |
+|---|---|---|
+| `maskindata_avbrott(text[],date,date)` | **ja** | omgår RLS och saknar kontroll av anroparen — **bevisad läsläcka** (se nedan) |
+| `maskindata_lass(text[],date,date)` | **ja** | samma |
+| `maskindata_lass_senaste(text[])` | **ja** | samma |
+| `maskindata_produktion(text[],date,date)` | **ja** | samma |
+| `maskindata_produktion_senaste(text[])` | **ja** | samma |
+| `maskindata_tid(text[],date,date)` | **ja** | samma |
+| `maskin_har_manuell_datakalla(text)` | **ja** | DEFINER + anon-körbar; matchar inte prefixet `maskindata_` men hör i samma revoke (returnerar ett boolean per maskin) |
+| `maskindata_flertrad_period(text[],date,date)` | **nej** (INVOKER) | **grant-skälet, inte definer-skälet:** anon har EXECUTE (via PUBLIC och explicit) utan att behöva det. Som INVOKER lyder den RLS; inte visat att den läcker något — revokas för att grant-ytan ska stämma |
+
+**Bevisat för de sex DEFINER-funktionerna:** som roll `anon` gav `maskindata_tid(array['R64428','PONS20SDJAA270231','R64101'], 2026-09-01, 2026-10-19)` **102 rader** (tid per dag och maskin) — produktion, tid och lass till anon.
+Appen anropar dem som inloggad (`supabase.rpc(...)` i `app/maskinvy/*`), så `authenticated` behåller sin explicita grant:
 ```sql
-revoke execute on function public.maskindata_tid(text[], date, date)        from public, anon;   -- … samma för de övriga fem, med sina signaturer
+revoke execute on function public.maskindata_avbrott(text[], date, date)            from public, anon;
+revoke execute on function public.maskindata_lass(text[], date, date)               from public, anon;
+revoke execute on function public.maskindata_lass_senaste(text[])                   from public, anon;
+revoke execute on function public.maskindata_produktion(text[], date, date)        from public, anon;
+revoke execute on function public.maskindata_produktion_senaste(text[])             from public, anon;
+revoke execute on function public.maskindata_tid(text[], date, date)                from public, anon;
+revoke execute on function public.maskin_har_manuell_datakalla(text)                from public, anon;
+revoke execute on function public.maskindata_flertrad_period(text[], date, date)    from public, anon;
 ```
-Övriga 14 stable-funktioner är ofarliga: `aktuell_medarbetare_id`, `ar_admin`, `ar_godkannare`, `min_maskin_id`, `mina_operator_ids` returnerar anroparens egen identitet (null för anon),
-`flytt_ar_last` och `maskin_har_manuell_datakalla` returnerar ett boolean.
+Övriga stable DEFINER-funktioner är ofarliga och rörs inte: `aktuell_medarbetare_id`, `ar_admin`, `ar_godkannare`, `min_maskin_id`, `mina_operator_ids` returnerar anroparens egen identitet (null för anon), `flytt_ar_last` returnerar ett boolean.
 
-### Haken: `jamfor_migrationer` är release-grinden och är anon-körbar
-`public.jamfor_migrationer(jsonb)` är `SECURITY DEFINER` med en **explicit** anon-grant (ingen PUBLIC). Den används av `scripts/migrationskontroll.mjs`, `scripts/vad-slapps.mjs` och
-`.github/workflows/migrationskontroll.yml` med anon-nyckeln. En bred `revoke … from anon` på alla DEFINER-funktioner skulle döda deploy-grinden (felkod 2, "kör inte release").
-**Förslag: flytta grinden till service-nyckeln i stället för att undanta funktionen**, och sedan stänga den som alla andra:
-- `scripts/vad-slapps.mjs` körs på Martins dator där `SUPABASE_SERVICE_ROLE_KEY` redan finns i `.env.local`.
-- `scripts/migrationskontroll.mjs` vägrar i dag uttryckligen en servicenyckel ("ser ut som en servicenyckel — ska köras med anon/publishable") och har ett test för det; den spärren och dess test ska ändras medvetet.
-- CI-jobbet (varnar bara, ändrar inget) behöver en repository-secret i stället för variabel. **Avvägning:** en service-nyckel i CI är en större hemlighet att skydda än anon-nyckeln (loggar, PR:er från forkar får den inte). Alternativ: kör kontrollen bara lokalt och låt CI-jobbet utgå.
-- Först därefter: `revoke execute on function public.jamfor_migrationer(jsonb) from anon;` (och bekräfta att `vad-slapps.mjs` fortfarande går igenom).
+### Namngivet undantag: `jamfor_migrationer` behåller anon-körning
+`public.jamfor_migrationer(jsonb)` är release-grinden (`scripts/migrationskontroll.mjs`, `scripts/vad-slapps.mjs`, `.github/workflows/migrationskontroll.yml`, alla med anon-nyckeln). **Den behåller `anon=X`.** Skälet:
+- Dess ACL är `{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}` — **PUBLIC är redan borttaget** och rollerna explicit grantade. Det är det mönster alla funktionerna ovan ska få efter revoke; funktionen är alltså redan i önskat läge.
+- Den är `stable` och jämför bara migrationslistor mot de (version, namn) som anroparen själv skickar in; den läcker inget som är värt att skydda.
+- Alternativen är sämre: en service-nyckel som CI-secret är en större hemlighet än den den skulle skydda (och skriptet vägrar den med flit, med ett test), och att köra kontrollen bara lokalt gör att grinden slutar grinda.
+En bred `revoke … from anon` över alla DEFINER-funktioner får därför **aldrig** inkludera `jamfor_migrationer`; använd funktionslistorna ovan, inte en loop över `pg_proc`.
 
 ## 6. Kontroll av medveten anon-användning (avgör om tätningen är säker)
 
