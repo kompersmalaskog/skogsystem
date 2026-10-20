@@ -23,6 +23,7 @@ import {
   ritaPilIkon, zoomKurva,
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR } from './larm/grupper';
 
 // Radslut normaliseras: filen kan ha CRLF pa Windows och LF pa Vercel, och
 // vakten ska ge samma svar bada stallena.
@@ -64,11 +65,14 @@ function stopp(uttryck: string, vad: string): [number, number][] {
 
 const sammanfoga = (s: string) => s.replace(/\s+/g, '');
 
+/** Färgkonstanterna ur färggrupperna (lib/larm/grupper) som planeringens källtext använder vid namn. */
+const FARG_KONSTANTER: Record<string, string> = { FARG_FARA, FARG_NATUR, FARG_KULTUR };
+
 describe('LEGEND', () => {
   it('lib/kartstil.LEGEND ar identisk med LEGEND i planeringsvyn', () => {
     const block = mellan(KALLA, /const LEGEND = \{/, /\n\};/, 'LEGEND');
     const kalla: Record<string, string> = {};
-    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*'([^']+)'/gm))) kalla[m[1]] = m[2];
+    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*(?:'([^']+)'|(FARG_\w+))/gm))) kalla[m[1]] = m[2] ?? FARG_KONSTANTER[m[3]] ?? saknas(m[3]);
     expect(Object.keys(kalla).length).toBeGreaterThan(5);
     expect(LEGEND).toEqual(kalla);
   });
@@ -79,6 +83,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
   const farg = (tok: string) => {
     const l = /^LEGEND\.(\w+)$/.exec(tok);
     if (l) return (LEGEND as Record<string, string>)[l[1]] ?? saknas(`LEGEND.${l[1]}`);
+    if (FARG_KONSTANTER[tok]) return FARG_KONSTANTER[tok];
     const s = /^'([^']+)'$/.exec(tok);
     return s ? s[1] : saknas(`farg ${tok}`);
   };
@@ -142,8 +147,11 @@ describe('linjetyperna (lineTypeDefs)', () => {
   });
 
   it('stenmur: farg, bredd och streckning', () => {
-    const block = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
-    expect(block).toContain(`'line-color': '${STENMUR_FARG}'`);
+    const helt = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
+    expect(helt).toContain("id: 'line-stonewall-casing'");   // mörk kant under, som övriga linjer
+    const block = helt.slice(helt.indexOf("id: 'line-stonewall-base'"));
+    expect(block).toContain("'line-color': FARG_NATUR");
+    expect(STENMUR_FARG).toBe(FARG_NATUR);
     expect(stopp(block, 'stenmur/bredd')).toEqual(STENMUR_BREDD.map((s) => [...s]));
     expect(sammanfoga(block)).toContain(sammanfoga(`'line-dasharray': [${STRECK_STENMUR.join(', ')}]`));
     expect(sammanfoga(block)).toContain(sammanfoga("'line-cap': 'butt'"));

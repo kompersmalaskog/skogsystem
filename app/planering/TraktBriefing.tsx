@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ZONE_COLORS } from '@/lib/zone-colors'
+import { symbolFarg } from '@/lib/larm/grupper'
 import MarkeringFoto from './MarkeringFoto'
 
 // === Types ===
@@ -94,11 +95,11 @@ const A = '#8ab460';
 
 // Icon backgrounds & outlines (must match page.tsx markerIconDefs)
 const ICON_BG: Record<string, { bg: string; outline: string }> = {
-  eternitytree: { bg: '#30d158', outline: '#ffffff' },
-  naturecorner: { bg: '#30d158', outline: '#ffffff' },
-  culturemonument: { bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
-  culturestump: { bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
-  warning: { bg: '#E53935', outline: '#ffffff' },
+  eternitytree: { bg: symbolFarg('eternitytree'), outline: '#ffffff' },
+  naturecorner: { bg: symbolFarg('naturecorner'), outline: '#ffffff' },
+  culturemonument: { bg: symbolFarg('culturemonument'), outline: '#ffffff' },
+  culturestump: { bg: symbolFarg('culturestump'), outline: '#ffffff' },
+  warning: { bg: symbolFarg('warning'), outline: '#ffffff' },
 };
 const ICON_BG_DEFAULT = { bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' };
 

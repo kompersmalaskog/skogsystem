@@ -2,7 +2,10 @@
 // sa att forklaringen aldrig kan saga nagot annat an det som ritas. Ren data - inget React, ingen PDF.
 //
 // FARG AR ALDRIG ENSAM: varje linje har en egen bredd/streckning, och symboler bar sitt NAMN bredvid sig pa kartan. En rapport skrivs ofta ut
-// i svartvitt. Farger ur appens LEGEND (lib/kartstil.ts) sa att kartan i rapporten och kartan i appen kanns igen.
+// i svartvitt. Farger ur FARGGRUPPERNA (lib/larm/grupper: Rod = Fara, Gron = Natur, Brun = Kultur, Bla = Blott, Lila = Att gora, Mork = Info) sa att
+// kartan i rapporten och kartan i appen kanns igen. Kulturmiljo och Fornlamning har samma brun och skiljs darfor at med streckning och namn.
+
+import { FARG_FARA, FARG_NATUR, GRUPPER, symbolFarg, ytaDef } from './larm/grupper';
 
 export type KartMarkering =
   /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
@@ -23,35 +26,39 @@ export type MarkeringStil = {
 const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
   mainRoad: { etikett: 'Basväg', farg: '#3b82f6', bredd: 2.2, streck: null },
   ditch: { etikett: 'Dike', farg: '#0e7490', bredd: 0.9, streck: [3, 2] },
-  stonewall: { etikett: 'Stenmur', farg: '#5f5e5a', bredd: 1.6, streck: [2, 1] },
-  nature: { etikett: 'Naturvård (linje)', farg: '#30d158', bredd: 1.4, streck: [4, 2] },
+  stonewall: { etikett: 'Stenmur', farg: FARG_NATUR, bredd: 1.6, streck: [2, 1] },
+  nature: { etikett: 'Naturvård (linje)', farg: FARG_NATUR, bredd: 1.4, streck: [4, 2] },
   trail: { etikett: 'Stig', farg: '#8e8e93', bredd: 0.9, streck: [2, 2] },
 };
 
+/** Zonens färg ur dess färggrupp. */
+function zonFarg(typ: string): string { return GRUPPER[ytaDef(typ)!.grupp].farg; }
+
 const ZONER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
-  protected: { etikett: 'Hänsynsyta', farg: '#30d158', bredd: 1, streck: null },
-  fornlamning: { etikett: 'Fornlämning', farg: '#b45309', bredd: 1, streck: [3, 2] },
-  culture: { etikett: 'Kulturmiljö', farg: '#f59e0b', bredd: 1, streck: [3, 2] },
-  wet: { etikett: 'Blöt zon', farg: '#3b82f6', bredd: 1, streck: [1.5, 1.5] },
-  steep: { etikett: 'Brant', farg: '#a855f7', bredd: 1, streck: [1.5, 1.5] },
+  protected: { etikett: 'Hänsynsyta', farg: zonFarg('protected'), bredd: 1, streck: null },
+  fornlamning: { etikett: 'Fornlämning', farg: zonFarg('fornlamning'), bredd: 1.6, streck: null },
+  culture: { etikett: 'Kulturmiljö', farg: zonFarg('culture'), bredd: 1, streck: [3, 2] },
+  wet: { etikett: 'Blöt zon', farg: zonFarg('wet'), bredd: 1, streck: [1.5, 1.5] },
+  steep: { etikett: 'Brant', farg: zonFarg('steep'), bredd: 1, streck: [1.5, 1.5] },
+  noentry: { etikett: 'Ej framkomlig', farg: zonFarg('noentry'), bredd: 1.6, streck: [5, 1.5] },
 };
 
-const NATUR = '#30d158', KULTUR = '#f59e0b', FARA = '#ff453a', NEUTRAL = '#3a3a3c';
+const NATUR = FARG_NATUR, FARA = FARG_FARA, NEUTRAL = GRUPPER.info.farg;
 const SYMBOLER: Record<string, Omit<MarkeringStil, 'nyckel' | 'bredd' | 'streck'>> = {
   eternitytree: { etikett: 'Evighetsträd', farg: NATUR },
   highstump: { etikett: 'Högstubbar', farg: NATUR },
   naturecorner: { etikett: 'Naturvårdsyta', farg: NATUR },
-  culturemonument: { etikett: 'Kulturlämning', farg: KULTUR },
-  culturestump: { etikett: 'Kulturstubbe', farg: KULTUR },
+  culturemonument: { etikett: 'Kulturlämning', farg: symbolFarg('culturemonument') },
+  culturestump: { etikett: 'Kulturstubbe', farg: symbolFarg('culturestump') },
   warning: { etikett: 'Varning', farg: FARA },
   steep: { etikett: 'Brant', farg: FARA },
-  wet: { etikett: 'Blöt fläck', farg: FARA },
+  wet: { etikett: 'Blöt fläck', farg: symbolFarg('wet') },
   bridge: { etikett: 'Överfart', farg: NEUTRAL },
   corduroy: { etikett: 'Kavelbro', farg: NEUTRAL },
   landing: { etikett: 'Avlägg', farg: NEUTRAL },
   turningpoint: { etikett: 'Vändplats', farg: NEUTRAL },
   brashpile: { etikett: 'Rishög', farg: NEUTRAL },
-  manualfelling: { etikett: 'Manuell fällning', farg: FARA },
+  manualfelling: { etikett: 'Manuell fällning', farg: symbolFarg('manualfelling') },
   firewood: { etikett: 'Ved', farg: NEUTRAL },
 };
 

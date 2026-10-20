@@ -52,7 +52,7 @@ import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type Bra
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
-import { SYMBOL_GRUPP, symbolFarg } from '../../lib/larm/grupper'
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, SYMBOL_GRUPP, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
 import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
@@ -171,14 +171,14 @@ function openExternal(url: string) {
 // OBS: UI-chrome refererar INTE hit (egen färgaxel). vagColors (gallring-
 // snitsel = fysiska band) hålls medvetet inline — separat semantisk axel.
 const LEGEND = {
-  fara:          '#ff453a',  // röd       – traktgräns, ej framkomlig, naturvårds-kantrand
+  fara:          FARG_FARA,  // röd       – traktgräns, ej framkomlig, naturvårds-kantrand (lib/larm/grupper: EN källa)
   gul:           '#fbbf24',  // gul       – gräns/basväg-rand, gul väg, kultur-ikonkant
   vatten:        '#3b82f6',  // blå       – basväg, blå väg, blött, körriktning
-  naturvard:     '#30d158',  // grön      – naturvårdslinje/-zon, naturvård-ikon, fällriktning
+  naturvard:     FARG_NATUR, // grön      – naturvårdslinje/-zon, naturvård-ikon, fällriktning, stenmur
   naturvardKant: '#4ade80',  // ljusgrön  – naturvård-ikonkant
-  kultur:        '#f59e0b',  // ljus amber – kulturmiljö
-  fornlamning:   '#b45309',  // mörk amber – fornlämning (starkt lagskydd)
-  brant:         '#a855f7',  // lila      – brant
+  kultur:        FARG_KULTUR, // brun     – kulturmiljö (orange betyder bara tall)
+  fornlamning:   FARG_KULTUR, // brun     – fornlämning (samma brun, namnet står i ytan)
+  brant:         FARG_FARA,  // röd       – brant (Fara)
   dike:          '#06b6d4',  // cyan      – dike
   dikeKant:      '#0e7490',  // mörk cyan – dikeskant
   vit:           '#fff',     // vit       – stig/led
@@ -1374,15 +1374,16 @@ export default function PlannerPage() {
     map.addLayer({ id: 'zone-outline-gallring', type: 'line', source: 'zones-source', filter: gallringEjLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthGallring }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-gallring-lov', type: 'line', source: 'zones-source', filter: gallringLov, paint: { 'line-color': ['get', 'edgeColor'], 'line-width': zoneOutlineWidthLov }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
     map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'miter' } });
-    // Zon-etikett: BARA blöta (wet) zoner får texten "RISA" mitt på ytan → föraren ser instruktionen
-    // på EN BLICK utan att tappa. Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
+    // Zon-etikett: namnet mitt på ytan. Blött heter "RISA" (instruktionen på EN blick); övriga varningsytor heter sitt namn, för att
+    // Kulturmiljö och Fornlämning har samma brun (färggrupp Kultur) — färgen är aldrig ensam bärare. Gallringszonen har ingen etikett.
+    // Placeras på polygonens punkt-på-ytan (symbol-placement 'point').
     map.addLayer({
       id: 'zone-label',
       type: 'symbol',
       source: 'zones-source',
-      filter: ['==', ['get', 'zoneType'], 'wet'],
+      filter: ['in', ['get', 'zoneType'], ['literal', ['wet', 'steep', 'protected', 'culture', 'noentry', 'fornlamning']]],
       layout: {
-        'text-field': 'RISA',
+        'text-field': ['match', ['get', 'zoneType'], 'wet', 'RISA', 'steep', 'Brant', 'protected', 'Hänsyn', 'culture', 'Kulturmiljö', 'noentry', 'Ej framkomlig', 'fornlamning', 'Fornlämning', ''],
         'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 17, 17, 22],
         'text-allow-overlap': true,
@@ -1408,17 +1409,23 @@ export default function PlannerPage() {
       { id: 'nature', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
       { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
       { id: 'trail', color: LEGEND.vit, dashed: true },
-      { id: 'stonewall', color: '#5f5e5a', stonewall: true },
+      { id: 'stonewall', color: FARG_NATUR, stonewall: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
-      // Stenmur: eget block-streckat utseende (butt-cap, grå), skilt från generiska loopen.
-      // Enda gråa linjen på kartan. Färgen växlas i körvy-effekten (ljust #5f5e5a ↔ körvy #B4B2A9).
+      // Stenmur: eget block-streckat utseende (butt-cap), skilt från generiska loopen. Natur = grön (lib/larm/grupper) med mörk kant under
+      // (samma färg i planering och körvy — ingen växling; kanten bär den mot ljus och mörk karta).
       if (lt.id === 'stonewall') {
+        map.addLayer({
+          id: 'line-stonewall-casing', type: 'line', source: 'lines-source',
+          filter: ['==', ['get', 'lineType'], 'stonewall'],
+          paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-opacity': 0.5, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 7, 11, 8, 13, 9, 15, 10, 17, 12] },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        });
         map.addLayer({
           id: 'line-stonewall-base', type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], 'stonewall'],
           paint: {
-            'line-color': '#5f5e5a',
+            'line-color': FARG_NATUR,
             'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 6, 15, 7, 17, 9],
             'line-dasharray': [2, 0.85], // ~12/5 px vid ~6px bredd → läser som stenar på rad
           },
@@ -1780,9 +1787,9 @@ export default function PlannerPage() {
     map.addLayer({ id: 'trakt-gr-casing', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': 'rgba(0,0,0,0.9)', 'line-width': trTdCasingW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-line', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.fara, 'line-width': trTdW }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'trakt-gr-stripe', type: 'line', source: 'traktdel-parts-source', paint: { 'line-color': LEGEND.gul, 'line-width': trTdW, 'line-dasharray': [2, 2] }, layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' } });
-    // Hänsynsytor — blå fylld yta + kontur
-    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': ['coalesce', ['get', '_farg'], '#3b82f6'], 'line-width': 1.5 }, layout: { visibility: 'none' } });
+    // Hänsynsytor — grön fylld yta + kontur (Natur; Vidas egen _farg används inte: färgen kommer ur färggruppen)
+    map.addLayer({ id: 'trakt-hansyn-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'fill-color': FARG_NATUR, 'fill-opacity': 0.18 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-hansyn-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], paint: { 'line-color': FARG_NATUR, 'line-width': 1.5 }, layout: { visibility: 'none' } });
     // LOPNR mitt i varje hänsynsyta (symbol på polygon = centroid). Numret kopplar ytan till
     // traktdirektivets hänsynstabell; tryck på ytan öppnar åtgärdstexten (se handleTraktKlick).
     map.addLayer({ id: 'trakt-hansyn-label', type: 'symbol', source: 'trakt-geo-source', filter: ['==', ['get', '_typ'], 'hänsynsyta'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'LOPNR'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, visibility: 'none' }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
@@ -1792,7 +1799,7 @@ export default function PlannerPage() {
     // UNDANTAG: kraftledning använder INTE _farg. VIDA:s TColor för TYP 37 är SVART (rgb(0,0,0)),
     // och ett svart streck på gråskalig bakgrund i solljus är oläsbart — och det är den enda
     // linjen som kan döda någon. Alltid röd streckad. Ändra inte till _farg.
-    map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-kraftledning-line', type: 'line', source: 'trakt-geo-source', filter: ['all', ['==', ['get', '_typ'], 'linje'], ['in', 'kraftled', FLB]], paint: { 'line-color': FARG_FARA, 'line-width': 3, 'line-dasharray': [2, 1.5] }, layout: { visibility: 'none' } });
     // Kör & fara — punkter, ENDAST avlägg. Vidas avlägg ritas med VÅR avläggssymbol (samma bild som ett eget avlägg, `marker-landing`) och behåller Vidas nummer som etikett
     // (EXTRA_LABE); att de kommer från Vida syns bara i kortet vid tryck, aldrig på kartan. Larmkoordinaten ritas av det befintliga larm-pin-lagret (rött, överst) —
     // vi ritar INTE en dubblett här, därför filtrerar vi bort larm (['!', ['in','larm',FLB]]). Avlägget ligger ofta ~3 m från larmet: avläggssymbolen är en mörk
@@ -1805,15 +1812,15 @@ export default function PlannerPage() {
 
     // === Nyckelbiotoper (SV_SKS_NYCKELBIOTOP_101, Skogsstyrelsen) — svag grön fyllning + STRECKAD kontur ===
     // Streckningen skiljer dem från traktdelens heldragna gröna kontur. Tappbara → gemensamt kort.
-    map.addLayer({ id: 'trakt-nb-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'fill-color': '#16a34a', 'fill-opacity': 0.10 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-nb-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'line-color': '#16a34a', 'line-width': 2, 'line-dasharray': [3, 2] }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-nb-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'fill-color': FARG_NATUR, 'fill-opacity': 0.10 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-nb-line', type: 'line', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'SV_SKS_NYCKELBIOTOP_101'], paint: { 'line-color': FARG_NATUR, 'line-width': 2, 'line-dasharray': [3, 2] }, layout: { visibility: 'none' } });
 
-    // === RAÄ-lämningar (L_RAA_POLY/LINE/POINT_101, Riksantikvarieämbetet) — amber kontur/symbol ===
-    // Poly: svag fyllning + kontur. Line: amber streck. Point: liten amber prick med mörk kant.
-    // Samma amber som fornlämning i LEGEND (starkt lagskydd). Tappbara → gemensamt kort.
-    map.addLayer({ id: 'trakt-raa-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], paint: { 'fill-color': '#b45309', 'fill-opacity': 0.14 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-raa-line', type: 'line', source: 'trakt-geo-source', filter: ['in', ['get', '_lager'], ['literal', ['L_RAA_POLY_101', 'L_RAA_LINE_101']]], paint: { 'line-color': '#b45309', 'line-width': 2.5 }, layout: { visibility: 'none' } });
-    map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': '#b45309', 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
+    // === RAÄ-lämningar (L_RAA_POLY/LINE/POINT_101, Riksantikvarieämbetet) — brun kontur/symbol (Kultur) ===
+    // Poly: svag fyllning + kontur. Line: brunt streck. Point: liten brun prick med mörk kant.
+    // Samma brun som fornlämning och kulturminne (lib/larm/grupper). Tappbara → gemensamt kort.
+    map.addLayer({ id: 'trakt-raa-fill', type: 'fill', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POLY_101'], paint: { 'fill-color': FARG_KULTUR, 'fill-opacity': 0.14 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-raa-line', type: 'line', source: 'trakt-geo-source', filter: ['in', ['get', '_lager'], ['literal', ['L_RAA_POLY_101', 'L_RAA_LINE_101']]], paint: { 'line-color': FARG_KULTUR, 'line-width': 2.5 }, layout: { visibility: 'none' } });
+    map.addLayer({ id: 'trakt-raa-point', type: 'circle', source: 'trakt-geo-source', filter: ['==', ['get', '_lager'], 'L_RAA_POINT_101'], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 16, 7], 'circle-color': FARG_KULTUR, 'circle-stroke-color': '#1a1a1a', 'circle-stroke-width': 1.5 }, layout: { visibility: 'none' } });
 
     // Traktdelsnummer (TRDEL_NR_K) i mitten av varje traktdel — läggs SIST så det ligger överst.
     // (bit-numret ritas via yta-nr-source — en punkt per del, aldrig dubblerat vid inzoomning)
@@ -7800,21 +7807,12 @@ export default function PlannerPage() {
 
   // Bakgrundsfärg för ikoner
   const getIconBackground = (symbolId: string): string => {
-    const greenIcons = ['eternitytree', 'naturecorner'];
-    const orangeIcons = ['culturemonument', 'culturestump'];
-    if (greenIcons.includes(symbolId)) return LEGEND.naturvard;
-    if (orangeIcons.includes(symbolId)) return LEGEND.kultur;
-    if (symbolId === 'felloutside') return '#534AB7'; // lila — träd att avverka utanför gränsen
-    return 'rgba(0,0,0,0.6)';
+    // Färgen kommer ur FÄRGGRUPPEN (lib/larm/grupper); Info (Mörk) har den halvgenomskinliga svarta bakgrunden.
+    return gruppForSymbol(symbolId) === 'info' ? 'rgba(0,0,0,0.6)' : symbolFarg(symbolId);
   };
 
   const getIconBorder = (symbolId: string): string => {
-    const greenIcons = ['eternitytree', 'naturecorner'];
-    const orangeIcons = ['culturemonument', 'culturestump'];
-    if (greenIcons.includes(symbolId)) return LEGEND.naturvardKant;
-    if (orangeIcons.includes(symbolId)) return LEGEND.gul;
-    if (symbolId === 'felloutside') return '#7F77DD'; // ljusare lila kant
-    return 'rgba(255,255,255,0.15)';
+    return gruppForSymbol(symbolId) === 'info' ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.5)';   // vit kant på alla färggrupper — ingen andra nyans
   };
 
   const symbolCategories = [
@@ -7887,7 +7885,7 @@ export default function PlannerPage() {
     { id: 'trail', name: 'Stig/Led', color: LEGEND.vit, striped: false, dashed: true },
     // Stenmur: biotopskyddad hänsynslinje. Grå (enda gråa linjen). `color` = picker-swatch +
     // live-preview (mellangrå, syns i mörk meny OCH på ljus karta); kart-färgen sätts i lineTypeDefs.
-    { id: 'stonewall', name: 'Stenmur', color: '#8a8884', striped: false, dashed: true },
+    { id: 'stonewall', name: 'Stenmur', color: FARG_NATUR, striped: false, dashed: true },
   ];
 
   const zoneTypes = [
@@ -9814,10 +9812,6 @@ export default function PlannerPage() {
       }
       if (map.getLayer('lines-korvy-emphasis')) {
         map.setLayoutProperty('lines-korvy-emphasis', 'visibility', korvyActive ? 'visible' : 'none');
-      }
-      // Stenmur: ljusare grå i mörk körvy (#B4B2A9) så den inte drunknar, mörkgrå (#5f5e5a) i ljust läge.
-      if (map.getLayer('line-stonewall-base')) {
-        map.setPaintProperty('line-stonewall-base', 'line-color', korvyActive ? '#B4B2A9' : '#5f5e5a');
       }
     } catch { /* layer not ready */ }
   }, [korvyActive, mapLibreReady]);
@@ -14501,8 +14495,7 @@ export default function PlannerPage() {
             const bgColor = getIconBackground(m.type || '');
             // Mörkare bakgrund för bättre kontrast
             const darkBg = bgColor === 'rgba(0,0,0,0.6)' ? 'rgba(0,0,0,0.9)' : bgColor;
-            // Outline-färg per typ: gul → svart outline, grön/svart → vit outline
-            const outlineColor = bgColor === '#f59e0b' ? 'rgba(0,0,0,0.8)' : '#fff';
+            const outlineColor = '#fff';   // vit kant på alla färggrupper
             
             // Returnera null om symbolen inte ska visas
             if (!shouldShow) return null;
@@ -19435,7 +19428,7 @@ export default function PlannerPage() {
           vattenskydd: { icon: '⚠️', color: '#3b82f6', label: 'Vattenskyddsområde', link: 'https://skyddadnatur.naturvardsverket.se/' },
           naturreservat: { icon: '🛑', color: '#30d158', label: 'Naturreservat', link: 'https://skyddadnatur.naturvardsverket.se/' },
           natura2000: { icon: '🇪🇺', color: '#6366f1', label: 'Natura 2000', link: 'https://skyddadnatur.naturvardsverket.se/' },
-          fornlamning: { icon: '🏛️', color: '#f59e0b', label: 'Fornlämning' },
+          fornlamning: { icon: '🏛️', color: FARG_KULTUR, label: 'Fornlämning' },
           nyckelbiotop: { icon: '🌿', color: '#30d158', label: 'Nyckelbiotop', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
           biotopskydd: { icon: '🛡️', color: '#16a34a', label: 'Biotopskydd', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
           skogochhistoria: { icon: '🏚️', color: '#a16207', label: 'Skog och Historia' },

@@ -1,6 +1,8 @@
 // Liten förhandsbild per lagerrad i plusarkets Lager-flik: en stiliserad färgyta (CSS-bakgrund), inte en riktig kartruta —
 // ingen nätverkshämtning, fungerar utan täckning i hytten. Färgen följer lagrets egen färg (LayerDef.color) där den finns.
 
+import { GRUPPER } from './larm/grupper';
+
 const NEUTRAL = 'linear-gradient(135deg, #3a3a3c, #636366)';
 
 /** Bakgrundskartorna: en färgyta som liknar kartan (karta dämpad, flygfoto, topokarta, OpenStreetMap). */
@@ -14,11 +16,11 @@ export const BASKARTA_BILD: Readonly<Record<string, string>> = {
 /** Lager som inte kommer ur LayerDef (overlayLista i sidan): en färg per id. */
 const OVERLAY_FARG: Readonly<Record<string, string>> = {
   vidaKartbild: '#d8c79a',
-  hansyn: '#ffd60a',
-  traktNyckelbiotop: '#a855f7',
-  traktLamning: '#ff453a',
-  korFara: '#f59e0b',
-  wetlands: '#3b82f6',
+  hansyn: GRUPPER.natur.farg,
+  traktNyckelbiotop: GRUPPER.natur.farg,
+  traktLamning: GRUPPER.kultur.farg,
+  korFara: GRUPPER.fara.farg,
+  wetlands: GRUPPER.blott.farg,
   produktionshogar: '#2d6a4f',
   grothogar: '#f59e0b',
   brandrisk: '#f97316',
