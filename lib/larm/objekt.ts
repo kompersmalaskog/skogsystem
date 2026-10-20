@@ -2,7 +2,7 @@
 // Rena funktioner: positionen och koordinaterna kommer in, avstånd och "inne" räknas här.
 
 import { arInnePolygon, avstandPunktM, avstandTillLinjeM, narRuta, type LatLon } from './geo';
-import { LINJE_NAMN, VIDA, gruppForLinje, gruppForSymbol, ytaDef, type VidaSlag } from './grupper';
+import { LARMFRIA_SYMBOLER, LINJE_NAMN, VIDA, gruppForLinje, gruppForSymbol, ytaDef, type VidaSlag } from './grupper';
 import { innehallHash, type LarmObjekt } from './larm';
 
 /** Riktning i grader medurs från norr, från a till b. */
@@ -13,22 +13,21 @@ export function bearingM(a: LatLon, b: LatLon): number {
 }
 
 /**
- * Förarens egna prickar (pillräknaren, Högstubbe och Evighetsträd) och symboler han själv just satt larmar aldrig.
- * Samma symboler satta av planeraren larmar som övrig Natur: `sattAv` är bara 'forare' när föraren satte dem i körvyn.
+ * Högstubbe och Evighetsträd larmar aldrig — varken prickarna föraren sätter med pillräknaren eller planerarens symboler av samma typ
+ * (`LARMFRIA_SYMBOLER`). Naturhörna larmar som övrig Natur. Dessutom larmar aldrig en symbol föraren själv just satt i den här sessionen.
  */
-export function arForarsEgen(m: { type?: string; sattAv?: string }, sattDennaSession: boolean): boolean {
-  if (sattDennaSession) return true;
-  return m.sattAv === 'forare' && (m.type === 'highstump' || m.type === 'eternitytree');
+export function arUndantagen(typ: string | undefined, sattDennaSession: boolean): boolean {
+  return sattDennaSession || (!!typ && LARMFRIA_SYMBOLER.includes(typ));
 }
 
-export interface SymbolIn { id: string | number; type?: string; comment?: string; lat: number; lon: number; sattAv?: string }
+export interface SymbolIn { id: string | number; type?: string; comment?: string; lat: number; lon: number }
 
 export function symbolObjekt(m: SymbolIn, namn: string, pos: LatLon, sattDennaSession: boolean): LarmObjekt {
   const p = { lat: m.lat, lon: m.lon };
   return {
     id: String(m.id), kalla: 'symbol', grupp: gruppForSymbol(m.type), namn, typ: m.type,
     hash: innehallHash({ type: m.type, comment: m.comment }), kommentar: m.comment || null,
-    avstandM: avstandPunktM(pos, p), bearing: bearingM(pos, p), undantagen: arForarsEgen(m, sattDennaSession),
+    avstandM: avstandPunktM(pos, p), bearing: bearingM(pos, p), undantagen: arUndantagen(m.type, sattDennaSession),
   };
 }
 

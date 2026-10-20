@@ -27,13 +27,14 @@ describe('kvittens per förare', () => {
     const { karta, fel } = await hamtaKvittens(fakeDb([], 'nätet'), 'o1', 'A');
     expect(karta.size).toBe(0); expect(fel).toBe('nätet');
   });
-  it('sparar med förare, namn, grupp och tid; en rad per objekt+markering+förare', async () => {
+  it('sparar med förare, namn och grupp (tiden sätter servern); en rad per objekt+markering+förare', async () => {
     const db = fakeDb();
-    const fel = await sparaKvittens(db, { objektId: 'o1', markerId: 'm1', forareId: 'A', forareNamn: 'Stefan', typ: 'powerline', namn: 'El-ledning', grupp: 'fara', hash: 'h', tid: '2026-10-20T08:00:00Z' });
+    const fel = await sparaKvittens(db, { objektId: 'o1', markerId: 'm1', forareId: 'A', forareNamn: 'Stefan', typ: 'powerline', namn: 'El-ledning', grupp: 'fara', hash: 'h' });
     expect(fel).toBeNull();
     const [, tabell, rad, opt] = db.logg.find((l) => l[0] === 'upsert')!;
     expect(tabell).toBe('korvy_kvittens_forare');
-    expect(rad).toMatchObject({ objekt_id: 'o1', marker_id: 'm1', forare_id: 'A', forare_namn: 'Stefan', grupp: 'fara', innehall_hash: 'h', kvitterad_at: '2026-10-20T08:00:00Z' });
+    expect(rad).toMatchObject({ objekt_id: 'o1', marker_id: 'm1', forare_id: 'A', forare_namn: 'Stefan', grupp: 'fara', innehall_hash: 'h' });
+    expect(rad).not.toHaveProperty('kvitterad_at');   // tiden sätts av servern (trigger), aldrig av klienten
     expect(opt).toEqual({ onConflict: 'objekt_id,marker_id,forare_id' });
   });
   it('ett skrivfel returneras (sidan visar det, larmet står kvar)', async () => {

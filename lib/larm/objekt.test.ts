@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arForarsEgen, linjeObjekt, symbolObjekt, vidaObjekt, vidaSlag, ytaObjekt } from './objekt';
+import { arUndantagen, linjeObjekt, symbolObjekt, vidaObjekt, vidaSlag, ytaObjekt } from './objekt';
 import { stegaLarm, TOMT_LARM } from './larm';
 
 const O = { lat: 56.5, lon: 14.7 };
@@ -22,22 +22,26 @@ describe('symbolObjekt', () => {
   });
 });
 
-describe('förarens egna prickar är undantagna, planerarens larmar', () => {
-  it('prick satt av föraren (pillräknaren): undantagen', () => {
-    expect(arForarsEgen({ type: 'eternitytree', sattAv: 'forare' }, false)).toBe(true);
-    expect(arForarsEgen({ type: 'highstump', sattAv: 'forare' }, false)).toBe(true);
+describe('Högstubbe och Evighetsträd larmar ALDRIG (typen avgör, inte vem som satte dem)', () => {
+  it('båda typerna är undantagna, oavsett vem som satte dem', () => {
+    expect(arUndantagen('eternitytree', false)).toBe(true);
+    expect(arUndantagen('highstump', false)).toBe(true);
   });
-  it('samma symboler satta av planeraren (inget sattAv): larmar som övrig Natur', () => {
-    expect(arForarsEgen({ type: 'eternitytree' }, false)).toBe(false);
-    expect(arForarsEgen({ type: 'highstump' }, false)).toBe(false);
-    const o = symbolObjekt({ id: 1, type: 'eternitytree', lat: p(0, 20).lat, lon: p(0, 20).lon }, 'Evighetsträd', O, false);
-    expect(stegaLarm({ objekt: [o], kvitt: new Map(), forareId: 'A', state: TOMT_LARM }).kort).not.toBeNull();
+  it('planerarens evighetsträd och högstubbe ger varken kort, ring eller Sett-rad', () => {
+    for (const typ of ['eternitytree', 'highstump']) {
+      const o = symbolObjekt({ id: 1, type: typ, lat: p(0, 20).lat, lon: p(0, 20).lon }, typ, O, false);
+      expect(o.undantagen).toBe(true);
+      const r = stegaLarm({ objekt: [o], kvitt: new Map(), forareId: 'A', state: TOMT_LARM });
+      expect(r.kort).toBeNull(); expect(r.settRad).toBeNull(); expect(r.ljud).toBeNull(); expect(r.ringar).toEqual([]);
+    }
   });
-  it('naturhörna satt av planeraren larmar; naturhörna med sattAv "forare" är INTE undantagen (bara prickarna)', () => {
-    expect(arForarsEgen({ type: 'naturecorner', sattAv: 'forare' }, false)).toBe(false);
+  it('Naturhörna larmar som övrig Natur (tills kvitterat)', () => {
+    expect(arUndantagen('naturecorner', false)).toBe(false);
+    const o = symbolObjekt({ id: 2, type: 'naturecorner', lat: p(0, 20).lat, lon: p(0, 20).lon }, 'Naturhörna', O, false);
+    expect(stegaLarm({ objekt: [o], kvitt: new Map(), forareId: 'A', state: TOMT_LARM }).kort).toMatchObject({ grupp: 'natur' });
   });
-  it('en symbol föraren själv just satt (denna session) är undantagen, av vilken typ som helst', () => {
-    expect(arForarsEgen({ type: 'powerline' }, true)).toBe(true);
+  it('en symbol föraren själv just satt i sessionen larmar inte, av vilken typ som helst', () => {
+    expect(arUndantagen('powerline', true)).toBe(true);
   });
 });
 

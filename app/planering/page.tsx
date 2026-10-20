@@ -51,6 +51,7 @@ import { avlaggAttSkriva, avlaggBaslinjeFran, avlaggFullRad, mergaAvlagg, type A
 import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type BrandBaslinje } from '../../lib/brandSpar'
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
+import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { LarmKortVy, SettRad } from '../../components/planering/LarmKort'
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, SYMBOL_GRUPP, gruppForSymbol, symbolFarg } from '../../lib/larm/grupper'
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
@@ -355,7 +356,6 @@ interface Marker {
   x?: number;           // symboler och pilar; linjer och zoner har path i stället
   y?: number;
   type?: string;
-  sattAv?: 'forare';   // satt av föraren i körvyn (pillräknaren: högstubbe/evighetsträd): bara DE prickarna larmar aldrig (lib/larm/objekt). Saknas = planerarens → larmar som övrig Natur
   avlaggNummer?: string;   // ett eget avläggs löpnummer (skotarläget, lib/skotarLass/avlagg): sätts en gång och behålls
   isMarker?: boolean;
   isArrow?: boolean;
@@ -1963,7 +1963,7 @@ export default function PlannerPage() {
           },
         });
         console.log('[MapLibre] markers-layer added');
-        // PRICKARNA: ca 6 px, svag grön (evighetsträd) / brun (högstubbe), ingen ikon/etikett. Bara körvyns features bär prick=true.
+        // PRICKARNA: ca 6 px, grön (Natur, båda typerna), ingen ikon/etikett. Bara körvyns features bär prick=true.
         map.addLayer({
           id: 'markers-prick',
           type: 'circle',
@@ -1971,7 +1971,7 @@ export default function PlannerPage() {
           filter: ['==', ['get', 'prick'], true],
           paint: {
             'circle-radius': PRICK_DIAMETER_PX / 2,
-            'circle-color': ['match', ['get', 'type'], 'eternitytree', FARG.gron, DELFARG[5]],
+            'circle-color': ['match', ['get', 'type'], 'eternitytree', symbolFarg('eternitytree'), symbolFarg('highstump')],   // Natur (grön) för båda — lib/larm/grupper
             'circle-opacity': 0.75,
             'circle-stroke-width': 1,
             'circle-stroke-color': FARG.text,
@@ -3195,8 +3195,8 @@ export default function PlannerPage() {
     const sisteGiltig = { t: 0 };
     const handle: GpsKallaHandle = startaGpsKalla((fix) => {
       if (fix.giltig && fix.lat != null && fix.lng != null) {
-        setCurrentPosition({ lat: fix.lat, lon: fix.lng });
-        setGpsPosition({ lat: fix.lat, lng: fix.lng });
+        if (!testlageAktivRef.current) setCurrentPosition({ lat: fix.lat, lon: fix.lng });   // testläget: positionen flyttas för hand (Flytta mig hit)
+        if (!testlageAktivRef.current) setGpsPosition({ lat: fix.lat, lng: fix.lng });
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         // GPS-KURSEN (NMEA VTG/RMC) matar körvyns rotation när kompassen saknas (maskindator).
         // Utan detta stod kartan norr-upp på PC (deviceorientation finns inte där).
@@ -3231,8 +3231,8 @@ export default function PlannerPage() {
     setGpsStatus({ kind: 'searching', at: Date.now() });
     hamtaEnGpsFix(20000).then((fix) => {
       if (fix && fix.giltig && fix.lat != null && fix.lng != null) {
-        setCurrentPosition({ lat: fix.lat, lon: fix.lng });
-        setGpsPosition({ lat: fix.lat, lng: fix.lng });
+        if (!testlageAktivRef.current) setCurrentPosition({ lat: fix.lat, lon: fix.lng });   // testläget: positionen flyttas för hand (Flytta mig hit)
+        if (!testlageAktivRef.current) setGpsPosition({ lat: fix.lat, lng: fix.lng });
         setGpsAccuracy(fix.noggrannhetM != null ? fix.noggrannhetM : (fix.hdop != null ? Math.max(1, fix.hdop * 5) : 8));
         setGpsFixAt(Date.now());
         setGpsStatus({ kind: 'ok', at: Date.now() });
@@ -5032,7 +5032,8 @@ export default function PlannerPage() {
       const m = markersRef.current.find(x => String(x.id) === String(rawId));
       if (!m) return;
       // Körvyn: högstubbe/evighetsträd är prickar → litet kort "vad det är + Ta bort" i st.f. det fulla markörkortet.
-      if (korvyActiveRef.current && arPrick(m.type)) { setPrickValt({ id: String(m.id), typ: String(m.type) }); return; }
+      // En prick med foto (planerarens) öppnar det fulla markörkortet, där fotot syns; utan foto det lilla kortet.
+      if (korvyActiveRef.current && arPrick(m.type) && !harFoto(m)) { setPrickValt({ id: String(m.id), typ: String(m.type) }); return; }
       if (stickvagOversiktRef.current) {
         setSelectedOversiktItem(m);
         setSelectedOversiktVag(null);
@@ -8982,6 +8983,31 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, korvyEffectivePos, korvyHeading, markers, skotarKorvy]);
 
+  // === TESTLÄGE (/maskin?som=…, bara admin): "Flytta mig hit" — tryck på kartan flyttar den visade maskinens position för hand ===
+  // Skrivbordet har ingen riktig GPS (och testläget använder aldrig datorns): utan detta går körvyns larm inte att prova. Hubbens fixar rör inte
+  // positionen i testläget (se `testlageAktivRef` vid varje setCurrentPosition), så den flyttas bara av trycket. Riktningen följer rörelsen (> 3 m).
+  // Ingenting skrivs i databasen (hyttspår, kvittenser och lass är redan torra i testläget). Finns inte utanför testläget.
+  const [testFlyttaMig, setTestFlyttaMig] = useState(false);
+  const testPosRef = useRef<{ lat: number; lon: number } | null>(null);
+  const flyttaTestPosition = useCallback((lat: number, lon: number) => {
+    const fran = testPosRef.current;
+    if (fran && haversineM(fran.lat, fran.lon, lat, lon) >= 3) setGpsHeading(bearingTo(fran.lat, fran.lon, lat, lon));
+    testPosRef.current = { lat, lon };
+    setCurrentPosition({ lat, lon });
+    setGpsPosition({ lat, lng: lon });
+    setGpsAccuracy(5);
+    setGpsFixFarsk(true);
+    setGpsFordrojdMs(null);
+    setGpsFixAt(Date.now());
+    setGpsStatus({ kind: 'ok', at: Date.now() });
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!testlage) { testPosRef.current = null; setTestFlyttaMig(false); } }, [testlage]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !testlage || !testFlyttaMig) return;
+    return kopplaFlyttaMig(map, flyttaTestPosition);
+  }, [mapLibreReady, testlage, testFlyttaMig, flyttaTestPosition]);
+
   // 8) LARMET (körvy OCH skotarläge): lib/larm avgör vad som larmar (typen → färggrupp → regel), hooken matar den med markeringar,
   //    linjer (Stenmur, Risa), ytor och Vidas geometri. ETT kort överst med namn och meter, ETT ljud, "Sett <Namn>" nederst.
   //    Kvitteringen sparas per förare (korvy_kvittens_forare) med den RIKTIGA inloggade föraren — aldrig en simulerad.
@@ -8997,6 +9023,7 @@ export default function PlannerPage() {
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id), namn: currentMedarbetare.namn ?? null } : null,
     db: supabase,
     ljudCtx: () => korvyAudioCtxRef.current,
+    torr: !!testlage,   // testläget skriver inga kvittenser
   });
 
   // === GPS-PRICK på kartan (Apple Maps-stil) — WebGL circle-layers ===
@@ -10975,8 +11002,8 @@ export default function PlannerPage() {
 
         // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
         // Även osäkra positioner (20-50m) är bra nog för varningar
-        setCurrentPosition(newPos);
-        setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
+        if (!testlageAktivRef.current) setCurrentPosition(newPos);   // testläget: positionen flyttas för hand (Flytta mig hit)
+        if (!testlageAktivRef.current) setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
         setGpsAccuracy(accuracy);
 
         // GPS-heading (faktisk färdriktning) — bara giltigt vid rörelse ≥1 m/s
@@ -11293,8 +11320,8 @@ export default function PlannerPage() {
             const accuracy = pos.coords.accuracy;
 
             // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
-            setCurrentPosition(newPos);
-            setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
+            if (!testlageAktivRef.current) setCurrentPosition(newPos);   // testläget: positionen flyttas för hand (Flytta mig hit)
+            if (!testlageAktivRef.current) setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
         setGpsAccuracy(accuracy);
 
             const isAccurate = accuracy <= 15;
@@ -11761,7 +11788,6 @@ export default function PlannerPage() {
     const id = Date.now();
     const m: any = nyMarkering(typ, id, x, y);
     if (typ === 'landing') m.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
-    if (korvyActive) m.sattAv = 'forare';
     if (!korvyActive) saveToHistory([...markers]);
     setMarkers((prev: any[]) => [...prev, m]);
     korvyEgnaMarkorRef.current.add(String(id));
@@ -12697,6 +12723,10 @@ export default function PlannerPage() {
               Visa morgonkort
             </button>
           )}
+          <button type="button" data-testid="test-flytta-mig" aria-pressed={testFlyttaMig} onClick={() => setTestFlyttaMig((v) => !v)}
+            style={{ background: testFlyttaMig ? '#1a1200' : 'rgba(0,0,0,0.25)', color: testFlyttaMig ? '#f59e0b' : '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+            {testFlyttaMig ? 'Tryck på kartan' : 'Flytta mig hit'}
+          </button>
           <button type="button" onClick={avslutaTestlage}
             style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
             Avsluta
@@ -17002,8 +17032,8 @@ export default function PlannerPage() {
                             const accuracy = pos.coords.accuracy;
 
                             // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
-                            setCurrentPosition(newPos);
-                            setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
+                            if (!testlageAktivRef.current) setCurrentPosition(newPos);   // testläget: positionen flyttas för hand (Flytta mig hit)
+                            if (!testlageAktivRef.current) setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
         setGpsAccuracy(accuracy);
 
                             // Ignorera osäkra positioner

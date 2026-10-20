@@ -76,6 +76,15 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     expect(db.upserts[0]).toMatchObject({ objekt_id: 'o1', marker_id: '1', forare_id: 'A', forare_namn: 'Stefan', grupp: 'kultur' });
   });
 
+  it('TESTLÄGE (torr): Sett tystar i minnet men skriver ingenting i databasen', async () => {
+    const db = fakeDb([]);
+    mount(bas({ markers: [sym(1, 'culturemonument', 30)], db, torr: true })); await tom();
+    expect(ut.settRad).toEqual({ id: '1', namn: 'Kulturminne' });
+    await act(async () => { ut.kvittera(); });
+    expect(ut.settRad).toBeNull();
+    expect(db.upserts).toHaveLength(0);
+  });
+
   it('en annan förare får fullt larm trots att Stefan kvitterat; Stefan själv får inget kort efter kvittering', async () => {
     const rader: Rad[] = [{ objekt_id: 'o1', marker_id: '1', forare_id: 'A', innehall_hash: '', kvitterad_at: 't' }];
     // hashen måste stämma: läs den ur en första körning
@@ -125,14 +134,16 @@ describe('useKorvyLarm — kopplingen till sidan', () => {
     expect(ut.kort).toBeNull(); expect(ut.settRad).toBeNull(); expect(ut.ringar).toEqual([]);
   });
 
-  it('en symbol föraren själv just satt, och förarens egna prickar, larmar inte — men planerarens evighetsträd gör det', async () => {
+  it('en symbol föraren själv just satt larmar inte; Högstubbe och Evighetsträd larmar aldrig (inte heller planerarens); Naturhörna gör det', async () => {
     mount(bas({ markers: [sym(5, 'culturemonument', 5)], egna: new Set(['5']) })); await tom();
     expect(ut.kort).toBeNull();
+    for (const typ of ['highstump', 'eternitytree']) {
+      document.body.innerHTML = '';
+      mount(bas({ markers: [sym(6, typ, 5)] })); await tom();
+      expect(ut.kort, typ).toBeNull(); expect(ut.settRad, typ).toBeNull(); expect(ut.ringar, typ).toEqual([]);
+    }
     document.body.innerHTML = '';
-    mount(bas({ markers: [sym(6, 'highstump', 5, { sattAv: 'forare' })] })); await tom();
-    expect(ut.kort).toBeNull();
-    document.body.innerHTML = '';
-    mount(bas({ markers: [sym(7, 'eternitytree', 5)] })); await tom();
+    mount(bas({ markers: [sym(7, 'naturecorner', 5)] })); await tom();
     expect(ut.kort).toMatchObject({ grupp: 'natur' });
   });
 

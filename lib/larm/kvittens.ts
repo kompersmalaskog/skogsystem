@@ -1,4 +1,5 @@
 // Kvittens PER FÖRARE (tabellen korvy_kvittens_forare, migration 20261020091340). Tystar bara den som kvitterat.
+// TIDEN sätts av SERVERN (trigger, migration 20261020100544): klienten skickar ingen tid och kan inte ange en.
 // Röd (fara) kvitteras också — som bevis för egenkontrollen — men tystas aldrig (lib/larm/larm).
 
 import type { Kvittens, KvittensKarta } from './larm';
@@ -18,7 +19,7 @@ export async function hamtaKvittens(db: Klient, objektId: string, forareId: stri
 
 export interface KvittensIn {
   objektId: string; markerId: string; forareId: string; forareNamn?: string | null;
-  typ?: string | null; namn?: string | null; grupp?: string | null; hash: string; tid?: string;
+  typ?: string | null; namn?: string | null; grupp?: string | null; hash: string;
 }
 
 export async function sparaKvittens(db: Klient, k: KvittensIn): Promise<string | null> {
@@ -26,7 +27,6 @@ export async function sparaKvittens(db: Klient, k: KvittensIn): Promise<string |
     {
       objekt_id: k.objektId, marker_id: k.markerId, forare_id: k.forareId, forare_namn: k.forareNamn ?? null,
       marker_type: k.typ ?? null, marker_name: k.namn ?? null, grupp: k.grupp ?? null, innehall_hash: k.hash,
-      kvitterad_at: k.tid ?? new Date().toISOString(),
     },
     { onConflict: 'objekt_id,marker_id,forare_id' },
   );

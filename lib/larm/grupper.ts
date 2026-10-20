@@ -51,6 +51,9 @@ export const SYMBOL_GRUPP: Readonly<Record<string, FargGrupp>> = {
   ditch: 'info', bridge: 'info', corduroy: 'info', trail: 'info', default: 'info',
 };
 
+/** Larmar ALDRIG, oavsett vem som satte dem: förarens pillräknare och planerarens symboler av samma typ (Martin 2026-10-20). Ritas gröna (Natur) som förut. */
+export const LARMFRIA_SYMBOLER: readonly string[] = ['highstump', 'eternitytree'];
+
 export const gruppForSymbol = (typ: string | null | undefined): FargGrupp => (typ && SYMBOL_GRUPP[typ]) || 'info';
 export const symbolFarg = (typ: string | null | undefined): string => GRUPPER[gruppForSymbol(typ)].farg;
 

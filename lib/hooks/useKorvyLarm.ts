@@ -35,6 +35,8 @@ export interface KorvyLarmIn {
   forare: { id: string; namn: string | null } | null;
   db: { from: (tabell: string) => any };
   ljudCtx: () => AudioContext | null;
+  /** Testläget (/maskin?som=): kvitteringen gäller bara i minnet, ingenting skrivs i databasen. */
+  torr?: boolean;
 }
 
 export interface KorvyLarmUt {
@@ -86,7 +88,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     for (const m of inp.markers) {
       if (m.isMarker && typeof m.x === 'number' && typeof m.y === 'number') {
         const ll = inp.svgToLatLon(m.x, m.y);
-        const o = symbolObjekt({ id: m.id, type: m.type, comment: m.comment, lat: ll.lat, lon: ll.lon, sattAv: m.sattAv }, inp.typNamn(m.type), pos, inp.egna.has(String(m.id)));
+        const o = symbolObjekt({ id: m.id, type: m.type, comment: m.comment, lat: ll.lat, lon: ll.lon }, inp.typNamn(m.type), pos, inp.egna.has(String(m.id)));
         objekt.push(o);
         geom.set(o.id, { type: 'Point', coordinates: punkt(ll) });
       } else if (m.isLine && m.path?.length > 1) {
@@ -138,9 +140,10 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     setUt((u) => (u.settRad?.id === rad.id ? { ...u, settRad: null } : u));
     if (!i.forare || !i.objektId) return;
     kvittRef.current = medKvittens(kvittRef.current, rad.id, { hash: o.hash, forareId: i.forare.id, tid });
+    if (i.torr) return;   // testläget skriver inget i databasen
     void sparaKvittens(i.db, {
       objektId: i.objektId, markerId: rad.id, forareId: i.forare.id, forareNamn: i.forare.namn,
-      typ: o.typ ?? null, namn: o.namn, grupp: o.grupp, hash: o.hash, tid,
+      typ: o.typ ?? null, namn: o.namn, grupp: o.grupp, hash: o.hash,
     }).then((fel) => { if (fel) console.error('[Körvy larm] kvittens, sparning:', fel); });
   }, [ut.settRad]);
 
