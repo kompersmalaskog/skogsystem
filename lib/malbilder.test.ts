@@ -177,7 +177,10 @@ describe('lib/malbilder — källa per sort (bara en länk, ingen kopierad bild)
     // ämnen utan egen adress pekar på samlingssidan — aldrig en gissad adress
     for (const n of ['evighetstrad', 'hogstubbe', 'naturhorna']) expect(rad(n), n).toEqual(['Skogsstyrelsen', 'Träd och buskar med naturvärden samt död ved', SAMLING]);
     for (const n of ['nyckelbiotop', 'hansyn']) expect(rad(n), n).toEqual(['Skogsstyrelsen', 'Hänsynskrävande biotoper', SAMLING]);
-    expect(rad('blott')).toEqual(['Skogsstyrelsen', 'Körning i skogsmark', SAMLING]);
+    // Blött (skördare, skotare och Fuktig mark delar nyckeln) har ämnets egen PDF, inte samlingssidan
+    expect(rad('blott')).toEqual(['Skogsstyrelsen', 'Körning i skogsmark', SKS + 'globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-korning-i-skogsmark/malbild-korning-i-skogsmark.pdf']);
+    expect(malbildNyckel('symbol', 'wet')).toBe('blott');
+    expect(malbildNyckel('yta', 'wet')).toBe('blott');
     expect(rad('kantzon')[1]).toBe('Kantzoner mot sjöar och vattendrag');
     expect(rad('kantzon')[2]).toMatch(/^https:\/\/www\.skogsstyrelsen\.se\/globalassets\/mer-om-skog\/malbilder-for-god-miljohansyn\/malbilder-kantzoner-mot-sjoar-och-vattendrag\/.+\.pdf$/);
   });

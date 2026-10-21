@@ -451,11 +451,13 @@ describe('MalbildBlad — källraden längst ner (en länk per sort, ny flik)', 
     expect(fot.contains(kalla)).toBe(false);
     expect((kalla.parentElement as HTMLElement).style.overflowY).toBe('auto');
   });
-  it('liten och grå med minst 44 px tryckyta', () => {
+  it('liten, i länkblå (bara texten, ingen knappbakgrund) med minst 44 px tryckyta', () => {
     blad('avlagg');
     const a = q('malbild-kalla') as HTMLElement;
     expect(a.style.minHeight).toBe('44px');
-    expect(a.style.color).toBe('rgb(142, 142, 147)');
+    expect(a.style.color).toBe('rgb(10, 132, 255)');                 // appens länkblå (FARG.bla), inte grå
+    expect(a.style.background).toBe('');                              // ingen knappbakgrund
+    expect(a.style.backgroundColor).toBe('');
     expect(parseFloat(a.style.fontSize)).toBeLessThanOrEqual(13);
   });
   it('tryck öppnar länken i en ny flik utan att navigera i appen och utan att stänga bladet', () => {

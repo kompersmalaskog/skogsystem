@@ -186,7 +186,7 @@ export function MalbildRegler({ sida, namn, onTillbaka }: { sida: Regelsida; nam
  */
 /**
  * Källraden längst ner i bladet (under "Inte så här"): "Källa: <utgivare> · <ämne> ›". Bara en länk till utgivarens egen sida, öppnad i en ny flik — inga
- * kopierade bilder. Liten och grå, men med minst 44 px tryckyta. Utan källa i lib/malbilder (MALBILD_KALLA) finns ingen rad.
+ * kopierade bilder. Liten, i appens länkblå (bara texten, ingen knappbakgrund), med minst 44 px tryckyta. Utan källa i lib/malbilder (MALBILD_KALLA) finns ingen rad.
  */
 export function MalbildKalla({ nyckel, variant }: { nyckel: string; variant?: string | null }) {
   const k = malbildKalla(nyckel, variant);
@@ -195,7 +195,7 @@ export function MalbildKalla({ nyckel, variant }: { nyckel: string; variant?: st
     <a data-testid="malbild-kalla" href={k.url} target="_blank" rel="noopener noreferrer"
       // window.open lämnar PWA:n levande på iOS (ett <a target="_blank"> kan navigera IN-PLACE och kall-starta appen vid retur); ankaret behålls som reserv.
       onClick={(e) => { e.preventDefault(); window.open(k.url, '_blank', 'noopener,noreferrer'); }}
-      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, minHeight: TRAFFYTA.min, flexShrink: 0, ...TYP.meta, color: FARG.text2, textDecoration: 'none', fontFamily: 'inherit' }}>
+      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, minHeight: TRAFFYTA.min, flexShrink: 0, ...TYP.meta, color: FARG.bla, textDecoration: 'none', fontFamily: 'inherit' }}>
       <span style={{ minWidth: 0 }}>Källa: {k.utgivare} · {k.amne}</span>
       <span aria-hidden="true">›</span>
     </a>

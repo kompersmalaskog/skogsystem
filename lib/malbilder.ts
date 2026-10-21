@@ -2033,7 +2033,10 @@ export const MALBILD_KALLA: Readonly<Record<string, KallLank>> = {
   naturhorna: { utgivare: 'Skogsstyrelsen', amne: 'Träd och buskar med naturvärden samt död ved', url: SKS_MALBILDER },
   nyckelbiotop: { utgivare: 'Skogsstyrelsen', amne: 'Hänsynskrävande biotoper', url: SKS_MALBILDER },
   hansyn: { utgivare: 'Skogsstyrelsen', amne: 'Hänsynskrävande biotoper', url: SKS_MALBILDER },
-  blott: { utgivare: 'Skogsstyrelsen', amne: 'Körning i skogsmark', url: SKS_MALBILDER },
+  blott: {
+    utgivare: 'Skogsstyrelsen', amne: 'Körning i skogsmark',
+    url: 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-korning-i-skogsmark/malbild-korning-i-skogsmark.pdf',
+  },
   kantzon: {
     utgivare: 'Skogsstyrelsen', amne: 'Kantzoner mot sjöar och vattendrag',
     url: 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kantzoner-mot-sjoar-och-vattendrag/hansyn-till-vatten-alla-faktablad-samlade-i-en-pdf.pdf',

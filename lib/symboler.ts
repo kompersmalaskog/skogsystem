@@ -149,7 +149,7 @@ export const LINJE_FORKLARING: Readonly<Record<string, string>> = {
  */
 export interface LinjeKort { namn: string; grupp: FargGrupp; forklaring: string }
 const LINJE_KORT_OVRIGA: Readonly<Record<string, LinjeKort>> = {
-  mainRoad: { namn: 'Basväg', grupp: 'info', forklaring: 'Basväg – huvudväg för maskiner och lastbil.' },
+  mainRoad: { namn: 'Basväg', grupp: 'info', forklaring: 'Basväg – huvudväg för skogsmaskinerna.' },
   sideRoadRed: { namn: 'Stickväg', grupp: 'info', forklaring: 'Stickväg – här går maskinen in i beståndet.' },
   sideRoadYellow: { namn: 'Stickväg', grupp: 'info', forklaring: 'Stickväg – här går maskinen in i beståndet.' },
   sideRoadBlue: { namn: 'Stickväg', grupp: 'info', forklaring: 'Stickväg – här går maskinen in i beståndet.' },
