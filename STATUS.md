@@ -12,6 +12,26 @@
 - Markägarrapport-algoritm verifierad mot
   Husjönäs 2026-05-06
 
+## Väder vid skörd (fakt_kalibrering.weather_at_harvest) — 2026-10-21
+**Orsak:** importen har aldrig skrivit vädret. Alla 176 rader med väder har `fetched_at` 2026-05-20 16:43–17:08
+(två sekunder per rad, 3–6 dygn efter att raderna skapades 11 mars–18 maj): en ENGÅNGSKÖRNING utanför repot som
+täckte kontroller t.o.m. 15 maj. Inget i `skogsmaskin_import_version_6.py`, `import_hpr.py` eller `app/` skrev kolumnen,
+så varje kontroll efter det blev utan väder utan att något fallerade. Det "slutade" aldrig — det var aldrig automatiskt.
+**Ändring:** importen hämtar nu vädret (`lagg_pa_vader`, ERA5-arkivet, ingen prognos) vid HQC-import, och
+`komplettera_saknat_vader` fyller i äldre kontroller som väntat på ERA5 (arkivet ligger ca 5 dygn efter) eller vars
+hämtning föll, max 25 per import. Ett väderfel stoppar aldrig importen: loggas + `import_fel` (felkod `VADER_SAKNAS`,
+syns i datahälsan). Rader som redan har väder rörs aldrig (`weather_at_harvest=is.null` vid läsning och PATCH).
+Kön rör sig alltid framåt: kontroller utan användbar position eller som Open-Meteo avvisar (4xx) skrivs till `import_fel` som
+`VADER_PERMANENT` och hoppas över därefter; taket (25) räknar bara riktiga nätanrop. Första nätverksfelet (timeout, 5xx, 429)
+avbryter kompletteringen för den importen och loggas en gång.
+Backfill: `python scripts/backfill-kontroll-vader.py` (torrkörning) / `--skriv`. `--skriv-over` (bara skriptet, aldrig importen)
+hämtar om väder även för rader som har det, med rätt UTC-tid; gamla värden sparas först i en säkerhetskopia (`--aterstall FIL`
+lägger tillbaka dem). Test: `python scripts/test_vader_vid_skord.py` (36 tester, 13 mutanter dödade).
+**Läget 2026-10-21 före backfill:** 176 av 328 har väder; alla 152 utan har användbar GPS-position och skördetid; 3
+(från 19 okt) är yngre än 6 dygn och fylls i av importen när ERA5 är klart.
+**Gamla rader:** de 176 har `harvest_time` med svensk väggklocka stämplad som UTC (1–2 h fel); beslut Martin 2026-10-21: hämta
+om dem med rätt tid via `--skriv-over`. Vilken timme de gamla värdena hämtades för är inte verifierat. Hämtningen mot open-meteo har inte körts i den här sessionen (hosten blockerad av sessionens nätverkspolicy).
+
 ## Markägarrapport — verifierade siffror
 Husjönäs (objekt_id 11124938, slutavverkning):
 - Stammar: 1 349
