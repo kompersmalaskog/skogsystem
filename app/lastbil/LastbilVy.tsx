@@ -28,6 +28,7 @@ import SaknarMaskinRad from './_components/SaknarMaskinRad';
 import LassArk from './_components/MaskinSheet';
 import { useEnRunda, useRundor } from './_components/useRundor';
 import { useMaskiner } from './_components/useMaskiner';
+import { useVikt } from './_components/useVikt';
 
 /**
  * Lastbilen — EN sida utan flikar (omtaget 2026-10-19). Uppifrån, och i den ordningen alltid:
@@ -66,6 +67,8 @@ export default function LastbilVy() {
   const faktAr = useFakturerbart({ typ: 'ar', ar }, arAdmin && !loading && onskadSida === 'ar');
   // Uppföljningens "Maskiner": årets flyttar per maskin (alla roller, direkt ur maskin_flytt).
   const maskiner = useMaskiner(ar, !loading && onskadSida === 'ar');
+  // Uppföljningens Förbrukning/Körsträcka: årets körning delad på med lass / utan lass ur bilens vikt (SQL-funktionen lastbil_vikt_manad).
+  const vikt = useVikt(ar, !loading && onskadSida === 'ar');
   const vantar = useVantar(arAdmin);
   // "Vilken maskin?": lassen bilens vikt hittat men appen inte kunde para ihop med en maskin. Länken i notisen (?lass=<id>) öppnar arket direkt.
   const saknar = useSaknarMaskin(arAdmin);
@@ -147,7 +150,7 @@ export default function LastbilVy() {
           <HamtaFlode onAvsluta={efterHamta} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} />
         ) : sida === 'ar' ? (
           <UppfoljningSida ar={ar} onAr={setAr} fakt={arAdmin ? { status: faktAr.status, forsokIgen: faktAr.forsokIgen } : null}
-            maskiner={{ lage: maskiner.lage, forsokIgen: maskiner.forsokIgen }} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} onMaskinAndrad={efterMaskinRattning} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
+            vikt={{ lage: vikt.lage, forsokIgen: vikt.forsokIgen }} maskiner={{ lage: maskiner.lage, forsokIgen: maskiner.forsokIgen }} arAdmin={arAdmin} namn={medarbetare?.namn || 'admin'} onMaskinAndrad={efterMaskinRattning} lage={rundor.lage} onForsokIgen={rundor.forsokIgen}
             onTillbaka={tillHuvudsidan} onValjManad={valjManadFranAr} />
         ) : sida === 'fakturering' ? (
           <FaktureringSida period={period} onPeriod={setPeriod} status={fakt.status} namn={medarbetare?.namn || 'admin'}

@@ -174,7 +174,7 @@ describe('loggaImportFel', () => {
 
 describe('källvakt: routen och objektsidan', () => {
   const route = readFileSync(resolve(__dirname, '../../app/api/import-trakt/route.ts'), 'utf8');
-  const sida = readFileSync(resolve(__dirname, '../../app/objekt/page.tsx'), 'utf8');
+  const sida = readFileSync(resolve(__dirname, '../objekt/importTraktfil.ts'), 'utf8'); // importen bor sedan 2026-10-19 i lib/objekt (Objekt-vyn)
 
   it('både INSERT och UPDATE av objektet går via den toleranta skrivningen — ingen direkt skrivning med import_varningar kvar', () => {
     expect(route).toMatch(/skrivObjektTolerantMotVarningskolumn<any>\(patch,/);
@@ -189,7 +189,7 @@ describe('källvakt: routen och objektsidan', () => {
     expect(route).toMatch(/varningar, varningarSparade, varningarILogg/);
   });
 
-  it('objektsidan skriver inte "Importerat!" när varningarna inte sparades', () => {
+  it('importen säger inte "importerat" som om allt gick bra när varningarna inte sparades', () => {
     expect(sida).toMatch(/data\.varningarSparade === false/);
     expect(sida).toMatch(/Tappades något vid import\?/);
   });

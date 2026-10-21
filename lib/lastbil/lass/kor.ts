@@ -25,7 +25,7 @@ import { narmastePlats, narPlatsMeter, type FunnenPlats, type PlatsKandidat } fr
 export const FONSTER_TIM = 96;
 export { NOTIS_FORDROJNING_MIN };
 export const OMVARDERA_TIM = 24;
-const KLAR_EFTER_MIN = 15;
+export const KLAR_EFTER_MIN = 15;
 const MIN = 60_000;
 const TIM = 3_600_000;
 
@@ -53,7 +53,7 @@ const tomRapport = (): LassRapport => ({
 const sthlmDag = (iso: string): string => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' });
 const plusDagar = (dag: string, n: number): string => new Date(Date.parse(`${dag}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
-interface Ctx {
+export interface Ctx {
   db: any;
   nu: number;
   vin: string;
@@ -65,7 +65,7 @@ interface Ctx {
   fel: string[];
 }
 
-interface Utvardering {
+export interface Utvardering {
   rad: Record<string, unknown>;
   beslut: Beslut;
   bedomning: MaskinBedomning | null;
@@ -74,7 +74,7 @@ interface Utvardering {
   till: FunnenPlats | null;
 }
 
-async function las<T>(fel: string[], namn: string, q: PromiseLike<{ data: T | null; error: any }>): Promise<T | null> {
+export async function las<T>(fel: string[], namn: string, q: PromiseLike<{ data: T | null; error: any }>): Promise<T | null> {
   try {
     const r = await q;
     if (r.error) { fel.push(`${namn}: ${r.error.message ?? r.error}`); return null; }
@@ -164,15 +164,16 @@ const platsFalt = (p: FunnenPlats | null, prefix: 'fran' | 'till') => ({
   [`${prefix}_avstand_m`]: p?.avstandM ?? null,
 });
 
-async function utvardera(c: Ctx, l: DetektLass): Promise<Utvardering> {
+export async function utvardera(c: Ctx, l: DetektLass, utanBevis = false): Promise<Utvardering> {
   const fran = narmastePlats(l.lassning.lat, l.lassning.lng, c.kandidater);
   const till = narmastePlats(l.lossning.lat, l.lossning.lng, c.kandidater);
   const manuell = hittaManuellFlytt(
     { fran: l.lassningFran ?? l.lassningTid, till: l.lossningTill ?? l.lossningTid, lastad: l.lassningTid },
     c.manuella, c.upptagna, c.nu);
 
-  const bevis = l.avvisad ? [] : await insamlaBevis(c, l, fran, till, manuell);
-  const bedomning = l.avvisad ? null : bedomMaskin(bevis);
+  // utanBevis: en engångskörning som bara ska koppla ett lass till en redan registrerad flytt behöver inte fråga efter maskinens GPS.
+  const bevis = l.avvisad || utanBevis ? [] : await insamlaBevis(c, l, fran, till, manuell);
+  const bedomning = l.avvisad || utanBevis ? null : bedomMaskin(bevis);
   const beslut = beslutaLass({
     lass: l, fran, till, manuell,
     bedomning: bedomning ?? { forslag: null, sakerhet: 'okand', kandidater: [], konflikt: false },
@@ -248,7 +249,7 @@ async function koaNotis(c: Ctx, lassId: string, lassningTid: string): Promise<nu
   return ins?.length ?? 0;
 }
 
-const overlapper = (a: { forsta: number; sista: number }, b: { forsta: number; sista: number }): boolean =>
+export const overlapper = (a: { forsta: number; sista: number }, b: { forsta: number; sista: number }): boolean =>
   a.forsta <= b.sista + KLAR_EFTER_MIN * MIN && b.forsta <= a.sista + KLAR_EFTER_MIN * MIN;
 
 export async function koraLassdetektering(db: any, nuDate: Date = new Date()): Promise<LassRapport> {

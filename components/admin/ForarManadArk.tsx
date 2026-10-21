@@ -59,7 +59,7 @@ function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: (
   );
 }
 
-export default function ForarManadArk({ m, arbetsManad, onStang }: { m: any; arbetsManad: string; onStang: () => void }) {
+export default function ForarManadArk({ m, arbetsManad, dag, onStang }: { m: any; arbetsManad: string; /** Dagen som ska stå öppen när arket öppnas (från ett vilobrott i Översikten). */ dag?: string; onStang: () => void }) {
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [oppenDag, setOppenDag] = useState<string | null>(null);
   const [visaMil, setVisaMil] = useState(false);
@@ -79,6 +79,17 @@ export default function ForarManadArk({ m, arbetsManad, onStang }: { m: any; arb
     const ar = Number(arbetsManad.slice(0, 4));
     return byggForarManad(m, { rodaDagar: { ...getRödaDagar(ar - 1), ...getRödaDagar(ar) }, maskinNamn });
   }, [m, arbetsManad, maskinNamn]);
+
+  // En dag som angetts utifrån (?dag=) står öppen och rullas fram — en gång, så att ett eget tryck sedan gäller.
+  const [dagVald, setDagVald] = useState<string | null>(null);
+  useEffect(() => {
+    if (!dag || dagVald === dag) return;
+    const rad = vy.dagar.find(d => d.datum === dag);
+    if (!rad) return;
+    setDagVald(dag);
+    setOppenDag(rad.nyckel);
+    setTimeout(() => document.querySelector(`[data-dag="${dag}"]`)?.scrollIntoView?.({ block: "center" }), 50);
+  }, [dag, dagVald, vy.dagar]);
 
   const u = vy.utrakning;
   const forNamn = vy.namn.split(" ")[0];

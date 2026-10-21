@@ -28,6 +28,7 @@
 // aterupplivas av en andring som kom efter.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Stickprov } from './egenkontrollStickprov';
 import { svgToLatLon, type Origo } from './kartkoordinater';
 import { beslutaOrigo, lasVidaGrans, markeringsPunkter, type VidaGrans } from './egenkontrollOrigo';
 import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
@@ -1003,6 +1004,13 @@ export type VantandeRad = {
    */
   antalSaknade: number;
   klarDatum: string | null;
+  /** Objektets plats (null = saknas, aldrig 0) — listans avstånd och bilknapp. */
+  lat: number | null;
+  lng: number | null;
+  /** objekt.typ ('gallring' | 'slutavverkning' | annat) — bara de två första har en runda att starta. */
+  typ: string | null;
+  /** Hektar, ur objektet. null = saknas. */
+  areal: number | null;
 };
 
 export type VantandeOversikt = {
@@ -1044,7 +1052,7 @@ export async function hamtaVantande(
 
   const { data: objektRader, error: objektFel } = await klient
     .from('objekt')
-    .select('id, namn, avslutad_timestamp, faktisk_slut')
+    .select('id, namn, avslutad_timestamp, faktisk_slut, lat, lng, typ, areal')
     .eq('status', 'avslutat')
     .order('id', { ascending: true });
 
@@ -1055,6 +1063,10 @@ export async function hamtaVantande(
     namn: string | null;
     avslutad_timestamp: string | null;
     faktisk_slut: string | null;
+    lat?: number | null;
+    lng?: number | null;
+    typ?: string | null;
+    areal?: number | null;
   }[];
 
   const medDatum = alla.flatMap((o) => {
@@ -1110,6 +1122,10 @@ export async function hamtaVantande(
       antalAvvikelser: egna.filter((p) => p.status === 'avvikelse').length,
       antalBattre: egna.filter((p) => p.status === 'battre').length,
       klarDatum: runda?.klar ?? null,
+      lat: o.lat ?? null,
+      lng: o.lng ?? null,
+      typ: o.typ ?? null,
+      areal: o.areal ?? null,
     };
   });
 
@@ -1126,6 +1142,21 @@ export async function hamtaVantande(
     antalVantande: rader.filter((r) => r.rundstatus !== 'klar').length,
     antalUtanDatum,
   };
+}
+
+/**
+ * Månadens stickprov (migrationerna egenkontroll_stickprov_1…5b). RPC:n DRAR vid första anropet i en ny månad och läser annars den sparade
+ * raden — samma funktion som /api/notis/flush anropar, så vilken som kommer först drar och den andra får samma rad.
+ *
+ * null = ingen dragning finns att visa (före första dragningsmånaden, 2026-11-01). Ett fel KASTAS: listan ska säga "kunde inte läsa
+ * stickprovet" med Försök igen, aldrig låtsas att det inte finns något stickprov.
+ */
+export async function hamtaStickprov(options: KlientOptions = {}): Promise<Stickprov | null> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient.rpc('egenkontroll_stickprov');
+  if (error) throw new Error(`Kunde inte läsa månadens stickprov: ${error.message}`);
+  if (data == null) return null;
+  return data as Stickprov;
 }
 
 /** Objektets kartuppgifter. bounds kravs for att placera MARKERINGAR, inte position. */
@@ -2144,7 +2175,7 @@ export async function hamtaStammoln(
 export async function hamtaHyttspar(
   objektId: string,
   options: KlientOptions = {},
-): Promise<{ roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[]> {
+): Promise<{ roll: 'skordare' | 'skotare'; linjer: LatLng[][]; /** Antal sparade dagar (rader) spåret byggs av - för lagermenyns "5 dagar". */ dagar: number }[]> {
   const { klient } = await kravSession(options);
   const { data, error } = await klient
     .from('hyttspar')
@@ -2155,19 +2186,23 @@ export async function hamtaHyttspar(
   if (error) throw new Error(`Kunde inte läsa hyttsparet: ${error.message}`);
 
   const per: Record<'skordare' | 'skotare', LatLng[][]> = { skordare: [], skotare: [] };
+  const dagar: Record<'skordare' | 'skotare', number> = { skordare: 0, skotare: 0 };
   for (const rad of (data ?? []) as unknown as { roll: string; points: unknown }[]) {
     if (rad.roll !== 'skordare' && rad.roll !== 'skotare') continue;
     if (!Array.isArray(rad.points)) continue;
     const punkter = (rad.points as { lat?: unknown; lng?: unknown; tid?: unknown }[])
       .filter((p) => typeof p?.lat === 'number' && typeof p?.lng === 'number')
       .map((p) => ({ lat: p.lat as number, lng: p.lng as number, tid: typeof p.tid === 'string' ? p.tid : '' }));
+    let gavLinje = false;
     for (const linje of hyttsparRitadeLinjer(punkter)) {
       per[rad.roll].push(linje.map(([lng, lat]) => ({ lat, lng })));
+      gavLinje = true;
     }
+    if (gavLinje) dagar[rad.roll] += 1;
   }
   return (['skordare', 'skotare'] as const)
     .filter((roll) => per[roll].length > 0)
-    .map((roll) => ({ roll, linjer: per[roll] }));
+    .map((roll) => ({ roll, linjer: per[roll], dagar: dagar[roll] }));
 }
 
 /** Provytorna for en runda, i nummerordning. */

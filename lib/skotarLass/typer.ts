@@ -14,6 +14,8 @@ export interface Avlagg {
   kalla: AvlaggKalla;
   lat: number;
   lng: number;
+  /** Skapat med "Lossa här" (eget avlägg): det enda som flyttas mot snittet av lossningarna. Vidas och planerarens avlägg flyttas aldrig. */
+  viaLossaHar?: boolean;
 }
 
 /** Sortimentsraden i ett lass. `nyckel` är det som grupperar (skördarens namn, städat), `namn` det som visas. */
@@ -41,7 +43,7 @@ export interface VagTid { vag: string; sek: number; andel: number }
 export interface SparPunkt { lat: number; lng: number; tid: string }
 
 export type LassStatus =
-  | 'foreslaget'      // upptäckt och ifyllt som förra lasset; bekräftar sig självt när linjen fyllts
+  | 'foreslaget'      // upptäckt och ifyllt som förra lasset; bekräftar sig självt när lossningen tog slut (stilla ≥ 5 min + utkörd ur zonen)
   | 'vantar_forare'   // föraren måste fylla i eller välja avlägg (första lasset, två avlägg nära varandra, inget avlägg)
   | 'bekraftat'
   | 'struket';
