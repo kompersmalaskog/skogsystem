@@ -60,6 +60,14 @@ function forraManad(manad: string): string {
 
 const pct = (fel: number, vol: number) => (vol > 0 ? Math.round((100 * fel) / vol) : null);
 
+/**
+ * Det som VISAS är andelen RÄTT, aldrig andelen fel (Martin 2026-10-21: "så lätt att
+ * ett barn förstår"). "83 % rätt" läses direkt; "17 % utanför" måste räknas baklänges.
+ * Räkningen sker fortfarande på utanför (summor av rundade m³), och rätt = 100 − utanför,
+ * så rätt och utanför går alltid ihop till 100.
+ */
+export const ratt = (utanforPct: number | null): number | null => (utanforPct == null ? null : 100 - utanforPct);
+
 export interface ObjektRad {
   objectKey: string;
   namn: string;
@@ -139,17 +147,18 @@ function hojdpunkt(m: Manad[], nuManad: string | null): Hojdpunkt | null {
   if (!cur || cur.pct == null) return null;
   const jamfor = forr.filter((x) => x.pct != null).slice(0, 2);
   if (!jamfor.length) return null;
-  const p = jamfor.map((x) => x.pct!);
+  const p = jamfor.map((x) => ratt(x.pct)!);
   const namn = jamfor.map((x) => manadNamn(x.manad, nuManad));
   const mot = namn.length === 2 ? `${namn[1]} och ${namn[0]}` : namn[0];
   const lo = Math.min(...p), hi = Math.max(...p);
   const spann = lo === hi ? `${lo} %` : `${lo}–${hi} %`;
   const curNamn = manadNamn(cur.manad, nuManad);
-  if (cur.pct <= lo - FORANDRING_PP) {
-    return { riktning: "battre", mening: `Ni kapar rätt oftare i ${curNamn} än i ${mot}.`, under: `${cur.pct} % utanför mot ${spann}` };
+  const r = ratt(cur.pct)!;
+  if (r >= hi + FORANDRING_PP) {
+    return { riktning: "battre", mening: `Mer rätt i ${curNamn} än i ${mot}.`, under: `${r} % rätt mot ${spann}` };
   }
-  if (cur.pct >= hi + FORANDRING_PP) {
-    return { riktning: "samre", mening: `Mer utanför beställt i ${curNamn} än i ${mot}.`, under: `${cur.pct} % utanför mot ${spann}` };
+  if (r <= lo - FORANDRING_PP) {
+    return { riktning: "samre", mening: `Mindre rätt i ${curNamn} än i ${mot}.`, under: `${r} % rätt mot ${spann}` };
   }
   return null;
 }

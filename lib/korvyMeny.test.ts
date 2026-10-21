@@ -127,7 +127,8 @@ describe('prickar: högstubbe/evighetsträd i körvyn', () => {
   });
   it('inget proximitetskort för prickar; tryck → litet kort med Ta bort', () => {
     expect(page).toContain('const symbolMarkers = markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker && !arPrick(m.type));');
-    expect(page).toContain("if (korvyActiveRef.current && arPrick(m.type)) { setPrickValt({ id: String(m.id), typ: String(m.type) }); return; }");
+    // en prick MED foto (planerarens) öppnar i stället det fulla markörkortet, där fotot syns
+    expect(page).toContain("if (korvyActiveRef.current && arPrick(m.type) && !harFoto(m)) { setPrickValt({ id: String(m.id), typ: String(m.type) }); return; }");
     expect(page).toContain('testid="prick-kort"');
     expect(page).toContain("{ etikett: 'Ta bort', onClick: taBortPrick, destruktiv: true, testid: 'prick-tabort' }");
   });

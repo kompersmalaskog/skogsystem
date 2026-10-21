@@ -640,8 +640,10 @@ describe('en avslutad runda är helt läsbar och låst', () => {
     expect(svaraPaPunkt).not.toHaveBeenCalled();
   });
 
+  // SVARSKNAPPARNA är avstängda. Fotomininatyrerna (data-foto-index, PR 9b) är det inte: de öppnar bilden för att TITTA på den och på noteringarna —
+  // ytan har ingen Rita-knapp på en avslutad runda (page.foto.render.test.tsx).
   const allaAvstangda = (r: Element) => {
-    const b = Array.from(r.querySelectorAll('button'));
+    const b = Array.from(r.querySelectorAll('button:not([data-foto-index])')) as HTMLButtonElement[];
     expect(b.length).toBeGreaterThan(0);
     for (const k of b) expect(k.disabled, `knappen ${k.getAttribute('data-svar')} är avstängd`).toBe(true);
   };

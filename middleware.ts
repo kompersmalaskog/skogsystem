@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { loginSok, NASTA_PARAM, sakerNasta } from './lib/loginNasta';
 
 // ─────────────────────────────────────────────────────────────
 // /api/* är STÄNGT som default. Kartläggning 2026-09: 30 av 79 rutter saknade
@@ -115,8 +116,9 @@ export async function middleware(request: NextRequest) {
     }
     if (isLoginPage || cookieHarGiltigSession(request)) return supabaseResponse;
     const url = request.nextUrl.clone();
+    const tillbaka = loginSok(pathname, request.nextUrl.search);
     url.pathname = '/login';
-    url.search = '?retry=1';
+    url.search = tillbaka ? `${tillbaka}&retry=1` : '?retry=1';
     return NextResponse.redirect(url);
   }
 
@@ -131,6 +133,8 @@ export async function middleware(request: NextRequest) {
   // Not logged in and not on login page → redirect to login
   if (!user && !isLoginPage) {
     const url = request.nextUrl.clone();
+    // Adressen man skulle till följer med, så inloggningen kan gå dit (lib/loginNasta.ts).
+    url.search = loginSok(pathname, request.nextUrl.search);
     url.pathname = '/login';
     const redirectResponse = NextResponse.redirect(url);
     // Copy cookies from supabaseResponse to redirect
@@ -142,8 +146,15 @@ export async function middleware(request: NextRequest) {
 
   // Logged in and on login page → redirect to home
   if (user && isLoginPage) {
+    const nasta = sakerNasta(request.nextUrl.searchParams.get(NASTA_PARAM));
     const url = request.nextUrl.clone();
+    url.search = '';
     url.pathname = '/';
+    if (nasta) {
+      const n = new URL(nasta, request.nextUrl.origin);
+      url.pathname = n.pathname;
+      url.search = n.search;
+    }
     const redirectResponse = NextResponse.redirect(url);
     supabaseResponse.cookies.getAll().forEach(cookie => {
       redirectResponse.cookies.set(cookie.name, cookie.value);

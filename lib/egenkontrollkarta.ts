@@ -14,7 +14,7 @@ import { pathTillGeoJson, svgTillGeoJson, type Origo } from './kartkoordinater';
 import {
   IKON_STORLEK, LINJE_KANT_BREDD, LINJE_STIL, PIL_STIL,
   ikonRadie, linjeLager, nummerLager, pilLager, statusLinjeLager, statusRingLager,
-  symbolLager, zonFyllLager, zonKantLager, zoomKurva,
+  symbolLager, zonFyllLager, zonKantLager, zonSnedstreckLager, zoomKurva,
 } from './kartstil';
 import { markerIconDefs } from './marker-icons';
 import { arBasvagFarg } from './basvag';
@@ -314,6 +314,7 @@ export function kontextLager(): any[] {
   const ikon = { opacitet: 0.45, breddFaktor: 0.7 };
   return [
     ...zonFyllLager(KONTEXT_KALLA, 'ek-k', null, linje),
+    ...zonSnedstreckLager(KONTEXT_KALLA, 'ek-k', null, linje),
     ...zonKantLager(KONTEXT_KALLA, 'ek-k', null, linje),
     ...linjeLager(KONTEXT_KALLA, 'ek-k', null, linje, { utom: [TRAKTGRANS_TYP] }),
     ...linjeLager(KONTEXT_KALLA, 'ek-k', null, undefined, { endast: [TRAKTGRANS_TYP] }),
@@ -335,6 +336,7 @@ export function kontextLager(): any[] {
 export function kontrollLager(): any[] {
   return [
     ...zonFyllLager(KONTROLL_KALLA, 'ek-p', null),
+    ...zonSnedstreckLager(KONTROLL_KALLA, 'ek-p', null),
     {
       id: VALD_LINJE_ID, type: 'line', source: KONTROLL_KALLA,
       filter: valdLinjeFilter(''),

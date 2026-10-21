@@ -17,12 +17,16 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, STRECK_ZON, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
+  zonKantLager,
+  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
   LINJE_KANT_BREDD, LINJE_KANT_BREDD_GRANS, LINJE_STIL, NUMMER_FONT_PX, NUMMER_STORLEK, PIL_STIL,
-  STENMUR_BREDD, STENMUR_FARG, ZON_BREDD, ZON_FYLLNING_OPACITET, ZON_KANT_BREDD, ZON_KANT_FARG,
+  STENMUR_BREDD, STENMUR_FARG, STENMUR_KANT_EXTRA, ZON_BREDD, ZON_FYLLNING_OPACITET, ZON_KANT_BREDD, ZON_KANT_FARG,
   ritaPilIkon, zoomKurva,
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
+import { symbolDef } from './symboler';
+import { MAPLIBRE_SPACING_FAKTOR, KRAFTLEDNING_KANT_EXTRA, KRAFTLEDNING_STOLPE_AVSTAND_PX, KRAFTLEDNING_STOLPE_BILD, KRAFTLEDNING_SYMBOL_AVSTAND_PX, kraftledningLager } from './kartstil';
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
 
 // Radslut normaliseras: filen kan ha CRLF pa Windows och LF pa Vercel, och
 // vakten ska ge samma svar bada stallena.
@@ -64,11 +68,14 @@ function stopp(uttryck: string, vad: string): [number, number][] {
 
 const sammanfoga = (s: string) => s.replace(/\s+/g, '');
 
+/** Färgkonstanterna ur färggrupperna (lib/larm/grupper) som planeringens källtext använder vid namn. */
+const FARG_KONSTANTER: Record<string, string> = { FARG_FARA, FARG_NATUR, FARG_KULTUR, FARG_STENMUR };
+
 describe('LEGEND', () => {
   it('lib/kartstil.LEGEND ar identisk med LEGEND i planeringsvyn', () => {
     const block = mellan(KALLA, /const LEGEND = \{/, /\n\};/, 'LEGEND');
     const kalla: Record<string, string> = {};
-    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*'([^']+)'/gm))) kalla[m[1]] = m[2];
+    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*(?:'([^']+)'|(FARG_\w+))/gm))) kalla[m[1]] = m[2] ?? FARG_KONSTANTER[m[3]] ?? saknas(m[3]);
     expect(Object.keys(kalla).length).toBeGreaterThan(5);
     expect(LEGEND).toEqual(kalla);
   });
@@ -79,6 +86,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
   const farg = (tok: string) => {
     const l = /^LEGEND\.(\w+)$/.exec(tok);
     if (l) return (LEGEND as Record<string, string>)[l[1]] ?? saknas(`LEGEND.${l[1]}`);
+    if (FARG_KONSTANTER[tok]) return FARG_KONSTANTER[tok];
     const s = /^'([^']+)'$/.exec(tok);
     return s ? s[1] : saknas(`farg ${tok}`);
   };
@@ -93,9 +101,10 @@ describe('linjetyperna (lineTypeDefs)', () => {
       if (/striped:\s*true/.test(rest)) o.striped = true;
       if (/dashed:\s*true/.test(rest)) o.dashed = true;
       if (/stonewall:\s*true/.test(rest)) o.stonewall = true;
+      if (/kraftledning:\s*true/.test(rest)) o.kraftledning = true;
       return o;
     });
-    expect(kalla.length).toBe(9);   // backRoad* (3) borttagna: backväg är en egenskap på vägen
+    expect(kalla.length).toBe(10);   // backRoad* (3) borttagna: backväg är en egenskap på vägen; + El-ledning som linje (powerline)
     expect(LINJE_STIL).toEqual(kalla);
   });
 
@@ -142,8 +151,16 @@ describe('linjetyperna (lineTypeDefs)', () => {
   });
 
   it('stenmur: farg, bredd och streckning', () => {
-    const block = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
-    expect(block).toContain(`'line-color': '${STENMUR_FARG}'`);
+    const helt = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
+    expect(helt).toContain("id: 'line-stonewall-casing'");   // mörk kant under, som övriga linjer
+    // KRAFTIG kant: bredare än muren med STENMUR_KANT_EXTRA, nära svart — ingen andra nyans.
+    const kant = helt.slice(helt.indexOf("id: 'line-stonewall-casing'"), helt.indexOf("id: 'line-stonewall-base'"));
+    expect(stopp(kant, 'stenmur/kant')).toEqual(STENMUR_BREDD.map(([z, v]) => [z, v + STENMUR_KANT_EXTRA]));
+    expect(kant).toContain('rgba(0,0,0,0.9)');
+    expect(STENMUR_KANT_EXTRA).toBeGreaterThanOrEqual(5);
+    const block = helt.slice(helt.indexOf("id: 'line-stonewall-base'"));
+    expect(block).toContain("'line-color': FARG_STENMUR");
+    expect(STENMUR_FARG).toBe(FARG_STENMUR);   // Stenmur = Kultur (brun), gruppens färg
     expect(stopp(block, 'stenmur/bredd')).toEqual(STENMUR_BREDD.map((s) => [...s]));
     expect(sammanfoga(block)).toContain(sammanfoga(`'line-dasharray': [${STRECK_STENMUR.join(', ')}]`));
     expect(sammanfoga(block)).toContain(sammanfoga("'line-cap': 'butt'"));
@@ -158,13 +175,14 @@ describe('zonerna', () => {
     expect(stopp(c, 'zoneCasingWidth')).toEqual(ZON_KANT_BREDD.map((s) => [...s]));
   });
 
-  it('fyllning 0,2, mork kant, vit streckning [2,2]', () => {
+  it('fyllning 0,2, mork kant, INGEN vit streckning (ytans farg ar gruppens farg)', () => {
     const k = sammanfoga(KALLA);
     expect(k).toContain(sammanfoga("gallringCase(GALLRING_FILL_OPACITY, 0.2)"));
     expect(ZON_FYLLNING_OPACITET).toBe(0.2);
     expect(k).toContain(sammanfoga("id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)'"));
     expect(ZON_KANT_FARG).toBe('rgba(0,0,0,0.6)');
-    expect(k).toContain(sammanfoga(`'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [${STRECK_ZON.join(', ')}]`));
+    expect(k).not.toContain("id: 'zone-outline-dash'");
+    expect(sammanfoga(JSON.stringify(zonKantLager('k', 'ek', null)))).not.toContain('dasharray');
   });
 
   it('zonfarger kommer ur lib/zone-colors - planeringens egen kalla', () => {
@@ -225,5 +243,71 @@ describe('basvagsnumret', () => {
 describe('zoomKurva ar den enda kurvbyggaren', () => {
   it('ger exakt formen planeringen skriver for hand', () => {
     expect(zoomKurva([[5, 3], [8, 4]])).toEqual(['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4]);
+  });
+});
+
+describe('en dämpad El-ledning (egenkontrollens kontextkarta) — samma funktion, nedtonad', () => {
+  const lager = kraftledningLager('k', 'p', null, true, { opacitet: 0.4, breddFaktor: 0.6, utanKant: true });
+  it('alla lager har opacitet ≤ 0,5 och kanten (casing) utelämnas när dimningen säger utanKant', () => {
+    expect(lager.map((l: any) => l.id)).toEqual(['p-line', 'p-stolpar', 'p-symbol']);
+    for (const l of lager) expect(l.paint['line-opacity'] ?? l.paint['icon-opacity'], l.id).toBeLessThanOrEqual(0.5);
+  });
+  it('med kant (dimning utan utanKant) är casingen dämpad den också', () => {
+    const med = kraftledningLager('k', 'p', null, true, { opacitet: 0.4, breddFaktor: 1 });
+    expect(med.find((l: any) => l.id === 'p-casing').paint['line-opacity']).toBe(0.4);
+  });
+  it('utan dimning är allt som förut: full opacitet, casing först', () => {
+    const full = kraftledningLager('k', 'p', null);
+    expect(full[0].id).toBe('p-casing');
+    expect(full[0].paint['line-opacity']).toBe(1);
+  });
+});
+
+describe('kraftledningen ser ut som en ledning (kraftledningLager)', () => {
+  const lager = kraftledningLager('trakt-geo-source', 'trakt-kraftledning', ['==', ['get', 'x'], 1], false);
+  const id = (s: string) => lager.find((l: any) => l.id === `trakt-kraftledning-${s}`);
+  it('fyra lager, underst till överst: kant, linje, stolpar, farosymbol — och de startar dolda när sidan tänder dem', () => {
+    expect(lager.map((l: any) => l.id)).toEqual(['trakt-kraftledning-casing', 'trakt-kraftledning-line', 'trakt-kraftledning-stolpar', 'trakt-kraftledning-symbol']);
+    for (const l of lager) { expect(l.layout.visibility).toBe('none'); expect(l.filter).toEqual(['==', ['get', 'x'], 1]); }
+    expect(kraftledningLager('k', 'p', null).every((l: any) => l.layout.visibility === 'visible' && !('filter' in l))).toBe(true);
+  });
+  it('röd linje (gruppens röd) med mörk kant som är bredare än linjen — heldragen', () => {
+    expect(id('line').paint['line-color']).toBe(FARG_FARA);
+    expect(id('line').paint).not.toHaveProperty('line-dasharray');
+    expect(id('casing').paint['line-color']).toBe(KANT_SVART_STARK);
+    const bredd = (l: any) => (l.paint['line-width'] as any[]).filter((_, i) => i >= 3 && i % 2 === 0);
+    bredd(id('line')).forEach((w, i) => expect(bredd(id('casing'))[i]).toBeCloseTo(w + KRAFTLEDNING_KANT_EXTRA, 3));
+  });
+  it('stolpar: ett tvärstreck vinkelrätt mot linjen ungefär var 40:e px (symbol-placement line, kartans rotation)', () => {
+    const l = id('stolpar');
+    expect(l.type).toBe('symbol');
+    expect(l.layout['symbol-placement']).toBe('line');
+    expect(KRAFTLEDNING_STOLPE_AVSTAND_PX).toBe(40);   // målet på skärmen; MapLibre ritar ~1,2 × det inställda värdet (kalibrerat, se kartstil)
+    expect(l.layout['symbol-spacing']).toBe(Math.round(40 / MAPLIBRE_SPACING_FAKTOR));
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeGreaterThan(38);
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeLessThan(42);
+    expect(l.layout['icon-image']).toBe(KRAFTLEDNING_STOLPE_BILD);
+    expect(l.layout['icon-rotation-alignment']).toBe('map');   // ikonens x-axel följer linjen; stapeln är lodrät i bilden → vinkelrät mot linjen
+    expect(l.layout['icon-allow-overlap']).toBe(true);
+  });
+  it('farosymbolen (röd triangel med blixt, ur symbolkällan) upprepad ungefär var 250:e px, upprätt', () => {
+    const l = id('symbol');
+    expect(l.layout['symbol-placement']).toBe('line');
+    expect(KRAFTLEDNING_SYMBOL_AVSTAND_PX).toBe(250);
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeGreaterThan(245);
+    expect(l.layout['symbol-spacing'] * MAPLIBRE_SPACING_FAKTOR).toBeLessThan(255);
+    expect(l.layout['icon-image']).toBe('marker-powerline');
+    expect(l.layout['icon-rotation-alignment']).toBe('viewport');
+    expect(symbolDef('powerline')).toMatchObject({ form: 'triangel', farg: FARG_FARA });
+  });
+  it('sidan ritar Vidas kraftledning med EXAKT den här funktionen (ingen egen, streckad variant kvar), och en ledning är ett undantag från zoom-klippet', () => {
+    const sida = readFileSync('app/planering/page.tsx', 'utf8');
+    expect(sida).toContain("kraftledningLager('trakt-geo-source', 'trakt-kraftledning'");
+    expect(sida).not.toMatch(/id: 'trakt-kraftledning-line', type: 'line'/);
+    expect(sida).toContain('ritaStolpeIkon()');
+    const symbolZoom = readFileSync('lib/symbolZoom.ts', 'utf8');
+    expect(symbolZoom).toContain("'trakt-kraftledning-stolpar'");
+    expect(symbolZoom).toContain("'trakt-kraftledning-symbol'");
+    for (const l of ['casing', 'line', 'stolpar', 'symbol']) expect(sida).toContain("`trakt-kraftledning-${l}`");   // tänds/släcks med Kör & fara
   });
 });

@@ -105,7 +105,8 @@ describe('flush-routen är kopplad', () => {
     expect(src).toMatch(/catch \(e\) \{\s*console\.error\("\[notis\/flush\] egenkontroll_stickprov:"/);
   });
   it('tar typen i urvalet och bygger texten med byggStickprovNotis', () => {
-    expect(src).toContain('flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, ...LON_NOTIS_TYPER])');
+    // Stickprovet ska vara med i urvalet; andra typer får finnas bredvid (inventarier, lönenotiser).
+    expect(src).toMatch(/flushUrval\(nu, \[[^\]]*\bEGENKONTROLL_STICKPROV\b[^\]]*\]\)/);
     expect(src).toContain('byggStickprovNotis(n, hamtaStickprovrad)');
   });
 });

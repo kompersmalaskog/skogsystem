@@ -4,7 +4,8 @@
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
 export type TraktKategori =
-  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'ignorera';
+  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'ignorera';
+//   'linje'  = Vidas linje (L_TILLAGGSLINJER: kraftledning, basväg) — byggs av lib/linjeKort, inte ur `_lager`-tabellen nedan.
 //   'omrade' = planerarens egna ritade område (planering_markeringar, ej objekt_geometri) — PR B.
 
 // _lager → kategori (+ källa). Allt som inte mappas → 'ignorera' (renderas/tappas inte).
@@ -49,6 +50,12 @@ export interface TraktKort {
   rubrik: string;
   nr: string;                    // Nr/löpnr/traktdelsnr (kontextrad)
   arealHa: number | null;
+  /** Linjekort (kategori 'linje'): gruppen (kicker) och EN mening — ur samma källa som teckenförklaringen (lib/symboler). */
+  grupp?: import('./larm/grupper').FargGrupp;
+  forklaring?: string;
+  /** Vidas egen text för just det här objektet ur traktdirektivet (ATGARD på en hänsynsyta/ett avlägg). Visas först bland kommentarerna, märkt "Vida · traktdirektiv", och ändras aldrig hos oss.
+   *  Traktdelens FLBESKR är bara åtgärdens namn ("Första gallring") — ingen kommentar, så den finns inte här. */
+  vidaKommentar?: string;
   rader: { etikett?: string; text: string }[];   // beskrivande textfält (åtgärd / biotop / lämningsbeskrivning)
 }
 
@@ -57,7 +64,7 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   const { kategori, kalla } = klassaTraktFeature(props);
   const arealHa = traktArealHa(props);
   const rader: { etikett?: string; text: string }[] = [];
-  let rubrik = ''; let nr = '';
+  let rubrik = ''; let nr = ''; let vidaKommentar = '';
 
   if (kategori === 'traktdel') {
     nr = txt(props.TRDEL_NR_K);
@@ -66,11 +73,11 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   } else if (kategori === 'hansyn') {
     nr = txt(props.LOPNR);
     rubrik = txt(props.FLBESKR) || 'Hänsynsyta';
-    if (txt(props.ATGARD)) rader.push({ text: txt(props.ATGARD) });
+    vidaKommentar = txt(props.ATGARD);
   } else if (kategori === 'punkt') {
     nr = txt(props.EXTRA_LABE);
     rubrik = txt(props.FLBESKR) || 'Avlägg';
-    if (txt(props.ATGARD)) rader.push({ text: txt(props.ATGARD) });
+    vidaKommentar = txt(props.ATGARD);
   } else if (kategori === 'nyckelbiotop') {
     rubrik = txt(props.Objnamn) || 'Nyckelbiotop';
     nr = txt(props.Beteckn);
@@ -84,7 +91,7 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   } else {
     rubrik = 'Trakt-objekt';
   }
-  return { kategori, kalla, rubrik, nr, arealHa, rader };
+  return { kategori, kalla, rubrik, nr, arealHa, rader, ...(vidaKommentar ? { vidaKommentar } : {}) };
 }
 
 /** Stabil yta-nyckel för per-yta-anteckning (tabell objekt_yta_anteckning). Måste ÖVERLEVA omimport,
@@ -94,6 +101,8 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
 export function ytaNyckel(props: Record<string, any> | null | undefined): string | null {
   const { kategori } = klassaTraktFeature(props);
   const p = props || {};
+  // Vidas linjer (kraftledning, basväg) nycklas av lib/vidaNycklar och bär nyckeln som `_nyckel` på featuren.
+  if (kategori === 'ignorera' && typeof p._nyckel === 'string' && p._nyckel) return p._nyckel;
   switch (kategori) {
     case 'hansyn':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
     case 'traktdel':     { const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K); return v ? `traktdel:${v}` : null; }

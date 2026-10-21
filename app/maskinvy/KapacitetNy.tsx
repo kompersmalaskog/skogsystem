@@ -1,9 +1,11 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, TYP } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { medAvtalsformEllerUtan } from '@/lib/avtalsformKolumn'
+import { forstaSkal, hamtaSpecialObjekt } from '@/lib/maskinvy/specialObjekt'
+import { ObjektNamn } from './SpecialBadge'
 import { g15Sek } from '@/lib/g15'
 import {
   bedomObjekt, kapacitetSnitt, kapacitetKlarsprak, behovText, kapacitetKategori, arExtern, arVindfalle,
@@ -67,7 +69,7 @@ function maskinTyp(m: any): 'skordare' | 'skotare' | 'okand' {
  * R64101 + R64428) fördelas skotartiden efter skördarnas andel av skördartiden,
  * annars får varje skördare hela skotningen och kvoten blåses upp.
  */
-async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
+async function hamtaObjekt(maskinId: string): Promise<{ objekt: KapacitetObjekt[]; special: Map<string, string | null> }> {
   const egna = new Set(COMBO_IDS[maskinId] || [maskinId])
 
   // fakt_tid och fakt_produktion har OPERATÖRS-RLS (förare ser bara egna rader).
@@ -81,7 +83,7 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
   const allaMaskinIds = dimMaskin.map(m => m.maskin_id)
   const egnaIds = Array.from(egna)
 
-  const [dimObjekt, tidRader, manuellRader, prodRader] = await Promise.all([
+  const [dimObjekt, tidRader, manuellRader, prodRader, specialRader] = await Promise.all([
     // avtalsform (VF/Bark = vindfälle) finns först efter migrationen 20261014125836 — medAvtalsformEllerUtan kör om utan kolumnen om den saknas.
     medAvtalsformEllerUtan((med) => hamtaAlla<DimObjektRad>(() => supabase.from('dim_objekt').select(`objekt_id, vo_nummer, object_name, huvudtyp, atgard,${med ? ' avtalsform,' : ''} risskotning, extern_skordning, ovrigt_info, skotning_avslutad, skotning_avslutad_auto`).order('objekt_id'))),
     hamtaAlla<{ objekt_id: string | null; maskin_id: string; processing_sek: number | null; terrain_sek: number | null; other_work_sek: number | null }>(
@@ -90,6 +92,8 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
     // Skördarens EGEN volym per objekt (rimlighetsvakten jämför den med skotartiden på samma VO).
     hamtaAlla<{ objekt_id: string | null; volym_m3sub: number | null }>(
       () => supabase.rpc('maskindata_produktion', { p_maskin_ids: egnaIds, p_datum_start: null, p_datum_slut: null })),
+    // Special-flaggan (dim_objekt.special) är bara en markering för badgen — ändrar ingen beräkning här.
+    hamtaSpecialObjekt(),
   ])
 
   const typAv = new Map<string, 'skordare' | 'skotare' | 'okand'>()
@@ -99,9 +103,11 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
   const gruppAv = new Map<string, string>()
   type Meta = { namn: string; kategori: KapacitetKategori | null; extern: boolean; skotningAvslutad: string | null }
   const meta = new Map<string, Meta>()
+  const specialGrupp = new Map<string, string | null>()        // VO-grupp → skäl, för special-objekt
   for (const o of dimObjekt) {
     const g = o.vo_nummer ? `VO:${o.vo_nummer}` : `OBJ:${o.objekt_id}`
     gruppAv.set(o.objekt_id, g)
+    if (specialRader.has(o.objekt_id)) specialGrupp.set(g, forstaSkal(specialGrupp.get(g), specialRader.get(o.objekt_id)))
     const m = meta.get(g) || { namn: o.object_name || g, kategori: null, extern: false, skotningAvslutad: null }
     if (o.huvudtyp || arVindfalle(o.atgard, o.avtalsform)) m.kategori = kapacitetKategori(o) ?? m.kategori
     if (arExtern(o)) m.extern = true
@@ -149,7 +155,7 @@ async function hamtaObjekt(maskinId: string): Promise<KapacitetObjekt[]> {
     }
     ut.push(bedomObjekt(rad))
   }
-  return ut
+  return { objekt: ut, special: specialGrupp }
 }
 
 // ── Hinkar ───────────────────────────────────────────────────
@@ -205,6 +211,7 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
   const [period, setPeriod] = useState<Period>('K')
   const [offset, setOffset] = useState(0)
   const [alla, setAlla] = useState<KapacitetObjekt[] | null>(null)
+  const [specialGrupp, setSpecialGrupp] = useState<Map<string, string | null>>(new Map())
   const [fel, setFel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [maskinOpen, setMaskinOpen] = useState(false)
@@ -216,7 +223,7 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
     let cancelled = false
     setLoading(true); setFel(null); setAlla(null); setKategori(null)
     hamtaObjekt(maskin.id)
-      .then(d => { if (!cancelled) { setAlla(d); setLoading(false) } })
+      .then(d => { if (!cancelled) { setAlla(d.objekt); setSpecialGrupp(d.special); setLoading(false) } })
       .catch(e => { if (!cancelled) { setFel(e?.message || 'Kunde inte läsa maskindata'); setLoading(false) } })
     return () => { cancelled = true }
   }, [maskin.id])
@@ -383,7 +390,7 @@ export default function KapacitetNy({ maskin, onMaskinChange }: {
               .sort((a, b) => (b.skotningAvslutad || '').localeCompare(a.skotningAvslutad || ''))
               .map(o => (
                 <div key={o.grupp} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, padding: '8px 0', borderTop: `0.5px solid ${C.divider}` }}>
-                  <span style={{ fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.namn}</span>
+                  <span style={{ ...TYP.meta, color: C.text, minWidth: 0 }}><ObjektNamn namn={o.namn} special={specialGrupp.has(o.grupp)} skal={specialGrupp.get(o.grupp)} /></span>
                   <span style={{ fontSize: 12, color: C.muted, whiteSpace: 'nowrap' }}>
                     {o.skotningAvslutad?.slice(5)} · {kapacitetKlarsprak(o.kvot!).tal} skotare
                   </span>

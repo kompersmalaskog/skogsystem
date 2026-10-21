@@ -17,6 +17,7 @@
 
 import { OMDOME_ETIKETT, type Bild, type Fynd, type RapportModell } from './egenkontrollRapport';
 import { kartaHojd, ritaKarta, ritaTeckenforklaring } from './egenkontrollRapportKartaPdf';
+import { ritaFotoNoteringar } from './egenkontrollFotoPdf';
 
 export { projicera, skalstock } from './egenkontrollRapportKartaPdf';
 
@@ -250,8 +251,16 @@ export type BildData = { bytes: Uint8Array; typ: 'jpg' | 'png' };
 /** Hamtar en bild ur lagringen. null/kast = gick inte; bilagan skapas da inte. */
 export type HamtaBild = (sokvag: string) => Promise<BildData | null>;
 
-/** Antal bilder per sida. Tva ryms med bildtext; fler gor dem sma. */
-const BILDER_PER_SIDA = 2;
+/**
+ * LAYOUT E (Martin 2026-10-21): ETT foto per sida, i en 3:4-ruta som fyller sidans bredd (496 x 662 pt av 499 pt innehallsbredd).
+ * Bilagan ar bevis till en kund - 99 % av bredden sager "titta har", 44 % ar en miniatyr; sidantalet kostar ingenting i en PDF. Fotona ar stationa 3:4
+ * (appen komprimerar till 1200 x 1600): tva per sida hade tvingat ner bredden till 263 pt. Bildtexten (nummer + text, upp till tre rader) ligger under
+ * bilden i en fast remsa, sa rutan blir exakt sa hog som sidan tillater. Ett foto i annan form ritas inpassat (contain) i samma ruta.
+ */
+const FOTO_TOP = MARG + 28;
+const FOTO_TEXTREMSA = 56;
+const FOTO_RUTA_H = A4.h - MARG - FOTO_TOP - FOTO_TEXTREMSA;
+export const FOTO_RUTA = { b: Math.min(B, (FOTO_RUTA_H * 3) / 4), h: FOTO_RUTA_H, top: FOTO_TOP };
 
 export async function skapaBilagaPdf(m: RapportModell, hamtaBild: HamtaBild): Promise<Uint8Array> {
   // Foton FORST: en bild som inte gar att hamta far aldrig bli en lucka i ett utskick.
@@ -315,24 +324,24 @@ export async function skapaBilagaPdf(m: RapportModell, hamtaBild: HamtaBild): Pr
     yy += STEG.text * RAD;
   }
 
-  // Foton: BILDER_PER_SIDA per sida, var och en med nummer och bildtext.
-  const BILD_H = 292;
+  // Foton: ETT per sida (layout E), med nummer, bildtext och - ovanpa bilden - fotots noteringar (bara "sa har blev det").
   for (let i = 0; i < m.bilaga.bilder.length; i += 1) {
     const b: Bild = m.bilaga.bilder[i];
-    let sida = sidor[sidor.length - 1];
-    const plats = i % BILDER_PER_SIDA;
-    if (plats === 0) { sida = nySida(); huvud(sida, MARG); }
-    const top = MARG + 28 + plats * (BILD_H + 56);
+    const sida = nySida();
+    huvud(sida, MARG);
     const d = data[i] as BildData;
     const bild = d.typ === 'png' ? await doc.embedPng(d.bytes) : await doc.embedJpg(d.bytes);
-    const skala = Math.min(B / bild.width, BILD_H / bild.height);
+    const skala = Math.min(FOTO_RUTA.b / bild.width, FOTO_RUTA.h / bild.height);
     const w = bild.width * skala, h = bild.height * skala;
-    sida.drawImage(bild, { x: MARG + (B - w) / 2, y: A4.h - top - h, width: w, height: h });
+    const x = MARG + (B - w) / 2;
+    sida.drawImage(bild, { x, y: A4.h - FOTO_RUTA.top - h, width: w, height: h });
+    ritaFotoNoteringar(lib, sida, { normal }, { x, top: FOTO_RUTA.top, b: w, h }, b.noteringar, san);
     const nr = b.nr !== null ? `${b.nr}` : '';
     const del = b.del.av > 1 ? ` (${b.del.i}/${b.del.av})` : '';
-    if (nr) textPa(sida, nr, MARG, top + BILD_H + 8, STEG.text, fet, SVART);
+    const textTop = FOTO_RUTA.top + h + 8;
+    if (nr) textPa(sida, nr, MARG, textTop, STEG.text, fet, SVART);
     const rader = brytText(`${b.text}${del}`, B - 18, (t) => normal.widthOfTextAtSize(t, STEG.text)).slice(0, 3);
-    rader.forEach((r, k) => textPa(sida, r, MARG + 18, top + BILD_H + 8 + k * STEG.text * RAD, STEG.text, normal, SVART));
+    rader.forEach((r, k) => textPa(sida, r, MARG + 18, textTop + k * STEG.text * RAD, STEG.text, normal, SVART));
   }
 
   sidor.forEach((s, i) => {

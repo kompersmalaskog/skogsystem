@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { TALL_FARG } from '@/lib/tradslag';
 import type { MarkagarRapport } from '@/lib/markagarrapport/types';
 
 interface Props {
   stammar: MarkagarRapport['karta']['stammar'];
 }
 
-const RING_ROT  = '#b22222';   // firebrick — separerar från orange tall-prickar (#ff9500)
+const RING_ROT  = '#b22222';   // firebrick — separerar från orange tall-prickar (TALL_FARG)
 const SCALE_COLOR = 'rgba(255,255,255,0.55)';
 const SCALE_TEXT  = 'rgba(255,255,255,0.7)';
 const OVERLAY_DARK = 'rgba(0,0,0,0.20)';
@@ -15,7 +16,7 @@ const PLACEHOLDER_BG = '#0a0a0a';
 
 // Trädslag-färger
 const COLOR_GRAN    = '#34c759';
-const COLOR_TALL    = '#ff9500';
+const COLOR_TALL    = TALL_FARG;   // lib/tradslag: EN orange för Tall
 const COLOR_BJORK   = '#d4c5a0';
 const COLOR_OVR_LOV = '#8e8e93';
 const COLOR_DEFAULT = 'rgba(255,255,255,0.65)';

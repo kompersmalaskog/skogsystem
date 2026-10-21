@@ -74,8 +74,7 @@ describe('Redigera — arbetskopian', () => {
     expect(nycklar(startaRedigering(sex))).toEqual(nycklar(sex));
     expect(startaRedigering([...sex, sym('bridge')])).toHaveLength(MAX_FASTA);
     expect(startaRedigering([sym('wet'), sym('wet'), sym('steep')])).toHaveLength(2);
-    // Högstubbe/Evighetsträd bor i pillen — de får aldrig ligga i dockan
-    expect(startaRedigering([sym('highstump'), sym('eternitytree'), sym('wet')])).toEqual([sym('wet')]);
+    expect(startaRedigering([sym('highstump'), sym('eternitytree'), sym('wet')])).toEqual([sym('highstump'), sym('eternitytree'), sym('wet')]);
     // lager / rita / mät är inga dock-poster
     expect(startaRedigering([{ typ: 'lager', id: 'x' }, { typ: 'rita', id: 'linje' }, { typ: 'matning', id: 'yta' }])).toEqual([]);
   });
@@ -94,10 +93,10 @@ describe('Redigera — arbetskopian', () => {
     expect(laggTillPlats(sex, sym('bridge'))).toEqual({ ok: false, skal: 'full' });
   });
 
-  it('plus på en som redan ligger i dockan, eller på en pill-symbol, ger inget', () => {
-    expect(laggTillPlats(sex, sym('wet'))).toEqual({ ok: false, skal: 'finns' });
-    expect(laggTillPlats([], sym('highstump'))).toEqual({ ok: false, skal: 'ej-symbol' });
-    expect(ligger(sex, sym('wet'))).toBe(true);
+  it('plus på en som redan ligger i dockan, eller på något som inte är en symbol, ger inget', () => {
+    expect(laggTillPlats(sex, sym('warning'))).toEqual({ ok: false, skal: 'finns' });
+    expect(laggTillPlats([], { typ: 'lager', id: 'x' })).toEqual({ ok: false, skal: 'ej-symbol' });
+    expect(ligger(sex, sym('warning'))).toBe(true);
     expect(ligger(sex, sym('bridge'))).toBe(false);
   });
 
@@ -131,7 +130,7 @@ describe('Redigera — arbetskopian', () => {
 
   it('Klar: arbetskopian blir FASTA platser, användningen rörs inte, ogiltigt kastas', () => {
     const s: PlusRadState = { fasta: [sym('wet')], anv: { 'symbol:landing': 7 } };
-    const ny = redigeringTillState(s, [sym('steep'), sym('highstump'), sym('wet'), sym('steep')]);
+    const ny = redigeringTillState(s, [sym('steep'), { typ: 'lager', id: 'x' }, sym('wet'), sym('steep')]);
     expect(nycklar(ny.fasta)).toEqual(['symbol:steep', 'symbol:wet']);
     expect(ny.anv).toBe(s.anv);
   });

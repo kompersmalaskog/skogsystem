@@ -13,6 +13,7 @@ import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@
 import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/lastbil/lass/notis";
 import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
 import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib/lonesystem/granskaNotis";
+import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -78,7 +79,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, ...LON_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, ...LON_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -152,8 +153,10 @@ async function flush() {
       let ledighetMeddelande: Awaited<ReturnType<typeof byggMeddelande>> | null = null;
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arLonNotis(n.typ)) {
-        const u = arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
+      // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ)) {
+        const u = arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
+          : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
           : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad)
           : arLonNotis(n.typ) ? await byggLonNotis(n, lasLonRadMotDb(supabase))
           : await byggLedighetNotis(n, hamtaLedighetsrad);
@@ -262,6 +265,22 @@ const hamtaStickprovrad: HamtaStickprov = async (manad) => {
   if (!data) return { rad: null };
   const d = data as any;
   return { rad: { manad: d.manad, valda: Array.isArray(d.valda) ? d.valda : [], spridning_km: d.spridning_km == null ? null : Number(d.spridning_km) } };
+};
+
+// Inventarieraden för "Börjar ta slut". `rad: null` = finns inte; `fel` = kunde inte läsas. Tjänstenyckeln läser förbi RLS.
+const hamtaInventarierad: HamtaInventarie = async (radId) => {
+  const { data, error } = await supabase
+    .from("inventarie_rad")
+    .select("id, antal, min_antal, bestalld_tid, tva_lador, reserv_oppnad_tid, artikel:artikel_id(namn, sitter_pa, enhet), plats:plats_id(namn)")
+    .eq("id", radId)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const a = Array.isArray(d.artikel) ? d.artikel[0] : d.artikel;
+  const p = Array.isArray(d.plats) ? d.plats[0] : d.plats;
+  if (!a || !p) return { rad: null };
+  return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, tva_lador: !!d.tva_lador, reserv_oppnad_tid: d.reserv_oppnad_tid ?? null, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];

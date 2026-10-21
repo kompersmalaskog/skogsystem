@@ -70,6 +70,7 @@ import StubbeSheet from '../StubbeSheet';
 import ProvytaSheet from '../ProvytaSheet';
 import ObservationSheet from '../ObservationSheet';
 import NoteringSheet from '../NoteringSheet';
+import FotoNoteringYta from '../FotoNoteringYta';
 import RitaRad from '../RitaRad';
 import { arDubbeltryck, type LngLat, type TryckPunkt } from '@/lib/ritaPunkter';
 import { ritningTillKoordinater, type Notering, type NoteringVerktyg } from '@/lib/egenkontrollNotering';
@@ -317,6 +318,10 @@ export default function EgenkontrollRundaPage() {
   // Signerade URL:er per punkt. Misslyckad signering ger INGEN post - kortet
   // visar da ingen miniatyr i stallet for en trasig bildikon.
   const [fotoPerPunkt, setFotoPerPunkt] = useState<Record<string, string[]>>({});
+  // Samma foton med sitt id, i SAMMA ordning (index i raden = index här): fotoytan (9b) behöver id:t - noteringarna hänger på fotot.
+  const [fotoMeta, setFotoMeta] = useState<Record<string, { id: string; url: string }[]>>({});
+  // Fotot som är öppnat i helskärm (PR 9b). Namnet sparas när det öppnas: titeln och den förifyllda texten ändras inte medan bilden står uppe.
+  const [fotoYta, setFotoYta] = useState<{ punktId: string; index: number; rubrik: string } | null>(null);
   // Fotoraderna som de ar (sokvag, punkt, tackningsgrad) - rapportens bilaga behover dem, kortet bara URL:erna.
   const [fotoRader, setFotoRader] = useState<EgenkontrollFoto[]>([]);
   const [sheet, setSheet] = useState<{ lage: SheetLage; punkt: EgenkontrollPunkt } | null>(null);
@@ -503,7 +508,7 @@ export default function EgenkontrollRundaPage() {
   const laddaTillbehor = useCallback(async (omlasning = false) => {
     const mitt = ++tillbehorLopnr.current;
     const galler = () => mitt === tillbehorLopnr.current;
-    if (!rundaId) { setFotoPerPunkt({}); setFotoRader([]); setProvytor([]); setNoteringar([]); setYtorLasta(false); return; }
+    if (!rundaId) { setFotoPerPunkt({}); setFotoMeta({}); setFotoRader([]); setProvytor([]); setNoteringar([]); setYtorLasta(false); return; }
     let miste = false;
     try {
       const ytor = await hamtaProvytor(rundaId);
@@ -517,20 +522,24 @@ export default function EgenkontrollRundaPage() {
       const foton = await hamtaFoton(rundaId);
       const par = await Promise.all(
         foton.map(async (f: EgenkontrollFoto) => ({
+          id: f.id,
           punktId: f.punkt_id,
           url: await signeraFoto(f.sokvag),
         })),
       );
       if (!galler()) return;
       const karta: Record<string, string[]> = {};
+      const meta: Record<string, { id: string; url: string }[]> = {};
       for (const p of par) {
         if (!p.punktId || !p.url) continue; // osignerbar bild hoppas over tyst i kortet
         (karta[p.punktId] ??= []).push(p.url);
+        (meta[p.punktId] ??= []).push({ id: p.id, url: p.url });
       }
       setFotoPerPunkt(karta);
+      setFotoMeta(meta);
       setFotoRader(foton);
     } catch {
-      if (galler()) { if (omlasning) miste = true; else { setFotoPerPunkt({}); setFotoRader([]); } }
+      if (galler()) { if (omlasning) miste = true; else { setFotoPerPunkt({}); setFotoMeta({}); setFotoRader([]); } }
     }
     try {
       const nt = await hamtaNoteringar(rundaId);
@@ -1251,6 +1260,7 @@ export default function EgenkontrollRundaPage() {
                     onSvara={radSvarar}
                     onAvvikelse={() => { if (markerad) setSheet({ lage: 'avvikelse', punkt: markerad }); }}
                     onFotoNot={() => { if (markerad) setSheet({ lage: 'foto', punkt: markerad }); }}
+                    onOppnaFoto={(i) => { if (markerad) setFotoYta({ punktId: markerad.id, index: i, rubrik: markerad.rubrik }); }}
                   />
                 }
               />
@@ -1374,6 +1384,22 @@ export default function EgenkontrollRundaPage() {
             pos={pos}
             onStang={() => setObservationSheet(null)}
             onSparad={() => { setObservationSheet(null); ladda({ tyst: true }); laddaTillbehor(true); }}
+          />
+        )}
+
+        {/* FOTOYTAN (PR 9b): ett foto i helskärm med ord pa bilden. Ligger under noteringsarket (Ark ar z-index 1600, ytan 1500). */}
+        {fotoYta && vy?.egenkontroll && (fotoMeta[fotoYta.punktId]?.length ?? 0) > 0 && (
+          <FotoNoteringYta
+            key={fotoYta.punktId}
+            egenkontrollId={vy.egenkontroll.id}
+            foton={fotoMeta[fotoYta.punktId]}
+            start={fotoYta.index}
+            rubrik={fotoYta.rubrik}
+            noteringar={noteringar}
+            noteringarFel={noteringarFel}
+            last={rundanKlar}
+            onStang={() => setFotoYta(null)}
+            onAndrad={() => laddaTillbehor(true)}
           />
         )}
 

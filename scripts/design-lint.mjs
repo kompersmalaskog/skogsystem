@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 const ROT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // --- Tillåtna värden (speglar lib/design/tokens.ts) -----------------------
-const TYP_STORLEKAR = new Set([32, 30, 20, 17, 13, 11]);
+const TYP_STORLEKAR = new Set([32, 30, 20, 19, 17, 13, 11]);
 const VIKTER = new Set([400, 600, 700]);
 const AVSTAND = new Set([0, 4, 8, 12, 16, 24, 32]);
 const RADIER = new Set([4, 10, 12, 16]); // 4 = RADIE.stapel (diagramstaplar)
@@ -64,6 +64,7 @@ export const SKARPA = [
   "app/egenkontroll/BrickaRad.tsx",
   "app/egenkontroll/RundDock.tsx",
   "app/egenkontroll/RundArk.tsx",
+  "app/egenkontroll/FotoNoteringYta.tsx",       // fotoytan (PR 9b): tokens från början, noll literaler
   "components/design/KartHuvud.tsx",
   "components/design/KartKnapp.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
@@ -98,6 +99,17 @@ export const SKARPA = [
   "components/design/Falt.tsx",
   "components/design/TalRad.tsx",
   "components/design/Manadsvaljare.tsx",
+  // Inventarier (2026-10-21): tokens från början, noll literaler.
+  "components/inventarier/InventarierStart.tsx",
+  "components/inventarier/PlatsSida.tsx",
+  "components/inventarier/RadArk.tsx",
+  "components/inventarier/BestallArk.tsx",
+  "components/inventarier/LaggTillArk.tsx",
+  "components/inventarier/NyPlatsArk.tsx",
+  "components/inventarier/Kvitto.tsx",
+  "components/inventarier/delar.tsx",
+  "components/inventarier/Skanning.tsx",
+  "components/inventarier/Etiketter.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

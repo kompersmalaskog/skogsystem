@@ -1,10 +1,12 @@
-// Avläggen på kartan i skotarläget: vita rutor med numret i, vald får en ring, och en 56 px stor osynlig träffyta. De gamla avläggssymbolerna (Vidas punkt
+// Avläggen på kartan i skotarläget: vita rutor med numret i (rutan växer med numret — icon-text-fit — så "01-1" alltid ryms), vald får en mörk ring med vit kant, och en 56 px stor osynlig träffyta. De gamla avläggssymbolerna (Vidas punkt
 // och egna markeringar) göms med filter medan skotarläget är aktivt — rutorna tar över som synlig symbol OCH träffyta. Delad mellan sidan och kartprovet.
 import type { Avlagg } from './typer';
 
 export const RUTA_BILD = 'skotar-avlagg-ruta';
 export const KALLA = 'skotar-avlagg-source';
-export const LAGER = ['skotar-avlagg-ring', 'skotar-avlagg-ruta', 'skotar-avlagg-hit'] as const;
+export const LAGER = ['skotar-avlagg-ring', 'skotar-avlagg-ruta', 'skotar-avlagg-hit', 'skotar-avlagg-ring-kant'] as const;
+/** Rutans bild är sträckbar: hörnen (12 px av 40) står kvar, mitten växer med texten. */
+export const RUTA_STRACK = { stretchX: [[12, 28]], stretchY: [[12, 28]], content: [12, 12, 28, 28] } as const;
 /** Lager vars filter byts medan skotarläget är aktivt (och sätts tillbaka efteråt). */
 export const FILTRERADE = ['trakt-punkt-circle', 'trakt-punkt-label', 'markers-layer', 'markers-hit'] as const;
 
@@ -28,15 +30,16 @@ function ritaRuta(): ImageData | null {
 
 /** Lägger till bild, källa och lager, och byter filter på de gamla avläggslagren. Ger originalfiltren (att sätta tillbaka). */
 export function laggTillAvlaggslager(map: any): Record<string, any> {
-  if (!map.hasImage(RUTA_BILD)) { const bild = ritaRuta(); if (bild) map.addImage(RUTA_BILD, bild, { pixelRatio: 2 }); }
+  if (!map.hasImage(RUTA_BILD)) { const bild = ritaRuta(); if (bild) map.addImage(RUTA_BILD, bild, { pixelRatio: 2, stretchX: RUTA_STRACK.stretchX.map((r) => [...r]), stretchY: RUTA_STRACK.stretchY.map((r) => [...r]), content: [...RUTA_STRACK.content] }); }
   if (!map.getSource(KALLA)) map.addSource(KALLA, { type: 'geojson', data: avlaggFeatures([], null) });
-  if (!map.getLayer(LAGER[0])) map.addLayer({ id: LAGER[0], type: 'circle', source: KALLA, filter: ['==', ['get', 'vald'], true], paint: { 'circle-radius': 28, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } });
+  if (!map.getLayer(LAGER[3])) map.addLayer({ id: LAGER[3], type: 'circle', source: KALLA, filter: ['==', ['get', 'vald'], true], paint: { 'circle-radius': 40, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 8, 'circle-pitch-alignment': 'viewport' } });
+  if (!map.getLayer(LAGER[0])) map.addLayer({ id: LAGER[0], type: 'circle', source: KALLA, filter: ['==', ['get', 'vald'], true], paint: { 'circle-radius': 40, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#111111', 'circle-stroke-width': 4, 'circle-pitch-alignment': 'viewport' } });
   if (!map.getLayer(LAGER[1])) map.addLayer({
     id: LAGER[1], type: 'symbol', source: KALLA,
-    layout: { 'icon-image': RUTA_BILD, 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.9, 14, 1.3, 17, 1.6], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'text-field': ['to-string', ['get', 'nummer']], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 12, 14, 16, 17, 20], 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-anchor': 'center' },
+    layout: { 'icon-image': RUTA_BILD, 'icon-text-fit': 'both', 'icon-text-fit-padding': [3, 7, 3, 7], 'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'text-field': ['to-string', ['get', 'nummer']], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 12, 14, 16, 17, 20], 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-anchor': 'center' },
     paint: { 'text-color': '#000000' },
   });
-  if (!map.getLayer(LAGER[2])) map.addLayer({ id: LAGER[2], type: 'circle', source: KALLA, paint: { 'circle-radius': 30, 'circle-color': 'rgba(0,0,0,0)', 'circle-pitch-alignment': 'viewport' } });
+  if (!map.getLayer(LAGER[2])) map.addLayer({ id: LAGER[2], type: 'circle', source: KALLA, paint: { 'circle-radius': 36, 'circle-color': 'rgba(0,0,0,0)', 'circle-pitch-alignment': 'viewport' } });
 
   const orig: Record<string, any> = {};
   for (const id of FILTRERADE) if (map.getLayer(id)) orig[id] = map.getFilter(id) ?? null;
@@ -50,7 +53,7 @@ export function laggTillAvlaggslager(map: any): Record<string, any> {
 
 /** Tar bort rutorna och sätter tillbaka de gamla lagrens filter. */
 export function taBortAvlaggslager(map: any, orig: Record<string, any>): void {
-  for (const id of [LAGER[2], LAGER[1], LAGER[0]]) if (map.getLayer(id)) map.removeLayer(id);
+  for (const id of [LAGER[2], LAGER[1], LAGER[0], LAGER[3]]) if (map.getLayer(id)) map.removeLayer(id);
   if (map.getSource(KALLA)) map.removeSource(KALLA);
   for (const id of FILTRERADE) if (map.getLayer(id) && id in orig) map.setFilter(id, orig[id]);
 }
