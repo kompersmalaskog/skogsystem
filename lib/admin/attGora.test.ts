@@ -87,6 +87,8 @@ describe("byggAttGora", () => {
     expect(rader).toHaveLength(1);
     expect(rader[0].rubrik).toBe("Anna Berg: 2 obesvarade vilobrott");
     expect(rader[0].detalj).toBe("20 sep dygnsvila 8,5 h · 29 sep dygnsvila 8,5 h");
+    // raden öppnar personens vilobrott (ett ark med dagarna), inte hela vilobrottslistan
+    expect(rader[0].mal).toEqual({ typ: "vilobrott", medarbetare_id: "m1" });
   });
 
   it("maskiner: ny (obekräftad, ej ur drift) → sak med länk till maskinen; avtal utgånget → sak", () => {

@@ -36,6 +36,9 @@ export interface Kvar {
 
 const raknasMed = (l: Lass) => l.status !== 'struket';
 
+/** Finns det något skördat alls? Utan det finns inget att räkna kvar på: "Kvar ~0 m³" skulle säga att trakten är klar fast skördaren inte kommit dit. */
+export const harSkordat = (skordat: readonly SkordatSortiment[] | null | undefined): boolean => !!skordat && skordat.some((s) => s.m3 > 0);
+
 /** Förarens summa per sortiment över alla (icke-strukna) lass. */
 export function skotatPerSortiment(lass: readonly Lass[]): Map<string, { namn: string; m3: number }> {
   const per = new Map<string, { namn: string; m3: number }>();

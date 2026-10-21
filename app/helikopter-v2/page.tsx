@@ -483,7 +483,7 @@ export default function HelikopterV2Page() {
     [objektAlla, ar, manad]
   )
   const guideSteg = [
-    { n: 1, titel: 'Beställning', klar: harBestallning, vantar: false, under: harBestallning ? `${Math.round(slutBest + gallBest).toLocaleString('sv-SE')} m³fub lovat` : 'Lägg in månadens beställning', href: `/bestallningar?ar=${ar}&manad=${manad}` as string | null, lank: 'Lägg in' as string | null },
+    { n: 1, titel: 'Beställning', klar: harBestallning, vantar: false, under: harBestallning ? `${Math.round(slutBest + gallBest).toLocaleString('sv-SE')} m³fub lovat` : 'Lägg in månadens beställning', href: `/objekt?ar=${ar}&manad=${manad}` as string | null, lank: 'Lägg in' as string | null },
     { n: 2, titel: 'Planera objekt', klar: plAntal > 0, vantar: false, under: plAntal > 0 ? `${plAntal} objekt planerade` : 'Planera objekt för månaden', href: `/objekt?ar=${ar}&manad=${manad}` as string | null, lank: 'Planera' as string | null },
     { n: 3, titel: 'Följ upp', klar: false, vantar: true, under: 'Väntar på produktion', href: null as string | null, lank: null as string | null },
   ]

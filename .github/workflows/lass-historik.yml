@@ -1,0 +1,52 @@
+# Lastbilen: för in de historiska lassen (bilens vikt, 3 aug–15 okt 2026) i lastbil_lass. ENGÅNGSKÖRNING, startas för hand:
+# Actions → "Lastbilen — historiska lass" → Run workflow. Torrkörning är standard och skriver ingenting; tabellen visas under
+# körningens "Summary". Läget "skriv" för in lassen som FRÅGOR (aldrig en automatisk flytt, inga pushar) och fyller bara tomma fält
+# på förarens redan registrerade flyttar. Reglerna står i lib/lastbil/lass/historik.ts.
+#
+# Kräver ett repository-SECRET `SUPABASE_SERVICE_ROLE_KEY` (Settings → Secrets and variables → Actions → Secrets) och den befintliga
+# repository-variabeln `NEXT_PUBLIC_SUPABASE_URL` (samma som migrationskontrollen använder). Saknas något stannar scriptet och säger vilket.
+# Körs bara från main (workflow_dispatch från en annan gren kunde annars köra annan kod med servicenyckeln). Aldrig på pull_request.
+name: Lastbilen — historiska lass
+
+on:
+  workflow_dispatch:
+    inputs:
+      lage:
+        description: 'torrkor = visa vad som skulle göras (inget skrivs) · skriv = för in lassen'
+        type: choice
+        options: [torrkor, skriv]
+        default: torrkor
+      fran:
+        description: 'Första dagen (YYYY-MM-DD, svensk dag, inklusive)'
+        default: '2026-08-03'
+      till:
+        description: 'Sista dagen + 1 (YYYY-MM-DD, exklusiv: 2026-10-16 tar med hela 15 okt)'
+        default: '2026-10-16'
+
+concurrency:
+  group: lass-historik
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  lass-historik:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Kör
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LAGE: ${{ inputs.lage }}
+          FRAN: ${{ inputs.fran }}
+          TILL: ${{ inputs.till }}
+        run: npx tsx scripts/lass-historik.ts --lage "$LAGE" --fran "$FRAN" --till "$TILL"

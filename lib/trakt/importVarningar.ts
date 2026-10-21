@@ -8,6 +8,8 @@
 // varningarna sparas i stället i import_fel (synliga i /datahalsa "Tappades något vid import?") och i svaret (`varningarSparade: false`,
 // som objektsidan visar). Alla andra fel är oförändrade — de fäller importen som förut.
 
+import { varningText } from './varningar';
+
 export interface DbFel { code?: string | null; message?: string | null }
 
 /** Skrivfelet kommer av att `import_varningar` inte går att skriva (kolumnen saknas i schemat) — inget annat fel. */
@@ -70,7 +72,7 @@ export async function skrivObjektTolerantMotVarningskolumn<T>(
         error: r.error,
         varningarSparade: !r.error && !varningarBortfallna,
         kolumnFel: varningarBortfallna ? forstaFel : undefined,
-        ejSparade: varningarBortfallna && Array.isArray(payload.import_varningar) ? payload.import_varningar.map(String) : [],
+        ejSparade: varningarBortfallna && Array.isArray(payload.import_varningar) ? payload.import_varningar.map(varningText) : [],
         ejSkrivnaKolumner: ejSkrivna,
       };
     }

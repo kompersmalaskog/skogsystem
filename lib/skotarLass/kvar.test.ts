@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaKvar, datumText, farduskotatKontroll, idagText, klarDatum, kvarSammanfattning, perDag, skalningsfaktorer, snittPerDag } from './kvar';
+import { beraknaKvar, harSkordat, datumText, farduskotatKontroll, idagText, klarDatum, kvarSammanfattning, perDag, skalningsfaktorer, snittPerDag } from './kvar';
 import { lassTotalM3 } from './lassModell';
 import type { Lass } from './typer';
 
@@ -116,5 +116,15 @@ describe('färdigskotad', () => {
   });
   it('skördat 0 men rapporterat → faktor 0', () => {
     expect(skalningsfaktorer([], [lass('d', [['x', 5]])]).faktorer.x).toBe(0);
+  });
+});
+
+describe('harSkordat', () => {
+  it('bara när något sortiment har mer än noll m³', () => {
+    expect(harSkordat(null)).toBe(false);
+    expect(harSkordat(undefined)).toBe(false);
+    expect(harSkordat([])).toBe(false);
+    expect(harSkordat([S('tall', 0), S('massa', 0)])).toBe(false);
+    expect(harSkordat([S('tall', 0), S('massa', 0.4)])).toBe(true);
   });
 });

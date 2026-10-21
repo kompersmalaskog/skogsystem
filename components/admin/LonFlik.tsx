@@ -242,7 +242,7 @@ function Loneunderlag() {
       {/* Förare · Månad: varför blev lönen, övertiden och milen som de blev. Förarens id står i adressen (?forare=…). */}
       {(() => {
         const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
-        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} onStang={() => sattParam("forare", null)} /> : null;
+        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} onStang={() => { sattParam("forare", null); sattParam("dag", null); }} /> : null;
       })()}
 
       {/* ÅRSÖVERTID: en fråga — hur nära taket är varje förare? Avtalets modell (§5 mom 2); förklaringen ligger bakom

@@ -36,6 +36,10 @@ import {
   provytaLagerIdn, valdLinjeFilter, valdSymbolFilter,
 } from '@/lib/egenkontrollkarta';
 import { backvagFeatureUrData, backvagLager, klassaPunkt } from '@/lib/egenkontrollkarta';
+import {
+  BACKVAG_LAGER_ID, BACKVAG_OPACITET, SPAR_KALLA, VIDA_GRANS_KALLA,
+  planVagLager, planVagLagerIdn, sparFeatures, sparLager, sparLagerIdn, vidaGransFeatures, vidaGransLager, vidaGransLagerIdn,
+} from '@/lib/egenkontrollkarta';
 import { IKON_PIXELRATIO, provytaBildNamn, ritaProvytaIkon } from '@/lib/provytaIkon';
 import { OBS_PIXELRATIO, observationBildNamn, ritaObservationIkon } from '@/lib/observationIkon';
 import { OBSERVATION_TONER } from '@/lib/egenkontrollObservation';
@@ -71,6 +75,8 @@ type Geo = { type: 'FeatureCollection'; features: any[] };
 const TOM: Geo = { type: 'FeatureCollection', features: [] };
 /** Stabil tom lista: en ny [] vid varje rendering skulle starta om varje effekt som beror pa den. */
 const INGA_OBSERVATIONER: EgenkontrollPunkt[] = [];
+const INGET_SPAR: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[] = [];
+const INGA_RINGAR: [number, number][][] = [];
 
 /**
  * Bilderna lagren refererar: symbolerna (lib/marker-icons.ts - samma som
@@ -200,6 +206,8 @@ export default function RundKarta({
   baskarta = BASKARTA_DEFAULT,
   overlays,
   egnaVarden,
+  spar = INGET_SPAR,
+  vidaRingar = INGA_RINGAR,
 }: {
   objekt: KartObjektData | null;
   /**
@@ -254,8 +262,14 @@ export default function RundKarta({
   baskarta?: BaskartaId;
   /** WMS-lager + vidaKartbild. Delas med planeringsvyn via mapLayers_v4. */
   overlays?: MapLayers;
-  /** Egenkontrollens egna lager: punkter, provytor, stammar. */
+  /** Egenkontrollens egna lager: punkter, provytor, stammar, planens vagar i full styrka, hyttspar, Vidas traktgrans (lib/egenkontrollLager). */
   egnaVarden?: Record<string, boolean>;
+  /**
+   * Hyttsparet per roll (utjamnat for RITNING) och Vidas traktgrans (yttre ringar). Sidan hamtar dem forst nar nagon ber om dem (menyn oppnas,
+   * Basvag-brickan markeras, ett lager ar tant) och skickar dem hit; utan data (eller utan att lagret ar tant) ritas ingenting. Aldrig tom ruta.
+   */
+  spar?: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[];
+  vidaRingar?: [number, number][][];
 }) {
   // Lases i map.on('load') som kor asynkront - da ar props ur forsta rendret
   // inte langre sanningen. Ref:en ger det som galler NAR lagret laggs pa.
@@ -384,6 +398,13 @@ export default function RundKarta({
       geometry: { type: 'Point', coordinates: [s2.lng, s2.lat] },
     })),
   }), [stammar]);
+
+  /** Hyttsparet per roll (WGS84, ingen konvertering) och Vidas traktgrans. Tomma tills sidan ger dem. */
+  const sparGeo = useMemo(() => ({
+    skordare: { type: 'FeatureCollection', features: sparFeatures(spar.filter((s2) => s2.roll === 'skordare').flatMap((s2) => s2.linjer)) } as Geo,
+    skotare: { type: 'FeatureCollection', features: sparFeatures(spar.filter((s2) => s2.roll === 'skotare').flatMap((s2) => s2.linjer)) } as Geo,
+  }), [spar]);
+  const vidaGeo = useMemo<Geo>(() => ({ type: 'FeatureCollection', features: vidaGransFeatures(vidaRingar) }), [vidaRingar]);
 
   /** Avvikelsernas EGNA positioner - redan WGS84, ingen konvertering. */
   const avvikelseGeo = useMemo<Geo>(() => ({
@@ -563,6 +584,10 @@ export default function RundKarta({
         },
       });
 
+      // VIDAS TRAKTGRANS ovanpa stammolnet, under allt annat: underlag att jamfora mot. Slackt tills menyn tander det.
+      map.addSource(VIDA_GRANS_KALLA, { type: 'geojson', data: vidaGeo });
+      for (const spec of vidaGransLager()) laggTillLager(map, spec);
+
       // BILDERNA FORE LAGREN: symboler, pilar och basvagsnummer.
       await laggTillBilder(map, nummerRef.current);
       // Kartan kan ha tagits bort medan bilderna laddades (komponenten
@@ -574,11 +599,21 @@ export default function RundKarta({
       map.addSource(KONTEXT_KALLA, { type: 'geojson', data: kontextGeo });
       for (const spec of kontextLager()) laggTillLager(map, spec);
 
+      // PLANENS VAGAR I FULL STYRKA: samma kalla som kontexten, ritas ovanpa den nedtonade. Slackt tills menyn tander dem.
+      for (const spec of planVagLager()) laggTillLager(map, spec);
+
       // KONTROLLPUNKTERNA over: typens eget utseende, med status som en ring
       // eller ett band RUNT - obesvarad har ingen. Se lib/kartstil.ts.
       map.addSource(KONTROLL_KALLA, { type: 'geojson', data: punktGeo });
       map.addSource(NUMMER_KALLA, { type: 'geojson', data: nummerGeo });
       for (const spec of kontrollLager()) laggTillLager(map, spec);
+
+      // HYTTSPAR: over alla linjer men FORE kontrollpunkternas nummer och symboler - ett spar man tryckt fram doljer aldrig en punkt.
+      // Slackta tills menyn (eller knappen i Basvag-brickans rad) tander dem.
+      for (const roll of ['skordare', 'skotare'] as const) {
+        map.addSource(SPAR_KALLA[roll], { type: 'geojson', data: sparGeo[roll] });
+        for (const spec of sparLager(roll)) laggTillLager(map, spec, 'ek-p-nummer');
+      }
 
       // BACKVAG: tvarstrecket i hinderanden, over linjerna.
       map.addSource(BACKVAG_KALLA, { type: 'geojson', data: backvagGeo });
@@ -661,7 +696,10 @@ export default function RundKarta({
     map.getSource(PROVYTA_KALLA)?.setData(provyteGeo);
     map.getSource(OBSERVATION_KALLA)?.setData(observationGeo);
     map.getSource('ek-stammar')?.setData(stamGeo);
-  }, [punktGeo, nummerGeo, kontextGeo, backvagGeo, kontroll.nummer, avvikelseGeo, provyteGeo, observationGeo, stamGeo, laddad]);
+    map.getSource(SPAR_KALLA.skordare)?.setData(sparGeo.skordare);
+    map.getSource(SPAR_KALLA.skotare)?.setData(sparGeo.skotare);
+    map.getSource(VIDA_GRANS_KALLA)?.setData(vidaGeo);
+  }, [punktGeo, nummerGeo, kontextGeo, backvagGeo, kontroll.nummer, avvikelseGeo, provyteGeo, observationGeo, stamGeo, sparGeo, vidaGeo, laddad]);
 
   // --- Bakgrundskartan ------------------------------------------------------
   // Alla fyra ligger redan i stilen; vi tander en och slacker de andra. Att
@@ -709,6 +747,17 @@ export default function RundKarta({
     for (const id of provytaLagerIdn()) satt(id, ytorPa);
     const observationerPa = egnaVarden.ekObservationer !== false;
     for (const id of observationLagerIdn()) satt(id, observationerPa);
+
+    // Underlagen ar AV tills nagon tander dem (=== true, inte !== false): standarden lagger inget nytt pa kartan.
+    const planPa = egnaVarden.ekPlanVagar === true;
+    for (const id of planVagLagerIdn()) satt(id, planPa);
+    // Lyfts planens vagar lyfts tvarstrecken med (opacitet 1); annars ar kontextens nedtonade, som forut.
+    if (map.getLayer(BACKVAG_LAGER_ID)) map.setPaintProperty(BACKVAG_LAGER_ID, 'icon-opacity', planPa ? 1 : BACKVAG_OPACITET);
+    for (const roll of ['skordare', 'skotare'] as const) {
+      const nyckel = roll === 'skordare' ? 'ekSparSkordare' : 'ekSparSkotare';
+      for (const id of sparLagerIdn(roll)) satt(id, egnaVarden[nyckel] === true);
+    }
+    for (const id of vidaGransLagerIdn()) satt(id, egnaVarden.ekVidaGrans === true);
   }, [egnaVarden, laddad]);
 
   // Strombrytaren tander/slacker lagret utan att rita om kartan.

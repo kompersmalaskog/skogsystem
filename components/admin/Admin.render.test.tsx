@@ -250,11 +250,11 @@ async function skriv(input: HTMLInputElement, v: string) {
   });
 }
 const radMed = (t: string) => blad(t)[0].parentElement as HTMLElement;
-/** Översiktens rader har alla samma knapp ("Öppna"): tryck på knappen i raden med den här rubriken. */
+/** Översiktens rader är tryckbara hela vägen (›, ingen knapp bredvid texten): tryck på raden med den här rubriken. */
 async function klickRad(rubrik: string) {
   const el = blad(rubrik)[0];
   if (!el) throw new Error("hittar ingen rad: " + rubrik + " — sidan säger: " + text().slice(0, 400));
-  const knapp = el.parentElement!.parentElement!.querySelector("button")!;
+  const knapp = el.closest("button")!;
   await act(async () => { knapp.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   await lugn();
 }
@@ -360,10 +360,11 @@ describe("Översikt = att-göra-lista", () => {
     expect(t).toContain("Allt annat stämmer"); // något kräver dig: resten är "annat"
   });
 
-  it("knapparna leder dit det fixas: EN knapp (Öppna) per rad — lönen → Löneunderlag, dagarna → Dagar filtrerat, personen → personen, maskinen → maskinen", async () => {
+  it("raderna leder dit det fixas: hela raden är tryckbar (›, ingen Öppna-knapp) — lönen → Löneunderlag, dagarna → Dagar filtrerat, personen → personen, maskinen → maskinen", async () => {
     mangaSaker();
     await monter("flik=oversikt");
-    // Alla knappar heter Öppna: raden säger vad det gäller, och knappen sitter alltid bredvid texten.
+    // Ingen knapp bredvid texten: raden är knappen, med › till höger.
+    expect(blad("Öppna").length).toBe(0);
     expect(blad("Granska").length + blad("Se dagarna").length + blad("Bekräfta").length + blad("Visa").length).toBe(0);
     await klickRad("Lönen för september är klar att granska");
     expect(window.location.search).toContain("flik=lon");
@@ -383,6 +384,172 @@ describe("Översikt = att-göra-lista", () => {
     await klickRad("Ny maskin i importen: H8E");
     expect(window.location.search).toContain("maskin=R64999");
     expect(text()).toContain("Ny maskin upptäckt i importen");
+  });
+
+  describe("vilobrott → dagarna", () => {
+    const RAD = "Anna Berg: 2 obesvarade vilobrott";
+    const ark = () => document.body.querySelector("[data-vilobrott-ark]") as HTMLElement | null;
+    const brottRad = (typ: string) => Array.from(document.body.querySelectorAll<HTMLElement>("[data-vilobrott]")).find(e => e.getAttribute("data-vilobrott")!.startsWith(typ))!;
+    const oppnaBrott = async (typ: string) => {
+      const knapp = brottRad(typ).querySelector("button")!;
+      await act(async () => { knapp.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await lugn();
+    };
+
+    it("raderna är tryckbara hela vägen: › på varje, ingen Öppna-knapp, tryck på raden gör det knappen gjorde", async () => {
+      mangaSaker();
+      await monter("flik=oversikt");
+      const rader = Array.from(cont.querySelectorAll<HTMLElement>("[data-sak]"));
+      expect(rader.length).toBe(8);
+      for (const r of rader) {
+        expect(Array.from(r.querySelectorAll("button")).some(b => b.textContent === "Öppna"), r.getAttribute("data-sak")!).toBe(false);
+        expect(r.textContent, r.getAttribute("data-sak")!).toContain("chevron_right");
+        expect(r.querySelectorAll("button").length, r.getAttribute("data-sak")!).toBe(1);   // raden ÄR knappen
+      }
+    });
+
+    it("tryck på vilobrottsraden öppnar ett ark med ETT brott per rad (adressen bär ?vila=), Stäng lämnar det", async () => {
+      mangaSaker();
+      await monter("flik=oversikt");
+      expect(ark()).toBeNull();
+      await klickRad(RAD);
+      expect(ark()).not.toBeNull();
+      expect(window.location.search).toContain("vila=m1");
+      expect(window.location.search).toContain("flik=oversikt");
+      expect(ark()!.textContent).toContain("Anna");
+      expect(ark()!.textContent).toContain("2 obesvarade vilobrott");
+      expect(document.body.querySelectorAll("[data-vilobrott]")).toHaveLength(2);
+      expect(brottRad("dygnsvila").textContent).toContain("8,5 h av 11 h");
+      expect(brottRad("veckovila").textContent).toContain("av 36 h");
+      // flera brott: stängda tills man trycker
+      expect(document.body.querySelector("[data-vilobrott-detalj]")).toBeNull();
+      await act(async () => { (Array.from(ark()!.querySelectorAll("button")).find(b => b.textContent === "Stäng") as HTMLButtonElement).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      await lugn();
+      expect(ark()).toBeNull();
+      expect(window.location.search).not.toContain("vila=");
+    });
+
+    it("en omladdning på ?vila=… landar i arket", async () => {
+      mangaSaker();
+      await monter("flik=oversikt&vila=m1");
+      expect(ark()).not.toBeNull();
+      expect(document.body.querySelectorAll("[data-vilobrott]")).toHaveLength(2);
+    });
+
+    it("dygnsvila: dagen före (slut) och dagen efter (start) med vilan mot kravet — och att brottet är obesvarat", async () => {
+      mangaSaker();
+      await monter("flik=oversikt");
+      await klickRad(RAD);
+      await oppnaBrott("dygnsvila");
+      const d = document.body.querySelector("[data-vilobrott-detalj]")!;
+      expect(d.querySelector('[data-vila-pass="2026-09-28"]')!.textContent).toContain("mån 28 sep");
+      expect(d.querySelector('[data-vila-pass="2026-09-28"]')!.textContent).toContain("05:00–20:30");
+      expect(d.querySelector('[data-vila-pass="2026-09-29"]')!.textContent).toContain("05:00–15:30");
+      const vila = d.querySelector("[data-vila-vila]")!.textContent!;
+      expect(vila).toContain("Vila 8,5 h · kravet 11 h");
+      expect(vila).toContain("mån 20:30 → tis 05:00");
+      // exakt två pass, vilan mellan dem
+      const ordning = Array.from(d.querySelectorAll("[data-vila-pass],[data-vila-vila]")).map(e => e.hasAttribute("data-vila-vila") ? "vila" : e.getAttribute("data-vila-pass"));
+      expect(ordning).toEqual(["2026-09-28", "vila", "2026-09-29"]);
+      expect(d.querySelector("[data-vila-svar]")!.textContent).toContain("Obesvarat");
+    });
+
+    it("veckovila: veckan där den längsta vilan är utpekad, med passen runt den", async () => {
+      mangaSaker();
+      await monter("flik=oversikt");
+      await klickRad(RAD);
+      await oppnaBrott("veckovila");
+      const d = document.body.querySelector("[data-vilobrott-detalj]")!;
+      expect(d.textContent).toContain("7 dagar:");
+      expect(d.querySelectorAll("[data-vila-vila]")).toHaveLength(1);
+      expect(d.querySelector("[data-vila-vila]")!.textContent).toMatch(/Längsta vilan .* h · kravet 36 h.*sammanhängande/);
+      expect(d.querySelectorAll("[data-vila-pass]").length).toBeGreaterThanOrEqual(5);
+    });
+
+    it("ett enda brott: dagarna står öppna från början (inget att välja)", async () => {
+      mangaSaker();
+      g.__db.arbetsdag = [
+        { medarbetare_id: "m1", datum: "2026-09-28", start_tid: "05:00:00", slut_tid: "20:30:00", bekraftad: true },
+        { medarbetare_id: "m1", datum: "2026-09-29", start_tid: "05:00:00", slut_tid: "15:30:00", bekraftad: true },
+      ];
+      await monter("flik=oversikt");
+      await klickRad("Anna Berg: 1 obesvarat vilobrott");
+      expect(document.body.querySelectorAll("[data-vilobrott]")).toHaveLength(1);
+      expect(document.body.querySelector("[data-vilobrott-detalj]")).not.toBeNull();
+      expect(document.body.querySelector('[data-vila-pass="2026-09-28"]')).not.toBeNull();
+    });
+
+    it("förarens svar visas när det finns — admin svarar inte själv; ett besvarat brott finns inte i arket", async () => {
+      mangaSaker();
+      g.__db.vilobrott = [{ id: "v1", medarbetare_id: "m1", datum: "2026-09-28", typ: "dygnsvila", vila_h: 8.5, krav_h: 11, besvarat_av_forare: true, orsak: "planerad_avtal", orsak_fritext: null }];
+      await monter("flik=oversikt");
+      await klickRad("Anna Berg: 1 obesvarat vilobrott");
+      expect(document.body.querySelectorAll("[data-vilobrott]")).toHaveLength(1);
+      expect(document.body.querySelector("[data-vilobrott]")!.getAttribute("data-vilobrott")).toMatch(/^veckovila/);
+      expect(ark()!.textContent).not.toMatch(/Svara|Spara/);
+    });
+
+    it("Se hela månaden: öppnar Förare · Månad för just den föraren på just den dagen (adressen bär period, förare och dag)", async () => {
+      mangaSaker();
+      const m1 = SALARY.medarbetare[0] as any;
+      g.__salary = { ...SALARY, medarbetare: [{ ...m1, dagar: [
+        { id: "d28", datum: "2026-09-28", start_tid: "05:00", slut_tid: "20:30", arbetad_min: 870, extra_min: 0, rast_min: 30, objekt: [], km_totalt: 0, ersattningsmil: 0 },
+        { id: "d29", datum: "2026-09-29", start_tid: "05:00", slut_tid: "15:30", arbetad_min: 600, extra_min: 0, rast_min: 30, objekt: [], km_totalt: 0, ersattningsmil: 0 },
+      ] }] };
+      await monter("flik=oversikt");
+      await klickRad(RAD);
+      await oppnaBrott("dygnsvila");
+      await klick("Se hela månaden ›");
+      expect(window.location.search).toContain("flik=lon");
+      expect(window.location.search).toContain("period=2026-10");   // arbetsmånaden september = löneperiod oktober
+      expect(window.location.search).toContain("forare=m1");
+      expect(window.location.search).toContain("dag=2026-09-28");
+      expect(window.location.search).not.toContain("vila=");
+      expect(ark()).toBeNull();
+      const manad = document.body.querySelector("[data-forare-manad]")!;
+      expect(manad).not.toBeNull();
+      // dagen står öppen
+      const dagen = manad.querySelector('[data-dag="2026-09-28"]')!;
+      expect(dagen.querySelector("[data-dag-detalj]")).not.toBeNull();
+      expect(manad.querySelector('[data-dag="2026-09-29"] [data-dag-detalj]')).toBeNull();
+    });
+
+    it("pågående månad: Förare · Månad finns inte än — länken byts mot en rad som säger det, aldrig en död länk", async () => {
+      mangaSaker();
+      g.__db.arbetsdag = [
+        { medarbetare_id: "m1", datum: "2026-10-05", start_tid: "05:00:00", slut_tid: "20:30:00", bekraftad: true },
+        { medarbetare_id: "m1", datum: "2026-10-06", start_tid: "05:00:00", slut_tid: "15:30:00", bekraftad: true },
+      ];
+      await monter("flik=oversikt");
+      await klickRad("Anna Berg: 1 obesvarat vilobrott");
+      expect(document.body.querySelector('[data-vila-pass="2026-10-05"]')).not.toBeNull();
+      expect(blad("Se hela månaden ›").length).toBe(0);
+      // ingen förklarande text i stället: länken är bara borta
+      expect(document.body.querySelector("[data-vila-manad-ej]")).toBeNull();
+      expect(text()).not.toContain("Förare · Månad öppnas");
+      expect(ark()!.textContent).toContain("Obesvarat");   // arket visar ändå dagarna och status
+    });
+
+    it("pågående månad: tidigare månad har länken kvar — det är innevarande månad som saknar den", async () => {
+      mangaSaker();
+      await monter("flik=oversikt");
+      await klickRad(RAD);
+      await oppnaBrott("dygnsvila");   // 28 sep, avslutad månad
+      expect(blad("Se hela månaden ›").length).toBe(1);
+    });
+
+    it("Martin Lindqvist (företagsledare) ger inga vilobrott i Översikt — Anna med samma pass har dem kvar", async () => {
+      mangaSaker();
+      g.__db.medarbetare.push({ ...MED[1], id: "m9", namn: "Martin Lindqvist", foretagsledare: true, user_id: "u9", maskin_id: "R64101", hem_lat: 56.4, hem_lng: 14.7 });
+      g.__db.arbetsdag = [...g.__db.arbetsdag, ...g.__db.arbetsdag.filter((d: any) => d.medarbetare_id === "m1").map((d: any) => ({ ...d, medarbetare_id: "m9" }))];
+      await monter("flik=oversikt");
+      expect(text()).toContain("Anna Berg: 2 obesvarade vilobrott");
+      expect(text()).not.toMatch(/Martin Lindqvist: \d+ obesvara/);
+      // inte heller i Lön → Vilobrott (samma lista)
+      await monter("flik=lon&underflik=vila");
+      expect(text()).toContain("Anna Berg");
+      expect(text()).not.toContain("Martin Lindqvist");
+    });
   });
 
   it("en källa som inte går att läsa blir en egen rad med Försök igen — aldrig en tyst nolla", async () => {
