@@ -34,6 +34,7 @@ const pageNames: Record<string, string> = {
   '/kontroller': 'Kontroller',
   '/maskinflytt/platser': 'Flyttplatser',
   '/lastbil': 'Lastbilen',
+  '/inventarier': 'Inventarier',
   '/avtal': 'Avtal & Abonnemang',
   '/personal': 'Personal',
   '/om': 'Om appen',
@@ -50,6 +51,8 @@ export default function TopBar() {
     // vilken utbildning eller person det gäller — toppfältet säger bara var man är.
     : pathname.startsWith('/utbildning/') ? 'Utbildning'
     : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
+    // /inventarier/plats/<id>: platsens namn står i sidan, toppfältet säger bara var man är.
+    : pathname.startsWith('/inventarier/') ? 'Inventarier'
     : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
     : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 

@@ -98,6 +98,15 @@ export const SKARPA = [
   "components/design/Falt.tsx",
   "components/design/TalRad.tsx",
   "components/design/Manadsvaljare.tsx",
+  // Inventarier (2026-10-21): tokens från början, noll literaler.
+  "components/inventarier/InventarierStart.tsx",
+  "components/inventarier/PlatsSida.tsx",
+  "components/inventarier/RadArk.tsx",
+  "components/inventarier/BestallArk.tsx",
+  "components/inventarier/LaggTillArk.tsx",
+  "components/inventarier/NyPlatsArk.tsx",
+  "components/inventarier/Kvitto.tsx",
+  "components/inventarier/delar.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

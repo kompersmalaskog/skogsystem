@@ -12,6 +12,7 @@ import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
 import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@/lib/ledighet/notis";
 import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/lastbil/lass/notis";
 import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
+import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -77,7 +78,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -150,8 +151,10 @@ async function flush() {
       // Lass: samma regler (färsk text, redan besvarat/för gammalt → hoppas över, läsfel → oskickad).
       let ledighetMeddelande: Awaited<ReturnType<typeof byggMeddelande>> | null = null;
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ)) {
-        const u = arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
+      // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ)) {
+        const u = arInventarieNotis(n.typ) ? await byggInventarieNotis(n, hamtaInventarierad)
+          : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
           : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad) : await byggLedighetNotis(n, hamtaLedighetsrad);
         if (u.typ === "uppskjut") { uppskjutna++; continue; }
         if (u.typ === "hoppa_over") {
@@ -258,6 +261,22 @@ const hamtaStickprovrad: HamtaStickprov = async (manad) => {
   if (!data) return { rad: null };
   const d = data as any;
   return { rad: { manad: d.manad, valda: Array.isArray(d.valda) ? d.valda : [], spridning_km: d.spridning_km == null ? null : Number(d.spridning_km) } };
+};
+
+// Inventarieraden för "Börjar ta slut". `rad: null` = finns inte; `fel` = kunde inte läsas. Tjänstenyckeln läser förbi RLS.
+const hamtaInventarierad: HamtaInventarie = async (radId) => {
+  const { data, error } = await supabase
+    .from("inventarie_rad")
+    .select("id, antal, min_antal, bestalld_tid, artikel:artikel_id(namn, sitter_pa, enhet), plats:plats_id(namn)")
+    .eq("id", radId)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  const a = Array.isArray(d.artikel) ? d.artikel[0] : d.artikel;
+  const p = Array.isArray(d.plats) ? d.plats[0] : d.plats;
+  if (!a || !p) return { rad: null };
+  return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
