@@ -3,6 +3,8 @@ import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { hamtaSpecialObjekt, specialPerNamn } from '@/lib/maskinvy/specialObjekt'
+import { ObjektNamn } from './SpecialBadge'
 import { translateKategori } from '@/lib/avbrott-kategorier'
 import {
   C, FONT, MASKINER, COMBO_IDS, getPeriodRange, fetchAll,
@@ -37,20 +39,23 @@ type ProduktionData = {
   totalStammar: number
   arbetsdagar: number
   m3PerArbetsdag: number
+  /** Special-objekt (dim_objekt.special) bland dagens objekt: namn → skäl. Bara för badgen. */
+  specialNamn: Record<string, string | null>
   perDag: Record<string, DagInfo>
   start: string
   end: string
 }
 
 // ── Datahämtning ─────────────────────────────────────────────
-async function fetchProduktion(maskinId: string, start: string, end: string): Promise<ProduktionData> {
+export async function fetchProduktion(maskinId: string, start: string, end: string): Promise<ProduktionData> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
 
-  const [prodRows, avbrRows, opRes, objRes] = await Promise.all([
+  const [prodRows, avbrRows, opRes, objRes, special] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar, operator_id, objekt_id', ids, start, end),
     fetchAll('fakt_avbrott', 'datum, kategori_kod, langd_sek', ids, start, end),
     supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
     supabase.from('dim_objekt').select('objekt_id, object_name'),
+    hamtaSpecialObjekt(),
   ])
 
   const opNames: Record<string, string> = {}
@@ -117,6 +122,7 @@ async function fetchProduktion(maskinId: string, start: string, end: string): Pr
   return {
     totalVolym, totalStammar, arbetsdagar,
     m3PerArbetsdag: arbetsdagar > 0 ? totalVolym / arbetsdagar : 0,
+    specialNamn: specialPerNamn(Object.values(objektSets).flatMap(set => Array.from(set)), objNames, special),
     perDag, start, end,
   }
 }
@@ -503,8 +509,9 @@ function Calendar({ data, onDayClick }: {
 // Visar en bucket (dag/vecka/månad). KPI-raderna växlar lite
 // beroende på kind — vecka/månad får extra rader för
 // arbetsdagar och snitt.
-function PeriodDetalj({ bucket, onClose }: {
+export function PeriodDetalj({ bucket, specialNamn, onClose }: {
   bucket: Bucket
+  specialNamn: Record<string, string | null>
   onClose: () => void
 }) {
   const [shown, setShown] = useState(false)
@@ -602,7 +609,7 @@ function PeriodDetalj({ bucket, onClose }: {
               <div key={i} style={{
                 padding: '10px 16px', fontSize: 14, color: C.text,
                 borderTop: `0.5px solid ${C.divider}`,
-              }}>{n}</div>
+              }}><ObjektNamn namn={n} special={n in specialNamn} skal={specialNamn[n]} /></div>
             ))}
           </div>
         )}
@@ -908,7 +915,7 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
 
       {/* Detalj-panel (dag/vecka/månad — beror på vad som klickats) */}
       {openBucket && (
-        <PeriodDetalj bucket={openBucket} onClose={() => setOpenBucketKey(null)} />
+        <PeriodDetalj bucket={openBucket} specialNamn={data?.specialNamn ?? {}} onClose={() => setOpenBucketKey(null)} />
       )}
     </div>
   )

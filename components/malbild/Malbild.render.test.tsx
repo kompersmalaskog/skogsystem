@@ -131,8 +131,8 @@ describe('KartKort — målbilden är EN rad under kommentaren (aldrig utfälld)
   it('med målbild: kommentaren direkt under huvudet, sedan EN rad (miniatyr + "Så ska det se ut ›"), sedan typens delar — ingen utfälld sektion i kortet', () => {
     montera(<KartKort {...props({ malbild: <MalbildRad nyckel="stenmur" roll="skordare" /> })}><div data-testid="del">typens del</div></KartKort>);
     const ordning = Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
-    expect(ordning.indexOf('kartkort-mening')).toBeLessThan(ordning.indexOf('kartkort-kommentar'));
-    expect(ordning.indexOf('kartkort-kommentar')).toBeLessThan(ordning.indexOf('malbild-rad-kort'));
+    expect(ordning.indexOf('kartkort-kommentar')).toBeLessThan(ordning.indexOf('kartkort-mening'));
+    expect(ordning.indexOf('kartkort-mening')).toBeLessThan(ordning.indexOf('malbild-rad-kort'));
     expect(ordning.indexOf('malbild-rad-kort')).toBeLessThan(ordning.indexOf('del'));
     const rad = q('malbild-rad-kort')!;
     expect(rad.textContent).toContain('Så ska det se ut');

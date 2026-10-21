@@ -71,7 +71,8 @@ import { useVidaLagerFel } from '../../lib/hooks/useVidaLagerFel'
 import { useGrind } from '../../lib/hooks/useGrind'
 import { GRIND_TYP, rensaGrindKod } from '../../lib/grind'
 import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR, GRUPPER, SYMBOL_GRUPP, gruppForLinje, SYMBOL_NAMN, gruppForSymbol, symbolFarg, larmRegelText, type FargGrupp } from '../../lib/larm/grupper'
-import { KartKort, KartKortNederst, type KartKortFoto } from '../../components/planering/KartKort'
+import { KartKort, KartKortNederst, KortAtgarder, KortKnapp, type KartKortFoto } from '../../components/planering/KartKort'
+import { TraktAnalysRad, type Kontroll } from '../../components/planering/TraktAnalysRad'
 import { useKartkommentarer } from '../../lib/hooks/useKartkommentarer'
 import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, markerNyckel } from '../../lib/kartkommentar'
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
@@ -6297,10 +6298,8 @@ export default function PlannerPage() {
             nyckel = partKey ? `traktdel:${partKey}` : null;
           } else if (kat === 'hansyn') {
             const lopnr = txt(props.LOPNR);
-            const rader: { etikett?: string; text: string }[] = [];
-            if (txt(props.FLBESKR)) rader.push({ text: txt(props.FLBESKR) });
-            if (txt(props.ATGARD)) rader.push({ text: txt(props.ATGARD) });
-            kort = { kategori: 'hansyn', kalla: 'Vida', arealHa: traktArealHa(props), rader, rubrik: lopnr ? `Hänsynsyta ${lopnr}` : 'Hänsynsyta', nr: '' };
+            // Vidas ATGARD är kommentaren (visas först i kortet, märkt "Vida · traktdirektiv"); FLBESKR är vilken sorts hänsyn det är och står som källa.
+            kort = { kategori: 'hansyn', kalla: txt(props.FLBESKR) ? `Vida · ${txt(props.FLBESKR)}` : 'Vida', arealHa: traktArealHa(props), rader: [], vidaKommentar: txt(props.ATGARD) || undefined, rubrik: lopnr ? `Hänsynsyta ${lopnr}` : 'Hänsynsyta', nr: '' };
           }
           oppnaKort(kort, nyckel, vida);
         }
@@ -11735,7 +11734,7 @@ export default function PlannerPage() {
       setTraktOversiktOpen(true);
     }
     if (!korvyActive && m.antal !== undefined) setAntalPrompt({ markerId: String(id), type: typ });
-    if (!korvyActive && typ === GRIND_TYP) setKodPrompt(String(id));   // planeraren skriver hänglåskoden när grinden sätts
+    if (objektListaVal && typ === GRIND_TYP) setKodPrompt(String(id));   // planeraren skriver hänglåskoden när grinden sätts — bara i planeringsläget, aldrig i maskinen
     if (navigator.vibrate) navigator.vibrate(30);
     // Ved-symbolen är ingen verktygssymbol: den ska aldrig hamna bland "senast använda" eller i plusdockan.
     if (typ !== 'firewood') setRecentSymbols((prev: string[]) => [typ, ...prev.filter((s) => s !== typ)].slice(0, 4));
@@ -15066,6 +15065,7 @@ export default function PlannerPage() {
             larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
             mening={bet.forklaring}
             kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
+            vidaKommentar={traktInfo.vidaKommentar}
             malbild={<MalbildRad nyckel={malbildNyckel(bet.ikon.kalla, bet.ikon.typ)} roll={malbildRoll} />}
             // Vidas data ändras aldrig: kommentarerna (kartkommentar, en rad per kommentar) och fotona (objekt_yta_media) sparas hos oss, kopplade till objekt_id + objektets nyckel.
             kommentarer={nyckel && valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, minId, arAdmin: isAdminRiktig }) : null}
@@ -15096,7 +15096,7 @@ export default function PlannerPage() {
                     ))}
                   </div>
                 )}
-                {/* Vidas traktdel = traktgräns: automatisk traktanalys + vägkontroll + volym + Justera gräns */}
+                {/* Vidas traktdel = traktgräns: traktanalys på EN rad + vägkontroll. Planeringsknapparna (volym, justera gräns, hörn, radera) finns bara i planeringsläget — aldrig i maskinen. */}
                 {traktKortVida && (() => {
                   const vA = tractAnalysis[traktKortVida.synthId];
                   const vT = tmaResults[traktKortVida.synthId];
@@ -15113,52 +15113,27 @@ export default function PlannerPage() {
                     { type: 'biotopskydd', label: 'Biotopskydd', felPrefix: 'Biotopskydd' },
                     { type: 'skogochhistoria', label: 'Skog & historia', felPrefix: 'Skog och Historia' },
                   ];
+                  const analysStatus = (!vA || vA.status === 'loading') ? 'laddar' as const : vA.status === 'error' ? 'fel' as const : 'klar' as const;
+                  const kontroller: Kontroll[] = analysStatus !== 'klar' || !vA ? [] : KONTROLLER.map((k) => {
+                    const felad = (vA.errors || []).some(e => e.startsWith(k.felPrefix));
+                    const traffar = vA.hits.filter(h => h.type === k.type);
+                    return { type: k.type, label: k.label, lage: felad ? 'osaker' as const : traffar.length > 0 ? 'traff' as const : 'ingen' as const, traffar: traffar.map(h => ({ name: h.name, details: h.details })) };
+                  });
                   return (
-                    <div style={{ marginBottom: '18px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.35)', marginBottom: '8px' }}>Traktanalys — 7 kontroller</div>
-                      {(!vA || vA.status === 'loading') ? (
-                        <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)' }}>Analyserar…</div>
-                      ) : vA.status === 'error' ? (
-                        <div style={{ fontSize: '14px', color: '#ff9f0a' }}>Kunde inte köra analysen — försök igen.</div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                          {KONTROLLER.map((k) => {
-                            const felad = (vA.errors || []).some(e => e.startsWith(k.felPrefix));
-                            const traffar = vA.hits.filter(h => h.type === k.type);
-                            const lage = felad ? 'osaker' : traffar.length > 0 ? 'traff' : 'ingen';
-                            const sym = lage === 'traff' ? '●' : lage === 'osaker' ? '!' : '–';
-                            const symFarg = lage === 'traff' ? '#ff453a' : lage === 'osaker' ? '#ff9f0a' : 'rgba(255,255,255,0.3)';
-                            const statusText = lage === 'traff' ? `${traffar.length} träff${traffar.length > 1 ? 'ar' : ''}` : lage === 'osaker' ? 'Kunde inte kontrollera' : 'Ingen träff';
-                            const statusFarg = lage === 'traff' ? '#ff453a' : lage === 'osaker' ? '#ff9f0a' : 'rgba(255,255,255,0.4)';
-                            return (
-                              <div key={k.type} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
-                                  <span style={{ color: symFarg, fontWeight: 700, width: '12px', textAlign: 'center', flexShrink: 0 }}>{sym}</span>
-                                  <span style={{ color: '#fff', flex: 1 }}>{k.label}</span>
-                                  <span style={{ color: statusFarg, fontSize: '13px', fontWeight: lage === 'traff' ? 600 : 400 }}>{statusText}</span>
-                                </div>
-                                {lage === 'traff' && traffar.map((h, i) => (
-                                  <div key={i} style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', lineHeight: 1.4, paddingLeft: '20px' }}>
-                                    {h.name}{h.details ? <span style={{ color: 'rgba(255,255,255,0.4)' }}> · {h.details}</span> : null}
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}` }}>
+                      <TraktAnalysRad status={analysStatus} kontroller={kontroller} />
                       {vagar.length > 0 && (
-                        <div style={{ marginTop: '12px' }}>
+                        <div>
                           <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px' }}>Vägkontroll (TMA)</div>
                           <div style={{ fontSize: '14px', color: '#fff' }}>Väg nära gränsen: {vagar.map(r => r.ref ? `${r.ref} ${r.name}` : r.name).filter(Boolean).slice(0, 3).join(', ')}</div>
                         </div>
                       )}
                       {/* Egen boundary-markör: ändra serienummer (planerare) — bara när ytan faktiskt numreras
                           (ensam yta = visaGransNummer=false → ingen siffra, ingen editor). Följer live i titeln. */}
-                      {boundaryId != null && isAdminRiktig && objektNumrering.visaGransNummer && (() => {
+                      {objektListaVal && boundaryId != null && isAdminRiktig && objektNumrering.visaGransNummer && (() => {
                         const nr = objektNumrering.gransNr.get(String(boundaryId));
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <label style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Nummer</label>
                             <input type="number" min={1} defaultValue={nr != null ? String(nr) : ''} key={`grnr-sheet-${boundaryId}-${nr}`}
                               onBlur={(e) => redigeraGransNummer(boundaryId, parseInt(e.target.value, 10))}
@@ -15166,34 +15141,22 @@ export default function PlannerPage() {
                           </div>
                         );
                       })()}
-                      <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
-                        <button onClick={() => runVolymBerakning(traktKortVida.ringLatLon)}
-                          style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                          Beräkna volym
-                        </button>
-                        {/* Vida-bit → "Justera gräns" (skapar en egen redigerbar kopia). Egen boundary → redigera hörn direkt. */}
-                        {isAdminRiktig && boundaryId == null && (
-                          <button onClick={() => justeraGrans(traktKortVida.key, traktKortVida.ringLatLon)}
-                            style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.28)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                            Justera gräns
-                          </button>
-                        )}
-                        {isAdminRiktig && boundaryId != null && (() => {
-                          const bMarker: any = markers.find((mm: any) => String(mm.id) === String(boundaryId));
-                          return (
-                            <>
-                              <button onClick={() => startaHornEdit(bMarker)}
-                                style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.28)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                                Redigera hörn
-                              </button>
-                              <button onClick={() => { deleteMarker(boundaryId); stangTraktKort(); }}
-                                style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,69,58,0.4)', background: 'rgba(255,69,58,0.12)', color: '#ff6961', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                                Radera
-                              </button>
-                            </>
-                          );
-                        })()}
-                      </div>
+                      {objektListaVal && (
+                        <KortAtgarder>
+                          <KortKnapp testid="trakt-kort-berakna-volym" text="Beräkna volym" onClick={() => runVolymBerakning(traktKortVida.ringLatLon)} />
+                          {/* Vida-bit → "Justera gräns" (skapar en egen redigerbar kopia). Egen boundary → redigera hörn direkt. */}
+                          {isAdminRiktig && boundaryId == null && <KortKnapp testid="trakt-kort-justera-gran" text="Justera gräns" onClick={() => justeraGrans(traktKortVida.key, traktKortVida.ringLatLon)} />}
+                          {isAdminRiktig && boundaryId != null && (() => {
+                            const bMarker: any = markers.find((mm: any) => String(mm.id) === String(boundaryId));
+                            return (
+                              <>
+                                <KortKnapp testid="trakt-kort-redigera-horn" text="Redigera hörn" onClick={() => startaHornEdit(bMarker)} />
+                                <KortKnapp testid="trakt-kort-radera" text="Radera" destruktiv onClick={() => { deleteMarker(boundaryId); stangTraktKort(); }} />
+                              </>
+                            );
+                          })()}
+                        </KortAtgarder>
+                      )}
                     </div>
                   );
                 })()}
@@ -15623,30 +15586,14 @@ export default function PlannerPage() {
                 );
               })()}
 
-              {/* Numrera om alla basvägar — MANUELL (radering lämnar fortsatt luckor). Global åtgärd; bekräftas. */}
-              {marker.isLine && marker.lineType === 'mainRoad' && (
-                <button
-                  type="button"
-                  onClick={numreraOmBasvagar}
-                  className="btn-press"
-                  style={{
-                    display: 'block', margin: '0 auto 16px', padding: '8px 16px',
-                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-                    borderRadius: '10px', color: '#fff', fontSize: '13px', fontWeight: '600',
-                    cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}
-                >
-                  Numrera om basvägar
-                </button>
-              )}
-
-            {/* Grind: hänglåskoden (planeraren ändrar den här; förarna ser den i körvyn inom ~50 m) */}
+            {/* Grind: hänglåskoden. Planeraren ändrar den i planeringsläget; i maskinen visas den men fältet är låst (förarna läser koden, de ändrar den inte). */}
             {marker.type === GRIND_TYP && (
               <div style={{ textAlign: 'center', marginBottom: '14px' }}>
-                <div style={{ fontSize: '13px', color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Hänglåskod</div>
-                <input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={String(marker.kod ?? '')} placeholder="Ingen kod"
-                  onChange={ev => { const v = rensaGrindKod(ev.target.value); setMarkers(prev => prev.map(mm => String(mm.id) === String(marker.id) ? { ...mm, kod: v } : mm)); }}
-                  style={{ width: '60%', boxSizing: 'border-box', textAlign: 'center', padding: '10px 0', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '24px', fontWeight: 700, letterSpacing: '3px', fontFamily: 'inherit' }} />
+                <div style={{ fontSize: '13px', color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Hänglåskod{!objektListaVal ? ' · låst' : ''}</div>
+                <input data-testid="grind-kod-kort" type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={String(marker.kod ?? '')} placeholder="Ingen kod"
+                  readOnly={!objektListaVal} aria-readonly={!objektListaVal}
+                  onChange={ev => { if (!objektListaVal) return; const v = rensaGrindKod(ev.target.value); setMarkers(prev => prev.map(mm => String(mm.id) === String(marker.id) ? { ...mm, kod: v } : mm)); }}
+                  style={{ width: '60%', boxSizing: 'border-box', textAlign: 'center', padding: '10px 0', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: objektListaVal ? 'rgba(255,255,255,0.06)' : 'transparent', color: '#fff', fontSize: '24px', fontWeight: 700, letterSpacing: '3px', fontFamily: 'inherit', outline: objektListaVal ? undefined : 'none' }} />
               </div>
             )}
 
@@ -15934,210 +15881,41 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* Åtgärder */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              gap: '16px',
-              marginTop: '24px',
-              paddingTop: '20px',
-              borderTop: '1px solid rgba(255,255,255,0.08)',
-            }}>
-              {/* (Rotera-knappen borttagen — rotation sker nu via ratten/knapparna ovan i kortet) */}
-              
-              {/* Förläng - bara för linjer */}
+            {/* Åtgärder: ORD på knappar, samma rad för symboler, linjer och ytor. Kommentar, Foto och Röst ligger i åtgärdsraden högre upp; här bara det som ändrar markeringen själv. */}
+            <KortAtgarder>
               {marker.isLine && (
-                <button
-                  onClick={() => {
-                    const linjePath = marker.path ?? [];
-                    setCurrentPath([...linjePath]);
-                    // Convert SVG path to [lng, lat] for MapLibre drawing
-                    const lngLatCoords: [number, number][] = linjePath.map((p: Point) => {
-                      const { lat, lon } = svgToLatLon(p.x, p.y);
-                      return [lon, lat] as [number, number];
-                    });
-                    setCurrentDrawCoords(lngLatCoords);
-                    setDrawType(marker.lineType ?? null);
-                    setIsDrawMode(true);
-                    setDrawPaused(true);
-                    saveToHistory([...markers]);
-                    deleteMarkerFromDb(marker.id);
-                    setMarkers(prev => prev.filter(m => m.id !== marker.id));
-                    setMarkerMenuOpen(null);
-                  }}
-                  style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '24px',
-                    border: 'none',
-                    background: 'rgba(255,255,255,0.08)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-              )}
-              
-              {/* Redigera kommentar */}
-              <button
-                onClick={() => {
-                  stopAnyRecording();
-                  setEditingMarker({ ...marker });
+                <KortKnapp testid="marker-kort-forlang" text="Förläng" onClick={() => {
+                  const linjePath = marker.path ?? [];
+                  setCurrentPath([...linjePath]);
+                  // Convert SVG path to [lng, lat] for MapLibre drawing
+                  const lngLatCoords: [number, number][] = linjePath.map((p: Point) => {
+                    const { lat, lon } = svgToLatLon(p.x, p.y);
+                    return [lon, lat] as [number, number];
+                  });
+                  setCurrentDrawCoords(lngLatCoords);
+                  setDrawType(marker.lineType ?? null);
+                  setIsDrawMode(true);
+                  setDrawPaused(true);
+                  saveToHistory([...markers]);
+                  deleteMarkerFromDb(marker.id);
+                  setMarkers(prev => prev.filter(m => m.id !== marker.id));
                   setMarkerMenuOpen(null);
-                }}
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '24px',
-                  border: 'none',
-                  background: 'rgba(255,255,255,0.08)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2">
-                  <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-              </button>
-
-              {/* Beräkna volym (bara för traktgränser) */}
-              {marker.isLine && marker.lineType === 'boundary' && marker.path && marker.path.length >= 3 && (
-                <button
-                  onClick={() => {
-                    const path = marker.path!;
-                    const latLonPath = path.map(p => svgToLatLon(p.x, p.y));
-                    setMarkerMenuOpen(null);
-                    runVolymBerakning(latLonPath);
-                  }}
-                  style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '24px',
-                    border: 'none',
-                    background: 'rgba(34,197,94,0.15)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.8)" strokeWidth="2">
-                    <path d="M3 3v18h18" /><path d="M7 16l4-8 4 4 6-10" />
-                  </svg>
-                </button>
+                }} />
               )}
-
-              {/* Traktanalys (bara för traktgränser) */}
-              {marker.isLine && marker.lineType === 'boundary' && marker.path && marker.path.length >= 3 && (() => {
-                const aId = String(marker.id);
-                const a = tractAnalysis[aId];
-                const hitCount = a?.status === 'done' ? a.hits.length : 0;
-                const isLoading = a?.status === 'loading';
-                return (
-                  <button
-                    onClick={() => {
-                      setMarkerMenuOpen(null);
-                      if (a?.status === 'done') {
-                        setTractAnalysisOpen(aId);
-                      } else {
-                        runTractAnalysis(aId, marker.path!);
-                        setTractAnalysisOpen(aId);
-                      }
-                    }}
-                    style={{
-                      width: '48px',
-                      height: '48px',
-                      borderRadius: '24px',
-                      border: 'none',
-                      background: hitCount > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.15)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      position: 'relative',
-                    }}
-                  >
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={hitCount > 0 ? 'rgba(239,68,68,0.8)' : 'rgba(59,130,246,0.8)'} strokeWidth="2">
-                      <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-                    </svg>
-                    {hitCount > 0 && (
-                      <span style={{
-                        position: 'absolute',
-                        top: '-2px',
-                        right: '-2px',
-                        background: '#ff453a',
-                        color: '#fff',
-                        borderRadius: '50%',
-                        width: '18px',
-                        height: '18px',
-                        fontSize: '13px',
-                        fontWeight: '700',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}>{hitCount}</span>
-                    )}
-                    {isLoading && (
-                      <span style={{
-                        position: 'absolute',
-                        top: '-2px',
-                        right: '-2px',
-                        width: '18px',
-                        height: '18px',
-                        borderRadius: '50%',
-                        border: '2px solid rgba(10,132,255,0.3)',
-                        borderTopColor: '#0a84ff',
-                        animation: 'spin 0.8s linear infinite',
-                      }} />
-                    )}
-                  </button>
-                );
-              })()}
-
+              {(marker.type === 'eternitytree' || marker.type === 'naturecorner' || marker.type === 'highstump') && (
+                <KortKnapp testid="marker-kort-andra-antal" text="Ändra antal" onClick={() => { stopAnyRecording(); setEditingMarker({ ...marker }); setMarkerMenuOpen(null); }} />
+              )}
               {/* RISA-del på basväg — markera (två tapp) eller ta bort */}
               {marker.isLine && marker.lineType === 'mainRoad' && (
-                <button
-                  onClick={() => { if (marker.risaPath && marker.risaPath.length >= 2) { taBortRisaDel(marker.id); setMarkerMenuOpen(null); } else { startaRisaMarkering(marker.id); } }}
-                  title={(marker.risaPath && marker.risaPath.length >= 2) ? 'Ta bort RISA-del' : 'Markera RISA-del'}
-                  style={{
-                    width: '48px', height: '48px', borderRadius: '24px', border: 'none',
-                    background: 'rgba(59,130,246,0.18)', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill={(marker.risaPath && marker.risaPath.length >= 2) ? '#3b82f6' : 'none'} stroke="#3b82f6" strokeWidth="2">
-                    <path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z" />
-                  </svg>
-                </button>
+                <KortKnapp testid="marker-kort-risa" text={(marker.risaPath && marker.risaPath.length >= 2) ? 'Ta bort RISA-del' : 'Markera RISA-del'}
+                  onClick={() => { if (marker.risaPath && marker.risaPath.length >= 2) { taBortRisaDel(marker.id); setMarkerMenuOpen(null); } else { startaRisaMarkering(marker.id); } }} />
               )}
-
-              {/* Radera */}
-              <button
-                onClick={() => deleteMarker(marker.id)}
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '24px',
-                  border: 'none',
-                  background: 'rgba(255,255,255,0.08)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(239,68,68,0.6)" strokeWidth="2">
-                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                </svg>
-              </button>
-            </div>
+              {/* Numrera om alla basvägar — MANUELL (radering lämnar fortsatt luckor). Global planeringsåtgärd; bekräftas. Finns inte i maskinen. */}
+              {objektListaVal && marker.isLine && marker.lineType === 'mainRoad' && (
+                <KortKnapp testid="marker-kort-numrera-om" text="Numrera om basvägar" onClick={numreraOmBasvagar} />
+              )}
+              <KortKnapp testid="marker-kort-ta-bort" text="Ta bort" destruktiv onClick={() => deleteMarker(marker.id)} />
+            </KortAtgarder>
 
               {/* Inspelat ljud (visas under knapparna) */}
               {marker.audioData && !isRecordingAudio && (
