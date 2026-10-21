@@ -23,7 +23,7 @@ const pageNames: Record<string, string> = {
   '/helikopter-v2': 'Helikopter v2',
   '/helikopter/veckor': 'Veckor',
   '/forbattringsforslag': 'Förslag',
-  '/maskin-service': 'Maskinservice',
+  '/maskin-service': 'Servicelogg',
   '/datahalsa': 'Datahälsa',
   '/utbildning': 'Utbildning',
   '/utbildning/katalog': 'Katalog',
@@ -50,7 +50,7 @@ export default function TopBar() {
     // /utbildning/typ/<id> och /utbildning/person/<id>: sidans EGEN etikett säger
     // vilken utbildning eller person det gäller — toppfältet säger bara var man är.
     : pathname.startsWith('/utbildning/') ? 'Utbildning'
-    : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
+    : pathname.startsWith('/maskin-service/') ? 'Servicelogg'
     // /inventarier/plats/<id>: platsens namn står i sidan, toppfältet säger bara var man är.
     : pathname.startsWith('/inventarier/') ? 'Inventarier'
     // /i/<rad_id>: QR-koden på en låda.
