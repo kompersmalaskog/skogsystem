@@ -132,11 +132,81 @@ describe('Startsida (admin)', () => {
     expect(sektion('Dina vyer')).not.toBeNull()
   })
 
-  it('kontomenyn: Inställningar, Datahälsa, Feedback, Om appen — inte bland arbetsvyerna, och inte Admin', async () => {
+  it('kontomenyn: Datahälsa först, sedan Inställningar, Feedback, Om appen — inte bland arbetsvyerna, och inte Admin', async () => {
     await montera(<Startsida roll="admin" marken={{}} />)
     expect(lankar(sektion('Alla vyer')!)).not.toContain('/om')
     await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
-    expect(lankar(document.querySelector('[role="dialog"]')!)).toEqual(['/planering?installningar=1', '/datahalsa', '/forbattringsforslag', '/om'])
+    expect(lankar(document.querySelector('[role="dialog"]')!)).toEqual(['/datahalsa', '/planering?installningar=1', '/forbattringsforslag', '/om'])
+  })
+
+  it('Dina vyer står FÖRST — före Behöver dig — så favoriterna aldrig flyttar sig', async () => {
+    await montera(<Startsida roll="admin" marken={{ egenkontroll: 3 }} />)
+    const dina = sektion('Dina vyer')!, behover = sektion('Behöver dig')!
+    expect(dina.compareDocumentPosition(behover) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('favoriterna har fyllda ikoner: kort med namnet bredvid på bred skärm, rutor på telefon', async () => {
+    await montera(<Startsida roll="admin" marken={{}} bred />)
+    const kort = sektion('Dina vyer')!.querySelectorAll('a.start-kort')
+    expect(kort.length).toBe(7)
+    expect((kort[0].querySelector('.material-symbols-outlined') as HTMLElement).style.fontVariationSettings).toContain("'FILL' 1")
+    expect(sektion('Dina vyer')!.querySelectorAll('a.start-ruta').length).toBe(0)
+    act(() => { rot?.unmount() }); rot = null
+    await montera(<Startsida roll="admin" marken={{}} bred={false} />)
+    const rutor = sektion('Dina vyer')!.querySelectorAll('a.start-ruta')
+    expect(rutor.length).toBe(7)
+    expect((rutor[0].querySelector('.material-symbols-outlined') as HTMLElement).style.fontVariationSettings).toContain("'FILL' 1")
+  })
+
+  it('datahälsa gul: ingen rad i Behöver dig, en orange prick på personknappen och status på raden i Mer', async () => {
+    await montera(<Startsida roll="admin" marken={{}} datahalsa={{ niva: 'gul', rubrik: '2 att titta på' }} />)
+    expect(sektion('Behöver dig')).toBeNull()
+    const mer = document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement
+    expect(mer.getAttribute('aria-label')).toContain('2 att titta på')
+    expect((mer.querySelector('[data-mer-prick]') as HTMLElement).style.background).toBe('rgb(255, 159, 10)')
+    await act(async () => { mer.click() })
+    const status = document.querySelector('[role="dialog"] [data-datahalsa-status]') as HTMLElement
+    expect(status.textContent).toBe('2 att titta på')
+  })
+
+  it('datahälsa röd: raden står kvar i Behöver dig OCH pricken syns', async () => {
+    await montera(<Startsida roll="admin" marken={{}} datahalsa={{ niva: 'rod', rubrik: 'Import står still' }} />)
+    expect(sektion('Behöver dig')!.textContent).toContain('Datahälsa: Import står still')
+    expect(document.querySelector('[data-mer-prick]')).not.toBeNull()
+  })
+
+  it('datahälsa grön: ingen prick, ingen rad', async () => {
+    await montera(<Startsida roll="admin" marken={{}} datahalsa={{ niva: 'gron', rubrik: 'Allt i ordning' }} />)
+    expect(document.querySelector('[data-mer-prick]')).toBeNull()
+    expect(sektion('Behöver dig')).toBeNull()
+  })
+
+  it('förare: ingen datahälsoprick även om datahälsan är gul', async () => {
+    await montera(<Startsida roll="forare" marken={{}} datahalsa={{ niva: 'gul', rubrik: '2 att titta på' }} />)
+    expect(document.querySelector('[data-mer-prick]')).toBeNull()
+  })
+
+  it('Mer: vem som är inloggad överst, och Logga ut kräver ett andra tryck', async () => {
+    const loggaUt = vi.fn(async () => {})
+    await montera(<Startsida roll="admin" marken={{}} konto={{ namn: 'Martin Lindqvist', epost: 'm@exempel.se' }} onLoggaUt={loggaUt} />)
+    await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
+    const dialog = document.querySelector('[role="dialog"]')!
+    const inloggad = dialog.querySelector('[aria-label="Inloggad"]')!
+    expect(inloggad.textContent).toContain('Martin Lindqvist')
+    expect(inloggad.textContent).toContain('Admin · m@exempel.se')
+    const forsta = Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Logga ut') as HTMLButtonElement
+    await act(async () => { forsta.click() })
+    expect(loggaUt).not.toHaveBeenCalled()
+    expect(dialog.textContent).toContain('Du loggas ut från den här enheten.')
+    const andra = Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Logga ut') as HTMLButtonElement
+    await act(async () => { andra.click() })
+    expect(loggaUt).toHaveBeenCalledTimes(1)
+  })
+
+  it('Mer utan onLoggaUt: ingen Logga ut-rad', async () => {
+    await montera(<Startsida roll="admin" marken={{}} />)
+    await act(async () => { (document.querySelector('button[aria-label^="Mer"]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[role="dialog"]')!.textContent).not.toContain('Logga ut')
   })
 
   it('gruppen Admin samlar Ekonomi, Markägarrapport och Admin', async () => {

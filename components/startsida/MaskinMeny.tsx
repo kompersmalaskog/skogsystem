@@ -141,7 +141,8 @@ export default function MaskinMeny({ maskinNamn, objektNamn, onBytObjekt, onStan
           ...(panel ? { borderRight: `1px solid ${FARG.linje}` } : {}) }}>
         <Startsida roll={roll} huvud={{ overst, under }} bred={panel}
           marken={{ egenkontroll: data.vantandeEgenkontroll, ledighet: data.ledighetPrick?.antal ?? null, lass: data.vantandeLass, godkann: data.vantandeGodkannande }}
-          datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna} />
+          datahalsa={besked} favoritIds={data.favoritIds} onSparaFavoriter={data.sparaFavoriterna}
+          konto={data.konto} onLoggaUt={data.loggaUt} />
       </div>
     </div>
   )
