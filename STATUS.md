@@ -265,6 +265,10 @@ Provytorna lottas en gång av avsikt (det finns ingen funktion som lottar om). P
 
 **Ångra** (efter en körning, per runda): `delete from egenkontroll_provyta where egenkontroll_id = '<runda>';` — ytorna har inga beroenden än så länge de är omätta; mätta ytor och deras foton är en egen sak (`egenkontroll_foto.provyta_id`).
 
+## Kommentarer och foton på kartan — ytfoto-policyerna körda (2026-10-20)
+PR #864: kommentarer är nu en rad per kommentar med namn och tid (`kartkommentar`, migrationerna `20261020164116` och `20261020164138`, körda i prod). Förare får kommentera och fota Vidas objekt.
+Storage-policyerna för bucketen `ytfoto` (alla inloggade får ladda upp; radera = den som laddade upp filen eller admin) är **körda 2026-10-20 av Martin via Storage › Policies** — SQL-editorn gav "must be owner of table objects". Verifierat i `pg_policies`. Namnen är kvar (`ytfoto_skapa_admin`, `ytfoto_radera_admin`, inte omdöpta). `supabase/manuell/ytfoto_bucket_policyer.sql` beskriver läget — kör den INTE igen. Rollback: sätt `with check (bucket_id = 'ytfoto' and ar_admin())` resp. `using (bucket_id = 'ytfoto' and ar_admin())` på de två policyerna.
+
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
 - Bottomnav ändrad: "Min tid" borta,

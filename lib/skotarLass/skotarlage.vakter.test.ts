@@ -140,7 +140,9 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).toMatch(/\{skotarLassAktiv && \(\(\) => \{\s*const sl = skotarLass;/);
   });
   it('Vidas avläggskort behåller sitt innehåll: skotat-sektionen läggs OVANPÅ, typKalla och rader finns kvar', () => {
-    expect(page).toMatch(/traktInfo\.kategori === 'punkt' && traktInfo\.nr && valtObjekt[\s\S]{0,900}\{typKalla\}<\/div>/);
+    // Kortet är KartKort (lib/kartKort.vakter.test.ts): typ · källa går som `kalla`, skotat-sektionen är det första i kortets innehåll och Vidas rader ligger kvar under den.
+    expect(page).toMatch(/<KartKort\s+key=\{nyckel \|\| traktInfo\.rubrik\}[\s\S]{0,1800}kalla=\{\[typKalla, \.\.\.kontext\]/);
+    expect(page).toMatch(/onStang=\{stangTraktKort\}\s*>\s*(?:\{\/\*[^*]*\*\/\}\s*)?\{skotarLassAktiv && traktInfo\.kategori === 'punkt' && traktInfo\.nr && valtObjekt/);
     expect(page).toContain('{traktInfo.rader.map((r, i) => (');
   });
 });

@@ -2,6 +2,7 @@
 // Allt som avgör VAD som larmar ligger i lib/larm (rena funktioner med tester); den här hooken är bara kopplingen till sidan.
 'use client';
 
+import { markerNyckel } from '../kartkommentar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { avstandTillLinjeM } from '../larm/geo';
 import { hamtaKvittens, medKvittens, sparaKvittens } from '../larm/kvittens';
@@ -31,6 +32,8 @@ export interface KorvyLarmIn {
   egna: ReadonlySet<string>;
   /** Vidas geometri (FeatureCollection) för objektet. */
   vida: { features?: any[] } | null;
+  /** Senaste kommentaren med namn per objekt ("Daniel: Stolpe lutar"): nyckel ur lib/vidaNycklar för Vidas objekt, `marker:<id>` för egna markeringar. Visas i larmkortet och ingår i kvittensens hash. */
+  kommentarer?: Readonly<Record<string, string>>;
   objektId: string | null;
   /** Den RIKTIGA inloggade föraren (kvitteringen skrivs under hens id; en simulerad förare kan inte spara). */
   forare: { id: string; namn: string | null } | null;
@@ -94,14 +97,16 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
     const risaNu = new Set<string>();
 
     for (const m of inp.markers) {
+      // Larmkortets kommentar: den senaste med namn ("Daniel: Stolpe lutar"); finns ingen ny kommentar gäller markeringens äldre kommentarfält.
+      const kommentar: string | undefined = inp.kommentarer?.[markerNyckel(m.id)] ?? m.comment;
       if (m.isMarker && typeof m.x === 'number' && typeof m.y === 'number') {
         const ll = inp.svgToLatLon(m.x, m.y);
-        const o = symbolObjekt({ id: m.id, type: m.type, comment: m.comment, lat: ll.lat, lon: ll.lon }, inp.typNamn(m.type), pos, inp.egna.has(String(m.id)));
+        const o = symbolObjekt({ id: m.id, type: m.type, comment: kommentar, lat: ll.lat, lon: ll.lon }, inp.typNamn(m.type), pos, inp.egna.has(String(m.id)));
         objekt.push(o);
         geom.set(o.id, { type: 'Point', coordinates: punkt(ll) });
       } else if (m.isLine && m.path?.length > 1) {
         const ring = m.path.map((p: any) => inp.svgToLatLon(p.x, p.y));
-        const o = linjeObjekt({ id: m.id, lineType: m.lineType, comment: m.comment, koordinater: ring }, pos);
+        const o = linjeObjekt({ id: m.id, lineType: m.lineType, comment: kommentar, koordinater: ring }, pos);
         if (o) { objekt.push(o); geom.set(o.id, { type: 'LineString', coordinates: ring.map(punkt) }); }
         if (m.lineType === 'mainRoad' && m.risaPath?.length > 1) {
           const rp: LL[] = m.risaPath.map((p: any) => inp.svgToLatLon(p.x, p.y));
@@ -114,14 +119,14 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
         }
       } else if (m.isZone && m.path?.length > 2) {
         const ring: LL[] = m.path.map((p: any) => inp.svgToLatLon(p.x, p.y));
-        const o = ytaObjekt({ id: m.id, zoneType: m.zoneType, comment: m.comment, ring }, pos);
+        const o = ytaObjekt({ id: m.id, zoneType: m.zoneType, comment: kommentar, ring }, pos);
         if (o) { objekt.push(o); geom.set(o.id, { type: 'Polygon', coordinates: [[...ring.map(punkt), punkt(ring[0])]] }); }
       }
     }
     risaInneRef.current = risaNu;
 
     const vidaFeatures = inp.vida?.features ?? [];
-    for (const o of vidaObjekt(inp.vida, pos)) {
+    for (const o of vidaObjekt(inp.vida, pos, undefined, inp.kommentarer)) {
       objekt.push(o);
       const i = Number(o.id.split(':').pop());
       const g = vidaFeatures[i]?.geometry;
@@ -145,7 +150,7 @@ export function useKorvyLarm(inp: KorvyLarmIn): KorvyLarmUt {
       ringar: r.ringar.map((x) => ({ ...x, geometri: geom.get(x.id) ?? null })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inp.aktiv, inp.pos?.lat, inp.pos?.lon, inp.markers, inp.vida, inp.forare?.id, kvittVersion, settVersion]);
+  }, [inp.aktiv, inp.pos?.lat, inp.pos?.lon, inp.markers, inp.vida, inp.kommentarer, inp.forare?.id, kvittVersion, settVersion]);
 
   const kvittera = useCallback(() => {
     const i = inpRef.current;

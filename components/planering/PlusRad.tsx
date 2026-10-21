@@ -174,6 +174,13 @@ export function PlusRad({ poster, ark, oppen = true, startFlik, onPost, onFastna
         ...(kompakt ? { minWidth: 0 } : null),
       }}
     >
+      {p.dockSymbol ? (
+        // Symbolen som på kartan: formen i gruppens färg (cirkel eller rundad triangel) med vit kant och glyf.
+        <span aria-hidden="true" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX, height: kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX }}>
+          {p.dockSymbol(kompakt ? RAD_KNAPP_PX : DOCK_KNAPP_PX)}
+          {p.fast && <Nal />}
+        </span>
+      ) : (
       <span
         aria-hidden="true"
         style={{
@@ -184,6 +191,7 @@ export function PlusRad({ poster, ark, oppen = true, startFlik, onPost, onFastna
         {p.dockGlyf}
         {p.fast && <Nal />}
       </span>
+      )}
       <span style={{ ...TYP.meta, fontWeight: 600, textAlign: 'center', lineHeight: 1.15, maxWidth: '100%', ...(kompakt ? { fontSize: TYP.micro.fontSize, fontWeight: TYP.meta.fontWeight, letterSpacing: TYP.text.letterSpacing, hyphens: 'auto' as const, WebkitHyphens: 'auto' as const, overflowWrap: 'break-word' as const } : null) }}>{p.etikett}</span>
     </button>
   );

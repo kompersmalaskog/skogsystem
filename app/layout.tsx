@@ -5,6 +5,7 @@ import PushRegister from '../components/PushRegister'
 import PushNavigering from '../components/PushNavigering'
 import FotoKoStartare from '../components/FotoKoStartare'
 import MarkeringSynkStartare from '../components/MarkeringSynkStartare'
+import KartkommentarStartare from '../components/KartkommentarStartare'
 import SkotarLassStartare from '../components/SkotarLassStartare'
 import VersionChecker from '../components/VersionChecker'
 import AppStartVakt from '../components/AppStartVakt'
@@ -61,6 +62,7 @@ export default function RootLayout({
         <PushNavigering />
         <FotoKoStartare />
         <MarkeringSynkStartare />
+        <KartkommentarStartare />
         <SkotarLassStartare />
         <CurrentMedarbetareProvider>
           {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}

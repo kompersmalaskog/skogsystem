@@ -124,5 +124,5 @@ describe('prickar i körvyn', () => {
     expect(prickarSynliga({ miljoPrickar: true })).toBe(true);
     expect(prickarSynliga({ miljoPrickar: false })).toBe(false);
   });
-  it('ca 6 px', () => { expect(PRICK_DIAMETER_PX).toBe(6); });
+  it('10 px med mörk kant', () => { expect(PRICK_DIAMETER_PX).toBe(10); });
 });

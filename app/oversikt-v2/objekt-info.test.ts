@@ -11,7 +11,7 @@ describe('byggVarningar — ALLA faror och hänsyn, med planerarens kommentar', 
       rad('A', { type: 'fornlamning', comment: 'Stensättning, kör inte här' }),
       rad('A', { type: 'highstump' }),                                       // ingen kommentar → null
     ])['A'];
-    expect(w.faror).toEqual([{ label: 'Kraftledning', kommentar: 'Stolpe 3 m från vägen' }, { label: 'Varning', kommentar: 'Sluttning mot bäcken' }]);
+    expect(w.faror).toEqual([{ label: 'El-ledning', kommentar: 'Stolpe 3 m från vägen' }, { label: 'Varning', kommentar: 'Sluttning mot bäcken' }]);
     expect(w.hansyn).toEqual([{ label: 'Fornlämning', kommentar: 'Stensättning, kör inte här' }, { label: 'Högstubbe', kommentar: null }]);
   });
   it('samma fara två gånger med OLIKA kommentarer = två faror; med samma kommentar = en', () => {
@@ -27,8 +27,8 @@ describe('byggVarningar — ALLA faror och hänsyn, med planerarens kommentar', 
   });
   it('zon-, linje- och pilnycklar räknas som subtyp, och en okänd subtyp får inget påhittat namn', () => {
     const w = byggVarningar([rad('A', { zoneType: 'naturecorner', comment: 'Hänsynsyta' }), rad('A', { type: 'powerline' })])['A'];
-    expect(w.hansyn).toEqual([{ label: 'Naturhörn', kommentar: 'Hänsynsyta' }]);
-    expect(w.faror).toEqual([{ label: 'Kraftledning', kommentar: null }]);
+    expect(w.hansyn).toEqual([{ label: 'Naturhörna', kommentar: 'Hänsynsyta' }]);
+    expect(w.faror).toEqual([{ label: 'El-ledning', kommentar: null }]);
   });
   it('kommentar som inte är text eller bara är blanksteg → ingen kommentar', () => {
     const w = byggVarningar([rad('A', { type: 'powerline', comment: 42 }), rad('B', { type: 'powerline', comment: '   ' })]);
@@ -39,8 +39,8 @@ describe('byggVarningar — ALLA faror och hänsyn, med planerarens kommentar', 
     const a = byggVarningar([rad('A', { type: 'warning' }), rad('B', { type: 'powerline' }), rad('A', { type: 'powerline' })]);
     const b = byggVarningar([rad('A', { type: 'powerline' }), rad('A', { type: 'warning' }), rad('B', { type: 'powerline' })]);
     expect(a).toEqual(b);
-    expect(a['A'].faror.map((f) => f.label)).toEqual(['Kraftledning', 'Varning']);
-    expect(a['B'].faror.map((f) => f.label)).toEqual(['Kraftledning']);
+    expect(a['A'].faror.map((f) => f.label)).toEqual(['El-ledning', 'Varning']);
+    expect(a['B'].faror.map((f) => f.label)).toEqual(['El-ledning']);
   });
 });
 

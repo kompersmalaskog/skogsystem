@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { SYMBOL_GRUPP, SYMBOL_NAMN, symbolNamn } from './grupper';
+import { MENY_KATEGORIER } from '../symboler';
 
 const page = readFileSync('app/planering/page.tsx', 'utf8');
 
@@ -18,13 +19,16 @@ describe('symbolens namn', () => {
     expect(symbolNamn('okänd')).toBe('Markering');
     expect(symbolNamn(undefined)).toBe('Markering');
   });
-  it('menyn (symbolCategories) hämtar namnen ur SYMBOL_NAMN — inga egna strängar', () => {
-    const a = page.indexOf('const symbolCategories = [');
+  it('menyn (symbolCategories) byggs ur MENY_KATEGORIER och hämtar namnen ur SYMBOL_NAMN — inga egna strängar', () => {
+    const a = page.indexOf('const symbolCategories = ');
     const b = page.indexOf('const markerTypes = [');
     const block = page.slice(a, b);
-    const ids = [...block.matchAll(/\{ id: '(\w+)', name: ([^}]+) \}/g)];
-    expect(ids.length).toBeGreaterThanOrEqual(20);
-    for (const m of ids) expect(m[2].trim(), m[1]).toBe(`SYMBOL_NAMN.${m[1]}`);
+    expect(block).toContain('MENY_KATEGORIER.map');
+    expect(block).toContain('name: SYMBOL_NAMN[id]');
+    expect(block).not.toMatch(/name: '/);
+    const ids = MENY_KATEGORIER.flatMap((k) => k.symboler);
+    expect(ids.length).toBe(19);
+    for (const id of ids) expect(SYMBOL_NAMN[id], id).toBeTruthy();
   });
   it('namnet under symbolen på kartan (markers-korvy-label) bygger på SYMBOL_NAMN, inte egna ord', () => {
     const i = page.indexOf("id: 'markers-korvy-label'");
