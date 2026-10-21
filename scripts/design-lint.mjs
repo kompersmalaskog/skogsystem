@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 const ROT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // --- Tillåtna värden (speglar lib/design/tokens.ts) -----------------------
-const TYP_STORLEKAR = new Set([32, 30, 20, 17, 13, 11]);
+const TYP_STORLEKAR = new Set([32, 30, 20, 19, 17, 13, 11]);
 const VIKTER = new Set([400, 600, 700]);
 const AVSTAND = new Set([0, 4, 8, 12, 16, 24, 32]);
 const RADIER = new Set([4, 10, 12, 16]); // 4 = RADIE.stapel (diagramstaplar)

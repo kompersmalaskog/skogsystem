@@ -73,9 +73,9 @@ describe('KartKort — uppbyggnad', () => {
     const i = (x: string) => ids.indexOf(x);
     expect(i('kartkort-namn')).toBeGreaterThan(-1);
     expect(i('kartkort-stang')).toBeGreaterThan(i('kartkort-namn'));         // ✕ sitter i huvudet…
-    expect(i('kartkort-stang')).toBeLessThan(i('kartkort-mening'));           // …före meningen
-    expect(i('kartkort-mening')).toBeLessThan(i('kartkort-kommentar'));
-    expect(i('kartkort-kommentar')).toBeLessThan(i('malbildsrad'));
+    expect(i('kartkort-stang')).toBeLessThan(i('kartkort-kommentar'));        // …före kommentaren
+    expect(i('kartkort-kommentar')).toBeLessThan(i('kartkort-mening'));       // kommentaren DIREKT under huvudet, före meningen (Kortet del 2)
+    expect(i('kartkort-mening')).toBeLessThan(i('malbildsrad'));
     expect(i('malbildsrad')).toBeLessThan(i('del'));
     expect(i('del')).toBeLessThan(i('kartkort-foton'));
     expect(i('kartkort-foton')).toBeLessThan(i('kartkort-atgarder'));
@@ -95,9 +95,10 @@ describe('KartKort — tomma sektioner finns inte', () => {
     expect(t('kartkort')!.textContent).not.toContain('Inget foto');
     expect(t('kartkort-foto-lagg-till')).not.toBeNull();
   });
-  it('med kommentarer och foton visas rubrikerna', () => {
+  it('med kommentarer och foton visas båda — kommentarerna som var sin ruta, utan rubrik (källan står överst i rutan)', () => {
     visa({ kommentarer: [k('1'), k('2')], foton: [{ id: 'f1', node: <img alt="Foto" src="x.jpg" /> }] });
-    expect(t('kartkort-kommentar')!.textContent).toContain('Kommentarer (2)');
+    expect(alla('kartkort-kommentar-rad')).toHaveLength(2);
+    expect(t('kartkort-kommentar')!.textContent).not.toContain('Kommentarer');
     expect(t('kartkort-foton')!.textContent).toContain('Foto');
   });
   it('den som inte får något: ingen åtgärdsrad alls (inte en tom ruta)', () => {
@@ -211,7 +212,12 @@ describe('KartKort — kommentarerna: en rad per kommentar med namn och tid', ()
 
   it('man ändrar och tar bort bara sina egna: knapparna syns bara på rader där behörigheten är räknad', () => {
     visa({ kommentarer: [k('egen', { kanAndra: true, kanRadera: true }), k('annans'), k('adminRadera', { kanRadera: true })] });
-    const rad = (id: string) => document.querySelector(`[data-kommentar-id="${id}"]`)!;
+    const rad = (id: string) => document.querySelector(`[data-kommentar-id="${id}"]`)!.closest('[data-testid="kartkort-kommentar-rad"]')!;
+    const oppna = (id: string) => { const m = rad(id).querySelector('[data-testid="kartkort-kommentar-mer"]'); if (m) klick(m); };
+    // Utan ··· ligger varken Ändra eller Ta bort framme; "···" finns bara där man får göra något.
+    expect(rad('egen').querySelector('[data-testid="kartkort-kommentar-andra"]')).toBeNull();
+    expect(rad('annans').querySelector('[data-testid="kartkort-kommentar-mer"]')).toBeNull();
+    oppna('egen'); oppna('annans'); oppna('adminRadera');
     expect(rad('egen').querySelector('[data-testid="kartkort-kommentar-andra"]')).not.toBeNull();
     expect(rad('egen').querySelector('[data-testid="kartkort-kommentar-ta-bort"]')).not.toBeNull();
     expect(rad('annans').querySelector('[data-testid="kartkort-kommentar-andra"]')).toBeNull();
@@ -223,6 +229,7 @@ describe('KartKort — kommentarerna: en rad per kommentar med namn och tid', ()
   it('ändra: fältet öppnas med texten, Spara skickar id + ny text', () => {
     const andra = vi.fn();
     visa({ kommentarer: [k('egen', { kanAndra: true, text: 'Stolpe lutar' })], onAndraKommentar: andra });
+    klick(t('kartkort-kommentar-mer'));
     klick(t('kartkort-kommentar-andra'));
     const falt = t('kartkort-kommentar-andra-falt') as HTMLTextAreaElement;
     expect(falt.value).toBe('Stolpe lutar');
@@ -234,6 +241,7 @@ describe('KartKort — kommentarerna: en rad per kommentar med namn och tid', ()
   it('ta bort frågar först (inget tyst tapp) och skickar id när man bekräftar', () => {
     const radera = vi.fn();
     visa({ kommentarer: [k('egen', { kanRadera: true })], onRaderaKommentar: radera });
+    klick(t('kartkort-kommentar-mer'));
     klick(t('kartkort-kommentar-ta-bort'));
     expect(radera).not.toHaveBeenCalled();
     klick(t('kartkort-kommentar-ta-bort-ja'));
