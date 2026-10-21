@@ -7,6 +7,7 @@
 import { fakturerbarEffektiv } from '@/lib/flytt/fakturerbar';
 import { skalRad, type Kandidat, type Sakerhet } from '@/lib/lastbil/lass/maskin';
 import { kortNamn } from '@/lib/lastbil/lass/notis';
+import { bedomPlats, fmtPlatsAvstand, type PlatsBedomning, type PlatsPunkt } from '@/lib/lastbil/lass/platsGrad';
 import { samtidigaUrBevis, samtidigText, type SamtidigFlytt } from '@/lib/lastbil/lass/samtidig';
 import { fmtDatum, fmtKlocka } from './nu';
 
@@ -16,6 +17,10 @@ export interface LassRad {
   status_orsak: string | null;
   fran_namn: string | null;
   till_namn: string | null;
+  lassning_lat?: number | null;
+  lassning_lng?: number | null;
+  lossning_lat?: number | null;
+  lossning_lng?: number | null;
   lassning_tid: string;
   lossning_tid: string;
   km: number | null;
@@ -32,12 +37,43 @@ export interface LassRad {
 }
 
 export const LASS_KOLUMNER =
-  'id, status, status_orsak, fran_namn, till_namn, lassning_tid, lossning_tid, km, lastvikt_kg, forslag_maskin_id, sakerhet, kandidater, bevis, kund, till_plats_id, besvarad_av, besvarad_tid, skapad_tid';
+  'id, status, status_orsak, fran_namn, till_namn, lassning_lat, lassning_lng, lossning_lat, lossning_lng, lassning_tid, lossning_tid, km, lastvikt_kg, forslag_maskin_id, sakerhet, kandidater, bevis, kund, till_plats_id, besvarad_av, besvarad_tid, skapad_tid';
 
 const komma = (x: number) => String(Math.round(x * 10) / 10).replace('.', ',');
 
 export const lassRuttText = (r: Pick<LassRad, 'fran_namn' | 'till_namn'>): string =>
   `${kortNamn(r.fran_namn)} → ${kortNamn(r.till_namn)}`;
+
+const platsText = (b: PlatsBedomning | null, sparat: string | null): string => {
+  if (!b) return kortNamn(sparat);                       // positionen saknas: går inte att bedöma, det sparade namnet som förut
+  if (b.typ === 'okand') return 'okänd plats';
+  return b.typ === 'saker' ? kortNamn(b.namn) : `nära ${kortNamn(b.namn)}`;
+};
+
+export interface LassRuttVy {
+  /** "Spåramåla RP 2025 → nära Intaget gallring" */
+  rutt: string;
+  /** Dämpade rader under rutten: "även Åbogen 673 m, Sandåsen 1 km". Bara osäkra platser har en; `sida` sätts bara när båda har. */
+  andra: { sida: 'Från' | 'Till'; text: string }[];
+}
+
+/**
+ * Rutten med platsernas säkerhet (platsGrad.ts): en SÄKER plats skrivs som namn, en OSÄKER som "nära <närmaste>" med de andra under,
+ * och inget inom 8 km är "okänd plats". `kandidater` null = trakterna är inte lästa (än, eller läsfel): då står de sparade namnen
+ * som förut. Bara visning — flytten får fortfarande den närmaste trakten.
+ */
+export function lassRuttVy(
+  r: Pick<LassRad, 'fran_namn' | 'till_namn' | 'lassning_lat' | 'lassning_lng' | 'lossning_lat' | 'lossning_lng'>,
+  kandidater: readonly PlatsPunkt[] | null,
+): LassRuttVy {
+  if (!kandidater) return { rutt: lassRuttText(r), andra: [] };
+  const fran = bedomPlats(r.lassning_lat ?? null, r.lassning_lng ?? null, kandidater);
+  const till = bedomPlats(r.lossning_lat ?? null, r.lossning_lng ?? null, kandidater);
+  const rader = ([['Från', fran], ['Till', till]] as const)
+    .filter((x): x is readonly ['Från' | 'Till', Extract<PlatsBedomning, { typ: 'osaker' }>] => x[1]?.typ === 'osaker' && x[1].andra.length > 0)
+    .map(([sida, b]) => ({ sida, text: `även ${b.andra.map(a => `${kortNamn(a.namn)} ${fmtPlatsAvstand(a.avstandM)}`).join(', ')}` }));
+  return { rutt: `${platsText(fran, r.fran_namn)} → ${platsText(till, r.till_namn)}`, andra: rader };
+}
 
 /** "mån 12 okt · 12:23 → 13:46". */
 export const lassTidText = (r: Pick<LassRad, 'lassning_tid' | 'lossning_tid'>): string =>

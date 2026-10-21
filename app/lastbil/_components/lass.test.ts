@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText, lassViktText, LASS_KOLUMNER, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
+import { kravKundRuta, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassRuttVy, lassTidText, lassViktText, LASS_KOLUMNER, redanText, saknasForSvar, tolkaSvar, type LassRad } from './lass';
 import { lasLassId } from './url';
 
 const rad = (o: Partial<LassRad> = {}): LassRad => ({
@@ -32,6 +32,27 @@ describe('texter', () => {
   });
   it('vikten läses ur databasen (kolumnlistan har lastvikt_kg)', () => {
     expect(LASS_KOLUMNER.split(', ')).toContain('lastvikt_kg');
+  });
+  it('rutten med platsernas säkerhet: osäker plats = "nära X" + de andra under; säker = namnet; inget inom 8 km = "okänd plats"', () => {
+    const M = (6371000 * Math.PI) / 180;
+    const at = (namn: string, m: number) => ({ namn, lat: 56.2 + m / M, lng: 14.9 });
+    const lossning = { lossning_lat: 56.2, lossning_lng: 14.9 };
+    const lassning = { lassning_lat: 56.3, lassning_lng: 14.9 };
+    const kand = [at('Intaget gallring', 608), at('Åbogen', 673), at('Sandåsen', 1000), { namn: 'Spåramåla RP 2025', lat: 56.3 + 40 / M, lng: 14.9 }];
+    // 3 aug: Från säker (Spåramåla 40 m), Till osäker (tre trakter 608–1000 m)
+    const v = lassRuttVy(rad({ fran_namn: 'Spåramåla RP 2025', till_namn: 'Intaget gallring', ...lassning, ...lossning }), kand);
+    expect(v.rutt).toBe('Spåramåla RP 2025 → nära Intaget gallring');
+    expect(v.andra).toEqual([{ sida: 'Till', text: 'även Åbogen 673 m, Sandåsen 1 km' }]);
+    // inget inom 8 km på Till
+    expect(lassRuttVy(rad({ fran_namn: 'Spåramåla RP 2025', till_namn: 'Intaget gallring', ...lassning, lossning_lat: 57.5, lossning_lng: 14.9 }), kand).rutt)
+      .toBe('Spåramåla RP 2025 → okänd plats');
+    // trakterna inte lästa (än, eller läsfel) eller positionen saknas: de sparade namnen som förut
+    expect(lassRuttVy(rad({ ...lassning, ...lossning }), null).rutt).toBe('Östra-Hoka 1:7 → Bågskyttebanan RP');
+    expect(lassRuttVy(rad({ lassning_lat: null, lassning_lng: null, lossning_lat: null, lossning_lng: null }), kand).rutt).toBe('Östra-Hoka 1:7 → Bågskyttebanan RP');
+    expect(lassRuttVy(rad(), kand).andra).toEqual([]);
+  });
+  it('kolumnlistan har positionerna', () => {
+    for (const k of ['lassning_lat', 'lassning_lng', 'lossning_lat', 'lossning_lng']) expect(LASS_KOLUMNER.split(', ')).toContain(k);
   });
   it('förslaget: hur säkert + skälen; ingen förslagsmaskin = ingen rad', () => {
     expect(lassForslagText(rad())).toBe('Troligen · Skotade Östra-Hoka 12 okt');

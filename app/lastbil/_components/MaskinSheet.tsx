@@ -7,9 +7,10 @@ import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, RAD, RADIE, TNUM, TYP } from '@/li
 import { lassFraga } from '@/lib/lastbil/lass/notis';
 import { avvisaLass, besvaraLass } from './besvara';
 import {
-  kravKundRuta, lassFakturerbar, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttText, lassSamtidigaRader, lassTidText, lassViktText,
+  kravKundRuta, lassFakturerbar, lassForslagText, lassKmText, lassMaskinText, lassPlatsNot, lassRuttVy, lassSamtidigaRader, lassTidText, lassViktText,
   redanText, saknasForSvar, type LassRad, type SvarUtfall, type Val,
 } from './lass';
+import { usePlatsData } from './usePlatsData';
 import { useAktivaMaskiner, useEttLass, type MaskinVal } from './useSaknarMaskin';
 
 const faltStil = { ...TYP.text, ...TNUM, color: FARG.text, background: FARG.fyllning, border: 'none', borderRadius: RADIE.rad, padding: AVSTAND.m, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' as const, minHeight: 44 };
@@ -40,6 +41,7 @@ function Meddelande({ children, fel, onForsokIgen }: { children: ReactNode; fel?
 /** Själva frågan — ett lass som väntar. */
 function Svar({ rad, onStang, onKlar }: { rad: LassRad; onStang: () => void; onKlar: (kvitto: string) => void }) {
   const maskiner = useAktivaMaskiner(true);
+  const platsData = usePlatsData(true);
   const [maskinId, setMaskinId] = useState<string | null>(rad.forslag_maskin_id);
   const [externVald, setExternVald] = useState(false);
   const [extern, setExtern] = useState('');
@@ -54,6 +56,10 @@ function Svar({ rad, onStang, onKlar }: { rad: LassRad; onStang: () => void; onK
   const visaKund = externVald || kravKundRuta(rad, { maskinId: externVald ? null : maskinId, extern });
   const val: Val = { maskinId: externVald ? null : maskinId, extern, kund: externVald ? kundExtern : visaKund ? kundEgen : '' };
   const saknas = saknasForSvar(rad, val, externVald);
+  const ruttVy = useMemo(
+    () => lassRuttVy(rad, platsData.lage.lage === 'klar' ? platsData.lage.data.platser : null),
+    [rad, platsData.lage],
+  );
   const faktureras = lassFakturerbar(rad, externVald);
   const not = lassPlatsNot(rad);
   const samtidiga = lassSamtidigaRader(rad, id => (maskiner.lage.lage === 'klar' ? maskiner.lage.maskiner.find(m => m.maskin_id === id)?.namn ?? null : null));
@@ -114,7 +120,10 @@ function Svar({ rad, onStang, onKlar }: { rad: LassRad; onStang: () => void; onK
   return (
     <Ark rubrik={lassFraga(rad.status_orsak)} onStang={onStang} fot={fot}>
       <div style={{ marginBottom: AVSTAND.l }}>
-        <div style={{ ...TYP.listtitel }}>{lassRuttText(rad)}</div>
+        <div style={{ ...TYP.listtitel }}>{ruttVy.rutt}</div>
+        {ruttVy.andra.map(a => (
+          <div key={a.sida} data-plats-andra style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{ruttVy.andra.length > 1 ? `${a.sida}: ` : ''}{a.text}</div>
+        ))}
         <div style={{ ...TYP.meta, color: FARG.text2, ...TNUM }}>{[lassTidText(rad), lassKmText(rad), lassViktText(rad)].filter(Boolean).join(' · ')}</div>
         {faktureras && <div style={{ ...TYP.meta, color: FARG.text2 }}>Över 30 km — flytten faktureras</div>}
         {not && <p style={{ ...TYP.meta, color: FARG.orange, margin: `${AVSTAND.s}px 0 0` }}>{not}</p>}
