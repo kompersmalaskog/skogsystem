@@ -4,10 +4,10 @@
  * /uppfoljning/fordelning — apteringen.
  *
  * Tre vyer i samma sida (adressen bär vilken):
- *  - översikten (ingen parameter): fel virke i m³ för senaste månaden, staplar
+ *  - översikten (ingen parameter): utanför beställt i m³ för senaste månaden, staplar
  *    per månad, högst en höjdpunkt, "Alla objekt" (Vyer.tsx, logiken i oversikt.ts);
  *  - ?vy=alla[&manad=2026-10]: listan med alla trakter per månad;
- *  - ?objekt=<nyckel>: trakten — vältor, ansvarskort, guide, matris (Detalj.tsx).
+ *  - ?objekt=<nyckel>: trakten — talet, per längd, per diameter, när föraren kortar (Detalj.tsx).
  *
  * Siffrorna räknas ur databasen när HPR-filen importeras (lib/hpr/vy-lager) och
  * sidan läser bara färdiga kort — den räknar aldrig själv. Senast visade lista
@@ -25,8 +25,9 @@ import { AllaObjektVy, OversiktVy } from './Vyer';
 import { m3 } from './oversikt';
 
 /** Senast visade lista på enheten — visas direkt nästa gång, uppdateras tyst.
- *  v2: korten bär felM3 (fel virke); en v1-lista hade visat översikten utan tal. */
-const LISTA_NYCKEL = 'fordelning_lista_v2';
+ *  v3: korten bär utanforM3, bedömt på maskinens egna kap. En äldre lista hade visat
+ *  gamla tal under nya ord. */
+const LISTA_NYCKEL = 'fordelning_lista_v3';
 interface ListaSvar { objekt: ObjektKort[]; vantar: VantandeObjekt[]; attRakna: number }
 function lasSparadLista(): ListaSvar | null {
   try {
@@ -90,17 +91,11 @@ function DetaljVy({ objectKey, onTillbaka }: { objectKey: string; onTillbaka: ()
   if (!vy) return <>{tillbaka}<p style={{ ...TYP.meta, color: FARG.text2 }}>Hämtar trakten…</p></>;
 
   const p: ProduktVy | undefined = vy.produkter[valdProdukt];
-  const felPct = vy.felM3 != null && vy.bedomdM3 ? Math.round((100 * Math.round(vy.felM3)) / Math.round(vy.bedomdM3)) : null;
   return (
     <div>
       {tillbaka}
       <h1 style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.xs}px`, ...TYP.rubrik }}>{vy.objektNamn}</h1>
-      <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginBottom: AVSTAND.s }}>
-        {vy.felM3 != null && vy.bedomdM3 != null
-          ? `${m3(vy.felM3)} fel virke · ${felPct} % av ${m3(vy.bedomdM3)}`
-          : `${m3(vy.volymM3)}`}
-      </div>
-      {vy.lage === 2 && vy.mening && <div style={{ ...TYP.text, marginBottom: AVSTAND.s }}>{vy.mening}</div>}
+      <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginBottom: AVSTAND.l }}>{m3(vy.volymM3)}</div>
       {vy.uppdateras && <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>Ny fil · uppdateras…</div>}
       {fel && <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>Kunde inte uppdatera – visar senast hämtade</div>}
 

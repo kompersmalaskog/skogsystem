@@ -9,11 +9,14 @@ export interface ProduktVy {
   totalVolumeM3: number;
   logCount: number;
   forcedCutSharePct: number;
+  /** Volymen maskinen kapade själv — det talen bedöms på. */
+  volymAutoM3: number;
+  /** Maskinens kap utanför beställt i m³. null = ingen grad. */
+  utanforM3: number | null;
   headline: string | null;
   mening: string | null;
+  /** Kapat mot beställt per längd, maskinens egna kap. */
   vältor: LengthPile[];
-  vältorTwist: string | null;
-  ansvar: { totalt: number; manuella: number; automatiskAndel: number };
   guide: { klen: string | null; grov: string | null };
   matris: MatrisRuta[];
   färgadeRutor: number;
@@ -30,8 +33,8 @@ export interface ObjektVy {
   mening: string | null;
   headline: string | null;
   trend: { from: number; to: number } | null;
-  /** Fel virke i m³ (= (100 − grad) % av volymen). null = ingen grad, eller kort räknat före VY_VERSION 2. */
-  felM3?: number | null;
+  /** Utanför beställt i m³ på maskinens egna kap. null = ingen grad; saknas = kort räknat före VY_VERSION 3. */
+  utanforM3?: number | null;
   bedomdM3?: number;
   produkter: ProduktVy[];
   /** Siffrorna är från förra filen; en färsk räknas just nu. */

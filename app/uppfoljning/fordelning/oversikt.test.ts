@@ -8,7 +8,7 @@ function k(namn: string, fil: string, bedomd: number, fel: number | null, extra:
   return {
     objectKey: `K${n++}`, objektNamn: namn, status: "completed", lastFileAt: fil, dagarSedanFil: 30,
     lage: 2, gradePct: 80, volymM3: bedomd, mening: null, headline: null, trend: null,
-    felM3: fel, bedomdM3: bedomd, ...extra,
+    utanforM3: fel, bedomdM3: bedomd, ...extra,
   };
 }
 
@@ -30,7 +30,7 @@ describe("manader", () => {
     const m = manader(kort);
     expect(m.map((x) => x.manad)).toEqual(["2026-10", "2026-07"]);
     // rundat per rad först: 71 + 40 = 111 (inte 110,2) av 467 + 222 = 689 → 16 %
-    expect(m[0]).toEqual({ manad: "2026-10", felM3: 111, volymM3: 689, pct: 16 });
+    expect(m[0]).toEqual({ manad: "2026-10", utanforM3: 111, volymM3: 689, pct: 16 });
   });
   it("pågående och tysta objekt räknas inte in i månaden; objekt utan fel räknas inte", () => {
     const m = manader([
@@ -39,7 +39,7 @@ describe("manader", () => {
       k("Utan grad", "2026-10-02T08:00:00Z", 100, null),
       k("Klar", "2026-10-03T08:00:00Z", 100, 10),
     ]);
-    expect(m).toEqual([{ manad: "2026-10", felM3: 10, volymM3: 100, pct: 10 }]);
+    expect(m).toEqual([{ manad: "2026-10", utanforM3: 10, volymM3: 100, pct: 10 }]);
   });
 });
 
@@ -49,7 +49,7 @@ describe("byggOversikt", () => {
 
   it("talet är senaste månaden; staplarna börjar vid första månaden med data", () => {
     const o = byggOversikt([k("O", "2026-10-10T08:00:00Z", 100, 13), sep, aug], NU);
-    expect(o.senaste).toMatchObject({ manad: "2026-10", felM3: 13, pct: 13 });
+    expect(o.senaste).toMatchObject({ manad: "2026-10", utanforM3: 13, pct: 13 });
     expect(o.staplar).toEqual([{ manad: "2026-08", pct: 17 }, { manad: "2026-09", pct: 16 }, { manad: "2026-10", pct: 13 }]);
   });
   it("tom månad mitt i får en tom stapel (null), inte 0", () => {
@@ -58,12 +58,12 @@ describe("byggOversikt", () => {
   });
   it("höjdpunkt BÄTTRE när senaste är minst 2 enheter under de två föregående", () => {
     const o = byggOversikt([k("O", "2026-10-10T08:00:00Z", 100, 13), sep, aug], NU);
-    expect(o.hojdpunkt).toEqual({ riktning: "battre", mening: "Ni kapar rätt oftare i oktober än i augusti och september.", under: "13 % fel virke mot 16–17 %" });
+    expect(o.hojdpunkt).toEqual({ riktning: "battre", mening: "Ni kapar rätt oftare i oktober än i augusti och september.", under: "13 % utanför mot 16–17 %" });
   });
   it("höjdpunkt SÄMRE åt andra hållet", () => {
     const o = byggOversikt([k("O", "2026-10-10T08:00:00Z", 100, 20), sep, aug], NU);
     expect(o.hojdpunkt?.riktning).toBe("samre");
-    expect(o.hojdpunkt?.mening).toBe("Mer fel virke i oktober än i augusti och september.");
+    expect(o.hojdpunkt?.mening).toBe("Mer utanför beställt i oktober än i augusti och september.");
   });
   it("ingen höjdpunkt när skillnaden är under 2 enheter, eller utan tidigare månad", () => {
     expect(byggOversikt([k("O", "2026-10-10T08:00:00Z", 100, 15), sep, aug], NU).hojdpunkt).toBeNull();
@@ -112,5 +112,20 @@ describe("byggAllaObjekt", () => {
   it("smaText", () => {
     expect(smaText(1)).toBe("1 liten trakt");
     expect(smaText(6)).toBe("6 små trakter");
+  });
+});
+
+describe("maskinens egna kap är underlaget", () => {
+  it("procenten räknas på maskinens volym, raden visar traktens volym", () => {
+    const l = byggAllaObjekt([k("Mölleryd", "2026-10-21T08:00:00Z", 412, 68, { volymM3: 467 })]);
+    const r = l.manader[0].rader[0];
+    expect(r.volymM3).toBe(467);   // traktens volym under namnet
+    expect(r.bedomdM3).toBe(412);  // maskinens egna kap
+    expect(r.pct).toBe(17);        // 68 / 412, inte 68 / 467 (15)
+    expect(l.manader[0].volymM3).toBe(412);
+  });
+  it("liten trakt avgörs av maskinens volym, inte traktens", () => {
+    const l = byggAllaObjekt([k("Gallring", "2026-10-05T08:00:00Z", 20, 4, { volymM3: 300 })]);
+    expect(l.manader[0].sma).toHaveLength(1);
   });
 });

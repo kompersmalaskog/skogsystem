@@ -1,11 +1,13 @@
 /**
  * oversikt.ts — apteringens översikt och listan "Alla objekt", som ren logik.
  *
- * Valutan är m³ FEL VIRKE: volymen som inte hamnade i beställd klass
- * (= (100 − grad) % av volymen, felM3 i vymodellen). Procent står bredvid.
+ * Valutan är m³ UTANFÖR BESTÄLLT på maskinens egna kap: volymen maskinen kapade
+ * som inte hamnade i beställd klass (utanforM3 i vymodellen). Procent står bredvid.
+ * Förarens kortningar vid fel på trädet är rätt aptering och räknas inte —
+ * därför aldrig ordet "fel virke" (Martin 2026-10-21).
  *
  * Regler (Martin 2026-10-21, "som Apple hade gjort"):
- *  - Översikten = ett tal (senaste månadens fel virke), staplar per månad, högst
+ *  - Översikten = ett tal (senaste månadens utanför beställt), staplar per månad, högst
  *    EN höjdpunkt, och vägen till listan. Höjdpunkten visas bara när den är sann.
  *  - Månad = sista filens månad (svensk tid), alltså när kapningen skedde — inte
  *    när någon markerade objektet avslutat (Brokamåla: fil juli, avslutad oktober).
@@ -15,9 +17,9 @@
  */
 import type { ObjektKort, VantandeObjekt } from "./types";
 
-/** Under så här mycket bedömd volym är andelen fel virke brus (gallringar med 0–2 m³ timmer). */
+/** Under så här mycket bedömd volym är andelen utanför beställt brus (gallringar med 0–2 m³ timmer). */
 export const SMA_M3 = 30;
-/** Fel virke i procent som märks "högt". Normalt ligger runt 15–16 % (aug–okt 2026). */
+/** Utanför beställt i procent som märks "högt". Normalt ligger runt 15–16 % (aug–okt 2026). */
 export const HOGT_PCT = 20;
 /** Aktivt objekt utan ny fil på så här många dagar räknas inte som pågående. */
 export const TYST_DAGAR = 14;
@@ -61,30 +63,32 @@ const pct = (fel: number, vol: number) => (vol > 0 ? Math.round((100 * fel) / vo
 export interface ObjektRad {
   objectKey: string;
   namn: string;
-  volymM3: number; // rundad, hela m³
-  felM3: number | null; // rundad, hela m³
+  volymM3: number; // traktens volym (alla kap), rundad, hela m³
+  bedomdM3: number; // maskinens egna kap som talet räknas mot, rundad
+  utanforM3: number | null; // rundad, hela m³
   pct: number | null;
   hogt: boolean;
 }
 
 export interface Manad {
   manad: string;
-  felM3: number; // summan av radernas rundade fel
-  volymM3: number; // summan av radernas rundade volym (bara objekt med fel)
+  utanforM3: number; // summan av radernas rundade utanför
+  volymM3: number; // summan av radernas rundade bedömda volym (maskinens kap)
   pct: number | null;
 }
 
 function tillRad(k: ObjektKort): ObjektRad {
-  const vol = Math.round(k.bedomdM3 ?? k.volymM3);
-  const fel = k.felM3 == null ? null : Math.round(k.felM3);
-  const p = fel == null ? null : pct(fel, vol);
+  const bedomd = Math.round(k.bedomdM3 ?? k.volymM3);
+  const ut = k.utanforM3 == null ? null : Math.round(k.utanforM3);
+  const p = ut == null ? null : pct(ut, bedomd);
   return {
     objectKey: k.objectKey,
     namn: k.objektNamn ?? "Okänt objekt",
-    volymM3: vol,
-    felM3: fel,
+    volymM3: Math.round(k.volymM3),
+    bedomdM3: bedomd,
+    utanforM3: ut,
     pct: p,
-    hogt: p != null && p >= HOGT_PCT && vol >= SMA_M3,
+    hogt: p != null && p >= HOGT_PCT && bedomd >= SMA_M3,
   };
 }
 
@@ -94,21 +98,21 @@ function slag(k: ObjektKort): "pagar" | "tyst" | "klar" {
   return (k.dagarSedanFil ?? 0) >= TYST_DAGAR ? "tyst" : "pagar";
 }
 
-/** Månadssummor över avslutade objekt med fel virke, nyast först. */
+/** Månadssummor över avslutade objekt med ett bedömt tal, nyast först. */
 export function manader(kort: ObjektKort[]): Manad[] {
   const per = new Map<string, { fel: number; vol: number }>();
   for (const k of kort) {
     if (slag(k) !== "klar") continue;
     const m = manadFor(k.lastFileAt);
     const r = tillRad(k);
-    if (!m || r.felM3 == null) continue;
+    if (!m || r.utanforM3 == null) continue;
     const s = per.get(m) ?? { fel: 0, vol: 0 };
-    s.fel += r.felM3;
-    s.vol += r.volymM3;
+    s.fel += r.utanforM3;
+    s.vol += r.bedomdM3;
     per.set(m, s);
   }
   return [...per.entries()]
-    .map(([manad, s]) => ({ manad, felM3: s.fel, volymM3: s.vol, pct: pct(s.fel, s.vol) }))
+    .map(([manad, s]) => ({ manad, utanforM3: s.fel, volymM3: s.vol, pct: pct(s.fel, s.vol) }))
     .sort((a, b) => b.manad.localeCompare(a.manad));
 }
 
@@ -127,7 +131,7 @@ export interface Oversikt {
 
 /**
  * Höjdpunkten: senaste månaden mot de (högst) två föregående månaderna MED data.
- * Bättre än alla med minst FORANDRING_PP → "Ni kapar rätt oftare …"; sämre → "Mer fel virke …".
+ * Bättre än alla med minst FORANDRING_PP → "Ni kapar rätt oftare …"; sämre → "Mer utanför beställt …".
  * Annars ingen höjdpunkt — hellre tyst än en mening som inte säger något.
  */
 function hojdpunkt(m: Manad[], nuManad: string | null): Hojdpunkt | null {
@@ -142,10 +146,10 @@ function hojdpunkt(m: Manad[], nuManad: string | null): Hojdpunkt | null {
   const spann = lo === hi ? `${lo} %` : `${lo}–${hi} %`;
   const curNamn = manadNamn(cur.manad, nuManad);
   if (cur.pct <= lo - FORANDRING_PP) {
-    return { riktning: "battre", mening: `Ni kapar rätt oftare i ${curNamn} än i ${mot}.`, under: `${cur.pct} % fel virke mot ${spann}` };
+    return { riktning: "battre", mening: `Ni kapar rätt oftare i ${curNamn} än i ${mot}.`, under: `${cur.pct} % utanför mot ${spann}` };
   }
   if (cur.pct >= hi + FORANDRING_PP) {
-    return { riktning: "samre", mening: `Mer fel virke i ${curNamn} än i ${mot}.`, under: `${cur.pct} % fel virke mot ${spann}` };
+    return { riktning: "samre", mening: `Mer utanför beställt i ${curNamn} än i ${mot}.`, under: `${cur.pct} % utanför mot ${spann}` };
   }
   return null;
 }
@@ -196,8 +200,8 @@ export function byggAllaObjekt(kort: ObjektKort[], sok = ""): Lista {
     if (!m) continue;
     const r = tillRad(k);
     const s = summa.get(m);
-    const lm = per.get(m) ?? { manad: m, felM3: s?.felM3 ?? 0, volymM3: s?.volymM3 ?? 0, pct: s?.pct ?? null, rader: [], sma: [] };
-    (r.felM3 == null || r.volymM3 < SMA_M3 ? lm.sma : lm.rader).push(r);
+    const lm = per.get(m) ?? { manad: m, utanforM3: s?.utanforM3 ?? 0, volymM3: s?.volymM3 ?? 0, pct: s?.pct ?? null, rader: [], sma: [] };
+    (r.utanforM3 == null || r.bedomdM3 < SMA_M3 ? lm.sma : lm.rader).push(r);
     per.set(m, lm);
   }
   return { pagar, tysta, manader: [...per.values()].sort((a, b) => b.manad.localeCompare(a.manad)) };

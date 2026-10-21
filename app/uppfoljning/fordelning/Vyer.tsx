@@ -3,7 +3,7 @@
 /**
  * Vyer.tsx — apteringens översikt och listan "Alla objekt" (2026-10-21).
  *
- * Översikten är Apples sätt: ETT tal (senaste månadens fel virke i m³), staplar
+ * Översikten är Apples sätt: ETT tal (senaste månadens utanför beställt i m³), staplar
  * per månad, högst en höjdpunkt och vägen till listan. Inget mer. Listan är en
  * vanlig iOS-lista: sök, pågår, tysta objekt, sedan trakter per månad.
  * All logik bor i oversikt.ts; här ritas bara. Byggstenar och värden ur
@@ -32,10 +32,10 @@ function Staplar({ staplar, onManad }: { staplar: { manad: string; pct: number |
   const max = Math.max(1, ...staplar.map((s) => s.pct ?? 0));
   const STAPEL_H = TRAFFYTA.min + AVSTAND.xl; // 68 px yta för stapeln
   return (
-    <div role="list" aria-label="Fel virke per månad" style={{ display: 'flex', gap: AVSTAND.xs, marginTop: AVSTAND.l }}>
+    <div role="list" aria-label="Utanför beställt per månad" style={{ display: 'flex', gap: AVSTAND.xs, marginTop: AVSTAND.l }}>
       {staplar.map((s, i) => {
         const sist = i === staplar.length - 1;
-        const etikett = s.pct == null ? `${manadNamn(s.manad)}: ingen avslutad trakt` : `${manadNamn(s.manad)}: ${s.pct} % fel virke`;
+        const etikett = s.pct == null ? `${manadNamn(s.manad)}: ingen avslutad trakt` : `${manadNamn(s.manad)}: ${s.pct} % utanför beställt`;
         return (
           <button key={s.manad} type="button" role="listitem" aria-label={etikett} disabled={s.pct == null}
             onClick={() => onManad(s.manad)} data-stapel={s.manad}
@@ -70,10 +70,10 @@ export function OversiktVy({ kort, antalObjekt, status, onTillbaka, onAlla }: {
 
       {o.senaste ? (
         <section style={{ ...KORT, marginBottom: AVSTAND.xl }} data-oversikt-tal>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>Fel virke i {manadNamn(o.senaste.manad, nuManad)}</div>
-          <div style={{ ...TYP.tal, marginTop: AVSTAND.s }}>{m3(o.senaste.felM3)}</div>
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>Utanför beställt i {manadNamn(o.senaste.manad, nuManad)}</div>
+          <div style={{ ...TYP.tal, marginTop: AVSTAND.s }}>{m3(o.senaste.utanforM3)}</div>
           <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.s }}>
-            {o.senaste.pct} % av {m3(o.senaste.volymM3)}
+            {o.senaste.pct} % av maskinens {m3(o.senaste.volymM3)}
           </div>
           {o.staplar.length > 1 && <Staplar staplar={o.staplar} onManad={(m) => onAlla(m)} />}
         </section>
@@ -113,7 +113,7 @@ function ObjektRadVy({ r, onOppna, sista, dampad }: { r: ObjektRad; onOppna: (k:
       titel={r.namn}
       under={m3(r.volymM3)}
       hoger={r.pct == null ? '–' : <span style={{ color: r.hogt ? FARG.orange : undefined }}>{r.pct} %</span>}
-      hogerUnder={r.felM3 == null ? 'inget mål' : `${r.hogt ? 'högt · ' : ''}${m3(r.felM3)} fel`}
+      hogerUnder={r.utanforM3 == null ? 'inget mål' : `${r.hogt ? 'högt · ' : ''}${m3(r.utanforM3)} utanför`}
       onTryck={() => onOppna(r.objectKey)}
       sista={sista}
       dampad={dampad}
@@ -167,7 +167,7 @@ export function AllaObjektVy({ kort, vantar, status, startManad, onTillbaka, onO
         <Sektion rubrik="Pågår">
           {l.pagar.map((r, i) => (
             <Rad key={r.objectKey} titel={r.namn} under={`${m3(r.volymM3)} hittills`}
-              hoger={r.pct != null && r.volymM3 >= SMA_M3 ? <span style={{ color: r.hogt ? FARG.orange : undefined }}>{r.pct} %</span> : undefined}
+              hoger={r.pct != null && r.bedomdM3 >= SMA_M3 ? <span style={{ color: r.hogt ? FARG.orange : undefined }}>{r.pct} %</span> : undefined}
               onTryck={() => onOppna(r.objectKey)} sista={i === l.pagar.length - 1} attr={{ 'data-objekt': r.objectKey }} />
           ))}
         </Sektion>
@@ -194,7 +194,7 @@ export function AllaObjektVy({ kort, vantar, status, startManad, onTillbaka, onO
         const sistaRadArSma = m.sma.length > 0;
         return (
           <div key={m.manad} id={`manad-${m.manad}`} style={{ scrollMarginTop: AVSTAND.l }}>
-            <Sektion rubrik={`${versal(manadNamn(m.manad, nuManad))}${m.pct != null ? ` · ${m.pct} % fel virke` : ''}`}>
+            <Sektion rubrik={`${versal(manadNamn(m.manad, nuManad))}${m.pct != null ? ` · ${m.pct} % utanför` : ''}`}>
               {m.rader.map((r, i) => (
                 <ObjektRadVy key={r.objectKey} r={r} onOppna={onOppna} sista={!sistaRadArSma && i === m.rader.length - 1} />
               ))}

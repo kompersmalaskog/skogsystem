@@ -4,7 +4,7 @@ import { readFileSync } from "fs";
 
 const kort = (key: string, lage: 1 | 2, volym: number): ObjektKort => ({
   objectKey: key, objektNamn: "lagrat namn", status: "active", lastFileAt: null, dagarSedanFil: 99,
-  lage, gradePct: 80, volymM3: volym, mening: null, headline: null, trend: null, felM3: null, bedomdM3: 0,
+  lage, gradePct: 80, volymM3: volym, mening: null, headline: null, trend: null, utanforM3: null, bedomdM3: 0,
 });
 const meta = (key: string, fil: string | null, status: "active" | "completed" = "completed"): ObjektMeta =>
   ({ object_key: key, object_name: `Objekt ${key}`, status, last_file_at: fil });
@@ -100,15 +100,15 @@ describe("vakter", () => {
   });
 });
 
-describe("felVirke", () => {
-  it("är (100 − grad) % av volymen, rundat per produkt och sedan summerat", async () => {
-    const { felVirke } = await import("./vy");
-    // 15,1 % av 467 = 70,517 → 70,5 ; 20 % av 10,55 = 2,11 → 2,1 ; summa 72,6
-    expect(felVirke([{ gradePct: 84.9, totalVolumeM3: 467 }, { gradePct: 80, totalVolumeM3: 10.55 }])).toEqual({ felM3: 72.6, bedomdM3: 477.6 });
+describe("utanforBestallt", () => {
+  it("är (100 − maskinens grad) % av maskinens volym, rundat per produkt och sedan summerat", async () => {
+    const { utanforBestallt } = await import("./vy");
+    // 16,5 % av 412 = 67,98 → 68 ; 20 % av 10,55 = 2,11 → 2,1 ; summa 70,1
+    expect(utanforBestallt([{ gradeAutomatic: 83.5, volymAutoM3: 412 }, { gradeAutomatic: 80, volymAutoM3: 10.55 }])).toEqual({ utanforM3: 70.1, bedomdM3: 422.6 });
   });
-  it("produkt utan grad räknas varken i fel eller volym; ingen grad alls ger null", async () => {
-    const { felVirke } = await import("./vy");
-    expect(felVirke([{ gradePct: 90, totalVolumeM3: 100 }, { gradePct: null, totalVolumeM3: 50 }])).toEqual({ felM3: 10, bedomdM3: 100 });
-    expect(felVirke([{ gradePct: null, totalVolumeM3: 50 }])).toEqual({ felM3: null, bedomdM3: 0 });
+  it("produkt utan maskinens grad räknas varken i talet eller volymen; ingen grad alls ger null", async () => {
+    const { utanforBestallt } = await import("./vy");
+    expect(utanforBestallt([{ gradeAutomatic: 90, volymAutoM3: 100 }, { gradeAutomatic: null, volymAutoM3: 50 }])).toEqual({ utanforM3: 10, bedomdM3: 100 });
+    expect(utanforBestallt([{ gradeAutomatic: null, volymAutoM3: 50 }])).toEqual({ utanforM3: null, bedomdM3: 0 });
   });
 });
