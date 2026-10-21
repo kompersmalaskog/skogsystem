@@ -9,6 +9,8 @@ import OperatorDeepView from './OperatorDeepView'
 import VolymDeepView from './VolymDeepView'
 import FlertradKort from './FlertradKort'
 import TradslagKort from './TradslagKort'
+import SortimentKort from './SortimentKort'
+import { LivestatusKort } from './Livestatus'
 
 export default function OversiktNy({ maskin, onMaskinChange }: {
   maskin: Maskin
@@ -169,6 +171,8 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
 
       {/* Innehåll */}
       <div style={{ ...kolumnRot('smal'), padding: `0 ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
+        {/* Livestatus (när maskinen senast såg något) + maskinhälsa (när senaste fil kom) — alltid nu, oberoende av vald period. */}
+        <LivestatusKort maskin={maskin} roll="skordare" />
         <HeroCard
           label="Produktivitet"
           unit="m³/G15h"
@@ -184,6 +188,8 @@ export default function OversiktNy({ maskin, onMaskinChange }: {
         <FlertradKort maskin={maskin} period={period} offset={offset} />
         {/* Trädslag per period — via maskindata_produktion (tradslag_id sedan 20260912), lib/tradslag-normaliserat. */}
         <TradslagKort maskin={maskin} period={period} offset={offset} />
+        {/* Sortiment per period — fakt_sortiment, gruppen ur vy_sortiment_klass (lib/maskinvy/sortiment). */}
+        <SortimentKort maskin={maskin} period={period} offset={offset} produktionsvolym={data?.volym ?? null} />
         <TimeDistribution data={data} loading={loading} />
         <OperatorList
           operatorer={data?.operatorer ?? []}

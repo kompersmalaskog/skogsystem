@@ -14,7 +14,7 @@ const DIR = __dirname
 const FILER = [
   'OversiktNy', 'OversiktShared', 'IdagNy', 'ProduktionNy', 'AvbrottNy', 'KapacitetNy', 'TradslagKort', 'FlertradKort',
   'OperatorDeepView', 'VolymDeepView', 'SkotareOversiktNy', 'SkotareProduktionNy', 'SkotareAvbrottNy', 'SkotareIdagNy',
-  'SkotareJamforelseNy', 'SpecialBadge', 'page',
+  'SkotareJamforelseNy', 'SpecialBadge', 'SortimentKort', 'Livestatus', 'page',
 ]
 
 /** Källan utan kommentarer, rad för rad (kommentarer får nämna hexvärden och gamla px). */
