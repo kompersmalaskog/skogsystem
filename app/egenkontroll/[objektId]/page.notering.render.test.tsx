@@ -224,8 +224,10 @@ describe('Punkt', () => {
     await klick(knapp('Punkt'));
     await klick(id('tryck-1'));
     expect(knapp('Så här blev det').getAttribute('aria-pressed')).toBe('true');
+    expect(id('notering-skulle-info')).toBeNull();                                  // blev: ingenting att varna för
     await klick(knapp('Så här skulle det gjorts'));
     expect(knapp('Så här skulle det gjorts').getAttribute('aria-pressed')).toBe('true');
+    expect(id('notering-skulle-info')?.textContent).toBe('Följer inte med i rapporten till Vida.');   // skulle: besiktaren får veta det innan hen skriver
     await skriv(textfalt(), 'Infart');
     await klick(knapp('Klar'));
     expect(skapaNotering.mock.calls[0][0].avsikt).toBe('skulle');

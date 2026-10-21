@@ -51,6 +51,16 @@ export const AVSIKT_ETIKETT: Record<NoteringAvsikt, string> = { blev: 'Så här 
 /** Förvald avsikt: de allra flesta noteringar beskriver hur det är. */
 export const AVSIKT_STANDARD: NoteringAvsikt = 'blev';
 
+/**
+ * RAPPORTEN TILL VIDA (sida 1 OCH bilagan) tar BARA "Så här blev det" (Martin 2026-10-21). En "skulle"-linje ritad ovanpå hyttspåret är
+ * ett daterat och positionsbestämt medgivande till kunden — och då slutar verktyget vara en plats att tänka fritt på. Ingen kryssruta
+ * för att skicka med en enskild: blir det ett behov är det en liten additiv ändring då. EN regel, för kartan (9a) och fotona (9b).
+ */
+export const RAPPORT_AVSIKT: NoteringAvsikt = 'blev';
+export function arMedIRapport(n: { avsikt: string }): boolean {
+  return n.avsikt === RAPPORT_AVSIKT;
+}
+
 export function arAvsikt(x: unknown): x is NoteringAvsikt {
   return x === 'blev' || x === 'skulle';
 }

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  AVSIKT_STANDARD, NOTERING_ETIKETT_MAX, NOTERING_FORSKJUTNING_MAX, NOTERING_MAX_PUNKTER, arAvsikt, arRitningFull, arTomEtikett, kanAvslutaRitning,
+  AVSIKT_STANDARD, RAPPORT_AVSIKT, arMedIRapport, NOTERING_ETIKETT_MAX, NOTERING_FORSKJUTNING_MAX, NOTERING_MAX_PUNKTER, arAvsikt, arRitningFull, arTomEtikett, kanAvslutaRitning,
   kartaKoordinaterGiltiga, klamEtikett, minPunkter, rensaEtikett, ritaRadText, ritningTillKoordinater, verktygTillForm,
 } from './egenkontrollNotering';
 
@@ -17,6 +17,15 @@ describe('verktyg och form', () => {
     expect(arAvsikt('kanske')).toBe(false);
     expect(arAvsikt(null)).toBe(false);
     expect(AVSIKT_STANDARD).toBe('blev');
+  });
+});
+
+describe('rapporten till Vida tar bara "blev"', () => {
+  it('arMedIRapport: blev ja, skulle nej, och allt annat nej (Martin 2026-10-21)', () => {
+    expect(RAPPORT_AVSIKT).toBe('blev');
+    expect(arMedIRapport({ avsikt: 'blev' })).toBe(true);
+    expect(arMedIRapport({ avsikt: 'skulle' })).toBe(false);
+    expect(arMedIRapport({ avsikt: '' })).toBe(false);
   });
 });
 

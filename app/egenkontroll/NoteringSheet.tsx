@@ -116,6 +116,10 @@ export default function NoteringSheet(props: NoteringSheetProps) {
         })}
       </div>
 
+      {avsikt === 'skulle' && (
+        <p data-testid="notering-skulle-info" style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Följer inte med i rapporten till Vida.</p>
+      )}
+
       {fel && (
         <div role="alert" style={{ marginTop: AVSTAND.l, background: FARG.upphojt, border: `1px solid ${FARG.rod}`, borderRadius: RADIE.rad, padding: AVSTAND.m, ...TYP.meta, color: FARG.text }}>
           <div>{fel}</div>
