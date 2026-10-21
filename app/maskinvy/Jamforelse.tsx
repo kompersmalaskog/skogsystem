@@ -1,16 +1,23 @@
 'use client';
 import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import TuTabell from '@/components/maskinvy/TuTabell';
+import { supabase } from '@/lib/supabase';
+import {
+  hämtaManuellRader, fetchAllTimeLassTid,
+} from '@/lib/maskinvy/skotarvolym';
+import {
+  KLASSER, getKlassIdx, kvot, skillnadPct, valjJamforelseMaskiner,
+  summeraPerMaskinObjekt, objektSkotningsavstand, volymPerObjekt,
+  ORSAK_INGEN_G15, ORSAK_INGEN_MASKIN,
+} from '@/lib/maskinvy/jamforelse';
+import { fetchAll, getPeriodRange, fmtSv, fmtSvDelta, type Period } from './OversiktShared';
+import { useJamforelseMaskinRader } from './useJamforelseMaskiner';
 
-const EK_ID = 'A110148';
-const WI_ID = 'A030353';
-
-const DIST_LABELS = ['0–100m', '100–200m', '200–300m', '300–400m', '400+m'];
-const DIST_EDGES = [0, 100, 200, 300, 400, Infinity];
-const DIST_WEIGHTS = [5, 4, 3, 2, 1]; // closer = more weight
+// Maskinerna väljs ur dim_maskin per period (lib/maskinvy/jamforelse) — inga
+// hårdkodade id:n. Avståndsklasserna delas med Skotare › Jämförelse.
+const DIST_LABELS = KLASSER.map(k => k.short);
 
 type MetricId = 'm3fub_g15h' | 'm3fub_100m' | 'lass_g15h' | 'bransle_m3';
 
@@ -51,102 +58,102 @@ const COLOR_WI      = 'rgba(48,209,88,0.7)';
 interface ClassData {
   volym: number;
   g15h: number;
-  distM: number;
+  distM: number;   // summa körsträcka (tur och retur), meter
   bransle: number;
   skift: number;
+  lass: number;
 }
 
 function emptyClass(): ClassData {
-  return { volym: 0, g15h: 0, distM: 0, bransle: 0, skift: 0 };
+  return { volym: 0, g15h: 0, distM: 0, bransle: 0, skift: 0, lass: 0 };
 }
 
-function getClassIndex(dist: number): number {
-  for (let i = 0; i < DIST_EDGES.length - 1; i++) {
-    if (dist < DIST_EDGES[i + 1]) return i;
-  }
-  return DIST_EDGES.length - 2;
+function addClass(a: ClassData, b: ClassData) {
+  a.volym += b.volym; a.g15h += b.g15h; a.distM += b.distM;
+  a.bransle += b.bransle; a.skift += b.skift; a.lass += b.lass;
 }
 
-function computeMetric(d: ClassData, metric: MetricId): number {
-  if (!d) return 0;
+/** Måttet för en uppsättning data — null när nämnaren saknas (aldrig division ändå). */
+function computeMetric(d: ClassData | undefined, metric: MetricId): number | null {
+  if (!d) return null;
   switch (metric) {
-    case 'm3fub_g15h': return d.g15h > 0 ? d.volym / d.g15h : 0;
-    case 'm3fub_100m': return d.distM > 0 ? d.volym / (d.distM / 100) : 0;
-    case 'lass_g15h':  return d.g15h > 0 ? (d.volym / 7.5) / d.g15h : 0;
-    case 'bransle_m3': return d.volym > 0 ? d.bransle / d.volym : 0;
-    default: return 0;
+    case 'm3fub_g15h': return kvot(d.volym, d.g15h);
+    case 'm3fub_100m': return kvot(d.volym, d.distM / 100);
+    case 'lass_g15h':  return kvot(d.lass, d.g15h);
+    case 'bransle_m3': return kvot(d.bransle, d.volym);
+    default: return null;
   }
 }
 
-function weightedAvg(data: ClassData[], metric: MetricId): number {
-  let sum = 0, wSum = 0;
-  data.forEach((d, i) => {
-    const v = computeMetric(d, metric);
-    if (v > 0) { sum += v * DIST_WEIGHTS[i]; wSum += DIST_WEIGHTS[i]; }
-  });
-  return wSum > 0 ? sum / wSum : 0;
+/** Total över alla klasser — SUM/SUM, aldrig snitt av klassernas snitt. */
+function totalData(data: ClassData[]): ClassData {
+  const t = emptyClass();
+  data.forEach(d => addClass(t, d));
+  return t;
 }
 
 // ── SCORE CARD ────────────────────────────────────────────────────────────────
 function ScoreCard({
-  name, value, unit, isWinner, pctDiff, vol, isHigherBetter,
+  name, value, unit, isWinner, pctDiff, vol, isHigherBetter, orsak,
 }: {
-  name: string; value: number; unit: string; isWinner: boolean;
-  pctDiff: number; vol: number; isHigherBetter: boolean;
+  name: string; value: number | null; unit: string; isWinner: boolean | null;
+  pctDiff: number | null; vol: number; isHigherBetter: boolean; orsak: string | null;
 }) {
-  const sign = pctDiff >= 0 ? '+' : '';
-  const goodDiff = isHigherBetter ? pctDiff >= 0 : pctDiff <= 0;
+  const goodDiff = pctDiff === null ? null : (isHigherBetter ? pctDiff >= 0 : pctDiff <= 0);
+  const vinner = isWinner === true;
 
   return (
     <div style={{
       flex: 1,
       background: C.surface,
-      border: `1px solid ${isWinner ? 'rgba(48,209,88,0.28)' : C.border}`,
+      border: `1px solid ${vinner ? 'rgba(48,209,88,0.28)' : C.border}`,
       borderRadius: 12,
       padding: '22px 20px 18px',
       position: 'relative',
       overflow: 'hidden',
     }}>
 
-      {/* Rank badge */}
-      <div style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-        fontSize: 11, fontWeight: 500, padding: '3px 9px', borderRadius: 4, marginBottom: 10,
-        background: isWinner ? C.greenBg : 'transparent',
-        border: `1px solid ${isWinner ? C.greenBorder : C.border}`,
-        color: isWinner ? C.green : C.t4,
-      }}>
-        {isWinner ? 'Bäst' : '2:a plats'}
-      </div>
+      {/* Rank badge — bara när båda maskinerna har ett värde att jämföra */}
+      {isWinner !== null && (
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 11, fontWeight: 500, padding: '3px 9px', borderRadius: 4, marginBottom: 10,
+          background: vinner ? C.greenBg : 'transparent',
+          border: `1px solid ${vinner ? C.greenBorder : C.border}`,
+          color: vinner ? C.green : C.t4,
+        }}>
+          {vinner ? 'Bäst' : '2:a plats'}
+        </div>
+      )}
 
       {/* Name */}
       <div style={{
         fontSize: 15, fontWeight: 600, letterSpacing: -0.3, marginBottom: 2,
-        color: isWinner ? C.t1 : '#aeaeb2',
+        color: vinner ? C.t1 : '#aeaeb2',
       }}>{name}</div>
 
       {/* Hero number */}
       <div style={{
         fontSize: 64, fontWeight: 700, lineHeight: 1, letterSpacing: -3,
         marginTop: 12, marginBottom: 4,
-        color: isWinner ? C.t1 : '#d0d0d0',
-        textShadow: isWinner ? '0 0 30px rgba(255,255,255,0.3)' : 'none',
+        color: vinner ? C.t1 : '#d0d0d0',
+        textShadow: vinner ? '0 0 30px rgba(255,255,255,0.3)' : 'none',
         fontVariantNumeric: 'tabular-nums',
       }}>
-        {value > 0 ? value.toFixed(1) : '—'}
+        {value !== null ? fmtSv(value, 1) : '–'}
       </div>
-      <div style={{ fontSize: 11, color: isWinner ? '#666' : '#444', marginBottom: 3 }}>{unit}</div>
+      <div style={{ fontSize: 11, color: vinner ? '#666' : '#444', marginBottom: 3 }}>{unit}</div>
       <div style={{ fontSize: 11, color: C.t4, marginBottom: 12 }}>
-        viktat snitt
+        {value !== null ? 'summa / summa' : orsak}
       </div>
 
       {/* Diff badge */}
       <div style={{
         fontSize: 14, fontWeight: 700, marginBottom: 16, letterSpacing: -0.3,
         color: goodDiff ? C.green : C.red,
-        textShadow: goodDiff && isWinner ? '0 0 20px rgba(48,209,88,0.4)' : 'none',
+        textShadow: goodDiff && vinner ? '0 0 20px rgba(48,209,88,0.4)' : 'none',
       }}>
-        {value > 0 ? `${sign}${pctDiff.toFixed(1)}% ${goodDiff ? 'bättre' : 'sämre'}` : '—'}
+        {pctDiff !== null ? `${fmtSvDelta(pctDiff)} ${goodDiff ? 'bättre' : 'sämre'}` : '–'}
       </div>
 
       {/* Data volume */}
@@ -155,10 +162,10 @@ function ScoreCard({
         fontSize: 10, color: C.t4,
       }}>
         {vol > 0 ? (
-          <span style={{ color: vol > 5000 ? C.t3 : C.amber }}>
-            {vol.toLocaleString('sv-SE')} m³ data
+          <span style={{ color: C.t3 }}>
+            {fmtSv(vol, 0)} m³ data
           </span>
-        ) : '—'}
+        ) : '–'}
       </div>
     </div>
   );
@@ -167,7 +174,10 @@ function ScoreCard({
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function Jamforelse() {
   const [metric, setMetric] = useState<MetricId>('m3fub_g15h');
+  const [period, setPeriod] = useState<Period>('M');
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [laddFel, setLaddFel] = useState(false);
   const [ekBred, setEkBred] = useState<ClassData[]>([]);
   const [ekSmal, setEkSmal] = useState<ClassData[]>([]);
   const [wi, setWi]         = useState<ClassData[]>([]);
@@ -176,69 +186,85 @@ export default function Jamforelse() {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
 
+  const { start, end, label } = getPeriodRange(period, offset);
+
+  // Maskinerna ur dim_maskin för perioden — inga hårdkodade id:n.
+  const { rader: maskinRader } = useJamforelseMaskinRader();
+  const val = useMemo(
+    () => (maskinRader ? valjJamforelseMaskiner(maskinRader, start, end) : null),
+    [maskinRader, start, end],
+  );
+  const wiIds = val?.wisent ?? [];
+  const ekIds = val?.ek ?? [];
+  const idNyckel = val ? `${wiIds.join(',')}|${ekIds.join(',')}` : null;
+
   const loadData = useCallback(async () => {
+    if (idNyckel === null) return;            // dim_maskin ännu inte läst
     setLoading(true);
-    const [tidRes, prodRes, dimRes, objektRes] = await Promise.all([
-      supabase.from('fakt_tid')
-        .select('maskin_id, objekt_id, datum, terrain_korstracka_m, processing_sek, terrain_sek, other_work_sek, bransle_liter')
-        .in('maskin_id', [EK_ID, WI_ID]),
-      supabase.from('fakt_produktion').select('objekt_id, volym_m3sub'),
+    setLaddFel(false);
+    const ids = [...wiIds, ...ekIds];
+    const tom = () => KLASSER.map(() => emptyClass());
+    if (ids.length === 0) {
+      setEkBred(tom()); setEkSmal(tom()); setWi(tom()); setLoading(false);
+      return;
+    }
+
+    // Lass och tid hämtas SEPARAT (aldrig joinade) och möts per maskin+objekt.
+    // Volym = maskinens EGNA lass (fakt_lass), inte skördarens produktion på objektet.
+    const [lassRows, tidRows, dimRes, objektRes] = await Promise.all([
+      fetchAll('fakt_lass', 'maskin_id, objekt_id, datum, volym_m3sub, korstracka_m', ids, start, end),
+      fetchAll('fakt_tid', 'maskin_id, objekt_id, datum, processing_sek, terrain_sek, other_work_sek, bransle_liter', ids, start, end),
       supabase.from('dim_objekt').select('objekt_id, vo_nummer'),
       supabase.from('objekt').select('vo_nummer, skotare_konfiguration'),
     ]);
-    if (!tidRes.data || !prodRes.data) { setLoading(false); return; }
+
+    // Manuell korrigering via den delade funktionen, en maskin i taget (som övriga flikar).
+    const volymId: Record<string, Map<string, number>> = {};
+    await Promise.all(ids.map(async id => {
+      const rader = await hämtaManuellRader(id).catch(() => []);
+      if (!rader.some(r => (r.volym_m3 ?? 0) > 0)) return;
+      const { lassRows: allL, tidRows: allT } = await fetchAllTimeLassTid([id]);
+      volymId[id] = volymPerObjekt(allL, rader, allT, id, start, end).perObjekt;
+    }));
 
     const voToKonfig: Record<string, string> = {};
-    (objektRes.data || []).forEach(r => { if (r.vo_nummer) voToKonfig[r.vo_nummer] = r.skotare_konfiguration || 'bred'; });
+    (objektRes.data || []).forEach((r: any) => { if (r.vo_nummer) voToKonfig[r.vo_nummer] = r.skotare_konfiguration || 'bred'; });
     const objIdToKonfig: Record<string, string> = {};
-    (dimRes.data || []).forEach(r => { if (r.vo_nummer && voToKonfig[r.vo_nummer]) objIdToKonfig[r.objekt_id] = voToKonfig[r.vo_nummer]; });
+    (dimRes.data || []).forEach((r: any) => { if (r.vo_nummer && voToKonfig[r.vo_nummer]) objIdToKonfig[r.objekt_id] = voToKonfig[r.vo_nummer]; });
 
-    const volByObj: Record<string, number> = {};
-    for (const r of prodRes.data) {
-      if (r.objekt_id) volByObj[r.objekt_id] = (volByObj[r.objekt_id] || 0) + (r.volym_m3sub || 0);
-    }
+    const newEkBred = tom();
+    const newEkSmal = tom();
+    const newWi     = tom();
+    const ekSet = new Set(ekIds);
 
-    type ObjAgg = { distSum: number; distCount: number; g15Sek: number; bransle: number; skift: Set<string> };
-    const agg: Record<string, Record<string, ObjAgg>> = { [EK_ID]: {}, [WI_ID]: {} };
-    for (const r of tidRes.data) {
-      if (!r.objekt_id || r.terrain_korstracka_m == null) continue;
-      const mId = r.maskin_id;
-      if (!agg[mId]) continue;
-      if (!agg[mId][r.objekt_id]) agg[mId][r.objekt_id] = { distSum: 0, distCount: 0, g15Sek: 0, bransle: 0, skift: new Set() };
-      const o = agg[mId][r.objekt_id];
-      o.distSum += r.terrain_korstracka_m;
-      o.distCount++;
-      // G15 = processing + terrain + other_work (validerat mot 5 tillverkarrapporter).
-      o.g15Sek += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0);
-      o.bransle += (r.bransle_liter || 0);
-      if (r.datum) o.skift.add(r.datum);
-    }
-
-    const newEkBred = DIST_LABELS.map(() => emptyClass());
-    const newEkSmal = DIST_LABELS.map(() => emptyClass());
-    const newWi     = DIST_LABELS.map(() => emptyClass());
-
-    for (const [objId, o] of Object.entries(agg[EK_ID])) {
-      if (!o.distCount || !o.g15Sek) continue;
-      const vol = volByObj[objId] || 0;
-      const ci = getClassIndex(o.distSum / o.distCount);
-      const target = (objIdToKonfig[objId] || 'bred') === 'smal' ? newEkSmal : newEkBred;
-      target[ci].volym += vol; target[ci].g15h += o.g15Sek / 3600;
-      target[ci].distM += o.distSum; target[ci].bransle += o.bransle; target[ci].skift += o.skift.size;
-    }
-    for (const [objId, o] of Object.entries(agg[WI_ID])) {
-      if (!o.distCount || !o.g15Sek) continue;
-      const vol = volByObj[objId] || 0;
-      const ci = getClassIndex(o.distSum / o.distCount);
-      newWi[ci].volym += vol; newWi[ci].g15h += o.g15Sek / 3600;
-      newWi[ci].distM += o.distSum; newWi[ci].bransle += o.bransle; newWi[ci].skift += o.skift.size;
+    for (const sum of summeraPerMaskinObjekt(lassRows, tidRows)) {
+      // Objektets klass = dess skotningsavstånd (enkelriktat, ur lassens körsträcka).
+      // Objekt utan lass med körsträcka kan inte klassas och ingår inte i klasserna.
+      const avst = objektSkotningsavstand(sum);
+      if (avst === null) continue;
+      const ci = getKlassIdx(avst);
+      const rattad = volymId[sum.maskin_id]?.get(sum.objekt_id);
+      const d: ClassData = {
+        volym: rattad ?? sum.volym, g15h: sum.g15h, distM: sum.korM,
+        bransle: sum.bransle, skift: sum.dagar.size, lass: sum.lass,
+      };
+      if (ekSet.has(sum.maskin_id)) {
+        const mal = (objIdToKonfig[sum.objekt_id] || 'bred') === 'smal' ? newEkSmal : newEkBred;
+        addClass(mal[ci], d);
+      } else {
+        addClass(newWi[ci], d);
+      }
     }
 
     setEkBred(newEkBred); setEkSmal(newEkSmal); setWi(newWi);
     setLoading(false);
-  }, []);
+    // wiIds/ekIds härleds ur idNyckel
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idNyckel, start, end]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData().catch(() => { setLaddFel(true); setLoading(false); });
+  }, [loadData]);
 
   // Draw bar chart
   useEffect(() => {
@@ -291,14 +317,13 @@ export default function Jamforelse() {
             borderWidth: 1,
             padding: 12,
             callbacks: {
-              label: (c: any) => ` ${c.dataset.label}: ${c.parsed.y > 0 ? c.parsed.y.toFixed(1) : '—'} ${currentMetric.unit}`,
+              label: (c: any) => ` ${c.dataset.label}: ${c.parsed.y > 0 ? fmtSv(c.parsed.y, 1) : '–'} ${currentMetric.unit}`,
               afterBody: (items: any[]) => {
                 if (items.length < 2) return [];
                 const v1 = items[0].parsed.y, v2 = items[1].parsed.y;
                 if (!v1 || !v2) return [];
-                const diff = ((v1 - v2) / v2) * 100;
-                const sign = diff >= 0 ? '+' : '';
-                return [`Skillnad: ${sign}${diff.toFixed(1)}%`];
+                const diff = skillnadPct(v1, v2);
+                return diff === null ? [] : [`Skillnad: ${fmtSvDelta(diff)}`];
               },
             },
           },
@@ -321,17 +346,29 @@ export default function Jamforelse() {
     return () => { if (chartInstance.current) { chartInstance.current.destroy(); chartInstance.current = null; } };
   }, [loading, metric, ekConfig, ekBred, ekSmal, wi]);
 
-  // Computed values
+  // Computed values — totalen är SUM/SUM över alla klasser, aldrig ett snitt av klassernas snitt
   const ekData = ekConfig === 'bred' ? ekBred : ekSmal;
-  const ekAvg = weightedAvg(ekData, metric);
-  const wiAvg = weightedAvg(wi, metric);
+  const ekTot = totalData(ekData);
+  const wiTot = totalData(wi);
+  const ekAvg = computeMetric(ekTot, metric);
+  const wiAvg = computeMetric(wiTot, metric);
   const currentMetric = METRICS.find(m => m.id === metric)!;
-  const ekVol = ekData.reduce((s, d) => s + d.volym, 0);
-  const wiVol = wi.reduce((s, d) => s + d.volym, 0);
+  const ekVol = ekTot.volym;
+  const wiVol = wiTot.volym;
 
-  const ekWins = currentMetric.higherIsBetter ? ekAvg >= wiAvg : ekAvg <= wiAvg;
-  const ekPct = wiAvg > 0 ? ((ekAvg - wiAvg) / wiAvg) * 100 : 0;
-  const wiPct = -ekPct;
+  const bada = ekAvg !== null && wiAvg !== null;
+  const ekWins: boolean | null = !bada ? null
+    : (currentMetric.higherIsBetter ? ekAvg >= wiAvg : ekAvg <= wiAvg);
+  const ekPct = skillnadPct(ekAvg, wiAvg);
+  const wiPct = skillnadPct(wiAvg, ekAvg);
+
+  // Orsaken när en maskin saknar värde — tomt ska aldrig vara en gåta.
+  const orsakFor = (harMaskin: boolean, tot: ClassData): string | null => {
+    if (!harMaskin) return ORSAK_INGEN_MASKIN;
+    if (!(tot.g15h > 0) && (metric === 'm3fub_g15h' || metric === 'lass_g15h')) return ORSAK_INGEN_G15;
+    if (!(tot.lass > 0)) return 'Inga lass med körsträcka i perioden';
+    return 'Värde saknas i perioden';
+  };
 
   if (loading) {
     return (
@@ -363,7 +400,44 @@ export default function Jamforelse() {
           Elephant King vs Wisent
         </div>
         <div style={{ fontSize: 13, color: C.t3 }}>
-          Jämförelse per avståndsklass · viktat snitt
+          Jämförelse per avståndsklass · summa / summa
+        </div>
+      </div>
+
+      {/* ── PERIOD ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 20, gap: 8, flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', gap: 2 }}>
+          {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
+            <button
+              key={p}
+              onClick={() => { setPeriod(p); setOffset(0); }}
+              style={{
+                minHeight: 44, minWidth: 44, padding: '0 12px', border: 'none', borderRadius: 10,
+                fontFamily: ff, fontSize: 14, cursor: 'pointer',
+                background: period === p ? C.surface2 : 'transparent',
+                color: period === p ? C.t1 : C.t3,
+                fontWeight: period === p ? 600 : 400,
+              }}
+            >{p}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button
+            onClick={() => setOffset(o => o - 1)}
+            aria-label="Föregående period"
+            style={{ minHeight: 44, minWidth: 44, border: 'none', background: 'transparent', color: C.t3, fontFamily: ff, fontSize: 20, cursor: 'pointer' }}
+          >‹</button>
+          <span style={{ fontSize: 13, color: C.t3, minWidth: 130, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+            {label}
+          </span>
+          <button
+            onClick={() => setOffset(o => o + 1)}
+            aria-label="Nästa period"
+            style={{ minHeight: 44, minWidth: 44, border: 'none', background: 'transparent', color: C.t3, fontFamily: ff, fontSize: 20, cursor: 'pointer' }}
+          >›</button>
         </div>
       </div>
 
@@ -426,15 +500,17 @@ export default function Jamforelse() {
           pctDiff={ekPct}
           vol={ekVol}
           isHigherBetter={currentMetric.higherIsBetter}
+          orsak={orsakFor(ekIds.length > 0, ekTot)}
         />
         <ScoreCard
           name="Wisent"
           value={wiAvg}
           unit={currentMetric.unit}
-          isWinner={!ekWins}
+          isWinner={ekWins === null ? null : !ekWins}
           pctDiff={wiPct}
           vol={wiVol}
           isHigherBetter={currentMetric.higherIsBetter}
+          orsak={orsakFor(wiIds.length > 0, wiTot)}
         />
       </div>
 
@@ -487,9 +563,8 @@ export default function Jamforelse() {
             {DIST_LABELS.map((label, i) => {
               const ekV = computeMetric(ekData[i], metric);
               const wiV = computeMetric(wi[i], metric);
-              const diff = wiV > 0 ? ((ekV - wiV) / wiV) * 100 : 0;
-              const goodDiff = currentMetric.higherIsBetter ? diff >= 0 : diff <= 0;
-              const hasData = ekV > 0 || wiV > 0;
+              const diff = skillnadPct(ekV, wiV);
+              const goodDiff = diff !== null && (currentMetric.higherIsBetter ? diff >= 0 : diff <= 0);
 
               return (
                 <tr key={label} style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -500,23 +575,23 @@ export default function Jamforelse() {
                     </div>
                   </td>
                   <td style={{ padding: '12px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {ekV > 0 ? (
+                    {ekV !== null && ekV > 0 ? (
                       <>
-                        <span style={{ color: C.t1, fontWeight: 600 }}>{ekV.toFixed(1)}</span>
+                        <span style={{ color: C.t1, fontWeight: 600 }}>{fmtSv(ekV, 1)}</span>
                         <span style={{ fontSize: 10, color: C.t4, marginLeft: 3 }}>{currentMetric.unit}</span>
                       </>
-                    ) : <span style={{ color: C.t4 }}>—</span>}
+                    ) : <span style={{ color: C.t4 }}>–</span>}
                   </td>
                   <td style={{ padding: '12px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {wiV > 0 ? (
+                    {wiV !== null && wiV > 0 ? (
                       <>
-                        <span style={{ color: C.t1, fontWeight: 600 }}>{wiV.toFixed(1)}</span>
+                        <span style={{ color: C.t1, fontWeight: 600 }}>{fmtSv(wiV, 1)}</span>
                         <span style={{ fontSize: 10, color: C.t4, marginLeft: 3 }}>{currentMetric.unit}</span>
                       </>
-                    ) : <span style={{ color: C.t4 }}>—</span>}
+                    ) : <span style={{ color: C.t4 }}>–</span>}
                   </td>
                   <td style={{ padding: '12px 18px', textAlign: 'right' }}>
-                    {hasData && ekV > 0 && wiV > 0 ? (
+                    {diff !== null && ekV !== null && ekV > 0 && wiV !== null && wiV > 0 ? (
                       <span style={{
                         display: 'inline-block',
                         padding: '2px 8px', borderRadius: 4,
@@ -524,9 +599,9 @@ export default function Jamforelse() {
                         background: goodDiff ? C.greenBg : C.redBg,
                         color: goodDiff ? C.green : C.red,
                       }}>
-                        {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
+                        {fmtSvDelta(diff)}
                       </span>
-                    ) : <span style={{ color: C.t4 }}>—</span>}
+                    ) : <span style={{ color: C.t4 }}>–</span>}
                   </td>
                 </tr>
               );
