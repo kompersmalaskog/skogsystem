@@ -35,6 +35,10 @@ export type StartsidaData = {
   /** undefined = läses; null = inga egna (eller läsfel) → rollens förinställda. */
   favoritIds: string[] | null | undefined
   sparaFavoriterna: (ids: string[]) => Promise<boolean>
+  /** Vem som är inloggad (kontokortet i Mer). namn null = medarbetaren kunde inte läsas; e-posten kommer från inloggningen. */
+  konto: { namn: string | null; epost: string | null }
+  /** Loggar ut och går till inloggningen. */
+  loggaUt: () => Promise<void>
 }
 
 export function useStartsidaData(): StartsidaData {
@@ -45,6 +49,7 @@ export function useStartsidaData(): StartsidaData {
   const [vantandeLass, setVantandeLass] = useState<number | null>(null)
   const [vantandeGodkannande, setVantandeGodkannande] = useState<number | null>(null)
   const [favoritIds, setFavoritIds] = useState<string[] | null | undefined>(undefined)
+  const [konto, setKonto] = useState<{ namn: string | null; epost: string | null }>({ namn: null, epost: null })
 
   // Ledighetsmärket ska stämma när man kommer tillbaka till appen (t.ex. från en push), inte bara vid första laddningen.
   useEffect(() => {
@@ -75,8 +80,13 @@ export function useStartsidaData(): StartsidaData {
     const fardig = () => { if (vid) setRollKlar(true) }
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user?.email) { fardig(); return }
-      supabase.from('medarbetare').select('roll').eq('epost', user.email).single()
-        .then(({ data }) => { if (vid && data?.roll) setRoll(data.roll); fardig() }, fardig)
+      if (vid) setKonto(k => ({ ...k, epost: user.email ?? null }))
+      supabase.from('medarbetare').select('roll, namn').eq('epost', user.email).single()
+        .then(({ data }) => {
+          if (vid && data?.roll) setRoll(data.roll)
+          if (vid && typeof data?.namn === 'string' && data.namn.trim()) setKonto(k => ({ ...k, namn: data.namn.trim() }))
+          fardig()
+        }, fardig)
     }, fardig)
     // SAMMA funktion som listvyn använder ⇒ siffran på ikonen och talet överst i listan kan aldrig säga olika saker.
     hamtaVantande()
@@ -92,5 +102,11 @@ export function useStartsidaData(): StartsidaData {
     return landat != null
   }
 
-  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, favoritIds, sparaFavoriterna }
+  // Samma utloggning som Arbetsrapporten: logga ut och gå till inloggningen (hela sidan laddas om, inget gammalt tillstånd följer med).
+  const loggaUt = async () => {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
+  }
+
+  return { roll, rollKlar, vantandeEgenkontroll, ledighetPrick, vantandeLass, vantandeGodkannande, favoritIds, sparaFavoriterna, konto, loggaUt }
 }

@@ -1,11 +1,14 @@
 'use client'
 
 // Nya startsidan — en VÄLJARE, filtrerad efter roll (canvasen "Skogsystem startsida", sidan Slutlig).
-// Samma ordning för alla: Behöver dig → Dina vyer → Alla vyer, och det som sällan används i kontomenyn.
+// Samma ordning för alla: Dina vyer → Behöver dig → Alla vyer, och det som sällan används i kontomenyn (Mer).
+// Favoriterna står FÖRST, på fast plats direkt under sökfältet: de flyttar sig aldrig för att något väntar.
+// Datahälsan bor i Mer (status på raden + en prick på personknappen); bara ett riktigt fel (röd) står också
+// som rad under Behöver dig. Mer visar vem som är inloggad och har Logga ut.
 // Startsidan växer aldrig: Behöver dig och favoriterna har fast storlek, "Alla vyer" är grupperad och
 // ihopfälld på telefon, och sökningen hittar resten. Vyerna kommer ur lib/vyer.ts.
 //
-// Bara admin ser den än (HomeClient väljer). Inget tas bort. Favoriterna är rollens förinställda tills man
+// Admin och förare ser den (HomeClient väljer; okänd roll får den gamla sidan). Inget tas bort. Favoriterna är rollens förinställda tills man
 // väljer själv under "Ändra" — de sparas per användare (lib/startsidaFavoriter.ts) och följer med mellan enheter.
 
 import Link from 'next/link'
@@ -97,6 +100,118 @@ function Etikett({ children }: { children: string }) {
 
 type Uppgift = { id: string; text: string; href: string; farg: string }
 
+/** Inloggad användare för kontokortet i Mer. null-fält = okänt (visas inte, gissas aldrig). */
+export type Konto = { namn: string | null; epost: string | null }
+
+const ROLL_TEXT: Record<Roll, string> = { admin: 'Admin', forare: 'Förare' }
+
+/** Datahälsans färg när något är att titta på; null = inget (grön eller laddar). */
+function datahalsaFarg(d: DatahalsaBesked | undefined): string | null {
+  if (!d) return null
+  if (d.niva === 'rod') return FARG.rod
+  if (d.niva === 'gul' || d.niva === 'okant') return FARG.orange
+  return null
+}
+
+/** Favorit på bred skärm: ett kort med fylld ikon och namnet bredvid. */
+function FavoritKort({ v, marken }: { v: Vy; marken: Marken }) {
+  const n = antalFor(v, marken)
+  return (
+    <Link href={v.href} className="start-kort" style={{
+      position: 'relative', display: 'flex', alignItems: 'center', gap: AVSTAND.m, height: 84, padding: `0 ${AVSTAND.l}px`,
+      background: FARG.kort, borderRadius: RADIE.sheet, textDecoration: 'none', color: FARG.text, minWidth: 0, boxSizing: 'border-box',
+      transition: overgang('transform'),
+    }}>
+      <Ikon namn={v.ikon} storlek={36} farg={FARG.text} fylld />
+      <span style={{ ...TYP.listtitel, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.namn}</span>
+      {n != null && v.marke && <Marke antal={n} text={MARKE_TEXT[v.marke]} iRad />}
+    </Link>
+  )
+}
+
+/** Favorit på telefon: en fylld ruta med namnet under. */
+function FavoritRuta({ v, marken }: { v: Vy; marken: Marken }) {
+  const n = antalFor(v, marken)
+  return (
+    <Link href={v.href} className="start-ruta" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.s, textDecoration: 'none', color: FARG.text, minWidth: 0 }}>
+      <span style={{ position: 'relative', width: 64, height: 64, borderRadius: RADIE.sheet, background: FARG.kort, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: overgang('transform') }}>
+        <Ikon namn={v.ikon} storlek={32} farg={FARG.text} fylld />
+        {n != null && v.marke && <Marke antal={n} text={MARKE_TEXT[v.marke]} />}
+      </span>
+      <span style={{ ...TYP.meta, textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.namn}</span>
+    </Link>
+  )
+}
+
+/** Mer-arket: vem som är inloggad, Datahälsa med status först, övriga rader, Logga ut sist (bekräftas). */
+function MerArk({ roll, konto, datahalsa, ovrigt, marken, onLoggaUt, onStang }: {
+  roll: Roll; konto?: Konto; datahalsa?: DatahalsaBesked; ovrigt: Vy[]; marken: Marken
+  onLoggaUt?: () => Promise<void> | void; onStang: () => void
+}) {
+  const [fraga, setFraga] = useState(false)
+  const [loggarUt, setLoggarUt] = useState(false)
+  const visaStatus = roll === 'admin' && datahalsa !== undefined
+  const statusFarg = visaStatus ? datahalsaFarg(datahalsa) : null
+  // Datahälsa först, resten i registrets ordning.
+  const rader = [...ovrigt.filter(v => v.id === 'datahalsa'), ...ovrigt.filter(v => v.id !== 'datahalsa')]
+  const loggaUt = async () => { setLoggarUt(true); try { await onLoggaUt?.() } finally { setLoggarUt(false) } }
+  return (
+    <Ark rubrik="Mer" onStang={onStang}>
+      {konto && (konto.namn || konto.epost) && (
+        <div aria-label="Inloggad" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.s}px 0 ${AVSTAND.l}px`, borderBottom: `1px solid ${FARG.linje}` }}>
+          <span style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.cirkel, background: FARG.upphojt, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Ikon namn="person" farg={FARG.text} fylld />
+          </span>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <span style={{ ...TYP.listtitel, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{konto.namn ?? konto.epost}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {[ROLL_TEXT[roll], konto.namn ? konto.epost : null].filter(Boolean).join(' · ')}
+            </span>
+          </span>
+        </div>
+      )}
+      {/* Ett ark ÄR ett kort: raderna ligger direkt på ytan, aldrig ett kort i kortet. */}
+      <div>
+        {rader.map((v, i) => {
+          const sista = i === rader.length - 1
+          if (v.id === 'datahalsa' && visaStatus) {
+            return (
+              <Link key={v.id} href={v.href} style={{ ...radStil, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
+                <Ikon namn={v.ikon} farg={FARG.text2} />
+                <span style={{ ...TYP.text, flex: 1, minWidth: 0 }}>{v.namn}</span>
+                {datahalsa!.niva !== 'laddar' && (
+                  <span data-datahalsa-status style={{ ...TYP.meta, color: statusFarg ?? FARG.text2, textAlign: 'right' }}>{datahalsa!.rubrik}</span>
+                )}
+                <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />
+              </Link>
+            )
+          }
+          return <VyRad key={v.id} v={v} marken={marken} sista={sista} />
+        })}
+      </div>
+      {onLoggaUt && (
+        <div style={{ marginTop: AVSTAND.l, borderTop: `1px solid ${FARG.linje}` }}>
+          {!fraga ? (
+            <button type="button" onClick={() => setFraga(true)}
+              style={{ ...radStil, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', justifyContent: 'center' }}>
+              <span style={{ ...TYP.text, color: FARG.rod }}>Logga ut</span>
+            </button>
+          ) : (
+            <div style={{ padding: `${AVSTAND.m}px 0`, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+              <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, textAlign: 'center' }}>Du loggas ut från den här enheten.</p>
+              <button type="button" onClick={loggaUt} disabled={loggarUt}
+                style={{ ...radStil, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', justifyContent: 'center', ...(loggarUt ? INAKTIV : {}) }}>
+                <span style={{ ...TYP.listtitel, color: FARG.rod }}>{loggarUt ? 'Loggar ut …' : 'Logga ut'}</span>
+              </button>
+              <button type="button" onClick={() => setFraga(false)} style={{ ...KNAPP.lank, ...TYP.text, alignSelf: 'center', minHeight: TRAFFYTA.min }}>Avbryt</button>
+            </div>
+          )}
+        </div>
+      )}
+    </Ark>
+  )
+}
+
 const ikonKnapp: CSSProperties = {
   width: TRAFFYTA.min, height: TRAFFYTA.min, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
   background: 'none', border: 'none', padding: 0, cursor: 'pointer',
@@ -175,10 +290,14 @@ function AndraFavoriter({ roll, valda, onSpara, onStang }: { roll: Roll; valda: 
   )
 }
 
-export default function Startsida({ roll, marken, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran }: {
+export default function Startsida({ roll, marken, datahalsa, favoritIds, onSparaFavoriter, huvud, bred: bredUtifran, konto: kontoInfo, onLoggaUt }: {
   roll: Roll
   marken: Marken
   datahalsa?: DatahalsaBesked
+  /** Vem som är inloggad (kontokortet i Mer). */
+  konto?: Konto
+  /** Loggar ut; utan den finns ingen Logga ut-rad. */
+  onLoggaUt?: () => Promise<void> | void
   /** Egna favoriter (id ur lib/vyer.ts). `null` = inga egna → rollens förinställda. `undefined` med onSparaFavoriter = läses fortfarande. */
   favoritIds?: string[] | null
   /** Sparar egna favoriter; utan den finns ingen Ändra-knapp. Svarar true när sparningen landat. */
@@ -217,9 +336,12 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
   if (typeof ls === 'number' && ls > 0) uppgifter.push({ id: 'lass', text: lassSaknarText(ls), href: '/lastbil', farg: FARG.orange })
   const gk = marken.godkann
   if (typeof gk === 'number' && gk > 0) uppgifter.push({ id: 'godkann', text: flyttarAttGodkannaText(gk), href: '/lastbil?flik=fakturering', farg: FARG.orange })
-  if (roll === 'admin' && datahalsa && (datahalsa.niva === 'rod' || datahalsa.niva === 'gul' || datahalsa.niva === 'okant')) {
-    uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: datahalsa.niva === 'rod' ? FARG.rod : datahalsa.niva === 'gul' ? FARG.orange : FARG.text3 })
+  // Datahälsan bor i Mer. Bara ett riktigt fel (röd: data tappas) står också här, så det aldrig missas.
+  if (roll === 'admin' && datahalsa?.niva === 'rod') {
+    uppgifter.push({ id: 'datahalsa', text: `Datahälsa: ${datahalsa.rubrik}`, href: '/datahalsa', farg: FARG.rod })
   }
+  // Pricken på personknappen: något att titta på i Mer (datahälsan gul, okänd eller röd). Bara admin.
+  const merPrick = roll === 'admin' ? datahalsaFarg(datahalsa) : null
 
   const vaxla = (id: string) => setOppna(prev => {
     const ny = new Set(prev)
@@ -247,9 +369,13 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
               <h1 style={{ ...TYP.titel, margin: `${AVSTAND.xs}px 0 0` }}>Kompersmåla Skog</h1>
             </div>
           )}
-          <button type="button" onClick={() => setKonto(true)} aria-label="Mer: inställningar, datahälsa, feedback, om appen"
-            style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.cirkel, border: 'none', background: FARG.upphojt, color: FARG.text, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+          <button type="button" onClick={() => setKonto(true)}
+            aria-label={merPrick && datahalsa ? `Mer: datahälsa – ${datahalsa.rubrik}` : 'Mer: konto, inställningar, datahälsa, feedback, om appen'}
+            style={{ position: 'relative', width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.cirkel, border: 'none', background: FARG.upphojt, color: FARG.text, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
             <Ikon namn="person" farg={FARG.text} />
+            {merPrick && (
+              <span data-mer-prick aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, width: 12, height: 12, borderRadius: RADIE.cirkel, background: merPrick, border: `2px solid ${FARG.bg}` }} />
+            )}
           </button>
         </header>
         {huvud?.under}
@@ -281,6 +407,25 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
           </section>
         ) : (
           <>
+            <section aria-label="Dina vyer" style={{ marginBottom: AVSTAND.xl }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: -AVSTAND.m }}>
+                <Etikett>Dina vyer</Etikett>
+                {onSparaFavoriter && !laddarFavoriter && (
+                  <button type="button" onClick={() => setAndra(true)} style={{ ...KNAPP.lank, ...TYP.text, padding: `0 ${AVSTAND.xs}px` }}>Ändra</button>
+                )}
+              </div>
+              <div style={bred
+                ? { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: AVSTAND.m, minHeight: 84 }
+                : { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: `${AVSTAND.l}px ${AVSTAND.s}px`, minHeight: 92 }}>
+                {!laddarFavoriter && favoriter.length === 0 && (
+                  <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, gridColumn: '1 / -1' }}>Inga vyer valda. Tryck Ändra för att lägga till.</p>
+                )}
+                {!laddarFavoriter && favoriter.map(v => bred
+                  ? <FavoritKort key={v.id} v={v} marken={marken} />
+                  : <FavoritRuta key={v.id} v={v} marken={marken} />)}
+              </div>
+            </section>
+
             {uppgifter.length > 0 && (
               <section aria-label="Behöver dig" style={{ marginBottom: AVSTAND.xl }}>
                 <Etikett>Behöver dig</Etikett>
@@ -295,32 +440,6 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
                 </div>
               </section>
             )}
-
-            <section aria-label="Dina vyer" style={{ marginBottom: AVSTAND.xl }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: -AVSTAND.m }}>
-                <Etikett>Dina vyer</Etikett>
-                {onSparaFavoriter && !laddarFavoriter && (
-                  <button type="button" onClick={() => setAndra(true)} style={{ ...KNAPP.lank, ...TYP.text, padding: `0 ${AVSTAND.xs}px` }}>Ändra</button>
-                )}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bred ? 8 : 4}, minmax(0, 1fr))`, gap: `${AVSTAND.l}px ${AVSTAND.s}px`, minHeight: 88 }}>
-                {!laddarFavoriter && favoriter.length === 0 && (
-                  <p style={{ ...TYP.meta, color: FARG.text2, margin: 0, gridColumn: '1 / -1' }}>Inga vyer valda. Tryck Ändra för att lägga till.</p>
-                )}
-                {!laddarFavoriter && favoriter.map(v => {
-                  const n = antalFor(v, marken)
-                  return (
-                    <Link key={v.id} href={v.href} className="start-ruta" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.s, textDecoration: 'none', color: FARG.text, minWidth: 0 }}>
-                      <span style={{ position: 'relative', width: 60, height: 60, borderRadius: RADIE.sheet, background: FARG.kort, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: overgang('transform') }}>
-                        <Ikon namn={v.ikon} storlek={28} farg={FARG.text} />
-                        {n != null && v.marke && <Marke antal={n} text={MARKE_TEXT[v.marke]} />}
-                      </span>
-                      <span style={{ ...TYP.meta, textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.namn}</span>
-                    </Link>
-                  )
-                })}
-              </div>
-            </section>
 
             <section aria-label="Alla vyer">
               <Etikett>Alla vyer</Etikett>
@@ -370,12 +489,10 @@ export default function Startsida({ roll, marken, datahalsa, favoritIds, onSpara
       )}
 
       {konto && (
-        <Ark rubrik="Mer" onStang={() => setKonto(false)}>
-          {ovrigt.map((v, i) => <VyRad key={v.id} v={v} marken={marken} sista={i === ovrigt.length - 1} />)}
-        </Ark>
+        <MerArk roll={roll} konto={kontoInfo} datahalsa={datahalsa} ovrigt={ovrigt} marken={marken} onLoggaUt={onLoggaUt} onStang={() => setKonto(false)} />
       )}
 
-      <style>{`.start-ruta:active > span:first-child { transform: scale(0.92); }`}</style>
+      <style>{`.start-ruta:active > span:first-child { transform: scale(0.92); } .start-kort:active { transform: scale(0.97); }`}</style>
     </div>
   )
 }
