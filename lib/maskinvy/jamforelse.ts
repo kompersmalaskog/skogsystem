@@ -14,10 +14,16 @@
 // G15 från lib/g15 (g15Sek: processing + terrain + other_work).
 
 import { g15Sek } from '@/lib/g15'
+import { DELFARG, FARG } from '@/lib/design/tokens'
 import { skotningsavstandM } from '@/lib/skotningsavstand'
 import {
   byggVolymPerDag, sumPerDag, type LassRad, type ManuellRad, type TidRad,
 } from '@/lib/maskinvy/skotarvolym'
+
+// ── Maskinfärger ──────────────────────────────────────────────
+// EN maskin betyder samma färg i båda Jämförelse-vyerna (stapeldiagram, tabellhuvud, förklaringar):
+// Wisent blå, Elephant King lila. Färgen bär aldrig ensam — namnet står alltid bredvid.
+export const JAMFORELSE_FARG: { wisent: string; ek: string } = { wisent: FARG.bla, ek: DELFARG[4] }
 
 // ── Maskinval ─────────────────────────────────────────────────
 

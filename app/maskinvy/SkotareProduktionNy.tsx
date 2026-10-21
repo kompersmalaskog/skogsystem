@@ -3,6 +3,7 @@ import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd
 
 import { useEffect, useRef, useState } from 'react'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
+import { snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
 import {
   C, FONT, getPeriodRange, fetchAll,
   fmtSv, VolymBadge,
@@ -22,7 +23,7 @@ import {
 // Datakälla: fakt_lass PER DATUM.
 //   COUNT(*)            = lass
 //   SUM(volym_m3sub)    = volym
-//   SUM(korstracka_m)   = totalDist → snittSträcka = totalDist / lass
+//   SUM(korstracka_m)   = totalDist (tur och retur) → skotningsavstånd (enkel väg) = halva snittet
 //
 // fakt_lass och fakt_tid hämtas ALDRIG i samma query.
 // ─────────────────────────────────────────────────────────────
@@ -490,7 +491,7 @@ function BucketDetalj({ bucket, onClose }: {
 
   const hasProd      = bucket.volym > 0
   const isMulti      = bucket.kind !== 'day'
-  const snittSträcka = bucket.lass > 0 ? bucket.totalDist / bucket.lass : null
+  const snittSträcka = snittSkotningsavstandM(bucket.totalDist, bucket.lass)
   const snittPerDag  = bucket.arbetsdagar > 0 ? bucket.volym / bucket.arbetsdagar : null
   const lassPerDag   = bucket.arbetsdagar > 0 ? bucket.lass  / bucket.arbetsdagar : null
 
@@ -548,9 +549,9 @@ function BucketDetalj({ bucket, onClose }: {
           <KpiRow label="Volym"  value={fmtSv(bucket.volym, 0)} unit="m³sub"  first />
           <KpiRow label="Lass"   value={String(bucket.lass)}    unit="st" />
           <KpiRow
-            label="Snittsträcka"
+            label={SKOTNINGSAVSTAND_ETIKETT}
             value={snittSträcka !== null ? fmtSv(snittSträcka, 0) : '—'}
-            unit="m/lass"
+            unit={`m · ${SKOTNINGSAVSTAND_UNDERTEXT}`}
           />
           {isMulti && hasProd && (
             <>

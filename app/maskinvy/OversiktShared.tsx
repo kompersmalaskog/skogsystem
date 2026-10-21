@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { slaIhopOperatorer, type OperatorKoppling } from '@/lib/maskinvy/operatorer'
 import { translateKategori } from '@/lib/avbrott-kategorier'
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from '@/lib/g15'
 
@@ -206,6 +207,24 @@ export function getPrevDateRange(
 export type Operator = {
   id: string; namn: string;
   g15h: number; volym: number; stammar: number; dagar: number; prod: number | null;
+  /** Alla operator_id som hör till personen — kortet är en rad per person (lib/maskinvy/operatorer). */
+  ids?: string[]
+  /** Distinkta produktionsdatum, så ihopslagna id:n inte dubbelräknar en dag. */
+  datum?: string[]
+}
+
+/**
+ * operator_id → medarbetare_id ur operator_medarbetare (läsbar för alla inloggade).
+ * Går det inte att läsa faller ihopslagningen tillbaka på normaliserat namn.
+ */
+export async function hamtaOperatorKoppling(): Promise<OperatorKoppling> {
+  try {
+    const { data, error } = await supabase.from('operator_medarbetare').select('operator_id, medarbetare_id')
+    if (error || !data) return new Map()
+    return new Map((data as Array<{ operator_id: string; medarbetare_id: string }>).map(r => [r.operator_id, r.medarbetare_id]))
+  } catch {
+    return new Map()
+  }
 }
 
 export type AvbrottKat = { kategori: string; sek: number; antal: number }
@@ -259,9 +278,10 @@ const MASKINVY_RPC: Record<string, string> = {
 
 export async function fetchAll(
   table: string, sel: string, ids: string[], start: string, end: string,
-  operatorId?: string,
+  operatorId?: string | string[],
 ): Promise<any[]> {
   const rpcName = MASKINVY_RPC[table]
+  const opIds = operatorId === undefined ? null : Array.isArray(operatorId) ? operatorId : [operatorId]
   const PAGE = 1000
   let rows: any[] = []
   let off = 0
@@ -276,7 +296,7 @@ export async function fetchAll(
       if (batch.length < PAGE) break
       off += PAGE
     }
-    if (operatorId) rows = rows.filter(r => r.operator_id === operatorId)
+    if (opIds) rows = rows.filter(r => opIds.includes(r.operator_id))
     return rows
   }
   // Övriga tabeller — direkt SELECT med pagination.
@@ -285,7 +305,7 @@ export async function fetchAll(
       .select(sel)
       .in('maskin_id', ids)
       .gte('datum', start).lte('datum', end)
-    if (operatorId) q = q.eq('operator_id', operatorId)
+    if (opIds) q = q.in('operator_id', opIds)
     const { data } = await q.range(off, off + PAGE - 1)
     const batch: any[] = data || []
     rows = rows.concat(batch)
@@ -300,17 +320,18 @@ export async function fetchAll(
  * Prod och tid hämtas separat och aggregeras separat — aldrig cross-joinade.
  */
 export async function fetchData(
-  maskinId: string, start: string, end: string, operatorId?: string,
+  maskinId: string, start: string, end: string, operatorId?: string | string[],
 ): Promise<Data> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
 
-  const [prodRows, tidRows, avbrRows, opRes] = await Promise.all([
+  const [prodRows, tidRows, avbrRows, opRes, koppling] = await Promise.all([
     fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar, operator_id', ids, start, end, operatorId),
     fetchAll('fakt_tid', 'operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, rast_sek, bransle_liter, tomgang_sek, engine_time_sek', ids, start, end, operatorId),
     fetchAll('fakt_avbrott', 'kategori_kod, langd_sek', ids, start, end, operatorId),
     operatorId
       ? Promise.resolve({ data: [] as Array<{ operator_id: string; operator_namn: string }> })
       : supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
+    operatorId ? Promise.resolve(new Map<string, string>()) : hamtaOperatorKoppling(),
   ])
 
   const opNames: Record<string, string> = {}
@@ -390,7 +411,7 @@ export async function fetchData(
   // Operatörer — filter: måste ha producerat något (volym > 0 || stammar > 0)
   // Det filtrerar bort "Service Service" som har g15h > 0 men 0 produktion.
   const allOpIds = new Set<string>([...Object.keys(prodByOp), ...Object.keys(tidByOp)])
-  const operatorer: Operator[] = Array.from(allOpIds).map(id => {
+  const operatorerPerId: Operator[] = Array.from(allOpIds).map(id => {
     const p = prodByOp[id] || { vol: 0, st: 0, dagar: new Set<string>() }
     const t = tidByOp[id]  || { proc: 0, terr: 0, ow: 0 }
     const opG15h = (t.proc + t.terr + t.ow) / 3600
@@ -402,10 +423,13 @@ export async function fetchData(
       stammar: p.st,
       dagar: p.dagar.size,
       prod: opG15h > 0 ? p.vol / opG15h : null,
+      ids: [id],
+      datum: Array.from(p.dagar),
     }
   })
   .filter(o => o.volym > 0 || o.stammar > 0)
-  .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'))
+  // En rad per PERSON: flera operator_id för samma förare slås ihop (summerat, vägd produktivitet).
+  const operatorer = slaIhopOperatorer(operatorerPerId, koppling)
 
   return {
     volym, stammar, g15h, produktivitet, medelstam,
@@ -440,7 +464,7 @@ export type PeriodKpi = {
 const MIN_DAYS_PER_PERIOD = 2
 
 export async function fetchSeries(
-  maskinId: string, period: Period, offset: number, operatorId?: string,
+  maskinId: string, period: Period, offset: number, operatorId?: string | string[],
 ): Promise<PeriodKpi[]> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
 

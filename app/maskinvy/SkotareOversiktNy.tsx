@@ -1,11 +1,11 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, AVSTAND } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   C, FONT, getPeriodRange, getPrevDateRange, fetchAll,
-  fmtSv, DeltaBadge, Sparkline, OperatorList, initials, VolymBadge,
+  fmtSv, DeltaBadge, Sparkline, OperatorList, initials, VolymBadge, hamtaOperatorKoppling,
   type Period, type Operator,
 } from './OversiktShared'
 import {
@@ -13,6 +13,11 @@ import {
   type ManuellRad, type LassRad, type TidRad,
 } from '@/lib/maskinvy/skotarvolym'
 import { FLYTT_KATEGORI } from '../../lib/avbrott-kategorier'
+import { slaIhopOperatorer } from '@/lib/maskinvy/operatorer'
+import { KLASSER, getKlassIdx } from '@/lib/maskinvy/jamforelse'
+import {
+  skotningsavstandM, snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT,
+} from '@/lib/skotningsavstand'
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from '@/lib/g15'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 
@@ -30,13 +35,10 @@ import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 // Maskinlistan är dynamisk — se useMaskinvyMaskiner (dim_maskin, bekräftad + data).
 
 // ── Avståndklasser ───────────────────────────────────────────
-// Baserade på korstracka_m per lass i fakt_lass.
-const DIST_KLASSER = [
-  { label: '<500 m',    min: 0,    max: 500,       farg: C.blue                     },
-  { label: '500–1000',  min: 500,  max: 1000,      farg: 'rgba(10,132,255,0.70)'    },
-  { label: '1000–2000', min: 1000, max: 2000,      farg: 'rgba(10,132,255,0.42)'    },
-  { label: '2000+',     min: 2000, max: Infinity,  farg: 'rgba(10,132,255,0.22)'    },
-] as const
+// Samma ackordsklasser som Jämförelse (lib/maskinvy/jamforelse), på SKOTNINGSAVSTÅND
+// (enkel väg) — inte på rå körsträcka (korstracka_m är tur och retur).
+const KLASS_FARG = [C.blue, 'rgba(10,132,255,0.72)', 'rgba(10,132,255,0.52)', 'rgba(10,132,255,0.36)', 'rgba(10,132,255,0.22)']
+const DIST_KLASSER = KLASSER.map((k, i) => ({ label: k.label, farg: KLASS_FARG[i] }))
 
 // ── Typer ─────────────────────────────────────────────────────
 type DistKlass = { label: string; farg: string; antal: number; andel: number }
@@ -119,9 +121,7 @@ async function fetchSkotareData(
     totalDist += dist
     if (r.datum) dagSet.add(r.datum)
     // Klassificera avstånd i rätt klass (söker bakifrån för att hitta min-tröskeln)
-    for (let i = DIST_KLASSER.length - 1; i >= 0; i--) {
-      if (dist >= DIST_KLASSER[i].min) { klassCounts[i]++; break }
-    }
+    klassCounts[getKlassIdx(skotningsavstandM(dist))]++
   }
 
   const lass = lassRows.length
@@ -157,7 +157,7 @@ async function fetchSkotareData(
     volym,
     lass,
     snittLass:    lass > 0  ? volym / lass        : null,
-    snittSträcka: lass > 0  ? totalDist / lass    : null,
+    snittSträcka: snittSkotningsavstandM(totalDist, lass),
     g15h,
     lassPerG15h:  g15h > 0  ? lass / g15h         : null,
     dagar: dagSet.size,
@@ -206,10 +206,11 @@ async function fetchSkotareOperatorer(
 ): Promise<Operator[]> {
   const ids = [maskinId]
 
-  const [lassRows, tidRows, opRes] = await Promise.all([
+  const [lassRows, tidRows, opRes, koppling] = await Promise.all([
     fetchAll('fakt_lass', 'datum, volym_m3sub, operator_id', ids, start, end),
     fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek, other_work_sek', ids, start, end),
     supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
+    hamtaOperatorKoppling(),
   ])
 
   // Namn-lookup
@@ -241,7 +242,7 @@ async function fetchSkotareOperatorer(
 
   // Slå ihop, beräkna m³/G15h, filtrera och sortera alfabetiskt
   const allIds = new Set([...Object.keys(lassByOp), ...Object.keys(tidByOp)])
-  return Array.from(allIds)
+  const perId = Array.from(allIds)
     .map(id => {
       const l = lassByOp[id] || { volym: 0, dagar: new Set<string>() }
       const t = tidByOp[id]  || { proc: 0, terr: 0, ow: 0 }
@@ -254,10 +255,13 @@ async function fetchSkotareOperatorer(
         stammar: 0,                               // skotare har inga stammar
         dagar:   l.dagar.size,
         prod:    g15h > 0 ? l.volym / g15h : null, // m³/G15h, viktat
+        ids:     [id],
+        datum:   Array.from(l.dagar),
       } satisfies Operator
     })
     .filter(o => o.volym > 0)                     // skippa perioder utan lass
-    .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'))
+  // En rad per PERSON (Max Karlsson hade två operator_id → två rader).
+  return slaIhopOperatorer(perId, koppling)
 }
 
 // ── Djupvydata per operatör ────────────────────────────────────
@@ -265,7 +269,7 @@ async function fetchSkotareOperatorer(
 // filtrerar sedan på operator_id i JS. Aldrig join mot varandra.
 
 async function fetchSkotareOpDeep(
-  maskinId: string, opId: string, start: string, end: string,
+  maskinId: string, opIds: string[], start: string, end: string,
 ): Promise<SkotareOpData> {
   const ids = [maskinId]
   const [lassRows, tidRows, avbrottRows] = await Promise.all([
@@ -274,9 +278,10 @@ async function fetchSkotareOpDeep(
     fetchAll('fakt_avbrott', 'operator_id, kategori_kod, langd_sek', ids, start, end),
   ])
 
-  const lassOp    = (lassRows    as any[]).filter(r => r.operator_id === opId)
-  const tidOp     = (tidRows     as any[]).filter(r => r.operator_id === opId)
-  const avbrottOp = (avbrottRows as any[]).filter(r => r.operator_id === opId)
+  // Personen kan ha flera operator_id — djupvyn visar alla tillsammans.
+  const lassOp    = (lassRows    as any[]).filter(r => opIds.includes(r.operator_id))
+  const tidOp     = (tidRows     as any[]).filter(r => opIds.includes(r.operator_id))
+  const avbrottOp = (avbrottRows as any[]).filter(r => opIds.includes(r.operator_id))
 
   let volym = 0, totalDist = 0
   const dagSet = new Set<string>()
@@ -286,9 +291,7 @@ async function fetchSkotareOpDeep(
     const dist = r.korstracka_m || 0
     totalDist += dist
     if (r.datum) dagSet.add(r.datum)
-    for (let i = DIST_KLASSER.length - 1; i >= 0; i--) {
-      if (dist >= DIST_KLASSER[i].min) { klassCounts[i]++; break }
-    }
+    klassCounts[getKlassIdx(skotningsavstandM(dist))]++
   }
   const lass = lassOp.length
 
@@ -310,7 +313,7 @@ async function fetchSkotareOpDeep(
   return {
     lass, volym,
     snittLass:    lass > 0 ? volym / lass     : null,
-    snittSträcka: lass > 0 ? totalDist / lass : null,
+    snittSträcka: snittSkotningsavstandM(totalDist, lass),
     g15h,
     prod: g15h > 0 ? volym / g15h : null,
     dagar: dagSet.size,
@@ -483,7 +486,7 @@ function SkotareKpiList({
   const rows: Row[] = [
     { label: 'Lass',         val: data?.lass          ?? null, prevVal: prev?.lass          ?? null, unit: 'st',      dec: 0 },
     { label: 'Snittlass',    val: data?.snittLass      ?? null, prevVal: prev?.snittLass      ?? null, unit: 'm³/lass', dec: 1 },
-    { label: 'Snittsträcka', val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0 },
+    { label: SKOTNINGSAVSTAND_ETIKETT, val: data?.snittSträcka   ?? null, prevVal: prev?.snittSträcka   ?? null, unit: 'm',       dec: 0, hint: SKOTNINGSAVSTAND_UNDERTEXT },
     { label: 'Lass/G15h',    val: data?.lassPerG15h    ?? null, prevVal: prev?.lassPerG15h    ?? null, unit: 'st/G15h', dec: 1 },
     { label: 'G15-tid',      val: data && data.g15h > 0 ? data.g15h : null, prevVal: prev && prev.g15h > 0 ? prev.g15h : null, unit: 'h', dec: 1 },
     { label: 'Korta stopp',  val: kortAndel(data),              prevVal: kortAndel(prev),              unit: '%',       dec: 1, lowerIsBetter: true, display: kortDisplay, muted: kortSaknas, hint: kortSaknas ? undefined : 'mikropauser · % av motortid' },
@@ -590,7 +593,7 @@ function SkotareTidsfordelning({
   )
 }
 
-// ── Körsträcka per lass ───────────────────────────────────────
+// ── Skotningsavstånd per lass (enkel väg) ─────────────────────
 // Staplad proportionsstapel + legend, liknande SkotareTidsfordelning.
 // Accepterar SkotareData och SkotareOpData (båda har lass + distKlasser).
 function DistKlasserKort({
@@ -605,7 +608,8 @@ function DistKlasserKort({
   return (
     <div style={{ background: C.card, borderRadius: 14, padding: 18, marginBottom: 14 }}>
       <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>
-        Körsträcka per lass
+        {SKOTNINGSAVSTAND_ETIKETT} per lass
+        <span style={{ fontWeight: 400, marginLeft: AVSTAND.xs }}>· {SKOTNINGSAVSTAND_UNDERTEXT}</span>
       </div>
 
       {/* Staplad proportionsstapel */}
@@ -684,11 +688,11 @@ function SkotareOperatorDeepView({
     let cancelled = false
     setLoading(true)
     const { start, end } = getPeriodRange(period, offset)
-    fetchSkotareOpDeep(maskin.id, operator.id, start, end)
+    fetchSkotareOpDeep(maskin.id, operator.ids ?? [operator.id], start, end)
       .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [maskin.id, period, offset, operator.id])
+  }, [maskin.id, period, offset, operator.id, operator.ids?.join(',')])
 
   const isEK = maskin.id === 'A110148'
 
@@ -697,7 +701,7 @@ function SkotareOperatorDeepView({
     { label: 'Lass',         val: data?.lass         ?? null, unit: 'st',      dec: 0 },
     { label: 'm³/G15h',      val: data?.prod         ?? null, unit: 'm³/G15h', dec: 1 },
     { label: 'Snittlass',    val: data?.snittLass    ?? null, unit: 'm³/lass', dec: 1 },
-    { label: 'Snittsträcka', val: data?.snittSträcka ?? null, unit: 'm',       dec: 0 },
+    { label: SKOTNINGSAVSTAND_ETIKETT, val: data?.snittSträcka ?? null, unit: 'm enkel väg', dec: 0 },
   ]
 
   return (

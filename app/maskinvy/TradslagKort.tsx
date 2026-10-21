@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
-import { tradslagLabel, tradslagFarg } from '@/lib/tradslag'
+import { tradslagLabel, tradslagFargNeutral } from '@/lib/tradslag'
 import { C, FONT, COMBO_IDS, fetchAll, fmtSv, getPeriodRange, type Maskin, type Period } from './OversiktShared'
 import { byggHinkar, type Hink } from './FlertradKort'
 
@@ -39,7 +39,7 @@ function fordelning(rader: ProdRad[], namnAv: Record<string, string>): { total: 
   const andelar = Array.from(agg.entries())
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([namn, volym], i) => ({ namn, volym, andel: total > 0 ? volym / total : 0, farg: tradslagFarg(namn, i) }))
+    .map(([namn, volym], i) => ({ namn, volym, andel: total > 0 ? volym / total : 0, farg: tradslagFargNeutral(namn, i) }))
   return { total, andelar }
 }
 

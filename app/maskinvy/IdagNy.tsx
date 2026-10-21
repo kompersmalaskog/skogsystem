@@ -3,6 +3,8 @@ import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { aktivNuStatus, type AktivNiva } from '@/lib/maskinvy/aktivNu'
+import { useMinutklocka } from './useMinutklocka'
 import { sthlmDagGranserUtc, optiLokalDag, optiLokalTimme } from '@/lib/optiTid'
 import {
   C, FONT, MASKINER, COMBO_IDS, fmtSv, fmtTid,
@@ -34,7 +36,7 @@ function fmtDatumSv(datum: string): string {
 
 function fmtTimeHHMM(iso: string): string {
   try {
-    return new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
+    return new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' })
   } catch {
     return '—'
   }
@@ -333,6 +335,7 @@ function FreshnessRow({
   freshness: FreshnessInfo | null
   loading: boolean
 }) {
+  const nu = useMinutklocka()          // hooks före tidiga returer
   const baseStyle: React.CSSProperties = {
     background: C.card, borderRadius: 14,
     padding: '14px 18px', marginBottom: 12,
@@ -357,33 +360,36 @@ function FreshnessRow({
     )
   }
 
-  const isFresh = freshness.daysDiff === 0
+  const isToday = freshness.daysDiff === 0
 
-  let dotColor = isFresh ? C.green : C.dim
+  // Idag: signalens ÅLDER avgör (lib/maskinvy/aktivNu) — grön bara när den kom nyss.
+  let niva: AktivNiva | null = null
   let labelText: string
-  if (isFresh) {
-    const t = freshness.senasteSkapadTid ? fmtTimeHHMM(freshness.senasteSkapadTid) : null
-    labelText = t ? `Aktiv nu · senaste signal ${t}` : 'Aktiv nu'
+  if (isToday) {
+    const st = aktivNuStatus(freshness.senasteSkapadTid, nu, fmtTimeHHMM)
+    niva = st.niva
+    labelText = st.text
   } else if (freshness.daysDiff === 1) {
     labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · igår`
   } else {
     labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · ${freshness.daysDiff} dagar sedan`
   }
+  const aktiv = niva === 'aktiv'
+  const dotColor = aktiv ? C.green : niva === 'sen' ? C.yellow : C.dim
 
   return (
     <div style={{
       ...baseStyle,
-      background: isFresh ? C.card : '#1c1c1e',
-      border: isFresh ? 'none' : `0.5px solid rgba(255,159,10,0.25)`,
+      border: isToday ? 'none' : `0.5px solid rgba(255,159,10,0.25)`,
     }}>
       <div style={{
         width: 8, height: 8, borderRadius: 4,
         background: dotColor, flexShrink: 0,
-        boxShadow: isFresh ? `0 0 0 3px rgba(48,209,88,0.18)` : 'none',
+        boxShadow: aktiv ? `0 0 0 3px rgba(48,209,88,0.18)` : 'none',
       }} />
       <span style={{
         fontSize: 13,
-        color: isFresh ? C.text : C.muted,
+        color: isToday && niva !== 'inget' && niva !== 'saknas' ? C.text : C.muted,
         fontVariantNumeric: 'tabular-nums',
       }}>
         {labelText}
