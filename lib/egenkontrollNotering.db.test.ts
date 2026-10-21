@@ -188,3 +188,65 @@ describe('hamtaNoteringar', () => {
     await expect(hamtaNoteringar('r1', { klient })).rejects.toThrow('koordinater');
   });
 });
+
+
+describe('skapaNotering på ett FOTO (9b)', () => {
+  const RUTA = { bredd: 0.2, hojd: 0.05 };
+  const foto = (over: Record<string, unknown> = {}) => ({ fotoId: 'f1', bildHojd: 4 / 3, dx: 0.1, dy: -0.05, ruta: RUTA, ...over });
+  const gilt9b = { ...gilt, koordinater: [[0.5, 0.5]] as [number, number][], foto: foto() };
+
+  it('skriver underlag foto, foto_id och förskjutningen KLÄMD mot bilden; koordinaterna som [u, v]', async () => {
+    const { klient, kedjor } = fejk(databas(PAGAENDE, rad({ underlag: 'foto', foto_id: 'f1' })));
+    await skapaNotering(gilt9b, { klient });
+    expect(op(skriver(kedjor)[0], 'insert')![1]).toEqual({
+      id: 'n1', egenkontroll_id: 'r1', underlag: 'foto', foto_id: 'f1', typ: 'punkt', pil: false, etikett: 'Stenmur', avsikt: 'blev',
+      koordinater: [[0.5, 0.5]], etikett_dx: 0.1, etikett_dy: -0.05,
+    });
+  });
+
+  it('en förskjutning utanför bilden sparas inte som den är: den klämms med samma funktion som renderar', async () => {
+    const { klient, kedjor } = fejk(databas(PAGAENDE, rad({ underlag: 'foto', foto_id: 'f1' })));
+    await skapaNotering({ ...gilt9b, koordinater: [[0.95, 0.95]], foto: foto({ dx: 1.8, dy: 1.8 }) }, { klient });
+    const ins = op(skriver(kedjor)[0], 'insert')![1] as any;
+    const klamd = klamEtikett({ u: 0.95, v: 0.95, bildHojd: 4 / 3, dx: 1.8, dy: 1.8, ruta: RUTA });
+    expect(ins.etikett_dx).toBe(klamd.dx);
+    expect(ins.etikett_dy).toBe(klamd.dy);
+    expect(0.95 + ins.etikett_dx + RUTA.bredd / 2).toBeLessThanOrEqual(1 + 1e-9);
+  });
+
+  it('en linje på ett foto: ankaret är mitt på linjen, och förskjutningen räknas från det', async () => {
+    const { klient, kedjor } = fejk(databas(PAGAENDE, rad({ underlag: 'foto', foto_id: 'f1', typ: 'linje' })));
+    await skapaNotering({ ...gilt9b, verktyg: 'linje', koordinater: [[0.1, 0.9], [0.9, 0.9]], foto: foto({ dx: 0, dy: 1.2 }) }, { klient });
+    const ins = op(skriver(kedjor)[0], 'insert')![1] as any;
+    // ankaret ligger vid v = 0,9 (nära kanten): en etikett 1,2 bildbredder nedåt klämms in i bilden
+    expect(0.9 * (4 / 3) + ins.etikett_dy + RUTA.hojd / 2).toBeLessThanOrEqual(4 / 3 + 1e-9);
+  });
+
+  it('koordinater utanför 0..1, eller en bild utan höjd, når aldrig databasen', async () => {
+    for (const fel of [
+      { ...gilt9b, koordinater: [[1.2, 0.5]] as [number, number][] },
+      { ...gilt9b, koordinater: [[0.5, -0.1]] as [number, number][] },
+      { ...gilt9b, foto: foto({ bildHojd: 0 }) },
+      { ...gilt9b, foto: foto({ fotoId: '' }) },
+    ]) {
+      const { klient, kedjor } = fejk(databas());
+      await expect(skapaNotering(fel, { klient })).rejects.toThrow();
+      expect(skriver(kedjor)).toHaveLength(0);
+    }
+  });
+
+  it('en kartnotering skriver ingen förskjutning och inget foto_id (som förut)', async () => {
+    const { klient, kedjor } = fejk(databas());
+    await skapaNotering(gilt, { klient });
+    const ins = op(skriver(kedjor)[0], 'insert')![1] as any;
+    expect(ins).not.toHaveProperty('foto_id');
+    expect(ins).not.toHaveProperty('etikett_dx');
+    expect(ins.underlag).toBe('karta');
+  });
+
+  it('en klar runda: ingenting skrivs', async () => {
+    const { klient, kedjor } = fejk(databas(KLAR));
+    await expect(skapaNotering(gilt9b, { klient })).rejects.toThrow('Rundan är avslutad');
+    expect(skriver(kedjor)).toHaveLength(0);
+  });
+});

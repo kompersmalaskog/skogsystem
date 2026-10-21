@@ -64,6 +64,7 @@ export const SKARPA = [
   "app/egenkontroll/BrickaRad.tsx",
   "app/egenkontroll/RundDock.tsx",
   "app/egenkontroll/RundArk.tsx",
+  "app/egenkontroll/FotoNoteringYta.tsx",       // fotoytan (PR 9b): tokens från början, noll literaler
   "components/design/KartHuvud.tsx",
   "components/design/KartKnapp.tsx",
   "app/ekonomi/delade/mall.tsx",                // ekonomins delade mall — tokenstädad
