@@ -16,7 +16,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => undefined
 vi.mock('@/app/helikopter/_components/PdfForhandsvisning', () => ({
   default: ({ filnamn, titel }: any) => createElement('div', { 'data-forhandsvisning': filnamn }, titel),
 }));
-vi.mock('./SkogenKarta', () => ({ default: () => createElement('canvas', { 'data-karta': '' }) }));
+vi.mock('./SkogenKarta', () => ({ default: (p: { lage: string }) => createElement('canvas', { 'data-karta': p.lage }) }));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null;
@@ -37,7 +37,7 @@ afterEach(async () => {
 const data: MarkagarRapport = {
   objekt: { objekt_id: '11124938', namn: 'Husjönäs 1:18 JE-G LRK -25', skogsagare: null, atgard: null, forsta_datum: '2026-02-16', operator: '–', maskin: '–' },
   oversikt: { yta_ha: null, yta_kalla: null, stammar: 1349, volym_m3sub: 678.4, virkesvarde_kr: 433163.2 },
-  karta: { stammar: [{ lat: 56.6, lng: 15.4, dbh_mm: 250, rot_typ: 'bmav', tradslag: 'GRAN' }] },
+  karta: { stammar: [{ lat: 56.6, lng: 15.4, dbh_mm: 250, rot_typ: 'bmav', tradslag: 'GRAN' }, { lat: 56.6, lng: 15.401, dbh_mm: 250, rot_typ: 'avkap', tradslag: 'GRAN' }, { lat: 56.601, lng: 15.4, dbh_mm: 300, rot_typ: null, tradslag: 'TALL' }] },
   tradslag: [
     { namn: 'Gran', volym_m3sub: 424.8, andel_pct: 62.6, stammar: 924, medeldiameter_cm: 25.2 },
     { namn: 'Tall', volym_m3sub: 239.4, andel_pct: 35.3, stammar: 359, medeldiameter_cm: 31.1 },
@@ -71,8 +71,34 @@ describe('Rapporten', () => {
     for (const ord of ['Bmav', 'avkap', 'Operatörens', 'Timmer: Gran']) expect(h.textContent).not.toContain(ord);
     await act(async () => { (h.querySelector('[data-mer]') as HTMLButtonElement).click(); });
     const ark = document.querySelector('[role=dialog]');
-    expect(ark?.textContent).toContain('Timmer: Gran');
-    expect(ark?.textContent).toContain('650 kr/m³');
+    // Också bakom Mer: vanliga ord, inga sortimentskoder (Martin 2026-10-21: "lättare att tyda").
+    expect(ark?.textContent).not.toContain('Timmer: Gran');
+    expect(ark?.textContent).toContain('Timmer · 300 m³');
+    expect(ark?.textContent).toContain('Hur grovt var grantimret?');
+    expect(ark?.textContent).toContain('16 cm och grövre');
+    expect(ark?.textContent).toContain('650 kr per m³');
+    // Ett ark man bara läser stängs med Klar, inte Avbryt.
+    expect(ark?.textContent).toContain('Klar');
+    expect(ark?.textContent).not.toContain('Avbryt');
+  });
+
+  it('kartan visar rötan först och trädslagen ett tryck bort', async () => {
+    const h = await montera(createElement(Rapport, { vy: byggRapportVy(data), stammar: data.karta.stammar }));
+    expect(h.querySelector('[data-karta]')?.getAttribute('data-karta')).toBe('rota');
+    expect(h.querySelector('[data-karta-text]')?.textContent).toContain('De röda är granarna som var rutna i roten');
+    expect(h.textContent).toContain('Gran med röta');
+    const flik = [...h.querySelectorAll('[role=tab]')].find(b => b.textContent === 'Trädslag') as HTMLButtonElement;
+    await act(async () => { flik.click(); });
+    expect(h.querySelector('[data-karta]')?.getAttribute('data-karta')).toBe('tradslag');
+    expect(h.textContent).toContain('Annat löv');
+    expect(h.textContent).not.toContain('Gran med röta');
+  });
+
+  it('utan röta finns ingen växel — bara trädslagen', async () => {
+    const utan = data.karta.stammar.map(s => ({ ...s, rot_typ: null }));
+    const h = await montera(createElement(Rapport, { vy: byggRapportVy(data), stammar: utan }));
+    expect(h.querySelector('[data-karta]')?.getAttribute('data-karta')).toBe('tradslag');
+    expect(h.querySelectorAll('[role=tab]')).toHaveLength(0);
   });
 
   it('Skicka till markägaren öppnar PDF:en i förhandsvisningen', async () => {

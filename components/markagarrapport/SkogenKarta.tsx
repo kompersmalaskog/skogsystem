@@ -4,16 +4,25 @@ import { useEffect, useRef, useState } from 'react';
 import { tradslagFarg, tradslagLabel } from '@/lib/tradslag';
 import { FARG } from '@/lib/design/tokens';
 import type { MarkagarRapport } from '@/lib/markagarrapport/types';
+import { prickRadie, ROT_FAKTOR, type KartLage } from '@/lib/markagarrapport/karta';
 
 interface Props {
   stammar: MarkagarRapport['karta']['stammar'];
+  /** Vad prickarna visar (lib/markagarrapport/karta.ts): rötan, eller trädslagen. */
+  lage: KartLage;
 }
 
 // Röta = appens röda (FARG.rod), som ring runt pricken: formen skiljer den från tallens orange fyllning.
 const RING_ROT  = FARG.rod;
 const SCALE_COLOR = 'rgba(255,255,255,0.55)';
 const SCALE_TEXT  = 'rgba(255,255,255,0.7)';
-const OVERLAY_DARK = 'rgba(0,0,0,0.20)';
+// Fotot tonas ned så att prickarna bär bilden (skogen är redan mörk; utan slöja försvann de gröna prickarna i den).
+const OVERLAY_DARK = 'rgba(0,0,0,0.40)';
+// Röta-läget: de friska som vita prickar (trakten syns), rötan röd ovanpå — lika stora, bara färgen skiljer.
+const FRISK = FARG.text;
+const FRISK_ALFA = 0.6;
+// Trädslag-läget: mörk kant runt varje prick så att färgen syns mot skogen.
+const KANT_MORK = FARG.bg;
 const PLACEHOLDER_BG = '#0a0a0a';
 
 const COLOR_DEFAULT = 'rgba(255,255,255,0.65)';
@@ -34,7 +43,7 @@ function lonLatToMercator(lon: number, lat: number): [number, number] {
   return [x, y];
 }
 
-export default function SkogenKarta({ stammar }: Props) {
+export default function SkogenKarta({ stammar, lage }: Props) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const [bgImg, setBgImg] = useState<HTMLImageElement | null>(null);
   const [bgError, setBgError] = useState(false);
@@ -201,34 +210,31 @@ export default function SkogenKarta({ stammar }: Props) {
       ];
     };
 
-    let dbhMin = Infinity, dbhMax = 0;
-    for (const s of stammar) {
-      const d = s.dbh_mm ?? 0;
-      if (d > 0 && d < dbhMin) dbhMin = d;
-      if (d > dbhMax) dbhMax = d;
-    }
-    if (!isFinite(dbhMin)) dbhMin = 0;
-    const dbhSpan = Math.max(dbhMax - dbhMin, 1);
-    const radius = (dbh: number | null) => 2.5 + ((dbh ?? dbhMin) - dbhMin) / dbhSpan * 5;
-
-    // Stam-prickar — färgade per trädslag
+    // Alla prickar lika stora, efter hur tätt träden står (storlek efter grovlek var ett budskap för mycket).
+    const r = prickRadie(stammar.length, W, H);
     for (const s of stammar) {
       const [x, y] = project(s.lat, s.lng);
-      ctx.fillStyle = fillForTradslag(s.tradslag);
       ctx.beginPath();
-      ctx.arc(x, y, radius(s.dbh_mm), 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Rot-ringar — röd ring runt alla rotade stammar (Bmav + Avkap)
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = RING_ROT;
-    for (const s of stammar) {
-      if (s.rot_typ == null) continue;
-      const [x, y] = project(s.lat, s.lng);
-      ctx.beginPath();
-      ctx.arc(x, y, radius(s.dbh_mm) + 1, 0, Math.PI * 2);
-      ctx.stroke();
+      if (lage === 'rota') {
+        if (s.rot_typ == null) {
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.globalAlpha = FRISK_ALFA;
+          ctx.fillStyle = FRISK;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        } else {
+          ctx.arc(x, y, r * ROT_FAKTOR, 0, Math.PI * 2);
+          ctx.fillStyle = RING_ROT;
+          ctx.fill();
+        }
+      } else {
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = fillForTradslag(s.tradslag);
+        ctx.fill();
+        ctx.lineWidth = 0.75;
+        ctx.strokeStyle = KANT_MORK;
+        ctx.stroke();
+      }
     }
 
     // Skalstreck — 50 m i botten vänster
@@ -257,11 +263,14 @@ export default function SkogenKarta({ stammar }: Props) {
 
     // Tysta unused-varning för bgError — kvar som diagnoshjälp om vi vill visa
     void bgError;
-  }, [stammar, bgImg, bgError, bredd]);
+  }, [stammar, bgImg, bgError, bredd, lage]);
 
   return (
     <canvas
       ref={ref}
+      data-karta={lage}
+      role="img"
+      aria-label={lage === 'rota' ? 'Karta: var granarna med röta stod' : 'Karta: var träden stod, färgade efter trädslag'}
       style={{
         width: '100%',
         height: 380,

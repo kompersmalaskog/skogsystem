@@ -9,6 +9,7 @@
 import type { RapportVy, Stapeldel, VyRad } from './vy';
 import type { MarkagarRapport } from './types';
 import { TRADSLAG_STIL, tradslagFarg, tradslagLabel } from '@/lib/tradslag';
+import { kartLagen, kartText, prickRadie, ROT_FAKTOR } from './karta';
 import { FARG } from '@/lib/design/tokens';
 
 type Stam = MarkagarRapport['karta']['stammar'][number];
@@ -246,13 +247,16 @@ export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: st
     nySida();
     text('Här växte träden', MARG, y, STEG.rubrik, fet, F.text);
     y += STEG.rubrik + 6;
-    text('Varje prick är ett träd som skördaren fällde. Större prick = grövre träd.', MARG, y, STEG.micro, normal, F.sek);
+    // Samma val som sidans karta: rötan när det finns röta, annars trädslagen (lib/markagarrapport/karta.ts).
+    const lage = kartLagen(stammar)[0];
+    text(kartText(lage, stammar), MARG, y, STEG.micro, normal, F.sek);
     y += STEG.micro + 14;
     const y0 = y;
     rundRekt(MARG, y0, B, kartH, 8, F.kort);
     // Flygfotot bakom prickarna (Lantmäteriets ortofoto, samma som sidans karta). Går det inte att hämta ritas
     // kartan ändå — prickarna är kartan — och en rad under säger att fotot saknas.
     let fotoSaknas = false;
+    let harFoto = false;
     if (flygfoto && ruta) {
       let jpg: Uint8Array | null = null;
       try { jpg = await flygfoto(ruta, Math.round(B * FOTO_PX_PER_PT), Math.round(kartH * FOTO_PX_PER_PT)); } catch { jpg = null; }
@@ -261,34 +265,36 @@ export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: st
           const bild = await doc.embedJpg(jpg);
           sida.drawImage(bild, { x: MARG, y: A4.h - y0 - kartH, width: B, height: kartH });
           // Lätt ljusare slöja så att prickarna syns mot mörk skog.
-          sida.drawRectangle({ x: MARG, y: A4.h - y0 - kartH, width: B, height: kartH, color: rgb(1, 1, 1), opacity: 0.15 });
+          // Mörkare slöja: prickarna ska bära bilden, inte skogen (vita friska träd och röd röta syns mot den).
+          sida.drawRectangle({ x: MARG, y: A4.h - y0 - kartH, width: B, height: kartH, color: rgb(0, 0, 0), opacity: 0.3 });
+          harFoto = true;
         } catch { fotoSaknas = true; }
       } else fotoSaknas = true;
     }
-    let dMin = Infinity, dMax = 0;
-    for (const p of punkter) { const d = p.s.dbh_mm ?? 0; if (d > 0 && d < dMin) dMin = d; if (d > dMax) dMax = d; }
-    if (!Number.isFinite(dMin)) dMin = 0;
-    const span = Math.max(dMax - dMin, 1);
-    const radie = (d: number | null) => 0.8 + (((d ?? dMin) - dMin) / span) * 1.8;
+    const r = prickRadie(punkter.length, B, kartH, 0.6, 2.2);
     const fargCache = new Map<string, { fyll: Farg; kant: Farg | undefined }>();
     const stil = (t: string | null) => {
       const nyckel = t ?? '';
       let f = fargCache.get(nyckel);
       if (!f) {
         const namn = tradslagLabel(t ?? '');
-        const kontur = TRADSLAG_STIL[namn as keyof typeof TRADSLAG_STIL]?.kontur ?? null;
-        f = { fyll: c(tradslagFarg(namn)), kant: kontur ? c(kontur) : undefined };
+        f = { fyll: c(tradslagFarg(namn)), kant: c('#1c1c1e') };
         fargCache.set(nyckel, f);
       }
       return f;
     };
+    // Friska träd: vita på flygfotot, grå på den ljusa reservytan (vitt syns inte mot ljusgrått).
+    const vit = c('#ffffff');
+    const frisk = harFoto ? vit : c('#8e8e93');
     for (const p of punkter) {
-      const f = stil(p.s.tradslag);
-      sida.drawCircle({ x: MARG + p.x, y: A4.h - (y0 + p.y), size: radie(p.s.dbh_mm), color: f.fyll, borderColor: f.kant, borderWidth: f.kant ? 0.3 : 0 });
-    }
-    for (const p of punkter) {
-      if (p.s.rot_typ == null) continue;
-      sida.drawCircle({ x: MARG + p.x, y: A4.h - (y0 + p.y), size: radie(p.s.dbh_mm) + 1, borderColor: F.rod, borderWidth: 0.6 });
+      const pos = { x: MARG + p.x, y: A4.h - (y0 + p.y) };
+      if (lage === 'rota') {
+        if (p.s.rot_typ == null) sida.drawCircle({ ...pos, size: r, color: frisk, opacity: 0.8 });
+        else sida.drawCircle({ ...pos, size: r * ROT_FAKTOR, color: F.rod });
+      } else {
+        const f = stil(p.s.tradslag);
+        sida.drawCircle({ ...pos, size: r, color: f.fyll, borderColor: f.kant, borderWidth: 0.25 });
+      }
     }
     y = y0 + kartH + 12;
     if (fotoSaknas) { text('Flygfotot gick inte att hämta – prickarna visar var träden stod.', MARG, y, STEG.micro, normal, F.sek); y += STEG.micro + 10; }
@@ -300,11 +306,15 @@ export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: st
       text(namn, x + 14, y, STEG.micro, normal, F.sek);
       x += 14 + bredd(namn, STEG.micro, normal) + 16;
     };
-    del('Gran', tradslagFarg('Gran'));
-    del('Tall', tradslagFarg('Tall'));
-    del('Björk', TRADSLAG_STIL['Björk'].fyll);
-    del('Annat löv', TRADSLAG_STIL['Övrigt löv'].fyll);
-    del('Röta i roten', null, true);
+    if (lage === 'rota') {
+      del('Gran med röta', FARG.rod);
+      del('Friskt träd', harFoto ? '#ffffff' : '#8e8e93');
+    } else {
+      del('Gran', tradslagFarg('Gran'));
+      del('Tall', tradslagFarg('Tall'));
+      del('Björk', TRADSLAG_STIL['Björk'].fyll);
+      del('Annat löv', TRADSLAG_STIL['Övrigt löv'].fyll);
+    }
   }
 
   // ── Sidfot på varje sida ──────────────────────────────────────────────────

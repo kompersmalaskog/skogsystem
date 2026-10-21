@@ -7,6 +7,7 @@
 import { SORTIMENTFARG } from '@/lib/design/tokens';
 import { tradslagStil } from '@/lib/tradslag';
 import type { MarkagarRapport } from './types';
+import { virkesGrupp } from './pris';
 
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
 
@@ -86,9 +87,10 @@ export type RapportVy = {
   virket: { stapel: Stapeldel[]; rader: VyRad[]; not: string } | null;
   trad: { stapel: Stapeldel[]; rader: VyRad[] } | null;
   granar: GranVy | null;
+  /** Bakom "Mer": samma fyra grupper som "Vad blev virket?", en rad per trädslag — inga sortimentskoder. */
   mer: {
-    sortiment: VyRad[];
-    dimensioner: { namn: string; rader: VyRad[] }[];
+    grupper: { nyckel: string; rubrik: string; not: string; rader: VyRad[] }[];
+    dimensioner: { rubrik: string; not: string; rader: VyRad[] }[];
   };
 };
 
@@ -224,25 +226,71 @@ function byggGranar(d: MarkagarRapport): GranVy | null {
   };
 }
 
+/** GRAN → Gran, ÖVR LÖV → Annat löv, tomt → Okänt trädslag. */
+function tradslagOrd(t: string | null | undefined): string {
+  const u = (t ?? '').trim().toUpperCase();
+  if (!u) return 'Okänt trädslag';
+  if (u === 'ÖVR LÖV' || u === 'ÖVRIGT LÖV') return 'Annat löv';
+  return u.charAt(0) + u.slice(1).toLowerCase();
+}
+
 function byggMer(d: MarkagarRapport): RapportVy['mer'] {
-  return {
-    sortiment: d.sortiment.map(s => ({
-      nyckel: s.sortiment_id,
-      namn: s.namn || s.sortiment_id,
-      under: s.tradslag ? s.tradslag.charAt(0) + s.tradslag.slice(1).toLowerCase() : undefined,
-      hoger: `${heltal(s.volym_m3sub)} m³`,
-      hogerUnder: `${heltal(s.varde_kr)} kr`,
-    })),
-    dimensioner: d.timmer_top2.map(t => ({
-      namn: t.sortiment_namn,
-      rader: t.dimensioner.map(dim => ({
-        nyckel: dim.dia_klass,
-        namn: `Från ${heltal(dim.dia_min_mm / 10)} cm`,
-        hoger: `${heltal(dim.volym_m3sub)} m³`,
-        hogerUnder: dim.pris_per_m3 != null ? `${heltal(dim.pris_per_m3)} kr/m³` : 'pris saknas',
-      })),
-    })),
-  };
+  // Varje sortiment i sin grupp (samma som "Vad blev virket?") och sitt trädslag; samma grupp + trädslag slås ihop.
+  const acc = new Map<string, Map<string, { volym: number; varde: number }>>();
+  for (const s of d.sortiment) {
+    const grupp = virkesGrupp(s.namn || s.sortiment_id);
+    const v = VIRKE.find(x => x.grupper.includes(grupp)) ?? VIRKE[VIRKE.length - 1];
+    const perTrad = acc.get(v.nyckel) ?? new Map();
+    const t = tradslagOrd(s.tradslag);
+    const a = perTrad.get(t) ?? { volym: 0, varde: 0 };
+    a.volym += s.volym_m3sub;
+    a.varde += s.varde_kr;
+    perTrad.set(t, a);
+    acc.set(v.nyckel, perTrad);
+  }
+  const grupper = VIRKE.flatMap(v => {
+    const perTrad = acc.get(v.nyckel);
+    if (!perTrad) return [];
+    const rader = [...perTrad.entries()]
+      .filter(([, a]) => Math.round(a.volym) > 0)
+      .sort((a, b) => b[1].volym - a[1].volym)
+      .map(([t, a]): VyRad => ({
+        nyckel: `${v.nyckel}-${t}`,
+        namn: t,
+        under: Math.round(a.varde) > 0 ? `${heltal(a.varde / a.volym)} kr per m³` : 'pris saknas',
+        hoger: `${heltal(a.volym)} m³`,
+        hogerUnder: Math.round(a.varde) > 0 ? `${heltal(a.varde)} kr` : undefined,
+      }));
+    if (rader.length === 0) return [];
+    const volym = [...perTrad.values()].reduce((x, a) => x + a.volym, 0);
+    return [{ nyckel: v.nyckel, rubrik: `${v.namn} · ${heltal(volym)} m³`, not: v.forklaring.charAt(0).toUpperCase() + v.forklaring.slice(1) + '.', rader }];
+  });
+
+  // Timrets tjocklek: rubriken är trädslaget ("Grantimmer"), raderna tjockleksintervall ur prislistans trösklar.
+  const tradFor = new Map(d.sortiment.map(s => [s.namn || s.sortiment_id, s.tradslag]));
+  const dimensioner = d.timmer_top2.map((t, _i, alla) => {
+    const trad = tradslagOrd(tradFor.get(t.sortiment_namn));
+    // "Hur grovt var grantimret?" — två timmersorter av samma trädslag får ett nummer ("… grantimret (2)?").
+    const bas = trad === 'Okänt trädslag' ? 'timret' : `${trad.toLowerCase()}timret`;
+    const sammaTrad = alla.filter(x => tradslagOrd(tradFor.get(x.sortiment_namn)) === trad);
+    const nr = sammaTrad.length > 1 ? ` (${sammaTrad.indexOf(t) + 1})` : '';
+    const dims = [...t.dimensioner].sort((a, b) => a.dia_min_mm - b.dia_min_mm);
+    return {
+      rubrik: `Hur grovt var ${bas}${nr}?`,
+      not: 'Mätt i toppen av stocken. Grövre timmer ger oftast mer betalt.',
+      rader: dims.filter(dim => Math.round(dim.volym_m3sub) > 0).map((dim): VyRad => {
+        const nasta = dims.find(x => x.dia_min_mm > dim.dia_min_mm);
+        const fran = heltal(dim.dia_min_mm / 10);
+        return {
+          nyckel: dim.dia_klass,
+          namn: nasta ? `${fran}–${heltal(nasta.dia_min_mm / 10)} cm tjockt` : `${fran} cm och grövre`,
+          hoger: `${heltal(dim.volym_m3sub)} m³`,
+          hogerUnder: dim.pris_per_m3 != null ? `${heltal(dim.pris_per_m3)} kr per m³` : 'pris saknas',
+        };
+      }),
+    };
+  }).filter(t => t.rader.length > 0);
+  return { grupper, dimensioner };
 }
 
 /** "Husjönäs 1:18 JE-G" → "husjonas-1-18-je-g" (filnamn utan å, ä, ö och skiljetecken). */

@@ -44,7 +44,7 @@ describe('markägarrapportens PDF', () => {
     expect(sidor).toBe(2);
     for (const s of ['Till Anna Svensson · 21 oktober 2026', 'Virket från skogen är värt', '433 163 kr',
       'Vad blev virket?', 'blir papper', 'Vilka träd växte här?', 'Björk', 'Var granarna friska?', '3 av 4 granar var friska',
-      '-26 382 kr', 'Föraren sparade', 'Här växte träden', 'Röta i roten', 'sida 2 av 2']) {
+      '-26 382 kr', 'Föraren sparade', 'Här växte träden', 'De röda är granarna', 'Gran med röta', 'sida 2 av 2']) {
       expect(text).toContain(s);
     }
   });
@@ -53,6 +53,14 @@ describe('markägarrapportens PDF', () => {
     const { text } = await texten(await skapaMarkagarPdf(byggRapportVy(data), data.karta.stammar, '2026-10-21'));
     expect(text).not.toContain('Timmer: Gran');
     expect(text).not.toContain('Bmav');
+  });
+
+  it('utan röta visar kartan trädslagen', async () => {
+    const utan = data.karta.stammar.map(s => ({ ...s, rot_typ: null }));
+    const { text } = await texten(await skapaMarkagarPdf(byggRapportVy(data), utan, '2026-10-21'));
+    expect(text).toContain('Färgen visar trädslaget');
+    expect(text).toContain('Annat löv');
+    expect(text).not.toContain('Gran med röta');
   });
 
   it('utan positioner blir det ingen kartsida', async () => {

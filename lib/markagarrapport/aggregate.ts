@@ -23,6 +23,7 @@ import {
   loadPrismatris,
   getPrisForStock,
   harledGrupp,
+  virkesGrupp,
   type DetaljStockRow,
 } from './pris';
 import { bmavForlust, avkapRaddat, klassificeraAvkap } from './vardering';
@@ -492,7 +493,7 @@ export async function aggregateMarkagarRapport(
   const fordelningTotalVarde = sortimentArr.reduce((s, r) => s + r.varde_kr, 0);
   const fordelningAcc = new Map<string, { volym: number; varde: number }>();
   for (const r of sortimentArr) {
-    const grupp = harledGrupp(r.namn, null) ?? 'Övrigt';
+    const grupp = virkesGrupp(r.namn);
     const a = fordelningAcc.get(grupp) ?? { volym: 0, varde: 0 };
     a.volym += r.volym_m3sub;
     a.varde += r.varde_kr;

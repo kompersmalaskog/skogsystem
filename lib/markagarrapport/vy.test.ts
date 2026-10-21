@@ -183,3 +183,52 @@ describe('format', () => {
     expect(avverkadText('nonsens')).toBeNull();
   });
 });
+
+describe('Mer — vanliga ord, inga sortimentskoder', () => {
+  // Namnen som Tåget faktiskt har (Martins skärmbild 2026-10-21).
+  const sort = (namn: string, tradslag: string, volym: number, varde: number) =>
+    ({ sortiment_id: namn, namn, tradslag, klass: null, stockar: 1, volym_m3sub: volym, varde_kr: varde });
+  const d = husjonas({
+    sortiment: [
+      sort('Timmer: Vislanda_195_1-2_V3', 'GRAN', 896, 811971),
+      sort('Kubb: Alvesta305_V3', 'GRAN', 525, 275985),
+      sort('Massa: BmavFall_V3', 'GRAN', 503, 117347),
+      sort('Timmer: Vislanda Tall_V3', 'TALL', 78, 62933),
+      sort('Massa: BjörkmavFall_V3', 'BJÖRK', 106, 26122),
+      sort('Energi: Engved3mGran_V3', 'GRAN', 24, 3532),
+      sort('Talltimmer: Vislanda kort V3', 'TALL', 4, 2556),
+      sort('Massa: HemvedFall_V3', 'ÖVR LÖV', 0.2, 21),
+      sort('Unclassified', 'GRAN', 3, 0),
+    ],
+    timmer_top2: [
+      { sortiment_namn: 'Timmer: Vislanda_195_1-2_V3', total_volym_m3sub: 896, dimensioner: [
+        { dia_klass: 'b', dia_min_mm: 200, dia_max_mm: 200, volym_m3sub: 500, pris_per_m3: 950 },
+        { dia_klass: 'a', dia_min_mm: 140, dia_max_mm: 140, volym_m3sub: 396, pris_per_m3: 850 },
+      ] },
+    ],
+  });
+  const mer = byggRapportVy(d).mer;
+
+  it('grupperna är desamma som Vad blev virket?, talltimret hamnar under Timmer', () => {
+    expect(mer.grupper.map(g => g.rubrik)).toEqual(['Timmer · 978 m³', 'Kubb · 525 m³', 'Massaved · 609 m³', 'Övrigt · 27 m³']);
+    const timmer = mer.grupper[0].rader;
+    expect(timmer.map(r => [r.namn, r.hoger])).toEqual([['Gran', '896 m³'], ['Tall', '82 m³']]);
+    expect(timmer[0].under).toBe('906 kr per m³');
+  });
+
+  it('inga koder, inga rader med 0 m³, och ett pris som saknas säger det', () => {
+    const allt = JSON.stringify(mer);
+    for (const kod of ['Vislanda', '_V3', 'Unclassified', 'Bmav', 'Hemved']) expect(allt).not.toContain(kod);
+    expect(mer.grupper.flatMap(g => g.rader).some(r => r.hoger === '0 m³')).toBe(false);
+    // Unclassified (gran, 3 m³) räknas med i Övrigt; annat löv 0,2 m³ syns inte.
+    expect(mer.grupper[3].rader.map(r => [r.namn, r.hoger])).toEqual([['Gran', '27 m³']]);
+    const utanPris = byggRapportVy(husjonas({ sortiment: [sort('Kubb: X', 'TALL', 10, 0)], timmer_top2: [] })).mer;
+    expect(utanPris.grupper[0].rader[0].under).toBe('pris saknas');
+  });
+
+  it('timrets grovlek: intervall från tunnast till grövst', () => {
+    expect(mer.dimensioner).toHaveLength(1);
+    expect(mer.dimensioner[0].rubrik).toBe('Hur grovt var grantimret?');
+    expect(mer.dimensioner[0].rader.map(r => r.namn)).toEqual(['14–20 cm tjockt', '20 cm och grövre']);
+  });
+});

@@ -16,6 +16,8 @@ import { tradslagFarg, TRADSLAG_STIL } from '@/lib/tradslag';
 import type { RapportVy, Stapeldel, VyRad } from '@/lib/markagarrapport/vy';
 import type { MarkagarRapport } from '@/lib/markagarrapport/types';
 import SkogenKarta from './SkogenKarta';
+import Flikkontroll from '@/components/design/Flikkontroll';
+import { KART_LAGE_NAMN, kartLagen, kartText, type KartLage } from '@/lib/markagarrapport/karta';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 
 /** Rapportbredd där korten går från en till två och från två till tre kolumner. */
@@ -88,10 +90,7 @@ export default function Rapport({ vy, stammar }: { vy: RapportVy; stammar: Marka
         <div className="mr-karta">
           <Sektion rubrik="Här växte träden" kort={false} inset>
             {stammar.length > 0 ? (
-              <>
-                <SkogenKarta stammar={stammar} />
-                <Teckenforklaring />
-              </>
+              <Karta stammar={stammar} />
             ) : (
               <div style={{ ...KORT }}><p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>Träden har inga positioner, så kartan kan inte ritas.</p></div>
             )}
@@ -100,7 +99,7 @@ export default function Rapport({ vy, stammar }: { vy: RapportVy; stammar: Marka
       </div>
 
       <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
-        <Rad titel="Mer för den som vill veta" under="pris per sortiment och timmerdimensioner" onTryck={() => setMerOppen(true)} sista
+        <Rad titel="Mer för den som vill veta" under="pris per trädslag och hur grovt timret var" onTryck={() => setMerOppen(true)} sista
           attr={{ 'data-mer': '' }} />
       </div>
 
@@ -178,47 +177,55 @@ function Granar({ friska, rotade }: { friska: number; rotade: number }) {
   );
 }
 
-function Teckenforklaring() {
+/** Kartan med EN fråga åt gången: var rötan satt (förvalt när det finns röta), eller trädslagen. */
+function Karta({ stammar }: { stammar: MarkagarRapport['karta']['stammar'] }) {
+  const lagen = kartLagen(stammar);
+  const [lage, setLage] = useState<KartLage>(lagen[0]);
+  return (
+    <>
+      {lagen.length > 1 && (
+        <div style={{ marginBottom: AVSTAND.s }}>
+          <Flikkontroll flikar={lagen.map(l => [l, KART_LAGE_NAMN[l]] as const)} aktiv={lage} onVal={setLage} />
+        </div>
+      )}
+      <p style={{ margin: `0 ${AVSTAND.xs}px ${AVSTAND.s}px`, ...TYP.meta, color: FARG.text2 }} data-karta-text="">{kartText(lage, stammar)}</p>
+      <SkogenKarta stammar={stammar} lage={lage} />
+      <Teckenforklaring lage={lage} />
+    </>
+  );
+}
+
+function Teckenforklaring({ lage }: { lage: KartLage }) {
   const del = (farg: string, text: string, kontur?: string | null): ReactNode => (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}><Prick farg={farg} kontur={kontur} />{text}</span>
+    <span key={text} style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}><Prick farg={farg} kontur={kontur} />{text}</span>
   );
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${AVSTAND.s}px ${AVSTAND.l}px`, margin: `${AVSTAND.s}px ${AVSTAND.xs}px 0`, ...TYP.meta, color: FARG.text2 }}>
-      {del(tradslagFarg('Gran'), 'Gran')}
-      {del(tradslagFarg('Tall'), 'Tall')}
-      {del(TRADSLAG_STIL['Björk'].fyll, 'Björk')}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}>
-        <span aria-hidden="true" style={{ width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, boxSizing: 'border-box', border: `2px solid ${FARG.rod}` }} />
-        Röta
-      </span>
-      <span>Större prick = grövre träd</span>
+      {lage === 'rota'
+        ? [del(FARG.rod, 'Gran med röta'), del(FARG.text, 'Friskt träd')]
+        : [del(tradslagFarg('Gran'), 'Gran'), del(tradslagFarg('Tall'), 'Tall'), del(TRADSLAG_STIL['Björk'].fyll, 'Björk', TRADSLAG_STIL['Björk'].kontur), del(TRADSLAG_STIL['Övrigt löv'].fyll, 'Annat löv')]}
     </div>
   );
 }
 
 function MerArk({ mer, onStang }: { mer: RapportVy['mer']; onStang: () => void }) {
   return (
-    <Ark rubrik="Mer om avverkningen" onStang={onStang}>
-      <div style={{ paddingTop: AVSTAND.s }}>
-        {mer.sortiment.length > 0 && (
-          <Sektion rubrik="Sortiment · volym och värde" kort={false}>
-            {mer.sortiment.map((r, i) => (
-              <Rad key={r.nyckel} titel={r.namn} under={r.under} hoger={r.hoger} hogerUnder={r.hogerUnder} sista={i === mer.sortiment.length - 1} />
-            ))}
-          </Sektion>
-        )}
-        {mer.dimensioner.map(t => (
-          <Sektion key={t.namn} rubrik={`Timmerdimensioner · ${t.namn}`} kort={false}>
-            {t.rader.map((r, i) => (
-              <Rad key={r.nyckel} titel={r.namn} hoger={r.hoger} hogerUnder={r.hogerUnder} sista={i === t.rader.length - 1} />
-            ))}
+    <Ark rubrik="Mer om virket" onStang={onStang} stang="Klar">
+      <div style={{ paddingTop: AVSTAND.s }} data-mer-ark="">
+        {mer.grupper.map(g => (
+          <Sektion key={g.nyckel} rubrik={g.rubrik} not={g.not} kort={false}>
+            <Rader rader={g.rader} utanPrick />
           </Sektion>
         ))}
-        {mer.sortiment.length === 0 && mer.dimensioner.length === 0 && (
-          <p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>Det finns inga sortiment med pris för den här avverkningen.</p>
+        {mer.dimensioner.map(t => (
+          <Sektion key={t.rubrik} rubrik={t.rubrik} not={t.not} kort={false}>
+            <Rader rader={t.rader} utanPrick />
+          </Sektion>
+        ))}
+        {mer.grupper.length === 0 && mer.dimensioner.length === 0 && (
+          <p style={{ margin: 0, ...TYP.text, color: FARG.text2 }}>Det finns inget mer att visa för den här avverkningen.</p>
         )}
       </div>
     </Ark>
   );
 }
-
