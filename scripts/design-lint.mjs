@@ -112,6 +112,7 @@ export const SKARPA = [
   "components/inventarier/Etiketter.tsx",
   // Serviceloggen (2026-10-21): tokens från början, noll literaler.
   "components/servicelogg/ServiceVy.tsx",
+  "components/servicelogg/HjulValjare.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

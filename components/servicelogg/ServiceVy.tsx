@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { hamtaAlla } from '@/lib/supabaseAlla';
+import { HjulValjare } from './HjulValjare';
 import { DIM_MASKIN_NAMN_KOLUMNER, maskinSlag, maskinVisningsnamn } from '@/lib/maskinNamn';
 import {
   AVSTAND, FARG, FONT, INAKTIV, KNAPP, KOLUMN, KOLUMN_CSS, RADIE, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VIKT,
@@ -259,7 +260,6 @@ function MaskinVy({ maskin, rader, idag, visaTillbaka, onNy }: {
 }
 
 const TYPER: readonly (readonly [Typ, string])[] = [['service', 'Service'], ['reparation', 'Reparation'], ['band', 'Band'], ['dack', 'Däck']];
-const HJUL_RADER = [['V1', 'H1'], ['V2', 'H2'], ['V3', 'H3'], ['V4', 'H4']] as const;
 
 const faltStil = {
   width: '100%', boxSizing: 'border-box' as const, background: FARG.fyllning, border: 'none', outline: 'none',
@@ -314,22 +314,8 @@ function NyAtgardArk({ maskin, idag, onStang, onSparad }: { maskin: Maskin; idag
 
         {typ === 'dack' && (
           <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
-            <legend style={etikett}>Vilket hjul · vänster och höger sett från förarstolen</legend>
-            <div style={{ ...TYP.micro, color: FARG.text2, textAlign: 'center', marginBottom: AVSTAND.xs }}>Fram</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: AVSTAND.s, maxWidth: 240, margin: '0 auto' }}>
-              {HJUL_RADER.flat().map(h => {
-                const valt = hjul === h;
-                return (
-                  <button key={h} type="button" aria-pressed={valt} onClick={() => setHjul(valt ? null : h)}
-                    style={{ minHeight: TRAFFYTA.min, borderRadius: RADIE.knapp, border: 'none', cursor: 'pointer', fontFamily: 'inherit', WebkitTapHighlightColor: 'transparent',
-                      ...TYP.listtitel, ...TNUM, fontWeight: valt ? VIKT.fet : VIKT.halvfet,
-                      background: valt ? FARG.text : FARG.fyllning, color: valt ? FARG.bg : FARG.text }}>
-                    {h}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ ...TYP.micro, color: FARG.text2, textAlign: 'center', marginTop: AVSTAND.xs }}>Bak</div>
+            <legend style={etikett}>Vilket hjul · sett från förarstolen</legend>
+            <HjulValjare valt={hjul} onVal={setHjul} skotare={maskin.slag === 'skotare'} />
           </fieldset>
         )}
 
