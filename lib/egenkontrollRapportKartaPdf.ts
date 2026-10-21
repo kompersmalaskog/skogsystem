@@ -10,6 +10,7 @@
 
 import type { PDFFont, PDFPage } from 'pdf-lib';
 import type { RapportModell, LatLng, KartNotering } from './egenkontrollRapport';
+import { arMedIRapport } from './egenkontrollNotering';
 import { placeraEtiketter, type EtikettPost, type Rektangel } from './egenkontrollEtikettPlats';
 import { bryt } from './omTraktenEtikettBild';
 import {
@@ -40,7 +41,7 @@ export function kartExtent(l: KartLager): LatLng[] {
   return [
     ...l.pinnar.map((p) => p.plats),
     ...(l.hyttspar ?? []).flatMap((h) => h.linjer.flat()),
-    ...(l.noteringar ?? []).flatMap((n) => n.punkter),
+    ...(l.noteringar ?? []).filter(arMedIRapport).flatMap((n) => n.punkter),
     ...(l.markeringar ?? []).flatMap((m) => (m.slag === 'symbol' ? [m.plats] : m.punkter)),
   ];
 }
@@ -171,7 +172,9 @@ export function ritaKarta(
   }
 
   // 4b. NOTERINGARNA: linjer, punkter och pilspetsar over planens vagar och hyttsparet, under kontrollpunkterna (som i appen).
-  for (const n of l.noteringar ?? []) ritaNoteringForm(lib, sida, SVG, n, ap);
+  // Skyddsnät: modellen släpper bara blev hit, men ritaren ritar aldrig en skulle-notering även om någon skickar in en (arMedIRapport).
+  const noteringar = (l.noteringar ?? []).filter(arMedIRapport);
+  for (const n of noteringar) ritaNoteringForm(lib, sida, SVG, n, ap);
 
   // 5. Kontrollpunkterna, numrerade, overst.
   for (const p of l.pinnar) {
@@ -183,10 +186,10 @@ export function ritaKarta(
 
   // 6. ETIKETTERNA overst: de ska kunna lasas. Placeras utan att doldja varandra, en kontrollpunkt eller en notering (planeraNoteringsEtiketter).
   const maler = (t: string) => fonter.normal.widthOfTextAtSize(san(t), ETIKETT_STORLEK);
-  const etiketter = planeraNoteringsEtiketter(l.noteringar ?? [], l.pinnar.map((p) => ap(p.plats)), ap, maler, { x0: ruta.x + 2, y0: ruta.top + 2, x1: ruta.x + ruta.b - 2, y1: ruta.top + ruta.h - 2 });
-  for (const n of l.noteringar ?? []) {
+  const etiketter = planeraNoteringsEtiketter(noteringar, l.pinnar.map((p) => ap(p.plats)), ap, maler, { x0: ruta.x + 2, y0: ruta.top + 2, x1: ruta.x + ruta.b - 2, y1: ruta.top + ruta.h - 2 });
+  for (const n of noteringar) {
     const e = etiketter.get(n.id);
-    if (e) ritaNoteringsEtikett(lib, sida, SVG, fonter, n, e.rader, e.ruta, san);
+    if (e) ritaNoteringsEtikett(lib, sida, SVG, fonter, e.rader, e.ruta, san);
   }
   sida.pushOperators(lib.popGraphicsState());
 
@@ -232,11 +235,10 @@ function ritaTvarstreck(lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number 
 // Noteringar i rapportens karta (PR 9a)
 // ---------------------------------------------------------------------------
 //
-// FARGEN BAR ALDRIG ENSAM, och rapporten ar tryckt: "sa har blev det" ar en HELDRAGEN morklinje med en FYLLD punkt och en morkfylld etikett
-// med vit text; "sa har skulle det gjorts" en STRECKAD amberlinje med en RING och en vit etikett med streckad kant och mork text.
+// Rapporten tar BARA "sa har blev det" (Martin 2026-10-21, arMedIRapport): en HELDRAGEN morklinje med en FYLLD punkt och en morkfylld etikett
+// med vit text. "Skulle" ritas aldrig har — en rattelse ovanpa hyttsparet ar ett daterat och positionsbestamt medgivande till kunden.
 
 const BLEV_FARG = '#111111';
-const SKULLE_FARG = '#b45309';
 const NOTERING_PUNKT_R = 3.4;
 const ETIKETT_STORLEK = 8.5;
 const ETIKETT_PAD = 3.2;
@@ -318,22 +320,19 @@ function etikettMatt(n: KartNotering, mat: (t: string) => number): { rader: stri
 function ritaNoteringForm(
   lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, n: KartNotering, ap: (p: LatLng) => { x: number; y: number },
 ): void {
-  const farg = hex(lib, n.avsikt === 'skulle' ? SKULLE_FARG : BLEV_FARG);
+  const farg = hex(lib, BLEV_FARG);
   const vit = lib.rgb(1, 1, 1);
-  const streck = n.avsikt === 'skulle' ? { borderDashArray: [4, 2.5] } : {};
   const pts = n.punkter.map(ap);
   if (n.typ === 'punkt' || pts.length < 2) {
     const a = pts[0];
     if (!a) return;
     const ring = `M ${(a.x + NOTERING_PUNKT_R).toFixed(2)} ${a.y.toFixed(2)} A ${NOTERING_PUNKT_R} ${NOTERING_PUNKT_R} 0 1 0 ${(a.x - NOTERING_PUNKT_R).toFixed(2)} ${a.y.toFixed(2)} A ${NOTERING_PUNKT_R} ${NOTERING_PUNKT_R} 0 1 0 ${(a.x + NOTERING_PUNKT_R).toFixed(2)} ${a.y.toFixed(2)} Z`;
-    // blev = fylld punkt, skulle = ring (formen skiljer, inte bara farg)
-    if (n.avsikt === 'skulle') sida.drawSvgPath(ring, { ...SVG, color: vit, opacity: 0.55, borderColor: farg, borderWidth: 1.8 });
-    else sida.drawSvgPath(ring, { ...SVG, color: farg, borderColor: vit, borderWidth: 1.2 });
+    sida.drawSvgPath(ring, { ...SVG, color: farg, borderColor: vit, borderWidth: 1.2 });
     return;
   }
   const bana = pts.map((q, i) => `${i === 0 ? 'M' : 'L'} ${q.x.toFixed(2)} ${q.y.toFixed(2)}`).join(' ');
   sida.drawSvgPath(bana, { ...SVG, borderColor: vit, borderWidth: 3.6, borderOpacity: 0.9 });                  // heldragen vit kant
-  sida.drawSvgPath(bana, { ...SVG, borderColor: farg, borderWidth: 1.6, ...streck });
+  sida.drawSvgPath(bana, { ...SVG, borderColor: farg, borderWidth: 1.6 });
   if (n.pil) {
     // Pilspets i slutet: tva korta streck bakat fran sista punkten, mot riktningen pa sista delstrackan.
     let a = pts[pts.length - 1], g = pts[pts.length - 2];
@@ -349,20 +348,18 @@ function ritaNoteringForm(
 }
 
 function ritaNoteringsEtikett(
-  lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, fonter: { normal: PDFFont }, n: KartNotering,
+  lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, fonter: { normal: PDFFont },
   rader: string[], r: Rektangel, san: (s: string) => string,
 ): void {
-  const skulle = n.avsikt === 'skulle';
-  const farg = hex(lib, skulle ? SKULLE_FARG : BLEV_FARG);
+  const farg = hex(lib, BLEV_FARG);
   const b = r.x1 - r.x0, h = r.y1 - r.y0, k = 2.2;
   const bana = `M ${r.x0 + k} ${r.y0} L ${r.x1 - k} ${r.y0} Q ${r.x1} ${r.y0} ${r.x1} ${r.y0 + k} L ${r.x1} ${r.y1 - k} Q ${r.x1} ${r.y1} ${r.x1 - k} ${r.y1} L ${r.x0 + k} ${r.y1} Q ${r.x0} ${r.y1} ${r.x0} ${r.y1 - k} L ${r.x0} ${r.y0 + k} Q ${r.x0} ${r.y0} ${r.x0 + k} ${r.y0} Z`;
-  if (skulle) sida.drawSvgPath(bana, { ...SVG, color: lib.rgb(1, 1, 1), borderColor: farg, borderWidth: 1.1, borderDashArray: [3, 2] });
-  else sida.drawSvgPath(bana, { ...SVG, color: farg, borderColor: lib.rgb(1, 1, 1), borderWidth: 0.8 });
+  sida.drawSvgPath(bana, { ...SVG, color: farg, borderColor: lib.rgb(1, 1, 1), borderWidth: 0.8 });
   void b; void h;
   rader.forEach((rad, i) => {
     sida.drawText(san(rad), {
       x: r.x0 + ETIKETT_PAD, y: SIDHOJD - (r.y0 + ETIKETT_PAD + ETIKETT_STORLEK * 0.92 + i * ETIKETT_STORLEK * 1.25),
-      size: ETIKETT_STORLEK, font: fonter.normal, color: skulle ? lib.rgb(0.07, 0.07, 0.07) : lib.rgb(1, 1, 1),
+      size: ETIKETT_STORLEK, font: fonter.normal, color: lib.rgb(1, 1, 1),
     });
   });
 }
@@ -395,10 +392,6 @@ export function ritaTeckenforklaring(
     else if (p.nyckel === 'notering:blev') {          // heldragen morklinje + fylld punkt
       sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, BLEV_FARG), borderWidth: 1.6 });
       sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 2.4, color: hex(lib, BLEV_FARG), borderColor: grå(255), borderWidth: 0.8 });
-    }
-    else if (p.nyckel === 'notering:skulle') {        // streckad amberlinje + ring
-      sida.drawSvgPath(`M ${cx} ${mid} L ${cx + PROV} ${mid}`, { ...SVG, borderColor: hex(lib, SKULLE_FARG), borderWidth: 1.6, borderDashArray: [4, 2.5] });
-      sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 2.4, color: grå(255), borderColor: hex(lib, SKULLE_FARG), borderWidth: 1.4 });
     }
     else if (p.nyckel === 'kontrollpunkt') sida.drawCircle({ x: cx + PROV / 2, y: SIDHOJD - mid, size: 3.6, color: grå(17) });
     else if (slag === 'linje' || slag === 'zon' || slag === 'symbol') {

@@ -5,7 +5,9 @@ import { byggRapport, type RapportIndata } from './egenkontrollRapport';
 import { skapaRapportPdf } from './egenkontrollRapportPdf';
 import type { Notering } from './egenkontrollNotering';
 
-// Noteringarna i A4-rapportens karta (PR 9a). Det som far ga sonder tyst:
+// Noteringarna i A4-rapportens karta (PR 9a). RAPPORTEN TAR BARA avsikt = 'blev' (Martin 2026-10-21): en "skulle"-linje ovanpa hyttsparet ar
+// ett daterat och positionsbestamt medgivande till kunden. Det som far ga sonder tyst:
+//  - en 'skulle'-notering hamnar i PDF:en (karta, etikett eller teckenforklaring),
 //  - en notering raknas i talen, far ett lopnummer eller hamnar bland fynden (den forklarar bara vad man tittar pa),
 //  - kartan sager ingenting nar noteringarna inte gick att lasa (tyst karta utan det besiktaren ritat),
 //  - etiketten fattas pa sida 1, eller teckenforklaringen saknar raden for en avsikt som finns.
@@ -44,10 +46,26 @@ async function sida1(m: ReturnType<typeof byggRapport>): Promise<string> {
 describe('modellen', () => {
   it('noteringarna finns i kartan, i den ordning de gavs, med punkter som lat/lng', () => {
     const m = byggRapport(indata({ noteringar: [
-      n('a'), n('b', { typ: 'linje', pil: true, avsikt: 'skulle', etikett: 'Basvägen skulle gått här', koordinater: [[14.002, 56.002], [14.012, 56.009]] }),
+      n('a'), n('b', { typ: 'linje', pil: true, etikett: 'Drivning', koordinater: [[14.002, 56.002], [14.012, 56.009]] }),
     ] }));
     expect(m.karta.noteringar.map((x) => x.id)).toEqual(['a', 'b']);
-    expect(m.karta.noteringar[1]).toMatchObject({ typ: 'linje', pil: true, avsikt: 'skulle', punkter: [{ lat: 56.002, lng: 14.002 }, { lat: 56.009, lng: 14.012 }] });
+    expect(m.karta.noteringar[1]).toMatchObject({ typ: 'linje', pil: true, avsikt: 'blev', punkter: [{ lat: 56.002, lng: 14.002 }, { lat: 56.009, lng: 14.012 }] });
+  });
+
+  it('"SKULLE" GAR ALDRIG TILL VIDA: en skulle-notering finns inte i rapportmodellen, inte i teckenforklaringen och inte som anmarkning', () => {
+    const m = byggRapport(indata({ noteringar: [
+      n('blev1'),
+      n('skulle1', { avsikt: 'skulle', etikett: 'Basvägen skulle gått här' }),
+      n('skulle2', { typ: 'linje', pil: true, avsikt: 'skulle', etikett: 'Så borde det ha körts', koordinater: [[14.002, 56.002], [14.012, 56.009]] }),
+    ] }));
+    expect(m.karta.noteringar.map((x) => x.id)).toEqual(['blev1']);
+    expect(JSON.stringify(m)).not.toContain('skulle');
+    expect(JSON.stringify(m)).not.toContain('Basvägen');
+    // bara skulle-noteringar: ingen notering alls, ingen teckenforklaringsrad, ingen anmarkning om att nagot hoppats over
+    const bara = byggRapport(indata({ noteringar: [n('s', { avsikt: 'skulle' })] }));
+    expect(bara.karta.noteringar).toEqual([]);
+    expect(bara.karta.teckenforklaring.map((t) => t.nyckel).some((k) => k.startsWith('notering'))).toBe(false);
+    expect(bara.karta.anmarkningar.join(' ')).not.toMatch(/notering/i);
   });
 
   it('en notering raknas ALDRIG: talen, fynden och lopnumren ar desamma med och utan', () => {
@@ -59,13 +77,10 @@ describe('modellen', () => {
     expect(med.karta.pinnar).toEqual(utan.karta.pinnar);
   });
 
-  it('teckenforklaringen har en rad per avsikt som FINNS, och ingen annars', () => {
+  it('teckenforklaringen har EN rad for noteringar nar det finns nagon, och ingen annars — aldrig en rad for "skulle"', () => {
     const bada = byggRapport(indata({ noteringar: [n('a'), n('b', { avsikt: 'skulle' })] })).karta.teckenforklaring.map((t) => t.nyckel);
     expect(bada).toContain('notering:blev');
-    expect(bada).toContain('notering:skulle');
-    const bara = byggRapport(indata({ noteringar: [n('a')] })).karta.teckenforklaring.map((t) => t.nyckel);
-    expect(bara).toContain('notering:blev');
-    expect(bara).not.toContain('notering:skulle');
+    expect(bada).not.toContain('notering:skulle');
     expect(byggRapport(indata()).karta.teckenforklaring.map((t) => t.nyckel).some((k) => k.startsWith('notering'))).toBe(false);
   });
 
@@ -84,14 +99,26 @@ describe('modellen', () => {
 });
 
 describe('sida 1', () => {
-  it('etiketterna star pa kartan, och teckenforklaringen beskriver bada avsikterna i ord', async () => {
+  it('etiketterna star pa kartan och teckenforklaringen sager "sa har blev det"', async () => {
     const m = byggRapport(indata({ noteringar: [
       n('a', { etikett: 'Överfart stenmur' }),
-      n('b', { typ: 'linje', avsikt: 'skulle', etikett: 'Basvägen skulle gått här', koordinater: [[14.002, 56.002], [14.012, 56.009]] }),
       n('c', { typ: 'linje', pil: true, etikett: 'Drivning', koordinater: [[14.004, 56.004], [14.008, 56.004]] }),
     ] }));
     const t = await sida1(m);
-    for (const s of ['Överfart stenmur', 'Basvägen skulle gått här', 'Drivning', 'så här blev det', 'så här skulle det gjorts']) expect(t).toContain(s);
+    for (const s of ['Överfart stenmur', 'Drivning', 'så här blev det']) expect(t).toContain(s);
+  });
+
+  it('"SKULLE" GAR ALDRIG TILL VIDA: ingen text, ingen etikett och ingen teckenforklaring i den riktiga PDF:en (alla sidor)', async () => {
+    const pdf = await skapaRapportPdf(byggRapport(indata({ noteringar: [
+      n('a', { etikett: 'Stenmur kvar' }),
+      n('b', { typ: 'linje', pil: true, avsikt: 'skulle', etikett: 'Basvägen skulle gått här', koordinater: [[14.002, 56.002], [14.012, 56.009]] }),
+      n('c', { avsikt: 'skulle', etikett: 'Hit borde stickvägen gå', koordinater: [[14.015, 56.008]] }),
+    ] })));
+    const doc = await getDocumentProxy(new Uint8Array(pdf));
+    const { text } = await extractText(doc, { mergePages: true });
+    const alla = text as string;
+    expect(alla).toContain('Stenmur kvar');                       // blev kommer med
+    for (const s of ['Basvägen skulle gått här', 'Hit borde stickvägen gå', 'skulle det gjorts', 'streckad']) expect(alla).not.toContain(s);
   });
 
   it('en lang text brytes och forsvinner inte, och en karta med trettio noteringar pa samma plats gar att rita', async () => {
@@ -186,12 +213,13 @@ describe('ritaKarta ritar noteringarna (fejkad sida som spelar in varje anrop)',
     expect(anrop.filter((x) => x.metod === 'drawText').map((x) => x.arg).filter((t) => t.startsWith('Text ')).sort()).toEqual(['Text a', 'Text l', 'Text p']);
   });
 
-  it('"skulle" ritas STRECKAD (linjen och etikettens kant) och "blev" heldragen — formen skiljer, inte bara farg', async () => {
-    const blev = await rita([kn('l', { typ: 'linje', avsikt: 'blev', punkter: [{ lat: 56.002, lng: 14.002 }, { lat: 56.009, lng: 14.012 }] })]);
+  it('"blev" ritas heldragen, och ritaren ritar ALDRIG en "skulle" ens om en skickas in (skyddsnat bakom modellens filter)', async () => {
+    const blev = await rita([kn('l', { typ: 'linje', punkter: [{ lat: 56.002, lng: 14.002 }, { lat: 56.009, lng: 14.012 }] })]);
     expect(dashade(blev)).toHaveLength(0);
-    const skulle = await rita([kn('l', { typ: 'linje', avsikt: 'skulle', punkter: [{ lat: 56.002, lng: 14.002 }, { lat: 56.009, lng: 14.012 }] })]);
-    expect(dashade(skulle)).toHaveLength(1);                                             // linjen
-    expect(skulle.filter((x) => x.metod === 'drawSvgPath' && Array.isArray(x.opt?.borderDashArray) && x.opt.borderDashArray.join() === '3,2')).toHaveLength(1);   // etikettens kant
+    const skulle = await rita([{ ...kn('s', { typ: 'linje', etikett: 'Text skulle', punkter: [{ lat: 56.002, lng: 14.002 }, { lat: 56.009, lng: 14.012 }] }), avsikt: 'skulle' } as unknown as import('./egenkontrollRapport').KartNotering]);
+    const utan = await rita([]);
+    expect(skulle).toHaveLength(utan.length);                                            // ingenting alls ritades
+    expect(skulle.filter((x) => x.metod === 'drawText' && String(x.arg).includes('Text skulle'))).toHaveLength(0);
   });
 
   it('inga noteringar: ingenting extra ritas', async () => {

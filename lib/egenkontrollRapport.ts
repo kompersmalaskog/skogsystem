@@ -22,7 +22,7 @@ import { AVVIKELSE_ETIKETT } from './egenkontroll';
 import { forutsattningsRader, period } from './egenkontrollForutsattningar';
 import { OBSERVATION_TON, OBSERVATION_TYP_ETIKETT, arObservationTon, arObservationTyp, type ObservationTon } from './egenkontrollObservation';
 import { sammanstallProvytor, type LatLng } from './provytor';
-import type { Notering } from './egenkontrollNotering';
+import { arMedIRapport, type Notering } from './egenkontrollNotering';
 import { markeringsStil, type KartMarkering } from './egenkontrollRapportKarta';
 import { HYTTSPAR_ETIKETT } from './egenkontrollRapportKarta';
 
@@ -44,7 +44,8 @@ export type KartNotering = {
   typ: 'punkt' | 'linje';
   pil: boolean;
   etikett: string;
-  avsikt: 'blev' | 'skulle';
+  /** Bara avsikten blev kommer hit: rapporten till Vida tar ingen skulle-notering (arMedIRapport). */
+  avsikt: 'blev';
   punkter: LatLng[];
 };
 
@@ -505,9 +506,9 @@ export function byggRapport(i: RapportIndata): RapportModell {
   if (i.markeringar === null) anmarkningar.push('Planeringens markeringar kunde inte läsas.');
   if (i.noteringar === null) anmarkningar.push('Noteringarna kunde inte läsas.');
   const noteringar: KartNotering[] = (i.noteringar ?? [])
-    .filter((n) => n.underlag === 'karta' && n.koordinater.length > 0)
-    .map((n) => ({
-      id: n.id, typ: n.typ, pil: n.pil, etikett: n.etikett, avsikt: n.avsikt,
+    .filter((n) => arMedIRapport(n) && n.underlag === 'karta' && n.koordinater.length > 0)
+    .map((n): KartNotering => ({
+      id: n.id, typ: n.typ, pil: n.pil, etikett: n.etikett, avsikt: 'blev',
       punkter: n.koordinater.map(([lng, lat]) => ({ lat, lng })),
     }));
   anmarkningar.push(...(i.extraAnmarkningar ?? []));
@@ -518,8 +519,7 @@ export function byggRapport(i: RapportIndata): RapportModell {
   for (const h of i.hyttspar ?? []) if (h.linjer.length > 0) lagg(`hyttspar:${h.roll}`, HYTTSPAR_ETIKETT[h.roll]);
   for (const m of markeringar) { const st = markeringsStil(m.slag, m.typ); if (st) lagg(st.nyckel, st.etikett); }
   if (markeringar.some((m) => m.slag === 'linje' && m.backvag)) lagg('backvag', 'Backväg (dubbla tvärstreck i änden)');
-  if (noteringar.some((n) => n.avsikt === 'blev')) lagg('notering:blev', 'Notering: så här blev det');
-  if (noteringar.some((n) => n.avsikt === 'skulle')) lagg('notering:skulle', 'Notering: så här skulle det gjorts (streckad)');
+  if (noteringar.length > 0) lagg('notering:blev', 'Notering: så här blev det');
   if (pinnar.length > 0) lagg('kontrollpunkt', 'Kontrollpunkt (numret står i rapporten)');
 
   const maskingrupp = [
