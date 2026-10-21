@@ -135,6 +135,8 @@ export function postDetalj(p: ServicePost): string | null {
   if (postRubrik(p).toLowerCase().includes(lag)) return null
   if (lag === (p.beskrivning ?? '').trim().toLowerCase()) return null
   if (/^[vh][1-4]$/i.test(d)) return `hjul ${d.toUpperCase()}`
+  const band = /^band (fram och bak|fram|bak)$/.exec(lag)
+  if (band) return postRubrik(p).toLowerCase().includes(band[1]) ? null : band[1]
   return d.charAt(0).toLowerCase() + d.slice(1)
 }
 
@@ -271,16 +273,27 @@ export function senastText(rader: Rad[], idag: string): string {
   return s ? `${s.rubrik} · ${datumText(s.datum, idag)}` : 'Inget registrerat'
 }
 
-/** Vad formuläret skriver till `maskin_service` för vald typ. Kategorin följer tabellens CHECK (ingen 'band'). */
-export function nyPost(typ: Typ, falt: { beskrivning: string; datum: string; timmar: number | null; hjul: string | null }) {
-  const beskrivning = falt.beskrivning.trim()
+/** Var bandet sitter: främre boggin, bakre eller båda. Sparas i `del` som "band bak" osv. */
+export type BandPlats = 'fram' | 'bak' | 'fram och bak'
+export type BandVal = { pa: boolean; plats: BandPlats | null }
+
+export function bandPlats(fram: boolean, bak: boolean): BandPlats | null {
+  return fram && bak ? 'fram och bak' : fram ? 'fram' : bak ? 'bak' : null
+}
+
+/** Vad formuläret skriver till `maskin_service` för vald typ. Kategorin följer tabellens CHECK (ingen 'band').
+ *  Band utan egen text får rubriken ur valet: "Band på bak", "Band av fram och bak". */
+export function nyPost(typ: Typ, falt: { beskrivning: string; datum: string; timmar: number | null; hjul: string | null; band?: BandVal }) {
+  const egen = falt.beskrivning.trim()
+  const bandText = falt.band?.plats ? `Band ${falt.band.pa ? 'på' : 'av'} ${falt.band.plats}` : ''
+  const beskrivning = typ === 'band' && !egen ? bandText : egen
   switch (typ) {
     case 'service':
       return { kategori: 'service', del: 'service', beskrivning, datum: falt.datum, timmar: falt.timmar, kalla: 'manuell' }
     case 'dack':
       return { kategori: 'punktering', del: falt.hjul ?? 'punktering', beskrivning, datum: falt.datum, timmar: null, kalla: 'manuell' }
     case 'band':
-      return { kategori: 'ovrigt', del: 'band', delsystem: 'Carrier', detalj: 'Tracks and chains', beskrivning, datum: falt.datum, timmar: null, kalla: 'manuell' }
+      return { kategori: 'ovrigt', del: falt.band?.plats ? `band ${falt.band.plats}` : 'band', delsystem: 'Carrier', detalj: 'Tracks and chains', beskrivning, datum: falt.datum, timmar: null, kalla: 'manuell' }
     case 'underhall':
     case 'reparation':
       return { kategori: 'ovrigt', del: 'ovrigt', beskrivning, datum: falt.datum, timmar: null, kalla: 'manuell' }
@@ -288,9 +301,11 @@ export function nyPost(typ: Typ, falt: { beskrivning: string; datum: string; tim
 }
 
 /** Vad som saknas innan Spara går att trycka. Tom lista = klart. */
-export function saknas(typ: Typ, falt: { beskrivning: string; datum: string; timmar: string; hjul: string | null }): string[] {
+export function saknas(typ: Typ, falt: { beskrivning: string; datum: string; timmar: string; hjul: string | null; band?: BandVal }): string[] {
   const ut: string[] = []
-  if (!falt.beskrivning.trim()) ut.push('vad som gjordes')
+  if (typ === 'band') {
+    if (!falt.band?.plats) ut.push('var bandet sitter')
+  } else if (!falt.beskrivning.trim()) ut.push('vad som gjordes')
   if (!falt.datum) ut.push('datum')
   if (typ === 'service') {
     const t = Number(falt.timmar.replace(',', '.'))

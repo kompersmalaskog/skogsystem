@@ -26,6 +26,7 @@ import Svarsrad from '@/components/design/Svarsrad';
 import {
   datumText, langdText, lokalDag, maskinSvar, manadRubrik, nyPost, perManad, radUnder, saknas, senastText, slaIhop,
   type Rad as LoggRad, type ServicePost, type Typ,
+  bandPlats,
 } from '@/lib/servicelogg';
 
 /** Från den här bredden står listan och maskinen bredvid varandra (iPad liggande 1180, dator). */
@@ -259,6 +260,7 @@ function MaskinVy({ maskin, rader, idag, visaTillbaka, onNy }: {
   );
 }
 
+const BAND_PA_AV: readonly (readonly ['pa' | 'av', string])[] = [['pa', 'Satt på'], ['av', 'Tog av']];
 const TYPER: readonly (readonly [Typ, string])[] = [['service', 'Service'], ['reparation', 'Reparation'], ['band', 'Band'], ['dack', 'Däck']];
 
 const faltStil = {
@@ -274,10 +276,14 @@ function NyAtgardArk({ maskin, idag, onStang, onSparad }: { maskin: Maskin; idag
   const [datum, setDatum] = useState(idag);
   const [timmar, setTimmar] = useState('');
   const [hjul, setHjul] = useState<string | null>(null);
+  const [bandPa, setBandPa] = useState(true);
+  const [bandFram, setBandFram] = useState(false);
+  const [bandBak, setBandBak] = useState(false);
+  const band = { pa: bandPa, plats: bandPlats(bandFram, bandBak) };
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
 
-  const kvar = saknas(typ, { beskrivning, datum, timmar, hjul });
+  const kvar = saknas(typ, { beskrivning, datum, timmar, hjul, band });
   const kanSpara = kvar.length === 0 && !sparar;
 
   const spara = async () => {
@@ -285,7 +291,7 @@ function NyAtgardArk({ maskin, idag, onStang, onSparad }: { maskin: Maskin; idag
     setSparar(true);
     setFel(null);
     const t = Number(timmar.replace(',', '.'));
-    const rad = { maskin_id: maskin.id, ...nyPost(typ, { beskrivning, datum, timmar: typ === 'service' ? t : null, hjul }) };
+    const rad = { maskin_id: maskin.id, ...nyPost(typ, { beskrivning, datum, timmar: typ === 'service' ? t : null, hjul, band }) };
     const { error } = await supabase.from('maskin_service').insert(rad);
     setSparar(false);
     if (error) {
@@ -315,12 +321,21 @@ function NyAtgardArk({ maskin, idag, onStang, onSparad }: { maskin: Maskin; idag
         {typ === 'dack' && (
           <fieldset style={{ border: 'none', margin: 0, padding: 0 }}>
             <legend style={etikett}>Vilket hjul · sett från förarstolen</legend>
-            <HjulValjare valt={hjul} onVal={setHjul} skotare={maskin.slag === 'skotare'} />
+            <HjulValjare lage="hjul" valt={hjul} onVal={setHjul} skotare={maskin.slag === 'skotare'} />
+          </fieldset>
+        )}
+
+        {typ === 'band' && (
+          <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+            <legend style={etikett}>Var sitter bandet · tryck fram, bak eller båda</legend>
+            <Flikkontroll flikar={BAND_PA_AV} aktiv={bandPa ? 'pa' : 'av'} onVal={v => setBandPa(v === 'pa')} />
+            <HjulValjare lage="band" fram={bandFram} bak={bandBak} skotare={maskin.slag === 'skotare'}
+              onBand={ande => (ande === 'fram' ? setBandFram(x => !x) : setBandBak(x => !x))} />
           </fieldset>
         )}
 
         <div>
-          <label htmlFor="sl-vad" style={etikett}>Vad gjordes</label>
+          <label htmlFor="sl-vad" style={etikett}>{typ === 'band' ? 'Kommentar · valfritt' : 'Vad gjordes'}</label>
           <textarea id="sl-vad" rows={3} value={beskrivning} onChange={e => setBeskrivning(e.target.value)}
             style={{ ...faltStil, resize: 'none', lineHeight: 1.3 }} />
         </div>

@@ -122,23 +122,32 @@ describe('Ny åtgärd', () => {
     expect(knapp('Spara').disabled).toBe(true);
     expect(text()).toContain('Fyll i vad som gjordes och timmätaren');
   });
-  it('band sparas som ovrigt med detaljen, och syns som Band efteråt', async () => {
+  it('band: tryck bak och spara — utan text blir rubriken "Band på bak"', async () => {
     await montera('m-wis');
     await act(async () => { knapp('Ny åtgärd').click(); });
     await act(async () => { knapp('Band').click(); });
-    const ta = container.ownerDocument.querySelector('#sl-vad') as HTMLTextAreaElement;
-    await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-      set.call(ta, 'Band på fram');
-      ta.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    expect(knapp('Spara').disabled).toBe(true);
+    expect(text()).toContain('Fyll i var bandet sitter');
+    await act(async () => { knapp('Bak').click(); });
+    expect(knapp('Bak').getAttribute('aria-pressed')).toBe('true');
+    expect(knapp('Fram').getAttribute('aria-pressed')).toBe('false');
     expect(knapp('Spara').disabled).toBe(false);
     await act(async () => { knapp('Spara').click(); });
     for (let i = 0; i < 5; i++) await act(async () => { await Promise.resolve(); });
     expect(h.insatt).toHaveLength(1);
-    expect(h.insatt[0]).toMatchObject({ maskin_id: 'm-wis', kategori: 'ovrigt', detalj: 'Tracks and chains', beskrivning: 'Band på fram', datum: '2026-10-21', kalla: 'manuell', timmar: null });
-    expect(text()).toContain('Band på fram');
+    expect(h.insatt[0]).toMatchObject({ maskin_id: 'm-wis', kategori: 'ovrigt', del: 'band bak', detalj: 'Tracks and chains', beskrivning: 'Band på bak', datum: '2026-10-21', kalla: 'manuell', timmar: null });
     expect(text()).not.toContain('Ny åtgärd · Ponsse Wisent');
+  });
+  it('band: Tog av, fram och bak', async () => {
+    await montera('m-wis');
+    await act(async () => { knapp('Ny åtgärd').click(); });
+    await act(async () => { knapp('Band').click(); });
+    await act(async () => { knapp('Tog av').click(); });
+    await act(async () => { knapp('Fram').click(); });
+    await act(async () => { knapp('Bak').click(); });
+    await act(async () => { knapp('Spara').click(); });
+    for (let i = 0; i < 5; i++) await act(async () => { await Promise.resolve(); });
+    expect(h.insatt[0]).toMatchObject({ del: 'band fram och bak', beskrivning: 'Band av fram och bak' });
   });
   it('däck kräver ett hjul och sparar det', async () => {
     await montera('m-wis');

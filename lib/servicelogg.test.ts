@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  datumText, langdText, lokalDag, maskinSvar, manadRubrik, nyPost, perManad, postDetalj, postRubrik, postTyp,
+  bandPlats, datumText, langdText, lokalDag, maskinSvar, manadRubrik, nyPost, perManad, postDetalj, postRubrik, postTyp,
   radUnder, saknas, senastText, slaIhop, type ServicePost,
 } from './servicelogg'
 
@@ -148,7 +148,25 @@ describe('formuläret', () => {
     expect(saknas('service', falt)).toEqual(['timmätaren'])
     expect(saknas('service', { ...falt, timmar: '4 512,5'.replace(' ', '') })).toEqual([])
     expect(saknas('reparation', falt)).toEqual([])
-    expect(saknas('band', falt)).toEqual([])
+  })
+  it('band kräver var det sitter, inte text', () => {
+    expect(saknas('band', { ...falt, beskrivning: '' })).toEqual(['var bandet sitter'])
+    expect(saknas('band', { ...falt, beskrivning: '', band: { pa: true, plats: 'bak' } })).toEqual([])
+  })
+  it('bandplatsen: fram, bak, båda', () => {
+    expect(bandPlats(true, false)).toBe('fram')
+    expect(bandPlats(false, true)).toBe('bak')
+    expect(bandPlats(true, true)).toBe('fram och bak')
+    expect(bandPlats(false, false)).toBeNull()
+  })
+  it('band utan text får rubriken ur valet; egen text går före', () => {
+    const p = nyPost('band', { beskrivning: ' ', datum: '2026-10-21', timmar: null, hjul: null, band: { pa: false, plats: 'fram' } })
+    expect(p).toMatchObject({ del: 'band fram', beskrivning: 'Band av fram' })
+    expect(postRubrik({ id: 'z', maskin_id: 'm', ...p } as ServicePost)).toBe('Band av fram')
+    expect(postDetalj({ id: 'z', maskin_id: 'm', ...p } as ServicePost)).toBeNull()
+    const egen = { id: 'q', maskin_id: 'm', ...nyPost('band', { beskrivning: 'Nya band', datum: '2026-10-21', timmar: null, hjul: null, band: { pa: true, plats: 'bak' } }) } as ServicePost
+    expect(postRubrik(egen)).toBe('Nya band')
+    expect(postDetalj(egen)).toBe('bak')
   })
   it('däck kräver hjulet', () => {
     expect(saknas('dack', falt)).toEqual(['vilket hjul'])

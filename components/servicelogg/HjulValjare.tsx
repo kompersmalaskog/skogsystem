@@ -1,6 +1,7 @@
 'use client';
 
 // Välj hjul på en bild av maskinen sedd ovanifrån, fronten uppåt (Martin 2026-10-21: "mer som en skotare").
+// Band: en knapp per boggi (fram, bak) som täcker båda hjulen, båda sidorna samtidigt.
 // Hjulen är knapparna — V1–V4 till vänster, H1–H4 till höger, sett från förarstolen, 1 längst fram.
 // Kroppen är bara en ritning: främre ram med hytt, midjeled, bakre ram. En skotare får lastutrymmet
 // (grind och bankar) bak, en skördare motorhuven. Ingen text i ritningen — orden står runt den.
@@ -28,7 +29,22 @@ const HJUL: readonly (readonly [string, number, 'v' | 'h'])[] = [
 const SIDA = { v: 'vänster', h: 'höger' } as const;
 const PLATS = ['fram, främst', 'fram, bakre', 'bak, främre', 'bak, bakerst'];
 
-export function HjulValjare({ valt, onVal, skotare }: { valt: string | null; onVal: (h: string | null) => void; skotare: boolean }) {
+type Props =
+  | { lage: 'hjul'; skotare: boolean; valt: string | null; onVal: (h: string | null) => void }
+  /** Band sitter runt en hel boggi: ett tryck på fram eller bak väljer båda sidorna på den änden. */
+  | { lage: 'band'; skotare: boolean; fram: boolean; bak: boolean; onBand: (ande: 'fram' | 'bak') => void };
+
+const dack = (pa: boolean) => ({
+  borderRadius: RADIE.knapp, border: 'none', cursor: 'pointer', fontFamily: 'inherit', WebkitTapHighlightColor: 'transparent',
+  ...TYP.listtitel, ...TNUM, fontWeight: pa ? VIKT.fet : VIKT.halvfet,
+  background: pa ? FARG.text : FARG.bg,
+  backgroundImage: pa ? 'none' : `repeating-linear-gradient(0deg, ${FARG.fyllning} 0 3px, transparent 3px 9px)`,
+  color: pa ? FARG.bg : FARG.text,
+  boxShadow: pa ? 'none' : `inset 0 0 0 1px ${FARG.fyllning}`,
+} as const);
+
+export function HjulValjare(props: Props) {
+  const { skotare } = props;
   const kx = HJUL_B + LUFT; // kroppens vänsterkant
   return (
     <div>
@@ -69,29 +85,33 @@ export function HjulValjare({ valt, onVal, skotare }: { valt: string | null; onV
           )}
         </svg>
 
-        {HJUL.map(([h, y, sida], i) => {
-          const pa = valt === h;
+        {props.lage === 'hjul' ? HJUL.map(([h, y, sida], i) => {
+          const pa = props.valt === h;
           return (
             <button key={h} type="button" aria-pressed={pa} title={`${SIDA[sida]} ${PLATS[Math.floor(i / 2)]}`}
-              onClick={() => onVal(pa ? null : h)}
-              style={{
-                position: 'absolute', top: y, left: sida === 'v' ? 0 : B - HJUL_B, width: HJUL_B, height: HJUL_H,
-                borderRadius: RADIE.knapp, border: 'none', cursor: 'pointer', fontFamily: 'inherit', WebkitTapHighlightColor: 'transparent',
-                ...TYP.listtitel, ...TNUM, fontWeight: pa ? VIKT.fet : VIKT.halvfet,
-                background: pa ? FARG.text : FARG.bg,
-                backgroundImage: pa ? 'none' : `repeating-linear-gradient(0deg, ${FARG.fyllning} 0 3px, transparent 3px 9px)`,
-                color: pa ? FARG.bg : FARG.text,
-                boxShadow: pa ? 'none' : `inset 0 0 0 1px ${FARG.fyllning}`,
-              }}>
+              onClick={() => props.onVal(pa ? null : h)}
+              style={{ position: 'absolute', top: y, left: sida === 'v' ? 0 : B - HJUL_B, width: HJUL_B, height: HJUL_H, ...dack(pa) }}>
               {h}
             </button>
           );
-        })}
+        }) : (['fram', 'bak'] as const).flatMap(ande => (['v', 'h'] as const).map(sida => {
+          const pa = props[ande];
+          // Bara vänstra sidan finns för skärmläsaren — båda sidorna gör samma sak.
+          const tyst = sida === 'h';
+          return (
+            <button key={ande + sida} type="button" aria-pressed={pa} aria-hidden={tyst || undefined} tabIndex={tyst ? -1 : undefined}
+              onClick={() => props.onBand(ande)}
+              style={{ position: 'absolute', top: ande === 'fram' ? Y1 : Y3, left: sida === 'v' ? 0 : B - HJUL_B,
+                width: HJUL_B, height: HJUL_H * 2 + LUFT, ...dack(pa), ...TYP.meta, fontWeight: VIKT.fet }}>
+              {ande === 'fram' ? 'Fram' : 'Bak'}
+            </button>
+          );
+        }))}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', width: B, margin: '0 auto', marginTop: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
+      {props.lage === 'hjul' && <div style={{ display: 'flex', justifyContent: 'space-between', width: B, margin: '0 auto', marginTop: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
         <span style={{ width: HJUL_B, display: 'flex', justifyContent: 'center', whiteSpace: 'nowrap' }}>Vänster</span>
         <span style={{ width: HJUL_B, display: 'flex', justifyContent: 'center', whiteSpace: 'nowrap' }}>Höger</span>
-      </div>
+      </div>}
     </div>
   );
 }
