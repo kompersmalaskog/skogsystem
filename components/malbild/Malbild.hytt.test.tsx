@@ -94,7 +94,7 @@ describe(`Målbilden på maskindatorn och telefonen — ${CHROMIUM ? 'mätt i Ch
     const lista = sidor().filter((x) => x.slag === 'blad');
     expect(lista.length).toBeGreaterThanOrEqual(MALBILD_ORDNING.length);
     const b = await CHROMIUM!.launch({});
-    const marginaler: { skarm: string; sida: string; marginal: number }[] = [];
+    const marginaler: { skarm: string; sida: string; marginal: number; kalla: { h: number; synlig: boolean } | null }[] = [];
     try {
       for (const s of SKARMAR) {
         const p = await b.newPage({ viewport: { width: s.w, height: s.h } });
@@ -110,17 +110,28 @@ describe(`Målbilden på maskindatorn och telefonen — ${CHROMIUM ? 'mätt i Ch
             const [huvud, rulle, fot] = Array.from(ark.children) as HTMLElement[];
             const tillgangligt = innerHeight * 0.92 - huvud.offsetHeight - fot.offsetHeight - 1;
             const felUnderRulltopp = Math.max(fel.bottom, text.bottom) - rulle.getBoundingClientRect().top;
-            return { fel: Math.round(felUnderRulltopp), nedre: Math.round(tillgangligt) };
+            // Källraden ligger i det som scrollar, under "Inte så här": höjden är tryckytan, "synlig" att den ryms utan scroll.
+            const ka = kant('[data-testid="malbild-kalla"]');
+            const kalla = ka ? { h: Math.round(ka.height), synlig: ka.bottom <= rulle.getBoundingClientRect().bottom + 1, underFel: ka.top >= Math.max(fel.bottom, text.bottom) - 1, brett: ka.right <= innerWidth } : null;
+            return { fel: Math.round(felUnderRulltopp), nedre: Math.round(tillgangligt), kalla };
           });
           expect(m, `${sida.namn} ${s.w}×${s.h}: bild, felbild eller fot hittades inte`).not.toBeNull();
-          marginaler.push({ skarm: `${s.w}×${s.h}`, sida: sida.namn, marginal: m!.nedre - m!.fel });
+          // Källraden: finns för alla sorter utom Vattenskyddsområde, minst 44 px hög, under felbilden och inom bladets bredd.
+          if (sida.namn.startsWith('blad vattenskydd')) expect(m!.kalla, `${sida.namn}: ska sakna källrad`).toBeNull();
+          else {
+            expect(m!.kalla, `${sida.namn} ${s.w}×${s.h}: källraden saknas`).not.toBeNull();
+            expect(m!.kalla!.h, `${sida.namn} ${s.w}×${s.h}: källraden är under 44 px`).toBeGreaterThanOrEqual(44);
+            expect(m!.kalla!.underFel, `${sida.namn}: källraden ligger inte under "Inte så här"`).toBe(true);
+            expect(m!.kalla!.brett, `${sida.namn}: källraden går utanför bredden`).toBe(true);
+          }
+          marginaler.push({ skarm: `${s.w}×${s.h}`, sida: sida.namn, marginal: m!.nedre - m!.fel, kalla: m!.kalla });
         }
         await p.close();
       }
     } finally { await b.close(); }
     const for_lite = marginaler.filter((x) => x.marginal < MIN_MARGINAL_PX);
     expect(for_lite, `marginal under ${MIN_MARGINAL_PX} px: ${JSON.stringify(for_lite)}`).toEqual([]);
-    if (process.env.MALBILD_HYTT_SKRIV) for (const x of marginaler) console.log('blad', x.skarm, x.sida.padEnd(28), x.marginal);
+    if (process.env.MALBILD_HYTT_SKRIV) for (const x of marginaler) console.log('blad', x.skarm, x.sida.padEnd(28), x.marginal, 'kalla', x.kalla ? `${x.kalla.h}px ${x.kalla.synlig ? 'synlig' : 'scroll'}` : '-');
   }, 120000);
 
   it.skipIf(!CHROMIUM)('KORTET: målbilden är bara en rad — inget utfällt i kortet, åtgärdsraden har tre lika knappar ≥ 44 px, ✕ ≥ 44 px (ingen Stäng-knapp), och ett typiskt kort (huvud, mening, en kort kommentar, målbildsrad, åtgärdsrad, två åtgärder) rymms utan scroll på telefon', async () => {

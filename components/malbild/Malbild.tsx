@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { GRUPPER } from '@/lib/larm/grupper';
-import { malbildInnehall, MALBILDER, MALBILD_ORDNING, type Maskinroll, type Regelsida } from '@/lib/malbilder';
+import { malbildInnehall, malbildKalla, MALBILDER, MALBILD_ORDNING, type Maskinroll, type Regelsida } from '@/lib/malbilder';
 import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP, designCss } from '@/lib/design/tokens';
 
 /** Bilden skalas till bredden och behåller sitt format. SVG-strängarna ligger i lib/malbilder.ts och är skrivna av oss, aldrig användardata. */
@@ -184,6 +184,24 @@ export function MalbildRegler({ sida, namn, onTillbaka }: { sida: Regelsida; nam
  * Bladet med bara målbilden: öppnas från den lilla bilden i larmkortet ("Visa"), från en rad i "Vad betyder kartan" och från "Alla målbilder".
  * `onSett` finns bara när bladet öppnats från ett larm som väntar på kvittering: samma "✓ Sett" som raden längst ner.
  */
+/**
+ * Källraden längst ner i bladet (under "Inte så här"): "Källa: <utgivare> · <ämne> ›". Bara en länk till utgivarens egen sida, öppnad i en ny flik — inga
+ * kopierade bilder. Liten och grå, men med minst 44 px tryckyta. Utan källa i lib/malbilder (MALBILD_KALLA) finns ingen rad.
+ */
+export function MalbildKalla({ nyckel }: { nyckel: string }) {
+  const k = malbildKalla(nyckel);
+  if (!k) return null;
+  return (
+    <a data-testid="malbild-kalla" href={k.url} target="_blank" rel="noopener noreferrer"
+      // window.open lämnar PWA:n levande på iOS (ett <a target="_blank"> kan navigera IN-PLACE och kall-starta appen vid retur); ankaret behålls som reserv.
+      onClick={(e) => { e.preventDefault(); window.open(k.url, '_blank', 'noopener,noreferrer'); }}
+      style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, minHeight: TRAFFYTA.min, flexShrink: 0, ...TYP.meta, color: FARG.text2, textDecoration: 'none', fontFamily: 'inherit' }}>
+      <span style={{ minWidth: 0 }}>Källa: {k.utgivare} · {k.amne}</span>
+      <span aria-hidden="true">›</span>
+    </a>
+  );
+}
+
 export function MalbildBlad({ nyckel, roll, ikon, namn, onStang, onSett }: { nyckel: string; roll?: Maskinroll | null; ikon?: React.ReactNode; namn?: string; onStang: () => void; onSett?: () => void }) {
   const m = MALBILDER[nyckel];
   if (!m) return null;
@@ -198,6 +216,7 @@ export function MalbildBlad({ nyckel, roll, ikon, namn, onStang, onSett }: { nyc
       </div>
       <div style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `${AVSTAND.xs}px ${AVSTAND.xl}px ${AVSTAND.xl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
         <MalbildSektion nyckel={nyckel} roll={roll} testid="malbild-blad-sektion" />
+        <MalbildKalla nyckel={nyckel} />
       </div>
       {/* Foten ligger utanför det som scrollar: Sett och Stäng syns alltid, också när bilden är hög (maskindatorn 1280×800). */}
       <div data-testid="malbild-blad-fot" style={{ flexShrink: 0, display: 'flex', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.xl}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>

@@ -2005,6 +2005,47 @@ export const MALBILD_ORDNING: readonly string[] = [
 ];
 
 // =================================================================================================================================
+// KÄLLA PER SORT — bara en LÄNK, aldrig en kopierad bild. Bladet visar "Källa: <utgivare> · <ämne> ›" längst ner och öppnar länken i en ny flik.
+// En sort som inte står här har ingen källrad. URL:erna är inga gissningar: en sida utan egen adress pekar på utgivarens samlingssida.
+// =================================================================================================================================
+
+/** En källa: utgivare och ämne står i raden, adressen öppnas i en ny flik. */
+export interface KallLank { utgivare: string; amne: string; url: string }
+
+/** Skogsstyrelsens samlingssida för målbilder — dit pekar de ämnen som saknar en egen adress. */
+const SKS_MALBILDER = 'https://www.skogsstyrelsen.se/aga-skog/hansyn-till-miljo-och-skyddade-arter/malbilder-for-god-miljohansyn/';
+const SKS_KULTURMILJOER: KallLank = {
+  utgivare: 'Skogsstyrelsen', amne: 'Kulturmiljöer',
+  url: 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/handledning-for-god-kulturmiljohansyn.pdf',
+};
+
+/** Källa per målbildsnyckel. Kolbotten är en variant av Kulturlämning och har samma källa. Vattenskyddsområde har ingen källrad än. */
+export const MALBILD_KALLA: Readonly<Record<string, KallLank>> = {
+  kulturlamning: SKS_KULTURMILJOER,
+  kulturmiljo: SKS_KULTURMILJOER,
+  fornlamning: SKS_KULTURMILJOER,
+  stenmur: {
+    utgivare: 'Skogsstyrelsen', amne: 'Odlingsspår',
+    url: 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/kulturmiljoer---malbild-odlingsspar.pdf',
+  },
+  evighetstrad: { utgivare: 'Skogsstyrelsen', amne: 'Träd och buskar med naturvärden samt död ved', url: SKS_MALBILDER },
+  hogstubbe: { utgivare: 'Skogsstyrelsen', amne: 'Träd och buskar med naturvärden samt död ved', url: SKS_MALBILDER },
+  naturhorna: { utgivare: 'Skogsstyrelsen', amne: 'Träd och buskar med naturvärden samt död ved', url: SKS_MALBILDER },
+  nyckelbiotop: { utgivare: 'Skogsstyrelsen', amne: 'Hänsynskrävande biotoper', url: SKS_MALBILDER },
+  hansyn: { utgivare: 'Skogsstyrelsen', amne: 'Hänsynskrävande biotoper', url: SKS_MALBILDER },
+  blott: { utgivare: 'Skogsstyrelsen', amne: 'Körning i skogsmark', url: SKS_MALBILDER },
+  kantzon: {
+    utgivare: 'Skogsstyrelsen', amne: 'Kantzoner mot sjöar och vattendrag',
+    url: 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kantzoner-mot-sjoar-och-vattendrag/hansyn-till-vatten-alla-faktablad-samlade-i-en-pdf.pdf',
+  },
+  avlagg: { utgivare: 'Trafikverket', amne: 'Upplag av virke vid väg', url: 'https://www.trafikverket.se/upplag-virke' },
+};
+/** Källan för en målbild, eller null (ingen källrad). */
+export function malbildKalla(nyckel: string | null | undefined): KallLank | null {
+  return (nyckel && MALBILD_KALLA[nyckel]) || null;
+}
+
+// =================================================================================================================================
 // VILKEN MÅLBILD HÖR TILL VAD (kortets typ → nyckeln ovan). En sort som inte står här har ingen målbild.
 // =================================================================================================================================
 

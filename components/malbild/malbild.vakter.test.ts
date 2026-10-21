@@ -44,4 +44,12 @@ describe('målbilderna är kopplade i sidan', () => {
   it('sidan har ingen egen SVG eller målbildstext', () => {
     expect(sida).not.toMatch(/Så ska det se ut|Inte så här|Alla regler/);
   });
+  it('källorna bor bara i lib/malbilder.ts: målbildskomponenterna har varken en adress eller ett ämnesnamn av egen', () => {
+    const komp = las('components/malbild/Malbild.tsx');
+    for (const forbjudet of ['skogsstyrelsen.se', 'trafikverket.se', 'Kulturmiljöer', 'Odlingsspår', 'Hänsynskrävande biotoper', 'Körning i skogsmark', 'Upplag av virke']) {
+      expect(komp, forbjudet).not.toContain(forbjudet);
+    }
+    expect(komp).toContain("malbildKalla(nyckel)");
+    expect(las('lib/malbilder.ts')).toContain('export const MALBILD_KALLA');
+  });
 });

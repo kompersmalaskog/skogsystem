@@ -8,7 +8,7 @@ import { MalbildBlad, MalbildLista, MalbildLiten, MalbildRad, MalbildSektion } f
 import { KartKort, type KartKortProps } from '@/components/planering/KartKort';
 import { LarmKortVy } from '@/components/planering/LarmKort';
 import VadBetyderKartan from '@/components/planering/VadBetyderKartan';
-import { MALBILDER, MALBILD_ORDNING, malbildInnehall } from '@/lib/malbilder';
+import { MALBILDER, MALBILD_KALLA, MALBILD_ORDNING, malbildInnehall } from '@/lib/malbilder';
 import { MALBILD_AVLAGG_SETT_NYCKEL, arForstaLassetPaTrakten } from '@/lib/malbildSett';
 import type { LarmKort } from '@/lib/larm/larm';
 
@@ -419,5 +419,67 @@ describe('AvlaggForstaLasset — FÖRE första lossningen, när maskinen kommer 
       expect((q('avlagg-forsta-lasset') as HTMLElement).style.bottom).toBe('88px');   // 80 (nedre radens höjd över skärmbotten) + 8 luft
       expect(q('larm-malbild-bild')!.innerHTML).toBe(norm(malbildInnehall('avlagg', 'skotare')!.bild));
     } finally { nedre.remove(); }
+  });
+});
+
+describe('MalbildBlad — källraden längst ner (en länk per sort, ny flik)', () => {
+  const blad = (nyckel: string, extra: Partial<React.ComponentProps<typeof MalbildBlad>> = {}) => montera(<MalbildBlad nyckel={nyckel} roll="skordare" onStang={() => {}} {...extra} />);
+  it('varje sort med källa visar "Källa: <utgivare> · <ämne> ›" som en länk till rätt adress i en ny flik', () => {
+    for (const nyckel of MALBILD_ORDNING) {
+      document.body.innerHTML = '';
+      blad(nyckel);
+      const k = MALBILD_KALLA[nyckel];
+      if (!k) { expect(q('malbild-kalla'), nyckel).toBeNull(); continue; }
+      const a = q('malbild-kalla') as HTMLAnchorElement;
+      expect(a.tagName, nyckel).toBe('A');
+      expect(a.textContent, nyckel).toBe(`Källa: ${k.utgivare} · ${k.amne}›`);
+      expect(a.getAttribute('href'), nyckel).toBe(k.url);
+      expect(a.getAttribute('target'), nyckel).toBe('_blank');
+      expect(a.getAttribute('rel'), nyckel).toBe('noopener noreferrer');
+    }
+  });
+  it('Vattenskyddsområde har ingen källrad', () => {
+    blad('vattenskydd');
+    expect(q('malbild-kalla')).toBeNull();
+    expect(q('malbild-blad')!.textContent).not.toContain('Källa');
+  });
+  it('raden ligger under "Inte så här" och ovanför foten — i det som scrollar, så den inte tar plats från bilden', () => {
+    blad('stenmur', { onSett: () => {} });
+    const kalla = q('malbild-kalla')!, fel = q('malbild-fel')!, fot = q('malbild-blad-fot')!;
+    expect(fel.compareDocumentPosition(kalla) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(kalla.compareDocumentPosition(fot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(fot.contains(kalla)).toBe(false);
+    expect((kalla.parentElement as HTMLElement).style.overflowY).toBe('auto');
+  });
+  it('liten och grå med minst 44 px tryckyta', () => {
+    blad('avlagg');
+    const a = q('malbild-kalla') as HTMLElement;
+    expect(a.style.minHeight).toBe('44px');
+    expect(a.style.color).toBe('rgb(142, 142, 147)');
+    expect(parseFloat(a.style.fontSize)).toBeLessThanOrEqual(13);
+  });
+  it('tryck öppnar länken i en ny flik utan att navigera i appen och utan att stänga bladet', () => {
+    const oppna = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const stang = vi.fn();
+    blad('avlagg', { onStang: stang });
+    const a = q('malbild-kalla')!;
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => { a.dispatchEvent(ev); });
+    expect(ev.defaultPrevented).toBe(true);                                  // appen navigerar inte själv (iOS-PWA:n ska leva kvar)
+    expect(oppna).toHaveBeenCalledWith(MALBILD_KALLA.avlagg.url, '_blank', 'noopener,noreferrer');
+    expect(stang).not.toHaveBeenCalled();
+    oppna.mockRestore();
+  });
+  it('Kolbotten (variant av Kulturlämning) har kvar källraden, och raden följer med in via kortets målbildsrad', () => {
+    montera(<MalbildRad nyckel="kulturlamning" roll="skordare" />);
+    klick(q('malbild-rad-kort'));
+    expect(q('malbild-kalla')!.getAttribute('href')).toBe(MALBILD_KALLA.kulturlamning.url);
+    klick(q('malbild-variant-kolbotten'));
+    expect(q('malbild-kalla')!.getAttribute('href')).toBe(MALBILD_KALLA.kulturlamning.url);
+  });
+  it('källraden hämtar inget utifrån: bara ett ankare, ingen <img>, ingen <iframe>', () => {
+    blad('kantzon');
+    expect(document.querySelectorAll('img, iframe, link[rel="preload"]').length).toBe(0);
+    expect(qa('malbild-kalla')).toHaveLength(1);
   });
 });

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  MALBILDER, MALBILD_LINJE, MALBILD_ORDNING, MALBILD_SYMBOL, MALBILD_YTA, malbildInnehall, malbildNyckel, type Malbild, type MalbildInnehall, type Regelsida,
+  MALBILDER, MALBILD_KALLA, MALBILD_LINJE, MALBILD_ORDNING, MALBILD_SYMBOL, MALBILD_YTA, malbildInnehall, malbildKalla, malbildNyckel, type Malbild, type MalbildInnehall, type Regelsida,
 } from './malbilder';
 import { SYMBOL_GRUPP } from './larm/grupper';
 
@@ -155,5 +155,45 @@ describe('lib/malbilder — enda källan', () => {
       const s = fs.readFileSync(f, 'utf8');
       expect(/viewBox="0 0 (720 560|376 170)"/.test(s), path.relative(rot, f)).toBe(false);
     }
+  });
+});
+
+describe('lib/malbilder — källa per sort (bara en länk, ingen kopierad bild)', () => {
+  const SKS = 'https://www.skogsstyrelsen.se/';
+  const SAMLING = 'https://www.skogsstyrelsen.se/aga-skog/hansyn-till-miljo-och-skyddade-arter/malbilder-for-god-miljohansyn/';
+  const KULTUR = 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/handledning-for-god-kulturmiljohansyn.pdf';
+  it('varje sort utom Vattenskyddsområde har en källa, och inget annat än en målbild har en', () => {
+    for (const k of Object.keys(MALBILD_KALLA)) expect(MALBILDER[k], `${k} saknas som målbild`).toBeDefined();
+    expect(Object.keys(MALBILDER).filter((k) => !MALBILD_KALLA[k])).toEqual(['vattenskydd']);
+    expect(malbildKalla('vattenskydd')).toBeNull();
+    expect(malbildKalla('finns-inte')).toBeNull();
+    expect(malbildKalla(null)).toBeNull();
+  });
+  it('källorna per sort är de som Martin bestämt (utgivare, ämne, adress)', () => {
+    const rad = (n: string) => { const k = malbildKalla(n)!; return [k.utgivare, k.amne, k.url]; };
+    for (const n of ['kulturlamning', 'kulturmiljo', 'fornlamning']) expect(rad(n), n).toEqual(['Skogsstyrelsen', 'Kulturmiljöer', KULTUR]);
+    expect(rad('stenmur')).toEqual(['Skogsstyrelsen', 'Odlingsspår', SKS + 'globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/kulturmiljoer---malbild-odlingsspar.pdf']);
+    expect(rad('avlagg')).toEqual(['Trafikverket', 'Upplag av virke vid väg', 'https://www.trafikverket.se/upplag-virke']);
+    // ämnen utan egen adress pekar på samlingssidan — aldrig en gissad adress
+    for (const n of ['evighetstrad', 'hogstubbe', 'naturhorna']) expect(rad(n), n).toEqual(['Skogsstyrelsen', 'Träd och buskar med naturvärden samt död ved', SAMLING]);
+    for (const n of ['nyckelbiotop', 'hansyn']) expect(rad(n), n).toEqual(['Skogsstyrelsen', 'Hänsynskrävande biotoper', SAMLING]);
+    expect(rad('blott')).toEqual(['Skogsstyrelsen', 'Körning i skogsmark', SAMLING]);
+    expect(rad('kantzon')[1]).toBe('Kantzoner mot sjöar och vattendrag');
+    expect(rad('kantzon')[2]).toMatch(/^https:\/\/www\.skogsstyrelsen\.se\/globalassets\/mer-om-skog\/malbilder-for-god-miljohansyn\/malbilder-kantzoner-mot-sjoar-och-vattendrag\/.+\.pdf$/);
+  });
+  it('bara https, bara utgivarens egna värdar, ingen tom text och inga mellanslag eller sökparametrar i adressen', () => {
+    for (const [n, k] of Object.entries(MALBILD_KALLA)) {
+      const u = new URL(k.url);
+      expect(u.protocol, n).toBe('https:');
+      expect(['www.skogsstyrelsen.se', 'www.trafikverket.se'], n).toContain(u.hostname);
+      expect(k.url, n).not.toMatch(/\s|\?|#/);
+      expect(k.utgivare.length, n).toBeGreaterThan(0);
+      expect(k.amne.length, n).toBeGreaterThan(0);
+      expect(u.hostname === 'www.trafikverket.se' ? 'Trafikverket' : 'Skogsstyrelsen', n).toBe(k.utgivare);
+    }
+  });
+  it('Kolbotten är en variant av Kulturlämning och har samma källa (ingen egen nyckel i tabellen)', () => {
+    expect(MALBILD_KALLA.kolbotten).toBeUndefined();
+    expect(malbildKalla('kulturlamning')!.url).toBe(KULTUR);
   });
 });
