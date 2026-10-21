@@ -54,7 +54,7 @@ afterEach(() => { act(() => { rot?.unmount(); }); ruta?.remove(); rot = null; ru
 function Test({ inp }: { inp: InstruktionerIn }) { ut = useInstruktioner(inp); return null; }
 const grund = (db: any, o: Partial<InstruktionerIn> = {}): InstruktionerIn => ({
   aktiv: true, pos: UTE, markers: [], svgToLatLon: (x, y) => ({ lat: y, lon: x }), typNamn: () => 'Symbol', vida: VIDA, kommentarer: [], objektId: 'o1',
-  forare: { id: 'f1' }, db, larmVisas: false, torr: false, ...o,
+  forare: { id: 'f1' }, db, blockerad: false, torr: false, ...o,
 });
 async function montera(inp: InstruktionerIn) {
   ruta = document.createElement('div'); document.body.appendChild(ruta); rot = createRoot(ruta);
@@ -128,12 +128,15 @@ describe('useInstruktioner', () => {
     expect(ut.paTrakten.antal).toBe(1);
   });
 
-  it('larm går först: medan ett larmkort visas finns inget instruktionskort, sedan kommer det', async () => {
+  it('ett annat kort har platsen (larm eller lossning): inget instruktionskort, sedan kommer det — och `vantar` säger att den väntar', async () => {
     const s = server();
-    await montera(grund(s.db, { pos: INNE, larmVisas: true }));
+    await montera(grund(s.db, { pos: INNE, blockerad: true }));
     expect(ut.kort).toBeNull();
-    await satt(grund(s.db, { pos: INNE, larmVisas: false }));
+    expect(ut.vantar).toBe(true);
+    await satt(grund(s.db, { pos: INNE, blockerad: false }));
     expect(ut.kort?.nyckel).toBe('hansyn:7');
+    await act(async () => { ut.settKort(); });
+    expect(ut.vantar).toBe(false);
   });
 
   it('"sett" gäller bara den föraren — en annan förare får kortet', async () => {

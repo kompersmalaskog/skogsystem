@@ -27,14 +27,16 @@ export interface InstruktionerIn {
   /** Den RIKTIGA inloggade föraren — "sett" skrivs under hens id. */
   forare: { id: string } | null;
   db: { from: (tabell: string) => any };
-  /** Ett larmkort visas: fara går före, instruktionen väntar. */
-  larmVisas: boolean;
+  /** Ett annat kort har platsen (larmkort eller lossningskortet): instruktionen väntar tills det är borta. Se lib/instruktioner/ordning. */
+  blockerad: boolean;
   /** Testläget (/maskin?som=): "sett" gäller bara i minnet, ingenting skrivs. */
   torr?: boolean;
 }
 
 export interface InstruktionerUt {
   kort: InstruktionKortData | null;
+  /** En instruktion väntar på "Sett" (visas nu eller väntar på larm/lossning). Avläggsraden (målbilden) väntar tills den är kvitterad. */
+  vantar: boolean;
   /** Alla instruktioner på trakten — raden "Instruktioner på trakten (N)" i genomgången. */
   paTrakten: InstruktionerPaTrakten;
   /** "✓ Sett" på kortet: kvitterar det kortet visar. */
@@ -101,7 +103,8 @@ export function useInstruktioner(inp: InstruktionerIn): InstruktionerUt {
   }, [aktiv, laddad, omraden, karta]);
 
   // Kön fylls bara när sett är läst (effekten ovan), så kortet behöver ingen egen spärr: det finns inget att visa innan dess.
-  const kort = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, inp.larmVisas) : null), [aktiv, state, omraden, karta, inp.larmVisas]);
+  const kort = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, inp.blockerad) : null), [aktiv, state, omraden, karta, inp.blockerad]);
+  const vantar = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, false) != null : false), [aktiv, state, omraden, karta]);
   const paTrakten = useMemo(() => (aktiv && laddad ? instruktionerPaTrakten(omraden, karta) : TOM_LISTA), [aktiv, laddad, omraden, karta]);
 
   const kvittera = useCallback((poster: readonly SparaSettPost[]) => {
@@ -138,5 +141,5 @@ export function useInstruktioner(inp: InstruktionerIn): InstruktionerUt {
     return ut;
   }, [aktiv, laddad, omraden, karta]);
 
-  return { kort, paTrakten, settKort, settOmraden, oseddaPer };
+  return { kort, vantar, paTrakten, settKort, settOmraden, oseddaPer };
 }

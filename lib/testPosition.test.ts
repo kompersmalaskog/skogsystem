@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
-import { kopplaFlyttaMig } from './testPosition';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { kopplaFlyttaMig, kopplaLangtryckFlytt } from './testPosition';
+import { LANGTRYCK_MS } from './langtryck';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -60,5 +61,92 @@ describe('sidans koppling (källvakt)', () => {
     const ovakta = rader.filter((l) => !l.includes('if (!testlageAktivRef.current) setCurrentPosition('));
     expect(ovakta.map((l) => l.trim())).toEqual(['setCurrentPosition({ lat, lon });']);   // flyttaTestPosition
     expect(sida).toContain('torr: !!testlage,');                                         // kvittenser skrivs inte i testläget
+  });
+});
+
+describe('håll fingret på kartan flyttar testpositionen (testläget)', () => {
+  const pe = (typ: string, x: number, y: number, id = 1, over: Record<string, unknown> = {}) => {
+    const e = new MouseEvent(typ, { clientX: x, clientY: y, bubbles: true, cancelable: true });
+    for (const [k, v] of Object.entries({ pointerId: id, pointerType: 'touch', ...over })) Object.defineProperty(e, k, { value: v });
+    div.dispatchEvent(e);
+    return e;
+  };
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-21T10:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+  const vib = () => {};
+  const koppla = () => kopplaLangtryckFlytt(karta(), (la, lo) => flyttar.push([la, lo]), { vibrera: vib });
+
+  it('efter LANGTRYCK_MS flyttas positionen till det som ligger under fingret', () => {
+    koppla();
+    pe('pointerdown', 110, 220);
+    vi.advanceTimersByTime(LANGTRYCK_MS - 10);
+    expect(flyttar).toEqual([]);
+    vi.advanceTimersByTime(20);
+    expect(flyttar).toEqual([[56.2, 14.1]]);   // (110-10, 220-20) → unproject
+  });
+  it('ett kort tryck flyttar inget', () => {
+    koppla();
+    pe('pointerdown', 110, 220); vi.advanceTimersByTime(200); pe('pointerup', 110, 220); vi.advanceTimersByTime(1000);
+    expect(flyttar).toEqual([]);
+  });
+  it('ett drag (panorering) före tiden flyttar inget', () => {
+    koppla();
+    pe('pointerdown', 110, 220); vi.advanceTimersByTime(200); pe('pointermove', 160, 220); vi.advanceTimersByTime(1000);
+    expect(flyttar).toEqual([]);
+  });
+  it('lite darr (under gränsen) avbryter inte', () => {
+    koppla();
+    pe('pointerdown', 110, 220); pe('pointermove', 114, 222); vi.advanceTimersByTime(LANGTRYCK_MS + 10);
+    expect(flyttar).toHaveLength(1);
+  });
+  it('nyp (två fingrar) flyttar inget', () => {
+    koppla();
+    pe('pointerdown', 110, 220, 1); pe('pointerdown', 150, 220, 2); vi.advanceTimersByTime(1000);
+    expect(flyttar).toEqual([]);
+  });
+  it('högerklick med mus flyttar inget', () => {
+    koppla();
+    pe('pointerdown', 110, 220, 1, { pointerType: 'mouse', button: 2 }); vi.advanceTimersByTime(1000);
+    expect(flyttar).toEqual([]);
+  });
+  it('klicket som följer på lyftet sväljs (inget annat på kartan reagerar), ett senare klick går igenom', () => {
+    koppla();
+    pe('pointerdown', 110, 220); vi.advanceTimersByTime(LANGTRYCK_MS + 10); pe('pointerup', 110, 220);
+    div.dispatchEvent(new MouseEvent('click', { clientX: 110, clientY: 220, bubbles: true, cancelable: true }));
+    expect(andraKlick).toBe(0);
+    vi.advanceTimersByTime(1000);
+    div.dispatchEvent(new MouseEvent('click', { clientX: 110, clientY: 220, bubbles: true, cancelable: true }));
+    expect(andraKlick).toBe(1);
+  });
+  it('man kan "gå" över kartan: ett nytt håll flyttar igen', () => {
+    koppla();
+    pe('pointerdown', 20, 30); vi.advanceTimersByTime(LANGTRYCK_MS + 10); pe('pointerup', 20, 30);
+    vi.advanceTimersByTime(1000);
+    pe('pointerdown', 60, 70); vi.advanceTimersByTime(LANGTRYCK_MS + 10); pe('pointerup', 60, 70);
+    expect(flyttar).toHaveLength(2);
+  });
+  it('avkopplad: inget händer', () => {
+    const stang = koppla(); stang();
+    pe('pointerdown', 110, 220); vi.advanceTimersByTime(2000);
+    expect(flyttar).toEqual([]);
+  });
+  it('en karta utan container ger ingen fångst och inget fel', () => {
+    expect(() => kopplaLangtryckFlytt({ getContainer: () => null, unproject: () => ({ lat: 0, lng: 0 }) }, () => {})()).not.toThrow();
+  });
+});
+
+describe('håll-fingret i testläget: sidans koppling (källvakt)', () => {
+  const sida = readFileSync(path.resolve(process.cwd(), 'app/planering/page.tsx'), 'utf8').replace(/\r\n/g, '\n');
+  it('kopplas bara i testläget', () => {
+    expect(sida).toMatch(/if \(!map \|\| !mapLibreReady \|\| !testlage\) return;\s*return kopplaLangtryckFlytt\(map, flyttaTestPosition\);/);
+  });
+  it('flyttar via flyttaTestPosition — den enda platsen som skriver position i testläget — aldrig GPS-hubben', () => {
+    expect(sida).not.toMatch(/kopplaLangtryckFlytt\(map, (setCurrentPosition|setGpsPosition)/);
+  });
+  it('plusdockans långtryck är avstängt i testläget (annars öppnas dockan också)', () => {
+    expect(sida).toMatch(/&& !objektListaOppen\s*&& !testlage;/);
+  });
+  it('testbannern säger hur man gör', () => {
+    expect(sida).toContain('data-testid="test-langtryck-tips"');
   });
 });

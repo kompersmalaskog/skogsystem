@@ -25,14 +25,16 @@ describe('maskinläget — och bara det', () => {
     expect(sida).toMatch(/instruktioner: instruktionerAktiv \? \{ data: inst\.paTrakten, onSett: inst\.settOmraden \} : null,/);
     expect(sida).toMatch(/\{korvyActive && inst\.kort && \(\s*<InstruktionKortVy/);
   });
-  it('larmet går först: hooken får veta när ett larmkort visas', () => {
-    expect(sida).toMatch(/larmVisas: !!larm\.kort,/);
+  it('larm och lossningskortet går före: hooken får veta när något av dem visas, och avläggsraden väntar på instruktionen', () => {
+    expect(sida).toMatch(/blockerad: instruktionBlockerad\(\{ larmVisas: !!larm\.kort, lossningVisas \}\),/);
+    expect(sida).toMatch(/const lossningVisas = skotarLassAktiv && \(!!skotarLass\.kort \|\| !!skotarLass\.andra \|\| !!skotarLass\.nyttAvlagg \|\| skotarKvarOppet \|\| skotarFardigOppet \|\| skotarVantarOppet\);/);
+    expect(sida).toMatch(/ledigt=\{avlaggsradLedig\(\{ ledigtUtanInstruktion: [^}]+, instruktionVantar: inst\.vantar \}\)\}/);
   });
   it('testläget skriver inget', () => {
     const start = sida.indexOf('useInstruktioner({');
     const anrop = sida.slice(start, sida.indexOf('\n  });', start));
     expect(anrop).toContain('torr: !!testlage,');
-    expect(anrop).toContain('larmVisas: !!larm.kort,');
+    expect(anrop).toContain('blockerad: instruktionBlockerad(');
   });
   it('ingen annan fil än sidan använder hooken', () => {
     const traffar = [...filer(join(rot, 'app')), ...filer(join(rot, 'components')), ...filer(join(rot, 'lib'))]

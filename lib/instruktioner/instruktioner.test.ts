@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  INNE_M, TOMT_INSTRUKTION, UT_MARGINAL_M, arOsedd, attKvittera, hashText, instruktionRader, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
+  INNE_M, TOMT_INSTRUKTION, arPlats, UT_MARGINAL_M, arOsedd, attKvittera, hashText, instruktionRader, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
   type InstruktionOmrade, type SettKarta,
 } from './instruktioner';
 import type { KommentarVy } from '../kartkommentar';
@@ -55,11 +55,11 @@ describe('samlaOmraden — var Vidas text finns', () => {
     expect(o[0].instruktioner[1].forfattare).toMatch(/^Martin · /);
   });
   it('en egen markering med äldre kommentarfält blir "aldre" utan författare', () => {
-    const o = samla({ markers: [{ id: 5, isMarker: true, type: 'x', x: 15, y: 56, comment: 'Gammal text' }] });
+    const o = samla({ markers: [{ id: 5, isMarker: true, type: 'landing', x: 15, y: 56, comment: 'Gammal text' }] });
     expect(o[0].instruktioner[0]).toMatchObject({ kalla: 'aldre', ref: 'aldre:marker:5', forfattare: null });
   });
   it('en markering utan någon kommentar ger inget område', () => {
-    expect(samla({ markers: [{ id: 5, isMarker: true, type: 'x', x: 15, y: 56 }] })).toEqual([]);
+    expect(samla({ markers: [{ id: 5, isMarker: true, type: 'landing', x: 15, y: 56 }] })).toEqual([]);
   });
   it('en egen yta med kommentar räknas som yta, inne eller ute efter positionen', () => {
     const yta = { id: 9, isZone: true, zoneType: 'wet', path: [{ x: 14.999, y: 55.999 }, { x: 15.001, y: 55.999 }, { x: 15.001, y: 56.001 }, { x: 14.999, y: 56.001 }] };
@@ -213,5 +213,48 @@ describe('genomgången — instruktioner på trakten', () => {
     const sett: SettKarta = new Map([['k1', hashText('Blött')]]);
     expect(attKvittera(omr, ['hansyn:8'], sett).map((x) => x.i.ref)).toEqual(['vida:hansyn:8', 'k2']);
     expect(attKvittera(omr, [], sett)).toEqual([]);
+  });
+});
+
+describe('bara platser man kör in i — inga punktsymboler eller linjer', () => {
+  const kommentar = (nyckel: string) => [kk('p1', nyckel, 'Kommentar')];
+  it('Evighetsträd, Högstubbe och Varning (punktsymboler) ger inget kort, med eller utan kommentar', () => {
+    for (const type of ['eternitytree', 'highstump', 'warning', 'culturemonument', 'gate']) {
+      const m = { id: 5, isMarker: true, type, x: 15, y: 56, comment: 'Äldre text' };
+      expect(samla({ markers: [m], kommentarer: kommentar('marker:5') }), type).toEqual([]);
+    }
+  });
+  it('en egen avläggssymbol är en plats: med kommentar blir den ett område', () => {
+    const o = samla({ markers: [{ id: 5, isMarker: true, type: 'landing', x: 15, y: 56 }], kommentarer: kommentar('marker:5') });
+    expect(o.map((x) => x.nyckel)).toEqual(['marker:5']);
+    expect(o[0].narvaro.slag).toBe('avstand');
+  });
+  it('egna linjer (stenmur, el-ledning, basväg) ger inget kort', () => {
+    const l = { id: 6, isLine: true, lineType: 'stonewall', path: [{ x: 15, y: 56 }, { x: 15.001, y: 56 }] };
+    expect(samla({ markers: [l], kommentarer: kommentar('marker:6') })).toEqual([]);
+  });
+  it('Vidas kraftledning (linje) och RAÄ-punkt ger inget kort även med vår kommentar', () => {
+    const led = { type: 'Feature', geometry: { type: 'LineString', coordinates: [[15, 56], [15.001, 56]] }, properties: { _lager: 'L_TILLAGGSLINJER', _typ: 'linje', FLBESKR: 'Kraftledning' } };
+    const raa = { type: 'Feature', geometry: { type: 'Point', coordinates: [15, 56] }, properties: { _lager: 'L_RAA_POINT_101', lamningsnu: '123', lamningsty: 'Röse' } };
+    expect(samla({ vida: [led, raa], kommentarer: [kk('a', 'raa:123', 'x')] })).toEqual([]);
+  });
+  it('Vidas avlägg, hänsynsytor, traktdelar, nyckelbiotoper och RAÄ-ytor är platser', () => {
+    const nb = { type: 'Feature', geometry: kvadrat(15, 56), properties: { _lager: 'SV_SKS_NYCKELBIOTOP_101', Beteckn: 'NB1', Objnamn: 'Nyckelbiotop' } };
+    const o = samla({ vida: [hansyn('7', 'Spara'), avlagg('01-1', 'Lägg här', 15, 56), traktdel('2'), nb], kommentarer: [kk('a', 'traktdel:2', 'x'), kk('b', 'nb:NB1', 'y')] });
+    expect(o.map((x) => x.nyckel).sort()).toEqual(['hansyn:7', 'nb:NB1', 'punkt:01-1', 'traktdel:2']);
+  });
+  it('arPlats: polygoner alltid, punkter bara om det är ett avlägg', () => {
+    expect(arPlats('Polygon', false)).toBe(true);
+    expect(arPlats('MultiPolygon', false)).toBe(true);
+    expect(arPlats('Point', true)).toBe(true);
+    expect(arPlats('Point', false)).toBe(false);
+    expect(arPlats('LineString', true)).toBe(false);
+    expect(arPlats(undefined, true)).toBe(false);
+  });
+  it('ett kommentarsrikt objekt med 40 evighetsträd ger ett enda kort-område (hänsynsytan), inte 41', () => {
+    const traden = Array.from({ length: 40 }, (_, n) => ({ id: 100 + n, isMarker: true, type: 'eternitytree', x: 15, y: 56, comment: `Träd ${n}` }));
+    const o = samla({ vida: [hansyn('7', 'Spara aspar')], markers: traden });
+    expect(o).toHaveLength(1);
+    expect(stegaInstruktion(TOMT_INSTRUKTION, o, INGET).vantande).toEqual(['hansyn:7']);
   });
 });

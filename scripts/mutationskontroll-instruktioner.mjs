@@ -1,6 +1,8 @@
 // Mutationskontroll för "Instruktioner till föraren" (maskinläget): varje regel — sett per kommentar och hash, larm först, inkörning med hysteres, Vidas text bara på
 // hänsynsytor och avlägg, ett Sett, testläget skriver inget, bara maskinläget — ska bli RÖD när EN sak ändras tillbaka. Motorn: scripts/mutationsmotor.mjs.
 //
+// Täcker också: bara platser (inga punktsymboler/linjer), ordningen lossning > larm > instruktion > avläggsrad och testlägets håll-fingret.
+//
 // Kör:  node scripts/mutationskontroll-instruktioner.mjs   (EN tung körning åt gången: inte tillsammans med tsc/build/dev-server)
 import { kor } from "./mutationsmotor.mjs";
 
@@ -11,6 +13,8 @@ const KORT = "components/planering/InstruktionKort.tsx";
 const OBJ = "components/planering/ObjektKort.tsx";
 const SIDA = "app/planering/page.tsx";
 const SQL = "supabase/migrations/20261021170000_kommentar_sett_forare.sql";
+const ORD = "lib/instruktioner/ordning.ts";
+const TESTPOS = "lib/testPosition.ts";
 
 const TESTER = [
   "lib/instruktioner/instruktioner.test.ts",
@@ -18,6 +22,9 @@ const TESTER = [
   "lib/instruktioner/instruktioner.vakter.test.ts",
   "lib/hooks/useInstruktioner.test.tsx",
   "components/planering/InstruktionKort.render.test.tsx",
+  "lib/instruktioner/ordning.test.ts",
+  "components/planering/Instruktion.ordning.render.test.tsx",
+  "lib/testPosition.test.ts",
 ];
 
 const M = [
@@ -39,7 +46,7 @@ const M = [
   ["okänt avstånd räknas som inne", "if (d == null) return false;", "if (d == null) return true;", LOGIK],
   ["kön rensas inte när kommentaren lästs på annat håll", "const vantande = state.vantande.filter((n) => omraden.some((o) => o.nyckel === n && osedda(o, sett).length > 0));", "const vantande = [...state.vantande];", LOGIK],
   ["ingen inkörning om osedda saknas ignoreras", "if (ar && !var_ && osedda(o, sett).length > 0 && !vantande.includes(o.nyckel)) vantande.push(o.nyckel);", "if (ar && !var_ && !vantande.includes(o.nyckel)) vantande.push(o.nyckel);", LOGIK],
-  ["larmet går inte först", "if (larmVisas) return null;", "", LOGIK],
+  ["ett annat kort (larm/lossning) blockerar inte instruktionen", "if (blockerad) return null;", "", LOGIK],
   ["kortet visar även det som setts", "instruktioner: nya, fler:", "instruktioner: o.instruktioner, fler:", LOGIK],
   ["kortet försvinner när man kör ut", "const vantande = state.vantande.filter(", "const vantande = state.vantande.filter((n) => state.inne[n]).filter(", LOGIK],
 
@@ -73,13 +80,35 @@ const M = [
 
   // ── sidan ──
   ["instruktioner även utanför maskinläget", "const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);", "const instruktionerAktiv = korvyActive;", SIDA],
-  ["larmet får inte företräde", "larmVisas: !!larm.kort,", "larmVisas: false,", SIDA],
-  ["testläget skriver", "    torr: !!testlage,\n  });\n  // Lästes kommentarerna", "    torr: false,\n  });\n  // Lästes kommentarerna", SIDA],
+    ["testläget skriver", "    torr: !!testlage,\n  });\n  // Lästes kommentarerna", "    torr: false,\n  });\n  // Lästes kommentarerna", SIDA],
   ["kartkortet räknas inte som läst", "[traktInfo ? traktKortNyckel : markerMenuOpen != null ? markerNyckel(markerMenuOpen) : null,", "[null,", SIDA],
+
+  // ── bara platser man kör in i ──
+  ["punktsymboler (Evighetsträd) blir instruktionsområden", "geomTyp === 'Polygon' || geomTyp === 'MultiPolygon' || ((geomTyp === 'Point' || geomTyp === 'MultiPoint') && arAvlagg)", "geomTyp === 'Polygon' || geomTyp === 'MultiPolygon' || geomTyp === 'Point' || geomTyp === 'MultiPoint'", LOGIK],
+  ["Vidas linjer släpps in", "geomTyp === 'Polygon' || geomTyp === 'MultiPolygon' || ((", "geomTyp === 'LineString' || geomTyp === 'Polygon' || geomTyp === 'MultiPolygon' || ((", LOGIK],
+  ["alla egna punktsymboler räknas, inte bara avlägg", "m.isMarker && m.type === EGET_AVLAGG_TYP && typeof m.x", "m.isMarker && typeof m.x", LOGIK],
+  ["egna avlägg räknas inte", "export const EGET_AVLAGG_TYP = 'landing';", "export const EGET_AVLAGG_TYP = 'ingen';", LOGIK],
+
+  // ── ett kort åt gången ──
+  ["lossningskortet blockerar inte instruktionen", "a.larmVisas || a.lossningVisas", "a.larmVisas", ORD],
+  ["larm blockerar inte instruktionen", "a.larmVisas || a.lossningVisas", "a.lossningVisas", ORD],
+  ["avläggsraden väntar inte på instruktionen", "a.ledigtUtanInstruktion && !a.instruktionVantar", "a.ledigtUtanInstruktion", ORD],
+  ["avläggsraden väntar bara medan instruktionskortet syns (inte när den väntar på larm/lossning)", "const vantar = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, false) != null : false), [aktiv, state, omraden, karta]);", "const vantar = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, inp.blockerad) != null : false), [aktiv, state, omraden, karta, inp.blockerad]);", HOOK],
+  ["sidan räknar inte Ändra-arket som lossning", "!!skotarLass.kort || !!skotarLass.andra || !!skotarLass.nyttAvlagg ||", "!!skotarLass.kort || !!skotarLass.nyttAvlagg ||", SIDA],
+  ["sidan skickar inte lossning till instruktionen", "blockerad: instruktionBlockerad({ larmVisas: !!larm.kort, lossningVisas }),", "blockerad: !!larm.kort,", SIDA],
+  ["avläggsraden får visas medan instruktionen väntar", "instruktionVantar: inst.vantar })}", "instruktionVantar: false })}", SIDA],
+
+  // ── testlägets håll-fingret ──
+  ["håll-fingret flyttar direkt (ingen väntetid)", "      vidPosition(ll.lat, ll.lng);\n    }, ms);", "      vidPosition(ll.lat, ll.lng);\n    }, 0);", TESTPOS],
+  ["klicket efter långtrycket sväljs inte", "const klick = (e: MouseEvent) => { if (nu() < slukTill) {", "const klick = (e: MouseEvent) => { if (false) {", TESTPOS],
+  ["drag avbryter inte långtrycket", "if (timer && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > rorelsePx) stopp();", "", TESTPOS],
+  ["nyp avbryter inte långtrycket", "if (nere.size > 1) return;   // nyp = zoom", "", TESTPOS],
+  ["håll-fingret kopplas utanför testläget", "if (!map || !mapLibreReady || !testlage) return;\n    return kopplaLangtryckFlytt", "if (!map || !mapLibreReady) return;\n    return kopplaLangtryckFlytt", SIDA],
+  ["plusdockans långtryck öppnas också i testläget", "&& !objektListaOppen\n    && !testlage;", "&& !objektListaOppen;", SIDA],
 ];
 
 kor({
-  filer: [LOGIK, SETT, HOOK, KORT, OBJ, SIDA, SQL],
+  filer: [LOGIK, SETT, HOOK, KORT, OBJ, SIDA, SQL, ORD, TESTPOS],
   tester: TESTER,
   standardFil: LOGIK,
   mutationer: M,

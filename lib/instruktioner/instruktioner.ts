@@ -2,6 +2,9 @@
 // och förarens "✓ Sett" sparas PER KOMMENTAR och förare. En sedd kommentar visas inte igen vid inkörning, oavsett var den lästes (kortet, genomgången,
 // kartkortet, ⓘ); en ny eller ändrad kommentar räknas som osedd.
 //
+// BARA PLATSER MAN KÖR IN I: ytor, områden, traktdelar och avlägg. Punktsymboler (Evighetsträd, Högstubbe, Varning …), linjer (stenmur, kraftledning, basväg) och RAÄ-punkter
+// ger inget kort — deras kommentar syns i larmkortet och vid tryck (annars blir det ett kort per evighetsträd).
+//
 // Källor (en kommentar = en rad här):
 //   • Vidas text: ATGARD på hänsynsytor och avlägg (objekt_geometri). Traktdelar, nyckelbiotoper och RAÄ har ingen sådan text i datan.
 //   • Våra kommentarer: kartkommentar (en rad per kommentar, författare + tid), på Vidas objekt och egna markeringar.
@@ -9,8 +12,8 @@
 //
 // Allt som kräver nät eller databas ligger i ./sett och lib/hooks/useInstruktioner. Här finns bara reglerna, så de går att prova utan någon av dem.
 
-import { arInnePolygon, avstandPunktM, avstandTillLinjeM, type LatLon } from '../larm/geo';
-import { LINJE_NAMN, VIDA, ytaDef } from '../larm/grupper';
+import { arInnePolygon, avstandPunktM, type LatLon } from '../larm/geo';
+import { VIDA, ytaDef } from '../larm/grupper';
 import { innehallHash } from '../larm/larm';
 import { vidaSlag } from '../larm/objekt';
 import { byggTraktKort } from '../traktGeometri';
@@ -80,10 +83,6 @@ function vidaNarvaro(g: any, pos: LatLon | null): Narvaro {
     const polys: Pos[][][] = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
     return { slag: 'yta', inne: polys.some((p) => arInnePolygon(pos, p.map((r) => r.map(tillLL)))) };
   }
-  if (g.type === 'LineString' || g.type === 'MultiLineString') {
-    const linjer: Pos[][] = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
-    return { slag: 'avstand', avstandM: Math.min(...linjer.map((l) => avstandTillLinjeM(pos, l.map(tillLL)))) };
-  }
   if (g.type === 'Point' || g.type === 'MultiPoint') {
     const punkter: Pos[] = g.type === 'Point' ? [g.coordinates] : g.coordinates;
     return { slag: 'avstand', avstandM: Math.min(...punkter.map((c) => avstandPunktM(pos, tillLL(c)))) };
@@ -114,6 +113,13 @@ function egnaInstruktioner(rader: readonly KommentarVy[], objektId: string, nyck
     }));
 }
 
+/** En plats man kör in i: en yta (polygon) eller ett avlägg (Vidas punkt i avläggslagret). Allt annat — punktsymboler, RAÄ-punkter, linjer — är det inte. */
+export const arPlats = (geomTyp: string | undefined, arAvlagg: boolean): boolean =>
+  geomTyp === 'Polygon' || geomTyp === 'MultiPolygon' || ((geomTyp === 'Point' || geomTyp === 'MultiPoint') && arAvlagg);
+
+/** Typen på förarens egen avläggssymbol — den enda egna punktsymbolen som är en plats. */
+export const EGET_AVLAGG_TYP = 'landing';
+
 export interface SamlaIn {
   objektId: string;
   /** Vidas geometri (FeatureCollection). */
@@ -138,6 +144,7 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
     if (!nyckel || !f?.geometry) return;
     const props = f.properties ?? {};
     const kort = byggTraktKort(props);
+    if (!arPlats(f.geometry?.type, kort.kategori === 'punkt')) return;
     // Vidas egen text (ATGARD) finns på hänsynsytor och avlägg; byggTraktKort lägger den som kortets enda rad. Andra kategorier har ingen.
     const vidaText = (kort.kategori === 'hansyn' || kort.kategori === 'punkt') ? (kort.rader[0]?.text ?? '').trim() : '';
     const lista: Instruktion[] = [];
@@ -155,16 +162,13 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
     if (!lista.length) continue;
     let narvaro: Narvaro;
     let namn: string;
-    if (m.isMarker && typeof m.x === 'number' && typeof m.y === 'number') {
+    if (m.isMarker && m.type === EGET_AVLAGG_TYP && typeof m.x === 'number' && typeof m.y === 'number') {
       namn = i.typNamn(m.type);
       narvaro = { slag: 'avstand', avstandM: i.pos ? avstandPunktM(i.pos, i.svgToLatLon(m.x, m.y)) : null };
     } else if ((m.isZone || m.lineType === 'boundary') && m.path?.length > 2) {
       namn = m.isZone ? (ytaDef(m.zoneType)?.namn ?? 'Område') : 'Område';
       narvaro = { slag: 'yta', inne: i.pos ? arInnePolygon(i.pos, [m.path.map((p: any) => i.svgToLatLon(p.x, p.y))]) : false };
-    } else if (m.isLine && m.path?.length > 1) {
-      namn = LINJE_NAMN[m.lineType as string] ?? 'Linje';
-      narvaro = { slag: 'avstand', avstandM: i.pos ? avstandTillLinjeM(i.pos, m.path.map((p: any) => i.svgToLatLon(p.x, p.y))) : null };
-    } else continue;
+    } else continue;   // punktsymboler och linjer är inga platser man kör in i
     ut.push({ nyckel, namn, narvaro, instruktioner: lista });
   }
   return ut;
@@ -217,9 +221,12 @@ export interface InstruktionKortData {
   fler: number;
 }
 
-/** Kortet som ska visas nu: det första väntande området — men inte medan ett larm visar sitt kort (fara går före, instruktionen väntar). */
-export function kortAttVisa(state: InstruktionState, omraden: readonly InstruktionOmrade[], sett: SettKarta, larmVisas: boolean): InstruktionKortData | null {
-  if (larmVisas) return null;
+/**
+ * Kortet som ska visas nu: det första väntande området — men inte medan något annat kort har platsen (`blockerad`: ett larmkort eller lossningskortet visas).
+ * Instruktionen väntar då, och kommer när platsen blir ledig.
+ */
+export function kortAttVisa(state: InstruktionState, omraden: readonly InstruktionOmrade[], sett: SettKarta, blockerad: boolean): InstruktionKortData | null {
+  if (blockerad) return null;
   for (const nyckel of state.vantande) {
     const o = omraden.find((x) => x.nyckel === nyckel);
     if (!o) continue;

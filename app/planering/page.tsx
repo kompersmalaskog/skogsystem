@@ -52,11 +52,12 @@ import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type Bra
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useInstruktioner } from '../../lib/hooks/useInstruktioner'
+import { avlaggsradLedig, instruktionBlockerad } from '../../lib/instruktioner/ordning'
 import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint } from '../../lib/larm/pulsKarta'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
-import { kopplaFlyttaMig } from '../../lib/testPosition'
+import { kopplaFlyttaMig, kopplaLangtryckFlytt } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad, larmMalbild } from '../../components/planering/LarmKort'
 import { GRIND_KORT_HOJD_PX, InstruktionKortVy } from '../../components/planering/InstruktionKort'
 import { LARM_MALBILD_RAD_PX, MalbildBlad, MalbildRad } from '../../components/malbild/Malbild'
@@ -8869,6 +8870,12 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady || !testlage || !testFlyttaMig) return;
     return kopplaFlyttaMig(map, flyttaTestPosition);
   }, [mapLibreReady, testlage, testFlyttaMig, flyttaTestPosition]);
+  // Håll fingret på kartan = flytta testpositionen dit. Bara i testläget; riktig GPS rörs aldrig (testläget ignorerar hubbens fixar). Ersätter där långtrycket som annars öppnar plusdockan.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !testlage) return;
+    return kopplaLangtryckFlytt(map, flyttaTestPosition);
+  }, [mapLibreReady, testlage, flyttaTestPosition]);
 
   // 8) LARMET (körvy OCH skotarläge): lib/larm avgör vad som larmar (typen → färggrupp → regel), hooken matar den med markeringar,
   //    linjer (Stenmur, Risa), ytor och Vidas geometri. ETT kort överst med namn och meter, ETT ljud, "Sett <Namn>" nederst.
@@ -8896,34 +8903,6 @@ export default function PlannerPage() {
     ljudCtx: () => korvyAudioCtxRef.current,
     torr: !!testlage,   // testläget skriver inga kvittenser
   });
-  // INSTRUKTIONER TILL FÖRAREN (bara maskinläget, lib/instruktioner): kommentarerna på ett område visas som ett kort när maskinen kör in, och "✓ Sett" sparas per kommentar och
-  // förare. Larmet går först (kortet väntar medan ett larmkort visas). Planeringsvyn och förare utan maskin rörs inte: aktiv=false gör hooken helt passiv.
-  const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);
-  const inst = useInstruktioner({
-    aktiv: instruktionerAktiv,
-    pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
-    markers,
-    svgToLatLon,
-    typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
-    vida: traktGeo,
-    kommentarer: kk.rader,
-    objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
-    forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
-    db: supabase,
-    larmVisas: !!larm.kort,
-    torr: !!testlage,
-  });
-  // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
-  // Kartkortet (KartKort) rörs inte: sidan ser bara vilket objekts kort som är öppet.
-  const lastNycklar = instruktionerAktiv
-    ? [traktInfo ? traktKortNyckel : markerMenuOpen != null ? markerNyckel(markerMenuOpen) : null, framhavdMarkering ? markerNyckel(framhavdMarkering.id) : null].filter((n): n is string => !!n)
-    : [];
-  const lastOsedda = lastNycklar.reduce((n, k) => n + (inst.oseddaPer[k] ?? 0), 0);
-  const lastNyckelStr = lastNycklar.join('|');
-  useEffect(() => {
-    if (lastNycklar.length && lastOsedda > 0) inst.settOmraden(lastNycklar);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastNyckelStr, lastOsedda]);
   // FÄLLNINGSCIRKELN (30 m = trädlängd): bara skördaren, aldrig skotarläget. Tyst — färg efter vad som ligger inom 30 m (lib/larm/fallning).
   const fall = useFallning({
     aktiv: korvyActive && !skotarKorvy,
@@ -11835,6 +11814,36 @@ export default function PlannerPage() {
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
   const [skotarVantarOppet, setSkotarVantarOppet] = useState(false);
+  // INSTRUKTIONER TILL FÖRAREN (bara maskinläget, lib/instruktioner): kommentarerna på ett område visas som ett kort när maskinen kör in, och "✓ Sett" sparas per kommentar och
+  // förare. Larmet går först (kortet väntar medan ett larmkort visas). Planeringsvyn och förare utan maskin rörs inte: aktiv=false gör hooken helt passiv.
+  // Lossningsflödet (skotarläget) har företräde: lossningskortet, Ändra-arket, "Nytt avlägg här?" och Kvar/Färdigskotad/Väntar-arken (lib/instruktioner/ordning).
+  const lossningVisas = skotarLassAktiv && (!!skotarLass.kort || !!skotarLass.andra || !!skotarLass.nyttAvlagg || skotarKvarOppet || skotarFardigOppet || skotarVantarOppet);
+  const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);
+  const inst = useInstruktioner({
+    aktiv: instruktionerAktiv,
+    pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
+    markers,
+    svgToLatLon,
+    typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
+    vida: traktGeo,
+    kommentarer: kk.rader,
+    objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
+    forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
+    db: supabase,
+    blockerad: instruktionBlockerad({ larmVisas: !!larm.kort, lossningVisas }),
+    torr: !!testlage,
+  });
+  // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
+  // Kartkortet (KartKort) rörs inte: sidan ser bara vilket objekts kort som är öppet.
+  const lastNycklar = instruktionerAktiv
+    ? [traktInfo ? traktKortNyckel : markerMenuOpen != null ? markerNyckel(markerMenuOpen) : null, framhavdMarkering ? markerNyckel(framhavdMarkering.id) : null].filter((n): n is string => !!n)
+    : [];
+  const lastOsedda = lastNycklar.reduce((n, k) => n + (inst.oseddaPer[k] ?? 0), 0);
+  const lastNyckelStr = lastNycklar.join('|');
+  useEffect(() => {
+    if (lastNycklar.length && lastOsedda > 0) inst.settOmraden(lastNycklar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastNyckelStr, lastOsedda]);
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
   // Egna avlägg får sitt löpnummer en gång och behåller det (sparas på markeringen): ett raderat avlägg flyttar aldrig om de andra.
   useEffect(() => {
@@ -12215,7 +12224,8 @@ export default function PlannerPage() {
   const ritFramsteg = isZoneMode || nRit < 2 ? punktText(nRit) : geoFormatLength(geoPathMeters(currentDrawCoords));
   langtryckTillatenRef.current = !!valtObjekt && !plusRadOppen && !menuOpen && !selectedSymbol && !figur && !prickValt
     && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode && !omradeRitning && !skotningDrawing && !hornEditActive && !larmPlacering
-    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !objektListaOppen;
+    && !traktOversiktOpen && !briefingMode && !markerMenuOpen && !risaMarkMode && !objektListaOppen
+    && !testlage;   // testläget: håll fingret flyttar testpositionen (kopplaLangtryckFlytt) — plusdockan öppnas med plusknappen
 
   // Objektlistan öppen: objekten som prickar på kartan, tryck på en prick = raden, kartan i övrigt fri att använda (listan stängs med ×, Esc, drag ned), stängd utan val = kartan tillbaka.
   // Bara planeringsvyn (objektListaVal) — maskinläget, /maskin och körvyn öppnar aldrig listan och rörs inte. Pågår ett kartläge (rita, mät, placera
@@ -12676,7 +12686,7 @@ export default function PlannerPage() {
           fontSize: '13px', fontWeight: 800, letterSpacing: '0.3px', textAlign: 'center',
           boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
         }}>
-          <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}</span>
+          <span>⚠ Visar som maskin: {startMaskinNamn || testlage.maskinId}<span data-testid="test-langtryck-tips" style={{ fontWeight: 600 }}> · håll fingret på kartan = flytta mig</span></span>
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
               style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -13836,7 +13846,7 @@ export default function PlannerPage() {
             <AvlaggForstaLasset
               objektId={valtObjekt?.id ?? ''} roll="skotare"
               kortVisas={!!sl.kort}
-              ledigt={!sl.kort && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet}
+              ledigt={avlaggsradLedig({ ledigtUtanInstruktion: !sl.kort && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet, instruktionVantar: inst.vantar })}
               forstaLasset={!!valtObjekt?.id && !!skotarMaskinId && arForstaLassetPaTrakten(sl.lass, '', valtObjekt.id, skotarMaskinId)}
               position={currentPosition}
               avlagg={sl.avlagg}
