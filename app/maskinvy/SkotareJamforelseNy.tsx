@@ -1,7 +1,7 @@
 'use client'
 import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   C, FONT, fmtSv, getPeriodRange, fetchAll, VolymBadge,
   type Period,
@@ -10,6 +10,12 @@ import {
   hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag, sumPerDag,
 } from '@/lib/maskinvy/skotarvolym'
 import { skotningsavstandM } from '@/lib/skotningsavstand'
+import { g15Sek } from '@/lib/g15'
+import {
+  KLASSER, NK, getKlassIdx, kvot, valjJamforelseMaskiner,
+  ORSAK_INGEN_G15, ORSAK_INGEN_MASKIN,
+} from '@/lib/maskinvy/jamforelse'
+import { useJamforelseMaskinRader } from './useJamforelseMaskiner'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareJamforelseNy — Wisent vs Elephant King, per avståndsklass
@@ -17,9 +23,11 @@ import { skotningsavstandM } from '@/lib/skotningsavstand'
 //
 // 4 mått × 5 avståndsklasser. INGEN vinnarkröning.
 //
-// G15h = (processing_sek + terrain_sek) / 3600
-// — exakt samma formel som OversiktShared.fetchData (rad 250).
-//   Självläker när tidsdata rättas.
+// G15h = (processing_sek + terrain_sek + other_work_sek) / 3600 via g15Sek
+// (lib/g15) — den enda G15-definitionen.
+//
+// Maskinerna väljs ur dim_maskin per period (lib/maskinvy/jamforelse), aldrig
+// som hårdkodade id:n. Saknas G15 för en maskin visas "–" med orsak.
 //
 // L/m³ är ett maskinmått — kan ej delas per klass.
 //   Visas som maskintotal (identisk bar-höjd för alla klasser).
@@ -30,42 +38,12 @@ import { skotningsavstandM } from '@/lib/skotningsavstand'
 // fakt_lass och fakt_tid hämtas ALLTID separat — aldrig joinade.
 // ─────────────────────────────────────────────────────────────
 
-// ── Maskiner ──────────────────────────────────────────────────
-const WISENT = { id: 'A030353', namn: 'Ponsse Wisent',           kort: 'Wisent', color: C.blue   }
-const EK     = { id: 'A110148', namn: 'Ponsse Elephant King AF', kort: 'EK',     color: C.purple }
+// ── Sidor ─────────────────────────────────────────────────────
+// Id:n bestäms per period ur dim_maskin (useJamforelseMaskinRader).
+const WISENT = { namn: 'Ponsse Wisent', kort: 'Wisent', color: C.blue   }
+const EK     = { namn: 'Elephant King', kort: 'EK',     color: C.purple }
 
-// ── Avståndklasser ────────────────────────────────────────────
-// Avståndsklasserna följer ACKORDSTRAPPAN: grundavstånd 200 m, sedan steg om
-// 100 m. Då ser man inte bara hur maskinen presterar på olika avstånd, utan i
-// samma indelning som betalningen — en klass är ett prissteg.
-//
-// Värdet som klassas är SKOTNINGSAVSTÅND (enkelriktat, lib/skotningsavstand),
-// inte fakt_lass.korstracka_m som är tur och retur.
-//
-// Översta klassen slår medvetet ihop två prissteg (600–900 och 900+). Skälet
-// är läsbarhet i hytt: sex kolumner ger ~54 px bredd på mobil och fyra
-// textrader i kontextraden under diagrammet, fem ger ~65 px. De ihopslagna
-// facken är de minsta (21 respektive 8 lass i augusti), och över 600 m säger
-// skillnaden mellan 700 och 1 100 m ändå lite för uppföljning. Kopplingen
-// till ackordstrappan behålls där merparten av lassen ligger.
-//
-// GRÄNSERNA BOR HÄR OCH INGEN ANNANSTANS. De är satta mot augusti 2026
-// (198 lass, fem objekt; fördelning 55/43/30/41/29) — ett rimligt utgångsläge,
-// inte en sanning. Justera dem när testperioden gett mer underlag; inget annat
-// i filen behöver röras.
-const KLASSER = [
-  { label: '0–200 m',   short: '0–200',   min: 0,   max: 200      },
-  { label: '200–300 m', short: '200–300', min: 200, max: 300      },
-  { label: '300–400 m', short: '300–400', min: 300, max: 400      },
-  { label: '400–600 m', short: '400–600', min: 400, max: 600      },
-  { label: '600 m+',    short: '600+',    min: 600, max: Infinity },
-]
-const NK = KLASSER.length
-
-function getKlassIdx(m: number): number {
-  for (let i = 0; i < NK; i++) if (m < KLASSER[i].max) return i
-  return NK - 1
-}
+// Avståndsklasserna (KLASSER, getKlassIdx) bor i lib/maskinvy/jamforelse.
 
 // ── Mått ──────────────────────────────────────────────────────
 type MattId = 'lass' | 'snittlass' | 'm3g15h' | 'lm3'
@@ -96,21 +74,20 @@ function emptyAgg(): MaskinAgg {
 }
 
 // ── Datahämtning ──────────────────────────────────────────────
+// Ett MaskinAgg per maskin-id; sidorna (Wisent / EK) slås ihop efteråt, så en
+// period som spänner över maskinbytet får båda Elephant King-maskinerna.
 async function fetchJamforelse(
-  start: string, end: string,
-): Promise<{ wisent: MaskinAgg; ek: MaskinAgg }> {
-  const ids = [WISENT.id, EK.id]
+  start: string, end: string, ids: string[],
+): Promise<Record<string, MaskinAgg>> {
+  const map: Record<string, MaskinAgg> = {}
+  for (const id of ids) map[id] = emptyAgg()
+  if (ids.length === 0) return map
 
   // fakt_lass och fakt_tid — ALDRIG joinade (kritisk regel i CLAUDE.md)
   const [lassRows, tidRows] = await Promise.all([
     fetchAll('fakt_lass', 'maskin_id, volym_m3sub, korstracka_m', ids, start, end),
-    fetchAll('fakt_tid',  'maskin_id, processing_sek, terrain_sek, bransle_liter', ids, start, end),
+    fetchAll('fakt_tid',  'maskin_id, processing_sek, terrain_sek, other_work_sek, bransle_liter', ids, start, end),
   ])
-
-  const map: Record<string, MaskinAgg> = {
-    [WISENT.id]: emptyAgg(),
-    [EK.id]:     emptyAgg(),
-  }
 
   // Aggregera fakt_lass → klasser
   for (const r of lassRows) {
@@ -123,16 +100,24 @@ async function fetchJamforelse(
     a.totalLass++
   }
 
-  // Aggregera fakt_tid → G15h + bränsle
-  // G15h = (processing_sek + terrain_sek) / 3600
-  // Identisk formel med OversiktShared.fetchData rad 250 — självläker vid datarättning.
+  // Aggregera fakt_tid → G15h + bränsle (g15Sek: processing + terrain + other_work)
   for (const r of tidRows) {
     const a = map[r.maskin_id]; if (!a) continue
-    a.g15h    += ((r.processing_sek || 0) + (r.terrain_sek || 0)) / 3600
+    a.g15h    += g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek) / 3600
     a.bransle += parseFloat(r.bransle_liter) || 0
   }
 
-  return { wisent: map[WISENT.id], ek: map[EK.id] }
+  return map
+}
+
+function slaIhop(aggs: MaskinAgg[]): MaskinAgg {
+  const ut = emptyAgg()
+  for (const a of aggs) {
+    a.klasser.forEach((kl, i) => { ut.klasser[i].lass += kl.lass; ut.klasser[i].volym += kl.volym })
+    ut.g15h += a.g15h; ut.bransle += a.bransle
+    ut.totalVolym += a.totalVolym; ut.totalLass += a.totalLass
+  }
+  return ut
 }
 
 // ── Måttberäkning ─────────────────────────────────────────────
@@ -142,7 +127,7 @@ function mattKlass(agg: MaskinAgg, ki: number, matt: MattId): number | null {
   const kl = agg.klasser[ki]
   if (matt === 'lass')      return kl.lass > 0                             ? kl.lass                          : null
   if (matt === 'snittlass') return kl.lass > 0                             ? kl.volym / kl.lass               : null
-  if (matt === 'm3g15h')    return agg.g15h > 0                            ? kl.volym / agg.g15h              : null
+  if (matt === 'm3g15h')    return kvot(kl.volym, agg.g15h)
   // lm3: maskinmått — kan ej delas per klass. Visar maskintotal för alla klasser.
   return (agg.totalVolym > 0 && agg.bransle > 0) ? agg.bransle / agg.totalVolym : null
 }
@@ -151,7 +136,7 @@ function mattKlass(agg: MaskinAgg, ki: number, matt: MattId): number | null {
 function mattTotal(agg: MaskinAgg, matt: MattId): number | null {
   if (matt === 'lass')      return agg.totalLass > 0                           ? agg.totalLass                           : null
   if (matt === 'snittlass') return agg.totalLass > 0                           ? agg.totalVolym / agg.totalLass          : null
-  if (matt === 'm3g15h')    return agg.g15h > 0                                ? agg.totalVolym / agg.g15h               : null
+  if (matt === 'm3g15h')    return kvot(agg.totalVolym, agg.g15h)
   return (agg.totalVolym > 0 && agg.bransle > 0) ? agg.bransle / agg.totalVolym : null
 }
 
@@ -486,14 +471,25 @@ function FordelningsStaplar({
 
 // ── TotalRad ──────────────────────────────────────────────────
 // Totaler för hela perioden (alla klasser kombinerade, viktat).
+
+/** Varför ett totalvärde saknas — visas under "–" så tomt aldrig är en gåta. */
+function orsakSaknas(agg: MaskinAgg, harMaskin: boolean, matt: MattId): string {
+  if (!harMaskin) return ORSAK_INGEN_MASKIN
+  if (matt === 'm3g15h' && !(agg.g15h > 0)) return ORSAK_INGEN_G15
+  if (matt === 'lm3' && agg.totalLass > 0 && !(agg.bransle > 0)) return 'Inget bränsle registrerat i perioden'
+  return 'Inga lass i perioden'
+}
+
 function TotalRad({
-  wisent, ek, matt, loading, harManuellWisent, harManuellEk,
+  wisent, ek, matt, loading, harManuellWisent, harManuellEk, harMaskinWisent, harMaskinEk,
 }: {
   wisent: MaskinAgg; ek: MaskinAgg; matt: MattId; loading: boolean
   harManuellWisent: boolean; harManuellEk: boolean
+  harMaskinWisent: boolean; harMaskinEk: boolean
 }) {
   const mattDef = MATT.find(m => m.id === matt)!
-  const harManuell = { [WISENT.id]: harManuellWisent, [EK.id]: harManuellEk }
+  const harManuell = { [WISENT.kort]: harManuellWisent, [EK.kort]: harManuellEk }
+  const harMaskin  = { [WISENT.kort]: harMaskinWisent,  [EK.kort]: harMaskinEk }
 
   return (
     <div style={{
@@ -510,7 +506,7 @@ function TotalRad({
         ] as const).map(({ maskin, agg }) => {
           const val = mattTotal(agg, matt)
           return (
-            <div key={maskin.id}>
+            <div key={maskin.kort}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: maskin.color }} />
                 <span style={{ fontSize: 12, color: C.muted }}>{maskin.kort}</span>
@@ -522,12 +518,17 @@ function TotalRad({
                 {loading ? '—' : (val !== null ? fmtSv(val, mattDef.dec) : '—')}
               </div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{mattDef.unit}</div>
+              {!loading && val === null && (
+                <div style={{ fontSize: 11, color: C.orange, marginTop: 6 }}>
+                  {orsakSaknas(agg, harMaskin[maskin.kort] ?? false, matt)}
+                </div>
+              )}
               <div style={{ fontSize: 11, color: C.dim, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
                 {agg.totalLass} lass · {fmtSv(agg.totalVolym, 0)} m³
               </div>
-              {!loading && (
+              {!loading && (harMaskin[maskin.kort] ?? false) && (
                 <div style={{ marginTop: 6 }}>
-                  <VolymBadge harManuell={harManuell[maskin.id] ?? false} />
+                  <VolymBadge harManuell={harManuell[maskin.kort] ?? false} />
                 </div>
               )}
             </div>
@@ -550,58 +551,61 @@ export default function SkotareJamforelseNy() {
 
   const { start, end, label } = getPeriodRange(period, offset)
 
+  // Maskinerna ur dim_maskin för perioden — inga hårdkodade id:n.
+  const { rader: maskinRader } = useJamforelseMaskinRader()
+  const val = useMemo(
+    () => (maskinRader ? valjJamforelseMaskiner(maskinRader, start, end) : null),
+    [maskinRader, start, end],
+  )
+  const wisentIds = val?.wisent ?? []
+  const ekIds     = val?.ek ?? []
+  const idNyckel  = val ? `${wisentIds.join(',')}|${ekIds.join(',')}` : null
+
   useEffect(() => {
+    if (idNyckel === null) return          // dim_maskin ännu inte läst
     let cancelled = false
     setLoading(true)
+    const ids = [...wisentIds, ...ekIds]
+
+    // Manuell korrigering hämtas per maskin, som i övriga skotarflikar.
+    const manuellFor = (id: string) => hämtaManuellRader(id).then(async rader => {
+      if (!harManuellData(rader)) return null
+      const { lassRows, tidRows } = await fetchAllTimeLassTid([id])
+      return { rader, lassRows, tidRows }
+    }).catch(() => null)
+
     Promise.all([
-      fetchJamforelse(start, end),
-      hämtaManuellRader(WISENT.id).then(async rader => {
-        if (!harManuellData(rader)) return null
-        const { lassRows, tidRows } = await fetchAllTimeLassTid([WISENT.id])
-        return { rader, lassRows, tidRows }
-      }).catch(() => null),
-      hämtaManuellRader(EK.id).then(async rader => {
-        if (!harManuellData(rader)) return null
-        const { lassRows, tidRows } = await fetchAllTimeLassTid([EK.id])
-        return { rader, lassRows, tidRows }
-      }).catch(() => null),
-    ]).then(([d, wisentAt, ekAt]) => {
+      fetchJamforelse(start, end, ids),
+      Promise.all(ids.map(manuellFor)),
+    ]).then(([perId, manuella]) => {
       if (cancelled) return
 
       // Skalfaktor-korrigering per maskin: manuell total / raw total → applicera på alla klasser
-      let hmW = false
-      if (wisentAt && d.wisent.totalVolym > 0) {
-        const { perDag: wPD, harManuell: hw } = byggVolymPerDag(
-          wisentAt.lassRows, wisentAt.rader, wisentAt.tidRows, WISENT.id, start, end,
-        )
-        if (hw) {
-          const scale = sumPerDag(wPD) / d.wisent.totalVolym
-          for (const kl of d.wisent.klasser) kl.volym *= scale
-          d.wisent.totalVolym = sumPerDag(wPD)
-          hmW = true
-        }
-      }
+      const harManuellId = new Set<string>()
+      ids.forEach((id, i) => {
+        const at = manuella[i]
+        const agg = perId[id]
+        if (!at || agg.totalVolym <= 0) return
+        const { perDag, harManuell } = byggVolymPerDag(at.lassRows, at.rader, at.tidRows, id, start, end)
+        if (!harManuell) return
+        const scale = sumPerDag(perDag) / agg.totalVolym
+        for (const kl of agg.klasser) kl.volym *= scale
+        agg.totalVolym = sumPerDag(perDag)
+        harManuellId.add(id)
+      })
 
-      let hmE = false
-      if (ekAt && d.ek.totalVolym > 0) {
-        const { perDag: ePD, harManuell: he } = byggVolymPerDag(
-          ekAt.lassRows, ekAt.rader, ekAt.tidRows, EK.id, start, end,
-        )
-        if (he) {
-          const scale = sumPerDag(ePD) / d.ek.totalVolym
-          for (const kl of d.ek.klasser) kl.volym *= scale
-          d.ek.totalVolym = sumPerDag(ePD)
-          hmE = true
-        }
-      }
-
-      setHarManuellWisent(hmW)
-      setHarManuellEk(hmE)
-      setData(d)
+      setHarManuellWisent(wisentIds.some(id => harManuellId.has(id)))
+      setHarManuellEk(ekIds.some(id => harManuellId.has(id)))
+      setData({
+        wisent: slaIhop(wisentIds.map(id => perId[id])),
+        ek:     slaIhop(ekIds.map(id => perId[id])),
+      })
       setLoading(false)
     }).catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [start, end])
+    // wisentIds/ekIds härleds ur idNyckel
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, end, idNyckel])
 
   const mattDef = MATT.find(m => m.id === matt)!
 
@@ -696,7 +700,7 @@ export default function SkotareJamforelseNy() {
         }}>
           <div style={{ display: 'flex', gap: 14 }}>
             {[WISENT, EK].map(m => (
-              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div key={m.kort} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 3, background: m.color }} />
                 <span style={{ fontSize: 12, color: C.muted }}>{m.kort}</span>
               </div>
@@ -741,22 +745,21 @@ export default function SkotareJamforelseNy() {
             matt={matt} loading={loading}
             harManuellWisent={harManuellWisent}
             harManuellEk={harManuellEk}
+            harMaskinWisent={wisentIds.length > 0}
+            harMaskinEk={ekIds.length > 0}
           />
         )}
 
         {/* Mått-specifika noter */}
         {matt === 'm3g15h' && (
           <div style={{
-            background: C.card, border: `0.5px solid rgba(255,159,10,0.3)`,
+            background: C.card, border: `0.5px solid ${C.divider}`,
             borderRadius: 14, padding: '14px 16px', marginBottom: 12,
           }}>
-            <div style={{ fontSize: 12, color: C.orange, fontWeight: 500, marginBottom: 5 }}>
-              G15h-data troligen uppblåst
-            </div>
             <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-              Skotarnas G15h innehåller troligen dubbelräkning (se Oversikt).
-              Formel: (processing_sek + terrain_sek) / 3600 — identisk med övriga vyer.
-              Siffran självläker när tidsdata är åtgärdad — ingen hårdkodad gräns.
+              <span style={{ color: C.text, fontWeight: 500 }}>G15h</span> =
+              (processing + terräng + övrigt arbete) / 3 600 — samma definition som
+              övriga vyer. Totalen är viktad: summa volym / summa G15h.
             </div>
           </div>
         )}
@@ -774,19 +777,18 @@ export default function SkotareJamforelseNy() {
           </div>
         )}
 
-        {/* EK-volym-källa */}
+        {/* Volymkälla */}
         <div style={{
           background: C.card, border: `0.5px solid ${C.divider}`,
           borderRadius: 14, padding: '14px 16px',
         }}>
           <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-            <span style={{ color: C.text, fontWeight: 500 }}>Elephant King — volym (m³sub):</span>{' '}
-            {harManuellEk
-              ? 'manuell schablon ur systemet (skotare_objekt_manuell), fördelad per dag.'
-              : 'manuell schablon tills FPR-registrering är åtgärdad.'}
-            {' '}Lass och körd sträcka är maskinmätta. Avståndsklasserna visar
-            skotningsavstånd — halva den körda sträckan, som maskinen mäter tur
-            och retur.
+            <span style={{ color: C.text, fontWeight: 500 }}>Volym (m³sub):</span>{' '}
+            maskinmätt per lass (FPR). Objekt med manuell korrigering
+            (skotare_objekt_manuell) fördelas per dag — märket under varje maskin
+            visar om korrigering ingår. Lass och körd sträcka är maskinmätta.
+            Avståndsklasserna visar skotningsavstånd — halva den körda sträckan,
+            som maskinen mäter tur och retur.
           </div>
         </div>
 
