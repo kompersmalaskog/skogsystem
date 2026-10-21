@@ -13,11 +13,22 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 vi.mock('@/lib/supabase', async () => (await import('./jamforelseFacit.fixtur')).byggSupabaseMock())
 vi.mock('@/components/maskinvy/TuTabell', () => ({ default: () => null }))
+// Chart.js ur paketet ersätts av en som antecknar vad som ritas (jsdom har ingen canvas).
+const ritade = vi.hoisted(() => [] as any[])
+vi.mock('chart.js', () => {
+  class Chart {
+    static register() {}
+    destroy() {}
+    constructor(_canvas: unknown, config: any) { ritade.push(config) }
+  }
+  return { Chart, registerables: [] }
+})
 
 import Jamforelse from './Jamforelse'
 
 let rot: HTMLDivElement; let r: ReturnType<typeof createRoot>
 beforeEach(() => {
+  ritade.length = 0
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-21T12:00:00'))
@@ -49,6 +60,35 @@ describe('Jämförelse (toppfliken) mot facit', () => {
     expect(t).toContain('1 501 m³ data')
     // skillnaden är ungefär en fördubbling, med svenskt decimaltecken
     expect(t).toMatch(/\+11\d,\d\s%\sbättre/)
+  })
+
+  it('flyttobjektet utan lass (4,4 h G15) ingår i totalen: 28,8, inte 30,1', async () => {
+    await act(async () => { r.render(<Jamforelse />) })
+    await vanta(() => text().includes('m³ data'))
+    // totalkortet: hela maskinens timmar. (Klassraden 300–400 m visar 30,1 med rätta — flytten har ingen klass.)
+    expect(text()).toMatch(/Elephant King \(bred\)28,8/)
+    expect(text()).not.toMatch(/Elephant King \(bred\)30,1/)
+    expect(document.body.querySelector('[data-utan-klass]')!.textContent).toContain('EK 4,4 h G15')
+  })
+
+  it('"Produktion per avståndsklass" ritar riktiga staplar och är aldrig ett tomt kort', async () => {
+    await act(async () => { r.render(<Jamforelse />) })
+    await vanta(() => ritade.length > 0)
+    const cfg = ritade[ritade.length - 1]
+    expect(cfg.data.labels).toHaveLength(5)                       // bara de fem klasserna, inte "utan klass"
+    const [ek, wi] = cfg.data.datasets.map((d: any) => d.data)
+    expect(ek[2]).toBeCloseTo(3028 / 100.6, 1)                    // klass 300–400 m
+    expect(wi[2]).toBeGreaterThan(0)
+    expect(document.body.querySelector('canvas')).not.toBeNull()
+    expect(document.body.querySelector('[data-graf-tom]')).toBeNull()
+  })
+
+  it('inget att rita i perioden: kortet säger det i stället för att stå tomt', async () => {
+    vi.setSystemTime(new Date('2026-07-20T12:00:00'))
+    await act(async () => { r.render(<Jamforelse />) })
+    await vanta(() => !!document.body.querySelector('[data-graf-tom]'))
+    expect(document.body.querySelector('canvas')).toBeNull()
+    expect(ritade).toHaveLength(0)
   })
 
   it('talformat: svenskt decimaltecken överallt, aldrig punkt', async () => {

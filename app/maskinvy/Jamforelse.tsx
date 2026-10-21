@@ -2,13 +2,14 @@
 import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Chart as ChartJS, registerables } from 'chart.js';
 import TuTabell from '@/components/maskinvy/TuTabell';
 import { supabase } from '@/lib/supabase';
 import {
   hämtaManuellRader, fetchAllTimeLassTid,
 } from '@/lib/maskinvy/skotarvolym';
 import {
-  KLASSER, getKlassIdx, kvot, skillnadPct, valjJamforelseMaskiner,
+  KLASSER, NK, getKlassIdx, kvot, skillnadPct, valjJamforelseMaskiner,
   summeraPerMaskinObjekt, objektSkotningsavstand, volymPerObjekt,
   ORSAK_INGEN_G15, ORSAK_INGEN_MASKIN,
 } from '@/lib/maskinvy/jamforelse';
@@ -18,6 +19,14 @@ import { useJamforelseMaskinRader } from './useJamforelseMaskiner';
 // Maskinerna väljs ur dim_maskin per period (lib/maskinvy/jamforelse) — inga
 // hårdkodade id:n. Avståndsklasserna delas med Skotare › Jämförelse.
 const DIST_LABELS = KLASSER.map(k => k.short);
+
+// Chart.js ur paketet — inte window.Chart, som bara finns om de gamla vyerna
+// råkat ladda det (grafen var tom i ?ny=1).
+ChartJS.register(...registerables);
+
+// Plats NK i varje klass-array: tid/lass som inte kan få någon avståndsklass
+// (flyttobjekt utan lass, lass utan körsträcka). Ingår i totalen, inte i diagrammet.
+const UTAN_KLASS = NK;
 
 type MetricId = 'm3fub_g15h' | 'm3fub_100m' | 'lass_g15h' | 'bransle_m3';
 
@@ -203,7 +212,7 @@ export default function Jamforelse() {
     setLoading(true);
     setLaddFel(false);
     const ids = [...wiIds, ...ekIds];
-    const tom = () => KLASSER.map(() => emptyClass());
+    const tom = () => Array.from({ length: NK + 1 }, () => emptyClass());
     if (ids.length === 0) {
       setEkBred(tom()); setEkSmal(tom()); setWi(tom()); setLoading(false);
       return;
@@ -239,10 +248,10 @@ export default function Jamforelse() {
 
     for (const sum of summeraPerMaskinObjekt(lassRows, tidRows)) {
       // Objektets klass = dess skotningsavstånd (enkelriktat, ur lassens körsträcka).
-      // Objekt utan lass med körsträcka kan inte klassas och ingår inte i klasserna.
+      // Objekt utan lass med körsträcka (t.ex. flyttobjektet) kan inte klassas, men
+      // deras G15-timmar är maskinens timmar och hamnar i UTAN_KLASS så totalen stämmer.
       const avst = objektSkotningsavstand(sum);
-      if (avst === null) continue;
-      const ci = getKlassIdx(avst);
+      const ci = avst === null ? UTAN_KLASS : getKlassIdx(avst);
       const rattad = volymId[sum.maskin_id]?.get(sum.objekt_id);
       const d: ClassData = {
         volym: rattad ?? sum.volym, g15h: sum.g15h, distM: sum.korM,
@@ -269,16 +278,14 @@ export default function Jamforelse() {
   // Draw bar chart
   useEffect(() => {
     if (loading || !chartRef.current) return;
-    const Chart = (window as any).Chart;
-    if (!Chart) return;
     if (chartInstance.current) chartInstance.current.destroy();
 
     const ekData = ekConfig === 'bred' ? ekBred : ekSmal;
-    const ekVals = ekData.map(d => computeMetric(d, metric));
-    const wiVals = wi.map(d => computeMetric(d, metric));
+    const ekVals = ekData.slice(0, NK).map(d => computeMetric(d, metric));
+    const wiVals = wi.slice(0, NK).map(d => computeMetric(d, metric));
     const currentMetric = METRICS.find(m => m.id === metric)!;
 
-    chartInstance.current = new Chart(chartRef.current, {
+    chartInstance.current = new (ChartJS as any)(chartRef.current, {
       type: 'bar',
       data: {
         labels: DIST_LABELS,
@@ -361,6 +368,15 @@ export default function Jamforelse() {
     : (currentMetric.higherIsBetter ? ekAvg >= wiAvg : ekAvg <= wiAvg);
   const ekPct = skillnadPct(ekAvg, wiAvg);
   const wiPct = skillnadPct(wiAvg, ekAvg);
+
+  // Tid/lass utan avståndsklass (t.ex. flyttobjekt utan lass): ingår i totalen ovan men inte i diagrammet.
+  const utanKlassRader = [
+    { kort: 'EK', d: ekData[UTAN_KLASS] },
+    { kort: 'Wisent', d: wi[UTAN_KLASS] },
+  ].filter(x => x.d && (x.d.g15h > 0 || x.d.lass > 0 || x.d.volym > 0));
+  // Ett kort utan att något går att rita får aldrig stå tomt.
+  const harKlassvarde = [ekData, wi].some(arr =>
+    arr.slice(0, NK).some(d => { const v = computeMetric(d, metric); return v !== null && v > 0; }));
 
   // Orsaken när en maskin saknar värde — tomt ska aldrig vara en gåta.
   const orsakFor = (harMaskin: boolean, tot: ClassData): string | null => {
@@ -514,6 +530,13 @@ export default function Jamforelse() {
         />
       </div>
 
+      {utanKlassRader.length > 0 && (
+        <div data-utan-klass style={{ fontSize: 11, color: C.t4, lineHeight: 1.5, margin: '-16px 0 24px' }}>
+          Ingår i totalen men i ingen avståndsklass (tid på objekt utan lass, till exempel flytt):{' '}
+          {utanKlassRader.map(x => `${x.kort} ${fmtSv(x.d.g15h, 1)} h G15`).join(' · ')}
+        </div>
+      )}
+
       {/* ── BAR CHART ── */}
       <div style={{
         background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
@@ -524,9 +547,15 @@ export default function Jamforelse() {
         }}>
           {currentMetric.label} per avståndsklass
         </div>
-        <div style={{ height: 280, position: 'relative' }}>
-          <canvas ref={chartRef} />
-        </div>
+        {harKlassvarde ? (
+          <div style={{ height: 280, position: 'relative' }}>
+            <canvas ref={chartRef} />
+          </div>
+        ) : (
+          <div data-graf-tom style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.t3, textAlign: 'center' }}>
+            Inget värde att rita för {currentMetric.label.toLowerCase()} i perioden.
+          </div>
+        )}
       </div>
 
       {/* ── DETAILS TABLE ── */}

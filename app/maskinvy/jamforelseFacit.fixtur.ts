@@ -1,6 +1,6 @@
 // Facitets storlek (produktion, oktober 2026) som Supabase-svar — delas av render-testerna
 // för Jämförelse (toppfliken) och Skotare › Jämförelse.
-//   A130743 (Elefant 26): 139 lass · 3 028 m³ · 105,0 G15h
+//   A130743 (Elefant 26): 139 lass · 3 028 m³ · 105,0 G15h (varav 4,4 h på ett flyttobjekt utan lass)
 //   A030353 (Wisent): 1 547 m³ rått → 1 501 efter manuell korrigering (Kroksjömåla 315) · 112,2 G15h
 export const DIM = [
   { maskin_id: 'JD810E',  visningsnamn: '810E',       modell: '810E',               maskin_typ: 'Forwarder', aktiv_fran: '2015-12-01', aktiv_till: null,         bekraftad: true },
@@ -27,7 +27,10 @@ function lagg(maskin: string, objekt: string, volymer: number[], kor: number, da
 
 // EK: 139 lass = 99 × 22 + 40 × 21,25 = 3 028 m³ · G15 = 10 × 7,5 + 5 × 6,0 = 105,0 h
 lagg('A130743', 'EK_A', Array(99).fill(22), 730, 10, 5, 2, 0.5)
-lagg('A130743', 'EK_B', Array(40).fill(21.25), 740, 5, 5, 0.76, 0.24)
+lagg('A130743', 'EK_B', Array(40).fill(21.25), 740, 5, 4.3, 0.6, 0.22)
+// Flyttobjektet (som 'VIDA FLYTT' i produktion): G15-tid men inga lass.
+// 75 + 25,6 + 4,4 = 105,0 h; utan flyttobjektet blir det 100,6 h = 30,1 (felet Martin såg i preview).
+lagg('A130743', 'EK_FLYTT', [], 0, 1, 0, 1, 3.4)
 // Wisent: Kroksjömåla rått 361 m³ (manuellt 315) + övrigt 1 186 m³ = 1 547 rått, 1 501 korrigerat
 // G15 = 5 × 6,04 + 10 × 8,2 = 112,2 h
 lagg('A030353', 'W_K', [...Array(24).fill(14), 25], 640, 5, 4, 1.5, 0.54)
