@@ -1,33 +1,32 @@
 'use client';
 
 /**
- * /uppfoljning/fordelning — apteringsuppföljningen (etapp 2).
- * Läge 1 (inom mål, tyst) · läge 2 (avvikelse + mening) · läge 3 (detalj).
- * Siffrorna räknas ur databasen när HPR-filen importeras (lib/hpr/vy-lager)
- * och sidan läser bara färdiga kort — den räknar aldrig själv. Senast visade
- * lista ligger på enheten och visas direkt; ny data byts in tyst. Ett kort
- * från förra filen står kvar med "uppdateras…" medan den färska räknas.
- * Designkontraktet styr genomgående.
+ * /uppfoljning/fordelning — apteringen.
+ *
+ * Tre vyer i samma sida (adressen bär vilken):
+ *  - översikten (ingen parameter): fel virke i m³ för senaste månaden, staplar
+ *    per månad, högst en höjdpunkt, "Alla objekt" (Vyer.tsx, logiken i oversikt.ts);
+ *  - ?vy=alla[&manad=2026-10]: listan med alla trakter per månad;
+ *  - ?objekt=<nyckel>: trakten — vältor, ansvarskort, guide, matris (Detalj.tsx).
+ *
+ * Siffrorna räknas ur databasen när HPR-filen importeras (lib/hpr/vy-lager) och
+ * sidan läser bara färdiga kort — den räknar aldrig själv. Senast visade lista
+ * ligger på enheten och visas direkt; ny data byts in tyst. Ett kort från förra
+ * filen står kvar medan den färska räknas.
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { AVSTAND, FARG, KNAPP, KOLUMN_CSS, KORT, TYP, TNUM, VY_ROT, designCss, medSafeBotten } from '@/lib/design/tokens';
+import VyKolumn from '@/components/design/VyKolumn';
 import type { ObjektVy, ObjektKort, ProduktVy, VantandeObjekt } from './types';
 import Detalj from './Detalj';
-import { Objektkort, Avslutsrad, fmtGrad } from './Kort';
+import { AllaObjektVy, OversiktVy } from './Vyer';
+import { m3 } from './oversikt';
 
-const GREY = '#8e8e93';
-const GREY2 = '#636366';
-const CARD = '#1c1c1e';
-const SEP = 'rgba(255,255,255,0.06)';
-const WARN = '#ff9f0a';
-const RED = '#ff453a';
-const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter',system-ui,sans-serif";
-
-const kommatal = (n: number) => n.toString().replace('.', ',');
-
-/** Senast visade lista på enheten — visas direkt nästa gång, uppdateras tyst. */
-const LISTA_NYCKEL = 'fordelning_lista_v1';
+/** Senast visade lista på enheten — visas direkt nästa gång, uppdateras tyst.
+ *  v2: korten bär felM3 (fel virke); en v1-lista hade visat översikten utan tal. */
+const LISTA_NYCKEL = 'fordelning_lista_v2';
 interface ListaSvar { objekt: ObjektKort[]; vantar: VantandeObjekt[]; attRakna: number }
 function lasSparadLista(): ListaSvar | null {
   try {
@@ -53,13 +52,11 @@ async function lasJson(r: Response) {
 
 function FelRad({ text, onIgen }: { text: string; onIgen: () => void }) {
   return (
-    <div style={{ background: CARD, borderRadius: 12, padding: 16 }}>
-      <div style={{ fontSize: 15, color: '#fff', marginBottom: 4 }}>Kunde inte läsa apteringen</div>
-      <div style={{ fontSize: 13, color: GREY, marginBottom: 12, lineHeight: 1.4 }}>{text}</div>
-      <button onClick={onIgen} style={{ background: '#fff', color: '#000', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 600, padding: '12px 18px', minHeight: 44, cursor: 'pointer' }}>
-        Försök igen
-      </button>
-    </div>
+    <section style={KORT}>
+      <div style={{ ...TYP.listtitel }}>Kunde inte läsa apteringen</div>
+      <div style={{ ...TYP.meta, color: FARG.text2, margin: `${AVSTAND.xs}px 0 ${AVSTAND.m}px` }}>{text}</div>
+      <button type="button" onClick={onIgen} style={KNAPP.primar}>Försök igen</button>
+    </section>
   );
 }
 
@@ -88,28 +85,31 @@ function DetaljVy({ objectKey, onTillbaka }: { objectKey: string; onTillbaka: ()
     return () => { av = true; };
   }, [objectKey, försök]);
 
-  if (fel && !vy) return <FelRad text={fel} onIgen={() => setFörsök((n) => n + 1)} />;
-  if (!vy) return <div style={{ color: GREY, fontSize: 14, padding: 16 }}>Hämtar objektet…</div>;
+  const tillbaka = <button type="button" onClick={onTillbaka} style={{ ...KNAPP.lank }}>‹ Alla objekt</button>;
+  if (fel && !vy) return <>{tillbaka}<FelRad text={fel} onIgen={() => setFörsök((n) => n + 1)} /></>;
+  if (!vy) return <>{tillbaka}<p style={{ ...TYP.meta, color: FARG.text2 }}>Hämtar trakten…</p></>;
 
   const p: ProduktVy | undefined = vy.produkter[valdProdukt];
+  const felPct = vy.felM3 != null && vy.bedomdM3 ? Math.round((100 * Math.round(vy.felM3)) / Math.round(vy.bedomdM3)) : null;
   return (
     <div>
-      <button onClick={onTillbaka} style={{ background: 'none', border: 'none', color: GREY, fontSize: 15, cursor: 'pointer', padding: '4px 0 12px' }}>‹ Alla objekt</button>
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>{vy.objektNamn}</h1>
-      <div style={{ fontSize: 14, color: vy.lage === 2 ? WARN : GREY, marginBottom: 4 }}>
-        {fmtGrad(vy.gradePct)} · {Math.round(vy.volymM3)} m³ {vy.lage === 2 ? '· avvikelse' : '· inom mål'}
+      {tillbaka}
+      <h1 style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.xs}px`, ...TYP.rubrik }}>{vy.objektNamn}</h1>
+      <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginBottom: AVSTAND.s }}>
+        {vy.felM3 != null && vy.bedomdM3 != null
+          ? `${m3(vy.felM3)} fel virke · ${felPct} % av ${m3(vy.bedomdM3)}`
+          : `${m3(vy.volymM3)}`}
       </div>
-      {vy.lage === 2 && vy.mening && <div style={{ fontSize: 15, color: '#fff', marginBottom: 6, lineHeight: 1.5 }}>{vy.mening}</div>}
-      {vy.headline && <div style={{ fontSize: 12, color: GREY2, marginBottom: 16 }}>{vy.headline}</div>}
-      {vy.uppdateras && <div style={{ fontSize: 13, color: GREY2, marginBottom: 16 }}>Ny fil · uppdateras…</div>}
-      {fel && <div style={{ fontSize: 13, color: GREY2, marginBottom: 16 }}>Kunde inte uppdatera – visar senast hämtade</div>}
+      {vy.lage === 2 && vy.mening && <div style={{ ...TYP.text, marginBottom: AVSTAND.s }}>{vy.mening}</div>}
+      {vy.uppdateras && <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>Ny fil · uppdateras…</div>}
+      {fel && <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>Kunde inte uppdatera – visar senast hämtade</div>}
 
       {vy.produkter.length > 1 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: AVSTAND.s, margin: `${AVSTAND.s}px 0 ${AVSTAND.l}px`, flexWrap: 'wrap' }}>
           {vy.produkter.map((pr, i) => (
-            <button key={pr.productKey} onClick={() => setValdProdukt(i)}
-              style={{ background: i === valdProdukt ? '#2c2c2e' : 'transparent', border: `1px solid ${SEP}`, color: i === valdProdukt ? '#fff' : GREY, fontSize: 13, borderRadius: 8, padding: '5px 12px', cursor: 'pointer' }}>
-              {pr.namn} · {Math.round(pr.totalVolumeM3)} m³
+            <button key={pr.productKey} type="button" onClick={() => setValdProdukt(i)} aria-pressed={i === valdProdukt}
+              style={{ ...KNAPP.sekundar, width: 'auto', ...TYP.meta, color: i === valdProdukt ? FARG.bg : FARG.text, background: i === valdProdukt ? FARG.text : FARG.fyllning }}>
+              {pr.namn} · {m3(pr.totalVolumeM3)}
             </button>
           ))}
         </div>
@@ -124,6 +124,8 @@ function FordelningInner() {
   const router = useRouter();
   const sök = useSearchParams();
   const vald = sök.get('objekt');
+  const visaAlla = sök.get('vy') === 'alla';
+  const startManad = sök.get('manad');
   const [lista, setLista] = useState<ListaSvar | null>(null);
   const [fel, setFel] = useState<string | null>(null);
   const [räknar, setRäknar] = useState(0);
@@ -131,19 +133,6 @@ function FordelningInner() {
 
   // Visa senast hämtade lista direkt (efter montering — localStorage finns inte på servern).
   useEffect(() => { const s = lasSparadLista(); if (s) setLista((l) => l ?? s); }, []);
-
-  const ladda = useCallback(async () => {
-    setFel(null);
-    try {
-      const d: ListaSvar = await fetch('/api/fordelning').then(lasJson);
-      setLista(d);
-      sparaLista(d);
-      if (d.attRakna > 0) räknaOm(d.attRakna);
-    } catch (e) {
-      setFel(e instanceof Error ? e.message : String(e));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   /** Räkna kort som är äldre än senaste filen — en omgång i taget tills inget är kvar. */
   const räknaOm = useCallback(async (antal: number) => {
@@ -160,104 +149,69 @@ function FordelningInner() {
         if (!d.kvar || !d.raknade) break;
       }
     } catch {
-      // Korten står kvar med "uppdateras…"; nästa öppning försöker igen.
+      // Korten står kvar; nästa öppning försöker igen.
     } finally {
       räknarRef.current = false;
       setRäknar(0);
     }
   }, []);
 
+  const ladda = useCallback(async () => {
+    setFel(null);
+    try {
+      const d: ListaSvar = await fetch('/api/fordelning').then(lasJson);
+      setLista(d);
+      sparaLista(d);
+      if (d.attRakna > 0) räknaOm(d.attRakna);
+    } catch (e) {
+      setFel(e instanceof Error ? e.message : String(e));
+    }
+  }, [räknaOm]);
+
   useEffect(() => { if (!vald) ladda(); }, [vald, ladda]);
 
   const öppna = (k: string) => router.push(`/uppfoljning/fordelning?objekt=${encodeURIComponent(k)}`);
-  const tillbaka = () => router.push('/uppfoljning/fordelning');
+  const tillAlla = (manad?: string) => router.push(`/uppfoljning/fordelning?vy=alla${manad ? `&manad=${manad}` : ''}`);
   const avsluta = async (k: string) => {
     await fetch(`/api/fordelning/${encodeURIComponent(k)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'markera_avslutad' }),
-    });
-    ladda();
+    }).then(lasJson);
+    await ladda();
   };
 
   const wrap = (inner: React.ReactNode) => (
-    <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: ff, padding: '16px 16px 100px', maxWidth: 560, margin: '0 auto' }}>{inner}</div>
+    <div style={{ ...VY_ROT, paddingTop: AVSTAND.l, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
+      <style>{designCss}{KOLUMN_CSS}</style>
+      <VyKolumn>{inner}</VyKolumn>
+    </div>
   );
 
-  if (vald) return wrap(<DetaljVy objectKey={vald} onTillbaka={tillbaka} />);
+  if (vald) return wrap(<DetaljVy objectKey={vald} onTillbaka={() => router.push('/uppfoljning/fordelning?vy=alla')} />);
 
-  const huvud = (
-    <>
-      <button onClick={() => router.push('/uppfoljning')} style={{ background: 'none', border: 'none', color: GREY, fontSize: 15, cursor: 'pointer', padding: '4px 0 12px', minHeight: 44 }}>‹ Uppföljning</button>
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 20px' }}>Aptering</h1>
-    </>
-  );
+  const status = räknar > 0 ? `Räknar ${räknar} objekt med ny fil…` : fel && lista ? 'Kunde inte uppdatera – visar senast hämtade' : null;
 
   if (!lista) {
-    if (fel) return wrap(<>{huvud}<FelRad text={fel} onIgen={ladda} /></>);
-    return wrap(<>{huvud}<div style={{ color: GREY, fontSize: 14 }}>Hämtar apteringen…</div></>);
+    const rubrik = <h1 style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.titel }}>{visaAlla ? 'Alla objekt' : 'Aptering'}</h1>;
+    if (fel) return wrap(<>{rubrik}<FelRad text={fel} onIgen={ladda} /></>);
+    return wrap(<>{rubrik}<p style={{ ...TYP.meta, color: FARG.text2 }}>Hämtar apteringen…</p></>);
   }
 
-  const objekt = lista.objekt;
-  const påminnelser = objekt.filter((o) => o.status === 'active' && (o.dagarSedanFil ?? 0) >= 14);
-  const läge2 = objekt.filter((o) => o.lage === 2);
-  const läge1 = objekt.filter((o) => o.lage === 1);
-
+  if (visaAlla) {
+    return wrap(
+      <AllaObjektVy kort={lista.objekt} vantar={lista.vantar} status={status} startManad={startManad}
+        onTillbaka={() => router.push('/uppfoljning/fordelning')} onOppna={öppna} onAvsluta={avsluta} />
+    );
+  }
   return wrap(
-    <>
-      {huvud}
-
-      {(räknar > 0 || fel) && (
-        <div style={{ fontSize: 13, color: GREY2, margin: '-12px 0 16px 4px' }}>
-          {räknar > 0
-            ? `Räknar ${räknar} objekt med ny fil…`
-            : 'Kunde inte uppdatera – visar senast hämtade'}
-        </div>
-      )}
-
-      {påminnelser.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          {påminnelser.map((o) => <Avslutsrad key={o.objectKey} vy={o} onAvsluta={avsluta} />)}
-        </div>
-      )}
-
-      {läge2.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: GREY, margin: '0 0 12px 4px' }}>Att titta på</div>
-          {läge2.map((o) => <Objektkort key={o.objectKey} vy={o} onÖppna={öppna} />)}
-        </div>
-      )}
-
-      {läge1.length > 0 && (
-        <div style={{ marginTop: läge2.length ? 20 : 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: GREY, margin: '0 0 12px 4px' }}>Inom mål</div>
-          {läge1.map((o) => <Objektkort key={o.objectKey} vy={o} onÖppna={öppna} />)}
-        </div>
-      )}
-
-      {lista.vantar.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: GREY, margin: '0 0 12px 4px' }}>Räknas</div>
-          {lista.vantar.map((o) => (
-            <div key={o.objectKey} style={{ background: CARD, borderRadius: 12, padding: 16, marginBottom: 12, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>{o.objektNamn ?? 'Okänt objekt'}</span>
-              <span style={{ fontSize: 13, color: GREY2, whiteSpace: 'nowrap' }}>Räknas…</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {objekt.length === 0 && lista.vantar.length === 0 && (
-        <div style={{ color: GREY, fontSize: 14, lineHeight: 1.5 }}>
-          Inga objekt med apteringsmål ännu. De kommer hit när skördarens HPR-fil med fördelningsmatris importerats.
-        </div>
-      )}
-    </>
+    <OversiktVy kort={lista.objekt} antalObjekt={lista.objekt.length + lista.vantar.length} status={status}
+      onTillbaka={() => router.push('/uppfoljning')} onAlla={tillAlla} />
   );
 }
 
 export default function FordelningPage() {
   return (
-    <React.Suspense fallback={<div style={{ minHeight: '100vh', background: '#000' }} />}>
+    <React.Suspense fallback={<div style={{ ...VY_ROT }} />}>
       <FordelningInner />
     </React.Suspense>
   );

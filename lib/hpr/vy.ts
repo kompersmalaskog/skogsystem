@@ -60,6 +60,12 @@ export interface ObjektVy {
   mening: string | null;
   headline: string | null;
   trend: { from: number; to: number } | null; // ↑ från 84,1 när ≥2 snapshots
+  /** Fel virke i m³: volymen som inte hamnade i beställd klass, = (100 − grad) % av
+   *  produktens volym, summerat över produkter med grad. Samma definition som graden,
+   *  bara i m³ — designkontraktet: m³ är valutan. null = ingen produkt har grad. */
+  felM3: number | null;
+  /** Volymen felM3 räknas mot (produkter med grad). */
+  bedomdM3: number;
   produkter: ProduktVy[]; // en per produkt med fördelningsmål, störst volym först
 }
 
@@ -162,6 +168,22 @@ function produktVy(p: HprProduct, data: ObjektData): ProduktVy | null {
   };
 }
 
+/**
+ * Fel virke i m³ för ett objekt: (100 − grad) % av produktens volym, rundat per
+ * produkt och sedan summerat (summan är summan av delarna). Produkter utan grad
+ * räknas inte, varken i fel eller i volymen det räknas mot.
+ */
+export function felVirke(
+  produkter: Pick<ProduktVy, "gradePct" | "totalVolumeM3">[]
+): { felM3: number | null; bedomdM3: number } {
+  const graderade = produkter.filter((p) => p.gradePct != null);
+  if (!graderade.length) return { felM3: null, bedomdM3: 0 };
+  return {
+    felM3: round1(graderade.reduce((sum, p) => sum + round1(((100 - p.gradePct!) / 100) * p.totalVolumeM3), 0)),
+    bedomdM3: round1(graderade.reduce((sum, p) => sum + p.totalVolumeM3, 0)),
+  };
+}
+
 export interface Snapshot {
   computed_at: string;
   product_key: string;
@@ -205,6 +227,8 @@ export function byggObjektVy(
     ? Math.floor((nu.getTime() - new Date(meta.lastFileAt).getTime()) / 86400000)
     : null;
 
+  const { felM3, bedomdM3 } = felVirke(produkter);
+
   return {
     objectKey: data.objectKey,
     objektNamn: meta.objektNamn,
@@ -217,6 +241,8 @@ export function byggObjektVy(
     mening: lage === 2 ? dom.mening : null,
     headline: lage === 2 ? dom.headline : null,
     trend,
+    felM3,
+    bedomdM3,
     produkter,
   };
 }

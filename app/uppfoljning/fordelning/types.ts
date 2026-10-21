@@ -30,6 +30,9 @@ export interface ObjektVy {
   mening: string | null;
   headline: string | null;
   trend: { from: number; to: number } | null;
+  /** Fel virke i m³ (= (100 − grad) % av volymen). null = ingen grad, eller kort räknat före VY_VERSION 2. */
+  felM3?: number | null;
+  bedomdM3?: number;
   produkter: ProduktVy[];
   /** Siffrorna är från förra filen; en färsk räknas just nu. */
   uppdateras?: boolean;
