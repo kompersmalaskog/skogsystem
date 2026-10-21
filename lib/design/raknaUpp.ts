@@ -44,7 +44,9 @@ export function useRaknaUppVarde(mal: number | null | undefined): number {
     const start = performance.now();
     const startVarde = fran.current;
     const steg = (nu: number) => {
-      const t = Math.min(1, (nu - start) / RORELSE.tal);
+      // Bildrutans tidsstämpel kan ligga FÖRE `start` (den är bildrutans början, inte anropets) — då blev t negativ och
+      // kurvan 1 − (1 − t)³ slog långt under noll (ett tal 0 → 1 visades som "−7" i jsdom). Aldrig under 0.
+      const t = Math.min(1, Math.max(0, (nu - start) / RORELSE.tal));
       const v = startVarde + (malTal - startVarde) * kurva(t);
       setVisat(v);
       if (t < 1) raf.current = requestAnimationFrame(steg);
