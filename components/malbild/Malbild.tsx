@@ -33,6 +33,12 @@ const MALBILD_BRED_CSS = `${BRED_LAG}{
   .mb-fel{display:grid!important;grid-template-columns:200px minmax(0,1fr);column-gap:${AVSTAND.m}px;row-gap:${AVSTAND.xs}px;align-items:start}
   .mb-fel>:first-child{grid-column:1/-1}
   .mb-ark{max-width:880px!important}
+}
+/* Ännu lägre (Windows-skalning 125 % på maskindatorn: 1024×640): bilden får högst 300 px bredd (eller halva raden), raderna och felbilden blir tätare. */
+@media (min-width: 900px) and (max-height: 700px){
+  .mb-sektion{grid-template-columns:minmax(0,min(300px,50%)) minmax(0,1fr)!important;row-gap:${AVSTAND.s}px!important}
+  .mb-rader>li{min-height:${TRAFFYTA.min}px!important;padding-top:${AVSTAND.xs}px!important;padding-bottom:${AVSTAND.xs}px!important}
+  .mb-fel{grid-template-columns:140px minmax(0,1fr)!important}
 }`;
 
 const micro: React.CSSProperties = { ...TYP.micro, color: FARG.text3 };

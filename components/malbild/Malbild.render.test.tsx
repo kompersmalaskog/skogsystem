@@ -171,6 +171,11 @@ describe('MalbildBlad och den lilla bilden', () => {
     expect(css).toContain('@media (min-width: 900px) and (max-height: 900px)');
     expect(css).toMatch(/\.mb-sektion\{display:grid!important;grid-template-columns:/);
     expect(css).toMatch(/\.mb-ark\{max-width:880px!important\}/);
+    // Windows-skalning 125 % (1024×640): tätare nivå så bilden och "Inte så här" syns över vikningen
+    expect(css).toContain('@media (min-width: 900px) and (max-height: 700px)');
+    expect(css).toMatch(/\.mb-sektion\{grid-template-columns:minmax\(0,min\(300px,50%\)\) minmax\(0,1fr\)!important/);
+    expect(css).toMatch(/\.mb-rader>li\{min-height:\d+px!important/);
+    expect(css).toMatch(/\.mb-fel\{grid-template-columns:140px minmax\(0,1fr\)!important\}/);
     expect(q('malbild-bild')!.parentElement!.className).toBe('mb-bild');
     expect(q('malbild-rader')!.className).toBe('mb-rader');
     expect(q('malbild-fel')!.className).toBe('mb-fel');
