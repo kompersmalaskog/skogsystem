@@ -91,7 +91,7 @@ describe('sidan', () => {
   const page = readFileSync('app/planering/page.tsx', 'utf8');
   it('kortet ligger högst upp, under larmkortet när det finns, och ger inget ljud', () => {
     expect(page).toContain('<GrindKortVy');
-    expect(page).toMatch(/larm\.kort \? 96 : 0/);
+    expect(page).toMatch(/larm\.kort && !inst\.kort \? 96 : 0/);
     const kort = readFileSync('components/planering/LarmKort.tsx', 'utf8');
     const g = kort.slice(kort.indexOf('export function GrindKortVy'));
     expect(g).toContain('Grind');
