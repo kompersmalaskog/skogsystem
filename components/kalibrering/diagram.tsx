@@ -1,10 +1,10 @@
 'use client';
-// Små diagram i kontroll-, stam- och stockarken: stock-svärmen, lollipop-grafen och stammens virke. Portade ur page.tsx (de var CSS-klasser
+// Små diagram i kontroll- och stockarken: stock-svärmen och lollipop-grafen (stamvyns profil bor i StamProfil). Portade ur page.tsx (de var CSS-klasser
 // kalib-swarm-*, kalib-lollipop-*, kalib-stam-*), nu inline på tokens. Färgerna är AVVIKELSESKALAN (TON_FARG) — samma betydelse som förut.
 import { AVSTAND, FARG, RADIE, TNUM, TYP } from '@/lib/design/tokens';
 import type { ToneToken } from '@/lib/kalibrering/bedomning';
 import { fmtAvvikelse } from '@/lib/kalibrering/format';
-import type { MatpunktAvvik, PlanSegment } from '@/lib/kalibrering/kontroll';
+import type { MatpunktAvvik } from '@/lib/kalibrering/kontroll';
 import { avvikelseTon } from '@/lib/kalibrering/bedomning';
 import { xPctFor, yPctFor } from '@/lib/kalibrering/kontroll';
 import { TON_FARG } from './delar';
@@ -61,27 +61,3 @@ export function Lollipop({ punkter }: { punkter: MatpunktAvvik[] }) {
     </div>
   );
 }
-
-// === Stammens virke: stockarna rot → topp, bredd = längd, form-färg = avvikelse ===
-export function StockForm({ ton, breddPct, hojdPx, segment, stockLangdCm }: { ton: ToneToken | 'null'; breddPct: number; hojdPx: number; segment: PlanSegment[]; stockLangdCm: number }) {
-  const saknas = ton === 'null';
-  return (
-    <div style={{
-      position: 'relative', overflow: 'hidden', width: `${breddPct}%`, height: hojdPx, borderRadius: hojdPx / 2,
-      background: saknas ? 'transparent' : TON_FARG[ton],
-      border: saknas ? `1px dashed ${FARG.text3}` : `1px solid ${FARG.linje}`,
-    }}>
-      {/* Planområde: mörk diagonalskraffering + mörka sidokanter. Syns mot vilken stockfärg som helst utan att förväxlas med avvikelsefärgen. */}
-      {stockLangdCm > 0 && segment.map((seg, j) => (
-        <div key={j} style={{
-          position: 'absolute', top: 0, bottom: 0, pointerEvents: 'none',
-          left: `${(seg.startInStockCm / stockLangdCm) * 100}%`,
-          width: `${((seg.endInStockCm - seg.startInStockCm) / stockLangdCm) * 100}%`,
-          backgroundImage: `repeating-linear-gradient(-45deg, ${FARG.bg} 0 3px, transparent 3px 7px)`,
-          borderLeft: `2px solid ${FARG.bg}`, borderRight: `2px solid ${FARG.bg}`,
-        }} />
-      ))}
-    </div>
-  );
-}
-

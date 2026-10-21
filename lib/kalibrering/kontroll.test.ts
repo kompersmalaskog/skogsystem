@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  findPlanomraden, kontrollSumma, lenKlavad, planerPerStock, senasteStockVarde, senasteSumma, stamStockForm,
+  findPlanomraden, kontrollSumma, lenKlavad, senasteStockVarde, senasteSumma,
   stamValOchMatare, stockDetalj, stockDiagnos, stockFordelning, stockRadVarde, swarmX, swarmY, vaderText, xPctFor, yPctFor,
 } from './kontroll';
 import type { StockRow } from '@/app/api/kalibrering/kontroll/route';
@@ -116,16 +116,6 @@ describe('stamvyn — planområden', () => {
   it('profilen sorteras på position först', () => {
     const o = [{ position_cm: 60, diameter_mm: 290 }, { position_cm: 0, diameter_mm: 300 }, { position_cm: 20, diameter_mm: 290 }, { position_cm: 40, diameter_mm: 290 }];
     expect(findPlanomraden(o)).toEqual([{ startCm: 20, endCm: 60, lengthCm: 40, diameterMm: 290 }]);
-  });
-  it('ett plan kan sträcka sig över flera stockar — varje stock får sitt segment', () => {
-    const planer = [{ startCm: 400, endCm: 600, lengthCm: 200, diameterMm: 250 }];
-    const per = planerPerStock(planer, [{ maskin_langd_cm: 490 }, { maskin_langd_cm: 490 }]);
-    expect(per[0]).toEqual([{ startInStockCm: 400, endInStockCm: 490, diameterMm: 250, lengthCm: 200 }]);
-    expect(per[1]).toEqual([{ startInStockCm: 0, endInStockCm: 110, diameterMm: 250, lengthCm: 200 }]);
-  });
-  it('stockens form: saknad mätning → "null" (streckad kontur)', () => {
-    expect(stamStockForm(stock({ dia_avvikelse_mm: null }))).toMatchObject({ hasAvvikData: false, ton: 'null' });
-    expect(stamStockForm(stock({ dia_avvikelse_mm: 5 }))).toMatchObject({ hasAvvikData: true, sDia: 5, ton: 'hi' });
   });
 });
 
