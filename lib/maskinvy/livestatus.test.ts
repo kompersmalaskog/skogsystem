@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { livestatus, importhalsa, datumKort, dagarMellan, stockholmDag } from './livestatus'
+import { livestatus, importhalsa, arSammaSignal, SAMMA_SIGNAL_MAX_MIN, datumKort, dagarMellan, stockholmDag } from './livestatus'
 
 const NU = new Date('2026-10-21T14:00:00Z').getTime()
 const fore = (min: number) => new Date(NU - min * 60000).toISOString()
@@ -57,5 +57,32 @@ describe('datum', () => {
     expect(dagarMellan('2026-10-20', '2026-10-21')).toBe(1)
     expect(dagarMellan('2026-03-28', '2026-03-30')).toBe(2)          // över sommartidsbytet
     expect(stockholmDag(new Date('2026-10-20T22:30:00Z').getTime())).toBe('2026-10-21')   // 00:30 svensk tid
+  })
+})
+
+describe('arSammaSignal — en rad i stället för två när de bygger på samma signal', () => {
+  it('sekunder isär (prod: 0,1 och 0,0 min) är samma signal', () => {
+    expect(arSammaSignal('2026-10-21T14:30:48.052Z', '2026-10-21T14:30:51.978Z', 'OK')).toBe(true)
+    expect(arSammaSignal(fore(10), fore(10), 'OK')).toBe(true)
+  })
+  it('gränsen: exakt 5 min isär är samma, 5 min 1 s är det inte — åt båda hållen', () => {
+    expect(SAMMA_SIGNAL_MAX_MIN).toBe(5)
+    expect(arSammaSignal(fore(10), fore(5), 'OK')).toBe(true)
+    expect(arSammaSignal(fore(5), fore(10), 'OK')).toBe(true)
+    expect(arSammaSignal(fore(10), fore(4.98), 'OK')).toBe(false)
+    expect(arSammaSignal(fore(4.98), fore(10), 'OK')).toBe(false)
+  })
+  it('importen nyare än signalen (maskinen står still, filer kommer): olika saker', () => {
+    expect(arSammaSignal(fore(48520), fore(5), 'OK')).toBe(false)
+  })
+  it('ett importfel slås aldrig ihop, hur lika tiderna än är', () => {
+    expect(arSammaSignal(fore(4), fore(4), 'FEL')).toBe(false)
+    expect(arSammaSignal(fore(4), fore(4), 'ok')).toBe(true)      // skiftläge spelar ingen roll
+    expect(arSammaSignal(fore(4), fore(4), null)).toBe(true)      // som importhalsa: ingen status = inget fel
+  })
+  it('saknad eller trasig tid: inte samma — båda raderna får säga sitt', () => {
+    expect(arSammaSignal(null, fore(4), 'OK')).toBe(false)
+    expect(arSammaSignal(fore(4), undefined, 'OK')).toBe(false)
+    expect(arSammaSignal('skräp', fore(4), 'OK')).toBe(false)
   })
 })

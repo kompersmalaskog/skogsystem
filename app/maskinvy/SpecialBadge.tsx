@@ -19,13 +19,16 @@ export function SpecialBadge({ skal }: { skal?: string | null }) {
   )
 }
 
-/** Objektnamn med en eventuell Special-badge. `special` = finns i mappen namn → skäl. */
-export function ObjektNamn({ namn, special, skal, children }: {
-  namn: string; special?: boolean; skal?: string | null; children?: ReactNode
+/** Objektnamn med en eventuell Special-badge. `special` = finns i mappen namn → skäl.
+ *  `radbryt`: namnet får gå över flera rader i stället för att kortas med … (när namnet ÄR innehållet, som i Idag). */
+export function ObjektNamn({ namn, special, skal, radbryt, children }: {
+  namn: string; special?: boolean; skal?: string | null; radbryt?: boolean; children?: ReactNode
 }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0, maxWidth: '100%' }}>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{namn}</span>
+    <span style={{ display: 'inline-flex', alignItems: radbryt ? 'baseline' : 'center', gap: AVSTAND.s, minWidth: 0, maxWidth: '100%' }}>
+      <span style={radbryt
+        ? { minWidth: 0, overflowWrap: 'anywhere' }
+        : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{namn}</span>
       {special && <SpecialBadge skal={skal} />}
       {children}
     </span>

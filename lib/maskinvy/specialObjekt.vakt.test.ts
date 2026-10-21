@@ -21,12 +21,12 @@ function alla(dir: string, ut: string[] = []): string[] {
 }
 
 describe('special-objekt: inga beräkningar läser flaggan', () => {
-  it('bara de två maskinvy-listorna importerar läsaren', () => {
+  it('bara maskinvyns tre objektlistor (Produktion, Kapacitet, Idag) importerar läsaren — ren visning', () => {
     const importerare = [...alla('app'), ...alla('lib'), ...alla('components')]
       .filter(f => f !== 'lib/maskinvy/specialObjekt.ts')
       .filter(f => /maskinvy\/specialObjekt'/.test(kod(f)))
       .sort()
-    expect(importerare).toEqual(['app/maskinvy/KapacitetNy.tsx', 'app/maskinvy/ProduktionNy.tsx'])
+    expect(importerare).toEqual(['app/maskinvy/DagensObjekt.tsx', 'app/maskinvy/KapacitetNy.tsx', 'app/maskinvy/ProduktionNy.tsx'])
   })
 
   it('beräkningsmodulerna nämner inte special', () => {
