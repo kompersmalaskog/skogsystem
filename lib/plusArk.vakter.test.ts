@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { FLIKAR } from './plusArk';
 import { SYMBOL_NAMN } from './larm/grupper';
+import { MENY_KATEGORIER, UR_MENYN } from './symboler';
 
 // Vakt för plusarkets ommöblering ("Alla" → Symboler · Ytor · Spårning · Lager). Ommöbleringen får inte tappa eller lägga till något:
 // samma symbolkategorier, samma lager i samma grupper och ordning som den gamla Lager-menyn, och varje val som "Fler val" hade.
@@ -17,29 +18,38 @@ const mellan = (src: string, fran: string, till: string): string => {
 };
 
 describe('Symboler: samma kategorier, namn och ordning som appen alltid haft', () => {
-  const kat = mellan(page, 'const symbolCategories = [', 'const markerTypes');
-  const namn = Array.from(kat.matchAll(/^\s{6}name: '([^']+)'/gm)).map((m) => m[1]);
+  const kat = mellan(page, 'const symbolCategories = ', 'const markerTypes');
+  const namn = MENY_KATEGORIER.map((k) => k.namn);
   // Namnen kommer ur SYMBOL_NAMN (lib/larm/grupper, EN källa för menyn, kartans etikett och larmkortet); id:t ska peka på sitt eget namn.
-  const symboler = Array.from(kat.matchAll(/\{ id: '([a-z]+)', name: SYMBOL_NAMN\.([a-z]+) \}/g)).map((m) => `${m[1]}=${m[1] === m[2] ? SYMBOL_NAMN[m[2]] : 'FEL:' + m[2]}`);
+  // Menyn byggs ur lib/symboler (MENY_KATEGORIER) och namnen ur SYMBOL_NAMN — sidan har ingen egen lista.
+  const symboler = MENY_KATEGORIER.flatMap((k) => k.symboler).map((id) => `${id}=${SYMBOL_NAMN[id]}`);
+  it('sidan bygger menyn ur MENY_KATEGORIER och SYMBOL_NAMN, inga egna id eller namn', () => {
+    expect(kat).toContain('MENY_KATEGORIER.map');
+    expect(kat).toContain('name: SYMBOL_NAMN[id]');
+    expect(kat).not.toMatch(/\{ id: '/);
+  });
 
   it('de sex kategorierna i den ordning appen har dem', () => {
     expect(namn).toEqual(['Naturvård', 'Kultur', 'Avverkning', 'Infrastruktur', 'Terräng', 'Övrigt']);
   });
-  it('20 symboler med samma id och namn, i samma ordning', () => {
+  it('19 symboler i menyn: Jakttorn, Markkabel och Grind in; Kulturstubbe (slogs ihop), Dike, Stig och Brant ut — alla fyra ritas ändå', () => {
     expect(symboler).toEqual([
       'eternitytree=Evighetsträd', 'naturecorner=Naturhörna',
-      'culturemonument=Kulturminne', 'culturestump=Kulturstubbe',
+      'culturemonument=Kulturlämning',
       'highstump=Högstubbe', 'landing=Avlägg', 'brashpile=Rishög', 'windfall=Vindfälle', 'manualfelling=Manuell fällning', 'felloutside=Träd att avverka',
-      'powerline=El-ledning', 'road=Väg', 'turningpoint=Vändplats',
-      'ditch=Dike', 'bridge=Bro', 'corduroy=Kavling', 'wet=Fuktig mark', 'steep=Brant', 'trail=Stig / Led',
+      'powerline=El-ledning', 'huntingtower=Jakttorn', 'groundcable=Markkabel', 'road=Väg', 'turningpoint=Vändplats', 'gate=Grind',
+      'bridge=Bro', 'corduroy=Kavling', 'wet=Fuktig mark',
       'warning=Varning',
     ]);
+    for (const t of UR_MENYN) expect(kat, t).not.toContain(t);
+    expect(page).toContain('...UR_MENYN.map((id) => ({ id, name: SYMBOL_NAMN[id] }))');   // namnen finns kvar för gamla markeringar
   });
   it('arket bygger Symboler direkt ur symbolCategories (inga egna grupper) med symbolens riktiga färg', () => {
     expect(page).toContain('const byggSymbolKategorier = (): SymbolKategori[] => symbolCategories.map((k) => ({');
     expect(page).toContain('id: k.name, rubrik: k.name,');
     expect(page).toContain('poster: k.symbols.map((s) => postVy({ typ: \'symbol\', id: s.id }, arFastNu({ typ: \'symbol\', id: s.id }))),');
     expect(page).toContain('dockFarg: getIconDef(p.id).bg');
+    expect(page).toContain('dockSymbol: (px: number) => <SymbolIkon typ={p.id} storlek={px} />');   // dockan ritar samma form och glyf som kartan
   });
 });
 

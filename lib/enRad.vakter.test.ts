@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { markeringNamn } from '../app/oversikt/markeringar';
 
 // Vakt för "ett läge i taget, en rad, en uppsättning knappar": när man placerar, ritar, mäter eller ritar ett nytt område finns EXAKT EN rad
 // längst ner (vad som pågår) och EN uppsättning knappar (↩ ✓ ×). Inget överst, inga dubbla texter, inga dubbla stäng-knappar.
@@ -178,7 +179,8 @@ describe('ett ord för samma sak: zontypen "protected" heter Hänsyn överallt (
     expect(page).toContain("zoneTypes.find(t => t.id === marker.zoneType)?.name || 'Zon'");   // kortets rubrik
   });
   it('översikten och egenkontrollen: samma ord', () => {
-    expect(las('../app/oversikt/markeringar.ts')).toContain("protected: 'Hänsyn',");
+    // Översikten har ingen egen namntabell längre: namnet kommer ur YTA (lib/larm/grupper), samma som kartan och larmkortet.
+    expect(markeringNamn({ zoneType: 'protected' })).toBe('Hänsyn');
     expect(las('./egenkontroll.ts')).toContain("protected: { rubrik: 'Hänsyn', grupp: 'Naturvård' },");
     for (const [fil, gammal] of [['../app/oversikt/markeringar.ts', 'Skyddat område'], ['./egenkontroll.ts', 'Skyddad zon']]) expect(las(fil), gammal).not.toContain(gammal);
   });

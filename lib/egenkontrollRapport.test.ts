@@ -369,7 +369,7 @@ describe('kartan pa sida 1: fakta, lager och anmarkningar', () => {
     // Ett spar utan linjer ar inget lager: det filtreras bort ur kartan, inte bara ur forklaringen.
     expect(m.karta.hyttspar.map((h) => h.roll)).toEqual(['skordare']);
     expect(m.karta.teckenforklaring.map((f) => f.etikett)).toEqual([
-      'Traktgräns', 'Avverkad stam', 'Skördarens spår', 'Basväg', 'Hänsynsyta', 'Övrig symbol',
+      'Traktgräns', 'Avverkad stam', 'Skördarens spår', 'Basväg', 'Hänsyn', 'Övrig symbol',
     ]);
     // Boundary-linjen ritas som markering aldrig (den ar traktgransens lager).
     expect(m.karta.markeringar.some((x) => x.slag === 'linje' && x.typ === 'boundary')).toBe(false);

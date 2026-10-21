@@ -99,7 +99,7 @@ describe('kortet och sidan', () => {
     // inte i någon palett
     const symbolKategorier = page.slice(page.indexOf('const symbolCategories'), page.indexOf('const markerTypes ='));
     expect(symbolKategorier).not.toContain('firewood');
-    expect(las('../lib/marker-icons.ts')).toContain("'firewood'");
+    expect(las('../lib/symboler.ts')).toContain('firewood:');   // glyf, namn och förklaring bor i symbolkällan
   });
   it('byter man tillbaka till "vid avlägget" tas ved-symbolen bort från kartan (föraren ser ingen gammal plats)', () => {
     expect(page).toContain("if (v.plats === 'avlagg' && klarFalt.ved.markeringId) {");

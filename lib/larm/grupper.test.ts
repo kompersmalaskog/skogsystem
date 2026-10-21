@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { markerIconDefs } from '../marker-icons';
-import { FARG_KULTUR, GRUPPER, GRUPP_ORDNING, SYMBOL_GRUPP, YTA, VIDA, gruppForLinje, gruppForSymbol, symbolFarg, ytaDef } from './grupper';
+import { FARG_KULTUR, GRUPPER, GRUPP_ORDNING, LARM_REGEL_TEXT, SYMBOL_GRUPP, YTA, VIDA, gruppForLinje, gruppForSymbol, larmRegelText, symbolFarg, ytaDef } from './grupper';
 
 /** Matlagets hue i grader, 0–360. */
 function hue(hex: string): number {
@@ -60,6 +60,7 @@ describe('färggrupper', () => {
   });
   it('Stenmur är Kultur (brun, en kulturlämning); övriga linjer är ingen grupp', () => {
     expect(gruppForLinje('stonewall')).toBe('kultur');
+    expect(gruppForLinje('powerline')).toBe('fara');                // El-ledning som linje: Röd, som symbolen
     expect(gruppForLinje('mainRoad')).toBeNull();
     expect(gruppForLinje('boundary')).toBeNull();
   });
@@ -77,5 +78,21 @@ describe('färggrupper', () => {
     expect(VIDA.raa_yta).toMatchObject({ grupp: 'kultur', forbjuden: true, namn: 'Fornlämning' });
     expect(VIDA.raa_punkt).toMatchObject({ grupp: 'kultur', forbjuden: false });
     expect(VIDA.kraftledning).toMatchObject({ grupp: 'fara' });
+  });
+});
+
+describe('larmregeln i klartext (samma kort för symboler, linjer, ytor och Vidas objekt)', () => {
+  it('följer gruppens regel: Fara alltid, Natur/Kultur/Blött tills kvitterat, Att göra/Info aldrig', () => {
+    expect(larmRegelText({ grupp: 'fara' })).toBe('Larmar alltid');
+    for (const g of ['natur', 'kultur', 'blott'] as const) expect(larmRegelText({ grupp: g })).toBe('Larmar tills du kvitterat');
+    for (const g of ['att_gora', 'info'] as const) expect(larmRegelText({ grupp: g })).toBe('Larmar inte');
+  });
+  it('Högstubbe och Evighetsträd larmar inte fast de ritas gröna; en förbjuden yta larmar alltid vid inkörning', () => {
+    expect(larmRegelText({ grupp: 'natur', typ: 'highstump' })).toBe('Larmar inte');
+    expect(larmRegelText({ grupp: 'natur', typ: 'eternitytree' })).toBe('Larmar inte');
+    expect(larmRegelText({ grupp: 'natur', forbjuden: true })).toBe('Larmar alltid');
+  });
+  it('texten kommer ur gruppens larm-fält — ingen egen tabell att glida isär', () => {
+    for (const g of Object.values(GRUPPER)) expect(larmRegelText({ grupp: g.id })).toBe(LARM_REGEL_TEXT[g.larm]);
   });
 });
