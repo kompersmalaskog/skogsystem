@@ -34,9 +34,12 @@ const MALBILD_BRED_CSS = `${BRED_LAG}{
   .mb-fel>:first-child{grid-column:1/-1}
   .mb-ark{max-width:880px!important}
 }
-/* Ännu lägre (Windows-skalning 125 % på maskindatorn: 1024×640): bilden får högst 300 px bredd (eller halva raden), raderna och felbilden blir tätare. */
+/* Ännu lägre (Windows-skalning 125 % på maskindatorn: 1024×640): sortväljaren (Kulturlämning/Kolbotten) står på samma rad som etiketten i stället för ovanför bilden, bilden får högst 300 px (eller 43 % av raden), raderna och felbilden blir tätare. */
 @media (min-width: 900px) and (max-height: 700px){
-  .mb-sektion{grid-template-columns:minmax(0,min(300px,50%)) minmax(0,1fr)!important;row-gap:${AVSTAND.s}px!important}
+  .mb-sektion{grid-template-columns:minmax(0,min(300px,43%)) minmax(0,1fr)!important;row-gap:${AVSTAND.s}px!important}
+  .mb-huvud{flex-direction:row!important;align-items:center;justify-content:space-between;gap:${AVSTAND.m}px!important}
+  .mb-val{flex-wrap:nowrap!important}
+  .mb-val>button{padding:0 ${AVSTAND.m}px!important}
   .mb-rader>li{min-height:${TRAFFYTA.min}px!important;padding-top:${AVSTAND.xs}px!important;padding-bottom:${AVSTAND.xs}px!important}
   .mb-fel{grid-template-columns:140px minmax(0,1fr)!important}
 }`;
@@ -59,18 +62,20 @@ export function MalbildSektion({ nyckel, roll, testid = 'malbild' }: { nyckel: s
   return (
     <section className="mb-sektion" data-testid={testid} data-malbild={m.nyckel} data-roll={roll ?? 'ingen'} data-variant={variant ?? ''} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
       <style>{MALBILD_BRED_CSS}</style>
-      <div style={micro}>Så ska det se ut</div>
-      {val && (
-        <div role="group" aria-label="Vilken sort" style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
-          {val.map((v) => {
-            const vald = v.nyckel === variant;
-            return (
-              <button key={v.nyckel ?? 'standard'} type="button" data-testid={`malbild-variant-${v.nyckel ?? 'standard'}`} aria-pressed={vald} onClick={() => setVariant(v.nyckel)} className="press-dim"
-                style={{ ...(vald ? KNAPP.primar : KNAPP.sekundar), width: 'auto', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, fontFamily: 'inherit' }}>{v.namn}</button>
-            );
-          })}
-        </div>
-      )}
+      <div className="mb-huvud" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+        <div style={micro}>Så ska det se ut</div>
+        {val && (
+          <div className="mb-val" role="group" aria-label="Vilken sort" style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
+            {val.map((v) => {
+              const vald = v.nyckel === variant;
+              return (
+                <button key={v.nyckel ?? 'standard'} type="button" data-testid={`malbild-variant-${v.nyckel ?? 'standard'}`} aria-pressed={vald} onClick={() => setVariant(v.nyckel)} className="press-dim"
+                  style={{ ...(vald ? KNAPP.primar : KNAPP.sekundar), width: 'auto', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, fontFamily: 'inherit' }}>{v.namn}</button>
+              );
+            })}
+          </div>
+        )}
+      </div>
       <div className="mb-bild"><MalbildBild svg={i.bild} testid="malbild-bild" /></div>
       <ul className="mb-rader" data-testid="malbild-rader" style={{ listStyle: 'none', margin: 0, padding: 0, background: FARG.upphojt, borderRadius: RADIE.kort, display: 'flex', flexDirection: 'column' }}>
         {i.rader.map((r, n) => (

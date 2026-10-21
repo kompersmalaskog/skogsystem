@@ -173,11 +173,15 @@ describe('MalbildBlad och den lilla bilden', () => {
     expect(css).toMatch(/\.mb-ark\{max-width:880px!important\}/);
     // Windows-skalning 125 % (1024×640): tätare nivå så bilden och "Inte så här" syns över vikningen
     expect(css).toContain('@media (min-width: 900px) and (max-height: 700px)');
-    expect(css).toMatch(/\.mb-sektion\{grid-template-columns:minmax\(0,min\(300px,50%\)\) minmax\(0,1fr\)!important/);
+    expect(css).toMatch(/\.mb-sektion\{grid-template-columns:minmax\(0,min\(300px,43%\)\) minmax\(0,1fr\)!important/);
     expect(css).toMatch(/\.mb-rader>li\{min-height:\d+px!important/);
+    // sortväljaren (Kulturlämning/Kolbotten) står på samma rad som etiketten på låga skärmar, inte ovanför bilden
+    expect(css).toMatch(/\.mb-huvud\{flex-direction:row!important/);
+    expect(css).toMatch(/\.mb-val\{flex-wrap:nowrap!important\}/);
     expect(css).toMatch(/\.mb-fel\{grid-template-columns:140px minmax\(0,1fr\)!important\}/);
     expect(q('malbild-bild')!.parentElement!.className).toBe('mb-bild');
     expect(q('malbild-rader')!.className).toBe('mb-rader');
+    expect(q('malbild-blad-sektion')!.querySelector('.mb-huvud')).not.toBeNull();
     expect(q('malbild-fel')!.className).toBe('mb-fel');
     expect(q('malbild-blad')!.querySelector('.mb-ark')).not.toBeNull();
   });
