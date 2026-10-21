@@ -102,3 +102,34 @@ export function tradslagLabel(ratt: string | null | undefined): string {
   const ord = nyckel.replace(/_/g, ' ').toLowerCase();
   return ord.charAt(0).toUpperCase() + ord.slice(1);
 }
+
+// ---------------------------------------------------------------------------
+// Kartans högar och sortiment (planeringsvyn)
+// ---------------------------------------------------------------------------
+
+/** Tall: appens ORANGE — samma i kartan, diagrammen och markägarrapporten (lib/tradslag är enda källan). */
+export const TALL_FARG = TRADSLAG_STIL.Tall.fyll;
+/** GROT: EN färg, den bruna, i alla lager och listor. */
+export const GROT_FARG = '#8B5E3C';
+/** Björk är vit; på kartans pajer och prickar bär den en mörk kant så den inte försvinner mot vit karta eller vit pajkant. */
+export const BJORK_KANT_FARG = 'rgba(0,0,0,0.65)';
+
+const KARTA_GRAN = '#1d9e75';
+const KARTA_BJORK = '#f0f0f0';
+const KARTA_OVR_LOV = '#888780';
+export const KARTA_BLANDAT = '#6b7c3a';
+
+/** Färgen för ett sortiment ("Tall timmer", "Björk massa", "GROT"…) på kartan: trädslagets färg, GROT brun, annars blandat. */
+export function sortimentFarg(sortiment: string): string {
+  if (sortiment === 'GROT') return GROT_FARG;
+  if (sortiment.startsWith('Gran')) return KARTA_GRAN;
+  if (sortiment.startsWith('Tall')) return TALL_FARG;
+  if (sortiment.startsWith('Björk')) return KARTA_BJORK;
+  if (sortiment.startsWith('Övr_löv')) return KARTA_OVR_LOV;
+  return KARTA_BLANDAT;
+}
+
+/** Dominerande trädslag per hög (maskinens versaler, normaliserade) → färg. */
+export const HOG_TRADSLAG_FARG: Readonly<Record<string, string>> = { GRAN: KARTA_GRAN, TALL: TALL_FARG, 'BJÖRK': KARTA_BJORK, 'ÖVR_LÖV': KARTA_OVR_LOV };
+/** Gallringszonens trädslagsfärger (Tall/Gran/Löv) — samma palett som högarna. */
+export const GALLRING_FARG = { tall: TALL_FARG, gran: KARTA_GRAN, lov: KARTA_BJORK } as const;

@@ -9,7 +9,7 @@ import { formatVolym, skotarTillstand } from './oversikt-utils';
 import { paBackenKvar } from '@/lib/skotat';
 import { supabase } from '@/lib/supabase';
 import ObjektEgenkontroll from './ObjektEgenkontroll';
-import { subLabel, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
+import { markeringNamn, markeringSub, FARA_SUBTYPER, HANSYN_SUBTYPER } from './markeringar';
 import { lastLista, lasFelOrsak } from './las-svar';
 import { LasFelRad, LASFEL_FARA } from './LasFel';
 import type { SkordAgg } from './page';
@@ -165,7 +165,7 @@ function ObjektDetalj({ obj, skord, onClose }: { obj: OversiktObjekt; skord?: Sk
           const sub = markeringSub(r.data);
           const comment = (r.data && typeof r.data === 'object' && typeof r.data.comment === 'string')
             ? r.data.comment.trim() : '';
-          return { sub, label: sub ? subLabel(sub) : 'Markering', comment };
+          return { sub, label: sub ? markeringNamn(r.data) : 'Markering', comment };
         }).filter((m) => m.sub || m.comment);
         setMarks(list);
         setMarksFel(false);

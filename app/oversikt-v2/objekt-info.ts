@@ -1,7 +1,7 @@
 // Det objekt-arket i /oversikt-v2 visar om ett objekt, som ren logik (Node-importerbar, testas i objekt-info.test.ts):
 // planerarens faror och hänsyn MED kommentar, bärighet och markägarens telefon. Allt kommer ur planeringen — här läses det bara.
 
-import { classifyMarkering, markeringSub, SUB_LABEL, prettifySub } from '../oversikt/markeringar';
+import { classifyMarkering, markeringSub, markeringNamn } from '../oversikt/markeringar';
 
 /** En fara eller hänsyn: namnet (Kraftledning, Fornlämning …) och planerarens beskrivning (data.comment) om den finns. */
 export interface Varning { label: string; kommentar: string | null }
@@ -22,7 +22,7 @@ export function byggVarningar(rows: MarkeringRow[]): Record<string, ObjWarn> {
     const niva = classifyMarkering(m.data);
     if (niva !== 'fara' && niva !== 'hansyn') continue;
     const sub = markeringSub(m.data);
-    const label = sub ? (SUB_LABEL[sub] || prettifySub(sub)) : 'Markering';
+    const label = sub ? markeringNamn(m.data) : 'Markering';
     const c = m.data?.comment;
     const kommentar = typeof c === 'string' && c.trim() ? c.trim() : null;
     const nyckel = `${m.objekt_id}|${niva}|${label}|${kommentar ?? ''}`;

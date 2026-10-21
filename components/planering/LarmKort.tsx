@@ -6,15 +6,25 @@
 
 import React from 'react';
 import type { LarmKort as Kort, LarmNasta } from '@/lib/larm/larm';
-import type { FargGrupp } from '@/lib/larm/grupper';
+import { LarmIkon } from '@/components/SymbolIkon';
+import { MalbildLiten } from '@/components/malbild/Malbild';
+import { malbildNyckel, type Maskinroll } from '@/lib/malbilder';
 import { AVSTAND, FARG, RADIE, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 
-/** Ikonen följer gruppen (formen bär betydelsen när färgen inte syns i solljus). */
-const IKON: Record<FargGrupp, string> = {
-  fara: 'warning', natur: 'forest', kultur: 'museum', blott: 'water_drop', att_gora: 'content_cut', info: 'info',
-};
+/** Ikonens storlek i kortet: som en träffyta, tydlig på håll. */
+const LARM_IKON_PX = 56;
 
-export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; riktning: string | null; top: string; fler?: readonly LarmNasta[] }) {
+/** Målbildens nyckel för larmet, om kortet ska visa den lilla bilden: bara första gången (okvitterat) och bara för sorter som har en målbild. */
+export const larmMalbild = (kort: Kort | null): string | null => (kort && kort.okvitterad ? malbildNyckel(kort.kalla, kort.typ) : null);
+
+export function LarmKortVy({ kort, riktning, top, fler = [], roll = null, onVisaMalbild }: {
+  kort: Kort; riktning: string | null; top: string; fler?: readonly LarmNasta[];
+  /** Maskintypen (skördare/skotare): målbilden kan skilja per roll. */
+  roll?: Maskinroll | null;
+  /** "Visa" på den lilla målbilden. Utan den visas ingen bild. */
+  onVisaMalbild?: (nyckel: string) => void;
+}) {
+  const malbild = onVisaMalbild ? larmMalbild(kort) : null;
   const rad2 = kort.text ?? (riktning && kort.avstandM != null ? riktning : null);
   return (
     <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 620, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -37,9 +47,8 @@ export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; rik
           <span aria-hidden="true" data-testid="larm-puls" className="puls" style={{ position: 'absolute', inset: -AVSTAND.s, border: `${AVSTAND.s}px solid ${kort.farg}`, borderRadius: RADIE.sheet + AVSTAND.s, pointerEvents: 'none' }} />
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l }}>
-        <span aria-hidden="true" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: RADIE.kort, background: kort.farg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 30, color: FARG.text }}>{kort.forbjuden ? 'block' : IKON[kort.grupp]}</span>
-        </span>
+        {/* Ikonen = kartans symbol (form, glyf och färg ur lib/symboler + lib/larm/grupper): triangel med blixt för El-ledning, cirkel för resten. */}
+        <span data-testid="larm-ikon" style={{ flexShrink: 0, display: 'flex' }}><LarmIkon kalla={kort.kalla} typ={kort.typ} grupp={kort.grupp} storlek={LARM_IKON_PX} /></span>
         <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
           <span style={{ ...TYP.rubrik, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kort.namn}</span>
           {rad2 && <span style={{ ...TYP.text, color: FARG.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rad2}</span>}
@@ -51,6 +60,7 @@ export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; rik
           </span>
         )}
         </div>
+        {malbild && <MalbildLiten nyckel={malbild} roll={roll} onVisa={onVisaMalbild!} />}
         {fler.length > 0 && <FlerRad fler={fler} />}
       </div>
     </div>
@@ -124,6 +134,35 @@ export function SettRad({ namn, farg, smal, onSett }: { namn: string; farg: stri
           <span aria-hidden="true" className="material-symbols-outlined" style={{ fontSize: 26 }}>check</span>
           <span>Sett</span>
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * GRINDKORTET (Info, ingen varning): "Grind · Stäng efter dig" med hänglåskoden stort till höger. Samma plats och form som larmkortet men utan färgad ram,
+ * utan puls och utan ljud. Ligger under larmkortet när båda visas (`under`). Koden syns bara här — aldrig i A4-rapporten.
+ */
+export function GrindKortVy({ kod, top, symbol }: { kod: string; top: string; symbol: React.ReactNode }) {
+  return (
+    <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 610, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+      <div
+        role="status"
+        data-testid="grind-kort"
+        style={{
+          width: '100%', maxWidth: 560, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: AVSTAND.l, padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
+          background: FARG.kort, borderRadius: RADIE.sheet, color: FARG.text, pointerEvents: 'auto', boxShadow: '0 16px 50px rgba(0,0,0,0.7)',
+        }}
+      >
+        <span aria-hidden="true" style={{ flexShrink: 0, display: 'flex' }}>{symbol}</span>
+        <span style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+          <span style={{ ...TYP.rubrik }}>Grind</span>
+          <span style={{ ...TYP.text, color: FARG.text2, whiteSpace: 'nowrap' }}>Stäng efter dig</span>
+        </span>
+        <span style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+          <span style={{ ...TYP.micro, color: FARG.text2 }}>Kod</span>
+          <span data-testid="grind-kod" style={{ ...TYP.tal, fontSize: 32, letterSpacing: 2, whiteSpace: 'nowrap' }}>{kod}</span>
+        </span>
       </div>
     </div>
   );

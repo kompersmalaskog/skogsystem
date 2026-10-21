@@ -26,7 +26,7 @@ export const SYMBOL_LAGER: readonly string[] = [
   'markers-layer', 'markers-hit',            // symboler (avlägg, högstubbe, fara …)
   'arrows-layer', 'arrows-hit',              // pilar
   'trakt-punkt-circle', 'trakt-punkt-label', // Vidas punkter (avlägg, larm) och deras etiketter
-  'trakt-hansyn-label', 'yta-nr-label', 'yta-nr-hit', 'zone-label', 'line-mainroad-label',
+  'trakt-hansyn-label', 'trakt-nb-label', 'trakt-raa-label', 'yta-nr-label', 'yta-nr-hit', 'zone-label', 'line-mainroad-label',
   'hogar-circle', 'hogar-cluster-label', 'hogar-hit',   // produktionshögar
   'grot-circle', 'grot-label',
   'larm-pin', 'larm-pin-hit',
@@ -34,7 +34,7 @@ export const SYMBOL_LAGER: readonly string[] = [
 ];
 
 /** Symbollager som medvetet INTE klipps: verktyg (rita/mät), maskinens position, körvyns egen etikett (körvy-bara), skotarens avläggsrutor (körvy-bara, ska alltid synas), backvägens tvärstreck (en del av vägens linje, ska synas på alla zoomnivåer). Varje `type: 'symbol'`-lager i page.tsx måste stå i någon av listorna. */
-export const SYMBOL_UNDANTAG: readonly string[] = ['figur-etikett', 'hornedit-nr', 'maskin-symbol', 'markers-korvy-label', 'skotar-avlagg-ruta', 'line-backvag'];
+export const SYMBOL_UNDANTAG: readonly string[] = ['figur-etikett', 'hornedit-nr', 'maskin-symbol', 'markers-korvy-label', 'skotar-avlagg-ruta', 'line-backvag', 'trakt-kraftledning-stolpar', 'trakt-kraftledning-symbol', 'line-powerline-stolpar', 'line-powerline-symbol'];
 
 const rad = (g: number) => (g * Math.PI) / 180;
 

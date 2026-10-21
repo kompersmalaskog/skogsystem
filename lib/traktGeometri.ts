@@ -4,7 +4,8 @@
 // INTE SV_BESKRIVNINGSENHET_FL (markägarens skogsbruksplan → renderas ej).
 
 export type TraktKategori =
-  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'ignorera';
+  | 'traktdel' | 'hansyn' | 'punkt' | 'nyckelbiotop' | 'lamning' | 'omrade' | 'linje' | 'ignorera';
+//   'linje'  = Vidas linje (L_TILLAGGSLINJER: kraftledning, basväg) — byggs av lib/linjeKort, inte ur `_lager`-tabellen nedan.
 //   'omrade' = planerarens egna ritade område (planering_markeringar, ej objekt_geometri) — PR B.
 
 // _lager → kategori (+ källa). Allt som inte mappas → 'ignorera' (renderas/tappas inte).
@@ -49,6 +50,9 @@ export interface TraktKort {
   rubrik: string;
   nr: string;                    // Nr/löpnr/traktdelsnr (kontextrad)
   arealHa: number | null;
+  /** Linjekort (kategori 'linje'): gruppen (kicker) och EN mening — ur samma källa som teckenförklaringen (lib/symboler). */
+  grupp?: import('./larm/grupper').FargGrupp;
+  forklaring?: string;
   rader: { etikett?: string; text: string }[];   // beskrivande textfält (åtgärd / biotop / lämningsbeskrivning)
 }
 
@@ -94,6 +98,8 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
 export function ytaNyckel(props: Record<string, any> | null | undefined): string | null {
   const { kategori } = klassaTraktFeature(props);
   const p = props || {};
+  // Vidas linjer (kraftledning, basväg) nycklas av lib/vidaNycklar och bär nyckeln som `_nyckel` på featuren.
+  if (kategori === 'ignorera' && typeof p._nyckel === 'string' && p._nyckel) return p._nyckel;
   switch (kategori) {
     case 'hansyn':       { const v = txt(p.LOPNR);                       return v ? `hansyn:${v}` : null; }
     case 'traktdel':     { const v = txt(p.TRDEL_ID) || txt(p.TRDEL_NR_K); return v ? `traktdel:${v}` : null; }

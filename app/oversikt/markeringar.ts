@@ -1,3 +1,5 @@
+import { LINJE_NAMN, SYMBOL_NAMN, YTA } from '../../lib/larm/grupper';
+
 /* ── Delad klassning + humanisering av planering_markeringar ──
    EN källa för både Karta-fliken (OversiktKarta) och Objekt-fliken
    (OversiktObjektLista → ObjektDetalj) — så samma objekt ser likadant ut i båda.
@@ -12,26 +14,27 @@ export const HANSYN_SUBTYPER = new Set([
   'culture', 'culturemonument', 'highstump',
 ]);
 
-export const SUB_LABEL: Record<string, string> = {
-  // Faror
-  powerline: 'Kraftledning', warning: 'Varning',
-  // Hänsyn
-  eternitytree: 'Eternitträd', naturecorner: 'Naturhörn', protected: 'Hänsyn',
-  fornlamning: 'Fornlämning', culture: 'Kulturmiljö', culturemonument: 'Kulturminne',
-  highstump: 'Högstubbe',
-  // Övrigt — punkter
-  manualfelling: 'Manuell fällning', steep: 'Brant', culturestump: 'Kulturstubbe',
-  bridge: 'Bro', landing: 'Avlägg', corduroy: 'Kavelbro', ditch: 'Dike',
-  windfall: 'Vindfälle', brashpile: 'Rishög', road: 'Väg', trail: 'Stig',
-  turningpoint: 'Vändplats',
-  // Övrigt — zoner
-  wet: 'Blöt mark', noentry: 'Kör ej',
-  // Övrigt — linjer
+/* NAMNEN bor i EN källa (lib/larm/grupper: SYMBOL_NAMN, YTA, LINJE_NAMN) — samma som menyn, kartan och larmkortet. Här finns bara det som
+   saknas där (basväg, stickväg, traktgräns, pilar …). En egen etikett för något som redan har ett namn är förbjuden (vakt: markeringar.test.ts). */
+export const OVRIGA_ETIKETTER: Record<string, string> = {
   boundary: 'Traktgräns', mainRoad: 'Basväg', nature: 'Naturvärde', stickvag: 'Stickväg',
   sideRoadRed: 'Stickväg', sideRoadYellow: 'Stickväg', sideRoadBlue: 'Stickväg',
-  // Övrigt — pilar
   fellingdirection: 'Fällriktning', drivedirection: 'Körriktning',
 };
+
+/** Namnet på en markering, avgjort av VAD den är (symbol, yta eller linje) — `wet` är Fuktig mark som symbol men Blött som yta. */
+export function markeringNamn(data: any): string {
+  if (!data || typeof data !== 'object') return 'Markering';
+  // Först tabellen för det slag markeringen är; saknas nyckeln där (gammal data med fel slag) gäller de andra tabellerna — aldrig ett eget namn.
+  if (data.type) return SYMBOL_NAMN[data.type] ?? subLabel(String(data.type));
+  if (data.zoneType) return YTA[data.zoneType]?.namn ?? subLabel(String(data.zoneType));
+  if (data.lineType) return LINJE_NAMN[data.lineType] ?? subLabel(String(data.lineType));
+  if (data.arrowType) return subLabel(String(data.arrowType));
+  return 'Markering';
+}
+
+/** Etikett för en subtyp när bara subtypen är känd (symbol före yta före linje). Föredra `markeringNamn(data)`. */
+export const SUB_LABEL: Record<string, string> = { ...OVRIGA_ETIKETTER, ...Object.fromEntries(Object.entries(YTA).map(([k, v]) => [k, v.namn])), ...LINJE_NAMN, ...SYMBOL_NAMN };
 
 /* Sista utväg när vi saknar en svensk etikett — så inget filtreras bort tyst. */
 export function prettifySub(sub: string): string {
