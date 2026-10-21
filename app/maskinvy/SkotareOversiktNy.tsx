@@ -18,6 +18,7 @@ import {
 } from '@/lib/skotningsavstand'
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from '@/lib/g15'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
+import { LivestatusKort } from './Livestatus'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareOversiktNy — Översikt för skotare bakom ?ny=1.
@@ -983,6 +984,8 @@ export default function SkotareOversiktNy({ maskin, onMaskinChange }: {
 
       {/* ── Innehåll ── */}
       <div style={{ ...kolumnRot('smal'), padding: `0 ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
+        {/* Livestatus (senaste lossning) + maskinhälsa (senaste fil) — alltid nu, oberoende av vald period. */}
+        <LivestatusKort maskin={maskin} roll="skotare" />
         <SkotareHero
           value={data?.volym ?? null}
           prev={prevData?.volym ?? null}

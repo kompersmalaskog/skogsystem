@@ -4,8 +4,7 @@ import { tradslagFarg, tradslagLabel } from '@/lib/tradslag'
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { aktivNuStatus, type AktivNiva } from '@/lib/maskinvy/aktivNu'
-import { useMinutklocka } from './useMinutklocka'
+import { LivestatusRad } from './Livestatus'
 import { sthlmDagGranserUtc, optiLokalDag, optiLokalTimme } from '@/lib/optiTid'
 import {
   MASKINER, COMBO_IDS, fmtSv, fmtTid, type Maskin, FLYTT_FARG, tint,
@@ -32,14 +31,6 @@ function fmtDatumSv(datum: string): string {
   // '2026-05-22' → '22 maj'
   const d = new Date(datum + 'T12:00:00')
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
-}
-
-function fmtTimeHHMM(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' })
-  } catch {
-    return '—'
-  }
 }
 
 /** "GRAN" → "Gran", "BJÖRK" → "Björk" */
@@ -321,77 +312,6 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
     tradNamn,
     momTider,
   }
-}
-
-// ── FreshnessRow ──────────────────────────────────────────────
-// Vyns viktigaste element — status om data är dagsfärsk eller äldre.
-function FreshnessRow({
-  freshness, loading,
-}: {
-  freshness: FreshnessInfo | null
-  loading: boolean
-}) {
-  const nu = useMinutklocka()          // hooks före tidiga returer
-  const baseStyle: React.CSSProperties = {
-    background: FARG.kort, borderRadius: RADIE.kort,
-    padding: `${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12,
-    display: 'flex', alignItems: 'center', gap: AVSTAND.m,
-  }
-
-  if (loading) {
-    return (
-      <div style={baseStyle}>
-        <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.text3, flexShrink: 0 }} />
-        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Kontrollerar dataålder…</span>
-      </div>
-    )
-  }
-
-  if (!freshness) {
-    return (
-      <div style={baseStyle}>
-        <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.text3, flexShrink: 0 }} />
-        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Ingen data i databasen</span>
-      </div>
-    )
-  }
-
-  const isToday = freshness.daysDiff === 0
-
-  // Idag: signalens ÅLDER avgör (lib/maskinvy/aktivNu) — grön bara när den kom nyss.
-  let niva: AktivNiva | null = null
-  let labelText: string
-  if (isToday) {
-    const st = aktivNuStatus(freshness.senasteSkapadTid, nu, fmtTimeHHMM)
-    niva = st.niva
-    labelText = st.text
-  } else if (freshness.daysDiff === 1) {
-    labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · igår`
-  } else {
-    labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · ${freshness.daysDiff} dagar sedan`
-  }
-  const aktiv = niva === 'aktiv'
-  const dotColor = aktiv ? FARG.gron : niva === 'sen' ? FARG.gul : FARG.text3
-
-  return (
-    <div style={{
-      ...baseStyle,
-      border: isToday ? 'none' : `0.5px solid ${tint(FARG.orange, 25)}`,
-    }}>
-      <div style={{
-        width: 8, height: 8, borderRadius: RADIE.stapel,
-        background: dotColor, flexShrink: 0,
-        boxShadow: aktiv ? `0 0 0 3px ${tint(FARG.gron, 18)}` : 'none',
-      }} />
-      <span style={{
-        fontSize: TYP.meta.fontSize,
-        color: isToday && niva !== 'inget' && niva !== 'saknas' ? FARG.text : FARG.text2,
-        fontVariantNumeric: 'tabular-nums',
-      }}>
-        {labelText}
-      </span>
-    </div>
-  )
 }
 
 // ── SiffraCard ────────────────────────────────────────────────
@@ -1133,7 +1053,7 @@ export default function IdagNy({ maskin, onMaskinChange }: {
       <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
 
         {/* 1. Färskhet — vyns viktigaste element */}
-        <FreshnessRow freshness={data?.freshness ?? null} loading={loading} />
+        <LivestatusRad ram fresh={data ? { senasteDatum: data.freshness.senasteDatum, signalIso: data.freshness.senasteSkapadTid, daysDiff: data.freshness.daysDiff } : null} loading={loading} />
 
         {/* 2. Dagens siffra: volym + stammar + G15h + produktivitet */}
         <SiffraCard data={data} loading={loading} />

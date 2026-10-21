@@ -4,8 +4,7 @@ import { underTopbar, RADIE, AVSTAND, TYP, VIKT, medSafeBotten, FARG, FONT, kolu
 import { useEffect, useRef, useState } from 'react'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import { supabase } from '@/lib/supabase'
-import { aktivNuStatus, type AktivNiva } from '@/lib/maskinvy/aktivNu'
-import { useMinutklocka } from './useMinutklocka'
+import { LivestatusRad } from './Livestatus'
 import { snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
 import {
   fmtSv, VolymBadge, FLYTT_FARG, tint,
@@ -50,14 +49,6 @@ function toStockholmHour(isoTs: string): number {
 }
 
 /** Senaste lossning → "HH:MM" i Stockholm-tid */
-function fmtStockholmHHMM(isoTs: string): string {
-  try {
-    return new Date(isoTs).toLocaleTimeString('sv-SE', {
-      hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm',
-    })
-  } catch { return '—' }
-}
-
 const MONTHS_SHORT = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec']
 function fmtDatumSv(datum: string): string {
   const d = new Date(datum + 'T12:00:00')
@@ -206,77 +197,6 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
     hourBuckets,
     momTider,
   }
-}
-
-// ── FreshnessRow ──────────────────────────────────────────────
-// Aktiv nu (grön, < 20 min) · Senaste signal för X min sedan (gul, 20–60 min) · Inget sedan HH:MM (grå, > 60 min).
-function FreshnessRow({
-  freshness, loading,
-}: {
-  freshness: FreshnessInfo | null
-  loading:   boolean
-}) {
-  const nu = useMinutklocka()          // hooks före tidiga returer
-  const baseStyle: React.CSSProperties = {
-    background: FARG.kort, borderRadius: RADIE.kort,
-    padding: `${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12,
-    display: 'flex', alignItems: 'center', gap: AVSTAND.m,
-  }
-
-  if (loading) {
-    return (
-      <div style={baseStyle}>
-        <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.text3, flexShrink: 0 }} />
-        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Kontrollerar dataålder…</span>
-      </div>
-    )
-  }
-
-  if (!freshness) {
-    return (
-      <div style={baseStyle}>
-        <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.text3, flexShrink: 0 }} />
-        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Ingen data i databasen</span>
-      </div>
-    )
-  }
-
-  const isToday = freshness.daysDiff === 0
-
-  // Idag: signalens ÅLDER avgör (lib/maskinvy/aktivNu) — grön bara när senaste lossning/signal kom nyss.
-  let niva: AktivNiva | null = null
-  let labelText: string
-  if (isToday) {
-    const st = aktivNuStatus(freshness.senasteLossningsTid, nu, fmtStockholmHHMM)
-    niva = st.niva
-    labelText = st.text
-  } else if (freshness.daysDiff === 1) {
-    labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · igår`
-  } else {
-    labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · ${freshness.daysDiff} dagar sedan`
-  }
-  const aktiv = niva === 'aktiv'
-
-  return (
-    <div style={{
-      ...baseStyle,
-      background: FARG.kort,
-      border:     isToday ? 'none' : `0.5px solid ${tint(FARG.orange, 25)}`,
-    }}>
-      <div style={{
-        width: 8, height: 8, borderRadius: RADIE.stapel, flexShrink: 0,
-        background: aktiv ? FARG.gron : niva === 'sen' ? FARG.gul : FARG.text3,
-        boxShadow:  aktiv ? `0 0 0 3px ${tint(FARG.gron, 18)}` : 'none',
-      }} />
-      <span style={{
-        fontSize: TYP.meta.fontSize,
-        color: isToday && niva !== 'inget' && niva !== 'saknas' ? FARG.text : FARG.text2,
-        fontVariantNumeric: 'tabular-nums',
-      }}>
-        {labelText}
-      </span>
-    </div>
-  )
 }
 
 // ── SiffraCard ────────────────────────────────────────────────
@@ -867,7 +787,7 @@ export default function SkotareIdagNy({ maskin, onMaskinChange }: {
       <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
 
         {/* 1. Färskhet */}
-        <FreshnessRow freshness={data?.freshness ?? null} loading={loading} />
+        <LivestatusRad ram fresh={data ? { senasteDatum: data.freshness.senasteDatum, signalIso: data.freshness.senasteLossningsTid, daysDiff: data.freshness.daysDiff } : null} loading={loading} />
 
         {/* 2. Dagens siffror: Utkört · Lass · Skotningsavstånd */}
         <SiffraCard data={data} loading={loading} />
