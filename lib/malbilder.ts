@@ -2019,7 +2019,7 @@ const SKS_KULTURMILJOER: KallLank = {
   url: 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/handledning-for-god-kulturmiljohansyn.pdf',
 };
 
-/** Källa per målbildsnyckel. Kolbotten är en variant av Kulturlämning och har samma källa. Vattenskyddsområde har ingen källrad än. */
+/** Källa per målbildsnyckel. Vattenskyddsområde har ingen källrad än. En variant med egen källa (Kolbotten) står i `MALBILD_KALLA_VARIANT`. */
 export const MALBILD_KALLA: Readonly<Record<string, KallLank>> = {
   kulturlamning: SKS_KULTURMILJOER,
   kulturmiljo: SKS_KULTURMILJOER,
@@ -2040,9 +2040,17 @@ export const MALBILD_KALLA: Readonly<Record<string, KallLank>> = {
   },
   avlagg: { utgivare: 'Trafikverket', amne: 'Upplag av virke vid väg', url: 'https://www.trafikverket.se/upplag-virke' },
 };
-/** Källan för en målbild, eller null (ingen källrad). */
-export function malbildKalla(nyckel: string | null | undefined): KallLank | null {
-  return (nyckel && MALBILD_KALLA[nyckel]) || null;
+/** Variant med egen källa: `<målbild>.<variant>`. Kolbotten har sin egen malbild-PDF hos Skogsstyrelsen (kolningsanläggningar), inte kulturmiljöhandledningen. */
+export const MALBILD_KALLA_VARIANT: Readonly<Record<string, KallLank>> = {
+  'kulturlamning.kolbotten': {
+    utgivare: 'Skogsstyrelsen', amne: 'Kolningsanläggningar',
+    url: 'https://www.skogsstyrelsen.se/globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/kulturmiljoer---malbild-kolningsanlaggningar.pdf',
+  },
+};
+/** Källan för en målbild (och vald variant), eller null (ingen källrad). Varianten går före sortens egen källa; en variant utan egen källa ärver sortens. */
+export function malbildKalla(nyckel: string | null | undefined, variant?: string | null): KallLank | null {
+  if (!nyckel) return null;
+  return (variant && MALBILD_KALLA_VARIANT[`${nyckel}.${variant}`]) || MALBILD_KALLA[nyckel] || null;
 }
 
 // =================================================================================================================================

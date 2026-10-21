@@ -8,7 +8,7 @@ import { MalbildBlad, MalbildLista, MalbildLiten, MalbildRad, MalbildSektion } f
 import { KartKort, type KartKortProps } from '@/components/planering/KartKort';
 import { LarmKortVy } from '@/components/planering/LarmKort';
 import VadBetyderKartan from '@/components/planering/VadBetyderKartan';
-import { MALBILDER, MALBILD_KALLA, MALBILD_ORDNING, malbildInnehall } from '@/lib/malbilder';
+import { MALBILDER, MALBILD_KALLA, MALBILD_KALLA_VARIANT, MALBILD_ORDNING, malbildInnehall } from '@/lib/malbilder';
 import { MALBILD_AVLAGG_SETT_NYCKEL, arForstaLassetPaTrakten } from '@/lib/malbildSett';
 import type { LarmKort } from '@/lib/larm/larm';
 
@@ -470,12 +470,25 @@ describe('MalbildBlad — källraden längst ner (en länk per sort, ny flik)', 
     expect(stang).not.toHaveBeenCalled();
     oppna.mockRestore();
   });
-  it('Kolbotten (variant av Kulturlämning) har kvar källraden, och raden följer med in via kortets målbildsrad', () => {
+  it('Kolbotten har EGEN källa: raden byter när varianten byts (och tillbaka), via kortets målbildsrad', () => {
     montera(<MalbildRad nyckel="kulturlamning" roll="skordare" />);
     klick(q('malbild-rad-kort'));
     expect(q('malbild-kalla')!.getAttribute('href')).toBe(MALBILD_KALLA.kulturlamning.url);
+    expect(q('malbild-kalla')!.textContent).toContain('Kulturmiljöer');
     klick(q('malbild-variant-kolbotten'));
+    expect(q('malbild-kalla')!.getAttribute('href')).toBe(MALBILD_KALLA_VARIANT['kulturlamning.kolbotten'].url);
+    expect(q('malbild-kalla')!.textContent).toContain('Kolningsanläggningar');
+    expect(qa('malbild-kalla')).toHaveLength(1);
+    klick(q('malbild-variant-standard'));
     expect(q('malbild-kalla')!.getAttribute('href')).toBe(MALBILD_KALLA.kulturlamning.url);
+  });
+  it('klick på Kolbotten-källan öppnar kolningsanläggningar-PDF:en i ny flik', () => {
+    const oppna = vi.spyOn(window, 'open').mockImplementation(() => null);
+    blad('kulturlamning');
+    klick(q('malbild-variant-kolbotten'));
+    act(() => { q('malbild-kalla')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); });
+    expect(oppna).toHaveBeenCalledWith(MALBILD_KALLA_VARIANT['kulturlamning.kolbotten'].url, '_blank', 'noopener,noreferrer');
+    oppna.mockRestore();
   });
   it('källraden hämtar inget utifrån: bara ett ankare, ingen <img>, ingen <iframe>', () => {
     blad('kantzon');

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  MALBILDER, MALBILD_KALLA, MALBILD_LINJE, MALBILD_ORDNING, MALBILD_SYMBOL, MALBILD_YTA, malbildInnehall, malbildKalla, malbildNyckel, type Malbild, type MalbildInnehall, type Regelsida,
+  MALBILDER, MALBILD_KALLA, MALBILD_KALLA_VARIANT, MALBILD_LINJE, MALBILD_ORDNING, MALBILD_SYMBOL, MALBILD_YTA, malbildInnehall, malbildKalla, malbildNyckel, type Malbild, type MalbildInnehall, type Regelsida,
 } from './malbilder';
 import { SYMBOL_GRUPP } from './larm/grupper';
 
@@ -192,8 +192,21 @@ describe('lib/malbilder — källa per sort (bara en länk, ingen kopierad bild)
       expect(u.hostname === 'www.trafikverket.se' ? 'Trafikverket' : 'Skogsstyrelsen', n).toBe(k.utgivare);
     }
   });
-  it('Kolbotten är en variant av Kulturlämning och har samma källa (ingen egen nyckel i tabellen)', () => {
-    expect(MALBILD_KALLA.kolbotten).toBeUndefined();
+  it('Kolbotten är en variant av Kulturlämning med EGEN källa (kolningsanläggningar); standardutseendet och okända varianter behåller sortens', () => {
+    const KOL = SKS + 'globalassets/mer-om-skog/malbilder-for-god-miljohansyn/malbilder-kulturmiljoer/kulturmiljoer---malbild-kolningsanlaggningar.pdf';
+    expect(MALBILD_KALLA.kolbotten).toBeUndefined();                        // ingen egen sort i tabellen — den är en variant
+    expect(Object.keys(MALBILD_KALLA_VARIANT)).toEqual(['kulturlamning.kolbotten']);
+    const k = malbildKalla('kulturlamning', 'kolbotten')!;
+    expect([k.utgivare, k.amne, k.url]).toEqual(['Skogsstyrelsen', 'Kolningsanläggningar', KOL]);
+    expect(malbildKalla('kulturlamning', null)!.url).toBe(KULTUR);
     expect(malbildKalla('kulturlamning')!.url).toBe(KULTUR);
+    expect(malbildKalla('kulturlamning', 'finns-inte')!.url).toBe(KULTUR);
+    expect(malbildKalla('stenmur', 'kolbotten')!.url).toBe(malbildKalla('stenmur')!.url);   // varianten gäller bara sin egen sort
+    expect(malbildKalla('kulturmiljo', 'kolbotten')!.url).toBe(KULTUR);
+    for (const [n, v] of Object.entries(MALBILD_KALLA_VARIANT)) {
+      const [sort, variant] = n.split('.');
+      expect(MALBILDER[sort].varianter!.map((x) => x.nyckel), n).toContain(variant);
+      expect(new URL(v.url).protocol).toBe('https:');
+    }
   });
 });

@@ -46,10 +46,11 @@ describe('målbilderna är kopplade i sidan', () => {
   });
   it('källorna bor bara i lib/malbilder.ts: målbildskomponenterna har varken en adress eller ett ämnesnamn av egen', () => {
     const komp = las('components/malbild/Malbild.tsx');
-    for (const forbjudet of ['skogsstyrelsen.se', 'trafikverket.se', 'Kulturmiljöer', 'Odlingsspår', 'Hänsynskrävande biotoper', 'Körning i skogsmark', 'Upplag av virke']) {
+    for (const forbjudet of ['skogsstyrelsen.se', 'trafikverket.se', 'Kulturmiljöer', 'Odlingsspår', 'Hänsynskrävande biotoper', 'Körning i skogsmark', 'Upplag av virke', 'Kolningsanläggningar']) {
       expect(komp, forbjudet).not.toContain(forbjudet);
     }
-    expect(komp).toContain("malbildKalla(nyckel)");
+    expect(komp).toContain("malbildKalla(nyckel, variant)");
+    expect(komp).toContain("onVariant={setVariant}");
     expect(las('lib/malbilder.ts')).toContain('export const MALBILD_KALLA');
   });
 });

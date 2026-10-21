@@ -51,7 +51,7 @@ const prickFarg = (grupp: keyof typeof GRUPPER) => (grupp === 'info' ? FARG.text
  * Sektionen "Så ska det se ut" i KartKort: bilden stor, 2–3 rader, "Inte så här" liten under, och "Alla regler ›" när sorten har en regelsida.
  * Skiljer innehållet per maskintyp (`roll`) tar sektionen rollens bild, rader och felbild. Sorter utan målbild ger ingenting (null).
  */
-export function MalbildSektion({ nyckel, roll, testid = 'malbild' }: { nyckel: string | null | undefined; roll?: Maskinroll | null; testid?: string }) {
+export function MalbildSektion({ nyckel, roll, testid = 'malbild', onVariant }: { nyckel: string | null | undefined; roll?: Maskinroll | null; testid?: string; onVariant?: (variant: string | null) => void }) {
   const m = nyckel ? MALBILDER[nyckel] : undefined;
   const [variant, setVariant] = useState<string | null>(null);
   const [regler, setRegler] = useState(false);
@@ -69,7 +69,7 @@ export function MalbildSektion({ nyckel, roll, testid = 'malbild' }: { nyckel: s
             {val.map((v) => {
               const vald = v.nyckel === variant;
               return (
-                <button key={v.nyckel ?? 'standard'} type="button" data-testid={`malbild-variant-${v.nyckel ?? 'standard'}`} aria-pressed={vald} onClick={() => setVariant(v.nyckel)} className="press-dim"
+                <button key={v.nyckel ?? 'standard'} type="button" data-testid={`malbild-variant-${v.nyckel ?? 'standard'}`} aria-pressed={vald} onClick={() => { setVariant(v.nyckel); onVariant?.(v.nyckel); }} className="press-dim"
                   style={{ ...(vald ? KNAPP.primar : KNAPP.sekundar), width: 'auto', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, fontFamily: 'inherit' }}>{v.namn}</button>
               );
             })}
@@ -188,8 +188,8 @@ export function MalbildRegler({ sida, namn, onTillbaka }: { sida: Regelsida; nam
  * Källraden längst ner i bladet (under "Inte så här"): "Källa: <utgivare> · <ämne> ›". Bara en länk till utgivarens egen sida, öppnad i en ny flik — inga
  * kopierade bilder. Liten och grå, men med minst 44 px tryckyta. Utan källa i lib/malbilder (MALBILD_KALLA) finns ingen rad.
  */
-export function MalbildKalla({ nyckel }: { nyckel: string }) {
-  const k = malbildKalla(nyckel);
+export function MalbildKalla({ nyckel, variant }: { nyckel: string; variant?: string | null }) {
+  const k = malbildKalla(nyckel, variant);
   if (!k) return null;
   return (
     <a data-testid="malbild-kalla" href={k.url} target="_blank" rel="noopener noreferrer"
@@ -203,6 +203,7 @@ export function MalbildKalla({ nyckel }: { nyckel: string }) {
 }
 
 export function MalbildBlad({ nyckel, roll, ikon, namn, onStang, onSett }: { nyckel: string; roll?: Maskinroll | null; ikon?: React.ReactNode; namn?: string; onStang: () => void; onSett?: () => void }) {
+  const [variant, setVariant] = useState<string | null>(null);   // vald variant (Kolbotten) — källraden följer den
   const m = MALBILDER[nyckel];
   if (!m) return null;
   const g = GRUPPER[m.grupp];
@@ -215,8 +216,8 @@ export function MalbildBlad({ nyckel, roll, ikon, namn, onStang, onSett }: { nyc
         </div>
       </div>
       <div style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `${AVSTAND.xs}px ${AVSTAND.xl}px ${AVSTAND.xl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
-        <MalbildSektion nyckel={nyckel} roll={roll} testid="malbild-blad-sektion" />
-        <MalbildKalla nyckel={nyckel} />
+        <MalbildSektion nyckel={nyckel} roll={roll} testid="malbild-blad-sektion" onVariant={setVariant} />
+        <MalbildKalla nyckel={nyckel} variant={variant} />
       </div>
       {/* Foten ligger utanför det som scrollar: Sett och Stäng syns alltid, också när bilden är hög (maskindatorn 1280×800). */}
       <div data-testid="malbild-blad-fot" style={{ flexShrink: 0, display: 'flex', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.xl}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>
