@@ -26,7 +26,7 @@ export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   },
   {
     kategori: 'linje',
-    lager: ['line-hitbox', 'trakt-basvag-line', 'trakt-kraftledning-line', 'trakt-raa-line'],
+    lager: ['line-hitbox', 'trakt-linje-hit', 'trakt-raa-line'],   // träffytor (44 px) för egna och Vidas linjer; RAÄ-linjer som förut
   },
   {
     kategori: 'yta',

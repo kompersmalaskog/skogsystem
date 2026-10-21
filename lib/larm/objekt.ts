@@ -4,6 +4,7 @@
 import { arInnePolygon, avstandPunktM, avstandTillLinjeM, narRuta, type LatLon } from './geo';
 import { LARMFRIA_SYMBOLER, LINJE_NAMN, VIDA, gruppForLinje, gruppForSymbol, ytaDef, type VidaSlag } from './grupper';
 import { innehallHash, type LarmObjekt } from './larm';
+import { vidaNycklar } from '../vidaNycklar';
 
 /** Riktning i grader medurs från norr, från a till b. */
 export function bearingM(a: LatLon, b: LatLon): number {
@@ -82,9 +83,14 @@ export function vidaSlag(props: Record<string, any> | null | undefined, geomTyp:
   return null;
 }
 
-/** Alla Vida-features som larmar, med id `vida:<lager>:<index>` (index = featurens plats i samlingen). Pos filtrerar bort det som är långt bort. */
-export function vidaObjekt(fc: { features?: any[] } | null | undefined, pos: LatLon, marginM = 60): LarmObjekt[] {
+/**
+ * Alla Vida-features som larmar, med id `vida:<lager>:<index>` (index = featurens plats i samlingen). Pos filtrerar bort det som är långt bort.
+ * `kommentarer` = vår kommentar per Vida-objekt (nyckel ur lib/vidaNycklar → text, ur objekt_yta_anteckning): visas i larmkortet och ingår i hashen, så en
+ * kvittens gäller inte längre när kommentaren ändrats. Vidas egen data ändras aldrig.
+ */
+export function vidaObjekt(fc: { features?: any[] } | null | undefined, pos: LatLon, marginM = 60, kommentarer: Readonly<Record<string, string>> = {}): LarmObjekt[] {
   const ut: LarmObjekt[] = [];
+  const nycklar = vidaNycklar(fc?.features);
   (fc?.features ?? []).forEach((f, i) => {
     const g = f?.geometry;
     const slag = vidaSlag(f?.properties, g?.type);
@@ -92,7 +98,9 @@ export function vidaObjekt(fc: { features?: any[] } | null | undefined, pos: Lat
     const d = VIDA[slag];
     const lager = String(f.properties?._lager ?? 'okant');
     const id = `vida:${lager}:${i}`;
-    const bas = { id, grupp: d.grupp, namn: d.namn, typ: slag, hash: innehallHash({ type: slag, comment: '' }), kommentar: null as string | null };
+    const nyckel = nycklar[i];
+    const komm = ((nyckel && kommentarer[nyckel]) || '').trim();
+    const bas = { id, grupp: d.grupp, namn: d.namn, typ: slag, hash: innehallHash({ type: slag, comment: komm }), kommentar: (komm || null) as string | null };
     if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
       const polys: Pos[][][] = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
       let inne = false;

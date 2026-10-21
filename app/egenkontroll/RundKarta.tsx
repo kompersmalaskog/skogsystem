@@ -44,6 +44,7 @@ import { IKON_PIXELRATIO, provytaBildNamn, ritaProvytaIkon } from '@/lib/provyta
 import { OBS_PIXELRATIO, observationBildNamn, ritaObservationIkon } from '@/lib/observationIkon';
 import { OBSERVATION_TONER } from '@/lib/egenkontrollObservation';
 import type { ProvytaStatus } from '@/lib/provytor';
+import { snedstreckBild, snedstreckId, SNEDSTRECK_GRUPPER } from '@/lib/ytaStil';
 import { PIL_STIL, backvagIkonNamn, ritaBackvagStreck, ritaNummerIkon, ritaPilIkon } from '@/lib/kartstil';
 import { BACKVAG_STRECK_FARGER } from '@/lib/backvag';
 import {
@@ -110,6 +111,9 @@ async function laggTillBilder(map: any, nummer: number[]): Promise<void> {
     const namn = backvagIkonNamn(f);
     if (map.hasImage(namn)) continue;
     try { const bild = canvasToMapLibreImage(ritaBackvagStreck(f)); if (bild) map.addImage(namn, bild); } catch { /* ett streck som saknas ska inte falla kartan */ }
+  }
+  for (const grupp of SNEDSTRECK_GRUPPER) {
+    if (!map.hasImage(snedstreckId(grupp))) { try { map.addImage(snedstreckId(grupp), snedstreckBild(grupp)); } catch { /* en streckning som saknas ska inte falla kartan */ } }
   }
   sakraNummerBilder(map, nummer);
   sakraProvytaBilder(map);

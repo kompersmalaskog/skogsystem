@@ -6,6 +6,7 @@
 // kartan i rapporten och kartan i appen kanns igen. Kulturmiljo och Fornlamning har samma brun och skiljs darfor at med streckning och namn.
 
 import { FARG_FARA, FARG_NATUR, GRUPPER, linjeFarg, symbolFarg, ytaDef } from './larm/grupper';
+import { SYMBOL_TYPER, symbolDef, symbolDefTyp } from './symboler';
 
 export type KartMarkering =
   /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
@@ -21,6 +22,10 @@ export type MarkeringStil = {
   /** Linjebredd i pt (linjer och ytornas kant). */
   bredd: number;
   streck: number[] | null;
+  /** Ytor man inte får köra in i ritas snedstreckade i gruppens färg (lib/ytaStil), som i appen. */
+  snedstreck?: boolean;
+  /** Kraftledning: röd linje med mörk kant, stolpar och farosymbol (ritaKraftledning), som i appen. */
+  ledning?: boolean;
 };
 
 const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
@@ -29,38 +34,26 @@ const LINJER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
   stonewall: { etikett: 'Stenmur', farg: linjeFarg('stonewall') ?? FARG_NATUR, bredd: 1.6, streck: [2, 1] },
   nature: { etikett: 'Naturvård (linje)', farg: FARG_NATUR, bredd: 1.4, streck: [4, 2] },
   trail: { etikett: 'Stig', farg: '#8e8e93', bredd: 0.9, streck: [2, 2] },
+  // En egen ledning ritad som linje ser ut som Vidas Kraftledning: gruppens röd, kant, stolpar, farosymbol.
+  powerline: { etikett: 'Kraftledning', farg: FARG_FARA, bredd: 1.6, streck: null, ledning: true },
 };
 
 /** Zonens färg ur dess färggrupp. */
 function zonFarg(typ: string): string { return GRUPPER[ytaDef(typ)!.grupp].farg; }
 
-const ZONER: Record<string, Omit<MarkeringStil, 'nyckel'>> = {
-  protected: { etikett: 'Hänsynsyta', farg: zonFarg('protected'), bredd: 1, streck: null },
-  fornlamning: { etikett: 'Fornlämning', farg: zonFarg('fornlamning'), bredd: 1.6, streck: null },
-  culture: { etikett: 'Kulturmiljö', farg: zonFarg('culture'), bredd: 1, streck: [3, 2] },
-  wet: { etikett: 'Blöt zon', farg: zonFarg('wet'), bredd: 1, streck: [1.5, 1.5] },
-  steep: { etikett: 'Brant', farg: zonFarg('steep'), bredd: 1, streck: [1.5, 1.5] },
-  noentry: { etikett: 'Ej framkomlig', farg: zonFarg('noentry'), bredd: 1.6, streck: [5, 1.5] },
-};
+const ZONER: Record<string, Omit<MarkeringStil, 'nyckel'>> = Object.fromEntries(
+  ['protected', 'fornlamning', 'culture', 'wet', 'steep', 'noentry'].map((typ) => {
+    const d = ytaDef(typ)!;
+    // Färg är aldrig ensam: heldragna ytor har egen kantbredd, de snedstreckade (förbjudna) bär streckningen, namnet står i teckenförklaringen.
+    return [typ, { etikett: d.namn, farg: zonFarg(typ), bredd: d.forbjuden ? 1.6 : 1, streck: null, snedstreck: d.forbjuden }];
+  }),
+);
 
-const NATUR = FARG_NATUR, FARA = FARG_FARA, NEUTRAL = GRUPPER.info.farg;
-const SYMBOLER: Record<string, Omit<MarkeringStil, 'nyckel' | 'bredd' | 'streck'>> = {
-  eternitytree: { etikett: 'Evighetsträd', farg: NATUR },
-  highstump: { etikett: 'Högstubbar', farg: NATUR },
-  naturecorner: { etikett: 'Naturvårdsyta', farg: NATUR },
-  culturemonument: { etikett: 'Kulturlämning', farg: symbolFarg('culturemonument') },
-  culturestump: { etikett: 'Kulturstubbe', farg: symbolFarg('culturestump') },
-  warning: { etikett: 'Varning', farg: FARA },
-  steep: { etikett: 'Brant', farg: FARA },
-  wet: { etikett: 'Blöt fläck', farg: symbolFarg('wet') },
-  bridge: { etikett: 'Överfart', farg: NEUTRAL },
-  corduroy: { etikett: 'Kavelbro', farg: NEUTRAL },
-  landing: { etikett: 'Avlägg', farg: NEUTRAL },
-  turningpoint: { etikett: 'Vändplats', farg: NEUTRAL },
-  brashpile: { etikett: 'Rishög', farg: NEUTRAL },
-  manualfelling: { etikett: 'Manuell fällning', farg: symbolFarg('manualfelling') },
-  firewood: { etikett: 'Ved', farg: NEUTRAL },
-};
+const NEUTRAL = GRUPPER.info.farg;
+/** Symbolerna: namn och färg ur symbolkällan (lib/symboler); formen och glyfen ritas av ritaren ur samma källa. En alias-symbol (gammal Kulturstubbe) delar nyckel med sin målsymbol. */
+const SYMBOLER: Record<string, Omit<MarkeringStil, 'nyckel' | 'bredd' | 'streck'>> = Object.fromEntries(
+  SYMBOL_TYPER.map((typ) => { const d = symbolDef(typ); return [typ, { etikett: d.namn, farg: d.farg }]; }),
+);
 
 /** Vag-linjer (sideRoadXxx) har fargen i namnet - men ritas i en egen bredd/streckning sa farg inte ar ensam. */
 function vagStil(typ: string): Omit<MarkeringStil, 'nyckel'> | null {
@@ -84,8 +77,9 @@ export function markeringsStil(slag: KartMarkering['slag'], typ: string): Marker
     const s = ZONER[typ];
     return s ? { nyckel: `zon:${typ}`, ...s } : { nyckel: 'zon:ovrigt', etikett: 'Övrig yta', farg: '#8e8e93', bredd: 1, streck: [2, 2] };
   }
-  const s = SYMBOLER[typ];
-  return s ? { nyckel: `symbol:${typ}`, ...s, bredd: 1, streck: null } : { nyckel: 'symbol:ovrigt', etikett: 'Övrig symbol', farg: NEUTRAL, bredd: 1, streck: null };
+  const id = symbolDefTyp(typ);
+  const s = id === 'default' ? undefined : SYMBOLER[id];
+  return s ? { nyckel: `symbol:${id}`, ...s, bredd: 1, streck: null } : { nyckel: 'symbol:ovrigt', etikett: 'Övrig symbol', farg: NEUTRAL, bredd: 1, streck: null };
 }
 
 /** Stammolnets, traktgransens och hyttsparets fasta stilar. */

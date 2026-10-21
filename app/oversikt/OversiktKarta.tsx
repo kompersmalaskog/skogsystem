@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { TALL_FARG } from '@/lib/tradslag';
 import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
@@ -9,7 +10,7 @@ import { formatVolym, pc, getMaskinTyp, grotDeadlineDays, skotarTillstand, type 
 import { maskinVisningsnamn } from '@/lib/maskinNamn';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 import {
-  FARA_SUBTYPER, HANSYN_SUBTYPER, SUB_LABEL, prettifySub, markeringSub, classifyMarkering,
+  FARA_SUBTYPER, HANSYN_SUBTYPER, markeringNamn, markeringSub, classifyMarkering,
   type MarkLevel, type FaraNiva,
 } from './markeringar';
 import SkotarRad from './SkotarRad';
@@ -231,7 +232,7 @@ function ObjCard({ obj, warnings, farorStatus = 'ok', koPlats, devicePos, skotar
 
   const statBox: React.CSSProperties = { flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` };
   const chip: React.CSSProperties = { ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm };
-  const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
+  const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': TALL_FARG, 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
   const Sec = ({ label }: { label: string }) => (
     <div style={{ ...T.label, marginBottom: SP.sm }}>{label}</div>
   );
@@ -1081,7 +1082,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       if (!m.objekt_id) continue;
       const level = classifyMarkering(m.data);   // fara | hansyn | ovrigt (aldrig bortfiltrerad)
       const subRaw = markeringSub(m.data);
-      const label = subRaw ? (SUB_LABEL[subRaw] || prettifySub(subRaw)) : 'Markering';
+      const label = subRaw ? markeringNamn(m.data) : 'Markering';
       // Planerarens beskrivning ligger i data.comment (planering_markeringar).
       const comment = typeof m.data?.comment === 'string' && m.data.comment.trim() ? m.data.comment.trim() : undefined;
       if (!map[m.objekt_id]) map[m.objekt_id] = { level: null, items: [] };

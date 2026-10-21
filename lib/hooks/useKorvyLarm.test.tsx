@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { useKorvyLarm, type KorvyLarmIn, type KorvyLarmUt } from './useKorvyLarm';
+import { vidaNycklar } from '../vidaNycklar';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -122,6 +123,41 @@ describe('useKorvyLarm — flera larm samtidigt', () => {
     klocka += 5000;
     rerender(bas({ markers: [sym(1, 'naturecorner', 30), sym(2, 'culturemonument', 28), sym(3, 'eternitytree', 20), sym(5, 'naturecorner', 30), sym(6, 'culturemonument', 35)], typNamn, ljudCtx: () => ctx })); await tom();
     expect(toner).toHaveLength(2);                                      // efter fönstret: ett ljud för den nya
+  });
+});
+
+describe('useKorvyLarm — El-ledning som linje och vår kommentar på Vidas objekt', () => {
+  const M_LON = 1 / (111320 * Math.cos(POS.lat * Math.PI / 180));
+  const c = (nord: number, ost: number): [number, number] => [POS.lon + ost * M_LON, POS.lat + nord * M];
+
+  it('en ritad El-ledning (linje) larmar Röd på avstånd till närmaste punkt på linjen; pulsen bär hela linjen', async () => {
+    const el = { id: 'el', isLine: true, lineType: 'powerline', path: [{ x: norr(25), y: POS.lon - 200 * M_LON }, { x: norr(25), y: POS.lon + 200 * M_LON }] };
+    mount(bas({ markers: [el] })); await tom();
+    expect(ut.kort).toMatchObject({ namn: 'El-ledning', grupp: 'fara' });
+    expect(ut.kort!.avstandM).toBeCloseTo(25, 0);                        // inte avståndet till en ändpunkt (200 m)
+    expect(ut.puls?.geometri.type).toBe('LineString');
+  });
+
+  it('vår kommentar på Vidas Kraftledning står i larmkortet; ändras den gäller en gammal kvittens inte längre', async () => {
+    const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { _typ: 'linje', _lager: 'L_TILLAGGSLINJER', FLBESKR: 'Kraftledning' }, geometry: { type: 'LineString', coordinates: [c(20, -200), c(20, 200)] } }] };
+    const rerender = mount(bas({ vida: fc as any, kommentarer: { [vidaNycklar(fc.features)[0]!]: 'Hänger lågt vid vägen' } })); await tom();
+    expect(ut.kort).toMatchObject({ namn: 'Kraftledning', grupp: 'fara', text: 'Hänger lågt vid vägen' });
+    rerender(bas({ vida: fc as any, kommentarer: {} })); await tom();
+    expect(ut.kort?.text ?? null).toBeNull();
+  });
+});
+
+describe('useKorvyLarm — kommentarer på egna markeringar', () => {
+  it('larmkortet visar senaste kommentaren med namn ("Daniel: Stolpe lutar"); den ersätter markeringens äldre kommentarfält', async () => {
+    const m = sym(7, 'warning', 12, { comment: 'Gammal text' });
+    const typNamn = (t?: string) => (t === 'warning' ? 'Varning' : 'Markering');
+    mount(bas({ markers: [m], typNamn, kommentarer: { 'marker:7': 'Daniel: Stolpe lutar' } })); await tom();
+    expect(ut.kort).toMatchObject({ namn: 'Varning', text: 'Daniel: Stolpe lutar' });
+  });
+  it('utan ny kommentar gäller det äldre kommentarfältet, utan namn', async () => {
+    const typNamn = (t?: string) => (t === 'warning' ? 'Varning' : 'Markering');
+    mount(bas({ markers: [sym(7, 'warning', 12, { comment: 'Gammal text' })], typNamn })); await tom();
+    expect(ut.kort).toMatchObject({ text: 'Gammal text' });
   });
 });
 
