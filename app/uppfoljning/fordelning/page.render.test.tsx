@@ -70,14 +70,27 @@ describe('Översikten', () => {
     await montera();
     await vantaTills(() => !!q('[data-hojdpunkt]'));
     expect(q('[data-hojdpunkt="battre"]')!.textContent).toContain('Mer rätt i oktober än i augusti och september.');
+    // höjdpunkten gäller senaste månaden — väljs en annan månad försvinner den
+    await act(async () => { q('[data-stapel="2026-09"]')!.click(); });
+    expect(q('[data-hojdpunkt]')).toBeNull();
   });
 
-  it('ett tryck på en stapel öppnar listan vid sin månad; Alla objekt öppnar listan', async () => {
+  it('ett tryck på en stapel byter talet till den månaden och stannar på sidan; Alla objekt öppnar listan vid den månaden', async () => {
     vi.stubGlobal('fetch', vi.fn(() => svar({ objekt: OKT, vantar: [], attRakna: 0 })));
     await montera();
     await vantaTills(() => !!q('[data-stapel="2026-09"]'));
     await act(async () => { q('[data-stapel="2026-09"]')!.click(); });
-    expect(push).toHaveBeenCalledWith('/uppfoljning/fordelning?vy=alla&manad=2026-09');
+    expect(push).not.toHaveBeenCalled();
+    const tal = q('[data-oversikt-tal]')!.textContent!;
+    expect(tal).toContain('Rätt längd i september');
+    expect(tal).toContain('84 %');                  // 75 av 456 utanför
+    expect(tal).toContain('av maskinens 456 m³');
+    expect(q('[data-stapel="2026-09"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(q('[data-stapel="2026-10"]')!.getAttribute('aria-pressed')).toBe('false');
+    await act(async () => { q('[data-alla]')!.click(); });
+    expect(push).toHaveBeenLastCalledWith('/uppfoljning/fordelning?vy=alla&manad=2026-09');
+    await act(async () => { q('[data-stapel="2026-10"]')!.click(); });
+    expect(q('[data-oversikt-tal]')!.textContent).toContain('Rätt längd i oktober');
     await act(async () => { q('[data-alla]')!.click(); });
     expect(push).toHaveBeenLastCalledWith('/uppfoljning/fordelning?vy=alla');
   });
