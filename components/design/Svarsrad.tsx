@@ -9,9 +9,11 @@ type Props = {
   rad?: string | null
   avvikelse?: boolean
   varning?: string | null
+  /** En hel mening i `rad` (inte fakta åtskilda av " · "): bryts där den vill i stället för vid varje punkt. */
+  fri?: boolean
 }
 
-export default function Svarsrad({ rubrik, rad, avvikelse, varning }: Props) {
+export default function Svarsrad({ rubrik, rad, avvikelse, varning, fri }: Props) {
   const indrag = avvikelse ? IKON.rad + AVSTAND.inuti : 0 // ikonen + glappet, så andra raden linjerar med rubriken
   return (
     <section style={{ margin: `${AVSTAND.s}px 0 ${AVSTAND.xl}px` }}>
@@ -22,7 +24,7 @@ export default function Svarsrad({ rubrik, rad, avvikelse, varning }: Props) {
       {/* Radbrytning bara mellan delarna (" · ") — aldrig mitt i "behöver 29/dag, kör 0". */}
       {rad && (
         <div style={{ ...TYP.text, color: FARG.text2, marginTop: AVSTAND.xs, paddingLeft: indrag }}>
-          {rad.split(' · ').map((del, i) => (
+          {fri ? rad : rad.split(' · ').map((del, i) => (
             <span key={i}>{i > 0 && ' · '}<span style={{ whiteSpace: 'nowrap' }}>{del}</span></span>
           ))}
         </div>

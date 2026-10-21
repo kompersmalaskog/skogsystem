@@ -131,6 +131,28 @@ export const SKARPA = [
   // Serviceloggen (2026-10-21): tokens från början, noll literaler.
   "components/servicelogg/ServiceVy.tsx",
   "components/servicelogg/HjulValjare.tsx",
+  // Kalibrering (2026-10): delad upp i en komponent per flik, byggd på tokens och components/design — noll literaler.
+  "components/kalibrering/ArtArk.tsx",
+  "components/kalibrering/DagArk.tsx",
+  "components/kalibrering/DeladeArk.tsx",
+  "components/kalibrering/HjalpArk.tsx",
+  "components/kalibrering/KalenderFlik.tsx",
+  "components/kalibrering/KontrollArk.tsx",
+  "components/kalibrering/MarkorForm.tsx",
+  "components/kalibrering/MaskinArk.tsx",
+  "components/kalibrering/MaskinFilter.tsx",
+  "components/kalibrering/ObjektFlik.tsx",
+  "components/kalibrering/RapportFlik.tsx",
+  "components/kalibrering/SenasteFlik.tsx",
+  "components/kalibrering/Skarmar.tsx",
+  "components/kalibrering/StamArk.tsx",
+  "components/kalibrering/StockArk.tsx",
+  "components/kalibrering/SvajStang.tsx",
+  "components/kalibrering/TidsDiagram.tsx",
+  "components/kalibrering/TrendFlik.tsx",
+  "components/kalibrering/delar.tsx",
+  "components/kalibrering/diagram.tsx",
+  "app/kalibrering/page.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------
