@@ -115,3 +115,13 @@ describe('avstandTillGeometriPx', () => {
     expect(avstandTillGeometriPx({ type: 'Point', coordinates: [13, 14] }, tap, dubbel)).toBeCloseTo(Math.hypot(16, 18), 6);
   });
 });
+
+describe('noteringar i tryckregeln (PR 9a)', () => {
+  it("en notering ar en symbol pa kartan: den vinner over en linje under den, och kind 'notering' kanns igen", async () => {
+    const { valjTraff, traffKindFranEgenskaper, traffIdFranEgenskaper } = await import('./egenkontrollTryck');
+    expect(traffKindFranEgenskaper({ kind: 'notering', id: 'n1' })).toBe('notering');
+    expect(traffIdFranEgenskaper({ kind: 'notering', id: 'n1' })).toBe('n1');
+    const v = valjTraff([{ id: 'vag', kind: 'linje', dPx: 2 }, { id: 'n1', kind: 'notering', dPx: 10 }]);
+    expect(v?.id).toBe('n1');
+  });
+});

@@ -49,6 +49,7 @@ import {
   hamtaKontextmarkeringar,
   hamtaVidaGrans,
   hamtaProvytor,
+  hamtaNoteringar,
   hamtaAvverkadeStammar,
   hamtaStammoln,
   hamtaHyttspar,
@@ -68,6 +69,10 @@ import RundKarta from '../RundKarta';
 import StubbeSheet from '../StubbeSheet';
 import ProvytaSheet from '../ProvytaSheet';
 import ObservationSheet from '../ObservationSheet';
+import NoteringSheet from '../NoteringSheet';
+import RitaRad from '../RitaRad';
+import { arDubbeltryck, type LngLat, type TryckPunkt } from '@/lib/ritaPunkter';
+import { ritningTillKoordinater, type Notering, type NoteringVerktyg } from '@/lib/egenkontrollNotering';
 import ObservationLista, { observationAntalText } from '../ObservationLista';
 import ProvyteLista, { type MinPosition } from '../ProvyteLista';
 import Forutsattningar from '../Forutsattningar';
@@ -364,6 +369,16 @@ export default function EgenkontrollRundaPage() {
   );
   const [lagerMeny, setLagerMeny] = useState(false);
 
+  // NOTERINGAR (PR 9a): ord pa kartan. `rita` = man ritar (verktyg null = har inte valt an); `noteringSheet` = formularet (ny efter ritandet,
+  // andra efter ett tryck pa en notering). Avbryter man formularet efter en ny ritning ligger ritningen kvar - en linje man dragit forsvinner inte.
+  const [noteringar, setNoteringar] = useState<Notering[]>([]);
+  const [noteringarFel, setNoteringarFel] = useState(false);   // rapporten ska saga att noteringarna inte gick att lasa, aldrig utelamna dem tyst
+  const [rita, setRita] = useState<{ verktyg: NoteringVerktyg | null; tryck: LngLat[] } | null>(null);
+  const [noteringSheet, setNoteringSheet] = useState<
+    { lage: 'ny'; verktyg: NoteringVerktyg; koordinater: [number, number][] } | { lage: 'andra'; notering: Notering } | null
+  >(null);
+  const senasteRitaTryck = useRef<TryckPunkt | null>(null);
+
   // Egenkontrollens egna lager (lib/egenkontrollLager). Punkter, provytor och observationer ar PA som default - de ar vad rundan handlar om.
   // Underlagen (planens vagar i full styrka, hyttspar, Vidas traktgrans, stammoln) ar AV: det ar tillagg man tander nar man vill se dem,
   // inte nagot som ligger och skrapar. Valet SPARAS PER ENHET (hooken) och galler medan man gar - ett svar, en ny bricka eller ett byte
@@ -488,7 +503,7 @@ export default function EgenkontrollRundaPage() {
   const laddaTillbehor = useCallback(async (omlasning = false) => {
     const mitt = ++tillbehorLopnr.current;
     const galler = () => mitt === tillbehorLopnr.current;
-    if (!rundaId) { setFotoPerPunkt({}); setFotoRader([]); setProvytor([]); setYtorLasta(false); return; }
+    if (!rundaId) { setFotoPerPunkt({}); setFotoRader([]); setProvytor([]); setNoteringar([]); setYtorLasta(false); return; }
     let miste = false;
     try {
       const ytor = await hamtaProvytor(rundaId);
@@ -516,6 +531,14 @@ export default function EgenkontrollRundaPage() {
       setFotoRader(foton);
     } catch {
       if (galler()) { if (omlasning) miste = true; else { setFotoPerPunkt({}); setFotoRader([]); } }
+    }
+    try {
+      const nt = await hamtaNoteringar(rundaId);
+      if (galler()) { setNoteringar(nt); setNoteringarFel(false); }
+    } catch {
+      if (galler()) setNoteringarFel(true);
+      // Ett lasfel ar ett fel, aldrig "inga noteringar": kartan skulle annars se ut som att det man ritat forsvunnit.
+      if (galler()) setSparFel(omlasning ? 'Ändringen sparades, men noteringarna kunde inte läsas om. Ladda om sidan.' : 'Noteringarna kunde inte läsas — de syns inte på kartan just nu. Ladda om sidan.');
     }
     if (miste && galler()) {
       setSparFel('Ändringen sparades, men provytor eller bilder kunde inte läsas om. Ladda om sidan.');
@@ -766,9 +789,10 @@ export default function EgenkontrollRundaPage() {
       stammar: rapportKartdata.stammar,
       antalStammar: rapportKartdata.antalStammar,
       hyttspar: rapportKartdata.hyttspar,
+      noteringar: noteringarFel ? null : noteringar,
       areal: vy.kartObjekt.areal ?? null,
     }));
-  }, [vy, fotoRader, provytor, origo, kontext, kontextStatus, rapportKartdata]);
+  }, [vy, fotoRader, provytor, origo, kontext, kontextStatus, rapportKartdata, noteringar, noteringarFel]);
 
   // ANGRA star i ANGRA_MS - och forsvinner om svaret hunnit andras med raden (da vore Angra att skriva over ett annat svar).
   useEffect(() => {
@@ -835,6 +859,32 @@ export default function EgenkontrollRundaPage() {
     setSparFel(null);
     if (pos.status === 'saknas') pos.forsokIgen();
     setObservationSheet({ lage: 'ny', start: pos.status === 'ok' ? pos.position : null });
+  };
+
+  // RITA (PR 9a). Rita-knappen tander lagret Noteringar om det ar slackt: man ser annars inte det man ritar. Det ar det enda lager som tands av ett
+  // verktyg - planens vagar och hyttsparet (underlagen) tands aldrig av sig sjalva.
+  const startaRita = () => {
+    setSparFel(null);
+    if (egnaVarden.ekNoteringar === false) setEgnaVarden((prev) => ({ ...prev, ekNoteringar: true }));
+    senasteRitaTryck.current = null;
+    setRita({ verktyg: null, tryck: [] });
+  };
+  const ritaTryck = (plats: LngLat, tid: number, px: { x: number; y: number }) => {
+    if (!rita || rita.verktyg === null || noteringSheet) return;
+    const nytt: TryckPunkt = { x: px.x, y: px.y, tid };
+    if (arDubbeltryck(senasteRitaTryck.current, nytt)) return;   // samma tryck igen (dubbelhandelse), aldrig tva horn
+    senasteRitaTryck.current = nytt;
+    if (rita.verktyg === 'punkt') {
+      const k = ritningTillKoordinater('punkt', [plats]);
+      if (k) setNoteringSheet({ lage: 'ny', verktyg: 'punkt', koordinater: k });
+      return;
+    }
+    setRita({ ...rita, tryck: [...rita.tryck, plats] });
+  };
+  const ritaKlar = () => {
+    if (!rita || rita.verktyg === null || rita.verktyg === 'punkt') return;
+    const k = ritningTillKoordinater(rita.verktyg, rita.tryck);
+    if (k) setNoteringSheet({ lage: 'ny', verktyg: rita.verktyg, koordinater: k });
   };
 
   // PLANPUNKTER UTAN PLATS PA KARTAN: de enda planpunkter som far en rad i arket. Alla andra markeras pa kartan och besvaras i raden i dockan -
@@ -1053,6 +1103,14 @@ export default function EgenkontrollRundaPage() {
               spar={sparData}
               vidaRingar={vidaRingar}
               position={pos.position}
+              noteringar={noteringar}
+              rita={rita && rita.verktyg !== null && !noteringSheet ? { verktyg: rita.verktyg, tryck: rita.tryck } : null}
+              onRitaTryck={ritaTryck}
+              // En notering oppnas for andring bara medan rundan ar oppen och man inte ritar - en klar runda ar last.
+              onValjNotering={rundanKlar || rita ? undefined : (id) => {
+                const n = noteringar.find((q) => q.id === id);
+                if (n) setNoteringSheet({ lage: 'andra', notering: n });
+              }}
               onValjPunkt={markeraPunkt}
               onValjProvyta={(nr) => {
                 const y = provytor.find((q) => q.nummer === nr);
@@ -1097,11 +1155,28 @@ export default function EgenkontrollRundaPage() {
             <>
               {/* Notera har (vanster), Lager (hoger) och kvittot ligger i SAMMA kolumn som huvudet och arket (max KOLUMN.ark, centrerad) -
                   pa en bred skarm sprids de annars till var sin kant. Centrera ar den delade knappen och ligger vid skarmkanten, som i planeringen. */}
-              <div style={kolumnStil(sidoBottom(0))}>
-                {!rundanKlar ? (
-                  <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="add_location_alt" etikett="Notera här" onClick={noteraHar} stor /></div>
-                ) : <span />}
-                <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="layers" etikett="Lager" ariaLabel="Kartlager" onClick={oppnaLagerMeny} /></div>
+              <div style={{ ...kolumnStil(sidoBottom(0)), columnGap: AVSTAND.s }}>
+                {rita ? (
+                  // MEDAN MAN RITAR ersatter EN rad knapparna (ett lage i taget, en uppsattning knappar).
+                  <RitaRad
+                    verktyg={rita.verktyg}
+                    antalTryck={rita.tryck.length}
+                    onVal={(v) => { senasteRitaTryck.current = null; setRita({ verktyg: v, tryck: [] }); }}
+                    onAngra={() => setRita((r) => (r ? { ...r, tryck: r.tryck.slice(0, -1) } : r))}
+                    onKlar={ritaKlar}
+                    onAvbryt={() => setRita(null)}
+                  />
+                ) : (
+                  <>
+                    {!rundanKlar ? (
+                      <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'flex-end', gap: AVSTAND.s }}>
+                        <KartKnapp ikon="add_location_alt" etikett="Notera här" onClick={noteraHar} stor smalt />
+                        <KartKnapp ikon="edit" etikett="Rita" onClick={startaRita} ordSmalt />
+                      </div>
+                    ) : <span />}
+                    <div style={{ pointerEvents: 'auto' }}><KartKnapp ikon="layers" etikett="Lager" ariaLabel="Kartlager" onClick={oppnaLagerMeny} smalt /></div>
+                  </>
+                )}
               </div>
               <CentreraKnapp
                 synlig={pos.position != null}
@@ -1300,6 +1375,29 @@ export default function EgenkontrollRundaPage() {
             onStang={() => setObservationSheet(null)}
             onSparad={() => { setObservationSheet(null); ladda({ tyst: true }); laddaTillbehor(true); }}
           />
+        )}
+
+        {/* NOTERING: ORD PA KARTAN. Ny efter ritandet (platsen ar satt), andra efter ett tryck pa en notering. */}
+        {noteringSheet && vy?.egenkontroll && (
+          noteringSheet.lage === 'ny' ? (
+            <NoteringSheet
+              key="ny"
+              lage="ny"
+              egenkontrollId={vy.egenkontroll.id}
+              verktyg={noteringSheet.verktyg}
+              koordinater={noteringSheet.koordinater}
+              onStang={() => setNoteringSheet(null)}
+              onSparad={() => { setNoteringSheet(null); setRita(null); laddaTillbehor(true); }}
+            />
+          ) : (
+            <NoteringSheet
+              key={noteringSheet.notering.id}
+              lage="andra"
+              notering={noteringSheet.notering}
+              onStang={() => setNoteringSheet(null)}
+              onSparad={() => { setNoteringSheet(null); laddaTillbehor(true); }}
+            />
+          )
         )}
 
         {/* APP-EGEN DIALOG - aldrig confirm(). Den blockeras tyst i inbaddade

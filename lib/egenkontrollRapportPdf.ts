@@ -155,7 +155,7 @@ export async function skapaRapportPdf(m: RapportModell): Promise<Uint8Array> {
   // KARTAN, direkt under de tre talen: det forsta man ser - man orienterar sig forst, laser sedan (som Vidas bilaga). Vektor, alla lager;
   // stammolnet glesas aldrig ut. Se lib/egenkontrollRapportKartaPdf.ts.
   y += 6;
-  const kl = { granser: m.karta.granser, stammar: m.karta.stammar, hyttspar: m.karta.hyttspar, markeringar: m.karta.markeringar, pinnar: m.karta.pinnar };
+  const kl = { granser: m.karta.granser, stammar: m.karta.stammar, hyttspar: m.karta.hyttspar, markeringar: m.karta.markeringar, noteringar: m.karta.noteringar, pinnar: m.karta.pinnar };
   const kh = kartaHojd(kl, B);
   rum(kh + 60);
   const ritad = ritaKarta(lib, sida, { normal, fet }, { x: MARG, top: y, b: B, h: kh }, kl, san);

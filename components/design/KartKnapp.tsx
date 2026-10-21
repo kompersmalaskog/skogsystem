@@ -15,22 +15,37 @@ export type KartKnappProps = {
   ariaLabel?: string;
   /** 52 px i stället för 48: knappen man trycker på med handske i skogen ("Notera här", fältbekräftat). Allt annat är 48. */
   stor?: boolean;
+  /**
+   * Tre knappar på en rad (Notera här, Rita, Lager) ryms inte på en telefon med 16 px sidopadding: under 400 px skärmbredd är sidopaddingen 12 i stället för 16
+   * (390 px: 340 av 358 px). Standard: 16.
+   */
+  smalt?: boolean;
+  /**
+   * Ordet göms på en SMAL skärm (under 370 px) och knappen blir bara sin ikon — ariaLabel kvar, samma 48 px träffyta. Bara för en knapp som delar rad med två
+   * andra och inte ryms ens med smalt (360 px). Standard: ordet står alltid. Implicerar smalt.
+   */
+  ordSmalt?: boolean;
 };
 
-export default function KartKnapp({ ikon, etikett, onClick, ariaLabel, stor = false }: KartKnappProps) {
+export default function KartKnapp({ ikon, etikett, onClick, ariaLabel, stor = false, smalt = false, ordSmalt = false }: KartKnappProps) {
+  const tight = smalt || ordSmalt;
   return (
+    <>
+      {tight && <style>{'@media (max-width: 399px) { .kartknapp-smalt { padding: 0 12px !important; } } @media (max-width: 369px) { .kartknapp-ord-smalt { display: none; } }'}</style>}
     <button
       type="button"
+      className={tight ? 'kartknapp-smalt' : undefined}
       onClick={onClick}
       aria-label={ariaLabel ?? etikett}
       style={{
         display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: stor ? TRAFFYTA.primar + AVSTAND.xs : TRAFFYTA.primar, minWidth: TRAFFYTA.primar,
         padding: `0 ${AVSTAND.l}px`, borderRadius: TRAFFYTA.primar / 2, border: 'none', background: FARG.kort,
-        color: FARG.text, fontFamily: 'inherit', ...TYP.listtitel, cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+        color: FARG.text, fontFamily: 'inherit', ...TYP.listtitel, cursor: 'pointer', WebkitTapHighlightColor: 'transparent', whiteSpace: 'nowrap',
       }}
     >
       <Ikon namn={ikon} farg="inherit" />
-      {etikett}
+      {ordSmalt ? <span className="kartknapp-ord-smalt">{etikett}</span> : etikett}
     </button>
+    </>
   );
 }

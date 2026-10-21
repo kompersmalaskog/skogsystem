@@ -35,6 +35,10 @@ import { lottaProvytor, PROVYTA_RADIE_M, type LatLng } from './provytor';
 import { hyttsparRitadeLinjer } from './sparJamning';
 import { hamtaVader, type Arbetsfonster, type VaderSnapshot } from './egenkontrollvader';
 import {
+  NOTERING_ETIKETT_MAX, arAvsikt, kartaKoordinaterGiltiga, klamEtikett, rensaEtikett, verktygTillForm,
+  type EtikettRuta, type Notering, type NoteringAvsikt, type NoteringVerktyg,
+} from './egenkontrollNotering';
+import {
   OBSERVATION_ORDNING, OBSERVATION_RUBRIK, arObservationTon, arObservationTyp, delaObservationer,
   giltigPosition, type ObservationTon, type ObservationTyp,
 } from './egenkontrollObservation';
@@ -1887,6 +1891,172 @@ export async function taBortObservation(id: string, options: KlientOptions = {})
     const { error: lagringsFel } = await klient.storage.from(FOTO_BUCKET).remove(sokvagar);
     if (lagringsFel) console.error('[egenkontroll] observationens bilder kunde inte tas bort ur lagringen:', lagringsFel.message);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Noteringar - ord pa en karta (och, i PR 9b, pa ett foto)
+// ---------------------------------------------------------------------------
+//
+// Tabellen egenkontroll_notering (migration 20261021074334/-41). Observation = en bedomning som raknas i rapportens tal;
+// notering = ord pa en bild eller karta som forklarar vad man tittar pa (lib/egenkontrollNotering.ts). En notering raknas aldrig.
+//
+// TOM ETIKETT = DELETE, ALDRIG UPDATE. Databasen avvisar en tom etikett (notering_har_innehall, 23514); en notering vars text
+// raderats bort finns inte langre. andraNotering gor darfor en DELETE nar texten blir tom - annars blir det ett felmeddelande
+// i skogen i stallet for att etiketten forsvinner.
+//
+// LASET: en klar runda ar last av triggern egenkontroll_notering_last (INSERT, UPDATE och DELETE). Kontrollerna har ger bara beskedet.
+
+const SESSION_SAKNAS_NOTERING = 'Du är inte inloggad längre. Logga in igen — ingenting har sparats.';
+
+function noteringFel(error: { message?: string; code?: string } | null, grund: string): Error {
+  const m = error?.message ?? '';
+  if (/avslutad/i.test(m)) return new Error('Rundan är avslutad och går inte att ändra.');
+  if (error?.code === '23514') return new Error('Noteringen kunde inte sparas — kontrollera texten och platsen.');
+  return new Error(`${grund}: ${m || 'okänt fel'}`);
+}
+
+/** Raden som en Notering. Koordinaterna ar jsonb - en rad vars koordinater inte ar par av tal hoppas inte over tyst, den kastar. */
+function tillNotering(rad: unknown): Notering {
+  const r = rad as Record<string, unknown>;
+  const k = r.koordinater;
+  const par = Array.isArray(k) && k.every((c) => Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number');
+  if (!par) throw new Error('En notering har koordinater som inte går att läsa. Ladda om sidan.');
+  return {
+    ...(r as object),
+    koordinater: k as [number, number][],
+    pil: r.pil === true,
+    etikett_dx: typeof r.etikett_dx === 'number' ? r.etikett_dx : null,
+    etikett_dy: typeof r.etikett_dy === 'number' ? r.etikett_dy : null,
+  } as Notering;
+}
+
+/** Rundans noteringar, aldst forst (skapad, id) - ordningen ar stabil mellan laddningar. Ett lasfel ar ett fel, aldrig "inga noteringar". */
+export async function hamtaNoteringar(egenkontrollId: string, options: KlientOptions = {}): Promise<Notering[]> {
+  const { klient } = await kravSession(options);
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .select('*')
+    .eq('egenkontroll_id', egenkontrollId)
+    .order('skapad', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw new Error(`Kunde inte läsa noteringarna: ${error.message}`);
+  return (data ?? []).map(tillNotering);
+}
+
+/** Vagrar om noteringens runda ar klar (som kravOppenRunda, men for en notering). */
+async function kravOppenNotering(klient: SupabaseClient, id: string): Promise<void> {
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .select('egenkontroll:egenkontroll_id (status)')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(`Kunde inte läsa noteringen: ${error.message}`);
+  if (!data) throw new Error('Noteringen hittades inte — den kan redan vara borttagen. Ladda om sidan.');
+  const status = (data as { egenkontroll?: { status?: string } }).egenkontroll?.status;
+  if (status === 'klar') throw new Error('Rundan är avslutad och går inte att ändra.');
+}
+
+export type NoteringInmatning = {
+  /** Skapat av ANROPAREN: ett omforsok efter ett avbrutet svar skriver da samma rad igen i stallet for en andra. */
+  id: string;
+  egenkontrollId: string;
+  verktyg: NoteringVerktyg;
+  etikett: string;
+  avsikt: NoteringAvsikt;
+  /** Kartan: [[lng, lat], ...] exakt som ritat. */
+  koordinater: [number, number][];
+};
+
+/** Skapar en notering pa kartan. INSERT, en gang. Laser tillbaka VARDET: det som star i databasen ar det som visas. */
+export async function skapaNotering(i: NoteringInmatning, options: KlientOptions = {}): Promise<Notering> {
+  const etikett = rensaEtikett(i.etikett);
+  if (etikett === '') throw new Error('Skriv vad noteringen ska säga.');
+  if (etikett.length > NOTERING_ETIKETT_MAX) throw new Error(`Texten är för lång (högst ${NOTERING_ETIKETT_MAX} tecken).`);
+  if (!arAvsikt(i.avsikt)) throw new Error('Välj om det blev så här eller skulle ha gjorts så här.');
+  const { typ, pil } = verktygTillForm(i.verktyg);
+  if (!kartaKoordinaterGiltiga(typ, i.koordinater)) throw new Error('Platsen på kartan saknas — rita om noteringen.');
+
+  const { klient } = await kravSession(options, SESSION_SAKNAS_NOTERING);
+  await kravOppenRundaId(klient, i.egenkontrollId);
+
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .insert({
+      id: i.id, egenkontroll_id: i.egenkontrollId, underlag: 'karta', typ, pil, etikett, avsikt: i.avsikt, koordinater: i.koordinater,
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (error && error.code === '23505') {
+    // Samma id finns redan: forra forsoket skrev raden men svaret kom aldrig fram. Det ar samma notering, inte en andra.
+    const { data: finns } = await klient.from('egenkontroll_notering').select('*').eq('id', i.id).maybeSingle();
+    if (finns && (finns as { egenkontroll_id?: string }).egenkontroll_id === i.egenkontrollId) return tillNotering(finns);
+  }
+  if (error) throw noteringFel(error, 'Noteringen kunde inte sparas');
+  if (!data) throw new Error('Noteringen sparades inte — raden kunde inte läsas tillbaka.');
+  const sparad = tillNotering(data);
+  if (sparad.etikett !== etikett || sparad.avsikt !== i.avsikt || sparad.typ !== typ || sparad.pil !== pil) {
+    throw new Error('Noteringen sparades inte som väntat. Ladda om sidan.');
+  }
+  return sparad;
+}
+
+/** Etikettens plats pa ett foto (9b): ankaret, bildens form och etikettens matta ruta - allt som behovs for att klamma. */
+export type NoteringForskjutning = { u: number; v: number; bildHojd: number; dx: number; dy: number; ruta: EtikettRuta };
+
+/**
+ * Andrar texten och avsikten (och, pa ett foto, etikettens forskjutning). UPDATE, bara pa en rad som finns.
+ *
+ * TOM TEXT = DELETE (returnerar null). Forskjutningen KLAMS HAR, vid sparningen, med samma funktion som renderar
+ * (klamEtikett): det sparade ar det som visas. Tabellen tillater +-2 bildbredder; en etikett utanfor bilden far aldrig sparas.
+ */
+export async function andraNotering(
+  id: string,
+  nytt: { etikett: string; avsikt: NoteringAvsikt; forskjutning?: NoteringForskjutning },
+  options: KlientOptions = {},
+): Promise<Notering | null> {
+  const etikett = rensaEtikett(nytt.etikett);
+  if (etikett === '') {
+    await taBortNotering(id, options);
+    return null;
+  }
+  if (etikett.length > NOTERING_ETIKETT_MAX) throw new Error(`Texten är för lång (högst ${NOTERING_ETIKETT_MAX} tecken).`);
+  if (!arAvsikt(nytt.avsikt)) throw new Error('Välj om det blev så här eller skulle ha gjorts så här.');
+
+  const { klient } = await kravSession(options, SESSION_SAKNAS_NOTERING);
+  await kravOppenNotering(klient, id);
+
+  const skriv: Record<string, unknown> = { etikett, avsikt: nytt.avsikt };
+  if (nytt.forskjutning) {
+    const f = nytt.forskjutning;
+    const k = klamEtikett({ u: f.u, v: f.v, bildHojd: f.bildHojd, dx: f.dx, dy: f.dy, ruta: f.ruta });
+    skriv.etikett_dx = k.dx;
+    skriv.etikett_dy = k.dy;
+  }
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .update(skriv)
+    .eq('id', id)
+    .select('*')
+    .maybeSingle();
+  if (error) throw noteringFel(error, 'Ändringen kunde inte sparas');
+  if (!data) throw new Error('Ändringen sparades inte — noteringen hittades inte. Ladda om sidan.');
+  const sparad = tillNotering(data);
+  if (sparad.etikett !== etikett || sparad.avsikt !== nytt.avsikt) throw new Error('Ändringen sparades inte som väntat. Ladda om sidan.');
+  return sparad;
+}
+
+/** Tar bort en notering medan rundan ar oppen. Kraver att EN rad forsvann - noll rader ar ett fel, inte en lyckad borttagning. */
+export async function taBortNotering(id: string, options: KlientOptions = {}): Promise<void> {
+  const { klient } = await kravSession(options, SESSION_SAKNAS_NOTERING);
+  await kravOppenNotering(klient, id);
+  const { data, error } = await klient
+    .from('egenkontroll_notering')
+    .delete()
+    .eq('id', id)
+    .select('id');
+  if (error) throw noteringFel(error, 'Noteringen kunde inte tas bort');
+  if (!data || data.length !== 1) throw new Error('Noteringen hittades inte — den kan redan vara borttagen. Ladda om sidan.');
 }
 
 // ---------------------------------------------------------------------------

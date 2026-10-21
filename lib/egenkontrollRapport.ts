@@ -22,6 +22,7 @@ import { AVVIKELSE_ETIKETT } from './egenkontroll';
 import { forutsattningsRader, period } from './egenkontrollForutsattningar';
 import { OBSERVATION_TON, OBSERVATION_TYP_ETIKETT, arObservationTon, arObservationTyp, type ObservationTon } from './egenkontrollObservation';
 import { sammanstallProvytor, type LatLng } from './provytor';
+import type { Notering } from './egenkontrollNotering';
 import { markeringsStil, type KartMarkering } from './egenkontrollRapportKarta';
 import { HYTTSPAR_ETIKETT } from './egenkontrollRapportKarta';
 
@@ -37,6 +38,16 @@ export const OMDOME_ETIKETT: Record<Omdome, string> = {
 };
 
 /** Det rapporten laser in. Allt ar redan hamtat - modellen gor inga anrop. */
+/** En notering som kartan i rapporten ritar: punkter i lat/lng, text och avsikt. */
+export type KartNotering = {
+  id: string;
+  typ: 'punkt' | 'linje';
+  pil: boolean;
+  etikett: string;
+  avsikt: 'blev' | 'skulle';
+  punkter: LatLng[];
+};
+
 export type RapportIndata = {
   objektNamn: string;
   voNummer: string | null;
@@ -65,6 +76,11 @@ export type RapportIndata = {
   hyttspar: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[] | null;
   /** Planeringens markeringar (basvagar, hansynsytor, symboler) i lat/lng. null = gick inte att lasa. */
   markeringar: KartMarkering[] | null;
+  /**
+   * Noteringarna (ord pa kartan, PR 9a). Utelamnad eller [] = inga; null = gick inte att lasa (ett FEL som sags under kartan, aldrig en tyst
+   * karta utan det besiktaren ritat). Raknas aldrig i talen - de forklarar vad man tittar pa, de ar ingen bedomning.
+   */
+  noteringar?: Notering[] | null;
   /** Hektar ur objektet. null = saknas (aldrig 0). */
   areal: number | null;
   /**
@@ -156,6 +172,8 @@ export type RapportModell = {
     stammar: LatLng[];
     hyttspar: { roll: 'skordare' | 'skotare'; linjer: LatLng[][] }[];
     markeringar: KartMarkering[];
+    /** Noteringarna pa kartan, aldst forst (samma ordning som i appen). Ritas over planens vagar och hyttsparet, under kontrollpunkterna; etiketterna overst. */
+    noteringar: KartNotering[];
     pinnar: { nr: number; rubrik: string; plats: LatLng }[];
     utanPlats: { nr: number; rubrik: string }[];
     /** "2 247 stammar · 4,8 ha" - fakta om vad som gjordes. null = varken stammar eller areal kanda. */
@@ -485,6 +503,13 @@ export function byggRapport(i: RapportIndata): RapportModell {
   else if (i.stammar.length === 0) anmarkningar.push('Inga avverkade stammar hittades för objektet.');
   if (i.hyttspar === null) anmarkningar.push('Hyttsparet kunde inte läsas.');
   if (i.markeringar === null) anmarkningar.push('Planeringens markeringar kunde inte läsas.');
+  if (i.noteringar === null) anmarkningar.push('Noteringarna kunde inte läsas.');
+  const noteringar: KartNotering[] = (i.noteringar ?? [])
+    .filter((n) => n.underlag === 'karta' && n.koordinater.length > 0)
+    .map((n) => ({
+      id: n.id, typ: n.typ, pil: n.pil, etikett: n.etikett, avsikt: n.avsikt,
+      punkter: n.koordinater.map(([lng, lat]) => ({ lat, lng })),
+    }));
   anmarkningar.push(...(i.extraAnmarkningar ?? []));
   const forklaring: Teckenforklaring[] = [];
   const lagg = (nyckel: string, etikett: string) => { if (!forklaring.some((f) => f.nyckel === nyckel)) forklaring.push({ nyckel, etikett }); };
@@ -493,6 +518,8 @@ export function byggRapport(i: RapportIndata): RapportModell {
   for (const h of i.hyttspar ?? []) if (h.linjer.length > 0) lagg(`hyttspar:${h.roll}`, HYTTSPAR_ETIKETT[h.roll]);
   for (const m of markeringar) { const st = markeringsStil(m.slag, m.typ); if (st) lagg(st.nyckel, st.etikett); }
   if (markeringar.some((m) => m.slag === 'linje' && m.backvag)) lagg('backvag', 'Backväg (dubbla tvärstreck i änden)');
+  if (noteringar.some((n) => n.avsikt === 'blev')) lagg('notering:blev', 'Notering: så här blev det');
+  if (noteringar.some((n) => n.avsikt === 'skulle')) lagg('notering:skulle', 'Notering: så här skulle det gjorts (streckad)');
   if (pinnar.length > 0) lagg('kontrollpunkt', 'Kontrollpunkt (numret står i rapporten)');
 
   const maskingrupp = [
@@ -528,6 +555,7 @@ export function byggRapport(i: RapportIndata): RapportModell {
       stammar: i.stammar ?? [],
       hyttspar: (i.hyttspar ?? []).filter((h) => h.linjer.length > 0),
       markeringar,
+      noteringar,
       pinnar,
       utanPlats,
       fakta: faktaRad(i.stammar, i.antalStammar, i.areal),

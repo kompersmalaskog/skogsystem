@@ -32,7 +32,7 @@ export type { SparRoll };
 
 /** Lagrens nycklar. De fyra forsta fanns innan 8a; id:na ar kontrakt mot lagermenyn, kartan och det sparade valet. */
 export const LAGER_NYCKLAR = [
-  'ekPunkter', 'ekProvytor', 'ekObservationer',
+  'ekPunkter', 'ekProvytor', 'ekObservationer', 'ekNoteringar',
   'ekPlanVagar', 'ekSparSkordare', 'ekSparSkotare', 'ekVidaGrans', 'ekStammar',
 ] as const;
 export type LagerNyckel = (typeof LAGER_NYCKLAR)[number];
@@ -40,7 +40,7 @@ export type LagerVarden = Record<LagerNyckel, boolean>;
 
 /** Standarden: det rundan handlar om ar tant, allt som ar underlag ar slackt. */
 export const LAGER_STANDARD: Readonly<LagerVarden> = {
-  ekPunkter: true, ekProvytor: true, ekObservationer: true,
+  ekPunkter: true, ekProvytor: true, ekObservationer: true, ekNoteringar: true,
   ekPlanVagar: false, ekSparSkordare: false, ekSparSkotare: false, ekVidaGrans: false, ekStammar: false,
 };
 
@@ -246,6 +246,7 @@ export function lagerRader(i: LagerIndata): LagerRad[] {
     { id: 'ekPunkter', namn: 'Kontrollpunkter', beskrivning: 'Punkterna ur planen, färgade efter svar', grupp: GRUPP_RUNDAN },
     { id: 'ekProvytor', namn: 'Provytor', beskrivning: 'Lottade ytor, mätta och omätta', grupp: GRUPP_RUNDAN },
     { id: 'ekObservationer', namn: 'Observationer', beskrivning: 'Det du själv noterat ute på rundan', grupp: GRUPP_RUNDAN },
+    { id: 'ekNoteringar', namn: 'Noteringar', beskrivning: 'Ord och streck du ritat på kartan', grupp: GRUPP_RUNDAN },
     planRad(i),
     ...sparRader(i),
     vidaRad(i),

@@ -46,6 +46,7 @@ vi.mock('@/lib/egenkontroll', async () => {
     hamtaKontextmarkeringar: async () => f.granser.map((g, i) => ({ marker_id: `m${i + 1}`, data: { lineType: 'boundary', isLine: true, path: g.map(([x, y]) => ({ x, y })) } })),
     hamtaVidaGrans: async () => ({ typ: 'ok', gran: [[f.vida![0], f.vida![1]], [f.vida![2], f.vida![3]]] }),
     hamtaProvytor: async () => [],
+    hamtaNoteringar: async () => [],
     hamtaFoton: async () => [],
     hamtaAvverkadeStammar: async () => [],
     hamtaStammoln: async () => ({ punkter: [], antal: 0 }),
