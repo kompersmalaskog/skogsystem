@@ -34,11 +34,11 @@ const M = [
   ["Vidas text som ändrats räknas som sedd (ingen hash på Vidas rad)", "hash: hashText(vidaText), kalla: 'vida'", "hash: '', kalla: 'vida'", LOGIK],
 
   // ── texten på kortet ──
-  ["två rader blir inte numrerade punkter", "if (rader.length > 1) return", "if (rader.length > 2) return", LOGIK],
-  ["tomma rader räknas som punkter", ".map((r) => r.trim()).filter(Boolean)", ".map((r) => r.trim())", LOGIK],
+  ["flera rader blir inte numrerade punkter", "if (arNumrerad(rader)) return", "if (false) return", LOGIK],
+  ["instruktionerna delar text på egen hand i stället för kartkortets regel", "const rader = kommentarPunkter(text);", "const rader = text.split('\\n');", LOGIK],
 
   // ── var Vidas text finns ──
-  ["traktdelens beskrivning blir Vidas instruktion", "(kort.kategori === 'hansyn' || kort.kategori === 'punkt') ? (kort.rader[0]?.text ?? '').trim() : ''", "(kort.rader[0]?.text ?? '').trim()", LOGIK],
+  ["traktdelens beskrivning blir Vidas instruktion", "const vidaText = (kort.vidaKommentar ?? '').trim();", "const vidaText = (kort.vidaKommentar ?? kort.rader[0]?.text ?? '').trim();", LOGIK],
   ["Vidas text sorteras sist", "return i.kalla === 'vida' ? 0", "return i.kalla === 'vida' ? 3", LOGIK],
 
   // ── inkörning ──
@@ -104,7 +104,7 @@ const M = [
   ["drag avbryter inte långtrycket", "if (timer && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > rorelsePx) stopp();", "", TESTPOS],
   ["nyp avbryter inte långtrycket", "if (nere.size > 1) return;   // nyp = zoom", "", TESTPOS],
   ["håll-fingret kopplas utanför testläget", "if (!map || !mapLibreReady || !testlage) return;\n    return kopplaLangtryckFlytt", "if (!map || !mapLibreReady) return;\n    return kopplaLangtryckFlytt", SIDA],
-  ["plusdockans långtryck öppnas också i testläget", "&& !objektListaOppen\n    && !testlage;", "&& !objektListaOppen;", SIDA],
+  ["plusdockans långtryck öppnas också i testläget", "  if (testlage) langtryckTillatenRef.current = false;", "", SIDA],
 ];
 
 kor({

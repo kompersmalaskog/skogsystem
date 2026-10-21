@@ -18,6 +18,7 @@ import { innehallHash } from '../larm/larm';
 import { vidaSlag } from '../larm/objekt';
 import { byggTraktKort } from '../traktGeometri';
 import { vidaNycklar } from '../vidaNycklar';
+import { arNumrerad, kommentarPunkter } from '../kommentarPunkter';
 import { aldreKommentar, forfattarText, kommentarerForNyckel, markerNyckel, type KommentarVy } from '../kartkommentar';
 
 /** Punkter och linjer räknas som "inne" inom så här många meter (ut först vid +UT_MARGINAL_M, så GPS-brus vid kanten inte ger flimmer). */
@@ -61,12 +62,12 @@ export const arOsedd = (i: Pick<Instruktion, 'ref' | 'hash'>, sett: SettKarta): 
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 /**
- * Radbrytningar blir numrerade punkter (1, 2, 3); en enda rad är vanlig text — samma regel som kortet ("Samma regel som kortet"). Tomma rader hoppas över.
- * `punkter` är null för en vanlig text.
+ * Radbrytningar blir numrerade punkter (1, 2, 3); en enda rad är vanlig text. SAMMA regel som kartkortet (lib/kommentarPunkter — EN källa): bara avsändarens egna
+ * radbrytningar räknas, tomma rader hoppas över. `punkter` är null för en vanlig text.
  */
 export function instruktionRader(text: string): { punkter: string[] | null; text: string } {
-  const rader = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
-  if (rader.length > 1) return { punkter: rader, text: rader.join('\n') };
+  const rader = kommentarPunkter(text);
+  if (arNumrerad(rader)) return { punkter: rader, text: rader.join('\n') };
   return { punkter: null, text: rader[0] ?? '' };
 }
 
@@ -145,8 +146,8 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
     const props = f.properties ?? {};
     const kort = byggTraktKort(props);
     if (!arPlats(f.geometry?.type, kort.kategori === 'punkt')) return;
-    // Vidas egen text (ATGARD) finns på hänsynsytor och avlägg; byggTraktKort lägger den som kortets enda rad. Andra kategorier har ingen.
-    const vidaText = (kort.kategori === 'hansyn' || kort.kategori === 'punkt') ? (kort.rader[0]?.text ?? '').trim() : '';
+    // Vidas egen text (ATGARD) finns på hänsynsytor och avlägg; byggTraktKort ger den som `vidaKommentar` (samma källa som kartkortets "Vida · traktdirektiv"). Andra kategorier har ingen.
+    const vidaText = (kort.vidaKommentar ?? '').trim();
     const lista: Instruktion[] = [];
     if (vidaText) lista.push({ ref: `vida:${nyckel}`, text: vidaText, hash: hashText(vidaText), kalla: 'vida', forfattare: null, vantar: false });
     lista.push(...egnaInstruktioner(i.kommentarer, i.objektId, nyckel, null, i.nu));

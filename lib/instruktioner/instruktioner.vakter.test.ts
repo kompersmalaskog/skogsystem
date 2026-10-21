@@ -46,13 +46,24 @@ describe('maskinläget — och bara det', () => {
 });
 
 describe('kartkortet rörs inte', () => {
-  it('KartKort.tsx nämner inga instruktioner', () => {
-    expect(las('components/planering/KartKort.tsx').toLowerCase()).not.toContain('instruktion');
+  it('KartKort.tsx importerar ingenting av instruktionerna (hooken, kortet, lib/instruktioner)', () => {
+    const k = las('components/planering/KartKort.tsx');
+    expect(k).not.toMatch(/from ['"][^'"]*(instruktioner|useInstruktioner|InstruktionKort)[^'"]*['"]/);
+    expect(k).not.toMatch(/useInstruktioner|InstruktionKortVy|InstruktionLista/);
   });
   it('sidan markerar "läst" från kartkortet och ⓘ utan att kortet vet om det', () => {
     const sida = las('app/planering/page.tsx');
     expect(sida).toMatch(/traktInfo \? traktKortNyckel : markerMenuOpen != null \? markerNyckel\(markerMenuOpen\) : null/);
     expect(sida).toMatch(/framhavdMarkering \? markerNyckel\(framhavdMarkering\.id\)/);
+  });
+});
+
+describe('en regel för radbrytning', () => {
+  it('instruktionerna använder kartkortets kommentarPunkter (lib/kommentarPunkter), ingen egen uppdelning', () => {
+    const k = las('lib/instruktioner/instruktioner.ts');
+    expect(k).toContain("from '../kommentarPunkter'");
+    expect(k).toContain('kommentarPunkter(text)');
+    expect(k).not.toMatch(/\.split\(\/\\r\?\\n\//);
   });
 });
 

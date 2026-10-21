@@ -144,7 +144,7 @@ describe('håll-fingret i testläget: sidans koppling (källvakt)', () => {
     expect(sida).not.toMatch(/kopplaLangtryckFlytt\(map, (setCurrentPosition|setGpsPosition)/);
   });
   it('plusdockans långtryck är avstängt i testläget (annars öppnas dockan också)', () => {
-    expect(sida).toMatch(/&& !objektListaOppen\s*&& !testlage;/);
+    expect(sida).toContain('if (testlage) langtryckTillatenRef.current = false;');
   });
   it('testbannern säger hur man gör', () => {
     expect(sida).toContain('data-testid="test-langtryck-tips"');

@@ -33,7 +33,7 @@ describe('målbilderna är kopplade i sidan', () => {
   it('skotarläget: avläggets målbild vid första lasset, utan att röra lossningskortet', () => {
     expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,900}forstaLasset=\{[^}]*arForstaLassetPaTrakten\(sl\.lass, '', valtObjekt\.id, skotarMaskinId\)\}[\s\S]{0,120}position=\{currentPosition\}[\s\S]{0,60}avlagg=\{sl\.avlagg\}/);
     // aldrig samtidigt som lossningskortet eller något annat nertill: raden får bara visas när allt det är borta
-    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,500}kortVisas=\{!!sl\.kort\}[\s\S]{0,60}ledigt=\{!sl\.kort && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet\}/);
+    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,500}kortVisas=\{!!sl\.kort\}[\s\S]{0,60}ledigt=\{avlaggsradLedig\(\{ ledigtUtanInstruktion: !sl\.kort && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet, instruktionVantar: inst\.vantar \}\)\}/);   // + instruktionen väntar på Sett (lib/instruktioner/ordning): avläggsraden kommer efter den
     // samma zon som lossningsupptäckten
     expect(las('components/malbild/AvlaggForstaLasset.tsx')).toMatch(/AVLAGG as LOSSNINGSZON, traffaAvlagg[^\n]*skotarLass\/avlagg/);
     expect(las('components/planering/skotar/LossningsKort.tsx')).not.toMatch(/malbild/i);
