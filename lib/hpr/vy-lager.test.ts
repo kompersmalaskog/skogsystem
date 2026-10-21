@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { arAktuell, byggLista, sammaTid, tillKort, VY_VERSION, type LagradRad, type ObjektKort, type ObjektMeta } from "./vy-lager";
+import { arAktuell, byggLista, delarStammer, sammaTid, tillKort, VY_VERSION, type LagradRad, type ObjektKort, type ObjektMeta } from "./vy-lager";
 import { readFileSync } from "fs";
 
 const kort = (key: string, lage: 1 | 2, volym: number): ObjektKort => ({
@@ -74,6 +74,45 @@ describe("byggLista", () => {
     );
     expect(l.objekt.map((o) => o.objectKey)).toEqual(["b", "c", "a"]);
     expect(l.inaktuella).toEqual(["d", "e"]);
+  });
+});
+
+describe("byggLista — en trakt av flera objekt (sammaTrakt)", () => {
+  const B = "Bågskyttebanan RP J-Hus- 25";
+  const delar = [
+    { object_key: "G:134", object_name: B, status: "completed" as const, last_file_at: "2026-10-13T08:21:21Z" },
+    { object_key: "G:133", object_name: B, status: "completed" as const, last_file_at: "2026-10-13T09:25:10Z" },
+  ];
+  const sist = "2026-10-13T09:25:10Z";
+
+  it("visas EN gång under huvudnyckeln och är aktuell när raden har båda delarna", () => {
+    const k = { ...kort("G:133", 2, 120), delar: ["G:133", "G:134"] };
+    const l = byggLista(delar, new Set(["G:133", "G:134"]), [rad("G:133", sist, k), rad("G:134", "2026-10-13T08:21:21Z", kort("G:134", 2, 100))], NU);
+    expect(l.objekt.map((o) => o.objectKey)).toEqual(["G:133"]);
+    expect(l.objekt[0].uppdateras).toBe(false);
+    expect(l.objekt[0].objektNamn).toBe(B);
+    expect(l.inaktuella).toEqual([]);
+  });
+
+  it("en rad räknad före ihopslagningen (utan delar) räknas om", () => {
+    const l = byggLista(delar, new Set(["G:133", "G:134"]), [rad("G:133", sist, kort("G:133", 2, 20))], NU);
+    expect(l.objekt).toHaveLength(1);
+    expect(l.objekt[0].uppdateras).toBe(true);
+    expect(l.inaktuella).toEqual(["G:133"]);
+  });
+
+  it("mål på bara en del räcker för att trakten visas", () => {
+    const l = byggLista(delar, new Set(["G:134"]), [], NU);
+    expect(l.vantar).toEqual([{ objectKey: "G:133", objektNamn: B, status: "completed" }]);
+  });
+});
+
+describe("delarStammer", () => {
+  it("ensamt objekt utan delar stämmer mot sig självt; annan uppsättning gör det inte", () => {
+    expect(delarStammer(rad("a", null, kort("a", 1, 1)), ["a"])).toBe(true);
+    expect(delarStammer(rad("a", null, kort("a", 1, 1)), ["a", "b"])).toBe(false);
+    expect(delarStammer(rad("a", null, { ...kort("a", 1, 1), delar: ["a", "b"] }), ["a"])).toBe(false);
+    expect(delarStammer(rad("a", null, null), ["a", "b"])).toBe(true);
   });
 });
 
