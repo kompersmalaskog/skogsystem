@@ -1,4 +1,4 @@
--- Stubbtabeller för migrationen 20261021100000_lon_forarens_godkannande.sql (kolumnerna som triggrarna och funktionerna rör, som i prod 2026-10-21).
+-- Stubbtabeller för migrationen 20261021181920_lon_forarens_godkannande.sql (kolumnerna som triggrarna och funktionerna rör, som i prod 2026-10-21).
 do $$ begin create role authenticated; exception when duplicate_object then null; end $$;
 do $$ begin create role anon; exception when duplicate_object then null; end $$;
 create schema auth;

@@ -2,7 +2,7 @@
 //
 // Godkännandet ligger där det alltid legat: `loneunderlag` (en rad per förare och ARBETSMÅNAD, period "2026-09"). Föraren godkänner i
 // Arbetsrapport (status 'godkand_av_forare'; äldre rader har 'inskickat'). Är status NULL gäller inget godkännande: det är så en
-// ändring i en godkänd månad nollställer det (migration 20261021100000) och Arbetsrapport visar då Godkänn-knappen igen.
+// ändring i en godkänd månad nollställer det (migration 20261021181920) och Arbetsrapport visar då Godkänn-knappen igen.
 // Skickat till Fortnox är en annan sak (fortnox_export_logg) och vinner alltid i visningen.
 //
 // Ren modul (ingen Supabase-import): används av lönemotorn, exportroutern, notiserna och Admins vyer.

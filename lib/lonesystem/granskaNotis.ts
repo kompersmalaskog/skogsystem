@@ -5,7 +5,7 @@
  *                  "Granska din september – lönen skickas när du godkänt"
  *  lon_paminnelse  två dagar senare (den 3:e kl 18) till dem som ännu inte godkänt
  *                  "Du har inte godkänt din september än – lönen skickas när du godkänt"
- *  lon_andrad      när en dag ändrats i en godkänd månad (köas av databasen, migration 20261021100000)
+ *  lon_andrad      när en dag ändrats i en godkänd månad (köas av databasen, migration 20261021181920)
  *                  "Din september ändrades efter ditt godkännande – granska och godkänn igen"
  *
  * Alla tre länkar till Lön-fliken i Arbetsrapport på just den månaden (/arbetsrapport?steg=lon&manad=2026-09). Aldrig till företagsledare (lönen ligger utanför appen).

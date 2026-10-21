@@ -115,7 +115,7 @@ describe("förarens godkännande per förare", () => {
 });
 
 // ── Ändrad EFTER att månaden skickats (Martin 2026-10-21) ──────────────────────────────────────────────────────────────────────
-// Är månaden redan skickad nollställer en ändring inte godkännandet (databasen, migration 20261021100000) — den märks på exportloggraden
+// Är månaden redan skickad nollställer en ändring inte godkännandet (databasen, migration 20261021181920) — den märks på exportloggraden
 // (fortnox_export_logg.andrad_efter_skickat_*), och Admin visar "Ändrad efter att den skickats · 10 sep" så att det rättas i nästa lön.
 describe("ändrad efter att månaden skickats", () => {
   // Loggens period är LÖNEperioden (som frågan period "2026-10"), medan godkännandet ovan hör till arbetsmånaden "2026-09".

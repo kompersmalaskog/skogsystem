@@ -1,4 +1,4 @@
--- Förarens godkännande: en ändring i en godkänd månad nollställer godkännandet och köar EN ny notis (migrationen 20261021100000).
+-- Förarens godkännande: en ändring i en godkänd månad nollställer godkännandet och köar EN ny notis (migrationen 20261021181920).
 -- Varje rad i resultatet ska säga true. Slutar med antalet rader som INTE är true (ska vara 0).
 create temp table resultat (vad text, ok boolean);
 grant all on resultat to public;
