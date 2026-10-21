@@ -32,6 +32,8 @@ export function byggRapportIndata(a: {
   stammar: LatLng[] | null;
   antalStammar: number | null;
   hyttspar: RapportIndata['hyttspar'];
+  /** Noteringarna (ord pa kartan). null = gick inte att lasa — sags under kartan. */
+  noteringar?: RapportIndata['noteringar'];
   areal: number | null;
   jamforelse?: JamforelseRad[] | null;
 }): RapportIndata {
@@ -86,6 +88,7 @@ export function byggRapportIndata(a: {
     antalStammar: a.antalStammar,
     hyttspar: a.hyttspar,
     markeringar,
+    noteringar: a.noteringar,
     areal: a.areal,
     jamforelse: a.jamforelse ?? null,
     extraAnmarkningar,

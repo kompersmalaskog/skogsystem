@@ -44,6 +44,7 @@ vi.mock('@/lib/egenkontroll', async () => {
     hamtaKontextmarkeringar: () => h.kontext(),
     hamtaVidaGrans: () => { h.vidaFragad++; return h.vida(); },
     hamtaProvytor: async () => [],
+    hamtaNoteringar: async () => [],
     hamtaFoton: async () => [],
     hamtaAvverkadeStammar: async () => [],
   };

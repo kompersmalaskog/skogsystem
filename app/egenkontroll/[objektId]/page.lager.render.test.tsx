@@ -51,6 +51,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     angraForstaSvaret: async () => ({}),
     hamtaFoton: async () => [],
     hamtaProvytor: async () => [],
+    hamtaNoteringar: async () => [],
     hamtaKontextmarkeringar: async () => kontext,
     hamtaVidaGrans: async () => vida,
     hamtaAvverkadeStammar: async () => [],
@@ -159,7 +160,7 @@ describe('MENYN: grupper, rader och gråa rader som säger varför', () => {
     const grupper = Array.from(document.querySelectorAll('[data-lager-grupp]')).map((g) => g.getAttribute('data-lager-grupp'));
     expect(grupper).toEqual(['Egenkontrollen', 'Plan och körning']);
     const ids = Array.from(document.querySelectorAll('[data-lager]')).map((r) => r.getAttribute('data-lager'));
-    expect(ids).toEqual(['ekPunkter', 'ekProvytor', 'ekObservationer', 'ekPlanVagar', 'ekSparSkordare', 'ekSparSkotare', 'ekVidaGrans', 'ekStammar']);
+    expect(ids).toEqual(['ekPunkter', 'ekProvytor', 'ekObservationer', 'ekNoteringar', 'ekPlanVagar', 'ekSparSkordare', 'ekSparSkotare', 'ekVidaGrans', 'ekStammar']);
     // Inget är avstängt på ett objekt som har allt; spår-raderna bär rollfärgen som en prick och rollen i ord.
     expect(document.querySelectorAll('[data-avstangd]')).toHaveLength(0);
     expect(menyRad('ekSparSkotare')!.textContent).toContain('Hyttspår · skotare');

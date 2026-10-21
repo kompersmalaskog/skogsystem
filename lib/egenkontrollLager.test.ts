@@ -32,7 +32,7 @@ const rad = (i: LagerIndata, id: string) => lagerRader(i).find((r) => r.id === i
 describe('standarden lagger inget nytt pa kartan', () => {
   it('bara kontrollpunkter, provytor och observationer ar tanda', () => {
     const pa = LAGER_NYCKLAR.filter((k) => LAGER_STANDARD[k]);
-    expect(pa).toEqual(['ekPunkter', 'ekProvytor', 'ekObservationer']);
+    expect(pa).toEqual(['ekPunkter', 'ekProvytor', 'ekObservationer', 'ekNoteringar']);
   });
 });
 
@@ -92,9 +92,9 @@ describe('sparLasningUr', () => {
 describe('raderna i menyn', () => {
   it('ordning och grupper: det rundan handlar om forst, sedan Plan och korning', () => {
     const r = lagerRader(indata());
-    expect(r.map((x) => x.id)).toEqual(['ekPunkter', 'ekProvytor', 'ekObservationer', 'ekPlanVagar', 'ekSparSkordare', 'ekSparSkotare', 'ekVidaGrans', 'ekStammar']);
-    expect(r.slice(0, 3).every((x) => x.grupp === GRUPP_RUNDAN)).toBe(true);
-    expect(r.slice(3).every((x) => x.grupp === GRUPP_PLAN)).toBe(true);
+    expect(r.map((x) => x.id)).toEqual(['ekPunkter', 'ekProvytor', 'ekObservationer', 'ekNoteringar', 'ekPlanVagar', 'ekSparSkordare', 'ekSparSkotare', 'ekVidaGrans', 'ekStammar']);
+    expect(r.slice(0, 4).every((x) => x.grupp === GRUPP_RUNDAN)).toBe(true);
+    expect(r.slice(4).every((x) => x.grupp === GRUPP_PLAN)).toBe(true);
   });
 
   it('ett objekt med allt: inga rader ar avstangda, spar-raderna har rollfarg och dagar', () => {

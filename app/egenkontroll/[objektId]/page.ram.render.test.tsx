@@ -59,6 +59,7 @@ vi.mock('@/lib/egenkontroll', async (orig) => {
     avslutaRunda: () => avslutaRunda(),
     hamtaFoton: async () => foton,
     hamtaProvytor: async () => [],
+    hamtaNoteringar: async () => [],
     hamtaKontextmarkeringar: async () => [],
     hamtaVidaGrans: async () => ({ typ: 'saknas' }),
     hamtaAvverkadeStammar: async () => [],
