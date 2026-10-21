@@ -13,6 +13,9 @@ import type { ListRad } from '@/lib/markagarrapport/lista';
 
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => undefined }) }));
+vi.mock('@/app/helikopter/_components/PdfForhandsvisning', () => ({
+  default: ({ filnamn, titel }: any) => createElement('div', { 'data-forhandsvisning': filnamn }, titel),
+}));
 vi.mock('./SkogenKarta', () => ({ default: () => createElement('canvas', { 'data-karta': '' }) }));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -70,6 +73,17 @@ describe('Rapporten', () => {
     const ark = document.querySelector('[role=dialog]');
     expect(ark?.textContent).toContain('Timmer: Gran');
     expect(ark?.textContent).toContain('650 kr/m³');
+  });
+
+  it('Skicka till markägaren öppnar PDF:en i förhandsvisningen', async () => {
+    const h = await montera(createElement(Rapport, { vy: byggRapportVy(data), stammar: data.karta.stammar }));
+    expect(document.querySelector('[data-forhandsvisning]')).toBeNull();
+    const knapp = h.querySelector('[data-pdf]') as HTMLButtonElement;
+    expect(knapp.textContent).toContain('Skicka till markägaren');
+    await act(async () => { knapp.click(); });
+    const f = document.querySelector('[data-forhandsvisning]');
+    expect(f?.getAttribute('data-forhandsvisning')).toBe('markagarrapport-husjonas-1-18-je-g-lrk-25');
+    expect(f?.textContent).toBe('Markägarrapport Husjönäs 1:18 JE-G LRK -25');
   });
 
   it('kartan ritas inte utan positioner — det står varför', async () => {

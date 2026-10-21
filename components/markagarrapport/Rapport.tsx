@@ -16,6 +16,7 @@ import { tradslagFarg, TRADSLAG_STIL } from '@/lib/tradslag';
 import type { RapportVy, Stapeldel, VyRad } from '@/lib/markagarrapport/vy';
 import type { MarkagarRapport } from '@/lib/markagarrapport/types';
 import SkogenKarta from './SkogenKarta';
+import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 
 /** Rapportbredd där korten går från en till två och från två till tre kolumner. */
 export const TVA_KOLUMNER_PX = 640;
@@ -30,6 +31,7 @@ const css = `
 
 export default function Rapport({ vy, stammar }: { vy: RapportVy; stammar: MarkagarRapport['karta']['stammar'] }) {
   const [merOppen, setMerOppen] = useState(false);
+  const [pdfOppen, setPdfOppen] = useState(false);
   return (
     <div className="mr-rapport" data-rapport="">
       <style>{css}</style>
@@ -45,6 +47,12 @@ export default function Rapport({ vy, stammar }: { vy: RapportVy; stammar: Marka
         {vy.vardeFraga && <p style={{ margin: `${AVSTAND.l}px 0 0`, ...TYP.text, color: FARG.text2 }}>{vy.vardeFraga}</p>}
         <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.tal }}>{vy.svar}</p>
         <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.text, ...TNUM }}>{vy.underSvar}</p>
+        {/* Rapportens EN handling: PDF:en till markägaren (förhandsvisning, sedan Dela → mejl, meddelande, spara). */}
+        <button type="button" onClick={() => setPdfOppen(true)} data-pdf=""
+          style={{ ...KNAPP.primar, display: 'inline-flex', width: 'auto', marginTop: AVSTAND.xl, gap: AVSTAND.s }}>
+          <Ikon namn="ios_share" farg="inherit" />
+          Skicka till markägaren
+        </button>
       </header>
 
       <div className="mr-rutnat">
@@ -96,6 +104,14 @@ export default function Rapport({ vy, stammar }: { vy: RapportVy; stammar: Marka
           attr={{ 'data-mer': '' }} />
       </div>
 
+      {pdfOppen && (
+        <PdfForhandsvisning
+          skapa={async () => (await import('@/lib/markagarrapport/pdf')).skapaMarkagarPdf(vy, stammar)}
+          filnamn={vy.filnamn}
+          titel={`Markägarrapport ${vy.namn}`}
+          onStang={() => setPdfOppen(false)}
+        />
+      )}
       {merOppen && <MerArk mer={vy.mer} onStang={() => setMerOppen(false)} />}
     </div>
   );

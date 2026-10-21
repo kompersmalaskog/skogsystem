@@ -73,6 +73,11 @@ export type VyRad = {
 };
 
 export type RapportVy = {
+  /** Avverkningens namn och skogsägaren — PDF:ens huvud ("Till <skogsägare>"). */
+  namn: string;
+  skogsagare: string | null;
+  /** Filnamn utan ändelse för PDF:en ("markagarrapport-husjonas-1-18-je-g-lrk-25"). */
+  filnamn: string;
   huvud: string;
   /** "Virket från skogen är värt" — eller null när inget pris fanns (då är volymen svaret). */
   vardeFraga: string | null;
@@ -240,6 +245,11 @@ function byggMer(d: MarkagarRapport): RapportVy['mer'] {
   };
 }
 
+/** "Husjönäs 1:18 JE-G" → "husjonas-1-18-je-g" (filnamn utan å, ä, ö och skiljetecken). */
+export function slug(s: string): string {
+  return s.toLowerCase().replace(/[åä]/g, 'a').replace(/ö/g, 'o').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 export function byggRapportVy(d: MarkagarRapport): RapportVy {
   const namn = d.objekt.namn ?? d.objekt.objekt_id;
   const avverkad = avverkadText(d.objekt.forsta_datum);
@@ -247,6 +257,9 @@ export function byggRapportVy(d: MarkagarRapport): RapportVy {
   const harVarde = Math.round(o.virkesvarde_kr) > 0;
   const trad = `${heltal(o.stammar)} träd`;
   return {
+    namn,
+    skogsagare: d.objekt.skogsagare?.trim() || null,
+    filnamn: `markagarrapport-${slug(namn) || d.objekt.objekt_id}`,
     huvud: avverkad ? `${namn} · ${avverkad}` : namn,
     vardeFraga: harVarde ? 'Virket från skogen är värt' : null,
     svar: harVarde ? `${heltal(o.virkesvarde_kr)} kr` : `${heltal(o.volym_m3sub)} kubikmeter virke`,
