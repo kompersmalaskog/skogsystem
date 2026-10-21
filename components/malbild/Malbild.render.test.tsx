@@ -9,7 +9,7 @@ import { KartKort, type KartKortProps } from '@/components/planering/KartKort';
 import { LarmKortVy } from '@/components/planering/LarmKort';
 import VadBetyderKartan from '@/components/planering/VadBetyderKartan';
 import { MALBILDER, MALBILD_ORDNING, malbildInnehall } from '@/lib/malbilder';
-import { MALBILD_AVLAGG_SETT_NYCKEL } from '@/lib/malbildSett';
+import { MALBILD_AVLAGG_SETT_NYCKEL, arForstaLassetPaTrakten } from '@/lib/malbildSett';
 import type { LarmKort } from '@/lib/larm/larm';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -290,80 +290,104 @@ describe('Vad betyder kartan — tryck på en rad öppnar målbilden', () => {
   });
 });
 
-describe('AvlaggForstaLasset — bredvid lossningsflödet: första gången per trakt, aldrig samtidigt som lossningskortet', () => {
+describe('AvlaggForstaLasset — FÖRE första lossningen, när maskinen kommer in i avläggets zon; aldrig samtidigt som lossningskortet', () => {
   type P = React.ComponentProps<typeof AvlaggForstaLasset>;
-  const lassL = (status = 'bekraftat') => [{ id: 'l1', status }];
-  /** Lossningskortet visas och är maskinens första lass på trakten. */
-  const medKort = (p: Partial<P> = {}) => <AvlaggForstaLasset objektId="o1" kortVisas ledigt={false} forstaLassId="l1" lass={lassL()} {...p} />;
-  /** Lossningen är hanterad: kortet är borta och nertill är fritt. */
-  const efterKort = (p: Partial<P> = {}) => <AvlaggForstaLasset objektId="o1" kortVisas={false} ledigt forstaLassId={null} lass={lassL()} {...p} />;
-  it('medan lossningskortet visas finns ingen rad — den kommer när lossningen är hanterad; Visa öppnar avläggets målbild och minns att den är sedd', () => {
-    montera(medKort());
+  const AVL = [{ id: 'vida:01-1', nummer: '01-1', kalla: 'vida' as const, lat: 57.0, lng: 15.0 }];
+  const PA = { lat: 57.0, lon: 15.0 };                 // på avlägget
+  const NARA = { lat: 57.0 + 45 / 111_320, lon: 15.0 };   // 45 m bort: inne i zonen (50 m)
+  const UTANFOR = { lat: 57.0 + 75 / 111_320, lon: 15.0 };   // 75 m bort: utanför även med marginal
+  const rad = (p: Partial<P> = {}) => <AvlaggForstaLasset objektId="o1" kortVisas={false} ledigt forstaLasset position={PA} avlagg={AVL} {...p} />;
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-21T10:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+  const tid = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
+
+  it('maskinen kommer in i zonen på trakten utan lass: raden syns; Visa öppnar avläggets målbild och förbrukar den på trakten', () => {
+    montera(rad({ position: UTANFOR }));
     expect(q('avlagg-forsta-lasset')).toBeNull();
-    uppdatera(efterKort());
+    uppdatera(rad({ position: NARA }));
     expect(q('avlagg-forsta-lasset')).not.toBeNull();
     klick(q('larm-malbild-visa'));
     expect(q('malbild-blad-sektion')!.dataset.malbild).toBe('avlagg');
     expect(q('avlagg-forsta-lasset')).toBeNull();
     expect(JSON.parse(localStorage.getItem(MALBILD_AVLAGG_SETT_NYCKEL)!)).toEqual(['o1']);
+    uppdatera(rad({ position: PA }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
   });
-  it('aldrig samtidigt som något annat nertill: Ändra-arket, nytt-avlägg-kortet eller ett ark (ledigt=false) håller tillbaka raden', () => {
-    montera(medKort());
-    uppdatera(efterKort({ ledigt: false }));   // t.ex. Ändra-arket har tagit kortet
-    expect(q('avlagg-forsta-lasset')).toBeNull();
-    uppdatera(efterKort());                     // Ändra stängt, lossningen hanterad
+  it('lossningskortet vinner alltid platsen: kommer kortet försvinner raden, och första kortet förbrukar målbilden på trakten (kommer inte tillbaka)', () => {
+    montera(rad());
     expect(q('avlagg-forsta-lasset')).not.toBeNull();
-  });
-  it('försvinner av sig självt för gott när något tar platsen igen (nytt lossningskort), och kommer inte tillbaka på samma trakt', () => {
-    montera(medKort());
-    uppdatera(efterKort());
-    expect(q('avlagg-forsta-lasset')).not.toBeNull();
-    uppdatera(medKort({ forstaLassId: null, lass: [...lassL(), { id: 'l2', status: 'foreslaget' }] }));   // nästa lass: kortet är tillbaka
+    uppdatera(rad({ kortVisas: true, ledigt: false, forstaLasset: false }));   // efter 3 min stilla: lossningskortet (och lasset finns nu)
     expect(q('avlagg-forsta-lasset')).toBeNull();
-    uppdatera(efterKort());
+    expect(JSON.parse(localStorage.getItem(MALBILD_AVLAGG_SETT_NYCKEL)!)).toEqual(['o1']);
+    uppdatera(rad({ kortVisas: false, ledigt: true, forstaLasset: true }));   // även om villkoren skulle gälla igen
     expect(q('avlagg-forsta-lasset')).toBeNull();
-    // ny montering (omladdning) läser minnet
     act(() => { rot!.unmount(); }); ruta!.remove();
-    montera(medKort());
-    uppdatera(efterKort());
+    montera(rad());   // omladdning läser minnet
     expect(q('avlagg-forsta-lasset')).toBeNull();
   });
-  it('✕ stänger raden och minns det; ett lass som inte var första (ingen forstaLassId) ger aldrig någon rad', () => {
-    montera(medKort());
-    uppdatera(efterKort());
+  it('aldrig samtidigt som något annat nertill (Ändra, nytt avlägg, ark: ledigt=false) — och kommer när det är borta om maskinen fortfarande är i zonen', () => {
+    montera(rad({ ledigt: false }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    uppdatera(rad());
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    uppdatera(rad({ ledigt: false }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+  });
+  it('inte första lasset (maskinen har redan ett lass på trakten) ger aldrig någon rad', () => {
+    montera(rad({ forstaLasset: false }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    expect(localStorage.getItem(MALBILD_AVLAGG_SETT_NYCKEL)).toBeNull();
+  });
+  it('lämnar maskinen zonen utan att lossa göms raden — och kommer tillbaka nästa gång den kör in (inte förbrukad)', () => {
+    montera(rad());
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    uppdatera(rad({ position: UTANFOR }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    expect(localStorage.getItem(MALBILD_AVLAGG_SETT_NYCKEL)).toBeNull();
+    uppdatera(rad({ position: NARA }));
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+  });
+  it('lite marginal ut: precis utanför 50 m men innanför 60 m behåller raden som redan visas, men visar den inte först', () => {
+    const jUt = { lat: 57.0 + 55 / 111_320, lon: 15.0 };
+    montera(rad({ position: jUt }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    uppdatera(rad({ position: NARA }));
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    uppdatera(rad({ position: jUt }));
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+  });
+  it('bara en färsk fix räknas: blir positionen äldre än 10 s (inga nya fixar) försvinner raden', () => {
+    montera(rad());
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    tid(8_000);
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    tid(6_000);
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    uppdatera(rad({ position: { ...PA } }));   // ny fix
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+  });
+  it('✕ förbrukar målbilden på trakten; en annan trakt får sin egen första gång; ingen position ger ingen rad', () => {
+    montera(rad());
     klick(q('avlagg-forsta-lasset-stang'));
     expect(q('avlagg-forsta-lasset')).toBeNull();
     expect(JSON.parse(localStorage.getItem(MALBILD_AVLAGG_SETT_NYCKEL)!)).toEqual(['o1']);
-    localStorage.clear();
-    act(() => { rot!.unmount(); }); ruta!.remove();
-    montera(medKort({ forstaLassId: null }));
-    uppdatera(efterKort());
+    uppdatera(rad({ objektId: 'o2' }));
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    uppdatera(rad({ objektId: 'o2', position: null }));
     expect(q('avlagg-forsta-lasset')).toBeNull();
   });
-  it('ett lass som föraren strukit ("det var ingen lossning") ger ingen rad, och nästa riktiga första lass får den', () => {
-    montera(medKort());
-    uppdatera(efterKort({ lass: lassL('struket') }));
+  it('ett strukit lass räknas inte som första lass (regeln i arForstaLassetPaTrakten) och inget avlägg i zonen ger ingen rad', () => {
+    expect(arForstaLassetPaTrakten([{ id: 'l1', objektId: 'o1', maskinId: 'M', status: 'struket' }], '', 'o1', 'M')).toBe(true);
+    expect(arForstaLassetPaTrakten([{ id: 'l1', objektId: 'o1', maskinId: 'M', status: 'bekraftat' }], '', 'o1', 'M')).toBe(false);
+    montera(rad({ avlagg: [] }));
     expect(q('avlagg-forsta-lasset')).toBeNull();
-    expect(localStorage.getItem(MALBILD_AVLAGG_SETT_NYCKEL)).toBeNull();
-    uppdatera(medKort({ forstaLassId: 'l2', lass: [{ id: 'l1', status: 'struket' }, { id: 'l2', status: 'foreslaget' }] }));
-    uppdatera(efterKort({ lass: [{ id: 'l1', status: 'struket' }, { id: 'l2', status: 'bekraftat' }] }));
-    expect(q('avlagg-forsta-lasset')).not.toBeNull();
-  });
-  it('en annan trakt får sin egen första gång', () => {
-    montera(medKort());
-    uppdatera(efterKort());
-    klick(q('avlagg-forsta-lasset-stang'));
-    uppdatera(medKort({ objektId: 'o2' }));
-    uppdatera(efterKort({ objektId: 'o2' }));
-    expect(q('avlagg-forsta-lasset')).not.toBeNull();
   });
   it('raden ligger ovanför "Lossa här"-raden (mäter dess överkant) och använder skotarens bild', () => {
     const nedre = document.createElement('div'); nedre.dataset.testid = 'skotar-nedre-rad';
     nedre.getBoundingClientRect = () => ({ top: window.innerHeight - 80, bottom: window.innerHeight - 16, left: 0, right: 0, width: 0, height: 64, x: 0, y: 0, toJSON: () => ({}) });
     document.body.appendChild(nedre);
     try {
-      montera(medKort());
-      uppdatera(efterKort());
+      montera(rad());
       expect((q('avlagg-forsta-lasset') as HTMLElement).style.bottom).toBe('88px');   // 80 (nedre radens höjd över skärmbotten) + 8 luft
       expect(q('larm-malbild-bild')!.innerHTML).toBe(norm(malbildInnehall('avlagg', 'skotare')!.bild));
     } finally { nedre.remove(); }

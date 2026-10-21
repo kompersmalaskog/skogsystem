@@ -13799,14 +13799,16 @@ export default function PlannerPage() {
                 onTaBort={() => sl.strykLass(kortLass.id)}
               />
             )}
-            {/* Målbilden för avlägget: en rad BREDVID lossningsflödet, första gången per trakt och aldrig samtidigt som lossningskortet (visas först när lossningen är hanterad
-                och nertill är fritt); därefter bara när man trycker på ett avlägg (KartKort). Lossningsflödet ovan är orört. */}
+            {/* Målbilden för avlägget: en rad BREDVID lossningsflödet. Den visas FÖRE första lossningen — när maskinen kommer in i ett avläggs zon (samma 50 m som lossningsupptäckten)
+                och trakten inte har något lass än — och bara när inget lossningskort, ändra-ark eller annat ark ligger nertill. Lossningskortet vinner alltid platsen; första kortet
+                förbrukar målbilden på trakten. Därefter bara vid tryck på ett avlägg (KartKort). Lossningsflödet ovan är orört. */}
             <AvlaggForstaLasset
               objektId={valtObjekt?.id ?? ''} roll="skotare"
               kortVisas={!!sl.kort}
               ledigt={!sl.kort && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet}
-              forstaLassId={sl.kort && !!valtObjekt?.id && !!skotarMaskinId && arForstaLassetPaTrakten(sl.lass, sl.kort.lassId, valtObjekt.id, skotarMaskinId) ? sl.kort.lassId : null}
-              lass={sl.lass}
+              forstaLasset={!!valtObjekt?.id && !!skotarMaskinId && arForstaLassetPaTrakten(sl.lass, '', valtObjekt.id, skotarMaskinId)}
+              position={currentPosition}
+              avlagg={sl.avlagg}
             />
             {!sl.kort && !sl.andra && sl.nyttAvlagg && (
               <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
