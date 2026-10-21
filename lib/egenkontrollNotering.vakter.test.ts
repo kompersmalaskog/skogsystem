@@ -116,7 +116,7 @@ describe('kartan: ritlaget går före markeringen, och lagerordningen är den ut
 });
 
 describe('rapporten till Vida tar bara "blev" (Martin 2026-10-21)', () => {
-  const RAPPORTFILER = ['lib/egenkontrollRapport.ts', 'lib/egenkontrollRapportIndata.ts', 'lib/egenkontrollRapportPdf.ts', 'lib/egenkontrollRapportKartaPdf.ts'];
+  const RAPPORTFILER = ['lib/egenkontrollRapport.ts', 'lib/egenkontrollRapportIndata.ts', 'lib/egenkontrollRapportPdf.ts', 'lib/egenkontrollRapportKartaPdf.ts', 'lib/egenkontrollFotoPdf.ts'];
 
   it("ingen rapportfil nämner 'skulle' som värde: rapporten ritar, räknar eller förklarar aldrig en skulle-notering", () => {
     for (const f of RAPPORTFILER) expect(las(f), f).not.toMatch(/['"]skulle['"]/);
@@ -125,5 +125,10 @@ describe('rapporten till Vida tar bara "blev" (Martin 2026-10-21)', () => {
   it('modellen och ritaren går båda via arMedIRapport (dubbelt skydd: ett byggfel i det ena släpper inte igenom en skulle-linje)', () => {
     expect(las('lib/egenkontrollRapport.ts')).toMatch(/arMedIRapport\(n\)/);
     expect(las('lib/egenkontrollRapportKartaPdf.ts')).toMatch(/filter\(arMedIRapport\)/);
+  });
+
+  it('fotona (9b) går genom samma regel: modellen filtrerar före allt annat och fotoritaren filtrerar igen', () => {
+    expect(las('lib/egenkontrollRapport.ts')).toMatch(/!arMedIRapport\(n\) \|\| n\.underlag !== 'foto'/);
+    expect(las('lib/egenkontrollFotoPdf.ts')).toMatch(/filter\(arMedIRapport\)/);
   });
 });

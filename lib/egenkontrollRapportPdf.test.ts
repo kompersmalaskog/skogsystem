@@ -133,13 +133,13 @@ describe('skapaBilagaPdf', () => {
 
   it('karta + ett foto per fynd med nummer och bildtext; kartan är sida 1', async () => {
     const s = await sidor(await skapaBilagaPdf(m(), async () => ({ bytes: JPEG_1X1, typ: 'jpg' })));
-    expect(s).toHaveLength(2); // karta + de två fotona på en sida
+    expect(s).toHaveLength(3); // karta + ETT foto per sida (layout E)
     expect(s[0]).toContain('Traktgräns');
     expect(s[1]).toContain('Basväg över stenmuren');
-    expect(s[1]).toContain('Kantzon');
+    expect(s[2]).toContain('Kantzon');
     // Numret från rapporten och kartan står vid fotot.
     expect(s[1]).toMatch(/\b1\s+Basväg över stenmuren/);
-    expect(s[1]).toMatch(/\b2\s+Kantzon/);
+    expect(s[2]).toMatch(/\b2\s+Kantzon/);
   });
 
   it('EN bild som inte går att hämta stoppar HELA bilagan - aldrig en lucka i utskicket', async () => {

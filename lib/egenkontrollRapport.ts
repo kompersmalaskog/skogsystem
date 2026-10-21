@@ -23,6 +23,8 @@ import { forutsattningsRader, period } from './egenkontrollForutsattningar';
 import { OBSERVATION_TON, OBSERVATION_TYP_ETIKETT, arObservationTon, arObservationTyp, type ObservationTon } from './egenkontrollObservation';
 import { sammanstallProvytor, type LatLng } from './provytor';
 import { arMedIRapport, type Notering } from './egenkontrollNotering';
+import { fotoKoordinaterGiltiga } from './egenkontrollFotoEtikett';
+import type { FotoNotering } from './egenkontrollFotoPdf';
 import { markeringsStil, type KartMarkering } from './egenkontrollRapportKarta';
 import { HYTTSPAR_ETIKETT } from './egenkontrollRapportKarta';
 
@@ -129,6 +131,11 @@ export type Bild = {
   /** Var texten kommer ifran. 'rubrik' = fallback ur data (fyndet hade ingen kommentar). */
   textKalla: 'kommentar' | 'matning' | 'provyta' | 'rubrik';
   plats: LatLng | null;
+  /**
+   * Noteringarna pa fotot (PR 9b), aldst forst: ord ritade ovanpa bilden. BARA "sa har blev det" (arMedIRapport) - en skulle-notering
+   * kommer aldrig hit. [u, v] ar i den lagrade bildens egna koordinater 0..1.
+   */
+  noteringar: FotoNotering[];
 };
 
 export type Tal = {
@@ -411,6 +418,15 @@ export function byggRapport(i: RapportIndata): RapportModell {
   const ytaPer = new Map(i.provytor.map((y) => [y.id, y]));
   const bilder: Bild[] = [];
   let utanText = 0;
+  // Fotonoteringarna (9b): bara blev, bara pa ett foto, bara med giltiga koordinater. En notering pa ett foto som inte kommer med i bilagan syns inte.
+  const fotoNoteringar = new Map<string, FotoNotering[]>();
+  for (const n of i.noteringar ?? []) {
+    if (!arMedIRapport(n) || n.underlag !== 'foto' || !n.foto_id || !fotoKoordinaterGiltiga(n.typ, n.koordinater)) continue;
+    fotoNoteringar.set(n.foto_id, [...(fotoNoteringar.get(n.foto_id) ?? []), {
+      id: n.id, typ: n.typ, pil: n.pil, etikett: n.etikett, avsikt: 'blev', punkter: n.koordinater, dx: n.etikett_dx, dy: n.etikett_dy,
+    }]);
+  }
+  const notPaFoto = (fotoId: string): FotoNotering[] => fotoNoteringar.get(fotoId) ?? [];
   const fotoOrdning = [...i.foton].sort((a, b) => (a.skapad < b.skapad ? -1 : a.skapad > b.skapad ? 1 : a.id.localeCompare(b.id)));
 
   const fotonPerFynd = new Map<string, EgenkontrollFoto[]>();
@@ -428,6 +444,13 @@ export function byggRapport(i: RapportIndata): RapportModell {
           fotoId: f.id, sokvag: f.sokvag, nr: null, del: { i: 1, av: 1 },
           text: `${rubrikAv(p)} · täckning ${TAL_FORMAT(Number(f.tackningsgrad))} %`,
           textKalla: 'matning', plats: f.lat != null && f.lng != null ? { lat: f.lat, lng: f.lng } : platsAv(p, i.platser),
+          noteringar: notPaFoto(f.id),
+        });
+      } else if (p && notPaFoto(f.id).length > 0) {
+        // Ett foto med egna noteringar har text: noteringen ar texten. Bildtexten ar punktens rubrik.
+        bilder.push({
+          fotoId: f.id, sokvag: f.sokvag, nr: null, del: { i: 1, av: 1 }, text: rubrikAv(p), textKalla: 'rubrik',
+          plats: f.lat != null && f.lng != null ? { lat: f.lat, lng: f.lng } : platsAv(p, i.platser), noteringar: notPaFoto(f.id),
         });
       } else {
         utanText += 1;
@@ -454,6 +477,7 @@ export function byggRapport(i: RapportIndata): RapportModell {
         fotoId: foto.id, sokvag: foto.sokvag, nr: f.nr,
         del: { i: idx + 1, av: lista.length }, text, textKalla: kalla,
         plats: foto.lat != null && foto.lng != null ? { lat: foto.lat, lng: foto.lng } : f.plats,
+        noteringar: notPaFoto(foto.id),
       });
     });
   }
@@ -463,6 +487,7 @@ export function byggRapport(i: RapportIndata): RapportModell {
       fotoId: foto.id, sokvag: foto.sokvag, nr: null, del: { i: 1, av: 1 },
       text: y ? `Provyta ${y.nummer}` : 'Provyta', textKalla: 'provyta',
       plats: foto.lat != null && foto.lng != null ? { lat: foto.lat, lng: foto.lng } : y && y.lat != null && y.lng != null ? { lat: y.lat, lng: y.lng } : null,
+      noteringar: notPaFoto(foto.id),
     });
   }
   // Numrerade foton i nummerordning (inom nummer: i den ordning de togs), sedan matning och provyta.

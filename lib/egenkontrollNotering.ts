@@ -156,7 +156,11 @@ function klamAxel(ankare: number, forskjutning: number, ruta: number, langd: num
   const mitt = ankare + forskjutning;
   if (mitt < lo) return uppAvrundat(lo - ankare);
   if (mitt > hi) return nerAvrundat(hi - ankare);
-  return rundaInat(forskjutning);
+  // Inne i bilden: avrunda till närmaste, men aldrig UT över kanten (en mitt som ligger 0,00001 från kanten rundades annars 0,00005 utanför).
+  const r = rundaInat(forskjutning);
+  if (ankare + r < lo) return uppAvrundat(lo - ankare);
+  if (ankare + r > hi) return nerAvrundat(hi - ankare);
+  return r;
 }
 
 export function klamEtikett(i: { u: number; v: number; bildHojd: number; dx: number; dy: number; ruta: EtikettRuta }): { dx: number; dy: number } {

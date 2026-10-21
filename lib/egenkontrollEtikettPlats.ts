@@ -53,12 +53,18 @@ function klam(r: Rektangel, yta: Rektangel): Rektangel {
 /**
  * @param hinder rektanglar som ALDRIG ska doljas fran borjan (kontrollpunkternas pinnar, noteringarnas egna ankarmarken)
  * @param yta kartans ruta; etiketterna ligger helt innanfor den
+ * @param lucka mellanrum mellan ankaret och etikettens kant, i samma enhet som resten (kartan: pt; ett foto: bildbredder)
+ * @param ringar avstandsfaktorer for lucka: [1] = bara intill ankaret (kartan); ett foto provar fler (en lang linje med en etikett intill den
+ *   har annars inget fritt lage), och etiketten far da en ledarlinje till sitt ankare
  */
-export function placeraEtiketter(poster: EtikettPost[], hinder: Rektangel[], yta: Rektangel): Map<string, Rektangel> {
+export function placeraEtiketter(
+  poster: EtikettPost[], hinder: Rektangel[], yta: Rektangel, lucka: number = ETIKETT_LUCKA, ringar: readonly number[] = [1],
+): Map<string, Rektangel> {
   const ut = new Map<string, Rektangel>();
   const upptaget: Rektangel[] = [...hinder];
   for (const p of poster) {
-    const kandidater = lagen(p, ETIKETT_LUCKA).map((r) => klam(r, yta));
+    // En ring = de atta lagen pa ett visst avstand fran ankaret (lucka x ringens faktor). Ring for ring: narmast forst.
+    const kandidater = ringar.flatMap((f) => lagen(p, lucka * f)).map((r) => klam(r, yta));
     let valt: Rektangel | null = null;
     for (const r of kandidater) {
       if (innanfor(r, yta) && !upptaget.some((u) => skar(r, u))) { valt = r; break; }

@@ -38,6 +38,7 @@ import {
   NOTERING_ETIKETT_MAX, arAvsikt, kartaKoordinaterGiltiga, klamEtikett, rensaEtikett, verktygTillForm,
   type EtikettRuta, type Notering, type NoteringAvsikt, type NoteringVerktyg,
 } from './egenkontrollNotering';
+import { fotoAnkare, fotoKoordinaterGiltiga } from './egenkontrollFotoEtikett';
 import {
   OBSERVATION_ORDNING, OBSERVATION_RUBRIK, arObservationTon, arObservationTyp, delaObservationer,
   giltigPosition, type ObservationTon, type ObservationTyp,
@@ -1963,18 +1964,38 @@ export type NoteringInmatning = {
   verktyg: NoteringVerktyg;
   etikett: string;
   avsikt: NoteringAvsikt;
-  /** Kartan: [[lng, lat], ...] exakt som ritat. */
+  /** Kartan: [[lng, lat], ...] exakt som ritat. Ett foto (9b): [[u, v], ...] 0..1 i den lagrade bildens egna koordinater. */
   koordinater: [number, number][];
+  /**
+   * Sätts för en notering PÅ ETT FOTO (9b); utelämnat = en notering på kartan. `bildHojd` = bildens höjd / bredd, `dx`/`dy` etikettens
+   * förskjutning från ankaret i bildbredder och `ruta` etikettens ruta på DEN YTA som placerade den — förskjutningen klämms här, vid
+   * sparningen, med samma funktion som renderar (klamEtikett): det sparade är det som visas.
+   */
+  foto?: { fotoId: string; bildHojd: number; dx: number; dy: number; ruta: EtikettRuta };
 };
 
-/** Skapar en notering pa kartan. INSERT, en gang. Laser tillbaka VARDET: det som star i databasen ar det som visas. */
+/** Etikettens forskjutning pa ett foto, klamd (klamEtikett) mot ytans ruta: det som skrivs ar det som visas. */
+function fotoForskjutningRad(
+  typ: 'punkt' | 'linje', koordinater: [number, number][], f: NonNullable<NoteringInmatning['foto']>,
+): { etikett_dx: number; etikett_dy: number } {
+  const a = fotoAnkare({ typ, punkter: koordinater }, f.bildHojd);
+  if (!a) throw new Error('Platsen på bilden saknas — rita om noteringen.');
+  const k = klamEtikett({ u: a.x, v: a.y / f.bildHojd, bildHojd: f.bildHojd, dx: f.dx, dy: f.dy, ruta: f.ruta });
+  return { etikett_dx: k.dx, etikett_dy: k.dy };
+}
+
+/** Skapar en notering pa kartan (eller, med `foto`, pa ett foto). INSERT, en gang. Laser tillbaka VARDET: det som star i databasen ar det som visas. */
 export async function skapaNotering(i: NoteringInmatning, options: KlientOptions = {}): Promise<Notering> {
   const etikett = rensaEtikett(i.etikett);
   if (etikett === '') throw new Error('Skriv vad noteringen ska säga.');
   if (etikett.length > NOTERING_ETIKETT_MAX) throw new Error(`Texten är för lång (högst ${NOTERING_ETIKETT_MAX} tecken).`);
   if (!arAvsikt(i.avsikt)) throw new Error('Välj om det blev så här eller skulle ha gjorts så här.');
   const { typ, pil } = verktygTillForm(i.verktyg);
-  if (!kartaKoordinaterGiltiga(typ, i.koordinater)) throw new Error('Platsen på kartan saknas — rita om noteringen.');
+  const iFoto = i.foto ?? null;
+  if (iFoto) {
+    if (!fotoKoordinaterGiltiga(typ, i.koordinater)) throw new Error('Platsen på bilden saknas — rita om noteringen.');
+    if (!(iFoto.bildHojd > 0) || !iFoto.fotoId) throw new Error('Bilden gick inte att läsa — stäng den och öppna den igen.');
+  } else if (!kartaKoordinaterGiltiga(typ, i.koordinater)) throw new Error('Platsen på kartan saknas — rita om noteringen.');
 
   const { klient } = await kravSession(options, SESSION_SAKNAS_NOTERING);
   await kravOppenRundaId(klient, i.egenkontrollId);
@@ -1982,7 +2003,8 @@ export async function skapaNotering(i: NoteringInmatning, options: KlientOptions
   const { data, error } = await klient
     .from('egenkontroll_notering')
     .insert({
-      id: i.id, egenkontroll_id: i.egenkontrollId, underlag: 'karta', typ, pil, etikett, avsikt: i.avsikt, koordinater: i.koordinater,
+      id: i.id, egenkontroll_id: i.egenkontrollId, underlag: iFoto ? 'foto' : 'karta', typ, pil, etikett, avsikt: i.avsikt, koordinater: i.koordinater,
+      ...(iFoto ? { foto_id: iFoto.fotoId, ...fotoForskjutningRad(typ, i.koordinater, iFoto) } : {}),
     })
     .select('*')
     .maybeSingle();
