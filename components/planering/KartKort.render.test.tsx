@@ -55,19 +55,22 @@ describe('KartKort — uppbyggnad', () => {
     expect(ordning[0]).toEqual(expect.arrayContaining(['kartkort-namn', 'kartkort-larmregel', 'kartkort-mening', 'kartkort-kommentar', 'kartkort-foton', 'kartkort-stang']));
   });
 
-  it('typspecifikt innehåll hamnar före kommentaren; åtgärder (Nederst) efter fotona', () => {
+  it('ordningen: kommentaren direkt under huvudet, sedan målbildsraden, typens delar, fotona och åtgärderna (Nederst) sist', () => {
     const cont = document.createElement('div'); document.body.appendChild(cont);
     const root = createRoot(cont);
     act(() => {
       root.render(
-        <KartKort ikon={null} namn="X" grupp="info" larmRegel="Larmar inte" mening={null} kommentarer={[]} kanKommentera foton={[]} onLaggTillFoto={() => {}} onStang={() => {}}>
+        <KartKort ikon={null} namn="X" grupp="info" larmRegel="Larmar inte" mening="en mening" kommentarer={[]} kanKommentera foton={[]} onLaggTillFoto={() => {}} onStang={() => {}} malbild={<div data-testid="malbildsrad">rad</div>}>
           <div data-testid="del">särskilt</div>
           <KartKortNederst><div data-testid="nederst">åtgärder</div></KartKortNederst>
         </KartKort>,
       );
     });
     const ids = Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
-    expect(ids.indexOf('del')).toBeLessThan(ids.indexOf('kartkort-kommentar'));
+    expect(ids.indexOf('kartkort-mening')).toBeLessThan(ids.indexOf('kartkort-kommentar'));
+    expect(ids.indexOf('kartkort-kommentar')).toBeLessThan(ids.indexOf('malbildsrad'));
+    expect(ids.indexOf('malbildsrad')).toBeLessThan(ids.indexOf('del'));
+    expect(ids.indexOf('del')).toBeLessThan(ids.indexOf('kartkort-foton'));
     expect(ids.indexOf('kartkort-foton')).toBeLessThan(ids.indexOf('nederst'));
   });
 });

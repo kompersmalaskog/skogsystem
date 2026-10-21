@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AvlaggForstaLasset } from './AvlaggForstaLasset';
-import { MalbildBlad, MalbildLista, MalbildLiten, MalbildSektion } from './Malbild';
+import { MalbildBlad, MalbildLista, MalbildLiten, MalbildRad, MalbildSektion } from './Malbild';
 import { KartKort, type KartKortProps } from '@/components/planering/KartKort';
 import { LarmKortVy } from '@/components/planering/LarmKort';
 import VadBetyderKartan from '@/components/planering/VadBetyderKartan';
@@ -123,23 +123,50 @@ describe('Alla regler ›', () => {
   });
 });
 
-describe('KartKort — sektionen sitter mellan meningen och typens delar; sorter utan målbild har ingen', () => {
+describe('KartKort — målbilden är EN rad under kommentaren (aldrig utfälld); sorter utan målbild har ingen rad', () => {
   const props = (p: Partial<KartKortProps> = {}): KartKortProps => ({
     ikon: <span>i</span>, namn: 'Stenmur', grupp: 'kultur', larmRegel: 'Larmar tills du kvitterat', mening: 'Stenmur – kör inte över.', kommentarer: [], kanKommentera: false, foton: [], onStang: () => {}, ...p,
   });
-  it('med målbild: sektionen finns och står före kommentaren', () => {
-    montera(<KartKort {...props({ malbild: <MalbildSektion nyckel="stenmur" roll="skordare" /> })}><div data-testid="del">typens del</div></KartKort>);
+  it('med målbild: kommentaren direkt under huvudet, sedan EN rad (miniatyr + "Så ska det se ut ›"), sedan typens delar — ingen utfälld sektion i kortet', () => {
+    montera(<KartKort {...props({ malbild: <MalbildRad nyckel="stenmur" roll="skordare" /> })}><div data-testid="del">typens del</div></KartKort>);
     const ordning = Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
-    expect(ordning.indexOf('kartkort-mening')).toBeLessThan(ordning.indexOf('malbild'));
-    expect(ordning.indexOf('malbild')).toBeLessThan(ordning.indexOf('del'));
-    expect(ordning.indexOf('del')).toBeLessThan(ordning.indexOf('kartkort-kommentar'));
-    expect(qa('malbild-rad')).toHaveLength(3);
-  });
-  it('utan målbild (Fara, Info): ingen sektion och ingen rubrik', () => {
-    montera(<KartKort {...props({ namn: 'El-ledning', grupp: 'fara', malbild: <MalbildSektion nyckel={null} roll="skordare" /> })} />);
-    expect(q('malbild')).toBeNull();
-    expect(q('kartkort')!.textContent).not.toContain('Så ska det se ut');
+    expect(ordning.indexOf('kartkort-mening')).toBeLessThan(ordning.indexOf('kartkort-kommentar'));
+    expect(ordning.indexOf('kartkort-kommentar')).toBeLessThan(ordning.indexOf('malbild-rad-kort'));
+    expect(ordning.indexOf('malbild-rad-kort')).toBeLessThan(ordning.indexOf('del'));
+    const rad = q('malbild-rad-kort')!;
+    expect(rad.textContent).toContain('Så ska det se ut');
+    expect(rad.textContent).toContain('›');
+    expect(rad.querySelector('[data-testid="malbild-miniatyr"] svg')).not.toBeNull();
+    // inget utfällt: varken bild, rader eller "Inte så här" i kortet, och inget blad öppet
+    expect(q('malbild-bild')).toBeNull();
+    expect(qa('malbild-rad')).toHaveLength(0);
     expect(q('kartkort')!.textContent).not.toContain('Inte så här');
+    expect(q('malbild-blad')).toBeNull();
+  });
+  it('tryck på raden öppnar bladet (bild, rader, "Inte så här", Stäng i foten) utan att stänga kortet; Stäng tar tillbaka kortet', () => {
+    const stangKort = vi.fn();
+    montera(<KartKort {...props({ onStang: stangKort, malbild: <MalbildRad nyckel="stenmur" roll="skordare" /> })} />);
+    klick(q('malbild-rad-kort'));
+    expect(q('malbild-blad')).not.toBeNull();
+    expect(q('malbild-blad-sektion')!.dataset.malbild).toBe('stenmur');
+    expect(qa('malbild-rad')).toHaveLength(3);
+    expect(q('malbild-fel')).not.toBeNull();
+    expect(q('malbild-blad-sett')).toBeNull();   // Sett finns bara när bladet öppnats från ett larm
+    klick(q('malbild-blad-fot')!.querySelector('[data-testid="malbild-blad-stang"]'));
+    expect(q('malbild-blad')).toBeNull();
+    expect(q('kartkort')).not.toBeNull();
+    expect(stangKort).not.toHaveBeenCalled();
+  });
+  it('raden följer maskintypen: skotarens Blött öppnar skotarens bild och rader', () => {
+    montera(<KartKort {...props({ namn: 'Blött', grupp: 'blott', malbild: <MalbildRad nyckel="blott" roll="skotare" /> })} />);
+    expect(q('malbild-miniatyr')!.innerHTML).toBe(norm(malbildInnehall('blott', 'skotare')!.bild));
+    klick(q('malbild-rad-kort'));
+    expect(q('malbild-blad-sektion')!.dataset.roll).toBe('skotare');
+  });
+  it('utan målbild (Fara, Info): ingen rad, ingen rubrik', () => {
+    montera(<KartKort {...props({ namn: 'El-ledning', grupp: 'fara', malbild: <MalbildRad nyckel={null} roll="skordare" /> })} />);
+    expect(q('malbild-rad-kort')).toBeNull();
+    expect(q('kartkort')!.textContent).not.toContain('Så ska det se ut');
   });
 });
 

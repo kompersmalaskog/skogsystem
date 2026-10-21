@@ -9,9 +9,10 @@ const las = (f: string) => fs.readFileSync(path.join(rot, f), 'utf8');
 const sida = las('app/planering/page.tsx');
 
 describe('målbilderna är kopplade i sidan', () => {
-  it('varje KartKort i sidan får sin målbildssektion (egna markeringar och Vidas objekt)', () => {
+  it('varje KartKort i sidan får sin målbildsRAD (egna markeringar och Vidas objekt) — aldrig den utfällda sektionen', () => {
     const kort = sida.match(/<KartKort\b/g) ?? [];
-    const med = sida.match(/<KartKort\b[\s\S]{0,6000}?\n\s*malbild=\{<MalbildSektion /g) ?? [];
+    const med = sida.match(/<KartKort\b[\s\S]{0,6000}?\n\s*malbild=\{<MalbildRad /g) ?? [];
+    expect(sida).not.toMatch(/<MalbildSektion\b/);
     expect(kort.length).toBe(2);
     expect(med.length).toBe(2);
   });

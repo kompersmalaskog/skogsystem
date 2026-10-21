@@ -6,8 +6,9 @@
 //   [ikon]  Namn · Grupp           ← "Kraftledning · Fara"
 //           Larmar alltid          ← larmregeln i klartext (lib/larm/grupper: larmRegelText)
 //           EN mening              ← samma text som teckenförklaringen (lib/symboler)
+//   Kommentar                      ← går att skriva och ändra; visas i larmkortet. DIREKT under huvudet: det unika om just den här punkten (vem, när)
+//   Så ska det se ut ›             ← EN rad: miniatyr av målbilden; trycket öppnar bladet (components/malbild/MalbildRad). Aldrig utfälld i kortet.
 //   <delar>                        ← det som är särskilt för typen (vägens färg, Vidas text, traktanalys …)
-//   Kommentar                      ← går att skriva och ändra; visas i larmkortet
 //   Foton                          ← går att lägga till
 //   <atgarder>                     ← flytta, radera, ljud …
 //   Stäng
@@ -65,9 +66,9 @@ export interface KartKortProps {
   fotoSparar?: boolean;
   fotoFel?: string | null;
   onStang: () => void;
-  /** Sektionen "Så ska det se ut" (components/malbild): mellan meningen och typens delar. Null för sorter utan målbild (Fara, Info …) — då finns ingen sektion. */
+  /** Raden "Så ska det se ut ›" (components/malbild/MalbildRad): under kommentaren, före typens delar. Null för sorter utan målbild (Fara, Info …) — då finns ingen rad. */
   malbild?: React.ReactNode;
-  /** Det som är särskilt för typen (vägens färg, Vidas text, traktanalys …) — mellan meningen och kommentaren. Det som ska stå NEDERST (åtgärder, ljud, vägkontroll …),
+  /** Det som är särskilt för typen (vägens färg, Vidas text, traktanalys …) — efter kommentaren och målbildsraden. Det som ska stå NEDERST (åtgärder, ljud, vägkontroll …),
    *  under fotona, läggs i <KartKortNederst>. */
   children?: React.ReactNode;
   testid?: string;
@@ -124,13 +125,14 @@ export function KartKort(p: KartKortProps) {
           {p.mening && <div data-testid="kartkort-mening" style={{ ...TYP.text, color: FARG.text2 }}>{p.mening}</div>}
           {p.kalla && <div data-testid="kartkort-kalla" style={{ ...TYP.micro, color: FARG.text3 }}>{p.kalla}</div>}
 
-          {p.malbild}
-
-          {delar}
-
+          {/* Det unika om just den här punkten först: kommentaren med namn och tid direkt under huvudet. Målbilden är EN rad under den (aldrig utfälld). */}
           {p.kommentarer && (
             <KartKortKommentarer rader={p.kommentarer} kanKommentera={p.kanKommentera} onLagg={p.onLaggKommentar} onAndra={p.onAndraKommentar} onRadera={p.onRaderaKommentar} />
           )}
+
+          {p.malbild}
+
+          {delar}
 
           {(p.foton.length > 0 || p.onLaggTillFoto) && (
             <KartKortFoton foton={p.foton} onLaggTill={p.onLaggTillFoto} sparar={p.fotoSparar} fel={p.fotoFel} knapp={p.fotoKnapp} />

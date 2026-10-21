@@ -210,6 +210,31 @@ export function MalbildBlad({ nyckel, roll, ikon, namn, onStang, onSett }: { nyc
   );
 }
 
+/**
+ * EN rad på KartKort: liten miniatyr av målbilden + "Så ska det se ut ›". Tryck öppnar bladet (bild, rader, "Inte så här", Sett/Stäng i foten). Målbilden ligger aldrig
+ * utfälld i kortet — det som står om just den här punkten (kommentar, vem, när) ska synas först. Ger ingenting för en sort utan målbild (Fara, Info …).
+ * Bladet ligger i body (portal) men är barn till kortet i React-trädet, så ett tryck i det stänger inte kortet (kortets panel stoppar händelsen).
+ */
+export function MalbildRad({ nyckel, roll, testid = 'malbild-rad-kort' }: { nyckel: string | null | undefined; roll?: Maskinroll | null; testid?: string }) {
+  const [oppen, setOppen] = useState(false);
+  const m = nyckel ? MALBILDER[nyckel] : undefined;
+  const i = m ? malbildInnehall(m.nyckel, roll) : null;
+  if (!m || !i) return null;
+  return (
+    <>
+      <button type="button" data-testid={testid} data-malbild={m.nyckel} data-roll={roll ?? 'ingen'} onClick={() => setOppen(true)} className="press-dim"
+        style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: TRAFFYTA.primar, padding: `${AVSTAND.xs}px ${AVSTAND.m}px`, background: FARG.upphojt, border: 'none', borderRadius: RADIE.kort, color: FARG.text, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }}>
+        <div style={{ width: MALBILD_MINIATYR_PX, flexShrink: 0 }}><MalbildBild svg={i.bild} rund={RADIE.rad} testid="malbild-miniatyr" /></div>
+        <span style={{ flex: '1 1 auto', minWidth: 0, ...TYP.text }}>Så ska det se ut</span>
+        <span aria-hidden="true" style={{ ...TYP.text, color: FARG.text2 }}>›</span>
+      </button>
+      {oppen && <MalbildBlad nyckel={m.nyckel} roll={roll} onStang={() => setOppen(false)} />}
+    </>
+  );
+}
+/** Bredden på miniatyren i kortets målbildsrad (höjden följer bildens format). */
+export const MALBILD_MINIATYR_PX = 64;
+
 /** Den lilla bilden i larmkortet: bild + "Så ska det se ut" + Visa. Ger ingenting för en sort utan målbild. */
 export function MalbildLiten({ nyckel, roll, onVisa }: { nyckel: string | null | undefined; roll?: Maskinroll | null; onVisa: (nyckel: string) => void }) {
   const m = nyckel ? MALBILDER[nyckel] : undefined;
