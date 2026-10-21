@@ -13,7 +13,7 @@ afterEach(() => { act(() => { rot?.unmount(); }); ruta?.remove(); rot = null; ru
 const montera = (el: React.ReactElement) => { ruta = document.createElement('div'); document.body.appendChild(ruta); rot = createRoot(ruta); act(() => { rot!.render(el); }); };
 const q = (id: string) => ruta!.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
-const kort = { id: '1', namn: 'Kraftledning', grupp: 'fara', farg: '#FF453A', avstandM: 13, text: null, pulserar: true, forbjuden: false } as unknown as LarmKort;
+const kort = { id: '1', namn: 'Kraftledning', grupp: 'fara', farg: '#FF453A', avstandM: 13, text: null, pulserar: true, forbjuden: false, okvitterad: true } as unknown as LarmKort;
 const nasta = (namn: string, avstandM: number | null, text: string | null = null): LarmNasta => ({ id: namn, namn, grupp: 'fara', farg: '#FF453A', avstandM, text } as unknown as LarmNasta);
 
 describe('LarmKortVy — flera larm', () => {

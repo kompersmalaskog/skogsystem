@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { GRUPPER, SYMBOL_GRUPP, SYMBOL_NAMN } from './larm/grupper';
-import { FORM_PATH, GLYF, MENY_KATEGORIER, SYMBOL_ALIAS, SYMBOL_FORKLARING, SYMBOL_TYPER, UR_MENYN, symbolDef, symbolDefTyp, symbolSvg } from './symboler';
+import { FORM_PATH, GLYF, MENY_KATEGORIER, LINJE_KORT_TYPER, linjeKort, SYMBOL_ALIAS, SYMBOL_FORKLARING, SYMBOL_TYPER, UR_MENYN, symbolDef, symbolDefTyp, symbolSvg } from './symboler';
 import { markerIconDefs } from './marker-icons';
 import { markeringsStil } from './egenkontrollRapportKarta';
 import { TALL_FARG, GROT_FARG, TRADSLAG_STIL } from './tradslag';
@@ -121,6 +121,11 @@ describe('inga kopior av glyfer, former och färger', () => {
       const t = lasa(f);
       for (const s of sokta) expect(t.includes(s), `${f} kopierar ${s}`).toBe(false);
     }
+  });
+  it('Basväg: lastbilen kör inte på basvägarna — meningen säger skogsmaskinerna, och ingen linje- eller symbolförklaring nämner lastbil', () => {
+    expect(linjeKort('mainRoad').forklaring).toBe('Basväg – huvudväg för skogsmaskinerna.');
+    for (const t of LINJE_KORT_TYPER) expect(linjeKort(t).forklaring.toLowerCase(), t).not.toContain('lastbil');
+    for (const [t, f] of Object.entries(SYMBOL_FORKLARING)) expect(String(f).toLowerCase(), t).not.toContain('lastbil');
   });
   it('de gamla kopiorna är borta: briefingens ICON_SVG/ICON_BG och markeringsikonernas egna SVG-banor', () => {
     const briefing = lasa('app/planering/TraktBriefing.tsx');

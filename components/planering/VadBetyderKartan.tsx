@@ -12,12 +12,16 @@ import { GRUPPER } from '@/lib/larm/grupper';
 import { SNEDSTRECK_PX } from '@/lib/ytaStil';
 import { byggTeckenforklaring, type ForklaringRad, type TeckenMarkering } from '@/lib/teckenforklaring';
 import type { VidaSlag } from '@/lib/larm/grupper';
+import { malbildNyckel, type Maskinroll } from '@/lib/malbilder';
+import { MalbildBlad, MalbildLista } from '@/components/malbild/Malbild';
 import { Gruppkort, Huvud, Rubrik } from './infoDelar';
 
 export interface VadBetyderKartanProps {
   objektNamn: string;
   markeringar: readonly TeckenMarkering[];
   vida: readonly VidaSlag[];
+  /** Maskintypen (skördare/skotare): målbilden kan skilja per roll. */
+  roll?: Maskinroll | null;
   onTillbaka: () => void;
   onStang: () => void;
 }
@@ -68,8 +72,10 @@ export function ForklaringBild({ rad }: { rad: ForklaringRad }) {
   );
 }
 
-export default function VadBetyderKartan({ objektNamn, markeringar, vida, onTillbaka, onStang }: VadBetyderKartanProps) {
+export default function VadBetyderKartan({ objektNamn, markeringar, vida, roll = null, onTillbaka, onStang }: VadBetyderKartanProps) {
   const [visaAlla, setVisaAlla] = useState(false);
+  // Tryck på en rad öppnar målbilden (bara för sorter som har en); "Alla målbilder" öppnar vilken som helst.
+  const [malbild, setMalbild] = useState<{ nyckel: string; ikon?: React.ReactNode } | null>(null);
   const grupper = byggTeckenforklaring({ markeringar, vida, visaAlla });
   return (
     <>
@@ -82,24 +88,39 @@ export default function VadBetyderKartan({ objektNamn, markeringar, vida, onTill
           <section key={g.grupp} data-testid={`teckenforklaring-grupp-${g.grupp}`}>
             <Rubrik>{g.namn}</Rubrik>
             <Gruppkort>
-              {g.rader.map((r, i) => (
-                <div key={r.nyckel} data-testid={`teckenforklaring-rad-${r.nyckel}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, minHeight: TRAFFYTA.primar + AVSTAND.s, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
-                  <ForklaringBild rad={r} />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{r.namn}</span>
-                    <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.forklaring}</span>
-                  </span>
-                </div>
-              ))}
+              {g.rader.map((r, i) => {
+                const mn = malbildNyckel(r.slag, r.typ);
+                const stil: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: AVSTAND.m, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, minHeight: TRAFFYTA.primar + AVSTAND.s, borderTop: i === 0 ? 'none' : `1px solid ${FARG.linje}` };
+                const innehall = (
+                  <>
+                    <ForklaringBild rad={r} />
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', ...TYP.text, color: FARG.text, overflowWrap: 'anywhere' }}>{r.namn}</span>
+                      <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, overflowWrap: 'anywhere' }}>{r.forklaring}</span>
+                    </span>
+                    {mn && <span aria-hidden="true" style={{ flexShrink: 0, color: FARG.bla }}>›</span>}
+                  </>
+                );
+                return mn ? (
+                  <button key={r.nyckel} type="button" data-testid={`teckenforklaring-rad-${r.nyckel}`} data-malbild={mn} onClick={() => setMalbild({ nyckel: mn, ikon: <ForklaringBild rad={r} /> })} className="press-dim"
+                    aria-label={`${r.namn}: så ska det se ut`}
+                    style={{ ...stil, width: '100%', boxSizing: 'border-box', border: 'none', borderTop: stil.borderTop, background: 'transparent', color: 'inherit', fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
+                    {innehall}
+                  </button>
+                ) : (
+                  <div key={r.nyckel} data-testid={`teckenforklaring-rad-${r.nyckel}`} style={stil}>{innehall}</div>
+                );
+              })}
             </Gruppkort>
           </section>
         ))}
+        <MalbildLista roll={roll} onVisa={(n) => setMalbild({ nyckel: n })} />
         <button type="button" data-testid="teckenforklaring-visa-alla" onClick={() => setVisaAlla((v) => !v)} className="press"
           style={{ ...KNAPP.sekundar, width: '100%', minHeight: TRAFFYTA.primar, fontFamily: 'inherit', cursor: 'pointer', touchAction: 'manipulation' }}>
           {visaAlla ? 'Visa bara det som finns här' : 'Visa alla symboler'}
         </button>
       </div>
+      {malbild && <MalbildBlad nyckel={malbild.nyckel} roll={roll} ikon={malbild.ikon} onStang={() => setMalbild(null)} />}
     </>
   );
 }
