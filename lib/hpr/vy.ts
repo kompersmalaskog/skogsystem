@@ -1,7 +1,9 @@
 /**
  * vy.ts — fördelningsvyns beräkningslager. Tar ett objekts samlade data
  * (ObjektData) och bygger vymodellen: läge (1/2/3), mening i skogsspråk,
- * vältor, ansvarskort, guide, matris och trend.
+ * längdstaplar, guide, matris och trend.
+ * Apteringen bedöms på MASKINENS egna kap (Automatic): förarens kortningar
+ * vid fel på trädet är rätt aptering, inte en miss (Martin 2026-10-21).
  *
  * ALLT räknas ur logs/matrix_cells (via fordelning.ts) — aldrig ur snapshots.
  * Designkontraktet styr: tystnadsregeln (OK är tyst), m³ är valutan, mening
@@ -37,11 +39,16 @@ export interface ProduktVy {
   totalVolumeM3: number;
   logCount: number;
   forcedCutSharePct: number;
-  headline: string | null; // teknisk rubrik ur fordelning.ts
-  mening: string | null; // genererad skogsspråksmening (null = spretigt/tyst)
+  /** Volymen maskinen kapade själv (CuttingReason Automatic) — det talen bedöms på. */
+  volymAutoM3: number;
+  /** Maskinens kap utanför beställt i m³: (100 − gradeAutomatic) % av volymAutoM3. null = ingen grad. */
+  utanforM3: number | null;
+  headline: string | null; // teknisk rubrik ur fordelning.ts (alla kap)
+  /** En mening i skogsspråk om maskinens största miss (null = inget sticker ut). */
+  mening: string | null;
+  /** Kapat mot beställt per längd — BARA maskinens egna kap. */
   vältor: LengthPile[];
-  vältorTwist: string | null;
-  ansvar: { totalt: number; manuella: number; automatiskAndel: number };
+  /** När föraren måste korta (fel på trädet): längden som saknas mest på vältan, alla kap. */
   guide: { klen: string | null; grov: string | null };
   matris: MatrisRuta[];
   färgadeRutor: number;
@@ -60,6 +67,13 @@ export interface ObjektVy {
   mening: string | null;
   headline: string | null;
   trend: { from: number; to: number } | null; // ↑ från 84,1 när ≥2 snapshots
+  /** Utanför beställt i m³, BARA på maskinens egna kap: (100 − gradeAutomatic) % av
+   *  volymen maskinen kapade, summerat över produkter med grad. Förarens kortningar
+   *  (fel på trädet) är rätt aptering och räknas inte som miss (Martin 2026-10-21).
+   *  null = ingen produkt har grad. */
+  utanforM3: number | null;
+  /** Volymen utanforM3 räknas mot: maskinens egna kap i produkter med grad. */
+  bedomdM3: number;
   produkter: ProduktVy[]; // en per produkt med fördelningsmål, störst volym först
 }
 
@@ -104,18 +118,6 @@ function skogsmening(d: DistributionResult): string | null {
   return map[nyckel][saknas ? 0 : 1];
 }
 
-/** Twistmening: vältorna träffar längderna men diameterfördelningen är fel. */
-function twist(d: DistributionResult, piles: LengthPile[]): string | null {
-  // Träffar vältorna? (kapat nära beställt på längdnivå) men finns radavvikelser?
-  const vältorTräffar = piles.every((p) => {
-    const bas = Math.max(p.orderedM3, 1);
-    return Math.abs(p.actualM3 - p.orderedM3) / bas <= 0.1;
-  });
-  const radavvikelse = d.cells.some((c) => c.exceeds && Math.abs(c.deviationM3) >= 3);
-  if (!vältorTräffar || !radavvikelse) return null;
-  return "Men i långvältorna ligger fel virke: för många klena, för få grova. Vältan ser rätt ut från sidan — sågverket ser den från ändarna.";
-}
-
 function matris(d: DistributionResult): MatrisRuta[] {
   return d.cells.map((c: CellOutcome) => ({
     diaLower: c.diaLower,
@@ -129,9 +131,10 @@ function produktVy(p: HprProduct, data: ObjektData): ProduktVy | null {
   const dist = computeDistribution(p, data.stockar);
   if (!dist) return null;
   const d = dist.total;
-  const piles = computeLengthPiles(p, data.stockar);
-  const guide = computeForcedCutGuide(d);
-  const manuella = Math.round((d.logCount * dist.forcedCutSharePct) / 100);
+  const a = dist.automaticOnly; // maskinens egna kap — det apteringen bedöms på
+  const auto = data.stockar.filter((l) => l.cuttingReason === "Automatic");
+  const piles = computeLengthPiles(p, auto);
+  const guide = computeForcedCutGuide(d); // vad som saknas på vältan, alla kap
 
   return {
     productKey: p.productKey,
@@ -141,24 +144,36 @@ function produktVy(p: HprProduct, data: ObjektData): ProduktVy | null {
     totalVolumeM3: d.totalVolumeM3,
     logCount: d.logCount,
     forcedCutSharePct: dist.forcedCutSharePct,
+    volymAutoM3: a.totalVolumeM3,
+    utanforM3: a.gradePct == null ? null : round1(((100 - a.gradePct) / 100) * a.totalVolumeM3),
     headline: d.headline,
-    mening: skogsmening(d),
+    mening: skogsmening(a),
     vältor: piles,
-    vältorTwist: twist(d, piles),
-    ansvar: {
-      totalt: d.logCount,
-      manuella,
-      automatiskAndel: dist.automaticOnly.gradePct ?? 0,
-    },
     guide: {
       // Visa bara när underskottet är minst 3 m³ (samma tröskel som matrisen).
       klen: guide.klen && guide.klen.deficitM3 >= 3
-        ? `Klena stockar → sträck mot ${guide.klen.lenLower} cm (saknas ${guide.klen.deficitM3} m³)` : null,
+        ? `Klena stockar → ${guide.klen.lenLower} cm` : null,
       grov: guide.grov && guide.grov.deficitM3 >= 3
-        ? `Grova stockar → sträck mot ${guide.grov.lenLower} cm (saknas ${guide.grov.deficitM3} m³)` : null,
+        ? `Grova stockar → ${guide.grov.lenLower} cm` : null,
     },
-    matris: matris(d),
-    färgadeRutor: d.cells.filter((c) => c.exceeds && Math.abs(c.deviationM3) >= 3).length,
+    matris: matris(a),
+    färgadeRutor: a.cells.filter((c) => c.exceeds && Math.abs(c.deviationM3) >= 3).length,
+  };
+}
+
+/**
+ * Utanför beställt i m³ för ett objekt, på maskinens egna kap: (100 − gradeAutomatic) %
+ * av volymen maskinen kapade, rundat per produkt och sedan summerat (summan är summan
+ * av delarna). Produkter utan grad räknas inte, varken i talet eller i volymen.
+ */
+export function utanforBestallt(
+  produkter: Pick<ProduktVy, "gradeAutomatic" | "volymAutoM3">[]
+): { utanforM3: number | null; bedomdM3: number } {
+  const graderade = produkter.filter((p) => p.gradeAutomatic != null);
+  if (!graderade.length) return { utanforM3: null, bedomdM3: 0 };
+  return {
+    utanforM3: round1(graderade.reduce((sum, p) => sum + round1(((100 - p.gradeAutomatic!) / 100) * p.volymAutoM3), 0)),
+    bedomdM3: round1(graderade.reduce((sum, p) => sum + p.volymAutoM3, 0)),
   };
 }
 
@@ -187,7 +202,7 @@ export function byggObjektVy(
 
   const dom = produkter[0]; // dominerande produkt = objektkortets bärande siffra
   const anyColored = produkter.some((p) => p.färgadeRutor > 0);
-  const grade = dom.gradePct ?? 0;
+  const grade = dom.gradeAutomatic ?? 0;
   const lage: Lage = grade >= GRADE_TROSKEL && !anyColored ? 1 : 2;
 
   // Trend: dominerande produktens tidigare snapshot mot senaste.
@@ -205,6 +220,8 @@ export function byggObjektVy(
     ? Math.floor((nu.getTime() - new Date(meta.lastFileAt).getTime()) / 86400000)
     : null;
 
+  const { utanforM3, bedomdM3 } = utanforBestallt(produkter);
+
   return {
     objectKey: data.objectKey,
     objektNamn: meta.objektNamn,
@@ -217,6 +234,8 @@ export function byggObjektVy(
     mening: lage === 2 ? dom.mening : null,
     headline: lage === 2 ? dom.headline : null,
     trend,
+    utanforM3,
+    bedomdM3,
     produkter,
   };
 }

@@ -20,7 +20,7 @@ import { hamtaObjektData, type ObjektData } from "./objekt-data";
 import { byggObjektVy, type ObjektVy, type Snapshot } from "./vy";
 
 /** Höj när beräkningen i vy.ts/fordelning.ts ändras — då räknas alla rader om. */
-export const VY_VERSION = 1;
+export const VY_VERSION = 3; // 2: m³ för översikten · 3: bedömt på maskinens egna kap (utanforM3)
 
 /** Objektkortet = vymodellen utan produkternas detaljer (vältor, matris …). */
 export type ObjektKort = Omit<ObjektVy, "produkter">;

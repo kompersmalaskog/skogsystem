@@ -4,7 +4,7 @@ import { readFileSync } from "fs";
 
 const kort = (key: string, lage: 1 | 2, volym: number): ObjektKort => ({
   objectKey: key, objektNamn: "lagrat namn", status: "active", lastFileAt: null, dagarSedanFil: 99,
-  lage, gradePct: 80, volymM3: volym, mening: null, headline: null, trend: null,
+  lage, gradePct: 80, volymM3: volym, mening: null, headline: null, trend: null, utanforM3: null, bedomdM3: 0,
 });
 const meta = (key: string, fil: string | null, status: "active" | "completed" = "completed"): ObjektMeta =>
   ({ object_key: key, object_name: `Objekt ${key}`, status, last_file_at: fil });
@@ -97,5 +97,18 @@ describe("vakter", () => {
   it("omräkningen går ett objekt i taget (parallellt gav statement timeout)", () => {
     const src = readFileSync("app/api/fordelning/berakna/route.ts", "utf8");
     expect(src).not.toMatch(/Promise\.all/);
+  });
+});
+
+describe("utanforBestallt", () => {
+  it("är (100 − maskinens grad) % av maskinens volym, rundat per produkt och sedan summerat", async () => {
+    const { utanforBestallt } = await import("./vy");
+    // 16,5 % av 412 = 67,98 → 68 ; 20 % av 10,55 = 2,11 → 2,1 ; summa 70,1
+    expect(utanforBestallt([{ gradeAutomatic: 83.5, volymAutoM3: 412 }, { gradeAutomatic: 80, volymAutoM3: 10.55 }])).toEqual({ utanforM3: 70.1, bedomdM3: 422.6 });
+  });
+  it("produkt utan maskinens grad räknas varken i talet eller volymen; ingen grad alls ger null", async () => {
+    const { utanforBestallt } = await import("./vy");
+    expect(utanforBestallt([{ gradeAutomatic: 90, volymAutoM3: 100 }, { gradeAutomatic: null, volymAutoM3: 50 }])).toEqual({ utanforM3: 10, bedomdM3: 100 });
+    expect(utanforBestallt([{ gradeAutomatic: null, volymAutoM3: 50 }])).toEqual({ utanforM3: null, bedomdM3: 0 });
   });
 });
