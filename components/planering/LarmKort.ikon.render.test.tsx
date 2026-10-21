@@ -16,7 +16,7 @@ afterEach(() => { act(() => { rot?.unmount(); }); ruta?.remove(); rot = null; ru
 const montera = (el: React.ReactElement) => { ruta = document.createElement('div'); document.body.appendChild(ruta); rot = createRoot(ruta); act(() => { rot!.render(el); }); };
 
 const kort = (kalla: LarmKort['kalla'], typ: string, grupp: FargGrupp, namn = 'X'): LarmKort =>
-  ({ id: '1', kalla, typ, grupp, farg: GRUPPER[grupp].farg, namn, text: null, avstandM: 20, bearing: null, pulserar: false, forbjuden: false });
+  ({ id: '1', kalla, typ, grupp, farg: GRUPPER[grupp].farg, namn, text: null, avstandM: 20, bearing: null, pulserar: false, forbjuden: false, okvitterad: true });
 const ikon = () => {
   const svg = ruta!.querySelector<SVGElement>('[data-testid="larm-ikon"] svg')!;
   const [form, glyf] = Array.from(svg.querySelectorAll('path'));
