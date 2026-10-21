@@ -21,7 +21,7 @@ const COLOR_DEFAULT = 'rgba(255,255,255,0.65)';
 const PADDING_PCT = 0.08;       // 8 % marginal runt stam-extent
 
 // Trädslagens färger ur EN palett (lib/tradslag) — samma som raderna i rapporten och resten av appen.
-// Förut hade kartan egna: gran #34c759, björk beige #d4c5a0.
+// Förut hade kartan egna färger (en annan grön för gran, beige björk).
 function fillForTradslag(t: string): string {
   return t ? tradslagFarg(tradslagLabel(t)) : COLOR_DEFAULT;
 }
