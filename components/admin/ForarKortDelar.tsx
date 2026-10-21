@@ -33,7 +33,7 @@ export function StatusRad({ k, paminn, onPaminn }: { k: ForarKort; paminn?: stri
         {k.forarStatus === "vantar" && (
           paminn && !fel
             ? <span data-paminn-status={paminn} style={{ ...TYP.meta, color: FARG.text2, textAlign: "right" }}>{PAMINN_TEXT[paminn] ?? ""}</span>
-            : <Tertiar smal onClick={onPaminn} style={{ flexShrink: 0 }}>Påminn</Tertiar>
+            : <Lank smal onClick={onPaminn} style={{ flexShrink: 0 }}>Påminn</Lank>
         )}
       </div>
       {fel && <p data-paminn-fel="" style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>{fel}</p>}
@@ -70,7 +70,7 @@ export function AttKolla({ k, kanKvittera, onMal, onKvittera, onAngra }: {
               {(r.mal || (kanKvittera && arKvitterbar(r.id))) && (
                 <span style={{ display: "flex", gap: AVSTAND.l, flexWrap: "wrap" }}>
                   {r.mal && <Lank smal onClick={() => onMal(r.mal!)}>{r.knapp}</Lank>}
-                  {kanKvittera && arKvitterbar(r.id) && <Tertiar smal onClick={() => onKvittera(r)}>Ser rätt ut</Tertiar>}
+                  {kanKvittera && arKvitterbar(r.id) && <Lank smal onClick={() => onKvittera(r)}>Ser rätt ut</Lank>}
                 </span>
               )}
             </div>

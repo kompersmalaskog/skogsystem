@@ -1,82 +1,79 @@
 "use client";
-// Översikt = att-göra-lista. Inga räknare: "N saker kräver dig" i orange, en tryckbar rad (›) per sak som leder dit det
-// fixas, och under den "Stämmer" i grått så man ser att resten är kontrollerat. Inget väntande: bara Stämmer.
-import React, { useState } from "react";
+// Översikt = en ren att göra-lista (Martin 2026-10-21). Bara det admin ska göra: en rad per sak, rubrik + högst en kort undertext, och
+// hela raden är en knapp med › när den leder vidare. Namn, dagar och gränser ligger bakom trycket. Inget som "stämmer" visas — är listan
+// tom står det "Inget att göra". En läsning som föll är en egen rad med "Försök igen" (blå, en handling — inte en rad som leder vidare).
+import React from "react";
 import { AVSTAND, FARG, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
-import { byggVilobrottArk, loneperiodForDag, manadenGarAttOppna } from "@/lib/admin/vilobrottArkVy";
+import { byggVilobrottArk, loneperiodForDag, manadenGarAttOppna, vilobrottPerPerson } from "@/lib/admin/vilobrottArkVy";
 import type { Sak } from "@/lib/admin/attGora";
-import { Sektion, Lista, Rad, Laddar, Ikon } from "./ui";
-import VilobrottArk from "./VilobrottArk";
+import { Sektion, Lista, Rad, Laddar, Ikon, Lank, Sheet } from "./ui";
+import VilobrottArk, { VilobrottLista } from "./VilobrottArk";
 import { useAdminNav } from "./nav";
 import type { AttGora } from "./useAttGora";
 import ArbetstidKort from "./ArbetstidKort";
 
 export default function Oversikt({ att }: { att: AttGora }) {
   const { nav, gaTill, sattParam } = useAdminNav();
-  const [stammerOppen, setStammerOppen] = useState(false);
-  if (att.laddar) return <Laddar>Kontrollerar lön, dagar, vilobrott, personer och maskiner …</Laddar>;
+  if (att.laddar) return <Laddar>Kontrollerar lön, vilobrott, arbetstid, personer och maskiner …</Laddar>;
 
-  /** Hela raden är en tryckyta med › (iOS-rad, som förarkortet i Lön): ingen knapp bredvid texten. Ett läsfel har sin egen handling, "Försök igen". */
   const oppna = (s: Sak) => {
     const mal = s.mal;
     if (mal.typ === "forsok") att.ladda();
     else if (mal.typ === "sida") window.location.assign(mal.href);
-    else if (mal.typ === "vilobrott") sattParam("vila", mal.medarbetare_id);
+    else if (mal.typ === "vilobrott") sattParam("vila", mal.medarbetare_id ?? "alla");
+    else if (mal.typ === "arbetstid") sattParam("arbetstid", "1");
     else gaTill({ flik: mal.flik, underflik: mal.underflik, params: mal.params });
   };
 
-  // Arket över en persons vilobrott: personen står i adressen (?vila=<id>), så en omladdning landar på samma ställe.
+  // Vilobrotten: listan över personer (?vila=alla) och en persons dagar (?vila=<id>) står i adressen, så en omladdning landar på samma ställe.
   const vilaId = nav.params.vila;
-  const vilaVy = vilaId ? byggVilobrottArk(att.vilobrott, vilaId) : null;
+  const personer = vilobrottPerPerson(att.vilobrott);
+  const personVy = vilaId && vilaId !== "alla" ? byggVilobrottArk(att.vilobrott, vilaId) : null;
   const idag = ymdLokal(new Date());
+  const arbetstidOppen = nav.params.arbetstid === "1";
 
   return (
     <>
-      {att.saker.length > 0 && (
+      {att.saker.length === 0 ? (
+        <Lista>
+          <div data-inget-att-gora="" style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px 0` }}>
+            <Ikon namn="check" farg={FARG.gron} />
+            <span style={{ ...TYP.listtitel, color: FARG.text }}>Inget att göra</span>
+          </div>
+        </Lista>
+      ) : (
         <>
           <Sektion orange topp={0}>{att.saker.length} {att.saker.length === 1 ? "sak kräver dig" : "saker kräver dig"}</Sektion>
           <Lista>
-            {att.saker.map((s, i) => (
+            {att.saker.map((s, i) => s.mal.typ === "forsok" ? (
+              // Ett läsfel leder ingenstans: raden är ingen knapp, bara "Försök igen" är det.
               <Rad key={s.id} attr={{ "data-sak": s.id }} rubrik={s.rubrik} detalj={s.detalj}
-                hoger={s.mal.typ === "forsok" ? <span style={{ color: FARG.text2 }}>{s.knapp}</span> : undefined}
-                chevron={s.mal.typ !== "forsok"} onClick={() => oppna(s)} sista={i === att.saker.length - 1} />
+                hoger={<Lank smal onClick={() => oppna(s)}>{s.knapp}</Lank>} sista={i === att.saker.length - 1} />
+            ) : (
+              <Rad key={s.id} attr={{ "data-sak": s.id }} rubrik={s.rubrik} detalj={s.detalj}
+                chevron onClick={() => oppna(s)} sista={i === att.saker.length - 1} />
             ))}
           </Lista>
         </>
       )}
 
-      {vilaVy && (
-        <VilobrottArk vy={vilaVy} onStang={() => sattParam("vila", null)}
+      {vilaId === "alla" && personer.length > 0 && (
+        <VilobrottLista personer={personer} onPerson={id => sattParam("vila", id)} onStang={() => sattParam("vila", null)} />
+      )}
+      {personVy && (
+        <VilobrottArk vy={personVy} onStang={() => sattParam("vila", null)}
+          tillbaka={personer.length > 1 ? () => sattParam("vila", "alla") : undefined}
           hamtaManad={b => manadenGarAttOppna(b.dag, idag)
-            ? () => gaTill({ flik: "lon", underflik: "underlag", params: { period: loneperiodForDag(b.dag), forare: vilaVy.medarbetare_id, dag: b.dag } })
+            ? () => gaTill({ flik: "lon", underflik: "underlag", params: { period: loneperiodForDag(b.dag), forare: personVy.medarbetare_id, dag: b.dag } })
             : null} />
       )}
 
-      <ArbetstidKort forare={att.arbetstid} varningar={att.arbetstidVarningar} />
-
-      {/* Det som stämmer är EN rad: "Allt annat stämmer" (tryck för att se vad som kontrollerats). */}
-      {att.stammer.length > 0 && (
-        <>
-          <div style={{ height: att.saker.length > 0 || att.arbetstid.length > 0 ? AVSTAND.sektion : 0 }} />
-          <Lista>
-            <button type="button" aria-expanded={stammerOppen} onClick={() => setStammerOppen(o => !o)} data-stammer=""
-              style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.m}px 0`, background: "none", border: "none", color: "inherit", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
-              <Ikon namn="check" farg={FARG.text3} />
-              <span style={{ flex: 1, ...TYP.text, color: FARG.text2 }}>{att.saker.length > 0 || att.arbetstid.length > 0 ? "Allt annat stämmer" : "Allt stämmer"}</span>
-              <Ikon namn={stammerOppen ? "expand_less" : "expand_more"} farg={FARG.text3} />
-            </button>
-            {stammerOppen && att.stammer.map((r, i) => (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, padding: `${AVSTAND.s}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
-                <Ikon namn="check" farg={FARG.text3} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ ...TYP.meta, color: FARG.text2 }}>{r.rubrik}</div>
-                  {r.detalj && <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.xs }}>{r.detalj}</div>}
-                </div>
-              </div>
-            ))}
-          </Lista>
-        </>
+      {arbetstidOppen && (att.arbetstid.length > 0 || att.arbetstidVarningar.length > 0) && (
+        <Sheet titel="Arbetstid" onStang={() => sattParam("arbetstid", null)} vanster={<Lank smal onClick={() => sattParam("arbetstid", null)}>Stäng</Lank>}
+          attr={{ "data-arbetstid-ark": "" }}>
+          <ArbetstidKort forare={att.arbetstid} varningar={att.arbetstidVarningar} utanRubrik />
+        </Sheet>
       )}
     </>
   );

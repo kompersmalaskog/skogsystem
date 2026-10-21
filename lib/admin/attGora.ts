@@ -1,6 +1,9 @@
 // Översiktens att-göra-lista — ren uppbyggnad. Inga nya trösklar: varje rad kommer ur en regel som redan
 // finns i admin (Att åtgärda i Medarbetare, Maskiners nya-lista, Vilobrott, Avtal, Datahälsa).
 //
+// Bara det admin ska GÖRA (Martin 2026-10-21): inget som "stämmer", ingen räknare över dagar. Varje rad är en rubrik och högst en kort
+// undertext — inga namn- eller datumlistor på raden (de ligger bakom trycket). Lönen, vilobrotten och arbetstiden är EN rad var.
+//
 // Indatat är resultat per källa. En källa som inte gick att läsa blir en egen rad ("Kunde inte kontrollera
 // …"), aldrig en tyst nolla: ett läsfel är inte "inget väntar".
 import type { MedarbetarKontroller } from "@/lib/medarbetarKontroll";
@@ -8,6 +11,7 @@ import type { LeveransRad } from "@/app/datahalsa/useDatahalsa";
 import { LEV_GUL_DYGN } from "@/app/datahalsa/useDatahalsa";
 import type { VilobrottRad } from "@/lib/admin/vilobrottLista";
 import { sorteraAttGora, type ArbetstidForare } from "@/lib/arbetstidsgranser";
+import { godkannandeAv } from "@/lib/lonesystem/forarGodkannande";
 
 export type AdminFlik = "oversikt" | "medarbetare" | "maskiner" | "lon" | "avtal";
 
@@ -15,20 +19,21 @@ export type AdminFlik = "oversikt" | "medarbetare" | "maskiner" | "lon" | "avtal
 export type Mal =
   | { typ: "flik"; flik: AdminFlik; underflik?: string; params?: Record<string, string> }
   | { typ: "sida"; href: string }
-  /** Vilobrotten för en person: ett ark med dagarna de gäller (Översikten öppnar det på plats). */
-  | { typ: "vilobrott"; medarbetare_id: string }
+  /** Vilobrotten: en person → hennes ark med dagarna brotten gäller; utan person → listan över vem som har obesvarade (Översikten öppnar det på plats). */
+  | { typ: "vilobrott"; medarbetare_id?: string }
+  /** Arbetstid: förarna nära eller över en gräns, i ett ark på plats. */
+  | { typ: "arbetstid" }
   | { typ: "forsok" };
 
 export type Sak = { id: string; rubrik: string; detalj?: string; knapp: string; mal: Mal };
-export type StammerRad = { id: string; rubrik: string; detalj?: string };
 
 /** Resultat av en läsning: data, eller felet som stoppade den. */
 export type Kalla<T> = { data: T | null; fel: string | null };
 
 export type Person = { id: string; namn: string | null; user_id: string | null };
 export type MaskinRad = { maskin_id: string; visningsnamn: string | null; modell: string | null; bekraftad: boolean; aktiv_till: string | null };
-export type ObekraftadDag = { medarbetare_id: string; datum: string };
-export type LonLage = { arbetsManad: string; antalMedDagar: number; antalSkickade: number };
+/** Lönen för arbetsmånaden: klara = förarens godkännande finns (Admin skickar dem), väntar = föraren har inte godkänt, skickade = redan i Fortnox. */
+export type LonLage = { arbetsManad: string; antalKlara: number; antalVantar: number; antalSkickade: number };
 export type AvtalRad = { giltigt_till: string | null };
 
 export type ArbetstidSvar = { forare: ArbetstidForare[]; varningar: string[] };
@@ -37,7 +42,6 @@ export type AttGoraIndata = {
   kontroller: Kalla<MedarbetarKontroller>;
   personer: Kalla<Person[]>;
   maskiner: Kalla<MaskinRad[]>;
-  obekraftade: Kalla<ObekraftadDag[]>;
   lon: Kalla<LonLage>;
   vilobrott: Kalla<VilobrottRad[]>;
   avtal: Kalla<AvtalRad | null>;
@@ -47,14 +51,10 @@ export type AttGoraIndata = {
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
-const MAN_KORT = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 
 export const manadNamn = (ym: string) => MANADER[Number(ym.slice(5, 7)) - 1] || ym;
-export const datumKort = (d: string) => `${Number(d.slice(8, 10))} ${MAN_KORT[Number(d.slice(5, 7)) - 1] || ""}`;
 export const datumLangt = (d: string) => `${Number(d.slice(8, 10))} ${MANADER[Number(d.slice(5, 7)) - 1] || ""} ${d.slice(0, 4)}`;
 
-/** "8,5 h" — vilan i timmar med en decimal och decimalkomma. */
-const vilaTimmarText = (h: number | string) => `${String(Math.round(Number(h) * 10) / 10).replace(".", ",")} h`;
 const dygn = (n: number) => `${n} dygn`;
 const dagar = (n: number) => `${n} ${n === 1 ? "dag" : "dagar"}`;
 
@@ -67,74 +67,107 @@ export function avtalKraverDig(giltigtTill: string | null, idag: string): "utgat
   return dagarKvar <= 31 ? "snart" : null;
 }
 
+/**
+ * Lönens läge för arbetsmånaden ur det som redan finns: vilka förare som har dagar, vilka som godkänt (loneunderlag) och vilka som
+ * skickats (fortnox_export_logg). Företagsledare har ingen lön i appen och räknas inte. Skickad vinner över godkänd.
+ */
+export function raknaLonLage(i: {
+  arbetsManad: string;
+  /** Förare med minst en arbetsdag i arbetsmånaden. */
+  medDagar: string[];
+  foretagsledare: string[];
+  /** loneunderlag för arbetsmånaden: status per förare. */
+  underlag: { medarbetare_id: string; status: string | null }[];
+  /** Förare som finns som skickade i Fortnox-loggen för löneperioden. */
+  skickade: string[];
+}): LonLage {
+  const ledare = new Set(i.foretagsledare);
+  const med = Array.from(new Set(i.medDagar)).filter(id => !ledare.has(id));
+  const skickade = new Set(i.skickade);
+  const godkanda = new Set(i.underlag.filter(u => godkannandeAv(u.status) === "godkand").map(u => u.medarbetare_id));
+  let antalKlara = 0, antalVantar = 0, antalSkickade = 0;
+  for (const id of med) {
+    if (skickade.has(id)) antalSkickade++;
+    else if (godkanda.has(id)) antalKlara++;
+    else antalVantar++;
+  }
+  return { arbetsManad: i.arbetsManad, antalKlara, antalVantar, antalSkickade };
+}
+
+/** "3 klara · 2 väntar på föraren" — en del som är noll skrivs inte (inget "0 klara"). */
+export function lonUndertext(l: Pick<LonLage, "antalKlara" | "antalVantar">): string {
+  const delar: string[] = [];
+  if (l.antalKlara > 0) delar.push(`${l.antalKlara} ${l.antalKlara === 1 ? "klar" : "klara"}`);
+  if (l.antalVantar > 0) delar.push(`${l.antalVantar} väntar på föraren`);
+  return delar.join(" · ");
+}
+
+/**
+ * Läsvarningen om flyttdagar som saknar förare (/api/lon/arbetstid) hör till arbetstidens detaljer, inte till Översiktens rader: den visas i
+ * arket men gör aldrig ensam att raden "Arbetstid" finns. Alla andra varningar är läsfel som påverkar talen och gör det.
+ */
+export const arFlyttdagUtanForare = (varning: string) => /flyttdag(ar)? kunde inte kopplas till en förare/.test(varning);
+
 export type AttGoraUt = {
   saker: Sak[];
-  stammer: StammerRad[];
-  /** Förare som är gula eller röda på någon arbetstidsgräns, röda först. Tom när ingen närmar sig eller källan fallerade. */
+  /** Förare som är gula eller röda på någon arbetstidsgräns, röda först. Tom när ingen närmar sig eller källan fallerade. Visas i arket bakom raden "Arbetstid". */
   arbetstid: ArbetstidForare[];
-  /** Läsfel som påverkar arbetstidstalen (frånvaro, avtal, utjämning) — visas under kortet, aldrig tyst. */
+  /** Alla varningar från arbetstidskällan (läsfel och flyttdagar utan förare) — visas i arket, aldrig tyst. */
   arbetstidVarningar: string[];
 };
 
 export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
   const saker: Sak[] = [];
-  const stammer: StammerRad[] = [];
   const felRad = (id: string, vad: string, fel: string) =>
     saker.push({ id: `fel-${id}`, rubrik: `Kunde inte kontrollera ${vad}`, detalj: fel, knapp: "Försök igen", mal: { typ: "forsok" } });
 
-  // ── Lön ──
+  // ── Lön: EN rad. "N klara · M väntar på föraren". Är allt skickat finns ingen rad. ──
   if (i.lon.fel) felRad("lon", "lönen", i.lon.fel);
-  else if (i.lon.data && i.lon.data.antalMedDagar > 0) {
+  else if (i.lon.data) {
     const l = i.lon.data;
-    if (l.antalSkickade < l.antalMedDagar) {
+    if (l.antalKlara + l.antalVantar > 0) {
       saker.push({
-        id: "lon", rubrik: `Lönen för ${manadNamn(l.arbetsManad)} är klar att granska`,
-        detalj: l.antalSkickade > 0 ? `${l.antalSkickade} av ${l.antalMedDagar} förare är skickade till Fortnox` : `${l.antalMedDagar} förare väntar på att skickas till Fortnox`,
+        id: "lon", rubrik: `Lönen för ${manadNamn(l.arbetsManad)}`, detalj: lonUndertext(l),
         knapp: "Öppna", mal: { typ: "flik", flik: "lon", underflik: "underlag" },
       });
-    } else stammer.push({ id: "lon", rubrik: `Lönen för ${manadNamn(l.arbetsManad)} är skickad till Fortnox` });
+    }
   }
 
-  // ── Dagar som väntar på bekräftelse ──
-  if (i.obekraftade.fel) felRad("dagar", "dagar som väntar på bekräftelse", i.obekraftade.fel);
-  else if (i.obekraftade.data) {
-    const rader = i.obekraftade.data;
-    if (rader.length > 0) {
-      const namn = new Map((i.personer.data || []).map(p => [p.id, p.namn || p.id.slice(0, 8)]));
-      const perPerson = new Map<string, string[]>();
-      for (const r of [...rader].sort((a, b) => a.datum.localeCompare(b.datum))) {
-        if (!perPerson.has(r.medarbetare_id)) perPerson.set(r.medarbetare_id, []);
-        perPerson.get(r.medarbetare_id)!.push(r.datum);
-      }
-      const tidigast = [...rader].map(r => r.datum).sort()[0];
-      const nu = idag.slice(0, 7);
-      const manadensOffset = (Number(nu.slice(0, 4)) - Number(tidigast.slice(0, 4))) * 12 + (Number(nu.slice(5, 7)) - Number(tidigast.slice(5, 7)));
-      saker.push({
-        id: "dagar", rubrik: `${dagar(rader.length)} väntar på bekräftelse`,
-        detalj: Array.from(perPerson.entries()).map(([id, ds]: [string, string[]]) => `${namn.get(id) || id.slice(0, 8)}: ${ds.map(datumKort).join(", ")}`).join(" · "),
-        knapp: "Öppna",
-        mal: { typ: "flik", flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String(-manadensOffset), avv: "1" } },
-      });
-    } else stammer.push({ id: "dagar", rubrik: "Alla dagar är bekräftade" });
-  }
-
-  // ── Vilobrott ──
+  // ── Vilobrott: EN rad. Vem och vilka dagar ligger bakom trycket. ──
   if (i.vilobrott.fel) felRad("vilobrott", "vilobrott", i.vilobrott.fel);
   else if (i.vilobrott.data) {
     const obesvarade = i.vilobrott.data.filter(b => !b.svar);
     if (obesvarade.length > 0) {
-      const perPerson = new Map<string, VilobrottRad[]>();
-      for (const b of obesvarade) { if (!perPerson.has(b.medarbetare_id)) perPerson.set(b.medarbetare_id, []); perPerson.get(b.medarbetare_id)!.push(b); }
-      perPerson.forEach((lista, id) => {
-        const sorterat = [...lista].sort((a, b) => a.datum.localeCompare(b.datum));
-        saker.push({
-          id: `vila-${id}`,
-          rubrik: `${lista[0].namn}: ${lista.length} ${lista.length === 1 ? "obesvarat vilobrott" : "obesvarade vilobrott"}`,
-          detalj: sorterat.map(b => `${datumKort(b.datum)} ${b.typ === "dygnsvila" ? "dygnsvila" : "veckovila"} ${vilaTimmarText(b.vila_h)}`).join(" · "),
-          knapp: "Öppna", mal: { typ: "vilobrott", medarbetare_id: id },
-        });
+      const personer = Array.from(new Set(obesvarade.map(b => b.medarbetare_id)));
+      saker.push({
+        id: "vila", rubrik: "Vilobrott", detalj: `${obesvarade.length} ${obesvarade.length === 1 ? "obesvarat" : "obesvarade"}`,
+        // En enda person: rakt till hennes dagar (en lista med en rad vore ett onödigt tryck).
+        knapp: "Öppna", mal: personer.length === 1 ? { typ: "vilobrott", medarbetare_id: personer[0] } : { typ: "vilobrott" },
       });
-    } else stammer.push({ id: "vila", rubrik: "Inga obesvarade vilobrott" });
+    }
+  }
+
+  // ── Arbetstid: EN rad. Lagens sex gränser (lib/arbetstidsgranser); förarna och gränserna ligger i arket. ──
+  let arbetstid: ArbetstidForare[] = [];
+  let arbetstidVarningar: string[] = [];
+  if (i.arbetstid.fel) felRad("arbetstid", "arbetstiden", i.arbetstid.fel);
+  else if (i.arbetstid.data) {
+    // Delägare (arbetstidslagen gäller inte) räknas aldrig. Gul från 90 % av gränsen, röd över: att varna FÖRE gränsen är poängen (Martin 2026-10-17).
+    arbetstid = sorteraAttGora(i.arbetstid.data.forare).filter(f => !f.foretagsledare);
+    arbetstidVarningar = i.arbetstid.data.varningar;
+    const lasFel = arbetstidVarningar.filter(v => !arFlyttdagUtanForare(v));
+    const over = arbetstid.filter(f => f.varsta === "rod").length;
+    if (arbetstid.length > 0) {
+      saker.push({
+        id: "arbetstid", rubrik: `${arbetstid.length} förare nära arbetstidsgränsen`,
+        // Ordet bär meningen när någon redan passerat gränsen (färgen förstärker bara).
+        detalj: over > 0 ? `${over} över gränsen` : undefined,
+        knapp: "Öppna", mal: { typ: "arbetstid" },
+      });
+    } else if (lasFel.length > 0) {
+      // Inga förare att peka ut — men talen bygger på en läsning som föll: det är inte "ingen närmar sig".
+      saker.push({ id: "arbetstid", rubrik: "Arbetstiden kunde inte kontrolleras helt", knapp: "Öppna", mal: { typ: "arbetstid" } });
+    }
   }
 
   // ── Personer: saknar maskin, hempunkt eller inloggning ──
@@ -166,7 +199,6 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
   personProblem.forEach((e, id) => {
     saker.push({ id: `person-${id}`, rubrik: e.namn, detalj: e.problem.join(" · "), knapp: "Öppna", mal: { typ: "flik", flik: "medarbetare", params: { person: id } } });
   });
-  if (i.kontroller.data && i.personer.data && personProblem.size === 0) stammer.push({ id: "personer", rubrik: "Alla har maskin, hempunkt och inloggning" });
 
   // ── Okänd operatör vars namn matchar en medarbetare ──
   if (i.kontroller.data) {
@@ -178,7 +210,6 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
         knapp: "Öppna", mal: { typ: "flik", flik: "medarbetare" },
       });
     }
-    if (i.kontroller.data.okandaOperatorer.length === 0) stammer.push({ id: "operatorer", rubrik: "Alla operatörer är kopplade" });
   }
 
   // ── Ny maskin i importen ──
@@ -202,21 +233,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
         id: "avtal", rubrik: k === "utgatt" ? "Avtalet har gått ut" : "Avtalet går ut inom en månad",
         detalj: `Gäller till ${datumLangt(i.avtal.data.giltigt_till!)}`, knapp: "Öppna", mal: { typ: "flik", flik: "avtal" },
       });
-    } else stammer.push({ id: "avtal", rubrik: i.avtal.data.giltigt_till ? `Avtalet gäller till ${datumLangt(i.avtal.data.giltigt_till)}` : "Avtalet har inget slutdatum" });
-  }
-
-  // ── Arbetstid: lagens sex gränser (lib/arbetstidsgranser). Förarna visas i sitt eget kort i Översikten (gul från 90 %, röd över
-  //    gränsen); här blir det bara en "stämmer"-rad när ingen närmar sig, eller en sak när källan inte gick att läsa. ──
-  let arbetstid: ArbetstidForare[] = [];
-  let arbetstidVarningar: string[] = [];
-  if (i.arbetstid.fel) felRad("arbetstid", "arbetstiden", i.arbetstid.fel);
-  else if (i.arbetstid.data) {
-    // Delägare (arbetstidslagen gäller inte) visas aldrig: en grå rad om att något inte gäller är inget att läsa. Kortet visar den som
-    // är ÖVER en gräns och den som är NÄRA en (gul från 90 %) — principen är att varna före gränsen, inte efter (Martin 2026-10-17).
-    const forare = sorteraAttGora(i.arbetstid.data.forare).filter(f => !f.foretagsledare);
-    arbetstid = forare;
-    arbetstidVarningar = i.arbetstid.data.varningar;
-    if (forare.length === 0) stammer.push({ id: "arbetstid", rubrik: "Ingen nära eller över en gräns för arbetstid" });
+    }
   }
 
   // ── Maskiner som inte skickat fil på länge (Datahälsa) ──
@@ -230,8 +247,7 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
         detalj: r.senasteData ? `Senaste data ${datumLangt(r.senasteData)}` : undefined, knapp: "Öppna", mal: { typ: "sida", href: "/datahalsa" },
       });
     }
-    if (tysta.length === 0) stammer.push({ id: "maskinfiler", rubrik: `Alla maskiner har skickat fil inom ${dygn(LEV_GUL_DYGN)}` });
   }
 
-  return { saker, stammer, arbetstid, arbetstidVarningar };
+  return { saker, arbetstid, arbetstidVarningar };
 }
