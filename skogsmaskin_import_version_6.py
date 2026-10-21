@@ -5534,6 +5534,195 @@ def save_hpr_to_supabase(data: Dict) -> bool:
         logger.error(f"  Fel vid sparande av HPR: {e}")
         return False
 
+# ============================================================
+# VÄDER VID SKÖRD — fakt_kalibrering.weather_at_harvest
+# ============================================================
+# Vädret vid stammens skörd (Open-Meteo ERA5-arkiv, fritt, ingen nyckel), sparat som JSONB på kontrollraden och visat i
+# Kalibrering (app/kalibrering/page.tsx). Förut skrevs det av en ENGÅNGSKÖRNING utanför repot (alla 176 rader har
+# fetched_at 2026-05-20 16:43–17:08, två sekunder per rad, 3–6 dygn efter att raderna skapades) — importen skrev det
+# aldrig, så varje kontroll efter 15 maj blev utan väder utan att något fallerade. Nu hämtas det av importen.
+#
+# REGLER:
+#   * Ett väderfel får ALDRIG stoppa importen: hamta_vader_vid_skord() kastar aldrig, anroparen sparar raden utan
+#     `weather_at_harvest`-nyckeln (en merge-upsert rör då inte ett befintligt värde) och felet loggas + går till import_fel
+#     (felkod VADER_SAKNAS) så det SYNS i datahälsan.
+#   * ERA5 ligger ca 5 dygn efter verkligheten: en kontroll från idag har inget arkivvärde än (svaret ger null). Det är
+#     inget fel utan "inte klart än" — `komplettera_saknat_vader()` fyller i det vid nästa import när dygnet är klart.
+#     Raden får ALDRIG ett prognosvärde i stället (arkiv och prognos är olika källor).
+#   * Position = första skördade stammens GPS, tid = tidigaste skördetid i filen (det första som kontrollerades).
+#     Tiden räknas som verkligt UTC (stockholm_lokal_till_utc) och hämtas för närmaste hel timme.
+#   * Rader som redan har väder rörs aldrig (PATCH med weather_at_harvest=is.null).
+VADER_ARKIV_URL = 'https://archive-api.open-meteo.com/v1/archive'
+VADER_TIMEOUT_S = 10
+VADER_KALLA = 'open-meteo.com'
+VADER_ARKIV_FORDROJNING_DAGAR = 6   # ERA5 är klart ca 5 dygn efter; yngre kontroller försöks inte och räknas som "inte klart än"
+
+
+def valj_vaderpunkt(stockar: List[Dict]):
+    """(lat, lon, skord_utc) ur kontrollstockarna: tidigaste harvest_date som har en riktig GPS-position. harvest_date är
+    naiv svensk väggklocka (parse_datetime) och görs om till verkligt UTC. None om ingen stock har både position och tid —
+    safe_float ger 0.0 för en saknad koordinat, så (0, 0) räknas som saknad."""
+    bast = None
+    for s in stockar or []:
+        lat, lon, tid = s.get('stem_lat'), s.get('stem_lon'), s.get('harvest_date')
+        if tid is None or lat is None or lon is None:
+            continue
+        if (lat == 0 and lon == 0) or abs(lat) > 90 or abs(lon) > 180:
+            continue
+        if bast is None or tid < bast[2]:
+            bast = (float(lat), float(lon), tid)
+    if bast is None:
+        return None
+    return bast[0], bast[1], stockholm_lokal_till_utc(bast[2])
+
+
+def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime) -> Optional[Dict]:
+    """Ett ERA5-timsvar ({temperature_2m, precipitation, snowfall, wind_speed_10m} för EN timme) → samma JSON som
+    befintliga rader (source, fetched_at, harvest_time, temperature_c, precipitation_mm, snowfall_cm, wind_speed_ms,
+    is_freezing). None om temperaturen saknas — då finns inget värde ännu, och vi hittar inte på ett."""
+    temp = timdata.get('temperature_2m')
+    if temp is None:
+        return None
+    def r(v, n):
+        return None if v is None else round(float(v), n)
+    return {
+        'source': VADER_KALLA,
+        'fetched_at': hamtad.astimezone(timezone.utc).isoformat(),
+        'harvest_time': skord_utc.astimezone(timezone.utc).isoformat(),
+        'temperature_c': r(temp, 1),
+        'precipitation_mm': r(timdata.get('precipitation'), 1),
+        'snowfall_cm': r(timdata.get('snowfall'), 1),
+        'wind_speed_ms': r(timdata.get('wind_speed_10m'), 2),
+        'is_freezing': float(temp) < 0,
+    }
+
+
+def hamta_vader_vid_skord(lat: float, lon: float, skord_utc: datetime, http=None, nu: datetime = None):
+    """Hämtar vädret för närmaste hela timme runt skord_utc ur ERA5-arkivet. Returnerar (väderJSON, None) eller
+    (None, skäl). KASTAR ALDRIG. Skälet är en kort svensk text som loggas och hamnar i import_fel."""
+    http = http or requests
+    nu = nu or datetime.now(timezone.utc)
+    try:
+        timme = (skord_utc + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
+        if timme > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR):
+            return None, f"inte klart än: ERA5-arkivet ligger ca 5 dygn efter (skörd {skord_utc:%Y-%m-%d %H:%M} UTC)"
+        dag = f"{timme:%Y-%m-%d}"
+        r = http.get(VADER_ARKIV_URL, params={
+            'latitude': f"{lat:.4f}", 'longitude': f"{lon:.4f}",
+            'start_date': dag, 'end_date': dag,
+            'hourly': 'temperature_2m,precipitation,snowfall,wind_speed_10m',
+            'wind_speed_unit': 'ms', 'timezone': 'UTC',
+        }, timeout=VADER_TIMEOUT_S)
+        try:
+            kropp = r.json()
+        except Exception:
+            kropp = None
+        # Arkivet svarar 400 MED {error: true, reason: "..."} — bara status räcker inte, bara kroppen inte heller.
+        if r.status_code != 200 or not isinstance(kropp, dict) or kropp.get('error'):
+            skal = kropp.get('reason') if isinstance(kropp, dict) and kropp.get('reason') else f"HTTP {r.status_code}"
+            return None, f"Open-Meteo svarade fel: {skal}"
+        h = kropp.get('hourly') or {}
+        tider = h.get('time') or []
+        onskad = f"{timme:%Y-%m-%dT%H:00}"
+        if onskad not in tider:
+            return None, f"Open-Meteo saknade timmen {onskad} UTC"
+        i = tider.index(onskad)
+        timdata = {k: (h.get(k) or [None] * len(tider))[i] for k in
+                   ('temperature_2m', 'precipitation', 'snowfall', 'wind_speed_10m')}
+        vader = bygg_vader_json(timdata, skord_utc, nu)
+        if vader is None:
+            return None, "inte klart än: Open-Meteo har inget arkivvärde för timmen"
+        return vader, None
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+def lagg_pa_vader(kalibrering_rad: Dict, stockar: List[Dict], filnamn) -> bool:
+    """Lägger weather_at_harvest på kontrollraden FÖRE upserten. Sätter bara nyckeln när vädret hämtats — annars lämnas
+    raden orörd (en omimport får aldrig nolla ett befintligt väder). Ett misslyckande loggas och går till import_fel, men
+    stoppar aldrig importen. True om väder lades på."""
+    punkt = valj_vaderpunkt(stockar)
+    if punkt is None:
+        logger.warning(f"  ⚠ Väder saknas för {filnamn}: ingen stock med både GPS-position och skördetid")
+        _rapportera_import_fel('fakt_kalibrering', filnamn, 1, 'VADER_SAKNAS', 'ingen stock med både GPS-position och skördetid')
+        return False
+    vader, skal = hamta_vader_vid_skord(*punkt)
+    if vader is None:
+        if skal.startswith('inte klart än'):
+            logger.info(f"  ↷ Väder för {filnamn} fylls i senare — {skal}")
+        else:
+            logger.warning(f"  ⚠ Väder saknas för {filnamn}: {skal}")
+            _rapportera_import_fel('fakt_kalibrering', filnamn, 1, 'VADER_SAKNAS', skal)
+        return False
+    kalibrering_rad['weather_at_harvest'] = vader
+    logger.info(f"  Väder vid skörd: {vader['temperature_c']}°C, {vader['precipitation_mm']} mm, {vader['wind_speed_ms']} m/s")
+    return True
+
+
+def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None, nu: datetime = None) -> Dict:
+    """Fyller i väder på kontroller som saknar det (äldst först): de som importerades innan ERA5 var klart och de vars
+    hämtning föll. Rör ALDRIG en rad som redan har väder (läsning med weather_at_harvest=is.null, PATCH med samma villkor
+    och kontroll att exakt en rad ändrades). Kastar aldrig. Rapport: {'sokta', 'fyllda', 'inte_klara', 'misslyckade': [(id,
+    filnamn, skäl)]}. skriv=False räknar bara (torrkörning). max_antal=None = alla."""
+    rapport = {'sokta': 0, 'fyllda': 0, 'inte_klara': 0, 'misslyckade': []}
+    try:
+        http = http or requests
+        nu = nu or datetime.now(timezone.utc)
+        url = (f"{SUPABASE_URL}/rest/v1/fakt_kalibrering?weather_at_harvest=is.null"
+               f"&select=id,filnamn,maskin_id&order=datum.asc,id.asc")
+        if max_antal:
+            url += f"&limit={int(max_antal)}"
+        resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
+        if resp.status_code != 200:
+            logger.warning(f"  ⚠ Väder: kunde inte läsa kontroller utan väder: {resp.status_code} {resp.text[:200]}")
+            return rapport
+        for rad in resp.json():
+            rapport['sokta'] += 1
+            try:
+                enc = quote(str(rad['filnamn']), safe='')
+                sresp = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/detalj_kontroll_stock?filnamn=eq.{enc}&maskin_id=eq.{quote(str(rad['maskin_id']), safe='')}"
+                    f"&select=stem_lat,stem_lon,harvest_date,tid_ar_utc", headers=SUPABASE_HEADERS, timeout=30)
+                if sresp.status_code != 200:
+                    rapport['misslyckade'].append((rad['id'], rad['filnamn'], f"kunde inte läsa stockarna: {sresp.status_code}"))
+                    continue
+                stockar = []
+                for s in sresp.json():
+                    # tid_ar_utc=true → verkligt UTC (görs om till väggklocka som parsern använder), annars redan väggklocka
+                    lokal = db_tid_till_lokal(s.get('harvest_date'), bool(s.get('tid_ar_utc')))
+                    stockar.append({'stem_lat': s.get('stem_lat'), 'stem_lon': s.get('stem_lon'), 'harvest_date': lokal})
+                    for k in ('stem_lat', 'stem_lon'):
+                        if stockar[-1][k] is not None:
+                            stockar[-1][k] = float(stockar[-1][k])
+                punkt = valj_vaderpunkt(stockar)
+                if punkt is None:
+                    rapport['misslyckade'].append((rad['id'], rad['filnamn'], 'ingen stock med både GPS-position och skördetid'))
+                    continue
+                vader, skal = hamta_vader_vid_skord(*punkt, http=http, nu=nu)
+                if vader is None:
+                    if skal.startswith('inte klart än'):
+                        rapport['inte_klara'] += 1
+                    else:
+                        rapport['misslyckade'].append((rad['id'], rad['filnamn'], skal))
+                    continue
+                if not skriv:
+                    rapport['fyllda'] += 1
+                    continue
+                presp = requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/fakt_kalibrering?id=eq.{rad['id']}&weather_at_harvest=is.null",
+                    headers={**SUPABASE_HEADERS, 'Prefer': 'return=representation'},
+                    json={'weather_at_harvest': vader}, timeout=30)
+                if presp.status_code in (200, 204) and len(presp.json() or []) == 1:
+                    rapport['fyllda'] += 1
+                else:
+                    rapport['misslyckade'].append((rad['id'], rad['filnamn'], f"skrivningen gav {presp.status_code} {presp.text[:100]}"))
+            except Exception as e:
+                rapport['misslyckade'].append((rad.get('id'), rad.get('filnamn'), f"{type(e).__name__}: {e}"))
+    except Exception as e:
+        logger.warning(f"  ⚠ Väder: komplettering avbröts: {e}")
+    return rapport
+
+
 def save_hqc_to_supabase(data: Dict) -> bool:
     """Spara HQC-data till Supabase"""
     try:
@@ -5569,6 +5758,11 @@ def save_hqc_to_supabase(data: Dict) -> bool:
         # (0 stockar) → ingen kontroll-rad/hash — men historiken nedan körs ändå
         # (36 av 67 kalibreringshändelser kommer från 0-stock-filer).
         if data.get('kalibrering') and data.get('kontroll_stockar'):
+            # Väder vid skörd — fail-soft (kastar aldrig, stoppar aldrig importen), se blocket ovan
+            try:
+                lagg_pa_vader(data['kalibrering'][0], data['kontroll_stockar'], filnamn)
+            except Exception as e:
+                logger.warning(f"  ⚠ Väder saknas för {filnamn}: {type(e).__name__}: {e}")
             if upsert_data(
                 'fakt_kalibrering',
                 data['kalibrering'],
@@ -5661,6 +5855,11 @@ def save_hqc_to_supabase(data: Dict) -> bool:
             logger.error(f"  ✗ Misslyckades spara till: {', '.join(fel)}")
             return False
 
+        # Fyll i väder på äldre kontroller som väntade på ERA5 eller vars hämtning föll (aldrig ett importfel)
+        rapport = komplettera_saknat_vader(max_antal=25)
+        if rapport['fyllda'] or rapport['misslyckade']:
+            logger.info(f"  Väder, komplettering: {rapport['fyllda']} ifyllda, {rapport['inte_klara']} inte klara, "
+                        f"{len(rapport['misslyckade'])} misslyckade")
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av HQC: {e}")
