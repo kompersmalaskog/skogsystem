@@ -33,7 +33,7 @@ export type Artikel = {
   sitter_pa: string | null;
 };
 
-/** En artikel på en plats. `antal` null = utrustning ("finns här"). `id` är det som står i QR-koden (session 2). */
+/** En artikel på en plats. `antal` null = utrustning ("finns här") eller två lådor. `id` är det som står i QR-koden (/i/<id>). */
 export type InvRad = {
   id: string;
   artikel_id: string;
@@ -43,6 +43,11 @@ export type InvRad = {
   min_antal: number | null;
   bestalld_tid: string | null;
   uppdaterad: string;
+  /** Två lådor: räknas inte (antal och min NULL). Beställsignalen är att reservlådan påbörjas (QR på reservlådan). */
+  tva_lador: boolean;
+  /** Reservlådan påbörjad och inget har kommit in än. */
+  reserv_oppnad_tid: string | null;
+  reserv_oppnad_av: string | null;
 };
 
 export type Maskin = { maskin_id: string; visningsnamn: string | null; maskin_typ: string | null; aktiv: boolean };

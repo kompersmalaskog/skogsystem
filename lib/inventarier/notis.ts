@@ -2,6 +2,8 @@
  * Notisen "Börjar ta slut" — en förbrukningsrad har gått under sin minnivå.
  *
  *   inventarie_under_min → admin (Martin, Joacim): "Sågkedja 3/8 .404: 5 kvar i Maskinhallen (min 6)"  → /inventarier?rad=<id>
+ *   Samma typ för två lådor:                        "Sågkedja 3/8 .404: reservlådan påbörjad i Maskinhallen"
+ *   (köas av triggern kö_inventarie_reserv_notis, migration 20261021155923_inventarier_tva_lador_4_notis.sql)
  *
  * KÖAS av triggern kö_inventarie_notis på inventarie_rad (migration 20261021134419_inventarier_notis_under_min.sql), EN gång per
  * korsning under min, med skickas_at = 'infinity' — som ledighet och lass: den GAMLA flushen på production skickar okända typer som en
@@ -26,6 +28,8 @@ export type InventarieNotisRad = {
   antal: number | null;
   min_antal: number | null;
   bestalld_tid: string | null;
+  tva_lador: boolean;
+  reserv_oppnad_tid: string | null;
   artikel_namn: string;
   sitter_pa: string | null;
   enhet: string | null;
@@ -40,9 +44,10 @@ export type InventarieNotisUtfall =
   | { typ: 'hoppa_over'; orsak: string }
   | { typ: 'uppskjut' };
 
-/** "Sågkedja 3/8 .404: 5 kvar i Maskinhallen (min 6)". */
+/** "Sågkedja 3/8 .404: 5 kvar i Maskinhallen (min 6)", eller för två lådor "…: reservlådan påbörjad i Maskinhallen". */
 export function inventarieNotisText(rad: InventarieNotisRad): string {
   const titel = artikelTitel({ namn: rad.artikel_namn, sitter_pa: rad.sitter_pa });
+  if (rad.tva_lador) return `${titel}: reservlådan påbörjad i ${rad.plats_namn}`;
   return `${titel}: ${antalText(rad.antal ?? 0, rad.enhet)} kvar i ${rad.plats_namn} (min ${rad.min_antal ?? 0})`;
 }
 
@@ -63,7 +68,9 @@ export async function byggInventarieNotis(
   if (fel) return { typ: 'uppskjut' };
   if (!rad) return { typ: 'hoppa_over', orsak: 'Ej skickad — raden finns inte längre' };
   if (rad.bestalld_tid) return { typ: 'hoppa_over', orsak: 'Ej skickad — redan beställd' };
-  if (rad.antal == null || rad.min_antal == null || rad.antal >= rad.min_antal) {
+  if (rad.tva_lador) {
+    if (!rad.reserv_oppnad_tid) return { typ: 'hoppa_over', orsak: 'Ej skickad — reservlådan är inte påbörjad längre' };
+  } else if (rad.antal == null || rad.min_antal == null || rad.antal >= rad.min_antal) {
     return { typ: 'hoppa_over', orsak: 'Ej skickad — inte längre under minnivån' };
   }
 

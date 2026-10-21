@@ -3,7 +3,7 @@ import { byggInventarieNotis, inventarieNotisText, type InventarieNotisRad } fro
 
 const NU = Date.parse('2026-10-21T12:00:00Z');
 const rad = (extra: Partial<InventarieNotisRad> = {}): InventarieNotisRad => ({
-  id: 'r1', antal: 5, min_antal: 6, bestalld_tid: null, artikel_namn: 'Sågkedja 3/8 .404', sitter_pa: null, enhet: 'st',
+  id: 'r1', antal: 5, min_antal: 6, bestalld_tid: null, tva_lador: false, reserv_oppnad_tid: null, artikel_namn: 'Sågkedja 3/8 .404', sitter_pa: null, enhet: 'st',
   plats_namn: 'Maskinhallen', ...extra,
 });
 const notis = (extra: Record<string, unknown> = {}) => ({
@@ -45,5 +45,13 @@ describe('notisen "Börjar ta slut"', () => {
 
   it('utan rad i notisen hoppas den över', async () => {
     expect((await byggInventarieNotis(notis({ payload: {} }), async () => ({ rad: rad() }), NU)).typ).toBe('hoppa_over');
+  });
+
+  it('två lådor: reservlådan påbörjad ger notisen, ångrad eller kommit in ger ingen', async () => {
+    const tva = rad({ tva_lador: true, antal: null, min_antal: null, reserv_oppnad_tid: '2026-10-21T11:58:00Z' });
+    const u = await byggInventarieNotis(notis(), async () => ({ rad: tva }), NU);
+    expect(u).toMatchObject({ typ: 'skicka', meddelande: { body: 'Sågkedja 3/8 .404: reservlådan påbörjad i Maskinhallen', url: '/inventarier?rad=r1' } });
+    expect((await byggInventarieNotis(notis(), async () => ({ rad: { ...tva, reserv_oppnad_tid: null } }), NU)).typ).toBe('hoppa_over');
+    expect((await byggInventarieNotis(notis(), async () => ({ rad: { ...tva, bestalld_tid: '2026-10-21T11:59:00Z' } }), NU)).typ).toBe('hoppa_over');
   });
 });

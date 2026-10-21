@@ -107,6 +107,8 @@ export const SKARPA = [
   "components/inventarier/NyPlatsArk.tsx",
   "components/inventarier/Kvitto.tsx",
   "components/inventarier/delar.tsx",
+  "components/inventarier/Skanning.tsx",
+  "components/inventarier/Etiketter.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

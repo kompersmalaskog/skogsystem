@@ -12,7 +12,7 @@ import Sektion from '@/components/design/Sektion';
 import { AVSTAND, FARG, INAKTIV, KNAPP, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import { platsKollad } from '@/lib/inventarier/data';
 import type { VisadRad } from '@/lib/inventarier/typer';
-import { antalText, artikelTitel, hyllGrupper, kolladText, maskinNamn, tomText, visadeRader } from '@/lib/inventarier/vy';
+import { artikelTitel, hogerText, hyllGrupper, kolladText, maskinNamn, tomText, visadeRader } from '@/lib/inventarier/vy';
 import { ArkFel, FelLage, InvVy, Laddar, Tillbaka } from './delar';
 import Kvitto from './Kvitto';
 import LaggTillArk from './LaggTillArk';
@@ -88,7 +88,7 @@ export default function PlatsSida({ platsId }: { platsId: string }) {
                   <Rad key={v.rad.id}
                     titel={artikelTitel(v.artikel)}
                     under={under || undefined}
-                    hoger={forbrukning ? antalText(v.rad.antal ?? 0, v.artikel.enhet) : undefined}
+                    hoger={hogerText(v, false)}
                     onTryck={() => setOppet({ ark: 'rad', radId: v.rad.id })}
                     sista={i === g.rader.length - 1}
                     attr={{ 'data-rad': v.rad.id }} />
@@ -100,6 +100,11 @@ export default function PlatsSida({ platsId }: { platsId: string }) {
           <button type="button" style={KNAPP.sekundar} onClick={() => setOppet({ ark: 'laggTill' })} data-testid="lagg-till-knapp">
             Lägg till
           </button>
+          <div style={{ marginTop: AVSTAND.xl }}>
+            <Sektion rubrik="Etiketter">
+              <Rad titel="Skriv ut etiketter" under={`QR-koder till lådorna i ${plats.namn}`} href={`/inventarier/etiketter?plats=${plats.id}`} sista />
+            </Sektion>
+          </div>
 
           {oppetRad && (
             <RadArk v={oppetRad} platser={inv.platser} maskiner={inv.maskiner} artiklar={inv.artiklar}

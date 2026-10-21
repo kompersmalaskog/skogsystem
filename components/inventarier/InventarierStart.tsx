@@ -18,7 +18,7 @@ import { useRaknaUpp } from '@/lib/design/raknaUpp';
 import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens';
 import type { VisadRad } from '@/lib/inventarier/typer';
 import {
-  antalAttBestalla, antalText, arUnderMin, artikelTitel, attBestalla, datumKort, kolladText, platsGrupper, sok, underText,
+  antalAttBestalla, artikelTitel, attBestalla, behoverBestallas, bestallUnder, hogerText, kolladText, platsGrupper, sok, underText,
   visadeRader,
 } from '@/lib/inventarier/vy';
 import BestallArk from './BestallArk';
@@ -62,7 +62,7 @@ export default function InventarierStart() {
     window.history.replaceState(window.history.state, '', url.pathname + url.search);
     const v = rader.find(x => x.rad.id === radId);
     if (!v) { setKvitto('Raden finns inte längre.'); return; }
-    setOppet(arUnderMin(v.rad, v.artikel) ? { ark: 'bestall', radId } : { ark: 'rad', radId });
+    setOppet(behoverBestallas(v.rad, v.artikel) ? { ark: 'bestall', radId } : { ark: 'rad', radId });
   }, [inv, rader]);
 
   const klar = useCallback((text: string) => {
@@ -99,9 +99,9 @@ export default function InventarierStart() {
               {bestall.map((v, i) => (
                 <Rad key={v.rad.id}
                   titel={artikelTitel(v.artikel)}
-                  under={v.rad.bestalld_tid ? `Beställd ${datumKort(v.rad.bestalld_tid)} · ${v.plats.namn}` : underText(v)}
-                  hoger={`${antalText(v.rad.antal ?? 0, v.artikel.enhet)} kvar`}
-                  hogerUnder={`min ${v.rad.min_antal ?? 0}`}
+                  under={bestallUnder(v, inv.personer)}
+                  hoger={v.rad.tva_lador ? undefined : hogerText(v)}
+                  hogerUnder={v.rad.tva_lador ? undefined : `min ${v.rad.min_antal ?? 0}`}
                   dampad={!!v.rad.bestalld_tid}
                   onTryck={() => setOppet({ ark: 'bestall', radId: v.rad.id })}
                   sista={i === bestall.length - 1}
@@ -119,7 +119,7 @@ export default function InventarierStart() {
                   <Rad key={v.rad.id}
                     titel={artikelTitel(v.artikel)}
                     under={underText(v)}
-                    hoger={v.artikel.typ === 'forbrukning' ? `${antalText(v.rad.antal ?? 0, v.artikel.enhet)} kvar` : undefined}
+                    hoger={hogerText(v)}
                     onTryck={() => setOppet({ ark: 'rad', radId: v.rad.id })}
                     sista={i === traffar.length - 1}
                     attr={{ 'data-traff': v.rad.id }} />
@@ -150,6 +150,9 @@ export default function InventarierStart() {
                   })}
                 </Sektion>
               ))}
+              <Sektion rubrik="Etiketter">
+                <Rad titel="Skriv ut etiketter" under="QR-koder till lådorna" href="/inventarier/etiketter" sista attr={{ 'data-etiketter': '' }} />
+              </Sektion>
               {arAdmin && (
                 <button type="button" style={KNAPP.sekundar} onClick={() => setOppet({ ark: 'nyPlats' })}>Ny plats</button>
               )}
@@ -157,7 +160,7 @@ export default function InventarierStart() {
           )}
 
           {oppet?.ark === 'bestall' && oppetRad && (
-            <BestallArk v={oppetRad} onStang={() => setOppet(null)} onKlar={klar} />
+            <BestallArk v={oppetRad} personer={inv.personer} onStang={() => setOppet(null)} onKlar={klar} />
           )}
           {oppet?.ark === 'rad' && oppetRad && (
             <RadArk v={oppetRad} platser={inv.platser} maskiner={inv.maskiner} artiklar={inv.artiklar}

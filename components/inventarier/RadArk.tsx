@@ -3,6 +3,8 @@
 // Arket för EN rad (en artikel på en plats). Tryck på raden öppnar det; handlingen ligger här, aldrig på raden.
 //
 //   Förbrukning: primärknappen är Tog 1 (det vanligaste man gör). Ändra › och Flytta › under.
+//   Två lådor:   primärknappen är "Reservlådan påbörjad" (samma som QR-koden på reservlådan). Är den redan påbörjad
+//                finns ingen primärknapp — raden ligger under Att beställa, och beställd/kommit in görs där.
 //   Utrustning:  primärknappen är Flytta (mutterknackaren lånas ut). Ändra › under.
 //
 // Undervyerna (Ändra, Till maskin, Flytta, Ta bort) öppnas i SAMMA ark — inga ark på ark. Avbryt i en undervy tar
@@ -15,9 +17,9 @@ import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
 import TalRad from '@/components/design/TalRad';
 import { AVSTAND, FARG, INAKTIV, KNAPP, TNUM, TYP } from '@/lib/design/tokens';
-import { andraArtikel, andraRad, flytta, justera, taBortRad, taUt, type ArtikelAndring, type RadAndring } from '@/lib/inventarier/data';
+import { andraArtikel, andraRad, flytta, justera, reservOppnad, taBortRad, taUt, type ArtikelAndring, type RadAndring } from '@/lib/inventarier/data';
 import type { Artikel, Maskin, Plats, VisadRad } from '@/lib/inventarier/typer';
-import { antalText, artikelTitel, heltal, maskinNamn, platsText, sitterPaForslag } from '@/lib/inventarier/vy';
+import { antalText, artikelTitel, datumKort, heltal, maskinNamn, platsText, sitterPaForslag } from '@/lib/inventarier/vy';
 import { ArkFel, ValRad } from './delar';
 
 type Vy = 'huvud' | 'andra' | 'maskin' | 'flytta' | 'taBort';
@@ -39,7 +41,9 @@ type Props = {
 
 export default function RadArk({ v, platser, maskiner, artiklar, andraPlatser, onStang, onKlar }: Props) {
   const { rad, artikel, plats } = v;
-  const forbrukning = artikel.typ === 'forbrukning';
+  const tvaLador = artikel.typ === 'forbrukning' && rad.tva_lador;
+  /** Räknas: antal och minnivå. En rad med två lådor är förbrukning men räknas inte. */
+  const forbrukning = artikel.typ === 'forbrukning' && !rad.tva_lador;
   const [vy, setVy] = useState<Vy>('huvud');
   const [fel, setFel] = useState<string | null>(null);
   const [sparar, setSparar] = useState(false);
@@ -64,9 +68,9 @@ export default function RadArk({ v, platser, maskiner, artiklar, andraPlatser, o
     if (t(sitterPa) !== (artikel.sitter_pa ?? null)) a.sitter_pa = t(sitterPa);
     if (maskinId !== artikel.maskin_id) a.maskin_id = maskinId;
     if (t(artikelnr) !== (artikel.artikelnr ?? null)) a.artikelnr = t(artikelnr);
-    if (forbrukning && t(leverantor) !== (artikel.leverantor ?? null)) a.leverantor = t(leverantor);
+    if (artikel.typ === 'forbrukning' && t(leverantor) !== (artikel.leverantor ?? null)) a.leverantor = t(leverantor);
     return a;
-  }, [namn, sitterPa, maskinId, artikelnr, leverantor, artikel, forbrukning]);
+  }, [namn, sitterPa, maskinId, artikelnr, leverantor, artikel]);
 
   const nyttAntal = forbrukning ? heltal(antal) : null;
   const nyttMin = forbrukning ? (minAntal.trim() === '' ? null : heltal(minAntal)) : null;
@@ -95,6 +99,14 @@ export default function RadArk({ v, platser, maskiner, artiklar, andraPlatser, o
     setSparar(false);
     if (!s.ok) { setFel(s.fel); return; }
     onKlar(`Tog 1 · ${antalText(s.varde, artikel.enhet)} kvar`);
+  }
+
+  async function korReserv() {
+    setSparar(true); setFel(null);
+    const s = await reservOppnad(rad.id);
+    setSparar(false);
+    if (!s.ok) { setFel(s.fel); return; }
+    onKlar(`${artikel.namn} står under Att beställa`);
   }
 
   async function korSpara() {
@@ -134,7 +146,14 @@ export default function RadArk({ v, platser, maskiner, artiklar, andraPlatser, o
   // ---- Fot: skärmens EN handling ----
   let fot: ReactNode = undefined;
   if (vy === 'huvud') {
-    fot = forbrukning ? (
+    fot = tvaLador ? (
+      rad.reserv_oppnad_tid ? undefined : (
+        <button type="button" onClick={korReserv} data-testid="reserv-paborjad"
+          style={{ ...KNAPP.primar, ...(sparar ? INAKTIV : null) }}>
+          {sparar ? 'Sparar…' : 'Reservlådan påbörjad'}
+        </button>
+      )
+    ) : forbrukning ? (
       <button type="button" onClick={korTogEn} data-testid="tog-1"
         style={{ ...KNAPP.primar, ...((sparar || (rad.antal ?? 0) === 0) ? INAKTIV : null) }}>
         {sparar ? 'Sparar…' : 'Tog 1'}
@@ -165,6 +184,12 @@ export default function RadArk({ v, platser, maskiner, artiklar, andraPlatser, o
                 kvar{rad.min_antal != null ? ` · min ${rad.min_antal}` : ''}
               </span>
             </div>
+          ) : tvaLador ? (
+            <p style={{ ...TYP.text, color: FARG.text, margin: `${AVSTAND.s}px 0 ${AVSTAND.xs}px` }} data-testid="tva-lador-status">
+              {rad.reserv_oppnad_tid
+                ? `Reservlådan påbörjad ${datumKort(rad.reserv_oppnad_tid)} · står under Att beställa`
+                : 'Två lådor · första lådan används'}
+            </p>
           ) : null}
           <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }}>
             {[maskinNamn(v.maskin), platsText(plats, rad.hylla)].filter(Boolean).join(' · ')}
@@ -174,7 +199,7 @@ export default function RadArk({ v, platser, maskiner, artiklar, andraPlatser, o
           )}
           <Sektion rubrik="Raden" kort={false}>
             <Rad titel="Ändra" under={forbrukning ? 'Antal, minnivå, hylla, namn' : 'Hylla, namn, maskin'} onTryck={() => setVy('andra')} />
-            {forbrukning && <Rad titel="Flytta" onTryck={() => setVy('flytta')} />}
+            {(forbrukning || tvaLador) && <Rad titel="Flytta" onTryck={() => setVy('flytta')} />}
             <Rad titel={<span style={{ color: FARG.rod }}>Ta bort</span>} onTryck={() => setVy('taBort')} pil={false} sista />
           </Sektion>
           <ArkFel fel={fel} />
@@ -206,7 +231,7 @@ export default function RadArk({ v, platser, maskiner, artiklar, andraPlatser, o
             </Sektion>
           )}
           <Falt etikett="Artikelnummer (valfritt)" value={artikelnr} onChange={setArtikelnr} />
-          {forbrukning && <Falt etikett="Leverantör (valfritt)" value={leverantor} onChange={setLeverantor} />}
+          {artikel.typ === 'forbrukning' && <Falt etikett="Leverantör (valfritt)" value={leverantor} onChange={setLeverantor} />}
           <ArkFel fel={fel} />
         </>
       )}

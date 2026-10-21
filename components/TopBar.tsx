@@ -53,6 +53,8 @@ export default function TopBar() {
     : pathname.startsWith('/maskin-service/') ? 'Maskinservice'
     // /inventarier/plats/<id>: platsens namn står i sidan, toppfältet säger bara var man är.
     : pathname.startsWith('/inventarier/') ? 'Inventarier'
+    // /i/<rad_id>: QR-koden på en låda.
+    : pathname.startsWith('/i/') ? 'Inventarier'
     : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
     : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 

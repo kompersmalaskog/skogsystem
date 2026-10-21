@@ -63,6 +63,12 @@ export const markeraBestalld = (radId: string, bestalld = true) => rpc<null>('in
 export const flytta = (radId: string, tillPlatsId: string) => rpc<string>('inventarie_flytta', { p_rad_id: radId, p_till_plats_id: tillPlatsId });
 export const platsKollad = (platsId: string) => rpc<null>('inventarie_plats_kollad', { p_plats_id: platsId });
 
+/** Reservlådan påbörjad (QR på reservlådan). Idempotent: `redan` = den var redan anmäld, ingen ny notis. */
+export type ReservSvar = { tid: string; redan: boolean; av_namn: string | null };
+export const reservOppnad = (radId: string) => rpc<ReservSvar>('inventarie_reserv_oppnad', { p_rad_id: radId });
+/** Ångra direkt efter skanningen. false = anmälan hann ändras (beställd, eller en annan anmälan). */
+export const reservAngra = (radId: string, tid: string) => rpc<boolean>('inventarie_reserv_angra', { p_rad_id: radId, p_tid: tid });
+
 async function skriv<T>(fn: () => PromiseLike<{ data: any; error: any }>, plocka: (d: any) => T): Promise<Svar<T>> {
   try {
     const { data, error } = await fn();
@@ -96,7 +102,7 @@ export function andraArtikel(id: string, andring: ArtikelAndring): Promise<Svar<
   });
 }
 
-export type NyRad = { artikel_id: string; plats_id: string; hylla: string | null; antal: number | null; min_antal: number | null };
+export type NyRad = { artikel_id: string; plats_id: string; hylla: string | null; antal: number | null; min_antal: number | null; tva_lador: boolean };
 
 export function skapaRad(r: NyRad): Promise<Svar<InvRad>> {
   return skriv(() => supabase.from('inventarie_rad').insert(r).select('*').single(), d => d as InvRad);

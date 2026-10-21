@@ -267,7 +267,7 @@ const hamtaStickprovrad: HamtaStickprov = async (manad) => {
 const hamtaInventarierad: HamtaInventarie = async (radId) => {
   const { data, error } = await supabase
     .from("inventarie_rad")
-    .select("id, antal, min_antal, bestalld_tid, artikel:artikel_id(namn, sitter_pa, enhet), plats:plats_id(namn)")
+    .select("id, antal, min_antal, bestalld_tid, tva_lador, reserv_oppnad_tid, artikel:artikel_id(namn, sitter_pa, enhet), plats:plats_id(namn)")
     .eq("id", radId)
     .maybeSingle();
   if (error) return { rad: null, fel: error.message };
@@ -276,7 +276,7 @@ const hamtaInventarierad: HamtaInventarie = async (radId) => {
   const a = Array.isArray(d.artikel) ? d.artikel[0] : d.artikel;
   const p = Array.isArray(d.plats) ? d.plats[0] : d.plats;
   if (!a || !p) return { rad: null };
-  return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
+  return { rad: { id: d.id, antal: d.antal, min_antal: d.min_antal, bestalld_tid: d.bestalld_tid, tva_lador: !!d.tva_lador, reserv_oppnad_tid: d.reserv_oppnad_tid ?? null, artikel_namn: a.namn, sitter_pa: a.sitter_pa ?? null, enhet: a.enhet ?? null, plats_namn: p.namn } };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];

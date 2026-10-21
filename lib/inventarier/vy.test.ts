@@ -12,7 +12,7 @@ const artikel = (id: string, namn: string, typ: Artikel['typ'], extra: Partial<A
   id, namn, typ, enhet: 'st', leverantor: null, artikelnr: null, anteckning: null, aktiv: true, maskin_id: null, sitter_pa: null, ...extra,
 });
 const rad = (id: string, artikel_id: string, plats_id: string, extra: Partial<InvRad> = {}): InvRad => ({
-  id, artikel_id, plats_id, hylla: null, antal: null, min_antal: null, bestalld_tid: null, uppdaterad: '2026-10-21T10:00:00Z', ...extra,
+  id, artikel_id, plats_id, hylla: null, antal: null, min_antal: null, bestalld_tid: null, uppdaterad: '2026-10-21T10:00:00Z', tva_lador: false, reserv_oppnad_tid: null, reserv_oppnad_av: null, ...extra,
 });
 
 function inv(): Inventarier {

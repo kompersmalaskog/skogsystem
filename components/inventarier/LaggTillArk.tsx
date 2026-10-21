@@ -4,8 +4,9 @@
 //
 //   1. Namnet. Medan man skriver föreslås det som redan finns — väljer man det skapas bara en rad på platsen, så samma
 //      sak inte läggs upp två gånger.
-//   2. Ny artikel: "Bara var den finns" (förvalt — verktyg, reservdelar) eller "Räknas" (förbrukning som kan ta slut).
-//      Räknas: antal och minnivå.
+//   2. Hur den hålls koll på: "Bara var den finns" (förvalt — verktyg, reservdelar), "Två lådor" (förbrukning: beställ
+//      när reservlådan påbörjas, skanna QR-koden på den — ingen räknar) eller "Räknas" (antal och minnivå).
+//      En befintlig förbrukningsartikel väljer bara mellan Två lådor och Räknas för den här platsen.
 //   3. Plats (bara när arket öppnats utan plats, från sökningens "Lägg till den där den ligger").
 //   4. Valfritt: hylla, reservdel till maskin + sitter på (hydraulslangar), artikelnummer.
 
@@ -23,6 +24,8 @@ import { ArkFel, ValRad } from './delar';
 import { MIN_FORKLARING } from './RadArk';
 
 type Vy = 'form' | 'maskin' | 'plats';
+/** Hur raden hålls koll på. Två lådor och Räknas är båda förbrukning. */
+type Lage = 'utrustning' | 'tva_lador' | 'raknas';
 
 type Props = {
   inv: Inventarier;
@@ -37,7 +40,7 @@ export default function LaggTillArk({ inv, platsId: startPlats, startNamn = '', 
   const [vy, setVy] = useState<Vy>('form');
   const [namn, setNamn] = useState(startNamn);
   const [vald, setVald] = useState<Artikel | null>(null);
-  const [typ, setTyp] = useState<ArtikelTyp>('utrustning');
+  const [lage, setLage] = useState<Lage>('utrustning');
   const [antal, setAntal] = useState('');
   const [minAntal, setMinAntal] = useState('');
   const [platsId, setPlatsId] = useState<string | null>(startPlats);
@@ -48,8 +51,11 @@ export default function LaggTillArk({ inv, platsId: startPlats, startNamn = '', 
   const [fel, setFel] = useState<string | null>(null);
   const [sparar, setSparar] = useState(false);
 
+  const typ: ArtikelTyp = lage === 'utrustning' ? 'utrustning' : 'forbrukning';
   const effektivTyp: ArtikelTyp = vald ? vald.typ : typ;
-  const forbrukning = effektivTyp === 'forbrukning';
+  // En befintlig förbrukningsartikel: Två lådor eller Räknas (aldrig "bara var den finns").
+  const effektivtLage: Lage = effektivTyp === 'utrustning' ? 'utrustning' : lage === 'raknas' ? 'raknas' : 'tva_lador';
+  const forbrukning = effektivtLage === 'raknas';
   const plats = platsId ? inv.platser.find(p => p.id === platsId) ?? null : null;
   const maskin = maskinId ? inv.maskiner.find(m => m.maskin_id === maskinId) ?? null : null;
 
@@ -80,6 +86,7 @@ export default function LaggTillArk({ inv, platsId: startPlats, startNamn = '', 
       hylla: hylla.trim() || null,
       antal: forbrukning ? nyttAntal : null,
       min_antal: forbrukning ? nyttMin : null,
+      tva_lador: effektivtLage === 'tva_lador',
     });
     setSparar(false);
     if (!r.ok) { setFel(r.fel); return; }
@@ -101,7 +108,7 @@ export default function LaggTillArk({ inv, platsId: startPlats, startNamn = '', 
         <>
           {vald ? (
             <Sektion rubrik="Finns redan" kort={false}>
-              <Rad titel={artikelTitel(vald)} under={vald.typ === 'forbrukning' ? 'Räknas' : 'Bara var den finns'}
+              <Rad titel={artikelTitel(vald)} under={vald.typ === 'forbrukning' ? 'Förbrukning' : 'Bara var den finns'}
                 hoger="Byt" onTryck={() => { setVald(null); setNamn(vald.namn); }} pil={false} sista />
             </Sektion>
           ) : (
@@ -110,7 +117,7 @@ export default function LaggTillArk({ inv, platsId: startPlats, startNamn = '', 
           {forslag.length > 0 && (
             <Sektion rubrik="Finns redan" kort={false} not="Välj den, så läggs den inte upp två gånger.">
               {forslag.map((a, i) => (
-                <Rad key={a.id} titel={artikelTitel(a)} under={a.typ === 'forbrukning' ? 'Räknas' : 'Bara var den finns'}
+                <Rad key={a.id} titel={artikelTitel(a)} under={a.typ === 'forbrukning' ? 'Förbrukning' : 'Bara var den finns'}
                   onTryck={() => { setVald(a); setNamn(a.namn); }} pil={false} sista={i === forslag.length - 1}
                   attr={{ 'data-forslag': a.id }} />
               ))}
@@ -118,12 +125,16 @@ export default function LaggTillArk({ inv, platsId: startPlats, startNamn = '', 
           )}
           {finnsRedanHar && <ArkFel fel={`${artikelTitel(vald!)} finns redan i ${plats?.namn}. Öppna den raden i stället.`} />}
 
-          {!vald && (
-            <Sektion rubrik="Räknas den?" kort={false}>
-              <ValRad titel="Bara var den finns" under="Verktyg och reservdelar — inget antal" vald={typ === 'utrustning'}
-                onTryck={() => setTyp('utrustning')} attr={{ 'data-typ': 'utrustning' }} />
-              <ValRad titel="Räknas" under="Förbrukning som kan ta slut — sågkedjor, olja" vald={typ === 'forbrukning'}
-                onTryck={() => setTyp('forbrukning')} sista attr={{ 'data-typ': 'forbrukning' }} />
+          {(!vald || vald.typ === 'forbrukning') && (
+            <Sektion rubrik="Hur håller vi koll?" kort={false}>
+              {!vald && (
+                <ValRad titel="Bara var den finns" under="Verktyg och reservdelar — inget antal" vald={effektivtLage === 'utrustning'}
+                  onTryck={() => setLage('utrustning')} attr={{ 'data-typ': 'utrustning' }} />
+              )}
+              <ValRad titel="Två lådor" under="Beställ när reservlådan påbörjas — skanna koden på den" vald={effektivtLage === 'tva_lador'}
+                onTryck={() => setLage('tva_lador')} attr={{ 'data-typ': 'tva_lador' }} />
+              <ValRad titel="Räknas" under="Antal och minnivå — tryck Tog 1 varje gång" vald={effektivtLage === 'raknas'}
+                onTryck={() => setLage('raknas')} sista attr={{ 'data-typ': 'forbrukning' }} />
             </Sektion>
           )}
 

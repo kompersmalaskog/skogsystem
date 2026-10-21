@@ -1,6 +1,6 @@
 // Testsele för inventarievyn: en Supabase-klient i minnet med tabellerna och de sex databasfunktionerna.
-// Funktionerna gör samma sak som i migrationen 20261021131728_inventarier_grund.sql (antal, logg, beställd, flytt
-// med sammanslagning) — notisen provas i databasen, inte här. Används bara av *.render.test.tsx.
+// Funktionerna gör samma sak som i migrationerna 20261021131728_inventarier_grund.sql och 20261021155858/155913
+// (antal, logg, beställd, flytt med sammanslagning, två lådor) — notisen provas i databasen, inte här. Används bara av *.render.test.tsx.
 
 type Row = Record<string, any>;
 
@@ -32,7 +32,7 @@ export function fakeKlient(db: FakeDb) {
       const match = (r: Row) => filter.every(([k, v]) => r[k] === v);
       if (op === 'insert') {
         const rad: Row = { id: nyttId(t), aktiv: true, ...nytt };
-        if (t === 'inventarie_rad') rad.bestalld_tid ??= null;
+        if (t === 'inventarie_rad') { rad.bestalld_tid ??= null; rad.tva_lador ??= false; rad.reserv_oppnad_tid ??= null; rad.reserv_oppnad_av ??= null; }
         tabell(t).push(rad);
         return { data: enkel ? rad : [rad], error: null };
       }
@@ -78,19 +78,34 @@ export function fakeKlient(db: FakeDb) {
     switch (namn) {
       case 'inventarie_ta_ut':
         if (!r) return { data: null, error: { message: 'Etiketten pekar inte på någon artikel längre' } };
+        if (r.tva_lador) return { data: null, error: { message: 'Den här har två lådor – skanna reservlådan när du börjar på den' } };
+        if (r.antal == null) return { data: null, error: { message: 'Den här räknas inte' } };
         r.antal = Math.max((r.antal ?? 0) - args.p_antal, 0);
         logga('uttag', { andring: -args.p_antal, antal_efter: r.antal });
         return { data: r.antal, error: null };
       case 'inventarie_kommit_in':
         if (!r) return { data: null, error: { message: 'Raden finns inte' } };
-        r.antal = (r.antal ?? 0) + args.p_antal; r.bestalld_tid = null;
-        logga('kommit_in', { andring: args.p_antal, antal_efter: r.antal });
+        r.antal = r.tva_lador ? null : (r.antal ?? 0) + args.p_antal;
+        r.bestalld_tid = null; r.reserv_oppnad_tid = null; r.reserv_oppnad_av = null;
+        logga('kommit_in', { andring: r.tva_lador ? null : args.p_antal, antal_efter: r.antal });
         return { data: r.antal, error: null };
       case 'inventarie_justera':
         if (!r) return { data: null, error: { message: 'Raden finns inte' } };
         logga('justering', { andring: args.p_nytt_antal - (r.antal ?? 0), antal_efter: args.p_nytt_antal });
         r.antal = args.p_nytt_antal;
         return { data: r.antal, error: null };
+      case 'inventarie_reserv_oppnad': {
+        if (!r) return { data: null, error: { message: 'Etiketten pekar inte på någon artikel längre' } };
+        if (!r.tva_lador) return { data: null, error: { message: 'Den här räknas – den har ingen reservlåda' } };
+        const redan = !!r.reserv_oppnad_tid;
+        if (!redan) { r.reserv_oppnad_tid = `2026-10-21T13:00:0${db.logg.length % 10}.123456+00:00`; r.reserv_oppnad_av = 'martin'; logga('reserv_oppnad'); }
+        const namn = tabell('medarbetare').find(m => m.id === r.reserv_oppnad_av)?.namn ?? null;
+        return { data: { tid: r.reserv_oppnad_tid, redan, av_namn: namn }, error: null };
+      }
+      case 'inventarie_reserv_angra':
+        if (!r || r.reserv_oppnad_tid !== args.p_tid || r.bestalld_tid) return { data: false, error: null };
+        r.reserv_oppnad_tid = null; r.reserv_oppnad_av = null; logga('reserv_angrad');
+        return { data: true, error: null };
       case 'inventarie_markera_bestalld':
         if (!r) return { data: null, error: { message: 'Raden finns inte' } };
         r.bestalld_tid = args.p_bestalld ? '2026-10-21T13:00:00Z' : null;

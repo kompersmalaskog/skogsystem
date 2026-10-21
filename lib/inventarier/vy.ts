@@ -1,7 +1,7 @@
 // Inventarievyns regler — rena funktioner, testade i vy.test.ts. Skärmen räknar aldrig själv: den frågar härifrån.
 //
 // Två frågor och inget annat:
-//   1. Vad behöver beställas?  Förbrukning under minnivån (sågkedjor, olja).
+//   1. Vad behöver beställas?  Förbrukning under minnivån, eller med två lådor där reservlådan påbörjats.
 //   2. Var finns grejen?       Sök över alla platser (mutterknackaren, slangen till hjularmen).
 
 import type { Artikel, Inventarier, InvRad, Maskin, Plats, PlatsTyp, VisadRad } from './typer';
@@ -96,29 +96,64 @@ export function fornamn(namn: string): string {
 // 1. Att beställa
 // ---------------------------------------------------------------------------
 
-/** Förbrukning under minnivån — samma villkor som vyn vy_inventarie_att_bestalla. */
+/** Förbrukning under minnivån. En rad med två lådor räknas inte och är aldrig "under min". */
 export function arUnderMin(rad: Pick<InvRad, 'antal' | 'min_antal'>, artikel: Pick<Artikel, 'typ'>): boolean {
   return artikel.typ === 'forbrukning' && rad.antal != null && rad.min_antal != null && rad.antal < rad.min_antal;
 }
 
-/** Ej beställda först, och bland dem det som ligger längst under min. Beställda sist, äldst beställning först. */
+/** Reservlådan är påbörjad: beställ. */
+export function arReservOppnad(rad: Pick<InvRad, 'tva_lador' | 'reserv_oppnad_tid'>): boolean {
+  return !!rad.tva_lador && !!rad.reserv_oppnad_tid;
+}
+
+/** Samma villkor som vyn vy_inventarie_att_bestalla: under minnivån, eller reservlådan påbörjad. */
+export function behoverBestallas(rad: InvRad, artikel: Pick<Artikel, 'typ'>): boolean {
+  return arUnderMin(rad, artikel) || (artikel.typ === 'forbrukning' && arReservOppnad(rad));
+}
+
+/** Räknas raden (antal och minnivå)? Utrustning och två lådor räknas inte. */
+export function raknas(v: Pick<VisadRad, 'rad' | 'artikel'>): boolean {
+  return v.artikel.typ === 'forbrukning' && !v.rad.tva_lador;
+}
+
+/**
+ * Ej beställda först; bland dem längst under min först (en påbörjad reservlåda räknas som 1 under), sedan namn.
+ * Beställda sist, äldst beställning först.
+ */
 export function attBestalla(rader: VisadRad[]): VisadRad[] {
+  const under = (v: VisadRad) => (v.rad.tva_lador ? 1 : (v.rad.min_antal ?? 0) - (v.rad.antal ?? 0));
   return rader
-    .filter(v => arUnderMin(v.rad, v.artikel))
+    .filter(v => behoverBestallas(v.rad, v.artikel))
     .sort((a, b) => {
       const ab = a.rad.bestalld_tid ? 1 : 0;
       const bb = b.rad.bestalld_tid ? 1 : 0;
       if (ab !== bb) return ab - bb;
       if (ab === 1) return (a.rad.bestalld_tid ?? '').localeCompare(b.rad.bestalld_tid ?? '');
-      const ua = (a.rad.min_antal ?? 0) - (a.rad.antal ?? 0);
-      const ub = (b.rad.min_antal ?? 0) - (b.rad.antal ?? 0);
-      return ub - ua || artikelTitel(a.artikel).localeCompare(artikelTitel(b.artikel), 'sv');
+      return under(b) - under(a) || artikelTitel(a.artikel).localeCompare(artikelTitel(b.artikel), 'sv');
     });
 }
 
 /** Talet överst: bara det som INTE redan är beställt. */
 export function antalAttBestalla(rader: VisadRad[]): number {
   return attBestalla(rader).filter(v => !v.rad.bestalld_tid).length;
+}
+
+/** Undertexten på en rad under Att beställa: beställd, reservlådan påbörjad, annars var den finns. */
+export function bestallUnder(v: VisadRad, personer: { id: string; namn: string }[] = [], nu: Date = new Date()): string {
+  if (v.rad.bestalld_tid) return `Beställd ${datumKort(v.rad.bestalld_tid, nu)} · ${v.plats.namn}`;
+  if (arReservOppnad(v.rad)) {
+    const av = personer.find(p => p.id === v.rad.reserv_oppnad_av)?.namn;
+    return `Reservlådan påbörjad ${datumKort(v.rad.reserv_oppnad_tid!, nu)}${av ? ` av ${fornamn(av)}` : ''} · ${v.plats.namn}`;
+  }
+  return underText(v);
+}
+
+/** Höger på en rad: "5 kvar" för det som räknas, "Två lådor" för två lådor, inget för utrustning. */
+export function hogerText(v: Pick<VisadRad, 'rad' | 'artikel'>, medKvar = true): string | undefined {
+  if (v.artikel.typ !== 'forbrukning') return undefined;
+  if (v.rad.tva_lador) return arReservOppnad(v.rad) ? 'Reserv påbörjad' : 'Två lådor';
+  const a = antalText(v.rad.antal ?? 0, v.artikel.enhet);
+  return medKvar ? `${a} kvar` : a;
 }
 
 /** Förifyllt antal i Kommit in: upp till minnivån, minst 1. */

@@ -5,6 +5,7 @@
 //   Ej beställd: primärknappen är Beställd. Raden ligger kvar (dämpad, "Beställd 21 okt") men räknas inte i talet.
 //   Beställd:    primärknappen är Kommit in, med antalet förifyllt upp till minnivån och en rad under som räknar om
 //                ("blir 8 · min 6"). Under knappen "Inte beställd ändå" (tertiär) för den som tryckte fel.
+//   Två lådor:   inget antal. Överst "Reservlådan påbörjad 21 okt av Stefan"; Kommit in fyller reservlådan igen.
 
 import { useState } from 'react';
 import Ark from '@/components/design/Ark';
@@ -14,17 +15,20 @@ import TalRad from '@/components/design/TalRad';
 import { AVSTAND, FARG, INAKTIV, KNAPP, TNUM, TYP } from '@/lib/design/tokens';
 import { kommitIn, markeraBestalld } from '@/lib/inventarier/data';
 import type { VisadRad } from '@/lib/inventarier/typer';
-import { antalText, artikelTitel, datumKort, forslagKommitIn, heltal, underText } from '@/lib/inventarier/vy';
+import { antalText, artikelTitel, datumKort, fornamn, forslagKommitIn, heltal, underText } from '@/lib/inventarier/vy';
 import { ArkFel } from './delar';
 
 type Props = {
   v: VisadRad;
+  /** Namn den inloggade får läsa — "av Stefan" utelämnas annars. */
+  personer?: { id: string; namn: string }[];
   onStang: () => void;
   onKlar: (kvitto: string) => void;
 };
 
-export default function BestallArk({ v, onStang, onKlar }: Props) {
+export default function BestallArk({ v, personer = [], onStang, onKlar }: Props) {
   const { rad, artikel } = v;
+  const tvaLador = rad.tva_lador;
   const bestalld = !!rad.bestalld_tid;
   const [antal, setAntal] = useState(String(forslagKommitIn(rad)));
   const [fel, setFel] = useState<string | null>(null);
@@ -42,18 +46,20 @@ export default function BestallArk({ v, onStang, onKlar }: Props) {
   }
 
   async function korKommitIn() {
-    if (tal == null || tal < 1) return;
+    if (!tvaLador && (tal == null || tal < 1)) return;
     setSparar(true); setFel(null);
-    const s = await kommitIn(rad.id, tal);
+    const s = await kommitIn(rad.id, tvaLador ? 1 : tal!);
     setSparar(false);
     if (!s.ok) { setFel(s.fel); return; }
-    onKlar(`${artikel.namn} · ${antalText(s.varde, artikel.enhet)} kvar`);
+    onKlar(tvaLador ? `${artikel.namn} kommit in · fyll reservlådan` : `${artikel.namn} · ${antalText(s.varde, artikel.enhet)} kvar`);
   }
+  const kanKommaIn = tvaLador || (tal != null && tal >= 1);
+  const avNamn = personer.find(p => p.id === rad.reserv_oppnad_av)?.namn;
 
   const fot = bestalld ? (
     <>
       <button type="button" onClick={korKommitIn} data-testid="kommit-in"
-        style={{ ...KNAPP.primar, ...((tal == null || tal < 1 || sparar) ? INAKTIV : null) }}>
+        style={{ ...KNAPP.primar, ...((!kanKommaIn || sparar) ? INAKTIV : null) }}>
         {sparar ? 'Sparar…' : 'Kommit in'}
       </button>
       <button type="button" onClick={() => korBestalld(false)} style={{ ...KNAPP.tertiar, alignSelf: 'center', ...(sparar ? INAKTIV : null) }}>
@@ -74,10 +80,16 @@ export default function BestallArk({ v, onStang, onKlar }: Props) {
 
   return (
     <Ark rubrik={artikelTitel(artikel)} onStang={onStang} fot={fot}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, margin: `${AVSTAND.s}px 0 ${AVSTAND.xs}px` }}>
-        <span style={{ ...TYP.tal, color: FARG.text }}>{rad.antal ?? 0}</span>
-        <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>kvar · min {rad.min_antal ?? 0}</span>
-      </div>
+      {tvaLador ? (
+        <p style={{ ...TYP.text, color: FARG.text, margin: `${AVSTAND.s}px 0 ${AVSTAND.xs}px` }} data-testid="reserv-status">
+          {rad.reserv_oppnad_tid ? `Reservlådan påbörjad ${datumKort(rad.reserv_oppnad_tid)}${avNamn ? ` av ${fornamn(avNamn)}` : ''}` : 'Två lådor'}
+        </p>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, margin: `${AVSTAND.s}px 0 ${AVSTAND.xs}px` }}>
+          <span style={{ ...TYP.tal, color: FARG.text }}>{rad.antal ?? 0}</span>
+          <span style={{ ...TYP.text, color: FARG.text2, ...TNUM }}>kvar · min {rad.min_antal ?? 0}</span>
+        </div>
+      )}
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 0 ${AVSTAND.l}px` }}>
         {underText(v)}{bestalld && rad.bestalld_tid ? ` · beställd ${datumKort(rad.bestalld_tid)}` : ''}
       </p>
@@ -86,7 +98,7 @@ export default function BestallArk({ v, onStang, onKlar }: Props) {
           {fakta.map((f, i) => <Rad key={f.titel} titel={f.titel} hoger={f.varde} sista={i === fakta.length - 1} />)}
         </Sektion>
       )}
-      {bestalld && (
+      {bestalld && !tvaLador && (
         <Sektion rubrik="Kommit in" kort={false}>
           <TalRad etikett="Antal" value={antal} onChange={setAntal} sista
             enhet={artikel.enhet !== 'st' ? artikel.enhet : undefined}
