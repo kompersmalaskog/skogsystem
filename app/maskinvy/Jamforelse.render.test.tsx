@@ -25,6 +25,7 @@ vi.mock('chart.js', () => {
 })
 
 import Jamforelse from './Jamforelse'
+import { JAMFORELSE_FARG } from '@/lib/maskinvy/jamforelse'
 
 let rot: HTMLDivElement; let r: ReturnType<typeof createRoot>
 beforeEach(() => {
@@ -79,6 +80,9 @@ describe('Jämförelse (toppfliken) mot facit', () => {
     const [ek, wi] = cfg.data.datasets.map((d: any) => d.data)
     expect(ek[2]).toBeCloseTo(3028 / 100.6, 1)                    // klass 300–400 m
     expect(wi[2]).toBeGreaterThan(0)
+    // en maskin = samma färg överallt: Wisent blå, Elephant King lila (som Skotare › Jämförelse)
+    expect(cfg.data.datasets[0].backgroundColor).toBe(JAMFORELSE_FARG.ek)
+    expect(cfg.data.datasets[1].backgroundColor).toBe(JAMFORELSE_FARG.wisent)
     expect(document.body.querySelector('canvas')).not.toBeNull()
     expect(document.body.querySelector('[data-graf-tom]')).toBeNull()
   })
@@ -89,6 +93,13 @@ describe('Jämförelse (toppfliken) mot facit', () => {
     await vanta(() => !!document.body.querySelector('[data-graf-tom]'))
     expect(document.body.querySelector('canvas')).toBeNull()
     expect(ritade).toHaveLength(0)
+  })
+
+  it('tabellhuvudets prickar har maskinernas färg (lila EK, blå Wisent) — inte vitt/grönt', async () => {
+    await act(async () => { r.render(<Jamforelse />) })
+    await vanta(() => text().includes('m³ data'))
+    const huvud = Array.from(document.body.querySelectorAll('th span')).map(sp => (sp as HTMLElement).style.background)
+    expect(huvud).toEqual(['rgb(94, 92, 230)', 'rgb(10, 132, 255)'])   // #5e5ce6, #0a84ff
   })
 
   it('talformat: svenskt decimaltecken överallt, aldrig punkt', async () => {

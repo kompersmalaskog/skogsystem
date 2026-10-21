@@ -25,9 +25,13 @@
 //     efter select betyder korstracka_m olika saker i olika filer — samma
 //     fälla en nivå upp.
 //
-//  4. Maskinvyernas snittsträcka (SkotareIdagNy, SkotareOversiktNy,
-//     SkotareProduktionNy, skotare.tsx) är KÖRD sträcka och halveras INTE.
-//     Maskinen kör faktiskt så långt; det är prisbegreppet som är enkelriktat.
+//  4. Maskinvyerna (?ny=1) visar SKOTNINGSAVSTÅND, aldrig rå körsträcka
+//     (beslut 2026-10-21): etiketten "Skotningsavstånd" med undertexten
+//     "enkel väg" överallt, värdet via den här filen. Förut stod tre
+//     definitioner samtidigt — "Snittsträcka 645 m" (Översikt), "1 114 m/lass"
+//     (Idag) och "halva körda sträckan" (Jämförelse) — för samma lass. Ingen vy
+//     får visa rå tur-och-retur utan att säga det. Äldre maskinvy (utan ?ny=1)
+//     är orörd.
 //
 // Anropas av: lib/ekonomi/ackordgrund (viktat snittavstånd → auto-förslaget i
 // redigeringen och kolumnen i objektjämförelsen), app/ekonomi/EkonomiClient och
@@ -38,4 +42,16 @@
 /** korstracka_m (tur och retur) → skotningsavstånd i meter (enkelriktat). */
 export function skotningsavstandM(korstrackaM: number | null | undefined): number {
   return (Number(korstrackaM) || 0) / 2;
+}
+
+/** Etiketten och undertexten som ALLA maskinvyer använder för skotningsavstånd. */
+export const SKOTNINGSAVSTAND_ETIKETT = 'Skotningsavstånd'
+export const SKOTNINGSAVSTAND_UNDERTEXT = 'enkel väg'
+
+/**
+ * Snittet av skotningsavståndet över lass: summa körsträcka (tur och retur) och antal lass in,
+ * enkel väg ut. Null när inget lass finns — aldrig 0.
+ */
+export function snittSkotningsavstandM(summaKorstrackaM: number, antalLass: number): number | null {
+  return antalLass > 0 ? skotningsavstandM(summaKorstrackaM / antalLass) : null
 }

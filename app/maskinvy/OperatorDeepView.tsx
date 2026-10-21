@@ -90,8 +90,8 @@ export default function OperatorDeepView({
     })()
 
     Promise.all([
-      fetchData(maskin.id, dates.start, dates.end, operator.id).catch(() => null),
-      fetchSeries(maskin.id, period, offset, operator.id).catch(() => null),
+      fetchData(maskin.id, dates.start, dates.end, operator.ids ?? operator.id).catch(() => null),
+      fetchSeries(maskin.id, period, offset, operator.ids ?? operator.id).catch(() => null),
     ]).then(([d, ser]) => {
       if (cancelled) return
       setData(d)
@@ -99,7 +99,7 @@ export default function OperatorDeepView({
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [maskin.id, period, offset, operator.id])
+  }, [maskin.id, period, offset, operator.id, operator.ids?.join(',')])
 
   // Stäng på Escape
   useEffect(() => {

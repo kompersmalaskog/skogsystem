@@ -17,6 +17,8 @@
 // Färg är ALDRIG ensam informationsbärare — varje stapel och prick som
 // använder de här färgerna ska ha trädslagets namn i text bredvid sig.
 
+import { DELFARG, FARG } from '@/lib/design/tokens';
+
 export type TradslagStil = {
   fyll: string;
   /** Kontur att rita när underlaget är LJUST. Vit björk försvinner mot vitt
@@ -59,6 +61,37 @@ export function tradslagStil(namn: string, i = 0): TradslagStil {
 /** Bara fyllningen, för anropare som ritar mot mörk bakgrund. */
 export function tradslagFarg(namn: string, i = 0): string {
   return tradslagStil(namn, i).fyll;
+}
+
+// ---------------------------------------------------------------------------
+// Neutral kategoriskala — maskinvyns trädslagskort (2026-10-21)
+// ---------------------------------------------------------------------------
+// Grönt, orange, gult och rött betyder "bra / varning / larm" i maskinvyn. Tall i orange
+// på trädslagskortet läste som en varning, och Gran i grönt som "allt väl". Kategorier får
+// aldrig bära statusfärg. Därför har maskinvyn en egen skala ur designtokens: DELFARG:s
+// cyan, lila, indigo och beige plus vit och grå — inga status- eller larmfärger.
+//
+// Bara maskinvyns Trädslag-kort och Volym-djupvy använder den. Mätningen, Gallringen (kundkvittot)
+// och Uppföljningen har kvar TRADSLAG_STIL ovan; byts den där också är det ett eget beslut.
+// De sällsynta arterna delar färg med varandra (sex arter ryms inte i sju färger) — namnet
+// står alltid i text bredvid färgen, och de förekommer sällan i samma diagram.
+const NEUTRAL: Record<string, string> = {
+  Gran: DELFARG[0],
+  Tall: DELFARG[5],
+  'Björk': FARG.text,
+  'Övrigt löv': FARG.text2,
+  Contorta: DELFARG[4],
+  'Lärk': DELFARG[1],
+  Ek: FARG.text3,
+  Bok: DELFARG[4],
+  Asp: DELFARG[1],
+  Al: FARG.text3,
+};
+const NEUTRAL_RESERV = [DELFARG[1], DELFARG[4], FARG.text3, DELFARG[5]];
+
+/** Fyllning ur den neutrala kategoriskalan (maskinvyn). Aldrig grön, orange, gul eller röd. */
+export function tradslagFargNeutral(namn: string, i = 0): string {
+  return NEUTRAL[namn] ?? NEUTRAL_RESERV[i % NEUTRAL_RESERV.length];
 }
 
 // ---------------------------------------------------------------------------

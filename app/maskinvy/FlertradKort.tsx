@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import { RADIE, TYP } from '@/lib/design/tokens'
 import { C, FONT, COMBO_IDS, fmtSv, getPeriodRange, type Maskin, type Period } from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
@@ -117,9 +118,27 @@ export default function FlertradKort({ maskin, period, offset }: { maskin: Maski
   const ejMatt = !loading && !fel && total.alla > 0 && total.matta === 0
   const delvis = !loading && !fel && total.matta > 0 && total.matta < total.alla
   const tomt = !loading && !fel && total.alla === 0
+  // Mätt men inga flerträd alls: ett fullhöjdskort med "0 %" och en tom graf säger bara det en rad
+  // kan säga. Kortet växer först när det finns något att visa.
+  const ingenFlertrad = !loading && !fel && total.matta > 0 && total.bunt === 0
 
   const rubrik: CSSProperties ={ fontSize: 11, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }
   const badge: CSSProperties ={ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: C.muted, border: `1px solid ${C.divider}`, borderRadius: 5, padding: '1px 5px', marginLeft: 8 }
+
+  if (ingenFlertrad) {
+    return (
+      <div
+        data-flertrad-tomt
+        style={{
+          background: C.card, borderRadius: RADIE.kort, padding: '12px 18px', marginBottom: 12, fontFamily: FONT,
+          display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: TYP.meta.fontSize, color: C.muted }}>Flerträd: inget denna period</span>
+        <span style={{ fontSize: TYP.meta.fontSize, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>0 av {fmtSv(total.matta)} mätta stammar</span>
+      </div>
+    )
+  }
 
   return (
     <div style={{ background: C.card, borderRadius: 14, padding: '14px 18px 12px', marginBottom: 12, fontFamily: FONT }}>

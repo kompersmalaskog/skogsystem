@@ -1,5 +1,5 @@
 'use client';
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, AVSTAND, FARG, RADIE, TYP, VIKT } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Chart as ChartJS, registerables } from 'chart.js';
@@ -9,7 +9,7 @@ import {
   hämtaManuellRader, fetchAllTimeLassTid,
 } from '@/lib/maskinvy/skotarvolym';
 import {
-  KLASSER, NK, getKlassIdx, kvot, skillnadPct, valjJamforelseMaskiner,
+  KLASSER, NK, getKlassIdx, JAMFORELSE_FARG, kvot, skillnadPct, valjJamforelseMaskiner,
   summeraPerMaskinObjekt, objektSkotningsavstand, volymPerObjekt,
   ORSAK_INGEN_G15, ORSAK_INGEN_MASKIN,
 } from '@/lib/maskinvy/jamforelse';
@@ -60,9 +60,8 @@ const C = {
 };
 
 // Bar colors — white tones for EK, green for Wisent
-const COLOR_EK_BRED = 'rgba(255,255,255,0.9)';
-const COLOR_EK_SMAL = 'rgba(255,255,255,0.45)';
-const COLOR_WI      = 'rgba(48,209,88,0.7)';
+const COLOR_EK = JAMFORELSE_FARG.ek;
+const COLOR_WI = JAMFORELSE_FARG.wisent;
 
 interface ClassData {
   volym: number;
@@ -126,7 +125,7 @@ function ScoreCard({
       {isWinner !== null && (
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 11, fontWeight: 500, padding: '3px 9px', borderRadius: 4, marginBottom: 10,
+          fontSize: 11, fontWeight: VIKT.halvfet, padding: '3px 9px', borderRadius: 4, marginBottom: AVSTAND.s,
           background: vinner ? C.greenBg : 'transparent',
           border: `1px solid ${vinner ? C.greenBorder : C.border}`,
           color: vinner ? C.green : C.t4,
@@ -138,27 +137,26 @@ function ScoreCard({
       {/* Name */}
       <div style={{
         fontSize: 15, fontWeight: 600, letterSpacing: -0.3, marginBottom: 2,
-        color: vinner ? C.t1 : '#aeaeb2',
+        color: vinner ? C.t1 : FARG.text2,
       }}>{name}</div>
 
       {/* Hero number */}
       <div style={{
         fontSize: 64, fontWeight: 700, lineHeight: 1, letterSpacing: -3,
         marginTop: 12, marginBottom: 4,
-        color: vinner ? C.t1 : '#d0d0d0',
-        textShadow: vinner ? '0 0 30px rgba(255,255,255,0.3)' : 'none',
-        fontVariantNumeric: 'tabular-nums',
+        color: vinner ? C.t1 : FARG.text2,
+                fontVariantNumeric: 'tabular-nums',
       }}>
         {value !== null ? fmtSv(value, 1) : '–'}
       </div>
-      <div style={{ fontSize: 11, color: vinner ? '#666' : '#444', marginBottom: 3 }}>{unit}</div>
+      <div style={{ fontSize: 11, color: FARG.text3, marginBottom: AVSTAND.xs }}>{unit}</div>
       <div style={{ fontSize: 11, color: C.t4, marginBottom: 12 }}>
         {value !== null ? 'summa / summa' : orsak}
       </div>
 
       {/* Diff badge */}
       <div style={{
-        fontSize: 14, fontWeight: 700, marginBottom: 16, letterSpacing: -0.3,
+        fontSize: TYP.meta.fontSize, fontWeight: 700, marginBottom: 16, letterSpacing: -0.3,
         color: goodDiff ? C.green : C.red,
         textShadow: goodDiff && vinner ? '0 0 20px rgba(48,209,88,0.4)' : 'none',
       }}>
@@ -293,7 +291,7 @@ export default function Jamforelse() {
           {
             label: `Elephant King (${ekConfig})`,
             data: ekVals,
-            backgroundColor: ekConfig === 'bred' ? COLOR_EK_BRED : COLOR_EK_SMAL,
+            backgroundColor: COLOR_EK,
             borderRadius: 4,
           },
           {
@@ -416,23 +414,23 @@ export default function Jamforelse() {
           Elephant King vs Wisent
         </div>
         <div style={{ fontSize: 13, color: C.t3 }}>
-          Jämförelse per avståndsklass · summa / summa
+          Jämförelse per skotningsavstånd (enkel väg) · summa / summa
         </div>
       </div>
 
       {/* ── PERIOD ── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: 20, gap: 8, flexWrap: 'wrap',
+        marginBottom: AVSTAND.xl, gap: 8, flexWrap: 'wrap',
       }}>
-        <div style={{ display: 'flex', gap: 2 }}>
+        <div style={{ display: 'flex', gap: AVSTAND.xs }}>
           {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
             <button
               key={p}
               onClick={() => { setPeriod(p); setOffset(0); }}
               style={{
                 minHeight: 44, minWidth: 44, padding: '0 12px', border: 'none', borderRadius: 10,
-                fontFamily: ff, fontSize: 14, cursor: 'pointer',
+                fontFamily: ff, fontSize: TYP.meta.fontSize, cursor: 'pointer',
                 background: period === p ? C.surface2 : 'transparent',
                 color: period === p ? C.t1 : C.t3,
                 fontWeight: period === p ? 600 : 400,
@@ -552,7 +550,7 @@ export default function Jamforelse() {
             <canvas ref={chartRef} />
           </div>
         ) : (
-          <div data-graf-tom style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: C.t3, textAlign: 'center' }}>
+          <div data-graf-tom style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TYP.meta.fontSize, color: C.t3, textAlign: 'center' }}>
             Inget värde att rita för {currentMetric.label.toLowerCase()} i perioden.
           </div>
         )}
@@ -576,11 +574,11 @@ export default function Jamforelse() {
                 Klass
               </th>
               <th style={{ padding: '10px 14px', textAlign: 'right', color: C.t3, fontWeight: 500, fontSize: 11 }}>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: ekConfig === 'bred' ? COLOR_EK_BRED : COLOR_EK_SMAL, marginRight: 5, verticalAlign: 'middle' }} />
+                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.stapel, background: COLOR_EK, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
                 EK {ekConfig}
               </th>
               <th style={{ padding: '10px 14px', textAlign: 'right', color: C.t3, fontWeight: 500, fontSize: 11 }}>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: COLOR_WI, marginRight: 5, verticalAlign: 'middle' }} />
+                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.stapel, background: COLOR_WI, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
                 Wisent
               </th>
               <th style={{ padding: '10px 18px', textAlign: 'right', color: C.t3, fontWeight: 500, fontSize: 11 }}>

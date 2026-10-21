@@ -1,5 +1,5 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, AVSTAND, VIKT } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -12,7 +12,7 @@ import {
 import { skotningsavstandM } from '@/lib/skotningsavstand'
 import { g15Sek } from '@/lib/g15'
 import {
-  KLASSER, NK, getKlassIdx, kvot, valjJamforelseMaskiner,
+  KLASSER, NK, getKlassIdx, kvot, valjJamforelseMaskiner, JAMFORELSE_FARG,
   ORSAK_INGEN_G15, ORSAK_INGEN_MASKIN,
 } from '@/lib/maskinvy/jamforelse'
 import { useJamforelseMaskinRader } from './useJamforelseMaskiner'
@@ -40,8 +40,8 @@ import { useJamforelseMaskinRader } from './useJamforelseMaskiner'
 
 // ── Sidor ─────────────────────────────────────────────────────
 // Id:n bestäms per period ur dim_maskin (useJamforelseMaskinRader).
-const WISENT = { namn: 'Ponsse Wisent', kort: 'Wisent', color: C.blue   }
-const EK     = { namn: 'Elephant King', kort: 'EK',     color: C.purple }
+const WISENT = { namn: 'Ponsse Wisent', kort: 'Wisent', color: JAMFORELSE_FARG.wisent }
+const EK     = { namn: 'Elephant King', kort: 'EK',     color: JAMFORELSE_FARG.ek }
 
 // Avståndsklasserna (KLASSER, getKlassIdx) bor i lib/maskinvy/jamforelse.
 
@@ -519,7 +519,7 @@ function TotalRad({
               </div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{mattDef.unit}</div>
               {!loading && val === null && (
-                <div style={{ fontSize: 11, color: C.orange, marginTop: 6 }}>
+                <div style={{ fontSize: 11, color: C.orange, marginTop: AVSTAND.s }}>
                   {orsakSaknas(agg, harMaskin[maskin.kort] ?? false, matt)}
                 </div>
               )}
@@ -700,7 +700,7 @@ export default function SkotareJamforelseNy() {
         }}>
           <div style={{ display: 'flex', gap: 14 }}>
             {[WISENT, EK].map(m => (
-              <div key={m.kort} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div key={m.kort} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
                 <div style={{ width: 10, height: 10, borderRadius: 3, background: m.color }} />
                 <span style={{ fontSize: 12, color: C.muted }}>{m.kort}</span>
               </div>
@@ -757,7 +757,7 @@ export default function SkotareJamforelseNy() {
             borderRadius: 14, padding: '14px 16px', marginBottom: 12,
           }}>
             <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-              <span style={{ color: C.text, fontWeight: 500 }}>G15h</span> =
+              <span style={{ color: C.text, fontWeight: VIKT.halvfet }}>G15h</span> =
               (processing + terräng + övrigt arbete) / 3 600 — samma definition som
               övriga vyer. Totalen är viktad: summa volym / summa G15h.
             </div>
@@ -783,12 +783,12 @@ export default function SkotareJamforelseNy() {
           borderRadius: 14, padding: '14px 16px',
         }}>
           <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-            <span style={{ color: C.text, fontWeight: 500 }}>Volym (m³sub):</span>{' '}
+            <span style={{ color: C.text, fontWeight: VIKT.halvfet }}>Volym (m³sub):</span>{' '}
             maskinmätt per lass (FPR). Objekt med manuell korrigering
             (skotare_objekt_manuell) fördelas per dag — märket under varje maskin
             visar om korrigering ingår. Lass och körd sträcka är maskinmätta.
-            Avståndsklasserna visar skotningsavstånd — halva den körda sträckan,
-            som maskinen mäter tur och retur.
+            Avståndsklasserna visar skotningsavstånd (enkel väg) — halva den körda
+            sträckan, som maskinen mäter tur och retur.
           </div>
         </div>
 

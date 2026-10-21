@@ -4,6 +4,9 @@ import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd
 import { useEffect, useRef, useState } from 'react'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import { supabase } from '@/lib/supabase'
+import { aktivNuStatus, type AktivNiva } from '@/lib/maskinvy/aktivNu'
+import { useMinutklocka } from './useMinutklocka'
+import { snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
 import {
   C, FONT, fmtSv, VolymBadge,
 } from './OversiktShared'
@@ -20,7 +23,7 @@ import {
 // DATAKÄLLA: fakt_lass
 //   lossnings_tid (TIMESTAMPTZ) → Stockholm-timme för stapeldiagram
 //   volym_m3sub  → utkört m³sub
-//   korstracka_m → snittsträcka
+//   korstracka_m (tur och retur) → skotningsavstånd (enkel väg, lib/skotningsavstand)
 //
 // Lastningstid finns INTE i FPR-filerna. Diagrammet visar när
 // lassen LOSSADES vid väg — det är vad vi har, och vi namnger
@@ -198,7 +201,7 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
     freshness: { senasteDatum, senasteLossningsTid, daysDiff },
     volym:       totalVolym,
     lass:        totalLass,
-    snittSträcka: totalLass > 0 ? totalDist / totalLass : null,
+    snittSträcka: snittSkotningsavstandM(totalDist, totalLass),
     g15h,
     hourBuckets,
     momTider,
@@ -206,13 +209,14 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 }
 
 // ── FreshnessRow ──────────────────────────────────────────────
-// Visar om senaste lossningen är från idag (grön prick) eller äldre.
+// Aktiv nu (grön, < 20 min) · Senaste signal för X min sedan (gul, 20–60 min) · Inget sedan HH:MM (grå, > 60 min).
 function FreshnessRow({
   freshness, loading,
 }: {
   freshness: FreshnessInfo | null
   loading:   boolean
 }) {
+  const nu = useMinutklocka()          // hooks före tidiga returer
   const baseStyle: React.CSSProperties = {
     background: C.card, borderRadius: 14,
     padding: '14px 18px', marginBottom: 12,
@@ -237,34 +241,36 @@ function FreshnessRow({
     )
   }
 
-  const isFresh = freshness.daysDiff === 0
+  const isToday = freshness.daysDiff === 0
 
+  // Idag: signalens ÅLDER avgör (lib/maskinvy/aktivNu) — grön bara när senaste lossning/signal kom nyss.
+  let niva: AktivNiva | null = null
   let labelText: string
-  if (isFresh) {
-    const t = freshness.senasteLossningsTid
-      ? fmtStockholmHHMM(freshness.senasteLossningsTid)
-      : null
-    labelText = t ? `Aktiv idag · senast ${t}` : 'Aktiv idag'
+  if (isToday) {
+    const st = aktivNuStatus(freshness.senasteLossningsTid, nu, fmtStockholmHHMM)
+    niva = st.niva
+    labelText = st.text
   } else if (freshness.daysDiff === 1) {
     labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · igår`
   } else {
     labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · ${freshness.daysDiff} dagar sedan`
   }
+  const aktiv = niva === 'aktiv'
 
   return (
     <div style={{
       ...baseStyle,
-      background: isFresh ? C.card : '#1c1c1e',
-      border:     isFresh ? 'none' : `0.5px solid rgba(255,159,10,0.25)`,
+      background: C.card,
+      border:     isToday ? 'none' : `0.5px solid rgba(255,159,10,0.25)`,
     }}>
       <div style={{
         width: 8, height: 8, borderRadius: 4, flexShrink: 0,
-        background: isFresh ? C.green : C.dim,
-        boxShadow:  isFresh ? `0 0 0 3px rgba(48,209,88,0.18)` : 'none',
+        background: aktiv ? C.green : niva === 'sen' ? C.yellow : C.dim,
+        boxShadow:  aktiv ? `0 0 0 3px rgba(48,209,88,0.18)` : 'none',
       }} />
       <span style={{
         fontSize: 13,
-        color: isFresh ? C.text : C.muted,
+        color: isToday && niva !== 'inget' && niva !== 'saknas' ? C.text : C.muted,
         fontVariantNumeric: 'tabular-nums',
       }}>
         {labelText}
@@ -274,7 +280,7 @@ function FreshnessRow({
 }
 
 // ── SiffraCard ────────────────────────────────────────────────
-// Fyra siffror: Utkört (m³sub) · Lass (st) · Snittsträcka (m) · m³/G15h.
+// Fyra siffror: Utkört (m³sub) · Lass (st) · Skotningsavstånd (m, enkel väg) · m³/G15h.
 function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: boolean }) {
   const datumLabel = loading || !data ? '—' : fmtDatumSv(data.freshness.senasteDatum)
 
@@ -292,9 +298,9 @@ function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: 
       unit: 'st',
     },
     {
-      label: 'Snittsträcka',
+      label: SKOTNINGSAVSTAND_ETIKETT,
       display: data && data.snittSträcka !== null ? fmtSv(data.snittSträcka, 0) : '—',
-      unit: 'm/lass',
+      unit: `m · ${SKOTNINGSAVSTAND_UNDERTEXT}`,
     },
     {
       label: 'm³/G15h',
@@ -694,7 +700,7 @@ function HourPanel({
 }) {
   const endHour    = hour + 1
   const snittLass  = bucket.lass > 0 ? bucket.volym / bucket.lass : null
-  const snittDist  = bucket.lass > 0 ? bucket.totalDist / bucket.lass : null
+  const snittDist  = snittSkotningsavstandM(bucket.totalDist, bucket.lass)
 
   return (
     <div style={{
@@ -738,11 +744,11 @@ function HourPanel({
           <div style={{ fontSize: 11, color: C.muted }}>m³sub</div>
         </div>
         <div>
-          <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Snittsträcka</div>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{SKOTNINGSAVSTAND_ETIKETT}</div>
           <div style={{ fontSize: 22, fontWeight: 600, color: C.text, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
             {snittDist !== null ? fmtSv(snittDist, 0) : '—'}
           </div>
-          <div style={{ fontSize: 11, color: C.muted }}>m/lass</div>
+          <div style={{ fontSize: 11, color: C.muted }}>m · {SKOTNINGSAVSTAND_UNDERTEXT}</div>
         </div>
       </div>
 
@@ -863,7 +869,7 @@ export default function SkotareIdagNy({ maskin, onMaskinChange }: {
         {/* 1. Färskhet */}
         <FreshnessRow freshness={data?.freshness ?? null} loading={loading} />
 
-        {/* 2. Dagens siffror: Utkört · Lass · Snittsträcka */}
+        {/* 2. Dagens siffror: Utkört · Lass · Skotningsavstånd */}
         <SiffraCard data={data} loading={loading} />
 
         {/* 3. Leveranser per timme */}
