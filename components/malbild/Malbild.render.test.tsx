@@ -1,0 +1,302 @@
+// @vitest-environment jsdom
+// Målbilderna i appen: riktig DOM-rendering av sektionen, bladet, regelsidan, den lilla bilden i larmkortet, kortet på kartan, "Vad betyder kartan" och avläggets första lass.
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AvlaggForstaLasset } from './AvlaggForstaLasset';
+import { MalbildBlad, MalbildLista, MalbildLiten, MalbildSektion } from './Malbild';
+import { KartKort, type KartKortProps } from '@/components/planering/KartKort';
+import { LarmKortVy } from '@/components/planering/LarmKort';
+import VadBetyderKartan from '@/components/planering/VadBetyderKartan';
+import { MALBILDER, MALBILD_ORDNING, malbildInnehall } from '@/lib/malbilder';
+import { MALBILD_AVLAGG_SETT_NYCKEL } from '@/lib/malbildSett';
+import type { LarmKort } from '@/lib/larm/larm';
+
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+let rot: Root | null = null;
+let ruta: HTMLElement | null = null;
+afterEach(() => { act(() => { rot?.unmount(); }); ruta?.remove(); rot = null; ruta = null; document.body.innerHTML = ''; localStorage.clear(); });
+beforeEach(() => { localStorage.clear(); });
+const montera = (el: React.ReactElement) => { ruta = document.createElement('div'); document.body.appendChild(ruta); rot = createRoot(ruta); act(() => { rot!.render(el); }); };
+const uppdatera = (el: React.ReactElement) => { act(() => { rot!.render(el); }); };
+/** Allt i dokumentet — bladet och regelsidan ligger i body, inte i rutan. */
+const q = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+const qa = (id: string) => Array.from(document.querySelectorAll<HTMLElement>(`[data-testid="${id}"]`));
+/** innerHTML skriver om <rect/> till <rect></rect>: jämför bilder i den form webbläsaren ger. */
+const norm = (svg: string) => { const d = document.createElement('div'); d.innerHTML = svg; return d.innerHTML; };
+const klick = (el: Element | null) => { expect(el).not.toBeNull(); act(() => { (el as HTMLElement).click(); }); };
+
+describe('MalbildSektion — varje sort visar sin bild, sina rader och sin felbild', () => {
+  for (const nyckel of MALBILD_ORDNING) {
+    it(MALBILDER[nyckel].namn, () => {
+      montera(<MalbildSektion nyckel={nyckel} roll="skordare" />);
+      const i = malbildInnehall(nyckel, 'skordare')!;
+      expect(q('malbild')!.dataset.malbild).toBe(nyckel);
+      expect(q('malbild-bild')!.innerHTML).toBe(norm(i.bild));
+      expect(q('malbild-bild')!.querySelector('svg')!.getAttribute('aria-label')).toBeTruthy();
+      expect(qa('malbild-rad').map((r) => r.textContent)).toEqual([...i.rader]);
+      expect(q('malbild-fel-bild')!.innerHTML).toBe(norm(i.fel.bild));
+      expect(q('malbild-fel-text')!.textContent).toBe(i.fel.text);
+      expect(q('malbild')!.textContent).toContain('Så ska det se ut');
+      expect(q('malbild-fel')!.textContent).toContain('Inte så här');
+      // "Alla regler ›" bara för sorter som har en regelsida
+      expect(!!q('malbild-alla-regler')).toBe(!!MALBILDER[nyckel].regler);
+      // sort-växeln: bara Kulturlämning har varianter (standard + Kolbotten)
+      expect(document.querySelectorAll('[data-testid^="malbild-variant"]').length).toBe(MALBILDER[nyckel].varianter ? 2 : 0);
+    });
+  }
+  it('inga bilder hämtas utifrån: ingen <img>, inga externa adresser i det som ritas', () => {
+    montera(<MalbildSektion nyckel="avlagg" roll="skotare" />);
+    expect(document.querySelectorAll('img').length).toBe(0);
+    expect(document.body.innerHTML).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+  });
+  it('en sort utan målbild (eller ingen nyckel) ger ingen sektion alls', () => {
+    montera(<MalbildSektion nyckel={null} roll="skordare" />);
+    expect(q('malbild')).toBeNull();
+    act(() => { rot!.render(<MalbildSektion nyckel="finns-inte" roll="skordare" />); });
+    expect(q('malbild')).toBeNull();
+    expect(ruta!.textContent).toBe('');
+  });
+  it('Blött: skördaren och skotaren får var sin bild, sina rader och sin felbild', () => {
+    montera(<MalbildSektion nyckel="blott" roll="skordare" />);
+    const skord = { rader: qa('malbild-rad').map((r) => r.textContent), fel: q('malbild-fel-text')!.textContent, bild: q('malbild-bild')!.innerHTML };
+    expect(q('malbild')!.dataset.roll).toBe('skordare');
+    act(() => { rot!.render(<MalbildSektion nyckel="blott" roll="skotare" />); });
+    expect(q('malbild')!.dataset.roll).toBe('skotare');
+    expect(qa('malbild-rad').map((r) => r.textContent)).not.toEqual(skord.rader);
+    expect(qa('malbild-rad')[0].textContent).toMatch(/risa direkt/);
+    expect(q('malbild-fel-text')!.textContent).not.toBe(skord.fel);
+    expect(q('malbild-fel-text')!.textContent).toMatch(/Körde vidare/);
+    expect(q('malbild-bild')!.innerHTML).not.toBe(skord.bild);
+    expect(skord.rader[0]).toMatch(/risbädd/);
+  });
+  it('Kulturlämning: Kolbotten byter bild, rader och felbild med en växel; standard kommer först', () => {
+    montera(<MalbildSektion nyckel="kulturlamning" roll="skordare" />);
+    const standard = { rader: qa('malbild-rad').map((r) => r.textContent), fel: q('malbild-fel-text')!.textContent, bild: q('malbild-bild')!.innerHTML };
+    expect(q('malbild-variant-standard')!.getAttribute('aria-pressed')).toBe('true');
+    klick(q('malbild-variant-kolbotten'));
+    expect(q('malbild')!.dataset.variant).toBe('kolbotten');
+    expect(q('malbild-variant-kolbotten')!.getAttribute('aria-pressed')).toBe('true');
+    expect(qa('malbild-rad').map((r) => r.textContent)).toEqual([...MALBILDER.kulturlamning.varianter![0].innehall.rader]);
+    expect(q('malbild-fel-text')!.textContent).toBe(MALBILDER.kulturlamning.varianter![0].innehall.fel.text);
+    expect(q('malbild-bild')!.innerHTML).not.toBe(standard.bild);
+    klick(q('malbild-variant-standard'));
+    expect(qa('malbild-rad').map((r) => r.textContent)).toEqual(standard.rader);
+  });
+  it('växelns knappar är minst 44 px höga och rader och knappar har träffyta', () => {
+    montera(<MalbildSektion nyckel="kulturlamning" roll="skordare" />);
+    expect(parseInt(q('malbild-variant-kolbotten')!.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
+  });
+});
+
+describe('Alla regler ›', () => {
+  it('Avlägg: egen sida med tillbaka-pil, bilden, grupperna, kraftledningsrutorna och källan; tillbaka stänger den', () => {
+    montera(<MalbildSektion nyckel="avlagg" roll="skotare" />);
+    expect(q('malbild-regler')).toBeNull();
+    klick(q('malbild-alla-regler'));
+    const sida = q('malbild-regler')!;
+    expect(sida.parentElement).toBe(document.body);   // i body, inte i kortet (kortets transform gör fixed relativt kortet)
+    expect(q('malbild-regler-titel')!.textContent).toBe('Avlägg – alla regler');
+    expect(sida.querySelector('svg')).not.toBeNull();
+    expect(qa('malbild-regler-grupp').map((g) => g.firstElementChild!.textContent)).toEqual(['Traven', 'Till vägkanten', 'Inte här', 'Efteråt']);
+    expect(qa('malbild-regler-rutor')).toHaveLength(1);
+    expect(q('malbild-regler-rutor')!.textContent).toContain('6 m');
+    expect(sida.textContent).toContain('Allmän väg 60–80 km/h');
+    expect(sida.textContent).toContain('Trafikverket, Skogforsk');
+    klick(q('malbild-regler-tillbaka'));
+    expect(q('malbild-regler')).toBeNull();
+    expect(q('malbild')).not.toBeNull();   // kortet finns kvar under
+  });
+  it('Blött: varningen överst och de fyra grupperna; samma sida för skördare och skotare', () => {
+    for (const roll of ['skordare', 'skotare'] as const) {
+      montera(<MalbildSektion nyckel="blott" roll={roll} />);
+      klick(q('malbild-alla-regler'));
+      expect(q('malbild-regler-varning')!.textContent).toContain('Laga inte spår nära vatten själv');
+      expect(qa('malbild-regler-grupp').map((g) => g.firstElementChild!.textContent)).toEqual(['Risa och kör', 'Diken', 'Vatten', 'Allvarlig körskada']);
+      expect(q('malbild-regler-titel')!.textContent).toBe('Blött – alla regler');
+      act(() => { rot?.unmount(); }); ruta?.remove(); document.body.innerHTML = '';
+    }
+  });
+  it('en sort utan regelsida har ingen "Alla regler"-knapp', () => {
+    montera(<MalbildSektion nyckel="stenmur" roll="skordare" />);
+    expect(q('malbild-alla-regler')).toBeNull();
+  });
+});
+
+describe('KartKort — sektionen sitter mellan meningen och typens delar; sorter utan målbild har ingen', () => {
+  const props = (p: Partial<KartKortProps> = {}): KartKortProps => ({
+    ikon: <span>i</span>, namn: 'Stenmur', grupp: 'kultur', larmRegel: 'Larmar tills du kvitterat', mening: 'Stenmur – kör inte över.', kommentarer: [], kanKommentera: false, foton: [], onStang: () => {}, ...p,
+  });
+  it('med målbild: sektionen finns och står före kommentaren', () => {
+    montera(<KartKort {...props({ malbild: <MalbildSektion nyckel="stenmur" roll="skordare" /> })}><div data-testid="del">typens del</div></KartKort>);
+    const ordning = Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
+    expect(ordning.indexOf('kartkort-mening')).toBeLessThan(ordning.indexOf('malbild'));
+    expect(ordning.indexOf('malbild')).toBeLessThan(ordning.indexOf('del'));
+    expect(ordning.indexOf('del')).toBeLessThan(ordning.indexOf('kartkort-kommentar'));
+    expect(qa('malbild-rad')).toHaveLength(3);
+  });
+  it('utan målbild (Fara, Info): ingen sektion och ingen rubrik', () => {
+    montera(<KartKort {...props({ namn: 'El-ledning', grupp: 'fara', malbild: <MalbildSektion nyckel={null} roll="skordare" /> })} />);
+    expect(q('malbild')).toBeNull();
+    expect(q('kartkort')!.textContent).not.toContain('Så ska det se ut');
+    expect(q('kartkort')!.textContent).not.toContain('Inte så här');
+  });
+});
+
+describe('MalbildBlad och den lilla bilden', () => {
+  it('bladet: namn · grupp, hela målbilden, Stäng — och "✓ Sett" bara när bladet fått en sådan', () => {
+    const stang = vi.fn(), sett = vi.fn();
+    montera(<MalbildBlad nyckel="nyckelbiotop" roll="skordare" onStang={stang} />);
+    expect(q('malbild-blad-namn')!.textContent).toBe('Nyckelbiotop · Natur');
+    expect(q('malbild-blad-sektion')).not.toBeNull();
+    expect(q('malbild-blad-sett')).toBeNull();
+    klick(q('malbild-blad-stang'));
+    expect(stang).toHaveBeenCalledTimes(1);
+    act(() => { rot!.render(<MalbildBlad nyckel="nyckelbiotop" roll="skordare" onStang={stang} onSett={sett} />); });
+    klick(q('malbild-blad-sett'));
+    expect(sett).toHaveBeenCalledTimes(1);
+  });
+  it('bladet för en sort som inte finns visar ingenting', () => {
+    montera(<MalbildBlad nyckel="finns-inte" onStang={() => {}} />);
+    expect(q('malbild-blad')).toBeNull();
+  });
+  it('den lilla bilden: bild + "Så ska det se ut" + Visa som skickar sorten; ingenting för en sort utan målbild', () => {
+    const visa = vi.fn();
+    montera(<MalbildLiten nyckel="hansyn" roll="skordare" onVisa={visa} />);
+    expect(q('larm-malbild-bild')!.querySelector('svg')).not.toBeNull();
+    expect(q('larm-malbild')!.textContent).toContain('Så ska det se ut');
+    klick(q('larm-malbild-visa'));
+    expect(visa).toHaveBeenCalledWith('hansyn');
+    act(() => { rot!.render(<MalbildLiten nyckel={null} onVisa={visa} />); });
+    expect(q('larm-malbild')).toBeNull();
+  });
+  it('"Alla målbilder": alla tretton i ordning, tryck öppnar den sorten (också de som appen ritar själv)', () => {
+    const visa = vi.fn();
+    montera(<MalbildLista onVisa={visa} />);
+    expect(Array.from(document.querySelectorAll('[data-testid^="malbild-lista-"]')).map((e) => e.getAttribute('data-testid'))).toEqual(MALBILD_ORDNING.map((n) => `malbild-lista-${n}`));
+    klick(q('malbild-lista-kantzon'));
+    klick(q('malbild-lista-vattenskydd'));
+    expect(visa.mock.calls.map((c) => c[0])).toEqual(['kantzon', 'vattenskydd']);
+  });
+});
+
+describe('LarmKortVy — den lilla bilden första gången', () => {
+  const kort = (p: Partial<LarmKort> = {}): LarmKort => ({
+    id: '1', kalla: 'yta', typ: 'protected', grupp: 'natur', farg: '#30D158', namn: 'Hänsyn', text: 'Du är inne i ytan', avstandM: null, bearing: null, pulserar: false, forbjuden: true, okvitterad: true, ...p,
+  });
+  it('okvitterat och med målbild: liten bild + Visa; Visa skickar sorten', () => {
+    const visa = vi.fn();
+    montera(<LarmKortVy kort={kort()} riktning={null} top="0px" roll="skordare" onVisaMalbild={visa} />);
+    expect(q('larm-malbild')!.dataset.malbild).toBe('hansyn');
+    klick(q('larm-malbild-visa'));
+    expect(visa).toHaveBeenCalledWith('hansyn');
+    expect(q('larm-kort')!.contains(q('larm-malbild'))).toBe(true);   // i SAMMA kort, ingen andra ruta
+  });
+  it('kvitterat: ingen bild', () => {
+    montera(<LarmKortVy kort={kort({ okvitterad: false })} riktning={null} top="0px" onVisaMalbild={() => {}} />);
+    expect(q('larm-malbild')).toBeNull();
+  });
+  it('Fara (ingen målbild): ingen bild, även okvitterad', () => {
+    montera(<LarmKortVy kort={kort({ kalla: 'symbol', typ: 'powerline', grupp: 'fara', namn: 'El-ledning', forbjuden: false })} riktning={null} top="0px" onVisaMalbild={() => {}} />);
+    expect(q('larm-malbild')).toBeNull();
+  });
+  it('utan hanterare visas ingen bild', () => {
+    montera(<LarmKortVy kort={kort()} riktning={null} top="0px" />);
+    expect(q('larm-malbild')).toBeNull();
+  });
+  it('Blött i skotarläget: skotarens bild; i skördarläget skördarens', () => {
+    montera(<LarmKortVy kort={kort({ kalla: 'symbol', typ: 'wet', grupp: 'blott', farg: '#0A84FF', namn: 'Fuktig mark', forbjuden: false })} riktning={null} top="0px" roll="skotare" onVisaMalbild={() => {}} />);
+    expect(q('larm-malbild-bild')!.innerHTML).toBe(norm(malbildInnehall('blott', 'skotare')!.bild));
+    act(() => { rot!.render(<LarmKortVy kort={kort({ kalla: 'symbol', typ: 'wet', grupp: 'blott', farg: '#0A84FF', namn: 'Fuktig mark', forbjuden: false })} riktning={null} top="0px" roll="skordare" onVisaMalbild={() => {}} />); });
+    expect(q('larm-malbild-bild')!.innerHTML).toBe(norm(malbildInnehall('blott', 'skordare')!.bild));
+  });
+});
+
+describe('Vad betyder kartan — tryck på en rad öppnar målbilden', () => {
+  const visa = (markeringar: any[], vida: any[] = [], roll: 'skordare' | 'skotare' | null = null) =>
+    montera(<VadBetyderKartan objektNamn="Skälviken" markeringar={markeringar} vida={vida} roll={roll} onTillbaka={() => {}} onStang={() => {}} />);
+  it('en rad med målbild är en knapp med ›; tryck öppnar bladet med rätt sort', () => {
+    visa([{ isMarker: true, type: 'eternitytree' }, { isZone: true, zoneType: 'protected' }, { isLine: true, lineType: 'stonewall' }]);
+    for (const [rad, sort] of [['symbol:eternitytree', 'evighetstrad'], ['yta:protected', 'hansyn'], ['linje:stonewall', 'stenmur']] as const) {
+      const r = q(`teckenforklaring-rad-${rad}`)!;
+      expect(r.tagName, rad).toBe('BUTTON');
+      expect(r.dataset.malbild).toBe(sort);
+      klick(r);
+      expect(q('malbild-blad')).not.toBeNull();
+      expect(q('malbild-blad-sektion')!.dataset.malbild).toBe(sort);
+      klick(q('malbild-blad-stang'));
+      expect(q('malbild-blad')).toBeNull();
+    }
+  });
+  it('Vidas hänsynsyta och nyckelbiotop når sina målbilder', () => {
+    visa([], ['hansynsyta', 'nyckelbiotop']);
+    klick(q('teckenforklaring-rad-yta:protected'));
+    expect(q('malbild-blad-sektion')!.dataset.malbild).toBe('hansyn');
+    klick(q('malbild-blad-stang'));
+    klick(q('teckenforklaring-rad-vida:nyckelbiotop'));
+    expect(q('malbild-blad-sektion')!.dataset.malbild).toBe('nyckelbiotop');
+  });
+  it('en rad utan målbild (Fara) är ingen knapp och har ingen ›', () => {
+    visa([{ isMarker: true, type: 'powerline' }, { isMarker: true, type: 'gate' }]);
+    for (const rad of ['symbol:powerline', 'symbol:gate']) {
+      const r = q(`teckenforklaring-rad-${rad}`)!;
+      expect(r.tagName, rad).toBe('DIV');
+      expect(r.textContent).not.toContain('›');
+      klick(r);
+      expect(q('malbild-blad')).toBeNull();
+    }
+  });
+  it('"Alla målbilder" finns även när trakten är tom, och öppnar t.ex. Kantzon', () => {
+    visa([]);
+    expect(q('teckenforklaring-tom')).not.toBeNull();
+    expect(qa('malbild-lista')).toHaveLength(1);
+    klick(q('malbild-lista-kantzon'));
+    expect(q('malbild-blad-namn')!.textContent).toBe('Kantzon mot vatten · Blött');
+  });
+  it('roll skotare: Blött öppnas med skotarens version', () => {
+    visa([{ isMarker: true, type: 'wet' }], [], 'skotare');
+    klick(q('teckenforklaring-rad-symbol:wet'));
+    expect(q('malbild-blad-sektion')!.dataset.roll).toBe('skotare');
+    expect(q('malbild-fel-text')!.textContent).toMatch(/Körde vidare/);
+  });
+});
+
+describe('AvlaggForstaLasset — vid första lasset per trakt, sedan bara vid tryck', () => {
+  const rad = (p: Partial<React.ComponentProps<typeof AvlaggForstaLasset>> = {}) => <AvlaggForstaLasset objektId="o1" kortVisas forstaLasset {...p} />;
+  it('första lasset: raden med Visa syns; Visa öppnar avläggets målbild och minns att den är sedd', () => {
+    montera(rad());
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    klick(q('larm-malbild-visa'));
+    expect(q('malbild-blad-sektion')!.dataset.malbild).toBe('avlagg');
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    expect(JSON.parse(localStorage.getItem(MALBILD_AVLAGG_SETT_NYCKEL)!)).toEqual(['o1']);
+  });
+  it('inte första lasset, eller inget kort: ingen rad', () => {
+    montera(rad({ forstaLasset: false }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    uppdatera(rad({ kortVisas: false }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+  });
+  it('när första lasset är hanterat (kortet borta) visas raden aldrig mer på samma trakt, inte ens på nästa lass eller efter omladdning', () => {
+    montera(rad());
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+    uppdatera(rad({ kortVisas: false }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    uppdatera(rad({ kortVisas: true, forstaLasset: true }));
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+    // ny montering (omladdning) läser minnet
+    act(() => { rot!.unmount(); }); ruta!.remove();
+    montera(rad());
+    expect(q('avlagg-forsta-lasset')).toBeNull();
+  });
+  it('en annan trakt får sin egen första gång', () => {
+    montera(rad());
+    uppdatera(rad({ kortVisas: false }));
+    uppdatera(rad({ objektId: 'o2' }));
+    expect(q('avlagg-forsta-lasset')).not.toBeNull();
+  });
+  it('skotarens bild används', () => {
+    montera(rad());
+    expect(q('larm-malbild-bild')!.innerHTML).toBe(norm(malbildInnehall('avlagg', 'skotare')!.bild));
+  });
+});

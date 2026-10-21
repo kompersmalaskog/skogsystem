@@ -76,6 +76,8 @@ export interface LarmKort {
   /** Inom 15 m (bara Röd): kortet pulserar. */
   pulserar: boolean;
   forbjuden: boolean;
+  /** Föraren har inte kvitterat just det här innehållet än: första gången visar kortet den lilla målbilden. */
+  okvitterad: boolean;
 }
 
 /** Det som står i den lilla raden under det stora kortet (nästa larm). */
@@ -234,6 +236,7 @@ export function stegaLarm(inp: { objekt: readonly LarmObjekt[]; kvitt: KvittensK
       bearing: o.bearing ?? null,
       pulserar: vinnare.steg === 'mycket_nara',
       forbjuden: !!o.forbjuden,
+      okvitterad: !vinnare.kvitterad && !vinnare.sett,
     };
   }
   // "✓ Sett <Namn>" gäller första OKVITTERADE i rangordningen: det stora kortet, eller — när en kvitterad Röd inom 15 m ligger överst utan knapp — första i +-raden.

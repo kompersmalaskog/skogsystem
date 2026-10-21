@@ -37,7 +37,7 @@ export interface ObjektInfoProps {
   /** "Klar med trakten?" (bara planerare, bara medan trakten planeras). null = ingen rad på kortet och ingen vy. */
   klar?: Omit<KlarMedTraktenProps, 'namn' | 'onStang'> | null;
   /** Teckenförklaringen "Vad betyder kartan": det som finns på trakten (våra markeringar + Vidas lager). */
-  karta?: Pick<VadBetyderKartanProps, 'markeringar' | 'vida'> | null;
+  karta?: Pick<VadBetyderKartanProps, 'markeringar' | 'vida' | 'roll'> | null;
 }
 
 export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, startVy = 'kort' }: ObjektInfoProps) {

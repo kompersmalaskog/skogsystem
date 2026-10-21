@@ -7,12 +7,24 @@
 import React from 'react';
 import type { LarmKort as Kort, LarmNasta } from '@/lib/larm/larm';
 import { LarmIkon } from '@/components/SymbolIkon';
+import { MalbildLiten } from '@/components/malbild/Malbild';
+import { malbildNyckel, type Maskinroll } from '@/lib/malbilder';
 import { AVSTAND, FARG, RADIE, TYP, designCss, medSafeBotten } from '@/lib/design/tokens';
 
 /** Ikonens storlek i kortet: som en träffyta, tydlig på håll. */
 const LARM_IKON_PX = 56;
 
-export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; riktning: string | null; top: string; fler?: readonly LarmNasta[] }) {
+/** Målbildens nyckel för larmet, om kortet ska visa den lilla bilden: bara första gången (okvitterat) och bara för sorter som har en målbild. */
+export const larmMalbild = (kort: Kort | null): string | null => (kort && kort.okvitterad ? malbildNyckel(kort.kalla, kort.typ) : null);
+
+export function LarmKortVy({ kort, riktning, top, fler = [], roll = null, onVisaMalbild }: {
+  kort: Kort; riktning: string | null; top: string; fler?: readonly LarmNasta[];
+  /** Maskintypen (skördare/skotare): målbilden kan skilja per roll. */
+  roll?: Maskinroll | null;
+  /** "Visa" på den lilla målbilden. Utan den visas ingen bild. */
+  onVisaMalbild?: (nyckel: string) => void;
+}) {
+  const malbild = onVisaMalbild ? larmMalbild(kort) : null;
   const rad2 = kort.text ?? (riktning && kort.avstandM != null ? riktning : null);
   return (
     <div style={{ position: 'fixed', left: AVSTAND.m, right: AVSTAND.m, top, zIndex: 620, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -48,6 +60,7 @@ export function LarmKortVy({ kort, riktning, top, fler = [] }: { kort: Kort; rik
           </span>
         )}
         </div>
+        {malbild && <MalbildLiten nyckel={malbild} roll={roll} onVisa={onVisaMalbild!} />}
         {fler.length > 0 && <FlerRad fler={fler} />}
       </div>
     </div>

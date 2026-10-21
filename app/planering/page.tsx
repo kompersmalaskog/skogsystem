@@ -56,7 +56,11 @@ import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
-import { GrindKortVy, LarmKortVy, SettRad } from '../../components/planering/LarmKort'
+import { GrindKortVy, LarmKortVy, SettRad, larmMalbild } from '../../components/planering/LarmKort'
+import { LARM_MALBILD_RAD_PX, MalbildBlad, MalbildSektion } from '../../components/malbild/Malbild'
+import { AvlaggForstaLasset } from '../../components/malbild/AvlaggForstaLasset'
+import { arForstaLassetPaTrakten } from '../../lib/malbildSett'
+import { malbildNyckel, type Maskinroll } from '../../lib/malbilder'
 import { VidaSaknasRad, VIDA_RAD_HOJD_PX } from '../../components/planering/VidaSaknasRad'
 import { arVidaVo, lasVidaLager, skapaFornyare } from '../../lib/larm/vidaLager'
 import { medVidaNycklar } from '../../lib/vidaNycklar'
@@ -3981,6 +3985,10 @@ export default function PlannerPage() {
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
+  // Maskintypen för målbilderna (skördare/skotare): enhetens maskin först, annars admins val, annars tilldelningen. Okänd (planeringsvyn utan maskin) ger skördarens version.
+  const malbildRoll: Maskinroll | null = enhetRoll ?? korvyForceRoll ?? minRoll ?? null;
+  // Målbilden som öppnats ur larmkortets lilla bild ("Visa").
+  const [larmMalbildOppen, setLarmMalbildOppen] = useState<string | null>(null);
 
   // ═══ HYTTSPÅR (realtids-körspår, steg 1) ════════════════════════════════════════════════════════
   // Appen loggar körvägen LIVE medan körvyn är öppen på ett objekt (BÅDA maskinerna). En rad per
@@ -13524,7 +13532,7 @@ export default function PlannerPage() {
               } : null,
             },
           },
-          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features) },
+          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
           klar: klarGaller ? {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
@@ -13771,6 +13779,12 @@ export default function PlannerPage() {
                 onTaBort={() => sl.strykLass(kortLass.id)}
               />
             )}
+            {/* Målbilden för avlägget visas på kortet vid FÖRSTA lasset per trakt; därefter bara när man trycker på ett avlägg (KartKort). */}
+            <AvlaggForstaLasset
+              objektId={valtObjekt?.id ?? ''} roll="skotare"
+              kortVisas={!!sl.kort && !sl.andra}
+              forstaLasset={!!sl.kort && !!valtObjekt?.id && !!skotarMaskinId && arForstaLassetPaTrakten(sl.lass, sl.kort.lassId, valtObjekt.id, skotarMaskinId)}
+            />
             {!sl.kort && !sl.andra && sl.nyttAvlagg && (
               <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
             )}
@@ -13813,6 +13827,8 @@ export default function PlannerPage() {
           kort={larm.kort}
           fler={larm.fler}
           riktning={larm.kort.bearing != null ? korvyRiktning(larm.kort.bearing, korvyHeading) : null}
+          roll={malbildRoll}
+          onVisaMalbild={setLarmMalbildOppen}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
         />
       )}
@@ -13820,11 +13836,20 @@ export default function PlannerPage() {
         <GrindKortVy
           kod={grindKort.kod}
           symbol={<SymbolIkon typ={GRIND_TYP} storlek={52} />}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort ? 96 : 0}px)`}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort ? 96 : 0}px + ${larmMalbild(larm.kort) ? LARM_MALBILD_RAD_PX : 0}px)`}
         />
       )}
       {korvyActive && larm.settRad && (
         <SettRad namn={larm.settRad.namn} farg={larm.settRad.farg} smal={screenSize.width < 640} onSett={larm.kvittera} />
+      )}
+      {larmMalbildOppen && (
+        <MalbildBlad
+          nyckel={larmMalbildOppen}
+          roll={malbildRoll}
+          onStang={() => setLarmMalbildOppen(null)}
+          // "✓ Sett" finns i bladet bara när larmet som bladet öppnades från är det som väntar på kvittering (samma knapp som raden längst ner).
+          onSett={larm.settRad && larm.kort && larm.settRad.id === larm.kort.id && larmMalbild(larm.kort) === larmMalbildOppen ? () => { larm.kvittera(); setLarmMalbildOppen(null); } : undefined}
+        />
       )}
 
 
@@ -14947,6 +14972,7 @@ export default function PlannerPage() {
             larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
             mening={bet.forklaring}
             kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
+            malbild={<MalbildSektion nyckel={malbildNyckel(bet.ikon.kalla, bet.ikon.typ)} roll={malbildRoll} />}
             // Vidas data ändras aldrig: kommentarerna (kartkommentar, en rad per kommentar) och fotona (objekt_yta_media) sparas hos oss, kopplade till objekt_id + objektets nyckel.
             kommentarer={nyckel && valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, minId, arAdmin: isAdminRiktig }) : null}
             kanKommentera={kanLagga}
@@ -15421,6 +15447,7 @@ export default function PlannerPage() {
             grupp={kortGrupp}
             larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden })}
             mening={betydelse?.mening ?? null}
+            malbild={<MalbildSektion nyckel={marker.isMarker ? malbildNyckel('symbol', marker.type) : marker.isZone ? malbildNyckel('yta', marker.zoneType) : marker.isLine ? malbildNyckel('linje', marker.lineType) : null} roll={malbildRoll} />}
             kommentarer={valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel: markerNyckel(marker.id), objektId: valtObjekt.id, aldreText: marker.comment, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : null}
             kanKommentera={!!currentMedarbetare?.id}
             onLaggKommentar={(t) => kk.lagg(markerNyckel(marker.id), t)}

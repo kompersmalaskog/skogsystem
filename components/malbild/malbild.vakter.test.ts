@@ -1,0 +1,42 @@
+// Källvakter för kopplingen i sidan (app/planering/page.tsx är för stor för en renderingstest): målbilderna ska sitta på varje kort, i larmet, i skotarläget och i
+// teckenförklaringen — och sidan får inte ha en egen kopia av en text eller en bild (lib/malbilder.test.ts vaktar själva innehållet).
+import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const rot = path.resolve(__dirname, '..', '..');
+const las = (f: string) => fs.readFileSync(path.join(rot, f), 'utf8');
+const sida = las('app/planering/page.tsx');
+
+describe('målbilderna är kopplade i sidan', () => {
+  it('varje KartKort i sidan får sin målbildssektion (egna markeringar och Vidas objekt)', () => {
+    const kort = sida.match(/<KartKort\b/g) ?? [];
+    const med = sida.match(/<KartKort\b[\s\S]{0,6000}?\n\s*malbild=\{<MalbildSektion /g) ?? [];
+    expect(kort.length).toBe(2);
+    expect(med.length).toBe(2);
+  });
+  it('kortet på kartan tar nyckeln ur symbolens, ytans eller linjens typ — aldrig ur ett namn', () => {
+    expect(sida).toMatch(/malbildNyckel\('symbol', marker\.type\)/);
+    expect(sida).toMatch(/malbildNyckel\('yta', marker\.zoneType\)/);
+    expect(sida).toMatch(/malbildNyckel\('linje', marker\.lineType\)/);
+    expect(sida).toMatch(/malbildNyckel\(bet\.ikon\.kalla, bet\.ikon\.typ\)/);
+  });
+  it('larmkortet får roll och Visa; bladet har "✓ Sett" bara för larmet som väntar på kvittering; grindkortet räknar med bildens höjd', () => {
+    expect(sida).toMatch(/<LarmKortVy[\s\S]{0,700}roll=\{malbildRoll\}[\s\S]{0,100}onVisaMalbild=\{setLarmMalbildOppen\}/);
+    expect(sida).toMatch(/<MalbildBlad[\s\S]{0,900}onSett=\{larm\.settRad && larm\.kort && larm\.settRad\.id === larm\.kort\.id/);
+    expect(sida).toMatch(/larmMalbild\(larm\.kort\) \? LARM_MALBILD_RAD_PX : 0/);
+  });
+  it('"Vad betyder kartan" får maskintypen', () => {
+    expect(sida).toMatch(/karta: \{ markeringar: markers, vida: vidaSlagIFeatures\(traktGeo\?\.features\), roll: malbildRoll \}/);
+  });
+  it('skotarläget: avläggets målbild vid första lasset, utan att röra lossningskortet', () => {
+    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,400}arForstaLassetPaTrakten\(sl\.lass, sl\.kort\.lassId, valtObjekt\.id, skotarMaskinId\)/);
+    expect(las('components/planering/skotar/LossningsKort.tsx')).not.toMatch(/malbild/i);
+  });
+  it('maskintypen är enhetens maskin först, därefter admins val, därefter tilldelningen', () => {
+    expect(sida).toMatch(/const malbildRoll: Maskinroll \| null = enhetRoll \?\? korvyForceRoll \?\? minRoll \?\? null;/);
+  });
+  it('sidan har ingen egen SVG eller målbildstext', () => {
+    expect(sida).not.toMatch(/Så ska det se ut|Inte så här|Alla regler/);
+  });
+});

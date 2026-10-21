@@ -65,6 +65,8 @@ export interface KartKortProps {
   fotoSparar?: boolean;
   fotoFel?: string | null;
   onStang: () => void;
+  /** Sektionen "Så ska det se ut" (components/malbild): mellan meningen och typens delar. Null för sorter utan målbild (Fara, Info …) — då finns ingen sektion. */
+  malbild?: React.ReactNode;
   /** Det som är särskilt för typen (vägens färg, Vidas text, traktanalys …) — mellan meningen och kommentaren. Det som ska stå NEDERST (åtgärder, ljud, vägkontroll …),
    *  under fotona, läggs i <KartKortNederst>. */
   children?: React.ReactNode;
@@ -121,6 +123,8 @@ export function KartKort(p: KartKortProps) {
           </div>
           {p.mening && <div data-testid="kartkort-mening" style={{ ...TYP.text, color: FARG.text2 }}>{p.mening}</div>}
           {p.kalla && <div data-testid="kartkort-kalla" style={{ ...TYP.micro, color: FARG.text3 }}>{p.kalla}</div>}
+
+          {p.malbild}
 
           {delar}
 
