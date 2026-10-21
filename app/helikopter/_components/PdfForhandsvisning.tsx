@@ -1,7 +1,8 @@
 'use client'
 
 // Förhandsvisning av en PDF innan den delas — en helskärmspanel under toppfältet (underTopbar()), som appens andra helskärmspaneler.
-// PDF:en skapas när panelen öppnas (pdf-lib, några hundra ms) och visas som en bild: sidan renderas med pdf.js till en canvas som fyller bredden.
+// PDF:en skapas när panelen öppnas (pdf-lib, några hundra ms) och visas som bilder: VARJE sida renderas med pdf.js till en canvas som fyller
+// bredden, under varandra (förut bara sida 1 — markägarrapportens karta och egenkontrollens bilaga syntes aldrig).
 // Varför canvas och inte <iframe src=blob:>: iOS i installerad PWA visar PDF i iframe som bara första sidan eller ingenting, och appen har redan
 // gett upp den vägen (PdfLasare i planeringen renderar likadant, med samma pdfjs-dist och samma worker, av samma skäl). Ingen blob-URL skapas för
 // visningen, så det finns inget att återkalla; delningen använder den riktiga filen (Web Share med fil, annars nedladdning — delaFil).
@@ -42,7 +43,7 @@ export default function PdfForhandsvisning({ skapa, filnamn, titel, onStang }: {
   const [delar, setDelar] = useState(false)
   const bytesRef = useRef<Uint8Array | null>(null)
   const ytaRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const sidorRef = useRef<HTMLDivElement>(null)
 
   // Esc stänger.
   useEffect(() => {
@@ -76,18 +77,29 @@ export default function PdfForhandsvisning({ skapa, filnamn, titel, onStang }: {
         const laddad = await pdfjs.getDocument({ data: bytes.slice() }).promise
         doc = laddad
         if (avbruten) return
-        const sida = await laddad.getPage(1)
-        const canvas = canvasRef.current
+        const sidor = sidorRef.current
         const yta = ytaRef.current
-        const ctx = canvas?.getContext('2d')
-        if (!canvas || !yta || !ctx) throw new Error('Ingen canvas')
-        const bas = sida.getViewport({ scale: 1 })
-        const cssBredd = yta.clientWidth || bas.width
+        if (!sidor || !yta) throw new Error('Ingen yta')
+        sidor.replaceChildren()
+        const antal = Math.max(1, (laddad as { numPages?: number }).numPages ?? 1)
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
-        const vy = sida.getViewport({ scale: (cssBredd / bas.width) * dpr })
-        canvas.width = Math.floor(vy.width)
-        canvas.height = Math.floor(vy.height)
-        await sida.render({ canvasContext: ctx, viewport: vy }).promise
+        for (let nr = 1; nr <= antal; nr++) {
+          if (avbruten) return
+          const sida = await laddad.getPage(nr)
+          const canvas = document.createElement('canvas')
+          canvas.setAttribute('aria-label', `Sida ${nr} av ${antal}`)
+          canvas.style.cssText = `display:block;width:100%;height:auto;background:${FARG.text}`
+          if (nr > 1) canvas.style.marginTop = `${AVSTAND.s}px`
+          const ctx = canvas.getContext('2d')
+          if (!ctx) throw new Error('Ingen canvas')
+          const bas = sida.getViewport({ scale: 1 })
+          const cssBredd = yta.clientWidth || bas.width
+          const vy = sida.getViewport({ scale: (cssBredd / bas.width) * dpr })
+          canvas.width = Math.floor(vy.width)
+          canvas.height = Math.floor(vy.height)
+          sidor.appendChild(canvas)
+          await sida.render({ canvasContext: ctx, viewport: vy }).promise
+        }
         if (!avbruten) setStatus('klar')
       } catch (e) {
         // PDF:en finns och går att dela, men sidan gick inte att visa.
@@ -162,13 +174,9 @@ export default function PdfForhandsvisning({ skapa, filnamn, titel, onStang }: {
         </button>
       </div>
 
-      {/* Sidan: vit canvas som fyller bredden, scroll om den är högre än skärmen. */}
+      {/* Sidorna: en vit canvas per sida som fyller bredden, scroll genom alla. */}
       <div ref={ytaRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', position: 'relative' }}>
-        <canvas
-          ref={canvasRef}
-          aria-label="Sida 1 av PDF:en"
-          style={{ display: status === 'klar' ? 'block' : 'none', width: '100%', height: 'auto', background: FARG.text }}
-        />
+        <div ref={sidorRef} data-pdf-sidor="" style={{ display: status === 'klar' ? 'block' : 'none' }} />
         <Tillstand nyckel={status === 'klar' ? 'klar' : status}>{tillstand}</Tillstand>
       </div>
     </div>
