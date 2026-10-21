@@ -58,12 +58,12 @@ describe("byggOversikt", () => {
   });
   it("höjdpunkt BÄTTRE när senaste är minst 2 enheter under de två föregående", () => {
     const o = byggOversikt([k("O", "2026-10-10T08:00:00Z", 100, 13), sep, aug], NU);
-    expect(o.hojdpunkt).toEqual({ riktning: "battre", mening: "Ni kapar rätt oftare i oktober än i augusti och september.", under: "13 % utanför mot 16–17 %" });
+    expect(o.hojdpunkt).toEqual({ riktning: "battre", mening: "Mer rätt i oktober än i augusti och september.", under: "87 % rätt mot 83–84 %" });
   });
   it("höjdpunkt SÄMRE åt andra hållet", () => {
     const o = byggOversikt([k("O", "2026-10-10T08:00:00Z", 100, 20), sep, aug], NU);
     expect(o.hojdpunkt?.riktning).toBe("samre");
-    expect(o.hojdpunkt?.mening).toBe("Mer utanför beställt i oktober än i augusti och september.");
+    expect(o.hojdpunkt?.mening).toBe("Mindre rätt i oktober än i augusti och september.");
   });
   it("ingen höjdpunkt när skillnaden är under 2 enheter, eller utan tidigare månad", () => {
     expect(byggOversikt([k("O", "2026-10-10T08:00:00Z", 100, 15), sep, aug], NU).hojdpunkt).toBeNull();
