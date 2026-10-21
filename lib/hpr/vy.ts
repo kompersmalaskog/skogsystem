@@ -74,6 +74,8 @@ export interface ObjektVy {
   utanforM3: number | null;
   /** Volymen utanforM3 räknas mot: maskinens egna kap i produkter med grad. */
   bedomdM3: number;
+  /** Objekten trakten är ihopslagen av (lib/hpr/sammaTrakt), bara när fler än ett. */
+  delar?: string[];
   produkter: ProduktVy[]; // en per produkt med fördelningsmål, störst volym först
 }
 

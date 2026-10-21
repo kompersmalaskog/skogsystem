@@ -18,6 +18,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hamtaObjektData, type ObjektData } from "./objekt-data";
 import { byggObjektVy, type ObjektVy, type Snapshot } from "./vy";
+import { gruppFor, slaIhopData, traktGrupper, traktMeta } from "./sammaTrakt";
 
 /** Höj när beräkningen i vy.ts/fordelning.ts ändras — då räknas alla rader om. */
 export const VY_VERSION = 3; // 2: m³ för översikten · 3: bedömt på maskinens egna kap (utanforM3)
@@ -53,6 +54,48 @@ export function arAktuell(rad: Pick<LagradRad, "last_file_at" | "version"> | und
   return !!rad && rad.version === VY_VERSION && sammaTid(rad.last_file_at, lastFileAt);
 }
 
+/**
+ * Är raden räknad på exakt de här delarna? En trakt som fått en del till (eller
+ * en rad räknad innan ihopslagningen fanns) är inaktuell. En rad utan kort
+ * (inga fördelningsmål) bär inga delar och bedöms bara på tiden.
+ */
+export function delarStammer(rad: Pick<LagradRad, "kort"> | undefined, grupp: string[]): boolean {
+  if (!rad?.kort) return true;
+  const lagrade = rad.kort.delar ?? [rad.kort.objectKey];
+  return lagrade.length === grupp.length && lagrade.every((k, i) => k === grupp[i]);
+}
+
+/**
+ * Läs trakten ett objekt hör till: alla objekt med samma namn (maskinen och
+ * tiden avgör sammaTrakt), gruppen och dess levande meta. Kastar vid läsfel;
+ * null = objektet finns inte.
+ */
+export async function lasTrakt(
+  supabase: SupabaseClient,
+  objectKey: string
+): Promise<{ grupp: string[]; delar: ObjektMeta[]; meta: ObjektMeta } | null> {
+  const { data: eget, error: egetErr } = await supabase
+    .from("harvest_objects")
+    .select("object_key,object_name,status,last_file_at")
+    .eq("object_key", objectKey)
+    .maybeSingle();
+  if (egetErr) throw new Error(`harvest_objects: ${egetErr.message}`);
+  if (!eget) return null;
+  let kandidater: ObjektMeta[] = [eget as ObjektMeta];
+  if (eget.object_name) {
+    const { data, error } = await supabase
+      .from("harvest_objects")
+      .select("object_key,object_name,status,last_file_at")
+      .eq("object_name", eget.object_name);
+    if (error) throw new Error(`harvest_objects: ${error.message}`);
+    kandidater = (data ?? []) as ObjektMeta[];
+    if (!kandidater.some((k) => k.object_key === objectKey)) kandidater.push(eget as ObjektMeta);
+  }
+  const grupp = gruppFor(objectKey, kandidater);
+  const delar = kandidater.filter((k) => grupp.includes(k.object_key));
+  return { grupp, delar, meta: traktMeta(delar) };
+}
+
 export function tillKort(vy: ObjektVy): ObjektKort {
   const { produkter: _p, ...kort } = vy;
   return kort;
@@ -73,40 +116,49 @@ export function medLevandeMeta<T extends ObjektKort>(lagrad: T, meta: ObjektMeta
 }
 
 /**
- * Räkna objektets vy ur databasen och spara den. `data` skickas med av
+ * Räkna trakten objektet hör till ur databasen och spara den under traktens
+ * huvudnyckel (ett ensamt objekt = sig självt). `data` skickas med av
  * importen, som redan har objektets stockar i minnet. Returnerar vyn
- * (null = objektet har inga fördelningsmål). Kastar vid läs- eller skrivfel.
+ * (null = trakten har inga fördelningsmål). Kastar vid läs- eller skrivfel.
  */
 export async function raknaOchSparaVy(
   supabase: SupabaseClient,
   objectKey: string,
   data?: ObjektData
 ): Promise<ObjektVy | null> {
-  const { data: meta, error: metaErr } = await supabase
-    .from("harvest_objects")
-    .select("object_key,object_name,status,last_file_at")
-    .eq("object_key", objectKey)
-    .maybeSingle();
-  if (metaErr) throw new Error(`harvest_objects: ${metaErr.message}`);
-  if (!meta) throw new Error(`Objektet ${objectKey} finns inte`);
+  const trakt = await lasTrakt(supabase, objectKey);
+  if (!trakt) throw new Error(`Objektet ${objectKey} finns inte`);
+  const { grupp, meta } = trakt;
+  const huvud = grupp[0];
 
-  const { data: snaps, error: snapErr } = await supabase
-    .from("distribution_snapshots")
-    .select("object_key,product_key,computed_at,grade_total_pct")
-    .eq("object_key", objectKey);
-  if (snapErr) throw new Error(`distribution_snapshots: ${snapErr.message}`);
+  // Trendpilen jämför ett objekts egna snapshots; för en ihopslagen trakt
+  // finns ingen sådan serie, så ingen trend hellre än en blandad.
+  let snaps: Snapshot[] = [];
+  if (grupp.length === 1) {
+    const { data: s, error: snapErr } = await supabase
+      .from("distribution_snapshots")
+      .select("object_key,product_key,computed_at,grade_total_pct")
+      .eq("object_key", huvud);
+    if (snapErr) throw new Error(`distribution_snapshots: ${snapErr.message}`);
+    snaps = (s ?? []) as Snapshot[];
+  }
 
-  const objektData = data ?? (await hamtaObjektData(supabase, objectKey));
+  const delData: ObjektData[] = [];
+  for (const k of grupp) {
+    delData.push(data && data.objectKey === k ? data : await hamtaObjektData(supabase, k));
+  }
+  const objektData = grupp.length === 1 ? delData[0] : slaIhopData(huvud, delData);
   const vy = byggObjektVy(
     objektData,
     { objektNamn: meta.object_name, status: meta.status, lastFileAt: meta.last_file_at },
-    (snaps ?? []) as Snapshot[],
+    snaps,
     new Date()
   );
+  if (vy && grupp.length > 1) vy.delar = grupp;
 
   const { error: skrivErr } = await supabase.from("fordelning_vy").upsert(
     {
-      object_key: objectKey,
+      object_key: huvud,
       last_file_at: meta.last_file_at,
       version: VY_VERSION,
       computed_at: new Date().toISOString(),
@@ -139,12 +191,18 @@ export function byggLista(
   nu: Date
 ): Lista {
   const perNyckel = new Map(lagrade.map((r) => [r.object_key, r]));
+  const perObjekt = new Map(objekt.map((o) => [o.object_key, o]));
   const ut: Lista = { objekt: [], vantar: [], inaktuella: [] };
+  const aktiv = new Set<string>();
 
-  for (const o of objekt) {
-    if (!medMal.has(o.object_key)) continue;
+  // En trakt kan bestå av flera objekt (lib/hpr/sammaTrakt) — den visas EN gång,
+  // under huvudnyckeln, och räknas om som en.
+  for (const grupp of traktGrupper(objekt)) {
+    if (!grupp.some((k) => medMal.has(k))) continue;
+    const o = traktMeta(grupp.map((k) => perObjekt.get(k)!));
+    if (o.status === "active") aktiv.add(o.object_key);
     const rad = perNyckel.get(o.object_key);
-    const aktuell = arAktuell(rad, o.last_file_at);
+    const aktuell = arAktuell(rad, o.last_file_at) && delarStammer(rad, grupp);
     if (!aktuell) ut.inaktuella.push(o.object_key);
 
     if (rad?.kort) {
@@ -158,7 +216,6 @@ export function byggLista(
   // Läge 2 först (behöver uppmärksamhet), sedan störst volym — som förut.
   ut.objekt.sort((a, b) => (b.lage - a.lage) || (b.volymM3 - a.volymM3));
   // Aktiva objekt räknas först: de är dem man tittar på.
-  const aktiv = new Set(objekt.filter((o) => o.status === "active").map((o) => o.object_key));
   ut.inaktuella.sort((a, b) => Number(aktiv.has(b)) - Number(aktiv.has(a)));
   return ut;
 }

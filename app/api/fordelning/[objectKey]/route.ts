@@ -11,7 +11,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import type { ObjektVy } from "@/lib/hpr/vy";
-import { arAktuell, medLevandeMeta, raknaOchSparaVy, type ObjektMeta } from "@/lib/hpr/vy-lager";
+import { arAktuell, delarStammer, lasTrakt, medLevandeMeta, raknaOchSparaVy } from "@/lib/hpr/vy-lager";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -44,13 +44,16 @@ export async function GET(
   const rakna = req.nextUrl.searchParams.get("rakna") === "1";
   const supabase = supaService();
 
-  const { data: obj, error: objErr } = await supabase
-    .from("harvest_objects")
-    .select("object_key,object_name,status,last_file_at")
-    .eq("object_key", objectKey).maybeSingle();
-  if (objErr) return NextResponse.json({ error: objErr.message }, { status: 500 });
-  if (!obj) return NextResponse.json({ error: "Objektet finns inte" }, { status: 404 });
-  const meta = obj as ObjektMeta;
+  // Trakten objektet hör till (flera objekt kan vara en trakt, lib/hpr/sammaTrakt):
+  // vyn lagras och visas under traktens huvudnyckel.
+  let trakt;
+  try {
+    trakt = await lasTrakt(supabase, objectKey);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  }
+  if (!trakt) return NextResponse.json({ error: "Objektet finns inte" }, { status: 404 });
+  const { meta, grupp } = trakt;
   const nu = new Date();
 
   // Färdigräknad vy först (räknad vid import). Bara om den saknas, eller sidan
@@ -58,11 +61,11 @@ export async function GET(
   if (!rakna) {
     const { data: rad, error: radErr } = await supabase
       .from("fordelning_vy")
-      .select("last_file_at,version,vy")
-      .eq("object_key", objectKey).maybeSingle();
+      .select("last_file_at,version,kort,vy")
+      .eq("object_key", meta.object_key).maybeSingle();
     if (radErr) return NextResponse.json({ error: radErr.message }, { status: 500 });
     if (rad?.vy) {
-      const aktuell = arAktuell(rad, meta.last_file_at);
+      const aktuell = arAktuell(rad, meta.last_file_at) && delarStammer(rad, grupp);
       return NextResponse.json({ objekt: medLevandeMeta(rad.vy as ObjektVy, meta, nu), uppdateras: !aktuell });
     }
   }
@@ -87,16 +90,23 @@ export async function POST(
     return NextResponse.json({ error: "Okänd action" }, { status: 400 });
   }
   const supabase = supaService();
+  // En trakt av flera objekt avslutas som en: alla delar.
+  let grupp: string[];
+  try {
+    grupp = (await lasTrakt(supabase, objectKey))?.grupp ?? [objectKey];
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  }
   const { error } = await supabase
     .from("harvest_objects")
     .update({ status: "completed", completed_at: new Date().toISOString() })
-    .eq("object_key", objectKey);
+    .in("object_key", grupp);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Verifiera på innehåll, inte på radräkning
   const { data: kontroll } = await supabase
-    .from("harvest_objects").select("status").eq("object_key", objectKey).maybeSingle();
-  if (kontroll?.status !== "completed") {
+    .from("harvest_objects").select("object_key,status").in("object_key", grupp);
+  if ((kontroll ?? []).length !== grupp.length || (kontroll ?? []).some((k) => k.status !== "completed")) {
     return NextResponse.json({ error: "Statusen landade inte" }, { status: 500 });
   }
   return NextResponse.json({ ok: true, status: "completed" });
