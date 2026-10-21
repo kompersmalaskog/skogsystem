@@ -118,7 +118,7 @@ import { basvagSammanfattning, basvagText, arBasvagFarg, BASVAG_FARGER, BASVAG_F
 import { BasvagFargVal } from '../../components/planering/BasvagFargVal'
 import { BackvagVal } from '../../components/planering/BackvagVal'
 import { arVagTyp, backvagFeature, lasBackvag, medBackvag, BACKVAG_FORVALD_ANDE, BACKVAG_STRECK_FARGER, type Backvag } from '../../lib/backvag'
-import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck, kraftledningLager, ritaStolpeIkon, KRAFTLEDNING_STOLPE_BILD } from '../../lib/kartstil'
+import { backvagIkonNamn, backvagStreckLager, ritaBackvagStreck, kraftledningLager, ritaStolpeIkon, KRAFTLEDNING_STOLPE_BILD, BASVAG_STRECK_DASH, BASVAG_STRECK_LAYOUT, BASVAG_SKEN_ID, basvagSkenLager, forstaVagLagerId } from '../../lib/kartstil'
 import { LINJE_TRAFF_PX, narmasteLinje, linjeAtgard, VIDA_LINJE_TRAFFLAGER, EGNA_LINJER_TRAFFLAGER } from '../../lib/linjeTryck'
 import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
@@ -1519,8 +1519,9 @@ export default function PlannerPage() {
           id: `line-${lt.id}-stripe`, type: 'line', source: 'lines-source',
           // Basväg MED färg är heldragen i färgen: de gula strecken ritas bara på basväg utan färg (allt som ritades före färgvalet).
           filter: isMainRoad ? ['all', ['==', ['get', 'lineType'], lt.id], BASVAG_UTAN_FARG as any] : ['==', ['get', 'lineType'], lt.id],
-          paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': [2, 2] },
-          layout: { 'line-cap': 'round', 'line-join': 'miter' }
+          // Blå/gul basväg: platta ändar + lika långa streck = hälften blått, hälften gult (kartstil.ts BASVAG_STRECK_*). Övriga randade linjer som förut.
+          paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': isMainRoad ? [...BASVAG_STRECK_DASH] : [2, 2] },
+          layout: isMainRoad ? { ...BASVAG_STRECK_LAYOUT } as any : { 'line-cap': 'round', 'line-join': 'miter' }
         });
       }
     });
@@ -9073,22 +9074,10 @@ export default function PlannerPage() {
     }
 
 
-    // 1) Basväg-glow (yellow halo runt mainRoad inom 200m)
-    if (!map.getLayer('lines-korvy-mainroad-glow')) {
+    // 1) Basväg-sken runt vägar inom 200 m: vitt och svagt, UNDER väglagren — lyfter fram vägarna men ändrar aldrig deras färg (kartstil.ts basvagSkenLager).
+    if (!map.getLayer(BASVAG_SKEN_ID)) {
       try {
-        map.addLayer({
-          id: 'lines-korvy-mainroad-glow',
-          type: 'line',
-          source: 'lines-source',
-          filter: ['all', ['==', ['get', 'lineType'], 'mainRoad'], ['==', ['get', 'nearby'], true]],
-          paint: {
-            'line-color': '#ffd60a',
-            'line-opacity': 0.4,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 14, 17, 28, 19, 42],
-            'line-blur': 4,
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
-        });
+        map.addLayer(basvagSkenLager('lines-source'), forstaVagLagerId(map.getStyle().layers.map((l: any) => l.id)));
       } catch (e) { console.error('[Körvy] mainroad-glow:', e); }
     }
 
@@ -9594,7 +9583,12 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = korvyActive ? 'visible' : 'none';
-    const layers = ['lines-korvy-mainroad-glow', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
+    // Skenet ska ligga UNDER väglagren även om det skapades innan de fanns (ordningen avgörs här, vid varje körvy-växling).
+    try {
+      const forsta = forstaVagLagerId(map.getStyle().layers.map((l: any) => l.id));
+      if (map.getLayer(BASVAG_SKEN_ID) && forsta && forsta !== BASVAG_SKEN_ID) map.moveLayer(BASVAG_SKEN_ID, forsta);
+    } catch {}
+    const layers = [BASVAG_SKEN_ID, 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
     for (const id of layers) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
     }
