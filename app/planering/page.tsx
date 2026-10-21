@@ -52,7 +52,7 @@ import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type Bra
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useInstruktioner } from '../../lib/hooks/useInstruktioner'
-import { avlaggsradLedig, instruktionBlockerad } from '../../lib/instruktioner/ordning'
+import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen } from '../../lib/instruktioner/ordning'
 import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint } from '../../lib/larm/pulsKarta'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
@@ -11829,7 +11829,7 @@ export default function PlannerPage() {
     objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
     db: supabase,
-    blockerad: instruktionBlockerad({ larmVisas: !!larm.kort, lossningVisas }),
+    blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' }), lossningVisas }),
     torr: !!testlage,
   });
   // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
@@ -13902,7 +13902,7 @@ export default function PlannerPage() {
       {korvyActive && vidaFel.fel && (
         <VidaSaknasRad top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px)`} />
       )}
-      {korvyActive && larm.kort && (
+      {korvyActive && larm.kort && !inst.kort && (   // instruktionen har platsen (larmet är då sett och ingen Fara): larmkortet kommer tillbaka efter dess Sett
         <LarmKortVy
           kort={larm.kort}
           fler={larm.fler}
@@ -13923,7 +13923,7 @@ export default function PlannerPage() {
         <GrindKortVy
           kod={grindKort.kod}
           symbol={<SymbolIkon typ={GRIND_TYP} storlek={52} />}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort ? 96 : 0}px + ${larmMalbild(larm.kort) ? LARM_MALBILD_RAD_PX : 0}px)`}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort && !inst.kort ? 96 : 0}px + ${larmMalbild(inst.kort ? null : larm.kort) ? LARM_MALBILD_RAD_PX : 0}px)`}
         />
       )}
       {korvyActive && larm.settRad && (

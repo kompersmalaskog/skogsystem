@@ -25,7 +25,7 @@ describe('målbilderna är kopplade i sidan', () => {
   it('larmkortet får roll och Visa; bladet har "✓ Sett" bara för larmet som väntar på kvittering; grindkortet räknar med bildens höjd', () => {
     expect(sida).toMatch(/<LarmKortVy[\s\S]{0,700}roll=\{malbildRoll\}[\s\S]{0,100}onVisaMalbild=\{setLarmMalbildOppen\}/);
     expect(sida).toMatch(/<MalbildBlad[\s\S]{0,900}onSett=\{larm\.settRad && larm\.kort && larm\.settRad\.id === larm\.kort\.id/);
-    expect(sida).toMatch(/larmMalbild\(larm\.kort\) \? LARM_MALBILD_RAD_PX : 0/);
+    expect(sida).toMatch(/larmMalbild\(inst\.kort \? null : larm\.kort\) \? LARM_MALBILD_RAD_PX : 0/);   // larmkortet göms medan instruktionen visas (lib/instruktioner/ordning) — då räknas ingen bildhöjd
   });
   it('"Vad betyder kartan" får maskintypen', () => {
     expect(sida).toMatch(/karta: \{ markeringar: markers, vida: vidaSlagIFeatures\(traktGeo\?\.features\), roll: malbildRoll \}/);

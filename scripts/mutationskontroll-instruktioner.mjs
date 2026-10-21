@@ -95,7 +95,10 @@ const M = [
   ["avläggsraden väntar inte på instruktionen", "a.ledigtUtanInstruktion && !a.instruktionVantar", "a.ledigtUtanInstruktion", ORD],
   ["avläggsraden väntar bara medan instruktionskortet syns (inte när den väntar på larm/lossning)", "const vantar = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, false) != null : false), [aktiv, state, omraden, karta]);", "const vantar = useMemo(() => (aktiv ? kortAttVisa(state, omraden, karta, inp.blockerad) != null : false), [aktiv, state, omraden, karta, inp.blockerad]);", HOOK],
   ["sidan räknar inte Ändra-arket som lossning", "!!skotarLass.kort || !!skotarLass.andra || !!skotarLass.nyttAvlagg ||", "!!skotarLass.kort || !!skotarLass.nyttAvlagg ||", SIDA],
-  ["sidan skickar inte lossning till instruktionen", "blockerad: instruktionBlockerad({ larmVisas: !!larm.kort, lossningVisas }),", "blockerad: !!larm.kort,", SIDA],
+  ["sidan skickar inte lossning till instruktionen", "}), lossningVisas }),", "}), lossningVisas: false }),", SIDA],
+  ["en Fara kan skymmas av instruktionen", "a.harKort && (a.vantarPaSett || a.arFara)", "a.harKort && a.vantarPaSett", ORD],
+  ["ett sett larm som står kvar blockerar instruktionen för alltid (hänsynsytan)", "a.harKort && (a.vantarPaSett || a.arFara)", "a.harKort", ORD],
+  ["larmkortet göms inte när instruktionen visas (två kort samtidigt)", "{korvyActive && larm.kort && !inst.kort && (", "{korvyActive && larm.kort && (", SIDA],
   ["avläggsraden får visas medan instruktionen väntar", "instruktionVantar: inst.vantar })}", "instruktionVantar: false })}", SIDA],
 
   // ── testlägets håll-fingret ──

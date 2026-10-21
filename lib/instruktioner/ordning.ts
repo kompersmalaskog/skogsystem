@@ -8,7 +8,15 @@
 // Larmkortet och lossningskortet ändras inte av det här: ett larm (fara) får aldrig vänta på något annat kort. Det är instruktionen och avläggsraden som viker sig.
 // Sidan och testerna använder SAMMA två funktioner, så ordningen står på ett ställe.
 
-/** Instruktionskortet får inte visas medan lossningsflödet eller ett larmkort har platsen. */
+/**
+ * Har larmet platsen — alltså ska instruktionen vänta? Ett larm har platsen medan det väntar på "Sett" (`vantarPaSett`: Sett-raden visas), och ALLTID om det är en Fara (Röd):
+ * en fara får aldrig skymmas. Efter Sett står larmkortet kvar så länge man är inne i en förbjuden yta (lib/larm: "kvitterad men inte tystad") — då har föraren sett det, och
+ * instruktionen för just den ytan får platsen (larmkortet göms medan instruktionen visas och kommer tillbaka efter dess Sett). Utan den regeln kunde instruktionen på en
+ * hänsynsyta aldrig visas inne i ytan: larmkortet står kvar tills man kört ut.
+ */
+export const larmHallerPlatsen = (a: { harKort: boolean; vantarPaSett: boolean; arFara: boolean }): boolean => a.harKort && (a.vantarPaSett || a.arFara);
+
+/** Instruktionskortet får inte visas medan lossningsflödet eller ett larm har platsen (`larmVisas` = `larmHallerPlatsen`). */
 export const instruktionBlockerad = (a: { larmVisas: boolean; lossningVisas: boolean }): boolean => a.larmVisas || a.lossningVisas;
 
 /**
