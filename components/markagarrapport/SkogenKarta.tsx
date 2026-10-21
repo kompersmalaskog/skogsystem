@@ -1,36 +1,29 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { TALL_FARG } from '@/lib/tradslag';
+import { tradslagFarg, tradslagLabel } from '@/lib/tradslag';
+import { FARG } from '@/lib/design/tokens';
 import type { MarkagarRapport } from '@/lib/markagarrapport/types';
 
 interface Props {
   stammar: MarkagarRapport['karta']['stammar'];
 }
 
-const RING_ROT  = '#b22222';   // firebrick — separerar från orange tall-prickar (TALL_FARG)
+// Röta = appens röda (FARG.rod), som ring runt pricken: formen skiljer den från tallens orange fyllning.
+const RING_ROT  = FARG.rod;
 const SCALE_COLOR = 'rgba(255,255,255,0.55)';
 const SCALE_TEXT  = 'rgba(255,255,255,0.7)';
 const OVERLAY_DARK = 'rgba(0,0,0,0.20)';
 const PLACEHOLDER_BG = '#0a0a0a';
 
-// Trädslag-färger
-const COLOR_GRAN    = '#34c759';
-const COLOR_TALL    = TALL_FARG;   // lib/tradslag: EN orange för Tall
-const COLOR_BJORK   = '#d4c5a0';
-const COLOR_OVR_LOV = '#8e8e93';
 const COLOR_DEFAULT = 'rgba(255,255,255,0.65)';
 
 const PADDING_PCT = 0.08;       // 8 % marginal runt stam-extent
 
+// Trädslagens färger ur EN palett (lib/tradslag) — samma som raderna i rapporten och resten av appen.
+// Förut hade kartan egna: gran #34c759, björk beige #d4c5a0.
 function fillForTradslag(t: string): string {
-  switch (t) {
-    case 'GRAN':    return COLOR_GRAN;
-    case 'TALL':    return COLOR_TALL;
-    case 'BJÖRK':   return COLOR_BJORK;
-    case 'ÖVR LÖV': return COLOR_OVR_LOV;
-    default:        return COLOR_DEFAULT;
-  }
+  return t ? tradslagFarg(tradslagLabel(t)) : COLOR_DEFAULT;
 }
 
 /** EPSG:4326 → EPSG:3857 (Web Mercator). */
@@ -45,6 +38,15 @@ export default function SkogenKarta({ stammar }: Props) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const [bgImg, setBgImg] = useState<HTMLImageElement | null>(null);
   const [bgError, setBgError] = useState(false);
+  // Kartan ritas om när dess bredd ändras (vriden iPad, listan bredvid på stor skärm, ändrat fönster).
+  const [bredd, setBredd] = useState(0);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setBredd(Math.round(c.clientWidth)));
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, []);
 
   // Hämta ortofoto-bakgrund från Lantmäteriet via befintlig WMS-proxy
   useEffect(() => {
@@ -119,7 +121,7 @@ export default function SkogenKarta({ stammar }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [stammar]);
+  }, [stammar, bredd]);
 
   // Rita canvas — körs både vid initial mount och när bgImg laddats
   useEffect(() => {
@@ -218,8 +220,8 @@ export default function SkogenKarta({ stammar }: Props) {
       ctx.fill();
     }
 
-    // Rot-ringar — dämpad röd för alla rotade stammar (Bmav + Avkap)
-    ctx.lineWidth = 1;
+    // Rot-ringar — röd ring runt alla rotade stammar (Bmav + Avkap)
+    ctx.lineWidth = 1.5;
     ctx.strokeStyle = RING_ROT;
     for (const s of stammar) {
       if (s.rot_typ == null) continue;
@@ -255,7 +257,7 @@ export default function SkogenKarta({ stammar }: Props) {
 
     // Tysta unused-varning för bgError — kvar som diagnoshjälp om vi vill visa
     void bgError;
-  }, [stammar, bgImg, bgError]);
+  }, [stammar, bgImg, bgError, bredd]);
 
   return (
     <canvas

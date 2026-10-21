@@ -20,14 +20,17 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/admin/AdminClient", () => ({ default: () => null }));
 vi.mock("@/lib/markagarrapport/aggregate", () => ({ aggregateMarkagarRapport: async () => ({ status: "objekt_saknas" }) }));
 vi.mock("@/components/markagarrapport/SkogenKarta", () => ({ default: () => null }));
+vi.mock("@/lib/markagarrapport/lista", () => ({ hamtaListRader: async () => ({ rader: [], fel: null }) }));
 
 import AdminPage from "./page";
 import MarkagarLista from "./markagarrapport/page";
 import MarkagarObjekt from "./markagarrapport/[objekt_id]/page";
+import MarkagarLayout from "./markagarrapport/layout";
 
 const sidor: [string, () => Promise<unknown>][] = [
   ["/admin", () => AdminPage()],
   ["/admin/markagarrapport", () => MarkagarLista()],
+  ["/admin/markagarrapport (layouten med listan)", () => MarkagarLayout({ children: null })],
   ["/admin/markagarrapport/[objekt_id]", () => MarkagarObjekt({ params: Promise.resolve({ objekt_id: "1" }) })],
 ];
 

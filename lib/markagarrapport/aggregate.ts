@@ -615,6 +615,8 @@ export async function aggregateMarkagarRapport(
       bmav_count: bmavCount,
       avkap_count: avkapCount,
       grade9_count: grade9Count,
+      gran_stammar: granStammar,
+      gran_med_rot: bmavCount + avkapCount,
       pct_av_gran: granStammar > 0
         ? ((bmavCount + avkapCount) / granStammar) * 100
         : 0,
