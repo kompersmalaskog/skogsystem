@@ -1,10 +1,9 @@
 'use client'
+import { AVSTAND, TYP, VIKT, RADIE, medSafeBotten, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'
 
 import { useEffect, useState } from 'react'
 import {
-  C, FONT, fmtSv, fetchData, fetchSeries,
-  HeroCard, KpiList, TimeDistribution, AvbrottCard, initials,
-  type Maskin, type Period, type Data, type Operator, type PeriodKpi,
+  fmtSv, fetchData, fetchSeries, HeroCard, KpiList, TimeDistribution, AvbrottCard, initials, type Maskin, type Period, type Data, type Operator, type PeriodKpi,
 } from './OversiktShared'
 
 /**
@@ -115,71 +114,71 @@ export default function OperatorDeepView({
       aria-label={`Förare: ${operator.namn}`}
       style={{
         position: 'fixed', top: 'calc(56px + env(safe-area-inset-top))', left: 0, right: 0, bottom: 0,
-        overflow: 'auto', background: C.bg, color: C.text,
+        overflow: 'auto', background: FARG.bg, color: FARG.text,
         fontFamily: FONT, fontFeatureSettings: '"tnum"',
         transform: shown ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)',
+        transition: overgang('transform'),
         zIndex: 200,
       }}
     >
       {/* Sticky topbar: tillbaka-knapp */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg,
-        borderBottom: `0.5px solid ${C.divider}`,
-        padding: '10px 12px',
+        background: FARG.bg,
+        borderBottom: `0.5px solid ${FARG.linje}`,
+        padding: `${AVSTAND.m}px ${AVSTAND.m}px`,
       }}>
         <button
           onClick={handleClose}
           style={{
             background: 'transparent', border: 'none',
-            color: C.blue, fontFamily: FONT,
-            fontSize: 16, fontWeight: 400, letterSpacing: -0.2,
+            color: FARG.bla, fontFamily: FONT,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.normal, letterSpacing: -0.2,
             cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
-            gap: 2, padding: '6px 8px', minHeight: 36,
+            gap: AVSTAND.xs, padding: `${AVSTAND.s}px ${AVSTAND.s}px`, minHeight: 36,
           }}
           aria-label="Tillbaka till Översikt"
         >
-          <span style={{ fontSize: 22, lineHeight: 1, marginRight: 2 }}>‹</span>
+          <span style={{ fontSize: TYP.rubrik.fontSize, lineHeight: 1, marginRight: AVSTAND.xs }}>‹</span>
           Översikt
         </button>
       </div>
 
       {/* Header: avatar + namn + meta */}
       <div style={{
-        maxWidth: 720, margin: '0 auto', padding: '20px 16px 8px',
-        display: 'flex', alignItems: 'center', gap: 14,
+        ...kolumnRot('smal'), padding: `${AVSTAND.xl}px ${AVSTAND.l}px ${AVSTAND.s}px`,
+        display: 'flex', alignItems: 'center', gap: AVSTAND.l,
       }}>
         <div style={{
-          width: 52, height: 52, borderRadius: 26,
-          background: 'rgba(255,255,255,0.08)',
+          width: 52, height: 52, borderRadius: RADIE.sheet,
+          background: FARG.linje,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 17, fontWeight: 600, color: C.text, flexShrink: 0,
+          fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, flexShrink: 0,
         }}>
           {initials(operator.namn)}
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{
-            fontSize: 22, fontWeight: 600, color: C.text,
+            fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
             letterSpacing: -0.4, lineHeight: 1.15,
           }}>
             {operator.namn}
           </div>
           <div style={{
-            fontSize: 12, color: C.muted, marginTop: 4,
+            fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: 4,
             fontVariantNumeric: 'tabular-nums',
           }}>
             {periodLabel}
-            <span style={{ color: C.muted }}> · </span>
+            <span style={{ color: FARG.text2 }}> · </span>
             {loading ? '—' : `${fmtSv(data?.g15h ?? 0, 0)} G15h`}
-            <span style={{ color: C.muted }}> · </span>
+            <span style={{ color: FARG.text2 }}> · </span>
             {loading ? '—' : `${data?.dagar ?? 0} ${(data?.dagar ?? 0) === 1 ? 'dag' : 'dagar'}`}
           </div>
         </div>
       </div>
 
       {/* Innehåll — återanvänder samma kort som Översikt */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '8px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.s}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
         <HeroCard
           label="Produktivitet"
           unit="m³/G15h"

@@ -1,5 +1,5 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, RADIE, AVSTAND, TYP, VIKT, medSafeBotten, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -7,9 +7,7 @@ import { hamtaSpecialObjekt, specialPerNamn } from '@/lib/maskinvy/specialObjekt
 import { ObjektNamn } from './SpecialBadge'
 import { translateKategori } from '@/lib/avbrott-kategorier'
 import {
-  C, FONT, MASKINER, COMBO_IDS, getPeriodRange, fetchAll,
-  fmtSv, fmtTid, initials,
-  type Maskin, type Period,
+  MASKINER, COMBO_IDS, getPeriodRange, fetchAll, fmtSv, fmtTid, initials, type Maskin, type Period,
 } from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
@@ -310,16 +308,16 @@ function MetricKort({ label, value, unit, dec = 0, loading }: {
   loading: boolean
 }) {
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '14px 16px' }}>
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, fontWeight: 500 }}>{label}</div>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px` }}>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginBottom: 8, fontWeight: VIKT.halvfet }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
         <div style={{
-          fontSize: 24, fontWeight: 600, letterSpacing: -0.6,
-          color: C.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+          fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.6,
+          color: FARG.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
         }}>
           {loading ? '—' : (value !== null ? fmtSv(value, dec) : '—')}
         </div>
-        {unit && <div style={{ fontSize: 12, color: C.muted }}>{unit}</div>}
+        {unit && <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>{unit}</div>}
       </div>
     </div>
   )
@@ -373,12 +371,12 @@ function BarChart({ data, onBarClick }: {
           <>
             <line
               x1={0} y1={avgY} x2={w} y2={avgY}
-              stroke={C.muted} strokeWidth={1} strokeDasharray="3 3"
+              stroke={FARG.text2} strokeWidth={1} strokeDasharray="3 3"
               opacity={0.45}
             />
             <text
               x={w - 4} y={avgY - 4}
-              fill={C.muted} fontSize={10}
+              fill={FARG.text2} fontSize={10}
               textAnchor="end" fontFamily={FONT}
             >
               snitt {Math.round(avg).toLocaleString('sv-SE')} m³
@@ -408,7 +406,7 @@ function BarChart({ data, onBarClick }: {
                 <rect
                   x={x} y={y}
                   width={barW} height={Math.max(barH, 1)}
-                  fill={C.green} opacity={opacity}
+                  fill={FARG.gron} opacity={opacity}
                   rx={2}
                 />
               )}
@@ -423,7 +421,7 @@ function BarChart({ data, onBarClick }: {
             <text
               key={d.key + '_lbl'}
               x={x} y={H - 8}
-              fill={C.muted} fontSize={10}
+              fill={FARG.text2} fontSize={10}
               textAnchor="middle" fontFamily={FONT}
             >{d.label}</text>
           )
@@ -454,17 +452,17 @@ function Calendar({ data, onDayClick }: {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 8 }}>
         {['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'].map((d, i) => (
           <div key={i} style={{
-            fontSize: 10, color: C.muted, textAlign: 'center', fontWeight: 500,
+            fontSize: TYP.micro.fontSize, color: FARG.text2, textAlign: 'center', fontWeight: VIKT.halvfet,
             letterSpacing: 0.3,
           }}>{d}</div>
         ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
         {cells.map((c, i) => {
-          if (!c) return <div key={i} style={{ aspectRatio: '1', borderRadius: 6 }} />
+          if (!c) return <div key={i} style={{ aspectRatio: '1', borderRadius: RADIE.stapel }} />
           const hasProd = c.vol > 0
-          const bg = hasProd ? C.green : '#2c2c2e'
-          const color = hasProd ? '#08200f' : C.muted
+          const bg = hasProd ? FARG.gron : FARG.upphojt
+          const color = hasProd ? FARG.bg : FARG.text2
           return (
             <button
               key={i}
@@ -473,9 +471,9 @@ function Calendar({ data, onDayClick }: {
                 ? `${c.dayOfMonth}: ${Math.round(c.vol).toLocaleString('sv-SE')} m³`
                 : `${c.dayOfMonth}: Ej aktiv`}
               style={{
-                aspectRatio: '1', borderRadius: 6, border: 'none',
+                aspectRatio: '1', borderRadius: RADIE.stapel, border: 'none',
                 background: bg,
-                fontSize: 12, fontWeight: 600, color,
+                fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color,
                 fontFamily: FONT, cursor: 'pointer',
                 fontVariantNumeric: 'tabular-nums',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -487,17 +485,17 @@ function Calendar({ data, onDayClick }: {
         })}
       </div>
       <div style={{
-        display: 'flex', gap: 16, marginTop: 14, fontSize: 11, color: C.muted,
+        display: 'flex', gap: 16, marginTop: AVSTAND.l, fontSize: TYP.micro.fontSize, color: FARG.text2,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 10, height: 10, borderRadius: 3, background: C.green }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+          <div style={{ width: 10, height: 10, borderRadius: RADIE.stapel, background: FARG.gron }} />
           <span>Produktion</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 10, height: 10, borderRadius: 3, background: '#2c2c2e' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+          <div style={{ width: 10, height: 10, borderRadius: RADIE.stapel, background: FARG.upphojt }} />
           <span>Ej aktiv</span>
         </div>
-        <div style={{ color: C.dim, marginLeft: 'auto', fontSize: 10 }}>
+        <div style={{ color: FARG.text3, marginLeft: 'auto', fontSize: TYP.micro.fontSize }}>
           Flytt/service kommer i steg 2
         </div>
       </div>
@@ -553,44 +551,44 @@ export function PeriodDetalj({ bucket, specialNamn, onClose }: {
       aria-label={`Detalj: ${bucket.titleLabel}`}
       style={{
         position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
-        overflow: 'auto', background: C.bg, color: C.text,
+        overflow: 'auto', background: FARG.bg, color: FARG.text,
         fontFamily: FONT, fontFeatureSettings: '"tnum"',
         transform: shown ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)',
+        transition: overgang('transform'),
         zIndex: 200,
       }}
     >
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg, borderBottom: `0.5px solid ${C.divider}`,
-        padding: '10px 12px',
+        background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}`,
+        padding: `${AVSTAND.m}px ${AVSTAND.m}px`,
       }}>
         <button
           onClick={handleClose}
           style={{
             background: 'transparent', border: 'none',
-            color: C.blue, fontFamily: FONT,
-            fontSize: 16, fontWeight: 400,
+            color: FARG.bla, fontFamily: FONT,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.normal,
             cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
-            gap: 2, padding: '6px 8px', minHeight: 36,
+            gap: AVSTAND.xs, padding: `${AVSTAND.s}px ${AVSTAND.s}px`, minHeight: 36,
           }}
         >
-          <span style={{ fontSize: 22, lineHeight: 1, marginRight: 2 }}>‹</span>
+          <span style={{ fontSize: TYP.rubrik.fontSize, lineHeight: 1, marginRight: AVSTAND.xs }}>‹</span>
           Produktion
         </button>
       </div>
 
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.xl}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
         <div style={{
-          fontSize: 22, fontWeight: 600, color: C.text,
+          fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
           letterSpacing: -0.4, lineHeight: 1.15, marginBottom: 4,
         }}>{bucket.titleLabel}</div>
-        <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginBottom: AVSTAND.xl }}>
           {subtitle}
         </div>
 
         {/* KPI-rader */}
-        <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
           <KpiRow label="Volym" value={fmtSv(bucket.vol, 0)} unit="m³sub" first />
           <KpiRow label="Stammar" value={fmtSv(bucket.stammar, 0)} unit="st" />
           {isMulti && (
@@ -603,12 +601,12 @@ export function PeriodDetalj({ bucket, specialNamn, onClose }: {
 
         {/* Objekt */}
         {bucket.objektNamn.length > 0 && (
-          <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>Objekt</div>
+          <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
+            <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xs}px` }}>Objekt</div>
             {bucket.objektNamn.map((n, i) => (
               <div key={i} style={{
-                padding: '10px 16px', fontSize: 14, color: C.text,
-                borderTop: `0.5px solid ${C.divider}`,
+                padding: `${AVSTAND.m}px ${AVSTAND.l}px`, fontSize: TYP.meta.fontSize, color: FARG.text,
+                borderTop: `0.5px solid ${FARG.linje}`,
               }}><ObjektNamn namn={n} special={n in specialNamn} skal={specialNamn[n]} /></div>
             ))}
           </div>
@@ -616,47 +614,47 @@ export function PeriodDetalj({ bucket, specialNamn, onClose }: {
 
         {/* Förare */}
         {bucket.forareNamn.length > 0 && (
-          <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>Förare</div>
+          <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
+            <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xs}px` }}>Förare</div>
             {bucket.forareNamn.map((n, i) => (
               <div key={i} style={{
                 display: 'flex', alignItems: 'center', gap: 12,
-                padding: '10px 16px',
-                borderTop: `0.5px solid ${C.divider}`,
+                padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
+                borderTop: `0.5px solid ${FARG.linje}`,
               }}>
                 <div style={{
-                  width: 30, height: 30, borderRadius: 15,
-                  background: 'rgba(255,255,255,0.08)',
+                  width: 30, height: 30, borderRadius: RADIE.kort,
+                  background: FARG.linje,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 11, fontWeight: 500, color: C.text,
+                  fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
                 }}>{initials(n)}</div>
-                <span style={{ fontSize: 14 }}>{n}</span>
+                <span style={{ fontSize: TYP.meta.fontSize }}>{n}</span>
               </div>
             ))}
           </div>
         )}
 
         {/* Avbrott */}
-        <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>Avbrott</div>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
+          <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xs}px` }}>Avbrott</div>
           {bucket.avbrott.length === 0 ? (
-            <div style={{ padding: '8px 16px 14px', fontSize: 13, color: C.muted }}>
+            <div style={{ padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.l}px`, fontSize: TYP.meta.fontSize, color: FARG.text2 }}>
               Inga avbrott registrerade
             </div>
           ) : bucket.avbrott.map((a, i) => (
             <div key={i} style={{
               display: 'grid', gridTemplateColumns: '8px 1fr auto auto',
-              gap: 10, alignItems: 'center',
-              padding: '10px 16px',
-              borderTop: `0.5px solid ${C.divider}`,
+              gap: AVSTAND.m, alignItems: 'center',
+              padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
+              borderTop: `0.5px solid ${FARG.linje}`,
             }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: C.red, opacity: 0.7 }} />
-              <div style={{ fontSize: 14, color: C.text }}>{translateKategori(a.kategori)}</div>
-              <div style={{ fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+              <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.rod, opacity: 0.7 }} />
+              <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text }}>{translateKategori(a.kategori)}</div>
+              <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
                 {a.antal} {a.antal === 1 ? 'gång' : 'ggr'}
               </div>
               <div style={{
-                fontSize: 14, fontWeight: 500, color: C.text,
+                fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
                 fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right',
               }}>{fmtTid(a.sek)}</div>
             </div>
@@ -674,16 +672,16 @@ function KpiRow({ label, value, unit, first }: {
     <div style={{
       display: 'grid', gridTemplateColumns: '1fr auto',
       gap: 12, alignItems: 'baseline',
-      padding: '14px 16px',
-      borderTop: first ? 'none' : `0.5px solid ${C.divider}`,
+      padding: `${AVSTAND.l}px ${AVSTAND.l}px`,
+      borderTop: first ? 'none' : `0.5px solid ${FARG.linje}`,
     }}>
-      <div style={{ fontSize: 15, color: C.text }}>{label}</div>
+      <div style={{ fontSize: TYP.text.fontSize, color: FARG.text }}>{label}</div>
       <div style={{
-        fontSize: 16, fontWeight: 500, color: C.text,
+        fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
         fontVariantNumeric: 'tabular-nums', textAlign: 'right',
       }}>
         {value}
-        <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{unit}</span>
+        <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginLeft: 4, fontWeight: VIKT.normal }}>{unit}</span>
       </div>
     </div>
   )
@@ -760,33 +758,33 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
   return (
     <div style={{
       position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
-      overflow: 'auto', background: C.bg, color: C.text,
+      overflow: 'auto', background: FARG.bg, color: FARG.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
     }}>
       {/* ── Sticky header ── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg, borderBottom: `0.5px solid ${C.divider}`,
+        background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}`,
       }}>
         {/* Topbar: maskinnamn centrerat (samma mönster som OversiktNy) */}
-        <div style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
+        <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
-              background: 'transparent', border: 'none', color: C.text,
-              fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
-              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'transparent', border: 'none', color: FARG.text,
+              fontFamily: FONT, fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.3,
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s,
               padding: 0,
             }}
           >
             {maskin.namn}
-            <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
+            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
           {maskinOpen && (
             <div style={{
               position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-              background: C.card, borderRadius: 12, marginTop: 6,
+              background: FARG.kort, borderRadius: RADIE.kort, marginTop: AVSTAND.s,
               minWidth: 260, overflow: 'hidden', zIndex: 100,
               boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
             }}>
@@ -796,9 +794,9 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
                   onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
-                    background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
-                    border: 'none', color: C.text, fontFamily: FONT,
-                    fontSize: 14, cursor: 'pointer', textAlign: 'left',
+                    background: m.id === maskin.id ? FARG.linje : 'transparent',
+                    border: 'none', color: FARG.text, fontFamily: FONT,
+                    fontSize: TYP.meta.fontSize, cursor: 'pointer', textAlign: 'left',
                   }}
                 >{m.namn}</button>
               ))}
@@ -816,12 +814,12 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
             aria-label="Föregående period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: C.muted, fontSize: 22, cursor: 'pointer', fontFamily: FONT,
+              color: FARG.text2, fontSize: TYP.rubrik.fontSize, cursor: 'pointer', fontFamily: FONT,
             }}
           >‹</button>
           <div style={{
             minWidth: 180, textAlign: 'center',
-            fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: -0.3,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, letterSpacing: -0.3,
           }}>{label}</div>
           <button
             onClick={() => setOffset(o => Math.min(o + 1, 0))}
@@ -829,27 +827,27 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
             aria-label="Nästa period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: offset >= 0 ? C.dim : C.muted, fontSize: 22,
+              color: offset >= 0 ? FARG.text3 : FARG.text2, fontSize: TYP.rubrik.fontSize,
               cursor: offset >= 0 ? 'default' : 'pointer', fontFamily: FONT,
             }}
           >›</button>
         </div>
 
         {/* V/M/K/Å segmented control */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 16px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: `${AVSTAND.xs}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
           <div style={{
-            display: 'inline-flex', background: 'rgba(120,120,128,0.16)',
-            borderRadius: 10, padding: 2,
+            display: 'inline-flex', background: FARG.linje,
+            borderRadius: RADIE.kort, padding: AVSTAND.xs,
           }}>
             {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
               <button
                 key={p}
                 onClick={() => { setPeriod(p); setOffset(0) }}
                 style={{
-                  minWidth: 58, padding: '7px 18px', border: 'none', borderRadius: 8,
-                  background: period === p ? '#3a3a3c' : 'transparent',
-                  color: period === p ? C.text : C.muted,
-                  fontSize: 13, fontWeight: period === p ? 600 : 500,
+                  minWidth: 58, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.rad,
+                  background: period === p ? FARG.fyllning : 'transparent',
+                  color: period === p ? FARG.text : FARG.text2,
+                  fontSize: TYP.meta.fontSize, fontWeight: period === p ? VIKT.halvfet : VIKT.halvfet,
                   fontFamily: FONT, cursor: 'pointer',
                 }}
               >{p}</button>
@@ -859,11 +857,11 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
       </div>
 
       {/* ── Innehåll ── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '14px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.l}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
         {/* Kontextrad */}
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 10, marginBottom: 14,
+          gap: AVSTAND.m, marginBottom: AVSTAND.l,
         }}>
           <MetricKort label="m³ totalt"  value={data?.totalVolym ?? null}      unit="m³sub"  loading={loading} />
           <MetricKort label="Arbetsdagar" value={data?.arbetsdagar ?? null}     unit={arbetsdagarUnit} loading={loading} />
@@ -871,14 +869,14 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
         </div>
 
         {/* Stapeldiagram */}
-        <div style={{ background: C.card, borderRadius: 14, padding: '14px 14px', marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 8, padding: '0 4px' }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: AVSTAND.l }}>
+          <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: 8, padding: '0 4px' }}>
             {barTitle}
           </div>
           {loading ? (
             <div style={{
               height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: C.dim, fontSize: 11,
+              color: FARG.text3, fontSize: TYP.micro.fontSize,
             }}>—</div>
           ) : (
             <BarChart
@@ -889,23 +887,23 @@ export default function ProduktionNy({ maskin, onMaskinChange }: {
         </div>
 
         {/* Kalender — alltid daglig, oavsett period */}
-        <div style={{ background: C.card, borderRadius: 14, padding: '14px 16px 16px', marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12 }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: AVSTAND.l }}>
+          <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: 12 }}>
             Aktivitet
           </div>
           {loading ? (
             <div style={{
               height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: C.dim, fontSize: 11,
+              color: FARG.text3, fontSize: TYP.micro.fontSize,
             }}>—</div>
           ) : calendarData.length > 100 ? (
             <div style={{
               height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexDirection: 'column', gap: 6,
-              color: C.dim, fontSize: 12, textAlign: 'center',
+              flexDirection: 'column', gap: AVSTAND.s,
+              color: FARG.text3, fontSize: TYP.meta.fontSize, textAlign: 'center',
             }}>
               <div>Årsvyns kalender</div>
-              <div style={{ fontSize: 11 }}>Kommer i steg 2</div>
+              <div style={{ fontSize: TYP.micro.fontSize }}>Kommer i steg 2</div>
             </div>
           ) : (
             <Calendar data={calendarData} onDayClick={(d) => setOpenBucketKey(d)} />

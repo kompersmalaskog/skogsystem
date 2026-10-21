@@ -1,11 +1,9 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, RADIE, AVSTAND, TYP, VIKT, medSafeBotten, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useState } from 'react'
 import {
-  C, FONT, MASKINER, COMBO_IDS, getPeriodRange, fetchAll,
-  fmtSv, fmtTid,
-  type Maskin, type Period,
+  MASKINER, COMBO_IDS, getPeriodRange, fetchAll, fmtSv, fmtTid, type Maskin, type Period, FLYTT_FARG, tint,
 } from './OversiktShared'
 import { translateKategori } from '../../lib/avbrott-kategorier'
 import { G15_GRANS_SEK } from '../../lib/g15'
@@ -24,15 +22,14 @@ const TYPER = ['Underhåll', 'Störning', 'Övrigt', 'Reparation'] as const
 type Typ = typeof TYPER[number]
 
 const TYP_FARG: Record<Typ, string> = {
-  'Underhåll':  C.green,    // #30d158 — planerat
-  'Störning':   C.blue,     // #0a84ff
-  'Övrigt':     C.muted,    // #8e8e93
-  'Reparation': C.red,      // #ff453a — haveri, lyfts visuellt
+  'Underhåll':  FARG.gron,    // #30d158 — planerat
+  'Störning':   FARG.bla,     // #0a84ff
+  'Övrigt':     FARG.text2,    // #8e8e93
+  'Reparation': FARG.rod,      // #ff453a — haveri, lyfts visuellt
 }
 
 // Kategori-kod som flytt: lyfts UT ur avbrottens totaler
 const FLYTT_KATEGORI = 'Trailer transportation'
-const FLYTT_FARG = C.purple // #5e5ce6
 
 // ── Datatyper ────────────────────────────────────────────────
 type TypAgg = {
@@ -134,16 +131,16 @@ function MetricKort({
     ? '—'
     : display ?? (value !== null ? fmtSv(value, dec) : '—')
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '14px 16px' }}>
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, fontWeight: 500 }}>{label}</div>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px` }}>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginBottom: 8, fontWeight: VIKT.halvfet }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
         <div style={{
-          fontSize: 24, fontWeight: 600, letterSpacing: -0.6,
-          color: color ?? C.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+          fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.6,
+          color: color ?? FARG.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
         }}>
           {rendered}
         </div>
-        {unit && <div style={{ fontSize: 12, color: C.muted }}>{unit}</div>}
+        {unit && <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>{unit}</div>}
       </div>
     </div>
   )
@@ -157,14 +154,14 @@ function ProportionsStapel({ perTyp }: { perTyp: TypAgg[] }) {
   if (totalSek === 0) {
     return (
       <div style={{
-        height: 14, borderRadius: 4, background: 'rgba(255,255,255,0.04)',
+        height: 14, borderRadius: RADIE.stapel, background: FARG.tonad,
       }} />
     )
   }
   return (
     <div style={{
-      display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden',
-      background: 'rgba(255,255,255,0.04)', gap: 2,
+      display: 'flex', height: 14, borderRadius: RADIE.stapel, overflow: 'hidden',
+      background: FARG.tonad, gap: AVSTAND.xs,
     }}>
       {perTyp.map(t => {
         const pct = (t.sek / totalSek) * 100
@@ -205,29 +202,29 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
               style={{
                 display: 'grid',
                 gridTemplateColumns: '8px 1fr auto auto 18px',
-                gap: 10, alignItems: 'center',
+                gap: AVSTAND.m, alignItems: 'center',
                 padding: '12px 16px',
-                borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
+                borderTop: i > 0 ? `0.5px solid ${FARG.linje}` : 'none',
                 cursor: hasKat ? 'pointer' : 'default',
               }}
             >
               {/* Färgprick */}
               <div style={{
-                width: 8, height: 8, borderRadius: 2,
+                width: 8, height: 8, borderRadius: RADIE.stapel,
                 background: TYP_FARG[t.typ],
                 opacity: hasData ? 1 : 0.4,
               }} />
 
               {/* Typnamn */}
               <div style={{
-                fontSize: 14, letterSpacing: -0.1,
-                color:      showAlarm ? C.red  : (hasData ? C.text  : C.muted),
-                fontWeight: showAlarm ? 600    : 500,
+                fontSize: TYP.meta.fontSize, letterSpacing: -0.1,
+                color:      showAlarm ? FARG.rod  : (hasData ? FARG.text  : FARG.text2),
+                fontWeight: showAlarm ? VIKT.halvfet    : VIKT.halvfet,
               }}>{t.typ}</div>
 
               {/* Antal */}
               <div style={{
-                fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums',
+                fontSize: TYP.micro.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums',
                 minWidth: 50, textAlign: 'right',
               }}>
                 {loading ? '—' : `${t.antal} ${t.antal === 1 ? 'gång' : 'ggr'}`}
@@ -235,19 +232,19 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
 
               {/* Timmar */}
               <div style={{
-                fontSize: 14, fontVariantNumeric: 'tabular-nums',
+                fontSize: TYP.meta.fontSize, fontVariantNumeric: 'tabular-nums',
                 minWidth: 60, textAlign: 'right',
-                color:      showAlarm ? C.red  : (hasData ? C.text  : C.muted),
-                fontWeight: showAlarm ? 600    : 500,
+                color:      showAlarm ? FARG.rod  : (hasData ? FARG.text  : FARG.text2),
+                fontWeight: showAlarm ? VIKT.halvfet    : VIKT.halvfet,
               }}>
                 {loading ? '—' : fmtTid(t.sek)}
               </div>
 
               {/* Chevron */}
               <div style={{
-                color: C.muted, fontSize: 13, textAlign: 'center',
+                color: FARG.text2, fontSize: TYP.meta.fontSize, textAlign: 'center',
                 transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                transition: 'transform 200ms cubic-bezier(0.32,0.72,0,1)',
+                transition: overgang('transform'),
                 opacity: hasKat ? 1 : 0,
                 lineHeight: 1,
               }}>›</div>
@@ -256,8 +253,8 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
             {/* ─ Accordion: kategorier ─ */}
             {isExpanded && hasKat && (
               <div style={{
-                background: 'rgba(255,255,255,0.025)',
-                borderTop: `0.5px solid ${C.divider}`,
+                background: FARG.tonad,
+                borderTop: `0.5px solid ${FARG.linje}`,
               }}>
                 {t.kategorier.map((k, ki) => (
                   <div
@@ -265,25 +262,25 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '1fr auto auto',
-                      gap: 10, alignItems: 'center',
-                      padding: '9px 16px 9px 36px',
+                      gap: AVSTAND.m, alignItems: 'center',
+                      padding: `${AVSTAND.s}px ${AVSTAND.l}px ${AVSTAND.s}px ${AVSTAND.xxl}px`,
                       borderTop: ki > 0
-                        ? `0.5px solid rgba(255,255,255,0.04)`
+                        ? `0.5px solid ${FARG.linje}`
                         : 'none',
                     }}
                   >
-                    <div style={{ fontSize: 13, color: C.text }}>
+                    <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text }}>
                       {translateKategori(k.kategori)}
                     </div>
                     <div style={{
-                      fontSize: 11, color: C.muted,
+                      fontSize: TYP.micro.fontSize, color: FARG.text2,
                       fontVariantNumeric: 'tabular-nums',
                       minWidth: 50, textAlign: 'right',
                     }}>
                       {k.antal} {k.antal === 1 ? 'gång' : 'ggr'}
                     </div>
                     <div style={{
-                      fontSize: 13, fontWeight: 500, color: C.text,
+                      fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
                       fontVariantNumeric: 'tabular-nums',
                       minWidth: 60, textAlign: 'right',
                     }}>
@@ -304,34 +301,34 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
 function FlyttKort({ timmar, antal }: { timmar: number; antal: number }) {
   return (
     <div style={{
-      background: C.card, borderRadius: 14, padding: '14px 16px',
-      marginBottom: 14, display: 'grid',
+      background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px`,
+      marginBottom: AVSTAND.l, display: 'grid',
       gridTemplateColumns: '34px 1fr auto auto',
       gap: 12, alignItems: 'center',
     }}>
       <div style={{
-        width: 34, height: 34, borderRadius: 17,
-        background: 'rgba(94,92,230,0.18)',
+        width: 34, height: 34, borderRadius: RADIE.sheet,
+        background: tint(FLYTT_FARG, 18),
         color: FLYTT_FARG, display: 'flex',
         alignItems: 'center', justifyContent: 'center',
-        fontSize: 16, fontWeight: 600,
+        fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet,
       }}>⇄</div>
       <div>
-        <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
+        <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text }}>
           Flytt mellan objekt
         </div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+        <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs }}>
           Trailertransport — räknas inte med i avbrotten
         </div>
       </div>
       <div style={{
-        fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums',
+        fontSize: TYP.micro.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums',
         textAlign: 'right',
       }}>
         {antal} {antal === 1 ? 'gång' : 'ggr'}
       </div>
       <div style={{
-        fontSize: 16, fontWeight: 600, color: FLYTT_FARG,
+        fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FLYTT_FARG,
         fontVariantNumeric: 'tabular-nums', minWidth: 60, textAlign: 'right',
       }}>
         {fmtTid(timmar * 3600)}
@@ -370,38 +367,38 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
   }, [maskin.namn, label])
 
   const showFlytt = !loading && (data?.flyttAntal ?? 0) > 0
-  const haveriColor = (data?.reparationTimmar ?? 0) > 0 ? C.red : undefined
+  const haveriColor = (data?.reparationTimmar ?? 0) > 0 ? FARG.rod : undefined
 
   return (
     <div style={{
       position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
-      overflow: 'auto', background: C.bg, color: C.text,
+      overflow: 'auto', background: FARG.bg, color: FARG.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
     }}>
       {/* ── Sticky header ── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg, borderBottom: `0.5px solid ${C.divider}`,
+        background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}`,
       }}>
         {/* Topbar: maskinnamn centrerat */}
-        <div style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
+        <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
-              background: 'transparent', border: 'none', color: C.text,
-              fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
-              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'transparent', border: 'none', color: FARG.text,
+              fontFamily: FONT, fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.3,
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s,
               padding: 0,
             }}
           >
             {maskin.namn}
-            <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
+            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
           {maskinOpen && (
             <div style={{
               position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-              background: C.card, borderRadius: 12, marginTop: 6,
+              background: FARG.kort, borderRadius: RADIE.kort, marginTop: AVSTAND.s,
               minWidth: 260, overflow: 'hidden', zIndex: 100,
               boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
             }}>
@@ -411,9 +408,9 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
                   onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
-                    background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
-                    border: 'none', color: C.text, fontFamily: FONT,
-                    fontSize: 14, cursor: 'pointer', textAlign: 'left',
+                    background: m.id === maskin.id ? FARG.linje : 'transparent',
+                    border: 'none', color: FARG.text, fontFamily: FONT,
+                    fontSize: TYP.meta.fontSize, cursor: 'pointer', textAlign: 'left',
                   }}
                 >{m.namn}</button>
               ))}
@@ -431,12 +428,12 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
             aria-label="Föregående period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: C.muted, fontSize: 22, cursor: 'pointer', fontFamily: FONT,
+              color: FARG.text2, fontSize: TYP.rubrik.fontSize, cursor: 'pointer', fontFamily: FONT,
             }}
           >‹</button>
           <div style={{
             minWidth: 180, textAlign: 'center',
-            fontSize: 16, fontWeight: 600, color: C.text, letterSpacing: -0.3,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, letterSpacing: -0.3,
           }}>{label}</div>
           <button
             onClick={() => setOffset(o => Math.min(o + 1, 0))}
@@ -444,27 +441,27 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
             aria-label="Nästa period"
             style={{
               width: 44, height: 44, border: 'none', background: 'transparent',
-              color: offset >= 0 ? C.dim : C.muted, fontSize: 22,
+              color: offset >= 0 ? FARG.text3 : FARG.text2, fontSize: TYP.rubrik.fontSize,
               cursor: offset >= 0 ? 'default' : 'pointer', fontFamily: FONT,
             }}
           >›</button>
         </div>
 
         {/* V/M/K/Å segmented control */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 16px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', padding: `${AVSTAND.xs}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
           <div style={{
-            display: 'inline-flex', background: 'rgba(120,120,128,0.16)',
-            borderRadius: 10, padding: 2,
+            display: 'inline-flex', background: FARG.linje,
+            borderRadius: RADIE.kort, padding: AVSTAND.xs,
           }}>
             {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
               <button
                 key={p}
                 onClick={() => { setPeriod(p); setOffset(0) }}
                 style={{
-                  minWidth: 58, padding: '7px 18px', border: 'none', borderRadius: 8,
-                  background: period === p ? '#3a3a3c' : 'transparent',
-                  color: period === p ? C.text : C.muted,
-                  fontSize: 13, fontWeight: period === p ? 600 : 500,
+                  minWidth: 58, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, border: 'none', borderRadius: RADIE.rad,
+                  background: period === p ? FARG.fyllning : 'transparent',
+                  color: period === p ? FARG.text : FARG.text2,
+                  fontSize: TYP.meta.fontSize, fontWeight: period === p ? VIKT.halvfet : VIKT.halvfet,
                   fontFamily: FONT, cursor: 'pointer',
                 }}
               >{p}</button>
@@ -474,11 +471,11 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
       </div>
 
       {/* ── Innehåll ── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '14px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.l}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
         {/* Kontextrad */}
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 10, marginBottom: 14,
+          gap: AVSTAND.m, marginBottom: AVSTAND.l,
         }}>
           <MetricKort
             label="Stopp ≥ 15 min"
@@ -509,9 +506,9 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
         )}
 
         {/* Avbrottskort */}
-        <div style={{ background: C.card, borderRadius: 14, padding: '16px 18px 12px', marginBottom: 14 }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px`, marginBottom: AVSTAND.l }}>
           <div style={{
-            fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14,
+            fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: AVSTAND.l,
             padding: '0 0 0',
           }}>
             Vad stoppade maskinen
@@ -520,8 +517,8 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
           {/* Proportionsstapel */}
           {loading ? (
             <div style={{
-              height: 14, borderRadius: 4,
-              background: 'rgba(255,255,255,0.04)', marginBottom: 16,
+              height: 14, borderRadius: RADIE.stapel,
+              background: FARG.tonad, marginBottom: 16,
             }} />
           ) : (
             <div style={{ marginBottom: 16 }}>
@@ -530,12 +527,12 @@ export default function AvbrottNy({ maskin, onMaskinChange }: {
           )}
 
           {/* Typ-lista */}
-          <div style={{ margin: '0 -18px 0' }}>
+          <div style={{ margin: `0 ${AVSTAND.l}px 0` }}>
             <TypList perTyp={data?.perTyp ?? TYPER.map(t => ({ typ: t, sek: 0, antal: 0, kategorier: [] }))} loading={loading} />
           </div>
 
           {/* G15-fotnot: hemflytten synlig och begriplig — inget tyst filter */}
-          <div style={{ fontSize: 11, color: C.muted, padding: '10px 0 2px' }}>
+          <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, padding: `${AVSTAND.m}px 0 ${AVSTAND.xs}px` }}>
             Stopp under 15 min räknas som korta pauser (se Översikt)
           </div>
         </div>

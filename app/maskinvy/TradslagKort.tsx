@@ -1,9 +1,10 @@
 'use client'
+import { TYP, VIKT, RADIE, AVSTAND, FARG, FONT } from '@/lib/design/tokens'
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { tradslagLabel, tradslagFarg } from '@/lib/tradslag'
-import { C, FONT, COMBO_IDS, fetchAll, fmtSv, getPeriodRange, type Maskin, type Period } from './OversiktShared'
+import { COMBO_IDS, fetchAll, fmtSv, getPeriodRange, type Maskin, type Period } from './OversiktShared'
 import { byggHinkar, type Hink } from './FlertradKort'
 
 // ─────────────────────────────────────────────────────────────
@@ -80,41 +81,41 @@ export default function TradslagKort({ maskin, period, offset }: { maskin: Maski
   // Säg det, i stället för att visa "Okänt trädslag 100 %" som om det vore data.
   const saknarKolumn = !loading && !fel && total.total > 0 && total.andelar.length === 1 && total.andelar[0].namn === OKANT
 
-  const rubrik: CSSProperties = { fontSize: 11, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }
+  const rubrik: CSSProperties = { fontSize: TYP.micro.fontSize, color: FARG.text2, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: VIKT.fet }
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '14px 18px 12px', marginBottom: 12, fontFamily: FONT }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px`, marginBottom: 12, fontFamily: FONT }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.m }}>
         <span style={rubrik}>Trädslag</span>
         {!loading && !fel && total.total > 0 && (
-          <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>{fmtSv(total.total)} m³</span>
+          <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>{fmtSv(total.total)} m³</span>
         )}
       </div>
 
       {loading ? (
-        <div style={{ fontSize: 14, color: C.muted }}>Läser produktion …</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Läser produktion …</div>
       ) : fel ? (
-        <div style={{ fontSize: 14, color: C.muted }}>Kunde inte läsa trädslag — ladda om sidan.</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Kunde inte läsa trädslag — ladda om sidan.</div>
       ) : tomt ? (
-        <div style={{ fontSize: 14, color: C.muted }}>Ingen produktion i perioden.</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Ingen produktion i perioden.</div>
       ) : saknarKolumn ? (
-        <div style={{ fontSize: 13, color: C.muted }}>Trädslag saknas i svaret — funktionen maskindata_produktion behöver kolumnen tradslag_id (migration 20260912).</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Trädslag saknas i svaret — funktionen maskindata_produktion behöver kolumnen tradslag_id (migration 20260912).</div>
       ) : (
         <>
           {/* Fördelning i text — namn + procent, färgen bara förstärker */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginBottom: 10 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginBottom: AVSTAND.m }}>
             {total.andelar.map(a => (
-              <span key={a.namn} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.text }}>
-                <span style={{ width: 9, height: 9, borderRadius: 2, background: a.farg, flexShrink: 0 }} />
+              <span key={a.namn} style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s, fontSize: TYP.meta.fontSize, color: FARG.text }}>
+                <span style={{ width: 9, height: 9, borderRadius: RADIE.stapel, background: a.farg, flexShrink: 0 }} />
                 {a.namn}
-                <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtSv(a.andel * 100, 0)} %</span>
+                <span style={{ fontWeight: VIKT.fet, fontVariantNumeric: 'tabular-nums' }}>{fmtSv(a.andel * 100, 0)} %</span>
               </span>
             ))}
           </div>
           {/* 100 %-stapel för perioden */}
-          <div style={{ display: 'flex', height: 12, borderRadius: 3, overflow: 'hidden', gap: 1 }}>
+          <div style={{ display: 'flex', height: 12, borderRadius: RADIE.stapel, overflow: 'hidden' }}>
             {total.andelar.map(a => (
-              <div key={a.namn} title={`${a.namn} ${fmtSv(a.volym)} m³`} style={{ width: `${a.andel * 100}%`, background: a.farg }} />
+              <div key={a.namn} title={`${a.namn} ${fmtSv(a.volym)} m³`} style={{ width: `${a.andel * 100}%`, background: a.farg, boxSizing: 'border-box', borderLeft: `1px solid ${FARG.bg}` }} />
             ))}
           </div>
           <Staplar rader={perHink} period={period} />
@@ -130,19 +131,19 @@ function Staplar({ rader, period }: { rader: { hink: Hink; total: number; andela
   const H = 70
   const tat = rader.length > 14
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
+    <div style={{ marginTop: AVSTAND.l }}>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginBottom: 8 }}>
         {period === 'V' || period === 'M' ? 'Per dag' : period === 'K' ? 'Per vecka' : 'Per månad'} · andel av dagens volym
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: tat ? 2 : 6, height: H + 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: tat ? AVSTAND.xs : AVSTAND.s, height: H + 20 }}>
         {rader.map(r => (
           <div key={r.hink.key} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-            <div style={{ width: '100%', maxWidth: 36, height: r.total > 0 ? H : 0, display: 'flex', flexDirection: 'column-reverse', borderRadius: 3, overflow: 'hidden', gap: 1 }}>
+            <div style={{ width: '100%', maxWidth: 36, height: r.total > 0 ? H : 0, display: 'flex', flexDirection: 'column-reverse', borderRadius: RADIE.stapel, overflow: 'hidden' }}>
               {r.andelar.map(a => (
-                <div key={a.namn} title={`${a.namn} ${fmtSv(a.andel * 100, 0)} %`} style={{ height: `${a.andel * 100}%`, background: a.farg }} />
+                <div key={a.namn} title={`${a.namn} ${fmtSv(a.andel * 100, 0)} %`} style={{ height: `${a.andel * 100}%`, background: a.farg, boxSizing: 'border-box', borderTop: `1px solid ${FARG.bg}` }} />
               ))}
             </div>
-            <div style={{ fontSize: 10, color: C.muted, marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+            <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.s, whiteSpace: 'nowrap', overflow: 'hidden' }}>
               {tat && period === 'M' && Number(r.hink.label) % 5 !== 1 ? '' : r.hink.label}
             </div>
           </div>
