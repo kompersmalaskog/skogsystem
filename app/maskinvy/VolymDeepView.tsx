@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { tradslagFargNeutral, tradslagLabel } from '@/lib/tradslag'
+import { tradslagFarg, tradslagLabel } from '@/lib/tradslag'
 import {
   C, FONT, COMBO_IDS, fetchAll, fmtSv, getPeriodRange,
   type Maskin, type Period,
@@ -63,7 +63,7 @@ async function fetchVolymPerTradslag(
       stammar: v.stammar,
       andel:   totalVolym > 0 ? v.volym / totalVolym : 0,
       // Appens EN trädslagspalett — samma färg för Gran här som i uppföljningen.
-      farg:    tradslagFargNeutral(namn, i),
+      farg:    tradslagFarg(namn, i),
     }))
 }
 
