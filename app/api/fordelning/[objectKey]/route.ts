@@ -11,7 +11,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import type { ObjektVy } from "@/lib/hpr/vy";
-import { arAktuell, delarStammer, lasTrakt, medLevandeMeta, raknaOchSparaVy } from "@/lib/hpr/vy-lager";
+import { arAktuell, arExkluderad, delarStammer, lasExkluderade, lasTrakt, medLevandeMeta, raknaOchSparaVy } from "@/lib/hpr/vy-lager";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -49,6 +49,11 @@ export async function GET(
   let trakt;
   try {
     trakt = await lasTrakt(supabase, objectKey);
+    // Exkluderat objekt (dim_objekt.exkludera) har ingen aptering att visa.
+    const exkluderade = await lasExkluderade(supabase);
+    if (trakt && trakt.delar.some((d) => arExkluderad(d, exkluderade))) {
+      return NextResponse.json({ error: "Objektet är exkluderat" }, { status: 404 });
+    }
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }

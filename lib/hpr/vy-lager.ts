@@ -171,6 +171,41 @@ export async function raknaOchSparaVy(
   return vy;
 }
 
+/** En rad ur dim_objekt med exkludera = true (satt i /redigering, "Exkludera från statistik"). */
+export interface ExkluderatObjekt {
+  objekt_id: string;
+  maskin_id: string | null;
+  object_name: string | null;
+}
+
+/**
+ * Är det här apteringsobjektet exkluderat? Samma flagga som alla andra vyer
+ * läser (lib/objekt/exkludera, dim_objekt.exkludera). Fil-objektet bär maskin
+ * och Ponsses objektnummer, dim_objekt ofta kontraktsnumret — så det räcker att
+ * ett exkluderat objekt på SAMMA maskin har samma namn, eller id:t
+ * <maskin>_<objektnummer>. Martin 2026-10-21: "Flyttobjekt" (Giant körde av
+ * misstag på det) ska inte synas i apteringen.
+ */
+export function arExkluderad(o: Pick<ObjektMeta, "object_key" | "object_name">, exkluderade: ExkluderatObjekt[]): boolean {
+  const [maskin, nr] = o.object_key.split(":");
+  const namn = o.object_name?.trim();
+  return exkluderade.some(
+    (e) =>
+      e.maskin_id === maskin &&
+      ((!!namn && e.object_name?.trim() === namn) || e.objekt_id === `${maskin}_${nr}`)
+  );
+}
+
+/** Läs de exkluderade objekten. Ett läsfel kastar — en tyst tom lista skulle visa exkluderat som riktigt. */
+export async function lasExkluderade(supabase: SupabaseClient): Promise<ExkluderatObjekt[]> {
+  const { data, error } = await supabase
+    .from("dim_objekt")
+    .select("objekt_id,maskin_id,object_name")
+    .eq("exkludera", true);
+  if (error) throw new Error(`dim_objekt: ${error.message}`);
+  return (data ?? []) as ExkluderatObjekt[];
+}
+
 export interface Lista {
   /** Kort att visa; `uppdateras` = siffrorna är från förra filen, ny räknas. */
   objekt: (ObjektKort & { uppdateras: boolean })[];
@@ -188,8 +223,10 @@ export function byggLista(
   objekt: ObjektMeta[],
   medMal: Set<string>,
   lagrade: LagradRad[],
-  nu: Date
+  nu: Date,
+  exkluderade: ExkluderatObjekt[] = []
 ): Lista {
+  objekt = objekt.filter((o) => !arExkluderad(o, exkluderade));
   const perNyckel = new Map(lagrade.map((r) => [r.object_key, r]));
   const perObjekt = new Map(objekt.map((o) => [o.object_key, o]));
   const ut: Lista = { objekt: [], vantar: [], inaktuella: [] };
@@ -227,6 +264,7 @@ export async function lasLista(supabase: SupabaseClient, nu: Date): Promise<List
     supabase.from("products").select("object_key").eq("distribution_allowed", true),
     supabase.from("fordelning_vy").select("object_key,last_file_at,version,kort"),
   ]);
+  const exkluderade = await lasExkluderade(supabase);
   if (obj.error) throw new Error(`harvest_objects: ${obj.error.message}`);
   if (mal.error) throw new Error(`products: ${mal.error.message}`);
   if (lagr.error) throw new Error(`fordelning_vy: ${lagr.error.message}`);
@@ -234,6 +272,7 @@ export async function lasLista(supabase: SupabaseClient, nu: Date): Promise<List
     (obj.data ?? []) as ObjektMeta[],
     new Set((mal.data ?? []).map((p) => p.object_key as string)),
     (lagr.data ?? []) as LagradRad[],
-    nu
+    nu,
+    exkluderade
   );
 }

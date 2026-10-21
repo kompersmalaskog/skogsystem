@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { arAktuell, byggLista, delarStammer, sammaTid, tillKort, VY_VERSION, type LagradRad, type ObjektKort, type ObjektMeta } from "./vy-lager";
+import { arAktuell, arExkluderad, byggLista, delarStammer, sammaTid, tillKort, VY_VERSION, type LagradRad, type ObjektKort, type ObjektMeta } from "./vy-lager";
 import { readFileSync } from "fs";
 
 const kort = (key: string, lage: 1 | 2, volym: number): ObjektKort => ({
@@ -104,6 +104,26 @@ describe("byggLista — en trakt av flera objekt (sammaTrakt)", () => {
   it("mål på bara en del räcker för att trakten visas", () => {
     const l = byggLista(delar, new Set(["G:134"]), [], NU);
     expect(l.vantar).toEqual([{ objectKey: "G:133", objektNamn: B, status: "completed" }]);
+  });
+});
+
+describe("exkluderade objekt (dim_objekt.exkludera) syns inte", () => {
+  // Prod 2026-10-21: Giantens Flyttobjekt är PONS20SDJAA270231:6 i filen och 20250731 i dim_objekt.
+  const EXKL = [{ objekt_id: "20250731", maskin_id: "PONS20SDJAA270231", object_name: "Flyttobjekt" }];
+  const flytt = { object_key: "PONS20SDJAA270231:6", object_name: "Flyttobjekt", status: "active" as const, last_file_at: "2026-10-21T10:15:16Z" };
+  const skal = { object_key: "PONS20SDJAA270231:137", object_name: "Skälviken RP J-Hus -25", status: "active" as const, last_file_at: "2026-10-21T13:42:24Z" };
+
+  it("samma maskin och namn, eller id:t <maskin>_<nr>, är exkluderat", () => {
+    expect(arExkluderad(flytt, EXKL)).toBe(true);
+    expect(arExkluderad(skal, EXKL)).toBe(false);
+    expect(arExkluderad({ object_key: "R64428:6", object_name: "Flyttobjekt" }, EXKL)).toBe(false); // annan maskin
+    expect(arExkluderad({ object_key: "G:71", object_name: "Annat namn" }, [{ objekt_id: "G_71", maskin_id: "G", object_name: "x" }])).toBe(true);
+  });
+
+  it("varken kort, väntan eller räkning för ett exkluderat objekt", () => {
+    const l = byggLista([flytt, skal], new Set([flytt.object_key, skal.object_key]), [], NU, EXKL);
+    expect(l.vantar.map((v) => v.objectKey)).toEqual([skal.object_key]);
+    expect(l.inaktuella).toEqual([skal.object_key]);
   });
 });
 
