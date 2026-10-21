@@ -147,9 +147,10 @@ describe('inga kopior av glyfer, former och färger', () => {
       expect(t, f).not.toMatch(/#e8832a|#FFA726/i);
     }
   });
-  it('Tall-pricken i markägarrapportens karta är TALL_FARG (inte #ff9500)', () => {
-    expect(lasa('components/markagarrapport/SkogenKarta.tsx')).not.toContain('#ff9500\'');
-    expect(lasa('components/markagarrapport/SkogenKarta.tsx')).toContain('COLOR_TALL    = TALL_FARG');
+  it('markägarrapportens karta tar ALLA trädslagsfärger ur paletten (lib/tradslag), ingen egen hex', () => {
+    const t = lasa('components/markagarrapport/SkogenKarta.tsx');
+    expect(t).toContain('tradslagFarg(tradslagLabel(t))');
+    for (const hex of ['#ff9500', '#34c759', '#d4c5a0', '#b22222']) expect(t.toLowerCase()).not.toContain(hex);
   });
   it('GROT har EN färg, den bruna (#8B5E3C): ingen grot-cirkel eller grot-lista i amber', () => {
     expect(GROT_FARG).toBe('#8B5E3C');

@@ -130,3 +130,20 @@ describe('PdfForhandsvisning', () => {
     expect(panel.style.top).toContain('safe-area-inset-top')
   })
 })
+
+describe('PdfForhandsvisning — flera sidor', () => {
+  it('visar VARJE sida under varandra, inte bara den första', async () => {
+    m.getDocument.mockReturnValue({
+      promise: Promise.resolve({
+        numPages: 3,
+        getPage: async () => ({ getViewport: ({ scale }: { scale: number }) => ({ width: 595 * scale, height: 842 * scale }), render: m.render }),
+        destroy: m.destroy,
+      }),
+    })
+    await monter(<PdfForhandsvisning skapa={async () => PDF} filnamn="x" titel="x" onStang={() => {}} />)
+    await tick(20)
+    expect(m.render).toHaveBeenCalledTimes(3)
+    const sidor = cont.querySelectorAll('[data-pdf-sidor] canvas')
+    expect(Array.from(sidor).map(c => c.getAttribute('aria-label'))).toEqual(['Sida 1 av 3', 'Sida 2 av 3', 'Sida 3 av 3'])
+  })
+})

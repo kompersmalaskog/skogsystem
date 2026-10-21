@@ -55,6 +55,12 @@ Förväntade siffror i originalprompten
 (375 461 / −16 640 / +2 240) var överslag,
 inte DB-verifierade. Felsök inte mot dem.
 
+## Markägarrapport — omtag 2026-10-21
+Rapporten omgjord så att ett barn förstår och på appens design (tokens, `Sektion`, `Rad`, `Ark`); tre storlekar (telefon, iPad, dator med listan bredvid). Se CLAUDE.md, raden `/admin/markagarrapport`.
+- Husjönäs i nya vyn: 433 163 kr · 678 m³ · 1 349 träd; virket 56/20/22/2 %; 924 granar, 359 tallar, 66 löv; "3 av 4 granar var friska" (235 av 924); rötan kostade −26 382 kr (visades inte förut), föraren sparade +2 597 kr.
+- **Kvar att göra:** Dela som PDF (egen PR). Volymen per sortimentgrupp i nya vyn är aggregate.ts:s fördelning — kontrollerad mot `detalj_stock` i prod (Timmer 378,8 · Kubb 138,6 · Massa 146,8 · Energi 12,4 · Övrigt 1,8), inte mot en körning av aggregate.ts.
+- **Data:** Husjönäs saknar `objekt.areal`, därför ingen yta i rapporten.
+
 ## Markägarrapport — framtida tillägg
 
 ### Naturhänsyn på kartan

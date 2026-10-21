@@ -11,7 +11,7 @@ import { AVSTAND, FARG, KNAPP, KOLUMN, RADIE, TYP, medSafeBotten } from "@/lib/d
  *  - Esc och tryck utanför stänger (mus/tangentbord på kontoret, finger i maskinen — samma ark).
  * Kräver `designCss` på vyns rot (`.tona-opacity`, `.sheet-upp`).
  */
-export default function Ark({ rubrik, onStang, fot, children }: { rubrik: string; onStang: () => void; fot?: ReactNode; children: ReactNode }) {
+export default function Ark({ rubrik, onStang, fot, stang = "Avbryt", children }: { rubrik: string; onStang: () => void; fot?: ReactNode; /** Stängknappens ord: "Avbryt" i ett formulär, "Klar" i ett ark man bara läser. */ stang?: "Avbryt" | "Klar"; children: ReactNode }) {
   useEffect(() => {
     const t = (e: KeyboardEvent) => { if (e.key === "Escape") onStang(); };
     document.addEventListener("keydown", t);
@@ -28,7 +28,7 @@ export default function Ark({ rubrik, onStang, fot, children }: { rubrik: string
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.s, padding: `0 ${AVSTAND.l}px`, flexShrink: 0 }}>
           <h2 style={{ margin: 0, ...TYP.rubrik, color: FARG.text }}>{rubrik}</h2>
-          <button onClick={onStang} style={KNAPP.lank}>Avbryt</button>
+          <button onClick={onStang} style={KNAPP.lank}>{stang}</button>
         </div>
         <div style={{ overflowY: "auto", flex: 1, minHeight: 0, padding: `${AVSTAND.s}px ${AVSTAND.l}px ${fot ? `${AVSTAND.l}px` : medSafeBotten(AVSTAND.xl)}` }}>
           {children}
