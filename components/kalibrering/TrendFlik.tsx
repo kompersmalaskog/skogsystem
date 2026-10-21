@@ -84,6 +84,7 @@ function LageTal({ d }: { d: KalibreringData }) {
             </Fyll>
           ) : (
             <>
+              <Fyll><Meta>90 dagar före · mot allt efter</Meta></Fyll>
               {feRader.map((f, i) => (
                 <Rad key={f.key} titel={f.fraga} sista={i === feRader.length - 1}
                   hoger={<>{f.r.fore == null ? '–' : f.fmt(f.r.fore)} → <b style={{ fontWeight: TYP.rubrik.fontWeight }}>{f.r.efter == null ? '–' : f.fmt(f.r.efter)}</b></>}
