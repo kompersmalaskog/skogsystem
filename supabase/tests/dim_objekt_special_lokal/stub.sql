@@ -1,4 +1,4 @@
--- Minimal dim_objekt för att köra migrationen 20261021150000_dim_objekt_special.sql lokalt.
+-- Minimal dim_objekt för att köra migrationen 20261021164434_dim_objekt_special.sql lokalt.
 create table public.dim_objekt (
   objekt_id text primary key,
   object_name text,

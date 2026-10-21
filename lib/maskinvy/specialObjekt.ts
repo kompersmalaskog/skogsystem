@@ -5,7 +5,7 @@
 // framtida prestandajämförelser ska kunna utesluta objekten. Skild från `exkludera` (döljer ett objekt helt).
 //
 // Läsningen är ett TILLÄGG till vyn och får aldrig fälla den: går det inte att läsa (kolumnerna finns inte förrän
-// migrationen 20261021150000_dim_objekt_special.sql är körd, eller nätet/RLS ger fel) visas ingen badge och vyn
+// migrationen 20261021164434_dim_objekt_special.sql är körd, eller nätet/RLS ger fel) visas ingen badge och vyn
 // fungerar som förut. Felet loggas — det sägs inte tyst att "inga objekt är special".
 
 import { supabase } from '@/lib/supabase'

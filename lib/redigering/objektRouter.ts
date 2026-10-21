@@ -37,7 +37,7 @@ export const FALT_RUTT: Record<string, FaltRutt> = {
   // ── dim_objekt-only ──
   huvudtyp:            { dim: 'huvudtyp' },
   exkludera:           { dim: 'exkludera' },
-  // Special-objekt (migration 20261021150000_dim_objekt_special): vindfällor, stormskadat. Skild från exkludera.
+  // Special-objekt (migration 20261021164434_dim_objekt_special): vindfällor, stormskadat. Skild från exkludera.
   // Sparas direkt (direktSpara), aldrig via batch-listorna — utan migrationen skulle ett batch-skriv med kolumnen
   // fälla ALL objektsparning. Slås flaggan av nollas skälet i samma UPDATE (CHECK special OR skäl IS NULL).
   special:             { dim: 'special' },

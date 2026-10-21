@@ -36,5 +36,5 @@ begin
 end $$;
 
 -- 7. Migrationen går att köra igen (idempotent).
-\i supabase/migrations/20261021150000_dim_objekt_special.sql
+\i supabase/migrations/20261021164434_dim_objekt_special.sql
 select 'OK' as resultat;
