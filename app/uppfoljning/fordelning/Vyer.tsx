@@ -3,7 +3,7 @@
 /**
  * Vyer.tsx — apteringens översikt och listan "Alla objekt" (2026-10-21).
  *
- * Översikten är Apples sätt: ETT tal (senaste månadens utanför beställt i m³), staplar
+ * Översikten är Apples sätt: ETT tal (senaste månadens andel rätt längd), staplar
  * per månad, högst en höjdpunkt och vägen till listan. Inget mer. Listan är en
  * vanlig iOS-lista: sök, pågår, tysta objekt, sedan trakter per månad.
  * All logik bor i oversikt.ts; här ritas bara. Byggstenar och värden ur
@@ -16,7 +16,7 @@ import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import Ikon from '@/components/design/Ikon';
 import type { ObjektKort, VantandeObjekt } from './types';
-import { SMA_M3, byggAllaObjekt, byggOversikt, m3, manadKort, manadNamn, manadFor, smaText, type ObjektRad } from './oversikt';
+import { SMA_M3, byggAllaObjekt, byggOversikt, m3, manadKort, manadNamn, manadFor, ratt, smaText, type ObjektRad } from './oversikt';
 
 const versal = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -29,13 +29,13 @@ function Statusrad({ text }: { text: string | null }) {
 /* ─────────────────────────── Översikt ─────────────────────────── */
 
 function Staplar({ staplar, onManad }: { staplar: { manad: string; pct: number | null }[]; onManad: (m: string) => void }) {
-  const max = Math.max(1, ...staplar.map((s) => s.pct ?? 0));
   const STAPEL_H = TRAFFYTA.min + AVSTAND.xl; // 68 px yta för stapeln
   return (
-    <div role="list" aria-label="Utanför beställt per månad" style={{ display: 'flex', gap: AVSTAND.xs, marginTop: AVSTAND.l }}>
+    <div role="list" aria-label="Rätt längd per månad" style={{ display: 'flex', gap: AVSTAND.xs, marginTop: AVSTAND.l }}>
       {staplar.map((s, i) => {
         const sist = i === staplar.length - 1;
-        const etikett = s.pct == null ? `${manadNamn(s.manad)}: ingen avslutad trakt` : `${manadNamn(s.manad)}: ${s.pct} % utanför beställt`;
+        const r = ratt(s.pct);
+        const etikett = r == null ? `${manadNamn(s.manad)}: ingen avslutad trakt` : `${manadNamn(s.manad)}: ${r} % rätt`;
         return (
           <button key={s.manad} type="button" role="listitem" aria-label={etikett} disabled={s.pct == null}
             onClick={() => onManad(s.manad)} data-stapel={s.manad}
@@ -43,7 +43,7 @@ function Staplar({ staplar, onManad }: { staplar: { manad: string; pct: number |
             <div style={{ height: STAPEL_H, display: 'flex', alignItems: 'flex-end' }}>
               {s.pct == null
                 ? <div style={{ width: '100%', height: 2, background: FARG.linje }} />
-                : <div style={{ width: '100%', height: `${Math.max(4, (s.pct / max) * 100)}%`, background: sist ? FARG.text : FARG.text3, borderRadius: RADIE.stapel }} />}
+                : <div style={{ width: '100%', height: `${Math.max(4, r ?? 0)}%`, background: sist ? FARG.text : FARG.text3, borderRadius: RADIE.stapel }} />}
             </div>
             <span style={{ ...TYP.micro, color: sist ? FARG.text : FARG.text3, textAlign: 'center' }}>{manadKort(s.manad)}</span>
           </button>
@@ -53,27 +53,25 @@ function Staplar({ staplar, onManad }: { staplar: { manad: string; pct: number |
   );
 }
 
-export function OversiktVy({ kort, antalObjekt, status, onTillbaka, onAlla }: {
+export function OversiktVy({ kort, antalObjekt, status, onAlla }: {
   kort: ObjektKort[];
   antalObjekt: number;
   status: string | null;
-  onTillbaka: () => void;
   onAlla: (manad?: string) => void;
 }) {
   const o = byggOversikt(kort, new Date());
   const nuManad = manadFor(new Date().toISOString());
   return (
     <>
-      <button type="button" onClick={onTillbaka} style={{ ...KNAPP.lank }}>‹ Uppföljning</button>
-      <h1 style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.l}px`, ...TYP.titel }}>Aptering</h1>
+      <h1 style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.titel }}>Aptering</h1>
       <Statusrad text={status} />
 
       {o.senaste ? (
         <section style={{ ...KORT, marginBottom: AVSTAND.xl }} data-oversikt-tal>
-          <div style={{ ...TYP.meta, color: FARG.text2 }}>Utanför beställt i {manadNamn(o.senaste.manad, nuManad)}</div>
-          <div style={{ ...TYP.tal, marginTop: AVSTAND.s }}>{m3(o.senaste.utanforM3)}</div>
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>Rätt längd i {manadNamn(o.senaste.manad, nuManad)}</div>
+          <div style={{ ...TYP.tal, marginTop: AVSTAND.s }}>{ratt(o.senaste.pct) ?? '–'} %</div>
           <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.s }}>
-            {o.senaste.pct} % av maskinens {m3(o.senaste.volymM3)}
+            av maskinens {m3(o.senaste.volymM3)}
           </div>
           {o.staplar.length > 1 && <Staplar staplar={o.staplar} onManad={(m) => onAlla(m)} />}
         </section>
@@ -89,7 +87,7 @@ export function OversiktVy({ kort, antalObjekt, status, onTillbaka, onAlla }: {
         <Sektion rubrik="Höjdpunkt">
           <div style={{ padding: `${AVSTAND.m}px 0` }} data-hojdpunkt={o.hojdpunkt.riktning}>
             <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...TYP.meta, color: o.hojdpunkt.riktning === 'battre' ? FARG.gron : FARG.orange }}>
-              <Ikon namn={o.hojdpunkt.riktning === 'battre' ? 'trending_down' : 'trending_up'} storlek={IKON.text} farg="inherit" />
+              <Ikon namn={o.hojdpunkt.riktning === 'battre' ? 'trending_up' : 'trending_down'} storlek={IKON.text} farg="inherit" />
               {o.hojdpunkt.riktning === 'battre' ? 'Bättre' : 'Sämre'}
             </div>
             <div style={{ ...TYP.text, marginTop: AVSTAND.xs }}>{o.hojdpunkt.mening}</div>
@@ -112,8 +110,8 @@ function ObjektRadVy({ r, onOppna, sista, dampad }: { r: ObjektRad; onOppna: (k:
     <Rad
       titel={r.namn}
       under={m3(r.volymM3)}
-      hoger={r.pct == null ? '–' : <span style={{ color: r.hogt ? FARG.orange : undefined }}>{r.pct} %</span>}
-      hogerUnder={r.utanforM3 == null ? 'inget mål' : `${r.hogt ? 'högt · ' : ''}${m3(r.utanforM3)} utanför`}
+      hoger={r.pct == null ? '–' : <span style={{ color: r.hogt ? FARG.orange : undefined }}>{ratt(r.pct)} % rätt</span>}
+      hogerUnder={r.utanforM3 == null ? 'inget mål' : r.hogt ? 'lågt' : undefined}
       onTryck={() => onOppna(r.objectKey)}
       sista={sista}
       dampad={dampad}
@@ -167,7 +165,7 @@ export function AllaObjektVy({ kort, vantar, status, startManad, onTillbaka, onO
         <Sektion rubrik="Pågår">
           {l.pagar.map((r, i) => (
             <Rad key={r.objectKey} titel={r.namn} under={`${m3(r.volymM3)} hittills`}
-              hoger={r.pct != null && r.bedomdM3 >= SMA_M3 ? <span style={{ color: r.hogt ? FARG.orange : undefined }}>{r.pct} %</span> : undefined}
+              hoger={r.pct != null && r.bedomdM3 >= SMA_M3 ? <span style={{ color: r.hogt ? FARG.orange : undefined }}>{ratt(r.pct)} % rätt</span> : undefined}
               onTryck={() => onOppna(r.objectKey)} sista={i === l.pagar.length - 1} attr={{ 'data-objekt': r.objectKey }} />
           ))}
         </Sektion>
@@ -194,7 +192,7 @@ export function AllaObjektVy({ kort, vantar, status, startManad, onTillbaka, onO
         const sistaRadArSma = m.sma.length > 0;
         return (
           <div key={m.manad} id={`manad-${m.manad}`} style={{ scrollMarginTop: AVSTAND.l }}>
-            <Sektion rubrik={`${versal(manadNamn(m.manad, nuManad))}${m.pct != null ? ` · ${m.pct} % utanför` : ''}`}>
+            <Sektion rubrik={`${versal(manadNamn(m.manad, nuManad))}${m.pct != null ? ` · ${ratt(m.pct)} % rätt` : ''}`}>
               {m.rader.map((r, i) => (
                 <ObjektRadVy key={r.objectKey} r={r} onOppna={onOppna} sista={!sistaRadArSma && i === m.rader.length - 1} />
               ))}

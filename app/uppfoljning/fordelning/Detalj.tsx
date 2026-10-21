@@ -45,7 +45,7 @@ function Talet({ p }: { p: ProduktVy }) {
   }
   return (
     <section style={{ ...KORT, marginBottom: AVSTAND.xl }} data-detalj-tal>
-      <div style={{ ...TYP.meta, color: FARG.text2 }}>I beställd längd</div>
+      <div style={{ ...TYP.meta, color: FARG.text2 }}>Rätt längd</div>
       <div style={{ ...TYP.tal, marginTop: AVSTAND.s }}>{Math.round(p.gradeAutomatic)} %</div>
       <div style={{ ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.s }}>
         {m3(p.utanforM3 ?? 0)} utanför · av maskinens {m3(p.volymAutoM3)}
@@ -134,7 +134,7 @@ function NarForarenKortar({ p }: { p: ProduktVy }) {
   return (
     <div style={{ padding: `${AVSTAND.s}px 0 ${AVSTAND.m}px` }} data-forare-kortar>
       <div style={{ ...TYP.text, ...TNUM }}>
-        Alla stockar inräknat: {p.gradePct == null ? '–' : `${Math.round(p.gradePct)} %`} i beställd längd
+        Alla stockar inräknat: {p.gradePct == null ? '–' : `${Math.round(p.gradePct)} %`} rätt längd
       </div>
       {(p.guide.klen || p.guide.grov) && (
         <>

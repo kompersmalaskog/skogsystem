@@ -49,14 +49,15 @@ async function vantaTills(villkor: () => boolean) {
 const knapp = (t: string) => Array.from(behallare!.querySelectorAll('button')).find((b) => b.textContent?.includes(t))!;
 
 describe('Översikten', () => {
-  it('ett tal i m³ utanför beställt för senaste månaden, procent av volymen, och höjdpunkten när den är sann', async () => {
+  it('ett tal: andel rätt längd senaste månaden, och höjdpunkten när den är sann', async () => {
     vi.stubGlobal('fetch', vi.fn(() => svar({ objekt: OKT, vantar: [], attRakna: 0 })));
     await montera();
     await vantaTills(() => !!q('[data-oversikt-tal]'));
     const tal = q('[data-oversikt-tal]')!.textContent!;
-    expect(tal).toContain('Utanför beställt i oktober');
-    expect(tal).toContain('72 m³');          // 71 + 1 (Älmehult räknas i månadens summa)
-    expect(tal).toContain('15 % av maskinens 469 m³'); // 72 / 469
+    expect(tal).toContain('Rätt längd i oktober');
+    expect(tal).toContain('85 %');                 // 100 − 72/469 (15 %)
+    expect(tal).toContain('av maskinens 469 m³');
+    expect(text()).not.toContain('Uppföljning');   // ingen länk tillbaka på översikten
     // oktober 15 % mot aug 17 % och sep 16 % — under båda men inte 2 enheter under 16 → ingen höjdpunkt
     expect(q('[data-hojdpunkt]')).toBeNull();
     // Tysta objekt (Tjuvön) och detaljer hör inte hemma i översikten
@@ -68,7 +69,7 @@ describe('Översikten', () => {
     vi.stubGlobal('fetch', vi.fn(() => svar({ objekt: bra, vantar: [], attRakna: 0 })));
     await montera();
     await vantaTills(() => !!q('[data-hojdpunkt]'));
-    expect(q('[data-hojdpunkt="battre"]')!.textContent).toContain('Ni kapar rätt oftare i oktober än i augusti och september.');
+    expect(q('[data-hojdpunkt="battre"]')!.textContent).toContain('Mer rätt i oktober än i augusti och september.');
   });
 
   it('ett tryck på en stapel öppnar listan vid sin månad; Alla objekt öppnar listan', async () => {
@@ -85,7 +86,7 @@ describe('Översikten', () => {
     localStorage.setItem('fordelning_lista_v3', JSON.stringify({ objekt: OKT, vantar: [] }));
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
     await montera();
-    expect(q('[data-oversikt-tal]')?.textContent).toContain('72 m³');
+    expect(q('[data-oversikt-tal]')?.textContent).toContain('85 %');
     expect(text()).not.toContain('Hämtar apteringen');
   });
 
@@ -109,7 +110,7 @@ describe('Översikten', () => {
     });
     vi.stubGlobal('fetch', f);
     await montera();
-    await vantaTills(() => q('[data-oversikt-tal]')?.textContent?.includes('72 m³') ?? false);
+    await vantaTills(() => q('[data-oversikt-tal]')?.textContent?.includes('85 %') ?? false);
     expect(f).toHaveBeenCalledWith('/api/fordelning/berakna', { method: 'POST' });
     expect(localStorage.getItem('fordelning_lista_v3')).toContain('"utanforM3":71');
   });
@@ -123,7 +124,9 @@ describe('Alla objekt', () => {
     await montera();
     await vantaTills(() => text().includes('Mölleryd'));
     const t = text();
-    expect(t.indexOf('Oktober · 15 % utanför')).toBeLessThan(t.indexOf('September · 16 % utanför'));
+    expect(t.indexOf('Oktober · 85 % rätt')).toBeLessThan(t.indexOf('September · 84 % rätt'));
+    expect(q('[data-objekt="o1"]')!.textContent).toContain('85 % rätt'); // 71 av 467 utanför → 85 % rätt
+    expect(q('[data-objekt="o1"]')!.textContent).not.toContain('15 %');
     expect(t).toContain('1 liten trakt');
     expect(t).not.toContain('Älmehult');                 // hopfälld tills man trycker
     await act(async () => { q('[data-sma="2026-10"]')!.click(); });
@@ -176,7 +179,7 @@ describe('Trakten', () => {
     await montera();
     await vantaTills(() => !!q('[data-detalj-tal]'));
     const tal = q('[data-detalj-tal]')!.textContent!;
-    expect(tal).toContain('I beställd längd');
+    expect(tal).toContain('Rätt längd');
     expect(tal).toContain('84 %'); // gradeAutomatic 83,5 → 84
     expect(tal).toContain('68 m³ utanför · av maskinens 412 m³');
     expect(q('[data-forare]')!.textContent).toBe('13 av 100 stockar kortade av föraren');
@@ -197,7 +200,7 @@ describe('Trakten', () => {
     await act(async () => { q('[data-fall-ut="forare"]')!.click(); });
     expect(q('[data-matris]')).toBeNull();
     const f = q('[data-forare-kortar]')!.textContent!;
-    expect(f).toContain('Alla stockar inräknat: 85 % i beställd längd');
+    expect(f).toContain('Alla stockar inräknat: 85 % rätt längd');
     expect(f).toContain('Klena stockar → 433 cm');
   });
 });

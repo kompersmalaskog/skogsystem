@@ -200,7 +200,7 @@ function FordelningInner() {
   }
   return wrap(
     <OversiktVy kort={lista.objekt} antalObjekt={lista.objekt.length + lista.vantar.length} status={status}
-      onTillbaka={() => router.push('/uppfoljning')} onAlla={tillAlla} />
+      onAlla={tillAlla} />
   );
 }
 
