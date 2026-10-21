@@ -31,7 +31,7 @@ export function fakeKlient(db: FakeDb) {
     const kor = () => {
       const match = (r: Row) => filter.every(([k, v]) => r[k] === v);
       if (op === 'insert') {
-        const rad = { id: nyttId(t), aktiv: true, ...nytt };
+        const rad: Row = { id: nyttId(t), aktiv: true, ...nytt };
         if (t === 'inventarie_rad') rad.bestalld_tid ??= null;
         tabell(t).push(rad);
         return { data: enkel ? rad : [rad], error: null };
