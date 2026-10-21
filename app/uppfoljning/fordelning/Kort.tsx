@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import type { ObjektVy } from './types';
+import type { ObjektKort } from './types';
 
 const GREY = '#8e8e93';
 const GREY2 = '#636366';
@@ -19,7 +19,7 @@ const kommatal = (n: number) => n.toString().replace('.', ',');
 export const fmtGrad = (n: number | null) => (n == null ? '–' : `${kommatal(Math.round(n * 10) / 10)} %`);
 
 /** Avslutspåminnelse: stilla rad, aktivt objekt utan fil på 14 dagar. */
-export function Avslutsrad({ vy, onAvsluta }: { vy: ObjektVy; onAvsluta: (k: string) => void }) {
+export function Avslutsrad({ vy, onAvsluta }: { vy: ObjektKort; onAvsluta: (k: string) => void }) {
   const [busy, setBusy] = useState(false);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 10, marginBottom: 8 }}>
@@ -38,7 +38,7 @@ export function Avslutsrad({ vy, onAvsluta }: { vy: ObjektVy; onAvsluta: (k: str
 }
 
 /** Objektkort: läge 1 (tyst grå) / läge 2 (avvikelse, varningsfärg + mening). */
-export function Objektkort({ vy, onÖppna }: { vy: ObjektVy; onÖppna: (k: string) => void }) {
+export function Objektkort({ vy, onÖppna }: { vy: ObjektKort; onÖppna: (k: string) => void }) {
   const läge2 = vy.lage === 2;
   return (
     <button
@@ -59,6 +59,9 @@ export function Objektkort({ vy, onÖppna }: { vy: ObjektVy; onÖppna: (k: strin
           </span>
         )}
       </div>
+      {vy.uppdateras && (
+        <div style={{ fontSize: 13, color: GREY2, marginTop: 4 }}>Ny fil · uppdateras…</div>
+      )}
       {läge2 && vy.mening && (
         <div style={{ fontSize: 14, color: '#fff', marginTop: 10, lineHeight: 1.5 }}>{vy.mening}</div>
       )}
