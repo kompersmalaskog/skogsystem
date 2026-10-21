@@ -1539,6 +1539,171 @@ Facit att stamma av mot finns hogre upp i filen:
 Husjonas (objekt_id 11124938) = 1 349 stammar,
 678 m3sub, 433 163 kr.
 
+## STUBBEHANDLINGSPUNKTEN STYRS AV dim_objekt.stubbbehandling (2026-10-17)
+
+**Regeln före:** egenkontrollen lade till mätpunkten Stubbehandling om objektets avslutsdatum låg i maj–september, oavsett om det var gallring
+eller slutavverkning (`harStubbehandling` i `lib/egenkontroll.ts`). I prod satt 7 av 9 punkter på slutavverkningar, där vi inte stubbehandlar.
+**Regeln nu:** punkten skapas om och bara om `dim_objekt.stubbbehandling = true`. Ingen säsong, ingen reserv. Objektet nås via
+`objekt.dim_objekt_id`; saknas den söks `dim_objekt.vo_nummer = objekt.vo_nummer` och bara **exakt en träff** gäller (noll eller två träffar ger ingen
+punkt). Samma ordning som `lib/redigering/objektRouter.ts`. Ett läsfel avbryter rundstarten innan något skrivits.
+
+**DETTA ÄR ETT PLÅSTER.** Grundfelet är att `objekt.dim_objekt_id` saknas på 15 av 16 pågående rundor (bara Hössjömåla Gallring 25 har den).
+Det blockerar också **vädret** (1 av 16 rundor har väder `ok`, 9 har `saknar_skotdatum`, 6 startades före väderfunktionen) och
+**gran/tall-villkoret** på stubbehandling (trädslag nås via `dim_objekt_id` → `hpr_stammar`). Den riktiga fixen (C) är att fylla
+`objekt.dim_objekt_id`; det rör ett tiotal läsare (arbetsrapport, maskinflytt, helikopter, import, Redigering › Matchning) och är en **egen uppgift**,
+inte en del av den här PR:en. Vo-nummer-uppslaget kan tas bort när C är gjord.
+
+**Redigerings-hintet** "Säsong: skördningen avslutades … stubbehandling bör vara ja" (`RedigeringClient.tsx`) är borttaget helt: säsongen är fel grund
+oavsett typ (Toftåsa och Hössjömåla är stubbehandlade med skördningen avslutad i oktober respektive april). Fältet kommer från bokningen.
+
+### Rensning i prod — PLANERAD, EJ KÖRD (körs av Martin via MCP; Claude kör ingen DELETE)
+
+Sju punkter ligger på pågående slutavverkningsrundor. Sex är obesvarade (inga foton, inget värde). Den sjunde, **Rävemåla AU 2026**, är Martins egen
+testmätning från 2026-10-17 (85 i både `varde_bekraftat` och `tackningsgrad`, fotot taget 16:26:37,9, punkten besvarad 16:26:38,6, fotot utan position).
+De två gallringarna (Hössjömåla Gallring 25, Hålabäck gallring 2026) har rätt punkt och rörs inte. Ulfsnäs AU 2026 har 22 av 23 besvarade och går inte
+att avsluta förrän den felaktiga punkten är borta.
+
+Ordning: **1.** Förkontroll (bara läsning). **2.** SQL 3. **3.** SQL 4. **4.** Ta bort filen i Storage (se nedan). **5.** Efterkontroll (bara läsning).
+Båda DO-blocken är en transaktion: stämmer något inte rullas allt tillbaka.
+
+```sql
+-- FÖRKONTROLL (bara läsning). Ska ge: sex_traffar = 6, ravemala_ok = true, fotofil_finns = 1.
+select
+  (select count(*) from egenkontroll_punkt p
+     join egenkontroll e on e.id = p.egenkontroll_id
+     join objekt o on o.id = e.objekt_id
+    where p.id = any(array[
+    'e3bc450a-555b-4bd2-b3a8-1c54ca725449',
+    '35a00dc6-4f2b-4b81-8e4f-dc087b7531d8',
+    '0df6f127-a3d9-4e72-805c-48c41f000ddf',
+    'ba374f18-e1dc-45dc-85f7-87c243570484',
+    'd31aa450-1170-4407-a4bb-286ac966a816',
+    '14f40c18-23b3-4e25-9a0b-a4df254a7a2e'
+  ]::uuid[])
+      and p.kalla = 'fast' and p.punkt_typ = 'stubbehandling' and p.status is null and p.varde_bekraftat is null
+      and not exists (select 1 from egenkontroll_foto f where f.punkt_id = p.id)
+      and e.status = 'pagaende' and o.typ = 'slutavverkning') as sex_traffar,
+  exists (select 1 from egenkontroll_punkt
+           where id = 'c2cb0347-54d9-4f6d-ac25-ed670a02b4fc' and egenkontroll_id = 'bed3e66d-1f02-4be5-99fb-9970ce51adee'
+             and kalla = 'fast' and punkt_typ = 'stubbehandling' and status = 'ok' and varde_bekraftat = 85
+             and besvarad = '2026-10-17T16:26:38.624+00:00'::timestamptz) as ravemala_ok,
+  (select count(*) from storage.objects where bucket_id = 'egenkontroll-foto' and name = 'bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg') as fotofil_finns;
+```
+
+```sql
+-- SQL 3: de sex OBESVARADE stubbehandlingspunkterna på slutavverkningar (inga foton, inget värde).
+-- EN transaktion (DO-block): stämmer inte antalet exakt 6 rullas ALLT tillbaka.
+do $$
+declare
+  forvantade constant uuid[] := array[
+    'e3bc450a-555b-4bd2-b3a8-1c54ca725449',
+    '35a00dc6-4f2b-4b81-8e4f-dc087b7531d8',
+    '0df6f127-a3d9-4e72-805c-48c41f000ddf',
+    'ba374f18-e1dc-45dc-85f7-87c243570484',
+    'd31aa450-1170-4407-a4bb-286ac966a816',
+    '14f40c18-23b3-4e25-9a0b-a4df254a7a2e'
+  ]::uuid[];
+  n int;
+begin
+  delete from egenkontroll_punkt p
+   using egenkontroll e, objekt o
+   where p.id = any(forvantade)
+     and e.id = p.egenkontroll_id
+     and o.id = e.objekt_id
+     and p.kalla = 'fast'                    -- skydd 1: fast punkt, ingen markering
+     and p.punkt_typ = 'stubbehandling'      -- skydd 2: bara stubbehandling
+     and p.status is null                    -- skydd 3: obesvarad
+     and p.varde_bekraftat is null           -- skydd 4: inget mätvärde
+     and not exists (select 1 from egenkontroll_foto f where f.punkt_id = p.id)  -- skydd 5: inga foton
+     and e.status = 'pagaende'               -- extra: aldrig en avslutad runda
+     and o.typ = 'slutavverkning';           -- extra: aldrig en gallring
+  get diagnostics n = row_count;
+  if n <> 6 then
+    raise exception 'Väntade att radera exakt 6 punkter men raderade %. Allt rullas tillbaka.', n;
+  end if;
+end $$;
+```
+
+```sql
+-- SQL 4: Rävemåla AU 2026 — Martins egen testmätning (85 %, foto 16:26:37, punkt 16:26:38, fotot utan position).
+-- Raderar punkten och fotoraden. FILEN i bucketen tas bort separat (se STATUS.md): SQL kan inte radera storage.objects.
+-- EN transaktion (DO-block): avviker NÅGOT från det som granskats rullas ALLT tillbaka.
+do $$
+declare
+  p    constant uuid := 'c2cb0347-54d9-4f6d-ac25-ed670a02b4fc';
+  foto constant uuid := '70af7a5b-8b71-404f-9ce4-f21ddede64ba';
+  n int;
+begin
+  if not exists (select 1 from egenkontroll_punkt
+                  where id = p and egenkontroll_id = 'bed3e66d-1f02-4be5-99fb-9970ce51adee'
+                    and kalla = 'fast' and punkt_typ = 'stubbehandling'
+                    and status = 'ok' and varde_bekraftat = 85
+                    and besvarad = '2026-10-17T16:26:38.624+00:00'::timestamptz) then
+    raise exception 'Punkten är inte längre exakt den som granskats. Inget raderat.';
+  end if;
+  if not exists (select 1 from egenkontroll e where e.id = 'bed3e66d-1f02-4be5-99fb-9970ce51adee' and e.status = 'pagaende') then
+    raise exception 'Rundan är inte längre pågående. Inget raderat.';
+  end if;
+  if (select count(*) from egenkontroll_foto where punkt_id = p) <> 1
+     or not exists (select 1 from egenkontroll_foto
+                     where id = foto and punkt_id = p and tackningsgrad = 85
+                       and lat is null and lng is null
+                       and sokvag = 'bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg') then
+    raise exception 'Fotoraden är inte längre exakt den som granskats. Inget raderat.';
+  end if;
+
+  delete from egenkontroll_foto where id = foto;
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'Väntade 1 fotorad, raderade %. Allt rullas tillbaka.', n; end if;
+
+  delete from egenkontroll_punkt where id = p;
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'Väntade 1 punkt, raderade %. Allt rullas tillbaka.', n; end if;
+end $$;
+```
+
+**Filen i bucketen** (`egenkontroll-foto`, 287 776 byte, `storage.objects.id` 69bc8e02-edc7-44f6-a827-65deaf7cf2b0):
+
+    bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg
+
+**Den går INTE att ta bort med SQL.** Triggern `protect_objects_delete` (BEFORE DELETE på `storage.objects` → `storage.protect_delete()`) stoppar
+direkta DELETE, och en radering av raden skulle ändå lämna själva filen kvar. Ta bort den via Storage API: Supabase › Storage › `egenkontroll-foto` ›
+mappen `bed3e66d-…` › filen › Delete. Bucketens policy tillåter radering eftersom rundan är pågående. Gör det EFTER SQL 4 (raden först, så att
+ingenting pekar på en saknad fil), och kontrollera med efterkontrollen att `fotofil_finns = 0`. Vill man ha en kopia av bilden: ladda ner den
+innan.
+
+```sql
+-- EFTERKONTROLL (bara läsning), efter SQL 3, SQL 4 och att filen tagits bort i Storage.
+-- Ska ge: kvar_pa_slutavverkning = 0, ravemala_punkt = 0, ravemala_fotorad = 0, fotofil_finns = 0,
+--         gallringarna_kvar = 2 (Hössjömåla och Hålabäck gallring 2026 — dem rör vi inte).
+select
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'slutavverkning') as kvar_pa_slutavverkning,
+  (select count(*) from egenkontroll_punkt where id = 'c2cb0347-54d9-4f6d-ac25-ed670a02b4fc') as ravemala_punkt,
+  (select count(*) from egenkontroll_foto where id = '70af7a5b-8b71-404f-9ce4-f21ddede64ba') as ravemala_fotorad,
+  (select count(*) from storage.objects where bucket_id = 'egenkontroll-foto' and name = 'bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg') as fotofil_finns,
+  (select count(*) from egenkontroll_punkt p join egenkontroll e on e.id = p.egenkontroll_id join objekt o on o.id = e.objekt_id
+    where p.punkt_typ = 'stubbehandling' and o.typ = 'gallring') as gallringarna_kvar;
+```
+
+### Ångra
+
+Återskapar raderna exakt (bevisat före körning: `jsonb_populate_recordset` ger tillbaka samma jsonb som de levande raderna, md5 av underlagsfilerna
+81481d0e…, 58c1617c…, e2b207f7…). **Bildfilen återskapas inte** när den väl är borttagen — ladda ner den först om den ska kunna återställas.
+
+```sql
+-- ÅNGRA (återskapar raderna exakt som de var; filen i bucketen återskapas INTE, se nedan).
+-- De sex obesvarade punkterna:
+insert into egenkontroll_punkt
+select * from jsonb_populate_recordset(null::egenkontroll_punkt, $json$[{"id":"e3bc450a-555b-4bd2-b3a8-1c54ca725449","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":17,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"b44fe8e3-07e0-4ccc-8807-908ed3f8a95e","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"35a00dc6-4f2b-4b81-8e4f-dc087b7531d8","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":12,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"0ba79da8-d3c6-4458-a13f-41b3c357fa08","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"0df6f127-a3d9-4e72-805c-48c41f000ddf","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":14,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"334a3f8d-40c6-423a-a0f9-24627069fa12","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"ba374f18-e1dc-45dc-85f7-87c243570484","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":10,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"a5148685-ca02-4989-904f-e7db2da70692","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"d31aa450-1170-4407-a4bb-286ac966a816","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":15,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"813b7267-3058-4852-b800-7fbab18880fd","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null},{"id":"14f40c18-23b3-4e25-9a0b-a4df254a7a2e","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":null,"ordning":23,"besvarad":null,"kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"d276eb57-4133-4d16-a6e7-93ad9f319cf4","varde_bekraftat":null,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null}]$json$::jsonb);
+
+-- Rävemåla: punkten FÖRST, sedan fotoraden (fotoraden pekar på punkten):
+insert into egenkontroll_punkt
+select * from jsonb_populate_recordset(null::egenkontroll_punkt, $json$[{"id":"c2cb0347-54d9-4f6d-ac25-ed670a02b4fc","del":"matning","lat":null,"lng":null,"grupp":null,"kalla":"fast","rubrik":"Stubbehandling","status":"ok","ordning":26,"besvarad":"2026-10-17T16:26:38.624+00:00","kommentar":null,"punkt_typ":"stubbehandling","markering_id":null,"avvikelse_typ":null,"antal_planerat":null,"plan_kommentar":null,"egenkontroll_id":"bed3e66d-1f02-4be5-99fb-9970ce51adee","varde_bekraftat":85,"varde_foreslaget":null,"geometri_snapshot":null,"markering_marker_id":null}]$json$::jsonb);
+insert into egenkontroll_foto
+select * from jsonb_populate_recordset(null::egenkontroll_foto, $json$[{"id":"70af7a5b-8b71-404f-9ce4-f21ddede64ba","lat":null,"lng":null,"tagen":"2026-10-17T16:26:37.926+00:00","skapad":"2026-10-17T16:26:38.037692+00:00","sokvag":"bed3e66d-1f02-4be5-99fb-9970ce51adee/c2cb0347-54d9-4f6d-ac25-ed670a02b4fc-1792254396234.jpg","punkt_id":"c2cb0347-54d9-4f6d-ac25-ed670a02b4fc","provyta_id":null,"tackningsgrad":85,"egenkontroll_id":"bed3e66d-1f02-4be5-99fb-9970ce51adee"}]$json$::jsonb);
+```
+
 ## SAKNAS — LOGG OVER UTFARDADE MARKAGARRAPPORTER
 
 Det finns ingen registrering av vilka markagarrapporter
