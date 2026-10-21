@@ -53,6 +53,9 @@ export interface TraktKort {
   /** Linjekort (kategori 'linje'): gruppen (kicker) och EN mening — ur samma källa som teckenförklaringen (lib/symboler). */
   grupp?: import('./larm/grupper').FargGrupp;
   forklaring?: string;
+  /** Vidas egen text för just det här objektet ur traktdirektivet (ATGARD på en hänsynsyta/ett avlägg). Visas först bland kommentarerna, märkt "Vida · traktdirektiv", och ändras aldrig hos oss.
+   *  Traktdelens FLBESKR är bara åtgärdens namn ("Första gallring") — ingen kommentar, så den finns inte här. */
+  vidaKommentar?: string;
   rader: { etikett?: string; text: string }[];   // beskrivande textfält (åtgärd / biotop / lämningsbeskrivning)
 }
 
@@ -61,7 +64,7 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   const { kategori, kalla } = klassaTraktFeature(props);
   const arealHa = traktArealHa(props);
   const rader: { etikett?: string; text: string }[] = [];
-  let rubrik = ''; let nr = '';
+  let rubrik = ''; let nr = ''; let vidaKommentar = '';
 
   if (kategori === 'traktdel') {
     nr = txt(props.TRDEL_NR_K);
@@ -70,11 +73,11 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   } else if (kategori === 'hansyn') {
     nr = txt(props.LOPNR);
     rubrik = txt(props.FLBESKR) || 'Hänsynsyta';
-    if (txt(props.ATGARD)) rader.push({ text: txt(props.ATGARD) });
+    vidaKommentar = txt(props.ATGARD);
   } else if (kategori === 'punkt') {
     nr = txt(props.EXTRA_LABE);
     rubrik = txt(props.FLBESKR) || 'Avlägg';
-    if (txt(props.ATGARD)) rader.push({ text: txt(props.ATGARD) });
+    vidaKommentar = txt(props.ATGARD);
   } else if (kategori === 'nyckelbiotop') {
     rubrik = txt(props.Objnamn) || 'Nyckelbiotop';
     nr = txt(props.Beteckn);
@@ -88,7 +91,7 @@ export function byggTraktKort(props: Record<string, any>): TraktKort {
   } else {
     rubrik = 'Trakt-objekt';
   }
-  return { kategori, kalla, rubrik, nr, arealHa, rader };
+  return { kategori, kalla, rubrik, nr, arealHa, rader, ...(vidaKommentar ? { vidaKommentar } : {}) };
 }
 
 /** Stabil yta-nyckel för per-yta-anteckning (tabell objekt_yta_anteckning). Måste ÖVERLEVA omimport,
