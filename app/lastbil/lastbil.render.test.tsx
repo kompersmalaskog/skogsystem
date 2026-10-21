@@ -109,6 +109,7 @@ const mock = vi.hoisted(() => ({
   viktRader: [] as any[],
   viktFel: false,
   extraRundor: [] as any[],
+  extraObjekt: [] as any[],
   patchRundor: {} as Record<string, Record<string, unknown>>,
   anrop: [] as string[],
   flyttar: [] as any[],
@@ -136,7 +137,7 @@ vi.mock("@/lib/supabase", () => {
   const tabeller = (): Record<string, any[]> => ({
     fakturaunderlag_flytt: [...mock.underlag, ...mock.extraUnderlag],
     flyttdag: [...FLYTTDAG, ...mock.extraRundor].map(r => ({ ...r, ...(mock.patchRundor[r.id] ?? {}) })),
-    maskin_flytt: mock.flyttar, lastbil_lass: mock.lass, maskin_flytt_rattning: mock.rattningar, dim_maskin: DIM_MASKIN, objekt: OBJEKT, flyttplats: [],
+    maskin_flytt: mock.flyttar, lastbil_lass: mock.lass, maskin_flytt_rattning: mock.rattningar, dim_maskin: DIM_MASKIN, objekt: [...OBJEKT, ...mock.extraObjekt], flyttplats: [],
   });
   const tid = (v: unknown) => Date.parse(String(v));
   class Q {
@@ -239,7 +240,7 @@ beforeEach(() => {
   mock.medarbetare = ADMIN; mock.loading = false; mock.underlagFel = false; mock.namnFel = false; mock.extraUnderlag = []; mock.anrop = [];
   mock.underlag = nyaUnderlag(); mock.skrivningar = []; mock.skrivNoll = false; mock.skrivFel = false; mock.vantarFel = false; mock.manuellKolumnSaknas = false;
   mock.api = { status: 200, body: LAGE };
-  mock.rundorFel = false; mock.maskinerFel = false; mock.viktRader = PROD_VIKT_RADER.map(r => ({ ...r })); mock.viktFel = false; mock.extraRundor = []; mock.patchRundor = {};
+  mock.rundorFel = false; mock.maskinerFel = false; mock.viktRader = PROD_VIKT_RADER.map(r => ({ ...r })); mock.viktFel = false; mock.extraRundor = []; mock.extraObjekt = []; mock.patchRundor = {};
   mock.flyttar = MASKIN_FLYTT.map(b => ({ ...b })); mock.lass = []; mock.lassFel = false; mock.rattningar = []; mock.rpc = []; mock.rpcHandler = null;
   mock.spar = { status: 200, body: { ok: true, spar: [{ lat: 56.4, lng: 14.7 }, { lat: 56.5, lng: 14.8 }], segment: [], nagonOmatchad: false, matchningPa: false } };
   (globalThis as any).fetch = vi.fn(async (url: string) => {
@@ -257,6 +258,7 @@ afterEach(() => {
 });
 
 const flush = async () => { for (let i = 0; i < 10; i++) await act(async () => { await Promise.resolve(); }); };
+const vantaTills = async (villkor: () => boolean) => { for (let i = 0; i < 30 && !villkor(); i++) await flush(); };
 const text = () => document.body.textContent ?? "";
 const knapp = (re: RegExp, inom: ParentNode = document) =>
   Array.from(inom.querySelectorAll("button, a")).find(b => re.test(b.textContent ?? "") || re.test(b.getAttribute("aria-label") ?? "")) as HTMLElement;
@@ -2837,6 +2839,48 @@ describe("Vilken maskin? — arket", () => {
     await montera();
     await klicka(saknarRad()!);
     expect(norm(lassArk()!.textContent)).toContain("45,7 km · last 25 t");
+  });
+
+  // 3 aug: lossningen på 56,2 N; Intaget 608 m, Åbogen 673 m, Sandåsen 1 km norrut — rätt var Åbogen. Lassningen vid Spåramåla (40 m).
+  const M_GRAD = (6371000 * Math.PI) / 180;
+  const NORR = (m: number) => 56.2 + m / M_GRAD;
+  const AUG3 = (o: Record<string, unknown> = {}) => LASS({
+    fran_namn: "Spåramåla RP 2025", till_namn: "Intaget gallring", lassning_tid: "2026-08-03T06:51:00Z", lossning_tid: "2026-08-03T08:08:00Z", km: 40.8, lastvikt_kg: 25_300,
+    lassning_lat: 56.3, lassning_lng: 14.9, lossning_lat: 56.2, lossning_lng: 14.9, ...o,
+  });
+  const AUG3_OBJEKT = [
+    { id: "o-spar", namn: "Spåramåla RP 2025", lat: 56.3 + 40 / M_GRAD, lng: 14.9 }, { id: "o-intaget", namn: "Intaget gallring", lat: NORR(608), lng: 14.9 },
+    { id: "o-abogen", namn: "Åbogen", lat: NORR(673), lng: 14.9 }, { id: "o-sandasen", namn: "Sandåsen", lat: NORR(1000), lng: 14.9 },
+  ];
+
+  it("OSÄKER PLATS (3 aug): 'Spåramåla RP 2025 → nära Intaget gallring' och dämpat under: 'även Åbogen 673 m, Sandåsen 1 km'", async () => {
+    mock.extraObjekt = AUG3_OBJEKT; mock.lass = [AUG3()];
+    await montera();
+    await klicka(saknarRad()!);
+    await vantaTills(() => !!lassArk()!.querySelector("[data-plats-andra]"));
+    const ark = lassArk()!;
+    expect(norm(ark.textContent)).toContain("Spåramåla RP 2025 → nära Intaget gallring");
+    expect(ark.querySelectorAll("[data-plats-andra]")).toHaveLength(1);
+    expect(norm(ark.querySelector("[data-plats-andra]")!.textContent)).toBe("även Åbogen 673 m, Sandåsen 1 km");
+    expect(norm(ark.textContent)).toContain("last 25 t");        // vikten och sträckan står kvar
+  });
+
+  it("SÄKER PLATS: bara namnet, ingen rad under", async () => {
+    mock.extraObjekt = [AUG3_OBJEKT[0], { id: "o-ensam", namn: "Intaget gallring", lat: NORR(90), lng: 14.9 }, AUG3_OBJEKT[2]];
+    mock.lass = [AUG3()];
+    await montera();
+    await klicka(saknarRad()!);
+    await vantaTills(() => norm(lassArk()?.textContent).includes("Spåramåla RP 2025 → Intaget gallring"));
+    expect(lassArk()!.textContent).not.toContain("nära");
+    expect(lassArk()!.querySelector("[data-plats-andra]")).toBeNull();
+  });
+
+  it("INGEN TRAKT INOM 8 KM: 'okänd plats'", async () => {
+    mock.extraObjekt = AUG3_OBJEKT; mock.lass = [AUG3({ lossning_lat: 57.5 })];
+    await montera();
+    await klicka(saknarRad()!);
+    await vantaTills(() => norm(lassArk()?.textContent).includes("→ okänd plats"));
+    expect(norm(lassArk()!.textContent)).toContain("Spåramåla RP 2025 → okänd plats");
   });
 
   it("saknas lastvikten visas ingenting — inget '0 t', inget '–'", async () => {
