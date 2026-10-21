@@ -22,6 +22,19 @@ export function MalbildBild({ svg, rund = RADIE.kort, testid }: { svg: string; r
   );
 }
 
+/** Maskindatorn (1280×800) och iPad liggande: bred men låg skärm. Då ligger bilden bredvid raderna så bilden OCH "Inte så här" syns utan att scrolla;
+ * bladet blir bredare. Telefon och iPad stående rörs inte (en kolumn som förut). */
+const BRED_LAG = '@media (min-width: 900px) and (max-height: 900px)';
+const MALBILD_BRED_CSS = `${BRED_LAG}{
+  .mb-sektion{display:grid!important;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);column-gap:${AVSTAND.l}px;align-items:start}
+  .mb-sektion>*{grid-column:1/-1}
+  .mb-sektion>.mb-bild{grid-column:1}
+  .mb-sektion>.mb-rader{grid-column:2}
+  .mb-fel{display:grid!important;grid-template-columns:200px minmax(0,1fr);column-gap:${AVSTAND.m}px;row-gap:${AVSTAND.xs}px;align-items:start}
+  .mb-fel>:first-child{grid-column:1/-1}
+  .mb-ark{max-width:880px!important}
+}`;
+
 const micro: React.CSSProperties = { ...TYP.micro, color: FARG.text3 };
 const prickFarg = (grupp: keyof typeof GRUPPER) => (grupp === 'info' ? FARG.text2 : GRUPPER[grupp].farg);
 
@@ -38,7 +51,8 @@ export function MalbildSektion({ nyckel, roll, testid = 'malbild' }: { nyckel: s
   if (!i) return null;
   const val = m.varianter?.length ? [{ nyckel: null as string | null, namn: m.standardNamn ?? m.namn }, ...m.varianter.map((v) => ({ nyckel: v.nyckel as string | null, namn: v.namn }))] : null;
   return (
-    <section data-testid={testid} data-malbild={m.nyckel} data-roll={roll ?? 'ingen'} data-variant={variant ?? ''} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+    <section className="mb-sektion" data-testid={testid} data-malbild={m.nyckel} data-roll={roll ?? 'ingen'} data-variant={variant ?? ''} style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+      <style>{MALBILD_BRED_CSS}</style>
       <div style={micro}>Så ska det se ut</div>
       {val && (
         <div role="group" aria-label="Vilken sort" style={{ display: 'flex', gap: AVSTAND.s, flexWrap: 'wrap' }}>
@@ -51,8 +65,8 @@ export function MalbildSektion({ nyckel, roll, testid = 'malbild' }: { nyckel: s
           })}
         </div>
       )}
-      <MalbildBild svg={i.bild} testid="malbild-bild" />
-      <ul data-testid="malbild-rader" style={{ listStyle: 'none', margin: 0, padding: 0, background: FARG.upphojt, borderRadius: RADIE.kort, display: 'flex', flexDirection: 'column' }}>
+      <div className="mb-bild"><MalbildBild svg={i.bild} testid="malbild-bild" /></div>
+      <ul className="mb-rader" data-testid="malbild-rader" style={{ listStyle: 'none', margin: 0, padding: 0, background: FARG.upphojt, borderRadius: RADIE.kort, display: 'flex', flexDirection: 'column' }}>
         {i.rader.map((r, n) => (
           <li key={r} data-testid="malbild-rad" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, minHeight: TRAFFYTA.primar, padding: `${AVSTAND.s}px ${AVSTAND.l}px`, borderTop: n === 0 ? 'none' : `1px solid ${FARG.linje}`, ...TYP.text, color: FARG.text }}>
             <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: prickFarg(m.grupp), flexShrink: 0 }} />
@@ -60,7 +74,7 @@ export function MalbildSektion({ nyckel, roll, testid = 'malbild' }: { nyckel: s
           </li>
         ))}
       </ul>
-      <div data-testid="malbild-fel" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+      <div className="mb-fel" data-testid="malbild-fel" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
         <div style={{ ...micro, color: FARG.rod }}>Inte så här</div>
         <div style={{ maxWidth: 240 }}><MalbildBild svg={i.fel.bild} rund={RADIE.rad} testid="malbild-fel-bild" /></div>
         <div data-testid="malbild-fel-text" style={{ ...TYP.meta, color: FARG.text2 }}>{i.fel.text}</div>
@@ -81,8 +95,8 @@ function Overlag({ onStang, z, children, testid, heltHog }: { onStang: () => voi
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div data-testid={testid} style={{ position: 'fixed', inset: 0, zIndex: z, background: heltHog ? FARG.bg : `${FARG.bg}80`, display: 'flex', alignItems: heltHog ? 'stretch' : 'flex-end', justifyContent: 'center' }} onClick={heltHog ? undefined : onStang}>
-      <style>{designCss}</style>
-      <div onClick={(e) => e.stopPropagation()}
+      <style>{designCss}{MALBILD_BRED_CSS}</style>
+      <div onClick={(e) => e.stopPropagation()} className={heltHog ? undefined : 'mb-ark'}
         style={{
           width: '100%', maxWidth: 560, maxHeight: heltHog ? undefined : '92vh', height: heltHog ? '100%' : undefined, display: 'flex', flexDirection: 'column', background: FARG.kort,
           border: heltHog ? 'none' : `1px solid ${FARG.linje}`, borderBottom: 'none', borderTopLeftRadius: heltHog ? 0 : RADIE.sheet, borderTopRightRadius: heltHog ? 0 : RADIE.sheet, paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -173,10 +187,13 @@ export function MalbildBlad({ nyckel, roll, ikon, namn, onStang, onSett }: { nyc
       </div>
       <div style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: `${AVSTAND.xs}px ${AVSTAND.xl}px ${AVSTAND.xl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
         <MalbildSektion nyckel={nyckel} roll={roll} testid="malbild-blad-sektion" />
+      </div>
+      {/* Foten ligger utanför det som scrollar: Sett och Stäng syns alltid, också när bilden är hög (maskindatorn 1280×800). */}
+      <div data-testid="malbild-blad-fot" style={{ flexShrink: 0, display: 'flex', gap: AVSTAND.m, padding: `${AVSTAND.m}px ${AVSTAND.xl}px ${AVSTAND.l}px`, borderTop: `1px solid ${FARG.linje}` }}>
         {onSett && (
-          <button type="button" data-testid="malbild-blad-sett" onClick={onSett} className="press-dim" style={{ ...KNAPP.primar, fontFamily: 'inherit' }}>✓ Sett</button>
+          <button type="button" data-testid="malbild-blad-sett" onClick={onSett} className="press-dim" style={{ ...KNAPP.primar, flex: 2, width: 'auto', fontFamily: 'inherit' }}>✓ Sett</button>
         )}
-        <button type="button" data-testid="malbild-blad-stang" onClick={onStang} className="press-dim" style={{ ...KNAPP.sekundar, fontFamily: 'inherit' }}>Stäng</button>
+        <button type="button" data-testid="malbild-blad-stang" onClick={onStang} className="press-dim" style={{ ...KNAPP.sekundar, flex: 1, width: 'auto', fontFamily: 'inherit' }}>Stäng</button>
       </div>
     </Overlag>
   );

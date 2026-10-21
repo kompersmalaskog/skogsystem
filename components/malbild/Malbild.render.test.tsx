@@ -156,6 +156,26 @@ describe('MalbildBlad och den lilla bilden', () => {
     klick(q('malbild-blad-sett'));
     expect(sett).toHaveBeenCalledTimes(1);
   });
+  it('maskindatorn (1280×800): Sett och Stäng ligger i en fast fot UTANFÖR det som scrollar, så Sett syns utan att scrolla', () => {
+    montera(<MalbildBlad nyckel="avlagg" roll="skotare" onStang={() => {}} onSett={() => {}} />);
+    const fot = q('malbild-blad-fot')!;
+    expect(fot.contains(q('malbild-blad-sett'))).toBe(true);
+    expect(fot.contains(q('malbild-blad-stang'))).toBe(true);
+    for (let e: HTMLElement | null = fot; e && e !== document.body; e = e.parentElement) expect(e.style.overflowY).not.toBe('auto');
+    expect((q('malbild-blad-sektion')!.parentElement as HTMLElement).style.overflowY).toBe('auto');
+    expect(fot.parentElement!.lastElementChild).toBe(fot);
+  });
+  it('bred, låg skärm: bilden bredvid raderna och felbilden i en rad — stilen finns i sektionen och bladet blir bredare', () => {
+    montera(<MalbildBlad nyckel="hansyn" roll="skordare" onStang={() => {}} />);
+    const css = Array.from(document.querySelectorAll('style')).map((x) => x.textContent).join('\n');
+    expect(css).toContain('@media (min-width: 900px) and (max-height: 900px)');
+    expect(css).toMatch(/\.mb-sektion\{display:grid!important;grid-template-columns:/);
+    expect(css).toMatch(/\.mb-ark\{max-width:880px!important\}/);
+    expect(q('malbild-bild')!.parentElement!.className).toBe('mb-bild');
+    expect(q('malbild-rader')!.className).toBe('mb-rader');
+    expect(q('malbild-fel')!.className).toBe('mb-fel');
+    expect(q('malbild-blad')!.querySelector('.mb-ark')).not.toBeNull();
+  });
   it('bladet för en sort som inte finns visar ingenting', () => {
     montera(<MalbildBlad nyckel="finns-inte" onStang={() => {}} />);
     expect(q('malbild-blad')).toBeNull();
