@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'obj-1' }) }));
+vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => ({}) }));   // vägavståndet hämtas från OSRM; ett test når aldrig nätet
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
 const STABIL_POSITION = { status: 'ok', position: { lat: 56.4, lng: 15.0, noggrannhet: 5 }, skal: null, senasteNoggrannhet: 5, forsokIgen: () => {} };
 vi.mock('../useMinPosition', () => ({ useLevandePosition: () => STABIL_POSITION }));

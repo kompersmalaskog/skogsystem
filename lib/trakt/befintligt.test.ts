@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { byggOmimportPatch, hittaBefintligtObjekt } from './befintligt';
+import { join, resolve } from 'node:path';
+import { SKYDDADE_VID_OMIMPORT, byggOmimportPatch, hittaBefintligtObjekt } from './befintligt';
 
 // Minnesdatabas med de två tabellerna uppslaget läser. Räknar frågor per tabell så testerna kan visa vad som INTE läses.
 function fakeDb(opt: { objekt?: any[]; alias?: any[]; fel?: Record<string, any> } = {}) {
@@ -222,5 +222,51 @@ describe('källvakt: routen använder uppslaget och patch-byggaren', () => {
   it('träff via extra nummer behåller objektets nummer och säger det i import_varningar', () => {
     expect(route).toContain("behallVoNummer: befintlig.via === 'extra_nummer'");
     expect(route).toContain('är ett extra nummer på ett befintligt objekt');
+  });
+});
+
+
+describe('en handrättad volym skyddas vid omimport (Bågskyttebanan, prod 2026-10-20)', () => {
+  // volym ligger INTE i SKYDDADE_VID_OMIMPORT — skyddet är den allmänna regeln: skriv bara över det importen själv satte.
+  const O = { skyddade: SKYDDADE_VID_OMIMPORT, bevaraLarm: false, behallVoNummer: false };
+
+  it('volymen rättad 3 495 → 1 687; filen säger fortfarande 3 495: raden behåller 1 687 och importens minne är kvar på 3 495', () => {
+    const r = byggOmimportPatch({ volym: 3495, areal: 5.68 }, { ...O, nuvarande: { volym: 1687, areal: 5.68 }, importVarden: { volym: 3495, areal: 5.68 } });
+    expect(r.patch).not.toHaveProperty('volym');
+    expect(r.behollna).toEqual(['volym']);
+    expect(r.importVarden.volym).toBe(3495);
+  });
+
+  it('Vida skickar ett NYTT tal (2 000) efter rättningen: det skrivs inte över heller — det blir en fråga i routen', () => {
+    const r = byggOmimportPatch({ volym: 2000 }, { ...O, nuvarande: { volym: 1687 }, importVarden: { volym: 3495 } });
+    expect(r.patch).not.toHaveProperty('volym');
+    expect(r.behollna).toEqual(['volym']);
+  });
+
+  it('ett objekt som ALDRIG rättats fortsätter ta filens tal', () => {
+    const r = byggOmimportPatch({ volym: 3600 }, { ...O, nuvarande: { volym: 3495 }, importVarden: { volym: 3495 } });
+    expect(r.patch.volym).toBe(3600);
+    expect(r.behollna).toEqual([]);
+  });
+
+  it('en rad utan importminne (före kolumnen) skyddar ett avvikande tal — hellre inaktuellt än en tyst förlorad rättning', () => {
+    const r = byggOmimportPatch({ volym: 3495 }, { ...O, nuvarande: { volym: 1687 }, importVarden: null });
+    expect(r.patch).not.toHaveProperty('volym');
+    expect(r.behollna).toEqual(['volym']);
+  });
+
+  it('stämplingslängdens inskrivna tal skrivs aldrig av importen: det finns inte i leveransen, och kom det dit skyddar samma regel det', () => {
+    const utanTal = byggOmimportPatch({ volym: 1000, namn: 'X' }, { ...O, nuvarande: { volym: 1000, stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' }, importVarden: { volym: 1000 } });
+    expect(utanTal.patch).not.toHaveProperty('stamplingslangd_volym');
+    expect(utanTal.patch).not.toHaveProperty('stamplingslangd_enhet');
+    const medTal = byggOmimportPatch({ stamplingslangd_volym: 999, stamplingslangd_enhet: 'm3fub' }, { ...O, nuvarande: { stamplingslangd_volym: 1884, stamplingslangd_enhet: 'm3sk' }, importVarden: null });
+    expect(medTal.patch).toEqual({});
+    expect(medTal.behollna.sort()).toEqual(['stamplingslangd_enhet', 'stamplingslangd_volym']);
+  });
+
+  it('importen skriver aldrig stämplingslängdens tal: ingen källfil under import nämner kolumnerna', () => {
+    for (const fil of ['app/api/import-trakt/route.ts', 'lib/trakt/befintligt.ts', 'lib/trakt/dokument.ts', 'lib/trakt/varningar.ts']) {
+      expect(readFileSync(join(process.cwd(), fil), 'utf8'), fil).not.toMatch(/stamplingslangd_(volym|enhet)/);
+    }
   });
 });

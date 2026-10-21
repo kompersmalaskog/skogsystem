@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { byggRundor, summera, type Ben, type RundaRad } from './rundor';
 import type { UnderlagRad } from './fakturerbart';
-import { betaltRader, forbrukningRader, korstrackaRader, lagen, perManad, vantandeFlyttar } from './uppfoljning';
+import { betaltRader, forbrukningRader, harOkand, manadKort, korstrackaRader, korstrackaSerier, lagen, perManad, vantandeFlyttar } from './uppfoljning';
+import { perViktManad } from './vikt';
+import { PROD_VIKT_RADER } from './vikt.fixtur';
 
 // Året i uppföljningen ska vara SUMMAN av månaderna som listan visar, och månaderna ska stämma med prod. Fixturen speglar
 // prod-månaderna (flyttdag, giltiga rundor, 2026-10-20): juli 3 rundor 190 km utan diesel · augusti 8 flytt/587 km/249 l +
@@ -65,33 +67,73 @@ describe('uppföljningens år mot prod-månaderna', () => {
   });
 });
 
-describe('Förbrukning: l/mil per månad och rundtyp', () => {
-  const rundor = prodAret();
-  const rs = forbrukningRader(perManad(2026, rundor, NU));
+// Förbrukning och Körsträcka ligger på bilens VIKT (vikt.ts) — Martins prod-siffror 2026-10-20, se vikt.fixtur.ts.
+describe('Förbrukning: l/mil per månad, Med lass och Utan lass', () => {
+  const rs = forbrukningRader(perViktManad(2026, PROD_VIKT_RADER, NU));
   const rad = (e: string) => rs.find(r => r.etikett === e)!;
 
-  it('augusti: Flyttar 4,2 och Övrig körning 4,4 l/mil', () => {
-    expect(rad('aug').staplar.map(s => s.text)).toEqual(['4,2', '4,4']);
+  it('aug 5,1 / 3,7 · sep 5,5 / 3,8 · okt 5,3 / 3,8 (en decimal; 5,10 · 3,66 · 5,47 · 3,83 · 5,30 · 3,76 i underlaget)', () => {
+    expect(rad('aug').staplar.map(s => s.text)).toEqual(['5,1', '3,7']);
+    expect(rad('sep').staplar.map(s => s.text)).toEqual(['5,5', '3,8']);
+    expect(rad('okt').staplar.map(s => s.text)).toEqual(['5,3', '3,8']);
+    expect(rad('aug').staplar.map(s => s.namn)).toEqual(['Med lass', 'Utan lass']);
   });
-  it('juli har bara övriga rundor utan diesel: Flyttar "inga flyttar", Övrig "diesel saknas" — ingen stapel, aldrig 0', () => {
-    const j = rad('jul').staplar;
-    expect(j.map(s => s.varde)).toEqual([null, null]);
-    expect(j.map(s => s.saknas)).toEqual(['inga flyttar', 'diesel saknas']);
-    expect(j.map(s => s.text)).toEqual(['', '']);
+  it('juli har ingen vikt: "vikt saknas" på raden, inga värden — aldrig 0', () => {
+    const j = rad('jul');
+    expect(j.saknas).toBe('vikt saknas');
+    expect(j.staplar.map(s => s.varde)).toEqual([null, null]);
+    expect(j.staplar.map(s => s.text)).toEqual(['', '']);
+  });
+  it('en månad med vikt men utan körning av en klass säger det i ord; utan bränsle "diesel saknas"', () => {
+    const utanLass = perViktManad(2026, [{ ...PROD_VIKT_RADER[0], km_lastad: 0, liter_lastad: 0, km_diesel_lastad: 0 }], NU);
+    const [med, utan] = forbrukningRader(utanLass).find(r => r.etikett === 'aug')!.staplar;
+    expect([med.varde, med.saknas]).toEqual([null, 'ingen körning med lass']);
+    expect(utan.varde).toBeCloseTo(3.66, 2);
+    expect(utan.saknas).toBeNull();
+    const utanDiesel = perViktManad(2026, [{ ...PROD_VIKT_RADER[0], liter_tom: 0, km_diesel_tom: 0 }], NU);
+    expect(forbrukningRader(utanDiesel).find(r => r.etikett === 'aug')!.staplar[1]).toMatchObject({ varde: null, saknas: 'diesel saknas' });
   });
 });
 
-describe('Körsträcka: km per månad, Flyttar + Övrig staplade', () => {
-  const rs = korstrackaRader(perManad(2026, prodAret(), NU));
-  it('summan är summan av de avrundade delarna, och delarna står som text', () => {
-    const okt = rs.find(r => r.etikett === 'okt')!;
-    expect(okt.total).toBe('818');
-    expect(okt.delar).toBe('296 + 522');
-    for (const r of rs) expect(r.staplar.reduce((s, x) => s + (x.varde ?? 0), 0)).toBe(Number(r.total!.replace(/\s/g, '')));
+describe('Körsträcka: km per månad ur mätaren, Med lass + Utan lass + Okänd staplade', () => {
+  const manader = perViktManad(2026, PROD_VIKT_RADER, NU);
+  const rs = korstrackaRader(manader);
+  it('summan är summan av de avrundade delarna, och delarna står som text: aug 482 + 845 + 114 = 1 441', () => {
+    const aug = rs.find(r => r.etikett === 'aug')!;
+    expect(text(aug.total)).toBe('1 441');
+    expect(aug.delar).toBe('482 + 845 + 114');
+    expect(rs.find(r => r.etikett === 'sep')!.delar).toBe('504 + 755 + 97');
+    expect(rs.find(r => r.etikett === 'okt')!.delar).toBe('242 + 535 + 53');
+    for (const r of rs.filter(x => !x.saknas)) expect(r.staplar.reduce((s, x) => s + (x.varde ?? 0), 0)).toBe(Number(text(r.total).replace(/ /g, '')));
   });
-  it('en månad utan rundor har ingen summa (inte "0 km")', () => {
-    const tom = korstrackaRader(perManad(2026, [], NU));
-    expect(tom.every(r => r.total === null && r.delar === null)).toBe(true);
+  it('okänd körning i månaderna ger en tredje serie, och förklaringen behövs', () => {
+    expect(korstrackaSerier(manader)).toEqual(['Med lass', 'Utan lass', 'Okänd']);
+    expect(harOkand(manader)).toBe(true);
+  });
+  it('utan okänd körning finns ingen tredje serie och ingen tredje del', () => {
+    const ingen = perViktManad(2026, PROD_VIKT_RADER.map(r => ({ ...r, km_okand: 0 })), NU);
+    expect(korstrackaSerier(ingen)).toEqual(['Med lass', 'Utan lass']);
+    expect(harOkand(ingen)).toBe(false);
+    expect(korstrackaRader(ingen).every(r => r.staplar.length === 2)).toBe(true);
+  });
+  it('okänd körning i en månad men inte i en annan: tredje delen bara där den finns', () => {
+    const med = perViktManad(2026, [{ ...PROD_VIKT_RADER[0], km_okand: 12.4 }, { ...PROD_VIKT_RADER[1], km_okand: 0 }], NU);
+    const r = korstrackaRader(med);
+    expect(r.find(x => x.etikett === 'aug')!.delar).toBe('482 + 845 + 12');
+    expect(text(r.find(x => x.etikett === 'aug')!.total)).toBe('1 339');
+    expect(r.find(x => x.etikett === 'sep')!.staplar.map(s => s.namn)).toEqual(['Med lass', 'Utan lass']);
+  });
+  it('en månad utan vikt har ingen summa (inte "0 km") utan säger "vikt saknas"', () => {
+    const jul = rs.find(r => r.etikett === 'jul')!;
+    expect(jul).toMatchObject({ total: null, delar: null, saknas: 'vikt saknas' });
+  });
+  it('okänd körning i en månad utan känd vikt ger ingen tredje serie (månaden säger "vikt saknas")', () => {
+    const bara = perViktManad(2026, [{ ...PROD_VIKT_RADER[0], km_lastad: 0, km_tom: 0, km_okand: 40 }], NU);
+    expect(harOkand(bara)).toBe(false);
+    expect(korstrackaSerier(bara)).toEqual(['Med lass', 'Utan lass']);
+  });
+  it('okänd km som avrundas till 0 är ingen tredje serie', () => {
+    expect(harOkand(perViktManad(2026, [{ ...PROD_VIKT_RADER[0], km_okand: 0.3 }], NU))).toBe(false);
   });
 });
 
@@ -110,33 +152,36 @@ const PROD_UNDERLAG = [
 const rad = (rs: ReturnType<typeof betaltRader>, e: string) => rs.find(r => r.etikett === e)!;
 const text = (s: string | null) => (s ?? '').replace(/\s/g, ' ');
 
-describe('Betalt: prod-siffrorna', () => {
-  const rs = betaltRader(perManad(2026, prodAret(), NU), PROD_UNDERLAG);
-  it('stapeln är lika hög som Körsträcka: fakturerat + ej betalt = körda km i månaden', () => {
-    const kors = korstrackaRader(perManad(2026, prodAret(), NU));
-    for (const r of rs) {
+describe('Betalt: prod-siffrorna mot mätaren', () => {
+  const man = perViktManad(2026, PROD_VIKT_RADER, NU);
+  const rs = betaltRader(man, PROD_UNDERLAG);
+  it('fakturerat + ej betalt = mätarens körda km i månaden (samma tal som Körsträcka)', () => {
+    const kors = korstrackaRader(man);
+    for (const r of rs.filter(x => !x.saknas)) {
       const summa = r.staplar.reduce((s, x) => s + (x.varde ?? 0), 0);
       expect(summa).toBe(Number(text(kors.find(k => k.etikett === r.etikett)!.total).replace(/ /g, '')));
     }
   });
-  it('okt 89 av 818 km, sep 140 av 1 362, aug 105 av 1 403 — och juli (ingen fakturering) 0 av 190', () => {
-    expect(text(rad(rs, 'okt').total)).toBe('89 av 818 km');
-    expect(text(rad(rs, 'sep').total)).toBe('140 av 1 362 km');
-    expect(text(rad(rs, 'aug').total)).toBe('105 av 1 403 km');
-    expect(text(rad(rs, 'jul').total)).toBe('0 av 190 km');
+  it('okt 89 av 830 km, sep 140 av 1 356, aug 105 av 1 441', () => {
+    expect(text(rad(rs, 'okt').total)).toBe('89 av 830 km');
+    expect(text(rad(rs, 'sep').total)).toBe('140 av 1 356 km');
+    expect(text(rad(rs, 'aug').total)).toBe('105 av 1 441 km');
   });
   it('ej betalt = körda minus fakturerade, och andelen står som text', () => {
-    expect(rad(rs, 'okt').staplar.map(s => s.varde)).toEqual([89, 729]);
+    expect(rad(rs, 'okt').staplar.map(s => s.varde)).toEqual([89, 741]);
     expect(rad(rs, 'okt').delar).toBe('11 %');
-    expect(rad(rs, 'jul').staplar.map(s => s.varde)).toEqual([0, 190]);
+    expect(rad(rs, 'aug').delar).toBe('7 %');
+  });
+  it('juli har ingen mätare och ingen fakturering: "vikt saknas", inget "0 av Y"', () => {
+    expect(rad(rs, 'jul')).toMatchObject({ total: null, saknas: 'vikt saknas' });
   });
 });
 
 describe('Betalt: vad som räknas som fakturerat', () => {
-  const man = perManad(2026, prodAret(), NU);
+  const man = perViktManad(2026, PROD_VIKT_RADER, NU);
   it('ogodkända och strukna flyttar räknas inte; de ogodkända sägs i en egen rad med antal och km', () => {
     const u = [...PROD_UNDERLAG, U('2026-10-07', 40, { godkand_tid: null, godkand_av: null }), U('2026-10-08', 60, { status: 'struken' })];
-    expect(text(rad(betaltRader(man, u), 'okt').total)).toBe('89 av 818 km');
+    expect(text(rad(betaltRader(man, u), 'okt').total)).toBe('89 av 830 km');
     expect(vantandeFlyttar(u)).toEqual({ antal: 1, km: 40 });
     expect(vantandeFlyttar(PROD_UNDERLAG)).toEqual({ antal: 0, km: 0 });
   });
@@ -144,13 +189,19 @@ describe('Betalt: vad som räknas som fakturerat', () => {
     const u = [U('2026-10-05', 35.6, { godkand_tid: null, godkand_av: null, fakturerad_tid: '2026-10-10T10:00:00Z' }), U('2026-10-06', 53.4)];
     expect(rad(betaltRader(man, u), 'okt').staplar[0].varde).toBe(36 + 53);
   });
-  it('mer fakturerat än körda km i månaden ger ej betalt 0, aldrig negativt', () => {
-    const u = [U('2026-07-20', 500)];
-    const jul = rad(betaltRader(man, u), 'jul');
-    expect(jul.staplar.map(s => s.varde)).toEqual([500, 0]);
+  it('mer fakturerat än mätarens km i månaden ger ej betalt 0, aldrig negativt', () => {
+    const u = [U('2026-08-20', 2000)];
+    expect(rad(betaltRader(man, u), 'aug').staplar.map(s => s.varde)).toEqual([2000, 0]);
   });
-  it('en månad utan rundor och utan fakturering har ingen summa (–), inte "0 av 0"', () => {
-    expect(rad(betaltRader(perManad(2026, [], NU), []), 'sep').total).toBeNull();
+  it('fakturerade km i en månad utan mätare: bara de fakturerade km och "körsträcka saknas" — aldrig ett påhittat Y', () => {
+    const jul = rad(betaltRader(man, [U('2026-07-20', 500)]), 'jul');
+    expect(jul.staplar.map(s => s.varde)).toEqual([500]);
+    expect(text(jul.total)).toBe('500 km fakturerat');
+    expect(jul.delar).toBe('körsträcka saknas');
+    expect(jul.saknas).toBeNull();
+  });
+  it('en månad utan mätare och utan fakturering har ingen summa, inte "0 av 0"', () => {
+    expect(rad(betaltRader(perViktManad(2026, [], NU), []), 'sep').total).toBeNull();
   });
 });
 

@@ -57,6 +57,9 @@ export const SKARPA = [
   "app/egenkontroll/RundKommentarSheet.tsx",    // rundans kommentar (A4-rapporten) — tokens från början
   "app/egenkontroll/RapportDela.tsx",            // Rapport till Vida — tokens från början
   // Rundvyns ram (PR 4, 2026-10): tokens från början, noll literaler.
+  // Listan (PR 5, 2026-10-20): tokens från början, noll literaler.
+  "app/egenkontroll/page.tsx",
+  "app/egenkontroll/ListDelar.tsx",
   "app/egenkontroll/Bricka.tsx",
   "app/egenkontroll/BrickaRad.tsx",
   "app/egenkontroll/RundDock.tsx",
@@ -81,6 +84,20 @@ export const SKARPA = [
   "app/ledighet/_components/SchemaVy.tsx",
   "app/ledighet/_components/ValjKalender.tsx",
   "app/ledighet/_components/delar.tsx",
+  // Objekt + beställning i EN vy (2026-10-19): tokens från början, noll literaler.
+  "app/objekt/page.tsx",
+  "app/objekt/[id]/page.tsx",
+  "app/objekt/_components/ObjektVy.tsx",
+  "app/objekt/_components/BestallningArk.tsx",
+  "app/objekt/_components/ManuellArk.tsx",
+  "app/objekt/_components/FilenGavVy.tsx",
+  "app/objekt/_components/AndraObjektArk.tsx",
+  "app/objekt/_components/StamplingslangdArk.tsx",
+  "app/objekt/_components/BolagValjare.tsx",
+  "components/design/Rad.tsx",
+  "components/design/Falt.tsx",
+  "components/design/TalRad.tsx",
+  "components/design/Manadsvaljare.tsx",
 ];
 
 // --- Regler ---------------------------------------------------------------

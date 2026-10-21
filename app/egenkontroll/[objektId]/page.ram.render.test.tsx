@@ -46,6 +46,7 @@ const angraForstaSvaret = vi.fn(async (id: string, _del: string, _svar: string) 
 let positionen: any = { status: 'ok', position: { lat: 56.0501, lng: 14.0502, noggrannhet: 6 }, skal: null, senasteNoggrannhet: 6, forsokIgen: () => {} };
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'ob1' }) }));
+vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => ({}) }));   // vägavståndet hämtas från OSRM; ett test når aldrig nätet
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
 vi.mock('@/lib/egenkontroll', async (orig) => {
   const verklig = await orig<typeof import('@/lib/egenkontroll')>();

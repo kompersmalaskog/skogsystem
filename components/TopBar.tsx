@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CURRENT_VERSION } from '@/lib/changelog'
-import { LAYOUT } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
+import { LAYOUT, TRAFFYTA } from '@/lib/design/tokens' // toppfältets höjd bor BARA i tokens
 
 const pageNames: Record<string, string> = {
   '/': 'Kompersmåla Skog',
@@ -43,7 +43,8 @@ export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const pageName = pageNames[pathname]
-    || (pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
+    || (pathname.startsWith('/objekt/') ? 'Objekt'
+    : pathname.startsWith('/affarsuppfoljning/') ? 'Affärsuppföljning'
     : pathname.startsWith('/gallring/') ? 'Gallring'
     // /utbildning/typ/<id> och /utbildning/person/<id>: sidans EGEN etikett säger
     // vilken utbildning eller person det gäller — toppfältet säger bara var man är.
@@ -93,21 +94,30 @@ export default function TopBar() {
       {/* Hem-knapp — dold när underliggande vy har egen bakåtpil */}
       {!isHome && !hideHome ? (
         <Link href="/" style={{
+          // Träffytan är appens minimiyta (44 px); den synliga rutan (36 px, vänsterkant 12 px) ligger centrerad i den och ser ut som förut.
           position: 'absolute',
-          left: 12,
-          width: 36,
-          height: 36,
-          borderRadius: 10,
-          background: 'rgba(255,255,255,0.08)',
+          left: 12 - (TRAFFYTA.min - 36) / 2,
+          width: TRAFFYTA.min,
+          height: TRAFFYTA.min,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           textDecoration: 'none',
-          color: 'rgba(255,255,255,0.7)',
-          fontSize: 20,
-          lineHeight: 1,
         }}>
-          <img src="/home-icon.png" alt="Hem" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
+          <span style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: 'rgba(255,255,255,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'rgba(255,255,255,0.7)',
+            fontSize: 20,
+            lineHeight: 1,
+          }}>
+            <img src="/home-icon.png" alt="Hem" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
+          </span>
         </Link>
       ) : null}
 

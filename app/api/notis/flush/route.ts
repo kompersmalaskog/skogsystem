@@ -11,6 +11,7 @@ import { idagStockholm } from "@/lib/grotvy/format";
 import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
 import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@/lib/ledighet/notis";
 import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/lastbil/lass/notis";
+import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
 
 /**
  * Medarbetarens notis-växlar — sätts i appen (Inställningar) men lästes ALDRIG
@@ -60,6 +61,15 @@ export async function GET(req: NextRequest) { return (await tillaten(req)) ?? fl
 export async function POST(req: NextRequest) { return (await tillaten(req)) ?? flush(); }
 
 async function flush() {
+  // Månadens stickprov för egenkontrollen: dras av databasen vid första anropet i en ny månad (annars no-op). Cronen går var 5:e minut, så
+  // dragningen och pushen sker utan att någon öppnat appen — och oberoende av pg_cron. Ett fel här får aldrig stoppa resten av kön.
+  try {
+    const { error: stickprovFel } = await supabase.rpc("egenkontroll_stickprov");
+    if (stickprovFel) console.error("[notis/flush] egenkontroll_stickprov:", stickprovFel.message);
+  } catch (e) {
+    console.error("[notis/flush] egenkontroll_stickprov:", e);
+  }
+
   const nu = new Date().toISOString();
   const { data: pendingRader, error } = await supabase
     .from("notis_kö")
@@ -67,7 +77,7 @@ async function flush() {
     // Förfallna rader ELLER ledighetsrader: de köas med skickas_at = 'infinity' så att den gamla flush-koden på
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts).
-    .or(flushUrval(nu, [LASS_MASKIN]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -139,8 +149,10 @@ async function flush() {
       // utskick (notisen är inte längre sann). Läsfel → raden lämnas oskickad, nästa cron försöker igen.
       // Lass: samma regler (färsk text, redan besvarat/för gammalt → hoppas över, läsfel → oskickad).
       let ledighetMeddelande: Awaited<ReturnType<typeof byggMeddelande>> | null = null;
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ)) {
-        const u = arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad) : await byggLedighetNotis(n, hamtaLedighetsrad);
+      // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ)) {
+        const u = arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
+          : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad) : await byggLedighetNotis(n, hamtaLedighetsrad);
         if (u.typ === "uppskjut") { uppskjutna++; continue; }
         if (u.typ === "hoppa_over") {
           await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: u.orsak }).eq("id", n.id);
@@ -233,6 +245,19 @@ const hamtaLassrad: HamtaLass = async (lassId) => {
   const d = data as any;
   const f = Array.isArray(d.forslag) ? d.forslag[0] : d.forslag;
   return { rad: { id: d.id, status: d.status, status_orsak: d.status_orsak, fran_namn: d.fran_namn, till_namn: d.till_namn, lassning_tid: d.lassning_tid, lossning_tid: d.lossning_tid, forslag_maskin_namn: f?.visningsnamn ?? f?.modell ?? null } };
+};
+
+// Månadens stickprov för notisen. `rad: null` = finns inte; `fel` = kunde inte läsas. Tjänstenyckeln läser förbi RLS.
+const hamtaStickprovrad: HamtaStickprov = async (manad) => {
+  const { data, error } = await supabase
+    .from("egenkontroll_stickprov")
+    .select("manad, valda, spridning_km")
+    .eq("manad", manad)
+    .maybeSingle();
+  if (error) return { rad: null, fel: error.message };
+  if (!data) return { rad: null };
+  const d = data as any;
+  return { rad: { manad: d.manad, valda: Array.isArray(d.valda) ? d.valda : [], spridning_km: d.spridning_km == null ? null : Number(d.spridning_km) } };
 };
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];

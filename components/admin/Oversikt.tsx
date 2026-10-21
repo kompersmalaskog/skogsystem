@@ -1,30 +1,35 @@
 "use client";
-// Översikt = att-göra-lista. Inga räknare: "N saker kräver dig" i orange, en rad per sak med en knapp dit det
+// Översikt = att-göra-lista. Inga räknare: "N saker kräver dig" i orange, en tryckbar rad (›) per sak som leder dit det
 // fixas, och under den "Stämmer" i grått så man ser att resten är kontrollerat. Inget väntande: bara Stämmer.
 import React, { useState } from "react";
-import { AVSTAND, FARG, KNAPP, TRAFFYTA, TYP } from "@/lib/design/tokens";
+import { AVSTAND, FARG, TRAFFYTA, TYP } from "@/lib/design/tokens";
+import { ymdLokal } from "@/lib/datumLokal";
+import { byggVilobrottArk, loneperiodForDag, manadenGarAttOppna } from "@/lib/admin/vilobrottArkVy";
 import type { Sak } from "@/lib/admin/attGora";
-import { Sektion, Lista, Laddar, Ikon } from "./ui";
+import { Sektion, Lista, Rad, Laddar, Ikon } from "./ui";
+import VilobrottArk from "./VilobrottArk";
 import { useAdminNav } from "./nav";
 import type { AttGora } from "./useAttGora";
 import ArbetstidKort from "./ArbetstidKort";
 
 export default function Oversikt({ att }: { att: AttGora }) {
-  const { gaTill } = useAdminNav();
+  const { nav, gaTill, sattParam } = useAdminNav();
   const [stammerOppen, setStammerOppen] = useState(false);
   if (att.laddar) return <Laddar>Kontrollerar lön, dagar, vilobrott, personer och maskiner …</Laddar>;
 
-  const knapp = (s: Sak) => {
-    const stil = { ...KNAPP.sekundar, width: "auto", flexShrink: 0, textDecoration: "none", whiteSpace: "nowrap" as const };
-    if (s.mal.typ === "sida") return <a href={s.mal.href} style={stil}>{s.knapp}</a>;
+  /** Hela raden är en tryckyta med › (iOS-rad, som förarkortet i Lön): ingen knapp bredvid texten. Ett läsfel har sin egen handling, "Försök igen". */
+  const oppna = (s: Sak) => {
     const mal = s.mal;
-    return (
-      <button type="button" style={stil} onClick={() => {
-        if (mal.typ === "forsok") att.ladda();
-        else if (mal.typ === "flik") gaTill({ flik: mal.flik, underflik: mal.underflik, params: mal.params });
-      }}>{s.knapp}</button>
-    );
+    if (mal.typ === "forsok") att.ladda();
+    else if (mal.typ === "sida") window.location.assign(mal.href);
+    else if (mal.typ === "vilobrott") sattParam("vila", mal.medarbetare_id);
+    else gaTill({ flik: mal.flik, underflik: mal.underflik, params: mal.params });
   };
+
+  // Arket över en persons vilobrott: personen står i adressen (?vila=<id>), så en omladdning landar på samma ställe.
+  const vilaId = nav.params.vila;
+  const vilaVy = vilaId ? byggVilobrottArk(att.vilobrott, vilaId) : null;
+  const idag = ymdLokal(new Date());
 
   return (
     <>
@@ -33,17 +38,19 @@ export default function Oversikt({ att }: { att: AttGora }) {
           <Sektion orange topp={0}>{att.saker.length} {att.saker.length === 1 ? "sak kräver dig" : "saker kräver dig"}</Sektion>
           <Lista>
             {att.saker.map((s, i) => (
-              <div key={s.id} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: i === att.saker.length - 1 ? "none" : `1px solid ${FARG.linje}`, display: "flex", alignItems: "center", gap: AVSTAND.m }}>
-                {/* Knappen sitter alltid bredvid texten, med samma ord (Öppna): raden säger vad det gäller. */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ ...TYP.listtitel, color: FARG.text, overflowWrap: "anywhere" }}>{s.rubrik}</div>
-                  {s.detalj && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, overflowWrap: "anywhere" }}>{s.detalj}</div>}
-                </div>
-                {knapp(s)}
-              </div>
+              <Rad key={s.id} attr={{ "data-sak": s.id }} rubrik={s.rubrik} detalj={s.detalj}
+                hoger={s.mal.typ === "forsok" ? <span style={{ color: FARG.text2 }}>{s.knapp}</span> : undefined}
+                chevron={s.mal.typ !== "forsok"} onClick={() => oppna(s)} sista={i === att.saker.length - 1} />
             ))}
           </Lista>
         </>
+      )}
+
+      {vilaVy && (
+        <VilobrottArk vy={vilaVy} onStang={() => sattParam("vila", null)}
+          hamtaManad={b => manadenGarAttOppna(b.dag, idag)
+            ? () => gaTill({ flik: "lon", underflik: "underlag", params: { period: loneperiodForDag(b.dag), forare: vilaVy.medarbetare_id, dag: b.dag } })
+            : null} />
       )}
 
       <ArbetstidKort forare={att.arbetstid} varningar={att.arbetstidVarningar} />

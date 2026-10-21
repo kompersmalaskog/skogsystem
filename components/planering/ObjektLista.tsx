@@ -21,6 +21,7 @@ import { hamtaEnGpsFix } from '@/lib/gpsKalla';
 import { AVSTAND, FARG, RADIE, RORELSE, TNUM, TRAFFYTA, TYP, VIKT, medSafeBotten } from '@/lib/design/tokens';
 import { PANEL_BREDD_PX, dragHojd, valjListdetent, type Detent } from '@/lib/plusArk';
 import { useSkarmLage } from '@/lib/hooks/useSkarmLage';
+import { useVagavstand } from '@/lib/hooks/useVagavstand';
 import { oplaneradRadText } from '@/lib/klarTrakt';
 import { arSkotningKvar, avslutadMeta, avslutadeAvTyp, avslutadeTyper, effektivGrupp, fagelKm, grupperaObjekt, kmText, maskinRang, radMeta, valdAvslutadTyp, type AvslutadTyp, type ListObjekt } from '@/lib/objektVal';
 import { arTilldelad, objektTraffPunkt, type KlararTyp } from '@/lib/objektPlats';
@@ -59,12 +60,7 @@ export interface ObjektListaProps {
 
 const GREPP_HOJD_PX = AVSTAND.xl + AVSTAND.xs;   // arkets grepp (samma mått som plus-arkets)
 const DRAG_START_PX = 8;                         // kortare än så är det ett tryck på greppet, inte ett drag
-const ANTAL_VAGAVSTAND = 30;             // så många närmaste objekt får vägavstånd (OSRM, ett i taget)
 const FALLBACK_POS = { lat: 56.40, lng: 14.70 };   // verksamhetens mitt när ingen GPS-fix finns (som den gamla väljaren)
-
-// Vägavstånd (km) per objekt och ungefärlig position — överlever att listan stängs och öppnas.
-const vagCache = new Map<string, number>();
-const posNyckel = (p: { lat: number; lng: number }) => `${p.lat.toFixed(2)},${p.lng.toFixed(2)}`;
 
 const Kryss = () => (
   <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={FARG.text2} strokeWidth="2.6" strokeLinecap="round"><path d="M6 6 L18 18" /><path d="M18 6 L6 18" /></svg>
@@ -97,7 +93,6 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   const [startad, setStartad] = useState(false);                                      // öppningens nollställning (Avslutade av, ny sökning) är gjord → prickarna får skickas
   const [skotKvarKlar, setSkotKvarKlar] = useState(false);                               // frågan har besvarats (även med fel) minst en gång
   const [geometri, setGeometri] = useState<Map<string, any> | null>(null);               // null = ej laddad → ingen "Här"
-  const [vag, setVag] = useState<Record<string, number>>({});
   // Telefon: arket öppnas på halv höjd, dras upp till nästan full och ner igen; ett halvt ark som dras ned stängs. Som plus-arket, utom stängningen.
   const [detent, setDetent] = useState<Detent>('halv');
   const [dragPx, setDragPx] = useState<number | null>(null);
@@ -200,38 +195,8 @@ export default function ObjektLista({ oppen, kanStangas, valtId, onValj, onNavig
   // Aktivt = inte avslutat — utom avslutat med skotning kvar, som ligger under Pågår.
   const arAktivt = (o: ListaObjekt) => effektivGrupp(o, skotKvar) !== 'avslutade';
 
-  // Vägavstånd (OSRM) till de närmaste aktiva objekten, ett i taget. Fågelvägen visas med ~ tills vägavståndet kommit.
-  useEffect(() => {
-    if (!oppen || !pos || objekt.length === 0) return;
-    let avbruten = false;
-    const pk = posNyckel(pos);
-    const kandidater = objekt
-      .filter((o) => harKoordinat(o) && arAktivt(o))
-      .sort((a, b) => fagelKm(pos.lat, pos.lng, a.lat!, a.lng!) - fagelKm(pos.lat, pos.lng, b.lat!, b.lng!))
-      .slice(0, ANTAL_VAGAVSTAND);
-    const fran: Record<string, number> = {};
-    for (const o of kandidater) { const c = vagCache.get(`${o.id}@${pk}`); if (c != null) fran[o.id] = c; }
-    if (Object.keys(fran).length) setVag((v) => ({ ...v, ...fran }));
-    (async () => {
-      for (const o of kandidater) {
-        if (avbruten) break;
-        if (vagCache.has(`${o.id}@${pk}`)) continue;
-        try {
-          const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${pos.lng},${pos.lat};${o.lng},${o.lat}?overview=false`);
-          const d = await res.json();
-          if (avbruten) break;
-          const m = d?.routes?.[0]?.distance;
-          if (typeof m === 'number') {
-            const km = Math.round(m / 100) / 10;
-            vagCache.set(`${o.id}@${pk}`, km);
-            setVag((v) => ({ ...v, [o.id]: km }));
-          }
-        } catch { /* fågelvägen står kvar */ }
-      }
-    })();
-    return () => { avbruten = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- arAktivt läser skotKvar som är med
-  }, [oppen, pos, objekt, skotKvar]);
+  // Vägavstånd (OSRM) till de närmaste aktiva objekten, ett i taget (lib/hooks/useVagavstand — flyttad oförändrad). Fågelvägen visas med ~ tills vägavståndet kommit.
+  const vag = useVagavstand({ aktiv: oppen, pos, objekt, urval: arAktivt, urvalNyckel: skotKvar });
 
   const avstandKm = (o: ListaObjekt): number | null =>
     vag[o.id] ?? (pos && harKoordinat(o) ? fagelKm(pos.lat, pos.lng, o.lat!, o.lng!) : null);

@@ -94,6 +94,8 @@ import { KorvyKvitto } from '../../components/planering/KorvyKvitto'
 import { aterstallMarkering, borttagenText, BORTTAGEN_MS, medUppladdatFoto } from '../../lib/borttagenKvitto'
 import { KorvyNertillList, AVBRYT_KNAPP } from '../../components/planering/KorvyNertillList'
 import { NedfaldList } from '../../components/planering/NedfaldList'
+import { SkordarForslag } from '../../components/planering/SkordarForslag'
+import { hogarSynliga, vaxlaSkotarHogar } from '../../lib/skotarHogar'
 import { PlusRad, type PlusPostVy, type HallSvar, type ArkData, type SymbolKategori, type RitaKort, type LagerRad, type LagerGrupp } from '../../components/planering/PlusRad'
 import { PANEL_BREDD_PX, redigeringTillState, type FlikId, type PlusLage } from '../../lib/plusArk'
 import { framhavBounds, framhavdFran, slappAtgard, type FramhavdMarkering, type SlappOrsak } from '../../lib/omTraktenFramhav'
@@ -143,6 +145,7 @@ import type { VagLinje } from '../../lib/skotarLass/spar'
 import { LossningsKort, NyttAvlaggKort } from '../../components/planering/skotar/LossningsKort'
 import { AndraLassArk } from '../../components/planering/skotar/AndraLassArk'
 import { KvarArk } from '../../components/planering/skotar/KvarArk'
+import { SkotarNedreRad, VantarPaDigArk } from '../../components/planering/skotar/LossaHar'
 import { MorgonKortVy, VaderLista } from '../../components/planering/skotar/VaderMorgon'
 import { AvlaggSkotatSektion } from '../../components/planering/skotar/AvlaggSkotatSektion'
 import { FardigskotadKort } from '../../components/planering/skotar/FardigskotadKort'
@@ -2844,6 +2847,7 @@ export default function PlannerPage() {
   const omradeRitningRef = useRef(false);                        // spegel för stale-closure-dörrvakt i klickhanterarna
   useEffect(() => { omradeRitningRef.current = omradeRitning; }, [omradeRitning]);
   const [skotningReload, setSkotningReload] = useState(0);
+  const [skordarKopplingNr, setSkordarKopplingNr] = useState(0);   // +1 när skördarens objekt kopplats: skotarens Kvar läser om
   const [kvarData, setKvarData] = useState<{ sortiment: string; total: number; uttag: number; kvar: number; color: string }[]>([]);
   // Ångra senaste uttag: bump:as BARA vid ångra → loadHogar kör om (högarna kommer tillbaka). ALDRIG
   // vid spara (då gör save-handlern en lokal kartuppdatering; en om-körning skulle ta tillbaka högarna).
@@ -4784,15 +4788,17 @@ export default function PlannerPage() {
   }, [overlays, mapLibreReady]);
 
   // === Produktionshögar: Toggle visibility ===
+  // Skotarläget: PÅ från början (lib/skotarHogar.ts). Alla andra vyer: lagret `produktionshogar` som förut.
+  const hogarPa = hogarSynliga(overlays, skotarKorvy);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    const vis = overlays.produktionshogar ? 'visible' : 'none';
+    const vis = hogarPa ? 'visible' : 'none';
     if (map.getLayer('hogar-hit')) map.setLayoutProperty('hogar-hit', 'visibility', vis);
     if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', vis);
     if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', vis);
     if (map.getLayer('hogar-cluster-label')) map.setLayoutProperty('hogar-cluster-label', 'visibility', vis);
-  }, [overlays.produktionshogar, mapLibreReady]);
+  }, [hogarPa, mapLibreReady]);
 
   // === GROT-högar: Toggle visibility ===
   useEffect(() => {
@@ -5253,7 +5259,7 @@ export default function PlannerPage() {
   // === Produktionshögar + GROT: Hämta och klustra HPR-stammar ===
   useEffect(() => {
     const map = mapInstanceRef.current;
-    const anyActive = overlays.produktionshogar || overlays.grothogar;
+    const anyActive = hogarPa || overlays.grothogar;
     if (!map || !mapLibreReady || !valtObjekt?.id || !anyActive) {
       // Rensa data om toggle av eller inget objekt
       hogarFeaturesRef.current = [];
@@ -5351,7 +5357,9 @@ export default function PlannerPage() {
       // bär nu total_volym/sortiment/bio_energy_adaption (migration 20260930_detalj_stam_
       // karthogar.sql). Filtrera på objekt_id = vo (samma numeriska nyckel som förr).
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
-      if (!/^\d+$/.test(vo)) {
+      // Extra nummer (objekt_alt_nummer) bär skördarens maskinobjekt även för ett jobb utan Vida-nummer (P-VO, Starta jobb): utan dem och utan numerisk vo finns inget att läsa.
+      const altNr = await hamtaAltNummer(supabase, valtObjekt.id);
+      if (!/^\d+$/.test(vo) && altNr.length === 0) {
         console.log('[HOGAR] Ingen numerisk vo — inga stammar');
         (map.getSource('hogar-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
         (map.getSource('grot-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
@@ -5407,7 +5415,7 @@ export default function PlannerPage() {
       const STAM_TAK = 20000;
       // Objektets extra nummer (objekt_alt_nummer): en HPR-fil vars ordernummer inte är objektets vo_nummer ligger under
       // sitt eget nummer i detalj_stam.objekt_id och hör ändå hit (lib/objektNummer). Utan extra nummer: bara vo, som förut.
-      const hogarIds = hogarObjektIds(vo, await hamtaAltNummer(supabase, valtObjekt.id));
+      const hogarIds = hogarObjektIds(vo, altNr);
 
       const { count: stamAntal } = await supabase
         .from('detalj_stam').select('id', { count: 'exact', head: true })
@@ -5614,7 +5622,7 @@ export default function PlannerPage() {
     };
 
     loadHogar();
-  }, [valtObjekt?.id, overlays.produktionshogar, overlays.grothogar, mapLibreReady, hogarReload]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [valtObjekt?.id, hogarPa, overlays.grothogar, mapLibreReady, hogarReload]); // eslint-disable-line react-hooks/exhaustive-deps
   // OBS: skotningReload borttagen från deps — save-handlers gör lokal uppdatering av kartan,
   // loadHogar ska INTE köras om efter sparande (det skriver över den lokala uppdateringen och högar "kommer tillbaka").
   // hogarReload däremot bump:as BARA vid ångra — då VILL vi köra om så de ångrade högarna kommer tillbaka.
@@ -5654,8 +5662,8 @@ export default function PlannerPage() {
       // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — exakt vo-segment-jämförelse
       // klientsida (split ':' + ===), ingen LIKE. stammar_count är opålitlig — används ej.
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
-      const altNummer = /^\d+$/.test(vo) ? await hamtaAltNummer(supabase, valtObjekt.id) : [];   // extra nummer: filer under annat ordernummer
-      const { data: kandidatFiler } = /^\d+$/.test(vo)
+      const altNummer = await hamtaAltNummer(supabase, valtObjekt.id);   // extra nummer: filer under annat ordernummer (också för ett P-VO utan Vida-nummer)
+      const { data: kandidatFiler } = /^\d+$/.test(vo) || altNummer.length > 0
         ? await supabase.from('hpr_filer').select('id, fil_datum, objekt_nyckel')
             .order('fil_datum', { ascending: false, nullsFirst: false })
         : { data: [] as { id: string; fil_datum: string | null; objekt_nyckel: string | null }[] };
@@ -6524,7 +6532,7 @@ export default function PlannerPage() {
         let antalHogar = 0;
 
         // Virke-högar (bara om virkes-lagret är aktivt)
-        if (overlays.produktionshogar) {
+        if (hogarPa) {
           const virkeSortMap: Record<string, { volym: number; color: string }> = {};
           for (const f of hogarFeaturesRef.current) {
             const [lng, lat] = f.geometry.coordinates;
@@ -11728,7 +11736,7 @@ export default function PlannerPage() {
   const skotarMaskinId = skotarKorvy ? hyttsparMaskinId(enhetMaskinId, 'skotare', null) : null;
   const skotarLassAktiv = skotarKorvy && !!valtObjekt?.id && !!skotarMaskinId;
   const skotarEgnaAvlagg = useMemo(() => (skotarLassAktiv
-    ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null }; })
+    ? (markers as any[]).filter((m) => m.isMarker && m.type === 'landing' && harXY(m)).map((m) => { const ll = svgToLatLon(m.x, m.y); return { id: String(m.id), lat: ll.lat, lng: ll.lon, nummer: m.avlaggNummer ?? null, viaLossaHar: !!m.skapadViaLossaHar }; })
     : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [skotarLassAktiv, markers, mapCenter.lat, mapCenter.lng, scale]);
@@ -11745,17 +11753,25 @@ export default function PlannerPage() {
     return skotarVagCacheRef.current.linjer;
   };
   // "Nytt avlägg här?" → Ja: ett eget avlägg på platsen, synligt för alla direkt (vanlig markering via markeringssynken), med sitt löpnummer.
-  const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string): string | null => {
+  const skotarSkapaAvlagg = (lat: number, lon: number, nummer: string, via?: 'lossa_har'): string | null => {
     if (testlageAktivRef.current) return null;   // torrkörningen skapar aldrig en riktig markering (markeringssynken skulle skriva den)
     const { x, y } = latLonToSvg(lat, lon);
     const id = Date.now();
     const m: any = nyMarkering('landing', id, x, y);
     m.avlaggNummer = nummer;
+    if (via === 'lossa_har') m.skapadViaLossaHar = true;   // bara dessa flyttas mot snittet av lossningarna (lib/skotarLass/lossaHar); Vidas, planerarens och handsatta flyttas aldrig
     m.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
     setMarkers((prev: any[]) => [...prev, m]);
     korvyEgnaMarkorRef.current.add(String(id));
     startaAvlaggVagkontroll(id, lat, lon);
     return String(id);
+  };
+  // Ett avlägg som skapats via Lossa här flyttas mot snittet av lossningarna (≥ 3 bekräftade lass). Dubbelspärr: bara en markering med skapadViaLossaHar rörs.
+  const skotarFlyttaAvlagg = (markerId: string, lat: number, lon: number) => {
+    if (testlageAktivRef.current) return;
+    const { x, y } = latLonToSvg(lat, lon);
+    setMarkers((prev: any[]) => prev.map((m) => (m.isMarker && m.type === 'landing' && m.skapadViaLossaHar && String(m.id) === markerId ? { ...m, x, y } : m)));
+    startaAvlaggVagkontroll(Number(markerId), lat, lon);
   };
   const skotarLass = useSkotarLass({
     aktiv: skotarLassAktiv,
@@ -11767,7 +11783,9 @@ export default function PlannerPage() {
     vida: klarVidaPunkter,
     egna: skotarEgnaAvlagg,
     hamtaVagar: skotarHamtaVagar,
-    skapaEgetAvlagg: (lat, lng, nummer) => skotarSkapaAvlagg(lat, lng, nummer),
+    skapaEgetAvlagg: (lat, lng, nummer, via) => skotarSkapaAvlagg(lat, lng, nummer, via),
+    flyttaEgetAvlagg: skotarFlyttaAvlagg,
+    omlasning: skordarKopplingNr,
   });
   // Väder för TRAKTENS position (inte där telefonen är); saknas koordinat faller det tillbaka på enhetens position. Testläget: dagarna hämtas, morgonkortet provkörs med knappen i bannern.
   const skotarVaderPos = useMemo(() => {
@@ -11778,6 +11796,7 @@ export default function PlannerPage() {
   const skotarVader = useSkotarVader(skotarKorvy, skotarVaderPos, !!testlage);
   const [skotarKvarOppet, setSkotarKvarOppet] = useState(false);
   const [skotarFardigOppet, setSkotarFardigOppet] = useState(false);
+  const [skotarVantarOppet, setSkotarVantarOppet] = useState(false);
   const [skotarValtAvlagg, setSkotarValtAvlagg] = useState<string | null>(null);   // avläggets id (vida:<nr> | egen:<id>) som kortet visar
   // Egna avlägg får sitt löpnummer en gång och behåller det (sparas på markeringen): ett raderat avlägg flyttar aldrig om de andra.
   useEffect(() => {
@@ -12003,7 +12022,7 @@ export default function PlannerPage() {
     g.push({
       id: 'produktionsdata', rubrik: 'Produktionsdata',
       rader: [
-        vaxel('produktionshogar', 'Avverkade stammar', undefined, !!(overlays as any).produktionshogar, lagerBild('produktionshogar'), sla('produktionshogar')),
+        vaxel('produktionshogar', 'Avverkade stammar', undefined, hogarPa, lagerBild('produktionshogar'), skotarKorvy ? () => setOverlays((prev: any) => vaxlaSkotarHogar(prev)) : sla('produktionshogar')),
         vaxel('grothogar', 'GROT (grenar & toppar)', undefined, !!(overlays as any).grothogar, lagerBild('grothogar'), sla('grothogar')),
         vaxel('mittSpar', 'Mitt spår', undefined, !!(overlays as any).mittSpar, sparYta(sparFarg('egen')), sla('mittSpar')),
         vaxel('andrasSpar', andrasRoll === 'skordare' ? 'Skördarens spår' : 'Skotarens spår', undefined, !!(overlays as any).andrasSpar, sparYta(sparFarg('andras')), sla('andrasSpar')),
@@ -12623,7 +12642,7 @@ export default function PlannerPage() {
           {skotarLassAktiv && (
             <button type="button" data-testid="skotar-provkor" onClick={() => skotarLass.provkorLossning(skotarValtAvlagg)}
               style={{ background: 'rgba(0,0,0,0.25)', color: '#1a1200', border: 'none', borderRadius: '8px', padding: '3px 10px', fontSize: '12px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
-              Provkör lossning
+              {skotarLass.oppen ? 'Provkör: kör ut ur zonen' : 'Provkör lossning'}
             </button>
           )}
           {skotarKorvy && (
@@ -13767,6 +13786,7 @@ export default function PlannerPage() {
                 kort={sl.kort} lass={kortLass} avlagg={sl.avlagg}
                 onAndra={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
                 onFyllI={() => sl.oppnaAndra(kortLass.id, sl.kort!.delNr)}
+                onStammer={() => sl.stammer(kortLass.id)}
                 onValjAvlagg={(a) => sl.valjAvlagg(kortLass.id, sl.kort!.delNr, a)}
                 onTaBort={() => sl.strykLass(kortLass.id)}
               />
@@ -13774,9 +13794,22 @@ export default function PlannerPage() {
             {!sl.kort && !sl.andra && sl.nyttAvlagg && (
               <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
             )}
+            {/* Reservknappen "Lossa här" och "N lass väntar på dig" är ALLTID på plats i skotarläget (ovanför kortet nertill). */}
+            {!sl.andra && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet && (
+              <SkotarNedreRad antalVantar={sl.vantarPaDig.length} lossar={!!sl.oppen} vidLossaHar={sl.lossaHar} onVisaVantar={() => setSkotarVantarOppet(true)} />
+            )}
+            {skotarVantarOppet && !sl.andra && (
+              <VantarPaDigArk
+                lass={sl.vantarPaDig}
+                onStammer={(l) => sl.stammer(l.id)}
+                onFyllI={(l) => { setSkotarVantarOppet(false); sl.oppnaAndra(l.id); }}
+                onStryk={(l) => sl.strykLass(l.id)}
+                onStang={() => setSkotarVantarOppet(false)}
+              />
+            )}
             {sl.andra && andraLass && (
               <AndraLassArk
-                lass={andraLass} delNr={sl.andra.delNr} avlagg={sl.avlagg} valbara={sl.valbara}
+                lass={andraLass} delNr={sl.andra.delNr} avlagg={sl.avlagg} valbara={sl.valbara} alla={sl.allaSortiment} onLasOm={sl.lasOmSortiment}
                 onRad={(rad, delta) => sl.andraRad(sl.andra!.delNr, rad, delta)}
                 onAvlagg={(a) => sl.valjAvlagg(andraLass.id, sl.andra!.delNr, a)}
                 onKlar={() => sl.stangAndra(true)}
@@ -13794,6 +13827,7 @@ export default function PlannerPage() {
             {skotarFardigOppet && (
               <FardigskotadKort
                 kontroll={sl.kvar ? farduskotatKontroll(sl.kvar) : null}
+                ingetSkordat={sl.ingetSkordat}
                 klar={!!(sl.avslut || sl.skotningAvslutad)}
                 onKarta={() => setSkotarFardigOppet(false)}
                 onBekrafta={() => { void sl.fardigskotad(); }}
@@ -14122,6 +14156,13 @@ export default function PlannerPage() {
           ]}
         />
       )}
+      {/* SKÖRDARENS OBJEKT: ett jobb utan Vida-nummer (Starta jobb) som saknar skördardata — databasen föreslår, ett tryck kopplar. Skotarläget och planeringen, aldrig skördarens egen körvy. */}
+      <SkordarForslag
+        objektId={valtObjekt?.id ?? null}
+        aktiv={!!valtObjekt?.id && (skotarKorvy || (!korvyActive && !maskinlage && !maskinSomParam)) && !objektListaOppen && !traktOversiktOpen && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && !korvyKvitto}
+        smal={smalSkarm}
+        onKopplad={() => { setHogarReload(prev => prev + 1); setSkotningReload(prev => prev + 1); setSkordarKopplingNr(prev => prev + 1); }}
+      />
       {(korvyActive || klarGaller) && korvyKvitto && !plusRadOppen && !prickValt && !figur && !placeraListSynlig && !ritListSynlig && !pilListSynlig && !omradeListSynlig && (
         <KorvyKvitto text={kvittoMedKvar(korvyKvitto.text, klarStatus.antalKvar, klarGaller && klarDataKlart && korvyKvitto.ton === 'ok')} ton={korvyKvitto.ton} onAngra={korvyKvitto.markerId != null ? angraKvitto : undefined} smal={smalSkarm} />
       )}

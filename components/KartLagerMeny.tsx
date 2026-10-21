@@ -23,8 +23,14 @@ import { wmsLayerGroups } from '@/lib/mapLayers';
 import type { BaskartaId } from '@/lib/mapLayers';
 import type { MapLayers } from '@/lib/hooks/useMapLayers';
 
-/** Ett lager som vyn sjalv ager - egenkontrollens punkter, provytor, stammar. */
-export type EgetLager = { id: string; namn: string; beskrivning: string };
+/**
+ * Ett lager som vyn sjalv ager - egenkontrollens punkter, provytor, stammar, planens vagar, hyttspar.
+ *   grupp     rubriken raden star under (raderna grupperas i den ordning grupperna forst forekommer). Utan: "Egenkontrollen".
+ *   avstangd  lagret finns inte for det har objektet eller gar inte att lasa: raden ar gra, visar "av" och gar inte att trycka pa.
+ *             beskrivning SAGER varfor - en gra rad som forklarar slar en rad som ser trasig ut.
+ *   farg      en liten prick vid namnet (hyttsparens rollfarg). Farg ar aldrig ensam - namnet star pa raden.
+ */
+export type EgetLager = { id: string; namn: string; beskrivning: string; grupp?: string; avstangd?: boolean; farg?: string };
 
 type Typ = {
   oppen: boolean;
@@ -333,7 +339,9 @@ export default function KartLagerMeny(p: Typ) {
             ))}
 
             {egnaLager && egnaLager.length > 0 && egnaVarden && setEgnaVarden && (
-              <div style={{
+              // Raderna grupperas efter `grupp` i den ordning grupperna forst forekommer. Utan grupp: "Egenkontrollen" (som forut).
+              [...new Set(egnaLager.map(l => l.grupp ?? 'Egenkontrollen'))].map(grupp => (
+              <div key={grupp} data-lager-grupp={grupp} style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
                 borderRadius: '16px',
@@ -341,35 +349,49 @@ export default function KartLagerMeny(p: Typ) {
                 marginBottom: '16px',
               }}>
                 <div style={{ padding: '12px 16px 8px', fontSize: '13px', opacity: 0.4 }}>
-                  Egenkontrollen
+                  {grupp}
                 </div>
-                {egnaLager.map(lager => (
+                {egnaLager.filter(l => (l.grupp ?? 'Egenkontrollen') === grupp).map(lager => {
+                  // En avstangd rad visar alltid "av", vad det sparade valet an sager, och gar inte att trycka pa.
+                  const pa = !lager.avstangd && !!egnaVarden[lager.id];
+                  return (
                   <div
                     key={lager.id}
-                    onClick={() => setEgnaVarden(prev => ({ ...prev, [lager.id]: !prev[lager.id] }))}
+                    role="switch"
+                    aria-checked={pa}
+                    aria-disabled={lager.avstangd ? true : undefined}
+                    data-lager={lager.id}
+                    data-avstangd={lager.avstangd ? '1' : undefined}
+                    onClick={lager.avstangd ? undefined : () => setEgnaVarden(prev => ({ ...prev, [lager.id]: !prev[lager.id] }))}
                     style={{
                       padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '16px',
-                      borderRadius: '12px', cursor: 'pointer', minHeight: 44,
+                      borderRadius: '12px', cursor: lager.avstangd ? 'default' : 'pointer', minHeight: 44,
+                      opacity: lager.avstangd ? 0.55 : 1,
                     }}
                   >
                     <span style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>{lager.namn}</div>
+                      <div style={{ fontSize: '15px', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {lager.farg && <span aria-hidden data-lager-farg style={{ width: '12px', height: '12px', borderRadius: '50%', background: lager.farg, flexShrink: 0 }} />}
+                        {lager.namn}
+                      </div>
                       <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{lager.beskrivning}</div>
                     </span>
                     <div style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px',
-                      background: egnaVarden[lager.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
+                      background: pa ? '#30d158' : 'rgba(255,255,255,0.1)',
                       transition: 'background 0.2s ease', flexShrink: 0,
                     }}>
                       <div style={{
                         width: '22px', height: '22px', borderRadius: '50%', background: '#fff',
-                        transform: egnaVarden[lager.id] ? 'translateX(18px)' : 'translateX(0)',
+                        transform: pa ? 'translateX(18px)' : 'translateX(0)',
                         transition: 'transform 0.2s ease',
                       }} />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
+              ))
             )}
             {visaBrandrisk && (<>
             {/* SMHI Brandrisk (API-baserad) */}

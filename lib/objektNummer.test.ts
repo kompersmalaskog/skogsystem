@@ -163,7 +163,8 @@ describe('hamtaAltNummer — fel är aldrig ett kast', () => {
 describe('källvakt: planeringsvyn läser objektets extra nummer', () => {
   const page = readFileSync(resolve(__dirname, '../app/planering/page.tsx'), 'utf8');
   it('produktionshögarna läses på vo + extra nummer, inte bara vo', () => {
-    expect(page).toContain("const hogarIds = hogarObjektIds(vo, await hamtaAltNummer(supabase, valtObjekt.id));");
+    expect(page).toContain("const altNr = await hamtaAltNummer(supabase, valtObjekt.id);");
+    expect(page).toContain("const hogarIds = hogarObjektIds(vo, altNr);");
     expect(page).toContain(".in('objekt_id', hogarIds).not('latitude', 'is', null);");
     expect(page).toContain(".in('objekt_id', hogarIds)\n            .not('latitude', 'is', null)");
     expect(page).not.toContain(".eq('objekt_id', vo)");

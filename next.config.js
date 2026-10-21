@@ -79,6 +79,8 @@ const nextConfig = {
       // /maskinflytt (förarflödet) är ersatt av "Hämta en maskin" i Lastbilen (steg 3 av 4). 308: den kommer inte tillbaka, och ett bokmärke eller en
       // hemskärmsgenväg ska landa i Lastbilen. Bara adressen ovan — /maskinflytt/platser (flyttplatserna) lever kvar.
       { source: '/maskinflytt', destination: '/lastbil', permanent: true },
+      // Beställningsvyn och objektvyn är EN vy (2026-10-19): beställningen är behållaren, objekten raderna under. Frågeparametrarna (?ar=&manad=) följer med.
+      { source: '/bestallningar', destination: '/objekt', permanent: true },
       { source: '/massaved', destination: '/affarsuppfoljning/kvalitet', permanent: false },
       { source: '/massaved/:objektId/bitar', destination: '/affarsuppfoljning/objekt/:objektId/bitar', permanent: false },
       { source: '/massaved/:objektId', destination: '/affarsuppfoljning/objekt/:objektId', permanent: false },

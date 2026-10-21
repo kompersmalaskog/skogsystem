@@ -38,6 +38,7 @@ vi.mock('@/lib/egenkontrollRapportIndata', async (orig) => {
   return { ...verklig, byggRapportIndata: (a: any) => { sistaIndata = a; return verklig.byggRapportIndata(a); } };
 });
 vi.mock('next/navigation', () => ({ useParams: () => ({ objektId: 'ob1' }) }));
+vi.mock('@/lib/hooks/useVagavstand', () => ({ useVagavstand: () => ({}) }));   // vägavståndet hämtas från OSRM; ett test når aldrig nätet
 vi.mock('@/lib/egenkontroll', async (orig) => {
   const verklig = await orig<typeof import('@/lib/egenkontroll')>();
   return {
