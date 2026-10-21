@@ -5551,11 +5551,27 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 #     Raden får ALDRIG ett prognosvärde i stället (arkiv och prognos är olika källor).
 #   * Position = första skördade stammens GPS, tid = tidigaste skördetid i filen (det första som kontrollerades).
 #     Tiden räknas som verkligt UTC (stockholm_lokal_till_utc) och hämtas för närmaste hel timme.
-#   * Rader som redan har väder rörs aldrig (PATCH med weather_at_harvest=is.null).
+#   * Rader som redan har väder rörs aldrig av importen (PATCH med weather_at_harvest=is.null). Bara backfill-skriptet
+#     kan, uttryckligen (--skriv-over), hämta om väder för rader som har det.
+#   * Kompletteringskön rör sig alltid framåt: kontroller utan användbar position eller som Open-Meteo avvisar (4xx) skrivs
+#     till import_fel som VADER_PERMANENT och hoppas över därefter; bara riktiga nätanrop räknas mot taket. Ett nätfel
+#     (timeout, 5xx, 429) avbryter kompletteringen för den importen och loggas en gång — ingen väntar 25 × timeout.
 VADER_ARKIV_URL = 'https://archive-api.open-meteo.com/v1/archive'
 VADER_TIMEOUT_S = 10
 VADER_KALLA = 'open-meteo.com'
 VADER_ARKIV_FORDROJNING_DAGAR = 6   # ERA5 är klart ca 5 dygn efter; yngre kontroller försöks inte och räknas som "inte klart än"
+VADER_PAGINERING = 200              # rader per läsning av kandidater (nyckelpaginering på id)
+VADER_NAT_PAUS_S = 300              # efter ett nätfel i den här importen försöker kompletteringen inte igen på så här länge
+
+# Utfall av en hämtning — avgör vad som händer härnäst:
+#   ok          väder hämtat
+#   inte_klart  ERA5 har inget värde än (för ny kontroll): försök igen vid senare import, ingen kostnad
+#   permanent   försök aldrig igen: ingen användbar position/tid, eller Open-Meteo avvisar frågan (4xx) / saknar timmen.
+#               Kommer ihåg i import_fel (felkod VADER_PERMANENT) så kön rör sig framåt i stället för att fastna
+#   tillfalligt nätfel, timeout, 5xx eller 429: Open-Meteo/nätet är nere — kompletteringen avbryts för den här importen
+VADER_OK, VADER_EJ_KLART, VADER_PERMANENT, VADER_TILLFALLIGT = 'ok', 'inte_klart', 'permanent', 'tillfalligt'
+
+_vader_nat = {'nere_sedan': None}   # sätts av lagg_pa_vader/komplettering vid nätfel; hindrar att samma import väntar igen
 
 
 def valj_vaderpunkt(stockar: List[Dict]):
@@ -5598,14 +5614,14 @@ def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime) -> Opt
 
 
 def hamta_vader_vid_skord(lat: float, lon: float, skord_utc: datetime, http=None, nu: datetime = None):
-    """Hämtar vädret för närmaste hela timme runt skord_utc ur ERA5-arkivet. Returnerar (väderJSON, None) eller
-    (None, skäl). KASTAR ALDRIG. Skälet är en kort svensk text som loggas och hamnar i import_fel."""
+    """Hämtar vädret för närmaste hela timme runt skord_utc ur ERA5-arkivet. Returnerar (väderJSON, None, 'ok') eller
+    (None, skäl, art) med art enligt VADER_* ovan. KASTAR ALDRIG. Skälet är en kort svensk text för logg och import_fel."""
     http = http or requests
     nu = nu or datetime.now(timezone.utc)
     try:
         timme = (skord_utc + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
         if timme > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR):
-            return None, f"inte klart än: ERA5-arkivet ligger ca 5 dygn efter (skörd {skord_utc:%Y-%m-%d %H:%M} UTC)"
+            return None, f"inte klart än: ERA5-arkivet ligger ca 5 dygn efter (skörd {skord_utc:%Y-%m-%d %H:%M} UTC)", VADER_EJ_KLART
         dag = f"{timme:%Y-%m-%d}"
         r = http.get(VADER_ARKIV_URL, params={
             'latitude': f"{lat:.4f}", 'longitude': f"{lon:.4f}",
@@ -5618,23 +5634,28 @@ def hamta_vader_vid_skord(lat: float, lon: float, skord_utc: datetime, http=None
         except Exception:
             kropp = None
         # Arkivet svarar 400 MED {error: true, reason: "..."} — bara status räcker inte, bara kroppen inte heller.
+        if r.status_code == 429 or r.status_code >= 500:
+            return None, f"Open-Meteo svarade HTTP {r.status_code}", VADER_TILLFALLIGT
         if r.status_code != 200 or not isinstance(kropp, dict) or kropp.get('error'):
             skal = kropp.get('reason') if isinstance(kropp, dict) and kropp.get('reason') else f"HTTP {r.status_code}"
-            return None, f"Open-Meteo svarade fel: {skal}"
+            # 4xx = frågan avvisas, och avvisas igen nästa gång. Ett 200 utan läsbar kropp är en trasig leverans: försök igen.
+            art = VADER_PERMANENT if 400 <= r.status_code < 500 else VADER_TILLFALLIGT
+            return None, f"Open-Meteo svarade fel: {skal}", art
         h = kropp.get('hourly') or {}
         tider = h.get('time') or []
         onskad = f"{timme:%Y-%m-%dT%H:00}"
         if onskad not in tider:
-            return None, f"Open-Meteo saknade timmen {onskad} UTC"
+            return None, f"Open-Meteo saknade timmen {onskad} UTC", VADER_PERMANENT
         i = tider.index(onskad)
         timdata = {k: (h.get(k) or [None] * len(tider))[i] for k in
                    ('temperature_2m', 'precipitation', 'snowfall', 'wind_speed_10m')}
         vader = bygg_vader_json(timdata, skord_utc, nu)
         if vader is None:
-            return None, "inte klart än: Open-Meteo har inget arkivvärde för timmen"
-        return vader, None
+            return None, "inte klart än: Open-Meteo har inget arkivvärde för timmen", VADER_EJ_KLART
+        return vader, None, VADER_OK
     except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
+        # nätverksfel, timeout, avbruten anslutning — nätet/tjänsten är nere, inget fel i just den här kontrollen
+        return None, f"{type(e).__name__}: {e}", VADER_TILLFALLIGT
 
 
 def lagg_pa_vader(kalibrering_rad: Dict, stockar: List[Dict], filnamn) -> bool:
@@ -5644,80 +5665,159 @@ def lagg_pa_vader(kalibrering_rad: Dict, stockar: List[Dict], filnamn) -> bool:
     punkt = valj_vaderpunkt(stockar)
     if punkt is None:
         logger.warning(f"  ⚠ Väder saknas för {filnamn}: ingen stock med både GPS-position och skördetid")
-        _rapportera_import_fel('fakt_kalibrering', filnamn, 1, 'VADER_SAKNAS', 'ingen stock med både GPS-position och skördetid')
+        _rapportera_import_fel('fakt_kalibrering', filnamn, 1, 'VADER_PERMANENT', 'ingen stock med både GPS-position och skördetid')
         return False
-    vader, skal = hamta_vader_vid_skord(*punkt)
+    vader, skal, art = hamta_vader_vid_skord(*punkt)
     if vader is None:
-        if skal.startswith('inte klart än'):
+        if art == VADER_EJ_KLART:
             logger.info(f"  ↷ Väder för {filnamn} fylls i senare — {skal}")
         else:
             logger.warning(f"  ⚠ Väder saknas för {filnamn}: {skal}")
-            _rapportera_import_fel('fakt_kalibrering', filnamn, 1, 'VADER_SAKNAS', skal)
+            _rapportera_import_fel('fakt_kalibrering', filnamn, 1,
+                                   'VADER_PERMANENT' if art == VADER_PERMANENT else 'VADER_SAKNAS', skal)
+            if art == VADER_TILLFALLIGT:
+                _vader_nat['nere_sedan'] = datetime.now(timezone.utc)   # kompletteringen i samma import försöker inte igen
         return False
     kalibrering_rad['weather_at_harvest'] = vader
     logger.info(f"  Väder vid skörd: {vader['temperature_c']}°C, {vader['precipitation_mm']} mm, {vader['wind_speed_ms']} m/s")
     return True
 
 
-def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None, nu: datetime = None) -> Dict:
-    """Fyller i väder på kontroller som saknar det (äldst först): de som importerades innan ERA5 var klart och de vars
-    hämtning föll. Rör ALDRIG en rad som redan har väder (läsning med weather_at_harvest=is.null, PATCH med samma villkor
-    och kontroll att exakt en rad ändrades). Kastar aldrig. Rapport: {'sokta', 'fyllda', 'inte_klara', 'misslyckade': [(id,
-    filnamn, skäl)]}. skriv=False räknar bara (torrkörning). max_antal=None = alla."""
-    rapport = {'sokta': 0, 'fyllda': 0, 'inte_klara': 0, 'misslyckade': []}
+def _permanenta_vader() -> set:
+    """Filnamn som tidigare getts upp permanent (import_fel, felkod VADER_PERMANENT). Kan listan inte läsas gäller tom
+    lista: då försöker kompletteringen i stället om, vilket kostar tid men aldrig tappar något."""
+    try:
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/import_fel?tabell=eq.fakt_kalibrering&felkod=eq.VADER_PERMANENT"
+                         f"&select=filnamn&limit=5000", headers=SUPABASE_HEADERS, timeout=30)
+        if r.status_code == 200:
+            return {x['filnamn'] for x in r.json() if x.get('filnamn')}
+    except Exception:
+        pass
+    return set()
+
+
+def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None, nu: datetime = None,
+                             skriv_over: bool = False, ignorera_permanenta: bool = False) -> Dict:
+    """Fyller i väder på kontroller som saknar det (äldst först, nyckelpaginering på id).
+
+    KÖN RÖR SIG ALLTID FRAMÅT: max_antal räknar bara hämtningar som faktiskt gick mot Open-Meteo. Kontroller som inte
+    behöver nätet kostar inget — de som inte är klara än (ERA5), de som tidigare getts upp (import_fel VADER_PERMANENT) och
+    de som saknar användbar position (de skrivs då till VADER_PERMANENT och hoppas över nästa gång). Ett nätverksfel (timeout,
+    5xx, 429) avbryter kompletteringen för den här importen, loggas EN gång, och inget mer försöks.
+
+    Utan skriv_over (importens läge) rörs ALDRIG en rad som har väder: läsning med weather_at_harvest=is.null och PATCH med
+    samma villkor. skriv_over=True (bara backfill-skriptet, uttryckligen) hämtar om väder även för rader som har det, men
+    bara där den lagrade skördetiden skiljer sig från den rätta (omkörning ändrar inget), och PATCH kräver att raden
+    fortfarande har det väder vi läste (fetched_at) — annars tas det inte över. Gamla värden returneras i 'aterstall'.
+
+    Kastar aldrig. Rapport: sokta, fyllda, ersatta, inte_klara, hoppade_permanent, redan_ratta, misslyckade [(id, filnamn,
+    skäl)], avbrutet (skäl eller None), aterstall [(id, gammalt väder)]. skriv=False räknar bara (torrkörning)."""
+    rapport = {'sokta': 0, 'fyllda': 0, 'ersatta': 0, 'inte_klara': 0, 'hoppade_permanent': 0, 'redan_ratta': 0,
+               'misslyckade': [], 'avbrutet': None, 'aterstall': []}
     try:
         http = http or requests
         nu = nu or datetime.now(timezone.utc)
-        url = (f"{SUPABASE_URL}/rest/v1/fakt_kalibrering?weather_at_harvest=is.null"
-               f"&select=id,filnamn,maskin_id&order=datum.asc,id.asc")
-        if max_antal:
-            url += f"&limit={int(max_antal)}"
-        resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
-        if resp.status_code != 200:
-            logger.warning(f"  ⚠ Väder: kunde inte läsa kontroller utan väder: {resp.status_code} {resp.text[:200]}")
+        nere = _vader_nat['nere_sedan']
+        if nere is not None and (nu - nere).total_seconds() < VADER_NAT_PAUS_S:
+            rapport['avbrutet'] = 'nätfel tidigare i den här importen'   # redan loggat en gång av lagg_pa_vader
             return rapport
-        for rad in resp.json():
-            rapport['sokta'] += 1
-            try:
-                enc = quote(str(rad['filnamn']), safe='')
-                sresp = requests.get(
-                    f"{SUPABASE_URL}/rest/v1/detalj_kontroll_stock?filnamn=eq.{enc}&maskin_id=eq.{quote(str(rad['maskin_id']), safe='')}"
-                    f"&select=stem_lat,stem_lon,harvest_date,tid_ar_utc", headers=SUPABASE_HEADERS, timeout=30)
-                if sresp.status_code != 200:
-                    rapport['misslyckade'].append((rad['id'], rad['filnamn'], f"kunde inte läsa stockarna: {sresp.status_code}"))
-                    continue
-                stockar = []
-                for s in sresp.json():
-                    # tid_ar_utc=true → verkligt UTC (görs om till väggklocka som parsern använder), annars redan väggklocka
-                    lokal = db_tid_till_lokal(s.get('harvest_date'), bool(s.get('tid_ar_utc')))
-                    stockar.append({'stem_lat': s.get('stem_lat'), 'stem_lon': s.get('stem_lon'), 'harvest_date': lokal})
-                    for k in ('stem_lat', 'stem_lon'):
-                        if stockar[-1][k] is not None:
-                            stockar[-1][k] = float(stockar[-1][k])
-                punkt = valj_vaderpunkt(stockar)
-                if punkt is None:
-                    rapport['misslyckade'].append((rad['id'], rad['filnamn'], 'ingen stock med både GPS-position och skördetid'))
-                    continue
-                vader, skal = hamta_vader_vid_skord(*punkt, http=http, nu=nu)
-                if vader is None:
-                    if skal.startswith('inte klart än'):
-                        rapport['inte_klara'] += 1
-                    else:
+        kanda = _permanenta_vader()   # redan i import_fel: skrivs aldrig en gång till
+        permanenta = set() if ignorera_permanenta else kanda
+        forsok = 0
+        sist_id = 0
+        while True:
+            url = (f"{SUPABASE_URL}/rest/v1/fakt_kalibrering?id=gt.{sist_id}"
+                   f"&select=id,filnamn,maskin_id,weather_at_harvest&order=id.asc&limit={VADER_PAGINERING}")
+            if not skriv_over:
+                url += "&weather_at_harvest=is.null"
+            resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
+            if resp.status_code != 200:
+                logger.warning(f"  ⚠ Väder: kunde inte läsa kontroller: {resp.status_code} {resp.text[:200]}")
+                break
+            sida = resp.json()
+            if not sida:
+                break
+            for rad in sida:
+                sist_id = rad['id']
+                if max_antal and forsok >= max_antal:
+                    return rapport
+                befintligt = rad.get('weather_at_harvest')
+                if befintligt and not skriv_over:
+                    continue   # skydd utöver filtret: en rad med väder rörs aldrig av importen
+                rapport['sokta'] += 1
+                try:
+                    if rad['filnamn'] in permanenta:
+                        rapport['hoppade_permanent'] += 1
+                        continue
+                    enc = quote(str(rad['filnamn']), safe='')
+                    sresp = requests.get(
+                        f"{SUPABASE_URL}/rest/v1/detalj_kontroll_stock?filnamn=eq.{enc}&maskin_id=eq.{quote(str(rad['maskin_id']), safe='')}"
+                        f"&select=stem_lat,stem_lon,harvest_date,tid_ar_utc", headers=SUPABASE_HEADERS, timeout=30)
+                    if sresp.status_code != 200:
+                        rapport['misslyckade'].append((rad['id'], rad['filnamn'], f"kunde inte läsa stockarna: {sresp.status_code}"))
+                        continue
+                    stockar = []
+                    for s in sresp.json():
+                        # tid_ar_utc=true → verkligt UTC (görs om till väggklocka som parsern använder), annars redan väggklocka
+                        lokal = db_tid_till_lokal(s.get('harvest_date'), bool(s.get('tid_ar_utc')))
+                        stockar.append({'stem_lat': None if s.get('stem_lat') is None else float(s['stem_lat']),
+                                        'stem_lon': None if s.get('stem_lon') is None else float(s['stem_lon']),
+                                        'harvest_date': lokal})
+                    punkt = valj_vaderpunkt(stockar)
+                    if punkt is None:
+                        skal = 'ingen stock med både GPS-position och skördetid'
                         rapport['misslyckade'].append((rad['id'], rad['filnamn'], skal))
-                    continue
-                if not skriv:
-                    rapport['fyllda'] += 1
-                    continue
-                presp = requests.patch(
-                    f"{SUPABASE_URL}/rest/v1/fakt_kalibrering?id=eq.{rad['id']}&weather_at_harvest=is.null",
-                    headers={**SUPABASE_HEADERS, 'Prefer': 'return=representation'},
-                    json={'weather_at_harvest': vader}, timeout=30)
-                if presp.status_code in (200, 204) and len(presp.json() or []) == 1:
-                    rapport['fyllda'] += 1
-                else:
-                    rapport['misslyckade'].append((rad['id'], rad['filnamn'], f"skrivningen gav {presp.status_code} {presp.text[:100]}"))
-            except Exception as e:
-                rapport['misslyckade'].append((rad.get('id'), rad.get('filnamn'), f"{type(e).__name__}: {e}"))
+                        if skriv and rad['filnamn'] not in kanda:
+                            _rapportera_import_fel('fakt_kalibrering', rad['filnamn'], 1, 'VADER_PERMANENT', skal)
+                        continue   # kostar inget nätanrop och räknas inte mot max_antal
+                    if befintligt and skriv_over:
+                        gammal = parse_tid_utc((befintligt or {}).get('harvest_time'))
+                        if gammal is not None and abs((gammal - punkt[2]).total_seconds()) < 1:
+                            rapport['redan_ratta'] += 1
+                            continue
+                    if punkt[2] + timedelta(minutes=30) > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR):
+                        rapport['inte_klara'] += 1   # hämtas inte: kostar inget nätanrop
+                        continue
+                    forsok += 1
+                    vader, skal, art = hamta_vader_vid_skord(*punkt, http=http, nu=nu)
+                    if vader is None:
+                        if art == VADER_EJ_KLART:
+                            rapport['inte_klara'] += 1
+                        elif art == VADER_TILLFALLIGT:
+                            rapport['avbrutet'] = skal
+                            _vader_nat['nere_sedan'] = nu
+                            logger.warning(f"  ⚠ Väder: {skal} — avbryter kompletteringen för den här importen "
+                                           f"({rapport['fyllda']} ifyllda, resten försöks vid nästa import)")
+                            return rapport
+                        else:
+                            rapport['misslyckade'].append((rad['id'], rad['filnamn'], skal))
+                            if skriv and rad['filnamn'] not in kanda:
+                                _rapportera_import_fel('fakt_kalibrering', rad['filnamn'], 1, 'VADER_PERMANENT', skal)
+                        continue
+                    if not skriv:
+                        rapport['ersatta' if befintligt else 'fyllda'] += 1
+                        continue
+                    if befintligt:
+                        villkor = "weather_at_harvest->>fetched_at=eq." + quote(str(befintligt.get('fetched_at')), safe='')
+                    else:
+                        villkor = "weather_at_harvest=is.null"
+                    presp = requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/fakt_kalibrering?id=eq.{rad['id']}&{villkor}",
+                        headers={**SUPABASE_HEADERS, 'Prefer': 'return=representation'},
+                        json={'weather_at_harvest': vader}, timeout=30)
+                    if presp.status_code in (200, 204) and len(presp.json() or []) == 1:
+                        if befintligt:
+                            rapport['ersatta'] += 1
+                            rapport['aterstall'].append((rad['id'], befintligt))
+                        else:
+                            rapport['fyllda'] += 1
+                        _vader_nat['nere_sedan'] = None
+                    else:
+                        rapport['misslyckade'].append((rad['id'], rad['filnamn'], f"skrivningen gav {presp.status_code} {presp.text[:100]}"))
+                except Exception as e:
+                    rapport['misslyckade'].append((rad.get('id'), rad.get('filnamn'), f"{type(e).__name__}: {e}"))
+            if len(sida) < VADER_PAGINERING:
+                break
     except Exception as e:
         logger.warning(f"  ⚠ Väder: komplettering avbröts: {e}")
     return rapport
@@ -5859,7 +5959,7 @@ def save_hqc_to_supabase(data: Dict) -> bool:
         rapport = komplettera_saknat_vader(max_antal=25)
         if rapport['fyllda'] or rapport['misslyckade']:
             logger.info(f"  Väder, komplettering: {rapport['fyllda']} ifyllda, {rapport['inte_klara']} inte klara, "
-                        f"{len(rapport['misslyckade'])} misslyckade")
+                        f"{rapport['hoppade_permanent']} uppgivna, {len(rapport['misslyckade'])} misslyckade")
         return True
     except Exception as e:
         logger.error(f"  Fel vid sparande av HQC: {e}")
