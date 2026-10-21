@@ -56,11 +56,11 @@ function renderaHtml(el: React.ReactElement, efter?: () => void): string {
 const kolbotten = () => act(() => { (document.querySelector('[data-testid="malbild-variant-kolbotten"]') as HTMLElement).click(); });
 
 const KOMMENTAR = [{ id: 'k1', text: 'Stolpen lutar åt vägen, fäll inte åt det hållet.', forfattare: 'Martin · i går 16:20', vantar: false, kanAndra: true, kanRadera: true }];
-/** Ett typiskt kort, som sidan bygger det för en egen kommentar: huvud, en mening, EN kort kommentar med namn och tid (med Ändra/Ta bort och Ny kommentar), målbildsraden, fotoknappen och två åtgärder. */
+/** Ett typiskt kort, som sidan bygger det för en egen kommentar: huvud med ✕, en mening, EN kort kommentar med namn och tid (med Ändra/Ta bort), målbildsraden, åtgärdsraden Kommentar · Foto · Röst och två åtgärder. */
 const typisktKort = (nyckel: string, roll: 'skordare' | 'skotare') => {
   const m = MALBILDER[nyckel];
   return (
-    <KartKort ikon={<div style={{ width: 52, height: 52 }} />} namn={m.namn} grupp={m.grupp} larmRegel="Larmar tills du kvitterat" mening={LANG_MENING} kommentarer={KOMMENTAR} kanKommentera onLaggKommentar={() => {}} onAndraKommentar={() => {}} onRaderaKommentar={() => {}} foton={[]} onLaggTillFoto={() => {}} onStang={() => {}}
+    <KartKort ikon={<div style={{ width: 52, height: 52 }} />} namn={m.namn} grupp={m.grupp} larmRegel="Larmar tills du kvitterat" mening={LANG_MENING} kommentarer={KOMMENTAR} kanKommentera onLaggKommentar={() => {}} onAndraKommentar={() => {}} onRaderaKommentar={() => {}} foton={[]} onLaggTillFoto={() => {}} rost={{ onToggle: () => {}, spelar: false, sekunder: 0 }} onStang={() => {}}
       malbild={<MalbildRad nyckel={nyckel} roll={roll} />}>
       <KartKortNederst>
         <div style={{ display: 'flex', gap: 8 }}><button style={{ ...KNAPP.sekundar }}>Flytta</button><button style={{ ...KNAPP.sekundar }}>Ta bort</button></div>
@@ -123,10 +123,10 @@ describe(`Målbilden på maskindatorn och telefonen — ${CHROMIUM ? 'mätt i Ch
     if (process.env.MALBILD_HYTT_SKRIV) for (const x of marginaler) console.log('blad', x.skarm, x.sida.padEnd(28), x.marginal);
   }, 120000);
 
-  it.skipIf(!CHROMIUM)('KORTET: målbilden är bara en rad — inget utfällt i kortet, och ett typiskt kort (huvud, mening, en kort kommentar, målbildsrad, foto, två åtgärder) rymms utan scroll på telefon', async () => {
+  it.skipIf(!CHROMIUM)('KORTET: målbilden är bara en rad — inget utfällt i kortet, åtgärdsraden har tre lika knappar ≥ 44 px, ✕ ≥ 44 px (ingen Stäng-knapp), och ett typiskt kort (huvud, mening, en kort kommentar, målbildsrad, åtgärdsrad, två åtgärder) rymms utan scroll på telefon', async () => {
     const lista = sidor().filter((x) => x.slag === 'kort');
     const b = await CHROMIUM!.launch({});
-    const rader: { skarm: string; sida: string; kortH: number; skroll: number; raden: number; kommentarTop: number; radenTop: number }[] = [];
+    const rader: { skarm: string; sida: string; kortH: number; skroll: number; raden: number; kommentarTop: number; radenTop: number; knappHojd: number; xBredd: number }[] = [];
     try {
       for (const s of KORT_SKARMAR) {
         const p = await b.newPage({ viewport: { width: s.w, height: s.h } });
@@ -136,20 +136,37 @@ describe(`Målbilden på maskindatorn och telefonen — ${CHROMIUM ? 'mätt i Ch
             const q = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
             const ark = document.querySelector('[data-testid="kartkort"]>div') as HTMLElement | null;
             const rulle = ark ? (Array.from(ark.children).find((c) => getComputedStyle(c as HTMLElement).overflowY === 'auto') as HTMLElement | undefined) : undefined;
-            const rad = q('malbild-rad-kort'), kom = q('kartkort-kommentar');
-            if (!ark || !rulle || !rad || !kom) return null;
-            return { kortH: Math.round(ark.getBoundingClientRect().height), skroll: rulle.scrollHeight - rulle.clientHeight, raden: Math.round(rad.getBoundingClientRect().height), kommentarTop: Math.round(kom.getBoundingClientRect().top), radenTop: Math.round(rad.getBoundingClientRect().top), utfalld: !!q('malbild-bild') || !!q('malbild-fel') };
+            const rad = q('malbild-rad-kort'), kom = q('kartkort-kommentar'), atg = q('kartkort-atgarder'), x = q('kartkort-stang');
+            if (!ark || !rulle || !rad || !kom || !atg || !x) return null;
+            const knappar = Array.from(atg.querySelectorAll('button')).map((b) => b.getBoundingClientRect());
+            const xr = x.getBoundingClientRect();
+            return {
+              kortH: Math.round(ark.getBoundingClientRect().height), skroll: rulle.scrollHeight - rulle.clientHeight, raden: Math.round(rad.getBoundingClientRect().height), kommentarTop: Math.round(kom.getBoundingClientRect().top), radenTop: Math.round(rad.getBoundingClientRect().top),
+              utfalld: !!q('malbild-bild') || !!q('malbild-fel'),
+              antalKnappar: knappar.length, knappHojd: Math.round(Math.min(...knappar.map((b) => b.height))), knappHojdMax: Math.round(Math.max(...knappar.map((b) => b.height))),
+              knappBredd: Math.round(Math.min(...knappar.map((b) => b.width))), knappBreddMax: Math.round(Math.max(...knappar.map((b) => b.width))),
+              xBredd: Math.round(xr.width), xHojd: Math.round(xr.height), xHogerKant: Math.round(ark.getBoundingClientRect().right - xr.right),
+              harStangText: Array.from(ark.querySelectorAll('button')).some((b) => (b.textContent ?? '').trim() === 'Stäng'),
+            };
           });
           expect(m, `${sida.namn} ${s.w}×${s.h}: kort, målbildsrad eller kommentar hittades inte`).not.toBeNull();
           expect((m as any).utfalld, `${sida.namn}: målbilden ligger utfälld i kortet`).toBe(false);
           expect(m!.kommentarTop, `${sida.namn}: kommentaren ska stå före målbildsraden`).toBeLessThan(m!.radenTop);
           expect(m!.raden, `${sida.namn} ${s.w}×${s.h}: målbildsraden är hoptryckt (miniatyren går utanför raden)`).toBeGreaterThanOrEqual(56);
+          const mm = m as any;
+          expect(mm.antalKnappar, `${sida.namn}: åtgärdsraden ska ha tre knappar`).toBe(3);
+          expect(mm.knappHojd, `${sida.namn} ${s.w}×${s.h}: åtgärdsknapp under 44 px`).toBeGreaterThanOrEqual(44);
+          expect(mm.knappHojdMax, `${sida.namn}: knapparna är inte lika höga`).toBe(mm.knappHojd);
+          expect(mm.knappBreddMax - mm.knappBredd, `${sida.namn}: knapparna är inte lika breda`).toBeLessThanOrEqual(1);
+          expect(mm.xBredd, `${sida.namn}: ✕ under 44 px`).toBeGreaterThanOrEqual(44);
+          expect(mm.xHojd, `${sida.namn}: ✕ under 44 px`).toBeGreaterThanOrEqual(44);
+          expect(mm.harStangText, `${sida.namn}: den stora Stäng-knappen är tillbaka`).toBe(false);
           rader.push({ skarm: `${s.w}×${s.h}`, sida: sida.namn, ...m! });
         }
         await p.close();
       }
     } finally { await b.close(); }
-    if (process.env.MALBILD_HYTT_SKRIV) for (const x of rader) console.log('kort', x.skarm, x.sida.padEnd(24), 'kort', x.kortH, 'skroll', x.skroll, 'rad', x.raden, 'rad-topp', x.radenTop);
+    if (process.env.MALBILD_HYTT_SKRIV) for (const x of rader) console.log('kort', x.skarm, x.sida.padEnd(24), 'kort', x.kortH, 'skroll', x.skroll, 'rad', x.raden, 'rad-topp', x.radenTop, 'knapp', x.knappHojd, 'x', x.xBredd);
     const telefon = rader.filter((x) => x.skarm === `${TELEFON.w}×${TELEFON.h}` && x.skroll > 0);
     expect(telefon, `kortet scrollar på telefonen: ${JSON.stringify(telefon)}`).toEqual([]);
   }, 120000);

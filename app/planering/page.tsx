@@ -15029,6 +15029,7 @@ export default function PlannerPage() {
             onLaggTillFoto={kanLagga ? () => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); } : undefined}
             fotoSparar={ytaMediaSparar}
             fotoFel={ytaMediaFel}
+            rost={nyckel && kanLagga ? { onToggle: () => toggleYtaAudioRecording(nyckel), spelar: isRecYta, sekunder: recordingSeconds, disabled: ytaMediaSparar } : undefined}
             onStang={stangTraktKort}
           >
             {/* Skotarläget: vad som skotats HIT överst; Vidas eget innehåll ligger oförändrat under "Från Vida" */}
@@ -15148,7 +15149,7 @@ export default function PlannerPage() {
                     </div>
                   );
                 })()}
-            {nyckel && (ljudRader.length > 0 || kanLagga) && (
+            {nyckel && ljudRader.length > 0 && (
               <KartKortNederst>
                 <div data-testid="kartkort-ljud" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {ljudRader.map((mm) => (
@@ -15163,14 +15164,6 @@ export default function PlannerPage() {
                       </div>
                     </div>
                   ))}
-                  {kanLagga && (
-                    <div>
-                      <button disabled={ytaMediaSparar} onClick={() => toggleYtaAudioRecording(nyckel)}
-                        style={{ padding: '9px 14px', borderRadius: '10px', border: isRecYta ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.15)', background: isRecYta ? 'rgba(239,68,68,0.18)' : 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '7px', animation: isRecYta ? 'pulse 1s infinite' : 'none' }}>
-                        {isRecYta ? <>⏹ <span style={{ color: '#ff453a', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span></> : <>🎤 Spela in</>}
-                      </button>
-                    </div>
-                  )}
                 </div>
               </KartKortNederst>
             )}
@@ -15506,9 +15499,10 @@ export default function PlannerPage() {
               } else kk.radera(id);
             }}
             foton={markerFoton}
-            fotoKnapp={markerFoton.length ? 'Byt foto' : 'Lägg till foto'}
+            fotoKnapp={markerFoton.length ? 'Byt foto' : undefined}
             // Ett foto per markering: bara den som tog det (eller admin) byter det. Ett äldre foto utan fotograf kan bara admin byta.
             onLaggTillFoto={(!markerFoton.length || isAdminRiktig || (!!currentMedarbetare?.id && marker.photoAv === currentMedarbetare.id)) ? () => { setPendingPhotoMarkerId(marker.id); fileInputRef.current?.click(); } : undefined}
+            rost={{ onToggle: () => toggleMarkerAudioRecording(marker.id), spelar: isRecordingAudio && recordingMarkerId === marker.id, sekunder: recordingSeconds }}
             onStang={() => setMarkerMenuOpen(null)}
           >
               {/* Skotarläget: vad som skotats HIT överst; kortets vanliga innehåll ligger oförändrat under avdelaren */}
@@ -15941,69 +15935,6 @@ export default function PlannerPage() {
                 </button>
               )}
               
-              {/* Ta foto - för alla typer */}
-              <button
-                onClick={() => {
-                  setPendingPhotoMarkerId(marker.id);
-                  fileInputRef.current?.click();
-                }}
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '24px',
-                  border: 'none',
-                  background: harFoto(marker) ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={harFoto(marker) ? '#30d158' : '#8e8e93'} strokeWidth="2">
-                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
-                  <circle cx="12" cy="13" r="4" />
-                </svg>
-              </button>
-
-              {/* Spela in ljud */}
-              {(() => {
-                const isRecThis = isRecordingAudio && recordingMarkerId === marker.id;
-                return (
-                  <button
-                    onClick={() => toggleMarkerAudioRecording(marker.id)}
-                    style={{
-                      height: '48px',
-                      borderRadius: '24px',
-                      border: 'none',
-                      padding: isRecThis ? '0 14px' : '0',
-                      width: isRecThis ? 'auto' : '48px',
-                      minWidth: '48px',
-                      background: isRecThis ? 'rgba(239,68,68,0.3)' : (marker.audioData ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'),
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      animation: isRecThis ? 'pulse 1s infinite' : 'none',
-                    }}
-                  >
-                    {isRecThis ? (
-                      <>
-                        <span style={{ fontSize: '17px' }}>⏹</span>
-                        <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>
-                      </>
-                    ) : (
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.audioData ? '#30d158' : '#8e8e93'} strokeWidth="2">
-                        <rect x="9" y="2" width="6" height="11" rx="3" />
-                        <path d="M5 10a7 7 0 0014 0" />
-                        <line x1="12" y1="17" x2="12" y2="21" />
-                        <line x1="8" y1="21" x2="16" y2="21" />
-                      </svg>
-                    )}
-                  </button>
-                );
-              })()}
-
               {/* Redigera kommentar */}
               <button
                 onClick={() => {

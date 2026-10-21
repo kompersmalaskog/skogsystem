@@ -125,7 +125,8 @@ describe('Alla regler ›', () => {
 
 describe('KartKort — målbilden är EN rad under kommentaren (aldrig utfälld); sorter utan målbild har ingen rad', () => {
   const props = (p: Partial<KartKortProps> = {}): KartKortProps => ({
-    ikon: <span>i</span>, namn: 'Stenmur', grupp: 'kultur', larmRegel: 'Larmar tills du kvitterat', mening: 'Stenmur – kör inte över.', kommentarer: [], kanKommentera: false, foton: [], onStang: () => {}, ...p,
+    ikon: <span>i</span>, namn: 'Stenmur', grupp: 'kultur', larmRegel: 'Larmar tills du kvitterat', mening: 'Stenmur – kör inte över.',
+    kommentarer: [{ id: 'k1', text: 'Muren är rasad i södra änden.', forfattare: 'Martin · i går 16:20', vantar: false, kanAndra: false, kanRadera: false }], kanKommentera: false, foton: [], onStang: () => {}, ...p,
   });
   it('med målbild: kommentaren direkt under huvudet, sedan EN rad (miniatyr + "Så ska det se ut ›"), sedan typens delar — ingen utfälld sektion i kortet', () => {
     montera(<KartKort {...props({ malbild: <MalbildRad nyckel="stenmur" roll="skordare" /> })}><div data-testid="del">typens del</div></KartKort>);

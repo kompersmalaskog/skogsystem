@@ -36,7 +36,7 @@ describe('KartKort — uppbyggnad', () => {
     expect(t('kartkort-kalla')!.textContent).toBe('Linje · Vida');
   });
 
-  it('samma uppbyggnad för symbol, linje, yta och Vidas objekt: samma delar i samma ordning', () => {
+  it('samma uppbyggnad för symbol, linje, yta och Vidas objekt: samma delar i samma ordning (Info utan larmregel)', () => {
     const fall: [string, KartKortProps['grupp'], string, string | null][] = [
       ['El-ledning (symbol)', symbolDef('powerline').grupp, larmRegelText({ grupp: symbolDef('powerline').grupp, typ: 'powerline' }), symbolDef('powerline').forklaring],
       ['Stenmur (linje)', linjeKort('stonewall').grupp, larmRegelText({ grupp: linjeKort('stonewall').grupp }), linjeKort('stonewall').forklaring],
@@ -48,30 +48,131 @@ describe('KartKort — uppbyggnad', () => {
     for (const [namn, grupp, regel, mening] of fall) {
       document.body.innerHTML = '';
       visa({ namn, grupp, larmRegel: regel, mening });
-      ordning.push(Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid')!).filter((x) => x.startsWith('kartkort')));
-      expect(t('kartkort-larmregel')!.textContent, namn).toBe(regel);
+      // Larmregeln är den enda delen som får saknas (Info larmar aldrig) — resten ska vara identiskt.
+      ordning.push(Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid')!).filter((x) => x.startsWith('kartkort') && x !== 'kartkort-larmregel'));
+      if (grupp === 'info') expect(t('kartkort-larmregel'), namn).toBeNull();
+      else expect(t('kartkort-larmregel')!.textContent, namn).toBe(regel);
     }
     for (const o of ordning.slice(1)) expect(o).toEqual(ordning[0]);
-    expect(ordning[0]).toEqual(expect.arrayContaining(['kartkort-namn', 'kartkort-larmregel', 'kartkort-mening', 'kartkort-kommentar', 'kartkort-foton', 'kartkort-stang']));
+    expect(ordning[0]).toEqual(expect.arrayContaining(['kartkort-namn', 'kartkort-mening', 'kartkort-stang', 'kartkort-atgarder']));
   });
 
-  it('ordningen: kommentaren direkt under huvudet, sedan målbildsraden, typens delar, fotona och åtgärderna (Nederst) sist', () => {
+  it('ordningen: ✕ i huvudet, kommentaren direkt under huvudet, målbildsraden, typens delar, fotona, åtgärdsraden och sist åtgärderna (Nederst)', () => {
     const cont = document.createElement('div'); document.body.appendChild(cont);
     const root = createRoot(cont);
     act(() => {
       root.render(
-        <KartKort ikon={null} namn="X" grupp="info" larmRegel="Larmar inte" mening="en mening" kommentarer={[]} kanKommentera foton={[]} onLaggTillFoto={() => {}} onStang={() => {}} malbild={<div data-testid="malbildsrad">rad</div>}>
+        <KartKort ikon={null} namn="X" grupp="info" larmRegel="Larmar inte" mening="en mening" kommentarer={[k('1')]} kanKommentera onLaggKommentar={() => {}} foton={[{ id: 'f', node: <img alt="Foto" src="x.jpg" /> }]} onLaggTillFoto={() => {}}
+          rost={{ onToggle: () => {}, spelar: false, sekunder: 0 }} onStang={() => {}} malbild={<div data-testid="malbildsrad">rad</div>}>
           <div data-testid="del">särskilt</div>
           <KartKortNederst><div data-testid="nederst">åtgärder</div></KartKortNederst>
         </KartKort>,
       );
     });
     const ids = Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid'));
-    expect(ids.indexOf('kartkort-mening')).toBeLessThan(ids.indexOf('kartkort-kommentar'));
-    expect(ids.indexOf('kartkort-kommentar')).toBeLessThan(ids.indexOf('malbildsrad'));
-    expect(ids.indexOf('malbildsrad')).toBeLessThan(ids.indexOf('del'));
-    expect(ids.indexOf('del')).toBeLessThan(ids.indexOf('kartkort-foton'));
-    expect(ids.indexOf('kartkort-foton')).toBeLessThan(ids.indexOf('nederst'));
+    const i = (x: string) => ids.indexOf(x);
+    expect(i('kartkort-namn')).toBeGreaterThan(-1);
+    expect(i('kartkort-stang')).toBeGreaterThan(i('kartkort-namn'));         // ✕ sitter i huvudet…
+    expect(i('kartkort-stang')).toBeLessThan(i('kartkort-mening'));           // …före meningen
+    expect(i('kartkort-mening')).toBeLessThan(i('kartkort-kommentar'));
+    expect(i('kartkort-kommentar')).toBeLessThan(i('malbildsrad'));
+    expect(i('malbildsrad')).toBeLessThan(i('del'));
+    expect(i('del')).toBeLessThan(i('kartkort-foton'));
+    expect(i('kartkort-foton')).toBeLessThan(i('kartkort-atgarder'));
+    expect(i('kartkort-atgarder')).toBeLessThan(i('nederst'));
+  });
+});
+
+describe('KartKort — tomma sektioner finns inte', () => {
+  it('utan kommentarer: ingen rubrik "Kommentarer" och ingen "Ingen kommentar"', () => {
+    visa({ kommentarer: [] });
+    expect(t('kartkort-kommentar')).toBeNull();
+    expect(t('kartkort')!.textContent).not.toMatch(/Kommentarer|Ingen kommentar/);
+  });
+  it('utan foton: ingen rubrik "Foto" och ingen "Inget foto" — men Foto-knappen finns i åtgärdsraden', () => {
+    visa({ foton: [] });
+    expect(t('kartkort-foton')).toBeNull();
+    expect(t('kartkort')!.textContent).not.toContain('Inget foto');
+    expect(t('kartkort-foto-lagg-till')).not.toBeNull();
+  });
+  it('med kommentarer och foton visas rubrikerna', () => {
+    visa({ kommentarer: [k('1'), k('2')], foton: [{ id: 'f1', node: <img alt="Foto" src="x.jpg" /> }] });
+    expect(t('kartkort-kommentar')!.textContent).toContain('Kommentarer (2)');
+    expect(t('kartkort-foton')!.textContent).toContain('Foto');
+  });
+  it('den som inte får något: ingen åtgärdsrad alls (inte en tom ruta)', () => {
+    visa({ kanKommentera: false, onLaggTillFoto: undefined, rost: undefined });
+    expect(t('kartkort-atgarder')).toBeNull();
+  });
+});
+
+describe('KartKort — ✕ i huvudet i stället för en stor Stäng-knapp', () => {
+  it('✕ har 44 px träffyta, ligger i huvudet och det finns ingen "Stäng"-knapp längre', () => {
+    visa();
+    const x = t('kartkort-stang') as HTMLButtonElement;
+    expect(x.getAttribute('aria-label')).toBe('Stäng');
+    expect(x.style.width).toBe('44px');
+    expect(x.style.height).toBe('44px');
+    expect(t('kartkort-namn')!.parentElement!.parentElement!.contains(x)).toBe(true);
+    const knappar = Array.from(document.querySelectorAll('button')).map((b) => b.textContent);
+    expect(knappar.some((tx) => /^Stäng$/.test(tx ?? ''))).toBe(false);
+  });
+});
+
+describe('KartKort — larmregeln visas inte för Info', () => {
+  it('Info larmar aldrig: ingen rad. Natur, Kultur, Blött, Fara och Att göra behåller den', () => {
+    for (const grupp of ['info'] as const) { document.body.innerHTML = ''; visa({ grupp, larmRegel: 'Larmar inte' }); expect(t('kartkort-larmregel')).toBeNull(); }
+    for (const grupp of ['natur', 'kultur', 'blott', 'fara', 'att_gora'] as const) {
+      document.body.innerHTML = ''; visa({ grupp, larmRegel: 'Larmar xyz' });
+      expect(t('kartkort-larmregel')!.textContent, grupp).toBe('Larmar xyz');
+    }
+  });
+});
+
+describe('KartKort — åtgärdsraden: Kommentar · Foto · Röst', () => {
+  it('tre lika knappar (samma höjd ≥ 44 px, lika breda), med ikon + kort text, i den ordningen', () => {
+    visa({ rost: { onToggle: () => {}, spelar: false, sekunder: 0 } });
+    const rad = t('kartkort-atgarder')!;
+    const knappar = Array.from(rad.querySelectorAll('button')) as HTMLButtonElement[];
+    expect(knappar.map((b) => b.dataset.testid)).toEqual(['kartkort-kommentar-ny', 'kartkort-foto-lagg-till', 'kartkort-rost']);
+    expect(knappar.map((b) => b.textContent)).toEqual(['add_commentKommentar', 'photo_cameraFoto', 'micRöst']);
+    for (const b of knappar) {
+      expect(b.querySelector('.material-symbols-outlined'), b.textContent!).not.toBeNull();
+      expect(b.style.height).toBe('44px');
+      expect([b.style.flexGrow, b.style.flexBasis]).toEqual(['1', '0px']);       // lika breda
+    }
+    expect(new Set(knappar.map((b) => b.getAttribute('style')!.replace(/color:[^;]*;?/, ''))).size).toBe(1);   // samma stil
+  });
+  it('en knapp som inte får användas finns inte; de andra delar på raden', () => {
+    visa({ kanKommentera: false, rost: undefined });
+    expect(Array.from(t('kartkort-atgarder')!.querySelectorAll('button')).map((b) => b.dataset.testid)).toEqual(['kartkort-foto-lagg-till']);
+  });
+  it('Röst startar/stoppar anroparens inspelning; medan den spelar in står sekunderna och knappen är röd', () => {
+    const rost = vi.fn();
+    visa({ rost: { onToggle: rost, spelar: false, sekunder: 0 } });
+    klick(t('kartkort-rost'));
+    expect(rost).toHaveBeenCalledTimes(1);
+    document.body.innerHTML = '';
+    visa({ rost: { onToggle: rost, spelar: true, sekunder: 7 } });
+    expect(t('kartkort-rost')!.textContent).toBe('stop7 s');
+    expect((t('kartkort-rost') as HTMLElement).style.color).not.toBe('');
+    document.body.innerHTML = '';
+    visa({ rost: { onToggle: rost, spelar: false, sekunder: 0, disabled: true } });
+    expect((t('kartkort-rost') as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('Kommentar öppnar skrivfältet PÅ SAMMA PLATS som åtgärdsraden: raden försvinner medan man skriver och kommer tillbaka efter Spara/Avbryt', () => {
+    visa();
+    klick(t('kartkort-kommentar-ny'));
+    expect(t('kartkort-kommentar-falt')).not.toBeNull();
+    expect(t('kartkort-atgarder')).toBeNull();
+    klick(t('kartkort-kommentar-avbryt'));
+    expect(t('kartkort-atgarder')).not.toBeNull();
+  });
+  it('"Laddar upp…" och fotofel visas under raden, men inte som en egen sektion', () => {
+    visa({ fotoSparar: true, fotoFel: 'Kunde inte spara fotot' });
+    expect(t('kartkort')!.textContent).toContain('Laddar upp…');
+    expect(t('kartkort-foto-fel')!.textContent).toBe('Kunde inte spara fotot');
+    expect((t('kartkort-foto-lagg-till') as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
@@ -94,7 +195,7 @@ describe('KartKort — kommentarerna: en rad per kommentar med namn och tid', ()
   it('ny kommentar: skriv och spara; tom text går inte att spara; Avbryt kastar utkastet', () => {
     const lagg = vi.fn();
     visa({ onLaggKommentar: lagg });
-    expect(t('kartkort-kommentar-tom')).not.toBeNull();
+    expect(t('kartkort-kommentar-tom')).toBeNull();
     klick(t('kartkort-kommentar-ny'));
     expect((t('kartkort-kommentar-spara') as HTMLButtonElement).disabled).toBe(true);
     skriv(t('kartkort-kommentar-falt') as HTMLTextAreaElement, '  Hänger lågt vid vägen ');
@@ -150,18 +251,18 @@ describe('KartKort — kommentarerna: en rad per kommentar med namn och tid', ()
 });
 
 describe('KartKort — foto', () => {
-  it('"Lägg till foto" anropar anroparens flöde; finns ett foto heter knappen "Byt foto"', () => {
+  it('Foto-knappen anropar anroparens flöde; finns ett foto kan knappen heta "Byt foto"', () => {
     const lagg = vi.fn();
     visa({ onLaggTillFoto: lagg });
     klick(t('kartkort-foto-lagg-till'));
     expect(lagg).toHaveBeenCalledTimes(1);
-    expect(t('kartkort-foto-lagg-till')!.textContent).toBe('Lägg till foto');
+    expect(t('kartkort-foto-lagg-till')!.textContent).toBe('photo_cameraFoto');
     document.body.innerHTML = '';
     visa({ foton: [{ id: 'f1', node: <img alt="Foto" src="x.jpg" />, text: 'Stolpe 3', av: 'Daniel · i går 16:20' }], fotoKnapp: 'Byt foto' });
     expect(document.querySelectorAll('[data-testid="kartkort-foto"]')).toHaveLength(1);
     expect(t('kartkort-foto')!.textContent).toContain('Stolpe 3');
     expect(t('kartkort-foto-av')!.textContent).toBe('Daniel · i går 16:20');     // fotot visar vem som tog det
-    expect(t('kartkort-foto-lagg-till')!.textContent).toBe('Byt foto');
+    expect(t('kartkort-foto-lagg-till')!.textContent).toBe('photo_cameraByt foto');
   });
 
   it('den som inte får lägga till ser fotona men ingen knapp; inget foto och ingen rätt att lägga till: ingen fotoruta', () => {
@@ -186,7 +287,7 @@ describe('KartKort — foto', () => {
 });
 
 describe('KartKort — stänga', () => {
-  it('Stäng och tryck utanför stänger; tryck i kortet gör det inte', () => {
+  it('✕ och tryck utanför stänger; tryck i kortet gör det inte', () => {
     const stang = vi.fn();
     visa({ onStang: stang });
     klick(t('kartkort-stang'));
