@@ -23,14 +23,14 @@ export function kodRadAttGora(kopplingar: Loneartkopplingar, blockerande: Pick<B
 }
 
 /**
- * Frågor och beslut som fortfarande är öppna. Det som Martin redan beslutat tas bort härifrån (2026-10-21): ordinarie tid räknas per kalendermånad
- * (lib/lonesystem/manadsordinarie) och Gävle-perioden är en markerad utjämningsperiod. De visas under Admin → Avtal → Öppna frågor.
+ * Frågor och beslut som fortfarande är öppna. Det som Martin redan beslutat tas bort härifrån (2026-10-21): ordinarie tid och övertid räknas per
+ * kalendermånad (lib/lonesystem/manadsordinarie) — därmed är frågan om 16-veckorsperioder och fastställt schema besvarad — och Gävle-perioden är en
+ * markerad utjämningsperiod. De visas under Admin → Avtal → Öppna frågor.
  */
 export const oppnaFragor: RadAttTaMed[] = [
   { slag: "Fråga", rubrik: "Löneart för sjuklön, VAB och föräldraledig", text: "dagarna ur morgonkortet och godkänd ledighet syns i underlaget men skickas inte." },
   { slag: "Fråga", rubrik: "Levereras sjukfrånvaro i timmar per dag?", text: "§12 mom 3 räknar karens i timmar (20 % av veckoarbetstiden = 8 tim vid 40) och sjuklön per timme som skulle ha arbetats. En halv sjukdag är 3 tim, inte en dag. Räknar Fortnox karensavdraget och de 80 procenten själv när appen skickar timmarna?" },
   { slag: "Bekräfta", rubrik: "Komp räknas inte mot 250-taket", text: "§8 mom 3: övertid kan efter överenskommelse tas ut som ledighet, 1,4 tim per övertidstimme. §5 mom 5 anm 3: sådan tid är inte övertid enligt arbetstidslagen." },
   { slag: "Bekräfta", rubrik: "Bytesdag är skoftning", text: "§5 mom 4: ledig vardag mot inarbetning avtalas samtidigt, lön enligt ordinarie schema om totalen är lika. Ingen helglön flyttas." },
-  { slag: "Martins beslut", rubrik: "Beräkningsperiod och schema", text: "vilka 16-veckorsperioder som gäller (kortet överst antar v1–16, v17–32, …), och om förarna ska ha ett fastställt schema. Utjämningen ska vara överenskommen. Samma beslut avgör deldagens \"timmar som skulle ha arbetats\" (§12 mom 3 anm 2) — tills dess antar granskningen 8 tim/dag." },
   { slag: "Martins beslut", rubrik: "Var komp-saldot bor", text: "i Fortnox (appen rapporterar bara intjänat/uttaget) eller i appen (appen räknar saldot). Appen räknar aldrig kronor — men ett saldo i timmar är en mängd." },
 ];

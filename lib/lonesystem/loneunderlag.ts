@@ -35,6 +35,12 @@ export type LoneunderlagRad = ExportSammanfattning & {
   godkand_tid?: string | null;
   /** Godkännandet nollställdes av en ändring i månaden: när, och vilken dag som ändrades. Bara på en förare som väntar. */
   andrad_efter_godkannande?: { at: string; datum: string | null } | null;
+  /**
+   * Månaden är redan SKICKAD till Fortnox och har ändrats efteråt (fortnox_export_logg.andrad_efter_skickat_*): när, och vilka dagar. Databasen
+   * nollställer då inte godkännandet och föraren får ingen notis — Admin visar i stället "Ändrad efter att den skickats · 10 sep" så att det rättas
+   * i nästa lön. Bara på en förare vars månad är skickad.
+   */
+  andrad_efter_skickat?: { at: string; dagar: string[] } | null;
 };
 
 /** Så många dagar före/efter arbetsmånaden frånvaron läses för helglönens närvarokrav (längsta glappet mellan två vardagar är påsk/jul, 5 dagar). */
@@ -132,6 +138,26 @@ async function lasGodkannanden(supabase: any, arbetsperiod: string): Promise<Map
       godkand_tid: godkannande === "godkand" ? r.skickat_tidpunkt ?? null : null,
       andrad_efter_godkannande: godkannande === "vantar" && r.nollstalld_at ? { at: r.nollstalld_at, datum: r.nollstalld_datum ?? null } : null,
     });
+  }
+  return ut;
+}
+
+/**
+ * Skickade månader som ändrats efteråt, per medarbetare. `lonePeriod` är LÖNEperioden (som exportloggens period), inte arbetsmånaden.
+ * Saknas kolumnerna (migrationen ej körd) finns inget att visa — då är resultatet tomt. Ett annat läsfel stoppar underlaget: en tyst "ingen
+ * ändring" vore just det Martin inte ska behöva gissa.
+ */
+async function lasAndradEfterSkickat(supabase: any, lonePeriod: string): Promise<Map<string, { at: string; dagar: string[] }>> {
+  const res = await supabase.from("fortnox_export_logg")
+    .select("medarbetare_id, status, andrad_efter_skickat_at, andrad_efter_skickat_dagar")
+    .eq("period", lonePeriod);
+  if (res.error && (res.error.code === "42703" || res.error.code === "PGRST204")) return new Map();
+  if (res.error) throw new Error(`Kunde inte läsa vilka skickade månader som ändrats efteråt: ${res.error.message}`);
+  const ut = new Map<string, { at: string; dagar: string[] }>();
+  for (const r of (res.data || []) as any[]) {
+    if (!r.medarbetare_id || r.status !== "skickat" || !r.andrad_efter_skickat_at) continue;
+    const dagar: string[] = Array.from(new Set<string>((Array.isArray(r.andrad_efter_skickat_dagar) ? r.andrad_efter_skickat_dagar : []).map((d: unknown) => String(d).slice(0, 10)))).sort();
+    ut.set(String(r.medarbetare_id), { at: r.andrad_efter_skickat_at, dagar });
   }
   return ut;
 }
@@ -316,6 +342,7 @@ export async function beraknaLoneunderlag(
   }
 
   const godkannanden = await lasGodkannanden(supabase, arbetsperiod);
+  const andradEfterSkickat = await lasAndradEfterSkickat(supabase, period);
 
   // Anställningsnummer-map
   const anstMap: Record<string, string> = {};
@@ -425,7 +452,10 @@ export async function beraknaLoneunderlag(
     if (redanSkickad.has(med.id)) status = "skickat";
 
     const gk = godkannanden.get(med.id);
-    resultat.push({ ...export_, status, godkannande: gk?.godkannande ?? "vantar", godkand_tid: gk?.godkand_tid ?? null, andrad_efter_godkannande: gk?.andrad_efter_godkannande ?? null });
+    resultat.push({
+      ...export_, status, godkannande: gk?.godkannande ?? "vantar", godkand_tid: gk?.godkand_tid ?? null, andrad_efter_godkannande: gk?.andrad_efter_godkannande ?? null,
+      andrad_efter_skickat: status === "skickat" ? andradEfterSkickat.get(med.id) ?? null : null,
+    });
 
     // OB (lib/ob) — härledd, aldrig lagrad, aldrig en Fortnox-rad
     let obMin = 0, obDagar = 0, obObes = 0;

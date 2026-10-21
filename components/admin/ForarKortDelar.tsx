@@ -39,6 +39,9 @@ export function StatusRad({ k, paminn, onPaminn }: { k: ForarKort; paminn?: stri
       {fel && <p data-paminn-fel="" style={{ margin: 0, ...TYP.meta, color: FARG.rod }}>{fel}</p>}
       {/* Godkännandet nollställdes av en ändring i månaden: det syns, så att man vet varför föraren väntar igen. */}
       {k.andrad && <p data-andrad="" style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>{k.andrad.text}</p>}
+      {/* Månaden är redan skickad och ändrades efteråt: godkännandet står kvar och föraren fick ingen notis — det ska rättas i nästa lön.
+          Orange eftersom någon behöver göra något (orden bär meningen, färgen förstärker bara). */}
+      {k.andradEfterSkickat && <p data-andrad-skickat="" style={{ margin: 0, ...TYP.meta, color: FARG.orange }}>{k.andradEfterSkickat.text}</p>}
     </>
   );
 }

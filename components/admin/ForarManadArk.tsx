@@ -10,7 +10,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { AVSTAND, FARG, TNUM, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarManad, type VyDag, type VyExtra } from "@/lib/admin/forarManadVy";
-import { dagText } from "@/lib/admin/loneunderlagVy";
+import { andradEfterSkickatText, dagText } from "@/lib/admin/loneunderlagVy";
 import { Bekrafta, Ikon, Lank, Lista, Rad, Sektion, Sheet, Stod, Tertiar } from "./ui";
 import { arSandbar, forarStatus, FORAR_STATUS_TEXT } from "@/lib/lonesystem/forarGodkannande";
 import { arbetsManadText } from "@/lib/lonesystem/lonemanad";
@@ -137,7 +137,8 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
           <Sektion topp={AVSTAND.s}>Förarens godkännande</Sektion>
           <Lista>
             <Rad attr={{ "data-godkannande": status }} rubrik={FORAR_STATUS_TEXT[status]}
-              detalj={m.andrad_efter_godkannande ? `Ändrad efter godkännandet${m.andrad_efter_godkannande.datum ? ` · ${dagText(m.andrad_efter_godkannande.datum)}` : ""}` : undefined}
+              detalj={m.andrad_efter_godkannande ? `Ändrad efter godkännandet${m.andrad_efter_godkannande.datum ? ` · ${dagText(m.andrad_efter_godkannande.datum)}` : ""}`
+                : status === "skickad" && m.andrad_efter_skickat?.at ? andradEfterSkickatText(m.andrad_efter_skickat.dagar ?? []) : undefined}
               sista />
           </Lista>
           {kanSkickaAndå && !bekrafta && (

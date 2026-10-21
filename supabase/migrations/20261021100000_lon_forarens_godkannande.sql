@@ -18,6 +18,12 @@
 --
 -- 3. fortnox_export_logg.utan_forarens_godkannande: sätts bara när admin uttryckligen skickat EN förare som inte godkänt.
 --
+-- 4. REDAN SKICKAD MÅNAD (Martin 2026-10-21). Är månaden redan skickad till Fortnox (fortnox_export_logg har en rad med status 'skickat'
+--    för LÖNEperioden = arbetsmånad + 1) nollställs INTE godkännandet och föraren får INGEN notis — lönen är betald, en ny Godkänn-knapp
+--    skulle bara vilseleda. Ändringen märks i stället på loggraden (andrad_efter_skickat_at + andrad_efter_skickat_dagar), så att Martin
+--    ser "Ändrad efter att den skickats · 10 sep" på förarens kort och rättar det i nästa lön. Går loggen inte att läsa gäller det som
+--    förut (nollställ + notis): hellre en onödig omgodkänning än en missad ändring.
+--
 -- Additiv och idempotent. Rollback längst ner.
 
 ALTER TABLE public.loneunderlag ADD COLUMN IF NOT EXISTS nollstalld_at timestamptz;
@@ -28,9 +34,15 @@ COMMENT ON COLUMN public.loneunderlag.nollstalld_datum IS 'Vilken dag som ändra
 ALTER TABLE public.fortnox_export_logg ADD COLUMN IF NOT EXISTS utan_forarens_godkannande boolean NOT NULL DEFAULT false;
 COMMENT ON COLUMN public.fortnox_export_logg.utan_forarens_godkannande IS 'Admin skickade just den här föraren utan att föraren godkänt månaden (uttryckligt val, en förare i taget).';
 
+ALTER TABLE public.fortnox_export_logg ADD COLUMN IF NOT EXISTS andrad_efter_skickat_at timestamptz;
+ALTER TABLE public.fortnox_export_logg ADD COLUMN IF NOT EXISTS andrad_efter_skickat_dagar date[];
+COMMENT ON COLUMN public.fortnox_export_logg.andrad_efter_skickat_at IS 'Senaste gången en lönerelevant ändring gjordes i en månad som redan skickats till Fortnox. Ändringen ska rättas i nästa lön.';
+COMMENT ON COLUMN public.fortnox_export_logg.andrad_efter_skickat_dagar IS 'Vilka dagar som ändrats efter att månaden skickades (datumordning, utan dubbletter).';
+
 -- ── 1. Nollställning ────────────────────────────────────────────────────────────────────────────────────
 
 -- Nollställer förarens godkännande för den månad dagen p_datum ligger i, och köar notisen. Gör ingenting om månaden inte är godkänd.
+-- Är månaden redan skickad till Fortnox görs inget av det: dagen märks på loggraden i stället (se punkt 4 ovan).
 -- Nollställningen är det som räknas; notisen är best-effort och ligger i ett eget block, så ett notisfel (t.ex. en kö som inte går att
 -- skriva) aldrig tar tillbaka nollställningen.
 CREATE OR REPLACE FUNCTION public.lon_nollstall_godkannande(p_med uuid, p_datum date) RETURNS void
@@ -38,8 +50,26 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_period text;
   v_tid timestamptz;
+  v_skickad boolean := false;
 BEGIN
   IF p_med IS NULL OR p_datum IS NULL THEN RETURN; END IF;
+
+  -- Redan skickad? Loggens period är LÖNEperioden = arbetsmånaden + 1 (en dag i september → '2026-10'; december → januari nästa år).
+  -- Eget block: kan loggen inte läsas räknas månaden som inte skickad, så det gamla (nollställ + notis) gäller.
+  BEGIN
+    UPDATE fortnox_export_logg
+       SET andrad_efter_skickat_at = now(),
+           andrad_efter_skickat_dagar = (SELECT array_agg(DISTINCT d ORDER BY d) FROM unnest(coalesce(andrad_efter_skickat_dagar, '{}'::date[]) || p_datum) AS d)
+     WHERE medarbetare_id::text = p_med::text
+       AND period = to_char(p_datum + interval '1 month', 'YYYY-MM')
+       AND status = 'skickat';
+    v_skickad := FOUND;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'lon_nollstall_godkannande (skickad?): %', SQLERRM;
+    v_skickad := false;
+  END;
+  IF v_skickad THEN RETURN; END IF;
+
   UPDATE loneunderlag
      SET status = NULL, nollstalld_at = now(), nollstalld_datum = p_datum
    WHERE medarbetare_id = p_med::text
@@ -140,6 +170,7 @@ NOTIFY pgrst, 'reload schema';
 -- ── Kontroll (kör efteråt) ───────────────────────────────────────────────────────────────────────────────
 -- select tgname from pg_trigger where tgname in ('trg_arbetsdag_nollstall_godkannande','trg_extra_tid_nollstall_godkannande') and not tgisinternal;  -- 2 rader
 -- select column_name from information_schema.columns where table_name = 'loneunderlag' and column_name like 'nollstalld%';                         -- 2 rader
+-- select column_name from information_schema.columns where table_name = 'fortnox_export_logg' and column_name like 'andrad_efter_skickat%';          -- 2 rader
 -- select to_regclass('public.lon_kvittering');
 --
 -- ── Rollback ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -149,5 +180,5 @@ NOTIFY pgrst, 'reload schema';
 -- DROP FUNCTION IF EXISTS public.arbetsdag_nollstall_godkannande(), public.extra_tid_nollstall_godkannande(), public.lon_nollstall_godkannande(uuid, date);
 -- DROP TABLE IF EXISTS public.lon_kvittering;
 -- ALTER TABLE public.loneunderlag DROP COLUMN IF EXISTS nollstalld_at, DROP COLUMN IF EXISTS nollstalld_datum;
--- ALTER TABLE public.fortnox_export_logg DROP COLUMN IF EXISTS utan_forarens_godkannande;
+-- ALTER TABLE public.fortnox_export_logg DROP COLUMN IF EXISTS utan_forarens_godkannande, DROP COLUMN IF EXISTS andrad_efter_skickat_at, DROP COLUMN IF EXISTS andrad_efter_skickat_dagar;
 -- (Köade lon_andrad-rader: delete from "notis_kö" where typ = 'lon_andrad' and skickad_at is null;)

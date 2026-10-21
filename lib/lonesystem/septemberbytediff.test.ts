@@ -45,7 +45,7 @@ const arBrandrisk = (key: string) => key.startsWith("brandrisk");
  * `foretagsledare` och `helglon.anstallningsdatumSaknas` — och hemskickad (2026-10-17): fälten `hemskickad` och `hemskickad_h`, som MÅSTE vara
  * tomma för de här månaderna (ingen hemskickad rad finns i underlaget; testet nedan kräver det). Inget annat tas bort.
  */
-function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ordinarie, arbetat, extra_poster, godkannande, godkand_tid, andrad_efter_godkannande, ...r }: any) {
+function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ordinarie, arbetat, extra_poster, godkannande, godkand_tid, andrad_efter_godkannande, andrad_efter_skickat, ...r }: any) {
   // Förarens godkännande (2026-10-21, loneunderlag.status) styr bara VEM som skickas, aldrig vad som skickas: en ren avläsning, inget i lönen.
   expect(["godkand", "vantar"]).toContain(godkannande);
   // Förarens månad (Admin, 2026-10-20): `arbetat` (vad arbetad tid består av), `extra_poster` och på varje dag km-källa/ben/rutt är RENA

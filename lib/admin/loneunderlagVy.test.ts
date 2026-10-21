@@ -119,6 +119,37 @@ describe("status på förarkortet", () => {
   });
 });
 
+describe("ändrad efter att månaden skickats (Martin 2026-10-21)", () => {
+  const skickad = (dagar: string[], extra: Record<string, unknown> = {}) =>
+    forare({ status: "skickat", godkannande: "godkand", andrad_efter_skickat: { at: "2026-10-12T09:30:00Z", dagar }, ...extra });
+  it("en dag: 'Ändrad efter att den skickats · 10 sep'", () => {
+    expect(byggForarKort(skickad(["2026-09-10"])).andradEfterSkickat).toEqual({ at: "2026-10-12T09:30:00Z", dagar: ["2026-09-10"], text: "Ändrad efter att den skickats · 10 sep" });
+  });
+  it("flera dagar: alla (upp till tre) i ordning, sedan 'och N till'", () => {
+    expect(byggForarKort(skickad(["2026-09-10", "2026-09-12"])).andradEfterSkickat!.text).toBe("Ändrad efter att den skickats · 10 sep, 12 sep");
+    expect(byggForarKort(skickad(["2026-09-10", "2026-09-12", "2026-09-15"])).andradEfterSkickat!.text).toBe("Ändrad efter att den skickats · 10 sep, 12 sep, 15 sep");
+    expect(byggForarKort(skickad(["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05"])).andradEfterSkickat!.text).toBe("Ändrad efter att den skickats · 1 sep, 2 sep, 3 sep och 2 till");
+  });
+  it("utan känd dag skriver den ändå att månaden ändrats efter att den skickats", () => {
+    expect(byggForarKort(skickad([])).andradEfterSkickat!.text).toBe("Ändrad efter att den skickats");
+  });
+  it("ingen märkning → ingen text", () => {
+    expect(byggForarKort(forare({ status: "skickat", godkannande: "godkand" })).andradEfterSkickat).toBeNull();
+  });
+  it("visas bara på en förare vars månad ÄR skickad (annars gäller 'ändrad efter godkännandet' som förut)", () => {
+    const k = byggForarKort(forare({ status: "utkast", godkannande: "vantar", andrad_efter_skickat: { at: "2026-10-12T09:30:00Z", dagar: ["2026-09-10"] } }));
+    expect(k.andradEfterSkickat).toBeNull();
+  });
+  it("en företagsledare får aldrig en märkning", () => {
+    expect(byggForarKort(skickad(["2026-09-10"], { foretagsledare: true })).andradEfterSkickat).toBeNull();
+  });
+  it("den påverkar inte 'N saker att kolla' (inget att kolla — det ska rättas i nästa lön) och blandas inte med 'ändrad efter godkännandet'", () => {
+    const k = byggForarKort(skickad(["2026-09-10"]));
+    expect(k.kolla).toEqual([]);
+    expect(k.andrad).toBeNull();
+  });
+});
+
 describe("minutskillnad mot maskinen visas bara från 15 min", () => {
   const synk = (diff_min: number, datum = "2026-08-11") => ({ medarbetare_id: "m1", datum, diff_min, bekraftat: "07:00", maskinen: "07:10" });
   it("gränsen är 15", () => expect(SYNK_VISA_FRAN_MIN).toBe(15));

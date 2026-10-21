@@ -150,6 +150,100 @@ insert into arbetsdag (id, medarbetare_id, datum, arbetad_min) values ('e0000000
 insert into resultat select 'inskickat (äldre status) nollställs och ger en notis', status_av('b0000000-0000-4000-8000-00000000000b','2026-09') is null and antal_notis('b0000000-0000-4000-8000-00000000000b', 'lon_andrad') = 1;
 update loneunderlag set status = 'inskickat' where medarbetare_id = 'b0000000-0000-4000-8000-00000000000b' and period = '2026-09';
 
+-- ── REDAN SKICKAD MÅNAD (Martin 2026-10-21): en ändring nollställer INTE godkännandet och ger ingen notis ────────────────────────
+-- Skickad = fortnox_export_logg har en rad med status 'skickat' för LÖNEperioden (arbetsmånad + 1: arbetsmånad 2026-09 ↔ löneperiod 2026-10).
+-- I stället märks ändringen på loggraden (tid + vilka dagar) så att admin ser att den ska rättas i nästa lön.
+insert into arbetsdag (id, medarbetare_id, datum, start_tid, slut_tid, rast_min, km_totalt, arbetad_min, maskin_id)
+  values ('e0000000-0000-4000-8000-000000000012', 'a0000000-0000-4000-8000-00000000000a', '2026-09-10', '06:00', '15:00', 30, 80, 510, 'R64428');
+select aterstall();
+create function logg_skickat(p_med uuid, p_lonep text) returns void language sql as $$
+  insert into fortnox_export_logg (medarbetare_id, period, status) values (p_med, p_lonep, 'skickat')
+  on conflict (medarbetare_id, period) do update set status = 'skickat', andrad_efter_skickat_at = null, andrad_efter_skickat_dagar = null $$;
+create function logg_dagar(p_med uuid, p_lonep text) returns date[] language sql as $$
+  select andrad_efter_skickat_dagar from fortnox_export_logg where medarbetare_id = p_med and period = p_lonep $$;
+create function logg_markt(p_med uuid, p_lonep text) returns boolean language sql as $$
+  select andrad_efter_skickat_at is not null from fortnox_export_logg where medarbetare_id = p_med and period = p_lonep $$;
+delete from fortnox_export_logg;
+
+-- Skickad (Anna, löneperiod 2026-10) → ändring i september
+select logg_skickat('a0000000-0000-4000-8000-00000000000a', '2026-10');
+update arbetsdag set slut_tid = '18:00' where id = 'e0000000-0000-4000-8000-000000000012';
+insert into resultat select 'SKICKAD månad: ändrad dag nollställer INTE godkännandet', status_av('a0000000-0000-4000-8000-00000000000a','2026-09') = 'godkand_av_forare';
+insert into resultat select 'SKICKAD månad: ingen notis till föraren', antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 0;
+insert into resultat select 'SKICKAD månad: ändringen märks på loggraden (tid + dagen)', logg_markt('a0000000-0000-4000-8000-00000000000a', '2026-10') and logg_dagar('a0000000-0000-4000-8000-00000000000a', '2026-10') = array['2026-09-10']::date[];
+insert into resultat select 'SKICKAD månad: loneunderlag får ingen nollställningsmärkning', (select nollstalld_at is null and nollstalld_datum is null from loneunderlag where medarbetare_id = 'a0000000-0000-4000-8000-00000000000a' and period = '2026-09');
+insert into resultat select 'SKICKAD månad: status på loggraden är fortfarande skickat (den rörs inte)', (select status = 'skickat' from fortnox_export_logg where medarbetare_id = 'a0000000-0000-4000-8000-00000000000a' and period = '2026-10');
+
+-- Ännu en dag (extra tid) och samma dag igen: dagarna samlas, utan dubbletter, i datumordning
+insert into extra_tid (id, medarbetare_id, datum, typ, minuter, start_tid, slut_tid) values ('f0000000-0000-4000-8000-000000000010', 'a0000000-0000-4000-8000-00000000000a', '2026-09-05', 'manuell', 60, '10:00', '11:00');
+update arbetsdag set slut_tid = '19:00' where id = 'e0000000-0000-4000-8000-000000000012';
+insert into resultat select 'SKICKAD månad: flera dagar samlas i datumordning, samma dag två gånger blir en', logg_dagar('a0000000-0000-4000-8000-00000000000a', '2026-10') = array['2026-09-05','2026-09-10']::date[];
+delete from extra_tid where id = 'f0000000-0000-4000-8000-000000000010';
+insert into resultat select 'SKICKAD månad: DELETE av extra tid märks också (dagen kvar, ingen notis, godkännandet kvar)', status_av('a0000000-0000-4000-8000-00000000000a','2026-09') = 'godkand_av_forare' and antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 0;
+
+-- Kolumner utan betydelse för lönen märker inte heller en skickad månad
+select logg_skickat('a0000000-0000-4000-8000-00000000000a', '2026-10');
+update arbetsdag set kommentar = 'bara en kommentar', bekraftad = false where id = 'e0000000-0000-4000-8000-000000000012';
+insert into resultat select 'SKICKAD månad: kommentar/bekräftad märker INTE (ingen lönerelevant ändring)', not logg_markt('a0000000-0000-4000-8000-00000000000a', '2026-10');
+
+-- Inte skickad ⇒ som förut. Tre sätt att INTE vara skickad:
+delete from fortnox_export_logg; select aterstall();
+insert into fortnox_export_logg (medarbetare_id, period, status) values ('a0000000-0000-4000-8000-00000000000a', '2026-10', 'fel');
+update arbetsdag set slut_tid = '16:00' where id = 'e0000000-0000-4000-8000-000000000012';
+insert into resultat select 'EJ skickad (loggraden har status fel): nollställer och ger EN notis som förut', status_av('a0000000-0000-4000-8000-00000000000a','2026-09') is null and antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 1 and not logg_markt('a0000000-0000-4000-8000-00000000000a', '2026-10');
+
+delete from fortnox_export_logg; select aterstall();
+insert into fortnox_export_logg (medarbetare_id, period, status) values ('a0000000-0000-4000-8000-00000000000a', '2026-09', 'skickat');   -- löneperiod 2026-09 = AUGUSTI-arbetet
+update arbetsdag set slut_tid = '16:10' where id = 'e0000000-0000-4000-8000-000000000012';
+insert into resultat select 'EJ skickad (augusti är skickad, inte september): september nollställs och loggraden rörs inte', status_av('a0000000-0000-4000-8000-00000000000a','2026-09') is null and antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 1 and not logg_markt('a0000000-0000-4000-8000-00000000000a', '2026-09');
+
+delete from fortnox_export_logg; select aterstall();
+insert into fortnox_export_logg (medarbetare_id, period, status) values ('b0000000-0000-4000-8000-00000000000b', '2026-10', 'skickat');   -- en ANNAN förares skickade månad
+update arbetsdag set slut_tid = '16:20' where id = 'e0000000-0000-4000-8000-000000000012';
+insert into resultat select 'EJ skickad (det är Bo som är skickad, inte Anna): Anna nollställs och Bos logg rörs inte', status_av('a0000000-0000-4000-8000-00000000000a','2026-09') is null and antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 1 and not logg_markt('b0000000-0000-4000-8000-00000000000b', '2026-10');
+
+-- Årsskifte: arbetsmånad 2026-12 ↔ löneperiod 2027-01
+delete from fortnox_export_logg; select aterstall();
+insert into loneunderlag (medarbetare_id, period, status, skickat_tidpunkt) values ('a0000000-0000-4000-8000-00000000000a', '2026-12', 'godkand_av_forare', '2027-01-02 10:00:00+00');
+insert into arbetsdag (id, medarbetare_id, datum, arbetad_min) values ('e0000000-0000-4000-8000-000000000010', 'a0000000-0000-4000-8000-00000000000a', '2026-12-15', 100);   -- (godkänd, ej skickad: nollställs)
+select aterstall();
+update loneunderlag set status = 'godkand_av_forare', nollstalld_at = null, nollstalld_datum = null where medarbetare_id = 'a0000000-0000-4000-8000-00000000000a' and period = '2026-12';
+select logg_skickat('a0000000-0000-4000-8000-00000000000a', '2027-01');
+update arbetsdag set arbetad_min = 101 where id = 'e0000000-0000-4000-8000-000000000010';
+insert into resultat select 'SKICKAD över årsskiftet (arbetsmånad 2026-12 ↔ löneperiod 2027-01): inte nollställd, märkt', status_av('a0000000-0000-4000-8000-00000000000a','2026-12') = 'godkand_av_forare' and logg_dagar('a0000000-0000-4000-8000-00000000000a', '2027-01') = array['2026-12-15']::date[] and antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 0;
+delete from fortnox_export_logg;
+update arbetsdag set arbetad_min = 102 where id = 'e0000000-0000-4000-8000-000000000010';
+insert into resultat select 'EJ skickad över årsskiftet: december nollställs', status_av('a0000000-0000-4000-8000-00000000000a','2026-12') is null;
+delete from arbetsdag where id = 'e0000000-0000-4000-8000-000000000010';
+delete from loneunderlag where period = '2026-12';
+
+-- En dag som flyttas från en skickad månad till en månad som INTE är skickad: den ena märks, den andra nollställs
+delete from fortnox_export_logg; select aterstall();
+insert into loneunderlag (medarbetare_id, period, status, skickat_tidpunkt) values ('a0000000-0000-4000-8000-00000000000a', '2026-10', 'godkand_av_forare', '2026-11-02 10:00:00+00');
+insert into arbetsdag (id, medarbetare_id, datum, arbetad_min) values ('e0000000-0000-4000-8000-000000000011', 'a0000000-0000-4000-8000-00000000000a', '2026-09-30', 100);
+select aterstall();
+update loneunderlag set status = 'godkand_av_forare', nollstalld_at = null, nollstalld_datum = null where medarbetare_id = 'a0000000-0000-4000-8000-00000000000a' and period = '2026-10';
+select logg_skickat('a0000000-0000-4000-8000-00000000000a', '2026-10');            -- september skickad, oktober (löneperiod 2026-11) inte
+update arbetsdag set datum = '2026-10-01' where id = 'e0000000-0000-4000-8000-000000000011';
+insert into resultat select 'FLYTT skickad → ej skickad: september märks (30 sep) och behåller godkännandet', status_av('a0000000-0000-4000-8000-00000000000a','2026-09') = 'godkand_av_forare' and logg_dagar('a0000000-0000-4000-8000-00000000000a', '2026-10') = array['2026-09-30']::date[];
+insert into resultat select 'FLYTT skickad → ej skickad: oktober nollställs och föraren får EN notis för oktober', status_av('a0000000-0000-4000-8000-00000000000a','2026-10') is null and antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 1 and (select payload->>'arbetsmanad' = '2026-10' from "notis_kö" where typ = 'lon_andrad');
+delete from arbetsdag where id = 'e0000000-0000-4000-8000-000000000011';
+delete from loneunderlag where period = '2026-10';
+
+-- Skickad utan att föraren godkänt (admin skickade ändå): märks, men ingen rad skapas i loneunderlag och ingen notis
+delete from fortnox_export_logg; select aterstall();
+select logg_skickat('b0000000-0000-4000-8000-00000000000b', '2026-08');            -- löneperiod 2026-08 = arbetsmånad 2026-07 (Bo har ingen loneunderlag-rad där)
+update arbetsdag set arbetad_min = 777 where id = 'e0000000-0000-4000-8000-000000000004';   -- Bo, 2026-07-15
+insert into resultat select 'SKICKAD utan godkännande: märks på loggraden, ingen loneunderlag-rad skapas, ingen notis', logg_dagar('b0000000-0000-4000-8000-00000000000b', '2026-08') = array['2026-07-15']::date[] and status_av('b0000000-0000-4000-8000-00000000000b','2026-07') is null and not exists (select 1 from loneunderlag where medarbetare_id = 'b0000000-0000-4000-8000-00000000000b' and period = '2026-07') and antal_notis('b0000000-0000-4000-8000-00000000000b', 'lon_andrad') = 0;
+
+-- Går loggen inte att läsa faller det tillbaka på det som gällde förut (nollställa + notis) — och skrivningen går alltid igenom
+delete from fortnox_export_logg; select aterstall();
+alter table fortnox_export_logg rename to fortnox_export_logg_tillfalligt;
+select forvanta('oläsbar logg välter inte skrivningen', $$update arbetsdag set slut_tid = '16:30' where id = 'e0000000-0000-4000-8000-000000000012'$$, null);
+insert into resultat select 'oläsbar logg: faller tillbaka på nollställning + notis (hellre en onödig omgodkänning än en missad ändring)', status_av('a0000000-0000-4000-8000-00000000000a','2026-09') is null and antal_notis('a0000000-0000-4000-8000-00000000000a', 'lon_andrad') = 1;
+alter table fortnox_export_logg_tillfalligt rename to fortnox_export_logg;
+delete from fortnox_export_logg;
+
 -- ── en trigger får aldrig välta skrivningen ─────────────────────────────────────────────────────────────
 select aterstall();
 alter table "notis_kö" rename to notis_ko_tillfalligt;

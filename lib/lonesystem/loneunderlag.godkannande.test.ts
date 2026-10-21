@@ -113,3 +113,93 @@ describe("förarens godkännande per förare", () => {
     expect(k.lasta[1]).not.toMatch(/nollstalld/);
   });
 });
+
+// ── Ändrad EFTER att månaden skickats (Martin 2026-10-21) ──────────────────────────────────────────────────────────────────────
+// Är månaden redan skickad nollställer en ändring inte godkännandet (databasen, migration 20261021100000) — den märks på exportloggraden
+// (fortnox_export_logg.andrad_efter_skickat_*), och Admin visar "Ändrad efter att den skickats · 10 sep" så att det rättas i nästa lön.
+describe("ändrad efter att månaden skickats", () => {
+  // Loggens period är LÖNEperioden (som frågan period "2026-10"), medan godkännandet ovan hör till arbetsmånaden "2026-09".
+  const SKICKAD = { medarbetare_id: "m4", period: "2026-10", status: "skickat", andrad_efter_skickat_at: "2026-10-12T09:30:00Z", andrad_efter_skickat_dagar: ["2026-09-10", "2026-09-12"] };
+
+  function klientMedLogg(logg: Rad[], opt: { saknarKolumner?: boolean; fel?: { code?: string; message: string } } = {}) {
+    const k: any = klient([GODKAND]);
+    const t = sepTabeller();
+    t.fortnox_export_logg = logg;
+    const inre = k.from.bind(k);
+    const lasta: string[] = [];
+    k.loggLasta = lasta;
+    k.from = (namn: string) => {
+      if (namn !== "fortnox_export_logg") return inre(namn);
+      const q: any = new Fraga(t.fortnox_export_logg, null);
+      const orig = q.select.bind(q);
+      q.select = (kol?: string) => {
+        lasta.push(kol || "*");
+        if (/andrad_efter_skickat/.test(kol || "")) {
+          if (opt.fel) q.fel = opt.fel;
+          else if (opt.saknarKolumner) q.fel = { code: "42703", message: 'column "andrad_efter_skickat_at" does not exist' };
+        }
+        return orig(kol);
+      };
+      return q;
+    };
+    return k;
+  }
+
+  it("skickad + ändrad efter: raden bär när och vilka dagar (i datumordning)", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([SKICKAD]), { period: "2026-10" });
+    expect(rad(u, "m4").status).toBe("skickat");
+    expect(rad(u, "m4").andrad_efter_skickat).toEqual({ at: "2026-10-12T09:30:00Z", dagar: ["2026-09-10", "2026-09-12"] });
+    expect(u.berikad.find((r: any) => r.medarbetare_id === "m4").andrad_efter_skickat).toEqual({ at: "2026-10-12T09:30:00Z", dagar: ["2026-09-10", "2026-09-12"] });
+  });
+
+  it("skickad men aldrig ändrad: ingen märkning", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([{ ...SKICKAD, andrad_efter_skickat_at: null, andrad_efter_skickat_dagar: null }]), { period: "2026-10" });
+    expect(rad(u, "m4").andrad_efter_skickat ?? null).toBeNull();
+  });
+
+  it("märkningen gäller bara en SKICKAD rad: en rad med status fel visar den inte", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([{ ...SKICKAD, status: "fel" }]), { period: "2026-10" });
+    expect(rad(u, "m4").status).toBe("utkast");
+    expect(rad(u, "m4").andrad_efter_skickat ?? null).toBeNull();
+  });
+
+  it("fel månad räknas inte: loggen för löneperiod 2026-09 (augusti-arbetet) syns inte på oktober-lönen", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([{ ...SKICKAD, period: "2026-09" }]), { period: "2026-10" });
+    expect(rad(u, "m4").andrad_efter_skickat ?? null).toBeNull();
+  });
+
+  it("samma förare, två månader: en ändring efter att AUGUSTI skickats märker inte september (månadens egen rad avgör)", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([
+      { medarbetare_id: "m4", period: "2026-10", status: "skickat", andrad_efter_skickat_at: null, andrad_efter_skickat_dagar: null },   // september: skickad, orörd
+      { ...SKICKAD, period: "2026-09", andrad_efter_skickat_dagar: ["2026-08-04"] },                                                     // augusti: skickad och ändrad
+    ]), { period: "2026-10" });
+    expect(rad(u, "m4").status).toBe("skickat");
+    expect(rad(u, "m4").andrad_efter_skickat ?? null).toBeNull();
+  });
+
+  it("en annan förares märkning hamnar aldrig på den här", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([{ ...SKICKAD, medarbetare_id: "m1" }]), { period: "2026-10" });
+    expect(rad(u, "m1").andrad_efter_skickat).toBeTruthy();
+    expect(rad(u, "m4").andrad_efter_skickat ?? null).toBeNull();
+  });
+
+  it("dagarna kommer ut sorterade och utan dubbletter, vad databasen än skickar", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([{ ...SKICKAD, andrad_efter_skickat_dagar: ["2026-09-12", "2026-09-10", "2026-09-10"] }]), { period: "2026-10" });
+    expect(rad(u, "m4").andrad_efter_skickat.dagar).toEqual(["2026-09-10", "2026-09-12"]);
+  });
+
+  it("märkt med tid men utan dagar (äldre/ofullständig rad): märkningen finns ändå, dagarna är tomma — den döljs inte", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([{ ...SKICKAD, andrad_efter_skickat_dagar: null }]), { period: "2026-10" });
+    expect(rad(u, "m4").andrad_efter_skickat).toEqual({ at: "2026-10-12T09:30:00Z", dagar: [] });
+  });
+
+  it("migrationen ej körd (kolumnerna saknas): underlaget fungerar, ingen märkning, ingen krasch", async () => {
+    const u: any = await beraknaLoneunderlag(klientMedLogg([SKICKAD], { saknarKolumner: true }), { period: "2026-10" });
+    expect(rad(u, "m4").status).toBe("skickat");
+    expect(rad(u, "m4").andrad_efter_skickat ?? null).toBeNull();
+  });
+
+  it("ett annat läsfel stoppar underlaget (aldrig en tyst 'ingen ändring')", async () => {
+    await expect(beraknaLoneunderlag(klientMedLogg([SKICKAD], { fel: { code: "57014", message: "timeout" } }), { period: "2026-10" })).rejects.toThrow(/skickad/i);
+  });
+});

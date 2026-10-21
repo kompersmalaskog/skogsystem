@@ -2843,25 +2843,25 @@ describe("Löneunderlag: förhandsvisning rad för rad", () => {
       expect(gor()).toBeUndefined();
       expect(text()).not.toContain("Koppla koden");
       expect(text()).not.toContain("Koppla koderna");
-      expect(text()).toContain("6 öppna frågor");
+      expect(text()).toContain("5 öppna frågor");
       expect(text()).not.toContain("Levereras sjukfrånvaro i timmar per dag?");
       expect(ark()).toBeNull();
-      await klick("6 öppna frågor");
+      await klick("5 öppna frågor");
       // …och raden öppnar Avtal med frågorna uppe — inte ett ark ovanpå Lön.
       expect(window.location.search).toContain("flik=avtal");
       expect(window.location.search).toContain("fragor=1");
     });
 
-    it("AVTAL: Öppna frågor bor här — en rad, och arket med de sex som är obesvarade (de beslutade är borta)", async () => {
+    it("AVTAL: Öppna frågor bor här — en rad, och arket med de fem som är obesvarade (de beslutade är borta)", async () => {
       await monter("flik=avtal");
       expect(text()).toContain("Öppna frågor");
-      expect(text()).toContain("6 öppna frågor");
+      expect(text()).toContain("5 öppna frågor");
       expect(ark()).toBeNull();
-      await klick("6 öppna frågor");
+      await klick("5 öppna frågor");
       expect(ark()!.textContent).toContain("Levereras sjukfrånvaro i timmar per dag?");
       expect(ark()!.textContent).toContain("Var komp-saldot bor");
-      expect(ark()!.querySelectorAll("[data-ark-innehall] > div > div").length).toBe(6);
-      for (const beslutad of ["Ordinarie tid är ett genomsnitt", "Gävle var utjämnad ordinarie tid"]) expect(ark()!.textContent, beslutad).not.toContain(beslutad);
+      expect(ark()!.querySelectorAll("[data-ark-innehall] > div > div").length).toBe(5);
+      for (const beslutad of ["Ordinarie tid är ett genomsnitt", "Gävle var utjämnad ordinarie tid", "Beräkningsperiod och schema"]) expect(ark()!.textContent, beslutad).not.toContain(beslutad);
     });
 
     it("AVTAL: kommer man från Lön (?fragor=1) står arket redan uppe, och Stäng tar bort markeringen ur adressen", async () => {
@@ -4409,6 +4409,36 @@ describe("Förarens godkännande i Löneunderlag", () => {
     g.__salary = { ...SALARY, medarbetare: [fo("m1", "Anna Berg", { godkannande: "vantar", andrad_efter_godkannande: { at: "2026-10-05T08:00:00Z", datum: "2026-09-10" } })] };
     await monter("flik=lon");
     expect(kort("m1").querySelector("[data-andrad]")!.textContent).toBe("Ändrad efter godkännandet · 10 sep");
+  });
+
+  describe("ändrad efter att månaden skickats (kortet och förarens ark)", () => {
+    const SKICKAD = { status: "skickat", godkannande: "godkand", andrad_efter_skickat: { at: "2026-10-12T09:30:00Z", dagar: ["2026-09-10"] } };
+    it("kortet säger 'Ändrad efter att den skickats · 10 sep' — och status står kvar som Skickad", async () => {
+      g.__salary = { ...SALARY, medarbetare: [fo("m1", "Anna Berg", SKICKAD)] };
+      await monter("flik=lon");
+      expect(kort("m1").querySelector("[data-forare-status]")!.getAttribute("data-forare-status")).toBe("skickad");
+      expect(kort("m1").querySelector("[data-andrad-skickat]")!.textContent).toBe("Ändrad efter att den skickats · 10 sep");
+      // …och det är inte den andra märkningen (godkännandet nollställdes inte, så det finns ingen Påminn att trycka)
+      expect(kort("m1").querySelector("[data-andrad]")).toBeNull();
+      expect(blad("Påminn").length).toBe(0);
+    });
+    it("flera dagar skrivs i ordning", async () => {
+      g.__salary = { ...SALARY, medarbetare: [fo("m1", "Anna Berg", { ...SKICKAD, andrad_efter_skickat: { at: "2026-10-12T09:30:00Z", dagar: ["2026-09-10", "2026-09-12"] } })] };
+      await monter("flik=lon");
+      expect(kort("m1").querySelector("[data-andrad-skickat]")!.textContent).toBe("Ändrad efter att den skickats · 10 sep, 12 sep");
+    });
+    it("en skickad månad som inte ändrats har ingen märkning", async () => {
+      g.__salary = { ...SALARY, medarbetare: [fo("m1", "Anna Berg", { status: "skickat", godkannande: "godkand" })] };
+      await monter("flik=lon");
+      expect(kort("m1").querySelector("[data-andrad-skickat]")).toBeNull();
+    });
+    it("förarens ark visar samma sak i raden 'Förarens godkännande'", async () => {
+      g.__salary = { ...SALARY, medarbetare: [fo("m1", "Anna Berg", SKICKAD)] };
+      await monter("flik=lon&forare=m1");
+      const rad = document.body.querySelector<HTMLElement>("[data-forare-manad] [data-godkannande]")!;
+      expect(rad.textContent).toContain("Skickad");
+      expect(rad.textContent).toContain("Ändrad efter att den skickats · 10 sep");
+    });
   });
 
   describe("Skicka utan förarens godkännande (förarens ark)", () => {

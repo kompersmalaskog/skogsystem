@@ -48,6 +48,8 @@ export type ForarKort = {
   forarStatus: ForarStatus | null;
   /** Godkännandet nollställdes av en ändring i månaden: texten att visa under namnet. */
   andrad: { at: string; datum: string | null; text: string } | null;
+  /** Månaden är redan skickad till Fortnox och ändrades efteråt: texten att visa (det ska rättas i nästa lön). Bara på en skickad månad. */
+  andradEfterSkickat: { at: string; dagar: string[]; text: string } | null;
   /** Anställningsnumret saknas: går inte att skicka. */
   saknarAnstNr: boolean;
   helglon: string[];
@@ -75,12 +77,26 @@ function franvaroRad(v: string): string | null {
   return `${ord} ${nar} · ingen löneart i Fortnox, lägg in för hand`;
 }
 
+/** Så många dagar skrivs ut på kortet; resten blir "och N till". */
+export const ANDRAD_SKICKAT_MAX_DAGAR = 3;
+
+/** "Ändrad efter att den skickats · 10 sep" — med de dagar som ändrats (de tre första), eller bara meningen om inga dagar är kända. */
+export function andradEfterSkickatText(dagar: string[]): string {
+  const bas = "Ändrad efter att den skickats";
+  if (dagar.length === 0) return bas;
+  const rest = dagar.length - ANDRAD_SKICKAT_MAX_DAGAR;
+  return `${bas} · ${dagar.slice(0, ANDRAD_SKICKAT_MAX_DAGAR).map(dagText).join(", ")}${rest > 0 ? ` och ${rest} till` : ""}`;
+}
+
 export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvittering[] = []): ForarKort {
   const ledare = m.foretagsledare === true;
   const andr = !ledare && m.andrad_efter_godkannande?.at ? m.andrad_efter_godkannande as { at: string; datum: string | null } : null;
+  // Bara en månad som ÄR skickad kan vara "ändrad efter att den skickats" (annars gäller "ändrad efter godkännandet" ovan).
+  const efterSkickat = !ledare && m.status === "skickat" && m.andrad_efter_skickat?.at ? m.andrad_efter_skickat as { at: string; dagar?: string[] } : null;
   const kort: ForarKort = {
     id: m.medarbetare_id, namn: m.namn, ledare, status: m.status, forarStatus: forarStatus({ status: m.status, godkannande: m.godkannande, foretagsledare: ledare }),
     andrad: andr ? { at: andr.at, datum: andr.datum ?? null, text: andr.datum ? `Ändrad efter godkännandet · ${dagText(andr.datum)}` : "Ändrad efter godkännandet" } : null,
+    andradEfterSkickat: efterSkickat ? { at: efterSkickat.at, dagar: efterSkickat.dagar ?? [], text: andradEfterSkickatText(efterSkickat.dagar ?? []) } : null,
     saknarAnstNr: !ledare && !m.anstallningsnummer, helglon: [], kolla: [], info: [],
   };
   if (ledare) return kort;
