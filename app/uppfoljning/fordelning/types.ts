@@ -31,4 +31,12 @@ export interface ObjektVy {
   headline: string | null;
   trend: { from: number; to: number } | null;
   produkter: ProduktVy[];
+  /** Siffrorna är från förra filen; en färsk räknas just nu. */
+  uppdateras?: boolean;
 }
+
+/** Listans kort (vymodellen utan produkternas detaljer). */
+export type ObjektKort = Omit<ObjektVy, "produkter"> & { produkter?: ProduktVy[] };
+
+/** Objekt som aldrig räknats — står med namn tills kortet är klart. */
+export interface VantandeObjekt { objectKey: string; objektNamn: string | null; status: "active" | "completed"; }
