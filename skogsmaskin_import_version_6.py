@@ -24,6 +24,7 @@ import json
 import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from datetime import date as _date_typ
 from pathlib import Path
 import re
 from urllib.parse import quote
@@ -5549,7 +5550,8 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 #   * ERA5 ligger ca 5 dygn efter verkligheten: en kontroll från idag har inget arkivvärde än (svaret ger null). Det är
 #     inget fel utan "inte klart än" — `komplettera_saknat_vader()` fyller i det vid nästa import när dygnet är klart.
 #     Raden får ALDRIG ett prognosvärde i stället (arkiv och prognos är olika källor).
-#   * Position = första skördade stammens GPS, tid = tidigaste skördetid i filen (det första som kontrollerades).
+#   * Position och tid = stammen som valj_vaderpunkt väljer: HQC-filerna är ackumulerande, så det är den tidigaste stammen med
+#     GPS vars skördedatum är kontrollens eget datum, annars den senaste stammen med GPS (inte "tidigaste i filen").
 #     Tiden räknas som verkligt UTC (stockholm_lokal_till_utc) och hämtas för närmaste hel timme.
 #   * Rader som redan har väder rörs aldrig av importen (PATCH med weather_at_harvest=is.null). Bara backfill-skriptet
 #     kan, uttryckligen (--skriv-over), hämta om väder för rader som har det.
@@ -5574,21 +5576,44 @@ VADER_OK, VADER_EJ_KLART, VADER_PERMANENT, VADER_TILLFALLIGT = 'ok', 'inte_klart
 _vader_nat = {'nere_sedan': None}   # sätts av lagg_pa_vader/komplettering vid nätfel; hindrar att samma import väntar igen
 
 
-def valj_vaderpunkt(stockar: List[Dict]):
-    """(lat, lon, skord_utc) ur kontrollstockarna: tidigaste harvest_date som har en riktig GPS-position. harvest_date är
-    naiv svensk väggklocka (parse_datetime) och görs om till verkligt UTC. None om ingen stock har både position och tid —
-    safe_float ger 0.0 för en saknad koordinat, så (0, 0) räknas som saknad."""
-    bast = None
+def _datum_av(v) -> Optional[_date_typ]:
+    """date | datetime | 'YYYY-MM-DD…' → date. None om tomt eller otolkbart (aldrig en påhittad dag)."""
+    if v is None or v == '':
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, _date_typ):
+        return v
+    try:
+        return _date_typ.fromisoformat(str(v).strip()[:10])
+    except ValueError:
+        return None
+
+
+def valj_vaderpunkt(stockar: List[Dict], kontroll_datum):
+    """(lat, lon, skord_utc) ur kontrollstockarna. Scorpionens HQC-filer är ACKUMULERANDE: en fil innehåller ofta stammar
+    från tidigare kontroller, så "tidigaste stammen i filen" ger ofta en gammal kontrolls tid och plats (2026-10-21: 34 av
+    330 kontroller fick väder från mer än ett dygn före sitt eget datum; Hössjömåla-filerna 13, 15 och 21 april fick alla 8
+    april, Äskebäck id 1281 fick Krokshults tid). Regeln (Martin 2026-10-21):
+      1. bland stammarna vars skördedatum (lokal tid) ÄR kontrollens datum: den tidigaste av dem som har GPS-position
+      2. finns ingen sådan: den SENASTE stammen i filen med GPS-position
+    kontroll_datum är fakt_kalibrering.datum (lokal dag; date, datetime eller 'YYYY-MM-DD') och är obligatoriskt — saknas
+    det (None) finns ingen stam som "är den dagen" och regel 2 gäller. harvest_date är naiv svensk väggklocka (parse_datetime)
+    och görs om till verkligt UTC. None om ingen stock har både position och tid — safe_float ger 0.0 för en saknad
+    koordinat, så (0, 0) räknas som saknad."""
+    kandidater = []
     for s in stockar or []:
         lat, lon, tid = s.get('stem_lat'), s.get('stem_lon'), s.get('harvest_date')
         if tid is None or lat is None or lon is None:
             continue
         if (lat == 0 and lon == 0) or abs(lat) > 90 or abs(lon) > 180:
             continue
-        if bast is None or tid < bast[2]:
-            bast = (float(lat), float(lon), tid)
-    if bast is None:
+        kandidater.append((float(lat), float(lon), tid))
+    if not kandidater:
         return None
+    datum = _datum_av(kontroll_datum)
+    samma_dag = [k for k in kandidater if datum is not None and k[2].date() == datum]
+    bast = min(samma_dag, key=lambda k: k[2]) if samma_dag else max(kandidater, key=lambda k: k[2])
     return bast[0], bast[1], stockholm_lokal_till_utc(bast[2])
 
 
@@ -5662,7 +5687,7 @@ def lagg_pa_vader(kalibrering_rad: Dict, stockar: List[Dict], filnamn) -> bool:
     """Lägger weather_at_harvest på kontrollraden FÖRE upserten. Sätter bara nyckeln när vädret hämtats — annars lämnas
     raden orörd (en omimport får aldrig nolla ett befintligt väder). Ett misslyckande loggas och går till import_fel, men
     stoppar aldrig importen. True om väder lades på."""
-    punkt = valj_vaderpunkt(stockar)
+    punkt = valj_vaderpunkt(stockar, kalibrering_rad.get('datum'))
     if punkt is None:
         logger.warning(f"  ⚠ Väder saknas för {filnamn}: ingen stock med både GPS-position och skördetid")
         _rapportera_import_fel('fakt_kalibrering', filnamn, 1, 'VADER_PERMANENT', 'ingen stock med både GPS-position och skördetid')
@@ -5727,7 +5752,7 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
         sist_id = 0
         while True:
             url = (f"{SUPABASE_URL}/rest/v1/fakt_kalibrering?id=gt.{sist_id}"
-                   f"&select=id,filnamn,maskin_id,weather_at_harvest&order=id.asc&limit={VADER_PAGINERING}")
+                   f"&select=id,filnamn,maskin_id,datum,weather_at_harvest&order=id.asc&limit={VADER_PAGINERING}")
             if not skriv_over:
                 url += "&weather_at_harvest=is.null"
             resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
@@ -5763,7 +5788,7 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
                         stockar.append({'stem_lat': None if s.get('stem_lat') is None else float(s['stem_lat']),
                                         'stem_lon': None if s.get('stem_lon') is None else float(s['stem_lon']),
                                         'harvest_date': lokal})
-                    punkt = valj_vaderpunkt(stockar)
+                    punkt = valj_vaderpunkt(stockar, rad.get('datum'))
                     if punkt is None:
                         skal = 'ingen stock med både GPS-position och skördetid'
                         rapport['misslyckade'].append((rad['id'], rad['filnamn'], skal))

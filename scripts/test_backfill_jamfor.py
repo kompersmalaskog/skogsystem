@@ -8,7 +8,7 @@ läsläget SKRIVER ALDRIG (inga PATCH/POST), väljer samma rader som --skriv-ove
 import importlib.util, os, sys, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_vader_vid_skord import (M, NU, UTC, Svar, timsvar, FejkRequests, RaknaHttp, FejkHttp, stock, kontroll, bra)  # noqa: E402
+from test_vader_vid_skord import (M, NU, UTC, Svar, timsvar, FejkRequests, RaknaHttp, FejkHttp, stock, stockar_db, kontroll, bra)  # noqa: E402
 
 HAR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 spec = importlib.util.spec_from_file_location('backfill_script', os.path.join(HAR, 'scripts', 'backfill-kontroll-vader.py'))
@@ -134,6 +134,79 @@ class Jamfor(unittest.TestCase):
         for extra in ('--skriv', '--aterstall'):
             sys.argv = ['x', '--jamfor', extra]
             self.assertEqual(B.main(), 2)
+
+
+class Exempel(unittest.TestCase):
+    """Läsläget mot de två fallen från körningen på importdatorn 2026-10-21: ackumulerande Scorpion-filer där 'tidigaste
+    stammen i filen' gav väder från fel kontroll. (Syntetiska rader byggda efter fallen — inte hämtade ur databasen.)"""
+
+    def setUp(self):
+        self.orig = M.requests
+        M._vader_nat['nere_sedan'] = None
+
+    def tearDown(self):
+        M.requests = self.orig
+        M._vader_nat['nere_sedan'] = None
+
+    @staticmethod
+    def gammalt(harvest_time, temp=3.0):
+        return {'source': 'open-meteo.com', 'fetched_at': '2026-05-20T17:08:56+00:00', 'harvest_time': harvest_time,
+                'temperature_c': temp, 'is_freezing': temp < 0}
+
+    def kor(self, kontroller, stockar):
+        M.requests = Fejk(kontroller, stockar)
+        anrop = []
+        def svara(p):
+            anrop.append(p)
+            return bra(p)
+        res = B.jamfor_gamla(M, http=RaknaHttp(svara), nu=NU)
+        return res, anrop
+
+    def test_hossjomala_13_15_och_21_april_fick_alla_8_april(self):
+        fil = stockar_db((57.00, 15.00, '2026-04-08 08:00:00+00'), (57.01, 15.01, '2026-04-13 07:00:00+00'),
+                         (57.02, 15.02, '2026-04-15 07:00:00+00'), (57.03, 15.03, '2026-04-21 07:00:00+00'))
+        gammal = '2026-04-08T08:00:00+00:00'
+        kontroller = [kontroll(1, self.gammalt(gammal), 'hossjomala_13.hqc', '2026-04-13'),
+                      kontroll(2, self.gammalt(gammal), 'hossjomala_15.hqc', '2026-04-15'),
+                      kontroll(3, self.gammalt(gammal), 'hossjomala_21.hqc', '2026-04-21')]
+        res, anrop = self.kor(kontroller, {k['filnamn']: fil for k in kontroller})
+        self.assertEqual([(x['id'], x['gammal_dagar'], x['ny_dagar']) for x in res['rader']], [(1, 5, 0), (2, 7, 0), (3, 13, 0)])
+        self.assertEqual([p['start_date'] for p in anrop], ['2026-04-13', '2026-04-15', '2026-04-21'])
+        ut = []
+        B.skriv_jamforelse(res, ut.append)
+        text = '\n'.join(ut)
+        self.assertIn('Väder från mer än ett dygn före kontrollens datum: gammalt 3 av 3, nytt 0 av 3', text)
+        self.assertNotIn('FORTFARANDE FEL STAM', text)
+
+    def test_askeback_id_1281_far_sin_egen_stam_inte_krokshults(self):
+        # filen innehåller Krokshults stammar (tidigare kontroll, 56.50) och Äskebäcks egna (56.90) på kontrollens datum
+        fil = stockar_db((56.50, 15.50, '2026-04-03 08:00:00+00'), (56.51, 15.51, '2026-04-03 09:00:00+00'),
+                         (56.90, 15.90, '2026-04-10 07:00:00+00'), (56.91, 15.91, '2026-04-10 12:00:00+00'))
+        kontroller = [kontroll(1281, self.gammalt('2026-04-03T08:00:00+00:00'), 'askeback.hqc', '2026-04-10')]
+        res, anrop = self.kor(kontroller, {'askeback.hqc': fil})
+        self.assertEqual((anrop[0]['latitude'], anrop[0]['start_date']), ('56.9000', '2026-04-10'))
+        lasning = [a[1] for a in M.requests.anrop if a[0] == 'GET' and '/fakt_kalibrering?' in a[1]][0]
+        self.assertIn('datum', lasning.split('select=')[1].split('&')[0].split(','))     # fejken ignorerar select, PostgREST gör det inte
+        x = res['rader'][0]
+        self.assertEqual((x['id'], x['gammal_dagar'], x['ny_dagar']), (1281, 7, 0))
+
+    def test_kontroll_utan_stam_pa_sin_dag_far_senaste_stammen_och_flaggas_om_den_ar_for_gammal(self):
+        fil = stockar_db((57.00, 15.00, '2026-04-08 08:00:00+00'), (57.01, 15.01, '2026-04-09 07:00:00+00'))
+        kontroller = [kontroll(7, self.gammalt('2026-04-08T08:00:00+00:00'), 'k7.hqc', '2026-04-13')]
+        res, anrop = self.kor(kontroller, {'k7.hqc': fil})
+        self.assertEqual(anrop[0]['start_date'], '2026-04-09')                       # senaste stammen i filen
+        ut = []
+        B.skriv_jamforelse(res, ut.append)
+        text = '\n'.join(ut)
+        self.assertIn('nytt 1 av 1', text)                                            # 4 dygn före: syns, tystas inte
+        self.assertIn('FORTFARANDE FEL STAM?  id 7', text)
+
+    def test_tabellen_visar_kontrollens_datum(self):
+        fil = stockar_db((57.01, 15.01, '2026-04-13 07:00:00+00'))
+        res, _ = self.kor([kontroll(1, self.gammalt('2026-04-08T08:00:00+00:00'), 'a.hqc', '2026-04-13')], {'a.hqc': fil})
+        ut = []
+        B.skriv_jamforelse(res, ut.append)
+        self.assertTrue([r for r in ut if r.lstrip().startswith('1  a.hqc') and '2026-04-13' in r])
 
 
 if __name__ == '__main__':
