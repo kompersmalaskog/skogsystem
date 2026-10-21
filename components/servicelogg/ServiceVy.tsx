@@ -28,6 +28,10 @@ import {
   type Rad as LoggRad, type ServicePost, type Typ,
   bandPlats,
 } from '@/lib/servicelogg';
+import {
+  avlastText, nastaService, senastServiceTimmar, serviceLage, serviceText, timmarHeltal, timmarText, uppskatta,
+  type Avlasning, type MotorDag, type Service, type Uppskattning,
+} from '@/lib/maskinTimmar';
 
 /** Från den här bredden står listan och maskinen bredvid varandra (iPad liggande 1180, dator). */
 export const BRED_PX = 1000;
@@ -36,8 +40,11 @@ const LISTA_PX = 340;
 /** Så många månader visas innan "Visa alla". */
 const MANADER_FORST = 3;
 
-type Maskin = { id: string; maskinId: string; namn: string; slag: 'skordare' | 'skotare' | null };
-type Data = { maskiner: Maskin[]; poster: ServicePost[] };
+type Maskin = { id: string; maskinId: string; namn: string; slag: 'skordare' | 'skotare' | null; intervall: number | null };
+/** Timmarna per maskin (maskiner.id). Null = avläsningarna kunde inte läsas — då visas inga timmar alls, aldrig gissade. */
+type Timdata = { avl: Map<string, Avlasning[]>; motor: Map<string, MotorDag[]> } | null;
+type Data = { maskiner: Maskin[]; poster: ServicePost[]; tim: Timdata };
+type Timmar = { u: Uppskattning; service: Service | null };
 
 // Senast lästa data ligger kvar mellan sidbytena (lista ↔ maskin) så ingenting blinkar; den läses alltid om.
 let cache: Data | null = null;
@@ -57,7 +64,7 @@ function useBred(): boolean {
 
 async function lasData(): Promise<Data> {
   const [m, dim, s] = await Promise.all([
-    supabase.from('maskiner').select('id, maskin_id, namn').eq('aktiv', true),
+    supabase.from('maskiner').select('*').eq('aktiv', true),
     supabase.from('dim_maskin').select(DIM_MASKIN_NAMN_KOLUMNER),
     hamtaAlla<ServicePost>(() => supabase.from('maskin_service').select('*') as any, 'id'),
   ]);
@@ -67,9 +74,54 @@ async function lasData(): Promise<Data> {
   const dimPer = new Map((dim.data ?? []).map((d: any) => [d.maskin_id, d]));
   const maskiner = (m.data ?? []).map((x: any): Maskin => {
     const d = dimPer.get(x.maskin_id);
-    return { id: x.id, maskinId: x.maskin_id, namn: (d && maskinVisningsnamn(d as any)) || x.namn || x.maskin_id, slag: maskinSlag((d as any)?.maskin_typ) };
+    return {
+      id: x.id, maskinId: x.maskin_id, namn: (d && maskinVisningsnamn(d as any)) || x.namn || x.maskin_id,
+      slag: maskinSlag((d as any)?.maskin_typ), intervall: typeof x.service_intervall_h === 'number' ? x.service_intervall_h : null,
+    };
   }).sort((a, b) => a.namn.localeCompare(b.namn, 'sv'));
-  return { maskiner, poster: s.data };
+  const tim = await lasTimmar(maskiner, s.data).catch(e => { console.error('[servicelogg] kunde inte läsa timmarna', e); return null; });
+  return { maskiner, poster: s.data, tim };
+}
+
+/** Avläsningar (egna + timmätaren på serviceposter) och motortiden ur MOM-filerna efter den äldsta senaste avläsningen. */
+async function lasTimmar(maskiner: Maskin[], poster: ServicePost[]): Promise<Timdata> {
+  const r = await hamtaAlla<{ maskin_id: string; datum: string; timmar: number }>(
+    () => supabase.from('maskin_timmatare').select('id, maskin_id, datum, timmar') as any, 'id');
+  if (r.error) throw r.error;
+  const avl = new Map<string, Avlasning[]>();
+  const lagg = (id: string, a: Avlasning) => (avl.get(id) ?? avl.set(id, []).get(id)!).push(a);
+  for (const x of r.data) lagg(x.maskin_id, { datum: x.datum, timmar: Number(x.timmar), kalla: 'avlasning' });
+  for (const p of poster) if (p.timmar && p.timmar > 0 && p.datum) lagg(p.maskin_id, { datum: p.datum, timmar: p.timmar, kalla: 'service' });
+
+  const motor = new Map<string, MotorDag[]>();
+  const fran = new Map<string, string>(); // dim-id → senaste avläsningens datum
+  for (const m of maskiner) {
+    const datum = (avl.get(m.id) ?? []).reduce((b, a) => (a.datum > b ? a.datum : b), '');
+    if (datum) fran.set(m.maskinId, datum);
+  }
+  if (fran.size > 0) {
+    const tidigast = [...fran.values()].sort()[0];
+    const t = await hamtaAlla<{ maskin_id: string; datum: string; engine_time_sek: number | null }>(
+      () => supabase.from('fakt_tid').select('id, maskin_id, datum, engine_time_sek').in('maskin_id', [...fran.keys()]).gt('datum', tidigast) as any, 'id');
+    if (t.error) throw t.error;
+    const perDim = new Map<string, Map<string, number>>();
+    for (const x of t.data) {
+      const d = perDim.get(x.maskin_id) ?? perDim.set(x.maskin_id, new Map()).get(x.maskin_id)!;
+      d.set(x.datum, (d.get(x.datum) ?? 0) + (x.engine_time_sek ?? 0));
+    }
+    for (const m of maskiner) {
+      const d = perDim.get(m.maskinId);
+      if (d) motor.set(m.id, [...d].map(([datum, sek]) => ({ datum, sek })));
+    }
+  }
+  return { avl, motor };
+}
+
+function raknaTimmar(m: Maskin, tim: Timdata, poster: ServicePost[]): Timmar | null {
+  if (!tim) return null;
+  const u = uppskatta(tim.avl.get(m.id) ?? [], tim.motor.get(m.id) ?? []);
+  if (!u) return null;
+  return { u, service: m.intervall ? nastaService(m.intervall, u.timmar, senastServiceTimmar(poster)) : null };
 }
 
 export default function ServiceVy({ valdId }: { valdId: string | null }) {
@@ -102,6 +154,14 @@ export default function ServiceVy({ valdId }: { valdId: string | null }) {
     return ut;
   }, [data]);
 
+  const timmarPer = useMemo(() => {
+    const ut = new Map<string, Timmar | null>();
+    if (!data) return ut;
+    for (const m of data.maskiner) ut.set(m.id, raknaTimmar(m, data.tim, data.poster.filter(p => p.maskin_id === m.id)));
+    return ut;
+  }, [data]);
+  const [avlasOppen, setAvlasOppen] = useState(false);
+
   const vald = data?.maskiner.find(m => m.id === valdId) ?? null;
 
   const rot = (bredd: 'smal' | 'bred') => ({
@@ -122,12 +182,13 @@ export default function ServiceVy({ valdId }: { valdId: string | null }) {
   }
 
   const lista = (
-    <Lista maskiner={data.maskiner} raderPer={raderPer} idag={idag} valdId={bred ? valdId : null}
+    <Lista maskiner={data.maskiner} raderPer={raderPer} timmarPer={timmarPer} timFel={data.tim == null} idag={idag} valdId={bred ? valdId : null}
       onVal={bred ? (id) => router.replace(`/maskin-service/${id}`, { scroll: false }) : undefined} />
   );
 
   const maskinVy = valdId == null ? null : vald ? (
-    <MaskinVy maskin={vald} rader={raderPer.get(vald.id) ?? []} idag={idag} visaTillbaka={!bred} onNy={() => setArkOppet(true)} />
+    <MaskinVy maskin={vald} rader={raderPer.get(vald.id) ?? []} timmar={timmarPer.get(vald.id) ?? null} timFel={data.tim == null}
+      idag={idag} visaTillbaka={!bred} onNy={() => setArkOppet(true)} onAvlas={() => setAvlasOppen(true)} />
   ) : (
     <div style={{ padding: `${AVSTAND.xl}px 0` }}>
       <p style={{ ...TYP.text, color: FARG.text2, margin: 0 }}>Maskinen finns inte i serviceloggen.</p>
@@ -137,6 +198,9 @@ export default function ServiceVy({ valdId }: { valdId: string | null }) {
 
   const ark = arkOppet && vald && (
     <NyAtgardArk maskin={vald} idag={idag} onStang={() => setArkOppet(false)} onSparad={async () => { setArkOppet(false); await las(); }} />
+  ) || avlasOppen && vald && (
+    <TimmatareArk maskin={vald} idag={idag} timmar={timmarPer.get(vald.id) ?? null}
+      onStang={() => setAvlasOppen(false)} onSparad={async () => { setAvlasOppen(false); await las(); }} />
   );
 
   if (bred) {
@@ -178,9 +242,11 @@ function FelRad({ onIgen }: { onIgen: () => void }) {
 
 const SLAG_RUBRIK: Record<string, string> = { skordare: 'Skördare', skotare: 'Skotare', ovriga: 'Övriga' };
 
-function Lista({ maskiner, raderPer, idag, valdId, onVal }: {
-  maskiner: Maskin[]; raderPer: Map<string, LoggRad[]>; idag: string; valdId: string | null; onVal?: (id: string) => void;
+function Lista({ maskiner, raderPer, timmarPer, timFel, idag, valdId, onVal }: {
+  maskiner: Maskin[]; raderPer: Map<string, LoggRad[]>; timmarPer: Map<string, Timmar | null>; timFel: boolean;
+  idag: string; valdId: string | null; onVal?: (id: string) => void;
 }) {
+  const snart = maskiner.filter(m => { const t = timmarPer.get(m.id); return t?.service && serviceLage(t.service) !== 'ok'; });
   const grupper = (['skordare', 'skotare', 'ovriga'] as const)
     .map(slag => ({ slag, maskiner: maskiner.filter(m => (m.slag ?? 'ovriga') === slag) }))
     .filter(g => g.maskiner.length > 0);
@@ -189,13 +255,23 @@ function Lista({ maskiner, raderPer, idag, valdId, onVal }: {
   }
   return (
     <div data-servicelogg-lista="">
+      {snart.length > 0 && (
+        <Svarsrad avvikelse rubrik={`${snart.length} behöver service snart`}
+          rad={snart.map(m => m.namn).join(' · ')} />
+      )}
+      {timFel && <p style={{ ...TYP.meta, color: FARG.orange, margin: `0 0 ${AVSTAND.m}px` }}>Timmarna kunde inte läsas just nu.</p>}
       {grupper.map(g => (
         <Sektion key={g.slag} rubrik={SLAG_RUBRIK[g.slag]}>
           {g.maskiner.map((m, i) => {
             const rader = raderPer.get(m.id) ?? [];
             const sista = i === g.maskiner.length - 1;
+            const t = timmarPer.get(m.id);
+            const lage = t?.service ? serviceLage(t.service) : null;
+            const under = t?.service
+              ? <span style={{ color: lage === 'ok' ? FARG.text2 : FARG.orange }}>{serviceText(t.service)}</span>
+              : senastText(rader, idag);
             const rad = (
-              <Rad titel={m.namn} under={senastText(rader, idag)} hoger={rader.length > 0 ? rader.length : undefined} sista={sista}
+              <Rad titel={m.namn} under={under} hoger={t ? <span style={TNUM}>{timmarText(t.u)}</span> : undefined} sista={sista}
                 {...(onVal ? { onTryck: () => onVal(m.id) } : { href: `/maskin-service/${m.id}` })}
                 attr={{ 'data-maskin': m.id, ...(m.id === valdId ? { 'aria-current': 'page' } : {}) }} />
             );
@@ -206,14 +282,15 @@ function Lista({ maskiner, raderPer, idag, valdId, onVal }: {
         </Sektion>
       ))}
       <p style={{ ...TYP.meta, color: FARG.text2, margin: `0 ${AVSTAND.xs}px ${AVSTAND.xl}px` }}>
-        Talet till höger är antal poster. Det mesta kommer in av sig självt från maskinerna.
+        Timmarna är senaste avläsningen plus motortiden från maskinen. Det mesta i loggen kommer in av sig självt.
       </p>
     </div>
   );
 }
 
-function MaskinVy({ maskin, rader, idag, visaTillbaka, onNy }: {
-  maskin: Maskin; rader: LoggRad[]; idag: string; visaTillbaka: boolean; onNy: () => void;
+function MaskinVy({ maskin, rader, timmar, timFel, idag, visaTillbaka, onNy, onAvlas }: {
+  maskin: Maskin; rader: LoggRad[]; timmar: Timmar | null; timFel: boolean; idag: string; visaTillbaka: boolean;
+  onNy: () => void; onAvlas: () => void;
 }) {
   const [allt, setAllt] = useState(false);
   useEffect(() => { setAllt(false); }, [maskin.id]);
@@ -229,7 +306,12 @@ function MaskinVy({ maskin, rader, idag, visaTillbaka, onNy }: {
         <Link href="/maskin-service" style={{ ...KNAPP.lank, textDecoration: 'none', alignSelf: 'flex-start' }}>‹ Alla maskiner</Link>
       )}
       <h1 style={{ ...TYP.titel, margin: 0 }}>{maskin.namn}</h1>
-      {rader.length > 0 && <Svarsrad rubrik={svar.rubrik} rad={svar.rad} />}
+      {timmar ? <TimmarHuvud t={timmar} idag={idag} /> : rader.length > 0 && <Svarsrad rubrik={svar.rubrik} rad={svar.rad} />}
+      <Sektion rubrik="Timmätaren">
+        <Rad titel="Läs av timmätaren" pil onTryck={onAvlas} sista attr={{ 'data-las-av': '' }}
+          under={timFel ? <span style={{ color: FARG.orange }}>Timmarna kunde inte läsas just nu</span>
+            : timmar ? undefined : 'Skriv in vad mätaren står på, sedan räknar appen själv'} />
+      </Sektion>
 
       {rader.length === 0 ? (
         <p style={{ ...TYP.text, color: FARG.text2, margin: `${AVSTAND.xl}px 0` }}>
@@ -257,6 +339,96 @@ function MaskinVy({ maskin, rader, idag, visaTillbaka, onNy }: {
         <button type="button" onClick={onNy} style={KNAPP.primar}>Ny åtgärd</button>
       </div>
     </div>
+  );
+}
+
+function TimmarHuvud({ t, idag }: { t: Timmar; idag: string }) {
+  const lage = t.service ? serviceLage(t.service) : null;
+  const andel = t.service ? Math.min(1, Math.max(0, (t.u.timmar - t.service.foregaendeVid) / (t.service.nastaVid - t.service.foregaendeVid))) : 0;
+  return (
+    <section data-timmar="" style={{ margin: `${AVSTAND.l}px 0 ${AVSTAND.xl}px` }}>
+      <div style={{ ...TYP.tal }}>{timmarText(t.u)}</div>
+      {t.service && (
+        <>
+          <div style={{ ...TYP.text, marginTop: AVSTAND.s, color: lage === 'ok' ? FARG.text : FARG.orange, fontWeight: lage === 'ok' ? VIKT.normal : VIKT.halvfet }}>
+            {serviceText(t.service)}
+          </div>
+          <div aria-hidden="true" style={{ height: AVSTAND.s, borderRadius: RADIE.stapel, background: FARG.fyllning, marginTop: AVSTAND.l, overflow: 'hidden' }}>
+            <div style={{ width: `${Math.round(andel * 100)}%`, height: '100%', borderRadius: RADIE.stapel, background: lage === 'ok' ? FARG.text : FARG.orange }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, ...TNUM, color: FARG.text2, marginTop: AVSTAND.s }}>
+            <span>{timmarHeltal(t.service.foregaendeVid)} h</span>
+            <span>Nästa vid {timmarHeltal(t.service.nastaVid)} h</span>
+          </div>
+        </>
+      )}
+      <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>{avlastText(t.u, d => datumText(d, idag))}</div>
+    </section>
+  );
+}
+
+function TimmatareArk({ maskin, idag, timmar, onStang, onSparad }: {
+  maskin: Maskin; idag: string; timmar: Timmar | null; onStang: () => void; onSparad: () => void;
+}) {
+  const [text, setText] = useState('');
+  const [datum, setDatum] = useState(idag);
+  const [sparar, setSparar] = useState(false);
+  const [fel, setFel] = useState<string | null>(null);
+  const varde = Number(text.replace(/\s/g, '').replace(',', '.'));
+  const giltig = text.trim() !== '' && Number.isFinite(varde) && varde > 0 && varde < 200000;
+  const kanSpara = giltig && !!datum && !sparar;
+  const forra = timmar?.u.avlasning.timmar ?? null;
+
+  const spara = async () => {
+    if (!kanSpara) return;
+    setSparar(true);
+    setFel(null);
+    const { error } = await supabase.from('maskin_timmatare').insert({ maskin_id: maskin.id, datum, timmar: varde });
+    setSparar(false);
+    if (error) {
+      console.error('[servicelogg] kunde inte spara avläsningen', error);
+      setFel('Kunde inte spara. Kontrollera täckningen och försök igen.');
+      return;
+    }
+    onSparad();
+  };
+
+  const fot = (
+    <>
+      {fel && <div role="alert" style={{ ...TYP.meta, color: FARG.orange }}>{fel}</div>}
+      <button type="button" onClick={spara} disabled={!kanSpara} aria-disabled={!kanSpara}
+        style={{ ...KNAPP.primar, ...(kanSpara ? null : INAKTIV) }}>
+        {sparar ? 'Sparar…' : 'Spara'}
+      </button>
+    </>
+  );
+
+  return (
+    <Ark rubrik={`Timmätaren · ${maskin.namn}`} onStang={onStang} fot={fot}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+        <div>
+          <label htmlFor="sl-tim" style={etikett}>Vad står mätaren på?</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, background: FARG.fyllning, borderRadius: RADIE.rad, padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
+            <input id="sl-tim" inputMode="decimal" autoFocus value={text} onChange={e => setText(e.target.value)}
+              placeholder={timmar ? timmarHeltal(timmar.u.timmar) : undefined}
+              style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none', color: FARG.text, fontFamily: 'inherit', ...TYP.tal, padding: 0, minHeight: TRAFFYTA.primar }} />
+            <span style={{ ...TYP.text, color: FARG.text2 }}>h</span>
+          </div>
+          {timmar && (
+            <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.s }}>Appen räknade {timmarText(timmar.u)}</div>
+          )}
+          {giltig && forra != null && varde < forra && (
+            <div style={{ ...TYP.meta, color: FARG.orange, marginTop: AVSTAND.xs }}>
+              Lägre än förra avläsningen ({timmarHeltal(forra)} h). Stämmer det?
+            </div>
+          )}
+        </div>
+        <div>
+          <label htmlFor="sl-tim-datum" style={etikett}>Datum</label>
+          <input id="sl-tim-datum" type="date" value={datum} max={idag} onChange={e => setDatum(e.target.value)} style={faltStil} />
+        </div>
+      </div>
+    </Ark>
   );
 }
 
