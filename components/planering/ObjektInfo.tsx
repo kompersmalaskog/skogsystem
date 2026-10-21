@@ -11,6 +11,8 @@ import ObjektKort, { type ObjektKortProps } from './ObjektKort';
 import OmTrakten, { type OmNav, type OmTraktenProps } from './OmTrakten';
 import MerMeny, { type MerMenyProps } from './MerMeny';
 import VadBetyderKartan, { type VadBetyderKartanProps } from './VadBetyderKartan';
+import { InstruktionLista } from './InstruktionKort';
+import type { InstruktionerPaTrakten } from '@/lib/instruktioner/instruktioner';
 import KlarMedTrakten, { type KlarMedTraktenProps } from './KlarMedTrakten';
 import type { KartMarkering, KortKnappId } from '@/lib/objektKort';
 import type { PlusLage } from '@/lib/plusArk';
@@ -38,9 +40,11 @@ export interface ObjektInfoProps {
   klar?: Omit<KlarMedTraktenProps, 'namn' | 'onStang'> | null;
   /** Teckenförklaringen "Vad betyder kartan": det som finns på trakten (våra markeringar + Vidas lager). */
   karta?: Pick<VadBetyderKartanProps, 'markeringar' | 'vida' | 'roll'> | null;
+  /** MASKINLÄGET: instruktionerna på trakten (raden på kortet och listan bakom den) med förarens "✓ Sett". null = ingen rad, ingen vy. */
+  instruktioner?: { data: InstruktionerPaTrakten; onSett: (nycklar: string[]) => void } | null;
 }
 
-export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, startVy = 'kort' }: ObjektInfoProps) {
+export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKnapp, kort, om, mer, klar = null, karta = null, instruktioner = null, startVy = 'kort' }: ObjektInfoProps) {
   const [vy, setVy] = useState<InfoVy>(startVy);
   const ramLage = useSkarmLage(oppen);
   // Var man stod i Om trakten när ett objekt stängde arket ("‹ Lista"): ges till Om trakten EN gång, sedan börjar den rent.
@@ -60,17 +64,20 @@ export default function ObjektInfo({ oppen, onStang, objektNamn, objektId, onKna
   const stangRam = () => { stangOm(); if (vy === 'om') { om.onTyp(null, ramLage); om.onNav(null); } onStang(); };
 
   return (
-    <InfoRam oppen={oppen} vy={vy} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : 'Mer'} onStang={stangRam}>
+    <InfoRam oppen={oppen} vy={vy} halv={vy === 'om' && typOppen} ariaLabel={vy === 'kort' ? 'Objektinfo' : vy === 'om' ? 'Om trakten' : vy === 'klar' ? 'Klar med trakten' : vy === 'karta' ? 'Vad betyder kartan' : vy === 'instruktioner' ? 'Instruktioner på trakten' : 'Mer'} onStang={stangRam}>
       {({ lage }) => (
         vy === 'klar' && klar ? (
           <KlarMedTrakten {...klar} namn={objektNamn} onStang={stangRam} onInfo={() => setVy('kort')} />
-        ) : vy === 'kort' || (vy === 'klar' && !klar) ? (
-          <ObjektKort {...kort} namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
+        ) : vy === 'kort' || (vy === 'klar' && !klar) || (vy === 'instruktioner' && !instruktioner) ? (
+          <ObjektKort {...kort} instruktioner={instruktioner && instruktioner.data.antal > 0 ? { antal: instruktioner.data.antal, nya: instruktioner.data.nya, onOppna: () => setVy('instruktioner') } : null}
+            namn={objektNamn} onStang={stangRam} onKlar={klar ? () => setVy('klar') : undefined}
             onKnapp={(id) => { if (id === 'mer') setVy('mer'); else onKnapp(id); }}
             onLasAllt={() => setVy('om')} onPaTrakten={() => setVy('om')} onKarta={karta ? () => setVy('karta') : undefined} />
         ) : vy === 'om' ? (
           <OmTrakten {...om} start={aterstall} onVisa={(m) => om.onVisa(m, lage)} onSlapp={() => om.onSlapp('rad')} onTyp={(m) => { setTypOppen(!!m); om.onTyp(m, lage); }}
             objektNamn={objektNamn} objektId={objektId} onTillbaka={() => { stangOm(); om.onTyp(null, lage); om.onNav(null); setAterstall(undefined); setTypOppen(false); setVy('kort'); }} onStang={stangRam} />
+        ) : vy === 'instruktioner' && instruktioner ? (
+          <InstruktionLista data={instruktioner.data} objektNamn={objektNamn} onSett={instruktioner.onSett} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         ) : vy === 'karta' && karta ? (
           <VadBetyderKartan {...karta} objektNamn={objektNamn} onTillbaka={() => setVy('kort')} onStang={stangRam} />
         ) : (

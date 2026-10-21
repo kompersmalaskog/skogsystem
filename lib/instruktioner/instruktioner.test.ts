@@ -1,0 +1,217 @@
+import { describe, expect, it } from 'vitest';
+import {
+  INNE_M, TOMT_INSTRUKTION, UT_MARGINAL_M, arOsedd, attKvittera, hashText, instruktionRader, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
+  type InstruktionOmrade, type SettKarta,
+} from './instruktioner';
+import type { KommentarVy } from '../kartkommentar';
+
+const OBJ = 'obj-1';
+const kvadrat = (lon: number, lat: number, d = 0.0005) => ({ type: 'Polygon', coordinates: [[[lon - d, lat - d], [lon + d, lat - d], [lon + d, lat + d], [lon - d, lat + d], [lon - d, lat - d]]] });
+const hansyn = (lopnr: string, atgard: string, lon = 15, lat = 56) => ({
+  type: 'Feature', geometry: kvadrat(lon, lat), properties: { _lager: 'L_TILLAGGSYTOR', _typ: 'hänsynsyta', LOPNR: lopnr, FLBESKR: 'Naturvårdsyta', ATGARD: atgard },
+});
+const avlagg = (nr: string, atgard: string, lon: number, lat: number) => ({
+  type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt', EXTRA_LABE: nr, FLBESKR: 'Avlägg', ATGARD: atgard },
+});
+const traktdel = (nr: string) => ({ type: 'Feature', geometry: kvadrat(15, 56, 0.01), properties: { _lager: 'L_TRAKTDEL', TRDEL_ID: nr, TRDEL_NR_K: nr, FLBESKR: 'Slutavverkning' } });
+const kk = (id: string, nyckel: string, text: string, namn = 'Martin'): KommentarVy => ({
+  id, objekt_id: OBJ, yta_nyckel: nyckel, text, skapad_av: 'm1', namn, skapad_at: '2026-10-20T10:00:00Z', andrad_at: '2026-10-20T10:00:00Z', vantar: false,
+});
+const samla = (o: { vida?: any[]; kommentarer?: KommentarVy[]; markers?: any[]; pos?: { lat: number; lon: number } | null }) =>
+  samlaOmraden({
+    objektId: OBJ, vida: { features: o.vida ?? [] }, markers: o.markers ?? [], svgToLatLon: (x, y) => ({ lat: y, lon: x }), typNamn: () => 'Symbol',
+    kommentarer: o.kommentarer ?? [], pos: o.pos === undefined ? { lat: 56, lon: 15 } : o.pos, nu: new Date('2026-10-21T08:00:00Z'),
+  });
+const INGET: SettKarta = new Map();
+
+describe('instruktionRader — radbrytning blir numrerade punkter', () => {
+  it('en rad är vanlig text', () => { expect(instruktionRader('Kör inte närmare än 5 m')).toEqual({ punkter: null, text: 'Kör inte närmare än 5 m' }); });
+  it('flera rader är numrerade punkter, tomma rader hoppas över', () => {
+    expect(instruktionRader('Stanna vid stenen\n\n  Gå runt  \r\nLämna ris').punkter).toEqual(['Stanna vid stenen', 'Gå runt', 'Lämna ris']);
+  });
+  it('två rader är redan punkter (1 och 2)', () => { expect(instruktionRader('Först\nSedan').punkter).toEqual(['Först', 'Sedan']); });
+  it('en rad omgiven av tomma rader är fortfarande vanlig text', () => { expect(instruktionRader('\nbara en\n\n').punkter).toBeNull(); });
+});
+
+describe('samlaOmraden — var Vidas text finns', () => {
+  it('Vidas ATGARD på en hänsynsyta blir en instruktion från Vida', () => {
+    const o = samla({ vida: [hansyn('7', 'Spara alla aspar')] });
+    expect(o).toHaveLength(1);
+    expect(o[0].nyckel).toBe('hansyn:7');
+    expect(o[0].instruktioner[0]).toMatchObject({ kalla: 'vida', text: 'Spara alla aspar', ref: 'vida:hansyn:7', forfattare: null });
+  });
+  it('ATGARD på ett avlägg räknas, men en traktdel utan kommentar ger inget område', () => {
+    const o = samla({ vida: [avlagg('01-1', 'Lägg virket vid stenen', 15, 56), traktdel('2')] });
+    expect(o.map((x) => x.nyckel)).toEqual(['punkt:01-1']);
+  });
+  it('en traktdel har ingen Vida-text, men våra kommentarer på den räknas', () => {
+    const o = samla({ vida: [traktdel('2')], kommentarer: [kk('k1', 'traktdel:2', 'Blött i norr')] });
+    expect(o).toHaveLength(1);
+    expect(o[0].instruktioner.map((x) => x.kalla)).toEqual(['egen']);
+  });
+  it('Vidas text kommer först, sedan våra kommentarer äldst först, var och en med författare och tid', () => {
+    const o = samla({ vida: [hansyn('7', 'Spara aspar')], kommentarer: [kk('b', 'hansyn:7', 'Andra'), kk('a', 'hansyn:7', 'Första')] });
+    expect(o[0].instruktioner.map((x) => x.kalla)).toEqual(['vida', 'egen', 'egen']);
+    expect(o[0].instruktioner[1].forfattare).toMatch(/^Martin · /);
+  });
+  it('en egen markering med äldre kommentarfält blir "aldre" utan författare', () => {
+    const o = samla({ markers: [{ id: 5, isMarker: true, type: 'x', x: 15, y: 56, comment: 'Gammal text' }] });
+    expect(o[0].instruktioner[0]).toMatchObject({ kalla: 'aldre', ref: 'aldre:marker:5', forfattare: null });
+  });
+  it('en markering utan någon kommentar ger inget område', () => {
+    expect(samla({ markers: [{ id: 5, isMarker: true, type: 'x', x: 15, y: 56 }] })).toEqual([]);
+  });
+  it('en egen yta med kommentar räknas som yta, inne eller ute efter positionen', () => {
+    const yta = { id: 9, isZone: true, zoneType: 'wet', path: [{ x: 14.999, y: 55.999 }, { x: 15.001, y: 55.999 }, { x: 15.001, y: 56.001 }, { x: 14.999, y: 56.001 }] };
+    const k = [kk('z', 'marker:9', 'Risa här')];
+    expect(samla({ markers: [yta], kommentarer: k, pos: { lat: 56, lon: 15 } })[0].narvaro).toEqual({ slag: 'yta', inne: true });
+    expect(samla({ markers: [yta], kommentarer: k, pos: { lat: 56.5, lon: 15 } })[0].narvaro).toEqual({ slag: 'yta', inne: false });
+  });
+  it('utan position finns området men maskinen är inte "inne"', () => {
+    const o = samla({ vida: [hansyn('7', 'x')], pos: null });
+    expect(o[0].narvaro).toEqual({ slag: 'yta', inne: false });
+  });
+  it('en tom kommentar eller bara blanksteg ger ingen instruktion', () => {
+    expect(samla({ vida: [hansyn('7', '   ')], kommentarer: [kk('a', 'hansyn:7', '  ')] })).toEqual([]);
+  });
+});
+
+describe('sett — per kommentar, ändrad text är osedd igen', () => {
+  const o = samla({ vida: [hansyn('7', 'Spara aspar')], kommentarer: [kk('k1', 'hansyn:7', 'Stolpe lutar')] })[0];
+  it('osedd tills ref + hash finns', () => {
+    expect(o.instruktioner.every((x) => arOsedd(x, INGET))).toBe(true);
+    const sett: SettKarta = new Map(o.instruktioner.map((x) => [x.ref, x.hash]));
+    expect(o.instruktioner.some((x) => arOsedd(x, sett))).toBe(false);
+  });
+  it('en sedd kommentar är sedd men en annan i samma område är osedd', () => {
+    const sett: SettKarta = new Map([['vida:hansyn:7', hashText('Spara aspar')]]);
+    expect(o.instruktioner.map((x) => arOsedd(x, sett))).toEqual([false, true]);
+  });
+  it('ändras texten efter Sett räknas kommentaren som osedd', () => {
+    const sett: SettKarta = new Map([['k1', hashText('Stolpe lutar')]]);
+    const andrad = samla({ kommentarer: [kk('k1', 'hansyn:7', 'Stolpe lutar och är farlig')], vida: [hansyn('7', '')] })[0];
+    expect(arOsedd(andrad.instruktioner[0], sett)).toBe(true);
+  });
+  it('Vidas text som ändras vid omimport är osedd igen', () => {
+    const sett: SettKarta = new Map([['vida:hansyn:7', hashText('Spara aspar')]]);
+    const ny = samla({ vida: [hansyn('7', 'Spara aspar och björk')] })[0];
+    expect(arOsedd(ny.instruktioner[0], sett)).toBe(true);
+  });
+});
+
+describe('stegaInstruktion — inkörning', () => {
+  const ute = { lat: 56.01, lon: 15 };
+  const inne = { lat: 56, lon: 15 };
+  const bygg = (pos: { lat: number; lon: number }, extra: any[] = []) => samla({ vida: [hansyn('7', 'Spara aspar'), ...extra], pos });
+
+  it('ute ger ingen kö; inkörning lägger området i kön', () => {
+    let s = stegaInstruktion(TOMT_INSTRUKTION, bygg(ute), INGET);
+    expect(s.vantande).toEqual([]);
+    s = stegaInstruktion(s, bygg(inne), INGET);
+    expect(s.vantande).toEqual(['hansyn:7']);
+  });
+  it('står maskinen redan i området vid första utvärderingen räknas det som inkörning', () => {
+    expect(stegaInstruktion(TOMT_INSTRUKTION, bygg(inne), INGET).vantande).toEqual(['hansyn:7']);
+  });
+  it('kortet står kvar tills Sett — även när man kört ut ur området', () => {
+    let s = stegaInstruktion(TOMT_INSTRUKTION, bygg(inne), INGET);
+    s = stegaInstruktion(s, bygg(ute), INGET);
+    expect(s.vantande).toEqual(['hansyn:7']);
+    expect(kortAttVisa(s, bygg(ute), INGET, false)?.nyckel).toBe('hansyn:7');
+  });
+  it('kortet står kvar också efter flera steg utanför området (inte bara det första)', () => {
+    let s = stegaInstruktion(TOMT_INSTRUKTION, bygg(inne), INGET);
+    s = stegaInstruktion(s, bygg(ute), INGET);
+    s = stegaInstruktion(s, bygg(ute), INGET);
+    s = stegaInstruktion(s, bygg(ute), INGET);
+    expect(s.vantande).toEqual(['hansyn:7']);
+    expect(kortAttVisa(s, bygg(ute), INGET, false)?.nyckel).toBe('hansyn:7');
+  });
+  it('en sedd instruktion ger inget kort vid inkörning', () => {
+    const omr = bygg(inne);
+    const sett: SettKarta = new Map(omr[0].instruktioner.map((x) => [x.ref, x.hash]));
+    const s = stegaInstruktion(TOMT_INSTRUKTION, omr, sett);
+    expect(s.vantande).toEqual([]);
+    expect(kortAttVisa(s, omr, sett, false)).toBeNull();
+  });
+  it('lästes den på annat håll (genomgången, kartkortet) medan den väntade försvinner kortet', () => {
+    const omr = bygg(inne);
+    const s = stegaInstruktion(TOMT_INSTRUKTION, omr, INGET);
+    const sett: SettKarta = new Map(omr[0].instruktioner.map((x) => [x.ref, x.hash]));
+    const s2 = stegaInstruktion(s, omr, sett);
+    expect(s2.vantande).toEqual([]);
+    expect(kortAttVisa(s2, omr, sett, false)).toBeNull();
+  });
+  it('kortet visar bara det som inte setts', () => {
+    const omr = samla({ vida: [hansyn('7', 'Spara aspar')], kommentarer: [kk('k1', 'hansyn:7', 'Ny kommentar')], pos: inne });
+    const sett: SettKarta = new Map([['vida:hansyn:7', hashText('Spara aspar')]]);
+    const s = stegaInstruktion(TOMT_INSTRUKTION, omr, sett);
+    expect(kortAttVisa(s, omr, sett, false)?.instruktioner.map((x) => x.ref)).toEqual(['k1']);
+  });
+  it('larm går först: medan ett larmkort visas finns inget instruktionskort — det väntar och kommer sedan', () => {
+    const omr = bygg(inne);
+    const s = stegaInstruktion(TOMT_INSTRUKTION, omr, INGET);
+    expect(kortAttVisa(s, omr, INGET, true)).toBeNull();
+    expect(kortAttVisa(s, omr, INGET, false)?.nyckel).toBe('hansyn:7');
+  });
+  it('två områden: det första väntar överst, det andra räknas i "fler"', () => {
+    const omr = samla({ vida: [hansyn('7', 'A'), hansyn('8', 'B', 15.01, 56)], pos: inne });
+    let s = stegaInstruktion(TOMT_INSTRUKTION, omr, INGET);
+    s = stegaInstruktion(s, samla({ vida: [hansyn('7', 'A'), hansyn('8', 'B', 15.01, 56)], pos: { lat: 56, lon: 15.01 } }), INGET);
+    const k = kortAttVisa(s, omr, INGET, false)!;
+    expect(k.nyckel).toBe('hansyn:7');
+    expect(k.fler).toBe(1);
+  });
+  it('flimmer vid kanten ger inte ett nytt kort efter Sett', () => {
+    const omr = bygg(inne);
+    const sett: SettKarta = new Map(omr[0].instruktioner.map((x) => [x.ref, x.hash]));
+    let s = stegaInstruktion(TOMT_INSTRUKTION, omr, INGET);
+    s = stegaInstruktion(s, omr, sett);
+    s = stegaInstruktion(s, bygg(ute), sett);
+    s = stegaInstruktion(s, bygg(inne), sett);
+    expect(s.vantande).toEqual([]);
+  });
+});
+
+describe('avlägg — närhet med hysteres', () => {
+  const avl = (pos: { lat: number; lon: number }) => samla({ vida: [avlagg('01-1', 'Lägg virket här', 15, 56)], pos });
+  const nord = (m: number) => ({ lat: 56 + m / 111320, lon: 15 });
+  it('inom INNE_M är inne, utanför inte', () => {
+    expect(stegaInstruktion(TOMT_INSTRUKTION, avl(nord(INNE_M - 2)), INGET).vantande).toEqual(['punkt:01-1']);
+    expect(stegaInstruktion(TOMT_INSTRUKTION, avl(nord(INNE_M + 5)), INGET).vantande).toEqual([]);
+  });
+  it('kvar inne i marginalen efter inkörning, ute därefter', () => {
+    let s = stegaInstruktion(TOMT_INSTRUKTION, avl(nord(INNE_M - 2)), INGET);
+    s = stegaInstruktion(s, avl(nord(INNE_M + UT_MARGINAL_M - 2)), INGET);
+    expect(s.inne['punkt:01-1']).toBe(true);
+    s = stegaInstruktion(s, avl(nord(INNE_M + UT_MARGINAL_M + 5)), INGET);
+    expect(s.inne['punkt:01-1']).toBeUndefined();
+  });
+  it('okänt avstånd (ingen position) är aldrig inne', () => {
+    expect(stegaInstruktion(TOMT_INSTRUKTION, samla({ vida: [avlagg('01-1', 'x', 15, 56)], pos: null }), INGET).vantande).toEqual([]);
+  });
+});
+
+describe('genomgången — instruktioner på trakten', () => {
+  const omr: InstruktionOmrade[] = samla({
+    vida: [hansyn('7', 'Spara aspar'), hansyn('8', 'Lämna ris', 15.01, 56)],
+    kommentarer: [kk('k1', 'hansyn:8', 'Blött'), kk('k2', 'hansyn:8', 'Stolpe')],
+  });
+  it('räknar alla instruktioner och de nya', () => {
+    const r = instruktionerPaTrakten(omr, INGET);
+    expect(r.antal).toBe(4);
+    expect(r.nya).toBe(4);
+  });
+  it('områdena med osedda ligger överst, sedda markeras', () => {
+    const sett: SettKarta = new Map(omr[0].instruktioner.map((x) => [x.ref, x.hash]));
+    const r = instruktionerPaTrakten(omr, sett);
+    expect(r.omraden.map((o) => o.nyckel)).toEqual(['hansyn:8', 'hansyn:7']);
+    expect(r.omraden[1].instruktioner.every((x) => x.sedd)).toBe(true);
+    expect(r.nya).toBe(3);
+  });
+  it('attKvittera ger bara det osedda i de valda områdena', () => {
+    const sett: SettKarta = new Map([['k1', hashText('Blött')]]);
+    expect(attKvittera(omr, ['hansyn:8'], sett).map((x) => x.i.ref)).toEqual(['vida:hansyn:8', 'k2']);
+    expect(attKvittera(omr, [], sett)).toEqual([]);
+  });
+});

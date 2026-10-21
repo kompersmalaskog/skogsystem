@@ -51,12 +51,14 @@ import { avlaggAttSkriva, avlaggBaslinjeFran, avlaggFullRad, mergaAvlagg, type A
 import { brandAttSkriva, brandKolumnerFranVarden, brandVardenFranRader, type BrandBaslinje } from '../../lib/brandSpar'
 import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type TmaBaslinje, type TmaDbRad } from '../../lib/tmaSpar'
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
+import { useInstruktioner } from '../../lib/hooks/useInstruktioner'
 import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint } from '../../lib/larm/pulsKarta'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
 import { GrindKortVy, LarmKortVy, SettRad, larmMalbild } from '../../components/planering/LarmKort'
+import { GRIND_KORT_HOJD_PX, InstruktionKortVy } from '../../components/planering/InstruktionKort'
 import { LARM_MALBILD_RAD_PX, MalbildBlad, MalbildRad } from '../../components/malbild/Malbild'
 import { AvlaggForstaLasset } from '../../components/malbild/AvlaggForstaLasset'
 import { arForstaLassetPaTrakten } from '../../lib/malbildSett'
@@ -8894,6 +8896,34 @@ export default function PlannerPage() {
     ljudCtx: () => korvyAudioCtxRef.current,
     torr: !!testlage,   // testläget skriver inga kvittenser
   });
+  // INSTRUKTIONER TILL FÖRAREN (bara maskinläget, lib/instruktioner): kommentarerna på ett område visas som ett kort när maskinen kör in, och "✓ Sett" sparas per kommentar och
+  // förare. Larmet går först (kortet väntar medan ett larmkort visas). Planeringsvyn och förare utan maskin rörs inte: aktiv=false gör hooken helt passiv.
+  const instruktionerAktiv = korvyActive && (maskinlage || !!maskinSomParam);
+  const inst = useInstruktioner({
+    aktiv: instruktionerAktiv,
+    pos: korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null,
+    markers,
+    svgToLatLon,
+    typNamn: (typ) => markerTypes.find((t) => t.id === typ)?.name || 'Markering',
+    vida: traktGeo,
+    kommentarer: kk.rader,
+    objektId: valtObjekt?.id ? String(valtObjekt.id) : null,
+    forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
+    db: supabase,
+    larmVisas: !!larm.kort,
+    torr: !!testlage,
+  });
+  // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
+  // Kartkortet (KartKort) rörs inte: sidan ser bara vilket objekts kort som är öppet.
+  const lastNycklar = instruktionerAktiv
+    ? [traktInfo ? traktKortNyckel : markerMenuOpen != null ? markerNyckel(markerMenuOpen) : null, framhavdMarkering ? markerNyckel(framhavdMarkering.id) : null].filter((n): n is string => !!n)
+    : [];
+  const lastOsedda = lastNycklar.reduce((n, k) => n + (inst.oseddaPer[k] ?? 0), 0);
+  const lastNyckelStr = lastNycklar.join('|');
+  useEffect(() => {
+    if (lastNycklar.length && lastOsedda > 0) inst.settOmraden(lastNycklar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastNyckelStr, lastOsedda]);
   // FÄLLNINGSCIRKELN (30 m = trädlängd): bara skördaren, aldrig skotarläget. Tyst — färg efter vad som ligger inom 30 m (lib/larm/fallning).
   const fall = useFallning({
     aktiv: korvyActive && !skotarKorvy,
@@ -13552,6 +13582,7 @@ export default function PlannerPage() {
             },
           },
           karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
+          instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
           klar: klarGaller ? {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
@@ -13869,6 +13900,13 @@ export default function PlannerPage() {
           roll={malbildRoll}
           onVisaMalbild={setLarmMalbildOppen}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
+        />
+      )}
+      {korvyActive && inst.kort && (
+        <InstruktionKortVy
+          kort={inst.kort}
+          onSett={inst.settKort}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`}
         />
       )}
       {korvyActive && grindKort && (
