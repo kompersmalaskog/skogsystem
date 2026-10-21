@@ -3,6 +3,7 @@ import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 import { beraknaLoneunderlag } from "@/lib/lonesystem/loneunderlag";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
+import { arSandbar, vantandeForare } from "@/lib/lonesystem/forarGodkannande";
 
 /**
  * POST /api/fortnox/salary-export
@@ -20,6 +21,12 @@ import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
  * Premielönen är frivillig och blockerar aldrig (lib/lonesystem/loneart).
  * Företagsledare (medarbetare.foretagsledare) har inga lönerader och skickas aldrig: lönen ligger utanför appen.
  *
+ * FÖRARENS GODKÄNNANDE STYR EXPORTEN (Martin 2026-10-21): bara förare som godkänt sin månad skickas (`godkannande === 'godkand'`, ur
+ * loneunderlag.status). Övriga står kvar som "Väntar på föraren" (`vantar` i svaret) och skickas aldrig av sig själva. Admin kan skicka
+ * EN förare ändå: `skicka_utan_godkannande: true` (bara det booleska true) tillsammans med exakt ett id i `medarbetare_ids` — aldrig
+ * "alla utan godkännande". Det bokförs i fortnox_export_logg (`utan_forarens_godkannande`). Saknade löneartskoder räknas bara på dem som
+ * faktiskt skickas, så en förare som väntar aldrig stoppar de godkända.
+ *
  * Beräkningen bor i lib/lonesystem/loneunderlag.ts (delad med förarens
  * tidsspecifikation). Routen är ett skal: auth → beräkna → returnera/skicka.
  */
@@ -34,9 +41,15 @@ export async function POST(req: NextRequest) {
     const filterIds: string[] | undefined = body.medarbetare_ids;
     const dryRun: boolean = body.dry_run ?? false;
     const skickaUtanSaknade: boolean = body.skicka_utan_saknade === true;
+    const utanGodkannande: boolean = body.skicka_utan_godkannande === true;
 
     if (!period || !/^\d{4}-\d{2}$/.test(period)) {
       return NextResponse.json({ ok: false, meddelande: "period krävs (YYYY-MM)." }, { status: 400 });
+    }
+
+    // Att hoppa över förarens godkännande gäller EN förare, vald uttryckligen — aldrig en hel månad på en gång.
+    if (utanGodkannande && !(Array.isArray(filterIds) && filterIds.length === 1)) {
+      return NextResponse.json({ ok: false, meddelande: "Att skicka utan förarens godkännande gäller en förare i taget (medarbetare_ids med exakt ett id)." }, { status: 400 });
     }
 
     const supabase = serverSupabase();
@@ -44,6 +57,11 @@ export async function POST(req: NextRequest) {
     // aldrig i förarens egen spec (min-manad begär den inte).
     const u = await beraknaLoneunderlag(supabase, { period, medarbetareIds: filterIds, medMaskintid: !!dryRun });
     const { arbetsperiod, resultat, synkAvvikelser } = u;
+    // De som skulle skickas just nu: godkända av föraren (eller den enda, uttryckligt valda). Övriga väntar.
+    // Undantaget gäller bara det uttryckligt valda id:t, även om underlaget av någon anledning innehåller fler förare.
+    const utanFor = (r: { medarbetare_id: string }) => utanGodkannande && filterIds?.[0] === r.medarbetare_id;
+    const sandbara = resultat.filter(r => arSandbar(r, utanFor(r)));
+    const vantar = vantandeForare(resultat);
 
     // Dry run — returnera beräkningar utan att skicka (berikat per medarbetare
     // för granskningsvyn — samma objekt som förarspecen läser).
@@ -58,14 +76,15 @@ export async function POST(req: NextRequest) {
         synkAvvikelser,
         oenighet: u.oenighet,
         // Samma lista som sändningen stoppas av: förhandsvisningen visar de röda raderna ur den.
-        blockerande: blockerandeLonearter(resultat),
+        blockerande: blockerandeLonearter(sandbara),
+        vantar,
         kopplingar: u.kopplingar,
       });
     }
 
     // En löneart utan kod i mappningen får aldrig bli en tyst saknad rad i en skarp sändning: stoppa före första raden —
     // om inte admin uttryckligen valt att skicka utan dem.
-    const blockerande = blockerandeLonearter(resultat);
+    const blockerande = blockerandeLonearter(sandbara);
     if (blockerande.length > 0 && !skickaUtanSaknade) {
       const namn = blockerande.map(b => b.label).join(", ");
       return NextResponse.json({
@@ -77,8 +96,8 @@ export async function POST(req: NextRequest) {
     }
     const utelamnade = blockerande.flatMap(b => b.forare.map(f => ({ namn: f.namn, loneart: b.loneart, label: b.label, mangd: f.mangd, enhet: b.enhet })));
 
-    // Skicka till Fortnox
-    const client = await getFortnoxClient();
+    // Skicka till Fortnox (ingen klient alls om ingen är skickbar: ingen Fortnox-kontakt för en tom sändning)
+    const client = sandbara.length > 0 ? await getFortnoxClient() : null;
     let skickade = 0;
     let fel = 0;
     const felMeddelanden: string[] = [];
@@ -88,6 +107,8 @@ export async function POST(req: NextRequest) {
       if (r.status === "skickat") continue;
       // Företagsledare: lönen ligger utanför appen. Inget skickas, ingen logg, inget fel om anställningsnummer.
       if (r.foretagsledare) continue;
+      // Väntar på förarens godkännande: rörs inte, loggas inte, är inget fel.
+      if (!arSandbar(r, utanFor(r))) continue;
       if (!r.anstallningsnummer) {
         felMeddelanden.push(`${r.namn}: anställningsnummer saknas.`);
         fel++;
@@ -97,7 +118,7 @@ export async function POST(req: NextRequest) {
 
       try {
         for (const rad of r.rader) {
-          await client.sendSalaryTransaction({
+          await client!.sendSalaryTransaction({
             EmployeeId: rad.EmployeeId,
             SalaryCode: rad.SalaryCode,
             Number: parseFloat(rad.Number),
@@ -114,6 +135,8 @@ export async function POST(req: NextRequest) {
           status: "skickat",
           rader: r.rader,
           skickad_at: new Date().toISOString(),
+          // Märks bara när admin gick förbi förarens godkännande — vanliga sändningar skriver aldrig kolumnen.
+          ...(utanFor(r) && r.godkannande !== "godkand" ? { utan_forarens_godkannande: true } : {}),
         }, { onConflict: "medarbetare_id,period" });
       } catch (e: any) {
         fel++;
@@ -138,10 +161,11 @@ export async function POST(req: NextRequest) {
       medarbetare: resultat.filter(r => !r.foretagsledare).map(r => ({
         namn: r.namn,
         rader: r.rader.length,
-        status: redanSkickad.has(r.medarbetare_id) ? "skickat" : (r.anstallningsnummer ? "skickat" : "fel"),
+        status: redanSkickad.has(r.medarbetare_id) ? "skickat" : !arSandbar(r, utanFor(r)) ? "vantar" : (r.anstallningsnummer ? "skickat" : "fel"),
       })),
       synkAvvikelser,
       utelamnade,
+      vantar,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, meddelande: e.message || String(e) }, { status: 500 });

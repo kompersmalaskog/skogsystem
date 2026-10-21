@@ -106,6 +106,33 @@ describe("Arbetsrapport renderas utan hook-fel", () => {
 });
 
 
+// Djuplänken i lönenotisen ("Granska din september"): öppnar Lön på arbetsmånaden i länken — inte på innevarande månad.
+describe("djuplänk till Lön (lönenotisen)", () => {
+  const manad = (delta: number) => { const d = new Date(new Date().getFullYear(), new Date().getMonth() + delta, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  it("?steg=lon&manad=<förra månaden> öppnar Lön på den månaden", async () => {
+    await montera(`/arbetsrapport?steg=lon&manad=${manad(-1)}`);
+    expect(hookFel()).toEqual([]);
+    expect(behallare!.textContent).toContain(manadRubrik(manad(-1)));
+    expect(behallare!.textContent).not.toContain(manadRubrik(manad(0)));
+  });
+  it("utan månad: Lön på innevarande månad", async () => {
+    await montera("/arbetsrapport?steg=lon");
+    expect(behallare!.textContent).toContain(manadRubrik(manad(0)));
+  });
+  it("en månad i framtiden eller längre bak än Lön-fliken når faller tillbaka på innevarande månad", async () => {
+    for (const m of [manad(2), manad(-30), "2026-13", "september"]) {
+      await montera(`/arbetsrapport?steg=lon&manad=${m}`);
+      expect(behallare!.textContent, m).toContain(manadRubrik(manad(0)));
+      act(() => { rot?.unmount(); }); rot = null; behallare!.innerHTML = "";
+    }
+  });
+  it("utan steg=lon i adressen öppnas morgonvyn som förut", async () => {
+    await montera("/arbetsrapport?manad=" + manad(-1));
+    expect(behallare!.textContent).not.toContain(manadRubrik(manad(-1)));
+  });
+});
+
+
 // ── Mitt avtal (Inställningar → Mitt avtal): värdena ur gs_avtal-raden, eller – ──
 const stilla = async (n = 3) => { for (let i = 0; i < n; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); }); };
 const knappMed = (t: string, exakt = false) => Array.from(behallare!.querySelectorAll("button")).find(b => exakt ? (b.textContent || "").trim() === t : (b.textContent || "").includes(t));

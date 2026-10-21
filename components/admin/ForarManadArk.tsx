@@ -10,7 +10,10 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { AVSTAND, FARG, TNUM, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarManad, type VyDag, type VyExtra } from "@/lib/admin/forarManadVy";
-import { Ikon, Lank, Lista, Rad, Sektion, Sheet, Stod } from "./ui";
+import { dagText } from "@/lib/admin/loneunderlagVy";
+import { Bekrafta, Ikon, Lank, Lista, Rad, Sektion, Sheet, Stod, Tertiar } from "./ui";
+import { arSandbar, forarStatus, FORAR_STATUS_TEXT } from "@/lib/lonesystem/forarGodkannande";
+import { arbetsManadText } from "@/lib/lonesystem/lonemanad";
 
 const fet = { color: FARG.text, fontWeight: TYP.listtitel.fontWeight, ...TNUM } as const;
 
@@ -59,10 +62,20 @@ function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: (
   );
 }
 
-export default function ForarManadArk({ m, arbetsManad, dag, onStang }: { m: any; arbetsManad: string; /** Dagen som ska stå öppen när arket öppnas (från ett vilobrott i Översikten). */ dag?: string; onStang: () => void }) {
+export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUtanGodkannande }: {
+  m: any; arbetsManad: string;
+  /** Dagen som ska stå öppen när arket öppnas (från ett vilobrott i Översikten). */ dag?: string;
+  onStang: () => void;
+  /** Skickar EN förare till Fortnox trots att föraren inte godkänt månaden. Anropas först efter den extra bekräftelsen. */
+  onSkickaUtanGodkannande?: (medarbetareId: string) => Promise<{ ok: boolean; meddelande?: string }>;
+}) {
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [oppenDag, setOppenDag] = useState<string | null>(null);
   const [visaMil, setVisaMil] = useState(false);
+  // "Skicka utan förarens godkännande": EN extra bekräftelse, sedan skickas just den här föraren.
+  const [bekrafta, setBekrafta] = useState(false);
+  const [skickar, setSkickar] = useState(false);
+  const [skickFel, setSkickFel] = useState<string | null>(null);
 
   useEffect(() => {
     let avbruten = false;
@@ -93,6 +106,16 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang }: { m: any
 
   const u = vy.utrakning;
   const forNamn = vy.namn.split(" ")[0];
+  const status = forarStatus({ status: m.status, godkannande: m.godkannande, foretagsledare: m.foretagsledare === true });
+  // Går att skicka ändå: föraren har inte godkänt, månaden är inte skickad och anställningsnumret finns.
+  const kanSkickaAndå = !!onSkickaUtanGodkannande && status === "vantar" && !!m.anstallningsnummer && !arSandbar(m);
+  const skickaAndå = async () => {
+    if (!onSkickaUtanGodkannande) return;
+    setSkickar(true); setSkickFel(null);
+    const r = await onSkickaUtanGodkannande(m.medarbetare_id);
+    setSkickar(false);
+    if (r.ok) setBekrafta(false); else setSkickFel(r.meddelande || "Kunde inte skicka.");
+  };
 
   return (
     <Sheet titel={forNamn} onStang={onStang} vanster={<Lank smal onClick={onStang}>Stäng</Lank>} attr={{ "data-forare-manad": m.medarbetare_id }}>
@@ -108,6 +131,34 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang }: { m: any
           </>
         )}
       </div>
+
+      {status && (
+        <>
+          <Sektion topp={AVSTAND.s}>Förarens godkännande</Sektion>
+          <Lista>
+            <Rad attr={{ "data-godkannande": status }} rubrik={FORAR_STATUS_TEXT[status]}
+              detalj={m.andrad_efter_godkannande ? `Ändrad efter godkännandet${m.andrad_efter_godkannande.datum ? ` · ${dagText(m.andrad_efter_godkannande.datum)}` : ""}` : undefined}
+              sista />
+          </Lista>
+          {kanSkickaAndå && !bekrafta && (
+            <div style={{ marginTop: AVSTAND.s }}>
+              <Tertiar onClick={() => { setSkickFel(null); setBekrafta(true); }}>Skicka utan förarens godkännande</Tertiar>
+            </div>
+          )}
+          {bekrafta && (
+            <div data-skicka-utan-godkannande="" style={{ marginTop: AVSTAND.m }}>
+              <Bekrafta
+                text={<>
+                  <strong>{forNamn} har inte godkänt {arbetsManadText(arbetsManad)}.</strong><br />
+                  Lönen går till Fortnox som den ser ut nu, bara för {forNamn}, och det bokförs att du gick förbi godkännandet. Ändrar {forNamn} något efteråt följer det inte med.
+                </>}
+                ja={skickar ? "Skickar…" : "Skicka utan godkännande"} nej="Avbryt" upptagen={skickar}
+                onJa={skickaAndå} onNej={() => setBekrafta(false)} />
+              {skickFel && <Stod farg={FARG.rod}>{skickFel}</Stod>}
+            </div>
+          )}
+        </>
+      )}
 
       {!vy.foretagsledare && (
         <>

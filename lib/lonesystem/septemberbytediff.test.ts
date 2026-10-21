@@ -29,7 +29,12 @@ import { join } from "node:path";
 import { beraknaLoneunderlag } from "./loneunderlag";
 import { sepKlient, PROD_MAPPNING, FIXTUR_FORETAGSLEDARE } from "./testdata/sepKlient";
 
-const FACIT = readFileSync(join(__dirname, "testdata", "sep2026.gammal.json"), "utf8");
+const FACIT_RAD = readFileSync(join(__dirname, "testdata", "sep2026.gammal.json"), "utf8");
+// ENDA TEXTÄNDRINGEN utöver månadens ordinarie (Martin 2026-10-21): "Vältlappar: 1 veckor" → "Vältlappar: 1 vecka". Facit (den gamla koden) säger "1 veckor" — det kontrolleras
+// i ett eget test nedan — och ska nu säga "vecka". Inget annat i facit rörs.
+const EN_VECKA_FORE = "Vältlappar: 1 veckor";
+const EN_VECKA_EFTER = "Vältlappar: 1 vecka";
+const FACIT = FACIT_RAD.split(EN_VECKA_FORE).join(EN_VECKA_EFTER);
 const facit = JSON.parse(FACIT) as Record<string, any>;
 
 const arBrandrisk = (key: string) => key.startsWith("brandrisk");
@@ -40,7 +45,9 @@ const arBrandrisk = (key: string) => key.startsWith("brandrisk");
  * `foretagsledare` och `helglon.anstallningsdatumSaknas` — och hemskickad (2026-10-17): fälten `hemskickad` och `hemskickad_h`, som MÅSTE vara
  * tomma för de här månaderna (ingen hemskickad rad finns i underlaget; testet nedan kräver det). Inget annat tas bort.
  */
-function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ordinarie, arbetat, extra_poster, ...r }: any) {
+function utanTilläggRad({ lonerader, brandrisk, foretagsledare, hemskickad, hemskickad_h, ordinarie, arbetat, extra_poster, godkannande, godkand_tid, andrad_efter_godkannande, ...r }: any) {
+  // Förarens godkännande (2026-10-21, loneunderlag.status) styr bara VEM som skickas, aldrig vad som skickas: en ren avläsning, inget i lönen.
+  expect(["godkand", "vantar"]).toContain(godkannande);
   // Förarens månad (Admin, 2026-10-20): `arbetat` (vad arbetad tid består av), `extra_poster` och på varje dag km-källa/ben/rutt är RENA
   // uppställningar av det motorn redan räknade — de tas bort som tillägg, och att de stämmer mot motorn kontrolleras i forarManad.paritet.test.ts.
   const dagar_ = r.dagar?.map(({ km_morgon, km_kvall, km_kalla, km_rutt, ...d }: any) => d);
@@ -331,3 +338,12 @@ describe("kontroll av jämförelsen själv: den SER en ändring", () => {
     expect(med.totalt_rader).toBeLessThan(utan.totalt_rader);
   });
 });
+
+describe("'1 vecka' (Martin 2026-10-21): den enda textändringen i alla rader", () => {
+  it("facit (gamla koden) sa '1 veckor' på exakt två rader — de två är nu '1 vecka', och inget annat ord i facit ändrades", () => {
+    expect(FACIT_RAD.split(EN_VECKA_FORE).length - 1).toBe(2);
+    expect(FACIT.split(EN_VECKA_EFTER).length - 1).toBe(2);
+    expect(FACIT.length).toBe(FACIT_RAD.length - 2);   // "veckor" → "vecka" tar bort ett tecken per rad, ingenting annat
+  });
+});
+

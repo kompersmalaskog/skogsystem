@@ -22,8 +22,20 @@ import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { aktLabel } from "@/lib/aktiviteter";
 import { dagensPlatser, dagensObjektOrdnat, berakaDagKm, hamtaObjektKoordinater } from "@/lib/routing";
 import { RAST_FRAGA_MIN, passOrimlighet, rastSaknas, RAST_SAKNAS_FRAN_MINUTER, type PassOrimlighet } from "@/lib/arbetsdagRegler";
+import { godkannandeAv, type Godkannande } from "@/lib/lonesystem/forarGodkannande";
 
-export type LoneunderlagRad = ExportSammanfattning & { status: string };
+export type LoneunderlagRad = ExportSammanfattning & {
+  status: string;
+  /**
+   * Förarens eget godkännande av arbetsmånaden (loneunderlag.status, lib/lonesystem/forarGodkannande). Exporten skickar bara 'godkand'.
+   * Saknad rad, NULL (nollställt av en ändring) och okänd status är 'vantar'.
+   */
+  godkannande: Godkannande;
+  /** När föraren godkände (loneunderlag.skickat_tidpunkt), om godkänd. */
+  godkand_tid?: string | null;
+  /** Godkännandet nollställdes av en ändring i månaden: när, och vilken dag som ändrades. Bara på en förare som väntar. */
+  andrad_efter_godkannande?: { at: string; datum: string | null } | null;
+};
 
 /** Så många dagar före/efter arbetsmånaden frånvaron läses för helglönens närvarokrav (längsta glappet mellan två vardagar är påsk/jul, 5 dagar). */
 const FRANVARO_MARGINAL_DAGAR = 10;
@@ -100,6 +112,29 @@ export type RastLangRad = {
   arbetad_min: number;
   avbrott: { typ: string; kategori: string | null; minuter: number; klockslag: string | null }[];
 };
+
+/**
+ * Förarnas godkännande för ARBETSmånaden, per medarbetare. Ett läsfel stoppar underlaget: en tyst "ingen har godkänt" ger ett felaktigt
+ * stopp, en tyst "alla har" en felaktig sändning. Saknas nollställningskolumnerna (migrationen ej körd) läses bara status.
+ */
+async function lasGodkannanden(supabase: any, arbetsperiod: string): Promise<Map<string, Pick<LoneunderlagRad, "godkannande" | "godkand_tid" | "andrad_efter_godkannande">>> {
+  let res = await supabase.from("loneunderlag").select("medarbetare_id, status, skickat_tidpunkt, nollstalld_at, nollstalld_datum").eq("period", arbetsperiod);
+  if (res.error && (res.error.code === "42703" || res.error.code === "PGRST204")) {
+    res = await supabase.from("loneunderlag").select("medarbetare_id, status, skickat_tidpunkt").eq("period", arbetsperiod);
+  }
+  if (res.error) throw new Error(`Kunde inte läsa förarnas godkännande: ${res.error.message}`);
+  const ut = new Map<string, Pick<LoneunderlagRad, "godkannande" | "godkand_tid" | "andrad_efter_godkannande">>();
+  for (const r of (res.data || []) as any[]) {
+    if (!r.medarbetare_id) continue;
+    const godkannande = godkannandeAv(r.status);
+    ut.set(String(r.medarbetare_id), {
+      godkannande,
+      godkand_tid: godkannande === "godkand" ? r.skickat_tidpunkt ?? null : null,
+      andrad_efter_godkannande: godkannande === "vantar" && r.nollstalld_at ? { at: r.nollstalld_at, datum: r.nollstalld_datum ?? null } : null,
+    });
+  }
+  return ut;
+}
 
 export type LoneunderlagBerikad = LoneunderlagRad & {
   ob: { timmar: number; dagar: number; obesvarade: number };
@@ -280,6 +315,8 @@ export async function beraknaLoneunderlag(
     if (m.maskin_id && slag) maskinTypMap[m.maskin_id] = slag;
   }
 
+  const godkannanden = await lasGodkannanden(supabase, arbetsperiod);
+
   // Anställningsnummer-map
   const anstMap: Record<string, string> = {};
   for (const ml of (mappRes.data || [])) {
@@ -387,7 +424,8 @@ export async function beraknaLoneunderlag(
     let status = "utkast";
     if (redanSkickad.has(med.id)) status = "skickat";
 
-    resultat.push({ ...export_, status });
+    const gk = godkannanden.get(med.id);
+    resultat.push({ ...export_, status, godkannande: gk?.godkannande ?? "vantar", godkand_tid: gk?.godkand_tid ?? null, andrad_efter_godkannande: gk?.andrad_efter_godkannande ?? null });
 
     // OB (lib/ob) — härledd, aldrig lagrad, aldrig en Fortnox-rad
     let obMin = 0, obDagar = 0, obObes = 0;

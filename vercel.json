@@ -43,6 +43,10 @@
       "schedule": "0 5 * * *"
     },
     {
+      "path": "/api/lon/notis",
+      "schedule": "7 * * * *"
+    },
+    {
       "path": "/api/cron/stada-markering-foton?torrkorning=1",
       "schedule": "30 4 * * *"
     }

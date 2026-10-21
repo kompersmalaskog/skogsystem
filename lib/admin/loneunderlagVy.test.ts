@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, dagText } from "./loneunderlagVy";
+import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, dagText, arKvitterbar, SYNK_VISA_FRAN_MIN } from "./loneunderlagVy";
 
 const forare = (extra: any = {}) => ({ medarbetare_id: "m1", namn: "Mats Eriksson", status: "utkast", anstallningsnummer: "1006", ...extra });
 const alltText = (k: ReturnType<typeof byggForarKort>) => [...k.helglon, ...k.kolla.map(r => r.text), ...k.info.map(r => r.text)].join(" | ");
@@ -94,5 +94,90 @@ describe("Hemskickad: Admin ser antalet timmar per förare och månad, och det �
   });
   it("företagsledare får ingen rad", () => {
     expect(byggForarKort(forare({ foretagsledare: true, hemskickad: [{ datum: "2026-08-11", minuter: 120 }], hemskickad_h: 2 })).info).toEqual([]);
+  });
+});
+
+
+// ── Förarens godkännande, kvittering och minutskillnad (Martin 2026-10-21) ─────────────────────────────────────────
+describe("status på förarkortet", () => {
+  it("Väntar på föraren / Godkänd av föraren / Skickad, och ingen alls för en företagsledare", () => {
+    expect(byggForarKort(forare({ godkannande: "vantar" })).forarStatus).toBe("vantar");
+    expect(byggForarKort(forare({ godkannande: "godkand" })).forarStatus).toBe("godkand");
+    expect(byggForarKort(forare({ godkannande: "vantar", status: "skickat" })).forarStatus).toBe("skickad");
+    expect(byggForarKort(forare({ godkannande: "godkand", foretagsledare: true })).forarStatus).toBeNull();
+  });
+  it("saknat godkännande-fält (äldre svar) = väntar, aldrig godkänd", () => {
+    expect(byggForarKort(forare()).forarStatus).toBe("vantar");
+  });
+  it("en ändring efter godkännandet bär datum och tid till kortet", () => {
+    const k = byggForarKort(forare({ godkannande: "vantar", andrad_efter_godkannande: { at: "2026-10-05T08:00:00Z", datum: "2026-09-10" } }));
+    expect(k.andrad).toEqual({ at: "2026-10-05T08:00:00Z", datum: "2026-09-10", text: "Ändrad efter godkännandet · 10 sep" });
+  });
+  it("ingen ändring → ingen text; en ändring utan känd dag skriver ändå att den är ändrad", () => {
+    expect(byggForarKort(forare()).andrad).toBeNull();
+    expect(byggForarKort(forare({ andrad_efter_godkannande: { at: "2026-10-05T08:00:00Z", datum: null } })).andrad!.text).toBe("Ändrad efter godkännandet");
+  });
+});
+
+describe("minutskillnad mot maskinen visas bara från 15 min", () => {
+  const synk = (diff_min: number, datum = "2026-08-11") => ({ medarbetare_id: "m1", datum, diff_min, bekraftat: "07:00", maskinen: "07:10" });
+  it("gränsen är 15", () => expect(SYNK_VISA_FRAN_MIN).toBe(15));
+  it("14 min syns inte, 15 syns, och minus räknas lika (–20)", () => {
+    expect(byggForarKort(forare({ synk: [synk(14)] })).kolla).toEqual([]);
+    expect(byggForarKort(forare({ synk: [synk(-14)] })).kolla).toEqual([]);
+    expect(byggForarKort(forare({ synk: [synk(15)] })).kolla.map(r => r.id)).toEqual(["synk-2026-08-11"]);
+    expect(byggForarKort(forare({ synk: [synk(-20)] })).kolla).toHaveLength(1);
+  });
+  it("de små räknas inte heller in i 'N saker att kolla'", () => {
+    expect(antalAttKolla([byggForarKort(forare({ synk: [synk(5), synk(10)] }))], 0, false)).toBe(0);
+  });
+  it("radens id följer datumet, inte ordningen (en kvittering ska inte hoppa till en annan dag när listan ändras)", () => {
+    const a = byggForarKort(forare({ synk: [synk(30, "2026-08-12"), synk(40, "2026-08-11")] }));
+    expect(a.kolla.map(r => r.id)).toEqual(["synk-2026-08-12", "synk-2026-08-11"]);
+  });
+});
+
+describe("kvittering av 'Att kolla' ('Ser rätt ut')", () => {
+  const lang = { datum: "2026-08-11", rast_min: 114, avbrott: [] };
+  const kv = (o: any = {}) => ({ medarbetare_id: "m1", punkt: "rast-2026-08-11", text: "11 aug: rast 114 min", ...o });
+
+  it("en kvitterad punkt är markerad och räknas inte i 'N saker att kolla'", () => {
+    const k = byggForarKort(forare({ rast_langa: [lang], orimliga: [] }), [], [kv()]);
+    expect(k.kolla).toHaveLength(1);
+    expect(k.kolla[0].kvitterad).toBe(true);
+    expect(antalAttKolla([k], 0, false)).toBe(0);
+  });
+  it("utan kvittering är raden som förut (inget kvitterad-fält alls)", () => {
+    const k = byggForarKort(forare({ rast_langa: [lang] }));
+    expect(k.kolla[0]).not.toHaveProperty("kvitterad");
+    expect(antalAttKolla([k], 0, false)).toBe(1);
+  });
+  it("ändras raden (annan text) gäller kvitteringen inte längre — den kommer tillbaka som något att kolla", () => {
+    const k = byggForarKort(forare({ rast_langa: [{ ...lang, rast_min: 140 }] }), [], [kv()]);
+    expect(k.kolla[0]).not.toHaveProperty("kvitterad");
+    expect(antalAttKolla([k], 0, false)).toBe(1);
+  });
+  it("en annan förares kvittering, eller en annan punkt, gäller inte", () => {
+    expect(byggForarKort(forare({ rast_langa: [lang] }), [], [kv({ medarbetare_id: "m2" })]).kolla[0]).not.toHaveProperty("kvitterad");
+    expect(byggForarKort(forare({ rast_langa: [lang] }), [], [kv({ punkt: "rast-2026-08-12" })]).kolla[0]).not.toHaveProperty("kvitterad");
+  });
+  it("bara en av två kvitteras: den andra räknas fortfarande", () => {
+    const m = forare({ rast_langa: [lang, { datum: "2026-08-12", rast_min: 120, avbrott: [] }] });
+    const k = byggForarKort(m, [], [kv()]);
+    expect(k.kolla.map(r => !!r.kvitterad)).toEqual([true, false]);
+    expect(antalAttKolla([k], 0, false)).toBe(1);
+  });
+  it("det som har en riktig åtgärd går inte att kvittera: maskin utan typ och obekräftade dagar", () => {
+    expect(arKvitterbar("typ-R64428")).toBe(false);
+    expect(arKvitterbar("obekr")).toBe(false);
+    for (const id of ["rast-2026-08-11", "orim-2026-08-12", "kort-2026-08-10", "synk-2026-08-11", "led-2026-08-11", "byte-2026-08-20"]) expect(arKvitterbar(id), id).toBe(true);
+  });
+  it("en kvittering på något som inte går att kvittera ignoreras (typ saknas räknas alltid)", () => {
+    const k = byggForarKort(forare({ maskin_utan_typ: ["R64428"] }), [], [kv({ punkt: "typ-R64428", text: "Maskinen R64428 saknar typ — premien räknas inte" })]);
+    expect(k.kolla[0]).not.toHaveProperty("kvitterad");
+    expect(antalAttKolla([k], 0, false)).toBe(1);
+  });
+  it("företagsledare: inga rader, alltså inget att kvittera", () => {
+    expect(byggForarKort(forare({ foretagsledare: true, rast_langa: [lang] }), [], [kv()]).kolla).toEqual([]);
   });
 });
