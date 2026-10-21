@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractText, getDocumentProxy } from 'unpdf';
 import { byggRapportVy, slug } from './vy';
-import { projicera, sanera, skapaMarkagarPdf } from './pdf';
+import { projicera, sanera, skapaMarkagarPdf, tillMercator } from './pdf';
 import type { MarkagarRapport } from './types';
 
 const data: MarkagarRapport = {
@@ -82,5 +82,39 @@ describe('markägarrapportens PDF', () => {
     const hh = punkter[0].y - punkter[1].y;
     expect(b / hh).toBeCloseTo(2, 3);
     expect(h).toBeLessThanOrEqual(600);
+  });
+
+  it('flygfotot hämtas för exakt kartans ruta och ligger bakom prickarna', async () => {
+    const anrop: { ruta: number[]; b: number; h: number }[] = [];
+    const jpg = Uint8Array.from(Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAGAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDhKKKK4DzD/9k=', 'base64'));
+    const bytes = await skapaMarkagarPdf(byggRapportVy(data), data.karta.stammar, '2026-10-21', async (ruta, b, h) => {
+      anrop.push({ ruta, b, h });
+      return jpg;
+    });
+    expect(anrop).toHaveLength(1);
+    const { ruta, b, h } = anrop[0];
+    // Fotot har samma form som rutan (ingen förvrängning) och 2 px per punkt.
+    expect((ruta[2] - ruta[0]) / (ruta[3] - ruta[1])).toBeCloseTo(b / h, 2);
+    expect(b).toBe(Math.round((595.28 - 96) * 2));
+    // Varje stam ligger inne i fotots ruta.
+    for (const s of data.karta.stammar) {
+      const [x, y] = tillMercator(s.lng, s.lat);
+      expect(x).toBeGreaterThan(ruta[0]); expect(x).toBeLessThan(ruta[2]);
+      expect(y).toBeGreaterThan(ruta[1]); expect(y).toBeLessThan(ruta[3]);
+    }
+    const lib = await import('pdf-lib');
+    const doc = await lib.PDFDocument.load(bytes);
+    const bilder = doc.context.enumerateIndirectObjects().filter(([, o]) => (o as any)?.dict?.get?.(lib.PDFName.of('Subtype')) === lib.PDFName.of('Image'));
+    expect(bilder).toHaveLength(1);
+    expect((await texten(bytes)).text).not.toContain('Flygfotot gick inte');
+  });
+
+  it('går flygfotot inte att hämta ritas kartan ändå, och det står', async () => {
+    const { text, sidor } = await texten(await skapaMarkagarPdf(byggRapportVy(data), data.karta.stammar, '2026-10-21', async () => null));
+    expect(sidor).toBe(2);
+    expect(text).toContain('Här växte träden');
+    expect(text).toContain('Flygfotot gick inte att hämta');
+    const kastar = await texten(await skapaMarkagarPdf(byggRapportVy(data), data.karta.stammar, '2026-10-21', async () => { throw new Error('nät'); }));
+    expect(kastar.text).toContain('Flygfotot gick inte att hämta');
   });
 });

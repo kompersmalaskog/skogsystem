@@ -20,6 +20,8 @@ const B = A4.b - 2 * MARG;
 const STEG = { tal: 40, rubrik: 17, text: 13, micro: 11 };
 const RAD_H = 42;
 const FOT_Y = A4.h - MARG;
+/** Flygfotots upplösning: 2 px per punkt (~144 dpi) — skarpt på skärm och utskrift, en JPEG på några hundra kB. */
+const FOTO_PX_PER_PT = 2;
 
 /** Standardfonterna klarar WinAnsi (å ä ö ³ · – …). Minustecken → bindestreck, hårt mellanslag → mellanslag, resten utanför → '?'. */
 export function sanera(s: string): string {
@@ -42,30 +44,52 @@ function hex(h: string): [number, number, number] {
   return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255];
 }
 
-/** Kartans punkter i PDF-koordinater: lika skala i båda led (meter), passad i en ruta med bredden `b` och högst `maxH`. */
-export function projicera(stammar: Stam[], b: number, maxH: number): { punkter: { x: number; y: number; s: Stam }[]; h: number } {
+/** EPSG:4326 → EPSG:3857 (Web Mercator), samma projektion som flygfotot från Lantmäteriet och sidans karta. */
+export function tillMercator(lng: number, lat: number): [number, number] {
+  const x = (lng * 20037508.34) / 180;
+  const sin = Math.sin((lat * Math.PI) / 180);
+  return [x, (Math.log((1 + sin) / (1 - sin)) / 2) * 20037508.34 / Math.PI];
+}
+
+/** Rutan i Web Mercator som kartan visar (minX, minY, maxX, maxY) — flygfotot hämtas för exakt den. */
+export type Ruta3857 = [number, number, number, number];
+
+/**
+ * Kartans punkter i PDF-koordinater. Projektionen är Web Mercator (lika skala i båda led), passad i en ruta med
+ * bredden `b` och högst `maxH`, med 8 % marginal. Rutan fylls alltid i bredd: blir trakten för hög vidgas den i sidled,
+ * så att flygfotot (`ruta`) täcker hela rutan utan att förvrängas och prickarna hamnar exakt på fotot.
+ */
+export function projicera(stammar: Stam[], b: number, maxH: number): { punkter: { x: number; y: number; s: Stam }[]; h: number; ruta: Ruta3857 | null } {
   const med = stammar.filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
-  if (med.length === 0) return { punkter: [], h: 0 };
-  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-  for (const s of med) {
-    if (s.lat < minLat) minLat = s.lat; if (s.lat > maxLat) maxLat = s.lat;
-    if (s.lng < minLng) minLng = s.lng; if (s.lng > maxLng) maxLng = s.lng;
+  if (med.length === 0) return { punkter: [], h: 0, ruta: null };
+  const xy = med.map(s => tillMercator(s.lng, s.lat));
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of xy) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
   }
-  const cos = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
-  const bredM = Math.max((maxLng - minLng) * cos, 1e-6);
-  const hogM = Math.max(maxLat - minLat, 1e-6);
-  const PAD = 10;
-  const skala = Math.min((b - 2 * PAD) / bredM, (maxH - 2 * PAD) / hogM);
-  const h = Math.min(maxH, hogM * skala + 2 * PAD);
-  const xOff = (b - bredM * skala) / 2;
-  const yOff = (h - hogM * skala) / 2;
+  // En enda stam: ge rutan ~100 m.
+  if (maxX - minX < 1) { minX -= 50; maxX += 50; }
+  if (maxY - minY < 1) { minY -= 50; maxY += 50; }
+  const padX = (maxX - minX) * 0.08, padY = (maxY - minY) * 0.08;
+  minX -= padX; maxX += padX; minY -= padY; maxY += padY;
+  const h = Math.min(maxH, b * (maxY - minY) / (maxX - minX));
+  // Vidga rutan till rutans form (b × h), centrerat.
+  const vill = b / h, har = (maxX - minX) / (maxY - minY);
+  if (har < vill) { const extra = ((maxY - minY) * vill - (maxX - minX)) / 2; minX -= extra; maxX += extra; }
+  else if (har > vill) { const extra = ((maxX - minX) / vill - (maxY - minY)) / 2; minY -= extra; maxY += extra; }
+  const sx = b / (maxX - minX), sy = h / (maxY - minY);
   return {
     h,
-    punkter: med.map(s => ({ x: xOff + (s.lng - minLng) * cos * skala, y: yOff + (maxLat - s.lat) * skala, s })),
+    ruta: [minX, minY, maxX, maxY],
+    punkter: med.map((s, i) => ({ x: (xy[i][0] - minX) * sx, y: (maxY - xy[i][1]) * sy, s })),
   };
 }
 
-export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: string = new Date().toISOString().slice(0, 10)): Promise<Uint8Array> {
+/** Hämtar flygfotot för rutan som JPEG (bredd och höjd i pixlar). null = gick inte; kartan ritas då utan foto. */
+export type HamtaFlygfoto = (ruta: Ruta3857, bredd: number, hojd: number) => Promise<Uint8Array | null>;
+
+export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: string = new Date().toISOString().slice(0, 10), flygfoto?: HamtaFlygfoto): Promise<Uint8Array> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   type Farg = ReturnType<typeof rgb>;
   const doc = await PDFDocument.create();
@@ -217,7 +241,7 @@ export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: st
   }
 
   // ── Kartan, på egen sida ──────────────────────────────────────────────────
-  const { punkter, h: kartH } = projicera(stammar, B, FOT_Y - MARG - 120);
+  const { punkter, h: kartH, ruta } = projicera(stammar, B, FOT_Y - MARG - 120);
   if (punkter.length > 0) {
     nySida();
     text('Här växte träden', MARG, y, STEG.rubrik, fet, F.text);
@@ -226,6 +250,21 @@ export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: st
     y += STEG.micro + 14;
     const y0 = y;
     rundRekt(MARG, y0, B, kartH, 8, F.kort);
+    // Flygfotot bakom prickarna (Lantmäteriets ortofoto, samma som sidans karta). Går det inte att hämta ritas
+    // kartan ändå — prickarna är kartan — och en rad under säger att fotot saknas.
+    let fotoSaknas = false;
+    if (flygfoto && ruta) {
+      let jpg: Uint8Array | null = null;
+      try { jpg = await flygfoto(ruta, Math.round(B * FOTO_PX_PER_PT), Math.round(kartH * FOTO_PX_PER_PT)); } catch { jpg = null; }
+      if (jpg) {
+        try {
+          const bild = await doc.embedJpg(jpg);
+          sida.drawImage(bild, { x: MARG, y: A4.h - y0 - kartH, width: B, height: kartH });
+          // Lätt ljusare slöja så att prickarna syns mot mörk skog.
+          sida.drawRectangle({ x: MARG, y: A4.h - y0 - kartH, width: B, height: kartH, color: rgb(1, 1, 1), opacity: 0.15 });
+        } catch { fotoSaknas = true; }
+      } else fotoSaknas = true;
+    }
     let dMin = Infinity, dMax = 0;
     for (const p of punkter) { const d = p.s.dbh_mm ?? 0; if (d > 0 && d < dMin) dMin = d; if (d > dMax) dMax = d; }
     if (!Number.isFinite(dMin)) dMin = 0;
@@ -252,6 +291,7 @@ export async function skapaMarkagarPdf(vy: RapportVy, stammar: Stam[], datum: st
       sida.drawCircle({ x: MARG + p.x, y: A4.h - (y0 + p.y), size: radie(p.s.dbh_mm) + 1, borderColor: F.rod, borderWidth: 0.6 });
     }
     y = y0 + kartH + 12;
+    if (fotoSaknas) { text('Flygfotot gick inte att hämta – prickarna visar var träden stod.', MARG, y, STEG.micro, normal, F.sek); y += STEG.micro + 10; }
     // Teckenförklaring — färgen bär aldrig ensam.
     let x = MARG;
     const del = (namn: string, fyll: string | null, ring?: boolean) => {

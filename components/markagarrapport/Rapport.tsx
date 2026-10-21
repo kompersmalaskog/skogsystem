@@ -106,7 +106,12 @@ export default function Rapport({ vy, stammar }: { vy: RapportVy; stammar: Marka
 
       {pdfOppen && (
         <PdfForhandsvisning
-          skapa={async () => (await import('@/lib/markagarrapport/pdf')).skapaMarkagarPdf(vy, stammar)}
+          skapa={async () => {
+            const [{ skapaMarkagarPdf }, { hamtaFlygfoto }] = await Promise.all([
+              import('@/lib/markagarrapport/pdf'), import('@/lib/markagarrapport/flygfoto'),
+            ]);
+            return skapaMarkagarPdf(vy, stammar, undefined, hamtaFlygfoto);
+          }}
           filnamn={vy.filnamn}
           titel={`Markägarrapport ${vy.namn}`}
           onStang={() => setPdfOppen(false)}
