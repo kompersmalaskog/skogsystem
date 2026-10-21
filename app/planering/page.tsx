@@ -56,7 +56,11 @@ import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
 import { kopplaFlyttaMig } from '../../lib/testPosition'
-import { GrindKortVy, LarmKortVy, SettRad } from '../../components/planering/LarmKort'
+import { GrindKortVy, LarmKortVy, SettRad, larmMalbild } from '../../components/planering/LarmKort'
+import { LARM_MALBILD_RAD_PX, MalbildBlad, MalbildRad } from '../../components/malbild/Malbild'
+import { AvlaggForstaLasset } from '../../components/malbild/AvlaggForstaLasset'
+import { arForstaLassetPaTrakten } from '../../lib/malbildSett'
+import { malbildNyckel, type Maskinroll } from '../../lib/malbilder'
 import { VidaSaknasRad, VIDA_RAD_HOJD_PX } from '../../components/planering/VidaSaknasRad'
 import { arVidaVo, lasVidaLager, skapaFornyare } from '../../lib/larm/vidaLager'
 import { medVidaNycklar } from '../../lib/vidaNycklar'
@@ -3985,6 +3989,10 @@ export default function PlannerPage() {
   // Bumpas när hogarFeaturesRef.current byts (load + spara/ångra) så klumpningen räknas om.
   const [hogarVersion, setHogarVersion] = useState(0);
   const skotarKorvy = korvyActive && (korvyForceRoll ? korvyForceRoll === 'skotare' : minRoll === 'skotare');
+  // Maskintypen för målbilderna (skördare/skotare): enhetens maskin först, annars admins val, annars tilldelningen. Okänd (planeringsvyn utan maskin) ger skördarens version.
+  const malbildRoll: Maskinroll | null = enhetRoll ?? korvyForceRoll ?? minRoll ?? null;
+  // Målbilden som öppnats ur larmkortets lilla bild ("Visa").
+  const [larmMalbildOppen, setLarmMalbildOppen] = useState<string | null>(null);
 
   // ═══ HYTTSPÅR (realtids-körspår, steg 1) ════════════════════════════════════════════════════════
   // Appen loggar körvägen LIVE medan körvyn är öppen på ett objekt (BÅDA maskinerna). En rad per
@@ -13543,7 +13551,7 @@ export default function PlannerPage() {
               } : null,
             },
           },
-          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features) },
+          karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
           klar: klarGaller ? {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
@@ -13791,6 +13799,17 @@ export default function PlannerPage() {
                 onTaBort={() => sl.strykLass(kortLass.id)}
               />
             )}
+            {/* Målbilden för avlägget: en rad BREDVID lossningsflödet. Den visas FÖRE första lossningen — när maskinen kommer in i ett avläggs zon (samma 50 m som lossningsupptäckten)
+                och trakten inte har något lass än — och bara när inget lossningskort, ändra-ark eller annat ark ligger nertill. Lossningskortet vinner alltid platsen; första kortet
+                förbrukar målbilden på trakten. Därefter bara vid tryck på ett avlägg (KartKort). Lossningsflödet ovan är orört. */}
+            <AvlaggForstaLasset
+              objektId={valtObjekt?.id ?? ''} roll="skotare"
+              kortVisas={!!sl.kort}
+              ledigt={!sl.kort && !sl.andra && !sl.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet}
+              forstaLasset={!!valtObjekt?.id && !!skotarMaskinId && arForstaLassetPaTrakten(sl.lass, '', valtObjekt.id, skotarMaskinId)}
+              position={currentPosition}
+              avlagg={sl.avlagg}
+            />
             {!sl.kort && !sl.andra && sl.nyttAvlagg && (
               <NyttAvlaggKort fraga={sl.nyttAvlagg} nummer={nastaEgnaNummer(sl.avlagg)} onSvar={sl.svaraNyttAvlagg} />
             )}
@@ -13847,6 +13866,8 @@ export default function PlannerPage() {
           kort={larm.kort}
           fler={larm.fler}
           riktning={larm.kort.bearing != null ? korvyRiktning(larm.kort.bearing, korvyHeading) : null}
+          roll={malbildRoll}
+          onVisaMalbild={setLarmMalbildOppen}
           top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
         />
       )}
@@ -13854,11 +13875,20 @@ export default function PlannerPage() {
         <GrindKortVy
           kod={grindKort.kod}
           symbol={<SymbolIkon typ={GRIND_TYP} storlek={52} />}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort ? 96 : 0}px)`}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${larm.kort ? 96 : 0}px + ${larmMalbild(larm.kort) ? LARM_MALBILD_RAD_PX : 0}px)`}
         />
       )}
       {korvyActive && larm.settRad && (
         <SettRad namn={larm.settRad.namn} farg={larm.settRad.farg} smal={screenSize.width < 640} onSett={larm.kvittera} />
+      )}
+      {larmMalbildOppen && (
+        <MalbildBlad
+          nyckel={larmMalbildOppen}
+          roll={malbildRoll}
+          onStang={() => setLarmMalbildOppen(null)}
+          // "✓ Sett" finns i bladet bara när larmet som bladet öppnades från är det som väntar på kvittering (samma knapp som raden längst ner).
+          onSett={larm.settRad && larm.kort && larm.settRad.id === larm.kort.id && larmMalbild(larm.kort) === larmMalbildOppen ? () => { larm.kvittera(); setLarmMalbildOppen(null); } : undefined}
+        />
       )}
 
 
@@ -14988,6 +15018,7 @@ export default function PlannerPage() {
             larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
             mening={bet.forklaring}
             kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
+            malbild={<MalbildRad nyckel={malbildNyckel(bet.ikon.kalla, bet.ikon.typ)} roll={malbildRoll} />}
             // Vidas data ändras aldrig: kommentarerna (kartkommentar, en rad per kommentar) och fotona (objekt_yta_media) sparas hos oss, kopplade till objekt_id + objektets nyckel.
             kommentarer={nyckel && valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, minId, arAdmin: isAdminRiktig }) : null}
             kanKommentera={kanLagga}
@@ -14998,6 +15029,7 @@ export default function PlannerPage() {
             onLaggTillFoto={kanLagga ? () => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); } : undefined}
             fotoSparar={ytaMediaSparar}
             fotoFel={ytaMediaFel}
+            rost={nyckel && kanLagga ? { onToggle: () => toggleYtaAudioRecording(nyckel), spelar: isRecYta, sekunder: recordingSeconds, disabled: ytaMediaSparar } : undefined}
             onStang={stangTraktKort}
           >
             {/* Skotarläget: vad som skotats HIT överst; Vidas eget innehåll ligger oförändrat under "Från Vida" */}
@@ -15117,7 +15149,7 @@ export default function PlannerPage() {
                     </div>
                   );
                 })()}
-            {nyckel && (ljudRader.length > 0 || kanLagga) && (
+            {nyckel && ljudRader.length > 0 && (
               <KartKortNederst>
                 <div data-testid="kartkort-ljud" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {ljudRader.map((mm) => (
@@ -15132,14 +15164,6 @@ export default function PlannerPage() {
                       </div>
                     </div>
                   ))}
-                  {kanLagga && (
-                    <div>
-                      <button disabled={ytaMediaSparar} onClick={() => toggleYtaAudioRecording(nyckel)}
-                        style={{ padding: '9px 14px', borderRadius: '10px', border: isRecYta ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.15)', background: isRecYta ? 'rgba(239,68,68,0.18)' : 'transparent', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '7px', animation: isRecYta ? 'pulse 1s infinite' : 'none' }}>
-                        {isRecYta ? <>⏹ <span style={{ color: '#ff453a', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span></> : <>🎤 Spela in</>}
-                      </button>
-                    </div>
-                  )}
                 </div>
               </KartKortNederst>
             )}
@@ -15462,6 +15486,7 @@ export default function PlannerPage() {
             grupp={kortGrupp}
             larmRegel={larmRegelText({ grupp: kortGrupp, typ: marker.isMarker ? marker.type : null, forbjuden: betydelse?.forbjuden })}
             mening={betydelse?.mening ?? null}
+            malbild={<MalbildRad nyckel={marker.isMarker ? malbildNyckel('symbol', marker.type) : marker.isZone ? malbildNyckel('yta', marker.zoneType) : marker.isLine ? malbildNyckel('linje', marker.lineType) : null} roll={malbildRoll} />}
             kommentarer={valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel: markerNyckel(marker.id), objektId: valtObjekt.id, aldreText: marker.comment, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : null}
             kanKommentera={!!currentMedarbetare?.id}
             onLaggKommentar={(t) => kk.lagg(markerNyckel(marker.id), t)}
@@ -15474,9 +15499,10 @@ export default function PlannerPage() {
               } else kk.radera(id);
             }}
             foton={markerFoton}
-            fotoKnapp={markerFoton.length ? 'Byt foto' : 'Lägg till foto'}
+            fotoKnapp={markerFoton.length ? 'Byt foto' : undefined}
             // Ett foto per markering: bara den som tog det (eller admin) byter det. Ett äldre foto utan fotograf kan bara admin byta.
             onLaggTillFoto={(!markerFoton.length || isAdminRiktig || (!!currentMedarbetare?.id && marker.photoAv === currentMedarbetare.id)) ? () => { setPendingPhotoMarkerId(marker.id); fileInputRef.current?.click(); } : undefined}
+            rost={{ onToggle: () => toggleMarkerAudioRecording(marker.id), spelar: isRecordingAudio && recordingMarkerId === marker.id, sekunder: recordingSeconds }}
             onStang={() => setMarkerMenuOpen(null)}
           >
               {/* Skotarläget: vad som skotats HIT överst; kortets vanliga innehåll ligger oförändrat under avdelaren */}
@@ -15909,69 +15935,6 @@ export default function PlannerPage() {
                 </button>
               )}
               
-              {/* Ta foto - för alla typer */}
-              <button
-                onClick={() => {
-                  setPendingPhotoMarkerId(marker.id);
-                  fileInputRef.current?.click();
-                }}
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '24px',
-                  border: 'none',
-                  background: harFoto(marker) ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={harFoto(marker) ? '#30d158' : '#8e8e93'} strokeWidth="2">
-                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
-                  <circle cx="12" cy="13" r="4" />
-                </svg>
-              </button>
-
-              {/* Spela in ljud */}
-              {(() => {
-                const isRecThis = isRecordingAudio && recordingMarkerId === marker.id;
-                return (
-                  <button
-                    onClick={() => toggleMarkerAudioRecording(marker.id)}
-                    style={{
-                      height: '48px',
-                      borderRadius: '24px',
-                      border: 'none',
-                      padding: isRecThis ? '0 14px' : '0',
-                      width: isRecThis ? 'auto' : '48px',
-                      minWidth: '48px',
-                      background: isRecThis ? 'rgba(239,68,68,0.3)' : (marker.audioData ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'),
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      animation: isRecThis ? 'pulse 1s infinite' : 'none',
-                    }}
-                  >
-                    {isRecThis ? (
-                      <>
-                        <span style={{ fontSize: '17px' }}>⏹</span>
-                        <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>
-                      </>
-                    ) : (
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.audioData ? '#30d158' : '#8e8e93'} strokeWidth="2">
-                        <rect x="9" y="2" width="6" height="11" rx="3" />
-                        <path d="M5 10a7 7 0 0014 0" />
-                        <line x1="12" y1="17" x2="12" y2="21" />
-                        <line x1="8" y1="21" x2="16" y2="21" />
-                      </svg>
-                    )}
-                  </button>
-                );
-              })()}
-
               {/* Redigera kommentar */}
               <button
                 onClick={() => {

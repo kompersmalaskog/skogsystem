@@ -66,4 +66,28 @@ describe('KartKort — en komponent för alla typer', () => {
   it('larmkortet får senaste kommentaren med namn: sidan skickar kk.larmKommentarer till useKorvyLarm', () => {
     expect(sida).toMatch(/kommentarer:\s*kk\.larmKommentarer/);
   });
+
+  it('layouten är städad: Röst ligger i åtgärdsraden på båda korten, och de gamla separata knapparna är borta', () => {
+    // båda korten ger KartKort sin röstinspelning (Röst-knappen i åtgärdsraden)
+    expect((sida.match(/\brost=\{/g) ?? []).length).toBe(2);
+    expect(sida).toContain('toggleYtaAudioRecording(nyckel)');
+    expect(sida).toContain('toggleMarkerAudioRecording(marker.id)');
+    // inget "Spela in"/kamera-knapp i det gamla Nederst-blocket längre
+    expect(sida).not.toContain('🎤 Spela in');
+    expect(sida).not.toContain('{/* Ta foto - för alla typer */}');
+    expect(sida).not.toContain('{/* Spela in ljud */}');
+    // ljudspelarna (uppspelning) finns kvar
+    expect(sida).toContain('data-testid="kartkort-ljud"');
+    expect(sida).toContain('{/* Inspelat ljud (visas under knapparna) */}');
+  });
+
+  it('komponenten: ingen stor Stäng-knapp, ingen "Ingen kommentar"/"Inget foto", ✕ med 44 px och larmregeln dold för Info', () => {
+    expect(kort).not.toMatch(/>\s*Stäng\s*</);
+    expect(kort).not.toContain('Ingen kommentar');
+    expect(kort).not.toContain('Inget foto');
+    expect(kort).not.toContain('Lägg till kommentar');
+    expect(kort).not.toContain('Lägg till foto');
+    expect(kort).toMatch(/aria-label="Stäng"[\s\S]{0,400}width: TRAFFYTA\.min, height: TRAFFYTA\.min/);
+    expect(kort).toMatch(/p\.grupp !== 'info' && <div data-testid="kartkort-larmregel"/);
+  });
 });
