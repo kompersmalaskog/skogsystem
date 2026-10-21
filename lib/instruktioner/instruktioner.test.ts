@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  INNE_M, TOMT_INSTRUKTION, arPlats, UT_MARGINAL_M, arOsedd, attKvittera, hashText, instruktionRader, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
+  INNE_M, TOMT_INSTRUKTION, arInstruktionsText, arPlats, UT_MARGINAL_M, arOsedd, attKvittera, hashText, instruktionRader, instruktionerPaTrakten, kortAttVisa, samlaOmraden, stegaInstruktion,
   type InstruktionOmrade, type SettKarta,
 } from './instruktioner';
 import type { KommentarVy } from '../kartkommentar';
@@ -40,9 +40,14 @@ describe('samlaOmraden — var Vidas text finns', () => {
     expect(o[0].nyckel).toBe('hansyn:7');
     expect(o[0].instruktioner[0]).toMatchObject({ kalla: 'vida', text: 'Spara alla aspar', ref: 'vida:hansyn:7', forfattare: null });
   });
-  it('ATGARD på ett avlägg räknas, men en traktdel utan kommentar ger inget område', () => {
-    const o = samla({ vida: [avlagg('01-1', 'Lägg virket vid stenen', 15, 56), traktdel('2')] });
-    expect(o.map((x) => x.nyckel)).toEqual(['punkt:01-1']);
+  it('Vidas ATGARD på ett avlägg är ett namn och ger ALDRIG en instruktion; en traktdel utan kommentar ger inget område', () => {
+    expect(samla({ vida: [avlagg('01-1', 'skbv betet', 15, 56), traktdel('2')] })).toEqual([]);
+  });
+  it('en egen kommentar på ett avlägg är en instruktion (och avlägget märks som avlägg)', () => {
+    const o = samla({ vida: [avlagg('01-1', 'skbv betet', 15, 56)], kommentarer: [kk('a', 'punkt:01-1', 'Lägg max 3 högar')] });
+    expect(o).toHaveLength(1);
+    expect(o[0]).toMatchObject({ nyckel: 'punkt:01-1', avlagg: true });
+    expect(o[0].instruktioner.map((x) => x.kalla)).toEqual(['egen']);
   });
   it('en traktdel har ingen Vida-text, men våra kommentarer på den räknas', () => {
     const o = samla({ vida: [traktdel('2')], kommentarer: [kk('k1', 'traktdel:2', 'Blött i norr')] });
@@ -174,7 +179,7 @@ describe('stegaInstruktion — inkörning', () => {
 });
 
 describe('avlägg — närhet med hysteres', () => {
-  const avl = (pos: { lat: number; lon: number }) => samla({ vida: [avlagg('01-1', 'Lägg virket här', 15, 56)], pos });
+  const avl = (pos: { lat: number; lon: number }) => samla({ vida: [avlagg('01-1', 'skbv betet', 15, 56)], kommentarer: [kk('a', 'punkt:01-1', 'Lägg virket här')], pos });
   const nord = (m: number) => ({ lat: 56 + m / 111320, lon: 15 });
   it('inom INNE_M är inne, utanför inte', () => {
     expect(stegaInstruktion(TOMT_INSTRUKTION, avl(nord(INNE_M - 2)), INGET).vantande).toEqual(['punkt:01-1']);
@@ -188,7 +193,7 @@ describe('avlägg — närhet med hysteres', () => {
     expect(s.inne['punkt:01-1']).toBeUndefined();
   });
   it('okänt avstånd (ingen position) är aldrig inne', () => {
-    expect(stegaInstruktion(TOMT_INSTRUKTION, samla({ vida: [avlagg('01-1', 'x', 15, 56)], pos: null }), INGET).vantande).toEqual([]);
+    expect(stegaInstruktion(TOMT_INSTRUKTION, samla({ vida: [avlagg('01-1', 'x', 15, 56)], kommentarer: [kk('a', 'punkt:01-1', 'x')], pos: null }), INGET).vantande).toEqual([]);
   });
 });
 
@@ -240,7 +245,7 @@ describe('bara platser man kör in i — inga punktsymboler eller linjer', () =>
   });
   it('Vidas avlägg, hänsynsytor, traktdelar, nyckelbiotoper och RAÄ-ytor är platser', () => {
     const nb = { type: 'Feature', geometry: kvadrat(15, 56), properties: { _lager: 'SV_SKS_NYCKELBIOTOP_101', Beteckn: 'NB1', Objnamn: 'Nyckelbiotop' } };
-    const o = samla({ vida: [hansyn('7', 'Spara'), avlagg('01-1', 'Lägg här', 15, 56), traktdel('2'), nb], kommentarer: [kk('a', 'traktdel:2', 'x'), kk('b', 'nb:NB1', 'y')] });
+    const o = samla({ vida: [hansyn('7', 'Spara'), avlagg('01-1', 'Lägg här', 15, 56), traktdel('2'), nb], kommentarer: [kk('a', 'traktdel:2', 'x'), kk('b', 'nb:NB1', 'y'), kk('c', 'punkt:01-1', 'z')] });
     expect(o.map((x) => x.nyckel).sort()).toEqual(['hansyn:7', 'nb:NB1', 'punkt:01-1', 'traktdel:2']);
   });
   it('arPlats: polygoner alltid, punkter bara om det är ett avlägg', () => {
@@ -257,4 +262,60 @@ describe('bara platser man kör in i — inga punktsymboler eller linjer', () =>
     expect(o).toHaveLength(1);
     expect(stegaInstruktion(TOMT_INSTRUKTION, o, INGET).vantande).toEqual(['hansyn:7']);
   });
+});
+
+describe('arInstruktionsText — bara om Vidas text säger något', () => {
+  it('tom, blanksteg och null är ingen instruktion', () => {
+    for (const t of ['', '   ', null, undefined, '\r\n']) expect(arInstruktionsText(t as any), String(t)).toBe(false);
+  });
+  it('bara ett typnamn är ingen instruktion ("hänsynsyta", "Övrigt", "Hänsyn.")', () => {
+    for (const t of ['hänsynsyta', 'Hänsynsyta', ' hänsynsyta. ', 'Övrigt', 'övrigt', 'Hänsyn', 'yta', 'Tilläggsyta']) expect(arInstruktionsText(t), t).toBe(false);
+  });
+  it('en text som bara upprepar ytans eget namn är ingen instruktion', () => {
+    expect(arInstruktionsText('Sumpskog O', ['Sumpskog O'])).toBe(false);
+    expect(arInstruktionsText('sumpskog o.', ['Sumpskog O'])).toBe(false);
+    expect(arInstruktionsText('Sumpskog O', ['Annat namn'])).toBe(true);
+  });
+  it('riktiga instruktioner räknas — Vidas egna ord ur Hålabäck au 2025', () => {
+    for (const t of [
+      'kantzon lämnas på ca 10-15 m där endast gran avverkas.  Ingen underröjning o ingen körning i kantzonen.',
+      'Torr stenig mark som lämnas orörd',
+      'avverkning av frötallar.\r\nLämn kantzon mot sjön. Lämna enstaka utspridda tallar.',
+      'avverkning av frötallar. spara utspridda tallar, minst 10 per ha. Husruin enligt karta o nordöstra delen.',
+    ]) expect(arInstruktionsText(t, ['Övrigt']), t).toBe(true);
+  });
+  it('en instruktion som innehåller ett typnamn som ord räknas ("lämnas som hänsynsyta, ingen körning")', () => {
+    expect(arInstruktionsText('lämnas som hänsynsyta, ingen körning')).toBe(true);
+  });
+});
+
+describe('Hålabäck au 2025 — Vidas fem tilläggsytor och avläggen (properties ur objekt_geometri)', () => {
+  const yta = (lopnr: number, typ: string, flbeskr: string, atgard: string | null, lat: number, lon: number) => ({
+    type: 'Feature', geometry: kvadrat(lon, lat), properties: { TYP: typ, _typ: 'hänsynsyta', _lager: 'L_TILLAGGSYTOR', LOPNR: lopnr, FLBESKR: flbeskr, ATGARD: atgard },
+  });
+  const features = [
+    yta(1, '24', 'Kant mot vatten O', 'kantzon lämnas på ca 10-15 m där endast gran avverkas.  Ingen underröjning o ingen körning i kantzonen.', 56.3535, 15.0493),
+    yta(2, '8', 'Sumpskog O', 'hänsynsyta', 56.3537, 15.0512),
+    yta(3, '5', 'Blockmark / bergbrant O', 'Torr stenig mark som lämnas orörd', 56.3526, 15.0518),
+    yta(4, '71', 'Övrigt', 'avverkning av frötallar.\r\nLämn kantzon mot sjön. Lämna enstaka utspridda tallar.', 56.3563, 15.0488),
+    yta(5, '71', 'Övrigt', 'avverkning av frötallar. spara utspridda tallar, minst 10 per ha. Husruin enligt karta o nordöstra delen.', 56.3541, 15.0642),
+    avlagg('01-1', 'skbv s skärsjön', 15.0521, 56.3522),
+    traktdel('5431'),
+  ];
+  const o = samla({ vida: features, pos: null });
+  it('fyra av de fem ytorna ger en instruktion; Sumpskog O ("hänsynsyta") och avläggen och traktdelen ger ingen', () => {
+    expect(o.map((x) => x.nyckel).sort()).toEqual(['hansyn:1', 'hansyn:3', 'hansyn:4', 'hansyn:5']);
+  });
+  it('TYP 71 ("Övrigt", TRDEL_ID 0) är en tilläggsyta i samma lager som de andra — den ger instruktion precis som de andra', () => {
+    expect(o.find((x) => x.nyckel === 'hansyn:4')!.instruktioner[0]).toMatchObject({ kalla: 'vida' });
+    expect(o.find((x) => x.nyckel === 'hansyn:5')!.instruktioner[0]).toMatchObject({ kalla: 'vida' });
+  });
+  it('typ 71 med två rader blir två numrerade punkter', () => {
+    expect(instruktionRader(o.find((x) => x.nyckel === 'hansyn:4')!.instruktioner[0].text).punkter).toEqual(['avverkning av frötallar.', 'Lämn kantzon mot sjön. Lämna enstaka utspridda tallar.']);
+  });
+  it('en yta vars ATGARD bara upprepar dess eget namn (FLBESKR) ger ingen instruktion', () => {
+    const upprepning = samla({ vida: [yta(6, '8', 'Sumpskog O', 'sumpskog o.', 56.35, 15.05)], pos: null });
+    expect(upprepning).toEqual([]);
+  });
+  it('de fyra ytorna är inga avlägg', () => { expect(o.every((x) => !x.avlagg)).toBe(true); });
 });

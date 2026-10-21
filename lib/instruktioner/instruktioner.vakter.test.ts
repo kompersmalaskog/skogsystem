@@ -59,6 +59,22 @@ describe('kartkortet rörs inte', () => {
   });
 });
 
+describe('avläggets vanliga kort och ⓘ i skördarens vy', () => {
+  const sida = las('app/planering/page.tsx');
+  it('Vidas ATGARD på ett avlägg visas som namn i avläggets kort ("Vida: …"), inte som kommentar', () => {
+    expect(sida).toContain("namn={traktInfo.kategori === 'punkt' && traktInfo.vidaKommentar ? `${rubrikVisad} · Vida: ${traktInfo.vidaKommentar}` : rubrikVisad}");
+    expect(sida).toContain("vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}");
+  });
+  it('ⓘ-knappen visas också i skördarens maskinläge (samma knapp, samma plats som skotarens) — och är EN', () => {
+    expect(sida).toContain('{objektListaVal || skotarKorvy || instruktionerAktiv ? (');
+    expect(sida.match(/data-testid="objektinfo-knapp"/g)).toHaveLength(1);
+  });
+  it('det som bara gäller skotaren (väder/lass) följer skotarläget, inte ⓘ-knappen', () => {
+    expect(sida).toMatch(/vader: skotarKorvy \? <VaderLista/);
+    expect(sida).toMatch(/utanSkotning: skotarLassAktiv/);
+  });
+});
+
 describe('en regel för radbrytning', () => {
   it('instruktionerna använder kartkortets kommentarPunkter (lib/kommentarPunkter), ingen egen uppdelning', () => {
     const k = las('lib/instruktioner/instruktioner.ts');

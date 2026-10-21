@@ -19,13 +19,18 @@ const qa = (id: string) => [...ruta!.querySelectorAll<HTMLElement>(`[data-testid
 const vida: Instruktion = { ref: 'vida:hansyn:7', text: 'Spara alla aspar', hash: 'a', kalla: 'vida', forfattare: null, vantar: false };
 const egen: Instruktion = { ref: 'k1', text: 'Stanna vid stenen\nGå runt\nLämna ris', hash: 'b', kalla: 'egen', forfattare: 'Martin · i går 16:20', vantar: false };
 const aldre: Instruktion = { ref: 'aldre:marker:5', text: 'Gammal text', hash: 'c', kalla: 'aldre', forfattare: null, vantar: false };
-const kort = (o: Partial<InstruktionKortData> = {}): InstruktionKortData => ({ nyckel: 'hansyn:7', namn: 'Naturvårdsyta', instruktioner: [vida, egen], fler: 0, ...o });
+const kort = (o: Partial<InstruktionKortData> = {}): InstruktionKortData => ({ nyckel: 'hansyn:7', namn: 'Naturvårdsyta', avlagg: false, instruktioner: [vida, egen], fler: 0, ...o });
 
 describe('InstruktionKortVy', () => {
   it('rubrik "<Område> – instruktioner" och "Du kör in i området nu"', () => {
     montera(<InstruktionKortVy kort={kort()} top="10px" onSett={() => {}} />);
     expect(q('instruktion-rubrik')!.textContent).toBe('Naturvårdsyta – instruktioner');
     expect(q('instruktion-under')!.textContent).toBe('Du kör in i området nu');
+  });
+  it('vid ett avlägg står "Du är vid avlägget" i stället för "Du kör in i området nu"', () => {
+    montera(<InstruktionKortVy kort={kort({ namn: 'Virkesavlägg', avlagg: true, instruktioner: [egen] })} top="10px" onSett={() => {}} />);
+    expect(q('instruktion-rubrik')!.textContent).toBe('Virkesavlägg – instruktioner');
+    expect(q('instruktion-under')!.textContent).toBe('Du är vid avlägget');
   });
   it('Vidas text först med blå etikett "Vida · traktdirektiv", sedan egna med "Namn · tid"', () => {
     montera(<InstruktionKortVy kort={kort({ instruktioner: [vida, egen, aldre] })} top="10px" onSett={() => {}} />);

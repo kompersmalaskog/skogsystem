@@ -13090,7 +13090,7 @@ export default function PlannerPage() {
           )}
 
           {/* Platshållare där nödlägesknappen satt — håller objekt-pillen centrerad (körvy på telefon: pillen får hela bredden i stället) */}
-          {objektListaVal || skotarKorvy ? (
+          {objektListaVal || skotarKorvy || instruktionerAktiv ? (
             /* Objektinfon (traktöversikten) hade pillen som enda ingång — nu bär pillen "byt objekt", så infon får en egen knapp på platshållarens plats. */
             <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale"
               onClick={() => {
@@ -15061,12 +15061,13 @@ export default function PlannerPage() {
             key={nyckel || traktInfo.rubrik}
             testid="trakt-kort"
             ikon={<LarmIkon kalla={bet.ikon.kalla} typ={bet.ikon.typ} grupp={bet.grupp} storlek={52} />}
-            namn={rubrikVisad}
+            // Vidas ATGARD på ett AVLÄGG är ett namn/en plats ("skbv betet", "byvägen"), aldrig en instruktion: den visas i namnraden ("Virkesavlägg · Vida: skbv betet"), inte som kommentar.
+            namn={traktInfo.kategori === 'punkt' && traktInfo.vidaKommentar ? `${rubrikVisad} · Vida: ${traktInfo.vidaKommentar}` : rubrikVisad}
             grupp={bet.grupp}
             larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden })}
             mening={bet.forklaring}
             kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
-            vidaKommentar={traktInfo.vidaKommentar}
+            vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}
             malbild={<MalbildRad nyckel={malbildNyckel(bet.ikon.kalla, bet.ikon.typ)} roll={malbildRoll} />}
             // Vidas data ändras aldrig: kommentarerna (kartkommentar, en rad per kommentar) och fotona (objekt_yta_media) sparas hos oss, kopplade till objekt_id + objektets nyckel.
             kommentarer={nyckel && valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, minId, arAdmin: isAdminRiktig }) : null}

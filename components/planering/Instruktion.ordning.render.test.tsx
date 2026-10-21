@@ -12,7 +12,9 @@ import { AvlaggForstaLasset } from '@/components/malbild/AvlaggForstaLasset';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const VIDA = { features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [15.0, 57.0] }, properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt', EXTRA_LABE: '01-1', FLBESKR: 'Virkesavlägg', ATGARD: 'skbv s skärsjön\nLägg max 3 högar' } }] };
+const VIDA = { features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [15.0, 57.0] }, properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt', EXTRA_LABE: '01-1', FLBESKR: 'Virkesavlägg', ATGARD: 'skbv s skärsjön' } }] };
+// Vidas ATGARD på ett avlägg är ett namn och ger aldrig kort — instruktionen är en egen kommentar på avlägget.
+const KOMMENTAR = { id: 'k1', objekt_id: 'o1', yta_nyckel: 'punkt:01-1', text: 'Lägg max 3 högar\nGå vägslingan', skapad_av: 'm1', namn: 'Martin', skapad_at: '2026-10-20T10:00:00Z', andrad_at: '2026-10-20T10:00:00Z', vantar: false };
 const AVL = [{ id: 'vida:01-1', nummer: '01-1', kalla: 'vida' as const, lat: 57.0, lng: 15.0 }];
 const m = (meter: number) => ({ lat: 57.0 + meter / 111_320, lon: 15.0 });
 const db: any = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: [], error: null }) }) }), upsert: async () => ({ error: null }) }) };
@@ -20,7 +22,7 @@ const db: any = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => (
 interface P { pos: { lat: number; lon: number }; larm: boolean; lossning: boolean }
 function Harness({ pos, larm, lossning }: P) {
   const inst = useInstruktioner({
-    aktiv: true, pos, markers: [], svgToLatLon: (x, y) => ({ lat: y, lon: x }), typNamn: () => 'Symbol', vida: VIDA, kommentarer: [], objektId: 'o1', forare: { id: 'f1' }, db,
+    aktiv: true, pos, markers: [], svgToLatLon: (x, y) => ({ lat: y, lon: x }), typNamn: () => 'Symbol', vida: VIDA, kommentarer: [KOMMENTAR], objektId: 'o1', forare: { id: 'f1' }, db,
     blockerad: instruktionBlockerad({ larmVisas: larm, lossningVisas: lossning }),
   });
   return (

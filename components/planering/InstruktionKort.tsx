@@ -92,7 +92,7 @@ export function InstruktionKortVy({ kort, top, onSett }: { kort: InstruktionKort
       >
         <div style={{ flexShrink: 0, paddingRight: AVSTAND.s }}>
           <div data-testid="instruktion-rubrik" style={{ ...TYP.rubrik, overflowWrap: 'anywhere' }}>{kort.namn} – instruktioner</div>
-          <div data-testid="instruktion-under" style={{ ...TYP.text, color: FARG.text2 }}>Du kör in i området nu</div>
+          <div data-testid="instruktion-under" style={{ ...TYP.text, color: FARG.text2 }}>{kort.avlagg ? 'Du är vid avlägget' : 'Du kör in i området nu'}</div>
         </div>
         <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, paddingRight: AVSTAND.s }}>
           {kort.instruktioner.map((i) => <InstruktionRuta key={i.ref} i={i} />)}

@@ -5,8 +5,13 @@
 // BARA PLATSER MAN KÖR IN I: ytor, områden, traktdelar och avlägg. Punktsymboler (Evighetsträd, Högstubbe, Varning …), linjer (stenmur, kraftledning, basväg) och RAÄ-punkter
 // ger inget kort — deras kommentar syns i larmkortet och vid tryck (annars blir det ett kort per evighetsträd).
 //
+// VIDAS TEXT (ATGARD) ÄR EN INSTRUKTION BARA PÅ YTOR OCH BARA OM DEN SÄGER NÅGOT (Martin 2026-10-21, ur objekt_geometri): på hänsynsytor (Tilläggsytor, TYP 24/5/8/71) står riktiga
+// instruktioner ("kantzon lämnas på ca 10-15 m …", "Torr stenig mark som lämnas orörd", "avverkning av frötallar …") men också typnamn ("hänsynsyta" på Sumpskog O) — det senare är
+// ingen instruktion. På AVLÄGG är ATGARD alltid namn/plats ("skbv betet", "byvägen", "Vändplan") — aldrig en instruktion, den visas som namn i avläggets vanliga kort.
+// Egna kommentarer på avlägg är däremot instruktioner och ger kort som vanligt ("Du är vid avlägget").
+//
 // Källor (en kommentar = en rad här):
-//   • Vidas text: ATGARD på hänsynsytor och avlägg (objekt_geometri). Traktdelar, nyckelbiotoper och RAÄ har ingen sådan text i datan.
+//   • Vidas text: ATGARD på hänsynsytor, om den är en instruktion (`arInstruktionsText`). Avlägg, traktdelar, nyckelbiotoper och RAÄ ger ingen Vida-instruktion.
 //   • Våra kommentarer: kartkommentar (en rad per kommentar, författare + tid), på Vidas objekt och egna markeringar.
 //   • Markeringens äldre kommentarfält (före författare sparades) → "Äldre kommentar".
 //
@@ -47,6 +52,8 @@ export interface InstruktionOmrade {
   nyckel: string;
   namn: string;
   narvaro: Narvaro;
+  /** Ett avlägg (Vidas avlägg eller eget): kortet säger "Du är vid avlägget" i stället för "Du kör in i området nu". */
+  avlagg: boolean;
   instruktioner: Instruktion[];
 }
 
@@ -118,6 +125,24 @@ function egnaInstruktioner(rader: readonly KommentarVy[], objektId: string, nyck
 export const arPlats = (geomTyp: string | undefined, arAvlagg: boolean): boolean =>
   geomTyp === 'Polygon' || geomTyp === 'MultiPolygon' || ((geomTyp === 'Point' || geomTyp === 'MultiPoint') && arAvlagg);
 
+const utanAccent = (t: string): string => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+/** Texten i jämförbar form: gemener, utan accenter, bara bokstäver och siffror ("Sumpskog O" och "sumpskog o." blir samma). */
+const jamfor = (t: string): string => utanAccent(t.toLowerCase()).replace(/[^a-z0-9]+/g, '');
+
+/** Ord Vida skriver som "åtgärd" men som bara är ytans typ — ingen instruktion. */
+const TYPNAMN = new Set(['hansynsyta', 'hansyn', 'hansynsomrade', 'tillaggsyta', 'yta', 'omrade', 'ovrigt']);
+
+/**
+ * Säger Vidas ATGARD något? Falskt för tom text, för bara ett typnamn ("hänsynsyta", "Övrigt") och för text som bara upprepar ytans eget namn (FLBESKR, t.ex. "Sumpskog O").
+ * `namn` = ytans egna namn att jämföra mot.
+ */
+export function arInstruktionsText(text: string | null | undefined, namn: readonly (string | null | undefined)[] = []): boolean {
+  const t = jamfor(String(text ?? ''));
+  if (!t) return false;
+  if (TYPNAMN.has(t)) return false;
+  return !namn.some((n) => !!n && jamfor(n) === t);
+}
+
 /** Typen på förarens egen avläggssymbol — den enda egna punktsymbolen som är en plats. */
 export const EGET_AVLAGG_TYP = 'landing';
 
@@ -146,15 +171,16 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
     const props = f.properties ?? {};
     const kort = byggTraktKort(props);
     if (!arPlats(f.geometry?.type, kort.kategori === 'punkt')) return;
-    // Vidas egen text (ATGARD) finns på hänsynsytor och avlägg; byggTraktKort ger den som `vidaKommentar` (samma källa som kartkortets "Vida · traktdirektiv"). Andra kategorier har ingen.
-    const vidaText = (kort.vidaKommentar ?? '').trim();
+    // Vidas egen text (ATGARD) är en instruktion bara på ytor (hänsynsytor) och bara om den säger något; på avlägg är den ett namn och ger aldrig kort (se överst).
+    const arAvlagg = kort.kategori === 'punkt';
+    const vidaText = !arAvlagg && arInstruktionsText(kort.vidaKommentar, [props.FLBESKR, kort.rubrik]) ? String(kort.vidaKommentar).trim() : '';
     const lista: Instruktion[] = [];
     if (vidaText) lista.push({ ref: `vida:${nyckel}`, text: vidaText, hash: hashText(vidaText), kalla: 'vida', forfattare: null, vantar: false });
     lista.push(...egnaInstruktioner(i.kommentarer, i.objektId, nyckel, null, i.nu));
     if (!lista.length) return;
     const slag = vidaSlag(props, f.geometry?.type);
     const namn = (kort.kategori === 'hansyn' || kort.kategori === 'punkt') ? kort.rubrik : slag ? VIDA[slag].namn : (kort.rubrik || 'Område');
-    ut.push({ nyckel, namn, narvaro: vidaNarvaro(f.geometry, i.pos), instruktioner: sorteraInstruktioner(lista) });
+    ut.push({ nyckel, namn, narvaro: vidaNarvaro(f.geometry, i.pos), avlagg: arAvlagg, instruktioner: sorteraInstruktioner(lista) });
   });
 
   for (const m of i.markers) {
@@ -163,14 +189,16 @@ export function samlaOmraden(i: SamlaIn): InstruktionOmrade[] {
     if (!lista.length) continue;
     let narvaro: Narvaro;
     let namn: string;
+    let avlagg = false;
     if (m.isMarker && m.type === EGET_AVLAGG_TYP && typeof m.x === 'number' && typeof m.y === 'number') {
       namn = i.typNamn(m.type);
+      avlagg = true;
       narvaro = { slag: 'avstand', avstandM: i.pos ? avstandPunktM(i.pos, i.svgToLatLon(m.x, m.y)) : null };
     } else if ((m.isZone || m.lineType === 'boundary') && m.path?.length > 2) {
       namn = m.isZone ? (ytaDef(m.zoneType)?.namn ?? 'Område') : 'Område';
       narvaro = { slag: 'yta', inne: i.pos ? arInnePolygon(i.pos, [m.path.map((p: any) => i.svgToLatLon(p.x, p.y))]) : false };
     } else continue;   // punktsymboler och linjer är inga platser man kör in i
-    ut.push({ nyckel, namn, narvaro, instruktioner: lista });
+    ut.push({ nyckel, namn, narvaro, avlagg, instruktioner: lista });
   }
   return ut;
 }
@@ -216,6 +244,8 @@ export function stegaInstruktion(state: InstruktionState, omraden: readonly Inst
 export interface InstruktionKortData {
   nyckel: string;
   namn: string;
+  /** Området är ett avlägg ("Du är vid avlägget"). */
+  avlagg: boolean;
   /** Bara det som inte setts. */
   instruktioner: Instruktion[];
   /** Fler områden väntar efter det här (visas när detta är sett). */
@@ -232,7 +262,7 @@ export function kortAttVisa(state: InstruktionState, omraden: readonly Instrukti
     const o = omraden.find((x) => x.nyckel === nyckel);
     if (!o) continue;
     const nya = osedda(o, sett);
-    if (nya.length) return { nyckel, namn: o.namn, instruktioner: nya, fler: state.vantande.filter((n) => n !== nyckel).length };
+    if (nya.length) return { nyckel, namn: o.namn, avlagg: o.avlagg, instruktioner: nya, fler: state.vantande.filter((n) => n !== nyckel).length };
   }
   return null;
 }

@@ -42,7 +42,7 @@ describe('Kortet del 2 — linjekortet', () => {
 
 describe('Kortet del 2 — Vidas text är kommentaren', () => {
   it('båda korten skickar Vidas text till kortet; hänsynsytans ATGARD når kortet som vidaKommentar, inte som en lös textrad', () => {
-    expect(traktKort).toContain('vidaKommentar={traktInfo.vidaKommentar}');
+    expect(traktKort).toContain("vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}");   // avlägg: Vidas ATGARD är ett namn (visas i namnraden), aldrig en kommentar
     expect(sida).toMatch(/vidaKommentar: txt\(props\.ATGARD\) \|\| undefined/);
   });
   it('byggTraktKort: ATGARD på hänsynsyta och avlägg är Vidas kommentar; traktdelens FLBESKR ("Första gallring") är åtgärden, ingen kommentar', () => {

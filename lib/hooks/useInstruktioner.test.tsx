@@ -209,4 +209,31 @@ describe('useInstruktioner', () => {
     await act(async () => { ut.settOmraden(['hansyn:7']); });
     expect(ut.paTrakten.nya).toBe(0);
   });
+
+  it('Vidas ATGARD på ett avlägg ("skbv betet") ger aldrig kort — inte ens inne vid avlägget', async () => {
+    const s = server();
+    const avl = { features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [15, 56] }, properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt', EXTRA_LABE: '01-1', FLBESKR: 'Virkesavlägg', ATGARD: 'skbv betet' } }] };
+    await montera(grund(s.db, { pos: INNE, vida: avl }));
+    expect(ut.kort).toBeNull();
+    expect(ut.vantar).toBe(false);
+    expect(ut.paTrakten.antal).toBe(0);
+  });
+
+  it('en egen kommentar på avlägget ger kort som vanligt och kortet vet att det är ett avlägg', async () => {
+    const s = server();
+    const avl = { features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [15, 56] }, properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt', EXTRA_LABE: '01-1', FLBESKR: 'Virkesavlägg', ATGARD: 'skbv betet' } }] };
+    const k: KommentarVy = { ...kk('k9', 'Lägg max 3 högar'), yta_nyckel: 'punkt:01-1' };
+    await montera(grund(s.db, { pos: INNE, vida: avl, kommentarer: [k] }));
+    expect(ut.kort?.avlagg).toBe(true);
+    expect(ut.kort?.namn).toBe('Virkesavlägg');
+    expect(ut.kort?.instruktioner.map((i) => i.kalla)).toEqual(['egen']);
+  });
+
+  it('en hänsynsyta vars ATGARD bara är typnamnet ("hänsynsyta") ger inget kort', async () => {
+    const s = server();
+    const yta = { features: [{ type: 'Feature', geometry: kvadrat(15, 56), properties: { _lager: 'L_TILLAGGSYTOR', _typ: 'hänsynsyta', LOPNR: '2', FLBESKR: 'Sumpskog O', ATGARD: 'hänsynsyta' } }] };
+    await montera(grund(s.db, { pos: INNE, vida: yta }));
+    expect(ut.kort).toBeNull();
+    expect(ut.paTrakten.antal).toBe(0);
+  });
 });

@@ -38,7 +38,7 @@ const M = [
   ["instruktionerna delar text på egen hand i stället för kartkortets regel", "const rader = kommentarPunkter(text);", "const rader = text.split('\\n');", LOGIK],
 
   // ── var Vidas text finns ──
-  ["traktdelens beskrivning blir Vidas instruktion", "const vidaText = (kort.vidaKommentar ?? '').trim();", "const vidaText = (kort.vidaKommentar ?? kort.rader[0]?.text ?? '').trim();", LOGIK],
+  ["ytans eget namn jämförs inte mot ATGARD", "arInstruktionsText(kort.vidaKommentar, [props.FLBESKR, kort.rubrik])", "arInstruktionsText(kort.vidaKommentar, [])", LOGIK],
   ["Vidas text sorteras sist", "return i.kalla === 'vida' ? 0", "return i.kalla === 'vida' ? 3", LOGIK],
 
   // ── inkörning ──
@@ -108,6 +108,16 @@ const M = [
   ["nyp avbryter inte långtrycket", "if (nere.size > 1) return;   // nyp = zoom", "", TESTPOS],
   ["håll-fingret kopplas utanför testläget", "if (!map || !mapLibreReady || !testlage) return;\n    return kopplaLangtryckFlytt", "if (!map || !mapLibreReady) return;\n    return kopplaLangtryckFlytt", SIDA],
   ["plusdockans långtryck öppnas också i testläget", "  if (testlage) langtryckTillatenRef.current = false;", "", SIDA],
+  // ── Vidas text: bara på ytor, bara om den säger något; avlägg = namn ──
+  ["Vidas ATGARD på ett avlägg triggar instruktionskortet", "const vidaText = !arAvlagg && arInstruktionsText(", "const vidaText = arInstruktionsText(", LOGIK],
+  ["ett bara typnamn (\"hänsynsyta\") räknas som instruktion", "if (TYPNAMN.has(t)) return false;", "", LOGIK],
+  ["en text som bara upprepar ytans namn räknas som instruktion", "return !namn.some((n) => !!n && jamfor(n) === t);", "return true;", LOGIK],
+  ["en tom text räknas som instruktion", "if (!t) return false;", "", LOGIK],
+  ["avläggen märks inte som avlägg", "avlagg: arAvlagg, instruktioner: sorteraInstruktioner(lista)", "avlagg: false, instruktioner: sorteraInstruktioner(lista)", LOGIK],
+  ["kortet säger inte \"Du är vid avlägget\"", "{kort.avlagg ? 'Du är vid avlägget' : 'Du kör in i området nu'}", "{'Du kör in i området nu'}", KORT],
+  ["Vidas ATGARD på avlägg visas inte som namn i avläggets kort", "namn={traktInfo.kategori === 'punkt' && traktInfo.vidaKommentar ? `${rubrikVisad} · Vida: ${traktInfo.vidaKommentar}` : rubrikVisad}", "namn={rubrikVisad}", SIDA],
+  ["Vidas ATGARD på avlägg visas också som kommentar i avläggets kort", "vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}", "vidaKommentar={traktInfo.vidaKommentar}", SIDA],
+  ["skördaren saknar ⓘ", "{objektListaVal || skotarKorvy || instruktionerAktiv ? (", "{objektListaVal || skotarKorvy ? (", SIDA],
 ];
 
 kor({

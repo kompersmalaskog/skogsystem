@@ -90,7 +90,7 @@ describe('skotarläget i planeringsvyn', () => {
     expect(page).not.toContain('bytObjekt');
     expect(page).toContain('onNamn={() => setTraktOversiktOpen(o => !o)}');
     // ⓘ uppe till höger (rund mörk knapp 44 px, öppnar objektinfon/väder) måste finnas i skotarkörvyn — och bara EN: på platshållarens plats, aldrig en andra bredvid pillen.
-    expect(page).toContain('{objektListaVal || skotarKorvy ? (');
+    expect(page).toContain('{objektListaVal || skotarKorvy || instruktionerAktiv ? (');   // + skördarens maskinläge: samma ⓘ, EN knapp
     expect(page.match(/data-testid="objektinfo-knapp"/g)).toHaveLength(1);
     const knapp = page.slice(page.indexOf('data-testid="objektinfo-knapp"'), page.indexOf('data-testid="objektinfo-knapp"') + 1400);
     expect(knapp).toContain('aria-label="Objektinfo"');
