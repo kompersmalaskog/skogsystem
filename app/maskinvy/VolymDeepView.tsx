@@ -1,11 +1,11 @@
 'use client'
+import { AVSTAND, TYP, VIKT, medSafeBotten, RADIE, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { tradslagFarg, tradslagLabel } from '@/lib/tradslag'
 import {
-  C, FONT, COMBO_IDS, fetchAll, fmtSv, getPeriodRange,
-  type Maskin, type Period,
+  COMBO_IDS, fetchAll, fmtSv, getPeriodRange, type Maskin, type Period,
 } from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
@@ -122,76 +122,76 @@ export default function VolymDeepView({
       aria-label="Volym per trädslag"
       style={{
         position: 'fixed', top: 'calc(56px + env(safe-area-inset-top))', left: 0, right: 0, bottom: 0,
-        overflow: 'auto', background: C.bg, color: C.text,
+        overflow: 'auto', background: FARG.bg, color: FARG.text,
         fontFamily: FONT, fontFeatureSettings: '"tnum"',
         transform: shown ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1)',
+        transition: overgang('transform'),
         zIndex: 200,
       }}
     >
       {/* ── Sticky header ── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg, borderBottom: `0.5px solid ${C.divider}`,
-        padding: '10px 12px',
+        background: FARG.bg, borderBottom: `0.5px solid ${FARG.linje}`,
+        padding: `${AVSTAND.m}px ${AVSTAND.m}px`,
       }}>
         <button
           onClick={handleClose}
           style={{
             background: 'transparent', border: 'none',
-            color: C.blue, fontFamily: FONT,
-            fontSize: 16, fontWeight: 400,
+            color: FARG.bla, fontFamily: FONT,
+            fontSize: TYP.text.fontSize, fontWeight: VIKT.normal,
             cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
-            gap: 2, padding: '6px 8px', minHeight: 36,
+            gap: AVSTAND.xs, padding: `${AVSTAND.s}px ${AVSTAND.s}px`, minHeight: 36,
           }}
         >
-          <span style={{ fontSize: 22, lineHeight: 1, marginRight: 2 }}>‹</span>
+          <span style={{ fontSize: TYP.rubrik.fontSize, lineHeight: 1, marginRight: AVSTAND.xs }}>‹</span>
           Översikt
         </button>
       </div>
 
       {/* ── Innehåll ── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.xl}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
         {/* Rubrik */}
         <div style={{
-          fontSize: 22, fontWeight: 600, color: C.text,
+          fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
           letterSpacing: -0.4, lineHeight: 1.15, marginBottom: 4,
         }}>Volym</div>
-        <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginBottom: AVSTAND.xl }}>
           {periodLabel} · {maskin.namn}
         </div>
 
         {/* Total */}
-        <div style={{ background: C.card, borderRadius: 14, padding: '20px 20px 18px', marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 8 }}>Total</div>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.xl}px ${AVSTAND.xl}px ${AVSTAND.l}px`, marginBottom: AVSTAND.l }}>
+          <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: 8 }}>Total</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <div style={{
-              fontSize: 40, fontWeight: 600, letterSpacing: -1.2,
-              color: C.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+              fontSize: TYP.tal.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -1.2,
+              color: FARG.text, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
             }}>
               {loading ? '—' : fmtSv(totalVolym, 0)}
             </div>
-            <div style={{ fontSize: 14, color: C.muted }}>m³sub</div>
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>m³sub</div>
           </div>
           {!loading && totalStammar > 0 && (
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginTop: AVSTAND.s, fontVariantNumeric: 'tabular-nums' }}>
               {fmtSv(totalStammar, 0)} stammar
             </div>
           )}
         </div>
 
         {/* Per trädslag */}
-        <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
+          <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.xs}px` }}>
             Per trädslag
           </div>
 
           {/* Proportionsstapel */}
           {!loading && rader.length > 0 && (
-            <div style={{ padding: '10px 16px 14px' }}>
+            <div style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px ${AVSTAND.l}px` }}>
               <div style={{
-                display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden',
-                background: 'rgba(255,255,255,0.04)', gap: 2,
+                display: 'flex', height: 10, borderRadius: RADIE.stapel, overflow: 'hidden',
+                background: FARG.tonad, gap: AVSTAND.xs,
               }}>
                 {rader.map(r => (
                   <div
@@ -206,13 +206,13 @@ export default function VolymDeepView({
 
           {/* Lista */}
           {loading ? (
-            <div style={{ padding: '0 16px 18px', fontSize: 13, color: C.muted }}>Laddar…</div>
+            <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Laddar…</div>
           ) : error ? (
-            <div style={{ padding: '0 16px 18px', fontSize: 13, color: C.muted }}>
+            <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, fontSize: TYP.meta.fontSize, color: FARG.text2 }}>
               Kunde inte hämta data
             </div>
           ) : rader.length === 0 ? (
-            <div style={{ padding: '0 16px 18px', fontSize: 13, color: C.muted }}>
+            <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.l}px`, fontSize: TYP.meta.fontSize, color: FARG.text2 }}>
               Ingen produktion för perioden
             </div>
           ) : rader.map((r) => (
@@ -223,27 +223,27 @@ export default function VolymDeepView({
                 gridTemplateColumns: '12px 1fr auto',
                 gap: 12, alignItems: 'center',
                 padding: '12px 16px',
-                borderTop: `0.5px solid ${C.divider}`,
+                borderTop: `0.5px solid ${FARG.linje}`,
               }}
             >
               {/* Färgpunkt */}
-              <div style={{ width: 10, height: 10, borderRadius: 3, background: r.farg }} />
+              <div style={{ width: 10, height: 10, borderRadius: RADIE.stapel, background: r.farg }} />
 
               {/* Namn + stammar + andel */}
               <div>
-                <div style={{ fontSize: 15, color: C.text, fontWeight: 500 }}>{r.namn}</div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ fontSize: TYP.text.fontSize, color: FARG.text, fontWeight: VIKT.halvfet }}>{r.namn}</div>
+                <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs, fontVariantNumeric: 'tabular-nums' }}>
                   {fmtSv(r.stammar, 0)} stammar · {Math.round(r.andel * 100)}&thinsp;%
                 </div>
               </div>
 
               {/* Volym */}
               <div style={{
-                fontSize: 15, fontWeight: 500, color: C.text,
+                fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
                 textAlign: 'right', fontVariantNumeric: 'tabular-nums',
               }}>
                 {fmtSv(r.volym, 0)}
-                <span style={{ fontSize: 11, color: C.muted, marginLeft: 3, fontWeight: 400 }}>m³</span>
+                <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginLeft: AVSTAND.xs, fontWeight: VIKT.normal }}>m³</span>
               </div>
             </div>
           ))}
