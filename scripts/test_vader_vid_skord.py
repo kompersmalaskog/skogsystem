@@ -71,12 +71,12 @@ class ValjPunkt(unittest.TestCase):
             {'stem_lat': 56.9, 'stem_lon': 15.1, 'harvest_date': datetime(2026, 5, 14, 15, 31, 16)},
             {'stem_lat': 56.8, 'stem_lon': 15.0, 'harvest_date': datetime(2026, 5, 14, 14, 59, 35)},
         ]
-        lat, lon, t = M.valj_vaderpunkt(stockar)
+        lat, lon, t = M.valj_vaderpunkt(stockar, '2026-05-14')
         self.assertEqual((lat, lon), (56.8, 15.0))
         self.assertEqual(t, datetime(2026, 5, 14, 12, 59, 35, tzinfo=UTC))   # svensk sommartid = UTC+2
 
     def test_vintertid_ar_utc_plus_ett(self):
-        _, _, t = M.valj_vaderpunkt([{'stem_lat': 56.8, 'stem_lon': 15.0, 'harvest_date': datetime(2026, 1, 20, 10, 0)}])
+        _, _, t = M.valj_vaderpunkt([{'stem_lat': 56.8, 'stem_lon': 15.0, 'harvest_date': datetime(2026, 1, 20, 10, 0)}], '2026-01-20')
         self.assertEqual(t, datetime(2026, 1, 20, 9, 0, tzinfo=UTC))
 
     def test_saknad_koordinat_ar_noll_och_hoppas_over_aldrig_en_gissning(self):
@@ -84,8 +84,68 @@ class ValjPunkt(unittest.TestCase):
         stockar = [{'stem_lat': 0.0, 'stem_lon': 0.0, 'harvest_date': datetime(2026, 5, 14, 9, 0)},
                    {'stem_lat': None, 'stem_lon': 15.0, 'harvest_date': datetime(2026, 5, 14, 9, 5)},
                    {'stem_lat': 56.8, 'stem_lon': 15.0, 'harvest_date': None}]
-        self.assertIsNone(M.valj_vaderpunkt(stockar))
-        self.assertIsNone(M.valj_vaderpunkt([]))
+        self.assertIsNone(M.valj_vaderpunkt(stockar, '2026-05-14'))
+        self.assertIsNone(M.valj_vaderpunkt([], '2026-05-14'))
+
+
+def stam(lat, lon, lokal):
+    """En kontrollstock som den läses i importen: naiv svensk väggklocka."""
+    return {'stem_lat': lat, 'stem_lon': lon, 'harvest_date': lokal}
+
+
+# En ackumulerande Scorpion-fil: stammar från tre olika dagar (8, 9 och 13 april), två av dem på 13 april.
+ACKUMULERANDE = [
+    stam(56.10, 15.10, datetime(2026, 4, 8, 10, 0)),
+    stam(56.20, 15.20, datetime(2026, 4, 9, 11, 0)),
+    stam(56.40, 15.40, datetime(2026, 4, 13, 14, 0)),
+    stam(56.30, 15.30, datetime(2026, 4, 13, 9, 30)),
+]
+
+
+class ValjPunktAckumulerande(unittest.TestCase):
+    """Scorpionens HQC-filer är ackumulerande: en fil innehåller ofta stammar från tidigare kontroller. 'Tidigaste stammen i
+    filen' gav 34 av 330 kontroller väder från mer än ett dygn före sitt eget datum (Hössjömåla 13/15/21 april fick alla
+    8 april; Äskebäck id 1281 fick Krokshults tid)."""
+
+    def test_valjer_tidigaste_stammen_pa_kontrollens_dag_inte_filens_tidigaste(self):
+        lat, lon, t = M.valj_vaderpunkt(ACKUMULERANDE, '2026-04-13')
+        self.assertEqual((lat, lon), (56.30, 15.30))                       # 13 april 09:30, inte 8 april
+        self.assertEqual(t, datetime(2026, 4, 13, 7, 30, tzinfo=UTC))      # sommartid = UTC+2
+
+    def test_samma_fil_ger_olika_stam_for_olika_kontrollers_datum(self):
+        self.assertEqual(M.valj_vaderpunkt(ACKUMULERANDE, '2026-04-08')[:2], (56.10, 15.10))
+        self.assertEqual(M.valj_vaderpunkt(ACKUMULERANDE, '2026-04-09')[:2], (56.20, 15.20))
+        self.assertEqual(M.valj_vaderpunkt(ACKUMULERANDE, '2026-04-13')[:2], (56.30, 15.30))
+
+    def test_den_tidigaste_PA_DAGEN_som_har_gps(self):
+        stockar = [stam(None, None, datetime(2026, 4, 13, 8, 0)),          # tidigast på dagen men utan position
+                   stam(0.0, 0.0, datetime(2026, 4, 13, 8, 30)),           # (0, 0) = saknad
+                   stam(56.30, 15.30, datetime(2026, 4, 13, 9, 30)),
+                   stam(56.10, 15.10, datetime(2026, 4, 8, 10, 0))]
+        self.assertEqual(M.valj_vaderpunkt(stockar, '2026-04-13')[:2], (56.30, 15.30))
+
+    def test_saknas_stam_for_dagen_galler_den_senaste_med_gps(self):
+        self.assertEqual(M.valj_vaderpunkt(ACKUMULERANDE, '2026-04-20')[:2], (56.40, 15.40))   # senaste = 13 april 14:00
+        stockar = ACKUMULERANDE + [stam(None, 15.0, datetime(2026, 4, 14, 8, 0))]               # senare men utan GPS: räknas inte
+        self.assertEqual(M.valj_vaderpunkt(stockar, '2026-04-20')[:2], (56.40, 15.40))
+
+    def test_saknat_datum_ar_ingen_dag_och_ger_den_senaste(self):
+        for datum in (None, '', 'inte ett datum'):
+            self.assertEqual(M.valj_vaderpunkt(ACKUMULERANDE, datum)[:2], (56.40, 15.40))
+
+    def test_datum_kan_vara_date_datetime_eller_text(self):
+        from datetime import date
+        for datum in (date(2026, 4, 9), datetime(2026, 4, 9, 23, 59), '2026-04-09', '2026-04-09T00:00:00'):
+            self.assertEqual(M.valj_vaderpunkt(ACKUMULERANDE, datum)[:2], (56.20, 15.20))
+
+    def test_ingen_stock_med_gps_ger_none_oavsett_datum(self):
+        self.assertIsNone(M.valj_vaderpunkt([stam(None, None, datetime(2026, 4, 13, 9, 0))], '2026-04-13'))
+        self.assertIsNone(M.valj_vaderpunkt([stam(56.3, 15.3, None)], '2026-04-13'))
+
+    def test_lokal_dag_avgor_inte_utc_dag(self):
+        # 00:30 svensk sommartid den 13 april är 22:30 UTC den 12:e — kontrollens datum är den LOKALA dagen
+        stockar = [stam(56.10, 15.10, datetime(2026, 4, 12, 23, 0)), stam(56.30, 15.30, datetime(2026, 4, 13, 0, 30))]
+        self.assertEqual(M.valj_vaderpunkt(stockar, '2026-04-13')[:2], (56.30, 15.30))
 
 
 class ByggJson(unittest.TestCase):
@@ -260,8 +320,13 @@ def stock(lat=56.8, lon=15.0, tid='2026-05-14 12:59:35.010087+00', utc=True):
     return [{'stem_lat': lat, 'stem_lon': lon, 'harvest_date': tid, 'tid_ar_utc': utc}]
 
 
-def kontroll(i, vader=None, fil=None):
-    return {'id': i, 'filnamn': fil or f'k{i}.hqc', 'maskin_id': 'R64428', 'weather_at_harvest': vader}
+def stockar_db(*stammar):
+    """Flera kontrollstockar som de ligger i detalj_kontroll_stock: (lat, lon, 'YYYY-MM-DD HH:MM:SS+00') = verkligt UTC."""
+    return [{'stem_lat': la, 'stem_lon': lo, 'harvest_date': t, 'tid_ar_utc': True} for la, lo, t in stammar]
+
+
+def kontroll(i, vader=None, fil=None, datum=None):
+    return {'id': i, 'filnamn': fil or f'k{i}.hqc', 'maskin_id': 'R64428', 'datum': datum, 'weather_at_harvest': vader}
 
 
 class RaknaHttp:
@@ -403,6 +468,68 @@ class Komplettera(unittest.TestCase):
         self.assertEqual(h.anrop, 0); self.assertTrue(r['avbrutet'])
         r = M.komplettera_saknat_vader(http=h, nu=NU + timedelta(seconds=M.VADER_NAT_PAUS_S + 1))   # pausen har gått
         self.assertEqual(r['fyllda'], 5)
+
+
+class AckumulerandeFil(unittest.TestCase):
+    """Hela kedjan (import och komplettering) med en ackumulerande fil: stammar från tre dagar, kontroller med olika datum."""
+    # 8, 13 och 15 april (UTC; svensk sommartid = +2 h)
+    FIL = stockar_db((57.00, 15.00, '2026-04-08 08:00:00+00'), (57.01, 15.01, '2026-04-13 07:00:00+00'),
+                     (57.02, 15.02, '2026-04-15 07:00:00+00'))
+
+    def setUp(self):
+        self.orig = M.requests
+        self.orig_hamta = M.hamta_vader_vid_skord
+        self.orig_fel = M._rapportera_import_fel
+        M._vader_nat['nere_sedan'] = None
+        M._rapportera_import_fel = lambda *a: None
+
+    def tearDown(self):
+        M.requests = self.orig
+        M.hamta_vader_vid_skord = self.orig_hamta
+        M._rapportera_import_fel = self.orig_fel
+        M._vader_nat['nere_sedan'] = None
+
+    def test_komplettering_hamtar_vader_for_kontrollens_dag_inte_filens_tidigaste_stam(self):
+        M.requests = fr = FejkRequests([kontroll(1, datum='2026-04-15')], {'k1.hqc': self.FIL})
+        anrop = []
+        def svara(p):
+            anrop.append(p)
+            return bra(p)
+        r = M.komplettera_saknat_vader(http=RaknaHttp(svara), nu=NU)
+        self.assertEqual(r['fyllda'], 1)
+        self.assertEqual((anrop[0]['latitude'], anrop[0]['start_date']), ('57.0200', '2026-04-15'))   # inte 57.0000 / 8 april
+        self.assertEqual(fr.kontroller[0]['weather_at_harvest']['harvest_time'], '2026-04-15T07:00:00+00:00')
+        # fejken lämnar alla kolumner oavsett select — riktiga PostgREST gör det inte, så select måste be om datum
+        lasning = [a[1] for a in fr.anrop if a[0] == 'GET' and '/fakt_kalibrering?' in a[1]][0]
+        self.assertIn('datum', lasning.split('select=')[1].split('&')[0].split(','))
+
+    def test_importens_lagg_pa_vader_anvander_kalibreringsradens_datum(self):
+        fangade = []
+        M.hamta_vader_vid_skord = lambda lat, lon, t, **k: (fangade.append((lat, lon, t)) or ({'temperature_c': 1.0, 'precipitation_mm': 0.0, 'wind_speed_ms': 2.0}, None, 'ok'))
+        from datetime import date
+        stockar = [stam(56.10, 15.10, datetime(2026, 4, 8, 10, 0)), stam(56.30, 15.30, datetime(2026, 4, 13, 9, 30)),
+                   stam(56.50, 15.50, datetime(2026, 4, 15, 8, 0))]       # senare än kontrollens dag: ska inte väljas
+        rad = {'datum': date(2026, 4, 13), 'filnamn': 'a.hqc'}
+        self.assertTrue(M.lagg_pa_vader(rad, stockar, 'a.hqc'))
+        self.assertEqual(fangade, [(56.30, 15.30, datetime(2026, 4, 13, 7, 30, tzinfo=UTC))])
+
+    def test_skriv_over_byter_fel_stam_mot_ratt_och_en_omkorning_andrar_inget(self):
+        # Hössjömåla: tre kontroller 13/15/21 april i samma ackumulerande fil fick alla väder från 8 april
+        fil = stockar_db((57.00, 15.00, '2026-04-08 08:00:00+00'), (57.01, 15.01, '2026-04-13 07:00:00+00'),
+                         (57.02, 15.02, '2026-04-15 07:00:00+00'), (57.03, 15.03, '2026-04-21 07:00:00+00'))
+        gammalt = lambda: {'source': 'open-meteo.com', 'fetched_at': '2026-05-20T17:08:56+00:00',
+                           'harvest_time': '2026-04-08T08:00:00+00:00', 'temperature_c': 3.0, 'is_freezing': False}
+        kontroller = [kontroll(1, gammalt(), 'h13.hqc', '2026-04-13'), kontroll(2, gammalt(), 'h15.hqc', '2026-04-15'),
+                      kontroll(3, gammalt(), 'h21.hqc', '2026-04-21')]
+        M.requests = fr = FejkRequests(kontroller, {'h13.hqc': fil, 'h15.hqc': fil, 'h21.hqc': fil})
+        r = M.komplettera_saknat_vader(max_antal=None, http=RaknaHttp(bra), nu=NU, skriv_over=True)
+        self.assertEqual((r['ersatta'], r['redan_ratta']), (3, 0))
+        self.assertEqual([k['weather_at_harvest']['harvest_time'][:10] for k in fr.kontroller],
+                         ['2026-04-13', '2026-04-15', '2026-04-21'])
+        fr.anrop.clear()
+        r2 = M.komplettera_saknat_vader(max_antal=None, http=RaknaHttp(bra), nu=NU, skriv_over=True)
+        self.assertEqual((r2['ersatta'], r2['redan_ratta']), (0, 3))
+        self.assertFalse([a for a in fr.anrop if a[0] == 'PATCH'])
 
 
 class SkrivOver(unittest.TestCase):

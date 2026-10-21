@@ -24,9 +24,18 @@ syns i datahälsan). Rader som redan har väder rörs aldrig (`weather_at_harves
 Kön rör sig alltid framåt: kontroller utan användbar position eller som Open-Meteo avvisar (4xx) skrivs till `import_fel` som
 `VADER_PERMANENT` och hoppas över därefter; taket (25) räknar bara riktiga nätanrop. Första nätverksfelet (timeout, 5xx, 429)
 avbryter kompletteringen för den importen och loggas en gång.
+**Vilken stam som väljs (Martin 2026-10-21, `valj_vaderpunkt`):** Scorpionens HQC-filer är ackumulerande (en fil innehåller ofta
+stammar från tidigare kontroller), så "tidigaste stammen i filen" gav 34 av 330 kontroller väder från mer än ett dygn före
+sitt eget datum (Hössjömåla id 1238/1245/1297 fick alla 8 april). Regel: bland stammarna vars skördedatum (LOKAL tid) är
+kontrollens datum (`fakt_kalibrering.datum`) den tidigaste som har GPS; finns ingen sådan, den SENASTE stammen i filen med GPS.
+Samma funktion i importen, kompletteringen och backfill-skriptet. Mätt mot prod 2026-10-21 (läsande SQL): gamla regeln 34 av 330
+mer än ett dygn före, nya 14 av 330 — de 14 har ingen stam på kontrollens dag (filen exporterades efter mätningen, 13 av dem har
+en enda skördedag) och får den senaste stammen. 299 kontroller har stam på dagen, 31 använder reserven, 77 byter stam. Kvarvarande
+tveksamhet: 4 kontroller (id 1281, 1214, 1217, 9823) har stammar samma dag mer än 5 km isär (1281: 39 km, Äskebäck 09:06 och en annan
+plats 16:43) — datumregeln väljer den tidigaste. Id 1281:s sparade väder (16:43) kommer från engångskörningen i maj, inte från importen.
 Backfill: `python scripts/backfill-kontroll-vader.py` (torrkörning) / `--skriv`. `--skriv-over` (bara skriptet, aldrig importen)
 hämtar om väder även för rader som har det, med rätt UTC-tid; gamla värden sparas först i en säkerhetskopia (`--aterstall FIL`
-lägger tillbaka dem). Test: `python scripts/test_vader_vid_skord.py` (36 tester, 13 mutanter dödade).
+lägger tillbaka dem). Test: `python scripts/test_vader_vid_skord.py` (47 tester, 13 + 11 mutanter dödade) och `python scripts/test_backfill_jamfor.py` (14).
 **Läget 2026-10-21 före backfill:** 176 av 328 har väder; alla 152 utan har användbar GPS-position och skördetid; 3
 (från 19 okt) är yngre än 6 dygn och fylls i av importen när ERA5 är klart.
 **Gamla rader:** de 176 har `harvest_time` med svensk väggklocka stämplad som UTC (1–2 h fel); beslut Martin 2026-10-21: hämta

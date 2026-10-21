@@ -10,11 +10,13 @@
 
 Kräver NEXT_PUBLIC_SUPABASE_URL (eller SUPABASE_URL) och SUPABASE_SERVICE_ROLE_KEY i miljön (samma som importen) och
 nätåtkomst till archive-api.open-meteo.com. Använder EXAKT samma funktioner som importen (skogsmaskin_import_version_6.py:
-komplettera_saknat_vader) — position = första skördade stammens GPS, tid = tidigaste skördetid i filen, närmaste hela
-timme i UTC.
+komplettera_saknat_vader) — stammen väljs av valj_vaderpunkt: HQC-filerna är ackumulerande (en fil innehåller ofta stammar
+från tidigare kontroller), så det är den tidigaste stammen med GPS vars skördedatum (lokal tid) är kontrollens datum
+(fakt_kalibrering.datum), annars den senaste stammen med GPS; tiden är närmaste hela timme i UTC.
 
 --skriv-over finns BARA här, aldrig i importen. De 176 första raderna (hämtade 2026-05-20) har harvest_time som svensk
-väggklocka stämplad som UTC, 1–2 h fel; de hämtas om med rätt tid. Bara rader där den lagrade tiden skiljer sig från den rätta
+väggklocka stämplad som UTC, 1–2 h fel, och en del har väder från fel STAM (en gammal kontrolls i en ackumulerande fil);
+de hämtas om med rätt tid och rätt stam. Bara rader där den lagrade tiden skiljer sig från den rätta
 ändras (en omkörning ändrar inget), en rad skrivs bara om den fortfarande har det väder som lästes (fetched_at), och de gamla
 värdena sparas FÖRST i en säkerhetskopia (--sakerhetskopia FIL, annars kontroll-vader-fore-<tid>.json) som --aterstall läser.
 
@@ -88,6 +90,14 @@ def ar_frost(vader):
     return None if t is None else float(t) < 0
 
 
+def dagar_fran_datum(m, datum, tid_utc):
+    """Hela lokala kalenderdagar mellan kontrollens datum och väderögonblickets lokala dag (positivt = vädret är från FÖRE
+    kontrollen). None om något saknas."""
+    if datum is None or tid_utc is None:
+        return None
+    return (datum - m.utc_till_stockholm_lokal(tid_utc).date()).days
+
+
 def jamfor_gamla(m, http=None, nu=None):
     """LÄSLÄGE. För varje kontroll som HAR väder: hämta det väder som --skriv-over skulle ha skrivit och ställ det mot det
     gamla. Läser bara (GET) — skriver aldrig. Returnerar {'rader': [...], 'redan_ratta', 'inte_klara',
@@ -101,7 +111,7 @@ def jamfor_gamla(m, http=None, nu=None):
     sist_id = 0
     while True:
         r = m.requests.get(f"{m.SUPABASE_URL}/rest/v1/fakt_kalibrering?id=gt.{sist_id}&weather_at_harvest=not.is.null"
-                           f"&select=id,filnamn,maskin_id,weather_at_harvest&order=id.asc&limit={m.VADER_PAGINERING}",
+                           f"&select=id,filnamn,maskin_id,datum,weather_at_harvest&order=id.asc&limit={m.VADER_PAGINERING}",
                            headers=m.SUPABASE_HEADERS, timeout=30)
         if r.status_code != 200:
             res['avbrutet'] = f"kunde inte läsa kontroller: {r.status_code} {r.text[:120]}"
@@ -124,7 +134,7 @@ def jamfor_gamla(m, http=None, nu=None):
                             'stem_lon': None if s.get('stem_lon') is None else float(s['stem_lon']),
                             'harvest_date': m.db_tid_till_lokal(s.get('harvest_date'), bool(s.get('tid_ar_utc')))}
                            for s in sresp.json()]
-                punkt = m.valj_vaderpunkt(stockar)
+                punkt = m.valj_vaderpunkt(stockar, rad.get('datum'))
                 if punkt is None:
                     res['misslyckade'].append((rad['id'], rad['filnamn'], 'ingen stock med både GPS-position och skördetid'))
                     continue
@@ -146,8 +156,11 @@ def jamfor_gamla(m, http=None, nu=None):
                         res['misslyckade'].append((rad['id'], rad['filnamn'], skal))
                     continue
                 gc, nc = gammalt.get('temperature_c'), ny.get('temperature_c')
+                datum = m._datum_av(rad.get('datum'))
                 res['rader'].append({
-                    'id': rad['id'], 'filnamn': rad['filnamn'],
+                    'id': rad['id'], 'filnamn': rad['filnamn'], 'datum': datum,
+                    'gammal_dagar': dagar_fran_datum(m, datum, gammal_tid),
+                    'ny_dagar': dagar_fran_datum(m, datum, punkt[2]),
                     'gammal_tid': gammal_tid, 'ny_tid': punkt[2],
                     'gammal_c': None if gc is None else float(gc), 'ny_c': float(nc),
                     'diff': None if gc is None else float(nc) - float(gc),
@@ -163,12 +176,12 @@ def skriv_jamforelse(res, ut=print):
     ut(f"Gamla rader med fel tid som skulle ersättas: {len(rader)}  |  redan rätt tid: {res['redan_ratta']}  |  "
        f"inte klara än: {res['inte_klara']}  |  misslyckade: {len(res['misslyckade'])}")
     ut("")
-    ut("   id  fil                                  gammal tid (UTC)  ny tid (UTC)       gammal °C   ny °C   skillnad  frost")
+    ut("   id  fil                                  kontroll    gammal tid (UTC)  ny tid (UTC)       gammal °C   ny °C   skillnad  frost")
     for x in rader:
         fr = ('' if x['gammal_frost'] == x['ny_frost'] else
               ('frost -> ej frost' if x['gammal_frost'] else 'ej frost -> frost'))
         ft = lambda t: '-' if t is None else f"{t:%Y-%m-%d %H:%M}"
-        ut(f"{x['id']:>5}  {str(x['filnamn'])[:36]:<36}  {ft(x['gammal_tid']):<16}  {ft(x['ny_tid']):<16}  "
+        ut(f"{x['id']:>5}  {str(x['filnamn'])[:36]:<36}  {str(x['datum'] or '-'):<10}  {ft(x['gammal_tid']):<16}  {ft(x['ny_tid']):<16}  "
            f"{'-' if x['gammal_c'] is None else format(x['gammal_c'], '.1f'):>9}  {x['ny_c']:>6.1f}  "
            f"{'-' if x['diff'] is None else format(x['diff'], '+.1f'):>8}  {fr}")
     med_diff = [x for x in rader if x['diff'] is not None]
@@ -179,6 +192,12 @@ def skriv_jamforelse(res, ut=print):
         ut(f"Största skillnad: {storst['diff']:+.1f} °C  (id {storst['id']}, {storst['filnamn']}: {storst['gammal_c']:.1f} -> {storst['ny_c']:.1f})")
     else:
         ut("Ingen rad att jämföra.")
+    # Rätt stam? Ett väder från mer än ett dygn FÖRE kontrollens eget datum är en gammal kontrolls (ackumulerande fil).
+    gamla = [x for x in rader if x['gammal_dagar'] is not None and x['gammal_dagar'] > 1]
+    nya = [x for x in rader if x['ny_dagar'] is not None and x['ny_dagar'] > 1]
+    ut(f"Väder från mer än ett dygn före kontrollens datum: gammalt {len(gamla)} av {len(rader)}, nytt {len(nya)} av {len(rader)}")
+    for x in nya:
+        ut(f"  FORTFARANDE FEL STAM?  id {x['id']}  {x['filnamn']}: kontroll {x['datum']}, nytt väder {x['ny_dagar']} dygn före")
     byten = [x for x in rader if x['gammal_frost'] is not None and x['ny_frost'] is not None and x['gammal_frost'] != x['ny_frost']]
     ut(f"Byter mellan frost och inte frost: {len(byten)} av {len(rader)}")
     for x in byten:
