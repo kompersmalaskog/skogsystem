@@ -1,5 +1,5 @@
 "use client"
-import { underTopbar, medSafeBotten } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, medSafeBotten, FARG, TYP } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useState, useEffect, useRef, Fragment, Children, Suspense, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -489,7 +489,7 @@ type RObjekt = {
   maskin_id?: string | null; maskin_typ?: string | null; start_date?: string | null; end_date?: string | null
   huvudtyp?: string | null; atgard?: string | null; avtalsform?: string | null
   skordning_avslutad?: string | null; skotning_avslutad?: string | null
-  exkludera?: boolean | null; egen_skotning?: boolean | null; risskotning?: boolean | null; ovrigt_info?: string | null
+  exkludera?: boolean | null; special?: boolean | null; special_skal?: string | null; egen_skotning?: boolean | null; risskotning?: boolean | null; ovrigt_info?: string | null
   [falt: string]: unknown
 }
 
@@ -3001,6 +3001,37 @@ function SheetOversikt({ obj, set, oppnaSub, bolag, setBolag, listAtgarder, atga
         {visaSkotare && <NavRad label="🚜 Skotare — färdigskotat & fördelning" summary={skotareSum.text} warn={skotareSum.warn} onClick={() => oppnaSub('skotare')} />}
         <NavRad label="Extern skotare (inlejd)" summary={obj._extern_skotning ? 'Extern skotare' : '—'} warn={false} onClick={() => oppnaSub('skotning')} />
         <NavRad label="Pris & ersättning" summary={prisSum.text} warn={prisSum.warn} onClick={() => oppnaSub('pris')} />
+      </IosGroup>
+
+      {/* Special-objekt (vindfällor, stormskadat): syns med en badge i maskinvyn och ska kunna uteslutas ur framtida
+          jämförelser. Ändrar ingen siffra idag. Skild från Exkludera nedan, som döljer objektet helt. */}
+      <IosGroup title="Special-objekt">
+        <div style={{ padding: '12px 16px' }}>
+          <EgenskapSwitch
+            label="Special (t.ex. vindfällor, stormskadat)"
+            active={obj.special === true}
+            onClick={async () => {
+              const v = obj.special !== true
+              const fore = obj
+              set({ ...obj, special: v, special_skal: v ? obj.special_skal ?? null : null })
+              const ok = await direktSpara(v ? { special: true } : { special: false, special_skal: null })
+              if (!ok) set(fore)
+            }}
+            orange={false}
+          />
+          <div style={{ ...TYP.meta, color: FARG.text3, marginTop: 8 }}>
+            Objektet är kvar i statistiken och syns med markeringen Special i maskinvyn. Det ska kunna uteslutas ur framtida prestandajämförelser.
+          </div>
+        </div>
+        {obj.special === true && (
+          <PlanText label="Skäl" value={obj.special_skal} placeholder="t.ex. Vindfällor efter stormen"
+            onCommit={async (v: string | null) => {
+              const fore = obj
+              set({ ...obj, special_skal: v })
+              const ok = await direktSpara({ special_skal: v })
+              if (!ok) set(fore)
+            }} />
+        )}
       </IosGroup>
 
       {/* Exkludera — medvetet ÖPPEN rad längst ned, aldrig gömd i undersida */}
