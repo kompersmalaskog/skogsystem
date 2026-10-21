@@ -11,15 +11,19 @@ const h = vi.hoisted(() => ({
   tabeller: {} as Record<string, any[]>,
   insatt: [] as any[],
   fel: null as { message: string } | null,
+  felTabell: null as string | null,
   router: { replace: vi.fn(), push: vi.fn() },
 }));
 
-function svar(rader: any[]) {
+function svar(rader: any[], t: string) {
+  const fel = () => (h.felTabell === t ? { message: 'nät' } : h.fel);
   const kedja: any = {
-    eq: (k: string, v: any) => svar(rader.filter(r => r[k] === v)),
+    eq: (k: string, v: any) => svar(rader.filter(r => r[k] === v), t),
+    in: (k: string, v: any[]) => svar(rader.filter(r => v.includes(r[k])), t),
+    gt: (k: string, v: any) => svar(rader.filter(r => r[k] > v), t),
     order: () => kedja,
-    range: (a: number, b: number) => Promise.resolve({ data: rader.slice(a, b + 1), error: h.fel }),
-    then: (ok: any, nej: any) => Promise.resolve({ data: rader, error: h.fel }).then(ok, nej),
+    range: (a: number, b: number) => Promise.resolve({ data: fel() ? null : rader.slice(a, b + 1), error: fel() }),
+    then: (ok: any, nej: any) => Promise.resolve({ data: rader, error: fel() }).then(ok, nej),
   };
   return kedja;
 }
@@ -27,7 +31,7 @@ function svar(rader: any[]) {
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: (t: string) => ({
-      select: () => svar(h.tabeller[t] ?? []),
+      select: () => svar(h.tabeller[t] ?? [], t),
       insert: (rad: any) => { h.insatt.push(rad); h.tabeller[t] = [...(h.tabeller[t] ?? []), { id: `ny${h.insatt.length}`, ...rad }]; return Promise.resolve({ error: null }); },
     }),
   },
@@ -50,6 +54,7 @@ const knapp = (namn: string) => [...container.ownerDocument.querySelectorAll('bu
 beforeEach(() => {
   h.insatt = [];
   h.fel = null;
+  h.felTabell = null;
   h.tabeller = {
     maskiner: [
       { id: 'm-wis', maskin_id: 'A030353', namn: 'gammalt namn', aktiv: true },
@@ -156,5 +161,62 @@ describe('Ny åtgärd', () => {
     expect(text()).toContain('Vilket hjul');
     await act(async () => { knapp('H2').click(); });
     expect(knapp('H2').getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('maskintimmar', () => {
+  // Wisent: avläst 4 512 h den 2 okt, sedan 12 h motortid ur filerna (avläsningsdagen själv räknas inte).
+  // Giant: service vid 900 h i maj, avläst 1 812 h i okt → 1 800-servicen är 12 h över.
+  beforeEach(() => {
+    h.tabeller.maskiner = h.tabeller.maskiner.map(m => ({ ...m, service_intervall_h: 900 }));
+    h.tabeller.maskin_timmatare = [
+      { id: 't1', maskin_id: 'm-wis', datum: '2026-10-02', timmar: 4512 },
+      { id: 't2', maskin_id: 'm-gia', datum: '2026-10-01', timmar: 1812 },
+    ];
+    h.tabeller.maskin_service = [...h.tabeller.maskin_service,
+      { id: 's', maskin_id: 'm-gia', kategori: 'service', del: 'service', beskrivning: '900-timmarsservice', datum: '2026-05-01', kalla: 'manuell', timmar: 900 }];
+    h.tabeller.fakt_tid = [
+      { id: 1, maskin_id: 'A030353', datum: '2026-10-02', engine_time_sek: 36000 },
+      { id: 2, maskin_id: 'A030353', datum: '2026-10-05', engine_time_sek: 18000 },
+      { id: 3, maskin_id: 'A030353', datum: '2026-10-05', engine_time_sek: 18000 },
+      { id: 4, maskin_id: 'A030353', datum: '2026-10-15', engine_time_sek: 7200 },
+      { id: 5, maskin_id: 'R64428', datum: '2026-10-15', engine_time_sek: 99999 },
+    ];
+  });
+  it('listan: timmarna till höger, nedräkningen under och svaret överst', async () => {
+    await montera(null);
+    expect(text()).toContain('1 behöver service snart');
+    expect(text()).toContain('ca 4 524 h');
+    expect(text()).toContain('Service om 876 h');
+    expect(text()).toContain('1 812 h');
+    expect(text()).not.toContain('ca 1 812 h');
+    expect(text()).toContain('Dags för service · 12 h över');
+  });
+  it('maskinen: timmarna stort, nästa steg och var talet kommer ifrån', async () => {
+    await montera('m-wis');
+    expect(container.querySelector('[data-timmar]')?.textContent).toContain('ca 4 524 h');
+    expect(text()).toContain('Nästa vid 5 400 h');
+    expect(text()).toContain('Avläst 2 okt: 4 512 h · sedan dess +12 h från maskinen');
+  });
+  it('Läs av timmätaren sparar avläsningen och läser om', async () => {
+    await montera('m-wis');
+    await act(async () => { (container.querySelector('[data-las-av]') as HTMLElement).click(); });
+    expect(knapp('Spara').disabled).toBe(true);
+    const inp = container.ownerDocument.querySelector('#sl-tim') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(inp, '4 600');
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { knapp('Spara').click(); });
+    for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve(); });
+    expect(h.insatt[0]).toEqual({ maskin_id: 'm-wis', datum: '2026-10-21', timmar: 4600 });
+    expect(container.querySelector('[data-timmar]')?.textContent).toContain('4 600 h');
+  });
+  it('går avläsningarna inte att läsa visas inga timmar — aldrig gissade — och det sägs', async () => {
+    h.felTabell = 'maskin_timmatare';
+    await montera(null);
+    expect(text()).toContain('Timmarna kunde inte läsas just nu');
+    expect(text()).not.toMatch(/\d h\b/);
+    expect(text()).toContain('Ponsse Wisent');
   });
 });
