@@ -357,21 +357,6 @@ async function fetchSkotareSerie(
   }))
 }
 
-// ── Elephant King-not ─────────────────────────────────────────
-// Visas i operatörslistan OCH i djupvyn för A110148.
-function EkDisclaimer() {
-  return (
-    <div style={{
-      background: 'rgba(255,159,10,0.10)',
-      border: '0.5px solid rgba(255,159,10,0.30)',
-      borderRadius: 10, padding: '10px 14px', marginBottom: 14,
-      fontSize: 12, color: '#ff9f0a', lineHeight: 1.5,
-    }}>
-      Volym/lass registreras inte komplett än – m³/G15h blir korrekt när registreringen är igång.
-    </div>
-  )
-}
-
 // ── Hero-kort ─────────────────────────────────────────────────
 // Separerat från skördarens HeroCard eftersom trendvärdet är
 // volym (m³), inte produktivitet (m³/G15h).
@@ -648,7 +633,6 @@ function DistKlasserKort({
 //
 // Visar per förare: utkört m³, lass, m³/G15h, snittlass,
 // snittsträcka, tidsfördelning, avståndsprofil.
-// EK-disclaimer visas för A110148.
 function SkotareOperatorDeepView({
   maskin, period, offset, periodLabel, operator, onClose,
 }: {
@@ -693,8 +677,6 @@ function SkotareOperatorDeepView({
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [maskin.id, period, offset, operator.id, operator.ids?.join(',')])
-
-  const isEK = maskin.id === 'A110148'
 
   const kpiRows = [
     { label: 'Utkört',       val: data?.volym       ?? null, unit: 'm³sub',   dec: 0 },
@@ -771,9 +753,6 @@ function SkotareOperatorDeepView({
 
       {/* Innehåll */}
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '8px 16px 80px' }}>
-        {/* EK-disclaimer — bara för Elephant King */}
-        {isEK && <EkDisclaimer />}
-
         {/* KPI-lista */}
         <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
           {kpiRows.map((r, i) => (
