@@ -1,6 +1,6 @@
 'use client'
-import { underTopbar } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
-import { TALL_FARG } from '@/lib/tradslag'
+import { underTopbar, RADIE, AVSTAND, TYP, VIKT, medSafeBotten, FARG, FONT, kolumnRot } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { tradslagFarg, tradslagLabel } from '@/lib/tradslag'
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -8,8 +8,7 @@ import { aktivNuStatus, type AktivNiva } from '@/lib/maskinvy/aktivNu'
 import { useMinutklocka } from './useMinutklocka'
 import { sthlmDagGranserUtc, optiLokalDag, optiLokalTimme } from '@/lib/optiTid'
 import {
-  C, FONT, MASKINER, COMBO_IDS, fmtSv, fmtTid,
-  type Maskin,
+  MASKINER, COMBO_IDS, fmtSv, fmtTid, type Maskin, FLYTT_FARG, tint,
 } from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
@@ -49,13 +48,9 @@ function toTitleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
 }
 
-/** Artfärg för proportionsstaplar i HourPanel */
+/** Artfärg för proportionsstaplar i HourPanel — appens EN trädslagspalett (lib/tradslag), ingen egen skala. */
 function tradslakFarg(namn: string): string {
-  const u = (namn || '').toUpperCase()
-  if (u.startsWith('GRAN'))                            return '#30d158'
-  if (u.startsWith('TALL'))                            return TALL_FARG
-  if (u.startsWith('BJÖRK') || u.startsWith('BJORK')) return '#ffd60a'
-  return '#636366'
+  return tradslagFarg(tradslagLabel(namn))
 }
 
 /** Extrahera timme (0–23) ur UTC-timestamp i Stockholm-tid */
@@ -338,16 +333,16 @@ function FreshnessRow({
 }) {
   const nu = useMinutklocka()          // hooks före tidiga returer
   const baseStyle: React.CSSProperties = {
-    background: C.card, borderRadius: 14,
-    padding: '14px 18px', marginBottom: 12,
-    display: 'flex', alignItems: 'center', gap: 10,
+    background: FARG.kort, borderRadius: RADIE.kort,
+    padding: `${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12,
+    display: 'flex', alignItems: 'center', gap: AVSTAND.m,
   }
 
   if (loading) {
     return (
       <div style={baseStyle}>
-        <div style={{ width: 8, height: 8, borderRadius: 4, background: C.dim, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, color: C.muted }}>Kontrollerar dataålder…</span>
+        <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.text3, flexShrink: 0 }} />
+        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Kontrollerar dataålder…</span>
       </div>
     )
   }
@@ -355,8 +350,8 @@ function FreshnessRow({
   if (!freshness) {
     return (
       <div style={baseStyle}>
-        <div style={{ width: 8, height: 8, borderRadius: 4, background: C.dim, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, color: C.muted }}>Ingen data i databasen</span>
+        <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.text3, flexShrink: 0 }} />
+        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Ingen data i databasen</span>
       </div>
     )
   }
@@ -376,21 +371,21 @@ function FreshnessRow({
     labelText = `Senaste körning: ${fmtDatumSv(freshness.senasteDatum)} · ${freshness.daysDiff} dagar sedan`
   }
   const aktiv = niva === 'aktiv'
-  const dotColor = aktiv ? C.green : niva === 'sen' ? C.yellow : C.dim
+  const dotColor = aktiv ? FARG.gron : niva === 'sen' ? FARG.gul : FARG.text3
 
   return (
     <div style={{
       ...baseStyle,
-      border: isToday ? 'none' : `0.5px solid rgba(255,159,10,0.25)`,
+      border: isToday ? 'none' : `0.5px solid ${tint(FARG.orange, 25)}`,
     }}>
       <div style={{
-        width: 8, height: 8, borderRadius: 4,
+        width: 8, height: 8, borderRadius: RADIE.stapel,
         background: dotColor, flexShrink: 0,
-        boxShadow: aktiv ? `0 0 0 3px rgba(48,209,88,0.18)` : 'none',
+        boxShadow: aktiv ? `0 0 0 3px ${tint(FARG.gron, 18)}` : 'none',
       }} />
       <span style={{
-        fontSize: 13,
-        color: isToday && niva !== 'inget' && niva !== 'saknas' ? C.text : C.muted,
+        fontSize: TYP.meta.fontSize,
+        color: isToday && niva !== 'inget' && niva !== 'saknas' ? FARG.text : FARG.text2,
         fontVariantNumeric: 'tabular-nums',
       }}>
         {labelText}
@@ -413,8 +408,8 @@ function SiffraCard({ data, loading }: { data: IdagData | null; loading: boolean
   ]
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 16px', marginBottom: 12 }}>
-      <div style={{ fontSize: 12, color: C.muted, marginBottom: 14, letterSpacing: -0.1, fontWeight: 500 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12 }}>
+      <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginBottom: AVSTAND.l, letterSpacing: -0.1, fontWeight: VIKT.halvfet }}>
         {datumLabel}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
@@ -424,17 +419,17 @@ function SiffraCard({ data, loading }: { data: IdagData | null; loading: boolean
             style={{
               paddingRight: i < 2 ? 12 : 0,
               paddingLeft:  i > 0 ? 12 : 0,
-              borderRight: i < 2 ? `0.5px solid ${C.divider}` : 'none',
+              borderRight: i < 2 ? `0.5px solid ${FARG.linje}` : 'none',
             }}
           >
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>{item.label}</div>
+            <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginBottom: AVSTAND.xs }}>{item.label}</div>
             <div style={{
-              fontSize: 26, fontWeight: 600, letterSpacing: -0.7,
-              color: C.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+              fontSize: TYP.titel.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.7,
+              color: FARG.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
             }}>
               {loading ? '—' : item.display}
             </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{item.unit}</div>
+            <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs }}>{item.unit}</div>
           </div>
         ))}
       </div>
@@ -442,18 +437,18 @@ function SiffraCard({ data, loading }: { data: IdagData | null; loading: boolean
       {/* Produktivitet — sekundär rad */}
       {!loading && data && data.produktivitet !== null && (
         <div style={{
-          marginTop: 16, paddingTop: 14,
-          borderTop: `0.5px solid ${C.divider}`,
-          display: 'flex', alignItems: 'baseline', gap: 6,
+          marginTop: 16, paddingTop: AVSTAND.l,
+          borderTop: `0.5px solid ${FARG.linje}`,
+          display: 'flex', alignItems: 'baseline', gap: AVSTAND.s,
         }}>
-          <span style={{ fontSize: 13, color: C.muted }}>Produktivitet</span>
+          <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Produktivitet</span>
           <span style={{
-            fontSize: 20, fontWeight: 600, letterSpacing: -0.5,
-            color: C.text, fontVariantNumeric: 'tabular-nums',
+            fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.5,
+            color: FARG.text, fontVariantNumeric: 'tabular-nums',
           }}>
             {fmtSv(data.produktivitet, 1)}
           </span>
-          <span style={{ fontSize: 12, color: C.muted }}>m³/G15h</span>
+          <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>m³/G15h</span>
         </div>
       )}
     </div>
@@ -540,19 +535,19 @@ function RytmChart({
 
       // Färg
       let barFill: string
-      if (isFuture)       barFill = C.divider                     // #2c2c2e platshållare
-      else if (isCurrent) barFill = 'rgba(48,209,88,0.55)'        // pågående timme
-      else if (hasCount)  barFill = C.green                       // förfluten timme med stammar
+      if (isFuture)       barFill = FARG.upphojt                     // #2c2c2e platshållare
+      else if (isCurrent) barFill = tint(FARG.gron, 55)        // pågående timme
+      else if (hasCount)  barFill = FARG.gron                       // förfluten timme med stammar
       else                barFill = 'transparent'
 
       const showLabel  = i % showEvery === 0
-      const labelColor = isFuture ? C.dim : (isSelected ? '#fff' : C.muted)
+      const labelColor = isFuture ? FARG.text3 : (isSelected ? FARG.text : FARG.text2)
 
       return (
         <g key={h}>
           {/* Platshållare för framtida timmar */}
           {isFuture && (
-            <rect x={x} y={0} width={barW} height={CHART_H} rx={2} fill={C.divider} />
+            <rect x={x} y={0} width={barW} height={CHART_H} rx={2} fill={FARG.upphojt} />
           )}
           {/* Faktisk stapel */}
           {(hasCount || isCurrent) && (
@@ -561,12 +556,12 @@ function RytmChart({
           {/* Tunn markering för förflutna nolltimmar (rast etc.) */}
           {!hasCount && !isFuture && (
             <rect x={x} y={CHART_H - 2} width={barW} height={2} rx={1}
-                  fill={C.dim} opacity={0.35} />
+                  fill={FARG.text3} opacity={0.35} />
           )}
           {/* Selektion-indikator: vit linje i botten av stapelområdet */}
           {isSelected && (
             <rect x={x} y={CHART_H - 3} width={barW} height={3} rx={1.5}
-                  fill="#fff" opacity={0.85} />
+                  fill={FARG.text} opacity={0.85} />
           )}
           {/* Timlabel */}
           {showLabel && (
@@ -597,9 +592,9 @@ function RytmChart({
   }
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 14px', marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 1 }}>Dagens rytm</div>
-      <div style={{ fontSize: 11, color: C.dim, marginBottom: 16 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12 }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2 }}>Dagens rytm</div>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3, marginBottom: 16 }}>
         stammar per timme{onBarClick ? ' · tryck på stapel för detaljer' : ''}
       </div>
 
@@ -609,14 +604,14 @@ function RytmChart({
             height: CHART_H + LABEL_H,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <span style={{ fontSize: 12, color: C.muted }}>Laddar…</span>
+            <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Laddar…</span>
           </div>
         ) : !hasRytm ? (
           <div style={{
             height: CHART_H + LABEL_H,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <span style={{ fontSize: 12, color: C.dim }}>Rytmdata saknas för denna maskin</span>
+            <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>Rytmdata saknas för denna maskin</span>
           </div>
         ) : populatedHours.length === 0 && !isFresh ? (
           <div style={{
@@ -624,7 +619,7 @@ function RytmChart({
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             textAlign: 'center', padding: '0 12px',
           }}>
-            <span style={{ fontSize: 12, color: C.dim }}>
+            <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>
               {hasMomTider
                 ? 'Maskinen har kört (körtid finns) men stamdata saknas — kontrollera att OneDrive synkats i maskinen.'
                 : 'Inga stämpeltider registrerade för denna dag'}
@@ -643,10 +638,10 @@ function RytmChart({
 
       {/* Förklaring av ljusare stapel */}
       {!loading && hasRytm && isFresh && populatedHours.length > 0 && (
-        <div style={{ display: 'flex', gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
-          <LegendDot color={C.green} label="Förflutna timmar" />
-          <LegendDot color="rgba(48,209,88,0.55)" label="Pågående timme" />
-          <LegendDot color={C.divider} label="Kommande timmar" />
+        <div style={{ display: 'flex', gap: AVSTAND.l, marginTop: 12, flexWrap: 'wrap' }}>
+          <LegendDot color={FARG.gron} label="Förflutna timmar" />
+          <LegendDot color={tint(FARG.gron, 55)} label="Pågående timme" />
+          <LegendDot color={FARG.upphojt} label="Kommande timmar" />
         </div>
       )}
     </div>
@@ -655,9 +650,9 @@ function RytmChart({
 
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-      <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-      <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+      <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: color, flexShrink: 0 }} />
+      <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>{label}</span>
     </div>
   )
 }
@@ -680,23 +675,23 @@ function TradslagRow({
     <div style={{ marginBottom: 12 }}>
       <div style={{
         display: 'flex', justifyContent: 'space-between',
-        alignItems: 'baseline', marginBottom: 5,
+        alignItems: 'baseline', marginBottom: AVSTAND.xs,
       }}>
-        <span style={{ fontSize: 14, color: C.text, fontWeight: 500 }}>{display}</span>
-        <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text, fontWeight: VIKT.halvfet }}>{display}</span>
+        <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
           {count} st · {fmtSv(avgDbhCm, 1)} cm
         </span>
       </div>
       {/* Proportionsstapel */}
-      <div style={{ height: 5, background: C.divider, borderRadius: 3, overflow: 'hidden', marginBottom: 3 }}>
+      <div style={{ height: 5, background: FARG.upphojt, borderRadius: RADIE.stapel, overflow: 'hidden', marginBottom: AVSTAND.xs }}>
         <div style={{
           height: '100%',
           width: `${Math.round(pct * 100)}%`,
           background: barColor,
-          borderRadius: 3,
+          borderRadius: RADIE.stapel,
         }} />
       </div>
-      <div style={{ fontSize: 10, color: C.dim }}>{Math.round(pct * 100)} %</div>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3 }}>{Math.round(pct * 100)} %</div>
     </div>
   )
 }
@@ -707,11 +702,11 @@ function AvbrottRow({ avbrott }: { avbrott: AvbrottDetail }) {
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between',
-      alignItems: 'center', padding: '7px 0',
-      borderBottom: `0.5px solid ${C.divider}`,
+      alignItems: 'center', padding: `${AVSTAND.s}px 0`,
+      borderBottom: `0.5px solid ${FARG.linje}`,
     }}>
-      <span style={{ fontSize: 13, color: C.muted }}>{label}</span>
-      <span style={{ fontSize: 12, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>{label}</span>
+      <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text3, fontVariantNumeric: 'tabular-nums' }}>
         {fmtTid(avbrott.langd_sek)}
       </span>
     </div>
@@ -725,15 +720,15 @@ function AvbrottRow({ avbrott }: { avbrott: AvbrottDetail }) {
 // STÖRNING är downtime utöver runtime — visas separat som "Stillestånd".
 function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined }) {
   const sectionLabel: React.CSSProperties = {
-    fontSize: 11, color: C.muted, fontWeight: 600,
+    fontSize: TYP.micro.fontSize, color: FARG.text2, fontWeight: VIKT.halvfet,
     textTransform: 'uppercase', letterSpacing: 0.5,
-    marginBottom: 10,
+    marginBottom: AVSTAND.m,
   }
 
   const runtime = momHour ? [
-    { label: 'Processing',      min: momHour.processing, color: '#30d158' },
-    { label: 'Körning/terräng', min: momHour.terrain,    color: '#0a84ff' },
-    { label: 'Annat arbete',    min: momHour.other,      color: '#8e8e93' },
+    { label: 'Processing',      min: momHour.processing, color: FARG.gron },
+    { label: 'Körning/terräng', min: momHour.terrain,    color: FARG.bla },
+    { label: 'Annat arbete',    min: momHour.other,      color: FARG.text2 },
   ].filter(e => e.min > 0) : []
 
   const runtimeTotal   = runtime.reduce((s, e) => s + e.min, 0)
@@ -742,15 +737,15 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
   const hasAnything    = runtimeTotal > 0 || kortStoppMin > 0 || disturbanceMin > 0
 
   return (
-    <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14, marginBottom: 16 }}>
+    <div style={{ borderTop: `0.5px solid ${FARG.linje}`, paddingTop: AVSTAND.l, marginBottom: 16 }}>
       <div style={sectionLabel}>Maskinen den timmen</div>
       {!hasAnything ? (
-        <div style={{ fontSize: 13, color: C.dim }}>Tid ej tillgänglig</div>
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>Tid ej tillgänglig</div>
       ) : (
         <>
           {runtimeTotal > 0 && (
             <>
-              <div style={{ display: 'flex', height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
+              <div style={{ display: 'flex', height: 5, borderRadius: RADIE.stapel, overflow: 'hidden', marginBottom: AVSTAND.m }}>
                 {runtime.map(e => (
                   <div key={e.label} style={{ flex: e.min, background: e.color }} />
                 ))}
@@ -758,21 +753,21 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
               {runtime.map(e => (
                 <div key={e.label} style={{
                   display: 'flex', justifyContent: 'space-between',
-                  alignItems: 'center', marginBottom: 5,
+                  alignItems: 'center', marginBottom: AVSTAND.xs,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+                    <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: e.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text }}>{e.label}</span>
                   </div>
-                  <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
                     {e.min} min
                   </span>
                 </div>
               ))}
               {kortStoppMin > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 8, marginTop: 2, marginBottom: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 2, background: C.purple, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: C.muted }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, paddingLeft: 8, marginTop: AVSTAND.xs, marginBottom: 8 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: RADIE.stapel, background: FLYTT_FARG, flexShrink: 0 }} />
+                  <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>
                     varav {kortStoppMin} min korta stopp (ingår i ovan)
                   </span>
                 </div>
@@ -781,16 +776,16 @@ function TiderDelSection({ momHour }: { momHour: MomTiderHour | null | undefined
           )}
           {disturbanceMin > 0 && (
             <div style={{
-              marginTop: runtimeTotal > 0 ? 6 : 0,
+              marginTop: runtimeTotal > 0 ? AVSTAND.s : 0,
               paddingTop: runtimeTotal > 0 ? 8 : 0,
-              borderTop: runtimeTotal > 0 ? `0.5px solid ${C.divider}` : 'none',
+              borderTop: runtimeTotal > 0 ? `0.5px solid ${FARG.linje}` : 'none',
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 2, background: '#ff9f0a', flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: C.text }}>Stillestånd</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+                  <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.orange, flexShrink: 0 }} />
+                  <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text }}>Stillestånd</span>
                 </div>
-                <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
                   {disturbanceMin} min
                 </span>
               </div>
@@ -818,30 +813,30 @@ function TidPerTimmeKort({
   if (hours.length === 0) return null
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 6px', marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 1 }}>Körtid per timme</div>
-      <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.s}px`, marginBottom: 12 }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2 }}>Körtid per timme</div>
+      <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3, marginBottom: 4 }}>
         Ur maskindatorn · stapeln = runtime (processing + körning + annat arbete)
       </div>
       {hours.map(h => {
         const m = momTider[h]
         const runtime = [
-          { label: 'Processing',      min: m.processing, color: '#30d158' },
-          { label: 'Körning/terräng', min: m.terrain,    color: '#0a84ff' },
-          { label: 'Annat arbete',    min: m.other,      color: '#8e8e93' },
+          { label: 'Processing',      min: m.processing, color: FARG.gron },
+          { label: 'Körning/terräng', min: m.terrain,    color: FARG.bla },
+          { label: 'Annat arbete',    min: m.other,      color: FARG.text2 },
         ].filter(e => e.min > 0)
         const runtimeTotal   = runtime.reduce((s, e) => s + e.min, 0)
         const kortStoppMin   = m.kort_stopp
         const disturbanceMin = m.disturbance
         if (runtimeTotal === 0 && kortStoppMin === 0 && disturbanceMin === 0) return null
         return (
-          <div key={h} style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 7 }}>
+          <div key={h} style={{ borderTop: `0.5px solid ${FARG.linje}`, paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, marginBottom: AVSTAND.s }}>
               kl {String(h).padStart(2, '0')}
             </div>
             {runtimeTotal > 0 && (
               <>
-                <div style={{ display: 'flex', height: 4, borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+                <div style={{ display: 'flex', height: 4, borderRadius: RADIE.stapel, overflow: 'hidden', marginBottom: 8 }}>
                   {runtime.map(e => (
                     <div key={e.label} style={{ flex: e.min, background: e.color }} />
                   ))}
@@ -851,19 +846,19 @@ function TidPerTimmeKort({
                     display: 'flex', justifyContent: 'space-between',
                     alignItems: 'center', marginBottom: 4,
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 2, background: e.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, color: C.text }}>{e.label}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+                      <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: e.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text }}>{e.label}</span>
                     </div>
-                    <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
                       {e.min} min
                     </span>
                   </div>
                 ))}
                 {kortStoppMin > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 8, marginTop: 2, marginBottom: 6 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: 2, background: C.purple, flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: C.muted }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, paddingLeft: 8, marginTop: AVSTAND.xs, marginBottom: AVSTAND.s }}>
+                    <div style={{ width: 6, height: 6, borderRadius: RADIE.stapel, background: FLYTT_FARG, flexShrink: 0 }} />
+                    <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>
                       varav {kortStoppMin} min korta stopp (ingår i ovan)
                     </span>
                   </div>
@@ -872,16 +867,16 @@ function TidPerTimmeKort({
             )}
             {disturbanceMin > 0 && (
               <div style={{
-                marginTop: runtimeTotal > 0 ? 6 : 0,
+                marginTop: runtimeTotal > 0 ? AVSTAND.s : 0,
                 paddingTop: runtimeTotal > 0 ? 6 : 0,
-                borderTop: runtimeTotal > 0 ? `0.5px solid ${C.divider}` : 'none',
+                borderTop: runtimeTotal > 0 ? `0.5px solid ${FARG.linje}` : 'none',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 2, background: '#ff9f0a', flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: C.text }}>Stillestånd</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
+                    <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: FARG.orange, flexShrink: 0 }} />
+                    <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text }}>Stillestånd</span>
                   </div>
-                  <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums' }}>
                     {disturbanceMin} min
                   </span>
                 </div>
@@ -953,32 +948,32 @@ function HourPanel({
   const endHour = selectedHour + 1
 
   const sectionLabel: React.CSSProperties = {
-    fontSize: 11, color: C.muted, fontWeight: 600,
+    fontSize: TYP.micro.fontSize, color: FARG.text2, fontWeight: VIKT.halvfet,
     textTransform: 'uppercase', letterSpacing: 0.5,
-    marginBottom: 10,
+    marginBottom: AVSTAND.m,
   }
 
   return (
     <div style={{
-      background: C.card, borderRadius: 14,
-      padding: '16px 18px 18px',
+      background: FARG.kort, borderRadius: RADIE.kort,
+      padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.l}px`,
       marginBottom: 12,
-      border: `0.5px solid rgba(255,255,255,0.07)`,
+      border: `0.5px solid ${FARG.linje}`,
     }}>
       {/* Header */}
       <div style={{
         display: 'flex', justifyContent: 'space-between',
-        alignItems: 'center', marginBottom: 18,
+        alignItems: 'center', marginBottom: AVSTAND.l,
       }}>
-        <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: -0.3 }}>
+        <span style={{ fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, letterSpacing: -0.3 }}>
           Kl {String(selectedHour).padStart(2, '0')}–{String(endHour).padStart(2, '0')}
         </span>
         <button
           onClick={onClose}
           style={{
-            background: 'rgba(120,120,128,0.18)', border: 'none',
-            color: C.muted, fontFamily: FONT, fontSize: 12,
-            cursor: 'pointer', padding: '4px 10px', borderRadius: 6,
+            background: FARG.linje, border: 'none',
+            color: FARG.text2, fontFamily: FONT, fontSize: TYP.meta.fontSize,
+            cursor: 'pointer', padding: `${AVSTAND.xs}px ${AVSTAND.m}px`, borderRadius: RADIE.stapel,
             letterSpacing: -0.1,
           }}
         >
@@ -987,14 +982,14 @@ function HourPanel({
       </div>
 
       {/* ── Trädslag ────────────────────────────────────────── */}
-      <div style={{ marginBottom: 18 }}>
+      <div style={{ marginBottom: AVSTAND.l }}>
         <div style={sectionLabel}>
           {totalStammar === 0
             ? 'Vad som kördes'
             : `Vad som kördes · ${totalStammar} stammar · snitt ${fmtSv(avgDbhCm, 1)} cm`}
         </div>
         {totalStammar === 0 ? (
-          <div style={{ fontSize: 13, color: C.dim }}>Inga stammar registrerade</div>
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>Inga stammar registrerade</div>
         ) : (
           tradEntries.map(t => (
             <TradslagRow
@@ -1009,12 +1004,12 @@ function HourPanel({
       </div>
 
       {/* ── Avbrott ─────────────────────────────────────────── */}
-      <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14, marginBottom: 18 }}>
+      <div style={{ borderTop: `0.5px solid ${FARG.linje}`, paddingTop: AVSTAND.l, marginBottom: AVSTAND.l }}>
         <div style={sectionLabel}>Avbrott</div>
         {hourAvbrott === null ? (
-          <div style={{ fontSize: 13, color: C.dim }}>Avbrottsdata kunde inte hämtas</div>
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>Avbrottsdata kunde inte hämtas</div>
         ) : hourAvbrott.length === 0 ? (
-          <div style={{ fontSize: 13, color: C.dim }}>Inga avbrott</div>
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text3 }}>Inga avbrott</div>
         ) : (
           <>
             {hourAvbrott.map((a, i) => <AvbrottRow key={i} avbrott={a} />)}
@@ -1026,7 +1021,7 @@ function HourPanel({
       <TiderDelSection momHour={momTider === null ? null : momTider?.[selectedHour]} />
 
       {/* ── Slutsatsrad ─────────────────────────────────────── */}
-      <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.5 }}>
+      <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, lineHeight: 1.5 }}>
         {slutsats}
       </div>
     </div>
@@ -1037,8 +1032,8 @@ function HourPanel({
 function HintRad() {
   return (
     <div style={{
-      textAlign: 'center', padding: '14px 0 6px',
-      fontSize: 12, color: C.dim,
+      textAlign: 'center', padding: `${AVSTAND.l}px 0 ${AVSTAND.s}px`,
+      fontSize: TYP.meta.fontSize, color: FARG.text3,
       letterSpacing: -0.1,
     }}>
       Tryck på en dag i Produktion för full historik
@@ -1085,35 +1080,35 @@ export default function IdagNy({ maskin, onMaskinChange }: {
     <div
       style={{
         position: 'fixed', top: underTopbar(), left: 0, right: 0, bottom: 0,
-        overflow: 'auto', background: C.bg, color: C.text,
+        overflow: 'auto', background: FARG.bg, color: FARG.text,
         fontFamily: FONT, fontFeatureSettings: '"tnum"',
       }}
     >
       {/* ── Sticky maskin-väljare ─────────────────────────────── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5,
-        background: C.bg,
-        borderBottom: `0.5px solid ${C.divider}`,
+        background: FARG.bg,
+        borderBottom: `0.5px solid ${FARG.linje}`,
       }}>
-        <div style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
+        <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.l}px`, textAlign: 'center', position: 'relative' }}>
           <button
             onClick={() => setMaskinOpen(o => !o)}
             aria-expanded={maskinOpen}
             style={{
-              background: 'transparent', border: 'none', color: C.text,
-              fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
-              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'transparent', border: 'none', color: FARG.text,
+              fontFamily: FONT, fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.3,
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s,
               padding: 0,
             }}
           >
             {maskin.namn}
-            <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
+            <span style={{ color: FARG.text2, fontSize: TYP.micro.fontSize }}>▾</span>
           </button>
 
           {maskinOpen && (
             <div style={{
               position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-              background: C.card, borderRadius: 12, marginTop: 6,
+              background: FARG.kort, borderRadius: RADIE.kort, marginTop: AVSTAND.s,
               minWidth: 260, overflow: 'hidden', zIndex: 100,
               boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
             }}>
@@ -1123,9 +1118,9 @@ export default function IdagNy({ maskin, onMaskinChange }: {
                   onClick={() => { onMaskinChange(m); setMaskinOpen(false) }}
                   style={{
                     display: 'block', width: '100%', padding: '12px 16px',
-                    background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
-                    border: 'none', color: C.text, fontFamily: FONT,
-                    fontSize: 14, cursor: 'pointer', textAlign: 'left',
+                    background: m.id === maskin.id ? FARG.linje : 'transparent',
+                    border: 'none', color: FARG.text, fontFamily: FONT,
+                    fontSize: TYP.meta.fontSize, cursor: 'pointer', textAlign: 'left',
                   }}
                 >{m.namn}</button>
               ))}
@@ -1135,7 +1130,7 @@ export default function IdagNy({ maskin, onMaskinChange }: {
       </div>
 
       {/* ── Innehåll ─────────────────────────────────────────── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '12px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
 
         {/* 1. Färskhet — vyns viktigaste element */}
         <FreshnessRow freshness={data?.freshness ?? null} loading={loading} />

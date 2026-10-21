@@ -1,10 +1,9 @@
 'use client'
-import { underTopbar, AVSTAND, VIKT } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { underTopbar, AVSTAND, VIKT, TYP, RADIE, medSafeBotten, FARG, FONT, kolumnRot } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  C, FONT, fmtSv, getPeriodRange, fetchAll, VolymBadge,
-  type Period,
+  fmtSv, getPeriodRange, fetchAll, VolymBadge, type Period,
 } from './OversiktShared'
 import {
   hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag, sumPerDag,
@@ -202,7 +201,7 @@ function BarChart({
         width: '100%', height: CHART_H + LABEL_H + 8,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {cw > 0 && <span style={{ fontSize: 12, color: C.muted }}>Laddar…</span>}
+        {cw > 0 && <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Laddar…</span>}
       </div>
     )
   }
@@ -221,12 +220,12 @@ function BarChart({
             <g key={t}>
               <line
                 x1={LEFT_PAD - 2} y1={y} x2={cw - RIGHT_PAD} y2={y}
-                stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
+                stroke={FARG.tonad} strokeWidth={0.5}
               />
               <text
                 x={LEFT_PAD - 5} y={y + 3.5}
                 textAnchor="end" fontSize={9}
-                fill={C.dim} fontFamily={FONT}
+                fill={FARG.text3} fontFamily={FONT}
               >
                 {fmtSv(t, t < 1 ? 2 : t < 10 ? 1 : 0)}
               </text>
@@ -287,7 +286,7 @@ function BarChart({
               <text
                 x={gx + groupW / 2} y={CHART_H + LABEL_H - 4}
                 textAnchor="middle" fontSize={10}
-                fill={C.muted} fontFamily={FONT}
+                fill={FARG.text2} fontFamily={FONT}
               >
                 {kl.short}
               </text>
@@ -300,34 +299,34 @@ function BarChart({
       {/* Tal vita, prefix (W:/EK:) och enheter (m³) i grått — samma princip som Översikt */}
       <div style={{
         display: 'grid', gridTemplateColumns: `repeat(${NK}, 1fr)`,
-        gap: 4, marginTop: 6,
+        gap: 4, marginTop: AVSTAND.s,
       }}>
         {KLASSER.map((_, ki) => {
           const wKl = wisent.klasser[ki]
           const eKl = ek.klasser[ki]
           return (
-            <div key={ki} style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
-              <div style={{ marginBottom: 1 }}>
+            <div key={ki} style={{ fontSize: TYP.micro.fontSize, fontVariantNumeric: 'tabular-nums' }}>
+              <div>
                 {wKl.lass > 0 ? (
                   <>
-                    <span style={{ color: C.muted }}>W: </span>
-                    <span style={{ color: C.text, fontWeight: 500 }}>{wKl.lass}</span>
-                    <span style={{ color: C.muted }}> · </span>
-                    <span style={{ color: C.text, fontWeight: 500 }}>{fmtSv(wKl.volym, 0)}</span>
-                    <span style={{ color: C.muted }}> m³</span>
+                    <span style={{ color: FARG.text2 }}>W: </span>
+                    <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{wKl.lass}</span>
+                    <span style={{ color: FARG.text2 }}> · </span>
+                    <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{fmtSv(wKl.volym, 0)}</span>
+                    <span style={{ color: FARG.text2 }}> m³</span>
                   </>
-                ) : <span style={{ color: C.dim }}>W: —</span>}
+                ) : <span style={{ color: FARG.text3 }}>W: —</span>}
               </div>
               <div>
                 {eKl.lass > 0 ? (
                   <>
-                    <span style={{ color: C.muted }}>EK: </span>
-                    <span style={{ color: C.text, fontWeight: 500 }}>{eKl.lass}</span>
-                    <span style={{ color: C.muted }}> · </span>
-                    <span style={{ color: C.text, fontWeight: 500 }}>{fmtSv(eKl.volym, 0)}</span>
-                    <span style={{ color: C.muted }}> m³</span>
+                    <span style={{ color: FARG.text2 }}>EK: </span>
+                    <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{eKl.lass}</span>
+                    <span style={{ color: FARG.text2 }}> · </span>
+                    <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{fmtSv(eKl.volym, 0)}</span>
+                    <span style={{ color: FARG.text2 }}> m³</span>
                   </>
-                ) : <span style={{ color: C.dim }}>EK: —</span>}
+                ) : <span style={{ color: FARG.text3 }}>EK: —</span>}
               </div>
             </div>
           )
@@ -380,22 +379,22 @@ function FordelningsStaplar({
     agg:    MaskinAgg
     seg:    number[]
   }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, marginBottom: AVSTAND.m }}>
       {/* Maskin-etikett (fast bredd) */}
       <div style={{ width: 52, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-          <div style={{ width: 7, height: 7, borderRadius: 1.5, background: maskin.color }} />
-          <span style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>{maskin.kort}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, marginBottom: AVSTAND.xs }}>
+          <div style={{ width: 7, height: 7, borderRadius: RADIE.stapel, background: maskin.color }} />
+          <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, fontWeight: VIKT.halvfet }}>{maskin.kort}</span>
         </div>
-        <div style={{ fontSize: 10, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3, fontVariantNumeric: 'tabular-nums' }}>
           {agg.totalLass} lass
         </div>
       </div>
 
       {/* Stapel */}
       <div style={{
-        flex: 1, height: 26, borderRadius: 5, overflow: 'hidden',
-        display: 'flex', gap: 2, background: C.divider,
+        flex: 1, height: 26, borderRadius: RADIE.stapel, overflow: 'hidden',
+        display: 'flex', gap: AVSTAND.xs, background: FARG.upphojt,
       }}>
         {seg.map((pct, ki) => {
           if (pct < 0.5) return null
@@ -416,7 +415,7 @@ function FordelningsStaplar({
             >
               {showPct && (
                 <span style={{
-                  fontSize: 11, fontWeight: 700, color: '#fff',
+                  fontSize: TYP.micro.fontSize, fontWeight: VIKT.fet, color: FARG.text,
                   fontVariantNumeric: 'tabular-nums',
                   textShadow: '0 1px 3px rgba(0,0,0,0.55)',
                   lineHeight: 1,
@@ -432,14 +431,14 @@ function FordelningsStaplar({
   )
 
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: '16px 18px 14px', marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>
+    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12 }}>
+      <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: AVSTAND.l }}>
         Avståndsprofil — lass
       </div>
 
       {loading ? (
         <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: 12, color: C.muted }}>Laddar…</span>
+          <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Laddar…</span>
         </div>
       ) : (
         <>
@@ -449,17 +448,17 @@ function FordelningsStaplar({
           {/* Legende — visar vad de 4 nyanserna betyder */}
           <div style={{
             display: 'flex', gap: 12, marginTop: 8,
-            paddingTop: 10, borderTop: `0.5px solid ${C.divider}`,
+            paddingTop: AVSTAND.m, borderTop: `0.5px solid ${FARG.linje}`,
             flexWrap: 'wrap',
           }}>
             {KLASSER.map((kl, ki) => (
-              <div key={ki} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div key={ki} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
                 <div style={{
-                  width: 10, height: 10, borderRadius: 2,
+                  width: 10, height: 10, borderRadius: RADIE.stapel,
                   // Neutral blå för legende — visar nyansen oavsett maskin
-                  background: hexToRgba(C.blue, KLASS_OPACITET[ki]),
+                  background: hexToRgba(FARG.bla, KLASS_OPACITET[ki]),
                 }} />
-                <span style={{ fontSize: 11, color: C.muted }}>{kl.label}</span>
+                <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>{kl.label}</span>
               </div>
             ))}
           </div>
@@ -493,10 +492,10 @@ function TotalRad({
 
   return (
     <div style={{
-      background: C.card, borderRadius: 14,
-      padding: '16px 18px', marginBottom: 12,
+      background: FARG.kort, borderRadius: RADIE.kort,
+      padding: `${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12,
     }}>
-      <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
+      <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, marginBottom: AVSTAND.l }}>
         Total perioden — viktat (SUM/SUM)
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -507,27 +506,27 @@ function TotalRad({
           const val = mattTotal(agg, matt)
           return (
             <div key={maskin.kort}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: maskin.color }} />
-                <span style={{ fontSize: 12, color: C.muted }}>{maskin.kort}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: RADIE.stapel, background: maskin.color }} />
+                <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>{maskin.kort}</span>
               </div>
               <div style={{
-                fontSize: 28, fontWeight: 600, letterSpacing: -0.7,
-                color: C.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+                fontSize: TYP.titel.fontSize, fontWeight: VIKT.halvfet, letterSpacing: -0.7,
+                color: FARG.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
               }}>
                 {loading ? '—' : (val !== null ? fmtSv(val, mattDef.dec) : '—')}
               </div>
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{mattDef.unit}</div>
+              <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs }}>{mattDef.unit}</div>
               {!loading && val === null && (
-                <div style={{ fontSize: 11, color: C.orange, marginTop: AVSTAND.s }}>
+                <div style={{ fontSize: TYP.micro.fontSize, color: FARG.orange, marginTop: AVSTAND.s }}>
                   {orsakSaknas(agg, harMaskin[maskin.kort] ?? false, matt)}
                 </div>
               )}
-              <div style={{ fontSize: 11, color: C.dim, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+              <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3, marginTop: AVSTAND.s, fontVariantNumeric: 'tabular-nums' }}>
                 {agg.totalLass} lass · {fmtSv(agg.totalVolym, 0)} m³
               </div>
               {!loading && (harMaskin[maskin.kort] ?? false) && (
-                <div style={{ marginTop: 6 }}>
+                <div style={{ marginTop: AVSTAND.s }}>
                   <VolymBadge harManuell={harManuell[maskin.kort] ?? false} />
                 </div>
               )}
@@ -612,31 +611,31 @@ export default function SkotareJamforelseNy() {
   return (
     <div style={{
       position: 'fixed', top: underTopbar(96), left: 0, right: 0, bottom: 0,
-      overflow: 'auto', background: C.bg, color: C.text, fontFamily: FONT,
+      overflow: 'auto', background: FARG.bg, color: FARG.text, fontFamily: FONT,
     }}>
 
       {/* ── Period nav ─────────────────────────────────────────── */}
       <div style={{
-        position: 'sticky', top: 0, zIndex: 5, background: C.bg,
-        borderBottom: `0.5px solid ${C.divider}`,
-        padding: '10px 16px',
+        position: 'sticky', top: 0, zIndex: 5, background: FARG.bg,
+        borderBottom: `0.5px solid ${FARG.linje}`,
+        padding: `${AVSTAND.m}px ${AVSTAND.l}px`,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         {/* Periodknappar V/M/K/Å */}
-        <div style={{ display: 'flex', gap: 2 }}>
+        <div style={{ display: 'flex', gap: AVSTAND.xs }}>
           {(['V', 'M', 'K', 'Å'] as Period[]).map(p => (
             <button
               key={p}
               onClick={() => { setPeriod(p); setOffset(0) }}
               style={{
-                background:  period === p ? C.divider : 'transparent',
+                background:  period === p ? FARG.upphojt : 'transparent',
                 border:      'none',
-                color:       period === p ? C.text : C.muted,
+                color:       period === p ? FARG.text : FARG.text2,
                 fontFamily:  FONT,
-                fontSize:    13,
-                fontWeight:  period === p ? 600 : 400,
-                padding:     '5px 10px',
-                borderRadius: 7,
+                fontSize: TYP.meta.fontSize,
+                fontWeight: period === p ? VIKT.halvfet : VIKT.normal,
+                padding: `${AVSTAND.xs}px ${AVSTAND.m}px`,
+                borderRadius: RADIE.rad,
                 cursor:      'pointer',
               }}
             >
@@ -646,14 +645,14 @@ export default function SkotareJamforelseNy() {
         </div>
 
         {/* Period-navigering ‹ etikett › */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}>
           <button
             onClick={() => setOffset(o => o - 1)}
-            style={{ background: 'transparent', border: 'none', color: C.muted,
-              fontFamily: FONT, fontSize: 18, cursor: 'pointer', padding: '2px 8px' }}
+            style={{ background: 'transparent', border: 'none', color: FARG.text2,
+              fontFamily: FONT, fontSize: TYP.text.fontSize, cursor: 'pointer', padding: `${AVSTAND.xs}px ${AVSTAND.s}px` }}
           >‹</button>
           <span style={{
-            fontSize: 12, color: C.muted,
+            fontSize: TYP.meta.fontSize, color: FARG.text2,
             fontVariantNumeric: 'tabular-nums',
             minWidth: 130, textAlign: 'center',
           }}>
@@ -661,30 +660,30 @@ export default function SkotareJamforelseNy() {
           </span>
           <button
             onClick={() => setOffset(o => o + 1)}
-            style={{ background: 'transparent', border: 'none', color: C.muted,
-              fontFamily: FONT, fontSize: 18, cursor: 'pointer', padding: '2px 8px' }}
+            style={{ background: 'transparent', border: 'none', color: FARG.text2,
+              fontFamily: FONT, fontSize: TYP.text.fontSize, cursor: 'pointer', padding: `${AVSTAND.xs}px ${AVSTAND.s}px` }}
           >›</button>
         </div>
       </div>
 
       {/* ── Innehåll ─────────────────────────────────────────── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '12px 16px 80px' }}>
+      <div style={{ ...kolumnRot('smal'), padding: `${AVSTAND.m}px ${AVSTAND.l}px 0`, paddingBottom: medSafeBotten(AVSTAND.xxl) }}>
 
         {/* Mått-väljare */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: AVSTAND.s, marginBottom: AVSTAND.l, flexWrap: 'wrap' }}>
           {MATT.map(m => (
             <button
               key={m.id}
               onClick={() => setMatt(m.id)}
               style={{
-                background:   matt === m.id ? C.blue : C.card,
+                background:   matt === m.id ? FARG.bla : FARG.kort,
                 border:       'none',
-                color:        matt === m.id ? '#fff' : C.muted,
+                color:        matt === m.id ? FARG.text : FARG.text2,
                 fontFamily:   FONT,
-                fontSize:     13,
-                fontWeight:   matt === m.id ? 600 : 400,
-                padding:      '7px 14px',
-                borderRadius: 10,
+                fontSize: TYP.meta.fontSize,
+                fontWeight: matt === m.id ? VIKT.halvfet : VIKT.normal,
+                padding: `${AVSTAND.s}px ${AVSTAND.l}px`,
+                borderRadius: RADIE.kort,
                 cursor:       'pointer',
               }}
             >
@@ -696,17 +695,17 @@ export default function SkotareJamforelseNy() {
         {/* Legende + subtitel */}
         <div style={{
           display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', marginBottom: 14,
+          justifyContent: 'space-between', marginBottom: AVSTAND.l,
         }}>
-          <div style={{ display: 'flex', gap: 14 }}>
+          <div style={{ display: 'flex', gap: AVSTAND.l }}>
             {[WISENT, EK].map(m => (
               <div key={m.kort} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
-                <div style={{ width: 10, height: 10, borderRadius: 3, background: m.color }} />
-                <span style={{ fontSize: 12, color: C.muted }}>{m.kort}</span>
+                <div style={{ width: 10, height: 10, borderRadius: RADIE.stapel, background: m.color }} />
+                <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>{m.kort}</span>
               </div>
             ))}
           </div>
-          <span style={{ fontSize: 11, color: C.dim }}>
+          <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text3 }}>
             {mattDef.unit}
             {matt === 'lm3'    && ' · maskintotal'}
             {matt === 'm3g15h' && ' · klassvolym/G15h'}
@@ -722,8 +721,8 @@ export default function SkotareJamforelseNy() {
         )}
 
         {/* ── Stapeldiagram per klass ── */}
-        <div style={{ background: C.card, borderRadius: 14, padding: '16px 16px 16px', marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>
+        <div style={{ background: FARG.kort, borderRadius: RADIE.kort, padding: '16px 16px 16px', marginBottom: 12 }}>
+          <div style={{ fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text2, marginBottom: AVSTAND.l }}>
             {mattDef.label} per avståndsklass
           </div>
           {data ? (
@@ -733,7 +732,7 @@ export default function SkotareJamforelseNy() {
             />
           ) : (
             <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 12, color: C.muted }}>Laddar…</span>
+              <span style={{ fontSize: TYP.meta.fontSize, color: FARG.text2 }}>Laddar…</span>
             </div>
           )}
         </div>
@@ -753,11 +752,11 @@ export default function SkotareJamforelseNy() {
         {/* Mått-specifika noter */}
         {matt === 'm3g15h' && (
           <div style={{
-            background: C.card, border: `0.5px solid ${C.divider}`,
-            borderRadius: 14, padding: '14px 16px', marginBottom: 12,
+            background: FARG.kort, border: `0.5px solid ${FARG.linje}`,
+            borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12,
           }}>
-            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-              <span style={{ color: C.text, fontWeight: VIKT.halvfet }}>G15h</span> =
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, lineHeight: 1.5 }}>
+              <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>G15h</span> =
               (processing + terräng + övrigt arbete) / 3 600 — samma definition som
               övriga vyer. Totalen är viktad: summa volym / summa G15h.
             </div>
@@ -766,11 +765,11 @@ export default function SkotareJamforelseNy() {
 
         {matt === 'lm3' && (
           <div style={{
-            background: C.card, border: `0.5px solid ${C.divider}`,
-            borderRadius: 14, padding: '14px 16px', marginBottom: 12,
+            background: FARG.kort, border: `0.5px solid ${FARG.linje}`,
+            borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px`, marginBottom: 12,
           }}>
-            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-              <span style={{ color: C.text, fontWeight: 500 }}>L/m³ är ett maskinmått.</span>{' '}
+            <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, lineHeight: 1.5 }}>
+              <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>L/m³ är ett maskinmått.</span>{' '}
               Bränsle registreras per maskin och dag — vi kan inte koppla det till enskilda
               avståndklasser. Alla staplar visar maskintotalen för perioden.
             </div>
@@ -779,11 +778,11 @@ export default function SkotareJamforelseNy() {
 
         {/* Volymkälla */}
         <div style={{
-          background: C.card, border: `0.5px solid ${C.divider}`,
-          borderRadius: 14, padding: '14px 16px',
+          background: FARG.kort, border: `0.5px solid ${FARG.linje}`,
+          borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px`,
         }}>
-          <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-            <span style={{ color: C.text, fontWeight: VIKT.halvfet }}>Volym (m³sub):</span>{' '}
+          <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, lineHeight: 1.5 }}>
+            <span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>Volym (m³sub):</span>{' '}
             maskinmätt per lass (FPR). Objekt med manuell korrigering
             (skotare_objekt_manuell) fördelas per dag — märket under varje maskin
             visar om korrigering ingår. Lass och körd sträcka är maskinmätta.

@@ -1,4 +1,5 @@
 'use client'
+import { AVSTAND, FARG, FONT, RADIE, RORELSE, TYP, VIKT, underTopbar } from '@/lib/design/tokens'
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
@@ -104,19 +105,19 @@ export default function MaskinvyPage() {
             }}
             style={{
               position: 'fixed',
-              left: 12,
-              top: 'calc(env(safe-area-inset-top) + 10px)',
+              left: AVSTAND.m,
+              top: `calc(env(safe-area-inset-top) + ${AVSTAND.s}px)`,
               width: 36,
               height: 36,
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.08)',
+              borderRadius: RADIE.kort,
+              background: FARG.linje,
               border: 'none',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              color: 'rgba(255,255,255,0.75)',
-              fontSize: 22,
+              color: FARG.text,
+              fontSize: TYP.rubrik.fontSize,
               lineHeight: 1,
               zIndex: 1001,
               WebkitTapHighlightColor: 'transparent',
@@ -129,18 +130,18 @@ export default function MaskinvyPage() {
             href="/"
             style={{
               position: 'fixed',
-              right: 12,
-              top: 'calc(env(safe-area-inset-top) + 10px)',
+              right: AVSTAND.m,
+              top: `calc(env(safe-area-inset-top) + ${AVSTAND.s}px)`,
               width: 36,
               height: 36,
-              borderRadius: 10,
-              background: 'rgba(255,255,255,0.08)',
+              borderRadius: RADIE.kort,
+              background: FARG.linje,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               textDecoration: 'none',
-              color: 'rgba(255,255,255,0.75)',
-              fontSize: 16,
+              color: FARG.text,
+              fontSize: TYP.text.fontSize,
               lineHeight: 1,
               zIndex: 1001,
               WebkitTapHighlightColor: 'transparent',
@@ -156,18 +157,18 @@ export default function MaskinvyPage() {
       <style>{`
         .mv-toggle-bar {
           position: fixed;
-          top: calc(56px + env(safe-area-inset-top));
+          top: ${underTopbar()};
           left: 0;
           right: 0;
           height: 52px;
-          background: rgba(17,17,16,0.85);
+          background: color-mix(in srgb, ${FARG.bg} 85%, transparent);
           backdrop-filter: saturate(180%) blur(24px);
           -webkit-backdrop-filter: saturate(180%) blur(24px);
-          border-bottom: 0.5px solid rgba(255,255,255,0.08);
+          border-bottom: 0.5px solid ${FARG.linje};
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 0 16px;
+          padding: 0 ${AVSTAND.l}px;
           z-index: 60;
         }
         .mv-seg {
@@ -175,21 +176,22 @@ export default function MaskinvyPage() {
           display: grid;
           grid-template-columns: repeat(3, minmax(96px, 140px));
           gap: 0;
-          background: rgba(120,120,128,0.16);
-          border-radius: 10px;
-          padding: 2px;
+          background: ${FARG.linje};
+          border-radius: ${RADIE.rad}px;
+          padding: ${AVSTAND.xs}px;
           height: 44px;
           width: 100%;
           max-width: 440px;
+          box-sizing: border-box;
         }
         .mv-seg-ind {
           position: absolute;
-          top: 2px;
-          bottom: 2px;
-          width: calc((100% - 4px) / 3);
-          background: #2c2c2a;
-          border-radius: 7px;
-          transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
+          top: ${AVSTAND.xs}px;
+          bottom: ${AVSTAND.xs}px;
+          width: calc((100% - ${2 * AVSTAND.xs}px) / 3);
+          background: ${FARG.fyllning};
+          border-radius: ${RADIE.rad}px;
+          transition: transform ${RORELSE.byte}ms ${RORELSE.kurva};
           pointer-events: none;
         }
         .mv-seg-btn {
@@ -197,68 +199,69 @@ export default function MaskinvyPage() {
           z-index: 1;
           border: none;
           background: transparent;
-          border-radius: 7px;
-          font-family: 'Geist', system-ui, sans-serif;
-          font-size: 13px;
-          font-weight: 500;
-          color: #8e8e93;
+          border-radius: ${RADIE.rad}px;
+          font-family: ${FONT};
+          font-size: ${TYP.meta.fontSize}px;
+          font-weight: ${VIKT.normal};
+          color: ${FARG.text2};
           cursor: pointer;
           letter-spacing: -0.2px;
-          transition: color 200ms ease, transform 120ms ease;
+          transition: color ${RORELSE.byte}ms ${RORELSE.kurva}, transform ${RORELSE.tryck}ms ${RORELSE.kurva};
           padding: 0;
         }
-        .mv-seg-btn.active { color: #ffffff; font-weight: 600; }
+        .mv-seg-btn.active { color: ${FARG.text}; font-weight: ${VIKT.halvfet}; }
         .mv-seg-btn:active { transform: scale(0.97); }
 
         /* ── Vy-nav (Översikt | Produktion | ...) ─────────────────── */
         .mv-vy-bar {
           position: fixed;
-          top: calc(108px + env(safe-area-inset-top));
+          top: ${underTopbar(52)};
           left: 0;
           right: 0;
           height: 44px;
-          background: rgba(0,0,0,0.78);
+          background: color-mix(in srgb, ${FARG.bg} 85%, transparent);
           backdrop-filter: saturate(180%) blur(24px);
           -webkit-backdrop-filter: saturate(180%) blur(24px);
-          border-bottom: 0.5px solid rgba(255,255,255,0.06);
+          border-bottom: 0.5px solid ${FARG.linje};
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 0 16px;
+          padding: 0 ${AVSTAND.l}px;
           z-index: 60;
         }
         .mv-vy-seg {
           display: inline-flex;
-          background: rgba(120,120,128,0.16);
-          border-radius: 9px;
-          padding: 2px;
-          height: 34px;
+          background: ${FARG.linje};
+          border-radius: ${RADIE.rad}px;
+          padding: ${AVSTAND.xs}px;
+          height: 38px;
+          box-sizing: border-box;
         }
         .mv-vy-btn {
           min-width: 110px;
-          padding: 0 16px;
+          padding: 0 ${AVSTAND.l}px;
           height: 30px;
           border: none;
-          border-radius: 7px;
+          border-radius: ${RADIE.rad}px;
           background: transparent;
-          color: #8e8e93;
-          font-family: 'Geist', system-ui, sans-serif;
-          font-size: 13px;
-          font-weight: 500;
+          color: ${FARG.text2};
+          font-family: ${FONT};
+          font-size: ${TYP.meta.fontSize}px;
+          font-weight: ${VIKT.normal};
           letter-spacing: -0.2px;
           cursor: pointer;
-          transition: color 200ms ease, background 200ms ease, transform 120ms ease;
+          transition: color ${RORELSE.byte}ms ${RORELSE.kurva}, background ${RORELSE.byte}ms ${RORELSE.kurva}, transform ${RORELSE.tryck}ms ${RORELSE.kurva};
         }
         .mv-vy-btn.active {
-          background: #3a3a3c;
-          color: #ffffff;
-          font-weight: 600;
+          background: ${FARG.fyllning};
+          color: ${FARG.text};
+          font-weight: ${VIKT.halvfet};
         }
         .mv-vy-btn:active { transform: scale(0.97); }
 
         /* Push wrapped content below the toggle bar(s) */
-        .mv-wrapper > div { top: calc(108px + env(safe-area-inset-top)) !important; }
-        .mv-wrapper.with-vy-nav > div { top: calc(152px + env(safe-area-inset-top)) !important; }
+        .mv-wrapper > div { top: ${underTopbar(52)} !important; }
+        .mv-wrapper.with-vy-nav > div { top: ${underTopbar(96)} !important; }
       `}</style>
 
       <div className="mv-toggle-bar">
@@ -306,7 +309,7 @@ export default function MaskinvyPage() {
                   : <Maskinvy />)
               : (ny
                   ? (vy === 'jamforelse' ? <SkotareJamforelseNy />
-                     : !maskinSkotare ? <div style={{ padding: 24, color: 'rgba(255,255,255,0.45)', fontSize: 14 }}>Laddar maskiner …</div>
+                     : !maskinSkotare ? <div style={{ padding: AVSTAND.xl, color: FARG.text2, fontSize: TYP.meta.fontSize }}>Laddar maskiner …</div>
                      : vy === 'produktion'  ? <SkotareProduktionNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
                      : vy === 'avbrott'   ? <SkotareAvbrottNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
                      : vy === 'idag'      ? <SkotareIdagNy maskin={maskinSkotare} onMaskinChange={setMaskinSkotare} />
