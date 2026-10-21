@@ -30,7 +30,9 @@ describe('målbilderna är kopplade i sidan', () => {
     expect(sida).toMatch(/karta: \{ markeringar: markers, vida: vidaSlagIFeatures\(traktGeo\?\.features\), roll: malbildRoll \}/);
   });
   it('skotarläget: avläggets målbild vid första lasset, utan att röra lossningskortet', () => {
-    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,400}arForstaLassetPaTrakten\(sl\.lass, sl\.kort\.lassId, valtObjekt\.id, skotarMaskinId\)/);
+    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,700}arForstaLassetPaTrakten\(sl\.lass, sl\.kort\.lassId, valtObjekt\.id, skotarMaskinId\)/);
+    // aldrig samtidigt som lossningskortet eller något annat nertill: raden får bara visas när allt det är borta
+    expect(sida).toMatch(/<AvlaggForstaLasset[\s\S]{0,400}ledigt=\{!sl\.kort && !sl\.andra && !sl\.nyttAvlagg && !skotarKvarOppet && !skotarFardigOppet && !skotarVantarOppet\}/);
     expect(las('components/planering/skotar/LossningsKort.tsx')).not.toMatch(/malbild/i);
   });
   it('maskintypen är enhetens maskin först, därefter admins val, därefter tilldelningen', () => {
