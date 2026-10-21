@@ -5,7 +5,7 @@ import { join } from "node:path";
 // Datahälsas hook drar in supabase; här behövs bara tröskeln.
 vi.mock("@/app/datahalsa/useDatahalsa", () => ({ LEV_GUL_DYGN: 10 }));
 
-import { byggAttGora, avtalKraverDig, raknaLonLage, lonUndertext, arFlyttdagUtanForare, type AttGoraIndata } from "./attGora";
+import { byggAttGora, avtalKraverDig, antalKraver, raknaLonLage, lonUndertext, arFlyttdagUtanForare, type AttGoraIndata } from "./attGora";
 import type { ArbetstidForare, Gransstatus, Niva } from "@/lib/arbetstidsgranser";
 
 const ok = <T,>(data: T) => ({ data, fel: null as string | null });
@@ -174,7 +174,7 @@ describe("byggAttGora: arbetstid — EN rad, lagens sex gränser (lib/arbetstids
 
   it("bara gula: 'N förare nära arbetstidsgränsen' — varna FÖRE gränsen — utan undertext, öppnar arket", () => {
     const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Gul2", "gul"), forare("Lugn", "lugn")], varningar: [] });
-    expect(rad(i)).toEqual([{ id: "arbetstid", rubrik: "2 förare nära arbetstidsgränsen", detalj: undefined, knapp: "Öppna", mal: { typ: "arbetstid" } }]);
+    expect(rad(i)).toEqual([{ id: "arbetstid", rubrik: "2 förare nära arbetstidsgränsen", detalj: undefined, knapp: "Öppna", mal: { typ: "arbetstid" }, raknas: false }]);
     expect(byggAttGora(i, "2026-10-13").arbetstid.map(f => f.namn)).toEqual(["Gul", "Gul2"]);
   });
 
@@ -196,6 +196,48 @@ describe("byggAttGora: arbetstid — EN rad, lagens sex gränser (lib/arbetstids
     expect(byggAttGora(i, "2026-10-13").arbetstid).toEqual([]);
     i.arbetstid = ok({ forare: [forare("Martin", "rod", true), forare("Stefan", "rod")], varningar: [] });
     expect(rad(i)[0]).toMatchObject({ rubrik: "1 förare nära arbetstidsgränsen", detalj: "1 över gränsen" });
+  });
+
+  describe("vad som räknas i siffran (menyn och rubriken): gul syns men räknas inte, röd räknas", () => {
+    it("bara gula: raden finns men raknas === false och antalet som kräver åtgärd är 0", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Gul2", "gul")], varningar: [] });
+      const r = byggAttGora(i, "2026-10-13");
+      expect(r.saker).toHaveLength(1);
+      expect(r.saker[0].raknas).toBe(false);
+      expect(antalKraver(r.saker)).toBe(0);
+    });
+    it("en röd bland gula: raden räknas som EN (inte som antalet förare)", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [forare("Gul", "gul"), forare("Röd", "rod"), forare("Röd2", "rod")], varningar: [] });
+      const r = byggAttGora(i, "2026-10-13");
+      expect(rad(i)[0].raknas).toBeUndefined();
+      expect(antalKraver(r.saker)).toBe(1);
+    });
+    it("exakt EN röd förare räknas (gränsen går vid över = 1, inte 2)", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [forare("Röd", "rod")], varningar: [] });
+      expect(antalKraver(byggAttGora(i, "2026-10-13").saker)).toBe(1);
+    });
+    it("gul + något annat som kräver åtgärd: bara det andra räknas", () => {
+      const i = lugnt();
+      i.arbetstid = ok({ forare: [forare("Gul", "gul")], varningar: [] });
+      i.avtal = ok({ giltigt_till: "2026-09-30" });
+      const r = byggAttGora(i, "2026-10-13");
+      expect(r.saker.map(s => s.id)).toEqual(["arbetstid", "avtal"]);
+      expect(antalKraver(r.saker)).toBe(1);
+    });
+    it("ett läsfel i arbetstiden räknas (det är inte 'nära', det är okänt)", () => {
+      const i = lugnt(); i.arbetstid = ok({ forare: [], varningar: ["Kunde inte läsa frånvaron (x) — räknas utan den."] });
+      expect(antalKraver(byggAttGora(i, "2026-10-13").saker)).toBe(1);
+      i.arbetstid = { data: null, fel: "HTTP 500" };
+      expect(antalKraver(byggAttGora(i, "2026-10-13").saker)).toBe(1);
+    });
+    it("alla andra rader räknas (lön, vilobrott, personer …)", () => {
+      const i = lugnt();
+      i.lon = ok({ arbetsManad: "2026-09", antalKlara: 1, antalVantar: 1, antalSkickade: 0 });
+      i.vilobrott = ok([{ medarbetare_id: "m1", namn: "Anna", typ: "dygnsvila", datum: "2026-09-29", vila_h: 8.5, krav_h: 11, svar: null, vecka: 40, år: 2026, beskrivning: "" } as any]);
+      const r = byggAttGora(i, "2026-10-13");
+      expect(r.saker.every(s => s.raknas === undefined)).toBe(true);
+      expect(antalKraver(r.saker)).toBe(2);
+    });
   });
 
   it("ingen rad namnger en förare eller en gräns", () => {

@@ -6,7 +6,7 @@ import React from "react";
 import { AVSTAND, FARG, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
 import { byggVilobrottArk, loneperiodForDag, manadenGarAttOppna, vilobrottPerPerson } from "@/lib/admin/vilobrottArkVy";
-import type { Sak } from "@/lib/admin/attGora";
+import { antalKraver, type Sak } from "@/lib/admin/attGora";
 import { Sektion, Lista, Rad, Laddar, Ikon, Lank, Sheet } from "./ui";
 import VilobrottArk, { VilobrottLista } from "./VilobrottArk";
 import { useAdminNav } from "./nav";
@@ -32,6 +32,7 @@ export default function Oversikt({ att }: { att: AttGora }) {
   const personVy = vilaId && vilaId !== "alla" ? byggVilobrottArk(att.vilobrott, vilaId) : null;
   const idag = ymdLokal(new Date());
   const arbetstidOppen = nav.params.arbetstid === "1";
+  const kraver = antalKraver(att.saker);
 
   return (
     <>
@@ -44,7 +45,9 @@ export default function Oversikt({ att }: { att: AttGora }) {
         </Lista>
       ) : (
         <>
-          <Sektion orange topp={0}>{att.saker.length} {att.saker.length === 1 ? "sak kräver dig" : "saker kräver dig"}</Sektion>
+          {kraver > 0
+            ? <Sektion orange topp={0}>{kraver} {kraver === 1 ? "sak kräver dig" : "saker kräver dig"}</Sektion>
+            : <Sektion topp={0}>Att titta på</Sektion>}
           <Lista>
             {att.saker.map((s, i) => s.mal.typ === "forsok" ? (
               // Ett läsfel leder ingenstans: raden är ingen knapp, bara "Försök igen" är det.

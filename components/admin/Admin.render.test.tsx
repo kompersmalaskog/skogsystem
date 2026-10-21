@@ -4063,6 +4063,44 @@ describe("Delägare: bockrutan i Medarbetare — och de räknas aldrig i Arbetst
     expect(menysiffror().every(t => t === "1")).toBe(true);
   });
 
+  describe("menysiffran och rubriken räknar bara det som kräver åtgärd nu: gul syns men räknas inte, röd räknas", () => {
+    const rubrik = () => Array.from(cont.querySelectorAll<HTMLElement>("div")).map(e => egenText(e)).find(t => /kräver dig|Att titta på/.test(t));
+    it("bara en gul förare: raden finns, menyn har ingen siffra och rubriken säger 'Att titta på' (grå, inte orange)", async () => {
+      g.__arbetstid = svar([forareMed("g", "Gul Person", 230)]);
+      await monter("flik=oversikt");
+      expect(cont.querySelector('[data-sak="arbetstid"]')!.textContent).toContain("1 förare nära arbetstidsgränsen");
+      expect(menysiffror()).toEqual([]);
+      expect(rubrik()).toBe("Att titta på");
+      expect(text()).not.toContain("kräver dig");
+      const el = Array.from(cont.querySelectorAll<HTMLElement>("div")).find(e => egenText(e) === "Att titta på")!;
+      expect(getComputedStyle(el).color).not.toBe(rgb(FARG.orange));
+    });
+    it("en röd förare: menyn visar 1 (raden räknas som EN) och rubriken '1 sak kräver dig' i orange", async () => {
+      g.__arbetstid = svar([forareMed("r", "Röd Person", 262), forareMed("r2", "Röd Två", 270), forareMed("g", "Gul Person", 230)]);
+      await monter("flik=oversikt");
+      expect(menysiffror()).toEqual(["1"]);
+      expect(rubrik()).toBe("1 sak kräver dig");
+      const el = Array.from(cont.querySelectorAll<HTMLElement>("div")).find(e => egenText(e) === "1 sak kräver dig")!;
+      expect(getComputedStyle(el).color).toBe(rgb(FARG.orange));
+    });
+    it("gul + en annan sak (avtalet går ut): bara den andra räknas, i både menyn och rubriken — men båda raderna syns", async () => {
+      g.__arbetstid = svar([forareMed("g", "Gul Person", 230)]);
+      g.__db.gs_avtal[0].giltigt_till = "2026-10-20";
+      await monter("flik=oversikt");
+      expect(document.querySelectorAll("[data-sak]")).toHaveLength(2);
+      expect(menysiffror()).toEqual(["1"]);
+      expect(rubrik()).toBe("1 sak kräver dig");
+    });
+    it("en gul förare som blir röd flyttar siffran från 0 till 1", async () => {
+      g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 230)]);
+      await monter("flik=oversikt");
+      expect(menysiffror()).toEqual([]);
+      g.__arbetstid = svar([forareMed("s", "Stefan Karlsson", 262)]);
+      await monter("flik=oversikt");
+      expect(menysiffror()).toEqual(["1"]);
+    });
+  });
+
   const medUpdates = () => g.__skriv.filter((x: any) => x.tabell === "medarbetare" && x.op === "update");
   const sparaKnapp = () => blad("Spara").map(e => e.closest("button")!).find(Boolean)!;
 

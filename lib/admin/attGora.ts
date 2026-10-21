@@ -25,7 +25,14 @@ export type Mal =
   | { typ: "arbetstid" }
   | { typ: "forsok" };
 
-export type Sak = { id: string; rubrik: string; detalj?: string; knapp: string; mal: Mal };
+export type Sak = {
+  id: string; rubrik: string; detalj?: string; knapp: string; mal: Mal;
+  /** false = raden syns men kräver ingen åtgärd nu och räknas inte i siffran (menyn, rubriken). Saknas = räknas. */
+  raknas?: false;
+};
+
+/** Antalet rader som kräver åtgärd nu — menyns siffra och Översiktens rubrik. */
+export const antalKraver = (saker: Sak[]) => saker.filter(s => s.raknas !== false).length;
 
 /** Resultat av en läsning: data, eller felet som stoppade den. */
 export type Kalla<T> = { data: T | null; fel: string | null };
@@ -163,6 +170,8 @@ export function byggAttGora(i: AttGoraIndata, idag: string): AttGoraUt {
         // Ordet bär meningen när någon redan passerat gränsen (färgen förstärker bara).
         detalj: over > 0 ? `${over} över gränsen` : undefined,
         knapp: "Öppna", mal: { typ: "arbetstid" },
+        // Gul = varna före gränsen: raden syns, men en förare som bara är NÄRA kräver ingen åtgärd nu. Röd (över) gör det.
+        ...(over === 0 ? { raknas: false as const } : {}),
       });
     } else if (lasFel.length > 0) {
       // Inga förare att peka ut — men talen bygger på en läsning som föll: det är inte "ingen närmar sig".
