@@ -174,7 +174,6 @@ describe('ett ord för samma sak: zontypen "protected" heter Hänsyn överallt (
   it('planeringsvyn: Rita yta-listan, Lager (Zontyper), kortet, briefingen och översiktslistan läser alla zoneTypes — namnet står på ETT ställe', () => {
     expect(page).toContain("{ id: 'protected', name: 'Hänsyn', color: ZONE_COLORS.protected, icon: 'naturecorner' },");
     expect(page).not.toContain("{ id: 'protected', name: 'Naturvård'");
-    expect(page).toContain("{ id: 'zone_protected',  name: 'Hänsyn',");      // Varningsavstånd (Zoner)
     expect(page).not.toContain('Naturvårdszon');
     expect(page).toContain("zoneTypes.find(t => t.id === marker.zoneType)?.name || 'Zon'");   // kortets rubrik
   });
@@ -184,9 +183,8 @@ describe('ett ord för samma sak: zontypen "protected" heter Hänsyn överallt (
     for (const [fil, gammal] of [['../app/oversikt/markeringar.ts', 'Skyddat område'], ['./egenkontroll.ts', 'Skyddad zon']]) expect(las(fil), gammal).not.toContain(gammal);
   });
   it('den lagrade typen är orörd: id och färg', () => {
-    expect(page).toContain("{ id: 'zone_protected',");
-    expect(las('./zone-colors.ts')).toContain("protected:   '#30d158'");
-    expect(las('./varningsInstallningar.ts')).toContain('zone_protected:   K(30),');
+    expect(las('./larm/grupper.ts')).toContain("protected: { grupp: 'natur', namn: 'Hänsyn', forbjuden: true }");   // larmgruppen bär samma lagrade typ
+    expect(las('./larm/grupper.ts')).toContain("FARG_NATUR = '#30D158'");   // zonfärgen härleds ur färggruppen (lib/zone-colors)
   });
 });
 

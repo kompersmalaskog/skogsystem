@@ -32,20 +32,21 @@
 
 import { ZONE_COLORS } from './zone-colors';
 import { ICON_SIZE } from './marker-icons';
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
 
 // ---------------------------------------------------------------------------
 // Palett - ordagrant ur LEGEND i app/planering/page.tsx
 // ---------------------------------------------------------------------------
 
 export const LEGEND = {
-  fara: '#ff453a',
+  fara: FARG_FARA,
   gul: '#fbbf24',
   vatten: '#3b82f6',
-  naturvard: '#30d158',
+  naturvard: FARG_NATUR,
   naturvardKant: '#4ade80',
-  kultur: '#f59e0b',
-  fornlamning: '#b45309',
-  brant: '#a855f7',
+  kultur: FARG_KULTUR,
+  fornlamning: FARG_KULTUR,
+  brant: FARG_FARA,
   dike: '#06b6d4',
   dikeKant: '#0e7490',
   vit: '#fff',
@@ -81,7 +82,8 @@ export const LINJE_BREDD_GRANS: Stopp = [[5, 3], [8, 4], [11, 5], [13, 5], [15, 
 export const LINJE_KANT_BREDD: Stopp = [[5, 4], [8, 4], [11, 5], [13, 6], [15, 8], [17, 9]];
 export const LINJE_KANT_BREDD_GRANS: Stopp = [[5, 5], [8, 6], [11, 7], [13, 7], [15, 9], [17, 10]];
 export const STENMUR_BREDD: Stopp = [[5, 3], [8, 4], [11, 5], [13, 6], [15, 7], [17, 9]];
-export const STENMUR_FARG = '#5f5e5a';
+/** Stenmur = gruppens färg (Kultur, brun) med mörk kant — ingen egen nyans. */
+export const STENMUR_FARG = FARG_STENMUR;
 
 // Streckning. Konstanter, inte litteraler i byggarna, sa att driftvakten kan
 // jamfora DEN HAR sidan mot planeringen - inte bara planeringen mot en text.
@@ -89,7 +91,6 @@ export const STRECK_DASHED = [3, 2] as const;
 export const STRECK_VANLIG = [2.5, 1.5] as const;
 export const STRECK_RANDAD = [2, 2] as const;
 export const STRECK_STENMUR = [2, 0.85] as const;
-export const STRECK_ZON = [2, 2] as const;
 export const KANT_SVART_STARK = 'rgba(0,0,0,0.9)';
 export const KANT_SVART_MJUK = 'rgba(0,0,0,0.5)';
 
@@ -189,6 +190,13 @@ export function linjeLager(kalla: string, prefix: string, bas: any[] | null, dim
     const filter = och(ar('kind', 'linje'), ar('typ', lt.id), bas);
 
     if (lt.stonewall) {
+      if (!dim?.utanKant) {
+        lager.push({
+          id: `${prefix}-lin-${lt.id}-kant`, type: 'line', source: kalla, filter,
+          paint: { 'line-color': KANT_SVART_STARK, 'line-width': zoomKurva(STENMUR_BREDD, bf, 3), 'line-opacity': 0.5 },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        });
+      }
       lager.push({
         id: `${prefix}-lin-${lt.id}`, type: 'line', source: kalla, filter,
         paint: { 'line-color': STENMUR_FARG, 'line-width': zoomKurva(STENMUR_BREDD, bf), 'line-dasharray': [...STRECK_STENMUR], ...op },
@@ -273,11 +281,6 @@ export function zonKantLager(kalla: string, prefix: string, bas: any[] | null, d
     {
       id: `${prefix}-zon-linje`, type: 'line', source: kalla, filter,
       paint: { 'line-color': farg, 'line-width': zoomKurva(ZON_BREDD, bf), ...op },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-    },
-    {
-      id: `${prefix}-zon-streck`, type: 'line', source: kalla, filter,
-      paint: { 'line-color': '#fff', 'line-width': zoomKurva(ZON_BREDD, bf), 'line-dasharray': [...STRECK_ZON], ...op },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     },
   ];

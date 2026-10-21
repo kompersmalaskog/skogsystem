@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { FLIKAR } from './plusArk';
+import { SYMBOL_NAMN } from './larm/grupper';
 
 // Vakt för plusarkets ommöblering ("Alla" → Symboler · Ytor · Spårning · Lager). Ommöbleringen får inte tappa eller lägga till något:
 // samma symbolkategorier, samma lager i samma grupper och ordning som den gamla Lager-menyn, och varje val som "Fler val" hade.
@@ -18,7 +19,8 @@ const mellan = (src: string, fran: string, till: string): string => {
 describe('Symboler: samma kategorier, namn och ordning som appen alltid haft', () => {
   const kat = mellan(page, 'const symbolCategories = [', 'const markerTypes');
   const namn = Array.from(kat.matchAll(/^\s{6}name: '([^']+)'/gm)).map((m) => m[1]);
-  const symboler = Array.from(kat.matchAll(/\{ id: '([a-z]+)', name: '([^']+)' \}/g)).map((m) => `${m[1]}=${m[2]}`);
+  // Namnen kommer ur SYMBOL_NAMN (lib/larm/grupper, EN källa för menyn, kartans etikett och larmkortet); id:t ska peka på sitt eget namn.
+  const symboler = Array.from(kat.matchAll(/\{ id: '([a-z]+)', name: SYMBOL_NAMN\.([a-z]+) \}/g)).map((m) => `${m[1]}=${m[1] === m[2] ? SYMBOL_NAMN[m[2]] : 'FEL:' + m[2]}`);
 
   it('de sex kategorierna i den ordning appen har dem', () => {
     expect(namn).toEqual(['Naturvård', 'Kultur', 'Avverkning', 'Infrastruktur', 'Terräng', 'Övrigt']);
@@ -43,9 +45,9 @@ describe('Symboler: samma kategorier, namn och ordning som appen alltid haft', (
 
 describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () => {
   const lager = mellan(page, 'const byggLager = (): LagerGrupp[] => {', 'const byggPlusRad = ');
-  it('grupperna kommer i ordningen Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina markeringar, Produktionsdata, Zontyper, Linjetyper, Varningsinställningar', () => {
+  it('grupperna kommer i ordningen Bakgrundskarta, Kompass, Overlay, WMS-grupperna, SMHI, Dina markeringar, Produktionsdata, Zontyper, Linjetyper', () => {
     const ordning = Array.from(lager.matchAll(/g\.push\(\{\s*id: [`']([^`'$]+)/g)).map((m) => m[1]);
-    expect(ordning).toEqual(['bakgrundskarta', 'kompass', 'overlay', 'wms-', 'smhi', 'markeringar', 'produktionsdata', 'zontyper', 'linjetyper', 'skotad-trakt', 'varning']);   // 'skotad-trakt' = skotarens rad "Trakten färdigskotad" (bara skotare, lib/skotarLass)
+    expect(ordning).toEqual(['bakgrundskarta', 'kompass', 'overlay', 'wms-', 'smhi', 'markeringar', 'produktionsdata', 'zontyper', 'linjetyper', 'skotad-trakt']);   // 'skotad-trakt' = skotarens rad "Trakten färdigskotad" (bara skotare, lib/skotarLass)
     // WMS-grupperna kommer ur samma lista som förut (lib/mapLayers), i dess ordning
     expect(lager).toContain('for (const grp of wmsLayerGroups) {');
   });
@@ -62,7 +64,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
     const p = mellan(lager, "id: 'produktionsdata'", "if (visibleLayers.zones)");
     for (const s of ["'Avverkade stammar'", "'GROT (grenar & toppar)'", "'Mitt spår'", "'Skördarens spår' : 'Skotarens spår'", "sla('produktionshogar')", "sla('grothogar')", "sla('mittSpar')", "sla('andrasSpar')"]) expect(p, s).toContain(s);
   });
-  it('Dina markeringar, Zontyper, Linjetyper och Varningsinställningar skriver samma state som den gamla menyn', () => {
+  it('Dina markeringar, Zontyper och Linjetyper skriver samma state som den gamla menyn', () => {
     expect(lager).toContain("[['symbols', 'Symboler'], ['lines', 'Linjer'], ['zones', 'Zoner'], ['arrows', 'Pilar']]");
     expect(lager).toContain('setVisibleLayers((prev) => ({ ...prev, [id]: !prev[id] }))');
     expect(lager).toContain('setVisibleZones((prev) => ({ ...prev, [z.id]: prev[z.id] === false }))');
@@ -70,7 +72,7 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
     expect(lager).toContain('setVisibleLines((prev) => ({ ...prev, [l.id]: prev[l.id] === false }))');
     expect(lager).toContain('if (visibleLayers.zones) {');
     expect(lager).toContain('if (visibleLayers.lines) {');
-    expect(lager).toContain('setWarningMenuOpen(true)');
+    expect(lager).not.toContain('setWarningMenuOpen');   // varningsavstånd som enhetsinställning är borttaget (färgspråk och larm): typen avgör, lib/larm
   });
   it('Kompass visar ingen "Av"-text', () => {
     const k = mellan(lager, "id: 'kompass',", "g.push({ id: 'overlay'");

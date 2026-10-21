@@ -9,14 +9,11 @@
  *   - Cesium:   loadMarkerCanvas(typeId) → HTMLCanvasElement som passas
  *     direkt till BillboardGraphics({ image: canvas }).
  *
- * Severity-färg-mappning (bg-cirkel) sker via markerIconDefs:
- *   protect (grön #30d158):  eternitytree, naturecorner
- *   culture (orange #ff9f0a): culturemonument, culturestump
- *                             (svensk skogsbruks-konvention för kulturlämning)
- *   danger  (röd #ff453a):   powerline, manualfelling, warning, steep
- *   info    (mörk grå #1c1c1e med vit ikon): allt övrigt
- * Outline alltid vit för synbarhet mot alla bakgrunder.
+ * Färgen (bg-cirkel) följer FÄRGGRUPPEN (lib/larm/grupper): Röd = Fara, Grön = Natur, Brun = Kultur, Blå = Blött, Lila = Att göra,
+ * Mörk = Info. Orange betyder bara tall. Outline alltid vit för synbarhet mot alla bakgrunder.
  */
+
+import { symbolFarg } from './larm/grupper'
 
 export const ICON_SIZE = 64
 
@@ -26,36 +23,13 @@ export interface MarkerIconDef {
   outline: string
 }
 
-export const markerIconDefs: MarkerIconDef[] = [
-  // protect (grön)
-  { id: 'eternitytree',    bg: '#30d158', outline: '#ffffff' },
-  { id: 'naturecorner',    bg: '#30d158', outline: '#ffffff' },
-  // culture (orange — svensk skogsbruks-konvention för kulturlämning)
-  { id: 'culturemonument', bg: '#ff9f0a', outline: '#ffffff' },
-  { id: 'culturestump',    bg: '#ff9f0a', outline: '#ffffff' },
-  // danger (röd)
-  { id: 'powerline',       bg: '#ff453a', outline: '#ffffff' },
-  { id: 'manualfelling',   bg: '#ff453a', outline: '#ffffff' },
-  { id: 'warning',         bg: '#ff453a', outline: '#ffffff' },
-  { id: 'steep',           bg: '#ff453a', outline: '#ffffff' },
-  // felling-outside (lila — träd att avverka utanför traktgränsen; enda lila symbolen)
-  { id: 'felloutside',     bg: '#534AB7', outline: '#ffffff' },
-  // info (mörk grå)
-  { id: 'highstump',       bg: '#1c1c1e', outline: '#ffffff' },
-  // ved till markägaren — sätts bara från Klar med trakten? › Ved (inte med i symbolpaletterna)
-  { id: 'firewood',        bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'landing',         bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'brashpile',       bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'windfall',        bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'road',            bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'turningpoint',    bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'ditch',           bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'bridge',          bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'corduroy',        bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'wet',             bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'trail',           bg: '#1c1c1e', outline: '#ffffff' },
-  { id: 'default',         bg: '#1c1c1e', outline: '#ffffff' },
-]
+/** Bakgrundsfärgen kommer ur färggrupperna (lib/larm/grupper) — EN källa för symbol, ring, yta, kort och teckenförklaring. */
+const IKON_IDN = [
+  'eternitytree', 'naturecorner', 'culturemonument', 'culturestump', 'powerline', 'manualfelling', 'warning', 'steep', 'felloutside', 'highstump',
+  'firewood', 'landing', 'brashpile', 'windfall', 'road', 'turningpoint', 'ditch', 'bridge', 'corduroy', 'wet', 'trail', 'default',
+] as const
+
+export const markerIconDefs: MarkerIconDef[] = IKON_IDN.map((id) => ({ id, bg: symbolFarg(id), outline: '#ffffff' }))
 
 /** SVG-glyph-paths per markörtyp (viewBox 0 0 24 24, vit stroke/fill). */
 export const iconSvgPaths: Record<string, string> = {

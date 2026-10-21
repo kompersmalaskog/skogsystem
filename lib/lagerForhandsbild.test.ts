@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BASKARTA_BILD, lagerBild, linjeYta, sparYta, tonadYta } from './lagerForhandsbild';
+import { GRUPPER } from './larm/grupper';
 
 describe('lagerForhandsbild', () => {
   it('bakgrundskartorna har var sin bild', () => {
@@ -11,7 +12,7 @@ describe('lagerForhandsbild', () => {
     expect(lagerBild('nyckelbiotoper', '#a855f7')).toBe('linear-gradient(135deg, #a855f740, #a855f7)');
   });
   it('overlay-id utan färg ur LayerDef slås upp, okänt id får en neutral yta', () => {
-    expect(lagerBild('wetlands')).toBe(tonadYta('#3b82f6'));
+    expect(lagerBild('wetlands')).toBe(tonadYta(GRUPPER.blott.farg));
     expect(lagerBild('okant-lager')).toContain('linear-gradient');
   });
   it('en färg som inte är #rrggbb används rakt av (ingen trasig CSS)', () => {

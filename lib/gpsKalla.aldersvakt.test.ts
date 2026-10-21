@@ -161,6 +161,6 @@ describe("planeringsvyn visar fördröjd GPS-data och erbjuder baudrate-val", ()
     expect(src).toContain("valjSerialPort((baud) => setProvarBaud(baud))");
   });
   it("positionen uppdateras bara av en GILTIG fix (en fördröjd kö rör aldrig currentPosition → inga hyttspår-punkter)", () => {
-    expect(src).toMatch(/if \(fix\.giltig && fix\.lat != null && fix\.lng != null\) \{\n\s+setCurrentPosition/);
+    expect(src).toMatch(/if \(fix\.giltig && fix\.lat != null && fix\.lng != null\) \{\n\s+if \(!testlageAktivRef\.current\) setCurrentPosition/);   // (testläget flyttar positionen för hand: lib/testPosition)
   });
 });

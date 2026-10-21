@@ -17,12 +17,14 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, STRECK_ZON, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
+  zonKantLager,
+  IKON_STORLEK, STRECK_DASHED, STRECK_RANDAD, STRECK_STENMUR, STRECK_VANLIG, KANT_SVART_MJUK, KANT_SVART_STARK, LEGEND, LINJE_BREDD, LINJE_BREDD_GRANS,
   LINJE_KANT_BREDD, LINJE_KANT_BREDD_GRANS, LINJE_STIL, NUMMER_FONT_PX, NUMMER_STORLEK, PIL_STIL,
   STENMUR_BREDD, STENMUR_FARG, ZON_BREDD, ZON_FYLLNING_OPACITET, ZON_KANT_BREDD, ZON_KANT_FARG,
   ritaPilIkon, zoomKurva,
 } from './kartstil';
 import { ZONE_COLORS } from './zone-colors';
+import { FARG_FARA, FARG_KULTUR, FARG_NATUR, FARG_STENMUR } from './larm/grupper';
 
 // Radslut normaliseras: filen kan ha CRLF pa Windows och LF pa Vercel, och
 // vakten ska ge samma svar bada stallena.
@@ -64,11 +66,14 @@ function stopp(uttryck: string, vad: string): [number, number][] {
 
 const sammanfoga = (s: string) => s.replace(/\s+/g, '');
 
+/** Färgkonstanterna ur färggrupperna (lib/larm/grupper) som planeringens källtext använder vid namn. */
+const FARG_KONSTANTER: Record<string, string> = { FARG_FARA, FARG_NATUR, FARG_KULTUR, FARG_STENMUR };
+
 describe('LEGEND', () => {
   it('lib/kartstil.LEGEND ar identisk med LEGEND i planeringsvyn', () => {
     const block = mellan(KALLA, /const LEGEND = \{/, /\n\};/, 'LEGEND');
     const kalla: Record<string, string> = {};
-    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*'([^']+)'/gm))) kalla[m[1]] = m[2];
+    for (const m of Array.from(block.matchAll(/^\s*(\w+):\s*(?:'([^']+)'|(FARG_\w+))/gm))) kalla[m[1]] = m[2] ?? FARG_KONSTANTER[m[3]] ?? saknas(m[3]);
     expect(Object.keys(kalla).length).toBeGreaterThan(5);
     expect(LEGEND).toEqual(kalla);
   });
@@ -79,6 +84,7 @@ describe('linjetyperna (lineTypeDefs)', () => {
   const farg = (tok: string) => {
     const l = /^LEGEND\.(\w+)$/.exec(tok);
     if (l) return (LEGEND as Record<string, string>)[l[1]] ?? saknas(`LEGEND.${l[1]}`);
+    if (FARG_KONSTANTER[tok]) return FARG_KONSTANTER[tok];
     const s = /^'([^']+)'$/.exec(tok);
     return s ? s[1] : saknas(`farg ${tok}`);
   };
@@ -142,8 +148,11 @@ describe('linjetyperna (lineTypeDefs)', () => {
   });
 
   it('stenmur: farg, bredd och streckning', () => {
-    const block = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
-    expect(block).toContain(`'line-color': '${STENMUR_FARG}'`);
+    const helt = mellan(KALLA, /if \(lt\.id === 'stonewall'\) \{/, /return;/, 'stenmur');
+    expect(helt).toContain("id: 'line-stonewall-casing'");   // mörk kant under, som övriga linjer
+    const block = helt.slice(helt.indexOf("id: 'line-stonewall-base'"));
+    expect(block).toContain("'line-color': FARG_STENMUR");
+    expect(STENMUR_FARG).toBe(FARG_STENMUR);   // Stenmur = Kultur (brun), gruppens färg
     expect(stopp(block, 'stenmur/bredd')).toEqual(STENMUR_BREDD.map((s) => [...s]));
     expect(sammanfoga(block)).toContain(sammanfoga(`'line-dasharray': [${STRECK_STENMUR.join(', ')}]`));
     expect(sammanfoga(block)).toContain(sammanfoga("'line-cap': 'butt'"));
@@ -158,13 +167,14 @@ describe('zonerna', () => {
     expect(stopp(c, 'zoneCasingWidth')).toEqual(ZON_KANT_BREDD.map((s) => [...s]));
   });
 
-  it('fyllning 0,2, mork kant, vit streckning [2,2]', () => {
+  it('fyllning 0,2, mork kant, INGEN vit streckning (ytans farg ar gruppens farg)', () => {
     const k = sammanfoga(KALLA);
     expect(k).toContain(sammanfoga("gallringCase(GALLRING_FILL_OPACITY, 0.2)"));
     expect(ZON_FYLLNING_OPACITET).toBe(0.2);
     expect(k).toContain(sammanfoga("id: 'zone-outline-casing', type: 'line', source: 'zones-source', filter: ejGallring, paint: { 'line-color': 'rgba(0,0,0,0.6)'"));
     expect(ZON_KANT_FARG).toBe('rgba(0,0,0,0.6)');
-    expect(k).toContain(sammanfoga(`'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [${STRECK_ZON.join(', ')}]`));
+    expect(k).not.toContain("id: 'zone-outline-dash'");
+    expect(sammanfoga(JSON.stringify(zonKantLager('k', 'ek', null)))).not.toContain('dasharray');
   });
 
   it('zonfarger kommer ur lib/zone-colors - planeringens egen kalla', () => {
