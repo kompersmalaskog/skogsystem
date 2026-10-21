@@ -17,9 +17,11 @@ type Props = {
   stod?: ReactNode;
   autoFocus?: boolean;
   name?: string;
+  /** `date` ger systemets datumväljare (YYYY-MM-DD); annars vanlig text. */
+  typ?: 'text' | 'date';
 };
 
-export default function Falt({ etikett, value, onChange, placeholder, inputMode = 'text', enhet, stod, autoFocus, name }: Props) {
+export default function Falt({ etikett, value, onChange, placeholder, inputMode = 'text', enhet, stod, autoFocus, name, typ = 'text' }: Props) {
   const id = useId();
   const talfalt = inputMode !== 'text';
   return (
@@ -27,7 +29,7 @@ export default function Falt({ etikett, value, onChange, placeholder, inputMode 
       <label htmlFor={id} style={{ display: 'block', ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{etikett}</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, background: FARG.fyllning, borderRadius: RADIE.rad, padding: `0 ${AVSTAND.l}px` }}>
         <input
-          id={id} name={name} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} inputMode={inputMode} autoFocus={autoFocus}
+          id={id} name={name} type={typ} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} inputMode={inputMode} autoFocus={autoFocus}
           autoComplete="off"
           style={{ flex: 1, minWidth: 0, minHeight: TRAFFYTA.min, background: 'none', border: 'none', outline: 'none', color: FARG.text, ...TYP.text, ...(talfalt ? TNUM : null), fontFamily: 'inherit', padding: 0, colorScheme: 'dark' }}
         />

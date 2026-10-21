@@ -1,0 +1,45 @@
+'use client';
+// Ett trädslag i rapporten: snittavvikelsen (viktad per kontrollstock) och de senaste kontrollerna. Samma innehåll som den gamla modalen.
+import Rad from '@/components/design/Rad';
+import Sektion from '@/components/design/Sektion';
+import { AVSTAND } from '@/lib/design/tokens';
+import { avvikelseTon } from '@/lib/kalibrering/bedomning';
+import { fmtAvvikelse } from '@/lib/kalibrering/format';
+import { AVVIKELSE } from '@/lib/kalibrering/ordlista';
+import type { ArtSnitt } from '@/lib/kalibrering/rapport';
+import { stockText } from '@/lib/kalibrering/text';
+import type { FaktKalibrering } from '@/lib/kalibrering/typer';
+import { artNamn } from './arkTyper';
+import { Info, Meta, TalGrid, TonVarde } from './delar';
+
+export default function ArtArk({ art, data, kontroller, onKontroll }: { art: string; data: ArtSnitt; kontroller: FaktKalibrering[]; onKontroll: (filnamn: string) => void }) {
+  const namn = artNamn(art);
+  const senaste = kontroller.filter(k => k.tradslag.toLowerCase() === art).slice(0, 20);
+  return (
+    <>
+      <Meta>{`${data.count} kontroller`}</Meta>
+
+      <div style={{ marginTop: AVSTAND.l }}>
+        <TalGrid rubrik={`Snitt för ${namn.toLowerCase()}`} celler={[
+          { etikett: AVVIKELSE.langd, varde: fmtAvvikelse(data.lenDiff, 'cm'), enhet: 'cm', ton: avvikelseTon(data.lenDiff, 'len', data.count) },
+          { etikett: AVVIKELSE.dia, varde: fmtAvvikelse(data.diaDiff, 'mm'), enhet: 'mm', ton: avvikelseTon(data.diaDiff, 'dia', data.count) },
+        ]} />
+      </div>
+
+      <div style={{ marginTop: AVSTAND.l }}>
+        <Sektion rubrik="Senaste kontroller" kort={false}>
+          {senaste.map((k, i) => (
+            <Rad key={k.id} sista={i === senaste.length - 1} onTryck={() => onKontroll(k.filnamn)}
+              titel={new Date(k.datum).toLocaleDateString('sv-SE')}
+              under={`${stockText(k.antal_kontrollstockar)} • ${k.status === 'VARNING' ? 'Varning' : 'Inom'}`}
+              hoger={<TonVarde ton={avvikelseTon(k.dia_avvikelse_snitt_mm, 'dia')}>{`${fmtAvvikelse(k.dia_avvikelse_snitt_mm, 'mm')} mm`}</TonVarde>} />
+          ))}
+        </Sektion>
+      </div>
+
+      <Info ikon="bar_chart" titel="Tillräckligt underlag?">
+        {data.count >= 5 ? `Ja, ${data.count} kontroller ger ett bra underlag.` : 'Fler kontroller behövs för att dra säkra slutsatser.'}
+      </Info>
+    </>
+  );
+}
