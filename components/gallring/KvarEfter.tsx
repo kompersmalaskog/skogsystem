@@ -6,16 +6,16 @@
 // uttaget = skördaren. Talen och reglerna bor i lib/laserKvar.ts; här ritas de bara.
 // "ca" och spannet står alltid vid före och kvar: de är uppräknade, inte mätta. Uttaget är en mätning och står utan.
 // Laserdatan läses efter per hektar och fäller aldrig trakten: ett fel här är ett fel med Försök igen.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AVSTAND, FARG, KNAPP, TYP } from '@/lib/design/tokens';
 import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import { fmtAntal, fmtDecimal } from '@/lib/gallring';
-import { beraknaKvar, provpunkter, TILLVAXT, type KvarSvar } from '@/lib/laserKvar';
+import { beraknaKvar, provpunkter, TILLVAXT, type KvarSvar, type LaserRuta } from '@/lib/laserKvar';
 import { hamtaLaserRutor } from '@/lib/laserGrundyta';
 import type { GallradYta } from '@/lib/gallradYta';
 
-const RUBRIK = 'Hur mycket står kvar?';
+const RUBRIK_BAS = 'Hur mycket står kvar?';
 const avr1 = (v: number) => Math.round(v * 10) / 10;
 
 type Lage = { typ: 'laddar' } | { typ: 'fel'; text: string } | { typ: 'klar'; s: KvarSvar };
@@ -24,8 +24,12 @@ function Text({ children, attr }: { children: React.ReactNode; attr?: Record<str
   return <p style={{ margin: 0, padding: `${AVSTAND.l}px 0`, ...TYP.text, color: FARG.text2 }} {...attr}>{children}</p>;
 }
 
-export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordStart }: {
+export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordStart, innehaller, delNamn }: {
   yta: GallradYta;
+  /** En del av den gallrade ytan (första eller andra gallring) — laserdatan läses bara där. Annars hela ytan. */
+  innehaller?: (lng: number, lat: number) => boolean;
+  /** "Första gallring" — står i rubriken när talen gäller en del. */
+  delNamn?: string;
   uttagPerHa: number;
   /** Skördarens uttagna stammar per hektar på samma yta. */
   uttagStammarPerHa: number;
@@ -33,16 +37,22 @@ export default function KvarEfter({ yta, uttagPerHa, uttagStammarPerHa, skordSta
   skordStart: string;
 }) {
   const [lage, setLage] = useState<Lage>({ typ: 'laddar' });
+  // Laserrutorna per yta, så ett byte mellan första och andra gallring och tillbaka inte hämtar igen.
+  const cache = useRef(new Map<unknown, LaserRuta[]>());
+  const omrade = innehaller ?? yta.innehaller;
   const ladda = useCallback(async () => {
-    setLage({ typ: 'laddar' });
+    const sparad = cache.current.get(omrade);
+    if (!sparad) setLage({ typ: 'laddar' });
     try {
-      const rutor = await hamtaLaserRutor(provpunkter(yta.karta.lnglat, yta.innehaller));
+      const rutor = sparad ?? await hamtaLaserRutor(provpunkter(yta.karta.lnglat, omrade));
+      cache.current.set(omrade, rutor);
       setLage({ typ: 'klar', s: beraknaKvar({ rutor, uttagPerHa, uttagStammarPerHa, skordStart }) });
     } catch (e) {
       setLage({ typ: 'fel', text: e instanceof Error ? e.message : 'Laserdatan gick inte att hämta.' });
     }
-  }, [yta, uttagPerHa, uttagStammarPerHa, skordStart]);
+  }, [yta, omrade, uttagPerHa, uttagStammarPerHa, skordStart]);
   useEffect(() => { ladda(); }, [ladda]);
+  const RUBRIK = delNamn ? `${RUBRIK_BAS} · ${delNamn}` : RUBRIK_BAS;
 
   if (lage.typ === 'laddar') {
     return <Sektion rubrik={RUBRIK} inset><Text>Hämtar Skogsstyrelsens laserdata…</Text></Sektion>;

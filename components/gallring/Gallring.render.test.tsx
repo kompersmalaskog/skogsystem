@@ -9,6 +9,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { GallringDetalj, GallringRad } from '@/lib/gallring';
 import type { PerHaLast as PerHa } from '@/lib/gallring';
 import { beraknaGallradYta, type StamPos } from '@/lib/gallradYta';
+import { beraknaPerHa, perHaForDel } from '@/lib/gallringPerHa';
+import { foreslaDelning, type DelningSvar } from '@/lib/gallringDelar';
+import sandasen from '@/lib/__fixtures__/sandasen_gallring_2026-10-22.json';
 
 let sokvag = '/gallring';
 vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => createElement('a', { href, ...rest }, children) }));
@@ -139,6 +142,7 @@ const DETALJ: GallringDetalj = {
 const PER_HA: PerHa = {
   lage: 'ok', arealHa: 8.834, vidaHa: 8.834, yta: null, svarSparas: true, volymPerHa: 22.4, stammarPerHa: 347.2, grundytaPerHa: 4.2, andelUtanfor: 0.284,
   stickvag: { lage: 'ok', andel: 0.24, avstandM: 16.7, roller: ['skordare', 'skotare'] },
+  delning: null, delarPerHa: null,
 };
 
 describe('trakten', () => {
@@ -401,7 +405,7 @@ describe('trakten', () => {
 
   it('utan traktgräns inget per hektar, och ett läsfel är ett fel med Försök igen', async () => {
     hamtaGallring.mockResolvedValue(DETALJ);
-    hamtaPerHa.mockResolvedValue({ lage: 'ingen-grans', svarSparas: true });
+    hamtaPerHa.mockResolvedValue({ lage: 'ingen-grans', svarSparas: true, delning: null, delarPerHa: null });
     let h = await montera(createElement(Trakt, { vo: '11183108' }));
     expect(h.querySelector('[data-perha-ingen-grans]')).not.toBeNull();
     expect(h.textContent).not.toContain('/ha');
@@ -424,5 +428,85 @@ describe('trakten', () => {
     h = await montera(createElement(Trakt, { vo: 'x' }));
     expect(h.textContent).toContain('Kunde inte läsa trakten');
     expect(h.querySelector('a[href="/gallring"]')).not.toBeNull();
+  });
+});
+
+// Sandåsen ur prod, räknad av de riktiga modulerna: väster första gallring, öster andra.
+function sandasenPerHa(svar: DelningSvar | null = null): PerHa {
+  const [lo, la] = sandasen.origo as [number, number];
+  const stamrader = (sandasen.stammar_dlat_dlng_dbh as number[][]).map(([a, b, d], i) => ({ id: i, lat: la + a * 1e-5, lng: lo + b * 1e-5, dbhMm: d }));
+  const p = beraknaPerHa({ ringar: sandasen.ringar as [number, number][][], volymM3fub: 295.7, stammar: stamrader.length, stamrader, spar: [] });
+  if (p.lage !== 'ok' || !p.yta) throw new Error('ingen yta');
+  const delning = foreslaDelning(p.yta, stamrader, svar);
+  const delarPerHa = delning?.delar
+    ? delning.delar.map((d) => perHaForDel({ volymM3fub: 295.7, stammar: stamrader.length, stamrader }, p.arealHa, d.andelYta, d.stammar)) as any
+    : null;
+  return { ...p, svarSparas: true, delning, delarPerHa };
+}
+
+describe('första och andra gallring', () => {
+  it('appens förslag står som en rad, siffrorna gäller första gallringen och växeln byter till andra', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const per = sandasenPerHa();
+    hamtaPerHa.mockResolvedValue(per);
+    hamtaLaserRutor.mockResolvedValue([]);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-delning]')!;
+    expect(rad.getAttribute('data-delning')).toBe('forslag');
+    expect(rad.textContent).toContain('Första och andra gallring');
+    expect(rad.textContent).toContain('Väster första, öster andra · appens förslag');
+    const [f, a] = per.lage === 'ok' ? per.delarPerHa! : [null, null];
+    const uttag = () => Number(h.querySelector('[data-uttag-stammar]')!.getAttribute('data-uttag-stammar'));
+    expect(uttag()).toBe(Math.round(f!.stammarPerHa));
+    expect(h.querySelector('[data-del-yta]')!.getAttribute('data-del-yta')).toBe('forsta');
+    expect(h.textContent).toContain('Hur mycket står kvar? · Första gallring');
+    const flikar = Array.from(h.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    expect(flikar.map((b) => b.textContent)).toEqual(['Första gallring', 'Andra gallring']);
+    await act(async () => { flikar[1].click(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(uttag()).toBe(Math.round(a!.stammarPerHa));
+    expect(uttag()).toBeLessThan(Math.round(f!.stammarPerHa));
+    expect(h.querySelector('[data-del-yta]')!.getAttribute('data-del-yta')).toBe('andra');
+    expect(h.textContent).toContain('Hur mycket står kvar? · Andra gallring');
+    // Laserdatan läses bara inom delen: punkterna för andra gallringen ligger i öster.
+    const sista = hamtaLaserRutor.mock.calls.at(-1)![0];
+    expect(sista.every(([lng]) => lng > 14.609)).toBe(true);
+  });
+
+  it('arket: förslaget i en mening, och ett svar sparas på nyckeln delning', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    hamtaPerHa.mockResolvedValue(sandasenPerHa());
+    hamtaLaserRutor.mockResolvedValue([]);
+    sparaYtaSvar.mockResolvedValue(undefined);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    const rad = h.querySelector('[data-delning]') as HTMLElement;
+    await act(async () => { rad.click(); });
+    const ark = document.querySelector('[role="dialog"]')!;
+    expect(ark.querySelector('[data-delning-forslag]')!.textContent).toBe('Väster var första gallring, öster andra.');
+    expect(ark.querySelector('[data-delning-del="forsta"]')!.textContent).toMatch(/Första gallring · \d,\d ha · median 9,\d cm/);
+    hamtaPerHa.mockResolvedValue(sandasenPerHa('stammer'));
+    await act(async () => { (ark.querySelector('[data-delning-svar="stammer"]') as HTMLElement).click(); });
+    expect(sparaYtaSvar).toHaveBeenCalledWith('11183108', 'delning', 'stammer');
+    expect(h.querySelector('[data-delning]')!.textContent).toContain('Du har svarat: väster första, öster andra');
+  });
+
+  it('svaret "en gallring": ingen växel, siffrorna gäller hela trakten', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    const per = sandasenPerHa('en');
+    hamtaPerHa.mockResolvedValue(per);
+    hamtaLaserRutor.mockResolvedValue([]);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    expect(h.querySelector('[data-delning]')!.getAttribute('data-delning')).toBe('en');
+    expect(h.querySelector('[role="tab"]')).toBeNull();
+    expect(Number(h.querySelector('[data-uttag-stammar]')!.getAttribute('data-uttag-stammar'))).toBe(Math.round(per.lage === 'ok' ? per.stammarPerHa : 0));
+    expect(h.textContent).not.toContain('· Första gallring');
+  });
+
+  it('en trakt utan två gallringar har ingen rad och ingen växel', async () => {
+    hamtaGallring.mockResolvedValue(DETALJ);
+    hamtaPerHa.mockResolvedValue(PER_HA);
+    const h = await montera(createElement(Trakt, { vo: '11183108' }));
+    expect(h.querySelector('[data-delning]')).toBeNull();
+    expect(h.querySelector('[role="tab"]')).toBeNull();
   });
 });

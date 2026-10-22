@@ -1,6 +1,7 @@
 'use client';
 // En gallrad trakt — svaret först: uttaget i m³fub. Under det frågor i vanliga ord, som markägarrapporten:
-//   Hur hårt gallrades det? — per hektar på Vidas traktgräns och stickvägarna ur GPS-spåren (lib/gallringPerHa.ts)
+//   Hur hårt gallrades det? — per hektar på den gallrade ytan och stickvägarna ur GPS-spåren (lib/gallringPerHa.ts);
+//                             var trakten både första och andra gallring, per del (lib/gallringDelar.ts)
 //   Hur mycket står kvar?   — grundyta före (Skogsstyrelsens laserdata, uppräknad) minus uttaget (KvarEfter.tsx)
 //   Vad blev virket?        — fyra grupper i SORTIMENTFARG (mörkast = mest värt), aldrig maskinens koder
 //   Hur grovt gallrades det? — Dgv och diameterfördelningen
@@ -35,6 +36,9 @@ import { tradslagStil } from '@/lib/tradslag';
 import { UTANFOR_VISA_FRAN } from '@/lib/gallringPerHa';
 import GallradYtaArk from './GallradYtaArk';
 import KvarEfter from './KvarEfter';
+import DelningArk, { delningGaller } from './DelningArk';
+import Flikkontroll from '@/components/design/Flikkontroll';
+import { DEL_ORD, DELNING_NYCKEL, type DelNamn } from '@/lib/gallringDelar';
 
 /** Traktens bredd där frågorna går från en till två kolumner. */
 export const TVA_KOLUMNER_PX = 640;
@@ -183,6 +187,8 @@ const fmtPct = (andel: number) => `${Math.round(andel * 100)} %`;
 function PerHektar({ d }: { d: GallringDetalj }) {
   const [lage, setLage] = useState<PerHaLage>({ typ: 'laddar' });
   const [kartaOppen, setKartaOppen] = useState(false);
+  const [delningOppen, setDelningOppen] = useState(false);
+  const [valdDel, setValdDel] = useState<DelNamn>('forsta');
   const ladda = useCallback(async (tyst = false) => {
     if (!tyst) setLage({ typ: 'laddar' });
     try {
@@ -241,10 +247,19 @@ function PerHektar({ d }: { d: GallringDetalj }) {
     ejHa >= 0.05 ? `${fmtDecimal(ejHa, 1)} ha inte gallrat` : null,
   ].filter(Boolean).join(' · ');
 
-  // Kvar efter gallringen räknas på samma gallrade yta och samma uttag som raderna här.
+  // Första och andra gallring: siffrorna per del, med en växel överst. Utan delning (en gallring) hela trakten.
+  const delning = p.delning;
+  const delIndex = valdDel === 'forsta' ? 0 : 1;
+  const del = delning?.delar && p.delarPerHa ? { d: delning.delar[delIndex], ph: p.delarPerHa[delIndex] } : null;
+  const visat = del
+    ? { volym: del.ph.volymPerHa, stammar: del.ph.stammarPerHa, grundyta: del.ph.grundytaPerHa }
+    : { volym: p.volymPerHa, stammar: p.stammarPerHa, grundyta: p.grundytaPerHa };
+
+  // Kvar efter gallringen räknas på samma gallrade yta och samma uttag som raderna här — per del när trakten är delad.
   const skordStart = d.dagar.map((x) => x.datum).sort()[0];
-  const kvar = yta && p.grundytaPerHa !== null && skordStart
-    ? <KvarEfter yta={yta} uttagPerHa={p.grundytaPerHa} uttagStammarPerHa={p.stammarPerHa} skordStart={skordStart} />
+  const kvar = yta && visat.grundyta !== null && skordStart
+    ? <KvarEfter yta={yta} uttagPerHa={visat.grundyta} uttagStammarPerHa={visat.stammar} skordStart={skordStart}
+        innehaller={del?.d.innehaller} delNamn={del ? DEL_ORD[del.d.namn] : undefined} />
     : null;
 
   return (
@@ -255,12 +270,27 @@ function PerHektar({ d }: { d: GallringDetalj }) {
           <Rad titel="Gallrat" hoger={`${fmtDecimal(p.arealHa, 1)} ha`} under={ytaUnder}
             pil={bitar > 0} onTryck={() => setKartaOppen(true)} attr={{ 'data-gallrad-yta': '' }} />
         )}
-        <Rad titel="Uttagen volym" hoger={`${fmtDecimal(p.volymPerHa, 1)} m³fub/ha`} />
-        <Rad titel="Uttagna stammar" hoger={`${fmtAntal(Math.round(p.stammarPerHa))} st/ha`} />
-        {p.grundytaPerHa !== null && <Rad titel="Uttagen grundyta" hoger={`${fmtDecimal(p.grundytaPerHa, 1)} m²/ha`} />}
+        {delning && (
+          <Rad titel={delning.svar === 'en' ? 'En gallring' : 'Första och andra gallring'}
+            under={delning.svar ? `Du har svarat: ${delningGaller(delning).toLowerCase()}` : `${delningGaller(delning)} · appens förslag`}
+            onTryck={() => setDelningOppen(true)} attr={{ 'data-delning': delning.svar ?? 'forslag' }} />
+        )}
+        {del && (
+          <div style={{ padding: `${AVSTAND.m}px 0` }}>
+            <Flikkontroll flikar={[['forsta', 'Första gallring'], ['andra', 'Andra gallring']] as const}
+              aktiv={valdDel} onVal={setValdDel} />
+          </div>
+        )}
+        {del && (
+          <Rad titel="Yta" hoger={`${fmtDecimal(del.ph.arealHa, 1)} ha`} hogerUnder={`median ${fmtDecimal(del.d.medianDbhMm / 10, 1)} cm`}
+            under={`${del.d.lage.charAt(0).toUpperCase()}${del.d.lage.slice(1)} i trakten`} attr={{ 'data-del-yta': del.d.namn }} />
+        )}
+        <Rad titel="Uttagen volym" hoger={`${fmtDecimal(visat.volym, 1)} m³fub/ha`} />
+        <Rad titel="Uttagna stammar" hoger={`${fmtAntal(Math.round(visat.stammar))} st/ha`} attr={{ 'data-uttag-stammar': String(Math.round(visat.stammar)) }} />
+        {visat.grundyta !== null && <Rad titel="Uttagen grundyta" hoger={`${fmtDecimal(visat.grundyta, 1)} m²/ha`} />}
         {sv.lage === 'ok' ? (
           <Rad titel="Stickvägar" hoger={`ca ${fmtPct(sv.andel)}`} hogerUnder={`ca ${Math.round(sv.avstandM)} m isär`} sista
-            attr={{ 'data-stickvag': 'ok' }} />
+            under={del ? 'Hela trakten' : undefined} attr={{ 'data-stickvag': 'ok' }} />
         ) : (
           <Rad titel="Stickvägar" hoger="–" sista attr={{ 'data-stickvag': sv.lage }}
             under={sv.lage === 'inget-spar' ? 'Inget GPS-spår från maskinerna än' : 'GPS-spåret täcker bara en del av trakten'} />
@@ -269,6 +299,10 @@ function PerHektar({ d }: { d: GallringDetalj }) {
       {kartaOppen && yta && (
         <GallradYtaArk yta={yta} svarSparas={p.svarSparas} onStang={() => setKartaOppen(false)}
           onSvar={async (nyckel, svar) => { await sparaYtaSvar(d.vo, nyckel, svar); await ladda(true); }} />
+      )}
+      {delningOppen && yta && delning && (
+        <DelningArk yta={yta} delning={delning} arealHa={p.arealHa} svarSparas={p.svarSparas} onStang={() => setDelningOppen(false)}
+          onSvar={async (svar) => { await sparaYtaSvar(d.vo, DELNING_NYCKEL, svar); await ladda(true); }} />
       )}
     </Sektion>
     {kvar}

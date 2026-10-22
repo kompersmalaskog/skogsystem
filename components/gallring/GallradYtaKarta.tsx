@@ -34,8 +34,11 @@ export function rutaTillLngLat(yta: GallradYta, x: number, y: number): [number, 
   return [minLng + (x / yta.karta.bredd) * (maxLng - minLng), maxLat - (y / yta.karta.hojd) * (maxLat - minLat)];
 }
 
+/** Första och andra gallring (lib/gallringDelar.ts): den gallrade marken färgas per del i stället för en färg. */
+export type KartDelar = { rutor: Uint8Array; farg: [string, string] };
+
 /** Ytorna som en bild (en pixel per ruta). Null utan canvas (jsdom). */
-function ytorBild(yta: GallradYta, farg: Farg): string | null {
+function ytorBild(yta: GallradYta, farg: Farg, delar?: KartDelar): string | null {
   const c = typeof document !== 'undefined' ? document.createElement('canvas') : null;
   const ctx = c?.getContext?.('2d');
   if (!c || !ctx) return null;
@@ -47,7 +50,8 @@ function ytorBild(yta: GallradYta, farg: Farg): string | null {
     [RUTA.utanforAnnat]: farg.annat, [RUTA.ejGallrat]: farg.ejGallrat,
   };
   for (let y = 0; y < hojd; y++) for (let x = 0; x < bredd; x++) {
-    const f = per[rutor[y * bredd + x]];
+    const del = delar ? delar.rutor[y * bredd + x] : 0;
+    const f = del ? delar!.farg[del - 1] : per[rutor[y * bredd + x]];
     if (!f) continue;
     ctx.fillStyle = f;
     ctx.fillRect(x, y, 1, 1);
@@ -57,8 +61,10 @@ function ytorBild(yta: GallradYta, farg: Farg): string | null {
 
 const synlig = (pa: boolean) => (pa ? 'visible' : 'none');
 
-export default function GallradYtaKarta({ yta, farg, flygfoto, stammar, onBit }: {
-  yta: GallradYta; farg: Farg; flygfoto: boolean; stammar: boolean; onBit: (nyckel: string) => void;
+export default function GallradYtaKarta({ yta, farg, flygfoto, stammar, onBit, delar }: {
+  yta: GallradYta; farg: Farg; flygfoto: boolean; stammar: boolean; onBit?: (nyckel: string) => void;
+  /** Visa första och andra gallring. Då ritas inga bitnummer — kartan svarar på en fråga i taget. */
+  delar?: KartDelar;
 }) {
   const [karta, setKarta] = useState<any | null>(null);
   // Kartan kräver WebGL — utan det (jsdom, mycket gamla enheter) ritas bara ramen.
@@ -75,7 +81,7 @@ export default function GallradYtaKarta({ yta, farg, flygfoto, stammar, onBit }:
     if (!karta) return;
     const hörn: [[number, number], [number, number], [number, number], [number, number]] =
       [[minLng, maxLat], [maxLng, maxLat], [maxLng, minLat], [minLng, minLat]];
-    const bild = ytorBild(yta, farg);
+    const bild = ytorBild(yta, farg, delar);
     const gransFc = {
       type: 'FeatureCollection' as const,
       features: yta.karta.ringar.map((r) => ({
@@ -92,7 +98,7 @@ export default function GallradYtaKarta({ yta, farg, flygfoto, stammar, onBit }:
     };
     const bitFc = {
       type: 'FeatureCollection' as const,
-      features: [...yta.utanfor, ...yta.ejGallrat].map((b) => ({
+      features: (delar ? [] : [...yta.utanfor, ...yta.ejGallrat]).map((b) => ({
         type: 'Feature' as const, properties: { nyckel: b.nyckel, nr: String(b.nr) },
         geometry: { type: 'Point' as const, coordinates: rutaTillLngLat(yta, b.mitt.x, b.mitt.y) },
       })),
@@ -136,14 +142,14 @@ export default function GallradYtaKarta({ yta, farg, flygfoto, stammar, onBit }:
       });
       karta.on('click', 'gy-bitar-cirkel', (e: any) => {
         const n = e.features?.[0]?.properties?.nyckel;
-        if (n) onBitRef.current(n);
+        if (n) onBitRef.current?.(n);
       });
       karta.on('mouseenter', 'gy-bitar-cirkel', () => { karta.getCanvas().style.cursor = 'pointer'; });
       karta.on('mouseleave', 'gy-bitar-cirkel', () => { karta.getCanvas().style.cursor = ''; });
       karta.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: KANT_MARGINAL_PX, duration: 0 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [karta, yta]);
+  }, [karta, yta, delar]);
 
   // Lagren av och på, och ytornas täckning efter om fotot syns.
   useEffect(() => {
