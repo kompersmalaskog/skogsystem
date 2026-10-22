@@ -136,7 +136,6 @@ export const stamPlats = (posCm: number, totalCm: number): 'rot' | 'mitt' | 'top
   return f < 1 / 3 ? 'rot' : f > 2 / 3 ? 'topp' : 'mitt';
 };
 const PLATS_ORD = { rot: 'i rotändan', mitt: 'mitt på stammen', topp: 'i toppen' } as const;
-const PLATS_MEST = { rot: 'mest i rotändan', mitt: 'mest mitt på stammen', topp: 'mest i toppen' } as const;
 
 /** Svaret på "hur mäter maskinen längs den här stammen?" — en mening. Räknar bara på punkter där klaven mätt. */
 export const stamSvar = (g: StamGeometri, tol: number): StamSvar => {
@@ -169,18 +168,21 @@ export const stamSvar = (g: StamGeometri, tol: number): StamSvar => {
 };
 
 // === Ställena där greppet släppte, i vardagsord ===
-/** "Greppet släppte på 3 ställen, mest i rotändan." Null när vi inte kan bedöma (ingen tät profil eller för få klavmått) — då säger vi ingenting. */
-export const greppSammanfattning = (stallen: Grepp[], kanBedomas: boolean, totalCm: number): string | null => {
-  if (!kanBedomas) return null;
+/** Felet räknas som ett fel när det ligger utanför toleransen (avrundat, som det visas — samma som pricken i diagrammet). */
+export const gavFel = (felMm: number | null, tol: number): boolean => felMm != null && Math.abs(Math.round(felMm)) > tol;
+
+/** "Greppet släppte på 8 ställen, 3 gav fel över 4 mm." Alla ställen räknas; felet (klaven) avgör bara andra halvan. Null när stammen saknar tät profil — då vet vi inget. */
+export const greppRubrik = (stallen: Grepp[], harProfil: boolean, tol: number): string | null => {
+  if (!harProfil) return null;
   if (stallen.length === 0) return 'Greppet släppte ingenstans.';
-  const plats = stallen.map(p => stamPlats((p.startCm + p.endCm) / 2, totalCm));
-  if (stallen.length === 1) return `Greppet släppte på ett ställe, ${PLATS_ORD[plats[0]]}.`;
-  const antal = { rot: 0, mitt: 0, topp: 0 };
-  for (const p of plats) antal[p]++;
-  const rangordnad = (Object.keys(antal) as (keyof typeof antal)[]).sort((a, b) => antal[b] - antal[a]);
-  const [forst, andra] = rangordnad;
-  const tydlig = antal[forst] > antal[andra] && antal[forst] / stallen.length >= 0.5;
-  return `Greppet släppte på ${stallen.length} ställen, ${tydlig ? PLATS_MEST[forst] : 'utspridda längs stammen'}.`;
+  const tolText = `${dec(tol, 0)} mm`;
+  const bedomda = stallen.filter(p => p.felMm != null);
+  const fel = stallen.filter(p => gavFel(p.felMm, tol)).length;
+  const antal = stallen.length === 1 ? 'ett ställe' : `${stallen.length} ställen`;
+  // Ingen klave att mäta felet mot: vi räknar ställena men påstår inget om felet.
+  if (bedomda.length === 0) return `Greppet släppte på ${antal}.`;
+  const halva = fel === 0 ? `inget gav fel över ${tolText}` : stallen.length === 1 ? `det gav fel över ${tolText}` : `${fel} gav fel över ${tolText}`;
+  return `Greppet släppte på ${antal}, ${halva}.`;
 };
 
 /** Vilka stockar ett ställe ligger på, som text: "stock 2" eller "stock 2–3". */
@@ -198,8 +200,8 @@ export type GreppRad = {
   titel: string;
   /** Längden på sträckan, bara när den är längre än den minsta som räknas ("50 cm lång"); annars null. */
   langd: string | null;
-  /** Felet stället gav, maskin − klave: "+5 mm". */
-  fel: string;
+  /** Felet stället gav, maskin − klave: "+5 mm". null när klaven inte mätt där ("ej klavad"). */
+  fel: string | null;
   /** Kontrollarkets färg på felet (`stamTon`): ok inom ±4 mm. */
   ton: ToneToken;
 };
@@ -210,8 +212,8 @@ export const greppRad = (p: Grepp, g: StamGeometri): GreppRad => {
   return {
     titel: `${dec(p.startCm / 100, 1)}–${dec(p.endCm / 100, 1)} m${stock ? ` · ${stock}` : ''}`,
     langd: p.lengthCm > GREPP_MIN_CM ? `${p.lengthCm} cm lång` : null,
-    fel: `${fmtAvvikelse(p.felMm, 'mm')} mm`,
-    ton: stamTon(Math.round(p.felMm)),
+    fel: p.felMm != null ? `${fmtAvvikelse(p.felMm, 'mm')} mm` : null,
+    ton: p.felMm != null ? stamTon(Math.round(p.felMm)) : 'ok',
   };
 };
 

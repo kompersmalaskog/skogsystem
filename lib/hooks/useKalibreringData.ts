@@ -39,7 +39,7 @@ export function useKalibreringData(activeTab: Flik) {
 
   // Profilbedömning per maskin (90-dagarsfönster) — cachas per maskin_id.
   const [bedomningMap, setBedomningMap] = useState<Record<string, BedomningResp>>({});
-  // Diagnos-underlag per maskin (klasser, var greppet släppte, markörer).
+  // Diagnos-underlag per maskin (klasser, planområden, markörer).
   const [diagnosMap, setDiagnosMap] = useState<Record<string, DiagnosResp>>({});
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
@@ -92,7 +92,7 @@ export function useKalibreringData(activeTab: Flik) {
   const heroMaskinObj = heroMaskin ? alleMaskiner.find(m => m.maskin_id === heroMaskin) : undefined;
   const heroNamn = heroMaskin ? maskinNamn(heroMaskinObj ?? { maskin_id: heroMaskin }) : '';
 
-  // Hämta diagnos-underlag (klasser, var greppet släppte, markörer) för vald maskin.
+  // Hämta diagnos-underlag (klasser, planområden, markörer) för vald maskin.
   const laddaDiagnos = useCallback((maskin: string, force = false) => {
     if (!maskin) return;
     if (!force && diagnosMap[maskin]) return;

@@ -1,8 +1,8 @@
 'use client';
 // Avvikelsen längs stammen: x = läge rot → topp, y = maskin − klave i mm. En nollinje, ett svagt band för ±toleransen (ur kravprofilen), en
 // prick per mätpunkt och tunna lodräta linjer vid stockgränserna med stockens nummer. Prickar utanför bandet får kontrollarkets färg (orange
-// över, röd långt över, blå under) och talet bredvid; inom bandet är pricken grå. Där greppet släppte (maskinens mått står still medan klavens
-// sjunker) är glipan mellan nollinjen och avvikelsen färgad, med felets färg. Räknandet bor i lib/kalibrering (stam, grepp); här ritas bara.
+// över, röd långt över, blå under) och talet bredvid; inom bandet är pricken grå. Där greppet släppte (maskinens mått står still) är glipan
+// mellan nollinjen och avvikelsen färgad, med felets färg. Räknandet bor i lib/kalibrering (stam, grepp); här ritas bara.
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens';
 import { fmtAvvikelse, fmtKrav } from '@/lib/kalibrering/format';
 import type { Grepp } from '@/lib/kalibrering/grepp';
@@ -68,8 +68,8 @@ export default function StamAvvikelse({ g, tol, stallen }: { g: StamGeometri; to
           <text key={`n${i}`} x={(xFor(g.granserCm[i]) + xFor(g.granserCm[i + 1])) / 2} y={PAD_T - 7} {...etikettStil} textAnchor="middle">{nr}</text>
         ))}
         {/* Där greppet släppte: glipan mellan nollinjen och avvikelsen, i felets färg (kontrollarkets, grå inom bandet). */}
-        {stallen.map((p, i) => {
-          const farg = TON_FARG[stamTon(Math.round(p.felMm))];
+        {stallen.filter(p => p.glipa.length > 1 && p.felMm != null).map((p, i) => {
+          const farg = TON_FARG[stamTon(Math.round(p.felMm as number))];
           const x0 = xFor(p.glipa[0].posCm), x1 = xFor(p.glipa[p.glipa.length - 1].posCm);
           const mitt = (x0 + x1) / 2, vidga = Math.max(1, GLIPA_MIN_BREDD / Math.max(x1 - x0, 0.01));
           const xv = (cm: number) => mitt + (xFor(cm) - mitt) * vidga;
@@ -102,10 +102,10 @@ export default function StamAvvikelse({ g, tol, stallen }: { g: StamGeometri; to
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provprick farg={TON_FARG.hi} />Grövre</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provprick farg={TON_FARG.hot} />Mycket grövre</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provprick farg={TON_FARG.cold} />Klentare</span>
-        {stallen.length > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provyta />Greppet släppte</span>}
+        {stallen.some(p => p.glipa.length > 1) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s }}><Provyta />Greppet släppte</span>}
       </div>
       <Meta style={{ marginTop: AVSTAND.xs }}>
-        Maskinens mått minus klavens, rot → topp. Bandet är ±{fmtKrav(tol)} mm: pricken får färg först utanför det. Färgad yta: maskinens mått stod still medan klavens sjönk.
+        Maskinens mått minus klavens, rot → topp. Bandet är ±{fmtKrav(tol)} mm: pricken får färg först utanför det. Färgad yta: maskinens mått stod still — glipan mot klaven.
       </Meta>
     </div>
   );

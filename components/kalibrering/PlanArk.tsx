@@ -4,7 +4,7 @@
 import type { KontrollResponse } from '@/app/api/kalibrering/kontroll/route';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
-import { AVSTAND } from '@/lib/design/tokens';
+import { AVSTAND, FARG, TYP } from '@/lib/design/tokens';
 import { findGreppSlapp } from '@/lib/kalibrering/grepp';
 import { greppRad, klavePunkter, stamGeometri } from '@/lib/kalibrering/stam';
 import { Meta, TonVarde } from './delar';
@@ -14,13 +14,15 @@ export default function PlanArk({ data, stamNummer }: { data: KontrollResponse; 
   const stallen = findGreppSlapp(data.stammar.find(st => st.stam_nummer === stamNummer)?.stem_diameter_profile ?? [], klavePunkter(g));
   return (
     <>
-      <Meta style={{ marginBottom: AVSTAND.l }}>Här sjönk klavens mått men maskinens stod still. Felet är maskinens mått minus klavens vid slutet av stället.</Meta>
+      <Meta style={{ marginBottom: AVSTAND.l }}>Här stod maskinens mått still. Felet är maskinens mått minus klavens vid slutet av stället.</Meta>
       <Sektion rubrik={`${stallen.length} ${stallen.length === 1 ? 'ställe' : 'ställen'}, rot → topp`}>
         {stallen.map((p, i) => {
           const r = greppRad(p, g);
           return (
             <Rad key={i} sista={i === stallen.length - 1} titel={r.titel} under={r.langd ?? undefined}
-              hoger={<TonVarde ton={r.ton}>{r.fel}</TonVarde>} />
+              hoger={r.fel != null
+                ? <TonVarde ton={r.ton}>{r.fel}</TonVarde>
+                : <span style={{ ...TYP.meta, color: FARG.text2 }}>ej klavad</span>} />
           );
         })}
       </Sektion>

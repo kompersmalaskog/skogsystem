@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hamtaDiameterPunkter, TOPPDIA_COLS } from "@/lib/kalibrering/diameterpunkter";
-import { analyseraGrepp } from "@/lib/kalibrering/grepp";
-import { klavePunkter, stamGeometri, type StamStock } from "@/lib/kalibrering/stam";
 
 /**
  * GET /api/kalibrering/diagnos?key=skogsystem-debug&maskin_id=X
  *
  * Diagnos-underlag för kalibreringsvyn: rådata per DIAMETERKLASS över det
- * rullande 90-dagarsfönstret, plus andelen där greppet släppte (tryckmätaren) och
+ * rullande 90-dagarsfönstret, plus planområdesandel (tryckmätaren) och
  * åtgärdsmarkörer. Själva diagnosen (kurva/tryck/slitage + åtgärdstext) körs
  * i klienten (diagnos() i page.tsx) där UI-texten bor.
  *
@@ -23,11 +21,8 @@ import { klavePunkter, stamGeometri, type StamStock } from "@/lib/kalibrering/st
  *   klarar kravet, oavsett vad tecknen gör.
  *
  * Klassaxel: diameter klassas på OPERATÖRENS (sanna) diameter för träff/
- * systematik. "Greppet släppte" räknas ur maskinens stem_diameter_profile MOT
- * klaven (lib/kalibrering/grepp — samma definition som stamvyn): ett steg där
- * maskinens diameter inte sjunker men klavens gör det. Steget klassas på
- * punktens EGEN maskindiameter (det finns ingen operatörsprofil), och bara
- * steg där klaven mätt på båda sidor räknas (tryckmätarens nämnare).
+ * systematik. Planområden räknas ur maskinens stem_diameter_profile och
+ * klassas på punktens EGEN maskindiameter (det finns ingen operatörsprofil).
  *
  * Underlaget = mätpunkter längs stocken OCH toppdiametern vid kapsnittet,
  * via lib/kalibrering/diameterpunkter (samma källa som bedomning).
@@ -145,14 +140,10 @@ export async function GET(req: NextRequest) {
   const stockRes = await fetchAllRows<{
     id: number;
     kontroll_datum: string;
-    filnamn: string;
-    stam_nummer: number;
-    stock_nummer: number;
-    maskin_langd_cm: number | null;
     maskin_toppdia_mm: number | null;
     operator_toppdia_mm: number | null;
   }>((from, to) =>
-    supabase.from("detalj_kontroll_stock").select(`id,kontroll_datum,filnamn,stam_nummer,stock_nummer,maskin_langd_cm,${TOPPDIA_COLS}`)
+    supabase.from("detalj_kontroll_stock").select(`id,kontroll_datum,${TOPPDIA_COLS}`)
       .eq("maskin_id", maskinId)
       .order("id", { ascending: true }).range(from, to),
   );
@@ -162,21 +153,10 @@ export async function GET(req: NextRequest) {
   }
   const stockMonth = new Map<number, string>();
   const stockInWin = new Map<number, boolean>();
-  // Stockarna per stam (filnamn + stam_nummer) i samma form som stamvyn bygger sin geometri av — så klavens läge längs stammen räknas på ett ställe.
-  const stamStockar = new Map<string, StamStock[]>();
-  const stamStockById = new Map<number, StamStock>();
   for (const s of stockRes.data) {
     const d = String(s.kontroll_datum).slice(0, 10);
     stockMonth.set(s.id, d.slice(0, 7));
     stockInWin.set(s.id, d >= fran && d < tillExkl);
-    const ss: StamStock = {
-      stock_nummer: s.stock_nummer, maskin_langd_cm: s.maskin_langd_cm,
-      maskin_toppdia_mm: s.maskin_toppdia_mm, operator_toppdia_mm: s.operator_toppdia_mm, matpunkter: [],
-    };
-    stamStockById.set(s.id, ss);
-    const nyckel = `${s.filnamn}|${s.stam_nummer}`;
-    const lista = stamStockar.get(nyckel);
-    if (lista) lista.push(ss); else stamStockar.set(nyckel, [ss]);
   }
 
   // === Matpunkter (OMÄTT-filtrerat) → per klass: fönster-aggregat (verdikt) + månadsserier (allt) ===
@@ -195,9 +175,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: `matpunkt: ${punktRes.error.message}` }, { status: 500 });
   }
   for (const p of punktRes.data) {
-    if (p.kalla === "matpunkt" && p.position_cm != null) {
-      stamStockById.get(p.stockId)?.matpunkter.push({ position_cm: p.position_cm, diameter_maskin_mm: p.maskin_mm, diameter_operator_mm: p.operator_mm });
-    }
     const b = perKlass.get(klassAv(p.operator_mm))!;
     const avvik = p.avvik;
     const traff = Math.abs(avvik) <= 4;
@@ -213,9 +190,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // === Där greppet släppte, ur stem_diameter_profile mot klaven (hela historiken + fönster) ===
-  const profRes = await fetchAllRows<{ kontroll_datum: string; filnamn: string; stam_nummer: number; stem_diameter_profile: { diameter_mm: number; position_cm: number }[] | null }>((from, to) =>
-    supabase.from("detalj_kontroll_stam").select("kontroll_datum,filnamn,stam_nummer,stem_diameter_profile")
+  // === Planområden ur stem_diameter_profile (hela historiken + fönster) ===
+  const profRes = await fetchAllRows<{ kontroll_datum: string; stem_diameter_profile: { diameter_mm: number; position_cm: number }[] | null }>((from, to) =>
+    supabase.from("detalj_kontroll_stam").select("kontroll_datum,stem_diameter_profile")
       .eq("maskin_id", maskinId)
       .order("id", { ascending: true }).range(from, to),
   );
@@ -225,16 +202,16 @@ export async function GET(req: NextRequest) {
   const platManadOverall = new Map<string, { plan: number; tot: number }>();            // allt, överlag (slitage + Siffror-över-tid)
   if (!profRes.error) {
     for (const st of profRes.data) {
-      const stockar = stamStockar.get(`${st.filnamn}|${st.stam_nummer}`);
-      if (!stockar) continue; // ingen klave på stammen: inget att jämföra mot, stammen är inte underlag
-      const klave = klavePunkter(stamGeometri(stockar.slice().sort((a, b) => a.stock_nummer - b.stock_nummer)));
+      const prof = (st.stem_diameter_profile ?? []).slice().sort((a, b) => a.position_cm - b.position_cm);
       const d10 = String(st.kontroll_datum).slice(0, 10);
       const mo = d10.slice(0, 7);
       const inWin = d10 >= fran && d10 < tillExkl;
-      for (const steg of analyseraGrepp(st.stem_diameter_profile ?? [], klave).steg) {
-        if (steg.posCm <= 130 || !steg.bedombar) continue;
-        const k = klassAv(steg.diameterMm);
-        const flat = steg.grepp ? 1 : 0; // maskinen sjunker inte men klaven gör det = greppet släppte
+      for (let j = 1; j < prof.length; j++) {
+        if (prof[j].position_cm <= 130) continue;
+        const d = prof[j].diameter_mm, dPrev = prof[j - 1].diameter_mm;
+        if (d == null || dPrev == null) continue;
+        const k = klassAv(d);
+        const flat = d >= dPrev ? 1 : 0; // sjunker INTE = planområde
         const cm = platAllMonth.get(k)!;
         let c = cm.get(mo); if (!c) { c = { plan: 0, tot: 0 }; cm.set(mo, c); }
         c.tot++; c.plan += flat;

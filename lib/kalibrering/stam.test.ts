@@ -6,7 +6,7 @@ import { avvikelseTon } from './bedomning';
 import { findGreppSlapp } from './grepp';
 import { stockRadVarde } from './kontroll';
 import {
-  greppRad, greppStockText, greppSammanfattning, klavePunkter, stamGeometri, stamPlats, stamPrickar, stamSkala, stamStockRader, stamSvar, stamTon,
+  gavFel, greppRad, greppRubrik, greppStockText, klavePunkter, stamGeometri, stamPlats, stamPrickar, stamSkala, stamStockRader, stamSvar, stamTon,
 } from './stam';
 import { SKALVIKEN, stock } from './stam.fixtur';
 import skalvikenProfil from './__fixtures__/skalviken_stam1_profil.json';
@@ -157,24 +157,27 @@ describe('stamSkala', () => {
 });
 
 describe('där greppet släppte, i vardagsord', () => {
-  const grepp = (startCm: number, endCm: number, felMm = 5) => ({ startCm, endCm, lengthCm: endCm - startCm, felMm, klaveSjunkerMm: 3, glipa: [] });
-  it('mest i rotändan när hälften eller fler ligger där', () => {
-    expect(greppSammanfattning([grepp(0, 40), grepp(100, 140), grepp(300, 340), grepp(1000, 1040), grepp(2000, 2040)], true, 2100)).toBe('Greppet släppte på 5 ställen, mest i rotändan.');
-  });
-  it('mest i toppen och mest mitt på stammen', () => {
-    expect(greppSammanfattning([grepp(1900, 1940), grepp(2000, 2040), grepp(100, 140)], true, 2100)).toBe('Greppet släppte på 3 ställen, mest i toppen.');
-    expect(greppSammanfattning([grepp(800, 840), grepp(1000, 1040), grepp(100, 140)], true, 2100)).toBe('Greppet släppte på 3 ställen, mest mitt på stammen.');
-  });
-  it('jämnt fördelat sägs som det är', () => {
-    expect(greppSammanfattning([grepp(0, 40), grepp(1000, 1040), grepp(2000, 2040)], true, 2100)).toBe('Greppet släppte på 3 ställen, utspridda längs stammen.');
-    expect(greppSammanfattning([grepp(0, 40), grepp(100, 140), grepp(1000, 1040), grepp(1100, 1140)], true, 2100)).toBe('Greppet släppte på 4 ställen, utspridda längs stammen.');
+  const grepp = (startCm: number, endCm: number, felMm: number | null = 5) => ({ startCm, endCm, lengthCm: endCm - startCm, felMm, glipa: [] });
+  it('rubriken räknar alla ställen och hur många som gav fel över toleransen', () => {
+    expect(greppRubrik([grepp(0, 40, 5), grepp(100, 140, 2), grepp(300, 340, -6)], true, 4)).toBe('Greppet släppte på 3 ställen, 2 gav fel över 4 mm.');
+    expect(greppRubrik([grepp(0, 40, 1), grepp(100, 140, -3)], true, 4)).toBe('Greppet släppte på 2 ställen, inget gav fel över 4 mm.');
   });
   it('ett enda ställe', () => {
-    expect(greppSammanfattning([grepp(1900, 1940)], true, 2100)).toBe('Greppet släppte på ett ställe, i toppen.');
+    expect(greppRubrik([grepp(1900, 1940, 7)], true, 4)).toBe('Greppet släppte på ett ställe, det gav fel över 4 mm.');
+    expect(greppRubrik([grepp(1900, 1940, 1)], true, 4)).toBe('Greppet släppte på ett ställe, inget gav fel över 4 mm.');
   });
-  it('inga ställen men något att bedöma mot: säger det. Inget att bedöma mot: tiger.', () => {
-    expect(greppSammanfattning([], true, 2100)).toBe('Greppet släppte ingenstans.');
-    expect(greppSammanfattning([], false, 2100)).toBeNull();
+  it('felet räknas avrundat, som det visas: 4,4 visas +4 och är inte över 4', () => {
+    expect(gavFel(4.4, 4)).toBe(false);
+    expect(gavFel(4.6, 4)).toBe(true);
+    expect(gavFel(-4.6, 4)).toBe(true);
+    expect(gavFel(null, 4)).toBe(false);
+  });
+  it('ingen klave att mäta felet mot: räknar ställena men påstår inget om felet', () => {
+    expect(greppRubrik([grepp(0, 40, null), grepp(100, 140, null)], true, 4)).toBe('Greppet släppte på 2 ställen.');
+  });
+  it('inga ställen men en profil: säger det. Ingen profil: tiger.', () => {
+    expect(greppRubrik([], true, 4)).toBe('Greppet släppte ingenstans.');
+    expect(greppRubrik([], false, 4)).toBeNull();
   });
   it('stamPlats delar stammen i tredjedelar', () => {
     expect(stamPlats(0, 900)).toBe('rot');
@@ -187,15 +190,16 @@ describe('där greppet släppte, i vardagsord', () => {
     expect(greppStockText(grepp(580, 700), g)).toBe('stock 1–2');
     expect(greppStockText(grepp(1230, 1300), g)).toBe('stock 3');
   });
-  it('Skälviken: rubrikraden och raderna bakom den', () => {
+  it('Skälviken: "Greppet släppte på 8 ställen, 3 gav fel över 4 mm" och raderna bakom', () => {
     const g = stamGeometri(SKALVIKEN);
     const stallen = findGreppSlapp(skalvikenProfil.stem_diameter_profile, klavePunkter(g));
-    expect(greppSammanfattning(stallen, true, g.totalCm)).toBe('Greppet släppte på 7 ställen, mest mitt på stammen.');
+    expect(greppRubrik(stallen, true, 4)).toBe('Greppet släppte på 8 ställen, 3 gav fel över 4 mm.');
     const rader = stallen.map(p => greppRad(p, g));
     // var på stammen och hur mycket fel det gav — längden bara när den är längre än minsta som räknas (30 cm)
     expect(rader[0]).toEqual({ titel: '2,5–2,8 m · stock 1', langd: null, fel: '+5 mm', ton: 'hi' });
     expect(rader[1]).toEqual({ titel: '4,8–5,3 m · stock 1', langd: '50 cm lång', fel: '+8 mm', ton: 'hot' });
-    expect(rader[2]).toMatchObject({ titel: '9,2–9,5 m · stock 2', langd: null, fel: '-2 mm', ton: 'ok' });
+    expect(rader[2]).toMatchObject({ titel: '5,6–5,9 m · stock 1', fel: '+2 mm', ton: 'ok' });
+    expect(rader[3]).toMatchObject({ titel: '9,2–9,5 m · stock 2', fel: '-2 mm', ton: 'ok' });
     expect(rader.filter(r => r.langd).length).toBe(1);
   });
   it('felet har kontrollarkets färg: orange över +4, röd över +6, blå under −4, annars ingen', () => {
@@ -206,6 +210,9 @@ describe('där greppet släppte, i vardagsord', () => {
     expect(ton(7)).toBe('hot');
     expect(ton(-5)).toBe('cold');
     expect(ton(-3)).toBe('ok');
+  });
+  it('utan klave: ingen färg och inget tal ("ej klavad")', () => {
+    expect(greppRad(grepp(100, 160, null), stamGeometri(SKALVIKEN))).toMatchObject({ fel: null, ton: 'ok' });
   });
 });
 

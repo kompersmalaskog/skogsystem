@@ -1,5 +1,5 @@
 'use client';
-// Trend: (1) Så ligger du till — de tre Vida-talen och om åtgärden hjälpte, (2) Läget — träff och var greppet släppte per grovlek över tid,
+// Trend: (1) Så ligger du till — de tre Vida-talen och om åtgärden hjälpte, (2) Läget — träff och planområden per grovlek över tid,
 // (3) Flaxar den? — spridningen. Innehåll och siffror är den gamla flikens; räknandet bor i lib/kalibrering.
 import Flikkontroll from '@/components/design/Flikkontroll';
 import Rad from '@/components/design/Rad';
@@ -103,7 +103,7 @@ function LageTal({ d }: { d: KalibreringData }) {
   );
 }
 
-/** Avsnitt 1: träff och var greppet släppte per grovlek över tid, med ett tidssteg som gäller alla tre diagrammen. */
+/** Avsnitt 1: träff och planområden per grovlek över tid, med ett tidssteg som gäller alla tre diagrammen. */
 function Laget({ d, v, onHjalp }: { d: KalibreringData; v: KalibreringVy; onHjalp: () => void }) {
   const { diagnosData } = d;
   if (!diagnosData || !diagnosData.klasser.some(k => k.traffMonthly.length)) {
@@ -131,7 +131,7 @@ function Laget({ d, v, onHjalp }: { d: KalibreringData; v: KalibreringVy; onHjal
         </Fyll>
       </Sektion>
 
-      <Sektion rubrik="Greppet släppte per grovlek — tryckmätaren" not="Andel där maskinens mått stod still medan klavens sjönk. Ska sjunka först när trycket höjs.">
+      <Sektion rubrik="Planområden per grovlek — tryckmätaren" not="Andel där diametern inte sjunker. Ska sjunka först när trycket höjs.">
         <Fyll><TidsDiagram manader={perioderAv(plat)} series={plat} yMax={80} markorer={diagnosData.markorer} {...kanter} /></Fyll>
       </Sektion>
       <MarkorForm d={d} placeholder="t.ex. höjde trycket på knivarna" knapp="Markera" />

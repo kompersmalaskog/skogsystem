@@ -9,7 +9,7 @@ import Svarsrad from '@/components/design/Svarsrad';
 import { AVSTAND, FARG, TYP } from '@/lib/design/tokens';
 import { dec } from '@/lib/kalibrering/format';
 import { findGreppSlapp } from '@/lib/kalibrering/grepp';
-import { greppSammanfattning, klavePunkter, stamGeometri, stamStockRader, stamSvar } from '@/lib/kalibrering/stam';
+import { greppRubrik, klavePunkter, stamGeometri, stamStockRader, stamSvar } from '@/lib/kalibrering/stam';
 import { stockText } from '@/lib/kalibrering/text';
 import { Fyll, Meta, TonVarde } from './delar';
 import StamAvvikelse from './StamAvvikelse';
@@ -26,13 +26,11 @@ export default function StamArk({ data, stamNummer, tolDia, onByt, onStock, onPl
   const rader = stamStockRader(stamStockar);
   const alleStammar = Array.from(new Set(data.stockar.map(st => st.stam_nummer))).sort((a, b) => a - b);
 
-  // Ställena där greppet släppte räknas mot klaven (lib/kalibrering/grepp) och finns bara för kontrollstammar med tät profil och klavmått.
-  // Utan dem vet vi inget och säger ingenting.
+  // Ställena där greppet släppte räknas ur maskinens profil (lib/kalibrering/grepp); klaven visar bara felet per ställe. Utan tät profil
+  // vet vi inget om dem och säger ingenting.
   const profil = data.stammar.find(st => st.stam_nummer === stamNummer)?.stem_diameter_profile ?? [];
-  const klave = klavePunkter(g);
-  const kanBedomas = profil.length > 1 && klave.length > 1;
-  const stallen = findGreppSlapp(profil, klave);
-  const greppRadText = greppSammanfattning(stallen, kanBedomas, g.totalCm);
+  const stallen = findGreppSlapp(profil, klavePunkter(g));
+  const greppRadText = greppRubrik(stallen, profil.length > 1, tolDia);
 
   return (
     <>
