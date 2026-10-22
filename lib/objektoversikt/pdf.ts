@@ -74,7 +74,9 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
   const W = B - RUBRIK_B;
   const radH = (r: VyRad) => {
     const under = [r.under, r.under2].filter(Boolean).flatMap(t => bryt(t!, STEG.micro + 1, normal, W - 90));
-    return 6 + STEG.text + 4 + under.length * (STEG.micro + 4) + 6;
+    // En rad med bara en högerrad under talet (procenten vid ett trädslag) behöver plats för den.
+    const rader = Math.max(under.length, r.hogerUnder ? 1 : 0);
+    return 6 + STEG.text + 4 + rader * (STEG.micro + 4) + 6;
   };
   const sektion = (rubrik: string, rader: VyRad[], fore?: { h: number; rita: () => void }) => {
     // Rubriken radbryts i sin vänsterspalt ("Hur kom maskinerna hit?" ryms inte på en rad).
@@ -91,14 +93,20 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
       const h = radH(r);
       if (i > 0) plats(h);
       const farg = r.dampad ? F.sek : F.text;
-      text(r.titel, X, y + 6, STEG.text, fet, farg);
+      // Prick före namnet i delens färg (som på skärmen). Ljus fyllning (björk) får kant mot det vita papperet.
+      const xT = r.farg ? X + 13 : X;
+      if (r.farg) {
+        sida.drawCircle({ x: X + 4, y: A4.h - (y + 6 + STEG.text * 0.42), size: 4, color: c(r.farg),
+          borderColor: r.kontur ? c(r.kontur) : undefined, borderWidth: r.kontur ? 0.8 : 0 });
+      }
+      text(r.titel, xT, y + 6, STEG.text, fet, farg);
       if (r.hoger) hoger(r.hoger, X + W, y + 6, STEG.text, fet, farg);
       let yy = y + 6 + STEG.text + 4;
       if (r.hogerUnder) hoger(r.hogerUnder, X + W, yy, STEG.micro + 1, normal, F.sek);
       for (const [t, varning] of [[r.under, !!r.varning], [r.under2, false]] as const) {
         if (!t) continue;
         for (const del of bryt(t, STEG.micro + 1, normal, W - 90)) {
-          text(del, X, yy, STEG.micro + 1, normal, varning ? F.orange : F.sek);
+          text(del, xT, yy, STEG.micro + 1, normal, varning ? F.orange : F.sek);
           yy += STEG.micro + 4;
         }
       }
@@ -116,8 +124,17 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
         const steg = W / staplar.length;
         const yBas = y + 6 + H;
         staplar.forEach((s, i) => {
-          const h = s.min > 0 ? Math.max(2, (s.min / max) * H) : 1;
-          sida.drawRectangle({ x: X + i * steg + steg * 0.18, y: A4.h - yBas, width: steg * 0.64, height: h, color: s.min > 0 ? F.stapel : F.dampad });
+          const x = X + i * steg + steg * 0.18;
+          if (s.min <= 0) { sida.drawRectangle({ x, y: A4.h - yBas, width: steg * 0.64, height: 1, color: F.dampad }); return; }
+          // Staplad i delarnas färger, nerifrån (samma ordning som skärmen).
+          const total = Math.max(2, (s.min / max) * H);
+          let botten = A4.h - yBas;
+          for (const d of s.delar) {
+            const h = (d.min / s.min) * total;
+            if (h <= 0) continue;
+            sida.drawRectangle({ x, y: botten, width: steg * 0.64, height: h, color: c(d.farg) });
+            botten += h;
+          }
         });
         const etikett = (i: number) => {
           const s = staplar[i];
@@ -137,7 +154,22 @@ export async function skapaObjektPdf(vy: ObjektVy, datum: string = new Date().to
   sektion('Vart gick tiden?', vy.tid.rader, vy.tid.staplar.length > 1 ? graf(vy.tid.staplar) : undefined);
   if (vy.tid.not) { text(vy.tid.not, X, y - 6, STEG.micro, normal, F.sek); y += STEG.micro + 4; }
   if (vy.flyttar) sektion('Hur kom maskinerna hit?', vy.flyttar);
-  if (vy.blev) sektion('Vad blev det?', vy.blev);
+  // Trädslagen: en stapel i trädslagens färger över raderna (som markägarrapporten), sedan resten av "Vad blev det?".
+  const tradStapel = vy.trad ? {
+    h: 22,
+    rita: () => {
+      let x = X;
+      for (const d of vy.trad!.stapel) {
+        const w = d.andel * W;
+        if (w <= 0) continue;
+        sida.drawRectangle({ x, y: A4.h - (y + 6 + 10), width: w, height: 10, color: c(d.farg) });
+        x += w;
+      }
+      sida.drawRectangle({ x: X, y: A4.h - (y + 6 + 10), width: W, height: 10, borderColor: F.linje, borderWidth: 0.5 });
+      y += 22;
+    },
+  } : undefined;
+  if (vy.blev || vy.trad) sektion('Vad blev det?', [...(vy.trad?.rader ?? []), ...(vy.blev ?? [])], tradStapel);
   if (vy.uppdraget) sektion('Vad skulle göras?', vy.uppdraget);
 
   sidor.forEach((s, i) => {

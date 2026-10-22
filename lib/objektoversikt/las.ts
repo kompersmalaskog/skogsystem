@@ -17,7 +17,7 @@ export const OBJEKT_KOLUMNER = [
 export type LasSvar = { underlag: Underlag; fel: null } | { underlag: null; fel: string };
 
 export async function lasUnderlag(sb: Klient): Promise<LasSvar> {
-  const [objekt, dim, alt, tid, manuell, extra, flytt, maskiner, platser, medarbetare] = await Promise.all([
+  const [objekt, dim, alt, tid, manuell, extra, flytt, maskiner, platser, medarbetare, tradslag] = await Promise.all([
     hamtaAlla(() => sb.from('objekt').select(OBJEKT_KOLUMNER), 'id'),
     hamtaAlla(() => sb.from('dim_objekt').select('objekt_id, vo_nummer, skordning_avslutad, skotning_avslutad, egen_skotning, grot_hamtad'), 'objekt_id'),
     hamtaAlla(() => sb.from('objekt_alt_nummer').select('id, objekt_id, nummer, maskin_id'), 'id'),
@@ -28,11 +28,12 @@ export async function lasUnderlag(sb: Klient): Promise<LasSvar> {
     hamtaAlla(() => sb.from('dim_maskin').select('maskin_id, visningsnamn, maskin_typ'), 'maskin_id'),
     hamtaAlla(() => sb.from('flyttplats').select('id, namn'), 'id'),
     hamtaAlla(() => sb.from('medarbetare').select('id, namn'), 'id'),
+    hamtaAlla(() => sb.from('dim_tradslag').select('tradslag_id, namn'), 'tradslag_id'),
   ]);
   const fel: [string, { error: any }][] = [
     ['objekten', objekt], ['objektens nummer', dim], ['objektens extra nummer', alt], ['maskintiden', tid],
     ['den manuella skotningen', manuell], ['den extra tiden', extra], ['flyttarna', flytt], ['maskinerna', maskiner],
-    ['flyttplatserna', platser], ['medarbetarna', medarbetare],
+    ['flyttplatserna', platser], ['medarbetarna', medarbetare], ['trädslagen', tradslag],
   ];
   for (const [vad, svar] of fel) {
     if (svar.error) {
@@ -45,6 +46,7 @@ export async function lasUnderlag(sb: Klient): Promise<LasSvar> {
     underlag: {
       objekt: objekt.data, dim: dim.data, alt: alt.data, tid: tid.data, manuell: manuell.data, extra: extra.data,
       flytt: flytt.data, maskiner: maskiner.data, platser: platser.data, medarbetare: medarbetare.data,
+      tradslag: tradslag.data,
     },
   };
 }
@@ -53,5 +55,5 @@ export async function lasUnderlag(sb: Klient): Promise<LasSvar> {
 export async function lasProduktion(sb: Klient, o: ObjektRad, u: Underlag): Promise<{ data: ProdRad[]; error: any }> {
   const ids = [...objektIds(o, u.dim, u.alt)];
   if (ids.length === 0) return { data: [], error: null };
-  return hamtaAlla<ProdRad>(() => sb.from('fakt_produktion').select('id, objekt_id, maskin_id, volym_m3sub, stammar').in('objekt_id', ids), 'id');
+  return hamtaAlla<ProdRad>(() => sb.from('fakt_produktion').select('id, objekt_id, maskin_id, tradslag_id, volym_m3sub, stammar').in('objekt_id', ids), 'id');
 }

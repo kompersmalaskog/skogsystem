@@ -4,8 +4,11 @@
 // Texten förklarar sig själv (Martin 2026-10-22: "skriv det då jag fattar inget av det"): inte "48,8/56" utan
 // "Prognos 56 tim – blev 7 tim kortare".
 
-import type { Roll, Sammanstallning, ObjektRad } from './berakna';
-import { heltal } from '@/lib/markagarrapport/vy';
+import { TID_DELAR, dagSumma, type DagDelar, type Produktion, type Roll, type Sammanstallning, type ObjektRad, type TidDel } from './berakna';
+import { heltal, procentSomSummerar, type Stapeldel } from '@/lib/markagarrapport/vy';
+import { DELFARG, FARG } from '@/lib/design/tokens';
+import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
+import { tradslagFarg, tradslagStil } from '@/lib/tradslag';
 import { typLabel, type ObjektTyp } from '@/lib/objekt/typ';
 
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
@@ -16,6 +19,20 @@ const VECKODAG = ['sön', 'mån', 'tis', 'ons', 'tor', 'fre', 'lör'];
 export const OVER_PROGNOS_ANDEL = 0.1;
 /** Längre än så här (dagar) mellan första och sista dagen → staplarna visar veckor i stället för dagar. */
 export const VECKOR_FRAN_DAGAR = 42;
+
+/**
+ * Färgen per del av tiden — EN källa för raderna, staplarna och PDF:en. Skördare och skotare har appens rollfärger
+ * (lila, grön); flytt samma indigo som maskinvyn (DELFARG[4]); planering och manuellt arbete ur diagrampaletten.
+ * Färgen bär aldrig ensam: raden har ordet bredvid pricken.
+ */
+export const TID_FARG: Record<TidDel, string> = {
+  skordare: ROLLFARG_SKORDARE,
+  skotare: ROLLFARG_SKOTARE,
+  flytt: DELFARG[4],
+  planering: DELFARG[0],
+  manuellt: DELFARG[5],
+  annat: FARG.text3,
+};
 
 /** "157 tim 36 min", "12 tim", "46 min". */
 export function tidText(min: number): string {
@@ -75,9 +92,14 @@ export interface VyRad {
   hoger: string;
   hogerUnder?: string | null;
   dampad?: boolean;
+  /** Prick före namnet (samma färg som delen i staplarna). */
+  farg?: string;
+  /** Kant runt pricken när fyllningen är ljus (björk). */
+  kontur?: string | null;
 }
 
-export interface Stapel { nyckel: string; etikett: string; lang: string; min: number }
+/** En stapel = en dag (eller vecka); delarna staplas i TID_DELAR-ordning, nerifrån. */
+export interface Stapel { nyckel: string; etikett: string; lang: string; min: number; delar: { nyckel: TidDel; min: number; farg: string }[] }
 
 export interface ObjektVy {
   id: string;
@@ -90,6 +112,8 @@ export interface ObjektVy {
   tid: { rader: VyRad[]; staplar: Stapel[]; stapelRubrik: string; not: string | null };
   flyttar: VyRad[] | null;
   blev: VyRad[] | null;
+  /** Vilka träd det blev: andel av skördad volym per trädslag. */
+  trad: { stapel: Stapeldel[]; rader: VyRad[] } | null;
   kvar: VyRad[] | null;
   uppdraget: VyRad[] | null;
 }
@@ -138,32 +162,61 @@ function extraRad(nyckel: string, titel: string, poster: Sammanstallning['planer
   return { nyckel, titel, under, hoger: timmar(min) };
 }
 
-export function staplar(perDag: Map<string, number>): { staplar: Stapel[]; rubrik: string } {
+function delarAv(d: DagDelar): Stapel['delar'] {
+  return TID_DELAR.filter(k => (d[k] ?? 0) > 0).map(k => ({ nyckel: k, min: d[k]!, farg: TID_FARG[k] }));
+}
+
+function laggIhop(a: DagDelar, b: DagDelar): DagDelar {
+  const ut: DagDelar = { ...a };
+  for (const k of TID_DELAR) if (b[k]) ut[k] = (ut[k] ?? 0) + b[k]!;
+  return ut;
+}
+
+export function staplar(perDag: Map<string, DagDelar>): { staplar: Stapel[]; rubrik: string } {
   const dagar = [...perDag.keys()].sort();
   if (dagar.length === 0) return { staplar: [], rubrik: 'Timmar per dag' };
   const forsta = dagar[0], sista = dagar[dagar.length - 1];
   const spann = Math.round((Date.parse(sista) - Date.parse(forsta)) / 86400000);
   if (spann > VECKOR_FRAN_DAGAR) {
-    const perVecka = new Map<string, { etikett: string; lang: string; min: number }>();
+    const perVecka = new Map<string, { etikett: string; lang: string; d: DagDelar }>();
+    const nyckelFor = (d: string) => { const { ar, v } = isoVecka(d); return { k: `${ar}-${String(v).padStart(2, '0')}`, v }; };
     for (let d = forsta; d <= sista; d = plusDag(d, 7)) {
-      const { ar, v } = isoVecka(d);
-      const k = `${ar}-${String(v).padStart(2, '0')}`;
-      if (!perVecka.has(k)) perVecka.set(k, { etikett: `v${v}`, lang: `vecka ${v}`, min: 0 });
+      const { k, v } = nyckelFor(d);
+      if (!perVecka.has(k)) perVecka.set(k, { etikett: `v${v}`, lang: `vecka ${v}`, d: {} });
     }
-    for (const [d, min] of perDag) {
-      const { ar, v } = isoVecka(d);
-      const k = `${ar}-${String(v).padStart(2, '0')}`;
-      const p = perVecka.get(k) ?? { etikett: `v${v}`, lang: `vecka ${v}`, min: 0 };
-      p.min += min;
+    for (const [d, delar] of perDag) {
+      const { k, v } = nyckelFor(d);
+      const p = perVecka.get(k) ?? { etikett: `v${v}`, lang: `vecka ${v}`, d: {} };
+      p.d = laggIhop(p.d, delar);
       perVecka.set(k, p);
     }
-    return { staplar: [...perVecka.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, p]) => ({ nyckel: k, ...p })), rubrik: 'Timmar per vecka' };
+    return {
+      staplar: [...perVecka.entries()].sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, p]) => ({ nyckel: k, etikett: p.etikett, lang: p.lang, min: dagSumma(p.d), delar: delarAv(p.d) })),
+      rubrik: 'Timmar per vecka',
+    };
   }
   const ut: Stapel[] = [];
   for (let d = forsta; d <= sista; d = plusDag(d, 1)) {
-    ut.push({ nyckel: d, etikett: String(Number(d.slice(8, 10))), lang: veckodagDatum(d), min: perDag.get(d) ?? 0 });
+    const delar = perDag.get(d) ?? {};
+    ut.push({ nyckel: d, etikett: String(Number(d.slice(8, 10))), lang: veckodagDatum(d), min: dagSumma(delar), delar: delarAv(delar) });
   }
   return { staplar: ut, rubrik: 'Timmar per dag' };
+}
+
+/** Trädslagen i skördad volym: stapel + en rad per trädslag (m³ och andel; andelarna summerar till 100). */
+export function tradVy(prod: Produktion): ObjektVy['trad'] {
+  const lista = prod.tradslag.filter(t => t.volym >= 0.5);
+  if (lista.length === 0) return null;
+  const pct = procentSomSummerar(lista.map(t => t.volym));
+  const summa = lista.reduce((t, x) => t + x.volym, 0);
+  return {
+    stapel: lista.map((t, i) => ({ nyckel: t.namn, andel: t.volym / summa, farg: tradslagFarg(t.namn, i) })),
+    rader: lista.map((t, i) => {
+      const stil = tradslagStil(t.namn, i);
+      return { nyckel: `trad-${t.namn}`, titel: t.namn, hoger: `${heltal(t.volym)} m³`, hogerUnder: pct[i] === 0 ? 'under 1 %' : `${pct[i]} %`, farg: stil.fyll, kontur: stil.kontur };
+    }),
+  };
 }
 
 const BARIGHET: Record<string, string> = { bra: 'Bra bärighet', medel: 'Medel bärighet', dalig: 'Dålig bärighet' };
@@ -212,7 +265,7 @@ export function uppdragRader(o: ObjektRad, maskinNamn: (id: string) => string): 
 
 const UPPGIFT_NAMN = { skordning: 'Skördning', skotning: 'Skotning', grot: 'GROT' } as const;
 
-export function byggObjektVy(s: Sammanstallning, prod: { volym: number; stammar: number }, maskinNamn: (id: string) => string): ObjektVy {
+export function byggObjektVy(s: Sammanstallning, prod: Produktion, maskinNamn: (id: string) => string): ObjektVy {
   const o = s.objekt;
   const namn = o.namn?.trim() || o.vo_nummer || 'Objekt';
   const typ = typLabel((o.typ ?? null) as ObjektTyp);
@@ -231,23 +284,23 @@ export function byggObjektVy(s: Sammanstallning, prod: { volym: number; stammar:
     const min = s.rollMin[roll];
     if (roll === 'skordare' && o.typ === 'grot' && min === 0) continue;
     if (min <= 0) {
-      tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: s.prognos[roll] != null ? `Prognos ${decimal(s.prognos[roll]!, s.prognos[roll]! % 1 ? 1 : 0)} tim – ingen tid än` : 'Ingen tid än', hoger: '–', dampad: true });
+      tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: s.prognos[roll] != null ? `Prognos ${decimal(s.prognos[roll]!, s.prognos[roll]! % 1 ? 1 : 0)} tim – ingen tid än` : 'Ingen tid än', hoger: '–', dampad: true, farg: TID_FARG[roll] });
       continue;
     }
     const p = prognosText(min, s.prognos[roll], rollKlar(s, roll));
-    tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: p.text, varning: p.varning, under2: maskinRad(s, roll), hoger: timmar(min) });
+    tidRader.push({ nyckel: roll, titel: ROLL_NAMN[roll], under: p.text, varning: p.varning, under2: maskinRad(s, roll), hoger: timmar(min), farg: TID_FARG[roll] });
   }
   const antal = s.flyttar.length;
   const utanTid = s.flyttar.filter(f => f.min == null).length;
   if (s.flyttMin > 0 || antal > 0) {
     const delar = [antal ? `${antal} ${antal === 1 ? 'flytt' : 'flyttar'} hit` : null, s.flytthjalpMin > 0 ? `${timmar(s.flytthjalpMin)} flytthjälp` : null, utanTid ? `${utanTid} saknar tid` : null].filter(Boolean);
-    tidRader.push({ nyckel: 'flytt', titel: 'Flytt', under: delar.join(' · '), hoger: s.flyttMin > 0 ? timmar(s.flyttMin) : '–' });
+    tidRader.push({ nyckel: 'flytt', titel: 'Flytt', under: delar.join(' · '), hoger: s.flyttMin > 0 ? timmar(s.flyttMin) : '–', farg: TID_FARG.flytt });
   } else {
-    tidRader.push({ nyckel: 'flytt', titel: 'Flytt', under: 'Ingen flytt registrerad', hoger: '–', dampad: true });
+    tidRader.push({ nyckel: 'flytt', titel: 'Flytt', under: 'Ingen flytt registrerad', hoger: '–', dampad: true, farg: TID_FARG.flytt });
   }
-  tidRader.push(extraRad('planering', 'Planering', s.planering, 'Ingen tid inskriven'));
-  tidRader.push(extraRad('manuellt', 'Manuellt arbete', s.manuellt, 'Ingen tid inskriven'));
-  if (s.annat.length) tidRader.push(extraRad('annat', 'Annat arbete', s.annat, ''));
+  tidRader.push({ ...extraRad('planering', 'Planering', s.planering, 'Ingen tid inskriven'), farg: TID_FARG.planering });
+  tidRader.push({ ...extraRad('manuellt', 'Manuellt arbete', s.manuellt, 'Ingen tid inskriven'), farg: TID_FARG.manuellt });
+  if (s.annat.length) tidRader.push({ ...extraRad('annat', 'Annat arbete', s.annat, ''), farg: TID_FARG.annat });
   const st = staplar(s.perDag);
   const manuell = s.maskiner.some(m => m.manuell);
 
@@ -258,11 +311,12 @@ export function byggObjektVy(s: Sammanstallning, prod: { volym: number; stammar:
     under: [f.fran ? `Från ${f.fran}` : 'Varifrån saknas', kortDatum(f.datum), f.km != null ? `${heltal(f.km)} km` : null].filter(Boolean).join(' · '),
     hoger: f.min != null ? timmar(f.min) : '–',
     hogerUnder: f.min == null ? 'tid saknas' : null,
+    farg: f.roll ? TID_FARG[f.roll] : FARG.text3,
   }));
   const flyttade = new Set(s.flyttar.map(f => f.maskin));
   for (const m of s.maskiner) {
     if (flyttade.has(m.namn)) continue;
-    flyttRader.push({ nyckel: `utan-${m.maskin_id}`, titel: m.namn, under: 'Ingen flytt registrerad', hoger: '–', dampad: true });
+    flyttRader.push({ nyckel: `utan-${m.maskin_id}`, titel: m.namn, under: 'Ingen flytt registrerad', hoger: '–', dampad: true, farg: TID_FARG[m.roll] });
   }
 
   // ── Vad blev det? ────────────────────────────────────────────────────────
@@ -299,6 +353,7 @@ export function byggObjektVy(s: Sammanstallning, prod: { volym: number; stammar:
     tid: { rader: tidRader, staplar: st.staplar, stapelRubrik: st.rubrik, not: manuell ? 'Tid som skrivits in för hand syns inte i staplarna.' : null },
     flyttar: flyttRader.length ? flyttRader : null,
     blev: blev.length ? blev : null,
+    trad: prod.volym >= 0.5 ? tradVy(prod) : null,
     kvar,
     uppdraget: uppdraget.length ? uppdraget : null,
   };

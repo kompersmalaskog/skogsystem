@@ -16,10 +16,11 @@ function underlag(over: Partial<Underlag> = {}): Underlag {
     maskiner: fixtur.maskiner,
     platser: [],
     medarbetare: [],
+    tradslag: fixtur.tradslag,
     ...over,
   };
 }
-const prod = [fixtur.produktion];
+const prod = fixtur.produktion;
 const namn = (id: string) => fixtur.maskiner.find(m => m.maskin_id === id)?.visningsnamn ?? id;
 
 describe('Jätsbygd au 2026 (prod)', () => {
@@ -134,7 +135,7 @@ describe('regler', () => {
     expect(s.manuellt.length).toBe(1);
     expect(s.flytthjalpMin).toBe(30);
     expect(s.flyttMin).toBe(89 + 30);
-    const vy = byggObjektVy(s, { volym: 0, stammar: 0 }, namn);
+    const vy = byggObjektVy(s, { volym: 0, stammar: 0, tradslag: [] }, namn);
     expect(vy.tid.rader.find(r => r.nyckel === 'planering')).toMatchObject({ hoger: '2 tim', under: 'Martin · 1 dag' });
     expect(vy.tid.rader.find(r => r.nyckel === 'flytt')?.under).toBe('2 flyttar hit · 30 min flytthjälp');
   });
@@ -144,7 +145,7 @@ describe('regler', () => {
     const s = sammanstall(objekt, u);
     expect(s.grupp).toBe('pagar');
     expect(s.skotningKvar).toBe(true);
-    const vy = byggObjektVy(s, { volym: 1400, stammar: 4659 }, namn);
+    const vy = byggObjektVy(s, { volym: 1400, stammar: 4659, tradslag: [] }, namn);
     expect(vy.fraga).toBe('Hur lång tid har det tagit hittills?');
     expect(vy.kvar?.map(r => [r.titel, r.hoger])).toEqual([['Skördning', 'Klar'], ['Skotning', 'Kvar']]);
     expect(listPost(s).under).toBe('Slutavverkning · skotning kvar');
@@ -159,6 +160,26 @@ describe('regler', () => {
     expect(prognosText(60, undefined, true).text).toBe('Ingen prognos');
   });
 
+  it('trädslagen: stapel och rader med appens trädslagsfärger', () => {
+    const u = underlag();
+    const p = summeraProduktion(objekt, u, prod);
+    const vy = byggObjektVy(sammanstall(objekt, u), p, namn);
+    expect(p.tradslag.map(t => t.namn)).toEqual(['Gran', 'Tall', 'Björk', 'Övrigt löv']);
+    expect(vy.trad!.rader.map(r => [r.titel, r.hoger, r.hogerUnder])).toEqual([
+      ['Gran', '785 m³', '56 %'], ['Tall', '456 m³', '33 %'], ['Björk', '153 m³', '11 %'], ['Övrigt löv', '7 m³', 'under 1 %'],
+    ]);
+    expect(vy.trad!.rader[0].farg).toBe('#30D158');
+    expect(vy.trad!.rader[1].farg).toBe('#FF9F0A');
+    expect(vy.trad!.stapel.reduce((t, d) => t + d.andel, 0)).toBeCloseTo(1, 5);
+  });
+
+  it('dagarna är delade per sort och summerar till dagens tid', () => {
+    const u = underlag();
+    const vy = byggObjektVy(sammanstall(objekt, u), summeraProduktion(objekt, u, prod), namn);
+    const dag = vy.tid.staplar.find(x => x.etikett && x.min > 0)!;
+    expect(dag.delar.reduce((t, d) => t + d.min, 0)).toBe(dag.min);
+  });
+
   it('tidtexter', () => {
     expect(tidText(9457)).toBe('157 tim 37 min');
     expect(tidText(46)).toBe('46 min');
@@ -167,11 +188,12 @@ describe('regler', () => {
   });
 
   it('staplar per vecka när spannet är långt', () => {
-    const m = new Map([['2026-06-01', 60], ['2026-08-20', 120]]);
+    const m = new Map([['2026-06-01', { skordare: 60 }], ['2026-08-20', { skotare: 100, flytt: 20 }]]);
     const s = staplar(m);
     expect(s.rubrik).toBe('Timmar per vecka');
     expect(s.staplar[0].etikett).toBe('v23');
     expect(s.staplar.reduce((t, x) => t + x.min, 0)).toBe(180);
+    expect(s.staplar.flatMap(x => x.delar.map(d => d.nyckel))).toEqual(expect.arrayContaining(['skordare', 'skotare', 'flytt']));
   });
 
   it('listan: Pågår, Planerade, sedan månader nyast först', () => {

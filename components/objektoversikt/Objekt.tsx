@@ -10,8 +10,9 @@ import { AVSTAND, FARG, KNAPP, KOLUMN, RADIE, TNUM, TRAFFYTA, TYP, overgang } fr
 import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import Ikon from '@/components/design/Ikon';
-import type { ObjektVy, Stapel, VyRad } from '@/lib/objektoversikt/vy';
+import type { ObjektVy, Stapel as StapelDag, VyRad } from '@/lib/objektoversikt/vy';
 import { timmar } from '@/lib/objektoversikt/vy';
+import type { Stapeldel } from '@/lib/markagarrapport/vy';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 
 export const TVA_KOLUMNER_PX = 640;
@@ -83,7 +84,16 @@ export default function Objekt({ vy }: { vy: ObjektVy }) {
         )}
         {vy.blev && (
           <div className="oo-a-blev">
-            <Sektion rubrik="Vad blev det?" inset><Rader rader={vy.blev} /></Sektion>
+            <Sektion rubrik="Vad blev det?" inset>
+              {vy.trad && (
+                <div data-trad="">
+                  <Stapel delar={vy.trad.stapel} etikett={vy.trad.rader.map(r => `${r.titel} ${r.hogerUnder}`).join(', ')} />
+                  <Rader rader={vy.trad.rader} />
+                  <div style={{ borderBottom: `1px solid ${FARG.linje}` }} />
+                </div>
+              )}
+              <Rader rader={vy.blev} />
+            </Sektion>
           </div>
         )}
         {vy.uppdraget && (
@@ -108,6 +118,25 @@ export default function Objekt({ vy }: { vy: ObjektVy }) {
   );
 }
 
+function Prick({ farg, kontur }: { farg: string; kontur?: string | null }) {
+  return (
+    <span aria-hidden="true" style={{
+      display: 'inline-block', width: AVSTAND.m, height: AVSTAND.m, borderRadius: RADIE.cirkel, background: farg, flexShrink: 0,
+      boxShadow: `0 0 0 1px ${kontur ?? FARG.linje}`,
+    }} />
+  );
+}
+
+/** En stapel som visar delarna av en helhet (samma som markägarrapporten). Färgen bär aldrig ensam: raderna under har ordet och talet. */
+function Stapel({ delar, etikett }: { delar: Stapeldel[]; etikett: string }) {
+  return (
+    <div role="img" aria-label={etikett}
+      style={{ display: 'flex', gap: AVSTAND.xs, height: AVSTAND.l, borderRadius: RADIE.stapel, overflow: 'hidden', margin: `${AVSTAND.l}px 0 ${AVSTAND.xs}px`, outline: `1px solid ${FARG.linje}` }}>
+      {delar.map(d => <div key={d.nyckel} style={{ flex: `${d.andel} 1 0`, minWidth: AVSTAND.xs, background: d.farg }} />)}
+    </div>
+  );
+}
+
 function Rader({ rader }: { rader: VyRad[] }) {
   return (
     <>
@@ -122,8 +151,12 @@ function Rader({ rader }: { rader: VyRad[] }) {
         return (
           <Rad
             key={r.nyckel}
-            titel={r.titel}
-            under={under}
+            titel={r.farg ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.m }}>
+                <Prick farg={r.farg} kontur={r.kontur} />{r.titel}
+              </span>
+            ) : r.titel}
+            under={r.farg && under ? <span style={{ display: 'block', paddingLeft: AVSTAND.m + AVSTAND.m }}>{under}</span> : under}
             hoger={r.hoger || undefined}
             hogerUnder={r.hogerUnder ?? undefined}
             dampad={r.dampad}
@@ -136,12 +169,13 @@ function Rader({ rader }: { rader: VyRad[] }) {
   );
 }
 
+const DEL_NAMN = { skordare: 'Skördaren', skotare: 'Skotaren', flytt: 'Flytt', planering: 'Planering', manuellt: 'Manuellt', annat: 'Annat' } as const;
 const STAPEL_H = 96;   // grafens höjd — ett layoutmått för ytan, inte ett avstånd
 const TOM_H = 2;       // en tom dag är ett tunt streck: dagen finns, den var tom
-const DAMPAD = 0.22;
+const DAMPAD = 0.4;
 
 /** Timmar per dag (eller vecka) som Min tids staplar: vita, dämpade utom den valda; tryck på en stapel visar den. */
-function Graf({ staplar, rubrik }: { staplar: Stapel[]; rubrik: string }) {
+function Graf({ staplar, rubrik }: { staplar: StapelDag[]; rubrik: string }) {
   const max = Math.max(...staplar.map(s => s.min), 1);
   const forval = (() => { for (let i = staplar.length - 1; i >= 0; i--) if (staplar[i].min > 0) return i; return staplar.length - 1; })();
   const [vald, setVald] = useState(forval);
@@ -150,8 +184,16 @@ function Graf({ staplar, rubrik }: { staplar: Stapel[]; rubrik: string }) {
   return (
     <div style={{ padding: `${AVSTAND.l}px 0 ${AVSTAND.m}px`, borderBottom: `1px solid ${FARG.linje}` }} data-graf="">
       <p style={{ margin: 0, ...TYP.micro, color: FARG.text2 }}>{rubrik}</p>
-      <p style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.listtitel, ...TNUM }} data-graf-vald="">
+      <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.listtitel, ...TNUM }} data-graf-vald="">
         {v.lang} · {v.min > 0 ? timmar(v.min) : 'ingen tid'}
+      </p>
+      {/* Vad dagen gick till, i staplarnas färger — en rad som alltid tar plats så grafen inte hoppar. */}
+      <p style={{ display: 'flex', flexWrap: 'wrap', gap: `${AVSTAND.xs}px ${AVSTAND.m}px`, minHeight: TYP.meta.fontSize * 1.3, margin: `${AVSTAND.xs}px 0 ${AVSTAND.m}px`, ...TYP.meta, ...TNUM, color: FARG.text2 }} data-graf-delar="">
+        {v.delar.map(d => (
+          <span key={d.nyckel} style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.xs }}>
+            <Prick farg={d.farg} />{DEL_NAMN[d.nyckel]} {timmar(d.min)}
+          </span>
+        ))}
       </p>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }} role="group" aria-label={rubrik}>
         {staplar.map((s, i) => (
@@ -159,11 +201,18 @@ function Graf({ staplar, rubrik }: { staplar: Stapel[]; rubrik: string }) {
             aria-label={`${s.lang}: ${s.min > 0 ? timmar(s.min) : 'ingen tid'}`}
             style={{ flex: '1 1 0', minWidth: 0, minHeight: TRAFFYTA.min, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 0, margin: 0, border: 'none', background: 'none', cursor: 'pointer', color: FARG.text, font: 'inherit' }}>
             <span style={{ width: '100%', height: STAPEL_H, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-              <span style={{
-                width: '70%', height: s.min > 0 ? Math.max(TOM_H * 2, (s.min / max) * STAPEL_H) : TOM_H,
-                background: s.min > 0 ? FARG.text : FARG.text3, borderRadius: `${RADIE.stapel}px ${RADIE.stapel}px 0 0`,
-                opacity: i === vald ? 1 : DAMPAD, transition: overgang('opacity'),
-              }} />
+              {s.min > 0 ? (
+                // Delarna staplade nerifrån (skördare, skotare, flytt …), i delens färg.
+                <span style={{
+                  width: '70%', height: Math.max(TOM_H * 2, (s.min / max) * STAPEL_H), display: 'flex', flexDirection: 'column-reverse',
+                  borderRadius: `${RADIE.stapel}px ${RADIE.stapel}px 0 0`, overflow: 'hidden',
+                  opacity: i === vald ? 1 : DAMPAD, transition: overgang('opacity'),
+                }}>
+                  {s.delar.map(d => <span key={d.nyckel} style={{ flex: `${d.min} 1 0`, minHeight: 1, background: d.farg }} />)}
+                </span>
+              ) : (
+                <span style={{ width: '70%', height: TOM_H, background: FARG.text3, opacity: DAMPAD }} />
+              )}
             </span>
             <span style={{ ...TYP.meta, ...TNUM, marginTop: AVSTAND.xs, color: i === vald ? FARG.text : FARG.text2, visibility: visaEtikett(i) ? 'visible' : 'hidden' }}>{s.etikett}</span>
           </button>

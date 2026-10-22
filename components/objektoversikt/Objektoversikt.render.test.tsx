@@ -37,10 +37,10 @@ afterEach(async () => {
 const objekt = fixtur.objekt as ObjektRad;
 const u: Underlag = {
   objekt: [objekt, ...fixtur.franObjekt.map(f => ({ ...f, vo_nummer: null, dim_objekt_id: null, status: 'avslutat', typ: null, bolag: null, volym: null, areal: null, manuell_prognos: null, avslutad_timestamp: null }))],
-  dim: fixtur.dim, alt: [], tid: fixtur.tid, manuell: fixtur.manuell, extra: [], flytt: fixtur.flytt, maskiner: fixtur.maskiner, platser: [], medarbetare: [],
+  dim: fixtur.dim, alt: [], tid: fixtur.tid, manuell: fixtur.manuell, extra: [], flytt: fixtur.flytt, maskiner: fixtur.maskiner, platser: [], medarbetare: [], tradslag: fixtur.tradslag,
 };
 const namn = (id: string) => fixtur.maskiner.find(m => m.maskin_id === id)?.visningsnamn ?? id;
-const vy = byggObjektVy(sammanstall(objekt, u), summeraProduktion(objekt, u, [fixtur.produktion]), namn);
+const vy = byggObjektVy(sammanstall(objekt, u), summeraProduktion(objekt, u, fixtur.produktion), namn);
 
 describe('Objektet', () => {
   it('svaret står först, sedan frågorna i ordning', async () => {
@@ -57,10 +57,10 @@ describe('Objektet', () => {
     const h = await montera(createElement(Objekt, { vy }));
     const skotare = h.querySelector('[data-rad="skotare"]')!;
     expect(skotare.textContent).toContain('Prognos 72 tim – blev 35 tim längre');
-    const orange = Array.from(skotare.querySelectorAll('span')).find(s => s.textContent?.startsWith('Prognos'));
+    const orange = Array.from(skotare.querySelectorAll('span')).filter(s => s.textContent?.startsWith('Prognos')).pop();
     expect(orange?.getAttribute('style')).toContain('rgb(255, 159, 10)');
     const skordare = h.querySelector('[data-rad="skordare"]')!;
-    expect(Array.from(skordare.querySelectorAll('span')).find(s => s.textContent?.startsWith('Prognos'))?.getAttribute('style')).toBeFalsy();
+    expect(Array.from(skordare.querySelectorAll('span')).filter(s => s.textContent?.startsWith('Prognos')).pop()?.getAttribute('style')).toBeFalsy();
   });
 
   it('grafen: senaste dagen vald, tryck byter dag', async () => {
@@ -80,7 +80,7 @@ describe('Objektet', () => {
 
   it('pågående: Vad är kvar? står först', async () => {
     const s = sammanstall(objekt, { ...u, dim: u.dim.map(d => ({ ...d, skotning_avslutad: null })) });
-    const h = await montera(createElement(Objekt, { vy: byggObjektVy(s, { volym: 0, stammar: 0 }, namn) }));
+    const h = await montera(createElement(Objekt, { vy: byggObjektVy(s, { volym: 0, stammar: 0, tradslag: [] }, namn) }));
     expect(h.querySelector('section')!.getAttribute('aria-label')).toBe('Vad är kvar?');
     expect(h.querySelector('[data-svar]')!.textContent).toContain('Hur lång tid har det tagit hittills?');
   });

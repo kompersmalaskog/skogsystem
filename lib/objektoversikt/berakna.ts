@@ -20,6 +20,7 @@
 import { g15Sek } from '@/lib/g15';
 import { stamObjektId, hogarObjektIds, type AltNummer } from '@/lib/objektNummer';
 import { optiLokalDag } from '@/lib/optiTid';
+import { tradslagLabel } from '@/lib/tradslag';
 
 export type Roll = 'skordare' | 'skotare';
 
@@ -109,7 +110,8 @@ export interface FlyttRad {
 export interface MaskinRad { maskin_id: string; visningsnamn: string | null; maskin_typ: string | null }
 export interface NamnRad { id: string; namn: string | null }
 
-export interface ProdRad { objekt_id: string | null; maskin_id: string | null; volym_m3sub: number | null; stammar: number | null }
+export interface ProdRad { objekt_id: string | null; maskin_id: string | null; tradslag_id?: string | null; volym_m3sub: number | null; stammar: number | null }
+export interface TradslagRad { tradslag_id: string; namn: string | null }
 
 /** Allt som läses EN gång för hela listan (allt utom produktionen, som läses per objekt). */
 export interface Underlag {
@@ -123,6 +125,8 @@ export interface Underlag {
   maskiner: MaskinRad[];
   platser: NamnRad[];
   medarbetare: NamnRad[];
+  /** dim_tradslag (id per maskin → namn) för trädslagen i produktionen. */
+  tradslag?: TradslagRad[];
 }
 
 const SIFFROR = /^\d+$/;
@@ -165,7 +169,15 @@ export interface Flytt {
   km: number | null;
   /** Lastad → lossad. null = tiden saknas. */
   min: number | null;
+  /** Maskinens roll (för färgen); null för en extern maskin utan uppgift. */
+  roll: Roll | null;
 }
+
+/** Vad en dags minuter gick till — samma delar som raderna i "Vart gick tiden?". */
+export type TidDel = 'skordare' | 'skotare' | 'flytt' | 'planering' | 'manuellt' | 'annat';
+export type DagDelar = Partial<Record<TidDel, number>>;
+export const TID_DELAR: readonly TidDel[] = ['skordare', 'skotare', 'flytt', 'planering', 'manuellt', 'annat'];
+export const dagSumma = (d: DagDelar) => TID_DELAR.reduce((t, k) => t + (d[k] ?? 0), 0);
 
 export interface ExtraPost { datum: string; min: number; person: string | null }
 
@@ -188,7 +200,7 @@ export interface Sammanstallning {
   annat: ExtraPost[];
   totalMin: number;
   /** Minuter per svensk dag (maskintid, extra tid och flytt som har en dag). */
-  perDag: Map<string, number>;
+  perDag: Map<string, DagDelar>;
   bransle: number;
   prognos: Partial<Record<Roll, number>>;
   uppgifter: Uppgift[];
@@ -227,12 +239,17 @@ export function sammanstall(o: ObjektRad, u: Underlag): Sammanstallning {
   const dims = u.dim.filter(d => ids.has(d.objekt_id));
   const maskinInfo = new Map(u.maskiner.map(m => [m.maskin_id, m]));
   const namnFor = (id: string) => maskinInfo.get(id)?.visningsnamn?.trim() || id;
-  const perDag = new Map<string, number>();
-  const laggTill = (dag: string | null, min: number) => { if (dag && min > 0) perDag.set(dag, (perDag.get(dag) ?? 0) + min); };
+  const perDag = new Map<string, DagDelar>();
+  const laggTill = (dag: string | null, del: TidDel, min: number) => {
+    if (!dag || min <= 0) return;
+    const d = perDag.get(dag) ?? {};
+    d[del] = (d[del] ?? 0) + min;
+    perDag.set(dag, d);
+  };
 
   // ── Maskintid ───────────────────────────────────────────────────────────
   const perMaskin = new Map<string, { sek: number; dagar: Set<string>; bransle: number }>();
-  const sekPerDag = new Map<string, number>();
+  const sekPerDag = new Map<string, number>();   // nyckel: dag|roll
   for (const t of u.tid) {
     if (!t.objekt_id || !ids.has(t.objekt_id)) continue;
     const sek = g15Sek(t.processing_sek, t.terrain_sek, t.other_work_sek);
@@ -241,9 +258,13 @@ export function sammanstall(o: ObjektRad, u: Underlag): Sammanstallning {
     if (sek > 0) m.dagar.add(t.datum);
     m.bransle += Number(t.bransle_liter) || 0;
     perMaskin.set(t.maskin_id, m);
-    sekPerDag.set(t.datum, (sekPerDag.get(t.datum) ?? 0) + sek);
+    const nyckel = `${t.datum}|${rollFor(maskinInfo.get(t.maskin_id)?.maskin_typ)}`;
+    sekPerDag.set(nyckel, (sekPerDag.get(nyckel) ?? 0) + sek);
   }
-  for (const [dag, sek] of sekPerDag) laggTill(dag, Math.round(sek / 60));
+  for (const [nyckel, sek] of sekPerDag) {
+    const [dag, roll] = nyckel.split('|');
+    laggTill(dag, roll as Roll, Math.round(sek / 60));
+  }
 
   const maskiner: MaskinTid[] = [];
   for (const [id, m] of perMaskin) {
@@ -281,10 +302,11 @@ export function sammanstall(o: ObjektRad, u: Underlag): Sammanstallning {
         datum: tid ? optiLokalDag(tid, true) : null,
         km: f.flytt_km == null ? null : Number(f.flytt_km),
         min,
+        roll: f.maskin_id && maskinInfo.has(f.maskin_id) ? rollFor(maskinInfo.get(f.maskin_id)?.maskin_typ) : null,
       };
     })
     .sort((a, b) => (a.datum ?? '').localeCompare(b.datum ?? ''));
-  for (const f of flyttar) laggTill(f.datum, f.min ?? 0);
+  for (const f of flyttar) laggTill(f.datum, 'flytt', f.min ?? 0);
 
   // ── Extra tid (planering, manuellt, flytthjälp, annat) ──────────────────
   const person = new Map(u.medarbetare.map(m => [m.id, m.namn]));
@@ -294,7 +316,8 @@ export function sammanstall(o: ObjektRad, u: Underlag): Sammanstallning {
     if (!e.objekt_id || !ids.has(e.objekt_id)) continue;
     const min = Math.max(0, Math.round(Number(e.minuter) || 0));
     if (min <= 0) continue;
-    laggTill(e.datum, min);
+    const del: TidDel = e.aktivitet_typ === 'planering' ? 'planering' : e.aktivitet_typ === 'manuellt' ? 'manuellt' : e.aktivitet_typ === 'flytt' ? 'flytt' : 'annat';
+    laggTill(e.datum, del, min);
     const post = { datum: e.datum, min, person: (e.medarbetare_id && person.get(e.medarbetare_id)?.trim()) || null };
     if (e.aktivitet_typ === 'planering') planering.push(post);
     else if (e.aktivitet_typ === 'manuellt') manuellt.push(post);
@@ -347,18 +370,37 @@ export function sammanstall(o: ObjektRad, u: Underlag): Sammanstallning {
   };
 }
 
-/** Produktionen (skördarens) under objektets nummer: volym och stammar. */
-export function summeraProduktion(o: ObjektRad, u: Pick<Underlag, 'dim' | 'alt' | 'maskiner'>, prod: readonly ProdRad[]): { volym: number; stammar: number } {
+export interface Produktion {
+  volym: number;
+  stammar: number;
+  /** Volym per trädslag (namnet ur tradslagLabel: Gran, Tall, Björk, Övrigt löv …), störst först. */
+  tradslag: { namn: string; volym: number }[];
+}
+
+/** Produktionen (skördarens) under objektets nummer: volym, stammar och volym per trädslag. */
+export function summeraProduktion(
+  o: ObjektRad,
+  u: Pick<Underlag, 'dim' | 'alt' | 'maskiner'> & { tradslag?: readonly TradslagRad[] },
+  prod: readonly ProdRad[],
+): Produktion {
   const ids = objektIds(o, u.dim, u.alt);
   const typ = new Map(u.maskiner.map(m => [m.maskin_id, m.maskin_typ]));
+  const tradNamn = new Map((u.tradslag ?? []).map(t => [t.tradslag_id, t.namn]));
+  const perTrad = new Map<string, number>();
   let volym = 0, stammar = 0;
   for (const p of prod) {
     if (!p.objekt_id || !ids.has(p.objekt_id)) continue;
     if (p.maskin_id && typ.has(p.maskin_id) && rollFor(typ.get(p.maskin_id)) !== 'skordare') continue;
-    volym += Number(p.volym_m3sub) || 0;
+    const v = Number(p.volym_m3sub) || 0;
+    volym += v;
     stammar += Number(p.stammar) || 0;
+    if (v > 0) {
+      const namn = tradslagLabel(p.tradslag_id ? tradNamn.get(p.tradslag_id) ?? null : null);
+      perTrad.set(namn, (perTrad.get(namn) ?? 0) + v);
+    }
   }
-  return { volym, stammar };
+  const tradslag = [...perTrad.entries()].map(([namn, v]) => ({ namn, volym: v })).sort((a, b) => b.volym - a.volym);
+  return { volym, stammar, tradslag };
 }
 
 /** Objekten som syns i översikten: allt utom de som ännu inte är planerade. */
