@@ -209,13 +209,13 @@ describe('Startsida (admin)', () => {
     expect(document.querySelector('[role="dialog"]')!.textContent).not.toContain('Logga ut')
   })
 
-  it('gruppen Admin samlar Ekonomi, Markägarrapport och Admin', async () => {
+  it('gruppen Admin samlar Ekonomi, Objektöversikt, Markägarrapport och Admin', async () => {
     await montera(<Startsida roll="admin" marken={{}} />)
     await act(async () => { knapp('Admin').click() })
     const ekonomi = sektion('Alla vyer')!.querySelector('a[href="/ekonomi"]')!
     expect(ekonomi).not.toBeNull()
     const grupp = ekonomi.parentElement!
-    expect(Array.from(grupp.querySelectorAll('a')).map(a => a.getAttribute('href'))).toEqual(['/ekonomi', '/admin/markagarrapport', '/admin'])
+    expect(Array.from(grupp.querySelectorAll('a')).map(a => a.getAttribute('href'))).toEqual(['/ekonomi', '/admin/objektoversikt', '/admin/markagarrapport', '/admin'])
   })
 })
 
@@ -228,6 +228,7 @@ describe('Startsida (förare) — samma sida, utan admin-vyer', () => {
     expect(alla).not.toContain('/ekonomi')
     expect(alla).not.toContain('/admin')
     expect(alla).not.toContain('/admin/markagarrapport')
+    expect(alla).not.toContain('/admin/objektoversikt')
     expect(sektion('Behöver dig')).toBeNull()
     expect(Array.from(document.querySelectorAll('button[aria-expanded]')).map(b => b.textContent)).not.toContainEqual(expect.stringContaining('Admin'))
   })

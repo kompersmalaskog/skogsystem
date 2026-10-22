@@ -82,6 +82,7 @@ export const VYER: Vy[] = [
 
   // Admin — bara för admin
   { id: 'ekonomi', namn: 'Ekonomi', href: '/ekonomi', ikon: 'payments', grupp: 'admin', bara: 'admin', sokord: ['faktura', 'resultat'] },
+  { id: 'objektoversikt', namn: 'Objektöversikt', href: '/admin/objektoversikt', ikon: 'timer', grupp: 'admin', bara: 'admin', sokord: ['tid', 'objekt', 'prognos'] },
   { id: 'markagarrapport', namn: 'Markägarrapport', href: '/admin/markagarrapport', ikon: 'summarize', grupp: 'admin', bara: 'admin' },
   { id: 'admin', namn: 'Admin', href: '/admin', ikon: 'shield', grupp: 'admin', bara: 'admin', sokord: ['lön', 'medarbetare'] },
 
