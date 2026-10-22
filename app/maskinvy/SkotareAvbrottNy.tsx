@@ -6,6 +6,7 @@ import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import {
   getPeriodRange, fetchAll, fmtSv, fmtTid, type Period, FLYTT_FARG, tint,
 } from './OversiktShared'
+import { AVBROTT_TYPER, AVBROTT_TYP_FARG, antalText, avbrottTid, type AvbrottTyp } from '../../lib/maskinvy/avbrottStil'
 import { translateKategori } from '../../lib/avbrott-kategorier'
 
 // ─────────────────────────────────────────────────────────────
@@ -26,15 +27,10 @@ import { translateKategori } from '../../lib/avbrott-kategorier'
 // Maskinlistan är dynamisk — se useMaskinvyMaskiner (dim_maskin, bekräftad + data).
 
 // ── Avbrottstyper (identisk med skördarens) ───────────────────
-const TYPER = ['Underhåll', 'Störning', 'Övrigt', 'Reparation'] as const
-type Typ = typeof TYPER[number]
+const TYPER = AVBROTT_TYPER
+type Typ = AvbrottTyp
 
-const TYP_FARG: Record<Typ, string> = {
-  'Underhåll':  FARG.gron,   // #30d158 — planerat
-  'Störning':   FARG.bla,    // #0a84ff
-  'Övrigt':     FARG.text2,   // #8e8e93
-  'Reparation': FARG.rod,     // #ff453a — haveri, lyfts visuellt
-}
+const TYP_FARG = AVBROTT_TYP_FARG
 
 // Kategori-kod som flytt: lyfts UT ur avbrottens totaler.
 // OBS designprincip (juli-26): ett framlyft kort betyder "utbruten ur
@@ -200,10 +196,17 @@ function ProportionsStapel({ perTyp }: { perTyp: TypAgg[] }) {
 function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const sorted = [...perTyp].sort((a, b) => b.sek - a.sek)
+  // En kategori utan stopp är tyst: den visas inte (noll rader i listan, inte fyra rader med nollor). Medan det läses står alla fyra.
+  const synliga = loading ? sorted : sorted.filter(t => t.antal > 0)
 
   return (
     <div>
-      {sorted.map((t, i) => {
+      {!loading && synliga.length === 0 && (
+        <div style={{ fontSize: TYP.meta.fontSize, color: FARG.text2, padding: `${AVSTAND.m}px ${AVSTAND.l}px` }}>
+          Inga stopp under perioden
+        </div>
+      )}
+      {synliga.map((t, i) => {
         const isHaveri   = t.typ === 'Reparation'
         const hasData    = t.antal > 0
         const showAlarm  = isHaveri && hasData
@@ -235,7 +238,7 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
               {/* Typnamn */}
               <div style={{
                 fontSize: TYP.meta.fontSize, letterSpacing: -0.1,
-                color:      showAlarm ? FARG.rod  : (hasData ? FARG.text  : FARG.text2),
+                color:      showAlarm ? TYP_FARG.Reparation : (hasData ? FARG.text  : FARG.text2),
                 fontWeight: showAlarm ? VIKT.halvfet    : VIKT.halvfet,
               }}>{t.typ}</div>
 
@@ -244,17 +247,17 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
                 fontSize: TYP.micro.fontSize, color: FARG.text2, fontVariantNumeric: 'tabular-nums',
                 minWidth: 50, textAlign: 'right',
               }}>
-                {loading ? '—' : `${t.antal} ${t.antal === 1 ? 'gång' : 'ggr'}`}
+                {loading ? '—' : antalText(t.antal)}
               </div>
 
               {/* Timmar */}
               <div style={{
                 fontSize: TYP.meta.fontSize, fontVariantNumeric: 'tabular-nums',
                 minWidth: 60, textAlign: 'right',
-                color:      showAlarm ? FARG.rod  : (hasData ? FARG.text  : FARG.text2),
+                color:      showAlarm ? TYP_FARG.Reparation : (hasData ? FARG.text  : FARG.text2),
                 fontWeight: showAlarm ? VIKT.halvfet    : VIKT.halvfet,
               }}>
-                {loading ? '—' : fmtTid(t.sek)}
+                {loading ? '—' : avbrottTid(t.sek, fmtTid)}
               </div>
 
               {/* Chevron */}
@@ -294,7 +297,7 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
                       fontVariantNumeric: 'tabular-nums',
                       minWidth: 50, textAlign: 'right',
                     }}>
-                      {k.antal} {k.antal === 1 ? 'gång' : 'ggr'}
+                      {antalText(k.antal)}
                     </div>
                     <div style={{
                       fontSize: TYP.meta.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
@@ -501,7 +504,7 @@ export default function SkotareAvbrottNy({ maskin, onMaskinChange }: {
             value={data?.totalTimmar ?? null}
             unit=""
             loading={loading}
-            display={data ? fmtTid(data.totalTimmar * 3600) : undefined}
+            display={data ? avbrottTid(data.totalTimmar * 3600, fmtTid) : undefined}
           />
           <MetricKort
             label="Tillfällen"
@@ -515,7 +518,7 @@ export default function SkotareAvbrottNy({ maskin, onMaskinChange }: {
             unit=""
             loading={loading}
             color={haveriColor}
-            display={data ? fmtTid(data.reparationTimmar * 3600) : undefined}
+            display={data ? avbrottTid(data.reparationTimmar * 3600, fmtTid) : undefined}
           />
         </div>
 
