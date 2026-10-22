@@ -333,3 +333,29 @@ export function brandKlassText(klass: number): string {
   return ({ 1: 'Mycket liten', 2: 'Liten', 3: 'Måttlig', 4: 'Stor', 5: 'Mycket stor', 6: 'Extrem' } as Record<number, string>)[klass] ?? '';
 }
 
+
+
+// ── ⓘ-panelen för föraren i maskinläget ("så att ett barn förstår direkt", Martin 2026-10-22) ──────────────────────────────────────────────────────────
+
+/**
+ * GROT-raden: bara när trakten har GROT. Skördaren lägger riset i högar, skotaren kör inte på rishögarna. Okänd maskin (ingen roll) eller GROT nej/okänt → ingen rad: hellre ingen rad än fel
+ * besked till fel maskin.
+ */
+export function grotRad(grot: boolean | null | undefined, maskinSlag: 'skordare' | 'skotare' | null): string | null {
+  if (grot !== true) return null;
+  if (maskinSlag === 'skordare') return 'GROT tas ut – lägg riset i högar';
+  if (maskinSlag === 'skotare') return 'GROT tas ut – kör inte på rishögarna';
+  return null;
+}
+
+/**
+ * Raden under traktens namn: "Slutavverkning · 2,5 av 5,2 ha klart" när avverkad areal är känd, annars "Slutavverkning · 5,2 ha". Andelen (0..1, högst 1) styr den gröna stapeln — null när
+ * ingenting är mätt (inget skördarspår): då ritas ingen stapel, aldrig en tom som ser ut som "0 % klart".
+ */
+export function framstegRad(o: { typ: string; arealHa: number | null; klartHa: number | null }): { text: string; andel: number | null } {
+  const typ = o.typ.trim();
+  const del = (t: string) => [typ, t].filter(Boolean).join(' · ');
+  if (o.arealHa == null || !(o.arealHa > 0)) return { text: del(''), andel: null };
+  if (o.klartHa == null || !Number.isFinite(o.klartHa)) return { text: del(`${svTal(o.arealHa, 1)} ha`), andel: null };
+  return { text: del(`${svTal(o.klartHa, 1)} av ${svTal(o.arealHa, 1)} ha klart`), andel: Math.max(0, Math.min(1, o.klartHa / o.arealHa)) };
+}

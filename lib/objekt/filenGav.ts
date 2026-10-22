@@ -11,6 +11,7 @@ import { tillVarningar, VOLYM_BEHALLEN_NYCKEL } from '@/lib/trakt/varningar';
 import { avvikelseText, jamfor } from './stamplingslangd';
 import { arRotpost } from './rotpost';
 import { arHansynsyta } from '../vidaYtaTyp';
+import { rensaVidaNamn } from '../ytaNamn';
 import { AVVIKANDE_UTFALL_NYCKEL, arAvslutat, avvikandeUtfall } from './utfall';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
@@ -241,7 +242,8 @@ export function geometriSammanfattning(fc: unknown): GeoSammanfattning | null {
     if (arHansynsyta(p)) {   // Vidas fria ytkod (TYP 71 "Övrigt") är ingen hänsyn och räknas inte här
       hansynAntal++;
       hansynM2 += attr(p, /star/i);
-      if (text && !beskr.includes(text)) beskr.push(text);
+      const visa = rensaVidaNamn(text);   // utan Vidas kodtecken (" O", " F")
+      if (visa && !beskr.includes(visa)) beskr.push(visa);
     } else if (typ === 'linje') {
       const m = attr(p, /stle/i);
       if (FARA_LINJE.test(text)) faror.set(text, (faror.get(text) ?? 0) + m);

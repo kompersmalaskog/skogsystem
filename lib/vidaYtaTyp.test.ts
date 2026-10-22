@@ -108,7 +108,7 @@ describe('kartan: Övrigt ritas i egna lager, hänsynslagren tar inte 71', () =>
 describe('kortet och nycklarna: Vidas ATGARD visas som förut', () => {
   it('kortet heter Övrigt, bär Vidas ATGARD som kommentar och har ingen hänsynsrubrik', () => {
     const k = byggTraktKort(K71A.properties);
-    expect(k).toMatchObject({ kategori: 'ovrigt', rubrik: 'Övrigt', nr: '4', vidaKommentar: ATG71A.trim() });
+    expect(k).toMatchObject({ kategori: 'ovrigt', rubrik: 'Övrigt 4', bricka: 'Övrigt 4', brickaGrupp: 'ovrigt', nr: '4', vidaKommentar: ATG71A.trim() });
   });
   it('nyckeln är oförändrad (hansyn:<LOPNR>): redan sparade kommentarer, foton och Sett hänger kvar', () => {
     expect(ytaNyckel(K71A.properties)).toBe('hansyn:4');

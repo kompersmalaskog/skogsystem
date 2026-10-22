@@ -22,7 +22,7 @@ import { anvandObjektLista, anvandObjektListaUtanObjekt } from '../../lib/objekt
 import { startaNavigering, harKoordinat } from '../../lib/navigera'
 import BrandriskPanel from './brandrisk-panel'
 import ObjektInfo, { type ObjektInfoProps } from '../../components/planering/ObjektInfo'
-import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
+import { arBasvag as arBasvagMark, svTal, objektRad, kortKnappar, faktaBrickor, extraBrickor, tillForaren, grotRad, framstegRad, sammanfattaMarkeringar, markeringsRad, byggMerGrupper, gpsNu, type KartMarkering, type MarkeringsSlag, type KortRoll, type OmKommentar } from '../../lib/objektKort'
 import { arInstruktionsText } from '../../lib/instruktioner/instruktioner'
 import PanelErrorBoundary from './panel-error-boundary'
 import VolymPanel from './volym-panel'
@@ -54,7 +54,11 @@ import { tmaAttSkriva, tmaBaslinjeFran, tmaVagKolumner, tmaVardenFranRader, type
 import { useKorvyLarm } from '../../lib/hooks/useKorvyLarm'
 import { useInstruktioner } from '../../lib/hooks/useInstruktioner'
 import { avlaggsradLedig, instruktionBlockerad, larmHallerPlatsen } from '../../lib/instruktioner/ordning'
-import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint } from '../../lib/larm/pulsKarta'
+import { PULS_KALLA, pulsData, pulsFas, pulsLagerSpecar, pulsPaint, type Puls } from '../../lib/larm/pulsKarta'
+import { ytaRader } from '../../lib/ytaRader'
+import { rensaVidaNamn, brickaFarg } from '../../lib/ytaNamn'
+import { ytaGeo, ytaKameraPadding, YTA_PULS_MS, YTA_MAX_ZOOM } from '../../lib/ytaFlyg'
+import { YtaPaminnelseVy } from '../../components/planering/YtaPaminnelse'
 import { useFallning } from '../../lib/hooks/useFallning'
 import { FALLNING_M } from '../../lib/larm/fallning'
 import { FALL_KALLA, fallningCirkelPaint, fallningLagerSpecar, fallningOrsakData } from '../../lib/larm/fallningKarta'
@@ -4004,6 +4008,10 @@ export default function PlannerPage() {
   const malbildRoll: Maskinroll | null = enhetRoll ?? korvyForceRoll ?? minRoll ?? null;
   // Målbilden som öppnats ur larmkortets lilla bild ("Visa").
   const [larmMalbildOppen, setLarmMalbildOppen] = useState<string | null>(null);
+  // ⓘ-listans "flyg till ytan": ytan pulserar en kort stund med larmens puls (lib/ytaFlyg). Påminnelsen i ytan: vilken yta vars hela instruktion (utan Sett) är uppe.
+  const [ytaPuls, setYtaPuls] = useState<Puls | null>(null);
+  const ytaPulsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [paminnelseOppen, setPaminnelseOppen] = useState<string | null>(null);
 
   // ═══ HYTTSPÅR (realtids-körspår, steg 1) ════════════════════════════════════════════════════════
   // Appen loggar körvägen LIVE medan körvyn är öppen på ett objekt (BÅDA maskinerna). En rad per
@@ -6307,14 +6315,10 @@ export default function PlannerPage() {
               nr: '',
             };
             nyckel = partKey ? `traktdel:${partKey}` : null;
-          } else if (kat === 'hansyn') {
-            const lopnr = txt(props.LOPNR);
-            // Vidas ATGARD är kommentaren (visas först i kortet, märkt "Vida · traktdirektiv"); FLBESKR är vilken sorts hänsyn det är och står som källa.
-            kort = { kategori: 'hansyn', kalla: txt(props.FLBESKR) ? `Vida · ${txt(props.FLBESKR)}` : 'Vida', arealHa: traktArealHa(props), rader: [], vidaKommentar: txt(props.ATGARD) || undefined, rubrik: lopnr ? `Hänsynsyta ${lopnr}` : 'Hänsynsyta', nr: '' };
-          } else if (kat === 'ovrigt') {
-            // Vidas fria ytkod (TYP 71): ingen hänsyn. Kortet bär Vidas ATGARD som kommentar, namnet är "Övrigt".
-            const lopnr = txt(props.LOPNR);
-            kort = { kategori: 'ovrigt', kalla: 'Vida', arealHa: traktArealHa(props), rader: [], vidaKommentar: txt(props.ATGARD) || undefined, rubrik: lopnr ? `Övrigt ${lopnr}` : 'Övrigt', nr: '' };
+          } else if (kat === 'hansyn' || kat === 'ovrigt') {
+            // Samma namn som kartans etikett: rubriken är brickan + typen ("Hänsyn 1 · Kant mot vatten", "Övrigt 4"), byggd av byggTraktKort (lib/ytaNamn) — samma som i listan och instruktionskortet.
+            // Vidas ATGARD är kommentaren (visas först i kortet, märkt "Vida · traktdirektiv"); källan är bara "Vida".
+            kort = { ...kort, kalla: 'Vida', nr: '' };
           }
           oppnaKort(kort, nyckel, vida);
         }
@@ -9726,8 +9730,10 @@ export default function PlannerPage() {
     const src = map.getSource(PULS_KALLA) as any;
     if (!src) return;
     const pos = korvyEffectivePos ? { lat: korvyEffectivePos.lat, lon: korvyEffectivePos.lon } : null;
-    try { src.setData(pulsData(korvyActive ? larm.puls : null, pos)); } catch (e) { console.error('[Körvy] larm-puls update:', e); }
-    if (!korvyActive || !larm.puls) return;
+    // Larmets puls går före; annars ytan man just tryckt på i ⓘ-listan (kort stund).
+    const pulsNu = korvyActive ? (larm.puls ?? ytaPuls) : null;
+    try { src.setData(pulsData(pulsNu, pos)); } catch (e) { console.error('[Körvy] larm-puls update:', e); }
+    if (!pulsNu) return;
     const minskad = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const tick = () => {
       const paint = pulsPaint(pulsFas(Date.now(), minskad));
@@ -9741,7 +9747,7 @@ export default function PlannerPage() {
     const t = setInterval(tick, 100);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [larm.puls, korvyActive, mapLibreReady, korvyEffectivePos?.lat, korvyEffectivePos?.lon]);
+  }, [larm.puls, ytaPuls, korvyActive, mapLibreReady, korvyEffectivePos?.lat, korvyEffectivePos?.lon]);
 
   // === KÖRVY: uppdatera maskin-source (Point + heading) vid varje tick ===
   useEffect(() => {
@@ -11839,8 +11845,13 @@ export default function PlannerPage() {
     forare: currentMedarbetare?.id ? { id: String(currentMedarbetare.id) } : null,
     db: supabase,
     blockerad: instruktionBlockerad({ larmVisas: larmHallerPlatsen({ harKort: !!larm.kort, vantarPaSett: !!larm.settRad, arFara: larm.kort?.grupp === 'fara' || larm.fler.some((x) => x.grupp === 'fara') }), lossningVisas }),
+    blockeradPaminnelse: !!larm.kort || lossningVisas,   // larm och lossningskort går före påminnelsen: den göms medan något av dem visas och kommer tillbaka efteråt
     torr: !!testlage,
   });
+  // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
+  useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
+  // Instruktionskortet och påminnelsen sitter på samma plats (under objektpillen och larmets/grindens kort).
+  const instruktionTop = `calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`;
   // Lästes kommentarerna på annat håll — kartkortet (Vidas objekt eller egen markering) eller ⓘ (ett framhävt objekt) — räknas de som sedda och visas inte igen vid inkörning.
   // Kartkortet (KartKort) rörs inte: sidan ser bara vilket objekts kort som är öppet.
   const lastNycklar = instruktionerAktiv
@@ -13224,7 +13235,7 @@ export default function PlannerPage() {
             const p = f?.properties || {};
             const aK = Object.keys(p).find((k) => /star/i.test(k));
             const lK = Object.keys(p).find((k) => /stle/i.test(k));
-            if (arHansynsyta(p) && aK) { hansynA += antal(p[aK]); hAntal++; if (p.FLBESKR) hBeskr.add(String(p.FLBESKR).trim()); }
+            if (arHansynsyta(p) && aK) { hansynA += antal(p[aK]); hAntal++; if (p.FLBESKR) hBeskr.add(rensaVidaNamn(p.FLBESKR)); }
             else if (p._typ === 'traktgräns' && aK) traktA += antal(p[aK]);
             else if (p._typ === 'linje' && lK && /basväg/i.test(String(p.FLBESKR || ''))) basvag += antal(p[lK]);
           }
@@ -13251,13 +13262,13 @@ export default function PlannerPage() {
           const nr = typeof lopnrRaw === 'number' ? lopnrRaw : parseInt(String(lopnrRaw), 10);
           if (!Number.isFinite(nr)) continue;
           const nyckel = ytaNyckel(p) || `hansyn:${lopnrRaw}`;
-          const vidaText = foersta(p.FLBESKR) || foersta(p.ATGARD) || null;
+          const vidaText = foersta(rensaVidaNamn(p.FLBESKR)) || foersta(p.ATGARD) || null;
           ytor.push({ nr, typ: arOvrigt ? 'ovrigt' : 'hansyn', typLabel: arOvrigt ? 'Övrigt' : 'Hänsynsyta', nyckel, vidaText, ring: punkterUrGeometri(f.geometry), open: () => {
             setTraktOversiktOpen(false);
             const rader: { etikett?: string; text: string }[] = [];
-            if (String(p.FLBESKR || '').trim()) rader.push({ text: String(p.FLBESKR).trim() });
+            if (rensaVidaNamn(p.FLBESKR)) rader.push({ text: rensaVidaNamn(p.FLBESKR) });
             if (String(p.ATGARD || '').trim()) rader.push({ text: String(p.ATGARD).trim() });
-            oppnaYtaKort({ kategori: arOvrigt ? 'ovrigt' : 'hansyn', kalla: 'Vida', arealHa: traktArealHa(p), rader, rubrik: `${arOvrigt ? 'Övrigt' : 'Hänsynsyta'} ${lopnrRaw}`, nr: '' }, nyckel, null);
+            oppnaYtaKort({ ...byggTraktKort(p), kalla: 'Vida', rader, nr: '' }, nyckel, null);
           } });
         }
         if (objektNumrering.visaBitNummer) {
@@ -13613,6 +13624,53 @@ export default function PlannerPage() {
           },
           karta: { markeringar: markers, vida: vidaSlagIFeatures(traktGeo?.features), roll: malbildRoll },
           instruktioner: instruktionerAktiv ? { data: inst.paTrakten, onSett: inst.settOmraden } : null,
+          // FÖRARENS ENKLA KORT (maskinläget): bara tre delar — namn och framsteg, "Det här gäller här" och en grupp rader längst ner (komponenten ObjektKortEnkel). Planeringsläget har det vanliga kortet.
+          enkel: instruktionerAktiv ? (() => {
+            const rader = ytaRader(traktGeo?.features, inst.paTrakten);
+            const framsteg = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
+            return {
+              namn: valtObjekt.namn,
+              under: framsteg.text,
+              andel: framsteg.andel,
+              faror: faroLinjer,
+              grot: grotRad(valtObjekt.grot ?? null, maskinSlag),
+              tillForaren: forareTexter,
+              brand: Number.isFinite(Number(valtObjekt.lat)) && Number.isFinite(Number(valtObjekt.lng)) && valtObjekt.lat != null && valtObjekt.lng != null ? { lat: Number(valtObjekt.lat), lng: Number(valtObjekt.lng) } : null,
+              onBrand: efter(() => { setActiveCategory('brandrisk'); setMenuOpen(true); }),
+              ytor: rader,
+              // Tryck på en yta: kartan flyger dit (ytan i bild, lagom zoom) och ytan pulserar kort — samma puls som larmen. Telefon: ObjektInfo har fällt ner arket (halv höjd) så att kartan syns ovanför. Ytan borta → inget händer.
+              onYta: (nyckel: string, lage: PlusLage) => {
+                const map = mapInstanceRef.current;
+                const geo = ytaGeo({ nyckel, features: traktGeo?.features, markers: markers as any[], svgToLatLon });
+                const rad = rader.find((r) => r.nyckel === nyckel);
+                if (!map || !geo) return;
+                map.fitBounds(geo.bounds, {
+                  padding: ytaKameraPadding(lage, { fonsterH: typeof window !== 'undefined' ? window.innerHeight : 800, panelBreddPx: infoPanelBredd + AVSTAND.s * 2, luft: AVSTAND.xxl * 2, toppLuft: AVSTAND.xxl * 3 }),
+                  maxZoom: YTA_MAX_ZOOM, duration: 800,
+                });
+                if (ytaPulsTimerRef.current) clearTimeout(ytaPulsTimerRef.current);
+                setYtaPuls({ id: `yta:${nyckel}`, farg: brickaFarg(rad?.grupp ?? 'ovrigt'), geometri: geo.geometri });
+                ytaPulsTimerRef.current = setTimeout(() => setYtaPuls(null), YTA_PULS_MS);
+              },
+              knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag, utanSkotning: skotarLassAktiv }),
+              larm: { satt: larmSatt, koordinat: larmSatt ? `${larmLat.toFixed(5)}, ${larmLng.toFixed(5)}` : '', beskrivning: larmBeskr, onVisa: larmFlyTill },
+              dokument: harDok ? {
+                antal: dokAntal,
+                chips: (
+                  <DokumentChips
+                    traktdirektivUrl={valtObjekt.traktdirektiv_url} traktkartaUrl={valtObjekt.traktkarta_url}
+                    traktkartor={Array.isArray(valtObjekt.traktkartor) ? valtObjekt.traktkartor : null}
+                    oversiktskartaUrl={valtObjekt.oversiktskarta_url}
+                    stamplingslangdUrl={valtObjekt.stamplingslangd_url} valtlappUrl={valtObjekt.valtlapp_url}
+                    ovrigaDokument={Array.isArray(valtObjekt.ovriga_dokument) ? valtObjekt.ovriga_dokument : null}
+                    typ={valtObjekt.typ}
+                    onOppna={(s, titel) => setPdfDok({ url: s, titel })}
+                  />
+                ),
+              } : null,
+              vader: skotarKorvy ? <VaderLista dagar={skotarVader.dagar} laddar={skotarVader.laddar} idag={lokaltDatumStockholm(serverNu())} /> : undefined,
+            };
+          })() : null,
           klar: klarGaller ? {
             status: klarStatusKort,
             objektStatus: valtObjekt.status ?? '',
@@ -13936,7 +13994,18 @@ export default function PlannerPage() {
         <InstruktionKortVy
           kort={inst.kort}
           onSett={inst.settKort}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`}
+          top={instruktionTop}
+        />
+      )}
+      {/* PÅMINNELSEN I YTAN: redan sedd instruktion + inne i ytan → pill (bricka + första punkten) en stund, sedan bara brickan; tryck = hela instruktionen utan Sett. */}
+      {korvyActive && inst.paminnelse && paminnelseOppen !== inst.paminnelse.nyckel && (
+        <YtaPaminnelseVy paminnelse={inst.paminnelse} top={instruktionTop} onTryck={() => setPaminnelseOppen(inst.paminnelse!.nyckel)} />
+      )}
+      {korvyActive && inst.paminnelse && paminnelseOppen === inst.paminnelse.nyckel && (
+        <InstruktionKortVy
+          kort={{ nyckel: inst.paminnelse.nyckel, namn: inst.paminnelse.namn, avlagg: inst.paminnelse.avlagg, instruktioner: inst.paminnelse.instruktioner, fler: 0, bricka: inst.paminnelse.bricka, typ: inst.paminnelse.typ, brickaGrupp: inst.paminnelse.brickaGrupp }}
+          utanSett={{ onStang: () => setPaminnelseOppen(null) }}
+          top={instruktionTop}
         />
       )}
       {korvyActive && grindKort && (
