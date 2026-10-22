@@ -47,11 +47,11 @@ describe('Övrigt (Vidas TYP 71) är inte hänsyn', () => {
   it('hänsynslagen använder HANSYNSYTA_FILTER (aldrig bara _typ), Övrigt har egna lager med streckad kant utan snedstreckning', () => {
     for (const l of ['trakt-hansyn-fill', 'trakt-hansyn-hatch', 'trakt-hansyn-line', 'trakt-hansyn-label']) {
       const rad = sida.split('\n').find((r) => r.includes(`id: '${l}'`))!;
-      expect(rad, l).toContain('filter: HANSYNSYTA_FILTER as any');
+      expect(rad, l).toMatch(/filter: (fokusEtikettFilter\()?HANSYNSYTA_FILTER as any/);   // etikettlagret lindar filtret med fokusEtikettFilter (Fokus på trakten)
     }
     for (const l of ['trakt-ovrigt-fill', 'trakt-ovrigt-line', 'trakt-ovrigt-label']) {
       const rad = sida.split('\n').find((r) => r.includes(`id: '${l}'`))!;
-      expect(rad, l).toContain('filter: OVRIGT_YTA_FILTER as any');
+      expect(rad, l).toMatch(/filter: (fokusEtikettFilter\()?OVRIGT_YTA_FILTER as any/);
     }
     const ovr = sida.split('\n').filter((r) => r.includes("id: 'trakt-ovrigt-")).join('\n');
     expect(ovr).toContain("'line-dasharray': [...OVRIGT_YTA_STIL.streck]");
