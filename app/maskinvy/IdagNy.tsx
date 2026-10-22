@@ -5,6 +5,7 @@ import { tradslagFarg, tradslagLabel } from '@/lib/tradslag'
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { LivestatusRad } from './Livestatus'
+import DagensObjekt from './DagensObjekt'
 import { sthlmDagGranserUtc, optiLokalDag, optiLokalTimme } from '@/lib/optiTid'
 import {
   MASKINER, COMBO_IDS, fmtSv, fmtTid, type Maskin, FLYTT_FARG, tint,
@@ -131,6 +132,8 @@ type IdagData = {
   avbrottDetalj: AvbrottDetail[] | null  // null = fetch misslyckades
   tradNamn: Record<string, string>       // tradslag_id → namn ("GRAN" etc.)
   momTider: Record<number, MomTiderHour> | null  // null = fetch misslyckades
+  /** Dagens produktionsrader (objekt + volym) — för listan över dagens objekt. */
+  objektRader: { objekt_id: string | null; volym_m3sub: number | null }[]
 }
 
 // ── Datahämtning ─────────────────────────────────────────────
@@ -311,6 +314,7 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
     avbrottDetalj,
     tradNamn,
     momTider,
+    objektRader: prodRows.map((r: any) => ({ objekt_id: r.objekt_id ?? null, volym_m3sub: r.volym_m3sub ?? null })),
   }
 }
 
@@ -1057,6 +1061,9 @@ export default function IdagNy({ maskin, onMaskinChange }: {
 
         {/* 2. Dagens siffra: volym + stammar + G15h + produktivitet */}
         <SiffraCard data={data} loading={loading} />
+
+        {/* 2b. Vilket objekt maskinen arbetade på */}
+        <DagensObjekt rader={data?.objektRader ?? null} loading={loading} />
 
         {/* 3. Dagens rytm — stammar per timme ur detalj_stam */}
         <RytmChart

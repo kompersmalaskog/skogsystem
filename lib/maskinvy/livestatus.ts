@@ -49,6 +49,26 @@ export function livestatus(f: SenasteSignal, nuMs: number, klockslag: (iso: stri
   return { niva: null, text: `Senaste körning: ${datumKort(f.senasteDatum)} · ${nar}`, idag: false }
 }
 
+/** Skördarens produktionsrad skrivs av samma importkörning som lägger raden i `meta_importerade_filer`, så de två tiderna
+ *  ligger sekunder isär (prod 2026-10-21: Scorpion 0,1 min, R64428 0,0 min). Inom den här gränsen är de EN signal. */
+export const SAMMA_SIGNAL_MAX_MIN = 5
+
+/**
+ * Bygger livestatus-raden och importraden på samma signal? Bara då räcker EN rad i Översikten (två rader med samma tid är
+ * dubbelt). Alla villkor måste gälla: båda tiderna finns, importen gick bra (ett importfel ska alltid sägas för sig) och
+ * tiderna ligger inom `SAMMA_SIGNAL_MAX_MIN` från varandra. Annars (importen nyare än signalen — filer kommer fast
+ * maskinen står still — eller tvärtom) säger raderna olika saker och båda visas.
+ */
+export function arSammaSignal(
+  signalIso: string | null | undefined, importIso: string | null | undefined, importStatus: string | null | undefined,
+): boolean {
+  const s = signalIso ? new Date(signalIso).getTime() : NaN
+  const i = importIso ? new Date(importIso).getTime() : NaN
+  if (!isFinite(s) || !isFinite(i)) return false
+  if (importStatus != null && importStatus.toUpperCase() !== 'OK') return false
+  return Math.abs(i - s) <= SAMMA_SIGNAL_MAX_MIN * 60000
+}
+
 export type Importhalsa = { niva: AktivNiva | 'fel'; text: string }
 
 /**
